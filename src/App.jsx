@@ -1,39 +1,54 @@
 export default function App() {
   return (
-    <div className="min-h-screen bg-gray-100 text-gray-900 flex flex-col items-center justify-center px-4">
-      <div className="max-w-2xl text-center">
-        <h1 className="text-4xl font-extrabold mb-4">
-          This is Shea.
+    <div className="min-h-screen bg-gradient-to-br from-white to-blue-50 text-gray-900 flex flex-col items-center justify-center px-6 py-10">
+      <div className="max-w-3xl text-center">
+        <h1 className="text-5xl font-bold mb-4 tracking-tight">
+          PneumEvolve
         </h1>
-        <p className="text-lg mb-6">
-          Builder of tools. Dreamer of systems. Co-creator of New Earth.
+        <p className="text-xl text-gray-700 mb-8">
+          A spiritual movement of remembrance, rooted in peace, creation, and unity. Everything we build — from tools to communities — is an extension of this sacred intention.
         </p>
-        <div className="space-y-2">
+
+        <div className="grid gap-4 w-full max-w-md mx-auto">
           <a
             href="https://pneumevolve.github.io/dreamfire-gate"
-            className="block bg-white rounded-xl shadow-md hover:shadow-lg transition p-4 border border-gray-200"
+            className="block bg-white rounded-2xl shadow-md hover:shadow-xl transition p-5 border border-gray-200"
           >
-            🌀 Dreamfire Gate
+            🔥 Dreamfire Gate — Enter the Codex
           </a>
-          <a
-            href="https://sheas-app.netlify.app/"
-            className="block bg-white rounded-xl shadow-md hover:shadow-lg transition p-4 border border-gray-200"
-          >
-            🛠 Shea Klipper (Life Tools)
-          </a>
+
           <a
             href="https://pneumevolve.github.io/we-are/we-are-landing-page.html"
-            className="block bg-white rounded-xl shadow-md hover:shadow-lg transition p-4 border border-gray-200"
+            className="block bg-white rounded-2xl shadow-md hover:shadow-xl transition p-5 border border-gray-200"
           >
-            🌍 We Are (Community Platform)
+            🌍 We Are — A New Way to Unite
           </a>
+
+          <a
+            href="https://sheas-app.netlify.app/"
+            className="block bg-white rounded-2xl shadow-md hover:shadow-xl transition p-5 border border-gray-200"
+          >
+            🛠 Life Tools — Organize, Plan, Create
+          </a>
+
           <a
             href="#"
-            className="block bg-white rounded-xl shadow-md hover:shadow-lg transition p-4 border border-gray-200"
+            className="block bg-white rounded-2xl shadow-md hover:shadow-xl transition p-5 border border-gray-200"
           >
-            🛹 Freeskate Project
+            ✍️ The Message — A Letter to the People (Coming Soon)
+          </a>
+
+          <a
+            href="#"
+            className="block bg-white rounded-2xl shadow-md hover:shadow-xl transition p-5 border border-gray-200"
+          >
+            🛹 Freeskate Project — Movement Meets Freedom
           </a>
         </div>
+
+        <p className="text-sm text-gray-500 mt-12">
+          © {new Date().getFullYear()} PneumEvolve. Guided by Spirit, built with love.
+        </p>
       </div>
     </div>
   );
