@@ -6,7 +6,7 @@ import App from "./App";
 import SheasRamblingIdeas from "./Pages/SheasRamblingIdeas";
 import Signup from "./Pages/Signup";
 import Login from "./Pages/Login";
-import Layout from "./components/Layout";
+import Layout from "./Components/Layout";
 import { AuthProvider } from "./context/AuthContext";
 import "./index.css";
 
