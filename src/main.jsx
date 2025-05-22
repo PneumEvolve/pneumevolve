@@ -3,10 +3,10 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import App from "./App";
-import SheasRamblingIdeas from "./pages/SheasRamblingIdeas";
-import Signup from "./pages/Signup";
-import Login from "./pages/Login";
-import Layout from "./components/Layout";
+import SheasRamblingIdeas from "/pages/SheasRamblingIdeas";
+import Signup from "/pages/Signup";
+import Login from "/pages/Login";
+import Layout from "/components/Layout";
 import { AuthProvider } from "./context/AuthContext";
 import "./index.css";
 
