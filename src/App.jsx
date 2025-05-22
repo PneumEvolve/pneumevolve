@@ -14,21 +14,28 @@ export default function App() {
             href="https://pneumevolve.github.io/dreamfire-gate"
             className="block bg-white rounded-2xl shadow-md hover:shadow-xl transition p-5 border border-gray-200"
           >
-            🔥 Dreamfire Gate — Enter the Codex
+            🔥 Dreamfire Gate — Enter the Codex (Leaves PneumEvolve.com)
           </a>
 
           <a
             href="https://pneumevolve.github.io/we-are/we-are-landing-page.html"
             className="block bg-white rounded-2xl shadow-md hover:shadow-xl transition p-5 border border-gray-200"
           >
-            🌍 We Are — A New Way to Unite
+            🌍 We Are — A New Way to Unite (Leaves PneumEvolve.com)
           </a>
 
           <a
             href="https://sheas-app.netlify.app/"
             className="block bg-white rounded-2xl shadow-md hover:shadow-xl transition p-5 border border-gray-200"
           >
-            🛠 Life Tools — Organize, Plan, Create
+            🛠 Life Tools — Organize, Plan, Create (Under development and leaves PneumEvolve.com)
+          </a>
+
+          <a
+          href="/sheas-rambling-ideas"
+          className="block bg-white rounded-2xl shadow-md hover:shadow-xl transition p-5 border border-gray-200"
+          >
+          🧠 Journal Prototype
           </a>
 
           <a
@@ -42,7 +49,7 @@ export default function App() {
             href="#"
             className="block bg-white rounded-2xl shadow-md hover:shadow-xl transition p-5 border border-gray-200"
           >
-            🛹 Freeskate Project — Movement Meets Freedom
+            🛹 Freeskate Project — Movement Meets Freedom (Coming Soon)
           </a>
         </div>
 
