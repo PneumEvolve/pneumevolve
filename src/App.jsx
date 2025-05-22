@@ -1,7 +1,13 @@
 export default function App() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-white to-blue-50 text-gray-900 flex flex-col items-center justify-center px-6 py-10">
-      <div className="max-w-3xl text-center">
+      
+      <img
+        src="/logo.png"
+        alt="PneumEvolve Logo"
+        className="w-24 h-24 mb-4" // adjust size as needed
+      /><div className="max-w-3xl text-center">
+        
         <h1 className="text-5xl font-bold mb-4 tracking-tight">
           PneumEvolve
         </h1>
