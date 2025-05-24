@@ -17,6 +17,20 @@ export default function App() {
 
         <div className="grid gap-4 w-full max-w-md mx-auto">
           <a
+            href="/SmartJournal"
+            className="block bg-white rounded-2xl shadow-md hover:shadow-xl transition p-5 border border-gray-200"
+          >
+           🧠 I Am - Journal Prototype 2.0
+          </a>
+
+          <a
+            href="https://sheas-app.netlify.app/meal-planning"
+            className="block bg-white rounded-2xl shadow-md hover:shadow-xl transition p-5 border border-gray-200"
+          >
+            🛠 Life Tools — Free Homemade Meal Planner (Under development and leaves PneumEvolve.com)
+          </a>
+          
+          <a
             href="https://pneumevolve.github.io/dreamfire-gate"
             className="block bg-white rounded-2xl shadow-md hover:shadow-xl transition p-5 border border-gray-200"
           >
@@ -28,13 +42,6 @@ export default function App() {
             className="block bg-white rounded-2xl shadow-md hover:shadow-xl transition p-5 border border-gray-200"
           >
             🌍 We Are — A New Way to Unite (Leaves PneumEvolve.com)
-          </a>
-
-          <a
-            href="https://sheas-app.netlify.app/"
-            className="block bg-white rounded-2xl shadow-md hover:shadow-xl transition p-5 border border-gray-200"
-          >
-            🛠 Life Tools — Organize, Plan, Create (Under development and leaves PneumEvolve.com)
           </a>
 
           <a

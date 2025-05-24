@@ -53,7 +53,7 @@ export default function Login() {
       }
 
       login(responseBody.access_token); // ✅ update AuthContext + Layout
-      navigate("/sheas-rambling-ideas");
+      navigate("/");
     } catch (err) {
       console.error("❌ Login error:", err);
       setError("An error occurred while logging in.");
