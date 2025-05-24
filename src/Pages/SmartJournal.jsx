@@ -168,7 +168,7 @@ const handleDelete = async (id) => {
                   }
                 >
                   <option value="">Choose an Insight</option>
-                  <option value="reflection">Reflect</option>
+                  <option value="reflect">Reflect</option>
                   <option value="mantra">Mantra Maker</option>
                   <option value="next_action">What should I do next?</option>
                 </select>
@@ -182,7 +182,7 @@ const handleDelete = async (id) => {
                 </Button>
               </div>
 
-              {["reflection", "mantra", "next_action"].map((type) =>
+              {["reflect", "mantra", "next_action"].map((type) =>
   entry[type] ? (
     <div key={type} className="mt-3">
       {visibleInsights[entry.id]?.[type] ? (
