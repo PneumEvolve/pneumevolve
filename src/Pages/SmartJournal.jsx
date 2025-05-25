@@ -12,6 +12,7 @@ const SmartJournal = () => {
   const [expandedEntries, setExpandedEntries] = useState({});
   const [visibleInsights, setVisibleInsights] = useState({});
   const [selectedAction, setSelectedAction] = useState({});
+  const [modal, setModal] = useState({ open: false, entryId: null, type: null });
   const token = localStorage.getItem("token");
   const navigate = useNavigate();
 
@@ -30,56 +31,48 @@ const SmartJournal = () => {
   }, []);
 
   const handleCreate = async () => {
-  if (!newEntry.title.trim() || !newEntry.content.trim()) return;
+    if (!newEntry.title.trim() || !newEntry.content.trim()) return;
 
-  const res = await authFetch(`${API_URL}/journal`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(newEntry),
-  });
+    const res = await authFetch(`${API_URL}/journal`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(newEntry),
+    });
 
-  if (!res) return; // token expired or other issue already handled by authFetch
-  const data = await res.json();
-  setEntries([data, ...entries]);
-  setNewEntry({ title: "", content: "" });
-};
+    if (!res) return;
+    const data = await res.json();
+    setEntries([data, ...entries]);
+    setNewEntry({ title: "", content: "" });
+  };
 
-const handleDelete = async (id) => {
-  const res = await authFetch(`${API_URL}/journal/${id}`, {
-    method: "DELETE",
-  });
-
+  const confirmDeleteEntry = async (id) => {
+  const res = await authFetch(`${API_URL}/journal/${id}`, { method: "DELETE" });
   if (!res) return;
   setEntries(entries.filter((e) => e.id !== id));
 };
 
   const handleInsight = async (entry, type) => {
-  if (entry[type]) return;
+    if (entry[type]) return;
 
-  const backendType = type === "next_action" ? "next-action" : type;
+    const backendType = type === "next_action" ? "next-action" : type;
 
-  try {
-    const res = await authFetch(`${API_URL}/journal/${backendType}/${entry.id}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
+    try {
+      const res = await authFetch(`${API_URL}/journal/${backendType}/${entry.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
 
-    if (!res) return;
-    const data = await res.json();
-    setEntries((prev) =>
-      prev.map((e) =>
-        e.id === entry.id ? { ...e, [type]: data[type] } : e
-      )
-    );
-  } catch (err) {
-    console.error("Insight generation failed:", err);
-    alert("Failed to generate insight.");
-  }
-};
+      if (!res) return;
+      const data = await res.json();
+      setEntries((prev) =>
+        prev.map((e) => (e.id === entry.id ? { ...e, [type]: data[type] } : e))
+      );
+    } catch (err) {
+      console.error("Insight generation failed:", err);
+      alert("Failed to generate insight.");
+    }
+  };
+
   const toggleEntryExpand = (id) => {
     setExpandedEntries((prev) => ({ ...prev, [id]: !prev[id] }));
   };
@@ -97,12 +90,12 @@ const handleDelete = async (id) => {
     );
     setVisibleInsights((prev) => {
       const updated = { ...prev };
-      if (updated[id]) {
-        delete updated[id][type];
-      }
+      if (updated[id]) delete updated[id][type];
       return updated;
     });
   };
+
+  console.log("MODAL STATE:", modal);
 
   return (
     <div className="p-6 max-w-4xl mx-auto dark:text-white">
@@ -124,9 +117,7 @@ const handleDelete = async (id) => {
           onChange={(e) => setNewEntry({ ...newEntry, content: e.target.value })}
         />
         <div className="flex justify-between items-center mt-2">
-          <span className="text-sm text-gray-500">
-            {newEntry.content.length} characters
-          </span>
+          <span className="text-sm text-gray-500">{newEntry.content.length} characters</span>
           <Button onClick={handleCreate}><Save className="mr-2" /> Save Entry</Button>
         </div>
       </div>
@@ -144,21 +135,19 @@ const handleDelete = async (id) => {
                   <Button size="icon" onClick={() => toggleEntryExpand(entry.id)} variant="ghost">
                     {expandedEntries[entry.id] ? <EyeOff size={16} /> : <Eye size={16} />}
                   </Button>
-                  <Button size="icon" onClick={() => handleDelete(entry.id)} variant="destructive">
+                  <Button
+                    size="icon"
+                    onClick={() => setModal({ open: true, entryId: entry.id, type: "entry" })}
+                    variant="destructive"
+                    >
                     <Trash size={16} />
                   </Button>
                 </div>
               </div>
 
-              <p className="text-sm text-gray-500 mb-2">
-                {new Date(entry.created_at).toLocaleString()}
-              </p>
+              <p className="text-sm text-gray-500 mb-2">{new Date(entry.created_at).toLocaleString()}</p>
+              {expandedEntries[entry.id] && <p className="mb-2">{entry.content}</p>}
 
-              {expandedEntries[entry.id] && (
-                <p className="mb-2">{entry.content}</p>
-              )}
-
-              {/* Insight Selection */}
               <div className="flex items-center gap-2 mt-2">
                 <select
                   className="p-2 border rounded"
@@ -182,49 +171,80 @@ const handleDelete = async (id) => {
                 </Button>
               </div>
 
-              {["reflect", "mantra", "next_action"].map((type) =>
-  entry[type] ? (
-    <div key={type} className="mt-3">
-      {visibleInsights[entry.id]?.[type] ? (
-        <>
-          <div className="p-3 border-l-4 border-indigo-500 bg-indigo-100 dark:bg-indigo-900 text-indigo-900 dark:text-indigo-100 rounded relative">
-            <strong>{type.replace("_", " ").toUpperCase()}:</strong> {entry[type]}
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => deleteInsightFromState(entry.id, type)}
-              className="absolute -top-3 -right-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-full shadow"
-              title={`Delete ${type}`}
-            >
-              <X size={12} />
-            </Button>
-          </div>
-          <div className="text-right mt-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => toggleInsightVisibility(entry.id, type)}
-            >
-              Hide {type.replace("_", " ")}
-            </Button>
-          </div>
-        </>
-      ) : (
-        <div className="text-right">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => toggleInsightVisibility(entry.id, type)}
-          >
-            Show {type.replace("_", " ")}
-          </Button>
-        </div>
-      )}
-    </div>
-  ) : null
-)}
+              {["reflection", "mantra", "next_action"].map((type) =>
+                typeof entry[type] === "string" && entry[type].trim() !== "" ? (
+                  <div key={type} className="mt-3">
+                    {visibleInsights[entry.id]?.[type] ? (
+                      <>
+                        <div className="p-3 border-l-4 border-indigo-500 bg-indigo-100 dark:bg-indigo-900 text-indigo-900 dark:text-indigo-100 rounded relative">
+                          <strong>{type.replace("_", " ").toUpperCase()}:</strong> {entry[type]}
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => setModal({ open: true, entryId: entry.id, type })}
+                            className="absolute -top-3 -right-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-full shadow"
+                            title={`Delete ${type}`}
+                          >
+                            <X size={12} />
+                          </Button>
+                        </div>
+                        <div className="text-right mt-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => toggleInsightVisibility(entry.id, type)}
+                          >
+                            Hide {type.replace("_", " ")}
+                          </Button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => toggleInsightVisibility(entry.id, type)}
+                        >
+                          Show {type.replace("_", " ")}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ) : null
+              )}
             </div>
           ))}
+        </div>
+      )}
+
+      {modal.open && (
+  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg max-w-sm text-center">
+      <p className="mb-4 text-lg">
+        Are you sure you want to delete this{" "}
+        {modal.type === "entry" ? "journal entry" : modal.type.replace("_", " ")}?
+      </p>
+      <div className="flex justify-center gap-4">
+        <Button
+          onClick={() => {
+            if (modal.type === "entry") {
+              confirmDeleteEntry(modal.entryId);
+            } else {
+              deleteInsightFromState(modal.entryId, modal.type);
+            }
+            setModal({ open: false, entryId: null, type: null });
+          }}
+        >
+          Yes, Delete
+        </Button>
+        <Button
+          variant="ghost"
+          onClick={() => setModal({ open: false, entryId: null, type: null })}
+        >
+          Cancel
+        </Button>
+            </div>
+          </div>
         </div>
       )}
     </div>
