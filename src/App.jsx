@@ -27,12 +27,17 @@ export default function App() {
           </a>
 
           <a
-            href="https://sheas-app.netlify.app/meal-planning"
-            target="_blank"
-            rel="noopener noreferrer"
+            href="/MealPlanning"
             className="block bg-white rounded-2xl shadow-md hover:shadow-xl transition p-5 border border-gray-200"
           >
             🛠 <strong>Life Tools</strong> – Homemade Meal Planner (Work in progress 🌱)
+          </a>
+
+          <a
+            href="/wetalk"
+            className="block bg-white rounded-2xl shadow-md hover:shadow-xl transition p-5 border border-gray-200"
+          >
+             <strong>We Talk</strong> – Shea's Homemade "Forum"
           </a>
 
           <a

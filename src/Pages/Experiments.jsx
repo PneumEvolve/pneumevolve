@@ -31,9 +31,6 @@ const Experiments = () => {
           🧠 <Link to="/weplan" className="text-blue-500 underline">We Plan</Link> – The synthesis engine. Where ideas merge, clash, and evolve into action.
         </li>
         <li>
-          🗨️ <Link to="/wetalk" className="text-blue-500 underline">We Talk</Link> – An open forum for uncensored conversation and collective reflection.
-        </li>
-        <li>
           🌱 <Link to="/wegreen" className="text-blue-500 underline">We Green</Link> – Garden together. Share planting wisdom, excess produce, and land-based dreams.
         </li>
         <li>

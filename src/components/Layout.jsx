@@ -16,7 +16,9 @@ export default function Layout() {
         <h1 className="text-2xl font-bold">PneumEvolve</h1>
         <nav className="space-x-4">
           <Link to="/" className="hover:underline">Home</Link>
+          <Link to="/wetalk" className="hover:underline">WeTalk</Link>
           <Link to="/smartjournal" className="hover:underline">Journal</Link>
+          <Link to="/MealPlanning" className="hover:underline">MealPlan</Link>
           {!isLoggedIn ? (
             <>
               <Link to="/signup" className="hover:underline text-blue-600">Sign Up</Link>

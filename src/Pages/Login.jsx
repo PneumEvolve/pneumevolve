@@ -3,6 +3,7 @@ import React, { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import ReCAPTCHA from "react-google-recaptcha";
 import { useAuth } from "../context/AuthContext";
+import { jwtDecode } from "jwt-decode";
 
 const API_URL = "https://shea-klipper-backend.onrender.com";
 const RECAPTCHA_SITE_KEY = "6LeICxYrAAAAANn97Wz-rx1oCT9FkKMNQpAya_gv";
@@ -22,43 +23,50 @@ export default function Login() {
   };
 
   const handleLogin = async () => {
-    if (!captchaToken) {
-      setError("Please verify you are not a robot.");
+  if (!captchaToken) {
+    setError("Please verify you are not a robot.");
+    return;
+  }
+
+  try {
+    const formData = new URLSearchParams();
+    formData.append("grant_type", "password");
+    formData.append("username", email.trim());
+    formData.append("password", password.trim());
+    formData.append("scope", "");
+    formData.append("client_id", "");
+    formData.append("client_secret", "");
+    formData.append("recaptcha_token", captchaToken);
+
+    const response = await fetch(`${API_URL}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: formData,
+    });
+
+    const responseBody = await response.json();
+
+    if (!response.ok) {
+      setError(responseBody.detail || "Invalid login credentials");
+      recaptchaRef.current?.reset();
+      setCaptchaToken(null);
       return;
     }
 
-    try {
-      const formData = new URLSearchParams();
-      formData.append("grant_type", "password");
-      formData.append("username", email.trim());
-      formData.append("password", password.trim());
-      formData.append("scope", "");
-      formData.append("client_id", "");
-      formData.append("client_secret", "");
-      formData.append("recaptcha_token", captchaToken);
+    // ✅ Save token
+    login(responseBody.access_token);
 
-      const response = await fetch(`${API_URL}/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: formData,
-      });
-
-      const responseBody = await response.json();
-
-      if (!response.ok) {
-        setError(responseBody.detail || "Invalid login credentials");
-        recaptchaRef.current?.reset();
-        setCaptchaToken(null);
-        return;
-      }
-
-      login(responseBody.access_token); // ✅ update AuthContext + Layout
-      navigate("/");
-    } catch (err) {
-      console.error("❌ Login error:", err);
-      setError("An error occurred while logging in.");
-    }
-  };
+    // ✅ Decode token to get user ID
+    const decoded = jwtDecode(responseBody.access_token);
+    localStorage.setItem("user_id", decoded.id); // or decoded.sub, depending on your token structure
+    localStorage.setItem("user_email", decoded.sub);
+    
+    navigate("/");
+  } catch (err) {
+    console.error("❌ Login error:", err);
+    setError("An error occurred while logging in.");
+  }
+};
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-white text-black">

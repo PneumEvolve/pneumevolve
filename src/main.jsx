@@ -17,6 +17,11 @@ import WeGreen from "./Pages/WeGreen";
 import WeHelp from "./Pages/WeHelp";
 import WeDo from "./Pages/WeDo";
 import TheMessage from "./Pages/TheMessage";
+import MealPlanning from "./Pages/MealPlanning"
+import CategoryManager from "./Pages/CategoryManager"
+import FoodInventory from "./Pages/FoodInventory"
+import Recipes from "./Pages/Recipes"
+import GroceryList from "./Pages/GroceryList"
 import Layout from "./components/Layout";
 import { AuthProvider } from "./context/AuthContext";
 import SmartJournal from "./Pages/SmartJournal";
@@ -45,6 +50,11 @@ ReactDOM.createRoot(document.getElementById("root")).render(
             <Route path="WeGreen" element={<WeGreen />} />
             <Route path="WeHelp" element={<WeHelp />} />
             <Route path="WeDo" element={<WeDo />} />
+            <Route path="MealPlanning" element={<MealPlanning />} />
+            <Route path="CategoryManager" element={<CategoryManager />} />
+            <Route path="FoodInventory" element={<FoodInventory />} />
+            <Route path="Recipes" element={<Recipes />} />
+            <Route path="GroceryList" element={<GroceryList />} />
             <Route
               path="smartjournal"
               element={
