@@ -1,6 +1,6 @@
 // src/pages/WeGreen.jsx
 import React, { useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Button } from "../components/ui/button";
 import { useNavigate } from "react-router-dom";
 
 const mockSuggestions = {

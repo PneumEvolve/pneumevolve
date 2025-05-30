@@ -1,5 +1,5 @@
 import React from "react";
-import { Button } from "@/components/ui/button";
+import { Button } from "../components/ui/button";
 
 const API_URL = "https://shea-klipper-backend.onrender.com";
 

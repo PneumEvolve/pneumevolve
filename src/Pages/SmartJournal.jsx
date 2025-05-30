@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Button } from "@/components/ui/button";
+import { Button } from "../components/ui/button";
 import { Save, Trash, Wand2, Eye, EyeOff, X } from "lucide-react";
 import { authFetch } from "@/authFetch";
 

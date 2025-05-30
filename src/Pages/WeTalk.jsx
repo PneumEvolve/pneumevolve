@@ -1,7 +1,7 @@
 // src/pages/WeTalk.jsx
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Button } from "@/components/ui/button";
+import { Button } from "../components/ui/button";
 import { authFetch } from "@/authFetch";
 
 const API_URL = "https://shea-klipper-backend.onrender.com";

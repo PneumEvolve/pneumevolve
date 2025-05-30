@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Button } from "@/components/ui/button";
+import { Button } from "../components/ui/button";
 import { Trash, Edit, ArrowLeft, Save, X, Plus, Minus } from "lucide-react";
 import FindRecipesButton from "../components/FindRecipesButton";
 import { useAuth } from "../context/AuthContext";

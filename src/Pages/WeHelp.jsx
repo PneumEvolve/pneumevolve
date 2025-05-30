@@ -1,6 +1,6 @@
 // src/pages/WeHelp.jsx
 import React, { useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Button } from "../components/ui/button";
 import { Plus, LifeBuoy } from "lucide-react";
 import { Link } from "react-router-dom";
 

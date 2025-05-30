@@ -1,7 +1,7 @@
 // src/pages/Meditation.jsx
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Button } from "@/components/ui/button";
+import { Button } from "../components/ui/button";
 import { useNavigate } from "react-router-dom";
 
 const getNextMeditationWindow = () => {

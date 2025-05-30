@@ -1,7 +1,7 @@
 // src/pages/WeLearn.jsx
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Button } from "@/components/ui/button";
+import { Button } from "../components/ui/button";
 
 const WeLearn = () => {
   const [input, setInput] = useState("");
