@@ -1,5 +1,5 @@
 import React from "react";
-import { Card, CardContent } from "../components/ui/Card";
+import { Card, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { BarChart2, FileText, Brain, Vote, ShieldCheck } from "lucide-react";
 import { useBills } from "../hooks/useBills";
