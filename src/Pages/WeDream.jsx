@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Textarea } from "../components/ui/textarea";
 import { Button } from "../components/ui/button";
 import { Link } from "react-router-dom";
+import { fetchWithAuth } from "../utils/fetchWithAuth";
 
 let saveTimeout;
 
