@@ -8,7 +8,7 @@ import Login from "./Pages/Login";
 import Experiments from "./Pages/Experiments";
 import Tarot from "./Pages/Tarot";
 import Meditation from "./Pages/Meditation";
-import WeirdDreamMachine from "./Pages/WeirdDreamMachine";
+import DreamMachine from "./Pages/DreamMachine";
 import WeChoose from "./Pages/WeChoose";
 import WeLearn from "./Pages/WeLearn";
 import WePlan from "./Pages/WePlan";
@@ -22,6 +22,12 @@ import CategoryManager from "./Pages/CategoryManager"
 import FoodInventory from "./Pages/FoodInventory"
 import Recipes from "./Pages/Recipes"
 import GroceryList from "./Pages/GroceryList"
+import WeDream from "./Pages/WeDream"
+import Home from "./Pages/Home"
+import Dashboard from "./Pages/Dashboard"
+import Staking from "./Pages/Staking"
+import Vote from "./Pages/Vote"
+import AI from "./Pages/AI"
 import Layout from "./components/Layout";
 import { AuthProvider } from "./context/AuthContext";
 import SmartJournal from "./Pages/SmartJournal";
@@ -42,7 +48,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
             <Route path="experiments" element={<Experiments />} />
             <Route path="tarot" element={<Tarot />} />
             <Route path="meditation" element={<Meditation />} />
-            <Route path="weirddreammachine" element={<WeirdDreamMachine />} />
+            <Route path="dreammachine" element={<DreamMachine />} />
             <Route path="wechoose" element={<WeChoose />} />
             <Route path="WeLearn" element={<WeLearn />} />
             <Route path="WePlan" element={<WePlan />} />
@@ -55,6 +61,12 @@ ReactDOM.createRoot(document.getElementById("root")).render(
             <Route path="FoodInventory" element={<FoodInventory />} />
             <Route path="Recipes" element={<Recipes />} />
             <Route path="GroceryList" element={<GroceryList />} />
+            <Route path="WeDream" element={<WeDream />} />
+            <Route path="Home" element={<Home />} />
+            <Route path="Dashboard" element={<Dashboard />} />
+            <Route path="Staking" element={<Staking />} />
+            <Route path="Vote" element={<Vote />} />
+            <Route path="AI" element={<AI />} />
             <Route
               path="smartjournal"
               element={

@@ -2,6 +2,8 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Trash, Edit, ArrowLeft, Save, X, Plus, Minus } from "lucide-react";
+import FindRecipesButton from "../components/FindRecipesButton";
+import { useAuth } from "../context/AuthContext";
 
 
 const API_URL = "https://shea-klipper-backend.onrender.com";
@@ -17,7 +19,7 @@ const isTokenExpired = (token) => {
 
 const FoodInventory = () => {
   const navigate = useNavigate();
-  const token = localStorage.getItem("token");
+  const { token } = useAuth(); 
 
   const [foodInventory, setFoodInventory] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -198,6 +200,7 @@ const FoodInventory = () => {
             <ArrowLeft className="mr-2" /> Back
           </Button>
           <Button onClick={() => navigate("/categorymanager")}>Manage Categories</Button>
+          <FindRecipesButton token={token} />
         </div>
 
         <h1 className="text-3xl font-bold mb-6 text-center">Food Inventory</h1>

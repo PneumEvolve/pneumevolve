@@ -19,7 +19,10 @@ const Experiments = () => {
           🕊️ <Link to="/meditation" className="text-blue-500 underline">Global Meditation Timer</Link> – Sync in stillness. A 5-minute breath with the world, every 12 hours.
         </li>
         <li>
-          💭 <Link to="/weirddreammachine" className="text-blue-500 underline">Weird Dream Machine</Link> – Feed your thoughts into the collective. Return later for an AI dream stitched from us all.
+          💭 <Link to="/wedream" className="text-blue-500 underline">We Dream</Link> – Feed your thoughts into the collective. Return later for an AI dream stitched from us all.
+        </li>
+        <li>
+          💭 <Link to="/dreammachine" className="text-blue-500 underline">Dream Machine</Link> – Feed your thoughts into the collective. Return later for an AI dream stitched from us all.
         </li>
         <li>
           🗳️ <Link to="/wechoose" className="text-blue-500 underline">We Choose</Link> – A prototype for transparent, collective decision-making. Vote. Rethink. Rebuild.

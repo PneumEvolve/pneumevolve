@@ -1,85 +1,76 @@
-// src/pages/WeChoose.jsx
-import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Button } from "@/components/ui/button";
+import React from "react";
+import { Card, CardContent } from "../components/ui/Card";
+import { Button } from "../components/ui/button";
+import { BarChart2, FileText, Brain, Vote, ShieldCheck } from "lucide-react";
+import { useBills } from "../hooks/useBills";
 
 const WeChoose = () => {
-  const [ideas, setIdeas] = useState([]);
-  const [newIdea, setNewIdea] = useState("");
-  const navigate = useNavigate();
-
-  const handleSubmit = () => {
-    if (newIdea.trim().length < 5) return alert("Make your idea a bit clearer.");
-    const idea = {
-      id: Date.now(),
-      content: newIdea.trim(),
-      votes: 0,
-    };
-    setIdeas([idea, ...ideas]);
-    setNewIdea("");
-  };
-
-  const vote = (id, delta) => {
-    setIdeas((prev) =>
-      prev.map((idea) =>
-        idea.id === id ? { ...idea, votes: idea.votes + delta } : idea
-      )
-    );
-  };
+  const { bills, loading } = useBills();
 
   return (
-    <div className="max-w-4xl mx-auto p-6 text-center dark:text-white">
-      <h1 className="text-4xl font-bold mb-4">🌍 We Choose</h1>
-      <p className="mb-6 text-lg text-gray-600 dark:text-gray-300">
-        Upload ideas for the betterment of all. Vote on what should rise.
+    <div className="p-6 space-y-8 max-w-4xl mx-auto">
+      <h1 className="text-4xl font-bold text-center">We Choose</h1>
+      <p className="text-center text-lg text-gray-600">
+        See the world you want to live in. Learn, vote, compare, evolve.
       </p>
 
-      {/* Idea Submission */}
-      <textarea
-        className="w-full p-3 border rounded mb-4 dark:bg-gray-800 dark:text-white"
-        placeholder="What do you want to see built, fixed, changed, or shared?"
-        value={newIdea}
-        onChange={(e) => setNewIdea(e.target.value)}
-      />
-      <Button onClick={handleSubmit}>Submit Idea</Button>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <Card>
+          <CardContent className="flex items-center gap-4 p-4">
+            <FileText className="w-6 h-6" />
+            <span>Current Policies</span>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="flex items-center gap-4 p-4">
+            <Vote className="w-6 h-6" />
+            <span>Cast Mock Vote</span>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="flex items-center gap-4 p-4">
+            <BarChart2 className="w-6 h-6" />
+            <span>Compare Results</span>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="flex items-center gap-4 p-4">
+            <Brain className="w-6 h-6" />
+            <span>Learn and Test Knowledge</span>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="flex items-center gap-4 p-4">
+            <ShieldCheck className="w-6 h-6" />
+            <span>Proof of Humanity</span>
+          </CardContent>
+        </Card>
+      </div>
 
-      <hr className="my-8" />
-
-      {/* Idea Feed */}
-      <h2 className="text-2xl font-semibold mb-4">💡 Submitted Ideas</h2>
-      {ideas.length === 0 ? (
-        <p className="text-gray-500 italic">No ideas yet. Be the first to spark change.</p>
-      ) : (
-        <ul className="space-y-4">
-          {ideas.map((idea) => (
-            <li
-              key={idea.id}
-              className="bg-white dark:bg-gray-800 p-4 rounded shadow flex justify-between items-center"
-            >
-              <div className="text-left">
-                <p className="text-lg">{idea.content}</p>
-                <p className="text-sm text-gray-400 mt-1">
-                  {idea.votes} vote{idea.votes !== 1 ? "s" : ""}
-                </p>
-              </div>
-              <div className="flex flex-col gap-1">
-                <Button onClick={() => vote(idea.id, 1)} className="bg-green-600 hover:bg-green-700">
-                  👍
-                </Button>
-                <Button onClick={() => vote(idea.id, -1)} className="bg-red-600 hover:bg-red-700">
-                  👎
-                </Button>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {/* Back Navigation */}
-      <div className="mt-8">
-        <Button onClick={() => navigate("/experiments")}>
-          ← Back to Experiments
-        </Button>
+      <div className="space-y-4">
+        <h2 className="text-2xl font-semibold">Current Bills</h2>
+        {loading ? (
+          <p>Loading bills...</p>
+        ) : (
+          bills.map((bill, index) => (
+            <Card key={`${bill.number}-${index}`}>
+              <CardContent className="p-4 space-y-2">
+                <h3 className="text-lg font-semibold">{bill.short_title || bill.title || 'Untitled Bill'}</h3>
+                <p><strong>Bill:</strong> {bill.number}</p>
+                <p><strong>Sponsor:</strong> {bill.sponsor?.name}</p>
+                <p><strong>Status:</strong> {bill.status}</p>
+                <a
+                  href={`https://openparliament.ca/bills/${bill.session || 'current'}/${bill.number.toLowerCase()}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 underline"
+                >
+                  View Full Bill
+                </a>
+              </CardContent>
+            </Card>
+          ))
+        )}
       </div>
     </div>
   );

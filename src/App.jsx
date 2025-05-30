@@ -19,6 +19,14 @@ export default function App() {
         </p>
 
         <div className="grid gap-4 w-full max-w-md mx-auto text-left">
+          
+          <a
+            href="/dreammachine"
+           className="block bg-white rounded-2xl shadow-md hover:shadow-xl transition p-5 border border-gray-200"
+          >
+           🌍 <strong>We Dream – The Dream Machine</strong> (Collective Vision Engine)
+          </a>
+
           <a
             href="/SmartJournal"
             className="block bg-white rounded-2xl shadow-md hover:shadow-xl transition p-5 border border-gray-200"
