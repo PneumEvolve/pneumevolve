@@ -2,6 +2,7 @@
 import React, { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import ReCAPTCHA from "react-google-recaptcha";
+import { useAuth } from "../context/AuthContext";
 
 const API_URL = "https://shea-klipper-backend.onrender.com";
 const RECAPTCHA_SITE_KEY = "6LeICxYrAAAAANn97Wz-rx1oCT9FkKMNQpAya_gv";
@@ -13,6 +14,7 @@ export default function Signup() {
   const [error, setError] = useState("");
   const recaptchaRef = useRef(null);
   const navigate = useNavigate();
+  const { login } = useAuth();
 
   const handleCaptchaChange = (token) => {
     setCaptchaToken(token);
@@ -20,59 +22,37 @@ export default function Signup() {
   };
 
   const handleSignup = async () => {
-    if (!captchaToken) {
-      setError("Please verify you are not a robot.");
-      return;
+  if (!captchaToken) {
+    setError("Please verify you are not a robot.");
+    return;
+  }
+
+  try {
+    const signupRes = await fetch(`${API_URL}/auth/signup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: email.trim(),
+        password: password.trim(),
+        recaptcha_token: captchaToken,
+      }),
+    });
+
+    if (!signupRes.ok) {
+      const data = await signupRes.json();
+      throw new Error(data.detail || "Signup failed");
     }
 
-    try {
-      // Step 1: Signup
-      const signupRes = await fetch(`${API_URL}/auth/signup`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: email.trim(),
-          password: password.trim(),
-          recaptcha_token: captchaToken,
-        }),
-      });
+    // ✅ Success! Redirect to login
+    navigate("/login?justSignedUp=true");
 
-      if (!signupRes.ok) {
-        const data = await signupRes.json();
-        throw new Error(data.detail || "Signup failed");
-      }
-
-      // Step 2: Auto login
-      const formData = new URLSearchParams();
-      formData.append("grant_type", "password");
-      formData.append("username", email.trim());
-      formData.append("password", password.trim());
-      formData.append("scope", "");
-      formData.append("client_id", "");
-      formData.append("client_secret", "");
-
-      const loginRes = await fetch(`${API_URL}/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: formData,
-      });
-
-      const loginData = await loginRes.json();
-
-      if (!loginRes.ok) {
-        throw new Error(loginData.detail || "Login failed after signup");
-      }
-
-      localStorage.setItem("token", loginData.access_token);
-      navigate("/sheas-rambling-ideas");
-
-    } catch (err) {
-      console.error("❌ Signup error:", err);
-      setError(err.message);
-      recaptchaRef.current?.reset();
-      setCaptchaToken(null);
-    }
-  };
+  } catch (err) {
+    console.error("❌ Signup error:", err);
+    setError(err.message);
+    recaptchaRef.current?.reset();
+    setCaptchaToken(null);
+  }
+};
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-white text-black">
