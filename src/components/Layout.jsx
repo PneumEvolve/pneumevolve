@@ -6,6 +6,7 @@ export default function Layout() {
   const { isLoggedIn, logout } = useAuth();
   const navigate = useNavigate();
 
+
   function handleLogout() {
     logout();
     navigate("/login");
@@ -19,6 +20,7 @@ export default function Layout() {
         logout();
       }
     };
+
 
     // Check on mount
     checkToken();

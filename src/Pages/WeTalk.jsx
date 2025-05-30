@@ -82,7 +82,7 @@ const WeTalk = () => {
 
   return (
     <div className="max-w-4xl mx-auto p-6 dark:text-white">
-      <h1 className="text-4xl font-bold text-center mb-4">💬 We Talk</h1>
+      <h1 className="text-4xl font-bold dark:text-black text-center mb-4">💬 We Talk</h1>
       <p className="text-center text-gray-500 dark:text-gray-400 mb-6">
         A space to speak your truth. Share thoughts. Be heard.
       </p>
@@ -103,7 +103,7 @@ const WeTalk = () => {
 
       {!selectedThread && threads.length > 0 && (
         <div className="mt-6">
-          <h2 className="text-2xl font-semibold mb-2">🧵 Talks</h2>
+          <h2 className="text-2xl dark:text-black font-semibold mb-2">🧵 Talks</h2>
           <ul className="space-y-2">
             {threads.map((thread) => (
               <li

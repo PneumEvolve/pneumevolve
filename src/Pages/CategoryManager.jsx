@@ -15,18 +15,13 @@ const CategoryManager = () => {
   const [categoryType, setCategoryType] = useState("food");
 
   useEffect(() => {
-    if (!token) {
-      console.error("No token found, redirecting to login.");
-      navigate("/");
-      return;
-    }
-    fetchCategories();
-  }, [navigate]);
+  fetchCategories();
+}, []);
 
   const fetchCategories = async () => {
     try {
       const res = await fetch(`${API_URL}/meal-planning/categories`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
 
       if (!res.ok) throw new Error(`Failed to fetch categories: ${res.statusText}`);

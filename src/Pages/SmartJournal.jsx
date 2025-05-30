@@ -99,7 +99,7 @@ const SmartJournal = () => {
 
   return (
     <div className="p-6 max-w-4xl mx-auto dark:text-white">
-      <h1 className="text-4xl font-extrabold mb-6 text-center">📝 I AM – Smart Journal</h1>
+      <h1 className="text-4xl font-extrabold dark:text-black mb-6 text-center">📝 I AM – Smart Journal</h1>
 
       <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow mb-6">
         <input
@@ -122,7 +122,7 @@ const SmartJournal = () => {
         </div>
       </div>
 
-      <h2 className="text-2xl font-semibold mb-4">📚 Past Entries</h2>
+      <h2 className="text-2xl dark:text-black font-semibold mb-4">📚 Past Entries</h2>
       {entries.length === 0 ? (
         <p className="text-gray-400 italic text-center">You haven’t journaled yet... what’s on your mind?</p>
       ) : (

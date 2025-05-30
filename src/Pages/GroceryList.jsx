@@ -16,17 +16,13 @@ const GroceryList = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!token) {
-      navigate("/");
-      return;
-    }
-    fetchList();
-  }, [navigate]);
+  fetchList();
+}, []);
 
   const fetchList = async () => {
     try {
       const res = await fetch(`${API_URL}/grocery-list/grocery-list`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       const data = await res.json();
       setItems(data.items);

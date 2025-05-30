@@ -30,12 +30,8 @@ const RecipesPage = () => {
   const [expandedRecipes, setExpandedRecipes] = useState({});
 
   useEffect(() => {
-    if (!token) {
-      navigate("/");
-      return;
-    }
-    fetchCategories();
-  }, [navigate]);
+  fetchCategories();
+}, []);
 
   useEffect(() => {
     fetchRecipes();
@@ -44,7 +40,7 @@ const RecipesPage = () => {
   const fetchCategories = async () => {
     try {
       const res = await fetch(`${API_URL}/meal-planning/categories`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       const data = await res.json();
       setCategories(data.recipes || []);
@@ -61,7 +57,7 @@ const RecipesPage = () => {
           ? `${API_URL}/meal-planning/recipes`
           : `${API_URL}/meal-planning/recipes?category=${encodeURIComponent(selectedCategory)}`;
       const response = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       const data = await response.json();
       setRecipes(data);
