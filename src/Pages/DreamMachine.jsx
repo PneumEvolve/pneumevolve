@@ -29,6 +29,15 @@ const DreamMachine = () => {
     fetchDreamData();
   }, []);
 
+  const shareOnFacebook = () => {
+    const url = encodeURIComponent("https://pneumevolve.com/dreammachine");
+    window.open(
+      `https://www.facebook.com/sharer/sharer.php?u=${url}`,
+      "_blank",
+      "noopener,noreferrer"
+    );
+  };
+
   return (
     <div className="max-w-3xl mx-auto p-6 space-y-6 text-gray-900 dark:text-gray-100">
       <h1 className="text-4xl dark:text-black font-bold text-center">🌍 Dream Machine</h1>
@@ -71,9 +80,16 @@ const DreamMachine = () => {
               {summary}
             </p>
             <p className="text-center text-sm text-gray-500 dark:text-gray-400 mt-2">
-              {count} dream{count !== 1 ? "s" : ""} contributed • Last updated:{" "}
-              {updatedAt ? new Date(updatedAt).toLocaleString() : "unknown"}
+              {count} dream{count !== 1 ? "s" : ""} contributed • Last updated: {updatedAt ? new Date(updatedAt).toLocaleString() : "unknown"}
             </p>
+            <div className="flex justify-center mt-4">
+              <button
+                onClick={shareOnFacebook}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
+              >
+                Share this on Facebook
+              </button>
+            </div>
           </div>
         </>
       )}

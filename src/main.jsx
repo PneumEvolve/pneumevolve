@@ -28,6 +28,8 @@ import Dashboard from "./Pages/Dashboard"
 import Staking from "./Pages/Staking"
 import Vote from "./Pages/Vote"
 import AI from "./Pages/AI"
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 import Layout from "./components/Layout";
 import { AuthProvider } from "./context/AuthContext";
 import SmartJournal from "./Pages/SmartJournal";
@@ -67,6 +69,8 @@ ReactDOM.createRoot(document.getElementById("root")).render(
             <Route path="Staking" element={<Staking />} />
             <Route path="Vote" element={<Vote />} />
             <Route path="AI" element={<AI />} />
+            <Route path="ForgotPassword" element={<ForgotPassword />} />
+            <Route path="/ResetPassword" element={<ResetPassword />} />
             <Route
               path="smartjournal"
               element={
