@@ -16,9 +16,19 @@ import {
 
 const API_URL = "https://shea-klipper-backend.onrender.com";
 
+const isTokenExpired = (token) => {
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return payload.exp * 1000 < Date.now();
+  } catch {
+    return true;
+  }
+};
+
 const RecipesPage = () => {
   const navigate = useNavigate();
   const token = localStorage.getItem("token");
+  const isLoggedIn = token && !isTokenExpired(token);
 
   const [recipes, setRecipes] = useState([]);
   const [selectedRecipes, setSelectedRecipes] = useState({});
@@ -30,8 +40,8 @@ const RecipesPage = () => {
   const [expandedRecipes, setExpandedRecipes] = useState({});
 
   useEffect(() => {
-  fetchCategories();
-}, []);
+    fetchCategories();
+  }, []);
 
   useEffect(() => {
     fetchRecipes();
@@ -40,8 +50,16 @@ const RecipesPage = () => {
   const fetchCategories = async () => {
     try {
       const res = await fetch(`${API_URL}/meal-planning/categories`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: isLoggedIn ? { Authorization: `Bearer ${token}` } : {},
       });
+      if (!res.ok) {
+        if (res.status === 401) {
+          console.warn("Unauthorized access to categories, showing limited view");
+          return;
+        } else {
+          throw new Error("Something went wrong fetching categories");
+        }
+      }
       const data = await res.json();
       setCategories(data.recipes || []);
     } catch (err) {
@@ -56,10 +74,18 @@ const RecipesPage = () => {
         selectedCategory === "all"
           ? `${API_URL}/meal-planning/recipes`
           : `${API_URL}/meal-planning/recipes?category=${encodeURIComponent(selectedCategory)}`;
-      const response = await fetch(url, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      const res = await fetch(url, {
+        headers: isLoggedIn ? { Authorization: `Bearer ${token}` } : {},
       });
-      const data = await response.json();
+      if (!res.ok) {
+        if (res.status === 401) {
+          console.warn("Unauthorized access to recipes, showing limited view");
+          return;
+        } else {
+          throw new Error("Something went wrong fetching recipes");
+        }
+      }
+      const data = await res.json();
       setRecipes(data);
     } catch (error) {
       console.error("Error fetching recipes:", error);
@@ -68,6 +94,10 @@ const RecipesPage = () => {
 
   const handleImportRecipe = async () => {
     if (!importUrl.trim()) return;
+    if (!isLoggedIn) {
+      alert("You must be logged in to import recipes.");
+      return;
+    }
     setImporting(true);
 
     try {
@@ -98,6 +128,10 @@ const RecipesPage = () => {
   };
 
   const deleteRecipe = async (recipeId) => {
+    if (!isLoggedIn) {
+      alert("You must be logged in to delete a recipe.");
+      return;
+    }
     try {
       await fetch(`${API_URL}/meal-planning/recipes/${recipeId}`, {
         method: "DELETE",
@@ -114,37 +148,46 @@ const RecipesPage = () => {
   };
 
   const crossCheckInventory = async () => {
-  const selectedIds = Object.entries(selectedRecipes)
-    .filter(([_, qty]) => qty > 0)
-    .map(([id]) => Number(id));
+    const selectedIds = Object.entries(selectedRecipes)
+      .filter(([_, qty]) => qty > 0)
+      .map(([id]) => Number(id));
 
-  if (selectedIds.length === 0) {
-    alert("Please select at least one recipe.");
-    return;
-  }
+    if (selectedIds.length === 0) {
+      alert("Please select at least one recipe.");
+      return;
+    }
 
-  try {
-    const response = await fetch(`${API_URL}/grocery-list/from-recipes`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(selectedIds),
-    });
+    if (!isLoggedIn) {
+      alert("Login required to generate grocery list.");
+      return;
+    }
 
-    if (!response.ok) throw new Error("Failed to generate grocery list");
+    try {
+      const response = await fetch(`${API_URL}/grocery-list/from-recipes`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(selectedIds),
+      });
 
-    const data = await response.json();
-    alert(data.message || "✅ Items added to your grocery list.");
-    navigate("/grocerylist");
-  } catch (error) {
-    console.error("Error generating grocery list:", error);
-    alert("❌ Failed to generate grocery list.");
-  }
-};
+      if (!response.ok) throw new Error("Failed to generate grocery list");
+
+      const data = await response.json();
+      alert(data.message || "✅ Items added to your grocery list.");
+      navigate("/grocerylist");
+    } catch (error) {
+      console.error("Error generating grocery list:", error);
+      alert("❌ Failed to generate grocery list.");
+    }
+  };
 
   const handleNewRecipe = () => {
+    if (!isLoggedIn) {
+      alert("You must be logged in to create or edit recipes.");
+      return;
+    }
     setEditingRecipe({
       name: "",
       ingredients: [],
@@ -158,6 +201,10 @@ const RecipesPage = () => {
   };
 
   const saveEditedRecipe = async () => {
+    if (!isLoggedIn) {
+      alert("You must be logged in to create or edit recipes.");
+      return;
+    }
     try {
       const payload = {
         ...editingRecipe,
@@ -246,18 +293,18 @@ const RecipesPage = () => {
     <div className="min-h-screen p-6 bg-white dark:bg-gray-900 text-gray-900 dark:text-white">
       <div className="max-w-4xl mx-auto">
         <div className="flex justify-between items-center mb-4">
-                  <Button onClick={() => navigate("/mealplanning")} className="flex items-center">
-                    <ArrowLeft className="mr-2" /> Back to Meal Planning
-                  </Button>
-                  <Button onClick={() => navigate("/categorymanager")} className="ml-2">
-                    Manage Categories
-                  </Button>
-                </div>
+          <Button onClick={() => navigate("/mealplanning")} className="flex items-center">
+            <ArrowLeft className="mr-2" /> Back to Meal Planning
+          </Button>
+          <Button onClick={() => navigate("/categorymanager")} className="ml-2">
+            Manage Categories
+          </Button>
+        </div>
 
         <div className="flex flex-col md:flex-row md:justify-between md:items-center mb-4 gap-2">
           <h1 className="text-3xl font-bold">Your Recipes</h1>
           <div className="flex flex-wrap gap-2">
-            <Button onClick={handleNewRecipe}>
+            <Button onClick={handleNewRecipe} disabled={!isLoggedIn}>
               <Plus className="mr-2" /> New Recipe
             </Button>
             <input
@@ -267,7 +314,7 @@ const RecipesPage = () => {
               onChange={(e) => setImportUrl(e.target.value)}
               className="p-2 border rounded-lg text-black dark:text-white w-full max-w-xs"
             />
-            <Button onClick={handleImportRecipe} disabled={importing}>
+            <Button onClick={handleImportRecipe} disabled={importing || !isLoggedIn}>
               <Globe className="mr-2" /> {importing ? "Importing..." : "Import from Link"}
             </Button>
           </div>
@@ -290,7 +337,7 @@ const RecipesPage = () => {
         <Button
           className="mb-4"
           onClick={crossCheckInventory}
-          disabled={Object.keys(selectedRecipes).length === 0}
+          disabled={!isLoggedIn || Object.keys(selectedRecipes).length === 0}
         >
           Generate Grocery List from Selected
         </Button>

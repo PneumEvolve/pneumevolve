@@ -6,6 +6,15 @@ import { ArrowLeft, Save, Trash, Check, X, Plus } from "lucide-react";
 
 const API_URL = "https://shea-klipper-backend.onrender.com";
 
+const isTokenExpired = (token) => {
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return payload.exp * 1000 < Date.now();
+  } catch {
+    return true;
+  }
+};
+
 const GroceryList = () => {
   const navigate = useNavigate();
   const token = localStorage.getItem("token");
@@ -16,23 +25,34 @@ const GroceryList = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-  fetchList();
+  if (!token || isTokenExpired(token)) {
+    console.log("User not logged in, showing read-only grocery list (or none).");
+    setLoading(false); // Don't try fetching
+  } else {
+    fetchList();
+  }
 }, []);
 
   const fetchList = async () => {
-    try {
-      const res = await fetch(`${API_URL}/grocery-list/grocery-list`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      const data = await res.json();
-      setItems(data.items);
-      setListId(data.id);
-    } catch (err) {
-      console.error("Error fetching grocery list:", err);
-    } finally {
-      setLoading(false);
+  try {
+    const res = await fetch(`${API_URL}/grocery-list/grocery-list`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!res.ok) {
+      throw new Error(`Failed to fetch list: ${res.status}`);
     }
-  };
+
+    const data = await res.json();
+    setItems(data.items);
+    setListId(data.id);
+  } catch (err) {
+    console.error("Error fetching grocery list:", err);
+    setItems([]); // Avoid crashing render
+  } finally {
+    setLoading(false);
+  }
+};
 
   const addItem = async () => {
     if (!newItem.name.trim()) return;
@@ -106,6 +126,26 @@ const GroceryList = () => {
     updateItem(index, { checked: !items[index].checked });
   };
 
+  const clearGroceryList = async () => {
+  if (!window.confirm("Are you sure you want to clear the entire grocery list?")) return;
+
+  try {
+    const res = await fetch(`${API_URL}/grocery-list/grocery-list/clear`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!res.ok) throw new Error("Failed to clear list");
+
+    const data = await res.json();
+    alert(data.message);
+    setItems([]); // clear local state
+  } catch (err) {
+    console.error("Failed to clear grocery list:", err);
+    alert("❌ Error clearing grocery list.");
+  }
+};
+
   return (
     <div className="min-h-screen p-6 bg-white dark:bg-gray-900 text-gray-900 dark:text-white">
       <Button onClick={() => navigate("/mealplanning")} className="mb-6 flex items-center">
@@ -118,7 +158,12 @@ const GroceryList = () => {
 >
   <Plus className="mr-2" /> Import In-Cart Items to Food Inventory
 </Button>
-
+    <Button
+  className="mb-4 bg-red-600 text-white ml-4"
+  onClick={clearGroceryList}
+>
+  <Trash className="mr-2" /> Clear Entire List
+</Button>
       <h1 className="text-3xl font-bold mb-4">🛒 Grocery List</h1>
 
       <div className="flex gap-2 mb-4">
