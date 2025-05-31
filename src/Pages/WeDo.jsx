@@ -24,13 +24,13 @@ const WeDo = () => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto p-6 text-white">
+    <div className="max-w-4xl mx-auto p-6 text-black">
       <h1 className="text-4xl font-bold mb-4">🤝 We Do – The Action Hub</h1>
-      <p className="mb-4 text-lg text-gray-300">
+      <p className="mb-4 text-lg text-black">
         Offer help, request support, and co-create projects that matter. This is where action lives.
       </p>
 
-      <div className="bg-gray-800 p-4 rounded-lg mb-6">
+      <div className="bg-gray-300 p-4 rounded-lg mb-6">
         <div className="flex items-center gap-4 mb-2">
           <Button
             onClick={() => setFormType("offer")}

@@ -30,16 +30,16 @@ const WeGreen = () => {
   };
 
   return (
-    <div className="max-w-3xl mx-auto p-6 text-center dark:text-white">
+    <div className="max-w-3xl mx-auto p-6 text-center dark:text-black">
       <h1 className="text-4xl font-bold mb-4">🌱 We Green</h1>
-      <p className="mb-4 text-lg text-gray-600 dark:text-gray-300">
+      <p className="mb-4 text-lg text-black dark:black">
         Empower your local garden. Plan. Grow. Share.
       </p>
 
       <input
         type="text"
         placeholder="Enter your city or postal code"
-        className="w-full max-w-md p-2 border rounded mb-4 dark:bg-gray-800"
+        className="w-full max-w-md p-2 border rounded mb-4 dark:bg-gray-100"
         value={location}
         onChange={(e) => setLocation(e.target.value)}
       />

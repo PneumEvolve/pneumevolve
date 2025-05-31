@@ -30,9 +30,9 @@ const WeLearn = () => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto p-6 dark:text-white text-center">
+    <div className="max-w-4xl mx-auto p-6 dark:text-black text-center">
       <h1 className="text-4xl font-bold mb-4">📘 We Learn</h1>
-      <p className="mb-6 text-lg text-gray-600 dark:text-gray-300">
+      <p className="mb-6 text-lg text-black dark:text-black">
         Paste a bill, policy, or idea — and receive a clear, neutral breakdown.
       </p>
 

@@ -5,7 +5,7 @@ export const Card = ({ className, children }) => {
   return (
     <div
       className={classNames(
-        "bg-white dark:bg-gray-900 rounded-2xl shadow p-4 border border-gray-200 dark:border-gray-700",
+        "bg-white dark:bg-white rounded-2xl shadow p-4 border border-gray-200 dark:border-gray-700",
         className
       )}
     >

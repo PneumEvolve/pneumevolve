@@ -69,13 +69,13 @@ const Meditation = () => {
     const navigate = useNavigate();
     
   return (
-    <div className="max-w-2xl mx-auto p-6 text-center dark:text-white">
+    <div className="max-w-2xl mx-auto p-6 text-center dark:text-black">
       <h1 className="text-4xl font-bold mb-4">🧘 Daily Meditation Timer</h1>
       <p className="mb-6 text-lg">
         Every 12 hours, the world pauses—together. Join for 5 minutes of global silence and peace.
       </p>
 
-      <div className="bg-gray-100 dark:bg-gray-800 p-8 rounded-lg shadow-lg mb-4">
+      <div className="bg-gray-100 dark:bg-white p-8 rounded-lg shadow-lg mb-4">
         {inSession ? (
           <h2 className="text-3xl font-bold text-green-500">Meditate Now</h2>
         ) : (

@@ -7,7 +7,7 @@ const Tarot = () => {
 const navigate = useNavigate();
 
   return (
-    <div className="max-w-3xl mx-auto p-6 text-center text-gray-800 dark:text-white">
+    <div className="max-w-3xl mx-auto p-6 text-center text-gray-800 dark:text-black">
       <h1 className="text-4xl font-bold mb-4">🔮 Tarot Readings with Shea</h1>
 
       <p className="text-lg mb-6">

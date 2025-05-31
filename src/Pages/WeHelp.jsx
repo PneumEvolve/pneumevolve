@@ -19,13 +19,13 @@ const WeHelp = () => {
   };
 
   return (
-    <div className="max-w-3xl mx-auto p-6 text-white">
+    <div className="max-w-3xl mx-auto p-6 text-black">
       <h1 className="text-4xl font-bold mb-4">💞 We Help – The Mutual Aid Portal</h1>
-      <p className="mb-6 text-lg text-gray-300">
+      <p className="mb-6 text-lg text-black">
         If you're in need, you're not alone. Post your help request and let others respond with love and support.
       </p>
 
-      <div className="bg-gray-800 p-4 rounded-lg shadow mb-6">
+      <div className="bg-gray-300 p-4 rounded-lg shadow mb-6">
         <h2 className="text-2xl font-semibold mb-2">🆘 Ask for Help</h2>
         <input
           type="text"

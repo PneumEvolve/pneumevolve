@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 
 const Experiments = () => {
   return (
-    <div className="max-w-4xl mx-auto p-6 text-gray-800 dark:text-white">
+    <div className="max-w-4xl mx-auto p-6 text-gray-800 dark:text-black">
       <h1 className="text-4xl font-bold mb-4">🧪 Shea’s Living Lab</h1>
 
       <p className="mb-6 text-lg">
@@ -17,12 +17,6 @@ const Experiments = () => {
         </li>
         <li>
           🕊️ <Link to="/meditation" className="text-blue-500 underline">Global Meditation Timer</Link> – Sync in stillness. A 5-minute breath with the world, every 12 hours.
-        </li>
-        <li>
-          💭 <Link to="/wedream" className="text-blue-500 underline">We Dream</Link> – Feed your thoughts into the collective. Return later for an AI dream stitched from us all.
-        </li>
-        <li>
-          💭 <Link to="/dreammachine" className="text-blue-500 underline">Dream Machine</Link> – Feed your thoughts into the collective. Return later for an AI dream stitched from us all.
         </li>
         <li>
           🗳️ <Link to="/wechoose" className="text-blue-500 underline">We Choose</Link> – A prototype for transparent, collective decision-making. Vote. Rethink. Rebuild.

@@ -163,7 +163,7 @@ const WeDream = () => {
       </div>
 
       {mantra && (
-        <div className="mt-6 bg-gray-100 dark:bg-gray-800 p-4 rounded-xl text-center text-xl font-semibold">
+        <div className="mt-6 bg-gray-100 p-4 rounded-xl text-center text-xl font-semibold">
           ✨ {mantra}
         </div>
       )}
