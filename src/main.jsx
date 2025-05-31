@@ -28,8 +28,8 @@ import Dashboard from "./Pages/Dashboard"
 import Staking from "./Pages/Staking"
 import Vote from "./Pages/Vote"
 import AI from "./Pages/AI"
-import ForgotPassword from "./pages/ForgotPassword";
-import ResetPassword from "./pages/ResetPassword";
+import ForgotPassword from "./Pages/ForgotPassword";
+import ResetPassword from "./Pages/ResetPassword";
 import Layout from "./components/Layout";
 import { AuthProvider } from "./context/AuthContext";
 import SmartJournal from "./Pages/SmartJournal";
