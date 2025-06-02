@@ -1,5 +1,5 @@
 // src/pages/Signup.jsx
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import ReCAPTCHA from "react-google-recaptcha";
 import { useAuth } from "../context/AuthContext";
@@ -14,7 +14,13 @@ export default function Signup() {
   const [error, setError] = useState("");
   const recaptchaRef = useRef(null);
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, isLoggedIn } = useAuth();
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      navigate("/");
+    }
+  }, [isLoggedIn, navigate]);
 
   const handleCaptchaChange = (token) => {
     setCaptchaToken(token);

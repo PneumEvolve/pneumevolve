@@ -47,7 +47,7 @@ const AccountPage = () => {
             onChange={handleChange}
             className="w-full p-3 border rounded-md"
           />
-          <Button onClick={handleSave}>Save Info</Button>
+          <Button onClick={handleSave}>Coming Soon</Button>
         </CardContent>
       </Card>
     </div>
