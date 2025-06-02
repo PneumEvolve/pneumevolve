@@ -51,9 +51,12 @@ export default function Layout() {
           <Link to="/login" className="hover:underline text-blue-600">Login</Link>
         </>
       ) : (
+        <>
+        <Link to="/Account" className="hover:underline">Account</Link>
         <button onClick={handleLogout} className="hover:underline text-red-600">
           Logout
         </button>
+        </>
       )}
     </nav>
   </div>

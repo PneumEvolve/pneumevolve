@@ -13,6 +13,9 @@ const Experiments = () => {
 
       <ul className="space-y-4 text-lg">
         <li>
+          🛠️ <Link to="/TextGame" className="text-blue-500 underline">Text Game</Link> – A simple Dreamfire based text game.
+        </li>
+        <li>
           🃏 <Link to="/tarot" className="text-blue-500 underline">Tarot Reading</Link> – A mystical portal. Pull cards, see what the current carries.
         </li>
         <li>
@@ -35,6 +38,9 @@ const Experiments = () => {
         </li>
         <li>
           🛠️ <Link to="/wedo" className="text-blue-500 underline">We Do</Link> – A marketplace of action. Trade skills, collaborate, make something real.
+        </li>
+        <li>
+          🛠️ <Link to="/SheasPage" className="text-blue-500 underline">Sheas Page</Link> – My ideas and my plan.
         </li>
       </ul>
 

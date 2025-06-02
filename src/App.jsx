@@ -21,6 +21,13 @@ export default function App() {
         <div className="grid gap-4 w-full max-w-md mx-auto text-left">
           
           <a
+            href="/PneumEvolvesPlan"
+            className="block bg-white rounded-2xl shadow-md hover:shadow-xl transition p-5 border border-gray-200"
+          >
+            🧪 <strong>PneumEvolves Plan</strong> – Shea's Plan For PneumEvolve
+          </a>
+
+          <a
             href="/dreammachine"
            className="block bg-white rounded-2xl shadow-md hover:shadow-xl transition p-5 border border-gray-200"
           >

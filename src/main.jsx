@@ -28,6 +28,10 @@ import Dashboard from "./Pages/Dashboard"
 import Staking from "./Pages/Staking"
 import Vote from "./Pages/Vote"
 import AI from "./Pages/AI"
+import TextGame from "./Pages/TextGame"
+import PneumEvolvesPlan from "./Pages/PneumEvolvesPlan"
+import Account from "./Pages/Account"
+import SheasPage from "./Pages/SheasPage"
 import ForgotPassword from "./Pages/ForgotPassword";
 import ResetPassword from "./Pages/ResetPassword";
 import Layout from "./components/Layout";
@@ -69,6 +73,10 @@ ReactDOM.createRoot(document.getElementById("root")).render(
             <Route path="Staking" element={<Staking />} />
             <Route path="Vote" element={<Vote />} />
             <Route path="AI" element={<AI />} />
+            <Route path="TextGame" element={<TextGame />} />
+            <Route path="PneumEvolvesPlan" element={<PneumEvolvesPlan />} />
+            <Route path="Account" element={<Account />} />
+            <Route path="SheasPage" element={<SheasPage />} />
             <Route path="ForgotPassword" element={<ForgotPassword />} />
             <Route path="/ResetPassword" element={<ResetPassword />} />
             <Route
