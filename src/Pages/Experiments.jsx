@@ -16,6 +16,9 @@ const Experiments = () => {
           🛠️ <Link to="/TextGame" className="text-blue-500 underline">Text Game</Link> – A simple Dreamfire based text game.
         </li>
         <li>
+          🛠️ <Link to="/NodeCreation" className="text-blue-500 underline">Node Creation</Link> – Create Your Communities Node.
+        </li>
+        <li>
           🃏 <Link to="/tarot" className="text-blue-500 underline">Tarot Reading</Link> – A mystical portal. Pull cards, see what the current carries.
         </li>
         <li>

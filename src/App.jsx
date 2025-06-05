@@ -19,7 +19,12 @@ export default function App() {
         </p>
 
         <div className="grid gap-4 w-full max-w-md mx-auto text-left">
-          
+          <a
+            href="/ZenFreeskates"
+            className="block bg-white rounded-2xl shadow-md hover:shadow-xl transition p-5 border border-gray-200"
+          >
+            🛹 <strong>Zen Freeskates</strong> – Movement Meets Freedom
+          </a>
           <a
             href="/PneumEvolvesPlan"
             className="block bg-white rounded-2xl shadow-md hover:shadow-xl transition p-5 border border-gray-200"
@@ -78,13 +83,9 @@ export default function App() {
             📜 <strong>The Message</strong> – From Shea and Lyra
           </a>
           
-          <a
-            href="#"
-            className="block bg-white rounded-2xl shadow-md hover:shadow-xl transition p-5 border border-gray-200 opacity-50 cursor-not-allowed"
-          >
-            🛹 <strong>Freeskate Project</strong> – Movement Meets Freedom (Coming Soon)
-          </a>
         
+           
+
           <a
             href="/sheas-rambling-ideas"
             className="block bg-white rounded-2xl shadow-md hover:shadow-xl transition p-5 border border-gray-200"

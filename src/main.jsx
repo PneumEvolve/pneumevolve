@@ -29,7 +29,11 @@ import Staking from "./Pages/Staking"
 import Vote from "./Pages/Vote"
 import AI from "./Pages/AI"
 import TextGame from "./Pages/TextGame"
+import ZenFreeskates from "./Pages/ZenFreeskates"
 import PneumEvolvesPlan from "./Pages/PneumEvolvesPlan"
+import NodeCreation from "./Pages/NodeCreation"
+import Nodes from "./Pages/Nodes"
+import NodeViewer from "./Pages/NodeViewer"
 import Account from "./Pages/Account"
 import SheasPage from "./Pages/SheasPage"
 import ForgotPassword from "./Pages/ForgotPassword";
@@ -73,7 +77,11 @@ ReactDOM.createRoot(document.getElementById("root")).render(
             <Route path="Staking" element={<Staking />} />
             <Route path="Vote" element={<Vote />} />
             <Route path="AI" element={<AI />} />
+            <Route path="NodeCreation" element={<NodeCreation />} />
+            <Route path="Nodes" element={<Nodes />} />
+            <Route path="NodeViewer" element={<NodeViewer />} />
             <Route path="TextGame" element={<TextGame />} />
+            <Route path="ZenFreeskates" element={<ZenFreeskates />} />
             <Route path="PneumEvolvesPlan" element={<PneumEvolvesPlan />} />
             <Route path="Account" element={<Account />} />
             <Route path="SheasPage" element={<SheasPage />} />
