@@ -1,4 +1,5 @@
 import React from "react";
+import { Helmet } from "react-helmet";
 import { Button } from "../components/ui/button";
 import { Mail } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -6,6 +7,19 @@ import { Link } from "react-router-dom";
 const ZenFreeskates = () => {
   return (
     <div className="min-h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-white p-6 flex flex-col items-center justify-center space-y-10">
+      {/* SEO Meta Tags */}
+      <Helmet>
+        <title>Zen Freeskates | Learn to Freeskate in Vernon BC | PneumEvolve</title>
+        <meta
+          name="description"
+          content="Join Zen Freeskates – Free lessons at Polson Park Skatepark in Vernon, BC. Flow with freedom and learn freeskating with Shea. Limited time offer!"
+        />
+        <meta property="og:title" content="Zen Freeskates | Vernon, BC" />
+        <meta property="og:description" content="Free Freeskating lessons at Polson Park Skatepark – Email to book!" />
+        <meta property="og:type" content="website" />
+        <meta property="og:url" content="https://pneumevolve.com/zen-freeskates" />
+      </Helmet>
+
       <div className="max-w-3xl text-center space-y-4">
         <h1 className="text-5xl font-extrabold tracking-tight">Zen Freeskates</h1>
         <p className="text-xl text-gray-600 dark:text-gray-300">

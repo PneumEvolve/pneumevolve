@@ -9,6 +9,7 @@ import Experiments from "./Pages/Experiments";
 import Tarot from "./Pages/Tarot";
 import Meditation from "./Pages/Meditation";
 import DreamMachine from "./Pages/DreamMachine";
+import WeBuild from "./Pages/WeBuild";
 import WeChoose from "./Pages/WeChoose";
 import WeLearn from "./Pages/WeLearn";
 import WePlan from "./Pages/WePlan";
@@ -23,11 +24,6 @@ import FoodInventory from "./Pages/FoodInventory"
 import Recipes from "./Pages/Recipes"
 import GroceryList from "./Pages/GroceryList"
 import WeDream from "./Pages/WeDream"
-import Home from "./Pages/Home"
-import Dashboard from "./Pages/Dashboard"
-import Staking from "./Pages/Staking"
-import Vote from "./Pages/Vote"
-import AI from "./Pages/AI"
 import TextGame from "./Pages/TextGame"
 import ZenFreeskates from "./Pages/ZenFreeskates"
 import PneumEvolvesPlan from "./Pages/PneumEvolvesPlan"
@@ -59,6 +55,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
             <Route path="tarot" element={<Tarot />} />
             <Route path="meditation" element={<Meditation />} />
             <Route path="dreammachine" element={<DreamMachine />} />
+            <Route path="WeBuild" element={<WeBuild />} />
             <Route path="wechoose" element={<WeChoose />} />
             <Route path="WeLearn" element={<WeLearn />} />
             <Route path="WePlan" element={<WePlan />} />
@@ -72,11 +69,6 @@ ReactDOM.createRoot(document.getElementById("root")).render(
             <Route path="Recipes" element={<Recipes />} />
             <Route path="GroceryList" element={<GroceryList />} />
             <Route path="WeDream" element={<WeDream />} />
-            <Route path="Home" element={<Home />} />
-            <Route path="Dashboard" element={<Dashboard />} />
-            <Route path="Staking" element={<Staking />} />
-            <Route path="Vote" element={<Vote />} />
-            <Route path="AI" element={<AI />} />
             <Route path="NodeCreation" element={<NodeCreation />} />
             <Route path="Nodes" element={<Nodes />} />
             <Route path="NodeViewer" element={<NodeViewer />} />
