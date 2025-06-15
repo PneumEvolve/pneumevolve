@@ -98,15 +98,6 @@ export default function App() {
             📜 <strong>The Message</strong> – From Shea and Lyra
           </a>
           
-        
-           
-
-          <a
-            href="/sheas-rambling-ideas"
-            className="block bg-white rounded-2xl shadow-md hover:shadow-xl transition p-5 border border-gray-200"
-          >
-            ✍️ <strong>Shea’s Rambling Ideas</strong> – Basic Journal Prototype
-          </a>
           
           </div>
           
