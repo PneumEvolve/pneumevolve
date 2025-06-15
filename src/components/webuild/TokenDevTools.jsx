@@ -12,7 +12,8 @@ const TokenDevTools = ({ state, setState }) => {
   const [amounts, setAmounts] = useState({ seed: 0, fruit: 0, branch: 0, root: 0 });
 
   const handleChange = (type, value) => {
-    setAmounts(prev => ({ ...prev, [type]: Number(value) }));
+    const val = Math.max(0, Number(value));
+    setAmounts(prev => ({ ...prev, [type]: val }));
   };
 
   const handleAdd = () => {
@@ -35,6 +36,20 @@ const TokenDevTools = ({ state, setState }) => {
     }));
   };
 
+  const handleReset = () => {
+    setState(prev => ({
+      ...prev,
+      seed: 0,
+      fruit: 0,
+      branch: 0,
+      root: 0
+    }));
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') handleAdd();
+  };
+
   return (
     <div className="bg-white dark:bg-gray-900 p-4 rounded-xl shadow">
       <h2 className="text-xl font-semibold mb-4">🧪 Token Dev Tools</h2>
@@ -45,9 +60,10 @@ const TokenDevTools = ({ state, setState }) => {
               type="number"
               value={amounts[type]}
               onChange={e => handleChange(type, e.target.value)}
+              onKeyDown={handleKeyDown}
               className="p-2 rounded border w-32"
             />
-            <span className="text-sm text-gray-700 dark:text-gray-300">{tokenLabels[type]}</span>
+            <span className="text-sm text-gray-700 dark:text-gray-300">{tokenLabels[type]} (Balance: {state[type]})</span>
           </div>
         ))}
       </div>
@@ -57,6 +73,9 @@ const TokenDevTools = ({ state, setState }) => {
         </button>
         <button onClick={handleBurn} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded">
           Burn Tokens
+        </button>
+        <button onClick={handleReset} className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded">
+          Reset All
         </button>
       </div>
     </div>
