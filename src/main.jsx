@@ -34,6 +34,9 @@ import Account from "./Pages/Account"
 import SheasPage from "./Pages/SheasPage"
 import ForgotPassword from "./Pages/ForgotPassword";
 import ResetPassword from "./Pages/ResetPassword";
+import GardenBlitz from "./Pages/GardenBlitz";
+import GardenDirectory from "./Pages/GardenDirectory";
+import GardenDetails from "./Pages/GardenDetails";
 import Layout from "./components/Layout";
 import { AuthProvider } from "./context/AuthContext";
 import SmartJournal from "./Pages/SmartJournal";
@@ -79,6 +82,9 @@ ReactDOM.createRoot(document.getElementById("root")).render(
             <Route path="SheasPage" element={<SheasPage />} />
             <Route path="ForgotPassword" element={<ForgotPassword />} />
             <Route path="/ResetPassword" element={<ResetPassword />} />
+            <Route path="/GardenBlitz" element={<GardenBlitz />} />
+            <Route path="/GardenDirectory" element={<GardenDirectory />} />
+            <Route path="/GardenDetails" element={<GardenDetails />} />
             <Route
               path="smartjournal"
               element={

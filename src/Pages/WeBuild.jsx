@@ -1,84 +1,49 @@
-// This is a React mockup of the "We Build" platform structure
-// Each section will be represented by a component placeholder
+// /src/pages/WebuildMockup.jsx
+import React, { useState } from 'react';
+import TokenBalances from '../components/webuild/TokenBalances';
+import AmmSwapMock from '../components/webuild/AmmSwapMock';
+import MintBranchForm from '../components/webuild/MintBranchForm';
+import RedeemBranchForm from '../components/webuild/RedeemBranchForm';
+import GovernancePanel from '../components/webuild/GovernancePanel';
+import NFTStatusPanel from '../components/webuild/NFTStatusPanel';
+import AIAgentAccess from '../components/webuild/AIAgentAccess';
+import TokenDevTools from '../components/webuild/TokenDevTools';
 
-import React from "react";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+const WebuildMockup = () => {
+  const [state, setState] = useState({
+    seed: 10000,
+    fruit: 0,
+    branch: 0,
+    root: 0,
+    nfts: {
+      seedNFT: false,
+      fruitNFT: false,
+      branchNFT: false
+    },
+    vesting: {
+      branchLocked: 0,
+      unlockTime: null
+    },
+    pools: {
+      'SEED/USDC': { SEED: 10000, USDC: 5000 },
+      'FRUIT/USDC': { FRUIT: 5000, USDC: 5000 },
+      'BRANCH/ROOT': { BRANCH: 1000, ROOT: 500 }
+    }
+  });
 
-const WeBuildMockup = () => {
   return (
-    <div className="min-h-screen bg-gray-100 dark:bg-gray-900 p-6 space-y-10 text-gray-900 dark:text-white">
-      <div className="text-center space-y-4">
-        <h1 className="text-5xl font-bold">We Build</h1>
-        <p className="text-lg max-w-xl mx-auto">
-          A platform for post-capitalist cooperation. Contribute, earn SEEDs, vote with ROOT, and co-create the systems of tomorrow.
-        </p>
-        <Button>Join the Movement</Button>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card>
-          <CardContent>
-            <h2 className="text-2xl font-semibold">🌱 Contribute & Earn SEED</h2>
-            <p className="mt-2 text-sm">
-              Log what you’ve done to help the mission. Earn SEED tokens as proof of real-world value.
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent>
-            <h2 className="text-2xl font-semibold">🗳️ Vote with ROOT</h2>
-            <p className="mt-2 text-sm">
-              Use your ROOT tokens to guide We Build decisions. Voting is transparent, stake-based, and impact-driven.
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent>
-            <h2 className="text-2xl font-semibold">📜 Proposals</h2>
-            <p className="mt-2 text-sm">
-              View and create proposals to improve the community, allocate resources, or evolve the DAO.
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent>
-            <h2 className="text-2xl font-semibold">🤝 Bounties & Projects</h2>
-            <p className="mt-2 text-sm">
-              Claim open bounties, join existing projects, or offer your skills to a shared mission.
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent>
-            <h2 className="text-2xl font-semibold">📊 Transparent Ledger</h2>
-            <p className="mt-2 text-sm">
-              View token allocations, contributor logs, and funding transparently. No secrets.
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent>
-            <h2 className="text-2xl font-semibold">🌍 Open Forum</h2>
-            <p className="mt-2 text-sm">
-              Talk, dream, and build together in our community forum. Anonymous or signed in.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="text-center pt-10">
-        <p className="text-sm text-gray-500 dark:text-gray-400">
-          This is a non-functional prototype of the We Build platform.
-        </p>
-      </div>
+    <div className="p-6 space-y-6">
+      <h1 className="text-3xl font-bold">🌱 WeBuild DAO Ecosystem Mockup</h1>
+      <TokenBalances state={state} />
+      <AmmSwapMock state={state} setState={setState} />
+      <MintBranchForm state={state} setState={setState} />
+      <RedeemBranchForm state={state} setState={setState} />
+      <NFTStatusPanel state={state} />
+      <GovernancePanel state={state} setState={setState} />
+      <AIAgentAccess state={state} />
+      <TokenDevTools state={state} setState={setState} />
     </div>
   );
 };
 
-export default WeBuildMockup;
+export default WebuildMockup;

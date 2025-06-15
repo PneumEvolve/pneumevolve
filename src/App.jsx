@@ -19,6 +19,21 @@ export default function App() {
         </p>
 
         <div className="grid gap-4 w-full max-w-md mx-auto text-left">
+
+          <a
+            href="/webuild"
+            className="block bg-white rounded-2xl shadow-md hover:shadow-xl transition p-5 border border-gray-200"
+          >
+            🛠 <strong>We Build</strong> – Token Ecosystem Mockup + dApp Test
+          </a>
+
+          <a
+            href="/GardenBlitz"
+            className="block bg-white rounded-2xl shadow-md hover:shadow-xl transition p-5 border border-gray-200"
+          >
+            🌱 <strong>Garden Blitz</strong> – Volunteer to Host or Cultivate or Build a Garden in a Day. Part of a new experimental DAO that will offer cryptocurrency as a reward for volunteering.
+          </a>
+
           <a
             href="/ZenFreeskates"
             className="block bg-white rounded-2xl shadow-md hover:shadow-xl transition p-5 border border-gray-200"
