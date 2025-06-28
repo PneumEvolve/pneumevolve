@@ -1,30 +1,29 @@
 // GardenDirectory.jsx
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import supabase from "../utils/supabaseClient"; // Make sure this path matches your project setup
 
 const GardenDirectory = () => {
   const [gardens, setGardens] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("All");
+  const [locationFilter, setLocationFilter] = useState("All");
+  const [locations, setLocations] = useState([]);
 
-  // Placeholder fetch – replace with Supabase call later
   useEffect(() => {
-    setGardens([
-      {
-        id: 1,
-        type: "Blitz",
-        hostName: "Jamie R.",
-        location: "East Hill",
-        status: "Scheduled",
-        notes: "Needs help with raised beds & soil delivery",
-      },
-      {
-        id: 2,
-        type: "Ongoing",
-        hostName: "Ava B.",
-        location: "BX Ranch",
-        status: "In Progress",
-        notes: "Looking for weekly watering & weeding support",
-      },
-    ]);
+    const fetchGardens = async () => {
+      const { data, error } = await supabase.from("gardens").select("*").order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("Error fetching gardens:", error.message);
+      } else {
+  setGardens(data);
+  setLocations(["All", ...new Set(data.map((g) => g.location).filter(Boolean))]);
+}
+      setLoading(false);
+    };
+
+    fetchGardens();
   }, []);
 
   return (
@@ -44,30 +43,100 @@ const GardenDirectory = () => {
           </Link>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-4">
-          {gardens.map((garden) => (
-            <div
-              key={garden.id}
-              className="bg-gray-100 dark:bg-gray-800 p-4 rounded-2xl shadow space-y-2"
-            >
-              <h2 className="text-xl font-semibold">
-                {garden.hostName} — {garden.type}
-              </h2>
-              <p>
-                <strong>Location:</strong> {garden.location}
-              </p>
-              <p>
-                <strong>Status:</strong> {garden.status}
-              </p>
-              <p>
-                <strong>Notes:</strong> {garden.notes}
-              </p>
-              <button className="mt-2 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition">
-                View Details
-              </button>
-            </div>
-          ))}
-        </div>
+<div className="text-center mb-4 space-x-4">
+  <label className="mr-2 font-medium">Filter by Type:</label>
+  <select
+    value={filter}
+    onChange={(e) => setFilter(e.target.value)}
+    className="border rounded px-3 py-1 bg-white dark:bg-gray-800"
+  >
+    <option value="All">Show All</option>
+    <option value="Blitz Host">🌿 Blitz Host</option>
+    <option value="Blitz Volunteer">💪 Blitz Volunteer</option>
+    <option value="Long-Term Host">🌻 Long-Term Host</option>
+    <option value="Long-Term Volunteer">🌾 Long-Term Volunteer</option>
+  </select>
+
+  <label className="ml-6 mr-2 font-medium">Location:</label>
+  <select
+    value={locationFilter}
+    onChange={(e) => setLocationFilter(e.target.value)}
+    className="border rounded px-3 py-1 bg-white dark:bg-gray-800"
+  >
+    {locations.map((loc, idx) => (
+      <option key={idx} value={loc}>
+        {loc}
+      </option>
+    ))}
+  </select>
+</div>
+
+        {loading ? (
+          <p className="text-center text-gray-500">Loading gardens...</p>
+        ) : gardens.length === 0 ? (
+          <p className="text-center text-gray-500">No gardens found yet.</p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-4">
+            {gardens
+  .filter((garden) => {
+    if (filter !== "All") {
+      const isBlitz = garden.type === "Blitz";
+      const isHost = garden.description?.includes("Host");
+      const isVolunteer = garden.description?.includes("Volunteer");
+
+      switch (filter) {
+        case "Blitz Host":
+          if (!(isBlitz && isHost)) return false;
+          break;
+        case "Blitz Volunteer":
+          if (!(isBlitz && isVolunteer)) return false;
+          break;
+        case "Long-Term Host":
+          if (!(isBlitz === false && isHost)) return false;
+          break;
+        case "Long-Term Volunteer":
+          if (!(isBlitz === false && isVolunteer)) return false;
+          break;
+        default:
+          break;
+      }
+    }
+
+    if (locationFilter !== "All" && garden.location !== locationFilter) {
+      return false;
+    }
+
+    return true;
+  })
+  .map((garden) => (
+              <div
+                key={garden.id}
+                className="bg-gray-100 dark:bg-gray-800 p-4 rounded-2xl shadow space-y-2"
+              >
+                <h2 className="text-xl font-semibold">
+                  {garden.host_name} — {garden.type}
+                </h2>
+                <p className="italic text-sm text-gray-600 dark:text-gray-300">
+  {garden.description}
+</p>
+                <p>
+                  <strong>Location:</strong> {garden.location}
+                </p>
+                <p>
+                  <strong>Status:</strong> {garden.status}
+                </p>
+                <p>
+                  <strong>Notes:</strong> {garden.notes}
+                </p>
+                <Link to={`/gardendetails/${garden.id}`}>
+                  <button className="mt-2 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition">
+                    View Details
+                  </button>
+                </Link>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

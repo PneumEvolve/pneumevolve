@@ -1,26 +1,81 @@
+// GardenBlitz.jsx
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
+import supabase from "../utils/supabaseClient";
 
 const GardenBlitz = () => {
   const [selectedForm, setSelectedForm] = useState(null);
+  const [formData, setFormData] = useState({
+    name: "",
+    email: "",
+    message: "",
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
 
   const handleFormToggle = (formType) => {
     setSelectedForm((prev) => (prev === formType ? null : formType));
+    setFormData({ name: "", email: "", message: "" });
+    setSubmitted(false);
+  };
+
+  const handleInputChange = (e) => {
+    setFormData((prev) => ({
+      ...prev,
+      [e.target.name]: e.target.value,
+    }));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+
+    const { data, error } = await supabase.from("gardens").insert([
+      {
+        type: selectedForm.includes("blitz") ? "Blitz" : "Ongoing",
+        host_name: formData.name,
+        location: "Vernon, BC",
+        description: selectedForm.includes("host")
+          ? "Garden Host Application"
+          : "Volunteer Application",
+        notes: formData.message,
+        status: "Pending",
+      },
+    ]);
+
+    setSubmitting(false);
+
+    if (error) {
+      alert("Error submitting form: " + error.message);
+    } else {
+      setSubmitted(true);
+    }
   };
 
   const renderForm = (formType) => (
-    <form className="space-y-4 mt-4">
+    <form onSubmit={handleSubmit} className="space-y-4 mt-4">
       <input
         type="text"
+        name="name"
+        value={formData.name}
+        onChange={handleInputChange}
         placeholder="Your Name"
         className="w-full p-2 border rounded"
+        required
       />
       <input
         type="email"
+        name="email"
+        value={formData.email}
+        onChange={handleInputChange}
         placeholder="Email Address"
         className="w-full p-2 border rounded"
+        required
       />
       <textarea
+        name="message"
+        value={formData.message}
+        onChange={handleInputChange}
         placeholder={
           formType.includes("host")
             ? "Tell us about your garden needs..."
@@ -28,13 +83,18 @@ const GardenBlitz = () => {
         }
         className="w-full p-2 border rounded"
         rows={4}
+        required
       />
       <button
         type="submit"
+        disabled={submitting}
         className="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700"
       >
-        Submit
+        {submitting ? "Submitting..." : "Submit"}
       </button>
+      {submitted && (
+        <p className="text-green-500 text-sm mt-2">Form submitted successfully!</p>
+      )}
     </form>
   );
 
@@ -47,42 +107,58 @@ const GardenBlitz = () => {
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-          <div
-            onClick={() => handleFormToggle("blitz-host")}
-            className="cursor-pointer bg-green-100 dark:bg-green-800 p-6 rounded-2xl shadow hover:shadow-lg text-center"
-          >
-            <h2 className="text-2xl font-semibold">🌿 Blitz Garden Host</h2>
-            <p>Need a garden built in a day? Register to be part of our next blitz event!</p>
-            {selectedForm === "blitz-host" && renderForm("blitz-host")}
-          </div>
+  {/* Blitz Host */}
+  <div className="bg-green-100 dark:bg-green-800 p-6 rounded-2xl shadow text-center">
+    <h2 className="text-2xl font-semibold">🌿 Blitz Garden Host</h2>
+    <p>Need a garden built in a day? Register to be part of our next blitz event!</p>
+    <button
+      onClick={() => handleFormToggle("blitz-host")}
+      className="mt-3 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+    >
+      {selectedForm === "blitz-host" ? "Close Form" : "Open Form"}
+    </button>
+    {selectedForm === "blitz-host" && renderForm("blitz-host")}
+  </div>
 
-          <div
-            onClick={() => handleFormToggle("blitz-volunteer")}
-            className="cursor-pointer bg-blue-100 dark:bg-blue-800 p-6 rounded-2xl shadow hover:shadow-lg text-center"
-          >
-            <h2 className="text-2xl font-semibold">💪 Blitz Volunteer</h2>
-            <p>Help build a garden in one day! Join the blitz crew.</p>
-            {selectedForm === "blitz-volunteer" && renderForm("blitz-volunteer")}
-          </div>
+  {/* Blitz Volunteer */}
+  <div className="bg-blue-100 dark:bg-blue-800 p-6 rounded-2xl shadow text-center">
+    <h2 className="text-2xl font-semibold">💪 Blitz Volunteer</h2>
+    <p>Help build a garden in one day! Join the blitz crew.</p>
+    <button
+      onClick={() => handleFormToggle("blitz-volunteer")}
+      className="mt-3 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+    >
+      {selectedForm === "blitz-volunteer" ? "Close Form" : "Open Form"}
+    </button>
+    {selectedForm === "blitz-volunteer" && renderForm("blitz-volunteer")}
+  </div>
 
-          <div
-            onClick={() => handleFormToggle("long-host")}
-            className="cursor-pointer bg-green-200 dark:bg-green-700 p-6 rounded-2xl shadow hover:shadow-lg text-center"
-          >
-            <h2 className="text-2xl font-semibold">🌻 Long-Term Host</h2>
-            <p>Need ongoing garden support and community connection? Sign up here.</p>
-            {selectedForm === "long-host" && renderForm("long-host")}
-          </div>
+  {/* Long-Term Host */}
+  <div className="bg-green-200 dark:bg-green-700 p-6 rounded-2xl shadow text-center">
+    <h2 className="text-2xl font-semibold">🌻 Long-Term Host</h2>
+    <p>Need ongoing garden support and community connection? Sign up here.</p>
+    <button
+      onClick={() => handleFormToggle("long-host")}
+      className="mt-3 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+    >
+      {selectedForm === "long-host" ? "Close Form" : "Open Form"}
+    </button>
+    {selectedForm === "long-host" && renderForm("long-host")}
+  </div>
 
-          <div
-            onClick={() => handleFormToggle("long-volunteer")}
-            className="cursor-pointer bg-blue-200 dark:bg-blue-700 p-6 rounded-2xl shadow hover:shadow-lg text-center"
-          >
-            <h2 className="text-2xl font-semibold">🌾 Long-Term Volunteer</h2>
-            <p>Grow with us! Join our seasonal garden team.</p>
-            {selectedForm === "long-volunteer" && renderForm("long-volunteer")}
-          </div>
-        </div>
+  {/* Long-Term Volunteer */}
+  <div className="bg-blue-200 dark:bg-blue-700 p-6 rounded-2xl shadow text-center">
+    <h2 className="text-2xl font-semibold">🌾 Long-Term Volunteer</h2>
+    <p>Grow with us! Join our seasonal garden team.</p>
+    <button
+      onClick={() => handleFormToggle("long-volunteer")}
+      className="mt-3 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+    >
+      {selectedForm === "long-volunteer" ? "Close Form" : "Open Form"}
+    </button>
+    {selectedForm === "long-volunteer" && renderForm("long-volunteer")}
+  </div>
+</div>
 
         <div className="bg-gray-100 dark:bg-gray-800 p-6 rounded-2xl shadow mt-6">
           <h3 className="text-xl font-semibold mb-2">How It Works</h3>

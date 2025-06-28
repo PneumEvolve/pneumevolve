@@ -17,21 +17,20 @@ import WeTalk from "./Pages/WeTalk";
 import WeGreen from "./Pages/WeGreen";
 import WeHelp from "./Pages/WeHelp";
 import WeDo from "./Pages/WeDo";
-import TheMessage from "./Pages/TheMessage";
-import MealPlanning from "./Pages/MealPlanning"
-import CategoryManager from "./Pages/CategoryManager"
-import FoodInventory from "./Pages/FoodInventory"
-import Recipes from "./Pages/Recipes"
-import GroceryList from "./Pages/GroceryList"
-import WeDream from "./Pages/WeDream"
-import TextGame from "./Pages/TextGame"
-import ZenFreeskates from "./Pages/ZenFreeskates"
-import PneumEvolvesPlan from "./Pages/PneumEvolvesPlan"
-import NodeCreation from "./Pages/NodeCreation"
-import Nodes from "./Pages/Nodes"
-import NodeViewer from "./Pages/NodeViewer"
-import Account from "./Pages/Account"
-import SheasPage from "./Pages/SheasPage"
+import MealPlanning from "./Pages/MealPlanning";
+import CategoryManager from "./Pages/CategoryManager";
+import FoodInventory from "./Pages/FoodInventory";
+import Recipes from "./Pages/Recipes";
+import GroceryList from "./Pages/GroceryList";
+import WeDream from "./Pages/WeDream";
+import TextGame from "./Pages/TextGame";
+import ZenFreeskates from "./Pages/ZenFreeskates";
+import PneumEvolvesPlan from "./Pages/PneumEvolvesPlan";
+import NodeCreation from "./Pages/NodeCreation";
+import Nodes from "./Pages/Nodes";
+import NodeViewer from "./Pages/NodeViewer";
+import Account from "./Pages/Account";
+import SheasPage from "./Pages/SheasPage";
 import ForgotPassword from "./Pages/ForgotPassword";
 import ResetPassword from "./Pages/ResetPassword";
 import GardenBlitz from "./Pages/GardenBlitz";
@@ -41,6 +40,9 @@ import Layout from "./components/Layout";
 import { AuthProvider } from "./context/AuthContext";
 import SmartJournal from "./Pages/SmartJournal";
 import PrivateRoute from "./components/PrivateRoute";
+import BlogHome from "./Pages/blog/BlogHome";
+import BlogPost from "./Pages/blog/BlogPost";
+import CreatePost from "./Pages/blog/CreatePost";
 import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
@@ -53,8 +55,10 @@ ReactDOM.createRoot(document.getElementById("root")).render(
             <Route path="sheas-rambling-ideas" element={<SheasRamblingIdeas />} />
             <Route path="signup" element={<Signup />} />
             <Route path="login" element={<Login />} />
-            <Route path="themessage" element={<TheMessage />} />
             <Route path="experiments" element={<Experiments />} />
+            <Route path="/blog" element={<BlogHome />} />
+            <Route path="/blog/new" element={<CreatePost />} />
+            <Route path="/blog/:id" element={<BlogPost />} />
             <Route path="tarot" element={<Tarot />} />
             <Route path="meditation" element={<Meditation />} />
             <Route path="dreammachine" element={<DreamMachine />} />
@@ -81,10 +85,11 @@ ReactDOM.createRoot(document.getElementById("root")).render(
             <Route path="Account" element={<Account />} />
             <Route path="SheasPage" element={<SheasPage />} />
             <Route path="ForgotPassword" element={<ForgotPassword />} />
-            <Route path="/ResetPassword" element={<ResetPassword />} />
-            <Route path="/GardenBlitz" element={<GardenBlitz />} />
-            <Route path="/GardenDirectory" element={<GardenDirectory />} />
-            <Route path="/GardenDetails" element={<GardenDetails />} />
+            <Route path="ResetPassword" element={<ResetPassword />} />
+            <Route path="GardenBlitz" element={<GardenBlitz />} />
+            <Route path="GardenDirectory" element={<GardenDirectory />} />
+            <Route path="GardenDetails/:id" element={<GardenDetails />} />
+            <Route path="gardens/:id" element={<GardenDetails />} />
             <Route
               path="smartjournal"
               element={

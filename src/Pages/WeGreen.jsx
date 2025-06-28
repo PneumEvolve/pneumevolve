@@ -1,78 +1,54 @@
-// src/pages/WeGreen.jsx
-import React, { useState } from "react";
-import { Button } from "../components/ui/button";
-import { useNavigate } from "react-router-dom";
+// WeGreenLanding.jsx
+import React from "react";
+import { Link } from "react-router-dom";
 
-const mockSuggestions = {
-  spring: ["Lettuce", "Radishes", "Carrots", "Peas"],
-  summer: ["Tomatoes", "Peppers", "Beans", "Basil"],
-  fall: ["Garlic", "Spinach", "Turnips", "Broccoli"],
-  winter: ["Cover Crops", "Garlic", "Kale", "Onions"],
-};
-
-const WeGreen = () => {
-  const navigate = useNavigate();
-  const [location, setLocation] = useState("");
-  const [season, setSeason] = useState(null);
-
-  const getSeason = (month) => {
-    if ([11, 0, 1].includes(month)) return "winter";
-    if ([2, 3, 4].includes(month)) return "spring";
-    if ([5, 6, 7].includes(month)) return "summer";
-    return "fall";
-  };
-
-  const handleCheck = () => {
-    if (!location.trim()) return;
-    const currentMonth = new Date().getMonth();
-    const currentSeason = getSeason(currentMonth);
-    setSeason(currentSeason);
-  };
-
+const WeGreenLanding = () => {
   return (
-    <div className="max-w-3xl mx-auto p-6 text-center dark:text-black">
-      <h1 className="text-4xl font-bold mb-4">🌱 We Green</h1>
-      <p className="mb-4 text-lg text-black dark:black">
-        Empower your local garden. Plan. Grow. Share.
-      </p>
+    <div className="min-h-screen bg-green-50 dark:bg-gray-900 text-gray-900 dark:text-white py-12 px-6">
+      <div className="max-w-4xl mx-auto text-center">
+        <h1 className="text-5xl font-extrabold mb-4">🌱 Welcome to We Green</h1>
+        <p className="text-xl mb-6">
+          Empower your neighborhood with gardens that grow more than food — they grow
+          community, purpose, and peace. We Green is your portal to launching or joining
+          local gardens and earning SEED tokens for your contributions.
+        </p>
 
-      <input
-        type="text"
-        placeholder="Enter your city or postal code"
-        className="w-full max-w-md p-2 border rounded mb-4 dark:bg-gray-100"
-        value={location}
-        onChange={(e) => setLocation(e.target.value)}
-      />
-      <Button onClick={handleCheck}>Check What To Plant</Button>
-
-      {season && (
-        <div className="mt-6 bg-green-100 dark:bg-green-900 p-4 rounded shadow text-left">
-          <h2 className="text-xl font-semibold mb-2">
-            🌸 Current Planting Season: {season.charAt(0).toUpperCase() + season.slice(1)}
-          </h2>
-          <ul className="list-disc ml-6">
-            {mockSuggestions[season].map((plant, i) => (
-              <li key={i}>{plant}</li>
-            ))}
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-xl mb-8">
+          <h2 className="text-2xl font-semibold mb-4">🍅 SEED Token System</h2>
+          <p className="mb-4">
+            SEED is our local currency backed by garden produce. Volunteers and hosts earn
+            SEED by growing and sharing fruits and vegetables. Use SEED to trade with neighbors,
+            buy fresh food, or support other gardens — no cash needed.
+          </p>
+          <ul className="list-disc list-inside text-left max-w-xl mx-auto">
+            <li>🌻 Earn SEED by volunteering or donating to gardens</li>
+            <li>🥕 Spend SEED at local produce stands or trade with others</li>
+            <li>🌾 Hosts earn a share of the SEED produced from their gardens</li>
+            <li>🍋 Creates a self-sustaining, cashless economy for food</li>
           </ul>
         </div>
-      )}
 
-      <div className="mt-10 text-left">
-        <h2 className="text-2xl font-semibold mb-2">🛠 Upcoming Features</h2>
-        <ul className="list-disc ml-6 space-y-1">
-          <li>📏 Garden Planner – Input space (sq ft), get optimized crop layout</li>
-          <li>💧 Water Reminder System – Sync reminders based on weather</li>
-          <li>🤝 Community Food Share – Connect with neighbors to trade/swap excess produce</li>
-          <li>🗺️ Local Garden Map – Add and explore community gardens in your region</li>
-        </ul>
-      </div>
+        <div className="space-x-4">
+          <Link
+            to="/gardenblitz"
+            className="inline-block bg-green-600 text-white px-6 py-3 rounded-lg shadow hover:bg-green-700"
+          >
+            Start a Garden Blitz 🌿
+          </Link>
+          <Link
+            to="/gardendirectory"
+            className="inline-block bg-white text-green-600 dark:bg-gray-800 dark:text-green-400 px-6 py-3 rounded-lg border border-green-600 hover:shadow"
+          >
+            Explore Gardens Nearby 🌍
+          </Link>
+        </div>
 
-      <div className="mt-10">
-        <Button onClick={() => navigate("/experiments")}>← Back to Experiments</Button>
+        <p className="mt-10 text-sm text-gray-500 dark:text-gray-400">
+          Built by your community. Powered by purpose.
+        </p>
       </div>
     </div>
   );
 };
 
-export default WeGreen;
+export default WeGreenLanding;
