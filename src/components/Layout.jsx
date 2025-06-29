@@ -42,9 +42,7 @@ export default function Layout() {
     <nav className="flex flex-wrap justify-center sm:justify-end gap-3 text-sm">
       <Link to="/" className="hover:underline">Home</Link>
       <Link to="/blog" className="hover:underline">Blog</Link>
-      <Link to="/WeGreen" className="hover:underline">WeGreen</Link>
-      <Link to="/DreamMachine" className="hover:underline">WeDream</Link>
-      <Link to="/wetalk" className="hover:underline">WeTalk</Link>
+      <Link to="/projects" className="hover:underline">Projects</Link>
       <Link to="/smartjournal" className="hover:underline">Journal</Link>
       <Link to="/MealPlanning" className="hover:underline">MealPlan</Link>
       {!isLoggedIn ? (
