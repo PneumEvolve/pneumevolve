@@ -8,41 +8,52 @@ const ProjectList = () => {
   const [expanded, setExpanded] = useState({});
   const [sortMethod, setSortMethod] = useState("alphabetical");
   const navigate = useNavigate();
-  const token = localStorage.getItem("token");
 
   useEffect(() => {
-  if (!token) {
-    console.warn("No token found. Not fetching projects.");
-    return;
-  }
+    const token = localStorage.getItem("token");
+    if (!token) {
+      console.warn("No token found in localStorage.");
+      return;
+    }
 
-  fetch(`${API_URL}/projects`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  })
-    .then(async (res) => {
-      const text = await res.text();
-      console.log("Status:", res.status, "Response:", text);
-      if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
-      return JSON.parse(text);
-    })
-    .then((data) => {
-      setProjects(data);
-    })
-    .catch((err) => {
-      alert("Project loading error: " + err.message);
-      console.error("Error:", err);
-    });
-}, []);
+    const fetchProjects = async () => {
+      try {
+        const res = await fetch(`${API_URL}/projects`, {
+          method: "GET",
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        });
+
+        const text = await res.text();
+        console.log("[ProjectList] Status:", res.status, "Response:", text);
+
+        if (!res.ok) {
+          throw new Error(`Fetch failed (${res.status})`);
+        }
+
+        const json = JSON.parse(text);
+        setProjects(Array.isArray(json) ? json : []);
+      } catch (err) {
+        console.error("[ProjectList] Error loading projects:", err);
+        alert("Could not load projects. Please try again.");
+      }
+    };
+
+    fetchProjects();
+  }, []);
 
   const handleCreateAndNavigate = async () => {
+    const token = localStorage.getItem("token");
+    if (!token) return alert("Not logged in");
+
     try {
       const res = await fetch(`${API_URL}/projects`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          "Authorization": `Bearer ${token}`,
         },
         body: JSON.stringify({
           name: "New Project",
@@ -50,6 +61,7 @@ const ProjectList = () => {
           links: [],
         }),
       });
+
       if (!res.ok) throw new Error("Failed to create project");
       const newProject = await res.json();
       navigate(`/projects/${newProject.id}`);
@@ -65,6 +77,9 @@ const ProjectList = () => {
   const handleDeleteProject = async (projectId) => {
     const confirmDelete = window.confirm("Are you sure you want to delete this project?");
     if (!confirmDelete) return;
+
+    const token = localStorage.getItem("token");
+    if (!token) return;
 
     try {
       const res = await fetch(`${API_URL}/projects/${projectId}`, {
