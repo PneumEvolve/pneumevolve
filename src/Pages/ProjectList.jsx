@@ -11,7 +11,10 @@ const ProjectList = () => {
   const token = localStorage.getItem("token");
 
   useEffect(() => {
-  console.log("Token:", token);
+  if (!token) {
+    console.warn("No token found. Not fetching projects.");
+    return;
+  }
 
   fetch(`${API_URL}/projects`, {
     headers: {
@@ -19,20 +22,17 @@ const ProjectList = () => {
     },
   })
     .then(async (res) => {
-      console.log("Status:", res.status);
       const text = await res.text();
-      console.log("Raw response text:", text);
-
-      if (!res.ok) throw new Error(`Failed to fetch: ${res.status} - ${text}`);
+      console.log("Status:", res.status, "Response:", text);
+      if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
       return JSON.parse(text);
     })
     .then((data) => {
-      console.log("Projects:", data);
       setProjects(data);
     })
     .catch((err) => {
-      alert("Error loading projects: " + err.message);
-      console.error("Project fetch error:", err);
+      alert("Project loading error: " + err.message);
+      console.error("Error:", err);
     });
 }, []);
 
