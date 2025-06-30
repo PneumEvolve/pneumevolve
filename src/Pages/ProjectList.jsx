@@ -11,23 +11,26 @@ const ProjectList = () => {
   const token = localStorage.getItem("token");
 
   useEffect(() => {
-    fetch(`${API_URL}/projects`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
+  console.log("Token from localStorage:", token);
+
+  fetch(`${API_URL}/projects`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+    .then((res) => {
+      console.log("Response status:", res.status);
+      return res.json();
     })
-      .then((res) => {
-        if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
-        return res.json();
-      })
-      .then((data) => {
-        setProjects(data);
-      })
-      .catch((err) => {
-        console.error("Error loading projects:", err);
-        setProjects([]);
-      });
-  }, []);
+    .then((data) => {
+      console.log("Projects fetched:", data); // <-- This should show on desktop AND mobile
+      setProjects(data);
+    })
+    .catch((err) => {
+      alert("Mobile error loading projects: " + err.message);
+      console.error("Error loading projects:", err);
+    });
+}, []);
 
   const handleCreateAndNavigate = async () => {
     try {
