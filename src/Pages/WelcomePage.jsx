@@ -27,6 +27,10 @@ export default function WelcomePage() {
         <li><strong>Token & Reputation Systems</strong> (optional): earn and exchange local tokens like SEED for community contributions — or track abundance without currency at all.</li>
       </ul>
 
+      <p className="mb-6">
+        <em>These features are not all live yet — they’re what we are working toward.</em> PneumEvolve is an unfolding blueprint, and you're invited to help shape it.
+      </p>
+
       <h2 className="text-2xl font-semibold mt-10 mb-4">🔁 The Core Philosophy</h2>
       <ul className="list-disc list-inside mb-6 space-y-2">
         <li><strong>You are valuable because you exist.</strong></li>
@@ -42,21 +46,21 @@ export default function WelcomePage() {
         We don’t have all the answers — and that’s the point. We are building this <strong>together</strong>, as a community. It’s editable, organic, and always evolving.
       </p>
 
-      <h2 className="text-2xl font-semibold mt-10 mb-4">🛠️ How It Works</h2>
+      <h2 className="text-2xl font-semibold mt-10 mb-4">🛠️ What We're Building — Together</h2>
       <p className="mb-6">
-        Anyone can:
+        The following features are part of the roadmap — some are functional, some are still in development. Your participation helps make them real:
       </p>
+
+      <p className="mb-2 font-semibold">Soon, anyone will be able to:</p>
       <ul className="list-disc list-inside mb-6 space-y-2">
-        <li>Create or join a community node (like "PneumEvolve Vernon")</li>
+        <li>Create or join a local community node (like "PneumEvolve Vernon")</li>
         <li>Post needs or offers</li>
         <li>Vote on collective decisions</li>
         <li>Organize or attend events</li>
         <li>Build and share resources</li>
       </ul>
 
-      <p className="mb-6">
-        Admins (like Shea) can:
-      </p>
+      <p className="mb-2 font-semibold">Admins (like Shea) will be able to:</p>
       <ul className="list-disc list-inside mb-6 space-y-2">
         <li>Edit the community’s values, vision, and modules</li>
         <li>Propose tools like SEED tokens or food distribution hubs</li>
