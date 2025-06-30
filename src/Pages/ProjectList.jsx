@@ -11,26 +11,30 @@ const ProjectList = () => {
   const token = localStorage.getItem("token");
 
   useEffect(() => {
-  console.log("Token from localStorage:", token);
+    console.log("Token from localStorage:", token);
 
-  fetch(`${API_URL}/projects`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  })
-    .then((res) => {
-      console.log("Response status:", res.status);
-      return res.json();
+    fetch(`${API_URL}/projects`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
     })
-    .then((data) => {
-      console.log("Projects fetched:", data); // <-- This should show on desktop AND mobile
-      setProjects(data);
-    })
-    .catch((err) => {
-      alert("Mobile error loading projects: " + err.message);
-      console.error("Error loading projects:", err);
-    });
-}, []);
+      .then((res) => {
+        console.log("Response status:", res.status);
+        if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        console.log("Projects fetched:", data);
+        // Uncomment for mobile debugging:
+        // alert("Projects loaded: " + JSON.stringify(data));
+        setProjects(data);
+      })
+      .catch((err) => {
+        alert("Mobile error loading projects: " + err.message);
+        console.error("Error loading projects:", err);
+        setProjects([]);
+      });
+  }, []);
 
   const handleCreateAndNavigate = async () => {
     try {
@@ -80,13 +84,13 @@ const ProjectList = () => {
     setExpanded((prev) => ({ ...prev, [projectId]: !prev[projectId] }));
   };
 
-  const sortedProjects = [...projects].sort((a, b) => {
-    if (sortMethod === "alphabetical") {
-      return a.name.localeCompare(b.name);
-    } else {
-      return new Date(b.created_at) - new Date(a.created_at);
-    }
-  });
+  const sortedProjects = Array.isArray(projects)
+    ? [...projects].sort((a, b) =>
+        sortMethod === "alphabetical"
+          ? a.name.localeCompare(b.name)
+          : new Date(b.created_at) - new Date(a.created_at)
+      )
+    : [];
 
   return (
     <div className="p-6">
@@ -127,15 +131,17 @@ const ProjectList = () => {
           {expanded[project.id] && (
             <div className="mt-2 bg-gray-50 dark:bg-gray-900 p-3 rounded">
               <p className="mb-2">{project.description || "No description"}</p>
-              {project.tasks && project.tasks.some((task) => !task.completed) && (
+
+              {Array.isArray(project.tasks) && project.tasks.some((t) => !t.completed) && (
                 <ul className="list-disc ml-5 text-sm text-gray-700 dark:text-gray-300 mb-2">
                   {project.tasks
-                    .filter((task) => !task.completed)
-                    .map((task) => (
-                      <li key={task.id}>{task.content || "(Untitled Task)"}</li>
+                    .filter((t) => !t.completed)
+                    .map((t) => (
+                      <li key={t.id}>{t.content || "(Untitled Task)"}</li>
                     ))}
                 </ul>
               )}
+
               <button
                 className="mt-2 text-sm underline text-blue-600"
                 onClick={() => navigate(`/projects/${project.id}`)}
