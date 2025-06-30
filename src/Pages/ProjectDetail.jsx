@@ -55,24 +55,30 @@ const ProjectDetail = () => {
   };
 
   const toggleTask = (taskId, completed) => {
-    fetch(`${API_URL}/projects/${id}/tasks/${taskId}`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ completed: !completed }),
+  const task = project.tasks.find((t) => t.id === taskId);
+  if (!task) return;
+
+  fetch(`${API_URL}/projects/tasks/${taskId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      content: task.content,         // Required by backend schema
+      completed: !completed,
+    }),
+  })
+    .then(() => {
+      setProject((prev) => ({
+        ...prev,
+        tasks: prev.tasks.map((t) =>
+          t.id === taskId ? { ...t, completed: !completed } : t
+        ),
+      }));
     })
-      .then(() => {
-        setProject((prev) => ({
-          ...prev,
-          tasks: prev.tasks.map((t) =>
-            t.id === taskId ? { ...t, completed: !completed } : t
-          ),
-        }));
-      })
-      .catch((err) => console.error("Error toggling task:", err));
-  };
+    .catch((err) => console.error("Error toggling task:", err));
+};
 
   const deleteTask = (taskId) => {
     fetch(`${API_URL}/projects/tasks/${taskId}`, {
@@ -192,8 +198,22 @@ const ProjectDetail = () => {
               <div key={task.id} className="flex justify-between items-center">
                 <span>{task.content}</span>
                 <div>
-                  <button onClick={() => toggleTask(task.id, task.completed)} className="mr-2">✔️</button>
-                  <button onClick={() => deleteTask(task.id)}>❌</button>
+                  <div className="flex space-x-2">
+  <button
+    onClick={() => toggleTask(task.id, task.completed)}
+    className="bg-green-500 text-white text-lg rounded-full w-9 h-9 flex items-center justify-center shadow"
+    aria-label="Mark complete"
+  >
+    ✔️
+  </button>
+  <button
+    onClick={() => deleteTask(task.id)}
+    className="bg-red-500 text-white text-lg rounded-full w-9 h-9 flex items-center justify-center shadow"
+    aria-label="Delete task"
+  >
+    ❌
+  </button>
+</div>
                 </div>
               </div>
             ))}

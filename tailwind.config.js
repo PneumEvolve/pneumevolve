@@ -1,7 +1,7 @@
 // tailwind.config.js
 module.exports = {
-  darkMode: false, // ⬅️ this disables dark mode everywhere
-  content: ["./index.html", "./src/**/*.{js,jsx,ts,tsx}"],
+  darkMode: false, // disable dark mode entirely
+  content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
   theme: {
     extend: {},
   },

@@ -21,7 +21,7 @@ const ProjectList = () => {
         const res = await fetch(`${API_URL}/projects`, {
           method: "GET",
           headers: {
-            "Authorization": `Bearer ${token}`,
+            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
         });
@@ -53,7 +53,7 @@ const ProjectList = () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           name: "New Project",
@@ -108,7 +108,7 @@ const ProjectList = () => {
     : [];
 
   return (
-    <div className="p-6">
+    <div className="p-6 bg-white text-black min-h-screen">
       <h1 className="text-2xl font-bold mb-4">Your Projects</h1>
 
       <div className="flex justify-between items-center mb-4">
@@ -131,7 +131,7 @@ const ProjectList = () => {
       {sortedProjects.map((project) => (
         <div
           key={project.id}
-          className="border p-4 mb-2 rounded hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+          className="border p-4 mb-2 rounded hover:bg-gray-100 transition bg-white"
         >
           <div
             className="cursor-pointer flex justify-between items-center"
@@ -144,11 +144,11 @@ const ProjectList = () => {
           </div>
 
           {expanded[project.id] && (
-            <div className="mt-2 bg-gray-50 dark:bg-gray-900 p-3 rounded">
+            <div className="mt-2 bg-gray-100 p-3 rounded">
               <p className="mb-2">{project.description || "No description"}</p>
 
               {Array.isArray(project.tasks) && project.tasks.some((t) => !t.completed) && (
-                <ul className="list-disc ml-5 text-sm text-gray-700 dark:text-gray-300 mb-2">
+                <ul className="list-disc ml-5 text-sm text-gray-700 mb-2">
                   {project.tasks
                     .filter((t) => !t.completed)
                     .map((t) => (
