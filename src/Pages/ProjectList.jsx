@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 const API_URL = import.meta.env.VITE_API_URL;
 
 const ProjectList = () => {
   const [projects, setProjects] = useState([]);
+  const [expanded, setExpanded] = useState({});
+  const [sortMethod, setSortMethod] = useState("alphabetical");
   const navigate = useNavigate();
-  const location = useLocation();
-
   const token = localStorage.getItem("token");
 
   useEffect(() => {
@@ -21,7 +21,6 @@ const ProjectList = () => {
         return res.json();
       })
       .then((data) => {
-        console.log("Projects response:", data);
         setProjects(data);
       })
       .catch((err) => {
@@ -74,48 +73,87 @@ const ProjectList = () => {
     }
   };
 
+  const toggleExpand = (projectId) => {
+    setExpanded((prev) => ({ ...prev, [projectId]: !prev[projectId] }));
+  };
+
+  const sortedProjects = [...projects].sort((a, b) => {
+    if (sortMethod === "alphabetical") {
+      return a.name.localeCompare(b.name);
+    } else {
+      return new Date(b.created_at) - new Date(a.created_at);
+    }
+  });
+
   return (
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-4">Your Projects</h1>
-      <button
-        className="mb-4 bg-blue-500 text-white px-4 py-2 rounded"
-        onClick={handleCreateAndNavigate}
-      >
-        Add New Project
-      </button>
-      {projects.map((project) => (
+
+      <div className="flex justify-between items-center mb-4">
+        <button
+          className="bg-blue-500 text-white px-4 py-2 rounded"
+          onClick={handleCreateAndNavigate}
+        >
+          Add New Project
+        </button>
+        <select
+          value={sortMethod}
+          onChange={(e) => setSortMethod(e.target.value)}
+          className="p-2 border rounded"
+        >
+          <option value="alphabetical">Sort A–Z</option>
+          <option value="date">Sort by Newest</option>
+        </select>
+      </div>
+
+      {sortedProjects.map((project) => (
         <div
           key={project.id}
-          className="border p-4 mb-2 rounded hover:bg-gray-100"
+          className="border p-4 mb-2 rounded hover:bg-gray-50 dark:hover:bg-gray-800 transition"
         >
           <div
-            className="cursor-pointer"
-            onClick={() => navigate(`/projects/${project.id}`)}
+            className="cursor-pointer flex justify-between items-center"
+            onClick={() => toggleExpand(project.id)}
           >
-            <h2 className="font-semibold">{project.name}</h2>
-            <p>{project.description}</p>
-            {project.tasks && project.tasks.some(task => !task.completed) && (
-              <ul className="list-disc ml-6 mt-2 text-sm text-gray-700">
-                {project.tasks
-                  .filter((task) => !task.completed)
-                  .map((task) => (
-                    <li key={task.id}>{task.content || "(Untitled Task)"}</li>
-                  ))}
-              </ul>
-            )}
+            <h2 className="font-semibold text-lg">{project.name}</h2>
+            <span className="text-sm text-gray-500">
+              {expanded[project.id] ? "▲" : "▼"}
+            </span>
           </div>
+
+          {expanded[project.id] && (
+            <div className="mt-2 bg-gray-50 dark:bg-gray-900 p-3 rounded">
+              <p className="mb-2">{project.description || "No description"}</p>
+              {project.tasks && project.tasks.some((task) => !task.completed) && (
+                <ul className="list-disc ml-5 text-sm text-gray-700 dark:text-gray-300 mb-2">
+                  {project.tasks
+                    .filter((task) => !task.completed)
+                    .map((task) => (
+                      <li key={task.id}>{task.content || "(Untitled Task)"}</li>
+                    ))}
+                </ul>
+              )}
+              <button
+                className="mt-2 text-sm underline text-blue-600"
+                onClick={() => navigate(`/projects/${project.id}`)}
+              >
+                View Full Project
+              </button>
+            </div>
+          )}
+
           <div className="mt-2 space-x-4">
             <button
               className="text-sm text-blue-600 underline"
               onClick={() => handleEditProject(project.id)}
             >
-              Edit Project
+              ✏️ Edit
             </button>
             <button
               className="text-sm text-red-600 underline"
               onClick={() => handleDeleteProject(project.id)}
             >
-              Delete Project
+              ❌ Delete
             </button>
           </div>
         </div>

@@ -26,7 +26,6 @@ import GroceryList from "./Pages/GroceryList";
 import WeDream from "./Pages/WeDream";
 import TextGame from "./Pages/TextGame";
 import ZenFreeskates from "./Pages/ZenFreeskates";
-import PneumEvolvesPlan from "./Pages/PneumEvolvesPlan";
 import NodeCreation from "./Pages/NodeCreation";
 import Nodes from "./Pages/Nodes";
 import NodeViewer from "./Pages/NodeViewer";
@@ -48,6 +47,9 @@ import EditPost from "./Pages/blog/EditPost";
 import SheasCompass from "./Pages/SheasCompass";
 import ProjectList from "./Pages/ProjectList";
 import ProjectDetail from "./Pages/ProjectDetail";
+import LandingPage from "./Pages/LandingPage";
+import CommunityList from "./Pages/CommunityList";
+import Community from "./Pages/Community";
 import "./index.css";
 
 function Root() {
@@ -74,6 +76,8 @@ function Root() {
               <Route index element={firstVisit ? <WelcomePage /> : <App />} />
               <Route path="welcome" element={<WelcomePage />} />
               <Route path="sheascompass" element={<SheasCompass />} />
+              <Route path="/CommunityList" element={<CommunityList />} />
+              <Route path="/Community" element={<Community />} />
               <Route path="/projects" element={<ProjectList />} />
               <Route path="/projects/:id" element={<ProjectDetail />} />
               <Route path="sheas-rambling-ideas" element={<SheasRamblingIdeas />} />
@@ -106,7 +110,6 @@ function Root() {
               <Route path="NodeViewer" element={<NodeViewer />} />
               <Route path="TextGame" element={<TextGame />} />
               <Route path="ZenFreeskates" element={<ZenFreeskates />} />
-              <Route path="PneumEvolvesPlan" element={<PneumEvolvesPlan />} />
               <Route path="Account" element={<Account />} />
               <Route path="SheasPage" element={<SheasPage />} />
               <Route path="ForgotPassword" element={<ForgotPassword />} />
@@ -115,6 +118,7 @@ function Root() {
               <Route path="GardenDirectory" element={<GardenDirectory />} />
               <Route path="GardenDetails/:id" element={<GardenDetails />} />
               <Route path="gardens/:id" element={<GardenDetails />} />
+              <Route path="LandingPage" element={<LandingPage />} />
               <Route
                 path="smartjournal"
                 element={

@@ -15,6 +15,9 @@ const SmartJournal = () => {
   const [modal, setModal] = useState({ open: false, entryId: null, type: null });
   const token = localStorage.getItem("token");
   const navigate = useNavigate();
+  const [editingEntry, setEditingEntry] = useState(null);
+  const [editedContent, setEditedContent] = useState("");
+  const [editedTitle, setEditedTitle] = useState("");
 
   const fetchEntries = async () => {
     try {
@@ -44,6 +47,23 @@ const SmartJournal = () => {
     setEntries([data, ...entries]);
     setNewEntry({ title: "", content: "" });
   };
+
+  const handleEditSave = async (entryId) => {
+  const res = await authFetch(`${API_URL}/journal/${entryId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: editedTitle, content: editedContent }),
+  });
+
+  if (!res.ok) {
+    alert("Failed to update journal entry.");
+    return;
+  }
+
+  const updatedEntry = await res.json();
+  setEntries((prev) => prev.map((e) => (e.id === entryId ? updatedEntry : e)));
+  setEditingEntry(null);
+};
 
   const confirmDeleteEntry = async (id) => {
   const res = await authFetch(`${API_URL}/journal/${id}`, { method: "DELETE" });
@@ -146,7 +166,41 @@ const SmartJournal = () => {
               </div>
 
               <p className="text-sm text-gray-500 mb-2">{new Date(entry.created_at).toLocaleString()}</p>
-              {expandedEntries[entry.id] && <p className="mb-2">{entry.content}</p>}
+              {editingEntry === entry.id ? (
+  <>
+    <input
+      className="w-full mb-2 p-2 border rounded"
+      value={editedTitle}
+      onChange={(e) => setEditedTitle(e.target.value)}
+    />
+    <textarea
+      className="w-full mb-2 p-2 border rounded"
+      value={editedContent}
+      onChange={(e) => setEditedContent(e.target.value)}
+    />
+    <div className="flex gap-2">
+      <Button onClick={() => handleEditSave(entry.id)}>Save</Button>
+      <Button variant="ghost" onClick={() => setEditingEntry(null)}>Cancel</Button>
+    </div>
+  </>
+) : (
+  <>
+    {expandedEntries[entry.id] && <p className="mb-2">{entry.content}</p>}
+    <div className="flex gap-2 mt-2">
+      <Button
+  size="sm"
+  variant="outline"
+  onClick={() => {
+    setModal({ open: true, entryId: entry.id, type: "edit" });
+    setEditedTitle(entry.title);
+    setEditedContent(entry.content);
+  }}
+>
+  Edit
+</Button>
+    </div>
+  </>
+)}
 
               <div className="flex items-center gap-2 mt-2">
                 <select
@@ -218,35 +272,67 @@ const SmartJournal = () => {
       )}
 
       {modal.open && (
-  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-    <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg max-w-sm text-center">
-      <p className="mb-4 text-lg">
-        Are you sure you want to delete this{" "}
-        {modal.type === "entry" ? "journal entry" : modal.type.replace("_", " ")}?
-      </p>
-      <div className="flex justify-center gap-4">
-        <Button
-          onClick={() => {
-            if (modal.type === "entry") {
-              confirmDeleteEntry(modal.entryId);
-            } else {
-              deleteInsightFromState(modal.entryId, modal.type);
-            }
-            setModal({ open: false, entryId: null, type: null });
-          }}
-        >
-          Yes, Delete
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={() => setModal({ open: false, entryId: null, type: null })}
-        >
-          Cancel
-        </Button>
-            </div>
-          </div>
+  <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
+    {modal.type === "edit" ? (
+      <div className="bg-white dark:bg-gray-800 w-full max-w-3xl p-6 rounded-lg shadow-lg overflow-y-auto max-h-[90vh]">
+        <h2 className="text-2xl font-bold mb-4">Edit Journal Entry</h2>
+        <input
+          className="w-full mb-3 p-2 border rounded"
+          value={editedTitle}
+          onChange={(e) => setEditedTitle(e.target.value)}
+        />
+        <textarea
+          className="w-full h-64 mb-4 p-2 border rounded"
+          value={editedContent}
+          onChange={(e) => setEditedContent(e.target.value)}
+        />
+        <div className="flex justify-between">
+          <Button
+            onClick={async () => {
+              await handleEditSave(modal.entryId);
+              setModal({ open: false, entryId: null, type: null });
+            }}
+          >
+            Save Changes
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => setModal({ open: false, entryId: null, type: null })}
+          >
+            Cancel
+          </Button>
         </div>
-      )}
+      </div>
+    ) : (
+      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg max-w-sm text-center">
+        <p className="mb-4 text-lg">
+          Are you sure you want to delete this{" "}
+          {modal.type === "entry" ? "journal entry" : modal.type.replace("_", " ")}?
+        </p>
+        <div className="flex justify-center gap-4">
+          <Button
+            onClick={() => {
+              if (modal.type === "entry") {
+                confirmDeleteEntry(modal.entryId);
+              } else {
+                deleteInsightFromState(modal.entryId, modal.type);
+              }
+              setModal({ open: false, entryId: null, type: null });
+            }}
+          >
+            Yes, Delete
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => setModal({ open: false, entryId: null, type: null })}
+          >
+            Cancel
+          </Button>
+        </div>
+      </div>
+    )}
+  </div>
+)}
     </div>
   );
 };
