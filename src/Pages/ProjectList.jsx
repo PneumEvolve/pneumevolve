@@ -11,30 +11,30 @@ const ProjectList = () => {
   const token = localStorage.getItem("token");
 
   useEffect(() => {
-    console.log("Token from localStorage:", token);
+  console.log("Token:", token);
 
-    fetch(`${API_URL}/projects`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
+  fetch(`${API_URL}/projects`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+    .then(async (res) => {
+      console.log("Status:", res.status);
+      const text = await res.text();
+      console.log("Raw response text:", text);
+
+      if (!res.ok) throw new Error(`Failed to fetch: ${res.status} - ${text}`);
+      return JSON.parse(text);
     })
-      .then((res) => {
-        console.log("Response status:", res.status);
-        if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
-        return res.json();
-      })
-      .then((data) => {
-        console.log("Projects fetched:", data);
-        // Uncomment for mobile debugging:
-        // alert("Projects loaded: " + JSON.stringify(data));
-        setProjects(data);
-      })
-      .catch((err) => {
-        alert("Mobile error loading projects: " + err.message);
-        console.error("Error loading projects:", err);
-        setProjects([]);
-      });
-  }, []);
+    .then((data) => {
+      console.log("Projects:", data);
+      setProjects(data);
+    })
+    .catch((err) => {
+      alert("Error loading projects: " + err.message);
+      console.error("Project fetch error:", err);
+    });
+}, []);
 
   const handleCreateAndNavigate = async () => {
     try {
