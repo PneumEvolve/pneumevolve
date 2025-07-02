@@ -50,6 +50,8 @@ import ProjectDetail from "./Pages/ProjectDetail";
 import LandingPage from "./Pages/LandingPage";
 import CommunityList from "./Pages/CommunityList";
 import Community from "./Pages/Community";
+import MyCommunityPortal from "./Pages/MyCommunityPortal";
+import GardenGame from "./Pages/gardengame/GardenGame";
 import "./index.css";
 
 function Root() {
@@ -78,6 +80,7 @@ function Root() {
               <Route path="sheascompass" element={<SheasCompass />} />
               <Route path="/CommunityList" element={<CommunityList />} />
               <Route path="/Community" element={<Community />} />
+              <Route path="/MyCommunityPortal" element={<MyCommunityPortal />} />
               <Route path="/projects" element={<ProjectList />} />
               <Route path="/projects/:id" element={<ProjectDetail />} />
               <Route path="sheas-rambling-ideas" element={<SheasRamblingIdeas />} />
@@ -119,6 +122,7 @@ function Root() {
               <Route path="GardenDetails/:id" element={<GardenDetails />} />
               <Route path="gardens/:id" element={<GardenDetails />} />
               <Route path="LandingPage" element={<LandingPage />} />
+              <Route path="/GardenGame" element={<GardenGame />} />
               <Route
                 path="smartjournal"
                 element={
