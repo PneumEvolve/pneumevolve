@@ -52,6 +52,7 @@ import CommunityList from "./Pages/CommunityList";
 import Community from "./Pages/Community";
 import MyCommunityPortal from "./Pages/MyCommunityPortal";
 import GardenGame from "./Pages/gardengame/GardenGame";
+import SheasGame from "./Pages/sheasgame/SheasGame";
 import "./index.css";
 
 function Root() {
@@ -123,6 +124,7 @@ function Root() {
               <Route path="gardens/:id" element={<GardenDetails />} />
               <Route path="LandingPage" element={<LandingPage />} />
               <Route path="/GardenGame" element={<GardenGame />} />
+              <Route path="/sheasgame" element={<SheasGame />} />
               <Route
                 path="smartjournal"
                 element={

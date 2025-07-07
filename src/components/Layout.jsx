@@ -1,6 +1,7 @@
 import { Link, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useEffect } from "react";
+import Analytics from "./Analytics";
 
 export default function Layout() {
   const { isLoggedIn, logout } = useAuth();
@@ -36,6 +37,7 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen bg-gray-100 text-gray-900">
+      <Analytics />
       <header className="bg-white shadow p-4">
   <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
     <h1 className="text-2xl font-bold text-center sm:text-left">PneumEvolve</h1>
