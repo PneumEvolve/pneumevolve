@@ -51,8 +51,8 @@ import LandingPage from "./Pages/LandingPage";
 import CommunityList from "./Pages/CommunityList";
 import Community from "./Pages/Community";
 import MyCommunityPortal from "./Pages/MyCommunityPortal";
-import GardenGame from "./Pages/gardengame/GardenGame";
-import SheasGame from "./Pages/sheasgame/SheasGame";
+import GardenGame from "./Pages/gardengame/GardenGame.jsx";
+import SheasGame from "./Pages/sheasgame/SheasGame.jsx";
 import "./index.css";
 
 function Root() {
@@ -79,11 +79,11 @@ function Root() {
               <Route index element={firstVisit ? <WelcomePage /> : <App />} />
               <Route path="welcome" element={<WelcomePage />} />
               <Route path="sheascompass" element={<SheasCompass />} />
-              <Route path="/CommunityList" element={<CommunityList />} />
-              <Route path="/Community" element={<Community />} />
-              <Route path="/MyCommunityPortal" element={<MyCommunityPortal />} />
-              <Route path="/projects" element={<ProjectList />} />
-              <Route path="/projects/:id" element={<ProjectDetail />} />
+              <Route path="CommunityList" element={<CommunityList />} />
+              <Route path="Community" element={<Community />} />
+              <Route path="MyCommunityPortal" element={<MyCommunityPortal />} />
+              <Route path="projects" element={<ProjectList />} />
+              <Route path="projects/:id" element={<ProjectDetail />} />
               <Route path="sheas-rambling-ideas" element={<SheasRamblingIdeas />} />
               <Route path="signup" element={<Signup />} />
               <Route path="login" element={<Login />} />
@@ -123,8 +123,8 @@ function Root() {
               <Route path="GardenDetails/:id" element={<GardenDetails />} />
               <Route path="gardens/:id" element={<GardenDetails />} />
               <Route path="LandingPage" element={<LandingPage />} />
-              <Route path="/GardenGame" element={<GardenGame />} />
-              <Route path="/sheasgame" element={<SheasGame />} />
+              <Route path="GardenGame" element={<GardenGame />} />
+              <Route path="sheasgame" element={<SheasGame />} />
               <Route
                 path="smartjournal"
                 element={
