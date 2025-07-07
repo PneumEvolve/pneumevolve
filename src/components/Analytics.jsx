@@ -7,7 +7,7 @@ const Analytics = () => {
   const location = useLocation();
 
   useEffect(() => {
-    ReactGA.initialize("G-XXXXXXXXXX"); // ← Replace with your GA4 ID
+    ReactGA.initialize("G-F8Q44YGLQS"); // ← Replace with your GA4 ID
   }, []);
 
   useEffect(() => {
