@@ -61,11 +61,9 @@ export default function Login() {
         return;
       }
 
-      login(responseBody.access_token);
       const decoded = jwtDecode(responseBody.access_token);
-      localStorage.setItem("user_id", decoded.id);
-      localStorage.setItem("user_email", decoded.sub);
-      navigate("/");
+login(responseBody.access_token, decoded.id, decoded.sub);
+navigate("/");
 
     } catch (err) {
       console.error("❌ Login error:", err);

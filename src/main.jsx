@@ -79,8 +79,8 @@ function Root() {
               <Route index element={firstVisit ? <WelcomePage /> : <App />} />
               <Route path="welcome" element={<WelcomePage />} />
               <Route path="sheascompass" element={<SheasCompass />} />
-              <Route path="CommunityList" element={<CommunityList />} />
-              <Route path="Community" element={<Community />} />
+              <Route path="communities" element={<CommunityList />} />
+              <Route path="communities/:id" element={<Community />} />
               <Route path="MyCommunityPortal" element={<MyCommunityPortal />} />
               <Route path="projects" element={<ProjectList />} />
               <Route path="projects/:id" element={<ProjectDetail />} />
@@ -124,15 +124,8 @@ function Root() {
               <Route path="gardens/:id" element={<GardenDetails />} />
               <Route path="LandingPage" element={<LandingPage />} />
               <Route path="GardenGame" element={<GardenGame />} />
-              <Route path="sheasgame" element={<SheasGame />} />
-              <Route
-                path="smartjournal"
-                element={
-                  <PrivateRoute>
-                    <SmartJournal />
-                  </PrivateRoute>
-                }
-              />
+              <Route path="SheasGame" element={<SheasGame />} />
+              <Route path="smartjournal" element={<SmartJournal />} />
             </Route>
           </Routes>
         </BrowserRouter>

@@ -6,6 +6,8 @@ import { authFetch } from "@/authFetch";
 
 const API_URL = "https://shea-klipper-backend.onrender.com";
 
+
+
 const SmartJournal = () => {
   const [entries, setEntries] = useState([]);
   const [newEntry, setNewEntry] = useState({ title: "", content: "" });
@@ -13,21 +15,27 @@ const SmartJournal = () => {
   const [visibleInsights, setVisibleInsights] = useState({});
   const [selectedAction, setSelectedAction] = useState({});
   const [modal, setModal] = useState({ open: false, entryId: null, type: null });
-  const token = localStorage.getItem("token");
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  
   const navigate = useNavigate();
   const [editingEntry, setEditingEntry] = useState(null);
   const [editedContent, setEditedContent] = useState("");
   const [editedTitle, setEditedTitle] = useState("");
 
   const fetchEntries = async () => {
-    try {
-      const res = await authFetch(`${API_URL}/journal`);
-      const data = await res.json();
-      setEntries(data);
-    } catch (err) {
-      console.error("Failed to fetch journal entries:", err);
-    }
-  };
+  const res = await authFetch(`${API_URL}/journal`);
+  if (!res) {
+    setShowLoginModal(true);
+    return;
+  }
+
+  try {
+    const data = await res.json();
+    setEntries(data);
+  } catch (err) {
+    console.error("Failed to parse journal entries:", err);
+  }
+};
 
   useEffect(() => {
     fetchEntries();
@@ -331,6 +339,18 @@ const SmartJournal = () => {
         </div>
       </div>
     )}
+  </div>
+)}
+{showLoginModal && (
+  <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
+    <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg max-w-sm text-center">
+      <h2 className="text-xl font-bold mb-2">Login Required</h2>
+      <p className="mb-4">Please log in to use the Smart Journal features.</p>
+      <div className="flex justify-center gap-4">
+        <Button onClick={() => navigate("/login")}>Go to Login</Button>
+        <Button variant="ghost" onClick={() => setShowLoginModal(false)}>Continue Browsing</Button>
+      </div>
+    </div>
   </div>
 )}
     </div>

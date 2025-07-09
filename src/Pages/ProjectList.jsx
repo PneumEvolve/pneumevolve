@@ -7,42 +7,43 @@ const ProjectList = () => {
   const [projects, setProjects] = useState([]);
   const [expanded, setExpanded] = useState({});
   const [sortMethod, setSortMethod] = useState("alphabetical");
+  const [showLoginModal, setShowLoginModal] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      console.warn("No token found in localStorage.");
-      return;
-    }
+  const token = localStorage.getItem("token");
+  if (!token) {
+    setShowLoginModal(true);
+    return;
+  }
 
-    const fetchProjects = async () => {
-      try {
-        const res = await fetch(`${API_URL}/projects`, {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        });
+  const fetchProjects = async () => {
+    try {
+      const res = await fetch(`${API_URL}/projects`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
 
-        const text = await res.text();
-        console.log("[ProjectList] Status:", res.status, "Response:", text);
+      const text = await res.text();
+      console.log("[ProjectList] Status:", res.status, "Response:", text);
 
-        if (!res.ok) {
-          throw new Error(`Fetch failed (${res.status})`);
-        }
-
-        const json = JSON.parse(text);
-        setProjects(Array.isArray(json) ? json : []);
-      } catch (err) {
-        console.error("[ProjectList] Error loading projects:", err);
-        alert("Could not load projects. Please try again.");
+      if (!res.ok) {
+        throw new Error(`Fetch failed (${res.status})`);
       }
-    };
 
-    fetchProjects();
-  }, []);
+      const json = JSON.parse(text);
+      setProjects(Array.isArray(json) ? json : []);
+    } catch (err) {
+      console.error("[ProjectList] Error loading projects:", err);
+      alert("Could not load projects. Please try again.");
+    }
+  };
+
+  fetchProjects();
+}, []);
 
   const handleCreateAndNavigate = async () => {
     const token = localStorage.getItem("token");
@@ -182,6 +183,28 @@ const ProjectList = () => {
           </div>
         </div>
       ))}
+      {showLoginModal && (
+  <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
+    <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg text-center max-w-md w-full">
+      <h2 className="text-xl font-semibold mb-4">Login Required</h2>
+      <p className="mb-4">You must be logged in to view or manage your projects.</p>
+      <div className="flex justify-center gap-4">
+        <button
+          className="bg-blue-600 text-white px-4 py-2 rounded"
+          onClick={() => navigate("/login")}
+        >
+          Go to Login
+        </button>
+        <button
+          className="bg-gray-300 text-gray-800 px-4 py-2 rounded"
+          onClick={() => setShowLoginModal(false)}
+        >
+          Continue Browsing
+        </button>
+      </div>
+    </div>
+  </div>
+)}
     </div>
   );
 };
