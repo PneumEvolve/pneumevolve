@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from "react";
+import axios from "axios";
+import { useAuth } from "../context/AuthContext";
 import { Textarea } from "../components/ui/textarea";
 import { Button } from "../components/ui/button";
-import { Link } from "react-router-dom";
-import { fetchWithAuth } from "../utils/fetchWithAuth";
+
+const API = import.meta.env.VITE_API_URL;
 
 let saveTimeout;
 
@@ -11,20 +13,20 @@ const WeDream = () => {
   const [mantra, setMantra] = useState("");
   const [loading, setLoading] = useState(false);
   const [saveStatus, setSaveStatus] = useState("");
-  const token = localStorage.getItem("token");
+  const { accessToken } = useAuth();
 
   useEffect(() => {
     const fetchActiveEntry = async () => {
-      if (!token) return;
+      if (!accessToken) return;
 
       try {
-        const res = await fetch("https://shea-klipper-backend.onrender.com/we-dream/active", {
+        const res = await axios.get(`${API}/we-dream/active`, {
           headers: {
-            Authorization: `Bearer ${token}`,
+            Authorization: `Bearer ${accessToken}`,
           },
         });
 
-        const data = await res.json();
+        const data = res.data;
         if (data.exists) {
           setVision(data.vision);
           setMantra(data.mantra);
@@ -35,19 +37,18 @@ const WeDream = () => {
     };
 
     fetchActiveEntry();
-  }, [token]);
+  }, [accessToken]);
 
   const handleGenerate = async () => {
     setLoading(true);
     setSaveStatus("");
     try {
-      const res = await fetch("https://shea-klipper-backend.onrender.com/we-dream/manifest", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: vision }),
-      });
-      const data = await res.json();
-      setMantra(data.mantra);
+      const res = await axios.post(
+        `${API}/we-dream/manifest`,
+        { text: vision },
+        { headers: { "Content-Type": "application/json" } }
+      );
+      setMantra(res.data.mantra);
     } catch (err) {
       console.error("Error generating mantra:", err);
       setMantra("Something went wrong. Try again.");
@@ -57,22 +58,23 @@ const WeDream = () => {
   };
 
   const handleSave = async () => {
-    if (!token) {
+    if (!accessToken) {
       setSaveStatus("Please sign in to save your dream.");
       return;
     }
 
     try {
-      const res = await fetchWithAuth("https://shea-klipper-backend.onrender.com/we-dream/save", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({ vision, mantra }),
-      });
-      const data = await res.json();
-      setSaveStatus(data.message || "Saved!");
+      const res = await axios.post(
+        `${API}/we-dream/save`,
+        { vision, mantra },
+        {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
+      setSaveStatus(res.data.message || "Saved!");
     } catch (err) {
       console.error("Error saving dream:", err);
       setSaveStatus("Failed to save dream.");
@@ -81,16 +83,18 @@ const WeDream = () => {
 
   const handleClear = async () => {
     try {
-      const res = await fetch("https://shea-klipper-backend.onrender.com/we-dream/clear", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`
-        },
-      });
-      const data = await res.json();
+      const res = await axios.post(
+        `${API}/we-dream/clear`,
+        {},
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
       setVision("");
       setMantra("");
-      setSaveStatus(data.message);
+      setSaveStatus(res.data.message);
     } catch (err) {
       console.error("Error clearing dream:", err);
       setSaveStatus("Failed to clear.");
@@ -98,7 +102,7 @@ const WeDream = () => {
   };
 
   useEffect(() => {
-    if (!token || !vision || !mantra) return;
+    if (!accessToken || !vision || !mantra) return;
 
     if (saveTimeout) clearTimeout(saveTimeout);
     saveTimeout = setTimeout(() => {
@@ -120,29 +124,29 @@ const WeDream = () => {
       </p>
 
       <div className="flex flex-col sm:flex-row justify-center items-center gap-4 mt-4 text-center">
-        <Link
-          to="/"
+        <a
+          href="/"
           className="text-blue-600 dark:text-blue-400 underline hover:text-blue-800 transition"
         >
           🏠 Return to PneumEvolve
-        </Link>
+        </a>
 
-        <Link
-          to="/dreammachine"
+        <a
+          href="/dreammachine"
           className="text-blue-600 dark:text-blue-400 underline hover:text-blue-800 transition"
         >
           🔮 View Latest Dream Machine Summary
-        </Link>
+        </a>
       </div>
 
       <p className="text-sm text-center text-gray-500 dark:text-gray-400 mt-2">
         ✍️ If you just want to write, we also provide a {" "}
-        <Link
-          to="/smartjournal"
+        <a
+          href="/smartjournal"
           className="underline text-blue-600 dark:text-blue-400 hover:text-blue-800 transition"
         >
           Smart Journal
-        </Link>{" "}
+        </a>{" "}
         with built-in mantra reflection.
       </p>
 

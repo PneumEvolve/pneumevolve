@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../components/ui/button";
+import axiosInstance from "../utils/axiosInstance";
+import { useAuth } from "../context/AuthContext";
 
 import {
   ArrowLeft,
@@ -14,7 +16,6 @@ import {
   EyeOff,
 } from "lucide-react";
 
-const API_URL = "https://shea-klipper-backend.onrender.com";
 
 const isTokenExpired = (token) => {
   try {
@@ -27,8 +28,7 @@ const isTokenExpired = (token) => {
 
 const RecipesPage = () => {
   const navigate = useNavigate();
-  const token = localStorage.getItem("token");
-  const isLoggedIn = token && !isTokenExpired(token);
+  const { isLoggedIn, accessToken: token } = useAuth();
 
   const [recipes, setRecipes] = useState([]);
   const [selectedRecipes, setSelectedRecipes] = useState({});
@@ -48,140 +48,107 @@ const RecipesPage = () => {
   }, [selectedCategory]);
 
   const fetchCategories = async () => {
-    try {
-      const res = await fetch(`${API_URL}/meal-planning/categories`, {
-        headers: isLoggedIn ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!res.ok) {
-        if (res.status === 401) {
-          console.warn("Unauthorized access to categories, showing limited view");
-          return;
-        } else {
-          throw new Error("Something went wrong fetching categories");
-        }
-      }
-      const data = await res.json();
-      setCategories(data.recipes || []);
-    } catch (err) {
+  try {
+    const { data } = await axiosInstance.get("/meal-planning/categories");
+    setCategories(data.recipes || []);
+  } catch (err) {
+    if (err.response?.status === 401) {
+      console.warn("Unauthorized access to categories, showing limited view");
+    } else {
       console.error("Error fetching categories:", err);
     }
-  };
+  }
+};
 
   const fetchRecipes = async () => {
-    try {
-      setRecipes([]);
-      const url =
-        selectedCategory === "all"
-          ? `${API_URL}/meal-planning/recipes`
-          : `${API_URL}/meal-planning/recipes?category=${encodeURIComponent(selectedCategory)}`;
-      const res = await fetch(url, {
-        headers: isLoggedIn ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!res.ok) {
-        if (res.status === 401) {
-          console.warn("Unauthorized access to recipes, showing limited view");
-          return;
-        } else {
-          throw new Error("Something went wrong fetching recipes");
-        }
-      }
-      const data = await res.json();
-      setRecipes(data);
-    } catch (error) {
+  try {
+    setRecipes([]);
+    const endpoint =
+      selectedCategory === "all"
+        ? "/meal-planning/recipes"
+        : `/meal-planning/recipes?category=${encodeURIComponent(selectedCategory)}`;
+
+    const { data } = await axiosInstance.get(endpoint);
+    setRecipes(data);
+  } catch (error) {
+    if (error.response?.status === 401) {
+      console.warn("Unauthorized access to recipes, showing limited view");
+    } else {
       console.error("Error fetching recipes:", error);
     }
-  };
+  }
+};
 
   const handleImportRecipe = async () => {
-    if (!importUrl.trim()) return;
-    if (!isLoggedIn) {
-      alert("You must be logged in to import recipes.");
-      return;
-    }
-    setImporting(true);
+  if (!importUrl.trim()) return;
+  if (!isLoggedIn) {
+    alert("You must be logged in to import recipes.");
+    return;
+  }
+  setImporting(true);
 
-    try {
-      const res = await fetch(`${API_URL}/meal-planning/recipes/import`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ url: importUrl.trim() }),
-      });
+  try {
+    const { data } = await axiosInstance.post("/meal-planning/recipes/import", {
+      url: importUrl.trim(),
+    });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Import failed");
-
-      setEditingRecipe({
-        name: data.name,
-        ingredients: data.ingredients,
-        instructions: data.instructions,
-        category: "",
-      });
-    } catch (err) {
-      alert("Error importing recipe: " + err.message);
-    } finally {
-      setImporting(false);
-      setImportUrl("");
-    }
-  };
+    setEditingRecipe({
+      name: data.name,
+      ingredients: data.ingredients,
+      instructions: data.instructions,
+      category: "",
+    });
+  } catch (err) {
+    const message = err.response?.data?.detail || err.message || "Import failed";
+    alert("Error importing recipe: " + message);
+  } finally {
+    setImporting(false);
+    setImportUrl("");
+  }
+};
 
   const deleteRecipe = async (recipeId) => {
-    if (!isLoggedIn) {
-      alert("You must be logged in to delete a recipe.");
-      return;
-    }
-    try {
-      await fetch(`${API_URL}/meal-planning/recipes/${recipeId}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      fetchRecipes();
-    } catch (error) {
-      console.error("Error deleting recipe:", error);
-    }
-  };
+  if (!isLoggedIn) {
+    alert("You must be logged in to delete a recipe.");
+    return;
+  }
+  try {
+    await axiosInstance.delete(`/meal-planning/recipes/${recipeId}`);
+    fetchRecipes(); // Refresh list after deletion
+  } catch (error) {
+    console.error("Error deleting recipe:", error);
+    alert("Failed to delete recipe.");
+  }
+};
 
   const toggleExpand = (id) => {
     setExpandedRecipes((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
   const crossCheckInventory = async () => {
-    const selectedIds = Object.entries(selectedRecipes)
-      .filter(([_, qty]) => qty > 0)
-      .map(([id]) => Number(id));
+  const selectedIds = Object.entries(selectedRecipes)
+    .filter(([_, qty]) => qty > 0)
+    .map(([id]) => Number(id));
 
-    if (selectedIds.length === 0) {
-      alert("Please select at least one recipe.");
-      return;
-    }
+  if (selectedIds.length === 0) {
+    alert("Please select at least one recipe.");
+    return;
+  }
 
-    if (!isLoggedIn) {
-      alert("Login required to generate grocery list.");
-      return;
-    }
+  if (!isLoggedIn) {
+    alert("Login required to generate grocery list.");
+    return;
+  }
 
-    try {
-      const response = await fetch(`${API_URL}/grocery-list/from-recipes`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(selectedIds),
-      });
-
-      if (!response.ok) throw new Error("Failed to generate grocery list");
-
-      const data = await response.json();
-      alert(data.message || "✅ Items added to your grocery list.");
-      navigate("/grocerylist");
-    } catch (error) {
-      console.error("Error generating grocery list:", error);
-      alert("❌ Failed to generate grocery list.");
-    }
-  };
+  try {
+    const { data } = await axiosInstance.post("/grocery-list/from-recipes", selectedIds);
+    alert(data.message || "✅ Items added to your grocery list.");
+    navigate("/grocerylist");
+  } catch (error) {
+    console.error("Error generating grocery list:", error);
+    alert("❌ Failed to generate grocery list.");
+  }
+};
 
   const handleNewRecipe = () => {
     if (!isLoggedIn) {
@@ -201,36 +168,33 @@ const RecipesPage = () => {
   };
 
   const saveEditedRecipe = async () => {
-    if (!isLoggedIn) {
-      alert("You must be logged in to create or edit recipes.");
-      return;
+  if (!isLoggedIn) {
+    alert("You must be logged in to create or edit recipes.");
+    return;
+  }
+
+  try {
+    const payload = {
+      name: editingRecipe.name,
+      ingredients: Array.isArray(editingRecipe.ingredients)
+        ? editingRecipe.ingredients
+        : editingRecipe.ingredients.split(",").map((i) => i.trim()),
+      instructions: editingRecipe.instructions,
+      category: editingRecipe.category,
+    };
+
+    if (editingRecipe.id) {
+      payload.id = editingRecipe.id;
     }
-    try {
-      const payload = {
-        ...editingRecipe,
-        id: editingRecipe.id,
-        ingredients: Array.isArray(editingRecipe.ingredients)
-          ? editingRecipe.ingredients
-          : editingRecipe.ingredients.split(",").map((i) => i.trim()),
-      };
 
-      const response = await fetch(`${API_URL}/meal-planning/recipes`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) throw new Error("Failed to save recipe");
-
-      await fetchRecipes();
-      setEditingRecipe(null);
-    } catch (err) {
-      console.error("Error saving recipe:", err);
-    }
-  };
+    await axiosInstance.post("/meal-planning/recipes", payload);
+    await fetchRecipes();
+    setEditingRecipe(null);
+  } catch (err) {
+    console.error("Error saving recipe:", err);
+    alert("❌ Failed to save recipe.");
+  }
+};
 
   const renderFullScreenEditor = () => {
     if (!editingRecipe) return null;
@@ -304,7 +268,7 @@ const RecipesPage = () => {
         <div className="flex flex-col md:flex-row md:justify-between md:items-center mb-4 gap-2">
           <h1 className="text-3xl font-bold">Your Recipes</h1>
           <div className="flex flex-wrap gap-2">
-            <Button onClick={handleNewRecipe} disabled={!isLoggedIn}>
+            <Button onClick={handleNewRecipe}>
               <Plus className="mr-2" /> New Recipe
             </Button>
             <input

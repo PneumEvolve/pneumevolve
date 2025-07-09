@@ -1,36 +1,53 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import axios from "axios";
-
-const API = import.meta.env.VITE_API_URL;
+import axiosInstance from "../../utils/axiosInstance";
+import { useAuth } from "../../context/AuthContext";
 
 export default function EditPost() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
+  const { isLoggedIn, accessToken, userEmail } = useAuth();
 
   useEffect(() => {
-    axios.get(`${API}/blog/${id}`).then(res => {
-      setTitle(res.data.title);
-      setContent(res.data.content);
-    });
-  }, [id]);
+    const fetchPost = async () => {
+      try {
+        const res = await axiosInstance.get(`/blog/${id}`);
+        setTitle(res.data.title);
+        setContent(res.data.content);
+      } catch (err) {
+        console.error("Failed to load post", err);
+        alert("Error loading post.");
+        navigate("/blog");
+      }
+    };
+
+    fetchPost();
+  }, [id, navigate]);
 
   const handleUpdate = async (e) => {
     e.preventDefault();
-    const token = localStorage.getItem("token");
+
+    if (!isLoggedIn || userEmail !== "sheaklipper@gmail.com") {
+      alert("Only Shea can edit posts.");
+      return;
+    }
 
     try {
-      await axios.put(`${API}/blog/${id}`, {
-        title,
-        content,
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await axiosInstance.put(
+        `/blog/${id}`,
+        { title, content },
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
       alert("Post updated!");
       navigate(`/blog/${id}`);
     } catch (err) {
+      console.error("Update failed", err);
       alert("Unauthorized or error updating.");
     }
   };

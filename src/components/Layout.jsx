@@ -24,7 +24,7 @@ export default function Layout() {
   const navigate = useNavigate();
 
   const checkToken = () => {
-    const token = localStorage.getItem("token");
+    const token = localStorage.getItem("access_token");
     if (!token) {
       logout();
       return;

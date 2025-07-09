@@ -1,14 +1,15 @@
 // src/pages/WeTalk.jsx
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import axios from "axios";
+import { useAuth } from "../context/AuthContext";
 import { Button } from "../components/ui/button";
-import { authFetch } from "@/authFetch";
 
-const API_URL = "https://shea-klipper-backend.onrender.com";
+const API = import.meta.env.VITE_API_URL;
 
 const WeTalk = () => {
   const navigate = useNavigate();
-  const token = localStorage.getItem("token");
+  const { accessToken } = useAuth();
 
   const [userId, setUserId] = useState(null);
   const [threads, setThreads] = useState([]);
@@ -19,17 +20,16 @@ const WeTalk = () => {
   const [userEmail, setUserEmail] = useState(null);
 
   useEffect(() => {
-  const id = localStorage.getItem("user_id");
-  const email = localStorage.getItem("user_email");
-  if (id) setUserId(parseInt(id));
-  if (email) setUserEmail(email);
-}, []);
+    const id = localStorage.getItem("user_id");
+    const email = localStorage.getItem("user_email");
+    if (id) setUserId(parseInt(id));
+    if (email) setUserEmail(email);
+  }, []);
 
   const fetchThreads = async () => {
     try {
-      const res = await fetch(`${API_URL}/forum/threads`);
-      const data = await res.json();
-      setThreads(data);
+      const res = await axios.get(`${API}/forum/threads`);
+      setThreads(res.data);
     } catch (err) {
       console.error("Failed to fetch threads:", err);
     }
@@ -37,12 +37,10 @@ const WeTalk = () => {
 
   const fetchComments = async (threadId) => {
     try {
-      const res = await fetch(`${API_URL}/forum/threads/${threadId}/comments`);
-      if (!res.ok) throw new Error("Failed to fetch comments");
-      const data = await res.json();
-      setComments(data);
+      const res = await axios.get(`${API}/forum/threads/${threadId}/comments`);
+      setComments(res.data);
     } catch (err) {
-      console.error(err);
+      console.error("Failed to fetch comments:", err);
       setComments([]);
     }
   };
@@ -53,31 +51,63 @@ const WeTalk = () => {
 
   const handleCreateThread = async () => {
     if (!newThread.trim()) return;
-    const res = await authFetch(`${API_URL}/forum/threads`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: newThread }),
-    });
-    const data = await res.json();
-    setThreads([data, ...threads]);
-    setNewThread("");
+    try {
+      const res = await axios.post(
+        `${API}/forum/threads`,
+        { text: newThread },
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }
+      );
+      setThreads([res.data, ...threads]);
+      setNewThread("");
+    } catch (err) {
+      console.error("Failed to create thread:", err);
+    }
   };
 
   const handleAddComment = async () => {
     if (!comment.trim() || !selectedThread) return;
-    const res = await authFetch(`${API_URL}/forum/comments`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ thread_id: selectedThread.id, text: comment }),
-    });
-    const data = await res.json();
-    setComments((prev) => [...prev, data]);
-    setComment("");
+    try {
+      const res = await axios.post(
+        `${API}/forum/comments`,
+        { thread_id: selectedThread.id, text: comment },
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }
+      );
+      setComments((prev) => [...prev, res.data]);
+      setComment("");
+    } catch (err) {
+      console.error("Failed to add comment:", err);
+    }
   };
 
   const handleSelectThread = async (thread) => {
     setSelectedThread(thread);
     fetchComments(thread.id);
+  };
+
+  const handleDeleteThread = async (threadId) => {
+    try {
+      await axios.delete(`${API}/forum/threads/${threadId}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      setThreads(threads.filter((t) => t.id !== threadId));
+    } catch (err) {
+      console.error("Failed to delete thread:", err);
+    }
+  };
+
+  const handleDeleteComment = async (commentId) => {
+    try {
+      await axios.delete(`${API}/forum/comments/${commentId}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      setComments(comments.filter((c) => c.id !== commentId));
+    } catch (err) {
+      console.error("Failed to delete comment:", err);
+    }
   };
 
   return (
@@ -87,7 +117,7 @@ const WeTalk = () => {
         A space to speak your truth. Share thoughts. Be heard.
       </p>
 
-      {!selectedThread && token && (
+      {!selectedThread && accessToken && (
         <>
           <textarea
             placeholder="Start a new talk..."
@@ -114,14 +144,7 @@ const WeTalk = () => {
                   {thread.text}
                 </span>
                 {(thread.user_id === userId || userEmail === "sheaklipper@gmail.com") && (
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={async () => {
-                      await authFetch(`${API_URL}/forum/threads/${thread.id}`, { method: "DELETE" });
-                      setThreads(threads.filter((t) => t.id !== thread.id));
-                    }}
-                  >
+                  <Button size="sm" variant="destructive" onClick={() => handleDeleteThread(thread.id)}>
                     Delete
                   </Button>
                 )}
@@ -146,41 +169,32 @@ const WeTalk = () => {
                 >
                   <span>{c.text}</span>
                   {(c.user_id === userId || userEmail === "sheaklipper@gmail.com") && (
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={async () => {
-                        await authFetch(`${API_URL}/forum/comments/${c.id}`, { method: "DELETE" });
-                        setComments(comments.filter((com) => com.id !== c.id));
-                      }}
-                    >
+                    <Button size="sm" variant="destructive" onClick={() => handleDeleteComment(c.id)}>
                       Delete
                     </Button>
                   )}
                 </div>
               ))}
             </div>
-            {token ? (
+            {accessToken ? (
               <>
-            <textarea
-              placeholder="Write a comment..."
-              className="w-full p-2 border rounded dark:bg-gray-800 dark:text-white mb-2"
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-            />
-            <Button onClick={handleAddComment}>Comment</Button>
-            </>
-        ) : (
-          <p className="text-sm text-gray-400">Login to add a comment</p>
-        )}
+                <textarea
+                  placeholder="Write a comment..."
+                  className="w-full p-2 border rounded dark:bg-gray-800 dark:text-white mb-2"
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                />
+                <Button onClick={handleAddComment}>Comment</Button>
+              </>
+            ) : (
+              <p className="text-sm text-gray-400">Login to add a comment</p>
+            )}
           </div>
         </div>
       )}
 
       <div className="mt-10">
-        <Button onClick={() => navigate("/")}>
-          ← Back to PneumEvolve
-        </Button>
+        <Button onClick={() => navigate("/")}>← Back to PneumEvolve</Button>
       </div>
     </div>
   );

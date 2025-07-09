@@ -2,9 +2,8 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../components/ui/button";
 import { Save, Trash, Wand2, Eye, EyeOff, X } from "lucide-react";
-import { authFetch } from "@/authFetch";
+import axiosInstance from "../utils/axiosInstance";
 
-const API_URL = "https://shea-klipper-backend.onrender.com";
 
 
 
@@ -23,17 +22,12 @@ const SmartJournal = () => {
   const [editedTitle, setEditedTitle] = useState("");
 
   const fetchEntries = async () => {
-  const res = await authFetch(`${API_URL}/journal`);
-  if (!res) {
-    setShowLoginModal(true);
-    return;
-  }
-
   try {
-    const data = await res.json();
-    setEntries(data);
+    const res = await axiosInstance.get("/journal");
+    setEntries(res.data);
   } catch (err) {
-    console.error("Failed to parse journal entries:", err);
+    console.error("Failed to fetch journal entries:", err);
+    setShowLoginModal(true);
   }
 };
 
@@ -42,64 +36,86 @@ const SmartJournal = () => {
   }, []);
 
   const handleCreate = async () => {
-    if (!newEntry.title.trim() || !newEntry.content.trim()) return;
+  if (!newEntry.title.trim() || !newEntry.content.trim()) return;
 
-    const res = await authFetch(`${API_URL}/journal`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(newEntry),
-    });
-
-    if (!res) return;
-    const data = await res.json();
-    setEntries([data, ...entries]);
+  try {
+    const res = await axiosInstance.post("/journal", newEntry);
+    setEntries([res.data, ...entries]);
     setNewEntry({ title: "", content: "" });
-  };
-
-  const handleEditSave = async (entryId) => {
-  const res = await authFetch(`${API_URL}/journal/${entryId}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ title: editedTitle, content: editedContent }),
-  });
-
-  if (!res.ok) {
-    alert("Failed to update journal entry.");
-    return;
+  } catch (err) {
+    console.error("Failed to create entry:", err);
   }
-
-  const updatedEntry = await res.json();
-  setEntries((prev) => prev.map((e) => (e.id === entryId ? updatedEntry : e)));
-  setEditingEntry(null);
 };
 
+  const handleEditSave = async (entryId) => {
+  try {
+    const res = await axiosInstance.put(`/journal/${entryId}`, {
+      title: editedTitle,
+      content: editedContent,
+    });
+    setEntries((prev) => prev.map((e) => (e.id === entryId ? res.data : e)));
+    setEditingEntry(null);
+  } catch (err) {
+    alert("Failed to update journal entry.");
+    console.error(err);
+  }
+};
+
+
   const confirmDeleteEntry = async (id) => {
-  const res = await authFetch(`${API_URL}/journal/${id}`, { method: "DELETE" });
-  if (!res) return;
-  setEntries(entries.filter((e) => e.id !== id));
+  try {
+    await axiosInstance.delete(`/journal/${id}`);
+    setEntries(entries.filter((e) => e.id !== id));
+  } catch (err) {
+    console.error("Failed to delete entry:", err);
+  }
 };
 
   const handleInsight = async (entry, type) => {
-    if (entry[type]) return;
+  if (entry[type]) return;
 
-    const backendType = type === "next_action" ? "next-action" : type;
+  const backendType = type === "next_action" ? "next-action" : type;
 
-    try {
-      const res = await authFetch(`${API_URL}/journal/${backendType}/${entry.id}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
+  try {
+    // Step 1: Trigger insight generation
+    await axiosInstance.post(`/journal/${backendType}/${entry.id}`);
 
-      if (!res) return;
-      const data = await res.json();
-      setEntries((prev) =>
-        prev.map((e) => (e.id === entry.id ? { ...e, [type]: data[type] } : e))
-      );
-    } catch (err) {
-      console.error("Insight generation failed:", err);
-      alert("Failed to generate insight.");
-    }
-  };
+    // Step 2: Poll full journal list for updated insight
+    const pollForInsight = async (retries = 10) => {
+      try {
+        const res = await axiosInstance.get("/journal");
+        const updatedEntry = res.data.find((e) => e.id === entry.id);
+
+        if (updatedEntry && updatedEntry[type]?.trim()) {
+          setEntries((prev) =>
+            prev.map((e) => (e.id === entry.id ? updatedEntry : e))
+          );
+
+          setVisibleInsights((prev) => ({
+            ...prev,
+            [entry.id]: { ...prev[entry.id], [type]: true },
+          }));
+
+          setSelectedAction((prev) => ({
+            ...prev,
+            [entry.id]: "",
+          }));
+        } else if (retries > 0) {
+          setTimeout(() => pollForInsight(retries - 1), 2000);
+        } else {
+          alert("Insight is still not ready. Try refreshing.");
+        }
+      } catch (err) {
+        console.error("Polling failed:", err);
+      }
+    };
+
+    pollForInsight();
+  } catch (err) {
+    console.error("Insight generation failed:", err);
+    alert("Failed to generate insight.");
+  }
+};
 
   const toggleEntryExpand = (id) => {
     setExpandedEntries((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -112,7 +128,9 @@ const SmartJournal = () => {
     }));
   };
 
-  const deleteInsightFromState = (id, type) => {
+  const deleteInsightFromState = async (id, type) => {
+  try {
+    await axiosInstance.delete(`/journal/${id}/insight/${type}`);
     setEntries((prev) =>
       prev.map((e) => (e.id === id ? { ...e, [type]: null } : e))
     );
@@ -121,9 +139,12 @@ const SmartJournal = () => {
       if (updated[id]) delete updated[id][type];
       return updated;
     });
-  };
+  } catch (err) {
+    console.error("Failed to delete insight:", err);
+    alert("Could not delete insight.");
+  }
+};
 
-  console.log("MODAL STATE:", modal);
 
   return (
     <div className="p-6 max-w-4xl mx-auto dark:text-white">
@@ -156,7 +177,10 @@ const SmartJournal = () => {
       ) : (
         <div className="space-y-4">
           {entries.map((entry) => (
-            <div key={entry.id} className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow relative group">
+  <div
+    key={entry.id + (entry.reflection || "") + (entry.mantra || "") + (entry.next_action || "")}
+    className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow relative group"
+  >
               <div className="flex justify-between items-center mb-2">
                 <h3 className="text-xl font-bold">{entry.title}</h3>
                 <div className="flex gap-2">

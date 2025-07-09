@@ -2,9 +2,9 @@
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import supabase from "../utils/supabaseClient";
-import axios from "axios";
+import axiosInstance from "../utils/axiosInstance";
 
-const API_BASE = "https://shea-klipper-backend.onrender.com";
+
 
 const GardenDetails = () => {
   const { id } = useParams();
@@ -24,7 +24,7 @@ const GardenDetails = () => {
 
     const fetchRequests = async () => {
       try {
-        const res = await axios.get(`${API_BASE}/volunteers/requests/${id}`);
+        const res = await axiosInstance.get(`/volunteers/requests/${id}`);
         setRequests(res.data);
       } catch (err) {
         console.error("Error fetching requests", err);
@@ -39,11 +39,11 @@ const GardenDetails = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      await axios.post(`${API_BASE}/volunteers/request`, {
-        garden_id: parseInt(id),
-        volunteer_name: volunteerName,
-        volunteer_email: volunteerEmail,
-      });
+      await axiosInstance.post(`/volunteers/request`, {
+  garden_id: parseInt(id),
+  volunteer_name: volunteerName,
+  volunteer_email: volunteerEmail,
+});
       alert("Request sent!");
       setVolunteerName("");
       setVolunteerEmail("");
@@ -59,15 +59,7 @@ const GardenDetails = () => {
     return;
   }
   try {
-    await axios.patch(
-      `${API_BASE}/volunteers/approve/${requestId}`,
-      { status },
-      {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
-        },
-      }
-    );
+    await axiosInstance.patch(`/volunteers/approve/${requestId}`, { status });
     setRequests((prev) =>
       prev.map((r) => (r.id === requestId ? { ...r, status } : r))
     );

@@ -2,9 +2,9 @@ import React, { useState, useRef, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import ReCAPTCHA from "react-google-recaptcha";
 import { useAuth } from "../context/AuthContext";
+import axiosInstance from "../utils/axiosInstance";
 import { jwtDecode } from "jwt-decode";
 
-const API_URL = "https://shea-klipper-backend.onrender.com";
 const RECAPTCHA_SITE_KEY = "6LeICxYrAAAAANn97Wz-rx1oCT9FkKMNQpAya_gv";
 
 export default function Login() {
@@ -46,28 +46,20 @@ export default function Login() {
       formData.append("client_secret", "");
       formData.append("recaptcha_token", captchaToken);
 
-      const response = await fetch(`${API_URL}/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: formData,
+      const response = await axiosInstance.post("/auth/login", formData, {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
       });
 
-      const responseBody = await response.json();
+      const { access_token, refresh_token } = response.data;
+      const decoded = jwtDecode(access_token);
 
-      if (!response.ok) {
-        setError(responseBody.detail || "Invalid login credentials");
-        recaptchaRef.current?.reset();
-        setCaptchaToken(null);
-        return;
-      }
-
-      const decoded = jwtDecode(responseBody.access_token);
-login(responseBody.access_token, decoded.id, decoded.sub);
-navigate("/");
-
+      login(access_token, refresh_token, decoded.id, decoded.sub);
+      navigate("/");
     } catch (err) {
-      console.error("❌ Login error:", err);
-      setError("An error occurred while logging in.");
+      console.error("❌ Login failed", err);
+      setError("Invalid login or server error.");
       recaptchaRef.current?.reset();
       setCaptchaToken(null);
     }
@@ -118,13 +110,13 @@ navigate("/");
         </span>
       </p>
       <p className="mt-2 text-sm text-center">
-  <span
-    onClick={() => navigate("/forgotpassword")}
-    className="text-blue-500 cursor-pointer underline"
-  >
-    Forgot Password?
-  </span>
-</p>
+        <span
+          onClick={() => navigate("/forgotpassword")}
+          className="text-blue-500 cursor-pointer underline"
+        >
+          Forgot Password?
+        </span>
+      </p>
     </div>
   );
 }

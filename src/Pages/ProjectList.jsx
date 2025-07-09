@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import axiosInstance from "../utils/axiosInstance";
 
-const API_URL = import.meta.env.VITE_API_URL;
+
 
 const ProjectList = () => {
   const [projects, setProjects] = useState([]);
@@ -11,90 +12,57 @@ const ProjectList = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-  const token = localStorage.getItem("token");
+  const token = localStorage.getItem("access_token");
   if (!token) {
     setShowLoginModal(true);
     return;
   }
 
   const fetchProjects = async () => {
-    try {
-      const res = await fetch(`${API_URL}/projects`, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      });
-
-      const text = await res.text();
-      console.log("[ProjectList] Status:", res.status, "Response:", text);
-
-      if (!res.ok) {
-        throw new Error(`Fetch failed (${res.status})`);
-      }
-
-      const json = JSON.parse(text);
-      setProjects(Array.isArray(json) ? json : []);
-    } catch (err) {
-      console.error("[ProjectList] Error loading projects:", err);
-      alert("Could not load projects. Please try again.");
-    }
-  };
+  try {
+    const res = await axiosInstance.get("/projects");
+    console.log("[ProjectList] Response:", res.data);
+    setProjects(Array.isArray(res.data) ? res.data : []);
+  } catch (err) {
+    console.error("[ProjectList] Error loading projects:", err);
+    setShowLoginModal(true);
+  }
+};
 
   fetchProjects();
 }, []);
 
   const handleCreateAndNavigate = async () => {
-    const token = localStorage.getItem("token");
-    if (!token) return alert("Not logged in");
+  try {
+    const res = await axiosInstance.post("/projects", {
+      name: "New Project",
+      description: "",
+      links: [],
+    });
 
-    try {
-      const res = await fetch(`${API_URL}/projects`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          name: "New Project",
-          description: "",
-          links: [],
-        }),
-      });
-
-      if (!res.ok) throw new Error("Failed to create project");
-      const newProject = await res.json();
-      navigate(`/projects/${newProject.id}`);
-    } catch (err) {
-      console.error("Error creating project:", err);
-    }
-  };
+    navigate(`/projects/${res.data.id}`);
+  } catch (err) {
+    console.error("Error creating project:", err);
+    alert("Failed to create project.");
+  }
+};
 
   const handleEditProject = (projectId) => {
     navigate(`/projects/${projectId}?edit=true`);
   };
 
   const handleDeleteProject = async (projectId) => {
-    const confirmDelete = window.confirm("Are you sure you want to delete this project?");
-    if (!confirmDelete) return;
+  const confirmDelete = window.confirm("Are you sure you want to delete this project?");
+  if (!confirmDelete) return;
 
-    const token = localStorage.getItem("token");
-    if (!token) return;
-
-    try {
-      const res = await fetch(`${API_URL}/projects/${projectId}`, {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      if (!res.ok) throw new Error("Failed to delete project");
-      setProjects((prev) => prev.filter((p) => p.id !== projectId));
-    } catch (err) {
-      console.error("Error deleting project:", err);
-    }
-  };
+  try {
+    await axiosInstance.delete(`/projects/${projectId}`);
+    setProjects((prev) => prev.filter((p) => p.id !== projectId));
+  } catch (err) {
+    console.error("Error deleting project:", err);
+    alert("Failed to delete project.");
+  }
+};
 
   const toggleExpand = (projectId) => {
     setExpanded((prev) => ({ ...prev, [projectId]: !prev[projectId] }));

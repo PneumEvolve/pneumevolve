@@ -1,34 +1,38 @@
 import { useState } from "react";
-import axios from "axios";
-
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
+import axiosInstance from "../../utils/axiosInstance";
+import { useAuth } from "../../context/AuthContext";
 
 export default function CreatePost() {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
 
+  const { isLoggedIn, accessToken, userEmail } = useAuth();
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    const token = localStorage.getItem("token");
-    if (!token) return alert("You must be signed in to post.");
+    if (!isLoggedIn || userEmail !== "sheaklipper@gmail.com") {
+      alert("Only Shea can post.");
+      return;
+    }
 
     try {
-      await axios.post(`${API}/blog`, {
-        title,
-        content
-      }, {
-        headers: {
-          Authorization: `Bearer ${token}`
+      await axiosInstance.post(
+        "/blog",
+        { title, content },
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
         }
-      });
+      );
 
       alert("Post created!");
       setTitle("");
       setContent("");
     } catch (err) {
       console.error("Error creating post:", err);
-      alert("Only Shea can post.");
+      alert("Something went wrong while posting.");
     }
   };
 

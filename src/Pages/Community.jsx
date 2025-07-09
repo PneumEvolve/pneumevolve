@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { authFetch } from "../authFetch";
+import axios from "axios";
 import { useAuth } from "../context/AuthContext";
 import CommunityAdminPanel from "../components/communities/CommunityAdminPanel";
 
+const API = import.meta.env.VITE_API_URL;
+
 const Community = () => {
   const { id } = useParams();
-  const { userId } = useAuth();
+  const { accessToken, userId } = useAuth();
   const [community, setCommunity] = useState(null);
   const [members, setMembers] = useState([]);
   const [isMember, setIsMember] = useState(false);
@@ -14,49 +16,47 @@ const Community = () => {
   const [requestSent, setRequestSent] = useState(false);
   const [editMode, setEditMode] = useState(false);
 
-  // Editable fields
   const [editedName, setEditedName] = useState("");
   const [editedDescription, setEditedDescription] = useState("");
 
   useEffect(() => {
     const fetchCommunity = async () => {
       try {
-        const res = await authFetch(
-          `${import.meta.env.VITE_API_URL}/communities/${id}`
-        );
-        const data = await res.json();
+        const res = await axios.get(`${API}/communities/${id}`, {
+          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+        });
+        const data = res.data;
         setCommunity(data);
         setMembers(data.members || []);
         setEditedName(data.name);
         setEditedDescription(data.description);
 
-        const numericUserId = parseInt(userId);
-        const userIsAdmin = numericUserId === data.creator_id;
-        const userIsMember = data.members?.some(
-          (member) =>
-            member.user_id === numericUserId && member.is_approved
-        );
-
-        setIsAdmin(userIsAdmin);
-        setIsMember(userIsMember || userIsAdmin);
+        if (accessToken && userId) {
+          const numericUserId = parseInt(userId);
+          const userIsAdmin = numericUserId === data.creator_id;
+          const userIsMember = data.members?.some(
+            (member) => member.user_id === numericUserId && member.is_approved
+          );
+          setIsAdmin(userIsAdmin);
+          setIsMember(userIsMember || userIsAdmin);
+        }
       } catch (err) {
         console.error("Error loading community:", err);
       }
     };
 
     fetchCommunity();
-  }, [id, userId]);
+  }, [id, accessToken, userId]);
 
   const handleJoin = async () => {
     try {
-      const res = await authFetch(
-        `${import.meta.env.VITE_API_URL}/communities/${id}/join`,
-        { method: "POST" }
+      const res = await axios.post(
+        `${API}/communities/${id}/join`,
+        {},
+        { headers: { Authorization: `Bearer ${accessToken}` } }
       );
-      if (res.ok) {
+      if (res.status === 200) {
         setRequestSent(true);
-      } else {
-        console.error("Failed to request to join.");
       }
     } catch (err) {
       console.error("Error joining community:", err);
@@ -64,31 +64,24 @@ const Community = () => {
   };
 
   const handleSave = async () => {
-  try {
-    const response = await authFetch(`${import.meta.env.VITE_API_URL}/communities/${community.id}`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        name: editedName,
-        description: editedDescription,
-        visibility: "public", // Hardcoded for now
-      }),
-    });
+    try {
+      const response = await axios.put(
+        `${API}/communities/${community.id}`,
+        {
+          name: editedName,
+          description: editedDescription,
+          visibility: "public",
+        },
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
 
-    if (!response.ok) {
-      throw new Error("Failed to save community edits.");
+      setCommunity(response.data);
+      setEditMode(false);
+    } catch (error) {
+      console.error("Error saving community:", error);
+      alert("Error saving community.");
     }
-
-    const updated = await response.json();
-    setCommunity(updated);
-    setEditMode(false);
-  } catch (error) {
-    console.error("Error saving community:", error);
-    alert("Error saving community.");
-  }
-};
+  };
 
   if (!community) return <div>Loading...</div>;
 
@@ -122,7 +115,6 @@ const Community = () => {
         </>
       )}
 
-      {/* Admin Panel */}
       {isAdmin && (
         <>
           <p className="text-green-700 font-semibold">👑 You are an admin</p>
@@ -136,8 +128,7 @@ const Community = () => {
         </>
       )}
 
-      {/* Join Button for non-members */}
-      {!isMember && !isAdmin && (
+      {!isMember && !isAdmin && accessToken && (
         <div className="mt-4">
           {requestSent ? (
             <p className="text-green-600 font-medium">Request sent!</p>
@@ -152,7 +143,6 @@ const Community = () => {
         </div>
       )}
 
-      {/* Member view confirmation */}
       {isMember && !isAdmin && (
         <p className="text-blue-700 mt-4">
           ✅ You are a member of this community

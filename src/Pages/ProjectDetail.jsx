@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
+import axiosInstance from "../utils/axiosInstance";
 
-const API_URL = import.meta.env.VITE_API_URL;
 
 const ProjectDetail = () => {
   const { id } = useParams();
@@ -12,106 +12,77 @@ const ProjectDetail = () => {
   const [editMode, setEditMode] = useState(false);
   const [editedProject, setEditedProject] = useState({ name: "", description: "", links: [] });
 
-  const token = localStorage.getItem("token");
 
   useEffect(() => {
     const queryParams = new URLSearchParams(location.search);
     setEditMode(queryParams.get("edit") === "true");
 
-    fetch(`${API_URL}/projects/${id}`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
-        return res.json();
-      })
-      .then((data) => {
-        setProject(data);
-        setEditedProject({ name: data.name, description: data.description, links: data.links });
-      })
-      .catch((err) => console.error("Error loading project:", err));
+    axiosInstance
+  .get(`/projects/${id}`)
+  .then((res) => {
+    const data = res.data;
+    setProject(data);
+    setEditedProject({ name: data.name, description: data.description, links: data.links });
+  })
+  .catch((err) => console.error("Error loading project:", err));
   }, [id, location.search]);
 
   const handleAddTask = () => {
-    fetch(`${API_URL}/projects/${id}/tasks`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ content: newTask }),
-    })
-      .then((res) => res.json())
-      .then((newTaskObj) => {
-        setProject((prev) => ({
-          ...prev,
-          tasks: [...prev.tasks, newTaskObj],
-        }));
-        setNewTask("");
-      })
-      .catch((err) => console.error("Error adding task:", err));
+    axiosInstance
+  .post(`/projects/${id}/tasks`, { content: newTask })
+  .then((res) => {
+    const newTaskObj = res.data;
+    setProject((prev) => ({
+      ...prev,
+      tasks: [...prev.tasks, newTaskObj],
+    }));
+    setNewTask("");
+  })
+  .catch((err) => console.error("Error adding task:", err));
   };
 
   const toggleTask = (taskId, completed) => {
   const task = project.tasks.find((t) => t.id === taskId);
   if (!task) return;
 
-  fetch(`${API_URL}/projects/tasks/${taskId}`, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      content: task.content,         // Required by backend schema
-      completed: !completed,
-    }),
+  axiosInstance
+  .put(`/projects/tasks/${taskId}`, {
+    content: task.content,
+    completed: !completed,
   })
-    .then(() => {
-      setProject((prev) => ({
-        ...prev,
-        tasks: prev.tasks.map((t) =>
-          t.id === taskId ? { ...t, completed: !completed } : t
-        ),
-      }));
-    })
-    .catch((err) => console.error("Error toggling task:", err));
+  .then(() => {
+    setProject((prev) => ({
+      ...prev,
+      tasks: prev.tasks.map((t) =>
+        t.id === taskId ? { ...t, completed: !completed } : t
+      ),
+    }));
+  })
+  .catch((err) => console.error("Error toggling task:", err));
 };
 
   const deleteTask = (taskId) => {
-    fetch(`${API_URL}/projects/tasks/${taskId}`, {
-      method: "DELETE",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    })
-      .then(() => {
-        setProject((prev) => ({
-          ...prev,
-          tasks: prev.tasks.filter((t) => t.id !== taskId),
-        }));
-      })
-      .catch((err) => console.error("Error deleting task:", err));
+    axiosInstance
+  .delete(`/projects/tasks/${taskId}`)
+  .then(() => {
+    setProject((prev) => ({
+      ...prev,
+      tasks: prev.tasks.filter((t) => t.id !== taskId),
+    }));
+  })
+  .catch((err) => console.error("Error deleting task:", err));
   };
 
   const handleSaveProject = () => {
-    fetch(`${API_URL}/projects/${id}`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(editedProject),
-    })
-      .then((res) => res.json())
-      .then((updated) => {
-        setProject(updated);
-        setEditMode(false);
-        navigate(`/projects/${id}`);
-      })
-      .catch((err) => console.error("Error saving project:", err));
+    axiosInstance
+  .put(`/projects/${id}`, editedProject)
+  .then((res) => {
+    const updated = res.data;
+    setProject(updated);
+    setEditMode(false);
+    navigate(`/projects/${id}`);
+  })
+  .catch((err) => console.error("Error saving project:", err));
   };
 
   if (!project) return <p>Loading...</p>;
