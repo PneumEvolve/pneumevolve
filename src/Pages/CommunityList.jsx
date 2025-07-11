@@ -13,6 +13,8 @@ const CommunityList = () => {
   const { accessToken, userId } = useAuth();
 
   useEffect(() => {
+    if (!accessToken) return;
+
     const fetchCommunities = async () => {
       try {
         const res = await axios.get(`${API}/communities/list`, {
@@ -75,17 +77,23 @@ const CommunityList = () => {
     </div>
   );
 
+  if (!accessToken) {
+    return (
+      <div className="p-6 text-center text-gray-700">
+        Please login to view communities.
+      </div>
+    );
+  }
+
   return (
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-4">Communities</h1>
-      {accessToken && (
-        <button
-          className="mb-4 bg-green-600 text-white px-4 py-2 rounded"
-          onClick={handleCreateCommunity}
-        >
-          + Create New Community
-        </button>
-      )}
+      <button
+        className="mb-4 bg-green-600 text-white px-4 py-2 rounded"
+        onClick={handleCreateCommunity}
+      >
+        + Create New Community
+      </button>
 
       {joinedCommunities.length > 0 && (
         <div className="mb-6">

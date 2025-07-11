@@ -5,7 +5,7 @@ import { useAuth } from "../../context/AuthContext";
 const API = import.meta.env.VITE_API_URL;
 
 const CommunityAdminPanel = ({ communityId, currentUserId, creatorId, editMode, setEditMode }) => {
-  const [collapsed, setCollapsed] = useState(true); // ✅ Starts collapsed
+  const [collapsed, setCollapsed] = useState(true);
   const [pending, setPending] = useState([]);
   const [members, setMembers] = useState([]);
   const [hasFetched, setHasFetched] = useState(false);
@@ -22,7 +22,7 @@ const CommunityAdminPanel = ({ communityId, currentUserId, creatorId, editMode, 
           axios.get(`${API}/communities/${communityId}/join-requests`, {
             headers: { Authorization: `Bearer ${accessToken}` },
           }),
-          axios.get(`${API}/communities/${communityId}/members`, {
+          axios.get(`${API}/communities/${communityId}/full-members`, {
             headers: { Authorization: `Bearer ${accessToken}` },
           }),
         ]);
@@ -44,8 +44,9 @@ const CommunityAdminPanel = ({ communityId, currentUserId, creatorId, editMode, 
       {},
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
+    const approvedUser = pending.find((m) => m.user_id === userId);
     setPending(pending.filter((m) => m.user_id !== userId));
-    setMembers([...members, { user_id: userId }]);
+    setMembers([...members, approvedUser]);
   };
 
   const handleReject = async (userId) => {
@@ -73,6 +74,8 @@ const CommunityAdminPanel = ({ communityId, currentUserId, creatorId, editMode, 
 
     window.location.href = "/";
   };
+
+  const displayName = (user) => user.username || `User ID: ${user.user_id}`;
 
   if (!isAdmin) return null;
 
@@ -106,7 +109,7 @@ const CommunityAdminPanel = ({ communityId, currentUserId, creatorId, editMode, 
             ) : (
               pending.map((m) => (
                 <div key={m.user_id} className="flex justify-between items-center mb-1">
-                  <span>User ID: {m.user_id}</span>
+                  <span>{displayName(m)}</span>
                   <div className="space-x-2">
                     <button
                       onClick={() => handleApprove(m.user_id)}
@@ -133,7 +136,7 @@ const CommunityAdminPanel = ({ communityId, currentUserId, creatorId, editMode, 
             ) : (
               members.map((m) => (
                 <div key={m.user_id} className="flex justify-between items-center mb-1">
-                  <span>User ID: {m.user_id}</span>
+                  <span>{displayName(m)}</span>
                   <button
                     onClick={() => handleRemove(m.user_id)}
                     className="px-2 py-1 bg-red-600 text-white rounded text-sm"
