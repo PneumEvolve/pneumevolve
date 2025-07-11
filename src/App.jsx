@@ -29,6 +29,7 @@ export default function App() {
 
         {/* COMMUNITY EXPERIMENTS */}
         <Section title="🌱 Community Building Experiments">
+          <LinkCard href="/communities" label="Modular Community Manager Experiment" />
           <LinkCard href="/WeGreen" label="WeGreen – Gardening Initiative" />
           <LinkCard href="/webuild" label="We Build – Token Ecosystem" />
           <LinkCard href="/dreammachine" label="We Dream – Collective Engine" />

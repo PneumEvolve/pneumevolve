@@ -3,6 +3,11 @@ import { useParams } from "react-router-dom";
 import axios from "axios";
 import { useAuth } from "../context/AuthContext";
 import CommunityAdminPanel from "../components/communities/CommunityAdminPanel";
+import CommunityGoals from "../components/communities/CommunityGoals";
+import CommunityChat from "../components/communities/CommunityChat";
+import ResourceBoard from "../components/communities/ResourceBoard";
+import UpcomingEvents from "../components/communities/UpcomingEvents";
+import MemberList from "../components/communities/MemberList";
 
 const API = import.meta.env.VITE_API_URL;
 
@@ -19,34 +24,61 @@ const Community = () => {
   const [editedName, setEditedName] = useState("");
   const [editedDescription, setEditedDescription] = useState("");
 
+  const [visibility, setVisibility] = useState({
+    goals: true,
+    chat: true,
+    resources: true,
+    events: true,
+    members: true,
+  });
+
   useEffect(() => {
-    const fetchCommunity = async () => {
-      try {
-        const res = await axios.get(`${API}/communities/${id}`, {
-          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
-        });
-        const data = res.data;
-        setCommunity(data);
-        setMembers(data.members || []);
-        setEditedName(data.name);
-        setEditedDescription(data.description);
+  const fetchCommunityAndMembers = async () => {
+    try {
+      // Fetch community details
+      const communityRes = await axios.get(`${API}/communities/${id}`, {
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+      });
+      const communityData = communityRes.data;
+      setCommunity(communityData);
+      setEditedName(communityData.name);
+      setEditedDescription(communityData.description);
 
-        if (accessToken && userId) {
-          const numericUserId = parseInt(userId);
-          const userIsAdmin = numericUserId === data.creator_id;
-          const userIsMember = data.members?.some(
-            (member) => member.user_id === numericUserId && member.is_approved
-          );
-          setIsAdmin(userIsAdmin);
-          setIsMember(userIsMember || userIsAdmin);
-        }
-      } catch (err) {
-        console.error("Error loading community:", err);
+      setVisibility({
+        goals: communityData.show_goals ?? true,
+        chat: communityData.show_chat ?? true,
+        resources: communityData.show_resources ?? true,
+        events: communityData.show_events ?? true,
+        members: communityData.show_members ?? true,
+      });
+
+      // Fetch APPROVED members only
+      const membersRes = await axios.get(`${API}/communities/${id}/members`, {
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+      });
+      const approvedMembers = membersRes.data;
+      setMembers(approvedMembers);
+
+      if (accessToken && userId) {
+        const numericUserId = parseInt(userId);
+        console.log("Logged in userId:", userId, "numericUserId:", numericUserId);
+
+        const userIsAdmin = numericUserId === communityData.creator_id;
+        const userIsMember = approvedMembers.some(
+          (member) => parseInt(member.user_id) === numericUserId
+        );
+
+        console.log("User is member?", userIsMember);
+        setIsAdmin(userIsAdmin);
+        setIsMember(userIsMember || userIsAdmin);
       }
-    };
+    } catch (err) {
+      console.error("Error loading community or members:", err);
+    }
+  };
 
-    fetchCommunity();
-  }, [id, accessToken, userId]);
+  fetchCommunityAndMembers();
+}, [id, accessToken, userId]);
 
   const handleJoin = async () => {
     try {
@@ -86,7 +118,7 @@ const Community = () => {
   if (!community) return <div>Loading...</div>;
 
   return (
-    <div className="p-4 max-w-3xl mx-auto">
+    <div className="p-4 max-w-5xl mx-auto">
       {editMode ? (
         <>
           <input
@@ -124,6 +156,8 @@ const Community = () => {
             creatorId={community.creator_id}
             editMode={editMode}
             setEditMode={setEditMode}
+            visibility={visibility}
+            setVisibility={setVisibility}
           />
         </>
       )}
@@ -147,6 +181,16 @@ const Community = () => {
         <p className="text-blue-700 mt-4">
           ✅ You are a member of this community
         </p>
+      )}
+
+      {isMember && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+          <CommunityGoals communityId={community.id} visible={visibility.goals} />
+          <CommunityChat communityId={community.id} visible={visibility.chat} />
+          <ResourceBoard communityId={community.id} visible={visibility.resources} />
+          <UpcomingEvents communityId={community.id} visible={visibility.events} />
+          <MemberList communityId={community.id} visible={visibility.members} />
+        </div>
       )}
     </div>
   );
