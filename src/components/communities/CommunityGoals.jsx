@@ -3,41 +3,57 @@ import axios from "axios";
 import { useAuth } from "../../context/AuthContext";
 
 export default function CommunityGoals({ communityId, visible = true }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [projects, setProjects] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [selectedProject, setSelectedProject] = useState(null);
   const [newProjectTitle, setNewProjectTitle] = useState("");
   const [newProjectDesc, setNewProjectDesc] = useState("");
   const [newTaskContent, setNewTaskContent] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [taskLoading, setTaskLoading] = useState(false);
+  const [hasFetchedProjects, setHasFetchedProjects] = useState(false);
 
   const API = import.meta.env.VITE_API_URL;
   const { accessToken } = useAuth();
 
+  const handleToggleCollapse = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    if (!next) setSelectedProject(null); // Clear selection on collapse
+  };
+
+  // ✅ Lazy-load projects on first expand
   useEffect(() => {
-    if (!visible) return;
-    axios
-      .get(`${API}/communities/${communityId}/projects`, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      })
-      .then((res) => {
-        const data = res.data;
-        if (Array.isArray(data)) {
-          setProjects(data);
-        } else if (data.projects && Array.isArray(data.projects)) {
-          setProjects(data.projects);
-        } else {
-          console.warn("Unexpected projects response:", data);
+    if (!collapsed && !hasFetchedProjects && communityId && accessToken) {
+      setLoading(true);
+      axios
+        .get(`${API}/communities/${communityId}/projects`, {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        })
+        .then((res) => {
+          const data = res.data;
+          if (Array.isArray(data)) {
+            setProjects(data);
+          } else if (data.projects && Array.isArray(data.projects)) {
+            setProjects(data.projects);
+          } else {
+            console.warn("Unexpected projects response:", data);
+            setProjects([]);
+          }
+          setHasFetchedProjects(true);
+        })
+        .catch((err) => {
+          console.error("Error fetching community projects:", err);
           setProjects([]);
-        }
-      })
-      .catch((err) => {
-        console.error("Error fetching community projects:", err);
-        setProjects([]);
-      });
-  }, [communityId, visible, accessToken]);
+        })
+        .finally(() => {
+          setLoading(false);
+        });
+    }
+  }, [collapsed, hasFetchedProjects, communityId, accessToken]);
 
   useEffect(() => {
     if (!selectedProject || collapsed) {
@@ -45,6 +61,7 @@ export default function CommunityGoals({ communityId, visible = true }) {
       return;
     }
 
+    setTaskLoading(true);
     let cancel = false;
 
     axios
@@ -58,6 +75,9 @@ export default function CommunityGoals({ communityId, visible = true }) {
       })
       .catch((err) => {
         if (!cancel) console.error("Error fetching tasks:", err);
+      })
+      .finally(() => {
+        if (!cancel) setTaskLoading(false);
       });
 
     return () => {
@@ -131,7 +151,7 @@ export default function CommunityGoals({ communityId, visible = true }) {
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-2xl font-bold">Community Goals</h2>
         <button
-          onClick={() => setCollapsed(!collapsed)}
+          onClick={handleToggleCollapse}
           className="text-sm bg-gray-200 px-3 py-1 rounded"
         >
           {collapsed ? "➕" : "➖"}
@@ -163,6 +183,11 @@ export default function CommunityGoals({ communityId, visible = true }) {
 
           <div className="mb-6">
             <h3 className="text-lg font-semibold mb-2">Projects</h3>
+            {loading ? (
+              <p className="text-gray-500">Loading projects...</p>
+            ) : projects.length === 0 ? (
+              <p className="text-gray-500">No projects found.</p>
+            ) : null}
             {projects.map((project) => (
               <div
                 key={project.id}
@@ -176,7 +201,9 @@ export default function CommunityGoals({ communityId, visible = true }) {
                 }`}
               >
                 <div className="font-bold">{project.title}</div>
-                <div className="text-sm text-gray-600">{project.description}</div>
+                <div className="text-sm text-gray-600">
+                  {project.description}
+                </div>
               </div>
             ))}
           </div>
@@ -186,12 +213,21 @@ export default function CommunityGoals({ communityId, visible = true }) {
               <h4 className="text-xl font-semibold mb-2">
                 Tasks for {selectedProject.title}
               </h4>
+              {taskLoading ? (
+                <p className="text-gray-500">Loading tasks...</p>
+              ) : tasks.length === 0 ? (
+                <p className="text-gray-500">No tasks for this project.</p>
+              ) : null}
               {tasks.map((task) => (
                 <div
                   key={task.id}
                   className="flex justify-between items-center border p-2 rounded mb-1"
                 >
-                  <span className={task.completed ? "line-through text-gray-500" : ""}>
+                  <span
+                    className={
+                      task.completed ? "line-through text-gray-500" : ""
+                    }
+                  >
                     {task.content}
                   </span>
                   <button

@@ -5,15 +5,16 @@ import { useAuth } from "../../context/AuthContext";
 const API = import.meta.env.VITE_API_URL;
 
 const CommunityAdminPanel = ({ communityId, currentUserId, creatorId, editMode, setEditMode }) => {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true); // ✅ Starts collapsed
   const [pending, setPending] = useState([]);
   const [members, setMembers] = useState([]);
+  const [hasFetched, setHasFetched] = useState(false);
   const { accessToken } = useAuth();
 
   const isAdmin = currentUserId === creatorId;
 
   useEffect(() => {
-    if (!isAdmin || collapsed) return;
+    if (!isAdmin || collapsed || hasFetched) return;
 
     const fetchData = async () => {
       try {
@@ -28,13 +29,14 @@ const CommunityAdminPanel = ({ communityId, currentUserId, creatorId, editMode, 
 
         setPending(pendingRes.data);
         setMembers(membersRes.data);
+        setHasFetched(true);
       } catch (err) {
         console.error("Admin panel fetch error:", err);
       }
     };
 
     fetchData();
-  }, [communityId, isAdmin, accessToken, collapsed]);
+  }, [communityId, isAdmin, accessToken, collapsed, hasFetched]);
 
   const handleApprove = async (userId) => {
     await axios.post(
@@ -126,17 +128,21 @@ const CommunityAdminPanel = ({ communityId, currentUserId, creatorId, editMode, 
 
           <div className="mt-4">
             <h3 className="font-semibold mb-1">Approved Members</h3>
-            {members.map((m) => (
-              <div key={m.user_id} className="flex justify-between items-center mb-1">
-                <span>User ID: {m.user_id}</span>
-                <button
-                  onClick={() => handleRemove(m.user_id)}
-                  className="px-2 py-1 bg-red-600 text-white rounded text-sm"
-                >
-                  Remove
-                </button>
-              </div>
-            ))}
+            {members.length === 0 ? (
+              <p className="text-sm text-gray-600">No approved members yet.</p>
+            ) : (
+              members.map((m) => (
+                <div key={m.user_id} className="flex justify-between items-center mb-1">
+                  <span>User ID: {m.user_id}</span>
+                  <button
+                    onClick={() => handleRemove(m.user_id)}
+                    className="px-2 py-1 bg-red-600 text-white rounded text-sm"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))
+            )}
           </div>
 
           <div className="mt-6">
