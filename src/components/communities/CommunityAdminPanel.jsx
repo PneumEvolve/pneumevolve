@@ -58,6 +58,23 @@ const CommunityAdminPanel = ({ communityId, currentUserId, creatorId, editMode, 
     setPending(pending.filter((m) => m.user_id !== userId));
   };
 
+  const handleToggleAdmin = async (userId) => {
+  try {
+    const res = await axios.put(
+      `${API}/communities/${communityId}/members/${userId}/toggle-admin`,
+      {},
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    setMembers((prev) =>
+      prev.map((m) =>
+        m.user_id === userId ? { ...m, is_admin: res.data.is_admin } : m
+      )
+    );
+  } catch (err) {
+    console.error("Error toggling admin status:", err);
+  }
+};
+
   const handleRemove = async (userId) => {
     await axios.delete(`${API}/communities/${communityId}/members/${userId}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -130,23 +147,38 @@ const CommunityAdminPanel = ({ communityId, currentUserId, creatorId, editMode, 
           </div>
 
           <div className="mt-4">
-            <h3 className="font-semibold mb-1">Approved Members</h3>
-            {members.length === 0 ? (
-              <p className="text-sm text-gray-600">No approved members yet.</p>
-            ) : (
-              members.map((m) => (
-                <div key={m.user_id} className="flex justify-between items-center mb-1">
-                  <span>{displayName(m)}</span>
-                  <button
-                    onClick={() => handleRemove(m.user_id)}
-                    className="px-2 py-1 bg-red-600 text-white rounded text-sm"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
+  <h3 className="font-semibold mb-1">Approved Members</h3>
+  {members.length === 0 ? (
+    <p className="text-sm text-gray-600">No approved members yet.</p>
+  ) : (
+    members.map((m) => (
+      <div key={m.user_id} className="flex justify-between items-center mb-1">
+        <span>
+          {displayName(m)}{" "}
+          {m.is_admin && <span className="text-xs text-yellow-600">(Admin)</span>}
+        </span>
+        <div className="space-x-2">
+          {m.user_id !== creatorId && (
+  <button
+    onClick={() => handleToggleAdmin(m.user_id)}
+    className={`px-2 py-1 rounded text-sm ${
+      m.is_admin ? "bg-yellow-600" : "bg-green-700"
+    } text-white`}
+  >
+    {m.is_admin ? "Remove Admin" : "Make Admin"}
+  </button>
+)}
+          <button
+            onClick={() => handleRemove(m.user_id)}
+            className="px-2 py-1 bg-red-600 text-white rounded text-sm"
+          >
+            Remove
+          </button>
+        </div>
+      </div>
+    ))
+  )}
+</div>
 
           <div className="mt-6">
             <button

@@ -25,14 +25,14 @@ const CommunityList = () => {
 
         if (accessToken && userId) {
           const numericUserId = parseInt(userId);
+          // Temporarily don't try to categorize communities by joined vs not
+          setOtherCommunities(data);
           const joined = data.filter((c) =>
-            c.members?.some(
-              (m) => m.user_id === numericUserId && m.is_approved
-            )
-          );
-          const others = data.filter(
-            (c) => !joined.some((jc) => jc.id === c.id)
-          );
+  c.members?.some((m) => m.user_id === numericUserId && m.is_approved)
+);
+const others = data.filter(
+  (c) => !joined.some((jc) => jc.id === c.id)
+);
 
           setJoinedCommunities(joined);
           setOtherCommunities(others);

@@ -1,199 +1,191 @@
+// src/pages/Community.jsx
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import axios from "axios";
 import { useAuth } from "../context/AuthContext";
-import CommunityAdminPanel from "../components/communities/CommunityAdminPanel";
+
 import CommunityGoals from "../components/communities/CommunityGoals";
 import CommunityChat from "../components/communities/CommunityChat";
 import ResourceBoard from "../components/communities/ResourceBoard";
 import UpcomingEvents from "../components/communities/UpcomingEvents";
 import MemberList from "../components/communities/MemberList";
+import CommunityAdminPanel from "../components/communities/CommunityAdminPanel";
+import ComponentManager from "../components/communities/ComponentManager";
+import CollapsibleComponent from "../components/ui/CollapsibleComponent";
 
 const API = import.meta.env.VITE_API_URL;
 
-const Community = () => {
-  const { id } = useParams();
+const defaultOrder = [
+  "goals",
+  "chat",
+  "resources",
+  "events",
+  "members",
+  "admin",
+  "component_manager"
+];
+
+export default function Community() {
+  const { communityId } = useParams();
   const { accessToken, userId } = useAuth();
   const [community, setCommunity] = useState(null);
-  const [members, setMembers] = useState([]);
-  const [isMember, setIsMember] = useState(false);
+  const [componentOrder, setComponentOrder] = useState(defaultOrder);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [requestSent, setRequestSent] = useState(false);
   const [editMode, setEditMode] = useState(false);
 
+  // Editable state
   const [editedName, setEditedName] = useState("");
   const [editedDescription, setEditedDescription] = useState("");
 
-  const [visibility, setVisibility] = useState({
-    goals: true,
-    chat: true,
-    resources: true,
-    events: true,
-    members: true,
-  });
-
   useEffect(() => {
-  const fetchCommunityAndMembers = async () => {
-    try {
-      // Fetch community details
-      const communityRes = await axios.get(`${API}/communities/${id}`, {
-        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
-      });
-      const communityData = communityRes.data;
-      setCommunity(communityData);
-      setEditedName(communityData.name);
-      setEditedDescription(communityData.description);
+    if (!communityId || !accessToken) return;
 
-      setVisibility({
-        goals: communityData.show_goals ?? true,
-        chat: communityData.show_chat ?? true,
-        resources: communityData.show_resources ?? true,
-        events: communityData.show_events ?? true,
-        members: communityData.show_members ?? true,
-      });
+    const fetchCommunity = async () => {
+      try {
+        const res = await axios.get(`${API}/communities/${communityId}`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
 
-      // Fetch APPROVED members only
-      const membersRes = await axios.get(`${API}/communities/${id}/members`, {
-        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
-      });
-      const approvedMembers = membersRes.data;
-      setMembers(approvedMembers);
+        const data = res.data;
+        console.log("Fetched community data:", data);
+        setCommunity(data);
+        setEditedName(data.name);
+        setEditedDescription(data.description || "");
+        setComponentOrder(data.layout_config || defaultOrder);
 
-      if (accessToken && userId) {
-        const numericUserId = parseInt(userId);
-        console.log("Logged in userId:", userId, "numericUserId:", numericUserId);
-
-        const userIsAdmin = numericUserId === communityData.creator_id;
-        const userIsMember = approvedMembers.some(
-          (member) => parseInt(member.user_id) === numericUserId
+        const member = data.members?.find(
+          (m) => m.user_id === parseInt(userId)
         );
-
-        console.log("User is member?", userIsMember);
-        setIsAdmin(userIsAdmin);
-        setIsMember(userIsMember || userIsAdmin);
+        setIsAdmin(member?.is_admin || false);
+      } catch (err) {
+        console.error("Error fetching community:", err);
       }
-    } catch (err) {
-      console.error("Error loading community or members:", err);
-    }
+    };
+
+    fetchCommunity();
+  }, [communityId, accessToken, userId]);
+
+  const handleSaveOrder = (newOrder) => {
+    setComponentOrder(newOrder);
   };
 
-  fetchCommunityAndMembers();
-}, [id, accessToken, userId]);
-
-  const handleJoin = async () => {
+  const handleSaveCommunityDetails = async () => {
     try {
-      const res = await axios.post(
-        `${API}/communities/${id}/join`,
-        {},
-        { headers: { Authorization: `Bearer ${accessToken}` } }
-      );
-      if (res.status === 200) {
-        setRequestSent(true);
-      }
-    } catch (err) {
-      console.error("Error joining community:", err);
-    }
-  };
-
-  const handleSave = async () => {
-    try {
-      const response = await axios.put(
-        `${API}/communities/${community.id}`,
+      const res = await axios.put(
+        `${API}/communities/${communityId}`,
         {
           name: editedName,
           description: editedDescription,
-          visibility: "public",
+          visibility: community.visibility,
         },
-        { headers: { Authorization: `Bearer ${accessToken}` } }
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }
       );
-
-      setCommunity(response.data);
+      setCommunity(res.data);
       setEditMode(false);
-    } catch (error) {
-      console.error("Error saving community:", error);
-      alert("Error saving community.");
+    } catch (err) {
+      console.error("Failed to save community details:", err);
     }
   };
 
-  if (!community) return <div>Loading...</div>;
+  const renderComponent = (key) => {
+    switch (key) {
+      case "goals":
+        return <CommunityGoals key="goals" communityId={communityId} />;
+      case "chat":
+        return <CommunityChat key="chat" communityId={communityId} />;
+      case "resources":
+        return <ResourceBoard key="resources" communityId={communityId} />;
+      case "events":
+        return <UpcomingEvents key="events" communityId={communityId} />;
+      case "members":
+        return <MemberList key="members" communityId={communityId} />;
+      case "component_manager":
+  return (
+    <CollapsibleComponent key="component_manager" title="Component Manager">
+      <ComponentManager
+        communityId={communityId}
+        currentOrder={componentOrder}
+        onSave={handleSaveOrder}
+      />
+    </CollapsibleComponent>
+  );
+      case "admin":
+        return (
+          <CommunityAdminPanel
+            key="admin"
+            communityId={communityId}
+            editMode={editMode}
+            setEditMode={setEditMode}
+          />
+        );
+      default:
+        return null;
+    }
+  };
+
+  if (!community) {
+    return <div className="p-6 text-gray-600">Loading community...</div>;
+  }
 
   return (
-    <div className="p-4 max-w-5xl mx-auto">
+    <div className="p-6">
       {editMode ? (
         <>
           <input
             type="text"
+            className="text-3xl font-bold mb-2 border p-2 w-full"
             value={editedName}
             onChange={(e) => setEditedName(e.target.value)}
-            className="text-3xl font-bold mb-2 w-full border p-2 rounded"
           />
           <textarea
+            className="text-gray-700 mb-4 border p-2 w-full"
             value={editedDescription}
             onChange={(e) => setEditedDescription(e.target.value)}
-            className="w-full p-2 border rounded mb-4"
-            rows={4}
+            rows={3}
           />
           <button
-            onClick={handleSave}
-            className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+            className="bg-green-600 text-white px-4 py-2 rounded mr-3"
+            onClick={handleSaveCommunityDetails}
           >
-            Save Changes
+            Save
+          </button>
+          <button
+            className="bg-gray-300 px-4 py-2 rounded"
+            onClick={() => setEditMode(false)}
+          >
+            Cancel
           </button>
         </>
       ) : (
         <>
-          <h1 className="text-3xl font-bold">{community.name}</h1>
-          <p className="text-gray-600 mb-4">{community.description}</p>
-        </>
-      )}
-
-      {isAdmin && (
-        <>
-          <p className="text-green-700 font-semibold">👑 You are an admin</p>
-          <CommunityAdminPanel
-            communityId={community.id}
-            currentUserId={parseInt(userId)}
-            creatorId={community.creator_id}
-            editMode={editMode}
-            setEditMode={setEditMode}
-            visibility={visibility}
-            setVisibility={setVisibility}
-          />
-        </>
-      )}
-
-      {!isMember && !isAdmin && accessToken && (
-        <div className="mt-4">
-          {requestSent ? (
-            <p className="text-green-600 font-medium">Request sent!</p>
-          ) : (
+          <h1 className="text-3xl font-bold mb-2">{community.name}</h1>
+          <p className="text-gray-700 mb-6">{community.description}</p>
+          {isAdmin && (
             <button
-              onClick={handleJoin}
-              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+              className="text-sm text-blue-600 mb-4"
+              onClick={() => setEditMode(true)}
             >
-              Request to Join
+              ✏️ Edit Community Info
             </button>
           )}
-        </div>
+        </>
       )}
 
-      {isMember && !isAdmin && (
-        <p className="text-blue-700 mt-4">
-          ✅ You are a member of this community
-        </p>
-      )}
+      {isAdmin && !componentOrder.includes("component_manager") && (
+  <CollapsibleComponent title="Component Manager">
+    <ComponentManager
+      communityId={communityId}
+      currentOrder={componentOrder}
+      onSave={handleSaveOrder}
+    />
+  </CollapsibleComponent>
+)}
 
-      {isMember && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
-          <CommunityGoals communityId={community.id} visible={visibility.goals} />
-          <CommunityChat communityId={community.id} visible={visibility.chat} />
-          <ResourceBoard communityId={community.id} visible={visibility.resources} />
-          <UpcomingEvents communityId={community.id} visible={visibility.events} />
-          <MemberList communityId={community.id} visible={visibility.members} />
-        </div>
-      )}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {componentOrder.map((key) => renderComponent(key))}
+      </div>
     </div>
   );
-};
-
-export default Community;
+}

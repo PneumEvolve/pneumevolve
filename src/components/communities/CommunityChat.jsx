@@ -67,10 +67,10 @@ const userId = Number(localStorage.getItem("user_id"));
   };
 
   return (
-    <div className="p-4 border rounded bg-white mt-6">
+    <div className="border rounded mb-4 bg-white shadow">
       <button
         onClick={toggleExpand}
-        className="text-left text-xl font-bold w-full mb-2 flex justify-between items-center"
+        className="w-full text-left px-4 py-2 bg-gray-100 hover:bg-gray-200 font-bold text-lg flex justify-between items-center"
       >
         💬 Community Chat
         <span className="text-sm">{expanded ? "➖" : "➕"}</span>

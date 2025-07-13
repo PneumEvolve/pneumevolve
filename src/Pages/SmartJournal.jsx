@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "../components/ui/button";
 import { Save, Trash, Wand2, Eye, EyeOff, X } from "lucide-react";
 import axiosInstance from "../utils/axiosInstance";
+import { useAuth } from "@/context/AuthContext"; // ✅ You already use this elsewhere
+import axios from "axios";
 
 
 
@@ -15,6 +17,7 @@ const SmartJournal = () => {
   const [selectedAction, setSelectedAction] = useState({});
   const [modal, setModal] = useState({ open: false, entryId: null, type: null });
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const { userId, accessToken, userProfile } = useAuth();
   
   const navigate = useNavigate();
   const [editingEntry, setEditingEntry] = useState(null);
@@ -32,8 +35,10 @@ const SmartJournal = () => {
 };
 
   useEffect(() => {
-    fetchEntries();
-  }, []);
+  fetchEntries();
+}, [userId, accessToken]);
+
+  
 
   const handleCreate = async () => {
   if (!newEntry.title.trim() || !newEntry.content.trim()) return;
@@ -148,7 +153,9 @@ const SmartJournal = () => {
 
   return (
     <div className="p-6 max-w-4xl mx-auto dark:text-white">
-      <h1 className="text-4xl font-extrabold dark:text-black mb-6 text-center">📝 I AM – Smart Journal</h1>
+      <h1 className="text-4xl font-extrabold dark:text-black mb-6 text-center">
+  📝 {userProfile?.username || "I AM"}’s Smart Journal
+</h1>
 
       <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow mb-6">
         <input
@@ -167,7 +174,7 @@ const SmartJournal = () => {
         />
         <div className="flex justify-between items-center mt-2">
           <span className="text-sm text-gray-500">{newEntry.content.length} characters</span>
-          <Button onClick={handleCreate}><Save className="mr-2" /> Save Entry</Button>
+          <Button variant="green" onClick={handleCreate}><Save className="mr-2" /> Save Entry</Button>
         </div>
       </div>
 
@@ -184,11 +191,12 @@ const SmartJournal = () => {
               <div className="flex justify-between items-center mb-2">
                 <h3 className="text-xl font-bold">{entry.title}</h3>
                 <div className="flex gap-2">
-                  <Button size="icon" onClick={() => toggleEntryExpand(entry.id)} variant="ghost">
+                  <Button variant="blue" size="icon" onClick={() => toggleEntryExpand(entry.id)} >
                     {expandedEntries[entry.id] ? <EyeOff size={16} /> : <Eye size={16} />}
                   </Button>
                   <Button
                     size="icon"
+                    className="bg-red-600 hover:bg-red-700 text-white"
                     onClick={() => setModal({ open: true, entryId: entry.id, type: "entry" })}
                     variant="destructive"
                     >
@@ -221,7 +229,7 @@ const SmartJournal = () => {
     <div className="flex gap-2 mt-2">
       <Button
   size="sm"
-  variant="outline"
+  variant="yellow"
   onClick={() => {
     setModal({ open: true, entryId: entry.id, type: "edit" });
     setEditedTitle(entry.title);
@@ -248,6 +256,7 @@ const SmartJournal = () => {
                   <option value="next_action">What should I do next?</option>
                 </select>
                 <Button
+                className="bg-green-600 hover:bg-green-700 text-white"
                   onClick={() => {
                     const action = selectedAction[entry.id];
                     if (action) handleInsight(entry, action);
@@ -276,7 +285,7 @@ const SmartJournal = () => {
                         </div>
                         <div className="text-right mt-1">
                           <Button
-                            variant="ghost"
+                            variant="blue"
                             size="sm"
                             onClick={() => toggleInsightVisibility(entry.id, type)}
                           >
@@ -287,7 +296,7 @@ const SmartJournal = () => {
                     ) : (
                       <div className="text-right">
                         <Button
-                          variant="ghost"
+                          variant="blue"
                           size="sm"
                           onClick={() => toggleInsightVisibility(entry.id, type)}
                         >

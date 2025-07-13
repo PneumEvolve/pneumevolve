@@ -5,14 +5,19 @@ import { useAuth } from "../../context/AuthContext";
 export default function CommunityGoals({ communityId, visible = true }) {
   const [collapsed, setCollapsed] = useState(true);
   const [projects, setProjects] = useState([]);
-  const [tasks, setTasks] = useState([]);
-  const [selectedProject, setSelectedProject] = useState(null);
+  const [tasks, setTasks] = useState({});
+  const [expandedProjects, setExpandedProjects] = useState({});
   const [newProjectTitle, setNewProjectTitle] = useState("");
   const [newProjectDesc, setNewProjectDesc] = useState("");
-  const [newTaskContent, setNewTaskContent] = useState("");
+  const [newTaskContent, setNewTaskContent] = useState({});
   const [loading, setLoading] = useState(false);
   const [taskLoading, setTaskLoading] = useState(false);
   const [hasFetchedProjects, setHasFetchedProjects] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState({ type: null, id: null });
+  const [editProjectId, setEditProjectId] = useState(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDesc, setEditDesc] = useState("");
 
   const API = import.meta.env.VITE_API_URL;
   const { accessToken } = useAuth();
@@ -21,7 +26,7 @@ export default function CommunityGoals({ communityId, visible = true }) {
   const handleToggleCollapse = () => {
     const next = !collapsed;
     setCollapsed(next);
-    if (!next) setSelectedProject(null);
+    setShowDeleteModal(false);
   };
 
   useEffect(() => {
@@ -29,81 +34,76 @@ export default function CommunityGoals({ communityId, visible = true }) {
       setLoading(true);
       axios
         .get(`${API}/communities/${communityId}/projects`, {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
+          headers: { Authorization: `Bearer ${accessToken}` },
         })
         .then((res) => {
-          const data = res.data;
-          if (Array.isArray(data)) {
-            setProjects(data);
-          } else if (data.projects && Array.isArray(data.projects)) {
-            setProjects(data.projects);
-          } else {
-            console.warn("Unexpected projects response:", data);
-            setProjects([]);
-          }
-          setHasFetchedProjects(true);
-        })
+  const data = Array.isArray(res.data) ? res.data : res.data.projects;
+  const sorted = (data || []).sort((a, b) =>
+    a.title.toLowerCase().localeCompare(b.title.toLowerCase())
+  );
+  setProjects(sorted);
+  setHasFetchedProjects(true);
+})
         .catch((err) => {
-          console.error("Error fetching community projects:", err);
+          console.error("Error fetching projects:", err);
           setProjects([]);
         })
-        .finally(() => {
-          setLoading(false);
-        });
+        .finally(() => setLoading(false));
     }
   }, [collapsed, hasFetchedProjects, communityId, accessToken]);
 
   useEffect(() => {
-    if (!selectedProject || collapsed) {
-      setTasks([]);
-      return;
-    }
-
-    setTaskLoading(true);
-    let cancel = false;
-
-    axios
-      .get(`${API}/communities/projects/${selectedProject.id}/tasks`, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      })
-      .then((res) => {
-        if (!cancel) setTasks(res.data);
-      })
-      .catch((err) => {
-        if (!cancel) console.error("Error fetching tasks:", err);
-      })
-      .finally(() => {
-        if (!cancel) setTaskLoading(false);
-      });
-
-    return () => {
-      cancel = true;
+    const fetchTasksForExpandedProjects = async () => {
+      for (const projectId of Object.keys(expandedProjects)) {
+        if (expandedProjects[projectId] && !tasks[projectId]) {
+          try {
+            const res = await axios.get(`${API}/communities/projects/${projectId}/tasks`, {
+              headers: { Authorization: `Bearer ${accessToken}` },
+            });
+            setTasks((prev) => ({ ...prev, [projectId]: res.data }));
+          } catch (err) {
+            console.error(`Error loading tasks for project ${projectId}:`, err);
+          }
+        }
+      }
     };
-  }, [selectedProject, accessToken, collapsed]);
+    fetchTasksForExpandedProjects();
+  }, [expandedProjects, accessToken]);
 
   const handleCreateProject = async () => {
     try {
       const res = await axios.post(
         `${API}/communities/${communityId}/projects`,
-        {
-          title: newProjectTitle,
-          description: newProjectDesc,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        }
+        { title: newProjectTitle, description: newProjectDesc },
+        { headers: { Authorization: `Bearer ${accessToken}` } }
       );
-      setProjects([...projects, res.data]);
+      setProjects([...projects, res.data].sort((a, b) =>
+  a.title.toLowerCase().localeCompare(b.title.toLowerCase())
+));
       setNewProjectTitle("");
       setNewProjectDesc("");
     } catch (err) {
       console.error("Error creating project:", err);
+    }
+  };
+
+  const handleEditProject = async () => {
+    try {
+      const res = await axios.put(
+        `${API}/communities/projects/${editProjectId}`,
+        { title: editTitle, description: editDesc },
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      setProjects((prev) =>
+  prev
+    .map((p) => (p.id === editProjectId ? res.data : p))
+    .sort((a, b) => a.title.toLowerCase().localeCompare(b.title.toLowerCase()))
+);
+      setEditProjectId(null);
+      setEditTitle("");
+      setEditDesc("");
+    } catch (err) {
+      console.error("Error editing project:", err);
     }
   };
 
@@ -112,28 +112,38 @@ export default function CommunityGoals({ communityId, visible = true }) {
       await axios.delete(`${API}/communities/projects/${projectId}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
-      setProjects(projects.filter((p) => p.id !== projectId));
-      setSelectedProject(null);
+      setProjects((prev) => prev.filter((p) => p.id !== projectId));
+      setTasks((prev) => {
+        const updated = { ...prev };
+        delete updated[projectId];
+        return updated;
+      });
+      setExpandedProjects((prev) => {
+        const updated = { ...prev };
+        delete updated[projectId];
+        return updated;
+      });
     } catch (err) {
       console.error("Error deleting project:", err);
     }
   };
 
-  const handleAddTask = async () => {
+  const handleAssignTask = async (taskId) => {
     try {
-      const res = await axios.post(
-        `${API}/communities/projects/${selectedProject.id}/tasks`,
-        { content: newTaskContent },
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        }
+      const res = await axios.put(
+        `${API}/communities/tasks/${taskId}`,
+        { assigned_to_user_id: userId },
+        { headers: { Authorization: `Bearer ${accessToken}` } }
       );
-      setTasks([...tasks, res.data]);
-      setNewTaskContent("");
+      setTasks((prev) => {
+        const updated = {};
+        for (const [projectId, taskList] of Object.entries(prev)) {
+          updated[projectId] = taskList.map((t) => (t.id === taskId ? res.data : t));
+        }
+        return updated;
+      });
     } catch (err) {
-      console.error("Error adding task:", err);
+      console.error("Error assigning task:", err);
     }
   };
 
@@ -142,7 +152,13 @@ export default function CommunityGoals({ communityId, visible = true }) {
       await axios.delete(`${API}/communities/tasks/${taskId}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
-      setTasks(tasks.filter((t) => t.id !== taskId));
+      setTasks((prev) => {
+        const updated = {};
+        for (const [projectId, taskList] of Object.entries(prev)) {
+          updated[projectId] = taskList.filter((t) => t.id !== taskId);
+        }
+        return updated;
+      });
     } catch (err) {
       console.error("Error deleting task:", err);
     }
@@ -152,16 +168,20 @@ export default function CommunityGoals({ communityId, visible = true }) {
     try {
       const res = await axios.put(
         `${API}/communities/tasks/${task.id}`,
-        {
-          completed: !task.completed,
+        { completed: !task.completed,
+        completed_by_user_id: !task.completed ? userId : null,
         },
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        }
+        { headers: { Authorization: `Bearer ${accessToken}` } }
       );
-      setTasks(tasks.map((t) => (t.id === task.id ? res.data : t)));
+      setTasks((prev) => {
+        const updated = {};
+        for (const [projectId, taskList] of Object.entries(prev)) {
+          updated[projectId] = taskList.map((t) =>
+            t.id === task.id ? res.data : t
+          );
+        }
+        return updated;
+      });
     } catch (err) {
       console.error("Error toggling task:", err);
     }
@@ -170,19 +190,45 @@ export default function CommunityGoals({ communityId, visible = true }) {
   if (!visible) return null;
 
   return (
-    <div className="p-6 bg-white rounded shadow mb-6">
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-2xl font-bold">Community Goals</h2>
-        <button
-          onClick={handleToggleCollapse}
-          className="text-sm bg-gray-200 px-3 py-1 rounded"
-        >
-          {collapsed ? "➕" : "➖"}
-        </button>
-      </div>
-
+    <div className="border rounded mb-4 bg-white shadow">
+      <button
+        onClick={handleToggleCollapse}
+        className="w-full text-left px-4 py-2 bg-gray-100 hover:bg-gray-200 font-bold text-lg flex justify-between items-center"
+      >
+        📌 Community Goals
+        <span className="text-sm">{collapsed ? "➕" : "➖"}</span>
+      </button>
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded shadow-md text-center max-w-xs">
+            <h3 className="text-lg font-bold mb-4">Confirm Deletion</h3>
+            <p className="mb-4">
+              Are you sure you want to delete this {pendingDelete.type}?
+            </p>
+            <div className="flex justify-center gap-4">
+              <button
+                className="bg-red-600 text-white px-4 py-2 rounded"
+                onClick={() => {
+                  if (pendingDelete.type === "project") handleDeleteProject(pendingDelete.id);
+                  if (pendingDelete.type === "task") handleDeleteTask(pendingDelete.id);
+                  setShowDeleteModal(false);
+                }}
+              >
+                Yes, Delete
+              </button>
+              <button
+                className="bg-gray-300 px-4 py-2 rounded"
+                onClick={() => setShowDeleteModal(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {!collapsed && (
         <>
+          {/* New Project Form */}
           <div className="mb-4">
             <input
               className="border p-2 w-full mb-2"
@@ -204,96 +250,162 @@ export default function CommunityGoals({ communityId, visible = true }) {
             </button>
           </div>
 
+          {/* Project List */}
           <div className="mb-6">
-            <h3 className="text-lg font-semibold mb-2">Projects</h3>
-            {loading ? (
-              <p className="text-gray-500">Loading projects...</p>
-            ) : projects.length === 0 ? (
-              <p className="text-gray-500">No projects found.</p>
-            ) : null}
             {projects.map((project) => (
-  <div
-    key={project.id}
-    onClick={() =>
-      setSelectedProject((prev) =>
-        prev?.id === project.id ? null : project
-      )
-    }
-    className={`p-2 border rounded cursor-pointer mb-2 relative ${
-      selectedProject?.id === project.id ? "bg-blue-100" : ""
-    }`}
-  >
-    <div className="font-bold">{project.title}</div>
-    <div className="text-sm text-gray-600">{project.description}</div>
+              <div key={project.id} className="mb-4 border rounded p-4">
+                <div className="flex justify-between items-start">
+                  <div
+                    className="cursor-pointer"
+                    onClick={() =>
+                      setExpandedProjects((prev) => ({
+                        ...prev,
+                        [project.id]: !prev[project.id],
+                      }))
+                    }
+                  >
+                    <div className="font-bold text-lg">{project.title}</div>
+                    <div className="text-sm text-gray-600">{project.description}</div>
+                  </div>
+                  <div className="flex gap-2">
+                    {(project.creator_id === userId || project.is_admin) && (
+                      <>
+                        <button
+                          className="text-yellow-600 text-xs hover:underline"
+                          onClick={() => {
+                            setEditProjectId(project.id);
+                            setEditTitle(project.title);
+                            setEditDesc(project.description);
+                          }}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          className="text-red-600 text-xs hover:underline"
+                          onClick={() => {
+                            setPendingDelete({ type: "project", id: project.id });
+                            setShowDeleteModal(true);
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
 
-    {(project.creator_id === userId || project.is_admin) && (
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          handleDeleteProject(project.id);
-        }}
-        className="absolute top-2 right-2 text-xs text-red-600 hover:underline"
-      >
-        Delete
-      </button>
-    )}
-  </div>
-))}
-          </div>
+                {editProjectId === project.id && (
+                  <div className="mt-2">
+                    <input
+                      className="border p-1 w-full mb-1"
+                      value={editTitle}
+                      onChange={(e) => setEditTitle(e.target.value)}
+                    />
+                    <textarea
+                      className="border p-1 w-full mb-1"
+                      value={editDesc}
+                      onChange={(e) => setEditDesc(e.target.value)}
+                    />
+                    <button
+                      onClick={handleEditProject}
+                      className="bg-yellow-500 text-white px-3 py-1 rounded"
+                    >
+                      Save Changes
+                    </button>
+                  </div>
+                )}
 
-          {selectedProject && (
-            <div>
-              <h4 className="text-xl font-semibold mb-2">
-                Tasks for {selectedProject.title}
-              </h4>
-              {taskLoading ? (
-                <p className="text-gray-500">Loading tasks...</p>
-              ) : tasks.length === 0 ? (
-                <p className="text-gray-500">No tasks for this project.</p>
-              ) : null}
-              {tasks.map((task) => (
-  <div
-    key={task.id}
-    className="flex justify-between items-center border p-2 rounded mb-1 relative"
-  >
-    <span className={task.completed ? "line-through text-gray-500" : ""}>
-      {task.content}
-    </span>
-    <div className="flex items-center gap-2">
-      <button
-        className="text-blue-600 text-sm"
-        onClick={() => toggleTaskCompletion(task)}
-      >
-        {task.completed ? "Undo" : "Complete"}
-      </button>
-      {(task.creator_id === userId || task.is_admin) && (
-        <button
-          onClick={() => handleDeleteTask(task.id)}
-          className="text-xs text-red-600 hover:underline"
-        >
-          Delete
-        </button>
-      )}
-    </div>
-  </div>
-))}
+                {/* Task List */}
+                {expandedProjects[project.id] && (
+                  <div className="mt-2 bg-gray-100 p-3 rounded">
+                    {taskLoading ? (
+                      <p>Loading tasks...</p>
+                    ) : (
+                      tasks[project.id]?.map((task) => (
+                        <div
+                          key={task.id}
+                          className="flex justify-between items-center border p-2 rounded mb-1"
+                        >
+                          <div>
+                            <span className={task.completed ? "line-through text-gray-500" : ""}>
+                              {task.content}
+                            </span>
+                            <div className="text-xs text-gray-600">
+                              Assigned to: {task.assigned_to?.username || "Unassigned"} | 
+                              Completed by: {task.completed_by?.username || "—"}
+                          </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              className="text-blue-600 text-sm"
+                              onClick={() => toggleTaskCompletion(task)}
+                            >
+                              {task.completed ? "Undo" : "Complete"}
+                            </button>
+                            <button
+                              className="text-green-600 text-sm"
+                              onClick={() => handleAssignTask(task.id)}
+                            >
+                              Assign
+                            </button>
+                            {(task.creator_id === userId || task.is_admin) && (
+                              <button
+                                onClick={() => {
+                                  setPendingDelete({ type: "task", id: task.id });
+                                  setShowDeleteModal(true);
+                                }}
+                                className="text-xs text-red-600 hover:underline"
+                              >
+                                Delete
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    )}
 
-              <div className="mt-4">
-                <input
-                  className="border p-2 w-full"
-                  placeholder="New task..."
-                  value={newTaskContent}
-                  onChange={(e) => setNewTaskContent(e.target.value)}
-                />
-                <button
-                  onClick={handleAddTask}
-                  className="bg-blue-600 text-white px-4 py-2 rounded mt-2"
-                >
-                  Add Task
-                </button>
+                    {/* New Task Form */}
+                    <div className="mt-4">
+                      <input
+                        className="border p-2 w-full"
+                        placeholder="New task..."
+                        value={newTaskContent[project.id] || ""}
+                        onChange={(e) =>
+                          setNewTaskContent((prev) => ({
+                            ...prev,
+                            [project.id]: e.target.value,
+                          }))
+                        }
+                      />
+                      <button
+                        onClick={async () => {
+                          try {
+                            const res = await axios.post(
+                              `${API}/communities/projects/${project.id}/tasks`,
+                              { content: newTaskContent[project.id] },
+                              {
+                                headers: { Authorization: `Bearer ${accessToken}` },
+                              }
+                            );
+                            setTasks((prev) => ({
+                              ...prev,
+                              [project.id]: [...(prev[project.id] || []), res.data],
+                            }));
+                            setNewTaskContent((prev) => ({ ...prev, [project.id]: "" }));
+                          } catch (err) {
+                            console.error("Error adding task:", err);
+                          }
+                        }}
+                        className="bg-blue-600 text-white px-4 py-2 rounded mt-2"
+                      >
+                        Add Task
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
-          )}
+            ))}
+          </div>
         </>
       )}
     </div>

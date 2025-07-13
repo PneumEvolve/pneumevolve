@@ -14,6 +14,7 @@
     "@supabase/supabase-js": "^2.50.0",
     "@tailwindcss/vite": "^4.1.7",
     "axios": "^1.10.0",
+    "browser-image-compression": "^2.0.2",
     "classnames": "^2.5.1",
     "framer-motion": "^12.15.0",
     "jwt-decode": "^4.0.0",

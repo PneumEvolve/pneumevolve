@@ -9,6 +9,7 @@ export function AuthProvider({ children }) {
   const [userId, setUserId] = useState(() => localStorage.getItem("user_id"));
   const [userEmail, setUserEmail] = useState(() => localStorage.getItem("user_email"));
   const [isLoggedIn, setIsLoggedIn] = useState(() => !!localStorage.getItem("access_token"));
+  const [userProfile, setUserProfile] = useState(null); // ✅ New: full user data
   const [loading, setLoading] = useState(true);
 
   const saveTokens = (access, refresh) => {
@@ -25,6 +26,7 @@ export function AuthProvider({ children }) {
     localStorage.setItem("user_id", id.toString());
     localStorage.setItem("user_email", email);
     setIsLoggedIn(true);
+    fetchUserProfile(access); // ✅ Fetch after login
   };
 
   const logout = () => {
@@ -36,6 +38,7 @@ export function AuthProvider({ children }) {
     setRefreshToken(null);
     setUserId(null);
     setUserEmail(null);
+    setUserProfile(null); // ✅ Clear on logout
     setIsLoggedIn(false);
   };
 
@@ -54,59 +57,79 @@ export function AuthProvider({ children }) {
     }
   };
 
+  const fetchUserProfile = async (token) => {
+    try {
+      const res = await axios.get(`${import.meta.env.VITE_API_URL}/auth/account/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setUserProfile(res.data); // ✅ Store full profile
+    } catch (err) {
+      console.error("Failed to fetch user profile:", err);
+    }
+  };
+
   useEffect(() => {
-    const checkAndRefreshToken = async () => {
-      const token = localStorage.getItem("access_token");
-      const refresh = localStorage.getItem("refresh_token");
-      const id = localStorage.getItem("user_id");
-      const email = localStorage.getItem("user_email");
+  const checkAndRefreshToken = async () => {
+    const token = localStorage.getItem("access_token");
+    const refresh = localStorage.getItem("refresh_token");
+    const id = localStorage.getItem("user_id");
+    const email = localStorage.getItem("user_email");
 
-      if (token && refresh && id && email) {
-        let payload;
-        try {
-          payload = JSON.parse(atob(token.split('.')[1]));
-        } catch (e) {
-          console.error("Invalid token:", e);
-          logout();
-          setLoading(false);
-          return;
-        }
+    if (token && refresh && id && email) {
+      let payload;
+      try {
+        payload = JSON.parse(atob(token.split('.')[1]));
+      } catch (e) {
+        console.error("Invalid token:", e);
+        logout();
+        setLoading(false);
+        return;
+      }
 
-        const currentTime = Math.floor(Date.now() / 1000);
-        if (payload.exp < currentTime) {
-          const newToken = await refreshAccessToken();
-          if (newToken) {
-            setAccessToken(newToken);
-            setRefreshToken(refresh);
-            setUserId(id);
-            setUserEmail(email);
-            setIsLoggedIn(true);
-          } else {
-            logout();
-          }
-        } else {
-          setAccessToken(token);
+      const currentTime = Math.floor(Date.now() / 1000);
+      if (payload.exp < currentTime) {
+        const newToken = await refreshAccessToken();
+        if (newToken) {
+          setAccessToken(newToken);
           setRefreshToken(refresh);
           setUserId(id);
           setUserEmail(email);
           setIsLoggedIn(true);
+          if (!userProfile) fetchUserProfile(newToken); // ✅ only if missing
+        } else {
+          logout();
         }
+      } else {
+        setAccessToken(token);
+        setRefreshToken(refresh);
+        setUserId(id);
+        setUserEmail(email);
+        setIsLoggedIn(true);
+        if (!userProfile) fetchUserProfile(token); // ✅ only if missing
       }
+    }
 
-      setLoading(false);
-    };
+    setLoading(false);
+  };
 
-    checkAndRefreshToken();
-
-    const interval = setInterval(checkAndRefreshToken, 5 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, []);
+  checkAndRefreshToken();
+  const interval = setInterval(checkAndRefreshToken, 5 * 60 * 1000);
+  return () => clearInterval(interval);
+}, [userProfile]);
 
   if (loading) return null;
 
   return (
     <AuthContext.Provider
-      value={{ login, logout, isLoggedIn, accessToken, userId, userEmail }}
+      value={{
+        login,
+        logout,
+        isLoggedIn,
+        accessToken,
+        userId,
+        userEmail,
+        userProfile, // ✅ usable anywhere now
+      }}
     >
       {children}
     </AuthContext.Provider>

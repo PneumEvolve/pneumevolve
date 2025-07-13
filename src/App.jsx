@@ -16,8 +16,7 @@ export default function App() {
           PneumEvolve
         </h1>
         <p className="text-xl text-gray-700 dark:text-gray-300 mb-10 leading-relaxed">
-          A spiritual movement of remembrance — rooted in peace, creation, and unity.
-          Everything here is a sacred experiment.
+          I hope to just be so pure and full of love and joy that people can’t help but share the site because it gives them hope.
         </p>
 
         {/* ACTUAL TOOLS */}

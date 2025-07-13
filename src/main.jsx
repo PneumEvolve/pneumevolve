@@ -80,7 +80,7 @@ function Root() {
               <Route path="welcome" element={<WelcomePage />} />
               <Route path="sheascompass" element={<SheasCompass />} />
               <Route path="communities" element={<CommunityList />} />
-              <Route path="communities/:id" element={<Community />} />
+              <Route path="communities/:communityId" element={<Community />} />
               <Route path="MyCommunityPortal" element={<MyCommunityPortal />} />
               <Route path="projects" element={<ProjectList />} />
               <Route path="projects/:id" element={<ProjectDetail />} />
