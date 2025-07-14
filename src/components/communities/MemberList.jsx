@@ -8,10 +8,10 @@ const API = import.meta.env.VITE_API_URL;
 export default function MemberList({ communityId }) {
   const { accessToken } = useAuth();
   const [users, setUsers] = useState([]);
-  const [collapsed, setCollapsed] = useState(true); // ✅ start collapsed
+  const [collapsed, setCollapsed] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [hasFetched, setHasFetched] = useState(false); // ✅ prevent re-fetching
+  const [hasFetched, setHasFetched] = useState(false);
 
   const toggleCollapse = async () => {
     const next = !collapsed;
@@ -25,7 +25,7 @@ export default function MemberList({ communityId }) {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       setUsers(res.data || []);
-      setHasFetched(true); // ✅ mark as fetched
+      setHasFetched(true);
     } catch (err) {
       console.error("Failed to fetch full member list:", err);
       setError("Could not load members.");
@@ -34,18 +34,23 @@ export default function MemberList({ communityId }) {
     }
   };
 
-  const renderUser = (user) => {
-    const displayName = user.username || user.email || `User ${user.user_id}`;
+  const renderUser = (member) => {
+    const displayName =
+      member.user?.username || member.user?.email || `User ${member.user_id}`;
+
     return (
       <li
-        key={user.user_id}
+        key={member.user_id}
         className={`border p-2 rounded text-sm ${
-          user.is_creator ? "bg-yellow-50" : "bg-gray-50"
+          member.is_creator ? "bg-yellow-50" : "bg-gray-50"
         }`}
       >
         {displayName}
-        {user.is_creator && (
-          <span className="ml-2 text-xs text-yellow-700 font-semibold">👑 Admin</span>
+        {member.is_creator && (
+          <span className="ml-2 text-xs text-yellow-700 font-semibold">👑 Creator</span>
+        )}
+        {member.is_admin && !member.is_creator && (
+          <span className="ml-2 text-xs text-blue-600 font-semibold">🔧 Admin</span>
         )}
       </li>
     );

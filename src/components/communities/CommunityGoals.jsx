@@ -229,31 +229,33 @@ export default function CommunityGoals({ communityId, visible = true }) {
       {!collapsed && (
         <>
           {/* New Project Form */}
-          <div className="mb-4">
-            <input
-              className="border p-2 w-full mb-2"
-              placeholder="Project Title"
-              value={newProjectTitle}
-              onChange={(e) => setNewProjectTitle(e.target.value)}
-            />
-            <textarea
-              className="border p-2 w-full mb-2"
-              placeholder="Project Description"
-              value={newProjectDesc}
-              onChange={(e) => setNewProjectDesc(e.target.value)}
-            />
-            <button
-              onClick={handleCreateProject}
-              className="bg-green-600 text-white px-4 py-2 rounded"
-            >
-              Create Project
-            </button>
-          </div>
+          <div className="mb-6 px-4 max-w-3xl mx-auto">
+  <div className="bg-white border rounded p-4 shadow">
+    <input
+      className="border p-2 w-full mb-3 rounded"
+      placeholder="Project Title"
+      value={newProjectTitle}
+      onChange={(e) => setNewProjectTitle(e.target.value)}
+    />
+    <textarea
+      className="border p-2 w-full mb-3 rounded"
+      placeholder="Project Description"
+      value={newProjectDesc}
+      onChange={(e) => setNewProjectDesc(e.target.value)}
+    />
+    <button
+      onClick={handleCreateProject}
+      className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+    >
+      Create Project
+    </button>
+  </div>
+</div>
 
           {/* Project List */}
-          <div className="mb-6">
+          <div className="mb-6 px-4">
             {projects.map((project) => (
-              <div key={project.id} className="mb-4 border rounded p-4">
+              <div key={project.id} className="mb-4 border rounded p-4 bg-white max-w-3xl mx-auto">
                 <div className="flex justify-between items-start">
                   <div
                     className="cursor-pointer"
@@ -317,50 +319,53 @@ export default function CommunityGoals({ communityId, visible = true }) {
 
                 {/* Task List */}
                 {expandedProjects[project.id] && (
-                  <div className="mt-2 bg-gray-100 p-3 rounded">
+  <div className="mt-2 bg-gray-100 px-4 py-6 rounded">
                     {taskLoading ? (
                       <p>Loading tasks...</p>
                     ) : (
                       tasks[project.id]?.map((task) => (
                         <div
-                          key={task.id}
-                          className="flex justify-between items-center border p-2 rounded mb-1"
-                        >
-                          <div>
-                            <span className={task.completed ? "line-through text-gray-500" : ""}>
-                              {task.content}
-                            </span>
-                            <div className="text-xs text-gray-600">
-                              Assigned to: {task.assigned_to?.username || "Unassigned"} | 
-                              Completed by: {task.completed_by?.username || "—"}
-                          </div>
-                          </div>
-                          <div className="flex gap-2">
-                            <button
-                              className="text-blue-600 text-sm"
-                              onClick={() => toggleTaskCompletion(task)}
-                            >
-                              {task.completed ? "Undo" : "Complete"}
-                            </button>
-                            <button
-                              className="text-green-600 text-sm"
-                              onClick={() => handleAssignTask(task.id)}
-                            >
-                              Assign
-                            </button>
-                            {(task.creator_id === userId || task.is_admin) && (
-                              <button
-                                onClick={() => {
-                                  setPendingDelete({ type: "task", id: task.id });
-                                  setShowDeleteModal(true);
-                                }}
-                                className="text-xs text-red-600 hover:underline"
-                              >
-                                Delete
-                              </button>
-                            )}
-                          </div>
-                        </div>
+  key={task.id}
+  className="border p-2 rounded mb-2 bg-white"
+>
+  <div className="mb-1">
+    <span className={task.completed ? "line-through text-gray-500" : ""}>
+      {task.content}
+    </span>
+    <div className="text-xs text-gray-600">
+      Assigned to: {task.assigned_to?.username || "Unassigned"}<br />
+      Completed by: {task.completed_by?.username || "—"}
+    </div>
+  </div>
+  <div className="flex flex-col sm:flex-row sm:justify-end sm:items-center gap-1 text-sm">
+  <div className="flex gap-2">
+    <button
+      className="text-blue-600"
+      onClick={() => toggleTaskCompletion(task)}
+    >
+      {task.completed ? "Undo" : "Complete"}
+    </button>
+    <button
+      className="text-green-600"
+      onClick={() => handleAssignTask(task.id)}
+    >
+      Assign
+    </button>
+  </div>
+
+  {(task.creator_id === userId || task.is_admin) && (
+    <button
+      onClick={() => {
+        setPendingDelete({ type: "task", id: task.id });
+        setShowDeleteModal(true);
+      }}
+      className="text-red-600 hover:underline text-sm sm:ml-4"
+    >
+      Delete
+    </button>
+  )}
+</div>
+</div>
                       ))
                     )}
 

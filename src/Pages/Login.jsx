@@ -67,7 +67,10 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-white text-black">
-      <h2 className="text-3xl font-semibold mb-2">Login to PneumEvolve</h2>
+      <h2 className="text-2xl font-bold mb-1 text-center">Login to PneumEvolve</h2>
+<p className="text-sm text-gray-500 text-center mb-4">
+  (May fail the first time due to unfixable server error.)
+</p>
       {message && <p className="text-green-600 mb-2">{message}</p>}
       {error && <p className="text-red-500 mb-2">{error}</p>}
 

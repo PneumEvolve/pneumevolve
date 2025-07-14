@@ -22,7 +22,7 @@ const defaultOrder = [
   "events",
   "members",
   "admin",
-  "component_manager"
+  "component_manager",
 ];
 
 export default function Community() {
@@ -30,10 +30,11 @@ export default function Community() {
   const { accessToken, userId } = useAuth();
   const [community, setCommunity] = useState(null);
   const [componentOrder, setComponentOrder] = useState(defaultOrder);
-  const [isAdmin, setIsAdmin] = useState(false);
   const [editMode, setEditMode] = useState(false);
+  const [isApproved, setIsApproved] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [joinRequested, setJoinRequested] = useState(false);
 
-  // Editable state
   const [editedName, setEditedName] = useState("");
   const [editedDescription, setEditedDescription] = useState("");
 
@@ -56,7 +57,16 @@ export default function Community() {
         const member = data.members?.find(
           (m) => m.user_id === parseInt(userId)
         );
-        setIsAdmin(member?.is_admin || false);
+
+        if (member) {
+          setIsApproved(member.is_approved);
+          setIsAdmin(member.is_admin || userId === data.creator_id);
+        } else {
+          const existingRequest = data.join_requests?.find(
+            (r) => r.user_id === parseInt(userId)
+          );
+          if (existingRequest) setJoinRequested(true);
+        }
       } catch (err) {
         console.error("Error fetching community:", err);
       }
@@ -64,6 +74,29 @@ export default function Community() {
 
     fetchCommunity();
   }, [communityId, accessToken, userId]);
+
+  useEffect(() => {
+  if (community) {
+    const member = community.members?.find((m) => m.user_id === parseInt(userId));
+    if (member) {
+      setIsApproved(member.is_approved);
+      setIsAdmin(member.is_admin || userId === community.creator_id);
+    }
+  }
+}, [community, userId]);
+
+  const handleJoinRequest = async () => {
+    try {
+      await axios.post(
+        `${API}/communities/${communityId}/join`,
+        {},
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      setJoinRequested(true);
+    } catch (err) {
+      console.error("Failed to send join request:", err);
+    }
+  };
 
   const handleSaveOrder = (newOrder) => {
     setComponentOrder(newOrder);
@@ -94,32 +127,36 @@ export default function Community() {
       case "goals":
         return <CommunityGoals key="goals" communityId={communityId} />;
       case "chat":
-        return <CommunityChat key="chat" communityId={communityId} />;
+        return <CommunityChat key="chat" communityId={communityId} isAdmin={isAdmin} />;
       case "resources":
-        return <ResourceBoard key="resources" communityId={communityId} />;
+        return <ResourceBoard key="resources" communityId={communityId} isAdmin={isAdmin} />;
       case "events":
-        return <UpcomingEvents key="events" communityId={communityId} />;
+        return <UpcomingEvents key="events" communityId={communityId} isAdmin={isAdmin} />;
       case "members":
         return <MemberList key="members" communityId={communityId} />;
       case "component_manager":
-  return (
-    <CollapsibleComponent key="component_manager" title="Component Manager">
-      <ComponentManager
-        communityId={communityId}
-        currentOrder={componentOrder}
-        onSave={handleSaveOrder}
-      />
-    </CollapsibleComponent>
-  );
-      case "admin":
         return (
-          <CommunityAdminPanel
-            key="admin"
-            communityId={communityId}
-            editMode={editMode}
-            setEditMode={setEditMode}
-          />
+          <CollapsibleComponent key="component_manager" title="Component Manager">
+            <ComponentManager
+              communityId={communityId}
+              currentOrder={componentOrder}
+              onSave={handleSaveOrder}
+              isAdmin={isAdmin}
+            />
+          </CollapsibleComponent>
         );
+      case "admin":
+  return (
+    <CommunityAdminPanel
+      key="admin"
+      communityId={communityId}
+      currentUserId={parseInt(userId)}
+      creatorId={community.creator_id}
+      editMode={editMode}
+      setEditMode={setEditMode}
+      isAdmin={isAdmin}
+    />
+  );
       default:
         return null;
     }
@@ -127,6 +164,25 @@ export default function Community() {
 
   if (!community) {
     return <div className="p-6 text-gray-600">Loading community...</div>;
+  }
+
+  if (!isApproved) {
+    return (
+      <div className="p-6 text-center max-w-xl mx-auto">
+        <h1 className="text-3xl font-bold mb-2">{community.name}</h1>
+        <p className="text-gray-700 mb-6">{community.description}</p>
+        {joinRequested ? (
+          <p className="text-blue-600">Join request sent. Waiting for approval.</p>
+        ) : (
+          <button
+            onClick={handleJoinRequest}
+            className="bg-blue-600 text-white px-4 py-2 rounded"
+          >
+            Request to Join
+          </button>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -174,14 +230,15 @@ export default function Community() {
       )}
 
       {isAdmin && !componentOrder.includes("component_manager") && (
-  <CollapsibleComponent title="Component Manager">
-    <ComponentManager
-      communityId={communityId}
-      currentOrder={componentOrder}
-      onSave={handleSaveOrder}
-    />
-  </CollapsibleComponent>
-)}
+        <CollapsibleComponent title="Component Manager">
+          <ComponentManager
+            communityId={communityId}
+            currentOrder={componentOrder}
+            onSave={handleSaveOrder}
+            isAdmin={isAdmin}
+          />
+        </CollapsibleComponent>
+      )}
 
       <div className="flex flex-col gap-4">
         {componentOrder.map((key) => renderComponent(key))}
