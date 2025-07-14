@@ -58,7 +58,7 @@ export default function Layout() {
             <Link to="/communities" className="hover:underline">Community</Link>
             <Link to="/blog" className="hover:underline">Blog</Link>
             <Link to="/projects" className="hover:underline">Projects</Link>
-            <Link to="/smartjournal" className="hover:underline">Journal</Link>
+            <Link to="/journal" className="hover:underline">Journal</Link>
             <Link to="/MealPlanning" className="hover:underline">MealPlan</Link>
             {!isLoggedIn ? (
               <>

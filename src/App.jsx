@@ -21,7 +21,7 @@ export default function App() {
 
         {/* ACTUAL TOOLS */}
         <Section title="🛠 Actual Tools">
-          <LinkCard href="/SmartJournal" label="I AM – Smart Journal" />
+          <LinkCard href="/journal" label="I AM – Journal" />
           <LinkCard href="/MealPlanning" label="Life Tools – Meal Planner" />
           <LinkCard href="/projects" label="Project Manager" />
         </Section>

@@ -39,6 +39,7 @@ import GardenDetails from "./Pages/GardenDetails";
 import Layout from "./components/Layout";
 import { AuthProvider } from "./context/AuthContext";
 import SmartJournal from "./Pages/SmartJournal";
+import Journal from "./Pages/Journal";
 import PrivateRoute from "./components/PrivateRoute";
 import BlogHome from "./Pages/blog/BlogHome";
 import BlogPost from "./Pages/blog/BlogPost";
@@ -52,6 +53,7 @@ import CommunityList from "./Pages/CommunityList";
 import Community from "./Pages/Community";
 import MyCommunityPortal from "./Pages/MyCommunityPortal";
 import GardenGame from "./Pages/gardengame/GardenGame.jsx";
+import FarmGame from "./Pages/farmgame/FarmGame.jsx";
 import SheasGame from "./Pages/sheasgame/SheasGame.jsx";
 import "./index.css";
 
@@ -124,8 +126,10 @@ function Root() {
               <Route path="gardens/:id" element={<GardenDetails />} />
               <Route path="LandingPage" element={<LandingPage />} />
               <Route path="GardenGame" element={<GardenGame />} />
+              <Route path="FarmGame" element={<FarmGame />} />
               <Route path="SheasGame" element={<SheasGame />} />
               <Route path="smartjournal" element={<SmartJournal />} />
+              <Route path="journal" element={<Journal />} />
             </Route>
           </Routes>
         </BrowserRouter>

@@ -13,8 +13,8 @@ export default function WelcomePage() {
       <div className="mb-10 text-center">
         <p className="mb-2 font-semibold">Start with one of our core tools:</p>
         <div className="flex flex-col sm:flex-row justify-center gap-4 mt-4">
-          <Link to="/smartjournal" className="px-6 py-3 bg-green-600 text-white rounded-lg shadow hover:bg-green-700">
-            📓 I AM – Smart Journal
+          <Link to="/journal" className="px-6 py-3 bg-green-600 text-white rounded-lg shadow hover:bg-green-700">
+            📓 I AM – Journal
           </Link>
           <Link to="/MealPlanning" className="px-6 py-3 bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700">
             🍽️ Life Tools – Meal Planner
