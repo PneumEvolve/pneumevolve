@@ -103,10 +103,10 @@ export function performAction(state, action, x, y) {
       }
       break;
     case "upgradeHydro":
-  if (state.seeds >= 5 && state.water >= 100 && !tile.upgrade) {
+  if (state.seeds >= 3 && state.water >= 50 && !tile.upgrade) {
     tile.upgrade = UPGRADE_TYPES.HYDRO;
-    state.seeds -= 10;
-    state.water -= 100;
+    state.seeds -= 3;
+    state.water -= 50;
   }
   break;
     case "upgradeExpand":

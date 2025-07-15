@@ -17,12 +17,22 @@ export default function FarmGame() {
   const [dragStart, setDragStart] = useState(null);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [timerActive, setTimerActive] = useState(true);
+  const [showWinModal, setShowWinModal] = useState(false);
   const [winTime, setWinTime] = useState(null);
-  const [highScore, setHighScore] = useState(
-    localStorage.getItem("farmgame_highscore")
-      ? parseInt(localStorage.getItem("farmgame_highscore"))
-      : null
-  );
+  const [hasWon, setHasWon] = useState(false);
+  const [highScore, setHighScore] = useState(() => {
+  const saved = localStorage.getItem("farmgame_best");
+  return saved ? JSON.parse(saved).time : null;
+});
+
+  useEffect(() => {
+  const preventDefault = (e) => e.preventDefault();
+  document.addEventListener("touchmove", preventDefault, { passive: false });
+
+  return () => {
+    document.removeEventListener("touchmove", preventDefault);
+  };
+}, []);
 
   useEffect(() => {
   const escHandler = (e) => {
@@ -33,12 +43,19 @@ export default function FarmGame() {
 }, []);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      gameRef.current = tick(gameRef.current);
-      forceUpdate((x) => x + 1);
-    }, 1000);
-    return () => clearInterval(interval);
-  }, []);
+  const interval = setInterval(() => {
+    gameRef.current = tick(gameRef.current);
+    forceUpdate((x) => x + 1);
+
+    if (!hasWon && gameRef.current.seeds >= 25) {
+  setShowWinModal(true);
+  setTimerActive(false);
+  setHasWon(true); // ✅ mark as won
+}
+  }, 1000);
+
+  return () => clearInterval(interval);
+}, [showWinModal]);
 
   useEffect(() => {
   if (!timerActive) return;
@@ -47,6 +64,27 @@ export default function FarmGame() {
   }, 1000);
   return () => clearInterval(timer);
 }, [timerActive]);
+
+  const handleWinSave = () => {
+  const seedCount = gameRef.current.seeds;
+  const time = elapsedTime;
+
+  const storedBest = localStorage.getItem("farmgame_best");
+  let best = storedBest ? JSON.parse(storedBest) : null;
+
+  if (
+    !best ||
+    time < best.time ||
+    (time === best.time && seedCount < best.seeds)
+  ) {
+    best = { time, seeds: seedCount };
+    localStorage.setItem("farmgame_best", JSON.stringify(best));
+    setHighScore(time);
+  }
+
+  setShowWinModal(false);
+  setTimerActive(true);
+};
 
   const handleTileClick = (x, y) => {
     if (selectedArea.length > 0) return;
@@ -85,13 +123,12 @@ export default function FarmGame() {
   };
 
   const handleGroupAction = (action) => {
-    if (selectedArea.length === 0) return;
-    selectedArea.forEach(([x, y]) => {
-      gameRef.current = performAction(gameRef.current, action, x, y);
-    });
-    setSelectedArea([]);
-    forceUpdate((x) => x + 1);
-  };
+  if (selectedArea.length === 0) return;
+  selectedArea.forEach(([x, y]) => {
+    gameRef.current = performAction(gameRef.current, action, x, y);
+  });
+  forceUpdate((x) => x + 1);
+};
 
   const startDrag = (i, j) => {
     setIsDragging(true);
@@ -137,7 +174,7 @@ export default function FarmGame() {
         💦 +2 Water Gain (2 seeds)
       </button>,
       <button onClick={() => handleAction("upgradeHydro")} className="w-full px-2 py-1 bg-green-200 hover:bg-green-300 rounded">
-        🌿 Hydroponics (10 seeds, 100 water)
+        🌿 Hydroponics - Half Grow Time, -2 Water (3 seeds, 50 water)
       </button>,
       <button onClick={() => handleAction("upgradeExpand")} className="w-full px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded">
         ➕ Expand Grid (Cost: {game.expansionCost} seeds)
@@ -161,16 +198,16 @@ export default function FarmGame() {
     );
   }
 
-  if (game.seeds >= 100 && timerActive) {
-    actions.push(
-      <button
-        onClick={handleWin}
-        className="w-full px-2 py-1 bg-purple-300 hover:bg-purple-400 rounded font-bold"
-      >
-        🎉 Win the Game (100 seeds)
-      </button>
-    );
-  }
+  if (game.seeds >= 25 && timerActive) {
+  actions.push(
+    <button
+      onClick={handleWin}
+      className="w-full px-2 py-1 bg-purple-300 hover:bg-purple-400 rounded font-bold"
+    >
+      🎉 Win the Game (25 seeds)
+    </button>
+  );
+}
 
   return actions.length > 0 ? actions : <p className="text-gray-500 italic">No actions available for this tile.</p>;
 };
@@ -187,12 +224,17 @@ export default function FarmGame() {
       <h2 className="text-xl font-bold text-center">💧 Water Garden</h2>
         <div className="text-center text-sm">
   <p>⏱️ Time: {elapsedTime}s</p>
-  {highScore && <p>🏆 Best Time: {highScore}s</p>}
+  {highScore && (
+    <p>
+      🏆 Best Time: {JSON.parse(localStorage.getItem("farmgame_best")).time}s
+      ({JSON.parse(localStorage.getItem("farmgame_best")).seeds} seeds)
+    </p>
+  )}
   {winTime && <p className="font-bold text-green-600">🎉 You Win! Time: {winTime}s</p>}
 </div>
       <div className="flex justify-between text-sm">
         <span>💧 Water: {game.water}</span>
-        <span>🌱 Seeds (100 to Win!): {game.seeds}</span>
+        <span>🌱 Seeds (25 to Win!): {game.seeds}</span>
       </div>
 
       <p className="text-gray-600 text-center">
@@ -201,14 +243,15 @@ export default function FarmGame() {
 </p>
 
       <button
-        onClick={() => {
-          game.water++;
-          forceUpdate((x) => x + 1);
-        }}
-        className="w-full py-2 px-4 bg-blue-500 text-white font-bold rounded hover:bg-blue-600"
-      >
-        +1 Gather Water
-      </button>
+  onClick={() => {
+    game.water++;
+    forceUpdate((x) => x + 1);
+  }}
+  className="w-full py-2 px-4 bg-blue-500 text-white font-bold rounded hover:bg-blue-600"
+  style={{ touchAction: "manipulation" }}
+>
+  +1 Gather Water
+</button>
 
       <div
         className="grid gap-2 select-none"
@@ -219,11 +262,24 @@ export default function FarmGame() {
             const isSelected = selectedArea.some(([x, y]) => x === i && y === j);
             return (
               <div
-                key={`${i}-${j}`}
-                onMouseDown={() => startDrag(i, j)}
-                onMouseEnter={() => duringDrag(i, j)}
-                onMouseUp={() => endDrag()}
-                onClick={() => handleTileClick(i, j)}
+  key={`${i}-${j}`}
+  onMouseDown={() => startDrag(i, j)}
+  onMouseEnter={() => duringDrag(i, j)}
+  onMouseUp={endDrag}
+  onTouchStart={() => startDrag(i, j)}
+  onTouchMove={(e) => {
+    const target = document.elementFromPoint(
+      e.touches[0].clientX,
+      e.touches[0].clientY
+    );
+    if (target?.dataset?.tile) {
+      const [x, y] = target.dataset.tile.split(",").map(Number);
+      duringDrag(x, y);
+    }
+  }}
+  onTouchEnd={endDrag}
+  onClick={() => handleTileClick(i, j)}
+  data-tile={`${i},${j}`} // 👈 makes it trackable for touch
                 className={`border h-20 flex flex-col items-center justify-center text-xs cursor-pointer rounded ${
                   isSelected ? "ring-2 ring-indigo-500" : ""
                 } ${
@@ -268,32 +324,50 @@ export default function FarmGame() {
 
 
       {selectedArea.length > 0 && (
-        <div className="space-y-2 mt-4">
-          <p className="text-center font-semibold">Group Actions</p>
-          <div className="flex flex-wrap gap-2 justify-center">
-            <button onClick={() => handleGroupAction("plantSeed")} className="px-2 py-1 bg-green-200 hover:bg-green-300 rounded">
-              Plant Seeds
-            </button>
-            {anyHarvestable && (
-  <button
-    onClick={() => handleGroupAction("harvest")}
-    className="px-2 py-1 bg-green-300 hover:bg-green-400 rounded"
-  >
-    Harvest Grown
-  </button>
-)}
-            <button onClick={() => handleGroupAction("addDirt")} className="px-2 py-1 bg-yellow-200 hover:bg-yellow-300 rounded">
-              Add Dirt
-            </button>
-            <button onClick={() => handleGroupAction("upgradeHydro")} className="px-2 py-1 bg-green-100 hover:bg-green-200 rounded">
-              Add Hydroponics
-            </button>
-            <button onClick={() => setSelectedArea([])} className="px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded">
-              Clear Selection
-            </button>
-          </div>
-        </div>
+  <div className="space-y-2 mt-4">
+    <p className="text-center font-semibold">Group Actions</p>
+    <div className="flex flex-wrap gap-2 justify-center">
+      <button onClick={() => handleGroupAction("plantSeed")} className="px-2 py-1 bg-green-200 hover:bg-green-300 rounded">
+        Plant Seeds
+      </button>
+
+      {anyHarvestable && (
+        <button onClick={() => handleGroupAction("harvest")} className="px-2 py-1 bg-green-300 hover:bg-green-400 rounded">
+          Harvest Grown
+        </button>
       )}
+
+      <button onClick={() => handleGroupAction("addDirt")} className="px-2 py-1 bg-yellow-200 hover:bg-yellow-300 rounded">
+        Add Dirt
+      </button>
+
+      <button onClick={() => handleGroupAction("upgradeHydro")} className="px-2 py-1 bg-green-100 hover:bg-green-200 rounded">
+        Add Hydroponics
+      </button>
+
+      {(() => {
+        const dirtTiles = selectedArea.filter(([x, y]) => {
+          const tile = game.grid[x][y];
+          return (tile.type === "dirt" || tile.type === "planted");
+        });
+        const totalCost = dirtTiles.length;
+
+        return dirtTiles.length > 0 ? (
+          <button
+            onClick={() => handleGroupAction("removeDirt")}
+            className="px-2 py-1 bg-red-100 hover:bg-red-200 rounded"
+          >
+            Remove Dirt (Cost: {totalCost} seeds)
+          </button>
+        ) : null;
+      })()}
+
+      <button onClick={() => setSelectedArea([])} className="px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded">
+        Clear Selection
+      </button>
+    </div>
+  </div>
+)}
 
       {modalTile && (
   <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50">
@@ -310,6 +384,29 @@ export default function FarmGame() {
       >
         Close
       </button>
+    </div>
+  </div>
+)}
+{showWinModal && (
+  <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
+    <div className="bg-white rounded p-6 shadow-xl w-full max-w-sm space-y-4">
+      <h2 className="text-xl font-bold text-center text-green-600">🎉 You Win!</h2>
+      <p className="text-center">Time: {elapsedTime}s</p>
+      <p className="text-center">Seeds: {gameRef.current.seeds}</p>
+      <div className="flex flex-col gap-2">
+        <button
+          onClick={handleWinSave}
+          className="w-full px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded font-bold"
+        >
+          Save Score & Keep Playing
+        </button>
+        <button
+          onClick={() => setShowWinModal(false)}
+          className="w-full px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded"
+        >
+          Close
+        </button>
+      </div>
     </div>
   </div>
 )}
