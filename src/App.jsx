@@ -39,7 +39,7 @@ export default function App() {
         <Section title="🌀 Shea’s Corner">
           <LinkCard href="/ZenFreeskates" label="Zen Freeskates – Flow Meets Freedom" />
           <LinkCard href="/experiments" label="Shea’s Experiments – WIP Ideas" />
-          <LinkCard href="/blog" label="Blog – Ramblings & Manifestos" />
+          <LinkCard href="/farmgame" label="Active Idle Farm Game" />
           <LinkCard href="/meditation" label="Daily Meditation Timer" />
         </Section>
 

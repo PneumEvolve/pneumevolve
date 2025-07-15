@@ -21,55 +21,45 @@ export const createGameState = () => ({
 });
 
 export function tick(state) {
-  const { bonusWater } = state;
-  let waterDrain = 0;
+  let { water, seeds, grid } = state;
 
-  // Step 1: Calculate water cost and grow eligible plants
-  const newGrid = state.grid.map((row, x) =>
-    row.map((tile, y) => {
-      let updatedTile = { ...tile };
+  let plantedCount = 0;
+  let hydroDrain = 0;
+
+  for (let i = 0; i < grid.length; i++) {
+    for (let j = 0; j < grid[i].length; j++) {
+      const tile = grid[i][j];
 
       if (tile.type === TILE_TYPES.PLANTED) {
-        const hasHydro = tile.upgrade === UPGRADE_TYPES.HYDRO;
-        const maxGrowth = hasHydro ? 10 : 20;
+        // Determine drain amount
+        const isHydro = tile.upgrade === UPGRADE_TYPES.HYDRO;
+        const drain = isHydro ? 3 : 1;
 
-        waterDrain += 1; // base cost
-        if (hasHydro) waterDrain += 1; // extra cost
+        if (water >= drain) {
+          water -= drain;
+          tile.growth += 1;
+          tile.hasWater = true;
+        } else {
+          tile.hasWater = false;
+        }
 
-        // Will only grow if total water is sufficient for all
-        if (tile.growth < maxGrowth) {
-          updatedTile._canGrow = true; // mark for second pass
+        plantedCount++;
+
+        if (isHydro) {
+          hydroDrain += 1; // Count how many hydro plants for display
         }
       }
+    }
+  }
 
-      return updatedTile;
-    })
-  );
-
-  const waterGain = 1 + bonusWater;
-  const projectedWater = state.water + waterGain;
-  const canFeedAllPlants = projectedWater >= waterDrain && waterDrain > 0;
-  const waterAfterGrowth = canFeedAllPlants ? projectedWater - waterDrain : projectedWater;
-
-  // Step 2: Actually grow plants
-  const finalGrid = newGrid.map((row) =>
-    row.map((tile) => {
-      if (tile._canGrow && canFeedAllPlants) {
-        return { ...tile, growth: tile.growth + 1 };
-      }
-      return tile;
-    })
-  );
-
-  const plantedCount = finalGrid.flat().filter((t) => t.type === TILE_TYPES.PLANTED).length;
+  water += 1 + state.bonusWater;
 
   return {
     ...state,
-    grid: finalGrid,
-    water: waterAfterGrowth,
-    tickCount: state.tickCount + 1,
+    water,
+    grid,
     plantedCount,
-    effectiveWaterRate: waterGain,
+    hydroCount: hydroDrain,
   };
 }
 
@@ -83,15 +73,15 @@ export function performAction(state, action, x, y) {
         newGrid[x][y] = { ...tile, type: "dirt", growth: 0 };
       break;
     case "plantSeed":
-      if (tile.type === "dirt" && state.seeds > 0) {
-        newGrid[x][y] = { ...tile, type: "planted", growth: 0 };
+      if ((tile.type === "dirt" || tile.upgrade === UPGRADE_TYPES.HYDRO) && state.seeds > 0) {
+        newGrid[x][y] = { ...tile, type: "planted", growth: 0, upgrade: tile.upgrade };
         return { ...state, grid: newGrid, seeds: state.seeds - 1 };
       }
       break;
     case "harvest":
       const growLimit = tile.upgrade === UPGRADE_TYPES.HYDRO ? 10 : 20;
       if (tile.type === "planted" && tile.growth >= growLimit) {
-        newGrid[x][y] = { ...tile, type: "dirt", growth: 0 };
+        newGrid[x][y] = { ...tile, type: "dirt", growth: 0, upgrade: tile.upgrade };
         return { ...state, grid: newGrid, seeds: state.seeds + 2 };
       }
       break;
@@ -113,15 +103,12 @@ export function performAction(state, action, x, y) {
       }
       break;
     case "upgradeHydro":
-      if (tile.type === "empty" && !tile.upgrade && state.seeds >= 5) {
-        newGrid[x][y] = { ...tile, upgrade: UPGRADE_TYPES.HYDRO };
-        return {
-          ...state,
-          grid: newGrid,
-          seeds: state.seeds - 5,
-        };
-      }
-      break;
+  if (state.seeds >= 5 && state.water >= 100 && !tile.upgrade) {
+    tile.upgrade = UPGRADE_TYPES.HYDRO;
+    state.seeds -= 10;
+    state.water -= 100;
+  }
+  break;
     case "upgradeExpand":
       if (
         tile.type === "empty" &&

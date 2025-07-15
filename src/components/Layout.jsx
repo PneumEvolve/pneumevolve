@@ -56,6 +56,7 @@ export default function Layout() {
           <nav className="flex flex-wrap justify-center sm:justify-end gap-3 text-sm">
             <Link to="/" className="hover:underline">Home</Link>
             <Link to="/communities" className="hover:underline">Community</Link>
+            <Link to="/game" className="hover:underline">Game</Link>
             <Link to="/blog" className="hover:underline">Blog</Link>
             <Link to="/projects" className="hover:underline">Projects</Link>
             <Link to="/journal" className="hover:underline">Journal</Link>
