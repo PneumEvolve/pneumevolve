@@ -7,7 +7,7 @@ export default function WelcomePage() {
       <h1 className="text-4xl font-bold mb-6 text-center">🌱 Welcome to PneumEvolve</h1>
 
       <p className="mb-6 text-lg text-center">
-        PneumEvolve is a spiritual and practical movement to grow communities, reclaim self-trust, and build systems rooted in <strong>love, sovereignty, and cooperation</strong>.
+        PneumEvolve is a spiritual and practical movement for rebuilding life around <strong>love, sovereignty, and cooperation</strong>. We are reimagining community, education, and care—one tool, one seed, one breath at a time.
       </p>
 
       <div className="mb-10 text-center">
@@ -27,36 +27,42 @@ export default function WelcomePage() {
 
       <hr className="my-10 border-gray-300" />
 
-      <h2 className="text-2xl font-semibold mb-4">🌿 What We're Building</h2>
+      <h2 className="text-2xl font-semibold mb-4">🌿 What We're Growing</h2>
       <p className="mb-6">
-        PneumEvolve started in Vernon, BC — rooted in gardens and real human connection. We believe that healing the world begins by <strong>meeting basic needs</strong> with love: food, shelter, belonging, and purpose.
+        We believe a better world begins with meeting our shared needs—food, shelter, belonging, purpose—through care rather than control. PneumEvolve began as an experiment in community and has become a living movement for collaborative regeneration.
       </p>
 
       <ul className="list-disc list-inside mb-6 space-y-2">
-        <li>🌱 <strong>Garden Blitzes</strong> — spontaneous community gardening</li>
-        <li>🔁 <strong>Mutual Aid</strong> — share what you have, receive what you need</li>
-        <li>🗳️ <strong>Community Voting</strong> — collective decision-making</li>
-        <li>📅 <strong>Event Planning</strong> — organize local connection</li>
-        <li>🏡 <strong>Communal Living Tools</strong> — intentional housing & co-creation</li>
-        <li>🪙 <strong>SEED Tokens (optional)</strong> — reward contribution & growth</li>
+        <li>🌱 <strong>Living Education</strong> — learning through life, land, and love</li>
+        <li>🫂 <strong>Relational Healing</strong> — replacing isolation with interconnection</li>
+        <li>📅 <strong>Event Tools</strong> — organizing local gatherings with ease</li>
+        <li>🪴 <strong>Garden Blitzes</strong> — spontaneous acts of Earth regeneration</li>
+        <li>🔁 <strong>Mutual Aid</strong> — give what you can, receive what you need</li>
+        <li>🗳️ <strong>Community Voting</strong> — decentralized decision-making</li>
+        <li>🪙 <strong>SEED Tokens (optional)</strong> — experimental economy of contribution</li>
       </ul>
 
       <p className="mb-6 italic text-sm">
-        Many features are in progress — but the spirit is already alive. By being here, you're helping shape it.
+        Many tools are still forming, but the heart is already alive. If you're here, you're already part of it.
       </p>
 
       <hr className="my-10 border-gray-300" />
 
       <h2 className="text-2xl font-semibold mb-4">🕯 Our Philosophy</h2>
       <ul className="list-disc list-inside mb-6 space-y-2">
-        <li>✨ You are valuable because you exist.</li>
-        <li>🤝 We are not meant to live in isolation.</li>
-        <li>🌍 Better systems are possible — and we can build them now.</li>
+        <li>💖 Love is the most powerful force in the universe.</li>
+        <li>🧠 Education should be joyful, curiosity-led, and life-rooted.</li>
+        <li>🌍 Better systems are not just possible—they're emerging now.</li>
+        <li>👣 We don’t need to remember past lives to live this one fully.</li>
+        <li>✨ Every person has value simply because they exist.</li>
+        <li>🧭 Leadership is shared. Everyone brings a piece of the path forward.</li>
+        <li>🤝 We are not meant to do this alone.</li>
       </ul>
 
       <p className="text-center font-semibold mt-10">
-        This isn’t just a site. It’s a movement.  
-        <br />Let’s grow something sacred, together.
+        PneumEvolve is not a product. It’s a pulse. A remembering. A return.  
+        <br />
+        Let’s grow something sacred—together.
       </p>
     </div>
   );
