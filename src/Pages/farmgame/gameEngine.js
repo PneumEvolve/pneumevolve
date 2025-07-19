@@ -136,6 +136,11 @@ export const createGameState = () =>
  * Tick loop
  * ------------------------------------------------------------------ */
 export function tick(state) {
+  // ✅ Guard clause for corrupted or undefined game state
+  if (!state || !Array.isArray(state.grid)) {
+    console.warn("⚠️ Invalid game state passed to tick(). Resetting...");
+    return createGameState(); // fallback to a fresh game state
+  }
   // Defensive: never mutate caller's object directly
   const game = normalizeState(state);
 
@@ -252,11 +257,17 @@ function updateTile(state, x, y, mutFn) {
  * - Always returns a *new* normalized state.
  * - Never mutates the incoming state.
  */
-export function performAction(state, action, x, y) {
+export function performAction(state, action, x, y, showWarning, showHydroInfo ) {
+  const game = normalizeState(state);
+
+  if (showHydroInfo) {
+    game.showHydroInfo = showHydroInfo;
+  }
+
   // Allow "plant" alias → route to "plantSeed"
   if (action === "plant") return performAction(state, "plantSeed", x, y);
 
-  const game = normalizeState(state);
+  
 
   // squashBug is special (doesn't need tile)
   if (action === "squashBug") {
@@ -277,7 +288,19 @@ export function performAction(state, action, x, y) {
 
   const tile = game.grid[x][y];
 
+  if (["upgradeHydro", "upgradeExpand", "upgradeWater"].includes(action)) {
+  if (tile.type === TILE_TYPES.DIRT) {
+    const seen = localStorage.getItem("seen_dirt_warning") === "true";
+    if (!seen && typeof showWarning === "function") {
+      localStorage.setItem("seen_dirt_warning", "true");
+      showWarning("Please remove dirt to build.");
+    }
+    return game;
+  }
+}
+
   switch (action) {
+
     /* -------------------------------------------------------------- */
     case "addDirt": {
       if (tile.type === TILE_TYPES.EMPTY && !tile.upgrade) {
@@ -378,10 +401,16 @@ export function performAction(state, action, x, y) {
         game.seeds >= 2 &&
         game.water >= 50
       ) {
+        if (typeof showHydroInfo === "function" && !localStorage.getItem("seen_hydro_info")) {
+          localStorage.setItem("seen_hydro_info", "true");
+          showHydroInfo();
+        }
+
         const next = updateTile(game, x, y, (t) => ({
           ...t,
           upgrade: UPGRADE_TYPES.HYDRO,
         }));
+
         return {
           ...next,
           seeds: next.seeds - 2,
@@ -390,6 +419,7 @@ export function performAction(state, action, x, y) {
       }
       return game;
     }
+  
 
     /* -------------------------------------------------------------- */
     case "upgradeExpand": {

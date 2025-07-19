@@ -18,14 +18,26 @@ const API = import.meta.env.VITE_API_URL;
 
 function getSavedGameFromLocalStorage() {
   const saved = localStorage.getItem("farmgame_save");
-  if (saved) {
-    try {
-      return JSON.parse(saved);
-    } catch (e) {
-      console.warn("Failed to parse saved game:", e);
+  if (!saved) return null;
+
+  try {
+    const parsed = JSON.parse(saved);
+
+    // ✅ Validate basic structure
+    if (
+      typeof parsed !== "object" ||
+      !Array.isArray(parsed.grid) ||
+      typeof parsed.elapsedTime !== "number"
+    ) {
+      throw new Error("Invalid saved game structure.");
     }
+
+    return parsed;
+  } catch (e) {
+    console.warn("⚠️ Corrupt save detected, clearing localStorage:", e);
+    localStorage.removeItem("farmgame_save");
+    return null;
   }
-  return null;
 }
 
 function getAvailableActions(tile) {
@@ -90,6 +102,7 @@ export default function FarmGame() {
   const { accessToken, userId } = useAuth();
   const [elapsedTime, setElapsedTime] = useState(0);
   const [game, setGame] = useState(null);
+  console.log("Current game state", game);
   const [loaded, setLoaded] = useState(false);
 
   const [selectedTiles, setSelectedTiles] = useState([]);
@@ -98,62 +111,114 @@ export default function FarmGame() {
   const dragging = useRef(false);
   const gameRef = useRef(null);
 
-  useEffect(() => {
-    const loadGame = async () => {
-      if (accessToken && userId) {
-        try {
-          const res = await axios.get(`${API}/farmgame/state`, {
-            headers: { Authorization: `Bearer ${accessToken}` },
-          });
+  const [hasSeenDirtWarning, setHasSeenDirtWarning] = useState(
+  () => localStorage.getItem("seen_dirt_warning") === "true"
+  );
+  const [hasSeenHydroInfo, setHasSeenHydroInfo] = useState(
+  () => localStorage.getItem("seen_hydro_info") === "true"
+  );
 
-          if (res.data?.data) {
-            const parsed = JSON.parse(res.data.data);
-            setGame(parsed);
-            setElapsedTime(parsed.elapsedTime || 0);
-            gameRef.current = parsed;
-          } else {
-            const local = getSavedGameFromLocalStorage();
-            if (local) {
-              setGame(local);
-              setElapsedTime(local.elapsedTime || 0);
-              gameRef.current = local;
-            } else {
-              const fresh = createGameState();
-              setGame(fresh);
-              gameRef.current = fresh;
-            }
-          }
-        } catch (err) {
-          console.error("Error loading saved game:", err);
+const [notification, setNotification] = useState("");
+
+const showWarning = (message) => {
+  setNotification(message);
+};
+
+
+  useEffect(() => {
+   
+  const simulateOfflineProgress = (saved) => {
+    if (!Array.isArray(saved.grid)) {
+  console.warn("Invalid grid detected during offline simulation");
+  return createGameState();
+}
+    
+    const now = Date.now();
+    const savedTime = saved.lastSavedTime || now;
+    const secondsPassed = Math.floor((now - savedTime) / 1000);
+
+    let simulated = { ...saved };
+    for (let i = 0; i < secondsPassed; i++) {
+      simulated = tick(simulated);
+    }
+
+    simulated.elapsedTime = (saved.elapsedTime || 0) + secondsPassed;
+    return simulated;
+  };
+
+  const loadGame = async () => {
+    if (accessToken && userId) {
+      try {
+        const res = await axios.get(`${API}/farmgame/state`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+
+        if (res.data?.data) {
+          let saved;
+try {
+  saved = JSON.parse(res.data.data);
+
+  if (
+    typeof saved !== "object" ||
+    !Array.isArray(saved.grid) ||
+    typeof saved.elapsedTime !== "number"
+  ) {
+    throw new Error("Invalid structure from Supabase");
+  }
+} catch (err) {
+  console.warn("⚠️ Corrupt cloud save, using fresh state:", err);
+  saved = null;
+}
+          const simulated = simulateOfflineProgress(saved);
+          setGame(simulated);
+          setElapsedTime(simulated.elapsedTime);
+          gameRef.current = simulated;
+        } else {
           const local = getSavedGameFromLocalStorage();
           if (local) {
-            setGame(local);
-            setElapsedTime(local.elapsedTime || 0);
-            gameRef.current = local;
+            const simulated = simulateOfflineProgress(local);
+            setGame(simulated);
+            setElapsedTime(simulated.elapsedTime);
+            gameRef.current = simulated;
           } else {
             const fresh = createGameState();
             setGame(fresh);
             gameRef.current = fresh;
           }
         }
-      } else {
+      } catch (err) {
+        console.error("Error loading saved game:", err);
         const local = getSavedGameFromLocalStorage();
         if (local) {
-          setGame(local);
-          setElapsedTime(local.elapsedTime || 0);
-          gameRef.current = local;
+          const simulated = simulateOfflineProgress(local);
+          setGame(simulated);
+          setElapsedTime(simulated.elapsedTime);
+          gameRef.current = simulated;
         } else {
           const fresh = createGameState();
           setGame(fresh);
           gameRef.current = fresh;
         }
       }
+    } else {
+      const local = getSavedGameFromLocalStorage();
+      if (local) {
+        const simulated = simulateOfflineProgress(local);
+        setGame(simulated);
+        setElapsedTime(simulated.elapsedTime);
+        gameRef.current = simulated;
+      } else {
+        const fresh = createGameState();
+        setGame(fresh);
+        gameRef.current = fresh;
+      }
+    }
 
-      setLoaded(true);
-    };
+    setLoaded(true);
+  };
 
-    loadGame();
-  }, [accessToken, userId]);
+  loadGame();
+}, [accessToken, userId]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -173,7 +238,7 @@ export default function FarmGame() {
 
   useEffect(() => {
     if (!game) return;
-    localStorage.setItem("farmgame_save", JSON.stringify({ ...game, elapsedTime }));
+    localStorage.setItem("farmgame_save", JSON.stringify({ ...game, elapsedTime, lastSavedTime: Date.now() }));
   }, [game, elapsedTime]);
 
   useEffect(() => {
@@ -208,35 +273,45 @@ export default function FarmGame() {
   }, [game, elapsedTime, accessToken, userId]);
 
   const handleTileClick = (x, y, requestModal = false) => {
-    if (game.isPaused) return;
-    const tile = game.grid[x][y];
-    const hasBug = game.bugs.some((b) => b.x === x && b.y === y);
+  if (game.isPaused) return;
+  const tile = game.grid[x][y];
+  const hasBug = game.bugs.some((b) => b.x === x && b.y === y);
 
-    if (hasBug) {
-      const updated = performAction(game, "squashBug", x, y);
-      setGame(updated);
-      return;
-    }
-
-    const growTime = tile.upgrade === UPGRADE_TYPES.HYDRO ? 10 : 20;
-    const isHarvestable = tile.type === TILE_TYPES.PLANTED && tile.growth >= growTime;
-
-    if (isHarvestable) {
-  const updated = performAction(game, "harvest", x, y);
-  setGame(updated);
-  return; // ✅ skip modal entirely
-}
-
-    if (requestModal) {
-      const actions = getAvailableActions(tile);
-      if (actions.length > 0) setModalTile({ x, y });
+  const hydroInfoCallback = () => {
+    if (!hasSeenHydroInfo) {
+      setHasSeenHydroInfo(true);
+      localStorage.setItem("seen_hydro_info", "true");
+      showWarning("🌊 Plant Seeds in Hydro Tiles.\n⏱️ Half grow time.\n🐞 No bugs.\n💧 -3 Water/sec while growing");
     }
   };
+
+  if (hasBug) {
+    const updated = performAction(game, "squashBug", x, y, showWarning, hydroInfoCallback);
+    setGame(updated);
+    return;
+  }
+
+  const growTime = tile.upgrade === UPGRADE_TYPES.HYDRO ? 10 : 20;
+  const isHarvestable = tile.type === TILE_TYPES.PLANTED && tile.growth >= growTime;
+
+  if (isHarvestable) {
+    const updated = performAction(game, "harvest", x, y, showWarning, hydroInfoCallback);
+    setGame(updated);
+    return; // ✅ skip modal entirely
+  }
+
+  if (requestModal) {
+    const actions = getAvailableActions(tile);
+    if (actions.length > 0) setModalTile({ x, y });
+  }
+};
 
   const handleAction = (action) => {
     if (!modalTile) return;
     const { x, y } = modalTile;
-    const updated = performAction(game, action, x, y);
+    const updated = performAction(game, action, x, y, showWarning, () => {
+  showWarning("🌊 Plant Seeds in Hydro Tiles.\n⏱️ Half grow time.\n🐞 No bugs.\n💧 -3 Water/sec while growing");
+});
     setGame(updated);
     setModalTile(null);
   };
@@ -280,13 +355,15 @@ export default function FarmGame() {
   };
 
   const handleBulkAction = (action) => {
-    if (game.isPaused) return;
-    let updated = { ...game };
-    for (const { x, y } of selectedTiles) {
-      updated = performAction(updated, action, x, y);
-    }
-    setGame(updated);
-  };
+  if (game.isPaused) return;
+  let updated = { ...game };
+  for (const { x, y } of selectedTiles) {
+    updated = performAction(updated, action, x, y, showWarning, () => {
+      showWarning("🌊 Plant Seeds in Hydro Tiles.\n⏱️ Half grow time.\n🐞 No bugs.\n💧 -3 Water/sec while growing");
+    });
+  }
+  setGame(updated);
+};
 
   const togglePause = () => {
     setGame(prev => ({
@@ -301,6 +378,8 @@ export default function FarmGame() {
     : 48;
 
   if (!loaded || !game) return <div className="text-center p-10">Loading your game...</div>;
+
+
 
   return (
     <div className="min-h-screen w-full flex flex-col items-center justify-start bg-gray-100 p-4">
@@ -380,7 +459,13 @@ export default function FarmGame() {
             tile={game.grid[modalTile.x][modalTile.y]}
             actions={getAvailableActions(game.grid[modalTile.x][modalTile.y])}
             onAction={(action, i, j) => {
-              const updated = performAction(game, action, i, j);
+              const updated = performAction(game, action, i, j, showWarning, () => {
+  if (!hasSeenHydroInfo) {
+    setHasSeenHydroInfo(true);
+    localStorage.setItem("seen_hydro_info", "true");
+    showWarning("🌊 Plant Seeds in Hydro Tiles.\n⏱️ Half grow time.\n🐞 No bugs.\n💧 -3 Water/sec while growing");
+  }
+});
               setGame(updated);
               setModalTile(null);
             }}
@@ -413,6 +498,17 @@ export default function FarmGame() {
             <button onClick={() => { localStorage.removeItem("farmgame_best"); alert("Best score reset."); }} className="bg-yellow-500 hover:bg-yellow-600 text-white px-5 py-2 rounded text-sm">🧹 Reset High Score</button>
           </div>
         )}
+        {notification && (
+  <div className="fixed top-4 left-1/2 transform -translate-x-1/2 bg-yellow-200 border border-yellow-400 text-yellow-900 px-6 py-3 rounded shadow-lg z-50">
+    {notification}
+    <button
+      className="ml-4 text-sm text-gray-700 underline"
+      onClick={() => setNotification(null)}
+    >
+      Close
+    </button>
+  </div>
+)}
       </div>
     </div>
   );
