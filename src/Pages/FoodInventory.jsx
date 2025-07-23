@@ -60,11 +60,11 @@ const FoodInventory = () => {
       if (selectedCategory === "none") {
         inventory = inventory.filter((item) => item.categories.length === 0);
       } else {
-        inventory = inventory.filter((item) => item.categories.includes(selectedCategory));
+        inventory = inventory.filter((item) => item.categories?.includes(selectedCategory));
       }
     }
     if (sortOption === "name") inventory.sort((a, b) => a.name.localeCompare(b.name));
-    if (sortOption === "category") inventory.sort((a, b) => (a.categories[0] || "").localeCompare(b.categories[0] || ""));
+    if (sortOption === "category") inventory.sort((a, b) => (a.categories?.[0] || "").localeCompare(b.categories?.[0] || "").localeCompare(b.categories[0] || ""));
     if (sortOption === "need") inventory.sort((a, b) => (b.desiredQuantity - b.quantity) - (a.desiredQuantity - a.quantity));
     return inventory;
   };
@@ -154,104 +154,175 @@ const FoodInventory = () => {
   };
 
   return (
-    <div className="min-h-screen p-6 bg-white text-gray-900 dark:bg-gray-900 dark:text-white flex flex-col items-center">
-      <div className="w-full max-w-2xl">
-        {/* Header Buttons */}
-        <div className="flex flex-wrap gap-2 justify-center sm:justify-between items-center mb-4">
-          <Button onClick={() => navigate("/mealplanning")} className="w-full sm:w-auto flex items-center justify-center">
-            <ArrowLeft className="mr-2" /> Back
-          </Button>
-          <Button onClick={() => navigate("/categorymanager")} className="w-full sm:w-auto">Manage Categories</Button>
-          <div className="w-full sm:w-auto">
-            <FindRecipesButton token={token} />
-          </div>
-        </div>
+  <div className="min-h-screen p-6 bg-white text-gray-900 dark:bg-gray-900 dark:text-white flex flex-col items-center">
+  <div className="w-full max-w-2xl">
+    <div className="flex flex-wrap justify-center sm:justify-between gap-3 mb-4">
+      <Button onClick={() => navigate("/mealplanning")} className="flex items-center">
+        <ArrowLeft className="mr-2" /> Back
+      </Button>
+      <Button onClick={() => navigate("/categorymanager")} className="bg-purple-600 text-white">
+        Categories
+        </Button>
+      <Button onClick={() => navigate("/Recipes")} className="bg-orange-500 text-white">
+        Recipes
+      </Button>
+      <Button onClick={() => navigate("/grocerylist")} className="bg-gray-800 text-white">
+        Grocery List
+      </Button>
+    </div>
 
-        <h1 className="text-3xl font-bold mb-6 text-center">Food Inventory</h1>
+  {/* Right Group: Find Recipes Button */}
+  <div className="flex justify-center sm:justify-end w-full sm:w-auto">
+    <FindRecipesButton token={token} />
+  </div>
 
-        {/* Add/Edit Form */}
-        <div className="mb-4">
-          <h2 className="text-xl font-semibold mb-2">{editingItemId ? "Edit Food Item" : "Add Food Item"}</h2>
-          <input type="text" placeholder="Item Name" className="w-full p-2 border rounded" value={newItem.name} onChange={(e) => setNewItem({ ...newItem, name: e.target.value })} />
-          <input type="number" className="w-full p-2 border rounded mt-2" placeholder="Have" value={newItem.quantity} onChange={(e) => setNewItem({ ...newItem, quantity: +e.target.value })} />
-          <input type="number" className="w-full p-2 border rounded mt-2" placeholder="Need" value={newItem.desiredQuantity} onChange={(e) => setNewItem({ ...newItem, desiredQuantity: +e.target.value })} />
 
-          <div className="mt-2">
-            <label className="block text-sm font-medium">Categories:</label>
-            <div className="flex flex-wrap gap-2 mt-1">
-              {categories.filter((c) => c.type === "food" && c.id !== "all" && c.id !== "none").map((cat) => (
+      <h1 className="text-3xl font-bold mb-6 text-center">Food Inventory</h1>
+
+      {/* 🔹 Add/Edit Item Form */}
+      <div className="mb-8 space-y-3">
+        <h2 className="text-xl font-semibold">{editingItemId ? "Edit Food Item" : "Add Food Item"}</h2>
+        <input
+          type="text"
+          placeholder="Item Name"
+          className="w-full p-2 border rounded"
+          value={newItem.name}
+          onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
+        />
+        <input
+          type="number"
+          placeholder="Have"
+          className="w-full p-2 border rounded"
+          value={newItem.quantity}
+          onChange={(e) => setNewItem({ ...newItem, quantity: +e.target.value })}
+        />
+        <input
+          type="number"
+          placeholder="Need"
+          className="w-full p-2 border rounded"
+          value={newItem.desiredQuantity}
+          onChange={(e) => setNewItem({ ...newItem, desiredQuantity: +e.target.value })}
+        />
+
+        {/* Category Selectors */}
+        <div>
+          <label className="block text-sm font-medium mb-1">Categories:</label>
+          <div className="flex flex-wrap gap-2">
+            {categories
+              .filter((c) => c.type === "food" && c.id !== "all" && c.id !== "none")
+              .map((cat) => (
                 <Button
                   key={cat.id}
                   size="sm"
-                  className={`text-sm ${newItem.categories.some((c) => c.id === cat.id) ? "bg-blue-600 text-white" : "bg-gray-300 text-gray-900"}`}
+                  className={`text-sm ${
+                    newItem.categories.some((c) => c.id === cat.id)
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-300 text-gray-900"
+                  }`}
                   onClick={() => toggleCategory(cat)}
                 >
                   {cat.name}
                 </Button>
               ))}
-            </div>
           </div>
+        </div>
 
-          <div className="flex flex-wrap gap-2 mt-4">
-            <Button className="w-full sm:w-auto" onClick={saveFoodItem}>
-              <Save className="mr-2" />{editingItemId ? "Save" : "Add Item"}
+        {/* Save/Cancel Buttons */}
+        <div className="flex flex-wrap gap-2 pt-2">
+          <Button className="bg-green-600 text-white" onClick={saveFoodItem}>
+            <Save className="mr-2" />
+            {editingItemId ? "Save" : "Add Item"}
+          </Button>
+          {editingItemId && (
+            <Button variant="outline" onClick={resetForm}>
+              <X className="mr-2" />
+              Cancel
             </Button>
-            {editingItemId && (
-              <Button className="w-full sm:w-auto" variant="outline" onClick={resetForm}>
-                <X className="mr-2" />Cancel
-              </Button>
-            )}
-          </div>
+          )}
         </div>
+      </div>
 
-        {/* Filters */}
-        <div className="flex flex-wrap gap-2 justify-between items-center mb-4">
-          <select className="w-full sm:w-auto p-2 border rounded" value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)}>
-            {categories.filter((c) => c.type === "food").map((cat) => (
-              <option key={cat.id} value={cat.id}>{cat.name}</option>
+      {/* 🔹 Filters */}
+      <div className="flex flex-wrap gap-3 justify-between items-center mb-4">
+        <select
+          className="w-full sm:w-auto p-2 border rounded"
+          value={selectedCategory}
+          onChange={(e) => setSelectedCategory(e.target.value)}
+        >
+          {categories
+            .filter((c) => c.type === "food")
+            .map((cat) => (
+              <option key={cat.id} value={cat.id}>
+                {cat.name}
+              </option>
             ))}
-          </select>
+        </select>
 
-          <select className="w-full sm:w-auto p-2 border rounded" value={sortOption} onChange={(e) => setSortOption(e.target.value)}>
-            <option value="name">Sort by Name</option>
-            <option value="category">Sort by Category</option>
-            <option value="need">Sort by Need</option>
-          </select>
-        </div>
+        <select
+          className="w-full sm:w-auto p-2 border rounded"
+          value={sortOption}
+          onChange={(e) => setSortOption(e.target.value)}
+        >
+          <option value="name">Sort by Name</option>
+          <option value="category">Sort by Category</option>
+          <option value="need">Sort by Need</option>
+        </select>
+      </div>
 
-        {/* Add to Grocery List */}
-        <Button className="w-full mb-4" onClick={addToGroceryList}>
-          <Plus className="mr-2" /> Add Shortfalls to Grocery List
-        </Button>
+      {/* 🔹 Add to Grocery */}
+      <Button className="w-full mb-4 bg-gray-800 text-white" onClick={addToGroceryList}>
+        <Plus className="mr-2" /> Add Shortfalls to Grocery List
+      </Button>
 
-        {/* Inventory List */}
-        {getSortedInventory().map((item) => (
-          <div key={item.id} className={`flex flex-col sm:flex-row sm:justify-between items-start sm:items-center gap-2 p-2 border-b rounded ${getColorClass(item)}`}>
-            <div className="flex flex-col">
-              <span>{item.name}</span>
-              <span className="text-sm">Have: {item.quantity} / Need: {item.desiredQuantity}</span>
-              <div className="flex flex-wrap gap-4 mt-1">
-                <div className="flex gap-1 items-center">
-                  <span className="text-xs">Have</span>
-                  <Button size="icon" onClick={() => updateQuantity(item.id, -1)}><Minus size={14} /></Button>
-                  <Button size="icon" onClick={() => updateQuantity(item.id, 1)}><Plus size={14} /></Button>
-                </div>
-                <div className="flex gap-1 items-center">
-                  <span className="text-xs">Need</span>
-                  <Button size="icon" onClick={() => updateQuantity(item.id, 0, -1)}><Minus size={14} /></Button>
-                  <Button size="icon" onClick={() => updateQuantity(item.id, 0, 1)}><Plus size={14} /></Button>
-                </div>
+      {/* 🔹 Inventory List */}
+      {getSortedInventory().map((item) => (
+        <div
+          key={item.id}
+          className={`flex flex-col sm:flex-row sm:justify-between items-start sm:items-center gap-2 p-2 border-b rounded ${getColorClass(
+            item
+          )}`}
+        >
+          <div className="flex flex-col">
+            <span>{item.name}</span>
+            <span className="text-sm">
+              Have: {item.quantity} / Need: {item.desiredQuantity}
+            </span>
+
+            <div className="flex flex-wrap gap-4 mt-1">
+              <div className="flex gap-1 items-center">
+                <span className="text-xs">Have</span>
+                <Button size="icon" onClick={() => updateQuantity(item.id, -1)}>
+                  <Minus size={14} />
+                </Button>
+                <Button size="icon" onClick={() => updateQuantity(item.id, 1)}>
+                  <Plus size={14} />
+                </Button>
+              </div>
+              <div className="flex gap-1 items-center">
+                <span className="text-xs">Need</span>
+                <Button size="icon" onClick={() => updateQuantity(item.id, 0, -1)}>
+                  <Minus size={14} />
+                </Button>
+                <Button size="icon" onClick={() => updateQuantity(item.id, 0, 1)}>
+                  <Plus size={14} />
+                </Button>
               </div>
             </div>
-            <div className="flex gap-2 self-end sm:self-auto">
-              <Button variant="outline" onClick={() => startEditingItem(item)}><Edit /></Button>
-              <Button variant="destructive" onClick={() => deleteFoodItem(item.id)}><Trash /></Button>
-            </div>
           </div>
-        ))}
-      </div>
+
+          <div className="flex gap-2 self-end sm:self-auto">
+            <Button variant="outline" onClick={() => startEditingItem(item)}>
+              <Edit />
+            </Button>
+            <Button variant="destructive" onClick={() => deleteFoodItem(item.id)}>
+              <Trash />
+            </Button>
+          </div>
+        </div>
+      ))}
     </div>
-  );
-};
+  </div>
+);
+}
 
 export default FoodInventory;

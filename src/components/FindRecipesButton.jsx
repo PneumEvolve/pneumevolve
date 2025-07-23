@@ -35,7 +35,7 @@ const FindRecipesButton = ({ token }) => {
 
   return (
     <Button onClick={handleFindRecipes} className="bg-amber-500 text-white">
-      🍳 Find Recipes with My Ingredients
+      🍳 Find Recipes (Opens Google)
     </Button>
   );
 };

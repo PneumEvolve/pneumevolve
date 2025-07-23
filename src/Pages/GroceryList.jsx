@@ -95,23 +95,43 @@ const GroceryList = () => {
   };
 
   return (
-    <div className="min-h-screen p-6 bg-white dark:bg-gray-900 text-gray-900 dark:text-white">
-      <Button onClick={() => navigate("/mealplanning")} className="mb-6 flex items-center">
-        <ArrowLeft className="mr-2" /> Back to Meal Planning
+    <div className="min-h-screen p-6 bg-white text-gray-900 dark:bg-gray-900 dark:text-white flex flex-col items-center">
+  <div className="w-full max-w-2xl">
+    <div className="flex flex-wrap justify-center sm:justify-between gap-3 mb-4">
+      <Button onClick={() => navigate("/mealplanning")} className="flex items-center">
+        <ArrowLeft className="mr-2" /> Back
       </Button>
-      <Button
-        className="mb-4 bg-green-600 text-white"
-        onClick={importToInventory}
-        disabled={!items.some(item => item.checked)}
-      >
-        <Plus className="mr-2" /> Import In-Cart Items to Food Inventory
+      <Button onClick={() => navigate("/foodinventory")} className="bg-green-600 text-white">
+          Food Inventory
+        </Button>
+      <Button onClick={() => navigate("/categorymanager")} className="bg-purple-600 text-white">
+        Categories
+        </Button>
+      <Button onClick={() => navigate("/Recipes")} className="bg-orange-500 text-white">
+        Recipes
       </Button>
-      <Button
-        className="mb-4 bg-red-600 text-white ml-4"
-        onClick={clearGroceryList}
-      >
-        <Trash className="mr-2" /> Clear Entire List
-      </Button>
+    
+    </div>
+    </div>
+
+  {/* 🛒 Action Buttons */}
+  <div className="flex flex-col sm:flex-row flex-wrap gap-3 mb-6">
+    <Button
+      className="bg-green-600 text-white w-full sm:w-auto"
+      onClick={importToInventory}
+      disabled={!items.some(item => item.checked)}
+    >
+      <Plus className="mr-2" /> Import In-Cart Items to Food Inventory
+    </Button>
+
+    <Button
+      className="bg-red-600 text-white w-full sm:w-auto"
+      onClick={clearGroceryList}
+    >
+      <Trash className="mr-2" /> Clear Entire List
+    </Button>
+  </div>
+
 
       <h1 className="text-3xl font-bold mb-4">🛒 Grocery List</h1>
 
@@ -153,9 +173,12 @@ const GroceryList = () => {
                 </p>
               </div>
               <div className="flex gap-2">
-                <Button onClick={() => toggleChecked(index)}>
-                  {item.checked ? <X /> : <Check />}
-                </Button>
+                <Button
+  onClick={() => toggleChecked(index)}
+  variant={item.checked ? "destructive" : "green"}
+>
+  {item.checked ? <X /> : <Check />}
+</Button>
                 <Button onClick={() => deleteItem(index)} variant="destructive">
                   <Trash />
                 </Button>

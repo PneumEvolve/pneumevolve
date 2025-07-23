@@ -66,18 +66,21 @@ const CategoryManager = () => {
 
   return (
     <div className="min-h-screen p-6 bg-white text-gray-900 dark:bg-gray-900 dark:text-white flex flex-col items-center">
-      <div className="w-full max-w-2xl">
-        <div className="flex justify-between items-center mb-4">
-          <Button onClick={() => navigate("/mealplanning")} className="flex items-center">
-            <ArrowLeft className="mr-2" /> Back to Meal Planning
-          </Button>
-          <Button onClick={() => navigate("/FoodInventory")} className="ml-2">
-            Food Inventory
-          </Button>
-          <Button onClick={() => navigate("/Recipes")} className="ml-2">
-            Recipes
-          </Button>
-        </div>
+  <div className="w-full max-w-2xl">
+    <div className="flex flex-wrap justify-center sm:justify-between gap-3 mb-4">
+      <Button onClick={() => navigate("/mealplanning")} className="flex items-center">
+        <ArrowLeft className="mr-2" /> Back
+      </Button>
+      <Button onClick={() => navigate("/FoodInventory")} className="bg-green-600 text-white">
+        Food Inventory
+      </Button>
+      <Button onClick={() => navigate("/Recipes")} className="bg-orange-500 text-white">
+        Recipes
+      </Button>
+      <Button onClick={() => navigate("/grocerylist")} className="bg-gray-800 text-white">
+        Grocery List
+      </Button>
+    </div>
 
         <h1 className="text-3xl font-bold mb-6 text-center">Category Manager</h1>
 

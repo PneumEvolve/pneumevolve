@@ -1,7 +1,8 @@
-import { Link, Outlet, useNavigate } from "react-router-dom";
+import { Link, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Analytics from "./Analytics";
+import axios from "axios";
 
 function decodeJWT(token) {
   try {
@@ -19,9 +20,12 @@ function decodeJWT(token) {
   }
 }
 
+const API = import.meta.env.VITE_API_URL;
+
 export default function Layout() {
-  const { isLoggedIn, logout } = useAuth();
+  const { isLoggedIn, userId, logout } = useAuth();
   const navigate = useNavigate();
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const checkToken = () => {
     const token = localStorage.getItem("access_token");
@@ -43,9 +47,43 @@ export default function Layout() {
 
   useEffect(() => {
     checkToken();
+
+    if (isLoggedIn && userId) {
+      axios
+        .get(`${API}/inbox/${userId}`)
+        .then((res) => {
+          const unread = res.data.filter((msg) => !msg.read).length;
+          setUnreadCount(unread);
+        })
+        .catch((err) => {
+          console.error("Failed to load inbox count:", err);
+        });
+    }
+
     window.addEventListener("storage", checkToken);
     return () => window.removeEventListener("storage", checkToken);
-  }, []);
+  }, [isLoggedIn, userId]);
+
+  useEffect(() => {
+  const handleStorageUpdate = () => {
+    const count = parseInt(localStorage.getItem("unreadCount") || "0");
+    setUnreadCount(count);
+  };
+
+  handleStorageUpdate(); // Load initial value on mount
+
+  window.addEventListener("storage", handleStorageUpdate);
+  return () => window.removeEventListener("storage", handleStorageUpdate);
+}, []);
+
+const location = useLocation();
+
+useEffect(() => {
+  const excludedPaths = ["/login", "/signup", "/logout"];
+  if (!excludedPaths.includes(location.pathname)) {
+    localStorage.setItem("lastVisitedPath", location.pathname);
+  }
+}, [location.pathname]);
 
   return (
     <div className="min-h-screen bg-gray-100 text-gray-900">
@@ -68,7 +106,14 @@ export default function Layout() {
               </>
             ) : (
               <>
-                <Link to="/Account" className="hover:underline">Account</Link>
+                <Link to="/Account" className="hover:underline relative flex items-center">
+  Account
+  {unreadCount > 0 && (
+    <span className="ml-1 bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+      {unreadCount}
+    </span>
+  )}
+</Link>
                 <button onClick={handleLogout} className="hover:underline text-red-600">
                   Logout
                 </button>

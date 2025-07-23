@@ -56,7 +56,8 @@ export default function Login() {
       const decoded = jwtDecode(access_token);
 
       login(access_token, refresh_token, decoded.id, decoded.sub);
-      navigate("/");
+      const lastVisitedPath = localStorage.getItem("lastVisitedPath") || "/";
+navigate(lastVisitedPath);
     } catch (err) {
       console.error("❌ Login failed", err);
       setError("Invalid login or server error.");

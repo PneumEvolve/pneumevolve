@@ -255,15 +255,25 @@ const RecipesPage = () => {
 
   return (
     <div className="min-h-screen p-6 bg-white dark:bg-gray-900 text-gray-900 dark:text-white">
-      <div className="max-w-4xl mx-auto">
-        <div className="flex justify-between items-center mb-4">
-          <Button onClick={() => navigate("/mealplanning")} className="flex items-center">
-            <ArrowLeft className="mr-2" /> Back to Meal Planning
-          </Button>
-          <Button onClick={() => navigate("/categorymanager")} className="ml-2">
-            Manage Categories
-          </Button>
-        </div>
+  <div className="max-w-4xl mx-auto">
+    <div className="flex flex-wrap justify-center sm:justify-between items-center gap-3 mb-4">
+      <Button onClick={() => navigate("/mealplanning")} className="flex items-center">
+        <ArrowLeft className="mr-2" /> Back
+      </Button>
+      
+      <Button onClick={() => navigate("/categorymanager")} className="bg-purple-600 text-white">
+        Categories
+      </Button>
+      
+      <Button onClick={() => navigate("/FoodInventory")} className="bg-green-600 text-white">
+        Food Inventory
+      </Button>
+
+      
+      <Button onClick={() => navigate("/grocerylist")} className="bg-gray-800 text-white">
+          Grocery List
+        </Button>
+    </div>
 
         <div className="flex flex-col md:flex-row md:justify-between md:items-center mb-4 gap-2">
           <h1 className="text-3xl font-bold">Your Recipes</h1>
@@ -299,7 +309,7 @@ const RecipesPage = () => {
         </select>
 
         <Button
-          className="mb-4"
+          className="mb-4 bg-gray-800 text-white"
           onClick={crossCheckInventory}
           disabled={!isLoggedIn || Object.keys(selectedRecipes).length === 0}
         >
@@ -307,42 +317,47 @@ const RecipesPage = () => {
         </Button>
 
         <div className="space-y-4">
-          {recipes.map((recipe) => (
-            <div
-              key={recipe.id}
-              className="p-4 border rounded-lg bg-gray-100 dark:bg-gray-800"
-            >
-              <div className="flex justify-between items-start">
-                <div>
-                  <h2 className="text-xl font-semibold">{recipe.name}</h2>
-                  {recipe.category && (
-                    <p className="text-xs text-gray-400 mt-1">Category: {recipe.category}</p>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min="0"
-                    value={selectedRecipes[recipe.id] || 0}
-                    onChange={(e) =>
-                      setSelectedRecipes((prev) => ({
-                        ...prev,
-                        [recipe.id]: Number(e.target.value),
-                      }))
-                    }
-                    className="w-16 p-1 border rounded"
-                  />
-                  <Button variant="outline" onClick={() => setEditingRecipe(recipe)}>
-                    <Pencil />
-                  </Button>
-                  <Button variant="outline" onClick={() => toggleExpand(recipe.id)}>
-                    {expandedRecipes[recipe.id] ? <EyeOff /> : <Eye />}
-                  </Button>
-                  <Button variant="destructive" onClick={() => deleteRecipe(recipe.id)}>
-                    <Trash />
-                  </Button>
-                </div>
-              </div>
+  {recipes.map((recipe) => (
+    <div
+      key={recipe.id}
+      className="p-4 border rounded-lg bg-gray-100 dark:bg-gray-800"
+    >
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3">
+        {/* Left Side: Name + Category */}
+        <div>
+          <h2 className="text-xl font-semibold">{recipe.name}</h2>
+          {recipe.category && (
+            <p className="text-xs text-gray-400 mt-1">
+              Category: {recipe.category}
+            </p>
+          )}
+        </div>
+
+        {/* Right Side: Input + Buttons */}
+        <div className="flex flex-wrap gap-2 items-center justify-start sm:justify-end">
+          <input
+            type="number"
+            min="0"
+            value={selectedRecipes[recipe.id] || 0}
+            onChange={(e) =>
+              setSelectedRecipes((prev) => ({
+                ...prev,
+                [recipe.id]: Number(e.target.value),
+              }))
+            }
+            className="w-20 p-1 border rounded"
+          />
+          <Button variant="yellow" onClick={() => setEditingRecipe(recipe)}>
+            <Pencil />
+          </Button>
+          <Button variant="outline" onClick={() => toggleExpand(recipe.id)}>
+            {expandedRecipes[recipe.id] ? <EyeOff /> : <Eye />}
+          </Button>
+          <Button variant="destructive" onClick={() => deleteRecipe(recipe.id)}>
+            <Trash />
+          </Button>
+        </div>
+      </div>
               {expandedRecipes[recipe.id] && (
                 <div className="mt-2">
                   <p className="text-sm text-gray-500">

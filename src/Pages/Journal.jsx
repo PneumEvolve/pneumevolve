@@ -51,15 +51,23 @@ const handleActionChange = (id, value) => {
   }, [userId, accessToken]);
 
   const handleCreate = async () => {
-    if (!newEntry.title.trim() || !newEntry.content.trim()) return;
-    try {
-      const res = await axiosInstance.post("/journal", newEntry);
-      setEntries([res.data, ...entries]);
-      setNewEntry({ title: "", content: "" });
-    } catch (err) {
-      console.error("Failed to create entry:", err);
-    }
-  };
+  if (!newEntry.title.trim() || !newEntry.content.trim()) return;
+
+  try {
+    const res = await axiosInstance.post("/journal", newEntry);
+    setEntries([res.data, ...entries]);
+    setNewEntry({ title: "", content: "" });
+
+    // ✅ Send inbox message
+    await axiosInstance.post("/inbox/send", {
+      user_id: userId,
+      content: `📝 Your journal entry "${newEntry.title}" was saved. Keep going!`,
+    });
+
+  } catch (err) {
+    console.error("Failed to create entry:", err);
+  }
+};
 
   const handleEditSave = async (entryId) => {
     try {
