@@ -10,8 +10,16 @@ export default function MyTree() {
     if (!isLoggedIn) {
       setTreeStage(0);
     } else {
-      const surveyComplete = localStorage.getItem("communitySurveyComplete") === "true";
-      setTreeStage(surveyComplete ? 2 : 1);
+      const visitedTools = localStorage.getItem("visitedTools") === "true";
+      const visitedDream = localStorage.getItem("visitedDream") === "true";
+      const communityUnlocked = visitedTools && visitedDream;
+
+      if (communityUnlocked) {
+        localStorage.setItem("communitySurveyComplete", "true");
+        setTreeStage(2);
+      } else {
+        setTreeStage(1);
+      }
     }
   }, [isLoggedIn]);
 
@@ -44,7 +52,7 @@ export default function MyTree() {
         link: "/dreammachine",
       },
     ],
-    [ // tree2_bg — logged in + survey complete
+    [ // tree2_bg — logged in + visited both
       {
         id: "tools",
         src: "/fireball.png",
@@ -71,6 +79,25 @@ export default function MyTree() {
       },
     ],
   ];
+
+  const handleClick = (e, id, link) => {
+    if (id === "tools") {
+      localStorage.setItem("visitedTools", "true");
+    }
+    if (id === "dream") {
+      localStorage.setItem("visitedDream", "true");
+    }
+
+    if (window.innerWidth <= 768) {
+      if (activeOrb !== id) {
+        e.preventDefault();
+        setActiveOrb(id);
+        return;
+      }
+    }
+
+    window.location.href = link;
+  };
 
   return (
     <>
@@ -163,22 +190,11 @@ export default function MyTree() {
         {fireballs[treeStage].map(({ id, src, top, left, label, link }) => (
           <div
             key={id}
-            className={`orb-container`}
+            className="orb-container"
             style={{ top, left }}
-            onClick={(e) => {
-              if (window.innerWidth <= 768) {
-                if (activeOrb !== id) {
-                  e.preventDefault();
-                  setActiveOrb(id);
-                } else {
-                  window.location.href = link;
-                }
-              }
-            }}
+            onClick={(e) => handleClick(e, id, link)}
           >
-            <a href={link}>
-              <img src={src} alt={label} className="fireball" />
-            </a>
+            <img src={src} alt={label} className="fireball" />
             <div className={`orb-label ${activeOrb === id ? "active" : ""}`}>
               {label}
             </div>
