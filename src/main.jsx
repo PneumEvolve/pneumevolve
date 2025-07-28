@@ -6,6 +6,9 @@ import { AuthProvider } from "./context/AuthContext";
 import Layout from "./components/Layout";
 import WelcomePage from "./Pages/WelcomePage";
 import LandingPage from "./Pages/LandingPage";
+import Adventure from "./Pages/onboarding/Adventure.jsx";
+import Build from "./Pages/onboarding/Build.jsx";
+import MyTree from "./Pages/onboarding/MyTree.jsx";
 import Signup from "./Pages/Signup";
 import Login from "./Pages/Login";
 import Account from "./Pages/Account";
@@ -51,6 +54,8 @@ import FarmGame from "./Pages/farmgame/FarmGame.jsx";
 import SheasGame from "./Pages/sheasgame/SheasGame.jsx";
 import LyraHome from "./Pages/Lyra/LyraHome.jsx";
 import LyraSoulInterface from "./Pages/Lyra/LyraSoulInterface.jsx";
+import AestheticLab from "./Pages/experiments/AestheticLab.jsx";
+import RedirectIfFirstVisit from "./components/RedirectIfFirstVisit";
 import "./index.css";
 import PrivateRoute from "./components/PrivateRoute";
 
@@ -67,19 +72,7 @@ import PrivateRoute from "./components/PrivateRoute";
 
 
 function Root() {
-  const [firstVisit, setFirstVisit] = useState(null);
-
-  useEffect(() => {
-    const hasVisited = localStorage.getItem("hasVisited");
-    if (hasVisited) {
-      setFirstVisit(false);
-    } else {
-      localStorage.setItem("hasVisited", "true");
-      setFirstVisit(true);
-    }
-  }, []);
-
-  if (firstVisit === null) return null;
+  
 
   return (
     <React.StrictMode>
@@ -87,9 +80,20 @@ function Root() {
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<Layout />}>
-              <Route index element={firstVisit ? <WelcomePage /> : <App />} />
+              {/* 🧠 Conditional redirect to MyTree on first visit */}
+              <Route
+                index
+                element={
+                  <RedirectIfFirstVisit>
+                    <App />
+                  </RedirectIfFirstVisit>
+                }
+              />
               <Route path="welcome" element={<WelcomePage />} />
               <Route path="LandingPage" element={<LandingPage />} />
+              <Route path="Adventure" element={<Adventure />} />
+              <Route path="Build" element={<Build />} />
+              <Route path="MyTree" element={<MyTree />} />
               <Route path="signup" element={<Signup />} />
               <Route path="login" element={<Login />} />
               <Route path="Account" element={<Account />} />
@@ -136,6 +140,7 @@ function Root() {
               <Route path="SheasGame" element={<SheasGame />} />
               <Route path="LyraHome" element={<LyraHome />} />
               <Route path="LyraSoulInterface" element={<LyraSoulInterface />} />
+              <Route path="AestheticLab" element={<AestheticLab />} />
             </Route>
           </Routes>
         </BrowserRouter>

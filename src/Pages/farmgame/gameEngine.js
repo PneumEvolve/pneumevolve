@@ -50,6 +50,7 @@ export function normalizeState(raw) {
   hasWon: false,
   showWinModal: false,
   winTime: null,
+  showHireHelp: false,
 };
 
   if (!raw || typeof raw !== "object") return fallback;
@@ -109,6 +110,7 @@ export function normalizeState(raw) {
     showWinModal: !!raw.showWinModal,
     winTime:
       typeof raw.winTime === "number" ? raw.winTime : null,
+    showHireHelp: !!raw.showHireHelp,
   };
 }
 
@@ -136,14 +138,13 @@ export const createGameState = () =>
  * Tick loop
  * ------------------------------------------------------------------ */
 export function tick(state) {
-  // ✅ Guard clause for corrupted or undefined game state
+  let waterUsed = 0;
   if (!state || !Array.isArray(state.grid)) {
     console.warn("⚠️ Invalid game state passed to tick(). Resetting...");
-    return createGameState(); // fallback to a fresh game state
+    return createGameState();
   }
-  // Defensive: never mutate caller's object directly
-  const game = normalizeState(state);
 
+  const game = normalizeState(state);
   let { water, grid } = game;
   let plantedCount = 0;
   let hydroDrain = 0;
@@ -152,6 +153,7 @@ export function tick(state) {
   for (let i = 0; i < grid.length; i++) {
     const row = grid[i];
     if (!Array.isArray(row)) continue;
+
     for (let j = 0; j < row.length; j++) {
       const tile = row[j];
       if (!tile) continue;
@@ -161,30 +163,37 @@ export function tick(state) {
       if (tile.type === TILE_TYPES.PLANTED) {
         if (bugHere) {
           tile.hasWater = false;
-          continue; // blocked by bug
+          continue;
         }
 
         const isHydro = tile.upgrade === UPGRADE_TYPES.HYDRO;
         const drain = isHydro ? 3 : 1;
+        const growLimit = isHydro ? 10 : 20;
 
         if (water >= drain) {
           water -= drain;
           tile.growth += 1;
-          tile.hasWater = true;
-        } else {
-          tile.hasWater = false;
+
+          if (tile.growth === growLimit) {
+            tile.justGrown = true;
+          }
         }
 
+        if (tile.growth > growLimit || tile.justGrown) {
+          tile.justGrown = false;
+        }
+
+        tile.hasWater = true;
         plantedCount++;
         if (isHydro) hydroDrain++;
       }
     }
   }
 
-  // Passive regen
+  // ✅ Passive regen
   water += 1 + game.bonusWater;
 
-  // Spawn bugs every 10 ticks (was comment "5" but code said 10)
+  // ✅ Bug spawning
   if (game.tickCount % 10 === 0) {
     const plantedTiles = [];
     for (let i = 0; i < grid.length; i++) {
@@ -206,7 +215,7 @@ export function tick(state) {
     }
   }
 
-  // Age out bugs
+  // ✅ Bug aging
   const updatedBugs = [];
   for (const bug of game.bugs) {
     const age = (bug.age ?? 0) + 1;
@@ -216,6 +225,7 @@ export function tick(state) {
   return {
     ...game,
     water,
+    waterUsed,
     grid,
     plantedCount,
     hydroCount: hydroDrain,

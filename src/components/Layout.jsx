@@ -78,6 +78,9 @@ export default function Layout() {
 
 const location = useLocation();
 
+const noPaddingRoutes = ["/", "/aestheticlab", "/mytree"];
+const isFullScreen = noPaddingRoutes.includes(location.pathname);
+
 useEffect(() => {
   const excludedPaths = ["/login", "/signup", "/logout"];
   if (!excludedPaths.includes(location.pathname)) {
@@ -86,13 +89,15 @@ useEffect(() => {
 }, [location.pathname]);
 
   return (
-    <div className="min-h-screen bg-gray-100 text-gray-900">
+    <div className="min-h-screen bg-gray-100 text-gray-900 ">
+
       <Analytics />
       <header className="bg-white shadow p-4">
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 z-index-999">
           <h1 className="text-2xl font-bold text-center sm:text-left">PneumEvolve</h1>
           <nav className="flex flex-wrap justify-center sm:justify-end gap-3 text-sm">
             <Link to="/" className="hover:underline">Home</Link>
+            <Link to="/mytree" className="hover:underline">MyTree</Link>
             <Link to="/communities" className="hover:underline">Community</Link>
             <Link to="/farmgame" className="hover:underline">Game</Link>
             <Link to="/blog" className="hover:underline">Blog</Link>
@@ -123,9 +128,9 @@ useEffect(() => {
         </div>
       </header>
 
-      <main className="p-6">
-        <Outlet />
-      </main>
+      <main className={isFullScreen ? "" : "p-6"}>
+  <Outlet />
+</main>
     </div>
   );
 }

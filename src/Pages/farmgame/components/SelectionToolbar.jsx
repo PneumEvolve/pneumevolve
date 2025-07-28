@@ -4,6 +4,7 @@ export default function SelectionToolbar({
   selectedTiles,
   onAction,
   onClear,
+  onSelectAll,
   seedCost = 0,
   showCost = false,
   expansionCost,
@@ -144,15 +145,21 @@ export default function SelectionToolbar({
             </div>
           )}
 
-          {/* Clear Selection */}
-          <div className="flex justify-end">
-            <button
-              onClick={onClear}
-              className="py-1 px-3 bg-gray-400 text-white rounded hover:bg-gray-500 text-sm"
-            >
-              Clear Selection
-            </button>
-          </div>
+          {/* Clear & Select All */}
+<div className="flex justify-end gap-2">
+  <button
+    onClick={onSelectAll}
+    className="py-1 px-3 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
+  >
+    Select All Tiles
+  </button>
+  <button
+    onClick={onClear}
+    className="py-1 px-3 bg-gray-400 text-white rounded hover:bg-gray-500 text-sm"
+  >
+    Clear Selection
+  </button>
+</div>
         </>
       )}
     </div>

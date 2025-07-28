@@ -8,10 +8,17 @@ export default function GameHeader({
   onCloseWinModal,
   isPaused,
   onTogglePause,
+  lastWaterUsedRef,
 }) {
   const best = JSON.parse(localStorage.getItem("farmgame_best") || "{}");
 
    const baseRate = 1;
+const waterGain = baseRate + (game.bonusWater || 0);
+const plantedDrain = (game.plantedCount || 0) - (game.hydroCount || 0);
+const hydroDrain = (game.hydroCount || 0) * 3;
+const waterDrain = plantedDrain + hydroDrain;
+
+const netRate = waterGain - waterDrain;
       const totalRate =
         baseRate +
         game.bonusWater -
@@ -61,7 +68,9 @@ export default function GameHeader({
       <div className="flex gap-4 text-gray-800 bg-white bg-opacity-80 p-2 rounded shadow">
         <p>
   💧 Water: {game.water}{" "}
-  <span className="text-xs text-gray-500">({totalRate}/sec)</span>
+  <span className="text-xs text-gray-500">
+    (+{waterGain}/sec − {waterDrain}/sec = {netRate}/sec)
+  </span>
 </p>
         <p>🌱 Seeds(100 to Win): {game.seeds}</p>
       </div>
