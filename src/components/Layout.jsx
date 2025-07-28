@@ -97,7 +97,7 @@ useEffect(() => {
           <h1 className="text-2xl font-bold text-center sm:text-left">PneumEvolve</h1>
           <nav className="flex flex-wrap justify-center sm:justify-end gap-3 text-sm">
             <Link to="/" className="hover:underline">Home</Link>
-            <Link to="/mytree" className="hover:underline">MyTree</Link>
+            <Link to="/MyTree" className="hover:underline">MyTree</Link>
             <Link to="/communities" className="hover:underline">Community</Link>
             <Link to="/farmgame" className="hover:underline">Game</Link>
             <Link to="/blog" className="hover:underline">Blog</Link>

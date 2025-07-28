@@ -9,6 +9,7 @@ import LandingPage from "./Pages/LandingPage";
 import Adventure from "./Pages/onboarding/Adventure.jsx";
 import Build from "./Pages/onboarding/Build.jsx";
 import MyTree from "./Pages/onboarding/MyTree.jsx";
+import Tools from "./Pages/Tools.jsx";
 import Signup from "./Pages/Signup";
 import Login from "./Pages/Login";
 import Account from "./Pages/Account";
@@ -89,6 +90,7 @@ function Root() {
                   </RedirectIfFirstVisit>
                 }
               />
+              <Route path="Tools" element={<Tools />} />
               <Route path="welcome" element={<WelcomePage />} />
               <Route path="LandingPage" element={<LandingPage />} />
               <Route path="Adventure" element={<Adventure />} />
