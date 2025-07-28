@@ -56,6 +56,8 @@ import SheasGame from "./Pages/sheasgame/SheasGame.jsx";
 import LyraHome from "./Pages/Lyra/LyraHome.jsx";
 import LyraSoulInterface from "./Pages/Lyra/LyraSoulInterface.jsx";
 import AestheticLab from "./Pages/experiments/AestheticLab.jsx";
+import LivingPlan from "./Pages/LivingPlan";
+import NotesPage from "./Pages/NotesPage";
 import RedirectIfFirstVisit from "./components/RedirectIfFirstVisit";
 import "./index.css";
 import PrivateRoute from "./components/PrivateRoute";
@@ -143,6 +145,8 @@ function Root() {
               <Route path="LyraHome" element={<LyraHome />} />
               <Route path="LyraSoulInterface" element={<LyraSoulInterface />} />
               <Route path="AestheticLab" element={<AestheticLab />} />
+              <Route path="LivingPlan" element={<LivingPlan />} />
+              <Route path="/notes/:index" element={<NotesPage />} />
             </Route>
           </Routes>
         </BrowserRouter>
