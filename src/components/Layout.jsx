@@ -78,7 +78,7 @@ export default function Layout() {
 
 const location = useLocation();
 
-const noPaddingRoutes = ["/", "/aestheticlab", "/mytree"];
+const noPaddingRoutes = ["/", "/aestheticlab", "/MyTree"];
 const isFullScreen = noPaddingRoutes.includes(location.pathname);
 
 useEffect(() => {
