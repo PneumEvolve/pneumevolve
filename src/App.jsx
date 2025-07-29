@@ -1,11 +1,57 @@
-import React from "react";
+import React, { useState } from "react";
+import { Dialog } from "@headlessui/react";
 
 export default function App() {
   const currentYear = new Date().getFullYear();
+  const [isOpen, setIsOpen] = useState(false);
+  const [form, setForm] = useState({
+    contact: "",
+    interests: [],
+    idea: "",
+    bugs: "",
+    skills: "",
+    extra: "",
+  });
+
+  const handleChange = (e) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  const toggleInterest = (value) => {
+    setForm((prev) => {
+      const interests = prev.interests.includes(value)
+        ? prev.interests.filter((v) => v !== value)
+        : [...prev.interests, value];
+      return { ...prev, interests };
+    });
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    console.log("Submitted Feedback:", form);
+    await fetch(`${import.meta.env.VITE_API_URL}/inbox/contribute`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(form),
+});
+    alert("Thank you for your contribution!");
+    setForm({ contact: "", interests: [], idea: "", bugs: "", skills: "", extra: "" });
+    setIsOpen(false);
+  };
+
+  const interestOptions = [
+    "Ideas & Concepts",
+    "Design & UI",
+    "Development (Frontend)",
+    "Development (Backend)",
+    "Writing & Philosophy",
+    "Testing & Feedback",
+    "Community & Organization",
+    "I’m not sure yet",
+  ];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-100 to-blue-200 dark:from-gray-900 dark:to-black text-gray-900 dark:text-white px-6 py-12 font-sans">
-      {/* Logo and Intro */}
       <div className="flex flex-col items-center text-center mb-12">
         <img
           src="/logo.png"
@@ -16,11 +62,16 @@ export default function App() {
           PneumEvolve
         </h1>
         <p className="text-lg sm:text-xl text-gray-700 dark:text-gray-300 max-w-2xl leading-relaxed">
-          A spiritual and practical movement to grow communities, reclaim self-trust, and build new systems rooted in love, cooperation, and shared joy.
+          Here's what I've built so far — alone. Now I want to build <strong>with you</strong>, and <strong>for you</strong>. Let's start now.
         </p>
+        <button
+          onClick={() => setIsOpen(true)}
+          className="mt-6 px-6 py-3 bg-blue-600 text-white font-medium rounded hover:bg-blue-700 shadow"
+        >
+          🚀 Help Build PneumEvolve
+        </button>
       </div>
 
-      {/* Our Favourites */}
       <Section title="💖 Our Favourites">
         <LinkCard href="/farmgame" label="🌾 Farm Game" />
         <LinkCard href="/dreammachine" label="💭 Dream Machine" />
@@ -28,14 +79,12 @@ export default function App() {
         <LinkCard href="/communities" label="🏘 Community Manager" />
       </Section>
 
-      {/* Tools Section */}
       <Section title="🛠 Core Tools">
         <LinkCard href="/journal" label="📓 I AM – Journal" />
         <LinkCard href="/MealPlanning" label="🍽️ Life Tools – Meal Planner" />
         <LinkCard href="/projects" label="📋 Project Manager" />
       </Section>
 
-      {/* Community Experiments */}
       <Section title="🌱 Community Experiments">
         <LinkCard href="/communities" label="🏘 Modular Community Manager" />
         <LinkCard href="/WeGreen" label="🌿 WeGreen – Gardening Initiative" />
@@ -44,7 +93,6 @@ export default function App() {
         <LinkCard href="/wetalk" label="💬 We Talk – Homemade Forum" />
       </Section>
 
-      {/* Creative Playground */}
       <Section title="🎨 Creative Playground">
         <LinkCard href="/ZenFreeskates" label="🛼 Zen Freeskates – Flow Meets Freedom" />
         <LinkCard href="/experiments" label="🧪 Experiments – WIP Ideas" />
@@ -52,7 +100,6 @@ export default function App() {
         <LinkCard href="/meditation" label="🧘 Daily Meditation Timer" />
       </Section>
 
-      {/* Lyra's Corner */}
       <Section title="🔥 Lyra’s Corner">
         <LinkCard
           href="https://pneumevolve.github.io/dreamfire-gate"
@@ -60,6 +107,69 @@ export default function App() {
           external
         />
       </Section>
+
+      <Dialog open={isOpen} onClose={() => setIsOpen(false)} className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center">
+        <Dialog.Panel className="bg-white dark:bg-gray-900 max-h-[90vh] overflow-y-auto p-6 rounded-xl max-w-2xl w-full shadow-xl">
+          <Dialog.Title className="text-2xl font-bold mb-4">🚀 Help Build PneumEvolve</Dialog.Title>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block mb-1 font-medium">How can we contact you? (Email or social)</label>
+              <input
+                type="text"
+                name="contact"
+                value={form.contact}
+                onChange={handleChange}
+                className="w-full p-2 border rounded dark:bg-gray-800"
+              />
+            </div>
+
+            <div>
+              <label className="block mb-2 font-medium">What do you most want to contribute?</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {interestOptions.map((option) => (
+                  <label key={option} className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={form.interests.includes(option)}
+                      onChange={() => toggleInterest(option)}
+                    />
+                    {option}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="block mb-1 font-medium">What’s an idea you’d love to see in PneumEvolve?</label>
+              <textarea name="idea" value={form.idea} onChange={handleChange} className="w-full p-2 border rounded dark:bg-gray-800" />
+            </div>
+
+            <div>
+              <label className="block mb-1 font-medium">Have you noticed any bugs or problems?</label>
+              <textarea name="bugs" value={form.bugs} onChange={handleChange} className="w-full p-2 border rounded dark:bg-gray-800" />
+            </div>
+
+            <div>
+              <label className="block mb-1 font-medium">What are you good at, or excited to learn?</label>
+              <textarea name="skills" value={form.skills} onChange={handleChange} className="w-full p-2 border rounded dark:bg-gray-800" />
+            </div>
+
+            <div>
+              <label className="block mb-1 font-medium">Anything else you want to share?</label>
+              <textarea name="extra" value={form.extra} onChange={handleChange} className="w-full p-2 border rounded dark:bg-gray-800" />
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setIsOpen(false)} className="px-4 py-2 bg-gray-300 dark:bg-gray-700 rounded">
+                Cancel
+              </button>
+              <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                Submit
+              </button>
+            </div>
+          </form>
+        </Dialog.Panel>
+      </Dialog>
 
       <p className="text-sm text-gray-500 dark:text-gray-400 mt-16 text-center">
         © {currentYear} PneumEvolve. Guided by Spirit, built with love.
