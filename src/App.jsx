@@ -52,7 +52,13 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-100 to-blue-200 dark:from-gray-900 dark:to-black text-gray-900 dark:text-white px-6 py-12 font-sans">
-      <div className="flex flex-col items-center text-center mb-12">
+      <div className="flex flex-col items-center text-center mb-12 space-y-6">
+        <div className="space-y-3 max-w-2xl">
+          <h2 className="text-2xl sm:text-3xl font-semibold">Do you believe in building something better than what we’ve got?</h2>
+          <h2 className="text-2xl sm:text-3xl font-semibold">Do you have a skill, a heart, or a dream you want to contribute?</h2>
+          <h2 className="text-2xl sm:text-3xl font-semibold">Do you want to explore new ways of creating and organizing together?</h2>
+        </div>
+
         <img
           src="/logo.png"
           alt="PneumEvolve Logo"
@@ -62,7 +68,7 @@ export default function App() {
           PneumEvolve
         </h1>
         <p className="text-lg sm:text-xl text-gray-700 dark:text-gray-300 max-w-2xl leading-relaxed">
-          Here's what I've built so far — alone. Now I want to build <strong>with you</strong>, and <strong>for you</strong>. Let's start now.
+          Here's what I've built so far. Now I want to build <strong>with you</strong>, and <strong>for you</strong>. This is not a company. This is not a business. This is a co-creation and You are invited. Let's start now.
         </p>
         <button
           onClick={() => setIsOpen(true)}
