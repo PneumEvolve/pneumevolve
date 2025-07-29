@@ -16,5 +16,9 @@ export default defineConfig(({ mode }) => {
     define: {
       'process.env': env,
     },
+      optimizeDeps: {
+      include: ['react-markdown', 'prop-types'],
+      exclude: ['axios', 'react-helmet'],
+    },
   };
 });

@@ -3,6 +3,7 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
+import ReactMarkdown from "react-markdown";
 
 const API = import.meta.env.VITE_API_URL;
 
@@ -59,15 +60,22 @@ export default function NotesPage() {
       <h1 className="text-3xl font-bold">📝 Notes for: {section.title || `Section ${index}`}</h1>
 
       {isEditable ? (
-        <textarea
-          className="w-full min-h-[300px] border rounded p-4 text-base bg-white dark:bg-gray-900 dark:text-white"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder="Write notes for this section..."
-        />
-      ) : (
-        <p className="whitespace-pre-wrap border bg-gray-50 p-4 rounded">{notes}</p>
-      )}
+  <div className="flex flex-col md:flex-row gap-6">
+    <textarea
+      className="w-full md:w-1/2 min-h-[300px] border rounded p-4 text-base bg-white dark:bg-gray-900 dark:text-white"
+      value={notes}
+      onChange={(e) => setNotes(e.target.value)}
+      placeholder="Write notes for this section..."
+    />
+    <div className="w-full md:w-1/2 p-4 border rounded bg-white dark:bg-gray-900 prose dark:prose-invert max-w-none overflow-auto">
+      <ReactMarkdown>{notes}</ReactMarkdown>
+    </div>
+  </div>
+) : (
+  <div className="prose dark:prose-invert bg-gray-50 dark:bg-gray-900 p-4 rounded">
+    <ReactMarkdown>{notes}</ReactMarkdown>
+  </div>
+)}
 
       <div className="flex justify-between items-center">
         <button

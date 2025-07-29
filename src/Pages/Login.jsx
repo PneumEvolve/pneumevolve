@@ -50,6 +50,7 @@ export default function Login() {
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
         },
+        withCredentials: true,
       });
 
       const { access_token, refresh_token } = response.data;

@@ -61,6 +61,7 @@ import NotesPage from "./Pages/NotesPage";
 import RedirectIfFirstVisit from "./components/RedirectIfFirstVisit";
 import "./index.css";
 import PrivateRoute from "./components/PrivateRoute";
+import { HelmetProvider } from 'react-helmet-async';
 
 
 
@@ -79,6 +80,7 @@ function Root() {
 
   return (
     <React.StrictMode>
+      <HelmetProvider>
       <AuthProvider>
         <BrowserRouter>
           <Routes>
@@ -151,6 +153,7 @@ function Root() {
           </Routes>
         </BrowserRouter>
       </AuthProvider>
+      </HelmetProvider>
     </React.StrictMode>
   );
 }

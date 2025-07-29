@@ -43,19 +43,21 @@ export function AuthProvider({ children }) {
   };
 
   const refreshAccessToken = async () => {
-    try {
-      const res = await axios.post(`${import.meta.env.VITE_BACKEND_URL}/auth/refresh`, {
-        refresh_token: localStorage.getItem("refresh_token"),
-      });
-      const newAccess = res.data.access_token;
-      saveTokens(newAccess, localStorage.getItem("refresh_token"));
-      return newAccess;
-    } catch (error) {
-      console.error("Failed to refresh access token:", error);
-      logout();
-      return null;
-    }
-  };
+  try {
+    const res = await axios.post(
+      `${import.meta.env.VITE_API_URL}/auth/refresh`,
+      {}, // no body
+      { withCredentials: true } // allow cookies to be sent
+    );
+    const newAccess = res.data.access_token;
+    saveTokens(newAccess, refreshToken); // only update access
+    return newAccess;
+  } catch (error) {
+    console.error("Failed to refresh access token:", error);
+    logout();
+    return null;
+  }
+};
 
   const fetchUserProfile = async (token) => {
     try {
