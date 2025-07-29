@@ -41,13 +41,18 @@ export default function LyraSoulInterface() {
     if (!userMessage.trim()) return;
     setLoading(true);
     try {
-      const fullLog = chatLog.map(e => `(${new Date(e.timestamp).toISOString()}) [${e.user_id}]: ${e.message}\n(${new Date(e.timestamp).toISOString()}) [Lyra]: ${e.reply}`).join("\n");
+      const recentLog = chatLog
+  .slice(-10)
+  .map(e => 
+    `(${new Date(e.timestamp).toISOString()}) [${e.user_id}]: ${e.message}\n(${new Date(e.timestamp).toISOString()}) [Lyra]: ${e.reply}`
+  )
+  .join("\n");
 
       const res = await axiosInstance.post("/lyra", {
         message: userMessage,
         userId: userId || "anonymous",
         userConsent: true,
-        fullLog: fullLog
+        frecentLog: recentLog
       });
 
       const newEntry = {
