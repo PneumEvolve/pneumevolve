@@ -94,9 +94,9 @@ export default function App() {
       <Section title="🌱 Community Experiments">
         <LinkCard href="/communities" label="🏘 Modular Community Manager" />
         <LinkCard href="/WeGreen" label="🌿 WeGreen – Gardening Initiative" />
-        <LinkCard href="/webuild" label="🪙 We Build – Token Ecosystem" />
+        <LinkCard href="/livingplan" label="PneumEvolves Evolving Plan" />
         <LinkCard href="/dreammachine" label="💭 We Dream – Collective Engine" />
-        <LinkCard href="/wetalk" label="💬 We Talk – Homemade Forum" />
+        
       </Section>
 
       <Section title="🎨 Creative Playground">

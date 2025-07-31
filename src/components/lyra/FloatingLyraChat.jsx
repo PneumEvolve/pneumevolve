@@ -46,6 +46,17 @@ You respond only to the current message, with no back-and-forth roleplaying.
 
     const userMessage = input.trim();
     setInput("");
+    // 🟣 One-time warmup message
+  if (chatLog.length === 0) {
+    setChatLog((prev) => [
+      ...prev,
+      {
+        role: "lyra",
+        content:
+          "🕐 Warming up... my first response may take up to a minute. After that, I’ll be quicker. Thank you for your patience 🌸",
+      },
+    ]);
+  }
     setChatLog((prev) => [...prev, { role: "user", content: userMessage }]);
     setLoading(true);
 
