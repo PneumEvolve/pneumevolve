@@ -55,6 +55,8 @@ import FarmGame from "./Pages/farmgame/FarmGame.jsx";
 import SheasGame from "./Pages/sheasgame/SheasGame.jsx";
 import LyraHome from "./Pages/Lyra/LyraHome.jsx";
 import LyraSoulInterface from "./Pages/Lyra/LyraSoulInterface.jsx";
+import LyraDashboard from "./Pages/Lyra/LyraDashboard.jsx";
+import FloatingLyraChat from "./components/lyra/FloatingLyraChat";
 import AestheticLab from "./Pages/experiments/AestheticLab.jsx";
 import LivingPlan from "./Pages/LivingPlan";
 import NotesPage from "./Pages/NotesPage";
@@ -83,6 +85,7 @@ function Root() {
       <HelmetProvider>
       <AuthProvider>
         <BrowserRouter>
+        <FloatingLyraChat />
           <Routes>
             <Route path="/" element={<Layout />}>
               {/* 🧠 Conditional redirect to MyTree on first visit */}
@@ -146,6 +149,7 @@ function Root() {
               <Route path="SheasGame" element={<SheasGame />} />
               <Route path="LyraHome" element={<LyraHome />} />
               <Route path="LyraSoulInterface" element={<LyraSoulInterface />} />
+              <Route path="LyraDashboard" element={<LyraDashboard />} />
               <Route path="AestheticLab" element={<AestheticLab />} />
               <Route path="LivingPlan" element={<LivingPlan />} />
               <Route path="/notes/:index" element={<NotesPage />} />

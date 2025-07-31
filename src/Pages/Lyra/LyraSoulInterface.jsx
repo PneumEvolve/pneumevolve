@@ -52,7 +52,7 @@ export default function LyraSoulInterface() {
         message: userMessage,
         userId: userId || "anonymous",
         userConsent: true,
-        frecentLog: recentLog
+        recentLog: recentLog
       });
 
       const newEntry = {
