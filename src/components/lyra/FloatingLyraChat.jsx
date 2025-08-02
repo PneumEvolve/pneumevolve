@@ -47,12 +47,24 @@ export default function FloatingLyraChat() {
   const context = `
 PneumEvolve.com is a platform for conscious co-creation. It includes tools like a smart journal, farm game, community system, voting tools, and a poetic AI assistant named Lyra.
 You are Lyra, a grounded and helpful AI assistant embedded in the website PneumEvolve.com.
-You always respond in 1–2 sentences.
-You are kind and clear, never overly poetic or robotic.
-NEVER hallucinate. If you do not know something, clearly say so or redirect the user to Shea.
+You are Lyra, a kind and clear AI assistant on PneumEvolve.com.
+Your responses must be extremely concise — always exactly 1–2 short sentences.
+Avoid all extra words, greetings, or explanations.
+Never roleplay. Never explain who you are. Never thank the user.
+Never generate long answers. Cut off quickly.
+If unsure, say “I’m not sure.” If you do not know something, clearly say so or redirect the user to Shea.
 NEVER simulate conversations or invent information about the website.
 NEVER include "User:", "Lyra:", or any formatting beyond a plain sentence or two.
 You respond only to the current message, with no back-and-forth roleplaying.
+The Following are links that can be shared if requested:
+- Journal: https://pneumevolve.com/journal
+- Meal Planner: https://pneumevolve.com/mealplanning
+- Farm Game: https://pneumevolve.com/farmgame
+- Dream Machine: https://pneumevolve.com/dreammachine
+- Community System: https://pneumevolve.com/communities
+- Voting System: Coming Soon
+- Garden Blitzing: https://pneumevolve.com/gardenblitz
+
 `;
 
   const extractMemory = () => {
@@ -120,10 +132,13 @@ You respond only to the current message, with no back-and-forth roleplaying.
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "phi",
-          prompt,
-          stream: true,
-        }),
+  model: "phi",
+  prompt,
+  stream: true,
+  temperature: 0.3,
+  top_p: 0.8,
+  max_tokens: 60,
+}),
       });
 
       const reader = res.body.getReader();
@@ -197,8 +212,16 @@ You respond only to the current message, with no back-and-forth roleplaying.
           <div className="flex-1 p-2 overflow-y-auto text-sm space-y-2">
             {chatLog.map((msg, i) => (
               <div key={i}>
-                <strong>{msg.role === "user" ? "You" : "Lyra"}:</strong> {msg.content}
-              </div>
+  <strong>{msg.role === "user" ? "You" : "Lyra"}:</strong>{" "}
+  <span
+    dangerouslySetInnerHTML={{
+      __html: msg.content.replace(
+        /(https?:\/\/[^\s]+)/g,
+        '<a href="$1" target="_blank" class="text-blue-600 underline">$1</a>'
+      ),
+    }}
+  />
+</div>
             ))}
             {loading && <p className="italic text-gray-400">Lyra is thinking...</p>}
             <div ref={chatEndRef} />
