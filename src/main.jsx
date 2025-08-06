@@ -60,6 +60,8 @@ import FloatingLyraChat from "./components/lyra/FloatingLyraChat";
 import AestheticLab from "./Pages/experiments/AestheticLab.jsx";
 import LivingPlan from "./Pages/LivingPlan";
 import NotesPage from "./Pages/NotesPage";
+import ProblemPage from "./Pages/problemsolving/ProblemPage.jsx";
+import HomePage from "./Pages/pneumevolve/HomePage";
 import RedirectIfFirstVisit from "./components/RedirectIfFirstVisit";
 import "./index.css";
 import PrivateRoute from "./components/PrivateRoute";
@@ -153,6 +155,8 @@ function Root() {
               <Route path="AestheticLab" element={<AestheticLab />} />
               <Route path="LivingPlan" element={<LivingPlan />} />
               <Route path="/notes/:index" element={<NotesPage />} />
+              <Route path="ProblemPage" element={<ProblemPage />} />
+              <Route path="HomePage" element={<HomePage />} />
             </Route>
           </Routes>
         </BrowserRouter>

@@ -98,7 +98,7 @@ useEffect(() => {
           <nav className="flex flex-wrap justify-center sm:justify-end gap-3 text-sm">
             <Link to="/" className="hover:underline">Home</Link>
             <Link to="/MyTree" className="hover:underline">MyTree</Link>
-            <Link to="/communities" className="hover:underline">Community</Link>
+            <Link to="/communities" className="hover:underline">Communities</Link>
             <Link to="/farmgame" className="hover:underline">Game</Link>
             <Link to="/blog" className="hover:underline">Blog</Link>
             <Link to="/projects" className="hover:underline">Projects</Link>

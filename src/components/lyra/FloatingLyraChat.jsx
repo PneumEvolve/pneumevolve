@@ -23,7 +23,7 @@ export default function FloatingLyraChat() {
 
   const checkLyraStatus = async () => {
     try {
-      const res = await fetch("https://0f76532c7b54.ngrok-free.app/ping", {
+      const res = await fetch("https://f49cf093ce81.ngrok-free.app/ping", {
         method: "GET",
         headers: {
           "ngrok-skip-browser-warning": "true",
@@ -101,7 +101,7 @@ The Following are links that can be shared if requested:
     setLoading(true);
 
     try {
-      const pingRes = await fetch("https://0f76532c7b54.ngrok-free.app/ping", {
+      const pingRes = await fetch("https://f49cf093ce81.ngrok-free.app/ping", {
         method: "GET",
         headers: {
           "ngrok-skip-browser-warning": "true",
@@ -128,7 +128,7 @@ The Following are links that can be shared if requested:
 
       const prompt = `${context}\n\n${memory}\n\n${recentMessages}\nUser: ${userMessage}\nLyra:`;
 
-      const res = await fetch("https://0f76532c7b54.ngrok-free.app/ollama", {
+      const res = await fetch("https://f49cf093ce81.ngrok-free.app/ollama", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
