@@ -4,6 +4,8 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import App from "./App";
 import { AuthProvider } from "./context/AuthContext";
 import Layout from "./components/Layout";
+import HomeV2 from "./pneumevolve-v2/pages/Home";
+import IntentionalCommunity from "./pneumevolve-v2/pages/IntentionalCommunity.jsx";
 import WelcomePage from "./Pages/WelcomePage";
 import LandingPage from "./Pages/LandingPage";
 import Adventure from "./Pages/onboarding/Adventure.jsx";
@@ -91,15 +93,13 @@ function Root() {
           <Routes>
             <Route path="/" element={<Layout />}>
               {/* 🧠 Conditional redirect to MyTree on first visit */}
-              <Route
-                index
-                element={
-                  <RedirectIfFirstVisit>
-                    <App />
-                  </RedirectIfFirstVisit>
-                }
-              />
+              <Route index element={<App />} />
               <Route path="Tools" element={<Tools />} />
+              <Route path="/v2" element={<HomeV2 />} />
+              <Route path="/v2/IntentionalCommunity" element={<IntentionalCommunity />} />
+              <Route path="/v2/i-am" element={<div>I AM page coming soon</div>} />
+              <Route path="/v2/we-shape" element={<div>WE SHAPE page coming soon</div>} />
+              <Route path="/v2/we-grow" element={<div>WE GROW page coming soon</div>} />
               <Route path="welcome" element={<WelcomePage />} />
               <Route path="LandingPage" element={<LandingPage />} />
               <Route path="Adventure" element={<Adventure />} />
