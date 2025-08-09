@@ -20,14 +20,14 @@ export function AuthProvider({ children }) {
   };
 
   const login = (access, refresh, id, email) => {
-    saveTokens(access, refresh);
-    setUserId(id);
-    setUserEmail(email);
-    localStorage.setItem("user_id", id.toString());
-    localStorage.setItem("user_email", email);
-    setIsLoggedIn(true);
-    fetchUserProfile(access); // ✅ Fetch after login
-  };
+  saveTokens(access, refresh);
+  setUserId(id);
+  setUserEmail(email);
+  localStorage.setItem("user_id", id.toString());
+  localStorage.setItem("user_email", email);
+  setIsLoggedIn(true);
+  if (!userProfile) fetchUserProfile(access); // Fetch only if the profile is not already set
+};
 
   const logout = () => {
     localStorage.removeItem("access_token");
@@ -97,7 +97,8 @@ export function AuthProvider({ children }) {
           setUserId(id);
           setUserEmail(email);
           setIsLoggedIn(true);
-          if (!userProfile) fetchUserProfile(newToken); // ✅ only if missing
+          // Only fetch the profile if it hasn't been set yet
+          if (!userProfile) fetchUserProfile(newToken);
         } else {
           logout();
         }
@@ -107,7 +108,8 @@ export function AuthProvider({ children }) {
         setUserId(id);
         setUserEmail(email);
         setIsLoggedIn(true);
-        if (!userProfile) fetchUserProfile(token); // ✅ only if missing
+        // Only fetch the profile if it hasn't been set yet
+        if (!userProfile) fetchUserProfile(token);
       }
     }
 

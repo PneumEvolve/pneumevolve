@@ -1,7 +1,6 @@
 // GardenDetails.jsx
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import supabase from "../utils/supabaseClient";
 import axiosInstance from "../utils/axiosInstance";
 
 
@@ -18,9 +17,13 @@ const GardenDetails = () => {
 
   useEffect(() => {
     const fetchGarden = async () => {
-      const { data, error } = await supabase.from("gardens").select("*").eq("id", id).single();
-      if (!error) setGarden(data);
-    };
+  try {
+    const res = await axiosInstance.get(`/gardens/${id}`);
+    setGarden(res.data);
+  } catch (err) {
+    console.error("Garden fetch error", err);
+  }
+};
 
     const fetchRequests = async () => {
       try {

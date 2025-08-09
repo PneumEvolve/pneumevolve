@@ -1,7 +1,6 @@
 // GardenBlitz.jsx
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
-import supabase from "../utils/supabaseClient";
 
 const GardenBlitz = () => {
   const [selectedForm, setSelectedForm] = useState(null);
@@ -27,30 +26,26 @@ const GardenBlitz = () => {
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    setSubmitting(true);
-
-    const { data, error } = await supabase.from("gardens").insert([
-      {
-        type: selectedForm.includes("blitz") ? "Blitz" : "Ongoing",
-        host_name: formData.name,
-        location: "Vernon, BC",
-        description: selectedForm.includes("host")
-          ? "Garden Host Application"
-          : "Volunteer Application",
-        notes: formData.message,
-        status: "Pending",
-      },
-    ]);
-
+  e.preventDefault();
+  setSubmitting(true);
+  try {
+    await axiosInstance.post("/gardens", {
+      type: selectedForm.includes("blitz") ? "Blitz" : "Ongoing",
+      host_name: formData.name,
+      location: "Vernon, BC",
+      description: selectedForm.includes("host")
+        ? "Garden Host Application"
+        : "Volunteer Application",
+      notes: formData.message,
+      status: "Pending",
+    });
+    setSubmitted(true);
+  } catch (err) {
+    alert("Error submitting form: " + err.message);
+  } finally {
     setSubmitting(false);
-
-    if (error) {
-      alert("Error submitting form: " + error.message);
-    } else {
-      setSubmitted(true);
-    }
-  };
+  }
+};
 
   const renderForm = (formType) => (
     <form onSubmit={handleSubmit} className="space-y-4 mt-4">

@@ -22,14 +22,16 @@
     "framer-motion": "^12.15.0",
     "jwt-decode": "^4.0.0",
     "lucide-react": "^0.511.0",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
+    "react": "^18.0.0",
+    "react-cookie-consent": "^9.0.0",
+    "react-dom": "^18.0.0",
     "react-ga4": "^2.1.0",
     "react-google-recaptcha": "^3.1.0",
     "react-helmet-async": "^2.0.5",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.6.0",
     "tailwindcss": "^4.1.7",
+    "uuid": "^11.1.0",
     "vite-plugin-pwa": "^1.0.0"
   },
   "devDependencies": {

@@ -5,6 +5,13 @@ import App from "./App";
 import { AuthProvider } from "./context/AuthContext";
 import Layout from "./components/Layout";
 import HomeV2 from "./pneumevolve-v2/pages/Home";
+import ErrorBoundary from "./pneumevolve-v2/components/ErrorBoundary.jsx";
+import Forge from "./pneumevolve-v2/pages/Forge";
+import ForgeIdeaDetail from "./pneumevolve-v2/pages/ForgeIdeaDetail.jsx"
+import Problems from "./pneumevolve-v2/pages/Problems";
+import ArtistsEnclave from "./pneumevolve-v2/pages/ArtistsEnclave";
+import IAm from "./pneumevolve-v2/pages/IAm";
+
 import IntentionalCommunity from "./pneumevolve-v2/pages/IntentionalCommunity.jsx";
 import WelcomePage from "./Pages/WelcomePage";
 import LandingPage from "./Pages/LandingPage";
@@ -64,7 +71,6 @@ import LivingPlan from "./Pages/LivingPlan";
 import NotesPage from "./Pages/NotesPage";
 import ProblemPage from "./Pages/problemsolving/ProblemPage.jsx";
 import HomePage from "./Pages/pneumevolve/HomePage";
-import RedirectIfFirstVisit from "./components/RedirectIfFirstVisit";
 import "./index.css";
 import PrivateRoute from "./components/PrivateRoute";
 import { HelmetProvider } from 'react-helmet-async';
@@ -89,15 +95,18 @@ function Root() {
       <HelmetProvider>
       <AuthProvider>
         <BrowserRouter>
-        <FloatingLyraChat />
+        {/* Comment out  <FloatingLyraChat /> */}
           <Routes>
             <Route path="/" element={<Layout />}>
-              {/* 🧠 Conditional redirect to MyTree on first visit */}
+              {/* Used to have Conditional redirect to MyTree on first visit */}
               <Route index element={<App />} />
               <Route path="Tools" element={<Tools />} />
               <Route path="/v2" element={<HomeV2 />} />
-              <Route path="/v2/IntentionalCommunity" element={<IntentionalCommunity />} />
-              <Route path="/v2/i-am" element={<div>I AM page coming soon</div>} />
+              <Route path="Forge" element={<ErrorBoundary><Forge /></ErrorBoundary>} />
+              <Route path="/forge/:id" element={<ForgeIdeaDetail />} />
+              <Route path="/Problems" element={<Problems />} />
+              <Route path="/ArtistsEnclave" element={<ArtistsEnclave />} />
+              <Route path="/v2/i-am" element={<IAm/>} />
               <Route path="/v2/we-shape" element={<div>WE SHAPE page coming soon</div>} />
               <Route path="/v2/we-grow" element={<div>WE GROW page coming soon</div>} />
               <Route path="welcome" element={<WelcomePage />} />
@@ -131,7 +140,6 @@ function Root() {
               <Route path="GardenBlitz" element={<GardenBlitz />} />
               <Route path="GardenDirectory" element={<GardenDirectory />} />
               <Route path="GardenDetails/:id" element={<GardenDetails />} />
-              <Route path="gardens/:id" element={<GardenDetails />} />
               <Route path="ZenFreeskates" element={<ZenFreeskates />} />
               <Route path="experiments" element={<Experiments />} />
               <Route path="TextGame" element={<TextGame />} />

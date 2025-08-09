@@ -1,7 +1,7 @@
 // GardenDirectory.jsx
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import supabase from "../utils/supabaseClient"; // Make sure this path matches your project setup
+import axiosInstance from "../utils/axiosInstance";
 
 const GardenDirectory = () => {
   const [gardens, setGardens] = useState([]);
@@ -12,16 +12,16 @@ const GardenDirectory = () => {
 
   useEffect(() => {
     const fetchGardens = async () => {
-      const { data, error } = await supabase.from("gardens").select("*").order("created_at", { ascending: false });
-
-      if (error) {
-        console.error("Error fetching gardens:", error.message);
-      } else {
-  setGardens(data);
-  setLocations(["All", ...new Set(data.map((g) => g.location).filter(Boolean))]);
-}
-      setLoading(false);
-    };
+  try {
+    const res = await axiosInstance.get("/gardens");
+    setGardens(res.data);
+    setLocations(["All", ...new Set(res.data.map((g) => g.location).filter(Boolean))]);
+  } catch (err) {
+    console.error("Error fetching gardens:", err);
+  } finally {
+    setLoading(false);
+  }
+};
 
     fetchGardens();
   }, []);
