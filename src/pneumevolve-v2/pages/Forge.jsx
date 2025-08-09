@@ -54,7 +54,7 @@ export default function Forge() {
     // If no userId exists, generate a new one and store it in a cookie
     if (!userId) {
       userId = uuidv4(); // Generate a new UUID for anonymous users
-      document.cookie = `user_id=${userId}; max-age=${60 * 60 * 24 * 365}; path=/`; // Set the cookie for 1 year
+      document.cookie = `user_id=${userId}; max-age=${60 * 60 * 24 * 365}; path=/; SameSite=None; Secure`;
     }
 
     // Send headers
