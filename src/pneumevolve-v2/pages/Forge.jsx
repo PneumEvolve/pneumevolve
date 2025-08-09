@@ -49,17 +49,18 @@ export default function Forge() {
 
  const handleVote = async (id, hasVoted) => {
   try {
-    let userId = document.cookie.split('user_id=')[1] || ""; // Get user_id from cookies if present
+    let userId = localStorage.getItem('user_id') || ""; // Get user_id from localStorage if present
 
-    // If no userId exists, generate a new one and store it in a cookie
+    // If no userId exists, generate a new one and store it in localStorage
     if (!userId) {
       userId = uuidv4(); // Generate a new UUID for anonymous users
-      document.cookie = `user_id=${userId}; max-age=${60 * 60 * 24 * 365}; path=/; SameSite=None; Secure`;
+      localStorage.setItem('user_id', userId); // Store the user_id in localStorage
     }
 
-    // Send headers
+    // Send headers, now including user_id from localStorage
     const headers = {
       "x-user-email": userEmail || "",  // Include userEmail if signed in (empty if anonymous)
+      "x-user-id": userId,  // Send the user_id from localStorage
       "Authorization": userEmail ? `Bearer ${accessToken}` : "",  // Include Authorization if user is signed in
     };
 
@@ -68,13 +69,13 @@ export default function Forge() {
       // If already voted, remove the vote (toggle functionality)
       await axios.post(`${API}/forge/ideas/${id}/remove-vote`, {}, { 
         headers,
-        withCredentials: true // This ensures that cookies are sent with the request
+        withCredentials: false // No need for cookies, using localStorage instead
       });
     } else {
       // Otherwise, add the vote
       await axios.post(`${API}/forge/ideas/${id}/vote`, {}, { 
         headers,
-        withCredentials: true // This ensures that cookies are sent with the request
+        withCredentials: false // No need for cookies, using localStorage instead
       });
     }
 
