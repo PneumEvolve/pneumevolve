@@ -239,7 +239,7 @@ export default function Forge() {
             const hasVoted = idea.votes?.some((v) => v.user_email === userEmail);
 
             return (
-              <div key={idea.id} className="p-6 rounded-xl shadow-lg bg-green-100 dark:bg-green-800 space-y-4">
+              <div key={idea.id} className="p-6 rounded-xl shadow-lg bg-white dark:bg-zinc-800 border-l-4 border-emerald-500 space-y-4">
                 <h2 className="text-2xl font-semibold">{idea.title}</h2>
                 <p className="text-sm text-gray-800 dark:text-gray-200">{idea.description}</p>
 
