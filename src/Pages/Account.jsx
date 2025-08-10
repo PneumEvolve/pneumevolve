@@ -9,7 +9,7 @@ import supabase from "@/utils/supabaseClient";
 const API = import.meta.env.VITE_API_URL;
 
 export default function Account() {
-  const { accessToken, userId } = useAuth();
+  const { accessToken, userId, userEmail } = useAuth();
   const [activeTab, setActiveTab] = useState("account");
   const [unreadCount, setUnreadCount] = useState(0);
 
@@ -31,7 +31,7 @@ export default function Account() {
     const fetchUnread = async () => {
       if (!userId) return;
       try {
-        const res = await axios.get(`${API}/inbox/${userId}`);
+        const res = await axios.get(`${API}/inbox/${userEmail}`);
         const unread = res.data.filter((msg) => !msg.read).length;
         setUnreadCount(unread);
       } catch (err) {
@@ -153,7 +153,7 @@ export default function Account() {
 
       {activeTab === "inbox" && (
         <div className="pt-2">
-          <Inbox userId={userId} setUnreadCount={setUnreadCount} />
+          <Inbox userEmail={userEmail} setUnreadCount={setUnreadCount} />
         </div>
       )}
     </div>

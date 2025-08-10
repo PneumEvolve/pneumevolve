@@ -11,6 +11,7 @@ import ForgeIdeaDetail from "./pneumevolve-v2/pages/ForgeIdeaDetail.jsx"
 import Problems from "./pneumevolve-v2/pages/Problems";
 import ArtistsEnclave from "./pneumevolve-v2/pages/ArtistsEnclave";
 import IAm from "./pneumevolve-v2/pages/IAm";
+import Messages from "@/components/dashboard/Messages.jsx"
 
 import IntentionalCommunity from "./pneumevolve-v2/pages/IntentionalCommunity.jsx";
 import WelcomePage from "./Pages/WelcomePage";
@@ -106,6 +107,7 @@ function Root() {
               <Route path="/forge/:id" element={<ForgeIdeaDetail />} />
               <Route path="/Problems" element={<Problems />} />
               <Route path="/ArtistsEnclave" element={<ArtistsEnclave />} />
+              <Route path="/Messages" element={<Messages />} />
               <Route path="/v2/i-am" element={<IAm/>} />
               <Route path="/v2/we-shape" element={<div>WE SHAPE page coming soon</div>} />
               <Route path="/v2/we-grow" element={<div>WE GROW page coming soon</div>} />

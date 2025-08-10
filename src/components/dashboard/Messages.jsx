@@ -1,13 +1,12 @@
-// Inbox.jsx — Messages UI with live unread updates
-import React, { useEffect, useRef, useState, useMemo } from "react";
+// Messages.jsx
+import React, { useEffect, useRef, useState } from "react";
 import axios from "axios";
+import { useAuth } from "@/context/AuthContext";
 
 const API = import.meta.env.VITE_API_URL;
 
-export default function Inbox({ userEmail: userEmailProp, userId, setUnreadCount }) {
-  // Prefer userEmail prop; fall back to userId if it's an email in your app
-  const userEmail = useMemo(() => userEmailProp || userId || "", [userEmailProp, userId]);
-
+export default function Messages() {
+  const { userEmail } = useAuth();
   const [rows, setRows] = useState([]);
   const [selected, setSelected] = useState(null); // conversation summary row
   const [thread, setThread] = useState([]);
@@ -21,44 +20,26 @@ export default function Inbox({ userEmail: userEmailProp, userId, setUnreadCount
 
   const bottomRef = useRef(null);
 
-  // --- helpers ---
-  const broadcastUnread = (count) => {
-    if (typeof setUnreadCount === "function") setUnreadCount(count);
-    localStorage.setItem("unreadCount", String(count));
-    window.dispatchEvent(new CustomEvent("inbox:unreadUpdate", { detail: { count } }));
-  };
-
-  const computeTotalUnread = (summaries) =>
-    summaries.reduce((acc, r) => acc + (r.unread_count || 0), 0);
-
-  const refreshSummaries = async () => {
-    if (!userEmail) return;
-    const res = await axios.get(`${API}/conversations/summaries/${encodeURIComponent(userEmail)}`);
-    const data = Array.isArray(res.data) ? res.data : [];
-    setRows(data);
-    broadcastUnread(computeTotalUnread(data));
-  };
-
   // Auto-scroll to bottom when thread changes
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [thread]);
 
-  // Fetch conversation summaries (System + DMs)
+  // Load conversation summaries
   useEffect(() => {
     if (!userEmail) return;
     let cancelled = false;
+    setLoadingRows(true);
+    setError("");
 
-    (async () => {
-      try {
-        setLoadingRows(true);
-        await refreshSummaries();
-      } catch {
-        if (!cancelled) setError("Failed to load conversations.");
-      } finally {
-        if (!cancelled) setLoadingRows(false);
-      }
-    })();
+    axios
+      .get(`${API}/conversations/summaries/${encodeURIComponent(userEmail)}`)
+      .then((res) => {
+        if (cancelled) return;
+        setRows(Array.isArray(res.data) ? res.data : []);
+      })
+      .catch((e) => !cancelled && setError("Failed to load conversations."))
+      .finally(() => !cancelled && setLoadingRows(false));
 
     return () => {
       cancelled = true;
@@ -69,51 +50,28 @@ export default function Inbox({ userEmail: userEmailProp, userId, setUnreadCount
   useEffect(() => {
     if (!selected?.conversation_id) return;
     let cancelled = false;
+    setLoadingThread(true);
 
-    (async () => {
-      try {
-        setLoadingThread(true);
-        const res = await axios.get(`${API}/conversations/${selected.conversation_id}/messages`);
+    axios
+      .get(`${API}/conversations/${selected.conversation_id}/messages`)
+      .then((res) => {
         if (cancelled) return;
-
         const msgs = Array.isArray(res.data) ? res.data : [];
-        const normalized = msgs.map((m) => ({
-          id: m.id,
-          content: m.content,
-          timestamp: m.timestamp,
-          read: m.read,
-          from_email: m.from_email,
-          from_username: m.from_username,
-          from_display: m.from_display || m.from_username || m.from_email || "User",
-        }));
-        setThread(normalized);
-
-        // Mark any unread in this convo as read, then refresh summaries → updates badge + left list
-        const unreadIds = normalized.filter((m) => !m.read).map((m) => m.id);
-        if (unreadIds.length > 0) {
-          try {
-            await Promise.all(unreadIds.map((id) => axios.post(`${API}/inbox/read/${id}`)));
-
-            // Optimistically mark read in the open thread
-            setThread((prev) => prev.map((m) => (unreadIds.includes(m.id) ? { ...m, read: true } : m)));
-
-            // Immediately zero out unread for this convo in the left list (before refetch)
-            setRows((prev) =>
-              prev.map((r) =>
-                r.conversation_id === selected.conversation_id ? { ...r, unread_count: 0 } : r
-              )
-            );
-
-            // Now refetch summaries to get the true totals and broadcast
-            await refreshSummaries();
-          } catch {
-            // ignore; will correct on next refresh
-          }
-        }
-      } finally {
-        if (!cancelled) setLoadingThread(false);
-      }
-    })();
+        // normalize: prefer username/display if present
+        setThread(
+          msgs.map((m) => ({
+            id: m.id,
+            content: m.content,
+            timestamp: m.timestamp,
+            read: m.read,
+            from_email: m.from_email,
+            from_username: m.from_username,
+            from_display: m.from_display || m.from_username || m.from_email || "User",
+          }))
+        );
+      })
+      .catch(() => !cancelled && setThread([]))
+      .finally(() => !cancelled && setLoadingThread(false));
 
     return () => {
       cancelled = true;
@@ -121,7 +79,6 @@ export default function Inbox({ userEmail: userEmailProp, userId, setUnreadCount
   }, [selected]);
 
   const labelForRow = (r) =>
-    r.idea_title ||
     r.other_display ||
     r.other_username ||
     r.other_email ||
@@ -138,6 +95,7 @@ export default function Inbox({ userEmail: userEmailProp, userId, setUnreadCount
       );
 
       const sent = res?.data?.message;
+      // Append or fallback construct
       const newMsg = sent
         ? {
             id: sent.id,
@@ -160,21 +118,6 @@ export default function Inbox({ userEmail: userEmailProp, userId, setUnreadCount
 
       setThread((prev) => [...prev, newMsg]);
       setComposer("");
-
-      // Move this convo to the top with updated preview
-      setRows((prev) => {
-        const next = [...prev];
-        const idx = next.findIndex((r) => r.conversation_id === selected.conversation_id);
-        if (idx !== -1) {
-          next[idx] = {
-            ...next[idx],
-            last_content: newMsg.content,
-            last_timestamp: newMsg.timestamp,
-          };
-          next.sort((a, b) => new Date(b.last_timestamp) - new Date(a.last_timestamp));
-        }
-        return next;
-      });
     } catch (e) {
       console.error("Failed to send:", e);
     } finally {
@@ -189,8 +132,6 @@ export default function Inbox({ userEmail: userEmailProp, userId, setUnreadCount
       if (!sending) handleSend();
     }
   };
-
-  if (!userEmail) return <p className="text-gray-400 italic">No user email provided.</p>;
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -249,7 +190,10 @@ export default function Inbox({ userEmail: userEmailProp, userId, setUnreadCount
 
             {/* Composer */}
             <div className="mt-2 border-t pt-2">
-              <div className="text-xs opacity-70 mb-1">Sending to: {labelForRow(selected)}</div>
+              <div className="text-xs opacity-70 mb-1">
+                Sending to:{" "}
+                {labelForRow(selected)}
+              </div>
               <textarea
                 className="w-full border rounded p-2 h-20"
                 placeholder="Write a message… (Enter to send, Shift+Enter for newline)"
