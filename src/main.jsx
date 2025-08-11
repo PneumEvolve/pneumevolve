@@ -9,9 +9,11 @@ import ErrorBoundary from "./pneumevolve-v2/components/ErrorBoundary.jsx";
 import Forge from "./pneumevolve-v2/pages/Forge";
 import ForgeIdeaDetail from "./pneumevolve-v2/pages/ForgeIdeaDetail.jsx"
 import Problems from "./pneumevolve-v2/pages/Problems";
+import ProblemDetail from "./pneumevolve-v2/pages/ProblemDetail.jsx"
 import ArtistsEnclave from "./pneumevolve-v2/pages/ArtistsEnclave";
 import IAm from "./pneumevolve-v2/pages/IAm";
 import Messages from "@/components/dashboard/Messages.jsx"
+
 
 import IntentionalCommunity from "./pneumevolve-v2/pages/IntentionalCommunity.jsx";
 import WelcomePage from "./Pages/WelcomePage";
@@ -106,6 +108,7 @@ function Root() {
               <Route path="Forge" element={<ErrorBoundary><Forge /></ErrorBoundary>} />
               <Route path="/forge/:id" element={<ForgeIdeaDetail />} />
               <Route path="/Problems" element={<Problems />} />
+              <Route path="/problems/:id" element={<ProblemDetail />} />
               <Route path="/ArtistsEnclave" element={<ArtistsEnclave />} />
               <Route path="/Messages" element={<Messages />} />
               <Route path="/v2/i-am" element={<IAm/>} />
