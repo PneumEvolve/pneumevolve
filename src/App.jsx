@@ -27,17 +27,25 @@ export default function App() {
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    console.log("Submitted Feedback:", form);
-    await fetch(`${import.meta.env.VITE_API_URL}/inbox/contribute`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(form),
-});
+  e.preventDefault();
+  try {
+    const res = await fetch(`${import.meta.env.VITE_API_URL}/feedback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(form),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Submit failed: ${res.status} ${text}`);
+    }
     alert("Thank you for your contribution!");
     setForm({ contact: "", interests: [], idea: "", bugs: "", skills: "", extra: "" });
     setIsOpen(false);
-  };
+  } catch (err) {
+    console.error(err);
+    alert("Sorry, something went wrong submitting your contribution.");
+  }
+};
 
   const interestOptions = [
     "Ideas & Concepts",
