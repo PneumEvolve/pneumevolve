@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { useAuth } from "@/context/AuthContext";
 import { useNavigate } from "react-router-dom";
@@ -15,7 +15,7 @@ export default function Forge() {
   const navigate = useNavigate();
   const [sortCriteria, setSortCriteria] = useState("date");
 
-  // Collapse state for submit form (closed by default)
+  // Collapsible Submit Form
   const [showSubmitForm, setShowSubmitForm] = useState(false);
 
   // DM modal state
@@ -23,12 +23,27 @@ export default function Forge() {
   const [selectedWorker, setSelectedWorker] = useState(null);
   const [recipientEmail, setRecipientEmail] = useState("");
 
+  // Persistent anonymous UUID (one-time generate)
+  const [anonId] = useState(() => {
+    let id = localStorage.getItem("anon_id");
+    if (!id) {
+      id = uuidv4();
+      localStorage.setItem("anon_id", id);
+    }
+    return id;
+  });
+
+  // One identity string used everywhere:
+  // - logged-in => actual email
+  // - anonymous => "anon:{uuid}"
+  const identityEmail = useMemo(
+    () => userEmail || `anon:${anonId}`,
+    [userEmail, anonId]
+  );
+
   const handleOpenModal = (worker) => {
     const email = worker?.user?.email || worker?.email || "";
-    if (!email) {
-      console.warn("Selected worker has no email.");
-      return;
-    }
+    if (!email) return;
     setSelectedWorker(worker);
     setRecipientEmail(email);
     setIsModalOpen(true);
@@ -59,7 +74,6 @@ export default function Forge() {
       });
       setNewIdea({ title: "", description: "" });
       fetchIdeas();
-      // Optionally collapse the form after successful submit:
       // setShowSubmitForm(false);
     } catch (err) {
       console.error("Error creating idea:", err);
@@ -86,19 +100,16 @@ export default function Forge() {
 
   const handleVote = async (id, hasVoted) => {
     try {
-      let anonId = localStorage.getItem("user_id") || "";
-      if (!anonId) {
-        anonId = uuidv4();
-        localStorage.setItem("user_id", anonId);
+      // Always send ONE identity header the server can match on:
+      // - logged-in: actual email + Authorization
+      // - anonymous: synthetic email "anon:{uuid}"
+      const headers = { "x-user-email": identityEmail };
+      if (userEmail) {
+        headers["Authorization"] = `Bearer ${accessToken}`;
       }
 
-      const headers = {
-        "x-user-email": userEmail || "",
-        "x-user-id": anonId,
-        Authorization: userEmail ? `Bearer ${accessToken}` : "",
-      };
-
-      await axios.post(`${API}/forge/ideas/${id}/vote`, {}, { headers, withCredentials: false });
+      await axios.post(`${API}/forge/ideas/${id}/vote`, {}, { headers });
+      // Re-fetch to get updated counts and reflect toggle from the server
       fetchIdeas();
     } catch (err) {
       alert("Error voting. Please try again.");
@@ -159,9 +170,7 @@ export default function Forge() {
     }
   };
 
-  const handleViewNotes = (id) => {
-    navigate(`/forge/${id}`);
-  };
+  const handleViewNotes = (id) => navigate(`/forge/${id}`);
 
   return (
     <div className="min-h-screen p-6 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100">
@@ -234,14 +243,23 @@ export default function Forge() {
 
         <div className="space-y-6 mt-10">
           {sortedIdeas().map((idea) => {
-            const isCreator = idea.user_email === userEmail || userEmail === "sheaklipper@gmail.com";
+            const isCreator =
+              idea.user_email === userEmail || userEmail === "sheaklipper@gmail.com";
             const isWorker = idea.workers?.some((w) => w.email === userEmail);
-            const hasVoted = idea.votes?.some((v) => v.user_email === userEmail);
+
+            // hasVoted is checked against ONE identity string
+           const hasVoted =
+  idea.has_voted ?? idea.votes?.some(v => v.user_email === identityEmail) ?? false;
 
             return (
-              <div key={idea.id} className="p-6 rounded-xl shadow-lg bg-white dark:bg-zinc-800 border-l-4 border-emerald-500 space-y-4">
+              <div
+                key={idea.id}
+                className="p-6 rounded-xl shadow-lg bg-white dark:bg-zinc-800 border-l-4 border-emerald-500 space-y-4"
+              >
                 <h2 className="text-2xl font-semibold">{idea.title}</h2>
-                <p className="text-sm text-gray-800 dark:text-gray-200">{idea.description}</p>
+                <p className="text-sm text-gray-800 dark:text-gray-200">
+                  {idea.description}
+                </p>
 
                 <div className="flex items-center justify-between">
                   <span>Status: {idea.status}</span>
@@ -253,8 +271,14 @@ export default function Forge() {
                         <button
                           key={idx}
                           onClick={() => handleOpenModal(worker)}
-                          className="text-blue-600"
                           title={`Message ${worker.username || worker.email || "worker"}`}
+                          className="inline-flex items-center px-2.5 py-1 rounded-full
+                                     bg-blue-50 dark:bg-zinc-700
+                                     text-blue-700 dark:text-blue-300
+                                     border border-blue-200/70 dark:border-zinc-600
+                                     hover:bg-blue-100 dark:hover:bg-zinc-600
+                                     focus:outline-none focus:ring-2 focus:ring-blue-500
+                                     text-sm"
                         >
                           {worker.username || worker.email}
                         </button>
@@ -302,8 +326,7 @@ export default function Forge() {
                     </button>
                   )}
 
-                  {/* Delete button remains creator-only */}
-                  {(isCreator) && (
+                  {isCreator && (
                     <button
                       onClick={() => handleDelete(idea.id)}
                       className="bg-red-600 text-white px-3 py-2 rounded-lg hover:bg-red-700"
@@ -318,15 +341,12 @@ export default function Forge() {
         </div>
       </div>
 
-      {/* Message Modal */}
       <MessageModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         senderEmail={userEmail}
         recipientEmail={recipientEmail}
-        onSent={() => {
-          // optional: toast, refresh, etc.
-        }}
+        onSent={() => {}}
       />
     </div>
   );

@@ -79,10 +79,10 @@ export default function App() {
       </div>
 
       <Section title="💖 Our Favourites">
+        <LinkCard href="/forge" label="🛠️ The Forge" />
         <LinkCard href="/farmgame" label="🌾 Farm Game" />
         <LinkCard href="/dreammachine" label="💭 Dream Machine" />
         <LinkCard href="/journal" label="📓 I AM – Journal" />
-        <LinkCard href="/communities" label="🏘 Community Manager" />
       </Section>
 
       <Section title="🛠 Core Tools">
