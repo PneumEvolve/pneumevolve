@@ -1,6 +1,6 @@
 import { Link, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Analytics from "./Analytics";
 import axios from "axios";
 
@@ -26,6 +26,10 @@ export default function Layout() {
   const { isLoggedIn, userId, logout, userEmail } = useAuth();
   const navigate = useNavigate();
   const [unreadCount, setUnreadCount] = useState(0);
+
+  // Tools dropdown state
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const toolsRef = useRef(null);
 
   const checkToken = () => {
     const token = localStorage.getItem("access_token");
@@ -81,20 +85,18 @@ export default function Layout() {
       setUnreadCount(count);
     };
 
-    // Handle storage events from other tabs (both unread + token changes)
     const handleStorage = (e) => {
       if (e.key === "unreadCount") applyLocalCount();
       if (e.key === "access_token") checkToken();
     };
 
-    // Handle immediate same-tab updates from Inbox via custom event
     const handleCustomUnread = (e) => {
       const next =
         e?.detail?.count ?? parseInt(localStorage.getItem("unreadCount") || "0");
       setUnreadCount(next);
     };
 
-    applyLocalCount(); // initialize from localStorage on mount
+    applyLocalCount();
     window.addEventListener("storage", handleStorage);
     window.addEventListener("inbox:unreadUpdate", handleCustomUnread);
 
@@ -116,21 +118,83 @@ export default function Layout() {
     }
   }, [location.pathname]);
 
+  // Close Tools dropdown on route change / outside click / ESC
+  useEffect(() => {
+    setToolsOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    const onClickAway = (e) => {
+      if (toolsRef.current && !toolsRef.current.contains(e.target)) {
+        setToolsOpen(false);
+      }
+    };
+    const onEsc = (e) => {
+      if (e.key === "Escape") setToolsOpen(false);
+    };
+    document.addEventListener("mousedown", onClickAway);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onClickAway);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, []);
+
   return (
     <div className="min-h-screen bg-gray-100 text-gray-900 ">
       <Analytics />
       <header className="bg-white shadow p-4">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 z-index-999">
           <h1 className="text-2xl font-bold text-center sm:text-left">PneumEvolve</h1>
-          <nav className="flex flex-wrap justify-center sm:justify-end gap-3 text-sm">
+          <nav className="flex flex-wrap justify-center sm:justify-end gap-3 text-sm items-center">
             <Link to="/" className="hover:underline">Home</Link>
-            <Link to="/MyTree" className="hover:underline">MyTree</Link>
-            <Link to="/communities" className="hover:underline">Communities</Link>
+            <Link to="/forge" className="hover:underline">Forge</Link>
             <Link to="/farmgame" className="hover:underline">Game</Link>
             <Link to="/blog" className="hover:underline">Blog</Link>
-            <Link to="/projects" className="hover:underline">Projects</Link>
-            <Link to="/journal" className="hover:underline">Journal</Link>
-            <Link to="/MealPlanning" className="hover:underline">MealPlan</Link>
+
+            {/* Tools dropdown */}
+            <div className="relative" ref={toolsRef}>
+              <button
+                type="button"
+                onClick={() => setToolsOpen((o) => !o)}
+                aria-haspopup="menu"
+                aria-expanded={toolsOpen}
+                className="hover:underline inline-flex items-center gap-1"
+              >
+                Tools
+                <span className="text-xs">{toolsOpen ? "▲" : "▼"}</span>
+              </button>
+              {toolsOpen && (
+                <div
+                  role="menu"
+                  aria-label="Tools"
+                  className="absolute right-0 mt-2 w-40 rounded-md border border-gray-200 bg-white shadow-lg py-1 z-50"
+                >
+                  <Link
+                    to="/MealPlanning"
+                    role="menuitem"
+                    className="block px-3 py-2 hover:bg-gray-100"
+                  >
+                    MealPlan
+                  </Link>
+                  <Link
+                    to="/journal"
+                    role="menuitem"
+                    className="block px-3 py-2 hover:bg-gray-100"
+                  >
+                    Journal
+                  </Link>
+                  <Link
+                    to="/projects"
+                    role="menuitem"
+                    className="block px-3 py-2 hover:bg-gray-100"
+                  >
+                    Projects
+                  </Link>
+                </div>
+              )}
+            </div>
+
             {!isLoggedIn ? (
               <>
                 <Link to="/signup" className="hover:underline text-blue-600">Sign Up</Link>
