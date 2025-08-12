@@ -120,6 +120,19 @@ section { padding-block: clamp(1.25rem, 3vw, 2rem); }
   color: var(--text);
 }
 
+/* strongest, theme-following background for that bar */
+.section-bar {
+  background-color: var(--bg-elev) !important; /* force it */
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: .75rem .9rem;
+}
+
+/* Optional: stronger separation from the content below */
+.section-bar + * { margin-top: .25rem; }
+
+
 /* ---------- CARDS ---------- */
 .card {
   background: var(--bg-elev);
