@@ -113,6 +113,13 @@ section { padding-block: clamp(1.25rem, 3vw, 2rem); }
   color: var(--text);
 }
 
+/* Header background and text always follow theme tokens */
+.app-header {
+  background: color-mix(in oklab, var(--bg-elev) 95%, transparent);
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
 /* ---------- CARDS ---------- */
 .card {
   background: var(--bg-elev);

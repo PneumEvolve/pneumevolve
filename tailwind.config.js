@@ -1,6 +1,6 @@
 // tailwind.config.js
 module.exports = {
-  darkMode: false,
+  darkMode: 'class', // ⬅️ critical
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
   theme: {
     extend: {
@@ -15,6 +15,5 @@ module.exports = {
       },
     },
   },
-  plugins: []
-  ,
+  plugins: [],
 };

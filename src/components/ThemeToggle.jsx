@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
-import { Moon, Sun } from "lucide-react";
 
-export default function ThemeToggle() {
-  const [dark, setDark] = useState(() =>
-    typeof document !== "undefined" ? document.documentElement.classList.contains("dark") : false
-  );
+export default function ThemeToggle({ className = "" }) {
+  // 1) Initialize from storage or system preference
+  const [dark, setDark] = useState(() => {
+    const saved = localStorage.getItem("theme");
+    if (saved) return saved === "dark";
+    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+  });
 
+  // 2) Apply class on <html> whenever dark changes
   useEffect(() => {
     const root = document.documentElement;
     if (dark) root.classList.add("dark");
@@ -13,25 +16,23 @@ export default function ThemeToggle() {
     localStorage.setItem("theme", dark ? "dark" : "light");
   }, [dark]);
 
+  // 3) Optional: cross-tab sync
   useEffect(() => {
-    const stored = localStorage.getItem("theme");
-    if (!stored) {
-      const prefers = window.matchMedia("(prefers-color-scheme: dark)").matches;
-      setDark(prefers);
-    } else {
-      setDark(stored === "dark");
-    }
+    const onStorage = (e) => {
+      if (e.key === "theme") setDark(e.newValue === "dark");
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
   return (
     <button
+      type="button"
       onClick={() => setDark((v) => !v)}
-      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-zinc-300/70 dark:border-zinc-700/70 bg-white/70 dark:bg-zinc-900/70 backdrop-blur hover:bg-white dark:hover:bg-zinc-900"
+      className={`px-1.5 py-1 hover:underline !bg-transparent !border-0 !shadow-none ${className}`}
       aria-label="Toggle theme"
-      title="Toggle theme"
     >
-      {dark ? <Sun size={16} /> : <Moon size={16} />}
-      <span className="text-sm">{dark ? "Light" : "Dark"}</span>
+      {dark ? "Light" : "Dark"}
     </button>
   );
 }

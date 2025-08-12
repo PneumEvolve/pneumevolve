@@ -3,14 +3,25 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/logo.png" />
-    
+
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     
     <title>PneumEvolve – Let’s Build a New Earth</title>
-<meta name="description" content="PneumEvolve is a collaborative movement building new systems of joy, community, and freedom. Join us in reshaping our reality." />
-<meta property="og:title" content="PneumEvolve – Let’s Build a New Earth" />
-<meta property="og:description" content="A new kind of platform for shared creation, spiritual tools, and community-powered systems." />
-<meta property="og:image" content="https://pneumevolve.com/logo.png" />
+    <meta name="description" content="PneumEvolve is a collaborative movement building new systems of joy, community, and freedom. Join us in reshaping our reality." />
+    <meta property="og:title" content="PneumEvolve – Let’s Build Together" />
+    <meta property="og:description" content="A new kind of platform for shared creation, spiritual tools, and community-powered systems." />
+    <meta property="og:image" content="https://pneumevolve.com/logo.png" />
+
+    <!-- Theme pre-load script: runs before app mount -->
+    <script>
+      (() => {
+        const saved = localStorage.getItem("theme");
+        const prefers = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (saved === 'dark' || (!saved && prefers)) {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

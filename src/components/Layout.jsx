@@ -108,62 +108,38 @@ export default function Layout() {
 
       {/* Glass header */}
       <header className="sticky top-0 z-40">
-  <div className="backdrop-blur bg-white/70 dark:bg-zinc-900/70 border-b border-zinc-200/70 dark:border-zinc-800/70">
-    <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
+  <div className="app-header backdrop-blur border-b">
+    <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between text-[var(--text)]">
       <Link to="/home" className="text-xl font-semibold tracking-tight shrink-0">
         PneumEvolve
       </Link>
 
       {/* All plain-text links; no pills/buttons */}
-      <nav className="flex items-center justify-end gap-3 flex-wrap max-w-full text-[color:var(--text)]">
-        <Link className="px-1.5 py-1 hover:underline shrink-0" to="/forge">
-          Forge
-        </Link>
-        <Link className="px-1.5 py-1 hover:underline shrink-0" to="/problems">
-          Problems
-        </Link>
-        <Link className="px-1.5 py-1 hover:underline shrink-0" to="/blog">
-          Blog
-        </Link>
+      <nav className="flex items-center justify-end gap-3 flex-wrap max-w-full text-[var(--text)]">
+        <Link className="px-1.5 py-1 hover:underline shrink-0" to="/forge">Forge</Link>
+        <Link className="px-1.5 py-1 hover:underline shrink-0" to="/problems">Problems</Link>
+        <Link className="px-1.5 py-1 hover:underline shrink-0" to="/blog">Blog</Link>
 
-        {/* Tools dropdown trigger as plain text */}
         <Menu as="div" className="relative shrink-0">
-          <Menu.Button className="px-1.5 py-1 hover:underline">
-            Tools ▾
-          </Menu.Button>
+          <Menu.Button className="px-1.5 py-1 hover:underline">Tools ▾</Menu.Button>
           <Menu.Items className="absolute right-0 mt-2 w-48 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-lg overflow-hidden p-1">
             <Menu.Item>
               {({ active }) => (
-                <Link
-                  to="/MealPlanning"
-                  className={`block px-2.5 py-1.5 text-sm rounded ${
-                    active ? "underline" : ""
-                  }`}
-                >
+                <Link to="/MealPlanning" className={`block px-2.5 py-1.5 text-sm rounded ${active ? "underline" : ""}`}>
                   Meal Planner
                 </Link>
               )}
             </Menu.Item>
             <Menu.Item>
               {({ active }) => (
-                <Link
-                  to="/journal"
-                  className={`block px-2.5 py-1.5 text-sm rounded ${
-                    active ? "underline" : ""
-                  }`}
-                >
+                <Link to="/journal" className={`block px-2.5 py-1.5 text-sm rounded ${active ? "underline" : ""}`}>
                   Journal
                 </Link>
               )}
             </Menu.Item>
             <Menu.Item>
               {({ active }) => (
-                <Link
-                  to="/projects"
-                  className={`block px-2.5 py-1.5 text-sm rounded ${
-                    active ? "underline" : ""
-                  }`}
-                >
+                <Link to="/projects" className={`block px-2.5 py-1.5 text-sm rounded ${active ? "underline" : ""}`}>
                   Projects
                 </Link>
               )}
@@ -171,26 +147,18 @@ export default function Layout() {
           </Menu.Items>
         </Menu>
 
-        {/* Theme toggle rendered as a text link */}
         <div className="shrink-0">
           <ThemeToggle className="!bg-transparent !border-0 !shadow-none !px-0 !py-0 hover:underline" />
         </div>
 
         {!isLoggedIn ? (
           <>
-            <Link className="px-1.5 py-1 hover:underline shrink-0" to="/signup">
-              Sign Up
-            </Link>
-            <Link className="px-1.5 py-1 hover:underline shrink-0" to="/login">
-              Login
-            </Link>
+            <Link className="px-1.5 py-1 hover:underline shrink-0" to="/signup">Sign Up</Link>
+            <Link className="px-1.5 py-1 hover:underline shrink-0" to="/login">Login</Link>
           </>
         ) : (
           <>
-            <Link
-              to="/Account"
-              className="relative px-1.5 py-1 hover:underline shrink-0"
-            >
+            <Link to="/Account" className="relative px-1.5 py-1 hover:underline shrink-0">
               Account
               {unreadCount > 0 && (
                 <span className="absolute -top-1 -right-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
@@ -198,10 +166,7 @@ export default function Layout() {
                 </span>
               )}
             </Link>
-            <button
-              onClick={handleLogout}
-              className="px-1.5 py-1 hover:underline text-red-600 shrink-0"
-            >
+            <button onClick={handleLogout} className="px-1.5 py-1 hover:underline text-red-600 shrink-0">
               Logout
             </button>
           </>
