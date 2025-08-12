@@ -9,34 +9,56 @@ import IdeaConversation from "@/components/IdeaConversation";
 
 const API = import.meta.env.VITE_API_URL;
 
+function Collapsible({ title, open, onToggle, children }) {
+  return (
+    <div className="card p-0 overflow-hidden">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="btn btn-muted w-full rounded-none flex items-center justify-between text-left"
+      >
+        <span className="font-semibold">{title}</span>
+        <span className="text-2xl leading-none select-none">{open ? "−" : "+"}</span>
+      </button>
+      {open && <div className="p-4">{children}</div>}
+    </div>
+  );
+}
+
 export default function ForgeIdeaDetail() {
   const { id } = useParams();
-  const [idea, setIdea] = useState({ title: "", description: "", notes: "" });
-  const [notes, setNotes] = useState("");
-  const [isEditingNotes, setIsEditingNotes] = useState(false);
-  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const { userEmail } = useAuth();
 
-  // Collapsible state
-  const [showMeta, setShowMeta] = useState(false);        // Title/Description (closed by default)
-  const [showNotes, setShowNotes] = useState(true);       // Notes (open)
-  const [showConversation, setShowConversation] = useState(true); // Conversation (open)
+  const [idea, setIdea] = useState({ id: Number(id), title: "", description: "", notes: "" });
+  const [loading, setLoading] = useState(false);
+
+  // notes editing
+  const [notes, setNotes] = useState("");
+  const [isEditingNotes, setIsEditingNotes] = useState(false);
+
+  // collapsibles
+  const [showMeta, setShowMeta] = useState(false);
+  const [showNotes, setShowNotes] = useState(true);
+  const [showConversation, setShowConversation] = useState(true);
 
   useEffect(() => {
-    const fetchIdea = async () => {
+    let cancelled = false;
+    (async () => {
       try {
         const res = await axios.get(`${API}/forge/ideas/${id}`);
+        if (cancelled) return;
         setIdea(res.data);
-        setNotes(res.data.notes || ""); // keep empty instead of placeholder
+        setNotes(res.data?.notes || "");
       } catch (err) {
         console.error("Error fetching idea:", err);
       }
-    };
-    fetchIdea();
+    })();
+    return () => { cancelled = true; };
   }, [id]);
 
-  const handleSubmit = async (e) => {
+  const handleSaveMeta = async (e) => {
     e.preventDefault();
     try {
       setLoading(true);
@@ -45,234 +67,145 @@ export default function ForgeIdeaDetail() {
         { title: idea.title, description: idea.description },
         { headers: { "x-user-email": userEmail } }
       );
-      navigate(`/forge/${id}`);
     } catch (err) {
       console.error("Error updating idea:", err);
+      alert("Failed to save changes.");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSaveNotes = () => {
-    axios
-      .post(`${API}/forge/ideas/${id}/notes`, { content: notes })
-      .then((response) => {
-        setIdea((prev) => ({ ...prev, notes: response.data.notes }));
-        setIsEditingNotes(false);
-      })
-      .catch((error) => {
-        console.error("Error saving notes:", error);
-      });
-  };
-
-  const handleGoBack = () => {
-    navigate("/forge");
+  const handleSaveNotes = async () => {
+    try {
+      const res = await axios.post(`${API}/forge/ideas/${id}/notes`, { content: notes });
+      setIdea((prev) => ({ ...prev, notes: res.data.notes }));
+      setIsEditingNotes(false);
+    } catch (err) {
+      console.error("Error saving notes:", err);
+      alert("Failed to save notes.");
+    }
   };
 
   return (
-    <div className="min-h-screen p-6 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100">
-      <div className="max-w-4xl mx-auto space-y-8">
-        <h1 className="text-4xl font-bold">Idea Details</h1>
-
-        {/* GoBack Button */}
-        <button
-          onClick={handleGoBack}
-          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 mb-2"
-        >
-          Back to Forge
-        </button>
-
-        {/* Section: Title & Description (collapsible) */}
-        <div className="border rounded-lg">
-          <button
-            type="button"
-            onClick={() => setShowMeta((s) => !s)}
-            className="w-full flex items-center justify-between px-4 py-3 rounded-t-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition"
-            aria-expanded={showMeta}
-          >
-            <span className="font-semibold">Title & Description</span>
-            <span className="text-2xl leading-none select-none">
-              {showMeta ? "−" : "+"}
-            </span>
-          </button>
-
-          {showMeta && (
-            <div className="p-4 space-y-4">
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <input
-                    type="text"
-                    value={idea.title}
-                    onChange={(e) => setIdea({ ...idea, title: e.target.value })}
-                    placeholder="Idea Title"
-                    className="w-full p-3 rounded bg-gray-100 dark:bg-gray-800"
-                    disabled={!userEmail}
-                  />
-                </div>
-                <div>
-                  <textarea
-                    value={idea.description}
-                    onChange={(e) =>
-                      setIdea({ ...idea, description: e.target.value })
-                    }
-                    placeholder="Idea Description"
-                    rows={4}
-                    className="w-full p-3 rounded bg-gray-100 dark:bg-gray-800"
-                    disabled={!userEmail}
-                  />
-                </div>
-                {userEmail && (
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
-                  >
-                    {loading ? "Saving..." : "Save"}
-                  </button>
-                )}
-              </form>
-            </div>
-          )}
+    <div className="min-h-screen p-6">
+      <div className="main space-y-6">
+        {/* Top bar */}
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-3xl font-bold">{idea.title || "Idea Details"}</h1>
+          <div className="flex gap-2">
+            <button className="btn btn-secondary" onClick={() => navigate("/forge")}>
+              ← Back to Forge
+            </button>
+          </div>
         </div>
 
-        {/* Section: Notes (collapsible) */}
-        <div className="border rounded-lg">
-          <button
-            type="button"
-            onClick={() => setShowNotes((s) => !s)}
-            className="w-full flex items-center justify-between px-4 py-3 rounded-t-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition"
-            aria-expanded={showNotes}
-          >
-            <span className="font-semibold">In-depth Notes</span>
-            <span className="text-2xl leading-none select-none">
-              {showNotes ? "−" : "+"}
-            </span>
-          </button>
+        {/* Title & Description */}
+        <Collapsible
+          title="Title & Description"
+          open={showMeta}
+          onToggle={() => setShowMeta((s) => !s)}
+        >
+          <form onSubmit={handleSaveMeta} className="space-y-3">
+            <div>
+              <label className="block text-sm opacity-75 mb-1">Title</label>
+              <input
+                type="text"
+                value={idea.title}
+                onChange={(e) => setIdea((prev) => ({ ...prev, title: e.target.value }))}
+                placeholder="Idea Title"
+                disabled={!userEmail}
+              />
+            </div>
+            <div>
+              <label className="block text-sm opacity-75 mb-1">Description</label>
+              <textarea
+                rows={4}
+                value={idea.description}
+                onChange={(e) => setIdea((prev) => ({ ...prev, description: e.target.value }))}
+                placeholder="Idea Description"
+                disabled={!userEmail}
+              />
+            </div>
 
-          {showNotes && (
-            <div className="p-4">
-              {isEditingNotes && userEmail ? (
-                <div>
-                  <textarea
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    rows="10"
-                    className="w-full p-3 rounded bg-gray-100 dark:bg-gray-800"
-                  />
-                  <div className="mt-4">
-                    <button
-                      onClick={handleSaveNotes}
-                      className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 mr-2"
-                    >
-                      Save Notes
-                    </button>
-                    <button
-                      onClick={() => setIsEditingNotes(false)}
-                      className="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <div className="max-w-none">
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      rehypePlugins={[rehypeRaw]}
-                      components={{
-                        h1: (props) => (
-                          <h1
-                            className="text-3xl font-bold mt-6 mb-3"
-                            {...props}
-                          />
-                        ),
-                        h2: (props) => (
-                          <h2
-                            className="text-2xl font-semibold mt-5 mb-2"
-                            {...props}
-                          />
-                        ),
-                        h3: (props) => (
-                          <h3
-                            className="text-xl font-semibold mt-4 mb-2"
-                            {...props}
-                          />
-                        ),
-                        p: (props) => (
-                          <p className="mt-3 leading-7" {...props} />
-                        ),
-                        ul: (props) => (
-                          <ul
-                            className="list-disc ml-6 mt-3 space-y-1"
-                            {...props}
-                          />
-                        ),
-                        ol: (props) => (
-                          <ol
-                            className="list-decimal ml-6 mt-3 space-y-1"
-                            {...props}
-                          />
-                        ),
-                        a: (props) => (
-                          <a
-                            className="text-blue-600 hover:underline"
-                            target="_blank"
-                            rel="noreferrer"
-                            {...props}
-                          />
-                        ),
-                        code: ({ inline, ...props }) =>
-                          inline ? (
-                            <code
-                              className="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800"
-                              {...props}
-                            />
-                          ) : (
-                            <code
-                              className="block p-3 rounded bg-gray-100 dark:bg-gray-800 overflow-auto"
-                              {...props}
-                            />
-                          ),
-                      }}
-                    >
-                      {notes || ""}
-                    </ReactMarkdown>
-                  </div>
-                  {userEmail && (
-                    <button
-                      onClick={() => setIsEditingNotes(true)}
-                      className="mt-4 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-                    >
-                      Edit Notes
-                    </button>
-                  )}
+            {userEmail ? (
+              <div className="flex justify-end">
+                <button type="submit" className="btn" disabled={loading}>
+                  {loading ? "Saving…" : "Save"}
+                </button>
+              </div>
+            ) : (
+              <div className="text-sm opacity-70">Log in to edit these fields.</div>
+            )}
+          </form>
+        </Collapsible>
+
+        {/* Notes */}
+        <Collapsible
+          title="In-depth Notes"
+          open={showNotes}
+          onToggle={() => setShowNotes((s) => !s)}
+        >
+          {isEditingNotes && userEmail ? (
+            <div className="space-y-3">
+              <textarea
+                rows={12}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Use Markdown for structure…"
+              />
+              <div className="flex justify-end gap-2">
+                <button className="btn" onClick={handleSaveNotes}>
+                  Save Notes
+                </button>
+                <button className="btn btn-secondary" onClick={() => setIsEditingNotes(false)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div className="prose dark:prose-invert max-w-none">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[rehypeRaw]}
+                  components={{
+                    h1: (props) => <h1 className="text-3xl font-bold mt-6 mb-3" {...props} />,
+                    h2: (props) => <h2 className="text-2xl font-semibold mt-5 mb-2" {...props} />,
+                    h3: (props) => <h3 className="text-xl font-semibold mt-4 mb-2" {...props} />,
+                    p: (props) => <p className="mt-3 leading-7" {...props} />,
+                    ul: (props) => <ul className="list-disc ml-6 mt-3 space-y-1" {...props} />,
+                    ol: (props) => <ol className="list-decimal ml-6 mt-3 space-y-1" {...props} />,
+                    a: (props) => <a className="hover:underline" target="_blank" rel="noreferrer" {...props} />,
+                    code: ({ inline, ...props }) =>
+                      inline ? (
+                        <code className="px-1 py-0.5 rounded border" {...props} />
+                      ) : (
+                        <code className="block p-3 rounded border overflow-auto" {...props} />
+                      ),
+                  }}
+                >
+                  {idea.notes || ""}
+                </ReactMarkdown>
+              </div>
+              {userEmail && (
+                <div className="flex justify-end">
+                  <button className="btn mt-4" onClick={() => { setNotes(idea.notes || ""); setIsEditingNotes(true); }}>
+                    Edit Notes
+                  </button>
                 </div>
               )}
             </div>
           )}
-        </div>
+        </Collapsible>
 
-        {/* Section: Idea Conversation (collapsible) */}
-        <div className="border rounded-lg">
-          <button
-            type="button"
-            onClick={() => setShowConversation((s) => !s)}
-            className="w-full flex items-center justify-between px-4 py-3 rounded-t-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition"
-            aria-expanded={showConversation}
-          >
-            <span className="font-semibold">Idea Conversation</span>
-            <span className="text-2xl leading-none select-none">
-              {showConversation ? "−" : "+"}
-            </span>
-          </button>
-
-          {showConversation && (
-            <div className="p-4">
-              <IdeaConversation ideaId={idea.id} userEmail={userEmail} />
-            </div>
-          )}
-        </div>
+        {/* Conversation */}
+        <Collapsible
+          title="Idea Conversation"
+          open={showConversation}
+          onToggle={() => setShowConversation((s) => !s)}
+        >
+          <IdeaConversation ideaId={idea.id} userEmail={userEmail} />
+        </Collapsible>
       </div>
     </div>
   );

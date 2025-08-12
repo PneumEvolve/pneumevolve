@@ -79,91 +79,92 @@ export default function Problems() {
   }, [title]);
 
   const submitProblem = async (e) => {
-  e.preventDefault();
+    e.preventDefault();
 
-  const t = title.trim();
-  const d = description.trim();
-  if (t.length < 5 || d.length < 20) {
-    alert("Please make the title ≥ 5 chars and the description ≥ 20 chars.");
-    return;
-  }
+    const t = title.trim();
+    const d = description.trim();
+    if (t.length < 5 || d.length < 20) {
+      alert("Please make the title ≥ 5 chars and the description ≥ 20 chars.");
+      return;
+    }
 
-  // If user isn't logged in, we’ll send anon:{uuid} and mark anonymous=true
-  const isAnon = identityEmail.startsWith("anon:");
+    const isAnon = identityEmail.startsWith("anon:");
 
-  const payload = {
-    title: t,
-    description: d,
-    severity: Number(severity) || 3,
-    scope: scope || "Systemic",
-    anonymous: isAnon || anonymous,
+    try {
+      const res = await axios.post(
+        `${API}/problems`,
+        {
+          title: t,
+          description: d,
+          severity: Number(severity) || 3,
+          scope: scope || "Systemic",
+          anonymous: isAnon || anonymous,
+        },
+        {
+          headers: {
+            "x-user-email": identityEmail,
+            "X-User-Email": identityEmail,
+            "x_user_email": identityEmail,
+          },
+        }
+      );
+      setTitle("");
+      setDescription("");
+      setSeverity(3);
+      setAnonymous(false);
+      setOpenSubmit(false);
+
+      const newId = res?.data?.id;
+      if (newId) navigate(`/problems/${newId}`);
+      else fetchList();
+    } catch (err) {
+      const detail =
+        err?.response?.data?.detail ??
+        (typeof err?.response?.data === "string"
+          ? err.response.data
+          : JSON.stringify(err?.response?.data)) ??
+        err.message;
+      console.error("POST /problems failed:", err?.response || err);
+      alert(`Failed to submit problem: ${detail}`);
+    }
   };
-
-  try {
-    const res = await axios.post(
-  `${API}/problems`,
-  {
-    title: t,
-    description: d,
-    severity: Number(severity) || 3,
-    scope: scope || "Systemic",
-    anonymous: isAnon || anonymous,
-  },
-  {
-    headers: {
-      // send a few variants to be bulletproof against backend differences
-      "x-user-email": identityEmail,
-      "X-User-Email": identityEmail,
-      "x_user_email": identityEmail,
-    },
-  }
-);
-console.log("Submitting problem with identity:", identityEmail);
-
-    setTitle("");
-    setDescription("");
-    setSeverity(3);
-    setAnonymous(false);
-    setOpenSubmit(false);
-
-    const newId = res?.data?.id;
-    if (newId) navigate(`/problems/${newId}`);
-    else fetchList();
-  } catch (err) {
-    const detail =
-      err?.response?.data?.detail ??
-      (typeof err?.response?.data === "string"
-        ? err.response.data
-        : JSON.stringify(err?.response?.data)) ??
-      err.message;
-    console.error("POST /problems failed:", err?.response || err);
-    alert(`Failed to submit problem: ${detail}`);
-  }
-};
 
   const toggleVote = async (p) => {
     try {
       await axios.post(`${API}/problems/${p.id}/vote`, {}, { headers: { "x-user-email": identityEmail } });
       fetchList();
-    } catch {
-      /* ignore */
-    }
+    } catch {/* ignore */}
   };
 
   const toggleFollow = async (p) => {
     try {
       await axios.post(`${API}/problems/${p.id}/follow`, {}, { headers: { "x-user-email": identityEmail } });
       fetchList();
-    } catch {
-      /* ignore */
+    } catch {/* ignore */}
+  };
+
+  const canDelete = (p) =>
+    !!userEmail && (userEmail === p.created_by_email || userEmail === "sheaklipper@gmail.com");
+
+  const handleDelete = async (p) => {
+    if (!canDelete(p)) return;
+    if (!confirm(`Delete “${p.title}”? This cannot be undone.`)) return;
+    try {
+      await axios.delete(`${API}/problems/${p.id}`, { headers: { "x-user-email": identityEmail } });
+      fetchList();
+    } catch (e) {
+      console.error(e);
+      alert("Failed to delete problem.");
     }
   };
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="main space-y-6">
       <header className="text-center">
         <h1 className="text-3xl font-bold">🧭 Problems</h1>
-        <p className="text-sm opacity-70">Post problems. Upvote “I have this too”. Follow to join the conversation.</p>
+        <p className="text-sm opacity-70">
+          Post problems. Upvote “I have this too”. Follow to join the conversation.
+        </p>
       </header>
 
       {/* Controls */}
@@ -173,10 +174,10 @@ console.log("Submitting problem with identity:", identityEmail);
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search problems…"
-          className="w-full sm:w-1/2 p-2 rounded border border-gray-300 dark:border-zinc-700 bg-white dark:bg-zinc-800"
+          className="w-full sm:w-1/2"
         />
         <div className="flex gap-2">
-          <select value={status} onChange={(e) => setStatus(e.target.value)} className="p-2 rounded border dark:bg-zinc-800">
+          <select value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="">All status</option>
             <option>Open</option>
             <option>Triaged</option>
@@ -187,7 +188,7 @@ console.log("Submitting problem with identity:", identityEmail);
             <option>Solved</option>
             <option>Archived</option>
           </select>
-          <select value={scope} onChange={(e) => setScope(e.target.value)} className="p-2 rounded border dark:bg-zinc-800">
+          <select value={scope} onChange={(e) => setScope(e.target.value)}>
             <option value="">All scope</option>
             <option>Personal</option>
             <option>Community</option>
@@ -196,7 +197,6 @@ console.log("Submitting problem with identity:", identityEmail);
           <select
             value={sort}
             onChange={(e) => { setSort(e.target.value); localStorage.setItem("problems:sort", e.target.value); }}
-            className="p-2 rounded border dark:bg-zinc-800"
           >
             <option value="trending">Trending</option>
             <option value="votes">Votes</option>
@@ -209,17 +209,16 @@ console.log("Submitting problem with identity:", identityEmail);
       <div>
         <button
           onClick={() => setOpenSubmit((s) => !s)}
-          className="w-full flex items-center justify-between px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition"
+          className="w-full btn btn-muted flex items-center justify-between"
         >
           <span className="font-medium">{openSubmit ? "Hide form" : "Share a problem"}</span>
           <span className="text-2xl">{openSubmit ? "−" : "+"}</span>
         </button>
 
         {openSubmit && (
-          <form onSubmit={submitProblem} className="mt-3 space-y-3" noValidate>
+          <form onSubmit={submitProblem} className="mt-3 space-y-3 card" noValidate>
             <div>
               <input
-                className="w-full p-3 rounded bg-gray-100 dark:bg-gray-800"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="One-line problem statement"
@@ -227,13 +226,14 @@ console.log("Submitting problem with identity:", identityEmail);
                 required
               />
               {!titleOk && title.length > 0 && (
-                <p className="text-xs text-red-600 mt-1">Title must be at least 5 characters.</p>
+                <p className="text-xs" style={{ color: "#dc2626", marginTop: 4 }}>
+                  Title must be at least 5 characters.
+                </p>
               )}
             </div>
 
             <div>
               <textarea
-                className="w-full p-3 rounded bg-gray-100 dark:bg-gray-800"
                 rows={5}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
@@ -242,7 +242,9 @@ console.log("Submitting problem with identity:", identityEmail);
                 required
               />
               {!descOk && description.length > 0 && (
-                <p className="text-xs text-red-600 mt-1">Description must be at least 20 characters.</p>
+                <p className="text-xs" style={{ color: "#dc2626", marginTop: 4 }}>
+                  Description must be at least 20 characters.
+                </p>
               )}
             </div>
 
@@ -255,7 +257,7 @@ console.log("Submitting problem with identity:", identityEmail);
                   max={5}
                   value={severity}
                   onChange={(e) => setSeverity(Number(e.target.value))}
-                  className="w-16 p-1 rounded border"
+                  style={{ width: 70 }}
                 />
               </label>
               <label className="flex items-center gap-2 text-sm">
@@ -265,12 +267,12 @@ console.log("Submitting problem with identity:", identityEmail);
             </div>
 
             {!!dupes.length && (
-              <div className="p-3 rounded border text-sm">
+              <div className="p-3 rounded border" style={{ borderColor: "var(--border)" }}>
                 <div className="font-medium mb-1">Possible duplicates</div>
                 <ul className="list-disc ml-5 space-y-1">
                   {dupes.map((d) => (
                     <li key={d.id}>
-                      <button type="button" className="text-blue-600 underline" onClick={() => navigate(`/problems/${d.id}`)}>
+                      <button type="button" className="underline" onClick={() => navigate(`/problems/${d.id}`)}>
                         {d.title}
                       </button>
                     </li>
@@ -281,10 +283,11 @@ console.log("Submitting problem with identity:", identityEmail);
 
             <div className="flex justify-end">
               <button
-                className="px-4 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="btn"
                 type="submit"
                 disabled={!canSubmit}
                 title={!canSubmit ? "Add a longer title and description to submit" : "Submit"}
+                style={!canSubmit ? { opacity: .6, cursor: "not-allowed" } : {}}
               >
                 Submit Problem
               </button>
@@ -301,36 +304,46 @@ console.log("Submitting problem with identity:", identityEmail);
       ) : (
         <div className="space-y-4">
           {list.map((p) => (
-            <div key={p.id} className="p-4 rounded-xl shadow bg-white dark:bg-zinc-800 border-l-4 border-blue-400">
+            <div
+              key={p.id}
+              className="card border-l-4"
+              style={{ borderLeftColor: "var(--accent)" }}
+            >
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <button className="text-xl font-semibold text-left hover:underline" onClick={() => navigate(`/problems/${p.id}`)}>
+                  <button className="text-xl font-semibold hover:underline" onClick={() => navigate(`/problems/${p.id}`)}>
                     {p.title}
                   </button>
-                  <div className="text-xs opacity-70 mt-1">
+                  <div className="text-xs opacity-75 mt-1">
                     Status: {p.status} · Severity: {p.severity ?? 0} · Votes: {p.votes_count ?? 0} · Followers: {p.followers_count ?? 0}
                   </div>
                 </div>
+
                 <div className="flex gap-2">
                   <button
                     onClick={() => toggleVote(p)}
-                    className={`px-3 py-1 rounded border ${
-                      p.has_voted ? "bg-red-600 text-white border-red-600" : "bg-white dark:bg-zinc-800 border-emerald-600 text-emerald-700"
-                    }`}
+                    className={p.has_voted ? "btn btn-danger" : "btn btn-secondary"}
+                    title={p.has_voted ? "Unvote" : "Vote"}
                   >
-                    {p.has_voted ? "Unvote" : "Vote"}
+                    {p.has_voted ? "🙅 Unvote" : "👍 Vote"}
                   </button>
+
                   <button
                     onClick={() => toggleFollow(p)}
-                    className={`px-3 py-1 rounded border ${
-                      p.is_following ? "bg-zinc-900 text-white border-zinc-900" : "bg-white dark:bg-zinc-800 border-zinc-600"
-                    }`}
+                    className={p.is_following ? "btn btn-muted" : "btn btn-secondary"}
                   >
                     {p.is_following ? "Following" : "Follow"}
                   </button>
+
+                  {canDelete(p) && (
+                    <button onClick={() => handleDelete(p)} className="btn btn-danger" title="Delete problem">
+                      Delete
+                    </button>
+                  )}
                 </div>
               </div>
-              <p className="mt-2 text-sm opacity-90 line-clamp-3">{p.description}</p>
+
+              <p className="mt-2 text-sm opacity-90">{p.description}</p>
             </div>
           ))}
         </div>

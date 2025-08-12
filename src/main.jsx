@@ -13,6 +13,7 @@ import ProblemDetail from "./pneumevolve-v2/pages/ProblemDetail.jsx"
 import ArtistsEnclave from "./pneumevolve-v2/pages/ArtistsEnclave";
 import IAm from "./pneumevolve-v2/pages/IAm";
 import Messages from "@/components/dashboard/Messages.jsx"
+import SpotlightArchive from "./Pages/SpotlightArchive.jsx"
 
 
 import IntentionalCommunity from "./pneumevolve-v2/pages/IntentionalCommunity.jsx";
@@ -73,11 +74,11 @@ import AestheticLab from "./Pages/experiments/AestheticLab.jsx";
 import LivingPlan from "./Pages/LivingPlan";
 import NotesPage from "./Pages/NotesPage";
 import ProblemPage from "./Pages/problemsolving/ProblemPage.jsx";
-import HomePage from "./Pages/pneumevolve/HomePage";
-import "./index.css";
+import Home from "./Pages/Home.jsx";
+
 import PrivateRoute from "./components/PrivateRoute";
 import { HelmetProvider } from 'react-helmet-async';
-
+import "./index.css";
 
 
 
@@ -111,6 +112,7 @@ function Root() {
               <Route path="/problems/:id" element={<ProblemDetail />} />
               <Route path="/ArtistsEnclave" element={<ArtistsEnclave />} />
               <Route path="/Messages" element={<Messages />} />
+              <Route path="/spotlightarchive" element={<SpotlightArchive />} />
               <Route path="/v2/i-am" element={<IAm/>} />
               <Route path="/v2/we-shape" element={<div>WE SHAPE page coming soon</div>} />
               <Route path="/v2/we-grow" element={<div>WE GROW page coming soon</div>} />
@@ -169,7 +171,7 @@ function Root() {
               <Route path="LivingPlan" element={<LivingPlan />} />
               <Route path="/notes/:index" element={<NotesPage />} />
               <Route path="ProblemPage" element={<ProblemPage />} />
-              <Route path="HomePage" element={<HomePage />} />
+              <Route path="Home" element={<Home />} />
             </Route>
           </Routes>
         </BrowserRouter>

@@ -4,6 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
 import MessageModal from "../components/MessageModal";
+import { Dialog } from "@headlessui/react";
 
 const API = import.meta.env.VITE_API_URL;
 
@@ -67,6 +68,8 @@ export default function Forge() {
   const navigate = useNavigate();
   const { toasts, add: toast } = useToasts();
 
+  const [deleteTarget, setDeleteTarget] = useState(null);
+
   // Collapsible Submit Form
   const [showSubmitForm, setShowSubmitForm] = useState(false);
 
@@ -107,21 +110,41 @@ export default function Forge() {
   };
 
   const fetchIdeas = async () => {
-    setLoadingList(true);
-    try {
-      // If backend annotates has_voted / is_following when it sees x-user-email:
-      const res = await axios.get(`${API}/forge/ideas`, {
-        headers: { "x-user-email": identityEmail },
-      });
-      setIdeas(Array.isArray(res.data) ? res.data : []);
-    } catch (err) {
-      console.error("Error fetching ideas:", err);
-      toast("Failed to load ideas.", "error");
-      setIdeas([]);
-    } finally {
-      setLoadingList(false);
-    }
-  };
+  setLoadingList(true);
+  try {
+    const res = await axios.get(`${API}/forge/ideas`, {
+      params: { limit: 100 },
+      headers: { "x-user-email": identityEmail },
+    });
+
+    const ideas = Array.isArray(res.data) ? res.data : [];
+
+    // Normalize a bit and sort newest first
+    const normalized = ideas.map(i => ({
+      ...i,
+      // if backend didn’t add it yet, treat created_at as null
+      created_at: i.created_at || null,
+      votes_count: typeof i.votes_count === "number"
+        ? i.votes_count
+        : Array.isArray(i.votes) ? i.votes.length : 0,
+    }));
+
+    const sorted = normalized.sort((a, b) => {
+      const ad = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const bd = b.created_at ? new Date(b.created_at).getTime() : 0;
+      if (bd !== ad) return bd - ad;           // primary: created_at desc
+      return (b.id ?? 0) - (a.id ?? 0);        // fallback: id desc
+    });
+
+    setIdeas(sorted);
+  } catch (err) {
+    console.error("Error fetching ideas:", err);
+    toast("Failed to load ideas.", "error");
+    setIdeas([]);
+  } finally {
+    setLoadingList(false);
+  }
+};
 
   useEffect(() => {
     fetchIdeas();
@@ -188,13 +211,16 @@ export default function Forge() {
     let list = [...ideas];
 
     // Apply filter first
-    if (filterKey === "mine") {
-      list = list.filter(isMine);
-    } else if (filterKey === "working") {
-      list = list.filter(isWorking);
-    } else if (filterKey === "following") {
-      list = list.filter(isFollowingIdea);
-    }
+// (migrate old stored value "following" to "others")
+const fk = filterKey === "following" ? "others" : filterKey;
+
+if (fk === "mine") {
+  list = list.filter(isMine);
+} else if (fk === "working") {
+  list = list.filter(isWorking);
+} else if (fk === "others") {
+  list = list.filter((i) => !isMine(i));
+}
 
     // Then search
     const q = query.trim().toLowerCase();
@@ -320,23 +346,24 @@ export default function Forge() {
     }
   };
 
-  const handleDelete = async (id) => {
-    const idea = ideas.find((i) => i.id === id);
-    if (userEmail === "sheaklipper@gmail.com" || idea?.user_email === userEmail) {
-      try {
-        await axios.delete(`${API}/forge/ideas/${id}`, {
-          headers: { "x-user-email": userEmail },
-        });
-        toast("Idea deleted.", "success");
-        fetchIdeas();
-      } catch (err) {
-        console.error("Error deleting idea:", err);
-        toast("Error deleting idea.", "error");
-      }
-    } else {
-      toast("You are not authorized to delete this idea.", "error");
-    }
-  };
+  const requestDelete = (idea) => {
+  setDeleteTarget({ id: idea.id, title: idea.title });
+};
+
+const confirmDelete = async () => {
+  if (!deleteTarget) return;
+  try {
+    await axios.delete(`${API}/forge/ideas/${deleteTarget.id}`, {
+      headers: { "x-user-email": userEmail },
+    });
+    toast("Idea deleted.", "success");
+    setDeleteTarget(null);
+    fetchIdeas();
+  } catch (err) {
+    console.error("Error deleting idea:", err);
+    toast("Error deleting idea.", "error");
+  }
+};
 
   const handleViewNotes = (id) => navigate(`/forge/${id}`);
 
@@ -358,223 +385,242 @@ export default function Forge() {
   );
 
   return (
-    <div className="min-h-screen p-6 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100">
-      <div className="max-w-3xl mx-auto space-y-10">
-        <div className="text-center">
-          <h1 className="text-4xl font-bold mb-2">🛠️ The Forge</h1>
-          <p className="text-lg text-gray-600 dark:text-gray-300">
-            Vote on what we build next. Join a feature as a worker. Chat in each idea’s thread.
-          </p>
-        </div>
-
-        {/* Controls: search + sort + filters */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search ideas…"
-            className="w-full sm:w-1/2 p-2 rounded border border-gray-300 dark:border-zinc-700 bg-white dark:bg-zinc-800"
-            aria-label="Search ideas"
-          />
-
-          <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-end">
-            <div className="flex items-center gap-2">
-              <label className="text-sm opacity-70">Sort by</label>
-              <select
-                value={sortCriteria}
-                onChange={handleSortChange}
-                className="p-2 border border-gray-300 dark:border-zinc-700 rounded bg-white dark:bg-zinc-800"
-              >
-                <option value="date">Date Created</option>
-                <option value="title">Title (A-Z)</option>
-                <option value="votes">Votes</option>
-              </select>
-            </div>
-
-            <div className="flex items-center border rounded p-1 bg-white dark:bg-zinc-800">
-              <FilterButton value="all" label="All" />
-              <FilterButton value="mine" label="My ideas" />
-              <FilterButton value="working" label="I’m working" />
-              <FilterButton value="following" label="Following" />
-            </div>
-          </div>
-        </div>
-
-        {/* Collapsible "Submit Idea" */}
-        {userEmail && (
-          <div className="mb-2">
-            <button
-              type="button"
-              onClick={() => setShowSubmitForm((s) => !s)}
-              className="w-full flex items-center justify-between px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-              aria-expanded={showSubmitForm}
-            >
-              <span className="font-medium">
-                {showSubmitForm ? "Hide Idea Form" : "Share an Idea"}
-              </span>
-              <span className="text-2xl leading-none select-none">
-                {showSubmitForm ? "−" : "+"}
-              </span>
-            </button>
-
-            {showSubmitForm && (
-              <form onSubmit={handleSubmit} className="space-y-4 mt-4">
-                <input
-                  type="text"
-                  placeholder="Feature title…"
-                  className="w-full p-3 rounded bg-gray-100 dark:bg-gray-800"
-                  value={newIdea.title}
-                  onChange={(e) => setNewIdea({ ...newIdea, title: e.target.value })}
-                />
-                <textarea
-                  placeholder="Describe the idea briefly…"
-                  rows={4}
-                  className="w-full p-3 rounded bg-gray-100 dark:bg-gray-800"
-                  value={newIdea.description}
-                  onChange={(e) => setNewIdea({ ...newIdea, description: e.target.value })}
-                />
-                <div className="flex justify-end">
-                  <button
-                    type="submit"
-                    disabled={submitting}
-                    className="px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-60"
-                  >
-                    {submitting ? "Submitting…" : "Submit Idea"}
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-        )}
-
-        {/* Idea List */}
-        {loadingList ? (
-          <div className="space-y-6 mt-6">
-            <IdeaSkeleton />
-            <IdeaSkeleton />
-            <IdeaSkeleton />
-          </div>
-        ) : sortedAndFilteredIdeas.length === 0 ? (
-          <div className="mt-10 text-center opacity-70">
-            Nothing here. Try a different filter or share an idea!
-          </div>
-        ) : (
-          <div className="space-y-6 mt-6">
-            {sortedAndFilteredIdeas.map((idea) => {
-              const isCreator =
-                idea.user_email === userEmail || userEmail === "sheaklipper@gmail.com";
-              const isWorker = idea.workers?.some((w) => w.email === userEmail);
-              const hasVoted = computeHasVoted(idea);
-              const count = idea.votes_count ?? idea.votes?.length ?? 0;
-
-              return (
-                <div
-                  key={idea.id}
-                  className="p-6 rounded-xl shadow-lg bg-white dark:bg-zinc-800 border-l-4 border-emerald-500 space-y-4"
-                >
-                  <h2 className="text-2xl font-semibold">{idea.title}</h2>
-                  <p className="text-sm text-gray-800 dark:text-gray-200">
-                    {idea.description}
-                  </p>
-
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm opacity-80">Status: {idea.status}</span>
-
-                    {idea.workers && idea.workers.length > 0 && (
-                      <div className="flex items-center gap-2 text-sm flex-wrap justify-end">
-                        <span className="opacity-70">Workers:</span>
-                        {idea.workers.map((worker, idx) => (
-                          <button
-                            key={idx}
-                            onClick={() => handleOpenModal(worker)}
-                            title={`Message ${worker.username || worker.email || "worker"}`}
-                            className="inline-flex items-center px-2.5 py-1 rounded-full
-                                       bg-zinc-100 dark:bg-zinc-700
-                                       text-zinc-900 dark:text-zinc-100
-                                       border border-zinc-200/70 dark:border-zinc-600
-                                       hover:bg-zinc-200 dark:hover:bg-zinc-600
-                                       focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500
-                                       text-sm"
-                          >
-                            {worker.username || worker.email}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex flex-wrap gap-3 justify-end items-center">
-                    <div className="text-xs opacity-60 mr-auto">
-                      {userEmail ? "Votes are linked to your account." : "Anonymous voting is allowed."}
-                    </div>
-
-                    {/* Vote toggle */}
-                    <button
-                      onClick={() => handleVote(idea.id)}
-                      aria-pressed={hasVoted}
-                      className={`px-3 py-2 rounded border focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-                        hasVoted
-                          ? "bg-red-600 border-red-600 text-white"
-                          : "bg-white dark:bg-zinc-800 border-emerald-600 text-emerald-700 dark:text-emerald-300"
-                      }`}
-                    >
-                      {hasVoted ? "🙅 Unvote" : "👍 Vote"} · {count}
-                    </button>
-
-                    {/* Notes */}
-                    <button
-                      onClick={() => handleViewNotes(idea.id)}
-                      className="bg-blue-600 text-white px-3 py-2 rounded hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                    >
-                      {isCreator ? "Edit / View Notes" : "View Notes"}
-                    </button>
-
-                    {/* Join / Quit */}
-                    {!isWorker && userEmail && (
-                      <button
-                        onClick={() => handleJoin(idea.id)}
-                        className="bg-blue-600 text-white px-3 py-2 rounded hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                      >
-                        Help
-                      </button>
-                    )}
-                    {isWorker && userEmail && (
-                      <button
-                        onClick={() => handleRemoveWorker(idea.id)}
-                        className="bg-red-600 text-white px-3 py-2 rounded hover:bg-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                      >
-                        Quit
-                      </button>
-                    )}
-
-                    {/* Delete (creator/admin) */}
-                    {isCreator && (
-                      <button
-                        onClick={() => handleDelete(idea.id)}
-                        className="bg-red-600 text-white px-3 py-2 rounded hover:bg-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                      >
-                        Delete
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+  <div className="min-h-screen p-6">
+    <div className="max-w-3xl mx-auto space-y-10">
+      <div className="text-center">
+        <h1 className="text-4xl font-bold mb-2">🛠️ The Forge</h1>
+        <p className="text-lg opacity-80">
+          Vote on what we build next. Join a feature as a worker. Chat in each idea’s thread.
+        </p>
       </div>
 
-      {/* Message Modal */}
-      <MessageModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        senderEmail={userEmail}
-        recipientEmail={recipientEmail}
-        onSent={() => {}}
-      />
+      {/* Controls: search + sort + filters */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search ideas…"
+          className="w-full sm:w-1/2"
+          aria-label="Search ideas"
+        />
 
-      <Toasts toasts={toasts} />
+        <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-end">
+          <div className="flex items-center gap-2">
+            <label className="text-sm opacity-70">Sort by</label>
+            <select
+              value={sortCriteria}
+              onChange={handleSortChange}
+              className="min-w-[11rem]"
+            >
+              <option value="date">Date Created</option>
+              <option value="title">Title (A-Z)</option>
+              <option value="votes">Votes</option>
+            </select>
+          </div>
+
+          {/* Filter pills */}
+          <div className="flex items-center gap-2">
+            <FilterButton value="all" label="All" />
+            <FilterButton value="mine" label="My ideas" />
+            <FilterButton value="working" label="I’m working" />
+            <FilterButton value="others" label="Others" />
+          </div>
+        </div>
+      </div>
+
+      {/* Collapsible "Submit Idea" */}
+      {userEmail && (
+        <div className="mb-2">
+          <button
+            type="button"
+            onClick={() => setShowSubmitForm((s) => !s)}
+            className="w-full btn btn-muted flex items-center justify-between"
+            aria-expanded={showSubmitForm}
+          >
+            <span className="font-medium">
+              {showSubmitForm ? "Hide Idea Form" : "Share an Idea"}
+            </span>
+            <span className="text-2xl leading-none select-none">
+              {showSubmitForm ? "−" : "+"}
+            </span>
+          </button>
+
+          {showSubmitForm && (
+            <form onSubmit={handleSubmit} className="space-y-4 mt-4 card">
+              <input
+                type="text"
+                placeholder="Feature title…"
+                value={newIdea.title}
+                onChange={(e) => setNewIdea({ ...newIdea, title: e.target.value })}
+              />
+              <textarea
+                placeholder="Describe the idea briefly…"
+                rows={4}
+                value={newIdea.description}
+                onChange={(e) => setNewIdea({ ...newIdea, description: e.target.value })}
+              />
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="btn"
+                >
+                  {submitting ? "Submitting…" : "Submit Idea"}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
+
+      {/* Idea List */}
+      {loadingList ? (
+        <div className="space-y-6 mt-6">
+          <IdeaSkeleton />
+          <IdeaSkeleton />
+          <IdeaSkeleton />
+        </div>
+      ) : sortedAndFilteredIdeas.length === 0 ? (
+        <div className="mt-10 text-center opacity-70">
+          Nothing here. Try a different filter or share an idea!
+        </div>
+      ) : (
+        <div className="space-y-6 mt-6">
+          {sortedAndFilteredIdeas.map((idea) => {
+            const isCreator =
+              idea.user_email === userEmail || userEmail === "sheaklipper@gmail.com";
+            const isWorker = idea.workers?.some((w) => w.email === userEmail);
+            const hasVoted = computeHasVoted(idea);
+            const count = idea.votes_count ?? idea.votes?.length ?? 0;
+
+            return (
+              <div
+                key={idea.id}
+                className="card border-l-4 border-emerald-500 space-y-4 text-[var(--text)]"
+              >
+                <h2 className="text-2xl font-semibold">{idea.title}</h2>
+                <p className="text-sm opacity-90">{idea.description}</p>
+
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm opacity-75">Status: {idea.status}</span>
+
+                  {idea.workers?.length > 0 && (
+                    <div className="flex items-center gap-2 text-sm flex-wrap justify-end">
+                      <span className="opacity-70">Workers:</span>
+                      {idea.workers.map((worker, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => handleOpenModal(worker)}
+                          title={`Message ${worker.username || worker.email || "worker"}`}
+                          className="px-2.5 py-1 rounded-full border"
+                        >
+                          {worker.username || worker.email}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap gap-3 justify-end items-center">
+                  <div className="text-xs opacity-60 mr-auto">
+                    {userEmail ? "Votes are linked to your account." : "Anonymous voting is allowed."}
+                  </div>
+
+                  {/* Vote toggle */}
+                  <button
+                    onClick={() => handleVote(idea.id)}
+                    aria-pressed={hasVoted}
+                    className={
+                      hasVoted
+                        ? "btn btn-danger"
+                        : "btn btn-secondary border-emerald-600 text-emerald-700 dark:text-emerald-300"
+                    }
+                  >
+                    {hasVoted ? "🙅 Unvote" : "👍 Vote"} · {count}
+                  </button>
+
+                  {/* Notes */}
+                  <button
+                    onClick={() => handleViewNotes(idea.id)}
+                    className="btn"
+                  >
+                    {isCreator ? "Edit / View Notes" : "View Notes"}
+                  </button>
+
+                  {/* Join / Quit */}
+                  {!isWorker && userEmail && (
+                    <button
+                      onClick={() => handleJoin(idea.id)}
+                      className="btn"
+                    >
+                      Help
+                    </button>
+                  )}
+                  {isWorker && userEmail && (
+                    <button
+                      onClick={() => handleRemoveWorker(idea.id)}
+                      className="btn btn-danger"
+                    >
+                      Quit
+                    </button>
+                  )}
+
+                  {/* Delete (creator/admin) */}
+                  {isCreator && (
+                    <button
+                      onClick={() => requestDelete(idea)}
+                      className="btn btn-danger"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
-  );
+
+    {/* Message Modal */}
+    <MessageModal
+      isOpen={isModalOpen}
+      onClose={() => setIsModalOpen(false)}
+      senderEmail={userEmail}
+      recipientEmail={recipientEmail}
+      onSent={() => {}}
+    />
+
+    <Toasts toasts={toasts} />
+
+    {/* Confirm Delete */}
+    <Dialog
+      open={!!deleteTarget}
+      onClose={() => setDeleteTarget(null)}
+      className="fixed inset-0 z-50 flex items-center justify-center"
+    >
+      <div className="fixed inset-0 bg-black/50" aria-hidden="true" />
+      <Dialog.Panel className="relative z-10 w-full max-w-md mx-4 rounded-xl card p-6">
+        <Dialog.Title className="text-lg font-semibold">
+          Delete “{deleteTarget?.title}”?
+        </Dialog.Title>
+        <p className="mt-2 text-sm opacity-80">
+          This action can’t be undone. The idea and its data will be permanently removed.
+        </p>
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            onClick={() => setDeleteTarget(null)}
+            className="btn btn-secondary"
+          >
+            Cancel
+          </button>
+          <button onClick={confirmDelete} className="btn btn-danger" autoFocus>
+            Delete
+          </button>
+        </div>
+      </Dialog.Panel>
+    </Dialog>
+  </div>
+);
 }

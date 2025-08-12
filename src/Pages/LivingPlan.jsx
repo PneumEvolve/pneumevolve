@@ -190,10 +190,7 @@ export default function LivingPlan() {
 
       setSections(withIds);
 
-      // Optionally push back to backend with new IDs
-      await axios.post(`${API}/living-plan`, withIds, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
+      
 
     } catch (err) {
       console.error("Error fetching living plan:", err);

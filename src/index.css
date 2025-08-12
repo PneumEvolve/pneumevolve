@@ -1,1 +1,226 @@
 @import "tailwindcss";
+
+/* ---------- THEME TOKENS ---------- */
+:root {
+  /* Your core tokens */
+  --bg: #f8fafc;             /* slate-50 */
+  --bg-elev: #ffffff;        /* white */
+  --text: #0f172a;           /* slate-900 */
+  --muted: #475569;          /* slate-600 */
+  --border: #e2e8f0;         /* slate-200 */
+  --ring: #3b82f6;           /* blue-500 */
+  --accent: #2563eb;         /* blue-600 */
+  --accent-contrast: #ffffff;
+  --card-shadow: 0 8px 24px rgba(15,23,42,0.08);
+  --radius: 16px;
+  --gradient:
+    radial-gradient(1000px 500px at 100% -20%, rgba(59,130,246,.08), transparent),
+    radial-gradient(800px 400px at -10% 120%, rgba(99,102,241,.08), transparent);
+
+  /* Aliases for compatibility with older styles */
+  --fg: var(--text);
+  --card-bg: var(--bg-elev);
+
+  /* Default button tokens */
+  --btn-bg: var(--accent);
+  --btn-fg: var(--accent-contrast);
+  --btn-muted-bg: #f1f5f9;   /* slate-100 */
+  --btn-muted-fg: #0f172a;   /* slate-900 */
+}
+
+html.dark {
+  --bg: #0b1020;             /* deep navy */
+  --bg-elev: #0e162b;        /* elevated panel */
+  --text: #e5e7eb;           /* slate-200 */
+  --muted: #94a3b8;          /* slate-400 */
+  --border: #1f2937;         /* slate-800 */
+  --ring: #60a5fa;           /* blue-400 */
+  --accent: #8b5cf6;         /* violet-500 */
+  --accent-contrast: #0b1020;
+  --card-shadow: 0 8px 28px rgba(2,6,23,0.6);
+  --gradient:
+    radial-gradient(1000px 500px at 100% -20%, rgba(139,92,246,.15), transparent),
+    radial-gradient(800px 400px at -10% 120%, rgba(59,130,246,.12), transparent);
+
+  /* Aliases in dark */
+  --fg: var(--text);
+  --card-bg: var(--bg-elev);
+
+  /* Button tokens in dark */
+  --btn-bg: #3b82f6;         /* blue-500 */
+  --btn-fg: #0b1020;         /* matches dark bg */
+  --btn-muted-bg: #111827;   /* gray-900 */
+  --btn-muted-fg: #e5e7eb;   /* slate-200 */
+}
+
+/* Let form controls follow theme */
+:root { color-scheme: light; }
+html.dark { color-scheme: dark; }
+
+/* ---------- BASE ---------- */
+html, body, #root { height: 100%; }
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  background-image: var(--gradient);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "cv02","cv03","cv04","cv11";
+  transition: background-color .25s, color .25s, background-image .25s;
+}
+
+/* Only style links that have no class (e.g., in prose) */
+a:not([class]) { color: var(--accent); text-decoration: none; }
+a:not([class]):hover { text-decoration: underline; }
+
+/* optional helper you can opt-in to */
+.link-default { color: var(--accent); }
+.link-default:hover { text-decoration: underline; }
+
+.link-reset { color: inherit; text-decoration: none; }
+.link-reset:hover { text-decoration: none; }
+
+/* Typographic rhythm */
+h1 { font-size: clamp(1.6rem, 2.7vw, 2.4rem); line-height: 1.1; letter-spacing: -0.01em; }
+h2 { font-size: clamp(1.3rem, 2.2vw, 1.8rem); line-height: 1.2; }
+h3 { font-size: clamp(1.1rem, 1.8vw, 1.3rem); }
+section { padding-block: clamp(1.25rem, 3vw, 2rem); }
+
+/* Layout helpers */
+.container { width: min(1100px, 100% - 2rem); margin-inline: auto; }
+.main      { width: min(960px, 100% - 2rem); margin-inline: auto; }
+
+/* ---------- NAV (optional class on your header wrapper) ---------- */
+.navbar {
+  position: sticky; top: 0; z-index: 50;
+  backdrop-filter: saturate(140%) blur(8px);
+  background: color-mix(in oklab, var(--bg-elev) 70%, transparent);
+  border-bottom: 1px solid var(--border);
+}
+.navbar .nav-link {
+  padding: .6rem .8rem; border-radius: 10px; color: var(--muted); font-weight: 600;
+}
+.navbar .nav-link:hover {
+  background: color-mix(in oklab, var(--bg) 80%, transparent);
+  color: var(--text);
+}
+
+/* ---------- CARDS ---------- */
+.card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--card-shadow);
+  padding: 1rem;
+  color: inherit; /* inherit text color to ensure contrast in dark mode */
+}
+
+/* Ensure cards pick up theme color automatically */
+.card { color: var(--text); }
+
+/* ---------- BUTTONS ---------- */
+button, .btn {
+  --btn-border: transparent;
+
+  appearance: none; cursor: pointer;
+  background: var(--btn-bg); color: var(--btn-fg);
+  border: 1px solid var(--btn-border);
+  border-radius: calc(var(--radius) - 6px);
+  padding: .6rem .9rem; font-weight: 600;
+
+  transition: transform .06s ease, background-color .2s, color .2s, border-color .2s, box-shadow .2s;
+  box-shadow: 0 1px 0 rgba(0,0,0,0.04), 0 6px 16px rgba(0,0,0,0.06);
+}
+button:hover, .btn:hover { transform: translateY(-1px); }
+button:active, .btn:active { transform: translateY(0); }
+button:focus-visible, .btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 40%, transparent);
+}
+
+/* Variants */
+.btn-secondary {
+  --btn-bg: transparent;
+  --btn-fg: var(--text);
+  --btn-border: var(--border);
+}
+html.dark .btn-secondary { --btn-fg: #e5e7eb; }
+
+.btn-muted  {
+  --btn-bg: var(--btn-muted-bg);
+  --btn-fg: var(--btn-muted-fg);
+  --btn-border: var(--border);
+}
+
+.btn-danger { --btn-bg: #dc2626; --btn-fg: #fff; }
+
+/* ---------- INPUTS ---------- */
+input[type="text"], input[type="email"], input[type="number"],
+input[type="search"], textarea, select {
+  width: 100%;
+  background: var(--bg-elev);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 8px);
+  padding: .65rem .8rem;
+  transition: border-color .2s, box-shadow .2s, background-color .2s, color .2s;
+}
+input::placeholder, textarea::placeholder {
+  color: color-mix(in oklab, var(--muted) 70%, transparent);
+}
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 30%, transparent);
+}
+
+/* ---------- BADGES & TABLES (optional) ---------- */
+.badge {
+  display: inline-block; padding: .25rem .55rem; font-size: .75rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--accent) 12%, var(--bg-elev));
+  color: var(--text);
+  border: 1px solid color-mix(in oklab, var(--accent) 30%, var(--border));
+}
+html.dark .badge { color: #e5e7eb; }
+
+table { width: 100%; border-collapse: collapse; background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+thead th { text-align: left; font-size:.88rem; padding:.75rem .9rem; color: var(--muted); background: color-mix(in oklab, var(--bg) 80%, transparent); }
+tbody td { padding:.7rem .9rem; border-top: 1px solid var(--border); }
+
+/* ---------- SMOOTH THEME SWITCH ---------- */
+@media (prefers-reduced-motion: no-preference) {
+  body, .card, .btn, input, textarea, select, .navbar {
+    transition: background-color .25s, color .25s, border-color .25s, box-shadow .25s;
+  }
+}
+
+/* ---------- SCROLLBARS ---------- */
+* { scrollbar-width: thin; scrollbar-color: color-mix(in oklab, var(--muted) 45%, transparent) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: color-mix(in oklab, var(--muted) 45%, transparent); border-radius: 16px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- MOBILE TWEAKS ---------- */
+@media (max-width: 640px) {
+  .container, .main { width: min(100%, 100% - 1.25rem); }
+  .navbar .nav-link { padding: .5rem .6rem; }
+  .card { padding: .9rem; border-radius: 14px; }
+}
+
+/* ---------- OPTIONAL: tiny non-blocking corner indicator ---------- */
+.theme-indicator {
+  position: fixed; right: .75rem; bottom: .75rem; z-index: 40; pointer-events: none;
+  font-size:.7rem; padding:.25rem .5rem; border-radius: 999px;
+  border:1px solid var(--border);
+  background: color-mix(in oklab, var(--bg-elev) 80%, transparent);
+  color: var(--muted);
+  box-shadow: var(--card-shadow);
+}
+html.dark .theme-indicator { color:#cbd5e1; }
+
+/* Make checkboxes/radios use the theme accent */
+input[type="checkbox"],
+input[type="radio"] { accent-color: var(--accent); }

@@ -1,8 +1,12 @@
 import { Link, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Analytics from "./Analytics";
 import axios from "axios";
+import ThemeToggle from "@/components/ThemeToggle";
+import { Menu } from "@headlessui/react";
+
+const API = import.meta.env.VITE_API_URL;
 
 function decodeJWT(token) {
   try {
@@ -15,21 +19,15 @@ function decodeJWT(token) {
         .join("")
     );
     return JSON.parse(jsonPayload);
-  } catch (e) {
+  } catch {
     return null;
   }
 }
 
-const API = import.meta.env.VITE_API_URL;
-
 export default function Layout() {
-  const { isLoggedIn, userId, logout, userEmail } = useAuth();
+  const { isLoggedIn, logout, userEmail } = useAuth();
   const navigate = useNavigate();
   const [unreadCount, setUnreadCount] = useState(0);
-
-  // Tools dropdown state
-  const [toolsOpen, setToolsOpen] = useState(false);
-  const toolsRef = useRef(null);
 
   const checkToken = () => {
     const token = localStorage.getItem("access_token");
@@ -39,9 +37,7 @@ export default function Layout() {
     }
     const decoded = decodeJWT(token);
     const currentTime = Math.floor(Date.now() / 1000);
-    if (!decoded || decoded.exp < currentTime) {
-      logout();
-    }
+    if (!decoded || decoded.exp < currentTime) logout();
   };
 
   function handleLogout() {
@@ -49,10 +45,9 @@ export default function Layout() {
     navigate("/login");
   }
 
-  // Auth check + initial unread fetch (System + DMs)
+  // Initial auth + unread
   useEffect(() => {
     checkToken();
-
     if (isLoggedIn && userEmail) {
       let cancelled = false;
       axios
@@ -65,8 +60,7 @@ export default function Layout() {
             localStorage.setItem("unreadCount", String(unread));
           }
         })
-        .catch((err) => {
-          console.error("Failed to load inbox count:", err);
+        .catch(() => {
           if (!cancelled) setUnreadCount(0);
         });
       return () => {
@@ -78,31 +72,26 @@ export default function Layout() {
     }
   }, [isLoggedIn, userEmail]);
 
-  // Cross-tab + same-tab sync for unread badge
+  // cross-tab + same-tab sync
   useEffect(() => {
     const applyLocalCount = () => {
-      const count = parseInt(localStorage.getItem("unreadCount") || "0");
+      const count = parseInt(localStorage.getItem("unreadCount") || "0", 10);
       setUnreadCount(count);
     };
-
-    const handleStorage = (e) => {
+    const onStorage = (e) => {
       if (e.key === "unreadCount") applyLocalCount();
       if (e.key === "access_token") checkToken();
     };
-
-    const handleCustomUnread = (e) => {
-      const next =
-        e?.detail?.count ?? parseInt(localStorage.getItem("unreadCount") || "0");
+    const onCustom = (e) => {
+      const next = e?.detail?.count ?? parseInt(localStorage.getItem("unreadCount") || "0", 10);
       setUnreadCount(next);
     };
-
     applyLocalCount();
-    window.addEventListener("storage", handleStorage);
-    window.addEventListener("inbox:unreadUpdate", handleCustomUnread);
-
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("inbox:unreadUpdate", onCustom);
     return () => {
-      window.removeEventListener("storage", handleStorage);
-      window.removeEventListener("inbox:unreadUpdate", handleCustomUnread);
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("inbox:unreadUpdate", onCustom);
     };
   }, []);
 
@@ -110,117 +99,114 @@ export default function Layout() {
   const noPaddingRoutes = ["/", "/aestheticlab", "/MyTree"];
   const isFullScreen = noPaddingRoutes.includes(location.pathname);
 
-  // Remember last non-auth route
+  // remember last route
   useEffect(() => {
-    const excludedPaths = ["/login", "/signup", "/logout"];
-    if (!excludedPaths.includes(location.pathname)) {
+    const excluded = ["/login", "/signup", "/logout"];
+    if (!excluded.includes(location.pathname)) {
       localStorage.setItem("lastVisitedPath", location.pathname);
     }
   }, [location.pathname]);
 
-  // Close Tools dropdown on route change / outside click / ESC
-  useEffect(() => {
-    setToolsOpen(false);
-  }, [location.pathname]);
-
-  useEffect(() => {
-    const onClickAway = (e) => {
-      if (toolsRef.current && !toolsRef.current.contains(e.target)) {
-        setToolsOpen(false);
-      }
-    };
-    const onEsc = (e) => {
-      if (e.key === "Escape") setToolsOpen(false);
-    };
-    document.addEventListener("mousedown", onClickAway);
-    document.addEventListener("keydown", onEsc);
-    return () => {
-      document.removeEventListener("mousedown", onClickAway);
-      document.removeEventListener("keydown", onEsc);
-    };
-  }, []);
-
   return (
-    <div className="min-h-screen bg-gray-100 text-gray-900 ">
+    <div className="min-h-screen bg-gradient-to-b from-sky-50 to-white dark:from-zinc-950 dark:to-zinc-900 text-zinc-900 dark:text-zinc-100">
       <Analytics />
-      <header className="bg-white shadow p-4">
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 z-index-999">
-          <h1 className="text-2xl font-bold text-center sm:text-left">PneumEvolve</h1>
-          <nav className="flex flex-wrap justify-center sm:justify-end gap-3 text-sm items-center">
-            <Link to="/" className="hover:underline">Home</Link>
-            <Link to="/forge" className="hover:underline">Forge</Link>
-            <Link to="/farmgame" className="hover:underline">Game</Link>
-            <Link to="/blog" className="hover:underline">Blog</Link>
 
-            {/* Tools dropdown */}
-            <div className="relative" ref={toolsRef}>
-              <button
-                type="button"
-                onClick={() => setToolsOpen((o) => !o)}
-                aria-haspopup="menu"
-                aria-expanded={toolsOpen}
-                className="hover:underline inline-flex items-center gap-1"
-              >
-                Tools
-                <span className="text-xs">{toolsOpen ? "▲" : "▼"}</span>
-              </button>
-              {toolsOpen && (
-                <div
-                  role="menu"
-                  aria-label="Tools"
-                  className="absolute right-0 mt-2 w-40 rounded-md border border-gray-200 bg-white shadow-lg py-1 z-50"
-                >
-                  <Link
-                    to="/MealPlanning"
-                    role="menuitem"
-                    className="block px-3 py-2 hover:bg-gray-100"
-                  >
-                    MealPlan
+      {/* Glass header */}
+      <header className="sticky top-0 z-40">
+        <div className="backdrop-blur bg-white/70 dark:bg-zinc-900/70 border-b border-zinc-200/70 dark:border-zinc-800/70">
+          <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
+            <Link to="/home" className="text-xl font-semibold tracking-tight">
+              PneumEvolve
+            </Link>
+
+            <nav className="flex items-center gap-2">
+              
+              <Link className="hover:underline px-2 py-1 rounded" to="/forge">
+                Forge
+              </Link>
+              <Link className="hover:underline px-2 py-1 rounded" to="/problems">
+                Problems
+              </Link>
+              <Link className="hover:underline px-2 py-1 rounded" to="/blog">
+                Blog
+              </Link>
+
+              {/* Tools dropdown */}
+              <Menu as="div" className="relative">
+                <Menu.Button className="px-2 py-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800">
+                  Tools ▾
+                </Menu.Button>
+                <Menu.Items className="absolute right-0 mt-2 w-44 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-lg overflow-hidden">
+                  <Menu.Item>
+                    {({ active }) => (
+                      <Link
+                        to="/MealPlanning"
+                        className={`block px-3 py-2 text-sm ${active ? "bg-zinc-100 dark:bg-zinc-800" : ""}`}
+                      >
+                        Meal Planner
+                      </Link>
+                    )}
+                  </Menu.Item>
+                  <Menu.Item>
+                    {({ active }) => (
+                      <Link
+                        to="/journal"
+                        className={`block px-3 py-2 text-sm ${active ? "bg-zinc-100 dark:bg-zinc-800" : ""}`}
+                      >
+                        Journal
+                      </Link>
+                    )}
+                  </Menu.Item>
+                  <Menu.Item>
+                    {({ active }) => (
+                      <Link
+                        to="/projects"
+                        className={`block px-3 py-2 text-sm ${active ? "bg-zinc-100 dark:bg-zinc-800" : ""}`}
+                      >
+                        Projects
+                      </Link>
+                    )}
+                  </Menu.Item>
+                </Menu.Items>
+              </Menu>
+
+              
+
+              <ThemeToggle />
+
+              {!isLoggedIn ? (
+                <>
+                  <Link className="hover:underline px-2 py-1 rounded text-blue-600" to="/signup">
+                    Sign Up
                   </Link>
-                  <Link
-                    to="/journal"
-                    role="menuitem"
-                    className="block px-3 py-2 hover:bg-gray-100"
-                  >
-                    Journal
+                  <Link className="hover:underline px-2 py-1 rounded text-blue-600" to="/login">
+                    Login
                   </Link>
-                  <Link
-                    to="/projects"
-                    role="menuitem"
-                    className="block px-3 py-2 hover:bg-gray-100"
-                  >
-                    Projects
+                </>
+              ) : (
+                <>
+                  <Link to="/Account" className="relative px-2 py-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800">
+                    Account
+                    {unreadCount > 0 && (
+                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                        {unreadCount}
+                      </span>
+                    )}
                   </Link>
-                </div>
+                  <button onClick={handleLogout} className="hover:underline px-2 py-1 rounded text-red-600">
+                    Logout
+                  </button>
+                </>
               )}
-            </div>
-
-            {!isLoggedIn ? (
-              <>
-                <Link to="/signup" className="hover:underline text-blue-600">Sign Up</Link>
-                <Link to="/login" className="hover:underline text-blue-600">Login</Link>
-              </>
-            ) : (
-              <>
-                <Link to="/Account" className="hover:underline relative flex items-center">
-                  Account
-                  {unreadCount > 0 && (
-                    <span className="ml-1 bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
-                      {unreadCount}
-                    </span>
-                  )}
-                </Link>
-                <button onClick={handleLogout} className="hover:underline text-red-600">
-                  Logout
-                </button>
-              </>
-            )}
-          </nav>
+            </nav>
+          </div>
         </div>
       </header>
 
-      <main className={isFullScreen ? "" : "p-6"}>
-        <Outlet />
+      <main className={isFullScreen ? "" : "px-4 py-6"}>
+        <div className={isFullScreen ? "" : "mx-auto max-w-6xl"}>
+          <Outlet />
+        </div>
       </main>
     </div>
   );
