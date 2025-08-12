@@ -81,17 +81,15 @@ export default function IdeaConversation({ ideaId, userEmail }) {
         content,
       });
       const sent = res?.data?.message;
-      const newMsg = sent
-        ? sent
-        : {
-            id: Math.random(),
-            content,
-            timestamp: new Date().toISOString(),
-            read: false,
-            from_email: userEmail,
-            from_username: null,
-            from_display: "You",
-          };
+      const newMsg = sent ? sent : {
+  id: Math.random(),
+  content,
+  timestamp: new Date().toISOString(),
+  read: false,
+  from_username: null,
+  from_user_id: null,  // until server echoes real one
+  from_display: "You",
+};
       setMessages((prev) => [...prev, newMsg]);
       setComposer("");
       // Once you post, you are a participant (server ensures it); reflect that
@@ -165,9 +163,11 @@ export default function IdeaConversation({ ideaId, userEmail }) {
   {messages.map((m) => (
     <div key={m.id} className="p-2 rounded border">
       <div className="text-xs opacity-60">
-        {new Date(m.timestamp).toLocaleString()} —{" "}
-        {m.from_display || m.from_username || m.from_email || "User"}
-      </div>
+  {new Date(m.timestamp).toLocaleString()} —{" "}
+  {m.from_display
+    || m.from_username
+    || (m.from_user_id ? `User ${m.from_user_id}` : "User")}
+</div>
       <div className="whitespace-pre-wrap">{m.content}</div>
     </div>
   ))}

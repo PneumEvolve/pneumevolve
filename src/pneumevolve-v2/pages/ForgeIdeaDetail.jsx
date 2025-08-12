@@ -90,7 +90,7 @@ export default function ForgeIdeaDetail() {
     <div className="min-h-screen p-6">
       <div className="main space-y-6">
         {/* Top bar */}
-        <div className="flex items-center justify-between gap-3">
+        <div className="section-bar flex items-center justify-between gap-3">
           <h1 className="text-3xl font-bold">{idea.title || "Idea Details"}</h1>
           <div className="flex gap-2">
             <button className="btn btn-secondary" onClick={() => navigate("/forge")}>
