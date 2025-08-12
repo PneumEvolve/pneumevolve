@@ -83,7 +83,9 @@ export default function Layout() {
       if (e.key === "access_token") checkToken();
     };
     const onCustom = (e) => {
-      const next = e?.detail?.count ?? parseInt(localStorage.getItem("unreadCount") || "0", 10);
+      const next =
+        e?.detail?.count ??
+        parseInt(localStorage.getItem("unreadCount") || "0", 10);
       setUnreadCount(next);
     };
     applyLocalCount();
@@ -99,109 +101,115 @@ export default function Layout() {
   const noPaddingRoutes = ["/", "/aestheticlab", "/MyTree"];
   const isFullScreen = noPaddingRoutes.includes(location.pathname);
 
-  // remember last route
-  useEffect(() => {
-    const excluded = ["/login", "/signup", "/logout"];
-    if (!excluded.includes(location.pathname)) {
-      localStorage.setItem("lastVisitedPath", location.pathname);
-    }
-  }, [location.pathname]);
-
   return (
-    <div className="min-h-screen bg-gradient-to-b from-sky-50 to-white dark:from-zinc-950 dark:to-zinc-900 text-zinc-900 dark:text-zinc-100">
+    // ⬇️ clamp any accidental wide element (fixes the white gutter)
+    <div className="min-h-screen overflow-x-hidden bg-gradient-to-b from-sky-50 to-white dark:from-zinc-950 dark:to-zinc-900 text-zinc-900 dark:text-zinc-100">
       <Analytics />
 
       {/* Glass header */}
       <header className="sticky top-0 z-40">
-        <div className="backdrop-blur bg-white/70 dark:bg-zinc-900/70 border-b border-zinc-200/70 dark:border-zinc-800/70">
-          <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
-            <Link to="/home" className="text-xl font-semibold tracking-tight">
-              PneumEvolve
-            </Link>
+  <div className="backdrop-blur bg-white/70 dark:bg-zinc-900/70 border-b border-zinc-200/70 dark:border-zinc-800/70">
+    <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
+      <Link to="/home" className="text-xl font-semibold tracking-tight shrink-0">
+        PneumEvolve
+      </Link>
 
-            <nav className="flex items-center gap-2">
-              
-              <Link className="hover:underline px-2 py-1 rounded" to="/forge">
-                Forge
-              </Link>
-              <Link className="hover:underline px-2 py-1 rounded" to="/problems">
-                Problems
-              </Link>
-              <Link className="hover:underline px-2 py-1 rounded" to="/blog">
-                Blog
-              </Link>
+      {/* All plain-text links; no pills/buttons */}
+      <nav className="flex items-center justify-end gap-3 flex-wrap max-w-full text-[color:var(--text)]">
+        <Link className="px-1.5 py-1 hover:underline shrink-0" to="/forge">
+          Forge
+        </Link>
+        <Link className="px-1.5 py-1 hover:underline shrink-0" to="/problems">
+          Problems
+        </Link>
+        <Link className="px-1.5 py-1 hover:underline shrink-0" to="/blog">
+          Blog
+        </Link>
 
-              {/* Tools dropdown */}
-              <Menu as="div" className="relative">
-                <Menu.Button className="px-2 py-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800">
-                  Tools ▾
-                </Menu.Button>
-                <Menu.Items className="absolute right-0 mt-2 w-44 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-lg overflow-hidden">
-                  <Menu.Item>
-                    {({ active }) => (
-                      <Link
-                        to="/MealPlanning"
-                        className={`block px-3 py-2 text-sm ${active ? "bg-zinc-100 dark:bg-zinc-800" : ""}`}
-                      >
-                        Meal Planner
-                      </Link>
-                    )}
-                  </Menu.Item>
-                  <Menu.Item>
-                    {({ active }) => (
-                      <Link
-                        to="/journal"
-                        className={`block px-3 py-2 text-sm ${active ? "bg-zinc-100 dark:bg-zinc-800" : ""}`}
-                      >
-                        Journal
-                      </Link>
-                    )}
-                  </Menu.Item>
-                  <Menu.Item>
-                    {({ active }) => (
-                      <Link
-                        to="/projects"
-                        className={`block px-3 py-2 text-sm ${active ? "bg-zinc-100 dark:bg-zinc-800" : ""}`}
-                      >
-                        Projects
-                      </Link>
-                    )}
-                  </Menu.Item>
-                </Menu.Items>
-              </Menu>
-
-              
-
-              <ThemeToggle />
-
-              {!isLoggedIn ? (
-                <>
-                  <Link className="hover:underline px-2 py-1 rounded text-blue-600" to="/signup">
-                    Sign Up
-                  </Link>
-                  <Link className="hover:underline px-2 py-1 rounded text-blue-600" to="/login">
-                    Login
-                  </Link>
-                </>
-              ) : (
-                <>
-                  <Link to="/Account" className="relative px-2 py-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800">
-                    Account
-                    {unreadCount > 0 && (
-                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                        {unreadCount}
-                      </span>
-                    )}
-                  </Link>
-                  <button onClick={handleLogout} className="hover:underline px-2 py-1 rounded text-red-600">
-                    Logout
-                  </button>
-                </>
+        {/* Tools dropdown trigger as plain text */}
+        <Menu as="div" className="relative shrink-0">
+          <Menu.Button className="px-1.5 py-1 hover:underline">
+            Tools ▾
+          </Menu.Button>
+          <Menu.Items className="absolute right-0 mt-2 w-48 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-lg overflow-hidden p-1">
+            <Menu.Item>
+              {({ active }) => (
+                <Link
+                  to="/MealPlanning"
+                  className={`block px-2.5 py-1.5 text-sm rounded ${
+                    active ? "underline" : ""
+                  }`}
+                >
+                  Meal Planner
+                </Link>
               )}
-            </nav>
-          </div>
+            </Menu.Item>
+            <Menu.Item>
+              {({ active }) => (
+                <Link
+                  to="/journal"
+                  className={`block px-2.5 py-1.5 text-sm rounded ${
+                    active ? "underline" : ""
+                  }`}
+                >
+                  Journal
+                </Link>
+              )}
+            </Menu.Item>
+            <Menu.Item>
+              {({ active }) => (
+                <Link
+                  to="/projects"
+                  className={`block px-2.5 py-1.5 text-sm rounded ${
+                    active ? "underline" : ""
+                  }`}
+                >
+                  Projects
+                </Link>
+              )}
+            </Menu.Item>
+          </Menu.Items>
+        </Menu>
+
+        {/* Theme toggle rendered as a text link */}
+        <div className="shrink-0">
+          <ThemeToggle className="!bg-transparent !border-0 !shadow-none !px-0 !py-0 hover:underline" />
         </div>
-      </header>
+
+        {!isLoggedIn ? (
+          <>
+            <Link className="px-1.5 py-1 hover:underline shrink-0" to="/signup">
+              Sign Up
+            </Link>
+            <Link className="px-1.5 py-1 hover:underline shrink-0" to="/login">
+              Login
+            </Link>
+          </>
+        ) : (
+          <>
+            <Link
+              to="/Account"
+              className="relative px-1.5 py-1 hover:underline shrink-0"
+            >
+              Account
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                  {unreadCount}
+                </span>
+              )}
+            </Link>
+            <button
+              onClick={handleLogout}
+              className="px-1.5 py-1 hover:underline text-red-600 shrink-0"
+            >
+              Logout
+            </button>
+          </>
+        )}
+      </nav>
+    </div>
+  </div>
+</header>
 
       <main className={isFullScreen ? "" : "px-4 py-6"}>
         <div className={isFullScreen ? "" : "mx-auto max-w-6xl"}>

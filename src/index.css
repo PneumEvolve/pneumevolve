@@ -124,7 +124,7 @@ section { padding-block: clamp(1.25rem, 3vw, 2rem); }
 }
 
 /* ---------- BUTTONS ---------- */
-button, .btn {
+.btn {
   --btn-border: transparent;
 
   appearance: none; cursor: pointer;
