@@ -103,7 +103,7 @@ function Root() {
           <Routes>
             <Route path="/" element={<Layout />}>
               {/* Used to have Conditional redirect to MyTree on first visit */}
-              <Route index element={<App />} />
+              <Route index element={<Home />} />
               <Route path="Tools" element={<Tools />} />
               <Route path="/v2" element={<HomeV2 />} />
               <Route path="Forge" element={<ErrorBoundary><Forge /></ErrorBoundary>} />

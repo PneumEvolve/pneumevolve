@@ -2,7 +2,7 @@
 
 /* ---------- THEME TOKENS ---------- */
 :root {
-  /* Your core tokens */
+  /* Core tokens */
   --bg: #f8fafc;             /* slate-50 */
   --bg-elev: #ffffff;        /* white */
   --text: #0f172a;           /* slate-900 */
@@ -17,7 +17,7 @@
     radial-gradient(1000px 500px at 100% -20%, rgba(59,130,246,.08), transparent),
     radial-gradient(800px 400px at -10% 120%, rgba(99,102,241,.08), transparent);
 
-  /* Aliases for compatibility with older styles */
+  /* Aliases */
   --fg: var(--text);
   --card-bg: var(--bg-elev);
 
@@ -71,14 +71,20 @@ body {
   transition: background-color .25s, color .25s, background-image .25s;
 }
 
-/* Only style links that have no class (e.g., in prose) */
+/* Media defaults */
+img, svg, video { display: block; max-width: 100%; height: auto; }
+
+/* Selection */
+::selection { background: color-mix(in oklab, var(--accent) 25%, transparent); color: var(--accent-contrast); }
+
+/* Links (only unclassed anchors so buttons/CTAs keep their own colors) */
 a:not([class]) { color: var(--accent); text-decoration: none; }
 a:not([class]):hover { text-decoration: underline; }
+a:not([class]):focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 
-/* optional helper you can opt-in to */
+/* Helpers */
 .link-default { color: var(--accent); }
 .link-default:hover { text-decoration: underline; }
-
 .link-reset { color: inherit; text-decoration: none; }
 .link-reset:hover { text-decoration: none; }
 
@@ -92,7 +98,7 @@ section { padding-block: clamp(1.25rem, 3vw, 2rem); }
 .container { width: min(1100px, 100% - 2rem); margin-inline: auto; }
 .main      { width: min(960px, 100% - 2rem); margin-inline: auto; }
 
-/* ---------- NAV (optional class on your header wrapper) ---------- */
+/* ---------- NAV ---------- */
 .navbar {
   position: sticky; top: 0; z-index: 50;
   backdrop-filter: saturate(140%) blur(8px);
@@ -114,11 +120,8 @@ section { padding-block: clamp(1.25rem, 3vw, 2rem); }
   border-radius: var(--radius);
   box-shadow: var(--card-shadow);
   padding: 1rem;
-  color: inherit; /* inherit text color to ensure contrast in dark mode */
+  color: var(--text); /* ensures contrast in dark mode */
 }
-
-/* Ensure cards pick up theme color automatically */
-.card { color: var(--text); }
 
 /* ---------- BUTTONS ---------- */
 button, .btn {
@@ -139,14 +142,23 @@ button:focus-visible, .btn:focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 40%, transparent);
 }
+.btn:disabled, .btn[aria-disabled="true"] { opacity: .6; cursor: not-allowed; }
 
 /* Variants */
 .btn-secondary {
   --btn-bg: transparent;
   --btn-fg: var(--text);
   --btn-border: var(--border);
+  background: transparent;                /* keep transparent in light */
 }
-html.dark .btn-secondary { --btn-fg: #e5e7eb; }
+html.dark .btn-secondary {
+  --btn-fg: #e5e7eb;
+  background: transparent;                /* keep transparent in dark */
+}
+.btn-secondary:hover {
+  /* subtle hover tint without “white on white” surprises */
+  background: color-mix(in oklab, var(--bg) 88%, transparent);
+}
 
 .btn-muted  {
   --btn-bg: var(--btn-muted-bg);
@@ -166,6 +178,7 @@ input[type="search"], textarea, select {
   border-radius: calc(var(--radius) - 8px);
   padding: .65rem .8rem;
   transition: border-color .2s, box-shadow .2s, background-color .2s, color .2s;
+  font: inherit;
 }
 input::placeholder, textarea::placeholder {
   color: color-mix(in oklab, var(--muted) 70%, transparent);
@@ -176,7 +189,7 @@ input:focus, textarea:focus, select:focus {
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 30%, transparent);
 }
 
-/* ---------- BADGES & TABLES (optional) ---------- */
+/* ---------- BADGES & TABLES ---------- */
 .badge {
   display: inline-block; padding: .25rem .55rem; font-size: .75rem;
   border-radius: 999px;
@@ -221,6 +234,5 @@ tbody td { padding:.7rem .9rem; border-top: 1px solid var(--border); }
 }
 html.dark .theme-indicator { color:#cbd5e1; }
 
-/* Make checkboxes/radios use the theme accent */
-input[type="checkbox"],
-input[type="radio"] { accent-color: var(--accent); }
+/* Themed checkboxes/radios */
+input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }

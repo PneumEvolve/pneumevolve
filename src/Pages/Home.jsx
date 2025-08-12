@@ -90,7 +90,7 @@ export default function Home() {
   image: "/aaron1.webp", // ✅ not "/public/aaron1.webp"
   blurb:
     "Aaron's thing. Check it out. :)",
-  link: "https://flanfan.neocities.org/garden",
+  link: "https://flanfan.neocities.org",
   cta: "Visit their work",
   tag: "Community",
 };
@@ -131,7 +131,7 @@ export default function Home() {
       <div className="mt-10 grid gap-6 lg:grid-cols-5">
         {/* 60% column */}
         <section className="lg:col-span-3">
-          <h2 className="text-lg sm:text-xl font-semibold mb-3">🆕 What’s New</h2>
+          <h2 className="text-lg sm:text-xl font-semibold mb-3">What’s New</h2>
 
           {/* Primary newest card */}
           {hero ? (
@@ -165,9 +165,17 @@ export default function Home() {
         {/* 40% column (two spotlights) */}
         <aside className="lg:col-span-2 space-y-6">
   <SpotlightCard {...communitySpotlight} fit="contain" />
-  <a href="/spotlight-archive" className="btn btn-secondary w-full text-center">
-    View Spotlight Archive →
-  </a>
+  <a
+  href="/spotlightarchive"
+  className="btn w-full text-center"
+  style={{
+    '--btn-bg': 'var(--bg-elev)',   // white in light, dark panel in dark
+    '--btn-fg': 'var(--text)',      // text color follows theme
+    '--btn-border': 'var(--border)' // subtle outline in both
+  }}
+>
+  View Spotlight Archive →
+</a>
 </aside>
       </div>
 
@@ -346,49 +354,59 @@ function SpotlightCard({
   link = "#",
   cta = "Learn more",
   tag,
-  fit = "contain",   // "contain" (no crop) or "cover" (crop)
-  focal = "center",  // "top" | "center" | "bottom" (for cover)
+  fit = "contain",          // "contain" (no crop) | "cover" (crop)
+  focal = "center",         // "top" | "center" | "bottom" (for cover)
+  height = 360,         
 }) {
   const fitClass = fit === "cover" ? "object-cover" : "object-contain";
   const focalClass =
     focal === "top" ? "object-top" : focal === "bottom" ? "object-bottom" : "object-center";
 
-  const isExternal = /^https?:\/\//i.test(link);
-
   return (
-    <a
-      href={link}
-      {...(isExternal ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-      className="card link-reset block hover:shadow-md transition"
-    >
-      <div className="relative aspect-[16/9] overflow-hidden rounded-t-2xl">
-        <img
-          src={image}
-          alt={title}
-          className={`absolute inset-0 w-full h-full ${fitClass} ${focalClass}`}
-          loading="lazy"
-          decoding="async"
-        />
-      </div>
+  <a
+    href={link}
+    className="card link-reset block hover:shadow-md transition text-[var(--text)]"
+  >
+    <div
+  className="rounded-t-[calc(var(--radius)-2px)] px-3 pt-3 pb-2 flex items-center justify-center"
+  style={{
+    // subtle letterbox backdrop that works in light/dark
+    background: "color-mix(in oklab, var(--bg) 85%, transparent)",
+  }}
+>
+  <img
+    src={image}
+    alt={title}
+    className={`${fitClass} ${focalClass} block`}
+    style={{
+      width: "100%",
+      height: fit === "cover" ? height : "auto",
+      maxHeight: height,        // ensures a nice, not-too-tall image
+      objectFit: fit === "cover" ? "cover" : "contain",
+    }}
+    loading="lazy"
+    decoding="async"
+  />
+</div>
 
-      <div className="p-4">
-        {tag && <span className="badge">{tag}</span>}
-        <h3 className="mt-2 text-lg font-semibold">{title}</h3>
-        {blurb && <p className="mt-1 text-sm opacity-80">{blurb}</p>}
-        <div className="mt-3">
-          <span className="link-default">{cta} →</span>
-        </div>
+    <div className="p-4">
+      {tag && <span className="badge">{tag}</span>}
+      <h3 className="mt-2 text-lg font-semibold">{title}</h3>
+      {blurb && <p className="mt-1 text-sm opacity-80">{blurb}</p>}
+      <div className="mt-3">
+        <span className="link-default">{cta} →</span>
       </div>
-    </a>
-  );
+    </div>
+  </a>
+);
 }
 
 function Section({ title, children }) {
   return (
-    <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/70 backdrop-blur p-5">
+    <section className="card">
       <h2 className="text-lg sm:text-xl font-semibold mb-3">{title}</h2>
       <div className="grid gap-3 sm:grid-cols-2">{children}</div>
-    </div>
+    </section>
   );
 }
 
@@ -397,8 +415,8 @@ function LinkCard({ href, label, external = false }) {
     <a
       href={href}
       target={external ? "_blank" : "_self"}
-      rel={external ? "noopener noreferrer" : ""}
-      className="block rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 hover:shadow-md transition"
+      rel={external ? "noopener noreferrer" : undefined}
+      className="card link-reset block hover:shadow-md transition"
     >
       <span className="text-base sm:text-lg font-medium">{label}</span>
     </a>
