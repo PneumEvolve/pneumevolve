@@ -121,31 +121,52 @@ export default function Layout() {
         <Link className="px-1.5 py-1 hover:underline shrink-0" to="/blog">Blog</Link>
 
         <Menu as="div" className="relative shrink-0">
-          <Menu.Button className="px-1.5 py-1 hover:underline">Tools ▾</Menu.Button>
-          <Menu.Items className="absolute right-0 mt-2 w-48 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-lg overflow-hidden p-1">
-            <Menu.Item>
-              {({ active }) => (
-                <Link to="/MealPlanning" className={`block px-2.5 py-1.5 text-sm rounded ${active ? "underline" : ""}`}>
-                  Meal Planner
-                </Link>
-              )}
-            </Menu.Item>
-            <Menu.Item>
-              {({ active }) => (
-                <Link to="/journal" className={`block px-2.5 py-1.5 text-sm rounded ${active ? "underline" : ""}`}>
-                  Journal
-                </Link>
-              )}
-            </Menu.Item>
-            <Menu.Item>
-              {({ active }) => (
-                <Link to="/projects" className={`block px-2.5 py-1.5 text-sm rounded ${active ? "underline" : ""}`}>
-                  Projects
-                </Link>
-              )}
-            </Menu.Item>
-          </Menu.Items>
-        </Menu>
+  <Menu.Button className="px-1.5 py-1 hover:underline">Tools ▾</Menu.Button>
+
+  <Menu.Items
+    className="absolute right-0 mt-2 w-48 rounded-lg border
+               border-zinc-200 dark:border-zinc-800
+               bg-white text-zinc-900
+               dark:bg-zinc-900 dark:text-zinc-100
+               shadow-lg overflow-hidden p-1 z-50"
+  >
+    <Menu.Item>
+      {({ active }) => (
+        <Link
+          to="/MealPlanning"
+          className={`block px-2.5 py-1.5 text-sm rounded
+                     ${active ? "bg-zinc-100 dark:bg-zinc-800" : ""}`}
+        >
+          Meal Planner
+        </Link>
+      )}
+    </Menu.Item>
+
+    <Menu.Item>
+      {({ active }) => (
+        <Link
+          to="/journal"
+          className={`block px-2.5 py-1.5 text-sm rounded
+                     ${active ? "bg-zinc-100 dark:bg-zinc-800" : ""}`}
+        >
+          Journal
+        </Link>
+      )}
+    </Menu.Item>
+
+    <Menu.Item>
+      {({ active }) => (
+        <Link
+          to="/projects"
+          className={`block px-2.5 py-1.5 text-sm rounded
+                     ${active ? "bg-zinc-100 dark:bg-zinc-800" : ""}`}
+        >
+          Projects
+        </Link>
+      )}
+    </Menu.Item>
+  </Menu.Items>
+</Menu>
 
         <div className="shrink-0">
           <ThemeToggle className="!bg-transparent !border-0 !shadow-none !px-0 !py-0 hover:underline" />

@@ -264,23 +264,29 @@ const handleAdminDelete = async () => {
           const label = labelForRow(r);
           return (
             <button
-              key={r.conversation_id}
-              onClick={() => {
-                setSelected(r);
-                setThread([]); // clear before load
-              }}
-              className={`w-full text-left p-2 rounded hover:bg-gray-100 flex items-center justify-between ${
-                selected?.conversation_id === r.conversation_id ? "bg-gray-100" : ""
-              }`}
-              title={label}
-            >
-              <span className="truncate">{label}</span>
-              {r.unread_count > 0 && (
-                <span className="ml-2 text-xs bg-red-500 text-white px-2 rounded-full">
-                  {r.unread_count}
-                </span>
-              )}
-            </button>
+  key={r.conversation_id}
+  onClick={() => {
+    setSelected(r);
+    setThread([]); // clear before load
+  }}
+  title={label}
+  className={[
+    "w-full text-left p-2 rounded flex items-center justify-between",
+    "transition-colors",
+    // unselected state (hover colors for both themes)
+    selected?.conversation_id !== r.conversation_id
+      ? "bg-transparent hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
+      // selected state (explicit bg/text for both themes)
+      : "bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100",
+  ].join(" ")}
+>
+  <span className="truncate">{label}</span>
+  {r.unread_count > 0 && (
+    <span className="ml-2 text-xs bg-red-500 text-white px-2 rounded-full">
+      {r.unread_count}
+    </span>
+  )}
+</button>
           );
         })}
       </div>
