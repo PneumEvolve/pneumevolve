@@ -111,7 +111,7 @@ export default function Home() {
           </h1>
           <p className="mt-4 text-base sm:text-lg text-zinc-700 dark:text-zinc-300">
             Let’s co-create tools and communities that actually serve us. Build <strong>with</strong> and{" "}
-            <strong>for</strong> each other—starting now.
+            <strong>for</strong> each other—starting now. PneumEvolve is under open development. Users Beware. :)
           </p>
           <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-center">
             <a href="/forge" className="px-5 py-3 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">
