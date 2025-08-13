@@ -144,6 +144,19 @@ export default function ProblemDetail() {
     }
   };
 
+  // Never show emails; prefer display -> username -> "User <id>" -> "User"
+  const formatSender = (m) => {
+  const label =
+    m.from_display ??
+    m.from_username ??
+    (typeof m.from_user_id === "number" ? `User ${m.from_user_id}` : "User");
+
+  // Belt-and-suspenders: scrub anything that looks like an email
+  return /\S+@\S+\.\S+/.test(label)
+    ? (typeof m.from_user_id === "number" ? `User ${m.from_user_id}` : "User")
+    : label;
+};
+
   // ---------- UI ----------
   if (loading) {
     return (
@@ -253,7 +266,7 @@ export default function ProblemDetail() {
               >
                 <div className="text-xs opacity-60 mb-1">
                   {m.timestamp ? new Date(m.timestamp).toLocaleString() : ""} —{" "}
-                  {m.from_display || m.from_username || m.from_email || "User"}
+                  {formatSender(m)}
                 </div>
                 <div className="whitespace-pre-wrap">{m.content}</div>
               </div>

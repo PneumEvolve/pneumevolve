@@ -139,20 +139,21 @@ export default function IdeaConversation({ ideaId, userEmail }) {
         <div className="font-semibold">Idea Conversation</div>
         {userEmail && (
           <button
-            className={`px-2 py-1 rounded ${
-              following ? "bg-gray-200 dark:bg-gray-700" : "bg-blue-600 text-white"
-            } disabled:opacity-60`}
-            onClick={toggleFollow}
-            disabled={followBusy}
-            aria-pressed={following}
-            title={following ? "Unfollow" : "Follow conversation"}
-          >
-            {followBusy
-              ? "Please wait…"
-              : following
-              ? "Unfollow"
-              : "Follow conversation"}
-          </button>
+  className={`px-2 py-1 rounded font-medium
+              disabled:opacity-60 disabled:cursor-not-allowed
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500
+              ${
+                following
+                  ? "bg-zinc-200 text-zinc-900 hover:bg-zinc-300 dark:bg-zinc-700 dark:text-white dark:hover:bg-zinc-600"
+                  : "bg-blue-600 text-white hover:bg-blue-700"
+              }`}
+  onClick={toggleFollow}
+  disabled={followBusy}
+  aria-pressed={following}
+  title={following ? "Unfollow" : "Follow conversation"}
+>
+  {followBusy ? "Please wait…" : following ? "Unfollow" : "Follow conversation"}
+</button>
         )}
       </div>
 

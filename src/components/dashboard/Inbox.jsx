@@ -182,6 +182,66 @@ export default function Inbox({ userEmail: userEmailProp, userId, setUnreadCount
     }
   };
 
+  const handleLeave = async () => {
+  if (!selected?.conversation_id || !userEmail) return;
+
+  try {
+    const name = selected.conversation_name || "";
+
+    // Idea conversations → reuse existing unfollow route
+    if (name.startsWith("idea:")) {
+      const ideaId = parseInt(name.split(":")[1], 10);
+      if (!Number.isNaN(ideaId)) {
+        await axios.post(
+          `${API}/ideas/${ideaId}/conversation/unfollow`,
+          null,
+          { params: { user_email: userEmail } }
+        );
+      }
+    }
+    // System conversation → don’t allow leaving
+    else if (name.startsWith("system:")) {
+      alert("You can’t remove your System conversation. You can mark messages read.");
+      return;
+    }
+    // Everything else (DMs, feedback, etc.) → generic leave
+    else {
+      await axios.post(
+        `${API}/conversations/${selected.conversation_id}/leave`,
+        { user_email: userEmail }
+      );
+    }
+
+    // Remove from UI
+    setRows((prev) => prev.filter((r) => r.conversation_id !== selected.conversation_id));
+    setSelected(null);
+    setThread([]);
+    await refreshSummaries();
+  } catch (e) {
+    console.error("Leave failed:", e);
+    alert("Failed to leave conversation.");
+  }
+};
+
+// Optional: admin delete for everyone
+const handleAdminDelete = async () => {
+  if (!selected?.conversation_id || userEmail !== "sheaklipper@gmail.com") return;
+  if (!window.confirm("Delete this conversation for everyone? This cannot be undone.")) return;
+
+  try {
+    await axios.delete(`${API}/conversations/${selected.conversation_id}`, {
+      params: { user_email: userEmail },
+    });
+    setRows((prev) => prev.filter((r) => r.conversation_id !== selected.conversation_id));
+    setSelected(null);
+    setThread([]);
+    await refreshSummaries();
+  } catch (e) {
+    console.error("Delete failed:", e);
+    alert("Failed to delete conversation.");
+  }
+};
+
   // Send on Enter, newline with Shift+Enter
   const onComposerKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -231,6 +291,27 @@ export default function Inbox({ userEmail: userEmailProp, userId, setUnreadCount
           <div className="opacity-60">Select a conversation</div>
         ) : (
           <>
+          {/* Header / actions */}
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-sm opacity-70">
+          {selected.idea_title || selected.other_display || selected.conversation_name || "Conversation"}
+        </div>
+        <div className="flex items-center gap-2">
+          {/* Leave / Unfollow */}
+          <button className="btn btn-secondary" onClick={handleLeave}>
+            {selected.conversation_name?.startsWith("idea:") ? "Unfollow" : "Leave"}
+          </button>
+
+          {/* Admin nuke */}
+          {userEmail === "sheaklipper@gmail.com" && (
+            <button className="btn btn-danger" onClick={handleAdminDelete}>
+              Delete for everyone
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Messages */}
             <div className="flex-1 overflow-auto space-y-2 pr-1">
               {loadingThread && <div className="text-sm opacity-60">Loading thread…</div>}
               {thread.map((m) => (

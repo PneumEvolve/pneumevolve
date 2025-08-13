@@ -5,6 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
+import { Dialog } from "@headlessui/react";
 import IdeaConversation from "@/components/IdeaConversation";
 
 const API = import.meta.env.VITE_API_URL;
@@ -37,11 +38,23 @@ export default function ForgeIdeaDetail() {
   // notes editing
   const [notes, setNotes] = useState("");
   const [isEditingNotes, setIsEditingNotes] = useState(false);
+  const [notesRev, setNotesRev] = useState(0); // force ReactMarkdown re-render
 
   // collapsibles
   const [showMeta, setShowMeta] = useState(false);
   const [showNotes, setShowNotes] = useState(true);
   const [showConversation, setShowConversation] = useState(true);
+
+  // delete modal
+  const [showDelete, setShowDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const STATUS_OPTIONS = ["Proposed", "Brainstorming", "Working On", "Complete"];
+
+  const canEditStatus =
+    userEmail && (userEmail === idea.user_email || userEmail === "sheaklipper@gmail.com");
+  const canDelete =
+    userEmail && (userEmail === idea.user_email || userEmail === "sheaklipper@gmail.com");
 
   useEffect(() => {
     let cancelled = false;
@@ -51,11 +64,14 @@ export default function ForgeIdeaDetail() {
         if (cancelled) return;
         setIdea(res.data);
         setNotes(res.data?.notes || "");
+        setNotesRev((n) => n + 1);
       } catch (err) {
         console.error("Error fetching idea:", err);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   const handleSaveMeta = async (e) => {
@@ -77,8 +93,15 @@ export default function ForgeIdeaDetail() {
 
   const handleSaveNotes = async () => {
     try {
-      const res = await axios.post(`${API}/forge/ideas/${id}/notes`, { content: notes });
-      setIdea((prev) => ({ ...prev, notes: res.data.notes }));
+      const res = await axios.post(
+        `${API}/forge/ideas/${id}/notes`,
+        { content: notes },
+        { headers: { "x-user-email": userEmail } }
+      );
+      const updated = res?.data?.notes ?? notes;
+      setIdea((prev) => ({ ...prev, notes: updated }));
+      setNotes(updated);
+      setNotesRev((n) => n + 1);
       setIsEditingNotes(false);
     } catch (err) {
       console.error("Error saving notes:", err);
@@ -86,13 +109,67 @@ export default function ForgeIdeaDetail() {
     }
   };
 
+  const changeStatus = async (next) => {
+    if (next === idea.status) return;
+    try {
+      await axios.patch(
+        `${API}/forge/ideas/${idea.id}/status`,
+        { status: next },
+        { headers: { "x-user-email": userEmail } }
+      );
+      setIdea((prev) => ({ ...prev, status: next })); // optimistic update
+    } catch (e) {
+      console.error(e);
+      alert("Failed to update status.");
+    }
+  };
+
+  const confirmDelete = async () => {
+    try {
+      setDeleting(true);
+      await axios.delete(`${API}/forge/ideas/${idea.id}`, {
+        headers: { "x-user-email": userEmail },
+      });
+      setDeleting(false);
+      setShowDelete(false);
+      navigate("/forge");
+    } catch (err) {
+      console.error("Delete failed:", err);
+      setDeleting(false);
+      alert("Failed to delete idea.");
+    }
+  };
+
   return (
     <div className="min-h-screen p-6">
       <div className="main space-y-6">
         {/* Top bar */}
-        <div className="section-bar flex items-center justify-between gap-3">
+        <div className="section-bar flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-3xl font-bold">{idea.title || "Idea Details"}</h1>
+
+          <div className="flex items-center gap-2">
+            <span className="badge">Status: {idea.status}</span>
+            {canEditStatus && (
+              <select
+                className="border rounded px-2 py-1"
+                value={idea.status}
+                onChange={(e) => changeStatus(e.target.value)}
+              >
+                {STATUS_OPTIONS.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
           <div className="flex gap-2">
+            {canDelete && (
+              <button className="btn btn-danger" onClick={() => setShowDelete(true)}>
+                Delete
+              </button>
+            )}
             <button className="btn btn-secondary" onClick={() => navigate("/forge")}>
               ← Back to Forge
             </button>
@@ -140,11 +217,7 @@ export default function ForgeIdeaDetail() {
         </Collapsible>
 
         {/* Notes */}
-        <Collapsible
-          title="In-depth Notes"
-          open={showNotes}
-          onToggle={() => setShowNotes((s) => !s)}
-        >
+        <Collapsible title="In-depth Notes" open={showNotes} onToggle={() => setShowNotes((s) => !s)}>
           {isEditingNotes && userEmail ? (
             <div className="space-y-3">
               <textarea
@@ -166,21 +239,26 @@ export default function ForgeIdeaDetail() {
             <div>
               <div className="prose dark:prose-invert max-w-none">
                 <ReactMarkdown
+                  key={notesRev}
                   remarkPlugins={[remarkGfm]}
                   rehypePlugins={[rehypeRaw]}
                   components={{
-                    h1: (props) => <h1 className="text-3xl font-bold mt-6 mb-3" {...props} />,
-                    h2: (props) => <h2 className="text-2xl font-semibold mt-5 mb-2" {...props} />,
-                    h3: (props) => <h3 className="text-xl font-semibold mt-4 mb-2" {...props} />,
-                    p: (props) => <p className="mt-3 leading-7" {...props} />,
-                    ul: (props) => <ul className="list-disc ml-6 mt-3 space-y-1" {...props} />,
-                    ol: (props) => <ol className="list-decimal ml-6 mt-3 space-y-1" {...props} />,
-                    a: (props) => <a className="hover:underline" target="_blank" rel="noreferrer" {...props} />,
-                    code: ({ inline, ...props }) =>
+                    h1: ({ children }) => <h1 className="text-3xl font-bold mt-6 mb-3">{children}</h1>,
+                    h2: ({ children }) => <h2 className="text-2xl font-semibold mt-5 mb-2">{children}</h2>,
+                    h3: ({ children }) => <h3 className="text-xl font-semibold mt-4 mb-2">{children}</h3>,
+                    p: ({ children }) => <p className="mt-3 leading-7">{children}</p>,
+                    ul: ({ children }) => <ul className="list-disc ml-6 mt-3 space-y-1">{children}</ul>,
+                    ol: ({ children }) => <ol className="list-decimal ml-6 mt-3 space-y-1">{children}</ol>,
+                    a: ({ href, children }) => (
+                      <a className="hover:underline" href={href} target="_blank" rel="noreferrer">
+                        {children}
+                      </a>
+                    ),
+                    code: ({ inline, children }) =>
                       inline ? (
-                        <code className="px-1 py-0.5 rounded border" {...props} />
+                        <code className="px-1 py-0.5 rounded border">{children}</code>
                       ) : (
-                        <code className="block p-3 rounded border overflow-auto" {...props} />
+                        <code className="block p-3 rounded border overflow-auto">{children}</code>
                       ),
                   }}
                 >
@@ -189,7 +267,13 @@ export default function ForgeIdeaDetail() {
               </div>
               {userEmail && (
                 <div className="flex justify-end">
-                  <button className="btn mt-4" onClick={() => { setNotes(idea.notes || ""); setIsEditingNotes(true); }}>
+                  <button
+                    className="btn mt-4"
+                    onClick={() => {
+                      setNotes(idea.notes || "");
+                      setIsEditingNotes(true);
+                    }}
+                  >
                     Edit Notes
                   </button>
                 </div>
@@ -207,6 +291,31 @@ export default function ForgeIdeaDetail() {
           <IdeaConversation ideaId={idea.id} userEmail={userEmail} />
         </Collapsible>
       </div>
+
+      {/* Delete confirmation modal */}
+      <Dialog
+        open={showDelete}
+        onClose={() => setShowDelete(false)}
+        className="fixed inset-0 z-50 flex items-center justify-center"
+      >
+        <div className="fixed inset-0 bg-black/50" aria-hidden="true" />
+        <Dialog.Panel className="relative z-10 w-full max-w-md mx-4 rounded-xl card p-6">
+          <Dialog.Title className="text-lg font-semibold">
+            Delete “{idea.title || "this idea"}”?
+          </Dialog.Title>
+          <p className="mt-2 text-sm opacity-80">
+            This action can’t be undone. The idea and its data will be permanently removed.
+          </p>
+          <div className="mt-5 flex justify-end gap-2">
+            <button onClick={() => setShowDelete(false)} className="btn btn-secondary">
+              Cancel
+            </button>
+            <button onClick={confirmDelete} className="btn btn-danger" disabled={deleting} autoFocus>
+              {deleting ? "Deleting…" : "Delete"}
+            </button>
+          </div>
+        </Dialog.Panel>
+      </Dialog>
     </div>
   );
 }

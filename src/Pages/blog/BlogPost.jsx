@@ -15,6 +15,7 @@ export default function BlogPost() {
   useEffect(() => {
     fetchPost();
     fetchComments();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const fetchPost = async () => {
@@ -41,17 +42,11 @@ export default function BlogPost() {
       alert("Sign in required to comment.");
       return;
     }
-
     try {
       await axiosInstance.post(
         `/blog/comment`,
-        {
-          post_id: parseInt(id),
-          content: commentText,
-        },
-        {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }
+        { post_id: parseInt(id, 10), content: commentText },
+        { headers: { Authorization: `Bearer ${accessToken}` } }
       );
       setCommentText("");
       fetchComments();
@@ -64,7 +59,6 @@ export default function BlogPost() {
   const deletePost = async () => {
     const confirmed = window.confirm("Delete this post?");
     if (!confirmed) return;
-
     try {
       await axiosInstance.delete(`/blog/${id}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -88,64 +82,76 @@ export default function BlogPost() {
     }
   };
 
-  if (!post) return <p className="p-6">Loading...</p>;
+  if (!post) return <div className="main"><div className="card">Loading…</div></div>;
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
-      <h1 className="text-2xl font-bold mb-2">{post.title}</h1>
-      <p className="text-gray-500 mb-6">{new Date(post.created_at).toLocaleDateString()}</p>
-      <p className="whitespace-pre-wrap">{post.content}</p>
-
-      {userEmail === "sheaklipper@gmail.com" && (
-        <div className="my-4 flex gap-4">
-          <button
-            onClick={() => navigate(`/blog/${id}/edit`)}
-            className="px-3 py-1 bg-yellow-500 text-white rounded"
-          >
-            Edit
-          </button>
-          <button
-            onClick={deletePost}
-            className="px-3 py-1 bg-red-600 text-white rounded"
-          >
-            Delete
-          </button>
+    <div className="main space-y-6">
+      {/* Post card */}
+      <article className="card">
+        <h1 className="text-2xl font-bold mb-1">{post.title}</h1>
+        <p className="text-sm mb-6" style={{ color: "var(--muted)" }}>
+          {new Date(post.created_at).toLocaleDateString()}
+        </p>
+        <div className="whitespace-pre-wrap opacity-90" style={{ color: "var(--text)" }}>
+          {post.content}
         </div>
-      )}
 
-      <div className="mt-10 pt-6 border-t">
-        <h2 className="text-lg font-semibold mb-2">Comments</h2>
+        {userEmail === "sheaklipper@gmail.com" && (
+          <div className="my-4 flex gap-3">
+            <button
+              onClick={() => navigate(`/blog/${id}/edit`)}
+              className="btn btn-secondary"
+            >
+              Edit
+            </button>
+            <button onClick={deletePost} className="btn btn-danger">
+              Delete
+            </button>
+          </div>
+        )}
+      </article>
+
+      {/* Comments */}
+      <section className="card">
+        <h2 className="text-lg font-semibold mb-3">Comments</h2>
 
         <form onSubmit={handleComment} className="mb-4">
           <textarea
             value={commentText}
             onChange={(e) => setCommentText(e.target.value)}
             placeholder="Write a comment..."
-            className="w-full p-2 border rounded mb-2"
+            className="w-full h-24 mb-2"
             required
           />
-          <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded">
-            Post Comment
-          </button>
+          <button type="submit" className="btn">Post Comment</button>
         </form>
 
         <ul>
           {comments.map((c) => (
-            <li key={c.id} className="mb-2 border-b pb-2">
-              <p>{c.content}</p>
-              <p className="text-sm text-gray-500">{new Date(c.created_at).toLocaleString()}</p>
+            <li
+              key={c.id}
+              className="pb-2 mb-2"
+              style={{ borderBottom: "1px solid var(--border)" }}
+            >
+              <p className="whitespace-pre-wrap">{c.content}</p>
+              <p className="text-sm mt-1" style={{ color: "var(--muted)" }}>
+                {new Date(c.created_at).toLocaleString()}
+              </p>
               {userEmail === "sheaklipper@gmail.com" && (
                 <button
                   onClick={() => deleteComment(c.id)}
-                  className="text-red-600 text-sm mt-1"
+                  className="btn btn-secondary mt-1"
                 >
                   Delete Comment
                 </button>
               )}
             </li>
           ))}
+          {comments.length === 0 && (
+            <li style={{ color: "var(--muted)" }}>No comments yet.</li>
+          )}
         </ul>
-      </div>
+      </section>
     </div>
   );
 }

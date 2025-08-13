@@ -165,19 +165,51 @@ button:focus-visible, .btn:focus-visible {
 .btn:disabled, .btn[aria-disabled="true"] { opacity: .6; cursor: not-allowed; }
 
 /* Variants */
+/* Secondary button — readable in both themes */
 .btn-secondary {
-  --btn-bg: transparent;
+  /* Light mode tokens */
   --btn-fg: var(--text);
+  --btn-bg: rgba(0, 0, 0, 0.04);
   --btn-border: var(--border);
-  background: transparent;                /* keep transparent in light */
+
+  /* Hover tokens */
+  --btn-bg-hover: rgba(0, 0, 0, 0.08);
+  --btn-border-hover: color-mix(in oklab, var(--border) 70%, var(--text) 30%);
+
+  color: var(--btn-fg);
+  background: var(--btn-bg);
+  border: 1px solid var(--btn-border);
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
 }
-html.dark .btn-secondary {
-  --btn-fg: #e5e7eb;
-  background: transparent;                /* keep transparent in dark */
-}
+
 .btn-secondary:hover {
-  /* subtle hover tint without “white on white” surprises */
-  background: color-mix(in oklab, var(--bg) 88%, transparent);
+  background: var(--btn-bg-hover);
+  border-color: var(--btn-border-hover);
+}
+
+.btn-secondary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Dark mode — strong contrast: white text on dark bg */
+html.dark .btn-secondary {
+  /* Solid dark fill so it’s visible even on dark cards */
+  --btn-fg: #ffffff;
+  --btn-bg: #334155;            /* slate-700 */
+  --btn-border: #475569;        /* slate-600 */
+  --btn-bg-hover: #3f4a5a;      /* a touch brighter */
+  --btn-border-hover: #64748b;  /* slate-500 */
+
+  /* Re-assert computed properties to defeat older rules */
+  color: var(--btn-fg) !important;
+  background-color: var(--btn-bg) !important;
+  border-color: var(--btn-border) !important;
+}
+
+html.dark .btn-secondary:hover {
+  background-color: var(--btn-bg-hover) !important;
+  border-color: var(--btn-border-hover) !important;
 }
 
 .btn-muted  {
