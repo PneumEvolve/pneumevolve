@@ -75,6 +75,7 @@ import LivingPlan from "./Pages/LivingPlan";
 import NotesPage from "./Pages/NotesPage";
 import ProblemPage from "./Pages/problemsolving/ProblemPage.jsx";
 import Home from "./Pages/Home.jsx";
+import AaronsPage from "./Pages/AaronsPage";
 
 import PrivateRoute from "./components/PrivateRoute";
 import { HelmetProvider } from 'react-helmet-async';
@@ -172,6 +173,7 @@ function Root() {
               <Route path="/notes/:index" element={<NotesPage />} />
               <Route path="ProblemPage" element={<ProblemPage />} />
               <Route path="Home" element={<Home />} />
+              <Route path="/aaron" element={<AaronsPage />} />
             </Route>
           </Routes>
         </BrowserRouter>
