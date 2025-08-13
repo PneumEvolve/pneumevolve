@@ -1,14 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
 import { useAuth } from "@/context/AuthContext";
+import SolutionsSection from "../components/SolutionsSection";
 
 const API = import.meta.env.VITE_API_URL;
 
 export default function ProblemDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { userEmail } = useAuth();
 
   // one-time anon id for identity
@@ -32,6 +34,9 @@ export default function ProblemDetail() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const bottomRef = useRef(null);
+  const inputRef = useRef(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
 
   // load problem + its messages
   const load = async () => {
@@ -43,13 +48,14 @@ export default function ProblemDetail() {
       });
       setP(res.data);
       if (res.data?.conversation_id) {
-        const m = await axios.get(
-          `${API}/conversations/${res.data.conversation_id}/messages`
-        );
-        setMsgs(Array.isArray(m.data) ? m.data : []);
-      } else {
-        setMsgs([]);
-      }
+  const m = await axios.get(
+    `${API}/conversations/${res.data.conversation_id}/messages`,
+    { headers: { "x-user-email": identityEmail } }   // <-- add this
+  );
+  setMsgs(Array.isArray(m.data) ? m.data : []);
+} else {
+  setMsgs([]);
+}
     } catch (e) {
       console.error(e);
       setError("Failed to load. Try refresh.");
@@ -94,6 +100,12 @@ export default function ProblemDetail() {
 
   const toggleFollow = async () => {
     if (!p) return;
+    if (!userEmail) {
+      if (confirm("Log in to follow this problem and get updates?")) {
+        navigate(`/login?next=${encodeURIComponent(location.pathname)}`);
+      }
+      return;
+    }
     const before = p;
     const was = !!p.is_following;
     const next = {
@@ -109,10 +121,16 @@ export default function ProblemDetail() {
         { headers: { "x-user-email": identityEmail } }
       );
     } catch (e) {
-      console.error(e);
-      setP(before);
+  console.error(e);
+  if (e?.response?.status === 401) {
+    if (confirm("Log in to follow this problem and get updates?")) {
+      navigate(`/login?next=${encodeURIComponent(location.pathname)}`);
     }
-  };
+  } else {
+    setP(before);
+  }
+}
+  }
 
   // messaging
   const send = async () => {
@@ -219,7 +237,7 @@ export default function ProblemDetail() {
           <button
             onClick={toggleFollow}
             className={p.is_following ? "btn" : "btn btn-secondary"}
-            title={p.is_following ? "Unfollow" : "Follow"}
+            title={!userEmail ? "Log in to follow" : (p.is_following ? "Unfollow" : "Follow")}
           >
             {p.is_following ? "Following" : "Follow"} · {p.followers_count ?? 0}
           </button>
@@ -230,6 +248,7 @@ export default function ProblemDetail() {
       <div className="grid md:grid-cols-2 gap-6">
         {/* Problem summary */}
         <div className="card space-y-3">
+          
           <h1 className="text-3xl font-bold">{p.title}</h1>
 
           <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -278,26 +297,25 @@ export default function ProblemDetail() {
           <div className="mt-3" style={{ borderTop: "1px solid var(--border)" }}>
             <div className="pt-3">
               <textarea
-                className="w-full h-24"
-                placeholder={
-                  userEmail
-                    ? "Write a message… (Enter to send, Shift+Enter for newline)"
-                    : "Log in to participate in the conversation"
-                }
-                disabled={!userEmail || sending}
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    send();
-                  }
-                  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "enter") {
-                    e.preventDefault();
-                    send();
-                  }
-                }}
-              />
+  ref={inputRef}                          // <-- attach ref
+  className="w-full h-24"
+  placeholder={userEmail
+    ? "Write a message… (Enter to send, Shift+Enter for newline)"
+    : "Log in to participate in the conversation"}
+  disabled={!userEmail || sending}
+  value={text}
+  onChange={(e) => setText(e.target.value)}
+  onKeyDown={(e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "enter") {
+      e.preventDefault();
+      send();
+    }
+  }}
+/>
               <div className="mt-2 flex justify-end">
                 <button
                   onClick={send}
@@ -310,6 +328,7 @@ export default function ProblemDetail() {
             </div>
           </div>
         </div>
+        <SolutionsSection problemId={p.id} />
       </div>
 
       {error && (

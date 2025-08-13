@@ -98,104 +98,110 @@ export default function Layout() {
   }, []);
 
   const location = useLocation();
-  const noPaddingRoutes = ["/", "/aestheticlab", "/MyTree"];
+
+  // keep your existing no-padding list, just add /aaron so her page is full-bleed
+  const noPaddingRoutes = ["/", "/aestheticlab", "/MyTree", "/aaron"];
   const isFullScreen = noPaddingRoutes.includes(location.pathname);
+
+  // NEW: routes where we hide the header/chrome entirely (only /aaron)
+  const noChromeRoutes = ["/aaron"];
+  const isChromeless = noChromeRoutes.includes(location.pathname);
 
   return (
     // ⬇️ clamp any accidental wide element (fixes the white gutter)
     <div className="min-h-screen overflow-x-hidden bg-gradient-to-b from-sky-50 to-white dark:from-zinc-950 dark:to-zinc-900 text-zinc-900 dark:text-zinc-100">
       <Analytics />
 
-      {/* Glass header */}
-      <header className="sticky top-0 z-40">
-  <div className="app-header backdrop-blur border-b">
-    <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between text-[var(--text)]">
-      <Link to="/home" className="text-xl font-semibold tracking-tight shrink-0">
-        PneumEvolve
-      </Link>
+      {/* Glass header (hidden on chromeless routes like /aaron) */}
+      {!isChromeless && (
+        <header className="sticky top-0 z-40">
+          <div className="app-header backdrop-blur border-b">
+            <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between text-[var(--text)]">
+              <Link to="/home" className="text-xl font-semibold tracking-tight shrink-0">
+                PneumEvolve
+              </Link>
 
-      {/* All plain-text links; no pills/buttons */}
-      <nav className="flex items-center justify-end gap-3 flex-wrap max-w-full text-[var(--text)]">
-        <Link className="px-1.5 py-1 hover:underline shrink-0" to="/forge">Forge</Link>
-        <Link className="px-1.5 py-1 hover:underline shrink-0" to="/problems">Problems</Link>
-        <Link className="px-1.5 py-1 hover:underline shrink-0" to="/blog">Blog</Link>
+              {/* All plain-text links; no pills/buttons */}
+              <nav className="flex items-center justify-end gap-3 flex-wrap max-w-full text-[var(--text)]">
+                <Link className="px-1.5 py-1 hover:underline shrink-0" to="/TokenLedger">Token(Mock)</Link>
+                <Link className="px-1.5 py-1 hover:underline shrink-0" to="/forge">Forge</Link>
+                <Link className="px-1.5 py-1 hover:underline shrink-0" to="/problems">Problems</Link>
+                <Link className="px-1.5 py-1 hover:underline shrink-0" to="/blog">Blog</Link>
 
-        <Menu as="div" className="relative shrink-0">
-  <Menu.Button className="px-1.5 py-1 hover:underline">Tools ▾</Menu.Button>
+                <Menu as="div" className="relative shrink-0">
+                  <Menu.Button className="px-1.5 py-1 hover:underline">Tools ▾</Menu.Button>
 
-  <Menu.Items
-    className="absolute right-0 mt-2 w-48 rounded-lg border
-               border-zinc-200 dark:border-zinc-800
-               bg-white text-zinc-900
-               dark:bg-zinc-900 dark:text-zinc-100
-               shadow-lg overflow-hidden p-1 z-50"
-  >
-    <Menu.Item>
-      {({ active }) => (
-        <Link
-          to="/MealPlanning"
-          className={`block px-2.5 py-1.5 text-sm rounded
-                     ${active ? "bg-zinc-100 dark:bg-zinc-800" : ""}`}
-        >
-          Meal Planner
-        </Link>
+                  <Menu.Items
+                    className="absolute right-0 mt-2 w-48 rounded-lg border
+                               border-zinc-200 dark:border-zinc-800
+                               bg-white text-zinc-900
+                               dark:bg-zinc-900 dark:text-zinc-100
+                               shadow-lg overflow-hidden p-1 z-50"
+                  >
+                    <Menu.Item>
+                      {({ active }) => (
+                        <Link
+                          to="/MealPlanning"
+                          className={`block px-2.5 py-1.5 text-sm rounded ${active ? "bg-zinc-100 dark:bg-zinc-800" : ""}`}
+                        >
+                          Meal Planner
+                        </Link>
+                      )}
+                    </Menu.Item>
+
+                    <Menu.Item>
+                      {({ active }) => (
+                        <Link
+                          to="/journal"
+                          className={`block px-2.5 py-1.5 text-sm rounded ${active ? "bg-zinc-100 dark:bg-zinc-800" : ""}`}
+                        >
+                          Journal
+                        </Link>
+                      )}
+                    </Menu.Item>
+
+                    <Menu.Item>
+                      {({ active }) => (
+                        <Link
+                          to="/projects"
+                          className={`block px-2.5 py-1.5 text-sm rounded ${active ? "bg-zinc-100 dark:bg-zinc-800" : ""}`}
+                        >
+                          Projects
+                        </Link>
+                      )}
+                    </Menu.Item>
+                  </Menu.Items>
+                </Menu>
+
+                <div className="shrink-0">
+                  <ThemeToggle className="!bg-transparent !border-0 !shadow-none !px-0 !py-0 hover:underline" />
+                </div>
+
+                {!isLoggedIn ? (
+                  <>
+                    <Link className="px-1.5 py-1 hover:underline shrink-0" to="/signup">Sign Up</Link>
+                    <Link className="px-1.5 py-1 hover:underline shrink-0" to="/login">Login</Link>
+                  </>
+                ) : (
+                  <>
+                    <Link to="/Account" className="relative px-1.5 py-1 hover:underline shrink-0">
+                      Account
+                      {unreadCount > 0 && (
+                        <span className="absolute -top-1 -right-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                          {unreadCount}
+                        </span>
+                      )}
+                    </Link>
+                    <button onClick={handleLogout} className="px-1.5 py-1 hover:underline text-red-600 shrink-0">
+                      Logout
+                    </button>
+                  </>
+                )}
+              </nav>
+            </div>
+          </div>
+        </header>
       )}
-    </Menu.Item>
-
-    <Menu.Item>
-      {({ active }) => (
-        <Link
-          to="/journal"
-          className={`block px-2.5 py-1.5 text-sm rounded
-                     ${active ? "bg-zinc-100 dark:bg-zinc-800" : ""}`}
-        >
-          Journal
-        </Link>
-      )}
-    </Menu.Item>
-
-    <Menu.Item>
-      {({ active }) => (
-        <Link
-          to="/projects"
-          className={`block px-2.5 py-1.5 text-sm rounded
-                     ${active ? "bg-zinc-100 dark:bg-zinc-800" : ""}`}
-        >
-          Projects
-        </Link>
-      )}
-    </Menu.Item>
-  </Menu.Items>
-</Menu>
-
-        <div className="shrink-0">
-          <ThemeToggle className="!bg-transparent !border-0 !shadow-none !px-0 !py-0 hover:underline" />
-        </div>
-
-        {!isLoggedIn ? (
-          <>
-            <Link className="px-1.5 py-1 hover:underline shrink-0" to="/signup">Sign Up</Link>
-            <Link className="px-1.5 py-1 hover:underline shrink-0" to="/login">Login</Link>
-          </>
-        ) : (
-          <>
-            <Link to="/Account" className="relative px-1.5 py-1 hover:underline shrink-0">
-              Account
-              {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                  {unreadCount}
-                </span>
-              )}
-            </Link>
-            <button onClick={handleLogout} className="px-1.5 py-1 hover:underline text-red-600 shrink-0">
-              Logout
-            </button>
-          </>
-        )}
-      </nav>
-    </div>
-  </div>
-</header>
 
       <main className={isFullScreen ? "" : "px-4 py-6"}>
         <div className={isFullScreen ? "" : "mx-auto max-w-6xl"}>

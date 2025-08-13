@@ -13,6 +13,7 @@ export default function EntryList({
   onGenerateInsight,
   onToggleInsight,
   onDeleteInsight,
+  insightBusy,
 }) {
   if (!entries.length) {
     return (
@@ -30,6 +31,10 @@ export default function EntryList({
           return null;
         }
 
+        // ⬇️ derive current type + busy flag for this entry
+        const type = selectedActions[entry.id] || "";
+        const busy = !!(type && insightBusy?.[`${entry.id}:${type}`]);
+
         return (
           <EntryItem
             key={
@@ -40,8 +45,9 @@ export default function EntryList({
             }
             entry={entry}
             expanded={expandedEntries[entry.id]}
-            visibleInsights={visibleInsights[entry.id] || {}} // ✅ fallback
-            selectedAction={selectedActions[entry.id] || ""}  // ✅ fallback
+            visibleInsights={visibleInsights[entry.id] || {}}
+            selectedAction={type}         
+            busy={busy}                    
             onExpandToggle={onExpandToggle}
             onDeleteClick={onDeleteClick}
             onEditClick={onEditClick}

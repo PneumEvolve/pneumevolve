@@ -14,6 +14,8 @@ import ArtistsEnclave from "./pneumevolve-v2/pages/ArtistsEnclave";
 import IAm from "./pneumevolve-v2/pages/IAm";
 import Messages from "@/components/dashboard/Messages.jsx"
 import SpotlightArchive from "./Pages/SpotlightArchive.jsx"
+import TokenLedger from "./pneumevolve-v2/pages/TokenLedger";
+import DailyUse from "./pneumevolve-v2/pages/DailyUse";
 
 
 import IntentionalCommunity from "./pneumevolve-v2/pages/IntentionalCommunity.jsx";
@@ -115,6 +117,8 @@ function Root() {
               <Route path="/Messages" element={<Messages />} />
               <Route path="/spotlightarchive" element={<SpotlightArchive />} />
               <Route path="/v2/i-am" element={<IAm/>} />
+              <Route path="/TokenLedger" element={<TokenLedger/>} />
+              <Route path="/DailyUse" element={<DailyUse/>} />
               <Route path="/v2/we-shape" element={<div>WE SHAPE page coming soon</div>} />
               <Route path="/v2/we-grow" element={<div>WE GROW page coming soon</div>} />
               <Route path="welcome" element={<WelcomePage />} />

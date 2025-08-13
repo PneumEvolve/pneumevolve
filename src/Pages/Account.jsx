@@ -1,5 +1,6 @@
 // src/pages/Account.jsx
 import React, { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { useAuth } from "@/context/AuthContext";
 import Inbox from "@/components/dashboard/Inbox";
@@ -18,6 +19,38 @@ export default function Account() {
   const [profilePic, setProfilePic] = useState(null);
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(true);
+
+  const [daily, setDaily] = useState(null);
+  const [seedBalance, setSeedBalance] = useState(0);
+
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  // If URL has #account / #inbox / #daily, open that tab on load/hash change
+useEffect(() => {
+  const hash = (location.hash || "").replace("#", "");
+  if (["account", "inbox", "daily"].includes(hash)) {
+    setActiveTab(hash);
+  }
+}, [location.hash]);
+
+  // helper to fetch daily + balance
+const refreshDaily = async () => {
+  if (!userEmail) { setDaily(null); setSeedBalance(0); return; }
+  try {
+    const headers = { "x-user-email": userEmail };
+    const [b, d] = await Promise.all([
+      axios.get(`${API}/seed/balance`, { headers }),
+      axios.get(`${API}/seed/daily`, { headers }),
+    ]);
+    setSeedBalance(b.data?.balance ?? 0);
+    setDaily(d.data);
+  } catch (e) {
+    console.error("Failed to fetch daily/seed:", e?.response?.data || e.message);
+  }
+};
+
+useEffect(() => { refreshDaily(); /* eslint-disable-next-line */ }, [userEmail]);
 
   useEffect(() => {
     localStorage.setItem("unreadCount", unreadCount);
@@ -62,26 +95,26 @@ export default function Account() {
   if (loading) return <div className="p-6">Loading account…</div>;
 
   const TabBtn = ({ id, children }) => {
-    const selected = activeTab === id;
-    return (
-      <button
-        onClick={() => setActiveTab(id)}
-        className={[
-          "px-4 py-2 font-medium rounded-t border",
-          selected
-            ? "bg-[var(--bg-elev)] text-[var(--text)] border-[var(--border)]"
-            : "text-[var(--muted)] hover:bg-[color-mix(in_oklab,var(--bg)_85%,transparent)] border-transparent",
-        ].join(" ")}
-      >
-        {children}
-        {id === "inbox" && unreadCount > 0 && (
-          <span className="ml-2 bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full align-middle">
-            {unreadCount}
-          </span>
-        )}
-      </button>
-    );
-  };
+  const selected = activeTab === id;
+  return (
+    <button
+      onClick={() => { setActiveTab(id); navigate(`#${id}`, { replace: true }); }}
+      className={[
+        "px-4 py-2 font-medium rounded-t border",
+        selected
+          ? "bg-[var(--bg-elev)] text-[var(--text)] border-[var(--border)]"
+          : "text-[var(--muted)] hover:bg-[color-mix(in_oklab,var(--bg)_85%,transparent)] border-transparent",
+      ].join(" ")}
+    >
+      {children}
+      {id === "inbox" && unreadCount > 0 && (
+        <span className="ml-2 bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full align-middle">
+          {unreadCount}
+        </span>
+      )}
+    </button>
+  );
+};
 
   return (
     <div className="max-w-2xl mx-auto p-6 space-y-6 text-[var(--text)]">
@@ -89,6 +122,7 @@ export default function Account() {
       <div className="flex gap-2 border-b border-[var(--border)] pb-2">
         <TabBtn id="account">Account Settings</TabBtn>
         <TabBtn id="inbox">Inbox</TabBtn>
+        <TabBtn id="daily">Daily Use</TabBtn>
       </div>
 
       {/* Panels */}
@@ -178,6 +212,52 @@ export default function Account() {
           </div>
         </div>
       )}
+      {activeTab === "daily" && (
+  <div className="card space-y-4">
+    <div className="flex items-center justify-between">
+      <h2 className="text-xl font-bold">Daily Use</h2>
+      <button className="btn btn-secondary" onClick={refreshDaily}>⟳ Refresh</button>
+    </div>
+
+    {!userEmail ? (
+      <div className="opacity-70">Log in to see and earn SEED.</div>
+    ) : (
+      <>
+        <div className="grid sm:grid-cols-3 gap-3">
+          <div className="p-3 rounded border" style={{ borderColor: "var(--border)" }}>
+            <div className="text-sm opacity-70">SEED Balance</div>
+            <div className="text-2xl font-bold mt-1">{seedBalance}</div>
+          </div>
+          <div className="p-3 rounded border" style={{ borderColor: "var(--border)" }}>
+            <div className="text-sm opacity-70">Earned Today</div>
+            <div className="text-2xl font-bold mt-1">{daily?.earned_today ?? 0}</div>
+          </div>
+          <div className="p-3 rounded border" style={{ borderColor: "var(--border)" }}>
+            <div className="text-sm opacity-70">Daily Cap</div>
+            <div className="text-2xl font-bold mt-1">{daily?.daily_cap ?? 30}</div>
+          </div>
+        </div>
+
+        <div className="p-3 rounded border" style={{ borderColor: "var(--border)" }}>
+          <div className="font-semibold mb-1">🎯 Today’s Actions</div>
+          <ul className="list-disc ml-6 space-y-2">
+            <li className="flex items-center justify-between">
+              <span>Post a journal entry (+5 SEED once per UTC day)</span>
+              <span className={"badge " + (daily?.journal_done_today ? "" : "opacity-70")}>
+                {daily?.journal_done_today ? "Done" : "Pending"}
+              </span>
+            </li>
+            {/* Future items here, e.g., Create a recipe, Share a problem, etc. */}
+          </ul>
+          <div className="mt-3 flex gap-2">
+            <a href="/journal" className="btn">Go to Journal</a>
+            <a href="/TokenLedger" className="btn btn-secondary">View Ledger</a>
+          </div>
+        </div>
+      </>
+    )}
+  </div>
+)}
     </div>
   );
 }

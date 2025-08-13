@@ -5,16 +5,22 @@ import { Trash, Eye, EyeOff, Wand2, X } from "lucide-react";
 export default function EntryItem({
   entry,
   expanded,
-  visibleInsights = {}, // ✅ default to empty object
-  selectedAction,
+  visibleInsights = {},      // ✅ safe default
+  selectedAction,            // e.g. "reflection" | "mantra" | "next_action" (or legacy "reflect")
+  busy,                      // ✅ from EntryList: insightBusy[`${entry.id}:${type}`]
   onExpandToggle,
   onDeleteClick,
   onEditClick,
   onActionChange,
-  onGenerateInsight,
+  onGenerateInsight,         // expects (entry, normalizedType)
   onToggleInsight,
   onDeleteInsight,
 }) {
+  // normalize legacy "reflect" → "reflection"
+  const normalizeType = (t) => (t === "reflect" ? "reflection" : t || "");
+  const normalizedType = normalizeType(selectedAction);
+  const canGenerate = !!normalizedType && !busy;
+
   return (
     <div
       key={entry.id + (entry.reflection || "") + (entry.mantra || "") + (entry.next_action || "")}
@@ -49,25 +55,36 @@ export default function EntryItem({
         </Button>
       </div>
 
+      {/* ---- Insight selector + generate ---- */}
       <div className="flex items-center gap-2 mt-2">
         <select
           className="p-2 border rounded"
-          value={selectedAction || ""}
+          value={selectedAction || ""}                         // keep current selection
           onChange={(e) => onActionChange(entry.id, e.target.value)}
         >
           <option value="">Choose an Insight</option>
-          <option value="reflect">Reflect</option>
+          {/* use canonical values; "reflect" still works via normalizeType */}
+          <option value="reflection">Reflect</option>
           <option value="mantra">Mantra Maker</option>
           <option value="next_action">What should I do next?</option>
         </select>
+
         <Button
-          className="bg-green-600 hover:bg-green-700 text-white"
-          onClick={() => onGenerateInsight(entry, selectedAction)}
+          className="bg-green-600 hover:bg-green-700 text-white disabled:opacity-60"
+          onClick={() => onGenerateInsight(entry, normalizedType)}
+          disabled={!normalizedType || busy}                   // ⬅️ gate by selection + busy
+          title={
+            !normalizedType ? "Pick an insight type first"
+              : busy ? "Working…"
+              : "Generate"
+          }
         >
-          <Wand2 className="mr-2" /> Go
+          <Wand2 className={`mr-2 ${busy ? "animate-spin" : ""}`} />
+          {busy ? "Working…" : "Go"}
         </Button>
       </div>
 
+      {/* ---- Existing insights show/hide ---- */}
       {["reflection", "mantra", "next_action"].map((type) =>
         typeof entry[type] === "string" && entry[type].trim() !== "" ? (
           <div key={type} className="mt-3">

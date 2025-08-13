@@ -6,8 +6,19 @@ import LoginPrompt from "@/components/journal/LoginPrompt";
 import Modal from "@/components/journal/Modal";
 import { useAuth } from "@/context/AuthContext";
 import axiosInstance from "@/utils/axiosInstance";
+import { requireSeed } from "@/lib/seed";
+
+const INSIGHT_COST = {
+  summary: 2,
+  reflection: 3,
+  next_action: 3,      // maps to backend "next-action"
+  title: 1,
+  tags: 1,
+};
 
 export default function Journal() {
+  const { userEmail } = useAuth();
+  const [insightBusy, setInsightBusy] = useState({});
   const [expandedEntries, setExpandedEntries] = useState({});
   const [visibleInsights, setVisibleInsights] = useState({});
   const [selectedActions, setSelectedActions] = useState({});  
@@ -54,16 +65,42 @@ const handleActionChange = (id, value) => {
   if (!newEntry.title.trim() || !newEntry.content.trim()) return;
 
   try {
+    // 1) Save the entry
     const res = await axiosInstance.post("/journal", newEntry);
     setEntries([res.data, ...entries]);
     setNewEntry({ title: "", content: "" });
 
-    // ✅ Send inbox message
-    await axiosInstance.post("/inbox/send", {
-      user_id: userId,
-      content: `📝 Your journal entry "${newEntry.title}" was saved. Keep going!`,
-    });
+    // 2) Claim daily reward (+5 once per UTC day) — independent of any other side effects
+    try {
+      const r = await axiosInstance.post(
+        "/seed/reward/journal",
+        {},
+        { headers: { "x-user-email": userEmail } }
+      );
 
+      // Toast (shadcn) if available, else alert
+      const message =
+        r?.data?.claimed
+          ? "You earned 5 SEED for today’s journal. Nice work!"
+          : "You already claimed today’s journal reward.";
+
+      if (window?.appToast) {
+        window.appToast.success(message);   // if you wired a global toast (see note below)
+      } else {
+        // Try shadcn/use-toast if you have it:
+        // import { useToast } from "@/components/ui/use-toast"
+        // const { toast } = useToast();
+        // toast({ title: "Journal", description: message });
+        alert(message); // fallback
+      }
+    } catch (e) {
+      const msg = e?.response?.data?.detail || e?.response?.data || e.message;
+      if (window?.appToast) window.appToast.error(`Reward failed: ${msg}`);
+      else console.warn("Reward failed:", msg);
+    }
+
+    // 3) (Optional) If you keep a balance/daily widget, refresh it here
+    // await refreshDailyOrBalance();
   } catch (err) {
     console.error("Failed to create entry:", err);
   }
@@ -105,46 +142,81 @@ const handleActionChange = (id, value) => {
   };
 
   const handleInsight = async (entry, type) => {
-  if (entry[type]) return;
+  if (entry[type]) return; // already has it
+
+  const key = `${entry.id}:${type}`;
+  if (insightBusy[key]) return; // don’t double trigger
 
   const backendType = type === "next_action" ? "next-action" : type;
+  const cost = INSIGHT_COST[type] ?? 1;
 
   try {
+    setInsightBusy((s) => ({ ...s, [key]: true }));
+
+    // 1) SEED gate
+    await requireSeed(userEmail, cost, `INSIGHT_${backendType.toUpperCase()}`);
+
+    // 2) Kick off generation
     await axiosInstance.post(`/journal/${backendType}/${entry.id}`);
 
+    // 3) Poll for completion
     const pollForInsight = async (retries = 10) => {
       try {
         const res = await axiosInstance.get("/journal");
         const updatedEntry = res.data.find((e) => e.id === entry.id);
 
         if (updatedEntry && updatedEntry[type]?.trim()) {
-          setEntries((prev) =>
-            prev.map((e) => (e.id === entry.id ? updatedEntry : e))
-          );
+          setEntries((prev) => prev.map((e) => (e.id === entry.id ? updatedEntry : e)));
 
           setVisibleInsights((prev) => ({
             ...prev,
-            [entry.id]: { ...prev[entry.id], [type]: true },
+            [entry.id]: { ...(prev[entry.id] || {}), [type]: true },
           }));
 
-          setSelectedActions((prev) => ({
-            ...prev,
-            [entry.id]: "",
-          }));
+          setSelectedActions((prev) => ({ ...prev, [entry.id]: "" }));
+
+          setInsightBusy((s) => {
+            const copy = { ...s };
+            delete copy[key];
+            return copy;
+          });
+          return;
         } else if (retries > 0) {
           setTimeout(() => pollForInsight(retries - 1), 2000);
         } else {
           alert("Insight is still not ready. Try refreshing.");
+          setInsightBusy((s) => {
+            const copy = { ...s };
+            delete copy[key];
+            return copy;
+          });
         }
       } catch (err) {
         console.error("Polling failed:", err);
+        setInsightBusy((s) => {
+          const copy = { ...s };
+          delete copy[key];
+          return copy;
+        });
       }
     };
 
     pollForInsight();
   } catch (err) {
-    console.error("Insight generation failed:", err);
-    alert("Failed to generate insight.");
+    // Common cases: login required, insufficient SEED, network
+    const msg = err?.response?.data?.detail || err.message || "Failed";
+    if (msg === "Login required") {
+      alert("Please log in to generate insights.");
+    } else if (msg === "Insufficient SEED") {
+      alert(`You need ${cost} SEED to generate this insight. Earn some first!`);
+    } else {
+      alert(`Failed to generate insight: ${msg}`);
+    }
+    setInsightBusy((s) => {
+      const copy = { ...s };
+      delete copy[key];
+      return copy;
+    });
   }
 };
 
@@ -185,6 +257,7 @@ const handleActionChange = (id, value) => {
           onGenerateInsight={(entry) => handleInsight(entry, selectedActions[entry.id])}
           onToggleInsight={toggleInsightVisibility}
           onDeleteInsight={(id, type) => setModal({ open: true, entryId: id, type })}
+          insightBusy={insightBusy}
       />
 
       {modal.open && (

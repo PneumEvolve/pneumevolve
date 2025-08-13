@@ -2,13 +2,14 @@ import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { v4 as uuidv4 } from "uuid";
 import { useAuth } from "@/context/AuthContext";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 
 const API = import.meta.env.VITE_API_URL;
 
 export default function Problems() {
   const { userEmail } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   // one-time anon id
   const [anonId] = useState(() => {
@@ -28,6 +29,7 @@ export default function Problems() {
   const [sort, setSort] = useState(() => localStorage.getItem("problems:sort") || "trending");
   const [status, setStatus] = useState("");
   const [scope, setScope] = useState("");
+  const [newScope, setNewScope] = useState("Systemic"); // <-- new, independent of the list filter
 
   // submit state
   const [openSubmit, setOpenSubmit] = useState(false);
@@ -97,7 +99,7 @@ export default function Problems() {
           title: t,
           description: d,
           severity: Number(severity) || 3,
-          scope: scope || "Systemic",
+          scope: newScope || "Systemic",
           anonymous: isAnon || anonymous,
         },
         {
@@ -137,11 +139,32 @@ export default function Problems() {
   };
 
   const toggleFollow = async (p) => {
-    try {
-      await axios.post(`${API}/problems/${p.id}/follow`, {}, { headers: { "x-user-email": identityEmail } });
-      fetchList();
-    } catch {/* ignore */}
-  };
+  if (!p) return;
+
+  // Not logged in? Prompt and bounce to login, preserving return URL
+  if (!userEmail) {
+    if (confirm("Log in to follow problems and get updates?")) {
+      navigate(`/login?next=${encodeURIComponent(location.pathname + location.search)}`);
+    }
+    return;
+  }
+
+  try {
+    await axios.post(
+      `${API}/problems/${p.id}/follow`,
+      {},
+      { headers: { "x-user-email": identityEmail } }
+    );
+    fetchList();
+  } catch (e) {
+    console.error(e);
+    if (e?.response?.status === 401) {
+      if (confirm("Log in to follow problems and get updates?")) {
+        navigate(`/login?next=${encodeURIComponent(location.pathname + location.search)}`);
+      }
+    }
+  }
+};
 
   const canDelete = (p) =>
     !!userEmail && (userEmail === p.created_by_email || userEmail === "sheaklipper@gmail.com");
@@ -264,6 +287,14 @@ export default function Problems() {
                 <span>Anonymous</span>
                 <input type="checkbox" checked={anonymous} onChange={(e) => setAnonymous(e.target.checked)} />
               </label>
+              <label className="flex items-center gap-2 text-sm">
+    <span>Scope</span>
+    <select value={newScope} onChange={(e) => setNewScope(e.target.value)}>
+      <option>Personal</option>
+      <option>Community</option>
+      <option>Systemic</option>
+    </select>
+  </label>
             </div>
 
             {!!dupes.length && (
@@ -329,11 +360,12 @@ export default function Problems() {
                   </button>
 
                   <button
-                    onClick={() => toggleFollow(p)}
-                    className={p.is_following ? "btn btn-muted" : "btn btn-secondary"}
-                  >
-                    {p.is_following ? "Following" : "Follow"}
-                  </button>
+  onClick={() => toggleFollow(p)}
+  className={p.is_following ? "btn btn-muted" : "btn btn-secondary"}
+  title={!userEmail ? "Log in to follow" : (p.is_following ? "Unfollow" : "Follow")}
+>
+  {p.is_following ? "Following" : "Follow"}
+</button>
 
                   {canDelete(p) && (
                     <button onClick={() => handleDelete(p)} className="btn btn-danger" title="Delete problem">
