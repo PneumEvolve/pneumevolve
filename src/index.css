@@ -288,3 +288,27 @@ html.dark .theme-indicator { color:#cbd5e1; }
 
 /* Themed checkboxes/radios */
 input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
+
+/* Conversation list panel + rows */
+.convo-list {
+  background: var(--bg-elev);
+  color: var(--text); /* base readable text */
+}
+
+/* Each row always inherits readable text color */
+.convo-row {
+  color: var(--text) !important;
+}
+
+/* Hover/Selected: change only the background, keep the text color */
+.convo-row:hover,
+.convo-row[aria-selected="true"] {
+  background: color-mix(in oklab, var(--bg-elev) 92%, transparent) !important; /* light hover */
+  color: var(--text) !important;
+}
+
+/* Dark theme hover/selected background */
+html.dark .convo-row:hover,
+html.dark .convo-row[aria-selected="true"] {
+  background: #1f2937 !important; /* zinc-800 */
+}

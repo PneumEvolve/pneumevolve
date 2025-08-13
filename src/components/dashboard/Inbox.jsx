@@ -254,42 +254,39 @@ const handleAdminDelete = async () => {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-      {/* Left: conversation list */}
-      <div className="md:col-span-1 border rounded p-2 h-[70vh] overflow-auto">
-        <div className="font-semibold mb-2">Conversations</div>
-        {loadingRows && <div className="text-sm opacity-60">Loading…</div>}
-        {error && <div className="text-sm text-red-600">{error}</div>}
+     {/* Left: conversation list */}
+<div className="md:col-span-1 border rounded p-2 h-[70vh] overflow-auto convo-list">
+  <div className="font-semibold mb-2">Conversations</div>
+  {loadingRows && <div className="text-sm opacity-60">Loading…</div>}
+  {error && <div className="text-sm text-red-500 dark:text-red-400">{error}</div>}
 
-        {rows.map((r) => {
-          const label = labelForRow(r);
-          return (
-            <button
-  key={r.conversation_id}
-  onClick={() => {
-    setSelected(r);
-    setThread([]); // clear before load
-  }}
-  title={label}
-  className={[
-    "w-full text-left p-2 rounded flex items-center justify-between",
-    "transition-colors",
-    // unselected state (hover colors for both themes)
-    selected?.conversation_id !== r.conversation_id
-      ? "bg-transparent hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
-      // selected state (explicit bg/text for both themes)
-      : "bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100",
-  ].join(" ")}
->
-  <span className="truncate">{label}</span>
-  {r.unread_count > 0 && (
-    <span className="ml-2 text-xs bg-red-500 text-white px-2 rounded-full">
-      {r.unread_count}
-    </span>
-  )}
-</button>
-          );
-        })}
-      </div>
+  {rows.map((r) => {
+    const label = labelForRow(r);
+    const isSel = selected?.conversation_id === r.conversation_id;
+    return (
+      <button
+        key={r.conversation_id}
+        type="button"
+        onClick={() => { setSelected(r); setThread([]); }}
+        title={label}
+        aria-selected={isSel}
+        style={{ WebkitTapHighlightColor: "transparent" }} // iOS tap flash
+        className={[
+          "convo-row w-full text-left p-2 rounded flex items-center justify-between",
+          "transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50",
+          isSel ? "" : "", // bg is handled by CSS for hover/selected
+        ].join(" ")}
+      >
+        <span className="truncate">{label}</span>
+        {r.unread_count > 0 && (
+          <span className="ml-2 text-xs bg-red-500 text-white px-2 rounded-full">
+            {r.unread_count}
+          </span>
+        )}
+      </button>
+    );
+  })}
+</div>
 
       {/* Right: thread + composer */}
       <div className="md:col-span-2 border rounded p-2 h-[70vh] flex flex-col">
