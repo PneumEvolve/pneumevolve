@@ -16,6 +16,7 @@ import Messages from "@/components/dashboard/Messages.jsx"
 import SpotlightArchive from "./Pages/SpotlightArchive.jsx"
 import TokenLedger from "./pneumevolve-v2/pages/TokenLedger";
 import DailyUse from "./pneumevolve-v2/pages/DailyUse";
+import SiteMap from "./Pages/SiteMap";
 
 
 import IntentionalCommunity from "./pneumevolve-v2/pages/IntentionalCommunity.jsx";
@@ -108,6 +109,7 @@ function Root() {
               {/* Used to have Conditional redirect to MyTree on first visit */}
               <Route index element={<Home />} />
               <Route path="Tools" element={<Tools />} />
+              <Route path="/SiteMap" element={<SiteMap/>} />
               <Route path="/v2" element={<HomeV2 />} />
               <Route path="Forge" element={<ErrorBoundary><Forge /></ErrorBoundary>} />
               <Route path="/forge/:id" element={<ForgeIdeaDetail />} />

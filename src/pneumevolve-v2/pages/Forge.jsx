@@ -7,7 +7,7 @@ import { v4 as uuidv4 } from "uuid";
 
 const API = import.meta.env.VITE_API_URL;
 
-// Canonical status order (match whatever you use in backend)
+// Canonical status order (match your backend)
 const STATUS_ORDER = ["Proposed", "Brainstorming", "Working", "Complete"];
 const statusIndex = (s) => {
   const i = STATUS_ORDER.findIndex(
@@ -15,8 +15,17 @@ const statusIndex = (s) => {
   );
   return i === -1 ? STATUS_ORDER.length : i; // unknown -> last
 };
-
 const norm = (s) => String(s || "").trim().toLowerCase();
+
+// --- Subtle status badge color map (reads well in light/dark)
+const statusBadgeClass = (status) => {
+  const s = norm(status);
+  if (s === "proposed") return "badge";
+  if (s === "brainstorming") return "badge bg-blue-600/10 border-blue-600/30 text-blue-700 dark:text-blue-300";
+  if (s === "working") return "badge bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300";
+  if (s === "complete") return "badge bg-emerald-600/10 border-emerald-600/30 text-emerald-700 dark:text-emerald-300";
+  return "badge";
+};
 
 export default function Forge() {
   const { userEmail, accessToken } = useAuth();
@@ -25,11 +34,12 @@ export default function Forge() {
   // Data
   const [ideas, setIdeas] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
 
-  // New idea form
+  // New idea form (collapsed by default)
   const [newIdea, setNewIdea] = useState({ title: "", description: "" });
   const [submitting, setSubmitting] = useState(false);
-  const [showSubmitForm, setShowSubmitForm] = useState(false); // ⬅️ starts collapsed
+  const [showSubmitForm, setShowSubmitForm] = useState(false);
 
   // Controls
   const [query, setQuery] = useState("");
@@ -37,7 +47,7 @@ export default function Forge() {
   const [filterKey, setFilterKey] = useState(() => localStorage.getItem("forge:filter") || "all");
   const [statusFilter, setStatusFilter] = useState(() => localStorage.getItem("forge:status") || "any");
 
-  // Identity header support (for anon votes)
+  // Identity (allow anon votes)
   const [anonId] = useState(() => {
     let id = localStorage.getItem("anon_id");
     if (!id) {
@@ -48,9 +58,9 @@ export default function Forge() {
   });
   const identityEmail = userEmail || `anon:${anonId}`;
 
-  // Fetch + normalize
   const fetchIdeas = async () => {
     setLoading(true);
+    setLoadError("");
     try {
       const res = await axios.get(`${API}/forge/ideas`, {
         params: { limit: 100 },
@@ -63,13 +73,12 @@ export default function Forge() {
           (i.user_email || i.creator_email || i.owner_email || "").trim().toLowerCase();
 
         const workers = Array.isArray(i.workers)
-  ? i.workers.map((w) => ({
-      id: w?.id ?? w?.user_id ?? w?.user?.id ?? null,        // ⬅️ capture id if present
-      username: w?.username || w?.user?.username || "",
-      // keep email ONLY for internal logic like "I'm working" – never render it
-      email: norm(w?.email || w?.user_email || w?.user?.email),
-    }))
-  : [];
+          ? i.workers.map((w) => ({
+              id: w?.id ?? w?.user_id ?? w?.user?.id ?? null,
+              username: w?.username || w?.user?.username || "",
+              email: norm(w?.email || w?.user_email || w?.user?.email),
+            }))
+          : [];
 
         return {
           id: i.id,
@@ -89,15 +98,13 @@ export default function Forge() {
         };
       });
 
-      // default newest first
-      normalized.sort(
-        (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)
-      );
-
+      // newest first by default
+      normalized.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
       setIdeas(normalized);
     } catch (e) {
       console.error("Failed to load ideas", e);
       setIdeas([]);
+      setLoadError("Couldn’t load ideas. Check your connection and try again.");
     } finally {
       setLoading(false);
     }
@@ -110,18 +117,22 @@ export default function Forge() {
 
   // Filters
   const me = norm(userEmail);
-
   const isMine = (idea) => !!userEmail && idea.creator_email === me;
   const isWorking = (idea) => !!userEmail && idea.workers.some((w) => w.email === me);
+
+  // Debounce search for nicer typing
+  const [qLive, setQLive] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setQuery(qLive), 200);
+    return () => clearTimeout(t);
+  }, [qLive]);
 
   const list = useMemo(() => {
     let out = [...ideas];
 
-    // 1) Main pill filter
-    const fk = filterKey === "following" ? "others" : filterKey; // legacy guard
-    if (fk === "mine") out = out.filter(isMine);
-    else if (fk === "working") out = out.filter(isWorking);
-    else if (fk === "others") out = userEmail ? out.filter((i) => !isMine(i)) : out;
+    // 1) Who filter
+    if (filterKey === "mine") out = out.filter(isMine);
+    else if (filterKey === "working") out = out.filter(isWorking);
 
     // 2) Status filter
     if (statusFilter !== "any") {
@@ -149,15 +160,11 @@ export default function Forge() {
         const sa = statusIndex(a.status);
         const sb = statusIndex(b.status);
         if (sa !== sb) return sa - sb;
-        return new Date(b.created_at || 0) - new Date(a.created_at || 0); // newest inside group
+        return new Date(b.created_at || 0) - new Date(a.created_at || 0);
       });
     } else {
-      // date
-      out.sort(
-        (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)
-      );
+      out.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
     }
-
     return out;
   }, [ideas, filterKey, statusFilter, query, sortBy, userEmail]);
 
@@ -180,14 +187,8 @@ export default function Forge() {
     e.preventDefault();
     const title = newIdea.title.trim();
     const description = newIdea.description.trim();
-    if (!userEmail) {
-      alert("Please log in to submit an idea.");
-      return;
-    }
-    if (!title || !description) {
-      alert("Please provide a title and description.");
-      return;
-    }
+    if (!userEmail) return alert("Please log in to submit an idea.");
+    if (!title || !description) return alert("Please provide a title and description.");
     try {
       setSubmitting(true);
       await axios.post(
@@ -196,7 +197,7 @@ export default function Forge() {
         { headers: { "x-user-email": userEmail } }
       );
       setNewIdea({ title: "", description: "" });
-      setShowSubmitForm(false); // collapse after submit
+      setShowSubmitForm(false);
       fetchIdeas();
     } catch (e) {
       console.error("Create failed", e);
@@ -218,9 +219,7 @@ export default function Forge() {
     const was = computeHasVoted(before);
 
     // optimistic
-    const next = { ...before };
-    next.has_voted = !was;
-    next.votes_count = Math.max(0, (before.votes_count || 0) + (was ? -1 : 1));
+    const next = { ...before, has_voted: !was, votes_count: Math.max(0, (before.votes_count || 0) + (was ? -1 : 1)) };
     setIdeas((arr) => {
       const copy = [...arr];
       copy[idx] = next;
@@ -274,7 +273,7 @@ export default function Forge() {
 
   const handleViewNotes = (id) => navigate(`/forge/${id}`);
 
-  // Pills (keeps your fixed contrast)
+  // Small, consistent pill
   const Pill = ({ value, label, disabled }) => {
     const isActive = filterKey === value;
     return (
@@ -299,72 +298,80 @@ export default function Forge() {
   return (
     <div className="min-h-screen p-6">
       <div className="max-w-3xl mx-auto space-y-8">
+        {/* Title */}
         <div className="text-center">
           <h1 className="text-4xl font-bold mb-2">🛠️ The Forge</h1>
-          <p className="opacity-80">Vote, join, and track progress together.</p>
-        </div>
+          <section className="card">
+  <p className="text-lg">
+    <strong>Propose ideas. Vote. Join the work. Track progress.</strong>{" "}</p>
+    <p>
+    The Forge is where we turn collective imagination into action. Anyone can browse and
+    vote on ideas that could make our communities — and our world — better. Your votes help
+    surface the projects that matter most. <span className="font-medium">Sign up</span> to
+    submit your own ideas, join the discussion, and follow the conversation as each idea
+    evolves into a real, trackable plan.
+  </p>
+</section>
+</div>
 
-        {/* Search (own bar) */}
-        <div className="section-bar">
-          <div className="flex items-center gap-3">
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search ideas…"
-              aria-label="Search ideas"
-              className="flex-1 bg-transparent border-0 focus:outline-none focus:ring-0"
-            />
-            {query && (
-              <button type="button" onClick={() => setQuery("")} className="btn btn-secondary">
-                Clear
-              </button>
-            )}
+        {/* Sticky controls */}
+        <div className="sticky top-[64px] z-30">
+          <div className="section-bar rounded-xl border backdrop-blur supports-[backdrop-filter]:bg-white/60 dark:supports-[backdrop-filter]:bg-zinc-900/50">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              {/* Search */}
+              <div className="flex items-center gap-3 flex-1">
+                <input
+                  type="search"
+                  value={qLive}
+                  onChange={(e) => setQLive(e.target.value)}
+                  placeholder="Search ideas…"
+                  aria-label="Search ideas"
+                  className="flex-1 bg-transparent border-0 focus:outline-none focus:ring-0"
+                />
+                {qLive && (
+                  <button type="button" onClick={() => setQLive("")} className="btn btn-secondary">
+                    Clear
+                  </button>
+                )}
+              </div>
+
+              {/* Sort + Status */}
+              <div className="flex items-center gap-3">
+                <label className="text-sm opacity-70">Sort</label>
+                <select value={sortBy} onChange={(e) => onSortChange(e.target.value)} className="min-w-[10rem]">
+                  <option value="date">Date Created</option>
+                  <option value="title">Title (A–Z)</option>
+                  <option value="votes">Votes</option>
+                  <option value="status">Status</option>
+                </select>
+
+                <label className="text-sm opacity-70">Status</label>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => onStatusFilter(e.target.value)}
+                  className="min-w-[10rem]"
+                  aria-label="Filter by status"
+                >
+                  <option value="any">Any</option>
+                  {STATUS_ORDER.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Pills */}
+            <div className="mt-3 flex items-center gap-2 flex-wrap">
+              <Pill value="all" label="All" />
+              <Pill value="mine" label="My ideas" disabled={!userEmail} />
+              <Pill value="working" label="I’m working" disabled={!userEmail} />
+            </div>
           </div>
         </div>
 
-        {/* Sort + Status + Pills */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <label className="text-sm opacity-70">Sort by</label>
-            <select
-              value={sortBy}
-              onChange={(e) => onSortChange(e.target.value)}
-              className="min-w-[11rem]"
-            >
-              <option value="date">Date Created</option>
-              <option value="title">Title (A–Z)</option>
-              <option value="votes">Votes</option>
-              <option value="status">Status</option>
-            </select>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <label className="text-sm opacity-70">Status</label>
-            <select
-              value={statusFilter}
-              onChange={(e) => onStatusFilter(e.target.value)}
-              className="min-w-[11rem]"
-              aria-label="Filter by status"
-            >
-              <option value="any">Any</option>
-              {STATUS_ORDER.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex items-center gap-2 flex-wrap">
-            <Pill value="all" label="All" />
-            <Pill value="mine" label="My ideas" disabled={!userEmail} />
-            <Pill value="working" label="I’m working" disabled={!userEmail} />
-            <Pill value="others" label="Others" />
-          </div>
-        </div>
-
-        {/* Share an Idea (collapsible, starts closed) */}
+        {/* Share an Idea (collapsible) */}
         {userEmail && (
           <div className="space-y-3">
             <button
@@ -373,12 +380,8 @@ export default function Forge() {
               className="w-full btn btn-muted flex items-center justify-between"
               aria-expanded={showSubmitForm}
             >
-              <span className="font-medium">
-                {showSubmitForm ? "Hide Idea Form" : "Share an Idea"}
-              </span>
-              <span className="text-2xl leading-none select-none">
-                {showSubmitForm ? "−" : "+"}
-              </span>
+              <span className="font-medium">{showSubmitForm ? "Hide idea form" : "Share an idea"}</span>
+              <span className="text-2xl leading-none select-none">{showSubmitForm ? "−" : "+"}</span>
             </button>
 
             {showSubmitForm && (
@@ -406,11 +409,19 @@ export default function Forge() {
           </div>
         )}
 
-        {/* List */}
+        {/* Content */}
         {loading ? (
           <div className="opacity-70">Loading…</div>
+        ) : loadError ? (
+          <div className="card border-amber-500/40">
+            <div className="font-semibold mb-1">Trouble loading ideas</div>
+            <p className="opacity-80 text-sm">{loadError}</p>
+            <div className="mt-3">
+              <button className="btn btn-secondary" onClick={fetchIdeas}>Retry</button>
+            </div>
+          </div>
         ) : list.length === 0 ? (
-          <div className="opacity-70 text-center">Nothing here yet.</div>
+          <div className="opacity-70 text-center">Nothing here yet. Start by sharing an idea.</div>
         ) : (
           <div className="space-y-6">
             {list.map((idea) => {
@@ -420,29 +431,43 @@ export default function Forge() {
               const count = idea.votes_count || 0;
 
               return (
-                <div key={idea.id} className="card border-l-4 border-emerald-500 space-y-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <h2 className="text-2xl font-semibold">{idea.title}</h2>
-                    <span className="badge">Status: {idea.status}</span>
-                  </div>
+                <article key={idea.id} className="card border-l-4 border-emerald-500 space-y-3">
+                  <header className="flex items-start justify-between gap-3">
+                    <h2 className="text-2xl font-semibold leading-snug">{idea.title}</h2>
+                    <span className={statusBadgeClass(idea.status)}>Status: {idea.status}</span>
+                  </header>
 
                   <p className="opacity-90">{idea.description}</p>
 
-                  {/* Workers row (chips) */}
-                  {idea.workers?.length > 0 && (
-  <div className="flex items-center gap-2 text-sm flex-wrap">
-    <span className="opacity-70">Workers:</span>
-    {idea.workers.map((w, idx) => (
-      <span
-        key={idx}
-        className="px-2.5 py-1 rounded-full border border-zinc-300 dark:border-zinc-700"
-      >
-        {w.username || (w.id ? `User ${w.id}` : "Contributor")}
-      </span>
-    ))}
-  </div>
-)}
+                  {/* Meta row */}
+                  <div className="flex items-center gap-3 text-xs opacity-70 flex-wrap">
+                    {idea.created_at && <span>{new Date(idea.created_at).toLocaleDateString()}</span>}
+                    <span>•</span>
+                    <span>{count} {count === 1 ? "vote" : "votes"}</span>
+                    {idea.workers?.length ? (
+                      <>
+                        <span>•</span>
+                        <span>{idea.workers.length} {idea.workers.length === 1 ? "worker" : "workers"}</span>
+                      </>
+                    ) : null}
+                  </div>
 
+                  {/* Workers (chips) */}
+                  {idea.workers?.length > 0 && (
+                    <div className="flex items-center gap-2 text-sm flex-wrap">
+                      <span className="opacity-70">Workers:</span>
+                      {idea.workers.map((w, idx) => (
+                        <span
+                          key={idx}
+                          className="px-2.5 py-1 rounded-full border border-zinc-300 dark:border-zinc-700"
+                        >
+                          {w.username || (w.id ? `User ${w.id}` : "Contributor")}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Actions */}
                   <div className="flex flex-wrap gap-3 justify-end items-center">
                     <button
                       onClick={() => toggleVote(idea.id)}
@@ -467,7 +492,7 @@ export default function Forge() {
                       </button>
                     )}
                   </div>
-                </div>
+                </article>
               );
             })}
           </div>
