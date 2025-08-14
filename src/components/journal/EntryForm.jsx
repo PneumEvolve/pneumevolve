@@ -1,31 +1,30 @@
 import React from "react";
-import { Button } from "@/components/ui/button";
 import { Save } from "lucide-react";
 
 export default function EntryForm({ newEntry, setNewEntry, handleCreate }) {
+  const chars = newEntry.content?.length || 0;
+
   return (
-    <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow mb-6">
+    <div className="card space-y-3">
       <input
         type="text"
         placeholder="Title"
-        className="w-full p-2 mb-2 border rounded"
         value={newEntry.title}
         onChange={(e) => setNewEntry({ ...newEntry, title: e.target.value })}
       />
       <textarea
         rows={6}
-        placeholder="Write your truth..."
-        className="w-full p-2 border rounded"
+        placeholder="Write your truth…"
         value={newEntry.content}
         onChange={(e) => setNewEntry({ ...newEntry, content: e.target.value })}
       />
-      <div className="flex justify-between items-center mt-2">
-        <span className="text-sm text-gray-500">
-          {newEntry.content.length} characters
-        </span>
-        <Button variant="green" onClick={handleCreate}>
-          <Save className="mr-2" /> Save Entry
-        </Button>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <span className="text-sm opacity-70">{chars} characters</span>
+        <button className="btn" onClick={handleCreate}>
+          <span className="inline-flex items-center gap-2">
+            <Save size={16} /> Save Entry
+          </span>
+        </button>
       </div>
     </div>
   );

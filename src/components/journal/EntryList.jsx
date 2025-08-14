@@ -3,9 +3,9 @@ import EntryItem from "./EntryItem";
 
 export default function EntryList({
   entries = [],
-  expandedEntries = {},        // ✅ safeguard
-  visibleInsights = {},        // ✅ safeguard
-  selectedActions = {},        // ✅ safeguard
+  expandedEntries = {},
+  visibleInsights = {},
+  selectedActions = {},
   onExpandToggle,
   onDeleteClick,
   onEditClick,
@@ -17,8 +17,8 @@ export default function EntryList({
 }) {
   if (!entries.length) {
     return (
-      <p className="text-gray-400 italic text-center">
-        You haven’t journaled yet... what’s on your mind?
+      <p className="text-center opacity-70">
+        You haven’t journaled yet… what’s on your mind?
       </p>
     );
   }
@@ -31,7 +31,6 @@ export default function EntryList({
           return null;
         }
 
-        // ⬇️ derive current type + busy flag for this entry
         const type = selectedActions[entry.id] || "";
         const busy = !!(type && insightBusy?.[`${entry.id}:${type}`]);
 
@@ -44,10 +43,10 @@ export default function EntryList({
               (entry.next_action || "")
             }
             entry={entry}
-            expanded={expandedEntries[entry.id]}
+            expanded={!!expandedEntries[entry.id]}
             visibleInsights={visibleInsights[entry.id] || {}}
-            selectedAction={type}         
-            busy={busy}                    
+            selectedAction={type}
+            busy={busy}
             onExpandToggle={onExpandToggle}
             onDeleteClick={onDeleteClick}
             onEditClick={onEditClick}
