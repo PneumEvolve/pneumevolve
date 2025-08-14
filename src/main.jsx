@@ -4,28 +4,21 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import App from "./App";
 import { AuthProvider } from "./context/AuthContext";
 import Layout from "./components/Layout";
-import HomeV2 from "./pneumevolve-v2/pages/Home";
 import ErrorBoundary from "./pneumevolve-v2/components/ErrorBoundary.jsx";
+import Home from "./Pages/Home.jsx";
 import Forge from "./pneumevolve-v2/pages/Forge";
 import ForgeIdeaDetail from "./pneumevolve-v2/pages/ForgeIdeaDetail.jsx"
 import Problems from "./pneumevolve-v2/pages/Problems";
 import ProblemDetail from "./pneumevolve-v2/pages/ProblemDetail.jsx"
-import ArtistsEnclave from "./pneumevolve-v2/pages/ArtistsEnclave";
-import IAm from "./pneumevolve-v2/pages/IAm";
 import Messages from "@/components/dashboard/Messages.jsx"
 import SpotlightArchive from "./Pages/SpotlightArchive.jsx"
 import TokenLedger from "./pneumevolve-v2/pages/TokenLedger";
 import DailyUse from "./pneumevolve-v2/pages/DailyUse";
 import SiteMap from "./Pages/SiteMap";
 
-
-import IntentionalCommunity from "./pneumevolve-v2/pages/IntentionalCommunity.jsx";
-import WelcomePage from "./Pages/WelcomePage";
-import LandingPage from "./Pages/LandingPage";
 import Adventure from "./Pages/onboarding/Adventure.jsx";
 import Build from "./Pages/onboarding/Build.jsx";
 import MyTree from "./Pages/onboarding/MyTree.jsx";
-import Tools from "./Pages/Tools.jsx";
 import Signup from "./Pages/Signup";
 import Login from "./Pages/Login";
 import Account from "./Pages/Account";
@@ -46,7 +39,6 @@ import CreatePost from "./Pages/blog/CreatePost";
 import EditPost from "./Pages/blog/EditPost";
 import CommunityList from "./Pages/CommunityList";
 import Community from "./Pages/Community";
-import MyCommunityPortal from "./Pages/MyCommunityPortal";
 import DreamMachine from "./Pages/DreamMachine";
 import WeDream from "./Pages/WeDream";
 import GardenBlitz from "./Pages/GardenBlitz";
@@ -63,24 +55,13 @@ import WePlan from "./Pages/WePlan";
 import WeGreen from "./Pages/WeGreen";
 import WeHelp from "./Pages/WeHelp";
 import WeDo from "./Pages/WeDo";
-import SheasPage from "./Pages/SheasPage";
-import WeTalk from "./Pages/WeTalk";
-import WeBuild from "./Pages/WeBuild";
 import GardenGame from "./Pages/gardengame/GardenGame.jsx";
 import FarmGame from "./Pages/farmgame/FarmGame.jsx";
-import SheasGame from "./Pages/sheasgame/SheasGame.jsx";
-import LyraHome from "./Pages/Lyra/LyraHome.jsx";
-import LyraSoulInterface from "./Pages/Lyra/LyraSoulInterface.jsx";
-import LyraDashboard from "./Pages/Lyra/LyraDashboard.jsx";
-import FloatingLyraChat from "./components/lyra/FloatingLyraChat";
-import AestheticLab from "./Pages/experiments/AestheticLab.jsx";
 import LivingPlan from "./Pages/LivingPlan";
 import NotesPage from "./Pages/NotesPage";
 import ProblemPage from "./Pages/problemsolving/ProblemPage.jsx";
-import Home from "./Pages/Home.jsx";
-import AaronsPage from "./Pages/AaronsPage";
 
-import PrivateRoute from "./components/PrivateRoute";
+import AaronsPage from "./Pages/AaronsPage";
 import { HelmetProvider } from 'react-helmet-async';
 import "./index.css";
 
@@ -103,28 +84,19 @@ function Root() {
       <HelmetProvider>
       <AuthProvider>
         <BrowserRouter>
-        {/* Comment out  <FloatingLyraChat /> */}
           <Routes>
             <Route path="/" element={<Layout />}>
               {/* Used to have Conditional redirect to MyTree on first visit */}
               <Route index element={<Home />} />
-              <Route path="Tools" element={<Tools />} />
               <Route path="/SiteMap" element={<SiteMap/>} />
-              <Route path="/v2" element={<HomeV2 />} />
               <Route path="Forge" element={<ErrorBoundary><Forge /></ErrorBoundary>} />
               <Route path="/forge/:id" element={<ForgeIdeaDetail />} />
               <Route path="/Problems" element={<Problems />} />
               <Route path="/problems/:id" element={<ProblemDetail />} />
-              <Route path="/ArtistsEnclave" element={<ArtistsEnclave />} />
               <Route path="/Messages" element={<Messages />} />
               <Route path="/spotlightarchive" element={<SpotlightArchive />} />
-              <Route path="/v2/i-am" element={<IAm/>} />
               <Route path="/TokenLedger" element={<TokenLedger/>} />
               <Route path="/DailyUse" element={<DailyUse/>} />
-              <Route path="/v2/we-shape" element={<div>WE SHAPE page coming soon</div>} />
-              <Route path="/v2/we-grow" element={<div>WE GROW page coming soon</div>} />
-              <Route path="welcome" element={<WelcomePage />} />
-              <Route path="LandingPage" element={<LandingPage />} />
               <Route path="Adventure" element={<Adventure />} />
               <Route path="Build" element={<Build />} />
               <Route path="MyTree" element={<MyTree />} />
@@ -148,7 +120,6 @@ function Root() {
               <Route path="blog/:id/edit" element={<EditPost />} />
               <Route path="communities" element={<CommunityList />} />
               <Route path="communities/:communityId" element={<Community />} />
-              <Route path="MyCommunityPortal" element={<MyCommunityPortal />} />
               <Route path="dreammachine" element={<DreamMachine />} />
               <Route path="WeDream" element={<WeDream />} />
               <Route path="GardenBlitz" element={<GardenBlitz />} />
@@ -165,20 +136,11 @@ function Root() {
               <Route path="WeGreen" element={<WeGreen />} />
               <Route path="WeHelp" element={<WeHelp />} />
               <Route path="WeDo" element={<WeDo />} />
-              <Route path="SheasPage" element={<SheasPage />} />
-              <Route path="WeTalk" element={<WeTalk />} />
-              <Route path="WeBuild" element={<WeBuild />} />
               <Route path="GardenGame" element={<GardenGame />} />
               <Route path="FarmGame" element={<FarmGame />} />
-              <Route path="SheasGame" element={<SheasGame />} />
-              <Route path="LyraHome" element={<LyraHome />} />
-              <Route path="LyraSoulInterface" element={<LyraSoulInterface />} />
-              <Route path="LyraDashboard" element={<LyraDashboard />} />
-              <Route path="AestheticLab" element={<AestheticLab />} />
               <Route path="LivingPlan" element={<LivingPlan />} />
               <Route path="/notes/:index" element={<NotesPage />} />
               <Route path="ProblemPage" element={<ProblemPage />} />
-              <Route path="Home" element={<Home />} />
               <Route path="/aaron" element={<AaronsPage />} />
             </Route>
           </Routes>
