@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import axios from "axios";
+import { api } from "@/lib/api";
 import { v4 as uuidv4 } from "uuid";
 import { useAuth } from "@/context/AuthContext";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -35,7 +35,7 @@ export default function SolutionsSection({ problemId }) {
   const fetchList = async () => {
     setLoading(true);
     try {
-      const res = await axios.get(`${API}/problems/${problemId}/solutions`, {
+      const res = await api.get(`/problems/${problemId}/solutions`, {
         params: { sort },
         headers: { "x-user-email": identityEmail },
       });
@@ -62,7 +62,7 @@ export default function SolutionsSection({ problemId }) {
 
     setSubmitting(true);
     try {
-      await axios.post(`${API}/problems/${problemId}/solutions`, {
+      await api.post(`/problems/${problemId}/solutions`, {
         title: title.trim(),
         description: description.trim(),
         anonymous: false,
@@ -80,7 +80,7 @@ export default function SolutionsSection({ problemId }) {
 
   const toggleVote = async (s) => {
     try {
-      await axios.post(`${API}/solutions/${s.id}/vote`, {}, { headers: { "x-user-email": identityEmail } });
+      await api.post(`/solutions/${s.id}/vote`, {}, { headers: { "x-user-email": identityEmail } });
       fetchList();
     } catch (e) { console.error(e); }
   };
@@ -93,7 +93,7 @@ export default function SolutionsSection({ problemId }) {
       return;
     }
     try {
-      await axios.post(`${API}/solutions/${s.id}/follow`, {}, { headers: { "x-user-email": identityEmail } });
+      await api.post(`/solutions/${s.id}/follow`, {}, { headers: { "x-user-email": identityEmail } });
       fetchList();
     } catch (e) {
       console.error(e);

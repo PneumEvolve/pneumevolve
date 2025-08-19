@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import axiosInstance from "../utils/axiosInstance";
+import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "../components/ui/button"; // ✅ Optional: use if you want styling consistency
 
@@ -15,7 +15,7 @@ const ProjectList = () => {
 
   const fetchProjects = async () => {
     try {
-      const res = await axiosInstance.get("/projects");
+      const res = await api.get("/projects");
       setProjects(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
       console.error("[ProjectList] Error loading projects:", err);
@@ -33,7 +33,7 @@ const ProjectList = () => {
 
   const handleCreateAndNavigate = async () => {
     try {
-      const res = await axiosInstance.post("/projects", {
+      const res = await api.post("/projects", {
         name: "New Project",
         description: "",
         links: [],
@@ -50,7 +50,7 @@ const ProjectList = () => {
   const handleDeleteProject = async (id) => {
     if (!window.confirm("Are you sure you want to delete this project?")) return;
     try {
-      await axiosInstance.delete(`/projects/${id}`);
+      await api.delete(`/projects/${id}`);
       setProjects((prev) => prev.filter((p) => p.id !== id));
     } catch (err) {
       console.error("Error deleting project:", err);

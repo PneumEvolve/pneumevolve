@@ -3,8 +3,9 @@ import { Link, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useEffect, useState } from "react";
 import Analytics from "./Analytics";
-import axios from "axios";
+import { api } from "@/lib/api";
 import ThemeToggle from "@/components/ThemeToggle";
+import EnvBadge from "@/components/EnvBadge"; // ⬅️ NEW
 
 const API = import.meta.env.VITE_API_URL;
 
@@ -50,8 +51,8 @@ export default function Layout() {
     checkToken();
     if (isLoggedIn && userEmail) {
       let cancelled = false;
-      axios
-        .get(`${API}/inbox/feed/${encodeURIComponent(userEmail)}`)
+      api
+        .get(`/inbox/feed/${encodeURIComponent(userEmail)}`)
         .then((res) => {
           const data = Array.isArray(res.data) ? res.data : [];
           const unread = data.reduce((acc, m) => acc + (m.read ? 0 : 1), 0);
@@ -176,6 +177,9 @@ export default function Layout() {
           <Outlet />
         </div>
       </main>
+
+      {/* ⬇️ Env badge (hide on chromeless pages like /aaron) */}
+      {!isChromeless && <EnvBadge />}
     </div>
   );
 }

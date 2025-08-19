@@ -1,7 +1,7 @@
 // src/pages/Community.jsx
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import axios from "axios";
+import { api } from "@/lib/api";
 import { useAuth } from "../context/AuthContext";
 
 import CommunityGoals from "../components/communities/CommunityGoals";
@@ -43,7 +43,7 @@ export default function Community() {
 
     const fetchCommunity = async () => {
       try {
-        const res = await axios.get(`${API}/communities/${communityId}`, {
+        const res = await api.get(`/communities/${communityId}`, {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
 
@@ -87,8 +87,8 @@ export default function Community() {
 
   const handleJoinRequest = async () => {
     try {
-      await axios.post(
-        `${API}/communities/${communityId}/join`,
+      await api.post(
+        `/communities/${communityId}/join`,
         {},
         { headers: { Authorization: `Bearer ${accessToken}` } }
       );
@@ -104,8 +104,8 @@ export default function Community() {
 
   const handleSaveCommunityDetails = async () => {
     try {
-      const res = await axios.put(
-        `${API}/communities/${communityId}`,
+      const res = await api.put(
+        `/communities/${communityId}`,
         {
           name: editedName,
           description: editedDescription,

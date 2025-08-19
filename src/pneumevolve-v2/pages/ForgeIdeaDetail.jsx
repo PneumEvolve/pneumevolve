@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import axios from "axios";
+import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -60,7 +60,7 @@ export default function ForgeIdeaDetail() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await axios.get(`${API}/forge/ideas/${id}`);
+        const res = await api.get(`/forge/ideas/${id}`);
         if (cancelled) return;
         setIdea(res.data);
         setNotes(res.data?.notes || "");
@@ -78,8 +78,8 @@ export default function ForgeIdeaDetail() {
     e.preventDefault();
     try {
       setLoading(true);
-      await axios.put(
-        `${API}/forge/ideas/${id}`,
+      await api.put(
+        `/forge/ideas/${id}`,
         { title: idea.title, description: idea.description },
         { headers: { "x-user-email": userEmail } }
       );
@@ -93,8 +93,8 @@ export default function ForgeIdeaDetail() {
 
   const handleSaveNotes = async () => {
     try {
-      const res = await axios.post(
-        `${API}/forge/ideas/${id}/notes`,
+      const res = await api.post(
+        `/forge/ideas/${id}/notes`,
         { content: notes },
         { headers: { "x-user-email": userEmail } }
       );
@@ -112,8 +112,8 @@ export default function ForgeIdeaDetail() {
   const changeStatus = async (next) => {
     if (next === idea.status) return;
     try {
-      await axios.patch(
-        `${API}/forge/ideas/${idea.id}/status`,
+      await api.patch(
+        `/forge/ideas/${idea.id}/status`,
         { status: next },
         { headers: { "x-user-email": userEmail } }
       );
@@ -127,7 +127,7 @@ export default function ForgeIdeaDetail() {
   const confirmDelete = async () => {
     try {
       setDeleting(true);
-      await axios.delete(`${API}/forge/ideas/${idea.id}`, {
+      await api.delete(`/forge/ideas/${idea.id}`, {
         headers: { "x-user-email": userEmail },
       });
       setDeleting(false);

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import axios from "axios";
+import { api } from "@/lib/api";
 import { v4 as uuidv4 } from "uuid";
 import { useAuth } from "@/context/AuthContext";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -47,7 +47,7 @@ export default function Problems() {
   const fetchList = async () => {
     setLoading(true);
     try {
-      const res = await axios.get(`${API}/problems`, {
+      const res = await api.get(`/problems`, {
         params: { q, status, scope, sort, limit: 100 },
         headers: { "x-user-email": identityEmail },
       });
@@ -71,7 +71,7 @@ export default function Problems() {
     if (!t) { setDupes([]); return; }
     const id = setTimeout(async () => {
       try {
-        const res = await axios.get(`${API}/problems`, { params: { near: t, limit: 5 } });
+        const res = await api.get(`/problems`, { params: { near: t, limit: 5 } });
         setDupes(res.data || []);
       } catch {
         setDupes([]);
@@ -93,8 +93,8 @@ export default function Problems() {
     const isAnon = identityEmail.startsWith("anon:");
 
     try {
-      const res = await axios.post(
-        `${API}/problems`,
+      const res = await api.post(
+        `/problems`,
         {
           title: t,
           description: d,
@@ -133,7 +133,7 @@ export default function Problems() {
 
   const toggleVote = async (p) => {
     try {
-      await axios.post(`${API}/problems/${p.id}/vote`, {}, { headers: { "x-user-email": identityEmail } });
+      await api.post(`/problems/${p.id}/vote`, {}, { headers: { "x-user-email": identityEmail } });
       fetchList();
     } catch {/* ignore */}
   };
@@ -150,8 +150,8 @@ export default function Problems() {
   }
 
   try {
-    await axios.post(
-      `${API}/problems/${p.id}/follow`,
+    await api.post(
+      `/problems/${p.id}/follow`,
       {},
       { headers: { "x-user-email": identityEmail } }
     );
@@ -173,7 +173,7 @@ export default function Problems() {
     if (!canDelete(p)) return;
     if (!confirm(`Delete “${p.title}”? This cannot be undone.`)) return;
     try {
-      await axios.delete(`${API}/problems/${p.id}`, { headers: { "x-user-email": identityEmail } });
+      await api.delete(`/problems/${p.id}`, { headers: { "x-user-email": identityEmail } });
       fetchList();
     } catch (e) {
       console.error(e);

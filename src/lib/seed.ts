@@ -1,4 +1,4 @@
-import axios from "axios";
+import { api } from "@/lib/api";
 const API = import.meta.env.VITE_API_URL;
 
 export async function requireSeed(userEmail: string | null | undefined, amount: number, reason: string) {

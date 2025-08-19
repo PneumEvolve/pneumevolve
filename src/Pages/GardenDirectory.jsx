@@ -1,7 +1,7 @@
 // GardenDirectory.jsx
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import axiosInstance from "../utils/axiosInstance";
+import { api } from "@/lib/api";
 
 const GardenDirectory = () => {
   const [gardens, setGardens] = useState([]);
@@ -13,7 +13,7 @@ const GardenDirectory = () => {
   useEffect(() => {
     const fetchGardens = async () => {
   try {
-    const res = await axiosInstance.get("/gardens");
+    const res = await api.get("/gardens");
     setGardens(res.data);
     setLocations(["All", ...new Set(res.data.map((g) => g.location).filter(Boolean))]);
   } catch (err) {

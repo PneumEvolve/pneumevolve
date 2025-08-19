@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from "react";
-import axios from "axios";
+import { api } from "@/lib/api";
 import { useAuth } from "../../context/AuthContext";
 import CollapsibleComponent from "../ui/CollapsibleComponent";
 
-const API = import.meta.env.VITE_API_URL;
 
 export default function ResourceBoard({ communityId, isAdmin }) {
   const { accessToken, userId } = useAuth();
@@ -14,7 +13,7 @@ export default function ResourceBoard({ communityId, isAdmin }) {
 
   const fetchResources = async () => {
     try {
-      const res = await axios.get(`${API}/communities/${communityId}/resources`, {
+      const res = await api.get(`/communities/${communityId}/resources`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       setResources(res.data || []);
@@ -36,8 +35,8 @@ export default function ResourceBoard({ communityId, isAdmin }) {
 
   const handleAddResource = async () => {
     try {
-      const res = await axios.post(
-        `${API}/communities/${communityId}/resources`,
+      const res = await api.post(
+        `/communities/${communityId}/resources`,
         newResource,
         { headers: { Authorization: `Bearer ${accessToken}` } }
       );
@@ -50,7 +49,7 @@ export default function ResourceBoard({ communityId, isAdmin }) {
 
   const handleDelete = async (id) => {
     try {
-      await axios.delete(`${API}/communities/${communityId}/resources/${id}`, {
+      await api.delete(`/communities/${communityId}/resources/${id}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       setResources(resources.filter((r) => r.id !== id));
@@ -61,8 +60,8 @@ export default function ResourceBoard({ communityId, isAdmin }) {
 
   const handleEdit = async (id, updated) => {
     try {
-      const res = await axios.put(
-        `${API}/communities/${communityId}/resources/${id}`,
+      const res = await api.put(
+        `/communities/${communityId}/resources/${id}`,
         updated,
         { headers: { Authorization: `Bearer ${accessToken}` } }
       );

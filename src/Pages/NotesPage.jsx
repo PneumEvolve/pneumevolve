@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import axios from "axios";
+import { api } from "@/lib/api";
 import ReactMarkdown from "react-markdown";
 import MarkdownBoundary from "@/components/MarkdownBoundary";
 
@@ -26,7 +26,7 @@ export default function NotesPage() {
   useEffect(() => {
     const fetchSections = async () => {
       try {
-        const res = await axios.get(`${API}/living-plan`);
+        const res = await api.get(`/living-plan`);
         const plan = res.data;
         setSections(plan);
         if (plan[parseInt(index)]) {
@@ -115,7 +115,7 @@ Return only the updated plan in clean markdown. No explanations.
     updated[i].description = updatedPlan;
     updated[i].notes = updatedPlan;
 
-    await axios.post(`${API}/living-plan`, updated, {
+    await api.post(`/living-plan`, updated, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 

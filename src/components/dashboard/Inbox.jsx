@@ -1,8 +1,6 @@
 // src/components/dashboard/Inbox.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import axios from "axios";
-
-const API = import.meta.env.VITE_API_URL;
+import { api } from "@/lib/api";
 
 const GROUP_ORDER = ["system", "problems", "solutions", "forge", "dm"];
 const GROUP_LABEL = {
@@ -118,7 +116,7 @@ export default function Inbox({ userEmail: userEmailProp, userId, setUnreadCount
 
   const refreshSummaries = async () => {
     if (!userEmail) return;
-    const res = await axios.get(`${API}/conversations/summaries/${encodeURIComponent(userEmail)}`);
+    const res = await api.get(`/conversations/summaries/${encodeURIComponent(userEmail)}`);
     const data = Array.isArray(res.data) ? res.data : [];
     setRows(data);
     broadcastUnread(computeTotalUnread(data));
@@ -185,7 +183,7 @@ export default function Inbox({ userEmail: userEmailProp, userId, setUnreadCount
     (async () => {
       try {
         setLoadingThread(true);
-        const res = await axios.get(`${API}/conversations/${selected.conversation_id}/messages`);
+        const res = await api.get(`/conversations/${selected.conversation_id}/messages`);
         if (cancelled) return;
 
         const msgs = Array.isArray(res.data) ? res.data : [];
@@ -210,7 +208,7 @@ export default function Inbox({ userEmail: userEmailProp, userId, setUnreadCount
         const unreadIds = normalized.filter((m) => !m.read).map((m) => m.id);
         if (unreadIds.length > 0) {
           try {
-            await Promise.all(unreadIds.map((id) => axios.post(`${API}/inbox/read/${id}`)));
+            await Promise.all(unreadIds.map((id) => api.post(`/inbox/read/${id}`)));
             setThread((prev) => prev.map((m) => (unreadIds.includes(m.id) ? { ...m, read: true } : m)));
             setRows((prev) =>
               prev.map((r) =>
@@ -241,8 +239,8 @@ export default function Inbox({ userEmail: userEmailProp, userId, setUnreadCount
     if (!content || !selected?.conversation_id || !userEmail) return;
     setSending(true);
     try {
-      const res = await axios.post(
-        `${API}/conversations/${selected.conversation_id}/send`,
+      const res = await api.post(
+        `/conversations/${selected.conversation_id}/send`,
         { sender_email: userEmail, content }
       );
 
@@ -315,8 +313,8 @@ export default function Inbox({ userEmail: userEmailProp, userId, setUnreadCount
       if (name.startsWith("idea:") || name.startsWith("forge:")) {
         const ideaId = parseInt(name.split(":")[1], 10);
         if (!Number.isNaN(ideaId)) {
-          await axios.post(
-            `${API}/ideas/${ideaId}/conversation/unfollow`,
+          await api.post(
+            `/ideas/${ideaId}/conversation/unfollow`,
             null,
             { params: { user_email: userEmail } }
           );
@@ -327,7 +325,7 @@ export default function Inbox({ userEmail: userEmailProp, userId, setUnreadCount
         alert("You can’t remove your System conversation.");
         return;
       } else {
-        await axios.post(`${API}/conversations/${selected.conversation_id}/leave`, {
+        await api.post(`/conversations/${selected.conversation_id}/leave`, {
           user_email: userEmail,
         });
       }
@@ -348,7 +346,7 @@ export default function Inbox({ userEmail: userEmailProp, userId, setUnreadCount
     if (!window.confirm("Delete this conversation for everyone? This cannot be undone.")) return;
 
     try {
-      await axios.delete(`${API}/conversations/${selected.conversation_id}`, {
+      await api.delete(`/conversations/${selected.conversation_id}`, {
         params: { user_email: userEmail },
       });
       setRows((prev) => prev.filter((r) => r.conversation_id !== selected.conversation_id));

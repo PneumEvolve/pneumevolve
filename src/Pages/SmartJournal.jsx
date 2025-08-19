@@ -4,7 +4,7 @@ import { Button } from "../components/ui/button";
 import { Save, Trash, Wand2, Eye, EyeOff, X } from "lucide-react";
 import axiosInstance from "../utils/axiosInstance";
 import { useAuth } from "@/context/AuthContext"; // ✅ You already use this elsewhere
-import axios from "axios";
+import { api } from "@/lib/api";
 
 
 

@@ -12,10 +12,9 @@ import {
   addDays,
 } from "date-fns";
 import CollapsibleComponent from "../ui/CollapsibleComponent";
-import axios from "axios";
+import { api } from "@/lib/api";
 import { useAuth } from "../../context/AuthContext";
 
-const API = import.meta.env.VITE_API_URL;
 
 export default function UpcomingEvents({ communityId, isAdmin }) {
   const { userId, accessToken } = useAuth();
@@ -40,7 +39,7 @@ export default function UpcomingEvents({ communityId, isAdmin }) {
 
   const fetchEvents = async () => {
     try {
-      const res = await axios.get(`${API}/communities/${communityId}/events`, {
+      const res = await api.get(`/communities/${communityId}/events`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       const grouped = {};
@@ -71,8 +70,8 @@ export default function UpcomingEvents({ communityId, isAdmin }) {
   const addEvent = async () => {
     if (!newEventTitle.trim()) return;
     try {
-      const res = await axios.post(
-        `${API}/communities/${communityId}/events`,
+      const res = await api.post(
+        `/communities/${communityId}/events`,
         {
           title: newEventTitle,
           description: newEventDesc,
@@ -102,8 +101,8 @@ export default function UpcomingEvents({ communityId, isAdmin }) {
 
   const saveEdit = async (eventId) => {
     try {
-      await axios.put(
-        `${API}/communities/${communityId}/events/${eventId}`,
+      await api.put(
+        `/communities/${communityId}/events/${eventId}`,
         {
           title: newEventTitle,
           description: newEventDesc,
@@ -131,7 +130,7 @@ export default function UpcomingEvents({ communityId, isAdmin }) {
 
   const deleteEvent = async (eventId) => {
     try {
-      await axios.delete(`${API}/communities/${communityId}/events/${eventId}`, {
+      await api.delete(`/communities/${communityId}/events/${eventId}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       setEventsByDate((prev) => {

@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from "react";
-import axios from "axios";
+import { api } from "@/lib/api";
 import { useAuth } from "../../context/AuthContext";
-
-const API = import.meta.env.VITE_API_URL;
 
 const CommunityAdminPanel = ({ communityId, currentUserId, creatorId, editMode, setEditMode, isAdmin }) => {
   const [collapsed, setCollapsed] = useState(true);
@@ -19,10 +17,10 @@ const CommunityAdminPanel = ({ communityId, currentUserId, creatorId, editMode, 
     const fetchData = async () => {
       try {
         const [pendingRes, membersRes] = await Promise.all([
-          axios.get(`${API}/communities/${communityId}/join-requests`, {
+          api.get(`/communities/${communityId}/join-requests`, {
             headers: { Authorization: `Bearer ${accessToken}` },
           }),
-          axios.get(`${API}/communities/${communityId}/full-members`, {
+          api.get(`/communities/${communityId}/full-members`, {
             headers: { Authorization: `Bearer ${accessToken}` },
           }),
         ]);
@@ -42,8 +40,8 @@ const CommunityAdminPanel = ({ communityId, currentUserId, creatorId, editMode, 
   }, [communityId, isAdmin, accessToken, collapsed, hasFetched]);
 
   const handleApprove = async (userId) => {
-    await axios.post(
-      `${API}/communities/${communityId}/members/${userId}/approve`,
+    await api.post(
+      `/communities/${communityId}/members/${userId}/approve`,
       {},
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
@@ -53,8 +51,8 @@ const CommunityAdminPanel = ({ communityId, currentUserId, creatorId, editMode, 
   };
 
   const handleReject = async (userId) => {
-    await axios.post(
-      `${API}/communities/${communityId}/members/${userId}/approve?approve=false`,
+    await api.post(
+      `/communities/${communityId}/members/${userId}/approve?approve=false`,
       {},
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
@@ -63,8 +61,8 @@ const CommunityAdminPanel = ({ communityId, currentUserId, creatorId, editMode, 
 
   const handleToggleAdmin = async (userId) => {
     try {
-      const res = await axios.put(
-        `${API}/communities/${communityId}/members/${userId}/toggle-admin`,
+      const res = await api.put(
+        `/communities/${communityId}/members/${userId}/toggle-admin`,
         {},
         { headers: { Authorization: `Bearer ${accessToken}` } }
       );
@@ -79,7 +77,7 @@ const CommunityAdminPanel = ({ communityId, currentUserId, creatorId, editMode, 
   };
 
   const handleRemove = async (userId) => {
-    await axios.delete(`${API}/communities/${communityId}/members/${userId}`, {
+    await api.delete(`/communities/${communityId}/members/${userId}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     setMembers(members.filter((m) => m.user_id !== userId));
@@ -88,7 +86,7 @@ const CommunityAdminPanel = ({ communityId, currentUserId, creatorId, editMode, 
   const handleDeleteCommunity = async () => {
     if (!confirm("Are you sure you want to delete this community?")) return;
 
-    await axios.delete(`${API}/communities/${communityId}`, {
+    await api.delete(`/communities/${communityId}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 

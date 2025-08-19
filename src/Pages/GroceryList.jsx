@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../components/ui/button";
 import { ArrowLeft, Save, Trash, Check, X, Plus } from "lucide-react";
-import axiosInstance from "../utils/axiosInstance";
+import { api } from "@/lib/api";
 import { useAuth } from "../context/AuthContext";
 
 const GroceryList = () => {
@@ -24,7 +24,7 @@ const GroceryList = () => {
 
   const fetchList = async () => {
     try {
-      const res = await axiosInstance.get("/grocery-list/grocery-list");
+      const res = await api.get("/grocery-list/grocery-list");
       setItems(res.data.items);
     } catch (err) {
       console.error("Error fetching grocery list:", err);
@@ -37,7 +37,7 @@ const GroceryList = () => {
   const addItem = async () => {
     if (!newItem.name.trim()) return;
     try {
-      const res = await axiosInstance.post("/grocery-list/grocery-list/item", newItem);
+      const res = await api.post("/grocery-list/grocery-list/item", newItem);
       setItems((prev) => [...prev, res.data.item]);
       setNewItem({ name: "", quantity: 1 });
     } catch (err) {
@@ -48,7 +48,7 @@ const GroceryList = () => {
   const updateItem = async (index, updates) => {
     const item = { ...items[index], ...updates };
     try {
-      await axiosInstance.put(`/grocery-list/grocery-list/item/${item.id}`, item);
+      await api.put(`/grocery-list/grocery-list/item/${item.id}`, item);
       const updated = [...items];
       updated[index] = item;
       setItems(updated);
@@ -60,7 +60,7 @@ const GroceryList = () => {
   const deleteItem = async (index) => {
     const item = items[index];
     try {
-      await axiosInstance.delete(`/grocery-list/grocery-list/item/${item.id}`);
+      await api.delete(`/grocery-list/grocery-list/item/${item.id}`);
       setItems(items.filter((_, i) => i !== index));
     } catch (err) {
       console.error("Error deleting item:", err);
@@ -73,7 +73,7 @@ const GroceryList = () => {
 
   const importToInventory = async () => {
     try {
-      const res = await axiosInstance.post("/grocery-list/grocery-list/import-to-inventory");
+      const res = await api.post("/grocery-list/grocery-list/import-to-inventory");
       alert("✅ " + res.data.message);
       fetchList();
     } catch (err) {
@@ -85,7 +85,7 @@ const GroceryList = () => {
   const clearGroceryList = async () => {
     if (!window.confirm("Are you sure you want to clear the entire grocery list?")) return;
     try {
-      const res = await axiosInstance.delete("/grocery-list/grocery-list/grocery-list/clear");
+      const res = await api.delete("/grocery-list/grocery-list/grocery-list/clear");
       alert(res.data.message);
       setItems([]);
     } catch (err) {

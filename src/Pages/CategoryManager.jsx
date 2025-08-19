@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../components/ui/button";
 import { Trash, ArrowLeft } from "lucide-react";
-import axiosInstance from "../utils/axiosInstance";
+import { api } from "@/lib/api";
 
 const CategoryManager = () => {
   const navigate = useNavigate();
@@ -16,7 +16,7 @@ const CategoryManager = () => {
 
   const fetchCategories = async () => {
     try {
-      const res = await axiosInstance.get("/meal-planning/categories");
+      const res = await api.get("/meal-planning/categories");
 
       const data = res.data;
       const combined = [
@@ -41,7 +41,7 @@ const CategoryManager = () => {
     }
 
     try {
-      await axiosInstance.post("/meal-planning/categories", {
+      await api.post("/meal-planning/categories", {
         categories: [newCategory],
         type: categoryType,
       });
@@ -54,7 +54,7 @@ const CategoryManager = () => {
 
   const deleteCategory = async (categoryId) => {
     try {
-      await axiosInstance.delete(`/meal-planning/categories/${categoryId}`);
+      await api.delete(`/meal-planning/categories/${categoryId}`);
       fetchCategories();
     } catch (error) {
       console.error("Error deleting category:", error);

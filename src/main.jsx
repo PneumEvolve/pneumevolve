@@ -65,6 +65,8 @@ import AaronsPage from "./Pages/AaronsPage";
 import { HelmetProvider } from 'react-helmet-async';
 import "./index.css";
 
+import { API_URL, ENV } from "@/lib/env";
+import { api } from "@/lib/api"
 
 
 
@@ -77,14 +79,20 @@ import "./index.css";
 
 
 function Root() {
-  
+  React.useEffect(() => {
+    // one-shot sanity check
+    api.get("/health")
+      .then(r => console.log("[/health]", r.data))
+      .catch(e => console.warn("[/health ERR]", e?.message));
+  }, []);
 
   return (
     <React.StrictMode>
       <HelmetProvider>
-      <AuthProvider>
+        <AuthProvider>
         <BrowserRouter>
           <Routes>
+            
             <Route path="/" element={<Layout />}>
               {/* Used to have Conditional redirect to MyTree on first visit */}
               <Route index element={<Home />} />
@@ -150,5 +158,6 @@ function Root() {
     </React.StrictMode>
   );
 }
-
+console.log("[ENV]", ENV);
+console.log("[API_URL at runtime]", API_URL);
 ReactDOM.createRoot(document.getElementById("root")).render(<Root />);

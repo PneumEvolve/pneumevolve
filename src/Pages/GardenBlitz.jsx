@@ -29,7 +29,7 @@ const GardenBlitz = () => {
   e.preventDefault();
   setSubmitting(true);
   try {
-    await axiosInstance.post("/gardens", {
+    await api.post("/gardens", {
       type: selectedForm.includes("blitz") ? "Blitz" : "Ongoing",
       host_name: formData.name,
       location: "Vernon, BC",

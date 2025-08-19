@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+// src/Pages/LivingPlan.jsx
+import React, { useState, useEffect, useId } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -10,76 +11,103 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import axios from "axios";
+import { api } from "@/lib/api";
 import ReactMarkdown from "react-markdown";
 
-const API = import.meta.env.VITE_API_URL;
-
+/* ---------- Editable Section ---------- */
 const EditableSection = ({ section, onUpdate, onDelete, index, editable }) => {
   const [open, setOpen] = useState(false);
-  const [title, setTitle] = useState(section.title);
-  const [description, setDescription] = useState(section.description);
+  const [title, setTitle] = useState(section.title ?? "");
+  const [description, setDescription] = useState(section.description ?? "");
   const [tasks, setTasks] = useState(section.tasks || []);
   const [newTask, setNewTask] = useState("");
   const navigate = useNavigate();
+  const panelId = useId();
 
-  // Update parent state whenever local values change
+  // Push edits up
   useEffect(() => {
     onUpdate(index, { ...section, title, description, tasks });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [title, description, tasks]);
 
   const addTask = () => {
-    if (newTask.trim()) {
-      setTasks([...tasks, newTask]);
-      setNewTask("");
-    }
+    const v = newTask.trim();
+    if (!v) return;
+    setTasks((t) => [...t, v]);
+    setNewTask("");
   };
 
   const deleteTask = (taskIndex) => {
-    setTasks(tasks.filter((_, i) => i !== taskIndex));
+    setTasks((t) => t.filter((_, i) => i !== taskIndex));
   };
 
   return (
-    <div className="border rounded-xl shadow bg-white text-gray-800 dark:bg-gray-900 dark:text-white p-4 mb-4">
-      <div className="flex flex-wrap items-center justify-between gap-2 cursor-pointer">
-        <div
-          className="flex items-center gap-2 w-full sm:w-auto min-w-0 flex-grow"
-          onClick={() => setOpen(!open)}
-        >
-          {open ? <ChevronDown /> : <ChevronRight />}
+    <div className="card p-3 sm:p-4">
+      {/* Section header / toggle */}
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-controls={panelId}
+        className="section-bar w-full flex items-center justify-between gap-3 bg-transparent"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          {open ? (
+            <ChevronDown className="shrink-0" />
+          ) : (
+            <ChevronRight className="shrink-0" />
+          )}
           {editable ? (
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="bg-transparent border-b border-gray-400 focus:outline-none w-full text-base sm:text-xl font-semibold"
               placeholder="Section Title"
+              className="w-full bg-transparent border-b border-transparent focus:border-[var(--ring)] focus:outline-none text-base sm:text-lg font-semibold"
             />
           ) : (
-            <span className="text-base sm:text-xl font-semibold truncate">
-              {title || `Untitled Section`}
+            <span className="text-base sm:text-lg font-semibold truncate">
+              {title || "Untitled Section"}
             </span>
           )}
         </div>
-        <div className="flex gap-2 items-center">
-          <StickyNote
-            className="cursor-pointer text-yellow-500"
-            onClick={() => navigate(`/notes/${index}`)}
-            title="Edit Plan"
-          />
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="btn btn-secondary !py-1.5"
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate(`/notes/${index}`);
+            }}
+            title="Open Notes"
+          >
+            <StickyNote className="w-4 h-4 mr-1.5" />
+            Notes
+          </button>
+
           {editable && (
-            <Trash
-              className="text-red-500 cursor-pointer"
-              onClick={() => onDelete(index)}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(index);
+              }}
+              className="btn btn-danger !py-1.5"
               title="Delete Section"
-            />
+            >
+              <Trash className="w-4 h-4 mr-1.5" />
+              Delete
+            </button>
           )}
         </div>
-      </div>
+      </button>
 
+      {/* Collapsible content */}
       {open && (
-        <div className="mt-4 space-y-4">
-          <div className="prose dark:prose-invert max-w-none text-sm sm:text-base">
+        <div id={panelId} className="mt-4 space-y-6">
+          {/* Description (Markdown) */}
+          <div className="prose dark:prose-invert max-w-none text-[0.95rem] leading-relaxed">
             <ReactMarkdown
               components={{
                 h1: ({ node, ...props }) => (
@@ -88,31 +116,31 @@ const EditableSection = ({ section, onUpdate, onDelete, index, editable }) => {
                 h2: ({ node, ...props }) => (
                   <h2 className="text-xl font-semibold mb-2" {...props} />
                 ),
-                p: ({ node, ...props }) => <p className="mb-2" {...props} />,
+                p: ({ node, ...props }) => <p className="mb-3" {...props} />,
                 ul: ({ node, ...props }) => (
-                  <ul className="list-disc ml-6 mb-2" {...props} />
+                  <ul className="list-disc ml-6 mb-3" {...props} />
                 ),
                 ol: ({ node, ...props }) => (
-                  <ol className="list-decimal ml-6 mb-2" {...props} />
+                  <ol className="list-decimal ml-6 mb-3" {...props} />
                 ),
-                li: ({ node, ...props }) => <li className="mb-1" {...props} />,
+                li: ({ node, ...props }) => <li className="mb-1.5" {...props} />,
                 a: ({ node, ...props }) => (
-      <a
-        {...props}
-        className="text-blue-600 underline hover:text-blue-800"
-        target="_blank"
-        rel="noopener noreferrer"
-      />
-    ),
+                  <a
+                    {...props}
+                    className="link-default underline"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  />
+                ),
                 code: ({ node, ...props }) => (
                   <code
-                    className="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded text-sm"
+                    className="bg-gray-100 dark:bg-[#111827] px-1 py-0.5 rounded text-sm"
                     {...props}
                   />
                 ),
                 pre: ({ node, ...props }) => (
                   <pre
-                    className="bg-gray-100 dark:bg-gray-800 p-2 rounded overflow-x-auto text-sm"
+                    className="bg-gray-100 dark:bg-[#111827] p-3 rounded overflow-x-auto text-sm"
                     {...props}
                   />
                 ),
@@ -122,48 +150,56 @@ const EditableSection = ({ section, onUpdate, onDelete, index, editable }) => {
             </ReactMarkdown>
           </div>
 
+          {/* Tasks */}
           <div>
-            <h3 className="text-lg font-medium mb-1 flex items-center gap-2">
+            <h3 className="text-lg font-medium mb-2 flex items-center gap-2">
               <ListTodo className="w-5 h-5" />
               Tasks
             </h3>
 
             {editable && (
-              <div className="flex flex-col sm:flex-row items-stretch gap-2 mb-2">
+              <div className="flex flex-col sm:flex-row items-stretch gap-2 mb-3">
                 <input
                   type="text"
                   value={newTask}
                   onChange={(e) => setNewTask(e.target.value)}
-                  placeholder="New task..."
-                  className="flex-grow p-2 rounded border text-sm sm:text-base"
+                  placeholder="New task…"
+                  className="flex-grow"
                 />
                 <button
                   onClick={addTask}
-                  className="bg-blue-600 text-white px-3 py-2 rounded hover:bg-blue-700 text-sm sm:text-base"
+                  className="btn"
                 >
                   Add
                 </button>
               </div>
             )}
 
-            <ul className="list-disc pl-5 space-y-1 text-sm sm:text-base">
-              {tasks.map((task, i) => (
-                <li
-                  key={i}
-                  className="flex justify-between items-center gap-2"
-                >
-                  <span className="flex-grow">{task}</span>
-                  {editable && (
-                    <button
-                      onClick={() => deleteTask(i)}
-                      className="text-red-500 hover:underline text-sm"
-                    >
-                      Delete
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
+            {tasks.length === 0 ? (
+              <p className="text-sm text-[color:var(--muted)]">
+                No tasks yet.
+                {editable ? " Add your first task above." : ""}
+              </p>
+            ) : (
+              <ul className="space-y-1.5">
+                {tasks.map((task, i) => (
+                  <li
+                    key={i}
+                    className="flex items-center justify-between gap-3 border border-[var(--border)] rounded-lg px-3 py-2"
+                  >
+                    <span className="flex-grow">{task}</span>
+                    {editable && (
+                      <button
+                        onClick={() => deleteTask(i)}
+                        className="btn btn-secondary !py-1.5"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
       )}
@@ -171,122 +207,184 @@ const EditableSection = ({ section, onUpdate, onDelete, index, editable }) => {
   );
 };
 
+/* ---------- Page ---------- */
 export default function LivingPlan() {
   const [sections, setSections] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState("");
   const { userEmail, accessToken } = useAuth();
   const isEditable = userEmail === "sheaklipper@gmail.com";
 
   useEffect(() => {
-  const fetchData = async () => {
-    try {
-      const res = await axios.get(`${API}/living-plan`);
-      const data = res.data;
-
-      // Backfill missing IDs
-      const withIds = data.map(section =>
-        section.id ? section : { ...section, id: crypto.randomUUID() }
-      );
-
-      setSections(withIds);
-
-      
-
-    } catch (err) {
-      console.error("Error fetching living plan:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-  fetchData();
-}, []);
+    const ctrl = new AbortController();
+    (async () => {
+      try {
+        const res = await api.get(`/living-plan`, {
+          signal: ctrl.signal,
+          validateStatus: () => true,
+        });
+        if (res.status !== 200) {
+          throw new Error(`Failed to load living plan (status ${res.status})`);
+        }
+        const data = Array.isArray(res.data) ? res.data : [];
+        // Backfill missing IDs
+        const withIds = data.map((section) =>
+          section.id ? section : { ...section, id: crypto.randomUUID() }
+        );
+        setSections(withIds);
+      } catch (err) {
+        console.error("Error fetching living plan:", err);
+      } finally {
+        setLoading(false);
+      }
+    })();
+    return () => ctrl.abort();
+  }, []);
 
   const saveToBackend = async () => {
     try {
-      await axios.post(`${API}/living-plan`, sections, {
-        headers: { Authorization: `Bearer ${accessToken}` },
+      setSaving(true);
+      setSaveMsg("");
+      const headers = accessToken
+        ? { Authorization: `Bearer ${accessToken}` }
+        : undefined;
+      const res = await api.post(`/living-plan`, sections, {
+        headers,
+        validateStatus: () => true,
       });
-      alert("Saved successfully!");
+      if (res.status !== 200) {
+        throw new Error(`Save failed (status ${res.status})`);
+      }
+      setSaveMsg("Saved successfully!");
+      setTimeout(() => setSaveMsg(""), 2500);
     } catch (err) {
-      alert("Failed to save. Check console for error.");
       console.error(err);
+      setSaveMsg("Failed to save.");
+    } finally {
+      setSaving(false);
     }
   };
 
   const addSection = () => {
-  const newSection = {
-    id: crypto.randomUUID(), // Or Date.now() if you're not using UUID
-    title: "",
-    description: "",
-    tasks: [],
-    notes: ""
+    setSections((s) => [
+      ...s,
+      {
+        id: crypto.randomUUID(),
+        title: "",
+        description: "",
+        tasks: [],
+        notes: "",
+      },
+    ]);
   };
-  setSections([...sections, newSection]);
-};
 
   const updateSection = (index, updated) => {
-    const newSections = [...sections];
-    newSections[index] = updated;
-    setSections(newSections);
+    setSections((s) => {
+      const next = [...s];
+      next[index] = updated;
+      return next;
+    });
   };
 
   const deleteSection = async (indexToDelete) => {
-  const confirm = window.confirm("Are you sure you want to delete this section?");
-  if (!confirm) return;
+    if (!window.confirm("Delete this section?")) return;
+    try {
+      const updated = sections.filter((_, i) => i !== indexToDelete);
+      setSections(updated);
 
-  try {
-    const updated = sections.filter((_, i) => i !== indexToDelete);
-    setSections(updated);
-
-    // ✅ Now sync to backend
-    await axios.post(`${API}/living-plan`, updated, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-
-    alert("Section deleted!");
-  } catch (err) {
-    alert("Failed to delete section.");
-    console.error(err);
-  }
-};
+      const headers = accessToken
+        ? { Authorization: `Bearer ${accessToken}` }
+        : undefined;
+      const res = await api.post(`/living-plan`, updated, {
+        headers,
+        validateStatus: () => true,
+      });
+      if (res.status !== 200) {
+        throw new Error(`Delete sync failed (status ${res.status})`);
+      }
+      setSaveMsg("Section deleted.");
+      setTimeout(() => setSaveMsg(""), 2000);
+    } catch (err) {
+      console.error(err);
+      setSaveMsg("Failed to delete section.");
+    }
+  };
 
   if (loading) {
-    return <p className="text-center text-gray-500">Loading Living Plan...</p>;
+    return (
+      <div className="main py-10 space-y-4">
+        <div className="section-bar flex items-center justify-between">
+          <h1 className="text-2xl font-bold">🌱 The Living Plan</h1>
+          <div className="h-9 w-28 rounded bg-[color:var(--bg)] border border-[color:var(--border)] animate-pulse" />
+        </div>
+        <div className="grid gap-4">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="card h-28 animate-pulse" />
+          ))}
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-10">
-      <h1 className="text-4xl font-bold mb-6 text-center">🌱 The Living Plan</h1>
-
-      <div className="space-y-4">
-        {sections.map((section, index) => (
-          <EditableSection
-            key={section.id}
-            index={index}
-            section={section}
-            onUpdate={updateSection}
-            onDelete={deleteSection}
-            editable={isEditable}
-          />
-        ))}
-
-        {isEditable && (
-          <div className="flex flex-wrap gap-4 mt-6">
-            <button
-              onClick={addSection}
-              className="flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium"
-            >
-              <Plus /> Add Section
-            </button>
-            <button
-              onClick={saveToBackend}
-              className="flex items-center gap-2 text-green-600 hover:text-green-800 font-medium"
-            >
-              <Save /> Save Changes
-            </button>
-          </div>
-        )}
+    <div className="main py-10 space-y-6">
+      {/* Sticky toolbar */}
+      <div className="section-bar sticky top-3 z-10 flex items-center justify-between">
+        <h1 className="text-2xl font-bold">🌱 The Living Plan</h1>
+        <div className="flex items-center gap-2">
+          {isEditable && (
+            <>
+              <button
+                onClick={addSection}
+                className="btn btn-secondary"
+                type="button"
+              >
+                <Plus className="w-4 h-4 mr-1.5" />
+                Add Section
+              </button>
+              <button
+                onClick={saveToBackend}
+                className="btn"
+                type="button"
+                disabled={saving}
+                aria-busy={saving}
+              >
+                <Save className="w-4 h-4 mr-1.5" />
+                {saving ? "Saving…" : "Save Changes"}
+              </button>
+            </>
+          )}
+        </div>
       </div>
+
+      {saveMsg && (
+        <div className="card border border-[color:var(--border)] text-sm">
+          {saveMsg}
+        </div>
+      )}
+
+      {sections.length === 0 ? (
+        <div className="card text-center py-10">
+          <p className="text-[color:var(--muted)]">
+            No sections yet.
+            {isEditable ? " Click “Add Section” to start your plan." : ""}
+          </p>
+        </div>
+      ) : (
+        <div className="grid gap-4">
+          {sections.map((section, index) => (
+            <EditableSection
+              key={section.id}
+              index={index}
+              section={section}
+              onUpdate={updateSection}
+              onDelete={deleteSection}
+              editable={isEditable}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

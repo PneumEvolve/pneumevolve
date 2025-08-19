@@ -4,8 +4,32 @@ import { useNavigate } from "react-router-dom";
 import ReCAPTCHA from "react-google-recaptcha";
 import { useAuth } from "../context/AuthContext";
 
-const API_URL = "https://shea-klipper-backend.onrender.com";
-const RECAPTCHA_SITE_KEY = "6LeICxYrAAAAANn97Wz-rx1oCT9FkKMNQpAya_gv";
+// ---------- Environment-aware config ----------
+const MODE = import.meta.env.MODE; // 'development' or 'production'
+const ENV_API = import.meta.env.VITE_API_URL?.trim();
+const ENV_REQUIRE_CAPTCHA = (import.meta.env.VITE_REQUIRE_RECAPTCHA ?? "auto").toLowerCase();
+const ENV_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY?.trim();
+
+// Default API URL strategy: explicit env first, then smart fallback
+const FALLBACK_API =
+  MODE === "development"
+    ? "http://127.0.0.1:8000"
+    : "https://shea-klipper-backend.onrender.com";
+
+const API_URL = ENV_API || FALLBACK_API;
+
+// reCAPTCHA on/off rules:
+// - If VITE_REQUIRE_RECAPTCHA is 'true'/'false', honor it.
+// - If 'auto', require in production (https backend) and skip in dev.
+const REQUIRE_CAPTCHA =
+  ENV_REQUIRE_CAPTCHA === "true"
+    ? true
+    : ENV_REQUIRE_CAPTCHA === "false"
+    ? false
+    : MODE !== "development";
+
+// Site key (only needed if CAPTCHA is required)
+const RECAPTCHA_SITE_KEY = ENV_SITE_KEY || "6LeICxYrAAAAANn97Wz-rx1oCT9FkKMNQpAya_gv";
 
 export default function Signup() {
   const [email, setEmail] = useState("");
@@ -24,7 +48,7 @@ export default function Signup() {
     if (isLoggedIn) navigate("/");
   }, [isLoggedIn, navigate]);
 
-  // Track <html>.dark to theme reCAPTCHA dynamically
+  // Theme reCAPTCHA
   const [isDark, setIsDark] = useState(() =>
     document.documentElement.classList.contains("dark")
   );
@@ -47,41 +71,53 @@ export default function Signup() {
     if (loading) return;
     setError("");
 
-    if (!email.trim() || !password.trim()) {
+    const emailTrim = email.trim();
+    const passwordTrim = password.trim();
+
+    if (!emailTrim || !passwordTrim) {
       setError("Email and password are required.");
       return;
     }
-    if (!/^\S+@\S+\.\S+$/.test(email.trim())) {
+    if (!/^\S+@\S+\.\S+$/.test(emailTrim)) {
       setError("Please enter a valid email.");
       return;
     }
-    if (password.trim().length < 8) {
+    if (passwordTrim.length < 8) {
       setError("Password must be at least 8 characters.");
       return;
     }
-    if (!captchaToken) {
+    if (REQUIRE_CAPTCHA && !captchaToken) {
       setError("Please verify you are not a robot.");
       return;
     }
 
     try {
       setLoading(true);
+
+      // In dev (or when CAPTCHA is disabled), send a harmless token so the backend
+      // can ignore or accept it (your backend skips captcha in dev anyway).
+      const tokenToSend = REQUIRE_CAPTCHA ? captchaToken : "dev-skip";
+
       const res = await fetch(`${API_URL}/auth/signup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        // Must match your Pydantic model: email, password, recaptcha_token
         body: JSON.stringify({
-          email: email.trim(),
-          password: password.trim(),
-          recaptcha_token: captchaToken,
+          email: emailTrim,
+          password: passwordTrim,
+          recaptcha_token: tokenToSend,
         }),
       });
 
+      // Parse error bodies to show the exact FastAPI detail
       if (!res.ok) {
-        let msg = "Signup failed";
+        let msg = `Signup failed (HTTP ${res.status})`;
         try {
           const data = await res.json();
-          msg = data?.detail || msg;
-        } catch {}
+          msg = data?.detail || data?.message || msg;
+        } catch {
+          // keep default msg
+        }
         throw new Error(msg);
       }
 
@@ -92,6 +128,7 @@ export default function Signup() {
       setError(err.message || "Signup failed.");
       recaptchaRef.current?.reset();
       setCaptchaToken(null);
+    } finally {
       setLoading(false);
     }
   };
@@ -120,9 +157,7 @@ export default function Signup() {
       />
 
       <div className="w-full max-w-md">
-        {/* Card */}
         <div className="card relative overflow-hidden">
-          {/* Subtle top glow */}
           <div
             aria-hidden
             className="absolute inset-x-0 -top-20 h-32"
@@ -203,14 +238,17 @@ export default function Signup() {
               Use a strong passphrase. You can change it later.
             </div>
 
-            <div className="mb-4">
-              <ReCAPTCHA
-                ref={recaptchaRef}
-                sitekey={RECAPTCHA_SITE_KEY}
-                onChange={handleCaptchaChange}
-                theme={captchaTheme}
-              />
-            </div>
+            {/* CAPTCHA only when required */}
+            {REQUIRE_CAPTCHA && (
+              <div className="mb-4">
+                <ReCAPTCHA
+                  ref={recaptchaRef}
+                  sitekey={RECAPTCHA_SITE_KEY}
+                  onChange={handleCaptchaChange}
+                  theme={captchaTheme}
+                />
+              </div>
+            )}
 
             <button
               onClick={handleSignup}
@@ -231,10 +269,17 @@ export default function Signup() {
                 Log in here
               </button>
             </div>
+
+            {/* Small diagnostics in dev */}
+            {MODE === "development" && (
+              <div className="mt-3 text-xs" style={{ color: "var(--muted)" }}>
+                <div>API_URL: {API_URL}</div>
+                <div>Require CAPTCHA: {String(REQUIRE_CAPTCHA)}</div>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Tiny corner indicator (optional) */}
         <div className="theme-indicator mt-4 inline-block">
           Theme: {isDark ? "Dark" : "Light"}
         </div>

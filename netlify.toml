@@ -1,0 +1,24 @@
+[build]
+  command = "npm ci && npm run build"
+  publish = "dist"
+
+
+[context.production.environment]
+  VITE_ENV = "production"
+  VITE_API_URL = "https://shea-klipper-backend.onrender.com"
+  VITE_SUPABASE_URL = "https://marispwfnzezwetzmzdc.supabase.co"
+  VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1hcmlzcHdmbnplendldHptemRjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc3ODI5NzEsImV4cCI6MjA2MzM1ODk3MX0.sAxm9dE_qywNjm62qXQ1W3LdircDY-MeSxe7GYZWbSQ"
+
+
+[context.deploy-preview.environment]
+  VITE_ENV = "staging"
+  VITE_API_URL = "https://shea-klipper-backend.onrender.com"
+  VITE_SUPABASE_URL = "https://marispwfnzezwetzmzdc.supabase.co"
+  VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1hcmlzcHdmbnplendldHptemRjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc3ODI5NzEsImV4cCI6MjA2MzM1ODk3MX0.sAxm9dE_qywNjm62qXQ1W3LdircDY-MeSxe7GYZWbSQ"
+
+
+[context.branch-deploy.environment]
+  VITE_ENV = "staging"
+  VITE_API_URL = "https://shea-klipper-backend.onrender.com"
+  VITE_SUPABASE_URL = "https://marispwfnzezwetzmzdc.supabase.co"
+  VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1hcmlzcHdmbnplendldHptemRjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc3ODI5NzEsImV4cCI6MjA2MzM1ODk3MX0.sAxm9dE_qywNjm62qXQ1W3LdircDY-MeSxe7GYZWbSQ"

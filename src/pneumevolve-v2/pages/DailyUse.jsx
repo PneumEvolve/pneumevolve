@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
-import axiosInstance from "@/utils/axiosInstance";
+import { api } from "@/lib/api"
 import { useNavigate } from "react-router-dom";
 
 export default function DailyUse() {
@@ -16,8 +16,8 @@ export default function DailyUse() {
   try {
     const headers = { "x-user-email": userEmail };
     const [b, d] = await Promise.all([
-      axiosInstance.get("/seed/balance", { headers }),
-      axiosInstance.get("/seed/daily", { headers }),
+      api.get("/seed/balance", { headers }),
+      api.get("/seed/daily", { headers }),
     ]);
     setBalance(b.data?.balance ?? 0);
     setDaily(d.data);

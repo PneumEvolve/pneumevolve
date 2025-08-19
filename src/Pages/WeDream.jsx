@@ -1,10 +1,9 @@
 import React, { useEffect, useState } from "react";
-import axios from "axios";
+import { api } from "@/lib/api";
 import { useAuth } from "../context/AuthContext";
 import { Textarea } from "../components/ui/textarea";
 import { Button } from "../components/ui/button";
 
-const API = import.meta.env.VITE_API_URL;
 
 let saveTimeout;
 
@@ -20,7 +19,7 @@ const WeDream = () => {
       if (!accessToken) return;
 
       try {
-        const res = await axios.get(`${API}/we-dream/active`, {
+        const res = await api.get(`/we-dream/active`, {
           headers: {
             Authorization: `Bearer ${accessToken}`,
           },
@@ -43,8 +42,8 @@ const WeDream = () => {
     setLoading(true);
     setSaveStatus("");
     try {
-      const res = await axios.post(
-        `${API}/we-dream/manifest`,
+      const res = await api.post(
+        `/we-dream/manifest`,
         { text: vision },
         { headers: { "Content-Type": "application/json" } }
       );
@@ -64,8 +63,8 @@ const WeDream = () => {
     }
 
     try {
-      const res = await axios.post(
-        `${API}/we-dream/save`,
+      const res = await api.post(
+        `/we-dream/save`,
         { vision, mantra },
         {
           headers: {
@@ -83,8 +82,8 @@ const WeDream = () => {
 
   const handleClear = async () => {
     try {
-      const res = await axios.post(
-        `${API}/we-dream/clear`,
+      const res = await api.post(
+        `/we-dream/clear`,
         {},
         {
           headers: {

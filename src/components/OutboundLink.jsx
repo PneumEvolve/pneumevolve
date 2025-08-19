@@ -1,5 +1,5 @@
 import React from "react";
-import axios from "axios";
+import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 
 const API = import.meta.env.VITE_API_URL;

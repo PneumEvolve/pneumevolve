@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../components/ui/button";
-import axiosInstance from "../utils/axiosInstance";
+import { api } from "@/lib/api"
 import { useAuth } from "../context/AuthContext";
 
 import {
@@ -49,7 +49,7 @@ const RecipesPage = () => {
 
   const fetchCategories = async () => {
   try {
-    const { data } = await axiosInstance.get("/meal-planning/categories");
+    const { data } = await api.get("/meal-planning/categories");
     setCategories(data.recipes || []);
   } catch (err) {
     if (err.response?.status === 401) {
@@ -68,7 +68,7 @@ const RecipesPage = () => {
         ? "/meal-planning/recipes"
         : `/meal-planning/recipes?category=${encodeURIComponent(selectedCategory)}`;
 
-    const { data } = await axiosInstance.get(endpoint);
+    const { data } = await api.get(endpoint);
     setRecipes(data);
   } catch (error) {
     if (error.response?.status === 401) {
@@ -88,7 +88,7 @@ const RecipesPage = () => {
   setImporting(true);
 
   try {
-    const { data } = await axiosInstance.post("/meal-planning/recipes/import", {
+    const { data } = await api.post("/meal-planning/recipes/import", {
       url: importUrl.trim(),
     });
 
@@ -113,7 +113,7 @@ const RecipesPage = () => {
     return;
   }
   try {
-    await axiosInstance.delete(`/meal-planning/recipes/${recipeId}`);
+    await api.delete(`/meal-planning/recipes/${recipeId}`);
     fetchRecipes(); // Refresh list after deletion
   } catch (error) {
     console.error("Error deleting recipe:", error);
@@ -141,7 +141,7 @@ const RecipesPage = () => {
   }
 
   try {
-    const { data } = await axiosInstance.post("/grocery-list/from-recipes", selectedIds);
+    const { data } = await api.post("/grocery-list/from-recipes", selectedIds);
     alert(data.message || "✅ Items added to your grocery list.");
     navigate("/grocerylist");
   } catch (error) {
@@ -187,7 +187,7 @@ const RecipesPage = () => {
       payload.id = editingRecipe.id;
     }
 
-    await axiosInstance.post("/meal-planning/recipes", payload);
+    await api.post("/meal-planning/recipes", payload);
     await fetchRecipes();
     setEditingRecipe(null);
   } catch (err) {

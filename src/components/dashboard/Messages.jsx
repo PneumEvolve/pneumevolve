@@ -1,6 +1,6 @@
 // Messages.jsx
 import React, { useEffect, useRef, useState } from "react";
-import axios from "axios";
+import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 
 const API = import.meta.env.VITE_API_URL;
@@ -32,8 +32,8 @@ export default function Messages() {
     setLoadingRows(true);
     setError("");
 
-    axios
-      .get(`${API}/conversations/summaries/${encodeURIComponent(userEmail)}`)
+    api
+      .get(`/conversations/summaries/${encodeURIComponent(userEmail)}`)
       .then((res) => {
         if (cancelled) return;
         setRows(Array.isArray(res.data) ? res.data : []);
@@ -52,8 +52,8 @@ export default function Messages() {
     let cancelled = false;
     setLoadingThread(true);
 
-    axios
-      .get(`${API}/conversations/${selected.conversation_id}/messages`)
+    api
+      .get(`/conversations/${selected.conversation_id}/messages`)
       .then((res) => {
         if (cancelled) return;
         const msgs = Array.isArray(res.data) ? res.data : [];
@@ -89,8 +89,8 @@ export default function Messages() {
     if (!content || !selected?.conversation_id || !userEmail) return;
     setSending(true);
     try {
-      const res = await axios.post(
-        `${API}/conversations/${selected.conversation_id}/send`,
+      const res = await api.post(
+        `/conversations/${selected.conversation_id}/send`,
         { sender_email: userEmail, content }
       );
 

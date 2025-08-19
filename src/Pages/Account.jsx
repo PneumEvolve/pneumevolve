@@ -1,7 +1,7 @@
 // src/pages/Account.jsx
 import React, { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import axios from "axios";
+import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import Inbox from "@/components/dashboard/Inbox";
 
@@ -40,8 +40,8 @@ const refreshDaily = async () => {
   try {
     const headers = { "x-user-email": userEmail };
     const [b, d] = await Promise.all([
-      axios.get(`${API}/seed/balance`, { headers }),
-      axios.get(`${API}/seed/daily`, { headers }),
+      api.get(`/seed/balance`, { headers }),
+      api.get(`/seed/daily`, { headers }),
     ]);
     setSeedBalance(b.data?.balance ?? 0);
     setDaily(d.data);
@@ -62,7 +62,7 @@ useEffect(() => { refreshDaily(); /* eslint-disable-next-line */ }, [userEmail])
     const fetchUnread = async () => {
       if (!userId || !userEmail) return;
       try {
-        const res = await axios.get(`${API}/inbox/${encodeURIComponent(userEmail)}`);
+        const res = await api.get(`/inbox/${encodeURIComponent(userEmail)}`);
         const unread = (Array.isArray(res.data) ? res.data : []).filter((m) => !m.read).length;
         setUnreadCount(unread);
       } catch (err) {
@@ -76,7 +76,7 @@ useEffect(() => { refreshDaily(); /* eslint-disable-next-line */ }, [userEmail])
   useEffect(() => {
     const fetchAccount = async () => {
       try {
-        const res = await axios.get(`${API}/auth/account/me`, {
+        const res = await api.get(`/auth/account/me`, {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
         setUsername(res.data.username || "");

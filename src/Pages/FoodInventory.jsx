@@ -4,7 +4,7 @@ import { Button } from "../components/ui/button";
 import { Trash, Edit, ArrowLeft, Save, X, Plus, Minus } from "lucide-react";
 import FindRecipesButton from "../components/FindRecipesButton";
 import { useAuth } from "../context/AuthContext";
-import axiosInstance from "../utils/axiosInstance";
+import { api } from "@/lib/api"
 
 const FoodInventory = () => {
   const navigate = useNavigate();
@@ -24,7 +24,7 @@ const FoodInventory = () => {
 
   const fetchCategories = async () => {
     try {
-      const res = await axiosInstance.get("/meal-planning/categories");
+      const res = await api.get("/meal-planning/categories");
       const data = res.data;
       const combined = [
         { id: "none", name: "No Category", type: "food" },
@@ -40,7 +40,7 @@ const FoodInventory = () => {
 
   const fetchFoodInventory = async () => {
     try {
-      const res = await axiosInstance.get("/meal-planning/food-inventory");
+      const res = await api.get("/meal-planning/food-inventory");
       setFoodInventory(res.data.items || []);
     } catch (error) {
       console.error("Error fetching inventory:", error);
@@ -77,7 +77,7 @@ const FoodInventory = () => {
       desiredQuantity: item.desiredQuantity + desiredDelta,
     };
     try {
-      await axiosInstance.post("/meal-planning/food-inventory", {
+      await api.post("/meal-planning/food-inventory", {
         items: [{ ...updatedItem, categories: updatedItem.categories.map(String) }],
       });
       fetchFoodInventory();
@@ -96,7 +96,7 @@ const FoodInventory = () => {
       categories: newItem.categories.map((c) => String(c.id)),
     };
     try {
-      await axiosInstance.post("/meal-planning/food-inventory", {
+      await api.post("/meal-planning/food-inventory", {
         items: [formattedItem],
       });
       fetchFoodInventory();
@@ -124,7 +124,7 @@ const FoodInventory = () => {
 
   const deleteFoodItem = async (itemId) => {
     try {
-      await axiosInstance.delete(`/meal-planning/food-inventory/${itemId}`);
+      await api.delete(`/meal-planning/food-inventory/${itemId}`);
       fetchFoodInventory();
     } catch (err) {
       console.error("Error deleting item:", err);
@@ -145,7 +145,7 @@ const FoodInventory = () => {
 
   const addToGroceryList = async () => {
     try {
-      const res = await axiosInstance.post("/grocery-list/grocery-list/from-inventory");
+      const res = await api.post("/grocery-list/grocery-list/from-inventory");
       alert(res.data.message);
     } catch (err) {
       console.error("Error adding to grocery list:", err);

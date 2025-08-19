@@ -1,6 +1,6 @@
 // MessageModal.jsx
 import React, { useState, useEffect } from "react";
-import axios from "axios";
+import { api } from "@/lib/api";
 
 export default function MessageModal({
   isOpen,

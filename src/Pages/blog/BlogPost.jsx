@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
-import axiosInstance from "../../utils/axiosInstance";
+import { api } from "@/lib/api";
 import { useAuth } from "../../context/AuthContext";
 
 export default function BlogPost() {
@@ -20,7 +20,7 @@ export default function BlogPost() {
 
   const fetchPost = async () => {
     try {
-      const res = await axiosInstance.get(`/blog/${id}`);
+      const res = await api.get(`/blog/${id}`);
       setPost(res.data);
     } catch (err) {
       console.error("Failed to load post", err);
@@ -29,7 +29,7 @@ export default function BlogPost() {
 
   const fetchComments = async () => {
     try {
-      const res = await axiosInstance.get(`/blog/${id}/comments`);
+      const res = await api.get(`/blog/${id}/comments`);
       setComments(res.data);
     } catch (err) {
       console.error("Failed to load comments", err);
@@ -43,7 +43,7 @@ export default function BlogPost() {
       return;
     }
     try {
-      await axiosInstance.post(
+      await api.post(
         `/blog/comment`,
         { post_id: parseInt(id, 10), content: commentText },
         { headers: { Authorization: `Bearer ${accessToken}` } }
@@ -60,7 +60,7 @@ export default function BlogPost() {
     const confirmed = window.confirm("Delete this post?");
     if (!confirmed) return;
     try {
-      await axiosInstance.delete(`/blog/${id}`, {
+      await api.delete(`/blog/${id}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       alert("Deleted");
@@ -73,7 +73,7 @@ export default function BlogPost() {
 
   const deleteComment = async (commentId) => {
     try {
-      await axiosInstance.delete(`/blog/comment/${commentId}`, {
+      await api.delete(`/blog/comment/${commentId}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       fetchComments();

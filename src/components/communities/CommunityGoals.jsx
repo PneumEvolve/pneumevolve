@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import axios from "axios";
+import { api } from "@/lib/api";
 import { useAuth } from "../../context/AuthContext";
 
 export default function CommunityGoals({ communityId, visible = true }) {
@@ -32,8 +32,8 @@ export default function CommunityGoals({ communityId, visible = true }) {
   useEffect(() => {
     if (!collapsed && !hasFetchedProjects && communityId && accessToken) {
       setLoading(true);
-      axios
-        .get(`${API}/communities/${communityId}/projects`, {
+      api
+        .get(`/communities/${communityId}/projects`, {
           headers: { Authorization: `Bearer ${accessToken}` },
         })
         .then((res) => {
@@ -57,7 +57,7 @@ export default function CommunityGoals({ communityId, visible = true }) {
       for (const projectId of Object.keys(expandedProjects)) {
         if (expandedProjects[projectId] && !tasks[projectId]) {
           try {
-            const res = await axios.get(`${API}/communities/projects/${projectId}/tasks`, {
+            const res = await api.get(`/communities/projects/${projectId}/tasks`, {
               headers: { Authorization: `Bearer ${accessToken}` },
             });
             setTasks((prev) => ({ ...prev, [projectId]: res.data }));
@@ -72,8 +72,8 @@ export default function CommunityGoals({ communityId, visible = true }) {
 
   const handleCreateProject = async () => {
     try {
-      const res = await axios.post(
-        `${API}/communities/${communityId}/projects`,
+      const res = await api.post(
+        `/communities/${communityId}/projects`,
         { title: newProjectTitle, description: newProjectDesc },
         { headers: { Authorization: `Bearer ${accessToken}` } }
       );
@@ -89,8 +89,8 @@ export default function CommunityGoals({ communityId, visible = true }) {
 
   const handleEditProject = async () => {
     try {
-      const res = await axios.put(
-        `${API}/communities/projects/${editProjectId}`,
+      const res = await api.put(
+        `/communities/projects/${editProjectId}`,
         { title: editTitle, description: editDesc },
         { headers: { Authorization: `Bearer ${accessToken}` } }
       );
@@ -109,7 +109,7 @@ export default function CommunityGoals({ communityId, visible = true }) {
 
   const handleDeleteProject = async (projectId) => {
     try {
-      await axios.delete(`${API}/communities/projects/${projectId}`, {
+      await api.delete(`/communities/projects/${projectId}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       setProjects((prev) => prev.filter((p) => p.id !== projectId));
@@ -130,8 +130,8 @@ export default function CommunityGoals({ communityId, visible = true }) {
 
   const handleAssignTask = async (taskId) => {
     try {
-      const res = await axios.put(
-        `${API}/communities/tasks/${taskId}`,
+      const res = await api.put(
+        `/communities/tasks/${taskId}`,
         { assigned_to_user_id: userId },
         { headers: { Authorization: `Bearer ${accessToken}` } }
       );
@@ -149,7 +149,7 @@ export default function CommunityGoals({ communityId, visible = true }) {
 
   const handleDeleteTask = async (taskId) => {
     try {
-      await axios.delete(`${API}/communities/tasks/${taskId}`, {
+      await api.delete(`/communities/tasks/${taskId}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       setTasks((prev) => {
@@ -166,8 +166,8 @@ export default function CommunityGoals({ communityId, visible = true }) {
 
   const toggleTaskCompletion = async (task) => {
     try {
-      const res = await axios.put(
-        `${API}/communities/tasks/${task.id}`,
+      const res = await api.put(
+        `/communities/tasks/${task.id}`,
         { completed: !task.completed,
         completed_by_user_id: !task.completed ? userId : null,
         },
@@ -385,8 +385,8 @@ export default function CommunityGoals({ communityId, visible = true }) {
                       <button
                         onClick={async () => {
                           try {
-                            const res = await axios.post(
-                              `${API}/communities/projects/${project.id}/tasks`,
+                            const res = await api.post(
+                              `/communities/projects/${project.id}/tasks`,
                               { content: newTaskContent[project.id] },
                               {
                                 headers: { Authorization: `Bearer ${accessToken}` },

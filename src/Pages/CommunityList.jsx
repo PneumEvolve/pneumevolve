@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
+import { api } from "@/lib/api";
 import { useAuth } from "../context/AuthContext";
 
-const API = import.meta.env.VITE_API_URL;
 
 const CommunityList = () => {
   const [communities, setCommunities] = useState([]);
@@ -17,7 +16,7 @@ const CommunityList = () => {
 
     const fetchCommunities = async () => {
       try {
-        const res = await axios.get(`${API}/communities/list`, {
+        const res = await api.get(`/communities/list`, {
           headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
         });
 
@@ -54,8 +53,8 @@ const others = data.filter(
     const visibility = "public";
 
     try {
-      const res = await axios.post(
-        `${API}/communities/create`,
+      const res = await api.post(
+        `/communities/create`,
         { name, description, visibility },
         { headers: { Authorization: `Bearer ${accessToken}` } }
       );

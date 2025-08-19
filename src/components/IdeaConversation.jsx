@@ -1,8 +1,7 @@
 // src/components/IdeaConversation.jsx
 import React, { useEffect, useRef, useState } from "react";
-import axios from "axios";
+import { api } from "@/lib/api";
 
-const API = import.meta.env.VITE_API_URL;
 
 export default function IdeaConversation({ ideaId, userEmail }) {
   const [conversationId, setConversationId] = useState(null);
@@ -37,21 +36,21 @@ export default function IdeaConversation({ ideaId, userEmail }) {
         setLoading(true);
 
         // Ensure conversation exists; get id
-        const idRes = await axios.get(`${API}/ideas/${ideaId}/conversation`);
+        const idRes = await api.get(`/ideas/${ideaId}/conversation`);
         if (cancelled) return;
         const cid = idRes?.data?.conversation_id;
         setConversationId(cid);
 
         // Load messages
-        const msgRes = await axios.get(`${API}/ideas/${ideaId}/conversation/messages`);
+        const msgRes = await api.get(`/ideas/${ideaId}/conversation/messages`);
         if (cancelled) return;
         const msgs = Array.isArray(msgRes.data) ? msgRes.data : [];
         setMessages(msgs);
 
         // Check follow state if signed in
         if (userEmail) {
-          const fRes = await axios.get(
-            `${API}/ideas/${ideaId}/conversation/following`,
+          const fRes = await api.get(
+            `/ideas/${ideaId}/conversation/following`,
             { params: { user_email: userEmail } }
           );
           if (cancelled) return;
@@ -76,7 +75,7 @@ export default function IdeaConversation({ ideaId, userEmail }) {
     if (!content || !userEmail) return;
     setSending(true);
     try {
-      const res = await axios.post(`${API}/ideas/${ideaId}/conversation/send`, {
+      const res = await api.post(`/ideas/${ideaId}/conversation/send`, {
         sender_email: userEmail,
         content,
       });
@@ -116,12 +115,12 @@ export default function IdeaConversation({ ideaId, userEmail }) {
     try {
       if (prev) {
         // Unfollow
-        await axios.post(`${API}/ideas/${ideaId}/conversation/unfollow`, null, {
+        await api.post(`/ideas/${ideaId}/conversation/unfollow`, null, {
           params: { user_email: userEmail },
         });
       } else {
         // Follow
-        await axios.post(`${API}/ideas/${ideaId}/conversation/join`, null, {
+        await api.post(`/ideas/${ideaId}/conversation/join`, null, {
           params: { user_email: userEmail },
         });
       }

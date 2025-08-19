@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from "react";
-import axios from "axios";
+import { api } from "@/lib/api";
 import { useAuth } from "../../context/AuthContext";
 
-const API = import.meta.env.VITE_API_URL;
 
 export default function CommunityChat({ communityId }) {
   const { accessToken } = useAuth();
@@ -17,7 +16,7 @@ export default function CommunityChat({ communityId }) {
   const fetchMessages = async () => {
     setLoading(true);
     try {
-      const res = await axios.get(`${API}/communities/${communityId}/chat`, {
+      const res = await api.get(`/communities/${communityId}/chat`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       setMessages(res.data);
@@ -38,8 +37,8 @@ export default function CommunityChat({ communityId }) {
     if (!newMessage.trim()) return;
     setSubmitting(true);
     try {
-      const res = await axios.post(
-        `${API}/communities/${communityId}/chat`,
+      const res = await api.post(
+        `/communities/${communityId}/chat`,
         { content: newMessage },
         {
           headers: { Authorization: `Bearer ${accessToken}` },
@@ -56,7 +55,7 @@ export default function CommunityChat({ communityId }) {
 
   const deleteMessage = async (messageId) => {
     try {
-      await axios.delete(`${API}/communities/${communityId}/chat/${messageId}`, {
+      await api.delete(`/communities/${communityId}/chat/${messageId}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       setMessages(messages.filter((msg) => msg.id !== messageId));

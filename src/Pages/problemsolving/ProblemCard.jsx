@@ -1,5 +1,5 @@
 import React from "react";
-import axios from "axios";
+import { api } from "@/lib/api";
 
 export default function ProblemCard({ problem, onVote }) {
   const handleVote = async () => {

@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import axios from "axios";
+import { api } from "@/lib/api"
 
 const API = import.meta.env.VITE_API_URL;
 
@@ -14,8 +14,8 @@ export default function HomePageSimple() {
     (async () => {
       try {
         const [ideasRes, probsRes] = await Promise.all([
-          axios.get(`${API}/forge/ideas`, { params: { limit: 3 } }),
-          axios.get(`${API}/problems`, { params: { sort: "new", limit: 3 } }),
+          api.get(`/forge/ideas`, { params: { limit: 3 } }),
+          api.get(`/problems`, { params: { sort: "new", limit: 3 } }),
         ]);
         const ideas = ideasRes.data.map((i) => ({
           type: "idea", id: i.id, title: i.title, href: `/forge/${i.id}`

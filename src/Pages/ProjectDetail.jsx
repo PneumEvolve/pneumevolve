@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
-import axiosInstance from "../utils/axiosInstance";
+import { api } from "@/lib/api";
 
 
 const ProjectDetail = () => {
@@ -17,7 +17,7 @@ const ProjectDetail = () => {
     const queryParams = new URLSearchParams(location.search);
     setEditMode(queryParams.get("edit") === "true");
 
-    axiosInstance
+    api
   .get(`/projects/${id}`)
   .then((res) => {
     const data = res.data;
@@ -28,7 +28,7 @@ const ProjectDetail = () => {
   }, [id, location.search]);
 
   const handleAddTask = () => {
-    axiosInstance
+    api
   .post(`/projects/${id}/tasks`, { content: newTask })
   .then((res) => {
     const newTaskObj = res.data;
@@ -45,7 +45,7 @@ const ProjectDetail = () => {
   const task = project.tasks.find((t) => t.id === taskId);
   if (!task) return;
 
-  axiosInstance
+  api
   .put(`/projects/tasks/${taskId}`, {
     content: task.content,
     completed: !completed,
@@ -62,7 +62,7 @@ const ProjectDetail = () => {
 };
 
   const deleteTask = (taskId) => {
-    axiosInstance
+    api
   .delete(`/projects/tasks/${taskId}`)
   .then(() => {
     setProject((prev) => ({
@@ -74,7 +74,7 @@ const ProjectDetail = () => {
   };
 
   const handleSaveProject = () => {
-    axiosInstance
+    api
   .put(`/projects/${id}`, editedProject)
   .then((res) => {
     const updated = res.data;

@@ -1,9 +1,8 @@
 // src/components/community/ComponentOrderManager.jsx
 import React, { useState } from "react";
-import axios from "axios";
+import { api } from "@/lib/api";
 import { useAuth } from "../../context/AuthContext";
 
-const API = import.meta.env.VITE_API_URL;
 
 const defaultOrder = [
   "goals",
@@ -39,7 +38,7 @@ console.log("ComponentManager rendering with order:", order);
 
   const handleSave = async () => {
     try {
-      await axios.put(`${API}/communities/${communityId}/layout`, {
+      await api.put(`/communities/${communityId}/layout`, {
   layout_config: order, // not component_order
 }, {
   headers: { Authorization: `Bearer ${accessToken}` }

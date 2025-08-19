@@ -5,7 +5,7 @@ import EntryList from "@/components/journal/EntryList";
 import LoginPrompt from "@/components/journal/LoginPrompt";
 import Modal from "@/components/journal/Modal";
 import { useAuth } from "@/context/AuthContext";
-import axiosInstance from "@/utils/axiosInstance";
+import { api } from "@/lib/api";
 import { requireSeed } from "@/lib/seed";
 
 const INSIGHT_COST = {
@@ -48,14 +48,31 @@ export default function Journal() {
   };
 
   const fetchEntries = async () => {
-    try {
-      const res = await axiosInstance.get("/journal");
-      setEntries(res.data);
-    } catch (err) {
-      console.error("Failed to fetch journal entries:", err);
-      setShowLoginModal(true);
+  try {
+    const res = await api.get("/journal", {
+      // let us inspect non-200s instead of throwing
+      validateStatus: () => true,
+    });
+    console.log("[/journal] status:", res.status, "data:", res.data);
+
+    if (res.status === 200) {
+      const data =
+        Array.isArray(res.data)
+          ? res.data
+          : res.data?.entries || res.data?.items || [];
+      setEntries(data);
+      return;
     }
-  };
+    if (res.status === 401) {
+      setShowLoginModal(true);
+      return;
+    }
+    console.warn("Unexpected status from /journal:", res.status, res.data);
+  } catch (err) {
+    console.error("Failed to fetch journal entries:", err);
+    setShowLoginModal(true);
+  }
+};
 
   useEffect(() => {
     fetchEntries();
@@ -66,13 +83,13 @@ export default function Journal() {
 
     try {
       // 1) Save the entry
-      const res = await axiosInstance.post("/journal", newEntry);
+      const res = await api.post("/journal", newEntry);
       setEntries((prev) => [res.data, ...prev]);
       setNewEntry({ title: "", content: "" });
 
       // 2) Try to claim daily reward (+5 once per UTC day)
       try {
-        const r = await axiosInstance.post(
+        const r = await api.post(
           "/seed/reward/journal",
           {},
           { headers: { "x-user-email": userEmail } }
@@ -96,7 +113,7 @@ export default function Journal() {
 
   const handleEditSave = async (entryId) => {
     try {
-      const res = await axiosInstance.put(`/journal/${entryId}`, {
+      const res = await api.put(`/journal/${entryId}`, {
         title: editedTitle,
         content: editedContent,
       });
@@ -110,7 +127,7 @@ export default function Journal() {
 
   const confirmDeleteEntry = async (id) => {
     try {
-      await axiosInstance.delete(`/journal/${id}`);
+      await api.delete(`/journal/${id}`);
       setEntries((prev) => prev.filter((e) => e.id !== id));
     } catch (err) {
       console.error("Failed to delete entry:", err);
@@ -119,7 +136,7 @@ export default function Journal() {
 
   const deleteInsightFromState = async (id, type) => {
     try {
-      await axiosInstance.delete(`/journal/${id}/insight/${type}`);
+      await api.delete(`/journal/${id}/insight/${type}`);
       setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, [type]: null } : e)));
     } catch (err) {
       console.error("Failed to delete insight:", err);
@@ -142,12 +159,12 @@ export default function Journal() {
       await requireSeed(userEmail, cost, `INSIGHT_${backendType.toUpperCase()}`);
 
       // 2) Kick off generation
-      await axiosInstance.post(`/journal/${backendType}/${entry.id}`);
+      await api.post(`/journal/${backendType}/${entry.id}`);
 
       // 3) Poll for completion
       const pollForInsight = async (retries = 10) => {
         try {
-          const res = await axiosInstance.get("/journal");
+          const res = await api.get("/journal");
           const updatedEntry = res.data.find((e) => e.id === entry.id);
 
           if (updatedEntry && updatedEntry[type]?.trim()) {

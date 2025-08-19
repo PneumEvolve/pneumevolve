@@ -1,5 +1,5 @@
 import { useState } from "react";
-import axiosInstance from "../../utils/axiosInstance";
+import { api } from "@/lib/api";
 import { useAuth } from "../../context/AuthContext";
 
 export default function CreatePost() {
@@ -17,7 +17,7 @@ export default function CreatePost() {
     }
 
     try {
-      await axiosInstance.post(
+      await api.post(
         "/blog",
         { title, content },
         {

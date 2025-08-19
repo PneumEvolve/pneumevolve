@@ -1,9 +1,8 @@
 // src/components/community/MemberList.jsx
 import React, { useState } from "react";
-import axios from "axios";
+import { api } from "@/lib/api";
 import { useAuth } from "../../context/AuthContext";
 
-const API = import.meta.env.VITE_API_URL;
 
 export default function MemberList({ communityId }) {
   const { accessToken } = useAuth();
@@ -21,7 +20,7 @@ export default function MemberList({ communityId }) {
 
     try {
       setLoading(true);
-      const res = await axios.get(`${API}/communities/${communityId}/full-members`, {
+      const res = await api.get(`/communities/${communityId}/full-members`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       setUsers(res.data || []);

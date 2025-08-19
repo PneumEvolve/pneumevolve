@@ -141,7 +141,7 @@ const tilesCommunity = () => [
   },
   {
     title: "Messages",
-    to: "/inbox",
+    to: "/account#inbox",
     description: "Updates and conversations.",
     icon: MessageSquare,
     status: "Inbox",

@@ -1,6 +1,6 @@
 // src/pages/LyraSoulInterface.jsx
 import React, { useEffect, useState } from "react";
-import axios from "axios";
+import { api } from "@/lib/api";
 import { motion } from "framer-motion";
 
 export default function LyraSoulInterface() {

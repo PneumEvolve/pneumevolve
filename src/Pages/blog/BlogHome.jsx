@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import axios from "axios";
+import { api } from "@/lib/api";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 export default function BlogHome() {
   const [posts, setPosts] = useState([]);
@@ -10,20 +9,57 @@ export default function BlogHome() {
   const [error, setError] = useState("");
 
   const fetchPosts = async (signal) => {
-    try {
-      setError("");
-      setLoading(true);
-      const res = await axios.get(`${API}/blog`, { signal });
-      setPosts(Array.isArray(res.data) ? res.data : []);
-    } catch (err) {
-      if (axios.isCancel?.(err)) return;
-      console.error("Error fetching blog posts", err);
-      setError("Failed to load blog posts.");
-      setPosts([]);
-    } finally {
-      setLoading(false);
+  try {
+    setError("");
+    setLoading(true);
+
+    // validateStatus lets us inspect 401/307 instead of throwing
+    const res = await api.get("/blog", {
+      signal,
+      validateStatus: () => true,
+    });
+
+    console.log("[GET /blog]", res.status, res.data);
+
+    if (res.status === 200) {
+      const data = Array.isArray(res.data)
+        ? res.data
+        : res.data?.items ?? res.data?.entries ?? [];
+      setPosts(data);
+      return;
     }
-  };
+
+    if (res.status === 307) {
+      // FastAPI may redirect /blog -> /blog/; try the slash variant
+      const r2 = await api.get("/blog/", { signal, validateStatus: () => true });
+      if (r2.status === 200) {
+        setPosts(Array.isArray(r2.data) ? r2.data : r2.data?.items ?? []);
+        return;
+      }
+      setError(`Blog redirect failed: ${r2.status}`);
+      setPosts([]);
+      return;
+    }
+
+    if (res.status === 401) {
+      setError("You need to sign in to view blog posts.");
+      setShowLoginModal?.(true);
+      setPosts([]);
+      return;
+    }
+
+    setError(`Failed to load blog posts (status ${res.status}).`);
+    setPosts([]);
+  } catch (err) {
+    // Robust cancel detection without importing axios
+    if (err?.code === "ERR_CANCELED" || err?.name === "CanceledError") return;
+    console.error("Error fetching blog posts", err);
+    setError("Failed to load blog posts.");
+    setPosts([]);
+  } finally {
+    setLoading(false);
+  }
+};
 
   useEffect(() => {
     const controller = new AbortController();

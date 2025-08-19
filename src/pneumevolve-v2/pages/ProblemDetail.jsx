@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import axios from "axios";
+import { api } from "@/lib/api";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
 import { useAuth } from "@/context/AuthContext";
@@ -43,13 +43,13 @@ export default function ProblemDetail() {
     setLoading(true);
     setError("");
     try {
-      const res = await axios.get(`${API}/problems/${id}`, {
+      const res = await api.get(`/problems/${id}`, {
         headers: { "x-user-email": identityEmail },
       });
       setP(res.data);
       if (res.data?.conversation_id) {
-  const m = await axios.get(
-    `${API}/conversations/${res.data.conversation_id}/messages`,
+  const m = await api.get(
+    `/conversations/${res.data.conversation_id}/messages`,
     { headers: { "x-user-email": identityEmail } }   // <-- add this
   );
   setMsgs(Array.isArray(m.data) ? m.data : []);
@@ -87,8 +87,8 @@ export default function ProblemDetail() {
     };
     setP(next);
     try {
-      await axios.post(
-        `${API}/problems/${p.id}/vote`,
+      await api.post(
+        `/problems/${p.id}/vote`,
         {},
         { headers: { "x-user-email": identityEmail } }
       );
@@ -115,8 +115,8 @@ export default function ProblemDetail() {
     };
     setP(next);
     try {
-      await axios.post(
-        `${API}/problems/${p.id}/follow`,
+      await api.post(
+        `/problems/${p.id}/follow`,
         {},
         { headers: { "x-user-email": identityEmail } }
       );
@@ -138,8 +138,8 @@ export default function ProblemDetail() {
     if (!body || !p?.conversation_id || !userEmail) return;
     setSending(true);
     try {
-      const res = await axios.post(
-        `${API}/conversations/${p.conversation_id}/send`,
+      const res = await api.post(
+        `/conversations/${p.conversation_id}/send`,
         {
           sender_email: userEmail, // only logged-in appears named
           content: body,

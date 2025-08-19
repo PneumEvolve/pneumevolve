@@ -1,6 +1,6 @@
 // src/pages/Forge.jsx
 import React, { useEffect, useMemo, useState } from "react";
-import axios from "axios";
+import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
@@ -62,7 +62,7 @@ export default function Forge() {
     setLoading(true);
     setLoadError("");
     try {
-      const res = await axios.get(`${API}/forge/ideas`, {
+      const res = await api.get(`/forge/ideas`, {
         params: { limit: 100 },
         headers: { "x-user-email": identityEmail },
       });
@@ -191,8 +191,8 @@ export default function Forge() {
     if (!title || !description) return alert("Please provide a title and description.");
     try {
       setSubmitting(true);
-      await axios.post(
-        `${API}/forge/ideas`,
+      await api.post(
+        `/forge/ideas`,
         { title, description },
         { headers: { "x-user-email": userEmail } }
       );
@@ -229,7 +229,7 @@ export default function Forge() {
     try {
       const headers = { "x-user-email": identityEmail };
       if (userEmail) headers.Authorization = `Bearer ${accessToken}`;
-      await axios.post(`${API}/forge/ideas/${id}/vote`, {}, { headers });
+      await api.post(`/forge/ideas/${id}/vote`, {}, { headers });
       fetchIdeas();
     } catch (e) {
       console.error("Vote failed", e);
@@ -245,8 +245,8 @@ export default function Forge() {
   const join = async (id) => {
     if (!userEmail) return alert("Please log in to join.");
     try {
-      await axios.post(
-        `${API}/forge/ideas/${id}/join`,
+      await api.post(
+        `/forge/ideas/${id}/join`,
         {},
         { headers: { Authorization: `Bearer ${accessToken}`, "x-user-email": userEmail } }
       );
@@ -259,8 +259,8 @@ export default function Forge() {
 
   const quit = async (id) => {
     try {
-      await axios.post(
-        `${API}/forge/ideas/${id}/remove-worker`,
+      await api.post(
+        `/forge/ideas/${id}/remove-worker`,
         {},
         { headers: { "x-user-email": userEmail } }
       );

@@ -1,6 +1,6 @@
 // src/Pages/farmgame/FarmGame.jsx
 import React, { useEffect, useRef, useState } from "react";
-import axios from "axios";
+import { api } from "@/lib/api";
 import {
   createGameState,
   performAction,
@@ -15,7 +15,6 @@ import SelectionToolbar from "./components/SelectionToolbar";
 import { useAuth } from "../../context/AuthContext";
 import { Button } from "../../components/ui/button.jsx"
 
-const API = import.meta.env.VITE_API_URL;
 
 function getSavedGameFromLocalStorage() {
   const saved = localStorage.getItem("farmgame_save");
@@ -155,7 +154,7 @@ const showWarning = (message) => {
   const loadGame = async () => {
     if (accessToken && userId) {
       try {
-        const res = await axios.get(`${API}/farmgame/state`, {
+        const res = await api.get(`/farmgame/state`, {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
 
@@ -317,8 +316,8 @@ try {
 
     const saveGame = async () => {
       try {
-        await axios.post(
-          `${API}/farmgame/state`,
+        await api.post(
+          `/farmgame/state`,
           { data: JSON.stringify({ ...game, elapsedTime, farmer }) },
           { headers: { Authorization: `Bearer ${accessToken}` } }
         );

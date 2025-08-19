@@ -1,7 +1,7 @@
 // GardenDetails.jsx
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import axiosInstance from "../utils/axiosInstance";
+import { api } from "@/lib/api";
 
 
 
@@ -18,7 +18,7 @@ const GardenDetails = () => {
   useEffect(() => {
     const fetchGarden = async () => {
   try {
-    const res = await axiosInstance.get(`/gardens/${id}`);
+    const res = await api.get(`/gardens/${id}`);
     setGarden(res.data);
   } catch (err) {
     console.error("Garden fetch error", err);
@@ -27,7 +27,7 @@ const GardenDetails = () => {
 
     const fetchRequests = async () => {
       try {
-        const res = await axiosInstance.get(`/volunteers/requests/${id}`);
+        const res = await api.get(`/volunteers/requests/${id}`);
         setRequests(res.data);
       } catch (err) {
         console.error("Error fetching requests", err);
@@ -42,7 +42,7 @@ const GardenDetails = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      await axiosInstance.post(`/volunteers/request`, {
+      await api.post(`/volunteers/request`, {
   garden_id: parseInt(id),
   volunteer_name: volunteerName,
   volunteer_email: volunteerEmail,
@@ -62,7 +62,7 @@ const GardenDetails = () => {
     return;
   }
   try {
-    await axiosInstance.patch(`/volunteers/approve/${requestId}`, { status });
+    await api.patch(`/volunteers/approve/${requestId}`, { status });
     setRequests((prev) =>
       prev.map((r) => (r.id === requestId ? { ...r, status } : r))
     );

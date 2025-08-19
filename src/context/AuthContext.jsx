@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from "react";
-import axios from "axios";
+import { api } from "@/lib/api";
 
 const AuthContext = createContext();
 
@@ -44,8 +44,8 @@ export function AuthProvider({ children }) {
 
   const refreshAccessToken = async () => {
   try {
-    const res = await axios.post(
-      `${import.meta.env.VITE_API_URL}/auth/refresh`,
+    const res = await api.post(
+      `/auth/refresh`,
       {}, // no body
       { withCredentials: true } // allow cookies to be sent
     );
@@ -61,7 +61,7 @@ export function AuthProvider({ children }) {
 
   const fetchUserProfile = async (token) => {
     try {
-      const res = await axios.get(`${import.meta.env.VITE_API_URL}/auth/account/me`, {
+      const res = await api.get(`/auth/account/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setUserProfile(res.data); // ✅ Store full profile

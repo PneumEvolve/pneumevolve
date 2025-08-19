@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import axiosInstance from "../utils/axiosInstance";
+import { api } from "@/lib/api"
 import { jwtDecode } from "jwt-decode";
 
 export default function Login() {
@@ -54,7 +54,7 @@ export default function Login() {
       formData.append("client_id", "");
       formData.append("client_secret", "");
 
-      const response = await axiosInstance.post("/auth/login", formData, {
+      const response = await api.post("/auth/login", formData, {
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         withCredentials: true,
       });
