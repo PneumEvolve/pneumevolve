@@ -4,8 +4,9 @@ import { useAuth } from "../context/AuthContext";
 import { useEffect, useState } from "react";
 import Analytics from "./Analytics";
 import { api } from "@/lib/api";
-import ThemeToggle from "@/components/ThemeToggle";
+import ThemeToggle from "./ThemeToggle";
 import EnvBadge from "@/components/EnvBadge"; // ⬅️ NEW
+import CookieConsent from "@/components/CookieConsent"; // ⬅️ ADDED
 
 const API = import.meta.env.VITE_API_URL;
 
@@ -180,6 +181,9 @@ export default function Layout() {
 
       {/* ⬇️ Env badge (hide on chromeless pages like /aaron) */}
       {!isChromeless && <EnvBadge />}
+
+      {/* ⬇️ Cookie consent banner (fixed at bottom, loads on every page) */}
+      <CookieConsent />
     </div>
   );
 }

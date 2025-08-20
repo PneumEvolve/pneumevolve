@@ -68,6 +68,10 @@ import "./index.css";
 import { API_URL, ENV } from "@/lib/env";
 import { api } from "@/lib/api"
 
+import PrivacyPolicy from "./legal/PrivacyPolicy";
+import Terms from "./legal/Terms";
+import CookiePolicy from "./legal/CookiePolicy";
+
 
 
 
@@ -142,14 +146,17 @@ function Root() {
               <Route path="WeLearn" element={<WeLearn />} />
               <Route path="WePlan" element={<WePlan />} />
               <Route path="WeGreen" element={<WeGreen />} />
-              <Route path="WeHelp" element={<WeHelp />} />
-              <Route path="WeDo" element={<WeDo />} />
-              <Route path="GardenGame" element={<GardenGame />} />
-              <Route path="FarmGame" element={<FarmGame />} />
-              <Route path="LivingPlan" element={<LivingPlan />} />
+              <Route path="/we-help" element={<WeHelp />} />
+              <Route path="/we-do" element={<WeDo />} />
+              <Route path="/garden-game" element={<GardenGame />} />
+              <Route path="/farm-game" element={<FarmGame />} />
+              <Route path="/living-plan" element={<LivingPlan />} />
               <Route path="/notes/:index" element={<NotesPage />} />
-              <Route path="ProblemPage" element={<ProblemPage />} />
+              <Route path="/problem-page" element={<ProblemPage />} />
               <Route path="/aaron" element={<AaronsPage />} />
+              <Route path="/privacy" element={<PrivacyPolicy />} />
+              <Route path="/terms" element={<Terms />} />
+              <Route path="/cookies" element={<CookiePolicy />} />
             </Route>
           </Routes>
         </BrowserRouter>
