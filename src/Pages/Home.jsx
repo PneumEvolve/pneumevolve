@@ -4,7 +4,6 @@ import { Link } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api"
 
-const API = import.meta.env.VITE_API_URL;
 
 export default function HomePageSimple() {
   const { isLoggedIn } = useAuth();
@@ -68,11 +67,6 @@ export default function HomePageSimple() {
           ))}
         </ul>
       </section>
-
-      {/* Footer */}
-      <footer className="pt-10 text-sm text-gray-500 dark:text-gray-400">
-        © {new Date().getFullYear()} PneumEvolve
-      </footer>
     </main>
   );
 }

@@ -131,7 +131,7 @@ const WeDream = () => {
         </a>
 
         <a
-          href="/dreammachine"
+          href="/dream-machine"
           className="text-blue-600 dark:text-blue-400 underline hover:text-blue-800 transition"
         >
           🔮 View Latest Dream Machine Summary
@@ -141,10 +141,10 @@ const WeDream = () => {
       <p className="text-sm text-center text-gray-500 dark:text-gray-400 mt-2">
         ✍️ If you just want to write, we also provide a {" "}
         <a
-          href="/smartjournal"
+          href="/journal"
           className="underline text-blue-600 dark:text-blue-400 hover:text-blue-800 transition"
         >
-          Smart Journal
+          Journal
         </a>{" "}
         with built-in mantra reflection.
       </p>

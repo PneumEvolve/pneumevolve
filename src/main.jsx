@@ -101,51 +101,51 @@ function Root() {
               {/* Used to have Conditional redirect to MyTree on first visit */}
               <Route index element={<Home />} />
               <Route path="/SiteMap" element={<SiteMap/>} />
-              <Route path="Forge" element={<ErrorBoundary><Forge /></ErrorBoundary>} />
+              <Route path="/forge" element={<ErrorBoundary><Forge /></ErrorBoundary>} />
               <Route path="/forge/:id" element={<ForgeIdeaDetail />} />
-              <Route path="/Problems" element={<Problems />} />
+              <Route path="/problems" element={<Problems />} />
               <Route path="/problems/:id" element={<ProblemDetail />} />
-              <Route path="/Messages" element={<Messages />} />
-              <Route path="/spotlightarchive" element={<SpotlightArchive />} />
-              <Route path="/TokenLedger" element={<TokenLedger/>} />
-              <Route path="/DailyUse" element={<DailyUse/>} />
-              <Route path="Adventure" element={<Adventure />} />
-              <Route path="Build" element={<Build />} />
-              <Route path="MyTree" element={<MyTree />} />
-              <Route path="signup" element={<Signup />} />
-              <Route path="login" element={<Login />} />
-              <Route path="Account" element={<Account />} />
-              <Route path="ForgotPassword" element={<ForgotPassword />} />
-              <Route path="ResetPassword" element={<ResetPassword />} />
-              <Route path="smartjournal" element={<SmartJournal />} />
-              <Route path="journal" element={<Journal />} />
-              <Route path="MealPlanning" element={<MealPlanning />} />
-              <Route path="CategoryManager" element={<CategoryManager />} />
-              <Route path="FoodInventory" element={<FoodInventory />} />
-              <Route path="Recipes" element={<Recipes />} />
-              <Route path="GroceryList" element={<GroceryList />} />
-              <Route path="projects" element={<ProjectList />} />
-              <Route path="projects/:id" element={<ProjectDetail />} />
-              <Route path="blog" element={<BlogHome />} />
-              <Route path="blog/new" element={<CreatePost />} />
-              <Route path="blog/:id" element={<BlogPost />} />
-              <Route path="blog/:id/edit" element={<EditPost />} />
-              <Route path="communities" element={<CommunityList />} />
-              <Route path="communities/:communityId" element={<Community />} />
-              <Route path="dreammachine" element={<DreamMachine />} />
-              <Route path="WeDream" element={<WeDream />} />
-              <Route path="GardenBlitz" element={<GardenBlitz />} />
-              <Route path="GardenDirectory" element={<GardenDirectory />} />
-              <Route path="GardenDetails/:id" element={<GardenDetails />} />
-              <Route path="ZenFreeskates" element={<ZenFreeskates />} />
-              <Route path="experiments" element={<Experiments />} />
-              <Route path="TextGame" element={<TextGame />} />
-              <Route path="tarot" element={<Tarot />} />
-              <Route path="meditation" element={<Meditation />} />
-              <Route path="wechoose" element={<WeChoose />} />
-              <Route path="WeLearn" element={<WeLearn />} />
-              <Route path="WePlan" element={<WePlan />} />
-              <Route path="WeGreen" element={<WeGreen />} />
+              <Route path="/messages" element={<Messages />} />
+              <Route path="/spotlight-archive" element={<SpotlightArchive />} />
+              <Route path="/token-ledger" element={<TokenLedger/>} />
+              <Route path="/daily-use" element={<DailyUse/>} />
+              <Route path="/adventure" element={<Adventure />} />
+              <Route path="/build" element={<Build />} />
+              <Route path="/my-tree" element={<MyTree />} />
+              <Route path="/signup" element={<Signup />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/account" element={<Account />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
+              <Route path="/smart-journal" element={<SmartJournal />} />
+              <Route path="/journal" element={<Journal />} />
+              <Route path="/meal-planning" element={<MealPlanning />} />
+              <Route path="/category-manager" element={<CategoryManager />} />
+              <Route path="/food-inventory" element={<FoodInventory />} />
+              <Route path="/recipes" element={<Recipes />} />
+              <Route path="/grocery-list" element={<GroceryList />} />
+              <Route path="/projects" element={<ProjectList />} />
+              <Route path="/projects/:id" element={<ProjectDetail />} />
+              <Route path="/blog" element={<BlogHome />} />
+              <Route path="/blog/new" element={<CreatePost />} />
+              <Route path="/blog/:id" element={<BlogPost />} />
+              <Route path="/blog/:id/edit" element={<EditPost />} />
+              <Route path="/communities" element={<CommunityList />} />
+              <Route path="/communities/:communityId" element={<Community />} />
+              <Route path="/dream-machine" element={<DreamMachine />} />
+              <Route path="/we-dream" element={<WeDream />} />
+              <Route path="/garden-blitz" element={<GardenBlitz />} />
+              <Route path="/garden-directory" element={<GardenDirectory />} />
+              <Route path="/garden-details/:id" element={<GardenDetails />} />
+              <Route path="/zen-freeskates" element={<ZenFreeskates />} />
+              <Route path="/experiments" element={<Experiments />} />
+              <Route path="/text-game" element={<TextGame />} />
+              <Route path="/tarot" element={<Tarot />} />
+              <Route path="/meditation" element={<Meditation />} />
+              <Route path="/we-choose" element={<WeChoose />} />
+              <Route path="/we-learn" element={<WeLearn />} />
+              <Route path="/we-plan" element={<WePlan />} />
+              <Route path="/we-green" element={<WeGreen />} />
               <Route path="/we-help" element={<WeHelp />} />
               <Route path="/we-do" element={<WeDo />} />
               <Route path="/garden-game" element={<GardenGame />} />

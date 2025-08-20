@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import ThemeToggle from "./ThemeToggle";
 import EnvBadge from "@/components/EnvBadge"; // ⬅️ NEW
 import CookieConsent from "@/components/CookieConsent"; // ⬅️ ADDED
+import Footer from "@/components/Footer";
 
 const API = import.meta.env.VITE_API_URL;
 
@@ -178,6 +179,7 @@ export default function Layout() {
           <Outlet />
         </div>
       </main>
+       <Footer />
 
       {/* ⬇️ Env badge (hide on chromeless pages like /aaron) */}
       {!isChromeless && <EnvBadge />}

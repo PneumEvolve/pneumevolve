@@ -59,7 +59,7 @@ const tilesPersonal = ({ isLoggedIn }) => [
   },
   {
     title: "Meal Planner",
-    to: "/MealPlanning",
+    to: "/meal-planning",
     description: "Plan simple meals that support your day.",
     icon: Salad,
     status: "Ready",
@@ -98,7 +98,7 @@ const tilesCommunity = () => [
   },
   {
     title: "Dream Machine",
-    to: "/dreammachine",
+    to: "/dream-machine",
     description: "A shared engine for collective dreaming & prompts.",
     icon: Moon,
     status: "Beta",
@@ -120,14 +120,14 @@ const tilesCommunity = () => [
   },
   {
     title: "WeGreen",
-    to: "/WeGreen",
+    to: "/we-green",
     description: "Gardening and resilience initiative.",
     icon: TreePine,
     status: "Community",
   },
   {
     title: "Living Plan",
-    to: "/livingplan",
+    to: "/living-plan",
     description: "PneumEvolve’s evolving plan and notes.",
     icon: FileText,
     status: "Doc",
@@ -159,14 +159,14 @@ const tilesCommunity = () => [
 const tilesFun = () => [
   {
     title: "Farm Game",
-    to: "/farmgame",
+    to: "/farm-game",
     description: "An active idle game — plant, tend, flow.",
     icon: Gamepad2,
     status: "Play",
   },
   {
     title: "Tree of Life",
-    to: "/MyTree",
+    to: "/my-tree",
     description: "Watch your path grow as you participate.",
     icon: TreePine,
     status: "Growing",

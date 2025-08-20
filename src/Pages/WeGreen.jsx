@@ -30,13 +30,13 @@ const WeGreenLanding = () => {
 
         <div className="space-x-4">
           <Link
-            to="/gardenblitz"
+            to="/garden-blitz"
             className="inline-block bg-green-600 text-white px-6 py-3 rounded-lg shadow hover:bg-green-700"
           >
             Start a Garden Blitz 🌿
           </Link>
           <Link
-            to="/gardendirectory"
+            to="/garden-directory"
             className="inline-block bg-white text-green-600 dark:bg-gray-800 dark:text-green-400 px-6 py-3 rounded-lg border border-green-600 hover:shadow"
           >
             Explore Gardens Nearby 🌍

@@ -167,7 +167,7 @@ const GardenBlitz = () => {
 
         <div className="text-center mt-8">
           <Link
-            to="/gardendirectory"
+            to="/garden-directory"
             className="inline-block bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-sm font-medium px-5 py-3 rounded-xl shadow hover:shadow-md transition"
           >
             🌍 View the Garden Directory

@@ -17,15 +17,20 @@ export default function CookiePolicy() {
     <main className="prose dark:prose-invert max-w-3xl mx-auto p-6">
       <h1>Cookie Policy</h1>
       <p>
-        We use necessary cookies for core functionality (security, session, preferences).
-        Analytics cookies are optional and load only if you consent.
+        This Cookie Policy explains how PneumEvolve (“we”, “our”, “us”) uses cookies 
+        and similar technologies. By using our site, you agree to the use of cookies 
+        as described here.
       </p>
 
-      <h2>Current preference</h2>
+      <h2>Categories of Cookies</h2>
+      <ul>
+        <li><strong>Necessary:</strong> Required for core site functions (login, session, security, preferences). These cannot be disabled.</li>
+        <li><strong>Analytics (optional):</strong> Help us understand site usage and improve features. Only set with your consent.</li>
+      </ul>
+
+      <h2>Your Current Preference</h2>
       <p>
-        <strong>
-          {prefs.analytics ? "Analytics allowed" : "Essential only"}
-        </strong>
+        <strong>{prefs.analytics ? "Analytics allowed" : "Essential only"}</strong>
         {prefs.timestamp ? ` • set ${new Date(prefs.timestamp).toLocaleString()}` : ""}
       </p>
 
@@ -38,14 +43,16 @@ export default function CookiePolicy() {
         </button>
       </div>
 
-      <h2>Categories</h2>
-      <ul>
-        <li><strong>Necessary:</strong> required for login, security, and basic features.</li>
-        <li><strong>Analytics (optional):</strong> help us understand usage to improve the product.</li>
-      </ul>
+      <h2>Managing Cookies</h2>
+      <p>
+        You may also manage or disable cookies through your browser settings. 
+        However, disabling necessary cookies may affect site functionality.
+      </p>
 
-      <h2>Questions?</h2>
-      <p>Contact <a href="mailto:privacy@pneumevolve.com">privacy@pneumevolve.com</a>.</p>
+      <h2>Contact</h2>
+      <p>
+        Questions? Contact us at <a href="mailto:privacy@pneumevolve.com">privacy@pneumevolve.com</a>.
+      </p>
     </main>
   );
 }

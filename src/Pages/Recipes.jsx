@@ -257,20 +257,20 @@ const RecipesPage = () => {
     <div className="min-h-screen p-6 bg-white dark:bg-gray-900 text-gray-900 dark:text-white">
   <div className="max-w-4xl mx-auto">
     <div className="flex flex-wrap justify-center sm:justify-between items-center gap-3 mb-4">
-      <Button onClick={() => navigate("/mealplanning")} className="flex items-center">
+      <Button onClick={() => navigate("/meal-planning")} className="flex items-center">
         <ArrowLeft className="mr-2" /> Back
       </Button>
       
-      <Button onClick={() => navigate("/categorymanager")} className="bg-purple-600 text-white">
+      <Button onClick={() => navigate("/category-manager")} className="bg-purple-600 text-white">
         Categories
       </Button>
       
-      <Button onClick={() => navigate("/FoodInventory")} className="bg-green-600 text-white">
+      <Button onClick={() => navigate("/food-inventory")} className="bg-green-600 text-white">
         Food Inventory
       </Button>
 
       
-      <Button onClick={() => navigate("/grocerylist")} className="bg-gray-800 text-white">
+      <Button onClick={() => navigate("/grocery-list")} className="bg-gray-800 text-white">
           Grocery List
         </Button>
     </div>

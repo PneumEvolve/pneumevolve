@@ -63,7 +63,7 @@ const DreamMachine = () => {
   }, []);
 
   const shareOnFacebook = () => {
-    const url = encodeURIComponent("https://pneumevolve.com/dreammachine");
+    const url = encodeURIComponent("https://pneumevolve.com/dream-machine");
     window.open(
       `https://www.facebook.com/sharer/sharer.php?u=${url}`,
       "_blank",
@@ -89,7 +89,7 @@ const DreamMachine = () => {
           🏠 Return to PneumEvolve
         </Link>
         <Link
-          to="/wedream"
+          to="/we-dream"
           className="text-blue-600 dark:text-blue-400 underline hover:text-blue-800 dark:hover:text-blue-300 transition"
         >
           ➕ Add your Dream to the Machine

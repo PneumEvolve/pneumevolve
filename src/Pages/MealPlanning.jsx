@@ -14,16 +14,16 @@ const MealPlanningPage = () => {
         <Button onClick={() => navigate("/")} className="bg-blue-600 text-white">
           🔙 Back to PneumEvolve
         </Button>
-        <Button onClick={() => navigate("/categorymanager")} className="bg-purple-600 text-white">
+        <Button onClick={() => navigate("/category-manager")} className="bg-purple-600 text-white">
           🗂️ Manage Categories
         </Button>
-        <Button onClick={() => navigate("/foodinventory")} className="bg-green-600 text-white">
+        <Button onClick={() => navigate("/food-inventory")} className="bg-green-600 text-white">
           🥕 Manage Food Inventory
         </Button>
         <Button onClick={() => navigate("/recipes")} className="bg-orange-500 text-white">
           📖 Go to Recipes
         </Button>
-        <Button onClick={() => navigate("/grocerylist")} className="bg-gray-800 text-white">
+        <Button onClick={() => navigate("/grocery-list")} className="bg-gray-800 text-white">
           🛒 View Grocery List
         </Button>
       </div>

@@ -13,7 +13,7 @@ const Experiments = () => {
 
       <ul className="space-y-4 text-lg">
         <li>
-          🛠️ <Link to="/TextGame" className="text-blue-500 underline">Text Game</Link> – A simple Dreamfire based text game.
+          🛠️ <Link to="/text-game" className="text-blue-500 underline">Text Game</Link> – A simple Dreamfire based text game.
         </li>
         <li>
           🃏 <Link to="/tarot" className="text-blue-500 underline">Tarot Reading</Link> – A mystical portal. Pull cards, see what the current carries.
@@ -22,25 +22,22 @@ const Experiments = () => {
           🕊️ <Link to="/meditation" className="text-blue-500 underline">Global Meditation Timer</Link> – Sync in stillness. A 5-minute breath with the world, every 12 hours.
         </li>
         <li>
-          🗳️ <Link to="/wechoose" className="text-blue-500 underline">We Choose</Link> – A prototype for transparent, collective decision-making. Vote. Rethink. Rebuild.
+          🗳️ <Link to="/we-choose" className="text-blue-500 underline">We Choose</Link> – A prototype for transparent, collective decision-making. Vote. Rethink. Rebuild.
         </li>
         <li>
-          📖 <Link to="/welearn" className="text-blue-500 underline">We Learn</Link> – Let AI explain laws, policies, and systems without agenda. Truth over spin.
+          📖 <Link to="/we-learn" className="text-blue-500 underline">We Learn</Link> – Let AI explain laws, policies, and systems without agenda. Truth over spin.
         </li>
         <li>
-          🧠 <Link to="/weplan" className="text-blue-500 underline">We Plan</Link> – The synthesis engine. Where ideas merge, clash, and evolve into action.
+          🧠 <Link to="/we-plan" className="text-blue-500 underline">We Plan</Link> – The synthesis engine. Where ideas merge, clash, and evolve into action.
         </li>
         <li>
-          🌱 <Link to="/wegreen" className="text-blue-500 underline">We Green</Link> – Garden together. Share planting wisdom, excess produce, and land-based dreams.
+          🌱 <Link to="/we-green" className="text-blue-500 underline">We Green</Link> – Garden together. Share planting wisdom, excess produce, and land-based dreams.
         </li>
         <li>
-          🤝 <Link to="/wehelp" className="text-blue-500 underline">We Help</Link> – Ask for or offer help. Local or global, human to human.
+          🤝 <Link to="/we-help" className="text-blue-500 underline">We Help</Link> – Ask for or offer help. Local or global, human to human.
         </li>
         <li>
-          🛠️ <Link to="/wedo" className="text-blue-500 underline">We Do</Link> – A marketplace of action. Trade skills, collaborate, make something real.
-        </li>
-        <li>
-          🛠️ <Link to="/SheasPage" className="text-blue-500 underline">Sheas Page</Link> – My ideas and my plan.
+          🛠️ <Link to="/we-do" className="text-blue-500 underline">We Do</Link> – A marketplace of action. Trade skills, collaborate, make something real.
         </li>
       </ul>
 

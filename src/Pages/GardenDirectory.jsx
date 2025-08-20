@@ -36,7 +36,7 @@ const GardenDirectory = () => {
 
         <div className="text-center">
           <Link
-            to="/gardenblitz"
+            to="/garden-blitz"
             className="inline-block mt-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-sm font-medium px-5 py-3 rounded-xl shadow hover:shadow-md transition"
           >
             ← Back to Garden Blitz
@@ -128,7 +128,7 @@ const GardenDirectory = () => {
                 <p>
                   <strong>Notes:</strong> {garden.notes}
                 </p>
-                <Link to={`/gardendetails/${garden.id}`}>
+                <Link to={`/garden-details/${garden.id}`}>
                   <button className="mt-2 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition">
                     View Details
                   </button>
