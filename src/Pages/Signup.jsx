@@ -31,6 +31,10 @@ const REQUIRE_CAPTCHA =
 // Site key (only needed if CAPTCHA is required)
 const RECAPTCHA_SITE_KEY = ENV_SITE_KEY || "6LeICxYrAAAAANn97Wz-rx1oCT9FkKMNQpAya_gv";
 
+// Track which version of your policies the user acknowledged
+const TERMS_VERSION =
+  import.meta.env.VITE_TERMS_VERSION?.trim() || "2025-08-21"; // keep in sync with server
+
 export default function Signup() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -38,6 +42,7 @@ export default function Signup() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showPw, setShowPw] = useState(false);
+  const [accepted, setAccepted] = useState(false); // ⬅️ NEW
 
   const recaptchaRef = useRef(null);
   const navigate = useNavigate();
@@ -86,6 +91,10 @@ export default function Signup() {
       setError("Password must be at least 8 characters.");
       return;
     }
+    if (!accepted) {
+      setError("Please agree to the Terms and acknowledge the Privacy Policy.");
+      return;
+    }
     if (REQUIRE_CAPTCHA && !captchaToken) {
       setError("Please verify you are not a robot.");
       return;
@@ -106,6 +115,8 @@ export default function Signup() {
           email: emailTrim,
           password: passwordTrim,
           recaptcha_token: tokenToSend,
+          accept_terms: accepted,
+          terms_version: TERMS_VERSION,
         }),
       });
 
@@ -114,12 +125,18 @@ export default function Signup() {
         let msg = `Signup failed (HTTP ${res.status})`;
         try {
           const data = await res.json();
-          msg = data?.detail || data?.message || msg;
-        } catch {
-          // keep default msg
-        }
-        throw new Error(msg);
+      // detail might be a string or an object
+      if (typeof data?.detail === "string") msg = data.detail;
+      else if (data?.detail?.code === "TERMS_VERSION_MISMATCH") {
+        msg = `Please accept Terms v${data.detail.required_version}.`;
+      } else if (data?.detail?.code === "TERMS_REQUIRED") {
+        msg = `Terms acceptance required (v${data.detail.required_version}).`;
+      } else if (data?.message) {
+        msg = data.message;
       }
+   } catch {}
+   throw new Error(msg);
+ }
 
       // Success — send to login with a friendly flag
       navigate("/login?justSignedUp=true");
@@ -238,6 +255,31 @@ export default function Signup() {
               Use a strong passphrase. You can change it later.
             </div>
 
+            {/* ⬇️ NEW: Terms/Privacy acknowledgement */}
+            <label className="flex items-start gap-2 text-sm mb-2">
+              <input
+                type="checkbox"
+                checked={accepted}
+                onChange={(e) => setAccepted(e.target.checked)}
+                required
+              />
+              <span>
+                I agree to the{" "}
+                <a href="/terms" className="underline">
+                  Terms of Use
+                </a>{" "}
+                and acknowledge the{" "}
+                <a href="/privacy" className="underline">
+                  Privacy Policy
+                </a>
+                .
+              </span>
+            </label>
+            <p className="text-xs mb-3" style={{ color: "var(--muted)" }}>
+              We store your email and the content you save (problems, ideas, messages) in our database (Supabase).
+              Some processing may occur outside Canada. You can request deletion anytime.
+            </p>
+
             {/* CAPTCHA only when required */}
             {REQUIRE_CAPTCHA && (
               <div className="mb-4">
@@ -275,6 +317,7 @@ export default function Signup() {
               <div className="mt-3 text-xs" style={{ color: "var(--muted)" }}>
                 <div>API_URL: {API_URL}</div>
                 <div>Require CAPTCHA: {String(REQUIRE_CAPTCHA)}</div>
+                <div>Terms version: {TERMS_VERSION}</div>
               </div>
             )}
           </div>
