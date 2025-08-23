@@ -127,7 +127,7 @@ export default function Layout() {
                 >
                   Journal
                 </Link>
-                <Link className="px-1.5 py-1 hover:underline shrink-0" to="/forge">
+                <Link className="px-1.5 py-1 hover:underline shrink-0" to="/forge2">
                   Forge
                 </Link>
                 <Link className="px-1.5 py-1 hover:underline shrink-0" to="/blog">

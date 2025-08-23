@@ -84,7 +84,7 @@ const tilesPersonal = ({ isLoggedIn }) => [
 const tilesCommunity = () => [
   {
     title: "Forge",
-    to: "/forge",
+    to: "/forge2",
     description: "Propose ideas, vote, and help build PneumEvolve.",
     icon: Hammer,
     status: "Open",
