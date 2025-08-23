@@ -7,6 +7,8 @@ import Layout from "./components/Layout";
 import ErrorBoundary from "./pneumevolve-v2/components/ErrorBoundary.jsx";
 import Home from "./Pages/Home.jsx";
 import Forge from "./pneumevolve-v2/pages/Forge";
+import Forge2 from "./Pages/Forge";
+import ForgeItemPage from "./Pages/ForgeItemPage";
 import ForgeIdeaDetail from "./pneumevolve-v2/pages/ForgeIdeaDetail.jsx"
 import Problems from "./pneumevolve-v2/pages/Problems";
 import ProblemDetail from "./pneumevolve-v2/pages/ProblemDetail.jsx"
@@ -102,6 +104,8 @@ function Root() {
               <Route index element={<Home />} />
               <Route path="/SiteMap" element={<SiteMap/>} />
               <Route path="/forge" element={<ErrorBoundary><Forge /></ErrorBoundary>} />
+              <Route path="/forge2" element={<Forge2/>} />
+              <Route path="/forge2/:id" element={<ForgeItemPage />} />
               <Route path="/forge/:id" element={<ForgeIdeaDetail />} />
               <Route path="/problems" element={<Problems />} />
               <Route path="/problems/:id" element={<ProblemDetail />} />
