@@ -35,14 +35,30 @@ const RECAPTCHA_SITE_KEY = ENV_SITE_KEY || "6LeICxYrAAAAANn97Wz-rx1oCT9FkKMNQpAy
 const TERMS_VERSION =
   import.meta.env.VITE_TERMS_VERSION?.trim() || "2025-08-21"; // keep in sync with server
 
+// -------- username helpers (mirror backend) ----------
+const USERNAME_RE = /^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/;
+const normalizeUsername = (s) =>
+  (s || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9._-]/g, "")
+    .replace(/^[._-]+|[._-]+$/g, "")
+    .slice(0, 30);
+
 export default function Signup() {
   const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [captchaToken, setCaptchaToken] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showPw, setShowPw] = useState(false);
-  const [accepted, setAccepted] = useState(false); // ⬅️ NEW
+  const [accepted, setAccepted] = useState(false);
+
+  const [unameErr, setUnameErr] = useState("");          // ⬅️ NEW
+  const [unameOk, setUnameOk] = useState(false);         // ⬅️ NEW
+  const [checkingUname, setCheckingUname] = useState(false);
 
   const recaptchaRef = useRef(null);
   const navigate = useNavigate();
@@ -67,6 +83,39 @@ export default function Signup() {
   }, []);
   const captchaTheme = useMemo(() => (isDark ? "dark" : "light"), [isDark]);
 
+  // Username normalization / validation
+  const onUsernameChange = (val) => {
+    setUnameErr("");
+    setUnameOk(false);
+    const n = normalizeUsername(val);
+    setUsername(n);
+  };
+
+  const checkUsername = async () => {
+    setUnameErr("");
+    setUnameOk(false);
+    const n = normalizeUsername(username);
+    if (!n || !USERNAME_RE.test(n) || n.length < 3) {
+      setUnameErr("3–30 chars, a–z, 0–9, . _ -");
+      return;
+    }
+    if (!API_URL) return;
+    // optional availability check
+    try {
+      setCheckingUname(true);
+      const r = await fetch(`${API_URL}/auth/check-username?username=${encodeURIComponent(n)}`);
+      if (!r.ok) throw new Error("Check failed");
+      const j = await r.json();
+      if (j.ok) setUnameOk(true);
+      else setUnameErr(j.error || "Username not available");
+    } catch {
+      // non-fatal; user can still submit and get definitive error from server
+      setUnameOk(false);
+    } finally {
+      setCheckingUname(false);
+    }
+  };  
+
   const handleCaptchaChange = (token) => {
     setCaptchaToken(token);
     setError("");
@@ -78,6 +127,7 @@ export default function Signup() {
 
     const emailTrim = email.trim();
     const passwordTrim = password.trim();
+    const usernameTrim = normalizeUsername(username);
 
     if (!emailTrim || !passwordTrim) {
       setError("Email and password are required.");
@@ -89,6 +139,10 @@ export default function Signup() {
     }
     if (passwordTrim.length < 8) {
       setError("Password must be at least 8 characters.");
+      return;
+    }
+    if (!USERNAME_RE.test(usernameTrim) || usernameTrim.length < 3) {
+      setError("Username: 3–30 chars, a–z, 0–9, . _ -");
       return;
     }
     if (!accepted) {
@@ -114,6 +168,7 @@ export default function Signup() {
         body: JSON.stringify({
           email: emailTrim,
           password: passwordTrim,
+          username: usernameTrim,
           recaptcha_token: tokenToSend,
           accept_terms: accepted,
           terms_version: TERMS_VERSION,
@@ -210,6 +265,31 @@ export default function Signup() {
             )}
 
             {/* Form */}
+            {/* Username */}
+            <label className="block text-sm mb-1" htmlFor="username">Username</label>
+            <div className="flex gap-2 items-start mb-2">
+              <input
+                id="username"
+                type="text"
+                placeholder="yourname"
+                value={username}
+                onChange={(e) => onUsernameChange(e.target.value)}
+                onBlur={checkUsername}
+                className="flex-1"
+                autoCapitalize="off"
+                autoCorrect="off"
+              />
+              <button type="button" className="btn btn-secondary"
+                onClick={checkUsername} disabled={checkingUname}>
+                {checkingUname ? "Checking…" : "Check"}
+              </button>
+            </div>
+            {unameErr && <div className="text-xs mb-2" style={{color:"#ef4444"}}>{unameErr}</div>}
+            {unameOk && !unameErr && (
+              <div className="text-xs mb-2" style={{color:"var(--accent)"}}>✅ Available</div>
+            )}
+
+            {/* Email */}
             <label className="block text-sm mb-1" htmlFor="email">
               Email
             </label>

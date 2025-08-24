@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 
 const AuthContext = createContext();
@@ -9,7 +9,7 @@ export function AuthProvider({ children }) {
   const [userId, setUserId] = useState(() => localStorage.getItem("user_id"));
   const [userEmail, setUserEmail] = useState(() => localStorage.getItem("user_email"));
   const [isLoggedIn, setIsLoggedIn] = useState(() => !!localStorage.getItem("access_token"));
-  const [userProfile, setUserProfile] = useState(null); // ✅ New: full user data
+  const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const saveTokens = (access, refresh) => {
@@ -20,14 +20,14 @@ export function AuthProvider({ children }) {
   };
 
   const login = (access, refresh, id, email) => {
-  saveTokens(access, refresh);
-  setUserId(id);
-  setUserEmail(email);
-  localStorage.setItem("user_id", id.toString());
-  localStorage.setItem("user_email", email);
-  setIsLoggedIn(true);
-  if (!userProfile) fetchUserProfile(access); // Fetch only if the profile is not already set
-};
+    saveTokens(access, refresh);
+    setUserId(id);
+    setUserEmail(email);
+    localStorage.setItem("user_id", id.toString());
+    localStorage.setItem("user_email", email);
+    setIsLoggedIn(true);
+    if (!userProfile) fetchUserProfile(access);
+  };
 
   const logout = () => {
     localStorage.removeItem("access_token");
@@ -38,88 +38,94 @@ export function AuthProvider({ children }) {
     setRefreshToken(null);
     setUserId(null);
     setUserEmail(null);
-    setUserProfile(null); // ✅ Clear on logout
+    setUserProfile(null);
     setIsLoggedIn(false);
   };
 
   const refreshAccessToken = async () => {
-  try {
-    const res = await api.post(
-      `/auth/refresh`,
-      {}, // no body
-      { withCredentials: true } // allow cookies to be sent
-    );
-    const newAccess = res.data.access_token;
-    saveTokens(newAccess, refreshToken); // only update access
-    return newAccess;
-  } catch (error) {
-    console.error("Failed to refresh access token:", error);
-    logout();
-    return null;
-  }
-};
-
-  const fetchUserProfile = async (token) => {
     try {
+      const res = await api.post(`/auth/refresh`, {}, { withCredentials: true });
+      const newAccess = res.data.access_token;
+      saveTokens(newAccess, refreshToken);
+      return newAccess;
+    } catch (error) {
+      console.error("Failed to refresh access token:", error);
+      logout();
+      return null;
+    }
+  };
+
+  const fetchUserProfile = async (tokenArg) => {
+    try {
+      const tokenToUse = tokenArg || accessToken;
+      if (!tokenToUse) return;
       const res = await api.get(`/auth/account/me`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${tokenToUse}` },
       });
-      setUserProfile(res.data); // ✅ Store full profile
+      setUserProfile(res.data);
     } catch (err) {
       console.error("Failed to fetch user profile:", err);
     }
   };
 
   useEffect(() => {
-  const checkAndRefreshToken = async () => {
-    const token = localStorage.getItem("access_token");
-    const refresh = localStorage.getItem("refresh_token");
-    const id = localStorage.getItem("user_id");
-    const email = localStorage.getItem("user_email");
+    const checkAndRefreshToken = async () => {
+      const token = localStorage.getItem("access_token");
+      const refresh = localStorage.getItem("refresh_token");
+      const id = localStorage.getItem("user_id");
+      const email = localStorage.getItem("user_email");
 
-    if (token && refresh && id && email) {
-      let payload;
-      try {
-        payload = JSON.parse(atob(token.split('.')[1]));
-      } catch (e) {
-        console.error("Invalid token:", e);
-        logout();
-        setLoading(false);
-        return;
-      }
+      if (token && refresh && id && email) {
+        let payload;
+        try {
+          payload = JSON.parse(atob(token.split(".")[1]));
+        } catch (e) {
+          console.error("Invalid token:", e);
+          logout();
+          setLoading(false);
+          return;
+        }
 
-      const currentTime = Math.floor(Date.now() / 1000);
-      if (payload.exp < currentTime) {
-        const newToken = await refreshAccessToken();
-        if (newToken) {
-          setAccessToken(newToken);
+        const currentTime = Math.floor(Date.now() / 1000);
+        if (payload.exp < currentTime) {
+          const newToken = await refreshAccessToken();
+          if (newToken) {
+            setAccessToken(newToken);
+            setRefreshToken(refresh);
+            setUserId(id);
+            setUserEmail(email);
+            setIsLoggedIn(true);
+            if (!userProfile) fetchUserProfile(newToken);
+          } else {
+            logout();
+          }
+        } else {
+          setAccessToken(token);
           setRefreshToken(refresh);
           setUserId(id);
           setUserEmail(email);
           setIsLoggedIn(true);
-          // Only fetch the profile if it hasn't been set yet
-          if (!userProfile) fetchUserProfile(newToken);
-        } else {
-          logout();
+          if (!userProfile) fetchUserProfile(token);
         }
-      } else {
-        setAccessToken(token);
-        setRefreshToken(refresh);
-        setUserId(id);
-        setUserEmail(email);
-        setIsLoggedIn(true);
-        // Only fetch the profile if it hasn't been set yet
-        if (!userProfile) fetchUserProfile(token);
       }
-    }
 
-    setLoading(false);
-  };
+      setLoading(false);
+    };
 
-  checkAndRefreshToken();
-  const interval = setInterval(checkAndRefreshToken, 5 * 60 * 1000);
-  return () => clearInterval(interval);
-}, [userProfile]);
+    checkAndRefreshToken();
+    const interval = setInterval(checkAndRefreshToken, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [userProfile]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 👇 Derive username + displayName from profile/email
+  const username = useMemo(() => {
+    if (!userProfile) return null;
+    return userProfile.username || userProfile.display_name || null;
+  }, [userProfile]);
+
+  const displayName = useMemo(() => {
+    return username || userEmail || "anonymous";
+  }, [username, userEmail]);
 
   if (loading) return null;
 
@@ -132,7 +138,9 @@ export function AuthProvider({ children }) {
         accessToken,
         userId,
         userEmail,
-        userProfile, // ✅ usable anywhere now
+        userProfile,
+        username,     // 👈 exported
+        displayName,  // 👈 exported (nice fallback)
       }}
     >
       {children}

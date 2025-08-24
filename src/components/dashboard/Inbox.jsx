@@ -72,6 +72,7 @@ export default function Inbox({ userEmail: userEmailProp, userId, setUnreadCount
   // Grouping
   const getCategory = (r) => {
     const name = r.conversation_name || "";
+    
     if (r.idea_title || name.startsWith("idea:") || name.startsWith("forge:")) return "forge";
     if (r.problem_title || name.startsWith("problem:")) return "problems";
     if (r.solution_title || name.startsWith("solution:")) return "solutions";
@@ -82,7 +83,10 @@ export default function Inbox({ userEmail: userEmailProp, userId, setUnreadCount
   // Row label: JUST the title, no prefix
   const labelForRow = (r) => {
     const name = r.conversation_name || "";
-
+    // 1) Prefer canonical server title when available (new API)
+    if (r.title && typeof r.title === "string" && r.title.trim()) {
+      return r.title.trim();
+    }
     if (r.problem_title) return r.problem_title;
     if (name.startsWith("problem:")) {
       const t = titleFromConversationName(name);

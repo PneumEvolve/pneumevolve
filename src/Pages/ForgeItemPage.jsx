@@ -1,10 +1,10 @@
-// src/pages/ForgeItemPage.jsx
+// src/Pages/ForgeItemPage.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { v4 as uuidv4 } from "uuid";
-import ItemConversation from "@/components/ItemConversation";
+import ConversationPanel from "@/components/ConversationPanel";
 
 const toLower = (s) => String(s || "").trim().toLowerCase();
 const kindBadge = (k) => {
@@ -23,7 +23,10 @@ export default function ForgeItemPage() {
   // anon identity for read/vote/pledge list
   const [anonId] = useState(() => {
     let v = localStorage.getItem("anon_id");
-    if (!v) { v = uuidv4(); localStorage.setItem("anon_id", v); }
+    if (!v) {
+      v = uuidv4();
+      localStorage.setItem("anon_id", v);
+    }
     return v;
   });
   const identityEmail = userEmail || `anon:${anonId}`;
@@ -47,12 +50,20 @@ export default function ForgeItemPage() {
   const [addingPledge, setAddingPledge] = useState(false);
   const [marking, setMarking] = useState({}); // { [pledgeId]: boolean }
 
+  // Conversation
+  const [conversationId, setConversationId] = useState(null);
+
+  // Collapsibles
+  const [openDetails, setOpenDetails] = useState(true);
+  const [openPledges, setOpenPledges] = useState(false);
+  const [openConversation, setOpenConversation] = useState(false);
+
   // Danger zone
   const [deleting, setDeleting] = useState(false);
 
-  // ---- fetches ----
   async function fetchItem() {
-    setLoading(true); setErr("");
+    setLoading(true);
+    setErr("");
     try {
       const res = await api.get(`/forge/items/${id}`, { headers });
       setItem(res.data || null);
@@ -117,13 +128,11 @@ export default function ForgeItemPage() {
     const text = pledgeText.trim();
     if (!userEmail) return alert("Please log in to add a pledge.");
     if (!text) return;
-
     setAddingPledge(true);
     try {
       await api.post(`/forge/items/${id}/pledges`, { text }, { headers });
       setPledgeText("");
-      // Optimistic bump; fetch for truth
-      setItem((prev) => prev ? { ...prev, pledges_count: (prev.pledges_count || 0) + 1 } : prev);
+      setItem((prev) => (prev ? { ...prev, pledges_count: (prev.pledges_count || 0) + 1 } : prev));
       await fetchPledges();
     } catch (e) {
       console.error("add pledge failed", e);
@@ -138,13 +147,10 @@ export default function ForgeItemPage() {
     setMarking((m) => ({ ...m, [pledgeId]: true }));
     try {
       await api.patch(`/forge/pledges/${pledgeId}/done`, {}, { headers });
-      // Optimistic update
       setPledges((prev) =>
         prev.map((p) => (p.id === pledgeId ? { ...p, done: true, done_at: new Date().toISOString() } : p))
       );
-      setItem((prev) =>
-        prev ? { ...prev, pledges_done: (prev.pledges_done || 0) + 1 } : prev
-      );
+      setItem((prev) => (prev ? { ...prev, pledges_done: (prev.pledges_done || 0) + 1 } : prev));
     } catch (e) {
       console.error("mark done failed", e);
       alert(e?.response?.data?.detail || "Failed to mark pledge as done.");
@@ -153,22 +159,48 @@ export default function ForgeItemPage() {
     }
   }
 
+  async function deletePledge(pledgeId) {
+  if (!userEmail) return;
+  if (!window.confirm("Delete this pledge?")) return;
+
+  try {
+    // find whether it was done to adjust local counters
+    const wasDone = !!pledges.find(p => p.id === pledgeId)?.done;
+
+    await api.delete(`/forge/pledges/${pledgeId}`, { headers });
+
+    // update UI optimistically
+    setPledges(prev => prev.filter(p => p.id !== pledgeId));
+    setItem(prev =>
+      prev
+        ? {
+            ...prev,
+            pledges_count: Math.max(0, (prev.pledges_count || 0) - 1),
+            pledges_done: Math.max(0, (prev.pledges_done || 0) - (wasDone ? 1 : 0)),
+          }
+        : prev
+    );
+  } catch (e) {
+    console.error("delete pledge failed", e);
+    alert(e?.response?.data?.detail || "Failed to delete pledge.");
+  }
+}
+
   // ---- delete ----
   const canDelete =
     !!userEmail &&
-    (!!item?.created_by_email &&
-      userEmail.toLowerCase() === String(item.created_by_email).toLowerCase()
-    || userEmail === "sheaklipper@gmail.com");
+    ((!!item?.created_by_email &&
+      userEmail.toLowerCase() === String(item.created_by_email).toLowerCase()) ||
+      userEmail === "sheaklipper@gmail.com");
 
   async function handleDelete() {
     if (!canDelete) return;
-    const title = item?.title ? `“${item.title}”` : "this item";
+    const title = item?.title ? `"${item.title}"` : "this item";
     if (!window.confirm(`Delete ${title}? This cannot be undone.`)) return;
-
     try {
       setDeleting(true);
       await api.delete(`/forge/items/${id}`, { headers });
-      navigate("/forge");
+      navigate("/forge2");
     } catch (e) {
       console.error("delete failed", e);
       alert(e?.response?.data?.detail || "Failed to delete item.");
@@ -177,10 +209,28 @@ export default function ForgeItemPage() {
     }
   }
 
+  // Collapsible header
+  function CollapseHeader({ open, onToggle, children }) {
+    return (
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-center justify-between px-3 py-2 rounded border hover:bg-[color-mix(in_oklab,var(--bg)_90%,transparent)]"
+        style={{ WebkitTapHighlightColor: "transparent" }}
+      >
+        <span className="font-semibold">{children}</span>
+        <span className="text-xs opacity-70">{open ? "▲" : "▼"}</span>
+      </button>
+    );
+  }
+
   return (
-    <main className="max-w-3xl mx-auto p-6 space-y-8">
+    <main className="max-w-3xl mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <Link to="/forge2" className="btn btn-secondary">← Back to Forge</Link>
+        <Link to="/forge2" className="btn btn-secondary">
+          ← Back to Forge
+        </Link>
+        {/* No delete button up here anymore */}
       </div>
 
       {loading ? (
@@ -191,122 +241,172 @@ export default function ForgeItemPage() {
         <div className="opacity-70">Not found.</div>
       ) : (
         <>
-          {/* Header */}
-          <header className="space-y-2">
-            <div className="flex items-center gap-2">
-              <span className={kindBadge(item.kind)}>{String(item.kind).toUpperCase()}</span>
-              {item.status && <span className="badge">Status: {item.status}</span>}
-              {item.location && (
-                <span className="badge bg-zinc-100 dark:bg-zinc-800">📍 {item.location}</span>
-              )}
-            </div>
-            <h1 className="text-3xl font-bold leading-tight">{item.title}</h1>
-            {item.created_at && (
-              <div className="text-xs opacity-70">Posted {new Date(item.created_at).toLocaleString()}</div>
-            )}
-          </header>
-
-          {/* Body */}
-          {item.body && (
-            <section className="card">
-              <p className="whitespace-pre-wrap">{item.body}</p>
-            </section>
-          )}
-
-          {/* Counters / actions */}
-          <section className="flex flex-wrap items-center gap-3 justify-between">
-            <div className="text-sm opacity-80 flex items-center gap-3">
-              <span>👍 {voteCount} {voteCount === 1 ? "vote" : "votes"}</span>
-              <span>•</span>
-              <span>{item.pledges_done ?? 0}/{item.pledges_count ?? 0} pledges done</span>
-              {item.domain && (<><span>•</span><span>Domain: {item.domain}</span></>)}
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={toggleVote}
-                aria-pressed={hasVoted}
-                className={hasVoted ? "btn btn-danger" : "btn btn-secondary"}
-              >
-                {hasVoted ? "🙅 Unvote" : "👍 Vote"}
-              </button>
-            </div>
-          </section>
-
-          {/* Pledges */}
+          {/* =============== DETAILS (open by default) =============== */}
           <section className="space-y-3">
-            <h2 className="text-xl font-semibold">Pledges</h2>
+            <CollapseHeader open={openDetails} onToggle={() => setOpenDetails((o) => !o)}>
+              Details
+            </CollapseHeader>
+            {openDetails && (
+              <div className="card p-4 space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={kindBadge(item.kind)}>{String(item.kind).toUpperCase()}</span>
+                  {item.status && <span className="badge">Status: {item.status}</span>}
+                  {item.location && (
+                    <span className="badge bg-zinc-100 dark:bg-zinc-800">📍 {item.location}</span>
+                  )}
+                </div>
 
-            {loadingPledges ? (
-              <div className="opacity-70 text-sm">Loading pledges…</div>
-            ) : pledgesErr ? (
-              <div className="card border-amber-500/40 text-sm">{pledgesErr}</div>
-            ) : pledges.length === 0 ? (
-              <div className="opacity-70 text-sm">No pledges yet.</div>
-            ) : (
-              <ul className="space-y-2">
-                {pledges.map((p) => (
-                  <li key={p.id} className="card flex items-start justify-between gap-3">
-                    <div>
-                      <div className="whitespace-pre-wrap">{p.text}</div>
-                      <div className="text-xs opacity-70 mt-1">
-                        {p.user_email ? `by ${p.user_email}` : "by someone"} •{" "}
-                        {p.created_at ? new Date(p.created_at).toLocaleString() : ""}
-                        {p.done && (
-                          <>
-                            {" "}<span>•</span>{" "}
-                            <span className="inline-block px-2 py-0.5 rounded-full border text-[11px]">
-                              Done {p.done_at ? `(${new Date(p.done_at).toLocaleString()})` : ""}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                    {/* Mark done (only mine & not already done) */}
-                    {p.is_mine && !p.done && (
-                      <button
-                        className="btn btn-secondary"
-                        onClick={() => markPledgeDone(p.id)}
-                        disabled={!!marking[p.id]}
-                      >
-                        {marking[p.id] ? "Marking…" : "Mark Done"}
-                      </button>
+                <h1 className="text-3xl font-bold leading-tight">{item.title}</h1>
+                {item.created_at && (
+                  <div className="text-xs opacity-70">
+                    Posted {new Date(item.created_at).toLocaleString()}
+                    {item.created_by_username || item.created_by_email ? (
+                      <> · {item.created_by_username || item.created_by_email}</>
+                    ) : null}
+                  </div>
+                )}
+
+                {/* Body */}
+                {item.body && <div className="mt-2 whitespace-pre-wrap">{item.body}</div>}
+
+                {/* Counters / actions */}
+                <div className="flex flex-wrap items-center gap-3 justify-between pt-2 border-t">
+                  <div className="text-sm opacity-80 flex items-center gap-3">
+                    <span>
+                      👍 {item?.votes_count ?? 0} {(item?.votes_count ?? 0) === 1 ? "vote" : "votes"}
+                    </span>
+                    <span>•</span>
+                    <span>
+                      {item.pledges_done ?? 0}/{item.pledges_count ?? 0} pledges done
+                    </span>
+                    {item.domain && (
+                      <>
+                        <span>•</span>
+                        <span>Domain: {item.domain}</span>
+                      </>
                     )}
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            {/* Add pledge */}
-            <form onSubmit={handleAddPledge} className="card space-y-2">
-              <label className="text-sm font-medium">Add a pledge</label>
-              <textarea
-                rows={3}
-                className="w-full"
-                placeholder={userEmail ? "What will you do to help move this forward?" : "Log in to pledge…"}
-                value={pledgeText}
-                onChange={(e) => setPledgeText(e.target.value)}
-                disabled={!userEmail || addingPledge}
-              />
-              <div className="flex justify-end">
-                <button className="btn" disabled={!userEmail || addingPledge || !pledgeText.trim()}>
-                  {addingPledge ? "Adding…" : "Add Pledge"}
-                </button>
+                    {item.scope && (
+                      <>
+                        <span>•</span>
+                        <span>Scope: {item.scope}</span>
+                      </>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={toggleVote}
+                      aria-pressed={hasVoted}
+                      className={hasVoted ? "btn btn-danger" : "btn btn-secondary"}
+                    >
+                      {hasVoted ? "🙅 Unvote" : "👍 Vote"}
+                    </button>
+                  </div>
+                </div>
               </div>
-            </form>
+            )}
           </section>
 
-          {/* Conversation bound to this item */}
-          {item.conversation_id ? (
-            <section className="space-y-4">
-              <ItemConversation itemId={item.id} userEmail={userEmail} />
-            </section>
-          ) : (
-            <section className="card border-amber-500/30">
-              Conversation unavailable for this item.
-            </section>
-          )}
+          {/* =============== PLEDGES (collapsed by default) =============== */}
+          <section className="space-y-3">
+            <CollapseHeader open={openPledges} onToggle={() => setOpenPledges((o) => !o)}>
+              Pledges
+            </CollapseHeader>
+            {openPledges && (
+              <div className="space-y-3">
+                {loadingPledges ? (
+                  <div className="opacity-70 text-sm">Loading pledges…</div>
+                ) : pledgesErr ? (
+                  <div className="card border-amber-500/40 text-sm">{pledgesErr}</div>
+                ) : pledges.length === 0 ? (
+                  <div className="opacity-70 text-sm">No pledges yet.</div>
+                ) : (
+                  <ul className="space-y-2">
+                    {pledges.map((p) => (
+                      <li key={p.id} className="card flex items-start justify-between gap-3">
+                        <div>
+                          <div className="whitespace-pre-wrap">{p.text}</div>
+                          <div className="text-xs opacity-70 mt-1">
+                            {p.username ? `by ${p.username}` : p.user_email ? `by ${p.user_email}` : "by someone"} •{" "}
+                            {p.created_at ? new Date(p.created_at).toLocaleString() : ""}
+                            {p.done && (
+                              <>
+                                {" "}
+                                <span>•</span>{" "}
+                                <span className="inline-block px-2 py-0.5 rounded-full border text-[11px]">
+                                  Done {p.done_at ? `(${new Date(p.done_at).toLocaleString()})` : ""}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        {p.is_mine && (
+  <div className="flex gap-2">
+    {!p.done && (
+      <button
+        className="btn btn-secondary"
+        onClick={() => markPledgeDone(p.id)}
+        disabled={!!marking[p.id]}
+      >
+        {marking[p.id] ? "Marking…" : "Mark Done"}
+      </button>
+    )}
+    <button
+      className="btn btn-danger"
+      onClick={() => deletePledge(p.id)}
+      title="Delete pledge"
+    >
+      Delete
+    </button>
+  </div>
+)}
+                      </li>
+                    ))}
+                  </ul>
+                )}
 
-          {/* Bottom danger zone */}
+                {/* Add pledge */}
+                <form onSubmit={handleAddPledge} className="card space-y-2">
+                  <label className="text-sm font-medium">Add a pledge</label>
+                  <textarea
+                    rows={3}
+                    className="w-full"
+                    placeholder={userEmail ? "What will you do to help move this forward?" : "Log in to pledge…"}
+                    value={pledgeText}
+                    onChange={(e) => setPledgeText(e.target.value)}
+                    disabled={!userEmail || addingPledge}
+                  />
+                  <div className="flex justify-end">
+                    <button className="btn" disabled={!userEmail || addingPledge || !pledgeText.trim()}>
+                      {addingPledge ? "Adding…" : "Add Pledge"}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+          </section>
+
+          {/* =============== CONVERSATION (collapsed by default; below pledges) =============== */}
+          <section className="space-y-3">
+            <CollapseHeader open={openConversation} onToggle={() => setOpenConversation((o) => !o)}>
+              Conversation
+            </CollapseHeader>
+            {openConversation && (
+              <div className="space-y-2">
+                
+                <ConversationPanel
+                  userEmail={userEmail}
+                  headers={headers}
+                  resource={{ base: `/forge/items/${item.id}` }}
+                  onResolved={(cid) => setConversationId(cid)}
+                  showInboxLink
+                  title="Conversation"
+                  height="h-[50vh]"
+                />
+              </div>
+            )}
+          </section>
+
+          {/* =============== DANGER ZONE (bottom-only delete) =============== */}
           {canDelete && (
             <section className="pt-2 border-t">
               <div className="flex items-center justify-between">

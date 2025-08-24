@@ -2,7 +2,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 
-export default function ItemConversation({ itemId, userEmail }) {
+export default function ItemConversation({ itemId, userEmail, headers, onResolved }) {
   const [conversationId, setConversationId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -25,18 +25,20 @@ export default function ItemConversation({ itemId, userEmail }) {
     (async () => {
       try {
         setLoading(true);
-        const idRes = await api.get(`/forge/items/${itemId}/conversation`);
+        const idRes = await api.get(`/forge/items/${itemId}/conversation`, { headers });
         if (cancelled) return;
         const cid = idRes?.data?.conversation_id;
         setConversationId(cid);
+        if (cid && typeof onResolved === "function") onResolved(cid);
 
-        const msgRes = await api.get(`/forge/items/${itemId}/conversation/messages`);
+        const msgRes = await api.get(`/forge/items/${itemId}/conversation/messages`, { headers });
         if (cancelled) return;
         setMessages(Array.isArray(msgRes.data) ? msgRes.data : []);
 
         if (userEmail) {
           const fRes = await api.get(`/forge/items/${itemId}/conversation/following`, {
             params: { user_email: userEmail },
+            headers,
           });
           if (cancelled) return;
           setFollowing(Boolean(fRes?.data?.following));
@@ -60,7 +62,8 @@ export default function ItemConversation({ itemId, userEmail }) {
       const res = await api.post(`/forge/items/${itemId}/conversation/send`, {
         sender_email: userEmail,
         content,
-      });
+      }, { headers });
+      
       const sent = res?.data?.message;
       const newMsg = sent || {
         id: Math.random(),
@@ -94,13 +97,15 @@ export default function ItemConversation({ itemId, userEmail }) {
     try {
       if (prev) {
         await api.post(`/forge/items/${itemId}/conversation/unfollow`, null, {
-          params: { user_email: userEmail },
-        });
-      } else {
-        await api.post(`/forge/items/${itemId}/conversation/join`, null, {
-          params: { user_email: userEmail },
-        });
-      }
+           params: { user_email: userEmail },
+           headers,
+         });
+       } else {
+         await api.post(`/forge/items/${itemId}/conversation/join`, null, {
+           params: { user_email: userEmail },
+           headers,
+         });
+       }
     } catch (e) {
       setFollowing(prev);
     } finally {
@@ -111,7 +116,18 @@ export default function ItemConversation({ itemId, userEmail }) {
   return (
     <div className="border rounded p-3">
       <div className="flex items-center justify-between mb-2">
-        <div className="font-semibold">Conversation</div>
+        <div className="font-semibold flex items-center gap-2">
+          <span>Conversation</span>
+          {conversationId ? (
+            <a
+              href={`/inbox?open=${conversationId}`}
+              className="text-xs underline opacity-80 hover:opacity-100"
+              title="Open this thread in your Inbox"
+            >
+              Open in Inbox →
+            </a>
+          ) : null}
+        </div>
         {userEmail && (
           <button
             className={`px-2 py-1 rounded font-medium ${following ? "bg-zinc-200 dark:bg-zinc-700" : "bg-blue-600 text-white"}`}
