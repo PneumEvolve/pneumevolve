@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { v4 as uuidv4 } from "uuid";
 import { Link } from "react-router-dom";
+import { createPortal } from "react-dom";
 
 const KIND = { PROBLEM: "problem", IDEA: "idea" };
 const STATUS = { OPEN: "open", IN_PROGRESS: "in_progress", DONE: "done", ARCHIVED: "archived" };
@@ -260,29 +261,33 @@ export default function Forge2() {
     }
   };
 
-  function FilterModal({ open, onClose, value, onChange }) {
-  const [local, setLocal] = useState(value);
-  const [tagInput, setTagInput] = useState("");
+  // at top of file:
 
-  useEffect(() => {
-    if (open) setLocal(value);
-  }, [open, value]);
 
-  // Lock page scroll while modal is open
-  useEffect(() => {
+function FilterModal({ open, onClose, value, onChange }) {
+  const [local, setLocal] = React.useState(value);
+  const [tagInput, setTagInput] = React.useState("");
+
+  React.useEffect(() => { if (open) setLocal(value); }, [open, value]);
+
+  // Lock page scroll
+  React.useEffect(() => {
     if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prev; };
+    const html = document.documentElement;
+    const prev = html.style.overflow;
+    html.style.overflow = "hidden";
+    return () => { html.style.overflow = prev; };
   }, [open]);
 
-  // Close on Esc
-  useEffect(() => {
+  // ESC to close
+  React.useEffect(() => {
     if (!open) return;
     const onKey = (e) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
+
+  if (!open) return null;
 
   const set = (patch) => setLocal((v) => ({ ...v, ...patch }));
   const addTag = () => {
@@ -291,58 +296,50 @@ export default function Forge2() {
     setLocal((v) => ({ ...v, tags: Array.from(new Set([...(v.tags || []), t])) }));
     setTagInput("");
   };
-  const removeTag = (t) =>
-    setLocal((v) => ({ ...v, tags: (v.tags || []).filter((x) => x !== t) }));
-
+  const removeTag = (t) => setLocal((v) => ({ ...v, tags: (v.tags || []).filter((x) => x !== t) }));
   const clearAll = () => setLocal(DEFAULT_FILTERS);
-  const apply = () => {
-    onChange(local);
-    onClose();
-  };
+  const apply = () => { onChange(local); onClose(); };
 
-  if (!open) return null;
-
-  return (
-    <div className="fixed inset-0 z-50" role="dialog" aria-modal="true">
+  return createPortal(
+    <div className="fixed inset-0 z-[100]" role="dialog" aria-modal="true" aria-labelledby="filters-title">
       {/* overlay */}
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <button className="absolute inset-0 bg-black/40" aria-label="Close" onClick={onClose} />
 
-      {/* sheet / dialog container */}
-      <div className="absolute inset-0 flex items-end md:items-center justify-center p-2 md:p-4">
-        <div className="w-full md:max-w-3xl">
-          {/* card as a flex column with max height; body scrolls */}
-          <div className="card p-0 overflow-hidden rounded-t-2xl md:rounded-2xl flex flex-col max-h-[90vh]">
-            {/* header (fixed) */}
-            <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
-              <div className="font-semibold">Filters</div>
-              <button className="btn btn-secondary" onClick={onClose} aria-label="Close filters">
-                Close
-              </button>
+      {/* FULL-SCREEN SHEET (edge-to-edge on mobile) */}
+      <div className="fixed inset-0 overflow-hidden">
+        <div className="h-[100svh] w-full md:max-w-xl md:mx-auto md:py-4">
+          {/* card look, but no rounded corners on mobile */}
+          <div className="card rounded-none md:rounded-2xl p-0 h-full flex flex-col">
+            {/* HEADER (sticky) */}
+            <div className="section-bar sticky top-0 z-10 px-4 py-3 flex items-center justify-between">
+              <h2 id="filters-title" className="text-base sm:text-lg font-semibold">Filters</h2>
+              <button className="btn btn-secondary" onClick={onClose}>Close</button>
             </div>
 
-            {/* body (scrollable) */}
-            <div className="p-4 md:p-6 space-y-6 overflow-y-auto overscroll-contain grow">
-              {/* ---- your existing fields unchanged ---- */}
-
+            {/* BODY (scrolls) */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+              {/* Sort */}
               <div className="space-y-1">
                 <label className="block text-sm font-medium">Sort</label>
                 <select
                   value={local.sort}
                   onChange={(e) => set({ sort: e.target.value })}
-                  className="w-full"
+                  className="w-full min-h-[44px] text-base"
+                  autoFocus
                 >
                   <option value="new">Newest</option>
                   <option value="top">Top (votes)</option>
                 </select>
               </div>
 
+              {/* Kind / Status */}
               <div className="grid sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="block text-sm font-medium">Kind</label>
                   <select
                     value={local.kind}
                     onChange={(e) => set({ kind: e.target.value })}
-                    className="w-full"
+                    className="w-full min-h-[44px] text-base"
                   >
                     <option value="all">All</option>
                     <option value={KIND.PROBLEM}>Problems</option>
@@ -354,7 +351,7 @@ export default function Forge2() {
                   <select
                     value={local.status}
                     onChange={(e) => set({ status: e.target.value })}
-                    className="w-full"
+                    className="w-full min-h-[44px] text-base"
                   >
                     <option value="any">Any</option>
                     <option value={STATUS.OPEN}>Open</option>
@@ -367,7 +364,55 @@ export default function Forge2() {
 
               {/* Domain / Scope / Location */}
               <div className="grid sm:grid-cols-3 gap-4">
-                {/* ... keep your three inputs exactly as before ... */}
+                <div className="space-y-1">
+                  <label className="block text-sm font-medium">Domain</label>
+                  <input
+                    list="filt-domain"
+                    value={local.domain}
+                    onChange={(e) => set({ domain: e.target.value })}
+                    placeholder="e.g., Community"
+                    className="w-full min-h-[44px] text-base"
+                  />
+                  <datalist id="filt-domain">
+                    {["Community","Education","Environment","Health","Economy","Housing","Food","Policy","Tech","Arts"]
+                      .concat((existingDomains || []).filter((d) =>
+                        !["Community","Education","Environment","Health","Economy","Housing","Food","Policy","Tech","Arts"].includes(d)
+                      ))
+                      .map((d) => <option key={`dom-${d}`} value={d} />)}
+                  </datalist>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-sm font-medium">Scope</label>
+                  <select
+                    value={local.scope}
+                    onChange={(e) => set({ scope: e.target.value })}
+                    className="w-full min-h-[44px] text-base"
+                  >
+                    <option value="">Any</option>
+                    <option>Personal</option>
+                    <option>Community</option>
+                    <option>Systemic</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-sm font-medium">Location</label>
+                  <input
+                    list="filt-loc"
+                    value={local.location}
+                    onChange={(e) => set({ location: e.target.value })}
+                    placeholder='e.g., "Online", "Vernon, BC"'
+                    className="w-full min-h-[44px] text-base"
+                  />
+                  <datalist id="filt-loc">
+                    <option value="Online" />
+                    <option value="Global" />
+                    {(existingLocations || []).map((loc) => (
+                      <option key={`loc-${loc}`} value={loc} />
+                    ))}
+                  </datalist>
+                </div>
               </div>
 
               {/* Tags */}
@@ -395,7 +440,7 @@ export default function Forge2() {
                     onChange={(e) => setTagInput(e.target.value)}
                     list="filt-tags"
                     placeholder="Add a tag…"
-                    className="flex-1"
+                    className="flex-1 min-h-[44px] text-base"
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === ",") {
                         e.preventDefault();
@@ -405,7 +450,9 @@ export default function Forge2() {
                   />
                   <button className="btn btn-secondary" type="button" onClick={addTag}>Add</button>
                 </div>
-                {/* your datalist remains */}
+                <datalist id="filt-tags">
+                  {(existingTags || []).map((t) => <option key={`tag-${t}`} value={t} />)}
+                </datalist>
               </div>
 
               {/* Severity */}
@@ -427,18 +474,20 @@ export default function Forge2() {
               </div>
             </div>
 
-            {/* footer (fixed) */}
-            <div className="flex items-center justify-between px-4 py-3 border-t shrink-0">
+            {/* FOOTER (sticky) */}
+            <div className="section-bar sticky bottom-0 px-4 py-3 flex items-center justify-between">
               <button className="btn btn-secondary" onClick={clearAll} type="button">Clear all</button>
               <div className="flex gap-2">
                 <button className="btn btn-secondary" onClick={onClose} type="button">Cancel</button>
-                <button className="btn" onClick={apply} type="button">Apply</button>
+                {/* force readable primary in dark mode */}
+                <button className="btn text-white" onClick={apply} type="button">Apply</button>
               </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
