@@ -1,75 +1,118 @@
+// src/pages/Tarot.jsx
 import React from "react";
-import { Mail, Heart, Video, Calendar } from "lucide-react";
-import { Button } from "../components/ui/button";
+import { Mail, Heart, Video, Calendar, ExternalLink } from "lucide-react";
 import { Link } from "react-router-dom";
 
-const Tarot = () => {
+const VIDEO_URL = "https://www.youtube.com/watch?v=VIDEO_ID_HERE"; // ← replace me
+const CHANNEL_LIVE_URL = "https://www.youtube.com/@pneumevolve/live"; // ← replace if different
+const BUY_ME_A_COFFEE_URL = "https://www.buymeacoffee.com/YOUR_USERNAME"; // ← replace me
+const CONTACT_EMAIL = "shea@pneumevolve.com";
+
+export default function Tarot() {
   return (
-    <div className="min-h-screen bg-gradient-to-b from-indigo-900 via-purple-900 to-black text-white p-6 flex flex-col items-center justify-center space-y-10">
-      <div className="max-w-3xl text-center space-y-6">
-        <h1 className="text-5xl font-extrabold tracking-tight">🃏 Zen Tarot Readings</h1>
-        <p className="text-xl text-gray-300">
-          Welcome to your next message from the Universe.
-          Join me for live intuitive tarot readings streaming weekly.
+    <div className="main p-6 space-y-6">
+      {/* Header */}
+      <header className="section-bar flex items-center justify-between gap-3">
+        <h1 className="m-0">🃏 Zen Tarot Readings</h1>
+        <Link
+          to="/experiments"
+          className="btn btn-secondary text-xs sm:text-sm opacity-80 hover:opacity-100"
+        >
+          ← Back to Experiments
+        </Link>
+      </header>
+
+      {/* Intro */}
+      <section className="card space-y-3">
+        <p className="text-base">
+          Welcome to your next message from the Universe. Join me for live intuitive
+          tarot readings streaming weekly.
         </p>
-        <p className="text-lg text-purple-200">
-          Come with a question, or just let the cards speak. I read for collective consciousness and for YOU.
+        <p className="text-sm opacity-80">
+          Come with a question, or just let the cards speak. I read for the collective
+          and for <em>you</em>.
         </p>
-        <p className="text-md text-gray-400 italic">
+        <p className="text-sm italic opacity-70">
           “The cards don’t predict the future. They reflect the now — and you decide what’s next.”
         </p>
-      </div>
+      </section>
 
-      {/* Replace with your actual live stream embed (YouTube, Twitch, etc.) */}
-      <div className="w-full max-w-2xl aspect-video rounded-2xl overflow-hidden shadow-xl border border-purple-600">
-        <iframe
-          className="w-full h-full"
-          src="https://www.youtube.com/embed/live_stream?channel=YOUR_CHANNEL_ID"
-          title="Live Tarot Reading"
-          frameBorder="0"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-          allowFullScreen
-        ></iframe>
-      </div>
+      {/* Placeholder video link */}
+      <section className="card p-0 overflow-hidden">
+        <div className="aspect-video flex items-center justify-center bg-[color-mix(in_oklab,var(--bg)_80%,transparent)]">
+          <a
+            href={VIDEO_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 btn"
+            aria-label="Watch placeholder tarot reading video"
+            title="Watch placeholder tarot reading video"
+          >
+            <Video className="w-5 h-5" />
+            <span>Watch placeholder reading</span>
+            <ExternalLink className="w-4 h-4 opacity-80" />
+          </a>
+        </div>
+        <div className="p-3 border-t flex items-center justify-between gap-3 text-sm">
+          <span className="opacity-70">Ready for live? Catch me on YouTube.</span>
+          <a
+            href={CHANNEL_LIVE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn btn-secondary"
+          >
+            Open Live Page
+          </a>
+        </div>
+      </section>
 
-      <div className="text-center space-y-4">
-        <h2 className="text-2xl font-semibold">🧙‍♂️ Get a Reading</h2>
-        <p className="text-gray-300">
-          Live viewers: Drop your question in the chat or just type "🃏" for a card pull.
-        </p>
-        <p className="text-gray-400">
-          Private readings: Email me to schedule a personal reading.
-        </p>
+      {/* Get a reading */}
+      <section className="card space-y-3">
+        <h2 className="text-lg font-semibold m-0">🧙‍♂️ Get a Reading</h2>
+        <div className="text-sm space-y-1">
+          <p className="opacity-80">
+            Live viewers: drop your question in chat or just type <span className="badge">🃏</span>{" "}
+            for a card pull.
+          </p>
+          <p className="opacity-70">
+            Private sessions: email me to schedule a personal reading.
+          </p>
+        </div>
+
         <a
-          href="mailto:sheaklipper@gmail.com"
-          className="inline-flex items-center space-x-2 text-pink-400 hover:underline"
+          href={`mailto:${CONTACT_EMAIL}`}
+          className="inline-flex items-center gap-2 link-default"
         >
           <Mail className="w-5 h-5" />
-          <span>sheaklipper@gmail.com</span>
+          <span>{CONTACT_EMAIL}</span>
         </a>
-        <div className="flex gap-4 justify-center mt-4">
-          <Button variant="outline" asChild>
-            <a href="mailto:sheaklipper@gmail.com">
-              <Calendar className="w-4 h-4 mr-1" /> Book Private Reading
-            </a>
-          </Button>
-          <Button variant="outline" asChild>
-            <a href="https://www.buymeacoffee.com/YOUR_USERNAME" target="_blank" rel="noopener noreferrer">
-              <Heart className="w-4 h-4 mr-1" /> Support My Work
-            </a>
-          </Button>
+
+        <div className="flex flex-wrap gap-2 pt-2">
+          <a href={`mailto:${CONTACT_EMAIL}`} className="btn btn-secondary">
+            <Calendar className="w-4 h-4 mr-2" />
+            Book Private Reading
+          </a>
+          <a
+            href={BUY_ME_A_COFFEE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn btn-secondary"
+          >
+            <Heart className="w-4 h-4 mr-2" />
+            Support My Work
+          </a>
         </div>
-      </div>
+      </section>
 
-      <div className="text-sm text-gray-500 mt-10">
-        Stream live on YouTube • TikTok: <span className="font-semibold">@pneumevolve</span>
-      </div>
-
-      <Button variant="ghost" className="mt-6" asChild>
-        <Link to="/">← Return to PneumEvolve</Link>
-      </Button>
+      {/* Footer */}
+      <section className="card flex items-center justify-between text-xs">
+        <span className="opacity-70">
+          Streaming on YouTube • TikTok: <span className="font-medium">@pneumevolve</span>
+        </span>
+        <Link to="/" className="btn btn-secondary">
+          ← Return Home
+        </Link>
+      </section>
     </div>
   );
-};
-
-export default Tarot;
+}

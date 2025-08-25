@@ -16,6 +16,7 @@ import {
   Salad,
   Moon,
   Gamepad2,
+  Wind
 } from "lucide-react";
 
 // Shared tile renderer — consistent card + icon bubble that adapts to light/dark
@@ -90,13 +91,6 @@ const tilesCommunity = () => [
     status: "Open",
   },
   {
-    title: "Problems",
-    to: "/problems",
-    description: "Surface real-world problems to explore together.",
-    icon: FileText,
-    status: "Beta",
-  },
-  {
     title: "Dream Machine",
     to: "/dream-machine",
     description: "A shared engine for collective dreaming & prompts.",
@@ -125,13 +119,7 @@ const tilesCommunity = () => [
     icon: TreePine,
     status: "Community",
   },
-  {
-    title: "Living Plan",
-    to: "/living-plan",
-    description: "PneumEvolve’s evolving plan and notes.",
-    icon: FileText,
-    status: "Doc",
-  },
+  
   {
     title: "Blog",
     to: "/blog",
@@ -139,13 +127,7 @@ const tilesCommunity = () => [
     icon: FileText,
     status: "Read",
   },
-  {
-    title: "Messages",
-    to: "/account#inbox",
-    description: "Updates and conversations.",
-    icon: MessageSquare,
-    status: "Inbox",
-  },
+  
   {
     title: "Map",
     to: "/sitemap",
@@ -163,6 +145,13 @@ const tilesFun = () => [
     description: "An active idle game — plant, tend, flow.",
     icon: Gamepad2,
     status: "Play",
+  },
+  {
+    title: "Zen Freeskates",
+    to: "/zen-freeskates",
+    description: "Learn how to freeskate.",
+    icon: Wind,
+    status: "Play/Watch",
   },
   {
     title: "Tree of Life",

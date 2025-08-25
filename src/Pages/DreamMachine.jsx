@@ -1,9 +1,9 @@
+// src/pages/DreamMachine.jsx
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-// ✅ use the unified axios client (no hardcoded API URLs)
-import { api } from "@/lib/api"; // or: import api from "@/lib/api";
+import { api } from "@/lib/api";
 
-const DreamMachine = () => {
+export default function DreamMachine() {
   const [summary, setSummary] = useState("");
   const [mantra, setMantra] = useState("");
   const [count, setCount] = useState(0);
@@ -13,26 +13,21 @@ const DreamMachine = () => {
 
   useEffect(() => {
     const ctrl = new AbortController();
-
-    const fetchDreamData = async () => {
+    (async () => {
       try {
         setErr("");
         setLoading(true);
 
-        // try without trailing slash first
         let res = await api.get("/we-dream/collective", {
           signal: ctrl.signal,
           validateStatus: () => true,
         });
-
-        // Some FastAPI routes redirect /x -> /x/ with 307; follow manually if needed
         if (res.status === 307 || res.status === 308) {
           res = await api.get("/we-dream/collective/", {
             signal: ctrl.signal,
             validateStatus: () => true,
           });
         }
-
         if (res.status !== 200) {
           setErr(`Failed to load (status ${res.status})`);
           return;
@@ -56,14 +51,12 @@ const DreamMachine = () => {
       } finally {
         setLoading(false);
       }
-    };
-
-    fetchDreamData();
+    })();
     return () => ctrl.abort();
   }, []);
 
-  const shareOnFacebook = () => {
-    const url = encodeURIComponent("https://pneumevolve.com/dream-machine");
+  const shareFacebook = () => {
+    const url = encodeURIComponent(window.location.origin + "/dream-machine");
     window.open(
       `https://www.facebook.com/sharer/sharer.php?u=${url}`,
       "_blank",
@@ -71,66 +64,70 @@ const DreamMachine = () => {
     );
   };
 
-  return (
-    <div className="max-w-3xl mx-auto p-6 space-y-6 text-gray-900 dark:text-gray-100">
-      <h1 className="text-4xl dark:text-black font-bold text-center">🌍 Dream Machine</h1>
-      <p className="text-center text-gray-700 dark:text-black">
-        Each night, the Dream Machine gathers one dream from every active user—visions of a better world. It blends
-        them into a single collective summary and distills a powerful mantra from the shared intention. This evolving
-        message reflects the heart of our community: a glimpse into the future we’re choosing to build—together.
-      </p>
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.origin + "/dream-machine");
+      alert("Link copied!");
+    } catch {
+      alert("Couldn’t copy the link.");
+    }
+  };
 
-      {/* Navigation Links */}
-      <div className="flex justify-center gap-6 mt-4">
-        <Link
-          to="/"
-          className="text-blue-600 dark:text-blue-400 underline hover:text-blue-800 dark:hover:text-blue-300 transition"
-        >
-          🏠 Return to PneumEvolve
-        </Link>
-        <Link
-          to="/we-dream"
-          className="text-blue-600 dark:text-blue-400 underline hover:text-blue-800 dark:hover:text-blue-300 transition"
-        >
-          ➕ Add your Dream to the Machine
-        </Link>
+  return (
+    <main className="main p-6 space-y-8">
+      {/* Hero */}
+      <section className="card text-center space-y-4">
+        <h1 className="text-3xl sm:text-4xl font-bold">🌍 Dream Machine</h1>
+        <p className="opacity-90">
+          Each night, one dream from every active user is woven into a collective message.
+          A living summary of where we’re headed—together.
+        </p>
+        <div className="flex items-center justify-center gap-3 flex-wrap">
+          <Link to="/we-dream" className="btn">➕ Add your Dream</Link>
+          <Link to="/" className="btn btn-secondary">← Home</Link>
+        </div>
+      </section>
+
+      {/* Status / meta */}
+      <div className="section-bar flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="badge">🛌 {count} dream{count === 1 ? "" : "s"}</span>
+          <span className="badge">
+            ⏰ Updated: {updatedAt ? new Date(updatedAt).toLocaleString() : "—"}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button className="btn btn-secondary" onClick={copyLink}>Copy Link</button>
+          <button className="btn btn-secondary" onClick={shareFacebook}>Share</button>
+        </div>
       </div>
 
+      {/* Content */}
       {loading ? (
-        <p className="text-center text-gray-500 dark:text-gray-400">Loading collective dream...</p>
+        <div className="card text-center opacity-80">Loading collective dream…</div>
       ) : err ? (
-        <p className="text-center text-red-600">{err}</p>
+        <div className="card border-amber-500/40 text-center">{err}</div>
       ) : (
         <>
-          <div className="bg-white dark:bg-gray-900 rounded-xl p-6 shadow border border-gray-200 dark:border-gray-700">
-            <h2 className="text-2xl font-semibold mb-2 text-center text-gray-900 dark:text-gray-100">
-              ✨ Collective Mantra
-            </h2>
-            <p className="text-xl text-center text-blue-600 dark:text-blue-400">{mantra}</p>
-          </div>
+          {/* Mantra */}
+          <section className="card text-center space-y-2">
+            <h2 className="text-2xl font-semibold">✨ Collective Mantra</h2>
+            <p className="text-xl">{mantra || "—"}</p>
+          </section>
 
-          <div className="bg-white dark:bg-gray-900 rounded-xl p-6 shadow border border-gray-200 dark:border-gray-700 mt-4">
-            <h2 className="text-2xl font-semibold mb-2 text-center text-gray-900 dark:text-gray-100">
-              🧠 AI Summary
-            </h2>
-            <p className="text-center text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{summary}</p>
-            <p className="text-center text-sm text-gray-5 00 dark:text-gray-400 mt-2">
-              {count} dream{count !== 1 ? "s" : ""} contributed • Last updated:{" "}
-              {updatedAt ? new Date(updatedAt).toLocaleString() : "unknown"}
-            </p>
-            <div className="flex justify-center mt-4">
-              <button
-                onClick={shareOnFacebook}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
-              >
-                Share this on Facebook
-              </button>
+          {/* Summary */}
+          <section className="space-y-2">
+            <div className="section-bar">
+              <h3 className="font-semibold">🧠 AI Summary</h3>
             </div>
-          </div>
+            <div className="card">
+              <p className="whitespace-pre-wrap leading-relaxed">
+                {summary || "No summary yet. Add your dream to help shape it."}
+              </p>
+            </div>
+          </section>
         </>
       )}
-    </div>
+    </main>
   );
-};
-
-export default DreamMachine;
+}

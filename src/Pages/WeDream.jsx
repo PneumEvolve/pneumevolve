@@ -1,70 +1,85 @@
-import React, { useEffect, useState } from "react";
+// src/pages/WeDream.jsx
+import React, { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
-import { useAuth } from "../context/AuthContext";
-import { Textarea } from "../components/ui/textarea";
-import { Button } from "../components/ui/button";
+import { useAuth } from "@/context/AuthContext";
+import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
 
+export default function WeDream() {
+  const { accessToken } = useAuth();
+  const isAuthed = !!accessToken;
 
-let saveTimeout;
-
-const WeDream = () => {
   const [vision, setVision] = useState("");
   const [mantra, setMantra] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [saveStatus, setSaveStatus] = useState("");
-  const { accessToken } = useAuth();
+  const [loadingGen, setLoadingGen] = useState(false);
+  const [saveStatus, setSaveStatus] = useState(""); // "", "Saving…", "Saved!", "Failed…"
 
+  // debounce for autosave
+  const saveTimerRef = useRef(null);
+  const lastSavedRef = useRef({ vision: "", mantra: "" });
+
+  // Load active entry for the authed user
   useEffect(() => {
-    const fetchActiveEntry = async () => {
-      if (!accessToken) return;
-
+    let alive = true;
+    (async () => {
+      if (!isAuthed) return;
       try {
-        const res = await api.get(`/we-dream/active`, {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
+        const res = await api.get("/we-dream/active", {
+          headers: { Authorization: `Bearer ${accessToken}` },
         });
-
-        const data = res.data;
+        const data = res.data || {};
+        if (!alive) return;
         if (data.exists) {
-          setVision(data.vision);
-          setMantra(data.mantra);
+          setVision(data.vision || "");
+          setMantra(data.mantra || "");
+          lastSavedRef.current = { vision: data.vision || "", mantra: data.mantra || "" };
         }
       } catch (err) {
         console.error("Error fetching active dream entry:", err);
       }
+    })();
+    return () => {
+      alive = false;
     };
+  }, [isAuthed, accessToken]);
 
-    fetchActiveEntry();
-  }, [accessToken]);
-
-  const handleGenerate = async () => {
-    setLoading(true);
+  async function generateMantra() {
+    if (!vision.trim()) return;
+    setLoadingGen(true);
     setSaveStatus("");
     try {
       const res = await api.post(
-        `/we-dream/manifest`,
+        "/we-dream/manifest",
         { text: vision },
         { headers: { "Content-Type": "application/json" } }
       );
-      setMantra(res.data.mantra);
+      const m = (res.data && res.data.mantra) || "";
+      setMantra(m);
     } catch (err) {
       console.error("Error generating mantra:", err);
       setMantra("Something went wrong. Try again.");
     } finally {
-      setLoading(false);
+      setLoadingGen(false);
     }
-  };
+  }
 
-  const handleSave = async () => {
-    if (!accessToken) {
+  async function saveDream() {
+    if (!isAuthed) {
       setSaveStatus("Please sign in to save your dream.");
       return;
     }
-
+    // Avoid redundant saves
+    if (
+      vision === lastSavedRef.current.vision &&
+      mantra === lastSavedRef.current.mantra
+    ) {
+      return;
+    }
     try {
+      setSaveStatus("Saving…");
       const res = await api.post(
-        `/we-dream/save`,
+        "/we-dream/save",
         { vision, mantra },
         {
           headers: {
@@ -73,117 +88,131 @@ const WeDream = () => {
           },
         }
       );
-      setSaveStatus(res.data.message || "Saved!");
+      setSaveStatus(res.data?.message || "Saved!");
+      lastSavedRef.current = { vision, mantra };
     } catch (err) {
       console.error("Error saving dream:", err);
       setSaveStatus("Failed to save dream.");
     }
-  };
+  }
 
-  const handleClear = async () => {
+  async function clearDream() {
+    if (!isAuthed) {
+      setSaveStatus("Please sign in to clear your dream.");
+      return;
+    }
+    if (!window.confirm("Clear your current dream and mantra?")) return;
     try {
       const res = await api.post(
-        `/we-dream/clear`,
+        "/we-dream/clear",
         {},
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        }
+        { headers: { Authorization: `Bearer ${accessToken}` } }
       );
       setVision("");
       setMantra("");
-      setSaveStatus(res.data.message);
+      lastSavedRef.current = { vision: "", mantra: "" };
+      setSaveStatus(res.data?.message || "Cleared.");
     } catch (err) {
       console.error("Error clearing dream:", err);
       setSaveStatus("Failed to clear.");
     }
-  };
+  }
 
+  // Autosave (debounced)
   useEffect(() => {
-    if (!accessToken || !vision || !mantra) return;
+    if (!isAuthed) return;
+    if (!vision && !mantra) return;
 
-    if (saveTimeout) clearTimeout(saveTimeout);
-    saveTimeout = setTimeout(() => {
-      handleSave();
-    }, 1000);
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      saveDream();
+    }, 900);
 
-    return () => clearTimeout(saveTimeout);
-  }, [vision, mantra]);
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vision, mantra, isAuthed]);
 
   return (
-    <div className="max-w-2xl mx-auto p-6 space-y-6">
-      <h1 className="text-3xl font-bold text-center">We Dream</h1>
-      <p className="text-center text-gray-600">
-        What kind of world do you want to live in?
-      </p>
-      <p className="text-center text-sm text-gray-500 dark:text-gray-400">
-        Every night, the Dream Machine gathers one vision from each user and blends them into a collective AI summary and mantra. 
-        Your current dream will be the one that gets used, so shape it with care. You can update it anytime.
-      </p>
-
-      <div className="flex flex-col sm:flex-row justify-center items-center gap-4 mt-4 text-center">
-        <a
-          href="/"
-          className="text-blue-600 dark:text-blue-400 underline hover:text-blue-800 transition"
-        >
-          🏠 Return to PneumEvolve
-        </a>
-
-        <a
-          href="/dream-machine"
-          className="text-blue-600 dark:text-blue-400 underline hover:text-blue-800 transition"
-        >
-          🔮 View Latest Dream Machine Summary
-        </a>
-      </div>
-
-      <p className="text-sm text-center text-gray-500 dark:text-gray-400 mt-2">
-        ✍️ If you just want to write, we also provide a {" "}
-        <a
-          href="/journal"
-          className="underline text-blue-600 dark:text-blue-400 hover:text-blue-800 transition"
-        >
-          Journal
-        </a>{" "}
-        with built-in mantra reflection.
-      </p>
-
-      <Textarea
-        value={vision}
-        onChange={(e) => setVision(e.target.value)}
-        placeholder="Write your vision for the world here..."
-        rows={6}
-      />
-
-      <div className="flex flex-col sm:flex-row justify-center gap-4">
-        <Button onClick={handleGenerate} disabled={loading}>
-          {loading ? "Generating..." : "Manifest Mantra"}
-        </Button>
-        <Button onClick={handleSave} variant="outline">
-          💾 Save Dream
-        </Button>
-      </div>
-
-      {mantra && (
-        <div className="mt-6 bg-gray-100 p-4 rounded-xl text-center text-xl font-semibold">
-          ✨ {mantra}
+    <main className="main p-6 space-y-8">
+      {/* Intro / CTA */}
+      <section className="card text-center space-y-3">
+        <h1 className="text-3xl sm:text-4xl font-bold">🌙 We Dream</h1>
+        <p className="opacity-90">
+          What kind of world do you want to live in? Shape your vision and derive a mantra.
+          Each night the Dream Machine blends one entry per user into a collective message.
+        </p>
+        <div className="flex items-center justify-center gap-2 flex-wrap">
+          <Link to="/" className="btn btn-secondary">← Return Home</Link>
+          <Link to="/dream-machine" className="btn btn-secondary">🔮 View Dream Machine</Link>
+          <Link to="/journal" className="btn">✍️ Open Journal</Link>
         </div>
-      )}
+      </section>
 
-      <div className="flex justify-center gap-4 mt-4">
-        <Button variant="secondary" onClick={handleClear}>
-          🧹 Clear My Dream
-        </Button>
-      </div>
+      {/* Vision */}
+      <section className="space-y-2">
+        <div className="section-bar">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <h2 className="font-semibold">Your Vision</h2>
+            <div className="text-xs opacity-70">
+              {vision.length} {vision.length === 1 ? "character" : "characters"}
+            </div>
+          </div>
+        </div>
+        <div className="card space-y-3">
+          <Textarea
+            value={vision}
+            onChange={(e) => setVision(e.target.value)}
+            placeholder="Describe your vision for the world we’re building…"
+            rows={8}
+          />
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button onClick={generateMantra} disabled={loadingGen || !vision.trim()}>
+              {loadingGen ? "Generating…" : "Manifest Mantra"}
+            </Button>
+            <Button variant="outline" onClick={saveDream} disabled={!isAuthed}>
+              💾 Save
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      {/* Mantra */}
+      <section className="space-y-2">
+        <div className="section-bar">
+          <h2 className="font-semibold">Your Mantra</h2>
+        </div>
+        <div className="card text-center">
+          {mantra ? (
+            <p className="text-xl leading-relaxed">✨ {mantra}</p>
+          ) : (
+            <p className="opacity-70">No mantra yet. Write your vision, then “Manifest Mantra”.</p>
+          )}
+        </div>
+      </section>
+
+      {/* Actions / Status */}
+      <section className="flex items-center justify-between flex-wrap gap-3">
+        <div className="text-sm opacity-80">
+          {isAuthed ? (
+            <span className="badge">Signed in — autosave is on</span>
+          ) : (
+            <span className="badge">Not signed in — changes won't be saved</span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" onClick={clearDream} disabled={!isAuthed}>
+            🧹 Clear My Dream
+          </Button>
+        </div>
+      </section>
 
       {saveStatus && (
-        <p className="text-center mt-2 text-sm text-green-600 dark:text-green-400">
+        <div className="text-center text-sm opacity-80">
           {saveStatus}
-        </p>
+        </div>
       )}
-    </div>
+    </main>
   );
-};
-
-export default WeDream;
+}

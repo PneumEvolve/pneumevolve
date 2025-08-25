@@ -36,37 +36,65 @@ export default function HomePageSimple() {
     };
   }, []);
 
+  const TypeBadge = ({ t }) => (
+    <span className="badge">
+      {String(t || "").toUpperCase()}
+    </span>
+  );
+
   return (
-    <main className="p-6 max-w-4xl mx-auto space-y-12 text-center">
-      <section>
-        <img src="/logo.png" alt="PneumEvolve Logo" className="w-20 h-20 mx-auto mb-4 rounded-full" />
-        <h1 className="text-4xl font-bold">PneumEvolve</h1>
-        <p className="mt-4 text-lg">
-          Tired of shouting into the void? <span className="font-semibold">Enter the Forge</span> — a place to post problems and ideas, vote on what matters, and turn momentum into action.
+    <main className="main p-6 space-y-8">
+      {/* Hero */}
+      <section className="card text-center space-y-4">
+        <img
+          src="/logo.png"
+          alt="PneumEvolve logo"
+          className="w-16 h-16 mx-auto rounded-full"
+        />
+        <h1 className="text-3xl sm:text-4xl font-bold">PneumEvolve</h1>
+        <p className="text-base sm:text-lg opacity-90">
+          Tired of shouting into the void? <span className="font-semibold">Enter the Forge</span> — post
+          problems & ideas, vote on what matters, and turn momentum into action.
         </p>
-        <div className="mt-6 flex items-center justify-center gap-3 flex-wrap">
-          <Link to="/forge2" className="btn">Browse and Vote in the Forge</Link>
-          <Link to="/sitemap" className="btn btn-secondary">Everything else</Link>
+        <div className="flex items-center justify-center gap-3 flex-wrap pt-1">
+          <Link to="/forge2" className="btn">Browse & Vote in the Forge</Link>
+          {/* FIXED: “Everything else” → Site Map */}
+          <Link to="/sitemap" className="btn btn-secondary">Explore Site Map</Link>
         </div>
       </section>
 
-      <section>
-        <h3 className="text-lg font-semibold mb-4">What’s Happening Now</h3>
-        {loading && <p className="text-sm opacity-70">Loading…</p>}
-        {!loading && loadErr && <p className="text-sm opacity-70">{loadErr}</p>}
-        {!loading && !loadErr && newest.length === 0 && (
-          <p className="text-sm opacity-70">No activity yet — be the first to post!</p>
-        )}
-        <ul className="space-y-2">
+      {/* Activity */}
+      <section className="space-y-3">
+        <div className="section-bar">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold">What’s happening now</h3>
+            <Link to="/forge2" className="link-default text-sm">See all →</Link>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          {loading && <div className="opacity-70 text-sm">Loading…</div>}
+          {!loading && loadErr && <div className="opacity-70 text-sm">{loadErr}</div>}
+          {!loading && !loadErr && newest.length === 0 && (
+            <div className="opacity-70 text-sm">No activity yet — be the first to post!</div>
+          )}
+
           {newest.map((item) => (
-            <li key={`${item.type}-${item.id}`}>
-              <Link to={item.href} className="underline hover:no-underline">
-                {item.title}
-              </Link>
-              <span className="ml-2 text-xs opacity-60">({item.type})</span>
-            </li>
+            <Link
+              key={`${item.type}-${item.id}`}
+              to={item.href}
+              className="card flex items-start justify-between gap-4 hover:no-underline"
+            >
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <TypeBadge t={item.type} />
+                </div>
+                <div className="font-semibold">{item.title}</div>
+              </div>
+              <div className="opacity-60 text-sm">Open →</div>
+            </Link>
           ))}
-        </ul>
+        </div>
       </section>
     </main>
   );

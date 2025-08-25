@@ -1,13 +1,13 @@
+// src/pages/ZenFreeskates.jsx
 import React from "react";
-import { Helmet } from 'react-helmet-async';
-import { Button } from "../components/ui/button";
-import { Mail } from "lucide-react";
+import { Helmet } from "react-helmet-async";
 import { Link } from "react-router-dom";
+import { Mail, MapPin, Calendar, Sparkles } from "lucide-react";
 
-const ZenFreeskates = () => {
+export default function ZenFreeskates() {
   return (
-    <div className="min-h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-white p-6 flex flex-col items-center justify-center space-y-10">
-      {/* SEO Meta Tags */}
+    <main className="main p-6 space-y-8">
+      {/* SEO */}
       <Helmet>
         <title>Zen Freeskates | Learn to Freeskate in Vernon BC | PneumEvolve</title>
         <meta
@@ -15,56 +15,91 @@ const ZenFreeskates = () => {
           content="Join Zen Freeskates – Free lessons at Polson Park Skatepark in Vernon, BC. Flow with freedom and learn freeskating with Shea. Limited time offer!"
         />
         <meta property="og:title" content="Zen Freeskates | Vernon, BC" />
-        <meta property="og:description" content="Free Freeskating lessons at Polson Park Skatepark – Email to book!" />
+        <meta
+          property="og:description"
+          content="Free Freeskating lessons at Polson Park Skatepark – Email to book!"
+        />
         <meta property="og:type" content="website" />
         <meta property="og:url" content="https://pneumevolve.com/zen-freeskates" />
       </Helmet>
 
-      <div className="max-w-3xl text-center space-y-4">
-        <h1 className="text-5xl font-extrabold tracking-tight">Zen Freeskates</h1>
-        <p className="text-xl text-gray-600 dark:text-gray-300">
+      {/* Header */}
+      <section className="text-center space-y-3">
+        <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight">Zen Freeskates</h1>
+        <p className="opacity-90 text-lg">
           Flow with freedom. Move with purpose. Discover the art of freeskating.
         </p>
-        <p className="text-lg text-gray-600 dark:text-gray-300">
-          Email me now for <span className="font-bold">FREE</span> freeskating lessons – limited time offer!
-        </p>
-      </div>
-
-      <div className="w-full max-w-2xl aspect-video rounded-2xl overflow-hidden shadow-lg">
-        <iframe
-          className="w-full h-full"
-          src="https://www.youtube.com/embed/2-k4j-guLNk?si=LkYXxZKs_1hy87kg"
-          title="Intro to Freeskating"
-          frameBorder="0"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-          allowFullScreen
-        ></iframe>
-      </div>
-
-      <div className="text-center space-y-4">
-        <h2 className="text-2xl font-semibold">Local To Vernon, BC and Want to Learn?</h2>
-        <p className="text-gray-600 dark:text-gray-300">
-          Free lessons at <span className="font-bold">Polson Park Skatepark</span>. Email to set up a time:
-        </p>
-        <a
-          href="mailto:sheaklipper@gmail.com"
-          className="inline-flex items-center space-x-2 text-blue-500 hover:underline"
-        >
-          <Mail className="w-5 h-5" />
-          <span>sheaklipper@gmail.com</span>
-        </a>
-        <div>
-          <Button className="mt-4" asChild>
-            <Link to="/">Return to PneumEvolve</Link>
-          </Button>
+        <div className="inline-flex items-center gap-2 text-sm opacity-75">
+          <Sparkles className="w-4 h-4" />
+          <span><strong>FREE</strong> beginner lessons for a limited time</span>
         </div>
-      </div>
+      </section>
 
-      <div className="text-sm text-gray-400 mt-10">
+      {/* Video (card shell to match theme) */}
+      <section className="card p-0 overflow-hidden rounded-2xl">
+        <div className="aspect-video">
+          <iframe
+            className="w-full h-full"
+            src="https://www.youtube.com/embed/2-k4j-guLNk?si=LkYXxZKs_1hy87kg"
+            title="Intro to Freeskating"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+          />
+        </div>
+      </section>
+
+      {/* Info */}
+      <section className="space-y-3">
+        <div className="section-bar">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <h2 className="font-semibold">Learn Locally in Vernon, BC</h2>
+            <div className="text-xs opacity-70">Beginner-friendly · Boards available</div>
+          </div>
+        </div>
+
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div className="card flex items-start gap-3">
+            <MapPin className="w-5 h-5 mt-1 opacity-70" />
+            <div>
+              <div className="font-medium">Polson Park Skatepark</div>
+              <div className="text-sm opacity-80">Vernon, British Columbia</div>
+            </div>
+          </div>
+
+          <div className="card flex items-start gap-3">
+            <Calendar className="w-5 h-5 mt-1 opacity-70" />
+            <div>
+              <div className="font-medium">Book a Time</div>
+              <div className="text-sm opacity-80">Flexible afternoons & weekends</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* CTA */}
+      <section className="card text-center space-y-4">
+        <h3 className="text-xl font-semibold">Ready to roll?</h3>
+        <p className="opacity-80">Email me to set up your first session.</p>
+
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <a href="mailto:shea@pneumevolve.com" className="btn">
+            <Mail className="w-4 h-4 mr-2 inline-block" />
+            shea@pneumevolve.com
+          </a>
+
+          <a
+            href="mailto:shea@pneumevolve.com?subject=Zen%20Freeskates%20Lesson%20Request"
+            className="btn btn-secondary"
+          >
+            Send a request
+          </a>
+        </div>
+      </section>
+
+      {/* Footer note */}
+      <p className="text-center text-sm opacity-70">
         Follow on TikTok: <span className="font-semibold">@pneumevolve</span> (link coming soon)
-      </div>
-    </div>
+      </p>
+    </main>
   );
-};
-
-export default ZenFreeskates;
+}
