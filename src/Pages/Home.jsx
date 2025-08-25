@@ -20,7 +20,7 @@ export default function HomePageSimple() {
           title: r.title || "(untitled)",
           href:
             r.kind === "problem" && r.problem_ref?.id
-              ? `/forge2/problems/${r.problem_ref.id}`
+              ? `/forge/problems/${r.problem_ref.id}`
               : `/forge2/${r.id}`,
         }));
         if (alive) setNewest(items);
