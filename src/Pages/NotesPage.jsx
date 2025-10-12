@@ -262,7 +262,7 @@ Return only the updated plan in clean markdown. No explanations.
 
         <div className="flex justify-between mt-4">
           <button
-            onClick={() => navigate("/livingplan")}
+            onClick={() => navigate("/living-plan")}
             className="text-blue-600 hover:underline text-sm"
           >
             ← Back

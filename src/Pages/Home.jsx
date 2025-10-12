@@ -54,7 +54,7 @@ export default function HomePageSimple() {
         <h1 className="text-3xl sm:text-4xl font-bold">PneumEvolve</h1>
         <p className="text-base sm:text-lg opacity-90">
           Tired of shouting into the void? <span className="font-semibold">Enter the Forge</span> — post
-          problems & ideas, vote on what matters, and turn momentum into action.
+          problems & ideas, vote on what matters, and turn momentum into action. Work In Progress.
         </p>
         <div className="flex items-center justify-center gap-3 flex-wrap pt-1">
           <Link to="/forge2" className="btn">Browse & Vote in the Forge</Link>
