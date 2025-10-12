@@ -1,7 +1,7 @@
 import React, { useRef } from "react";
 import { TILE_TYPES, UPGRADE_TYPES } from "../gameEngine";
 
-// Shared flag so dragging works across tiles on mobile & desktop
+// Global flag so dragging continues across tiles
 let isPointerDownGlobal = false;
 
 export default function Tile({
@@ -11,42 +11,102 @@ export default function Tile({
   isSelected,
   hasBug,
   tileSize,
-  onStartDrag,
-  onDuringDrag,
-  onEndDrag,
-  onClick,
+  onStartDrag,   // (x, y)
+  onDuringDrag,  // (x, y)
+  onEndDrag,     // ()
+  onClick,       // (x, y, requestModal?)
 }) {
   const tileRef = useRef(null);
 
+  // Track gesture state for tap vs drag
+  const startXYRef = useRef({ x: 0, y: 0 });
+  const movedRef = useRef(false);
+  const startedDragRef = useRef(false);
+  const pointerIdRef = useRef(null);
+
+  const DRAG_THRESHOLD_PX = 6; // small but avoids accidental drags
+
   const handlePointerDown = (e) => {
-    // Prevent page scroll/zoom and text selection during drag-start
     e.preventDefault();
     isPointerDownGlobal = true;
-    onStartDrag?.(i, j);
+    movedRef.current = false;
+    startedDragRef.current = false;
+    pointerIdRef.current = e.pointerId;
+    startXYRef.current = { x: e.clientX, y: e.clientY };
+
+    // Capture so we keep getting events even if finger moves fast
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    // Do NOT call onStartDrag yet—wait until movement exceeds threshold
+  };
+
+  const maybeStartDrag = () => {
+    if (!startedDragRef.current) {
+      startedDragRef.current = true;
+      onStartDrag?.(i, j);
+      // Immediately include the current tile in the drag selection
+      onDuringDrag?.(i, j);
+    }
+  };
+
+  const handlePointerMove = (e) => {
+    if (!isPointerDownGlobal) return;
+
+    const dx = e.clientX - startXYRef.current.x;
+    const dy = e.clientY - startXYRef.current.y;
+    const dist2 = dx * dx + dy * dy;
+    if (dist2 > DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) {
+      movedRef.current = true;
+      // Once we’re over threshold, begin selection if not already
+      maybeStartDrag();
+    }
   };
 
   const handlePointerEnter = () => {
     if (!isPointerDownGlobal) return;
-    onDuringDrag?.(i, j);
+    // If we’re already dragging, keep selecting as we enter new tiles
+    if (movedRef.current) {
+      maybeStartDrag();
+      onDuringDrag?.(i, j);
+    }
+  };
+
+  const endDragIfNeeded = () => {
+    if (startedDragRef.current) {
+      onEndDrag?.();
+    }
+    startedDragRef.current = false;
   };
 
   const handlePointerUp = (e) => {
     e.preventDefault();
-    if (isPointerDownGlobal) {
-      isPointerDownGlobal = false;
-      onEndDrag?.();
+    if (!isPointerDownGlobal) return;
+
+    // Release capture if we had it
+    if (pointerIdRef.current != null) {
+      e.currentTarget.releasePointerCapture?.(pointerIdRef.current);
+      pointerIdRef.current = null;
     }
+
+    // If we didn't move → treat as a click (bug squash > harvest > modal)
+    if (!movedRef.current) {
+      handleClick();
+    } else {
+      // Finished a drag gesture
+      endDragIfNeeded();
+    }
+
+    isPointerDownGlobal = false;
   };
 
   const handlePointerCancel = () => {
     if (isPointerDownGlobal) {
+      endDragIfNeeded();
       isPointerDownGlobal = false;
-      onEndDrag?.();
     }
   };
 
   const handleClick = () => {
-    // Prioritize bug squash
+    // Prioritize bug squashing
     if (hasBug) return onClick?.(i, j);
 
     const growTime = tile.upgrade === UPGRADE_TYPES.HYDRO ? 10 : 20;
@@ -71,7 +131,7 @@ export default function Tile({
           {remaining <= 0 ? (
             <span className="text-green-600 font-bold animate-bounce">✅ Grown</span>
           ) : (
-            <span className="text-gray-700">⏳ {remaining}s</span>
+            <span className="text-gray-900">⏳ {remaining}s</span>
           )}
 
           {tile.upgrade === UPGRADE_TYPES.HYDRO && (
@@ -86,9 +146,9 @@ export default function Tile({
     if (tile.type === TILE_TYPES.DIRT) {
       return (
         <>
-          <span>Dirt</span>
+          <span className="text-gray-900">Dirt</span>
           {tile.upgrade === UPGRADE_TYPES.WATER && (
-            <div className="text-blue-500 text-xs font-semibold">💧 Water</div>
+            <div className="text-blue-600 text-xs font-semibold">💧 Water</div>
           )}
           {tile.upgrade === UPGRADE_TYPES.EXPAND && (
             <div className="text-green-700 text-xs font-semibold">🪴 Expand</div>
@@ -102,12 +162,12 @@ export default function Tile({
 
     return (
       <>
-        {isTrulyEmpty && <span>empty</span>}
+        {isTrulyEmpty && <span className="text-gray-800">empty</span>}
         {tile.upgrade === UPGRADE_TYPES.WATER && (
-          <div className="text-blue-500 text-xs font-semibold">💧 Water</div>
+          <div className="text-blue-600 text-xs font-semibold">💧 Water</div>
         )}
         {tile.upgrade === UPGRADE_TYPES.HYDRO && (
-          <div className="text-purple-500 text-xs font-semibold">Hydro</div>
+          <div className="text-purple-600 text-xs font-semibold">Hydro</div>
         )}
         {tile.upgrade === UPGRADE_TYPES.EXPAND && (
           <div className="text-green-700 text-xs font-semibold">🪴 Expand</div>
@@ -123,13 +183,13 @@ export default function Tile({
       data-tile={`${i},${j}`}
       onClick={handleClick}
 
-      // Pointer Events (covers mouse + touch)
+      // Unified pointer events (mouse + touch)
       onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
       onPointerEnter={handlePointerEnter}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
 
-      // Prevent long-press context menu on mobile
       onContextMenu={(e) => e.preventDefault()}
       draggable={false}
       style={{
@@ -137,7 +197,7 @@ export default function Tile({
         height: `${tileSize}px`,
         fontSize: `${tileSize < 40 ? 9 : 11}px`,
         padding: "2px",
-        touchAction: "none", // critical for mobile drag/selection
+        touchAction: "none",   // critical for mobile drag
         userSelect: "none",
         backgroundColor: hasBug
           ? "#fee2e2"
