@@ -312,3 +312,49 @@ html.dark .convo-row:hover,
 html.dark .convo-row[aria-selected="true"] {
   background: #1f2937 !important; /* zinc-800 */
 }
+
+/* ---------- GAME SKIN: always light, regardless of global theme ---------- */
+.game-skin {
+  /* Lock platform behavior */
+  color-scheme: light;
+
+  /* Force the canvas and text to a light theme */
+  background-color: #ffffff;     /* solid white */
+  color: #111827;                /* slate-900 */
+
+  /* Rebind tokens locally so components that use CSS vars stay light */
+  --bg: #f8fafc;                 /* slate-50 */
+  --bg-elev: #ffffff;            /* white */
+  --text: #0f172a;               /* slate-900 */
+  --muted: #475569;              /* slate-600 */
+  --border: #e2e8f0;             /* slate-200 */
+  --ring: #3b82f6;               /* blue-500 */
+  --accent: #2563eb;             /* blue-600 */
+  --accent-contrast: #ffffff;
+  --card-shadow: 0 8px 24px rgba(15,23,42,0.08);
+  --radius: 16px;
+  --gradient:
+    radial-gradient(1000px 500px at 100% -20%, rgba(59,130,246,.08), transparent),
+    radial-gradient(800px 400px at -10% 120%, rgba(99,102,241,.08), transparent);
+  --fg: var(--text);
+  --card-bg: var(--bg-elev);
+  --btn-bg: var(--accent);
+  --btn-fg: var(--accent-contrast);
+  --btn-muted-bg: #f1f5f9;       /* slate-100 */
+  --btn-muted-fg: #0f172a;       /* slate-900 */
+}
+
+/* Keep text crisp and consistent on mobile inside the game */
+.game-skin,
+.game-skin * {
+  -webkit-text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* If the page is dark, still keep the game light */
+html.dark .game-skin {
+  color-scheme: light;           /* don’t auto-invert */
+  background-color: #ffffff;
+  color: #111827;
+}

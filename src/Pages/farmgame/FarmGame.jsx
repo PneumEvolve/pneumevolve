@@ -479,7 +479,7 @@ const handleSelectAll = () => {
   
 
   return (
-    <div className="min-h-screen w-full flex flex-col items-center justify-start bg-gray-100 p-4">
+    <div className="game-skin min-h-screen w-full flex flex-col items-center justify-start bg-gray-100 p-4">
       <div className="max-w-4xl w-full flex flex-col space-y-4">
         <GameHeader
           game={game}
@@ -609,7 +609,7 @@ const handleSelectAll = () => {
   <div className="fixed top-4 left-1/2 transform -translate-x-1/2 bg-yellow-200 border border-yellow-400 text-yellow-900 px-6 py-3 rounded shadow-lg z-50">
     {notification}
     <button
-      className="ml-4 text-sm text-gray-700 underline"
+      className="ml-4 text-sm text-gray-900 underline"
       onClick={() => setNotification(null)}
     >
       Close
@@ -619,7 +619,7 @@ const handleSelectAll = () => {
 {game.showHireHelp && (
   <div className="w-full max-w-2xl mx-auto bg-white dark:bg-gray-800 p-4 rounded-lg shadow-md mt-6">
     <h2 className="text-2xl font-bold mb-2 text-center text-green-700">💼 Hire Help</h2>
-    <p className="text-sm mb-4 text-center text-gray-500">
+    <p className="text-sm mb-4 text-center text-gray-900">
       You’ve unlocked the ability to hire farmers to assist on your land.
     </p>
 
