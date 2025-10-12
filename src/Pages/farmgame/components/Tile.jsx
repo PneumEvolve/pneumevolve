@@ -1,5 +1,8 @@
-import React, { useEffect, useRef } from "react";
+import React, { useRef } from "react";
 import { TILE_TYPES, UPGRADE_TYPES } from "../gameEngine";
+
+// Shared flag so dragging works across tiles on mobile & desktop
+let isPointerDownGlobal = false;
 
 export default function Tile({
   i,
@@ -14,51 +17,36 @@ export default function Tile({
   onClick,
 }) {
   const tileRef = useRef(null);
-  const touchMovedRef = useRef(false);
 
-  useEffect(() => {
-    const tileEl = tileRef.current;
-    if (!tileEl) return;
+  const handlePointerDown = (e) => {
+    // Prevent page scroll/zoom and text selection during drag-start
+    e.preventDefault();
+    isPointerDownGlobal = true;
+    onStartDrag?.(i, j);
+  };
 
-    const handleTouchStart = (e) => {
-      e.preventDefault();
-      touchMovedRef.current = false;
-      onStartDrag?.(i, j);
-    };
-
-    const handleTouchMove = (e) => {
-      e.preventDefault();
-      touchMovedRef.current = true;
-      const touch = e.touches[0];
-      const target = document.elementFromPoint(touch.clientX, touch.clientY);
-      if (target?.dataset?.tile) {
-        const [x, y] = target.dataset.tile.split(",").map(Number);
-        onDuringDrag?.(x, y);
-      }
-    };
-
-    const handleTouchEnd = (e) => {
-      e.preventDefault();
-      onEndDrag?.();
-      if (!touchMovedRef.current) handleClick();
-    };
-
-    tileEl.addEventListener("touchstart", handleTouchStart, { passive: false });
-    tileEl.addEventListener("touchmove", handleTouchMove, { passive: false });
-    tileEl.addEventListener("touchend", handleTouchEnd, { passive: false });
-
-    return () => {
-      tileEl.removeEventListener("touchstart", handleTouchStart);
-      tileEl.removeEventListener("touchmove", handleTouchMove);
-      tileEl.removeEventListener("touchend", handleTouchEnd);
-    };
-  }, [i, j, onStartDrag, onDuringDrag, onEndDrag]);
-
-  const handleMouseEnter = () => {
+  const handlePointerEnter = () => {
+    if (!isPointerDownGlobal) return;
     onDuringDrag?.(i, j);
   };
 
+  const handlePointerUp = (e) => {
+    e.preventDefault();
+    if (isPointerDownGlobal) {
+      isPointerDownGlobal = false;
+      onEndDrag?.();
+    }
+  };
+
+  const handlePointerCancel = () => {
+    if (isPointerDownGlobal) {
+      isPointerDownGlobal = false;
+      onEndDrag?.();
+    }
+  };
+
   const handleClick = () => {
+    // Prioritize bug squash
     if (hasBug) return onClick?.(i, j);
 
     const growTime = tile.upgrade === UPGRADE_TYPES.HYDRO ? 10 : 20;
@@ -79,22 +67,20 @@ export default function Tile({
       const remaining = growTime - tile.growth;
 
       return (
-  <div className="flex flex-col items-center text-xs space-y-1">
-    {remaining <= 0 ? (
-      <span className="text-green-600 font-bold animate-bounce">✅ Grown</span>
-    ) : (
-      <span className="text-gray-700">⏳ {remaining}s</span>
-    )}
+        <div className="flex flex-col items-center text-xs space-y-1">
+          {remaining <= 0 ? (
+            <span className="text-green-600 font-bold animate-bounce">✅ Grown</span>
+          ) : (
+            <span className="text-gray-700">⏳ {remaining}s</span>
+          )}
 
-    {tile.upgrade === UPGRADE_TYPES.HYDRO && (
-      <span className="text-purple-600 bg-purple-100 px-1 rounded">Hydro</span>
-    )}
+          {tile.upgrade === UPGRADE_TYPES.HYDRO && (
+            <span className="text-purple-600 bg-purple-100 px-1 rounded">Hydro</span>
+          )}
 
-    {bugEmoji && (
-      <span className="text-red-500 text-lg">{bugEmoji}</span>
-    )}
-  </div>
-);
+          {bugEmoji && <span className="text-red-500 text-lg">{bugEmoji}</span>}
+        </div>
+      );
     }
 
     if (tile.type === TILE_TYPES.DIRT) {
@@ -136,15 +122,23 @@ export default function Tile({
       ref={tileRef}
       data-tile={`${i},${j}`}
       onClick={handleClick}
-      onMouseDown={() => onStartDrag?.(i, j)}
-      onMouseEnter={handleMouseEnter}
-      onMouseUp={() => onEndDrag?.()}
+
+      // Pointer Events (covers mouse + touch)
+      onPointerDown={handlePointerDown}
+      onPointerEnter={handlePointerEnter}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
+
+      // Prevent long-press context menu on mobile
+      onContextMenu={(e) => e.preventDefault()}
       draggable={false}
       style={{
         width: `${tileSize}px`,
         height: `${tileSize}px`,
         fontSize: `${tileSize < 40 ? 9 : 11}px`,
         padding: "2px",
+        touchAction: "none", // critical for mobile drag/selection
+        userSelect: "none",
         backgroundColor: hasBug
           ? "#fee2e2"
           : isSelected

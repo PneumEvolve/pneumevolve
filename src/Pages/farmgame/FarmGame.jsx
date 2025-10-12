@@ -514,6 +514,7 @@ const handleSelectAll = () => {
               style={{
                 gridTemplateColumns: `repeat(${game.gridSize}, ${tileSize}px)`,
                 width: `${game.gridSize * tileSize}px`,
+                touchAction: 'none',
               }}
             >
               {game.grid.map((row, x) =>
