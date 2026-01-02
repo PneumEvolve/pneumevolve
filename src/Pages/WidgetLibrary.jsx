@@ -2,7 +2,7 @@
 import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { HOME_WIDGETS, WIDGET_BY_ID } from "@/widgets/homeWidgetRegistry";
+import { HOME_WIDGETS, WIDGET_BY_ID } from "@/Widgets/homeWidgetRegistry";
 import { loadHomeWidgets, saveHomeWidgets } from "@/utils/homeWidgets";
 
 export default function WidgetLibrary() {

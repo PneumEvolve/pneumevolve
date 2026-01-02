@@ -3,7 +3,7 @@ import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { loadHomeWidgets, saveHomeWidgets } from "@/utils/homeWidgets";
-import { WIDGET_BY_ID } from "@/widgets/homeWidgetRegistry";
+import { WIDGET_BY_ID } from "@/Widgets/homeWidgetRegistry";
 
 function moveItem(arr, fromIndex, toIndex) {
   const copy = [...arr];
