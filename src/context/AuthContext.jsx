@@ -127,7 +127,6 @@ export function AuthProvider({ children }) {
     return username || userEmail || "anonymous";
   }, [username, userEmail]);
 
-  if (loading) return null;
 
   return (
     <AuthContext.Provider
@@ -140,7 +139,8 @@ export function AuthProvider({ children }) {
         userEmail,
         userProfile,
         username,     // 👈 exported
-        displayName,  // 👈 exported (nice fallback)
+        displayName,// 👈 exported (nice fallback)
+        loading,  
       }}
     >
       {children}

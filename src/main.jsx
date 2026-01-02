@@ -65,6 +65,15 @@ import LivingPlan from "./Pages/LivingPlan";
 import NotesPage from "./Pages/NotesPage";
 import ProblemPage from "./Pages/problemsolving/ProblemPage.jsx";
 import AaronsPage from "./Pages/AaronsPage";
+import SheasGarden from "./Pages/SheasGarden";
+import DecisionBoard from "./Pages/DecisionBoard.jsx";
+import ToolsHub from "./Pages/ToolsHub";
+import FlowMapToolPage from "@/Pages/FlowMapToolPage";
+import Relief from "@/Pages/Relief";
+import ToolsHome from "@/Pages/ToolsHome";
+import WidgetLibrary from "@/Pages/WidgetLibrary";
+import SkippedStep from "@/Pages/SkippedStep";
+import RequireAuth from "@/components/RequireAuth";
 
 import { HelmetProvider } from "react-helmet-async";
 import "./index.css";
@@ -129,7 +138,14 @@ function Root() {
                 <Route path="/blog/:id/edit" element={<EditPost />} />
                 <Route path="/communities" element={<CommunityList />} />
                 <Route path="/communities/:communityId" element={<Community />} />
-                <Route path="/dream-machine" element={<DreamMachine />} />
+                <Route
+  path="/experiments/dream-machine"
+  element={
+    <RequireAuth>
+      <DreamMachine />
+    </RequireAuth>
+  }
+/>
                 <Route path="/we-dream" element={<WeDream />} />
                 <Route path="/garden-blitz" element={<GardenBlitz />} />
                 <Route path="/garden-directory" element={<GardenDirectory />} />
@@ -151,6 +167,14 @@ function Root() {
                 <Route path="/notes/:index" element={<NotesPage />} />
                 <Route path="/problem-page" element={<ProblemPage />} />
                 <Route path="/aaron" element={<AaronsPage />} />
+                <Route path="/garden" element={<SheasGarden />} />
+                <Route path="/decision-board" element={<DecisionBoard />} />
+                <Route path="/flow" element={<FlowMapToolPage />} />
+                <Route path="/relief" element={<Relief />} />
+                <Route path="/tools" element={<ToolsHome />} />
+                <Route path="/tools/library" element={<WidgetLibrary />} />
+                <Route path="/skipped-step" element={<SkippedStep />} />
+
 
                 <Route path="/privacy" element={<PrivacyPolicy />} />
                 <Route path="/terms" element={<Terms />} />

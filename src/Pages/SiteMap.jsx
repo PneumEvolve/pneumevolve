@@ -142,7 +142,7 @@ const tilesFun = () => [
   {
     title: "Farm Game",
     to: "/farm-game",
-    description: "An active idle game — plant, tend, flow.",
+    description: "An active idle game — plant, tend, flow. Designed for Desktop.",
     icon: Gamepad2,
     status: "Play",
   },

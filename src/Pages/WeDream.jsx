@@ -145,7 +145,7 @@ export default function WeDream() {
         </p>
         <div className="flex items-center justify-center gap-2 flex-wrap">
           <Link to="/" className="btn btn-secondary">← Return Home</Link>
-          <Link to="/dream-machine" className="btn btn-secondary">🔮 View Dream Machine</Link>
+          <Link to="/experiments/dream-machine" className="btn btn-secondary">🔮 View Dream Machine</Link>
           <Link to="/journal" className="btn">✍️ Open Journal</Link>
         </div>
       </section>

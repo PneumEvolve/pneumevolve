@@ -107,7 +107,7 @@ export default function Layout() {
   const isChromeless = noChromeRoutes.includes(location.pathname);
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-gradient-to-b from-sky-50 to-white dark:from-zinc-950 dark:to-zinc-900 text-zinc-900 dark:text-zinc-100">
+    <div className="min-h-screen overflow-x-hidden bg-[var(--bg)] text-[var(--text)]">
       <Analytics />
 
       {!isChromeless && (

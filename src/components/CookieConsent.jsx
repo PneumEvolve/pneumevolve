@@ -1,6 +1,23 @@
 import React, { useEffect, useState } from "react";
 import { getConsent, setConsent, needsConsentPrompt } from "@/lib/consent";
-import { loadAnalytics, bindAnalyticsAutoload } from "../lib/analytics";
+
+// "Above the component" = here (outside CookieConsent)
+let analyticsTried = false;
+
+async function safeLoadAnalytics() {
+  // Optional: never load analytics in dev (uncomment if you want zero noise locally)
+  if (import.meta.env.DEV) return;
+
+  if (analyticsTried) return;
+  analyticsTried = true;
+
+  try {
+    const mod = await import("../lib/analytics");
+    mod?.loadAnalytics?.();
+  } catch {
+    // Blocked by client / missing file / etc. -> silently ignore
+  }
+}
 
 export default function CookieConsent() {
   const [open, setOpen] = useState(false);
@@ -11,13 +28,10 @@ export default function CookieConsent() {
     const initialPrompt = needsConsentPrompt();
     setOpen(initialPrompt);
 
-    // Ensure your analytics module sets up but doesn't auto-load without consent
-    bindAnalyticsAutoload();
-
-    // If already consented to analytics, load it immediately
+    // If already consented to analytics, try loading once
     const c = getConsent();
     if (!initialPrompt && c.analytics) {
-      loadAnalytics();
+      safeLoadAnalytics();
     }
 
     // cross-tab & in-app sync
@@ -48,7 +62,7 @@ export default function CookieConsent() {
     const updated = setConsent({ analytics: true });
     setPrefs(updated);
     setOpen(false);
-    loadAnalytics();
+    safeLoadAnalytics();
   }
 
   function rejectAll() {
