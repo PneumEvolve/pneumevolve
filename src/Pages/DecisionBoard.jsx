@@ -236,12 +236,7 @@ export default function DecisionBoard() {
           </div>
 
           <div className="flex gap-2">
-            <Link
-              to="/garden"
-              className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
-            >
-              ← Garden
-            </Link>
+            
             <Link
               to="/"
               className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"

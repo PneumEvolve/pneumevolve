@@ -52,13 +52,24 @@ function safeUUID() {
  */
 const EXPERIMENTS = [
   {
+    id: "preforge-local",
+    title: "Pre-Forge",
+    desc: "An idea and problem clarifier and organizer.",
+    to: "/preforge",
+    tags: ["organize", "clarity"],
+    isPublic: true,
+    isFeatured: true,
+    updatedAtISO: "2026-01-02",
+    requiresAuth: false,
+  },
+  {
     id: "skipped-step",
     title: "The Step We Skip",
     desc: "A small decision tool: find what you’re skipping, then decide with less regret.",
     to: "/skipped-step",
     tags: ["decisions", "clarity"],
     isPublic: true,
-    isFeatured: true,
+    isFeatured: false,
     updatedAtISO: "2026-01-02",
     requiresAuth: false,
   },
@@ -87,13 +98,24 @@ const EXPERIMENTS = [
   {
     id: "dream-machine",
     title: "Dream Machine",
-    desc: "Generate dream-like reflections and story threads.",
+    desc: "Submit your vision of a better world and read the collectives shared vision so far.",
     to: "/experiments/dream-machine",
     tags: ["wonder", "together"],
     isPublic: true,
     isFeatured: false,
     updatedAtISO: "2026-01-02",
     requiresAuth: true,
+  },
+  {
+    id: "widget-board",
+    title: "Widget Board",
+    desc: "Customize your page with our experimental widgets.",
+    to: "/tools",
+    tags: ["customize", "widgets"],
+    isPublic: true,
+    isFeatured: false,
+    updatedAtISO: "2026-01-02",
+    requiresAuth: false,
   },
 ];
 
@@ -313,7 +335,7 @@ export default function Home() {
               <>
                 <p>No experiments are visible right now.</p>
                 <div className="mt-3">
-                  <PrimaryLink to="/experiments">View all experiments</PrimaryLink>
+                  <PrimaryLink to="/experiments">View all experiments(old)</PrimaryLink>
                 </div>
               </>
             )}
@@ -345,8 +367,8 @@ export default function Home() {
                   decide, and notice patterns.
                 </p>
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <PrimaryCTA to="/experiments">All experiments →</PrimaryCTA>
-                  <PrimaryLink to="/tools">Tools (optional) →</PrimaryLink>
+                  <PrimaryCTA to="/experiments">All experiments(old) →</PrimaryCTA>
+                  <PrimaryLink to="/tools">Widget Board →</PrimaryLink>
                 </div>
               </>
             )}
