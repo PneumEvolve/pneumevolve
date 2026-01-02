@@ -3,7 +3,7 @@ import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { HOME_WIDGETS, WIDGET_BY_ID } from "@/Widgets/homeWidgetRegistry";
-import { loadHomeWidgets, saveHomeWidgets } from "@/utils/homeWidgets";
+import { loadHomeWidgets, saveHomeWidgets } from "@/utils/HomeWidgets";
 
 export default function WidgetLibrary() {
   const [selected, setSelected] = useState(() => loadHomeWidgets());
