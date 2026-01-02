@@ -2,7 +2,7 @@
 import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { loadHomeWidgets, saveHomeWidgets } from "@/utils/homeWidgets";
+import { loadHomeWidgets, saveHomeWidgets } from "@/utils/HomeWidgets";
 import { WIDGET_BY_ID } from "@/Widgets/homeWidgetRegistry";
 
 function moveItem(arr, fromIndex, toIndex) {
