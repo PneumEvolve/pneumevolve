@@ -4,8 +4,47 @@ import { Link, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 
+/**
+ * PreForge (local-first, optional sync)
+ * - Works without login (localStorage)
+ * - If logged in, can Sync local -> backend via POST /preforge/sync
+ * - If logged in, can Pull backend -> local via GET /preforge/topics
+ * - Uses client_id to avoid duplicates
+ */
+
+const LS_KEY = "pe_preforge_local_v2";
+
+function safeUUID() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function normalizeTag(s) {
+  return (s || "").trim().replace(/\s+/g, " ").replace(/^#/, "");
+}
+
+function uniq(arr) {
+  return Array.from(new Set(arr));
+}
+
+function loadLocal() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function saveLocal(state) {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify(state));
+  } catch {}
+}
+
 // ---------- Small UI helpers ----------
-function CardShell({ title, subtitle, children, rightSlot }) {
+function CardShell({ title, subtitle, children, right }) {
   return (
     <section className="rounded-2xl border border-[var(--border)] bg-[var(--bg-elev)] p-5 shadow-sm">
       <div className="flex items-start justify-between gap-3">
@@ -13,7 +52,7 @@ function CardShell({ title, subtitle, children, rightSlot }) {
           <h2 className="text-base font-semibold">{title}</h2>
           {subtitle ? <p className="text-xs text-[var(--muted)]">{subtitle}</p> : null}
         </div>
-        {rightSlot ? <div className="shrink-0">{rightSlot}</div> : null}
+        {right ? <div className="shrink-0">{right}</div> : null}
       </div>
       <div className="mt-3">{children}</div>
     </section>
@@ -154,12 +193,86 @@ function NoteRow({ item, onPin, onDelete, onEdit }) {
   );
 }
 
-function normalizeTag(s) {
-  return (s || "").trim().replace(/\s+/g, " ").replace(/^#/, "");
+// ---------- Local shape helpers ----------
+function ensureClientIds(localState) {
+  const topics = (localState?.topics || []).map((t) => ({
+    ...t,
+    client_id: t.client_id || safeUUID(),
+    items: (t.items || []).map((it) => ({
+      ...it,
+      client_id: it.client_id || safeUUID(),
+    })),
+  }));
+  return { version: 2, topics };
 }
 
-function uniq(arr) {
-  return Array.from(new Set(arr));
+function makeSeedLocal() {
+  const topicClientId = safeUUID();
+  return {
+    version: 2,
+    topics: [
+      {
+        client_id: topicClientId,
+        title: "PneumEvolve",
+        pinned: "What do I want PneumEvolve to become right now?",
+        tags: ["PneumEvolve"],
+        items: [
+          {
+            client_id: safeUUID(),
+            kind: "note",
+            text: "I keep trying to solve everything at once. I need a smaller problem.",
+            createdAt: new Date().toISOString(),
+          },
+          {
+            client_id: safeUUID(),
+            kind: "question",
+            text: "If this only helped ONE person, what would it help them do?",
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        updatedAt: new Date().toISOString(),
+      },
+    ],
+  };
+}
+
+// Convert backend topic -> local topic (keep client_id stable)
+function serverToLocalTopic(t) {
+  return {
+    client_id: t.client_id || safeUUID(),
+    title: t.title || "",
+    pinned: t.pinned || "",
+    tags: Array.isArray(t.tags) ? t.tags : [],
+    items: Array.isArray(t.items)
+      ? t.items.map((it) => ({
+          client_id: it.client_id || safeUUID(),
+          kind: it.kind,
+          text: it.text,
+          createdAt: it.created_at,
+          updatedAt: it.updated_at,
+        }))
+      : [],
+    // keep server timestamps if you want
+    createdAt: t.created_at,
+    updatedAt: t.updated_at,
+  };
+}
+
+// Convert local -> sync payload shape
+function localToSyncPayload(localTopics) {
+  return {
+    topics: (localTopics || []).map((t) => ({
+      client_id: t.client_id,
+      title: (t.title || "").trim(),
+      pinned: t.pinned || "",
+      tags: (t.tags || []).map(normalizeTag).filter(Boolean),
+      items: (t.items || []).map((it) => ({
+        client_id: it.client_id,
+        kind: it.kind || "note",
+        text: it.text || "",
+      })),
+    })),
+  };
 }
 
 // ---------- Main page ----------
@@ -167,8 +280,20 @@ export default function PreForge() {
   const { userId, accessToken } = useAuth();
   const navigate = useNavigate();
 
-  const [topics, setTopics] = useState([]);
-  const [activeId, setActiveId] = useState(null);
+  const isLoggedIn = Boolean(userId && accessToken);
+
+  // Load local-first
+  const initialLocal = useMemo(() => {
+    const stored = loadLocal();
+    if (stored?.topics?.length) return ensureClientIds(stored);
+    return ensureClientIds(makeSeedLocal());
+  }, []);
+
+  const [topics, setTopics] = useState(initialLocal.topics);
+  const [activeId, setActiveId] = useState(initialLocal.topics[0]?.client_id || null);
+
+  // collapsible topics panel
+  const [topicsOpen, setTopicsOpen] = useState(true);
 
   // tag filtering
   const [activeTag, setActiveTag] = useState("All");
@@ -178,40 +303,37 @@ export default function PreForge() {
   const [newTagsDraft, setNewTagsDraft] = useState("");
 
   // add item
-  const [draftKind, setDraftKind] = useState("question"); // "note" | "question"
+  const [draftKind, setDraftKind] = useState("question");
   const [draftText, setDraftText] = useState("");
 
-  // tag editing (active topic)
+  // tag editing
   const [tagDraft, setTagDraft] = useState("");
 
   // editing item
-  const [editing, setEditing] = useState(null); // { topicId, itemId, kind }
+  const [editing, setEditing] = useState(null); // { topicClientId, itemClientId, kind }
   const [editingText, setEditingText] = useState("");
 
-  // pinned draft (local typing, click-to-save)
+  // pinned draft (prevents “eating letters” by avoiding per-keystroke network)
   const [pinnedDraft, setPinnedDraft] = useState("");
-  const [pinnedDirty, setPinnedDirty] = useState(false);
-  const [pinnedSaving, setPinnedSaving] = useState(false);
 
-  // collapsible topics panel
-  const [topicsOpen, setTopicsOpen] = useState(true);
-
-  // load state
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [showLogin, setShowLogin] = useState(false);
+  // sync status
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncMsg, setSyncMsg] = useState("");
 
   const activeTopic = useMemo(
-    () => topics.find((t) => t.id === activeId) || null,
+    () => topics.find((t) => t.client_id === activeId) || null,
     [topics, activeId]
   );
 
-  // Keep pinned draft in sync when switching topics (ONLY on id change)
+  // Keep pinned draft in sync when switching topics
   useEffect(() => {
     setPinnedDraft(activeTopic?.pinned || "");
-    setPinnedDirty(false);
-    setPinnedSaving(false);
-  }, [activeTopic?.id]);
+  }, [activeTopic?.client_id]); // only when topic changes
+
+  // Persist local on changes
+  useEffect(() => {
+    saveLocal({ version: 2, topics });
+  }, [topics]);
 
   const allTags = useMemo(() => {
     const tags = topics.flatMap((t) => (t.tags || []).map(normalizeTag).filter(Boolean));
@@ -226,131 +348,107 @@ export default function PreForge() {
   // keep active selection valid under filter
   useEffect(() => {
     if (!filteredTopics.length) return;
-    const stillVisible = filteredTopics.some((t) => t.id === activeId);
-    if (!stillVisible) setActiveId(filteredTopics[0].id);
+    const stillVisible = filteredTopics.some((t) => t.client_id === activeId);
+    if (!stillVisible) setActiveId(filteredTopics[0].client_id);
   }, [filteredTopics, activeId]);
 
-  const fetchTopics = async () => {
-    try {
-      setError("");
-      setShowLogin(false);
-      setLoading(true);
-
-      const res = await api.get("/preforge/topics", { validateStatus: () => true });
-      console.log("[/preforge/topics] status:", res.status, "data:", res.data);
-
-      if (res.status === 200) {
-        const data = Array.isArray(res.data) ? res.data : [];
-        setTopics(data);
-        setActiveId((prev) => prev ?? data?.[0]?.id ?? null);
-        return;
-      }
-
-      if (res.status === 401) {
-        setShowLogin(true);
-        setTopics([]);
-        setActiveId(null);
-        return;
-      }
-
-      setError(`Unexpected status ${res.status}`);
-    } catch (e) {
-      console.error("Failed to fetch preforge topics:", e);
-      setError("Failed to load topics");
-    } finally {
-      setLoading(false);
-    }
+  // ---------- Local mutations ----------
+  const updateTopicLocal = (topicClientId, patch) => {
+    setTopics((prev) =>
+      prev.map((t) =>
+        t.client_id === topicClientId
+          ? { ...t, ...patch, updatedAt: new Date().toISOString() }
+          : t
+      )
+    );
   };
 
-  useEffect(() => {
-    fetchTopics();
-  }, [userId, accessToken]);
-
-  const createTopic = async () => {
+  const createTopicLocal = () => {
     const title = newTitle.trim();
     if (!title) return;
 
-    const tags = newTagsDraft.split(",").map(normalizeTag).filter(Boolean);
+    const tags = newTagsDraft
+      .split(",")
+      .map((x) => normalizeTag(x))
+      .filter(Boolean);
 
-    try {
-      const res = await api.post("/preforge/topics", { title, pinned: "", tags });
-      const created = res.data;
-      setTopics((prev) => [created, ...prev]);
-      setActiveId(created.id);
+    const next = {
+      client_id: safeUUID(),
+      title,
+      tags: uniq(tags),
+      pinned: "",
+      items: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
 
-      if (tags.length) setActiveTag(tags[0]);
-      else setActiveTag("All");
+    setTopics((prev) => [next, ...prev]);
+    setActiveId(next.client_id);
+    setPinnedDraft("");
 
-      setNewTitle("");
-      setNewTagsDraft("");
-      setDraftText("");
+    if (tags.length) setActiveTag(tags[0]);
+    else setActiveTag("All");
 
-      // after creating, keep list visible so you can see it
-      setTopicsOpen(true);
-    } catch (e) {
-      const msg = e?.response?.data?.detail || e.message || "Failed";
-      alert(`Create topic failed: ${msg}`);
+    setNewTitle("");
+    setNewTagsDraft("");
+    setDraftText("");
+  };
+
+  const deleteTopicLocal = (topicClientId) => {
+    const remaining = topics.filter((t) => t.client_id !== topicClientId);
+    setTopics(remaining);
+
+    if (activeId === topicClientId) {
+      const nextActive =
+        (activeTag === "All"
+          ? remaining
+          : remaining.filter((t) => (t.tags || []).includes(activeTag)))?.[0]?.client_id || null;
+      setActiveId(nextActive);
     }
   };
 
-  const updateTopic = async (topicId, patch) => {
-    try {
-      const res = await api.put(`/preforge/topics/${topicId}`, patch);
-      const updated = res.data;
-      setTopics((prev) => prev.map((t) => (t.id === topicId ? updated : t)));
-    } catch (e) {
-      const msg = e?.response?.data?.detail || e.message || "Failed";
-      alert(`Update failed: ${msg}`);
-    }
-  };
-
-  const deleteTopic = async (topicId) => {
-    try {
-      await api.delete(`/preforge/topics/${topicId}`);
-      setTopics((prev) => prev.filter((t) => t.id !== topicId));
-
-      if (activeId === topicId) {
-        const remaining = (activeTag === "All"
-          ? topics.filter((t) => t.id !== topicId)
-          : topics.filter((t) => t.id !== topicId && (t.tags || []).includes(activeTag))
-        );
-        setActiveId(remaining?.[0]?.id ?? null);
-      }
-    } catch (e) {
-      const msg = e?.response?.data?.detail || e.message || "Failed";
-      alert(`Delete failed: ${msg}`);
-    }
-  };
-
-  const addItem = async () => {
+  const addItemLocal = () => {
     if (!activeTopic) return;
     const text = draftText.trim();
     if (!text) return;
 
-    try {
-      const res = await api.post(`/preforge/topics/${activeTopic.id}/items`, {
-        kind: draftKind,
-        text,
-      });
+    const item = {
+      client_id: safeUUID(),
+      kind: draftKind,
+      text,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
 
-      const createdItem = res.data;
-      setTopics((prev) =>
-        prev.map((t) =>
-          t.id === activeTopic.id
-            ? { ...t, items: [createdItem, ...(t.items || [])] }
-            : t
-        )
-      );
-      setDraftText("");
-    } catch (e) {
-      const msg = e?.response?.data?.detail || e.message || "Failed";
-      alert(`Add item failed: ${msg}`);
-    }
+    updateTopicLocal(activeTopic.client_id, {
+      items: [item, ...(activeTopic.items || [])],
+    });
+
+    setDraftText("");
+  };
+
+  const deleteItemLocal = (itemClientId) => {
+    if (!activeTopic) return;
+    updateTopicLocal(activeTopic.client_id, {
+      items: (activeTopic.items || []).filter((x) => x.client_id !== itemClientId),
+    });
+  };
+
+  const pinItemLocal = (itemClientId) => {
+    if (!activeTopic) return;
+    const item = (activeTopic.items || []).find((x) => x.client_id === itemClientId);
+    if (!item) return;
+    setPinnedDraft(item.text);
+    updateTopicLocal(activeTopic.client_id, { pinned: item.text });
   };
 
   const beginEdit = (item) => {
     if (!activeTopic) return;
-    setEditing({ topicId: activeTopic.id, itemId: item.id, kind: item.kind });
+    setEditing({
+      topicClientId: activeTopic.client_id,
+      itemClientId: item.client_id,
+      kind: item.kind,
+    });
     setEditingText(item.text || "");
   };
 
@@ -359,117 +457,139 @@ export default function PreForge() {
     setEditingText("");
   };
 
-  const saveEdit = async () => {
+  const saveEditLocal = () => {
     if (!editing) return;
     const t = editingText.trim();
     if (!t) return;
 
-    try {
-      const res = await api.put(`/preforge/items/${editing.itemId}`, {
-        kind: editing.kind,
-        text: t,
-      });
+    setTopics((prev) =>
+      prev.map((topic) => {
+        if (topic.client_id !== editing.topicClientId) return topic;
+        return {
+          ...topic,
+          updatedAt: new Date().toISOString(),
+          items: (topic.items || []).map((it) =>
+            it.client_id === editing.itemClientId
+              ? { ...it, text: t, updatedAt: new Date().toISOString() }
+              : it
+          ),
+        };
+      })
+    );
 
-      const updatedItem = res.data;
-      setTopics((prev) =>
-        prev.map((topic) => {
-          if (topic.id !== editing.topicId) return topic;
-          return {
-            ...topic,
-            items: (topic.items || []).map((it) => (it.id === updatedItem.id ? updatedItem : it)),
-          };
-        })
-      );
-
-      setEditing(null);
-      setEditingText("");
-    } catch (e) {
-      const msg = e?.response?.data?.detail || e.message || "Failed";
-      alert(`Save failed: ${msg}`);
-    }
+    setEditing(null);
+    setEditingText("");
   };
 
-  const deleteItem = async (itemId) => {
-    if (!activeTopic) return;
-    try {
-      await api.delete(`/preforge/items/${itemId}`);
-      setTopics((prev) =>
-        prev.map((t) =>
-          t.id === activeTopic.id
-            ? { ...t, items: (t.items || []).filter((x) => x.id !== itemId) }
-            : t
-        )
-      );
-    } catch (e) {
-      const msg = e?.response?.data?.detail || e.message || "Failed";
-      alert(`Delete failed: ${msg}`);
-    }
-  };
-
-  const pinItem = (itemId) => {
-    if (!activeTopic) return;
-    const item = (activeTopic.items || []).find((x) => x.id === itemId);
-    if (!item) return;
-
-    setPinnedDraft(item.text || "");
-    setPinnedDirty(true);
-  };
-
-  // --- Tags ---
-  const addTagToActive = async () => {
+  const addTagToActiveLocal = () => {
     if (!activeTopic) return;
     const t = normalizeTag(tagDraft);
     if (!t) return;
 
-    try {
-      await api.post(`/preforge/topics/${activeTopic.id}/tags`, null, { params: { tag: t } });
-      await fetchTopics();
-      setTagDraft("");
-    } catch (e) {
-      const msg = e?.response?.data?.detail || e.message || "Failed";
-      alert(`Add tag failed: ${msg}`);
-    }
+    const nextTags = uniq([...(activeTopic.tags || []), t]);
+    updateTopicLocal(activeTopic.client_id, { tags: nextTags });
+    setTagDraft("");
   };
 
-  const removeTagFromActive = async (tag) => {
+  const removeTagFromActiveLocal = (tag) => {
     if (!activeTopic) return;
     const name = normalizeTag(tag);
+    const nextTags = (activeTopic.tags || []).filter((t) => t !== name);
+    updateTopicLocal(activeTopic.client_id, { tags: nextTags });
 
-    try {
-      await api.delete(`/preforge/topics/${activeTopic.id}/tags/${encodeURIComponent(name)}`);
-      await fetchTopics();
-      if (activeTag !== "All" && name === activeTag) setActiveTag("All");
-    } catch (e) {
-      const msg = e?.response?.data?.detail || e.message || "Failed";
-      alert(`Remove tag failed: ${msg}`);
-    }
+    if (activeTag !== "All" && name === activeTag) setActiveTag("All");
   };
 
-  const savePinned = async () => {
+  const savePinnedLocal = () => {
     if (!activeTopic) return;
-    setPinnedSaving(true);
+    updateTopicLocal(activeTopic.client_id, { pinned: pinnedDraft || "" });
+    setSyncMsg("Pinned saved locally.");
+    setTimeout(() => setSyncMsg(""), 1200);
+  };
+
+  // ---------- Backend actions ----------
+  const pullFromAccount = async () => {
+    if (!isLoggedIn) {
+      navigate("/login");
+      return;
+    }
+
     try {
-      const res = await api.put(`/preforge/topics/${activeTopic.id}`, { pinned: pinnedDraft });
-      const updated = res.data;
-      setTopics((prev) => prev.map((t) => (t.id === activeTopic.id ? updated : t)));
-      setPinnedDirty(false);
+      setSyncBusy(true);
+      setSyncMsg("");
+
+      const res = await api.get("/preforge/topics", { validateStatus: () => true });
+      if (res.status === 200) {
+        const serverTopics = Array.isArray(res.data) ? res.data : [];
+        const localTopics = serverTopics.map(serverToLocalTopic);
+
+        setTopics(localTopics);
+        setActiveId(localTopics?.[0]?.client_id ?? null);
+        setPinnedDraft(localTopics?.[0]?.pinned ?? "");
+        setActiveTag("All");
+
+        setSyncMsg("Pulled latest from your account.");
+        return;
+      }
+
+      if (res.status === 401) {
+        setSyncMsg("Login expired. Please log in again.");
+        return;
+      }
+
+      setSyncMsg(`Pull failed (status ${res.status}).`);
     } catch (e) {
-      const msg = e?.response?.data?.detail || e.message || "Failed";
-      alert(`Save pinned failed: ${msg}`);
+      console.error(e);
+      setSyncMsg("Pull failed.");
     } finally {
-      setPinnedSaving(false);
+      setSyncBusy(false);
+      setTimeout(() => setSyncMsg(""), 2500);
     }
   };
 
-  const cancelPinned = () => {
-    setPinnedDraft(activeTopic?.pinned || "");
-    setPinnedDirty(false);
-  };
+  const syncToAccount = async () => {
+    if (!isLoggedIn) {
+      navigate("/login");
+      return;
+    }
 
-  // collapse topics on select (mobile/tablet)
-  const selectTopic = (id) => {
-    setActiveId(id);
-    if (window.innerWidth < 1024) setTopicsOpen(false); // auto-collapse under lg
+    try {
+      setSyncBusy(true);
+      setSyncMsg("");
+
+      const payload = localToSyncPayload(topics);
+      const res = await api.post("/preforge/sync", payload, { validateStatus: () => true });
+
+      if (res.status === 200) {
+        const serverTopics = Array.isArray(res.data) ? res.data : [];
+        const nextLocal = serverTopics.map(serverToLocalTopic);
+
+        setTopics(nextLocal);
+
+        // keep same active topic if possible
+        const still = nextLocal.find((t) => t.client_id === activeId);
+        const nextActive = still?.client_id ?? nextLocal?.[0]?.client_id ?? null;
+        setActiveId(nextActive);
+        setPinnedDraft(nextLocal.find((t) => t.client_id === nextActive)?.pinned ?? "");
+
+        setSyncMsg("Synced to your account.");
+        return;
+      }
+
+      if (res.status === 401) {
+        setSyncMsg("Login expired. Please log in again.");
+        return;
+      }
+
+      const msg = res.data?.detail || `Sync failed (status ${res.status}).`;
+      setSyncMsg(String(msg));
+    } catch (e) {
+      console.error(e);
+      setSyncMsg("Sync failed.");
+    } finally {
+      setSyncBusy(false);
+      setTimeout(() => setSyncMsg(""), 2500);
+    }
   };
 
   // ---------- Render ----------
@@ -480,7 +600,7 @@ export default function PreForge() {
           <div className="space-y-2">
             <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">Pre-Forge</h1>
             <p className="text-sm text-[var(--muted)]">
-              A place to name the thing, frame it cleanly, and think in smaller pieces.
+              Local-first. Name the thing, frame it cleanly, and think in smaller pieces.
             </p>
 
             {/* Tag Filter Bar */}
@@ -498,70 +618,47 @@ export default function PreForge() {
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Link
               to="/"
               className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
             >
               ← Home
             </Link>
+
+            {isLoggedIn ? (
+              <>
+                <SmallButton onClick={syncToAccount} disabled={syncBusy}>
+                  {syncBusy ? "Syncing…" : "Sync to account"}
+                </SmallButton>
+                <SmallButton variant="ghost" onClick={pullFromAccount} disabled={syncBusy}>
+                  Pull from account
+                </SmallButton>
+              </>
+            ) : (
+              <SmallButton onClick={() => navigate("/login")}>Login to sync</SmallButton>
+            )}
           </div>
         </header>
 
-        {loading ? <div className="mt-6 text-sm text-[var(--muted)]">Loading…</div> : null}
-
-        {error ? (
-          <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-4 text-sm">
-            <div className="font-semibold">Error</div>
-            <div className="mt-1 text-[var(--muted)]">{error}</div>
-            <div className="mt-3 flex gap-2">
-              <SmallButton onClick={fetchTopics}>Retry</SmallButton>
-            </div>
-          </div>
-        ) : null}
-
-        {showLogin ? (
-          <div className="mt-6 rounded-2xl border border-[var(--border)] bg-[var(--bg-elev)] p-5">
-            <div className="text-sm font-semibold">Login required</div>
-            <p className="mt-2 text-sm text-[var(--muted)]">
-              Pre-Forge is tied to your account. Please log in.
-            </p>
-            <div className="mt-3 flex gap-2">
-              <SmallButton onClick={() => navigate("/login")}>Go to login</SmallButton>
-              <SmallButton variant="ghost" onClick={fetchTopics}>
-                I already logged in
-              </SmallButton>
-            </div>
-          </div>
+        {syncMsg ? (
+          <div className="mt-4 text-xs text-[var(--muted)]">{syncMsg}</div>
         ) : null}
 
         <div className="mt-6 grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-4">
-          {/* LEFT: topic list (collapsible) */}
+          {/* LEFT: topic list */}
           <CardShell
             title="Topics"
-            subtitle="Title = the thing. Tag = the bucket."
-            rightSlot={
-              <SmallButton
-                variant="ghost"
-                onClick={() => setTopicsOpen((v) => !v)}
-                disabled={false}
-              >
+            subtitle="Local-first. Collapse this when you’re focused."
+            right={
+              <SmallButton variant="ghost" onClick={() => setTopicsOpen((v) => !v)}>
                 {topicsOpen ? "Collapse" : "Expand"}
               </SmallButton>
             }
           >
             {!topicsOpen ? (
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-sm">
-                  <div className="font-semibold">{activeTopic?.title || "No topic selected"}</div>
-                  <div className="text-xs text-[var(--muted)]">
-                    {(activeTopic?.items || []).length} item(s)
-                    {activeTopic?.pinned ? " • has pinned framing" : ""}
-                  </div>
-                </div>
-                <SmallButton variant="ghost" onClick={() => setTopicsOpen(true)}>
-                  Show list
-                </SmallButton>
+              <div className="text-xs text-[var(--muted)]">
+                Topics collapsed. Use the button above to open.
               </div>
             ) : (
               <div className="space-y-3">
@@ -572,28 +669,23 @@ export default function PreForge() {
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
-                      createTopic();
+                      createTopicLocal();
                     }
                   }}
-                  disabled={showLogin}
                 />
                 <TextInput
                   value={newTagsDraft}
                   onChange={setNewTagsDraft}
                   placeholder='Tags (comma-separated)… e.g., PneumEvolve, Relationship'
-                  disabled={showLogin}
                 />
                 <div className="flex gap-2">
-                  <SmallButton onClick={createTopic} disabled={showLogin}>
-                    Add topic
-                  </SmallButton>
+                  <SmallButton onClick={createTopicLocal}>Add topic</SmallButton>
                   <SmallButton
                     variant="ghost"
                     onClick={() => {
                       setNewTitle("");
                       setNewTagsDraft("");
                     }}
-                    disabled={showLogin}
                   >
                     Clear
                   </SmallButton>
@@ -606,14 +698,13 @@ export default function PreForge() {
                     </p>
                   ) : (
                     filteredTopics.map((t) => {
-                      const isActive = t.id === activeId;
-                      const updated = t.updated_at || t.updatedAt || null;
+                      const isActive = t.client_id === activeId;
 
                       return (
                         <button
-                          key={t.id}
+                          key={t.client_id}
                           type="button"
-                          onClick={() => selectTopic(t.id)}
+                          onClick={() => setActiveId(t.client_id)}
                           className={`w-full text-left rounded-2xl border px-4 py-3 shadow-sm transition
                             border-[var(--border)] bg-[var(--bg)]
                             ${isActive ? "opacity-100" : "opacity-80 hover:opacity-100"}`}
@@ -647,7 +738,7 @@ export default function PreForge() {
                             </div>
 
                             <span className="text-[11px] text-[var(--muted)]">
-                              {updated ? new Date(updated).toLocaleDateString() : ""}
+                              {t.updatedAt ? new Date(t.updatedAt).toLocaleDateString() : ""}
                             </span>
                           </div>
                         </button>
@@ -657,7 +748,7 @@ export default function PreForge() {
                 </div>
 
                 <div className="pt-4 text-[11px] text-[var(--muted)]">
-                  Tip: On mobile, picking a topic auto-collapses this list.
+                  Tip: work offline freely. When ready, click <b>Sync to account</b>.
                 </div>
               </div>
             )}
@@ -668,8 +759,7 @@ export default function PreForge() {
             {!activeTopic ? (
               <CardShell title="No topic selected" subtitle="Create a topic on the left.">
                 <p className="text-sm text-[var(--muted)] leading-6">
-                  Start with one topic. Tag it. Then write one true question you can’t stop thinking
-                  about.
+                  Start with one topic. Tag it. Then write one true question you can’t stop thinking about.
                 </p>
               </CardShell>
             ) : (
@@ -678,9 +768,8 @@ export default function PreForge() {
                   <label className="block text-xs text-[var(--muted)]">Title</label>
                   <TextInput
                     value={activeTopic.title || ""}
-                    onChange={(v) => updateTopic(activeTopic.id, { title: v })}
+                    onChange={(v) => updateTopicLocal(activeTopic.client_id, { title: v })}
                     placeholder="Topic title…"
-                    disabled={showLogin}
                   />
 
                   <div className="mt-4">
@@ -691,7 +780,7 @@ export default function PreForge() {
                           <TagPill
                             key={tg}
                             text={`#${tg}`}
-                            onRemove={showLogin ? null : () => removeTagFromActive(tg)}
+                            onRemove={() => removeTagFromActiveLocal(tg)}
                           />
                         ))
                       ) : (
@@ -707,18 +796,12 @@ export default function PreForge() {
                         onKeyDown={(e) => {
                           if (e.key === "Enter") {
                             e.preventDefault();
-                            addTagToActive();
+                            addTagToActiveLocal();
                           }
                         }}
-                        disabled={showLogin}
                       />
-                      <SmallButton onClick={addTagToActive} disabled={showLogin}>
-                        Add
-                      </SmallButton>
+                      <SmallButton onClick={addTagToActiveLocal}>Add</SmallButton>
                     </div>
-                    <p className="mt-2 text-[11px] text-[var(--muted)]">
-                      Tags update via API. (Backend expects <code>tag</code> as a query param.)
-                    </p>
                   </div>
 
                   <div className="mt-4">
@@ -726,51 +809,31 @@ export default function PreForge() {
                       Pinned (best current framing)
                     </label>
 
+                    {/* draft-only typing */}
                     <TextArea
                       value={pinnedDraft}
-                      onChange={(v) => {
-                        setPinnedDraft(v);
-                        setPinnedDirty(true);
-                      }}
+                      onChange={setPinnedDraft}
                       rows={3}
                       placeholder='Example: "What do I want this to become?"'
-                      disabled={showLogin}
                     />
 
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <SmallButton
-                        onClick={savePinned}
-                        disabled={showLogin || pinnedSaving || !pinnedDirty}
-                      >
-                        {pinnedSaving ? "Saving..." : "Save pinned"}
-                      </SmallButton>
-
+                    <div className="mt-2 flex gap-2">
+                      <SmallButton onClick={savePinnedLocal}>Save pinned</SmallButton>
                       <SmallButton
                         variant="ghost"
-                        onClick={cancelPinned}
-                        disabled={showLogin || pinnedSaving || !pinnedDirty}
+                        onClick={() => setPinnedDraft(activeTopic.pinned || "")}
                       >
-                        Cancel
+                        Revert
                       </SmallButton>
-
-                      {!pinnedDirty ? (
-                        <span className="text-[11px] text-[var(--muted)]">Saved</span>
-                      ) : (
-                        <span className="text-[11px] text-[var(--muted)]">Unsaved changes</span>
-                      )}
                     </div>
 
                     <p className="mt-2 text-[11px] text-[var(--muted)]">
-                      This is the sentence you keep returning to.
+                      Saved locally. Use Sync to push it to your account.
                     </p>
                   </div>
 
                   <div className="mt-4 flex flex-wrap gap-2">
-                    <SmallButton
-                      variant="ghost"
-                      onClick={() => deleteTopic(activeTopic.id)}
-                      disabled={showLogin}
-                    >
+                    <SmallButton variant="ghost" onClick={() => deleteTopicLocal(activeTopic.client_id)}>
                       Delete topic
                     </SmallButton>
                   </div>
@@ -781,14 +844,12 @@ export default function PreForge() {
                     <SmallButton
                       variant={draftKind === "question" ? "default" : "ghost"}
                       onClick={() => setDraftKind("question")}
-                      disabled={showLogin}
                     >
                       Question
                     </SmallButton>
                     <SmallButton
                       variant={draftKind === "note" ? "default" : "ghost"}
                       onClick={() => setDraftKind("note")}
-                      disabled={showLogin}
                     >
                       Note
                     </SmallButton>
@@ -800,7 +861,6 @@ export default function PreForge() {
                       value={draftText}
                       onChange={setDraftText}
                       rows={4}
-                      disabled={showLogin}
                       placeholder={
                         draftKind === "question"
                           ? 'Example: "What is the smallest next step?"'
@@ -808,14 +868,8 @@ export default function PreForge() {
                       }
                     />
                     <div className="flex gap-2">
-                      <SmallButton onClick={addItem} disabled={showLogin}>
-                        Add
-                      </SmallButton>
-                      <SmallButton
-                        variant="ghost"
-                        onClick={() => setDraftText("")}
-                        disabled={showLogin}
-                      >
+                      <SmallButton onClick={addItemLocal}>Add</SmallButton>
+                      <SmallButton variant="ghost" onClick={() => setDraftText("")}>
                         Clear
                       </SmallButton>
                     </div>
@@ -831,9 +885,7 @@ export default function PreForge() {
                           <span className="text-xs text-[var(--muted)]">Editing</span>
                         </div>
                         <div className="flex gap-2">
-                          <SmallButton onClick={saveEdit} disabled={showLogin}>
-                            Save
-                          </SmallButton>
+                          <SmallButton onClick={saveEditLocal}>Save</SmallButton>
                           <SmallButton variant="ghost" onClick={cancelEdit}>
                             Cancel
                           </SmallButton>
@@ -846,7 +898,6 @@ export default function PreForge() {
                           onChange={setEditingText}
                           rows={5}
                           placeholder="Edit text…"
-                          disabled={showLogin}
                         />
                         <p className="mt-2 text-[11px] text-[var(--muted)]">
                           Make it truer, not “better.”
@@ -863,10 +914,10 @@ export default function PreForge() {
                     ) : (
                       (activeTopic.items || []).map((item) => (
                         <NoteRow
-                          key={item.id}
+                          key={item.client_id}
                           item={item}
-                          onPin={() => pinItem(item.id)}
-                          onDelete={() => deleteItem(item.id)}
+                          onPin={() => pinItemLocal(item.client_id)}
+                          onDelete={() => deleteItemLocal(item.client_id)}
                           onEdit={() => beginEdit(item)}
                         />
                       ))
@@ -879,7 +930,7 @@ export default function PreForge() {
         </div>
 
         <footer className="mt-8 text-xs text-[var(--muted)]">
-          API-backed (auth required). If you get 401s, check cookies + refresh token flow.
+          Local-first. If logged in, Sync merges by <code>client_id</code> to prevent duplicates.
         </footer>
       </div>
     </main>
