@@ -75,6 +75,7 @@ import WidgetLibrary from "@/Pages/WidgetLibrary";
 import SkippedStep from "@/Pages/SkippedStep";
 import RequireAuth from "@/components/RequireAuth";
 import PreForgeLocal from "@/Pages/PreForgeLocal";
+import PreForge from "@/Pages/PreForge";
 
 import { HelmetProvider } from "react-helmet-async";
 import "./index.css";
@@ -175,7 +176,8 @@ function Root() {
                 <Route path="/tools" element={<ToolsHome />} />
                 <Route path="/tools/library" element={<WidgetLibrary />} />
                 <Route path="/skipped-step" element={<SkippedStep />} />
-                <Route path="/preforge" element={<PreForgeLocal />} />
+                <Route path="/preforge-local" element={<PreForgeLocal />} />
+                <Route path="/preforge" element={<PreForge />} />
 
 
                 <Route path="/privacy" element={<PrivacyPolicy />} />
