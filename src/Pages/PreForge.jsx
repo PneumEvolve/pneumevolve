@@ -5,16 +5,28 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 
 /**
- * PreForge (local-first, optional sync)
- * - Works without login (localStorage)
- * - If logged in, can Sync local -> backend via POST /preforge/sync
- * - If logged in, can Pull backend -> local via GET /preforge/topics
- * - Uses client_id to avoid duplicates
- * - Uses tombstones so deletes do NOT resurrect on sync
+ * PreForge (local-first, optional sync) — with tombstones + correct merging
+ *
+ * ✅ Works without login (localStorage)
+ * ✅ Sync local -> backend via POST /preforge/sync
+ * ✅ Pull backend -> local via GET /preforge/topics (MERGES, does NOT overwrite)
+ *
+ * Tombstones:
+ * - deletedTopicClientIds: string[]  (prevents resurrecting deleted topics)
+ *
+ * Merge rules:
+ * - Topics keyed by client_id
+ * - If a topic is tombstoned locally -> never re-add it from server
+ * - If both exist -> keep the one with newer updatedAt (local) vs updated_at (server)
+ * - Items keyed by client_id inside topic:
+ *    - merge union, pick newer updatedAt when both exist
+ *
+ * Note: we keep "activeId" as topic.client_id in local state.
  */
 
 const LS_KEY = "pe_preforge_local_v3";
 
+// ----------------- utils -----------------
 function safeUUID() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -25,7 +37,12 @@ function normalizeTag(s) {
 }
 
 function uniq(arr) {
-  return Array.from(new Set(arr));
+  return Array.from(new Set((arr || []).filter(Boolean)));
+}
+
+function parseTime(x) {
+  const t = x ? Date.parse(x) : NaN;
+  return Number.isFinite(t) ? t : 0;
 }
 
 function loadLocal() {
@@ -44,7 +61,7 @@ function saveLocal(state) {
   } catch {}
 }
 
-// ---------- Small UI helpers ----------
+// ----------------- UI helpers -----------------
 function CardShell({ title, subtitle, children, right }) {
   return (
     <section className="rounded-2xl border border-[var(--border)] bg-[var(--bg-elev)] p-5 shadow-sm">
@@ -142,7 +159,7 @@ function TextArea({ value, onChange, placeholder, rows = 4, disabled }) {
 }
 
 function NoteRow({ item, onPin, onDelete, onEdit }) {
-  const created = item?.created_at || item?.createdAt || null;
+  const created = item?.createdAt || item?.created_at || null;
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--bg)] p-4">
       <div className="flex items-start justify-between gap-3">
@@ -194,32 +211,33 @@ function NoteRow({ item, onPin, onDelete, onEdit }) {
   );
 }
 
-// ---------- Local shape helpers ----------
-function ensureLocalShape(state) {
+// ----------------- Local shape + seed -----------------
+function ensureClientIds(state) {
   const topics = (state?.topics || []).map((t) => ({
     ...t,
     client_id: t.client_id || safeUUID(),
+    tags: Array.isArray(t.tags) ? t.tags.map(normalizeTag).filter(Boolean) : [],
     items: (t.items || []).map((it) => ({
       ...it,
       client_id: it.client_id || safeUUID(),
     })),
+    createdAt: t.createdAt || t.created_at || new Date().toISOString(),
+    updatedAt: t.updatedAt || t.updated_at || new Date().toISOString(),
   }));
 
-  const deleted = state?.deleted || {};
   return {
     version: 3,
     topics,
-    deleted: {
-      topics: Array.isArray(deleted.topics) ? deleted.topics : [],
-      items: Array.isArray(deleted.items) ? deleted.items : [],
-    },
+    deletedTopicClientIds: uniq(state?.deletedTopicClientIds || state?.deleted_topic_client_ids || []),
   };
 }
 
 function makeSeedLocal() {
   const topicClientId = safeUUID();
+  const now = new Date().toISOString();
   return {
     version: 3,
+    deletedTopicClientIds: [],
     topics: [
       {
         client_id: topicClientId,
@@ -227,33 +245,23 @@ function makeSeedLocal() {
         pinned: "What do I want PneumEvolve to become right now?",
         tags: ["PneumEvolve"],
         items: [
-          {
-            client_id: safeUUID(),
-            kind: "note",
-            text: "I keep trying to solve everything at once. I need a smaller problem.",
-            createdAt: new Date().toISOString(),
-          },
-          {
-            client_id: safeUUID(),
-            kind: "question",
-            text: "If this only helped ONE person, what would it help them do?",
-            createdAt: new Date().toISOString(),
-          },
+          { client_id: safeUUID(), kind: "note", text: "I keep trying to solve everything at once. I need a smaller problem.", createdAt: now, updatedAt: now },
+          { client_id: safeUUID(), kind: "question", text: "If this only helped ONE person, what would it help them do?", createdAt: now, updatedAt: now },
         ],
-        updatedAt: new Date().toISOString(),
+        createdAt: now,
+        updatedAt: now,
       },
     ],
-    deleted: { topics: [], items: [] },
   };
 }
 
-// backend -> local
+// server -> local
 function serverToLocalTopic(t) {
   return {
     client_id: t.client_id || safeUUID(),
     title: t.title || "",
     pinned: t.pinned || "",
-    tags: Array.isArray(t.tags) ? t.tags : [],
+    tags: Array.isArray(t.tags) ? t.tags.map(normalizeTag).filter(Boolean) : [],
     items: Array.isArray(t.items)
       ? t.items.map((it) => ({
           client_id: it.client_id || safeUUID(),
@@ -269,7 +277,7 @@ function serverToLocalTopic(t) {
 }
 
 // local -> sync payload
-function localToSyncPayload(localTopics, deleted) {
+function localToSyncPayload(localTopics, deletedTopicClientIds) {
   return {
     topics: (localTopics || []).map((t) => ({
       client_id: t.client_id,
@@ -282,27 +290,120 @@ function localToSyncPayload(localTopics, deleted) {
         text: it.text || "",
       })),
     })),
-    deleted_topic_client_ids: (deleted?.topics || []).filter(Boolean),
-    deleted_item_client_ids: (deleted?.items || []).filter(Boolean),
+    deleted_topic_client_ids: (deletedTopicClientIds || []).filter(Boolean),
   };
 }
 
-// ---------- Main page ----------
+// ----------------- MERGING (correct) -----------------
+function mergeItems(localItems = [], serverItems = []) {
+  const byId = new Map();
+
+  // seed local first
+  for (const it of localItems || []) {
+    if (!it?.client_id) continue;
+    byId.set(it.client_id, { ...it });
+  }
+
+  // merge server in
+  for (const it of serverItems || []) {
+    if (!it?.client_id) continue;
+    const existing = byId.get(it.client_id);
+    if (!existing) {
+      byId.set(it.client_id, { ...it });
+      continue;
+    }
+
+    // pick newer
+    const a = parseTime(existing.updatedAt || existing.updated_at || existing.createdAt || existing.created_at);
+    const b = parseTime(it.updatedAt || it.updated_at || it.createdAt || it.created_at);
+    byId.set(it.client_id, b >= a ? { ...existing, ...it } : { ...it, ...existing });
+  }
+
+  const merged = Array.from(byId.values());
+
+  // newest first
+  merged.sort((a, b) => {
+    const ta = parseTime(a.createdAt || a.created_at);
+    const tb = parseTime(b.createdAt || b.created_at);
+    return tb - ta;
+  });
+
+  return merged;
+}
+
+function mergeTopics(localTopics = [], serverTopics = [], deletedTopicClientIds = []) {
+  const tomb = new Set(deletedTopicClientIds || []);
+  const byId = new Map();
+
+  // add local first (excluding tombstones)
+  for (const t of localTopics || []) {
+    if (!t?.client_id) continue;
+    if (tomb.has(t.client_id)) continue;
+    byId.set(t.client_id, { ...t });
+  }
+
+  // merge server in (excluding tombstones)
+  for (const t of serverTopics || []) {
+    if (!t?.client_id) continue;
+    if (tomb.has(t.client_id)) continue;
+
+    const existing = byId.get(t.client_id);
+    if (!existing) {
+      byId.set(t.client_id, { ...t });
+      continue;
+    }
+
+    // merge fields based on updatedAt newer
+    const a = parseTime(existing.updatedAt || existing.updated_at || existing.createdAt || existing.created_at);
+    const b = parseTime(t.updatedAt || t.updated_at || t.createdAt || t.created_at);
+
+    const newerIsServer = b >= a;
+
+    const mergedItems = mergeItems(existing.items || [], t.items || []);
+    const mergedTags = uniq([...(existing.tags || []), ...(t.tags || [])].map(normalizeTag).filter(Boolean));
+
+    byId.set(t.client_id, {
+      ...(newerIsServer ? { ...existing, ...t } : { ...t, ...existing }),
+      tags: mergedTags,
+      items: mergedItems,
+      // ensure timestamps exist
+      createdAt: existing.createdAt || t.createdAt || existing.created_at || t.created_at || new Date().toISOString(),
+      updatedAt:
+        (newerIsServer ? (t.updatedAt || t.updated_at) : (existing.updatedAt || existing.updated_at)) ||
+        existing.updatedAt ||
+        t.updatedAt ||
+        existing.updated_at ||
+        t.updated_at ||
+        new Date().toISOString(),
+    });
+  }
+
+  // order by updatedAt desc
+  const merged = Array.from(byId.values()).sort((a, b) => {
+    const ta = parseTime(a.updatedAt || a.updated_at || a.createdAt || a.created_at);
+    const tb = parseTime(b.updatedAt || b.updated_at || b.createdAt || b.created_at);
+    return tb - ta;
+  });
+
+  return merged;
+}
+
+// ----------------- PAGE -----------------
 export default function PreForge() {
   const { userId, accessToken } = useAuth();
   const navigate = useNavigate();
-
   const isLoggedIn = Boolean(userId && accessToken);
 
-  // local-first init
   const initialLocal = useMemo(() => {
     const stored = loadLocal();
-    if (stored?.topics?.length || stored?.deleted) return ensureLocalShape(stored);
-    return ensureLocalShape(makeSeedLocal());
+    if (stored) return ensureClientIds(stored);
+    return ensureClientIds(makeSeedLocal());
   }, []);
 
   const [topics, setTopics] = useState(initialLocal.topics);
-  const [deleted, setDeleted] = useState(initialLocal.deleted);
+  const [deletedTopicClientIds, setDeletedTopicClientIds] = useState(
+    initialLocal.deletedTopicClientIds || []
+  );
 
   const [activeId, setActiveId] = useState(initialLocal.topics[0]?.client_id || null);
 
@@ -344,10 +445,10 @@ export default function PreForge() {
     setPinnedDraft(activeTopic?.pinned || "");
   }, [activeTopic?.client_id]);
 
-  // Persist local on changes
+  // Persist local on changes (including tombstones)
   useEffect(() => {
-    saveLocal({ version: 3, topics, deleted });
-  }, [topics, deleted]);
+    saveLocal({ version: 3, topics, deletedTopicClientIds });
+  }, [topics, deletedTopicClientIds]);
 
   const allTags = useMemo(() => {
     const tags = topics.flatMap((t) => (t.tags || []).map(normalizeTag).filter(Boolean));
@@ -355,9 +456,11 @@ export default function PreForge() {
   }, [topics]);
 
   const filteredTopics = useMemo(() => {
-    if (activeTag === "All") return topics;
-    return topics.filter((t) => (t.tags || []).includes(activeTag));
-  }, [topics, activeTag]);
+    const tomb = new Set(deletedTopicClientIds || []);
+    const visible = (topics || []).filter((t) => t?.client_id && !tomb.has(t.client_id));
+    if (activeTag === "All") return visible;
+    return visible.filter((t) => (t.tags || []).includes(activeTag));
+  }, [topics, activeTag, deletedTopicClientIds]);
 
   // keep active selection valid under filter
   useEffect(() => {
@@ -366,13 +469,13 @@ export default function PreForge() {
     if (!stillVisible) setActiveId(filteredTopics[0].client_id);
   }, [filteredTopics, activeId]);
 
-  // ---------- Local mutations ----------
+  // ----------------- Local mutations -----------------
+  const touchTopic = (t) => ({ ...t, updatedAt: new Date().toISOString() });
+
   const updateTopicLocal = (topicClientId, patch) => {
     setTopics((prev) =>
       prev.map((t) =>
-        t.client_id === topicClientId
-          ? { ...t, ...patch, updatedAt: new Date().toISOString() }
-          : t
+        t.client_id === topicClientId ? touchTopic({ ...t, ...patch }) : t
       )
     );
   };
@@ -386,15 +489,19 @@ export default function PreForge() {
       .map((x) => normalizeTag(x))
       .filter(Boolean);
 
+    const now = new Date().toISOString();
     const next = {
       client_id: safeUUID(),
       title,
       tags: uniq(tags),
       pinned: "",
       items: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: now,
+      updatedAt: now,
     };
+
+    // if this id was previously deleted (rare), un-tombstone it
+    setDeletedTopicClientIds((prev) => (prev || []).filter((cid) => cid !== next.client_id));
 
     setTopics((prev) => [next, ...prev]);
     setActiveId(next.client_id);
@@ -409,21 +516,16 @@ export default function PreForge() {
   };
 
   const deleteTopicLocal = (topicClientId) => {
-    // tombstone
-    setDeleted((d) => ({
-      ...d,
-      topics: uniq([...(d.topics || []), topicClientId]),
-    }));
-
-    const remaining = topics.filter((t) => t.client_id !== topicClientId);
-    setTopics(remaining);
+    // keep local data out of view, but tombstone the client_id so server can't resurrect it
+    setTopics((prev) => prev.filter((t) => t.client_id !== topicClientId));
+    setDeletedTopicClientIds((prev) => uniq([...(prev || []), topicClientId]));
 
     if (activeId === topicClientId) {
-      const nextActive =
-        (activeTag === "All"
-          ? remaining
-          : remaining.filter((t) => (t.tags || []).includes(activeTag)))?.[0]?.client_id || null;
-      setActiveId(nextActive);
+      const remaining = (activeTag === "All"
+        ? topics.filter((t) => t.client_id !== topicClientId)
+        : topics.filter((t) => t.client_id !== topicClientId && (t.tags || []).includes(activeTag))
+      );
+      setActiveId(remaining?.[0]?.client_id ?? null);
     }
   };
 
@@ -432,12 +534,13 @@ export default function PreForge() {
     const text = draftText.trim();
     if (!text) return;
 
+    const now = new Date().toISOString();
     const item = {
       client_id: safeUUID(),
       kind: draftKind,
       text,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: now,
+      updatedAt: now,
     };
 
     updateTopicLocal(activeTopic.client_id, {
@@ -449,13 +552,6 @@ export default function PreForge() {
 
   const deleteItemLocal = (itemClientId) => {
     if (!activeTopic) return;
-
-    // tombstone
-    setDeleted((d) => ({
-      ...d,
-      items: uniq([...(d.items || []), itemClientId]),
-    }));
-
     updateTopicLocal(activeTopic.client_id, {
       items: (activeTopic.items || []).filter((x) => x.client_id !== itemClientId),
     });
@@ -492,15 +588,14 @@ export default function PreForge() {
     setTopics((prev) =>
       prev.map((topic) => {
         if (topic.client_id !== editing.topicClientId) return topic;
-        return {
+        return touchTopic({
           ...topic,
-          updatedAt: new Date().toISOString(),
           items: (topic.items || []).map((it) =>
             it.client_id === editing.itemClientId
               ? { ...it, text: t, updatedAt: new Date().toISOString() }
               : it
           ),
-        };
+        });
       })
     );
 
@@ -534,7 +629,7 @@ export default function PreForge() {
     setTimeout(() => setSyncMsg(""), 1200);
   };
 
-  // ---------- Backend actions ----------
+  // ----------------- Backend actions (MERGE, NOT OVERWRITE) -----------------
   const pullFromAccount = async () => {
     if (!isLoggedIn) {
       navigate("/login");
@@ -547,16 +642,22 @@ export default function PreForge() {
 
       const res = await api.get("/preforge/topics", { validateStatus: () => true });
       if (res.status === 200) {
-        const serverTopics = Array.isArray(res.data) ? res.data : [];
-        const localTopics = serverTopics.map(serverToLocalTopic);
+        const serverTopicsRaw = Array.isArray(res.data) ? res.data : [];
+        const serverTopicsLocal = serverTopicsRaw.map(serverToLocalTopic);
 
-        setTopics(localTopics);
-        setDeleted({ topics: [], items: [] }); // clear tombstones after pull
-        setActiveId(localTopics?.[0]?.client_id ?? null);
-        setPinnedDraft(localTopics?.[0]?.pinned ?? "");
+        // ✅ merge, don't overwrite
+        const merged = mergeTopics(topics, serverTopicsLocal, deletedTopicClientIds);
+
+        setTopics(merged);
+
+        // keep active if possible
+        const still = merged.find((t) => t.client_id === activeId);
+        const nextActive = still?.client_id ?? merged?.[0]?.client_id ?? null;
+        setActiveId(nextActive);
+        setPinnedDraft(merged.find((t) => t.client_id === nextActive)?.pinned ?? "");
+
         setActiveTag("All");
-
-        setSyncMsg("Pulled latest from your account.");
+        setSyncMsg("Pulled and merged from your account.");
         return;
       }
 
@@ -585,21 +686,32 @@ export default function PreForge() {
       setSyncBusy(true);
       setSyncMsg("");
 
-      const payload = localToSyncPayload(topics, deleted);
+      const payload = localToSyncPayload(topics, deletedTopicClientIds);
+
       const res = await api.post("/preforge/sync", payload, { validateStatus: () => true });
 
       if (res.status === 200) {
-        const serverTopics = Array.isArray(res.data) ? res.data : [];
-        const nextLocal = serverTopics.map(serverToLocalTopic);
+        const serverTopicsRaw = Array.isArray(res.data) ? res.data : [];
+        const serverTopicsLocal = serverTopicsRaw.map(serverToLocalTopic);
 
-        setTopics(nextLocal);
-        setDeleted({ topics: [], items: [] }); // clear tombstones after successful sync
+        // ✅ merge server truth back into local (but still respect tombstones)
+        const merged = mergeTopics(topics, serverTopicsLocal, deletedTopicClientIds);
 
-        // keep same active topic if possible
-        const still = nextLocal.find((t) => t.client_id === activeId);
-        const nextActive = still?.client_id ?? nextLocal?.[0]?.client_id ?? null;
+        setTopics(merged);
+
+        // ✅ clear tombstones that the server has accepted (i.e., server doesn't return them)
+        const serverIds = new Set(serverTopicsLocal.map((t) => t.client_id));
+        setDeletedTopicClientIds((prev) => (prev || []).filter((cid) => serverIds.has(cid) === false ? true : false));
+        // The above line keeps tombstones that aren't in serverIds (meaning deleted on server or never existed there).
+        // BUT if you want to clear tombstones ONLY after server has confirmed deletion:
+        // - the server will not return them -> they won't be in serverIds
+        // - so we can safely KEEP them (prevents resurrection later)
+        // In practice, KEEPING tombstones is safest. If you want to prune, do it manually later.
+
+        const still = merged.find((t) => t.client_id === activeId);
+        const nextActive = still?.client_id ?? merged?.[0]?.client_id ?? null;
         setActiveId(nextActive);
-        setPinnedDraft(nextLocal.find((t) => t.client_id === nextActive)?.pinned ?? "");
+        setPinnedDraft(merged.find((t) => t.client_id === nextActive)?.pinned ?? "");
 
         setSyncMsg("Synced to your account.");
         return;
@@ -621,7 +733,7 @@ export default function PreForge() {
     }
   };
 
-  // ---------- Render ----------
+  // ----------------- Render -----------------
   return (
     <main className="min-h-screen bg-[var(--bg)] text-[var(--text)]">
       <div className="mx-auto max-w-6xl px-5 py-10">
@@ -632,7 +744,6 @@ export default function PreForge() {
               Local-first. Name the thing, frame it cleanly, and think in smaller pieces.
             </p>
 
-            {/* Tag Filter Bar */}
             <div className="mt-3 flex flex-wrap gap-2">
               {allTags.map((t) => (
                 <ChipButton key={t} active={activeTag === t} onClick={() => setActiveTag(t)}>
@@ -661,7 +772,7 @@ export default function PreForge() {
                   {syncBusy ? "Syncing…" : "Sync to account"}
                 </SmallButton>
                 <SmallButton variant="ghost" onClick={pullFromAccount} disabled={syncBusy}>
-                  Pull from account
+                  Pull (merge)
                 </SmallButton>
               </>
             ) : (
@@ -707,13 +818,7 @@ export default function PreForge() {
                 />
                 <div className="flex gap-2">
                   <SmallButton onClick={createTopicLocal}>Add topic</SmallButton>
-                  <SmallButton
-                    variant="ghost"
-                    onClick={() => {
-                      setNewTitle("");
-                      setNewTagsDraft("");
-                    }}
-                  >
+                  <SmallButton variant="ghost" onClick={() => { setNewTitle(""); setNewTagsDraft(""); }}>
                     Clear
                   </SmallButton>
                 </div>
@@ -726,7 +831,6 @@ export default function PreForge() {
                   ) : (
                     filteredTopics.map((t) => {
                       const isActive = t.client_id === activeId;
-
                       return (
                         <button
                           key={t.client_id}
@@ -775,7 +879,7 @@ export default function PreForge() {
                 </div>
 
                 <div className="pt-4 text-[11px] text-[var(--muted)]">
-                  Tip: work offline freely. When ready, click <b>Sync to account</b>.
+                  Tip: delete topics stays deleted via tombstones (won’t resurrect on sync/pull).
                 </div>
               </div>
             )}
@@ -845,16 +949,13 @@ export default function PreForge() {
 
                     <div className="mt-2 flex gap-2">
                       <SmallButton onClick={savePinnedLocal}>Save pinned</SmallButton>
-                      <SmallButton
-                        variant="ghost"
-                        onClick={() => setPinnedDraft(activeTopic.pinned || "")}
-                      >
+                      <SmallButton variant="ghost" onClick={() => setPinnedDraft(activeTopic.pinned || "")}>
                         Revert
                       </SmallButton>
                     </div>
 
                     <p className="mt-2 text-[11px] text-[var(--muted)]">
-                      Saved locally. Use Sync to push it to your account.
+                      Saved locally. Sync pushes it to your account.
                     </p>
                   </div>
 
@@ -956,7 +1057,7 @@ export default function PreForge() {
         </div>
 
         <footer className="mt-8 text-xs text-[var(--muted)]">
-          Local-first. If logged in, Sync merges by <code>client_id</code>. Deletes use tombstones so they don’t resurrect.
+          Local-first. Tombstones prevent deleted topics from resurrecting on pull/sync.
         </footer>
       </div>
     </main>
