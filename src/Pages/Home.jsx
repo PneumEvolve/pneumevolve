@@ -1,22 +1,21 @@
 // src/Pages/Home.jsx
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 
 /**
- * PneumEvolve Home (structured for "Experiments first")
+ * PneumEvolve Home (Experiments-first, cleaned up)
  *
- * Goals:
- * - Public: shows the latest featured experiment + link to all experiments
- * - Signed in: same, but remembers your last opened experiment locally and offers "Continue"
- * - Keeps it simple: no promises, no pressure, no "self-help app" vibe
- *
- * Notes:
- * - Uses localStorage for "last seen / pinned / dismissed" so it works without backend.
- * - If you later add a DB, this structure still holds; you just swap the storage layer.
+ * Changes vs previous:
+ * - Removed all "(old)" labels
+ * - Enforced requiresAuth gating in UI + click behavior
+ * - Reduced CTA clutter (single primary path: Experiments)
+ * - Renamed "Dismiss" -> "Hide"
+ * - Moved Sitemap link to footer (quieter)
+ * - Avoid setting lastExperimentId for locked experiments
  */
 
-const LS_KEY = "pe_home_v1";
+const LS_KEY = "pe_home_v2";
 
 function loadState() {
   try {
@@ -36,19 +35,9 @@ function saveState(next) {
   }
 }
 
-function safeUUID() {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
 /**
  * Experiments registry (MVP: hardcoded)
  * Later: move this to /src/data/experiments.js or fetch from API.
- *
- * Keep each experiment:
- * - one page
- * - one sentence hook
- * - one action
  */
 const EXPERIMENTS = [
   {
@@ -65,7 +54,7 @@ const EXPERIMENTS = [
   {
     id: "skipped-step",
     title: "The Step We Skip",
-    desc: "A small decision tool: find what you’re skipping, then decide with less regret.",
+    desc: "Find what you’re skipping, then decide with less regret.",
     to: "/skipped-step",
     tags: ["decisions", "clarity"],
     isPublic: true,
@@ -87,7 +76,7 @@ const EXPERIMENTS = [
   {
     id: "flow-map",
     title: "Flow Map",
-    desc: "Map a trigger → choice → behavior → ripple. Not to judge it—just to see it.",
+    desc: "Map a trigger → choice → behavior → ripple. Just to see it.",
     to: "/flow",
     tags: ["patterns", "behavior"],
     isPublic: true,
@@ -98,7 +87,7 @@ const EXPERIMENTS = [
   {
     id: "dream-machine",
     title: "Dream Machine",
-    desc: "Submit your vision of a better world and read the collectives shared vision so far.",
+    desc: "Share your vision of a better world and read what others have shared.",
     to: "/experiments/dream-machine",
     tags: ["wonder", "together"],
     isPublic: true,
@@ -109,7 +98,7 @@ const EXPERIMENTS = [
   {
     id: "widget-board",
     title: "Widget Board",
-    desc: "Customize your page with our experimental widgets.",
+    desc: "Customize your page with experimental widgets.",
     to: "/tools",
     tags: ["customize", "widgets"],
     isPublic: true,
@@ -131,9 +120,14 @@ function Card({ title, subtitle, children }) {
   );
 }
 
-function Pill({ children }) {
+function Pill({ children, className = "" }) {
   return (
-    <span className="rounded-full border border-[var(--border)] bg-[var(--bg)] px-3 py-1 text-[11px] text-[var(--muted)]">
+    <span
+      className={
+        "rounded-full border border-[var(--border)] bg-[var(--bg)] px-3 py-1 text-[11px] text-[var(--muted)] " +
+        className
+      }
+    >
       {children}
     </span>
   );
@@ -188,6 +182,7 @@ function pickFeatured(experiments) {
 }
 
 export default function Home() {
+  const navigate = useNavigate();
   const { isLoggedIn, displayName } = useAuth?.() || { isLoggedIn: false, displayName: null };
 
   const initial = useMemo(() => {
@@ -196,33 +191,31 @@ export default function Home() {
       stored || {
         lastExperimentId: null,
         pinnedExperimentId: null,
-        dismissedExperimentIds: [],
+        hiddenExperimentIds: [],
         createdAtISO: new Date().toISOString().slice(0, 10),
-        version: 1,
+        version: 2,
       }
     );
   }, []);
 
   const [lastExperimentId, setLastExperimentId] = useState(initial.lastExperimentId);
   const [pinnedExperimentId, setPinnedExperimentId] = useState(initial.pinnedExperimentId);
-  const [dismissedExperimentIds, setDismissedExperimentIds] = useState(
-    initial.dismissedExperimentIds || []
-  );
+  const [hiddenExperimentIds, setHiddenExperimentIds] = useState(initial.hiddenExperimentIds || []);
 
   useEffect(() => {
     saveState({
       lastExperimentId,
       pinnedExperimentId,
-      dismissedExperimentIds,
+      hiddenExperimentIds,
       createdAtISO: initial.createdAtISO,
-      version: 1,
+      version: 2,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lastExperimentId, pinnedExperimentId, dismissedExperimentIds]);
+  }, [lastExperimentId, pinnedExperimentId, hiddenExperimentIds]);
 
   const visibleExperiments = useMemo(() => {
-    return EXPERIMENTS.filter((e) => e.isPublic && !dismissedExperimentIds.includes(e.id));
-  }, [dismissedExperimentIds]);
+    return EXPERIMENTS.filter((e) => e.isPublic && !hiddenExperimentIds.includes(e.id));
+  }, [hiddenExperimentIds]);
 
   const featured = useMemo(() => pickFeatured(visibleExperiments), [visibleExperiments]);
 
@@ -236,28 +229,40 @@ export default function Home() {
     return EXPERIMENTS.find((e) => e.id === pinnedExperimentId) || null;
   }, [pinnedExperimentId]);
 
-  const showContinue = isLoggedIn && lastExperiment && lastExperiment.isPublic;
+  const canAccess = (exp) => !(exp?.requiresAuth && !isLoggedIn);
 
-  const onOpenExperiment = (exp) => {
+  const openOrLogin = (exp) => {
+    if (!exp) return;
+    if (!canAccess(exp)) {
+      // If you want to return after login, pass a redirect param you can read on the login page.
+      navigate(`/login?next=${encodeURIComponent(exp.to)}`);
+      return;
+    }
     setLastExperimentId(exp.id);
+    navigate(exp.to);
   };
 
+  const showContinue = isLoggedIn && lastExperiment && canAccess(lastExperiment);
+
   const onPin = (exp) => {
+    // Allow pinning locked experiments (optional), but you could block this too if you want.
     setPinnedExperimentId((prev) => (prev === exp.id ? null : exp.id));
   };
 
-  const onDismiss = (exp) => {
-    setDismissedExperimentIds((prev) => {
+  const onHide = (exp) => {
+    setHiddenExperimentIds((prev) => {
       if (prev.includes(exp.id)) return prev;
       return [exp.id, ...prev];
     });
-    if (featured?.id === exp.id) {
-      // if you dismiss featured, keep lastExperimentId untouched; featured will fall back automatically
-    }
   };
 
-  const restoreDismissed = () => {
-    setDismissedExperimentIds([]);
+  const scrollToExperiments = () => {
+  const el = document.getElementById("experiments");
+  if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+};
+
+  const restoreHidden = () => {
+    setHiddenExperimentIds([]);
   };
 
   return (
@@ -269,38 +274,44 @@ export default function Home() {
             <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight">PneumEvolve</h1>
 
             <p className="text-sm text-[var(--muted)] leading-6 max-w-prose">
-              An experiment in thinking more clearly—alone, and together.
+              A home for small tools that reduce mental loops—alone, and together.
             </p>
 
             {isLoggedIn ? (
               <p className="text-[11px] text-[var(--muted)]">
-                Signed in{displayName ? ` as ${displayName}` : ""}. Your “continue” state saves
-                locally on this device.
+                Signed in{displayName ? ` as ${displayName}` : ""}. Continue/pin/hide saves locally
+                on this device.
               </p>
             ) : (
               <p className="text-[11px] text-[var(--muted)]">
-                No account required for experiments. Some tools may offer optional sign-in later.
+                No account required for most experiments. Some tools are optionally gated.
               </p>
             )}
           </div>
 
           <div className="flex flex-wrap gap-2 justify-end">
-            <PrimaryLink to="/sitemap">Explore</PrimaryLink>
+            <button
+  type="button"
+  onClick={scrollToExperiments}
+  className="inline-flex items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
+>
+  Explore experiments →
+</button>
             {isLoggedIn ? (
               <PrimaryLink to="/account">Account</PrimaryLink>
             ) : (
               <>
                 <PrimaryLink to="/login">Log in</PrimaryLink>
-                <PrimaryCTA to="/signup">Create account</PrimaryCTA>
+                <PrimaryLink to="/signup">Create account</PrimaryLink>
               </>
             )}
           </div>
         </header>
 
-        {/* Top row: Featured + Continue */}
+        {/* Top row: Featured + Continue/What + Pinned/Quick start */}
         <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
           <Card
-            title={featured ? "Featured experiment" : "Featured experiment"}
+            title="Featured experiment"
             subtitle={featured ? "Start here if you’re not sure." : "Add one when you’re ready."}
           >
             {featured ? (
@@ -312,30 +323,37 @@ export default function Home() {
                     {(featured.tags || []).map((t) => (
                       <Pill key={t}>{t}</Pill>
                     ))}
+                    {featured.requiresAuth ? <Pill className="opacity-80">🔒 login</Pill> : null}
                   </div>
                 </div>
 
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <Link
-                    to={featured.to}
-                    onClick={() => onOpenExperiment(featured)}
+                  <button
+                    type="button"
+                    onClick={() => openOrLogin(featured)}
                     className="rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
                   >
-                    Open →
-                  </Link>
+                    {canAccess(featured) ? "Open →" : "Log in to open →"}
+                  </button>
 
                   <SmallButton onClick={() => onPin(featured)}>
                     {pinnedExperimentId === featured.id ? "Unpin" : "Pin"}
                   </SmallButton>
 
-                  <SmallButton onClick={() => onDismiss(featured)}>Dismiss</SmallButton>
+                  <SmallButton onClick={() => onHide(featured)}>Hide</SmallButton>
                 </div>
               </>
             ) : (
               <>
                 <p>No experiments are visible right now.</p>
                 <div className="mt-3">
-                  <PrimaryLink to="/experiments">View all experiments(old)</PrimaryLink>
+                  <button
+  type="button"
+  onClick={scrollToExperiments}
+  className="inline-flex items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
+>
+  View experiments →
+</button>
                 </div>
               </>
             )}
@@ -350,25 +368,30 @@ export default function Home() {
                 <p className="text-base font-semibold text-[var(--text)]">{lastExperiment.title}</p>
                 <p>{lastExperiment.desc}</p>
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <Link
-                    to={lastExperiment.to}
-                    onClick={() => onOpenExperiment(lastExperiment)}
+                  <button
+                    type="button"
+                    onClick={() => openOrLogin(lastExperiment)}
                     className="rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
                   >
                     Continue →
-                  </Link>
+                  </button>
                   <SmallButton onClick={() => setLastExperimentId(null)}>Clear</SmallButton>
                 </div>
               </>
             ) : (
               <>
                 <p>
-                  PneumEvolve is a collection of small experiments—pages that help you think,
+                  PneumEvolve is a collection of small, standalone pages that help you think,
                   decide, and notice patterns.
                 </p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <PrimaryCTA to="/experiments">All experiments(old) →</PrimaryCTA>
-                  <PrimaryLink to="/tools">Widget Board →</PrimaryLink>
+                <div className="mt-4">
+                  <button
+  type="button"
+  onClick={scrollToExperiments}
+  className="inline-flex items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
+>
+  Explore experiments →
+</button>
                 </div>
               </>
             )}
@@ -382,14 +405,22 @@ export default function Home() {
               <>
                 <p className="text-base font-semibold text-[var(--text)]">{pinned.title}</p>
                 <p>{pinned.desc}</p>
+
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {(pinned.tags || []).map((t) => (
+                    <Pill key={t}>{t}</Pill>
+                  ))}
+                  {pinned.requiresAuth ? <Pill className="opacity-80">🔒 login</Pill> : null}
+                </div>
+
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <Link
-                    to={pinned.to}
-                    onClick={() => onOpenExperiment(pinned)}
+                  <button
+                    type="button"
+                    onClick={() => openOrLogin(pinned)}
                     className="rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
                   >
-                    Open →
-                  </Link>
+                    {canAccess(pinned) ? "Open →" : "Log in to open →"}
+                  </button>
                   <SmallButton onClick={() => setPinnedExperimentId(null)}>Unpin</SmallButton>
                 </div>
               </>
@@ -408,71 +439,74 @@ export default function Home() {
 
         {/* Experiments list */}
         <div className="mt-6 grid grid-cols-1 gap-4">
-          <Card
-            title="All experiments (public)"
-            subtitle="Short. Standalone. You can dip in and leave."
-          >
+          <div id="experiments">
+          <Card title="All experiments" subtitle="Short. Standalone. You can dip in and leave.">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {visibleExperiments.map((exp) => (
-                <div
-                  key={exp.id}
-                  className="rounded-2xl border border-[var(--border)] bg-[var(--bg)] p-4"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-[var(--text)]">{exp.title}</p>
-                      <p className="mt-1 text-sm text-[var(--muted)] leading-6">{exp.desc}</p>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {(exp.tags || []).map((t) => (
-                          <Pill key={t}>{t}</Pill>
-                        ))}
+              {visibleExperiments.map((exp) => {
+                const locked = exp.requiresAuth && !isLoggedIn;
+                return (
+                  <div
+                    key={exp.id}
+                    className="rounded-2xl border border-[var(--border)] bg-[var(--bg)] p-4"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-semibold text-[var(--text)]">{exp.title}</p>
+                          {exp.requiresAuth ? <Pill className="opacity-80">🔒 login</Pill> : null}
+                        </div>
+                        <p className="mt-1 text-sm text-[var(--muted)] leading-6">{exp.desc}</p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {(exp.tags || []).map((t) => (
+                            <Pill key={t}>{t}</Pill>
+                          ))}
+                        </div>
                       </div>
+
+                      <button
+                        type="button"
+                        onClick={() => onPin(exp)}
+                        className="shrink-0 rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-3 py-2 text-[11px] font-medium shadow-sm hover:shadow transition"
+                        aria-label={pinnedExperimentId === exp.id ? "Unpin" : "Pin"}
+                        title={pinnedExperimentId === exp.id ? "Unpin" : "Pin"}
+                      >
+                        {pinnedExperimentId === exp.id ? "Pinned" : "Pin"}
+                      </button>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => onPin(exp)}
-                      className="shrink-0 rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-3 py-2 text-[11px] font-medium shadow-sm hover:shadow transition"
-                      aria-label={pinnedExperimentId === exp.id ? "Unpin" : "Pin"}
-                      title={pinnedExperimentId === exp.id ? "Unpin" : "Pin"}
-                    >
-                      {pinnedExperimentId === exp.id ? "Pinned" : "Pin"}
-                    </button>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => openOrLogin(exp)}
+                        className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
+                      >
+                        {locked ? "Log in to open →" : "Open →"}
+                      </button>
+                      <SmallButton onClick={() => onHide(exp)}>Hide</SmallButton>
+                    </div>
                   </div>
-
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Link
-                      to={exp.to}
-                      onClick={() => onOpenExperiment(exp)}
-                      className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
-                    >
-                      Open →
-                    </Link>
-                    <SmallButton onClick={() => onDismiss(exp)}>Dismiss</SmallButton>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex gap-2">
-                <PrimaryLink to="/experiments">Experiments page →</PrimaryLink>
-                <PrimaryLink to="/sitemap">Sitemap →</PrimaryLink>
-              </div>
-
-              {dismissedExperimentIds.length ? (
-                <SmallButton onClick={restoreDismissed}>Restore dismissed</SmallButton>
+              {hiddenExperimentIds.length ? (
+                <SmallButton onClick={restoreHidden}>Restore hidden</SmallButton>
               ) : (
-                <span className="text-[11px] text-[var(--muted)]">
-                  Tip: dismiss things you don’t want to see.
-                </span>
+                <span className="text-[11px] text-[var(--muted)]">Tip: hide things you don’t want to see.</span>
               )}
             </div>
           </Card>
+          </div>
         </div>
 
-        <footer className="mt-10 text-[11px] text-[var(--muted)]">
-          Experiments are allowed to be imperfect. So are you.
+        <footer className="mt-10 flex flex-wrap items-center justify-between gap-3 text-[11px] text-[var(--muted)]">
+          <span>Imperfect is the point.</span>
+          <div className="flex gap-3">
+            <Link className="hover:underline" to="/sitemap">
+              Sitemap
+            </Link>
+          </div>
         </footer>
       </div>
     </main>
