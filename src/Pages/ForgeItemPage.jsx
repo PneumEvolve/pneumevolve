@@ -200,7 +200,7 @@ export default function ForgeItemPage() {
     try {
       setDeleting(true);
       await api.delete(`/forge/items/${id}`, { headers });
-      navigate("/forge2");
+      navigate("/forge");
     } catch (e) {
       console.error("delete failed", e);
       alert(e?.response?.data?.detail || "Failed to delete item.");
@@ -227,7 +227,7 @@ export default function ForgeItemPage() {
   return (
     <main className="max-w-3xl mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <Link to="/forge2" className="btn btn-secondary">
+        <Link to="/forge" className="btn btn-secondary">
           ← Back to Forge
         </Link>
         {/* No delete button up here anymore */}
@@ -294,12 +294,19 @@ export default function ForgeItemPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={toggleVote}
-                      aria-pressed={hasVoted}
-                      className={hasVoted ? "btn btn-danger" : "btn btn-secondary"}
-                    >
-                      {hasVoted ? "🙅 Unvote" : "👍 Vote"}
-                    </button>
+  onClick={() => {
+    if (!userEmail) {
+      navigate(`/login?next=/forge/${id}`);
+      return;
+    }
+    toggleVote();
+  }}
+  aria-pressed={hasVoted}
+  className={hasVoted ? "btn btn-danger" : "btn btn-secondary"}
+  title={!userEmail ? "Log in to vote" : undefined}
+>
+  {hasVoted ? "🙅 Unvote" : "👍 Vote"}
+</button>
                   </div>
                 </div>
               </div>

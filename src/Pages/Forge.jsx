@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { v4 as uuidv4 } from "uuid";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { createPortal } from "react-dom";
 
 const KIND = { PROBLEM: "problem", IDEA: "idea" };
@@ -31,7 +31,6 @@ const statusBadgeClass = (s) => {
 };
 
 const votesKey = (identity) => `forge:votes:${identity}`;
-const draftKey = (identity) => `forge:draft:${identity}`;
 const filtersKey = "forge:filters";
 
 const loadSet = (k) => {
@@ -60,217 +59,15 @@ const DEFAULT_FILTERS = {
   severityMin: 1,
 };
 
-export default function Forge2() {
-  const { userEmail, displayName, accessToken } = useAuth();
-
-  const [anonId] = useState(() => {
-    let id = localStorage.getItem("anon_id");
-    if (!id) {
-      id = uuidv4();
-      localStorage.setItem("anon_id", id);
-    }
-    return id;
-  });
-  const identityEmail = userEmail || `anon:${anonId}`;
-
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState("");
-
-  const [qLive, setQLive] = useState("");
-  const [query, setQuery] = useState("");
-  const [showFilter, setShowFilter] = useState(false);
-
-  const [showComposer, setShowComposer] = useState(false);
-
-  const [myVotes, setMyVotes] = useState(() => loadSet(votesKey(identityEmail)));
-  useEffect(() => {
-    setMyVotes(loadSet(votesKey(identityEmail)));
-  }, [identityEmail]);
-
-  const [filters, setFilters] = useState(() => {
-    try {
-      const raw = localStorage.getItem(filtersKey);
-      return raw ? { ...DEFAULT_FILTERS, ...JSON.parse(raw) } : DEFAULT_FILTERS;
-    } catch {
-      return DEFAULT_FILTERS;
-    }
-  });
-  useEffect(() => {
-    try {
-      localStorage.setItem(filtersKey, JSON.stringify(filters));
-    } catch {}
-  }, [filters]);
-
-  useEffect(() => {
-    const t = setTimeout(() => setQuery(qLive.trim()), 200);
-    return () => clearTimeout(t);
-  }, [qLive]);
-
-  const headersFor = () => {
-    const h = { "x-user-email": identityEmail };
-    if (userEmail && accessToken) h.Authorization = `Bearer ${accessToken}`;
-    return h;
-    };
-
-  const normalize = (row) => ({
-    id: row.id,
-    kind: row.kind,
-    title: row.title || "",
-    body: row.body || "",
-    status: row.status || STATUS.OPEN,
-    domain: row.domain || null,
-    scope: row.scope || null,
-    severity: typeof row.severity === "number" ? row.severity : null,
-    location: row.location || null,
-    created_by_email: row.created_by_email || null,
-    created_at: row.created_at || null,
-    votes_count: typeof row.votes_count === "number" ? row.votes_count : 0,
-    pledges_count: typeof row.pledges_count === "number" ? row.pledges_count : 0,
-    pledges_done: typeof row.pledges_done === "number" ? row.pledges_done : 0,
-    tags: row.tags || null,
-    problem_ref: row.problem_ref || null, // ← enables deep link to Problem
-  });
-
-  const fetchItems = async () => {
-    setLoading(true);
-    setErr("");
-    try {
-      const params = { sort: filters.sort, limit: 100 };
-      if (filters.kind !== "all") params.kind = filters.kind;
-      const res = await api.get("/forge/items", { params, headers: headersFor() });
-      const data = res?.data;
-      const list = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : [];
-      const normalized = list.map(normalize);
-      setItems(normalized);
-    } catch (e) {
-      console.error("GET /forge/items failed", e);
-      setItems([]);
-      setErr(e?.response?.data?.detail || e?.message || "Failed to load items");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchItems();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.sort, filters.kind]);
-
-  const existingDomains = useMemo(
-    () => Array.from(new Set(items.map((i) => i.domain).filter(Boolean).map((s) => s.trim()))).sort(),
-    [items]
-  );
-  const existingLocations = useMemo(
-    () => Array.from(new Set(items.map((i) => i.location).filter(Boolean).map((s) => s.trim()))).sort(),
-    [items]
-  );
-  const existingTags = useMemo(() => {
-    const set = new Set();
-    items.forEach((i) => {
-      (i.tags || "")
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean)
-        .forEach((t) => set.add(t));
-    });
-    return Array.from(set).sort();
-  }, [items]);
-
-  const filtered = useMemo(() => {
-    const f = filters;
-    return (Array.isArray(items) ? items : []).filter((i) => {
-      if (f.status !== "any" && norm(i.status) !== f.status) return false;
-
-      if (String(f.domain || "").trim() && norm(i.domain) !== norm(f.domain)) return false;
-      if (String(f.scope || "").trim() && norm(i.scope) !== norm(f.scope)) return false;
-      if (String(f.location || "").trim() && norm(i.location) !== norm(f.location)) return false;
-
-      if ((f.tags || []).length) {
-        const tagsArr = String(i.tags || "")
-          .split(",")
-          .map((t) => t.trim().toLowerCase())
-          .filter(Boolean);
-        const allHave = f.tags.every((t) => tagsArr.includes(norm(t)));
-        if (!allHave) return false;
-      }
-
-      if (typeof f.severityMin === "number" && f.severityMin > 1) {
-        const sev = i.severity ?? 0;
-        if (sev < f.severityMin) return false;
-      }
-
-      if (query) {
-        const hay = [
-          i.title || "",
-          i.body || "",
-          i.tags || "",
-          i.location || "",
-          i.domain || "",
-          i.scope || "",
-        ]
-          .join(" ")
-          .toLowerCase();
-        if (!hay.includes(query.toLowerCase())) return false;
-      }
-
-      return true;
-    });
-  }, [items, filters, query]);
-
-  const hasVoted = (id) => myVotes.has(id);
-  const toggleVote = async (id) => {
-    const voted = hasVoted(id);
-    setMyVotes((prev) => {
-      const next = new Set(prev);
-      if (voted) next.delete(id);
-      else next.add(id);
-      saveSet(votesKey(identityEmail), next);
-      return next;
-    });
-    setItems((arr) =>
-      arr.map((it) =>
-        it.id === id
-          ? { ...it, votes_count: Math.max(0, (it.votes_count || 0) + (voted ? -1 : 1)) }
-          : it
-      )
-    );
-    try {
-      if (voted) {
-        await api.delete(`/forge/items/${id}/vote`, { headers: headersFor() });
-      } else {
-        await api.post(`/forge/items/${id}/vote`, {}, { headers: headersFor() });
-      }
-    } catch (e) {
-      console.error("vote toggle failed", e);
-      setMyVotes((prev) => {
-        const next = new Set(prev);
-        if (voted) next.add(id);
-        else next.delete(id);
-        saveSet(votesKey(identityEmail), next);
-        return next;
-      });
-      setItems((arr) =>
-        arr.map((it) =>
-          it.id === id
-            ? { ...it, votes_count: Math.max(0, (it.votes_count || 0) + (voted ? 1 : -1)) }
-            : it
-        )
-      );
-      alert(e?.response?.data?.detail || "Unable to vote.");
-    }
-  };
-
-  // at top of file:
-
-
-function FilterModal({ open, onClose, value, onChange }) {
+// --------------------------------------------------------------------------
+// FilterModal — lifted out of Forge, receives existingDomains/Locations/Tags
+// --------------------------------------------------------------------------
+function FilterModal({ open, onClose, value, onChange, existingDomains, existingLocations, existingTags }) {
   const [local, setLocal] = React.useState(value);
   const [tagInput, setTagInput] = React.useState("");
 
   React.useEffect(() => { if (open) setLocal(value); }, [open, value]);
 
-  // Lock page scroll
   React.useEffect(() => {
     if (!open) return;
     const html = document.documentElement;
@@ -279,7 +76,6 @@ function FilterModal({ open, onClose, value, onChange }) {
     return () => { html.style.overflow = prev; };
   }, [open]);
 
-  // ESC to close
   React.useEffect(() => {
     if (!open) return;
     const onKey = (e) => e.key === "Escape" && onClose();
@@ -302,23 +98,16 @@ function FilterModal({ open, onClose, value, onChange }) {
 
   return createPortal(
     <div className="fixed inset-0 z-[100]" role="dialog" aria-modal="true" aria-labelledby="filters-title">
-      {/* overlay */}
       <button className="absolute inset-0 bg-black/40" aria-label="Close" onClick={onClose} />
-
-      {/* FULL-SCREEN SHEET (edge-to-edge on mobile) */}
       <div className="fixed inset-0 overflow-hidden">
         <div className="h-[100svh] w-full md:max-w-xl md:mx-auto md:py-4">
-          {/* card look, but no rounded corners on mobile */}
           <div className="card rounded-none md:rounded-2xl p-0 h-full flex flex-col">
-            {/* HEADER (sticky) */}
             <div className="section-bar sticky top-0 z-10 px-4 py-3 flex items-center justify-between">
               <h2 id="filters-title" className="text-base sm:text-lg font-semibold">Filters</h2>
               <button className="btn btn-secondary" onClick={onClose}>Close</button>
             </div>
 
-            {/* BODY (scrolls) */}
             <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
-              {/* Sort */}
               <div className="space-y-1">
                 <label className="block text-sm font-medium">Sort</label>
                 <select
@@ -332,7 +121,6 @@ function FilterModal({ open, onClose, value, onChange }) {
                 </select>
               </div>
 
-              {/* Kind / Status */}
               <div className="grid sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="block text-sm font-medium">Kind</label>
@@ -362,7 +150,6 @@ function FilterModal({ open, onClose, value, onChange }) {
                 </div>
               </div>
 
-              {/* Domain / Scope / Location */}
               <div className="grid sm:grid-cols-3 gap-4">
                 <div className="space-y-1">
                   <label className="block text-sm font-medium">Domain</label>
@@ -415,7 +202,6 @@ function FilterModal({ open, onClose, value, onChange }) {
                 </div>
               </div>
 
-              {/* Tags */}
               <div className="space-y-2">
                 <label className="block text-sm font-medium">Tags</label>
                 <div className="flex flex-wrap gap-2">
@@ -428,9 +214,7 @@ function FilterModal({ open, onClose, value, onChange }) {
                         className="opacity-60 hover:opacity-100"
                         aria-label={`Remove ${t}`}
                         title="Remove"
-                      >
-                        ×
-                      </button>
+                      >×</button>
                     </span>
                   ))}
                 </div>
@@ -442,10 +226,7 @@ function FilterModal({ open, onClose, value, onChange }) {
                     placeholder="Add a tag…"
                     className="flex-1 min-h-[44px] text-base"
                     onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === ",") {
-                        e.preventDefault();
-                        addTag();
-                      }
+                      if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addTag(); }
                     }}
                   />
                   <button className="btn btn-secondary" type="button" onClick={addTag}>Add</button>
@@ -455,15 +236,11 @@ function FilterModal({ open, onClose, value, onChange }) {
                 </datalist>
               </div>
 
-              {/* Severity */}
               <div className="space-y-1.5">
                 <label className="block text-sm font-medium">Minimum Severity</label>
                 <div className="flex items-center gap-3">
                   <input
-                    type="range"
-                    min={1}
-                    max={5}
-                    step={1}
+                    type="range" min={1} max={5} step={1}
                     value={Number(local.severityMin || 1)}
                     onChange={(e) => set({ severityMin: Number(e.target.value) })}
                     className="flex-1"
@@ -474,12 +251,10 @@ function FilterModal({ open, onClose, value, onChange }) {
               </div>
             </div>
 
-            {/* FOOTER (sticky) */}
             <div className="section-bar sticky bottom-0 px-4 py-3 flex items-center justify-between">
               <button className="btn btn-secondary" onClick={clearAll} type="button">Clear all</button>
               <div className="flex gap-2">
                 <button className="btn btn-secondary" onClick={onClose} type="button">Cancel</button>
-                {/* force readable primary in dark mode */}
                 <button className="btn text-white" onClick={apply} type="button">Apply</button>
               </div>
             </div>
@@ -491,21 +266,19 @@ function FilterModal({ open, onClose, value, onChange }) {
   );
 }
 
-// Composer (Problem/Idea with metadata) — plain JS
-// -----------------------------
-function Composer() {
-  const [kind, setKind] = useState(KIND.PROBLEM); // "problem" | "idea"
+// --------------------------------------------------------------------------
+// Composer — lifted out, receives everything it needs as props
+// --------------------------------------------------------------------------
+function Composer({ userEmail, displayName, existingDomains, existingLocations, existingTags, headersFor, fetchItems, onClose }) {
+  const [kind, setKind] = useState(KIND.PROBLEM);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-
-  // metadata
   const [domain, setDomain] = useState("");
   const [scope, setScope] = useState("");
   const [severity, setSeverity] = useState(3);
   const [location, setLocation] = useState("");
   const [tagInput, setTagInput] = useState("");
   const [tags, setTags] = useState([]);
-
   const [submitting, setSubmitting] = useState(false);
 
   const titleMax = 180;
@@ -515,22 +288,19 @@ function Composer() {
   const addTag = (raw) => {
     const t = (raw ?? tagInput).trim();
     if (!t) return;
-    setTags((prev) => {
-      const s = new Set(prev.map((x) => x.trim()).filter(Boolean));
-      s.add(t);
-      return Array.from(s);
-    });
+    setTags((prev) => Array.from(new Set([...prev.map((x) => x.trim()).filter(Boolean), t])));
     setTagInput("");
   };
   const removeTag = (t) => setTags((prev) => prev.filter((x) => x !== t));
-
   const onTagKey = (e) => {
-    if (e.key === "Enter" || e.key === ",") {
-      e.preventDefault();
-      addTag();
-    } else if (e.key === "Backspace" && !tagInput) {
-      setTags((prev) => prev.slice(0, -1));
-    }
+    if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addTag(); }
+    else if (e.key === "Backspace" && !tagInput) setTags((prev) => prev.slice(0, -1));
+  };
+
+  const reset = () => {
+    setTitle(""); setDescription(""); setDomain("");
+    setScope(""); setSeverity(3); setLocation("");
+    setTags([]); setTagInput("");
   };
 
   async function submit(e) {
@@ -541,30 +311,21 @@ function Composer() {
       await api.post(
         "/forge/items",
         {
-          kind,                                // "problem" | "idea"
+          kind,
           title: title.trim(),
-          body: description.trim() || null,    // backend expects "body"
+          body: description.trim() || null,
           domain: domain || null,
           scope: scope || null,
           severity: typeof severity === "number" ? severity : null,
           location: location || null,
-          tags: tags.join(",") || null,        // CSV
+          tags: tags.join(",") || null,
         },
         { headers: headersFor() }
       );
-
-      // reset + refresh
-      setTitle("");
-      setDescription("");
-      setDomain("");
-      setScope("");
-      setSeverity(3);
-      setLocation("");
-      setTags([]);
-      setTagInput("");
+      reset();
       await fetchItems();
       window.scrollTo({ top: 0, behavior: "smooth" });
-      setShowComposer(false);
+      onClose();
     } catch (e2) {
       console.error("create item failed", e2);
       alert(e2?.response?.data?.detail || "Failed to create item.");
@@ -575,41 +336,29 @@ function Composer() {
 
   return (
     <form onSubmit={submit} className="card p-0 overflow-hidden">
-      {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b">
         <div className="flex items-center gap-3">
-          <select
-            value={kind}
-            onChange={(e) => setKind(e.target.value)}
-            className="min-w-[9rem]"
-            aria-label="Kind"
-          >
+          <select value={kind} onChange={(e) => setKind(e.target.value)} className="min-w-[9rem]" aria-label="Kind">
             <option value={KIND.PROBLEM}>Problem</option>
             <option value={KIND.IDEA}>Idea</option>
           </select>
-          <span className="text-sm opacity-70">
-            Share something meaningful — we’ll shape it together.
-          </span>
+          <span className="text-sm opacity-70">Share something meaningful — we'll shape it together.</span>
         </div>
         <div className="text-xs opacity-60">Title {title.length}/{titleMax}</div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-0">
-        {/* Left: text */}
         <div className="p-4 md:p-6 space-y-3">
           <label className="block text-sm font-medium">Title</label>
           <input
             type="text"
             value={title}
-            onChange={(e) => {
-              if (e.target.value.length <= titleMax) setTitle(e.target.value);
-            }}
+            onChange={(e) => { if (e.target.value.length <= titleMax) setTitle(e.target.value); }}
             placeholder={`Give your ${kind} a clear, punchy title…`}
             className="w-full"
             required
             maxLength={titleMax}
           />
-
           <div className="flex items-center justify-between">
             <label className="block text-sm font-medium">
               {kind === KIND.PROBLEM ? "Problem description" : "Idea description"}
@@ -618,43 +367,27 @@ function Composer() {
           </div>
           <textarea
             value={description}
-            onChange={(e) => {
-              if (e.target.value.length <= bodyMax) setDescription(e.target.value);
-            }}
-            placeholder={
-              kind === KIND.PROBLEM
-                ? "Describe the problem. Context, why it matters, constraints…"
-                : "Describe the idea. Concept, impact, next steps…"
-            }
+            onChange={(e) => { if (e.target.value.length <= bodyMax) setDescription(e.target.value); }}
+            placeholder={kind === KIND.PROBLEM
+              ? "Describe the problem. Context, why it matters, constraints…"
+              : "Describe the idea. Concept, impact, next steps…"}
             rows={8}
             className="w-full leading-relaxed resize-y min-h-[10rem]"
             maxLength={bodyMax}
           />
         </div>
 
-        {/* Right: metadata */}
         <div className="border-t md:border-t-0 md:border-l p-4 md:p-6 space-y-5 bg-zinc-50/60 dark:bg-zinc-900/40">
           <div className="space-y-1.5">
             <label className="block text-sm font-medium">Domain</label>
             <select value={domain} onChange={(e) => setDomain(e.target.value)} className="w-full">
               <option value="">None</option>
-              <option>Community</option>
-              <option>Education</option>
-              <option>Environment</option>
-              <option>Health</option>
-              <option>Economy</option>
-              <option>Housing</option>
-              <option>Food</option>
-              <option>Policy</option>
-              <option>Tech</option>
-              <option>Arts</option>
-              {existingDomains
-                .filter((d) =>
-                  !["Community","Education","Environment","Health","Economy","Housing","Food","Policy","Tech","Arts"].includes(d)
-                )
-                .map((d) => (
-                  <option key={`dom-${d}`} value={d}>{d}</option>
-                ))}
+              {["Community","Education","Environment","Health","Economy","Housing","Food","Policy","Tech","Arts"].map((d) => (
+                <option key={d}>{d}</option>
+              ))}
+              {(existingDomains || [])
+                .filter((d) => !["Community","Education","Environment","Health","Economy","Housing","Food","Policy","Tech","Arts"].includes(d))
+                .map((d) => <option key={`dom-${d}`} value={d}>{d}</option>)}
             </select>
           </div>
 
@@ -672,10 +405,7 @@ function Composer() {
               <label className="block text-sm font-medium">Severity (1–5)</label>
               <div className="flex items-center gap-3">
                 <input
-                  type="range"
-                  min={1}
-                  max={5}
-                  step={1}
+                  type="range" min={1} max={5} step={1}
                   value={severity}
                   onChange={(e) => setSeverity(Number(e.target.value))}
                   className="flex-1"
@@ -697,7 +427,7 @@ function Composer() {
             <datalist id="composer-location">
               <option value="Online" />
               <option value="Global" />
-              {existingLocations.slice(0, 50).map((loc) => (
+              {(existingLocations || []).slice(0, 50).map((loc) => (
                 <option key={`loc-${loc}`} value={loc} />
               ))}
             </datalist>
@@ -709,15 +439,7 @@ function Composer() {
               {tags.map((t) => (
                 <span key={t} className="inline-flex items-center gap-1 px-2 py-1 rounded-full border text-sm">
                   {t}
-                  <button
-                    type="button"
-                    onClick={() => removeTag(t)}
-                    className="opacity-60 hover:opacity-100"
-                    aria-label={`Remove ${t}`}
-                    title="Remove"
-                  >
-                    ×
-                  </button>
+                  <button type="button" onClick={() => removeTag(t)} className="opacity-60 hover:opacity-100" aria-label={`Remove ${t}`} title="Remove">×</button>
                 </span>
               ))}
             </div>
@@ -731,12 +453,10 @@ function Composer() {
                 placeholder="Add a tag and press Enter"
                 className="flex-1"
               />
-              <button type="button" className="btn btn-secondary" onClick={() => addTag()}>
-                Add
-              </button>
+              <button type="button" className="btn btn-secondary" onClick={() => addTag()}>Add</button>
             </div>
             <datalist id="composer-tags">
-              {existingTags.slice(0, 100).map((t) => (
+              {(existingTags || []).slice(0, 100).map((t) => (
                 <option key={`tag-${t}`} value={t} />
               ))}
             </datalist>
@@ -748,27 +468,10 @@ function Composer() {
         {!userEmail ? (
           <div className="text-sm opacity-70">Log in to post to the Forge.</div>
         ) : (
-          <div className="text-sm opacity-70">
-  Posting as <span className="font-medium">{displayName}</span>
-</div>
+          <div className="text-sm opacity-70">Posting as <span className="font-medium">{displayName}</span></div>
         )}
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={() => {
-              setTitle("");
-              setDescription("");
-              setDomain("");
-              setScope("");
-              setSeverity(3);
-              setLocation("");
-              setTags([]);
-              setTagInput("");
-            }}
-          >
-            Clear
-          </button>
+          <button type="button" className="btn btn-secondary" onClick={reset}>Clear</button>
           <button type="submit" className="btn" disabled={!canSubmit || submitting}>
             {submitting ? "Submitting…" : "Post"}
           </button>
@@ -777,7 +480,171 @@ function Composer() {
     </form>
   );
 }
-  // ---------- Page ----------
+
+// --------------------------------------------------------------------------
+// Forge — main page component
+// --------------------------------------------------------------------------
+export default function Forge() {
+  const { userEmail, displayName, accessToken } = useAuth();
+  const navigate = useNavigate();
+
+  const [anonId] = useState(() => {
+    let id = localStorage.getItem("anon_id");
+    if (!id) { id = uuidv4(); localStorage.setItem("anon_id", id); }
+    return id;
+  });
+  const identityEmail = userEmail || `anon:${anonId}`;
+
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+
+  const [qLive, setQLive] = useState("");
+  const [query, setQuery] = useState("");
+  const [showFilter, setShowFilter] = useState(false);
+  const [showComposer, setShowComposer] = useState(false);
+
+  const [myVotes, setMyVotes] = useState(() => loadSet(votesKey(identityEmail)));
+  useEffect(() => { setMyVotes(loadSet(votesKey(identityEmail))); }, [identityEmail]);
+
+  const [filters, setFilters] = useState(() => {
+    try {
+      const raw = localStorage.getItem(filtersKey);
+      return raw ? { ...DEFAULT_FILTERS, ...JSON.parse(raw) } : DEFAULT_FILTERS;
+    } catch { return DEFAULT_FILTERS; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(filtersKey, JSON.stringify(filters)); } catch {}
+  }, [filters]);
+
+  useEffect(() => {
+    const t = setTimeout(() => setQuery(qLive.trim()), 200);
+    return () => clearTimeout(t);
+  }, [qLive]);
+
+  const headersFor = () => {
+    const h = { "x-user-email": identityEmail };
+    if (userEmail && accessToken) h.Authorization = `Bearer ${accessToken}`;
+    return h;
+  };
+
+  const normalize = (row) => ({
+    id: row.id,
+    kind: row.kind,
+    title: row.title || "",
+    body: row.body || "",
+    status: row.status || STATUS.OPEN,
+    domain: row.domain || null,
+    scope: row.scope || null,
+    severity: typeof row.severity === "number" ? row.severity : null,
+    location: row.location || null,
+    created_by_email: row.created_by_email || null,
+    created_at: row.created_at || null,
+    votes_count: typeof row.votes_count === "number" ? row.votes_count : 0,
+    pledges_count: typeof row.pledges_count === "number" ? row.pledges_count : 0,
+    pledges_done: typeof row.pledges_done === "number" ? row.pledges_done : 0,
+    tags: row.tags || null,
+    problem_ref: row.problem_ref || null,
+  });
+
+  const fetchItems = async () => {
+    setLoading(true);
+    setErr("");
+    try {
+      const params = { sort: filters.sort, limit: 100 };
+      if (filters.kind !== "all") params.kind = filters.kind;
+      const res = await api.get("/forge/items", { params, headers: headersFor() });
+      const data = res?.data;
+      const list = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : [];
+      setItems(list.map(normalize));
+    } catch (e) {
+      console.error("GET /forge/items failed", e);
+      setItems([]);
+      setErr(e?.response?.data?.detail || e?.message || "Failed to load items");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchItems();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.sort, filters.kind]);
+
+  const existingDomains = useMemo(
+    () => Array.from(new Set(items.map((i) => i.domain).filter(Boolean).map((s) => s.trim()))).sort(),
+    [items]
+  );
+  const existingLocations = useMemo(
+    () => Array.from(new Set(items.map((i) => i.location).filter(Boolean).map((s) => s.trim()))).sort(),
+    [items]
+  );
+  const existingTags = useMemo(() => {
+    const set = new Set();
+    items.forEach((i) => {
+      (i.tags || "").split(",").map((t) => t.trim()).filter(Boolean).forEach((t) => set.add(t));
+    });
+    return Array.from(set).sort();
+  }, [items]);
+
+  const filtered = useMemo(() => {
+    const f = filters;
+    return (Array.isArray(items) ? items : []).filter((i) => {
+      if (f.status !== "any" && norm(i.status) !== f.status) return false;
+      if (String(f.domain || "").trim() && norm(i.domain) !== norm(f.domain)) return false;
+      if (String(f.scope || "").trim() && norm(i.scope) !== norm(f.scope)) return false;
+      if (String(f.location || "").trim() && norm(i.location) !== norm(f.location)) return false;
+      if ((f.tags || []).length) {
+        const tagsArr = String(i.tags || "").split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
+        if (!f.tags.every((t) => tagsArr.includes(norm(t)))) return false;
+      }
+      if (typeof f.severityMin === "number" && f.severityMin > 1) {
+        if ((i.severity ?? 0) < f.severityMin) return false;
+      }
+      if (query) {
+        const hay = [i.title, i.body, i.tags, i.location, i.domain, i.scope]
+          .map((s) => s || "").join(" ").toLowerCase();
+        if (!hay.includes(query.toLowerCase())) return false;
+      }
+      return true;
+    });
+  }, [items, filters, query]);
+
+  const hasVoted = (id) => myVotes.has(id);
+
+  const toggleVote = async (id) => {
+    const voted = hasVoted(id);
+    setMyVotes((prev) => {
+      const next = new Set(prev);
+      if (voted) next.delete(id); else next.add(id);
+      saveSet(votesKey(identityEmail), next);
+      return next;
+    });
+    setItems((arr) =>
+      arr.map((it) =>
+        it.id === id ? { ...it, votes_count: Math.max(0, (it.votes_count || 0) + (voted ? -1 : 1)) } : it
+      )
+    );
+    try {
+      if (voted) await api.delete(`/forge/items/${id}/vote`, { headers: headersFor() });
+      else await api.post(`/forge/items/${id}/vote`, {}, { headers: headersFor() });
+    } catch (e) {
+      console.error("vote toggle failed", e);
+      setMyVotes((prev) => {
+        const next = new Set(prev);
+        if (voted) next.add(id); else next.delete(id);
+        saveSet(votesKey(identityEmail), next);
+        return next;
+      });
+      setItems((arr) =>
+        arr.map((it) =>
+          it.id === id ? { ...it, votes_count: Math.max(0, (it.votes_count || 0) + (voted ? 1 : -1)) } : it
+        )
+      );
+      alert(e?.response?.data?.detail || "Unable to vote.");
+    }
+  };
+
   return (
     <div className="min-h-screen p-4 sm:p-6">
       <div className="max-w-5xl mx-auto space-y-6 sm:space-y-8">
@@ -832,7 +699,6 @@ function Composer() {
             if (filters.location) chips.push({ key: "location", label: `Location: ${filters.location}` });
             (filters.tags || []).forEach((t, i) => chips.push({ key: `tag:${i}`, label: `#${t}` }));
             if (Number(filters.severityMin) > 1) chips.push({ key: "severityMin", label: `Severity ≥ ${filters.severityMin}` });
-
             if (chips.length === 0) return null;
             return (
               <div className="mt-2 -mx-1 overflow-x-auto">
@@ -851,9 +717,7 @@ function Composer() {
                           }
                         }}
                         aria-label="Remove filter"
-                      >
-                        ×
-                      </button>
+                      >×</button>
                     </span>
                   ))}
                   <button
@@ -867,15 +731,18 @@ function Composer() {
               </div>
             );
           })()}
+
           <FilterModal
-  open={showFilter}
-  onClose={() => setShowFilter(false)}
-  value={filters}
-  onChange={setFilters}
-/>
+            open={showFilter}
+            onClose={() => setShowFilter(false)}
+            value={filters}
+            onChange={setFilters}
+            existingDomains={existingDomains}
+            existingLocations={existingLocations}
+            existingTags={existingTags}
+          />
         </div>
 
-        {/* Composer toggle */}
         {userEmail && (
           <div className="space-y-3">
             <button
@@ -887,11 +754,21 @@ function Composer() {
               <span className="font-medium">{showComposer ? "Hide Share form" : "Share something"}</span>
               <span className="text-2xl leading-none select-none">{showComposer ? "−" : "+"}</span>
             </button>
-            {showComposer && <Composer />}
+            {showComposer && (
+              <Composer
+                userEmail={userEmail}
+                displayName={displayName}
+                existingDomains={existingDomains}
+                existingLocations={existingLocations}
+                existingTags={existingTags}
+                headersFor={headersFor}
+                fetchItems={fetchItems}
+                onClose={() => setShowComposer(false)}
+              />
+            )}
           </div>
         )}
 
-        {/* Feed */}
         {loading ? (
           <div className="opacity-70">Loading…</div>
         ) : err ? (
@@ -911,13 +788,10 @@ function Composer() {
               const votes = it.votes_count ?? 0;
               const pledgesDone = it.pledges_done ?? 0;
               const pledgesTotal = it.pledges_count ?? 0;
-
               const openHref =
                 it.kind === KIND.PROBLEM && it.problem_ref?.id
                   ? `/forge/problems/${it.problem_ref.id}`
-                  : `/forge2/${it.id}`;
-
-              
+                  : `/forge/${it.id}`;
 
               return (
                 <article
@@ -950,43 +824,30 @@ function Composer() {
                     <span>{votes} {votes === 1 ? "vote" : "votes"}</span>
                     <span>•</span>
                     <span>{pledgesDone}/{pledgesTotal} pledges done</span>
-                    {it.scope && (
-                     <>
-                       <span>•</span>
-                       <span>{it.scope}</span>
-                     </>
-                   )}
-                    {it.location && (
-                      <>
-                        <span>•</span>
-                        <span>{it.location}</span>
-                      </>
-                    )}
-                    {it.tags && (
-                      <>
-                        <span>•</span>
-                        <span className="truncate max-w-[50ch]">{it.tags}</span>
-                      </>
-                    )}
+                    {it.scope && <><span>•</span><span>{it.scope}</span></>}
+                    {it.location && <><span>•</span><span>{it.location}</span></>}
+                    {it.tags && <><span>•</span><span className="truncate max-w-[50ch]">{it.tags}</span></>}
                   </div>
 
                   <div className="flex flex-wrap gap-2 sm:gap-3 justify-end items-center">
-  {it.kind === KIND.PROBLEM && it.problem_ref?.id && (
-    <Link to={`/forge/problems/${it.problem_ref.id}`} className="btn">
-      Propose Solution
-    </Link>
-  )}
-
-  <Link to={openHref} className="btn btn-secondary">Open</Link>
-
-  <button
-    onClick={() => toggleVote(it.id)}
-    aria-pressed={voted}
-    className={voted ? "btn btn-danger" : "btn btn-secondary"}
-  >
-    {voted ? "🙅 Unvote" : "👍 Vote"} · {votes}
-  </button>
-</div>
+                    {it.kind === KIND.PROBLEM && it.problem_ref?.id && (
+                      <Link to={`/forge/problems/${it.problem_ref.id}`} className="btn">
+                        Propose Solution
+                      </Link>
+                    )}
+                    <Link to={openHref} className="btn btn-secondary">Open</Link>
+                    <button
+                      onClick={() => {
+                        if (!userEmail) { navigate("/login?next=/forge"); return; }
+                        toggleVote(it.id);
+                      }}
+                      aria-pressed={voted}
+                      className={voted ? "btn btn-danger" : "btn btn-secondary"}
+                      title={!userEmail ? "Log in to vote" : undefined}
+                    >
+                      {voted ? "🙅 Unvote" : "👍 Vote"} · {votes}
+                    </button>
+                  </div>
                 </article>
               );
             })}

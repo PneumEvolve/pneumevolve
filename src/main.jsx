@@ -1,17 +1,14 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import App from "./App";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import Layout from "./components/Layout";
 import ErrorBoundary from "./pneumevolve-v2/components/ErrorBoundary.jsx";
 import Home from "./Pages/Home.jsx";
 import LastVisitedPathSaver from "@/components/LastVisitedPathSaver";
 
-import Forge from "./pneumevolve-v2/pages/Forge";
-import Forge2 from "./Pages/Forge";
+import Forge from "./Pages/Forge";
 import ForgeItemPage from "./Pages/ForgeItemPage";
-import ForgeIdeaDetail from "./pneumevolve-v2/pages/ForgeIdeaDetail.jsx";
 import Problems from "./pneumevolve-v2/pages/Problems";
 import ProblemDetail from "./Pages/ProblemDetail.jsx";
 
@@ -67,7 +64,6 @@ import ProblemPage from "./Pages/problemsolving/ProblemPage.jsx";
 import AaronsPage from "./Pages/AaronsPage";
 import SheasGarden from "./Pages/SheasGarden";
 import DecisionBoard from "./Pages/DecisionBoard.jsx";
-import ToolsHub from "./Pages/ToolsHub";
 import FlowMapToolPage from "@/Pages/FlowMapToolPage";
 import Relief from "@/Pages/Relief";
 import ToolsHome from "@/Pages/ToolsHome";
@@ -104,13 +100,13 @@ function Root() {
                 <Route index element={<Home />} />
                 <Route path="/sitemap" element={<SiteMap />} />
 
+                {/* Forge — /forge is now canonical, /forge2 redirects */}
                 <Route path="/forge" element={<ErrorBoundary><Forge /></ErrorBoundary>} />
-                <Route path="/forge2" element={<Forge2 />} />
-                <Route path="/forge2/:id" element={<ForgeItemPage />} />
-                <Route path="/forge/:id" element={<ForgeIdeaDetail />} />
+                <Route path="/forge/:id" element={<ForgeItemPage />} />
+                <Route path="/forge2" element={<Navigate to="/forge" replace />} />
+                <Route path="/forge2/:id" element={<Navigate to="/forge" replace />} />
 
                 <Route path="/problems" element={<Problems />} />
-                {/* canonical problem detail route */}
                 <Route path="/forge/problems/:id" element={<ProblemDetail />} />
 
                 <Route path="/messages" element={<Messages />} />
@@ -141,13 +137,13 @@ function Root() {
                 <Route path="/communities" element={<CommunityList />} />
                 <Route path="/communities/:communityId" element={<Community />} />
                 <Route
-  path="/experiments/dream-machine"
-  element={
-    <RequireAuth>
-      <DreamMachine />
-    </RequireAuth>
-  }
-/>
+                  path="/experiments/dream-machine"
+                  element={
+                    <RequireAuth>
+                      <DreamMachine />
+                    </RequireAuth>
+                  }
+                />
                 <Route path="/we-dream" element={<WeDream />} />
                 <Route path="/garden-blitz" element={<GardenBlitz />} />
                 <Route path="/garden-directory" element={<GardenDirectory />} />
@@ -178,7 +174,6 @@ function Root() {
                 <Route path="/skipped-step" element={<SkippedStep />} />
                 <Route path="/preforge-local" element={<PreForgeLocal />} />
                 <Route path="/preforge" element={<PreForge />} />
-
 
                 <Route path="/privacy" element={<PrivacyPolicy />} />
                 <Route path="/terms" element={<Terms />} />

@@ -108,7 +108,7 @@ export default function DecisionBoard() {
       // Editable headings
       prosTitle: "Reasons to choose Option A",
       consTitle: "Reasons to choose Option B",
-      tinyNextTitle: "Tiny next step",
+      
       noteTitle: "Private note",
       constraintsTitle: "Constraints (what must be true)",
 
@@ -116,7 +116,7 @@ export default function DecisionBoard() {
       pros: [],
       cons: [],
       constraints: [],
-      tinyNext: "Drink water. Eat something small. Then do one 10-minute task.",
+      
       note: "",
 
       version: 1,
@@ -128,14 +128,14 @@ export default function DecisionBoard() {
   const [prosTitle, setProsTitle] = useState(initial.prosTitle);
   const [consTitle, setConsTitle] = useState(initial.consTitle);
   const [constraintsTitle, setConstraintsTitle] = useState(initial.constraintsTitle);
-  const [tinyNextTitle, setTinyNextTitle] = useState(initial.tinyNextTitle);
+
   const [noteTitle, setNoteTitle] = useState(initial.noteTitle);
 
   const [pros, setPros] = useState(initial.pros);
   const [cons, setCons] = useState(initial.cons);
   const [constraints, setConstraints] = useState(initial.constraints || []);
 
-  const [tinyNext, setTinyNext] = useState(initial.tinyNext);
+  
   const [note, setNote] = useState(initial.note);
 
   const [prosDraft, setProsDraft] = useState("");
@@ -148,12 +148,12 @@ export default function DecisionBoard() {
       prosTitle,
       consTitle,
       constraintsTitle,
-      tinyNextTitle,
+      
       noteTitle,
       pros,
       cons,
       constraints,
-      tinyNext,
+      
       note,
       version: 1,
     });
@@ -162,12 +162,12 @@ export default function DecisionBoard() {
     prosTitle,
     consTitle,
     constraintsTitle,
-    tinyNextTitle,
+    
     noteTitle,
     pros,
     cons,
     constraints,
-    tinyNext,
+    
     note,
   ]);
 
@@ -212,7 +212,7 @@ export default function DecisionBoard() {
     setProsDraft("");
     setConsDraft("");
     setConstraintsDraft("");
-    setTinyNext("Drink water. Eat something small. Then do one 10-minute task.");
+    
     setNote("");
   };
 
@@ -236,7 +236,7 @@ export default function DecisionBoard() {
           </div>
 
           <div className="flex gap-2">
-            
+            <SmallButton onClick={resetBoard}>Reset</SmallButton>
             <Link
               to="/"
               className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
@@ -247,18 +247,9 @@ export default function DecisionBoard() {
         </header>
 
         <div className="mt-6 grid grid-cols-1 gap-4">
-          <Card title="Start here" subtitle="No pressure. No proving. Just a next step.">
-            <p>
-              If you’re overwhelmed, don’t decide from panic. Decide from what’s survivable.
-              If both options feel brutal, pick the one that keeps you steadier — then reassess.
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <SmallButton onClick={scrollToBoard}>Take me to the board ↓</SmallButton>
-              <SmallButton onClick={resetBoard}>Reset</SmallButton>
-            </div>
-          </Card>
+          
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <Card title="Decision window" subtitle="Set the date you want to decide by.">
               <label className="block text-xs text-[var(--muted)]">Decision date</label>
               <input
@@ -280,19 +271,7 @@ export default function DecisionBoard() {
               </p>
             </Card>
 
-            <Card title="Tiny next step" subtitle="Make it small enough you’ll actually do it.">
-              <EditableTitle value={tinyNextTitle} onChange={setTinyNextTitle} />
-              <textarea
-                value={tinyNext}
-                onChange={(e) => setTinyNext(e.target.value)}
-                rows={5}
-                className="mt-3 w-full rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)]"
-                placeholder="One tiny step..."
-              />
-              <p className="mt-3 text-xs text-[var(--muted)]">
-                If you do only this, you still moved the needle.
-              </p>
-            </Card>
+            
 
             <Card title="Private note" subtitle="Write freely. No consequences.">
               <EditableTitle value={noteTitle} onChange={setNoteTitle} />
@@ -428,18 +407,10 @@ export default function DecisionBoard() {
               </div>
             </div>
 
-            <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-4">
-              <p className="text-sm text-[var(--muted)]">
-                Quick check: if this decision had to be “good enough” instead of “perfect,”
-                what would you choose? If you don’t know, that’s information — it means you
-                need more data, more rest, or a smaller decision first.
-              </p>
-            </div>
+            
           </Card>
 
-          <footer className="mt-2 text-xs text-[var(--muted)]">
-            This tool is allowed to be simple. You’re allowed to come back anytime.
-          </footer>
+        
         </div>
       </div>
     </main>

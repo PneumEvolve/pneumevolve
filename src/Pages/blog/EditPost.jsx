@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import axiosInstance from "../../utils/axiosInstance";
+import { api } from "@/lib/api";
 import { useAuth } from "../../context/AuthContext";
 
 export default function EditPost() {
@@ -8,12 +8,12 @@ export default function EditPost() {
   const navigate = useNavigate();
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
-  const { isLoggedIn, accessToken, userEmail } = useAuth();
+  const { isLoggedIn, userEmail } = useAuth();
 
   useEffect(() => {
     const fetchPost = async () => {
       try {
-        const res = await axiosInstance.get(`/blog/${id}`);
+        const res = await api.get(`/blog/${id}`);
         setTitle(res.data.title);
         setContent(res.data.content);
       } catch (err) {
@@ -35,15 +35,7 @@ export default function EditPost() {
     }
 
     try {
-      await axiosInstance.put(
-        `/blog/${id}`,
-        { title, content },
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        }
-      );
+      await api.put(`/blog/${id}`, { title, content });
       alert("Post updated!");
       navigate(`/blog/${id}`);
     } catch (err) {
