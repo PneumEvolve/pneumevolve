@@ -431,7 +431,7 @@ export function StillnessList() {
               <div className="ss-field-label">Group name</div>
               <input
                 className="ss-input"
-                placeholder="e.g. Dad & Shea"
+                placeholder="e.g. Family Moment"
                 value={newName}
                 onChange={e => setNewName(e.target.value)}
                 autoFocus
@@ -704,17 +704,20 @@ export function StillnessSession() {
           </div>
  
           <div className="ss-presence-wrap">
-            <div className={`ss-presence ${session?.your_checkin ? "ss-presence--arrived" : ""}`}>
-              <div className="ss-presence-dot ss-presence-dot--you" />
-              <span className="ss-presence-name">you</span>
-            </div>
-            {presentOthers.map((m, i) => (
-              <div key={m.id} className="ss-presence ss-presence--arrived" style={{ transitionDelay: `${i * 300}ms` }}>
-                <div className="ss-presence-dot" />
-                <span className="ss-presence-name">{m.display_name}</span>
-              </div>
-            ))}
-          </div>
+  {session?.present_members?.length === 0 && (
+    <div className="ss-presence">
+      <div className="ss-presence-dot ss-presence-dot--you" />
+      <span className="ss-presence-name">waiting…</span>
+    </div>
+  )}
+  {(session?.present_members || []).map((m, i) => (
+    <div key={m.id} className="ss-presence ss-presence--arrived" style={{ transitionDelay: `${i * 300}ms` }}>
+      <div className="ss-presence-dot" />
+      <span className="ss-presence-name">{m.display_name}</span>
+    </div>
+  ))}
+</div>
+
  
           {streak > 0 && (
             <div className="ss-streak">
