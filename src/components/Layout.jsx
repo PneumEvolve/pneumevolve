@@ -5,12 +5,12 @@ import { useEffect, useState } from "react";
 import Analytics from "./Analytics";
 import { api } from "@/lib/api";
 import ThemeToggle from "./ThemeToggle";
-import EnvBadge from "@/components/EnvBadge"; // ⬅️ NEW
-import CookieConsent from "@/components/CookieConsent"; // ⬅️ ADDED
+import EnvBadge from "@/components/EnvBadge";
+import CookieConsent from "@/components/CookieConsent";
 import Footer from "@/components/Footer";
-
+ 
 const API = import.meta.env.VITE_API_URL;
-
+ 
 function decodeJWT(token) {
   try {
     const base64Url = token.split(".")[1];
@@ -26,29 +26,25 @@ function decodeJWT(token) {
     return null;
   }
 }
-
+ 
 export default function Layout() {
   const { isLoggedIn, logout, userEmail } = useAuth();
   const navigate = useNavigate();
   const [unreadCount, setUnreadCount] = useState(0);
-
+ 
   const checkToken = () => {
     const token = localStorage.getItem("access_token");
-    if (!token) {
-      logout();
-      return;
-    }
+    if (!token) { logout(); return; }
     const decoded = decodeJWT(token);
     const currentTime = Math.floor(Date.now() / 1000);
     if (!decoded || decoded.exp < currentTime) logout();
   };
-
+ 
   function handleLogout() {
     logout();
     navigate("/login");
   }
-
-  // Initial auth + unread
+ 
   useEffect(() => {
     checkToken();
     if (isLoggedIn && userEmail) {
@@ -63,19 +59,14 @@ export default function Layout() {
             localStorage.setItem("unreadCount", String(unread));
           }
         })
-        .catch(() => {
-          if (!cancelled) setUnreadCount(0);
-        });
-      return () => {
-        cancelled = true;
-      };
+        .catch(() => { if (!cancelled) setUnreadCount(0); });
+      return () => { cancelled = true; };
     } else {
       setUnreadCount(0);
       localStorage.setItem("unreadCount", "0");
     }
   }, [isLoggedIn, userEmail]);
-
-  // cross-tab + same-tab sync
+ 
   useEffect(() => {
     const applyLocalCount = () => {
       const count = parseInt(localStorage.getItem("unreadCount") || "0", 10);
@@ -99,55 +90,63 @@ export default function Layout() {
       window.removeEventListener("inbox:unreadUpdate", onCustom);
     };
   }, []);
-
+ 
   const location = useLocation();
   const noPaddingRoutes = ["/", "/aestheticlab", "/my-tree", "/aaron"];
   const isFullScreen = noPaddingRoutes.includes(location.pathname);
   const noChromeRoutes = ["/aaron"];
   const isChromeless = noChromeRoutes.includes(location.pathname);
-
+ 
   return (
     <div className="min-h-screen overflow-x-hidden bg-[var(--bg)] text-[var(--text)]">
       <Analytics />
-
+ 
       {!isChromeless && (
         <header className="sticky top-0 z-40">
           <div className="app-header backdrop-blur border-b">
             <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
+ 
               {/* Left: Home */}
               <Link to="/" className="text-xl font-semibold tracking-tight shrink-0">
                 PneumEvolve
               </Link>
-
-              {/* Right: Journal → Forge → Blog → Map → Light/Dark → Account/Login/Signup */}
+ 
+              {/* Right: core nav + theme toggle + account */}
               <nav className="flex items-center gap-4 flex-wrap text-[var(--text)]">
-                <Link
-                  className="px-1.5 py-1 hover:underline shrink-0"
-                  to={isLoggedIn ? "/journal" : "/signup"}
-                >
-                  Journal
-                </Link>
+ 
+                {/* Primary pages */}
                 <Link className="px-1.5 py-1 hover:underline shrink-0" to="/forge2">
                   Forge
                 </Link>
                 <Link className="px-1.5 py-1 hover:underline shrink-0" to="/blog">
                   Blog
                 </Link>
-                <Link className="px-1.5 py-1 hover:underline shrink-0" to="/sitemap">
-                  Map
+                <Link
+                  className="px-1.5 py-1 hover:underline shrink-0"
+                  to={isLoggedIn ? "/journal" : "/signup"}
+                >
+                  Journal
                 </Link>
-
-                <span className="shrink-0">
-                  <ThemeToggle className="!bg-transparent !border-0 !shadow-none !px-0 !py-0 hover:underline" />
+ 
+                {/* Divider */}
+                <span className="text-[var(--muted)] opacity-30 select-none">|</span>
+ 
+                {/* Theme toggle — labeled so it's not mysterious */}
+                <span className="shrink-0 flex items-center gap-1 text-sm text-[var(--muted)]">
+                  <ThemeToggle className="!bg-transparent !border-0 !shadow-none !px-0 !py-0" />
                 </span>
-
+ 
+                {/* Account / auth */}
                 {!isLoggedIn ? (
                   <div className="flex items-center gap-3">
                     <Link className="px-1.5 py-1 hover:underline shrink-0" to="/login">
-                      Login
+                      Log in
                     </Link>
-                    <Link className="px-1.5 py-1 hover:underline shrink-0" to="/signup">
-                      Sign Up
+                    <Link
+                      className="px-3 py-1.5 rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] text-sm font-medium shadow-sm hover:shadow transition shrink-0"
+                      to="/signup"
+                    >
+                      Sign up
                     </Link>
                   </div>
                 ) : (
@@ -164,7 +163,7 @@ export default function Layout() {
                       onClick={handleLogout}
                       className="px-1.5 py-1 hover:underline text-red-600 shrink-0"
                     >
-                      Logout
+                      Log out
                     </button>
                   </div>
                 )}
@@ -173,18 +172,15 @@ export default function Layout() {
           </div>
         </header>
       )}
-
+ 
       <main className={isFullScreen ? "" : "px-4 py-6"}>
         <div className={isFullScreen ? "" : "mx-auto max-w-6xl"}>
           <Outlet />
         </div>
       </main>
-       <Footer />
-
-      {/* ⬇️ Env badge (hide on chromeless pages like /aaron) */}
+      <Footer />
+ 
       {!isChromeless && <EnvBadge />}
-
-      {/* ⬇️ Cookie consent banner (fixed at bottom, loads on every page) */}
       <CookieConsent />
     </div>
   );

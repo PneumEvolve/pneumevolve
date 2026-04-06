@@ -2,21 +2,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-
-/**
- * PneumEvolve Home (Experiments-first, cleaned up)
- *
- * Changes vs previous:
- * - Removed all "(old)" labels
- * - Enforced requiresAuth gating in UI + click behavior
- * - Reduced CTA clutter (single primary path: Experiments)
- * - Renamed "Dismiss" -> "Hide"
- * - Moved Sitemap link to footer (quieter)
- * - Avoid setting lastExperimentId for locked experiments
- */
-
+ 
 const LS_KEY = "pe_home_v2";
-
+ 
 function loadState() {
   try {
     const raw = localStorage.getItem(LS_KEY);
@@ -26,19 +14,13 @@ function loadState() {
     return null;
   }
 }
-
+ 
 function saveState(next) {
   try {
     localStorage.setItem(LS_KEY, JSON.stringify(next));
-  } catch {
-    // ignore
-  }
+  } catch {}
 }
-
-/**
- * Experiments registry (MVP: hardcoded)
- * Later: move this to /src/data/experiments.js or fetch from API.
- */
+ 
 const EXPERIMENTS = [
   {
     id: "preforge-local",
@@ -52,9 +34,20 @@ const EXPERIMENTS = [
     requiresAuth: false,
   },
   {
+    id: "shared-stillness",
+    title: "Shared Stillness",
+    desc: "Take a moment with your people, daily.",
+    to: "/stillness",
+    tags: ["shared", "moment"],
+    isPublic: true,
+    isFeatured: true,
+    updatedAtISO: "2026-04-06",
+    requiresAuth: false,
+  },
+  {
     id: "skipped-step",
     title: "The Step We Skip",
-    desc: "Find what you’re skipping, then decide with less regret.",
+    desc: "Find what you're skipping, then decide with less regret.",
     to: "/skipped-step",
     tags: ["decisions", "clarity"],
     isPublic: true,
@@ -107,7 +100,7 @@ const EXPERIMENTS = [
     requiresAuth: false,
   },
 ];
-
+ 
 function Card({ title, subtitle, children }) {
   return (
     <section className="rounded-2xl border border-[var(--border)] bg-[var(--bg-elev)] p-5 shadow-sm">
@@ -119,7 +112,7 @@ function Card({ title, subtitle, children }) {
     </section>
   );
 }
-
+ 
 function Pill({ children, className = "" }) {
   return (
     <span
@@ -132,7 +125,7 @@ function Pill({ children, className = "" }) {
     </span>
   );
 }
-
+ 
 function SmallButton({ children, onClick, type = "button", className = "" }) {
   return (
     <button
@@ -147,7 +140,7 @@ function SmallButton({ children, onClick, type = "button", className = "" }) {
     </button>
   );
 }
-
+ 
 function PrimaryLink({ to, children }) {
   return (
     <Link
@@ -158,33 +151,20 @@ function PrimaryLink({ to, children }) {
     </Link>
   );
 }
-
-function PrimaryCTA({ to, children }) {
-  return (
-    <Link
-      to={to}
-      className="inline-flex items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
-    >
-      {children}
-    </Link>
-  );
-}
-
+ 
 function pickFeatured(experiments) {
   const featured = experiments.filter((e) => e.isFeatured && e.isPublic);
   if (featured.length) return featured[0];
-
-  // fallback: newest by updatedAtISO (string compare OK for YYYY-MM-DD)
   const sorted = [...experiments]
     .filter((e) => e.isPublic)
     .sort((a, b) => (b.updatedAtISO || "").localeCompare(a.updatedAtISO || ""));
   return sorted[0] || null;
 }
-
+ 
 export default function Home() {
   const navigate = useNavigate();
   const { isLoggedIn, displayName } = useAuth?.() || { isLoggedIn: false, displayName: null };
-
+ 
   const initial = useMemo(() => {
     const stored = loadState();
     return (
@@ -197,11 +177,11 @@ export default function Home() {
       }
     );
   }, []);
-
+ 
   const [lastExperimentId, setLastExperimentId] = useState(initial.lastExperimentId);
   const [pinnedExperimentId, setPinnedExperimentId] = useState(initial.pinnedExperimentId);
   const [hiddenExperimentIds, setHiddenExperimentIds] = useState(initial.hiddenExperimentIds || []);
-
+ 
   useEffect(() => {
     saveState({
       lastExperimentId,
@@ -210,93 +190,96 @@ export default function Home() {
       createdAtISO: initial.createdAtISO,
       version: 2,
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastExperimentId, pinnedExperimentId, hiddenExperimentIds]);
-
+ 
   const visibleExperiments = useMemo(() => {
     return EXPERIMENTS.filter((e) => e.isPublic && !hiddenExperimentIds.includes(e.id));
   }, [hiddenExperimentIds]);
-
+ 
   const featured = useMemo(() => pickFeatured(visibleExperiments), [visibleExperiments]);
-
+ 
   const lastExperiment = useMemo(() => {
     if (!lastExperimentId) return null;
     return EXPERIMENTS.find((e) => e.id === lastExperimentId) || null;
   }, [lastExperimentId]);
-
+ 
   const pinned = useMemo(() => {
     if (!pinnedExperimentId) return null;
     return EXPERIMENTS.find((e) => e.id === pinnedExperimentId) || null;
   }, [pinnedExperimentId]);
-
+ 
   const canAccess = (exp) => !(exp?.requiresAuth && !isLoggedIn);
-
+ 
   const openOrLogin = (exp) => {
     if (!exp) return;
     if (!canAccess(exp)) {
-      // If you want to return after login, pass a redirect param you can read on the login page.
       navigate(`/login?next=${encodeURIComponent(exp.to)}`);
       return;
     }
     setLastExperimentId(exp.id);
     navigate(exp.to);
   };
-
+ 
   const showContinue = isLoggedIn && lastExperiment && canAccess(lastExperiment);
-
+ 
   const onPin = (exp) => {
-    // Allow pinning locked experiments (optional), but you could block this too if you want.
     setPinnedExperimentId((prev) => (prev === exp.id ? null : exp.id));
   };
-
+ 
   const onHide = (exp) => {
     setHiddenExperimentIds((prev) => {
       if (prev.includes(exp.id)) return prev;
       return [exp.id, ...prev];
     });
   };
-
-  const scrollToExperiments = () => {
-  const el = document.getElementById("experiments");
-  if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-};
-
+ 
+  const scrollToTools = () => {
+    const el = document.getElementById("tools");
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+ 
   const restoreHidden = () => {
     setHiddenExperimentIds([]);
   };
-
+ 
   return (
     <main className="min-h-screen bg-[var(--bg)] text-[var(--text)]">
       <div className="mx-auto max-w-5xl px-5 py-10">
-        {/* Header */}
+ 
+        {/* ── Hero ─────────────────────────────────────────────────────── */}
         <header className="flex items-start justify-between gap-4">
           <div className="space-y-2">
-            <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight">PneumEvolve</h1>
-
+            {/*
+              CHANGED: name-as-headline → strongest descriptive sentence.
+              The name lives in the nav; the hero should earn attention.
+            */}
+            <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight leading-tight max-w-lg">
+              Small tools that reduce mental loops—alone, and together.
+            </h1>
+ 
             <p className="text-sm text-[var(--muted)] leading-6 max-w-prose">
-              A home for small tools that reduce mental loops—alone, and together.
+              PneumEvolve is a collection of standalone pages that help you think, decide, and notice patterns.
             </p>
-
+ 
             {isLoggedIn ? (
               <p className="text-[11px] text-[var(--muted)]">
-                Signed in{displayName ? ` as ${displayName}` : ""}. Continue/pin/hide saves locally
-                on this device.
+                Signed in{displayName ? ` as ${displayName}` : ""}. Continue/pin/hide saves locally on this device.
               </p>
             ) : (
               <p className="text-[11px] text-[var(--muted)]">
-                No account required for most experiments. Some tools are optionally gated.
+                No account required for most tools. Some are optionally gated.
               </p>
             )}
           </div>
-
-          <div className="flex flex-wrap gap-2 justify-end">
+ 
+          <div className="flex flex-wrap gap-2 justify-end shrink-0">
             <button
-  type="button"
-  onClick={scrollToExperiments}
-  className="inline-flex items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
->
-  Explore experiments →
-</button>
+              type="button"
+              onClick={scrollToTools}
+              className="inline-flex items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
+            >
+              Browse tools →
+            </button>
             {isLoggedIn ? (
               <PrimaryLink to="/account">Account</PrimaryLink>
             ) : (
@@ -307,12 +290,12 @@ export default function Home() {
             )}
           </div>
         </header>
-
-        {/* Top row: Featured + Continue/What + Pinned/Quick start */}
+ 
+        {/* ── Top row: Featured + Continue/What this is + Pinned ───────── */}
         <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
           <Card
-            title="Featured experiment"
-            subtitle={featured ? "Start here if you’re not sure." : "Add one when you’re ready."}
+            title="Featured"
+            subtitle={featured ? "Start here if you're not sure." : "Add one when you're ready."}
           >
             {featured ? (
               <>
@@ -326,7 +309,6 @@ export default function Home() {
                     {featured.requiresAuth ? <Pill className="opacity-80">🔒 login</Pill> : null}
                   </div>
                 </div>
-
                 <div className="mt-4 flex flex-wrap gap-2">
                   <button
                     type="button"
@@ -335,30 +317,28 @@ export default function Home() {
                   >
                     {canAccess(featured) ? "Open →" : "Log in to open →"}
                   </button>
-
                   <SmallButton onClick={() => onPin(featured)}>
                     {pinnedExperimentId === featured.id ? "Unpin" : "Pin"}
                   </SmallButton>
-
                   <SmallButton onClick={() => onHide(featured)}>Hide</SmallButton>
                 </div>
               </>
             ) : (
               <>
-                <p>No experiments are visible right now.</p>
+                <p>No tools are visible right now.</p>
                 <div className="mt-3">
                   <button
-  type="button"
-  onClick={scrollToExperiments}
-  className="inline-flex items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
->
-  View experiments →
-</button>
+                    type="button"
+                    onClick={scrollToTools}
+                    className="inline-flex items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
+                  >
+                    Browse tools →
+                  </button>
                 </div>
               </>
             )}
           </Card>
-
+ 
           <Card
             title={showContinue ? "Continue" : "What this is"}
             subtitle={showContinue ? "Pick up where you left off." : "No pressure. No promises."}
@@ -381,22 +361,22 @@ export default function Home() {
             ) : (
               <>
                 <p>
-                  PneumEvolve is a collection of small, standalone pages that help you think,
-                  decide, and notice patterns.
+                  Each tool is a standalone page. You can dip in for two minutes or stay longer.
+                  Nothing tracks you unless you choose to save.
                 </p>
                 <div className="mt-4">
                   <button
-  type="button"
-  onClick={scrollToExperiments}
-  className="inline-flex items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
->
-  Explore experiments →
-</button>
+                    type="button"
+                    onClick={scrollToTools}
+                    className="inline-flex items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
+                  >
+                    Browse tools →
+                  </button>
                 </div>
               </>
             )}
           </Card>
-
+ 
           <Card
             title={pinned ? "Pinned" : "Quick start"}
             subtitle={pinned ? "One thing you chose to keep close." : "A tiny reset, no tracking."}
@@ -405,14 +385,12 @@ export default function Home() {
               <>
                 <p className="text-base font-semibold text-[var(--text)]">{pinned.title}</p>
                 <p>{pinned.desc}</p>
-
                 <div className="mt-2 flex flex-wrap gap-2">
                   {(pinned.tags || []).map((t) => (
                     <Pill key={t}>{t}</Pill>
                   ))}
                   {pinned.requiresAuth ? <Pill className="opacity-80">🔒 login</Pill> : null}
                 </div>
-
                 <div className="mt-4 flex flex-wrap gap-2">
                   <button
                     type="button"
@@ -436,70 +414,79 @@ export default function Home() {
             )}
           </Card>
         </div>
-
-        {/* Experiments list */}
+ 
+        {/* ── Tools list ───────────────────────────────────────────────── */}
+        {/*
+          CHANGED: "All experiments" → "Tools" with a warmer subtitle.
+          Also renamed the scroll anchor id from "experiments" to "tools"
+          to match the updated CTA button label above.
+        */}
         <div className="mt-6 grid grid-cols-1 gap-4">
-          <div id="experiments">
-          <Card title="All experiments" subtitle="Short. Standalone. You can dip in and leave.">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {visibleExperiments.map((exp) => {
-                const locked = exp.requiresAuth && !isLoggedIn;
-                return (
-                  <div
-                    key={exp.id}
-                    className="rounded-2xl border border-[var(--border)] bg-[var(--bg)] p-4"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-semibold text-[var(--text)]">{exp.title}</p>
-                          {exp.requiresAuth ? <Pill className="opacity-80">🔒 login</Pill> : null}
+          <div id="tools">
+            <Card
+              title="Tools"
+              subtitle="Short. Standalone. Dip in and leave whenever."
+            >
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {visibleExperiments.map((exp) => {
+                  const locked = exp.requiresAuth && !isLoggedIn;
+                  return (
+                    <div
+                      key={exp.id}
+                      className="rounded-2xl border border-[var(--border)] bg-[var(--bg)] p-4"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-semibold text-[var(--text)]">{exp.title}</p>
+                            {exp.requiresAuth ? <Pill className="opacity-80">🔒 login</Pill> : null}
+                          </div>
+                          <p className="mt-1 text-sm text-[var(--muted)] leading-6">{exp.desc}</p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {(exp.tags || []).map((t) => (
+                              <Pill key={t}>{t}</Pill>
+                            ))}
+                          </div>
                         </div>
-                        <p className="mt-1 text-sm text-[var(--muted)] leading-6">{exp.desc}</p>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {(exp.tags || []).map((t) => (
-                            <Pill key={t}>{t}</Pill>
-                          ))}
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => onPin(exp)}
+                          className="shrink-0 rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-3 py-2 text-[11px] font-medium shadow-sm hover:shadow transition"
+                          aria-label={pinnedExperimentId === exp.id ? "Unpin" : "Pin"}
+                          title={pinnedExperimentId === exp.id ? "Unpin" : "Pin"}
+                        >
+                          {pinnedExperimentId === exp.id ? "Pinned" : "Pin"}
+                        </button>
                       </div>
-
-                      <button
-                        type="button"
-                        onClick={() => onPin(exp)}
-                        className="shrink-0 rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-3 py-2 text-[11px] font-medium shadow-sm hover:shadow transition"
-                        aria-label={pinnedExperimentId === exp.id ? "Unpin" : "Pin"}
-                        title={pinnedExperimentId === exp.id ? "Unpin" : "Pin"}
-                      >
-                        {pinnedExperimentId === exp.id ? "Pinned" : "Pin"}
-                      </button>
+ 
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openOrLogin(exp)}
+                          className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
+                        >
+                          {locked ? "Log in to open →" : "Open →"}
+                        </button>
+                        <SmallButton onClick={() => onHide(exp)}>Hide</SmallButton>
+                      </div>
                     </div>
-
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => openOrLogin(exp)}
-                        className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
-                      >
-                        {locked ? "Log in to open →" : "Open →"}
-                      </button>
-                      <SmallButton onClick={() => onHide(exp)}>Hide</SmallButton>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-              {hiddenExperimentIds.length ? (
-                <SmallButton onClick={restoreHidden}>Restore hidden</SmallButton>
-              ) : (
-                <span className="text-[11px] text-[var(--muted)]">Tip: hide things you don’t want to see.</span>
-              )}
-            </div>
-          </Card>
+                  );
+                })}
+              </div>
+ 
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                {hiddenExperimentIds.length ? (
+                  <SmallButton onClick={restoreHidden}>Restore hidden</SmallButton>
+                ) : (
+                  <span className="text-[11px] text-[var(--muted)]">
+                    Tip: hide anything you don't need right now.
+                  </span>
+                )}
+              </div>
+            </Card>
           </div>
         </div>
-
+ 
         <footer className="mt-10 flex flex-wrap items-center justify-between gap-3 text-[11px] text-[var(--muted)]">
           <span>Imperfect is the point.</span>
           <div className="flex gap-3">

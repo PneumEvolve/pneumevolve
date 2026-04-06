@@ -1,6 +1,6 @@
 // src/Pages/ProblemDetail.jsx
 import React, { useEffect, useMemo, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import ConversationPanel from "@/components/ConversationPanel";
@@ -33,6 +33,7 @@ function CollapseHeader({ open, onToggle, children }) {
 
 export default function ProblemDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const { userEmail, accessToken } = useAuth();
 
   const headers = useMemo(() => {
@@ -42,38 +43,32 @@ export default function ProblemDetail() {
     return h;
   }, [userEmail, accessToken]);
 
-  // Problem
   const [problem, setProblem] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
-  // Collapsibles
   const [openDetails, setOpenDetails] = useState(true);
   const [openSolutions, setOpenSolutions] = useState(true);
   const [openPledges, setOpenPledges] = useState(false);
   const [openNotes, setOpenNotes] = useState(false);
   const [openConversation, setOpenConversation] = useState(false);
 
-  // Solutions composer
   const [solTitle, setSolTitle] = useState("");
   const [solDesc, setSolDesc] = useState("");
   const [solSubmitting, setSolSubmitting] = useState(false);
 
-  // Notes composer
   const [noteTitle, setNoteTitle] = useState("");
   const [noteBody, setNoteBody] = useState("");
   const [notePublic, setNotePublic] = useState(true);
   const [noteSubmitting, setNoteSubmitting] = useState(false);
 
-  // Pledges (optional API parity with ForgeItemPage)
   const [pledges, setPledges] = useState([]);
   const [pledgesErr, setPledgesErr] = useState("");
   const [loadingPledges, setLoadingPledges] = useState(true);
   const [pledgeText, setPledgeText] = useState("");
   const [addingPledge, setAddingPledge] = useState(false);
-  const [marking, setMarking] = useState({}); // { [id]: bool }
+  const [marking, setMarking] = useState({});
 
-  // Conversation
   const [conversationId, setConversationId] = useState(null);
 
   async function loadProblem() {
@@ -91,15 +86,12 @@ export default function ProblemDetail() {
   }
 
   async function fetchPledges() {
-    // If you don’t expose pledges for problems, this will just render “No pledges yet.”
     setLoadingPledges(true);
     setPledgesErr("");
     try {
       const res = await api.get(`/forge/problems/${id}/pledges`, { headers });
-      const arr = Array.isArray(res.data) ? res.data : [];
-      setPledges(arr);
+      setPledges(Array.isArray(res.data) ? res.data : []);
     } catch (e) {
-      // Don’t hard-fail the page; just surface a small message in the Pledges pane
       setPledges([]);
       setPledgesErr(e?.response?.data?.detail || "");
     } finally {
@@ -134,6 +126,22 @@ export default function ProblemDetail() {
     }
   }
 
+  async function deleteSolution(sol) {
+    if (!window.confirm(`Delete solution "${sol.title}"? This cannot be undone.`)) return;
+    try {
+      await api.delete(`/forge/solutions/${sol.id}`, { headers });
+      await loadProblem();
+    } catch (e) {
+      alert(e?.response?.data?.detail || "Failed to delete solution");
+    }
+  }
+
+  const canDeleteSolution = (sol) => {
+    if (!userEmail) return false;
+    if (userEmail === "sheaklipper@gmail.com") return true;
+    return userEmail.toLowerCase() === String(sol.created_by_email || "").toLowerCase();
+  };
+
   // --- Notes ---
   async function addNote(e) {
     e?.preventDefault?.();
@@ -154,6 +162,7 @@ export default function ProblemDetail() {
       setNoteSubmitting(false);
     }
   }
+
   async function updateNote(noteId, patch) {
     try {
       await api.patch(`/forge/problem-notes/${noteId}`, patch, { headers });
@@ -162,6 +171,7 @@ export default function ProblemDetail() {
       alert(e?.response?.data?.detail || "Failed to update note");
     }
   }
+
   async function deleteNote(noteId) {
     if (!window.confirm("Delete this note?")) return;
     try {
@@ -172,7 +182,7 @@ export default function ProblemDetail() {
     }
   }
 
-  // --- Pledges (optional) ---
+  // --- Pledges ---
   async function handleAddPledge(e) {
     e?.preventDefault?.();
     const text = pledgeText.trim();
@@ -189,11 +199,11 @@ export default function ProblemDetail() {
       setAddingPledge(false);
     }
   }
+
   async function markPledgeDone(pledgeId) {
     if (!userEmail) return;
     setMarking((m) => ({ ...m, [pledgeId]: true }));
     try {
-      // If your backend uses a different endpoint for problem pledges, adjust here
       await api.patch(`/forge/pledges/${pledgeId}/done`, {}, { headers });
       setPledges((prev) =>
         prev.map((p) => (p.id === pledgeId ? { ...p, done: true, done_at: new Date().toISOString() } : p))
@@ -206,119 +216,80 @@ export default function ProblemDetail() {
   }
 
   async function deletePledge(pledgeId) {
-  if (!userEmail) return;
-  if (!window.confirm("Delete this pledge?")) return;
-  try {
-    const wasDone = !!pledges.find(p => p.id === pledgeId)?.done;
-    await api.delete(`/forge/pledges/${pledgeId}`, { headers });
-    setPledges(prev => prev.filter(p => p.id !== pledgeId));
-    // If you track counts on this page, adjust them here similarly.
-  } catch (e) {
-    alert(e?.response?.data?.detail || "Failed to delete pledge.");
-  }
-}
-
-async function toggleSolutionVote(sol) {
-  if (!userEmail) {
-    alert("Please log in to vote on solutions.");
-    return;
-  }
-  const hasVoted = !!sol.has_voted;
-  const path = `/forge/solutions/${sol.id}/vote`;
-
-  // optimistic UI
-  setProblem((prev) => {
-    if (!prev?.top_solutions) return prev;
-    return {
-      ...prev,
-      top_solutions: prev.top_solutions.map((s) =>
-        s.id === sol.id
-          ? {
-              ...s,
-              has_voted: !hasVoted,
-              votes_count: Math.max(0, (s.votes_count || 0) + (hasVoted ? -1 : 1)),
-            }
-          : s
-      ),
-    };
-  });
-
-  try {
-    if (hasVoted) {
-      await api.delete(path, { headers });
-    } else {
-      await api.post(path, {}, { headers });
+    if (!userEmail) return;
+    if (!window.confirm("Delete this pledge?")) return;
+    try {
+      await api.delete(`/forge/pledges/${pledgeId}`, { headers });
+      setPledges((prev) => prev.filter((p) => p.id !== pledgeId));
+    } catch (e) {
+      alert(e?.response?.data?.detail || "Failed to delete pledge.");
     }
-  } catch (e) {
-    console.error("solution vote failed", e);
-    // revert on failure
+  }
+
+  // --- Solution votes ---
+  async function toggleSolutionVote(sol) {
+    if (!userEmail) {
+      navigate(`/login?next=/forge/problems/${id}`);
+      return;
+    }
+    const hasVoted = !!sol.has_voted;
+    const path = `/forge/solutions/${sol.id}/vote`;
+
     setProblem((prev) => {
       if (!prev?.top_solutions) return prev;
       return {
         ...prev,
         top_solutions: prev.top_solutions.map((s) =>
           s.id === sol.id
-            ? {
-                ...s,
-                has_voted: hasVoted,
-                votes_count: Math.max(0, (s.votes_count || 0) + (hasVoted ? 1 : -1)),
-              }
+            ? { ...s, has_voted: !hasVoted, votes_count: Math.max(0, (s.votes_count || 0) + (hasVoted ? -1 : 1)) }
             : s
         ),
       };
     });
-    alert(e?.response?.data?.detail || "Unable to vote on this solution.");
-  }
-}
 
-  if (loading)
-    return (
-      <main className="max-w-3xl mx-auto p-6">
-        <div className="opacity-70">Loading…</div>
-      </main>
-    );
-  if (err)
-    return (
-      <main className="max-w-3xl mx-auto p-6">
-        <div className="card border-amber-500/40">{String(err)}</div>
-      </main>
-    );
+    try {
+      if (hasVoted) await api.delete(path, { headers });
+      else await api.post(path, {}, { headers });
+    } catch (e) {
+      console.error("solution vote failed", e);
+      setProblem((prev) => {
+        if (!prev?.top_solutions) return prev;
+        return {
+          ...prev,
+          top_solutions: prev.top_solutions.map((s) =>
+            s.id === sol.id
+              ? { ...s, has_voted: hasVoted, votes_count: Math.max(0, (s.votes_count || 0) + (hasVoted ? 1 : -1)) }
+              : s
+          ),
+        };
+      });
+      alert(e?.response?.data?.detail || "Unable to vote on this solution.");
+    }
+  }
+
+  if (loading) return <main className="max-w-3xl mx-auto p-6"><div className="opacity-70">Loading…</div></main>;
+  if (err) return <main className="max-w-3xl mx-auto p-6"><div className="card border-amber-500/40">{String(err)}</div></main>;
   if (!problem) return null;
 
-  const {
-    title,
-    description,
-    domain,
-    scope,
-    severity,
-    status,
-    created_at,
-    created_by_username,
-    created_by_email,
-    notes = [],
-    top_solutions = [],
-  } = problem;
+  const { title, description, domain, scope, severity, status, created_at, created_by_username, created_by_email, notes = [], top_solutions = [] } = problem;
 
   const statusTxt = asText(status);
   const domainTxt = asText(domain);
   const scopeTxt = asText(scope);
   const descTxt = asText(description);
 
-  const canDelete =
+  const canDeleteProblem =
     !!userEmail &&
     (userEmail === "sheaklipper@gmail.com" ||
       userEmail.toLowerCase() === String(created_by_email || "").toLowerCase());
 
   return (
     <main className="max-w-3xl mx-auto p-6 space-y-6">
-      {/* Top bar (match ForgeItemPage) */}
       <div className="flex items-center justify-between">
-        <Link to="/forge2" className="btn btn-secondary">
-          ← Back to Forge
-        </Link>
+        <Link to="/forge" className="btn btn-secondary">← Back to Forge</Link>
       </div>
 
-      {/* ===== Details (title + description) ===== */}
+      {/* ===== Details ===== */}
       <section className="space-y-3">
         <CollapseHeader open={openDetails} onToggle={() => setOpenDetails((o) => !o)}>
           Details
@@ -331,7 +302,6 @@ async function toggleSolutionVote(sol) {
               </span>
               {statusTxt && <span className="badge">Status: {val(statusTxt)}</span>}
             </div>
-
             <h1 className="text-3xl font-bold leading-tight">{asText(title)}</h1>
             <div className="text-xs opacity-70">
               {created_at ? new Date(created_at).toLocaleString() : ""}
@@ -339,89 +309,98 @@ async function toggleSolutionVote(sol) {
                 <> · {created_by_username || created_by_email}</>
               )}
             </div>
-
             {descTxt && <div className="mt-2 whitespace-pre-wrap">{descTxt}</div>}
-
             <div className="flex flex-wrap items-center gap-3 justify-between pt-2 border-t">
               <div className="text-sm opacity-80 flex items-center gap-3">
                 {domainTxt && <span>Domain: {domainTxt}</span>}
-                {scopeTxt && (
-                  <>
-                    <span>•</span>
-                    <span>Scope: {scopeTxt}</span>
-                  </>
-                )}
-                {typeof severity === "number" && (
-                  <>
-                    <span>•</span>
-                    <span>Severity: {severity}</span>
-                  </>
-                )}
+                {scopeTxt && <><span>•</span><span>Scope: {scopeTxt}</span></>}
+                {typeof severity === "number" && <><span>•</span><span>Severity: {severity}</span></>}
               </div>
-              <div className="flex items-center gap-2">{/* (space reserved for future actions) */}</div>
             </div>
           </div>
         )}
       </section>
 
-      {/* ===== Solutions (open by default) ===== */}
+      {/* ===== Solutions ===== */}
       <section className="space-y-3">
         <CollapseHeader open={openSolutions} onToggle={() => setOpenSolutions((o) => !o)}>
           Solutions
         </CollapseHeader>
         {openSolutions && (
           <div className="space-y-3">
-            <form onSubmit={addSolution} className="card p-4 space-y-3">
-              <div>
-                <label className="block text-sm font-medium">Title</label>
-                <input value={solTitle} onChange={(e) => setSolTitle(e.target.value)} required />
+            {/* Propose solution — gated behind login */}
+            {userEmail ? (
+              <form onSubmit={addSolution} className="card p-4 space-y-3">
+                <div className="text-sm font-medium">Propose a solution</div>
+                <div>
+                  <label className="block text-sm font-medium">Title</label>
+                  <input value={solTitle} onChange={(e) => setSolTitle(e.target.value)} required />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium">Description</label>
+                  <textarea rows={4} value={solDesc} onChange={(e) => setSolDesc(e.target.value)} required />
+                </div>
+                <div className="flex justify-end">
+                  <button className="btn" disabled={solSubmitting || !solTitle.trim() || !solDesc.trim()}>
+                    {solSubmitting ? "Submitting…" : "Add Solution"}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="card p-4 text-sm opacity-70 flex items-center justify-between gap-3">
+                <span>Log in to propose a solution.</span>
+                <Link to={`/login?next=/forge/problems/${id}`} className="btn btn-secondary">
+                  Log in
+                </Link>
               </div>
-              <div>
-                <label className="block text-sm font-medium">Description</label>
-                <textarea
-                  rows={4}
-                  value={solDesc}
-                  onChange={(e) => setSolDesc(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="flex justify-end">
-                <button className="btn" disabled={solSubmitting || !solTitle.trim() || !solDesc.trim()}>
-                  {solSubmitting ? "Submitting…" : "Add Solution"}
-                </button>
-              </div>
-            </form>
+            )}
 
+            {/* Solutions list */}
             {Array.isArray(top_solutions) && top_solutions.length > 0 && (
-  <>
-    <h3 className="text-md font-semibold">Top Solutions</h3>
-    <ul className="space-y-2">
-      {top_solutions.map((s) => (
-        <li key={s.id} className="card p-3 flex items-start justify-between gap-3">
-          <div>
-            <div className="font-semibold">{asText(s.title)}</div>
-            <div className="text-sm opacity-80 whitespace-pre-wrap">{asText(s.description)}</div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              className={s.has_voted ? "btn btn-danger" : "btn btn-secondary"}
-              onClick={() => toggleSolutionVote(s)}
-              aria-pressed={!!s.has_voted}
-              title={s.has_voted ? "Unvote" : "Vote"}
-            >
-              {s.has_voted ? "🙅 Unvote" : "👍 Vote"} · {s.votes_count ?? 0}
-            </button>
-          </div>
-        </li>
-      ))}
-    </ul>
-  </>
-)}
+              <>
+                <h3 className="text-md font-semibold">Top Solutions</h3>
+                <ul className="space-y-2">
+                  {top_solutions.map((s) => (
+                    <li key={s.id} className="card p-3 space-y-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="font-semibold">{asText(s.title)}</div>
+                          <div className="text-sm opacity-80 whitespace-pre-wrap">{asText(s.description)}</div>
+                          {(s.created_by_username || s.created_by_email) && (
+                            <div className="text-xs opacity-60 mt-1">
+                              by {s.created_by_username || s.created_by_email}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            className={s.has_voted ? "btn btn-danger" : "btn btn-secondary"}
+                            onClick={() => toggleSolutionVote(s)}
+                            aria-pressed={!!s.has_voted}
+                          >
+                            {s.has_voted ? "🙅 Unvote" : "👍 Vote"} · {s.votes_count ?? 0}
+                          </button>
+                          {canDeleteSolution(s) && (
+                            <button
+                              className="btn btn-danger"
+                              onClick={() => deleteSolution(s)}
+                              title="Delete solution"
+                            >
+                              Delete
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
           </div>
         )}
       </section>
 
-      {/* ===== Pledges (collapsed by default) ===== */}
+      {/* ===== Pledges ===== */}
       <section className="space-y-3">
         <CollapseHeader open={openPledges} onToggle={() => setOpenPledges((o) => !o)}>
           Pledges
@@ -444,9 +423,7 @@ async function toggleSolutionVote(sol) {
                         {p.username ? `by ${p.username}` : p.user_email ? `by ${p.user_email}` : "by someone"} •{" "}
                         {p.created_at ? new Date(p.created_at).toLocaleString() : ""}
                         {p.done && (
-                          <>
-                            {" "}
-                            <span>•</span>{" "}
+                          <> <span>•</span>{" "}
                             <span className="inline-block px-2 py-0.5 rounded-full border text-[11px]">
                               Done {p.done_at ? `(${new Date(p.done_at).toLocaleString()})` : ""}
                             </span>
@@ -455,32 +432,25 @@ async function toggleSolutionVote(sol) {
                       </div>
                     </div>
                     {p.is_mine && (
-  <div className="flex gap-2">
-    {!p.done && (
-      <button
-        className="btn btn-secondary"
-        onClick={() => markPledgeDone(p.id)}
-        disabled={!!marking[p.id]}
-      >
-        {marking[p.id] ? "Marking…" : "Mark Done"}
-      </button>
-    )}
-    <button
-      className="btn btn-danger"
-      onClick={() => deletePledge(p.id)}
-      title="Delete pledge"
-    >
-      Delete
-    </button>
-  </div>
-)}
-                    
+                      <div className="flex gap-2">
+                        {!p.done && (
+                          <button
+                            className="btn btn-secondary"
+                            onClick={() => markPledgeDone(p.id)}
+                            disabled={!!marking[p.id]}
+                          >
+                            {marking[p.id] ? "Marking…" : "Mark Done"}
+                          </button>
+                        )}
+                        <button className="btn btn-danger" onClick={() => deletePledge(p.id)}>
+                          Delete
+                        </button>
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>
             )}
-
-            {/* Add pledge */}
             <form onSubmit={handleAddPledge} className="card space-y-2">
               <label className="text-sm font-medium">Add a pledge</label>
               <textarea
@@ -501,7 +471,7 @@ async function toggleSolutionVote(sol) {
         )}
       </section>
 
-      {/* ===== Notes (collapsed by default) ===== */}
+      {/* ===== Notes ===== */}
       <section className="space-y-3">
         <CollapseHeader open={openNotes} onToggle={() => setOpenNotes((o) => !o)}>
           Notes
@@ -516,11 +486,7 @@ async function toggleSolutionVote(sol) {
                 </div>
                 <div className="flex items-end">
                   <label className="inline-flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={notePublic}
-                      onChange={(e) => setNotePublic(e.target.checked)}
-                    />
+                    <input type="checkbox" checked={notePublic} onChange={(e) => setNotePublic(e.target.checked)} />
                     Public
                   </label>
                 </div>
@@ -533,7 +499,6 @@ async function toggleSolutionVote(sol) {
                 </button>
               </div>
             </form>
-
             {notes.length === 0 ? (
               <div className="opacity-70 text-sm">No notes yet.</div>
             ) : (
@@ -551,15 +516,10 @@ async function toggleSolutionVote(sol) {
                       <span>{n.is_public ? "Public" : "Private"}</span>
                     </div>
                     <div className="flex gap-2 justify-end">
-                      <button
-                        className="btn btn-secondary"
-                        onClick={() => updateNote(n.id, { is_public: !n.is_public })}
-                      >
+                      <button className="btn btn-secondary" onClick={() => updateNote(n.id, { is_public: !n.is_public })}>
                         Make {n.is_public ? "Private" : "Public"}
                       </button>
-                      <button className="btn btn-danger" onClick={() => deleteNote(n.id)}>
-                        Delete
-                      </button>
+                      <button className="btn btn-danger" onClick={() => deleteNote(n.id)}>Delete</button>
                     </div>
                   </li>
                 ))}
@@ -569,7 +529,7 @@ async function toggleSolutionVote(sol) {
         )}
       </section>
 
-      {/* ===== Conversation (collapsed by default) ===== */}
+      {/* ===== Conversation ===== */}
       <section className="space-y-3">
         <CollapseHeader open={openConversation} onToggle={() => setOpenConversation((o) => !o)}>
           Conversation
@@ -589,8 +549,8 @@ async function toggleSolutionVote(sol) {
         )}
       </section>
 
-      {/* ===== Danger zone (bottom-only delete) ===== */}
-      {canDelete && (
+      {/* ===== Danger zone ===== */}
+      {canDeleteProblem && (
         <section className="pt-2 border-t">
           <div className="flex items-center justify-between">
             <div className="text-xs opacity-70">Danger zone</div>
@@ -600,8 +560,7 @@ async function toggleSolutionVote(sol) {
                 if (!window.confirm(`Delete "${problem.title}"? This cannot be undone.`)) return;
                 try {
                   await api.delete(`/forge/problems/${problem.id}`, { headers });
-                  alert("Problem deleted.");
-                  window.history.back();
+                  navigate("/forge");
                 } catch (e) {
                   alert(e?.response?.data?.detail || "Failed to delete problem");
                 }

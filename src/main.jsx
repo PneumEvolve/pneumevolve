@@ -6,12 +6,12 @@ import Layout from "./components/Layout";
 import ErrorBoundary from "./pneumevolve-v2/components/ErrorBoundary.jsx";
 import Home from "./Pages/Home.jsx";
 import LastVisitedPathSaver from "@/components/LastVisitedPathSaver";
-
+ 
 import Forge from "./Pages/Forge";
 import ForgeItemPage from "./Pages/ForgeItemPage";
 import Problems from "./pneumevolve-v2/pages/Problems";
 import ProblemDetail from "./Pages/ProblemDetail.jsx";
-
+ 
 import Messages from "@/components/dashboard/Messages.jsx";
 import SpotlightArchive from "./Pages/SpotlightArchive.jsx";
 import TokenLedger from "./pneumevolve-v2/pages/TokenLedger";
@@ -72,7 +72,8 @@ import SkippedStep from "@/Pages/SkippedStep";
 import RequireAuth from "@/components/RequireAuth";
 import PreForgeLocal from "@/Pages/PreForgeLocal";
 import PreForge from "@/Pages/PreForge";
-
+import { StillnessList, StillnessSession, StillnessJoin } from "@/Pages/SharedStillness";
+ 
 import { HelmetProvider } from "react-helmet-async";
 import "./index.css";
 import { API_URL, ENV } from "@/lib/env";
@@ -80,7 +81,7 @@ import { api } from "@/lib/api";
 import PrivacyPolicy from "./legal/PrivacyPolicy";
 import Terms from "./legal/Terms";
 import CookiePolicy from "./legal/CookiePolicy";
-
+ 
 function Root() {
   React.useEffect(() => {
     api
@@ -88,7 +89,7 @@ function Root() {
       .then((r) => console.log("[/health]", r.data))
       .catch((e) => console.warn("[/health ERR]", e?.message));
   }, []);
-
+ 
   return (
     <React.StrictMode>
       <HelmetProvider>
@@ -99,16 +100,16 @@ function Root() {
               <Route path="/" element={<Layout />}>
                 <Route index element={<Home />} />
                 <Route path="/sitemap" element={<SiteMap />} />
-
-                {/* Forge — /forge is now canonical, /forge2 redirects */}
+ 
+                {/* Forge */}
                 <Route path="/forge" element={<ErrorBoundary><Forge /></ErrorBoundary>} />
                 <Route path="/forge/:id" element={<ForgeItemPage />} />
                 <Route path="/forge2" element={<Navigate to="/forge" replace />} />
                 <Route path="/forge2/:id" element={<Navigate to="/forge" replace />} />
-
+ 
                 <Route path="/problems" element={<Problems />} />
                 <Route path="/forge/problems/:id" element={<ProblemDetail />} />
-
+ 
                 <Route path="/messages" element={<Messages />} />
                 <Route path="/spotlight-archive" element={<SpotlightArchive />} />
                 <Route path="/token-ledger" element={<TokenLedger />} />
@@ -174,7 +175,12 @@ function Root() {
                 <Route path="/skipped-step" element={<SkippedStep />} />
                 <Route path="/preforge-local" element={<PreForgeLocal />} />
                 <Route path="/preforge" element={<PreForge />} />
-
+ 
+                {/* Shared Stillness — join must come before :groupId to avoid route collision */}
+                <Route path="/stillness" element={<StillnessList />} />
+                <Route path="/stillness/join/:inviteCode" element={<StillnessJoin />} />
+                <Route path="/stillness/:groupId" element={<StillnessSession />} />
+ 
                 <Route path="/privacy" element={<PrivacyPolicy />} />
                 <Route path="/terms" element={<Terms />} />
                 <Route path="/cookies" element={<CookiePolicy />} />
@@ -186,7 +192,7 @@ function Root() {
     </React.StrictMode>
   );
 }
-
+ 
 console.log("[ENV]", ENV);
 console.log("[API_URL at runtime]", API_URL);
 ReactDOM.createRoot(document.getElementById("root")).render(<Root />);
