@@ -602,14 +602,14 @@ export function StillnessSession() {
  
   // Start polling when window opens, stop when it closes
   useEffect(() => {
-    if (session?.window_open && !pollRef.current) {
-      windowWasOpen.current = true;
-      pollRef.current = setInterval(pollPresence, 3000);
-    }
-    return () => {
-      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
-    };
-  }, [session?.window_open, pollPresence]);
+  if ((session?.window_open || localCountdown === 0) && !pollRef.current) {
+    windowWasOpen.current = true;
+    pollRef.current = setInterval(pollPresence, 3000);
+  }
+  return () => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+  };
+}, [session?.window_open, localCountdown, pollPresence]);
  
   async function handleCheckin() {
     if (!session?.window_open || session?.your_checkin || checkingIn) return;
@@ -634,7 +634,11 @@ export function StillnessSession() {
   if (loading) return <div className="ss-root"><style>{CSS}</style><div className="ss-error">…</div></div>;
   if (error)   return <div className="ss-root"><style>{CSS}</style><div className="ss-error">{error}</div></div>;
  
-  const phase = session?.window_open ? "open" : localCountdown === 0 ? "closing" : "waiting";
+  const phase = session?.window_open
+  ? "open"
+  : localCountdown === 0 && windowWasOpen.current
+  ? "closing"
+  : "waiting";
   const presentOthers = session?.present_members || [];
  
   return (

@@ -77,6 +77,7 @@ api.interceptors.response.use(
       } else {
         // refresh failed -> hard logout path
         setAccess(null);
+        window.dispatchEvent(new Event("auth:logout"));
         // optional: redirect to login route, or emit an event
         // window.location.href = "/login";
       }

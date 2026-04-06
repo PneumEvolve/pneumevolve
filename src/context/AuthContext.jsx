@@ -29,7 +29,8 @@ export function AuthProvider({ children }) {
     if (!userProfile) fetchUserProfile(access);
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try { await api.post("/auth/logout"); } catch {}
     localStorage.removeItem("access_token");
     localStorage.removeItem("refresh_token");
     localStorage.removeItem("user_id");
@@ -69,53 +70,61 @@ export function AuthProvider({ children }) {
   };
 
   useEffect(() => {
-    const checkAndRefreshToken = async () => {
-      const token = localStorage.getItem("access_token");
-      const refresh = localStorage.getItem("refresh_token");
-      const id = localStorage.getItem("user_id");
-      const email = localStorage.getItem("user_email");
+  const checkAndRefreshToken = async () => {
+    const token = localStorage.getItem("access_token");
+    const refresh = localStorage.getItem("refresh_token");
+    const id = localStorage.getItem("user_id");
+    const email = localStorage.getItem("user_email");
 
-      if (token && refresh && id && email) {
-        let payload;
-        try {
-          payload = JSON.parse(atob(token.split(".")[1]));
-        } catch (e) {
-          console.error("Invalid token:", e);
-          logout();
-          setLoading(false);
-          return;
-        }
+    if (token && refresh && id && email) {
+      let payload;
+      try {
+        payload = JSON.parse(atob(token.split(".")[1]));
+      } catch (e) {
+        console.error("Invalid token:", e);
+        logout();
+        setLoading(false);
+        return;
+      }
 
-        const currentTime = Math.floor(Date.now() / 1000);
-        if (payload.exp < currentTime) {
-          const newToken = await refreshAccessToken();
-          if (newToken) {
-            setAccessToken(newToken);
-            setRefreshToken(refresh);
-            setUserId(id);
-            setUserEmail(email);
-            setIsLoggedIn(true);
-            if (!userProfile) fetchUserProfile(newToken);
-          } else {
-            logout();
-          }
-        } else {
-          setAccessToken(token);
+      const currentTime = Math.floor(Date.now() / 1000);
+      if (payload.exp < currentTime) {
+        const newToken = await refreshAccessToken();
+        if (newToken) {
+          setAccessToken(newToken);
           setRefreshToken(refresh);
           setUserId(id);
           setUserEmail(email);
           setIsLoggedIn(true);
-          if (!userProfile) fetchUserProfile(token);
+          if (!userProfile) fetchUserProfile(newToken);
+        } else {
+          logout();
         }
+      } else {
+        setAccessToken(token);
+        setRefreshToken(refresh);
+        setUserId(id);
+        setUserEmail(email);
+        setIsLoggedIn(true);
+        if (!userProfile) fetchUserProfile(token);
       }
+    }
 
-      setLoading(false);
-    };
+    setLoading(false);
+  };
 
-    checkAndRefreshToken();
-    const interval = setInterval(checkAndRefreshToken, 5 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, [userProfile]); // eslint-disable-line react-hooks/exhaustive-deps
+  // ← forced logout listener goes here, before the first checkAndRefreshToken call
+  const handleForcedLogout = () => logout();
+  window.addEventListener("auth:logout", handleForcedLogout);
+
+  checkAndRefreshToken();
+  const interval = setInterval(checkAndRefreshToken, 5 * 60 * 1000);
+
+  return () => {
+    clearInterval(interval);
+    window.removeEventListener("auth:logout", handleForcedLogout);
+  };
+}, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 👇 Derive username + displayName from profile/email
   const username = useMemo(() => {
