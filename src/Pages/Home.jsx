@@ -247,49 +247,45 @@ export default function Home() {
       <div className="mx-auto max-w-5xl px-5 py-10">
  
         {/* ── Hero ─────────────────────────────────────────────────────── */}
-        <header className="flex items-start justify-between gap-4">
-          <div className="space-y-2">
-            {/*
-              CHANGED: name-as-headline → strongest descriptive sentence.
-              The name lives in the nav; the hero should earn attention.
-            */}
-            <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight leading-tight max-w-lg">
-              Small tools that reduce mental loops—alone, and together.
-            </h1>
- 
-            <p className="text-sm text-[var(--muted)] leading-6 max-w-prose">
-              PneumEvolve is a collection of standalone pages that help you think, decide, and notice patterns.
-            </p>
- 
-            {isLoggedIn ? (
-              <p className="text-[11px] text-[var(--muted)]">
-                Signed in{displayName ? ` as ${displayName}` : ""}. Continue/pin/hide saves locally on this device.
-              </p>
-            ) : (
-              <p className="text-[11px] text-[var(--muted)]">
-                No account required for most tools. Some are optionally gated.
-              </p>
-            )}
-          </div>
- 
-          <div className="flex flex-wrap gap-2 justify-end shrink-0">
-            <button
-              type="button"
-              onClick={scrollToTools}
-              className="inline-flex items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
-            >
-              Browse tools →
-            </button>
-            {isLoggedIn ? (
-              <PrimaryLink to="/account">Account</PrimaryLink>
-            ) : (
-              <>
-                <PrimaryLink to="/login">Log in</PrimaryLink>
-                <PrimaryLink to="/signup">Create account</PrimaryLink>
-              </>
-            )}
-          </div>
-        </header>
+        <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+  <div className="space-y-2">
+    <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight leading-tight">
+      Small tools that reduce mental loops—alone, and together.
+    </h1>
+
+    <p className="text-sm text-[var(--muted)] leading-6 max-w-prose">
+      PneumEvolve is a collection of standalone pages that help you think, decide, and notice patterns.
+    </p>
+
+    {isLoggedIn ? (
+      <p className="text-[11px] text-[var(--muted)]">
+        Signed in{displayName ? ` as ${displayName}` : ""}. Continue/pin/hide saves locally on this device.
+      </p>
+    ) : (
+      <p className="text-[11px] text-[var(--muted)]">
+        No account required for most tools. Some are optionally gated.
+      </p>
+    )}
+  </div>
+
+  <div className="flex flex-wrap gap-2 sm:justify-end sm:shrink-0">
+    <button
+      type="button"
+      onClick={scrollToTools}
+      className="inline-flex items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
+    >
+      Browse tools →
+    </button>
+    {isLoggedIn ? (
+      <PrimaryLink to="/account">Account</PrimaryLink>
+    ) : (
+      <>
+        <PrimaryLink to="/login">Log in</PrimaryLink>
+        <PrimaryLink to="/signup">Create account</PrimaryLink>
+      </>
+    )}
+  </div>
+</header>
  
         {/* ── Top row: Featured + Continue/What this is + Pinned ───────── */}
         <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4">

@@ -1,4 +1,5 @@
 // src/Pages/SharedStillness.jsx
+// Full file — fixed polling and phase logic for iOS/Safari reliability
  
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
@@ -18,8 +19,6 @@ function formatCountdown(secs) {
   return `${pad(m)}:${pad(s)}`;
 }
  
-// Convert a local time input (HH:MM) + user's browser timezone → UTC HH:MM string
-// This is what we send to the server so the window fires at the right moment globally
 function localTimeToUtc(localTimeStr) {
   const [h, m] = localTimeStr.split(":").map(Number);
   const now = new Date();
@@ -27,7 +26,6 @@ function localTimeToUtc(localTimeStr) {
   return `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}`;
 }
  
-// Show the stored UTC time as local time for display purposes
 function utcTimeToLocal(utcTimeStr) {
   if (!utcTimeStr) return "";
   const [h, m] = utcTimeStr.split(":").map(Number);
@@ -215,7 +213,6 @@ const CSS = `
   .ss-join-label { font-size: 0.72rem; opacity: 0.4; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 0.6rem; }
   .ss-join-row { display: flex; gap: 0.6rem; }
  
-  /* Session page */
   .ss-session-root {
     min-height: 100vh;
     display: flex; flex-direction: column; align-items: center;
@@ -250,7 +247,6 @@ const CSS = `
   .ss-session-invite-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
   .ss-session-invite-url { font-family: monospace; font-size: 0.75rem; opacity: 0.5; word-break: break-all; }
  
-  /* Scheduled time display */
   .ss-scheduled-time {
     font-size: 0.72rem; opacity: 0.3; letter-spacing: 0.06em;
     text-align: center; margin-top: -1rem;
@@ -334,12 +330,15 @@ export function StillnessList() {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
-  const [newTime, setNewTime] = useState("08:00"); // local time input
+  const [newTime, setNewTime] = useState("08:00");
   const [joinCode, setJoinCode] = useState("");
   const [creating, setCreating] = useState(false);
   const [joining, setJoining] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
+  const [editingTimeId, setEditingTimeId] = useState(null);
+  const [editTime, setEditTime] = useState("08:00");
+  const [savingTime, setSavingTime] = useState(false);
  
   const fetchGroups = useCallback(async () => {
     try {
@@ -356,7 +355,6 @@ export function StillnessList() {
     if (!newName.trim() || !newTime) return;
     setCreating(true);
     try {
-      // Convert the user's local time to UTC before sending
       const utcTime = localTimeToUtc(newTime);
       const res = await api.post("/stillness/groups", {
         name: newName.trim(),
@@ -412,6 +410,32 @@ export function StillnessList() {
   function toggleExpanded(e, id) {
     e.stopPropagation();
     setExpandedId(prev => prev === id ? null : id);
+  }
+ 
+  function startEditTime(e, group) {
+    e.stopPropagation();
+    const currentLocal = group.daily_time_utc ? utcTimeToLocal(group.daily_time_utc) : "08:00";
+    setEditTime(currentLocal);
+    setEditingTimeId(group.id);
+  }
+ 
+  function cancelEditTime(e) {
+    e.stopPropagation();
+    setEditingTimeId(null);
+  }
+ 
+  async function handleSaveTime(e, group) {
+    e.stopPropagation();
+    e.preventDefault();
+    if (!editTime) return;
+    setSavingTime(true);
+    try {
+      const utcTime = localTimeToUtc(editTime);
+      const res = await api.patch(`/stillness/groups/${group.id}`, { daily_time_utc: utcTime });
+      setGroups(prev => prev.map(g => g.id === group.id ? { ...g, daily_time_utc: res.data.daily_time_utc } : g));
+      setEditingTimeId(null);
+    } catch {}
+    finally { setSavingTime(false); }
   }
  
   return (
@@ -479,6 +503,15 @@ export function StillnessList() {
                   </div>
                 </div>
                 <div className="ss-group-actions">
+                  {group.is_owner && (
+                    <button
+                      className="ss-btn"
+                      style={{ fontSize: "0.7rem", padding: "0.3rem 0.75rem" }}
+                      onClick={e => startEditTime(e, group)}
+                    >
+                      edit time
+                    </button>
+                  )}
                   <button
                     className="ss-btn"
                     style={{ fontSize: "0.7rem", padding: "0.3rem 0.75rem" }}
@@ -492,6 +525,39 @@ export function StillnessList() {
                   }
                 </div>
               </div>
+ 
+              {editingTimeId === group.id && (
+                <div
+                  className="ss-invite-section"
+                  style={{ flexDirection: "column", alignItems: "flex-start", gap: "0.6rem" }}
+                  onClick={e => e.stopPropagation()}
+                >
+                  <div className="ss-field-label" style={{ margin: 0 }}>new time — your local time</div>
+                  <div style={{ display: "flex", gap: "0.6rem", width: "100%", alignItems: "center" }}>
+                    <input
+                      className="ss-input"
+                      type="time"
+                      value={editTime}
+                      onChange={e => setEditTime(e.target.value)}
+                      style={{ maxWidth: "140px" }}
+                    />
+                    <button
+                      className="ss-btn ss-btn--primary"
+                      onClick={e => handleSaveTime(e, group)}
+                      disabled={savingTime || !editTime}
+                    >
+                      {savingTime ? "saving…" : "save"}
+                    </button>
+                    <button className="ss-btn" onClick={cancelEditTime}>cancel</button>
+                  </div>
+                  {editTime && (
+                    <div className="ss-time-hint" style={{ margin: 0 }}>
+                      Will be stored as {localTimeToUtc(editTime)} UTC.
+                    </div>
+                  )}
+                </div>
+              )}
+ 
               {expandedId === group.id && (
                 <div className="ss-invite-section">
                   <span className="ss-invite-code">
@@ -533,7 +599,6 @@ export function StillnessSession() {
   const [groupInfo, setGroupInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  // localCountdown ticks independently but is resynced from server on each poll/fetch
   const [localCountdown, setLocalCountdown] = useState(0);
   const [checkingIn, setCheckingIn] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
@@ -544,7 +609,37 @@ export function StillnessSession() {
  
   const pollRef = useRef(null);
   const tickRef = useRef(null);
-  const windowWasOpen = useRef(false);
+ 
+  const pollPresence = useCallback(async () => {
+    try {
+      const res = await api.get(`/stillness/groups/${groupId}/presence`);
+      setSession(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          window_open: res.data.window_open,
+          seconds_remaining: res.data.seconds_remaining,
+          present_members: res.data.present_members,
+          your_checkin: res.data.your_checkin,
+        };
+      });
+      if (res.data.seconds_remaining != null) {
+        setLocalCountdown(Math.floor(res.data.seconds_remaining));
+      }
+    } catch {}
+  }, [groupId]);
+ 
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }, []);
+ 
+  const startPolling = useCallback(() => {
+    stopPolling();
+    pollRef.current = setInterval(pollPresence, 3000);
+  }, [pollPresence, stopPolling]);
  
   const fetchSession = useCallback(async () => {
     try {
@@ -556,41 +651,17 @@ export function StillnessSession() {
       setSession(s);
       const g = groupsRes.data.find(g => String(g.id) === String(groupId));
       if (g) setGroupInfo(g);
-      // Sync countdown from server — this is the source of truth
       setLocalCountdown(Math.floor(s.window_open ? s.seconds_remaining : s.seconds_until_open));
       setError(null);
+      if (s.window_open) startPolling();
     } catch {
       setError("Couldn't load this group. You may not be a member.");
     } finally {
       setLoading(false);
     }
-  }, [groupId]);
+  }, [groupId, startPolling]);
  
-  const pollPresence = useCallback(async () => {
-    try {
-      const res = await api.get(`/stillness/groups/${groupId}/presence`);
-      setSession(prev => prev ? {
-        ...prev,
-        window_open: res.data.window_open,
-        seconds_remaining: res.data.seconds_remaining,
-        present_members: res.data.present_members,
-        your_checkin: res.data.your_checkin,
-      } : prev);
-      // Resync countdown from server every poll to prevent drift
-      if (res.data.seconds_remaining != null) {
-        setLocalCountdown(Math.floor(res.data.seconds_remaining));
-      }
-      if (!res.data.window_open && windowWasOpen.current) {
-        windowWasOpen.current = false;
-        clearInterval(pollRef.current);
-        pollRef.current = null;
-        // Refetch full session to get countdown to next window
-        setTimeout(fetchSession, 1500);
-      }
-    } catch {}
-  }, [groupId, fetchSession]);
- 
-  // Local second tick — just for smooth display between polls
+  // Local tick — smooth display only
   useEffect(() => {
     tickRef.current = setInterval(() => {
       setLocalCountdown(prev => Math.max(0, prev - 1));
@@ -598,18 +669,33 @@ export function StillnessSession() {
     return () => clearInterval(tickRef.current);
   }, []);
  
-  useEffect(() => { fetchSession(); }, [fetchSession]);
- 
-  // Start polling when window opens, stop when it closes
+  // Initial load
   useEffect(() => {
-  if ((session?.window_open || localCountdown === 0) && !pollRef.current) {
-    windowWasOpen.current = true;
-    pollRef.current = setInterval(pollPresence, 3000);
-  }
-  return () => {
-    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
-  };
-}, [session?.window_open, localCountdown, pollPresence]);
+    fetchSession();
+    return () => stopPolling();
+  }, [fetchSession, stopPolling]);
+ 
+  // When countdown hits zero, immediately ask the server what's happening
+  const didFireRef = useRef(false);
+  useEffect(() => {
+    if (localCountdown === 0 && !didFireRef.current) {
+      didFireRef.current = true;
+      pollPresence();
+      startPolling();
+      // Reset so it can fire again for the next window
+      setTimeout(() => { didFireRef.current = false; }, 10000);
+    }
+  }, [localCountdown]); // eslint-disable-line react-hooks/exhaustive-deps
+ 
+  // Stop polling when server confirms window closed, refetch for next countdown
+  const prevWindowOpen = useRef(null);
+  useEffect(() => {
+    if (prevWindowOpen.current === true && session?.window_open === false) {
+      stopPolling();
+      setTimeout(fetchSession, 1500);
+    }
+    prevWindowOpen.current = session?.window_open ?? null;
+  }, [session?.window_open]); // eslint-disable-line react-hooks/exhaustive-deps
  
   async function handleCheckin() {
     if (!session?.window_open || session?.your_checkin || checkingIn) return;
@@ -634,11 +720,9 @@ export function StillnessSession() {
   if (loading) return <div className="ss-root"><style>{CSS}</style><div className="ss-error">…</div></div>;
   if (error)   return <div className="ss-root"><style>{CSS}</style><div className="ss-error">{error}</div></div>;
  
-  const phase = session?.window_open
-  ? "open"
-  : localCountdown === 0 && windowWasOpen.current
-  ? "closing"
-  : "waiting";
+  // Phase is driven entirely by server — localCountdown === 0 only shows "closing"
+  // if the server has already confirmed window_open is false
+  const phase = session?.window_open ? "open" : localCountdown === 0 ? "closing" : "waiting";
   const presentOthers = session?.present_members || [];
  
   return (
@@ -680,7 +764,6 @@ export function StillnessSession() {
             </div>
           </div>
  
-          {/* Show the scheduled local time during waiting phase */}
           {phase === "waiting" && groupInfo?.daily_time_utc && (
             <div className="ss-scheduled-time">
               daily at {formatLocalTime(groupInfo.daily_time_utc)}
@@ -708,20 +791,19 @@ export function StillnessSession() {
           </div>
  
           <div className="ss-presence-wrap">
-  {session?.present_members?.length === 0 && (
-    <div className="ss-presence">
-      <div className="ss-presence-dot ss-presence-dot--you" />
-      <span className="ss-presence-name">waiting…</span>
-    </div>
-  )}
-  {(session?.present_members || []).map((m, i) => (
-    <div key={m.id} className="ss-presence ss-presence--arrived" style={{ transitionDelay: `${i * 300}ms` }}>
-      <div className="ss-presence-dot" />
-      <span className="ss-presence-name">{m.display_name}</span>
-    </div>
-  ))}
-</div>
-
+            {presentOthers.length === 0 && (
+              <div className="ss-presence">
+                <div className="ss-presence-dot" />
+                <span className="ss-presence-name">waiting…</span>
+              </div>
+            )}
+            {presentOthers.map((m, i) => (
+              <div key={m.id} className="ss-presence ss-presence--arrived" style={{ transitionDelay: `${i * 300}ms` }}>
+                <div className="ss-presence-dot" />
+                <span className="ss-presence-name">{m.display_name}</span>
+              </div>
+            ))}
+          </div>
  
           {streak > 0 && (
             <div className="ss-streak">
