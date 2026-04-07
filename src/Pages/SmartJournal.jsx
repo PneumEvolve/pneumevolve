@@ -1,384 +1,252 @@
-import React, { useEffect, useState } from "react";
+// src/Pages/SmartJournal.jsx
+// Simplified journal — AI insight features removed until a new API is wired up
+ 
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Button } from "../components/ui/button";
-import { Save, Trash, Wand2, Eye, EyeOff, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
-
-const SmartJournal = () => {
+ 
+export default function SmartJournal() {
   const [entries, setEntries] = useState([]);
-  const [newEntry, setNewEntry] = useState({ title: "", content: "" });
-  const [expandedEntries, setExpandedEntries] = useState({});
-  const [visibleInsights, setVisibleInsights] = useState({});
-  const [selectedAction, setSelectedAction] = useState({});
-  const [modal, setModal] = useState({ open: false, entryId: null, type: null });
-  const [showLoginModal, setShowLoginModal] = useState(false);
-  const { userId, accessToken, userProfile } = useAuth();
-
+  const [newTitle, setNewTitle] = useState("");
+  const [newContent, setNewContent] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [expandedId, setExpandedId] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editContent, setEditContent] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+ 
+  const { userProfile, isLoggedIn } = useAuth();
   const navigate = useNavigate();
-  const [editingEntry, setEditingEntry] = useState(null);
-  const [editedContent, setEditedContent] = useState("");
-  const [editedTitle, setEditedTitle] = useState("");
-
-  const fetchEntries = async () => {
+ 
+  useEffect(() => {
+    if (!isLoggedIn) {
+      navigate("/login");
+      return;
+    }
+    fetchEntries();
+  }, [isLoggedIn]);
+ 
+  async function fetchEntries() {
     try {
       const res = await api.get("/journal");
       setEntries(res.data);
-    } catch (err) {
-      console.error("Failed to fetch journal entries:", err);
-      setShowLoginModal(true);
+    } catch {
+      setError("Couldn't load your journal entries.");
+    } finally {
+      setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    fetchEntries();
-  }, [userId, accessToken]);
-
-  const handleCreate = async () => {
-    if (!newEntry.title.trim() || !newEntry.content.trim()) return;
+  }
+ 
+  async function handleCreate(e) {
+    e.preventDefault();
+    if (!newTitle.trim() || !newContent.trim()) return;
+    setSaving(true);
     try {
-      const res = await api.post("/journal", newEntry);
-      setEntries([res.data, ...entries]);
-      setNewEntry({ title: "", content: "" });
-    } catch (err) {
-      console.error("Failed to create entry:", err);
+      const res = await api.post("/journal", { title: newTitle.trim(), content: newContent.trim() });
+      setEntries(prev => [res.data, ...prev]);
+      setNewTitle("");
+      setNewContent("");
+    } catch {
+      setError("Couldn't save entry. Try again.");
+    } finally {
+      setSaving(false);
     }
-  };
-
-  const handleEditSave = async (entryId) => {
+  }
+ 
+  async function handleEditSave(id) {
     try {
-      const res = await api.put(`/journal/${entryId}`, {
-        title: editedTitle,
-        content: editedContent,
+      const res = await api.put(`/journal/${id}`, {
+        title: editTitle,
+        content: editContent,
       });
-      setEntries((prev) => prev.map((e) => (e.id === entryId ? res.data : e)));
-      setEditingEntry(null);
-    } catch (err) {
-      alert("Failed to update journal entry.");
-      console.error(err);
+      setEntries(prev => prev.map(e => e.id === id ? res.data : e));
+      setEditingId(null);
+    } catch {
+      setError("Couldn't update entry.");
     }
-  };
-
-  const confirmDeleteEntry = async (id) => {
+  }
+ 
+  async function handleDelete(id) {
     try {
       await api.delete(`/journal/${id}`);
-      setEntries(entries.filter((e) => e.id !== id));
-    } catch (err) {
-      console.error("Failed to delete entry:", err);
+      setEntries(prev => prev.filter(e => e.id !== id));
+      setConfirmDeleteId(null);
+    } catch {
+      setError("Couldn't delete entry.");
     }
-  };
-
-  const handleInsight = async (entry, type) => {
-    if (entry[type]) return;
-    const backendType = type === "next_action" ? "next-action" : type;
-    try {
-      await api.post(`/journal/${backendType}/${entry.id}`);
-
-      const pollForInsight = async (retries = 10) => {
-        try {
-          const res = await api.get("/journal");
-          const updatedEntry = res.data.find((e) => e.id === entry.id);
-          if (updatedEntry && updatedEntry[type]?.trim()) {
-            setEntries((prev) =>
-              prev.map((e) => (e.id === entry.id ? updatedEntry : e))
-            );
-            setVisibleInsights((prev) => ({
-              ...prev,
-              [entry.id]: { ...prev[entry.id], [type]: true },
-            }));
-            setSelectedAction((prev) => ({ ...prev, [entry.id]: "" }));
-          } else if (retries > 0) {
-            setTimeout(() => pollForInsight(retries - 1), 2000);
-          } else {
-            alert("Insight is still not ready. Try refreshing.");
-          }
-        } catch (err) {
-          console.error("Polling failed:", err);
-        }
-      };
-
-      pollForInsight();
-    } catch (err) {
-      console.error("Insight generation failed:", err);
-      alert("Failed to generate insight.");
-    }
-  };
-
-  const toggleEntryExpand = (id) => {
-    setExpandedEntries((prev) => ({ ...prev, [id]: !prev[id] }));
-  };
-
-  const toggleInsightVisibility = (id, type) => {
-    setVisibleInsights((prev) => ({
-      ...prev,
-      [id]: { ...prev[id], [type]: !prev[id]?.[type] },
-    }));
-  };
-
-  const deleteInsightFromState = async (id, type) => {
-    try {
-      await api.delete(`/journal/${id}/insight/${type}`);
-      setEntries((prev) =>
-        prev.map((e) => (e.id === id ? { ...e, [type]: null } : e))
-      );
-      setVisibleInsights((prev) => {
-        const updated = { ...prev };
-        if (updated[id]) delete updated[id][type];
-        return updated;
-      });
-    } catch (err) {
-      console.error("Failed to delete insight:", err);
-      alert("Could not delete insight.");
-    }
-  };
-
+  }
+ 
+  function startEdit(entry) {
+    setEditingId(entry.id);
+    setEditTitle(entry.title);
+    setEditContent(entry.content);
+    setExpandedId(entry.id);
+  }
+ 
   return (
-    <div className="p-6 max-w-4xl mx-auto dark:text-white">
-      <h1 className="text-4xl font-extrabold dark:text-black mb-6 text-center">
-        📝 {userProfile?.username || "I AM"}'s Smart Journal
+    <div className="max-w-2xl mx-auto px-4 py-8 text-[var(--text)]">
+      <h1 className="text-2xl font-semibold tracking-tight mb-1">
+        {userProfile?.username ? `${userProfile.username}'s Journal` : "Journal"}
       </h1>
-
-      <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow mb-6">
+      <p className="text-sm text-[var(--muted)] mb-8">
+        Write your truth. It stays yours.
+      </p>
+ 
+      {/* New entry form */}
+      <form onSubmit={handleCreate} className="space-y-3 mb-10">
         <input
           type="text"
           placeholder="Title"
-          className="w-full p-2 mb-2 border rounded"
-          value={newEntry.title}
-          onChange={(e) => setNewEntry({ ...newEntry, title: e.target.value })}
+          value={newTitle}
+          onChange={e => setNewTitle(e.target.value)}
+          className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--muted)] outline-none focus:border-[var(--text)] transition"
         />
         <textarea
           rows={6}
-          placeholder="Write your truth..."
-          className="w-full p-2 border rounded"
-          value={newEntry.content}
-          onChange={(e) => setNewEntry({ ...newEntry, content: e.target.value })}
+          placeholder="What's on your mind..."
+          value={newContent}
+          onChange={e => setNewContent(e.target.value)}
+          className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--muted)] outline-none focus:border-[var(--text)] transition resize-none"
         />
-        <div className="flex justify-between items-center mt-2">
-          <span className="text-sm text-gray-500">{newEntry.content.length} characters</span>
-          <Button variant="green" onClick={handleCreate}>
-            <Save className="mr-2" /> Save Entry
-          </Button>
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-[var(--muted)]">{newContent.length} characters</span>
+          <button
+            type="submit"
+            disabled={saving || !newTitle.trim() || !newContent.trim()}
+            className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-4 py-2 text-sm font-medium shadow-sm hover:shadow transition disabled:opacity-40"
+          >
+            {saving ? "Saving…" : "Save entry"}
+          </button>
         </div>
-      </div>
-
-      <h2 className="text-2xl dark:text-black font-semibold mb-4">📚 Past Entries</h2>
-      {entries.length === 0 ? (
-        <p className="text-gray-400 italic text-center">
-          You haven't journaled yet... what's on your mind?
+      </form>
+ 
+      {/* Error */}
+      {error && (
+        <p className="text-sm text-red-500 mb-4">{error}</p>
+      )}
+ 
+      {/* Entries */}
+      {loading ? (
+        <p className="text-sm text-[var(--muted)] text-center py-8">Loading…</p>
+      ) : entries.length === 0 ? (
+        <p className="text-sm text-[var(--muted)] text-center py-8 italic">
+          No entries yet — what's on your mind?
         </p>
       ) : (
         <div className="space-y-4">
-          {entries.map((entry) => (
+          {entries.map(entry => (
             <div
-              key={entry.id + (entry.reflection || "") + (entry.mantra || "") + (entry.next_action || "")}
-              className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow relative group"
+              key={entry.id}
+              className="rounded-2xl border border-[var(--border)] bg-[var(--bg-elev)] p-5"
             >
-              <div className="flex justify-between items-center mb-2">
-                <h3 className="text-xl font-bold">{entry.title}</h3>
-                <div className="flex gap-2">
-                  <Button variant="blue" size="icon" onClick={() => toggleEntryExpand(entry.id)}>
-                    {expandedEntries[entry.id] ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </Button>
-                  <Button
-                    size="icon"
-                    className="bg-red-600 hover:bg-red-700 text-white"
-                    onClick={() => setModal({ open: true, entryId: entry.id, type: "entry" })}
-                    variant="destructive"
-                  >
-                    <Trash size={16} />
-                  </Button>
-                </div>
-              </div>
-
-              <p className="text-sm text-gray-500 mb-2">
-                {new Date(entry.created_at).toLocaleString()}
-              </p>
-
-              {editingEntry === entry.id ? (
-                <>
+              {editingId === entry.id ? (
+                /* Edit mode */
+                <div className="space-y-3">
                   <input
-                    className="w-full mb-2 p-2 border rounded"
-                    value={editedTitle}
-                    onChange={(e) => setEditedTitle(e.target.value)}
+                    value={editTitle}
+                    onChange={e => setEditTitle(e.target.value)}
+                    className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--text)] transition"
                   />
                   <textarea
-                    className="w-full mb-2 p-2 border rounded"
-                    value={editedContent}
-                    onChange={(e) => setEditedContent(e.target.value)}
+                    rows={6}
+                    value={editContent}
+                    onChange={e => setEditContent(e.target.value)}
+                    className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--text)] transition resize-none"
                   />
                   <div className="flex gap-2">
-                    <Button onClick={() => handleEditSave(entry.id)}>Save</Button>
-                    <Button variant="ghost" onClick={() => setEditingEntry(null)}>Cancel</Button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  {expandedEntries[entry.id] && <p className="mb-2">{entry.content}</p>}
-                  <div className="flex gap-2 mt-2">
-                    <Button
-                      size="sm"
-                      variant="yellow"
-                      onClick={() => {
-                        setModal({ open: true, entryId: entry.id, type: "edit" });
-                        setEditedTitle(entry.title);
-                        setEditedContent(entry.content);
-                      }}
+                    <button
+                      onClick={() => handleEditSave(entry.id)}
+                      className="rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
                     >
-                      Edit
-                    </Button>
+                      Save changes
+                    </button>
+                    <button
+                      onClick={() => setEditingId(null)}
+                      className="rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-2 text-xs font-medium opacity-50 hover:opacity-80 transition"
+                    >
+                      Cancel
+                    </button>
                   </div>
+                </div>
+              ) : (
+                /* View mode */
+                <>
+                  <div className="flex items-start justify-between gap-3 mb-1">
+                    <h3
+                      className="text-base font-semibold cursor-pointer hover:opacity-70 transition"
+                      onClick={() => setExpandedId(expandedId === entry.id ? null : entry.id)}
+                    >
+                      {entry.title}
+                    </h3>
+                    <div className="flex gap-2 shrink-0">
+                      <button
+                        onClick={() => startEdit(entry)}
+                        className="text-xs text-[var(--muted)] hover:text-[var(--text)] transition"
+                      >
+                        edit
+                      </button>
+                      <button
+                        onClick={() => setConfirmDeleteId(entry.id)}
+                        className="text-xs text-red-400 hover:text-red-600 transition"
+                      >
+                        delete
+                      </button>
+                    </div>
+                  </div>
+ 
+                  <p className="text-xs text-[var(--muted)] mb-3">
+                    {new Date(entry.created_at).toLocaleString()}
+                  </p>
+ 
+                  {expandedId === entry.id && (
+                    <p className="text-sm leading-7 whitespace-pre-wrap text-[var(--text)]">
+                      {entry.content}
+                    </p>
+                  )}
+ 
+                  {expandedId !== entry.id && (
+                    <p
+                      className="text-sm text-[var(--muted)] cursor-pointer hover:opacity-80 transition line-clamp-2"
+                      onClick={() => setExpandedId(entry.id)}
+                    >
+                      {entry.content}
+                    </p>
+                  )}
                 </>
-              )}
-
-              <div className="flex items-center gap-2 mt-2">
-                <select
-                  className="p-2 border rounded"
-                  value={selectedAction[entry.id] || ""}
-                  onChange={(e) =>
-                    setSelectedAction({ ...selectedAction, [entry.id]: e.target.value })
-                  }
-                >
-                  <option value="">Choose an Insight</option>
-                  <option value="reflect">Reflect</option>
-                  <option value="mantra">Mantra Maker</option>
-                  <option value="next_action">What should I do next?</option>
-                </select>
-                <Button
-                  className="bg-green-600 hover:bg-green-700 text-white"
-                  onClick={() => {
-                    const action = selectedAction[entry.id];
-                    if (action) handleInsight(entry, action);
-                  }}
-                >
-                  <Wand2 className="mr-2" /> Go
-                </Button>
-              </div>
-
-              {["reflection", "mantra", "next_action"].map((type) =>
-                typeof entry[type] === "string" && entry[type].trim() !== "" ? (
-                  <div key={type} className="mt-3">
-                    {visibleInsights[entry.id]?.[type] ? (
-                      <>
-                        <div className="p-3 border-l-4 border-indigo-500 bg-indigo-100 dark:bg-indigo-900 text-indigo-900 dark:text-indigo-100 rounded relative">
-                          <strong>{type.replace("_", " ").toUpperCase()}:</strong> {entry[type]}
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            onClick={() => setModal({ open: true, entryId: entry.id, type })}
-                            className="absolute -top-3 -right-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-full shadow"
-                            title={`Delete ${type}`}
-                          >
-                            <X size={12} />
-                          </Button>
-                        </div>
-                        <div className="text-right mt-1">
-                          <Button
-                            variant="blue"
-                            size="sm"
-                            onClick={() => toggleInsightVisibility(entry.id, type)}
-                          >
-                            Hide {type.replace("_", " ")}
-                          </Button>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="text-right">
-                        <Button
-                          variant="blue"
-                          size="sm"
-                          onClick={() => toggleInsightVisibility(entry.id, type)}
-                        >
-                          Show {type.replace("_", " ")}
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                ) : null
               )}
             </div>
           ))}
         </div>
       )}
-
-      {modal.open && (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
-          {modal.type === "edit" ? (
-            <div className="bg-white dark:bg-gray-800 w-full max-w-3xl p-6 rounded-lg shadow-lg overflow-y-auto max-h-[90vh]">
-              <h2 className="text-2xl font-bold mb-4">Edit Journal Entry</h2>
-              <input
-                className="w-full mb-3 p-2 border rounded"
-                value={editedTitle}
-                onChange={(e) => setEditedTitle(e.target.value)}
-              />
-              <textarea
-                className="w-full h-64 mb-4 p-2 border rounded"
-                value={editedContent}
-                onChange={(e) => setEditedContent(e.target.value)}
-              />
-              <div className="flex justify-between">
-                <Button
-                  onClick={async () => {
-                    await handleEditSave(modal.entryId);
-                    setModal({ open: false, entryId: null, type: null });
-                  }}
-                >
-                  Save Changes
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => setModal({ open: false, entryId: null, type: null })}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg max-w-sm text-center">
-              <p className="mb-4 text-lg">
-                Are you sure you want to delete this{" "}
-                {modal.type === "entry" ? "journal entry" : modal.type.replace("_", " ")}?
-              </p>
-              <div className="flex justify-center gap-4">
-                <Button
-                  onClick={() => {
-                    if (modal.type === "entry") {
-                      confirmDeleteEntry(modal.entryId);
-                    } else {
-                      deleteInsightFromState(modal.entryId, modal.type);
-                    }
-                    setModal({ open: false, entryId: null, type: null });
-                  }}
-                >
-                  Yes, Delete
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => setModal({ open: false, entryId: null, type: null })}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {showLoginModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg max-w-sm text-center">
-            <h2 className="text-xl font-bold mb-2">Login Required</h2>
-            <p className="mb-4">Please log in to use the Smart Journal features.</p>
-            <div className="flex justify-center gap-4">
-              <Button onClick={() => navigate("/login")}>Go to Login</Button>
-              <Button variant="ghost" onClick={() => setShowLoginModal(false)}>
-                Continue Browsing
-              </Button>
+ 
+      {/* Delete confirm modal */}
+      {confirmDeleteId && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
+          <div className="bg-[var(--bg-elev)] border border-[var(--border)] rounded-2xl p-6 max-w-sm w-full text-center space-y-4 shadow-xl">
+            <p className="text-sm leading-6">
+              Delete this journal entry? This can't be undone.
+            </p>
+            <div className="flex justify-center gap-3">
+              <button
+                onClick={() => handleDelete(confirmDeleteId)}
+                className="rounded-xl border border-red-400/40 text-red-500 px-4 py-2 text-sm font-medium hover:bg-red-50 dark:hover:bg-red-900/20 transition"
+              >
+                Delete
+              </button>
+              <button
+                onClick={() => setConfirmDeleteId(null)}
+                className="rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-medium hover:shadow transition"
+              >
+                Cancel
+              </button>
             </div>
           </div>
         </div>
       )}
     </div>
   );
-};
-
-export default SmartJournal;
+}

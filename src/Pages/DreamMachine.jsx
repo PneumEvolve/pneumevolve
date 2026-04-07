@@ -2,51 +2,42 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
-
+ 
 export default function DreamMachine() {
   const [summary, setSummary] = useState("");
   const [mantra, setMantra] = useState("");
+  const [featured, setFeatured] = useState("");
   const [count, setCount] = useState(0);
   const [updatedAt, setUpdatedAt] = useState("");
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
-
+ 
   useEffect(() => {
     const ctrl = new AbortController();
     (async () => {
       try {
         setErr("");
         setLoading(true);
-
-        let res = await api.get("/we-dream/collective", {
+        const res = await api.get("/we-dream/collective", {
           signal: ctrl.signal,
           validateStatus: () => true,
         });
-        if (res.status === 307 || res.status === 308) {
-          res = await api.get("/we-dream/collective/", {
-            signal: ctrl.signal,
-            validateStatus: () => true,
-          });
-        }
         if (res.status !== 200) {
           setErr(`Failed to load (status ${res.status})`);
           return;
         }
-
         const data = res.data || {};
         setSummary(data.summary ?? "");
         setMantra(data.mantra ?? "");
+        setFeatured(data.featured ?? "");
         setCount(
-          typeof data.count === "number"
-            ? data.count
-            : typeof data.entry_count === "number"
-            ? data.entry_count
-            : 0
+          typeof data.count === "number" ? data.count
+          : typeof data.entry_count === "number" ? data.entry_count
+          : 0
         );
         setUpdatedAt(data.updated_at || data.created_at || "");
       } catch (e) {
         if (e?.code === "ERR_CANCELED" || e?.name === "CanceledError") return;
-        console.error("Failed to load dream machine data:", e);
         setErr("Failed to load dream machine data.");
       } finally {
         setLoading(false);
@@ -54,75 +45,94 @@ export default function DreamMachine() {
     })();
     return () => ctrl.abort();
   }, []);
-
+ 
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.origin + "/experiments/dream-machine");
+      alert("Link copied!");
+    } catch {
+      alert("Couldn't copy the link.");
+    }
+  };
+ 
   const shareFacebook = () => {
-    const url = encodeURIComponent(window.location.origin + "/dream-machine");
+    const url = encodeURIComponent(window.location.origin + "/experiments/dream-machine");
     window.open(
       `https://www.facebook.com/sharer/sharer.php?u=${url}`,
       "_blank",
       "noopener,noreferrer"
     );
   };
-
-  const copyLink = async () => {
-    try {
-      await navigator.clipboard.writeText(window.location.origin + "/dream-machine");
-      alert("Link copied!");
-    } catch {
-      alert("Couldn’t copy the link.");
-    }
-  };
-
+ 
   return (
     <main className="main p-6 space-y-8">
       {/* Hero */}
       <section className="card text-center space-y-4">
         <h1 className="text-3xl sm:text-4xl font-bold">🌍 Dream Machine</h1>
-        <p className="opacity-90">
-          Each night, one dream from every active user is woven into a collective message.
-          A living summary of where we’re headed—together.
+        <p className="opacity-90 max-w-lg mx-auto">
+          Each night, the visions of everyone dreaming together are woven into
+          a collective message. A living picture of where we're headed.
         </p>
         <div className="flex items-center justify-center gap-3 flex-wrap">
-          <Link to="/we-dream" className="btn">➕ Add your Dream</Link>
+          <Link to="/we-dream" className="btn">➕ Add your dream</Link>
           <Link to="/" className="btn btn-secondary">← Home</Link>
         </div>
       </section>
-
-      {/* Status / meta */}
+ 
+      {/* Meta bar */}
       <div className="section-bar flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="badge">🛌 {count} dream{count === 1 ? "" : "s"}</span>
           <span className="badge">
-            ⏰ Updated: {updatedAt ? new Date(updatedAt).toLocaleString() : "—"}
+            🛌 {count} {count === 1 ? "dreamer" : "dreamers"}
           </span>
+          {updatedAt && (
+            <span className="badge">
+              ⏰ Last woven: {new Date(updatedAt).toLocaleDateString()}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
-          <button className="btn btn-secondary" onClick={copyLink}>Copy Link</button>
+          <button className="btn btn-secondary" onClick={copyLink}>Copy link</button>
           <button className="btn btn-secondary" onClick={shareFacebook}>Share</button>
         </div>
       </div>
-
-      {/* Content */}
+ 
       {loading ? (
-        <div className="card text-center opacity-80">Loading collective dream…</div>
+        <div className="card text-center opacity-80">Weaving dreams…</div>
       ) : err ? (
-        <div className="card border-amber-500/40 text-center">{err}</div>
+        <div className="card text-center opacity-80">{err}</div>
       ) : (
         <>
-          {/* Mantra */}
+          {/* Collective mantra */}
           <section className="card text-center space-y-2">
-            <h2 className="text-2xl font-semibold">✨ Collective Mantra</h2>
-            <p className="text-xl">{mantra || "—"}</p>
+            <h2 className="text-xl font-semibold opacity-60 uppercase tracking-widest text-sm">
+              Collective mantra
+            </h2>
+            <p className="text-2xl leading-relaxed">
+              {mantra || "—"}
+            </p>
           </section>
-
-          {/* Summary */}
+ 
+          {/* Featured vision */}
+          {featured && (
+            <section className="card space-y-2">
+              <h2 className="text-sm font-semibold opacity-60 uppercase tracking-widest">
+                Tonight's featured dream
+              </h2>
+              <p className="text-lg leading-relaxed italic opacity-90">
+                "{featured}"
+              </p>
+            </section>
+          )}
+ 
+          {/* All visions summary */}
           <section className="space-y-2">
             <div className="section-bar">
-              <h3 className="font-semibold">🧠 AI Summary</h3>
+              <h3 className="font-semibold">What people are dreaming</h3>
             </div>
             <div className="card">
-              <p className="whitespace-pre-wrap leading-relaxed">
-                {summary || "No summary yet. Add your dream to help shape it."}
+              <p className="whitespace-pre-wrap leading-loose opacity-90">
+                {summary || "No dreams woven yet. Add yours to start the machine."}
               </p>
             </div>
           </section>
