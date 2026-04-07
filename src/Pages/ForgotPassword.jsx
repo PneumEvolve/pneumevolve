@@ -1,61 +1,86 @@
-// src/pages/ForgotPassword.jsx
-import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
-
-const API_URL = "https://shea-klipper-backend.onrender.com";
-
+// src/Pages/ForgotPassword.jsx
+import { useState } from "react";
+import { Link } from "react-router-dom";
+import { api } from "@/lib/api";
+ 
 export default function ForgotPassword() {
   const [email, setEmail] = useState("");
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-  const navigate = useNavigate();
-
-  const handleSubmit = async () => {
+  const [status, setStatus] = useState(null); // "sent" | "error"
+  const [errorMsg, setErrorMsg] = useState("");
+  const [loading, setLoading] = useState(false);
+ 
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!email.trim()) return;
+    setLoading(true);
+    setStatus(null);
     try {
-      const res = await fetch(`${API_URL}/auth/request-password-reset`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim() }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Request failed");
-
-      setMessage(data.message);
-      setError("");
+      await api.post("/auth/request-password-reset", { email: email.trim() });
+      setStatus("sent");
     } catch (err) {
-      setError(err.message);
-      setMessage("");
+      setErrorMsg(err?.response?.data?.detail || "Something went wrong. Please try again.");
+      setStatus("error");
+    } finally {
+      setLoading(false);
     }
-  };
-
+  }
+ 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-white text-black">
-      <h2 className="text-2xl font-semibold mb-4">Reset Your Password</h2>
-      {message && <p className="text-green-600 mb-2">{message}</p>}
-      {error && <p className="text-red-600 mb-2">{error}</p>}
-
-      <input
-        type="email"
-        placeholder="Enter your email"
-        className="p-2 border rounded w-full max-w-xs mb-4"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-      />
-
-      <button
-        onClick={handleSubmit}
-        className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700"
-      >
-        Send Reset Link
-      </button>
-
-      <p
-        onClick={() => navigate("/login")}
-        className="mt-4 text-blue-500 underline cursor-pointer"
-      >
-        Back to Login
-      </p>
+    <div className="min-h-screen flex flex-col items-center justify-center px-4 bg-[var(--bg)] text-[var(--text)]">
+      <div className="w-full max-w-sm space-y-6">
+ 
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold tracking-tight">Reset your password</h1>
+          <p className="text-sm text-[var(--muted)]">
+            Enter your email and we'll send you a reset link.
+          </p>
+        </div>
+ 
+        {status === "sent" ? (
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-5 text-sm leading-6 space-y-2">
+            <p className="font-medium">Check your inbox.</p>
+            <p className="text-[var(--muted)]">
+              If an account exists for <strong>{email}</strong>, a reset link is on its way.
+              It expires in 30 minutes.
+            </p>
+            <p className="text-[var(--muted)]">
+              Don't see it? Check your spam folder.
+            </p>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                required
+                autoFocus
+                className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--muted)] outline-none focus:border-[var(--text)] transition"
+              />
+            </div>
+ 
+            {status === "error" && (
+              <p className="text-sm text-red-500">{errorMsg}</p>
+            )}
+ 
+            <button
+              type="submit"
+              disabled={loading || !email.trim()}
+              className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-4 py-2.5 text-sm font-medium shadow-sm hover:shadow transition disabled:opacity-40"
+            >
+              {loading ? "Sending…" : "Send reset link"}
+            </button>
+          </form>
+        )}
+ 
+        <p className="text-center text-sm text-[var(--muted)]">
+          <Link to="/login" className="hover:underline">Back to login</Link>
+        </p>
+ 
+      </div>
     </div>
   );
 }

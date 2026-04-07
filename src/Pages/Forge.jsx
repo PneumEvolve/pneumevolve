@@ -656,7 +656,7 @@ export default function Forge() {
             </p>
             <p className="text-sm sm:text-base">
               One stream, two kinds: <span className="font-medium">Problems</span> and{" "}
-              <span className="font-medium">Ideas</span>. We surface the work that matters and move it forward together. Anyone can vote. Sign up to get more involved.
+              <span className="font-medium">Ideas</span>. We surface the work that matters and move it forward together. Sign up to get more involved.
             </p>
           </section>
         </div>

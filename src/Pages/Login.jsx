@@ -63,8 +63,16 @@ export default function Login() {
       const decoded = jwtDecode(access_token);
 
       login(access_token, refresh_token, decoded.id, decoded.sub);
-      const lastVisitedPath = localStorage.getItem("lastVisitedPath") || "/";
-      navigate(lastVisitedPath);
+      const BLOCKED_REDIRECTS = ["/reset-password", "/forgot-password", "/login", "/signup", "/logout"];
+
+const raw = localStorage.getItem("lastVisitedPath") || "/";
+localStorage.removeItem("lastVisitedPath"); // clear it so it's never reused
+
+// If the saved path is a blocked route or has a token query param, go home instead
+const isSafe = !BLOCKED_REDIRECTS.some(p => raw.startsWith(p));
+const destination = isSafe ? raw : "/";
+
+navigate(destination);
     } catch (err) {
       console.error("❌ Login failed", err);
       setError("Invalid login or server error.");
@@ -208,7 +216,7 @@ export default function Login() {
               <button
                 type="button"
                 className="link-default"
-                onClick={() => navigate("/forgotpassword")}
+                onClick={() => navigate("/forgot-password")}
               >
                 Forgot Password?
               </button>

@@ -2,7 +2,7 @@
 import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
 
-const AUTH_ROUTES = new Set(["/login", "/signup", "/forgotpassword", "/logout"]);
+const AUTH_ROUTES = new Set(["/login", "/signup", "/forgotpassword", "/logout", "/reset-password", "/forgot-password"]);
 
 export default function LastVisitedPathSaver() {
   const location = useLocation();

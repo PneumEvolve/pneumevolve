@@ -29,7 +29,7 @@ const EXPERIMENTS = [
     to: "/preforge",
     tags: ["organize", "clarity"],
     isPublic: true,
-    isFeatured: true,
+    isFeatured: false,
     updatedAtISO: "2026-01-02",
     requiresAuth: false,
   },

@@ -3,39 +3,29 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import ReCAPTCHA from "react-google-recaptcha";
 import { useAuth } from "../context/AuthContext";
-
-// ---------- Environment-aware config ----------
-const MODE = import.meta.env.MODE; // 'development' or 'production'
+ 
+const MODE = import.meta.env.MODE;
 const ENV_API = import.meta.env.VITE_API_URL?.trim();
 const ENV_REQUIRE_CAPTCHA = (import.meta.env.VITE_REQUIRE_RECAPTCHA ?? "auto").toLowerCase();
 const ENV_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY?.trim();
-
-// Default API URL strategy: explicit env first, then smart fallback
+ 
 const FALLBACK_API =
   MODE === "development"
     ? "http://127.0.0.1:8000"
     : "https://shea-klipper-backend.onrender.com";
-
+ 
 const API_URL = ENV_API || FALLBACK_API;
-
-// reCAPTCHA on/off rules:
-// - If VITE_REQUIRE_RECAPTCHA is 'true'/'false', honor it.
-// - If 'auto', require in production (https backend) and skip in dev.
+ 
 const REQUIRE_CAPTCHA =
   ENV_REQUIRE_CAPTCHA === "true"
     ? true
     : ENV_REQUIRE_CAPTCHA === "false"
     ? false
     : MODE !== "development";
-
-// Site key (only needed if CAPTCHA is required)
+ 
 const RECAPTCHA_SITE_KEY = ENV_SITE_KEY || "6LeICxYrAAAAANn97Wz-rx1oCT9FkKMNQpAya_gv";
-
-// Track which version of your policies the user acknowledged
-const TERMS_VERSION =
-  import.meta.env.VITE_TERMS_VERSION?.trim() || "2025-08-21"; // keep in sync with server
-
-// -------- username helpers (mirror backend) ----------
+const TERMS_VERSION = import.meta.env.VITE_TERMS_VERSION?.trim() || "2025-08-21";
+ 
 const USERNAME_RE = /^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/;
 const normalizeUsername = (s) =>
   (s || "")
@@ -45,31 +35,34 @@ const normalizeUsername = (s) =>
     .replace(/[^a-z0-9._-]/g, "")
     .replace(/^[._-]+|[._-]+$/g, "")
     .slice(0, 30);
-
+ 
+// Requires at least 2 characters after the final dot — catches @gmail.c etc.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+ 
 export default function Signup() {
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [captchaToken, setCaptchaToken] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showPw, setShowPw] = useState(false);
+  const [showConfirmPw, setShowConfirmPw] = useState(false);
   const [accepted, setAccepted] = useState(false);
-
-  const [unameErr, setUnameErr] = useState("");          // ⬅️ NEW
-  const [unameOk, setUnameOk] = useState(false);         // ⬅️ NEW
+ 
+  const [unameErr, setUnameErr] = useState("");
+  const [unameOk, setUnameOk] = useState(false);
   const [checkingUname, setCheckingUname] = useState(false);
-
+ 
   const recaptchaRef = useRef(null);
   const navigate = useNavigate();
   const { isLoggedIn } = useAuth();
-
-  // Redirect if already logged in
+ 
   useEffect(() => {
     if (isLoggedIn) navigate("/");
   }, [isLoggedIn, navigate]);
-
-  // Theme reCAPTCHA
+ 
   const [isDark, setIsDark] = useState(() =>
     document.documentElement.classList.contains("dark")
   );
@@ -82,15 +75,14 @@ export default function Signup() {
     return () => obs.disconnect();
   }, []);
   const captchaTheme = useMemo(() => (isDark ? "dark" : "light"), [isDark]);
-
-  // Username normalization / validation
+ 
   const onUsernameChange = (val) => {
     setUnameErr("");
     setUnameOk(false);
     const n = normalizeUsername(val);
     setUsername(n);
   };
-
+ 
   const checkUsername = async () => {
     setUnameErr("");
     setUnameOk(false);
@@ -100,7 +92,6 @@ export default function Signup() {
       return;
     }
     if (!API_URL) return;
-    // optional availability check
     try {
       setCheckingUname(true);
       const r = await fetch(`${API_URL}/auth/check-username?username=${encodeURIComponent(n)}`);
@@ -109,38 +100,48 @@ export default function Signup() {
       if (j.ok) setUnameOk(true);
       else setUnameErr(j.error || "Username not available");
     } catch {
-      // non-fatal; user can still submit and get definitive error from server
       setUnameOk(false);
     } finally {
       setCheckingUname(false);
     }
-  };  
-
+  };
+ 
   const handleCaptchaChange = (token) => {
     setCaptchaToken(token);
     setError("");
   };
-
+ 
   const handleSignup = async () => {
     if (loading) return;
     setError("");
-
+ 
     const emailTrim = email.trim();
     const passwordTrim = password.trim();
+    const confirmTrim = confirmPassword.trim();
     const usernameTrim = normalizeUsername(username);
-
+ 
     if (!emailTrim || !passwordTrim) {
       setError("Email and password are required.");
       return;
     }
-    if (!/^\S+@\S+\.\S+$/.test(emailTrim)) {
-      setError("Please enter a valid email.");
+ 
+    // Stricter email check — catches @gmail.c style typos
+    if (!EMAIL_RE.test(emailTrim)) {
+      setError("Please enter a valid email address (e.g. you@gmail.com).");
       return;
     }
+ 
     if (passwordTrim.length < 8) {
       setError("Password must be at least 8 characters.");
       return;
     }
+ 
+    // Confirm password check
+    if (passwordTrim !== confirmTrim) {
+      setError("Passwords don't match. Please try again.");
+      return;
+    }
+ 
     if (!USERNAME_RE.test(usernameTrim) || usernameTrim.length < 3) {
       setError("Username: 3–30 chars, a–z, 0–9, . _ -");
       return;
@@ -153,18 +154,14 @@ export default function Signup() {
       setError("Please verify you are not a robot.");
       return;
     }
-
+ 
     try {
       setLoading(true);
-
-      // In dev (or when CAPTCHA is disabled), send a harmless token so the backend
-      // can ignore or accept it (your backend skips captcha in dev anyway).
       const tokenToSend = REQUIRE_CAPTCHA ? captchaToken : "dev-skip";
-
+ 
       const res = await fetch(`${API_URL}/auth/signup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // Must match your Pydantic model: email, password, recaptcha_token
         body: JSON.stringify({
           email: emailTrim,
           password: passwordTrim,
@@ -174,26 +171,23 @@ export default function Signup() {
           terms_version: TERMS_VERSION,
         }),
       });
-
-      // Parse error bodies to show the exact FastAPI detail
+ 
       if (!res.ok) {
         let msg = `Signup failed (HTTP ${res.status})`;
         try {
           const data = await res.json();
-      // detail might be a string or an object
-      if (typeof data?.detail === "string") msg = data.detail;
-      else if (data?.detail?.code === "TERMS_VERSION_MISMATCH") {
-        msg = `Please accept Terms v${data.detail.required_version}.`;
-      } else if (data?.detail?.code === "TERMS_REQUIRED") {
-        msg = `Terms acceptance required (v${data.detail.required_version}).`;
-      } else if (data?.message) {
-        msg = data.message;
+          if (typeof data?.detail === "string") msg = data.detail;
+          else if (data?.detail?.code === "TERMS_VERSION_MISMATCH") {
+            msg = `Please accept Terms v${data.detail.required_version}.`;
+          } else if (data?.detail?.code === "TERMS_REQUIRED") {
+            msg = `Terms acceptance required (v${data.detail.required_version}).`;
+          } else if (data?.message) {
+            msg = data.message;
+          }
+        } catch {}
+        throw new Error(msg);
       }
-   } catch {}
-   throw new Error(msg);
- }
-
-      // Success — send to login with a friendly flag
+ 
       navigate("/login?justSignedUp=true");
     } catch (err) {
       console.error("❌ Signup error:", err);
@@ -204,7 +198,11 @@ export default function Signup() {
       setLoading(false);
     }
   };
-
+ 
+  // Live confirm password match indicator
+  const confirmMismatch = confirmPassword.length > 0 && password !== confirmPassword;
+  const confirmMatch = confirmPassword.length > 0 && password === confirmPassword;
+ 
   return (
     <div
       className="min-h-screen flex items-center justify-center p-6"
@@ -214,7 +212,6 @@ export default function Signup() {
         color: "var(--text)",
       }}
     >
-      {/* Decorative aura */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 -z-10"
@@ -227,7 +224,7 @@ export default function Signup() {
             "radial-gradient(60% 40% at 50% 20%, color-mix(in oklab, var(--accent) 18%, transparent), transparent 70%)",
         }}
       />
-
+ 
       <div className="w-full max-w-md">
         <div className="card relative overflow-hidden">
           <div
@@ -244,27 +241,22 @@ export default function Signup() {
               <div className="mb-2 text-2xl font-bold tracking-tight">
                 Create Your PneumEvolve Account
               </div>
-              <div className="text-sm" style={{ color: "var(--muted)" }}>
-                One step closer to building the new world.
-              </div>
+              
             </div>
-
+ 
             {error && (
               <div
                 className="mb-3 text-sm p-2 rounded"
                 style={{
-                  background:
-                    "color-mix(in oklab, #ef4444 14%, var(--bg-elev))",
-                  border:
-                    "1px solid color-mix(in oklab, #ef4444 35%, var(--border))",
+                  background: "color-mix(in oklab, #ef4444 14%, var(--bg-elev))",
+                  border: "1px solid color-mix(in oklab, #ef4444 35%, var(--border))",
                   color: "var(--text)",
                 }}
               >
                 {error}
               </div>
             )}
-
-            {/* Form */}
+ 
             {/* Username */}
             <label className="block text-sm mb-1" htmlFor="username">Username</label>
             <div className="flex gap-2 items-start mb-2">
@@ -284,15 +276,13 @@ export default function Signup() {
                 {checkingUname ? "Checking…" : "Check"}
               </button>
             </div>
-            {unameErr && <div className="text-xs mb-2" style={{color:"#ef4444"}}>{unameErr}</div>}
+            {unameErr && <div className="text-xs mb-2" style={{ color: "#ef4444" }}>{unameErr}</div>}
             {unameOk && !unameErr && (
-              <div className="text-xs mb-2" style={{color:"var(--accent)"}}>✅ Available</div>
+              <div className="text-xs mb-2" style={{ color: "var(--accent)" }}>✅ Available</div>
             )}
-
+ 
             {/* Email */}
-            <label className="block text-sm mb-1" htmlFor="email">
-              Email
-            </label>
+            <label className="block text-sm mb-1" htmlFor="email">Email</label>
             <input
               id="email"
               type="email"
@@ -305,10 +295,9 @@ export default function Signup() {
                 if (e.key === "Enter") document.getElementById("password")?.focus();
               }}
             />
-
-            <label className="block text-sm mb-1" htmlFor="password">
-              Password
-            </label>
+ 
+            {/* Password */}
+            <label className="block text-sm mb-1" htmlFor="password">Password</label>
             <div className="relative mb-1">
               <input
                 id="password"
@@ -319,7 +308,7 @@ export default function Signup() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") handleSignup();
+                  if (e.key === "Enter") document.getElementById("confirmPassword")?.focus();
                 }}
               />
               <button
@@ -334,8 +323,47 @@ export default function Signup() {
             <div className="text-xs mb-3" style={{ color: "var(--muted)" }}>
               Use a strong passphrase. You can change it later.
             </div>
-
-            {/* ⬇️ NEW: Terms/Privacy acknowledgement */}
+ 
+            {/* Confirm Password */}
+            <label className="block text-sm mb-1" htmlFor="confirmPassword">
+              Confirm password
+            </label>
+            <div className="relative mb-1">
+              <input
+                id="confirmPassword"
+                type={showConfirmPw ? "text" : "password"}
+                autoComplete="new-password"
+                placeholder="Same password again"
+                className="pr-24"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleSignup();
+                }}
+                style={{
+                  borderColor: confirmMismatch
+                    ? "color-mix(in oklab, #ef4444 60%, var(--border))"
+                    : confirmMatch
+                    ? "color-mix(in oklab, #10b981 60%, var(--border))"
+                    : undefined,
+                }}
+              />
+              <button
+                type="button"
+                className="btn btn-secondary absolute right-1 top-1/2 -translate-y-1/2 px-2 py-1 text-sm"
+                onClick={() => setShowConfirmPw((s) => !s)}
+                aria-label={showConfirmPw ? "Hide password" : "Show password"}
+              >
+                {showConfirmPw ? "Hide" : "Show"}
+              </button>
+            </div>
+            <div className="text-xs mb-3" style={{
+              color: confirmMismatch ? "#ef4444" : confirmMatch ? "#10b981" : "transparent"
+            }}>
+              {confirmMismatch ? "Passwords don't match" : confirmMatch ? "✓ Passwords match" : "placeholder"}
+            </div>
+ 
+            {/* Terms */}
             <label className="flex items-start gap-2 text-sm mb-2">
               <input
                 type="checkbox"
@@ -345,22 +373,16 @@ export default function Signup() {
               />
               <span>
                 I agree to the{" "}
-                <a href="/terms" className="underline">
-                  Terms of Use
-                </a>{" "}
+                <a href="/terms" className="underline">Terms of Use</a>{" "}
                 and acknowledge the{" "}
-                <a href="/privacy" className="underline">
-                  Privacy Policy
-                </a>
-                .
+                <a href="/privacy" className="underline">Privacy Policy</a>.
               </span>
             </label>
             <p className="text-xs mb-3" style={{ color: "var(--muted)" }}>
-              We store your email and the content you save (problems, ideas, messages) in our database (Supabase).
+              We store your email and the content you save in our database (Supabase).
               Some processing may occur outside Canada. You can request deletion anytime.
             </p>
-
-            {/* CAPTCHA only when required */}
+ 
             {REQUIRE_CAPTCHA && (
               <div className="mb-4">
                 <ReCAPTCHA
@@ -371,7 +393,7 @@ export default function Signup() {
                 />
               </div>
             )}
-
+ 
             <button
               onClick={handleSignup}
               disabled={loading}
@@ -380,7 +402,7 @@ export default function Signup() {
             >
               {loading ? "Creating your account…" : "Sign Up"}
             </button>
-
+ 
             <div className="mt-4 text-sm text-center" style={{ color: "var(--muted)" }}>
               Already have an account?{" "}
               <button
@@ -391,8 +413,7 @@ export default function Signup() {
                 Log in here
               </button>
             </div>
-
-            {/* Small diagnostics in dev */}
+ 
             {MODE === "development" && (
               <div className="mt-3 text-xs" style={{ color: "var(--muted)" }}>
                 <div>API_URL: {API_URL}</div>
@@ -402,7 +423,7 @@ export default function Signup() {
             )}
           </div>
         </div>
-
+ 
         <div className="theme-indicator mt-4 inline-block">
           Theme: {isDark ? "Dark" : "Light"}
         </div>

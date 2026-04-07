@@ -1,76 +1,128 @@
-// src/pages/ResetPassword.jsx
-import React, { useState } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
-
-const API_URL = "https://shea-klipper-backend.onrender.com";
-
+// src/Pages/ResetPassword.jsx
+import { useState } from "react";
+import { useSearchParams, useNavigate, Link } from "react-router-dom";
+import { api } from "@/lib/api";
+ 
 export default function ResetPassword() {
   const [params] = useSearchParams();
   const token = params.get("token");
+  const navigate = useNavigate();
+ 
   const [newPassword, setNewPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
-  const navigate = useNavigate();
-
-  const handleReset = async () => {
-    if (!newPassword || newPassword.length < 6) {
-      setError("Password must be at least 6 characters.");
+  const [status, setStatus] = useState(null); // "success" | "error"
+  const [errorMsg, setErrorMsg] = useState("");
+  const [loading, setLoading] = useState(false);
+ 
+  // No token in URL — show a clear message instead of a broken form
+  if (!token) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center px-4 bg-[var(--bg)] text-[var(--text)]">
+        <div className="w-full max-w-sm space-y-4 text-center">
+          <p className="text-sm text-[var(--muted)]">
+            This reset link is invalid or has expired.
+          </p>
+          <Link to="/forgot-password" className="text-sm hover:underline">
+            Request a new one →
+          </Link>
+        </div>
+      </div>
+    );
+  }
+ 
+  async function handleSubmit(e) {
+    e.preventDefault();
+ 
+    if (newPassword.length < 8) {
+      setErrorMsg("Password must be at least 8 characters.");
+      setStatus("error");
       return;
     }
-
     if (newPassword !== confirm) {
-      setError("Passwords do not match.");
+      setErrorMsg("Passwords don't match.");
+      setStatus("error");
       return;
     }
-
+ 
+    setLoading(true);
+    setStatus(null);
     try {
-      const res = await fetch(`${API_URL}/auth/reset-password`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, new_password: newPassword }),
+      await api.post("/auth/reset-password", {
+        token,
+        new_password: newPassword,
       });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Reset failed");
-
-      setSuccess("✅ Password reset! You may now log in.");
-      setError("");
-      setTimeout(() => navigate("/login"), 2000);
+      setStatus("success");
+      setTimeout(() => navigate("/login"), 2500);
     } catch (err) {
-      setError(err.message);
+      setErrorMsg(err?.response?.data?.detail || "Reset failed. The link may have expired.");
+      setStatus("error");
+    } finally {
+      setLoading(false);
     }
-  };
-
+  }
+ 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-white text-black">
-      <h2 className="text-2xl font-semibold mb-4">Reset Your Password</h2>
-
-      {success && <p className="text-green-600 mb-2">{success}</p>}
-      {error && <p className="text-red-600 mb-2">{error}</p>}
-
-      <input
-        type="password"
-        placeholder="New Password"
-        className="p-2 border rounded w-full max-w-xs mb-2"
-        value={newPassword}
-        onChange={(e) => setNewPassword(e.target.value)}
-      />
-
-      <input
-        type="password"
-        placeholder="Confirm Password"
-        className="p-2 border rounded w-full max-w-xs mb-4"
-        value={confirm}
-        onChange={(e) => setConfirm(e.target.value)}
-      />
-
-      <button
-        onClick={handleReset}
-        className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700"
-      >
-        Reset Password
-      </button>
+    <div className="min-h-screen flex flex-col items-center justify-center px-4 bg-[var(--bg)] text-[var(--text)]">
+      <div className="w-full max-w-sm space-y-6">
+ 
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold tracking-tight">Choose a new password</h1>
+          <p className="text-sm text-[var(--muted)]">
+            Must be at least 8 characters.
+          </p>
+        </div>
+ 
+        {status === "success" ? (
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-5 text-sm leading-6 space-y-2">
+            <p className="font-medium">Password updated.</p>
+            <p className="text-[var(--muted)]">Taking you to login…</p>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-1">
+              <label className="text-sm font-medium">New password</label>
+              <input
+                type="password"
+                value={newPassword}
+                onChange={e => setNewPassword(e.target.value)}
+                placeholder="At least 8 characters"
+                required
+                autoFocus
+                className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--muted)] outline-none focus:border-[var(--text)] transition"
+              />
+            </div>
+ 
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Confirm password</label>
+              <input
+                type="password"
+                value={confirm}
+                onChange={e => setConfirm(e.target.value)}
+                placeholder="Same password again"
+                required
+                className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--muted)] outline-none focus:border-[var(--text)] transition"
+              />
+            </div>
+ 
+            {status === "error" && (
+              <p className="text-sm text-red-500">{errorMsg}</p>
+            )}
+ 
+            <button
+              type="submit"
+              disabled={loading || !newPassword || !confirm}
+              className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-4 py-2.5 text-sm font-medium shadow-sm hover:shadow transition disabled:opacity-40"
+            >
+              {loading ? "Updating…" : "Update password"}
+            </button>
+          </form>
+        )}
+ 
+        <p className="text-center text-sm text-[var(--muted)]">
+          <Link to="/login" className="hover:underline">Back to login</Link>
+        </p>
+ 
+      </div>
     </div>
   );
 }
