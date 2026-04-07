@@ -677,15 +677,14 @@ export function StillnessSession() {
  
   // When countdown hits zero, immediately ask the server what's happening
   const didFireRef = useRef(false);
-  useEffect(() => {
-    if (localCountdown === 0 && !didFireRef.current) {
-      didFireRef.current = true;
-      pollPresence();
-      startPolling();
-      // Reset so it can fire again for the next window
-      setTimeout(() => { didFireRef.current = false; }, 10000);
-    }
-  }, [localCountdown]); // eslint-disable-line react-hooks/exhaustive-deps
+useEffect(() => {
+  if (localCountdown === 0 && !didFireRef.current && !loading) {
+    didFireRef.current = true;
+    pollPresence();
+    startPolling();
+    setTimeout(() => { didFireRef.current = false; }, 10000);
+  }
+}, [localCountdown, loading]);
  
   // Stop polling when server confirms window closed, refetch for next countdown
   const prevWindowOpen = useRef(null);
