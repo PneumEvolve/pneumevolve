@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "../../context/AuthContext";
-
+ 
 export default function MyTree() {
   const { isLoggedIn } = useAuth();
   const [treeStage, setTreeStage] = useState(0);
   const [activeOrb, setActiveOrb] = useState(null);
-
+ 
   useEffect(() => {
     if (!isLoggedIn) {
       setTreeStage(0);
@@ -13,7 +13,7 @@ export default function MyTree() {
       const visitedTools = localStorage.getItem("visitedTools") === "true";
       const visitedDream = localStorage.getItem("visitedDream") === "true";
       const communityUnlocked = visitedTools && visitedDream;
-
+ 
       if (communityUnlocked) {
         localStorage.setItem("communitySurveyComplete", "true");
         setTreeStage(2);
@@ -22,7 +22,7 @@ export default function MyTree() {
       }
     }
   }, [isLoggedIn]);
-
+ 
   const fireballs = [
     [ // tree0_bg — not logged in
       {
@@ -49,7 +49,7 @@ export default function MyTree() {
         top: "70%",
         left: "70%",
         label: "Dream Machine",
-        link: "/dreammachine",
+        link: "/experiments/dream-machine",
       },
     ],
     [ // tree2_bg — logged in + visited both
@@ -67,7 +67,7 @@ export default function MyTree() {
         top: "70%",
         left: "50%",
         label: "Dream Machine",
-        link: "/dreammachine",
+        link: "/experiments/dream-machine",
       },
       {
         id: "community",
@@ -79,7 +79,7 @@ export default function MyTree() {
       },
     ],
   ];
-
+ 
   const handleClick = (e, id, link) => {
     if (id === "tools") {
       localStorage.setItem("visitedTools", "true");
@@ -87,7 +87,7 @@ export default function MyTree() {
     if (id === "dream") {
       localStorage.setItem("visitedDream", "true");
     }
-
+ 
     if (window.innerWidth <= 768) {
       if (activeOrb !== id) {
         e.preventDefault();
@@ -95,10 +95,10 @@ export default function MyTree() {
         return;
       }
     }
-
+ 
     window.location.href = link;
   };
-
+ 
   return (
     <>
       <style>{`
@@ -108,26 +108,26 @@ export default function MyTree() {
           overflow-x: hidden;
           background-color: black;
         }
-
+ 
         .full-screen-container {
           position: relative;
           width: 100vw;
           min-height: 100vh;
           background-color: black;
         }
-
+ 
         .tree-img {
           width: 100%;
           height: auto;
           display: block;
         }
-
+ 
         .orb-container {
           position: absolute;
           transform: translate(-50%, -50%);
           z-index: 10;
         }
-
+ 
         .fireball {
           width: 100px;
           height: 100px;
@@ -135,11 +135,11 @@ export default function MyTree() {
           transition: transform 0.3s ease;
           cursor: pointer;
         }
-
+ 
         .fireball:hover {
           transform: scale(1.2);
         }
-
+ 
         @keyframes pulse {
           0%, 100% {
             filter: brightness(1);
@@ -148,7 +148,7 @@ export default function MyTree() {
             filter: brightness(1.25);
           }
         }
-
+ 
         .orb-label {
           position: absolute;
           top: 110%;
@@ -164,29 +164,29 @@ export default function MyTree() {
           opacity: 0;
           transition: opacity 0.3s;
         }
-
+ 
         .orb-container:hover .orb-label {
           opacity: 1;
         }
-
+ 
         @media (hover: none) {
           .orb-label {
             opacity: 0 !important;
           }
-
+ 
           .orb-label.active {
             opacity: 1 !important;
           }
         }
       `}</style>
-
+ 
       <div className="full-screen-container">
         <img
           src={`/tree${treeStage}_bg.png`}
           alt="Tree of Life"
           className="tree-img"
         />
-
+ 
         {fireballs[treeStage].map(({ id, src, top, left, label, link }) => (
           <div
             key={id}

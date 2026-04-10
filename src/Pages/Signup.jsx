@@ -42,6 +42,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 export default function Signup() {
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [captchaToken, setCaptchaToken] = useState(null);
@@ -169,6 +170,7 @@ export default function Signup() {
           recaptcha_token: tokenToSend,
           accept_terms: accepted,
           terms_version: TERMS_VERSION,
+          phone_number: phone.trim() || null,
         }),
       });
  
@@ -295,6 +297,22 @@ export default function Signup() {
                 if (e.key === "Enter") document.getElementById("password")?.focus();
               }}
             />
+
+            {/* Phone — optional, stillness SMS only */}
+<label className="block text-sm mb-1" htmlFor="phone">
+  Phone number <span style={{ opacity: 0.4, fontWeight: 400 }}>(optional)</span>
+</label>
+<input
+  id="phone"
+  type="tel"
+  placeholder="+1 555 000 0000"
+  className="mb-1"
+  value={phone}
+  onChange={(e) => setPhone(e.target.value)}
+/>
+<p className="text-xs mb-3" style={{ color: "var(--muted)" }}>
+  Only used to send SMS reminders for Shared Stillness groups. Never shared or used for anything else.
+</p>
  
             {/* Password */}
             <label className="block text-sm mb-1" htmlFor="password">Password</label>

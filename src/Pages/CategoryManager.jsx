@@ -1,45 +1,36 @@
+// src/pages/CategoryManager.jsx
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Button } from "../components/ui/button";
-import { Trash, ArrowLeft } from "lucide-react";
+import { Trash } from "lucide-react";
 import { api } from "@/lib/api";
-
-const CategoryManager = () => {
+ 
+export default function CategoryManager() {
   const navigate = useNavigate();
+ 
   const [categories, setCategories] = useState([]);
   const [newCategory, setNewCategory] = useState("");
   const [categoryType, setCategoryType] = useState("food");
-
-  useEffect(() => {
-    fetchCategories();
-  }, []);
-
+ 
+  useEffect(() => { fetchCategories(); }, []);
+ 
   const fetchCategories = async () => {
     try {
       const res = await api.get("/meal-planning/categories");
-
       const data = res.data;
       const combined = [
         ...data.food.map((cat) => ({ ...cat, type: "food" })),
         ...data.recipes.map((cat) => ({ ...cat, type: "recipe" })),
       ];
       setCategories(combined);
-    } catch (error) {
-      console.error("Error fetching categories:", error);
+    } catch (err) {
+      console.error("Error fetching categories:", err);
     }
   };
-
+ 
   const addCategory = async () => {
     if (!newCategory.trim()) return;
-
-    const duplicate = categories.some(
-      (cat) => cat.name === newCategory && cat.type === categoryType
-    );
-    if (duplicate) {
-      alert("Category already exists!");
-      return;
-    }
-
+    const duplicate = categories.some((cat) => cat.name === newCategory && cat.type === categoryType);
+    if (duplicate) { alert("Category already exists!"); return; }
     try {
       await api.post("/meal-planning/categories", {
         categories: [newCategory],
@@ -47,91 +38,101 @@ const CategoryManager = () => {
       });
       setNewCategory("");
       fetchCategories();
-    } catch (error) {
-      console.error("Error adding category:", error);
+    } catch (err) {
+      console.error("Error adding category:", err);
     }
   };
-
+ 
   const deleteCategory = async (categoryId) => {
     try {
       await api.delete(`/meal-planning/categories/${categoryId}`);
       fetchCategories();
-    } catch (error) {
-      console.error("Error deleting category:", error);
+    } catch (err) {
+      console.error("Error deleting category:", err);
     }
   };
-
+ 
   const foodCategories = categories.filter((c) => c.type === "food");
   const recipeCategories = categories.filter((c) => c.type === "recipe");
-
+ 
   return (
-    <div className="min-h-screen p-6 bg-white text-gray-900 dark:bg-gray-900 dark:text-white flex flex-col items-center">
-  <div className="w-full max-w-2xl">
-    <div className="flex flex-wrap justify-center sm:justify-between gap-3 mb-4">
-      <Button onClick={() => navigate("/meal-planning")} className="flex items-center">
-        <ArrowLeft className="mr-2" /> Back
-      </Button>
-      <Button onClick={() => navigate("/food-inventory")} className="bg-green-600 text-white">
-        Food Inventory
-      </Button>
-      <Button onClick={() => navigate("/recipes")} className="bg-orange-500 text-white">
-        Recipes
-      </Button>
-      <Button onClick={() => navigate("/grocery-list")} className="bg-gray-800 text-white">
-        Grocery List
-      </Button>
-    </div>
-
-        <h1 className="text-3xl font-bold mb-6 text-center">Category Manager</h1>
-
-        <div className="mb-6">
-          <h2 className="text-xl font-semibold">Add Category</h2>
-          <div className="flex gap-2 mt-2">
-            <input
-              type="text"
-              placeholder="New Category"
-              className="w-full p-2 border rounded-lg"
-              value={newCategory}
-              onChange={(e) => setNewCategory(e.target.value)}
-            />
-            <select
-              className="p-2 border rounded-lg"
-              value={categoryType}
-              onChange={(e) => setCategoryType(e.target.value)}
-            >
-              <option value="food">Food</option>
-              <option value="recipe">Recipe</option>
-            </select>
-            <Button onClick={addCategory}>Add</Button>
-          </div>
-        </div>
-
-        <div className="mb-6">
-          <h2 className="text-xl font-semibold mb-2">Food Categories</h2>
-          {foodCategories.map((category) => (
-            <div key={category.id} className="flex justify-between items-center p-2 border-b">
-              <span>{category.name}</span>
-              <Button size="sm" variant="destructive" onClick={() => deleteCategory(category.id)}>
-                <Trash className="w-4 h-4" />
-              </Button>
-            </div>
-          ))}
-        </div>
-
-        <div>
-          <h2 className="text-xl font-semibold mb-2">Recipe Categories</h2>
-          {recipeCategories.map((category) => (
-            <div key={category.id} className="flex justify-between items-center p-2 border-b">
-              <span>{category.name}</span>
-              <Button size="sm" variant="destructive" onClick={() => deleteCategory(category.id)}>
-                <Trash className="w-4 h-4" />
-              </Button>
-            </div>
-          ))}
-        </div>
+    <main className="main p-6 space-y-6">
+      {/* Slim top nav */}
+      <nav className="flex items-center gap-3 text-sm">
+        <button onClick={() => navigate("/meal-planning")} className="btn btn-secondary">← Meal Planning</button>
+      </nav>
+ 
+      <div className="section-bar">
+        <h1 className="text-2xl font-bold">🗂️ Category Manager</h1>
       </div>
-    </div>
+ 
+      {/* Add form */}
+      <section className="card space-y-3">
+        <h2 className="font-semibold">Add category</h2>
+        <div className="flex gap-2 flex-wrap">
+          <input
+            type="text"
+            placeholder="Category name"
+            className="input flex-1 min-w-0"
+            value={newCategory}
+            onChange={(e) => setNewCategory(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addCategory()}
+          />
+          <select
+            className="input w-auto"
+            value={categoryType}
+            onChange={(e) => setCategoryType(e.target.value)}
+          >
+            <option value="food">Food</option>
+            <option value="recipe">Recipe</option>
+          </select>
+          <button onClick={addCategory} className="btn">Add</button>
+        </div>
+      </section>
+ 
+      {/* Food categories */}
+      <section className="space-y-2">
+        <div className="section-bar">
+          <h2 className="font-semibold">Food categories</h2>
+        </div>
+        {foodCategories.length === 0 ? (
+          <div className="card text-center opacity-60 text-sm">No food categories yet.</div>
+        ) : (
+          foodCategories.map((cat) => (
+            <div key={cat.id} className="card flex items-center justify-between gap-3">
+              <span>{cat.name}</span>
+              <button
+                onClick={() => deleteCategory(cat.id)}
+                className="btn btn-secondary !px-2 !py-1 text-red-500"
+              >
+                <Trash className="h-4 w-4" />
+              </button>
+            </div>
+          ))
+        )}
+      </section>
+ 
+      {/* Recipe categories */}
+      <section className="space-y-2">
+        <div className="section-bar">
+          <h2 className="font-semibold">Recipe categories</h2>
+        </div>
+        {recipeCategories.length === 0 ? (
+          <div className="card text-center opacity-60 text-sm">No recipe categories yet.</div>
+        ) : (
+          recipeCategories.map((cat) => (
+            <div key={cat.id} className="card flex items-center justify-between gap-3">
+              <span>{cat.name}</span>
+              <button
+                onClick={() => deleteCategory(cat.id)}
+                className="btn btn-secondary !px-2 !py-1 text-red-500"
+              >
+                <Trash className="h-4 w-4" />
+              </button>
+            </div>
+          ))
+        )}
+      </section>
+    </main>
   );
-};
-
-export default CategoryManager;
+}

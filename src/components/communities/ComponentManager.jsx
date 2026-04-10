@@ -1,9 +1,8 @@
-// src/components/community/ComponentOrderManager.jsx
+// src/components/communities/ComponentManager.jsx
 import React, { useState } from "react";
 import { api } from "@/lib/api";
-import { useAuth } from "../../context/AuthContext";
-
-
+import { ArrowUp, ArrowDown } from "lucide-react";
+ 
 const defaultOrder = [
   "goals",
   "chat",
@@ -11,9 +10,9 @@ const defaultOrder = [
   "events",
   "members",
   "admin",
-  "component_manager"
+  "component_manager",
 ];
-
+ 
 const labels = {
   goals: "Community Goals",
   chat: "Community Chat",
@@ -21,53 +20,64 @@ const labels = {
   events: "Upcoming Events",
   members: "Member List",
   admin: "Admin Panel",
-  component_manager: "Component Manager"
+  component_manager: "Component Manager",
 };
-
+ 
 export default function ComponentManager({ communityId, currentOrder, onSave }) {
   const [order, setOrder] = useState(currentOrder || defaultOrder);
-  const { accessToken } = useAuth();
-console.log("ComponentManager rendering with order:", order);
+  const [saving, setSaving] = useState(false);
+ 
   const move = (index, direction) => {
-    const newOrder = [...order];
-    const targetIndex = index + direction;
-    if (targetIndex < 0 || targetIndex >= newOrder.length) return;
-    [newOrder[index], newOrder[targetIndex]] = [newOrder[targetIndex], newOrder[index]];
-    setOrder(newOrder);
+    const next = [...order];
+    const target = index + direction;
+    if (target < 0 || target >= next.length) return;
+    [next[index], next[target]] = [next[target], next[index]];
+    setOrder(next);
   };
-
+ 
   const handleSave = async () => {
+    setSaving(true);
     try {
-      await api.put(`/communities/${communityId}/layout`, {
-  layout_config: order, // not component_order
-}, {
-  headers: { Authorization: `Bearer ${accessToken}` }
-});
-      onSave(order); // notify parent
+      await api.put(`/communities/${communityId}/layout`, { layout_config: order });
+      onSave(order);
     } catch (err) {
       console.error("Failed to save component order:", err);
+    } finally {
+      setSaving(false);
     }
   };
-
+ 
   return (
-    <div className="p-4 border rounded mb-6 bg-white">
-      <h2 className="text-lg font-bold mb-2">Reorder Components</h2>
+    <div className="space-y-3 pt-2">
+      <p className="text-sm opacity-60">Drag to reorder — use arrows to move components up or down.</p>
       <ul className="space-y-2">
         {order.map((key, idx) => (
-          <li key={key} className="flex items-center justify-between border px-3 py-2 rounded">
-            <span>{labels[key] || key}</span>
-            <div>
-              <button onClick={() => move(idx, -1)} className="px-2">⬆️</button>
-              <button onClick={() => move(idx, 1)} className="px-2">⬇️</button>
+          <li
+            key={key}
+            className="card flex items-center justify-between gap-3"
+          >
+            <span className="text-sm font-medium">{labels[key] || key}</span>
+            <div className="flex gap-1 shrink-0">
+              <button
+                onClick={() => move(idx, -1)}
+                disabled={idx === 0}
+                className="btn btn-secondary !px-2 !py-1 disabled:opacity-30"
+              >
+                <ArrowUp className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => move(idx, 1)}
+                disabled={idx === order.length - 1}
+                className="btn btn-secondary !px-2 !py-1 disabled:opacity-30"
+              >
+                <ArrowDown className="h-3.5 w-3.5" />
+              </button>
             </div>
           </li>
         ))}
       </ul>
-      <button
-        onClick={handleSave}
-        className="mt-3 bg-green-600 text-white px-4 py-2 rounded"
-      >
-        Save Order
+      <button onClick={handleSave} disabled={saving} className="btn">
+        {saving ? "Saving…" : "Save order"}
       </button>
     </div>
   );

@@ -18,7 +18,7 @@ import {
   Gamepad2,
   Wind
 } from "lucide-react";
-
+ 
 // Shared tile renderer — consistent card + icon bubble that adapts to light/dark
 function Tile({ to, title, description, Icon, status }) {
   return (
@@ -35,7 +35,7 @@ function Tile({ to, title, description, Icon, status }) {
           >
             <Icon className="h-5 w-5 opacity-80" />
           </span>
-
+ 
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-2">
               <h3 className="text-lg font-semibold leading-tight truncate">{title}</h3>
@@ -48,12 +48,12 @@ function Tile({ to, title, description, Icon, status }) {
     </li>
   );
 }
-
+ 
 // Step 1: Personal Development tools (login may be required for some)
 const tilesPersonal = ({ isLoggedIn }) => [
   {
     title: "Journal",
-    to: isLoggedIn ? "/journal" : "/signup",
+    to: isLoggedIn ? "/journal" : "/login",
     description: isLoggedIn ? "Write, reflect, track intentions." : "Create an account to start journaling.",
     icon: NotebookPen,
     status: isLoggedIn ? "Ready" : "Sign up",
@@ -72,28 +72,31 @@ const tilesPersonal = ({ isLoggedIn }) => [
     icon: ClipboardList,
     status: "Ready",
   },
-  {
-    title: "Meditation Timer",
-    to: "/meditation",
-    description: "A simple timer for daily presence.",
-    icon: Brain,
-    status: "Ready",
-  },
+  
 ];
-
+ 
 // Step 2: Community Development (everything else lives here)
-const tilesCommunity = () => [
+const tilesCommunity = ({ isLoggedIn }) => [
+  {
+  title: "Shared Stillness",
+  to: "/stillness",
+  description: "Join a group and sit together in daily stillness.",
+  icon: Brain,
+  status: "Ready",
+},
   {
     title: "Forge",
-    to: "/forge2",
+    to: "/forge",
     description: "Propose ideas, vote, and help build PneumEvolve.",
     icon: Hammer,
     status: "Open",
   },
   {
     title: "Dream Machine",
-    to: "/dream-machine",
-    description: "A shared engine for collective dreaming & prompts.",
+    to: isLoggedIn ? "/experiments/dream-machine" : "/login",
+    description: isLoggedIn
+      ? "A shared engine for collective dreaming & prompts."
+      : "Sign in to view the collective dream.",
     icon: Moon,
     status: "Beta",
   },
@@ -104,14 +107,6 @@ const tilesCommunity = () => [
     icon: Users,
     status: "Beta",
   },
-  
-  {
-    title: "Experiments",
-    to: "/experiments",
-    description: "Lightweight prototypes and WIP ideas.",
-    icon: LayoutGrid,
-    status: "Lab",
-  },
   {
     title: "WeGreen",
     to: "/we-green",
@@ -119,7 +114,6 @@ const tilesCommunity = () => [
     icon: TreePine,
     status: "Community",
   },
-  
   {
     title: "Blog",
     to: "/blog",
@@ -127,7 +121,6 @@ const tilesCommunity = () => [
     icon: FileText,
     status: "Read",
   },
-  
   {
     title: "Map",
     to: "/sitemap",
@@ -136,7 +129,7 @@ const tilesCommunity = () => [
     status: "Guide",
   },
 ];
-
+ 
 // Step 3: Have Fun (playful spaces)
 const tilesFun = () => [
   {
@@ -161,13 +154,13 @@ const tilesFun = () => [
     status: "Growing",
   },
 ];
-
+ 
 export function SiteMap() {
   const { isLoggedIn } = useAuthMap();
   const personal = tilesPersonal({ isLoggedIn });
-  const community = tilesCommunity();
+  const community = tilesCommunity({ isLoggedIn });
   const fun = tilesFun();
-
+ 
   return (
     <main className="min-h-[80vh] p-6">
       <div className="max-w-5xl mx-auto">
@@ -178,7 +171,7 @@ export function SiteMap() {
           </h1>
           <RLink to="/" className="underline underline-offset-4 hover:no-underline">Back to Home</RLink>
         </header>
-
+ 
         {/* Intro */}
         <div className="section-bar mb-8">
           <p className="text-sm sm:text-base">
@@ -188,7 +181,7 @@ export function SiteMap() {
             <span className="block"><strong>Step 3 – Have Fun:</strong> play, explore, and restore your spark.</span>
           </p>
         </div>
-
+ 
         {/* Step 1 */}
         <section className="mb-10">
           <h2 className="text-2xl font-semibold mb-4">Step 1 – Personal Development</h2>
@@ -198,7 +191,7 @@ export function SiteMap() {
             ))}
           </ul>
         </section>
-
+ 
         {/* Step 2 */}
         <section className="mb-10">
           <h2 className="text-2xl font-semibold mb-4">Step 2 – Community Development</h2>
@@ -208,7 +201,7 @@ export function SiteMap() {
             ))}
           </ul>
         </section>
-
+ 
         {/* Step 3 */}
         <section>
           <h2 className="text-2xl font-semibold mb-4">Step 3 – Have Fun</h2>
@@ -218,7 +211,7 @@ export function SiteMap() {
             ))}
           </ul>
         </section>
-
+ 
         {/* Footer note */}
         <section className="mt-10 space-y-2 text-sm">
           <h3 className="text-base font-semibold">How this map works</h3>
@@ -229,5 +222,5 @@ export function SiteMap() {
     </main>
   );
 }
-
+ 
 export default SiteMap;

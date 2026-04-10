@@ -305,9 +305,7 @@ export default function ProblemDetail() {
             <h1 className="text-3xl font-bold leading-tight">{asText(title)}</h1>
             <div className="text-xs opacity-70">
               {created_at ? new Date(created_at).toLocaleString() : ""}
-              {(created_by_username || created_by_email) && (
-                <> · {created_by_username || created_by_email}</>
-              )}
+              {created_by_username || (created_by_email === 'deleted user' ? 'deleted user' : ' anonymous')}
             </div>
             {descTxt && <div className="mt-2 whitespace-pre-wrap">{descTxt}</div>}
             <div className="flex flex-wrap items-center gap-3 justify-between pt-2 border-t">
@@ -368,7 +366,7 @@ export default function ProblemDetail() {
                           <div className="text-sm opacity-80 whitespace-pre-wrap">{asText(s.description)}</div>
                           {(s.created_by_username || s.created_by_email) && (
                             <div className="text-xs opacity-60 mt-1">
-                              by {s.created_by_username || s.created_by_email}
+                              by {s.created_by_username || (s.created_by_email === 'deleted user' ? 'deleted user' : ' anonymous')}
                             </div>
                           )}
                         </div>

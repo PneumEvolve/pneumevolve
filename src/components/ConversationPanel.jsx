@@ -116,7 +116,7 @@ export default function ConversationPanel({
     setSending(true);
     try {
       // MODE A
-      if (isConvoMode && conversationId) {
+      if (isConvoMode && conversationId && !base) {
         const res = await api.post(
           `/conversations/${conversationId}/send`,
           { sender_email: userEmail, content },

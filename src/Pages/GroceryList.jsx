@@ -1,31 +1,30 @@
+// src/pages/GroceryList.jsx
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Button } from "../components/ui/button";
-import { ArrowLeft, Save, Trash, Check, X, Plus } from "lucide-react";
+import { Save, Trash, Check, X, Plus } from "lucide-react";
 import { api } from "@/lib/api";
-import { useAuth } from "../context/AuthContext";
-
-const GroceryList = () => {
+import { useAuth } from "@/context/AuthContext";
+ 
+export default function GroceryList() {
   const navigate = useNavigate();
-  const { accessToken: token, isLoggedIn } = useAuth();
-
+  const { isLoggedIn } = useAuth();
+ 
   const [items, setItems] = useState([]);
   const [newItem, setNewItem] = useState({ name: "", quantity: 1 });
   const [loading, setLoading] = useState(true);
-
+ 
   useEffect(() => {
-    if (!token || !isLoggedIn) {
-      console.log("User not logged in, showing read-only grocery list.");
+    if (!isLoggedIn) {
       setLoading(false);
-    } else {
-      fetchList();
+      return;
     }
-  }, []);
-
+    fetchList();
+  }, [isLoggedIn]);
+ 
   const fetchList = async () => {
     try {
       const res = await api.get("/grocery-list/grocery-list");
-      setItems(res.data.items);
+      setItems(res.data?.items ?? []);
     } catch (err) {
       console.error("Error fetching grocery list:", err);
       setItems([]);
@@ -33,7 +32,7 @@ const GroceryList = () => {
       setLoading(false);
     }
   };
-
+ 
   const addItem = async () => {
     if (!newItem.name.trim()) return;
     try {
@@ -44,7 +43,7 @@ const GroceryList = () => {
       console.error("Failed to add item:", err);
     }
   };
-
+ 
   const updateItem = async (index, updates) => {
     const item = { ...items[index], ...updates };
     try {
@@ -56,7 +55,7 @@ const GroceryList = () => {
       console.error("Error updating item:", err);
     }
   };
-
+ 
   const deleteItem = async (index) => {
     const item = items[index];
     try {
@@ -66,11 +65,9 @@ const GroceryList = () => {
       console.error("Error deleting item:", err);
     }
   };
-
-  const toggleChecked = (index) => {
-    updateItem(index, { checked: !items[index].checked });
-  };
-
+ 
+  const toggleChecked = (index) => updateItem(index, { checked: !items[index].checked });
+ 
   const importToInventory = async () => {
     try {
       const res = await api.post("/grocery-list/grocery-list/import-to-inventory");
@@ -81,9 +78,9 @@ const GroceryList = () => {
       alert("❌ Could not import to inventory.");
     }
   };
-
+ 
   const clearGroceryList = async () => {
-    if (!window.confirm("Are you sure you want to clear the entire grocery list?")) return;
+    if (!window.confirm("Clear the entire grocery list?")) return;
     try {
       const res = await api.delete("/grocery-list/grocery-list/grocery-list/clear");
       alert(res.data.message);
@@ -93,102 +90,108 @@ const GroceryList = () => {
       alert("❌ Error clearing grocery list.");
     }
   };
-
+ 
+  const checkedCount = items.filter((i) => i.checked).length;
+ 
   return (
-    <div className="min-h-screen p-6 bg-white text-gray-900 dark:bg-gray-900 dark:text-white flex flex-col items-center">
-  <div className="w-full max-w-2xl">
-    <div className="flex flex-wrap justify-center sm:justify-between gap-3 mb-4">
-      <Button onClick={() => navigate("/meal-planning")} className="flex items-center">
-        <ArrowLeft className="mr-2" /> Back
-      </Button>
-      <Button onClick={() => navigate("/food-inventory")} className="bg-green-600 text-white">
-          Food Inventory
-        </Button>
-      <Button onClick={() => navigate("/category-manager")} className="bg-purple-600 text-white">
-        Categories
-        </Button>
-      <Button onClick={() => navigate("/recipes")} className="bg-orange-500 text-white">
-        Recipes
-      </Button>
-    
-    </div>
-    </div>
-
-  {/* 🛒 Action Buttons */}
-  <div className="flex flex-col sm:flex-row flex-wrap gap-3 mb-6">
-    <Button
-      className="bg-green-600 text-white w-full sm:w-auto"
-      onClick={importToInventory}
-      disabled={!items.some(item => item.checked)}
-    >
-      <Plus className="mr-2" /> Import In-Cart Items to Food Inventory
-    </Button>
-
-    <Button
-      className="bg-red-600 text-white w-full sm:w-auto"
-      onClick={clearGroceryList}
-    >
-      <Trash className="mr-2" /> Clear Entire List
-    </Button>
-  </div>
-
-
-      <h1 className="text-3xl font-bold mb-4">🛒 Grocery List</h1>
-
-      <div className="flex gap-2 mb-4">
-        <input
-          type="text"
-          placeholder="Item name"
-          value={newItem.name}
-          onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
-          className="p-2 border rounded w-full"
-        />
-        <input
-          type="number"
-          value={newItem.quantity}
-          onChange={(e) => setNewItem({ ...newItem, quantity: Number(e.target.value) })}
-          className="p-2 border rounded w-24"
-        />
-        <Button onClick={addItem}>
-          <Plus />
-        </Button>
+    <main className="main p-6 space-y-6">
+      {/* Slim top nav */}
+      <nav className="flex items-center gap-3 flex-wrap text-sm">
+        <button onClick={() => navigate("/meal-planning")} className="btn btn-secondary">← Meal Planning</button>
+        <button onClick={() => navigate("/food-inventory")} className="btn btn-secondary">Inventory</button>
+        <button onClick={() => navigate("/recipes")} className="btn btn-secondary">Recipes</button>
+      </nav>
+ 
+      <div className="section-bar flex items-center justify-between flex-wrap gap-3">
+        <h1 className="text-2xl font-bold">🛒 Grocery List</h1>
+        {items.length > 0 && (
+          <span className="badge">{checkedCount}/{items.length} in cart</span>
+        )}
       </div>
-
-      {loading ? (
-        <p>Loading...</p>
-      ) : items.length === 0 ? (
-        <p>No items in grocery list yet.</p>
-      ) : (
-        <div className="space-y-4">
-          {items.map((item, index) => (
+ 
+      {/* Add item */}
+      {isLoggedIn && (
+        <section className="card flex gap-2 flex-wrap">
+          <input
+            type="text"
+            placeholder="Item name"
+            value={newItem.name}
+            onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
+            onKeyDown={(e) => e.key === "Enter" && addItem()}
+            className="input flex-1 min-w-0"
+          />
+          <input
+            type="number"
+            value={newItem.quantity}
+            onChange={(e) => setNewItem({ ...newItem, quantity: Number(e.target.value) })}
+            className="input w-20 text-center"
+          />
+          <button onClick={addItem} className="btn">
+            <Plus className="h-4 w-4 mr-1 inline" /> Add
+          </button>
+        </section>
+      )}
+ 
+      {/* Bulk actions */}
+      {isLoggedIn && items.length > 0 && (
+        <section className="flex flex-wrap gap-3">
+          <button
+            onClick={importToInventory}
+            disabled={checkedCount === 0}
+            className="btn btn-secondary"
+          >
+            <Save className="h-4 w-4 mr-1 inline" /> Import checked to inventory
+          </button>
+          <button onClick={clearGroceryList} className="btn btn-secondary text-red-500">
+            <Trash className="h-4 w-4 mr-1 inline" /> Clear all
+          </button>
+        </section>
+      )}
+ 
+      {/* List */}
+      <section className="space-y-2">
+        {!isLoggedIn ? (
+          <div className="card text-center opacity-60 text-sm">
+            Sign in to manage your grocery list.
+          </div>
+        ) : loading ? (
+          <div className="card text-center opacity-60 text-sm">Loading…</div>
+        ) : items.length === 0 ? (
+          <div className="card text-center opacity-60 text-sm">
+            No items yet — add one above or generate from recipes/inventory.
+          </div>
+        ) : (
+          items.map((item, index) => (
             <div
               key={item.id}
-              className={`p-4 rounded border flex justify-between items-center transition-colors duration-300 ${
-                item.checked ? "bg-green-100 dark:bg-green-800" : "bg-red-100 dark:bg-red-800"
-              }`}
+              className={`card flex items-center gap-3 transition-opacity ${item.checked ? "opacity-50" : ""}`}
             >
-              <div className="flex-1">
-                <p className="text-lg font-medium">
-                  {item.name} - {item.quantity}
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <Button
-  onClick={() => toggleChecked(index)}
-  variant={item.checked ? "destructive" : "green"}
->
-  {item.checked ? <X /> : <Check />}
-</Button>
-                <Button onClick={() => deleteItem(index)} variant="destructive">
-                  <Trash />
-                </Button>
-              </div>
+              <button
+                onClick={() => toggleChecked(index)}
+                className={`shrink-0 h-6 w-6 rounded-full border-2 flex items-center justify-center transition ${
+                  item.checked
+                    ? "bg-green-500 border-green-500 text-white"
+                    : "border-[var(--border)] hover:border-green-400"
+                }`}
+              >
+                {item.checked && <Check className="h-3.5 w-3.5" />}
+              </button>
+ 
+              <p className={`flex-1 font-medium ${item.checked ? "line-through" : ""}`}>
+                {item.name}
+                <span className="text-sm opacity-50 ml-2">×{item.quantity}</span>
+              </p>
+ 
+              <button
+                onClick={() => deleteItem(index)}
+                className="btn btn-secondary !px-2 !py-1 text-red-500 shrink-0"
+              >
+                <Trash className="h-4 w-4" />
+              </button>
             </div>
-          ))}
-        </div>
-      )}
-    </div>
+          ))
+        )}
+      </section>
+    </main>
   );
-};
-
-export default GroceryList;
+}

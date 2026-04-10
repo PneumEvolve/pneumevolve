@@ -260,9 +260,7 @@ export default function ForgeItemPage() {
                 {item.created_at && (
                   <div className="text-xs opacity-70">
                     Posted {new Date(item.created_at).toLocaleString()}
-                    {item.created_by_username || item.created_by_email ? (
-                      <> · {item.created_by_username || item.created_by_email}</>
-                    ) : null}
+                    <> · {item.created_by_username || (item.created_by_email === 'deleted user' ? 'deleted user' : 'anonymous')}</>
                   </div>
                 )}
 
@@ -333,7 +331,7 @@ export default function ForgeItemPage() {
                         <div>
                           <div className="whitespace-pre-wrap">{p.text}</div>
                           <div className="text-xs opacity-70 mt-1">
-                            {p.username ? `by ${p.username}` : p.user_email ? `by ${p.user_email}` : "by someone"} •{" "}
+                            {p.username ? `by ${p.username}` : "by someone"}
                             {p.created_at ? new Date(p.created_at).toLocaleString() : ""}
                             {p.done && (
                               <>

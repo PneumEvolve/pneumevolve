@@ -23,6 +23,9 @@ export default function Footer() {
           >
             Cookies
           </Link>
+          <Link to="/sitemap" className="text-[var(--muted)] hover:text-[var(--text)] hover:underline transition">
+            Sitemap
+          </Link>
         </nav>
 
         <div className="text-xs text-[var(--muted)]">

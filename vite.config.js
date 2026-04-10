@@ -33,10 +33,17 @@ export default defineConfig(({ mode }) => {
 
     // Everything else under /api gets the prefix stripped
     '/api': {
-      target: BACKEND,
-      changeOrigin: true,
-      rewrite: (p) => p.replace(/^\/api/, ''), // /api/foo -> /foo on FastAPI
-    },
+  target: BACKEND,
+  changeOrigin: true,
+  rewrite: (p) => p.replace(/^\/api/, ''),
+  configure: (proxy) => {
+    proxy.on('proxyReq', (proxyReq, req) => {
+      if (req.headers['authorization']) {
+        proxyReq.setHeader('authorization', req.headers['authorization']);
+      }
+    });
+  },
+},
   },
 },
   };

@@ -339,7 +339,7 @@ export function StillnessList() {
   const [editingTimeId, setEditingTimeId] = useState(null);
   const [editTime, setEditTime] = useState("08:00");
   const [savingTime, setSavingTime] = useState(false);
- 
+  const { isLoggedIn } = useAuth();
   const fetchGroups = useCallback(async () => {
     try {
       const res = await api.get("/stillness/groups/mine");
@@ -444,9 +444,15 @@ export function StillnessList() {
       <div className="ss-list">
         <div className="ss-list-header">
           <h1 className="ss-list-title">shared stillness</h1>
-          <button className="ss-new-btn" onClick={() => setShowCreate(v => !v)}>
-            {showCreate ? "cancel" : "+ new group"}
-          </button>
+          <button className="ss-new-btn" onClick={() => {
+  if (!isLoggedIn) {
+    alert("Please sign in to create a group.");
+    return;
+  }
+  setShowCreate(v => !v);
+}}>
+  {showCreate ? "cancel" : "+ new group"}
+</button>
         </div>
  
         {showCreate && (
@@ -678,11 +684,11 @@ export function StillnessSession() {
   // When countdown hits zero, immediately ask the server what's happening
   const didFireRef = useRef(false);
 useEffect(() => {
-  if (localCountdown === 0 && !didFireRef.current && !loading) {
+  if (localCountdown === 1 && !didFireRef.current && !loading) {
     didFireRef.current = true;
     pollPresence();
     startPolling();
-    setTimeout(() => { didFireRef.current = false; }, 10000);
+  
   }
 }, [localCountdown, loading]);
  
@@ -826,23 +832,75 @@ export function StillnessJoin() {
   const { inviteCode } = useParams();
   const navigate = useNavigate();
   const { isLoggedIn } = useAuth();
-  const [joinStatus, setJoinStatus] = useState("joining");
- 
+  const [status, setStatus] = useState("preview"); // "preview" | "joining" | "error"
+
   useEffect(() => {
     if (!isLoggedIn) {
       navigate(`/login?next=/stillness/join/${inviteCode}`);
-      return;
     }
-    api.post(`/stillness/join/${inviteCode}`)
-      .then(res => navigate(`/stillness/${res.data.id}`, { replace: true }))
-      .catch(() => setJoinStatus("error"));
-  }, [inviteCode, isLoggedIn]);
- 
+  }, [isLoggedIn, inviteCode, navigate]);
+
+  async function handleJoin() {
+    setStatus("joining");
+    try {
+      const res = await api.post(`/stillness/join/${inviteCode}`);
+      navigate(`/stillness/${res.data.id}`, { replace: true });
+    } catch {
+      setStatus("error");
+    }
+  }
+
+  if (!isLoggedIn) return null;
+
   return (
     <div className="ss-root">
       <style>{CSS}</style>
-      <div className="ss-error">
-        {joinStatus === "joining" ? "joining group…" : "invite link not found or expired."}
+      <div className="ss-list" style={{ maxWidth: 420, textAlign: "center", paddingTop: "4rem" }}>
+
+        {status === "error" && (
+          <p className="ss-error">Invite link not found or expired.</p>
+        )}
+
+        {status === "joining" && (
+          <p className="ss-error">Joining…</p>
+        )}
+
+        {status === "preview" && (
+          <>
+            <h1 className="ss-list-title" style={{ marginBottom: "1.5rem" }}>
+              you've been invited
+            </h1>
+
+            <p style={{ fontSize: "0.9rem", opacity: 0.6, lineHeight: 1.7, marginBottom: "1.5rem" }}>
+              You're joining a Shared Stillness group on PneumEvolve —
+              a daily moment of quiet presence, shared with your group at the same time each day.
+            </p>
+
+            <p style={{
+              fontSize: "0.75rem",
+              opacity: 0.4,
+              lineHeight: 1.7,
+              marginBottom: "2rem",
+              padding: "0.75rem 1rem",
+              border: "1px solid var(--border)",
+              borderRadius: "0.75rem",
+            }}>
+              You'll receive a daily email reminder a few minutes before each moment.
+              You can turn this off anytime from your account settings or via the
+              unsubscribe link in any email.
+            </p>
+
+            <div style={{ display: "flex", gap: "0.75rem", justifyContent: "center" }}>
+              <button className="ss-btn ss-btn--primary" onClick={handleJoin}>
+                join group
+              </button>
+              <button className="ss-btn" onClick={() => navigate("/stillness")}>
+                cancel
+              </button>
+            </div>
+          </>
+        )}
+
       </div>
     </div>
   );

@@ -29,7 +29,7 @@ api.interceptors.request.use((cfg: InternalAxiosRequestConfig) => {
   if (t) cfg.headers.Authorization = `Bearer ${t}`;
   const base = (cfg.baseURL ?? "").replace(/\/$/, "");
   const url  = typeof cfg.url === "string" ? cfg.url : "";
-  console.log("[API REQ]", cfg.method?.toUpperCase(), base + url);
+  console.log("[API REQ]", cfg.method?.toUpperCase(), base + url, "AUTH:", cfg.headers.Authorization ? "present" : "MISSING");
   return cfg;
 });
 

@@ -5,11 +5,12 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import Inbox from "@/components/dashboard/Inbox";
 import PhoneNumberField from "@/components/PhoneNumberField";
+import StillnessNotifPrefs from "@/components/StillnessNotifPrefs";
  
 const API = import.meta.env.VITE_API_URL;
  
 export default function Account() {
-  const { accessToken, userId, userEmail } = useAuth();
+  const { accessToken, userId, userEmail, logout, isLoggedIn, loading: authLoading } = useAuth();
   const [activeTab, setActiveTab] = useState("account");
   const [unreadCount, setUnreadCount] = useState(0);
  
@@ -23,6 +24,12 @@ export default function Account() {
  
   const [daily, setDaily] = useState(null);
   const [seedBalance, setSeedBalance] = useState(0);
+
+  const [showDeletePanel, setShowDeletePanel] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [deleteForge, setDeleteForge] = useState(true);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteErr, setDeleteErr] = useState("");
  
   const location = useLocation();
   const navigate = useNavigate();
@@ -92,8 +99,16 @@ export default function Account() {
     };
     if (accessToken) fetchAccount();
   }, [accessToken]);
+
+  useEffect(() => {
+  if (!authLoading && !isLoggedIn) {
+    navigate("/login");
+  }
+}, [isLoggedIn, authLoading, navigate]);
+
  
   if (loading) return <div className="p-6">Loading account…</div>;
+
  
   const TabBtn = ({ id, children }) => {
     const selected = activeTab === id;
@@ -190,17 +205,140 @@ export default function Account() {
           <div className="space-y-2">
             <label className="block font-medium">Notifications</label>
             <PhoneNumberField />
+            <StillnessNotifPrefs />
           </div>
  
           {/* Reset Password */}
-          <div className="pt-2">
-            <button
-              className="btn btn-secondary"
-              onClick={() => alert("Password reset coming soon!")}
-            >
-              🔐 Reset Password — Coming Soon
-            </button>
-          </div>
+{/* Reset Password */}
+<div className="pt-2 space-y-2">
+  <button
+    className="btn btn-secondary"
+    disabled={status === "reset_sending" || status === "reset_sent"}
+    onClick={async () => {
+      setStatus("reset_sending");
+      try {
+        await api.post("/auth/request-password-reset", { email: userEmail });
+        setStatus("reset_sent");
+      } catch {
+        setStatus("reset_error");
+      }
+    }}
+  >
+    {status === "reset_sending" ? "Sending…" : "🔐 Send password reset email"}
+  </button>
+  {status === "reset_sent" && (
+    <p className="text-sm text-[var(--muted)]">
+      Check your email — click the link there to set a new password. You'll be logged out when you do.
+    </p>
+  )}
+  {status === "reset_error" && (
+    <p className="text-sm text-red-500">
+      Something went wrong. Try again.
+    </p>
+  )}
+</div>
+          {/* Delete Account */}
+<div className="pt-4 border-t border-[var(--border)]">
+  {!showDeletePanel ? (
+    <button
+      className="btn btn-secondary"
+      style={{ color: "salmon", borderColor: "salmon", opacity: 0.7 }}
+      onClick={() => setShowDeletePanel(true)}
+    >
+      Delete Account
+    </button>
+  ) : (
+    <div className="space-y-4 p-4 rounded-xl border border-red-500/30 bg-red-500/5">
+      <div>
+        <p className="font-medium text-sm">Are you sure you want to delete your account?</p>
+        <p className="text-sm opacity-60 mt-1">
+          This permanently deletes your account, journal entries, stillness groups,
+          and all other personal data. This cannot be undone.
+        </p>
+      </div>
+
+      {/* Forge posts choice */}
+      <div className="space-y-2">
+        <p className="text-sm font-medium">What should happen to your Forge posts?</p>
+        <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <input
+            type="radio"
+            checked={deleteForge}
+            onChange={() => setDeleteForge(true)}
+          />
+          Delete them permanently
+        </label>
+        <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <input
+            type="radio"
+            checked={!deleteForge}
+            onChange={() => setDeleteForge(false)}
+          />
+          Keep them — show as posted by "deleted user"
+        </label>
+      </div>
+
+      {/* Confirmation input */}
+      <div className="space-y-1">
+        <p className="text-sm opacity-60">
+          Type <strong>DELETE</strong> to confirm
+        </p>
+        <input
+          type="text"
+          value={deleteConfirm}
+          onChange={(e) => setDeleteConfirm(e.target.value)}
+          placeholder="DELETE"
+          className="w-full bg-[var(--bg-elev)] text-[var(--text)] border border-[var(--border)] rounded-[calc(var(--radius)-8px)] px-3 py-2"
+        />
+      </div>
+
+      {deleteErr && (
+        <p className="text-sm text-red-500">{deleteErr}</p>
+      )}
+
+      <div className="flex gap-2">
+        <button
+          className="btn"
+          style={{ background: "salmon", borderColor: "salmon", color: "white" }}
+          disabled={deleteConfirm !== "DELETE" || deleting}
+          onClick={async () => {
+            setDeleting(true);
+            setDeleteErr("");
+            try {
+              await api.delete("/auth/account/delete", {
+                data: {
+                  confirmation: deleteConfirm,
+                  delete_forge_posts: deleteForge,
+                },
+                headers: { Authorization: `Bearer ${accessToken}` },
+              });
+              logout();
+              window.location.href = "/";
+            } catch (err) {
+              setDeleteErr(
+                err?.response?.data?.detail || "Something went wrong. Try again."
+              );
+            } finally {
+              setDeleting(false);
+            }
+          }}
+        >
+          {deleting ? "Deleting…" : "Delete my account"}
+        </button>
+        <button
+          className="btn btn-secondary"
+          onClick={() => {
+            setShowDeletePanel(false);
+            setDeleteConfirm("");
+            setDeleteErr("");
+          }}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  )}
+</div>
         </div>
       )}
  

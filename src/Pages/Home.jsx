@@ -482,15 +482,6 @@ export default function Home() {
             </Card>
           </div>
         </div>
- 
-        <footer className="mt-10 flex flex-wrap items-center justify-between gap-3 text-[11px] text-[var(--muted)]">
-          <span>Imperfect is the point.</span>
-          <div className="flex gap-3">
-            <Link className="hover:underline" to="/sitemap">
-              Sitemap
-            </Link>
-          </div>
-        </footer>
       </div>
     </main>
   );

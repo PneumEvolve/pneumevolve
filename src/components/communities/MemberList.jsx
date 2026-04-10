@@ -1,79 +1,65 @@
-// src/components/community/MemberList.jsx
+// src/components/communities/MemberList.jsx
 import React, { useState } from "react";
 import { api } from "@/lib/api";
-import { useAuth } from "../../context/AuthContext";
-
-
+import CollapsibleComponent from "../ui/CollapsibleComponent";
+ 
 export default function MemberList({ communityId }) {
-  const { accessToken } = useAuth();
   const [users, setUsers] = useState([]);
-  const [collapsed, setCollapsed] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [hasFetched, setHasFetched] = useState(false);
-
-  const toggleCollapse = async () => {
-    const next = !collapsed;
-    setCollapsed(next);
-
-    if (next || hasFetched || !accessToken || !communityId) return;
-
+ 
+  const fetchMembers = async () => {
+    if (hasFetched || loading || !communityId) return;
+    setLoading(true);
     try {
-      setLoading(true);
-      const res = await api.get(`/communities/${communityId}/full-members`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
+      const res = await api.get(`/communities/${communityId}/full-members`);
       setUsers(res.data || []);
       setHasFetched(true);
     } catch (err) {
-      console.error("Failed to fetch full member list:", err);
+      console.error("Failed to fetch members:", err);
       setError("Could not load members.");
     } finally {
       setLoading(false);
     }
   };
-
-  const renderUser = (member) => {
-    const displayName =
-      member.user?.username || member.user?.email || `User ${member.user_id}`;
-
-    return (
-      <li
-        key={member.user_id}
-        className={`border p-2 rounded text-sm ${
-          member.is_creator ? "bg-yellow-50" : "bg-gray-50"
-        }`}
-      >
-        {displayName}
-        {member.is_creator && (
-          <span className="ml-2 text-xs text-yellow-700 font-semibold">👑 Creator</span>
-        )}
-        {member.is_admin && !member.is_creator && (
-          <span className="ml-2 text-xs text-blue-600 font-semibold">🔧 Admin</span>
-        )}
-      </li>
-    );
-  };
-
+ 
   return (
-    <div className="mt-6 border rounded shadow bg-white">
-      <button
-        onClick={toggleCollapse}
-        className="w-full text-left px-4 py-2 bg-gray-100 hover:bg-gray-200 font-bold text-lg flex justify-between items-center"
+    <CollapsibleComponent title="👥 Members">
+      <div
+        ref={(el) => { if (el && !hasFetched) fetchMembers(); }}
+        className="space-y-2 pt-2"
       >
-        <span>👥 Members</span>
-        <span>{collapsed ? "➕" : "➖"}</span>
-      </button>
-
-      {!collapsed && (
-        <div className="p-4">
-          {loading && <p className="text-gray-500">Loading members...</p>}
-          {error && <p className="text-red-600">{error}</p>}
-          {!loading && !error && (
-            <ul className="space-y-2">{users.map(renderUser)}</ul>
-          )}
-        </div>
-      )}
-    </div>
+        {loading && (
+          <div className="text-center opacity-60 text-sm py-4">Loading members…</div>
+        )}
+        {error && (
+          <div className="text-center text-red-500 text-sm py-4">{error}</div>
+        )}
+        {!loading && !error && users.length === 0 && (
+          <div className="text-center opacity-60 text-sm py-4">No members yet.</div>
+        )}
+        {!loading && !error && users.map((member) => {
+          const displayName =
+            member.user?.username || member.user?.email || `User ${member.user_id}`;
+          return (
+            <div
+              key={member.user_id}
+              className="card flex items-center justify-between gap-3"
+            >
+              <span className="text-sm font-medium">{displayName}</span>
+              <div className="flex gap-2">
+                {member.is_creator && (
+                  <span className="badge">👑 Creator</span>
+                )}
+                {member.is_admin && !member.is_creator && (
+                  <span className="badge">🔧 Admin</span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </CollapsibleComponent>
   );
 }

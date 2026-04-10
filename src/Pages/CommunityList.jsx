@@ -1,114 +1,172 @@
+// src/Pages/CommunityList.jsx
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
-import { useAuth } from "../context/AuthContext";
-
-
-const CommunityList = () => {
+import { useAuth } from "@/context/AuthContext";
+import { Plus, Users, X } from "lucide-react";
+ 
+export default function CommunityList() {
   const [communities, setCommunities] = useState([]);
-  const [joinedCommunities, setJoinedCommunities] = useState([]);
-  const [otherCommunities, setOtherCommunities] = useState([]);
+  const [joined, setJoined] = useState([]);
+  const [others, setOthers] = useState([]);
+  const [showCreate, setShowCreate] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newDescription, setNewDescription] = useState("");
+  const [creating, setCreating] = useState(false);
+ 
   const navigate = useNavigate();
   const { accessToken, userId } = useAuth();
-
+ 
   useEffect(() => {
-    if (!accessToken) return;
-
-    const fetchCommunities = async () => {
-      try {
-        const res = await api.get(`/communities/list`, {
-          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
-        });
-
-        const data = res.data;
-
-        if (accessToken && userId) {
-          const numericUserId = parseInt(userId);
-          // Temporarily don't try to categorize communities by joined vs not
-          setOtherCommunities(data);
-          const joined = data.filter((c) =>
-  c.members?.some((m) => m.user_id === numericUserId && m.is_approved)
-);
-const others = data.filter(
-  (c) => !joined.some((jc) => jc.id === c.id)
-);
-
-          setJoinedCommunities(joined);
-          setOtherCommunities(others);
-        } else {
-          setOtherCommunities(data);
-        }
-      } catch (err) {
-        console.error("Error fetching communities:", err);
-      }
-    };
-
+    if (!accessToken) {
+      navigate("/login");
+      return;
+    }
     fetchCommunities();
-  }, [accessToken, userId]);
-
-  const handleCreateCommunity = async () => {
-    const name = prompt("Enter community name:");
-    if (!name) return;
-    const description = prompt("Enter community description:");
-    const visibility = "public";
-
+  }, [accessToken]);
+ 
+  const fetchCommunities = async () => {
     try {
-      const res = await api.post(
-        `/communities/create`,
-        { name, description, visibility },
-        { headers: { Authorization: `Bearer ${accessToken}` } }
-      );
-
+      const res = await api.get("/communities/list");
+      const data = res.data;
+      if (userId) {
+        const numericId = parseInt(userId);
+        const j = data.filter((c) =>
+          c.members?.some((m) => m.user_id === numericId && m.is_approved)
+        );
+        const o = data.filter((c) => !j.some((jc) => jc.id === c.id));
+        setJoined(j);
+        setOthers(o);
+      } else {
+        setOthers(data);
+      }
+    } catch (err) {
+      console.error("Error fetching communities:", err);
+    }
+  };
+ 
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    if (!newName.trim()) return;
+    setCreating(true);
+    try {
+      const res = await api.post("/communities/create", {
+        name: newName.trim(),
+        description: newDescription.trim(),
+        visibility: "public",
+      });
       navigate(`/communities/${res.data.id}`);
     } catch (err) {
       console.error("Error creating community:", err);
+      alert("Failed to create community.");
+    } finally {
+      setCreating(false);
     }
   };
-
-  const renderCommunity = (community) => (
-    <div
-      key={community.id}
-      className="border p-4 rounded hover:bg-gray-50 cursor-pointer"
+ 
+  const CommunityCard = ({ community }) => (
+    <button
       onClick={() => navigate(`/communities/${community.id}`)}
+      className="card w-full text-left hover:shadow-lg transition space-y-1"
     >
-      <h2 className="font-semibold text-lg">{community.name}</h2>
-      <p className="text-sm text-gray-700">{community.description}</p>
-    </div>
-  );
-
-  if (!accessToken) {
-    return (
-      <div className="p-6 text-center text-gray-700">
-        Please login to view communities.
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="font-semibold text-lg truncate">{community.name}</h2>
+        {community.members?.length > 0 && (
+          <span className="badge shrink-0">
+            {community.members.length} {community.members.length === 1 ? "member" : "members"}
+          </span>
+        )}
       </div>
-    );
-  }
-
-  return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-4">Communities</h1>
-      <button
-        className="mb-4 bg-green-600 text-white px-4 py-2 rounded"
-        onClick={handleCreateCommunity}
-      >
-        + Create New Community
-      </button>
-
-      {joinedCommunities.length > 0 && (
-        <div className="mb-6">
-          <h2 className="text-lg font-semibold mb-2">Your Communities</h2>
-          <div className="space-y-3">
-            {joinedCommunities.map(renderCommunity)}
-          </div>
-        </div>
+      {community.description && (
+        <p className="text-sm opacity-60 line-clamp-2">{community.description}</p>
       )}
-
-      <h2 className="text-lg font-semibold mb-2">Other Communities</h2>
-      <div className="space-y-3">
-        {otherCommunities.map(renderCommunity)}
-      </div>
-    </div>
+    </button>
   );
-};
-
-export default CommunityList;
+ 
+  return (
+    <main className="main p-6 space-y-6">
+      {/* Header */}
+      <section className="card flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <Users className="h-6 w-6 opacity-60" />
+          <h1 className="text-2xl font-bold">Communities</h1>
+        </div>
+        <button
+          onClick={() => setShowCreate((v) => !v)}
+          className="btn shrink-0"
+        >
+          {showCreate ? <X className="h-4 w-4 mr-1 inline" /> : <Plus className="h-4 w-4 mr-1 inline" />}
+          {showCreate ? "Cancel" : "New community"}
+        </button>
+      </section>
+ 
+      {/* Create form */}
+      {showCreate && (
+        <section className="card space-y-4">
+          <h2 className="font-semibold">Create a community</h2>
+          <form onSubmit={handleCreate} className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-xs opacity-60 font-medium">Name</label>
+              <input
+                className="input w-full"
+                placeholder="Community name…"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                autoFocus
+                maxLength={100}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs opacity-60 font-medium">Description</label>
+              <textarea
+                className="input w-full"
+                placeholder="What is this community about?"
+                value={newDescription}
+                onChange={(e) => setNewDescription(e.target.value)}
+                rows={3}
+              />
+            </div>
+            <div className="flex gap-2">
+              <button type="submit" disabled={creating || !newName.trim()} className="btn">
+                {creating ? "Creating…" : "Create community"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowCreate(false)}
+                className="btn btn-secondary"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </section>
+      )}
+ 
+      {/* Joined communities */}
+      {joined.length > 0 && (
+        <section className="space-y-3">
+          <div className="section-bar">
+            <h2 className="font-semibold">Your communities</h2>
+          </div>
+          {joined.map((c) => <CommunityCard key={c.id} community={c} />)}
+        </section>
+      )}
+ 
+      {/* Other communities */}
+      <section className="space-y-3">
+        <div className="section-bar">
+          <h2 className="font-semibold">
+            {joined.length > 0 ? "Other communities" : "All communities"}
+          </h2>
+        </div>
+        {others.length === 0 ? (
+          <div className="card text-center opacity-60 text-sm">
+            No other communities yet.
+          </div>
+        ) : (
+          others.map((c) => <CommunityCard key={c.id} community={c} />)
+        )}
+      </section>
+    </main>
+  );
+}
