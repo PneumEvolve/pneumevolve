@@ -66,7 +66,7 @@ export const GEAR = {
     emoji: "🛻",
     plotsPerCycle: 2,
     cycleSeconds: 6,
-    upgradeCost: 500,
+    upgradeCost: 100,
     description: "Harvests 2 plots every 6s. Double the coverage.",
   },
   tractor: {
@@ -75,7 +75,7 @@ export const GEAR = {
     emoji: "🚜",
     plotsPerCycle: 5,
     cycleSeconds: 6,
-    upgradeCost: 1500,
+    upgradeCost: 100,
     description: "Harvests 5 plots every 6s. Near full automation.",
   },
 };
@@ -86,10 +86,15 @@ export const GEAR_ORDER = ["bare_hands", "gloves", "hoe", "wheelbarrow", "tracto
 export const GEAR_CROP_COSTS = {
   bare_hands: null,
   gloves: "wheat",
-  hoe: "berries",
+  hoe: "wheat",
   wheelbarrow: "berries",
   tractor: "tomatoes",
 };
+ 
+// ─── Specialization step ──────────────────────────────────────────────────────
+// Sits between hoe and wheelbarrow in the upgrade path
+export const SPECIALIZE_COST = 50;
+export const SPECIALIZE_CROP = "berries";
  
 // ─── Plot unlock costs ────────────────────────────────────────────────────────
 export const PLOT_COSTS = [
@@ -101,10 +106,14 @@ export const PLOT_COSTS = [
  
 export const MAX_PLOTS = 25;
  
-// ─── Workers ──────────────────────────────────────────────────────────────────
-export const WORKER_HIRE_COST = 30;
+// ─── Worker hire cost ─────────────────────────────────────────────────────────
+// First worker costs WORKER_HIRE_BASE_COST, each subsequent worker costs 1.5x more
+// rounded to nearest 5. Cost is per-farm and resets on a new farm.
+// Worker 1: 10, Worker 2: 15, Worker 3: 25, Worker 4: 35, Worker 5: 50, Worker 6: 75...
+export const WORKER_HIRE_BASE_COST = 10;
+export const WORKER_HIRE_MULTIPLIER = 1.5;
  
-// Worker specializations unlock Season 4+
+// ─── Worker specializations ───────────────────────────────────────────────────
 export const SPECIALIZATIONS = {
   none: {
     id: "none",
@@ -114,12 +123,14 @@ export const SPECIALIZATIONS = {
   harvester: {
     id: "harvester",
     name: "Harvester",
+    emoji: "⚡",
     description: "Harvests 25% faster. Cycle time reduced by 25%.",
     cycleMultiplier: 0.75,
   },
   sprinter: {
     id: "sprinter",
     name: "Sprinter",
+    emoji: "💨",
     description: "Harvests 2x plots per cycle but rests every 3rd cycle. Best for large farms.",
     plotsMultiplier: 2,
     restEvery: 3,
@@ -127,13 +138,13 @@ export const SPECIALIZATIONS = {
   grower: {
     id: "grower",
     name: "Grower",
+    emoji: "🌱",
     description: "Reduces grow time for ALL plots on this farm by 20%. Stacks with multiple growers.",
     growMultiplier: 0.8,
   },
 };
  
 // ─── Tend tool ────────────────────────────────────────────────────────────────
-// Tapping a growing plot in tend mode shaves this many seconds off grow time
 export const TEND_SECONDS = 3;
  
 // ─── Processing recipes ───────────────────────────────────────────────────────
