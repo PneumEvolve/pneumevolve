@@ -95,22 +95,18 @@ export const SPECIALIZE_COST = 50;
 export const SPECIALIZE_CROP = "berries";
  
 // ─── Plot unlock costs ────────────────────────────────────────────────────────
-export const PLOT_COSTS = [
-  { upTo: 4,  cost: 20  },
-  { upTo: 9,  cost: 50  },
-  { upTo: 16, cost: 120 },
-  { upTo: 25, cost: 300 },
-];
+// Starts at 5 and multiplies by 1.4 each time, rounded to nearest 5.
+// Plot 2: 5, Plot 3: 5, Plot 4: 10, Plot 5: 15, Plot 6: 20, Plot 7: 25...
+// getPlotUnlockCost() in gameEngine calculates this dynamically.
+export const PLOT_BASE_COST = 5;
+export const PLOT_COST_MULTIPLIER = 1.4;
  
 export const MAX_PLOTS = 25;
  
 // ─── Plot upgrade ─────────────────────────────────────────────────────────────
-// Upgrading a plot costs 1 artisan good and halves its grow time permanently
-// Each crop has its own artisan good
-export const PLOT_UPGRADE_COST = 1; // 1 artisan good per plot
-export const PLOT_UPGRADE_GROW_MULTIPLIER = 0.5; // 50% faster
+export const PLOT_UPGRADE_COST = 1;
+export const PLOT_UPGRADE_GROW_MULTIPLIER = 0.5;
  
-// Which artisan good upgrades plots for each crop
 export const CROP_ARTISAN = {
   wheat: "bread",
   berries: "jam",
@@ -122,8 +118,8 @@ export const WORKER_HIRE_BASE_COST = 10;
 export const WORKER_HIRE_MULTIPLIER = 1.5;
  
 // ─── Automation requirements ──────────────────────────────────────────────────
-export const AUTOMATION_THRESHOLD = 4; // workers needed
-export const MIN_PLOTS_FOR_AUTOMATION = 4; // plots needed
+export const AUTOMATION_THRESHOLD = 4;
+export const MIN_PLOTS_FOR_AUTOMATION = 4;
  
 // ─── Worker specializations ───────────────────────────────────────────────────
 export const SPECIALIZATIONS = {
@@ -160,12 +156,6 @@ export const SPECIALIZATIONS = {
 export const TEND_SECONDS = 3;
  
 // ─── Processing recipes ───────────────────────────────────────────────────────
-// inputCrop: which crop goes in
-// inputAmount: how many crops per batch
-// outputGood: which artisan good comes out
-// outputAmount: how many per batch
-// seconds: processing time
- 
 export const PROCESSING_RECIPES = {
   bread: {
     id: "bread",
@@ -204,14 +194,12 @@ export const PROCESSING_RECIPES = {
     id: "feast",
     name: "Feast",
     emoji: "🍽️",
-    inputCrop: null, // feast is purchased directly with artisan goods, not processed
+    inputCrop: null,
     description: "Permanent global grow speed bonus for all farms. Stackable.",
   },
 };
  
-// ─── Feast tiers — permanent global grow speed bonuses ───────────────────────
-// Each tier costs that many Feast points (spend bread+jam+sauce equally)
-// bonusPercent: how much faster ALL plots grow (stacks additively)
+// ─── Feast tiers ──────────────────────────────────────────────────────────────
 export const FEAST_TIERS = [
   { cost: 5,    bonusPercent: 1  },
   { cost: 15,   bonusPercent: 2  },
@@ -222,7 +210,7 @@ export const FEAST_TIERS = [
   { cost: 1000, bonusPercent: 19 },
 ];
  
-export const FEAST_MAX_BONUS = 50; // cap at 50% global speed bonus
+export const FEAST_MAX_BONUS = 50;
  
 // ─── Prestige bonuses ─────────────────────────────────────────────────────────
 export const PRESTIGE_BONUSES = {

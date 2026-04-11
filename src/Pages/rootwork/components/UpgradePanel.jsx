@@ -1,7 +1,7 @@
 // src/Pages/rootwork/components/UpgradePanel.jsx
  
 import React from "react";
-import { CROPS, MAX_PLOTS, WORKER_HIRE_COST } from "../gameConstants";
+import { CROPS, MAX_PLOTS } from "../gameConstants";
 import { getPlotUnlockCost } from "../gameEngine";
  
 export default function UpgradePanel({ farm, game, onBuyPlot }) {
@@ -12,63 +12,47 @@ export default function UpgradePanel({ farm, game, onBuyPlot }) {
   const nextPlotCost = atMax ? null : getPlotUnlockCost(currentPlots);
   const canBuy = !atMax && nextPlotCost !== null && cropAmount >= nextPlotCost;
  
+  // Preview next few plot costs
+  const upcomingCosts = [];
+  if (!atMax) {
+    for (let i = 0; i < 4; i++) {
+      const plotNum = currentPlots + i;
+      if (plotNum >= MAX_PLOTS) break;
+      const cost = getPlotUnlockCost(plotNum);
+      if (cost !== null) upcomingCosts.push({ plotNum: plotNum + 1, cost });
+    }
+  }
+ 
   return (
     <div className="space-y-3">
       <h3 style={{ fontWeight: 600, fontSize: "0.9rem" }}>Farm Upgrades</h3>
  
-      {/* Plot count info */}
-      <div
-        className="card p-4 space-y-3"
-        style={{ fontSize: "0.85rem" }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
-        >
+      {/* Plot count + progress */}
+      <div className="card p-4 space-y-3" style={{ fontSize: "0.85rem" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
-            <div style={{ fontWeight: 600 }}>
-              {crop.emoji} Plots
-            </div>
+            <div style={{ fontWeight: 600 }}>{crop.emoji} Plots</div>
             <div style={{ color: "var(--muted)", fontSize: "0.75rem", marginTop: "0.15rem" }}>
               {currentPlots} / {MAX_PLOTS} unlocked
             </div>
           </div>
- 
-          {/* Plot progress bar */}
-          <div
-            style={{
-              width: "80px",
-              height: "6px",
-              background: "var(--border)",
+          <div style={{
+            width: "80px", height: "6px", background: "var(--border)",
+            borderRadius: "999px", overflow: "hidden",
+          }}>
+            <div style={{
+              height: "100%",
+              width: `${(currentPlots / MAX_PLOTS) * 100}%`,
+              background: "var(--accent)",
               borderRadius: "999px",
-              overflow: "hidden",
-            }}
-          >
-            <div
-              style={{
-                height: "100%",
-                width: `${(currentPlots / MAX_PLOTS) * 100}%`,
-                background: "var(--accent)",
-                borderRadius: "999px",
-                transition: "width 0.4s ease",
-              }}
-            />
+              transition: "width 0.4s ease",
+            }} />
           </div>
         </div>
  
         {/* Buy plot button */}
         {atMax ? (
-          <div
-            style={{
-              fontSize: "0.75rem",
-              color: "var(--muted)",
-              fontStyle: "italic",
-              textAlign: "center",
-            }}
-          >
+          <div style={{ fontSize: "0.75rem", color: "var(--muted)", fontStyle: "italic", textAlign: "center" }}>
             🌱 Farm fully expanded — {MAX_PLOTS} plots
           </div>
         ) : (
@@ -85,45 +69,29 @@ export default function UpgradePanel({ farm, game, onBuyPlot }) {
         )}
       </div>
  
-      {/* Cost breakdown for upcoming plots */}
-      {!atMax && (
-        <div
-          className="card p-4"
-          style={{ fontSize: "0.75rem", color: "var(--muted)" }}
-        >
+      {/* Upcoming plot costs */}
+      {!atMax && upcomingCosts.length > 0 && (
+        <div className="card p-4" style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
           <div style={{ fontWeight: 600, marginBottom: "0.5rem", color: "var(--text)" }}>
-            Plot costs ahead
+            Upcoming plot costs
           </div>
           <div className="space-y-1">
-            {[
-              { label: "Plots 2–4",   cost: 20  },
-              { label: "Plots 5–9",   cost: 50  },
-              { label: "Plots 10–16", cost: 120 },
-              { label: "Plots 17–25", cost: 300 },
-            ].map(({ label, cost }) => {
-              const isCurrentTier =
-                (label === "Plots 2–4"   && currentPlots >= 1  && currentPlots < 4)  ||
-                (label === "Plots 5–9"   && currentPlots >= 4  && currentPlots < 9)  ||
-                (label === "Plots 10–16" && currentPlots >= 9  && currentPlots < 16) ||
-                (label === "Plots 17–25" && currentPlots >= 16 && currentPlots < 25);
- 
-              return (
-                <div
-                  key={label}
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    padding: "0.2rem 0",
-                    color: isCurrentTier ? "var(--text)" : "var(--muted)",
-                    fontWeight: isCurrentTier ? 600 : 400,
-                    borderBottom: "1px solid var(--border)",
-                  }}
-                >
-                  <span>{label}</span>
-                  <span>{cost} {crop.emoji} each</span>
-                </div>
-              );
-            })}
+            {upcomingCosts.map(({ plotNum, cost }, idx) => (
+              <div
+                key={plotNum}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  padding: "0.2rem 0",
+                  borderBottom: "1px solid var(--border)",
+                  color: idx === 0 ? "var(--text)" : "var(--muted)",
+                  fontWeight: idx === 0 ? 600 : 400,
+                }}
+              >
+                <span>Plot {plotNum}</span>
+                <span>{cost} {crop.emoji}</span>
+              </div>
+            ))}
           </div>
         </div>
       )}

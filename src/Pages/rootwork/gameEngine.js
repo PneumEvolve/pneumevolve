@@ -4,7 +4,8 @@ import {
   CROPS,
   GEAR,
   GEAR_ORDER,
-  PLOT_COSTS,
+  PLOT_BASE_COST,
+  PLOT_COST_MULTIPLIER,
   MAX_PLOTS,
   WORKER_HIRE_BASE_COST,
   WORKER_HIRE_MULTIPLIER,
@@ -95,11 +96,14 @@ export function getNextGear(currentGear) {
   return GEAR_ORDER[idx + 1];
 }
  
+// Dynamic plot cost — starts at 5, multiplies by 1.4 each purchase, rounded to nearest 5
+// currentPlotCount is how many plots the farm currently has (before buying the next one)
 export function getPlotUnlockCost(currentPlotCount) {
-  for (const tier of PLOT_COSTS) {
-    if (currentPlotCount < tier.upTo) return tier.cost;
-  }
-  return null;
+  if (currentPlotCount >= MAX_PLOTS) return null;
+  // currentPlotCount - 1 because first plot is free (index 0)
+  const purchaseIndex = currentPlotCount - 1; // 0-based index of this purchase
+  const raw = PLOT_BASE_COST * Math.pow(PLOT_COST_MULTIPLIER, purchaseIndex);
+  return Math.max(5, Math.round(raw / 5) * 5);
 }
  
 export function isFarmAutomated(farm, workers) {
@@ -244,7 +248,6 @@ export function calculateOfflineProgress(state, nowMs) {
           }
         }
  
-        // Replant only as many plots as plotsPerCycle allows
         let replanted = 0;
         for (const plot of farm.plots) {
           if (replanted >= plotsPerCycle) break;
@@ -324,7 +327,6 @@ export function tick(state) {
             }
           }
  
-          // Replant only as many plots as plotsPerCycle allows
           let replanted = 0;
           for (const plot of farm.plots) {
             if (replanted >= plotsPerCycle) break;
@@ -438,14 +440,10 @@ export function hireWorker(state, farmId) {
  
   const startWithGloves = next.prestigeBonuses.includes("fast_hands");
   const newWorker = makeWorker(farmId, startWithGloves);
- 
-  // Start cycle progress near the end so worker acts on the very next tick
   const cycleSeconds = getEffectiveCycleSeconds(newWorker);
   newWorker.cycleProgress = cycleSeconds - 1;
- 
   next.workers.push(newWorker);
  
-  // Check kitchen unlock
   if (!next.kitchenUnlocked && isKitchenUnlocked(next)) {
     next.kitchenUnlocked = true;
   }
@@ -557,15 +555,18 @@ export function beginPrestige(state, chosenBonusId, keptWorkerId) {
   next.keptWorkers = keptWorkers;
   next.workers = [];
  
+  // Keep 10% of crops
   for (const cropId of Object.keys(next.crops)) {
     next.crops[cropId] = Math.floor((next.crops[cropId] ?? 0) * 0.1);
   }
  
+  // Reset artisan goods and kitchen
   next.artisan = { bread: 0, jam: 0, sauce: 0 };
   next.processingQueue = [];
   next.yieldPool = 0;
   next.kitchenUnlocked = false;
  
+  // Unlock new farm for new season
   const newFarmCrops = SEASON_FARMS[newSeason] ?? [];
   const existingCropIds = next.farms.map((f) => f.crop);
   for (const cropId of newFarmCrops) {
@@ -574,13 +575,17 @@ export function beginPrestige(state, chosenBonusId, keptWorkerId) {
     }
   }
  
+  // Reset plot STATES but keep unlockedPlots count and upgraded status
   for (const farm of next.farms) {
-    const crop = CROPS[farm.crop];
-    farm.plots = farm.plots.map((_, idx) =>
-      makePlot(undefined, idx === 0, crop.growTime)
-    );
+    farm.plots = farm.plots.map((plot, idx) => ({
+      ...plot,
+      state: idx === 0 ? "planted" : "empty", // first plot starts planted (half-grown feel)
+      growthTick: idx === 0 ? Math.floor(CROPS[farm.crop].growTime / 2) : 0,
+      // upgraded is preserved — plot upgrades carry over
+    }));
   }
  
+  // head_start: auto-hire one free worker per farm
   if (next.prestigeBonuses.includes("head_start")) {
     const startWithGloves = next.prestigeBonuses.includes("fast_hands");
     for (const farm of next.farms) {
@@ -610,7 +615,7 @@ export function assignKeptWorker(state, keptWorkerId, farmId) {
   const worker = {
     ...next.keptWorkers[workerIdx],
     farmId,
-    cycleProgress: cs - 1, // also acts immediately on assignment
+    cycleProgress: cs - 1,
     cycleCount: 0,
   };
   next.workers.push(worker);

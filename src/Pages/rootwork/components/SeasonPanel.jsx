@@ -16,11 +16,7 @@ function FarmChecklist({ farm, game }) {
   const automated = workersOk && plotsOk;
  
   return (
-    <div style={{
-      padding: "0.75rem 0",
-      borderBottom: "1px solid var(--border)",
-      fontSize: "0.82rem",
-    }}>
+    <div style={{ padding: "0.75rem 0", borderBottom: "1px solid var(--border)", fontSize: "0.82rem" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
         <span style={{ fontWeight: 600 }}>{crop.emoji} {crop.name} Farm</span>
         <span style={{
@@ -81,13 +77,12 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
   const availableFarms = game.farms.filter((f) => availableCropIds.includes(f.crop));
   const atMaxSeason = game.season >= MAX_SEASON;
   const totalWorkers = game.workers.length;
+  const keptWorkerCount = game.season - 1;
  
   const workerGearSummary = game.workers.reduce((acc, w) => {
     acc[w.gear] = (acc[w.gear] ?? 0) + 1;
     return acc;
   }, {});
- 
-  const keptWorkerCount = game.season - 1;
  
   return (
     <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 4rem" }}>
@@ -161,7 +156,8 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
             <li>✅ 10% of your current crops</li>
             <li>✅ All prestige bonuses (you pick a new one)</li>
             <li>✅ One new farm unlocks</li>
-            <li>✅ First plot on each farm starts half-grown</li>
+            <li>✅ All unlocked plots carry over</li>
+            <li>✅ All ⭐ plot upgrades carry over</li>
             <li>✅ Global Feast speed bonus carries over</li>
             <li>✅ You keep <strong>1 worker</strong> with full gear & specialization</li>
             <li>✅ You choose which farm that worker goes to</li>
@@ -174,8 +170,8 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
             {game.prestigeBonuses.includes("fast_hands") && (
               <li>✅ Fast Hands: new workers start with Gloves</li>
             )}
+            <li>❌ Plot crop states reset to empty (first plot starts planted)</li>
             <li>❌ All other workers reset</li>
-            <li>❌ Plots reset (except first plot, and ⭐ upgrades reset)</li>
             <li>❌ Artisan goods and kitchen queue clear</li>
             <li>❌ Kitchen locks again until first farm re-automated</li>
           </ul>
