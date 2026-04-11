@@ -1,9 +1,17 @@
 // src/Pages/rootwork/components/ProcessingZone.jsx
  
 import React from "react";
-import { PROCESSING_RECIPES, CROPS } from "../gameConstants";
+import {
+  PROCESSING_RECIPES,
+  CROPS,
+  CROP_ARTISAN,
+  PLOT_UPGRADE_COST,
+  FEAST_TIERS,
+  FEAST_MAX_BONUS,
+} from "../gameConstants";
+import { getNextFeastTier } from "../gameEngine";
  
-// ─── Progress bar ─────────────────────────────────────────────────────────────
+// ─── Active queue item ────────────────────────────────────────────────────────
  
 function QueueItem({ item }) {
   const recipe = PROCESSING_RECIPES[item.recipeId];
@@ -15,42 +23,18 @@ function QueueItem({ item }) {
  
   return (
     <div className="card p-4 space-y-2">
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          fontSize: "0.85rem",
-        }}
-      >
-        <span style={{ fontWeight: 600 }}>
-          {recipe.emoji} {recipe.name}
-        </span>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "0.85rem" }}>
+        <span style={{ fontWeight: 600 }}>{recipe.emoji} {recipe.name}</span>
         <span style={{ color: "var(--muted)", fontSize: "0.75rem" }}>
-          {mins}m {secs}s left
+          {mins > 0 ? `${mins}m ` : ""}{secs}s left
         </span>
       </div>
- 
-      {/* Progress bar */}
-      <div
-        style={{
-          height: "6px",
-          background: "var(--border)",
-          borderRadius: "999px",
-          overflow: "hidden",
-        }}
-      >
-        <div
-          style={{
-            height: "100%",
-            width: `${percent}%`,
-            background: "var(--accent)",
-            borderRadius: "999px",
-            transition: "width 1s linear",
-          }}
-        />
+      <div style={{ height: "6px", background: "var(--border)", borderRadius: "999px", overflow: "hidden" }}>
+        <div style={{
+          height: "100%", width: `${percent}%`, background: "var(--accent)",
+          borderRadius: "999px", transition: "width 1s linear",
+        }} />
       </div>
- 
       <div style={{ fontSize: "0.72rem", color: "var(--muted)" }}>
         {percent}% complete · yields {item.outputAmount} {recipe.emoji}
       </div>
@@ -61,122 +45,211 @@ function QueueItem({ item }) {
 // ─── Recipe card ──────────────────────────────────────────────────────────────
  
 function RecipeCard({ recipe, game, onStartProcessing, queueFull }) {
-  const canAfford = Object.entries(recipe.inputs).every(
-    ([cropId, amount]) => (game.crops[cropId] ?? 0) >= amount
-  );
-  const locked = recipe.season > game.season;
-  const disabled = locked || queueFull || !canAfford;
+  const crop = recipe.inputCrop ? CROPS[recipe.inputCrop] : null;
+  const have = crop ? (game.crops[recipe.inputCrop] ?? 0) : 0;
+  const canAfford = crop ? have >= recipe.inputAmount : false;
+  const disabled = queueFull || !canAfford;
  
   return (
-    <div
-      className="card p-4 space-y-3"
-      style={{
-        opacity: locked ? 0.4 : 1,
-        fontSize: "0.85rem",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <span style={{ fontWeight: 600 }}>
-          {recipe.emoji} {recipe.name}
-        </span>
-        <span
-          style={{
-            fontSize: "0.7rem",
-            color: "var(--muted)",
-            fontStyle: "italic",
-          }}
-        >
+    <div className="card p-4 space-y-2" style={{ fontSize: "0.85rem" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <span style={{ fontWeight: 600 }}>{recipe.emoji} {recipe.name}</span>
+        <span style={{ fontSize: "0.7rem", color: "var(--muted)" }}>
           {Math.floor(recipe.seconds / 60)}m · yields {recipe.outputAmount}
         </span>
       </div>
- 
-      {/* Inputs */}
-      <div
-        style={{
-          display: "flex",
-          gap: "0.75rem",
-          flexWrap: "wrap",
-          fontSize: "0.75rem",
-          color: "var(--muted)",
-        }}
-      >
-        {Object.entries(recipe.inputs).map(([cropId, amount]) => {
-          const crop = CROPS[cropId];
-          const have = game.crops[cropId] ?? 0;
-          const enough = have >= amount;
-          return (
-            <span
-              key={cropId}
-              style={{ color: enough ? "var(--text)" : "#ef4444", fontWeight: enough ? 400 : 600 }}
-            >
-              {crop.emoji} {have}/{amount} {crop.name}
-            </span>
-          );
-        })}
-      </div>
- 
+      <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>{recipe.description}</div>
+      {crop && (
+        <div style={{ fontSize: "0.75rem" }}>
+          <span style={{ color: canAfford ? "var(--text)" : "#ef4444", fontWeight: canAfford ? 400 : 600 }}>
+            {crop.emoji} {have}/{recipe.inputAmount} {crop.name}
+          </span>
+        </div>
+      )}
       <button
         onClick={() => onStartProcessing(recipe.id)}
         disabled={disabled}
         className="btn w-full"
         style={{ fontSize: "0.8rem", padding: "0.45rem 0.75rem" }}
       >
-        {locked
-          ? `Unlocks Season ${recipe.season}`
-          : queueFull
-          ? "Queue full"
-          : !canAfford
-          ? "Not enough crops"
-          : `Start ${recipe.name}`}
+        {queueFull ? "Queue full" : !canAfford ? `Need ${recipe.inputAmount} ${crop?.name}` : `Start ${recipe.name}`}
       </button>
+    </div>
+  );
+}
+ 
+// ─── Plot upgrade section ──────────────────────────────────────────────────────
+ 
+function PlotUpgradeSection({ game, onUpgradePlot }) {
+  return (
+    <div className="space-y-3">
+      <h3 style={{ fontSize: "0.85rem", fontWeight: 600 }}>⭐ Plot Upgrades</h3>
+      <p style={{ fontSize: "0.75rem", color: "var(--muted)", lineHeight: 1.6 }}>
+        Spend artisan goods to permanently upgrade individual plots — 50% faster grow time per upgraded plot.
+      </p>
+      {game.farms.map((farm) => {
+        const crop = CROPS[farm.crop];
+        const artisanGood = CROP_ARTISAN[farm.crop];
+        if (!artisanGood) return null;
+        const artisanEmoji = PROCESSING_RECIPES[artisanGood]?.emoji ?? "📦";
+        const artisanName = PROCESSING_RECIPES[artisanGood]?.name ?? artisanGood;
+        const have = game.artisan[artisanGood] ?? 0;
+        const upgradedCount = farm.plots.filter((p) => p.upgraded).length;
+        const totalPlots = farm.plots.length;
+        const unupgradedPlots = farm.plots.filter((p) => !p.upgraded);
+        const canAfford = have >= PLOT_UPGRADE_COST;
+ 
+        return (
+          <div key={farm.id} className="card p-4 space-y-2" style={{ fontSize: "0.82rem" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ fontWeight: 600 }}>{crop.emoji} {crop.name} Farm</span>
+              <span style={{ fontSize: "0.72rem", color: "var(--muted)" }}>
+                {upgradedCount}/{totalPlots} plots upgraded
+              </span>
+            </div>
+            <div style={{ fontSize: "0.72rem", color: "var(--muted)" }}>
+              {artisanEmoji} {have} {artisanName} available · {PLOT_UPGRADE_COST} per plot
+            </div>
+            {unupgradedPlots.length === 0 ? (
+              <div style={{ fontSize: "0.72rem", color: "#4ade80", fontStyle: "italic" }}>
+                ✓ All plots upgraded!
+              </div>
+            ) : (
+              <button
+                onClick={() => onUpgradePlot(farm.id, unupgradedPlots[0].id)}
+                disabled={!canAfford}
+                className="btn w-full"
+                style={{ fontSize: "0.78rem", padding: "0.4rem 0.75rem" }}
+              >
+                {canAfford
+                  ? `Upgrade next plot (${PLOT_UPGRADE_COST} ${artisanEmoji} ${artisanName})`
+                  : `Need ${PLOT_UPGRADE_COST} ${artisanEmoji} ${artisanName}`}
+              </button>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+ 
+// ─── Feast section ────────────────────────────────────────────────────────────
+ 
+function FeastSection({ game, onBuyFeast }) {
+  const nextTier = getNextFeastTier(game);
+  const currentBonus = game.feastBonusPercent ?? 0;
+  const atMax = currentBonus >= FEAST_MAX_BONUS;
+ 
+  const perGood = nextTier ? Math.ceil(nextTier.cost / 3) : 0;
+  const canAfford = nextTier &&
+    (game.artisan.bread ?? 0) >= perGood &&
+    (game.artisan.jam ?? 0) >= perGood &&
+    (game.artisan.sauce ?? 0) >= perGood;
+ 
+  return (
+    <div className="space-y-3">
+      <h3 style={{ fontSize: "0.85rem", fontWeight: 600 }}>🍽️ Feast — Global Speed</h3>
+      <p style={{ fontSize: "0.75rem", color: "var(--muted)", lineHeight: 1.6 }}>
+        Spend artisan goods to permanently increase grow speed across ALL farms. Stacks up to {FEAST_MAX_BONUS}%.
+      </p>
+ 
+      <div className="card p-4 space-y-3">
+        {/* Current bonus */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "0.82rem" }}>
+          <span style={{ fontWeight: 600 }}>Current bonus</span>
+          <span style={{ color: currentBonus > 0 ? "#4ade80" : "var(--muted)", fontWeight: 700 }}>
+            +{currentBonus}% faster
+          </span>
+        </div>
+ 
+        {/* Progress bar to max */}
+        <div style={{ height: "6px", background: "var(--border)", borderRadius: "999px", overflow: "hidden" }}>
+          <div style={{
+            height: "100%",
+            width: `${(currentBonus / FEAST_MAX_BONUS) * 100}%`,
+            background: "#4ade80",
+            borderRadius: "999px",
+            transition: "width 0.4s ease",
+          }} />
+        </div>
+        <div style={{ fontSize: "0.68rem", color: "var(--muted)", textAlign: "center" }}>
+          {currentBonus}/{FEAST_MAX_BONUS}% maximum bonus
+        </div>
+ 
+        {/* Next tier */}
+        {atMax ? (
+          <div style={{ fontSize: "0.78rem", color: "#4ade80", textAlign: "center", fontStyle: "italic" }}>
+            ✓ Maximum feast bonus reached!
+          </div>
+        ) : nextTier ? (
+          <>
+            <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
+              Next: +{nextTier.bonusPercent}% for {perGood} each of 🍞🍯🥫
+            </div>
+            <div style={{ fontSize: "0.72rem", color: "var(--muted)" }}>
+              You have: 🍞{game.artisan.bread ?? 0} · 🍯{game.artisan.jam ?? 0} · 🥫{game.artisan.sauce ?? 0}
+            </div>
+            <button
+              onClick={onBuyFeast}
+              disabled={!canAfford}
+              className="btn w-full"
+              style={{ fontSize: "0.8rem", padding: "0.45rem 0.75rem" }}
+            >
+              {canAfford
+                ? `Buy Feast tier — +${nextTier.bonusPercent}% speed`
+                : `Need ${perGood} of each artisan good`}
+            </button>
+          </>
+        ) : null}
+      </div>
     </div>
   );
 }
  
 // ─── Main component ───────────────────────────────────────────────────────────
  
-export default function ProcessingZone({ game, onStartProcessing }) {
-  const maxSlots =
-    1 + game.prestigeBonuses.filter((b) => b === "processing_slot").length;
-  const activeQueue = game.processingQueue.filter((i) => !i.done);
+export default function ProcessingZone({ game, onStartProcessing, onUpgradePlot, onBuyFeast }) {
+  const maxSlots = 1 + (game.prestigeBonuses ?? []).filter((b) => b === "bigger_kitchen").length;
+  const activeQueue = (game.processingQueue ?? []).filter((i) => !i.done);
   const queueFull = activeQueue.length >= maxSlots;
  
+  const availableRecipes = Object.values(PROCESSING_RECIPES).filter(
+    (r) => r.inputCrop // only show craftable recipes (not feast)
+  );
+ 
   return (
-    <div
-      style={{
-        maxWidth: "480px",
-        margin: "0 auto",
-        padding: "1rem 1rem 4rem",
-      }}
-    >
-      {/* Header */}
+    <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 4rem" }}>
+ 
       <div style={{ marginBottom: "1rem" }}>
         <h2 style={{ fontSize: "1.2rem", fontWeight: 700 }}>🏭 Kitchen</h2>
         <p style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: "0.15rem" }}>
-          Combine crops into processed goods. Queue: {activeQueue.length}/{maxSlots}
+          Process crops into artisan goods. Use goods to upgrade plots or buy Feast bonuses.
+          Queue: {activeQueue.length}/{maxSlots}
         </p>
+      </div>
+ 
+      {/* Artisan goods summary */}
+      <div className="card p-3" style={{
+        display: "flex", gap: "1rem", flexWrap: "wrap",
+        fontSize: "0.82rem", marginBottom: "1.5rem",
+      }}>
+        <span>🍞 {game.artisan?.bread ?? 0} Bread</span>
+        <span>🍯 {game.artisan?.jam ?? 0} Jam</span>
+        <span>🥫 {game.artisan?.sauce ?? 0} Sauce</span>
       </div>
  
       {/* Active queue */}
       {activeQueue.length > 0 && (
         <div className="space-y-3" style={{ marginBottom: "1.5rem" }}>
           <h3 style={{ fontSize: "0.85rem", fontWeight: 600 }}>In progress</h3>
-          {activeQueue.map((item) => (
-            <QueueItem key={item.id} item={item} />
-          ))}
+          {activeQueue.map((item) => <QueueItem key={item.id} item={item} />)}
         </div>
       )}
  
       {/* Recipes */}
-      <div className="space-y-3">
+      <div className="space-y-3" style={{ marginBottom: "2rem" }}>
         <h3 style={{ fontSize: "0.85rem", fontWeight: 600 }}>Recipes</h3>
-        {Object.values(PROCESSING_RECIPES).map((recipe) => (
+        {availableRecipes.map((recipe) => (
           <RecipeCard
             key={recipe.id}
             recipe={recipe}
@@ -186,6 +259,15 @@ export default function ProcessingZone({ game, onStartProcessing }) {
           />
         ))}
       </div>
+ 
+      {/* Plot upgrades */}
+      <div style={{ marginBottom: "2rem" }}>
+        <PlotUpgradeSection game={game} onUpgradePlot={onUpgradePlot} />
+      </div>
+ 
+      {/* Feast */}
+      <FeastSection game={game} onBuyFeast={onBuyFeast} />
+ 
     </div>
   );
 }

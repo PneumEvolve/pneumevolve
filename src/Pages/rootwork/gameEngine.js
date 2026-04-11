@@ -11,12 +11,18 @@ import {
   SPECIALIZATIONS,
   SEASON_FARMS,
   AUTOMATION_THRESHOLD,
+  MIN_PLOTS_FOR_AUTOMATION,
   MAX_OFFLINE_SECONDS,
   PROCESSING_RECIPES,
   GEAR_CROP_COSTS,
   TEND_SECONDS,
   SPECIALIZE_COST,
   SPECIALIZE_CROP,
+  PLOT_UPGRADE_COST,
+  PLOT_UPGRADE_GROW_MULTIPLIER,
+  CROP_ARTISAN,
+  FEAST_TIERS,
+  FEAST_MAX_BONUS,
 } from "./gameConstants";
  
 let _idCounter = 0;
@@ -31,6 +37,7 @@ export function makePlot(id, halfGrown = false, growTime = 15) {
     id: id ?? genId("plot"),
     state: halfGrown ? "planted" : "empty",
     growthTick: halfGrown ? Math.floor(growTime / 2) : 0,
+    upgraded: false,
   };
 }
  
@@ -64,11 +71,14 @@ export function createInitialState() {
     prestigeBonuses: [],
     keptWorkers: [],
     yieldPool: 0,
+    feastBonusPercent: 0,
+    feastTierIndex: 0,
     farms: [firstFarm],
     workers: [],
     crops: { wheat: 0, berries: 0, tomatoes: 0 },
-    processed: { jam: 0, sauce: 0, feast: 0 },
+    artisan: { bread: 0, jam: 0, sauce: 0 },
     processingQueue: [],
+    kitchenUnlocked: false,
     lastSavedTime: Date.now(),
     totalPlayTime: 0,
     pendingWorkerAssignments: false,
@@ -93,7 +103,13 @@ export function getPlotUnlockCost(currentPlotCount) {
 }
  
 export function isFarmAutomated(farm, workers) {
-  return workers.filter((w) => w.farmId === farm.id).length >= AUTOMATION_THRESHOLD;
+  const workerCount = workers.filter((w) => w.farmId === farm.id).length;
+  return workerCount >= AUTOMATION_THRESHOLD && farm.unlockedPlots >= MIN_PLOTS_FOR_AUTOMATION;
+}
+ 
+export function isKitchenUnlocked(state) {
+  if (state.kitchenUnlocked) return true;
+  return state.farms.some((f) => isFarmAutomated(f, state.workers));
 }
  
 export function getAvailableFarms(season) {
@@ -104,11 +120,10 @@ export function needsSpecialization(worker) {
   return worker.gear === "hoe" && worker.specialization === "none";
 }
  
-// Cost to hire the next worker on a farm — scales with how many workers are already there
 export function getWorkerHireCost(state, farmId) {
   const workersOnFarm = state.workers.filter((w) => w.farmId === farmId).length;
   const raw = WORKER_HIRE_BASE_COST * Math.pow(WORKER_HIRE_MULTIPLIER, workersOnFarm);
-  return Math.round(raw / 5) * 5; // round to nearest 5
+  return Math.round(raw / 5) * 5;
 }
  
 export function applyYieldBonuses(baseYield, prestigeBonuses, currentPool = 0) {
@@ -120,8 +135,7 @@ export function applyYieldBonuses(baseYield, prestigeBonuses, currentPool = 0) {
   const fraction = exact - whole;
   const newPool = currentPool + fraction;
   const bonus = Math.floor(newPool);
-  const remainingPool = newPool - bonus;
-  return { crops: whole + bonus, newPool: remainingPool };
+  return { crops: whole + bonus, newPool: newPool - bonus };
 }
  
 export function getEffectiveCycleSeconds(worker) {
@@ -146,15 +160,34 @@ export function isSprinterResting(worker) {
   return (worker.cycleCount ?? 0) % SPECIALIZATIONS.sprinter.restEvery === SPECIALIZATIONS.sprinter.restEvery - 1;
 }
  
-export function getEffectiveGrowTime(farm, workers, cropId) {
+export function getEffectiveGrowTime(farm, workers, cropId, plot = null, feastBonusPercent = 0) {
   const crop = CROPS[cropId];
-  const growers = workers.filter((w) => w.farmId === farm.id && w.specialization === "grower");
-  if (growers.length === 0) return crop.growTime;
   let time = crop.growTime;
+ 
+  const growers = workers.filter((w) => w.farmId === farm.id && w.specialization === "grower");
   for (let i = 0; i < growers.length; i++) {
     time = Math.floor(time * SPECIALIZATIONS.grower.growMultiplier);
   }
-  return Math.max(5, time);
+ 
+  if (plot?.upgraded) {
+    time = Math.floor(time * PLOT_UPGRADE_GROW_MULTIPLIER);
+  }
+ 
+  if (feastBonusPercent > 0) {
+    const speedMultiplier = 1 + feastBonusPercent / 100;
+    time = Math.floor(time / speedMultiplier);
+  }
+ 
+  return Math.max(3, time);
+}
+ 
+export function getFarmGrowTime(farm, workers, cropId, feastBonusPercent = 0) {
+  return getEffectiveGrowTime(farm, workers, cropId, null, feastBonusPercent);
+}
+ 
+export function getNextFeastTier(state) {
+  const idx = state.feastTierIndex ?? 0;
+  return FEAST_TIERS[idx] ?? null;
 }
  
 // ─── Offline progress ─────────────────────────────────────────────────────────
@@ -166,14 +199,19 @@ export function calculateOfflineProgress(state, nowMs) {
   if (seconds <= 0) return { state, offlineSeconds: 0 };
  
   let next = deepCloneState(state);
+  const feast = next.feastBonusPercent ?? 0;
+ 
+  if (!next.kitchenUnlocked && isKitchenUnlocked(next)) {
+    next.kitchenUnlocked = true;
+  }
  
   for (const farm of next.farms) {
     const crop = CROPS[farm.crop];
     const farmWorkers = next.workers.filter((w) => w.farmId === farm.id);
-    const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop);
  
     for (const plot of farm.plots) {
       if (plot.state === "planted") {
+        const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, feast);
         plot.growthTick = Math.min(plot.growthTick + seconds, growTime);
         if (plot.growthTick >= growTime) plot.state = "ready";
       }
@@ -206,8 +244,15 @@ export function calculateOfflineProgress(state, nowMs) {
           }
         }
  
+        // Replant only as many plots as plotsPerCycle allows
+        let replanted = 0;
         for (const plot of farm.plots) {
-          if (plot.state === "empty") { plot.state = "planted"; plot.growthTick = 0; }
+          if (replanted >= plotsPerCycle) break;
+          if (plot.state === "empty") {
+            plot.state = "planted";
+            plot.growthTick = 0;
+            replanted++;
+          }
         }
       }
     }
@@ -218,7 +263,8 @@ export function calculateOfflineProgress(state, nowMs) {
       item.elapsedSeconds = Math.min((item.elapsedSeconds ?? 0) + seconds, item.totalSeconds);
       if (item.elapsedSeconds >= item.totalSeconds) {
         item.done = true;
-        next.processed[item.recipeId] = (next.processed[item.recipeId] ?? 0) + item.outputAmount;
+        const good = item.outputGood;
+        next.artisan[good] = (next.artisan[good] ?? 0) + item.outputAmount;
       }
     }
   }
@@ -233,13 +279,18 @@ export function calculateOfflineProgress(state, nowMs) {
  
 export function tick(state) {
   let next = deepCloneState(state);
+  const feast = next.feastBonusPercent ?? 0;
+ 
+  if (!next.kitchenUnlocked && isKitchenUnlocked(next)) {
+    next.kitchenUnlocked = true;
+  }
  
   for (const farm of next.farms) {
-    const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop);
     const farmWorkers = next.workers.filter((w) => w.farmId === farm.id);
  
     for (const plot of farm.plots) {
       if (plot.state === "planted") {
+        const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, feast);
         plot.growthTick += 1;
         if (plot.growthTick >= growTime) plot.state = "ready";
       }
@@ -273,8 +324,15 @@ export function tick(state) {
             }
           }
  
+          // Replant only as many plots as plotsPerCycle allows
+          let replanted = 0;
           for (const plot of farm.plots) {
-            if (plot.state === "empty") { plot.state = "planted"; plot.growthTick = 0; }
+            if (replanted >= plotsPerCycle) break;
+            if (plot.state === "empty") {
+              plot.state = "planted";
+              plot.growthTick = 0;
+              replanted++;
+            }
           }
         }
       }
@@ -286,7 +344,8 @@ export function tick(state) {
       item.elapsedSeconds = (item.elapsedSeconds ?? 0) + 1;
       if (item.elapsedSeconds >= item.totalSeconds) {
         item.done = true;
-        next.processed[item.recipeId] = (next.processed[item.recipeId] ?? 0) + item.outputAmount;
+        const good = item.outputGood;
+        next.artisan[good] = (next.artisan[good] ?? 0) + item.outputAmount;
       }
     }
   }
@@ -330,9 +389,23 @@ export function tendPlot(state, farmId, plotId) {
   if (!farm) return state;
   const plot = farm.plots.find((p) => p.id === plotId);
   if (!plot || plot.state !== "planted") return state;
-  const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop);
+  const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, next.feastBonusPercent ?? 0);
   plot.growthTick = Math.min(plot.growthTick + TEND_SECONDS, growTime);
   if (plot.growthTick >= growTime) plot.state = "ready";
+  return next;
+}
+ 
+export function upgradePlot(state, farmId, plotId) {
+  const next = deepCloneState(state);
+  const farm = next.farms.find((f) => f.id === farmId);
+  if (!farm) return state;
+  const plot = farm.plots.find((p) => p.id === plotId);
+  if (!plot || plot.upgraded) return state;
+  const artisanGood = CROP_ARTISAN[farm.crop];
+  if (!artisanGood) return state;
+  if ((next.artisan[artisanGood] ?? 0) < PLOT_UPGRADE_COST) return state;
+  next.artisan[artisanGood] -= PLOT_UPGRADE_COST;
+  plot.upgraded = true;
   return next;
 }
  
@@ -357,16 +430,26 @@ export function hireWorker(state, farmId) {
   const farm = next.farms.find((f) => f.id === farmId);
   if (!farm) return state;
   const cropId = farm.crop;
- 
   const workersOnFarm = next.workers.filter((w) => w.farmId === farmId).length;
   const hasHeadStart = next.prestigeBonuses.includes("head_start") && workersOnFarm === 0;
   const cost = hasHeadStart ? 0 : getWorkerHireCost(next, farmId);
- 
   if ((next.crops[cropId] ?? 0) < cost) return state;
   next.crops[cropId] -= cost;
  
   const startWithGloves = next.prestigeBonuses.includes("fast_hands");
-  next.workers.push(makeWorker(farmId, startWithGloves));
+  const newWorker = makeWorker(farmId, startWithGloves);
+ 
+  // Start cycle progress near the end so worker acts on the very next tick
+  const cycleSeconds = getEffectiveCycleSeconds(newWorker);
+  newWorker.cycleProgress = cycleSeconds - 1;
+ 
+  next.workers.push(newWorker);
+ 
+  // Check kitchen unlock
+  if (!next.kitchenUnlocked && isKitchenUnlocked(next)) {
+    next.kitchenUnlocked = true;
+  }
+ 
   return next;
 }
  
@@ -376,7 +459,6 @@ export function sellWorker(state, workerId) {
   if (!worker) return state;
   const farm = next.farms.find((f) => f.id === worker.farmId);
   if (!farm) return state;
-  // Refund is based on what the previous worker cost (one step back in the curve)
   const workersOnFarm = next.workers.filter((w) => w.farmId === worker.farmId).length;
   const previousCount = Math.max(0, workersOnFarm - 1);
   const hireCostWhenBought = Math.round(
@@ -421,25 +503,43 @@ export function specializeWorker(state, workerId, specializationId) {
 export function startProcessing(state, recipeId) {
   const next = deepCloneState(state);
   const recipe = PROCESSING_RECIPES[recipeId];
-  if (!recipe) return state;
-  if (recipe.season > next.season) return state;
+  if (!recipe || !recipe.inputCrop) return state;
+  if (!isKitchenUnlocked(next)) return state;
   const maxSlots = 1 + next.prestigeBonuses.filter((b) => b === "bigger_kitchen").length;
   const activeItems = next.processingQueue.filter((i) => !i.done);
   if (activeItems.length >= maxSlots) return state;
-  for (const [cropId, amount] of Object.entries(recipe.inputs)) {
-    if ((next.crops[cropId] ?? 0) < amount) return state;
-  }
-  for (const [cropId, amount] of Object.entries(recipe.inputs)) {
-    next.crops[cropId] -= amount;
-  }
+  const cropId = recipe.inputCrop;
+  if ((next.crops[cropId] ?? 0) < recipe.inputAmount) return state;
+  next.crops[cropId] -= recipe.inputAmount;
   next.processingQueue.push({
     id: genId("proc"),
     recipeId,
+    outputGood: recipe.outputGood,
     totalSeconds: recipe.seconds,
     elapsedSeconds: 0,
     outputAmount: recipe.outputAmount,
     done: false,
   });
+  return next;
+}
+ 
+export function buyFeast(state) {
+  const next = deepCloneState(state);
+  const tierIdx = next.feastTierIndex ?? 0;
+  const tier = FEAST_TIERS[tierIdx];
+  if (!tier) return state;
+  const perGood = Math.ceil(tier.cost / 3);
+  if (
+    (next.artisan.bread ?? 0) < perGood ||
+    (next.artisan.jam ?? 0) < perGood ||
+    (next.artisan.sauce ?? 0) < perGood
+  ) return state;
+  next.artisan.bread -= perGood;
+  next.artisan.jam -= perGood;
+  next.artisan.sauce -= perGood;
+  const newBonus = Math.min(FEAST_MAX_BONUS, (next.feastBonusPercent ?? 0) + tier.bonusPercent);
+  next.feastBonusPercent = newBonus;
+  next.feastTierIndex = tierIdx + 1;
   return next;
 }
  
@@ -461,9 +561,10 @@ export function beginPrestige(state, chosenBonusId, keptWorkerId) {
     next.crops[cropId] = Math.floor((next.crops[cropId] ?? 0) * 0.1);
   }
  
-  next.processed = { jam: 0, sauce: 0, feast: 0 };
+  next.artisan = { bread: 0, jam: 0, sauce: 0 };
   next.processingQueue = [];
   next.yieldPool = 0;
+  next.kitchenUnlocked = false;
  
   const newFarmCrops = SEASON_FARMS[newSeason] ?? [];
   const existingCropIds = next.farms.map((f) => f.crop);
@@ -484,7 +585,10 @@ export function beginPrestige(state, chosenBonusId, keptWorkerId) {
     const startWithGloves = next.prestigeBonuses.includes("fast_hands");
     for (const farm of next.farms) {
       if ((SEASON_FARMS[newSeason] ?? []).includes(farm.crop)) {
-        next.workers.push(makeWorker(farm.id, startWithGloves));
+        const w = makeWorker(farm.id, startWithGloves);
+        const cs = getEffectiveCycleSeconds(w);
+        w.cycleProgress = cs - 1;
+        next.workers.push(w);
       }
     }
   }
@@ -502,11 +606,15 @@ export function assignKeptWorker(state, keptWorkerId, farmId) {
   if (workerIdx === -1) return state;
   const farm = next.farms.find((f) => f.id === farmId);
   if (!farm) return state;
- 
-  const worker = { ...next.keptWorkers[workerIdx], farmId, cycleProgress: 0, cycleCount: 0 };
+  const cs = getEffectiveCycleSeconds(next.keptWorkers[workerIdx]);
+  const worker = {
+    ...next.keptWorkers[workerIdx],
+    farmId,
+    cycleProgress: cs - 1, // also acts immediately on assignment
+    cycleCount: 0,
+  };
   next.workers.push(worker);
   next.keptWorkers.splice(workerIdx, 1);
- 
   if (next.keptWorkers.length === 0) next.pendingWorkerAssignments = false;
   return next;
 }
@@ -530,12 +638,21 @@ export function deserializeState(raw) {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
     if (!Array.isArray(parsed.farms) || !Array.isArray(parsed.workers)) return null;
-    for (const worker of parsed.workers) {
+    for (const worker of parsed.workers ?? []) {
       if (worker.cycleCount === undefined) worker.cycleCount = 0;
+    }
+    for (const farm of parsed.farms ?? []) {
+      for (const plot of farm.plots ?? []) {
+        if (plot.upgraded === undefined) plot.upgraded = false;
+      }
     }
     if (parsed.yieldPool === undefined) parsed.yieldPool = 0;
     if (parsed.keptWorkers === undefined) parsed.keptWorkers = [];
     if (parsed.pendingWorkerAssignments === undefined) parsed.pendingWorkerAssignments = false;
+    if (parsed.artisan === undefined) parsed.artisan = { bread: 0, jam: 0, sauce: 0 };
+    if (parsed.kitchenUnlocked === undefined) parsed.kitchenUnlocked = false;
+    if (parsed.feastBonusPercent === undefined) parsed.feastBonusPercent = 0;
+    if (parsed.feastTierIndex === undefined) parsed.feastTierIndex = 0;
     return parsed;
   } catch { return null; }
 }

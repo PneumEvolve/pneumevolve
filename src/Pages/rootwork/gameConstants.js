@@ -82,7 +82,6 @@ export const GEAR = {
  
 export const GEAR_ORDER = ["bare_hands", "gloves", "hoe", "wheelbarrow", "tractor"];
  
-// Which crop pays for each gear upgrade
 export const GEAR_CROP_COSTS = {
   bare_hands: null,
   gloves: "wheat",
@@ -92,7 +91,6 @@ export const GEAR_CROP_COSTS = {
 };
  
 // ─── Specialization step ──────────────────────────────────────────────────────
-// Sits between hoe and wheelbarrow in the upgrade path
 export const SPECIALIZE_COST = 50;
 export const SPECIALIZE_CROP = "berries";
  
@@ -106,12 +104,26 @@ export const PLOT_COSTS = [
  
 export const MAX_PLOTS = 25;
  
+// ─── Plot upgrade ─────────────────────────────────────────────────────────────
+// Upgrading a plot costs 1 artisan good and halves its grow time permanently
+// Each crop has its own artisan good
+export const PLOT_UPGRADE_COST = 1; // 1 artisan good per plot
+export const PLOT_UPGRADE_GROW_MULTIPLIER = 0.5; // 50% faster
+ 
+// Which artisan good upgrades plots for each crop
+export const CROP_ARTISAN = {
+  wheat: "bread",
+  berries: "jam",
+  tomatoes: "sauce",
+};
+ 
 // ─── Worker hire cost ─────────────────────────────────────────────────────────
-// First worker costs WORKER_HIRE_BASE_COST, each subsequent worker costs 1.5x more
-// rounded to nearest 5. Cost is per-farm and resets on a new farm.
-// Worker 1: 10, Worker 2: 15, Worker 3: 25, Worker 4: 35, Worker 5: 50, Worker 6: 75...
 export const WORKER_HIRE_BASE_COST = 10;
 export const WORKER_HIRE_MULTIPLIER = 1.5;
+ 
+// ─── Automation requirements ──────────────────────────────────────────────────
+export const AUTOMATION_THRESHOLD = 4; // workers needed
+export const MIN_PLOTS_FOR_AUTOMATION = 4; // plots needed
  
 // ─── Worker specializations ───────────────────────────────────────────────────
 export const SPECIALIZATIONS = {
@@ -148,35 +160,69 @@ export const SPECIALIZATIONS = {
 export const TEND_SECONDS = 3;
  
 // ─── Processing recipes ───────────────────────────────────────────────────────
+// inputCrop: which crop goes in
+// inputAmount: how many crops per batch
+// outputGood: which artisan good comes out
+// outputAmount: how many per batch
+// seconds: processing time
+ 
 export const PROCESSING_RECIPES = {
+  bread: {
+    id: "bread",
+    name: "Bread",
+    emoji: "🍞",
+    inputCrop: "wheat",
+    inputAmount: 20,
+    outputGood: "bread",
+    outputAmount: 1,
+    seconds: 120,
+    description: "Upgrade a Wheat plot — 50% faster grow time.",
+  },
   jam: {
     id: "jam",
     name: "Jam",
     emoji: "🍯",
-    inputs: { wheat: 50, berries: 20 },
-    outputAmount: 10,
-    seconds: 600,
-    season: 3,
+    inputCrop: "berries",
+    inputAmount: 15,
+    outputGood: "jam",
+    outputAmount: 1,
+    seconds: 180,
+    description: "Upgrade a Berry plot — 50% faster grow time.",
   },
   sauce: {
     id: "sauce",
     name: "Sauce",
     emoji: "🥫",
-    inputs: { berries: 40, tomatoes: 15 },
-    outputAmount: 8,
-    seconds: 900,
-    season: 3,
+    inputCrop: "tomatoes",
+    inputAmount: 10,
+    outputGood: "sauce",
+    outputAmount: 1,
+    seconds: 240,
+    description: "Upgrade a Tomato plot — 50% faster grow time.",
   },
   feast: {
     id: "feast",
     name: "Feast",
     emoji: "🍽️",
-    inputs: { wheat: 30, berries: 30, tomatoes: 30 },
-    outputAmount: 5,
-    seconds: 1800,
-    season: 4,
+    inputCrop: null, // feast is purchased directly with artisan goods, not processed
+    description: "Permanent global grow speed bonus for all farms. Stackable.",
   },
 };
+ 
+// ─── Feast tiers — permanent global grow speed bonuses ───────────────────────
+// Each tier costs that many Feast points (spend bread+jam+sauce equally)
+// bonusPercent: how much faster ALL plots grow (stacks additively)
+export const FEAST_TIERS = [
+  { cost: 5,    bonusPercent: 1  },
+  { cost: 15,   bonusPercent: 2  },
+  { cost: 40,   bonusPercent: 3  },
+  { cost: 100,  bonusPercent: 5  },
+  { cost: 250,  bonusPercent: 8  },
+  { cost: 600,  bonusPercent: 12 },
+  { cost: 1000, bonusPercent: 19 },
+];
+ 
+export const FEAST_MAX_BONUS = 50; // cap at 50% global speed bonus
  
 // ─── Prestige bonuses ─────────────────────────────────────────────────────────
 export const PRESTIGE_BONUSES = {
@@ -215,9 +261,6 @@ export const SEASON_FARMS = {
 };
  
 export const MAX_SEASON = 4;
- 
-// ─── Automation threshold ─────────────────────────────────────────────────────
-export const AUTOMATION_THRESHOLD = 3;
  
 // ─── Save config ──────────────────────────────────────────────────────────────
 export const SAVE_KEY = "rootwork_save";

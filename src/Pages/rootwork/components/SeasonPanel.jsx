@@ -1,34 +1,60 @@
 // src/Pages/rootwork/components/SeasonPanel.jsx
  
 import React from "react";
-import { CROPS, SEASON_FARMS, PRESTIGE_BONUSES, MAX_SEASON, GEAR, SPECIALIZATIONS } from "../gameConstants";
+import {
+  CROPS, SEASON_FARMS, PRESTIGE_BONUSES, MAX_SEASON, GEAR,
+  AUTOMATION_THRESHOLD, MIN_PLOTS_FOR_AUTOMATION,
+} from "../gameConstants";
 import { isFarmAutomated } from "../gameEngine";
  
-function FarmStatusRow({ farm, game }) {
+function FarmChecklist({ farm, game }) {
   const crop = CROPS[farm.crop];
-  const automated = isFarmAutomated(farm, game.workers);
-  const workers = game.workers.filter((w) => w.farmId === farm.id);
+  const workerCount = game.workers.filter((w) => w.farmId === farm.id).length;
+  const plotCount = farm.unlockedPlots;
+  const workersOk = workerCount >= AUTOMATION_THRESHOLD;
+  const plotsOk = plotCount >= MIN_PLOTS_FOR_AUTOMATION;
+  const automated = workersOk && plotsOk;
+ 
   return (
     <div style={{
-      display: "flex", alignItems: "center", justifyContent: "space-between",
-      padding: "0.6rem 0", borderBottom: "1px solid var(--border)", fontSize: "0.82rem",
+      padding: "0.75rem 0",
+      borderBottom: "1px solid var(--border)",
+      fontSize: "0.82rem",
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-        <span>{crop.emoji}</span>
-        <span style={{ fontWeight: 500 }}>{crop.name} Farm</span>
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-        <span style={{ color: "var(--muted)", fontSize: "0.72rem" }}>
-          {workers.length} worker{workers.length !== 1 ? "s" : ""}
-        </span>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+        <span style={{ fontWeight: 600 }}>{crop.emoji} {crop.name} Farm</span>
         <span style={{
           fontSize: "0.7rem", fontWeight: 700, padding: "0.2rem 0.55rem", borderRadius: "999px",
-          background: automated ? "color-mix(in oklab, #4ade80 15%, var(--bg-elev))" : "color-mix(in oklab, #f59e0b 15%, var(--bg-elev))",
+          background: automated
+            ? "color-mix(in oklab, #4ade80 15%, var(--bg-elev))"
+            : "color-mix(in oklab, #f59e0b 15%, var(--bg-elev))",
           border: `1px solid ${automated ? "#4ade80" : "#f59e0b"}`,
           color: automated ? "#166534" : "#92400e",
         }}>
           {automated ? "✓ Automated" : "Manual"}
         </span>
+      </div>
+ 
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.75rem", color: plotsOk ? "#4ade80" : "var(--muted)" }}>
+          <span>{plotsOk ? "☑" : "☐"}</span>
+          <span>
+            {MIN_PLOTS_FOR_AUTOMATION} plots unlocked
+            <span style={{ marginLeft: "0.4rem", opacity: 0.7 }}>({plotCount}/{MIN_PLOTS_FOR_AUTOMATION})</span>
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.75rem", color: workersOk ? "#4ade80" : "var(--muted)" }}>
+          <span>{workersOk ? "☑" : "☐"}</span>
+          <span>
+            {AUTOMATION_THRESHOLD} workers hired
+            <span style={{ marginLeft: "0.4rem", opacity: 0.7 }}>({workerCount}/{AUTOMATION_THRESHOLD})</span>
+          </span>
+        </div>
+        {automated && (
+          <div style={{ fontSize: "0.7rem", color: "var(--muted)", marginTop: "0.25rem", fontStyle: "italic" }}>
+            This farm harvests and replants automatically — even while you're away.
+          </div>
+        )}
       </div>
     </div>
   );
@@ -55,13 +81,13 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
   const availableFarms = game.farms.filter((f) => availableCropIds.includes(f.crop));
   const atMaxSeason = game.season >= MAX_SEASON;
   const totalWorkers = game.workers.length;
+ 
   const workerGearSummary = game.workers.reduce((acc, w) => {
     acc[w.gear] = (acc[w.gear] ?? 0) + 1;
     return acc;
   }, {});
  
-  // Kept workers from previous seasons (already placed)
-  const keptWorkerCount = game.season - 1; // one per completed season
+  const keptWorkerCount = game.season - 1;
  
   return (
     <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 4rem" }}>
@@ -77,10 +103,18 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
         </p>
       </div>
  
-      {/* Farm status */}
+      {/* Automation checklist */}
       <div className="card p-4" style={{ marginBottom: "1rem" }}>
-        <h3 style={{ fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.5rem" }}>Farm Status</h3>
-        {availableFarms.map((farm) => <FarmStatusRow key={farm.id} farm={farm} game={game} />)}
+        <h3 style={{ fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.25rem" }}>
+          Automation Progress
+        </h3>
+        <p style={{ fontSize: "0.7rem", color: "var(--muted)", marginBottom: "0.5rem" }}>
+          A farm is automated when it has {MIN_PLOTS_FOR_AUTOMATION}+ plots and {AUTOMATION_THRESHOLD}+ workers.
+          Automated farms run themselves — workers harvest and replant while you're away.
+        </p>
+        {availableFarms.map((farm) => (
+          <FarmChecklist key={farm.id} farm={farm} game={game} />
+        ))}
       </div>
  
       {/* Worker summary */}
@@ -110,7 +144,9 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
         <div className="card p-4" style={{ marginBottom: "1rem" }}>
           <h3 style={{ fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.75rem" }}>Bonuses Active</h3>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
-            {game.prestigeBonuses.map((bonusId, idx) => <BonusTag key={`${bonusId}_${idx}`} bonusId={bonusId} />)}
+            {game.prestigeBonuses.map((bonusId, idx) => (
+              <BonusTag key={`${bonusId}_${idx}`} bonusId={bonusId} />
+            ))}
           </div>
         </div>
       )}
@@ -126,10 +162,11 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
             <li>✅ All prestige bonuses (you pick a new one)</li>
             <li>✅ One new farm unlocks</li>
             <li>✅ First plot on each farm starts half-grown</li>
+            <li>✅ Global Feast speed bonus carries over</li>
             <li>✅ You keep <strong>1 worker</strong> with full gear & specialization</li>
             <li>✅ You choose which farm that worker goes to</li>
             {keptWorkerCount > 1 && (
-              <li>✅ {keptWorkerCount} total kept workers to assign (one per past season)</li>
+              <li>✅ {keptWorkerCount} total kept workers to assign</li>
             )}
             {game.prestigeBonuses.includes("head_start") && (
               <li>✅ Head Start: 1 free worker on each farm</li>
@@ -138,9 +175,9 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
               <li>✅ Fast Hands: new workers start with Gloves</li>
             )}
             <li>❌ All other workers reset</li>
-            <li>❌ Plots reset (except first plot)</li>
-            <li>❌ Processing queue clears</li>
-            <li>❌ Processed goods reset</li>
+            <li>❌ Plots reset (except first plot, and ⭐ upgrades reset)</li>
+            <li>❌ Artisan goods and kitchen queue clear</li>
+            <li>❌ Kitchen locks again until first farm re-automated</li>
           </ul>
         </div>
       )}

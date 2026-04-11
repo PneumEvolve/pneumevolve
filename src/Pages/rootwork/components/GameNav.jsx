@@ -8,7 +8,7 @@ export default function GameNav({ game, activeTab, onTabChange, prestigeReady })
   const availableCropIds = SEASON_FARMS[game.season] ?? ["wheat"];
  
   const tabs = [
-    // One tab per farm
+    // Farm tabs
     ...game.farms
       .filter((f) => availableCropIds.includes(f.crop))
       .map((farm, idx) => {
@@ -23,20 +23,20 @@ export default function GameNav({ game, activeTab, onTabChange, prestigeReady })
         };
       }),
  
-    // Processing tab — Season 3+
-    ...(game.season >= 3
-      ? [
-          {
-            id: "processing",
-            label: "Kitchen",
-            emoji: "🏭",
-            badge: game.processingQueue.length > 0 ? game.processingQueue.length : null,
-            badgeColor: "var(--accent)",
-          },
-        ]
+    // Kitchen — unlocks when any farm is automated
+    ...(game.kitchenUnlocked
+      ? [{
+          id: "processing",
+          label: "Kitchen",
+          emoji: "🏭",
+          badge: (game.processingQueue ?? []).filter((i) => !i.done).length > 0
+            ? (game.processingQueue ?? []).filter((i) => !i.done).length
+            : null,
+          badgeColor: "var(--accent)",
+        }]
       : []),
  
-    // Season / prestige tab
+    // Season tab
     {
       id: "season",
       label: "Season",
@@ -47,15 +47,13 @@ export default function GameNav({ game, activeTab, onTabChange, prestigeReady })
   ];
  
   return (
-    <div
-      style={{
-        background: "var(--bg-elev)",
-        borderBottom: "1px solid var(--border)",
-        display: "flex",
-        overflowX: "auto",
-        scrollbarWidth: "none",
-      }}
-    >
+    <div style={{
+      background: "var(--bg-elev)",
+      borderBottom: "1px solid var(--border)",
+      display: "flex",
+      overflowX: "auto",
+      scrollbarWidth: "none",
+    }}>
       {tabs.map((tab) => {
         const isActive = activeTab === tab.id;
         return (
@@ -72,9 +70,7 @@ export default function GameNav({ game, activeTab, onTabChange, prestigeReady })
               padding: "0.6rem 1.1rem",
               background: "none",
               border: "none",
-              borderBottom: isActive
-                ? "2px solid var(--accent)"
-                : "2px solid transparent",
+              borderBottom: isActive ? "2px solid var(--accent)" : "2px solid transparent",
               cursor: "pointer",
               color: isActive ? "var(--accent)" : "var(--muted)",
               fontWeight: isActive ? 600 : 400,
@@ -85,25 +81,14 @@ export default function GameNav({ game, activeTab, onTabChange, prestigeReady })
           >
             <span style={{ fontSize: "1.1rem", lineHeight: 1 }}>{tab.emoji}</span>
             <span>{tab.label}</span>
- 
-            {/* Badge */}
             {tab.badge && (
-              <span
-                style={{
-                  position: "absolute",
-                  top: "4px",
-                  right: "6px",
-                  background: tab.badgeColor,
-                  color: "#fff",
-                  fontSize: "0.55rem",
-                  fontWeight: 700,
-                  borderRadius: "999px",
-                  padding: "1px 4px",
-                  lineHeight: 1.4,
-                  minWidth: "14px",
-                  textAlign: "center",
-                }}
-              >
+              <span style={{
+                position: "absolute", top: "4px", right: "6px",
+                background: tab.badgeColor, color: "#fff",
+                fontSize: "0.55rem", fontWeight: 700,
+                borderRadius: "999px", padding: "1px 4px",
+                lineHeight: 1.4, minWidth: "14px", textAlign: "center",
+              }}>
                 {tab.badge}
               </span>
             )}

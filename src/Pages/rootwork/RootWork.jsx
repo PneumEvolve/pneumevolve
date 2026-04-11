@@ -12,12 +12,14 @@ import {
   plantPlot,
   harvestPlot,
   tendPlot,
+  upgradePlot,
   buyPlot,
   hireWorker,
   sellWorker,
   upgradeWorkerGear,
   specializeWorker,
   startProcessing,
+  buyFeast,
   beginPrestige,
   assignKeptWorker,
   canPrestige,
@@ -41,14 +43,11 @@ function saveToLocalStorage(state) {
   try { localStorage.setItem(SAVE_KEY, serializeState(state)); } catch {}
 }
  
-// ─── Prestige modal — 3 steps ─────────────────────────────────────────────────
+// ─── Prestige modal ───────────────────────────────────────────────────────────
  
 function PrestigeModal({ game, onComplete, onCancel }) {
-  const [step, setStep] = useState(1); // 1=bonus, 2=worker
+  const [step, setStep] = useState(1);
   const [chosenBonus, setChosenBonus] = useState(null);
-  const [chosenWorker, setChosenWorker] = useState(null);
- 
-  const allWorkers = game.workers;
  
   function handleBonusPick(bonusId) {
     setChosenBonus(bonusId);
@@ -56,7 +55,6 @@ function PrestigeModal({ game, onComplete, onCancel }) {
   }
  
   function handleWorkerPick(workerId) {
-    setChosenWorker(workerId);
     onComplete(chosenBonus, workerId);
   }
  
@@ -65,20 +63,14 @@ function PrestigeModal({ game, onComplete, onCancel }) {
   }
  
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.6)" }}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.6)" }}>
       <div className="card p-6 w-full max-w-sm space-y-4" style={{ maxHeight: "90vh", overflowY: "auto" }}>
  
-        {/* Step 1 — Choose bonus */}
         {step === 1 && (
           <>
             <div>
               <h2 className="text-xl font-bold text-center">🌱 New Season</h2>
-              <p className="text-xs text-center mt-1" style={{ color: "var(--muted)" }}>
-                Step 1 of 2 — Choose a permanent bonus
-              </p>
+              <p className="text-xs text-center mt-1" style={{ color: "var(--muted)" }}>Step 1 of 2 — Choose a permanent bonus</p>
             </div>
             <p className="text-sm text-center" style={{ color: "var(--muted)", lineHeight: 1.6 }}>
               Workers reset. 10% of crops carry over. You keep one worker next step.
@@ -100,23 +92,18 @@ function PrestigeModal({ game, onComplete, onCancel }) {
           </>
         )}
  
-        {/* Step 2 — Choose worker to keep */}
         {step === 2 && (
           <>
             <div>
               <h2 className="text-xl font-bold text-center">👷 Keep a Worker</h2>
-              <p className="text-xs text-center mt-1" style={{ color: "var(--muted)" }}>
-                Step 2 of 2 — Choose one worker to carry into the new season
-              </p>
+              <p className="text-xs text-center mt-1" style={{ color: "var(--muted)" }}>Step 2 of 2 — Choose one worker to carry into the new season</p>
             </div>
  
-            {allWorkers.length === 0 ? (
-              <p className="text-sm text-center" style={{ color: "var(--muted)" }}>
-                No workers to keep. You'll start fresh.
-              </p>
+            {game.workers.length === 0 ? (
+              <p className="text-sm text-center" style={{ color: "var(--muted)" }}>No workers to keep. You'll start fresh.</p>
             ) : (
               <div className="space-y-2">
-                {allWorkers.map((worker) => {
+                {game.workers.map((worker) => {
                   const gear = GEAR[worker.gear];
                   const spec = SPECIALIZATIONS[worker.specialization];
                   const farm = game.farms.find((f) => f.id === worker.farmId);
@@ -167,20 +154,15 @@ function FarmAssignmentScreen({ game, onAssign }) {
  
   const gear = GEAR[assigningWorker.gear];
   const spec = SPECIALIZATIONS[assigningWorker.specialization];
-  const availableFarms = game.farms;
  
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.7)" }}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.7)" }}>
       <div className="card p-6 w-full max-w-sm space-y-4">
         <h2 className="text-xl font-bold text-center">📍 Assign Worker</h2>
         <p className="text-sm text-center" style={{ color: "var(--muted)", lineHeight: 1.6 }}>
           Where should your kept worker go this season?
         </p>
  
-        {/* Worker summary */}
         <div className="card p-3" style={{ fontSize: "0.82rem" }}>
           <div style={{ fontWeight: 600 }}>
             👷 {gear.emoji} {gear.name}
@@ -195,9 +177,8 @@ function FarmAssignmentScreen({ game, onAssign }) {
           </div>
         </div>
  
-        {/* Farm options */}
         <div className="space-y-2">
-          {availableFarms.map((farm) => {
+          {game.farms.map((farm) => {
             const crop = CROPS[farm.crop];
             const workersHere = game.workers.filter((w) => w.farmId === farm.id).length;
             return (
@@ -205,18 +186,15 @@ function FarmAssignmentScreen({ game, onAssign }) {
                 key={farm.id}
                 onClick={() => {
                   onAssign(assigningWorker.id, farm.id);
-                  // Move to next unassigned worker if any
                   const remaining = (game.keptWorkers ?? []).filter((w) => w.id !== assigningWorker.id);
                   setAssigningWorker(remaining[0] ?? null);
                 }}
                 className="w-full text-left card p-3 hover:shadow-md transition"
                 style={{ cursor: "pointer" }}
               >
-                <div style={{ fontWeight: 600, fontSize: "0.85rem" }}>
-                  {crop.emoji} {crop.name} Farm
-                </div>
+                <div style={{ fontWeight: 600, fontSize: "0.85rem" }}>{crop.emoji} {crop.name} Farm</div>
                 <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: "0.15rem" }}>
-                  {workersHere} worker{workersHere !== 1 ? "s" : ""} assigned · Grows in {crop.growTime}s
+                  {workersHere} worker{workersHere !== 1 ? "s" : ""} · Grows in {crop.growTime}s
                 </div>
               </button>
             );
@@ -255,9 +233,7 @@ export default function RootWork() {
       let saved = null;
       if (accessToken && userId) {
         try {
-          const res = await api.get("/rootwork/state", {
-            headers: { Authorization: `Bearer ${accessToken}` },
-          });
+          const res = await api.get("/rootwork/state", { headers: { Authorization: `Bearer ${accessToken}` } });
           if (res.data?.data) saved = deserializeState(res.data.data);
         } catch {}
       }
@@ -332,6 +308,9 @@ export default function RootWork() {
     notify("+crops! 🌾");
   }, [update, notify]);
   const handleTend = useCallback((farmId, plotId) => update((s) => tendPlot(s, farmId, plotId)), [update]);
+  const handleUpgradePlot = useCallback((farmId, plotId) => {
+    update((s) => { const n = upgradePlot(s, farmId, plotId); if (n === s) notify("Not enough artisan goods."); return n; });
+  }, [update, notify]);
   const handleBuyPlot = useCallback((farmId) => {
     update((s) => { const n = buyPlot(s, farmId); if (n === s) notify("Not enough crops."); return n; });
   }, [update, notify]);
@@ -349,20 +328,21 @@ export default function RootWork() {
     update((s) => { const n = specializeWorker(s, workerId, specId); if (n === s) notify("Not enough berries."); return n; });
   }, [update, notify]);
   const handleStartProcessing = useCallback((recipeId) => {
-    update((s) => { const n = startProcessing(s, recipeId); if (n === s) notify("Not enough resources or queue full."); return n; });
+    update((s) => { const n = startProcessing(s, recipeId); if (n === s) notify("Not enough crops or queue full."); return n; });
   }, [update, notify]);
- 
+  const handleBuyFeast = useCallback(() => {
+    update((s) => { const n = buyFeast(s); if (n === s) notify("Not enough artisan goods."); return n; });
+    notify("🍽️ Feast bonus applied!");
+  }, [update, notify]);
   const handlePrestigeComplete = useCallback((bonusId, workerId) => {
     update((s) => beginPrestige(s, bonusId, workerId));
     setShowPrestigeModal(false);
     setActiveTab("farm_0");
     notify("🌱 New season begun!");
   }, [update, notify]);
- 
   const handleAssignWorker = useCallback((keptWorkerId, farmId) => {
     update((s) => assignKeptWorker(s, keptWorkerId, farmId));
   }, [update]);
- 
   const handleResetGame = useCallback(() => {
     if (!window.confirm("Reset all progress? This cannot be undone.")) return;
     localStorage.removeItem(SAVE_KEY);
@@ -407,7 +387,6 @@ export default function RootWork() {
       )}
  
       <ResourceBar game={game} />
- 
       <GameNav game={game} activeTab={activeTab} onTabChange={setActiveTab} prestigeReady={prestigeReady} />
  
       <div className="flex-1 overflow-auto">
@@ -427,7 +406,12 @@ export default function RootWork() {
           />
         )}
         {activeTab === "processing" && (
-          <ProcessingZone game={game} onStartProcessing={handleStartProcessing} />
+          <ProcessingZone
+            game={game}
+            onStartProcessing={handleStartProcessing}
+            onUpgradePlot={handleUpgradePlot}
+            onBuyFeast={handleBuyFeast}
+          />
         )}
         {activeTab === "season" && (
           <SeasonPanel
@@ -439,12 +423,10 @@ export default function RootWork() {
         )}
       </div>
  
-      {/* Farm assignment screen — shows after prestige until all kept workers placed */}
       {hasPendingAssignments && (
         <FarmAssignmentScreen game={game} onAssign={handleAssignWorker} />
       )}
  
-      {/* Prestige modal */}
       {showPrestigeModal && (
         <PrestigeModal
           game={game}
