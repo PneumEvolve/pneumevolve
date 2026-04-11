@@ -6,7 +6,7 @@ const AuthContext = createContext();
  
 export function AuthProvider({ children }) {
   const [accessToken, setAccessToken] = useState(() => localStorage.getItem("access_token"));
-  const [refreshToken, setRefreshToken] = useState(() => localStorage.getItem("refresh_token"));
+  
   const [userId, setUserId] = useState(() => localStorage.getItem("user_id"));
   const [userEmail, setUserEmail] = useState(() => localStorage.getItem("user_email"));
   const [userProfile, setUserProfile] = useState(null);
@@ -17,50 +17,45 @@ export function AuthProvider({ children }) {
   // This eliminates the stale "looks logged in but isn't" window.
   const [isLoggedIn, setIsLoggedIn] = useState(false);
  
-  const saveTokens = (access, refresh) => {
+  const saveTokens = (access) => {
     setAccessToken(access);
-    setRefreshToken(refresh);
     localStorage.setItem("access_token", access);
-    if (refresh) localStorage.setItem("refresh_token", refresh);
-  };
+};
  
-  const login = (access, refresh, id, email) => {
-    saveTokens(access, refresh);
+  const login = (access, id, email) => {
+    saveTokens(access);
     setUserId(id);
     setUserEmail(email);
     localStorage.setItem("user_id", id.toString());
     localStorage.setItem("user_email", email);
     setIsLoggedIn(true);
     fetchUserProfile(access);
-  };
+};
  
   const logout = async () => {
     try { await api.post("/auth/logout"); } catch {}
     localStorage.removeItem("access_token");
-    localStorage.removeItem("refresh_token");
     localStorage.removeItem("user_id");
     localStorage.removeItem("user_email");
+    // No refresh token to remove from localStorage
     setAccessToken(null);
-    setRefreshToken(null);
     setUserId(null);
     setUserEmail(null);
     setUserProfile(null);
     setIsLoggedIn(false);
-  };
+};
  
   const refreshAccessToken = async () => {
     try {
-      const res = await api.post("/auth/refresh", {}, { withCredentials: true });
-      const newAccess = res.data.access_token;
-      // Refresh endpoint also rotates the refresh token cookie — no need to
-      // store it manually here since it's httpOnly
-      saveTokens(newAccess, localStorage.getItem("refresh_token"));
-      return newAccess;
+        const res = await api.post("/auth/refresh", {}, { withCredentials: true });
+        const newAccess = res.data.access_token;
+        saveTokens(newAccess); // just store the new access token
+        return newAccess;
     } catch {
-      logout();
-      return null;
+        logout();
+        return null;
     }
-  };
+};
  
   const fetchUserProfile = async (tokenArg) => {
     try {

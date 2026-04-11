@@ -59,10 +59,10 @@ export default function Login() {
         withCredentials: true,
       });
 
-      const { access_token, refresh_token } = response.data;
-      const decoded = jwtDecode(access_token);
+      const { access_token } = response.data;
+const decoded = jwtDecode(access_token);
 
-      login(access_token, refresh_token, decoded.id, decoded.sub);
+login(access_token, decoded.id, decoded.sub);
       const BLOCKED_REDIRECTS = ["/reset-password", "/forgot-password", "/login", "/signup", "/logout"];
 
 const raw = localStorage.getItem("lastVisitedPath") || "/";
