@@ -1,18 +1,13 @@
 // src/Pages/rootwork/gameConstants.js
  
 // ─── Crops ────────────────────────────────────────────────────────────────────
-// growTime: seconds for a plot to go from planted → ready
-// manualYield: crops gained from a manual harvest
-// workerYield: crops gained from a worker harvest
-// season: which season unlocks this crop
- 
 export const CROPS = {
   wheat: {
     id: "wheat",
     name: "Wheat",
     emoji: "🌾",
     growTime: 15,
-    manualYield: 3,   // +1 bonus for active play
+    manualYield: 3,
     workerYield: 2,
     season: 1,
   },
@@ -49,6 +44,7 @@ export const GEAR = {
     plotsPerCycle: 1,
     cycleSeconds: 15,
     upgradeCost: null,
+    description: "Harvests 1 plot every 15s.",
   },
   gloves: {
     id: "gloves",
@@ -56,7 +52,8 @@ export const GEAR = {
     emoji: "🧤",
     plotsPerCycle: 1,
     cycleSeconds: 10,
-    upgradeCost: 80,
+    upgradeCost: 30,
+    description: "Harvests 1 plot every 10s. 33% faster.",
   },
   hoe: {
     id: "hoe",
@@ -65,6 +62,7 @@ export const GEAR = {
     plotsPerCycle: 1,
     cycleSeconds: 6,
     upgradeCost: 200,
+    description: "Harvests 1 plot every 6s. More than 2x faster than gloves.",
   },
   wheelbarrow: {
     id: "wheelbarrow",
@@ -73,6 +71,7 @@ export const GEAR = {
     plotsPerCycle: 2,
     cycleSeconds: 6,
     upgradeCost: 500,
+    description: "Harvests 2 plots every 6s. Double the coverage.",
   },
   tractor: {
     id: "tractor",
@@ -81,15 +80,13 @@ export const GEAR = {
     plotsPerCycle: 5,
     cycleSeconds: 6,
     upgradeCost: 1500,
+    description: "Harvests 5 plots every 6s. Near full automation.",
   },
 };
  
 export const GEAR_ORDER = ["bare_hands", "gloves", "hoe", "wheelbarrow", "tractor"];
  
 // ─── Plot unlock costs ────────────────────────────────────────────────────────
-// Cost in that farm's crop to unlock one additional plot
-// plotNumber is 1-indexed (plot 1 is free, buying plot 2 costs PLOT_COSTS[0] etc.)
- 
 export const PLOT_COSTS = [
   { upTo: 4,  cost: 20  },  // plots 2–4
   { upTo: 9,  cost: 50  },  // plots 5–9
@@ -112,29 +109,25 @@ export const SPECIALIZATIONS = {
   harvester: {
     id: "harvester",
     name: "Harvester",
-    description: "Harvests 25% faster.",
-    cycleMultiplier: 0.75, // multiply cycleSeconds by this
+    description: "Harvests 25% faster. Cycle time reduced by 25%.",
+    cycleMultiplier: 0.75,
   },
-  planter: {
-    id: "planter",
-    name: "Planter",
-    description: "Replants immediately after harvesting.",
-    instantReplant: true,
+  sprinter: {
+    id: "sprinter",
+    name: "Sprinter",
+    description: "Harvests 2x plots per cycle but rests every 3rd cycle. Best for large farms.",
+    plotsMultiplier: 2,
+    restEvery: 3, // skips every 3rd cycle
   },
-  tender: {
-    id: "tender",
-    name: "Tender",
-    description: "Reduces grow time on assigned plots by 20%.",
+  grower: {
+    id: "grower",
+    name: "Grower",
+    description: "Reduces grow time for ALL plots on this farm by 20%. Stacks with multiple growers.",
     growMultiplier: 0.8,
   },
 };
  
 // ─── Processing recipes ───────────────────────────────────────────────────────
-// inputs: crop amounts consumed
-// outputAmount: processed goods produced
-// seconds: real time to complete
-// season: which season unlocks this recipe
- 
 export const PROCESSING_RECIPES = {
   jam: {
     id: "jam",
@@ -166,8 +159,6 @@ export const PROCESSING_RECIPES = {
 };
  
 // ─── Prestige bonuses ─────────────────────────────────────────────────────────
-// Picked once per prestige, stack across seasons
- 
 export const PRESTIGE_BONUSES = {
   yield_boost: {
     id: "yield_boost",
@@ -196,26 +187,22 @@ export const PRESTIGE_BONUSES = {
 };
  
 // ─── Season structure ─────────────────────────────────────────────────────────
-// Which farms are available each season
- 
 export const SEASON_FARMS = {
   1: ["wheat"],
   2: ["wheat", "berries"],
   3: ["wheat", "berries", "tomatoes"],
-  4: ["wheat", "berries", "tomatoes"], // processing + specializations unlock
+  4: ["wheat", "berries", "tomatoes"],
 };
  
-// How many seasons before the game loops (can extend later)
 export const MAX_SEASON = 4;
  
 // ─── Automation threshold ─────────────────────────────────────────────────────
-// A farm is considered "automated" when it has at least this many workers
-export const AUTOMATION_THRESHOLD = 1;
+// A farm needs this many workers before it's considered automated
+export const AUTOMATION_THRESHOLD = 3;
  
 // ─── Save config ──────────────────────────────────────────────────────────────
 export const SAVE_KEY = "rootwork_save";
-export const SAVE_INTERVAL_MS = 30_000; // autosave every 30 seconds
+export const SAVE_INTERVAL_MS = 30_000;
  
 // ─── Offline progress ─────────────────────────────────────────────────────────
-// Max seconds of offline progress to calculate (24 hours)
 export const MAX_OFFLINE_SECONDS = 86_400;

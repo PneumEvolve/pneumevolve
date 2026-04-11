@@ -7,9 +7,38 @@ import {
   GEAR_ORDER,
   WORKER_HIRE_COST,
   SPECIALIZATIONS,
-  SEASON_FARMS,
 } from "../gameConstants";
-import { getNextGear } from "../gameEngine";
+import { getNextGear, getEffectiveCycleSeconds } from "../gameEngine";
+ 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+ 
+function getEffectivePlots(worker) {
+  const gear = GEAR[worker.gear];
+  if (worker.specialization === "sprinter") {
+    return gear.plotsPerCycle * 2;
+  }
+  return gear.plotsPerCycle;
+}
+ 
+function statLine(worker) {
+  const gear = GEAR[worker.gear];
+  const cycleSeconds = getEffectiveCycleSeconds(worker);
+  const plots = getEffectivePlots(worker);
+  const spec = worker.specialization;
+ 
+  let line = `${plots} plot${plots > 1 ? "s" : ""} every ${cycleSeconds}s`;
+  if (spec === "sprinter") line += " (rests every 3rd cycle)";
+  if (spec === "grower") line = "Reduces farm grow time by 20%";
+  return line;
+}
+ 
+function previewStatLine(worker, nextGearId) {
+  // Show what stats would be with next gear, keeping current specialization
+  const previewWorker = { ...worker, gear: nextGearId };
+  const cycleSeconds = getEffectiveCycleSeconds(previewWorker);
+  const plots = getEffectivePlots(previewWorker);
+  return `${plots} plot${plots > 1 ? "s" : ""} every ${cycleSeconds}s`;
+}
  
 // ─── Single worker card ───────────────────────────────────────────────────────
  
@@ -29,20 +58,15 @@ function WorkerCard({
   const nextGear = nextGearId ? GEAR[nextGearId] : null;
   const cropAmount = game.crops[farm.crop] ?? 0;
   const canUpgrade = nextGear && cropAmount >= nextGear.upgradeCost;
- 
   const availableFarms = game.farms.filter((f) => f.id !== worker.farmId);
   const canSpecialize = game.season >= 4;
  
   return (
-    <div
-      className="card p-4 space-y-3"
-      style={{ fontSize: "0.85rem" }}
-    >
-      {/* Worker header */}
+    <div className="card p-4 space-y-3" style={{ fontSize: "0.85rem" }}>
+ 
+      {/* Header row */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ fontWeight: 600 }}>
-          👷 Worker
-        </div>
+        <div style={{ fontWeight: 600 }}>👷 Worker</div>
         <div
           style={{
             fontSize: "0.7rem",
@@ -57,9 +81,19 @@ function WorkerCard({
         </div>
       </div>
  
-      {/* Gear stats */}
-      <div style={{ color: "var(--muted)", fontSize: "0.75rem", lineHeight: 1.6 }}>
-        <div>⚡ {gear.plotsPerCycle} plot{gear.plotsPerCycle > 1 ? "s" : ""} per {gear.cycleSeconds}s</div>
+      {/* Current stats */}
+      <div
+        style={{
+          fontSize: "0.75rem",
+          color: "var(--muted)",
+          background: "var(--bg)",
+          border: "1px solid var(--border)",
+          borderRadius: "8px",
+          padding: "0.4rem 0.65rem",
+          lineHeight: 1.6,
+        }}
+      >
+        <div>⚡ {statLine(worker)}</div>
         {worker.specialization !== "none" && (
           <div>🎯 {SPECIALIZATIONS[worker.specialization]?.name}</div>
         )}
@@ -67,16 +101,33 @@ function WorkerCard({
  
       {/* Gear upgrade */}
       {nextGear ? (
-        <button
-          onClick={() => onUpgradeGear(worker.id)}
-          disabled={!canUpgrade}
-          className="btn btn-secondary w-full"
-          style={{ fontSize: "0.75rem", padding: "0.4rem 0.75rem" }}
-        >
-          {canUpgrade
-            ? `Upgrade to ${nextGear.emoji} ${nextGear.name} (${nextGear.upgradeCost} ${GEAR[GEAR_ORDER[0]].emoji})`
-            : `${nextGear.emoji} ${nextGear.name} — need ${nextGear.upgradeCost} crop`}
-        </button>
+        <div>
+          <button
+            onClick={() => onUpgradeGear(worker.id)}
+            disabled={!canUpgrade}
+            className="btn btn-secondary w-full"
+            style={{ fontSize: "0.75rem", padding: "0.4rem 0.75rem" }}
+          >
+            {canUpgrade
+              ? `Upgrade to ${nextGear.emoji} ${nextGear.name} — ${nextGear.upgradeCost} crop`
+              : `${nextGear.emoji} ${nextGear.name} — need ${nextGear.upgradeCost} crop`}
+          </button>
+          {/* Preview stats for next gear */}
+          <div
+            style={{
+              fontSize: "0.68rem",
+              color: "var(--muted)",
+              marginTop: "0.3rem",
+              textAlign: "center",
+            }}
+          >
+            {nextGear.description}
+            {" · "}
+            <span style={{ color: "var(--text)", fontWeight: 500 }}>
+              {previewStatLine(worker, nextGearId)}
+            </span>
+          </div>
+        </div>
       ) : (
         <div
           style={{
@@ -111,7 +162,7 @@ function WorkerCard({
                       onSetSpecialization(worker.id, spec.id);
                       setShowSpec(false);
                     }}
-                    className="w-full text-left card p-2"
+                    className="w-full text-left card p-3"
                     style={{
                       fontSize: "0.72rem",
                       cursor: "pointer",
@@ -121,8 +172,15 @@ function WorkerCard({
                           : "1px solid var(--border)",
                     }}
                   >
-                    <div style={{ fontWeight: 600 }}>{spec.name}</div>
-                    <div style={{ color: "var(--muted)" }}>{spec.description}</div>
+                    <div style={{ fontWeight: 600, marginBottom: "0.15rem" }}>
+                      {spec.name}
+                      {worker.specialization === spec.id && (
+                        <span style={{ color: "var(--accent)", marginLeft: "0.4rem" }}>✓ Active</span>
+                      )}
+                    </div>
+                    <div style={{ color: "var(--muted)", lineHeight: 1.5 }}>
+                      {spec.description}
+                    </div>
                   </button>
                 ))}
             </div>
@@ -180,7 +238,6 @@ export default function WorkerPanel({
   const cropAmount = game.crops[farm.crop] ?? 0;
   const canHire = cropAmount >= WORKER_HIRE_COST;
  
-  // Check if first worker on this farm is free (free_worker prestige bonus)
   const hasFreeWorkerBonus = game.prestigeBonuses.includes("free_worker");
   const isFirstWorker = farmWorkers.length === 0;
   const hireCost = hasFreeWorkerBonus && isFirstWorker ? 0 : WORKER_HIRE_COST;
@@ -189,18 +246,10 @@ export default function WorkerPanel({
   return (
     <div className="space-y-3">
       {/* Header */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <h3 style={{ fontWeight: 600, fontSize: "0.9rem" }}>
           Workers ({farmWorkers.length})
         </h3>
- 
-        {/* Hire button */}
         <button
           onClick={() => onHireWorker(farm.id)}
           disabled={!canHireWithBonus}
@@ -213,12 +262,15 @@ export default function WorkerPanel({
         </button>
       </div>
  
-      {/* Worker cards */}
-      {farmWorkers.length === 0 ? (
+      {/* Hint */}
+      {farmWorkers.length === 0 && (
         <p style={{ fontSize: "0.8rem", color: "var(--muted)", fontStyle: "italic" }}>
           No workers yet. Hire one to start automating this farm.
         </p>
-      ) : (
+      )}
+ 
+      {/* Worker cards */}
+      {farmWorkers.length > 0 && (
         <div className="space-y-3">
           {farmWorkers.map((worker) => (
             <WorkerCard
