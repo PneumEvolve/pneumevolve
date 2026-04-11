@@ -32,10 +32,6 @@ export const CROPS = {
 };
  
 // ─── Gear ─────────────────────────────────────────────────────────────────────
-// plotsPerCycle: how many plots a worker harvests per cycle
-// cycleSeconds: how long one harvest cycle takes
-// upgradeCost: cost in that farm's crop to upgrade to this tier (null = starting gear)
- 
 export const GEAR = {
   bare_hands: {
     id: "bare_hands",
@@ -86,18 +82,33 @@ export const GEAR = {
  
 export const GEAR_ORDER = ["bare_hands", "gloves", "hoe", "wheelbarrow", "tractor"];
  
+// ─── Gear crop costs ──────────────────────────────────────────────────────────
+// Which crop is required to upgrade to each gear tier.
+// Wheat handles basics, Berries unlock mid-tier, Tomatoes unlock endgame.
+// This creates cross-farm dependency: you need Farm 2 running to get a Hoe,
+// and Farm 3 running to get a Tractor.
+ 
+export const GEAR_CROP_COSTS = {
+  bare_hands: null,       // starting gear, no cost
+  gloves: "wheat",        // 30 wheat
+  hoe: "berries",         // 200 berries
+  wheelbarrow: "berries", // 500 berries
+  tractor: "tomatoes",    // 1500 tomatoes
+};
+ 
 // ─── Plot unlock costs ────────────────────────────────────────────────────────
 export const PLOT_COSTS = [
-  { upTo: 4,  cost: 20  },  // plots 2–4
-  { upTo: 9,  cost: 50  },  // plots 5–9
-  { upTo: 16, cost: 120 },  // plots 10–16
-  { upTo: 25, cost: 300 },  // plots 17–25
+  { upTo: 4,  cost: 20  },
+  { upTo: 9,  cost: 50  },
+  { upTo: 16, cost: 120 },
+  { upTo: 25, cost: 300 },
 ];
  
 export const MAX_PLOTS = 25;
  
 // ─── Workers ──────────────────────────────────────────────────────────────────
-export const WORKER_HIRE_COST = 30; // in that farm's crop
+// Hiring always costs that farm's own crop
+export const WORKER_HIRE_COST = 30;
  
 // Worker specializations unlock Season 4+
 export const SPECIALIZATIONS = {
@@ -117,7 +128,7 @@ export const SPECIALIZATIONS = {
     name: "Sprinter",
     description: "Harvests 2x plots per cycle but rests every 3rd cycle. Best for large farms.",
     plotsMultiplier: 2,
-    restEvery: 3, // skips every 3rd cycle
+    restEvery: 3,
   },
   grower: {
     id: "grower",
@@ -197,7 +208,6 @@ export const SEASON_FARMS = {
 export const MAX_SEASON = 4;
  
 // ─── Automation threshold ─────────────────────────────────────────────────────
-// A farm needs this many workers before it's considered automated
 export const AUTOMATION_THRESHOLD = 3;
  
 // ─── Save config ──────────────────────────────────────────────────────────────

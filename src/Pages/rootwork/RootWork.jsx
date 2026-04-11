@@ -13,15 +13,14 @@ import {
   harvestPlot,
   buyPlot,
   hireWorker,
-  reassignWorker,
+  sellWorker,
   upgradeWorkerGear,
   setWorkerSpecialization,
   startProcessing,
   prestige,
   canPrestige,
-  isFarmAutomated,
 } from "./gameEngine";
-import { SAVE_KEY, SAVE_INTERVAL_MS, SEASON_FARMS, PRESTIGE_BONUSES } from "./gameConstants";
+import { SAVE_KEY, SAVE_INTERVAL_MS, PRESTIGE_BONUSES } from "./gameConstants";
 import GameNav from "./components/GameNav";
 import ResourceBar from "./components/ResourceBar";
 import FarmZone from "./components/FarmZone";
@@ -53,7 +52,7 @@ export default function RootWork() {
  
   const [game, setGame] = useState(null);
   const [loaded, setLoaded] = useState(false);
-  const [activeTab, setActiveTab] = useState("farm_0"); // "farm_0" | "farm_1" | "farm_2" | "processing" | "season"
+  const [activeTab, setActiveTab] = useState("farm_0");
   const [offlineMessage, setOfflineMessage] = useState(null);
   const [showPrestigeModal, setShowPrestigeModal] = useState(false);
   const [notification, setNotification] = useState(null);
@@ -61,59 +60,41 @@ export default function RootWork() {
   const gameRef = useRef(null);
   const saveIntervalRef = useRef(null);
  
-  // ── Keep ref in sync ────────────────────────────────────────────────────────
   useEffect(() => {
     if (game) gameRef.current = game;
   }, [game]);
  
-  // ── Notification helper ─────────────────────────────────────────────────────
   const notify = useCallback((msg) => {
     setNotification(msg);
     setTimeout(() => setNotification(null), 3000);
   }, []);
  
-  // ── Load game ───────────────────────────────────────────────────────────────
+  // ── Load ─────────────────────────────────────────────────────────────────────
   useEffect(() => {
     async function load() {
       let saved = null;
  
-      // Try backend first
       if (accessToken && userId) {
         try {
           const res = await api.get("/rootwork/state", {
             headers: { Authorization: `Bearer ${accessToken}` },
           });
-          if (res.data?.data) {
-            saved = deserializeState(res.data.data);
-          }
-        } catch {
-          // backend unavailable — fall through to localStorage
-        }
+          if (res.data?.data) saved = deserializeState(res.data.data);
+        } catch {}
       }
  
-      // Fall back to localStorage
-      if (!saved) {
-        saved = loadFromLocalStorage();
-      }
+      if (!saved) saved = loadFromLocalStorage();
  
-      // If we have a save, calculate offline progress
       if (saved) {
-        const { state: withOffline, offlineSeconds } = calculateOfflineProgress(
-          saved,
-          Date.now()
-        );
+        const { state: withOffline, offlineSeconds } = calculateOfflineProgress(saved, Date.now());
         setGame(withOffline);
         gameRef.current = withOffline;
- 
         if (offlineSeconds > 60) {
           const mins = Math.floor(offlineSeconds / 60);
-          setOfflineMessage(
-            `Welcome back! ${mins} minute${mins !== 1 ? "s" : ""} of progress collected.`
-          );
+          setOfflineMessage(`Welcome back! ${mins} minute${mins !== 1 ? "s" : ""} of progress collected.`);
           setTimeout(() => setOfflineMessage(null), 5000);
         }
       } else {
-        // Fresh game
         const fresh = createInitialState();
         setGame(fresh);
         gameRef.current = fresh;
@@ -125,10 +106,9 @@ export default function RootWork() {
     load();
   }, [accessToken, userId]);
  
-  // ── Tick loop ───────────────────────────────────────────────────────────────
+  // ── Tick ──────────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!loaded) return;
- 
     const interval = setInterval(() => {
       setGame((prev) => {
         if (!prev) return prev;
@@ -137,37 +117,28 @@ export default function RootWork() {
         return next;
       });
     }, 1000);
- 
     return () => clearInterval(interval);
   }, [loaded]);
  
-  // ── Autosave ─────────────────────────────────────────────────────────────────
+  // ── Autosave ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!loaded) return;
- 
     saveIntervalRef.current = setInterval(() => {
       const state = gameRef.current;
       if (!state) return;
- 
-      // Always save to localStorage
       saveToLocalStorage(state);
- 
-      // Also save to backend if logged in
       if (accessToken && userId) {
-        api
-          .post(
-            "/rootwork/state",
-            { data: serializeState(state) },
-            { headers: { Authorization: `Bearer ${accessToken}` } }
-          )
-          .catch(() => {});
+        api.post(
+          "/rootwork/state",
+          { data: serializeState(state) },
+          { headers: { Authorization: `Bearer ${accessToken}` } }
+        ).catch(() => {});
       }
     }, SAVE_INTERVAL_MS);
- 
     return () => clearInterval(saveIntervalRef.current);
   }, [loaded, accessToken, userId]);
  
-  // ── Save on unmount ──────────────────────────────────────────────────────────
+  // ── Save on unmount ───────────────────────────────────────────────────────────
   useEffect(() => {
     return () => {
       const state = gameRef.current;
@@ -175,13 +146,12 @@ export default function RootWork() {
     };
   }, []);
  
-  // ── Actions ──────────────────────────────────────────────────────────────────
+  // ── Actions ───────────────────────────────────────────────────────────────────
  
   const update = useCallback((fn) => {
     setGame((prev) => {
       const next = fn(prev);
       gameRef.current = next;
-      // Save to localStorage immediately on action
       saveToLocalStorage(next);
       return next;
     });
@@ -212,9 +182,10 @@ export default function RootWork() {
     });
   }, [update, notify]);
  
-  const handleReassignWorker = useCallback((workerId, newFarmId) => {
-    update((s) => reassignWorker(s, workerId, newFarmId));
-  }, [update]);
+  const handleSellWorker = useCallback((workerId) => {
+    update((s) => sellWorker(s, workerId));
+    notify("Worker sold.");
+  }, [update, notify]);
  
   const handleUpgradeGear = useCallback((workerId) => {
     update((s) => {
@@ -253,7 +224,7 @@ export default function RootWork() {
     notify("Game reset.");
   }, [notify]);
  
-  // ── Derived state ─────────────────────────────────────────────────────────────
+  // ── Derived ───────────────────────────────────────────────────────────────────
   const prestigeReady = game ? canPrestige(game) : false;
  
   // ── Render ────────────────────────────────────────────────────────────────────
@@ -268,18 +239,14 @@ export default function RootWork() {
     );
   }
  
-  // Which farm is active (tab index)
   const activeFarmIndex = activeTab.startsWith("farm_")
     ? parseInt(activeTab.replace("farm_", ""), 10)
     : null;
-  const activeFarm =
-    activeFarmIndex !== null ? game.farms[activeFarmIndex] ?? null : null;
+  const activeFarm = activeFarmIndex !== null ? game.farms[activeFarmIndex] ?? null : null;
  
   return (
-    <div
-      className="min-h-screen flex flex-col"
-      style={{ background: "var(--bg)", color: "var(--text)" }}
-    >
+    <div className="min-h-screen flex flex-col" style={{ background: "var(--bg)", color: "var(--text)" }}>
+ 
       {/* Offline message */}
       {offlineMessage && (
         <div
@@ -294,7 +261,7 @@ export default function RootWork() {
         </div>
       )}
  
-      {/* Notification toast */}
+      {/* Toast */}
       {notification && (
         <div
           className="fixed top-4 left-1/2 z-50 px-4 py-2 rounded-xl text-sm font-medium shadow-lg"
@@ -309,10 +276,8 @@ export default function RootWork() {
         </div>
       )}
  
-      {/* Resource bar — always visible */}
       <ResourceBar game={game} />
  
-      {/* Nav tabs */}
       <GameNav
         game={game}
         activeTab={activeTab}
@@ -320,7 +285,6 @@ export default function RootWork() {
         prestigeReady={prestigeReady}
       />
  
-      {/* Main content */}
       <div className="flex-1 overflow-auto">
         {activeFarm && (
           <FarmZone
@@ -331,17 +295,14 @@ export default function RootWork() {
             onHarvest={handleHarvest}
             onBuyPlot={handleBuyPlot}
             onHireWorker={handleHireWorker}
-            onReassignWorker={handleReassignWorker}
+            onSellWorker={handleSellWorker}
             onUpgradeGear={handleUpgradeGear}
             onSetSpecialization={handleSetSpecialization}
           />
         )}
  
         {activeTab === "processing" && (
-          <ProcessingZone
-            game={game}
-            onStartProcessing={handleStartProcessing}
-          />
+          <ProcessingZone game={game} onStartProcessing={handleStartProcessing} />
         )}
  
         {activeTab === "season" && (
@@ -365,15 +326,11 @@ export default function RootWork() {
             style={{ maxHeight: "90vh", overflowY: "auto" }}
           >
             <h2 className="text-xl font-bold text-center">🌱 Begin New Season</h2>
-            <p
-              className="text-sm text-center"
-              style={{ color: "var(--muted)", lineHeight: 1.6 }}
-            >
+            <p className="text-sm text-center" style={{ color: "var(--muted)", lineHeight: 1.6 }}>
               Your farms reset but your workers carry on.
               10% of your crops carry over.
               Choose a permanent bonus:
             </p>
- 
             <div className="space-y-2">
               {Object.values(PRESTIGE_BONUSES).map((bonus) => (
                 <button
@@ -382,19 +339,13 @@ export default function RootWork() {
                   className="w-full text-left card p-3 hover:shadow-md transition"
                   style={{ cursor: "pointer" }}
                 >
-                  <div className="font-medium text-sm">
-                    {bonus.emoji} {bonus.name}
-                  </div>
-                  <div
-                    className="text-xs mt-0.5"
-                    style={{ color: "var(--muted)" }}
-                  >
+                  <div className="font-medium text-sm">{bonus.emoji} {bonus.name}</div>
+                  <div className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>
                     {bonus.description}
                   </div>
                 </button>
               ))}
             </div>
- 
             <button
               onClick={() => setShowPrestigeModal(false)}
               className="btn btn-secondary w-full text-sm"

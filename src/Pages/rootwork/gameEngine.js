@@ -12,6 +12,7 @@ import {
   AUTOMATION_THRESHOLD,
   MAX_OFFLINE_SECONDS,
   PROCESSING_RECIPES,
+  GEAR_CROP_COSTS,
 } from "./gameConstants";
  
 // ─── ID generator ─────────────────────────────────────────────────────────────
@@ -47,7 +48,7 @@ export function makeWorker(farmId) {
     gear: "bare_hands",
     specialization: "none",
     cycleProgress: 0,
-    cycleCount: 0, // tracks total cycles completed — used for sprinter rest logic
+    cycleCount: 0,
   };
 }
  
@@ -59,16 +60,8 @@ export function createInitialState() {
     prestigeBonuses: [],
     farms: [firstFarm],
     workers: [],
-    crops: {
-      wheat: 0,
-      berries: 0,
-      tomatoes: 0,
-    },
-    processed: {
-      jam: 0,
-      sauce: 0,
-      feast: 0,
-    },
+    crops: { wheat: 0, berries: 0, tomatoes: 0 },
+    processed: { jam: 0, sauce: 0, feast: 0 },
     processingQueue: [],
     lastSavedTime: Date.now(),
     totalPlayTime: 0,
@@ -103,7 +96,6 @@ export function getAvailableFarms(season) {
   return SEASON_FARMS[season] ?? SEASON_FARMS[1];
 }
  
-// Apply prestige bonus multipliers to yield
 export function applyYieldBonuses(baseYield, prestigeBonuses) {
   let multiplier = 1;
   const yieldBoosts = prestigeBonuses.filter((b) => b === "yield_boost").length;
@@ -111,7 +103,6 @@ export function applyYieldBonuses(baseYield, prestigeBonuses) {
   return Math.floor(baseYield * multiplier);
 }
  
-// Get effective cycle seconds for a worker (harvester spec reduces this)
 export function getEffectiveCycleSeconds(worker) {
   const gear = GEAR[worker.gear];
   let seconds = gear.cycleSeconds;
@@ -121,7 +112,6 @@ export function getEffectiveCycleSeconds(worker) {
   return seconds;
 }
  
-// Get effective plots per cycle (sprinter spec doubles this)
 export function getEffectivePlotsPerCycle(worker) {
   const gear = GEAR[worker.gear];
   if (worker.specialization === "sprinter") {
@@ -130,15 +120,12 @@ export function getEffectivePlotsPerCycle(worker) {
   return gear.plotsPerCycle;
 }
  
-// Check if a sprinter is on a rest cycle
 export function isSprinterResting(worker) {
   if (worker.specialization !== "sprinter") return false;
   const restEvery = SPECIALIZATIONS.sprinter.restEvery;
   return (worker.cycleCount ?? 0) % restEvery === restEvery - 1;
 }
  
-// Get effective grow time for ALL plots on a farm
-// Grower workers reduce this — multiple growers stack multiplicatively
 export function getEffectiveGrowTime(farm, workers, cropId) {
   const crop = CROPS[cropId];
   const growers = workers.filter(
@@ -152,7 +139,7 @@ export function getEffectiveGrowTime(farm, workers, cropId) {
   return Math.max(5, time);
 }
  
-// ─── Offline progress calculation ─────────────────────────────────────────────
+// ─── Offline progress ─────────────────────────────────────────────────────────
 export function calculateOfflineProgress(state, nowMs) {
   const lastSaved = state.lastSavedTime ?? nowMs;
   const rawSeconds = Math.floor((nowMs - lastSaved) / 1000);
@@ -167,7 +154,6 @@ export function calculateOfflineProgress(state, nowMs) {
     const farmWorkers = next.workers.filter((w) => w.farmId === farm.id);
     const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop);
  
-    // Advance plot growth
     for (const plot of farm.plots) {
       if (plot.state === "planted") {
         plot.growthTick = Math.min(plot.growthTick + seconds, growTime);
@@ -175,7 +161,6 @@ export function calculateOfflineProgress(state, nowMs) {
       }
     }
  
-    // Each worker: calculate completed harvest cycles
     for (const worker of farmWorkers) {
       const cycleSeconds = getEffectiveCycleSeconds(worker);
       const totalWorkerTime = seconds + worker.cycleProgress;
@@ -203,7 +188,6 @@ export function calculateOfflineProgress(state, nowMs) {
           }
         }
  
-        // Replant empty plots
         for (const plot of farm.plots) {
           if (plot.state === "empty") {
             plot.state = "planted";
@@ -214,7 +198,6 @@ export function calculateOfflineProgress(state, nowMs) {
     }
   }
  
-  // Advance processing queue
   for (const item of next.processingQueue) {
     if (!item.done) {
       item.elapsedSeconds = Math.min(
@@ -235,7 +218,7 @@ export function calculateOfflineProgress(state, nowMs) {
   return { state: next, offlineSeconds: seconds };
 }
  
-// ─── Per-second tick ──────────────────────────────────────────────────────────
+// ─── Tick ─────────────────────────────────────────────────────────────────────
 export function tick(state) {
   let next = deepCloneState(state);
  
@@ -243,7 +226,6 @@ export function tick(state) {
     const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop);
     const farmWorkers = next.workers.filter((w) => w.farmId === farm.id);
  
-    // Grow all planted plots
     for (const plot of farm.plots) {
       if (plot.state === "planted") {
         plot.growthTick += 1;
@@ -251,7 +233,6 @@ export function tick(state) {
       }
     }
  
-    // Run each worker
     for (const worker of farmWorkers) {
       const workerRef = next.workers.find((w) => w.id === worker.id);
       if (!workerRef) continue;
@@ -280,7 +261,6 @@ export function tick(state) {
             }
           }
  
-          // Replant empty plots
           for (const plot of farm.plots) {
             if (plot.state === "empty") {
               plot.state = "planted";
@@ -292,7 +272,6 @@ export function tick(state) {
     }
   }
  
-  // Advance processing queue
   for (const item of next.processingQueue) {
     if (!item.done) {
       item.elapsedSeconds = (item.elapsedSeconds ?? 0) + 1;
@@ -327,7 +306,6 @@ export function harvestPlot(state, farmId, plotId) {
   if (!farm) return state;
   const plot = farm.plots.find((p) => p.id === plotId);
   if (!plot || plot.state !== "ready") return state;
- 
   const crop = CROPS[farm.crop];
   const yield_ = applyYieldBonuses(crop.manualYield, next.prestigeBonuses);
   next.crops[farm.crop] = (next.crops[farm.crop] ?? 0) + yield_;
@@ -340,16 +318,12 @@ export function buyPlot(state, farmId) {
   const next = deepCloneState(state);
   const farm = next.farms.find((f) => f.id === farmId);
   if (!farm) return state;
- 
   const current = farm.unlockedPlots;
   if (current >= MAX_PLOTS) return state;
- 
   const cost = getPlotUnlockCost(current);
   if (cost === null) return state;
- 
   const cropId = farm.crop;
   if ((next.crops[cropId] ?? 0) < cost) return state;
- 
   next.crops[cropId] -= cost;
   farm.unlockedPlots += 1;
   farm.plots.push(makePlot());
@@ -360,29 +334,27 @@ export function hireWorker(state, farmId) {
   const next = deepCloneState(state);
   const farm = next.farms.find((f) => f.id === farmId);
   if (!farm) return state;
- 
   const cropId = farm.crop;
   const hasFreeWorker =
     next.prestigeBonuses.includes("free_worker") &&
     next.workers.filter((w) => w.farmId === farmId).length === 0;
- 
   const cost = hasFreeWorker ? 0 : WORKER_HIRE_COST;
   if ((next.crops[cropId] ?? 0) < cost) return state;
- 
   next.crops[cropId] -= cost;
   next.workers.push(makeWorker(farmId));
   return next;
 }
  
-export function reassignWorker(state, workerId, newFarmId) {
+// Sell a worker — refunds 50% of hire cost in that farm's crop
+export function sellWorker(state, workerId) {
   const next = deepCloneState(state);
   const worker = next.workers.find((w) => w.id === workerId);
   if (!worker) return state;
-  const farm = next.farms.find((f) => f.id === newFarmId);
+  const farm = next.farms.find((f) => f.id === worker.farmId);
   if (!farm) return state;
-  worker.farmId = newFarmId;
-  worker.cycleProgress = 0;
-  worker.cycleCount = 0;
+  const refund = Math.floor(WORKER_HIRE_COST * 0.5);
+  next.crops[farm.crop] = (next.crops[farm.crop] ?? 0) + refund;
+  next.workers = next.workers.filter((w) => w.id !== workerId);
   return next;
 }
  
@@ -390,17 +362,12 @@ export function upgradeWorkerGear(state, workerId) {
   const next = deepCloneState(state);
   const worker = next.workers.find((w) => w.id === workerId);
   if (!worker) return state;
- 
   const nextGearId = getNextGear(worker.gear);
   if (!nextGearId) return state;
- 
-  const farm = next.farms.find((f) => f.id === worker.farmId);
-  if (!farm) return state;
- 
   const cost = GEAR[nextGearId].upgradeCost;
-  const cropId = farm.crop;
+  const cropId = GEAR_CROP_COSTS[nextGearId];
+  if (!cropId) return state;
   if ((next.crops[cropId] ?? 0) < cost) return state;
- 
   next.crops[cropId] -= cost;
   worker.gear = nextGearId;
   return next;
@@ -412,7 +379,7 @@ export function setWorkerSpecialization(state, workerId, specializationId) {
   if (!worker) return state;
   if (!SPECIALIZATIONS[specializationId]) return state;
   worker.specialization = specializationId;
-  worker.cycleCount = 0; // reset cycle count on specialization change
+  worker.cycleCount = 0;
   return next;
 }
  
@@ -421,19 +388,16 @@ export function startProcessing(state, recipeId) {
   const recipe = PROCESSING_RECIPES[recipeId];
   if (!recipe) return state;
   if (recipe.season > next.season) return state;
- 
   const maxSlots =
     1 + next.prestigeBonuses.filter((b) => b === "processing_slot").length;
   const activeItems = next.processingQueue.filter((i) => !i.done);
   if (activeItems.length >= maxSlots) return state;
- 
   for (const [cropId, amount] of Object.entries(recipe.inputs)) {
     if ((next.crops[cropId] ?? 0) < amount) return state;
   }
   for (const [cropId, amount] of Object.entries(recipe.inputs)) {
     next.crops[cropId] -= amount;
   }
- 
   next.processingQueue.push({
     id: genId("proc"),
     recipeId,
@@ -442,7 +406,6 @@ export function startProcessing(state, recipeId) {
     outputAmount: recipe.outputAmount,
     done: false,
   });
- 
   return next;
 }
  
@@ -486,7 +449,6 @@ export function prestige(state, chosenBonusId) {
  
   next.season = newSeason;
   next.lastSavedTime = Date.now();
- 
   return next;
 }
  
@@ -500,8 +462,6 @@ export function canPrestige(state) {
   return true;
 }
  
-// ─── Serialization ────────────────────────────────────────────────────────────
- 
 export function serializeState(state) {
   return JSON.stringify({ ...state, lastSavedTime: Date.now() });
 }
@@ -511,7 +471,6 @@ export function deserializeState(raw) {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
     if (!Array.isArray(parsed.farms) || !Array.isArray(parsed.workers)) return null;
-    // Ensure cycleCount exists on all workers (backwards compat)
     for (const worker of parsed.workers) {
       if (worker.cycleCount === undefined) worker.cycleCount = 0;
     }
@@ -521,7 +480,7 @@ export function deserializeState(raw) {
   }
 }
  
-// ─── Deep clone ───────────────────────────────────────────────────────────────
 function deepCloneState(state) {
   return JSON.parse(JSON.stringify(state));
 }
+ 
