@@ -601,6 +601,8 @@ export function StillnessList() {
  
 export function StillnessSession() {
   const { groupId } = useParams();
+  const { isLoggedIn, loading: authLoading } = useAuth();
+  const navigate = useNavigate();
   const [session, setSession] = useState(null);
   const [groupInfo, setGroupInfo] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -661,8 +663,12 @@ export function StillnessSession() {
       setError(null);
       if (s.window_open) startPolling();
     } catch {
-      setError("Couldn't load this group. You may not be a member.");
-    } finally {
+    if (!isLoggedIn) {
+        navigate(`/login?next=/stillness/${groupId}`, { replace: true });
+        return;
+    }
+    setError("Couldn't load this group. You may not be a member.");
+} finally {
       setLoading(false);
     }
   }, [groupId, startPolling]);
@@ -722,8 +728,9 @@ useEffect(() => {
     setTimeout(() => setCopied(false), 2000);
   }
  
-  if (loading) return <div className="ss-root"><style>{CSS}</style><div className="ss-error">…</div></div>;
-  if (error)   return <div className="ss-root"><style>{CSS}</style><div className="ss-error">{error}</div></div>;
+  if (authLoading || loading) return <div className="ss-root"><style>{CSS}</style><div className="ss-error">…</div></div>;
+if (!isLoggedIn) return <Navigate to={`/login?next=/stillness/${groupId}`} replace />;
+if (error) return <div className="ss-root"><style>{CSS}</style><div className="ss-error">{error}</div></div>;
  
   // Phase is driven entirely by server — localCountdown === 0 only shows "closing"
   // if the server has already confirmed window_open is false
