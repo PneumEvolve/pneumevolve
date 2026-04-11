@@ -24,6 +24,7 @@ export default function Inbox({ userEmail: userEmailProp, userId, setUnreadCount
   const [composer, setComposer] = useState("");
   const [mobilePane, setMobilePane] = useState("list");
   const [openSections, setOpenSections] = useState({});
+  const [threadKey, setThreadKey] = useState(0);
 
   const bottomRef = useRef(null);
 
@@ -160,7 +161,7 @@ export default function Inbox({ userEmail: userEmailProp, userId, setUnreadCount
       }
     })();
     return () => { cancelled = true; };
-  }, [selected]);
+  }, [selected, threadKey]);
 
   const handleSend = async () => {
     const content = composer.trim();
@@ -256,11 +257,16 @@ export default function Inbox({ userEmail: userEmailProp, userId, setUnreadCount
               const isSel = selected?.conversation_id === r.conversation_id;
               const label = labelForRow(r);
               const preview = r.last_content ? String(r.last_content).slice(0, 60) : null;
+              
               return (
                 <button
                   key={r.conversation_id}
                   type="button"
-                  onClick={() => { setSelected(r); setThread([]); }}
+                  onClick={() => {
+  setSelected(r);
+  setThread([]);
+  setThreadKey((k) => k + 1);
+}}
                   aria-selected={isSel}
                   style={{
                     WebkitTapHighlightColor: "transparent",
@@ -293,7 +299,7 @@ export default function Inbox({ userEmail: userEmailProp, userId, setUnreadCount
   };
 
   return (
-    <div className="grid md:grid-cols-3 gap-0 md:gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-0 md:gap-4">
       {/* Left: conversation list */}
       <div
         className={[
@@ -322,9 +328,9 @@ export default function Inbox({ userEmail: userEmailProp, userId, setUnreadCount
       {/* Right: thread + composer */}
       <div
         className={[
-          "md:col-span-2 border rounded-xl flex flex-col h-[70vh]",
-          mobilePane === "thread" ? "flex" : "hidden md:flex",
-        ].join(" ")}
+  "md:col-span-2 border rounded-xl flex flex-col h-[70vh] w-full",
+  mobilePane === "thread" ? "flex col-span-1" : "hidden md:flex",
+].join(" ")}
       >
         {!selected ? (
           <div className="flex-1 flex items-center justify-center opacity-40 text-sm">
@@ -345,7 +351,7 @@ export default function Inbox({ userEmail: userEmailProp, userId, setUnreadCount
                 >
                   ←
                 </button>
-                <div className="text-sm font-medium truncate">{labelForSelected()}</div>
+                <div className="text-sm font-medium truncate min-w-0">{labelForSelected()}</div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button
@@ -376,7 +382,7 @@ export default function Inbox({ userEmail: userEmailProp, userId, setUnreadCount
                     {m.from_display} · {m.timestamp ? new Date(m.timestamp).toLocaleString() : ""}
                   </div>
                   <div
-                    className="rounded-2xl px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap"
+                    className="rounded-2xl px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words"
                     style={{
                       background: "color-mix(in oklab, var(--bg-elev) 90%, transparent)",
                       border: "1px solid var(--border)",

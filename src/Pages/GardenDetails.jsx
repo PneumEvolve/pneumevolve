@@ -1,9 +1,6 @@
-// GardenDetails.jsx
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "@/lib/api";
-
-
 
 const GardenDetails = () => {
   const { id } = useParams();
@@ -17,14 +14,13 @@ const GardenDetails = () => {
 
   useEffect(() => {
     const fetchGarden = async () => {
-  try {
-    const res = await api.get(`/gardens/${id}`);
-    setGarden(res.data);
-  } catch (err) {
-    console.error("Garden fetch error", err);
-  }
-};
-
+      try {
+        const res = await api.get(`/gardens/${id}`);
+        setGarden(res.data);
+      } catch (err) {
+        console.error("Garden fetch error", err);
+      }
+    };
     const fetchRequests = async () => {
       try {
         const res = await api.get(`/volunteers/requests/${id}`);
@@ -33,7 +29,6 @@ const GardenDetails = () => {
         console.error("Error fetching requests", err);
       }
     };
-
     fetchGarden();
     fetchRequests();
     setLoading(false);
@@ -43,10 +38,10 @@ const GardenDetails = () => {
     e.preventDefault();
     try {
       await api.post(`/volunteers/request`, {
-  garden_id: parseInt(id),
-  volunteer_name: volunteerName,
-  volunteer_email: volunteerEmail,
-});
+        garden_id: parseInt(id),
+        volunteer_name: volunteerName,
+        volunteer_email: volunteerEmail,
+      });
       alert("Request sent!");
       setVolunteerName("");
       setVolunteerEmail("");
@@ -57,96 +52,81 @@ const GardenDetails = () => {
   };
 
   const handleApproval = async (requestId, status) => {
-  if (!garden || parseInt(loggedInUserId) !== garden.host_id) {
-    alert("Only the garden host can approve or reject requests.");
-    return;
-  }
-  try {
-    await api.patch(`/volunteers/approve/${requestId}`, { status });
-    setRequests((prev) =>
-      prev.map((r) => (r.id === requestId ? { ...r, status } : r))
-    );
-  } catch (err) {
-    console.error("Approval error", err);
-    alert("Approval failed. Please ensure you're logged in.");
-  }
-};
+    if (!garden || parseInt(loggedInUserId) !== garden.host_id) {
+      alert("Only the garden host can approve or reject requests.");
+      return;
+    }
+    try {
+      await api.patch(`/volunteers/approve/${requestId}`, { status });
+      setRequests((prev) => prev.map((r) => (r.id === requestId ? { ...r, status } : r)));
+    } catch (err) {
+      console.error("Approval error", err);
+      alert("Approval failed.");
+    }
+  };
 
-  if (loading || !garden) return <p className="text-center mt-6">Loading...</p>;
+  if (loading || !garden) return (
+    <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg)", color: "var(--muted)" }}>
+      Loading...
+    </div>
+  );
 
   return (
-    <div className="max-w-3xl mx-auto p-6 bg-white dark:bg-gray-900 text-gray-900 dark:text-white">
-      <h1 className="text-3xl font-bold mb-4">{garden.host_name} — {garden.type}</h1>
-      <p><strong>Description:</strong> {garden.description}</p>
-      <p><strong>Location:</strong> {garden.location}</p>
-      <p><strong>Status:</strong> {garden.status}</p>
-      <p><strong>Notes:</strong> {garden.notes}</p>
+    <main className="min-h-screen" style={{ background: "var(--bg)", color: "var(--text)" }}>
+      <div className="max-w-3xl mx-auto px-6 py-12 space-y-6">
 
-      <hr className="my-6" />
+        <div className="card p-6 space-y-2">
+          <h1 className="text-2xl font-bold">{garden.host_name} — {garden.type}</h1>
+          <p className="text-sm"><span className="font-medium">Description:</span> {garden.description}</p>
+          <p className="text-sm"><span className="font-medium">Location:</span> {garden.location}</p>
+          <p className="text-sm"><span className="font-medium">Status:</span> {garden.status}</p>
+          <p className="text-sm"><span className="font-medium">Notes:</span> {garden.notes}</p>
+        </div>
 
-      <h2 className="text-xl font-semibold mb-2">🌱 Volunteer for this garden</h2>
-      <form onSubmit={handleSubmit} className="space-y-2">
-        <input
-          type="text"
-          placeholder="Your Name"
-          value={volunteerName}
-          onChange={(e) => setVolunteerName(e.target.value)}
-          className="w-full p-2 border rounded"
-          required
-        />
-        <input
-          type="email"
-          placeholder="Email Address"
-          value={volunteerEmail}
-          onChange={(e) => setVolunteerEmail(e.target.value)}
-          className="w-full p-2 border rounded"
-        />
-        <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded">
-          Submit Request
-        </button>
-      </form>
+        <div className="card p-6 space-y-3">
+          <h2 className="text-lg font-semibold">🌱 Volunteer for this garden</h2>
+          <form onSubmit={handleSubmit} className="space-y-3">
+            <input type="text" placeholder="Your Name" value={volunteerName}
+              onChange={(e) => setVolunteerName(e.target.value)} required />
+            <input type="email" placeholder="Email Address" value={volunteerEmail}
+              onChange={(e) => setVolunteerEmail(e.target.value)} />
+            <button type="submit" className="btn">Submit Request</button>
+          </form>
+        </div>
 
-      <hr className="my-6" />
-
-      <h2 className="text-xl font-semibold mb-2">👥 Volunteer Requests</h2>
-      {requests.length === 0 ? (
-        <p>No requests yet.</p>
-      ) : (
-        <ul className="space-y-2">
-          {requests.map((r) => (
-            <li
-              key={r.id}
-              className="p-3 border rounded flex justify-between items-center"
-            >
-              <div>
-                <strong>{r.volunteer_name}</strong>
-                {parseInt(loggedInUserId) === garden.host_id && (
-                  <> ({r.volunteer_email || "No email"})</>
-                )}
-                <br />
-                Status: <span className="font-medium">{r.status}</span>
-              </div>
-              {r.status === "Pending" && parseInt(loggedInUserId) === garden.host_id && (
-                <div className="space-x-2">
-                  <button
-                    onClick={() => handleApproval(r.id, "Approved")}
-                    className="bg-blue-500 text-white px-3 py-1 rounded"
-                  >
-                    Approve
-                  </button>
-                  <button
-                    onClick={() => handleApproval(r.id, "Rejected")}
-                    className="bg-red-500 text-white px-3 py-1 rounded"
-                  >
-                    Reject
-                  </button>
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+        <div className="card p-6 space-y-3">
+          <h2 className="text-lg font-semibold">👥 Volunteer Requests</h2>
+          {requests.length === 0 ? (
+            <p className="text-sm" style={{ color: "var(--muted)" }}>No requests yet.</p>
+          ) : (
+            <ul className="space-y-3">
+              {requests.map((r) => (
+                <li key={r.id} className="flex justify-between items-center p-3 rounded-xl"
+                  style={{ border: "1px solid var(--border)", background: "var(--bg)" }}>
+                  <div>
+                    <p className="text-sm font-medium">{r.volunteer_name}</p>
+                    {parseInt(loggedInUserId) === garden.host_id && (
+                      <p className="text-xs" style={{ color: "var(--muted)" }}>{r.volunteer_email || "No email"}</p>
+                    )}
+                    <p className="text-xs" style={{ color: "var(--muted)" }}>Status: {r.status}</p>
+                  </div>
+                  {r.status === "Pending" && parseInt(loggedInUserId) === garden.host_id && (
+                    <div className="flex gap-2">
+                      <button onClick={() => handleApproval(r.id, "Approved")} className="btn text-xs py-1 px-3">
+                        Approve
+                      </button>
+                      <button onClick={() => handleApproval(r.id, "Rejected")} className="btn btn-danger text-xs py-1 px-3">
+                        Reject
+                      </button>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </main>
   );
 };
 

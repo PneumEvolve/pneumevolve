@@ -2,7 +2,7 @@
 // Full file — fixed polling and phase logic for iOS/Safari reliability
  
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate, Link, Navigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
  
@@ -831,14 +831,28 @@ useEffect(() => {
 export function StillnessJoin() {
   const { inviteCode } = useParams();
   const navigate = useNavigate();
-  const { isLoggedIn } = useAuth();
+  const { isLoggedIn, loading } = useAuth();
   const [status, setStatus] = useState("preview"); // "preview" | "joining" | "error"
 
   useEffect(() => {
-    if (!isLoggedIn) {
-      navigate(`/login?next=/stillness/join/${inviteCode}`);
+    if (!isLoggedIn) return;
+    async function checkMembership() {
+      try {
+        const res = await api.get("/stillness/groups/mine");
+        const group = res.data.find(g => g.invite_code === inviteCode);
+        if (group) {
+          navigate(`/stillness/${group.id}`, { replace: true });
+        }
+      } catch {}
     }
-  }, [isLoggedIn, inviteCode, navigate]);
+    checkMembership();
+  }, [isLoggedIn, inviteCode]);
+
+  if (loading) return null;
+
+  if (!isLoggedIn) {
+    return <Navigate to={`/login?next=/stillness/join/${inviteCode}`} replace />;
+  }
 
   async function handleJoin() {
     setStatus("joining");
@@ -849,8 +863,6 @@ export function StillnessJoin() {
       setStatus("error");
     }
   }
-
-  if (!isLoggedIn) return null;
 
   return (
     <div className="ss-root">

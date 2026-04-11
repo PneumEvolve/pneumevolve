@@ -38,10 +38,10 @@ export default function ToolsHome() {
         <header className="flex items-start justify-between gap-4">
           <div className="space-y-2">
             <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">
-              Tools
+              My Mini-tools
             </h1>
             <p className="text-sm text-[var(--muted)]">
-              Your home tools (local-only).
+              Your personal mini-tools page (local-only).
             </p>
           </div>
 
@@ -56,45 +56,24 @@ export default function ToolsHome() {
               to="/tools/library"
               className="rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
             >
-              Add / manage widgets
+              Add / manage mini-tools
             </Link>
           </div>
         </header>
 
-        <div className="mt-6 flex flex-wrap gap-2">
-          <Link
-            to="/relief"
-            className="rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
-          >
-            Relief
-          </Link>
-          <Link
-            to="/flow"
-            className="rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
-          >
-            Flow Map
-          </Link>
-          <Link
-            to="/sitemap"
-            className="rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
-          >
-            Site Map
-          </Link>
-        </div>
-
         <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
           {widgets.length === 0 ? (
             <section className="rounded-2xl border border-[var(--border)] bg-[var(--bg-elev)] p-5 shadow-sm">
-              <h2 className="text-base font-semibold">No tools added yet</h2>
+              <h2 className="text-base font-semibold">No mini-tools added yet</h2>
               <p className="mt-2 text-sm text-[var(--muted)] leading-6">
-                Add one or two tools to start. Keep it light.
+                Add one or two to start. Keep it light.
               </p>
               <div className="mt-4">
                 <Link
                   to="/tools/library"
                   className="rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition inline-block"
                 >
-                  Open widget library
+                  Open mini-tool library
                 </Link>
               </div>
             </section>
@@ -102,7 +81,6 @@ export default function ToolsHome() {
 
           {widgets.map((w, index) => (
             <div key={w.id} className="relative">
-              {/* tiny controls above the widget */}
               <div className="mb-2 flex items-center gap-2 text-xs text-[var(--muted)]">
                 <span className="font-medium text-[var(--text)]">{w.title}</span>
                 <span className="opacity-70">•</span>
@@ -138,7 +116,7 @@ export default function ToolsHome() {
         </div>
 
         <footer className="mt-10 text-xs text-[var(--muted)]">
-          Tools save locally in your browser unless a page explicitly says otherwise.
+          Mini-tools save locally in your browser unless a page explicitly says otherwise.
         </footer>
       </div>
     </main>

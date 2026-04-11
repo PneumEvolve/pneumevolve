@@ -36,10 +36,10 @@ export default function WidgetLibrary() {
         <header className="flex items-start justify-between gap-4">
           <div className="space-y-2">
             <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">
-              Widget Library
+              Mini-tool Library
             </h1>
             <p className="text-sm text-[var(--muted)]">
-              Add tools to your Tools page (local-only).
+              Add mini-tools to your personal page (local-only).
             </p>
           </div>
 
@@ -48,7 +48,7 @@ export default function WidgetLibrary() {
               to="/tools"
               className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
             >
-              ← Back to Tools
+              ← Back to Mini-tools
             </Link>
             <button
               type="button"
@@ -101,10 +101,6 @@ export default function WidgetLibrary() {
                   </button>
                 </div>
 
-                {/* Optional quick preview toggle later. Keeping v1 simple. */}
-                <p className="mt-4 text-[11px] text-[var(--muted)]">
-                  Widget id: {w.id}
-                </p>
               </section>
             );
           })}

@@ -1,4 +1,3 @@
-// GardenDirectory.jsx
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
@@ -12,133 +11,89 @@ const GardenDirectory = () => {
 
   useEffect(() => {
     const fetchGardens = async () => {
-  try {
-    const res = await api.get("/gardens");
-    setGardens(res.data);
-    setLocations(["All", ...new Set(res.data.map((g) => g.location).filter(Boolean))]);
-  } catch (err) {
-    console.error("Error fetching gardens:", err);
-  } finally {
-    setLoading(false);
-  }
-};
-
+      try {
+        const res = await api.get("/gardens");
+        setGardens(res.data);
+        setLocations(["All", ...new Set(res.data.map((g) => g.location).filter(Boolean))]);
+      } catch (err) {
+        console.error("Error fetching gardens:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
     fetchGardens();
   }, []);
 
+  const filtered = gardens.filter((garden) => {
+    if (filter !== "All") {
+      const isBlitz = garden.type === "Blitz";
+      const isHost = garden.description?.includes("Host");
+      if (filter === "Blitz Host" && !(isBlitz && isHost)) return false;
+      if (filter === "Blitz Volunteer" && !(isBlitz && !isHost)) return false;
+      if (filter === "Long-Term Host" && !(!isBlitz && isHost)) return false;
+      if (filter === "Long-Term Volunteer" && !(!isBlitz && !isHost)) return false;
+    }
+    if (locationFilter !== "All" && garden.location !== locationFilter) return false;
+    return true;
+  });
+
   return (
-    <div className="min-h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-white p-6">
-      <div className="max-w-4xl mx-auto space-y-6">
-        <h1 className="text-4xl font-bold text-center">🌾 Garden Directory</h1>
-        <p className="text-center text-lg">
-          Browse local gardens that are part of the Garden Blitz and Ongoing Support program.
-        </p>
+    <main className="min-h-screen" style={{ background: "var(--bg)", color: "var(--text)" }}>
+      <div className="max-w-4xl mx-auto px-6 py-12 space-y-6">
+        <div className="text-center">
+          <h1 className="text-4xl font-bold mb-2">🌾 Garden Directory</h1>
+          <p className="text-sm" style={{ color: "var(--muted)" }}>
+            Browse local gardens part of the Garden Blitz and Ongoing Support program.
+          </p>
+        </div>
 
         <div className="text-center">
-          <Link
-            to="/garden-blitz"
-            className="inline-block mt-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-sm font-medium px-5 py-3 rounded-xl shadow hover:shadow-md transition"
-          >
+          <Link to="/garden-blitz" className="btn btn-secondary text-sm">
             ← Back to Garden Blitz
           </Link>
         </div>
 
-<div className="text-center mb-4 space-x-4">
-  <label className="mr-2 font-medium">Filter by Type:</label>
-  <select
-    value={filter}
-    onChange={(e) => setFilter(e.target.value)}
-    className="border rounded px-3 py-1 bg-white dark:bg-gray-800"
-  >
-    <option value="All">Show All</option>
-    <option value="Blitz Host">🌿 Blitz Host</option>
-    <option value="Blitz Volunteer">💪 Blitz Volunteer</option>
-    <option value="Long-Term Host">🌻 Long-Term Host</option>
-    <option value="Long-Term Volunteer">🌾 Long-Term Volunteer</option>
-  </select>
-
-  <label className="ml-6 mr-2 font-medium">Location:</label>
-  <select
-    value={locationFilter}
-    onChange={(e) => setLocationFilter(e.target.value)}
-    className="border rounded px-3 py-1 bg-white dark:bg-gray-800"
-  >
-    {locations.map((loc, idx) => (
-      <option key={idx} value={loc}>
-        {loc}
-      </option>
-    ))}
-  </select>
-</div>
+        <div className="card p-4 flex flex-wrap gap-4 items-center">
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium">Type:</label>
+            <select value={filter} onChange={(e) => setFilter(e.target.value)} style={{ width: "auto" }}>
+              <option value="All">Show All</option>
+              <option value="Blitz Host">🌿 Blitz Host</option>
+              <option value="Blitz Volunteer">💪 Blitz Volunteer</option>
+              <option value="Long-Term Host">🌻 Long-Term Host</option>
+              <option value="Long-Term Volunteer">🌾 Long-Term Volunteer</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium">Location:</label>
+            <select value={locationFilter} onChange={(e) => setLocationFilter(e.target.value)} style={{ width: "auto" }}>
+              {locations.map((loc, idx) => <option key={idx} value={loc}>{loc}</option>)}
+            </select>
+          </div>
+        </div>
 
         {loading ? (
-          <p className="text-center text-gray-500">Loading gardens...</p>
-        ) : gardens.length === 0 ? (
-          <p className="text-center text-gray-500">No gardens found yet.</p>
+          <p className="text-center" style={{ color: "var(--muted)" }}>Loading gardens...</p>
+        ) : filtered.length === 0 ? (
+          <p className="text-center" style={{ color: "var(--muted)" }}>No gardens found.</p>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-4">
-            {gardens
-  .filter((garden) => {
-    if (filter !== "All") {
-      const isBlitz = garden.type === "Blitz";
-      const isHost = garden.description?.includes("Host");
-      const isVolunteer = garden.description?.includes("Volunteer");
-
-      switch (filter) {
-        case "Blitz Host":
-          if (!(isBlitz && isHost)) return false;
-          break;
-        case "Blitz Volunteer":
-          if (!(isBlitz && isVolunteer)) return false;
-          break;
-        case "Long-Term Host":
-          if (!(isBlitz === false && isHost)) return false;
-          break;
-        case "Long-Term Volunteer":
-          if (!(isBlitz === false && isVolunteer)) return false;
-          break;
-        default:
-          break;
-      }
-    }
-
-    if (locationFilter !== "All" && garden.location !== locationFilter) {
-      return false;
-    }
-
-    return true;
-  })
-  .map((garden) => (
-              <div
-                key={garden.id}
-                className="bg-gray-100 dark:bg-gray-800 p-4 rounded-2xl shadow space-y-2"
-              >
-                <h2 className="text-xl font-semibold">
-                  {garden.host_name} — {garden.type}
-                </h2>
-                <p className="italic text-sm text-gray-600 dark:text-gray-300">
-  {garden.description}
-</p>
-                <p>
-                  <strong>Location:</strong> {garden.location}
-                </p>
-                <p>
-                  <strong>Status:</strong> {garden.status}
-                </p>
-                <p>
-                  <strong>Notes:</strong> {garden.notes}
-                </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {filtered.map((garden) => (
+              <div key={garden.id} className="card p-5 space-y-2">
+                <h2 className="text-base font-semibold">{garden.host_name} — {garden.type}</h2>
+                <p className="text-sm italic" style={{ color: "var(--muted)" }}>{garden.description}</p>
+                <p className="text-sm"><span className="font-medium">Location:</span> {garden.location}</p>
+                <p className="text-sm"><span className="font-medium">Status:</span> {garden.status}</p>
+                <p className="text-sm"><span className="font-medium">Notes:</span> {garden.notes}</p>
                 <Link to={`/garden-details/${garden.id}`}>
-                  <button className="mt-2 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition">
-                    View Details
-                  </button>
+                  <button className="btn btn-secondary text-sm mt-2">View Details</button>
                 </Link>
               </div>
             ))}
           </div>
         )}
       </div>
-    </div>
+    </main>
   );
 };
 
