@@ -34,6 +34,17 @@ const EXPERIMENTS = [
     requiresAuth: true,
   },
   {
+  id: "meal-planner",
+  title: "Meal Planner",
+  desc: "Plan your meals for the week. Syncs with your pantry and recipe collection.",
+  to: "/meal-planning",
+  tags: ["food", "planning"],
+  isPublic: true,
+  isFeatured: false,
+  updatedAtISO: "2026-04-11",
+  requiresAuth: true,
+},
+  {
     id: "preforge-local",
     title: "Pre-Forge",
     desc: "An idea and problem clarifier and organizer.",

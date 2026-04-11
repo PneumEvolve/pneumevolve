@@ -73,6 +73,7 @@ import RequireAuth from "@/components/RequireAuth";
 import PreForgeLocal from "@/Pages/PreForgeLocal";
 import PreForge from "@/Pages/PreForge";
 import { StillnessList, StillnessSession, StillnessJoin } from "@/Pages/SharedStillness";
+import RootWork from "./Pages/rootwork/RootWork";
  
 import { HelmetProvider } from "react-helmet-async";
 import "./index.css";
@@ -180,6 +181,8 @@ function Root() {
                 <Route path="/stillness" element={<StillnessList />} />
                 <Route path="/stillness/join/:inviteCode" element={<StillnessJoin />} />
                 <Route path="/stillness/:groupId" element={<StillnessSession />} />
+
+                <Route path="/rootwork" element={<RootWork />} />
  
                 <Route path="/privacy" element={<PrivacyPolicy />} />
                 <Route path="/terms" element={<Terms />} />

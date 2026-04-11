@@ -16,7 +16,8 @@ import {
   Salad,
   Moon,
   Gamepad2,
-  Wind
+  Wind,
+  Sprout
 } from "lucide-react";
  
 // Shared tile renderer — consistent card + icon bubble that adapts to light/dark
@@ -133,9 +134,16 @@ const tilesCommunity = ({ isLoggedIn }) => [
 // Step 3: Have Fun (playful spaces)
 const tilesFun = () => [
   {
+    title: "RootWork",
+    to: "/rootwork",
+    description: "An idle farming strategy game. Build your farm, hire workers, automate everything.",
+    icon: Sprout,
+    status: "New",
+  },
+  {
     title: "Farm Game",
     to: "/farm-game",
-    description: "An active idle game — plant, tend, flow. Designed for Desktop.",
+    description: "An earlier idle farming experiment. Designed for Desktop.",
     icon: Gamepad2,
     status: "Play",
   },
