@@ -82,18 +82,13 @@ export const GEAR = {
  
 export const GEAR_ORDER = ["bare_hands", "gloves", "hoe", "wheelbarrow", "tractor"];
  
-// ─── Gear crop costs ──────────────────────────────────────────────────────────
-// Which crop is required to upgrade to each gear tier.
-// Wheat handles basics, Berries unlock mid-tier, Tomatoes unlock endgame.
-// This creates cross-farm dependency: you need Farm 2 running to get a Hoe,
-// and Farm 3 running to get a Tractor.
- 
+// Which crop pays for each gear upgrade
 export const GEAR_CROP_COSTS = {
-  bare_hands: null,       // starting gear, no cost
-  gloves: "wheat",        // 30 wheat
-  hoe: "berries",         // 200 berries
-  wheelbarrow: "berries", // 500 berries
-  tractor: "tomatoes",    // 1500 tomatoes
+  bare_hands: null,
+  gloves: "wheat",
+  hoe: "berries",
+  wheelbarrow: "berries",
+  tractor: "tomatoes",
 };
  
 // ─── Plot unlock costs ────────────────────────────────────────────────────────
@@ -107,7 +102,6 @@ export const PLOT_COSTS = [
 export const MAX_PLOTS = 25;
  
 // ─── Workers ──────────────────────────────────────────────────────────────────
-// Hiring always costs that farm's own crop
 export const WORKER_HIRE_COST = 30;
  
 // Worker specializations unlock Season 4+
@@ -137,6 +131,10 @@ export const SPECIALIZATIONS = {
     growMultiplier: 0.8,
   },
 };
+ 
+// ─── Tend tool ────────────────────────────────────────────────────────────────
+// Tapping a growing plot in tend mode shaves this many seconds off grow time
+export const TEND_SECONDS = 3;
  
 // ─── Processing recipes ───────────────────────────────────────────────────────
 export const PROCESSING_RECIPES = {
@@ -171,29 +169,29 @@ export const PROCESSING_RECIPES = {
  
 // ─── Prestige bonuses ─────────────────────────────────────────────────────────
 export const PRESTIGE_BONUSES = {
-  yield_boost: {
-    id: "yield_boost",
+  bumper_crop: {
+    id: "bumper_crop",
     name: "Bumper Crop",
     emoji: "📈",
-    description: "+10% yield on all farms forever.",
+    description: "+10% yield on all harvests. Fractional yield accumulates and pays out as whole crops.",
   },
-  gear_carry: {
-    id: "gear_carry",
-    name: "Well Worn Tools",
+  head_start: {
+    id: "head_start",
+    name: "Head Start",
+    emoji: "🙋",
+    description: "Start each season with 1 free worker already hired on every available farm.",
+  },
+  fast_hands: {
+    id: "fast_hands",
+    name: "Fast Hands",
     emoji: "🧤",
-    description: "Workers keep 50% of their gear progress on prestige.",
+    description: "All newly hired workers start with Gloves instead of Bare Hands.",
   },
-  processing_slot: {
-    id: "processing_slot",
+  bigger_kitchen: {
+    id: "bigger_kitchen",
     name: "Bigger Kitchen",
     emoji: "🏭",
     description: "Processing queue holds one extra item.",
-  },
-  free_worker: {
-    id: "free_worker",
-    name: "Helping Hand",
-    emoji: "🙋",
-    description: "Start each season with one free worker.",
   },
 };
  

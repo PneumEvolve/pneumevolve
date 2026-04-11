@@ -11,6 +11,7 @@ import {
   deserializeState,
   plantPlot,
   harvestPlot,
+  tendPlot,
   buyPlot,
   hireWorker,
   sellWorker,
@@ -27,8 +28,6 @@ import FarmZone from "./components/FarmZone";
 import ProcessingZone from "./components/ProcessingZone";
 import SeasonPanel from "./components/SeasonPanel";
  
-// ─── Save / Load helpers ──────────────────────────────────────────────────────
- 
 function loadFromLocalStorage() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
@@ -44,8 +43,6 @@ function saveToLocalStorage(state) {
     localStorage.setItem(SAVE_KEY, serializeState(state));
   } catch {}
 }
- 
-// ─── Component ────────────────────────────────────────────────────────────────
  
 export default function RootWork() {
   const { accessToken, userId } = useAuth();
@@ -73,7 +70,6 @@ export default function RootWork() {
   useEffect(() => {
     async function load() {
       let saved = null;
- 
       if (accessToken && userId) {
         try {
           const res = await api.get("/rootwork/state", {
@@ -82,7 +78,6 @@ export default function RootWork() {
           if (res.data?.data) saved = deserializeState(res.data.data);
         } catch {}
       }
- 
       if (!saved) saved = loadFromLocalStorage();
  
       if (saved) {
@@ -99,10 +94,8 @@ export default function RootWork() {
         setGame(fresh);
         gameRef.current = fresh;
       }
- 
       setLoaded(true);
     }
- 
     load();
   }, [accessToken, userId]);
  
@@ -138,7 +131,6 @@ export default function RootWork() {
     return () => clearInterval(saveIntervalRef.current);
   }, [loaded, accessToken, userId]);
  
-  // ── Save on unmount ───────────────────────────────────────────────────────────
   useEffect(() => {
     return () => {
       const state = gameRef.current;
@@ -147,7 +139,6 @@ export default function RootWork() {
   }, []);
  
   // ── Actions ───────────────────────────────────────────────────────────────────
- 
   const update = useCallback((fn) => {
     setGame((prev) => {
       const next = fn(prev);
@@ -165,6 +156,10 @@ export default function RootWork() {
     update((s) => harvestPlot(s, farmId, plotId));
     notify("+crops! 🌾");
   }, [update, notify]);
+ 
+  const handleTend = useCallback((farmId, plotId) => {
+    update((s) => tendPlot(s, farmId, plotId));
+  }, [update]);
  
   const handleBuyPlot = useCallback((farmId) => {
     update((s) => {
@@ -224,16 +219,11 @@ export default function RootWork() {
     notify("Game reset.");
   }, [notify]);
  
-  // ── Derived ───────────────────────────────────────────────────────────────────
   const prestigeReady = game ? canPrestige(game) : false;
  
-  // ── Render ────────────────────────────────────────────────────────────────────
   if (!loaded || !game) {
     return (
-      <div
-        className="min-h-screen flex items-center justify-center"
-        style={{ background: "var(--bg)", color: "var(--muted)" }}
-      >
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg)", color: "var(--muted)" }}>
         <p className="text-sm">Loading RootWork…</p>
       </div>
     );
@@ -247,21 +237,16 @@ export default function RootWork() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: "var(--bg)", color: "var(--text)" }}>
  
-      {/* Offline message */}
       {offlineMessage && (
-        <div
-          className="text-center text-sm py-2 px-4"
-          style={{
-            background: "color-mix(in oklab, var(--accent) 12%, var(--bg-elev))",
-            borderBottom: "1px solid var(--border)",
-            color: "var(--text)",
-          }}
-        >
+        <div className="text-center text-sm py-2 px-4" style={{
+          background: "color-mix(in oklab, var(--accent) 12%, var(--bg-elev))",
+          borderBottom: "1px solid var(--border)",
+          color: "var(--text)",
+        }}>
           {offlineMessage}
         </div>
       )}
  
-      {/* Toast */}
       {notification && (
         <div
           className="fixed top-4 left-1/2 z-50 px-4 py-2 rounded-xl text-sm font-medium shadow-lg"
@@ -293,6 +278,7 @@ export default function RootWork() {
             game={game}
             onPlant={handlePlant}
             onHarvest={handleHarvest}
+            onTend={handleTend}
             onBuyPlot={handleBuyPlot}
             onHireWorker={handleHireWorker}
             onSellWorker={handleSellWorker}
@@ -315,19 +301,15 @@ export default function RootWork() {
         )}
       </div>
  
-      {/* Prestige modal */}
       {showPrestigeModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4"
           style={{ background: "rgba(0,0,0,0.5)" }}
         >
-          <div
-            className="card p-6 w-full max-w-sm space-y-4"
-            style={{ maxHeight: "90vh", overflowY: "auto" }}
-          >
+          <div className="card p-6 w-full max-w-sm space-y-4" style={{ maxHeight: "90vh", overflowY: "auto" }}>
             <h2 className="text-xl font-bold text-center">🌱 Begin New Season</h2>
             <p className="text-sm text-center" style={{ color: "var(--muted)", lineHeight: 1.6 }}>
-              Your farms reset but your workers carry on.
+              A fresh start. Workers don't carry over.
               10% of your crops carry over.
               Choose a permanent bonus:
             </p>
@@ -340,16 +322,11 @@ export default function RootWork() {
                   style={{ cursor: "pointer" }}
                 >
                   <div className="font-medium text-sm">{bonus.emoji} {bonus.name}</div>
-                  <div className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>
-                    {bonus.description}
-                  </div>
+                  <div className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>{bonus.description}</div>
                 </button>
               ))}
             </div>
-            <button
-              onClick={() => setShowPrestigeModal(false)}
-              className="btn btn-secondary w-full text-sm"
-            >
+            <button onClick={() => setShowPrestigeModal(false)} className="btn btn-secondary w-full text-sm">
               Cancel
             </button>
           </div>

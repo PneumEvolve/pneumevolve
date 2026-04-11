@@ -3,7 +3,6 @@
 import React from "react";
 import Plot from "./Plot";
  
-// ─── Keyframe styles injected once ───────────────────────────────────────────
 const GRID_STYLES = `
   @keyframes rw-pulse {
     0%, 100% { opacity: 1; transform: scale(1); }
@@ -19,25 +18,20 @@ const GRID_STYLES = `
   }
 `;
  
-// ─── Helpers ──────────────────────────────────────────────────────────────────
- 
 function getGridColumns(plotCount) {
   if (plotCount <= 1)  return 1;
   if (plotCount <= 4)  return 2;
   if (plotCount <= 9)  return 3;
   if (plotCount <= 16) return 4;
-  return 5; // up to 25
+  return 5;
 }
  
-// ─── Component ────────────────────────────────────────────────────────────────
- 
-export default function FarmGrid({ farm, game, onPlant, onHarvest }) {
+export default function FarmGrid({ farm, game, onPlant, onHarvest, onTend, tendMode }) {
   const cols = getGridColumns(farm.plots.length);
  
   return (
     <>
       <style>{GRID_STYLES}</style>
- 
       <div
         style={{
           display: "grid",
@@ -56,6 +50,8 @@ export default function FarmGrid({ farm, game, onPlant, onHarvest }) {
               game={game}
               onPlant={onPlant}
               onHarvest={onHarvest}
+              onTend={onTend}
+              tendMode={tendMode}
             />
           </div>
         ))}

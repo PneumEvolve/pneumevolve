@@ -11,9 +11,7 @@ import {
 } from "../gameConstants";
 import { getNextGear, getEffectiveCycleSeconds } from "../gameEngine";
  
-const SELL_REFUND = Math.floor(WORKER_HIRE_COST * 0.5); // 15 crop refund
- 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+const SELL_REFUND = Math.floor(WORKER_HIRE_COST * 0.5);
  
 function getEffectivePlots(worker) {
   const gear = GEAR[worker.gear];
@@ -38,8 +36,6 @@ function previewStatLine(worker, nextGearId) {
   return `${plots} plot${plots > 1 ? "s" : ""} every ${cycleSeconds}s`;
 }
  
-// ─── Single worker card ───────────────────────────────────────────────────────
- 
 function WorkerCard({ worker, farm, game, onUpgradeGear, onSellWorker, onSetSpecialization }) {
   const [showSpec, setShowSpec] = useState(false);
   const [confirmSell, setConfirmSell] = useState(false);
@@ -49,48 +45,43 @@ function WorkerCard({ worker, farm, game, onUpgradeGear, onSellWorker, onSetSpec
   const nextGear = nextGearId ? GEAR[nextGearId] : null;
   const canSpecialize = game.season >= 4;
  
-  // Gear upgrade costs a specific crop, not necessarily this farm's crop
   const upgradeCropId = nextGearId ? GEAR_CROP_COSTS[nextGearId] : null;
   const upgradeCrop = upgradeCropId ? CROPS[upgradeCropId] : null;
   const upgradeAmount = nextGear?.upgradeCost ?? 0;
   const canUpgrade = nextGear && upgradeCropId &&
     (game.crops[upgradeCropId] ?? 0) >= upgradeAmount;
  
-  // Sell refund is in this farm's crop
   const farmCrop = CROPS[farm.crop];
+ 
+  // Show Fast Hands badge if worker started with gloves via bonus
+  const hasFastHands = game.prestigeBonuses.includes("fast_hands");
  
   return (
     <div className="card p-4 space-y-3" style={{ fontSize: "0.85rem" }}>
  
-      {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ fontWeight: 600 }}>👷 Worker</div>
-        <div
-          style={{
-            fontSize: "0.7rem",
-            color: "var(--muted)",
-            background: "var(--bg)",
-            border: "1px solid var(--border)",
-            borderRadius: "999px",
-            padding: "0.2rem 0.6rem",
-          }}
-        >
+        <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: "0.4rem" }}>
+          👷 Worker
+          {hasFastHands && worker.gear !== "bare_hands" && (
+            <span style={{ fontSize: "0.65rem", color: "var(--muted)", fontWeight: 400 }}>
+              (Fast Hands)
+            </span>
+          )}
+        </div>
+        <div style={{
+          fontSize: "0.7rem", color: "var(--muted)", background: "var(--bg)",
+          border: "1px solid var(--border)", borderRadius: "999px", padding: "0.2rem 0.6rem",
+        }}>
           {gear.emoji} {gear.name}
         </div>
       </div>
  
-      {/* Current stats */}
-      <div
-        style={{
-          fontSize: "0.75rem",
-          color: "var(--muted)",
-          background: "var(--bg)",
-          border: "1px solid var(--border)",
-          borderRadius: "8px",
-          padding: "0.4rem 0.65rem",
-          lineHeight: 1.6,
-        }}
-      >
+      {/* Stats */}
+      <div style={{
+        fontSize: "0.75rem", color: "var(--muted)", background: "var(--bg)",
+        border: "1px solid var(--border)", borderRadius: "8px",
+        padding: "0.4rem 0.65rem", lineHeight: 1.6,
+      }}>
         <div>⚡ {statLine(worker)}</div>
         {worker.specialization !== "none" && (
           <div>🎯 {SPECIALIZATIONS[worker.specialization]?.name}</div>
@@ -110,14 +101,7 @@ function WorkerCard({ worker, farm, game, onUpgradeGear, onSellWorker, onSetSpec
               ? `Upgrade to ${nextGear.emoji} ${nextGear.name} — ${upgradeAmount} ${upgradeCrop?.emoji} ${upgradeCrop?.name}`
               : `${nextGear.emoji} ${nextGear.name} — need ${upgradeAmount} ${upgradeCrop?.emoji} ${upgradeCrop?.name}`}
           </button>
-          <div
-            style={{
-              fontSize: "0.68rem",
-              color: "var(--muted)",
-              marginTop: "0.3rem",
-              textAlign: "center",
-            }}
-          >
+          <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginTop: "0.3rem", textAlign: "center" }}>
             {nextGear.description}
             {" · "}
             <span style={{ color: "var(--text)", fontWeight: 500 }}>
@@ -131,7 +115,7 @@ function WorkerCard({ worker, farm, game, onUpgradeGear, onSellWorker, onSetSpec
         </div>
       )}
  
-      {/* Specialization — Season 4+ */}
+      {/* Specialization */}
       {canSpecialize && (
         <div>
           <button
@@ -148,14 +132,10 @@ function WorkerCard({ worker, farm, game, onUpgradeGear, onSellWorker, onSetSpec
                 .map((spec) => (
                   <button
                     key={spec.id}
-                    onClick={() => {
-                      onSetSpecialization(worker.id, spec.id);
-                      setShowSpec(false);
-                    }}
+                    onClick={() => { onSetSpecialization(worker.id, spec.id); setShowSpec(false); }}
                     className="w-full text-left card p-3"
                     style={{
-                      fontSize: "0.72rem",
-                      cursor: "pointer",
+                      fontSize: "0.72rem", cursor: "pointer",
                       border: worker.specialization === spec.id
                         ? "1px solid var(--accent)"
                         : "1px solid var(--border)",
@@ -175,7 +155,7 @@ function WorkerCard({ worker, farm, game, onUpgradeGear, onSellWorker, onSetSpec
         </div>
       )}
  
-      {/* Sell worker */}
+      {/* Sell */}
       {!confirmSell ? (
         <button
           onClick={() => setConfirmSell(true)}
@@ -206,8 +186,6 @@ function WorkerCard({ worker, farm, game, onUpgradeGear, onSellWorker, onSetSpec
   );
 }
  
-// ─── Main panel ───────────────────────────────────────────────────────────────
- 
 export default function WorkerPanel({
   farm,
   game,
@@ -220,26 +198,23 @@ export default function WorkerPanel({
   const cropAmount = game.crops[farm.crop] ?? 0;
   const canHire = cropAmount >= WORKER_HIRE_COST;
  
-  const hasFreeWorkerBonus = game.prestigeBonuses.includes("free_worker");
+  const hasHeadStart = game.prestigeBonuses.includes("head_start");
   const isFirstWorker = farmWorkers.length === 0;
-  const hireCost = hasFreeWorkerBonus && isFirstWorker ? 0 : WORKER_HIRE_COST;
-  const canHireWithBonus = hasFreeWorkerBonus && isFirstWorker ? true : canHire;
- 
+  const hireCost = hasHeadStart && isFirstWorker ? 0 : WORKER_HIRE_COST;
+  const canHireWithBonus = hasHeadStart && isFirstWorker ? true : canHire;
   const farmCrop = CROPS[farm.crop];
  
   return (
     <div className="space-y-3">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <h3 style={{ fontWeight: 600, fontSize: "0.9rem" }}>
-          Workers ({farmWorkers.length})
-        </h3>
+        <h3 style={{ fontWeight: 600, fontSize: "0.9rem" }}>Workers ({farmWorkers.length})</h3>
         <button
           onClick={() => onHireWorker(farm.id)}
           disabled={!canHireWithBonus}
           className="btn"
           style={{ fontSize: "0.75rem", padding: "0.4rem 0.9rem" }}
         >
-          {hasFreeWorkerBonus && isFirstWorker
+          {hasHeadStart && isFirstWorker
             ? "🙋 Hire (Free!)"
             : `🙋 Hire (${hireCost} ${farmCrop.emoji} ${farmCrop.name})`}
         </button>
