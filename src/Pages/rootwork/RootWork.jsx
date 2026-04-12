@@ -365,6 +365,7 @@ export default function RootWork() {
       </div>
     );
   }
+  console.log("RootWork render", { loaded, game: !!game, farms: game?.farms?.length });
  
   const activeFarmIndex = activeTab.startsWith("farm_")
     ? parseInt(activeTab.replace("farm_", ""), 10) : null;

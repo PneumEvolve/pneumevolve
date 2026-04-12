@@ -27,35 +27,39 @@ function getGridColumns(plotCount) {
 }
  
 export default function FarmGrid({ farm, game, onPlant, onHarvest, onTend, tendMode }) {
-  const cols = getGridColumns(farm.plots.length);
- 
-  return (
-    <>
-      <style>{GRID_STYLES}</style>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: `repeat(${cols}, 1fr)`,
-          gap: "8px",
-          width: "100%",
-          maxWidth: `${cols * 80}px`,
-          margin: "0 auto",
-        }}
-      >
-        {farm.plots.map((plot, idx) => (
-          <div key={plot.id} className="rw-plot-enter" style={{ animationDelay: `${idx * 20}ms` }}>
-            <Plot
-              plot={plot}
-              farm={farm}
-              game={game}
-              onPlant={onPlant}
-              onHarvest={onHarvest}
-              onTend={onTend}
-              tendMode={tendMode}
-            />
-          </div>
-        ))}
-      </div>
-    </>
-  );
+  try {
+    const cols = getGridColumns(farm.plots.length);
+
+    return (
+      <>
+        <style>{GRID_STYLES}</style>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: `repeat(${cols}, 1fr)`,
+            gap: "8px",
+            width: "100%",
+            maxWidth: `${cols * 80}px`,
+            margin: "0 auto",
+          }}
+        >
+          {farm.plots.map((plot, idx) => (
+            <div key={plot.id} className="rw-plot-enter" style={{ animationDelay: `${idx * 20}ms` }}>
+              <Plot
+                plot={plot}
+                farm={farm}
+                game={game}
+                onPlant={onPlant}
+                onHarvest={onHarvest}
+                onTend={onTend}
+                tendMode={tendMode}
+              />
+            </div>
+          ))}
+        </div>
+      </>
+    );
+  } catch (err) {
+    return <div style={{ color: "red", padding: "1rem" }}>FarmGrid error: {String(err)}</div>;
+  }
 }
