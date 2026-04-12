@@ -3,9 +3,9 @@
 import React from "react";
 import {
   CROPS, SEASON_FARMS, PRESTIGE_BONUSES, MAX_SEASON, GEAR,
-  AUTOMATION_THRESHOLD, MIN_PLOTS_FOR_AUTOMATION,
+  AUTOMATION_THRESHOLD, MIN_PLOTS_FOR_AUTOMATION, getPrestigeCashThreshold
 } from "../gameConstants";
-import { isFarmAutomated, getPrestigeBlockers, getPrestigeCashThreshold } from "../gameEngine";
+import { isFarmAutomated, getPrestigeBlockers  } from "../gameEngine";
  
 function FarmChecklist({ farm, game }) {
   const crop = CROPS[farm.crop];
