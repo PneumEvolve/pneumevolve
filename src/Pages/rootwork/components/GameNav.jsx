@@ -1,100 +1,89 @@
-// src/Pages/rootwork/components/GameNav.jsx
+// src/Pages/rootwork/components/ResourceBar.jsx
  
 import React from "react";
 import { CROPS, SEASON_FARMS } from "../gameConstants";
-import { isFarmAutomated } from "../gameEngine";
  
-export default function GameNav({ game, activeTab, onTabChange, prestigeReady }) {
+export default function ResourceBar({ game }) {
   const availableCropIds = SEASON_FARMS[game.season] ?? ["wheat"];
- 
-  const tabs = [
-    // Farm tabs
-    ...game.farms
-      .filter((f) => availableCropIds.includes(f.crop))
-      .map((farm, idx) => {
-        const crop = CROPS[farm.crop];
-        const automated = isFarmAutomated(farm, game.workers);
-        return {
-          id: `farm_${idx}`,
-          label: crop.name,
-          emoji: crop.emoji,
-          badge: automated ? "✓" : null,
-          badgeColor: "#4ade80",
-        };
-      }),
- 
-    // Kitchen — unlocks when any farm is automated
-    ...(game.kitchenUnlocked
-      ? [{
-          id: "processing",
-          label: "Kitchen",
-          emoji: "🏭",
-          badge: (game.processingQueue ?? []).filter((i) => !i.done).length > 0
-            ? (game.processingQueue ?? []).filter((i) => !i.done).length
-            : null,
-          badgeColor: "var(--accent)",
-        }]
-      : []),
- 
-    // Season tab
-    {
-      id: "season",
-      label: "Season",
-      emoji: "🌱",
-      badge: prestigeReady ? "!" : null,
-      badgeColor: "#f59e0b",
-    },
-  ];
+  const cash = game.cash ?? 0;
+  const artisan = game.artisan ?? {};
+  const hasArtisan = Object.values(artisan).some((v) => v > 0);
  
   return (
     <div style={{
       background: "var(--bg-elev)",
       borderBottom: "1px solid var(--border)",
+      padding: "0.5rem 1rem",
       display: "flex",
-      overflowX: "auto",
-      scrollbarWidth: "none",
+      alignItems: "center",
+      justifyContent: "space-between",
+      flexWrap: "wrap",
+      gap: "0.5rem",
     }}>
-      {tabs.map((tab) => {
-        const isActive = activeTab === tab.id;
-        return (
-          <button
-            key={tab.id}
-            onClick={() => onTabChange(tab.id)}
-            style={{
-              position: "relative",
-              flex: "0 0 auto",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: "2px",
-              padding: "0.6rem 1.1rem",
-              background: "none",
-              border: "none",
-              borderBottom: isActive ? "2px solid var(--accent)" : "2px solid transparent",
-              cursor: "pointer",
-              color: isActive ? "var(--accent)" : "var(--muted)",
-              fontWeight: isActive ? 600 : 400,
-              fontSize: "0.72rem",
-              transition: "color 0.15s ease, border-color 0.15s ease",
-              whiteSpace: "nowrap",
-            }}
-          >
-            <span style={{ fontSize: "1.1rem", lineHeight: 1 }}>{tab.emoji}</span>
-            <span>{tab.label}</span>
-            {tab.badge && (
-              <span style={{
-                position: "absolute", top: "4px", right: "6px",
-                background: tab.badgeColor, color: "#fff",
-                fontSize: "0.55rem", fontWeight: 700,
-                borderRadius: "999px", padding: "1px 4px",
-                lineHeight: 1.4, minWidth: "14px", textAlign: "center",
-              }}>
-                {tab.badge}
+ 
+      {/* Crops */}
+      <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+        {availableCropIds.map((cropId) => {
+          const crop = CROPS[cropId];
+          const amount = game.crops[cropId] ?? 0;
+          return (
+            <div key={cropId} style={{
+              display: "flex", alignItems: "center", gap: "0.3rem",
+              fontSize: "0.85rem", fontWeight: 500,
+            }}>
+              <span>{crop.emoji}</span>
+              <span>{amount}</span>
+              <span style={{ fontSize: "0.7rem", color: "var(--muted)", fontWeight: 400 }}>
+                {crop.name}
               </span>
-            )}
-          </button>
-        );
-      })}
+            </div>
+          );
+        })}
+      </div>
+ 
+      {/* Artisan goods — only show if any exist */}
+      {hasArtisan && (
+        <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+          {Object.entries(artisan).map(([id, amount]) => {
+            if (amount <= 0) return null;
+            const labels = { bread: "🍞", jam: "🍯", sauce: "🥫" };
+            const names = { bread: "Bread", jam: "Jam", sauce: "Sauce" };
+            if (!labels[id]) return null;
+            return (
+              <div key={id} style={{
+                display: "flex", alignItems: "center", gap: "0.3rem",
+                fontSize: "0.85rem", fontWeight: 500,
+              }}>
+                <span>{labels[id]}</span>
+                <span>{amount}</span>
+                <span style={{ fontSize: "0.7rem", color: "var(--muted)", fontWeight: 400 }}>
+                  {names[id]}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+ 
+      {/* Right side: cash + season */}
+      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+        {game.marketUnlocked && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: "0.25rem",
+            fontSize: "0.85rem", fontWeight: 600, color: "#4ade80",
+          }}>
+            <span>💰</span>
+            <span>${Math.floor(cash)}</span>
+          </div>
+        )}
+        <div style={{
+          fontSize: "0.7rem", color: "var(--muted)", fontWeight: 500,
+          letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap",
+        }}>
+          Season {game.season}
+        </div>
+      </div>
+ 
     </div>
   );
 }

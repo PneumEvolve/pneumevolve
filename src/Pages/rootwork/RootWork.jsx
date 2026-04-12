@@ -23,12 +23,25 @@ import {
   beginPrestige,
   assignKeptWorker,
   canPrestige,
+  getPrestigeBlockers,
+  sellItems,
+  purchaseKitchen,
+  purchaseKitchenSlot,
+  purchaseSlotUpgrade,
 } from "./gameEngine";
-import { SAVE_KEY, SAVE_INTERVAL_MS, PRESTIGE_BONUSES, CROPS, GEAR, SPECIALIZATIONS } from "./gameConstants";
-import GameNav from "./components/GameNav";
+import {
+  SAVE_KEY,
+  SAVE_INTERVAL_MS,
+  PRESTIGE_BONUSES,
+  CROPS,
+  GEAR,
+  SPECIALIZATIONS,
+} from "./gameConstants";
+import GameNav, { FarmSubTabs } from "./components/GameNav";
 import ResourceBar from "./components/ResourceBar";
 import FarmZone from "./components/FarmZone";
 import ProcessingZone from "./components/ProcessingZone";
+import MarketZone from "./components/MarketZone";
 import SeasonPanel from "./components/SeasonPanel";
  
 function loadFromLocalStorage() {
@@ -68,7 +81,7 @@ function PrestigeModal({ game, onComplete, onCancel }) {
               </p>
             </div>
             <p className="text-sm text-center" style={{ color: "var(--muted)", lineHeight: 1.6 }}>
-              Workers reset. 10% of crops carry over. You keep one worker next step.
+              Workers reset. 10% of crops carry over. Kitchen relocks. Cash carries over.
             </p>
             <div className="space-y-2">
               {Object.values(PRESTIGE_BONUSES).map((bonus) => (
@@ -211,7 +224,11 @@ export default function RootWork() {
  
   const [game, setGame] = useState(null);
   const [loaded, setLoaded] = useState(false);
-  const [activeTab, setActiveTab] = useState("farm_0");
+ 
+  // Nav state — main tab + active farm index
+  const [activeMainTab, setActiveMainTab] = useState("farms");
+  const [activeFarmIndex, setActiveFarmIndex] = useState(0);
+ 
   const [offlineMessage, setOfflineMessage] = useState(null);
   const [showPrestigeModal, setShowPrestigeModal] = useState(false);
   const [notification, setNotification] = useState(null);
@@ -338,19 +355,40 @@ export default function RootWork() {
   const handlePrestigeComplete = useCallback((bonusId, workerId) => {
     update((s) => beginPrestige(s, bonusId, workerId));
     setShowPrestigeModal(false);
-    setActiveTab("farm_0");
+    setActiveMainTab("farms");
+    setActiveFarmIndex(0);
     notify("🌱 New season begun!");
   }, [update, notify]);
   const handleAssignWorker = useCallback((keptWorkerId, farmId) => {
     update((s) => assignKeptWorker(s, keptWorkerId, farmId));
   }, [update]);
+ 
+  // Market actions
+  const handleSell = useCallback((itemType, quantity) => {
+    update((s) => { const n = sellItems(s, itemType, quantity); if (n === s) notify("Not enough to sell."); return n; });
+  }, [update, notify]);
+ 
+  // Kitchen purchase actions
+  const handlePurchaseKitchen = useCallback(() => {
+    update((s) => { const n = purchaseKitchen(s); if (n === s) notify("Not enough cash."); return n; });
+    notify("🏭 Kitchen built!");
+  }, [update, notify]);
+  const handlePurchaseKitchenSlot = useCallback(() => {
+    update((s) => { const n = purchaseKitchenSlot(s); if (n === s) notify("Not enough cash."); return n; });
+    notify("🔧 Queue slot added!");
+  }, [update, notify]);
+  const handlePurchaseSlotUpgrade = useCallback((slotIndex, upgradeId) => {
+    update((s) => { const n = purchaseSlotUpgrade(s, slotIndex, upgradeId); if (n === s) notify("Not enough cash or prereq missing."); return n; });
+  }, [update, notify]);
+ 
   const handleResetGame = useCallback(() => {
     if (!window.confirm("Reset all progress? This cannot be undone.")) return;
     localStorage.removeItem(SAVE_KEY);
     const fresh = createInitialState();
     setGame(fresh);
     gameRef.current = fresh;
-    setActiveTab("farm_0");
+    setActiveMainTab("farms");
+    setActiveFarmIndex(0);
     notify("Game reset.");
   }, [notify]);
  
@@ -365,11 +403,10 @@ export default function RootWork() {
       </div>
     );
   }
-  console.log("RootWork render", { loaded, game: !!game, farms: game?.farms?.length });
  
-  const activeFarmIndex = activeTab.startsWith("farm_")
-    ? parseInt(activeTab.replace("farm_", ""), 10) : null;
-  const activeFarm = activeFarmIndex !== null ? game.farms[activeFarmIndex] ?? null : null;
+  // Clamp farm index in case farms array shrinks (shouldn't happen but defensive)
+  const safeFarmIndex = Math.min(activeFarmIndex, game.farms.length - 1);
+  const activeFarm = game.farms[safeFarmIndex] ?? null;
  
   return (
     <div className="min-h-screen flex flex-col" style={{ background: "var(--bg)", color: "var(--text)" }}>
@@ -390,16 +427,26 @@ export default function RootWork() {
             background: "var(--bg-elev)",
             border: "1px solid var(--border)",
             color: "var(--text)",
+            zIndex: 60,
           }}>
           {notification}
         </div>
       )}
  
       <ResourceBar game={game} />
-      <GameNav game={game} activeTab={activeTab} onTabChange={setActiveTab} prestigeReady={prestigeReady} />
  
-      <div className="flex-1 overflow-auto">
-        {activeFarm && (
+      {/* Farm sub-tabs only show when on Farms tab with multiple farms */}
+      {activeMainTab === "farms" && (
+        <FarmSubTabs
+          game={game}
+          activeFarmIndex={safeFarmIndex}
+          onFarmChange={setActiveFarmIndex}
+        />
+      )}
+ 
+      {/* Main content — padded bottom so fixed nav doesn't overlap */}
+      <div className="flex-1 overflow-auto" style={{ paddingBottom: "4rem" }}>
+        {activeMainTab === "farms" && activeFarm && (
           <FarmZone
             key={activeFarm.id}
             farm={activeFarm}
@@ -414,15 +461,24 @@ export default function RootWork() {
             onSpecialize={handleSpecialize}
           />
         )}
-        {activeTab === "processing" && (
+        {activeMainTab === "market" && game.marketUnlocked && (
+          <MarketZone
+            game={game}
+            onSell={handleSell}
+          />
+        )}
+        {activeMainTab === "kitchen" && (
           <ProcessingZone
             game={game}
             onStartProcessing={handleStartProcessing}
             onUpgradePlot={handleUpgradePlot}
             onBuyFeast={handleBuyFeast}
+            onPurchaseKitchen={handlePurchaseKitchen}
+            onPurchaseKitchenSlot={handlePurchaseKitchenSlot}
+            onPurchaseSlotUpgrade={handlePurchaseSlotUpgrade}
           />
         )}
-        {activeTab === "season" && (
+        {activeMainTab === "season" && (
           <SeasonPanel
             game={game}
             prestigeReady={prestigeReady}
@@ -431,6 +487,14 @@ export default function RootWork() {
           />
         )}
       </div>
+ 
+      {/* Fixed bottom nav */}
+      <GameNav
+        game={game}
+        activeMainTab={activeMainTab}
+        onMainTabChange={setActiveMainTab}
+        prestigeReady={prestigeReady}
+      />
  
       {hasPendingAssignments && (
         <FarmAssignmentScreen game={game} onAssign={handleAssignWorker} />

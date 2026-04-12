@@ -95,9 +95,6 @@ export const SPECIALIZE_COST = 50;
 export const SPECIALIZE_CROP = "berries";
  
 // ─── Plot unlock costs ────────────────────────────────────────────────────────
-// Starts at 5 and multiplies by 1.4 each time, rounded to nearest 5.
-// Plot 2: 5, Plot 3: 5, Plot 4: 10, Plot 5: 15, Plot 6: 20, Plot 7: 25...
-// getPlotUnlockCost() in gameEngine calculates this dynamically.
 export const PLOT_BASE_COST = 5;
 export const PLOT_COST_MULTIPLIER = 1.4;
  
@@ -212,6 +209,56 @@ export const FEAST_TIERS = [
  
 export const FEAST_MAX_BONUS = 50;
  
+// ─── Market ───────────────────────────────────────────────────────────────────
+// Base sell rates in $ per item. market_savvy prestige bonus adds 25%.
+export const MARKET_SELL_RATES = {
+  wheat:    1,
+  berries:  2,
+  tomatoes: 3,
+  bread:    4,
+  jam:      6,
+  sauce:    8,
+  feast:    15,
+};
+ 
+// Market processes 1 sale per second from the queue
+export const MARKET_SELL_RATE_PER_SECOND = 1;
+ 
+// ─── Kitchen purchase ─────────────────────────────────────────────────────────
+// Kitchen is now bought with cash instead of being auto-unlocked.
+export const KITCHEN_BASE_COST = 20;       // buys the kitchen with 1 queue slot
+ 
+// Additional queue slots (cumulative — buy slot 2 before slot 3)
+export const KITCHEN_SLOT_COSTS = [50, 150]; // slot 2, slot 3
+ 
+// Per-slot upgrades (each slot can have these independently)
+export const KITCHEN_SLOT_UPGRADES = {
+  auto_restart: {
+    id: "auto_restart",
+    name: "Auto-Restart",
+    emoji: "🔄",
+    cost: 30,
+    description: "Automatically restarts this recipe when it finishes.",
+  },
+  speed_1: {
+    id: "speed_1",
+    name: "Speed Boost I",
+    emoji: "⚡",
+    cost: 40,
+    description: "+25% processing speed for this slot.",
+    speedMultiplier: 0.75,
+  },
+  speed_2: {
+    id: "speed_2",
+    name: "Speed Boost II",
+    emoji: "⚡⚡",
+    cost: 100,
+    description: "+50% processing speed for this slot (replaces Speed I).",
+    speedMultiplier: 0.5,
+    requires: "speed_1",
+  },
+};
+ 
 // ─── Prestige bonuses ─────────────────────────────────────────────────────────
 export const PRESTIGE_BONUSES = {
   bumper_crop: {
@@ -232,13 +279,29 @@ export const PRESTIGE_BONUSES = {
     emoji: "🧤",
     description: "All newly hired workers start with Gloves instead of Bare Hands.",
   },
-  bigger_kitchen: {
-    id: "bigger_kitchen",
-    name: "Bigger Kitchen",
-    emoji: "🏭",
-    description: "Processing queue holds one extra item.",
+  market_savvy: {
+    id: "market_savvy",
+    name: "Market Savvy",
+    emoji: "💹",
+    description: "All market sell prices permanently increased by 25%. Stacks with multiple picks.",
   },
 };
+ 
+// ─── Prestige cash thresholds ─────────────────────────────────────────────────
+// Cash (spendable) required to be eligible for prestige.
+// Season 4+ each adds $200 more.
+export const PRESTIGE_CASH_THRESHOLDS = [
+  100,  // season 1 → 2
+  200,  // season 2 → 3
+  400,  // season 3 → 4
+];
+export const PRESTIGE_CASH_THRESHOLD_INCREMENT = 200; // each season beyond 3→4
+ 
+export function getPrestigeCashThreshold(currentSeason) {
+  if (currentSeason <= 3) return PRESTIGE_CASH_THRESHOLDS[currentSeason - 1];
+  // season 4 = 400, season 5 = 600, etc.
+  return 400 + (currentSeason - 3) * PRESTIGE_CASH_THRESHOLD_INCREMENT;
+}
  
 // ─── Season structure ─────────────────────────────────────────────────────────
 export const SEASON_FARMS = {

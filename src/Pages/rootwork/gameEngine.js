@@ -24,6 +24,11 @@ import {
   CROP_ARTISAN,
   FEAST_TIERS,
   FEAST_MAX_BONUS,
+  MARKET_SELL_RATES,
+  KITCHEN_BASE_COST,
+  KITCHEN_SLOT_COSTS,
+  KITCHEN_SLOT_UPGRADES,
+  getPrestigeCashThreshold,
 } from "./gameConstants";
  
 let _idCounter = 0;
@@ -63,6 +68,15 @@ export function makeWorker(farmId, startWithGloves = false) {
   };
 }
  
+// ─── Default kitchen slot state ───────────────────────────────────────────────
+ 
+function makeKitchenSlot(slotIndex) {
+  return {
+    slotIndex,
+    upgrades: [], // array of upgrade ids purchased for this slot
+  };
+}
+ 
 // ─── Initial state ────────────────────────────────────────────────────────────
  
 export function createInitialState() {
@@ -79,7 +93,15 @@ export function createInitialState() {
     crops: { wheat: 0, berries: 0, tomatoes: 0 },
     artisan: { bread: 0, jam: 0, sauce: 0 },
     processingQueue: [],
-    kitchenUnlocked: false,
+    // Kitchen is now purchased with cash instead of auto-unlocked
+    kitchenPurchased: false,
+    kitchenSlotCount: 1,        // how many queue slots have been bought
+    kitchenSlots: [makeKitchenSlot(0)], // per-slot upgrade data
+    // Market
+    marketUnlocked: false,      // unlocks when first farm automated
+    marketQueue: [],            // [{ id, itemType, quantity, earned }]
+    cash: 0,                    // spendable balance
+    lifetimeCash: 0,            // all-time earned (high score)
     lastSavedTime: Date.now(),
     totalPlayTime: 0,
     pendingWorkerAssignments: false,
@@ -96,12 +118,9 @@ export function getNextGear(currentGear) {
   return GEAR_ORDER[idx + 1];
 }
  
-// Dynamic plot cost — starts at 5, multiplies by 1.4 each purchase, rounded to nearest 5
-// currentPlotCount is how many plots the farm currently has (before buying the next one)
 export function getPlotUnlockCost(currentPlotCount) {
   if (currentPlotCount >= MAX_PLOTS) return null;
-  // currentPlotCount - 1 because first plot is free (index 0)
-  const purchaseIndex = currentPlotCount - 1; // 0-based index of this purchase
+  const purchaseIndex = currentPlotCount - 1;
   const raw = PLOT_BASE_COST * Math.pow(PLOT_COST_MULTIPLIER, purchaseIndex);
   return Math.max(5, Math.round(raw / 5) * 5);
 }
@@ -111,9 +130,14 @@ export function isFarmAutomated(farm, workers) {
   return workerCount >= AUTOMATION_THRESHOLD && farm.unlockedPlots >= MIN_PLOTS_FOR_AUTOMATION;
 }
  
-export function isKitchenUnlocked(state) {
-  if (state.kitchenUnlocked) return true;
+export function isMarketUnlocked(state) {
+  if (state.marketUnlocked) return true;
   return state.farms.some((f) => isFarmAutomated(f, state.workers));
+}
+ 
+// Kitchen is now purchased separately; market unlock is the old kitchen-unlock trigger
+export function isKitchenUnlocked(state) {
+  return state.kitchenPurchased === true;
 }
  
 export function getAvailableFarms(season) {
@@ -194,6 +218,49 @@ export function getNextFeastTier(state) {
   return FEAST_TIERS[idx] ?? null;
 }
  
+// ─── Market helpers ───────────────────────────────────────────────────────────
+ 
+export function getSellRate(itemType, prestigeBonuses = []) {
+  const base = MARKET_SELL_RATES[itemType] ?? 0;
+  const savvyCount = prestigeBonuses.filter((b) => b === "market_savvy").length;
+  if (savvyCount === 0) return base;
+  return Math.round(base * Math.pow(1.25, savvyCount) * 100) / 100;
+}
+ 
+export function getMarketQueueLength(state) {
+  return (state.marketQueue ?? []).reduce((sum, item) => sum + item.quantity, 0);
+}
+ 
+// ─── Kitchen helpers ──────────────────────────────────────────────────────────
+ 
+export function getKitchenSlotUpgrades(state, slotIndex) {
+  const slot = (state.kitchenSlots ?? [])[slotIndex];
+  return slot?.upgrades ?? [];
+}
+ 
+export function getSlotSpeedMultiplier(state, slotIndex) {
+  const upgrades = getKitchenSlotUpgrades(state, slotIndex);
+  if (upgrades.includes("speed_2")) return KITCHEN_SLOT_UPGRADES.speed_2.speedMultiplier;
+  if (upgrades.includes("speed_1")) return KITCHEN_SLOT_UPGRADES.speed_1.speedMultiplier;
+  return 1;
+}
+ 
+export function getEffectiveRecipeSeconds(state, slotIndex, baseSeconds) {
+  const mult = getSlotSpeedMultiplier(state, slotIndex);
+  return Math.max(5, Math.floor(baseSeconds * mult));
+}
+ 
+export function canBuyKitchen(state) {
+  return !state.kitchenPurchased && (state.cash ?? 0) >= KITCHEN_BASE_COST && isMarketUnlocked(state);
+}
+ 
+export function canBuyKitchenSlot(state) {
+  const current = state.kitchenSlotCount ?? 1;
+  const cost = KITCHEN_SLOT_COSTS[current - 1]; // slot costs are 0-indexed from slot 2
+  if (cost === undefined) return false;
+  return (state.cash ?? 0) >= cost;
+}
+ 
 // ─── Offline progress ─────────────────────────────────────────────────────────
  
 export function calculateOfflineProgress(state, nowMs) {
@@ -205,8 +272,9 @@ export function calculateOfflineProgress(state, nowMs) {
   let next = deepCloneState(state);
   const feast = next.feastBonusPercent ?? 0;
  
-  if (!next.kitchenUnlocked && isKitchenUnlocked(next)) {
-    next.kitchenUnlocked = true;
+  // Check market unlock
+  if (!next.marketUnlocked && isMarketUnlocked(next)) {
+    next.marketUnlocked = true;
   }
  
   for (const farm of next.farms) {
@@ -261,6 +329,7 @@ export function calculateOfflineProgress(state, nowMs) {
     }
   }
  
+  // Process kitchen queue
   for (const item of next.processingQueue) {
     if (!item.done) {
       item.elapsedSeconds = Math.min((item.elapsedSeconds ?? 0) + seconds, item.totalSeconds);
@@ -271,8 +340,23 @@ export function calculateOfflineProgress(state, nowMs) {
       }
     }
   }
- 
   next.processingQueue = next.processingQueue.filter((i) => !i.done);
+ 
+  // Process market sell queue
+  const sellSeconds = seconds;
+  let sellTicks = sellSeconds; // 1 item per second
+  while (sellTicks > 0 && (next.marketQueue ?? []).length > 0) {
+    const order = next.marketQueue[0];
+    const toSell = Math.min(sellTicks, order.quantity);
+    const rate = getSellRate(order.itemType, next.prestigeBonuses);
+    const earned = toSell * rate;
+    order.quantity -= toSell;
+    next.cash = (next.cash ?? 0) + earned;
+    next.lifetimeCash = (next.lifetimeCash ?? 0) + earned;
+    sellTicks -= toSell;
+    if (order.quantity <= 0) next.marketQueue.shift();
+  }
+ 
   next.lastSavedTime = nowMs;
   next.totalPlayTime = (next.totalPlayTime ?? 0) + seconds;
   return { state: next, offlineSeconds: seconds };
@@ -284,8 +368,9 @@ export function tick(state) {
   let next = deepCloneState(state);
   const feast = next.feastBonusPercent ?? 0;
  
-  if (!next.kitchenUnlocked && isKitchenUnlocked(next)) {
-    next.kitchenUnlocked = true;
+  // Check market unlock
+  if (!next.marketUnlocked && isMarketUnlocked(next)) {
+    next.marketUnlocked = true;
   }
  
   for (const farm of next.farms) {
@@ -341,6 +426,7 @@ export function tick(state) {
     }
   }
  
+  // Kitchen queue tick
   for (const item of next.processingQueue) {
     if (!item.done) {
       item.elapsedSeconds = (item.elapsedSeconds ?? 0) + 1;
@@ -348,11 +434,42 @@ export function tick(state) {
         item.done = true;
         const good = item.outputGood;
         next.artisan[good] = (next.artisan[good] ?? 0) + item.outputAmount;
+        // Auto-restart if slot has the upgrade
+        if (item.slotIndex !== undefined) {
+          const slotUpgrades = getKitchenSlotUpgrades(next, item.slotIndex);
+          if (slotUpgrades.includes("auto_restart") && item.recipeId) {
+            const recipe = PROCESSING_RECIPES[item.recipeId];
+            if (recipe && recipe.inputCrop && (next.crops[recipe.inputCrop] ?? 0) >= recipe.inputAmount) {
+              next.crops[recipe.inputCrop] -= recipe.inputAmount;
+              const effectiveSeconds = getEffectiveRecipeSeconds(next, item.slotIndex, recipe.seconds);
+              next.processingQueue.push({
+                id: genId("proc"),
+                recipeId: recipe.id,
+                outputGood: recipe.outputGood,
+                totalSeconds: effectiveSeconds,
+                elapsedSeconds: 0,
+                outputAmount: recipe.outputAmount,
+                slotIndex: item.slotIndex,
+                done: false,
+              });
+            }
+          }
+        }
       }
     }
   }
- 
   next.processingQueue = next.processingQueue.filter((i) => !i.done);
+ 
+  // Market sell queue tick — 1 item per second
+  if ((next.marketQueue ?? []).length > 0) {
+    const order = next.marketQueue[0];
+    const rate = getSellRate(order.itemType, next.prestigeBonuses);
+    order.quantity -= 1;
+    next.cash = (next.cash ?? 0) + rate;
+    next.lifetimeCash = (next.lifetimeCash ?? 0) + rate;
+    if (order.quantity <= 0) next.marketQueue.shift();
+  }
+ 
   next.totalPlayTime = (next.totalPlayTime ?? 0) + 1;
   return next;
 }
@@ -444,8 +561,9 @@ export function hireWorker(state, farmId) {
   newWorker.cycleProgress = cycleSeconds - 1;
   next.workers.push(newWorker);
  
-  if (!next.kitchenUnlocked && isKitchenUnlocked(next)) {
-    next.kitchenUnlocked = true;
+  // Check market unlock
+  if (!next.marketUnlocked && isMarketUnlocked(next)) {
+    next.marketUnlocked = true;
   }
  
   return next;
@@ -498,24 +616,106 @@ export function specializeWorker(state, workerId, specializationId) {
   return next;
 }
  
-export function startProcessing(state, recipeId) {
+// ─── Market actions ───────────────────────────────────────────────────────────
+ 
+export function sellItems(state, itemType, quantity) {
+  if (!isMarketUnlocked(state)) return state;
+  if (quantity <= 0) return state;
+ 
+  const next = deepCloneState(state);
+ 
+  // Deduct the items immediately
+  const isCrop = itemType in (next.crops ?? {});
+  const isArtisan = itemType in (next.artisan ?? {});
+ 
+  if (isCrop) {
+    if ((next.crops[itemType] ?? 0) < quantity) return state;
+    next.crops[itemType] -= quantity;
+  } else if (isArtisan) {
+    if ((next.artisan[itemType] ?? 0) < quantity) return state;
+    next.artisan[itemType] -= quantity;
+  } else {
+    return state;
+  }
+ 
+  // Add to sell queue (merge with existing order for same item if present at tail)
+  const queue = next.marketQueue ?? [];
+  const last = queue[queue.length - 1];
+  if (last && last.itemType === itemType) {
+    last.quantity += quantity;
+  } else {
+    queue.push({ id: genId("sale"), itemType, quantity });
+    next.marketQueue = queue;
+  }
+ 
+  return next;
+}
+ 
+// ─── Kitchen actions ──────────────────────────────────────────────────────────
+ 
+export function purchaseKitchen(state) {
+  if (state.kitchenPurchased) return state;
+  if (!isMarketUnlocked(state)) return state;
+  if ((state.cash ?? 0) < KITCHEN_BASE_COST) return state;
+  const next = deepCloneState(state);
+  next.cash -= KITCHEN_BASE_COST;
+  next.kitchenPurchased = true;
+  next.kitchenSlotCount = 1;
+  next.kitchenSlots = [makeKitchenSlot(0)];
+  return next;
+}
+ 
+export function purchaseKitchenSlot(state) {
+  const current = state.kitchenSlotCount ?? 1;
+  const cost = KITCHEN_SLOT_COSTS[current - 1];
+  if (cost === undefined) return state;
+  if ((state.cash ?? 0) < cost) return state;
+  const next = deepCloneState(state);
+  next.cash -= cost;
+  next.kitchenSlotCount = current + 1;
+  if (!next.kitchenSlots) next.kitchenSlots = [];
+  next.kitchenSlots.push(makeKitchenSlot(current));
+  return next;
+}
+ 
+export function purchaseSlotUpgrade(state, slotIndex, upgradeId) {
+  if (!state.kitchenPurchased) return state;
+  const upgrade = KITCHEN_SLOT_UPGRADES[upgradeId];
+  if (!upgrade) return state;
+  if (slotIndex >= (state.kitchenSlotCount ?? 1)) return state;
+  const slotUpgrades = getKitchenSlotUpgrades(state, slotIndex);
+  if (slotUpgrades.includes(upgradeId)) return state; // already bought
+  // Check prerequisite
+  if (upgrade.requires && !slotUpgrades.includes(upgrade.requires)) return state;
+  if ((state.cash ?? 0) < upgrade.cost) return state;
+  const next = deepCloneState(state);
+  next.cash -= upgrade.cost;
+  next.kitchenSlots[slotIndex].upgrades.push(upgradeId);
+  return next;
+}
+ 
+// ─── Processing ───────────────────────────────────────────────────────────────
+ 
+export function startProcessing(state, recipeId, slotIndex = 0) {
   const next = deepCloneState(state);
   const recipe = PROCESSING_RECIPES[recipeId];
   if (!recipe || !recipe.inputCrop) return state;
   if (!isKitchenUnlocked(next)) return state;
-  const maxSlots = 1 + next.prestigeBonuses.filter((b) => b === "bigger_kitchen").length;
+  const maxSlots = next.kitchenSlotCount ?? 1;
   const activeItems = next.processingQueue.filter((i) => !i.done);
   if (activeItems.length >= maxSlots) return state;
   const cropId = recipe.inputCrop;
   if ((next.crops[cropId] ?? 0) < recipe.inputAmount) return state;
   next.crops[cropId] -= recipe.inputAmount;
+  const effectiveSeconds = getEffectiveRecipeSeconds(next, slotIndex, recipe.seconds);
   next.processingQueue.push({
     id: genId("proc"),
     recipeId,
     outputGood: recipe.outputGood,
-    totalSeconds: recipe.seconds,
+    totalSeconds: effectiveSeconds,
     elapsedSeconds: 0,
     outputAmount: recipe.outputAmount,
+    slotIndex,
     done: false,
   });
   return next;
@@ -564,7 +764,13 @@ export function beginPrestige(state, chosenBonusId, keptWorkerId) {
   next.artisan = { bread: 0, jam: 0, sauce: 0 };
   next.processingQueue = [];
   next.yieldPool = 0;
-  next.kitchenUnlocked = false;
+  // Kitchen relocks on prestige
+  next.kitchenPurchased = false;
+  next.kitchenSlotCount = 1;
+  next.kitchenSlots = [makeKitchenSlot(0)];
+  // Market stays unlocked (cash carries over forever)
+  // marketQueue clears on prestige (items in transit are lost — tradeoff)
+  next.marketQueue = [];
  
   // Unlock new farm for new season
   const newFarmCrops = SEASON_FARMS[newSeason] ?? [];
@@ -579,9 +785,8 @@ export function beginPrestige(state, chosenBonusId, keptWorkerId) {
   for (const farm of next.farms) {
     farm.plots = farm.plots.map((plot, idx) => ({
       ...plot,
-      state: idx === 0 ? "planted" : "empty", // first plot starts planted (half-grown feel)
+      state: idx === 0 ? "planted" : "empty",
       growthTick: idx === 0 ? Math.floor(CROPS[farm.crop].growTime / 2) : 0,
-      // upgraded is preserved — plot upgrades carry over
     }));
   }
  
@@ -625,13 +830,35 @@ export function assignKeptWorker(state, keptWorkerId, farmId) {
 }
  
 export function canPrestige(state) {
+  // All season farms must be automated
   const availableCrops = SEASON_FARMS[state.season] ?? [];
   for (const cropId of availableCrops) {
     const farm = state.farms.find((f) => f.crop === cropId);
     if (!farm) return false;
     if (!isFarmAutomated(farm, state.workers)) return false;
   }
+  // Cash threshold
+  const threshold = getPrestigeCashThreshold(state.season);
+  if ((state.cash ?? 0) < threshold) return false;
   return true;
+}
+ 
+export function getPrestigeBlockers(state) {
+  const blockers = [];
+  const availableCrops = SEASON_FARMS[state.season] ?? [];
+  for (const cropId of availableCrops) {
+    const farm = state.farms.find((f) => f.crop === cropId);
+    if (!farm || !isFarmAutomated(farm, state.workers)) {
+      const crop = CROPS[cropId];
+      blockers.push(`${crop.emoji} ${crop.name} farm not automated`);
+    }
+  }
+  const threshold = getPrestigeCashThreshold(state.season);
+  const cash = state.cash ?? 0;
+  if (cash < threshold) {
+    blockers.push(`Need $${threshold} cash (have $${Math.floor(cash)})`);
+  }
+  return blockers;
 }
  
 export function serializeState(state) {
@@ -643,6 +870,12 @@ export function deserializeState(raw) {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
     if (!Array.isArray(parsed.farms) || !Array.isArray(parsed.workers)) return null;
+ 
+    // Legacy migration: kitchenUnlocked → kitchenPurchased
+    if (parsed.kitchenUnlocked !== undefined && parsed.kitchenPurchased === undefined) {
+      parsed.kitchenPurchased = parsed.kitchenUnlocked;
+    }
+ 
     for (const worker of parsed.workers ?? []) {
       if (worker.cycleCount === undefined) worker.cycleCount = 0;
     }
@@ -655,9 +888,23 @@ export function deserializeState(raw) {
     if (parsed.keptWorkers === undefined) parsed.keptWorkers = [];
     if (parsed.pendingWorkerAssignments === undefined) parsed.pendingWorkerAssignments = false;
     if (parsed.artisan === undefined) parsed.artisan = { bread: 0, jam: 0, sauce: 0 };
-    if (parsed.kitchenUnlocked === undefined) parsed.kitchenUnlocked = false;
+    if (parsed.kitchenPurchased === undefined) parsed.kitchenPurchased = false;
+    if (parsed.kitchenSlotCount === undefined) parsed.kitchenSlotCount = 1;
+    if (parsed.kitchenSlots === undefined) parsed.kitchenSlots = [makeKitchenSlot(0)];
     if (parsed.feastBonusPercent === undefined) parsed.feastBonusPercent = 0;
     if (parsed.feastTierIndex === undefined) parsed.feastTierIndex = 0;
+    if (parsed.marketUnlocked === undefined) parsed.marketUnlocked = false;
+    if (parsed.marketQueue === undefined) parsed.marketQueue = [];
+    if (parsed.cash === undefined) parsed.cash = 0;
+    if (parsed.lifetimeCash === undefined) parsed.lifetimeCash = 0;
+ 
+    // Migrate bigger_kitchen prestige bonus to market_savvy
+    if (Array.isArray(parsed.prestigeBonuses)) {
+      parsed.prestigeBonuses = parsed.prestigeBonuses.map((b) =>
+        b === "bigger_kitchen" ? "market_savvy" : b
+      );
+    }
+ 
     return parsed;
   } catch { return null; }
 }

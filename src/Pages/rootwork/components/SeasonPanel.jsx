@@ -5,7 +5,7 @@ import {
   CROPS, SEASON_FARMS, PRESTIGE_BONUSES, MAX_SEASON, GEAR,
   AUTOMATION_THRESHOLD, MIN_PLOTS_FOR_AUTOMATION,
 } from "../gameConstants";
-import { isFarmAutomated } from "../gameEngine";
+import { isFarmAutomated, getPrestigeBlockers, getPrestigeCashThreshold } from "../gameEngine";
  
 function FarmChecklist({ farm, game }) {
   const crop = CROPS[farm.crop];
@@ -15,24 +15,19 @@ function FarmChecklist({ farm, game }) {
   const plotsOk = plotCount >= MIN_PLOTS_FOR_AUTOMATION;
   const automated = workersOk && plotsOk;
  
-  // Safari-safe colors
-  const automatedBg = "rgba(74, 222, 128, 0.15)";
-  const manualBg = "rgba(245, 158, 11, 0.15)";
- 
   return (
     <div style={{ padding: "0.75rem 0", borderBottom: "1px solid var(--border)", fontSize: "0.82rem" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
         <span style={{ fontWeight: 600 }}>{crop.emoji} {crop.name} Farm</span>
         <span style={{
           fontSize: "0.7rem", fontWeight: 700, padding: "0.2rem 0.55rem", borderRadius: "999px",
-          background: automated ? automatedBg : manualBg,
+          background: automated ? "rgba(74, 222, 128, 0.15)" : "rgba(245, 158, 11, 0.15)",
           border: `1px solid ${automated ? "#4ade80" : "#f59e0b"}`,
           color: automated ? "#166534" : "#92400e",
         }}>
           {automated ? "✓ Automated" : "Manual"}
         </span>
       </div>
- 
       <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.75rem", color: plotsOk ? "#4ade80" : "var(--muted)" }}>
           <span>{plotsOk ? "☑" : "☐"}</span>
@@ -50,7 +45,7 @@ function FarmChecklist({ farm, game }) {
         </div>
         {automated && (
           <div style={{ fontSize: "0.7rem", color: "var(--muted)", marginTop: "0.25rem", fontStyle: "italic" }}>
-            This farm harvests and replants automatically — even while you're away.
+            Harvesting and replanting automatically — even while you're away.
           </div>
         )}
       </div>
@@ -61,7 +56,6 @@ function FarmChecklist({ farm, game }) {
 function BonusTag({ bonusId }) {
   const bonus = PRESTIGE_BONUSES[bonusId];
   if (!bonus) return null;
-  // Safari-safe — no color-mix()
   return (
     <div style={{
       display: "inline-flex", alignItems: "center", gap: "0.3rem",
@@ -82,6 +76,11 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
   const totalWorkers = game.workers.length;
   const keptWorkerCount = game.season - 1;
  
+  const cashThreshold = getPrestigeCashThreshold(game.season);
+  const cash = game.cash ?? 0;
+  const cashOk = cash >= cashThreshold;
+  const blockers = getPrestigeBlockers(game);
+ 
   const workerGearSummary = game.workers.reduce((acc, w) => {
     acc[w.gear] = (acc[w.gear] ?? 0) + 1;
     return acc;
@@ -96,8 +95,8 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
           {atMaxSeason
             ? "You've reached the final season. Keep optimizing!"
             : prestigeReady
-            ? "All farms automated — ready to begin a new season!"
-            : "Automate all farms to unlock the next season."}
+            ? "All conditions met — ready to begin a new season!"
+            : "Complete all requirements below to unlock the next season."}
         </p>
       </div>
  
@@ -108,12 +107,42 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
         </h3>
         <p style={{ fontSize: "0.7rem", color: "var(--muted)", marginBottom: "0.5rem" }}>
           A farm is automated when it has {MIN_PLOTS_FOR_AUTOMATION}+ plots and {AUTOMATION_THRESHOLD}+ workers.
-          Automated farms run themselves — workers harvest and replant while you're away.
         </p>
         {availableFarms.map((farm) => (
           <FarmChecklist key={farm.id} farm={farm} game={game} />
         ))}
       </div>
+ 
+      {/* Cash threshold */}
+      {!atMaxSeason && (
+        <div className="card p-4" style={{ marginBottom: "1rem" }}>
+          <h3 style={{ fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.5rem" }}>
+            💰 Cash Requirement
+          </h3>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "0.82rem" }}>
+            <span style={{ color: "var(--muted)" }}>Required to prestige</span>
+            <span style={{ fontWeight: 700, color: cashOk ? "#4ade80" : "#f59e0b" }}>
+              ${Math.floor(cash)} / ${cashThreshold}
+            </span>
+          </div>
+          <div style={{ marginTop: "0.6rem", height: "6px", background: "var(--border)", borderRadius: "999px", overflow: "hidden" }}>
+            <div style={{
+              height: "100%",
+              width: `${Math.min(100, (cash / cashThreshold) * 100)}%`,
+              background: cashOk ? "#4ade80" : "#f59e0b",
+              borderRadius: "999px",
+              transition: "width 0.4s ease",
+            }} />
+          </div>
+          {cashOk ? (
+            <div style={{ fontSize: "0.7rem", color: "#4ade80", marginTop: "0.4rem" }}>✓ Cash requirement met</div>
+          ) : (
+            <div style={{ fontSize: "0.7rem", color: "var(--muted)", marginTop: "0.4rem" }}>
+              Sell crops at the Market to earn cash.
+            </div>
+          )}
+        </div>
+      )}
  
       {/* Worker summary */}
       {totalWorkers > 0 && (
@@ -162,9 +191,8 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
             <li>✅ All unlocked plots carry over</li>
             <li>✅ All ⭐ plot upgrades carry over</li>
             <li>✅ Global Feast speed bonus carries over</li>
-            <li>✅ Cash carries over</li>
+            <li>✅ Cash carries over (forever)</li>
             <li>✅ You keep <strong>1 worker</strong> with full gear & specialization</li>
-            <li>✅ You choose which farm that worker goes to</li>
             {keptWorkerCount > 1 && (
               <li>✅ {keptWorkerCount} total kept workers to assign</li>
             )}
@@ -174,24 +202,38 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
             {game.prestigeBonuses.includes("fast_hands") && (
               <li>✅ Fast Hands: new workers start with Gloves</li>
             )}
-            <li>❌ Plot crop states reset to empty (first plot starts planted)</li>
+            <li>❌ Plot states reset (first plot starts planted)</li>
             <li>❌ All other workers reset</li>
             <li>❌ Artisan goods and kitchen queue clear</li>
-            <li>❌ Kitchen locks again until first farm re-automated</li>
+            <li>❌ Kitchen relocks — rebuy with cash</li>
           </ul>
         </div>
       )}
  
-      {/* Prestige button */}
+      {/* Prestige button + blockers */}
       {!atMaxSeason && (
-        <button
-          onClick={onPrestige}
-          disabled={!prestigeReady}
-          className="btn w-full"
-          style={{ fontSize: "0.9rem", padding: "0.75rem", marginBottom: "1rem", opacity: prestigeReady ? 1 : 0.5 }}
-        >
-          {prestigeReady ? "🌱 Begin New Season →" : "Automate all farms to continue"}
-        </button>
+        <div style={{ marginBottom: "1rem" }}>
+          {!prestigeReady && blockers.length > 0 && (
+            <div className="card p-3" style={{ marginBottom: "0.75rem", fontSize: "0.75rem" }}>
+              <div style={{ fontWeight: 600, marginBottom: "0.4rem", color: "var(--muted)" }}>Still needed:</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                {blockers.map((b, i) => (
+                  <div key={i} style={{ color: "#f59e0b", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                    <span>⚠</span><span>{b}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          <button
+            onClick={onPrestige}
+            disabled={!prestigeReady}
+            className="btn w-full"
+            style={{ fontSize: "0.9rem", padding: "0.75rem", opacity: prestigeReady ? 1 : 0.5 }}
+          >
+            {prestigeReady ? "🌱 Begin New Season →" : "Complete requirements above"}
+          </button>
+        </div>
       )}
  
       {/* Danger zone */}
