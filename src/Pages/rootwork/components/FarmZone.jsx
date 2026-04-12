@@ -42,6 +42,19 @@ export default function FarmZone({
   const plantedCount = farm.plots.filter((p) => p.state === "planted").length;
   const emptyCount = farm.plots.filter((p) => p.state === "empty").length;
  
+  // Safari-safe colors — no color-mix()
+  const automatedBg = "rgba(74, 222, 128, 0.15)";
+  const automatedBorder = "#4ade80";
+  const automatedColor = "#166534";
+  const manualBg = "rgba(99, 102, 241, 0.10)";
+  const manualBorder = "rgba(99, 102, 241, 0.3)";
+  const manualColor = "var(--accent)";
+ 
+  const tendActiveBg = "rgba(163, 230, 53, 0.20)";
+  const tendActiveBorder = "#a3e635";
+  const tendActiveColor = "#365314";
+  const tendHintBg = "rgba(163, 230, 53, 0.12)";
+ 
   return (
     <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 4rem" }}>
  
@@ -59,9 +72,9 @@ export default function FarmZone({
         </div>
         <div style={{
           fontSize: "0.7rem", fontWeight: 600, padding: "0.25rem 0.65rem", borderRadius: "999px",
-          background: automated ? "color-mix(in oklab, #4ade80 15%, var(--bg-elev))" : "color-mix(in oklab, var(--accent) 10%, var(--bg-elev))",
-          border: `1px solid ${automated ? "#4ade80" : "color-mix(in oklab, var(--accent) 30%, var(--border))"}`,
-          color: automated ? "#166534" : "var(--accent)",
+          background: automated ? automatedBg : manualBg,
+          border: `1px solid ${automated ? automatedBorder : manualBorder}`,
+          color: automated ? automatedColor : manualColor,
         }}>
           {automated ? "Running" : "Manual"}
         </div>
@@ -81,11 +94,12 @@ export default function FarmZone({
         <button
           onClick={() => setTendMode((v) => !v)}
           style={{
-            background: tendMode ? "color-mix(in oklab, #a3e635 20%, var(--bg-elev))" : "var(--bg)",
-            border: `1px solid ${tendMode ? "#a3e635" : "var(--border)"}`,
+            background: tendMode ? tendActiveBg : "var(--bg)",
+            border: `1px solid ${tendMode ? tendActiveBorder : "var(--border)"}`,
             borderRadius: "999px", padding: "0.25rem 0.7rem", fontSize: "0.7rem",
             fontWeight: tendMode ? 700 : 400, cursor: "pointer",
-            color: tendMode ? "#365314" : "var(--muted)", transition: "all 0.15s ease", whiteSpace: "nowrap",
+            color: tendMode ? tendActiveColor : "var(--muted)",
+            transition: "all 0.15s ease", whiteSpace: "nowrap",
           }}
         >
           🌿 {tendMode ? "Tending..." : "Tend"}
@@ -94,10 +108,11 @@ export default function FarmZone({
  
       {tendMode && (
         <div style={{
-          fontSize: "0.72rem", color: "#365314",
-          background: "color-mix(in oklab, #a3e635 12%, var(--bg-elev))",
-          border: "1px solid #a3e635", borderRadius: "8px",
-          padding: "0.4rem 0.75rem", marginBottom: "0.75rem", textAlign: "center",
+          fontSize: "0.72rem", color: tendActiveColor,
+          background: tendHintBg,
+          border: `1px solid ${tendActiveBorder}`,
+          borderRadius: "8px", padding: "0.4rem 0.75rem",
+          marginBottom: "0.75rem", textAlign: "center",
         }}>
           Tap a growing plot to tend it (-3s grow time). Tap Tend again to stop.
         </div>
@@ -131,7 +146,6 @@ export default function FarmZone({
           <UpgradePanel farm={farm} game={game} onBuyPlot={onBuyPlot} />
         </div>
       </Section>
- 
     </div>
   );
 }

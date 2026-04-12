@@ -15,15 +15,17 @@ function FarmChecklist({ farm, game }) {
   const plotsOk = plotCount >= MIN_PLOTS_FOR_AUTOMATION;
   const automated = workersOk && plotsOk;
  
+  // Safari-safe colors
+  const automatedBg = "rgba(74, 222, 128, 0.15)";
+  const manualBg = "rgba(245, 158, 11, 0.15)";
+ 
   return (
     <div style={{ padding: "0.75rem 0", borderBottom: "1px solid var(--border)", fontSize: "0.82rem" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
         <span style={{ fontWeight: 600 }}>{crop.emoji} {crop.name} Farm</span>
         <span style={{
           fontSize: "0.7rem", fontWeight: 700, padding: "0.2rem 0.55rem", borderRadius: "999px",
-          background: automated
-            ? "color-mix(in oklab, #4ade80 15%, var(--bg-elev))"
-            : "color-mix(in oklab, #f59e0b 15%, var(--bg-elev))",
+          background: automated ? automatedBg : manualBg,
           border: `1px solid ${automated ? "#4ade80" : "#f59e0b"}`,
           color: automated ? "#166534" : "#92400e",
         }}>
@@ -59,12 +61,13 @@ function FarmChecklist({ farm, game }) {
 function BonusTag({ bonusId }) {
   const bonus = PRESTIGE_BONUSES[bonusId];
   if (!bonus) return null;
+  // Safari-safe — no color-mix()
   return (
     <div style={{
       display: "inline-flex", alignItems: "center", gap: "0.3rem",
       fontSize: "0.72rem", padding: "0.2rem 0.6rem", borderRadius: "999px",
-      background: "color-mix(in oklab, var(--accent) 10%, var(--bg-elev))",
-      border: "1px solid color-mix(in oklab, var(--accent) 25%, var(--border))",
+      background: "rgba(99, 102, 241, 0.10)",
+      border: "1px solid rgba(99, 102, 241, 0.25)",
       color: "var(--text)",
     }}>
       <span>{bonus.emoji}</span><span>{bonus.name}</span>
@@ -159,6 +162,7 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
             <li>✅ All unlocked plots carry over</li>
             <li>✅ All ⭐ plot upgrades carry over</li>
             <li>✅ Global Feast speed bonus carries over</li>
+            <li>✅ Cash carries over</li>
             <li>✅ You keep <strong>1 worker</strong> with full gear & specialization</li>
             <li>✅ You choose which farm that worker goes to</li>
             {keptWorkerCount > 1 && (

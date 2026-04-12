@@ -54,23 +54,18 @@ function PrestigeModal({ game, onComplete, onCancel }) {
     setStep(2);
   }
  
-  function handleWorkerPick(workerId) {
-    onComplete(chosenBonus, workerId);
-  }
- 
-  function handleSkipWorker() {
-    onComplete(chosenBonus, null);
-  }
- 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.6)" }}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.6)" }}>
       <div className="card p-6 w-full max-w-sm space-y-4" style={{ maxHeight: "90vh", overflowY: "auto" }}>
  
         {step === 1 && (
           <>
             <div>
               <h2 className="text-xl font-bold text-center">🌱 New Season</h2>
-              <p className="text-xs text-center mt-1" style={{ color: "var(--muted)" }}>Step 1 of 2 — Choose a permanent bonus</p>
+              <p className="text-xs text-center mt-1" style={{ color: "var(--muted)" }}>
+                Step 1 of 2 — Choose a permanent bonus
+              </p>
             </div>
             <p className="text-sm text-center" style={{ color: "var(--muted)", lineHeight: 1.6 }}>
               Workers reset. 10% of crops carry over. You keep one worker next step.
@@ -96,11 +91,14 @@ function PrestigeModal({ game, onComplete, onCancel }) {
           <>
             <div>
               <h2 className="text-xl font-bold text-center">👷 Keep a Worker</h2>
-              <p className="text-xs text-center mt-1" style={{ color: "var(--muted)" }}>Step 2 of 2 — Choose one worker to carry into the new season</p>
+              <p className="text-xs text-center mt-1" style={{ color: "var(--muted)" }}>
+                Step 2 of 2 — Choose one worker to carry into the new season
+              </p>
             </div>
- 
             {game.workers.length === 0 ? (
-              <p className="text-sm text-center" style={{ color: "var(--muted)" }}>No workers to keep. You'll start fresh.</p>
+              <p className="text-sm text-center" style={{ color: "var(--muted)" }}>
+                No workers to keep. You'll start fresh.
+              </p>
             ) : (
               <div className="space-y-2">
                 {game.workers.map((worker) => {
@@ -111,7 +109,7 @@ function PrestigeModal({ game, onComplete, onCancel }) {
                   return (
                     <button
                       key={worker.id}
-                      onClick={() => handleWorkerPick(worker.id)}
+                      onClick={() => onComplete(chosenBonus, worker.id)}
                       className="w-full text-left card p-3 hover:shadow-md transition"
                       style={{ cursor: "pointer" }}
                     >
@@ -133,8 +131,10 @@ function PrestigeModal({ game, onComplete, onCancel }) {
                 })}
               </div>
             )}
- 
-            <button onClick={handleSkipWorker} className="btn btn-secondary w-full text-sm">
+            <button
+              onClick={() => onComplete(chosenBonus, null)}
+              className="btn btn-secondary w-full text-sm"
+            >
               Skip — start with no kept worker
             </button>
           </>
@@ -156,13 +156,13 @@ function FarmAssignmentScreen({ game, onAssign }) {
   const spec = SPECIALIZATIONS[assigningWorker.specialization];
  
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.7)" }}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.7)" }}>
       <div className="card p-6 w-full max-w-sm space-y-4">
         <h2 className="text-xl font-bold text-center">📍 Assign Worker</h2>
         <p className="text-sm text-center" style={{ color: "var(--muted)", lineHeight: 1.6 }}>
           Where should your kept worker go this season?
         </p>
- 
         <div className="card p-3" style={{ fontSize: "0.82rem" }}>
           <div style={{ fontWeight: 600 }}>
             👷 {gear.emoji} {gear.name}
@@ -176,7 +176,6 @@ function FarmAssignmentScreen({ game, onAssign }) {
             Full gear and specialization preserved
           </div>
         </div>
- 
         <div className="space-y-2">
           {game.farms.map((farm) => {
             const crop = CROPS[farm.crop];
@@ -233,7 +232,9 @@ export default function RootWork() {
       let saved = null;
       if (accessToken && userId) {
         try {
-          const res = await api.get("/rootwork/state", { headers: { Authorization: `Bearer ${accessToken}` } });
+          const res = await api.get("/rootwork/state", {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          });
           if (res.data?.data) saved = deserializeState(res.data.data);
         } catch {}
       }
@@ -358,13 +359,15 @@ export default function RootWork() {
  
   if (!loaded || !game) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg)", color: "var(--muted)" }}>
+      <div className="min-h-screen flex items-center justify-center"
+        style={{ background: "var(--bg)", color: "var(--muted)" }}>
         <p className="text-sm">Loading RootWork…</p>
       </div>
     );
   }
  
-  const activeFarmIndex = activeTab.startsWith("farm_") ? parseInt(activeTab.replace("farm_", ""), 10) : null;
+  const activeFarmIndex = activeTab.startsWith("farm_")
+    ? parseInt(activeTab.replace("farm_", ""), 10) : null;
   const activeFarm = activeFarmIndex !== null ? game.farms[activeFarmIndex] ?? null : null;
  
   return (
@@ -372,7 +375,7 @@ export default function RootWork() {
  
       {offlineMessage && (
         <div className="text-center text-sm py-2 px-4" style={{
-          background: "color-mix(in oklab, var(--accent) 12%, var(--bg-elev))",
+          background: "rgba(99, 102, 241, 0.12)",
           borderBottom: "1px solid var(--border)", color: "var(--text)",
         }}>
           {offlineMessage}
@@ -381,7 +384,12 @@ export default function RootWork() {
  
       {notification && (
         <div className="fixed top-4 left-1/2 z-50 px-4 py-2 rounded-xl text-sm font-medium shadow-lg"
-          style={{ transform: "translateX(-50%)", background: "var(--bg-elev)", border: "1px solid var(--border)", color: "var(--text)" }}>
+          style={{
+            transform: "translateX(-50%)",
+            background: "var(--bg-elev)",
+            border: "1px solid var(--border)",
+            color: "var(--text)",
+          }}>
           {notification}
         </div>
       )}

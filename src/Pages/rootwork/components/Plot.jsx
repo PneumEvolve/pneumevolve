@@ -9,7 +9,7 @@ function getGrowPercent(plot, growTime) {
   return Math.min(100, Math.floor((plot.growthTick / growTime) * 100));
 }
  
-export default function Plot({ plot, farm, game, onPlant, onHarvest, onTend, tendMode, onUpgrade }) {
+export default function Plot({ plot, farm, game, onPlant, onHarvest, onTend, tendMode }) {
   const crop = CROPS[farm.crop];
   const feast = game.feastBonusPercent ?? 0;
   const growTime = getEffectiveGrowTime(farm, game.workers, farm.crop, plot, feast);
@@ -32,20 +32,22 @@ export default function Plot({ plot, farm, game, onPlant, onHarvest, onTend, ten
   const isTendable = tendMode && isPlanted;
   const isClickable = isTendable || (!tendMode && (isEmpty || isReady));
  
-  // Visual state
+  // Safari-safe colors — no color-mix()
   let bg = "var(--bg)";
   let borderColor = isUpgraded ? "#f59e0b" : "var(--border)";
   let label = null;
   let sublabel = null;
+  let progressColor = "#4ade80";
  
   if (tendMode) {
     if (isPlanted) {
-      bg = "color-mix(in oklab, #a3e635 20%, var(--bg-elev))";
+      bg = "rgba(163, 230, 53, 0.20)";
       borderColor = "#a3e635";
       label = "🌿";
       sublabel = "Tend";
+      progressColor = "#a3e635";
     } else if (isReady) {
-      bg = "color-mix(in oklab, #fbbf24 20%, var(--bg-elev))";
+      bg = "rgba(251, 191, 36, 0.20)";
       borderColor = "#fbbf24";
       label = crop.emoji;
       sublabel = "Ready";
@@ -58,14 +60,13 @@ export default function Plot({ plot, farm, game, onPlant, onHarvest, onTend, ten
       label = crop.emoji;
       sublabel = "Plant";
     } else if (isPlanted) {
-      bg = isUpgraded
-        ? "color-mix(in oklab, #fde68a 20%, var(--bg-elev))"
-        : "color-mix(in oklab, #86efac 15%, var(--bg-elev))";
+      bg = isUpgraded ? "rgba(253, 230, 138, 0.20)" : "rgba(134, 239, 172, 0.15)";
       borderColor = isUpgraded ? "#f59e0b" : "#86efac";
       label = "⏳";
       sublabel = `${growPercent}%`;
+      progressColor = isUpgraded ? "#f59e0b" : "#4ade80";
     } else if (isReady) {
-      bg = "color-mix(in oklab, #fbbf24 20%, var(--bg-elev))";
+      bg = "rgba(251, 191, 36, 0.20)";
       borderColor = "#fbbf24";
       label = crop.emoji;
       sublabel = "Harvest!";
@@ -90,7 +91,7 @@ export default function Plot({ plot, farm, game, onPlant, onHarvest, onTend, ten
         padding: "4px",
         position: "relative",
         overflow: "hidden",
-        transition: "transform 0.1s ease, background 0.2s ease, border-color 0.2s ease",
+        transition: "transform 0.1s ease",
       }}
       onPointerDown={(e) => { if (isClickable) e.currentTarget.style.transform = "scale(0.94)"; }}
       onPointerUp={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
@@ -107,7 +108,7 @@ export default function Plot({ plot, farm, game, onPlant, onHarvest, onTend, ten
         <div style={{
           position: "absolute", bottom: 0, left: 0, height: "3px",
           width: `${growPercent}%`,
-          background: tendMode ? "#a3e635" : isUpgraded ? "#f59e0b" : "#4ade80",
+          background: progressColor,
           borderRadius: "0 0 0 8px",
           transition: "width 0.5s linear",
         }} />
@@ -135,10 +136,7 @@ export default function Plot({ plot, farm, game, onPlant, onHarvest, onTend, ten
  
       {/* Upgraded star badge */}
       {isUpgraded && !tendMode && (
-        <div style={{
-          position: "absolute", top: "2px", right: "3px",
-          fontSize: "0.55rem", lineHeight: 1,
-        }}>⭐</div>
+        <div style={{ position: "absolute", top: "2px", right: "3px", fontSize: "0.55rem", lineHeight: 1 }}>⭐</div>
       )}
  
       <span style={{ fontSize: "1.2rem", lineHeight: 1 }}>{label}</span>
