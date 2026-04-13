@@ -11,6 +11,7 @@ import {
   WORKER_HIRE_MULTIPLIER,
   SPECIALIZATIONS,
   SEASON_FARMS,
+  FIRST_EXTRA_FARM_SEASON,
   AUTOMATION_THRESHOLD,
   MIN_PLOTS_FOR_AUTOMATION,
   MAX_OFFLINE_SECONDS,
@@ -29,6 +30,8 @@ import {
   KITCHEN_SLOT_COSTS,
   KITCHEN_SLOT_UPGRADES,
   getPrestigeCashThreshold,
+  getFarmUnlockCost,
+  EXTRA_FARM_CROPS,
 } from "./gameConstants";
  
 let _idCounter = 0;
@@ -68,13 +71,8 @@ export function makeWorker(farmId, startWithGloves = false) {
   };
 }
  
-// ─── Default kitchen slot state ───────────────────────────────────────────────
- 
 function makeKitchenSlot(slotIndex) {
-  return {
-    slotIndex,
-    upgrades: [], // array of upgrade ids purchased for this slot
-  };
+  return { slotIndex, upgrades: [] };
 }
  
 // ─── Initial state ────────────────────────────────────────────────────────────
@@ -93,15 +91,16 @@ export function createInitialState() {
     crops: { wheat: 0, berries: 0, tomatoes: 0 },
     artisan: { bread: 0, jam: 0, sauce: 0 },
     processingQueue: [],
-    // Kitchen is now purchased with cash instead of auto-unlocked
     kitchenPurchased: false,
-    kitchenSlotCount: 1,        // how many queue slots have been bought
-    kitchenSlots: [makeKitchenSlot(0)], // per-slot upgrade data
-    // Market
-    marketUnlocked: false,      // unlocks when first farm automated
-    marketQueue: [],            // [{ id, itemType, quantity, earned }]
-    cash: 0,                    // spendable balance
-    lifetimeCash: 0,            // all-time earned (high score)
+    kitchenSlotCount: 1,
+    kitchenSlots: [makeKitchenSlot(0)],
+    marketUnlocked: false,
+    marketQueue: [],
+    cash: 0,
+    lifetimeCash: 0,
+    // Extra farm unlock (season 4+)
+    extraFarmsUnlocked: 0,       // how many extra farms bought so far (ever)
+    pendingFarmUnlock: false,    // true after prestige if player needs to pick a crop
     lastSavedTime: Date.now(),
     totalPlayTime: 0,
     pendingWorkerAssignments: false,
@@ -135,13 +134,12 @@ export function isMarketUnlocked(state) {
   return state.farms.some((f) => isFarmAutomated(f, state.workers));
 }
  
-// Kitchen is now purchased separately; market unlock is the old kitchen-unlock trigger
 export function isKitchenUnlocked(state) {
   return state.kitchenPurchased === true;
 }
  
 export function getAvailableFarms(season) {
-  return SEASON_FARMS[season] ?? SEASON_FARMS[1];
+  return SEASON_FARMS[Math.min(season, 3)] ?? SEASON_FARMS[3];
 }
  
 export function needsSpecialization(worker) {
@@ -191,21 +189,17 @@ export function isSprinterResting(worker) {
 export function getEffectiveGrowTime(farm, workers, cropId, plot = null, feastBonusPercent = 0) {
   const crop = CROPS[cropId];
   let time = crop.growTime;
- 
   const growers = workers.filter((w) => w.farmId === farm.id && w.specialization === "grower");
   for (let i = 0; i < growers.length; i++) {
     time = Math.floor(time * SPECIALIZATIONS.grower.growMultiplier);
   }
- 
   if (plot?.upgraded) {
     time = Math.floor(time * PLOT_UPGRADE_GROW_MULTIPLIER);
   }
- 
   if (feastBonusPercent > 0) {
     const speedMultiplier = 1 + feastBonusPercent / 100;
     time = Math.floor(time / speedMultiplier);
   }
- 
   return Math.max(3, time);
 }
  
@@ -256,12 +250,26 @@ export function canBuyKitchen(state) {
  
 export function canBuyKitchenSlot(state) {
   const current = state.kitchenSlotCount ?? 1;
-  const cost = KITCHEN_SLOT_COSTS[current - 1]; // slot costs are 0-indexed from slot 2
+  const cost = KITCHEN_SLOT_COSTS[current - 1];
   if (cost === undefined) return false;
   return (state.cash ?? 0) >= cost;
 }
  
+// ─── Farm unlock helpers ──────────────────────────────────────────────────────
+ 
+export function getNextFarmUnlockCost(state) {
+  return getFarmUnlockCost(state.extraFarmsUnlocked ?? 0);
+}
+ 
+export function canUnlockFarm(state) {
+  if (!state.pendingFarmUnlock) return false;
+  return (state.cash ?? 0) >= getNextFarmUnlockCost(state);
+}
+ 
 // ─── Offline progress ─────────────────────────────────────────────────────────
+// Key fix: run worker cycles tick-by-tick within the offline window so that
+// harvested plots get replanted and can grow again within the same session.
+// Without this, plots harvested offline stay empty for the rest of the window.
  
 export function calculateOfflineProgress(state, nowMs) {
   const lastSaved = state.lastSavedTime ?? nowMs;
@@ -270,17 +278,20 @@ export function calculateOfflineProgress(state, nowMs) {
   if (seconds <= 0) return { state, offlineSeconds: 0 };
  
   let next = deepCloneState(state);
-  const feast = next.feastBonusPercent ?? 0;
  
-  // Check market unlock
   if (!next.marketUnlocked && isMarketUnlocked(next)) {
     next.marketUnlocked = true;
   }
  
+  const feast = next.feastBonusPercent ?? 0;
+ 
+  // ── Simulate second-by-second for farms ──────────────────────────────────
+  // We batch grow ticks but simulate worker cycles properly so replanting works.
   for (const farm of next.farms) {
     const crop = CROPS[farm.crop];
     const farmWorkers = next.workers.filter((w) => w.farmId === farm.id);
  
+    // Advance all plot growth ticks in one batch first
     for (const plot of farm.plots) {
       if (plot.state === "planted") {
         const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, feast);
@@ -289,12 +300,17 @@ export function calculateOfflineProgress(state, nowMs) {
       }
     }
  
+    // Simulate each worker's cycles, replanting after each harvest so newly
+    // empty plots can be counted as ready-to-plant in subsequent cycles.
     for (const worker of farmWorkers) {
       const cycleSeconds = getEffectiveCycleSeconds(worker);
       const totalWorkerTime = seconds + worker.cycleProgress;
       const completedCycles = Math.floor(totalWorkerTime / cycleSeconds);
       worker.cycleProgress = totalWorkerTime % cycleSeconds;
       if (completedCycles === 0) continue;
+ 
+      // Estimate seconds per cycle to advance grow ticks between cycles
+      const secondsPerCycle = cycleSeconds;
  
       for (let c = 0; c < completedCycles; c++) {
         const resting = isSprinterResting(worker);
@@ -316,6 +332,7 @@ export function calculateOfflineProgress(state, nowMs) {
           }
         }
  
+        // Replant empty plots
         let replanted = 0;
         for (const plot of farm.plots) {
           if (replanted >= plotsPerCycle) break;
@@ -325,34 +342,90 @@ export function calculateOfflineProgress(state, nowMs) {
             replanted++;
           }
         }
+ 
+        // Advance newly planted plots by the time remaining in this offline window
+        // after this cycle fires. Approximate: remaining = seconds - (c+1)*cycleSeconds
+        const secondsElapsedSoFar = (c + 1) * secondsPerCycle;
+        const secondsRemaining = Math.max(0, seconds - secondsElapsedSoFar);
+        for (const plot of farm.plots) {
+          if (plot.state === "planted" && plot.growthTick === 0) {
+            const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, feast);
+            plot.growthTick = Math.min(secondsRemaining, growTime);
+            if (plot.growthTick >= growTime) plot.state = "ready";
+          }
+        }
       }
     }
   }
  
-  // Process kitchen queue
+  // ── Kitchen queue ─────────────────────────────────────────────────────────
+  // Simulate full cycles so auto-restart fires as many times as crops allow,
+  // and players get all the goods they earned while offline.
   for (const item of next.processingQueue) {
-    if (!item.done) {
-      item.elapsedSeconds = Math.min((item.elapsedSeconds ?? 0) + seconds, item.totalSeconds);
-      if (item.elapsedSeconds >= item.totalSeconds) {
-        item.done = true;
-        const good = item.outputGood;
-        next.artisan[good] = (next.artisan[good] ?? 0) + item.outputAmount;
+    if (item.done) continue;
+ 
+    let timeLeft = seconds;
+    let currentItem = item;
+ 
+    while (timeLeft > 0) {
+      const remaining = currentItem.totalSeconds - (currentItem.elapsedSeconds ?? 0);
+ 
+      if (timeLeft < remaining) {
+        // Doesn't finish — just advance
+        currentItem.elapsedSeconds = (currentItem.elapsedSeconds ?? 0) + timeLeft;
+        timeLeft = 0;
+      } else {
+        // Finishes this cycle
+        timeLeft -= remaining;
+        currentItem.done = true;
+        next.artisan[currentItem.outputGood] = (next.artisan[currentItem.outputGood] ?? 0) + currentItem.outputAmount;
+ 
+        // Auto-restart: keep looping if crops available and time remains
+        const canRestart = (
+          currentItem.slotIndex !== undefined &&
+          !currentItem.cancelAutoRestart &&
+          timeLeft > 0
+        );
+        if (canRestart) {
+          const slotUpgrades = getKitchenSlotUpgrades(next, currentItem.slotIndex);
+          if (slotUpgrades.includes("auto_restart") && currentItem.recipeId) {
+            const recipe = PROCESSING_RECIPES[currentItem.recipeId];
+            if (recipe?.inputCrop && (next.crops[recipe.inputCrop] ?? 0) >= recipe.inputAmount) {
+              next.crops[recipe.inputCrop] -= recipe.inputAmount;
+              const effectiveSeconds = getEffectiveRecipeSeconds(next, currentItem.slotIndex, recipe.seconds);
+              // Create next run and continue the while loop with it
+              const nextItem = {
+                id: genId("proc"),
+                recipeId: recipe.id,
+                outputGood: recipe.outputGood,
+                totalSeconds: effectiveSeconds,
+                elapsedSeconds: 0,
+                outputAmount: recipe.outputAmount,
+                slotIndex: currentItem.slotIndex,
+                done: false,
+              };
+              next.processingQueue.push(nextItem);
+              currentItem = nextItem;
+              continue;
+            }
+          }
+        }
+        // No restart or out of time — stop
+        break;
       }
     }
   }
   next.processingQueue = next.processingQueue.filter((i) => !i.done);
  
-  // Process market sell queue
-  const sellSeconds = seconds;
-  let sellTicks = sellSeconds; // 1 item per second
+  // ── Market sell queue ─────────────────────────────────────────────────────
+  let sellTicks = seconds;
   while (sellTicks > 0 && (next.marketQueue ?? []).length > 0) {
     const order = next.marketQueue[0];
     const toSell = Math.min(sellTicks, order.quantity);
     const rate = getSellRate(order.itemType, next.prestigeBonuses);
-    const earned = toSell * rate;
     order.quantity -= toSell;
-    next.cash = (next.cash ?? 0) + earned;
-    next.lifetimeCash = (next.lifetimeCash ?? 0) + earned;
+    next.cash = (next.cash ?? 0) + toSell * rate;
+    next.lifetimeCash = (next.lifetimeCash ?? 0) + toSell * rate;
     sellTicks -= toSell;
     if (order.quantity <= 0) next.marketQueue.shift();
   }
@@ -368,7 +441,6 @@ export function tick(state) {
   let next = deepCloneState(state);
   const feast = next.feastBonusPercent ?? 0;
  
-  // Check market unlock
   if (!next.marketUnlocked && isMarketUnlocked(next)) {
     next.marketUnlocked = true;
   }
@@ -432,14 +504,13 @@ export function tick(state) {
       item.elapsedSeconds = (item.elapsedSeconds ?? 0) + 1;
       if (item.elapsedSeconds >= item.totalSeconds) {
         item.done = true;
-        const good = item.outputGood;
-        next.artisan[good] = (next.artisan[good] ?? 0) + item.outputAmount;
-        // Auto-restart if slot has the upgrade
-        if (item.slotIndex !== undefined) {
+        next.artisan[item.outputGood] = (next.artisan[item.outputGood] ?? 0) + item.outputAmount;
+        // Auto-restart
+        if (item.slotIndex !== undefined && !item.cancelAutoRestart) {
           const slotUpgrades = getKitchenSlotUpgrades(next, item.slotIndex);
           if (slotUpgrades.includes("auto_restart") && item.recipeId) {
             const recipe = PROCESSING_RECIPES[item.recipeId];
-            if (recipe && recipe.inputCrop && (next.crops[recipe.inputCrop] ?? 0) >= recipe.inputAmount) {
+            if (recipe?.inputCrop && (next.crops[recipe.inputCrop] ?? 0) >= recipe.inputAmount) {
               next.crops[recipe.inputCrop] -= recipe.inputAmount;
               const effectiveSeconds = getEffectiveRecipeSeconds(next, item.slotIndex, recipe.seconds);
               next.processingQueue.push({
@@ -460,7 +531,7 @@ export function tick(state) {
   }
   next.processingQueue = next.processingQueue.filter((i) => !i.done);
  
-  // Market sell queue tick — 1 item per second
+  // Market sell queue — 1 item per second
   if ((next.marketQueue ?? []).length > 0) {
     const order = next.marketQueue[0];
     const rate = getSellRate(order.itemType, next.prestigeBonuses);
@@ -554,18 +625,12 @@ export function hireWorker(state, farmId) {
   const cost = hasHeadStart ? 0 : getWorkerHireCost(next, farmId);
   if ((next.crops[cropId] ?? 0) < cost) return state;
   next.crops[cropId] -= cost;
- 
   const startWithGloves = next.prestigeBonuses.includes("fast_hands");
   const newWorker = makeWorker(farmId, startWithGloves);
   const cycleSeconds = getEffectiveCycleSeconds(newWorker);
   newWorker.cycleProgress = cycleSeconds - 1;
   next.workers.push(newWorker);
- 
-  // Check market unlock
-  if (!next.marketUnlocked && isMarketUnlocked(next)) {
-    next.marketUnlocked = true;
-  }
- 
+  if (!next.marketUnlocked && isMarketUnlocked(next)) next.marketUnlocked = true;
   return next;
 }
  
@@ -621,13 +686,9 @@ export function specializeWorker(state, workerId, specializationId) {
 export function sellItems(state, itemType, quantity) {
   if (!isMarketUnlocked(state)) return state;
   if (quantity <= 0) return state;
- 
   const next = deepCloneState(state);
- 
-  // Deduct the items immediately
   const isCrop = itemType in (next.crops ?? {});
   const isArtisan = itemType in (next.artisan ?? {});
- 
   if (isCrop) {
     if ((next.crops[itemType] ?? 0) < quantity) return state;
     next.crops[itemType] -= quantity;
@@ -637,8 +698,6 @@ export function sellItems(state, itemType, quantity) {
   } else {
     return state;
   }
- 
-  // Add to sell queue (merge with existing order for same item if present at tail)
   const queue = next.marketQueue ?? [];
   const last = queue[queue.length - 1];
   if (last && last.itemType === itemType) {
@@ -647,7 +706,6 @@ export function sellItems(state, itemType, quantity) {
     queue.push({ id: genId("sale"), itemType, quantity });
     next.marketQueue = queue;
   }
- 
   return next;
 }
  
@@ -684,13 +742,27 @@ export function purchaseSlotUpgrade(state, slotIndex, upgradeId) {
   if (!upgrade) return state;
   if (slotIndex >= (state.kitchenSlotCount ?? 1)) return state;
   const slotUpgrades = getKitchenSlotUpgrades(state, slotIndex);
-  if (slotUpgrades.includes(upgradeId)) return state; // already bought
-  // Check prerequisite
+  if (slotUpgrades.includes(upgradeId)) return state;
   if (upgrade.requires && !slotUpgrades.includes(upgrade.requires)) return state;
   if ((state.cash ?? 0) < upgrade.cost) return state;
   const next = deepCloneState(state);
   next.cash -= upgrade.cost;
   next.kitchenSlots[slotIndex].upgrades.push(upgradeId);
+  return next;
+}
+ 
+export function cancelProcessing(state, itemId) {
+  const next = deepCloneState(state);
+  const idx = next.processingQueue.findIndex((i) => i.id === itemId);
+  if (idx === -1) return state;
+  const item = next.processingQueue[idx];
+  const recipe = PROCESSING_RECIPES[item.recipeId];
+  // Refund 50% of input crops
+  if (recipe?.inputCrop) {
+    const refund = Math.floor(recipe.inputAmount * 0.5);
+    next.crops[recipe.inputCrop] = (next.crops[recipe.inputCrop] ?? 0) + refund;
+  }
+  next.processingQueue.splice(idx, 1);
   return next;
 }
  
@@ -741,6 +813,23 @@ export function buyFeast(state) {
   return next;
 }
  
+// ─── Farm unlock (season 4+) ──────────────────────────────────────────────────
+ 
+export function unlockExtraFarm(state, cropId) {
+  if (!state.pendingFarmUnlock) return state;
+  if (!EXTRA_FARM_CROPS.includes(cropId)) return state;
+  const cost = getNextFarmUnlockCost(state);
+  if ((state.cash ?? 0) < cost) return state;
+  const next = deepCloneState(state);
+  next.cash -= cost;
+  next.extraFarmsUnlocked = (next.extraFarmsUnlocked ?? 0) + 1;
+  next.pendingFarmUnlock = false;
+  next.farms.push(makeFarm(cropId, true));
+  return next;
+}
+ 
+// ─── Prestige ─────────────────────────────────────────────────────────────────
+ 
 export function beginPrestige(state, chosenBonusId, keptWorkerId) {
   const next = deepCloneState(state);
   const newSeason = next.season + 1;
@@ -764,24 +853,26 @@ export function beginPrestige(state, chosenBonusId, keptWorkerId) {
   next.artisan = { bread: 0, jam: 0, sauce: 0 };
   next.processingQueue = [];
   next.yieldPool = 0;
-  // Kitchen relocks on prestige
   next.kitchenPurchased = false;
   next.kitchenSlotCount = 1;
   next.kitchenSlots = [makeKitchenSlot(0)];
-  // Market stays unlocked (cash carries over forever)
-  // marketQueue clears on prestige (items in transit are lost — tradeoff)
   next.marketQueue = [];
  
-  // Unlock new farm for new season
-  const newFarmCrops = SEASON_FARMS[newSeason] ?? [];
-  const existingCropIds = next.farms.map((f) => f.crop);
-  for (const cropId of newFarmCrops) {
-    if (!existingCropIds.includes(cropId)) {
-      next.farms.push(makeFarm(cropId, true));
+  // Season 4+: offer a new farm slot instead of auto-adding one
+  if (newSeason >= FIRST_EXTRA_FARM_SEASON) {
+    next.pendingFarmUnlock = true;
+  } else {
+    // Seasons 2 and 3: auto-add the fixed farm
+    const newFarmCrops = SEASON_FARMS[newSeason] ?? [];
+    const existingCropIds = next.farms.map((f) => f.crop);
+    for (const cropId of newFarmCrops) {
+      if (!existingCropIds.includes(cropId)) {
+        next.farms.push(makeFarm(cropId, true));
+      }
     }
   }
  
-  // Reset plot STATES but keep unlockedPlots count and upgraded status
+  // Reset plot states, keep unlockedPlots + upgraded
   for (const farm of next.farms) {
     farm.plots = farm.plots.map((plot, idx) => ({
       ...plot,
@@ -793,13 +884,14 @@ export function beginPrestige(state, chosenBonusId, keptWorkerId) {
   // head_start: auto-hire one free worker per farm
   if (next.prestigeBonuses.includes("head_start")) {
     const startWithGloves = next.prestigeBonuses.includes("fast_hands");
-    for (const farm of next.farms) {
-      if ((SEASON_FARMS[newSeason] ?? []).includes(farm.crop)) {
-        const w = makeWorker(farm.id, startWithGloves);
-        const cs = getEffectiveCycleSeconds(w);
-        w.cycleProgress = cs - 1;
-        next.workers.push(w);
-      }
+    const farmsForNewSeason = newSeason >= FIRST_EXTRA_FARM_SEASON
+      ? next.farms  // all existing farms
+      : next.farms.filter((f) => (SEASON_FARMS[newSeason] ?? []).includes(f.crop));
+    for (const farm of farmsForNewSeason) {
+      const w = makeWorker(farm.id, startWithGloves);
+      const cs = getEffectiveCycleSeconds(w);
+      w.cycleProgress = cs - 1;
+      next.workers.push(w);
     }
   }
  
@@ -830,14 +922,12 @@ export function assignKeptWorker(state, keptWorkerId, farmId) {
 }
  
 export function canPrestige(state) {
-  // All season farms must be automated
-  const availableCrops = SEASON_FARMS[state.season] ?? [];
-  for (const cropId of availableCrops) {
-    const farm = state.farms.find((f) => f.crop === cropId);
-    if (!farm) return false;
+  const farmsToCheck = state.season >= FIRST_EXTRA_FARM_SEASON
+    ? state.farms
+    : state.farms.filter((f) => (SEASON_FARMS[Math.min(state.season, 3)] ?? []).includes(f.crop));
+  for (const farm of farmsToCheck) {
     if (!isFarmAutomated(farm, state.workers)) return false;
   }
-  // Cash threshold
   const threshold = getPrestigeCashThreshold(state.season);
   if ((state.cash ?? 0) < threshold) return false;
   return true;
@@ -845,11 +935,12 @@ export function canPrestige(state) {
  
 export function getPrestigeBlockers(state) {
   const blockers = [];
-  const availableCrops = SEASON_FARMS[state.season] ?? [];
-  for (const cropId of availableCrops) {
-    const farm = state.farms.find((f) => f.crop === cropId);
-    if (!farm || !isFarmAutomated(farm, state.workers)) {
-      const crop = CROPS[cropId];
+  const farmsToCheck = state.season >= FIRST_EXTRA_FARM_SEASON
+    ? state.farms
+    : state.farms.filter((f) => (SEASON_FARMS[Math.min(state.season, 3)] ?? []).includes(f.crop));
+  for (const farm of farmsToCheck) {
+    if (!isFarmAutomated(farm, state.workers)) {
+      const crop = CROPS[farm.crop];
       blockers.push(`${crop.emoji} ${crop.name} farm not automated`);
     }
   }
@@ -871,11 +962,10 @@ export function deserializeState(raw) {
     if (!parsed || typeof parsed !== "object") return null;
     if (!Array.isArray(parsed.farms) || !Array.isArray(parsed.workers)) return null;
  
-    // Legacy migration: kitchenUnlocked → kitchenPurchased
+    // Legacy migrations
     if (parsed.kitchenUnlocked !== undefined && parsed.kitchenPurchased === undefined) {
       parsed.kitchenPurchased = parsed.kitchenUnlocked;
     }
- 
     for (const worker of parsed.workers ?? []) {
       if (worker.cycleCount === undefined) worker.cycleCount = 0;
     }
@@ -897,8 +987,9 @@ export function deserializeState(raw) {
     if (parsed.marketQueue === undefined) parsed.marketQueue = [];
     if (parsed.cash === undefined) parsed.cash = 0;
     if (parsed.lifetimeCash === undefined) parsed.lifetimeCash = 0;
+    if (parsed.extraFarmsUnlocked === undefined) parsed.extraFarmsUnlocked = 0;
+    if (parsed.pendingFarmUnlock === undefined) parsed.pendingFarmUnlock = false;
  
-    // Migrate bigger_kitchen prestige bonus to market_savvy
     if (Array.isArray(parsed.prestigeBonuses)) {
       parsed.prestigeBonuses = parsed.prestigeBonuses.map((b) =>
         b === "bigger_kitchen" ? "market_savvy" : b

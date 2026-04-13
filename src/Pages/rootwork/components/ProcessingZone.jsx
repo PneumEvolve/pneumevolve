@@ -6,18 +6,15 @@ import {
   CROPS,
   CROP_ARTISAN,
   PLOT_UPGRADE_COST,
-  FEAST_TIERS,
   FEAST_MAX_BONUS,
   KITCHEN_BASE_COST,
   KITCHEN_SLOT_COSTS,
   KITCHEN_SLOT_UPGRADES,
+  KITCHEN_UPGRADE_ORDER,
 } from "../gameConstants";
 import {
   getNextFeastTier,
-  getSellRate,
   getKitchenSlotUpgrades,
-  getSlotSpeedMultiplier,
-  canBuyKitchen,
   canBuyKitchenSlot,
 } from "../gameEngine";
  
@@ -26,7 +23,6 @@ import {
 function KitchenShop({ game, onPurchaseKitchen }) {
   const cash = game.cash ?? 0;
   const canAfford = cash >= KITCHEN_BASE_COST;
- 
   return (
     <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 5rem" }}>
       <div style={{ marginBottom: "1rem" }}>
@@ -35,7 +31,6 @@ function KitchenShop({ game, onPurchaseKitchen }) {
           Process crops into artisan goods for plot upgrades and feast bonuses.
         </p>
       </div>
- 
       <div className="card p-5 space-y-4" style={{ textAlign: "center" }}>
         <div style={{ fontSize: "2.5rem" }}>🏭</div>
         <div style={{ fontWeight: 700, fontSize: "1rem" }}>Build a Kitchen</div>
@@ -44,7 +39,8 @@ function KitchenShop({ game, onPurchaseKitchen }) {
           Expand it with additional queue slots and per-slot upgrades using cash.
         </p>
         <div style={{ fontSize: "0.82rem", color: "var(--muted)" }}>
-          You have: <strong style={{ color: canAfford ? "#4ade80" : "#ef4444" }}>${Math.floor(cash)}</strong>
+          You have:{" "}
+          <strong style={{ color: canAfford ? "#4ade80" : "#ef4444" }}>${Math.floor(cash)}</strong>
           {" / "}
           <strong>${KITCHEN_BASE_COST}</strong>
         </div>
@@ -73,7 +69,8 @@ function SlotUpgradeCard({ game, slotIndex, onPurchaseSlotUpgrade }) {
   return (
     <div className="card p-3 space-y-2" style={{ fontSize: "0.78rem" }}>
       <div style={{ fontWeight: 600, fontSize: "0.82rem" }}>Slot {slotIndex + 1} Upgrades</div>
-      {Object.values(KITCHEN_SLOT_UPGRADES).map((upg) => {
+      {KITCHEN_UPGRADE_ORDER.map((upgradeId) => {
+        const upg = KITCHEN_SLOT_UPGRADES[upgradeId];
         const owned = upgrades.includes(upg.id);
         const prereqMet = !upg.requires || upgrades.includes(upg.requires);
         const canAfford = cash >= upg.cost;
@@ -81,14 +78,19 @@ function SlotUpgradeCard({ game, slotIndex, onPurchaseSlotUpgrade }) {
  
         return (
           <div key={upg.id} style={{
-            display: "flex", alignItems: "center", justifyContent: "space-between",
-            gap: "0.5rem",
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem",
           }}>
             <div style={{ flex: 1 }}>
               <span style={{ fontWeight: 500 }}>{upg.emoji} {upg.name}</span>
               {owned && <span style={{ marginLeft: "0.4rem", color: "#4ade80", fontSize: "0.68rem" }}>✓</span>}
-              {!prereqMet && <span style={{ marginLeft: "0.4rem", color: "var(--muted)", fontSize: "0.65rem" }}>Needs Speed I</span>}
-              <div style={{ color: "var(--muted)", fontSize: "0.68rem", marginTop: "0.1rem" }}>{upg.description}</div>
+              {!prereqMet && !owned && (
+                <span style={{ marginLeft: "0.4rem", color: "var(--muted)", fontSize: "0.65rem" }}>
+                  (needs Speed I)
+                </span>
+              )}
+              <div style={{ color: "var(--muted)", fontSize: "0.68rem", marginTop: "0.1rem" }}>
+                {upg.description}
+              </div>
             </div>
             {!owned && (
               <button
@@ -109,21 +111,44 @@ function SlotUpgradeCard({ game, slotIndex, onPurchaseSlotUpgrade }) {
  
 // ─── Active queue item ────────────────────────────────────────────────────────
  
-function QueueItem({ item }) {
+function QueueItem({ item, game, onCancel }) {
   const recipe = PROCESSING_RECIPES[item.recipeId];
   if (!recipe) return null;
+ 
   const percent = Math.min(100, Math.floor((item.elapsedSeconds / item.totalSeconds) * 100));
   const remaining = item.totalSeconds - item.elapsedSeconds;
   const mins = Math.floor(remaining / 60);
   const secs = remaining % 60;
  
+  const slotUpgrades = item.slotIndex !== undefined
+    ? getKitchenSlotUpgrades(game, item.slotIndex)
+    : [];
+  const willAutoRestart = slotUpgrades.includes("auto_restart");
+ 
   return (
     <div className="card p-4 space-y-2">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "0.85rem" }}>
-        <span style={{ fontWeight: 600 }}>{recipe.emoji} {recipe.name}</span>
-        <span style={{ color: "var(--muted)", fontSize: "0.75rem" }}>
-          {mins > 0 ? `${mins}m ` : ""}{secs}s left
+        <span style={{ fontWeight: 600 }}>
+          {recipe.emoji} {recipe.name}
+          {willAutoRestart && (
+            <span style={{ marginLeft: "0.4rem", fontSize: "0.7rem", color: "var(--muted)" }}>🔄 auto</span>
+          )}
         </span>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <span style={{ color: "var(--muted)", fontSize: "0.75rem" }}>
+            {mins > 0 ? `${mins}m ` : ""}{secs}s left
+          </span>
+          <button
+            onClick={() => onCancel(item.id)}
+            style={{
+              background: "none", border: "1px solid #ef4444", borderRadius: "6px",
+              color: "#ef4444", fontSize: "0.65rem", padding: "0.15rem 0.4rem",
+              cursor: "pointer", lineHeight: 1.4,
+            }}
+          >
+            Cancel
+          </button>
+        </div>
       </div>
       <div style={{ height: "6px", background: "var(--border)", borderRadius: "999px", overflow: "hidden" }}>
         <div style={{
@@ -132,11 +157,15 @@ function QueueItem({ item }) {
         }} />
       </div>
       <div style={{ fontSize: "0.72rem", color: "var(--muted)" }}>
-        {percent}% complete · yields {item.outputAmount} {recipe.emoji}
-        {item.slotIndex !== undefined && (
-          <span style={{ marginLeft: "0.5rem" }}>· Slot {item.slotIndex + 1}</span>
-        )}
+        {percent}% · yields {item.outputAmount} {recipe.emoji}
+        {item.slotIndex !== undefined && <span style={{ marginLeft: "0.4rem" }}>· Slot {item.slotIndex + 1}</span>}
+        {willAutoRestart && <span style={{ marginLeft: "0.4rem", color: "var(--muted)" }}>· repeats when done</span>}
       </div>
+      {willAutoRestart && (
+        <div style={{ fontSize: "0.68rem", color: "var(--muted)", fontStyle: "italic" }}>
+          Cancel to stop the auto-restart loop (50% crop refund).
+        </div>
+      )}
     </div>
   );
 }
@@ -197,7 +226,6 @@ function PlotUpgradeSection({ game, onUpgradePlot }) {
         const totalPlots = farm.plots.length;
         const unupgradedPlots = farm.plots.filter((p) => !p.upgraded);
         const canAfford = have >= PLOT_UPGRADE_COST;
- 
         return (
           <div key={farm.id} className="card p-4 space-y-2" style={{ fontSize: "0.82rem" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -301,8 +329,8 @@ export default function ProcessingZone({
   onPurchaseKitchen,
   onPurchaseKitchenSlot,
   onPurchaseSlotUpgrade,
+  onCancelProcessing,
 }) {
-  // Not yet purchased — show shop
   if (!game.kitchenPurchased) {
     return <KitchenShop game={game} onPurchaseKitchen={onPurchaseKitchen} />;
   }
@@ -311,17 +339,13 @@ export default function ProcessingZone({
   const activeQueue = (game.processingQueue ?? []).filter((i) => !i.done);
   const queueFull = activeQueue.length >= maxSlots;
   const cash = game.cash ?? 0;
- 
   const availableRecipes = Object.values(PROCESSING_RECIPES).filter((r) => r.inputCrop);
- 
-  // Next slot cost
   const nextSlotCost = KITCHEN_SLOT_COSTS[maxSlots - 1];
   const canAffordSlot = nextSlotCost !== undefined && cash >= nextSlotCost;
  
   return (
     <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 5rem" }}>
  
-      {/* Header */}
       <div style={{ marginBottom: "1rem" }}>
         <h2 style={{ fontSize: "1.2rem", fontWeight: 700 }}>🏭 Kitchen</h2>
         <p style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: "0.15rem" }}>
@@ -360,27 +384,32 @@ export default function ProcessingZone({
       )}
  
       {/* Slot upgrades */}
-      {maxSlots > 0 && (
-        <div style={{ marginBottom: "1.25rem" }}>
-          <h3 style={{ fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.6rem" }}>🔩 Slot Upgrades</h3>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-            {Array.from({ length: maxSlots }).map((_, i) => (
-              <SlotUpgradeCard
-                key={i}
-                game={game}
-                slotIndex={i}
-                onPurchaseSlotUpgrade={onPurchaseSlotUpgrade}
-              />
-            ))}
-          </div>
+      <div style={{ marginBottom: "1.25rem" }}>
+        <h3 style={{ fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.6rem" }}>🔩 Slot Upgrades</h3>
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+          {Array.from({ length: maxSlots }).map((_, i) => (
+            <SlotUpgradeCard
+              key={i}
+              game={game}
+              slotIndex={i}
+              onPurchaseSlotUpgrade={onPurchaseSlotUpgrade}
+            />
+          ))}
         </div>
-      )}
+      </div>
  
       {/* Active queue */}
       {activeQueue.length > 0 && (
         <div className="space-y-3" style={{ marginBottom: "1.5rem" }}>
           <h3 style={{ fontSize: "0.85rem", fontWeight: 600 }}>In progress</h3>
-          {activeQueue.map((item) => <QueueItem key={item.id} item={item} />)}
+          {activeQueue.map((item) => (
+            <QueueItem
+              key={item.id}
+              item={item}
+              game={game}
+              onCancel={onCancelProcessing}
+            />
+          ))}
         </div>
       )}
  
@@ -398,14 +427,11 @@ export default function ProcessingZone({
         ))}
       </div>
  
-      {/* Plot upgrades */}
       <div style={{ marginBottom: "2rem" }}>
         <PlotUpgradeSection game={game} onUpgradePlot={onUpgradePlot} />
       </div>
  
-      {/* Feast */}
       <FeastSection game={game} onBuyFeast={onBuyFeast} />
- 
     </div>
   );
 }

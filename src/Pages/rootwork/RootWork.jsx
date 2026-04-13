@@ -19,6 +19,7 @@ import {
   upgradeWorkerGear,
   specializeWorker,
   startProcessing,
+  cancelProcessing,
   buyFeast,
   beginPrestige,
   assignKeptWorker,
@@ -28,6 +29,7 @@ import {
   purchaseKitchen,
   purchaseKitchenSlot,
   purchaseSlotUpgrade,
+  unlockExtraFarm,
 } from "./gameEngine";
 import {
   SAVE_KEY,
@@ -43,6 +45,7 @@ import FarmZone from "./components/FarmZone";
 import ProcessingZone from "./components/ProcessingZone";
 import MarketZone from "./components/MarketZone";
 import SeasonPanel from "./components/SeasonPanel";
+import FarmUnlockModal from "./components/FarmUnlockModal";
  
 function loadFromLocalStorage() {
   try {
@@ -162,9 +165,7 @@ function PrestigeModal({ game, onComplete, onCancel }) {
 function FarmAssignmentScreen({ game, onAssign }) {
   const keptWorkers = game.keptWorkers ?? [];
   const [assigningWorker, setAssigningWorker] = useState(keptWorkers[0] ?? null);
- 
   if (!assigningWorker) return null;
- 
   const gear = GEAR[assigningWorker.gear];
   const spec = SPECIALIZATIONS[assigningWorker.specialization];
  
@@ -224,11 +225,8 @@ export default function RootWork() {
  
   const [game, setGame] = useState(null);
   const [loaded, setLoaded] = useState(false);
- 
-  // Nav state — main tab + active farm index
   const [activeMainTab, setActiveMainTab] = useState("farms");
   const [activeFarmIndex, setActiveFarmIndex] = useState(0);
- 
   const [offlineMessage, setOfflineMessage] = useState(null);
   const [showPrestigeModal, setShowPrestigeModal] = useState(false);
   const [notification, setNotification] = useState(null);
@@ -348,6 +346,10 @@ export default function RootWork() {
   const handleStartProcessing = useCallback((recipeId) => {
     update((s) => { const n = startProcessing(s, recipeId); if (n === s) notify("Not enough crops or queue full."); return n; });
   }, [update, notify]);
+  const handleCancelProcessing = useCallback((itemId) => {
+    update((s) => cancelProcessing(s, itemId));
+    notify("Recipe cancelled. 50% crops refunded.");
+  }, [update, notify]);
   const handleBuyFeast = useCallback(() => {
     update((s) => { const n = buyFeast(s); if (n === s) notify("Not enough artisan goods."); return n; });
     notify("🍽️ Feast bonus applied!");
@@ -362,13 +364,9 @@ export default function RootWork() {
   const handleAssignWorker = useCallback((keptWorkerId, farmId) => {
     update((s) => assignKeptWorker(s, keptWorkerId, farmId));
   }, [update]);
- 
-  // Market actions
   const handleSell = useCallback((itemType, quantity) => {
     update((s) => { const n = sellItems(s, itemType, quantity); if (n === s) notify("Not enough to sell."); return n; });
   }, [update, notify]);
- 
-  // Kitchen purchase actions
   const handlePurchaseKitchen = useCallback(() => {
     update((s) => { const n = purchaseKitchen(s); if (n === s) notify("Not enough cash."); return n; });
     notify("🏭 Kitchen built!");
@@ -380,7 +378,10 @@ export default function RootWork() {
   const handlePurchaseSlotUpgrade = useCallback((slotIndex, upgradeId) => {
     update((s) => { const n = purchaseSlotUpgrade(s, slotIndex, upgradeId); if (n === s) notify("Not enough cash or prereq missing."); return n; });
   }, [update, notify]);
- 
+  const handleUnlockFarm = useCallback((cropId) => {
+    update((s) => { const n = unlockExtraFarm(s, cropId); if (n === s) notify("Not enough cash."); return n; });
+    notify("🌾 New farm unlocked!");
+  }, [update, notify]);
   const handleResetGame = useCallback(() => {
     if (!window.confirm("Reset all progress? This cannot be undone.")) return;
     localStorage.removeItem(SAVE_KEY);
@@ -394,6 +395,7 @@ export default function RootWork() {
  
   const prestigeReady = game ? canPrestige(game) : false;
   const hasPendingAssignments = game?.pendingWorkerAssignments && (game?.keptWorkers?.length ?? 0) > 0;
+  const hasPendingFarmUnlock = game?.pendingFarmUnlock === true;
  
   if (!loaded || !game) {
     return (
@@ -404,7 +406,6 @@ export default function RootWork() {
     );
   }
  
-  // Clamp farm index in case farms array shrinks (shouldn't happen but defensive)
   const safeFarmIndex = Math.min(activeFarmIndex, game.farms.length - 1);
   const activeFarm = game.farms[safeFarmIndex] ?? null;
  
@@ -435,7 +436,6 @@ export default function RootWork() {
  
       <ResourceBar game={game} />
  
-      {/* Farm sub-tabs only show when on Farms tab with multiple farms */}
       {activeMainTab === "farms" && (
         <FarmSubTabs
           game={game}
@@ -444,7 +444,6 @@ export default function RootWork() {
         />
       )}
  
-      {/* Main content — padded bottom so fixed nav doesn't overlap */}
       <div className="flex-1 overflow-auto" style={{ paddingBottom: "4rem" }}>
         {activeMainTab === "farms" && activeFarm && (
           <FarmZone
@@ -462,10 +461,7 @@ export default function RootWork() {
           />
         )}
         {activeMainTab === "market" && game.marketUnlocked && (
-          <MarketZone
-            game={game}
-            onSell={handleSell}
-          />
+          <MarketZone game={game} onSell={handleSell} />
         )}
         {activeMainTab === "kitchen" && (
           <ProcessingZone
@@ -476,6 +472,7 @@ export default function RootWork() {
             onPurchaseKitchen={handlePurchaseKitchen}
             onPurchaseKitchenSlot={handlePurchaseKitchenSlot}
             onPurchaseSlotUpgrade={handlePurchaseSlotUpgrade}
+            onCancelProcessing={handleCancelProcessing}
           />
         )}
         {activeMainTab === "season" && (
@@ -488,13 +485,17 @@ export default function RootWork() {
         )}
       </div>
  
-      {/* Fixed bottom nav */}
       <GameNav
         game={game}
         activeMainTab={activeMainTab}
         onMainTabChange={setActiveMainTab}
         prestigeReady={prestigeReady}
       />
+ 
+      {/* Farm unlock modal — shown after prestige into season 4+ */}
+      {hasPendingFarmUnlock && !hasPendingAssignments && (
+        <FarmUnlockModal game={game} onUnlock={handleUnlockFarm} />
+      )}
  
       {hasPendingAssignments && (
         <FarmAssignmentScreen game={game} onAssign={handleAssignWorker} />
