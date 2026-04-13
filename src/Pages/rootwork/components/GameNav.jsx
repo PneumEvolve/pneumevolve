@@ -120,7 +120,7 @@ export default function GameNav({ game, activeMainTab, onMainTabChange, prestige
         return (
           <button
             key={tab.id}
-            onClick={() => !isLocked && onMainTabChange(tab.id)}
+            onClick={() => onMainTabChange(tab.id)}
             style={{
               flex: 1,
               position: "relative",

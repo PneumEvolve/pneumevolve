@@ -478,9 +478,21 @@ export default function RootWork() {
             onSpecialize={handleSpecialize}
           />
         )}
-        {activeMainTab === "market" && game.marketUnlocked && (
-          <MarketZone game={game} onSell={handleSell} />
-        )}
+        {activeMainTab === "market" && !game.marketUnlocked && (
+  <div style={{ maxWidth: "480px", margin: "0 auto", padding: "2rem 1rem", textAlign: "center" }}>
+    <div style={{ fontSize: "2.5rem", marginBottom: "1rem" }}>🔒</div>
+    <h2 style={{ fontSize: "1.1rem", fontWeight: 700, marginBottom: "0.5rem" }}>Market Locked</h2>
+    <p style={{ fontSize: "0.85rem", color: "var(--muted)", lineHeight: 1.7 }}>
+      Automate your first farm to unlock the market.
+    </p>
+    <p style={{ fontSize: "0.78rem", color: "var(--muted)", marginTop: "0.75rem", lineHeight: 1.6 }}>
+      A farm is automated when it has <strong style={{ color: "var(--text)" }}>4+ workers</strong> and <strong style={{ color: "var(--text)" }}>4+ plots</strong> unlocked.
+    </p>
+  </div>
+)}
+{activeMainTab === "market" && game.marketUnlocked && (
+  <MarketZone game={game} onSell={handleSell} />
+)}
         {activeMainTab === "kitchen" && (
           <ProcessingZone
             game={game}
