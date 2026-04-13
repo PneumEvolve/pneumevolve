@@ -359,15 +359,15 @@ export function calculateOfflineProgress(state, nowMs) {
 }
  
   // ── Kitchen queue ─────────────────────────────────────────────────────────
-  // Simulate full cycles so auto-restart fires as many times as crops allow,
-  // and players get all the goods they earned while offline.
-  for (const item of next.processingQueue) {
+const itemsToProcess = [...next.processingQueue]; // snapshot — new restarts won't be iterated
+
+for (const item of itemsToProcess) {
   if (item.done) continue;
 
   let timeLeft = seconds;
   let currentItem = item;
-  let restartCount = 0;                    // ← add this
-  const MAX_RESTARTS = 200;               // ← reasonable ceiling
+  let restartCount = 0;
+  const MAX_RESTARTS = Math.floor(seconds / 5) + 1; // physics-based ceiling
 
   while (timeLeft > 0) {
     const remaining = currentItem.totalSeconds - (currentItem.elapsedSeconds ?? 0);
@@ -384,7 +384,7 @@ export function calculateOfflineProgress(state, nowMs) {
         currentItem.slotIndex !== undefined &&
         !currentItem.cancelAutoRestart &&
         timeLeft > 0 &&
-        restartCount < MAX_RESTARTS        // ← add this check
+        restartCount < MAX_RESTARTS
       );
       if (canRestart) {
         const slotUpgrades = getKitchenSlotUpgrades(next, currentItem.slotIndex);
@@ -405,7 +405,7 @@ export function calculateOfflineProgress(state, nowMs) {
             };
             next.processingQueue.push(nextItem);
             currentItem = nextItem;
-            restartCount++;                // ← increment
+            restartCount++;
             continue;
           }
         }
@@ -414,7 +414,7 @@ export function calculateOfflineProgress(state, nowMs) {
     }
   }
 }
-  next.processingQueue = next.processingQueue.filter((i) => !i.done);
+next.processingQueue = next.processingQueue.filter((i) => !i.done);
  
   // ── Market sell queue ─────────────────────────────────────────────────────
   let sellTicks = seconds;
