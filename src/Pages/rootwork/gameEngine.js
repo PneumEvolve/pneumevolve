@@ -362,59 +362,58 @@ export function calculateOfflineProgress(state, nowMs) {
   // Simulate full cycles so auto-restart fires as many times as crops allow,
   // and players get all the goods they earned while offline.
   for (const item of next.processingQueue) {
-    if (item.done) continue;
- 
-    let timeLeft = seconds;
-    let currentItem = item;
- 
-    while (timeLeft > 0) {
-      const remaining = currentItem.totalSeconds - (currentItem.elapsedSeconds ?? 0);
- 
-      if (timeLeft < remaining) {
-        // Doesn't finish — just advance
-        currentItem.elapsedSeconds = (currentItem.elapsedSeconds ?? 0) + timeLeft;
-        timeLeft = 0;
-      } else {
-        // Finishes this cycle
-        timeLeft -= remaining;
-        currentItem.done = true;
-        next.artisan[currentItem.outputGood] = (next.artisan[currentItem.outputGood] ?? 0) + currentItem.outputAmount;
- 
-        // Auto-restart: keep looping if crops available and time remains
-        const canRestart = (
-          currentItem.slotIndex !== undefined &&
-          !currentItem.cancelAutoRestart &&
-          timeLeft > 0
-        );
-        if (canRestart) {
-          const slotUpgrades = getKitchenSlotUpgrades(next, currentItem.slotIndex);
-          if (slotUpgrades.includes("auto_restart") && currentItem.recipeId) {
-            const recipe = PROCESSING_RECIPES[currentItem.recipeId];
-            if (recipe?.inputCrop && (next.crops[recipe.inputCrop] ?? 0) >= recipe.inputAmount) {
-              next.crops[recipe.inputCrop] -= recipe.inputAmount;
-              const effectiveSeconds = getEffectiveRecipeSeconds(next, currentItem.slotIndex, recipe.seconds);
-              // Create next run and continue the while loop with it
-              const nextItem = {
-                id: genId("proc"),
-                recipeId: recipe.id,
-                outputGood: recipe.outputGood,
-                totalSeconds: effectiveSeconds,
-                elapsedSeconds: 0,
-                outputAmount: recipe.outputAmount,
-                slotIndex: currentItem.slotIndex,
-                done: false,
-              };
-              next.processingQueue.push(nextItem);
-              currentItem = nextItem;
-              continue;
-            }
+  if (item.done) continue;
+
+  let timeLeft = seconds;
+  let currentItem = item;
+  let restartCount = 0;                    // ← add this
+  const MAX_RESTARTS = 200;               // ← reasonable ceiling
+
+  while (timeLeft > 0) {
+    const remaining = currentItem.totalSeconds - (currentItem.elapsedSeconds ?? 0);
+
+    if (timeLeft < remaining) {
+      currentItem.elapsedSeconds = (currentItem.elapsedSeconds ?? 0) + timeLeft;
+      timeLeft = 0;
+    } else {
+      timeLeft -= remaining;
+      currentItem.done = true;
+      next.artisan[currentItem.outputGood] = (next.artisan[currentItem.outputGood] ?? 0) + currentItem.outputAmount;
+
+      const canRestart = (
+        currentItem.slotIndex !== undefined &&
+        !currentItem.cancelAutoRestart &&
+        timeLeft > 0 &&
+        restartCount < MAX_RESTARTS        // ← add this check
+      );
+      if (canRestart) {
+        const slotUpgrades = getKitchenSlotUpgrades(next, currentItem.slotIndex);
+        if (slotUpgrades.includes("auto_restart") && currentItem.recipeId) {
+          const recipe = PROCESSING_RECIPES[currentItem.recipeId];
+          if (recipe?.inputCrop && (next.crops[recipe.inputCrop] ?? 0) >= recipe.inputAmount) {
+            next.crops[recipe.inputCrop] -= recipe.inputAmount;
+            const effectiveSeconds = getEffectiveRecipeSeconds(next, currentItem.slotIndex, recipe.seconds);
+            const nextItem = {
+              id: genId("proc"),
+              recipeId: recipe.id,
+              outputGood: recipe.outputGood,
+              totalSeconds: effectiveSeconds,
+              elapsedSeconds: 0,
+              outputAmount: recipe.outputAmount,
+              slotIndex: currentItem.slotIndex,
+              done: false,
+            };
+            next.processingQueue.push(nextItem);
+            currentItem = nextItem;
+            restartCount++;                // ← increment
+            continue;
           }
         }
-        // No restart or out of time — stop
-        break;
       }
+      break;
     }
   }
+}
   next.processingQueue = next.processingQueue.filter((i) => !i.done);
  
   // ── Market sell queue ─────────────────────────────────────────────────────

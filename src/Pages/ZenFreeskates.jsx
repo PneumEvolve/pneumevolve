@@ -11,7 +11,7 @@ const FAQ = [
   },
   {
     q: "Do I need my own freeskates?",
-    a: "Ideally yes — having your own skates makes a big difference. Reach out before your first session and we'll talk through what to get.",
+    a: "Ideally yes — having your own skates makes a big difference for practicing on your own. However, I do have a pair available for people who want to try.",
   },
   {
     q: "Is freeskating hard to learn?",
