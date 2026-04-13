@@ -305,8 +305,26 @@ export default function RootWork() {
   }, [loaded, accessToken, userId]);
  
   useEffect(() => {
-    return () => { const s = gameRef.current; if (s) saveToLocalStorage(s); };
-  }, []);
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === "hidden") {
+      const s = gameRef.current;
+      if (!s) return;
+      saveToLocalStorage(s);
+      if (accessToken && userId) {
+        api.post("/rootwork/state", { data: serializeState(s) },
+          { headers: { Authorization: `Bearer ${accessToken}` } }
+        ).catch(() => {});
+      }
+    }
+  };
+
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  return () => {
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+    const s = gameRef.current;
+    if (s) saveToLocalStorage(s);
+  };
+}, [accessToken, userId]);
  
   // ── Actions ───────────────────────────────────────────────────────────────────
   const update = useCallback((fn) => {

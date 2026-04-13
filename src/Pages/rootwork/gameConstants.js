@@ -268,4 +268,4 @@ export const MAX_SEASON = 999;
 // ─── Save config ──────────────────────────────────────────────────────────────
 export const SAVE_KEY = "rootwork_save";
 export const SAVE_INTERVAL_MS = 30_000;
-export const MAX_OFFLINE_SECONDS = 86_400;
+export const MAX_OFFLINE_SECONDS = 4 * 60 * 60; // 4 hours

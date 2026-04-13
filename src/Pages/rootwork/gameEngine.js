@@ -288,10 +288,13 @@ export function calculateOfflineProgress(state, nowMs) {
   // ── Simulate second-by-second for farms ──────────────────────────────────
   // We batch grow ticks but simulate worker cycles properly so replanting works.
   for (const farm of next.farms) {
-    const crop = CROPS[farm.crop];
-    const farmWorkers = next.workers.filter((w) => w.farmId === farm.id);
- 
-    // Advance all plot growth ticks in one batch first
+  const crop = CROPS[farm.crop];
+  const farmWorkers = next.workers.filter((w) => w.farmId === farm.id);
+
+  // ── REMOVED: batch growth pass was here — caused double-counting ──
+
+  // Advance plots that have NO workers (unattended farms still grow)
+  if (farmWorkers.length === 0) {
     for (const plot of farm.plots) {
       if (plot.state === "planted") {
         const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, feast);
@@ -299,64 +302,72 @@ export function calculateOfflineProgress(state, nowMs) {
         if (plot.growthTick >= growTime) plot.state = "ready";
       }
     }
- 
-    // Simulate each worker's cycles, replanting after each harvest so newly
-    // empty plots can be counted as ready-to-plant in subsequent cycles.
-    for (const worker of farmWorkers) {
-      const cycleSeconds = getEffectiveCycleSeconds(worker);
-      const totalWorkerTime = seconds + worker.cycleProgress;
-      const completedCycles = Math.floor(totalWorkerTime / cycleSeconds);
-      worker.cycleProgress = totalWorkerTime % cycleSeconds;
-      if (completedCycles === 0) continue;
- 
-      // Estimate seconds per cycle to advance grow ticks between cycles
-      const secondsPerCycle = cycleSeconds;
- 
-      for (let c = 0; c < completedCycles; c++) {
-        const resting = isSprinterResting(worker);
-        worker.cycleCount = (worker.cycleCount ?? 0) + 1;
-        if (resting) continue;
- 
-        const plotsPerCycle = getEffectivePlotsPerCycle(worker);
-        let harvested = 0;
- 
-        for (const plot of farm.plots) {
-          if (harvested >= plotsPerCycle) break;
-          if (plot.state === "ready") {
-            const { crops, newPool } = applyYieldBonuses(crop.workerYield, next.prestigeBonuses, next.yieldPool ?? 0);
-            next.crops[farm.crop] = (next.crops[farm.crop] ?? 0) + crops;
-            next.yieldPool = newPool;
-            plot.state = "empty";
-            plot.growthTick = 0;
-            harvested++;
-          }
+  }
+
+  for (const worker of farmWorkers) {
+    const cycleSeconds = getEffectiveCycleSeconds(worker);
+    const totalWorkerTime = seconds + worker.cycleProgress;
+    const completedCycles = Math.floor(totalWorkerTime / cycleSeconds);
+    worker.cycleProgress = totalWorkerTime % cycleSeconds;
+    if (completedCycles === 0) continue;
+
+    // Advance plots at start of offline window (before first worker cycle fires)
+    // Only do this once, for the first worker
+    if (farmWorkers.indexOf(worker) === 0) {
+      for (const plot of farm.plots) {
+        if (plot.state === "planted") {
+          const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, feast);
+          const ticksUntilFirstCycle = Math.min(cycleSeconds - (seconds % cycleSeconds), seconds);
+          plot.growthTick = Math.min(plot.growthTick + ticksUntilFirstCycle, growTime);
+          if (plot.growthTick >= growTime) plot.state = "ready";
         }
- 
-        // Replant empty plots
-        let replanted = 0;
-        for (const plot of farm.plots) {
-          if (replanted >= plotsPerCycle) break;
-          if (plot.state === "empty") {
-            plot.state = "planted";
-            plot.growthTick = 0;
-            replanted++;
-          }
+      }
+    }
+
+    const secondsPerCycle = cycleSeconds;
+
+    for (let c = 0; c < completedCycles; c++) {
+      const resting = isSprinterResting(worker);
+      worker.cycleCount = (worker.cycleCount ?? 0) + 1;
+      if (resting) continue;
+
+      const plotsPerCycle = getEffectivePlotsPerCycle(worker);
+      let harvested = 0;
+
+      for (const plot of farm.plots) {
+        if (harvested >= plotsPerCycle) break;
+        if (plot.state === "ready") {
+          const { crops, newPool } = applyYieldBonuses(crop.workerYield, next.prestigeBonuses, next.yieldPool ?? 0);
+          next.crops[farm.crop] = (next.crops[farm.crop] ?? 0) + crops;
+          next.yieldPool = newPool;
+          plot.state = "empty";
+          plot.growthTick = 0;
+          harvested++;
         }
- 
-        // Advance newly planted plots by the time remaining in this offline window
-        // after this cycle fires. Approximate: remaining = seconds - (c+1)*cycleSeconds
-        const secondsElapsedSoFar = (c + 1) * secondsPerCycle;
-        const secondsRemaining = Math.max(0, seconds - secondsElapsedSoFar);
-        for (const plot of farm.plots) {
-          if (plot.state === "planted" && plot.growthTick === 0) {
-            const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, feast);
-            plot.growthTick = Math.min(secondsRemaining, growTime);
-            if (plot.growthTick >= growTime) plot.state = "ready";
-          }
+      }
+
+      let replanted = 0;
+      for (const plot of farm.plots) {
+        if (replanted >= plotsPerCycle) break;
+        if (plot.state === "empty") {
+          plot.state = "planted";
+          plot.growthTick = 0;
+          replanted++;
+        }
+      }
+
+      const secondsElapsedSoFar = (c + 1) * secondsPerCycle;
+      const secondsRemaining = Math.max(0, seconds - secondsElapsedSoFar);
+      for (const plot of farm.plots) {
+        if (plot.state === "planted" && plot.growthTick === 0) {
+          const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, feast);
+          plot.growthTick = Math.min(secondsRemaining, growTime);
+          if (plot.growthTick >= growTime) plot.state = "ready";
         }
       }
     }
   }
+}
  
   // ── Kitchen queue ─────────────────────────────────────────────────────────
   // Simulate full cycles so auto-restart fires as many times as crops allow,
@@ -419,16 +430,16 @@ export function calculateOfflineProgress(state, nowMs) {
  
   // ── Market sell queue ─────────────────────────────────────────────────────
   let sellTicks = seconds;
-  while (sellTicks > 0 && (next.marketQueue ?? []).length > 0) {
-    const order = next.marketQueue[0];
-    const toSell = Math.min(sellTicks, order.quantity);
-    const rate = getSellRate(order.itemType, next.prestigeBonuses);
-    order.quantity -= toSell;
-    next.cash = (next.cash ?? 0) + toSell * rate;
-    next.lifetimeCash = (next.lifetimeCash ?? 0) + toSell * rate;
-    sellTicks -= toSell;
-    if (order.quantity <= 0) next.marketQueue.shift();
-  }
+while (sellTicks > 0 && (next.marketQueue ?? []).length > 0) {
+  const order = next.marketQueue[0];
+  const toSell = Math.min(sellTicks, order.quantity);
+  const rate = getSellRate(order.itemType, next.prestigeBonuses);
+  order.quantity -= toSell;
+  next.cash = (next.cash ?? 0) + toSell * rate;
+  next.lifetimeCash = (next.lifetimeCash ?? 0) + toSell * rate;
+  sellTicks -= toSell;
+  if (order.quantity <= 0) next.marketQueue.shift();
+}
  
   next.lastSavedTime = nowMs;
   next.totalPlayTime = (next.totalPlayTime ?? 0) + seconds;
