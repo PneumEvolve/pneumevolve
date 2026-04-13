@@ -291,18 +291,19 @@ export function calculateOfflineProgress(state, nowMs) {
   const crop = CROPS[farm.crop];
   const farmWorkers = next.workers.filter((w) => w.farmId === farm.id);
 
-  // ── REMOVED: batch growth pass was here — caused double-counting ──
-
-  // Advance plots that have NO workers (unattended farms still grow)
-  if (farmWorkers.length === 0) {
-    for (const plot of farm.plots) {
-      if (plot.state === "planted") {
-        const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, feast);
-        plot.growthTick = Math.min(plot.growthTick + seconds, growTime);
-        if (plot.growthTick >= growTime) plot.state = "ready";
-      }
+  // Advance pre-existing planted plots up to their ready state.
+  // This only runs once per farm, before any worker cycles.
+  // Newly replanted plots (growthTick === 0) are handled inside the cycle loop.
+  for (const plot of farm.plots) {
+    if (plot.state === "planted" && plot.growthTick > 0) {
+      const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, feast);
+      plot.growthTick = Math.min(plot.growthTick + seconds, growTime);
+      if (plot.growthTick >= growTime) plot.state = "ready";
     }
   }
+
+  // Farms with no workers still need growth — nothing else to do
+  if (farmWorkers.length === 0) continue;
 
   for (const worker of farmWorkers) {
     const cycleSeconds = getEffectiveCycleSeconds(worker);
@@ -310,19 +311,6 @@ export function calculateOfflineProgress(state, nowMs) {
     const completedCycles = Math.floor(totalWorkerTime / cycleSeconds);
     worker.cycleProgress = totalWorkerTime % cycleSeconds;
     if (completedCycles === 0) continue;
-
-    // Advance plots at start of offline window (before first worker cycle fires)
-    // Only do this once, for the first worker
-    if (farmWorkers.indexOf(worker) === 0) {
-      for (const plot of farm.plots) {
-        if (plot.state === "planted") {
-          const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, feast);
-          const ticksUntilFirstCycle = Math.min(cycleSeconds - (seconds % cycleSeconds), seconds);
-          plot.growthTick = Math.min(plot.growthTick + ticksUntilFirstCycle, growTime);
-          if (plot.growthTick >= growTime) plot.state = "ready";
-        }
-      }
-    }
 
     const secondsPerCycle = cycleSeconds;
 
@@ -356,6 +344,7 @@ export function calculateOfflineProgress(state, nowMs) {
         }
       }
 
+      // Advance freshly replanted plots by remaining time in the window
       const secondsElapsedSoFar = (c + 1) * secondsPerCycle;
       const secondsRemaining = Math.max(0, seconds - secondsElapsedSoFar);
       for (const plot of farm.plots) {
