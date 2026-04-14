@@ -1,8 +1,8 @@
 // src/Pages/rootwork/components/FarmZone.jsx
 
 import React, { useState } from "react";
-import { CROPS } from "../gameConstants";
-import { isFarmAutomated } from "../gameEngine";
+import { CROPS, MAX_PLOTS } from "../gameConstants";
+import { getPlotUnlockCost, getWorkerHireCost, isFarmAutomated } from "../gameEngine";
 import FarmGrid from "./FarmGrid";
 import WorkerPanel from "./WorkerPanel";
 import UpgradePanel from "./UpgradePanel";
@@ -99,30 +99,83 @@ export default function FarmZone({
       )}
 
       {/* Stats + Tend button */}
-      <div className="card p-3" style={{
-        display: "flex", alignItems: "center", gap: "0.75rem",
-        fontSize: "0.75rem", color: "var(--muted)", marginBottom: "1rem", flexWrap: "wrap",
-      }}>
-        <span><strong style={{ color: "#f59e0b" }}>{readyCount}</strong> ready</span>
-        <span><strong style={{ color: "#4ade80" }}>{plantedCount}</strong> growing</span>
-        <span><strong style={{ color: "var(--muted)" }}>{emptyCount}</strong> empty</span>
-        <span style={{ marginLeft: "auto", marginRight: "0.5rem" }}>
-          <strong style={{ color: "var(--text)" }}>{game.crops[farm.crop] ?? 0}</strong> {crop.emoji}
-        </span>
+<div className="card p-3" style={{
+  fontSize: "0.75rem", color: "var(--muted)", marginBottom: "1rem",
+}}>
+  {/* Top row: plot/crop counts + tend */}
+  <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap", marginBottom: "0.6rem" }}>
+    <span><strong style={{ color: "#f59e0b" }}>{readyCount}</strong> ready</span>
+    <span><strong style={{ color: "#4ade80" }}>{plantedCount}</strong> growing</span>
+    <span><strong style={{ color: "var(--muted)" }}>{emptyCount}</strong> empty</span>
+    <span style={{ marginLeft: "auto", marginRight: "0.5rem" }}>
+      <strong style={{ color: "var(--text)" }}>{game.crops[farm.crop] ?? 0}</strong> {crop.emoji}
+    </span>
+    <button
+      onClick={() => setTendMode((v) => !v)}
+      style={{
+        background: tendMode ? tendActiveBg : "var(--bg)",
+        border: `1px solid ${tendMode ? tendActiveBorder : "var(--border)"}`,
+        borderRadius: "999px", padding: "0.25rem 0.7rem", fontSize: "0.7rem",
+        fontWeight: tendMode ? 700 : 400, cursor: "pointer",
+        color: tendMode ? tendActiveColor : "var(--muted)",
+        transition: "all 0.15s ease", whiteSpace: "nowrap",
+      }}
+    >
+      🌿 {tendMode ? "Tending..." : "Tend"}
+    </button>
+  </div>
+
+  {/* Bottom row: quick action buttons */}
+  <div style={{ display: "flex", gap: "0.5rem" }}>
+    {(() => {
+      const plotCost = getPlotUnlockCost(farm.unlockedPlots);
+      const canBuy = plotCost !== null && (game.crops[farm.crop] ?? 0) >= plotCost;
+      const atMax = farm.unlockedPlots >= MAX_PLOTS;
+      return (
         <button
-          onClick={() => setTendMode((v) => !v)}
+          onClick={() => onBuyPlot(farm.id)}
+          disabled={atMax || !canBuy}
           style={{
-            background: tendMode ? tendActiveBg : "var(--bg)",
-            border: `1px solid ${tendMode ? tendActiveBorder : "var(--border)"}`,
-            borderRadius: "999px", padding: "0.25rem 0.7rem", fontSize: "0.7rem",
-            fontWeight: tendMode ? 700 : 400, cursor: "pointer",
-            color: tendMode ? tendActiveColor : "var(--muted)",
-            transition: "all 0.15s ease", whiteSpace: "nowrap",
+            flex: 1, fontSize: "0.72rem", padding: "0.35rem 0.5rem",
+            borderRadius: "8px", cursor: canBuy && !atMax ? "pointer" : "default",
+            background: canBuy && !atMax ? "var(--accent)" : "var(--bg)",
+            color: canBuy && !atMax ? "#fff" : "var(--border)",
+            border: `1px solid ${canBuy && !atMax ? "var(--accent)" : "var(--border)"}`,
+            fontWeight: 600, transition: "all 0.15s",
           }}
         >
-          🌿 {tendMode ? "Tending..." : "Tend"}
+          {atMax ? "🟫 Max Plots" : `🟫 Buy Plot ${plotCost !== null ? `(${plotCost} ${crop.emoji})` : ""}`}
         </button>
-      </div>
+      );
+    })()}
+
+    {(() => {
+      const hireCost = getWorkerHireCost(game, farm.id);
+      const hasHeadStart = game.prestigeBonuses.includes("head_start");
+      const isFirst = farmWorkers.length === 0;
+      const effectiveCost = hasHeadStart && isFirst ? 0 : hireCost;
+      const canHire = (game.crops[farm.crop] ?? 0) >= effectiveCost;
+      return (
+        <button
+          onClick={() => onHireWorker(farm.id)}
+          disabled={!canHire}
+          style={{
+            flex: 1, fontSize: "0.72rem", padding: "0.35rem 0.5rem",
+            borderRadius: "8px", cursor: canHire ? "pointer" : "default",
+            background: canHire ? "var(--accent)" : "var(--bg)",
+            color: canHire ? "#fff" : "var(--border)",
+            border: `1px solid ${canHire ? "var(--accent)" : "var(--border)"}`,
+            fontWeight: 600, transition: "all 0.15s",
+          }}
+        >
+          {hasHeadStart && isFirst
+            ? "👷 Hire Worker (Free!)"
+            : `👷 Hire Worker (${effectiveCost} ${crop.emoji})`}
+        </button>
+      );
+    })()}
+  </div>
+</div>
 
       {tendMode && (
         <div style={{
