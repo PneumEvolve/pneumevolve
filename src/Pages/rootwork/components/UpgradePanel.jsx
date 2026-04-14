@@ -1,39 +1,40 @@
 // src/Pages/rootwork/components/UpgradePanel.jsx
- 
+
 import React from "react";
-import { CROPS, MAX_PLOTS } from "../gameConstants";
-import { getPlotUnlockCost } from "../gameEngine";
- 
+import { CROPS } from "../gameConstants";
+import { getPlotUnlockCost, getFarmMaxPlots } from "../gameEngine";
+
 export default function UpgradePanel({ farm, game, onBuyPlot }) {
   const crop = CROPS[farm.crop];
   const cropAmount = game.crops[farm.crop] ?? 0;
   const currentPlots = farm.unlockedPlots;
-  const atMax = currentPlots >= MAX_PLOTS;
-  const nextPlotCost = atMax ? null : getPlotUnlockCost(currentPlots);
+  const maxPlots = getFarmMaxPlots(game, farm.id);
+  const atMax = currentPlots >= maxPlots;
+  const nextPlotCost = atMax ? null : getPlotUnlockCost(game, farm.id, currentPlots);
   const canBuy = !atMax && nextPlotCost !== null && cropAmount >= nextPlotCost;
- 
+
   // Preview next few plot costs
   const upcomingCosts = [];
   if (!atMax) {
     for (let i = 0; i < 4; i++) {
       const plotNum = currentPlots + i;
-      if (plotNum >= MAX_PLOTS) break;
-      const cost = getPlotUnlockCost(plotNum);
+      if (plotNum >= maxPlots) break;
+      const cost = getPlotUnlockCost(game, farm.id, plotNum);
       if (cost !== null) upcomingCosts.push({ plotNum: plotNum + 1, cost });
     }
   }
- 
+
   return (
     <div className="space-y-3">
-      <h3 style={{ fontWeight: 600, fontSize: "0.9rem" }}>Farm Upgrades</h3>
- 
+      <h3 style={{ fontWeight: 600, fontSize: "0.9rem" }}>Buy Plots</h3>
+
       {/* Plot count + progress */}
       <div className="card p-4 space-y-3" style={{ fontSize: "0.85rem" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
             <div style={{ fontWeight: 600 }}>{crop.emoji} Plots</div>
             <div style={{ color: "var(--muted)", fontSize: "0.75rem", marginTop: "0.15rem" }}>
-              {currentPlots} / {MAX_PLOTS} unlocked
+              {currentPlots} / {maxPlots} unlocked
             </div>
           </div>
           <div style={{
@@ -42,18 +43,20 @@ export default function UpgradePanel({ farm, game, onBuyPlot }) {
           }}>
             <div style={{
               height: "100%",
-              width: `${(currentPlots / MAX_PLOTS) * 100}%`,
+              width: `${(currentPlots / maxPlots) * 100}%`,
               background: "var(--accent)",
               borderRadius: "999px",
               transition: "width 0.4s ease",
             }} />
           </div>
         </div>
- 
+
         {/* Buy plot button */}
         {atMax ? (
           <div style={{ fontSize: "0.75rem", color: "var(--muted)", fontStyle: "italic", textAlign: "center" }}>
-            🌱 Farm fully expanded — {MAX_PLOTS} plots
+            {currentPlots === 25
+              ? "🌱 Farm fully expanded — 25 plots"
+              : `🌱 Max plots for this tier — expand in Farm Investments`}
           </div>
         ) : (
           <button
@@ -68,7 +71,7 @@ export default function UpgradePanel({ farm, game, onBuyPlot }) {
           </button>
         )}
       </div>
- 
+
       {/* Upcoming plot costs */}
       {!atMax && upcomingCosts.length > 0 && (
         <div className="card p-4" style={{ fontSize: "0.75rem", color: "var(--muted)" }}>

@@ -92,7 +92,7 @@ export const SPECIALIZE_CROP = null;      // no longer crop-based
 // ─── Plot unlock costs ────────────────────────────────────────────────────────
 export const PLOT_BASE_COST = 5;
 export const PLOT_COST_MULTIPLIER = 1.4;
-export const MAX_PLOTS = 5;
+export const MAX_PLOTS = 9;
 
 // ─── Farm investments ─────────────────────────────────────────────────────────
 // Per-farm upgrades purchased with cash

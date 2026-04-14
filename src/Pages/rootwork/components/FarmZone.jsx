@@ -1,7 +1,7 @@
 // src/Pages/rootwork/components/FarmZone.jsx
 
 import React, { useState } from "react";
-import { CROPS, MAX_PLOTS } from "../gameConstants";
+import { CROPS } from "../gameConstants";
 import { getPlotUnlockCost, getWorkerHireCost, isFarmAutomated, getFarmMaxPlots } from "../gameEngine";
 import FarmGrid from "./FarmGrid";
 import WorkerPanel from "./WorkerPanel";
@@ -42,6 +42,8 @@ export default function FarmZone({
   const readyCount = farm.plots.filter((p) => p.state === "ready").length;
   const plantedCount = farm.plots.filter((p) => p.state === "planted").length;
   const emptyCount = farm.plots.filter((p) => p.state === "empty").length;
+  const maxPlots = getFarmMaxPlots(game, farm.id);
+  const atMax = farm.unlockedPlots >= maxPlots;
 
   // First-time hint: show when no workers and something is ready or growing
   const showWorkerHint = farmWorkers.length === 0 && (readyCount > 0 || plantedCount > 0);
@@ -56,11 +58,6 @@ export default function FarmZone({
   const tendActiveBorder = "#a3e635";
   const tendActiveColor = "#365314";
   const tendHintBg = "rgba(163, 230, 53, 0.12)";
-
-  // Replace the plotCost calculation
-const plotCost = getPlotUnlockCost(game, farm.id, farm.unlockedPlots);
-const maxPlots = getFarmMaxPlots(game, farm.id);
-const atMax = farm.unlockedPlots >= maxPlots;
 
   return (
     <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 4rem" }}>
@@ -134,13 +131,12 @@ const atMax = farm.unlockedPlots >= maxPlots;
   {/* Bottom row: quick action buttons */}
   <div style={{ display: "flex", gap: "0.5rem" }}>
     {(() => {
-      const plotCost = getPlotUnlockCost(farm.unlockedPlots);
-      const canBuy = plotCost !== null && (game.crops[farm.crop] ?? 0) >= plotCost;
-      const atMax = farm.unlockedPlots >= MAX_PLOTS;
-      return (
-        <button
-          onClick={() => onBuyPlot(farm.id)}
-          disabled={atMax || !canBuy}
+  const plotCost = getPlotUnlockCost(game, farm.id, farm.unlockedPlots);
+  const canBuy = plotCost !== null && (game.crops[farm.crop] ?? 0) >= plotCost;
+  return (
+    <button
+      onClick={() => onBuyPlot(farm.id)}
+      disabled={atMax || !canBuy}
           style={{
             flex: 1, fontSize: "0.72rem", padding: "0.35rem 0.5rem",
             borderRadius: "8px", cursor: canBuy && !atMax ? "pointer" : "default",
@@ -150,10 +146,10 @@ const atMax = farm.unlockedPlots >= maxPlots;
             fontWeight: 600, transition: "all 0.15s",
           }}
         >
-          {atMax ? "🟫 Max Plots" : `🟫 Buy Plot ${plotCost !== null ? `(${plotCost} ${crop.emoji})` : ""}`}
-        </button>
-      );
-    })()}
+      {atMax ? "🟫 Max Plots" : `🟫 Buy Plot ${plotCost !== null ? `(${plotCost} ${crop.emoji})` : ""}`}
+    </button>
+  );
+})()}
 
     {(() => {
       const hireCost = getWorkerHireCost(game, farm.id);
