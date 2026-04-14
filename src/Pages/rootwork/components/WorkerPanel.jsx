@@ -25,12 +25,12 @@ function statLine(worker) {
   const plots = getEffectivePlots(worker);
   const spec = worker.specialization;
 
-  const harvestLine = `${plots} plot${plots > 1 ? "s" : ""} every ${cycleSeconds}s`;
+  const harvestLine = `Harvests & replants ${plots} plot${plots > 1 ? "s" : ""} every ${cycleSeconds}s`;
   const extras = [];
 
   if (spec === "grower") extras.push("🌱 -20% grow time on this farm");
-  if (spec === "sprinter") extras.push("rests every 3rd cycle");
-  if (spec === "harvester") extras.push("25% faster cycle");
+  if (spec === "sprinter") extras.push("💨 rests every 3rd cycle");
+  if (spec === "harvester") extras.push("⚡ 25% faster cycle");
 
   return { harvestLine, extras };
 }

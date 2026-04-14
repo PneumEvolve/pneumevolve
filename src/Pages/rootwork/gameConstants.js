@@ -40,7 +40,7 @@ export const GEAR = {
     plotsPerCycle: 1,
     cycleSeconds: 15,
     upgradeCost: null,
-    description: "Harvests 1 plot every 15s.",
+    description: "Harvests and replants 1 plot every 15s.",
   },
   gloves: {
     id: "gloves",
@@ -48,8 +48,8 @@ export const GEAR = {
     emoji: "🧤",
     plotsPerCycle: 1,
     cycleSeconds: 10,
-    upgradeCost: 20,        // was 30 — early game, should be easy
-    description: "Harvests 1 plot every 10s. 33% faster.",
+    upgradeCost: 20,
+    description: "Harvests and replants 1 plot every 10s. 33% faster.",
   },
   hoe: {
     id: "hoe",
@@ -57,8 +57,8 @@ export const GEAR = {
     emoji: "🪓",
     plotsPerCycle: 1,
     cycleSeconds: 6,
-    upgradeCost: 80,        // was 200 — mid season 1 target
-    description: "Harvests 1 plot every 6s. 40% faster than gloves.",
+    upgradeCost: 80,
+    description: "Harvests and replants 1 plot every 6s. 40% faster than gloves.",
   },
   wheelbarrow: {
     id: "wheelbarrow",
@@ -66,8 +66,8 @@ export const GEAR = {
     emoji: "🛻",
     plotsPerCycle: 2,
     cycleSeconds: 6,
-    upgradeCost: 40,        // paid in berries — season 2 early target
-    description: "Harvests 2 plots every 6s. Double the coverage.",
+    upgradeCost: 40,
+    description: "Harvests and replants 2 plots every 6s. Double the coverage.",
   },
   tractor: {
     id: "tractor",
@@ -75,8 +75,8 @@ export const GEAR = {
     emoji: "🚜",
     plotsPerCycle: 5,
     cycleSeconds: 6,
-    upgradeCost: 80,        // paid in tomatoes — season 3 mid target
-    description: "Harvests 5 plots every 6s. Near full automation.",
+    upgradeCost: 80,
+    description: "Harvests and replants 5 plots every 6s. Near full automation.",
   },
 };
 
