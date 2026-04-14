@@ -1,5 +1,5 @@
 // src/Pages/rootwork/RootWork.jsx
- 
+
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
@@ -18,17 +18,19 @@ import {
   sellWorker,
   upgradeWorkerGear,
   specializeWorker,
-  startProcessing,
-  cancelProcessing,
   buyFeast,
   beginPrestige,
   assignKeptWorker,
   canPrestige,
   getPrestigeBlockers,
-  sellItems,
-  purchaseKitchen,
-  purchaseKitchenSlot,
-  purchaseSlotUpgrade,
+  hireMarketWorker,
+  upgradeMarketWorkerGear,
+  assignItemToMarketWorker,
+  fireMarketWorker,
+  hireKitchenWorker,
+  assignKitchenWorkerRecipe,
+  upgradeKitchenWorker,
+  fireKitchenWorker,
   unlockExtraFarm,
 } from "./gameEngine";
 import {
@@ -46,7 +48,7 @@ import ProcessingZone from "./components/ProcessingZone";
 import MarketZone from "./components/MarketZone";
 import SeasonPanel from "./components/SeasonPanel";
 import FarmUnlockModal from "./components/FarmUnlockModal";
- 
+
 function loadFromLocalStorage() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
@@ -54,27 +56,27 @@ function loadFromLocalStorage() {
     return deserializeState(raw);
   } catch { return null; }
 }
- 
+
 function saveToLocalStorage(state) {
   try { localStorage.setItem(SAVE_KEY, serializeState(state)); } catch {}
 }
- 
+
 // ─── Prestige modal ───────────────────────────────────────────────────────────
- 
+
 function PrestigeModal({ game, onComplete, onCancel }) {
   const [step, setStep] = useState(1);
   const [chosenBonus, setChosenBonus] = useState(null);
- 
+
   function handleBonusPick(bonusId) {
     setChosenBonus(bonusId);
     setStep(2);
   }
- 
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.6)" }}>
       <div className="card p-6 w-full max-w-sm space-y-4" style={{ maxHeight: "90vh", overflowY: "auto" }}>
- 
+
         {step === 1 && (
           <>
             <div>
@@ -84,7 +86,7 @@ function PrestigeModal({ game, onComplete, onCancel }) {
               </p>
             </div>
             <p className="text-sm text-center" style={{ color: "var(--muted)", lineHeight: 1.6 }}>
-              Workers reset. 10% of crops carry over. Kitchen relocks. Cash carries over.
+              Workers reset. 10% of crops carry over. Artisan goods and cash carry over fully.
             </p>
             <div className="space-y-2">
               {Object.values(PRESTIGE_BONUSES).map((bonus) => (
@@ -102,7 +104,7 @@ function PrestigeModal({ game, onComplete, onCancel }) {
             <button onClick={onCancel} className="btn btn-secondary w-full text-sm">Cancel</button>
           </>
         )}
- 
+
         {step === 2 && (
           <>
             <div>
@@ -159,37 +161,26 @@ function PrestigeModal({ game, onComplete, onCancel }) {
     </div>
   );
 }
- 
+
 // ─── Farm assignment screen ───────────────────────────────────────────────────
- 
+
 function FarmAssignmentScreen({ game, onAssign }) {
   const keptWorkers = game.keptWorkers ?? [];
   const [assigningWorker, setAssigningWorker] = useState(keptWorkers[0] ?? null);
   if (!assigningWorker) return null;
   const gear = GEAR[assigningWorker.gear];
   const spec = SPECIALIZATIONS[assigningWorker.specialization];
- 
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.7)" }}>
-      <div className="card p-6 w-full max-w-sm space-y-4">
-        <h2 className="text-xl font-bold text-center">📍 Assign Worker</h2>
+      <div className="card p-6 w-full max-w-sm space-y-4" style={{ maxHeight: "90vh", overflowY: "auto" }}>
+        <h2 className="text-xl font-bold text-center">📍 Assign Kept Workers</h2>
         <p className="text-sm text-center" style={{ color: "var(--muted)", lineHeight: 1.6 }}>
-          Where should your kept worker go this season?
+          You have <strong>{keptWorkers.length}</strong> worker{keptWorkers.length !== 1 ? "s" : ""} returning this season.
+          Assigning: <strong>{gear.emoji} {gear.name}</strong>
+          {spec && spec.id !== "none" && ` · ${spec.emoji} ${spec.name}`}
         </p>
-        <div className="card p-3" style={{ fontSize: "0.82rem" }}>
-          <div style={{ fontWeight: 600 }}>
-            👷 {gear.emoji} {gear.name}
-            {spec && spec.id !== "none" && (
-              <span style={{ marginLeft: "0.4rem", color: "var(--muted)", fontWeight: 400 }}>
-                · {spec.emoji} {spec.name}
-              </span>
-            )}
-          </div>
-          <div style={{ color: "var(--muted)", fontSize: "0.72rem", marginTop: "0.2rem" }}>
-            Full gear and specialization preserved
-          </div>
-        </div>
         <div className="space-y-2">
           {game.farms.map((farm) => {
             const crop = CROPS[farm.crop];
@@ -199,7 +190,7 @@ function FarmAssignmentScreen({ game, onAssign }) {
                 key={farm.id}
                 onClick={() => {
                   onAssign(assigningWorker.id, farm.id);
-                  const remaining = (game.keptWorkers ?? []).filter((w) => w.id !== assigningWorker.id);
+                  const remaining = keptWorkers.filter((w) => w.id !== assigningWorker.id);
                   setAssigningWorker(remaining[0] ?? null);
                 }}
                 className="w-full text-left card p-3 hover:shadow-md transition"
@@ -217,12 +208,12 @@ function FarmAssignmentScreen({ game, onAssign }) {
     </div>
   );
 }
- 
+
 // ─── Root component ───────────────────────────────────────────────────────────
- 
+
 export default function RootWork() {
   const { accessToken, userId } = useAuth();
- 
+
   const [game, setGame] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [activeMainTab, setActiveMainTab] = useState("farms");
@@ -230,18 +221,28 @@ export default function RootWork() {
   const [offlineMessage, setOfflineMessage] = useState(null);
   const [showPrestigeModal, setShowPrestigeModal] = useState(false);
   const [notification, setNotification] = useState(null);
- 
+
   const gameRef = useRef(null);
-  const saveIntervalRef = useRef(null);
- 
+
   useEffect(() => { if (game) gameRef.current = game; }, [game]);
- 
+
   const notify = useCallback((msg) => {
     setNotification(msg);
     setTimeout(() => setNotification(null), 3000);
   }, []);
- 
-  // ── Load ──────────────────────────────────────────────────────────────────────
+
+  // ── Save helper ───────────────────────────────────────────────────────────
+  const saveGame = useCallback((state) => {
+    if (!state) return;
+    saveToLocalStorage(state);
+    if (accessToken && userId) {
+      api.post("/rootwork/state", { data: serializeState(state) },
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      ).catch(() => {});
+    }
+  }, [accessToken, userId]);
+
+  // ── Load ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     async function load() {
       let saved = null;
@@ -254,7 +255,7 @@ export default function RootWork() {
         } catch {}
       }
       if (!saved) saved = loadFromLocalStorage();
- 
+
       if (saved) {
         const { state: withOffline, offlineSeconds } = calculateOfflineProgress(saved, Date.now());
         setGame(withOffline);
@@ -273,8 +274,8 @@ export default function RootWork() {
     }
     load();
   }, [accessToken, userId]);
- 
-  // ── Tick ──────────────────────────────────────────────────────────────────────
+
+  // ── Tick ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!loaded) return;
     const interval = setInterval(() => {
@@ -287,46 +288,31 @@ export default function RootWork() {
     }, 1000);
     return () => clearInterval(interval);
   }, [loaded]);
- 
-  // ── Autosave ──────────────────────────────────────────────────────────────────
+
+  // ── Autosave + visibilitychange ───────────────────────────────────────────
   useEffect(() => {
     if (!loaded) return;
-    saveIntervalRef.current = setInterval(() => {
-      const state = gameRef.current;
-      if (!state) return;
-      saveToLocalStorage(state);
-      if (accessToken && userId) {
-        api.post("/rootwork/state", { data: serializeState(state) },
-          { headers: { Authorization: `Bearer ${accessToken}` } }
-        ).catch(() => {});
-      }
-    }, SAVE_INTERVAL_MS);
-    return () => clearInterval(saveIntervalRef.current);
-  }, [loaded, accessToken, userId]);
- 
-  useEffect(() => {
-  const handleVisibilityChange = () => {
-    if (document.visibilityState === "hidden") {
-      const s = gameRef.current;
-      if (!s) return;
-      saveToLocalStorage(s);
-      if (accessToken && userId) {
-        api.post("/rootwork/state", { data: serializeState(s) },
-          { headers: { Authorization: `Bearer ${accessToken}` } }
-        ).catch(() => {});
-      }
-    }
-  };
 
-  document.addEventListener("visibilitychange", handleVisibilityChange);
-  return () => {
-    document.removeEventListener("visibilitychange", handleVisibilityChange);
-    const s = gameRef.current;
-    if (s) saveToLocalStorage(s);
-  };
-}, [accessToken, userId]);
- 
-  // ── Actions ───────────────────────────────────────────────────────────────────
+    const interval = setInterval(() => {
+      saveGame(gameRef.current);
+    }, SAVE_INTERVAL_MS);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        saveGame(gameRef.current);
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      saveGame(gameRef.current);
+    };
+  }, [loaded, saveGame]);
+
+  // ── Actions ───────────────────────────────────────────────────────────────
   const update = useCallback((fn) => {
     setGame((prev) => {
       const next = fn(prev);
@@ -335,43 +321,136 @@ export default function RootWork() {
       return next;
     });
   }, []);
- 
-  const handlePlant = useCallback((farmId, plotId) => update((s) => plantPlot(s, farmId, plotId)), [update]);
+
+  // Farm
+  const handlePlant = useCallback((farmId, plotId) =>
+    update((s) => plantPlot(s, farmId, plotId)), [update]);
+
   const handleHarvest = useCallback((farmId, plotId) => {
     update((s) => harvestPlot(s, farmId, plotId));
     notify("+crops! 🌾");
   }, [update, notify]);
-  const handleTend = useCallback((farmId, plotId) => update((s) => tendPlot(s, farmId, plotId)), [update]);
+
+  const handleTend = useCallback((farmId, plotId) =>
+    update((s) => tendPlot(s, farmId, plotId)), [update]);
+
   const handleUpgradePlot = useCallback((farmId, plotId) => {
-    update((s) => { const n = upgradePlot(s, farmId, plotId); if (n === s) notify("Not enough artisan goods."); return n; });
+    update((s) => {
+      const n = upgradePlot(s, farmId, plotId);
+      if (n === s) notify("Not enough artisan goods.");
+      return n;
+    });
   }, [update, notify]);
+
   const handleBuyPlot = useCallback((farmId) => {
-    update((s) => { const n = buyPlot(s, farmId); if (n === s) notify("Not enough crops."); return n; });
+    update((s) => {
+      const n = buyPlot(s, farmId);
+      if (n === s) notify("Not enough crops.");
+      return n;
+    });
   }, [update, notify]);
+
   const handleHireWorker = useCallback((farmId) => {
-    update((s) => { const n = hireWorker(s, farmId); if (n === s) notify("Not enough crops."); return n; });
+    update((s) => {
+      const n = hireWorker(s, farmId);
+      if (n === s) notify("Not enough crops.");
+      return n;
+    });
   }, [update, notify]);
+
   const handleSellWorker = useCallback((workerId) => {
     update((s) => sellWorker(s, workerId));
     notify("Worker sold.");
   }, [update, notify]);
+
   const handleUpgradeGear = useCallback((workerId) => {
-    update((s) => { const n = upgradeWorkerGear(s, workerId); if (n === s) notify("Not enough crops."); return n; });
+    update((s) => {
+      const n = upgradeWorkerGear(s, workerId);
+      if (n === s) notify("Not enough crops.");
+      return n;
+    });
   }, [update, notify]);
+
   const handleSpecialize = useCallback((workerId, specId) => {
-    update((s) => { const n = specializeWorker(s, workerId, specId); if (n === s) notify("Not enough berries."); return n; });
+    update((s) => {
+      const n = specializeWorker(s, workerId, specId);
+      if (n === s) notify("Not enough berries.");
+      return n;
+    });
   }, [update, notify]);
-  const handleStartProcessing = useCallback((recipeId) => {
-    update((s) => { const n = startProcessing(s, recipeId); if (n === s) notify("Not enough crops or queue full."); return n; });
+
+  // Market
+  const handleHireMarketWorker = useCallback(() => {
+    update((s) => {
+      const n = hireMarketWorker(s);
+      if (n === s) notify("Not enough cash.");
+      return n;
+    });
+    notify("🛒 Market worker hired!");
   }, [update, notify]);
-  const handleCancelProcessing = useCallback((itemId) => {
-    update((s) => cancelProcessing(s, itemId));
-    notify("Recipe cancelled. 50% crops refunded.");
+
+  const handleUpgradeMarketWorker = useCallback((workerId) => {
+    update((s) => {
+      const n = upgradeMarketWorkerGear(s, workerId);
+      if (n === s) notify("Not enough cash.");
+      return n;
+    });
   }, [update, notify]);
+
+  const handleAssignItem = useCallback((workerId, itemType, quantity) => {
+    update((s) => {
+      const n = assignItemToMarketWorker(s, workerId, itemType, quantity);
+      if (n === s) notify("Not enough to assign.");
+      return n;
+    });
+  }, [update, notify]);
+
+  const handleFireMarketWorker = useCallback((workerId) => {
+    update((s) => fireMarketWorker(s, workerId));
+    notify("Market worker fired. Items refunded.");
+  }, [update, notify]);
+
+  // Kitchen
+  const handleHireKitchenWorker = useCallback(() => {
+    update((s) => {
+      const n = hireKitchenWorker(s);
+      if (n === s) notify("Not enough cash.");
+      return n;
+    });
+    notify("👨‍🍳 Kitchen worker hired!");
+  }, [update, notify]);
+
+  const handleAssignKitchenWorkerRecipe = useCallback((workerId, recipeId) => {
+    update((s) => {
+      const n = assignKitchenWorkerRecipe(s, workerId, recipeId);
+      if (n === s) notify("Not enough crops to start.");
+      return n;
+    });
+  }, [update, notify]);
+
+  const handleUpgradeKitchenWorker = useCallback((workerId, upgradeId) => {
+    update((s) => {
+      const n = upgradeKitchenWorker(s, workerId, upgradeId);
+      if (n === s) notify("Not enough cash.");
+      return n;
+    });
+  }, [update, notify]);
+
+  const handleFireKitchenWorker = useCallback((workerId) => {
+    update((s) => fireKitchenWorker(s, workerId));
+    notify("Kitchen worker fired.");
+  }, [update, notify]);
+
+  // Feast / prestige / misc
   const handleBuyFeast = useCallback(() => {
-    update((s) => { const n = buyFeast(s); if (n === s) notify("Not enough artisan goods."); return n; });
-    notify("🍽️ Feast bonus applied!");
+    update((s) => {
+      const n = buyFeast(s);
+      if (n === s) notify("Not enough artisan goods.");
+      return n;
+    });
+    notify("🍽️ Feast held! Grow speed increased.");
   }, [update, notify]);
+
   const handlePrestigeComplete = useCallback((bonusId, workerId) => {
     update((s) => beginPrestige(s, bonusId, workerId));
     setShowPrestigeModal(false);
@@ -379,27 +458,20 @@ export default function RootWork() {
     setActiveFarmIndex(0);
     notify("🌱 New season begun!");
   }, [update, notify]);
+
   const handleAssignWorker = useCallback((keptWorkerId, farmId) => {
     update((s) => assignKeptWorker(s, keptWorkerId, farmId));
   }, [update]);
-  const handleSell = useCallback((itemType, quantity) => {
-    update((s) => { const n = sellItems(s, itemType, quantity); if (n === s) notify("Not enough to sell."); return n; });
-  }, [update, notify]);
-  const handlePurchaseKitchen = useCallback(() => {
-    update((s) => { const n = purchaseKitchen(s); if (n === s) notify("Not enough cash."); return n; });
-    notify("🏭 Kitchen built!");
-  }, [update, notify]);
-  const handlePurchaseKitchenSlot = useCallback(() => {
-    update((s) => { const n = purchaseKitchenSlot(s); if (n === s) notify("Not enough cash."); return n; });
-    notify("🔧 Queue slot added!");
-  }, [update, notify]);
-  const handlePurchaseSlotUpgrade = useCallback((slotIndex, upgradeId) => {
-    update((s) => { const n = purchaseSlotUpgrade(s, slotIndex, upgradeId); if (n === s) notify("Not enough cash or prereq missing."); return n; });
-  }, [update, notify]);
+
   const handleUnlockFarm = useCallback((cropId) => {
-    update((s) => { const n = unlockExtraFarm(s, cropId); if (n === s) notify("Not enough cash."); return n; });
+    update((s) => {
+      const n = unlockExtraFarm(s, cropId);
+      if (n === s) notify("Not enough cash.");
+      return n;
+    });
     notify("🌾 New farm unlocked!");
   }, [update, notify]);
+
   const handleResetGame = useCallback(() => {
     if (!window.confirm("Reset all progress? This cannot be undone.")) return;
     localStorage.removeItem(SAVE_KEY);
@@ -410,11 +482,12 @@ export default function RootWork() {
     setActiveFarmIndex(0);
     notify("Game reset.");
   }, [notify]);
- 
+
+  // ── Derived ───────────────────────────────────────────────────────────────
   const prestigeReady = game ? canPrestige(game) : false;
   const hasPendingAssignments = game?.pendingWorkerAssignments && (game?.keptWorkers?.length ?? 0) > 0;
   const hasPendingFarmUnlock = game?.pendingFarmUnlock === true;
- 
+
   if (!loaded || !game) {
     return (
       <div className="min-h-screen flex items-center justify-center"
@@ -423,13 +496,13 @@ export default function RootWork() {
       </div>
     );
   }
- 
+
   const safeFarmIndex = Math.min(activeFarmIndex, game.farms.length - 1);
   const activeFarm = game.farms[safeFarmIndex] ?? null;
- 
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: "var(--bg)", color: "var(--text)" }}>
- 
+
       {offlineMessage && (
         <div className="text-center text-sm py-2 px-4" style={{
           background: "rgba(99, 102, 241, 0.12)",
@@ -438,7 +511,7 @@ export default function RootWork() {
           {offlineMessage}
         </div>
       )}
- 
+
       {notification && (
         <div className="fixed top-4 left-1/2 z-50 px-4 py-2 rounded-xl text-sm font-medium shadow-lg"
           style={{
@@ -451,9 +524,9 @@ export default function RootWork() {
           {notification}
         </div>
       )}
- 
+
       <ResourceBar game={game} />
- 
+
       {activeMainTab === "farms" && (
         <FarmSubTabs
           game={game}
@@ -461,8 +534,9 @@ export default function RootWork() {
           onFarmChange={setActiveFarmIndex}
         />
       )}
- 
+
       <div className="flex-1 overflow-auto" style={{ paddingBottom: "4rem" }}>
+
         {activeMainTab === "farms" && activeFarm && (
           <FarmZone
             key={activeFarm.id}
@@ -478,33 +552,29 @@ export default function RootWork() {
             onSpecialize={handleSpecialize}
           />
         )}
-        {activeMainTab === "market" && !game.marketUnlocked && (
-  <div style={{ maxWidth: "480px", margin: "0 auto", padding: "2rem 1rem", textAlign: "center" }}>
-    <div style={{ fontSize: "2.5rem", marginBottom: "1rem" }}>🔒</div>
-    <h2 style={{ fontSize: "1.1rem", fontWeight: 700, marginBottom: "0.5rem" }}>Market Locked</h2>
-    <p style={{ fontSize: "0.85rem", color: "var(--muted)", lineHeight: 1.7 }}>
-      Automate your first farm to unlock the market.
-    </p>
-    <p style={{ fontSize: "0.78rem", color: "var(--muted)", marginTop: "0.75rem", lineHeight: 1.6 }}>
-      A farm is automated when it has <strong style={{ color: "var(--text)" }}>4+ workers</strong> and <strong style={{ color: "var(--text)" }}>4+ plots</strong> unlocked.
-    </p>
-  </div>
-)}
-{activeMainTab === "market" && game.marketUnlocked && (
-  <MarketZone game={game} onSell={handleSell} />
-)}
+
+        {activeMainTab === "market" && (
+          <MarketZone
+            game={game}
+            onHireMarketWorker={handleHireMarketWorker}
+            onAssignItem={handleAssignItem}
+            onUpgradeMarketWorker={handleUpgradeMarketWorker}
+            onFireMarketWorker={handleFireMarketWorker}
+          />
+        )}
+
         {activeMainTab === "kitchen" && (
           <ProcessingZone
             game={game}
-            onStartProcessing={handleStartProcessing}
+            onHireKitchenWorker={handleHireKitchenWorker}
+            onAssignKitchenWorkerRecipe={handleAssignKitchenWorkerRecipe}
+            onUpgradeKitchenWorker={handleUpgradeKitchenWorker}
+            onFireKitchenWorker={handleFireKitchenWorker}
             onUpgradePlot={handleUpgradePlot}
             onBuyFeast={handleBuyFeast}
-            onPurchaseKitchen={handlePurchaseKitchen}
-            onPurchaseKitchenSlot={handlePurchaseKitchenSlot}
-            onPurchaseSlotUpgrade={handlePurchaseSlotUpgrade}
-            onCancelProcessing={handleCancelProcessing}
           />
         )}
+
         {activeMainTab === "season" && (
           <SeasonPanel
             game={game}
@@ -514,23 +584,22 @@ export default function RootWork() {
           />
         )}
       </div>
- 
+
       <GameNav
         game={game}
         activeMainTab={activeMainTab}
         onMainTabChange={setActiveMainTab}
         prestigeReady={prestigeReady}
       />
- 
-      {/* Farm unlock modal — shown after prestige into season 4+ */}
+
       {hasPendingFarmUnlock && !hasPendingAssignments && (
         <FarmUnlockModal game={game} onUnlock={handleUnlockFarm} />
       )}
- 
+
       {hasPendingAssignments && (
         <FarmAssignmentScreen game={game} onAssign={handleAssignWorker} />
       )}
- 
+
       {showPrestigeModal && (
         <PrestigeModal
           game={game}
