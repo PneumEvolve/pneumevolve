@@ -172,30 +172,36 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
       )}
  
       {/* What carries over */}
-      <div className="card p-4" style={{ marginBottom: "1rem", fontSize: "0.78rem", color: "var(--muted)", lineHeight: 1.7 }}>
-        <h3 style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text)", marginBottom: "0.4rem" }}>
-          New season — what carries over
-        </h3>
-        <ul style={{ paddingLeft: "1rem", margin: 0 }}>
-          <li>✅ 10% of your current crops</li>
-          <li>✅ All prestige bonuses (you pick a new one)</li>
-          <li>✅ All unlocked plots and ⭐ upgrades</li>
-          <li>✅ Global Feast speed bonus</li>
-          <li>✅ Cash (carries over forever)</li>
-          <li>✅ You keep 1 worker with full gear & spec</li>
-          {keptWorkerCount > 1 && <li>✅ {keptWorkerCount} total kept workers to assign</li>}
-          {game.prestigeBonuses.includes("head_start") && <li>✅ Head Start: 1 free worker on each farm</li>}
-          {game.prestigeBonuses.includes("fast_hands") && <li>✅ Fast Hands: new workers start with Gloves</li>}
-          {isExtraFarmSeason
-            ? <li>✅ New farm slot available — pick a crop (costs ${nextFarmCost} cash)</li>
-            : <li>✅ A new farm unlocks automatically</li>
-          }
-          <li>❌ Plot states reset (first plot starts planted)</li>
-          <li>❌ All other workers reset</li>
-          <li>❌ Artisan goods and kitchen queue clear</li>
-          <li>❌ Kitchen relocks — rebuy with cash</li>
-        </ul>
-      </div>
+<div className="card p-4" style={{ marginBottom: "1rem", fontSize: "0.78rem", color: "var(--muted)", lineHeight: 1.7 }}>
+  <h3 style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text)", marginBottom: "0.4rem" }}>
+    New season — what carries over
+  </h3>
+  <ul style={{ paddingLeft: "1rem", margin: 0 }}>
+    <li>✅ 10% of your current crops</li>
+    <li>✅ All artisan goods (bread, jam, sauce) — fully</li>
+    <li>✅ All cash</li>
+    <li>✅ All prestige bonuses (you pick a new one)</li>
+    <li>✅ All unlocked plots and ⭐ upgrades</li>
+    <li>✅ Global Feast speed bonus</li>
+    <li>✅ 1 kept worker per season played — with full gear & spec</li>
+    {game.keptWorkers.length > 0 && (
+      <li>✅ {game.keptWorkers.length + 1} total kept workers returning this season</li>
+    )}
+    {game.prestigeBonuses.includes("head_start") && (
+      <li>✅ Head Start: 1 free worker on each farm</li>
+    )}
+    {game.prestigeBonuses.includes("fast_hands") && (
+      <li>✅ Fast Hands: new workers start with Gloves</li>
+    )}
+    {isExtraFarmSeason
+      ? <li>✅ New farm slot available — pick a crop (costs ${nextFarmCost} cash)</li>
+      : <li>✅ A new farm unlocks automatically</li>
+    }
+    <li>❌ Plot states reset (first plot starts planted)</li>
+    <li>❌ All other workers reset</li>
+    <li>❌ Kitchen and market workers reset</li>
+  </ul>
+</div>
  
       {/* Prestige button + blockers */}
       <div style={{ marginBottom: "1rem" }}>

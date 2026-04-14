@@ -5,13 +5,11 @@ import {
   PROCESSING_RECIPES,
   KITCHEN_WORKER_UPGRADES,
   KITCHEN_WORKER_UPGRADE_ORDER,
-  FEAST_TIERS,
 } from "../gameConstants";
 import {
   getKitchenWorkerHireCost,
   getEffectiveKitchenSeconds,
   isKitchenWorkerIdle,
-  canUpgradeKitchenWorker,
   getNextFeastTier,
 } from "../gameEngine";
 
@@ -46,12 +44,6 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire }) 
     ? Math.max(0, worker.totalSeconds - worker.elapsedSeconds)
     : 0;
 
-  // Figure out which upgrade is next
-  const nextUpgradeId = KITCHEN_WORKER_UPGRADE_ORDER.find((id) =>
-    canUpgradeKitchenWorker(game, worker.id, id)
-  ) ?? null;
-  const nextUpgrade = nextUpgradeId ? KITCHEN_WORKER_UPGRADES[nextUpgradeId] : null;
-
   return (
     <div className="card p-4" style={{ fontSize: "0.82rem" }}>
 
@@ -69,7 +61,11 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire }) 
               )}
             </div>
             <div style={{ fontSize: "0.68rem", color: idle ? "#ef4444" : "#4ade80" }}>
-              {idle ? "⚠ Idle — assign a recipe" : worker.busy ? `Crafting ${recipe?.emoji} ${recipe?.name}` : `Ready — ${recipe?.emoji} ${recipe?.name} (waiting for crops)`}
+              {idle
+                ? "⚠ Idle — assign a recipe"
+                : worker.busy
+                  ? `Crafting ${recipe?.emoji} ${recipe?.name}`
+                  : `Ready — ${recipe?.emoji} ${recipe?.name} (waiting for crops)`}
             </div>
           </div>
         </div>
@@ -168,51 +164,60 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire }) 
 
       {/* Upgrades */}
       <div style={{ borderTop: "1px solid var(--border)", paddingTop: "0.6rem" }}>
-        {/* Current upgrades */}
-        {upgrades.length > 0 && (
-          <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", marginBottom: "0.4rem" }}>
-            {upgrades.map((uid) => {
-              const u = KITCHEN_WORKER_UPGRADES[uid];
-              return (
-                <div key={uid} style={{
-                  fontSize: "0.65rem", padding: "0.15rem 0.4rem",
-                  background: "rgba(74,222,128,0.1)", borderRadius: "4px",
-                  color: "#4ade80", border: "1px solid rgba(74,222,128,0.3)",
-                }}>
-                  {u.emoji} {u.name}
+        <div style={{ fontSize: "0.68rem", fontWeight: 600, color: "var(--muted)", marginBottom: "0.5rem" }}>
+          Upgrades
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+          {KITCHEN_WORKER_UPGRADE_ORDER.map((uid) => {
+            const u = KITCHEN_WORKER_UPGRADES[uid];
+            const owned = upgrades.includes(uid);
+            const requiresMet = !u.requires || upgrades.includes(u.requires);
+            const canAfford = (game.cash ?? 0) >= u.cost;
+            const canBuy = !owned && requiresMet && canAfford;
+            const locked = !owned && !requiresMet;
+
+            return (
+              <div key={uid} style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "0.4rem 0.6rem", borderRadius: "6px",
+                background: owned ? "rgba(74,222,128,0.08)" : "var(--bg)",
+                border: `1px solid ${owned ? "rgba(74,222,128,0.3)" : "var(--border)"}`,
+                opacity: locked ? 0.4 : 1,
+              }}>
+                <div style={{ fontSize: "0.72rem" }}>
+                  <div style={{ fontWeight: 600, color: owned ? "#4ade80" : "var(--text)", display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                    {owned ? "✓" : locked ? "🔒" : u.emoji} {u.name}
+                  </div>
+                  <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.1rem" }}>
+                    {u.description}
+                    {u.requires && !owned && (
+                      <span style={{ marginLeft: "0.3rem", color: locked ? "var(--border)" : "var(--muted)" }}>
+                        · Requires {KITCHEN_WORKER_UPGRADES[u.requires]?.name}
+                      </span>
+                    )}
+                  </div>
                 </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Next upgrade available */}
-        {nextUpgrade && (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ fontSize: "0.72rem", color: "var(--muted)" }}>
-              {nextUpgrade.emoji} {nextUpgrade.name}
-              <span style={{ fontSize: "0.65rem", display: "block", color: "var(--border)" }}>
-                {nextUpgrade.description}
-              </span>
-            </div>
-            <button
-              onClick={() => onUpgrade(worker.id, nextUpgradeId)}
-              disabled={(game.cash ?? 0) < nextUpgrade.cost}
-              className="btn btn-secondary"
-              style={{ fontSize: "0.7rem", padding: "0.25rem 0.6rem", marginLeft: "0.5rem", flexShrink: 0 }}
-            >
-              ${nextUpgrade.cost}
-            </button>
-          </div>
-        )}
-
-        {/* Fully upgraded */}
-        {!nextUpgrade && upgrades.length === KITCHEN_WORKER_UPGRADE_ORDER.length && (
-          <div style={{ fontSize: "0.68rem", color: "#4ade80", textAlign: "center" }}>
-            ✓ Fully upgraded
-          </div>
-        )}
+                {!owned && (
+                  <button
+                    onClick={() => canBuy && onUpgrade(worker.id, uid)}
+                    disabled={!canBuy}
+                    className="btn btn-secondary"
+                    style={{
+                      fontSize: "0.68rem", padding: "0.2rem 0.5rem",
+                      marginLeft: "0.5rem", flexShrink: 0,
+                      opacity: canBuy ? 1 : 0.5,
+                      cursor: canBuy ? "pointer" : "default",
+                    }}
+                  >
+                    ${u.cost}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
+
     </div>
   );
 }
@@ -247,7 +252,9 @@ function FeastPanel({ game, onBuyFeast }) {
         <div>
           <div style={{ fontWeight: 600 }}>🍽️ Feast</div>
           <div style={{ fontSize: "0.68rem", color: "var(--muted)" }}>
-            {currentBonus > 0 ? `Current: +${currentBonus}% grow speed` : "Unlock a permanent grow speed bonus"}
+            {currentBonus > 0
+              ? `Current: +${currentBonus}% grow speed`
+              : "Unlock a permanent grow speed bonus"}
           </div>
         </div>
         {currentBonus > 0 && (
@@ -268,7 +275,7 @@ function FeastPanel({ game, onBuyFeast }) {
       <div style={{ display: "flex", gap: "0.4rem", marginBottom: "0.75rem" }}>
         {[
           { emoji: "🍞", label: "Bread", have: game.artisan.bread ?? 0, ok: hasBread },
-          { emoji: "🍯", label: "Jam", have: game.artisan.jam ?? 0, ok: hasJam },
+          { emoji: "🍯", label: "Jam",   have: game.artisan.jam ?? 0,   ok: hasJam },
           { emoji: "🥫", label: "Sauce", have: game.artisan.sauce ?? 0, ok: hasSauce },
         ].map(({ emoji, label, have, ok }) => (
           <div key={label} style={{
@@ -341,7 +348,7 @@ export default function ProcessingZone({
   const hireCost = getKitchenWorkerHireCost(game);
   const canHire = (game.cash ?? 0) >= hireCost;
   const workers = game.kitchenWorkers ?? [];
-  const isFirstWorker = (game.kitchenWorkers ?? []).length === 0;
+  const isFirstWorker = workers.length === 0;
 
   return (
     <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 5rem" }}>
@@ -360,14 +367,14 @@ export default function ProcessingZone({
       {/* Hire worker */}
       <div style={{ marginBottom: "1.25rem" }}>
         <button
-  onClick={onHireKitchenWorker}
-  disabled={!isFirstWorker && !canHire}
-  className="btn w-full"
-  style={{ opacity: (isFirstWorker || canHire) ? 1 : 0.5 }}
->
-  👨‍🍳 Hire Kitchen Worker — {isFirstWorker ? "Free!" : `$${hireCost}`}
-</button>
-        {workers.length === 0 && (
+          onClick={onHireKitchenWorker}
+          disabled={!isFirstWorker && !canHire}
+          className="btn w-full"
+          style={{ opacity: (isFirstWorker || canHire) ? 1 : 0.5 }}
+        >
+          👨‍🍳 Hire Kitchen Worker — {isFirstWorker ? "Free!" : `$${hireCost}`}
+        </button>
+        {isFirstWorker && (
           <p style={{ fontSize: "0.7rem", color: "var(--muted)", marginTop: "0.4rem", textAlign: "center" }}>
             Each worker crafts one recipe at a time. Upgrade them for speed and auto-restart.
           </p>
