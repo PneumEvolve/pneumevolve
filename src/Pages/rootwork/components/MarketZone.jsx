@@ -1,9 +1,15 @@
 // src/Pages/rootwork/components/MarketZone.jsx
- 
+
 import React, { useState } from "react";
-import { CROPS, PROCESSING_RECIPES, MARKET_SELL_RATES } from "../gameConstants";
-import { getSellRate } from "../gameEngine";
- 
+import { MARKET_SELL_RATES, MARKET_WORKER_GEAR, MARKET_WORKER_GEAR_ORDER } from "../gameConstants";
+import {
+  getSellRate,
+  getMarketWorkerHireCost,
+  getMarketWorkerNextGear,
+  getMarketWorkerItemsPerSecond,
+  getMarketWorkerQueueTotal,
+} from "../gameEngine";
+
 const SELLABLE_ITEMS = [
   { type: "wheat",    label: "Wheat",    emoji: "🌾", isCrop: true },
   { type: "berries",  label: "Berries",  emoji: "🫐", isCrop: true },
@@ -12,121 +18,208 @@ const SELLABLE_ITEMS = [
   { type: "jam",      label: "Jam",      emoji: "🍯", isCrop: false },
   { type: "sauce",    label: "Sauce",    emoji: "🥫", isCrop: false },
 ];
- 
-const SELL_AMOUNTS = [1, 10, 50, "All"];
- 
-function SellCard({ item, game, onSell }) {
-  const have = item.isCrop
-    ? (game.crops[item.type] ?? 0)
-    : (game.artisan[item.type] ?? 0);
- 
-  const rate = getSellRate(item.type, game.prestigeBonuses ?? []);
-  const baseRate = MARKET_SELL_RATES[item.type] ?? 0;
-  const hasSavvy = rate > baseRate;
- 
+
+const SELL_AMOUNTS = [1, 10, 50, 100, "All"];
+
+// ─── Worker card ──────────────────────────────────────────────────────────────
+
+function MarketWorkerCard({ worker, game, onAssign, onUpgrade, onFire }) {
+  const [selectedItem, setSelectedItem] = useState(null);
+  const [selectedAmount, setSelectedAmount] = useState(10);
+
+  const gear = MARKET_WORKER_GEAR[worker.gear];
+  const nextGearId = getMarketWorkerNextGear(worker.gear);
+  const nextGear = nextGearId ? MARKET_WORKER_GEAR[nextGearId] : null;
+  const queueTotal = getMarketWorkerQueueTotal(worker);
+  const ips = getMarketWorkerItemsPerSecond(worker);
+
+  const availableItems = SELLABLE_ITEMS.filter((item) => {
+    const have = item.isCrop ? (game.crops[item.type] ?? 0) : (game.artisan[item.type] ?? 0);
+    return have > 0;
+  });
+
+  function handleAssign() {
+    if (!selectedItem) return;
+    const item = SELLABLE_ITEMS.find((i) => i.type === selectedItem);
+    const have = item.isCrop ? (game.crops[item.type] ?? 0) : (game.artisan[item.type] ?? 0);
+    const qty = selectedAmount === "All" ? have : Math.min(selectedAmount, have);
+    if (qty <= 0) return;
+    onAssign(worker.id, selectedItem, qty);
+    setSelectedItem(null);
+  }
+
   return (
-    <div className="card p-3" style={{ fontSize: "0.82rem" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
-        <span style={{ fontWeight: 600 }}>{item.emoji} {item.label}</span>
-        <span style={{ fontSize: "0.72rem", color: "var(--muted)" }}>
-          {hasSavvy ? (
-            <>
-              <span style={{ textDecoration: "line-through", marginRight: "0.3rem", color: "var(--border)" }}>
-                ${baseRate}
-              </span>
-              <span style={{ color: "#4ade80", fontWeight: 600 }}>${rate.toFixed(2)}</span>
-            </>
-          ) : (
-            <span>${rate} each</span>
-          )}
-        </span>
-      </div>
- 
-      <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.5rem" }}>
-        You have: <strong style={{ color: "var(--text)" }}>{have}</strong>
-      </div>
- 
-      <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
-        {SELL_AMOUNTS.map((amt) => {
-          const quantity = amt === "All" ? have : amt;
-          const disabled = have < quantity || quantity <= 0;
-          const earnings = (quantity * rate).toFixed(2);
-          return (
-            <button
-              key={amt}
-              onClick={() => onSell(item.type, quantity)}
-              disabled={disabled}
-              className="btn btn-secondary"
-              style={{
-                fontSize: "0.7rem",
-                padding: "0.3rem 0.6rem",
-                flex: "1 1 auto",
-                opacity: disabled ? 0.4 : 1,
-              }}
-              title={!disabled ? `Earn $${earnings}` : undefined}
-            >
-              {amt === "All" ? `All (${have})` : `×${amt}`}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
- 
-function SellQueue({ marketQueue, prestigeBonuses }) {
-  if (!marketQueue || marketQueue.length === 0) return null;
- 
-  const totalItems = marketQueue.reduce((s, o) => s + o.quantity, 0);
- 
-  return (
-    <div className="card p-3" style={{ fontSize: "0.82rem", marginBottom: "1rem" }}>
-      <div style={{ fontWeight: 600, marginBottom: "0.5rem", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span>📦 Sell Queue</span>
-        <span style={{ fontSize: "0.7rem", color: "var(--muted)" }}>{totalItems} items · 1/sec</span>
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
-        {marketQueue.map((order) => {
-          const item = SELLABLE_ITEMS.find((i) => i.type === order.itemType);
-          const rate = getSellRate(order.itemType, prestigeBonuses ?? []);
-          const worth = (order.quantity * rate).toFixed(2);
-          return (
-            <div key={order.id} style={{
-              display: "flex", alignItems: "center", justifyContent: "space-between",
-              fontSize: "0.72rem", color: "var(--muted)",
-            }}>
-              <span>{item?.emoji ?? "📦"} {item?.label ?? order.itemType} ×{order.quantity}</span>
-              <span style={{ color: "#4ade80" }}>≈ ${worth}</span>
+    <div className="card p-4" style={{ fontSize: "0.82rem" }}>
+
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+          <span style={{ fontSize: "1.1rem" }}>{gear.emoji}</span>
+          <div>
+            <div style={{ fontWeight: 600 }}>{gear.name}</div>
+            <div style={{ fontSize: "0.68rem", color: "var(--muted)" }}>
+              {ips} item{ips !== 1 ? "s" : ""}/sec
             </div>
-          );
-        })}
+          </div>
+        </div>
+        <button
+          onClick={() => onFire(worker.id)}
+          style={{
+            fontSize: "0.65rem", color: "var(--muted)",
+            background: "none", border: "1px solid var(--border)",
+            borderRadius: "6px", padding: "0.2rem 0.5rem", cursor: "pointer",
+          }}
+        >
+          Fire
+        </button>
       </div>
+
+      {/* Queue status */}
+      <div style={{
+        background: "var(--bg)", borderRadius: "6px",
+        padding: "0.4rem 0.6rem", marginBottom: "0.75rem",
+        fontSize: "0.72rem", color: "var(--muted)",
+      }}>
+        {queueTotal > 0 ? (
+          <div>
+            <span style={{ color: "var(--text)", fontWeight: 600 }}>{queueTotal}</span> items queued
+            {worker.queue.map((order) => {
+              const item = SELLABLE_ITEMS.find((i) => i.type === order.itemType);
+              const rate = getSellRate(order.itemType, game.prestigeBonuses ?? []);
+              return (
+                <div key={order.id} style={{ marginTop: "0.2rem", display: "flex", justifyContent: "space-between" }}>
+                  <span>{item?.emoji} {item?.label} ×{order.quantity}</span>
+                  <span style={{ color: "#4ade80" }}>≈${(order.quantity * rate).toFixed(0)}</span>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <span>Queue empty — assign items below</span>
+        )}
+      </div>
+
+      {/* Assign items */}
+      <div style={{ marginBottom: "0.75rem" }}>
+        <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.4rem", fontWeight: 600 }}>
+          Assign to queue
+        </div>
+        <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", marginBottom: "0.4rem" }}>
+          {SELLABLE_ITEMS.map((item) => {
+            const have = item.isCrop ? (game.crops[item.type] ?? 0) : (game.artisan[item.type] ?? 0);
+            const isSelected = selectedItem === item.type;
+            return (
+              <button
+                key={item.type}
+                onClick={() => setSelectedItem(isSelected ? null : item.type)}
+                disabled={have <= 0}
+                style={{
+                  fontSize: "0.7rem", padding: "0.25rem 0.5rem",
+                  borderRadius: "6px", cursor: have > 0 ? "pointer" : "default",
+                  background: isSelected ? "var(--accent)" : "var(--bg)",
+                  color: isSelected ? "#fff" : have > 0 ? "var(--text)" : "var(--border)",
+                  border: `1px solid ${isSelected ? "var(--accent)" : "var(--border)"}`,
+                  transition: "all 0.1s",
+                }}
+              >
+                {item.emoji} {have > 0 ? have : "0"}
+              </button>
+            );
+          })}
+        </div>
+
+        {selectedItem && (
+          <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", alignItems: "center" }}>
+            {SELL_AMOUNTS.map((amt) => {
+              const item = SELLABLE_ITEMS.find((i) => i.type === selectedItem);
+              const have = item
+                ? item.isCrop ? (game.crops[item.type] ?? 0) : (game.artisan[item.type] ?? 0)
+                : 0;
+              const qty = amt === "All" ? have : amt;
+              const disabled = have < qty || qty <= 0;
+              return (
+                <button
+                  key={amt}
+                  onClick={() => setSelectedAmount(amt)}
+                  disabled={disabled}
+                  style={{
+                    fontSize: "0.7rem", padding: "0.25rem 0.5rem",
+                    borderRadius: "6px", cursor: disabled ? "default" : "pointer",
+                    background: selectedAmount === amt ? "var(--accent)" : "var(--bg)",
+                    color: selectedAmount === amt ? "#fff" : disabled ? "var(--border)" : "var(--text)",
+                    border: `1px solid ${selectedAmount === amt ? "var(--accent)" : "var(--border)"}`,
+                    opacity: disabled ? 0.4 : 1,
+                  }}
+                >
+                  {amt === "All" ? `All (${have})` : `×${amt}`}
+                </button>
+              );
+            })}
+            <button
+              onClick={handleAssign}
+              className="btn"
+              style={{ fontSize: "0.7rem", padding: "0.25rem 0.75rem", marginLeft: "auto" }}
+            >
+              Assign →
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Gear upgrade */}
+      {nextGear && (
+        <div style={{
+          borderTop: "1px solid var(--border)", paddingTop: "0.6rem",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+        }}>
+          <div style={{ fontSize: "0.72rem", color: "var(--muted)" }}>
+            Upgrade to {nextGear.emoji} {nextGear.name}
+            <span style={{ marginLeft: "0.3rem", color: "var(--text)" }}>
+              ({nextGear.itemsPerSecond}/sec)
+            </span>
+          </div>
+          <button
+            onClick={() => onUpgrade(worker.id)}
+            disabled={(game.cash ?? 0) < nextGear.upgradeCost}
+            className="btn btn-secondary"
+            style={{ fontSize: "0.7rem", padding: "0.25rem 0.6rem" }}
+          >
+            ${nextGear.upgradeCost}
+          </button>
+        </div>
+      )}
+      {!nextGear && (
+        <div style={{
+          borderTop: "1px solid var(--border)", paddingTop: "0.6rem",
+          fontSize: "0.68rem", color: "#4ade80", textAlign: "center",
+        }}>
+          ✓ Max gear
+        </div>
+      )}
     </div>
   );
 }
- 
-export default function MarketZone({ game, onSell }) {
+
+// ─── Main zone ────────────────────────────────────────────────────────────────
+
+export default function MarketZone({ game, onHireMarketWorker, onAssignItem, onUpgradeMarketWorker, onFireMarketWorker }) {
   const cash = game.cash ?? 0;
   const lifetimeCash = game.lifetimeCash ?? 0;
+  const hireCost = getMarketWorkerHireCost(game);
+  const canHire = cash >= hireCost;
   const hasSavvy = (game.prestigeBonuses ?? []).includes("market_savvy");
- 
-  // Filter to items that exist in the current game (don't show tomatoes in season 1)
-  const availableItems = SELLABLE_ITEMS.filter((item) => {
-    if (item.isCrop) return item.type in game.crops;
-    return item.type in game.artisan;
-  });
- 
+
   return (
     <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 5rem" }}>
- 
+
       {/* Header */}
       <div style={{ marginBottom: "1rem" }}>
         <h2 style={{ fontSize: "1.2rem", fontWeight: 700 }}>💰 Market</h2>
         <p style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: "0.15rem" }}>
-          Sell crops and artisan goods for cash. Items sell 1 per second from the queue.
+          Hire market workers to sell your crops and artisan goods for cash.
         </p>
       </div>
- 
+
       {/* Cash summary */}
       <div className="card p-4" style={{ marginBottom: "1.25rem" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -157,25 +250,66 @@ export default function MarketZone({ game, onSell }) {
           </div>
         )}
       </div>
- 
-      {/* Active sell queue */}
-      <SellQueue marketQueue={game.marketQueue ?? []} prestigeBonuses={game.prestigeBonuses} />
- 
-      {/* Sell cards */}
-      <div style={{ marginBottom: "0.5rem" }}>
-        <h3 style={{ fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.75rem" }}>Sell Items</h3>
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-          {availableItems.map((item) => (
-            <SellCard
-              key={item.type}
-              item={item}
+
+      {/* Sell rates reference */}
+      <div className="card p-3" style={{ marginBottom: "1.25rem", fontSize: "0.72rem" }}>
+        <div style={{ fontWeight: 600, marginBottom: "0.4rem", color: "var(--muted)" }}>
+          Sell rates
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
+          {SELLABLE_ITEMS.map((item) => {
+            const rate = getSellRate(item.type, game.prestigeBonuses ?? []);
+            const base = MARKET_SELL_RATES[item.type];
+            const boosted = rate > base;
+            return (
+              <div key={item.type} style={{
+                background: "var(--bg)", borderRadius: "6px",
+                padding: "0.2rem 0.5rem", fontSize: "0.68rem",
+              }}>
+                {item.emoji} {boosted ? (
+                  <span style={{ color: "#4ade80", fontWeight: 600 }}>${rate.toFixed(2)}</span>
+                ) : (
+                  <span>${rate}</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Hire worker */}
+      <div style={{ marginBottom: "1.25rem" }}>
+        <button
+          onClick={onHireMarketWorker}
+          disabled={!canHire}
+          className="btn w-full"
+          style={{ opacity: canHire ? 1 : 0.5 }}
+        >
+          🛒 Hire Market Worker — ${hireCost}
+        </button>
+        {(game.marketWorkers ?? []).length === 0 && (
+          <p style={{ fontSize: "0.7rem", color: "var(--muted)", marginTop: "0.4rem", textAlign: "center" }}>
+            Hire a worker to start selling. Each worker manages their own sell queue.
+          </p>
+        )}
+      </div>
+
+      {/* Worker cards */}
+      {(game.marketWorkers ?? []).length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+          {game.marketWorkers.map((worker) => (
+            <MarketWorkerCard
+              key={worker.id}
+              worker={worker}
               game={game}
-              onSell={onSell}
+              onAssign={onAssignItem}
+              onUpgrade={onUpgradeMarketWorker}
+              onFire={onFireMarketWorker}
             />
           ))}
         </div>
-      </div>
- 
+      )}
+
     </div>
   );
 }

@@ -1,21 +1,17 @@
 // src/Pages/rootwork/components/GameNav.jsx
- 
+
 import React from "react";
 import { CROPS, SEASON_FARMS } from "../gameConstants";
-import { isFarmAutomated } from "../gameEngine";
- 
-// ─── Bottom nav tab definition ────────────────────────────────────────────────
- 
+import { isFarmAutomated, getIdleKitchenWorkerCount } from "../gameEngine";
+
 export const MAIN_TABS = ["farms", "market", "kitchen", "season"];
- 
-// ─── Farm sub-tabs (scrollable strip at top) ──────────────────────────────────
- 
+
 export function FarmSubTabs({ game, activeFarmIndex, onFarmChange }) {
   const availableCropIds = SEASON_FARMS[game.season] ?? ["wheat"];
   const farms = game.farms.filter((f) => availableCropIds.includes(f.crop));
- 
+
   if (farms.length <= 1) return null;
- 
+
   return (
     <div style={{
       background: "var(--bg-elev)",
@@ -60,16 +56,14 @@ export function FarmSubTabs({ game, activeFarmIndex, onFarmChange }) {
     </div>
   );
 }
- 
-// ─── Bottom nav ───────────────────────────────────────────────────────────────
- 
+
 export default function GameNav({ game, activeMainTab, onMainTabChange, prestigeReady }) {
-  const marketUnlocked = game.marketUnlocked;
-  const kitchenPurchased = game.kitchenPurchased;
- 
-  const processingCount = (game.processingQueue ?? []).filter((i) => !i.done).length;
-  const marketQueueCount = (game.marketQueue ?? []).reduce((s, o) => s + o.quantity, 0);
- 
+  const idleKitchenWorkers = getIdleKitchenWorkerCount(game);
+  const marketQueueTotal = (game.marketWorkers ?? []).reduce(
+    (s, w) => s + (w.queue ?? []).reduce((qs, o) => qs + o.quantity, 0), 0
+  );
+  const processingCount = (game.kitchenWorkers ?? []).filter((w) => w.busy).length;
+
   const tabs = [
     {
       id: "farms",
@@ -81,17 +75,15 @@ export default function GameNav({ game, activeMainTab, onMainTabChange, prestige
       id: "market",
       label: "Market",
       emoji: "💰",
-      badge: marketQueueCount > 0 ? marketQueueCount : null,
+      badge: marketQueueTotal > 0 ? marketQueueTotal : null,
       badgeColor: "#4ade80",
-      locked: !marketUnlocked,
     },
     {
       id: "kitchen",
       label: "Kitchen",
       emoji: "🏭",
-      badge: processingCount > 0 ? processingCount : null,
-      badgeColor: "var(--accent)",
-      locked: false, // always visible; shows purchase prompt if not bought
+      badge: idleKitchenWorkers > 0 ? idleKitchenWorkers : processingCount > 0 ? processingCount : null,
+      badgeColor: idleKitchenWorkers > 0 ? "#ef4444" : "var(--accent)",
     },
     {
       id: "season",
@@ -101,7 +93,7 @@ export default function GameNav({ game, activeMainTab, onMainTabChange, prestige
       badgeColor: "#f59e0b",
     },
   ];
- 
+
   return (
     <div style={{
       position: "fixed",
@@ -116,7 +108,6 @@ export default function GameNav({ game, activeMainTab, onMainTabChange, prestige
     }}>
       {tabs.map((tab) => {
         const isActive = activeMainTab === tab.id;
-        const isLocked = tab.locked;
         return (
           <button
             key={tab.id}
@@ -133,18 +124,18 @@ export default function GameNav({ game, activeMainTab, onMainTabChange, prestige
               background: "none",
               border: "none",
               borderTop: isActive ? "2px solid var(--accent)" : "2px solid transparent",
-              cursor: isLocked ? "default" : "pointer",
-              color: isLocked ? "var(--border)" : isActive ? "var(--accent)" : "var(--muted)",
+              cursor: "pointer",
+              color: isActive ? "var(--accent)" : "var(--muted)",
               fontWeight: isActive ? 600 : 400,
               fontSize: "0.68rem",
               transition: "color 0.15s ease",
             }}
           >
-            <span style={{ fontSize: "1.2rem", lineHeight: 1, opacity: isLocked ? 0.35 : 1 }}>
+            <span style={{ fontSize: "1.2rem", lineHeight: 1 }}>
               {tab.emoji}
             </span>
-            <span>{isLocked ? "🔒" : tab.label}</span>
-            {tab.badge && !isLocked && (
+            <span>{tab.label}</span>
+            {tab.badge && (
               <span style={{
                 position: "absolute", top: "4px", right: "calc(50% - 18px)",
                 background: tab.badgeColor, color: "#fff",

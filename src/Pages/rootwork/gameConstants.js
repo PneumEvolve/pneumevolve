@@ -1,5 +1,5 @@
 // src/Pages/rootwork/gameConstants.js
- 
+
 // ─── Crops ────────────────────────────────────────────────────────────────────
 export const CROPS = {
   wheat: {
@@ -30,7 +30,7 @@ export const CROPS = {
     season: 3,
   },
 };
- 
+
 // ─── Gear ─────────────────────────────────────────────────────────────────────
 export const GEAR = {
   bare_hands: {
@@ -75,13 +75,13 @@ export const GEAR = {
     emoji: "🚜",
     plotsPerCycle: 5,
     cycleSeconds: 6,
-    upgradeCost: 100,
+    upgradeCost: 500,
     description: "Harvests 5 plots every 6s. Near full automation.",
   },
 };
- 
+
 export const GEAR_ORDER = ["bare_hands", "gloves", "hoe", "wheelbarrow", "tractor"];
- 
+
 export const GEAR_CROP_COSTS = {
   bare_hands: null,
   gloves: "wheat",
@@ -89,34 +89,34 @@ export const GEAR_CROP_COSTS = {
   wheelbarrow: "berries",
   tractor: "tomatoes",
 };
- 
+
 // ─── Specialization ───────────────────────────────────────────────────────────
 export const SPECIALIZE_COST = 50;
 export const SPECIALIZE_CROP = "berries";
- 
+
 // ─── Plot unlock costs ────────────────────────────────────────────────────────
 export const PLOT_BASE_COST = 5;
 export const PLOT_COST_MULTIPLIER = 1.4;
 export const MAX_PLOTS = 25;
- 
+
 // ─── Plot upgrade ─────────────────────────────────────────────────────────────
 export const PLOT_UPGRADE_COST = 1;
 export const PLOT_UPGRADE_GROW_MULTIPLIER = 0.5;
- 
+
 export const CROP_ARTISAN = {
   wheat: "bread",
   berries: "jam",
   tomatoes: "sauce",
 };
- 
+
 // ─── Worker hire cost ─────────────────────────────────────────────────────────
 export const WORKER_HIRE_BASE_COST = 10;
 export const WORKER_HIRE_MULTIPLIER = 1.5;
- 
+
 // ─── Automation requirements ──────────────────────────────────────────────────
 export const AUTOMATION_THRESHOLD = 4;
 export const MIN_PLOTS_FOR_AUTOMATION = 4;
- 
+
 // ─── Worker specializations ───────────────────────────────────────────────────
 export const SPECIALIZATIONS = {
   none: { id: "none", name: "General", description: "No specialization." },
@@ -136,83 +136,123 @@ export const SPECIALIZATIONS = {
     growMultiplier: 0.8,
   },
 };
- 
+
 // ─── Tend tool ────────────────────────────────────────────────────────────────
 export const TEND_SECONDS = 3;
- 
+
 // ─── Processing recipes ───────────────────────────────────────────────────────
 export const PROCESSING_RECIPES = {
   bread: {
     id: "bread", name: "Bread", emoji: "🍞",
-    inputCrop: "wheat", inputAmount: 20,
+    inputCrop: "wheat", inputAmount: 200,
     outputGood: "bread", outputAmount: 1, seconds: 120,
-    description: "Upgrade a Wheat plot — 50% faster grow time.",
+    description: "Bake bread from wheat. Used for plot upgrades and feasts.",
   },
   jam: {
     id: "jam", name: "Jam", emoji: "🍯",
-    inputCrop: "berries", inputAmount: 15,
+    inputCrop: "berries", inputAmount: 150,
     outputGood: "jam", outputAmount: 1, seconds: 180,
-    description: "Upgrade a Berry plot — 50% faster grow time.",
+    description: "Craft jam from berries. Used for plot upgrades and feasts.",
   },
   sauce: {
     id: "sauce", name: "Sauce", emoji: "🥫",
-    inputCrop: "tomatoes", inputAmount: 10,
+    inputCrop: "tomatoes", inputAmount: 100,
     outputGood: "sauce", outputAmount: 1, seconds: 240,
-    description: "Upgrade a Tomato plot — 50% faster grow time.",
-  },
-  feast: {
-    id: "feast", name: "Feast", emoji: "🍽️",
-    inputCrop: null,
-    description: "Permanent global grow speed bonus for all farms. Stackable.",
+    description: "Make sauce from tomatoes. Used for plot upgrades and feasts.",
   },
 };
- 
+
 // ─── Feast tiers ──────────────────────────────────────────────────────────────
 export const FEAST_TIERS = [
-  { cost: 5,    bonusPercent: 1  },
-  { cost: 15,   bonusPercent: 2  },
-  { cost: 40,   bonusPercent: 3  },
-  { cost: 100,  bonusPercent: 5  },
-  { cost: 250,  bonusPercent: 8  },
-  { cost: 600,  bonusPercent: 12 },
-  { cost: 1000, bonusPercent: 19 },
+  { cost: 3,   bonusPercent: 1  },
+  { cost: 6,   bonusPercent: 2  },
+  { cost: 12,  bonusPercent: 3  },
+  { cost: 25,  bonusPercent: 5  },
+  { cost: 50,  bonusPercent: 8  },
+  { cost: 100, bonusPercent: 12 },
+  { cost: 200, bonusPercent: 19 },
 ];
 export const FEAST_MAX_BONUS = 50;
- 
+
 // ─── Market ───────────────────────────────────────────────────────────────────
 export const MARKET_SELL_RATES = {
   wheat: 1, berries: 2, tomatoes: 3,
-  bread: 4, jam: 6, sauce: 8, feast: 15,
+  bread: 8, jam: 12, sauce: 16,
 };
-export const MARKET_SELL_RATE_PER_SECOND = 1;
- 
-// ─── Kitchen purchase ─────────────────────────────────────────────────────────
-export const KITCHEN_BASE_COST = 20;
-export const KITCHEN_SLOT_COSTS = [50, 150]; // slot 2, slot 3
- 
-// Ordered: speed first, auto-restart last (best)
-export const KITCHEN_SLOT_UPGRADES = {
+
+// ─── Market workers ───────────────────────────────────────────────────────────
+export const MARKET_WORKER_HIRE_COST = 25;   // cash
+export const MARKET_WORKER_HIRE_MULTIPLIER = 2;
+
+export const MARKET_WORKER_GEAR = {
+  cart: {
+    id: "cart",
+    name: "Cart",
+    emoji: "🛒",
+    itemsPerSecond: 1,
+    upgradeCost: null,
+    description: "Sells 1 item per second.",
+  },
+  wagon: {
+    id: "wagon",
+    name: "Wagon",
+    emoji: "🪵",
+    itemsPerSecond: 2,
+    upgradeCost: 75,
+    description: "Sells 2 items per second.",
+  },
+  truck: {
+    id: "truck",
+    name: "Truck",
+    emoji: "🚚",
+    itemsPerSecond: 5,
+    upgradeCost: 200,
+    description: "Sells 5 items per second.",
+  },
+};
+export const MARKET_WORKER_GEAR_ORDER = ["cart", "wagon", "truck"];
+
+// ─── Kitchen workers ──────────────────────────────────────────────────────────
+export const KITCHEN_WORKER_HIRE_COST = 30;  // cash
+export const KITCHEN_WORKER_HIRE_MULTIPLIER = 2;
+
+export const KITCHEN_WORKER_UPGRADES = {
   speed_1: {
-    id: "speed_1", name: "Speed Boost I", emoji: "⚡",
-    cost: 30,
-    description: "+25% processing speed for this slot.",
+    id: "speed_1",
+    name: "Sharp Knife",
+    emoji: "🔪",
+    cost: 50,
+    description: "+25% processing speed.",
     speedMultiplier: 0.75,
   },
   speed_2: {
-    id: "speed_2", name: "Speed Boost II", emoji: "⚡⚡",
-    cost: 50,
-    description: "+50% processing speed for this slot (replaces Speed I).",
+    id: "speed_2",
+    name: "Prep Station",
+    emoji: "🍳",
+    cost: 150,
+    description: "+50% processing speed (replaces Sharp Knife).",
     speedMultiplier: 0.5,
     requires: "speed_1",
   },
   auto_restart: {
-    id: "auto_restart", name: "Auto-Restart", emoji: "🔄",
-    cost: 100,
-    description: "Automatically restarts this recipe when it finishes.",
+    id: "auto_restart",
+    name: "Auto-Restart",
+    emoji: "🔄",
+    cost: 300,
+    description: "Automatically restarts recipe when finished, if ingredients available.",
+    requires: "speed_2",
   },
 };
-export const KITCHEN_UPGRADE_ORDER = ["speed_1", "speed_2", "auto_restart"];
- 
+export const KITCHEN_WORKER_UPGRADE_ORDER = ["speed_1", "speed_2", "auto_restart"];
+
+// ─── Legacy kitchen constants (kept for migration in deserializeState) ────────
+export const KITCHEN_BASE_COST = 20;
+export const KITCHEN_SLOT_COSTS = [50, 150];
+export const KITCHEN_SLOT_UPGRADES = {
+  speed_1: { speedMultiplier: 0.75 },
+  speed_2: { speedMultiplier: 0.5 },
+};
+
 // ─── Prestige bonuses ─────────────────────────────────────────────────────────
 export const PRESTIGE_BONUSES = {
   bumper_crop: {
@@ -232,40 +272,37 @@ export const PRESTIGE_BONUSES = {
     description: "All market sell prices permanently +25%. Stacks.",
   },
 };
- 
+
 // ─── Prestige cash thresholds ─────────────────────────────────────────────────
-export const PRESTIGE_CASH_THRESHOLDS = [100, 200, 400]; // seasons 1→2, 2→3, 3→4
+export const PRESTIGE_CASH_THRESHOLDS = [100, 200, 400];
 export const PRESTIGE_CASH_THRESHOLD_INCREMENT = 200;
- 
+
 export function getPrestigeCashThreshold(currentSeason) {
   if (currentSeason <= 3) return PRESTIGE_CASH_THRESHOLDS[currentSeason - 1];
   return 400 + (currentSeason - 3) * PRESTIGE_CASH_THRESHOLD_INCREMENT;
 }
- 
+
 // ─── Extra farm unlocks (season 4+) ──────────────────────────────────────────
-// Each prestige from season 4 onward offers a new farm slot purchased with cash.
-// extraFarmIndex 0 = first extra farm, 1 = second, etc.
 export const FARM_UNLOCK_BASE_COST = 300;
 export const FARM_UNLOCK_COST_INCREMENT = 200;
- 
+
 export function getFarmUnlockCost(extraFarmIndex) {
   return FARM_UNLOCK_BASE_COST + extraFarmIndex * FARM_UNLOCK_COST_INCREMENT;
 }
- 
+
 export const EXTRA_FARM_CROPS = ["wheat", "berries", "tomatoes"];
- 
+
 // ─── Season structure ─────────────────────────────────────────────────────────
-// Fixed farms for seasons 1-3. Season 4+ gets extra farms via cash unlock.
 export const SEASON_FARMS = {
   1: ["wheat"],
   2: ["wheat", "berries"],
   3: ["wheat", "berries", "tomatoes"],
 };
- 
+
 export const FIRST_EXTRA_FARM_SEASON = 4;
 export const MAX_SEASON = 999;
- 
+
 // ─── Save config ──────────────────────────────────────────────────────────────
 export const SAVE_KEY = "rootwork_save";
 export const SAVE_INTERVAL_MS = 30_000;
-export const MAX_OFFLINE_SECONDS = 4 * 60 * 60; // 4 hours
+export const MAX_OFFLINE_SECONDS = 4 * 60 * 60;

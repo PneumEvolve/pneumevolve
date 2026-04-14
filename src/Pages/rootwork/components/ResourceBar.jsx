@@ -1,14 +1,14 @@
 // src/Pages/rootwork/components/ResourceBar.jsx
- 
+
 import React from "react";
 import { CROPS, SEASON_FARMS } from "../gameConstants";
- 
+
 export default function ResourceBar({ game }) {
   const availableCropIds = SEASON_FARMS[game.season] ?? ["wheat"];
   const cash = game.cash ?? 0;
   const artisan = game.artisan ?? {};
   const hasArtisan = Object.values(artisan).some((v) => v > 0);
- 
+
   return (
     <div style={{
       background: "var(--bg-elev)",
@@ -20,7 +20,7 @@ export default function ResourceBar({ game }) {
       flexWrap: "wrap",
       gap: "0.5rem",
     }}>
- 
+
       {/* Crops */}
       <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
         {availableCropIds.map((cropId) => {
@@ -40,7 +40,7 @@ export default function ResourceBar({ game }) {
           );
         })}
       </div>
- 
+
       {/* Artisan goods — only show if any exist */}
       {hasArtisan && (
         <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
@@ -64,18 +64,16 @@ export default function ResourceBar({ game }) {
           })}
         </div>
       )}
- 
+
       {/* Right side: cash + season */}
       <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-        {game.marketUnlocked && (
-          <div style={{
-            display: "flex", alignItems: "center", gap: "0.25rem",
-            fontSize: "0.85rem", fontWeight: 600, color: "#4ade80",
-          }}>
-            <span>💰</span>
-            <span>${Math.floor(cash)}</span>
-          </div>
-        )}
+        <div style={{
+          display: "flex", alignItems: "center", gap: "0.25rem",
+          fontSize: "0.85rem", fontWeight: 600, color: "#4ade80",
+        }}>
+          <span>💰</span>
+          <span>${Math.floor(cash)}</span>
+        </div>
         <div style={{
           fontSize: "0.7rem", color: "var(--muted)", fontWeight: 500,
           letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap",
@@ -83,7 +81,7 @@ export default function ResourceBar({ game }) {
           Season {game.season}
         </div>
       </div>
- 
+
     </div>
   );
 }
