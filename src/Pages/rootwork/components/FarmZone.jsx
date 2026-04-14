@@ -46,7 +46,7 @@ export default function FarmZone({
   const atMax = farm.unlockedPlots >= maxPlots;
 
   // First-time hint: show when no workers and something is ready or growing
-  const showWorkerHint = farmWorkers.length === 0 && (readyCount > 0 || plantedCount > 0);
+  const showWorkerHint = farmWorkers.length === 0;
 
   const automatedBg = "rgba(74, 222, 128, 0.15)";
   const automatedBorder = "#4ade80";
