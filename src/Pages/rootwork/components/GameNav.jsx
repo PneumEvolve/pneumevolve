@@ -7,8 +7,10 @@ import { isFarmAutomated, getIdleKitchenWorkerCount } from "../gameEngine";
 export const MAIN_TABS = ["farms", "market", "kitchen", "season"];
 
 export function FarmSubTabs({ game, activeFarmIndex, onFarmChange }) {
-  const availableCropIds = SEASON_FARMS[game.season] ?? ["wheat"];
-  const farms = game.farms.filter((f) => availableCropIds.includes(f.crop));
+  // Season 4+: show all farms since they're player-chosen, not fixed
+  const farms = game.season >= 4
+    ? game.farms
+    : game.farms.filter((f) => (SEASON_FARMS[game.season] ?? ["wheat"]).includes(f.crop));
 
   if (farms.length <= 1) return null;
 

@@ -4,7 +4,9 @@ import React from "react";
 import { CROPS, SEASON_FARMS } from "../gameConstants";
 
 export default function ResourceBar({ game }) {
-  const availableCropIds = SEASON_FARMS[game.season] ?? ["wheat"];
+  const availableCropIds = game.season >= 4
+  ? game.farms.map((f) => f.crop)
+  : SEASON_FARMS[game.season] ?? ["wheat"];
   const cash = game.cash ?? 0;
   const artisan = game.artisan ?? {};
   const hasArtisan = Object.values(artisan).some((v) => v > 0);
