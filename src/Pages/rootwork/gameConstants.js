@@ -6,7 +6,7 @@ export const CROPS = {
     id: "wheat",
     name: "Wheat",
     emoji: "🌾",
-    growTime: 15,
+    growTime: 12,       // slightly faster — season 1 should feel productive
     manualYield: 3,
     workerYield: 2,
     season: 1,
@@ -15,7 +15,7 @@ export const CROPS = {
     id: "berries",
     name: "Berries",
     emoji: "🫐",
-    growTime: 30,
+    growTime: 25,       // slightly faster
     manualYield: 3,
     workerYield: 2,
     season: 2,
@@ -24,7 +24,7 @@ export const CROPS = {
     id: "tomatoes",
     name: "Tomatoes",
     emoji: "🍅",
-    growTime: 60,
+    growTime: 60,       // stays slow — season 3 luxury crop
     manualYield: 3,
     workerYield: 2,
     season: 3,
@@ -48,7 +48,7 @@ export const GEAR = {
     emoji: "🧤",
     plotsPerCycle: 1,
     cycleSeconds: 10,
-    upgradeCost: 30,
+    upgradeCost: 20,        // was 30 — early game, should be easy
     description: "Harvests 1 plot every 10s. 33% faster.",
   },
   hoe: {
@@ -57,8 +57,8 @@ export const GEAR = {
     emoji: "🪓",
     plotsPerCycle: 1,
     cycleSeconds: 6,
-    upgradeCost: 200,
-    description: "Harvests 1 plot every 6s. More than 2x faster than gloves.",
+    upgradeCost: 80,        // was 200 — mid season 1 target
+    description: "Harvests 1 plot every 6s. 40% faster than gloves.",
   },
   wheelbarrow: {
     id: "wheelbarrow",
@@ -66,7 +66,7 @@ export const GEAR = {
     emoji: "🛻",
     plotsPerCycle: 2,
     cycleSeconds: 6,
-    upgradeCost: 100,
+    upgradeCost: 40,        // paid in berries — season 2 early target
     description: "Harvests 2 plots every 6s. Double the coverage.",
   },
   tractor: {
@@ -75,7 +75,7 @@ export const GEAR = {
     emoji: "🚜",
     plotsPerCycle: 5,
     cycleSeconds: 6,
-    upgradeCost: 500,
+    upgradeCost: 80,        // paid in tomatoes — season 3 mid target
     description: "Harvests 5 plots every 6s. Near full automation.",
   },
 };
@@ -91,7 +91,7 @@ export const GEAR_CROP_COSTS = {
 };
 
 // ─── Specialization ───────────────────────────────────────────────────────────
-export const SPECIALIZE_COST = 50;
+export const SPECIALIZE_COST = 80;
 export const SPECIALIZE_CROP = "berries";
 
 // ─── Plot unlock costs ────────────────────────────────────────────────────────
@@ -144,20 +144,20 @@ export const TEND_SECONDS = 3;
 export const PROCESSING_RECIPES = {
   bread: {
     id: "bread", name: "Bread", emoji: "🍞",
-    inputCrop: "wheat", inputAmount: 200,
-    outputGood: "bread", outputAmount: 1, seconds: 120,
+    inputCrop: "wheat", inputAmount: 40,    // was 200 — 4-5 workers can feed this
+    outputGood: "bread", outputAmount: 1, seconds: 90,  // slightly faster
     description: "Bake bread from wheat. Used for plot upgrades and feasts.",
   },
   jam: {
     id: "jam", name: "Jam", emoji: "🍯",
-    inputCrop: "berries", inputAmount: 150,
-    outputGood: "jam", outputAmount: 1, seconds: 180,
+    inputCrop: "berries", inputAmount: 30,  // was 150
+    outputGood: "jam", outputAmount: 1, seconds: 120,
     description: "Craft jam from berries. Used for plot upgrades and feasts.",
   },
   sauce: {
     id: "sauce", name: "Sauce", emoji: "🥫",
-    inputCrop: "tomatoes", inputAmount: 100,
-    outputGood: "sauce", outputAmount: 1, seconds: 240,
+    inputCrop: "tomatoes", inputAmount: 20, // was 100
+    outputGood: "sauce", outputAmount: 1, seconds: 150,
     description: "Make sauce from tomatoes. Used for plot upgrades and feasts.",
   },
 };
@@ -176,13 +176,17 @@ export const FEAST_MAX_BONUS = 50;
 
 // ─── Market ───────────────────────────────────────────────────────────────────
 export const MARKET_SELL_RATES = {
-  wheat: 1, berries: 2, tomatoes: 3,
-  bread: 8, jam: 12, sauce: 16,
+  wheat: 0.5,
+  berries: 1,
+  tomatoes: 2,
+  bread: 30,
+  jam: 50,
+  sauce: 80,
 };
 
 // ─── Market workers ───────────────────────────────────────────────────────────
-export const MARKET_WORKER_HIRE_COST = 25;   // cash
-export const MARKET_WORKER_HIRE_MULTIPLIER = 2;
+export const MARKET_WORKER_HIRE_COST = 25;
+export const MARKET_WORKER_HIRE_MULTIPLIER = 2.5;  // was 2 — steeper scaling
 
 export const MARKET_WORKER_GEAR = {
   cart: {
@@ -198,30 +202,30 @@ export const MARKET_WORKER_GEAR = {
     name: "Wagon",
     emoji: "🪵",
     itemsPerSecond: 2,
-    upgradeCost: 75,
+    upgradeCost: 120,       // was 75 — meaningful early cash sink
     description: "Sells 2 items per second.",
   },
   truck: {
     id: "truck",
     name: "Truck",
     emoji: "🚚",
-    itemsPerSecond: 5,
-    upgradeCost: 200,
-    description: "Sells 5 items per second.",
+    itemsPerSecond: 4,      // was 5 — toned down slightly
+    upgradeCost: 400,       // was 200 — late game purchase
+    description: "Sells 4 items per second.",
   },
 };
 export const MARKET_WORKER_GEAR_ORDER = ["cart", "wagon", "truck"];
 
 // ─── Kitchen workers ──────────────────────────────────────────────────────────
-export const KITCHEN_WORKER_HIRE_COST = 30;  // cash
-export const KITCHEN_WORKER_HIRE_MULTIPLIER = 2;
+export const KITCHEN_WORKER_HIRE_COST = 30;
+export const KITCHEN_WORKER_HIRE_MULTIPLIER = 2.5;  // was 2 — steeper scaling
 
 export const KITCHEN_WORKER_UPGRADES = {
   speed_1: {
     id: "speed_1",
     name: "Sharp Knife",
     emoji: "🔪",
-    cost: 50,
+    cost: 80,               // was 50 — early milestone
     description: "+25% processing speed.",
     speedMultiplier: 0.75,
   },
@@ -229,7 +233,7 @@ export const KITCHEN_WORKER_UPGRADES = {
     id: "speed_2",
     name: "Prep Station",
     emoji: "🍳",
-    cost: 150,
+    cost: 250,              // was 150 — mid game milestone
     description: "+50% processing speed (replaces Sharp Knife).",
     speedMultiplier: 0.5,
     requires: "speed_1",
@@ -238,7 +242,7 @@ export const KITCHEN_WORKER_UPGRADES = {
     id: "auto_restart",
     name: "Auto-Restart",
     emoji: "🔄",
-    cost: 300,
+    cost: 600,              // was 300 — late game prize
     description: "Automatically restarts recipe when finished, if ingredients available.",
     requires: "speed_2",
   },
@@ -274,8 +278,8 @@ export const PRESTIGE_BONUSES = {
 };
 
 // ─── Prestige cash thresholds ─────────────────────────────────────────────────
-export const PRESTIGE_CASH_THRESHOLDS = [100, 200, 400];
-export const PRESTIGE_CASH_THRESHOLD_INCREMENT = 200;
+export const PRESTIGE_CASH_THRESHOLDS = [150, 400, 800];
+export const PRESTIGE_CASH_THRESHOLD_INCREMENT = 400;
 
 export function getPrestigeCashThreshold(currentSeason) {
   if (currentSeason <= 3) return PRESTIGE_CASH_THRESHOLDS[currentSeason - 1];

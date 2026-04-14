@@ -208,6 +208,7 @@ export default function MarketZone({ game, onHireMarketWorker, onAssignItem, onU
   const hireCost = getMarketWorkerHireCost(game);
   const canHire = cash >= hireCost;
   const hasSavvy = (game.prestigeBonuses ?? []).includes("market_savvy");
+  const isFirstWorker = (game.marketWorkers ?? []).length === 0;
 
   return (
     <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 5rem" }}>
@@ -280,13 +281,13 @@ export default function MarketZone({ game, onHireMarketWorker, onAssignItem, onU
       {/* Hire worker */}
       <div style={{ marginBottom: "1.25rem" }}>
         <button
-          onClick={onHireMarketWorker}
-          disabled={!canHire}
-          className="btn w-full"
-          style={{ opacity: canHire ? 1 : 0.5 }}
-        >
-          🛒 Hire Market Worker — ${hireCost}
-        </button>
+  onClick={onHireMarketWorker}
+  disabled={!isFirstWorker && !canHire}
+  className="btn w-full"
+  style={{ opacity: (isFirstWorker || canHire) ? 1 : 0.5 }}
+>
+  🛒 Hire Market Worker — {isFirstWorker ? "Free!" : `$${hireCost}`}
+</button>
         {(game.marketWorkers ?? []).length === 0 && (
           <p style={{ fontSize: "0.7rem", color: "var(--muted)", marginTop: "0.4rem", textAlign: "center" }}>
             Hire a worker to start selling. Each worker manages their own sell queue.

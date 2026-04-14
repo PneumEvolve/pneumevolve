@@ -688,9 +688,10 @@ export function specializeWorker(state, workerId, specializationId) {
 
 export function hireMarketWorker(state) {
   const next = deepCloneState(state);
-  const cost = getMarketWorkerHireCost(next);
-  if ((next.cash ?? 0) < cost) return state;
-  next.cash -= cost;
+  const isFirst = (next.marketWorkers ?? []).length === 0;
+  const cost = isFirst ? 0 : getMarketWorkerHireCost(next);
+  if (!isFirst && (next.cash ?? 0) < cost) return state;
+  if (!isFirst) next.cash -= cost;
   next.marketWorkers = [...(next.marketWorkers ?? []), makeMarketWorker()];
   return next;
 }
@@ -758,9 +759,10 @@ export function fireMarketWorker(state, workerId) {
 
 export function hireKitchenWorker(state) {
   const next = deepCloneState(state);
-  const cost = getKitchenWorkerHireCost(next);
-  if ((next.cash ?? 0) < cost) return state;
-  next.cash -= cost;
+  const isFirst = (next.kitchenWorkers ?? []).length === 0;
+  const cost = isFirst ? 0 : getKitchenWorkerHireCost(next);
+  if (!isFirst && (next.cash ?? 0) < cost) return state;
+  if (!isFirst) next.cash -= cost;
   next.kitchenWorkers = [...(next.kitchenWorkers ?? []), makeKitchenWorker()];
   return next;
 }

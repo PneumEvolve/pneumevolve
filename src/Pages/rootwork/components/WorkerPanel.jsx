@@ -24,10 +24,15 @@ function statLine(worker) {
   const cycleSeconds = getEffectiveCycleSeconds(worker);
   const plots = getEffectivePlots(worker);
   const spec = worker.specialization;
-  if (spec === "grower") return "Reduces farm grow time by 20%";
-  let line = `${plots} plot${plots > 1 ? "s" : ""} every ${cycleSeconds}s`;
-  if (spec === "sprinter") line += " (rests every 3rd cycle)";
-  return line;
+
+  const harvestLine = `${plots} plot${plots > 1 ? "s" : ""} every ${cycleSeconds}s`;
+  const extras = [];
+
+  if (spec === "grower") extras.push("🌱 -20% grow time on this farm");
+  if (spec === "sprinter") extras.push("rests every 3rd cycle");
+  if (spec === "harvester") extras.push("25% faster cycle");
+
+  return { harvestLine, extras };
 }
  
 function previewStatLine(worker, nextGearId) {
@@ -86,13 +91,21 @@ function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWor
       </div>
  
       {/* Stats */}
-      <div style={{
-        fontSize: "0.75rem", color: "var(--muted)", background: "var(--bg)",
-        border: "1px solid var(--border)", borderRadius: "8px",
-        padding: "0.4rem 0.65rem", lineHeight: 1.6,
-      }}>
-        <div>⚡ {statLine(worker)}</div>
-      </div>
+{(() => {
+  const { harvestLine, extras } = statLine(worker);
+  return (
+    <div style={{
+      fontSize: "0.75rem", color: "var(--muted)", background: "var(--bg)",
+      border: "1px solid var(--border)", borderRadius: "8px",
+      padding: "0.4rem 0.65rem", lineHeight: 1.6,
+    }}>
+      <div>⚡ {harvestLine}</div>
+      {extras.map((e, i) => (
+        <div key={i} style={{ color: "var(--text)", fontWeight: 500 }}>{e}</div>
+      ))}
+    </div>
+  );
+})()}
  
       {/* Upgrade path */}
       {mustSpecialize ? (

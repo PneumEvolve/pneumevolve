@@ -1,12 +1,12 @@
 // src/Pages/rootwork/components/FarmZone.jsx
- 
+
 import React, { useState } from "react";
 import { CROPS } from "../gameConstants";
 import { isFarmAutomated } from "../gameEngine";
 import FarmGrid from "./FarmGrid";
 import WorkerPanel from "./WorkerPanel";
 import UpgradePanel from "./UpgradePanel";
- 
+
 function Section({ title, defaultOpen = true, children }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
@@ -26,7 +26,7 @@ function Section({ title, defaultOpen = true, children }) {
     </div>
   );
 }
- 
+
 export default function FarmZone({
   farm, game,
   onPlant, onHarvest, onTend,
@@ -34,30 +34,31 @@ export default function FarmZone({
   onUpgradeGear, onSpecialize,
 }) {
   const [tendMode, setTendMode] = useState(false);
- 
+
   const crop = CROPS[farm.crop];
   const automated = isFarmAutomated(farm, game.workers);
   const farmWorkers = game.workers.filter((w) => w.farmId === farm.id);
   const readyCount = farm.plots.filter((p) => p.state === "ready").length;
   const plantedCount = farm.plots.filter((p) => p.state === "planted").length;
   const emptyCount = farm.plots.filter((p) => p.state === "empty").length;
- 
-  // Safari-safe colors — no color-mix()
+
+  // First-time hint: show when no workers and something is ready or growing
+  const showWorkerHint = farmWorkers.length === 0 && (readyCount > 0 || plantedCount > 0);
+
   const automatedBg = "rgba(74, 222, 128, 0.15)";
   const automatedBorder = "#4ade80";
   const automatedColor = "#166534";
   const manualBg = "rgba(99, 102, 241, 0.10)";
   const manualBorder = "rgba(99, 102, 241, 0.3)";
   const manualColor = "var(--accent)";
- 
   const tendActiveBg = "rgba(163, 230, 53, 0.20)";
   const tendActiveBorder = "#a3e635";
   const tendActiveColor = "#365314";
   const tendHintBg = "rgba(163, 230, 53, 0.12)";
- 
+
   return (
     <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 4rem" }}>
- 
+
       {/* Farm header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
         <div>
@@ -79,7 +80,24 @@ export default function FarmZone({
           {automated ? "Running" : "Manual"}
         </div>
       </div>
- 
+
+      {/* Worker hint banner */}
+      {showWorkerHint && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: "0.5rem",
+          background: "rgba(99, 102, 241, 0.10)",
+          border: "1px solid rgba(99, 102, 241, 0.3)",
+          borderRadius: "8px", padding: "0.5rem 0.75rem",
+          fontSize: "0.75rem", color: "var(--accent)",
+          marginBottom: "1rem", lineHeight: 1.5,
+        }}>
+          <span style={{ fontSize: "1rem" }}>💡</span>
+          <span>
+            Hire a worker below to harvest automatically — no more tapping every plot!
+          </span>
+        </div>
+      )}
+
       {/* Stats + Tend button */}
       <div className="card p-3" style={{
         display: "flex", alignItems: "center", gap: "0.75rem",
@@ -105,7 +123,7 @@ export default function FarmZone({
           🌿 {tendMode ? "Tending..." : "Tend"}
         </button>
       </div>
- 
+
       {tendMode && (
         <div style={{
           fontSize: "0.72rem", color: tendActiveColor,
@@ -117,10 +135,14 @@ export default function FarmZone({
           Tap a growing plot to tend it (-3s grow time). Tap Tend again to stop.
         </div>
       )}
- 
+
       <Section title="🌱 Plots" defaultOpen>
         <div style={{ paddingTop: "0.5rem" }}>
-          <FarmGrid farm={farm} game={game} onPlant={onPlant} onHarvest={onHarvest} onTend={onTend} tendMode={tendMode} />
+          <FarmGrid
+            farm={farm} game={game}
+            onPlant={onPlant} onHarvest={onHarvest}
+            onTend={onTend} tendMode={tendMode}
+          />
           {farmWorkers.length === 0 && !tendMode && (
             <p style={{ fontSize: "0.72rem", color: "var(--muted)", textAlign: "center", marginTop: "0.75rem", fontStyle: "italic" }}>
               Tap {crop.emoji} to plant · tap again when ready to harvest · use 🌿 Tend to speed up growth
@@ -128,8 +150,9 @@ export default function FarmZone({
           )}
         </div>
       </Section>
- 
-      <Section title="👷 Workers" defaultOpen={farmWorkers.length > 0}>
+
+      {/* Workers always open so new players see the hire button immediately */}
+      <Section title="👷 Workers" defaultOpen={true}>
         <div style={{ paddingTop: "0.5rem" }}>
           <WorkerPanel
             farm={farm} game={game}
@@ -140,12 +163,13 @@ export default function FarmZone({
           />
         </div>
       </Section>
- 
-      <Section title="⬆️ Upgrades" defaultOpen={false}>
+
+      <Section title="🟫 Buy Plots" defaultOpen={false}>
         <div style={{ paddingTop: "0.5rem" }}>
           <UpgradePanel farm={farm} game={game} onBuyPlot={onBuyPlot} />
         </div>
       </Section>
+
     </div>
   );
 }
