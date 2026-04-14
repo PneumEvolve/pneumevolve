@@ -327,71 +327,86 @@ export function calculateOfflineProgress(state, nowMs) {
   let next = deepCloneState(state);
   const feast = next.feastBonusPercent ?? 0;
 
-  // ── Farms ─────────────────────────────────────────────────────────────────
-  for (const farm of next.farms) {
-    const crop = CROPS[farm.crop];
-    const farmWorkers = next.workers.filter((w) => w.farmId === farm.id);
+// ── Farms ─────────────────────────────────────────────────────────────────
+for (const farm of next.farms) {
+  const crop = CROPS[farm.crop];
+  const farmWorkers = next.workers.filter((w) => w.farmId === farm.id);
 
-    // Advance pre-existing planted plots
-    for (const plot of farm.plots) {
-      if (plot.state === "planted" && plot.growthTick > 0) {
-        const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, feast);
-        plot.growthTick = Math.min(plot.growthTick + seconds, growTime);
-        if (plot.growthTick >= growTime) plot.state = "ready";
-      }
+  // Tag all currently planted plots as pre-existing so we can
+  // distinguish them from plots replanted during the simulation
+  const preExistingPlotIds = new Set(
+    farm.plots.filter((p) => p.state === "planted").map((p) => p.id)
+  );
+
+  // Advance all pre-existing planted plots by the full offline window
+  for (const plot of farm.plots) {
+    if (plot.state === "planted" && preExistingPlotIds.has(plot.id)) {
+      const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, feast);
+      plot.growthTick = Math.min(plot.growthTick + seconds, growTime);
+      if (plot.growthTick >= growTime) plot.state = "ready";
     }
+  }
 
-    if (farmWorkers.length === 0) continue;
+  if (farmWorkers.length === 0) continue;
 
-    for (const worker of farmWorkers) {
-      const cycleSeconds = getEffectiveCycleSeconds(worker);
-      const totalWorkerTime = seconds + worker.cycleProgress;
-      const completedCycles = Math.floor(totalWorkerTime / cycleSeconds);
-      worker.cycleProgress = totalWorkerTime % cycleSeconds;
-      if (completedCycles === 0) continue;
+  for (const worker of farmWorkers) {
+    const cycleSeconds = getEffectiveCycleSeconds(worker);
+    const totalWorkerTime = seconds + worker.cycleProgress;
+    const completedCycles = Math.floor(totalWorkerTime / cycleSeconds);
+    worker.cycleProgress = totalWorkerTime % cycleSeconds;
+    if (completedCycles === 0) continue;
 
-      for (let c = 0; c < completedCycles; c++) {
-        const resting = isSprinterResting(worker);
-        worker.cycleCount = (worker.cycleCount ?? 0) + 1;
-        if (resting) continue;
+    for (let c = 0; c < completedCycles; c++) {
+      const resting = isSprinterResting(worker);
+      worker.cycleCount = (worker.cycleCount ?? 0) + 1;
+      if (resting) continue;
 
-        const plotsPerCycle = getEffectivePlotsPerCycle(worker);
-        let harvested = 0;
+      const plotsPerCycle = getEffectivePlotsPerCycle(worker);
+      let harvested = 0;
 
-        for (const plot of farm.plots) {
-          if (harvested >= plotsPerCycle) break;
-          if (plot.state === "ready") {
-            const { crops, newPool } = applyYieldBonuses(crop.workerYield, next.prestigeBonuses, next.yieldPool ?? 0);
-            next.crops[farm.crop] = (next.crops[farm.crop] ?? 0) + crops;
-            next.yieldPool = newPool;
-            plot.state = "empty";
-            plot.growthTick = 0;
-            harvested++;
-          }
+      for (const plot of farm.plots) {
+        if (harvested >= plotsPerCycle) break;
+        if (plot.state === "ready") {
+          const { crops, newPool } = applyYieldBonuses(
+            crop.workerYield, next.prestigeBonuses, next.yieldPool ?? 0
+          );
+          next.crops[farm.crop] = (next.crops[farm.crop] ?? 0) + crops;
+          next.yieldPool = newPool;
+          plot.state = "empty";
+          plot.growthTick = 0;
+          harvested++;
         }
+      }
 
-        let replanted = 0;
-        for (const plot of farm.plots) {
-          if (replanted >= plotsPerCycle) break;
-          if (plot.state === "empty") {
-            plot.state = "planted";
-            plot.growthTick = 0;
-            replanted++;
-          }
+      let replanted = 0;
+      for (const plot of farm.plots) {
+        if (replanted >= plotsPerCycle) break;
+        if (plot.state === "empty") {
+          plot.state = "planted";
+          plot.growthTick = 0;
+          // Mark as freshly replanted so the growth advance below applies
+          // but the pre-existing pass above does NOT apply to it
+          replanted++;
         }
+      }
 
-        const secondsElapsedSoFar = (c + 1) * cycleSeconds;
-        const secondsRemaining = Math.max(0, seconds - secondsElapsedSoFar);
-        for (const plot of farm.plots) {
-          if (plot.state === "planted" && plot.growthTick === 0) {
-            const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, feast);
-            plot.growthTick = Math.min(secondsRemaining, growTime);
-            if (plot.growthTick >= growTime) plot.state = "ready";
-          }
+      // Advance only freshly replanted plots (growthTick === 0, not pre-existing)
+      const secondsElapsedSoFar = (c + 1) * cycleSeconds;
+      const secondsRemaining = Math.max(0, seconds - secondsElapsedSoFar);
+      for (const plot of farm.plots) {
+        if (
+          plot.state === "planted" &&
+          plot.growthTick === 0 &&
+          !preExistingPlotIds.has(plot.id)  // only freshly replanted
+        ) {
+          const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, feast);
+          plot.growthTick = Math.min(secondsRemaining, growTime);
+          if (plot.growthTick >= growTime) plot.state = "ready";
         }
       }
     }
   }
+}
 
   // ── Kitchen workers ───────────────────────────────────────────────────────
   for (const worker of next.kitchenWorkers ?? []) {
