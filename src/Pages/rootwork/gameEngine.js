@@ -37,6 +37,9 @@ import {
   getPrestigeCashThreshold,
   getFarmUnlockCost,
   EXTRA_FARM_CROPS,
+  FARM_INVESTMENT_PLOT_CAP,
+  FARM_INVESTMENT_YIELD,
+  MARKET_WORKER_STANDING_ORDER_COST,
 } from "./gameConstants";
 
 let _idCounter = 0;
@@ -80,8 +83,29 @@ export function makeMarketWorker() {
   return {
     id: genId("mworker"),
     gear: "cart",
-    queue: [],      // [{ itemType, quantity }]
+    queue: [],
+    standingOrder: null,      // itemType string or null
+    hasStandingOrder: false,  // whether upgrade is purchased
   };
+}
+
+export function buyMarketWorkerStandingOrder(state, workerId) {
+  const next = deepCloneState(state);
+  const worker = (next.marketWorkers ?? []).find((w) => w.id === workerId);
+  if (!worker) return state;
+  if (worker.hasStandingOrder) return state;
+  if ((next.cash ?? 0) < MARKET_WORKER_STANDING_ORDER_COST) return state;
+  next.cash -= MARKET_WORKER_STANDING_ORDER_COST;
+  worker.hasStandingOrder = true;
+  return next;
+}
+
+export function setMarketWorkerStandingOrder(state, workerId, itemType) {
+  const next = deepCloneState(state);
+  const worker = (next.marketWorkers ?? []).find((w) => w.id === workerId);
+  if (!worker || !worker.hasStandingOrder) return state;
+  worker.standingOrder = itemType;
+  return next;
 }
 
 export function makeKitchenWorker() {
@@ -114,13 +138,11 @@ export function createInitialState() {
     workers: [],
     crops: { wheat: 0, berries: 0, tomatoes: 0 },
     artisan: { bread: 0, jam: 0, sauce: 0 },
-    // Kitchen
     kitchenWorkers: [],
-    // Market
     marketWorkers: [],
     cash: 0,
     lifetimeCash: 0,
-    // Extra farm unlock (season 4+)
+    farmInvestments: {},  // { [farmId]: { plotCapIndex: 0, yieldIndex: 0 } }
     extraFarmsUnlocked: 0,
     pendingFarmUnlock: false,
     lastSavedTime: Date.now(),
@@ -139,8 +161,9 @@ export function getNextGear(currentGear) {
   return GEAR_ORDER[idx + 1];
 }
 
-export function getPlotUnlockCost(currentPlotCount) {
-  if (currentPlotCount >= MAX_PLOTS) return null;
+export function getPlotUnlockCost(state, farmId, currentPlotCount) {
+  const maxPlots = getFarmMaxPlots(state, farmId);
+  if (currentPlotCount >= maxPlots) return null;
   const purchaseIndex = currentPlotCount - 1;
   const raw = PLOT_BASE_COST * Math.pow(PLOT_COST_MULTIPLIER, purchaseIndex);
   return Math.max(5, Math.round(raw / 5) * 5);
@@ -165,17 +188,6 @@ export function getWorkerHireCost(state, farmId) {
   return Math.round(raw / 5) * 5;
 }
 
-export function applyYieldBonuses(baseYield, prestigeBonuses, currentPool = 0) {
-  const bumperCount = prestigeBonuses.filter((b) => b === "bumper_crop").length;
-  if (bumperCount === 0) return { crops: baseYield, newPool: currentPool };
-  const multiplier = 1 + bumperCount * 0.1;
-  const exact = baseYield * multiplier;
-  const whole = Math.floor(exact);
-  const fraction = exact - whole;
-  const newPool = currentPool + fraction;
-  const bonus = Math.floor(newPool);
-  return { crops: whole + bonus, newPool: newPool - bonus };
-}
 
 export function getEffectiveCycleSeconds(worker) {
   const gear = GEAR[worker.gear];
@@ -223,6 +235,34 @@ export function getFarmGrowTime(farm, workers, cropId, feastBonusPercent = 0) {
 export function getNextFeastTier(state) {
   const idx = state.feastTierIndex ?? 0;
   return FEAST_TIERS[idx] ?? null;
+}
+
+// ─── Farm investment helpers ──────────────────────────────────────────────────
+
+export function getFarmInvestment(state, farmId) {
+  return (state.farmInvestments ?? {})[farmId] ?? { plotCapIndex: 0, yieldIndex: 0 };
+}
+
+export function getFarmMaxPlots(state, farmId) {
+  const inv = getFarmInvestment(state, farmId);
+  const capUpgrade = FARM_INVESTMENT_PLOT_CAP[inv.plotCapIndex - 1];
+  return capUpgrade ? capUpgrade.maxPlots : MAX_PLOTS;
+}
+
+export function getFarmBonusYield(state, farmId) {
+  const inv = getFarmInvestment(state, farmId);
+  const yieldUpgrade = FARM_INVESTMENT_YIELD[inv.yieldIndex - 1];
+  return yieldUpgrade ? yieldUpgrade.bonusYield : 0;
+}
+
+export function getNextPlotCapUpgrade(state, farmId) {
+  const inv = getFarmInvestment(state, farmId);
+  return FARM_INVESTMENT_PLOT_CAP[inv.plotCapIndex] ?? null;
+}
+
+export function getNextYieldUpgrade(state, farmId) {
+  const inv = getFarmInvestment(state, farmId);
+  return FARM_INVESTMENT_YIELD[inv.yieldIndex] ?? null;
 }
 
 // ─── Market worker helpers ────────────────────────────────────────────────────
@@ -327,86 +367,81 @@ export function calculateOfflineProgress(state, nowMs) {
   let next = deepCloneState(state);
   const feast = next.feastBonusPercent ?? 0;
 
-// ── Farms ─────────────────────────────────────────────────────────────────
-for (const farm of next.farms) {
-  const crop = CROPS[farm.crop];
-  const farmWorkers = next.workers.filter((w) => w.farmId === farm.id);
+  // ── Farms ─────────────────────────────────────────────────────────────────
+  for (const farm of next.farms) {
+    const crop = CROPS[farm.crop];
+    const farmWorkers = next.workers.filter((w) => w.farmId === farm.id);
+    const bonusYield = getFarmBonusYield(next, farm.id); // ← add this
 
-  // Tag all currently planted plots as pre-existing so we can
-  // distinguish them from plots replanted during the simulation
-  const preExistingPlotIds = new Set(
-    farm.plots.filter((p) => p.state === "planted").map((p) => p.id)
-  );
+    const preExistingPlotIds = new Set(
+      farm.plots.filter((p) => p.state === "planted").map((p) => p.id)
+    );
 
-  // Advance all pre-existing planted plots by the full offline window
-  for (const plot of farm.plots) {
-    if (plot.state === "planted" && preExistingPlotIds.has(plot.id)) {
-      const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, feast);
-      plot.growthTick = Math.min(plot.growthTick + seconds, growTime);
-      if (plot.growthTick >= growTime) plot.state = "ready";
+    for (const plot of farm.plots) {
+      if (plot.state === "planted" && preExistingPlotIds.has(plot.id)) {
+        const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, feast);
+        plot.growthTick = Math.min(plot.growthTick + seconds, growTime);
+        if (plot.growthTick >= growTime) plot.state = "ready";
+      }
     }
-  }
 
-  if (farmWorkers.length === 0) continue;
+    if (farmWorkers.length === 0) continue;
 
-  for (const worker of farmWorkers) {
-    const cycleSeconds = getEffectiveCycleSeconds(worker);
-    const totalWorkerTime = seconds + worker.cycleProgress;
-    const completedCycles = Math.floor(totalWorkerTime / cycleSeconds);
-    worker.cycleProgress = totalWorkerTime % cycleSeconds;
-    if (completedCycles === 0) continue;
+    for (const worker of farmWorkers) {
+      const cycleSeconds = getEffectiveCycleSeconds(worker);
+      const totalWorkerTime = seconds + worker.cycleProgress;
+      const completedCycles = Math.floor(totalWorkerTime / cycleSeconds);
+      worker.cycleProgress = totalWorkerTime % cycleSeconds;
+      if (completedCycles === 0) continue;
 
-    for (let c = 0; c < completedCycles; c++) {
-      const resting = isSprinterResting(worker);
-      worker.cycleCount = (worker.cycleCount ?? 0) + 1;
-      if (resting) continue;
+      for (let c = 0; c < completedCycles; c++) {
+        const resting = isSprinterResting(worker);
+        worker.cycleCount = (worker.cycleCount ?? 0) + 1;
+        if (resting) continue;
 
-      const plotsPerCycle = getEffectivePlotsPerCycle(worker);
-      let harvested = 0;
+        const plotsPerCycle = getEffectivePlotsPerCycle(worker);
+        let harvested = 0;
 
-      for (const plot of farm.plots) {
-        if (harvested >= plotsPerCycle) break;
-        if (plot.state === "ready") {
-          const { crops, newPool } = applyYieldBonuses(
-            crop.workerYield, next.prestigeBonuses, next.yieldPool ?? 0
-          );
-          next.crops[farm.crop] = (next.crops[farm.crop] ?? 0) + crops;
-          next.yieldPool = newPool;
-          plot.state = "empty";
-          plot.growthTick = 0;
-          harvested++;
+        for (const plot of farm.plots) {
+          if (harvested >= plotsPerCycle) break;
+          if (plot.state === "ready") {
+            const { crops, newPool } = applyYieldBonuses(
+              crop.workerYield, next.prestigeBonuses, next.yieldPool ?? 0, bonusYield // ← add bonusYield
+            );
+            next.crops[farm.crop] = (next.crops[farm.crop] ?? 0) + crops;
+            next.yieldPool = newPool;
+            plot.state = "empty";
+            plot.growthTick = 0;
+            harvested++;
+          }
         }
-      }
 
-      let replanted = 0;
-      for (const plot of farm.plots) {
-        if (replanted >= plotsPerCycle) break;
-        if (plot.state === "empty") {
-          plot.state = "planted";
-          plot.growthTick = 0;
-          // Mark as freshly replanted so the growth advance below applies
-          // but the pre-existing pass above does NOT apply to it
-          replanted++;
+        let replanted = 0;
+        for (const plot of farm.plots) {
+          if (replanted >= plotsPerCycle) break;
+          if (plot.state === "empty") {
+            plot.state = "planted";
+            plot.growthTick = 0;
+            replanted++;
+          }
         }
-      }
 
-      // Advance only freshly replanted plots (growthTick === 0, not pre-existing)
-      const secondsElapsedSoFar = (c + 1) * cycleSeconds;
-      const secondsRemaining = Math.max(0, seconds - secondsElapsedSoFar);
-      for (const plot of farm.plots) {
-        if (
-          plot.state === "planted" &&
-          plot.growthTick === 0 &&
-          !preExistingPlotIds.has(plot.id)  // only freshly replanted
-        ) {
-          const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, feast);
-          plot.growthTick = Math.min(secondsRemaining, growTime);
-          if (plot.growthTick >= growTime) plot.state = "ready";
+        const secondsElapsedSoFar = (c + 1) * cycleSeconds;
+        const secondsRemaining = Math.max(0, seconds - secondsElapsedSoFar);
+        for (const plot of farm.plots) {
+          if (
+            plot.state === "planted" &&
+            plot.growthTick === 0 &&
+            !preExistingPlotIds.has(plot.id)
+          ) {
+            const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, feast);
+            plot.growthTick = Math.min(secondsRemaining, growTime);
+            if (plot.growthTick >= growTime) plot.state = "ready";
+          }
         }
       }
     }
   }
-}
 
   // ── Kitchen workers ───────────────────────────────────────────────────────
   for (const worker of next.kitchenWorkers ?? []) {
@@ -429,14 +464,10 @@ for (const farm of next.farms) {
         worker.elapsedSeconds = 0;
         worker.busy = false;
 
-        // Auto-restart
         const hasAutoRestart = (worker.upgrades ?? []).includes("auto_restart");
         if (hasAutoRestart && timeLeft > 0 && restartCount < maxRestarts) {
           const started = _startKitchenWorkerRecipe(worker, worker.recipeId, next.crops);
-          if (started) {
-            restartCount++;
-          }
-          // if couldn't start (out of crops), worker stays idle with recipeId set
+          if (started) restartCount++;
         }
       }
     }
@@ -444,9 +475,32 @@ for (const farm of next.farms) {
 
   // ── Market workers ────────────────────────────────────────────────────────
   for (const worker of next.marketWorkers ?? []) {
+    // Standing order: pull total ips*seconds from inventory upfront ← add this block
+    if (worker.hasStandingOrder && worker.standingOrder) {
+      const itemType = worker.standingOrder;
+      const ips = getMarketWorkerItemsPerSecond(worker);
+      const isCrop = itemType in (next.crops ?? {});
+      const isArtisan = itemType in (next.artisan ?? {});
+      const available = isCrop
+        ? (next.crops[itemType] ?? 0)
+        : isArtisan ? (next.artisan[itemType] ?? 0) : 0;
+      const toPull = Math.min(ips * seconds, available);
+      if (toPull > 0) {
+        if (isCrop) next.crops[itemType] -= toPull;
+        else if (isArtisan) next.artisan[itemType] -= toPull;
+        const queue = worker.queue ?? [];
+        const last = queue[queue.length - 1];
+        if (last && last.itemType === itemType) {
+          last.quantity += toPull;
+        } else {
+          queue.push({ id: genId("sale"), itemType, quantity: toPull });
+          worker.queue = queue;
+        }
+      }
+    }
+
     const itemsPerSecond = getMarketWorkerItemsPerSecond(worker);
     let sellTicks = seconds * itemsPerSecond;
-
     while (sellTicks > 0 && (worker.queue ?? []).length > 0) {
       const order = worker.queue[0];
       const toSell = Math.min(sellTicks, order.quantity);
@@ -473,6 +527,7 @@ export function tick(state) {
   // ── Farms ──────────────────────────────────────────────────────────────────
   for (const farm of next.farms) {
     const farmWorkers = next.workers.filter((w) => w.farmId === farm.id);
+    const bonusYield = getFarmBonusYield(next, farm.id); // ← add this
 
     for (const plot of farm.plots) {
       if (plot.state === "planted") {
@@ -501,7 +556,9 @@ export function tick(state) {
           for (const plot of farm.plots) {
             if (harvested >= plotsPerCycle) break;
             if (plot.state === "ready") {
-              const { crops, newPool } = applyYieldBonuses(crop.workerYield, next.prestigeBonuses, next.yieldPool ?? 0);
+              const { crops, newPool } = applyYieldBonuses(
+                crop.workerYield, next.prestigeBonuses, next.yieldPool ?? 0, bonusYield // ← add bonusYield
+              );
               next.crops[farm.crop] = (next.crops[farm.crop] ?? 0) + crops;
               next.yieldPool = newPool;
               plot.state = "empty";
@@ -535,7 +592,6 @@ export function tick(state) {
       worker.elapsedSeconds = 0;
       worker.busy = false;
 
-      // Auto-restart
       const hasAutoRestart = (worker.upgrades ?? []).includes("auto_restart");
       if (hasAutoRestart) {
         _startKitchenWorkerRecipe(worker, worker.recipeId, next.crops);
@@ -544,21 +600,44 @@ export function tick(state) {
   }
 
   // ── Market workers ─────────────────────────────────────────────────────────
-  for (const worker of next.marketWorkers ?? []) {
-    const itemsPerSecond = getMarketWorkerItemsPerSecond(worker);
-    let toSellThisTick = itemsPerSecond;
-
-    while (toSellThisTick > 0 && (worker.queue ?? []).length > 0) {
-      const order = worker.queue[0];
-      const toSell = Math.min(toSellThisTick, order.quantity);
-      const rate = getSellRate(order.itemType, next.prestigeBonuses);
-      order.quantity -= toSell;
-      next.cash = (next.cash ?? 0) + toSell * rate;
-      next.lifetimeCash = (next.lifetimeCash ?? 0) + toSell * rate;
-      toSellThisTick -= toSell;
-      if (order.quantity <= 0) worker.queue.shift();
+for (const worker of next.marketWorkers ?? []) {
+  // Standing order: auto-pull from inventory each tick
+  if (worker.hasStandingOrder && worker.standingOrder) {
+    const itemType = worker.standingOrder;
+    const ips = getMarketWorkerItemsPerSecond(worker);
+    const isCrop = itemType in (next.crops ?? {});
+    const isArtisan = itemType in (next.artisan ?? {});
+    const available = isCrop
+      ? (next.crops[itemType] ?? 0)
+      : isArtisan ? (next.artisan[itemType] ?? 0) : 0;
+    const toPull = Math.min(ips, available);
+    if (toPull > 0) {
+      if (isCrop) next.crops[itemType] -= toPull;
+      else if (isArtisan) next.artisan[itemType] -= toPull;
+      const queue = worker.queue ?? [];
+      const last = queue[queue.length - 1];
+      if (last && last.itemType === itemType) {
+        last.quantity += toPull;
+      } else {
+        queue.push({ id: genId("sale"), itemType, quantity: toPull });
+        worker.queue = queue;
+      }
     }
   }
+
+  const itemsPerSecond = getMarketWorkerItemsPerSecond(worker);
+  let toSellThisTick = itemsPerSecond;
+  while (toSellThisTick > 0 && (worker.queue ?? []).length > 0) {
+    const order = worker.queue[0];
+    const toSell = Math.min(toSellThisTick, order.quantity);
+    const rate = getSellRate(order.itemType, next.prestigeBonuses);
+    order.quantity -= toSell;
+    next.cash = (next.cash ?? 0) + toSell * rate;
+    next.lifetimeCash = (next.lifetimeCash ?? 0) + toSell * rate;
+    toSellThisTick -= toSell;
+    if (order.quantity <= 0) worker.queue.shift();
+  }
+}
 
   next.totalPlayTime = (next.totalPlayTime ?? 0) + 1;
   return next;
@@ -623,8 +702,9 @@ export function buyPlot(state, farmId) {
   const farm = next.farms.find((f) => f.id === farmId);
   if (!farm) return state;
   const current = farm.unlockedPlots;
-  if (current >= MAX_PLOTS) return state;
-  const cost = getPlotUnlockCost(current);
+  const maxPlots = getFarmMaxPlots(next, farmId);
+  if (current >= maxPlots) return state;
+  const cost = getPlotUnlockCost(next, farmId, current);
   if (cost === null) return state;
   const cropId = farm.crop;
   if ((next.crops[cropId] ?? 0) < cost) return state;
@@ -677,10 +757,9 @@ export function upgradeWorkerGear(state, workerId) {
   const nextGearId = getNextGear(worker.gear);
   if (!nextGearId) return state;
   const cost = GEAR[nextGearId].upgradeCost;
-  const cropId = GEAR_CROP_COSTS[nextGearId];
-  if (!cropId) return state;
-  if ((next.crops[cropId] ?? 0) < cost) return state;
-  next.crops[cropId] -= cost;
+  if (!cost) return state;
+  if ((next.cash ?? 0) < cost) return state;
+  next.cash -= cost;
   worker.gear = nextGearId;
   return next;
 }
@@ -692,11 +771,48 @@ export function specializeWorker(state, workerId, specializationId) {
   if (worker.gear !== "hoe") return state;
   if (worker.specialization !== "none") return state;
   if (!SPECIALIZATIONS[specializationId] || specializationId === "none") return state;
-  if ((next.crops[SPECIALIZE_CROP] ?? 0) < SPECIALIZE_COST) return state;
-  next.crops[SPECIALIZE_CROP] -= SPECIALIZE_COST;
+  if ((next.cash ?? 0) < SPECIALIZE_COST) return state;
+  next.cash -= SPECIALIZE_COST;
   worker.specialization = specializationId;
   worker.cycleCount = 0;
   return next;
+}
+
+export function buyPlotCapUpgrade(state, farmId) {
+  const next = deepCloneState(state);
+  const upgrade = getNextPlotCapUpgrade(next, farmId);
+  if (!upgrade) return state;
+  if ((next.cash ?? 0) < upgrade.cost) return state;
+  next.cash -= upgrade.cost;
+  if (!next.farmInvestments) next.farmInvestments = {};
+  if (!next.farmInvestments[farmId]) next.farmInvestments[farmId] = { plotCapIndex: 0, yieldIndex: 0 };
+  next.farmInvestments[farmId].plotCapIndex += 1;
+  return next;
+}
+
+export function buyYieldUpgrade(state, farmId) {
+  const next = deepCloneState(state);
+  const upgrade = getNextYieldUpgrade(next, farmId);
+  if (!upgrade) return state;
+  if ((next.cash ?? 0) < upgrade.cost) return state;
+  next.cash -= upgrade.cost;
+  if (!next.farmInvestments) next.farmInvestments = {};
+  if (!next.farmInvestments[farmId]) next.farmInvestments[farmId] = { plotCapIndex: 0, yieldIndex: 0 };
+  next.farmInvestments[farmId].yieldIndex += 1;
+  return next;
+}
+
+export function applyYieldBonuses(baseYield, prestigeBonuses, currentPool = 0, farmBonusYield = 0) {
+  const bumperCount = prestigeBonuses.filter((b) => b === "bumper_crop").length;
+  const total = baseYield + farmBonusYield;
+  if (bumperCount === 0) return { crops: total, newPool: currentPool };
+  const multiplier = 1 + bumperCount * 0.1;
+  const exact = total * multiplier;
+  const whole = Math.floor(exact);
+  const fraction = exact - whole;
+  const newPool = currentPool + fraction;
+  const bonus = Math.floor(newPool);
+  return { crops: whole + bonus, newPool: newPool - bonus };
 }
 
 // ─── Market worker actions ────────────────────────────────────────────────────
@@ -1041,6 +1157,11 @@ export function deserializeState(raw) {
     }
 
     // Standard defaults
+    if (parsed.farmInvestments === undefined) parsed.farmInvestments = {};
+for (const worker of parsed.marketWorkers ?? []) {
+  if (worker.hasStandingOrder === undefined) worker.hasStandingOrder = false;
+  if (worker.standingOrder === undefined) worker.standingOrder = null;
+}
     if (parsed.yieldPool === undefined) parsed.yieldPool = 0;
     if (parsed.keptWorkers === undefined) parsed.keptWorkers = [];
     if (parsed.pendingWorkerAssignments === undefined) parsed.pendingWorkerAssignments = false;

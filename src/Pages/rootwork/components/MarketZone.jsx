@@ -1,7 +1,12 @@
 // src/Pages/rootwork/components/MarketZone.jsx
 
 import React, { useState } from "react";
-import { MARKET_SELL_RATES, MARKET_WORKER_GEAR, MARKET_WORKER_GEAR_ORDER } from "../gameConstants";
+import {
+  MARKET_SELL_RATES,
+  MARKET_WORKER_GEAR,
+  MARKET_WORKER_GEAR_ORDER,
+  MARKET_WORKER_STANDING_ORDER_COST,
+} from "../gameConstants";
 import {
   getSellRate,
   getMarketWorkerHireCost,
@@ -23,20 +28,21 @@ const SELL_AMOUNTS = [1, 10, 50, 100, "All"];
 
 // ─── Worker card ──────────────────────────────────────────────────────────────
 
-function MarketWorkerCard({ worker, game, onAssign, onUpgrade, onFire }) {
+function MarketWorkerCard({
+  worker, game,
+  onAssign, onUpgrade, onFire,
+  onBuyStandingOrder, onSetStandingOrder,
+}) {
   const [selectedItem, setSelectedItem] = useState(null);
   const [selectedAmount, setSelectedAmount] = useState(10);
+  const [showStandingOrderPicker, setShowStandingOrderPicker] = useState(false);
 
   const gear = MARKET_WORKER_GEAR[worker.gear];
   const nextGearId = getMarketWorkerNextGear(worker.gear);
   const nextGear = nextGearId ? MARKET_WORKER_GEAR[nextGearId] : null;
   const queueTotal = getMarketWorkerQueueTotal(worker);
   const ips = getMarketWorkerItemsPerSecond(worker);
-
-  const availableItems = SELLABLE_ITEMS.filter((item) => {
-    const have = item.isCrop ? (game.crops[item.type] ?? 0) : (game.artisan[item.type] ?? 0);
-    return have > 0;
-  });
+  const canAffordStandingOrder = (game.cash ?? 0) >= MARKET_WORKER_STANDING_ORDER_COST;
 
   function handleAssign() {
     if (!selectedItem) return;
@@ -56,7 +62,14 @@ function MarketWorkerCard({ worker, game, onAssign, onUpgrade, onFire }) {
         <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
           <span style={{ fontSize: "1.1rem" }}>{gear.emoji}</span>
           <div>
-            <div style={{ fontWeight: 600 }}>{gear.name}</div>
+            <div style={{ fontWeight: 600 }}>
+              {gear.name}
+              {worker.hasStandingOrder && worker.standingOrder && (
+                <span style={{ marginLeft: "0.4rem", fontSize: "0.65rem", color: "#4ade80" }}>
+                  · Auto: {SELLABLE_ITEMS.find((i) => i.type === worker.standingOrder)?.emoji}
+                </span>
+              )}
+            </div>
             <div style={{ fontSize: "0.68rem", color: "var(--muted)" }}>
               {ips} item{ips !== 1 ? "s" : ""}/sec
             </div>
@@ -73,6 +86,88 @@ function MarketWorkerCard({ worker, game, onAssign, onUpgrade, onFire }) {
           Fire
         </button>
       </div>
+
+      {/* Standing order status */}
+      {worker.hasStandingOrder && (
+        <div style={{
+          marginBottom: "0.75rem", padding: "0.4rem 0.6rem",
+          background: "rgba(74,222,128,0.08)",
+          border: "1px solid rgba(74,222,128,0.3)",
+          borderRadius: "6px", fontSize: "0.72rem",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div>
+              <span style={{ color: "#4ade80", fontWeight: 600 }}>🔄 Standing Order</span>
+              {worker.standingOrder ? (
+                <span style={{ marginLeft: "0.4rem", color: "var(--text)" }}>
+                  {SELLABLE_ITEMS.find((i) => i.type === worker.standingOrder)?.emoji}{" "}
+                  {SELLABLE_ITEMS.find((i) => i.type === worker.standingOrder)?.label}
+                  <span style={{ color: "var(--muted)", marginLeft: "0.3rem" }}>
+                    · pulls {ips}/sec
+                  </span>
+                </span>
+              ) : (
+                <span style={{ marginLeft: "0.4rem", color: "var(--muted)" }}>not set</span>
+              )}
+            </div>
+            <button
+              onClick={() => setShowStandingOrderPicker(!showStandingOrderPicker)}
+              style={{
+                fontSize: "0.65rem", padding: "0.15rem 0.4rem",
+                background: "none", border: "1px solid var(--border)",
+                borderRadius: "4px", cursor: "pointer", color: "var(--muted)",
+              }}
+            >
+              {showStandingOrderPicker ? "▲" : "▼ Change"}
+            </button>
+          </div>
+
+          {showStandingOrderPicker && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", marginTop: "0.5rem" }}>
+              {SELLABLE_ITEMS.map((item) => {
+                const have = item.isCrop ? (game.crops[item.type] ?? 0) : (game.artisan[item.type] ?? 0);
+                const isSelected = worker.standingOrder === item.type;
+                return (
+                  <button
+                    key={item.type}
+                    onClick={() => {
+                      onSetStandingOrder(worker.id, item.type);
+                      setShowStandingOrderPicker(false);
+                    }}
+                    style={{
+                      fontSize: "0.7rem", padding: "0.25rem 0.5rem",
+                      borderRadius: "6px", cursor: "pointer",
+                      background: isSelected ? "var(--accent)" : "var(--bg)",
+                      color: isSelected ? "#fff" : "var(--text)",
+                      border: `1px solid ${isSelected ? "var(--accent)" : "var(--border)"}`,
+                    }}
+                  >
+                    {item.emoji} {item.label}
+                    <span style={{ marginLeft: "0.25rem", color: isSelected ? "rgba(255,255,255,0.7)" : "var(--muted)", fontSize: "0.62rem" }}>
+                      ({have})
+                    </span>
+                  </button>
+                );
+              })}
+              <button
+                onClick={() => {
+                  onSetStandingOrder(worker.id, null);
+                  setShowStandingOrderPicker(false);
+                }}
+                style={{
+                  fontSize: "0.7rem", padding: "0.25rem 0.5rem",
+                  borderRadius: "6px", cursor: "pointer",
+                  background: !worker.standingOrder ? "var(--accent)" : "var(--bg)",
+                  color: !worker.standingOrder ? "#fff" : "var(--muted)",
+                  border: `1px solid ${!worker.standingOrder ? "var(--accent)" : "var(--border)"}`,
+                }}
+              >
+                ✕ Clear
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Queue status */}
       <div style={{
@@ -95,14 +190,18 @@ function MarketWorkerCard({ worker, game, onAssign, onUpgrade, onFire }) {
             })}
           </div>
         ) : (
-          <span>Queue empty — assign items below</span>
+          <span>
+            {worker.hasStandingOrder && worker.standingOrder
+              ? "Queue empty — will auto-fill from inventory"
+              : "Queue empty — assign items below"}
+          </span>
         )}
       </div>
 
-      {/* Assign items */}
+      {/* Manual assign items */}
       <div style={{ marginBottom: "0.75rem" }}>
         <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.4rem", fontWeight: 600 }}>
-          Assign to queue
+          Assign to queue manually
         </div>
         <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", marginBottom: "0.4rem" }}>
           {SELLABLE_ITEMS.map((item) => {
@@ -122,7 +221,7 @@ function MarketWorkerCard({ worker, game, onAssign, onUpgrade, onFire }) {
                   transition: "all 0.1s",
                 }}
               >
-                {item.emoji} {have > 0 ? have : "0"}
+                {item.emoji} {have}
               </button>
             );
           })}
@@ -166,49 +265,78 @@ function MarketWorkerCard({ worker, game, onAssign, onUpgrade, onFire }) {
         )}
       </div>
 
-      {/* Gear upgrade */}
-      {nextGear && (
-        <div style={{
-          borderTop: "1px solid var(--border)", paddingTop: "0.6rem",
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-        }}>
-          <div style={{ fontSize: "0.72rem", color: "var(--muted)" }}>
-            Upgrade to {nextGear.emoji} {nextGear.name}
-            <span style={{ marginLeft: "0.3rem", color: "var(--text)" }}>
-              ({nextGear.itemsPerSecond}/sec)
-            </span>
+      {/* Upgrades: gear + standing order */}
+      <div style={{ borderTop: "1px solid var(--border)", paddingTop: "0.6rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+
+        {/* Standing order upgrade */}
+        {!worker.hasStandingOrder && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ fontSize: "0.72rem" }}>
+              <div style={{ fontWeight: 600, color: "var(--text)" }}>🔄 Standing Order</div>
+              <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.1rem" }}>
+                Auto-pulls {ips} item{ips !== 1 ? "s" : ""}/sec from inventory to sell queue.
+              </div>
+            </div>
+            <button
+              onClick={() => onBuyStandingOrder(worker.id)}
+              disabled={!canAffordStandingOrder}
+              className="btn btn-secondary"
+              style={{
+                fontSize: "0.68rem", padding: "0.2rem 0.5rem",
+                marginLeft: "0.5rem", flexShrink: 0,
+                opacity: canAffordStandingOrder ? 1 : 0.5,
+              }}
+            >
+              ${MARKET_WORKER_STANDING_ORDER_COST}
+            </button>
           </div>
-          <button
-            onClick={() => onUpgrade(worker.id)}
-            disabled={(game.cash ?? 0) < nextGear.upgradeCost}
-            className="btn btn-secondary"
-            style={{ fontSize: "0.7rem", padding: "0.25rem 0.6rem" }}
-          >
-            ${nextGear.upgradeCost}
-          </button>
-        </div>
-      )}
-      {!nextGear && (
-        <div style={{
-          borderTop: "1px solid var(--border)", paddingTop: "0.6rem",
-          fontSize: "0.68rem", color: "#4ade80", textAlign: "center",
-        }}>
-          ✓ Max gear
-        </div>
-      )}
+        )}
+
+        {/* Gear upgrade */}
+        {nextGear ? (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ fontSize: "0.72rem", color: "var(--muted)" }}>
+              Upgrade to {nextGear.emoji} {nextGear.name}
+              <span style={{ marginLeft: "0.3rem", color: "var(--text)" }}>
+                ({nextGear.itemsPerSecond}/sec)
+              </span>
+            </div>
+            <button
+              onClick={() => onUpgrade(worker.id)}
+              disabled={(game.cash ?? 0) < nextGear.upgradeCost}
+              className="btn btn-secondary"
+              style={{ fontSize: "0.7rem", padding: "0.25rem 0.6rem", marginLeft: "0.5rem", flexShrink: 0 }}
+            >
+              ${nextGear.upgradeCost}
+            </button>
+          </div>
+        ) : (
+          <div style={{ fontSize: "0.68rem", color: "#4ade80", textAlign: "center" }}>
+            ✓ Max gear
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
 // ─── Main zone ────────────────────────────────────────────────────────────────
 
-export default function MarketZone({ game, onHireMarketWorker, onAssignItem, onUpgradeMarketWorker, onFireMarketWorker }) {
+export default function MarketZone({
+  game,
+  onHireMarketWorker,
+  onAssignItem,
+  onUpgradeMarketWorker,
+  onFireMarketWorker,
+  onBuyMarketWorkerStandingOrder,
+  onSetMarketWorkerStandingOrder,
+}) {
   const cash = game.cash ?? 0;
   const lifetimeCash = game.lifetimeCash ?? 0;
   const hireCost = getMarketWorkerHireCost(game);
-  const canHire = cash >= hireCost;
-  const hasSavvy = (game.prestigeBonuses ?? []).includes("market_savvy");
   const isFirstWorker = (game.marketWorkers ?? []).length === 0;
+  const canHire = isFirstWorker || cash >= hireCost;
+  const hasSavvy = (game.prestigeBonuses ?? []).includes("market_savvy");
 
   return (
     <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 5rem" }}>
@@ -281,16 +409,16 @@ export default function MarketZone({ game, onHireMarketWorker, onAssignItem, onU
       {/* Hire worker */}
       <div style={{ marginBottom: "1.25rem" }}>
         <button
-  onClick={onHireMarketWorker}
-  disabled={!isFirstWorker && !canHire}
-  className="btn w-full"
-  style={{ opacity: (isFirstWorker || canHire) ? 1 : 0.5 }}
->
-  🛒 Hire Market Worker — {isFirstWorker ? "Free!" : `$${hireCost}`}
-</button>
-        {(game.marketWorkers ?? []).length === 0 && (
+          onClick={onHireMarketWorker}
+          disabled={!canHire}
+          className="btn w-full"
+          style={{ opacity: canHire ? 1 : 0.5 }}
+        >
+          🛒 Hire Market Worker — {isFirstWorker ? "Free!" : `$${hireCost}`}
+        </button>
+        {isFirstWorker && (
           <p style={{ fontSize: "0.7rem", color: "var(--muted)", marginTop: "0.4rem", textAlign: "center" }}>
-            Hire a worker to start selling. Each worker manages their own sell queue.
+            Each worker manages their own sell queue. Upgrade with Standing Orders to sell automatically.
           </p>
         )}
       </div>
@@ -306,6 +434,8 @@ export default function MarketZone({ game, onHireMarketWorker, onAssignItem, onU
               onAssign={onAssignItem}
               onUpgrade={onUpgradeMarketWorker}
               onFire={onFireMarketWorker}
+              onBuyStandingOrder={onBuyMarketWorkerStandingOrder}
+              onSetStandingOrder={onSetMarketWorkerStandingOrder}
             />
           ))}
         </div>

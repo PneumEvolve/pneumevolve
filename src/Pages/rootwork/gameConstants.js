@@ -48,7 +48,7 @@ export const GEAR = {
     emoji: "🧤",
     plotsPerCycle: 1,
     cycleSeconds: 10,
-    upgradeCost: 20,
+    upgradeCost: 15,       // cash
     description: "Harvests and replants 1 plot every 10s. 33% faster.",
   },
   hoe: {
@@ -57,7 +57,7 @@ export const GEAR = {
     emoji: "🪓",
     plotsPerCycle: 1,
     cycleSeconds: 6,
-    upgradeCost: 80,
+    upgradeCost: 60,       // cash
     description: "Harvests and replants 1 plot every 6s. 40% faster than gloves.",
   },
   wheelbarrow: {
@@ -66,7 +66,7 @@ export const GEAR = {
     emoji: "🛻",
     plotsPerCycle: 2,
     cycleSeconds: 6,
-    upgradeCost: 40,
+    upgradeCost: 150,      // cash
     description: "Harvests and replants 2 plots every 6s. Double the coverage.",
   },
   tractor: {
@@ -75,29 +75,39 @@ export const GEAR = {
     emoji: "🚜",
     plotsPerCycle: 5,
     cycleSeconds: 6,
-    upgradeCost: 80,
+    upgradeCost: 400,      // cash
     description: "Harvests and replants 5 plots every 6s. Near full automation.",
   },
 };
 
 export const GEAR_ORDER = ["bare_hands", "gloves", "hoe", "wheelbarrow", "tractor"];
 
-export const GEAR_CROP_COSTS = {
-  bare_hands: null,
-  gloves: "wheat",
-  hoe: "wheat",
-  wheelbarrow: "berries",
-  tractor: "tomatoes",
-};
+// All gear now costs cash — crop costs removed
+export const GEAR_CROP_COSTS = {};
 
 // ─── Specialization ───────────────────────────────────────────────────────────
-export const SPECIALIZE_COST = 80;
-export const SPECIALIZE_CROP = "berries";
+export const SPECIALIZE_COST = 100;       // cash
+export const SPECIALIZE_CROP = null;      // no longer crop-based
 
 // ─── Plot unlock costs ────────────────────────────────────────────────────────
 export const PLOT_BASE_COST = 5;
 export const PLOT_COST_MULTIPLIER = 1.4;
-export const MAX_PLOTS = 25;
+export const MAX_PLOTS = 5;
+
+// ─── Farm investments ─────────────────────────────────────────────────────────
+// Per-farm upgrades purchased with cash
+
+export const FARM_INVESTMENT_PLOT_CAP = [
+  { id: "plots_4x4", name: "Expand to 4×4", maxPlots: 16, cost: 500,  description: "Unlock up to 16 plots on this farm." },
+  { id: "plots_5x5", name: "Expand to 5×5", maxPlots: 25, cost: 1200, description: "Unlock up to 25 plots on this farm." },
+];
+
+export const FARM_INVESTMENT_YIELD = [
+  { id: "yield_1", name: "Fertilizer I",   bonusYield: 1, cost: 300,  description: "+1 crop per worker harvest." },
+  { id: "yield_2", name: "Fertilizer II",  bonusYield: 2, cost: 700,  description: "+2 crops per worker harvest." },
+  { id: "yield_3", name: "Fertilizer III", bonusYield: 3, cost: 1500, description: "+3 crops per worker harvest." },
+  { id: "yield_4", name: "Fertilizer IV",  bonusYield: 4, cost: 3000, description: "+4 crops per worker harvest." },
+];
 
 // ─── Plot upgrade ─────────────────────────────────────────────────────────────
 export const PLOT_UPGRADE_COST = 1;
@@ -186,7 +196,7 @@ export const MARKET_SELL_RATES = {
 
 // ─── Market workers ───────────────────────────────────────────────────────────
 export const MARKET_WORKER_HIRE_COST = 25;
-export const MARKET_WORKER_HIRE_MULTIPLIER = 2.5;  // was 2 — steeper scaling
+export const MARKET_WORKER_HIRE_MULTIPLIER = 2.5;
 
 export const MARKET_WORKER_GEAR = {
   cart: {
@@ -202,30 +212,32 @@ export const MARKET_WORKER_GEAR = {
     name: "Wagon",
     emoji: "🪵",
     itemsPerSecond: 2,
-    upgradeCost: 120,       // was 75 — meaningful early cash sink
+    upgradeCost: 120,
     description: "Sells 2 items per second.",
   },
   truck: {
     id: "truck",
     name: "Truck",
     emoji: "🚚",
-    itemsPerSecond: 4,      // was 5 — toned down slightly
-    upgradeCost: 400,       // was 200 — late game purchase
+    itemsPerSecond: 4,
+    upgradeCost: 400,
     description: "Sells 4 items per second.",
   },
 };
 export const MARKET_WORKER_GEAR_ORDER = ["cart", "wagon", "truck"];
 
+export const MARKET_WORKER_STANDING_ORDER_COST = 250;  // cash
+
 // ─── Kitchen workers ──────────────────────────────────────────────────────────
 export const KITCHEN_WORKER_HIRE_COST = 30;
-export const KITCHEN_WORKER_HIRE_MULTIPLIER = 2.5;  // was 2 — steeper scaling
+export const KITCHEN_WORKER_HIRE_MULTIPLIER = 2.5;
 
 export const KITCHEN_WORKER_UPGRADES = {
   speed_1: {
     id: "speed_1",
     name: "Sharp Knife",
     emoji: "🔪",
-    cost: 80,               // was 50 — early milestone
+    cost: 80,
     description: "+25% processing speed.",
     speedMultiplier: 0.75,
   },
@@ -233,7 +245,7 @@ export const KITCHEN_WORKER_UPGRADES = {
     id: "speed_2",
     name: "Prep Station",
     emoji: "🍳",
-    cost: 250,              // was 150 — mid game milestone
+    cost: 250,
     description: "+50% processing speed (replaces Sharp Knife).",
     speedMultiplier: 0.5,
     requires: "speed_1",
@@ -242,7 +254,7 @@ export const KITCHEN_WORKER_UPGRADES = {
     id: "auto_restart",
     name: "Auto-Restart",
     emoji: "🔄",
-    cost: 600,              // was 300 — late game prize
+    cost: 600,
     description: "Automatically restarts recipe when finished, if ingredients available.",
     requires: "speed_2",
   },

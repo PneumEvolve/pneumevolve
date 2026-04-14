@@ -32,6 +32,10 @@ import {
   upgradeKitchenWorker,
   fireKitchenWorker,
   unlockExtraFarm,
+  buyPlotCapUpgrade,
+  buyYieldUpgrade,
+  buyMarketWorkerStandingOrder,
+  setMarketWorkerStandingOrder,
 } from "./gameEngine";
 import {
   SAVE_KEY,
@@ -483,6 +487,35 @@ export default function RootWork() {
     notify("Game reset.");
   }, [notify]);
 
+  const handleBuyPlotCapUpgrade = useCallback((farmId) => {
+  update((s) => {
+    const n = buyPlotCapUpgrade(s, farmId);
+    if (n === s) notify("Not enough cash.");
+    return n;
+  });
+}, [update, notify]);
+
+const handleBuyYieldUpgrade = useCallback((farmId) => {
+  update((s) => {
+    const n = buyYieldUpgrade(s, farmId);
+    if (n === s) notify("Not enough cash.");
+    return n;
+  });
+}, [update, notify]);
+
+const handleBuyMarketWorkerStandingOrder = useCallback((workerId) => {
+  update((s) => {
+    const n = buyMarketWorkerStandingOrder(s, workerId);
+    if (n === s) notify("Not enough cash.");
+    return n;
+  });
+  notify("🔄 Standing order unlocked!");
+}, [update, notify]);
+
+const handleSetMarketWorkerStandingOrder = useCallback((workerId, itemType) => {
+  update((s) => setMarketWorkerStandingOrder(s, workerId, itemType));
+}, [update]);
+
   // ── Derived ───────────────────────────────────────────────────────────────
   const prestigeReady = game ? canPrestige(game) : false;
   const hasPendingAssignments = game?.pendingWorkerAssignments && (game?.keptWorkers?.length ?? 0) > 0;
@@ -550,17 +583,21 @@ export default function RootWork() {
             onSellWorker={handleSellWorker}
             onUpgradeGear={handleUpgradeGear}
             onSpecialize={handleSpecialize}
+            onBuyPlotCap={handleBuyPlotCapUpgrade}
+            onBuyYield={handleBuyYieldUpgrade}
           />
         )}
 
         {activeMainTab === "market" && (
           <MarketZone
-            game={game}
-            onHireMarketWorker={handleHireMarketWorker}
-            onAssignItem={handleAssignItem}
-            onUpgradeMarketWorker={handleUpgradeMarketWorker}
-            onFireMarketWorker={handleFireMarketWorker}
-          />
+  game={game}
+  onHireMarketWorker={handleHireMarketWorker}
+  onAssignItem={handleAssignItem}
+  onUpgradeMarketWorker={handleUpgradeMarketWorker}
+  onFireMarketWorker={handleFireMarketWorker}
+  onBuyMarketWorkerStandingOrder={handleBuyMarketWorkerStandingOrder}
+  onSetMarketWorkerStandingOrder={handleSetMarketWorkerStandingOrder}
+/>
         )}
 
         {activeMainTab === "kitchen" && (

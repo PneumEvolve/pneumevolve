@@ -1,25 +1,28 @@
 // src/Pages/rootwork/components/WorkerPanel.jsx
- 
+
 import React, { useState } from "react";
 import {
   CROPS,
   GEAR,
   GEAR_ORDER,
   SPECIALIZATIONS,
-  GEAR_CROP_COSTS,
   SPECIALIZE_COST,
-  SPECIALIZE_CROP,
 } from "../gameConstants";
-import { getNextGear, getEffectiveCycleSeconds, needsSpecialization, getWorkerHireCost } from "../gameEngine";
- 
+import {
+  getNextGear,
+  getEffectiveCycleSeconds,
+  needsSpecialization,
+  getWorkerHireCost,
+} from "../gameEngine";
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
- 
+
 function getEffectivePlots(worker) {
   const gear = GEAR[worker.gear];
   if (worker.specialization === "sprinter") return gear.plotsPerCycle * 2;
   return gear.plotsPerCycle;
 }
- 
+
 function statLine(worker) {
   const cycleSeconds = getEffectiveCycleSeconds(worker);
   const plots = getEffectivePlots(worker);
@@ -34,46 +37,39 @@ function statLine(worker) {
 
   return { harvestLine, extras };
 }
- 
+
 function previewStatLine(worker, nextGearId) {
   const previewWorker = { ...worker, gear: nextGearId };
   const cycleSeconds = getEffectiveCycleSeconds(previewWorker);
   const plots = getEffectivePlots(previewWorker);
   return `${plots} plot${plots > 1 ? "s" : ""} every ${cycleSeconds}s`;
 }
- 
+
 // ─── Worker card ──────────────────────────────────────────────────────────────
- 
+
 function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWorker }) {
   const [showSpecChoices, setShowSpecChoices] = useState(false);
   const [confirmSell, setConfirmSell] = useState(false);
- 
+
   const gear = GEAR[worker.gear];
   const nextGearId = getNextGear(worker.gear);
   const nextGear = nextGearId ? GEAR[nextGearId] : null;
   const farmCrop = CROPS[farm.crop];
-  const specCrop = CROPS[SPECIALIZE_CROP];
- 
+
   const mustSpecialize = needsSpecialization(worker);
-  const canAffordSpec = (game.crops[SPECIALIZE_CROP] ?? 0) >= SPECIALIZE_COST;
- 
-  const upgradeCropId = nextGearId ? GEAR_CROP_COSTS[nextGearId] : null;
-  const upgradeCrop = upgradeCropId ? CROPS[upgradeCropId] : null;
-  const upgradeAmount = nextGear?.upgradeCost ?? 0;
-  const canUpgrade = !mustSpecialize && nextGear && upgradeCropId &&
-    (game.crops[upgradeCropId] ?? 0) >= upgradeAmount;
- 
-  // Sell refund — approximate based on farm worker count
+  const canAffordSpec = (game.cash ?? 0) >= SPECIALIZE_COST;
+
+  const upgradeCost = nextGear?.upgradeCost ?? 0;
+  const canUpgrade = !mustSpecialize && nextGear && (game.cash ?? 0) >= upgradeCost;
+
   const workersOnFarm = game.workers.filter((w) => w.farmId === farm.id).length;
   const prevCount = Math.max(0, workersOnFarm - 1);
-  const hireCostWhenBought = Math.round(
-    (10 * Math.pow(1.5, prevCount)) / 5
-  ) * 5;
+  const hireCostWhenBought = Math.round((10 * Math.pow(1.5, prevCount)) / 5) * 5;
   const sellRefund = Math.floor(hireCostWhenBought * 0.5);
- 
+
   return (
     <div className="card p-4 space-y-3" style={{ fontSize: "0.85rem" }}>
- 
+
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ fontWeight: 600 }}>👷 Worker</div>
@@ -89,24 +85,24 @@ function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWor
           )}
         </div>
       </div>
- 
+
       {/* Stats */}
-{(() => {
-  const { harvestLine, extras } = statLine(worker);
-  return (
-    <div style={{
-      fontSize: "0.75rem", color: "var(--muted)", background: "var(--bg)",
-      border: "1px solid var(--border)", borderRadius: "8px",
-      padding: "0.4rem 0.65rem", lineHeight: 1.6,
-    }}>
-      <div>⚡ {harvestLine}</div>
-      {extras.map((e, i) => (
-        <div key={i} style={{ color: "var(--text)", fontWeight: 500 }}>{e}</div>
-      ))}
-    </div>
-  );
-})()}
- 
+      {(() => {
+        const { harvestLine, extras } = statLine(worker);
+        return (
+          <div style={{
+            fontSize: "0.75rem", color: "var(--muted)", background: "var(--bg)",
+            border: "1px solid var(--border)", borderRadius: "8px",
+            padding: "0.4rem 0.65rem", lineHeight: 1.6,
+          }}>
+            <div>⚡ {harvestLine}</div>
+            {extras.map((e, i) => (
+              <div key={i} style={{ color: "var(--text)", fontWeight: 500 }}>{e}</div>
+            ))}
+          </div>
+        );
+      })()}
+
       {/* Upgrade path */}
       {mustSpecialize ? (
         <div>
@@ -117,8 +113,8 @@ function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWor
             style={{ fontSize: "0.75rem", padding: "0.4rem 0.75rem" }}
           >
             {canAffordSpec
-              ? `✨ Specialize — ${SPECIALIZE_COST} ${specCrop.emoji} ${specCrop.name}`
-              : `✨ Specialize — need ${SPECIALIZE_COST} ${specCrop.emoji} ${specCrop.name}`}
+              ? `✨ Specialize — $${SPECIALIZE_COST}`
+              : `✨ Specialize — need $${SPECIALIZE_COST}`}
           </button>
           <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginTop: "0.3rem", textAlign: "center" }}>
             Choose a specialization to unlock Wheelbarrow upgrades
@@ -152,8 +148,8 @@ function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWor
             style={{ fontSize: "0.75rem", padding: "0.4rem 0.75rem" }}
           >
             {canUpgrade
-              ? `Upgrade to ${nextGear.emoji} ${nextGear.name} — ${upgradeAmount} ${upgradeCrop?.emoji} ${upgradeCrop?.name}`
-              : `${nextGear.emoji} ${nextGear.name} — need ${upgradeAmount} ${upgradeCrop?.emoji} ${upgradeCrop?.name}`}
+              ? `Upgrade to ${nextGear.emoji} ${nextGear.name} — $${upgradeCost}`
+              : `${nextGear.emoji} ${nextGear.name} — need $${upgradeCost}`}
           </button>
           <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginTop: "0.3rem", textAlign: "center" }}>
             {nextGear.description}
@@ -168,7 +164,7 @@ function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWor
           🚜 Max gear reached
         </div>
       )}
- 
+
       {/* Sell */}
       {!confirmSell ? (
         <button
@@ -199,25 +195,22 @@ function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWor
     </div>
   );
 }
- 
+
 // ─── Main panel ───────────────────────────────────────────────────────────────
- 
+
 export default function WorkerPanel({
   farm, game,
   onHireWorker, onUpgradeGear, onSpecialize, onSellWorker,
 }) {
   const farmWorkers = game.workers.filter((w) => w.farmId === farm.id);
   const farmCrop = CROPS[farm.crop];
- 
-  // Dynamic hire cost based on how many workers are already on this farm
   const nextHireCost = getWorkerHireCost(game, farm.id);
   const canAffordHire = (game.crops[farm.crop] ?? 0) >= nextHireCost;
- 
   const hasHeadStart = game.prestigeBonuses.includes("head_start");
   const isFirstWorker = farmWorkers.length === 0;
   const hireCost = hasHeadStart && isFirstWorker ? 0 : nextHireCost;
   const canHire = hasHeadStart && isFirstWorker ? true : canAffordHire;
- 
+
   return (
     <div className="space-y-3">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -233,13 +226,13 @@ export default function WorkerPanel({
             : `🙋 Hire (${hireCost} ${farmCrop.emoji} ${farmCrop.name})`}
         </button>
       </div>
- 
+
       {farmWorkers.length === 0 && (
         <p style={{ fontSize: "0.8rem", color: "var(--muted)", fontStyle: "italic" }}>
           No workers yet. Hire one to start automating this farm.
         </p>
       )}
- 
+
       {farmWorkers.length > 0 && (
         <div className="space-y-3">
           {farmWorkers.map((worker) => (

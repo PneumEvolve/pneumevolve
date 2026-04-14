@@ -2,10 +2,11 @@
 
 import React, { useState } from "react";
 import { CROPS, MAX_PLOTS } from "../gameConstants";
-import { getPlotUnlockCost, getWorkerHireCost, isFarmAutomated } from "../gameEngine";
+import { getPlotUnlockCost, getWorkerHireCost, isFarmAutomated, getFarmMaxPlots } from "../gameEngine";
 import FarmGrid from "./FarmGrid";
 import WorkerPanel from "./WorkerPanel";
 import UpgradePanel from "./UpgradePanel";
+import FarmInvestmentPanel from "./FarmInvestmentPanel";
 
 function Section({ title, defaultOpen = true, children }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -31,7 +32,7 @@ export default function FarmZone({
   farm, game,
   onPlant, onHarvest, onTend,
   onBuyPlot, onHireWorker, onSellWorker,
-  onUpgradeGear, onSpecialize,
+  onUpgradeGear, onSpecialize, onBuyPlotCap, onBuyYield,
 }) {
   const [tendMode, setTendMode] = useState(false);
 
@@ -55,6 +56,11 @@ export default function FarmZone({
   const tendActiveBorder = "#a3e635";
   const tendActiveColor = "#365314";
   const tendHintBg = "rgba(163, 230, 53, 0.12)";
+
+  // Replace the plotCost calculation
+const plotCost = getPlotUnlockCost(game, farm.id, farm.unlockedPlots);
+const maxPlots = getFarmMaxPlots(game, farm.id);
+const atMax = farm.unlockedPlots >= maxPlots;
 
   return (
     <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 4rem" }}>
@@ -218,10 +224,21 @@ export default function FarmZone({
       </Section>
 
       <Section title="🟫 Buy Plots" defaultOpen={false}>
-        <div style={{ paddingTop: "0.5rem" }}>
-          <UpgradePanel farm={farm} game={game} onBuyPlot={onBuyPlot} />
-        </div>
-      </Section>
+  <div style={{ paddingTop: "0.5rem" }}>
+    <UpgradePanel farm={farm} game={game} onBuyPlot={onBuyPlot} />
+  </div>
+</Section>
+
+<Section title="💰 Farm Investments" defaultOpen={false}>
+  <div style={{ paddingTop: "0.5rem" }}>
+    <FarmInvestmentPanel
+      farm={farm}
+      game={game}
+      onBuyPlotCap={onBuyPlotCap}
+      onBuyYield={onBuyYield}
+    />
+  </div>
+</Section>
 
     </div>
   );
