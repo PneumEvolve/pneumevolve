@@ -504,7 +504,8 @@ export default function MarketZone({
   const toggleWorker = useCallback((workerId) => {
     setExpandedWorkers((prev) => ({ ...prev, [workerId]: !prev[workerId] }));
   }, []);
-
+const cash = game.cash ?? 0;
+const lifetimeCash = game.lifetimeCash ?? 0;
   const atCap = getAvailableWorkerSlots(game) <= 0;
 const hireCost = getMarketWorkerHireCost(game);
 const isFirstWorker = (game.marketWorkers ?? []).length === 0;
