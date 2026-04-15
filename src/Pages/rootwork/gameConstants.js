@@ -415,8 +415,8 @@ export const EXTRA_FARM_CROPS = ["wheat", "berries", "tomatoes"];
 // Town is always active from game start — no cash gate
 export const TOWN_STARTING_PEOPLE = 3;
 export const TOWN_HOME_CAPACITY = 4;
-export const TOWN_HOME_BASE_COST = 200;
-export const TOWN_HOME_COST_MULTIPLIER = 1.5;
+export const TOWN_HOME_BASE_COST = 50;
+export const TOWN_HOME_COST_MULTIPLIER = 1.6;
  
 // Bakery
 export const TOWN_BAKERY_BASE_COST = 1_500;
