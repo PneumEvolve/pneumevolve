@@ -1,6 +1,6 @@
 // src/Pages/rootwork/components/ProcessingZone.jsx
 
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import {
   PROCESSING_RECIPES,
   KITCHEN_WORKER_UPGRADES,
@@ -15,7 +15,6 @@ import {
 } from "../gameEngine";
 
 const RECIPE_LIST = ["bread", "jam", "sauce"];
-
 const SPEED_UPGRADES = ["speed_1", "speed_2", "auto_restart"];
 const BATCH_UPGRADES = ["batch_2", "batch_5", "batch_10"];
 
@@ -93,8 +92,7 @@ function UpgradeTree({ label, upgradeIds, worker, game, onUpgrade }) {
 
 // ─── Kitchen worker card ──────────────────────────────────────────────────────
 
-function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, workerNumber }) {
-  const [expanded, setExpanded] = useState(workerNumber === 1);
+function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, workerNumber, expanded, onToggle }) {
   const [showRecipes, setShowRecipes] = useState(false);
 
   const idle = isKitchenWorkerIdle(worker);
@@ -117,64 +115,64 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, wo
   return (
     <div className="card" style={{ fontSize: "0.82rem", overflow: "hidden" }}>
 
-      {/* Collapsed header — always visible */}
-<div style={{
-  width: "100%", display: "flex", alignItems: "center",
-  justifyContent: "space-between", padding: "0.65rem 1rem",
-  borderBottom: expanded ? "1px solid var(--border)" : "none",
-}}>
-  {/* Left side — clickable to expand */}
-  <button
-    onClick={() => setExpanded((v) => !v)}
-    style={{
-      flex: 1, display: "flex", alignItems: "center",
-      gap: "0.5rem", background: "none", border: "none",
-      cursor: "pointer", textAlign: "left", minWidth: 0, padding: 0,
-    }}
-  >
-    <span>👨‍🍳</span>
-    <div style={{ minWidth: 0 }}>
-      <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text)" }}>
-        Chef {workerNumber}
-        {upgrades.length > 0 && (
-          <span style={{ marginLeft: "0.35rem", fontSize: "0.6rem", color: "var(--muted)" }}>
-            {upgrades.map((u) => KITCHEN_WORKER_UPGRADES[u]?.emoji).join("")}
+      {/* Header row */}
+      <div style={{
+        width: "100%", display: "flex", alignItems: "center",
+        justifyContent: "space-between", padding: "0.65rem 1rem",
+        borderBottom: expanded ? "1px solid var(--border)" : "none",
+      }}>
+        {/* Left — expand/collapse toggle */}
+        <button
+          onClick={onToggle}
+          style={{
+            flex: 1, display: "flex", alignItems: "center",
+            gap: "0.5rem", background: "none", border: "none",
+            cursor: "pointer", textAlign: "left", minWidth: 0, padding: 0,
+          }}
+        >
+          <span>👨‍🍳</span>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text)" }}>
+              Chef {workerNumber}
+              {upgrades.length > 0 && (
+                <span style={{ marginLeft: "0.35rem", fontSize: "0.6rem", color: "var(--muted)" }}>
+                  {upgrades.map((u) => KITCHEN_WORKER_UPGRADES[u]?.emoji).join("")}
+                </span>
+              )}
+              {batch > 1 && (
+                <span style={{ marginLeft: "0.35rem", fontSize: "0.65rem", color: "#f59e0b", fontWeight: 700 }}>
+                  ×{batch}
+                </span>
+              )}
+            </div>
+            <div style={{ fontSize: "0.65rem", color: statusColor, marginTop: "0.1rem" }}>
+              {statusText}
+            </div>
+          </div>
+          <span style={{ color: "var(--muted)", fontSize: "0.65rem", marginLeft: "0.5rem", flexShrink: 0 }}>
+            {expanded ? "▲" : "▼"}
           </span>
-        )}
-        {batch > 1 && (
-          <span style={{ marginLeft: "0.35rem", fontSize: "0.65rem", color: "#f59e0b", fontWeight: 700 }}>
-            ×{batch}
-          </span>
+        </button>
+
+        {/* Cook Again button */}
+        {!worker.busy && !idle && recipe && (
+          <button
+            onClick={() => onAssignRecipe(worker.id, worker.recipeId)}
+            style={{
+              fontSize: "0.65rem", padding: "0.2rem 0.5rem",
+              borderRadius: "6px", cursor: "pointer", flexShrink: 0,
+              marginLeft: "0.5rem",
+              background: "rgba(99,102,241,0.1)",
+              border: "1px solid rgba(99,102,241,0.3)",
+              color: "var(--accent)", fontWeight: 600,
+            }}
+          >
+            🍳 Again
+          </button>
         )}
       </div>
-      <div style={{ fontSize: "0.65rem", color: statusColor, marginTop: "0.1rem" }}>
-        {statusText}
-      </div>
-    </div>
-    <span style={{ color: "var(--muted)", fontSize: "0.65rem", marginLeft: "0.5rem", flexShrink: 0 }}>
-      {expanded ? "▲" : "▼"}
-    </span>
-  </button>
 
-  {/* Cook Again button — only when idle and has a previous recipe */}
-  {!worker.busy && !idle && recipe && (
-    <button
-      onClick={() => onAssignRecipe(worker.id, worker.recipeId)}
-      style={{
-        fontSize: "0.65rem", padding: "0.2rem 0.5rem",
-        borderRadius: "6px", cursor: "pointer", flexShrink: 0,
-        marginLeft: "0.5rem",
-        background: "rgba(99,102,241,0.1)",
-        border: "1px solid rgba(99,102,241,0.3)",
-        color: "var(--accent)", fontWeight: 600,
-      }}
-    >
-      🍳 Again
-    </button>
-  )}
-</div>
-
-      {/* Progress bar always visible when busy */}
+      {/* Progress bar visible when busy and collapsed */}
       {worker.busy && !expanded && (
         <div style={{ padding: "0 1rem 0.5rem" }}>
           <ProgressBar elapsed={worker.elapsedSeconds} total={worker.totalSeconds} />
@@ -191,18 +189,22 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, wo
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.68rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
                 <span>
                   {recipe.emoji} {recipe.name}
-                  {batch > 1 && <span style={{ marginLeft: "0.3rem", color: "#f59e0b", fontWeight: 600 }}>×{batch} batch</span>}
+                  {batch > 1 && (
+                    <span style={{ marginLeft: "0.3rem", color: "#f59e0b", fontWeight: 600 }}>
+                      ×{batch} batch
+                    </span>
+                  )}
                 </span>
                 <span>{timeRemaining}s remaining</span>
               </div>
               <ProgressBar elapsed={worker.elapsedSeconds} total={worker.totalSeconds} />
               <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginTop: "0.3rem" }}>
-                Produces {recipe.outputAmount * batch} {recipe.outputGood} · consumes {PROCESSING_RECIPES[worker.recipeId]?.inputAmount * batch} {PROCESSING_RECIPES[worker.recipeId]?.inputCrop}
+                Produces {recipe.outputAmount * batch} {recipe.outputGood} · consumes {recipe.inputAmount * batch} {recipe.inputCrop}
               </div>
             </div>
           )}
 
-          {/* Waiting for crops */}
+          {/* Waiting / done state */}
           {!worker.busy && worker.recipeId && recipe && (
             <div style={{
               fontSize: "0.72rem", color: "var(--muted)",
@@ -210,7 +212,7 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, wo
             }}>
               {hasAutoRestart
                 ? `Waiting for ${recipe.inputAmount * batch}× ${recipe.inputCrop} to restart`
-                : `✓ Done crafting — assign a new recipe below`}
+                : `✓ Done — tap 🍳 Again or assign a new recipe below`}
             </div>
           )}
 
@@ -256,7 +258,11 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, wo
                           <div style={{ fontWeight: 600, color: "var(--text)" }}>{r.name}</div>
                           <div style={{ fontSize: "0.62rem", color: "var(--muted)" }}>
                             {totalInput}× {r.inputCrop} · {effectiveSeconds}s · have {have}
-                            {batch > 1 && <span style={{ marginLeft: "0.3rem", color: "#f59e0b" }}>· ×{batch} batch</span>}
+                            {batch > 1 && (
+                              <span style={{ marginLeft: "0.3rem", color: "#f59e0b" }}>
+                                · ×{batch} batch
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -422,6 +428,12 @@ export default function ProcessingZone({
   onUpgradePlot,
   onBuyFeast,
 }) {
+  const [expandedWorkers, setExpandedWorkers] = useState({});
+
+  const toggleWorker = useCallback((workerId) => {
+    setExpandedWorkers((prev) => ({ ...prev, [workerId]: !prev[workerId] }));
+  }, []);
+
   const hireCost = getKitchenWorkerHireCost(game);
   const canHire = (game.cash ?? 0) >= hireCost;
   const workers = game.kitchenWorkers ?? [];
@@ -463,6 +475,8 @@ export default function ProcessingZone({
               worker={worker}
               game={game}
               workerNumber={idx + 1}
+              expanded={expandedWorkers[worker.id] ?? false}
+              onToggle={() => toggleWorker(worker.id)}
               onAssignRecipe={onAssignKitchenWorkerRecipe}
               onUpgrade={onUpgradeKitchenWorker}
               onFire={onFireKitchenWorker}
