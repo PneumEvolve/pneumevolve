@@ -118,40 +118,61 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, wo
     <div className="card" style={{ fontSize: "0.82rem", overflow: "hidden" }}>
 
       {/* Collapsed header — always visible */}
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        style={{
-          width: "100%", display: "flex", alignItems: "center",
-          justifyContent: "space-between", padding: "0.65rem 1rem",
-          background: "none", border: "none", cursor: "pointer",
-          borderBottom: expanded ? "1px solid var(--border)" : "none",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flex: 1, minWidth: 0 }}>
-          <span>👨‍🍳</span>
-          <div style={{ textAlign: "left", minWidth: 0 }}>
-            <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text)" }}>
-              Chef {workerNumber}
-              {upgrades.length > 0 && (
-                <span style={{ marginLeft: "0.35rem", fontSize: "0.6rem", color: "var(--muted)" }}>
-                  {upgrades.map((u) => KITCHEN_WORKER_UPGRADES[u]?.emoji).join("")}
-                </span>
-              )}
-              {batch > 1 && (
-                <span style={{ marginLeft: "0.35rem", fontSize: "0.65rem", color: "#f59e0b", fontWeight: 700 }}>
-                  ×{batch}
-                </span>
-              )}
-            </div>
-            <div style={{ fontSize: "0.65rem", color: statusColor, marginTop: "0.1rem" }}>
-              {statusText}
-            </div>
-          </div>
-        </div>
-        <span style={{ color: "var(--muted)", fontSize: "0.65rem", marginLeft: "0.5rem", flexShrink: 0 }}>
-          {expanded ? "▲" : "▼"}
-        </span>
-      </button>
+<div style={{
+  width: "100%", display: "flex", alignItems: "center",
+  justifyContent: "space-between", padding: "0.65rem 1rem",
+  borderBottom: expanded ? "1px solid var(--border)" : "none",
+}}>
+  {/* Left side — clickable to expand */}
+  <button
+    onClick={() => setExpanded((v) => !v)}
+    style={{
+      flex: 1, display: "flex", alignItems: "center",
+      gap: "0.5rem", background: "none", border: "none",
+      cursor: "pointer", textAlign: "left", minWidth: 0, padding: 0,
+    }}
+  >
+    <span>👨‍🍳</span>
+    <div style={{ minWidth: 0 }}>
+      <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text)" }}>
+        Chef {workerNumber}
+        {upgrades.length > 0 && (
+          <span style={{ marginLeft: "0.35rem", fontSize: "0.6rem", color: "var(--muted)" }}>
+            {upgrades.map((u) => KITCHEN_WORKER_UPGRADES[u]?.emoji).join("")}
+          </span>
+        )}
+        {batch > 1 && (
+          <span style={{ marginLeft: "0.35rem", fontSize: "0.65rem", color: "#f59e0b", fontWeight: 700 }}>
+            ×{batch}
+          </span>
+        )}
+      </div>
+      <div style={{ fontSize: "0.65rem", color: statusColor, marginTop: "0.1rem" }}>
+        {statusText}
+      </div>
+    </div>
+    <span style={{ color: "var(--muted)", fontSize: "0.65rem", marginLeft: "0.5rem", flexShrink: 0 }}>
+      {expanded ? "▲" : "▼"}
+    </span>
+  </button>
+
+  {/* Cook Again button — only when idle and has a previous recipe */}
+  {!worker.busy && !idle && recipe && (
+    <button
+      onClick={() => onAssignRecipe(worker.id, worker.recipeId)}
+      style={{
+        fontSize: "0.65rem", padding: "0.2rem 0.5rem",
+        borderRadius: "6px", cursor: "pointer", flexShrink: 0,
+        marginLeft: "0.5rem",
+        background: "rgba(99,102,241,0.1)",
+        border: "1px solid rgba(99,102,241,0.3)",
+        color: "var(--accent)", fontWeight: 600,
+      }}
+    >
+      🍳 Again
+    </button>
+  )}
+</div>
 
       {/* Progress bar always visible when busy */}
       {worker.busy && !expanded && (
