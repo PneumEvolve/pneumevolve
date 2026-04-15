@@ -36,6 +36,7 @@ import {
   buyYieldUpgrade,
   buyMarketWorkerStandingOrder,
   setMarketWorkerStandingOrder,
+  cancelMarketWorkerQueue,
 } from "./gameEngine";
 import {
   SAVE_KEY,
@@ -338,13 +339,13 @@ export default function RootWork() {
   const handleTend = useCallback((farmId, plotId) =>
     update((s) => tendPlot(s, farmId, plotId)), [update]);
 
-  const handleUpgradePlot = useCallback((farmId, plotId) => {
-    update((s) => {
-      const n = upgradePlot(s, farmId, plotId);
-      if (n === s) notify("Not enough artisan goods.");
-      return n;
-    });
-  }, [update, notify]);
+  const handleUpgradePlot = useCallback((farmId) => {
+  update((s) => {
+    const n = upgradePlot(s, farmId);
+    if (n === s) notify("Not enough artisan goods.");
+    return n;
+  });
+}, [update, notify]);
 
   const handleBuyPlot = useCallback((farmId) => {
     update((s) => {
@@ -413,6 +414,11 @@ export default function RootWork() {
     update((s) => fireMarketWorker(s, workerId));
     notify("Market worker fired. Items refunded.");
   }, [update, notify]);
+
+  const handleCancelMarketWorkerQueue = useCallback((workerId) => {
+  update((s) => cancelMarketWorkerQueue(s, workerId));
+  notify("Queue cleared. Items refunded.");
+}, [update, notify]);
 
   // Kitchen
   const handleHireKitchenWorker = useCallback(() => {
@@ -585,6 +591,7 @@ const handleSetMarketWorkerStandingOrder = useCallback((workerId, itemType) => {
             onSpecialize={handleSpecialize}
             onBuyPlotCap={handleBuyPlotCapUpgrade}
             onBuyYield={handleBuyYieldUpgrade}
+            onUpgradePlot={handleUpgradePlot}
           />
         )}
 
@@ -597,6 +604,7 @@ const handleSetMarketWorkerStandingOrder = useCallback((workerId, itemType) => {
   onFireMarketWorker={handleFireMarketWorker}
   onBuyMarketWorkerStandingOrder={handleBuyMarketWorkerStandingOrder}
   onSetMarketWorkerStandingOrder={handleSetMarketWorkerStandingOrder}
+  onCancelQueue={handleCancelMarketWorkerQueue}
 />
         )}
 

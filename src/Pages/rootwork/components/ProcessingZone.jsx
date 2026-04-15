@@ -11,19 +11,20 @@ import {
   getEffectiveKitchenSeconds,
   isKitchenWorkerIdle,
   getNextFeastTier,
+  getKitchenWorkerBatchSize,
 } from "../gameEngine";
 
 const RECIPE_LIST = ["bread", "jam", "sauce"];
+
+const SPEED_UPGRADES = ["speed_1", "speed_2", "auto_restart"];
+const BATCH_UPGRADES = ["batch_2", "batch_5", "batch_10"];
 
 // ─── Progress bar ─────────────────────────────────────────────────────────────
 
 function ProgressBar({ elapsed, total, color = "var(--accent)" }) {
   const pct = total > 0 ? Math.min(100, (elapsed / total) * 100) : 0;
   return (
-    <div style={{
-      height: "4px", borderRadius: "2px",
-      background: "var(--border)", overflow: "hidden",
-    }}>
+    <div style={{ height: "4px", borderRadius: "2px", background: "var(--border)", overflow: "hidden" }}>
       <div style={{
         height: "100%", width: `${pct}%`,
         background: color, borderRadius: "2px",
@@ -33,191 +34,254 @@ function ProgressBar({ elapsed, total, color = "var(--accent)" }) {
   );
 }
 
+// ─── Upgrade tree ─────────────────────────────────────────────────────────────
+
+function UpgradeTree({ label, upgradeIds, worker, game, onUpgrade }) {
+  const upgrades = worker.upgrades ?? [];
+  return (
+    <div>
+      <div style={{ fontSize: "0.65rem", fontWeight: 600, color: "var(--muted)", marginBottom: "0.3rem" }}>
+        {label}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+        {upgradeIds.map((uid) => {
+          const u = KITCHEN_WORKER_UPGRADES[uid];
+          const owned = upgrades.includes(uid);
+          const requiresMet = !u.requires || upgrades.includes(u.requires);
+          const canAfford = (game.cash ?? 0) >= u.cost;
+          const canBuy = !owned && requiresMet && canAfford;
+          const locked = !owned && !requiresMet;
+
+          return (
+            <div key={uid} style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "0.3rem 0.5rem", borderRadius: "6px",
+              background: owned ? "rgba(74,222,128,0.08)" : "var(--bg)",
+              border: `1px solid ${owned ? "rgba(74,222,128,0.3)" : "var(--border)"}`,
+              opacity: locked ? 0.4 : 1,
+            }}>
+              <div style={{ fontSize: "0.7rem" }}>
+                <span style={{ fontWeight: 600, color: owned ? "#4ade80" : "var(--text)" }}>
+                  {owned ? "✓" : locked ? "🔒" : u.emoji} {u.name}
+                </span>
+                <span style={{ marginLeft: "0.4rem", fontSize: "0.62rem", color: "var(--muted)" }}>
+                  {u.description}
+                </span>
+              </div>
+              {!owned && (
+                <button
+                  onClick={() => canBuy && onUpgrade(worker.id, uid)}
+                  disabled={!canBuy}
+                  className="btn btn-secondary"
+                  style={{
+                    fontSize: "0.62rem", padding: "0.15rem 0.4rem",
+                    marginLeft: "0.4rem", flexShrink: 0,
+                    opacity: canBuy ? 1 : 0.5,
+                    cursor: canBuy ? "pointer" : "default",
+                  }}
+                >
+                  ${u.cost}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Kitchen worker card ──────────────────────────────────────────────────────
 
-function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire }) {
+function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, workerNumber }) {
+  const [expanded, setExpanded] = useState(workerNumber === 1);
   const [showRecipes, setShowRecipes] = useState(false);
+
   const idle = isKitchenWorkerIdle(worker);
   const recipe = worker.recipeId ? PROCESSING_RECIPES[worker.recipeId] : null;
   const upgrades = worker.upgrades ?? [];
-  const timeRemaining = worker.busy
-    ? Math.max(0, worker.totalSeconds - worker.elapsedSeconds)
-    : 0;
+  const timeRemaining = worker.busy ? Math.max(0, worker.totalSeconds - worker.elapsedSeconds) : 0;
+  const batch = getKitchenWorkerBatchSize(worker);
+  const hasAutoRestart = upgrades.includes("auto_restart");
+
+  const statusText = idle
+    ? "⚠ Idle"
+    : worker.busy
+      ? `Crafting ${recipe?.emoji} ${recipe?.name}${batch > 1 ? ` ×${batch}` : ""} · ${timeRemaining}s`
+      : hasAutoRestart
+        ? `⏳ Waiting for ${recipe?.emoji} ${recipe?.name}`
+        : `✓ Done — ${recipe?.emoji} ${recipe?.name}`;
+
+  const statusColor = idle ? "#ef4444" : worker.busy ? "#4ade80" : "var(--muted)";
 
   return (
-    <div className="card p-4" style={{ fontSize: "0.82rem" }}>
+    <div className="card" style={{ fontSize: "0.82rem", overflow: "hidden" }}>
 
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.6rem" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-          <span style={{ fontSize: "1.1rem" }}>👨‍🍳</span>
-          <div>
-            <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: "0.3rem" }}>
-              Kitchen Worker
+      {/* Collapsed header — always visible */}
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        style={{
+          width: "100%", display: "flex", alignItems: "center",
+          justifyContent: "space-between", padding: "0.65rem 1rem",
+          background: "none", border: "none", cursor: "pointer",
+          borderBottom: expanded ? "1px solid var(--border)" : "none",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flex: 1, minWidth: 0 }}>
+          <span>👨‍🍳</span>
+          <div style={{ textAlign: "left", minWidth: 0 }}>
+            <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text)" }}>
+              Chef {workerNumber}
               {upgrades.length > 0 && (
-                <span style={{ fontSize: "0.65rem", color: "var(--muted)" }}>
+                <span style={{ marginLeft: "0.35rem", fontSize: "0.6rem", color: "var(--muted)" }}>
                   {upgrades.map((u) => KITCHEN_WORKER_UPGRADES[u]?.emoji).join("")}
                 </span>
               )}
+              {batch > 1 && (
+                <span style={{ marginLeft: "0.35rem", fontSize: "0.65rem", color: "#f59e0b", fontWeight: 700 }}>
+                  ×{batch}
+                </span>
+              )}
             </div>
-            <div style={{ fontSize: "0.68rem", color: idle ? "#ef4444" : "#4ade80" }}>
-              {idle
-                ? "⚠ Idle — assign a recipe"
-                : worker.busy
-                  ? `Crafting ${recipe?.emoji} ${recipe?.name}`
-                  : `Ready — ${recipe?.emoji} ${recipe?.name} (waiting for crops)`}
+            <div style={{ fontSize: "0.65rem", color: statusColor, marginTop: "0.1rem" }}>
+              {statusText}
             </div>
           </div>
         </div>
-        <button
-          onClick={() => onFire(worker.id)}
-          style={{
-            fontSize: "0.65rem", color: "var(--muted)",
-            background: "none", border: "1px solid var(--border)",
-            borderRadius: "6px", padding: "0.2rem 0.5rem", cursor: "pointer",
-          }}
-        >
-          Fire
-        </button>
-      </div>
+        <span style={{ color: "var(--muted)", fontSize: "0.65rem", marginLeft: "0.5rem", flexShrink: 0 }}>
+          {expanded ? "▲" : "▼"}
+        </span>
+      </button>
 
-      {/* Progress */}
-      {worker.busy && recipe && (
-        <div style={{ marginBottom: "0.75rem" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.68rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
-            <span>{recipe.emoji} {recipe.name}</span>
-            <span>{timeRemaining}s remaining</span>
-          </div>
+      {/* Progress bar always visible when busy */}
+      {worker.busy && !expanded && (
+        <div style={{ padding: "0 1rem 0.5rem" }}>
           <ProgressBar elapsed={worker.elapsedSeconds} total={worker.totalSeconds} />
         </div>
       )}
 
-      {/* Not busy but has recipe — waiting for crops */}
-      {!worker.busy && worker.recipeId && recipe && (
-        <div style={{
-          marginBottom: "0.75rem", fontSize: "0.72rem",
-          color: "var(--muted)", background: "var(--bg)",
-          borderRadius: "6px", padding: "0.4rem 0.6rem",
-        }}>
-          Waiting for {recipe.inputAmount}× {recipe.inputCrop} to restart
+      {/* Expanded content */}
+      {expanded && (
+        <div style={{ padding: "0.75rem 1rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+
+          {/* Progress */}
+          {worker.busy && recipe && (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.68rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
+                <span>
+                  {recipe.emoji} {recipe.name}
+                  {batch > 1 && <span style={{ marginLeft: "0.3rem", color: "#f59e0b", fontWeight: 600 }}>×{batch} batch</span>}
+                </span>
+                <span>{timeRemaining}s remaining</span>
+              </div>
+              <ProgressBar elapsed={worker.elapsedSeconds} total={worker.totalSeconds} />
+              <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginTop: "0.3rem" }}>
+                Produces {recipe.outputAmount * batch} {recipe.outputGood} · consumes {PROCESSING_RECIPES[worker.recipeId]?.inputAmount * batch} {PROCESSING_RECIPES[worker.recipeId]?.inputCrop}
+              </div>
+            </div>
+          )}
+
+          {/* Waiting for crops */}
+          {!worker.busy && worker.recipeId && recipe && (
+            <div style={{
+              fontSize: "0.72rem", color: "var(--muted)",
+              background: "var(--bg)", borderRadius: "6px", padding: "0.4rem 0.6rem",
+            }}>
+              {hasAutoRestart
+                ? `Waiting for ${recipe.inputAmount * batch}× ${recipe.inputCrop} to restart`
+                : `✓ Done crafting — assign a new recipe below`}
+            </div>
+          )}
+
+          {/* Recipe selector */}
+          <div>
+            <button
+              onClick={() => setShowRecipes(!showRecipes)}
+              style={{
+                width: "100%", fontSize: "0.72rem", padding: "0.35rem 0.6rem",
+                borderRadius: "6px", background: "var(--bg)",
+                border: "1px solid var(--border)", color: "var(--muted)",
+                cursor: "pointer", textAlign: "left",
+              }}
+            >
+              {showRecipes ? "▲ Hide recipes" : `▼ ${worker.recipeId ? "Change recipe" : "Assign recipe"}`}
+            </button>
+
+            {showRecipes && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", marginTop: "0.4rem" }}>
+                {RECIPE_LIST.map((recipeId) => {
+                  const r = PROCESSING_RECIPES[recipeId];
+                  const have = game.crops[r.inputCrop] ?? 0;
+                  const totalInput = r.inputAmount * batch;
+                  const canStart = have >= totalInput;
+                  const effectiveSeconds = getEffectiveKitchenSeconds(worker, r.seconds);
+                  return (
+                    <button
+                      key={recipeId}
+                      onClick={() => { onAssignRecipe(worker.id, recipeId); setShowRecipes(false); }}
+                      disabled={!canStart}
+                      style={{
+                        display: "flex", alignItems: "center", justifyContent: "space-between",
+                        padding: "0.5rem 0.6rem", borderRadius: "6px",
+                        background: worker.recipeId === recipeId ? "rgba(99,102,241,0.1)" : "var(--bg)",
+                        border: `1px solid ${worker.recipeId === recipeId ? "var(--accent)" : "var(--border)"}`,
+                        cursor: canStart ? "pointer" : "default",
+                        opacity: canStart ? 1 : 0.5, fontSize: "0.75rem",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                        <span>{r.emoji}</span>
+                        <div style={{ textAlign: "left" }}>
+                          <div style={{ fontWeight: 600, color: "var(--text)" }}>{r.name}</div>
+                          <div style={{ fontSize: "0.62rem", color: "var(--muted)" }}>
+                            {totalInput}× {r.inputCrop} · {effectiveSeconds}s · have {have}
+                            {batch > 1 && <span style={{ marginLeft: "0.3rem", color: "#f59e0b" }}>· ×{batch} batch</span>}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: "0.68rem", color: "var(--muted)", textAlign: "right" }}>
+                        → {r.outputAmount * batch} {r.emoji}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Upgrade trees */}
+          <div style={{ borderTop: "1px solid var(--border)", paddingTop: "0.6rem", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+            <UpgradeTree
+              label="⚡ Speed"
+              upgradeIds={SPEED_UPGRADES}
+              worker={worker}
+              game={game}
+              onUpgrade={onUpgrade}
+            />
+            <UpgradeTree
+              label="📦 Batch"
+              upgradeIds={BATCH_UPGRADES}
+              worker={worker}
+              game={game}
+              onUpgrade={onUpgrade}
+            />
+          </div>
+
+          {/* Fire */}
+          <button
+            onClick={() => onFire(worker.id)}
+            style={{
+              fontSize: "0.65rem", color: "#ef4444",
+              background: "none", border: "1px solid #ef4444",
+              borderRadius: "6px", padding: "0.25rem 0.6rem",
+              cursor: "pointer", alignSelf: "flex-end",
+            }}
+          >
+            Fire worker
+          </button>
+
         </div>
       )}
-
-      {/* Recipe selector */}
-      <div style={{ marginBottom: "0.75rem" }}>
-        <button
-          onClick={() => setShowRecipes(!showRecipes)}
-          style={{
-            width: "100%", fontSize: "0.72rem",
-            padding: "0.35rem 0.6rem", borderRadius: "6px",
-            background: "var(--bg)", border: "1px solid var(--border)",
-            color: "var(--muted)", cursor: "pointer", textAlign: "left",
-          }}
-        >
-          {showRecipes ? "▲ Hide recipes" : `▼ ${worker.recipeId ? "Change recipe" : "Assign recipe"}`}
-        </button>
-
-        {showRecipes && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", marginTop: "0.4rem" }}>
-            {RECIPE_LIST.map((recipeId) => {
-              const r = PROCESSING_RECIPES[recipeId];
-              const have = game.crops[r.inputCrop] ?? 0;
-              const canStart = have >= r.inputAmount;
-              const effectiveSeconds = getEffectiveKitchenSeconds(worker, r.seconds);
-              return (
-                <button
-                  key={recipeId}
-                  onClick={() => {
-                    onAssignRecipe(worker.id, recipeId);
-                    setShowRecipes(false);
-                  }}
-                  disabled={!canStart}
-                  style={{
-                    display: "flex", alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "0.5rem 0.6rem", borderRadius: "6px",
-                    background: worker.recipeId === recipeId ? "rgba(99,102,241,0.1)" : "var(--bg)",
-                    border: `1px solid ${worker.recipeId === recipeId ? "var(--accent)" : "var(--border)"}`,
-                    cursor: canStart ? "pointer" : "default",
-                    opacity: canStart ? 1 : 0.5,
-                    fontSize: "0.75rem",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                    <span>{r.emoji}</span>
-                    <div style={{ textAlign: "left" }}>
-                      <div style={{ fontWeight: 600, color: "var(--text)" }}>{r.name}</div>
-                      <div style={{ fontSize: "0.65rem", color: "var(--muted)" }}>
-                        {r.inputAmount}× {r.inputCrop} · {effectiveSeconds}s · have {have}
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{ fontSize: "0.68rem", color: "var(--muted)", textAlign: "right" }}>
-                    → {r.emoji} {r.outputAmount}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Upgrades */}
-      <div style={{ borderTop: "1px solid var(--border)", paddingTop: "0.6rem" }}>
-        <div style={{ fontSize: "0.68rem", fontWeight: 600, color: "var(--muted)", marginBottom: "0.5rem" }}>
-          Upgrades
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-          {KITCHEN_WORKER_UPGRADE_ORDER.map((uid) => {
-            const u = KITCHEN_WORKER_UPGRADES[uid];
-            const owned = upgrades.includes(uid);
-            const requiresMet = !u.requires || upgrades.includes(u.requires);
-            const canAfford = (game.cash ?? 0) >= u.cost;
-            const canBuy = !owned && requiresMet && canAfford;
-            const locked = !owned && !requiresMet;
-
-            return (
-              <div key={uid} style={{
-                display: "flex", alignItems: "center", justifyContent: "space-between",
-                padding: "0.4rem 0.6rem", borderRadius: "6px",
-                background: owned ? "rgba(74,222,128,0.08)" : "var(--bg)",
-                border: `1px solid ${owned ? "rgba(74,222,128,0.3)" : "var(--border)"}`,
-                opacity: locked ? 0.4 : 1,
-              }}>
-                <div style={{ fontSize: "0.72rem" }}>
-                  <div style={{ fontWeight: 600, color: owned ? "#4ade80" : "var(--text)", display: "flex", alignItems: "center", gap: "0.3rem" }}>
-                    {owned ? "✓" : locked ? "🔒" : u.emoji} {u.name}
-                  </div>
-                  <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.1rem" }}>
-                    {u.description}
-                    {u.requires && !owned && (
-                      <span style={{ marginLeft: "0.3rem", color: locked ? "var(--border)" : "var(--muted)" }}>
-                        · Requires {KITCHEN_WORKER_UPGRADES[u.requires]?.name}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                {!owned && (
-                  <button
-                    onClick={() => canBuy && onUpgrade(worker.id, uid)}
-                    disabled={!canBuy}
-                    className="btn btn-secondary"
-                    style={{
-                      fontSize: "0.68rem", padding: "0.2rem 0.5rem",
-                      marginLeft: "0.5rem", flexShrink: 0,
-                      opacity: canBuy ? 1 : 0.5,
-                      cursor: canBuy ? "pointer" : "default",
-                    }}
-                  >
-                    ${u.cost}
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
     </div>
   );
 }
@@ -233,9 +297,7 @@ function FeastPanel({ game, onBuyFeast }) {
       <div className="card p-4" style={{ fontSize: "0.82rem", textAlign: "center" }}>
         <div style={{ fontSize: "1.5rem", marginBottom: "0.4rem" }}>🍽️</div>
         <div style={{ fontWeight: 600, marginBottom: "0.2rem" }}>Max Feast Bonus!</div>
-        <div style={{ fontSize: "0.72rem", color: "#4ade80" }}>
-          +{currentBonus}% grow speed on all farms
-        </div>
+        <div style={{ fontSize: "0.72rem", color: "#4ade80" }}>+{currentBonus}% grow speed on all farms</div>
       </div>
     );
   }
@@ -252,26 +314,21 @@ function FeastPanel({ game, onBuyFeast }) {
         <div>
           <div style={{ fontWeight: 600 }}>🍽️ Feast</div>
           <div style={{ fontSize: "0.68rem", color: "var(--muted)" }}>
-            {currentBonus > 0
-              ? `Current: +${currentBonus}% grow speed`
-              : "Unlock a permanent grow speed bonus"}
+            {currentBonus > 0 ? `Current: +${currentBonus}% grow speed` : "Unlock a permanent grow speed bonus"}
           </div>
         </div>
         {currentBonus > 0 && (
           <div style={{
             fontSize: "0.72rem", color: "#4ade80", fontWeight: 700,
-            background: "rgba(74,222,128,0.1)", borderRadius: "6px",
-            padding: "0.2rem 0.5rem",
+            background: "rgba(74,222,128,0.1)", borderRadius: "6px", padding: "0.2rem 0.5rem",
           }}>
             +{currentBonus}%
           </div>
         )}
       </div>
-
       <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.6rem" }}>
         Next tier: <strong style={{ color: "var(--text)" }}>+{nextTier.bonusPercent}%</strong> grow speed
       </div>
-
       <div style={{ display: "flex", gap: "0.4rem", marginBottom: "0.75rem" }}>
         {[
           { emoji: "🍞", label: "Bread", have: game.artisan.bread ?? 0, ok: hasBread },
@@ -290,7 +347,6 @@ function FeastPanel({ game, onBuyFeast }) {
           </div>
         ))}
       </div>
-
       <button
         onClick={onBuyFeast}
         disabled={!canFeast}
@@ -353,7 +409,6 @@ export default function ProcessingZone({
   return (
     <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 5rem" }}>
 
-      {/* Header */}
       <div style={{ marginBottom: "1rem" }}>
         <h2 style={{ fontSize: "1.2rem", fontWeight: 700 }}>🏭 Kitchen</h2>
         <p style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: "0.15rem" }}>
@@ -361,10 +416,8 @@ export default function ProcessingZone({
         </p>
       </div>
 
-      {/* Artisan inventory */}
       <ArtisanInventory artisan={game.artisan} />
 
-      {/* Hire worker */}
       <div style={{ marginBottom: "1.25rem" }}>
         <button
           onClick={onHireKitchenWorker}
@@ -376,19 +429,19 @@ export default function ProcessingZone({
         </button>
         {isFirstWorker && (
           <p style={{ fontSize: "0.7rem", color: "var(--muted)", marginTop: "0.4rem", textAlign: "center" }}>
-            Each worker crafts one recipe at a time. Upgrade them for speed and auto-restart.
+            Each worker crafts one recipe at a time. Two upgrade paths: speed or batch size.
           </p>
         )}
       </div>
 
-      {/* Worker cards */}
       {workers.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "1rem", marginBottom: "1.5rem" }}>
-          {workers.map((worker) => (
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "1.5rem" }}>
+          {workers.map((worker, idx) => (
             <KitchenWorkerCard
               key={worker.id}
               worker={worker}
               game={game}
+              workerNumber={idx + 1}
               onAssignRecipe={onAssignKitchenWorkerRecipe}
               onUpgrade={onUpgradeKitchenWorker}
               onFire={onFireKitchenWorker}
@@ -397,7 +450,6 @@ export default function ProcessingZone({
         </div>
       )}
 
-      {/* Feast */}
       <FeastPanel game={game} onBuyFeast={onBuyFeast} />
 
     </div>

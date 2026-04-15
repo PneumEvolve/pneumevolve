@@ -1,25 +1,77 @@
 // src/Pages/rootwork/components/FarmInvestmentPanel.jsx
 
 import React from "react";
-import { FARM_INVESTMENT_PLOT_CAP, FARM_INVESTMENT_YIELD } from "../gameConstants";
+import { FARM_INVESTMENT_PLOT_CAP, FARM_INVESTMENT_YIELD, CROP_ARTISAN } from "../gameConstants";
 import {
   getFarmInvestment,
   getFarmMaxPlots,
   getFarmBonusYield,
   getNextPlotCapUpgrade,
   getNextYieldUpgrade,
+  getPlotUpgradeCost,
 } from "../gameEngine";
 
-export default function FarmInvestmentPanel({ farm, game, onBuyPlotCap, onBuyYield }) {
+export default function FarmInvestmentPanel({ farm, game, onBuyPlotCap, onBuyYield, onUpgradePlot }) {
   const inv = getFarmInvestment(game, farm.id);
   const maxPlots = getFarmMaxPlots(game, farm.id);
   const bonusYield = getFarmBonusYield(game, farm.id);
-  const nextPlotCap = getNextPlotCapUpgrade(game, farm.id);
-  const nextYield = getNextYieldUpgrade(game, farm.id);
   const cash = game.cash ?? 0;
+
+  const artisanGood = CROP_ARTISAN[farm.crop];
+  const artisanHave = artisanGood ? (game.artisan[artisanGood] ?? 0) : 0;
+  const upgradablePlots = farm.plots.filter((p) => !p.upgraded);
+  const upgradedPlots = farm.plots.filter((p) => p.upgraded);
+  const nextUpgradeCost = getPlotUpgradeCost(farm);
+  const canAffordUpgrade = artisanHave >= nextUpgradeCost;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+
+      {/* Plot upgrades */}
+{artisanGood && (
+  <div className="card p-3">
+    <div style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--muted)", marginBottom: "0.25rem" }}>
+      ⭐ Plot Upgrades
+    </div>
+    <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.5rem" }}>
+      Each upgrade costs 1 more {artisanGood} than the last — 50% faster grow time per plot
+    </div>
+
+    {upgradablePlots.length === 0 ? (
+      <div style={{ fontSize: "0.72rem", color: "#4ade80", textAlign: "center", padding: "0.25rem 0" }}>
+        ✓ All plots upgraded
+      </div>
+    ) : (
+      <>
+        <div style={{
+          fontSize: "0.72rem", color: "var(--muted)",
+          marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.5rem",
+        }}>
+          <span>
+            <strong style={{ color: canAffordUpgrade ? "#f59e0b" : "var(--text)" }}>
+              {artisanHave}
+            </strong> / {nextUpgradeCost} {artisanGood} available
+          </span>
+          <span style={{ color: "var(--border)" }}>·</span>
+          <span>{upgradedPlots.length}/{farm.plots.length} upgraded</span>
+        </div>
+        <button
+          onClick={() => onUpgradePlot(farm.id)}
+          disabled={!canAffordUpgrade}
+          className="btn w-full"
+          style={{
+            fontSize: "0.75rem", padding: "0.4rem 0.75rem",
+            opacity: canAffordUpgrade ? 1 : 0.5,
+          }}
+        >
+          {canAffordUpgrade
+            ? `⭐ Upgrade plot ${upgradedPlots.length + 1} — ${nextUpgradeCost} ${artisanGood}`
+            : `Need ${nextUpgradeCost} ${artisanGood} to upgrade`}
+        </button>
+      </>
+    )}
+  </div>
+)}
 
       {/* Plot capacity */}
       <div className="card p-3">

@@ -1,8 +1,8 @@
 // src/Pages/rootwork/components/FarmGrid.jsx
- 
+
 import React from "react";
 import Plot from "./Plot";
- 
+
 const GRID_STYLES = `
   @keyframes rw-pulse {
     0%, 100% { opacity: 1; transform: scale(1); }
@@ -17,7 +17,7 @@ const GRID_STYLES = `
     animation: rw-pop 0.25s ease forwards;
   }
 `;
- 
+
 function getGridColumns(plotCount) {
   if (plotCount <= 1)  return 1;
   if (plotCount <= 4)  return 2;
@@ -25,7 +25,7 @@ function getGridColumns(plotCount) {
   if (plotCount <= 16) return 4;
   return 5;
 }
- 
+
 export default function FarmGrid({ farm, game, onPlant, onHarvest, onTend, tendMode }) {
   try {
     const cols = getGridColumns(farm.plots.length);

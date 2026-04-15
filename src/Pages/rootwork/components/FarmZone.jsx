@@ -33,6 +33,7 @@ export default function FarmZone({
   onPlant, onHarvest, onTend,
   onBuyPlot, onHireWorker, onSellWorker,
   onUpgradeGear, onSpecialize, onBuyPlotCap, onBuyYield,
+  onUpgradePlot,
 }) {
   const [tendMode, setTendMode] = useState(false);
 
@@ -232,6 +233,7 @@ export default function FarmZone({
       game={game}
       onBuyPlotCap={onBuyPlotCap}
       onBuyYield={onBuyYield}
+      onUpgradePlot={onUpgradePlot}
     />
   </div>
 </Section>

@@ -111,6 +111,7 @@ export const FARM_INVESTMENT_YIELD = [
 
 // ─── Plot upgrade ─────────────────────────────────────────────────────────────
 export const PLOT_UPGRADE_COST = 1;
+export const PLOT_UPGRADE_BASE_COST = 1;
 export const PLOT_UPGRADE_GROW_MULTIPLIER = 0.5;
 
 export const CROP_ARTISAN = {
@@ -240,6 +241,7 @@ export const KITCHEN_WORKER_UPGRADES = {
     cost: 80,
     description: "+25% processing speed.",
     speedMultiplier: 0.75,
+    tree: "speed",
   },
   speed_2: {
     id: "speed_2",
@@ -249,17 +251,52 @@ export const KITCHEN_WORKER_UPGRADES = {
     description: "+50% processing speed (replaces Sharp Knife).",
     speedMultiplier: 0.5,
     requires: "speed_1",
+    tree: "speed",
   },
   auto_restart: {
     id: "auto_restart",
     name: "Auto-Restart",
     emoji: "🔄",
     cost: 600,
-    description: "Automatically restarts recipe when finished, if ingredients available.",
+    description: "Automatically restarts recipe when finished.",
     requires: "speed_2",
+    tree: "speed",
+  },
+  batch_2: {
+    id: "batch_2",
+    name: "Batch ×2",
+    emoji: "📦",
+    cost: 800,
+    description: "Double input, double output per run.",
+    batchSize: 2,
+    tree: "batch",
+  },
+  batch_5: {
+    id: "batch_5",
+    name: "Batch ×5",
+    emoji: "📦📦",
+    cost: 2000,
+    description: "5× input, 5× output per run.",
+    batchSize: 5,
+    requires: "batch_2",
+    tree: "batch",
+  },
+  batch_10: {
+    id: "batch_10",
+    name: "Batch ×10",
+    emoji: "📦📦📦",
+    cost: 5000,
+    description: "10× input, 10× output per run.",
+    batchSize: 10,
+    requires: "batch_5",
+    tree: "batch",
   },
 };
-export const KITCHEN_WORKER_UPGRADE_ORDER = ["speed_1", "speed_2", "auto_restart"];
+
+export const KITCHEN_WORKER_UPGRADE_ORDER = [
+  "speed_1", "speed_2", "auto_restart",
+  "batch_2", "batch_5", "batch_10",
+];
 
 // ─── Legacy kitchen constants (kept for migration in deserializeState) ────────
 export const KITCHEN_BASE_COST = 20;

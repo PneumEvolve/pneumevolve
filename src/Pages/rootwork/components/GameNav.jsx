@@ -60,11 +60,13 @@ export function FarmSubTabs({ game, activeFarmIndex, onFarmChange }) {
 }
 
 export default function GameNav({ game, activeMainTab, onMainTabChange, prestigeReady }) {
-  const idleKitchenWorkers = getIdleKitchenWorkerCount(game);
+  const idleKitchenWorkers = (game.kitchenWorkers ?? []).filter(
+  (w) => !w.busy  // includes both truly idle AND waiting-for-crops
+).length;
   const marketQueueTotal = (game.marketWorkers ?? []).reduce(
     (s, w) => s + (w.queue ?? []).reduce((qs, o) => qs + o.quantity, 0), 0
   );
-  const processingCount = (game.kitchenWorkers ?? []).filter((w) => w.busy).length;
+  
 
   const tabs = [
     {
@@ -84,8 +86,8 @@ export default function GameNav({ game, activeMainTab, onMainTabChange, prestige
       id: "kitchen",
       label: "Kitchen",
       emoji: "🏭",
-      badge: idleKitchenWorkers > 0 ? idleKitchenWorkers : processingCount > 0 ? processingCount : null,
-      badgeColor: idleKitchenWorkers > 0 ? "#ef4444" : "var(--accent)",
+      badge: idleKitchenWorkers > 0 ? idleKitchenWorkers : null,
+      badgeColor: "#ef4444",
     },
     {
       id: "season",

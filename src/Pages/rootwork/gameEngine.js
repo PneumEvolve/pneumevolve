@@ -115,6 +115,7 @@ export function makeKitchenWorker() {
     recipeId: null,       // currently assigned recipe
     elapsedSeconds: 0,
     totalSeconds: 0,
+    batchSize: 1,
     busy: false,
   };
 }
@@ -298,6 +299,22 @@ export function getTotalMarketQueueLength(state) {
   return (state.marketWorkers ?? []).reduce((s, w) => s + getMarketWorkerQueueTotal(w), 0);
 }
 
+export function cancelMarketWorkerQueue(state, workerId) {
+  const next = deepCloneState(state);
+  const worker = (next.marketWorkers ?? []).find((w) => w.id === workerId);
+  if (!worker) return state;
+  for (const order of worker.queue ?? []) {
+    if (order.itemType in (next.crops ?? {})) {
+      next.crops[order.itemType] = (next.crops[order.itemType] ?? 0) + order.quantity;
+    } else if (order.itemType in (next.artisan ?? {})) {
+      next.artisan[order.itemType] = (next.artisan[order.itemType] ?? 0) + order.quantity;
+    }
+  }
+  worker.queue = [];
+  return next;
+}
+
+
 // ─── Kitchen worker helpers ───────────────────────────────────────────────────
 
 export function getKitchenWorkerHireCost(state) {
@@ -339,14 +356,25 @@ export function canUpgradeKitchenWorker(state, workerId, upgradeId) {
 
 // ─── Kitchen worker: start recipe ─────────────────────────────────────────────
 
+export function getKitchenWorkerBatchSize(worker) {
+  const upgrades = worker.upgrades ?? [];
+  if (upgrades.includes("batch_10")) return 10;
+  if (upgrades.includes("batch_5")) return 5;
+  if (upgrades.includes("batch_2")) return 2;
+  return 1;
+}
+
 function _startKitchenWorkerRecipe(worker, recipeId, crops) {
   const recipe = PROCESSING_RECIPES[recipeId];
   if (!recipe?.inputCrop) return false;
-  if ((crops[recipe.inputCrop] ?? 0) < recipe.inputAmount) return false;
-  crops[recipe.inputCrop] -= recipe.inputAmount;
+  const batch = getKitchenWorkerBatchSize(worker);
+  const totalInput = recipe.inputAmount * batch;
+  if ((crops[recipe.inputCrop] ?? 0) < totalInput) return false;
+  crops[recipe.inputCrop] -= totalInput;
   worker.recipeId = recipeId;
   worker.elapsedSeconds = 0;
   worker.totalSeconds = getEffectiveKitchenSeconds(worker, recipe.seconds);
+  worker.batchSize = batch; // store so output knows how much to produce
   worker.busy = true;
   return true;
 }
@@ -452,25 +480,25 @@ export function calculateOfflineProgress(state, nowMs) {
     const maxRestarts = Math.floor(seconds / 5) + 1;
 
     while (timeLeft > 0 && worker.busy) {
-      const remaining = worker.totalSeconds - (worker.elapsedSeconds ?? 0);
-
-      if (timeLeft < remaining) {
-        worker.elapsedSeconds += timeLeft;
-        timeLeft = 0;
-      } else {
-        timeLeft -= remaining;
-        const recipe = PROCESSING_RECIPES[worker.recipeId];
-        next.artisan[recipe.outputGood] = (next.artisan[recipe.outputGood] ?? 0) + recipe.outputAmount;
-        worker.elapsedSeconds = 0;
-        worker.busy = false;
-
-        const hasAutoRestart = (worker.upgrades ?? []).includes("auto_restart");
-        if (hasAutoRestart && timeLeft > 0 && restartCount < maxRestarts) {
-          const started = _startKitchenWorkerRecipe(worker, worker.recipeId, next.crops);
-          if (started) restartCount++;
-        }
-      }
+  const remaining = worker.totalSeconds - (worker.elapsedSeconds ?? 0);
+  if (timeLeft < remaining) {
+    worker.elapsedSeconds += timeLeft;
+    timeLeft = 0;
+  } else {
+    timeLeft -= remaining;
+    const recipe = PROCESSING_RECIPES[worker.recipeId];
+    const batch = worker.batchSize ?? 1;
+    next.artisan[recipe.outputGood] = (next.artisan[recipe.outputGood] ?? 0) + (recipe.outputAmount * batch);
+    worker.elapsedSeconds = 0;
+    worker.busy = false;
+    worker.batchSize = 1;
+    const hasAutoRestart = (worker.upgrades ?? []).includes("auto_restart");
+    if (hasAutoRestart && timeLeft > 0 && restartCount < maxRestarts) {
+      const started = _startKitchenWorkerRecipe(worker, worker.recipeId, next.crops);
+      if (started) restartCount++;
     }
+  }
+}
   }
 
   // ── Market workers ────────────────────────────────────────────────────────
@@ -583,21 +611,21 @@ export function tick(state) {
 
   // ── Kitchen workers ────────────────────────────────────────────────────────
   for (const worker of next.kitchenWorkers ?? []) {
-    if (!worker.busy || !worker.recipeId) continue;
-
-    worker.elapsedSeconds = (worker.elapsedSeconds ?? 0) + 1;
-    if (worker.elapsedSeconds >= worker.totalSeconds) {
-      const recipe = PROCESSING_RECIPES[worker.recipeId];
-      next.artisan[recipe.outputGood] = (next.artisan[recipe.outputGood] ?? 0) + recipe.outputAmount;
-      worker.elapsedSeconds = 0;
-      worker.busy = false;
-
-      const hasAutoRestart = (worker.upgrades ?? []).includes("auto_restart");
-      if (hasAutoRestart) {
-        _startKitchenWorkerRecipe(worker, worker.recipeId, next.crops);
-      }
+  if (!worker.busy || !worker.recipeId) continue;
+  worker.elapsedSeconds = (worker.elapsedSeconds ?? 0) + 1;
+  if (worker.elapsedSeconds >= worker.totalSeconds) {
+    const recipe = PROCESSING_RECIPES[worker.recipeId];
+    const batch = worker.batchSize ?? 1;
+    next.artisan[recipe.outputGood] = (next.artisan[recipe.outputGood] ?? 0) + (recipe.outputAmount * batch);
+    worker.elapsedSeconds = 0;
+    worker.busy = false;
+    worker.batchSize = 1;
+    const hasAutoRestart = (worker.upgrades ?? []).includes("auto_restart");
+    if (hasAutoRestart) {
+      _startKitchenWorkerRecipe(worker, worker.recipeId, next.crops);
     }
   }
+}
 
   // ── Market workers ─────────────────────────────────────────────────────────
 for (const worker of next.marketWorkers ?? []) {
@@ -683,16 +711,24 @@ export function tendPlot(state, farmId, plotId) {
   return next;
 }
 
-export function upgradePlot(state, farmId, plotId) {
+
+
+export function getPlotUpgradeCost(farm) {
+  const upgradedCount = farm.plots.filter((p) => p.upgraded).length;
+  return upgradedCount + 1; // 1, 2, 3, 4... one more each time
+}
+
+export function upgradePlot(state, farmId) {
   const next = deepCloneState(state);
   const farm = next.farms.find((f) => f.id === farmId);
   if (!farm) return state;
-  const plot = farm.plots.find((p) => p.id === plotId);
-  if (!plot || plot.upgraded) return state;
+  const plot = farm.plots.find((p) => !p.upgraded);
+  if (!plot) return state;
   const artisanGood = CROP_ARTISAN[farm.crop];
   if (!artisanGood) return state;
-  if ((next.artisan[artisanGood] ?? 0) < PLOT_UPGRADE_COST) return state;
-  next.artisan[artisanGood] -= PLOT_UPGRADE_COST;
+  const cost = getPlotUpgradeCost(farm);
+  if ((next.artisan[artisanGood] ?? 0) < cost) return state;
+  next.artisan[artisanGood] -= cost;
   plot.upgraded = true;
   return next;
 }
@@ -1150,6 +1186,10 @@ export function deserializeState(raw) {
     for (const worker of parsed.workers ?? []) {
       if (worker.cycleCount === undefined) worker.cycleCount = 0;
     }
+    for (const worker of parsed.kitchenWorkers ?? []) {
+  if (worker.batchSize === undefined) worker.batchSize = 1;
+}
+
     for (const farm of parsed.farms ?? []) {
       for (const plot of farm.plots ?? []) {
         if (plot.upgraded === undefined) plot.upgraded = false;

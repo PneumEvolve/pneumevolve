@@ -31,7 +31,7 @@ const SELL_AMOUNTS = [1, 10, 50, 100, "All"];
 function MarketWorkerCard({
   worker, game,
   onAssign, onUpgrade, onFire,
-  onBuyStandingOrder, onSetStandingOrder,
+  onBuyStandingOrder, onSetStandingOrder, onCancelQueue,
 }) {
   const [selectedItem, setSelectedItem] = useState(null);
   const [selectedAmount, setSelectedAmount] = useState(10);
@@ -176,26 +176,38 @@ function MarketWorkerCard({
         fontSize: "0.72rem", color: "var(--muted)",
       }}>
         {queueTotal > 0 ? (
-          <div>
-            <span style={{ color: "var(--text)", fontWeight: 600 }}>{queueTotal}</span> items queued
-            {worker.queue.map((order) => {
-              const item = SELLABLE_ITEMS.find((i) => i.type === order.itemType);
-              const rate = getSellRate(order.itemType, game.prestigeBonuses ?? []);
-              return (
-                <div key={order.id} style={{ marginTop: "0.2rem", display: "flex", justifyContent: "space-between" }}>
-                  <span>{item?.emoji} {item?.label} ×{order.quantity}</span>
-                  <span style={{ color: "#4ade80" }}>≈${(order.quantity * rate).toFixed(0)}</span>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <span>
-            {worker.hasStandingOrder && worker.standingOrder
-              ? "Queue empty — will auto-fill from inventory"
-              : "Queue empty — assign items below"}
-          </span>
-        )}
+  <div>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" }}>
+      <span><span style={{ color: "var(--text)", fontWeight: 600 }}>{queueTotal}</span> items queued</span>
+      <button
+        onClick={() => onCancelQueue(worker.id)}
+        style={{
+          fontSize: "0.62rem", padding: "0.1rem 0.4rem",
+          background: "none", border: "1px solid #ef4444",
+          borderRadius: "4px", color: "#ef4444", cursor: "pointer",
+        }}
+      >
+        Clear queue
+      </button>
+    </div>
+    {worker.queue.map((order) => {
+      const item = SELLABLE_ITEMS.find((i) => i.type === order.itemType);
+      const rate = getSellRate(order.itemType, game.prestigeBonuses ?? []);
+      return (
+        <div key={order.id} style={{ marginTop: "0.2rem", display: "flex", justifyContent: "space-between" }}>
+          <span>{item?.emoji} {item?.label} ×{order.quantity}</span>
+          <span style={{ color: "#4ade80" }}>≈${(order.quantity * rate).toFixed(0)}</span>
+        </div>
+      );
+    })}
+  </div>
+) : (
+  <span>
+    {worker.hasStandingOrder && worker.standingOrder
+      ? "Queue empty — will auto-fill from inventory"
+      : "Queue empty — assign items below"}
+  </span>
+)}
       </div>
 
       {/* Manual assign items */}
@@ -330,6 +342,7 @@ export default function MarketZone({
   onFireMarketWorker,
   onBuyMarketWorkerStandingOrder,
   onSetMarketWorkerStandingOrder,
+  onCancelQueue,
 }) {
   const cash = game.cash ?? 0;
   const lifetimeCash = game.lifetimeCash ?? 0;
@@ -436,6 +449,7 @@ export default function MarketZone({
               onFire={onFireMarketWorker}
               onBuyStandingOrder={onBuyMarketWorkerStandingOrder}
               onSetStandingOrder={onSetMarketWorkerStandingOrder}
+              onCancelQueue={onCancelQueue}
             />
           ))}
         </div>
