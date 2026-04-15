@@ -49,6 +49,8 @@ import {
   CROPS,
   GEAR,
   SPECIALIZATIONS,
+  KITCHEN_WORKER_UPGRADES,
+  MARKET_WORKER_GEAR,
 } from "./gameConstants";
 import GameNav, { FarmSubTabs } from "./components/GameNav";
 import ResourceBar from "./components/ResourceBar";
