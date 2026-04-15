@@ -34,7 +34,7 @@ export default function ResourceBar({ game }) {
               fontSize: "0.85rem", fontWeight: 500,
             }}>
               <span>{crop.emoji}</span>
-              <span>{amount}</span>
+              <span>{Math.floor(amount)}</span>
               <span style={{ fontSize: "0.7rem", color: "var(--muted)", fontWeight: 400 }}>
                 {crop.name}
               </span>
@@ -57,7 +57,7 @@ export default function ResourceBar({ game }) {
                 fontSize: "0.85rem", fontWeight: 500,
               }}>
                 <span>{labels[id]}</span>
-                <span>{amount}</span>
+                <span>{Math.floor(amount)}</span>
                 <span style={{ fontSize: "0.7rem", color: "var(--muted)", fontWeight: 400 }}>
                   {names[id]}
                 </span>
@@ -76,6 +76,16 @@ export default function ResourceBar({ game }) {
           <span>💰</span>
           <span>${Math.floor(cash)}</span>
         </div>
+        {(game.town?.unlocked ?? false) && (
+  <div style={{
+    fontSize: "0.7rem",
+    color: game.town?.starving ? "#ef4444" : "#4ade80",
+    fontWeight: 600,
+    whiteSpace: "nowrap",
+  }}>
+    🏘️ {Math.floor(game.town?.people ?? 0)} · +{game.town?.growthBonusPercent ?? 0}%
+  </div>
+)}
         <div style={{
           fontSize: "0.7rem", color: "var(--muted)", fontWeight: 500,
           letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap",

@@ -118,34 +118,10 @@ export const FARM_INVESTMENT_PLOT_CAP = [
 ];
 
 export const FARM_INVESTMENT_YIELD = [
-  {
-    id: "yield_1",
-    name: "Fertilizer I",
-    bonusYield: 1,
-    cost: 300,
-    description: "+1 crop per worker harvest.",
-  },
-  {
-    id: "yield_2",
-    name: "Fertilizer II",
-    bonusYield: 2,
-    cost: 700,
-    description: "+2 crops per worker harvest.",
-  },
-  {
-    id: "yield_3",
-    name: "Fertilizer III",
-    bonusYield: 3,
-    cost: 1500,
-    description: "+3 crops per worker harvest.",
-  },
-  {
-    id: "yield_4",
-    name: "Fertilizer IV",
-    bonusYield: 4,
-    cost: 3000,
-    description: "+4 crops per worker harvest.",
-  },
+  { id: "yield_1", name: "Fertilizer I",   bonusYield: 1, cost: 300,  description: "+1 crop per worker harvest." },
+  { id: "yield_2", name: "Fertilizer II",  bonusYield: 2, cost: 900,  description: "+2 crops per worker harvest." },
+  { id: "yield_3", name: "Fertilizer III", bonusYield: 3, cost: 2200, description: "+3 crops per worker harvest." },
+  { id: "yield_4", name: "Fertilizer IV",  bonusYield: 4, cost: 5000, description: "+4 crops per worker harvest." },
 ];
 
 // ─── Plot upgrade ─────────────────────────────────────────────────────────────
@@ -249,8 +225,8 @@ export const FEAST_MAX_BONUS = 50;
 // ─── Market ───────────────────────────────────────────────────────────────────
 export const MARKET_SELL_RATES = {
   wheat: 0.5,
-  berries: 1,
-  tomatoes: 2,
+  berries: 1.25,
+  tomatoes: 3,
   bread: 30,
   jam: 50,
   sauce: 80,
@@ -290,7 +266,7 @@ export const MARKET_WORKER_GEAR = {
     name: "Freight",
     emoji: "🚛",
     itemsPerSecond: 10,
-    upgradeCost: 1200,
+    upgradeCost: 2200,
     description: "Sells 10 items per second.",
   },
 };
@@ -426,6 +402,29 @@ export function getFarmUnlockCost(extraFarmIndex) {
 }
 
 export const EXTRA_FARM_CROPS = ["wheat", "berries", "tomatoes"];
+
+// ─── Town ─────────────────────────────────────────────────────────────────────
+export const TOWN_UNLOCK_LIFETIME_CASH = 10_000;
+export const TOWN_HOME_CAPACITY = 4;
+export const TOWN_HOME_BASE_COST = 2_500;
+export const TOWN_HOME_COST_MULTIPLIER = 1.8;
+
+// Bakery
+export const TOWN_BAKERY_BASE_COST = 1_500;
+export const TOWN_BAKERY_COST_MULTIPLIER = 2;
+
+// Pulse system
+export const TOWN_PULSE_SECONDS = 30;
+export const TOWN_PEOPLE_PER_BREAD = 2;
+
+// Population changes by whole people each pulse
+export const TOWN_GROWTH_PER_PULSE = 1;
+export const TOWN_DECLINE_PER_PULSE = 1;
+
+// Bonus: +1% grow speed per 5 people
+export const TOWN_PEOPLE_PER_GROWTH_BONUS = 5;
+export const TOWN_GROWTH_BONUS_PER_STEP = 1;
+export const TOWN_MAX_GROWTH_BONUS_PERCENT = 25;
 
 // ─── Season structure ─────────────────────────────────────────────────────────
 export const SEASON_FARMS = {

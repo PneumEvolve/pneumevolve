@@ -40,6 +40,19 @@ import {
   FARM_INVESTMENT_PLOT_CAP,
   FARM_INVESTMENT_YIELD,
   MARKET_WORKER_STANDING_ORDER_COST,
+  TOWN_UNLOCK_LIFETIME_CASH,
+  TOWN_HOME_CAPACITY,
+  TOWN_HOME_BASE_COST,
+  TOWN_HOME_COST_MULTIPLIER,
+  TOWN_BAKERY_BASE_COST,
+  TOWN_BAKERY_COST_MULTIPLIER,
+  TOWN_PULSE_SECONDS,
+  TOWN_PEOPLE_PER_BREAD,
+  TOWN_GROWTH_PER_PULSE,
+  TOWN_DECLINE_PER_PULSE,
+  TOWN_PEOPLE_PER_GROWTH_BONUS,
+  TOWN_GROWTH_BONUS_PER_STEP,
+  TOWN_MAX_GROWTH_BONUS_PERCENT, 
 } from "./gameConstants";
 
 let _idCounter = 0;
@@ -124,6 +137,138 @@ function makeKitchenSlot(slotIndex) {
   return { slotIndex, upgrades: [] };
 }
 
+export function getTownHomeCost(state) {
+  const homes = state.town?.homes ?? 0;
+  const raw = TOWN_HOME_BASE_COST * Math.pow(TOWN_HOME_COST_MULTIPLIER, homes);
+  return Math.round(raw / 50) * 50;
+}
+
+export function getTownBakeryCost(state) {
+  const bakeryLevel = state.town?.bakeryLevel ?? 0;
+  const raw = TOWN_BAKERY_BASE_COST * Math.pow(TOWN_BAKERY_COST_MULTIPLIER, bakeryLevel);
+  return Math.round(raw / 50) * 50;
+}
+
+export function buyTownBakery(state) {
+  const next = deepCloneState(state);
+
+  if (!next.town?.unlocked) return state;
+
+  const cost = getTownBakeryCost(next);
+  if ((next.cash ?? 0) < cost) return state;
+
+  next.cash -= cost;
+  next.town.bakeryLevel = (next.town.bakeryLevel ?? 0) + 1;
+  return next;
+}
+
+export function getTownCapacity(state) {
+  const homes = state.town?.homes ?? 0;
+  return homes * TOWN_HOME_CAPACITY;
+}
+
+export function getTownGrowthBonusPercent(people) {
+  const steps = Math.floor(Math.max(0, people) / TOWN_PEOPLE_PER_GROWTH_BONUS);
+  return Math.min(TOWN_MAX_GROWTH_BONUS_PERCENT, steps * TOWN_GROWTH_BONUS_PER_STEP);
+}
+
+export function updateTown(state, seconds = 1) {
+  const next = deepCloneState(state);
+
+  if (!next.town) {
+    next.town = {
+      unlocked: false,
+      homes: 0,
+      bakeryLevel: 0,
+      people: 0,
+      capacity: 0,
+      satisfaction: 1,
+      growthBonusPercent: 0,
+      breadNeeded: 0,
+      rawBreadNeeded: 0,
+      pulseSeconds: TOWN_PULSE_SECONDS,
+      starving: false,
+    };
+  }
+
+  if (!next.town.unlocked && (next.lifetimeCash ?? 0) >= TOWN_UNLOCK_LIFETIME_CASH) {
+    next.town.unlocked = true;
+    if ((next.town.homes ?? 0) <= 0) next.town.homes = 1;
+    if (next.town.pulseSeconds == null) next.town.pulseSeconds = TOWN_PULSE_SECONDS;
+  }
+
+  const unlocked = next.town.unlocked === true;
+  next.town.capacity = getTownCapacity(next);
+
+  if (!unlocked) {
+    next.town.growthBonusPercent = 0;
+    next.town.breadNeeded = 0;
+    next.town.rawBreadNeeded = 0;
+    next.town.satisfaction = 1;
+    next.town.pulseSeconds = TOWN_PULSE_SECONDS;
+    next.town.starving = false;
+    return next;
+  }
+
+  if (next.town.pulseSeconds == null) {
+    next.town.pulseSeconds = TOWN_PULSE_SECONDS;
+  }
+
+  next.town.pulseSeconds -= seconds;
+
+  while (next.town.pulseSeconds <= 0) {
+    const people = Math.floor(Math.max(0, next.town.people ?? 0));
+    const capacity = getTownCapacity(next);
+    const bakeryLevel = next.town.bakeryLevel ?? 0;
+
+    const rawBreadNeeded = Math.max(1, Math.ceil(people / TOWN_PEOPLE_PER_BREAD));
+    const breadNeeded = Math.max(1, rawBreadNeeded - bakeryLevel);
+
+    const breadHave = Math.floor(next.artisan?.bread ?? 0);
+    const fed = breadHave >= breadNeeded;
+
+    if (!next.artisan) next.artisan = {};
+
+    if (fed) {
+      next.artisan.bread = breadHave - breadNeeded;
+      if (people < capacity) {
+        next.town.people = Math.min(capacity, people + TOWN_GROWTH_PER_PULSE);
+      } else {
+        next.town.people = people;
+      }
+      next.town.satisfaction = 1;
+      next.town.starving = false;
+    } else {
+      next.town.people = Math.max(0, people - TOWN_DECLINE_PER_PULSE);
+      next.town.satisfaction = 0;
+      next.town.starving = true;
+    }
+
+    next.town.rawBreadNeeded = rawBreadNeeded;
+    next.town.breadNeeded = breadNeeded;
+    next.town.capacity = capacity;
+    next.town.growthBonusPercent = getTownGrowthBonusPercent(next.town.people ?? 0);
+    next.town.pulseSeconds += TOWN_PULSE_SECONDS;
+  }
+
+  return next;
+}
+
+export function buildTownHome(state) {
+  const next = deepCloneState(state);
+
+  if (!next.town?.unlocked) return state;
+
+  const cost = getTownHomeCost(next);
+  if ((next.cash ?? 0) < cost) return state;
+
+  next.cash -= cost;
+  next.town.homes = (next.town.homes ?? 0) + 1;
+  next.town.capacity = getTownCapacity(next);
+
+  return next;
+}
+
 // ─── Initial state ────────────────────────────────────────────────────────────
 
 export function createInitialState() {
@@ -149,6 +294,19 @@ export function createInitialState() {
     lastSavedTime: Date.now(),
     totalPlayTime: 0,
     pendingWorkerAssignments: false,
+    town: {
+      unlocked: false,
+      homes: 0,
+      bakeryLevel: 0,
+      people: 0,
+      capacity: 0,
+      satisfaction: 1,
+      growthBonusPercent: 0,
+      breadNeeded: 0,
+      rawBreadNeeded: 0,
+      pulseSeconds: TOWN_PULSE_SECONDS,
+      starving: false,
+    },
   };
 }
 
@@ -212,7 +370,14 @@ export function isSprinterResting(worker) {
   return (worker.cycleCount ?? 0) % SPECIALIZATIONS.sprinter.restEvery === SPECIALIZATIONS.sprinter.restEvery - 1;
 }
 
-export function getEffectiveGrowTime(farm, workers, cropId, plot = null, feastBonusPercent = 0) {
+export function getEffectiveGrowTime(
+  farm,
+  workers,
+  cropId,
+  plot = null,
+  feastBonusPercent = 0,
+  townGrowthBonusPercent = 0
+) {
   const crop = CROPS[cropId];
   let time = crop.growTime;
   const growers = workers.filter((w) => w.farmId === farm.id && w.specialization === "grower");
@@ -226,11 +391,15 @@ export function getEffectiveGrowTime(farm, workers, cropId, plot = null, feastBo
     const speedMultiplier = 1 + feastBonusPercent / 100;
     time = Math.floor(time / speedMultiplier);
   }
+  if (townGrowthBonusPercent > 0) {
+    const speedMultiplier = 1 + townGrowthBonusPercent / 100;
+    time = Math.floor(time / speedMultiplier);
+  }
   return Math.max(3, time);
 }
 
-export function getFarmGrowTime(farm, workers, cropId, feastBonusPercent = 0) {
-  return getEffectiveGrowTime(farm, workers, cropId, null, feastBonusPercent);
+export function getFarmGrowTime(farm, workers, cropId, feastBonusPercent = 0, townGrowthBonusPercent = 0) {
+  return getEffectiveGrowTime(farm, workers, cropId, null, feastBonusPercent, townGrowthBonusPercent);
 }
 
 export function getNextFeastTier(state) {
@@ -428,6 +597,7 @@ export function calculateOfflineProgress(state, nowMs) {
 export function tick(state) {
   let next = deepCloneState(state);
   const feast = next.feastBonusPercent ?? 0;
+  const townBonus = next.town?.growthBonusPercent ?? 0;
 
   // ── Farms ──────────────────────────────────────────────────────────────────
   for (const farm of next.farms) {
@@ -436,7 +606,7 @@ export function tick(state) {
 
     for (const plot of farm.plots) {
       if (plot.state === "planted") {
-        const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, feast);
+        const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, feast, townBonus);
         plot.growthTick += 1;
         if (plot.growthTick >= growTime) plot.state = "ready";
       }
@@ -543,7 +713,7 @@ for (const worker of next.marketWorkers ?? []) {
     if (order.quantity <= 0) worker.queue.shift();
   }
 }
-
+  next = updateTown(next, 1);
   next.totalPlayTime = (next.totalPlayTime ?? 0) + 1;
   return next;
 }
@@ -582,7 +752,14 @@ export function tendPlot(state, farmId, plotId) {
   if (!farm) return state;
   const plot = farm.plots.find((p) => p.id === plotId);
   if (!plot || plot.state !== "planted") return state;
-  const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, next.feastBonusPercent ?? 0);
+  const growTime = getEffectiveGrowTime(
+    farm,
+    next.workers,
+    farm.crop,
+    plot,
+    next.feastBonusPercent ?? 0,
+    next.town?.growthBonusPercent ?? 0
+  );
   plot.growthTick = Math.min(plot.growthTick + TEND_SECONDS, growTime);
   if (plot.growthTick >= growTime) plot.state = "ready";
   return next;
@@ -592,7 +769,8 @@ export function tendPlot(state, farmId, plotId) {
 
 export function getPlotUpgradeCost(farm) {
   const upgradedCount = farm.plots.filter((p) => p.upgraded).length;
-  return upgradedCount + 1; // 1, 2, 3, 4... one more each time
+  const costs = [1, 2, 3, 5, 7, 10, 13, 17, 22, 28];
+  return costs[upgradedCount] ?? Math.ceil(28 + (upgradedCount - 9) * 7);
 }
 
 export function upgradePlot(state, farmId) {
@@ -1108,6 +1286,35 @@ for (const worker of parsed.marketWorkers ?? []) {
         b === "bigger_kitchen" ? "market_savvy" : b
       );
     }
+    if (parsed.town === undefined) {
+  parsed.town = {
+    unlocked: (parsed.lifetimeCash ?? 0) >= TOWN_UNLOCK_LIFETIME_CASH,
+    homes: (parsed.lifetimeCash ?? 0) >= TOWN_UNLOCK_LIFETIME_CASH ? 1 : 0,
+    bakeryLevel: 0,
+    people: 0,
+    capacity: 0,
+    satisfaction: 1,
+    growthBonusPercent: 0,
+    breadNeeded: 0,
+    rawBreadNeeded: 0,
+    pulseSeconds: TOWN_PULSE_SECONDS,
+    starving: false,
+  };
+} else {
+  if (parsed.town.unlocked === undefined) {
+    parsed.town.unlocked = (parsed.lifetimeCash ?? 0) >= TOWN_UNLOCK_LIFETIME_CASH;
+  }
+  if (parsed.town.homes === undefined) parsed.town.homes = parsed.town.unlocked ? 1 : 0;
+  if (parsed.town.bakeryLevel === undefined) parsed.town.bakeryLevel = 0;
+  if (parsed.town.people === undefined) parsed.town.people = 0;
+  if (parsed.town.capacity === undefined) parsed.town.capacity = 0;
+  if (parsed.town.satisfaction === undefined) parsed.town.satisfaction = 1;
+  if (parsed.town.growthBonusPercent === undefined) parsed.town.growthBonusPercent = 0;
+  if (parsed.town.breadNeeded === undefined) parsed.town.breadNeeded = 0;
+  if (parsed.town.rawBreadNeeded === undefined) parsed.town.rawBreadNeeded = 0;
+  if (parsed.town.pulseSeconds === undefined) parsed.town.pulseSeconds = TOWN_PULSE_SECONDS;
+  if (parsed.town.starving === undefined) parsed.town.starving = false;
+}
 
     return parsed;
   } catch { return null; }

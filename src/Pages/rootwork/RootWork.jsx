@@ -38,6 +38,9 @@ import {
   setMarketWorkerStandingOrder,
   cancelMarketWorkerQueue,
   cancelKitchenWorkerRecipe,
+  buildTownHome,
+  buyTownBakery,
+
 } from "./gameEngine";
 import {
   SAVE_KEY,
@@ -54,6 +57,7 @@ import ProcessingZone from "./components/ProcessingZone";
 import MarketZone from "./components/MarketZone";
 import SeasonPanel from "./components/SeasonPanel";
 import FarmUnlockModal from "./components/FarmUnlockModal";
+import TownZone from "./components/TownZone";
 
 function loadFromLocalStorage() {
   try {
@@ -457,7 +461,24 @@ export default function RootWork() {
     notify("Kitchen worker fired.");
   }, [update, notify]);
 
-  // Feast / prestige / misc
+
+const handleBuildTownHome = useCallback(() => {
+    update((s) => {
+      const n = buildTownHome(s);
+      if (n === s) notify("Not enough cash.");
+      return n;
+    });
+  }, [update, notify]);
+
+const handleBuyTownBakery = useCallback(() => {
+  update((s) => {
+    const n = buyTownBakery(s);
+    if (n === s) notify("Not enough cash.");
+    return n;
+  });
+}, [update, notify]);
+
+    // Feast / prestige / misc
   const handleBuyFeast = useCallback(() => {
     update((s) => {
       const n = buyFeast(s);
@@ -624,6 +645,13 @@ const handleSetMarketWorkerStandingOrder = useCallback((workerId, itemType) => {
             onUpgradePlot={handleUpgradePlot}
             onBuyFeast={handleBuyFeast}
             onCancelKitchenWorkerRecipe={handleCancelKitchenWorkerRecipe}
+          />
+        )}
+        {activeMainTab === "town" && (
+          <TownZone
+            game={game}
+            onBuildHome={handleBuildTownHome}
+            onBuyBakery={handleBuyTownBakery}
           />
         )}
 

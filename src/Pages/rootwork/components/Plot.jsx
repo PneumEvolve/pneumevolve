@@ -11,8 +11,9 @@ function getGrowPercent(plot, growTime) {
  
 export default function Plot({ plot, farm, game, onPlant, onHarvest, onTend, tendMode }) {
   const crop = CROPS[farm.crop];
-  const feast = game.feastBonusPercent ?? 0;
-  const growTime = getEffectiveGrowTime(farm, game.workers, farm.crop, plot, feast);
+   const feast = game.feastBonusPercent ?? 0;
+  const townBonus = game.town?.growthBonusPercent ?? 0;
+  const growTime = getEffectiveGrowTime(farm, game.workers, farm.crop, plot, feast, townBonus);
  
   const growPercent = getGrowPercent(plot, growTime);
   const isReady = plot.state === "ready";
