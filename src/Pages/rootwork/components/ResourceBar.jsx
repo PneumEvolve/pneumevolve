@@ -5,7 +5,7 @@ import { CROPS, SEASON_FARMS } from "../gameConstants";
 
 export default function ResourceBar({ game }) {
   const availableCropIds = game.season >= 4
-  ? game.farms.map((f) => f.crop)
+  ? [...new Set(game.farms.map((f) => f.crop))]
   : SEASON_FARMS[game.season] ?? ["wheat"];
   const cash = game.cash ?? 0;
   const artisan = game.artisan ?? {};

@@ -36,6 +36,7 @@ function MarketWorkerCard({
   const [selectedItem, setSelectedItem] = useState(null);
   const [selectedAmount, setSelectedAmount] = useState(10);
   const [showStandingOrderPicker, setShowStandingOrderPicker] = useState(false);
+  const [confirmFire, setConfirmFire] = useState(false);
 
   const gear = MARKET_WORKER_GEAR[worker.gear];
   const nextGearId = getMarketWorkerNextGear(worker.gear);
@@ -75,16 +76,41 @@ function MarketWorkerCard({
             </div>
           </div>
         </div>
-        <button
-          onClick={() => onFire(worker.id)}
-          style={{
-            fontSize: "0.65rem", color: "var(--muted)",
-            background: "none", border: "1px solid var(--border)",
-            borderRadius: "6px", padding: "0.2rem 0.5rem", cursor: "pointer",
-          }}
-        >
-          Fire
-        </button>
+{!confirmFire ? (
+  <button
+    onClick={() => setConfirmFire(true)}
+    style={{
+      fontSize: "0.65rem", color: "var(--muted)",
+      background: "none", border: "1px solid var(--border)",
+      borderRadius: "6px", padding: "0.2rem 0.5rem", cursor: "pointer",
+    }}
+  >
+    Fire
+  </button>
+) : (
+  <div style={{ display: "flex", gap: "0.3rem" }}>
+    <button
+      onClick={() => { onFire(worker.id); setConfirmFire(false); }}
+      style={{
+        fontSize: "0.65rem", color: "#fff",
+        background: "#ef4444", border: "none",
+        borderRadius: "6px", padding: "0.2rem 0.5rem", cursor: "pointer",
+      }}
+    >
+      Confirm
+    </button>
+    <button
+      onClick={() => setConfirmFire(false)}
+      style={{
+        fontSize: "0.65rem", color: "var(--muted)",
+        background: "none", border: "1px solid var(--border)",
+        borderRadius: "6px", padding: "0.2rem 0.5rem", cursor: "pointer",
+      }}
+    >
+      Cancel
+    </button>
+  </div>
+)}
       </div>
 
       {/* Standing order status */}

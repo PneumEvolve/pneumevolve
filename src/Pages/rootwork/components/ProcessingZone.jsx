@@ -94,6 +94,7 @@ function UpgradeTree({ label, upgradeIds, worker, game, onUpgrade }) {
 
 function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, onCancel, workerNumber, expanded, onToggle }) {
   const [showRecipes, setShowRecipes] = useState(false);
+  const [confirmFire, setConfirmFire] = useState(false);
 
   const idle = isKitchenWorkerIdle(worker);
   const recipe = worker.recipeId ? PROCESSING_RECIPES[worker.recipeId] : null;
@@ -313,17 +314,42 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
           </div>
 
           {/* Fire */}
-          <button
-            onClick={() => onFire(worker.id)}
-            style={{
-              fontSize: "0.65rem", color: "#ef4444",
-              background: "none", border: "1px solid #ef4444",
-              borderRadius: "6px", padding: "0.25rem 0.6rem",
-              cursor: "pointer", alignSelf: "flex-end",
-            }}
-          >
-            Fire worker
-          </button>
+{!confirmFire ? (
+  <button
+    onClick={() => setConfirmFire(true)}
+    style={{
+      fontSize: "0.65rem", color: "var(--muted)",
+      background: "none", border: "1px solid var(--border)",
+      borderRadius: "6px", padding: "0.25rem 0.6rem",
+      cursor: "pointer", alignSelf: "flex-end",
+    }}
+  >
+    Fire worker
+  </button>
+) : (
+  <div style={{ display: "flex", gap: "0.3rem", alignSelf: "flex-end" }}>
+    <button
+      onClick={() => { onFire(worker.id); setConfirmFire(false); }}
+      style={{
+        fontSize: "0.65rem", color: "#fff",
+        background: "#ef4444", border: "none",
+        borderRadius: "6px", padding: "0.25rem 0.6rem", cursor: "pointer",
+      }}
+    >
+      Confirm fire
+    </button>
+    <button
+      onClick={() => setConfirmFire(false)}
+      style={{
+        fontSize: "0.65rem", color: "var(--muted)",
+        background: "none", border: "1px solid var(--border)",
+        borderRadius: "6px", padding: "0.25rem 0.6rem", cursor: "pointer",
+      }}
+    >
+      Cancel
+    </button>
+  </div>
+)}
 
         </div>
       )}
