@@ -379,6 +379,27 @@ function _startKitchenWorkerRecipe(worker, recipeId, crops) {
   return true;
 }
 
+export function cancelKitchenWorkerRecipe(state, workerId) {
+  const next = deepCloneState(state);
+  const worker = (next.kitchenWorkers ?? []).find((w) => w.id === workerId);
+  if (!worker) return state;
+  // Refund 50% of input if mid-craft
+  if (worker.busy && worker.recipeId) {
+    const recipe = PROCESSING_RECIPES[worker.recipeId];
+    const batch = worker.batchSize ?? 1;
+    if (recipe?.inputCrop) {
+      next.crops[recipe.inputCrop] = (next.crops[recipe.inputCrop] ?? 0) +
+        Math.floor(recipe.inputAmount * batch * 0.5);
+    }
+  }
+  worker.busy = false;
+  worker.recipeId = null;
+  worker.elapsedSeconds = 0;
+  worker.totalSeconds = 0;
+  worker.batchSize = 1;
+  return next;
+}
+
 // ─── Offline progress ─────────────────────────────────────────────────────────
 
 export function calculateOfflineProgress(state, nowMs) {
@@ -938,7 +959,20 @@ export function assignKitchenWorkerRecipe(state, workerId, recipeId) {
   const next = deepCloneState(state);
   const worker = (next.kitchenWorkers ?? []).find((w) => w.id === workerId);
   if (!worker) return state;
-  if (worker.busy) return state;
+
+  // If mid-craft, refund 50% and cancel before starting new recipe
+  if (worker.busy && worker.recipeId) {
+    const recipe = PROCESSING_RECIPES[worker.recipeId];
+    const batch = worker.batchSize ?? 1;
+    if (recipe?.inputCrop) {
+      next.crops[recipe.inputCrop] = (next.crops[recipe.inputCrop] ?? 0) +
+        Math.floor(recipe.inputAmount * batch * 0.5);
+    }
+    worker.busy = false;
+    worker.elapsedSeconds = 0;
+    worker.batchSize = 1;
+  }
+
   const started = _startKitchenWorkerRecipe(worker, recipeId, next.crops);
   if (!started) return state;
   return next;

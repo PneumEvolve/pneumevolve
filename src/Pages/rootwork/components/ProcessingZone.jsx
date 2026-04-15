@@ -92,7 +92,7 @@ function UpgradeTree({ label, upgradeIds, worker, game, onUpgrade }) {
 
 // ─── Kitchen worker card ──────────────────────────────────────────────────────
 
-function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, workerNumber, expanded, onToggle }) {
+function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, onCancel, workerNumber, expanded, onToggle }) {
   const [showRecipes, setShowRecipes] = useState(false);
 
   const idle = isKitchenWorkerIdle(worker);
@@ -154,22 +154,40 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, wo
           </span>
         </button>
 
-        {/* Cook Again button */}
-        {!worker.busy && !idle && recipe && (
-          <button
-            onClick={() => onAssignRecipe(worker.id, worker.recipeId)}
-            style={{
-              fontSize: "0.65rem", padding: "0.2rem 0.5rem",
-              borderRadius: "6px", cursor: "pointer", flexShrink: 0,
-              marginLeft: "0.5rem",
-              background: "rgba(99,102,241,0.1)",
-              border: "1px solid rgba(99,102,241,0.3)",
-              color: "var(--accent)", fontWeight: 600,
-            }}
-          >
-            🍳 Again
-          </button>
-        )}
+
+        {/* Cancel button — show when busy */}
+{worker.busy && (
+  <button
+    onClick={() => onCancel(worker.id)}
+    style={{
+      fontSize: "0.65rem", padding: "0.2rem 0.5rem",
+      borderRadius: "6px", cursor: "pointer", flexShrink: 0,
+      marginLeft: "0.5rem",
+      background: "rgba(239,68,68,0.1)",
+      border: "1px solid rgba(239,68,68,0.3)",
+      color: "#ef4444", fontWeight: 600,
+    }}
+  >
+    ✕
+  </button>
+)}
+
+{/* Cook Again button — show when idle with previous recipe */}
+{!worker.busy && !idle && recipe && (
+  <button
+    onClick={() => onAssignRecipe(worker.id, worker.recipeId)}
+    style={{
+      fontSize: "0.65rem", padding: "0.2rem 0.5rem",
+      borderRadius: "6px", cursor: "pointer", flexShrink: 0,
+      marginLeft: "0.5rem",
+      background: "rgba(99,102,241,0.1)",
+      border: "1px solid rgba(99,102,241,0.3)",
+      color: "var(--accent)", fontWeight: 600,
+    }}
+  >
+    🍳 Again
+  </button>
+)}
       </div>
 
       {/* Progress bar visible when busy and collapsed */}
@@ -426,6 +444,7 @@ export default function ProcessingZone({
   onUpgradeKitchenWorker,
   onFireKitchenWorker,
   onUpgradePlot,
+  onCancelKitchenWorkerRecipe,
   onBuyFeast,
 }) {
   const [expandedWorkers, setExpandedWorkers] = useState({});
@@ -480,6 +499,7 @@ export default function ProcessingZone({
               onAssignRecipe={onAssignKitchenWorkerRecipe}
               onUpgrade={onUpgradeKitchenWorker}
               onFire={onFireKitchenWorker}
+              onCancel={onCancelKitchenWorkerRecipe}
             />
           ))}
         </div>

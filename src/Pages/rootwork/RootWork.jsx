@@ -37,6 +37,7 @@ import {
   buyMarketWorkerStandingOrder,
   setMarketWorkerStandingOrder,
   cancelMarketWorkerQueue,
+  cancelKitchenWorkerRecipe,
 } from "./gameEngine";
 import {
   SAVE_KEY,
@@ -438,6 +439,11 @@ export default function RootWork() {
     });
   }, [update, notify]);
 
+  const handleCancelKitchenWorkerRecipe = useCallback((workerId) => {
+  update((s) => cancelKitchenWorkerRecipe(s, workerId));
+  notify("Recipe cancelled. 50% crops refunded.");
+}, [update, notify]);
+
   const handleUpgradeKitchenWorker = useCallback((workerId, upgradeId) => {
     update((s) => {
       const n = upgradeKitchenWorker(s, workerId, upgradeId);
@@ -617,6 +623,7 @@ const handleSetMarketWorkerStandingOrder = useCallback((workerId, itemType) => {
             onFireKitchenWorker={handleFireKitchenWorker}
             onUpgradePlot={handleUpgradePlot}
             onBuyFeast={handleBuyFeast}
+            onCancelKitchenWorkerRecipe={handleCancelKitchenWorkerRecipe}
           />
         )}
 
