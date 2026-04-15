@@ -6,7 +6,7 @@ export const CROPS = {
     id: "wheat",
     name: "Wheat",
     emoji: "🌾",
-    growTime: 12,       // slightly faster — season 1 should feel productive
+    growTime: 12,
     manualYield: 3,
     workerYield: 2,
     season: 1,
@@ -15,7 +15,7 @@ export const CROPS = {
     id: "berries",
     name: "Berries",
     emoji: "🫐",
-    growTime: 25,       // slightly faster
+    growTime: 25,
     manualYield: 3,
     workerYield: 2,
     season: 2,
@@ -24,7 +24,7 @@ export const CROPS = {
     id: "tomatoes",
     name: "Tomatoes",
     emoji: "🍅",
-    growTime: 60,       // stays slow — season 3 luxury crop
+    growTime: 60,
     manualYield: 3,
     workerYield: 2,
     season: 3,
@@ -48,7 +48,7 @@ export const GEAR = {
     emoji: "🧤",
     plotsPerCycle: 1,
     cycleSeconds: 10,
-    upgradeCost: 15,       // cash
+    upgradeCost: 15,
     description: "Harvests and replants 1 plot every 10s. 33% faster.",
   },
   hoe: {
@@ -57,7 +57,7 @@ export const GEAR = {
     emoji: "🪓",
     plotsPerCycle: 1,
     cycleSeconds: 6,
-    upgradeCost: 60,       // cash
+    upgradeCost: 60,
     description: "Harvests and replants 1 plot every 6s. 40% faster than gloves.",
   },
   wheelbarrow: {
@@ -66,7 +66,7 @@ export const GEAR = {
     emoji: "🛻",
     plotsPerCycle: 2,
     cycleSeconds: 6,
-    upgradeCost: 150,      // cash
+    upgradeCost: 150,
     description: "Harvests and replants 2 plots every 6s. Double the coverage.",
   },
   tractor: {
@@ -75,19 +75,17 @@ export const GEAR = {
     emoji: "🚜",
     plotsPerCycle: 5,
     cycleSeconds: 6,
-    upgradeCost: 400,      // cash
+    upgradeCost: 400,
     description: "Harvests and replants 5 plots every 6s. Near full automation.",
   },
 };
 
 export const GEAR_ORDER = ["bare_hands", "gloves", "hoe", "wheelbarrow", "tractor"];
-
-// All gear now costs cash — crop costs removed
 export const GEAR_CROP_COSTS = {};
 
 // ─── Specialization ───────────────────────────────────────────────────────────
-export const SPECIALIZE_COST = 100;       // cash
-export const SPECIALIZE_CROP = null;      // no longer crop-based
+export const SPECIALIZE_COST = 100;
+export const SPECIALIZE_CROP = null;
 
 // ─── Plot unlock costs ────────────────────────────────────────────────────────
 export const PLOT_BASE_COST = 5;
@@ -95,18 +93,59 @@ export const PLOT_COST_MULTIPLIER = 1.4;
 export const MAX_PLOTS = 9;
 
 // ─── Farm investments ─────────────────────────────────────────────────────────
-// Per-farm upgrades purchased with cash
-
 export const FARM_INVESTMENT_PLOT_CAP = [
-  { id: "plots_4x4", name: "Expand to 4×4", maxPlots: 16, cost: 500,  description: "Unlock up to 16 plots on this farm." },
-  { id: "plots_5x5", name: "Expand to 5×5", maxPlots: 25, cost: 1200, description: "Unlock up to 25 plots on this farm." },
+  {
+    id: "plots_4x4",
+    name: "Expand to 4×4",
+    maxPlots: 16,
+    cost: 500,
+    description: "Unlock up to 16 plots on this farm.",
+  },
+  {
+    id: "plots_5x5",
+    name: "Expand to 5×5",
+    maxPlots: 25,
+    cost: 1200,
+    description: "Unlock up to 25 plots on this farm.",
+  },
+  {
+    id: "plots_6x6",
+    name: "Expand to 6×6",
+    maxPlots: 36,
+    cost: 3000,
+    description: "Unlock up to 36 plots on this farm.",
+  },
 ];
 
 export const FARM_INVESTMENT_YIELD = [
-  { id: "yield_1", name: "Fertilizer I",   bonusYield: 1, cost: 300,  description: "+1 crop per worker harvest." },
-  { id: "yield_2", name: "Fertilizer II",  bonusYield: 2, cost: 700,  description: "+2 crops per worker harvest." },
-  { id: "yield_3", name: "Fertilizer III", bonusYield: 3, cost: 1500, description: "+3 crops per worker harvest." },
-  { id: "yield_4", name: "Fertilizer IV",  bonusYield: 4, cost: 3000, description: "+4 crops per worker harvest." },
+  {
+    id: "yield_1",
+    name: "Fertilizer I",
+    bonusYield: 1,
+    cost: 300,
+    description: "+1 crop per worker harvest.",
+  },
+  {
+    id: "yield_2",
+    name: "Fertilizer II",
+    bonusYield: 2,
+    cost: 700,
+    description: "+2 crops per worker harvest.",
+  },
+  {
+    id: "yield_3",
+    name: "Fertilizer III",
+    bonusYield: 3,
+    cost: 1500,
+    description: "+3 crops per worker harvest.",
+  },
+  {
+    id: "yield_4",
+    name: "Fertilizer IV",
+    bonusYield: 4,
+    cost: 3000,
+    description: "+4 crops per worker harvest.",
+  },
 ];
 
 // ─── Plot upgrade ─────────────────────────────────────────────────────────────
@@ -132,17 +171,24 @@ export const MIN_PLOTS_FOR_AUTOMATION = 4;
 export const SPECIALIZATIONS = {
   none: { id: "none", name: "General", description: "No specialization." },
   harvester: {
-    id: "harvester", name: "Harvester", emoji: "⚡",
+    id: "harvester",
+    name: "Harvester",
+    emoji: "⚡",
     description: "Harvests 25% faster. Cycle time reduced by 25%.",
     cycleMultiplier: 0.75,
   },
   sprinter: {
-    id: "sprinter", name: "Sprinter", emoji: "💨",
+    id: "sprinter",
+    name: "Sprinter",
+    emoji: "💨",
     description: "Harvests 2x plots per cycle but rests every 3rd cycle.",
-    plotsMultiplier: 2, restEvery: 3,
+    plotsMultiplier: 2,
+    restEvery: 3,
   },
   grower: {
-    id: "grower", name: "Grower", emoji: "🌱",
+    id: "grower",
+    name: "Grower",
+    emoji: "🌱",
     description: "Reduces grow time for ALL plots on this farm by 20%. Stacks.",
     growMultiplier: 0.8,
   },
@@ -154,32 +200,47 @@ export const TEND_SECONDS = 3;
 // ─── Processing recipes ───────────────────────────────────────────────────────
 export const PROCESSING_RECIPES = {
   bread: {
-    id: "bread", name: "Bread", emoji: "🍞",
-    inputCrop: "wheat", inputAmount: 40,    // was 200 — 4-5 workers can feed this
-    outputGood: "bread", outputAmount: 1, seconds: 90,  // slightly faster
+    id: "bread",
+    name: "Bread",
+    emoji: "🍞",
+    inputCrop: "wheat",
+    inputAmount: 40,
+    outputGood: "bread",
+    outputAmount: 1,
+    seconds: 90,
     description: "Bake bread from wheat. Used for plot upgrades and feasts.",
   },
   jam: {
-    id: "jam", name: "Jam", emoji: "🍯",
-    inputCrop: "berries", inputAmount: 30,  // was 150
-    outputGood: "jam", outputAmount: 1, seconds: 120,
+    id: "jam",
+    name: "Jam",
+    emoji: "🍯",
+    inputCrop: "berries",
+    inputAmount: 30,
+    outputGood: "jam",
+    outputAmount: 1,
+    seconds: 120,
     description: "Craft jam from berries. Used for plot upgrades and feasts.",
   },
   sauce: {
-    id: "sauce", name: "Sauce", emoji: "🥫",
-    inputCrop: "tomatoes", inputAmount: 20, // was 100
-    outputGood: "sauce", outputAmount: 1, seconds: 150,
+    id: "sauce",
+    name: "Sauce",
+    emoji: "🥫",
+    inputCrop: "tomatoes",
+    inputAmount: 20,
+    outputGood: "sauce",
+    outputAmount: 1,
+    seconds: 150,
     description: "Make sauce from tomatoes. Used for plot upgrades and feasts.",
   },
 };
 
 // ─── Feast tiers ──────────────────────────────────────────────────────────────
 export const FEAST_TIERS = [
-  { cost: 3,   bonusPercent: 1  },
-  { cost: 6,   bonusPercent: 2  },
-  { cost: 12,  bonusPercent: 3  },
-  { cost: 25,  bonusPercent: 5  },
-  { cost: 50,  bonusPercent: 8  },
+  { cost: 3, bonusPercent: 1 },
+  { cost: 6, bonusPercent: 2 },
+  { cost: 12, bonusPercent: 3 },
+  { cost: 25, bonusPercent: 5 },
+  { cost: 50, bonusPercent: 8 },
   { cost: 100, bonusPercent: 12 },
   { cost: 200, bonusPercent: 19 },
 ];
@@ -224,10 +285,19 @@ export const MARKET_WORKER_GEAR = {
     upgradeCost: 400,
     description: "Sells 4 items per second.",
   },
+  freight: {
+    id: "freight",
+    name: "Freight",
+    emoji: "🚛",
+    itemsPerSecond: 10,
+    upgradeCost: 1200,
+    description: "Sells 10 items per second.",
+  },
 };
-export const MARKET_WORKER_GEAR_ORDER = ["cart", "wagon", "truck"];
 
-export const MARKET_WORKER_STANDING_ORDER_COST = 250;  // cash
+export const MARKET_WORKER_GEAR_ORDER = ["cart", "wagon", "truck", "freight"];
+
+export const MARKET_WORKER_STANDING_ORDER_COST = 250;
 
 // ─── Kitchen workers ──────────────────────────────────────────────────────────
 export const KITCHEN_WORKER_HIRE_COST = 30;
@@ -294,11 +364,15 @@ export const KITCHEN_WORKER_UPGRADES = {
 };
 
 export const KITCHEN_WORKER_UPGRADE_ORDER = [
-  "speed_1", "speed_2", "auto_restart",
-  "batch_2", "batch_5", "batch_10",
+  "speed_1",
+  "speed_2",
+  "auto_restart",
+  "batch_2",
+  "batch_5",
+  "batch_10",
 ];
 
-// ─── Legacy kitchen constants (kept for migration in deserializeState) ────────
+// ─── Legacy kitchen constants ─────────────────────────────────────────────────
 export const KITCHEN_BASE_COST = 20;
 export const KITCHEN_SLOT_COSTS = [50, 150];
 export const KITCHEN_SLOT_UPGRADES = {
@@ -309,19 +383,27 @@ export const KITCHEN_SLOT_UPGRADES = {
 // ─── Prestige bonuses ─────────────────────────────────────────────────────────
 export const PRESTIGE_BONUSES = {
   bumper_crop: {
-    id: "bumper_crop", name: "Bumper Crop", emoji: "📈",
+    id: "bumper_crop",
+    name: "Bumper Crop",
+    emoji: "📈",
     description: "+10% yield on all harvests. Fractional yield accumulates.",
   },
   head_start: {
-    id: "head_start", name: "Head Start", emoji: "🙋",
+    id: "head_start",
+    name: "Head Start",
+    emoji: "🙋",
     description: "Start each season with 1 free worker on every available farm.",
   },
   fast_hands: {
-    id: "fast_hands", name: "Fast Hands", emoji: "🧤",
+    id: "fast_hands",
+    name: "Fast Hands",
+    emoji: "🧤",
     description: "All newly hired workers start with Gloves instead of Bare Hands.",
   },
   market_savvy: {
-    id: "market_savvy", name: "Market Savvy", emoji: "💹",
+    id: "market_savvy",
+    name: "Market Savvy",
+    emoji: "💹",
     description: "All market sell prices permanently +25%. Stacks.",
   },
 };
