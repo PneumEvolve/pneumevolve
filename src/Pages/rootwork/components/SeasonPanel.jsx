@@ -183,12 +183,13 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
     <li>✅ All prestige bonuses (you pick a new one)</li>
     <li>✅ All unlocked plots and ⭐ upgrades</li>
     <li>✅ Global Feast speed bonus</li>
-    <li>✅ 1 kept worker per season played — with full gear & spec</li>
+    <li>✅ Town — homes, population, bakery level all persist</li>
+    <li>✅ 1 kept worker per season — farm, kitchen, or market worker, with full gear & upgrades</li>
     {game.keptWorkers.length > 0 && (
       <li>✅ {game.keptWorkers.length + 1} total kept workers returning this season</li>
     )}
     {game.prestigeBonuses.includes("head_start") && (
-      <li>✅ Head Start: 1 free worker on each farm</li>
+      <li>✅ Head Start: 1 free worker on each farm (needs open population slots)</li>
     )}
     {game.prestigeBonuses.includes("fast_hands") && (
       <li>✅ Fast Hands: new workers start with Gloves</li>
@@ -198,8 +199,8 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
       : <li>✅ A new farm unlocks automatically</li>
     }
     <li>❌ Plot states reset (first plot starts planted)</li>
-    <li>❌ All other workers reset</li>
-    <li>❌ Kitchen and market workers reset</li>
+    <li>❌ All non-kept workers reset</li>
+    <li>❌ Kept worker queue/recipe/standing order resets — set up again each season</li>
   </ul>
 </div>
  

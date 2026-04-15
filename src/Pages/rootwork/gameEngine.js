@@ -1,5 +1,5 @@
 // src/Pages/rootwork/gameEngine.js
-
+ 
 import {
   CROPS,
   GEAR,
@@ -40,7 +40,6 @@ import {
   FARM_INVESTMENT_PLOT_CAP,
   FARM_INVESTMENT_YIELD,
   MARKET_WORKER_STANDING_ORDER_COST,
-  TOWN_UNLOCK_LIFETIME_CASH,
   TOWN_HOME_CAPACITY,
   TOWN_HOME_BASE_COST,
   TOWN_HOME_COST_MULTIPLIER,
@@ -48,20 +47,44 @@ import {
   TOWN_BAKERY_COST_MULTIPLIER,
   TOWN_PULSE_SECONDS,
   TOWN_PEOPLE_PER_BREAD,
+  TOWN_PEOPLE_PER_WHEAT,
   TOWN_GROWTH_PER_PULSE,
   TOWN_DECLINE_PER_PULSE,
   TOWN_PEOPLE_PER_GROWTH_BONUS,
   TOWN_GROWTH_BONUS_PER_STEP,
-  TOWN_MAX_GROWTH_BONUS_PERCENT, 
+  TOWN_MAX_GROWTH_BONUS_PERCENT,
+  TOWN_STARTING_PEOPLE,
 } from "./gameConstants";
-
+ 
 let _idCounter = 0;
 function genId(prefix = "id") {
   return `${prefix}_${Date.now()}_${++_idCounter}`;
 }
-
+ 
+// ─── Population helpers ───────────────────────────────────────────────────────
+ 
+/** Total workers currently placed across all three systems. */
+export function getTotalWorkersHired(state) {
+  return (
+    (state.workers ?? []).length +
+    (state.kitchenWorkers ?? []).length +
+    (state.marketWorkers ?? []).length
+  );
+}
+ 
+/** How many worker slots are available given current population. */
+export function getAvailableWorkerSlots(state) {
+  const pop = Math.floor(state.town?.people ?? 0);
+  return Math.max(0, pop - getTotalWorkersHired(state));
+}
+ 
+/** Whether a new hire would exceed the population cap. */
+export function isAtWorkerCap(state) {
+  return getAvailableWorkerSlots(state) <= 0;
+}
+ 
 // ─── Factories ────────────────────────────────────────────────────────────────
-
+ 
 export function makePlot(id, halfGrown = false, growTime = 15) {
   return {
     id: id ?? genId("plot"),
@@ -70,7 +93,7 @@ export function makePlot(id, halfGrown = false, growTime = 15) {
     upgraded: false,
   };
 }
-
+ 
 export function makeFarm(cropId, isFirst = false) {
   const crop = CROPS[cropId];
   return {
@@ -80,7 +103,7 @@ export function makeFarm(cropId, isFirst = false) {
     unlockedPlots: 1,
   };
 }
-
+ 
 export function makeFarmWorker(farmId, startWithGloves = false) {
   return {
     id: genId("worker"),
@@ -91,17 +114,17 @@ export function makeFarmWorker(farmId, startWithGloves = false) {
     cycleCount: 0,
   };
 }
-
+ 
 export function makeMarketWorker() {
   return {
     id: genId("mworker"),
     gear: "cart",
     queue: [],
-    standingOrder: null,      // itemType string or null
-    hasStandingOrder: false,  // whether upgrade is purchased
+    standingOrder: null,
+    hasStandingOrder: false,
   };
 }
-
+ 
 export function buyMarketWorkerStandingOrder(state, workerId) {
   const next = deepCloneState(state);
   const worker = (next.marketWorkers ?? []).find((w) => w.id === workerId);
@@ -112,7 +135,7 @@ export function buyMarketWorkerStandingOrder(state, workerId) {
   worker.hasStandingOrder = true;
   return next;
 }
-
+ 
 export function setMarketWorkerStandingOrder(state, workerId, itemType) {
   const next = deepCloneState(state);
   const worker = (next.marketWorkers ?? []).find((w) => w.id === workerId);
@@ -120,117 +143,106 @@ export function setMarketWorkerStandingOrder(state, workerId, itemType) {
   worker.standingOrder = itemType;
   return next;
 }
-
+ 
 export function makeKitchenWorker() {
   return {
     id: genId("kworker"),
     upgrades: [],
-    recipeId: null,       // currently assigned recipe
+    recipeId: null,
     elapsedSeconds: 0,
     totalSeconds: 0,
     batchSize: 1,
     busy: false,
   };
 }
-
-function makeKitchenSlot(slotIndex) {
-  return { slotIndex, upgrades: [] };
-}
-
+ 
 export function getTownHomeCost(state) {
   const homes = state.town?.homes ?? 0;
   const raw = TOWN_HOME_BASE_COST * Math.pow(TOWN_HOME_COST_MULTIPLIER, homes);
   return Math.round(raw / 50) * 50;
 }
-
+ 
 export function getTownBakeryCost(state) {
   const bakeryLevel = state.town?.bakeryLevel ?? 0;
   const raw = TOWN_BAKERY_BASE_COST * Math.pow(TOWN_BAKERY_COST_MULTIPLIER, bakeryLevel);
   return Math.round(raw / 50) * 50;
 }
-
+ 
 export function buyTownBakery(state) {
   const next = deepCloneState(state);
-
-  if (!next.town?.unlocked) return state;
-
   const cost = getTownBakeryCost(next);
   if ((next.cash ?? 0) < cost) return state;
-
   next.cash -= cost;
   next.town.bakeryLevel = (next.town.bakeryLevel ?? 0) + 1;
   return next;
 }
-
+ 
 export function getTownCapacity(state) {
   const homes = state.town?.homes ?? 0;
   return homes * TOWN_HOME_CAPACITY;
 }
-
+ 
 export function getTownGrowthBonusPercent(people) {
   const steps = Math.floor(Math.max(0, people) / TOWN_PEOPLE_PER_GROWTH_BONUS);
   return Math.min(TOWN_MAX_GROWTH_BONUS_PERCENT, steps * TOWN_GROWTH_BONUS_PER_STEP);
 }
-
+ 
+/** Returns 'wheat' if bakeryLevel === 0, 'bread' otherwise. */
+export function getTownFoodType(state) {
+  return (state.town?.bakeryLevel ?? 0) === 0 ? "wheat" : "bread";
+}
+ 
 export function updateTown(state, seconds = 1) {
   const next = deepCloneState(state);
-
+ 
   if (!next.town) {
-    next.town = {
-      unlocked: false,
-      homes: 0,
-      bakeryLevel: 0,
-      people: 0,
-      capacity: 0,
-      satisfaction: 1,
-      growthBonusPercent: 0,
-      breadNeeded: 0,
-      rawBreadNeeded: 0,
-      pulseSeconds: TOWN_PULSE_SECONDS,
-      starving: false,
-    };
+    next.town = makeFreshTown();
   }
-
-  if (!next.town.unlocked && (next.lifetimeCash ?? 0) >= TOWN_UNLOCK_LIFETIME_CASH) {
-    next.town.unlocked = true;
-    if ((next.town.homes ?? 0) <= 0) next.town.homes = 1;
-    if (next.town.pulseSeconds == null) next.town.pulseSeconds = TOWN_PULSE_SECONDS;
-  }
-
-  const unlocked = next.town.unlocked === true;
+ 
+  // Town is always unlocked
+  next.town.unlocked = true;
   next.town.capacity = getTownCapacity(next);
-
-  if (!unlocked) {
-    next.town.growthBonusPercent = 0;
-    next.town.breadNeeded = 0;
-    next.town.rawBreadNeeded = 0;
-    next.town.satisfaction = 1;
-    next.town.pulseSeconds = TOWN_PULSE_SECONDS;
-    next.town.starving = false;
-    return next;
-  }
-
+ 
   if (next.town.pulseSeconds == null) {
     next.town.pulseSeconds = TOWN_PULSE_SECONDS;
   }
-
+ 
   next.town.pulseSeconds -= seconds;
-
+ 
   while (next.town.pulseSeconds <= 0) {
     const people = Math.floor(Math.max(0, next.town.people ?? 0));
     const capacity = getTownCapacity(next);
     const bakeryLevel = next.town.bakeryLevel ?? 0;
-
-    const rawBreadNeeded = Math.max(1, Math.ceil(people / TOWN_PEOPLE_PER_BREAD));
-    const breadNeeded = Math.max(1, rawBreadNeeded - bakeryLevel);
-
-    const breadHave = Math.floor(next.artisan?.bread ?? 0);
-    const fed = breadHave >= breadNeeded;
-
-    if (!next.artisan) next.artisan = {};
-
+    const foodType = getTownFoodType(next);
+ 
+    // 0 people = no food needed
+    let foodNeeded = 0;
+    let rawFoodNeeded = 0;
+    if (people > 0) {
+      if (foodType === "wheat") {
+        rawFoodNeeded = Math.max(1, Math.ceil(people / TOWN_PEOPLE_PER_WHEAT));
+        foodNeeded = rawFoodNeeded; // bakery doesn't reduce wheat consumption
+      } else {
+        rawFoodNeeded = Math.max(1, Math.ceil(people / TOWN_PEOPLE_PER_BREAD));
+        foodNeeded = Math.max(1, rawFoodNeeded - bakeryLevel);
+      }
+    }
+ 
+    const foodHave = foodType === "wheat"
+      ? Math.floor(next.crops?.wheat ?? 0)
+      : Math.floor(next.artisan?.bread ?? 0);
+ 
+    const fed = foodHave >= foodNeeded;
+ 
     if (fed) {
-      next.artisan.bread = breadHave - breadNeeded;
+      // Deduct food
+      if (foodNeeded > 0) {
+        if (foodType === "wheat") {
+          next.crops.wheat = (next.crops.wheat ?? 0) - foodNeeded;
+        } else {
+          next.artisan.bread = (next.artisan.bread ?? 0) - foodNeeded;
+        }
+      }
       if (people < capacity) {
         next.town.people = Math.min(capacity, people + TOWN_GROWTH_PER_PULSE);
       } else {
@@ -243,34 +255,52 @@ export function updateTown(state, seconds = 1) {
       next.town.satisfaction = 0;
       next.town.starving = true;
     }
-
-    next.town.rawBreadNeeded = rawBreadNeeded;
-    next.town.breadNeeded = breadNeeded;
+ 
+    next.town.rawFoodNeeded = rawFoodNeeded;
+    next.town.breadNeeded = foodNeeded;   // keep field name for UI compatibility
+    next.town.rawBreadNeeded = rawFoodNeeded;
+    next.town.foodType = foodType;
     next.town.capacity = capacity;
     next.town.growthBonusPercent = getTownGrowthBonusPercent(next.town.people ?? 0);
     next.town.pulseSeconds += TOWN_PULSE_SECONDS;
   }
-
+ 
+  // Always keep these in sync between pulses
+  next.town.growthBonusPercent = getTownGrowthBonusPercent(next.town.people ?? 0);
+ 
   return next;
 }
-
+ 
 export function buildTownHome(state) {
   const next = deepCloneState(state);
-
-  if (!next.town?.unlocked) return state;
-
   const cost = getTownHomeCost(next);
   if ((next.cash ?? 0) < cost) return state;
-
   next.cash -= cost;
   next.town.homes = (next.town.homes ?? 0) + 1;
   next.town.capacity = getTownCapacity(next);
-
   return next;
 }
-
+ 
+function makeFreshTown() {
+  return {
+    unlocked: true,
+    homes: 1,
+    bakeryLevel: 0,
+    people: TOWN_STARTING_PEOPLE,
+    capacity: TOWN_HOME_CAPACITY,
+    satisfaction: 1,
+    growthBonusPercent: 0,
+    breadNeeded: 0,
+    rawBreadNeeded: 0,
+    rawFoodNeeded: 0,
+    foodType: "wheat",
+    pulseSeconds: TOWN_PULSE_SECONDS,
+    starving: false,
+  };
+}
+ 
 // ─── Initial state ────────────────────────────────────────────────────────────
-
+ 
 export function createInitialState() {
   const firstFarm = makeFarm("wheat", true);
   return {
@@ -288,38 +318,26 @@ export function createInitialState() {
     marketWorkers: [],
     cash: 0,
     lifetimeCash: 0,
-    farmInvestments: {},  // { [farmId]: { plotCapIndex: 0, yieldIndex: 0 } }
+    farmInvestments: {},
     extraFarmsUnlocked: 0,
     pendingFarmUnlock: false,
     lastSavedTime: Date.now(),
     totalPlayTime: 0,
     pendingWorkerAssignments: false,
-    town: {
-      unlocked: false,
-      homes: 0,
-      bakeryLevel: 0,
-      people: 0,
-      capacity: 0,
-      satisfaction: 1,
-      growthBonusPercent: 0,
-      breadNeeded: 0,
-      rawBreadNeeded: 0,
-      pulseSeconds: TOWN_PULSE_SECONDS,
-      starving: false,
-    },
+    town: makeFreshTown(),
   };
 }
-
+ 
 // ─── Farm helpers ─────────────────────────────────────────────────────────────
-
+ 
 export function getFarmCrop(farm) { return CROPS[farm.crop]; }
-
+ 
 export function getNextGear(currentGear) {
   const idx = GEAR_ORDER.indexOf(currentGear);
   if (idx === -1 || idx === GEAR_ORDER.length - 1) return null;
   return GEAR_ORDER[idx + 1];
 }
-
+ 
 export function getPlotUnlockCost(state, farmId, currentPlotCount) {
   const maxPlots = getFarmMaxPlots(state, farmId);
   if (currentPlotCount >= maxPlots) return null;
@@ -327,27 +345,26 @@ export function getPlotUnlockCost(state, farmId, currentPlotCount) {
   const raw = PLOT_BASE_COST * Math.pow(PLOT_COST_MULTIPLIER, purchaseIndex);
   return Math.max(5, Math.round(raw / 5) * 5);
 }
-
+ 
 export function isFarmAutomated(farm, workers) {
   const workerCount = workers.filter((w) => w.farmId === farm.id).length;
   return workerCount >= AUTOMATION_THRESHOLD && farm.unlockedPlots >= MIN_PLOTS_FOR_AUTOMATION;
 }
-
+ 
 export function getAvailableFarms(season) {
   return SEASON_FARMS[Math.min(season, 3)] ?? SEASON_FARMS[3];
 }
-
+ 
 export function needsSpecialization(worker) {
   return worker.gear === "hoe" && worker.specialization === "none";
 }
-
+ 
 export function getWorkerHireCost(state, farmId) {
   const workersOnFarm = state.workers.filter((w) => w.farmId === farmId).length;
   const raw = WORKER_HIRE_BASE_COST * Math.pow(WORKER_HIRE_MULTIPLIER, workersOnFarm);
   return Math.round(raw / 5) * 5;
 }
-
-
+ 
 export function getEffectiveCycleSeconds(worker) {
   const gear = GEAR[worker.gear];
   let seconds = gear.cycleSeconds;
@@ -356,7 +373,7 @@ export function getEffectiveCycleSeconds(worker) {
   }
   return seconds;
 }
-
+ 
 export function getEffectivePlotsPerCycle(worker) {
   const gear = GEAR[worker.gear];
   if (worker.specialization === "sprinter") {
@@ -364,12 +381,12 @@ export function getEffectivePlotsPerCycle(worker) {
   }
   return gear.plotsPerCycle;
 }
-
+ 
 export function isSprinterResting(worker) {
   if (worker.specialization !== "sprinter") return false;
   return (worker.cycleCount ?? 0) % SPECIALIZATIONS.sprinter.restEvery === SPECIALIZATIONS.sprinter.restEvery - 1;
 }
-
+ 
 export function getEffectiveGrowTime(
   farm,
   workers,
@@ -397,77 +414,77 @@ export function getEffectiveGrowTime(
   }
   return Math.max(3, time);
 }
-
+ 
 export function getFarmGrowTime(farm, workers, cropId, feastBonusPercent = 0, townGrowthBonusPercent = 0) {
   return getEffectiveGrowTime(farm, workers, cropId, null, feastBonusPercent, townGrowthBonusPercent);
 }
-
+ 
 export function getNextFeastTier(state) {
   const idx = state.feastTierIndex ?? 0;
   return FEAST_TIERS[idx] ?? null;
 }
-
+ 
 // ─── Farm investment helpers ──────────────────────────────────────────────────
-
+ 
 export function getFarmInvestment(state, farmId) {
   return (state.farmInvestments ?? {})[farmId] ?? { plotCapIndex: 0, yieldIndex: 0 };
 }
-
+ 
 export function getFarmMaxPlots(state, farmId) {
   const inv = getFarmInvestment(state, farmId);
   const capUpgrade = FARM_INVESTMENT_PLOT_CAP[inv.plotCapIndex - 1];
   return capUpgrade ? capUpgrade.maxPlots : MAX_PLOTS;
 }
-
+ 
 export function getFarmBonusYield(state, farmId) {
   const inv = getFarmInvestment(state, farmId);
   const yieldUpgrade = FARM_INVESTMENT_YIELD[inv.yieldIndex - 1];
   return yieldUpgrade ? yieldUpgrade.bonusYield : 0;
 }
-
+ 
 export function getNextPlotCapUpgrade(state, farmId) {
   const inv = getFarmInvestment(state, farmId);
   return FARM_INVESTMENT_PLOT_CAP[inv.plotCapIndex] ?? null;
 }
-
+ 
 export function getNextYieldUpgrade(state, farmId) {
   const inv = getFarmInvestment(state, farmId);
   return FARM_INVESTMENT_YIELD[inv.yieldIndex] ?? null;
 }
-
+ 
 // ─── Market worker helpers ────────────────────────────────────────────────────
-
+ 
 export function getSellRate(itemType, prestigeBonuses = []) {
   const base = MARKET_SELL_RATES[itemType] ?? 0;
   const savvyCount = prestigeBonuses.filter((b) => b === "market_savvy").length;
   if (savvyCount === 0) return base;
   return Math.round(base * Math.pow(1.25, savvyCount) * 100) / 100;
 }
-
+ 
 export function getMarketWorkerHireCost(state) {
   const count = (state.marketWorkers ?? []).length;
   const raw = MARKET_WORKER_HIRE_COST * Math.pow(MARKET_WORKER_HIRE_MULTIPLIER, count);
   return Math.round(raw / 5) * 5;
 }
-
+ 
 export function getMarketWorkerNextGear(currentGear) {
   const idx = MARKET_WORKER_GEAR_ORDER.indexOf(currentGear);
   if (idx === -1 || idx === MARKET_WORKER_GEAR_ORDER.length - 1) return null;
   return MARKET_WORKER_GEAR_ORDER[idx + 1];
 }
-
+ 
 export function getMarketWorkerItemsPerSecond(worker) {
   return MARKET_WORKER_GEAR[worker.gear]?.itemsPerSecond ?? 1;
 }
-
+ 
 export function getMarketWorkerQueueTotal(worker) {
   return (worker.queue ?? []).reduce((s, o) => s + o.quantity, 0);
 }
-
+ 
 export function getTotalMarketQueueLength(state) {
   return (state.marketWorkers ?? []).reduce((s, w) => s + getMarketWorkerQueueTotal(w), 0);
 }
-
+ 
 export function cancelMarketWorkerQueue(state, workerId) {
   const next = deepCloneState(state);
   const worker = (next.marketWorkers ?? []).find((w) => w.id === workerId);
@@ -482,36 +499,36 @@ export function cancelMarketWorkerQueue(state, workerId) {
   worker.queue = [];
   return next;
 }
-
-
+ 
 // ─── Kitchen worker helpers ───────────────────────────────────────────────────
-
+ 
 export function getKitchenWorkerHireCost(state) {
   const count = (state.kitchenWorkers ?? []).length;
+  // First kitchen worker costs the base flat rate, subsequent scale up
   const raw = KITCHEN_WORKER_HIRE_COST * Math.pow(KITCHEN_WORKER_HIRE_MULTIPLIER, count);
   return Math.round(raw / 5) * 5;
 }
-
+ 
 export function getKitchenWorkerSpeedMultiplier(worker) {
   const upgrades = worker.upgrades ?? [];
   if (upgrades.includes("speed_2")) return KITCHEN_WORKER_UPGRADES.speed_2.speedMultiplier;
   if (upgrades.includes("speed_1")) return KITCHEN_WORKER_UPGRADES.speed_1.speedMultiplier;
   return 1;
 }
-
+ 
 export function getEffectiveKitchenSeconds(worker, baseSeconds) {
   const mult = getKitchenWorkerSpeedMultiplier(worker);
   return Math.max(5, Math.floor(baseSeconds * mult));
 }
-
+ 
 export function isKitchenWorkerIdle(worker) {
   return !worker.busy && !worker.recipeId;
 }
-
+ 
 export function getIdleKitchenWorkerCount(state) {
   return (state.kitchenWorkers ?? []).filter(isKitchenWorkerIdle).length;
 }
-
+ 
 export function canUpgradeKitchenWorker(state, workerId, upgradeId) {
   const worker = (state.kitchenWorkers ?? []).find((w) => w.id === workerId);
   if (!worker) return false;
@@ -522,9 +539,7 @@ export function canUpgradeKitchenWorker(state, workerId, upgradeId) {
   if ((state.cash ?? 0) < upgrade.cost) return false;
   return true;
 }
-
-// ─── Kitchen worker: start recipe ─────────────────────────────────────────────
-
+ 
 export function getKitchenWorkerBatchSize(worker) {
   const upgrades = worker.upgrades ?? [];
   if (upgrades.includes("batch_10")) return 10;
@@ -532,7 +547,7 @@ export function getKitchenWorkerBatchSize(worker) {
   if (upgrades.includes("batch_2")) return 2;
   return 1;
 }
-
+ 
 function _startKitchenWorkerRecipe(worker, recipeId, crops) {
   const recipe = PROCESSING_RECIPES[recipeId];
   if (!recipe?.inputCrop) return false;
@@ -543,16 +558,15 @@ function _startKitchenWorkerRecipe(worker, recipeId, crops) {
   worker.recipeId = recipeId;
   worker.elapsedSeconds = 0;
   worker.totalSeconds = getEffectiveKitchenSeconds(worker, recipe.seconds);
-  worker.batchSize = batch; // store so output knows how much to produce
+  worker.batchSize = batch;
   worker.busy = true;
   return true;
 }
-
+ 
 export function cancelKitchenWorkerRecipe(state, workerId) {
   const next = deepCloneState(state);
   const worker = (next.kitchenWorkers ?? []).find((w) => w.id === workerId);
   if (!worker) return state;
-  // Refund 50% of input if mid-craft
   if (worker.busy && worker.recipeId) {
     const recipe = PROCESSING_RECIPES[worker.recipeId];
     const batch = worker.batchSize ?? 1;
@@ -568,42 +582,42 @@ export function cancelKitchenWorkerRecipe(state, workerId) {
   worker.batchSize = 1;
   return next;
 }
-
+ 
 // ─── Offline progress ─────────────────────────────────────────────────────────
-
+ 
 export function calculateOfflineProgress(state, nowMs) {
   const lastSaved = state.lastSavedTime ?? nowMs;
   const rawSeconds = Math.floor((nowMs - lastSaved) / 1000);
-
+ 
   if (rawSeconds < 0 || rawSeconds > 7 * 24 * 60 * 60) {
     return { state: { ...state, lastSavedTime: nowMs }, offlineSeconds: 0 };
   }
-
+ 
   const seconds = Math.min(rawSeconds, MAX_OFFLINE_SECONDS);
   if (seconds <= 0) return { state, offlineSeconds: 0 };
-
+ 
   let next = deepCloneState(state);
-
+ 
   for (let i = 0; i < seconds; i++) {
     next = tick(next);
   }
-
+ 
   next.lastSavedTime = nowMs;
   return { state: next, offlineSeconds: seconds };
 }
-
+ 
 // ─── Tick ─────────────────────────────────────────────────────────────────────
-
+ 
 export function tick(state) {
   let next = deepCloneState(state);
   const feast = next.feastBonusPercent ?? 0;
   const townBonus = next.town?.growthBonusPercent ?? 0;
-
+ 
   // ── Farms ──────────────────────────────────────────────────────────────────
   for (const farm of next.farms) {
     const farmWorkers = next.workers.filter((w) => w.farmId === farm.id);
-    const bonusYield = getFarmBonusYield(next, farm.id); // ← add this
-
+    const bonusYield = getFarmBonusYield(next, farm.id);
+ 
     for (const plot of farm.plots) {
       if (plot.state === "planted") {
         const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, feast, townBonus);
@@ -611,28 +625,28 @@ export function tick(state) {
         if (plot.growthTick >= growTime) plot.state = "ready";
       }
     }
-
+ 
     for (const worker of farmWorkers) {
       const workerRef = next.workers.find((w) => w.id === worker.id);
       if (!workerRef) continue;
       workerRef.cycleProgress += 1;
       const cycleSeconds = getEffectiveCycleSeconds(workerRef);
-
+ 
       if (workerRef.cycleProgress >= cycleSeconds) {
         workerRef.cycleProgress = 0;
         const resting = isSprinterResting(workerRef);
         workerRef.cycleCount = (workerRef.cycleCount ?? 0) + 1;
-
+ 
         if (!resting) {
           const crop = CROPS[farm.crop];
           const plotsPerCycle = getEffectivePlotsPerCycle(workerRef);
           let harvested = 0;
-
+ 
           for (const plot of farm.plots) {
             if (harvested >= plotsPerCycle) break;
             if (plot.state === "ready") {
               const { crops, newPool } = applyYieldBonuses(
-                crop.workerYield, next.prestigeBonuses, next.yieldPool ?? 0, bonusYield // ← add bonusYield
+                crop.workerYield, next.prestigeBonuses, next.yieldPool ?? 0, bonusYield
               );
               next.crops[farm.crop] = (next.crops[farm.crop] ?? 0) + crops;
               next.yieldPool = newPool;
@@ -641,7 +655,7 @@ export function tick(state) {
               harvested++;
             }
           }
-
+ 
           let replanted = 0;
           for (const plot of farm.plots) {
             if (replanted >= plotsPerCycle) break;
@@ -655,71 +669,71 @@ export function tick(state) {
       }
     }
   }
-
+ 
   // ── Kitchen workers ────────────────────────────────────────────────────────
   for (const worker of next.kitchenWorkers ?? []) {
-  if (!worker.busy || !worker.recipeId) continue;
-  worker.elapsedSeconds = (worker.elapsedSeconds ?? 0) + 1;
-  if (worker.elapsedSeconds >= worker.totalSeconds) {
-    const recipe = PROCESSING_RECIPES[worker.recipeId];
-    const batch = worker.batchSize ?? 1;
-    next.artisan[recipe.outputGood] = (next.artisan[recipe.outputGood] ?? 0) + (recipe.outputAmount * batch);
-    worker.elapsedSeconds = 0;
-    worker.busy = false;
-    worker.batchSize = 1;
-    const hasAutoRestart = (worker.upgrades ?? []).includes("auto_restart");
-    if (hasAutoRestart) {
-      _startKitchenWorkerRecipe(worker, worker.recipeId, next.crops);
-    }
-  }
-}
-
-  // ── Market workers ─────────────────────────────────────────────────────────
-for (const worker of next.marketWorkers ?? []) {
-  // Standing order: auto-pull from inventory each tick
-  if (worker.hasStandingOrder && worker.standingOrder) {
-    const itemType = worker.standingOrder;
-    const ips = getMarketWorkerItemsPerSecond(worker);
-    const isCrop = itemType in (next.crops ?? {});
-    const isArtisan = itemType in (next.artisan ?? {});
-    const available = isCrop
-      ? (next.crops[itemType] ?? 0)
-      : isArtisan ? (next.artisan[itemType] ?? 0) : 0;
-    const toPull = Math.min(ips, available);
-    if (toPull > 0) {
-      if (isCrop) next.crops[itemType] -= toPull;
-      else if (isArtisan) next.artisan[itemType] -= toPull;
-      const queue = worker.queue ?? [];
-      const last = queue[queue.length - 1];
-      if (last && last.itemType === itemType) {
-        last.quantity += toPull;
-      } else {
-        queue.push({ id: genId("sale"), itemType, quantity: toPull });
-        worker.queue = queue;
+    if (!worker.busy || !worker.recipeId) continue;
+    worker.elapsedSeconds = (worker.elapsedSeconds ?? 0) + 1;
+    if (worker.elapsedSeconds >= worker.totalSeconds) {
+      const recipe = PROCESSING_RECIPES[worker.recipeId];
+      const batch = worker.batchSize ?? 1;
+      next.artisan[recipe.outputGood] = (next.artisan[recipe.outputGood] ?? 0) + (recipe.outputAmount * batch);
+      worker.elapsedSeconds = 0;
+      worker.busy = false;
+      worker.batchSize = 1;
+      const hasAutoRestart = (worker.upgrades ?? []).includes("auto_restart");
+      if (hasAutoRestart) {
+        _startKitchenWorkerRecipe(worker, worker.recipeId, next.crops);
       }
     }
   }
-
-  const itemsPerSecond = getMarketWorkerItemsPerSecond(worker);
-  let toSellThisTick = itemsPerSecond;
-  while (toSellThisTick > 0 && (worker.queue ?? []).length > 0) {
-    const order = worker.queue[0];
-    const toSell = Math.min(toSellThisTick, order.quantity);
-    const rate = getSellRate(order.itemType, next.prestigeBonuses);
-    order.quantity -= toSell;
-    next.cash = (next.cash ?? 0) + toSell * rate;
-    next.lifetimeCash = (next.lifetimeCash ?? 0) + toSell * rate;
-    toSellThisTick -= toSell;
-    if (order.quantity <= 0) worker.queue.shift();
+ 
+  // ── Market workers ─────────────────────────────────────────────────────────
+  for (const worker of next.marketWorkers ?? []) {
+    if (worker.hasStandingOrder && worker.standingOrder) {
+      const itemType = worker.standingOrder;
+      const ips = getMarketWorkerItemsPerSecond(worker);
+      const isCrop = itemType in (next.crops ?? {});
+      const isArtisan = itemType in (next.artisan ?? {});
+      const available = isCrop
+        ? (next.crops[itemType] ?? 0)
+        : isArtisan ? (next.artisan[itemType] ?? 0) : 0;
+      const toPull = Math.min(ips, available);
+      if (toPull > 0) {
+        if (isCrop) next.crops[itemType] -= toPull;
+        else if (isArtisan) next.artisan[itemType] -= toPull;
+        const queue = worker.queue ?? [];
+        const last = queue[queue.length - 1];
+        if (last && last.itemType === itemType) {
+          last.quantity += toPull;
+        } else {
+          queue.push({ id: genId("sale"), itemType, quantity: toPull });
+          worker.queue = queue;
+        }
+      }
+    }
+ 
+    const itemsPerSecond = getMarketWorkerItemsPerSecond(worker);
+    let toSellThisTick = itemsPerSecond;
+    while (toSellThisTick > 0 && (worker.queue ?? []).length > 0) {
+      const order = worker.queue[0];
+      const toSell = Math.min(toSellThisTick, order.quantity);
+      const rate = getSellRate(order.itemType, next.prestigeBonuses);
+      order.quantity -= toSell;
+      next.cash = (next.cash ?? 0) + toSell * rate;
+      next.lifetimeCash = (next.lifetimeCash ?? 0) + toSell * rate;
+      toSellThisTick -= toSell;
+      if (order.quantity <= 0) worker.queue.shift();
+    }
   }
-}
+ 
   next = updateTown(next, 1);
   next.totalPlayTime = (next.totalPlayTime ?? 0) + 1;
   return next;
 }
-
+ 
 // ─── Farm actions ─────────────────────────────────────────────────────────────
-
+ 
 export function plantPlot(state, farmId, plotId) {
   const next = deepCloneState(state);
   const farm = next.farms.find((f) => f.id === farmId);
@@ -730,7 +744,7 @@ export function plantPlot(state, farmId, plotId) {
   plot.growthTick = 0;
   return next;
 }
-
+ 
 export function harvestPlot(state, farmId, plotId) {
   const next = deepCloneState(state);
   const farm = next.farms.find((f) => f.id === farmId);
@@ -745,7 +759,7 @@ export function harvestPlot(state, farmId, plotId) {
   plot.growthTick = 0;
   return next;
 }
-
+ 
 export function tendPlot(state, farmId, plotId) {
   const next = deepCloneState(state);
   const farm = next.farms.find((f) => f.id === farmId);
@@ -764,15 +778,13 @@ export function tendPlot(state, farmId, plotId) {
   if (plot.growthTick >= growTime) plot.state = "ready";
   return next;
 }
-
-
-
+ 
 export function getPlotUpgradeCost(farm) {
   const upgradedCount = farm.plots.filter((p) => p.upgraded).length;
   const costs = [1, 2, 3, 5, 7, 10, 13, 17, 22, 28];
   return costs[upgradedCount] ?? Math.ceil(28 + (upgradedCount - 9) * 7);
 }
-
+ 
 export function upgradePlot(state, farmId) {
   const next = deepCloneState(state);
   const farm = next.farms.find((f) => f.id === farmId);
@@ -787,7 +799,7 @@ export function upgradePlot(state, farmId) {
   plot.upgraded = true;
   return next;
 }
-
+ 
 export function buyPlot(state, farmId) {
   const next = deepCloneState(state);
   const farm = next.farms.find((f) => f.id === farmId);
@@ -804,9 +816,11 @@ export function buyPlot(state, farmId) {
   farm.plots.push(makePlot());
   return next;
 }
-
+ 
 export function hireWorker(state, farmId) {
   const next = deepCloneState(state);
+  // Population cap check
+  if (isAtWorkerCap(next)) return state;
   const farm = next.farms.find((f) => f.id === farmId);
   if (!farm) return state;
   const cropId = farm.crop;
@@ -822,7 +836,7 @@ export function hireWorker(state, farmId) {
   next.workers.push(newWorker);
   return next;
 }
-
+ 
 export function sellWorker(state, workerId) {
   const next = deepCloneState(state);
   const worker = next.workers.find((w) => w.id === workerId);
@@ -839,7 +853,7 @@ export function sellWorker(state, workerId) {
   next.workers = next.workers.filter((w) => w.id !== workerId);
   return next;
 }
-
+ 
 export function upgradeWorkerGear(state, workerId) {
   const next = deepCloneState(state);
   const worker = next.workers.find((w) => w.id === workerId);
@@ -854,7 +868,7 @@ export function upgradeWorkerGear(state, workerId) {
   worker.gear = nextGearId;
   return next;
 }
-
+ 
 export function specializeWorker(state, workerId, specializationId) {
   const next = deepCloneState(state);
   const worker = next.workers.find((w) => w.id === workerId);
@@ -868,7 +882,7 @@ export function specializeWorker(state, workerId, specializationId) {
   worker.cycleCount = 0;
   return next;
 }
-
+ 
 export function buyPlotCapUpgrade(state, farmId) {
   const next = deepCloneState(state);
   const upgrade = getNextPlotCapUpgrade(next, farmId);
@@ -880,7 +894,7 @@ export function buyPlotCapUpgrade(state, farmId) {
   next.farmInvestments[farmId].plotCapIndex += 1;
   return next;
 }
-
+ 
 export function buyYieldUpgrade(state, farmId) {
   const next = deepCloneState(state);
   const upgrade = getNextYieldUpgrade(next, farmId);
@@ -892,7 +906,7 @@ export function buyYieldUpgrade(state, farmId) {
   next.farmInvestments[farmId].yieldIndex += 1;
   return next;
 }
-
+ 
 export function applyYieldBonuses(baseYield, prestigeBonuses, currentPool = 0, farmBonusYield = 0) {
   const bumperCount = prestigeBonuses.filter((b) => b === "bumper_crop").length;
   const total = baseYield + farmBonusYield;
@@ -905,11 +919,13 @@ export function applyYieldBonuses(baseYield, prestigeBonuses, currentPool = 0, f
   const bonus = Math.floor(newPool);
   return { crops: whole + bonus, newPool: newPool - bonus };
 }
-
+ 
 // ─── Market worker actions ────────────────────────────────────────────────────
-
+ 
 export function hireMarketWorker(state) {
   const next = deepCloneState(state);
+  // Population cap check
+  if (isAtWorkerCap(next)) return state;
   const isFirst = (next.marketWorkers ?? []).length === 0;
   const cost = isFirst ? 0 : getMarketWorkerHireCost(next);
   if (!isFirst && (next.cash ?? 0) < cost) return state;
@@ -917,7 +933,7 @@ export function hireMarketWorker(state) {
   next.marketWorkers = [...(next.marketWorkers ?? []), makeMarketWorker()];
   return next;
 }
-
+ 
 export function upgradeMarketWorkerGear(state, workerId) {
   const next = deepCloneState(state);
   const worker = (next.marketWorkers ?? []).find((w) => w.id === workerId);
@@ -930,13 +946,13 @@ export function upgradeMarketWorkerGear(state, workerId) {
   worker.gear = nextGear;
   return next;
 }
-
+ 
 export function assignItemToMarketWorker(state, workerId, itemType, quantity) {
   if (quantity <= 0) return state;
   const next = deepCloneState(state);
   const worker = (next.marketWorkers ?? []).find((w) => w.id === workerId);
   if (!worker) return state;
-
+ 
   const isCrop = itemType in (next.crops ?? {});
   const isArtisan = itemType in (next.artisan ?? {});
   if (isCrop) {
@@ -948,7 +964,7 @@ export function assignItemToMarketWorker(state, workerId, itemType, quantity) {
   } else {
     return state;
   }
-
+ 
   const queue = worker.queue ?? [];
   const last = queue[queue.length - 1];
   if (last && last.itemType === itemType) {
@@ -959,13 +975,11 @@ export function assignItemToMarketWorker(state, workerId, itemType, quantity) {
   }
   return next;
 }
-
+ 
 export function fireMarketWorker(state, workerId) {
   const next = deepCloneState(state);
   const worker = (next.marketWorkers ?? []).find((w) => w.id === workerId);
   if (!worker) return state;
-
-  // Refund any queued items back to inventory
   for (const order of worker.queue ?? []) {
     if (order.itemType in (next.crops ?? {})) {
       next.crops[order.itemType] = (next.crops[order.itemType] ?? 0) + order.quantity;
@@ -976,25 +990,26 @@ export function fireMarketWorker(state, workerId) {
   next.marketWorkers = next.marketWorkers.filter((w) => w.id !== workerId);
   return next;
 }
-
+ 
 // ─── Kitchen worker actions ───────────────────────────────────────────────────
-
+ 
 export function hireKitchenWorker(state) {
   const next = deepCloneState(state);
-  const isFirst = (next.kitchenWorkers ?? []).length === 0;
-  const cost = isFirst ? 0 : getKitchenWorkerHireCost(next);
-  if (!isFirst && (next.cash ?? 0) < cost) return state;
-  if (!isFirst) next.cash -= cost;
+  // Population cap check
+  if (isAtWorkerCap(next)) return state;
+  const count = (next.kitchenWorkers ?? []).length;
+  const cost = getKitchenWorkerHireCost(next);
+  if ((next.cash ?? 0) < cost) return state;
+  next.cash -= cost;
   next.kitchenWorkers = [...(next.kitchenWorkers ?? []), makeKitchenWorker()];
   return next;
 }
-
+ 
 export function assignKitchenWorkerRecipe(state, workerId, recipeId) {
   const next = deepCloneState(state);
   const worker = (next.kitchenWorkers ?? []).find((w) => w.id === workerId);
   if (!worker) return state;
-
-  // If mid-craft, refund 50% and cancel before starting new recipe
+ 
   if (worker.busy && worker.recipeId) {
     const recipe = PROCESSING_RECIPES[worker.recipeId];
     const batch = worker.batchSize ?? 1;
@@ -1006,12 +1021,12 @@ export function assignKitchenWorkerRecipe(state, workerId, recipeId) {
     worker.elapsedSeconds = 0;
     worker.batchSize = 1;
   }
-
+ 
   const started = _startKitchenWorkerRecipe(worker, recipeId, next.crops);
   if (!started) return state;
   return next;
 }
-
+ 
 export function upgradeKitchenWorker(state, workerId, upgradeId) {
   if (!canUpgradeKitchenWorker(state, workerId, upgradeId)) return state;
   const next = deepCloneState(state);
@@ -1021,12 +1036,11 @@ export function upgradeKitchenWorker(state, workerId, upgradeId) {
   worker.upgrades = [...(worker.upgrades ?? []), upgradeId];
   return next;
 }
-
+ 
 export function fireKitchenWorker(state, workerId) {
   const next = deepCloneState(state);
   const worker = (next.kitchenWorkers ?? []).find((w) => w.id === workerId);
   if (!worker) return state;
-  // Refund 50% of current recipe input if mid-craft
   if (worker.busy && worker.recipeId) {
     const recipe = PROCESSING_RECIPES[worker.recipeId];
     if (recipe?.inputCrop) {
@@ -1036,9 +1050,9 @@ export function fireKitchenWorker(state, workerId) {
   next.kitchenWorkers = next.kitchenWorkers.filter((w) => w.id !== workerId);
   return next;
 }
-
+ 
 // ─── Feast ────────────────────────────────────────────────────────────────────
-
+ 
 export function buyFeast(state) {
   const next = deepCloneState(state);
   const tierIdx = next.feastTierIndex ?? 0;
@@ -1058,9 +1072,9 @@ export function buyFeast(state) {
   next.feastTierIndex = tierIdx + 1;
   return next;
 }
-
+ 
 // ─── Farm unlock (season 4+) ──────────────────────────────────────────────────
-
+ 
 export function unlockExtraFarm(state, cropId) {
   if (!state.pendingFarmUnlock) return state;
   if (!EXTRA_FARM_CROPS.includes(cropId)) return state;
@@ -1073,44 +1087,98 @@ export function unlockExtraFarm(state, cropId) {
   next.farms.push(makeFarm(cropId, true));
   return next;
 }
-
+ 
 export function getNextFarmUnlockCost(state) {
   return getFarmUnlockCost(state.extraFarmsUnlocked ?? 0);
 }
-
+ 
 export function canUnlockFarm(state) {
   if (!state.pendingFarmUnlock) return false;
   return (state.cash ?? 0) >= getNextFarmUnlockCost(state);
 }
-
+ 
 // ─── Prestige ─────────────────────────────────────────────────────────────────
-
+ 
+/**
+ * Returns a sanitized kept-worker object with only the fields that should
+ * persist across seasons, tagged with its system type.
+ */
+function makeKeptWorker(worker, type) {
+  const base = { id: worker.id, keptType: type };
+ 
+  if (type === "farm") {
+    return {
+      ...base,
+      gear: worker.gear,
+      specialization: worker.specialization ?? "none",
+      // reset runtime fields
+      farmId: null,
+      cycleProgress: 0,
+      cycleCount: 0,
+    };
+  }
+ 
+  if (type === "kitchen") {
+    return {
+      ...base,
+      upgrades: [...(worker.upgrades ?? [])],
+      // reset runtime fields
+      recipeId: null,
+      elapsedSeconds: 0,
+      totalSeconds: 0,
+      batchSize: 1,
+      busy: false,
+    };
+  }
+ 
+  if (type === "market") {
+    return {
+      ...base,
+      gear: worker.gear,
+      hasStandingOrder: worker.hasStandingOrder ?? false,
+      // clear configuration — player sets up again
+      queue: [],
+      standingOrder: null,
+    };
+  }
+ 
+  return base;
+}
+ 
 export function beginPrestige(state, chosenBonusId, keptWorkerId) {
   const next = deepCloneState(state);
   const newSeason = next.season + 1;
-
+ 
   if (chosenBonusId) next.prestigeBonuses.push(chosenBonusId);
-
-  // Accumulate kept workers — all previous + new choice
-  const keptWorkers = [...(next.keptWorkers ?? [])];
+ 
+  // Find the worker to keep (search all three systems)
+  const previousKeptWorkers = [...(next.keptWorkers ?? [])];
   if (keptWorkerId) {
-    const worker = next.workers.find((w) => w.id === keptWorkerId);
-    if (worker) keptWorkers.push({ ...worker, farmId: null });
+    const farmWorker = next.workers.find((w) => w.id === keptWorkerId);
+    const kitchenWorker = next.kitchenWorkers.find((w) => w.id === keptWorkerId);
+    const marketWorker = next.marketWorkers.find((w) => w.id === keptWorkerId);
+ 
+    if (farmWorker) previousKeptWorkers.push(makeKeptWorker(farmWorker, "farm"));
+    else if (kitchenWorker) previousKeptWorkers.push(makeKeptWorker(kitchenWorker, "kitchen"));
+    else if (marketWorker) previousKeptWorkers.push(makeKeptWorker(marketWorker, "market"));
   }
-  next.keptWorkers = keptWorkers;
+  next.keptWorkers = previousKeptWorkers;
+ 
+  // Reset workers
   next.workers = [];
-
+  next.kitchenWorkers = [];
+  next.marketWorkers = [];
+ 
   // Keep 10% of crops
   for (const cropId of Object.keys(next.crops)) {
     next.crops[cropId] = Math.floor((next.crops[cropId] ?? 0) * 0.1);
   }
-
-  // Artisan goods fully carry over — no reset
-  // Kitchen and market workers reset
-  next.kitchenWorkers = [];
-  next.marketWorkers = [];
+ 
+  // Artisan goods carry over fully
+  // Feast bonus carries over
+ 
   next.yieldPool = 0;
-
+ 
   // Season 4+: offer a new farm slot
   if (newSeason >= FIRST_EXTRA_FARM_SEASON) {
     next.pendingFarmUnlock = true;
@@ -1123,7 +1191,7 @@ export function beginPrestige(state, chosenBonusId, keptWorkerId) {
       }
     }
   }
-
+ 
   // Reset plot states, keep unlockedPlots + upgraded
   for (const farm of next.farms) {
     farm.plots = farm.plots.map((plot, idx) => ({
@@ -1132,37 +1200,58 @@ export function beginPrestige(state, chosenBonusId, keptWorkerId) {
       growthTick: idx === 0 ? Math.floor(CROPS[farm.crop].growTime / 2) : 0,
     }));
   }
-
-  // head_start: auto-hire one free worker per farm
+ 
+  // head_start: auto-hire one free worker per farm (only if population allows)
   if (next.prestigeBonuses.includes("head_start")) {
     const startWithGloves = next.prestigeBonuses.includes("fast_hands");
     const farmsForNewSeason = newSeason >= FIRST_EXTRA_FARM_SEASON
       ? next.farms
       : next.farms.filter((f) => (SEASON_FARMS[newSeason] ?? []).includes(f.crop));
     for (const farm of farmsForNewSeason) {
+      if (isAtWorkerCap(next)) break;
       const w = makeFarmWorker(farm.id, startWithGloves);
       const cs = getEffectiveCycleSeconds(w);
       w.cycleProgress = cs - 1;
       next.workers.push(w);
     }
   }
-
+ 
+  // Place kept workers automatically by type
+  const farmKeptWorkers = next.keptWorkers.filter((w) => w.keptType === "farm");
+  const kitchenKeptWorkers = next.keptWorkers.filter((w) => w.keptType === "kitchen");
+  const marketKeptWorkers = next.keptWorkers.filter((w) => w.keptType === "market");
+ 
+  // Kitchen and market kept workers go straight into their arrays
+  for (const kw of kitchenKeptWorkers) {
+    if (isAtWorkerCap(next)) break;
+    next.kitchenWorkers.push({ ...kw });
+  }
+  for (const kw of marketKeptWorkers) {
+    if (isAtWorkerCap(next)) break;
+    next.marketWorkers.push({ ...kw });
+  }
+ 
+  // Farm kept workers need assignment — keep them in keptWorkers for the assignment screen
+  // Remove kitchen/market from keptWorkers since they're already placed
+  next.keptWorkers = farmKeptWorkers;
+  next.pendingWorkerAssignments = farmKeptWorkers.length > 0;
+ 
   next.season = newSeason;
   next.lastSavedTime = Date.now();
-  next.pendingWorkerAssignments = keptWorkers.length > 0;
-
+ 
   return next;
 }
-
+ 
 export function assignKeptWorker(state, keptWorkerId, farmId) {
   const next = deepCloneState(state);
   const workerIdx = next.keptWorkers.findIndex((w) => w.id === keptWorkerId);
   if (workerIdx === -1) return state;
   const farm = next.farms.find((f) => f.id === farmId);
   if (!farm) return state;
-  const cs = getEffectiveCycleSeconds(next.keptWorkers[workerIdx]);
+  const keptWorker = next.keptWorkers[workerIdx];
+  const cs = getEffectiveCycleSeconds(keptWorker);
   const worker = {
-    ...next.keptWorkers[workerIdx],
+    ...keptWorker,
     farmId,
     cycleProgress: cs - 1,
     cycleCount: 0,
@@ -1172,7 +1261,7 @@ export function assignKeptWorker(state, keptWorkerId, farmId) {
   if (next.keptWorkers.length === 0) next.pendingWorkerAssignments = false;
   return next;
 }
-
+ 
 export function canPrestige(state) {
   const farmsToCheck = state.season >= FIRST_EXTRA_FARM_SEASON
     ? state.farms
@@ -1184,7 +1273,7 @@ export function canPrestige(state) {
   if ((state.cash ?? 0) < threshold) return false;
   return true;
 }
-
+ 
 export function getPrestigeBlockers(state) {
   const blockers = [];
   const farmsToCheck = state.season >= FIRST_EXTRA_FARM_SEASON
@@ -1203,24 +1292,23 @@ export function getPrestigeBlockers(state) {
   }
   return blockers;
 }
-
+ 
 // ─── Serialization ────────────────────────────────────────────────────────────
-
+ 
 export function serializeState(state) {
   return JSON.stringify({ ...state, lastSavedTime: Date.now() });
 }
-
+ 
 export function deserializeState(raw) {
   try {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
     if (!Array.isArray(parsed.farms) || !Array.isArray(parsed.workers)) return null;
-
+ 
     // ── Legacy migrations ──────────────────────────────────────────────────
-    // Old kitchen slot system → new kitchen worker system
+ 
     if (parsed.kitchenWorkers === undefined) {
       parsed.kitchenWorkers = [];
-      // Migrate old processing queue items into kitchen workers
       const oldQueue = parsed.processingQueue ?? [];
       const activeItems = oldQueue.filter((i) => !i.done);
       for (const item of activeItems) {
@@ -1236,8 +1324,7 @@ export function deserializeState(raw) {
     delete parsed.kitchenPurchased;
     delete parsed.kitchenSlotCount;
     delete parsed.kitchenSlots;
-
-    // Old market queue → new market worker system
+ 
     if (parsed.marketWorkers === undefined) {
       parsed.marketWorkers = [];
       const oldQueue = parsed.marketQueue ?? [];
@@ -1249,29 +1336,32 @@ export function deserializeState(raw) {
     }
     delete parsed.marketQueue;
     delete parsed.marketUnlocked;
-
-    // Worker rename: makeWorker → makeFarmWorker (id prefix changed)
+ 
     for (const worker of parsed.workers ?? []) {
       if (worker.cycleCount === undefined) worker.cycleCount = 0;
     }
     for (const worker of parsed.kitchenWorkers ?? []) {
-  if (worker.batchSize === undefined) worker.batchSize = 1;
-}
-
+      if (worker.batchSize === undefined) worker.batchSize = 1;
+    }
     for (const farm of parsed.farms ?? []) {
       for (const plot of farm.plots ?? []) {
         if (plot.upgraded === undefined) plot.upgraded = false;
       }
     }
-
-    // Standard defaults
+ 
     if (parsed.farmInvestments === undefined) parsed.farmInvestments = {};
-for (const worker of parsed.marketWorkers ?? []) {
-  if (worker.hasStandingOrder === undefined) worker.hasStandingOrder = false;
-  if (worker.standingOrder === undefined) worker.standingOrder = null;
-}
+    for (const worker of parsed.marketWorkers ?? []) {
+      if (worker.hasStandingOrder === undefined) worker.hasStandingOrder = false;
+      if (worker.standingOrder === undefined) worker.standingOrder = null;
+    }
     if (parsed.yieldPool === undefined) parsed.yieldPool = 0;
     if (parsed.keptWorkers === undefined) parsed.keptWorkers = [];
+ 
+    // Migrate old farm-only kept workers to have keptType
+    for (const kw of parsed.keptWorkers) {
+      if (kw.keptType === undefined) kw.keptType = "farm";
+    }
+ 
     if (parsed.pendingWorkerAssignments === undefined) parsed.pendingWorkerAssignments = false;
     if (parsed.artisan === undefined) parsed.artisan = { bread: 0, jam: 0, sauce: 0 };
     if (parsed.feastBonusPercent === undefined) parsed.feastBonusPercent = 0;
@@ -1280,46 +1370,38 @@ for (const worker of parsed.marketWorkers ?? []) {
     if (parsed.lifetimeCash === undefined) parsed.lifetimeCash = 0;
     if (parsed.extraFarmsUnlocked === undefined) parsed.extraFarmsUnlocked = 0;
     if (parsed.pendingFarmUnlock === undefined) parsed.pendingFarmUnlock = false;
-
+ 
     if (Array.isArray(parsed.prestigeBonuses)) {
       parsed.prestigeBonuses = parsed.prestigeBonuses.map((b) =>
         b === "bigger_kitchen" ? "market_savvy" : b
       );
     }
+ 
+    // Town migration — always unlocked now
     if (parsed.town === undefined) {
-  parsed.town = {
-    unlocked: (parsed.lifetimeCash ?? 0) >= TOWN_UNLOCK_LIFETIME_CASH,
-    homes: (parsed.lifetimeCash ?? 0) >= TOWN_UNLOCK_LIFETIME_CASH ? 1 : 0,
-    bakeryLevel: 0,
-    people: 0,
-    capacity: 0,
-    satisfaction: 1,
-    growthBonusPercent: 0,
-    breadNeeded: 0,
-    rawBreadNeeded: 0,
-    pulseSeconds: TOWN_PULSE_SECONDS,
-    starving: false,
-  };
-} else {
-  if (parsed.town.unlocked === undefined) {
-    parsed.town.unlocked = (parsed.lifetimeCash ?? 0) >= TOWN_UNLOCK_LIFETIME_CASH;
-  }
-  if (parsed.town.homes === undefined) parsed.town.homes = parsed.town.unlocked ? 1 : 0;
-  if (parsed.town.bakeryLevel === undefined) parsed.town.bakeryLevel = 0;
-  if (parsed.town.people === undefined) parsed.town.people = 0;
-  if (parsed.town.capacity === undefined) parsed.town.capacity = 0;
-  if (parsed.town.satisfaction === undefined) parsed.town.satisfaction = 1;
-  if (parsed.town.growthBonusPercent === undefined) parsed.town.growthBonusPercent = 0;
-  if (parsed.town.breadNeeded === undefined) parsed.town.breadNeeded = 0;
-  if (parsed.town.rawBreadNeeded === undefined) parsed.town.rawBreadNeeded = 0;
-  if (parsed.town.pulseSeconds === undefined) parsed.town.pulseSeconds = TOWN_PULSE_SECONDS;
-  if (parsed.town.starving === undefined) parsed.town.starving = false;
-}
-
+      parsed.town = makeFreshTown();
+    } else {
+      parsed.town.unlocked = true;
+      if (parsed.town.homes === undefined || parsed.town.homes === 0) parsed.town.homes = 1;
+      if (parsed.town.bakeryLevel === undefined) parsed.town.bakeryLevel = 0;
+      if (parsed.town.people === undefined) parsed.town.people = TOWN_STARTING_PEOPLE;
+      if (parsed.town.capacity === undefined) parsed.town.capacity = TOWN_HOME_CAPACITY;
+      if (parsed.town.satisfaction === undefined) parsed.town.satisfaction = 1;
+      if (parsed.town.growthBonusPercent === undefined) parsed.town.growthBonusPercent = 0;
+      if (parsed.town.breadNeeded === undefined) parsed.town.breadNeeded = 0;
+      if (parsed.town.rawBreadNeeded === undefined) parsed.town.rawBreadNeeded = 0;
+      if (parsed.town.rawFoodNeeded === undefined) parsed.town.rawFoodNeeded = 0;
+      if (parsed.town.foodType === undefined) parsed.town.foodType = getTownFoodType(parsed);
+      if (parsed.town.pulseSeconds === undefined) parsed.town.pulseSeconds = TOWN_PULSE_SECONDS;
+      if (parsed.town.starving === undefined) parsed.town.starving = false;
+      // Ensure minimum population for existing saves
+      if (parsed.town.people < TOWN_STARTING_PEOPLE) parsed.town.people = TOWN_STARTING_PEOPLE;
+    }
+ 
     return parsed;
   } catch { return null; }
 }
-
+ 
 function deepCloneState(state) {
   return JSON.parse(JSON.stringify(state));
 }

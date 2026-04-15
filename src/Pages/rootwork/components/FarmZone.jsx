@@ -7,6 +7,7 @@ import {
   getWorkerHireCost,
   isFarmAutomated,
   getFarmMaxPlots,
+  getAvailableWorkerSlots,
 } from "../gameEngine";
 import FarmGrid from "./FarmGrid";
 import WorkerPanel from "./WorkerPanel";
@@ -276,35 +277,40 @@ export default function FarmZone({
           })()}
 
           {(() => {
-            const hireCost = getWorkerHireCost(game, farm.id);
-            const hasHeadStart = game.prestigeBonuses.includes("head_start");
-            const isFirst = farmWorkers.length === 0;
-            const effectiveCost = hasHeadStart && isFirst ? 0 : hireCost;
-            const canHire = (game.crops[farm.crop] ?? 0) >= effectiveCost;
-
-            return (
-              <button
-                onClick={() => onHireWorker(farm.id)}
-                disabled={!canHire}
-                style={{
-                  flex: 1,
-                  fontSize: "0.72rem",
-                  padding: "0.35rem 0.5rem",
-                  borderRadius: "8px",
-                  cursor: canHire ? "pointer" : "default",
-                  background: canHire ? "var(--accent)" : "var(--bg)",
-                  color: canHire ? "#fff" : "var(--border)",
-                  border: `1px solid ${canHire ? "var(--accent)" : "var(--border)"}`,
-                  fontWeight: 600,
-                  transition: "all 0.15s",
-                }}
-              >
-                {hasHeadStart && isFirst
-                  ? "👷 Hire Worker (Free!)"
-                  : `👷 Hire Worker (${effectiveCost} ${crop.emoji})`}
-              </button>
-            );
-          })()}
+  const atCap = getAvailableWorkerSlots(game) <= 0;
+  const hireCost = getWorkerHireCost(game, farm.id);
+  const hasHeadStart = game.prestigeBonuses.includes("head_start");
+  const isFirst = farmWorkers.length === 0;
+  const effectiveCost = hasHeadStart && isFirst ? 0 : hireCost;
+  const canAffordCrops = (game.crops[farm.crop] ?? 0) >= effectiveCost;
+  const canHire = !atCap && canAffordCrops;
+ 
+  return (
+    <button
+      onClick={() => onHireWorker(farm.id)}
+      disabled={!canHire}
+      style={{
+        flex: 1,
+        fontSize: "0.72rem",
+        padding: "0.35rem 0.5rem",
+        borderRadius: "8px",
+        cursor: canHire ? "pointer" : "default",
+        background: canHire ? "var(--accent)" : "var(--bg)",
+        color: canHire ? "#fff" : "var(--border)",
+        border: `1px solid ${canHire ? "var(--accent)" : "var(--border)"}`,
+        fontWeight: 600,
+        transition: "all 0.15s",
+      }}
+    >
+      {atCap
+        ? "👥 Town full"
+        : hasHeadStart && isFirst
+          ? "👷 Hire Worker (Free!)"
+          : `👷 Hire Worker (${effectiveCost} ${crop.emoji})`
+      }
+    </button>
+  );
+})()}
         </div>
       </div>
 

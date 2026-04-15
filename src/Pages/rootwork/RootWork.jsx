@@ -73,20 +73,68 @@ function saveToLocalStorage(state) {
 
 // ─── Prestige modal ───────────────────────────────────────────────────────────
 
+ 
 function PrestigeModal({ game, onComplete, onCancel }) {
   const [step, setStep] = useState(1);
   const [chosenBonus, setChosenBonus] = useState(null);
-
+ 
   function handleBonusPick(bonusId) {
     setChosenBonus(bonusId);
     setStep(2);
   }
-
+ 
+  // All hirable workers across all three systems
+  const allWorkers = [
+    ...game.workers.map((w) => ({ ...w, _type: "farm" })),
+    ...game.kitchenWorkers.map((w) => ({ ...w, _type: "kitchen" })),
+    ...game.marketWorkers.map((w) => ({ ...w, _type: "market" })),
+  ];
+ 
+  function workerLabel(worker) {
+    if (worker._type === "farm") {
+      const gear = GEAR[worker.gear];
+      const spec = SPECIALIZATIONS[worker.specialization];
+      const farm = game.farms.find((f) => f.id === worker.farmId);
+      const farmCrop = farm ? CROPS[farm.crop] : null;
+      return {
+        title: `👷 ${gear.emoji} ${gear.name}${spec && spec.id !== "none" ? ` · ${spec.emoji} ${spec.name}` : ""}`,
+        subtitle: farmCrop ? `${farmCrop.emoji} ${farmCrop.name} Farm` : "Farm worker",
+        typeLabel: "Farm",
+        typeColor: "#4ade80",
+      };
+    }
+    if (worker._type === "kitchen") {
+      const upgrades = worker.upgrades ?? [];
+      const upgradeNames = upgrades
+        .map((u) => KITCHEN_WORKER_UPGRADES[u]?.emoji)
+        .filter(Boolean)
+        .join(" ");
+      return {
+        title: `👨‍🍳 Chef${upgradeNames ? ` ${upgradeNames}` : ""}`,
+        subtitle: upgrades.length > 0
+          ? upgrades.map((u) => KITCHEN_WORKER_UPGRADES[u]?.name).filter(Boolean).join(", ")
+          : "No upgrades",
+        typeLabel: "Kitchen",
+        typeColor: "#f59e0b",
+      };
+    }
+    if (worker._type === "market") {
+      const gear = MARKET_WORKER_GEAR[worker.gear];
+      return {
+        title: `🛒 ${gear.emoji} ${gear.name}`,
+        subtitle: `${gear.itemsPerSecond} item${gear.itemsPerSecond !== 1 ? "s" : ""}/sec${worker.hasStandingOrder ? " · has standing order" : ""}`,
+        typeLabel: "Market",
+        typeColor: "#60a5fa",
+      };
+    }
+    return { title: "Worker", subtitle: "", typeLabel: "Unknown", typeColor: "var(--muted)" };
+  }
+ 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.6)" }}>
       <div className="card p-6 w-full max-w-sm space-y-4" style={{ maxHeight: "90vh", overflowY: "auto" }}>
-
+ 
         {step === 1 && (
           <>
             <div>
@@ -96,7 +144,7 @@ function PrestigeModal({ game, onComplete, onCancel }) {
               </p>
             </div>
             <p className="text-sm text-center" style={{ color: "var(--muted)", lineHeight: 1.6 }}>
-              Workers reset. 10% of crops carry over. Artisan goods and cash carry over fully.
+              Workers reset. 10% of crops carry over. Artisan goods and cash carry over fully. Town persists.
             </p>
             <div className="space-y-2">
               {Object.values(PRESTIGE_BONUSES).map((bonus) => (
@@ -114,26 +162,27 @@ function PrestigeModal({ game, onComplete, onCancel }) {
             <button onClick={onCancel} className="btn btn-secondary w-full text-sm">Cancel</button>
           </>
         )}
-
+ 
         {step === 2 && (
           <>
             <div>
               <h2 className="text-xl font-bold text-center">👷 Keep a Worker</h2>
               <p className="text-xs text-center mt-1" style={{ color: "var(--muted)" }}>
-                Step 2 of 2 — Choose one worker to carry into the new season
+                Step 2 of 2 — One worker returns next season with full gear
               </p>
             </div>
-            {game.workers.length === 0 ? (
+            <p className="text-sm text-center" style={{ color: "var(--muted)", lineHeight: 1.6 }}>
+              They'll start working immediately. Queue and recipe assignments reset.
+            </p>
+ 
+            {allWorkers.length === 0 ? (
               <p className="text-sm text-center" style={{ color: "var(--muted)" }}>
                 No workers to keep. You'll start fresh.
               </p>
             ) : (
               <div className="space-y-2">
-                {game.workers.map((worker) => {
-                  const gear = GEAR[worker.gear];
-                  const spec = SPECIALIZATIONS[worker.specialization];
-                  const farm = game.farms.find((f) => f.id === worker.farmId);
-                  const farmCrop = farm ? CROPS[farm.crop] : null;
+                {allWorkers.map((worker) => {
+                  const { title, subtitle, typeLabel, typeColor } = workerLabel(worker);
                   return (
                     <button
                       key={worker.id}
@@ -141,24 +190,25 @@ function PrestigeModal({ game, onComplete, onCancel }) {
                       className="w-full text-left card p-3 hover:shadow-md transition"
                       style={{ cursor: "pointer" }}
                     >
-                      <div className="font-medium text-sm">
-                        👷 {gear.emoji} {gear.name}
-                        {spec && spec.id !== "none" && (
-                          <span style={{ marginLeft: "0.4rem", color: "var(--muted)", fontWeight: 400 }}>
-                            · {spec.emoji} {spec.name}
-                          </span>
-                        )}
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                        <div className="font-medium text-sm">{title}</div>
+                        <span style={{
+                          fontSize: "0.62rem", fontWeight: 700,
+                          padding: "0.1rem 0.4rem", borderRadius: "999px",
+                          background: `${typeColor}22`,
+                          border: `1px solid ${typeColor}55`,
+                          color: typeColor,
+                        }}>
+                          {typeLabel}
+                        </span>
                       </div>
-                      {farmCrop && (
-                        <div className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>
-                          Currently on {farmCrop.emoji} {farmCrop.name} Farm
-                        </div>
-                      )}
+                      <div className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>{subtitle}</div>
                     </button>
                   );
                 })}
               </div>
             )}
+ 
             <button
               onClick={() => onComplete(chosenBonus, null)}
               className="btn btn-secondary w-full text-sm"

@@ -12,6 +12,7 @@ import {
   isKitchenWorkerIdle,
   getNextFeastTier,
   getKitchenWorkerBatchSize,
+  getAvailableWorkerSlots,
 } from "../gameEngine";
 
 const RECIPE_LIST = ["bread", "jam", "sauce"];
@@ -480,9 +481,11 @@ export default function ProcessingZone({
   }, []);
 
   const hireCost = getKitchenWorkerHireCost(game);
-  const canHire = (game.cash ?? 0) >= hireCost;
-  const workers = game.kitchenWorkers ?? [];
-  const isFirstWorker = workers.length === 0;
+const atCap = getAvailableWorkerSlots(game) <= 0;
+const canAffordCash = (game.cash ?? 0) >= hireCost;
+const canHire = !atCap && canAffordCash;
+const workers = game.kitchenWorkers ?? [];
+const isFirstWorker = workers.length === 0;
 
   return (
     <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 5rem" }}>
@@ -498,18 +501,21 @@ export default function ProcessingZone({
 
       <div style={{ marginBottom: "1.25rem" }}>
         <button
-          onClick={onHireKitchenWorker}
-          disabled={!isFirstWorker && !canHire}
-          className="btn w-full"
-          style={{ opacity: (isFirstWorker || canHire) ? 1 : 0.5 }}
-        >
-          👨‍🍳 Hire Kitchen Worker — {isFirstWorker ? "Free!" : `$${hireCost}`}
-        </button>
-        {isFirstWorker && (
-          <p style={{ fontSize: "0.7rem", color: "var(--muted)", marginTop: "0.4rem", textAlign: "center" }}>
-            Each worker crafts one recipe at a time. Two upgrade paths: speed or batch size.
-          </p>
-        )}
+  onClick={onHireKitchenWorker}
+  disabled={!canHire}
+  className="btn w-full"
+  style={{ opacity: canHire ? 1 : 0.5 }}
+>
+  {atCap
+    ? "👥 Town full — grow population to hire"
+    : `👨‍🍳 Hire Kitchen Worker — $${hireCost}`
+  }
+</button>
+{isFirstWorker && !atCap && (
+  <p style={{ fontSize: "0.7rem", color: "var(--muted)", marginTop: "0.4rem", textAlign: "center" }}>
+    Each worker crafts one recipe at a time. Two upgrade paths: speed or batch size.
+  </p>
+)}
       </div>
 
       {workers.length > 0 && (
