@@ -41,15 +41,29 @@ import {
   FARM_INVESTMENT_YIELD,
   MARKET_WORKER_STANDING_ORDER_COST,
   TOWN_HOME_CAPACITY,
-  TOWN_HOME_BASE_COST,
+  TOWN_HOME_SECOND_COST,
   TOWN_HOME_COST_MULTIPLIER,
   TOWN_BAKERY_BASE_COST,
   TOWN_BAKERY_COST_MULTIPLIER,
+  TOWN_JAM_BUILDING_COST,
+  TOWN_SAUCE_BUILDING_COST,
   TOWN_PULSE_SECONDS,
-  TOWN_PEOPLE_PER_BREAD,
-  TOWN_PEOPLE_PER_WHEAT,
+  TOWN_WHEAT_PER_PERSON,
+  TOWN_WHEAT_PER_WORKER,
+  TOWN_BREAD_FEEDS,
   TOWN_GROWTH_PER_PULSE,
   TOWN_DECLINE_PER_PULSE,
+  TOWN_HOME_INSTANT_POPULATION,
+  TOWN_SATISFACTION_DEFAULT,
+  TOWN_SATISFACTION_FLOOR,
+  TOWN_SATISFACTION_CEILING,
+  TOWN_SATISFACTION_STEP,
+  TOWN_SATISFACTION_STARVE_STEP,
+  TOWN_SAT_WHEAT,
+  TOWN_SAT_BAKERY,
+  TOWN_SAT_BAKERY_JAM,
+  TOWN_SAT_BAKERY_SAUCE,
+  TOWN_SAT_ALL_BUILDINGS,
   TOWN_PEOPLE_PER_GROWTH_BONUS,
   TOWN_GROWTH_BONUS_PER_STEP,
   TOWN_MAX_GROWTH_BONUS_PERCENT,
@@ -112,6 +126,7 @@ export function makeFarmWorker(farmId, startWithGloves = false) {
     specialization: "none",
     cycleProgress: 0,
     cycleCount: 0,
+    hiredAt: Date.now(),
   };
 }
  
@@ -122,6 +137,7 @@ export function makeMarketWorker() {
     queue: [],
     standingOrder: null,
     hasStandingOrder: false,
+    hiredAt: Date.now(),
   };
 }
  
@@ -153,13 +169,16 @@ export function makeKitchenWorker() {
     totalSeconds: 0,
     batchSize: 1,
     busy: false,
+    hiredAt: Date.now(),
   };
 }
  
 export function getTownHomeCost(state) {
   const homes = state.town?.homes ?? 0;
-  const raw = TOWN_HOME_BASE_COST * Math.pow(TOWN_HOME_COST_MULTIPLIER, homes);
-  return Math.round(raw / 50) * 50;
+  if (homes === 0) return 0; // first home is always free
+  // homes=1 → $50, homes=2 → $80, etc.
+  const raw = TOWN_HOME_SECOND_COST * Math.pow(TOWN_HOME_COST_MULTIPLIER, homes - 1);
+  return Math.round(raw / 5) * 5;
 }
  
 export function getTownBakeryCost(state) {
@@ -187,19 +206,160 @@ export function getTownGrowthBonusPercent(people) {
   return Math.min(TOWN_MAX_GROWTH_BONUS_PERCENT, steps * TOWN_GROWTH_BONUS_PER_STEP);
 }
  
+/** Returns the satisfaction % the town is targeting given current state. */
+export function getSatisfactionTarget(state) {
+  const town = state.town ?? {};
+  if (town.starving) return TOWN_SATISFACTION_FLOOR;
+  const bakeryOn = town.bakeryOn === true && (town.bakeryLevel ?? 0) >= 1;
+  if (!bakeryOn) return TOWN_SAT_WHEAT;
+  const hasJam = town.jamBuildingOwned === true;
+  const hasSauce = town.sauceBuildingOwned === true;
+  if (hasJam && hasSauce) return TOWN_SAT_ALL_BUILDINGS;
+  if (hasSauce) return TOWN_SAT_BAKERY_SAUCE;
+  if (hasJam) return TOWN_SAT_BAKERY_JAM;
+  return TOWN_SAT_BAKERY;
+}
+ 
+/** Returns satisfaction as a 0-N multiplier for use in tick calculations. */
+export function getTownSatisfactionMultiplier(state) {
+  const sat = state.town?.satisfaction ?? TOWN_SATISFACTION_DEFAULT;
+  return sat / 100;
+}
+ 
+/** Returns the amount of wheat or bread to reserve for the next town pulse. */
+export function getTownFoodReserve(state) {
+  const bakeryOn = state.town?.bakeryOn === true && (state.town?.bakeryLevel ?? 0) >= 1;
+  const people = Math.floor(state.town?.people ?? 0);
+  const totalWorkers = getTotalWorkersHired(state);
+  if (bakeryOn) {
+    return Math.max(1, Math.ceil((people + totalWorkers) / TOWN_BREAD_FEEDS));
+  }
+  return (people * TOWN_WHEAT_PER_PERSON) + (totalWorkers * TOWN_WHEAT_PER_WORKER);
+}
+ 
+/**
+ * Returns how many of a given item type can be sold while keeping
+ * enough in reserve for the next town food pulse.
+ * Only applies to wheat (wheat mode) and bread (bread mode).
+ * For all other items returns the full available amount.
+ */
+export function getSmartSellAmount(state, itemType) {
+  const bakeryOn = state.town?.bakeryOn === true && (state.town?.bakeryLevel ?? 0) >= 1;
+  const foodItem = bakeryOn ? "bread" : "wheat";
+ 
+  if (itemType !== foodItem) {
+    // Not the active food — sell everything
+    const isCrop = itemType in (state.crops ?? {});
+    return isCrop
+      ? Math.floor(state.crops[itemType] ?? 0)
+      : Math.floor(state.artisan[itemType] ?? 0);
+  }
+ 
+  const reserve = getTownFoodReserve(state);
+  const have = itemType in (state.crops ?? {})
+    ? Math.floor(state.crops[itemType] ?? 0)
+    : Math.floor(state.artisan[itemType] ?? 0);
+ 
+  return Math.max(0, have - reserve);
+}
+ 
+export function toggleBakery(state) {
+  const next = deepCloneState(state);
+  if ((next.town?.bakeryLevel ?? 0) < 1) return state;
+  next.town.bakeryOn = !(next.town.bakeryOn ?? false);
+  return next;
+}
+ 
+export function buyJamBuilding(state) {
+  const next = deepCloneState(state);
+  if ((next.town?.bakeryLevel ?? 0) < 1) return state; // requires bakery
+  if (next.town.jamBuildingOwned) return state;
+  if ((next.cash ?? 0) < TOWN_JAM_BUILDING_COST) return state;
+  next.cash -= TOWN_JAM_BUILDING_COST;
+  next.town.jamBuildingOwned = true;
+  return next;
+}
+ 
+export function buySauceBuilding(state) {
+  const next = deepCloneState(state);
+  if (!next.town?.jamBuildingOwned) return state; // requires jam building
+  if (next.town.sauceBuildingOwned) return state;
+  if ((next.cash ?? 0) < TOWN_SAUCE_BUILDING_COST) return state;
+  next.cash -= TOWN_SAUCE_BUILDING_COST;
+  next.town.sauceBuildingOwned = true;
+  return next;
+}
+ 
 /** Returns 'wheat' if bakeryLevel === 0, 'bread' otherwise. */
 export function getTownFoodType(state) {
   return (state.town?.bakeryLevel ?? 0) === 0 ? "wheat" : "bread";
 }
  
+/**
+ * Fires the most recently hired worker across all three systems.
+ * Used when population drops below total workers due to starvation.
+ * Refunds queued market items. Refunds 50% of kitchen recipe input.
+ */
+function fireLastHiredWorker(state) {
+  // Gather all workers with their type and hiredAt
+  const candidates = [
+    ...(state.workers ?? []).map((w) => ({ id: w.id, type: "farm", hiredAt: w.hiredAt ?? 0 })),
+    ...(state.kitchenWorkers ?? []).map((w) => ({ id: w.id, type: "kitchen", hiredAt: w.hiredAt ?? 0 })),
+    ...(state.marketWorkers ?? []).map((w) => ({ id: w.id, type: "market", hiredAt: w.hiredAt ?? 0 })),
+  ];
+  if (candidates.length === 0) return state;
+ 
+  // Fire the most recently hired
+  candidates.sort((a, b) => b.hiredAt - a.hiredAt);
+  const toFire = candidates[0];
+ 
+  if (toFire.type === "farm") {
+    const worker = state.workers.find((w) => w.id === toFire.id);
+    if (worker) {
+      const farm = state.farms.find((f) => f.id === worker.farmId);
+      if (farm) {
+        // 50% crop refund
+        const workersOnFarm = state.workers.filter((w) => w.farmId === worker.farmId).length;
+        const previousCount = Math.max(0, workersOnFarm - 1);
+        const hireCost = Math.round((WORKER_HIRE_BASE_COST * Math.pow(WORKER_HIRE_MULTIPLIER, previousCount)) / 5) * 5;
+        state.crops[farm.crop] = (state.crops[farm.crop] ?? 0) + Math.floor(hireCost * 0.5);
+      }
+      state.workers = state.workers.filter((w) => w.id !== toFire.id);
+    }
+  } else if (toFire.type === "kitchen") {
+    const worker = state.kitchenWorkers.find((w) => w.id === toFire.id);
+    if (worker?.busy && worker.recipeId) {
+      const recipe = PROCESSING_RECIPES[worker.recipeId];
+      if (recipe?.inputCrop) {
+        state.crops[recipe.inputCrop] = (state.crops[recipe.inputCrop] ?? 0) +
+          Math.floor(recipe.inputAmount * (worker.batchSize ?? 1) * 0.5);
+      }
+    }
+    state.kitchenWorkers = state.kitchenWorkers.filter((w) => w.id !== toFire.id);
+  } else if (toFire.type === "market") {
+    const worker = state.marketWorkers.find((w) => w.id === toFire.id);
+    if (worker) {
+      for (const order of worker.queue ?? []) {
+        if (order.itemType in (state.crops ?? {})) {
+          state.crops[order.itemType] = (state.crops[order.itemType] ?? 0) + order.quantity;
+        } else if (order.itemType in (state.artisan ?? {})) {
+          state.artisan[order.itemType] = (state.artisan[order.itemType] ?? 0) + order.quantity;
+        }
+      }
+    }
+    state.marketWorkers = state.marketWorkers.filter((w) => w.id !== toFire.id);
+  }
+ 
+  return state;
+}
+ 
 export function updateTown(state, seconds = 1) {
-  const next = deepCloneState(state);
+  let next = deepCloneState(state);
  
   if (!next.town) {
     next.town = makeFreshTown();
   }
  
-  // Town is always unlocked
   next.town.unlocked = true;
   next.town.capacity = getTownCapacity(next);
  
@@ -212,19 +372,17 @@ export function updateTown(state, seconds = 1) {
   while (next.town.pulseSeconds <= 0) {
     const people = Math.floor(Math.max(0, next.town.people ?? 0));
     const capacity = getTownCapacity(next);
-    const bakeryLevel = next.town.bakeryLevel ?? 0;
-    const foodType = getTownFoodType(next);
+    const totalWorkers = getTotalWorkersHired(next);
+    const bakeryOn = next.town.bakeryOn === true && (next.town.bakeryLevel ?? 0) >= 1;
+    const foodType = bakeryOn ? "bread" : "wheat";
  
-    // 0 people = no food needed
+    // Food demand
     let foodNeeded = 0;
-    let rawFoodNeeded = 0;
-    if (people > 0) {
+    if (people > 0 || totalWorkers > 0) {
       if (foodType === "wheat") {
-        rawFoodNeeded = Math.max(1, Math.ceil(people / TOWN_PEOPLE_PER_WHEAT));
-        foodNeeded = rawFoodNeeded; // bakery doesn't reduce wheat consumption
+        foodNeeded = (people * TOWN_WHEAT_PER_PERSON) + (totalWorkers * TOWN_WHEAT_PER_WORKER);
       } else {
-        rawFoodNeeded = Math.max(1, Math.ceil(people / TOWN_PEOPLE_PER_BREAD));
-        foodNeeded = Math.max(1, rawFoodNeeded - bakeryLevel);
+        foodNeeded = Math.max(1, Math.ceil((people + totalWorkers) / TOWN_BREAD_FEEDS));
       }
     }
  
@@ -235,7 +393,6 @@ export function updateTown(state, seconds = 1) {
     const fed = foodHave >= foodNeeded;
  
     if (fed) {
-      // Deduct food
       if (foodNeeded > 0) {
         if (foodType === "wheat") {
           next.crops.wheat = (next.crops.wheat ?? 0) - foodNeeded;
@@ -248,24 +405,44 @@ export function updateTown(state, seconds = 1) {
       } else {
         next.town.people = people;
       }
-      next.town.satisfaction = 1;
       next.town.starving = false;
     } else {
-      next.town.people = Math.max(0, people - TOWN_DECLINE_PER_PULSE);
-      next.town.satisfaction = 0;
+      const newPeople = Math.max(0, people - TOWN_DECLINE_PER_PULSE);
+      next.town.people = newPeople;
       next.town.starving = true;
+ 
+      const newTotalWorkers = getTotalWorkersHired(next);
+      if (newTotalWorkers > newPeople) {
+        next = fireLastHiredWorker(next);
+      }
     }
  
-    next.town.rawFoodNeeded = rawFoodNeeded;
-    next.town.breadNeeded = foodNeeded;   // keep field name for UI compatibility
-    next.town.rawBreadNeeded = rawFoodNeeded;
+    // Satisfaction movement
+    next.town.satisfactionTarget = getSatisfactionTarget(next);
+    const currentSat = next.town.satisfaction ?? TOWN_SATISFACTION_DEFAULT;
+    const target = next.town.satisfactionTarget;
+ 
+    let newSat;
+    if (next.town.starving) {
+      newSat = Math.max(TOWN_SATISFACTION_FLOOR, currentSat - TOWN_SATISFACTION_STARVE_STEP);
+    } else if (currentSat < target) {
+      newSat = Math.min(target, currentSat + TOWN_SATISFACTION_STEP);
+    } else if (currentSat > target) {
+      newSat = Math.max(target, currentSat - TOWN_SATISFACTION_STEP);
+    } else {
+      newSat = currentSat;
+    }
+    next.town.satisfaction = newSat;
+ 
+    next.town.rawFoodNeeded = foodNeeded;
+    next.town.breadNeeded = foodNeeded;
+    next.town.rawBreadNeeded = foodNeeded;
     next.town.foodType = foodType;
     next.town.capacity = capacity;
     next.town.growthBonusPercent = getTownGrowthBonusPercent(next.town.people ?? 0);
     next.town.pulseSeconds += TOWN_PULSE_SECONDS;
   }
  
-  // Always keep these in sync between pulses
   next.town.growthBonusPercent = getTownGrowthBonusPercent(next.town.people ?? 0);
  
   return next;
@@ -275,9 +452,16 @@ export function buildTownHome(state) {
   const next = deepCloneState(state);
   const cost = getTownHomeCost(next);
   if ((next.cash ?? 0) < cost) return state;
-  next.cash -= cost;
+  if (cost > 0) next.cash -= cost;
   next.town.homes = (next.town.homes ?? 0) + 1;
   next.town.capacity = getTownCapacity(next);
+  // First resident moves in immediately
+  const newPeople = Math.min(
+    next.town.capacity,
+    (next.town.people ?? 0) + TOWN_HOME_INSTANT_POPULATION
+  );
+  next.town.people = newPeople;
+  next.town.growthBonusPercent = getTownGrowthBonusPercent(newPeople);
   return next;
 }
  
@@ -286,9 +470,13 @@ function makeFreshTown() {
     unlocked: true,
     homes: 1,
     bakeryLevel: 0,
+    bakeryOn: false,
+    jamBuildingOwned: false,
+    sauceBuildingOwned: false,
     people: TOWN_STARTING_PEOPLE,
     capacity: TOWN_HOME_CAPACITY,
-    satisfaction: 1,
+    satisfaction: TOWN_SATISFACTION_DEFAULT,
+    satisfactionTarget: TOWN_SAT_WHEAT,
     growthBonusPercent: 0,
     breadNeeded: 0,
     rawBreadNeeded: 0,
@@ -612,6 +800,7 @@ export function tick(state) {
   let next = deepCloneState(state);
   const feast = next.feastBonusPercent ?? 0;
   const townBonus = next.town?.growthBonusPercent ?? 0;
+  const satMultiplier = getTownSatisfactionMultiplier(next);
  
   // ── Farms ──────────────────────────────────────────────────────────────────
   for (const farm of next.farms) {
@@ -629,7 +818,8 @@ export function tick(state) {
     for (const worker of farmWorkers) {
       const workerRef = next.workers.find((w) => w.id === worker.id);
       if (!workerRef) continue;
-      workerRef.cycleProgress += 1;
+      // Satisfaction advances cycle progress faster/slower
+      workerRef.cycleProgress += satMultiplier;
       const cycleSeconds = getEffectiveCycleSeconds(workerRef);
  
       if (workerRef.cycleProgress >= cycleSeconds) {
@@ -673,7 +863,8 @@ export function tick(state) {
   // ── Kitchen workers ────────────────────────────────────────────────────────
   for (const worker of next.kitchenWorkers ?? []) {
     if (!worker.busy || !worker.recipeId) continue;
-    worker.elapsedSeconds = (worker.elapsedSeconds ?? 0) + 1;
+    // Satisfaction advances elapsed seconds faster/slower
+    worker.elapsedSeconds = (worker.elapsedSeconds ?? 0) + satMultiplier;
     if (worker.elapsedSeconds >= worker.totalSeconds) {
       const recipe = PROCESSING_RECIPES[worker.recipeId];
       const batch = worker.batchSize ?? 1;
@@ -690,7 +881,8 @@ export function tick(state) {
  
   // ── Market workers ─────────────────────────────────────────────────────────
   for (const worker of next.marketWorkers ?? []) {
-    if (worker.hasStandingOrder && worker.standingOrder) {
+    // Standing order: only auto-pull when queue is empty
+    if (worker.hasStandingOrder && worker.standingOrder && (worker.queue ?? []).length === 0) {
       const itemType = worker.standingOrder;
       const ips = getMarketWorkerItemsPerSecond(worker);
       const isCrop = itemType in (next.crops ?? {});
@@ -702,19 +894,13 @@ export function tick(state) {
       if (toPull > 0) {
         if (isCrop) next.crops[itemType] -= toPull;
         else if (isArtisan) next.artisan[itemType] -= toPull;
-        const queue = worker.queue ?? [];
-        const last = queue[queue.length - 1];
-        if (last && last.itemType === itemType) {
-          last.quantity += toPull;
-        } else {
-          queue.push({ id: genId("sale"), itemType, quantity: toPull });
-          worker.queue = queue;
-        }
+        worker.queue = [{ id: genId("sale"), itemType, quantity: toPull }];
       }
     }
  
+    // Satisfaction scales effective items sold per tick
     const itemsPerSecond = getMarketWorkerItemsPerSecond(worker);
-    let toSellThisTick = itemsPerSecond;
+    let toSellThisTick = itemsPerSecond * satMultiplier;
     while (toSellThisTick > 0 && (worker.queue ?? []).length > 0) {
       const order = worker.queue[0];
       const toSell = Math.min(toSellThisTick, order.quantity);
@@ -1337,22 +1523,19 @@ export function deserializeState(raw) {
     delete parsed.marketQueue;
     delete parsed.marketUnlocked;
  
+    // Add hiredAt to existing workers that don't have it
     for (const worker of parsed.workers ?? []) {
       if (worker.cycleCount === undefined) worker.cycleCount = 0;
+      if (worker.hiredAt === undefined) worker.hiredAt = 0;
     }
     for (const worker of parsed.kitchenWorkers ?? []) {
       if (worker.batchSize === undefined) worker.batchSize = 1;
+      if (worker.hiredAt === undefined) worker.hiredAt = 0;
     }
-    for (const farm of parsed.farms ?? []) {
-      for (const plot of farm.plots ?? []) {
-        if (plot.upgraded === undefined) plot.upgraded = false;
-      }
-    }
- 
-    if (parsed.farmInvestments === undefined) parsed.farmInvestments = {};
     for (const worker of parsed.marketWorkers ?? []) {
       if (worker.hasStandingOrder === undefined) worker.hasStandingOrder = false;
       if (worker.standingOrder === undefined) worker.standingOrder = null;
+      if (worker.hiredAt === undefined) worker.hiredAt = 0;
     }
     if (parsed.yieldPool === undefined) parsed.yieldPool = 0;
     if (parsed.keptWorkers === undefined) parsed.keptWorkers = [];
@@ -1377,25 +1560,34 @@ export function deserializeState(raw) {
       );
     }
  
-    // Town migration — always unlocked now
+    // Town migration — always unlocked, satisfaction + buildings
     if (parsed.town === undefined) {
       parsed.town = makeFreshTown();
     } else {
       parsed.town.unlocked = true;
-      if (parsed.town.homes === undefined || parsed.town.homes === 0) parsed.town.homes = 1;
+      if (!parsed.town.homes || parsed.town.homes === 0) parsed.town.homes = 1;
       if (parsed.town.bakeryLevel === undefined) parsed.town.bakeryLevel = 0;
-      if (parsed.town.people === undefined) parsed.town.people = TOWN_STARTING_PEOPLE;
+      if (parsed.town.bakeryOn === undefined) parsed.town.bakeryOn = false;
+      if (parsed.town.jamBuildingOwned === undefined) parsed.town.jamBuildingOwned = false;
+      if (parsed.town.sauceBuildingOwned === undefined) parsed.town.sauceBuildingOwned = false;
+      if (parsed.town.people === undefined || parsed.town.people === 0) {
+        parsed.town.people = TOWN_STARTING_PEOPLE;
+      }
       if (parsed.town.capacity === undefined) parsed.town.capacity = TOWN_HOME_CAPACITY;
-      if (parsed.town.satisfaction === undefined) parsed.town.satisfaction = 1;
+      // Migrate old satisfaction (was 0-1 float) to new 0-150 int
+      if (parsed.town.satisfaction === undefined || parsed.town.satisfaction <= 1) {
+        parsed.town.satisfaction = TOWN_SATISFACTION_DEFAULT;
+      }
+      if (parsed.town.satisfactionTarget === undefined) {
+        parsed.town.satisfactionTarget = TOWN_SAT_WHEAT;
+      }
       if (parsed.town.growthBonusPercent === undefined) parsed.town.growthBonusPercent = 0;
       if (parsed.town.breadNeeded === undefined) parsed.town.breadNeeded = 0;
       if (parsed.town.rawBreadNeeded === undefined) parsed.town.rawBreadNeeded = 0;
       if (parsed.town.rawFoodNeeded === undefined) parsed.town.rawFoodNeeded = 0;
-      if (parsed.town.foodType === undefined) parsed.town.foodType = getTownFoodType(parsed);
+      parsed.town.foodType = parsed.town.bakeryOn ? "bread" : "wheat";
       if (parsed.town.pulseSeconds === undefined) parsed.town.pulseSeconds = TOWN_PULSE_SECONDS;
       if (parsed.town.starving === undefined) parsed.town.starving = false;
-      // Ensure minimum population for existing saves
-      if (parsed.town.people < TOWN_STARTING_PEOPLE) parsed.town.people = TOWN_STARTING_PEOPLE;
     }
  
     return parsed;

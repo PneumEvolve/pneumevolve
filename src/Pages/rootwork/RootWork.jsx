@@ -40,6 +40,9 @@ import {
   cancelKitchenWorkerRecipe,
   buildTownHome,
   buyTownBakery,
+  buyJamBuilding,
+  buySauceBuilding,
+  toggleBakery,
 
 } from "./gameEngine";
 import {
@@ -530,6 +533,28 @@ const handleBuyTownBakery = useCallback(() => {
   });
 }, [update, notify]);
 
+const handleToggleBakery = useCallback(() => {
+  update((s) => toggleBakery(s));
+}, [update]);
+ 
+const handleBuyJamBuilding = useCallback(() => {
+  update((s) => {
+    const n = buyJamBuilding(s);
+    if (n === s) notify("Not enough cash.");
+    return n;
+  });
+  notify("🍯 Pantry built! Satisfaction target increased.");
+}, [update, notify]);
+ 
+const handleBuySauceBuilding = useCallback(() => {
+  update((s) => {
+    const n = buySauceBuilding(s);
+    if (n === s) notify("Not enough cash.");
+    return n;
+  });
+  notify("🥫 Cannery built! Satisfaction target increased.");
+}, [update, notify]);
+
     // Feast / prestige / misc
   const handleBuyFeast = useCallback(() => {
     update((s) => {
@@ -704,6 +729,9 @@ const handleSetMarketWorkerStandingOrder = useCallback((workerId, itemType) => {
             game={game}
             onBuildHome={handleBuildTownHome}
             onBuyBakery={handleBuyTownBakery}
+            onToggleBakery={handleToggleBakery}
+    onBuyJamBuilding={handleBuyJamBuilding}
+    onBuySauceBuilding={handleBuySauceBuilding}
           />
         )}
 

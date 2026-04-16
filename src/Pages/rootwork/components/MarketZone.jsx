@@ -13,6 +13,8 @@ import {
   getMarketWorkerItemsPerSecond,
   getMarketWorkerQueueTotal,
   getAvailableWorkerSlots,
+  getSmartSellAmount,       
+  getTownFoodReserve,
 } from "../gameEngine";
 
 const SELLABLE_ITEMS = [
@@ -25,6 +27,39 @@ const SELLABLE_ITEMS = [
 ];
 
 const SELL_AMOUNTS = [1, 10, 50, 100, "All"];
+
+function SmartSellButton({ game, itemType, onAssign }) {
+  const smartQty = getSmartSellAmount(game, itemType);
+  const item = SELLABLE_ITEMS.find((i) => i.type === itemType);
+  const have = item
+    ? item.isCrop ? (game.crops[item.type] ?? 0) : (game.artisan[item.type] ?? 0)
+    : 0;
+  const reserve = have - smartQty;
+  const bakeryOn = game.town?.bakeryOn === true && (game.town?.bakeryLevel ?? 0) >= 1;
+  const foodItem = bakeryOn ? "bread" : "wheat";
+  const isFood = itemType === foodItem;
+  const label = isFood && reserve > 0 ? `Smart (keep ${reserve})` : "Smart (all)";
+
+  return (
+    <button
+      onClick={() => smartQty > 0 && onAssign(smartQty)}
+      disabled={smartQty <= 0}
+      style={{
+        fontSize: "0.7rem",
+        padding: "0.25rem 0.5rem",
+        borderRadius: "6px",
+        cursor: smartQty <= 0 ? "default" : "pointer",
+        background: "rgba(99,102,241,0.12)",
+        color: smartQty <= 0 ? "var(--border)" : "var(--accent)",
+        border: `1px solid ${smartQty <= 0 ? "var(--border)" : "var(--accent)"}`,
+        opacity: smartQty <= 0 ? 0.4 : 1,
+        fontWeight: 600,
+      }}
+    >
+      {label}
+    </button>
+  );
+}
 
 function MarketWorkerCard({
   worker,
@@ -328,45 +363,53 @@ function MarketWorkerCard({
             </div>
 
             {selectedItem && (
-              <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", alignItems: "center" }}>
-                {SELL_AMOUNTS.map((amt) => {
-                  const item = SELLABLE_ITEMS.find((i) => i.type === selectedItem);
-                  const have = item
-                    ? item.isCrop
-                      ? (game.crops[item.type] ?? 0)
-                      : (game.artisan[item.type] ?? 0)
-                    : 0;
-                  const qty = amt === "All" ? have : amt;
-                  const disabled = have < qty || qty <= 0;
-                  return (
-                    <button
-                      key={amt}
-                      onClick={() => setSelectedAmount(amt)}
-                      disabled={disabled}
-                      style={{
-                        fontSize: "0.7rem",
-                        padding: "0.25rem 0.5rem",
-                        borderRadius: "6px",
-                        cursor: disabled ? "default" : "pointer",
-                        background: selectedAmount === amt ? "var(--accent)" : "var(--bg)",
-                        color: selectedAmount === amt ? "#fff" : disabled ? "var(--border)" : "var(--text)",
-                        border: `1px solid ${selectedAmount === amt ? "var(--accent)" : "var(--border)"}`,
-                        opacity: disabled ? 0.4 : 1,
-                      }}
-                    >
-                      {amt === "All" ? `All (${have})` : `×${amt}`}
-                    </button>
-                  );
-                })}
-                <button
-                  onClick={handleAssign}
-                  className="btn"
-                  style={{ fontSize: "0.7rem", padding: "0.25rem 0.75rem", marginLeft: "auto" }}
-                >
-                  Assign →
-                </button>
-              </div>
-            )}
+  <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", alignItems: "center" }}>
+    {SELL_AMOUNTS.map((amt) => {
+      const item = SELLABLE_ITEMS.find((i) => i.type === selectedItem);
+      const have = item
+        ? item.isCrop ? (game.crops[item.type] ?? 0) : (game.artisan[item.type] ?? 0)
+        : 0;
+      const qty = amt === "All" ? have : amt;
+      const disabled = have < qty || qty <= 0;
+      return (
+        <button
+          key={amt}
+          onClick={() => setSelectedAmount(amt)}
+          disabled={disabled}
+          style={{
+            fontSize: "0.7rem",
+            padding: "0.25rem 0.5rem",
+            borderRadius: "6px",
+            cursor: disabled ? "default" : "pointer",
+            background: selectedAmount === amt ? "var(--accent)" : "var(--bg)",
+            color: selectedAmount === amt ? "#fff" : disabled ? "var(--border)" : "var(--text)",
+            border: `1px solid ${selectedAmount === amt ? "var(--accent)" : "var(--border)"}`,
+            opacity: disabled ? 0.4 : 1,
+          }}
+        >
+          {amt === "All" ? `All (${have})` : `×${amt}`}
+        </button>
+      );
+    })}
+
+    <SmartSellButton
+      game={game}
+      itemType={selectedItem}
+      onAssign={(qty) => {
+        onAssign(worker.id, selectedItem, qty);
+        setSelectedItem(null);
+      }}
+    />
+
+    <button
+      onClick={handleAssign}
+      className="btn"
+      style={{ fontSize: "0.7rem", padding: "0.25rem 0.75rem", marginLeft: "auto" }}
+    >
+      Assign →
+    </button>
+  </div>
+)}
           </div>
 
           <div

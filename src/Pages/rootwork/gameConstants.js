@@ -412,27 +412,54 @@ export function getFarmUnlockCost(extraFarmIndex) {
 export const EXTRA_FARM_CROPS = ["wheat", "berries", "tomatoes"];
  
 // ─── Town ─────────────────────────────────────────────────────────────────────
-// Town is always active from game start — no cash gate
-export const TOWN_STARTING_PEOPLE = 3;
+// Town is always active from game start — no cash gate.
+// First home is pre-built and free. Second home costs TOWN_HOME_SECOND_COST,
+// then scales by TOWN_HOME_COST_MULTIPLIER from there.
+export const TOWN_STARTING_PEOPLE = 1;   // first home gives 1 person immediately
 export const TOWN_HOME_CAPACITY = 4;
-export const TOWN_HOME_BASE_COST = 50;
+export const TOWN_HOME_SECOND_COST = 50; // cost of the 2nd home (first is free)
 export const TOWN_HOME_COST_MULTIPLIER = 1.6;
  
 // Bakery
-export const TOWN_BAKERY_BASE_COST = 1_500;
-export const TOWN_BAKERY_COST_MULTIPLIER = 2;
+export const TOWN_BAKERY_BASE_COST = 800;
+export const TOWN_BAKERY_COST_MULTIPLIER = 1.5;
+ 
+// Buildings
+export const TOWN_JAM_BUILDING_COST = 2_000;
+export const TOWN_SAUCE_BUILDING_COST = 4_000;
  
 // Pulse system
 export const TOWN_PULSE_SECONDS = 30;
-export const TOWN_PEOPLE_PER_BREAD = 2;
  
-// Before any bakery is bought (bakeryLevel === 0), town eats raw wheat instead of bread.
-// Amount: same ratio as bread — 1 wheat per TOWN_PEOPLE_PER_WHEAT people.
-export const TOWN_PEOPLE_PER_WHEAT = 2;
+// Food demand per pulse:
+//   Wheat mode (bakeryOn === false):
+//     total wheat = (people × TOWN_WHEAT_PER_PERSON) + (workers × TOWN_WHEAT_PER_WORKER)
+//   Bread mode (bakeryOn === true, bakeryLevel >= 1):
+//     total bread = ceil((people + workers) / TOWN_BREAD_FEEDS)
+export const TOWN_WHEAT_PER_PERSON = 1;
+export const TOWN_WHEAT_PER_WORKER = 2;
+export const TOWN_BREAD_FEEDS = 10;
  
 // Population changes by whole people each pulse
 export const TOWN_GROWTH_PER_PULSE = 1;
 export const TOWN_DECLINE_PER_PULSE = 1;
+ 
+// Buying a home immediately adds this many people (first resident moves in)
+export const TOWN_HOME_INSTANT_POPULATION = 1;
+ 
+// Satisfaction system
+export const TOWN_SATISFACTION_DEFAULT = 100
+export const TOWN_SATISFACTION_FLOOR = 25
+export const TOWN_SATISFACTION_CEILING = 150
+export const TOWN_SATISFACTION_STEP = 5        // % moved toward target per pulse when fed
+export const TOWN_SATISFACTION_STARVE_STEP = 10 // % dropped per pulse when starving
+ 
+// Satisfaction targets by food/building state
+export const TOWN_SAT_WHEAT = 100
+export const TOWN_SAT_BAKERY = 110
+export const TOWN_SAT_BAKERY_JAM = 125
+export const TOWN_SAT_BAKERY_SAUCE = 140
+export const TOWN_SAT_ALL_BUILDINGS = 150
  
 // Bonus: +1% grow speed per 5 people
 export const TOWN_PEOPLE_PER_GROWTH_BONUS = 5;

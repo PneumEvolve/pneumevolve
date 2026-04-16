@@ -16,8 +16,15 @@ export default function ResourceBar({ game }) {
   const starving = game.town?.starving === true;
   const people = Math.floor(game.town?.people ?? 0);
   const growthBonusPercent = game.town?.growthBonusPercent ?? 0;
+  const satisfaction = game.town?.satisfaction ?? 100;
   const totalWorkers = getTotalWorkersHired(game);
   const atCap = people > 0 && totalWorkers >= people;
+ 
+  const satColor = satisfaction >= 110 ? "#4ade80"
+    : satisfaction >= 100 ? "#a3e635"
+    : satisfaction >= 75 ? "#f59e0b"
+    : "#ef4444";
+  const satEmoji = satisfaction >= 110 ? "😄" : satisfaction >= 100 ? "😊" : satisfaction >= 75 ? "😐" : "😟";
  
   return (
     <div style={{
@@ -85,23 +92,25 @@ export default function ResourceBar({ game }) {
           <span>${Math.floor(cash)}</span>
         </div>
  
-        {/* Town status — always shown since town is always active */}
+        {/* Town status — always shown */}
         <div style={{
-          display: "flex", alignItems: "center", gap: "0.3rem",
+          display: "flex", alignItems: "center", gap: "0.4rem",
           fontSize: "0.7rem", fontWeight: 600,
-          color: starving ? "#ef4444" : atCap ? "#f59e0b" : "#4ade80",
           whiteSpace: "nowrap",
         }}>
-          <span>👥</span>
-          <span>
-            {totalWorkers}/{people}
-            {growthBonusPercent > 0 && (
-              <span style={{ marginLeft: "0.25rem", color: "#4ade80" }}>
-                +{growthBonusPercent}%
-              </span>
-            )}
-            {starving && <span style={{ marginLeft: "0.25rem" }}>😟</span>}
+          <span style={{ color: atCap ? "#f59e0b" : starving ? "#ef4444" : "var(--muted)" }}>
+            👥 {totalWorkers}/{people}
           </span>
+          <span style={{ color: "var(--border)" }}>·</span>
+          <span style={{ color: satColor }}>
+            {satEmoji} {satisfaction}%
+          </span>
+          {growthBonusPercent > 0 && (
+            <>
+              <span style={{ color: "var(--border)" }}>·</span>
+              <span style={{ color: "#4ade80" }}>+{growthBonusPercent}%</span>
+            </>
+          )}
         </div>
  
         <div style={{
