@@ -3,7 +3,7 @@
 import React from "react";
 import { CROPS, SEASON_FARMS, FIRST_EXTRA_FARM_SEASON } from "../gameConstants";
 import {
-  getWorkerHarvestRate, getEffectiveGrowTime, getStatPerMinute,
+  getWorkerHarvestRate, getFarmAverageGrowTime, getStatPerMinute,
   getTreasuryGrowBonus, getBankPriceBonus, getSellRate,
 } from "../gameEngine";
  
@@ -23,8 +23,8 @@ function FarmStatsCard({ farm, game }) {
   const crop = CROPS[farm.crop];
   const farmWorkers = game.workers.filter((w) => w.farmId === farm.id);
  
-  const growTime = getEffectiveGrowTime(
-    farm, game.workers, farm.crop, null,
+  const growTime = getFarmAverageGrowTime(
+    farm, game.workers, farm.crop,
     game.feastBonusPercent ?? 0,
     game.town?.growthBonusPercent ?? 0,
     getTreasuryGrowBonus(game)
@@ -32,6 +32,7 @@ function FarmStatsCard({ farm, game }) {
   const demandRate = farm.unlockedPlots / growTime;
   const supplyRate = farmWorkers.reduce((sum, w) => sum + getWorkerHarvestRate(w), 0);
   const covered = supplyRate >= demandRate;
+  const efficiency = demandRate > 0 ? Math.min(100, Math.round((supplyRate / demandRate) * 100)) : 0;
  
   const perMinActual = getStatPerMinute(game.stats?.farmCrops?.[farm.id]);
  
@@ -45,7 +46,7 @@ function FarmStatsCard({ farm, game }) {
           border: `1px solid ${covered ? "#4ade80" : "#f59e0b"}`,
           color: covered ? "#166534" : "#92400e",
         }}>
-          {covered ? "\u2713 Keeping up" : "Falling behind"}
+          {efficiency}% covered
         </span>
       </div>
  

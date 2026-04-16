@@ -205,8 +205,8 @@ export function isFarmPrestigeReady(farm, workers, state) {
   const farmWorkers = workers.filter((w) => w.farmId === farm.id);
   if (farmWorkers.length === 0) return false;
  
-  const growTime = getEffectiveGrowTime(
-    farm, workers, farm.crop, null,
+  const growTime = getFarmAverageGrowTime(
+    farm, workers, farm.crop,
     state.feastBonusPercent ?? 0,
     state.town?.growthBonusPercent ?? 0,
     getTreasuryGrowBonus(state)
@@ -1661,4 +1661,25 @@ export function deserializeState(raw) {
  
 function deepCloneState(state) {
   return JSON.parse(JSON.stringify(state));
+}
+ 
+/**
+ * Returns the demand-side grow time for rate calculations, weighted by
+ * how many plots are upgraded. Use this for supply/demand coverage % — 
+ * it reflects the actual average time a plot takes to grow.
+ */
+export function getFarmAverageGrowTime(farm, workers, cropId, feastBonusPercent = 0, townGrowthBonusPercent = 0, treasuryGrowBonus = 0) {
+  const upgradedCount = farm.plots.filter((p) => p.upgraded).length;
+  const totalPlots = farm.unlockedPlots;
+  if (upgradedCount === 0) {
+    return getEffectiveGrowTime(farm, workers, cropId, null, feastBonusPercent, townGrowthBonusPercent, treasuryGrowBonus);
+  }
+  if (upgradedCount === totalPlots) {
+    return getEffectiveGrowTime(farm, workers, cropId, { upgraded: true }, feastBonusPercent, townGrowthBonusPercent, treasuryGrowBonus);
+  }
+  const plainTime = getEffectiveGrowTime(farm, workers, cropId, null, feastBonusPercent, townGrowthBonusPercent, treasuryGrowBonus);
+  const upgradedTime = getEffectiveGrowTime(farm, workers, cropId, { upgraded: true }, feastBonusPercent, townGrowthBonusPercent, treasuryGrowBonus);
+  const plainFraction = (totalPlots - upgradedCount) / totalPlots;
+  const upgradedFraction = upgradedCount / totalPlots;
+  return Math.max(3, Math.round(plainTime * plainFraction + upgradedTime * upgradedFraction));
 }
