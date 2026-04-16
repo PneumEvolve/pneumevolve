@@ -1,11 +1,12 @@
 // src/Pages/rootwork/components/FarmZone.jsx
-
+ 
 import React, { useState } from "react";
 import { CROPS } from "../gameConstants";
 import {
   getPlotUnlockCost,
   getWorkerHireCost,
   isFarmAutomated,
+  isFarmPrestigeReady,
   getFarmMaxPlots,
   getAvailableWorkerSlots,
 } from "../gameEngine";
@@ -13,10 +14,10 @@ import FarmGrid from "./FarmGrid";
 import WorkerPanel from "./WorkerPanel";
 import UpgradePanel from "./UpgradePanel";
 import FarmInvestmentPanel from "./FarmInvestmentPanel";
-
+ 
 function Section({ title, defaultOpen = true, children }) {
   const [open, setOpen] = useState(defaultOpen);
-
+ 
   return (
     <div
       style={{
@@ -49,7 +50,7 @@ function Section({ title, defaultOpen = true, children }) {
     </div>
   );
 }
-
+ 
 function StatCell({ value, label, color = "var(--text)" }) {
   return (
     <span
@@ -72,7 +73,7 @@ function StatCell({ value, label, color = "var(--text)" }) {
     </span>
   );
 }
-
+ 
 export default function FarmZone({
   farm,
   game,
@@ -89,8 +90,11 @@ export default function FarmZone({
   onUpgradePlot,
 }) {
   const [tendMode, setTendMode] = useState(false);
-
+ 
   const crop = CROPS[farm.crop];
+  // isFarmPrestigeReady = the real "farm is keeping up" check used by Season/Stats panels
+  const prestigeReady = isFarmPrestigeReady(farm, game.workers, game);
+  // isFarmAutomated is the legacy gear-count check — still used by FarmSubTabs badge
   const automated = isFarmAutomated(farm, game.workers);
   const farmWorkers = game.workers.filter((w) => w.farmId === farm.id);
   const readyCount = farm.plots.filter((p) => p.state === "ready").length;
@@ -98,9 +102,9 @@ export default function FarmZone({
   const emptyCount = farm.plots.filter((p) => p.state === "empty").length;
   const maxPlots = getFarmMaxPlots(game, farm.id);
   const atMax = farm.unlockedPlots >= maxPlots;
-
+ 
   const showWorkerHint = farmWorkers.length === 0;
-
+ 
   const automatedBg = "rgba(74, 222, 128, 0.15)";
   const automatedBorder = "#4ade80";
   const automatedColor = "#166534";
@@ -111,7 +115,7 @@ export default function FarmZone({
   const tendActiveBorder = "#a3e635";
   const tendActiveColor = "#365314";
   const tendHintBg = "rgba(163, 230, 53, 0.12)";
-
+ 
   return (
     <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 4rem" }}>
       <div
@@ -143,29 +147,29 @@ export default function FarmZone({
           >
             {farm.unlockedPlots} plot{farm.unlockedPlots !== 1 ? "s" : ""} ·{" "}
             {farmWorkers.length} worker{farmWorkers.length !== 1 ? "s" : ""}
-            {automated && (
+            {prestigeReady && (
               <span style={{ marginLeft: "0.5rem", color: "#4ade80", fontWeight: 600 }}>
-                · Automated ✓
+                · Prestige ready ✓
               </span>
             )}
           </p>
         </div>
-
+ 
         <div
           style={{
             fontSize: "0.7rem",
             fontWeight: 600,
             padding: "0.25rem 0.65rem",
             borderRadius: "999px",
-            background: automated ? automatedBg : manualBg,
-            border: `1px solid ${automated ? automatedBorder : manualBorder}`,
-            color: automated ? automatedColor : manualColor,
+            background: prestigeReady ? automatedBg : manualBg,
+            border: `1px solid ${prestigeReady ? automatedBorder : manualBorder}`,
+            color: prestigeReady ? automatedColor : manualColor,
           }}
         >
-          {automated ? "Running" : "Manual"}
+          {prestigeReady ? "Prestige ready" : "Manual"}
         </div>
       </div>
-
+ 
       {showWorkerHint && (
         <div
           style={{
@@ -186,7 +190,7 @@ export default function FarmZone({
           <span>Hire a worker below to harvest automatically — no more tapping every plot!</span>
         </div>
       )}
-
+ 
       <div
         className="card p-3"
         style={{
@@ -225,7 +229,7 @@ export default function FarmZone({
             </strong>{" "}
             {crop.emoji}
           </span>
-
+ 
           <div style={{ display: "flex", justifyContent: "center" }}>
             <button
               onClick={() => setTendMode((v) => !v)}
@@ -246,12 +250,12 @@ export default function FarmZone({
             </button>
           </div>
         </div>
-
+ 
         <div style={{ display: "flex", gap: "0.5rem" }}>
           {(() => {
             const plotCost = getPlotUnlockCost(game, farm.id, farm.unlockedPlots);
             const canBuy = plotCost !== null && (game.crops[farm.crop] ?? 0) >= plotCost;
-
+ 
             return (
               <button
                 onClick={() => onBuyPlot(farm.id)}
@@ -275,45 +279,44 @@ export default function FarmZone({
               </button>
             );
           })()}
-
-          {(() => {
-  const atCap = getAvailableWorkerSlots(game) <= 0;
-  const hireCost = getWorkerHireCost(game, farm.id);
-  const hasHeadStart = game.prestigeBonuses.includes("head_start");
-  const isFirst = farmWorkers.length === 0;
-  const effectiveCost = hasHeadStart && isFirst ? 0 : hireCost;
-  const canAffordCrops = (game.crops[farm.crop] ?? 0) >= effectiveCost;
-  const canHire = !atCap && canAffordCrops;
  
-  return (
-    <button
-      onClick={() => onHireWorker(farm.id)}
-      disabled={!canHire}
-      style={{
-        flex: 1,
-        fontSize: "0.72rem",
-        padding: "0.35rem 0.5rem",
-        borderRadius: "8px",
-        cursor: canHire ? "pointer" : "default",
-        background: canHire ? "var(--accent)" : "var(--bg)",
-        color: canHire ? "#fff" : "var(--border)",
-        border: `1px solid ${canHire ? "var(--accent)" : "var(--border)"}`,
-        fontWeight: 600,
-        transition: "all 0.15s",
-      }}
-    >
-      {atCap
-        ? "👥 Town full"
-        : hasHeadStart && isFirst
-          ? "👷 Hire Worker (Free!)"
-          : `👷 Hire Worker (${effectiveCost} ${crop.emoji})`
-      }
-    </button>
-  );
-})()}
+          {(() => {
+            const atCap = getAvailableWorkerSlots(game) <= 0;
+            const hireCost = getWorkerHireCost(game, farm.id);
+            const hasHeadStart = game.prestigeBonuses.includes("head_start");
+            const isFirst = farmWorkers.length === 0;
+            const effectiveCost = hasHeadStart && isFirst ? 0 : hireCost;
+            const canAffordCrops = (game.crops[farm.crop] ?? 0) >= effectiveCost;
+            const canHire = !atCap && canAffordCrops;
+ 
+            return (
+              <button
+                onClick={() => onHireWorker(farm.id)}
+                disabled={!canHire}
+                style={{
+                  flex: 1,
+                  fontSize: "0.72rem",
+                  padding: "0.35rem 0.5rem",
+                  borderRadius: "8px",
+                  cursor: canHire ? "pointer" : "default",
+                  background: canHire ? "var(--accent)" : "var(--bg)",
+                  color: canHire ? "#fff" : "var(--border)",
+                  border: `1px solid ${canHire ? "var(--accent)" : "var(--border)"}`,
+                  fontWeight: 600,
+                  transition: "all 0.15s",
+                }}
+              >
+                {atCap
+                  ? "👥 Town full"
+                  : hasHeadStart && isFirst
+                    ? "👷 Hire Worker (Free!)"
+                    : `👷 Hire Worker (${effectiveCost} ${crop.emoji})`}
+              </button>
+            );
+          })()}
         </div>
       </div>
-
+ 
       {tendMode && (
         <div
           style={{
@@ -330,7 +333,7 @@ export default function FarmZone({
           Tap a growing plot to tend it (-3s grow time). Tap Tend again to stop.
         </div>
       )}
-
+ 
       <Section title="🌱 Plots" defaultOpen>
         <div style={{ paddingTop: "0.5rem" }}>
           <FarmGrid
@@ -357,7 +360,7 @@ export default function FarmZone({
           )}
         </div>
       </Section>
-
+ 
       <Section title="👷 Workers" defaultOpen={true}>
         <div style={{ paddingTop: "0.5rem" }}>
           <WorkerPanel
@@ -370,13 +373,13 @@ export default function FarmZone({
           />
         </div>
       </Section>
-
+ 
       <Section title="🟫 Buy Plots" defaultOpen={false}>
         <div style={{ paddingTop: "0.5rem" }}>
           <UpgradePanel farm={farm} game={game} onBuyPlot={onBuyPlot} />
         </div>
       </Section>
-
+ 
       <Section title="💰 Farm Investments" defaultOpen={false}>
         <div style={{ paddingTop: "0.5rem" }}>
           <FarmInvestmentPanel

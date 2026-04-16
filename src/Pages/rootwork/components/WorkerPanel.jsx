@@ -1,5 +1,5 @@
 // src/Pages/rootwork/components/WorkerPanel.jsx
-
+ 
 import React, { useState } from "react";
 import {
   CROPS,
@@ -13,63 +13,64 @@ import {
   getEffectiveCycleSeconds,
   needsSpecialization,
   getWorkerHireCost,
+  getAvailableWorkerSlots,
 } from "../gameEngine";
-
+ 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
+ 
 function getEffectivePlots(worker) {
   const gear = GEAR[worker.gear];
   if (worker.specialization === "sprinter") return gear.plotsPerCycle * 2;
   return gear.plotsPerCycle;
 }
-
+ 
 function statLine(worker) {
   const cycleSeconds = getEffectiveCycleSeconds(worker);
   const plots = getEffectivePlots(worker);
   const spec = worker.specialization;
-
+ 
   const harvestLine = `Harvests & replants ${plots} plot${plots > 1 ? "s" : ""} every ${cycleSeconds}s`;
   const extras = [];
-
+ 
   if (spec === "grower") extras.push("🌱 -20% grow time on this farm");
   if (spec === "sprinter") extras.push("💨 rests every 3rd cycle");
   if (spec === "harvester") extras.push("⚡ 25% faster cycle");
-
+ 
   return { harvestLine, extras };
 }
-
+ 
 function previewStatLine(worker, nextGearId) {
   const previewWorker = { ...worker, gear: nextGearId };
   const cycleSeconds = getEffectiveCycleSeconds(previewWorker);
   const plots = getEffectivePlots(previewWorker);
   return `${plots} plot${plots > 1 ? "s" : ""} every ${cycleSeconds}s`;
 }
-
+ 
 // ─── Worker card ──────────────────────────────────────────────────────────────
-
+ 
 function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWorker }) {
   const [showSpecChoices, setShowSpecChoices] = useState(false);
   const [confirmSell, setConfirmSell] = useState(false);
-
+ 
   const gear = GEAR[worker.gear];
   const nextGearId = getNextGear(worker.gear);
   const nextGear = nextGearId ? GEAR[nextGearId] : null;
   const farmCrop = CROPS[farm.crop];
-
+ 
   const mustSpecialize = needsSpecialization(worker);
   const canAffordSpec = (game.cash ?? 0) >= SPECIALIZE_COST;
-
+ 
   const upgradeCost = nextGear?.upgradeCost ?? 0;
   const canUpgrade = !mustSpecialize && nextGear && (game.cash ?? 0) >= upgradeCost;
-
+ 
   const workersOnFarm = game.workers.filter((w) => w.farmId === farm.id).length;
   const prevCount = Math.max(0, workersOnFarm - 1);
   const hireCostWhenBought = Math.round((10 * Math.pow(1.5, prevCount)) / 5) * 5;
   const sellRefund = Math.floor(hireCostWhenBought * 0.5);
-
+ 
   return (
     <div className="card p-4 space-y-3" style={{ fontSize: "0.85rem" }}>
-
+ 
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ fontWeight: 600 }}>👷 Worker</div>
@@ -85,7 +86,7 @@ function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWor
           )}
         </div>
       </div>
-
+ 
       {/* Stats */}
       {(() => {
         const { harvestLine, extras } = statLine(worker);
@@ -102,7 +103,7 @@ function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWor
           </div>
         );
       })()}
-
+ 
       {/* Upgrade path */}
       {mustSpecialize ? (
         <div>
@@ -164,7 +165,7 @@ function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWor
           🚜 Max gear reached
         </div>
       )}
-
+ 
       {/* Sell */}
       {!confirmSell ? (
         <button
@@ -195,9 +196,9 @@ function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWor
     </div>
   );
 }
-
+ 
 // ─── Main panel ───────────────────────────────────────────────────────────────
-
+ 
 export default function WorkerPanel({
   farm, game,
   onHireWorker, onUpgradeGear, onSpecialize, onSellWorker,
@@ -205,12 +206,19 @@ export default function WorkerPanel({
   const farmWorkers = game.workers.filter((w) => w.farmId === farm.id);
   const farmCrop = CROPS[farm.crop];
   const nextHireCost = getWorkerHireCost(game, farm.id);
-  const canAffordHire = (game.crops[farm.crop] ?? 0) >= nextHireCost;
+  const canAffordCrops = (game.crops[farm.crop] ?? 0) >= nextHireCost;
   const hasHeadStart = game.prestigeBonuses.includes("head_start");
   const isFirstWorker = farmWorkers.length === 0;
   const hireCost = hasHeadStart && isFirstWorker ? 0 : nextHireCost;
-  const canHire = hasHeadStart && isFirstWorker ? true : canAffordHire;
-
+  const atCap = getAvailableWorkerSlots(game) <= 0;
+  const canHire = !atCap && (hasHeadStart && isFirstWorker ? true : canAffordCrops);
+ 
+  const hireLabel = () => {
+    if (atCap) return "👥 Town full";
+    if (hasHeadStart && isFirstWorker) return "🙋 Hire (Free!)";
+    return `🙋 Hire (${hireCost} ${farmCrop.emoji} ${farmCrop.name})`;
+  };
+ 
   return (
     <div className="space-y-3">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -219,20 +227,18 @@ export default function WorkerPanel({
           onClick={() => onHireWorker(farm.id)}
           disabled={!canHire}
           className="btn"
-          style={{ fontSize: "0.75rem", padding: "0.4rem 0.9rem" }}
+          style={{ fontSize: "0.75rem", padding: "0.4rem 0.9rem", opacity: canHire ? 1 : 0.5 }}
         >
-          {hasHeadStart && isFirstWorker
-            ? "🙋 Hire (Free!)"
-            : `🙋 Hire (${hireCost} ${farmCrop.emoji} ${farmCrop.name})`}
+          {hireLabel()}
         </button>
       </div>
-
+ 
       {farmWorkers.length === 0 && (
         <p style={{ fontSize: "0.8rem", color: "var(--muted)", fontStyle: "italic" }}>
           No workers yet. Hire one to start automating this farm.
         </p>
       )}
-
+ 
       {farmWorkers.length > 0 && (
         <div className="space-y-3">
           {farmWorkers.map((worker) => (

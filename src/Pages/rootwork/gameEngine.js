@@ -1,73 +1,37 @@
 // src/Pages/rootwork/gameEngine.js
  
 import {
-  CROPS,
-  GEAR,
-  GEAR_ORDER,
-  PLOT_BASE_COST,
-  PLOT_COST_MULTIPLIER,
-  MAX_PLOTS,
-  WORKER_HIRE_BASE_COST,
-  WORKER_HIRE_MULTIPLIER,
-  SPECIALIZATIONS,
-  SEASON_FARMS,
-  FIRST_EXTRA_FARM_SEASON,
-  AUTOMATION_THRESHOLD,
-  MIN_PLOTS_FOR_AUTOMATION,
-  MAX_OFFLINE_SECONDS,
-  PROCESSING_RECIPES,
-  GEAR_CROP_COSTS,
-  TEND_SECONDS,
-  SPECIALIZE_COST,
-  SPECIALIZE_CROP,
-  PLOT_UPGRADE_COST,
-  PLOT_UPGRADE_GROW_MULTIPLIER,
-  CROP_ARTISAN,
-  FEAST_TIERS,
-  FEAST_MAX_BONUS,
-  MARKET_SELL_RATES,
-  MARKET_WORKER_HIRE_COST,
-  MARKET_WORKER_HIRE_MULTIPLIER,
-  MARKET_WORKER_GEAR,
-  MARKET_WORKER_GEAR_ORDER,
-  KITCHEN_WORKER_HIRE_COST,
-  KITCHEN_WORKER_HIRE_MULTIPLIER,
-  KITCHEN_WORKER_UPGRADES,
-  KITCHEN_WORKER_UPGRADE_ORDER,
-  getPrestigeCashThreshold,
-  getFarmUnlockCost,
-  EXTRA_FARM_CROPS,
-  FARM_INVESTMENT_PLOT_CAP,
-  FARM_INVESTMENT_YIELD,
+  CROPS, GEAR, GEAR_ORDER,
+  PLOT_BASE_COST, PLOT_COST_MULTIPLIER, MAX_PLOTS,
+  WORKER_HIRE_BASE_COST, WORKER_HIRE_MULTIPLIER,
+  SPECIALIZATIONS, SEASON_FARMS, FIRST_EXTRA_FARM_SEASON,
+  AUTOMATION_THRESHOLD, MIN_PLOTS_FOR_AUTOMATION, PRESTIGE_MIN_PLOTS,
+  MAX_OFFLINE_SECONDS, PROCESSING_RECIPES, TEND_SECONDS,
+  SPECIALIZE_COST, PLOT_UPGRADE_GROW_MULTIPLIER, CROP_ARTISAN,
+  FEAST_TIERS, FEAST_MAX_BONUS, MARKET_SELL_RATES,
+  MARKET_WORKER_HIRE_COST, MARKET_WORKER_HIRE_MULTIPLIER,
+  MARKET_WORKER_GEAR, MARKET_WORKER_GEAR_ORDER,
+  KITCHEN_WORKER_HIRE_COST, KITCHEN_WORKER_HIRE_MULTIPLIER,
+  KITCHEN_WORKER_UPGRADES, KITCHEN_WORKER_UPGRADE_ORDER,
+  getPrestigeCashThreshold, getFarmUnlockCost, EXTRA_FARM_CROPS,
+  FARM_INVESTMENT_PLOT_CAP, FARM_INVESTMENT_YIELD,
   MARKET_WORKER_STANDING_ORDER_COST,
-  TOWN_HOME_CAPACITY,
-  TOWN_HOME_SECOND_COST,
-  TOWN_HOME_COST_MULTIPLIER,
-  TOWN_BAKERY_BASE_COST,
-  TOWN_BAKERY_COST_MULTIPLIER,
-  TOWN_JAM_BUILDING_COST,
-  TOWN_SAUCE_BUILDING_COST,
-  TOWN_PULSE_SECONDS,
-  TOWN_WHEAT_PER_PERSON,
-  TOWN_WHEAT_PER_WORKER,
-  TOWN_BREAD_FEEDS,
-  TOWN_GROWTH_PER_PULSE,
-  TOWN_DECLINE_PER_PULSE,
+  TOWN_HOME_CAPACITY, TOWN_HOME_SECOND_COST, TOWN_HOME_COST_MULTIPLIER,
+  TOWN_BAKERY_BASE_COST, TOWN_BAKERY_COST_MULTIPLIER,
+  TOWN_JAM_BUILDING_COST, TOWN_SAUCE_BUILDING_COST,
+  TOWN_PULSE_SECONDS, TOWN_WHEAT_PER_PERSON, TOWN_WHEAT_PER_WORKER,
+  TOWN_BREAD_FEEDS, TOWN_GROWTH_PER_PULSE, TOWN_DECLINE_PER_PULSE,
   TOWN_HOME_INSTANT_POPULATION,
-  TOWN_SATISFACTION_DEFAULT,
-  TOWN_SATISFACTION_FLOOR,
-  TOWN_SATISFACTION_CEILING,
-  TOWN_SATISFACTION_STEP,
-  TOWN_SATISFACTION_STARVE_STEP,
-  TOWN_SAT_WHEAT,
-  TOWN_SAT_BAKERY,
-  TOWN_SAT_BAKERY_JAM,
-  TOWN_SAT_BAKERY_SAUCE,
-  TOWN_SAT_ALL_BUILDINGS,
-  TOWN_PEOPLE_PER_GROWTH_BONUS,
-  TOWN_GROWTH_BONUS_PER_STEP,
-  TOWN_MAX_GROWTH_BONUS_PERCENT,
-  TOWN_STARTING_PEOPLE,
+  TOWN_SATISFACTION_DEFAULT, TOWN_SATISFACTION_FLOOR,
+  TOWN_SATISFACTION_STEP, TOWN_SATISFACTION_STARVE_STEP,
+  TOWN_SAT_WHEAT, TOWN_SAT_BAKERY, TOWN_SAT_BAKERY_JAM,
+  TOWN_SAT_BAKERY_SAUCE, TOWN_SAT_ALL_BUILDINGS,
+  TOWN_PEOPLE_PER_GROWTH_BONUS, TOWN_GROWTH_BONUS_PER_STEP,
+  TOWN_MAX_GROWTH_BONUS_PERCENT, TOWN_STARTING_PEOPLE,
+  TOWN_HALL_MAX_LEVEL, TOWN_HALL_LEVEL_COSTS,
+  TREASURY_TIERS, BUILDING_WORKERS_DIVISOR, BUILDING_PULSE_EXTRA_SECONDS,
+  BUILDING_UPGRADE_COST, BANK_BUILD_COST, BANK_LEVEL_COSTS,
+  BANK_TIERS, BANK_MAX_LEVEL, GEAR_CROP_COSTS,
 } from "./gameConstants";
  
 let _idCounter = 0;
@@ -77,7 +41,6 @@ function genId(prefix = "id") {
  
 // ─── Population helpers ───────────────────────────────────────────────────────
  
-/** Total workers currently placed across all three systems. */
 export function getTotalWorkersHired(state) {
   return (
     (state.workers ?? []).length +
@@ -86,530 +49,178 @@ export function getTotalWorkersHired(state) {
   );
 }
  
-/** How many worker slots are available given current population. */
 export function getAvailableWorkerSlots(state) {
-  const pop = Math.floor(state.town?.people ?? 0);
-  return Math.max(0, pop - getTotalWorkersHired(state));
+  return Math.max(0, Math.floor(state.town?.people ?? 0) - getTotalWorkersHired(state));
 }
  
-/** Whether a new hire would exceed the population cap. */
 export function isAtWorkerCap(state) {
   return getAvailableWorkerSlots(state) <= 0;
 }
  
-// ─── Factories ────────────────────────────────────────────────────────────────
+// ─── Treasury helpers ─────────────────────────────────────────────────────────
  
-export function makePlot(id, halfGrown = false, growTime = 15) {
-  return {
-    id: id ?? genId("plot"),
-    state: halfGrown ? "planted" : "empty",
-    growthTick: halfGrown ? Math.floor(growTime / 2) : 0,
-    upgraded: false,
-  };
+export function getTreasuryBalance(state) {
+  return state.town?.treasuryBalance ?? 0;
 }
  
-export function makeFarm(cropId, isFirst = false) {
-  const crop = CROPS[cropId];
-  return {
-    id: genId("farm"),
-    crop: cropId,
-    plots: [makePlot(undefined, isFirst, crop?.growTime ?? 15)],
-    unlockedPlots: 1,
-  };
+export function getActiveTreasuryTier(state) {
+  const tierNum = state.town?.treasuryActiveTier ?? 0;
+  if (!tierNum) return null;
+  return TREASURY_TIERS.find((t) => t.tier === tierNum) ?? null;
 }
  
-export function makeFarmWorker(farmId, startWithGloves = false) {
-  return {
-    id: genId("worker"),
-    farmId,
-    gear: startWithGloves ? "gloves" : "bare_hands",
-    specialization: "none",
-    cycleProgress: 0,
-    cycleCount: 0,
-    hiredAt: Date.now(),
-  };
+export function getTownHallLevel(state) {
+  return state.town?.townHallLevel ?? 0;
 }
  
-export function makeMarketWorker() {
-  return {
-    id: genId("mworker"),
-    gear: "cart",
-    queue: [],
-    standingOrder: null,
-    hasStandingOrder: false,
-    hiredAt: Date.now(),
-  };
+export function getMaxTreasuryTier(state) {
+  return getTownHallLevel(state);
 }
  
-export function buyMarketWorkerStandingOrder(state, workerId) {
+export function setTreasuryTier(state, tier) {
+  // tier = 0 means off, 1/2/3 activates that tier if <= townHallLevel
   const next = deepCloneState(state);
-  const worker = (next.marketWorkers ?? []).find((w) => w.id === workerId);
-  if (!worker) return state;
-  if (worker.hasStandingOrder) return state;
-  if ((next.cash ?? 0) < MARKET_WORKER_STANDING_ORDER_COST) return state;
-  next.cash -= MARKET_WORKER_STANDING_ORDER_COST;
-  worker.hasStandingOrder = true;
+  const maxTier = getMaxTreasuryTier(next);
+  if (tier > maxTier) return state;
+  next.town.treasuryActiveTier = tier;
   return next;
 }
  
-export function setMarketWorkerStandingOrder(state, workerId, itemType) {
+export function upgradeTownHall(state) {
   const next = deepCloneState(state);
-  const worker = (next.marketWorkers ?? []).find((w) => w.id === workerId);
-  if (!worker || !worker.hasStandingOrder) return state;
-  worker.standingOrder = itemType;
-  return next;
-}
- 
-export function makeKitchenWorker() {
-  return {
-    id: genId("kworker"),
-    upgrades: [],
-    recipeId: null,
-    elapsedSeconds: 0,
-    totalSeconds: 0,
-    batchSize: 1,
-    busy: false,
-    hiredAt: Date.now(),
-  };
-}
- 
-export function getTownHomeCost(state) {
-  const homes = state.town?.homes ?? 0;
-  if (homes === 0) return 0; // first home is always free
-  // homes=1 → $50, homes=2 → $80, etc.
-  const raw = TOWN_HOME_SECOND_COST * Math.pow(TOWN_HOME_COST_MULTIPLIER, homes - 1);
-  return Math.round(raw / 5) * 5;
-}
- 
-export function getTownBakeryCost(state) {
-  const bakeryLevel = state.town?.bakeryLevel ?? 0;
-  const raw = TOWN_BAKERY_BASE_COST * Math.pow(TOWN_BAKERY_COST_MULTIPLIER, bakeryLevel);
-  return Math.round(raw / 50) * 50;
-}
- 
-export function buyTownBakery(state) {
-  const next = deepCloneState(state);
-  const cost = getTownBakeryCost(next);
+  const currentLevel = getTownHallLevel(next);
+  if (currentLevel >= TOWN_HALL_MAX_LEVEL) return state;
+  const cost = TOWN_HALL_LEVEL_COSTS[currentLevel];
   if ((next.cash ?? 0) < cost) return state;
   next.cash -= cost;
-  next.town.bakeryLevel = (next.town.bakeryLevel ?? 0) + 1;
+  next.town.townHallLevel = currentLevel + 1;
   return next;
 }
  
-export function getTownCapacity(state) {
-  const homes = state.town?.homes ?? 0;
-  return homes * TOWN_HOME_CAPACITY;
+// ─── Bank helpers ─────────────────────────────────────────────────────────────
+ 
+export function getBankLevel(state) {
+  return state.town?.bankLevel ?? 0;
 }
  
-export function getTownGrowthBonusPercent(people) {
-  const steps = Math.floor(Math.max(0, people) / TOWN_PEOPLE_PER_GROWTH_BONUS);
-  return Math.min(TOWN_MAX_GROWTH_BONUS_PERCENT, steps * TOWN_GROWTH_BONUS_PER_STEP);
+export function isBankBuilt(state) {
+  return (state.town?.bankBuilt === true);
 }
  
-/** Returns the satisfaction % the town is targeting given current state. */
-export function getSatisfactionTarget(state) {
+export function canBuildBank(state) {
   const town = state.town ?? {};
-  if (town.starving) return TOWN_SATISFACTION_FLOOR;
-  const bakeryOn = town.bakeryOn === true && (town.bakeryLevel ?? 0) >= 1;
-  if (!bakeryOn) return TOWN_SAT_WHEAT;
-  const hasJam = town.jamBuildingOwned === true;
-  const hasSauce = town.sauceBuildingOwned === true;
-  if (hasJam && hasSauce) return TOWN_SAT_ALL_BUILDINGS;
-  if (hasSauce) return TOWN_SAT_BAKERY_SAUCE;
-  if (hasJam) return TOWN_SAT_BAKERY_JAM;
-  return TOWN_SAT_BAKERY;
-}
- 
-/** Returns satisfaction as a 0-N multiplier for use in tick calculations. */
-export function getTownSatisfactionMultiplier(state) {
-  const sat = state.town?.satisfaction ?? TOWN_SATISFACTION_DEFAULT;
-  return sat / 100;
-}
- 
-/** Returns the amount of wheat or bread to reserve for the next town pulse. */
-export function getTownFoodReserve(state) {
-  const bakeryOn = state.town?.bakeryOn === true && (state.town?.bakeryLevel ?? 0) >= 1;
-  const people = Math.floor(state.town?.people ?? 0);
-  const totalWorkers = getTotalWorkersHired(state);
-  if (bakeryOn) {
-    return Math.max(1, Math.ceil((people + totalWorkers) / TOWN_BREAD_FEEDS));
-  }
-  return (people * TOWN_WHEAT_PER_PERSON) + (totalWorkers * TOWN_WHEAT_PER_WORKER);
-}
- 
-/**
- * Returns how many of a given item type can be sold while keeping
- * enough in reserve for the next town food pulse.
- * Only applies to wheat (wheat mode) and bread (bread mode).
- * For all other items returns the full available amount.
- */
-export function getSmartSellAmount(state, itemType) {
-  const bakeryOn = state.town?.bakeryOn === true && (state.town?.bakeryLevel ?? 0) >= 1;
-  const foodItem = bakeryOn ? "bread" : "wheat";
- 
-  if (itemType !== foodItem) {
-    // Not the active food — sell everything
-    const isCrop = itemType in (state.crops ?? {});
-    return isCrop
-      ? Math.floor(state.crops[itemType] ?? 0)
-      : Math.floor(state.artisan[itemType] ?? 0);
-  }
- 
-  const reserve = getTownFoodReserve(state);
-  const have = itemType in (state.crops ?? {})
-    ? Math.floor(state.crops[itemType] ?? 0)
-    : Math.floor(state.artisan[itemType] ?? 0);
- 
-  return Math.max(0, have - reserve);
-}
- 
-export function toggleBakery(state) {
-  const next = deepCloneState(state);
-  if ((next.town?.bakeryLevel ?? 0) < 1) return state;
-  next.town.bakeryOn = !(next.town.bakeryOn ?? false);
-  return next;
-}
- 
-export function buyJamBuilding(state) {
-  const next = deepCloneState(state);
-  if ((next.town?.bakeryLevel ?? 0) < 1) return state; // requires bakery
-  if (next.town.jamBuildingOwned) return state;
-  if ((next.cash ?? 0) < TOWN_JAM_BUILDING_COST) return state;
-  next.cash -= TOWN_JAM_BUILDING_COST;
-  next.town.jamBuildingOwned = true;
-  return next;
-}
- 
-export function buySauceBuilding(state) {
-  const next = deepCloneState(state);
-  if (!next.town?.jamBuildingOwned) return state; // requires jam building
-  if (next.town.sauceBuildingOwned) return state;
-  if ((next.cash ?? 0) < TOWN_SAUCE_BUILDING_COST) return state;
-  next.cash -= TOWN_SAUCE_BUILDING_COST;
-  next.town.sauceBuildingOwned = true;
-  return next;
-}
- 
-/** Returns 'wheat' if bakeryLevel === 0, 'bread' otherwise. */
-export function getTownFoodType(state) {
-  return (state.town?.bakeryLevel ?? 0) === 0 ? "wheat" : "bread";
-}
- 
-/**
- * Fires the most recently hired worker across all three systems.
- * Used when population drops below total workers due to starvation.
- * Refunds queued market items. Refunds 50% of kitchen recipe input.
- */
-function fireLastHiredWorker(state) {
-  // Gather all workers with their type and hiredAt
-  const candidates = [
-    ...(state.workers ?? []).map((w) => ({ id: w.id, type: "farm", hiredAt: w.hiredAt ?? 0 })),
-    ...(state.kitchenWorkers ?? []).map((w) => ({ id: w.id, type: "kitchen", hiredAt: w.hiredAt ?? 0 })),
-    ...(state.marketWorkers ?? []).map((w) => ({ id: w.id, type: "market", hiredAt: w.hiredAt ?? 0 })),
-  ];
-  if (candidates.length === 0) return state;
- 
-  // Fire the most recently hired
-  candidates.sort((a, b) => b.hiredAt - a.hiredAt);
-  const toFire = candidates[0];
- 
-  if (toFire.type === "farm") {
-    const worker = state.workers.find((w) => w.id === toFire.id);
-    if (worker) {
-      const farm = state.farms.find((f) => f.id === worker.farmId);
-      if (farm) {
-        // 50% crop refund
-        const workersOnFarm = state.workers.filter((w) => w.farmId === worker.farmId).length;
-        const previousCount = Math.max(0, workersOnFarm - 1);
-        const hireCost = Math.round((WORKER_HIRE_BASE_COST * Math.pow(WORKER_HIRE_MULTIPLIER, previousCount)) / 5) * 5;
-        state.crops[farm.crop] = (state.crops[farm.crop] ?? 0) + Math.floor(hireCost * 0.5);
-      }
-      state.workers = state.workers.filter((w) => w.id !== toFire.id);
-    }
-  } else if (toFire.type === "kitchen") {
-    const worker = state.kitchenWorkers.find((w) => w.id === toFire.id);
-    if (worker?.busy && worker.recipeId) {
-      const recipe = PROCESSING_RECIPES[worker.recipeId];
-      if (recipe?.inputCrop) {
-        state.crops[recipe.inputCrop] = (state.crops[recipe.inputCrop] ?? 0) +
-          Math.floor(recipe.inputAmount * (worker.batchSize ?? 1) * 0.5);
-      }
-    }
-    state.kitchenWorkers = state.kitchenWorkers.filter((w) => w.id !== toFire.id);
-  } else if (toFire.type === "market") {
-    const worker = state.marketWorkers.find((w) => w.id === toFire.id);
-    if (worker) {
-      for (const order of worker.queue ?? []) {
-        if (order.itemType in (state.crops ?? {})) {
-          state.crops[order.itemType] = (state.crops[order.itemType] ?? 0) + order.quantity;
-        } else if (order.itemType in (state.artisan ?? {})) {
-          state.artisan[order.itemType] = (state.artisan[order.itemType] ?? 0) + order.quantity;
-        }
-      }
-    }
-    state.marketWorkers = state.marketWorkers.filter((w) => w.id !== toFire.id);
-  }
- 
-  return state;
-}
- 
-export function updateTown(state, seconds = 1) {
-  let next = deepCloneState(state);
- 
-  if (!next.town) {
-    next.town = makeFreshTown();
-  }
- 
-  next.town.unlocked = true;
-  next.town.capacity = getTownCapacity(next);
- 
-  if (next.town.pulseSeconds == null) {
-    next.town.pulseSeconds = TOWN_PULSE_SECONDS;
-  }
- 
-  next.town.pulseSeconds -= seconds;
- 
-  while (next.town.pulseSeconds <= 0) {
-    const people = Math.floor(Math.max(0, next.town.people ?? 0));
-    const capacity = getTownCapacity(next);
-    const totalWorkers = getTotalWorkersHired(next);
-    const bakeryOn = next.town.bakeryOn === true && (next.town.bakeryLevel ?? 0) >= 1;
-    const foodType = bakeryOn ? "bread" : "wheat";
- 
-    // Food demand
-    let foodNeeded = 0;
-    if (people > 0 || totalWorkers > 0) {
-      if (foodType === "wheat") {
-        foodNeeded = (people * TOWN_WHEAT_PER_PERSON) + (totalWorkers * TOWN_WHEAT_PER_WORKER);
-      } else {
-        foodNeeded = Math.max(1, Math.ceil((people + totalWorkers) / TOWN_BREAD_FEEDS));
-      }
-    }
- 
-    const foodHave = foodType === "wheat"
-      ? Math.floor(next.crops?.wheat ?? 0)
-      : Math.floor(next.artisan?.bread ?? 0);
- 
-    const fed = foodHave >= foodNeeded;
- 
-    if (fed) {
-      if (foodNeeded > 0) {
-        if (foodType === "wheat") {
-          next.crops.wheat = (next.crops.wheat ?? 0) - foodNeeded;
-        } else {
-          next.artisan.bread = (next.artisan.bread ?? 0) - foodNeeded;
-        }
-      }
-      if (people < capacity) {
-        next.town.people = Math.min(capacity, people + TOWN_GROWTH_PER_PULSE);
-      } else {
-        next.town.people = people;
-      }
-      next.town.starving = false;
-    } else {
-      const newPeople = Math.max(0, people - TOWN_DECLINE_PER_PULSE);
-      next.town.people = newPeople;
-      next.town.starving = true;
- 
-      const newTotalWorkers = getTotalWorkersHired(next);
-      if (newTotalWorkers > newPeople) {
-        next = fireLastHiredWorker(next);
-      }
-    }
- 
-    // Satisfaction movement
-    next.town.satisfactionTarget = getSatisfactionTarget(next);
-    const currentSat = next.town.satisfaction ?? TOWN_SATISFACTION_DEFAULT;
-    const target = next.town.satisfactionTarget;
- 
-    let newSat;
-    if (next.town.starving) {
-      newSat = Math.max(TOWN_SATISFACTION_FLOOR, currentSat - TOWN_SATISFACTION_STARVE_STEP);
-    } else if (currentSat < target) {
-      newSat = Math.min(target, currentSat + TOWN_SATISFACTION_STEP);
-    } else if (currentSat > target) {
-      newSat = Math.max(target, currentSat - TOWN_SATISFACTION_STEP);
-    } else {
-      newSat = currentSat;
-    }
-    next.town.satisfaction = newSat;
- 
-    next.town.rawFoodNeeded = foodNeeded;
-    next.town.breadNeeded = foodNeeded;
-    next.town.rawBreadNeeded = foodNeeded;
-    next.town.foodType = foodType;
-    next.town.capacity = capacity;
-    next.town.growthBonusPercent = getTownGrowthBonusPercent(next.town.people ?? 0);
-    next.town.pulseSeconds += TOWN_PULSE_SECONDS;
-  }
- 
-  next.town.growthBonusPercent = getTownGrowthBonusPercent(next.town.people ?? 0);
- 
-  return next;
-}
- 
-export function buildTownHome(state) {
-  const next = deepCloneState(state);
-  const cost = getTownHomeCost(next);
-  if ((next.cash ?? 0) < cost) return state;
-  if (cost > 0) next.cash -= cost;
-  next.town.homes = (next.town.homes ?? 0) + 1;
-  next.town.capacity = getTownCapacity(next);
-  // First resident moves in immediately
-  const newPeople = Math.min(
-    next.town.capacity,
-    (next.town.people ?? 0) + TOWN_HOME_INSTANT_POPULATION
+  return (
+    getTownHallLevel(state) >= TOWN_HALL_MAX_LEVEL &&
+    town.bakeryLevel >= 1 &&
+    town.jamBuildingOwned === true &&
+    town.sauceBuildingOwned === true &&
+    !town.bankBuilt &&
+    (town.treasuryBalance ?? 0) >= BANK_BUILD_COST
   );
-  next.town.people = newPeople;
-  next.town.growthBonusPercent = getTownGrowthBonusPercent(newPeople);
+}
+ 
+export function buildBank(state) {
+  if (!canBuildBank(state)) return state;
+  const next = deepCloneState(state);
+  next.town.treasuryBalance -= BANK_BUILD_COST;
+  next.town.bankBuilt = true;
+  next.town.bankLevel = 0;
+  next.town.bankActiveTier = 0;
   return next;
 }
  
-function makeFreshTown() {
-  return {
-    unlocked: true,
-    homes: 1,
-    bakeryLevel: 0,
-    bakeryOn: false,
-    jamBuildingOwned: false,
-    sauceBuildingOwned: false,
-    people: TOWN_STARTING_PEOPLE,
-    capacity: TOWN_HOME_CAPACITY,
-    satisfaction: TOWN_SATISFACTION_DEFAULT,
-    satisfactionTarget: TOWN_SAT_WHEAT,
-    growthBonusPercent: 0,
-    breadNeeded: 0,
-    rawBreadNeeded: 0,
-    rawFoodNeeded: 0,
-    foodType: "wheat",
-    pulseSeconds: TOWN_PULSE_SECONDS,
-    starving: false,
-  };
+export function upgradeBank(state) {
+  const next = deepCloneState(state);
+  const level = getBankLevel(next);
+  if (!next.town.bankBuilt) return state;
+  if (level >= BANK_MAX_LEVEL) return state;
+  const cost = BANK_LEVEL_COSTS[level];
+  if ((next.town.treasuryBalance ?? 0) < cost) return state;
+  next.town.treasuryBalance -= cost;
+  next.town.bankLevel = level + 1;
+  return next;
 }
  
-// ─── Initial state ────────────────────────────────────────────────────────────
- 
-export function createInitialState() {
-  const firstFarm = makeFarm("wheat", true);
-  return {
-    season: 1,
-    prestigeBonuses: [],
-    keptWorkers: [],
-    yieldPool: 0,
-    feastBonusPercent: 0,
-    feastTierIndex: 0,
-    farms: [firstFarm],
-    workers: [],
-    crops: { wheat: 0, berries: 0, tomatoes: 0 },
-    artisan: { bread: 0, jam: 0, sauce: 0 },
-    kitchenWorkers: [],
-    marketWorkers: [],
-    cash: 0,
-    lifetimeCash: 0,
-    farmInvestments: {},
-    extraFarmsUnlocked: 0,
-    pendingFarmUnlock: false,
-    lastSavedTime: Date.now(),
-    totalPlayTime: 0,
-    pendingWorkerAssignments: false,
-    town: makeFreshTown(),
-  };
+export function getActiveBankTier(state) {
+  const tierNum = state.town?.bankActiveTier ?? 0;
+  if (!tierNum) return null;
+  return BANK_TIERS.find((t) => t.tier === tierNum) ?? null;
 }
  
-// ─── Farm helpers ─────────────────────────────────────────────────────────────
- 
-export function getFarmCrop(farm) { return CROPS[farm.crop]; }
- 
-export function getNextGear(currentGear) {
-  const idx = GEAR_ORDER.indexOf(currentGear);
-  if (idx === -1 || idx === GEAR_ORDER.length - 1) return null;
-  return GEAR_ORDER[idx + 1];
+export function setActiveBankTier(state, tier) {
+  const next = deepCloneState(state);
+  const maxTier = getBankLevel(next);
+  if (tier > maxTier) return state;
+  next.town.bankActiveTier = tier;
+  return next;
 }
  
-export function getPlotUnlockCost(state, farmId, currentPlotCount) {
-  const maxPlots = getFarmMaxPlots(state, farmId);
-  if (currentPlotCount >= maxPlots) return null;
-  const purchaseIndex = currentPlotCount - 1;
-  const raw = PLOT_BASE_COST * Math.pow(PLOT_COST_MULTIPLIER, purchaseIndex);
-  return Math.max(5, Math.round(raw / 5) * 5);
+// ─── Grow speed bonus (Treasury) ──────────────────────────────────────────────
+ 
+export function getTreasuryGrowBonus(state) {
+  const tier = getActiveTreasuryTier(state);
+  return tier ? tier.growBonus : 0;
 }
  
+// ─── Sell price bonus (Bank) ──────────────────────────────────────────────────
+ 
+export function getBankPriceBonus(state) {
+  const tier = getActiveBankTier(state);
+  return tier ? tier.priceBonus : 0;
+}
+ 
+// ─── Automation check (gear-aware, per farm) ──────────────────────────────────
+ 
+/**
+ * Returns the effective harvest rate (plots/sec) for a single worker,
+ * accounting for gear and specialization including sprinter rest cycles.
+ */
+export function getWorkerHarvestRate(worker) {
+  const gear = GEAR[worker.gear];
+  let plotsPerCycle = gear.plotsPerCycle;
+  let cycleSeconds = gear.cycleSeconds;
+ 
+  if (worker.specialization === "harvester") {
+    cycleSeconds = Math.max(1, Math.floor(cycleSeconds * SPECIALIZATIONS.harvester.cycleMultiplier));
+  }
+ 
+  if (worker.specialization === "sprinter") {
+    // 2x plots but rests every 3rd cycle → effective multiplier = (2+2+0)/3 = 1.333...
+    const restEvery = SPECIALIZATIONS.sprinter.restEvery;
+    const activeRatio = (restEvery - 1) / restEvery;
+    plotsPerCycle = plotsPerCycle * SPECIALIZATIONS.sprinter.plotsMultiplier * activeRatio;
+  }
+ 
+  return plotsPerCycle / cycleSeconds;
+}
+ 
+/**
+ * A farm is prestige-ready when:
+ * 1. unlockedPlots >= PRESTIGE_MIN_PLOTS (3×3 = 9)
+ * 2. Total worker harvest rate >= plots needed per second (unlockedPlots / growTime)
+ */
+export function isFarmPrestigeReady(farm, workers, state) {
+  if (farm.unlockedPlots < PRESTIGE_MIN_PLOTS) return false;
+ 
+  const farmWorkers = workers.filter((w) => w.farmId === farm.id);
+  if (farmWorkers.length === 0) return false;
+ 
+  const growTime = getEffectiveGrowTime(
+    farm, workers, farm.crop, null,
+    state.feastBonusPercent ?? 0,
+    state.town?.growthBonusPercent ?? 0
+  );
+ 
+  const demandRate = farm.unlockedPlots / growTime;
+  const supplyRate = farmWorkers.reduce((sum, w) => sum + getWorkerHarvestRate(w), 0);
+ 
+  return supplyRate >= demandRate;
+}
+ 
+/** Legacy helper used in FarmSubTabs — kept for non-prestige UI indicators */
 export function isFarmAutomated(farm, workers) {
   const workerCount = workers.filter((w) => w.farmId === farm.id).length;
   return workerCount >= AUTOMATION_THRESHOLD && farm.unlockedPlots >= MIN_PLOTS_FOR_AUTOMATION;
-}
- 
-export function getAvailableFarms(season) {
-  return SEASON_FARMS[Math.min(season, 3)] ?? SEASON_FARMS[3];
-}
- 
-export function needsSpecialization(worker) {
-  return worker.gear === "hoe" && worker.specialization === "none";
-}
- 
-export function getWorkerHireCost(state, farmId) {
-  const workersOnFarm = state.workers.filter((w) => w.farmId === farmId).length;
-  const raw = WORKER_HIRE_BASE_COST * Math.pow(WORKER_HIRE_MULTIPLIER, workersOnFarm);
-  return Math.round(raw / 5) * 5;
-}
- 
-export function getEffectiveCycleSeconds(worker) {
-  const gear = GEAR[worker.gear];
-  let seconds = gear.cycleSeconds;
-  if (worker.specialization === "harvester") {
-    seconds = Math.max(1, Math.floor(seconds * SPECIALIZATIONS.harvester.cycleMultiplier));
-  }
-  return seconds;
-}
- 
-export function getEffectivePlotsPerCycle(worker) {
-  const gear = GEAR[worker.gear];
-  if (worker.specialization === "sprinter") {
-    return gear.plotsPerCycle * SPECIALIZATIONS.sprinter.plotsMultiplier;
-  }
-  return gear.plotsPerCycle;
-}
- 
-export function isSprinterResting(worker) {
-  if (worker.specialization !== "sprinter") return false;
-  return (worker.cycleCount ?? 0) % SPECIALIZATIONS.sprinter.restEvery === SPECIALIZATIONS.sprinter.restEvery - 1;
-}
- 
-export function getEffectiveGrowTime(
-  farm,
-  workers,
-  cropId,
-  plot = null,
-  feastBonusPercent = 0,
-  townGrowthBonusPercent = 0
-) {
-  const crop = CROPS[cropId];
-  let time = crop.growTime;
-  const growers = workers.filter((w) => w.farmId === farm.id && w.specialization === "grower");
-  for (let i = 0; i < growers.length; i++) {
-    time = Math.floor(time * SPECIALIZATIONS.grower.growMultiplier);
-  }
-  if (plot?.upgraded) {
-    time = Math.floor(time * PLOT_UPGRADE_GROW_MULTIPLIER);
-  }
-  if (feastBonusPercent > 0) {
-    const speedMultiplier = 1 + feastBonusPercent / 100;
-    time = Math.floor(time / speedMultiplier);
-  }
-  if (townGrowthBonusPercent > 0) {
-    const speedMultiplier = 1 + townGrowthBonusPercent / 100;
-    time = Math.floor(time / speedMultiplier);
-  }
-  return Math.max(3, time);
-}
- 
-export function getFarmGrowTime(farm, workers, cropId, feastBonusPercent = 0, townGrowthBonusPercent = 0) {
-  return getEffectiveGrowTime(farm, workers, cropId, null, feastBonusPercent, townGrowthBonusPercent);
-}
- 
-export function getNextFeastTier(state) {
-  const idx = state.feastTierIndex ?? 0;
-  return FEAST_TIERS[idx] ?? null;
 }
  
 // ─── Farm investment helpers ──────────────────────────────────────────────────
@@ -640,13 +251,220 @@ export function getNextYieldUpgrade(state, farmId) {
   return FARM_INVESTMENT_YIELD[inv.yieldIndex] ?? null;
 }
  
+// ─── Town helpers ─────────────────────────────────────────────────────────────
+ 
+export function getTownHomeCost(state) {
+  const homes = state.town?.homes ?? 0;
+  if (homes === 0) return 0;
+  const raw = TOWN_HOME_SECOND_COST * Math.pow(TOWN_HOME_COST_MULTIPLIER, homes - 1);
+  return Math.round(raw / 5) * 5;
+}
+ 
+export function getTownBakeryCost(state) {
+  const bakeryLevel = state.town?.bakeryLevel ?? 0;
+  const raw = TOWN_BAKERY_BASE_COST * Math.pow(TOWN_BAKERY_COST_MULTIPLIER, bakeryLevel);
+  return Math.round(raw / 50) * 50;
+}
+ 
+export function getTownCapacity(state) {
+  return (state.town?.homes ?? 0) * TOWN_HOME_CAPACITY;
+}
+ 
+export function getTownGrowthBonusPercent(people) {
+  const steps = Math.floor(Math.max(0, people) / TOWN_PEOPLE_PER_GROWTH_BONUS);
+  return Math.min(TOWN_MAX_GROWTH_BONUS_PERCENT, steps * TOWN_GROWTH_BONUS_PER_STEP);
+}
+ 
+export function getSatisfactionTarget(state) {
+  const town = state.town ?? {};
+  if (town.starving) return TOWN_SATISFACTION_FLOOR;
+  const bakeryOn = town.bakeryOn === true && (town.bakeryLevel ?? 0) >= 1;
+  if (!bakeryOn) return TOWN_SAT_WHEAT;
+  const pantryOn = town.pantryOn === true && town.jamBuildingOwned === true;
+  const canneryOn = town.canneryOn === true && town.sauceBuildingOwned === true;
+  if (pantryOn && canneryOn) return TOWN_SAT_ALL_BUILDINGS;
+  if (canneryOn) return TOWN_SAT_BAKERY_SAUCE;
+  if (pantryOn) return TOWN_SAT_BAKERY_JAM;
+  return TOWN_SAT_BAKERY;
+}
+ 
+export function getTownSatisfactionMultiplier(state) {
+  return (state.town?.satisfaction ?? TOWN_SATISFACTION_DEFAULT) / 100;
+}
+ 
+export function getTownFoodReserve(state) {
+  const bakeryOn = state.town?.bakeryOn === true && (state.town?.bakeryLevel ?? 0) >= 1;
+  const people = Math.floor(state.town?.people ?? 0);
+  const totalWorkers = getTotalWorkersHired(state);
+  if (bakeryOn) return Math.max(1, Math.ceil((people + totalWorkers) / TOWN_BREAD_FEEDS));
+  return (people * TOWN_WHEAT_PER_PERSON) + (totalWorkers * TOWN_WHEAT_PER_WORKER);
+}
+ 
+export function getSmartSellAmount(state, itemType) {
+  const bakeryOn = state.town?.bakeryOn === true && (state.town?.bakeryLevel ?? 0) >= 1;
+  const foodItem = bakeryOn ? "bread" : "wheat";
+  if (itemType !== foodItem) {
+    const isCrop = itemType in (state.crops ?? {});
+    return isCrop ? Math.floor(state.crops[itemType] ?? 0) : Math.floor(state.artisan[itemType] ?? 0);
+  }
+  const reserve = getTownFoodReserve(state);
+  const have = itemType in (state.crops ?? {})
+    ? Math.floor(state.crops[itemType] ?? 0)
+    : Math.floor(state.artisan[itemType] ?? 0);
+  return Math.max(0, have - reserve);
+}
+ 
+export function getTownFoodType(state) {
+  return (state.town?.bakeryLevel ?? 0) === 0 ? "wheat" : "bread";
+}
+ 
+export function getEffectivePulseSeconds(state) {
+  const town = state.town ?? {};
+  let extra = 0;
+  if (town.bakeryOn === true && (town.bakeryLevel ?? 0) >= 1) extra += BUILDING_PULSE_EXTRA_SECONDS;
+  if (town.pantryOn === true && town.jamBuildingOwned === true) extra += BUILDING_PULSE_EXTRA_SECONDS;
+  if (town.canneryOn === true && town.sauceBuildingOwned === true) extra += BUILDING_PULSE_EXTRA_SECONDS;
+  return TOWN_PULSE_SECONDS + extra;
+}
+ 
+export function getBuildingEffectivePulseCost(state, buildingKey) {
+  const totalWorkers = getTotalWorkersHired(state);
+  const base = Math.max(1, Math.ceil(totalWorkers / BUILDING_WORKERS_DIVISOR));
+  const upgradeLevel = state.town?.[buildingKey + "UpgradeLevel"] ?? 0;
+  return Math.max(1, base - upgradeLevel);
+}
+ 
+export function getBuildingUpgradeLevel(state, buildingKey) {
+  return state.town?.[buildingKey + "UpgradeLevel"] ?? 0;
+}
+ 
+export function canUpgradeBuilding(state, buildingKey) {
+  const thLevel = getTownHallLevel(state);
+  const town = state.town ?? {};
+  if (buildingKey === "bakery" && (town.bakeryLevel ?? 0) < 1) return false;
+  if (buildingKey === "pantry" && !town.jamBuildingOwned) return false;
+  if (buildingKey === "cannery" && !town.sauceBuildingOwned) return false;
+  const upgradeLevel = getBuildingUpgradeLevel(state, buildingKey);
+  if (upgradeLevel >= thLevel) return false;
+  if ((getTreasuryBalance(state)) < BUILDING_UPGRADE_COST) return false;
+  return true;
+}
+ 
+export function upgradeTownBuilding(state, buildingKey) {
+  if (!canUpgradeBuilding(state, buildingKey)) return state;
+  const next = deepCloneState(state);
+  next.town.treasuryBalance = (next.town.treasuryBalance ?? 0) - BUILDING_UPGRADE_COST;
+  const key = buildingKey + "UpgradeLevel";
+  next.town[key] = (next.town[key] ?? 0) + 1;
+  return next;
+}
+ 
+// ─── Town purchase actions (all from treasury) ────────────────────────────────
+ 
+export function buildTownHome(state) {
+  const next = deepCloneState(state);
+  const cost = getTownHomeCost(next);
+  if ((next.town.treasuryBalance ?? 0) < cost) return state;
+  if (cost > 0) next.town.treasuryBalance -= cost;
+  next.town.homes = (next.town.homes ?? 0) + 1;
+  next.town.capacity = getTownCapacity(next);
+  const newPeople = Math.min(next.town.capacity, (next.town.people ?? 0) + TOWN_HOME_INSTANT_POPULATION);
+  next.town.people = newPeople;
+  next.town.growthBonusPercent = getTownGrowthBonusPercent(newPeople);
+  return next;
+}
+ 
+export function buyTownBakery(state) {
+  const next = deepCloneState(state);
+  if (getTownHallLevel(next) < 1) return state;
+  const cost = getTownBakeryCost(next);
+  if ((next.town.treasuryBalance ?? 0) < cost) return state;
+  next.town.treasuryBalance -= cost;
+  next.town.bakeryLevel = (next.town.bakeryLevel ?? 0) + 1;
+  return next;
+}
+ 
+export function buyJamBuilding(state) {
+  const next = deepCloneState(state);
+  if (getTownHallLevel(next) < 2) return state;
+  if (next.town.jamBuildingOwned) return state;
+  if ((next.town.treasuryBalance ?? 0) < TOWN_JAM_BUILDING_COST) return state;
+  next.town.treasuryBalance -= TOWN_JAM_BUILDING_COST;
+  next.town.jamBuildingOwned = true;
+  return next;
+}
+ 
+export function buySauceBuilding(state) {
+  const next = deepCloneState(state);
+  if (getTownHallLevel(next) < 3) return state;
+  if (!next.town?.jamBuildingOwned) return state;
+  if (next.town.sauceBuildingOwned) return state;
+  if ((next.town.treasuryBalance ?? 0) < TOWN_SAUCE_BUILDING_COST) return state;
+  next.town.treasuryBalance -= TOWN_SAUCE_BUILDING_COST;
+  next.town.sauceBuildingOwned = true;
+  return next;
+}
+ 
+export function toggleBakery(state) {
+  const next = deepCloneState(state);
+  if ((next.town?.bakeryLevel ?? 0) < 1) return state;
+  if (getTownHallLevel(next) < 1) return state;
+  next.town.bakeryOn = !(next.town.bakeryOn ?? false);
+  return next;
+}
+ 
+export function togglePantry(state) {
+  const next = deepCloneState(state);
+  if (!next.town?.jamBuildingOwned) return state;
+  if (getTownHallLevel(next) < 2) return state;
+  next.town.pantryOn = !(next.town.pantryOn ?? false);
+  return next;
+}
+ 
+export function toggleCannery(state) {
+  const next = deepCloneState(state);
+  if (!next.town?.sauceBuildingOwned) return state;
+  if (getTownHallLevel(next) < 3) return state;
+  next.town.canneryOn = !(next.town.canneryOn ?? false);
+  return next;
+}
+ 
+// ─── Stats tracking helpers ───────────────────────────────────────────────────
+ 
+const STATS_WINDOW = 60; // seconds rolling window
+ 
+function initStatsBuffer() {
+  return { ticks: [], sum: 0 };
+}
+ 
+function pushStat(buffer, value, now) {
+  if (!buffer) buffer = initStatsBuffer();
+  const ticks = buffer.ticks ?? [];
+  const cutoff = now - STATS_WINDOW;
+  // Remove old entries
+  let sum = 0;
+  const fresh = ticks.filter((t) => t.ts >= cutoff);
+  fresh.forEach((t) => { sum += t.v; });
+  if (value > 0) {
+    fresh.push({ ts: now, v: value });
+    sum += value;
+  }
+  return { ticks: fresh, sum };
+}
+ 
+export function getStatPerMinute(buffer) {
+  if (!buffer) return 0;
+  return Math.round(buffer.sum ?? 0);
+}
+ 
 // ─── Market worker helpers ────────────────────────────────────────────────────
  
-export function getSellRate(itemType, prestigeBonuses = []) {
+export function getSellRate(itemType, prestigeBonuses = [], bankPriceBonus = 0) {
   const base = MARKET_SELL_RATES[itemType] ?? 0;
-  const savvyCount = prestigeBonuses.filter((b) => b === "market_savvy").length;
-  if (savvyCount === 0) return base;
-  return Math.round(base * Math.pow(1.25, savvyCount) * 100) / 100;
+  const savvyCount = (prestigeBonuses ?? []).filter((b) => b === "market_savvy").length;
+  let rate = savvyCount > 0 ? Math.round(base * Math.pow(1.25, savvyCount) * 100) / 100 : base;
+  if (bankPriceBonus > 0) rate = Math.round(rate * (1 + bankPriceBonus / 100) * 100) / 100;
+  return rate;
 }
  
 export function getMarketWorkerHireCost(state) {
@@ -678,13 +496,28 @@ export function cancelMarketWorkerQueue(state, workerId) {
   const worker = (next.marketWorkers ?? []).find((w) => w.id === workerId);
   if (!worker) return state;
   for (const order of worker.queue ?? []) {
-    if (order.itemType in (next.crops ?? {})) {
-      next.crops[order.itemType] = (next.crops[order.itemType] ?? 0) + order.quantity;
-    } else if (order.itemType in (next.artisan ?? {})) {
-      next.artisan[order.itemType] = (next.artisan[order.itemType] ?? 0) + order.quantity;
-    }
+    if (order.itemType in (next.crops ?? {})) next.crops[order.itemType] = (next.crops[order.itemType] ?? 0) + order.quantity;
+    else if (order.itemType in (next.artisan ?? {})) next.artisan[order.itemType] = (next.artisan[order.itemType] ?? 0) + order.quantity;
   }
   worker.queue = [];
+  return next;
+}
+ 
+export function buyMarketWorkerStandingOrder(state, workerId) {
+  const next = deepCloneState(state);
+  const worker = (next.marketWorkers ?? []).find((w) => w.id === workerId);
+  if (!worker || worker.hasStandingOrder) return state;
+  if ((next.cash ?? 0) < MARKET_WORKER_STANDING_ORDER_COST) return state;
+  next.cash -= MARKET_WORKER_STANDING_ORDER_COST;
+  worker.hasStandingOrder = true;
+  return next;
+}
+ 
+export function setMarketWorkerStandingOrder(state, workerId, itemType) {
+  const next = deepCloneState(state);
+  const worker = (next.marketWorkers ?? []).find((w) => w.id === workerId);
+  if (!worker || !worker.hasStandingOrder) return state;
+  worker.standingOrder = itemType;
   return next;
 }
  
@@ -692,7 +525,6 @@ export function cancelMarketWorkerQueue(state, workerId) {
  
 export function getKitchenWorkerHireCost(state) {
   const count = (state.kitchenWorkers ?? []).length;
-  // First kitchen worker costs the base flat rate, subsequent scale up
   const raw = KITCHEN_WORKER_HIRE_COST * Math.pow(KITCHEN_WORKER_HIRE_MULTIPLIER, count);
   return Math.round(raw / 5) * 5;
 }
@@ -705,8 +537,7 @@ export function getKitchenWorkerSpeedMultiplier(worker) {
 }
  
 export function getEffectiveKitchenSeconds(worker, baseSeconds) {
-  const mult = getKitchenWorkerSpeedMultiplier(worker);
-  return Math.max(5, Math.floor(baseSeconds * mult));
+  return Math.max(5, Math.floor(baseSeconds * getKitchenWorkerSpeedMultiplier(worker)));
 }
  
 export function isKitchenWorkerIdle(worker) {
@@ -759,8 +590,7 @@ export function cancelKitchenWorkerRecipe(state, workerId) {
     const recipe = PROCESSING_RECIPES[worker.recipeId];
     const batch = worker.batchSize ?? 1;
     if (recipe?.inputCrop) {
-      next.crops[recipe.inputCrop] = (next.crops[recipe.inputCrop] ?? 0) +
-        Math.floor(recipe.inputAmount * batch * 0.5);
+      next.crops[recipe.inputCrop] = (next.crops[recipe.inputCrop] ?? 0) + Math.floor(recipe.inputAmount * batch * 0.5);
     }
   }
   worker.busy = false;
@@ -771,25 +601,219 @@ export function cancelKitchenWorkerRecipe(state, workerId) {
   return next;
 }
  
+// ─── Factories ────────────────────────────────────────────────────────────────
+ 
+export function makePlot(id, halfGrown = false, growTime = 15) {
+  return {
+    id: id ?? genId("plot"),
+    state: halfGrown ? "planted" : "empty",
+    growthTick: halfGrown ? Math.floor(growTime / 2) : 0,
+    upgraded: false,
+  };
+}
+ 
+export function makeFarm(cropId, isFirst = false) {
+  const crop = CROPS[cropId];
+  return {
+    id: genId("farm"),
+    crop: cropId,
+    plots: [makePlot(undefined, isFirst, crop?.growTime ?? 15)],
+    unlockedPlots: 1,
+  };
+}
+ 
+export function makeFarmWorker(farmId, startWithGloves = false) {
+  return {
+    id: genId("worker"),
+    farmId,
+    gear: startWithGloves ? "gloves" : "bare_hands",
+    specialization: "none",
+    cycleProgress: 0,
+    cycleCount: 0,
+    hiredAt: Date.now(),
+  };
+}
+ 
+export function makeMarketWorker() {
+  return {
+    id: genId("mworker"),
+    gear: "cart",
+    queue: [],
+    standingOrder: null,
+    hasStandingOrder: false,
+    hiredAt: Date.now(),
+  };
+}
+ 
+export function makeKitchenWorker() {
+  return {
+    id: genId("kworker"),
+    upgrades: [],
+    recipeId: null,
+    elapsedSeconds: 0,
+    totalSeconds: 0,
+    batchSize: 1,
+    busy: false,
+    hiredAt: Date.now(),
+  };
+}
+ 
+function makeFreshTown() {
+  return {
+    unlocked: true,
+    homes: 1,
+    bakeryLevel: 0,
+    bakeryOn: false,
+    pantryOn: false,
+    canneryOn: false,
+    jamBuildingOwned: false,
+    sauceBuildingOwned: false,
+    bankBuilt: false,
+    bankLevel: 0,
+    bankActiveTier: 0,
+    townHallLevel: 0,
+    treasuryBalance: 0,
+    treasuryActiveTier: 0,
+    bakeryUpgradeLevel: 0,
+    pantryUpgradeLevel: 0,
+    canneryUpgradeLevel: 0,
+    people: TOWN_STARTING_PEOPLE,
+    capacity: TOWN_HOME_CAPACITY,
+    satisfaction: TOWN_SATISFACTION_DEFAULT,
+    satisfactionTarget: TOWN_SAT_WHEAT,
+    growthBonusPercent: 0,
+    breadNeeded: 0,
+    rawBreadNeeded: 0,
+    rawFoodNeeded: 0,
+    jamNeeded: 0,
+    sauceNeeded: 0,
+    foodType: "wheat",
+    pulseSeconds: TOWN_PULSE_SECONDS,
+    starving: false,
+  };
+}
+ 
+// ─── Initial state ────────────────────────────────────────────────────────────
+ 
+export function createInitialState() {
+  return {
+    season: 1,
+    prestigeBonuses: [],
+    keptWorkers: [],
+    yieldPool: 0,
+    feastBonusPercent: 0,
+    feastTierIndex: 0,
+    farms: [makeFarm("wheat", true)],
+    workers: [],
+    crops: { wheat: 0, berries: 0, tomatoes: 0 },
+    artisan: { bread: 0, jam: 0, sauce: 0 },
+    kitchenWorkers: [],
+    marketWorkers: [],
+    cash: 0,
+    lifetimeCash: 0,
+    farmInvestments: {},
+    extraFarmsUnlocked: 0,
+    pendingFarmUnlock: false,
+    lastSavedTime: Date.now(),
+    totalPlayTime: 0,
+    pendingWorkerAssignments: false,
+    town: makeFreshTown(),
+    // Stats buffers — rolling 60s windows
+    stats: {
+      farmCrops: {},     // farmId → { ticks, sum }
+      kitchenGoods: {},  // goodId → { ticks, sum }
+      marketCash: null,  // { ticks, sum }
+    },
+  };
+}
+ 
+// ─── Farm helpers ─────────────────────────────────────────────────────────────
+ 
+export function getFarmCrop(farm) { return CROPS[farm.crop]; }
+ 
+export function getNextGear(currentGear) {
+  const idx = GEAR_ORDER.indexOf(currentGear);
+  if (idx === -1 || idx === GEAR_ORDER.length - 1) return null;
+  return GEAR_ORDER[idx + 1];
+}
+ 
+export function getPlotUnlockCost(state, farmId, currentPlotCount) {
+  const maxPlots = getFarmMaxPlots(state, farmId);
+  if (currentPlotCount >= maxPlots) return null;
+  const raw = PLOT_BASE_COST * Math.pow(PLOT_COST_MULTIPLIER, currentPlotCount - 1);
+  return Math.max(5, Math.round(raw / 5) * 5);
+}
+ 
+export function needsSpecialization(worker) {
+  return worker.gear === "hoe" && worker.specialization === "none";
+}
+ 
+export function getWorkerHireCost(state, farmId) {
+  const workersOnFarm = state.workers.filter((w) => w.farmId === farmId).length;
+  const raw = WORKER_HIRE_BASE_COST * Math.pow(WORKER_HIRE_MULTIPLIER, workersOnFarm);
+  return Math.round(raw / 5) * 5;
+}
+ 
+export function getEffectiveCycleSeconds(worker) {
+  const gear = GEAR[worker.gear];
+  let seconds = gear.cycleSeconds;
+  if (worker.specialization === "harvester") {
+    seconds = Math.max(1, Math.floor(seconds * SPECIALIZATIONS.harvester.cycleMultiplier));
+  }
+  return seconds;
+}
+ 
+export function getEffectivePlotsPerCycle(worker) {
+  const gear = GEAR[worker.gear];
+  if (worker.specialization === "sprinter") {
+    return gear.plotsPerCycle * SPECIALIZATIONS.sprinter.plotsMultiplier;
+  }
+  return gear.plotsPerCycle;
+}
+ 
+export function isSprinterResting(worker) {
+  if (worker.specialization !== "sprinter") return false;
+  return (worker.cycleCount ?? 0) % SPECIALIZATIONS.sprinter.restEvery === SPECIALIZATIONS.sprinter.restEvery - 1;
+}
+ 
+export function getEffectiveGrowTime(farm, workers, cropId, plot = null, feastBonusPercent = 0, townGrowthBonusPercent = 0, treasuryGrowBonus = 0) {
+  const crop = CROPS[cropId];
+  let time = crop.growTime;
+  const growers = workers.filter((w) => w.farmId === farm.id && w.specialization === "grower");
+  for (let i = 0; i < growers.length; i++) {
+    time = Math.floor(time * SPECIALIZATIONS.grower.growMultiplier);
+  }
+  if (plot?.upgraded) time = Math.floor(time * PLOT_UPGRADE_GROW_MULTIPLIER);
+  if (feastBonusPercent > 0) time = Math.floor(time / (1 + feastBonusPercent / 100));
+  if (townGrowthBonusPercent > 0) time = Math.floor(time / (1 + townGrowthBonusPercent / 100));
+  if (treasuryGrowBonus > 0) time = Math.floor(time / (1 + treasuryGrowBonus / 100));
+  return Math.max(3, time);
+}
+ 
+export function getFarmGrowTime(farm, workers, cropId, feastBonusPercent = 0, townGrowthBonusPercent = 0, treasuryGrowBonus = 0) {
+  return getEffectiveGrowTime(farm, workers, cropId, null, feastBonusPercent, townGrowthBonusPercent, treasuryGrowBonus);
+}
+ 
+export function getNextFeastTier(state) {
+  return FEAST_TIERS[state.feastTierIndex ?? 0] ?? null;
+}
+ 
+export function getAvailableFarms(season) {
+  return SEASON_FARMS[Math.min(season, 3)] ?? SEASON_FARMS[3];
+}
+ 
 // ─── Offline progress ─────────────────────────────────────────────────────────
  
 export function calculateOfflineProgress(state, nowMs) {
   const lastSaved = state.lastSavedTime ?? nowMs;
   const rawSeconds = Math.floor((nowMs - lastSaved) / 1000);
- 
   if (rawSeconds < 0 || rawSeconds > 7 * 24 * 60 * 60) {
     return { state: { ...state, lastSavedTime: nowMs }, offlineSeconds: 0 };
   }
- 
   const seconds = Math.min(rawSeconds, MAX_OFFLINE_SECONDS);
   if (seconds <= 0) return { state, offlineSeconds: 0 };
- 
   let next = deepCloneState(state);
- 
-  for (let i = 0; i < seconds; i++) {
-    next = tick(next);
-  }
- 
+  for (let i = 0; i < seconds; i++) next = tick(next);
   next.lastSavedTime = nowMs;
   return { state: next, offlineSeconds: seconds };
 }
@@ -800,7 +824,31 @@ export function tick(state) {
   let next = deepCloneState(state);
   const feast = next.feastBonusPercent ?? 0;
   const townBonus = next.town?.growthBonusPercent ?? 0;
+  const treasuryGrowBonus = getTreasuryGrowBonus(next);
   const satMultiplier = getTownSatisfactionMultiplier(next);
+  const bankPriceBonus = getBankPriceBonus(next);
+  const now = next.totalPlayTime ?? 0;
+ 
+  if (!next.stats) next.stats = { farmCrops: {}, kitchenGoods: {}, marketCash: null };
+ 
+  // ── Treasury drain ─────────────────────────────────────────────────────────
+  const activeTier = getActiveTreasuryTier(next);
+  if (activeTier) {
+    const drain = Math.min(activeTier.drainRate, next.cash ?? 0);
+    if (drain > 0) {
+      next.cash = (next.cash ?? 0) - drain;
+      next.town.treasuryBalance = (next.town.treasuryBalance ?? 0) + drain;
+    }
+  }
+ 
+  // ── Bank drain ─────────────────────────────────────────────────────────────
+  const activeBankTier = getActiveBankTier(next);
+  if (activeBankTier) {
+    const drain = Math.min(activeBankTier.drainRate, next.town.treasuryBalance ?? 0);
+    if (drain > 0) next.town.treasuryBalance -= drain;
+    // Bank drain is a running cost — treasury decreases but doesn't give it back
+    // This is the "infinite money sink" — bank consumes treasury to give price bonus
+  }
  
   // ── Farms ──────────────────────────────────────────────────────────────────
   for (const farm of next.farms) {
@@ -809,7 +857,7 @@ export function tick(state) {
  
     for (const plot of farm.plots) {
       if (plot.state === "planted") {
-        const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, feast, townBonus);
+        const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, feast, townBonus, treasuryGrowBonus);
         plot.growthTick += 1;
         if (plot.growthTick >= growTime) plot.state = "ready";
       }
@@ -818,7 +866,6 @@ export function tick(state) {
     for (const worker of farmWorkers) {
       const workerRef = next.workers.find((w) => w.id === worker.id);
       if (!workerRef) continue;
-      // Satisfaction advances cycle progress faster/slower
       workerRef.cycleProgress += satMultiplier;
       const cycleSeconds = getEffectiveCycleSeconds(workerRef);
  
@@ -831,19 +878,24 @@ export function tick(state) {
           const crop = CROPS[farm.crop];
           const plotsPerCycle = getEffectivePlotsPerCycle(workerRef);
           let harvested = 0;
+          let cropsGained = 0;
  
           for (const plot of farm.plots) {
             if (harvested >= plotsPerCycle) break;
             if (plot.state === "ready") {
-              const { crops, newPool } = applyYieldBonuses(
-                crop.workerYield, next.prestigeBonuses, next.yieldPool ?? 0, bonusYield
-              );
+              const { crops, newPool } = applyYieldBonuses(crop.workerYield, next.prestigeBonuses, next.yieldPool ?? 0, bonusYield);
               next.crops[farm.crop] = (next.crops[farm.crop] ?? 0) + crops;
               next.yieldPool = newPool;
+              cropsGained += crops;
               plot.state = "empty";
               plot.growthTick = 0;
               harvested++;
             }
+          }
+ 
+          // Stats: track crops per farm
+          if (cropsGained > 0) {
+            next.stats.farmCrops[farm.id] = pushStat(next.stats.farmCrops[farm.id], cropsGained, now);
           }
  
           let replanted = 0;
@@ -863,17 +915,18 @@ export function tick(state) {
   // ── Kitchen workers ────────────────────────────────────────────────────────
   for (const worker of next.kitchenWorkers ?? []) {
     if (!worker.busy || !worker.recipeId) continue;
-    // Satisfaction advances elapsed seconds faster/slower
     worker.elapsedSeconds = (worker.elapsedSeconds ?? 0) + satMultiplier;
     if (worker.elapsedSeconds >= worker.totalSeconds) {
       const recipe = PROCESSING_RECIPES[worker.recipeId];
       const batch = worker.batchSize ?? 1;
-      next.artisan[recipe.outputGood] = (next.artisan[recipe.outputGood] ?? 0) + (recipe.outputAmount * batch);
+      const produced = recipe.outputAmount * batch;
+      next.artisan[recipe.outputGood] = (next.artisan[recipe.outputGood] ?? 0) + produced;
+      // Stats
+      next.stats.kitchenGoods[recipe.outputGood] = pushStat(next.stats.kitchenGoods[recipe.outputGood], produced, now);
       worker.elapsedSeconds = 0;
       worker.busy = false;
       worker.batchSize = 1;
-      const hasAutoRestart = (worker.upgrades ?? []).includes("auto_restart");
-      if (hasAutoRestart) {
+      if ((worker.upgrades ?? []).includes("auto_restart")) {
         _startKitchenWorkerRecipe(worker, worker.recipeId, next.crops);
       }
     }
@@ -881,15 +934,12 @@ export function tick(state) {
  
   // ── Market workers ─────────────────────────────────────────────────────────
   for (const worker of next.marketWorkers ?? []) {
-    // Standing order: only auto-pull when queue is empty
     if (worker.hasStandingOrder && worker.standingOrder && (worker.queue ?? []).length === 0) {
       const itemType = worker.standingOrder;
       const ips = getMarketWorkerItemsPerSecond(worker);
       const isCrop = itemType in (next.crops ?? {});
       const isArtisan = itemType in (next.artisan ?? {});
-      const available = isCrop
-        ? (next.crops[itemType] ?? 0)
-        : isArtisan ? (next.artisan[itemType] ?? 0) : 0;
+      const available = isCrop ? (next.crops[itemType] ?? 0) : isArtisan ? (next.artisan[itemType] ?? 0) : 0;
       const toPull = Math.min(ips, available);
       if (toPull > 0) {
         if (isCrop) next.crops[itemType] -= toPull;
@@ -898,23 +948,150 @@ export function tick(state) {
       }
     }
  
-    // Satisfaction scales effective items sold per tick
     const itemsPerSecond = getMarketWorkerItemsPerSecond(worker);
-    let toSellThisTick = itemsPerSecond * satMultiplier;
+    let toSellThisTick = Math.floor(itemsPerSecond * satMultiplier);
+    let cashEarned = 0;
     while (toSellThisTick > 0 && (worker.queue ?? []).length > 0) {
       const order = worker.queue[0];
       const toSell = Math.min(toSellThisTick, order.quantity);
-      const rate = getSellRate(order.itemType, next.prestigeBonuses);
-      order.quantity -= toSell;
-      next.cash = (next.cash ?? 0) + toSell * rate;
-      next.lifetimeCash = (next.lifetimeCash ?? 0) + toSell * rate;
+      const rate = getSellRate(order.itemType, next.prestigeBonuses, bankPriceBonus);
+      order.quantity = Math.floor(order.quantity - toSell);
+      const earned = toSell * rate;
+      next.cash = (next.cash ?? 0) + earned;
+      next.lifetimeCash = (next.lifetimeCash ?? 0) + earned;
+      cashEarned += earned;
       toSellThisTick -= toSell;
       if (order.quantity <= 0) worker.queue.shift();
+    }
+    if (cashEarned > 0) {
+      next.stats.marketCash = pushStat(next.stats.marketCash, cashEarned, now);
     }
   }
  
   next = updateTown(next, 1);
   next.totalPlayTime = (next.totalPlayTime ?? 0) + 1;
+  return next;
+}
+ 
+// ─── Town pulse ───────────────────────────────────────────────────────────────
+ 
+function fireLastHiredWorker(state) {
+  const candidates = [
+    ...(state.workers ?? []).map((w) => ({ id: w.id, type: "farm", hiredAt: w.hiredAt ?? 0 })),
+    ...(state.kitchenWorkers ?? []).map((w) => ({ id: w.id, type: "kitchen", hiredAt: w.hiredAt ?? 0 })),
+    ...(state.marketWorkers ?? []).map((w) => ({ id: w.id, type: "market", hiredAt: w.hiredAt ?? 0 })),
+  ];
+  if (candidates.length === 0) return state;
+  candidates.sort((a, b) => b.hiredAt - a.hiredAt);
+  const toFire = candidates[0];
+ 
+  if (toFire.type === "farm") {
+    const worker = state.workers.find((w) => w.id === toFire.id);
+    if (worker) {
+      const farm = state.farms.find((f) => f.id === worker.farmId);
+      if (farm) {
+        const workersOnFarm = state.workers.filter((w) => w.farmId === worker.farmId).length;
+        const hireCost = Math.round((WORKER_HIRE_BASE_COST * Math.pow(WORKER_HIRE_MULTIPLIER, Math.max(0, workersOnFarm - 1))) / 5) * 5;
+        state.crops[farm.crop] = (state.crops[farm.crop] ?? 0) + Math.floor(hireCost * 0.5);
+      }
+      state.workers = state.workers.filter((w) => w.id !== toFire.id);
+    }
+  } else if (toFire.type === "kitchen") {
+    const worker = state.kitchenWorkers.find((w) => w.id === toFire.id);
+    if (worker?.busy && worker.recipeId) {
+      const recipe = PROCESSING_RECIPES[worker.recipeId];
+      if (recipe?.inputCrop) {
+        state.crops[recipe.inputCrop] = (state.crops[recipe.inputCrop] ?? 0) + Math.floor(recipe.inputAmount * (worker.batchSize ?? 1) * 0.5);
+      }
+    }
+    state.kitchenWorkers = state.kitchenWorkers.filter((w) => w.id !== toFire.id);
+  } else if (toFire.type === "market") {
+    const worker = state.marketWorkers.find((w) => w.id === toFire.id);
+    if (worker) {
+      for (const order of worker.queue ?? []) {
+        if (order.itemType in (state.crops ?? {})) state.crops[order.itemType] = (state.crops[order.itemType] ?? 0) + order.quantity;
+        else if (order.itemType in (state.artisan ?? {})) state.artisan[order.itemType] = (state.artisan[order.itemType] ?? 0) + order.quantity;
+      }
+    }
+    state.marketWorkers = state.marketWorkers.filter((w) => w.id !== toFire.id);
+  }
+  return state;
+}
+ 
+export function updateTown(state, seconds = 1) {
+  let next = deepCloneState(state);
+  if (!next.town) next.town = makeFreshTown();
+ 
+  next.town.unlocked = true;
+  next.town.capacity = getTownCapacity(next);
+ 
+  const effectivePulse = getEffectivePulseSeconds(next);
+  if (next.town.pulseSeconds == null) next.town.pulseSeconds = effectivePulse;
+  next.town.pulseSeconds -= seconds;
+ 
+  while (next.town.pulseSeconds <= 0) {
+    const people = Math.floor(Math.max(0, next.town.people ?? 0));
+    const capacity = getTownCapacity(next);
+    const totalWorkers = getTotalWorkersHired(next);
+    const bakeryOn = next.town.bakeryOn === true && (next.town.bakeryLevel ?? 0) >= 1;
+    const pantryOn = next.town.pantryOn === true && next.town.jamBuildingOwned === true;
+    const canneryOn = next.town.canneryOn === true && next.town.sauceBuildingOwned === true;
+    const foodType = bakeryOn ? "bread" : "wheat";
+ 
+    let foodNeeded = 0;
+    if (people > 0 || totalWorkers > 0) {
+      foodNeeded = foodType === "wheat"
+        ? (people * TOWN_WHEAT_PER_PERSON) + (totalWorkers * TOWN_WHEAT_PER_WORKER)
+        : Math.max(1, Math.ceil((people + totalWorkers) / TOWN_BREAD_FEEDS));
+    }
+ 
+    const foodHave = foodType === "wheat" ? Math.floor(next.crops?.wheat ?? 0) : Math.floor(next.artisan?.bread ?? 0);
+    const fed = foodHave >= foodNeeded;
+ 
+    let jamNeeded = 0;
+    let sauceNeeded = 0;
+    if (pantryOn && fed) jamNeeded = getBuildingEffectivePulseCost(next, "pantry");
+    if (canneryOn && fed) sauceNeeded = getBuildingEffectivePulseCost(next, "cannery");
+ 
+    const jamFed = !pantryOn || (next.artisan?.jam ?? 0) >= jamNeeded;
+    const sauceFed = !canneryOn || (next.artisan?.sauce ?? 0) >= sauceNeeded;
+ 
+    if (fed) {
+      if (foodNeeded > 0) {
+        if (foodType === "wheat") next.crops.wheat = (next.crops.wheat ?? 0) - foodNeeded;
+        else next.artisan.bread = (next.artisan.bread ?? 0) - foodNeeded;
+      }
+      if (pantryOn && jamFed && jamNeeded > 0) next.artisan.jam = (next.artisan.jam ?? 0) - jamNeeded;
+      if (canneryOn && sauceFed && sauceNeeded > 0) next.artisan.sauce = (next.artisan.sauce ?? 0) - sauceNeeded;
+ 
+      if (people < capacity) next.town.people = Math.min(capacity, people + TOWN_GROWTH_PER_PULSE);
+      else next.town.people = people;
+      next.town.starving = false;
+    } else {
+      next.town.people = Math.max(0, people - TOWN_DECLINE_PER_PULSE);
+      next.town.starving = true;
+      if (getTotalWorkersHired(next) > next.town.people) next = fireLastHiredWorker(next);
+    }
+ 
+    next.town.satisfactionTarget = getSatisfactionTarget(next);
+    const currentSat = next.town.satisfaction ?? TOWN_SATISFACTION_DEFAULT;
+    const target = next.town.satisfactionTarget;
+    if (next.town.starving) next.town.satisfaction = Math.max(TOWN_SATISFACTION_FLOOR, currentSat - TOWN_SATISFACTION_STARVE_STEP);
+    else if (currentSat < target) next.town.satisfaction = Math.min(target, currentSat + TOWN_SATISFACTION_STEP);
+    else if (currentSat > target) next.town.satisfaction = Math.max(target, currentSat - TOWN_SATISFACTION_STEP);
+ 
+    next.town.rawFoodNeeded = foodNeeded;
+    next.town.breadNeeded = foodNeeded;
+    next.town.rawBreadNeeded = foodNeeded;
+    next.town.jamNeeded = jamNeeded;
+    next.town.sauceNeeded = sauceNeeded;
+    next.town.foodType = foodType;
+    next.town.capacity = capacity;
+    next.town.growthBonusPercent = getTownGrowthBonusPercent(next.town.people ?? 0);
+    next.town.pulseSeconds += getEffectivePulseSeconds(next);
+  }
+ 
+  next.town.growthBonusPercent = getTownGrowthBonusPercent(next.town.people ?? 0);
   return next;
 }
  
@@ -951,14 +1128,30 @@ export function tendPlot(state, farmId, plotId) {
   const farm = next.farms.find((f) => f.id === farmId);
   if (!farm) return state;
   const plot = farm.plots.find((p) => p.id === plotId);
-  if (!plot || plot.state !== "planted") return state;
+  if (!plot) return state;
+ 
+  if (plot.state === "ready") {
+    const crop = CROPS[farm.crop];
+    const { crops, newPool } = applyYieldBonuses(crop.manualYield, next.prestigeBonuses, next.yieldPool ?? 0);
+    next.crops[farm.crop] = (next.crops[farm.crop] ?? 0) + crops;
+    next.yieldPool = newPool;
+    plot.state = "planted";
+    plot.growthTick = 0;
+    return next;
+  }
+ 
+  if (plot.state === "empty") {
+    plot.state = "planted";
+    plot.growthTick = 0;
+    return next;
+  }
+ 
+  // planted — advance growth
   const growTime = getEffectiveGrowTime(
-    farm,
-    next.workers,
-    farm.crop,
-    plot,
+    farm, next.workers, farm.crop, plot,
     next.feastBonusPercent ?? 0,
-    next.town?.growthBonusPercent ?? 0
+    next.town?.growthBonusPercent ?? 0,
+    getTreasuryGrowBonus(next)
   );
   plot.growthTick = Math.min(plot.growthTick + TEND_SECONDS, growTime);
   if (plot.growthTick >= growTime) plot.state = "ready";
@@ -995,9 +1188,8 @@ export function buyPlot(state, farmId) {
   if (current >= maxPlots) return state;
   const cost = getPlotUnlockCost(next, farmId, current);
   if (cost === null) return state;
-  const cropId = farm.crop;
-  if ((next.crops[cropId] ?? 0) < cost) return state;
-  next.crops[cropId] -= cost;
+  if ((next.crops[farm.crop] ?? 0) < cost) return state;
+  next.crops[farm.crop] -= cost;
   farm.unlockedPlots += 1;
   farm.plots.push(makePlot());
   return next;
@@ -1005,20 +1197,17 @@ export function buyPlot(state, farmId) {
  
 export function hireWorker(state, farmId) {
   const next = deepCloneState(state);
-  // Population cap check
   if (isAtWorkerCap(next)) return state;
   const farm = next.farms.find((f) => f.id === farmId);
   if (!farm) return state;
-  const cropId = farm.crop;
   const workersOnFarm = next.workers.filter((w) => w.farmId === farmId).length;
   const hasHeadStart = next.prestigeBonuses.includes("head_start") && workersOnFarm === 0;
   const cost = hasHeadStart ? 0 : getWorkerHireCost(next, farmId);
-  if ((next.crops[cropId] ?? 0) < cost) return state;
-  next.crops[cropId] -= cost;
+  if ((next.crops[farm.crop] ?? 0) < cost) return state;
+  next.crops[farm.crop] -= cost;
   const startWithGloves = next.prestigeBonuses.includes("fast_hands");
   const newWorker = makeFarmWorker(farmId, startWithGloves);
-  const cycleSeconds = getEffectiveCycleSeconds(newWorker);
-  newWorker.cycleProgress = cycleSeconds - 1;
+  newWorker.cycleProgress = getEffectiveCycleSeconds(newWorker) - 1;
   next.workers.push(newWorker);
   return next;
 }
@@ -1030,12 +1219,8 @@ export function sellWorker(state, workerId) {
   const farm = next.farms.find((f) => f.id === worker.farmId);
   if (!farm) return state;
   const workersOnFarm = next.workers.filter((w) => w.farmId === worker.farmId).length;
-  const previousCount = Math.max(0, workersOnFarm - 1);
-  const hireCostWhenBought = Math.round(
-    (WORKER_HIRE_BASE_COST * Math.pow(WORKER_HIRE_MULTIPLIER, previousCount)) / 5
-  ) * 5;
-  const refund = Math.floor(hireCostWhenBought * 0.5);
-  next.crops[farm.crop] = (next.crops[farm.crop] ?? 0) + refund;
+  const hireCostWhenBought = Math.round((WORKER_HIRE_BASE_COST * Math.pow(WORKER_HIRE_MULTIPLIER, Math.max(0, workersOnFarm - 1))) / 5) * 5;
+  next.crops[farm.crop] = (next.crops[farm.crop] ?? 0) + Math.floor(hireCostWhenBought * 0.5);
   next.workers = next.workers.filter((w) => w.id !== workerId);
   return next;
 }
@@ -1043,13 +1228,11 @@ export function sellWorker(state, workerId) {
 export function upgradeWorkerGear(state, workerId) {
   const next = deepCloneState(state);
   const worker = next.workers.find((w) => w.id === workerId);
-  if (!worker) return state;
-  if (needsSpecialization(worker)) return state;
+  if (!worker || needsSpecialization(worker)) return state;
   const nextGearId = getNextGear(worker.gear);
   if (!nextGearId) return state;
   const cost = GEAR[nextGearId].upgradeCost;
-  if (!cost) return state;
-  if ((next.cash ?? 0) < cost) return state;
+  if (!cost || (next.cash ?? 0) < cost) return state;
   next.cash -= cost;
   worker.gear = nextGearId;
   return next;
@@ -1058,9 +1241,7 @@ export function upgradeWorkerGear(state, workerId) {
 export function specializeWorker(state, workerId, specializationId) {
   const next = deepCloneState(state);
   const worker = next.workers.find((w) => w.id === workerId);
-  if (!worker) return state;
-  if (worker.gear !== "hoe") return state;
-  if (worker.specialization !== "none") return state;
+  if (!worker || worker.gear !== "hoe" || worker.specialization !== "none") return state;
   if (!SPECIALIZATIONS[specializationId] || specializationId === "none") return state;
   if ((next.cash ?? 0) < SPECIALIZE_COST) return state;
   next.cash -= SPECIALIZE_COST;
@@ -1072,8 +1253,7 @@ export function specializeWorker(state, workerId, specializationId) {
 export function buyPlotCapUpgrade(state, farmId) {
   const next = deepCloneState(state);
   const upgrade = getNextPlotCapUpgrade(next, farmId);
-  if (!upgrade) return state;
-  if ((next.cash ?? 0) < upgrade.cost) return state;
+  if (!upgrade || (next.cash ?? 0) < upgrade.cost) return state;
   next.cash -= upgrade.cost;
   if (!next.farmInvestments) next.farmInvestments = {};
   if (!next.farmInvestments[farmId]) next.farmInvestments[farmId] = { plotCapIndex: 0, yieldIndex: 0 };
@@ -1084,8 +1264,7 @@ export function buyPlotCapUpgrade(state, farmId) {
 export function buyYieldUpgrade(state, farmId) {
   const next = deepCloneState(state);
   const upgrade = getNextYieldUpgrade(next, farmId);
-  if (!upgrade) return state;
-  if ((next.cash ?? 0) < upgrade.cost) return state;
+  if (!upgrade || (next.cash ?? 0) < upgrade.cost) return state;
   next.cash -= upgrade.cost;
   if (!next.farmInvestments) next.farmInvestments = {};
   if (!next.farmInvestments[farmId]) next.farmInvestments[farmId] = { plotCapIndex: 0, yieldIndex: 0 };
@@ -1097,11 +1276,9 @@ export function applyYieldBonuses(baseYield, prestigeBonuses, currentPool = 0, f
   const bumperCount = prestigeBonuses.filter((b) => b === "bumper_crop").length;
   const total = baseYield + farmBonusYield;
   if (bumperCount === 0) return { crops: total, newPool: currentPool };
-  const multiplier = 1 + bumperCount * 0.1;
-  const exact = total * multiplier;
+  const exact = total * (1 + bumperCount * 0.1);
   const whole = Math.floor(exact);
-  const fraction = exact - whole;
-  const newPool = currentPool + fraction;
+  const newPool = currentPool + (exact - whole);
   const bonus = Math.floor(newPool);
   return { crops: whole + bonus, newPool: newPool - bonus };
 }
@@ -1110,7 +1287,6 @@ export function applyYieldBonuses(baseYield, prestigeBonuses, currentPool = 0, f
  
 export function hireMarketWorker(state) {
   const next = deepCloneState(state);
-  // Population cap check
   if (isAtWorkerCap(next)) return state;
   const isFirst = (next.marketWorkers ?? []).length === 0;
   const cost = isFirst ? 0 : getMarketWorkerHireCost(next);
@@ -1138,7 +1314,6 @@ export function assignItemToMarketWorker(state, workerId, itemType, quantity) {
   const next = deepCloneState(state);
   const worker = (next.marketWorkers ?? []).find((w) => w.id === workerId);
   if (!worker) return state;
- 
   const isCrop = itemType in (next.crops ?? {});
   const isArtisan = itemType in (next.artisan ?? {});
   if (isCrop) {
@@ -1147,18 +1322,11 @@ export function assignItemToMarketWorker(state, workerId, itemType, quantity) {
   } else if (isArtisan) {
     if ((next.artisan[itemType] ?? 0) < quantity) return state;
     next.artisan[itemType] -= quantity;
-  } else {
-    return state;
-  }
- 
+  } else return state;
   const queue = worker.queue ?? [];
   const last = queue[queue.length - 1];
-  if (last && last.itemType === itemType) {
-    last.quantity += quantity;
-  } else {
-    queue.push({ id: genId("sale"), itemType, quantity });
-    worker.queue = queue;
-  }
+  if (last && last.itemType === itemType) last.quantity += quantity;
+  else { queue.push({ id: genId("sale"), itemType, quantity }); worker.queue = queue; }
   return next;
 }
  
@@ -1167,11 +1335,8 @@ export function fireMarketWorker(state, workerId) {
   const worker = (next.marketWorkers ?? []).find((w) => w.id === workerId);
   if (!worker) return state;
   for (const order of worker.queue ?? []) {
-    if (order.itemType in (next.crops ?? {})) {
-      next.crops[order.itemType] = (next.crops[order.itemType] ?? 0) + order.quantity;
-    } else if (order.itemType in (next.artisan ?? {})) {
-      next.artisan[order.itemType] = (next.artisan[order.itemType] ?? 0) + order.quantity;
-    }
+    if (order.itemType in (next.crops ?? {})) next.crops[order.itemType] = (next.crops[order.itemType] ?? 0) + order.quantity;
+    else if (order.itemType in (next.artisan ?? {})) next.artisan[order.itemType] = (next.artisan[order.itemType] ?? 0) + order.quantity;
   }
   next.marketWorkers = next.marketWorkers.filter((w) => w.id !== workerId);
   return next;
@@ -1181,9 +1346,7 @@ export function fireMarketWorker(state, workerId) {
  
 export function hireKitchenWorker(state) {
   const next = deepCloneState(state);
-  // Population cap check
   if (isAtWorkerCap(next)) return state;
-  const count = (next.kitchenWorkers ?? []).length;
   const cost = getKitchenWorkerHireCost(next);
   if ((next.cash ?? 0) < cost) return state;
   next.cash -= cost;
@@ -1195,21 +1358,15 @@ export function assignKitchenWorkerRecipe(state, workerId, recipeId) {
   const next = deepCloneState(state);
   const worker = (next.kitchenWorkers ?? []).find((w) => w.id === workerId);
   if (!worker) return state;
- 
   if (worker.busy && worker.recipeId) {
     const recipe = PROCESSING_RECIPES[worker.recipeId];
     const batch = worker.batchSize ?? 1;
-    if (recipe?.inputCrop) {
-      next.crops[recipe.inputCrop] = (next.crops[recipe.inputCrop] ?? 0) +
-        Math.floor(recipe.inputAmount * batch * 0.5);
-    }
+    if (recipe?.inputCrop) next.crops[recipe.inputCrop] = (next.crops[recipe.inputCrop] ?? 0) + Math.floor(recipe.inputAmount * batch * 0.5);
     worker.busy = false;
     worker.elapsedSeconds = 0;
     worker.batchSize = 1;
   }
- 
-  const started = _startKitchenWorkerRecipe(worker, recipeId, next.crops);
-  if (!started) return state;
+  if (!_startKitchenWorkerRecipe(worker, recipeId, next.crops)) return state;
   return next;
 }
  
@@ -1229,9 +1386,7 @@ export function fireKitchenWorker(state, workerId) {
   if (!worker) return state;
   if (worker.busy && worker.recipeId) {
     const recipe = PROCESSING_RECIPES[worker.recipeId];
-    if (recipe?.inputCrop) {
-      next.crops[recipe.inputCrop] = (next.crops[recipe.inputCrop] ?? 0) + Math.floor(recipe.inputAmount * 0.5);
-    }
+    if (recipe?.inputCrop) next.crops[recipe.inputCrop] = (next.crops[recipe.inputCrop] ?? 0) + Math.floor(recipe.inputAmount * 0.5);
   }
   next.kitchenWorkers = next.kitchenWorkers.filter((w) => w.id !== workerId);
   return next;
@@ -1241,29 +1396,22 @@ export function fireKitchenWorker(state, workerId) {
  
 export function buyFeast(state) {
   const next = deepCloneState(state);
-  const tierIdx = next.feastTierIndex ?? 0;
-  const tier = FEAST_TIERS[tierIdx];
+  const tier = FEAST_TIERS[next.feastTierIndex ?? 0];
   if (!tier) return state;
   const perGood = Math.ceil(tier.cost / 3);
-  if (
-    (next.artisan.bread ?? 0) < perGood ||
-    (next.artisan.jam ?? 0) < perGood ||
-    (next.artisan.sauce ?? 0) < perGood
-  ) return state;
+  if ((next.artisan.bread ?? 0) < perGood || (next.artisan.jam ?? 0) < perGood || (next.artisan.sauce ?? 0) < perGood) return state;
   next.artisan.bread -= perGood;
   next.artisan.jam -= perGood;
   next.artisan.sauce -= perGood;
-  const newBonus = Math.min(FEAST_MAX_BONUS, (next.feastBonusPercent ?? 0) + tier.bonusPercent);
-  next.feastBonusPercent = newBonus;
-  next.feastTierIndex = tierIdx + 1;
+  next.feastBonusPercent = Math.min(FEAST_MAX_BONUS, (next.feastBonusPercent ?? 0) + tier.bonusPercent);
+  next.feastTierIndex = (next.feastTierIndex ?? 0) + 1;
   return next;
 }
  
-// ─── Farm unlock (season 4+) ──────────────────────────────────────────────────
+// ─── Farm unlock ──────────────────────────────────────────────────────────────
  
 export function unlockExtraFarm(state, cropId) {
-  if (!state.pendingFarmUnlock) return state;
-  if (!EXTRA_FARM_CROPS.includes(cropId)) return state;
+  if (!state.pendingFarmUnlock || !EXTRA_FARM_CROPS.includes(cropId)) return state;
   const cost = getNextFarmUnlockCost(state);
   if ((state.cash ?? 0) < cost) return state;
   const next = deepCloneState(state);
@@ -1279,106 +1427,86 @@ export function getNextFarmUnlockCost(state) {
 }
  
 export function canUnlockFarm(state) {
-  if (!state.pendingFarmUnlock) return false;
-  return (state.cash ?? 0) >= getNextFarmUnlockCost(state);
+  return state.pendingFarmUnlock && (state.cash ?? 0) >= getNextFarmUnlockCost(state);
 }
  
 // ─── Prestige ─────────────────────────────────────────────────────────────────
  
-/**
- * Returns a sanitized kept-worker object with only the fields that should
- * persist across seasons, tagged with its system type.
- */
 function makeKeptWorker(worker, type) {
   const base = { id: worker.id, keptType: type };
- 
-  if (type === "farm") {
-    return {
-      ...base,
-      gear: worker.gear,
-      specialization: worker.specialization ?? "none",
-      // reset runtime fields
-      farmId: null,
-      cycleProgress: 0,
-      cycleCount: 0,
-    };
-  }
- 
-  if (type === "kitchen") {
-    return {
-      ...base,
-      upgrades: [...(worker.upgrades ?? [])],
-      // reset runtime fields
-      recipeId: null,
-      elapsedSeconds: 0,
-      totalSeconds: 0,
-      batchSize: 1,
-      busy: false,
-    };
-  }
- 
-  if (type === "market") {
-    return {
-      ...base,
-      gear: worker.gear,
-      hasStandingOrder: worker.hasStandingOrder ?? false,
-      // clear configuration — player sets up again
-      queue: [],
-      standingOrder: null,
-    };
-  }
- 
+  if (type === "farm") return { ...base, gear: worker.gear, specialization: worker.specialization ?? "none", farmId: null, cycleProgress: 0, cycleCount: 0 };
+  if (type === "kitchen") return { ...base, upgrades: [...(worker.upgrades ?? [])], recipeId: null, elapsedSeconds: 0, totalSeconds: 0, batchSize: 1, busy: false };
+  if (type === "market") return { ...base, gear: worker.gear, hasStandingOrder: worker.hasStandingOrder ?? false, queue: [], standingOrder: null };
   return base;
+}
+ 
+export function canPrestige(state) {
+  if (getTownHallLevel(state) < 1) return false;
+  const farmsToCheck = state.season >= FIRST_EXTRA_FARM_SEASON
+    ? state.farms
+    : state.farms.filter((f) => (SEASON_FARMS[Math.min(state.season, 3)] ?? []).includes(f.crop));
+  for (const farm of farmsToCheck) {
+    if (!isFarmPrestigeReady(farm, state.workers, state)) return false;
+  }
+  if ((state.cash ?? 0) < getPrestigeCashThreshold(state.season)) return false;
+  return true;
+}
+ 
+export function getPrestigeBlockers(state) {
+  const blockers = [];
+  if (getTownHallLevel(state) < 1) blockers.push("Town Hall level 1 required");
+  const farmsToCheck = state.season >= FIRST_EXTRA_FARM_SEASON
+    ? state.farms
+    : state.farms.filter((f) => (SEASON_FARMS[Math.min(state.season, 3)] ?? []).includes(f.crop));
+  for (const farm of farmsToCheck) {
+    const crop = CROPS[farm.crop];
+    if (farm.unlockedPlots < PRESTIGE_MIN_PLOTS) {
+      blockers.push(`${crop.emoji} ${crop.name}: needs 3×3 plots (${farm.unlockedPlots}/9)`);
+    } else if (!isFarmPrestigeReady(farm, state.workers, state)) {
+      blockers.push(`${crop.emoji} ${crop.name}: workers not keeping up with growth`);
+    }
+  }
+  const threshold = getPrestigeCashThreshold(state.season);
+  if ((state.cash ?? 0) < threshold) blockers.push(`Need $${threshold} cash (have $${Math.floor(state.cash ?? 0)})`);
+  return blockers;
 }
  
 export function beginPrestige(state, chosenBonusId, keptWorkerId) {
   const next = deepCloneState(state);
   const newSeason = next.season + 1;
- 
   if (chosenBonusId) next.prestigeBonuses.push(chosenBonusId);
  
-  // Find the worker to keep (search all three systems)
   const previousKeptWorkers = [...(next.keptWorkers ?? [])];
   if (keptWorkerId) {
-    const farmWorker = next.workers.find((w) => w.id === keptWorkerId);
-    const kitchenWorker = next.kitchenWorkers.find((w) => w.id === keptWorkerId);
-    const marketWorker = next.marketWorkers.find((w) => w.id === keptWorkerId);
- 
-    if (farmWorker) previousKeptWorkers.push(makeKeptWorker(farmWorker, "farm"));
-    else if (kitchenWorker) previousKeptWorkers.push(makeKeptWorker(kitchenWorker, "kitchen"));
-    else if (marketWorker) previousKeptWorkers.push(makeKeptWorker(marketWorker, "market"));
+    const fw = next.workers.find((w) => w.id === keptWorkerId);
+    const kw = next.kitchenWorkers.find((w) => w.id === keptWorkerId);
+    const mw = next.marketWorkers.find((w) => w.id === keptWorkerId);
+    if (fw) previousKeptWorkers.push(makeKeptWorker(fw, "farm"));
+    else if (kw) previousKeptWorkers.push(makeKeptWorker(kw, "kitchen"));
+    else if (mw) previousKeptWorkers.push(makeKeptWorker(mw, "market"));
   }
   next.keptWorkers = previousKeptWorkers;
  
-  // Reset workers
   next.workers = [];
   next.kitchenWorkers = [];
   next.marketWorkers = [];
  
-  // Keep 10% of crops
   for (const cropId of Object.keys(next.crops)) {
     next.crops[cropId] = Math.floor((next.crops[cropId] ?? 0) * 0.1);
   }
  
-  // Artisan goods carry over fully
-  // Feast bonus carries over
- 
   next.yieldPool = 0;
  
-  // Season 4+: offer a new farm slot
   if (newSeason >= FIRST_EXTRA_FARM_SEASON) {
     next.pendingFarmUnlock = true;
   } else {
     const newFarmCrops = SEASON_FARMS[newSeason] ?? [];
     const existingCropIds = next.farms.map((f) => f.crop);
     for (const cropId of newFarmCrops) {
-      if (!existingCropIds.includes(cropId)) {
-        next.farms.push(makeFarm(cropId, true));
-      }
+      if (!existingCropIds.includes(cropId)) next.farms.push(makeFarm(cropId, true));
     }
   }
  
-  // Reset plot states, keep unlockedPlots + upgraded
   for (const farm of next.farms) {
     farm.plots = farm.plots.map((plot, idx) => ({
       ...plot,
@@ -1387,44 +1515,32 @@ export function beginPrestige(state, chosenBonusId, keptWorkerId) {
     }));
   }
  
-  // head_start: auto-hire one free worker per farm (only if population allows)
   if (next.prestigeBonuses.includes("head_start")) {
     const startWithGloves = next.prestigeBonuses.includes("fast_hands");
-    const farmsForNewSeason = newSeason >= FIRST_EXTRA_FARM_SEASON
+    const farmsForSeason = newSeason >= FIRST_EXTRA_FARM_SEASON
       ? next.farms
       : next.farms.filter((f) => (SEASON_FARMS[newSeason] ?? []).includes(f.crop));
-    for (const farm of farmsForNewSeason) {
+    for (const farm of farmsForSeason) {
       if (isAtWorkerCap(next)) break;
       const w = makeFarmWorker(farm.id, startWithGloves);
-      const cs = getEffectiveCycleSeconds(w);
-      w.cycleProgress = cs - 1;
+      w.cycleProgress = getEffectiveCycleSeconds(w) - 1;
       next.workers.push(w);
     }
   }
  
-  // Place kept workers automatically by type
-  const farmKeptWorkers = next.keptWorkers.filter((w) => w.keptType === "farm");
-  const kitchenKeptWorkers = next.keptWorkers.filter((w) => w.keptType === "kitchen");
-  const marketKeptWorkers = next.keptWorkers.filter((w) => w.keptType === "market");
+  const farmKept = next.keptWorkers.filter((w) => w.keptType === "farm");
+  const kitchenKept = next.keptWorkers.filter((w) => w.keptType === "kitchen");
+  const marketKept = next.keptWorkers.filter((w) => w.keptType === "market");
  
-  // Kitchen and market kept workers go straight into their arrays
-  for (const kw of kitchenKeptWorkers) {
-    if (isAtWorkerCap(next)) break;
-    next.kitchenWorkers.push({ ...kw });
-  }
-  for (const kw of marketKeptWorkers) {
-    if (isAtWorkerCap(next)) break;
-    next.marketWorkers.push({ ...kw });
-  }
+  for (const kw of kitchenKept) { if (isAtWorkerCap(next)) break; next.kitchenWorkers.push({ ...kw }); }
+  for (const kw of marketKept) { if (isAtWorkerCap(next)) break; next.marketWorkers.push({ ...kw }); }
  
-  // Farm kept workers need assignment — keep them in keptWorkers for the assignment screen
-  // Remove kitchen/market from keptWorkers since they're already placed
-  next.keptWorkers = farmKeptWorkers;
-  next.pendingWorkerAssignments = farmKeptWorkers.length > 0;
- 
+  next.keptWorkers = farmKept;
+  next.pendingWorkerAssignments = farmKept.length > 0;
   next.season = newSeason;
   next.lastSavedTime = Date.now();
- 
+  // Reset stats buffers on prestige
+  next.stats = { farmCrops: {}, kitchenGoods: {}, marketCash: null };
   return next;
 }
  
@@ -1435,48 +1551,10 @@ export function assignKeptWorker(state, keptWorkerId, farmId) {
   const farm = next.farms.find((f) => f.id === farmId);
   if (!farm) return state;
   const keptWorker = next.keptWorkers[workerIdx];
-  const cs = getEffectiveCycleSeconds(keptWorker);
-  const worker = {
-    ...keptWorker,
-    farmId,
-    cycleProgress: cs - 1,
-    cycleCount: 0,
-  };
-  next.workers.push(worker);
+  next.workers.push({ ...keptWorker, farmId, cycleProgress: getEffectiveCycleSeconds(keptWorker) - 1, cycleCount: 0 });
   next.keptWorkers.splice(workerIdx, 1);
   if (next.keptWorkers.length === 0) next.pendingWorkerAssignments = false;
   return next;
-}
- 
-export function canPrestige(state) {
-  const farmsToCheck = state.season >= FIRST_EXTRA_FARM_SEASON
-    ? state.farms
-    : state.farms.filter((f) => (SEASON_FARMS[Math.min(state.season, 3)] ?? []).includes(f.crop));
-  for (const farm of farmsToCheck) {
-    if (!isFarmAutomated(farm, state.workers)) return false;
-  }
-  const threshold = getPrestigeCashThreshold(state.season);
-  if ((state.cash ?? 0) < threshold) return false;
-  return true;
-}
- 
-export function getPrestigeBlockers(state) {
-  const blockers = [];
-  const farmsToCheck = state.season >= FIRST_EXTRA_FARM_SEASON
-    ? state.farms
-    : state.farms.filter((f) => (SEASON_FARMS[Math.min(state.season, 3)] ?? []).includes(f.crop));
-  for (const farm of farmsToCheck) {
-    if (!isFarmAutomated(farm, state.workers)) {
-      const crop = CROPS[farm.crop];
-      blockers.push(`${crop.emoji} ${crop.name} farm not automated`);
-    }
-  }
-  const threshold = getPrestigeCashThreshold(state.season);
-  const cash = state.cash ?? 0;
-  if (cash < threshold) {
-    blockers.push(`Need $${threshold} cash (have $${Math.floor(cash)})`);
-  }
-  return blockers;
 }
  
 // ─── Serialization ────────────────────────────────────────────────────────────
@@ -1491,60 +1569,35 @@ export function deserializeState(raw) {
     if (!parsed || typeof parsed !== "object") return null;
     if (!Array.isArray(parsed.farms) || !Array.isArray(parsed.workers)) return null;
  
-    // ── Legacy migrations ──────────────────────────────────────────────────
- 
     if (parsed.kitchenWorkers === undefined) {
       parsed.kitchenWorkers = [];
-      const oldQueue = parsed.processingQueue ?? [];
-      const activeItems = oldQueue.filter((i) => !i.done);
-      for (const item of activeItems) {
-        const worker = makeKitchenWorker();
-        worker.recipeId = item.recipeId;
-        worker.elapsedSeconds = item.elapsedSeconds ?? 0;
-        worker.totalSeconds = item.totalSeconds ?? 120;
-        worker.busy = true;
-        parsed.kitchenWorkers.push(worker);
+      for (const item of (parsed.processingQueue ?? []).filter((i) => !i.done)) {
+        const w = makeKitchenWorker();
+        w.recipeId = item.recipeId; w.elapsedSeconds = item.elapsedSeconds ?? 0;
+        w.totalSeconds = item.totalSeconds ?? 120; w.busy = true;
+        parsed.kitchenWorkers.push(w);
       }
     }
-    delete parsed.processingQueue;
-    delete parsed.kitchenPurchased;
-    delete parsed.kitchenSlotCount;
-    delete parsed.kitchenSlots;
+    delete parsed.processingQueue; delete parsed.kitchenPurchased;
+    delete parsed.kitchenSlotCount; delete parsed.kitchenSlots;
  
     if (parsed.marketWorkers === undefined) {
       parsed.marketWorkers = [];
-      const oldQueue = parsed.marketQueue ?? [];
-      if (oldQueue.length > 0) {
-        const worker = makeMarketWorker();
-        worker.queue = oldQueue.map((o) => ({ ...o }));
-        parsed.marketWorkers.push(worker);
+      if ((parsed.marketQueue ?? []).length > 0) {
+        const w = makeMarketWorker();
+        w.queue = parsed.marketQueue.map((o) => ({ ...o }));
+        parsed.marketWorkers.push(w);
       }
     }
-    delete parsed.marketQueue;
-    delete parsed.marketUnlocked;
+    delete parsed.marketQueue; delete parsed.marketUnlocked;
  
-    // Add hiredAt to existing workers that don't have it
-    for (const worker of parsed.workers ?? []) {
-      if (worker.cycleCount === undefined) worker.cycleCount = 0;
-      if (worker.hiredAt === undefined) worker.hiredAt = 0;
-    }
-    for (const worker of parsed.kitchenWorkers ?? []) {
-      if (worker.batchSize === undefined) worker.batchSize = 1;
-      if (worker.hiredAt === undefined) worker.hiredAt = 0;
-    }
-    for (const worker of parsed.marketWorkers ?? []) {
-      if (worker.hasStandingOrder === undefined) worker.hasStandingOrder = false;
-      if (worker.standingOrder === undefined) worker.standingOrder = null;
-      if (worker.hiredAt === undefined) worker.hiredAt = 0;
-    }
+    for (const w of parsed.workers ?? []) { if (w.cycleCount === undefined) w.cycleCount = 0; if (w.hiredAt === undefined) w.hiredAt = 0; }
+    for (const w of parsed.kitchenWorkers ?? []) { if (w.batchSize === undefined) w.batchSize = 1; if (w.hiredAt === undefined) w.hiredAt = 0; }
+    for (const w of parsed.marketWorkers ?? []) { if (w.hasStandingOrder === undefined) w.hasStandingOrder = false; if (w.standingOrder === undefined) w.standingOrder = null; if (w.hiredAt === undefined) w.hiredAt = 0; }
+ 
     if (parsed.yieldPool === undefined) parsed.yieldPool = 0;
     if (parsed.keptWorkers === undefined) parsed.keptWorkers = [];
- 
-    // Migrate old farm-only kept workers to have keptType
-    for (const kw of parsed.keptWorkers) {
-      if (kw.keptType === undefined) kw.keptType = "farm";
-    }
- 
+    for (const kw of parsed.keptWorkers) { if (kw.keptType === undefined) kw.keptType = "farm"; }
     if (parsed.pendingWorkerAssignments === undefined) parsed.pendingWorkerAssignments = false;
     if (parsed.artisan === undefined) parsed.artisan = { bread: 0, jam: 0, sauce: 0 };
     if (parsed.feastBonusPercent === undefined) parsed.feastBonusPercent = 0;
@@ -1553,14 +1606,12 @@ export function deserializeState(raw) {
     if (parsed.lifetimeCash === undefined) parsed.lifetimeCash = 0;
     if (parsed.extraFarmsUnlocked === undefined) parsed.extraFarmsUnlocked = 0;
     if (parsed.pendingFarmUnlock === undefined) parsed.pendingFarmUnlock = false;
+    if (!parsed.stats) parsed.stats = { farmCrops: {}, kitchenGoods: {}, marketCash: null };
  
     if (Array.isArray(parsed.prestigeBonuses)) {
-      parsed.prestigeBonuses = parsed.prestigeBonuses.map((b) =>
-        b === "bigger_kitchen" ? "market_savvy" : b
-      );
+      parsed.prestigeBonuses = parsed.prestigeBonuses.map((b) => b === "bigger_kitchen" ? "market_savvy" : b);
     }
  
-    // Town migration — always unlocked, satisfaction + buildings
     if (parsed.town === undefined) {
       parsed.town = makeFreshTown();
     } else {
@@ -1568,19 +1619,25 @@ export function deserializeState(raw) {
       if (!parsed.town.homes || parsed.town.homes === 0) parsed.town.homes = 1;
       if (parsed.town.bakeryLevel === undefined) parsed.town.bakeryLevel = 0;
       if (parsed.town.bakeryOn === undefined) parsed.town.bakeryOn = false;
+      if (parsed.town.pantryOn === undefined) parsed.town.pantryOn = false;
+      if (parsed.town.canneryOn === undefined) parsed.town.canneryOn = false;
       if (parsed.town.jamBuildingOwned === undefined) parsed.town.jamBuildingOwned = false;
       if (parsed.town.sauceBuildingOwned === undefined) parsed.town.sauceBuildingOwned = false;
-      if (parsed.town.people === undefined || parsed.town.people === 0) {
-        parsed.town.people = TOWN_STARTING_PEOPLE;
-      }
+      if (parsed.town.townHallLevel === undefined) parsed.town.townHallLevel = 0;
+      if (parsed.town.treasuryBalance === undefined) parsed.town.treasuryBalance = 0;
+      if (parsed.town.treasuryActiveTier === undefined) parsed.town.treasuryActiveTier = 0;
+      if (parsed.town.bankBuilt === undefined) parsed.town.bankBuilt = false;
+      if (parsed.town.bankLevel === undefined) parsed.town.bankLevel = 0;
+      if (parsed.town.bankActiveTier === undefined) parsed.town.bankActiveTier = 0;
+      if (parsed.town.bakeryUpgradeLevel === undefined) parsed.town.bakeryUpgradeLevel = 0;
+      if (parsed.town.pantryUpgradeLevel === undefined) parsed.town.pantryUpgradeLevel = 0;
+      if (parsed.town.canneryUpgradeLevel === undefined) parsed.town.canneryUpgradeLevel = 0;
+      if (parsed.town.jamNeeded === undefined) parsed.town.jamNeeded = 0;
+      if (parsed.town.sauceNeeded === undefined) parsed.town.sauceNeeded = 0;
+      if (parsed.town.people === undefined || parsed.town.people === 0) parsed.town.people = TOWN_STARTING_PEOPLE;
       if (parsed.town.capacity === undefined) parsed.town.capacity = TOWN_HOME_CAPACITY;
-      // Migrate old satisfaction (was 0-1 float) to new 0-150 int
-      if (parsed.town.satisfaction === undefined || parsed.town.satisfaction <= 1) {
-        parsed.town.satisfaction = TOWN_SATISFACTION_DEFAULT;
-      }
-      if (parsed.town.satisfactionTarget === undefined) {
-        parsed.town.satisfactionTarget = TOWN_SAT_WHEAT;
-      }
+      if (parsed.town.satisfaction === undefined || parsed.town.satisfaction <= 1) parsed.town.satisfaction = TOWN_SATISFACTION_DEFAULT;
+      if (parsed.town.satisfactionTarget === undefined) parsed.town.satisfactionTarget = TOWN_SAT_WHEAT;
       if (parsed.town.growthBonusPercent === undefined) parsed.town.growthBonusPercent = 0;
       if (parsed.town.breadNeeded === undefined) parsed.town.breadNeeded = 0;
       if (parsed.town.rawBreadNeeded === undefined) parsed.town.rawBreadNeeded = 0;
@@ -1588,6 +1645,9 @@ export function deserializeState(raw) {
       parsed.town.foodType = parsed.town.bakeryOn ? "bread" : "wheat";
       if (parsed.town.pulseSeconds === undefined) parsed.town.pulseSeconds = TOWN_PULSE_SECONDS;
       if (parsed.town.starving === undefined) parsed.town.starving = false;
+      // Migrate old drain-based townHall to treasury
+      if (parsed.town.townHallDraining !== undefined) delete parsed.town.townHallDraining;
+      if (parsed.town.townHallDrained !== undefined) delete parsed.town.townHallDrained;
     }
  
     return parsed;

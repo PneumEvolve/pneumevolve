@@ -11,7 +11,7 @@ function getGrowPercent(plot, growTime) {
  
 export default function Plot({ plot, farm, game, onPlant, onHarvest, onTend, tendMode }) {
   const crop = CROPS[farm.crop];
-   const feast = game.feastBonusPercent ?? 0;
+  const feast = game.feastBonusPercent ?? 0;
   const townBonus = game.town?.growthBonusPercent ?? 0;
   const growTime = getEffectiveGrowTime(farm, game.workers, farm.crop, plot, feast, townBonus);
  
@@ -23,15 +23,14 @@ export default function Plot({ plot, farm, game, onPlant, onHarvest, onTend, ten
  
   function handleTap() {
     if (tendMode) {
-      if (isPlanted) onTend(farm.id, plot.id);
+      onTend(farm.id, plot.id);
       return;
     }
     if (isEmpty) onPlant(farm.id, plot.id);
     else if (isReady) onHarvest(farm.id, plot.id);
   }
  
-  const isTendable = tendMode && isPlanted;
-  const isClickable = isTendable || (!tendMode && (isEmpty || isReady));
+  const isClickable = tendMode || (!tendMode && (isEmpty || isReady));
  
   // Safari-safe colors — no color-mix()
   let bg = "var(--bg)";
@@ -51,10 +50,12 @@ export default function Plot({ plot, farm, game, onPlant, onHarvest, onTend, ten
       bg = "rgba(251, 191, 36, 0.20)";
       borderColor = "#fbbf24";
       label = crop.emoji;
-      sublabel = "Ready";
+      sublabel = "Harvest!";
     } else {
+      bg = "rgba(163, 230, 53, 0.10)";
+      borderColor = "#a3e635";
       label = crop.emoji;
-      sublabel = "Empty";
+      sublabel = "Plant";
     }
   } else {
     if (isEmpty) {
@@ -99,6 +100,8 @@ export default function Plot({ plot, farm, game, onPlant, onHarvest, onTend, ten
       onPointerLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
       aria-label={
         tendMode && isPlanted ? `Tend ${crop.name}`
+        : tendMode && isReady ? `Harvest ${crop.name}`
+        : tendMode && isEmpty ? `Plant ${crop.name}`
         : isEmpty ? `Plant ${crop.name}`
         : isReady ? `Harvest ${crop.name}`
         : `${crop.name} growing — ${growPercent}%`
@@ -125,11 +128,11 @@ export default function Plot({ plot, farm, game, onPlant, onHarvest, onTend, ten
         }} />
       )}
  
-      {/* Tend mode pulse */}
-      {tendMode && isPlanted && (
+      {/* Tend mode pulse — all states */}
+      {tendMode && (
         <div style={{
           position: "absolute", inset: 0, borderRadius: "8px",
-          border: "2px solid #a3e635",
+          border: `2px solid ${isReady ? "#fbbf24" : "#a3e635"}`,
           animation: "rw-pulse 1s ease-in-out infinite",
           pointerEvents: "none",
         }} />

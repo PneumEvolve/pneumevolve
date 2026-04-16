@@ -1,9 +1,9 @@
 import React from "react";
 import { CROPS, SEASON_FARMS } from "../gameConstants";
 import { isFarmAutomated } from "../gameEngine";
-
-export const MAIN_TABS = ["farms", "market", "kitchen", "town", "season"];
-
+ 
+export const MAIN_TABS = ["farms", "market", "kitchen", "town", "stats", "season"];
+ 
 export function FarmSubTabs({ game, activeFarmIndex, onFarmChange }) {
   const farms =
     game.season >= 4
@@ -11,9 +11,9 @@ export function FarmSubTabs({ game, activeFarmIndex, onFarmChange }) {
       : game.farms.filter((f) =>
           (SEASON_FARMS[game.season] ?? ["wheat"]).includes(f.crop)
         );
-
+ 
   if (farms.length <= 1) return null;
-
+ 
   return (
     <div
       style={{
@@ -28,7 +28,7 @@ export function FarmSubTabs({ game, activeFarmIndex, onFarmChange }) {
         const crop = CROPS[farm.crop];
         const automated = isFarmAutomated(farm, game.workers);
         const isActive = activeFarmIndex === idx;
-
+ 
         return (
           <button
             key={farm.id}
@@ -71,7 +71,7 @@ export function FarmSubTabs({ game, activeFarmIndex, onFarmChange }) {
     </div>
   );
 }
-
+ 
 export default function GameNav({
   game,
   activeMainTab,
@@ -81,16 +81,16 @@ export default function GameNav({
   const idleKitchenWorkers = (game.kitchenWorkers ?? []).filter(
     (w) => !w.busy
   ).length;
-
+ 
   const marketQueueTotal = (game.marketWorkers ?? []).reduce(
     (s, w) => s + (w.queue ?? []).reduce((qs, o) => qs + o.quantity, 0),
     0
   );
-
+ 
   const townUnlocked = game?.town?.unlocked === true;
   const starvingTown = game?.town?.starving === true;
   const townPeople = Math.floor(game?.town?.people ?? 0);
-
+ 
   const tabs = [
     {
       id: "farms",
@@ -126,6 +126,12 @@ export default function GameNav({
       badgeColor: starvingTown ? "#ef4444" : "#4ade80",
     },
     {
+      id: "stats",
+      label: "Stats",
+      emoji: "📊",
+      badge: null,
+    },
+    {
       id: "season",
       label: "Season",
       emoji: "🌸",
@@ -133,7 +139,7 @@ export default function GameNav({
       badgeColor: "#f59e0b",
     },
   ];
-
+ 
   return (
     <div
       style={{
@@ -150,7 +156,7 @@ export default function GameNav({
     >
       {tabs.map((tab) => {
         const isActive = activeMainTab === tab.id;
-
+ 
         return (
           <button
             key={tab.id}
@@ -180,7 +186,7 @@ export default function GameNav({
               {tab.emoji}
             </span>
             <span>{tab.label}</span>
-
+ 
             {tab.badge && (
               <span
                 style={{
