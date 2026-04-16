@@ -266,8 +266,8 @@ export default function TownZone({
           {row("Next pulse in", `${pulseSeconds}s`)}
           {row(`${foodEmoji} needed`, `${nextPulseFoodCost} ${foodEmoji}`, foodHave >= nextPulseFoodCost ? "#4ade80" : "#ef4444")}
           {row(`${foodEmoji} in stock`, `${foodHave}`, foodHave >= nextPulseFoodCost ? "#4ade80" : "#ef4444")}
-          {pantryOn && row("🍯 jam needed", `${jamPulseCost}`, jamHave >= jamPulseCost ? "#4ade80" : "#ef4444")}
-          {canneryOn && row("🥫 sauce needed", `${saucePulseCost}`, sauceHave >= saucePulseCost ? "#4ade80" : "#ef4444")}
+          {jamOwned && row("🍯 jam/pulse", pantryOn ? `${jamPulseCost}` : `${getBuildingEffectivePulseCost(game, "pantry")} (off)`, pantryOn ? (jamHave >= jamPulseCost ? "#4ade80" : "#ef4444") : "var(--muted)")}
+          {sauceOwned && row("🥫 sauce/pulse", canneryOn ? `${saucePulseCost}` : `${getBuildingEffectivePulseCost(game, "cannery")} (off)`, canneryOn ? (sauceHave >= saucePulseCost ? "#4ade80" : "#ef4444") : "var(--muted)")}
           {row("Status", starving ? "😟 Hungry" : "😊 Fed", starving ? "#ef4444" : "#4ade80")}
         </div>
       </div>
