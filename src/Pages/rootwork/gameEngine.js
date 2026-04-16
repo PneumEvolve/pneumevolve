@@ -208,7 +208,8 @@ export function isFarmPrestigeReady(farm, workers, state) {
   const growTime = getEffectiveGrowTime(
     farm, workers, farm.crop, null,
     state.feastBonusPercent ?? 0,
-    state.town?.growthBonusPercent ?? 0
+    state.town?.growthBonusPercent ?? 0,
+    getTreasuryGrowBonus(state)
   );
  
   const demandRate = farm.unlockedPlots / growTime;
@@ -641,6 +642,7 @@ export function makeMarketWorker() {
     queue: [],
     standingOrder: null,
     hasStandingOrder: false,
+    sellProgress: 0,
     hiredAt: Date.now(),
   };
 }
@@ -949,7 +951,10 @@ export function tick(state) {
     }
  
     const itemsPerSecond = getMarketWorkerItemsPerSecond(worker);
-    let toSellThisTick = Math.floor(itemsPerSecond * satMultiplier);
+    // Accumulate fractional progress — low satisfaction slows selling but never freezes it
+    worker.sellProgress = (worker.sellProgress ?? 0) + itemsPerSecond * satMultiplier;
+    let toSellThisTick = Math.floor(worker.sellProgress);
+    worker.sellProgress -= toSellThisTick;
     let cashEarned = 0;
     while (toSellThisTick > 0 && (worker.queue ?? []).length > 0) {
       const order = worker.queue[0];
@@ -1593,7 +1598,7 @@ export function deserializeState(raw) {
  
     for (const w of parsed.workers ?? []) { if (w.cycleCount === undefined) w.cycleCount = 0; if (w.hiredAt === undefined) w.hiredAt = 0; }
     for (const w of parsed.kitchenWorkers ?? []) { if (w.batchSize === undefined) w.batchSize = 1; if (w.hiredAt === undefined) w.hiredAt = 0; }
-    for (const w of parsed.marketWorkers ?? []) { if (w.hasStandingOrder === undefined) w.hasStandingOrder = false; if (w.standingOrder === undefined) w.standingOrder = null; if (w.hiredAt === undefined) w.hiredAt = 0; }
+    for (const w of parsed.marketWorkers ?? []) { if (w.hasStandingOrder === undefined) w.hasStandingOrder = false; if (w.standingOrder === undefined) w.standingOrder = null; if (w.hiredAt === undefined) w.hiredAt = 0; if (w.sellProgress === undefined) w.sellProgress = 0; }
  
     if (parsed.yieldPool === undefined) parsed.yieldPool = 0;
     if (parsed.keptWorkers === undefined) parsed.keptWorkers = [];

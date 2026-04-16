@@ -4,7 +4,7 @@ import React from "react";
 import { CROPS, SEASON_FARMS, FIRST_EXTRA_FARM_SEASON } from "../gameConstants";
 import {
   getWorkerHarvestRate, getEffectiveGrowTime, getStatPerMinute,
-  getTreasuryGrowBonus, getBankPriceBonus, getSellRate,
+  getTreasuryGrowBonus, getBankPriceBonus, getSellRate, getFarmBonusYield,
 } from "../gameEngine";
  
 function StatRow({ label, value, sub, valueColor }) {
@@ -35,7 +35,13 @@ function FarmStatsCard({ farm, game }) {
   const efficiency = demandRate > 0 ? Math.min(100, Math.round((supplyRate / demandRate) * 100)) : 0;
  
   const perMinActual = getStatPerMinute(game.stats?.farmCrops?.[farm.id]);
-  const perMinEstimated = Math.round(supplyRate * 60 * (game.town?.satisfaction ?? 100) / 100);
+ 
+  // Crops per harvest = base worker yield + fertilizer bonus, then bumper crop multiplier
+  const bonusYield = getFarmBonusYield(game, farm.id);
+  const baseYield = crop.workerYield + bonusYield;
+  const bumperCount = (game.prestigeBonuses ?? []).filter((b) => b === "bumper_crop").length;
+  const yieldPerHarvest = bumperCount > 0 ? baseYield * (1 + bumperCount * 0.1) : baseYield;
+  const perMinEstimated = Math.round(supplyRate * 60 * yieldPerHarvest * (game.town?.satisfaction ?? 100) / 100);
  
   return (
     <div className="card p-4" style={{ marginBottom: "1rem" }}>
