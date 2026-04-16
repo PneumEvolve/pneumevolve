@@ -4,7 +4,7 @@ import React from "react";
 import { CROPS, SEASON_FARMS, FIRST_EXTRA_FARM_SEASON } from "../gameConstants";
 import {
   getWorkerHarvestRate, getEffectiveGrowTime, getStatPerMinute,
-  getTreasuryGrowBonus, getBankPriceBonus, getSellRate, getFarmBonusYield,
+  getTreasuryGrowBonus, getBankPriceBonus, getSellRate,
 } from "../gameEngine";
  
 function StatRow({ label, value, sub, valueColor }) {
@@ -32,16 +32,8 @@ function FarmStatsCard({ farm, game }) {
   const demandRate = farm.unlockedPlots / growTime;
   const supplyRate = farmWorkers.reduce((sum, w) => sum + getWorkerHarvestRate(w), 0);
   const covered = supplyRate >= demandRate;
-  const efficiency = demandRate > 0 ? Math.min(100, Math.round((supplyRate / demandRate) * 100)) : 0;
  
   const perMinActual = getStatPerMinute(game.stats?.farmCrops?.[farm.id]);
- 
-  // Crops per harvest = base worker yield + fertilizer bonus, then bumper crop multiplier
-  const bonusYield = getFarmBonusYield(game, farm.id);
-  const baseYield = crop.workerYield + bonusYield;
-  const bumperCount = (game.prestigeBonuses ?? []).filter((b) => b === "bumper_crop").length;
-  const yieldPerHarvest = bumperCount > 0 ? baseYield * (1 + bumperCount * 0.1) : baseYield;
-  const perMinEstimated = Math.round(supplyRate * 60 * yieldPerHarvest * (game.town?.satisfaction ?? 100) / 100);
  
   return (
     <div className="card p-4" style={{ marginBottom: "1rem" }}>
@@ -53,7 +45,7 @@ function FarmStatsCard({ farm, game }) {
           border: `1px solid ${covered ? "#4ade80" : "#f59e0b"}`,
           color: covered ? "#166534" : "#92400e",
         }}>
-          {efficiency}% covered
+          {covered ? "\u2713 Keeping up" : "Falling behind"}
         </span>
       </div>
  
@@ -62,8 +54,7 @@ function FarmStatsCard({ farm, game }) {
       <StatRow label="Grow time" value={`${growTime}s`} sub="per plot" />
       <StatRow label="Demand rate" value={`${demandRate.toFixed(3)}`} sub="plots/sec needed" valueColor="#f59e0b" />
       <StatRow label="Supply rate" value={`${supplyRate.toFixed(3)}`} sub="plots/sec workers provide" valueColor={covered ? "#4ade80" : "#ef4444"} />
-      <StatRow label="Harvested (last 60s)" value={`${perMinActual}`} sub={crop.emoji} valueColor="#4ade80" />
-      <StatRow label="Est. output/min" value={`${perMinEstimated}`} sub={`${crop.emoji} (at ${game.town?.satisfaction ?? 100}% sat)`} />
+      <StatRow label="Output/min" value={perMinActual} sub={`${crop.emoji} actual (last 60s)`} valueColor="#4ade80" />
     </div>
   );
 }
