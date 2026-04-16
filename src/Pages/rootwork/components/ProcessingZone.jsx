@@ -100,7 +100,7 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
   const idle = isKitchenWorkerIdle(worker);
   const recipe = worker.recipeId ? PROCESSING_RECIPES[worker.recipeId] : null;
   const upgrades = worker.upgrades ?? [];
-  const timeRemaining = worker.busy ? Math.max(0, worker.totalSeconds - worker.elapsedSeconds) : 0;
+  const timeRemaining = worker.busy ? Math.max(0, Math.floor(worker.totalSeconds - worker.elapsedSeconds)) : 0;
   const batch = getKitchenWorkerBatchSize(worker);
   const hasAutoRestart = upgrades.includes("auto_restart");
 
