@@ -1,6 +1,6 @@
 import React from "react";
 import { CROPS, SEASON_FARMS } from "../gameConstants";
-import { isFarmAutomated } from "../gameEngine";
+import { isFarmAutomated, isFarmPrestigeReady } from "../gameEngine";
  
 export const MAIN_TABS = ["farms", "market", "kitchen", "town", "stats", "season"];
  
@@ -26,6 +26,7 @@ export function FarmSubTabs({ game, activeFarmIndex, onFarmChange }) {
     >
       {farms.map((farm, idx) => {
         const crop = CROPS[farm.crop];
+        const prestigeReady = isFarmPrestigeReady(farm, game.workers, game);
         const automated = isFarmAutomated(farm, game.workers);
         const isActive = activeFarmIndex === idx;
  
@@ -54,7 +55,7 @@ export function FarmSubTabs({ game, activeFarmIndex, onFarmChange }) {
           >
             <span>{crop.emoji}</span>
             <span>{crop.name}</span>
-            {automated && (
+            {prestigeReady && (
               <span
                 style={{
                   fontSize: "0.6rem",
