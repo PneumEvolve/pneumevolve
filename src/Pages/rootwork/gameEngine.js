@@ -985,6 +985,55 @@ export function tick(state) {
     }
   }
  
+  // ── Fish trap ────────────────────────────────────────────────────────────
+  if (next.pond?.owned && next.pond?.trapOwned) {
+    next.pond.trapTimer = (next.pond.trapTimer ?? 0) + 1;
+    if (next.pond.trapTimer >= FISH_TRAP_CATCH_INTERVAL) {
+      next.pond.trapTimer = 0;
+      const trapFish = FISH_TRAP_FISH[Math.floor(Math.random() * FISH_TRAP_FISH.length)];
+      if (!next.pond.fish) next.pond.fish = {};
+      next.pond.fish[trapFish] = (next.pond.fish[trapFish] ?? 0) + 1;
+    }
+  }
+
+  // ── Animals ──────────────────────────────────────────────────────────────
+  const dogOwned = next.pets?.dog !== undefined;
+  const dogMoodOk = dogOwned && (next.pets.dog.mood ?? 0) >= 50;
+  const moodDecayMultiplier = dogMoodOk ? 0.70 : 1.0;
+
+  for (const animalId of Object.keys(next.animals ?? {})) {
+    const type = ANIMAL_TYPES[animalId];
+    if (!type) continue;
+    for (const animal of next.animals[animalId]) {
+      // Advance production timer
+      if (!animal.ready) {
+        animal.readyTick = (animal.readyTick ?? 0) + 1;
+        if (animal.readyTick >= type.cycleSeconds) {
+          animal.ready = true;
+          animal.readyTick = type.cycleSeconds;
+        }
+      }
+      // Mood decay per second
+      const decayPerSecond = (type.moodDecayPerMinute / 60) * moodDecayMultiplier;
+      animal.mood = Math.max(0, (animal.mood ?? 100) - decayPerSecond);
+      // Interact cooldown
+      if ((animal.interactCooldown ?? 0) > 0) {
+        animal.interactCooldown = Math.max(0, animal.interactCooldown - 1);
+      }
+    }
+  }
+
+  // ── Pets ─────────────────────────────────────────────────────────────────
+  for (const petId of Object.keys(next.pets ?? {})) {
+    const type = PET_TYPES[petId];
+    if (!type) continue;
+    const pet = next.pets[petId];
+    pet.mood = Math.max(0, (pet.mood ?? 100) - (type.moodDecayPerMinute / 60));
+    if ((pet.interactCooldown ?? 0) > 0) {
+      pet.interactCooldown = Math.max(0, pet.interactCooldown - 1);
+    }
+  }
+
   next = updateTown(next, 1);
   next.totalPlayTime = (next.totalPlayTime ?? 0) + 1;
   return next;
