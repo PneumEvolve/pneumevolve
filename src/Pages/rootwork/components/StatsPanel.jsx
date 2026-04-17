@@ -20,6 +20,7 @@ function StatRow({ label, value, sub, valueColor }) {
 }
  
 function FarmStatsCard({ farm, game }) {
+  const [open, setOpen] = React.useState(true);
   const crop = CROPS[farm.crop];
   const farmWorkers = game.workers.filter((w) => w.farmId === farm.id);
  
@@ -37,25 +38,39 @@ function FarmStatsCard({ farm, game }) {
   const perMinActual = getStatPerMinute(game.stats?.farmCrops?.[farm.id]);
  
   return (
-    <div className="card p-4" style={{ marginBottom: "1rem" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.6rem" }}>
+    <div className="card" style={{ marginBottom: "1rem", overflow: "hidden" }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          width: "100%", display: "flex", alignItems: "center",
+          justifyContent: "space-between", padding: "0.75rem 1rem",
+          background: "none", border: "none", cursor: "pointer",
+          borderBottom: open ? "1px solid var(--border)" : "none",
+        }}
+      >
         <div style={{ fontWeight: 600, fontSize: "0.88rem" }}>{crop.emoji} {crop.name} Farm</div>
-        <span style={{
-          fontSize: "0.65rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "999px",
-          background: covered ? "rgba(74,222,128,0.15)" : "rgba(245,158,11,0.15)",
-          border: `1px solid ${covered ? "#4ade80" : "#f59e0b"}`,
-          color: covered ? "#166534" : "#92400e",
-        }}>
-          {efficiency}% covered
-        </span>
-      </div>
- 
-      <StatRow label="Plots unlocked" value={farm.unlockedPlots} sub={`/ ${farm.plots.length} placed`} />
-      <StatRow label="Workers" value={farmWorkers.length} />
-      <StatRow label="Grow time" value={`${growTime}s`} sub="per plot" />
-      <StatRow label="Demand rate" value={`${demandRate.toFixed(3)}`} sub="plots/sec needed" valueColor="#f59e0b" />
-      <StatRow label="Supply rate" value={`${supplyRate.toFixed(3)}`} sub="plots/sec workers provide" valueColor={covered ? "#4ade80" : "#ef4444"} />
-      <StatRow label="Output/min" value={perMinActual} sub={`${crop.emoji} actual (last 60s)`} valueColor="#4ade80" />
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <span style={{
+            fontSize: "0.65rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "999px",
+            background: covered ? "rgba(74,222,128,0.15)" : "rgba(245,158,11,0.15)",
+            border: `1px solid ${covered ? "#4ade80" : "#f59e0b"}`,
+            color: covered ? "#166534" : "#92400e",
+          }}>
+            {efficiency}% covered
+          </span>
+          <span style={{ fontSize: "0.65rem", color: "var(--muted)" }}>{open ? "▲" : "▼"}</span>
+        </div>
+      </button>
+      {open && (
+        <div style={{ padding: "0.5rem 1rem 0.75rem" }}>
+          <StatRow label="Plots unlocked" value={farm.unlockedPlots} sub={`/ ${farm.plots.length} placed`} />
+          <StatRow label="Workers" value={farmWorkers.length} />
+          <StatRow label="Grow time" value={`${growTime}s`} sub="per plot" />
+          <StatRow label="Demand rate" value={`${demandRate.toFixed(3)}`} sub="plots/sec needed" valueColor="#f59e0b" />
+          <StatRow label="Supply rate" value={`${supplyRate.toFixed(3)}`} sub="plots/sec workers provide" valueColor={covered ? "#4ade80" : "#ef4444"} />
+          <StatRow label="Output/min" value={perMinActual} sub={`${crop.emoji} actual (last 60s)`} valueColor="#4ade80" />
+        </div>
+      )}
     </div>
   );
 }

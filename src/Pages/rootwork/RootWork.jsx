@@ -45,6 +45,7 @@ function saveToLocalStorage(state) {
 function PrestigeModal({ game, onComplete, onCancel }) {
   const [step, setStep] = useState(1);
   const [chosenBonus, setChosenBonus] = useState(null);
+  const [chosenWorkerIds, setChosenWorkerIds] = useState([]);
  
   const allWorkers = [
     ...game.workers.map((w) => ({ ...w, _type: "farm" })),
@@ -96,19 +97,41 @@ function PrestigeModal({ game, onComplete, onCancel }) {
         {step === 2 && (
           <>
             <div>
-              <h2 className="text-xl font-bold text-center">👷 Keep a Worker</h2>
-              <p className="text-xs text-center mt-1" style={{ color: "var(--muted)" }}>Step 2 of 2 — One worker returns next season with full gear</p>
+              <h2 className="text-xl font-bold text-center">👷 Keep Workers</h2>
+              <p className="text-xs text-center mt-1" style={{ color: "var(--muted)" }}>
+                Step 2 of 2 — Pick up to {game.season} worker{game.season !== 1 ? "s" : ""} to carry over
+              </p>
             </div>
+            <p className="text-sm text-center" style={{ color: "var(--muted)", lineHeight: 1.5 }}>
+              {chosenWorkerIds.length}/{game.season} selected
+            </p>
             {allWorkers.length === 0 ? (
               <p className="text-sm text-center" style={{ color: "var(--muted)" }}>No workers to keep. You'll start fresh.</p>
             ) : (
               <div className="space-y-2">
                 {allWorkers.map((worker) => {
                   const { title, subtitle, typeLabel, typeColor } = workerLabel(worker);
+                  const isSelected = chosenWorkerIds.includes(worker.id);
+                  const atLimit = chosenWorkerIds.length >= game.season;
                   return (
-                    <button key={worker.id} onClick={() => onComplete(chosenBonus, worker.id)} className="w-full text-left card p-3 hover:shadow-md transition" style={{ cursor: "pointer" }}>
+                    <button
+                      key={worker.id}
+                      onClick={() => {
+                        if (isSelected) {
+                          setChosenWorkerIds((ids) => ids.filter((id) => id !== worker.id));
+                        } else if (!atLimit) {
+                          setChosenWorkerIds((ids) => [...ids, worker.id]);
+                        }
+                      }}
+                      className="w-full text-left card p-3 hover:shadow-md transition"
+                      style={{
+                        cursor: isSelected || !atLimit ? "pointer" : "default",
+                        opacity: !isSelected && atLimit ? 0.4 : 1,
+                        border: isSelected ? "2px solid var(--accent)" : "2px solid var(--border)",
+                      }}
+                    >
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                        <div className="font-medium text-sm">{title}</div>
+                        <div className="font-medium text-sm">{isSelected ? "✓ " : ""}{title}</div>
                         <span style={{ fontSize: "0.62rem", fontWeight: 700, padding: "0.1rem 0.4rem", borderRadius: "999px", background: `${typeColor}22`, border: `1px solid ${typeColor}55`, color: typeColor }}>{typeLabel}</span>
                       </div>
                       <div className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>{subtitle}</div>
@@ -117,7 +140,11 @@ function PrestigeModal({ game, onComplete, onCancel }) {
                 })}
               </div>
             )}
-            <button onClick={() => onComplete(chosenBonus, null)} className="btn btn-secondary w-full text-sm">Skip — start with no kept worker</button>
+            <button onClick={() => onComplete(chosenBonus, chosenWorkerIds)} className="btn w-full text-sm">
+              {chosenWorkerIds.length > 0
+                ? `✓ Keep ${chosenWorkerIds.length} worker${chosenWorkerIds.length !== 1 ? "s" : ""} →`
+                : "Skip — start with no kept workers"}
+            </button>
           </>
         )}
       </div>
@@ -211,11 +238,12 @@ export default function RootWork() {
  
   useEffect(() => {
     if (!loaded) return;
+    if (showPrestigeModal) return; // pause while modal open
     const interval = setInterval(() => {
       setGame((prev) => { if (!prev) return prev; const next = tick(prev); gameRef.current = next; return next; });
     }, 1000);
     return () => clearInterval(interval);
-  }, [loaded]);
+  }, [loaded, showPrestigeModal]);
  
   useEffect(() => {
     if (!loaded) return;
@@ -275,7 +303,7 @@ export default function RootWork() {
  
   // Feast / prestige / misc
   const handleBuyFeast = useCallback(() => { update((s) => { const n = buyFeast(s); if (n === s) notify("Not enough artisan goods."); return n; }); notify("🍽️ Feast held! Grow speed increased."); }, [update, notify]);
-  const handlePrestigeComplete = useCallback((bonusId, workerId) => { update((s) => beginPrestige(s, bonusId, workerId)); setShowPrestigeModal(false); setActiveMainTab("farms"); setActiveFarmIndex(0); notify("🌱 New season begun!"); }, [update, notify]);
+  const handlePrestigeComplete = useCallback((bonusId, workerIds) => { update((s) => beginPrestige(s, bonusId, workerIds)); setShowPrestigeModal(false); setActiveMainTab("farms"); setActiveFarmIndex(0); notify("🌱 New season begun!"); }, [update, notify]);
   const handleAssignWorker = useCallback((keptWorkerId, farmId) => update((s) => assignKeptWorker(s, keptWorkerId, farmId)), [update]);
   const handleUnlockFarm = useCallback((cropId) => { update((s) => { const n = unlockExtraFarm(s, cropId); if (n === s) notify("Not enough cash."); return n; }); notify("🌾 New farm unlocked!"); }, [update, notify]);
   const handleResetGame = useCallback(() => {

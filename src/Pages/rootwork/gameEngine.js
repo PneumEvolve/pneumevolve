@@ -442,10 +442,8 @@ function pushStat(buffer, value, now) {
   if (!buffer) buffer = initStatsBuffer();
   const ticks = buffer.ticks ?? [];
   const cutoff = now - STATS_WINDOW;
-  // Remove old entries
-  let sum = 0;
   const fresh = ticks.filter((t) => t.ts >= cutoff);
-  fresh.forEach((t) => { sum += t.v; });
+  let sum = fresh.reduce((s, t) => s + t.v, 0);
   if (value > 0) {
     fresh.push({ ts: now, v: value });
     sum += value;
@@ -1449,7 +1447,8 @@ function makeKeptWorker(worker, type) {
 }
  
 export function canPrestige(state) {
-  if (getTownHallLevel(state) < 1) return false;
+  const requiredTHLevel = Math.min(2, state.season);
+  if (getTownHallLevel(state) < requiredTHLevel) return false;
   const farmsToCheck = state.season >= FIRST_EXTRA_FARM_SEASON
     ? state.farms
     : state.farms.filter((f) => (SEASON_FARMS[Math.min(state.season, 3)] ?? []).includes(f.crop));
@@ -1462,7 +1461,8 @@ export function canPrestige(state) {
  
 export function getPrestigeBlockers(state) {
   const blockers = [];
-  if (getTownHallLevel(state) < 1) blockers.push("Town Hall level 1 required");
+  const requiredTHLevel = Math.min(2, state.season);
+  if (getTownHallLevel(state) < requiredTHLevel) blockers.push(`Town Hall level ${requiredTHLevel} required`);
   const farmsToCheck = state.season >= FIRST_EXTRA_FARM_SEASON
     ? state.farms
     : state.farms.filter((f) => (SEASON_FARMS[Math.min(state.season, 3)] ?? []).includes(f.crop));
@@ -1479,13 +1479,18 @@ export function getPrestigeBlockers(state) {
   return blockers;
 }
  
-export function beginPrestige(state, chosenBonusId, keptWorkerId) {
+export function beginPrestige(state, chosenBonusId, keptWorkerIds) {
   const next = deepCloneState(state);
   const newSeason = next.season + 1;
   if (chosenBonusId) next.prestigeBonuses.push(chosenBonusId);
- 
+
+  // keptWorkerIds can be a single id (legacy) or an array
+  const idsToKeep = Array.isArray(keptWorkerIds)
+    ? keptWorkerIds
+    : keptWorkerIds ? [keptWorkerIds] : [];
+
   const previousKeptWorkers = [...(next.keptWorkers ?? [])];
-  if (keptWorkerId) {
+  for (const keptWorkerId of idsToKeep) {
     const fw = next.workers.find((w) => w.id === keptWorkerId);
     const kw = next.kitchenWorkers.find((w) => w.id === keptWorkerId);
     const mw = next.marketWorkers.find((w) => w.id === keptWorkerId);
@@ -1549,6 +1554,7 @@ export function beginPrestige(state, chosenBonusId, keptWorkerId) {
   next.lastSavedTime = Date.now();
   // Reset stats buffers on prestige
   next.stats = { farmCrops: {}, kitchenGoods: {}, marketCash: null };
+  next.town.pulseSeconds = TOWN_PULSE_SECONDS;
   return next;
 }
  

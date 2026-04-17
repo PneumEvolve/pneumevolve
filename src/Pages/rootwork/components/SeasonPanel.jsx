@@ -85,7 +85,8 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
   const cashThreshold = getPrestigeCashThreshold(game.season);
   const cash = game.cash ?? 0;
   const cashOk = cash >= cashThreshold;
-  const thOk = getTownHallLevel(game) >= 1;
+  const requiredTHLevel = Math.min(2, game.season);
+  const thOk = getTownHallLevel(game) >= requiredTHLevel;
   const blockers = getPrestigeBlockers(game);
   const nextFarmCost = getNextFarmUnlockCost(game);
  
@@ -113,12 +114,12 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
             border: `1px solid ${thOk ? "#4ade80" : "#f59e0b"}`,
             color: thOk ? "#166534" : "#92400e",
           }}>
-            {thOk ? "✓ Level 1 reached" : "Level 1 required"}
+            {thOk ? `✓ Level ${requiredTHLevel} reached` : `Level ${requiredTHLevel} required`}
           </span>
         </div>
         {!thOk && (
           <p style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: "0.4rem" }}>
-            Build the Town Hall with cash (${TOWN_HALL_LEVEL_COSTS[0]}) to unlock prestige.
+            Build Town Hall to level {requiredTHLevel} (costs ${TOWN_HALL_LEVEL_COSTS[requiredTHLevel - 1]}) to unlock prestige.
           </p>
         )}
       </div>
