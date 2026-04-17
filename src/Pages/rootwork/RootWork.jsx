@@ -17,7 +17,8 @@ import {
   cancelKitchenWorkerRecipe, buildTownHome, buyTownBakery,
   buyJamBuilding, buySauceBuilding, toggleBakery, togglePantry,
   toggleCannery, upgradeTownBuilding, upgradeTownHall, setTreasuryTier,
-  buildBank, upgradeBank, setActiveBankTier,
+  buildBank, upgradeBank, setActiveBankTier, buyPond, upgradeRod, buyFishTrap, catchFish, applyGoldenBonus,
+  buyAnimal, collectAnimal, interactAnimal, buyPet, interactPet,
 } from "./gameEngine";
 import {
   SAVE_KEY, SAVE_INTERVAL_MS, PRESTIGE_BONUSES,
@@ -32,6 +33,7 @@ import SeasonPanel from "./components/SeasonPanel";
 import FarmUnlockModal from "./components/FarmUnlockModal";
 import TownZone from "./components/TownZone";
 import StatsPanel from "./components/StatsPanel";
+import AnimalsZone from "./components/AnimalsZone";
  
 function loadFromLocalStorage() {
   try { const raw = localStorage.getItem(SAVE_KEY); if (!raw) return null; return deserializeState(raw); } catch { return null; }
@@ -300,6 +302,18 @@ export default function RootWork() {
   const handleBuildBank = useCallback(() => update((s) => { const n = buildBank(s); if (n === s) notify("Can't build bank yet."); return n; }), [update, notify]);
   const handleUpgradeBank = useCallback(() => update((s) => { const n = upgradeBank(s); if (n === s) notify("Not enough treasury funds."); return n; }), [update, notify]);
   const handleSetActiveBankTier = useCallback((tier) => update((s) => setActiveBankTier(s, tier)), [update]);
+
+  // Animals & Pond
+  const handleBuyPond = useCallback(() => update((s) => { const n = buyPond(s); if (n === s) notify("Need $500 cash."); return n; }), [update, notify]);
+  const handleUpgradeRod = useCallback(() => update((s) => { const n = upgradeRod(s); if (n === s) notify("Not enough cash."); return n; }), [update, notify]);
+  const handleBuyTrap = useCallback(() => update((s) => { const n = buyFishTrap(s); if (n === s) notify("Need $300 cash."); return n; }), [update, notify]);
+  const handleCatchFish = useCallback((fishId, baitId) => update((s) => catchFish(s, fishId, baitId)), [update]);
+  const handleGoldenBonus = useCallback((bonusId) => { update((s) => applyGoldenBonus(s, bonusId)); notify("✨ Golden fish bonus!"); }, [update, notify]);
+  const handleBuyAnimal = useCallback((animalId) => update((s) => { const n = buyAnimal(s, animalId); if (n === s) notify("Not enough cash."); return n; }), [update, notify]);
+  const handleCollectAnimal = useCallback((animalId, instanceId) => update((s) => collectAnimal(s, animalId, instanceId)), [update]);
+  const handleInteractAnimal = useCallback((animalId, instanceId) => update((s) => interactAnimal(s, animalId, instanceId)), [update]);
+  const handleBuyPet = useCallback((petId) => update((s) => { const n = buyPet(s, petId); if (n === s) notify("Not enough cash."); return n; }), [update, notify]);
+  const handleInteractPet = useCallback((petId) => update((s) => interactPet(s, petId)), [update]);
  
   // Feast / prestige / misc
   const handleBuyFeast = useCallback(() => { update((s) => { const n = buyFeast(s); if (n === s) notify("Not enough artisan goods."); return n; }); notify("🍽️ Feast held! Grow speed increased."); }, [update, notify]);
@@ -343,15 +357,27 @@ export default function RootWork() {
         {activeMainTab === "market" && (
           <MarketZone game={game} onHireMarketWorker={handleHireMarketWorker} onAssignItem={handleAssignItem} onUpgradeMarketWorker={handleUpgradeMarketWorker} onFireMarketWorker={handleFireMarketWorker} onBuyMarketWorkerStandingOrder={handleBuyMarketWorkerStandingOrder} onSetMarketWorkerStandingOrder={handleSetMarketWorkerStandingOrder} onCancelQueue={handleCancelMarketWorkerQueue} />
         )}
-        {activeMainTab === "kitchen" && (
+        {activeMainTab === "crafting" && (
           <ProcessingZone game={game} onHireKitchenWorker={handleHireKitchenWorker} onAssignKitchenWorkerRecipe={handleAssignKitchenWorkerRecipe} onUpgradeKitchenWorker={handleUpgradeKitchenWorker} onFireKitchenWorker={handleFireKitchenWorker} onUpgradePlot={handleUpgradePlot} onBuyFeast={handleBuyFeast} onCancelKitchenWorkerRecipe={handleCancelKitchenWorkerRecipe} />
         )}
         {activeMainTab === "town" && (
-          <TownZone game={game} onBuildHome={handleBuildTownHome} onBuyBakery={handleBuyTownBakery} onToggleBakery={handleToggleBakery} onTogglePantry={handleTogglePantry} onToggleCannery={handleToggleCannery} onUpgradeTownBuilding={handleUpgradeTownBuilding} onBuyJamBuilding={handleBuyJamBuilding} onBuySauceBuilding={handleBuySauceBuilding} onUpgradeTownHall={handleUpgradeTownHall} onSetTreasuryTier={handleSetTreasuryTier} onBuildBank={handleBuildBank} onUpgradeBank={handleUpgradeBank} onSetActiveBankTier={handleSetActiveBankTier} />
+          <TownZone game={game} onBuildHome={handleBuildTownHome} onBuyBakery={handleBuyTownBakery} onToggleBakery={handleToggleBakery} onTogglePantry={handleTogglePantry} onToggleCannery={handleToggleCannery} onUpgradeTownBuilding={handleUpgradeTownBuilding} onBuyJamBuilding={handleBuyJamBuilding} onBuySauceBuilding={handleBuySauceBuilding} onUpgradeTownHall={handleUpgradeTownHall} onSetTreasuryTier={handleSetTreasuryTier} onBuildBank={handleBuildBank} onUpgradeBank={handleUpgradeBank} onSetActiveBankTier={handleSetActiveBankTier} prestigeReady={prestigeReady} onPrestige={() => setShowPrestigeModal(true)} onReset={handleResetGame} />
         )}
         {activeMainTab === "stats" && <StatsPanel game={game} />}
-        {activeMainTab === "season" && (
-          <SeasonPanel game={game} prestigeReady={prestigeReady} onPrestige={() => setShowPrestigeModal(true)} onReset={handleResetGame} />
+        {activeMainTab === "animals" && (
+          <AnimalsZone
+            game={game}
+            onBuyPond={handleBuyPond}
+            onUpgradeRod={handleUpgradeRod}
+            onBuyTrap={handleBuyTrap}
+            onCatchFish={handleCatchFish}
+            onApplyGoldenBonus={handleGoldenBonus}
+            onBuyAnimal={handleBuyAnimal}
+            onCollectAnimal={handleCollectAnimal}
+            onInteractAnimal={handleInteractAnimal}
+            onBuyPet={handleBuyPet}
+            onInteractPet={handleInteractPet}
+          />
         )}
       </div>
       <GameNav game={game} activeMainTab={activeMainTab} onMainTabChange={setActiveMainTab} prestigeReady={prestigeReady} />

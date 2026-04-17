@@ -19,6 +19,7 @@ import {
   isBankBuilt, canBuildBank, getActiveBankTier, getTreasuryGrowBonus,
   getBankPriceBonus,
 } from "../gameEngine";
+import SeasonPanel from "./SeasonPanel";
  
 function clampPct(v) { return Math.max(0, Math.min(100, v)); }
  
@@ -80,6 +81,7 @@ export default function TownZone({
   game, onBuildHome, onBuyBakery, onToggleBakery, onTogglePantry, onToggleCannery,
   onUpgradeTownBuilding, onBuyJamBuilding, onBuySauceBuilding,
   onUpgradeTownHall, onSetTreasuryTier, onBuildBank, onUpgradeBank, onSetActiveBankTier,
+  prestigeReady, onPrestige, onReset,
 }) {
   const town = game.town ?? {};
   const homes = town.homes ?? 0;
@@ -420,6 +422,15 @@ export default function TownZone({
           <div>• Toggling Bakery/Pantry/Cannery adds +{BUILDING_PULSE_EXTRA_SECONDS}s to pulse and costs food per pulse. Upgrades reduce cost.</div>
           <div>• <strong style={{ color: "var(--text)" }}>Satisfaction</strong> multiplies all worker speed. Floor 25%, ceiling 150%.</div>
         </div>
+      </div>
+      {/* Season — merged into Town */}
+      <div style={{ marginTop: "1.5rem", paddingTop: "1rem", borderTop: "2px solid var(--border)" }}>
+        <SeasonPanel
+          game={game}
+          prestigeReady={prestigeReady}
+          onPrestige={onPrestige}
+          onReset={onReset}
+        />
       </div>
     </div>
   );

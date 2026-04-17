@@ -92,53 +92,16 @@ export default function GameNav({
   const starvingTown = game?.town?.starving === true;
   const townPeople = Math.floor(game?.town?.people ?? 0);
  
+  const readyAnimals = Object.values(game.animals ?? {}).reduce(
+    (sum, arr) => sum + arr.filter((a) => a.ready).length, 0
+  );
+
   const tabs = [
-    {
-      id: "farms",
-      label: "Farms",
-      emoji: "🌱",
-      badge: null,
-    },
-    {
-      id: "market",
-      label: "Market",
-      emoji: "💰",
-      badge: marketQueueTotal > 0 ? marketQueueTotal : null,
-      badgeColor: "#4ade80",
-    },
-    {
-      id: "kitchen",
-      label: "Kitchen",
-      emoji: "🏭",
-      badge: idleKitchenWorkers > 0 ? idleKitchenWorkers : null,
-      badgeColor: "#ef4444",
-    },
-    {
-      id: "town",
-      label: "Town",
-      emoji: "🏘️",
-      badge: townUnlocked
-        ? starvingTown
-          ? "!"
-          : townPeople > 0
-            ? townPeople
-            : null
-        : null,
-      badgeColor: starvingTown ? "#ef4444" : "#4ade80",
-    },
-    {
-      id: "stats",
-      label: "Stats",
-      emoji: "📊",
-      badge: null,
-    },
-    {
-      id: "season",
-      label: "Season",
-      emoji: "🌸",
-      badge: prestigeReady ? "!" : null,
-      badgeColor: "#f59e0b",
-    },
+    { id: "farms",    label: "Farms",    emoji: "🌱", badge: null },
+    { id: "market",   label: "Market",   emoji: "💰", badge: marketQueueTotal > 0 ? marketQueueTotal : null, badgeColor: "#4ade80" },
+    { id: "crafting", label: "Crafting", emoji: "🏭", badge: idleKitchenWorkers > 0 ? idleKitchenWorkers : null, badgeColor: "#ef4444" },
+    { id: "animals",  label: "Animals",  emoji: "🐾", badge: readyAnimals > 0 ? readyAnimals : null, badgeColor: "#fbbf24" },
+    { id: "town",     label: "Town",     emoji: "🏘️", badge: townUnlocked ? starvingTown ? "!" : prestigeReady ? "🌱" : townPeople > 0 ? townPeople : null : null, badgeColor: starvingTown ? "#ef4444" : prestigeReady ? "#f59e0b" : "#4ade80" },
   ];
  
   return (

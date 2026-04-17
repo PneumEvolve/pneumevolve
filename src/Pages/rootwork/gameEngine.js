@@ -31,7 +31,13 @@ import {
   TOWN_HALL_MAX_LEVEL, TOWN_HALL_LEVEL_COSTS,
   TREASURY_TIERS, BUILDING_WORKERS_DIVISOR, BUILDING_PULSE_EXTRA_SECONDS,
   BUILDING_UPGRADE_COST, BANK_BUILD_COST, BANK_LEVEL_COSTS,
-  BANK_TIERS, BANK_MAX_LEVEL, GEAR_CROP_COSTS,
+  BANK_TIERS, BANK_MAX_LEVEL, GEAR_CROP_COSTS, POND_COST, FISH_TYPES, ROD_TIERS, ROD_ORDER, FISH_TRAP_COST,
+  FISH_TRAP_CATCH_INTERVAL, FISH_TRAP_FISH, FISH_CATCH_RATES,
+  GOLDEN_FISH_BONUSES, NEEDLE_SWEEP_SPEED, REEL_DURATION,
+  REEL_DRAIN_RATE, REEL_TAP_AMOUNT, BAIT_TYPES,
+  ANIMAL_TYPES, MAX_ANIMALS_PER_TYPE,
+  ANIMAL_INTERACT_MOOD_BOOST, ANIMAL_INTERACT_COOLDOWN,
+  PET_TYPES, PET_INTERACT_MOOD_BOOST, PET_INTERACT_COOLDOWN,
 } from "./gameConstants";
  
 let _idCounter = 0;
@@ -720,10 +726,16 @@ export function createInitialState() {
     town: makeFreshTown(),
     // Stats buffers — rolling 60s windows
     stats: {
-      farmCrops: {},     // farmId → { ticks, sum }
-      kitchenGoods: {},  // goodId → { ticks, sum }
-      marketCash: null,  // { ticks, sum }
+      farmCrops: {},
+      kitchenGoods: {},
+      marketCash: null,
     },
+    // Animals & pond
+    pond: null,
+    animals: { chicken: [], cow: [], sheep: [] },
+    pets: {},
+    animalGoods: { egg: 0, milk: 0, wool: 0 },
+    bait: { wheat_bait: 0, berry_bait: 0, tomato_bait: 0 },
   };
 }
  
@@ -1569,6 +1581,130 @@ export function assignKeptWorker(state, keptWorkerId, farmId) {
   if (next.keptWorkers.length === 0) next.pendingWorkerAssignments = false;
   return next;
 }
+
+export function buyPond(state) {
+  if (state.pond?.owned) return state;
+  if ((state.cash ?? 0) < POND_COST) return state;
+  const next = deepCloneState(state);
+  next.cash -= POND_COST;
+  next.pond = { owned: true, rodTier: "twig", trapOwned: false, trapTimer: 0, fish: {} };
+  return next;
+}
+
+export function upgradeRod(state) {
+  const next = deepCloneState(state);
+  const currentRodId = next.pond?.rodTier ?? "twig";
+  const idx = ROD_ORDER.indexOf(currentRodId);
+  if (idx === -1 || idx >= ROD_ORDER.length - 1) return state;
+  const nextRod = ROD_TIERS[idx + 1];
+  if ((next.cash ?? 0) < nextRod.upgradeCost) return state;
+  next.cash -= nextRod.upgradeCost;
+  next.pond.rodTier = nextRod.id;
+  return next;
+}
+
+export function buyFishTrap(state) {
+  if (!state.pond?.owned || state.pond?.trapOwned) return state;
+  if ((state.cash ?? 0) < FISH_TRAP_COST) return state;
+  const next = deepCloneState(state);
+  next.cash -= FISH_TRAP_COST;
+  next.pond.trapOwned = true;
+  next.pond.trapTimer = 0;
+  return next;
+}
+
+export function catchFish(state, fishId, baitId) {
+  if (!state.pond?.owned) return state;
+  const next = deepCloneState(state);
+  next.pond.fish = { ...(next.pond.fish ?? {}), [fishId]: ((next.pond.fish?.[fishId]) ?? 0) + 1 };
+  if (baitId && (next.bait?.[baitId] ?? 0) > 0) next.bait[baitId] -= 1;
+  return next;
+}
+
+export function applyGoldenBonus(state, bonusId) {
+  const next = deepCloneState(state);
+  if (bonusId === "treasury_inject") {
+    next.town.treasuryBalance = (next.town.treasuryBalance ?? 0) + 500;
+  } else if (bonusId === "feast_boost") {
+    next.feastBonusPercent = Math.min(FEAST_MAX_BONUS, (next.feastBonusPercent ?? 0) * 2);
+  } else if (bonusId === "free_plot") {
+    for (const farm of next.farms) {
+      const plot = farm.plots.find((p) => !p.upgraded);
+      if (plot) { plot.upgraded = true; break; }
+    }
+  } else if (bonusId === "town_sat") {
+    next.town.satisfaction = 150;
+  }
+  return next;
+}
+
+export function buyAnimal(state, animalId) {
+  const type = ANIMAL_TYPES[animalId];
+  if (!type) return state;
+  if ((state.season ?? 1) < type.unlockSeason) return state;
+  const owned = (state.animals?.[animalId] ?? []).length;
+  if (owned >= MAX_ANIMALS_PER_TYPE) return state;
+  const cost = Math.round(type.baseCost * Math.pow(type.costMultiplier, owned));
+  if ((state.cash ?? 0) < cost) return state;
+  const next = deepCloneState(state);
+  next.cash -= cost;
+  if (!next.animals) next.animals = {};
+  if (!next.animals[animalId]) next.animals[animalId] = [];
+  next.animals[animalId].push({
+    id: genId("animal"),
+    mood: 100,
+    readyTick: 0,
+    ready: false,
+    interactCooldown: 0,
+  });
+  return next;
+}
+
+export function collectAnimal(state, animalId, animalInstanceId) {
+  const type = ANIMAL_TYPES[animalId];
+  if (!type) return state;
+  const next = deepCloneState(state);
+  const animals = next.animals?.[animalId] ?? [];
+  const animal = animals.find((a) => a.id === animalInstanceId);
+  if (!animal || !animal.ready) return state;
+  const bonusChance = (animal.mood ?? 100) / 100;
+  const yieldAmount = 1 + (Math.random() < bonusChance ? 1 : 0);
+  if (!next.animalGoods) next.animalGoods = {};
+  next.animalGoods[type.produces] = (next.animalGoods[type.produces] ?? 0) + yieldAmount;
+  animal.ready = false;
+  animal.readyTick = 0;
+  return next;
+}
+
+export function interactAnimal(state, animalId, animalInstanceId) {
+  const next = deepCloneState(state);
+  const animals = next.animals?.[animalId] ?? [];
+  const animal = animals.find((a) => a.id === animalInstanceId);
+  if (!animal || (animal.interactCooldown ?? 0) > 0) return state;
+  animal.mood = Math.min(100, (animal.mood ?? 100) + ANIMAL_INTERACT_MOOD_BOOST);
+  animal.interactCooldown = ANIMAL_INTERACT_COOLDOWN;
+  return next;
+}
+
+export function buyPet(state, petId) {
+  const type = PET_TYPES[petId];
+  if (!type || state.pets?.[petId]) return state;
+  if ((state.cash ?? 0) < type.cost) return state;
+  const next = deepCloneState(state);
+  next.cash -= type.cost;
+  if (!next.pets) next.pets = {};
+  next.pets[petId] = { mood: 100, interactCooldown: 0 };
+  return next;
+}
+
+export function interactPet(state, petId) {
+  const next = deepCloneState(state);
+  const pet = next.pets?.[petId];
+  if (!pet || (pet.interactCooldown ?? 0) > 0) return state;
+  pet.mood = Math.min(100, (pet.mood ?? 100) + PET_INTERACT_MOOD_BOOST);
+  pet.interactCooldown = PET_INTERACT_COOLDOWN;
+  return next;
+}
  
 // ─── Serialization ────────────────────────────────────────────────────────────
  
@@ -1661,6 +1797,11 @@ export function deserializeState(raw) {
       // Migrate old drain-based townHall to treasury
       if (parsed.town.townHallDraining !== undefined) delete parsed.town.townHallDraining;
       if (parsed.town.townHallDrained !== undefined) delete parsed.town.townHallDrained;
+      if (!parsed.pond) parsed.pond = null;
+    if (!parsed.animals) parsed.animals = { chicken: [], cow: [], sheep: [] };
+    if (!parsed.pets) parsed.pets = {};
+    if (!parsed.animalGoods) parsed.animalGoods = { egg: 0, milk: 0, wool: 0 };
+    if (!parsed.bait) parsed.bait = { wheat_bait: 0, berry_bait: 0, tomato_bait: 0 };
     }
  
     return parsed;

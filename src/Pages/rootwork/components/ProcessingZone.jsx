@@ -491,7 +491,7 @@ const isFirstWorker = workers.length === 0;
     <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 5rem" }}>
 
       <div style={{ marginBottom: "1rem" }}>
-        <h2 style={{ fontSize: "1.2rem", fontWeight: 700 }}>🏭 Kitchen</h2>
+        <h2 style={{ fontSize: "1.2rem", fontWeight: 700 }}>🏭 Crafting</h2>
         <p style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: "0.15rem" }}>
           Hire kitchen workers to craft artisan goods from your crops.
         </p>

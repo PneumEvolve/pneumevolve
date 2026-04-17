@@ -229,3 +229,164 @@ export const MAX_SEASON = 999;
 export const SAVE_KEY = "rootwork_save";
 export const SAVE_INTERVAL_MS = 30_000;
 export const MAX_OFFLINE_SECONDS = 4 * 60 * 60;
+
+// ─── Pond ─────────────────────────────────────────────────────────────────────
+export const POND_COST = 500;
+ 
+export const FISH_TYPES = {
+  minnow:      { id: "minnow",      name: "Minnow",      emoji: "🐟", rarity: "common",    rawValue: 2,  craftable: true,  manualOnly: false },
+  bass:        { id: "bass",        name: "Bass",         emoji: "🎣", rarity: "uncommon",  rawValue: 8,  craftable: true,  manualOnly: false },
+  perch:       { id: "perch",       name: "Perch",        emoji: "🐠", rarity: "uncommon",  rawValue: 12, craftable: true,  manualOnly: false },
+  pike:        { id: "pike",        name: "Pike",         emoji: "🦈", rarity: "rare",      rawValue: 35, craftable: false, manualOnly: true  },
+  golden_fish: { id: "golden_fish", name: "Golden Fish",  emoji: "✨", rarity: "legendary", rawValue: 0,  craftable: false, manualOnly: true  },
+};
+ 
+// Needle sweet spot width by rod tier (fraction of bar, 0-1)
+// Better rod = wider sweet spot
+export const ROD_TIERS = [
+  { id: "twig",    name: "Twig Rod",    emoji: "🌿", sweetSpotWidth: 0.18, biteTimeMin: 3, biteTimeMax: 7, upgradeCost: null, description: "A basic stick. Gets the job done." },
+  { id: "bamboo",  name: "Bamboo Rod",  emoji: "🎋", sweetSpotWidth: 0.24, biteTimeMin: 2, biteTimeMax: 6, upgradeCost: 150,  description: "Wider sweet spot, faster bites." },
+  { id: "carbon",  name: "Carbon Rod",  emoji: "🎣", sweetSpotWidth: 0.30, biteTimeMin: 1, biteTimeMax: 5, upgradeCost: 500,  description: "Professional grade. Much easier to nail." },
+  { id: "pro",     name: "Pro Rod",     emoji: "⚡", sweetSpotWidth: 0.38, biteTimeMin: 1, biteTimeMax: 4, upgradeCost: 1500, description: "The best. Huge sweet spot, lightning bites." },
+];
+export const ROD_ORDER = ["twig", "bamboo", "carbon", "pro"];
+ 
+// Fish trap automation
+export const FISH_TRAP_COST = 300;
+export const FISH_TRAP_CATCH_INTERVAL = 30; // seconds between catches
+export const FISH_TRAP_FISH = ["minnow", "bass"]; // only common/uncommon
+ 
+// Bait types — crafted in Kitchen from crops, boosts certain fish
+export const BAIT_TYPES = {
+  wheat_bait:   { id: "wheat_bait",   name: "Wheat Bait",   emoji: "🌾", inputCrop: "wheat",    inputAmount: 5,  boosts: "common",    description: "More minnows." },
+  berry_bait:   { id: "berry_bait",   name: "Berry Bait",   emoji: "🫐", inputCrop: "berries",  inputAmount: 4,  boosts: "uncommon",  description: "More bass & perch." },
+  tomato_bait:  { id: "tomato_bait",  name: "Tomato Bait",  emoji: "🍅", inputCrop: "tomatoes", inputAmount: 3,  boosts: "rare",      description: "Rare fish chance up." },
+};
+ 
+// Catch probability tables [no bait, with matching bait]
+// Needle quality multiplies rare/legendary chances
+export const FISH_CATCH_RATES = {
+  // [common%, uncommon%, rare%, legendary%]
+  none:        { common: 0.65, uncommon: 0.30, rare: 0.04, legendary: 0.01 },
+  wheat_bait:  { common: 0.80, uncommon: 0.18, rare: 0.02, legendary: 0.00 },
+  berry_bait:  { common: 0.40, uncommon: 0.54, rare: 0.05, legendary: 0.01 },
+  tomato_bait: { common: 0.30, uncommon: 0.35, rare: 0.30, legendary: 0.05 },
+};
+ 
+// Golden fish bonus pool — pick one at random
+export const GOLDEN_FISH_BONUSES = [
+  { id: "treasury_inject", description: "Injects $500 directly into your treasury", emoji: "💰" },
+  { id: "feast_boost",     description: "Doubles your feast grow bonus for 5 minutes", emoji: "🍽️" },
+  { id: "free_plot",       description: "Upgrades a random unupgraded plot for free", emoji: "⭐" },
+  { id: "town_sat",        description: "Instantly maxes town satisfaction", emoji: "😄" },
+];
+ 
+// Needle sweep speed (degrees/sec or normalized units per second)
+export const NEEDLE_SWEEP_SPEED = 0.6; // 0-1 bar units per second, bounces
+export const REEL_DURATION = 4; // seconds to reel in
+export const REEL_DRAIN_RATE = 0.08; // progress drained per second (fish fighting)
+export const REEL_TAP_AMOUNT = 0.12; // progress per tap
+ 
+// ─── Barn / Animals ───────────────────────────────────────────────────────────
+export const ANIMAL_TYPES = {
+  chicken: {
+    id: "chicken", name: "Chicken", emoji: "🐔",
+    baseCost: 300, costMultiplier: 1.8,
+    produces: "egg", produceName: "Egg", produceEmoji: "🥚",
+    cycleSeconds: 60,
+    foodPulseCost: 1, // extra wheat/bread per pulse per animal
+    moodDecayPerMinute: 2, // mood % lost per minute
+    baseYield: 1, bonusYieldMood: 100, // at 100% mood, chance of +1 bonus
+    description: "Lays eggs every minute. Low maintenance.",
+    unlockSeason: 1,
+  },
+  cow: {
+    id: "cow", name: "Cow", emoji: "🐄",
+    baseCost: 800, costMultiplier: 1.6,
+    produces: "milk", produceName: "Milk", produceEmoji: "🥛",
+    cycleSeconds: 120,
+    foodPulseCost: 2,
+    moodDecayPerMinute: 1.5,
+    baseYield: 1, bonusYieldMood: 80,
+    description: "Produces milk every 2 minutes. Needs more food.",
+    unlockSeason: 2,
+  },
+  sheep: {
+    id: "sheep", name: "Sheep", emoji: "🐑",
+    baseCost: 1500, costMultiplier: 1.5,
+    produces: "wool", produceName: "Wool", produceEmoji: "🧶",
+    cycleSeconds: 180,
+    foodPulseCost: 2,
+    moodDecayPerMinute: 1,
+    baseYield: 1, bonusYieldMood: 60,
+    description: "Produces wool every 3 minutes. Very chill.",
+    unlockSeason: 3,
+  },
+};
+ 
+export const ANIMAL_RAW_VALUES = {
+  egg:  5,
+  milk: 15,
+  wool: 25,
+};
+ 
+export const MAX_ANIMALS_PER_TYPE = 5;
+ 
+// Interact (pet/play) restores this much mood
+export const ANIMAL_INTERACT_MOOD_BOOST = 25;
+export const ANIMAL_INTERACT_COOLDOWN = 30; // seconds between interactions
+ 
+// ─── Pets ─────────────────────────────────────────────────────────────────────
+export const PET_TYPES = {
+  dog: {
+    id: "dog", name: "Dog", emoji: "🐕",
+    cost: 400,
+    bonus: "Slows mood decay on all barn animals by 30%.",
+    bonusType: "barn_mood_decay",
+    bonusValue: 0.30,
+    foodCostPerPulse: 1, // wheat
+    moodDecayPerMinute: 1.5,
+    description: "Loyal companion. Keeps the barn animals happy.",
+  },
+  cat: {
+    id: "cat", name: "Cat", emoji: "🐈",
+    cost: 400,
+    bonus: "Widens the fishing needle sweet spot by 20%.",
+    bonusType: "fishing_sweet_spot",
+    bonusValue: 0.20,
+    foodCostPerPulse: 1,
+    moodDecayPerMinute: 1,
+    description: "Independent hunter. Hangs around the pond.",
+  },
+  rabbit: {
+    id: "rabbit", name: "Rabbit", emoji: "🐇",
+    cost: 400,
+    bonus: "+5% town satisfaction permanently while happy.",
+    bonusType: "town_satisfaction",
+    bonusValue: 5,
+    foodCostPerPulse: 1,
+    moodDecayPerMinute: 2,
+    description: "Town mascot. Everyone loves it.",
+  },
+};
+ 
+export const PET_INTERACT_MOOD_BOOST = 30;
+export const PET_INTERACT_COOLDOWN = 60;
+ 
+// ─── Crafting recipes (additions) ────────────────────────────────────────────
+// These get merged into PROCESSING_RECIPES in gameConstants.js
+export const ANIMAL_CRAFTING_RECIPES = {
+  omelette:      { id: "omelette",      name: "Omelette",       emoji: "🍳", inputCrop: "egg",    inputAmount: 3,  outputGood: "omelette",      outputAmount: 1, seconds: 60,  description: "Hearty breakfast. Boosts town satisfaction." },
+  cheese:        { id: "cheese",        name: "Cheese",          emoji: "🧀", inputCrop: "milk",   inputAmount: 4,  outputGood: "cheese",        outputAmount: 1, seconds: 90,  description: "Aged to perfection." },
+  knitted_goods: { id: "knitted_goods", name: "Knitted Goods",   emoji: "🧥", inputCrop: "wool",   inputAmount: 3,  outputGood: "knitted_goods", outputAmount: 1, seconds: 120, description: "Warm and valuable." },
+  fish_pie:      { id: "fish_pie",      name: "Fish Pie",        emoji: "🥧", inputCrop: "bass",   inputAmount: 2,  outputGood: "fish_pie",      outputAmount: 1, seconds: 90,  description: "Tasty and filling." },
+  smoked_fish:   { id: "smoked_fish",   name: "Smoked Fish",     emoji: "🐟", inputCrop: "perch",  inputAmount: 2,  outputGood: "smoked_fish",   outputAmount: 1, seconds: 75,  description: "Smoky and delicious." },
+  fish_meal:     { id: "fish_meal",     name: "Fish Meal",       emoji: "🌿", inputCrop: "minnow", inputAmount: 5,  outputGood: "fish_meal",     outputAmount: 1, seconds: 45,  description: "Fertilizer. Gives a 10min grow speed boost." },
+};
+ 
+export const ANIMAL_SELL_RATES = {
+  egg: 5, milk: 15, wool: 25,
+  omelette: 40, cheese: 60, knitted_goods: 90,
+  fish_pie: 45, smoked_fish: 35, fish_meal: 20,
+  minnow: 2, bass: 8, perch: 12, pike: 35,
+};
