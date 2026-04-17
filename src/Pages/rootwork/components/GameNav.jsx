@@ -1,6 +1,6 @@
 import React from "react";
 import { CROPS, SEASON_FARMS } from "../gameConstants";
-import { isFarmAutomated, isFarmPrestigeReady } from "../gameEngine";
+import { isFarmAutomated, isFarmPrestigeReady, getAvailableWorkerSlots } from "../gameEngine";
  
 export const MAIN_TABS = ["farms", "market", "kitchen", "town", "stats", "season"];
  
@@ -95,13 +95,16 @@ export default function GameNav({
   const readyAnimals = Object.values(game.animals ?? {}).reduce(
     (sum, arr) => sum + arr.filter((a) => a.ready).length, 0
   );
-
+ 
+  const availableWorkerSlots = getAvailableWorkerSlots(game);
+ 
   const tabs = [
     { id: "farms",    label: "Farms",    emoji: "🌱", badge: null },
     { id: "market",   label: "Market",   emoji: "💰", badge: marketQueueTotal > 0 ? marketQueueTotal : null, badgeColor: "#4ade80" },
     { id: "crafting", label: "Crafting", emoji: "🏭", badge: idleKitchenWorkers > 0 ? idleKitchenWorkers : null, badgeColor: "#ef4444" },
     { id: "animals",  label: "Animals",  emoji: "🐾", badge: readyAnimals > 0 ? readyAnimals : null, badgeColor: "#fbbf24" },
-    { id: "town",     label: "Town",     emoji: "🏘️", badge: townUnlocked ? starvingTown ? "!" : prestigeReady ? "🌱" : townPeople > 0 ? townPeople : null : null, badgeColor: starvingTown ? "#ef4444" : prestigeReady ? "#f59e0b" : "#4ade80" },
+    { id: "town",     label: "Town",     emoji: "🏘️", badge: townUnlocked ? starvingTown ? "!" : prestigeReady ? "🌱" : availableWorkerSlots > 0 ? `+${availableWorkerSlots}` : null : null, badgeColor: starvingTown ? "#ef4444" : prestigeReady ? "#f59e0b" : "#4ade80" },
+    { id: "stats",    label: "Stats",    emoji: "📊", badge: null },
   ];
  
   return (

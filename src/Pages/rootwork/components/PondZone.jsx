@@ -4,7 +4,7 @@ import {
   ROD_TIERS, ROD_ORDER, FISH_TYPES, FISH_TRAP_COST, BAIT_TYPES,
   FISH_CATCH_RATES, NEEDLE_SWEEP_SPEED, REEL_DURATION,
   REEL_DRAIN_RATE, REEL_TAP_AMOUNT, GOLDEN_FISH_BONUSES,
-  FISH_TRAP_CATCH_INTERVAL,
+  FISH_TRAP_CATCH_INTERVAL, POND_COST,
 } from "../gameConstants";
  
 function getRodTier(rodId) { return ROD_TIERS.find((r) => r.id === rodId) ?? ROD_TIERS[0]; }
@@ -33,7 +33,7 @@ function NeedleBar({ position, sweetSpotStart, sweetSpotWidth, onTap }) {
   const center = sweetSpotStart + sweetSpotWidth / 2;
   const quality = Math.max(0, 1 - Math.abs(position - center) / (sweetSpotWidth / 2));
   return (
-    <div onClick={onTap} style={{ width: "100%", cursor: "pointer", userSelect: "none" }}>
+    <div onPointerDown={onTap} style={{ width: "100%", cursor: "pointer", userSelect: "none" }}>
       <div style={{ position: "relative", height: "60px", background: "rgba(0,0,0,0.6)", borderRadius: "14px", overflow: "hidden", border: `2px solid ${inZone ? "rgba(74,222,128,0.7)" : "rgba(255,255,255,0.15)"}`, boxShadow: inZone ? "0 0 20px rgba(74,222,128,0.2)" : "none", transition: "border-color 0.08s, box-shadow 0.08s" }}>
         <div style={{ position: "absolute", top: 0, bottom: 0, left: `${sweetSpotStart * 100}%`, width: `${sweetSpotWidth * 100}%`, background: inZone ? `rgba(74,222,128,${0.2 + quality * 0.4})` : "rgba(74,222,128,0.12)", borderLeft: "2px solid rgba(74,222,128,0.5)", borderRight: "2px solid rgba(74,222,128,0.5)", transition: "background 0.08s" }} />
         <div style={{ position: "absolute", top: "20%", bottom: "20%", left: `${center * 100}%`, width: "2px", background: "rgba(74,222,128,0.7)", transform: "translateX(-50%)" }} />
@@ -54,13 +54,13 @@ function ReelBar({ progress, timeLeft, onTap }) {
   const urgent = timeLeft < 1.5;
   const color = pct > 60 ? "#4ade80" : pct > 30 ? "#f59e0b" : "#ef4444";
   return (
-    <div onClick={onTap} style={{ width: "100%", cursor: "pointer", userSelect: "none" }}>
+    <div onPointerDown={onTap} style={{ width: "100%", cursor: "pointer", userSelect: "none" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem", padding: "0 2px" }}>
         <span style={{ fontSize: "0.75rem", fontWeight: 800, color: "rgba(255,255,255,0.9)", letterSpacing: "0.08em" }}>REEL IT IN</span>
         <span style={{ fontSize: "0.75rem", fontWeight: 700, color: urgent ? "#ef4444" : "rgba(255,255,255,0.5)", animation: urgent ? "rw-pulse 0.5s ease-in-out infinite" : "none" }}>{timeLeft.toFixed(1)}s</span>
       </div>
       <div style={{ position: "relative", height: "64px", background: "rgba(0,0,0,0.6)", borderRadius: "14px", overflow: "hidden", border: `2px solid ${urgent ? "rgba(239,68,68,0.6)" : "rgba(255,255,255,0.12)"}`, transition: "border-color 0.2s" }}>
-        <div style={{ height: "100%", width: `${pct}%`, background: `linear-gradient(90deg, ${color}55, ${color}cc)`, borderRadius: "12px", transition: "width 0.05s, background 0.2s", pointerEvents: "none" }} />
+        <div style={{ height: "100%", width: `${pct}%`, background: `linear-gradient(90deg, ${color}55, ${color}cc)`, borderRadius: "12px", transition: "background 0.2s", pointerEvents: "none" }} />
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.1rem", fontWeight: 900, letterSpacing: "0.18em", color: "#fff", textShadow: "0 2px 10px rgba(0,0,0,0.7)", pointerEvents: "none" }}>TAP TAP TAP!</div>
       </div>
     </div>
@@ -244,6 +244,7 @@ export default function PondZone({ game, onBuyPond, onUpgradeRod, onBuyTrap, onC
   const needleDirRef = useRef(needleDir);
   const needlePosRef = useRef(needlePos);
   const biteTimerRef = useRef(null);
+  const reelProgressRef = useRef(0);
   phaseRef.current = phase; needleDirRef.current = needleDir; needlePosRef.current = needlePos;
  
   const rod = getRodTier(pond.rodTier ?? "twig");
@@ -264,7 +265,10 @@ export default function PondZone({ game, onBuyPond, onUpgradeRod, onBuyTrap, onC
       if (newDir !== dir) { needleDirRef.current = newDir; setNeedleDir(newDir); }
     }
     if (p === "reel") {
-      setReelProgress((prev) => Math.max(0, prev - REEL_DRAIN_RATE * dt));
+      // Use ref for progress to avoid stale closure in tap handler
+      const newProgress = Math.max(0, reelProgressRef.current - REEL_DRAIN_RATE * dt);
+      reelProgressRef.current = newProgress;
+      setReelProgress(newProgress);
       setReelTimeLeft((prev) => {
         const next = prev - dt;
         if (next <= 0) { setCatchResult({ caught: false, fishId: "bass" }); setPhase("result"); phaseRef.current = "result"; return 0; }
@@ -300,37 +304,40 @@ export default function PondZone({ game, onBuyPond, onUpgradeRod, onBuyTrap, onC
     if (!inZone) { setCatchResult({ caught: false, fishId: "minnow" }); setPhase("result"); phaseRef.current = "result"; return; }
     const center = sweetSpotStart + effectiveSweetSpotWidth / 2;
     const quality = Math.max(0, 1 - Math.abs(pos - center) / (effectiveSweetSpotWidth / 2));
-    setNeedleQuality(quality); setReelProgress(0.15 + quality * 0.2); setReelTimeLeft(REEL_DURATION);
+    const initialProgress = 0.15 + quality * 0.2;
+    setNeedleQuality(quality); reelProgressRef.current = initialProgress; setReelProgress(initialProgress); setReelTimeLeft(REEL_DURATION);
     lastTimeRef.current = null; setPhase("reel"); phaseRef.current = "reel";
   }
  
   function handleReelTap() {
-    if (phase !== "reel") return;
-    setReelProgress((prev) => {
-      const next = prev + REEL_TAP_AMOUNT;
-      if (next >= 1) {
-        const fishId = rollFish(selectedBait ?? "none", needleQuality);
-        const fish = FISH_TYPES[fishId]; let bonus = null;
-        if (fishId === "golden_fish") { bonus = GOLDEN_FISH_BONUSES[Math.floor(Math.random() * GOLDEN_FISH_BONUSES.length)]; onApplyGoldenBonus?.(bonus.id); }
-        else { onCatchFish?.(fishId, selectedBait); }
-        setCatchResult({ caught: true, fishId, bonus });
-        setLastCatches((p) => [{ fishId, emoji: fish.emoji, id: Date.now() + Math.random() }, ...p].slice(0, 6));
-        setPhase("result"); phaseRef.current = "result";
-        if (selectedBait) setSelectedBait(null);
-        return 1;
-      }
-      return next;
-    });
+    if (phaseRef.current !== "reel") return;
+    // Apply tap directly to ref so it's never stale vs the rAF drain
+    const next = reelProgressRef.current + REEL_TAP_AMOUNT;
+    if (next >= 1) {
+      reelProgressRef.current = 1;
+      setReelProgress(1);
+      const fishId = rollFish(selectedBait ?? "none", needleQuality);
+      const fish = FISH_TYPES[fishId]; let bonus = null;
+      if (fishId === "golden_fish") { bonus = GOLDEN_FISH_BONUSES[Math.floor(Math.random() * GOLDEN_FISH_BONUSES.length)]; onApplyGoldenBonus?.(bonus.id); }
+      else { onCatchFish?.(fishId, selectedBait); }
+      setCatchResult({ caught: true, fishId, bonus });
+      setLastCatches((p) => [{ fishId, emoji: fish.emoji, id: Date.now() + Math.random() }, ...p].slice(0, 6));
+      setPhase("result"); phaseRef.current = "result";
+    } else {
+      reelProgressRef.current = next;
+      setReelProgress(next);
+    }
   }
  
   function handleDismiss() {
     setCatchResult(null); setPhase("idle"); phaseRef.current = "idle";
-    needlePosRef.current = 0.1; setNeedlePos(0.1); setNeedleDir(1); setReelProgress(0); setNeedleQuality(0);
+    needlePosRef.current = 0.1; setNeedlePos(0.1); setNeedleDir(1);
+    reelProgressRef.current = 0; setReelProgress(0); setNeedleQuality(0);
   }
  
   // ── Buy pond screen ──────────────────────────────────────────────────────
   if (!pondOwned) {
-    const canAfford = (game.cash ?? 0) >= 500;
+    const canAfford = (game.cash ?? 0) >= POND_COST;
     return (
       <div style={{ background: "linear-gradient(135deg, #071929, #0c3356)", borderRadius: "16px", padding: "2.5rem 1.5rem", textAlign: "center", border: "1px solid rgba(255,255,255,0.1)" }}>
         <div style={{ fontSize: "3.5rem", marginBottom: "0.75rem" }}>🎣</div>
@@ -339,7 +346,7 @@ export default function PondZone({ game, onBuyPond, onUpgradeRod, onBuyTrap, onC
           Fish manually for rare catches, or set a trap for passive income. Rare fish only appear when you're actively playing.
         </p>
         <button onClick={onBuyPond} disabled={!canAfford} style={{ background: canAfford ? "rgba(99,102,241,0.5)" : "rgba(255,255,255,0.06)", border: `1px solid ${canAfford ? "rgba(99,102,241,0.8)" : "rgba(255,255,255,0.12)"}`, borderRadius: "12px", padding: "0.7rem 1.75rem", fontSize: "0.82rem", fontWeight: 700, color: canAfford ? "#fff" : "rgba(255,255,255,0.25)", cursor: canAfford ? "pointer" : "default", letterSpacing: "0.04em" }}>
-          {canAfford ? "🎣 Build Pond — $500" : `Need $500 (have $${Math.floor(game.cash ?? 0)})`}
+          {canAfford ? `🎣 Build Pond — $${POND_COST}` : `Need $500 (have $${Math.floor(game.cash ?? 0)})`}
         </button>
       </div>
     );

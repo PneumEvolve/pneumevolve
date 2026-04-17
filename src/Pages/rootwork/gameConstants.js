@@ -24,7 +24,7 @@ export const SPECIALIZE_COST = 100;
 export const SPECIALIZE_CROP = null;
  
 // ─── Plot unlock costs ────────────────────────────────────────────────────────
-export const PLOT_BASE_COST = 5;
+export const PLOT_BASE_COST = 3;
 export const PLOT_COST_MULTIPLIER = 1.4;
 export const MAX_PLOTS = 9;
  
@@ -49,7 +49,7 @@ export const PLOT_UPGRADE_GROW_MULTIPLIER = 0.5;
 export const CROP_ARTISAN = { wheat: "bread", berries: "jam", tomatoes: "sauce" };
  
 // ─── Worker hire cost ─────────────────────────────────────────────────────────
-export const WORKER_HIRE_BASE_COST = 10;
+export const WORKER_HIRE_BASE_COST = 8;
 export const WORKER_HIRE_MULTIPLIER = 1.5;
  
 // ─── Automation ───────────────────────────────────────────────────────────────
@@ -146,7 +146,7 @@ export const PRESTIGE_BONUSES = {
 };
  
 // ─── Prestige cash thresholds ─────────────────────────────────────────────────
-export const PRESTIGE_CASH_THRESHOLDS = [150, 400, 800];
+export const PRESTIGE_CASH_THRESHOLDS = [120, 400, 800];
 export const PRESTIGE_CASH_THRESHOLD_INCREMENT = 400;
  
 export function getPrestigeCashThreshold(currentSeason) {
@@ -194,10 +194,13 @@ export const TREASURY_TIERS = [
 // All costs paid from treasury
 export const BANK_BUILD_COST = 5_000;
 export const BANK_LEVEL_COSTS = [1_000, 2_500, 6_000];
+// Bank drain rates are intentionally capped at or below the matching treasury tier's
+// fill rate so the bank can never drain treasury faster than cash can replenish it.
+// Treasury tiers fill at 2 / 5 / 10 per second — bank tiers drain at 1 / 4 / 9.
 export const BANK_TIERS = [
-  { tier: 1, drainRate: 3,  priceBonus: 10, label: "Branch"  },
-  { tier: 2, drainRate: 8,  priceBonus: 20, label: "Regional"},
-  { tier: 3, drainRate: 18, priceBonus: 35, label: "Central" },
+  { tier: 1, drainRate: 1,  priceBonus: 10, label: "Branch"  },
+  { tier: 2, drainRate: 4,  priceBonus: 20, label: "Regional"},
+  { tier: 3, drainRate: 9,  priceBonus: 35, label: "Central" },
 ];
 export const BANK_MAX_LEVEL = 3;
  
@@ -207,9 +210,9 @@ export const BUILDING_PULSE_EXTRA_SECONDS = 10;
 export const BUILDING_UPGRADE_COST = 200; // treasury cost
  
 // ─── Pulse system ─────────────────────────────────────────────────────────────
-export const TOWN_PULSE_SECONDS = 30;
+export const TOWN_PULSE_SECONDS = 45;
 export const TOWN_WHEAT_PER_PERSON = 1;
-export const TOWN_WHEAT_PER_WORKER = 2;
+export const TOWN_WHEAT_PER_WORKER = 1;
 export const TOWN_BREAD_FEEDS = 10;
 export const TOWN_GROWTH_PER_PULSE = 1;
 export const TOWN_DECLINE_PER_PULSE = 1;
@@ -239,9 +242,9 @@ export const MAX_SEASON = 999;
 export const SAVE_KEY = "rootwork_save";
 export const SAVE_INTERVAL_MS = 30_000;
 export const MAX_OFFLINE_SECONDS = 4 * 60 * 60;
-
+ 
 // ─── Pond ─────────────────────────────────────────────────────────────────────
-export const POND_COST = 500;
+export const POND_COST = 200; // Reduced from 500 to be accessible early-game
  
 export const FISH_TYPES = {
   minnow:      { id: "minnow",      name: "Minnow",      emoji: "🐟", rarity: "common",    rawValue: 2,  craftable: true,  manualOnly: false },
@@ -271,6 +274,16 @@ export const BAIT_TYPES = {
   wheat_bait:   { id: "wheat_bait",   name: "Wheat Bait",   emoji: "🌾", inputCrop: "wheat",    inputAmount: 5,  boosts: "common",    description: "More minnows." },
   berry_bait:   { id: "berry_bait",   name: "Berry Bait",   emoji: "🫐", inputCrop: "berries",  inputAmount: 4,  boosts: "uncommon",  description: "More bass & perch." },
   tomato_bait:  { id: "tomato_bait",  name: "Tomato Bait",  emoji: "🍅", inputCrop: "tomatoes", inputAmount: 3,  boosts: "rare",      description: "Rare fish chance up." },
+};
+ 
+// Bait recipes — added to PROCESSING_RECIPES so kitchen workers can craft them
+// inputCrop/inputAmount match BAIT_TYPES; output goes into state.bait[id]
+ 
+// Bait recipes — these are valid kitchen worker recipes, output goes to state.bait
+export const BAIT_RECIPES = {
+  wheat_bait:  { id: "wheat_bait",  name: "Wheat Bait",  emoji: "🌾", inputCrop: "wheat",    inputAmount: 5, outputGood: "wheat_bait",  outputAmount: 3, seconds: 20, description: "Craft wheat bait. More minnows.", isBait: true },
+  berry_bait:  { id: "berry_bait",  name: "Berry Bait",  emoji: "🫐", inputCrop: "berries",  inputAmount: 4, outputGood: "berry_bait",  outputAmount: 3, seconds: 30, description: "Craft berry bait. More bass & perch.", isBait: true },
+  tomato_bait: { id: "tomato_bait", name: "Tomato Bait", emoji: "🍅", inputCrop: "tomatoes", inputAmount: 3, outputGood: "tomato_bait", outputAmount: 3, seconds: 45, description: "Craft tomato bait. Rare fish chance up.", isBait: true },
 };
  
 // Catch probability tables [no bait, with matching bait]

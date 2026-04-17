@@ -38,6 +38,7 @@ import {
   ANIMAL_TYPES, MAX_ANIMALS_PER_TYPE,
   ANIMAL_INTERACT_MOOD_BOOST, ANIMAL_INTERACT_COOLDOWN,
   PET_TYPES, PET_INTERACT_MOOD_BOOST, PET_INTERACT_COOLDOWN,
+  BAIT_RECIPES,
 } from "./gameConstants";
  
 let _idCounter = 0;
@@ -575,7 +576,7 @@ export function getKitchenWorkerBatchSize(worker) {
 }
  
 function _startKitchenWorkerRecipe(worker, recipeId, crops, animalGoods, fish) {
-  const recipe = PROCESSING_RECIPES[recipeId];
+  const recipe = PROCESSING_RECIPES[recipeId] ?? BAIT_RECIPES[recipeId];
   if (!recipe?.inputCrop) return false;
   const batch = getKitchenWorkerBatchSize(worker);
   const totalInput = recipe.inputAmount * batch;
@@ -680,7 +681,7 @@ export function makeKitchenWorker() {
 function makeFreshTown() {
   return {
     unlocked: true,
-    homes: 1,
+    homes: 2,
     bakeryLevel: 0,
     bakeryOn: false,
     pantryOn: false,
@@ -724,7 +725,7 @@ export function createInitialState() {
     feastTierIndex: 0,
     farms: [makeFarm("wheat", true)],
     workers: [],
-    crops: { wheat: 0, berries: 0, tomatoes: 0 },
+    crops: { wheat: 5, berries: 0, tomatoes: 0 },
     artisan: { bread: 0, jam: 0, sauce: 0 },
     kitchenWorkers: [],
     marketWorkers: [],
@@ -749,6 +750,7 @@ export function createInitialState() {
     pets: {},
     animalGoods: { egg: 0, milk: 0, wool: 0 },
     bait: { wheat_bait: 0, berry_bait: 0, tomato_bait: 0 },
+    fishMealStacks: [],
   };
 }
  
@@ -801,7 +803,12 @@ export function isSprinterResting(worker) {
   return (worker.cycleCount ?? 0) % SPECIALIZATIONS.sprinter.restEvery === SPECIALIZATIONS.sprinter.restEvery - 1;
 }
  
-export function getEffectiveGrowTime(farm, workers, cropId, plot = null, feastBonusPercent = 0, townGrowthBonusPercent = 0, treasuryGrowBonus = 0) {
+export function getFishMealGrowBonus(state) {
+  const stacks = state.fishMealStacks ?? [];
+  return stacks.reduce((sum, s) => sum + (s.secondsLeft > 0 ? s.bonus : 0), 0);
+}
+ 
+export function getEffectiveGrowTime(farm, workers, cropId, plot = null, feastBonusPercent = 0, townGrowthBonusPercent = 0, treasuryGrowBonus = 0, fishMealBonus = 0) {
   const crop = CROPS[cropId];
   let time = crop.growTime;
   const growers = workers.filter((w) => w.farmId === farm.id && w.specialization === "grower");
@@ -812,10 +819,11 @@ export function getEffectiveGrowTime(farm, workers, cropId, plot = null, feastBo
   if (feastBonusPercent > 0) time = Math.floor(time / (1 + feastBonusPercent / 100));
   if (townGrowthBonusPercent > 0) time = Math.floor(time / (1 + townGrowthBonusPercent / 100));
   if (treasuryGrowBonus > 0) time = Math.floor(time / (1 + treasuryGrowBonus / 100));
+  if (fishMealBonus > 0) time = Math.floor(time / (1 + fishMealBonus / 100));
   return Math.max(3, time);
 }
  
-export function getFarmGrowTime(farm, workers, cropId, feastBonusPercent = 0, townGrowthBonusPercent = 0, treasuryGrowBonus = 0) {
+export function getFarmGrowTime(farm, workers, cropId, feastBonusPercent = 0, townGrowthBonusPercent = 0, treasuryGrowBonus = 0, fishMealBonus = 0) {
   return getEffectiveGrowTime(farm, workers, cropId, null, feastBonusPercent, townGrowthBonusPercent, treasuryGrowBonus);
 }
  
@@ -850,6 +858,14 @@ export function tick(state) {
   const feast = next.feastBonusPercent ?? 0;
   const townBonus = next.town?.growthBonusPercent ?? 0;
   const treasuryGrowBonus = getTreasuryGrowBonus(next);
+  const fishMealBonus = getFishMealGrowBonus(next);
+ 
+  // ── Fish Meal tick — decay active stacks ──────────────────────────────────
+  if (next.fishMealStacks && next.fishMealStacks.length > 0) {
+    next.fishMealStacks = next.fishMealStacks
+      .map((s) => ({ ...s, secondsLeft: s.secondsLeft - 1 }))
+      .filter((s) => s.secondsLeft > 0);
+  }
   const satMultiplier = getTownSatisfactionMultiplier(next);
   const bankPriceBonus = getBankPriceBonus(next);
   const now = next.totalPlayTime ?? 0;
@@ -884,7 +900,7 @@ export function tick(state) {
  
     for (const plot of farm.plots) {
       if (plot.state === "planted") {
-        const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, feast, townBonus, treasuryGrowBonus);
+        const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, feast, townBonus, treasuryGrowBonus, fishMealBonus);
         plot.growthTick += 1;
         if (plot.growthTick >= growTime) plot.state = "ready";
       }
@@ -944,23 +960,30 @@ export function tick(state) {
     if (!worker.busy || !worker.recipeId) continue;
     worker.elapsedSeconds = (worker.elapsedSeconds ?? 0) + satMultiplier;
     if (worker.elapsedSeconds >= worker.totalSeconds) {
-      const recipe = PROCESSING_RECIPES[worker.recipeId];
+      const recipe = PROCESSING_RECIPES[worker.recipeId] ?? BAIT_RECIPES[worker.recipeId];
       const batch = worker.batchSize ?? 1;
       const produced = recipe.outputAmount * batch;
       const artisanGoods = ["bread", "jam", "sauce"];
-      if (artisanGoods.includes(recipe.outputGood)) {
+      if (recipe.isBait) {
+        if (!next.bait) next.bait = {};
+        next.bait[recipe.outputGood] = (next.bait[recipe.outputGood] ?? 0) + produced;
+      } else if (artisanGoods.includes(recipe.outputGood)) {
         next.artisan[recipe.outputGood] = (next.artisan[recipe.outputGood] ?? 0) + produced;
       } else {
         if (!next.animalGoods) next.animalGoods = {};
         next.animalGoods[recipe.outputGood] = (next.animalGoods[recipe.outputGood] ?? 0) + produced;
+        if (recipe.outputGood === 'fish_meal') {
+          if (!next.fishMealStacks) next.fishMealStacks = [];
+          for (let i = 0; i < produced; i++) next.fishMealStacks.push({ bonus: 10, secondsLeft: 600 });
+        }
       }
       // Stats
       next.stats.kitchenGoods[recipe.outputGood] = pushStat(next.stats.kitchenGoods[recipe.outputGood], produced, now);
       worker.elapsedSeconds = 0;
       worker.busy = false;
       worker.batchSize = 1;
-      if ((worker.upgrades ?? []).includes("auto_restart")) {
-        _startKitchenWorkerRecipe(worker, worker.recipeId, next.crops, next.animalGoods, next.pond?.fish);
+      if ((worker.upgrades ?? []).includes("auto_restart") && (worker.autoRestartEnabled ?? true)) {
+        _startKitchenWorkerRecipe(worker, worker.recipeId, next.crops, next.animalGoods, next.pond?.fish, next.bait);
       }
     }
   }
@@ -1014,12 +1037,12 @@ export function tick(state) {
       next.pond.fish[trapFish] = (next.pond.fish[trapFish] ?? 0) + 1;
     }
   }
-
+ 
   // ── Animals ──────────────────────────────────────────────────────────────
   const dogOwned = next.pets?.dog !== undefined;
   const dogMoodOk = dogOwned && (next.pets.dog.mood ?? 0) >= 50;
   const moodDecayMultiplier = dogMoodOk ? 0.70 : 1.0;
-
+ 
   for (const animalId of Object.keys(next.animals ?? {})) {
     const type = ANIMAL_TYPES[animalId];
     if (!type) continue;
@@ -1041,7 +1064,7 @@ export function tick(state) {
       }
     }
   }
-
+ 
   // ── Pets ─────────────────────────────────────────────────────────────────
   for (const petId of Object.keys(next.pets ?? {})) {
     const type = PET_TYPES[petId];
@@ -1052,7 +1075,7 @@ export function tick(state) {
       pet.interactCooldown = Math.max(0, pet.interactCooldown - 1);
     }
   }
-
+ 
   next = updateTown(next, 1);
   next.totalPlayTime = (next.totalPlayTime ?? 0) + 1;
   return next;
@@ -1131,7 +1154,7 @@ export function updateTown(state, seconds = 1) {
       const type = PET_TYPES[petId];
       return sum + (type ? type.foodCostPerPulse : 0);
     }, 0);
-
+ 
     let foodNeeded = 0;
     if (people > 0 || totalWorkers > 0) {
       foodNeeded = foodType === "wheat"
@@ -1582,12 +1605,12 @@ export function beginPrestige(state, chosenBonusId, keptWorkerIds) {
   const next = deepCloneState(state);
   const newSeason = next.season + 1;
   if (chosenBonusId) next.prestigeBonuses.push(chosenBonusId);
-
+ 
   // keptWorkerIds can be a single id (legacy) or an array
   const idsToKeep = Array.isArray(keptWorkerIds)
     ? keptWorkerIds
     : keptWorkerIds ? [keptWorkerIds] : [];
-
+ 
   const previousKeptWorkers = [...(next.keptWorkers ?? [])];
   for (const keptWorkerId of idsToKeep) {
     const fw = next.workers.find((w) => w.id === keptWorkerId);
@@ -1669,7 +1692,7 @@ export function assignKeptWorker(state, keptWorkerId, farmId) {
   if (next.keptWorkers.length === 0) next.pendingWorkerAssignments = false;
   return next;
 }
-
+ 
 export function buyPond(state) {
   if (state.pond?.owned) return state;
   if ((state.cash ?? 0) < POND_COST) return state;
@@ -1678,7 +1701,7 @@ export function buyPond(state) {
   next.pond = { owned: true, rodTier: "twig", trapOwned: false, trapTimer: 0, fish: {} };
   return next;
 }
-
+ 
 export function upgradeRod(state) {
   const next = deepCloneState(state);
   const currentRodId = next.pond?.rodTier ?? "twig";
@@ -1690,7 +1713,7 @@ export function upgradeRod(state) {
   next.pond.rodTier = nextRod.id;
   return next;
 }
-
+ 
 export function buyFishTrap(state) {
   if (!state.pond?.owned || state.pond?.trapOwned) return state;
   if ((state.cash ?? 0) < FISH_TRAP_COST) return state;
@@ -1700,7 +1723,7 @@ export function buyFishTrap(state) {
   next.pond.trapTimer = 0;
   return next;
 }
-
+ 
 export function catchFish(state, fishId, baitId) {
   if (!state.pond?.owned) return state;
   const next = deepCloneState(state);
@@ -1708,7 +1731,7 @@ export function catchFish(state, fishId, baitId) {
   if (baitId && (next.bait?.[baitId] ?? 0) > 0) next.bait[baitId] -= 1;
   return next;
 }
-
+ 
 export function applyGoldenBonus(state, bonusId) {
   const next = deepCloneState(state);
   if (bonusId === "treasury_inject") {
@@ -1725,7 +1748,7 @@ export function applyGoldenBonus(state, bonusId) {
   }
   return next;
 }
-
+ 
 export function buyAnimal(state, animalId) {
   const type = ANIMAL_TYPES[animalId];
   if (!type) return state;
@@ -1747,7 +1770,15 @@ export function buyAnimal(state, animalId) {
   });
   return next;
 }
-
+ 
+export function toggleKitchenWorkerAutoRestart(state, workerId) {
+  const next = deepCloneState(state);
+  const worker = next.kitchenWorkers.find((w) => w.id === workerId);
+  if (!worker || !(worker.upgrades ?? []).includes("auto_restart")) return state;
+  worker.autoRestartEnabled = !(worker.autoRestartEnabled ?? true);
+  return next;
+}
+ 
 export function collectAnimal(state, animalId, animalInstanceId) {
   const type = ANIMAL_TYPES[animalId];
   if (!type) return state;
@@ -1755,7 +1786,15 @@ export function collectAnimal(state, animalId, animalInstanceId) {
   const animals = next.animals?.[animalId] ?? [];
   const animal = animals.find((a) => a.id === animalInstanceId);
   if (!animal || !animal.ready) return state;
-  const bonusChance = (animal.mood ?? 100) / 100;
+  const mood = animal.mood ?? 100;
+  // Unhappy animals (<30% mood) produce nothing — collect resets the timer
+  if (mood < 30) {
+    animal.ready = false;
+    animal.readyTick = 0;
+    return next;
+  }
+  // Bonus yield scales with mood: at 100% always +1, at 50% 50% chance, etc.
+  const bonusChance = mood / 100;
   const yieldAmount = 1 + (Math.random() < bonusChance ? 1 : 0);
   if (!next.animalGoods) next.animalGoods = {};
   next.animalGoods[type.produces] = (next.animalGoods[type.produces] ?? 0) + yieldAmount;
@@ -1763,7 +1802,30 @@ export function collectAnimal(state, animalId, animalInstanceId) {
   animal.readyTick = 0;
   return next;
 }
-
+ 
+export function collectAllAnimals(state) {
+  const next = deepCloneState(state);
+  const ANIMAL_TYPES_LOCAL = { chicken: { produces: "egg" }, cow: { produces: "milk" }, sheep: { produces: "wool" } };
+  let anyCollected = false;
+  for (const [animalId, animals] of Object.entries(next.animals ?? {})) {
+    const type = ANIMAL_TYPES_LOCAL[animalId];
+    if (!type) continue;
+    for (const animal of animals) {
+      if (!animal.ready) continue;
+      const mood = animal.mood ?? 100;
+      if (mood < 30) { animal.ready = false; animal.readyTick = 0; anyCollected = true; continue; }
+      const bonusChance = mood / 100;
+      const yieldAmount = 1 + (Math.random() < bonusChance ? 1 : 0);
+      if (!next.animalGoods) next.animalGoods = {};
+      next.animalGoods[type.produces] = (next.animalGoods[type.produces] ?? 0) + yieldAmount;
+      animal.ready = false;
+      animal.readyTick = 0;
+      anyCollected = true;
+    }
+  }
+  return anyCollected ? next : state;
+}
+ 
 export function interactAnimal(state, animalId, animalInstanceId) {
   const next = deepCloneState(state);
   const animals = next.animals?.[animalId] ?? [];
@@ -1773,7 +1835,7 @@ export function interactAnimal(state, animalId, animalInstanceId) {
   animal.interactCooldown = ANIMAL_INTERACT_COOLDOWN;
   return next;
 }
-
+ 
 export function buyPet(state, petId) {
   const type = PET_TYPES[petId];
   if (!type || state.pets?.[petId]) return state;
@@ -1784,7 +1846,7 @@ export function buyPet(state, petId) {
   next.pets[petId] = { mood: 100, interactCooldown: 0 };
   return next;
 }
-
+ 
 export function interactPet(state, petId) {
   const next = deepCloneState(state);
   const pet = next.pets?.[petId];
@@ -1885,11 +1947,19 @@ export function deserializeState(raw) {
       // Migrate old drain-based townHall to treasury
       if (parsed.town.townHallDraining !== undefined) delete parsed.town.townHallDraining;
       if (parsed.town.townHallDrained !== undefined) delete parsed.town.townHallDrained;
-      if (!parsed.pond) parsed.pond = null;
+    } // end town else
+ 
+    // These must be outside the town block — always migrate regardless
+    if (!parsed.pond) parsed.pond = null;
     if (!parsed.animals) parsed.animals = { chicken: [], cow: [], sheep: [] };
     if (!parsed.pets) parsed.pets = {};
     if (!parsed.animalGoods) parsed.animalGoods = { egg: 0, milk: 0, wool: 0 };
     if (!parsed.bait) parsed.bait = { wheat_bait: 0, berry_bait: 0, tomato_bait: 0 };
+    if (!parsed.fishMealStacks) parsed.fishMealStacks = [];
+    if (parsed.kitchenWorkers) {
+      for (const w of parsed.kitchenWorkers) {
+        if (w.autoRestartEnabled === undefined) w.autoRestartEnabled = true;
+      }
     }
  
     return parsed;

@@ -1,5 +1,5 @@
 // src/Pages/rootwork/components/MarketZone.jsx
-
+ 
 import React, { useState, useCallback } from "react";
 import {
   MARKET_SELL_RATES,
@@ -16,7 +16,7 @@ import {
   getSmartSellAmount,       
   getTownFoodReserve,
 } from "../gameEngine";
-
+ 
 const SELLABLE_ITEMS = [
   { type: "wheat",         label: "Wheat",         emoji: "🌾", isCrop: true,   isAnimal: false, isFish: false },
   { type: "berries",       label: "Berries",        emoji: "🫐", isCrop: true,   isAnimal: false, isFish: false },
@@ -38,9 +38,9 @@ const SELLABLE_ITEMS = [
   { type: "smoked_fish",   label: "Smoked Fish",    emoji: "🐟", isCrop: false,  isAnimal: false, isFish: true  },
   { type: "fish_meal",     label: "Fish Meal",      emoji: "🌿", isCrop: false,  isAnimal: false, isFish: true  },
 ];
-
+ 
 const SELL_AMOUNTS = [1, 10, 50, 100, "All"];
-
+ 
 function SmartSellButton({ game, itemType, onAssign }) {
   const smartQty = getSmartSellAmount(game, itemType);
   const item = SELLABLE_ITEMS.find((i) => i.type === itemType);
@@ -52,7 +52,7 @@ function SmartSellButton({ game, itemType, onAssign }) {
   const foodItem = bakeryOn ? "bread" : "wheat";
   const isFood = itemType === foodItem;
   const label = isFood && reserve > 0 ? `Smart (keep ${reserve})` : "Smart (all)";
-
+ 
   return (
     <button
       onClick={() => smartQty > 0 && onAssign(smartQty)}
@@ -73,7 +73,7 @@ function SmartSellButton({ game, itemType, onAssign }) {
     </button>
   );
 }
-
+ 
 function MarketWorkerCard({
   worker,
   game,
@@ -91,19 +91,19 @@ function MarketWorkerCard({
   const [selectedAmount, setSelectedAmount] = useState(10);
   const [showStandingOrderPicker, setShowStandingOrderPicker] = useState(false);
   const [confirmFire, setConfirmFire] = useState(false);
-
+ 
   const gear = MARKET_WORKER_GEAR[worker.gear];
   const nextGearId = getMarketWorkerNextGear(worker.gear);
   const nextGear = nextGearId ? MARKET_WORKER_GEAR[nextGearId] : null;
   const queueTotal = getMarketWorkerQueueTotal(worker);
   const ips = getMarketWorkerItemsPerSecond(worker);
   const canAffordStandingOrder = (game.cash ?? 0) >= MARKET_WORKER_STANDING_ORDER_COST;
-
+ 
   const estimatedQueueValue = (worker.queue ?? []).reduce((sum, order) => {
     const rate = getSellRate(order.itemType, game.prestigeBonuses ?? []);
     return sum + order.quantity * rate;
   }, 0);
-
+ 
   function handleAssign() {
     if (!selectedItem) return;
     const item = SELLABLE_ITEMS.find((i) => i.type === selectedItem);
@@ -119,7 +119,7 @@ function MarketWorkerCard({
     onAssign(worker.id, selectedItem, qty);
     setSelectedItem(null);
   }
-
+ 
   return (
     <div className="card" style={{ fontSize: "0.82rem", overflow: "hidden" }}>
       <div
@@ -171,7 +171,7 @@ function MarketWorkerCard({
           </span>
         </button>
       </div>
-
+ 
       {!expanded && queueTotal > 0 && (
         <div style={{ padding: "0 1rem 0.6rem", fontSize: "0.68rem", color: "var(--muted)" }}>
           Top queue item:{" "}
@@ -184,7 +184,7 @@ function MarketWorkerCard({
           </span>
         </div>
       )}
-
+ 
       {expanded && (
         <div style={{ padding: "0.75rem 1rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
           {worker.hasStandingOrder && (
@@ -227,7 +227,7 @@ function MarketWorkerCard({
                   {showStandingOrderPicker ? "▲" : "▼ Change"}
                 </button>
               </div>
-
+ 
               {showStandingOrderPicker && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", marginTop: "0.5rem" }}>
                   {SELLABLE_ITEMS.map((item) => {
@@ -290,7 +290,7 @@ function MarketWorkerCard({
               )}
             </div>
           )}
-
+ 
           <div
             style={{
               background: "var(--bg)",
@@ -349,7 +349,7 @@ function MarketWorkerCard({
               </span>
             )}
           </div>
-
+ 
           <div>
             <div
               style={{
@@ -392,13 +392,19 @@ function MarketWorkerCard({
                 );
               })}
             </div>
-
+ 
             {selectedItem && (
   <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", alignItems: "center" }}>
     {SELL_AMOUNTS.map((amt) => {
       const item = SELLABLE_ITEMS.find((i) => i.type === selectedItem);
       const have = item
-        ? item.isCrop ? (game.crops[item.type] ?? 0) : (game.artisan[item.type] ?? 0)
+        ? item.isCrop
+          ? (game.crops[item.type] ?? 0)
+          : item.isAnimal
+            ? (game.animalGoods?.[item.type] ?? 0)
+            : item.isFish
+              ? (game.pond?.fish?.[item.type] ?? 0)
+              : (game.artisan[item.type] ?? 0)
         : 0;
       const qty = amt === "All" ? have : amt;
       const disabled = have < qty || qty <= 0;
@@ -422,7 +428,7 @@ function MarketWorkerCard({
         </button>
       );
     })}
-
+ 
     <SmartSellButton
       game={game}
       itemType={selectedItem}
@@ -431,7 +437,7 @@ function MarketWorkerCard({
         setSelectedItem(null);
       }}
     />
-
+ 
     <button
       onClick={handleAssign}
       className="btn"
@@ -442,7 +448,7 @@ function MarketWorkerCard({
   </div>
 )}
           </div>
-
+ 
           <div
             style={{
               borderTop: "1px solid var(--border)",
@@ -476,7 +482,7 @@ function MarketWorkerCard({
                 </button>
               </div>
             )}
-
+ 
             {nextGear ? (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div style={{ fontSize: "0.72rem", color: "var(--muted)" }}>
@@ -504,7 +510,7 @@ function MarketWorkerCard({
                 ✓ Max gear
               </div>
             )}
-
+ 
             {!confirmFire ? (
               <button
                 onClick={() => setConfirmFire(true)}
@@ -562,7 +568,7 @@ function MarketWorkerCard({
     </div>
   );
 }
-
+ 
 export default function MarketZone({
   game,
   onHireMarketWorker,
@@ -574,7 +580,7 @@ export default function MarketZone({
   onCancelQueue,
 }) {
   const [expandedWorkers, setExpandedWorkers] = useState({});
-
+ 
   const toggleWorker = useCallback((workerId) => {
     setExpandedWorkers((prev) => ({ ...prev, [workerId]: !prev[workerId] }));
   }, []);
@@ -586,7 +592,7 @@ const isFirstWorker = (game.marketWorkers ?? []).length === 0;
 const canAffordCash = isFirstWorker || cash >= hireCost;
 const canHire = !atCap && canAffordCash;
   const hasSavvy = (game.prestigeBonuses ?? []).includes("market_savvy");
-
+ 
   return (
     <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 5rem" }}>
       <div style={{ marginBottom: "1rem" }}>
@@ -595,7 +601,7 @@ const canHire = !atCap && canAffordCash;
           Hire market workers to sell your crops and artisan goods for cash.
         </p>
       </div>
-
+ 
       <div className="card p-4" style={{ marginBottom: "1.25rem" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
@@ -631,7 +637,7 @@ const canHire = !atCap && canAffordCash;
           </div>
         )}
       </div>
-
+ 
       <div className="card p-3" style={{ marginBottom: "1.25rem", fontSize: "0.72rem" }}>
         <div style={{ fontWeight: 600, marginBottom: "0.4rem", color: "var(--muted)" }}>
           Sell rates
@@ -662,7 +668,7 @@ const canHire = !atCap && canAffordCash;
           })}
         </div>
       </div>
-
+ 
       <div style={{ marginBottom: "1.25rem" }}>
   <button
     onClick={onHireMarketWorker}
@@ -681,7 +687,7 @@ const canHire = !atCap && canAffordCash;
     </p>
   )}
 </div>
-
+ 
       {(game.marketWorkers ?? []).length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
           {game.marketWorkers.map((worker, idx) => (

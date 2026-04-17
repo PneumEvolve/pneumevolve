@@ -1,10 +1,12 @@
 // src/Pages/rootwork/components/ProcessingZone.jsx
-
+ 
 import React, { useState, useCallback } from "react";
 import {
   PROCESSING_RECIPES,
   KITCHEN_WORKER_UPGRADES,
   KITCHEN_WORKER_UPGRADE_ORDER,
+  BAIT_TYPES,
+  BAIT_RECIPES,
 } from "../gameConstants";
 import {
   getKitchenWorkerHireCost,
@@ -13,14 +15,16 @@ import {
   getNextFeastTier,
   getKitchenWorkerBatchSize,
   getAvailableWorkerSlots,
+  getFishMealGrowBonus,
 } from "../gameEngine";
-
+ 
 const RECIPE_LIST = ["bread", "jam", "sauce", "omelette", "cheese", "knitted_goods", "fish_pie", "smoked_fish", "fish_meal"];
+const BAIT_RECIPE_LIST = ["wheat_bait", "berry_bait", "tomato_bait"];
 const SPEED_UPGRADES = ["speed_1", "speed_2", "auto_restart"];
 const BATCH_UPGRADES = ["batch_2", "batch_5", "batch_10"];
-
+ 
 // ─── Progress bar ─────────────────────────────────────────────────────────────
-
+ 
 function ProgressBar({ elapsed, total, color = "var(--accent)" }) {
   const pct = total > 0 ? Math.min(100, (elapsed / total) * 100) : 0;
   return (
@@ -33,9 +37,9 @@ function ProgressBar({ elapsed, total, color = "var(--accent)" }) {
     </div>
   );
 }
-
+ 
 // ─── Upgrade tree ─────────────────────────────────────────────────────────────
-
+ 
 function UpgradeTree({ label, upgradeIds, worker, game, onUpgrade }) {
   const upgrades = worker.upgrades ?? [];
   return (
@@ -51,7 +55,7 @@ function UpgradeTree({ label, upgradeIds, worker, game, onUpgrade }) {
           const canAfford = (game.cash ?? 0) >= u.cost;
           const canBuy = !owned && requiresMet && canAfford;
           const locked = !owned && !requiresMet;
-
+ 
           return (
             <div key={uid} style={{
               display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -90,20 +94,20 @@ function UpgradeTree({ label, upgradeIds, worker, game, onUpgrade }) {
     </div>
   );
 }
-
+ 
 // ─── Kitchen worker card ──────────────────────────────────────────────────────
-
-function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, onCancel, workerNumber, expanded, onToggle }) {
+ 
+function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, onCancel, onToggleAutoRestart, workerNumber, expanded, onToggle }) {
   const [showRecipes, setShowRecipes] = useState(false);
   const [confirmFire, setConfirmFire] = useState(false);
-
+ 
   const idle = isKitchenWorkerIdle(worker);
   const recipe = worker.recipeId ? PROCESSING_RECIPES[worker.recipeId] : null;
   const upgrades = worker.upgrades ?? [];
   const timeRemaining = worker.busy ? Math.max(0, Math.floor(worker.totalSeconds - worker.elapsedSeconds)) : 0;
   const batch = getKitchenWorkerBatchSize(worker);
   const hasAutoRestart = upgrades.includes("auto_restart");
-
+ 
   const statusText = idle
     ? "⚠ Idle"
     : worker.busy
@@ -111,12 +115,12 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
       : hasAutoRestart
         ? `⏳ Waiting for ${recipe?.emoji} ${recipe?.name}`
         : `✓ Done — ${recipe?.emoji} ${recipe?.name}`;
-
+ 
   const statusColor = idle ? "#ef4444" : worker.busy ? "#4ade80" : "var(--muted)";
-
+ 
   return (
     <div className="card" style={{ fontSize: "0.82rem", overflow: "hidden" }}>
-
+ 
       {/* Header row */}
       <div style={{
         width: "100%", display: "flex", alignItems: "center",
@@ -155,8 +159,8 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
             {expanded ? "▲" : "▼"}
           </span>
         </button>
-
-
+ 
+ 
         {/* Cancel button — show when busy */}
 {worker.busy && (
   <button
@@ -173,7 +177,7 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
     ✕
   </button>
 )}
-
+ 
 {/* Cook Again button — show when idle with previous recipe */}
 {!worker.busy && !idle && recipe && (
   <button
@@ -191,18 +195,18 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
   </button>
 )}
       </div>
-
+ 
       {/* Progress bar visible when busy and collapsed */}
       {worker.busy && !expanded && (
         <div style={{ padding: "0 1rem 0.5rem" }}>
           <ProgressBar elapsed={worker.elapsedSeconds} total={worker.totalSeconds} />
         </div>
       )}
-
+ 
       {/* Expanded content */}
       {expanded && (
         <div style={{ padding: "0.75rem 1rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-
+ 
           {/* Progress */}
           {worker.busy && recipe && (
             <div>
@@ -219,11 +223,11 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
               </div>
               <ProgressBar elapsed={worker.elapsedSeconds} total={worker.totalSeconds} />
               <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginTop: "0.3rem" }}>
-                Produces {recipe.outputAmount * batch} {recipe.outputGood} · consumes {recipe.inputAmount * batch} {recipe.inputCrop}
+                Produces {recipe.outputAmount * batch} {recipe.emoji} · consumes {recipe.inputAmount * batch}× {recipe.inputCrop}
               </div>
             </div>
           )}
-
+ 
           {/* Waiting / done state */}
           {!worker.busy && worker.recipeId && recipe && (
             <div style={{
@@ -235,7 +239,7 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
                 : `✓ Done — tap 🍳 Again or assign a new recipe below`}
             </div>
           )}
-
+ 
           {/* Recipe selector */}
           <div>
             <button
@@ -249,11 +253,11 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
             >
               {showRecipes ? "▲ Hide recipes" : `▼ ${worker.recipeId ? "Change recipe" : "Assign recipe"}`}
             </button>
-
+ 
             {showRecipes && (
               <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", marginTop: "0.4rem" }}>
                 {RECIPE_LIST.map((recipeId) => {
-                  const r = PROCESSING_RECIPES[recipeId];
+                  const r = PROCESSING_RECIPES[recipeId] ?? BAIT_RECIPES[recipeId];
                   const have = (game.crops[r.inputCrop] ?? 0)
                     || (game.animalGoods?.[r.inputCrop] ?? 0)
                     || (game.pond?.fish?.[r.inputCrop] ?? 0);
@@ -297,7 +301,29 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
               </div>
             )}
           </div>
-
+ 
+          {/* Auto-restart toggle */}
+          {upgrades.includes("auto_restart") && (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.35rem 0.5rem", background: "var(--bg)", borderRadius: "6px", border: "1px solid var(--border)" }}>
+              <div style={{ fontSize: "0.68rem" }}>
+                <span style={{ fontWeight: 600, color: "var(--text)" }}>🔄 Auto-Restart</span>
+                <span style={{ marginLeft: "0.35rem", fontSize: "0.62rem", color: "var(--muted)" }}>Automatically restart recipe when done</span>
+              </div>
+              <button
+                onClick={() => onToggleAutoRestart(worker.id)}
+                style={{
+                  fontSize: "0.65rem", padding: "0.15rem 0.5rem", borderRadius: "999px",
+                  cursor: "pointer", fontWeight: 700, flexShrink: 0, marginLeft: "0.5rem",
+                  background: (worker.autoRestartEnabled ?? true) ? "rgba(74,222,128,0.15)" : "var(--bg)",
+                  border: `1px solid ${(worker.autoRestartEnabled ?? true) ? "#4ade80" : "var(--border)"}`,
+                  color: (worker.autoRestartEnabled ?? true) ? "#4ade80" : "var(--muted)",
+                }}
+              >
+                {(worker.autoRestartEnabled ?? true) ? "🟢 On" : "⚪ Off"}
+              </button>
+            </div>
+          )}
+ 
           {/* Upgrade trees */}
           <div style={{ borderTop: "1px solid var(--border)", paddingTop: "0.6rem", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
             <UpgradeTree
@@ -315,7 +341,7 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
               onUpgrade={onUpgrade}
             />
           </div>
-
+ 
           {/* Fire */}
 {!confirmFire ? (
   <button
@@ -353,19 +379,51 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
     </button>
   </div>
 )}
-
+ 
         </div>
       )}
     </div>
   );
 }
-
+ 
+// ─── Fish Meal panel ─────────────────────────────────────────────────────────
+ 
+function FishMealPanel({ game }) {
+  const fishMealCount = Math.floor(game.animalGoods?.fish_meal ?? 0);
+  const stacks = game.fishMealStacks ?? [];
+  const activeBonus = stacks.reduce((s, st) => s + (st.secondsLeft > 0 ? st.bonus : 0), 0);
+  if (fishMealCount === 0 && stacks.length === 0) return null;
+  return (
+    <div className="card p-4" style={{ marginBottom: "1.25rem", fontSize: "0.82rem" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.4rem" }}>
+        <div>
+          <div style={{ fontWeight: 600 }}>🌿 Fish Meal Fertilizer</div>
+          <div style={{ fontSize: "0.68rem", color: "var(--muted)" }}>Crafted from minnows. Auto-activates +10% grow speed for 10 min per batch.</div>
+        </div>
+        {activeBonus > 0 && (
+          <div style={{ fontSize: "0.72rem", color: "#4ade80", fontWeight: 700, background: "rgba(74,222,128,0.1)", borderRadius: "6px", padding: "0.2rem 0.5rem", flexShrink: 0, marginLeft: "0.5rem" }}>
+            +{activeBonus}% active
+          </div>
+        )}
+      </div>
+      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>In stock: <strong style={{ color: fishMealCount > 0 ? "var(--text)" : "var(--muted)" }}>{fishMealCount} 🌿</strong></div>
+        {stacks.map((s, i) => (
+          <div key={i} style={{ fontSize: "0.62rem", background: "rgba(74,222,128,0.08)", border: "1px solid rgba(74,222,128,0.25)", borderRadius: "6px", padding: "0.15rem 0.4rem", color: "#4ade80" }}>
+            +{s.bonus}% · {Math.ceil(s.secondsLeft / 60)}min left
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+ 
 // ─── Feast panel ──────────────────────────────────────────────────────────────
-
+ 
 function FeastPanel({ game, onBuyFeast }) {
   const nextTier = getNextFeastTier(game);
   const currentBonus = game.feastBonusPercent ?? 0;
-
+ 
   if (!nextTier) {
     return (
       <div className="card p-4" style={{ fontSize: "0.82rem", textAlign: "center" }}>
@@ -375,13 +433,13 @@ function FeastPanel({ game, onBuyFeast }) {
       </div>
     );
   }
-
+ 
   const perGood = Math.ceil(nextTier.cost / 3);
   const hasBread = (game.artisan.bread ?? 0) >= perGood;
   const hasJam = (game.artisan.jam ?? 0) >= perGood;
   const hasSauce = (game.artisan.sauce ?? 0) >= perGood;
   const canFeast = hasBread && hasJam && hasSauce;
-
+ 
   return (
     <div className="card p-4" style={{ fontSize: "0.82rem" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.6rem" }}>
@@ -432,9 +490,9 @@ function FeastPanel({ game, onBuyFeast }) {
     </div>
   );
 }
-
+ 
 // ─── Artisan inventory ────────────────────────────────────────────────────────
-
+ 
 function ArtisanInventory({ artisan }) {
   const items = [
     { key: "bread", emoji: "🍞", label: "Bread" },
@@ -463,9 +521,9 @@ function ArtisanInventory({ artisan }) {
     </div>
   );
 }
-
+ 
 // ─── Main zone ────────────────────────────────────────────────────────────────
-
+ 
 export default function ProcessingZone({
   game,
   onHireKitchenWorker,
@@ -474,33 +532,34 @@ export default function ProcessingZone({
   onFireKitchenWorker,
   onUpgradePlot,
   onCancelKitchenWorkerRecipe,
+  onToggleKitchenWorkerAutoRestart,
   onBuyFeast,
 }) {
   const [expandedWorkers, setExpandedWorkers] = useState({});
-
+ 
   const toggleWorker = useCallback((workerId) => {
     setExpandedWorkers((prev) => ({ ...prev, [workerId]: !prev[workerId] }));
   }, []);
-
+ 
   const hireCost = getKitchenWorkerHireCost(game);
 const atCap = getAvailableWorkerSlots(game) <= 0;
 const canAffordCash = (game.cash ?? 0) >= hireCost;
 const canHire = !atCap && canAffordCash;
 const workers = game.kitchenWorkers ?? [];
 const isFirstWorker = workers.length === 0;
-
+ 
   return (
     <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 5rem" }}>
-
+ 
       <div style={{ marginBottom: "1rem" }}>
         <h2 style={{ fontSize: "1.2rem", fontWeight: 700 }}>🏭 Crafting</h2>
         <p style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: "0.15rem" }}>
           Hire kitchen workers to craft artisan goods from your crops.
         </p>
       </div>
-
+ 
       <ArtisanInventory artisan={game.artisan} />
-
+ 
       <div style={{ marginBottom: "1.25rem" }}>
         <button
   onClick={onHireKitchenWorker}
@@ -519,7 +578,7 @@ const isFirstWorker = workers.length === 0;
   </p>
 )}
       </div>
-
+ 
       {workers.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "1.5rem" }}>
           {workers.map((worker, idx) => (
@@ -534,13 +593,15 @@ const isFirstWorker = workers.length === 0;
               onUpgrade={onUpgradeKitchenWorker}
               onFire={onFireKitchenWorker}
               onCancel={onCancelKitchenWorkerRecipe}
+              onToggleAutoRestart={onToggleKitchenWorkerAutoRestart}
             />
           ))}
         </div>
       )}
-
+ 
+      <FishMealPanel game={game} />
       <FeastPanel game={game} onBuyFeast={onBuyFeast} />
-
+ 
     </div>
   );
 }

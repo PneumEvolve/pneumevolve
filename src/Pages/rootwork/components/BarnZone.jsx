@@ -1,45 +1,45 @@
 // src/Pages/rootwork/components/BarnZone.jsx
 import React, { useState } from "react";
-
+ 
 const ANIMAL_DEFS = {
   chicken: { id: "chicken", name: "Chicken", emoji: "🐔", baseCost: 300, costMultiplier: 1.8, produces: "egg", produceName: "Egg", produceEmoji: "🥚", cycleSeconds: 60, foodPulseCost: 1, moodDecayPerMinute: 2, description: "Lays eggs every minute.", unlockSeason: 1 },
   cow:     { id: "cow",     name: "Cow",     emoji: "🐄", baseCost: 800, costMultiplier: 1.6, produces: "milk", produceName: "Milk", produceEmoji: "🥛", cycleSeconds: 120, foodPulseCost: 2, moodDecayPerMinute: 1.5, description: "Produces milk every 2 minutes.", unlockSeason: 2 },
   sheep:   { id: "sheep",   name: "Sheep",   emoji: "🐑", baseCost: 1500, costMultiplier: 1.5, produces: "wool", produceName: "Wool", produceEmoji: "🧶", cycleSeconds: 180, foodPulseCost: 2, moodDecayPerMinute: 1, description: "Produces wool every 3 minutes.", unlockSeason: 3 },
 };
-
+ 
 const PET_DEFS = {
   dog:    { id: "dog",    name: "Dog",    emoji: "🐕", cost: 400, bonus: "Slows mood decay on all barn animals by 30%.", foodCostPerPulse: 1 },
   cat:    { id: "cat",    name: "Cat",    emoji: "🐈", cost: 400, bonus: "Widens the fishing needle sweet spot by 20%.", foodCostPerPulse: 1 },
   rabbit: { id: "rabbit", name: "Rabbit", emoji: "🐇", cost: 400, bonus: "+5% town satisfaction while happy.", foodCostPerPulse: 1 },
 };
-
+ 
 const MAX_PER_TYPE = 5;
 const INTERACT_BOOST = 25;
-
+ 
 function getAnimalCost(animalId, owned) {
   const type = ANIMAL_DEFS[animalId];
   return Math.round(type.baseCost * Math.pow(type.costMultiplier, owned));
 }
-
+ 
 function moodColor(mood) {
   if (mood >= 80) return "#4ade80";
   if (mood >= 50) return "#f59e0b";
   return "#ef4444";
 }
-
+ 
 function moodEmoji(mood) {
   if (mood >= 80) return "😊";
   if (mood >= 50) return "😐";
   return "😟";
 }
-
+ 
 function AnimalCard({ animal, animalType, onCollect, onInteract, index }) {
   const mood = animal.mood ?? 100;
   const isReady = animal.ready === true;
   const cooldown = animal.interactCooldown ?? 0;
   const canInteract = cooldown <= 0;
   const progressPct = Math.min(100, ((animal.readyTick ?? 0) / animalType.cycleSeconds) * 100);
-
+ 
   return (
     <div style={{
       background: "var(--bg)",
@@ -55,7 +55,7 @@ function AnimalCard({ animal, animalType, onCollect, onInteract, index }) {
           pointerEvents: "none",
         }} />
       )}
-
+ 
       <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.5rem" }}>
         <div style={{ fontSize: "1.8rem", lineHeight: 1 }}>{animalType.emoji}</div>
         <div style={{ flex: 1 }}>
@@ -74,19 +74,19 @@ function AnimalCard({ animal, animalType, onCollect, onInteract, index }) {
           </div>
         </div>
       </div>
-
+ 
       {/* Mood bar */}
       <div style={{ height: "4px", background: "var(--border)", borderRadius: "999px", overflow: "hidden", marginBottom: "0.3rem" }}>
         <div style={{ height: "100%", width: `${mood}%`, background: moodColor(mood), borderRadius: "999px", transition: "width 0.5s" }} />
       </div>
-
+ 
       {/* Progress bar */}
       {!isReady && (
         <div style={{ height: "3px", background: "var(--border)", borderRadius: "999px", overflow: "hidden", marginBottom: "0.45rem" }}>
           <div style={{ height: "100%", width: `${progressPct}%`, background: "rgba(99,102,241,0.6)", borderRadius: "999px", transition: "width 0.5s" }} />
         </div>
       )}
-
+ 
       <div style={{ display: "flex", gap: "0.4rem" }}>
         {isReady && (
           <button
@@ -120,7 +120,7 @@ function AnimalCard({ animal, animalType, onCollect, onInteract, index }) {
     </div>
   );
 }
-
+ 
 function AnimalSection({ animalId, game, onBuyAnimal, onCollect, onInteract }) {
   const [open, setOpen] = useState(true);
   const type = ANIMAL_DEFS[animalId];
@@ -130,7 +130,7 @@ function AnimalSection({ animalId, game, onBuyAnimal, onCollect, onInteract }) {
   const atMax = count >= MAX_PER_TYPE;
   const canAfford = (game.cash ?? 0) >= nextCost;
   const seasonOk = (game.season ?? 1) >= type.unlockSeason;
-
+ 
   if (!seasonOk) {
     return (
       <div style={{ background: "var(--bg-elev)", border: "1px solid var(--border)", borderRadius: "12px", padding: "0.85rem", opacity: 0.5 }}>
@@ -144,7 +144,7 @@ function AnimalSection({ animalId, game, onBuyAnimal, onCollect, onInteract }) {
       </div>
     );
   }
-
+ 
   return (
     <div style={{ background: "var(--bg-elev)", border: "1px solid var(--border)", borderRadius: "12px", overflow: "hidden" }}>
       <button
@@ -190,7 +190,7 @@ function AnimalSection({ animalId, game, onBuyAnimal, onCollect, onInteract }) {
           <span style={{ fontSize: "0.62rem", color: "var(--muted)" }}>{open ? "▲" : "▼"}</span>
         </div>
       </button>
-
+ 
       {open && (
         <div style={{ padding: "0.75rem 0.85rem", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
           {count === 0 ? (
@@ -232,7 +232,7 @@ function AnimalSection({ animalId, game, onBuyAnimal, onCollect, onInteract }) {
     </div>
   );
 }
-
+ 
 function PetCard({ petId, game, onBuyPet, onInteractPet }) {
   const type = PET_DEFS[petId];
   const pet = game.pets?.[petId];
@@ -242,7 +242,7 @@ function PetCard({ petId, game, onBuyPet, onInteractPet }) {
   const canInteract = owned && cooldown <= 0;
   const canAfford = (game.cash ?? 0) >= type.cost;
   const bonusActive = owned && mood >= 50;
-
+ 
   return (
     <div style={{
       background: "var(--bg-elev)",
@@ -264,7 +264,7 @@ function PetCard({ petId, game, onBuyPet, onInteractPet }) {
           )}
         </div>
       </div>
-
+ 
       {owned && (
         <div style={{ marginTop: "0.5rem" }}>
           <div style={{ height: "4px", background: "var(--border)", borderRadius: "999px", overflow: "hidden", marginBottom: "0.4rem" }}>
@@ -290,7 +290,7 @@ function PetCard({ petId, game, onBuyPet, onInteractPet }) {
           </div>
         </div>
       )}
-
+ 
       {!owned && (
         <button
           onClick={() => onBuyPet(petId)}
@@ -304,10 +304,10 @@ function PetCard({ petId, game, onBuyPet, onInteractPet }) {
     </div>
   );
 }
-
-export default function BarnZone({ game, onBuyAnimal, onCollectAnimal, onInteractAnimal, onBuyPet, onInteractPet }) {
+ 
+export default function BarnZone({ game, onBuyAnimal, onCollectAnimal, onCollectAll, onInteractAnimal, onBuyPet, onInteractPet }) {
   const [subTab, setSubTab] = useState("barn");
-
+ 
   const totalAnimalFood = Object.entries(game.animals ?? {}).reduce((sum, [id, arr]) => {
     return sum + (ANIMAL_DEFS[id] ? arr.length * ANIMAL_DEFS[id].foodPulseCost : 0);
   }, 0);
@@ -315,10 +315,10 @@ export default function BarnZone({ game, onBuyAnimal, onCollectAnimal, onInterac
     return sum + (PET_DEFS[id] ? PET_DEFS[id].foodCostPerPulse : 0);
   }, 0);
   const totalFood = totalAnimalFood + totalPetFood;
-
+ 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
-
+ 
       <div style={{ display: "flex", borderRadius: "10px", overflow: "hidden", border: "1px solid var(--border)", background: "var(--bg)" }}>
         {[{ id: "barn", label: "🐔 Animals" }, { id: "pets", label: "🐾 Pets" }].map((tab) => (
           <button
@@ -336,7 +336,7 @@ export default function BarnZone({ game, onBuyAnimal, onCollectAnimal, onInterac
           </button>
         ))}
       </div>
-
+ 
       {totalFood > 0 && (
         <div style={{
           background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.2)",
@@ -348,9 +348,24 @@ export default function BarnZone({ game, onBuyAnimal, onCollectAnimal, onInterac
           </div>
         </div>
       )}
-
+ 
       {subTab === "barn" && (
         <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
+          {(() => {
+            const totalReady = Object.values(game.animals ?? {}).reduce((s, arr) => s + arr.filter(a => a.ready).length, 0);
+            return totalReady > 1 ? (
+              <button
+                onClick={onCollectAll}
+                style={{
+                  width: "100%", padding: "0.5rem", borderRadius: "10px", cursor: "pointer",
+                  background: "rgba(251,191,36,0.15)", border: "2px solid rgba(251,191,36,0.5)",
+                  color: "#fbbf24", fontSize: "0.8rem", fontWeight: 700,
+                }}
+              >
+                🧺 Collect All ({totalReady} ready)
+              </button>
+            ) : null;
+          })()}
           {Object.keys(ANIMAL_DEFS).map((animalId) => (
             <AnimalSection
               key={animalId}
@@ -376,7 +391,7 @@ export default function BarnZone({ game, onBuyAnimal, onCollectAnimal, onInterac
           </div>
         </div>
       )}
-
+ 
       {subTab === "pets" && (
         <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
           <div style={{ fontSize: "0.72rem", color: "var(--muted)", lineHeight: 1.6 }}>
@@ -387,7 +402,7 @@ export default function BarnZone({ game, onBuyAnimal, onCollectAnimal, onInterac
           ))}
         </div>
       )}
-
+ 
     </div>
   );
 }

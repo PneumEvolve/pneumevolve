@@ -9,6 +9,7 @@ import {
 import {
   isFarmPrestigeReady, getPrestigeBlockers, getNextFarmUnlockCost,
   getTownHallLevel, getEffectiveGrowTime, getWorkerHarvestRate,
+  getTreasuryGrowBonus, getFishMealGrowBonus,
 } from "../gameEngine";
  
 function FarmChecklist({ farm, game }) {
@@ -19,7 +20,9 @@ function FarmChecklist({ farm, game }) {
   const growTime = getEffectiveGrowTime(
     farm, game.workers, farm.crop, null,
     game.feastBonusPercent ?? 0,
-    game.town?.growthBonusPercent ?? 0
+    game.town?.growthBonusPercent ?? 0,
+    getTreasuryGrowBonus(game),
+    getFishMealGrowBonus(game)
   );
   const demandRate = farm.unlockedPlots / growTime;
   const supplyRate = farmWorkers.reduce((sum, w) => sum + getWorkerHarvestRate(w), 0);

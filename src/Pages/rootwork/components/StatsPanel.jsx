@@ -4,7 +4,7 @@ import React from "react";
 import { CROPS, SEASON_FARMS, FIRST_EXTRA_FARM_SEASON } from "../gameConstants";
 import {
   getWorkerHarvestRate, getFarmAverageGrowTime, getStatPerMinute,
-  getTreasuryGrowBonus, getBankPriceBonus, getSellRate,
+  getTreasuryGrowBonus, getBankPriceBonus, getSellRate, getFishMealGrowBonus,
 } from "../gameEngine";
  
 function StatRow({ label, value, sub, valueColor }) {
@@ -28,7 +28,8 @@ function FarmStatsCard({ farm, game }) {
     farm, game.workers, farm.crop,
     game.feastBonusPercent ?? 0,
     game.town?.growthBonusPercent ?? 0,
-    getTreasuryGrowBonus(game)
+    getTreasuryGrowBonus(game),
+    getFishMealGrowBonus(game)
   );
   const demandRate = farm.unlockedPlots / growTime;
   const supplyRate = farmWorkers.reduce((sum, w) => sum + getWorkerHarvestRate(w), 0);

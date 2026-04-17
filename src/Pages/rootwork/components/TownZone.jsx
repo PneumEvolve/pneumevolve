@@ -133,7 +133,7 @@ export default function TownZone({
     return sum + arr.length * (costs[id] ?? 0);
   }, 0);
   const petFoodCost = Object.keys(game.pets ?? {}).length; // 1 per pet
-
+ 
   const nextPulseFoodCost = foodType === "wheat"
     ? (people * TOWN_WHEAT_PER_PERSON) + (totalWorkers * TOWN_WHEAT_PER_WORKER) + animalFoodCost + petFoodCost
     : Math.max(1, Math.ceil((people + totalWorkers) / TOWN_BREAD_FEEDS)) + animalFoodCost + petFoodCost;
@@ -279,8 +279,8 @@ export default function TownZone({
             "#f59e0b"
           )}
           {row(`${foodEmoji} in stock`, `${foodHave}`, foodHave >= nextPulseFoodCost ? "#4ade80" : "#ef4444")}
-          {jamOwned && row("🍯 jam/pulse", pantryOn ? `${jamPulseCost}` : `${getBuildingEffectivePulseCost(game, "pantry")} (off)`, pantryOn ? (jamHave >= jamPulseCost ? "#4ade80" : "#ef4444") : "var(--muted)")}
-          {sauceOwned && row("🥫 sauce/pulse", canneryOn ? `${saucePulseCost}` : `${getBuildingEffectivePulseCost(game, "cannery")} (off)`, canneryOn ? (sauceHave >= saucePulseCost ? "#4ade80" : "#ef4444") : "var(--muted)")}
+          {jamOwned && row("🍯 jam/pulse", pantryOn ? `${jamPulseCost} (have ${jamHave})` : `${getBuildingEffectivePulseCost(game, "pantry")} (off · ${jamHave} in stock)`, pantryOn ? (jamHave >= jamPulseCost ? "#4ade80" : "#ef4444") : "var(--muted)")}
+          {sauceOwned && row("🥫 sauce/pulse", canneryOn ? `${saucePulseCost} (have ${sauceHave})` : `${getBuildingEffectivePulseCost(game, "cannery")} (off · ${sauceHave} in stock)`, canneryOn ? (sauceHave >= saucePulseCost ? "#4ade80" : "#ef4444") : "var(--muted)")}
           {row("Status", starving ? "😟 Hungry" : "😊 Fed", starving ? "#ef4444" : "#4ade80")}
         </div>
       </div>

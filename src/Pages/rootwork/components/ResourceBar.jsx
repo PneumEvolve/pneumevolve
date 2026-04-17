@@ -12,6 +12,11 @@ export default function ResourceBar({ game }) {
   const artisan = game.artisan ?? {};
   const hasArtisan = Object.values(artisan).some((v) => v > 0);
  
+  const animalGoods = game.animalGoods ?? {};
+  const hasAnimalGoods = Object.values(animalGoods).some((v) => v > 0);
+  const fishGoods = game.pond?.fish ?? {};
+  const hasFish = Object.values(fishGoods).some((v) => v > 0);
+  const fishMealBonus = (game.fishMealStacks ?? []).reduce((s, st) => s + (st.secondsLeft > 0 ? st.bonus : 0), 0);
   const townUnlocked = game.town?.unlocked === true;
   const starving = game.town?.starving === true;
   const people = Math.floor(game.town?.people ?? 0);
@@ -82,6 +87,43 @@ export default function ResourceBar({ game }) {
         </div>
       )}
  
+      {/* Animal goods — only show if any exist */}
+      {hasAnimalGoods && (
+        <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+          {[
+            { key: "egg", emoji: "🥚" }, { key: "milk", emoji: "🥛" }, { key: "wool", emoji: "🧶" },
+            { key: "omelette", emoji: "🍳" }, { key: "cheese", emoji: "🧀" }, { key: "knitted_goods", emoji: "🧥" },
+            { key: "fish_pie", emoji: "🥧" }, { key: "smoked_fish", emoji: "🐟" }, { key: "fish_meal", emoji: "🌿" },
+          ].map(({ key, emoji }) => {
+            const amt = animalGoods[key] ?? 0;
+            if (amt <= 0) return null;
+            return (
+              <div key={key} style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.85rem", fontWeight: 500 }}>
+                <span>{emoji}</span><span>{Math.floor(amt)}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+ 
+      {/* Fish inventory — only show if any exist */}
+      {hasFish && (
+        <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+          {[
+            { key: "minnow", emoji: "🐟" }, { key: "bass", emoji: "🎣" },
+            { key: "perch", emoji: "🐠" }, { key: "pike", emoji: "🦈" },
+          ].map(({ key, emoji }) => {
+            const amt = fishGoods[key] ?? 0;
+            if (amt <= 0) return null;
+            return (
+              <div key={key} style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.85rem", fontWeight: 500 }}>
+                <span>{emoji}</span><span>{Math.floor(amt)}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+ 
       {/* Right side */}
       <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
         <div style={{
@@ -91,6 +133,11 @@ export default function ResourceBar({ game }) {
           <span>💰</span>
           <span>${Math.floor(cash)}</span>
         </div>
+        {fishMealBonus > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: "0.2rem", fontSize: "0.72rem", fontWeight: 600, color: "#86efac", background: "rgba(74,222,128,0.1)", borderRadius: "6px", padding: "0.1rem 0.4rem" }}>
+            🌿 +{fishMealBonus}%
+          </div>
+        )}
  
         {/* Town status — always shown */}
         <div style={{
