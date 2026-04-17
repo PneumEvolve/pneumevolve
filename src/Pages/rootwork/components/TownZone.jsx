@@ -128,9 +128,15 @@ export default function TownZone({
  
   const foodEmoji = foodType === "wheat" ? "🌾" : "🍞";
   const foodHave = foodType === "wheat" ? Math.floor(game.crops?.wheat ?? 0) : Math.floor(game.artisan?.bread ?? 0);
+  const animalFoodCost = Object.entries(game.animals ?? {}).reduce((sum, [id, arr]) => {
+    const costs = { chicken: 1, cow: 2, sheep: 2 };
+    return sum + arr.length * (costs[id] ?? 0);
+  }, 0);
+  const petFoodCost = Object.keys(game.pets ?? {}).length; // 1 per pet
+
   const nextPulseFoodCost = foodType === "wheat"
-    ? (people * TOWN_WHEAT_PER_PERSON) + (totalWorkers * TOWN_WHEAT_PER_WORKER)
-    : Math.max(1, Math.ceil((people + totalWorkers) / TOWN_BREAD_FEEDS));
+    ? (people * TOWN_WHEAT_PER_PERSON) + (totalWorkers * TOWN_WHEAT_PER_WORKER) + animalFoodCost + petFoodCost
+    : Math.max(1, Math.ceil((people + totalWorkers) / TOWN_BREAD_FEEDS)) + animalFoodCost + petFoodCost;
   const foodFormula = foodType === "wheat"
     ? `(${people}×${TOWN_WHEAT_PER_PERSON} + ${totalWorkers}×${TOWN_WHEAT_PER_WORKER})`
     : `⌈(${people}+${totalWorkers}) ÷ ${TOWN_BREAD_FEEDS}⌉`;
@@ -266,7 +272,12 @@ export default function TownZone({
         </div>
         <div style={{ fontSize: "0.75rem", color: "var(--muted)", lineHeight: 2 }}>
           {row("Next pulse in", `${pulseSeconds}s`)}
-          {row(`${foodEmoji} needed`, `${nextPulseFoodCost} ${foodEmoji}`, foodHave >= nextPulseFoodCost ? "#4ade80" : "#ef4444")}
+         {row(`${foodEmoji} needed`, `${nextPulseFoodCost} ${foodEmoji}`, foodHave >= nextPulseFoodCost ? "#4ade80" : "#ef4444")}
+          {(animalFoodCost + petFoodCost) > 0 && row(
+            "🐾 animals & pets",
+            `+${animalFoodCost + petFoodCost} ${foodEmoji}`,
+            "#f59e0b"
+          )}
           {row(`${foodEmoji} in stock`, `${foodHave}`, foodHave >= nextPulseFoodCost ? "#4ade80" : "#ef4444")}
           {jamOwned && row("🍯 jam/pulse", pantryOn ? `${jamPulseCost}` : `${getBuildingEffectivePulseCost(game, "pantry")} (off)`, pantryOn ? (jamHave >= jamPulseCost ? "#4ade80" : "#ef4444") : "var(--muted)")}
           {sauceOwned && row("🥫 sauce/pulse", canneryOn ? `${saucePulseCost}` : `${getBuildingEffectivePulseCost(game, "cannery")} (off)`, canneryOn ? (sauceHave >= saucePulseCost ? "#4ade80" : "#ef4444") : "var(--muted)")}

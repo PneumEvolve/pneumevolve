@@ -18,12 +18,25 @@ import {
 } from "../gameEngine";
 
 const SELLABLE_ITEMS = [
-  { type: "wheat", label: "Wheat", emoji: "🌾", isCrop: true },
-  { type: "berries", label: "Berries", emoji: "🫐", isCrop: true },
-  { type: "tomatoes", label: "Tomatoes", emoji: "🍅", isCrop: true },
-  { type: "bread", label: "Bread", emoji: "🍞", isCrop: false },
-  { type: "jam", label: "Jam", emoji: "🍯", isCrop: false },
-  { type: "sauce", label: "Sauce", emoji: "🥫", isCrop: false },
+  { type: "wheat",         label: "Wheat",         emoji: "🌾", isCrop: true,   isAnimal: false, isFish: false },
+  { type: "berries",       label: "Berries",        emoji: "🫐", isCrop: true,   isAnimal: false, isFish: false },
+  { type: "tomatoes",      label: "Tomatoes",       emoji: "🍅", isCrop: true,   isAnimal: false, isFish: false },
+  { type: "bread",         label: "Bread",          emoji: "🍞", isCrop: false,  isAnimal: false, isFish: false },
+  { type: "jam",           label: "Jam",            emoji: "🍯", isCrop: false,  isAnimal: false, isFish: false },
+  { type: "sauce",         label: "Sauce",          emoji: "🥫", isCrop: false,  isAnimal: false, isFish: false },
+  { type: "egg",           label: "Egg",            emoji: "🥚", isCrop: false,  isAnimal: true,  isFish: false },
+  { type: "milk",          label: "Milk",           emoji: "🥛", isCrop: false,  isAnimal: true,  isFish: false },
+  { type: "wool",          label: "Wool",           emoji: "🧶", isCrop: false,  isAnimal: true,  isFish: false },
+  { type: "omelette",      label: "Omelette",       emoji: "🍳", isCrop: false,  isAnimal: true,  isFish: false },
+  { type: "cheese",        label: "Cheese",         emoji: "🧀", isCrop: false,  isAnimal: true,  isFish: false },
+  { type: "knitted_goods", label: "Knitted Goods",  emoji: "🧥", isCrop: false,  isAnimal: true,  isFish: false },
+  { type: "minnow",        label: "Minnow",         emoji: "🐟", isCrop: false,  isAnimal: false, isFish: true  },
+  { type: "bass",          label: "Bass",           emoji: "🎣", isCrop: false,  isAnimal: false, isFish: true  },
+  { type: "perch",         label: "Perch",          emoji: "🐠", isCrop: false,  isAnimal: false, isFish: true  },
+  { type: "pike",          label: "Pike",           emoji: "🦈", isCrop: false,  isAnimal: false, isFish: true  },
+  { type: "fish_pie",      label: "Fish Pie",       emoji: "🥧", isCrop: false,  isAnimal: false, isFish: true  },
+  { type: "smoked_fish",   label: "Smoked Fish",    emoji: "🐟", isCrop: false,  isAnimal: false, isFish: true  },
+  { type: "fish_meal",     label: "Fish Meal",      emoji: "🌿", isCrop: false,  isAnimal: false, isFish: true  },
 ];
 
 const SELL_AMOUNTS = [1, 10, 50, 100, "All"];
@@ -94,7 +107,13 @@ function MarketWorkerCard({
   function handleAssign() {
     if (!selectedItem) return;
     const item = SELLABLE_ITEMS.find((i) => i.type === selectedItem);
-    const have = item.isCrop ? (game.crops[item.type] ?? 0) : (game.artisan[item.type] ?? 0);
+    const have = item.isCrop
+  ? (game.crops[item.type] ?? 0)
+  : item.isAnimal
+    ? (game.animalGoods[item.type] ?? 0)
+    : item.isFish
+      ? (game.pond?.fish?.[item.type] ?? 0)
+      : (game.artisan[item.type] ?? 0);
     const qty = selectedAmount === "All" ? have : Math.min(selectedAmount, have);
     if (qty <= 0) return;
     onAssign(worker.id, selectedItem, qty);
@@ -212,7 +231,13 @@ function MarketWorkerCard({
               {showStandingOrderPicker && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", marginTop: "0.5rem" }}>
                   {SELLABLE_ITEMS.map((item) => {
-                    const have = item.isCrop ? (game.crops[item.type] ?? 0) : (game.artisan[item.type] ?? 0);
+                    const have = item.isCrop
+  ? (game.crops[item.type] ?? 0)
+  : item.isAnimal
+    ? (game.animalGoods[item.type] ?? 0)
+    : item.isFish
+      ? (game.pond?.fish?.[item.type] ?? 0)
+      : (game.artisan[item.type] ?? 0);
                     const isSelected = worker.standingOrder === item.type;
                     return (
                       <button
@@ -338,7 +363,13 @@ function MarketWorkerCard({
             </div>
             <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", marginBottom: "0.4rem" }}>
               {SELLABLE_ITEMS.map((item) => {
-                const have = item.isCrop ? (game.crops[item.type] ?? 0) : (game.artisan[item.type] ?? 0);
+                const have = item.isCrop
+  ? (game.crops[item.type] ?? 0)
+  : item.isAnimal
+    ? (game.animalGoods[item.type] ?? 0)
+    : item.isFish
+      ? (game.pond?.fish?.[item.type] ?? 0)
+      : (game.artisan[item.type] ?? 0);
                 const isSelected = selectedItem === item.type;
                 return (
                   <button

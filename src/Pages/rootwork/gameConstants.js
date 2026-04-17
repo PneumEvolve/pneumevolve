@@ -73,6 +73,12 @@ export const PROCESSING_RECIPES = {
   bread: { id: "bread", name: "Bread", emoji: "🍞", inputCrop: "wheat",    inputAmount: 40, outputGood: "bread", outputAmount: 1, seconds: 90,  description: "Bake bread from wheat." },
   jam:   { id: "jam",   name: "Jam",   emoji: "🍯", inputCrop: "berries",  inputAmount: 30, outputGood: "jam",   outputAmount: 1, seconds: 120, description: "Craft jam from berries." },
   sauce: { id: "sauce", name: "Sauce", emoji: "🥫", inputCrop: "tomatoes", inputAmount: 20, outputGood: "sauce", outputAmount: 1, seconds: 150, description: "Make sauce from tomatoes." },
+  omelette:      { id: "omelette",      name: "Omelette",      emoji: "🍳", inputCrop: "egg",    inputAmount: 3,  outputGood: "omelette",      outputAmount: 1, seconds: 60,  description: "Hearty meal. Crafted from eggs." },
+  cheese:        { id: "cheese",        name: "Cheese",        emoji: "🧀", inputCrop: "milk",   inputAmount: 4,  outputGood: "cheese",        outputAmount: 1, seconds: 90,  description: "Aged to perfection." },
+  knitted_goods: { id: "knitted_goods", name: "Knitted Goods", emoji: "🧥", inputCrop: "wool",   inputAmount: 3,  outputGood: "knitted_goods", outputAmount: 1, seconds: 120, description: "Warm and valuable." },
+  fish_pie:      { id: "fish_pie",      name: "Fish Pie",      emoji: "🥧", inputCrop: "bass",   inputAmount: 2,  outputGood: "fish_pie",      outputAmount: 1, seconds: 90,  description: "Tasty and filling." },
+  smoked_fish:   { id: "smoked_fish",   name: "Smoked Fish",   emoji: "🐟", inputCrop: "perch",  inputAmount: 2,  outputGood: "smoked_fish",   outputAmount: 1, seconds: 75,  description: "Smoky and delicious." },
+  fish_meal:     { id: "fish_meal",     name: "Fish Meal",     emoji: "🌿", inputCrop: "minnow", inputAmount: 5,  outputGood: "fish_meal",     outputAmount: 1, seconds: 45,  description: "Fertilizer. Boosts grow speed." },
 };
  
 // ─── Feast tiers ──────────────────────────────────────────────────────────────
@@ -91,6 +97,10 @@ export const FEAST_MAX_BONUS = 50;
 export const MARKET_SELL_RATES = {
   wheat: 0.5, berries: 1.25, tomatoes: 3,
   bread: 30,  jam: 50,       sauce: 80,
+  egg: 5, milk: 15, wool: 25,
+  omelette: 40, cheese: 60, knitted_goods: 90,
+  minnow: 2, bass: 8, perch: 12, pike: 35,
+  fish_pie: 45, smoked_fish: 35, fish_meal: 20,
 };
  
 // ─── Market workers ───────────────────────────────────────────────────────────

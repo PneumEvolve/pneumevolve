@@ -501,9 +501,11 @@ export function cancelMarketWorkerQueue(state, workerId) {
   const worker = (next.marketWorkers ?? []).find((w) => w.id === workerId);
   if (!worker) return state;
   for (const order of worker.queue ?? []) {
-    if (order.itemType in (next.crops ?? {})) next.crops[order.itemType] = (next.crops[order.itemType] ?? 0) + order.quantity;
-    else if (order.itemType in (next.artisan ?? {})) next.artisan[order.itemType] = (next.artisan[order.itemType] ?? 0) + order.quantity;
-  }
+      if (order.itemType in (next.crops ?? {})) next.crops[order.itemType] = (next.crops[order.itemType] ?? 0) + order.quantity;
+      else if (order.itemType in (next.artisan ?? {})) next.artisan[order.itemType] = (next.artisan[order.itemType] ?? 0) + order.quantity;
+      else if (order.itemType in (next.animalGoods ?? {})) next.animalGoods[order.itemType] = (next.animalGoods[order.itemType] ?? 0) + order.quantity;
+      else if (next.pond?.fish && order.itemType in next.pond.fish) next.pond.fish[order.itemType] = (next.pond.fish[order.itemType] ?? 0) + order.quantity;
+    }
   worker.queue = [];
   return next;
 }
@@ -572,13 +574,21 @@ export function getKitchenWorkerBatchSize(worker) {
   return 1;
 }
  
-function _startKitchenWorkerRecipe(worker, recipeId, crops) {
+function _startKitchenWorkerRecipe(worker, recipeId, crops, animalGoods, fish) {
   const recipe = PROCESSING_RECIPES[recipeId];
   if (!recipe?.inputCrop) return false;
   const batch = getKitchenWorkerBatchSize(worker);
   const totalInput = recipe.inputAmount * batch;
-  if ((crops[recipe.inputCrop] ?? 0) < totalInput) return false;
-  crops[recipe.inputCrop] -= totalInput;
+  const inCrops = recipe.inputCrop in (crops ?? {});
+  const inAnimal = recipe.inputCrop in (animalGoods ?? {});
+  const inFish = recipe.inputCrop in (fish ?? {});
+  const have = inCrops ? (crops[recipe.inputCrop] ?? 0)
+    : inAnimal ? (animalGoods[recipe.inputCrop] ?? 0)
+    : inFish ? (fish[recipe.inputCrop] ?? 0) : 0;
+  if (have < totalInput) return false;
+  if (inCrops) crops[recipe.inputCrop] -= totalInput;
+  else if (inAnimal) animalGoods[recipe.inputCrop] -= totalInput;
+  else if (inFish) fish[recipe.inputCrop] -= totalInput;
   worker.recipeId = recipeId;
   worker.elapsedSeconds = 0;
   worker.totalSeconds = getEffectiveKitchenSeconds(worker, recipe.seconds);
@@ -595,7 +605,10 @@ export function cancelKitchenWorkerRecipe(state, workerId) {
     const recipe = PROCESSING_RECIPES[worker.recipeId];
     const batch = worker.batchSize ?? 1;
     if (recipe?.inputCrop) {
-      next.crops[recipe.inputCrop] = (next.crops[recipe.inputCrop] ?? 0) + Math.floor(recipe.inputAmount * batch * 0.5);
+      const refund = Math.floor(recipe.inputAmount * batch * 0.5);
+      if (recipe.inputCrop in (next.crops ?? {})) next.crops[recipe.inputCrop] += refund;
+      else if (recipe.inputCrop in (next.animalGoods ?? {})) next.animalGoods[recipe.inputCrop] += refund;
+      else if (next.pond?.fish && recipe.inputCrop in next.pond.fish) next.pond.fish[recipe.inputCrop] += refund;
     }
   }
   worker.busy = false;
@@ -934,14 +947,20 @@ export function tick(state) {
       const recipe = PROCESSING_RECIPES[worker.recipeId];
       const batch = worker.batchSize ?? 1;
       const produced = recipe.outputAmount * batch;
-      next.artisan[recipe.outputGood] = (next.artisan[recipe.outputGood] ?? 0) + produced;
+      const artisanGoods = ["bread", "jam", "sauce"];
+      if (artisanGoods.includes(recipe.outputGood)) {
+        next.artisan[recipe.outputGood] = (next.artisan[recipe.outputGood] ?? 0) + produced;
+      } else {
+        if (!next.animalGoods) next.animalGoods = {};
+        next.animalGoods[recipe.outputGood] = (next.animalGoods[recipe.outputGood] ?? 0) + produced;
+      }
       // Stats
       next.stats.kitchenGoods[recipe.outputGood] = pushStat(next.stats.kitchenGoods[recipe.outputGood], produced, now);
       worker.elapsedSeconds = 0;
       worker.busy = false;
       worker.batchSize = 1;
       if ((worker.upgrades ?? []).includes("auto_restart")) {
-        _startKitchenWorkerRecipe(worker, worker.recipeId, next.crops);
+        _startKitchenWorkerRecipe(worker, worker.recipeId, next.crops, next.animalGoods, next.pond?.fish);
       }
     }
   }
@@ -1104,12 +1123,22 @@ export function updateTown(state, seconds = 1) {
     const canneryOn = next.town.canneryOn === true && next.town.sauceBuildingOwned === true;
     const foodType = bakeryOn ? "bread" : "wheat";
  
+    const animalPulseCost = Object.entries(next.animals ?? {}).reduce((sum, [id, arr]) => {
+      const type = ANIMAL_TYPES[id];
+      return sum + (type ? arr.length * type.foodPulseCost : 0);
+    }, 0);
+    const petPulseCost = Object.keys(next.pets ?? {}).reduce((sum, petId) => {
+      const type = PET_TYPES[petId];
+      return sum + (type ? type.foodCostPerPulse : 0);
+    }, 0);
+
     let foodNeeded = 0;
     if (people > 0 || totalWorkers > 0) {
       foodNeeded = foodType === "wheat"
         ? (people * TOWN_WHEAT_PER_PERSON) + (totalWorkers * TOWN_WHEAT_PER_WORKER)
         : Math.max(1, Math.ceil((people + totalWorkers) / TOWN_BREAD_FEEDS));
     }
+    foodNeeded += animalPulseCost + petPulseCost;
  
     const foodHave = foodType === "wheat" ? Math.floor(next.crops?.wheat ?? 0) : Math.floor(next.artisan?.bread ?? 0);
     const fed = foodHave >= foodNeeded;
@@ -1382,12 +1411,20 @@ export function assignItemToMarketWorker(state, workerId, itemType, quantity) {
   if (!worker) return state;
   const isCrop = itemType in (next.crops ?? {});
   const isArtisan = itemType in (next.artisan ?? {});
+  const isAnimal = itemType in (next.animalGoods ?? {});
+  const isFish = next.pond?.fish && itemType in next.pond.fish;
   if (isCrop) {
     if ((next.crops[itemType] ?? 0) < quantity) return state;
     next.crops[itemType] -= quantity;
   } else if (isArtisan) {
     if ((next.artisan[itemType] ?? 0) < quantity) return state;
     next.artisan[itemType] -= quantity;
+  } else if (isAnimal) {
+    if ((next.animalGoods[itemType] ?? 0) < quantity) return state;
+    next.animalGoods[itemType] -= quantity;
+  } else if (isFish) {
+    if ((next.pond.fish[itemType] ?? 0) < quantity) return state;
+    next.pond.fish[itemType] -= quantity;
   } else return state;
   const queue = worker.queue ?? [];
   const last = queue[queue.length - 1];
@@ -1401,9 +1438,11 @@ export function fireMarketWorker(state, workerId) {
   const worker = (next.marketWorkers ?? []).find((w) => w.id === workerId);
   if (!worker) return state;
   for (const order of worker.queue ?? []) {
-    if (order.itemType in (next.crops ?? {})) next.crops[order.itemType] = (next.crops[order.itemType] ?? 0) + order.quantity;
-    else if (order.itemType in (next.artisan ?? {})) next.artisan[order.itemType] = (next.artisan[order.itemType] ?? 0) + order.quantity;
-  }
+      if (order.itemType in (next.crops ?? {})) next.crops[order.itemType] = (next.crops[order.itemType] ?? 0) + order.quantity;
+      else if (order.itemType in (next.artisan ?? {})) next.artisan[order.itemType] = (next.artisan[order.itemType] ?? 0) + order.quantity;
+      else if (order.itemType in (next.animalGoods ?? {})) next.animalGoods[order.itemType] = (next.animalGoods[order.itemType] ?? 0) + order.quantity;
+      else if (next.pond?.fish && order.itemType in next.pond.fish) next.pond.fish[order.itemType] = (next.pond.fish[order.itemType] ?? 0) + order.quantity;
+    }
   next.marketWorkers = next.marketWorkers.filter((w) => w.id !== workerId);
   return next;
 }
@@ -1432,7 +1471,7 @@ export function assignKitchenWorkerRecipe(state, workerId, recipeId) {
     worker.elapsedSeconds = 0;
     worker.batchSize = 1;
   }
-  if (!_startKitchenWorkerRecipe(worker, recipeId, next.crops)) return state;
+  if (!_startKitchenWorkerRecipe(worker, recipeId, next.crops, next.animalGoods, next.pond?.fish)) return state;
   return next;
 }
  

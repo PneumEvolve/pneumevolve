@@ -15,7 +15,7 @@ import {
   getAvailableWorkerSlots,
 } from "../gameEngine";
 
-const RECIPE_LIST = ["bread", "jam", "sauce"];
+const RECIPE_LIST = ["bread", "jam", "sauce", "omelette", "cheese", "knitted_goods", "fish_pie", "smoked_fish", "fish_meal"];
 const SPEED_UPGRADES = ["speed_1", "speed_2", "auto_restart"];
 const BATCH_UPGRADES = ["batch_2", "batch_5", "batch_10"];
 
@@ -254,7 +254,9 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
               <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", marginTop: "0.4rem" }}>
                 {RECIPE_LIST.map((recipeId) => {
                   const r = PROCESSING_RECIPES[recipeId];
-                  const have = game.crops[r.inputCrop] ?? 0;
+                  const have = (game.crops[r.inputCrop] ?? 0)
+                    || (game.animalGoods?.[r.inputCrop] ?? 0)
+                    || (game.pond?.fish?.[r.inputCrop] ?? 0);
                   const totalInput = r.inputAmount * batch;
                   const canStart = have >= totalInput;
                   const effectiveSeconds = getEffectiveKitchenSeconds(worker, r.seconds);
