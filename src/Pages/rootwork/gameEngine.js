@@ -834,13 +834,12 @@ export function tick(state) {
   // ── Treasury drain ─────────────────────────────────────────────────────────
   const activeTier = getActiveTreasuryTier(next);
   if (activeTier) {
-    if ((next.cash ?? 0) <= 0) {
-      // Auto-pause: no cash to drain, turn off the tier until player re-enables it
+    if ((next.cash ?? 0) < activeTier.drainRate) {
+      // Auto-pause: can't afford the full drain rate, turn off until player re-enables
       next.town.treasuryActiveTier = 0;
     } else {
-      const drain = Math.min(activeTier.drainRate, next.cash ?? 0);
-      next.cash = (next.cash ?? 0) - drain;
-      next.town.treasuryBalance = (next.town.treasuryBalance ?? 0) + drain;
+      next.cash = (next.cash ?? 0) - activeTier.drainRate;
+      next.town.treasuryBalance = (next.town.treasuryBalance ?? 0) + activeTier.drainRate;
     }
   }
  
