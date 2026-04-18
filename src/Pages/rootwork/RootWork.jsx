@@ -29,10 +29,8 @@ import ResourceBar from "./components/ResourceBar";
 import FarmZone from "./components/FarmZone";
 import ProcessingZone from "./components/ProcessingZone";
 import MarketZone from "./components/MarketZone";
-import SeasonPanel from "./components/SeasonPanel";
 import FarmUnlockModal from "./components/FarmUnlockModal";
 import TownZone from "./components/TownZone";
-import StatsPanel from "./components/StatsPanel";
 import AnimalsZone from "./components/AnimalsZone";
  
 function loadFromLocalStorage() {
@@ -365,7 +363,6 @@ export default function RootWork() {
         {activeMainTab === "town" && (
           <TownZone game={game} onBuildHome={handleBuildTownHome} onBuyBakery={handleBuyTownBakery} onToggleBakery={handleToggleBakery} onTogglePantry={handleTogglePantry} onToggleCannery={handleToggleCannery} onUpgradeTownBuilding={handleUpgradeTownBuilding} onBuyJamBuilding={handleBuyJamBuilding} onBuySauceBuilding={handleBuySauceBuilding} onUpgradeTownHall={handleUpgradeTownHall} onSetTreasuryTier={handleSetTreasuryTier} onBuildBank={handleBuildBank} onUpgradeBank={handleUpgradeBank} onSetActiveBankTier={handleSetActiveBankTier} prestigeReady={prestigeReady} onPrestige={() => setShowPrestigeModal(true)} onReset={handleResetGame} />
         )}
-        {activeMainTab === "stats" && <StatsPanel game={game} />}
         {activeMainTab === "animals" && (
           <AnimalsZone
             game={game}

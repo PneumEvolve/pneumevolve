@@ -1,6 +1,6 @@
 // src/Pages/rootwork/components/TownZone.jsx
  
-import React from "react";
+import React, { useState } from "react";
 import {
   TOWN_HOME_CAPACITY, TOWN_PULSE_SECONDS, TOWN_WHEAT_PER_PERSON,
   TOWN_WHEAT_PER_WORKER, TOWN_BREAD_FEEDS, TOWN_JAM_BUILDING_COST,
@@ -20,6 +20,7 @@ import {
   getBankPriceBonus,
 } from "../gameEngine";
 import SeasonPanel from "./SeasonPanel";
+import StatsPanel from "./StatsPanel";
  
 function clampPct(v) { return Math.max(0, Math.min(100, v)); }
  
@@ -83,6 +84,7 @@ export default function TownZone({
   onUpgradeTownHall, onSetTreasuryTier, onBuildBank, onUpgradeBank, onSetActiveBankTier,
   prestigeReady, onPrestige, onReset,
 }) {
+  const [subTab, setSubTab] = useState("town");
   const town = game.town ?? {};
   const homes = town.homes ?? 0;
   const bakeryLevel = town.bakeryLevel ?? 0;
@@ -161,8 +163,37 @@ export default function TownZone({
     </div>
   );
  
+  const subTabs = [
+    { id: "town", label: "🏘️ Town" },
+    { id: "season", label: "🌱 Season" },
+    { id: "stats", label: "📊 Stats" },
+  ];
+
   return (
-    <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 5rem" }}>
+    <div style={{ maxWidth: "480px", margin: "0 auto", padding: "0 0 5rem" }}>
+      {/* Sub-tab bar */}
+      <div style={{
+        display: "flex", borderBottom: "1px solid var(--border)",
+        background: "var(--bg-elev)", position: "sticky", top: 0, zIndex: 10,
+      }}>
+        {subTabs.map((t) => (
+          <button key={t.id} onClick={() => setSubTab(t.id)} style={{
+            flex: 1, padding: "0.6rem 0.25rem", background: "none", border: "none",
+            borderBottom: subTab === t.id ? "2px solid var(--accent)" : "2px solid transparent",
+            color: subTab === t.id ? "var(--accent)" : "var(--muted)",
+            fontWeight: subTab === t.id ? 700 : 400, fontSize: "0.78rem", cursor: "pointer",
+          }}>{t.label}</button>
+        ))}
+      </div>
+
+      {subTab === "season" && (
+        <SeasonPanel game={game} prestigeReady={prestigeReady} onPrestige={onPrestige} onReset={onReset} />
+      )}
+      {subTab === "stats" && (
+        <StatsPanel game={game} />
+      )}
+      {subTab === "town" && (
+      <div style={{ padding: "1rem 1rem 0" }}>
       <div style={{ marginBottom: "1rem" }}>
         <h2 style={{ fontSize: "1.2rem", fontWeight: 700 }}>🏘️ Town</h2>
         <p style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: "0.15rem" }}>Feed your town to grow population. All town purchases use the treasury.</p>
@@ -434,15 +465,8 @@ export default function TownZone({
           <div>• <strong style={{ color: "var(--text)" }}>Satisfaction</strong> multiplies all worker speed. Floor 25%, ceiling 150%.</div>
         </div>
       </div>
-      {/* Season — merged into Town */}
-      <div style={{ marginTop: "1.5rem", paddingTop: "1rem", borderTop: "2px solid var(--border)" }}>
-        <SeasonPanel
-          game={game}
-          prestigeReady={prestigeReady}
-          onPrestige={onPrestige}
-          onReset={onReset}
-        />
       </div>
+      )}
     </div>
   );
 }

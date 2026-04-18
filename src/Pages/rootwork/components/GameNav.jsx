@@ -2,7 +2,7 @@ import React from "react";
 import { CROPS, SEASON_FARMS } from "../gameConstants";
 import { isFarmAutomated, isFarmPrestigeReady, getAvailableWorkerSlots } from "../gameEngine";
  
-export const MAIN_TABS = ["farms", "market", "kitchen", "town", "stats", "season"];
+export const MAIN_TABS = ["farms", "market", "kitchen", "town"];
  
 export function FarmSubTabs({ game, activeFarmIndex, onFarmChange }) {
   const farms =
@@ -104,7 +104,6 @@ export default function GameNav({
     { id: "crafting", label: "Crafting", emoji: "🏭", badge: idleKitchenWorkers > 0 ? idleKitchenWorkers : null, badgeColor: "#ef4444" },
     { id: "animals",  label: "Animals",  emoji: "🐾", badge: readyAnimals > 0 ? readyAnimals : null, badgeColor: "#fbbf24" },
     { id: "town",     label: "Town",     emoji: "🏘️", badge: townUnlocked ? starvingTown ? "!" : prestigeReady ? "🌱" : availableWorkerSlots > 0 ? `+${availableWorkerSlots}` : null : null, badgeColor: starvingTown ? "#ef4444" : prestigeReady ? "#f59e0b" : "#4ade80" },
-    { id: "stats",    label: "Stats",    emoji: "📊", badge: null },
   ];
  
   return (

@@ -180,7 +180,7 @@ export default function StatsPanel({ game }) {
       </div>
  
       {/* Town snapshot */}
-      <div className="card p-4">
+      <div className="card p-4" style={{ marginBottom: "1rem" }}>
         <div style={{ fontWeight: 600, fontSize: "0.88rem", marginBottom: "0.6rem" }}>🏘️ Town Snapshot</div>
         <StatRow label="Population" value={`${Math.floor(game.town?.people ?? 0)} / ${game.town?.capacity ?? 0}`} />
         <StatRow label="Satisfaction" value={`${game.town?.satisfaction ?? 100}%`} valueColor={
@@ -205,6 +205,67 @@ export default function StatsPanel({ game }) {
           return base + extra;
         })()}s`} />
       </div>
+
+      {/* Pond stats */}
+      {game.pond?.owned && (
+        <div className="card p-4" style={{ marginBottom: "1rem" }}>
+          <div style={{ fontWeight: 600, fontSize: "0.88rem", marginBottom: "0.6rem" }}>🎣 Pond</div>
+          <StatRow label="Rod tier" value={game.pond?.rodTier ?? "twig"} />
+          <StatRow label="Fish trap" value={game.pond?.trapOwned ? "✅ Owned" : "Not built"} valueColor={game.pond?.trapOwned ? "#4ade80" : "var(--muted)"} />
+          {game.pond?.trapOwned && (
+            <StatRow label="Next trap catch" value={`${Math.ceil(60 - (game.pond?.trapTimer ?? 0))}s`} />
+          )}
+          {Object.entries(game.pond?.fish ?? {}).filter(([, v]) => v > 0).length > 0 ? (
+            <div style={{ marginTop: "0.5rem", paddingTop: "0.3rem", borderTop: "0.5px solid var(--border)" }}>
+              <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginBottom: "0.4rem", fontWeight: 600 }}>Fish inventory</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem" }}>
+                {[
+                  { id: "minnow", emoji: "🐟" }, { id: "bass", emoji: "🐠" },
+                  { id: "perch", emoji: "🐡" }, { id: "pike", emoji: "🦈" },
+                ].map(({ id, emoji }) => {
+                  const count = game.pond?.fish?.[id] ?? 0;
+                  if (count === 0) return null;
+                  return (
+                    <div key={id} style={{ fontSize: "0.68rem", background: "var(--bg)", borderRadius: "6px", padding: "0.2rem 0.45rem" }}>
+                      {emoji} <strong style={{ color: "var(--text)" }}>{count}</strong>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <StatRow label="Fish inventory" value="Empty" />
+          )}
+        </div>
+      )}
+
+      {/* Animal / barn stats */}
+      {(() => {
+        const animals = game.animals ?? {};
+        const totalAnimals = Object.values(animals).reduce((s, arr) => s + arr.length, 0);
+        if (totalAnimals === 0) return null;
+        const animalGoods = game.animalGoods ?? {};
+        const readyCount = Object.values(animals).reduce((s, arr) => s + arr.filter((a) => a.ready).length, 0);
+        return (
+          <div className="card p-4" style={{ marginBottom: "1rem" }}>
+            <div style={{ fontWeight: 600, fontSize: "0.88rem", marginBottom: "0.6rem" }}>🐔 Barn</div>
+            <StatRow label="Total animals" value={totalAnimals} />
+            <StatRow label="Ready to collect" value={readyCount} valueColor={readyCount > 0 ? "#fbbf24" : "var(--text)"} />
+            {[
+              { id: "chicken", emoji: "🐔", good: "egg", goodEmoji: "🥚" },
+              { id: "cow",     emoji: "🐄", good: "milk", goodEmoji: "🥛" },
+              { id: "sheep",   emoji: "🐑", good: "wool", goodEmoji: "🧶" },
+            ].map(({ id, emoji, good, goodEmoji }) => {
+              const arr = animals[id] ?? [];
+              if (arr.length === 0) return null;
+              return (
+                <StatRow key={id} label={`${emoji} ${id.charAt(0).toUpperCase() + id.slice(1)}s`}
+                  value={`${arr.length} owned · ${goodEmoji} ${Math.floor(animalGoods[good] ?? 0)} in stock`} />
+              );
+            })}
+          </div>
+        );
+      })()}
     </div>
   );
 }

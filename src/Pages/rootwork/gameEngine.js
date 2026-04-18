@@ -1487,7 +1487,7 @@ export function assignKitchenWorkerRecipe(state, workerId, recipeId) {
   const worker = (next.kitchenWorkers ?? []).find((w) => w.id === workerId);
   if (!worker) return state;
   if (worker.busy && worker.recipeId) {
-    const recipe = PROCESSING_RECIPES[worker.recipeId];
+    const recipe = PROCESSING_RECIPES[worker.recipeId] ?? BAIT_RECIPES[worker.recipeId];
     const batch = worker.batchSize ?? 1;
     if (recipe?.inputCrop) next.crops[recipe.inputCrop] = (next.crops[recipe.inputCrop] ?? 0) + Math.floor(recipe.inputAmount * batch * 0.5);
     worker.busy = false;
@@ -1513,7 +1513,7 @@ export function fireKitchenWorker(state, workerId) {
   const worker = (next.kitchenWorkers ?? []).find((w) => w.id === workerId);
   if (!worker) return state;
   if (worker.busy && worker.recipeId) {
-    const recipe = PROCESSING_RECIPES[worker.recipeId];
+    const recipe = PROCESSING_RECIPES[worker.recipeId] ?? BAIT_RECIPES[worker.recipeId];
     if (recipe?.inputCrop) next.crops[recipe.inputCrop] = (next.crops[recipe.inputCrop] ?? 0) + Math.floor(recipe.inputAmount * 0.5);
   }
   next.kitchenWorkers = next.kitchenWorkers.filter((w) => w.id !== workerId);

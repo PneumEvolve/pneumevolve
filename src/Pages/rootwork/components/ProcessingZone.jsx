@@ -102,7 +102,7 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
   const [confirmFire, setConfirmFire] = useState(false);
  
   const idle = isKitchenWorkerIdle(worker);
-  const recipe = worker.recipeId ? PROCESSING_RECIPES[worker.recipeId] : null;
+  const recipe = worker.recipeId ? (PROCESSING_RECIPES[worker.recipeId] ?? BAIT_RECIPES[worker.recipeId]) : null;
   const upgrades = worker.upgrades ?? [];
   const timeRemaining = worker.busy ? Math.max(0, Math.floor(worker.totalSeconds - worker.elapsedSeconds)) : 0;
   const batch = getKitchenWorkerBatchSize(worker);
@@ -256,8 +256,9 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
  
             {showRecipes && (
               <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", marginTop: "0.4rem" }}>
+                {/* Standard recipes */}
                 {RECIPE_LIST.map((recipeId) => {
-                  const r = PROCESSING_RECIPES[recipeId] ?? BAIT_RECIPES[recipeId];
+                  const r = PROCESSING_RECIPES[recipeId];
                   const have = (game.crops[r.inputCrop] ?? 0)
                     || (game.animalGoods?.[r.inputCrop] ?? 0)
                     || (game.pond?.fish?.[r.inputCrop] ?? 0);
@@ -284,11 +285,50 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
                           <div style={{ fontWeight: 600, color: "var(--text)" }}>{r.name}</div>
                           <div style={{ fontSize: "0.62rem", color: "var(--muted)" }}>
                             {totalInput}× {r.inputCrop} · {effectiveSeconds}s · have {have}
-                            {batch > 1 && (
-                              <span style={{ marginLeft: "0.3rem", color: "#f59e0b" }}>
-                                · ×{batch} batch
-                              </span>
-                            )}
+                            {batch > 1 && <span style={{ marginLeft: "0.3rem", color: "#f59e0b" }}>· ×{batch} batch</span>}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: "0.68rem", color: "var(--muted)", textAlign: "right" }}>
+                        → {r.outputAmount * batch} {r.emoji}
+                      </div>
+                    </button>
+                  );
+                })}
+
+                {/* Bait recipes */}
+                <div style={{ fontSize: "0.62rem", fontWeight: 600, color: "var(--muted)", marginTop: "0.25rem", paddingTop: "0.35rem", borderTop: "1px solid var(--border)", letterSpacing: "0.06em" }}>
+                  🪱 BAIT
+                </div>
+                {BAIT_RECIPE_LIST.map((recipeId) => {
+                  const r = BAIT_RECIPES[recipeId];
+                  const have = game.crops[r.inputCrop] ?? 0;
+                  const totalInput = r.inputAmount * batch;
+                  const canStart = have >= totalInput;
+                  const effectiveSeconds = getEffectiveKitchenSeconds(worker, r.seconds);
+                  const inStock = game.bait?.[recipeId] ?? 0;
+                  return (
+                    <button
+                      key={recipeId}
+                      onClick={() => { onAssignRecipe(worker.id, recipeId); setShowRecipes(false); }}
+                      disabled={!canStart}
+                      style={{
+                        display: "flex", alignItems: "center", justifyContent: "space-between",
+                        padding: "0.5rem 0.6rem", borderRadius: "6px",
+                        background: worker.recipeId === recipeId ? "rgba(99,102,241,0.1)" : "var(--bg)",
+                        border: `1px solid ${worker.recipeId === recipeId ? "var(--accent)" : "var(--border)"}`,
+                        cursor: canStart ? "pointer" : "default",
+                        opacity: canStart ? 1 : 0.5, fontSize: "0.75rem",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                        <span>{r.emoji}</span>
+                        <div style={{ textAlign: "left" }}>
+                          <div style={{ fontWeight: 600, color: "var(--text)" }}>{r.name}</div>
+                          <div style={{ fontSize: "0.62rem", color: "var(--muted)" }}>
+                            {totalInput}× {r.inputCrop} · {effectiveSeconds}s · have {have}
+                            {batch > 1 && <span style={{ marginLeft: "0.3rem", color: "#f59e0b" }}>· ×{batch} batch</span>}
+                            {inStock > 0 && <span style={{ marginLeft: "0.3rem", color: "#60a5fa" }}>· {inStock} in stock</span>}
                           </div>
                         </div>
                       </div>
@@ -491,6 +531,39 @@ function FeastPanel({ game, onBuyFeast }) {
   );
 }
  
+// ─── Bait inventory ───────────────────────────────────────────────────────────
+ 
+function BaitInventory({ bait }) {
+  const items = Object.values(BAIT_RECIPES);
+  const hasAny = items.some(({ id }) => (bait?.[id] ?? 0) > 0);
+  if (!hasAny) return null;
+  return (
+    <div className="card p-3" style={{ marginBottom: "1rem" }}>
+      <div style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--muted)", marginBottom: "0.5rem" }}>
+        🪱 Bait Stock
+      </div>
+      <div style={{ display: "flex", gap: "0.5rem" }}>
+        {items.map(({ id, emoji, name }) => {
+          const count = bait?.[id] ?? 0;
+          return (
+            <div key={id} style={{
+              flex: 1, textAlign: "center", padding: "0.5rem",
+              background: "var(--bg)", borderRadius: "8px",
+              border: `1px solid ${count > 0 ? "rgba(96,165,250,0.3)" : "var(--border)"}`,
+            }}>
+              <div style={{ fontSize: "1.2rem" }}>{emoji}</div>
+              <div style={{ fontSize: "0.75rem", fontWeight: 700, color: count > 0 ? "#60a5fa" : "var(--muted)" }}>
+                {count}
+              </div>
+              <div style={{ fontSize: "0.62rem", color: "var(--muted)" }}>{name.replace(" Bait", "")}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+ 
 // ─── Artisan inventory ────────────────────────────────────────────────────────
  
 function ArtisanInventory({ artisan }) {
@@ -559,6 +632,7 @@ const isFirstWorker = workers.length === 0;
       </div>
  
       <ArtisanInventory artisan={game.artisan} />
+      <BaitInventory bait={game.bait} />
  
       <div style={{ marginBottom: "1.25rem" }}>
         <button
