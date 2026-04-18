@@ -19,7 +19,7 @@ import {
   toggleCannery, upgradeTownBuilding, upgradeTownHall, setTreasuryTier,
   buildBank, upgradeBank, setActiveBankTier, buyPond, upgradeRod, buyFishTrap, catchFish, applyGoldenBonus,
   buyAnimal, collectAnimal, collectAllAnimals, interactAnimal, buyPet, interactPet, toggleKitchenWorkerAutoRestart,
-  hireBarnWorker, fireBarnWorker, reassignBarnWorker, applyFishMeal
+  hireBarnWorker, fireBarnWorker, reassignBarnWorker, applyFishMeal, upgradeBarnWorker, upgradeAnimalStorage, getBarnWorkerHireCost
 } from "./gameEngine";
 import {
   SAVE_KEY, SAVE_INTERVAL_MS, PRESTIGE_BONUSES,
@@ -319,10 +319,25 @@ export default function RootWork() {
   const handleInteractAnimal = useCallback((animalId, instanceId) => update((s) => interactAnimal(s, animalId, instanceId)), [update]);
   const handleBuyPet = useCallback((petId) => update((s) => { const n = buyPet(s, petId); if (n === s) notify("Not enough cash."); return n; }), [update, notify]);
   const handleInteractPet = useCallback((petId) => update((s) => interactPet(s, petId)), [update]);
-  const handleHireBarnWorker = useCallback((animalType) => update((s) => { const n = hireBarnWorker(s, animalType); if (n === s) notify("Can't hire — check cash or worker cap."); return n; }), [update, notify]);
+  const handleHireBarnWorker = useCallback((animalType) => update((s) => {
+  const n = hireBarnWorker(s, animalType);
+  if (n === s) notify("Can't hire — check cash or worker cap.");
+  return n;
+}), [update, notify]);
   const handleFireBarnWorker = useCallback((workerId) => update((s) => fireBarnWorker(s, workerId)), [update]);
   const handleReassignBarnWorker = useCallback((workerId, animalType) => update((s) => reassignBarnWorker(s, workerId, animalType)), [update]);
- 
+  const handleUpgradeBarnWorker = useCallback((workerId, upgradeId) => update((s) => {
+  const n = upgradeBarnWorker(s, workerId, upgradeId);
+  if (n === s) notify("Can't upgrade — check cash or requirements.");
+  return n;
+}), [update, notify]);
+
+const handleUpgradeAnimalStorage = useCallback((animalId, instanceId) => update((s) => {
+  const n = upgradeAnimalStorage(s, animalId, instanceId);
+  if (n === s) notify("Not enough cash.");
+  return n;
+}), [update, notify]);
+
   // Feast / prestige / misc
   const handleBuyFeast = useCallback(() => { update((s) => { const n = buyFeast(s); if (n === s) notify("Not enough artisan goods."); return n; }); notify("🍽️ Feast held! Grow speed increased."); }, [update, notify]);
   const handlePrestigeComplete = useCallback((bonusId, workerIds) => { update((s) => beginPrestige(s, bonusId, workerIds)); setShowPrestigeModal(false); setActiveMainTab("farms"); setActiveFarmIndex(0); notify("🌱 New season begun!"); }, [update, notify]);
@@ -388,6 +403,8 @@ export default function RootWork() {
             onHireBarnWorker={handleHireBarnWorker}
             onFireBarnWorker={handleFireBarnWorker}
             onReassignBarnWorker={handleReassignBarnWorker}
+            onUpgradeBarnWorker={handleUpgradeBarnWorker}
+            onUpgradeAnimalStorage={handleUpgradeAnimalStorage}
           />
         )}
       </div>

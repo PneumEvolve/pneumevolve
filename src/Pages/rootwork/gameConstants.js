@@ -137,6 +137,26 @@ export const KITCHEN_BASE_COST = 20;
 export const KITCHEN_SLOT_COSTS = [50, 150];
 export const KITCHEN_SLOT_UPGRADES = { speed_1: { speedMultiplier: 0.75 }, speed_2: { speedMultiplier: 0.5 } };
  
+// ─── Barn worker constants ────────────────────────────────────────────────────
+export const BARN_WORKER_HIRE_BASE_COST = 50;
+export const BARN_WORKER_HIRE_MULTIPLIER = 1.6;
+export const BARN_WORKER_UPGRADES = {
+  speed_1:    { id: "speed_1",    name: "Quick Rounds",  emoji: "⚡", cost: 150, description: "Collect every 20s",      requires: null,      tree: "speed" },
+  speed_2:    { id: "speed_2",    name: "Sprint Rounds", emoji: "⚡", cost: 300, description: "Collect every 10s",      requires: "speed_1", tree: "speed" },
+  capacity_1: { id: "capacity_1", name: "Big Basket",    emoji: "📦", cost: 200, description: "Collect 3 at once",      requires: null,      tree: "capacity" },
+  capacity_2: { id: "capacity_2", name: "Cargo Basket",  emoji: "📦", cost: 400, description: "Collect 6 at once",      requires: "capacity_1", tree: "capacity" },
+  care_1:     { id: "care_1",     name: "Gentle Hands",  emoji: "💝", cost: 150, description: "+15 mood every 60s",     requires: null,      tree: "care" },
+  care_2:     { id: "care_2",     name: "Animal Bond",   emoji: "💝", cost: 300, description: "+25 mood every 45s",     requires: "care_1",  tree: "care" },
+};
+export const ANIMAL_STORAGE_UPGRADES = [
+  { level: 1, cost: 100, maxStock: 15, label: "Bigger Nest" },
+  { level: 2, cost: 250, maxStock: 25, label: "Deluxe Nest" },
+];
+export const BARN_WORKER_BASE_INTERVAL = 30;  // seconds between collect actions
+export const BARN_WORKER_BASE_CAPACITY = 1;
+export const ANIMAL_BASE_STOCK_MAX = 10;
+export const ANIMAL_OVERFULL_MOOD_DRAIN = 5; // multiplier on normal drain when full
+
 // ─── Prestige bonuses ─────────────────────────────────────────────────────────
 export const PRESTIGE_BONUSES = {
   bumper_crop:  { id: "bumper_crop",  name: "Bumper Crop",  emoji: "📈", description: "+10% yield on all harvests. Fractional yield accumulates." },
@@ -211,12 +231,18 @@ export const BUILDING_UPGRADE_COST = 200; // treasury cost
  
 // ─── Pulse system ─────────────────────────────────────────────────────────────
 export const TOWN_PULSE_SECONDS = 45;
-export const TOWN_WHEAT_PER_PERSON = 1;
-export const TOWN_WHEAT_PER_WORKER = 1;
-export const TOWN_BREAD_FEEDS = 10;
+
+
+
 export const TOWN_GROWTH_PER_PULSE = 1;
 export const TOWN_DECLINE_PER_PULSE = 1;
 export const TOWN_HOME_INSTANT_POPULATION = 1;
+
+export const ANIMAL_FOOD_COSTS = { chicken: 2, cow: 3, sheep: 4 };
+export const PET_FOOD_COST = 1;
+export const BREAD_FOOD_UNITS = 10;
+export const PERSON_IDLE_FOOD_COST = 1;
+export const PERSON_WORKING_FOOD_COST = 2;
  
 // ─── Satisfaction ─────────────────────────────────────────────────────────────
 export const TOWN_SATISFACTION_DEFAULT = 100;

@@ -2,7 +2,7 @@
  
 import React from "react";
 import { CROPS } from "../gameConstants";
-import { getEffectiveGrowTime } from "../gameEngine";
+import { getEffectiveGrowTime, getTreasuryGrowBonus, getFishMealGrowBonus } from "../gameEngine";
  
 function getGrowPercent(plot, growTime) {
   if (plot.state !== "planted") return 0;
@@ -13,7 +13,7 @@ export default function Plot({ plot, farm, game, onPlant, onHarvest, onTend, ten
   const crop = CROPS[farm.crop];
   const feast = game.feastBonusPercent ?? 0;
   const townBonus = game.town?.growthBonusPercent ?? 0;
-  const growTime = getEffectiveGrowTime(farm, game.workers, farm.crop, plot, feast, townBonus);
+  const growTime = getEffectiveGrowTime(farm, game.workers, farm.crop, plot, feast, townBonus, getTreasuryGrowBonus(game), getFishMealGrowBonus(game));
  
   const growPercent = getGrowPercent(plot, growTime);
   const isReady = plot.state === "ready";

@@ -2,13 +2,14 @@
  
 import React, { useState } from "react";
 import {
-  TOWN_HOME_CAPACITY, TOWN_PULSE_SECONDS, TOWN_WHEAT_PER_PERSON,
-  TOWN_WHEAT_PER_WORKER, TOWN_BREAD_FEEDS, TOWN_JAM_BUILDING_COST,
+  TOWN_HOME_CAPACITY, TOWN_PULSE_SECONDS, TOWN_JAM_BUILDING_COST,
   TOWN_SAUCE_BUILDING_COST, TOWN_SAT_WHEAT, TOWN_SAT_BAKERY,
   TOWN_SAT_BAKERY_JAM, TOWN_SAT_ALL_BUILDINGS, TOWN_HALL_MAX_LEVEL,
   TOWN_HALL_LEVEL_COSTS, TREASURY_TIERS, BUILDING_UPGRADE_COST,
   BUILDING_PULSE_EXTRA_SECONDS, BANK_BUILD_COST, BANK_LEVEL_COSTS,
   BANK_TIERS, BANK_MAX_LEVEL,
+  ANIMAL_FOOD_COSTS, PET_FOOD_COST, BREAD_FOOD_UNITS,
+  PERSON_IDLE_FOOD_COST, PERSON_WORKING_FOOD_COST,
 } from "../gameConstants";
 import {
   getTownHomeCost, getTownBakeryCost, getTotalWorkersHired,
@@ -130,18 +131,19 @@ export default function TownZone({
  
   const foodEmoji = foodType === "wheat" ? "🌾" : "🍞";
   const foodHave = foodType === "wheat" ? Math.floor(game.crops?.wheat ?? 0) : Math.floor(game.artisan?.bread ?? 0);
-  const animalFoodCost = Object.entries(game.animals ?? {}).reduce((sum, [id, arr]) => {
-    const costs = { chicken: 1, cow: 2, sheep: 2 };
-    return sum + arr.length * (costs[id] ?? 0);
+  
+  const idlePeople = Math.max(0, people - totalWorkers);
+  const peopleFoodUnits = (idlePeople * PERSON_IDLE_FOOD_COST) + (totalWorkers * PERSON_WORKING_FOOD_COST);
+  const animalFoodUnits = Object.entries(game.animals ?? {}).reduce((sum, [id, arr]) => {
+    return sum + arr.length * (ANIMAL_FOOD_COSTS[id] ?? 0);
   }, 0);
-  const petFoodCost = Object.keys(game.pets ?? {}).length; // 1 per pet
- 
-  const nextPulseFoodCost = foodType === "wheat"
-    ? (people * TOWN_WHEAT_PER_PERSON) + (totalWorkers * TOWN_WHEAT_PER_WORKER) + animalFoodCost + petFoodCost
-    : Math.max(1, Math.ceil((people + totalWorkers) / TOWN_BREAD_FEEDS)) + animalFoodCost + petFoodCost;
-  const foodFormula = foodType === "wheat"
-    ? `(${people}×${TOWN_WHEAT_PER_PERSON} + ${totalWorkers}×${TOWN_WHEAT_PER_WORKER})`
-    : `⌈(${people}+${totalWorkers}) ÷ ${TOWN_BREAD_FEEDS}⌉`;
+  const petFoodUnits = Object.keys(game.pets ?? {}).length * PET_FOOD_COST;
+  const totalFoodUnits = peopleFoodUnits + animalFoodUnits + petFoodUnits;
+  const nextPulseFoodCost = totalFoodUnits === 0 ? 0
+    : bakeryOn
+      ? Math.max(1, Math.ceil(totalFoodUnits / BREAD_FOOD_UNITS))
+      : totalFoodUnits;
+
   const jamPulseCost = pantryOn ? getBuildingEffectivePulseCost(game, "pantry") : 0;
   const saucePulseCost = canneryOn ? getBuildingEffectivePulseCost(game, "cannery") : 0;
   const jamHave = Math.floor(game.artisan?.jam ?? 0);
@@ -155,6 +157,8 @@ export default function TownZone({
   const bakeryUpgradeLevel = getBuildingUpgradeLevel(game, "bakery");
   const pantryUpgradeLevel = getBuildingUpgradeLevel(game, "pantry");
   const canneryUpgradeLevel = getBuildingUpgradeLevel(game, "cannery");
+
+
  
   const row = (label, value, valueColor) => (
     <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", color: "var(--muted)", lineHeight: 2 }}>
@@ -185,7 +189,6 @@ export default function TownZone({
           }}>{t.label}</button>
         ))}
       </div>
-
       {subTab === "season" && (
         <SeasonPanel game={game} prestigeReady={prestigeReady} onPrestige={onPrestige} onReset={onReset} />
       )}
@@ -292,23 +295,74 @@ export default function TownZone({
         )}
       </div>
  
-      {/* Food Pulse */}
       <div className="card p-4" style={{ marginBottom: "1rem" }}>
         <div style={{ fontWeight: 600, marginBottom: "0.5rem", fontSize: "0.85rem" }}>
           {foodEmoji} Food Pulse
           <span style={{ fontSize: "0.65rem", color: "var(--muted)", fontWeight: 400, marginLeft: "0.5rem" }}>
             every {effectivePulse}s
-            {effectivePulse > TOWN_PULSE_SECONDS && <span style={{ color: "#4ade80", marginLeft: "0.3rem" }}>(+{effectivePulse - TOWN_PULSE_SECONDS}s from buildings)</span>}
+            {effectivePulse > TOWN_PULSE_SECONDS && (
+              <span style={{ color: "#4ade80", marginLeft: "0.3rem" }}>
+                (+{effectivePulse - TOWN_PULSE_SECONDS}s from buildings)
+              </span>
+            )}
           </span>
         </div>
+
+        {/* Food units breakdown */}
+        <div style={{
+          background: "var(--bg)", borderRadius: "8px", padding: "0.5rem 0.65rem",
+          marginBottom: "0.5rem", fontSize: "0.68rem", color: "var(--muted)", lineHeight: 1.9,
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <span>🧍 Idle people ({idlePeople} × {PERSON_IDLE_FOOD_COST})</span>
+            <strong style={{ color: "var(--text)" }}>{idlePeople * PERSON_IDLE_FOOD_COST} units</strong>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <span>👷 Workers ({totalWorkers} × {PERSON_WORKING_FOOD_COST})</span>
+            <strong style={{ color: "var(--text)" }}>{totalWorkers * PERSON_WORKING_FOOD_COST} units</strong>
+          </div>
+          {animalFoodUnits > 0 && (
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span>🐾 Animals</span>
+              <strong style={{ color: "#f59e0b" }}>{animalFoodUnits} units</strong>
+            </div>
+          )}
+          {animalFoodUnits > 0 && (
+            <div style={{ fontSize: "0.62rem", color: "var(--muted)", paddingLeft: "0.5rem" }}>
+              {Object.entries(game.animals ?? {}).filter(([, arr]) => arr.length > 0).map(([id, arr]) => (
+                <span key={id} style={{ marginRight: "0.5rem" }}>
+                  {id === "chicken" ? "🐔" : id === "cow" ? "🐄" : "🐑"} {arr.length} × {ANIMAL_FOOD_COSTS[id]} = {arr.length * ANIMAL_FOOD_COSTS[id]}
+                </span>
+              ))}
+            </div>
+          )}
+          {petFoodUnits > 0 && (
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span>🐾 Pets ({Object.keys(game.pets ?? {}).length} × {PET_FOOD_COST})</span>
+              <strong style={{ color: "#f59e0b" }}>{petFoodUnits} units</strong>
+            </div>
+          )}
+          <div style={{
+            display: "flex", justifyContent: "space-between", marginTop: "0.2rem",
+            paddingTop: "0.3rem", borderTop: "1px solid var(--border)",
+          }}>
+            <span>Total food units needed</span>
+            <strong style={{ color: "var(--text)" }}>{totalFoodUnits}</strong>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <span>
+              {bakeryOn
+                ? `→ bread (${totalFoodUnits} ÷ ${BREAD_FOOD_UNITS} = ${nextPulseFoodCost} 🍞)`
+                : `→ wheat (1 unit = 1 🌾)`}
+            </span>
+            <strong style={{ color: foodHave >= nextPulseFoodCost ? "#4ade80" : "#ef4444" }}>
+              {nextPulseFoodCost} {foodEmoji}
+            </strong>
+          </div>
+        </div>
+
         <div style={{ fontSize: "0.75rem", color: "var(--muted)", lineHeight: 2 }}>
           {row("Next pulse in", `${pulseSeconds}s`)}
-         {row(`${foodEmoji} needed`, `${nextPulseFoodCost} ${foodEmoji}`, foodHave >= nextPulseFoodCost ? "#4ade80" : "#ef4444")}
-          {(animalFoodCost + petFoodCost) > 0 && row(
-            "🐾 animals & pets",
-            `+${animalFoodCost + petFoodCost} ${foodEmoji}`,
-            "#f59e0b"
-          )}
           {row(`${foodEmoji} in stock`, `${foodHave}`, foodHave >= nextPulseFoodCost ? "#4ade80" : "#ef4444")}
           {jamOwned && row("🍯 jam/pulse", pantryOn ? `${jamPulseCost} (have ${jamHave})` : `${getBuildingEffectivePulseCost(game, "pantry")} (off · ${jamHave} in stock)`, pantryOn ? (jamHave >= jamPulseCost ? "#4ade80" : "#ef4444") : "var(--muted)")}
           {sauceOwned && row("🥫 sauce/pulse", canneryOn ? `${saucePulseCost} (have ${sauceHave})` : `${getBuildingEffectivePulseCost(game, "cannery")} (off · ${sauceHave} in stock)`, canneryOn ? (sauceHave >= saucePulseCost ? "#4ade80" : "#ef4444") : "var(--muted)")}
@@ -337,7 +391,7 @@ export default function TownZone({
           {bakeryLevel >= 1 && <ToggleButton on={bakeryOn} onToggle={onToggleBakery} labelOn="Bread mode" labelOff="Bread mode" />}
         </div>
         <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.5rem", lineHeight: 1.6 }}>
-          {thLevel < 1 ? "Requires Town Hall level 1." : bakeryLevel === 0 ? `Buy to enable bread mode — 1 bread feeds ${TOWN_BREAD_FEEDS}. Sat target: ${TOWN_SAT_BAKERY}%.` : bakeryOn ? `Bread mode active. +${BUILDING_PULSE_EXTRA_SECONDS}s pulse. Sat: ${satisfactionTarget}%.` : "Toggle for higher satisfaction. Paid from treasury."}
+          {thLevel < 1 ? "Requires Town Hall level 1." : bakeryLevel === 0 ? `Buy to enable bread mode — 1 bread = ${BREAD_FOOD_UNITS} food units. Sat target: ${TOWN_SAT_BAKERY}%.` : bakeryOn ? `Bread mode active. +${BUILDING_PULSE_EXTRA_SECONDS}s pulse. Sat: ${satisfactionTarget}%.` : "Toggle for higher satisfaction. Paid from treasury."}
         </div>
         {bakeryLevel >= 1 && (
           <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginBottom: "0.4rem" }}>
@@ -460,7 +514,7 @@ export default function TownZone({
           <div>• <strong style={{ color: "var(--text)" }}>Town Hall</strong> is built with cash and unlocks the treasury system. Each level gates more buildings and higher treasury drain tiers.</div>
           <div>• <strong style={{ color: "var(--text)" }}>Treasury drain</strong> gives a grow speed bonus while active. Higher tiers cost more but give a bigger boost.</div>
           <div>• <strong style={{ color: "var(--text)" }}>Bank</strong> drains treasury to boost sell prices. Bigger tier = higher cost + bigger bonus.</div>
-          <div>• Every {TOWN_PULSE_SECONDS}s base: wheat mode uses (people×{TOWN_WHEAT_PER_PERSON})+(workers×{TOWN_WHEAT_PER_WORKER}) wheat. Bread mode uses 1 loaf per {TOWN_BREAD_FEEDS}.</div>
+          <div>• Every {TOWN_PULSE_SECONDS}s base: food costs are unified units. Idle people cost {PERSON_IDLE_FOOD_COST}/pulse, workers cost {PERSON_WORKING_FOOD_COST}/pulse, chickens {ANIMAL_FOOD_COSTS.chicken}, cows {ANIMAL_FOOD_COSTS.cow}, sheep {ANIMAL_FOOD_COSTS.sheep}. Wheat mode: 1 unit = 1 🌾. Bread mode: 1 🍞 = {BREAD_FOOD_UNITS} units.</div>
           <div>• Toggling Bakery/Pantry/Cannery adds +{BUILDING_PULSE_EXTRA_SECONDS}s to pulse and costs food per pulse. Upgrades reduce cost.</div>
           <div>• <strong style={{ color: "var(--text)" }}>Satisfaction</strong> multiplies all worker speed. Floor 25%, ceiling 150%.</div>
         </div>

@@ -19,8 +19,7 @@ import {
   TOWN_HOME_CAPACITY, TOWN_HOME_SECOND_COST, TOWN_HOME_COST_MULTIPLIER,
   TOWN_BAKERY_BASE_COST, TOWN_BAKERY_COST_MULTIPLIER,
   TOWN_JAM_BUILDING_COST, TOWN_SAUCE_BUILDING_COST,
-  TOWN_PULSE_SECONDS, TOWN_WHEAT_PER_PERSON, TOWN_WHEAT_PER_WORKER,
-  TOWN_BREAD_FEEDS, TOWN_GROWTH_PER_PULSE, TOWN_DECLINE_PER_PULSE,
+  TOWN_PULSE_SECONDS, TOWN_GROWTH_PER_PULSE, TOWN_DECLINE_PER_PULSE,
   TOWN_HOME_INSTANT_POPULATION,
   TOWN_SATISFACTION_DEFAULT, TOWN_SATISFACTION_FLOOR,
   TOWN_SATISFACTION_STEP, TOWN_SATISFACTION_STARVE_STEP,
@@ -38,7 +37,11 @@ import {
   ANIMAL_TYPES, MAX_ANIMALS_PER_TYPE,
   ANIMAL_INTERACT_MOOD_BOOST, ANIMAL_INTERACT_COOLDOWN,
   PET_TYPES, PET_INTERACT_MOOD_BOOST, PET_INTERACT_COOLDOWN,
-  BAIT_RECIPES,
+  BAIT_RECIPES, BARN_WORKER_HIRE_BASE_COST, BARN_WORKER_HIRE_MULTIPLIER,
+BARN_WORKER_UPGRADES, ANIMAL_STORAGE_UPGRADES,
+BARN_WORKER_BASE_INTERVAL, BARN_WORKER_BASE_CAPACITY,
+ANIMAL_BASE_STOCK_MAX, ANIMAL_OVERFULL_MOOD_DRAIN, ANIMAL_FOOD_COSTS, PET_FOOD_COST, BREAD_FOOD_UNITS,
+PERSON_IDLE_FOOD_COST, PERSON_WORKING_FOOD_COST,
 } from "./gameConstants";
  
 let _idCounter = 0;
@@ -201,27 +204,23 @@ export function getWorkerHarvestRate(worker) {
   return plotsPerCycle / cycleSeconds;
 }
  
-/**
- * A farm is prestige-ready when:
- * 1. unlockedPlots >= PRESTIGE_MIN_PLOTS (3×3 = 9)
- * 2. Total worker harvest rate >= plots needed per second (unlockedPlots / growTime)
- */
 export function isFarmPrestigeReady(farm, workers, state) {
   if (farm.unlockedPlots < PRESTIGE_MIN_PLOTS) return false;
- 
+
   const farmWorkers = workers.filter((w) => w.farmId === farm.id);
   if (farmWorkers.length === 0) return false;
- 
+
   const growTime = getFarmAverageGrowTime(
     farm, workers, farm.crop,
     state.feastBonusPercent ?? 0,
     state.town?.growthBonusPercent ?? 0,
-    getTreasuryGrowBonus(state)
+    getTreasuryGrowBonus(state),
+    getFishMealGrowBonus(state)
   );
- 
+
   const demandRate = farm.unlockedPlots / growTime;
   const supplyRate = farmWorkers.reduce((sum, w) => sum + getWorkerHarvestRate(w), 0);
- 
+
   return supplyRate >= demandRate;
 }
  
@@ -304,8 +303,17 @@ export function getTownFoodReserve(state) {
   const bakeryOn = state.town?.bakeryOn === true && (state.town?.bakeryLevel ?? 0) >= 1;
   const people = Math.floor(state.town?.people ?? 0);
   const totalWorkers = getTotalWorkersHired(state);
-  if (bakeryOn) return Math.max(1, Math.ceil((people + totalWorkers) / TOWN_BREAD_FEEDS));
-  return (people * TOWN_WHEAT_PER_PERSON) + (totalWorkers * TOWN_WHEAT_PER_WORKER);
+  const idlePeople = Math.max(0, people - totalWorkers);
+
+  const peopleCost = (idlePeople * PERSON_IDLE_FOOD_COST) + (totalWorkers * PERSON_WORKING_FOOD_COST);
+  const animalCost = Object.entries(state.animals ?? {}).reduce((sum, [id, arr]) => {
+    return sum + arr.length * (ANIMAL_FOOD_COSTS[id] ?? 0);
+  }, 0);
+  const petCost = Object.keys(state.pets ?? {}).reduce((sum, petId) => sum + PET_FOOD_COST, 0);
+  const totalFoodUnits = peopleCost + animalCost + petCost;
+
+  if (bakeryOn) return Math.max(1, Math.ceil(totalFoodUnits / BREAD_FOOD_UNITS));
+  return totalFoodUnits;
 }
  
 export function getSmartSellAmount(state, itemType) {
@@ -316,9 +324,9 @@ export function getSmartSellAmount(state, itemType) {
     return isCrop ? Math.floor(state.crops[itemType] ?? 0) : Math.floor(state.artisan[itemType] ?? 0);
   }
   const reserve = getTownFoodReserve(state);
-  const have = itemType in (state.crops ?? {})
-    ? Math.floor(state.crops[itemType] ?? 0)
-    : Math.floor(state.artisan[itemType] ?? 0);
+  const have = itemType === "wheat"
+    ? Math.floor(state.crops?.wheat ?? 0)
+    : Math.floor(state.artisan?.bread ?? 0);
   return Math.max(0, have - reserve);
 }
  
@@ -807,7 +815,64 @@ export function getFishMealGrowBonus(state) {
   const stacks = state.fishMealStacks ?? [];
   return stacks.reduce((sum, s) => sum + (s.secondsLeft > 0 ? s.bonus : 0), 0);
 }
- 
+
+export function getAnimalEffectiveCycleSeconds(baseSeconds, state) {
+  const feast = state.feastBonusPercent ?? 0;
+  const townBonus = state.town?.growthBonusPercent ?? 0;
+  const treasuryBonus = getTreasuryGrowBonus(state);
+  const fishMeal = getFishMealGrowBonus(state);
+  const totalBonus = feast + townBonus + treasuryBonus + fishMeal;
+  if (totalBonus <= 0) return baseSeconds;
+  return Math.max(10, Math.floor(baseSeconds / (1 + totalBonus / 100)));
+}
+// ─── Barn worker helpers ──────────────────────────────────────────────────────
+
+export function getBarnWorkerHireCost(state) {
+  const count = (state.barnWorkers ?? []).length;
+  const raw = BARN_WORKER_HIRE_BASE_COST * Math.pow(BARN_WORKER_HIRE_MULTIPLIER, count);
+  return Math.round(raw / 5) * 5;
+}
+
+export function getBarnWorkerInterval(worker) {
+  const upgrades = worker.upgrades ?? [];
+  if (upgrades.includes("speed_2")) return 10;
+  if (upgrades.includes("speed_1")) return 20;
+  return BARN_WORKER_BASE_INTERVAL;
+}
+
+export function getBarnWorkerCapacity(worker) {
+  const upgrades = worker.upgrades ?? [];
+  if (upgrades.includes("capacity_2")) return 6;
+  if (upgrades.includes("capacity_1")) return 3;
+  return BARN_WORKER_BASE_CAPACITY;
+}
+
+export function getBarnWorkerCareInterval(worker) {
+  const upgrades = worker.upgrades ?? [];
+  if (upgrades.includes("care_2")) return 45;
+  if (upgrades.includes("care_1")) return 60;
+  return null; // no care without upgrade
+}
+
+export function getBarnWorkerCareMood(worker) {
+  const upgrades = worker.upgrades ?? [];
+  if (upgrades.includes("care_2")) return 25;
+  if (upgrades.includes("care_1")) return 15;
+  return 0;
+}
+
+export function getAnimalStockMax(animal) {
+  const level = animal.storageLevel ?? 0;
+  const upgrade = ANIMAL_STORAGE_UPGRADES[level - 1];
+  return upgrade ? upgrade.maxStock : ANIMAL_BASE_STOCK_MAX;
+}
+
+export function getAnimalStorageUpgradeCost(animal) {
+  const level = animal.storageLevel ?? 0;
+  const next = ANIMAL_STORAGE_UPGRADES[level];
+  return next ?? null;
+}
+
 export function getEffectiveGrowTime(farm, workers, cropId, plot = null, feastBonusPercent = 0, townGrowthBonusPercent = 0, treasuryGrowBonus = 0, fishMealBonus = 0) {
   const crop = CROPS[cropId];
   let time = crop.growTime;
@@ -824,7 +889,7 @@ export function getEffectiveGrowTime(farm, workers, cropId, plot = null, feastBo
 }
  
 export function getFarmGrowTime(farm, workers, cropId, feastBonusPercent = 0, townGrowthBonusPercent = 0, treasuryGrowBonus = 0, fishMealBonus = 0) {
-  return getEffectiveGrowTime(farm, workers, cropId, null, feastBonusPercent, townGrowthBonusPercent, treasuryGrowBonus);
+  return getEffectiveGrowTime(farm, workers, cropId, null, feastBonusPercent, townGrowthBonusPercent, treasuryGrowBonus, fishMealBonus);
 }
  
 export function getNextFeastTier(state) {
@@ -1039,25 +1104,95 @@ export function tick(state) {
   const dogOwned = next.pets?.dog !== undefined;
   const dogMoodOk = dogOwned && (next.pets.dog.mood ?? 0) >= 50;
   const moodDecayMultiplier = dogMoodOk ? 0.70 : 1.0;
- 
+
   for (const animalId of Object.keys(next.animals ?? {})) {
     const type = ANIMAL_TYPES[animalId];
     if (!type) continue;
+    const toRemove = [];
+
     for (const animal of next.animals[animalId]) {
-      // Advance production timer
-      if (!animal.ready) {
+      const stockMax = getAnimalStockMax(animal);
+      const stock = animal.stock ?? 0;
+      const isFull = stock >= stockMax;
+      const effectiveCycle = getAnimalEffectiveCycleSeconds(type.cycleSeconds, next);
+
+      // Production — pauses when full
+      if (!isFull) {
         animal.readyTick = (animal.readyTick ?? 0) + 1;
-        if (animal.readyTick >= type.cycleSeconds) {
-          animal.ready = true;
-          animal.readyTick = type.cycleSeconds;
+        if (animal.readyTick >= effectiveCycle) {
+          const mood = animal.mood ?? 100;
+          let produced = 1;
+          if (mood >= 80) {
+            const bonusChance = (mood - 80) / 20;
+            produced = 2 + (Math.random() < bonusChance ? 1 : 0);
+          } else {
+            const bonusChance = mood / 80;
+            produced = 1 + (Math.random() < bonusChance ? 1 : 0);
+          }
+          animal.stock = Math.min(stockMax, stock + produced);
+          animal.readyTick = 0;
         }
       }
-      // Mood decay per second
-      const decayPerSecond = (type.moodDecayPerMinute / 60) * moodDecayMultiplier;
+
+      animal.ready = (animal.stock ?? 0) > 0;
+
+      // Mood decay — 5x when full
+      const decayPerSecond = (type.moodDecayPerMinute / 60) * moodDecayMultiplier * (isFull ? ANIMAL_OVERFULL_MOOD_DRAIN : 1);
       animal.mood = Math.max(0, (animal.mood ?? 100) - decayPerSecond);
-      // Interact cooldown
+
+      // Missed food pulse death check
+      if ((animal.missedFoodPulses ?? 0) >= 3) {
+        toRemove.push(animal.id);
+      }
+
       if ((animal.interactCooldown ?? 0) > 0) {
         animal.interactCooldown = Math.max(0, animal.interactCooldown - 1);
+      }
+    }
+
+    // Remove dead animals
+    if (toRemove.length > 0) {
+      next.animals[animalId] = next.animals[animalId].filter((a) => !toRemove.includes(a.id));
+    }
+  }
+
+  // ── Barn workers ──────────────────────────────────────────────────────────
+  for (const worker of next.barnWorkers ?? []) {
+    const animalId = worker.animalType;
+    const type = ANIMAL_TYPES[animalId];
+    if (!type) continue;
+    const animals = next.animals?.[animalId] ?? [];
+    if (animals.length === 0) continue;
+
+    const interval = getBarnWorkerInterval(worker);
+    const capacity = getBarnWorkerCapacity(worker);
+    const careInterval = getBarnWorkerCareInterval(worker);
+    const careMood = getBarnWorkerCareMood(worker);
+
+    worker.collectTimer = (worker.collectTimer ?? 0) + 1;
+    if (worker.collectTimer >= interval) {
+      worker.collectTimer = 0;
+      let remaining = capacity;
+      for (const animal of animals) {
+        if (remaining <= 0) break;
+        const stock = animal.stock ?? 0;
+        if (stock <= 0) continue;
+        const toCollect = Math.min(remaining, stock);
+        animal.stock = stock - toCollect;
+        animal.ready = animal.stock > 0;
+        if (!next.animalGoods) next.animalGoods = {};
+        next.animalGoods[type.produces] = (next.animalGoods[type.produces] ?? 0) + toCollect;
+        remaining -= toCollect;
+      }
+    }
+
+    if (careInterval) {
+      worker.careTimer = (worker.careTimer ?? 0) + 1;
+      if (worker.careTimer >= careInterval) {
+        worker.careTimer = 0;
+        for (const animal of animals) {
+          animal.mood = Math.min(100, (animal.mood ?? 100) + careMood);
+        }
       }
     }
   }
@@ -1142,43 +1277,50 @@ export function updateTown(state, seconds = 1) {
     const pantryOn = next.town.pantryOn === true && next.town.jamBuildingOwned === true;
     const canneryOn = next.town.canneryOn === true && next.town.sauceBuildingOwned === true;
     const foodType = bakeryOn ? "bread" : "wheat";
- 
-    const animalPulseCost = Object.entries(next.animals ?? {}).reduce((sum, [id, arr]) => {
-      const type = ANIMAL_TYPES[id];
-      return sum + (type ? arr.length * type.foodPulseCost : 0);
+
+    // ← all your new food unit calculations go here
+    const idlePeople = Math.max(0, people - totalWorkers);
+    const peopleFoodUnits = (idlePeople * PERSON_IDLE_FOOD_COST) + (totalWorkers * PERSON_WORKING_FOOD_COST);
+    const animalFoodUnits = Object.entries(next.animals ?? {}).reduce((sum, [id, arr]) => {
+      return sum + arr.length * (ANIMAL_FOOD_COSTS[id] ?? 0);
     }, 0);
-    const petPulseCost = Object.keys(next.pets ?? {}).reduce((sum, petId) => {
-      const type = PET_TYPES[petId];
-      return sum + (type ? type.foodCostPerPulse : 0);
-    }, 0);
- 
-    let foodNeeded = 0;
-    if (people > 0 || totalWorkers > 0) {
-      foodNeeded = foodType === "wheat"
-        ? (people * TOWN_WHEAT_PER_PERSON) + (totalWorkers * TOWN_WHEAT_PER_WORKER)
-        : Math.max(1, Math.ceil((people + totalWorkers) / TOWN_BREAD_FEEDS));
-    }
-    foodNeeded += animalPulseCost + petPulseCost;
- 
-    const foodHave = foodType === "wheat" ? Math.floor(next.crops?.wheat ?? 0) : Math.floor(next.artisan?.bread ?? 0);
+    const petFoodUnits = Object.keys(next.pets ?? {}).reduce((sum, petId) => sum + PET_FOOD_COST, 0);
+    const totalFoodUnits = peopleFoodUnits + animalFoodUnits + petFoodUnits;
+
+    const foodNeeded = totalFoodUnits === 0 ? 0
+      : bakeryOn
+        ? Math.max(1, Math.ceil(totalFoodUnits / BREAD_FOOD_UNITS))
+        : totalFoodUnits;
+
+    const foodHave = bakeryOn
+      ? Math.floor(next.artisan?.bread ?? 0)
+      : Math.floor(next.crops?.wheat ?? 0);
+
     const fed = foodHave >= foodNeeded;
- 
+
+    // Jam/sauce building costs (unchanged)
     let jamNeeded = 0;
     let sauceNeeded = 0;
     if (pantryOn && fed) jamNeeded = getBuildingEffectivePulseCost(next, "pantry");
     if (canneryOn && fed) sauceNeeded = getBuildingEffectivePulseCost(next, "cannery");
- 
     const jamFed = !pantryOn || (next.artisan?.jam ?? 0) >= jamNeeded;
     const sauceFed = !canneryOn || (next.artisan?.sauce ?? 0) >= sauceNeeded;
- 
+
     if (fed) {
       if (foodNeeded > 0) {
-        if (foodType === "wheat") next.crops.wheat = (next.crops.wheat ?? 0) - foodNeeded;
-        else next.artisan.bread = (next.artisan.bread ?? 0) - foodNeeded;
+        if (bakeryOn) next.artisan.bread = (next.artisan.bread ?? 0) - foodNeeded;
+        else next.crops.wheat = (next.crops.wheat ?? 0) - foodNeeded;
       }
       if (pantryOn && jamFed && jamNeeded > 0) next.artisan.jam = (next.artisan.jam ?? 0) - jamNeeded;
       if (canneryOn && sauceFed && sauceNeeded > 0) next.artisan.sauce = (next.artisan.sauce ?? 0) - sauceNeeded;
- 
+
+      // Reset missed food pulses on animals
+      for (const animalId of Object.keys(next.animals ?? {})) {
+        for (const animal of next.animals[animalId]) {
+          animal.missedFoodPulses = 0;
+        }
+      }
+
       if (people < capacity) next.town.people = Math.min(capacity, people + TOWN_GROWTH_PER_PULSE);
       else next.town.people = people;
       next.town.starving = false;
@@ -1186,6 +1328,14 @@ export function updateTown(state, seconds = 1) {
       next.town.people = Math.max(0, people - TOWN_DECLINE_PER_PULSE);
       next.town.starving = true;
       if (getTotalWorkersHired(next) > next.town.people) next = fireLastHiredWorker(next);
+
+      // Animals lose mood when not fed, track missed pulses
+      for (const animalId of Object.keys(next.animals ?? {})) {
+        for (const animal of next.animals[animalId]) {
+          animal.mood = Math.max(0, (animal.mood ?? 100) - 20);
+          animal.missedFoodPulses = (animal.missedFoodPulses ?? 0) + 1;
+        }
+      }
     }
  
     next.town.satisfactionTarget = getSatisfactionTarget(next);
@@ -1540,20 +1690,19 @@ export function applyFishMeal(state) {
  
 // ─── Barn worker actions ──────────────────────────────────────────────
  
-export const BARN_WORKER_HIRE_COST = 150;
-export const BARN_WORKER_MAX = 3;
- 
 export function hireBarnWorker(state, animalType) {
   if (!ANIMAL_TYPES[animalType]) return state;
   if (isAtWorkerCap(state)) return state;
-  if ((state.barnWorkers ?? []).length >= BARN_WORKER_MAX) return state;
-  if ((state.cash ?? 0) < BARN_WORKER_HIRE_COST) return state;
+  const cost = getBarnWorkerHireCost(state);
+  if ((state.cash ?? 0) < cost) return state;
   const next = deepCloneState(state);
-  next.cash -= BARN_WORKER_HIRE_COST;
+  next.cash -= cost;
   next.barnWorkers = [...(next.barnWorkers ?? []), {
     id: genId("bw"),
     animalType,
-    interactCooldown: 0,
+    upgrades: [],
+    collectTimer: 0,
+    careTimer: 0,
     hiredAt: Date.now(),
   }];
   return next;
@@ -1574,7 +1723,34 @@ export function reassignBarnWorker(state, workerId, animalType) {
   worker.interactCooldown = 0;
   return next;
 }
- 
+
+export function upgradeBarnWorker(state, workerId, upgradeId) {
+  const next = deepCloneState(state);
+  const worker = (next.barnWorkers ?? []).find((w) => w.id === workerId);
+  if (!worker) return state;
+  const upgrade = BARN_WORKER_UPGRADES[upgradeId];
+  if (!upgrade) return state;
+  if ((worker.upgrades ?? []).includes(upgradeId)) return state;
+  if (upgrade.requires && !(worker.upgrades ?? []).includes(upgrade.requires)) return state;
+  if ((next.cash ?? 0) < upgrade.cost) return state;
+  next.cash -= upgrade.cost;
+  worker.upgrades = [...(worker.upgrades ?? []), upgradeId];
+  return next;
+}
+
+export function upgradeAnimalStorage(state, animalId, animalInstanceId) {
+  const next = deepCloneState(state);
+  const animals = next.animals?.[animalId] ?? [];
+  const animal = animals.find((a) => a.id === animalInstanceId);
+  if (!animal) return state;
+  const nextUpgrade = getAnimalStorageUpgradeCost(animal);
+  if (!nextUpgrade) return state;
+  if ((next.cash ?? 0) < nextUpgrade.cost) return state;
+  next.cash -= nextUpgrade.cost;
+  animal.storageLevel = (animal.storageLevel ?? 0) + 1;
+  return next;
+}
+
 export function buyFeast(state) {
   const next = deepCloneState(state);
   const tier = FEAST_TIERS[next.feastTierIndex ?? 0];
@@ -1838,21 +2014,17 @@ export function collectAnimal(state, animalId, animalInstanceId) {
   const next = deepCloneState(state);
   const animals = next.animals?.[animalId] ?? [];
   const animal = animals.find((a) => a.id === animalInstanceId);
-  if (!animal || !animal.ready) return state;
+  if (!animal || (animal.stock ?? 0) <= 0) return state;
   const mood = animal.mood ?? 100;
-  // Unhappy animals (<30% mood) produce nothing — collect resets the timer
-  if (mood < 30) {
-    animal.ready = false;
-    animal.readyTick = 0;
-    return next;
-  }
-  // Bonus yield scales with mood: at 100% always +1, at 50% 50% chance, etc.
+  const stock = animal.stock ?? 0;
+  // Collect all stock, mood affects bonus on top
   const bonusChance = mood / 100;
-  const yieldAmount = 1 + (Math.random() < bonusChance ? 1 : 0);
-  if (!next.animalGoods) next.animalGoods = {};
-  next.animalGoods[type.produces] = (next.animalGoods[type.produces] ?? 0) + yieldAmount;
+  const bonus = Math.random() < bonusChance ? 1 : 0;
+  const collected = stock + bonus;
+  animal.stock = 0;
   animal.ready = false;
-  animal.readyTick = 0;
+  if (!next.animalGoods) next.animalGoods = {};
+  next.animalGoods[type.produces] = (next.animalGoods[type.produces] ?? 0) + collected;
   return next;
 }
  
@@ -1864,15 +2036,14 @@ export function collectAllAnimals(state) {
     const type = ANIMAL_TYPES_LOCAL[animalId];
     if (!type) continue;
     for (const animal of animals) {
-      if (!animal.ready) continue;
+      const stock = animal.stock ?? 0;
+      if (stock <= 0) continue;
       const mood = animal.mood ?? 100;
-      if (mood < 30) { animal.ready = false; animal.readyTick = 0; anyCollected = true; continue; }
       const bonusChance = mood / 100;
-      const yieldAmount = 1 + (Math.random() < bonusChance ? 1 : 0);
-      if (!next.animalGoods) next.animalGoods = {};
-      next.animalGoods[type.produces] = (next.animalGoods[type.produces] ?? 0) + yieldAmount;
+      const bonus = Math.random() < bonusChance ? 1 : 0;
+      next.animalGoods[type.produces] = (next.animalGoods[type.produces] ?? 0) + stock + bonus;
+      animal.stock = 0;
       animal.ready = false;
-      animal.readyTick = 0;
       anyCollected = true;
     }
   }
@@ -2015,6 +2186,20 @@ export function deserializeState(raw) {
         if (w.autoRestartEnabled === undefined) w.autoRestartEnabled = true;
       }
     }
+    // Migrate animals to stock-based system
+for (const animalId of Object.keys(parsed.animals ?? {})) {
+  for (const animal of parsed.animals[animalId]) {
+    if (animal.stock === undefined) animal.stock = animal.ready ? 1 : 0;
+    if (animal.storageLevel === undefined) animal.storageLevel = 0;
+    if (animal.missedFoodPulses === undefined) animal.missedFoodPulses = 0;
+  }
+}
+// Migrate barn workers to new shape
+for (const w of parsed.barnWorkers ?? []) {
+  if (w.upgrades === undefined) w.upgrades = [];
+  if (w.collectTimer === undefined) w.collectTimer = 0;
+  if (w.careTimer === undefined) w.careTimer = 0;
+}
  
     return parsed;
   } catch { return null; }
@@ -2029,17 +2214,17 @@ function deepCloneState(state) {
  * how many plots are upgraded. Use this for supply/demand coverage % — 
  * it reflects the actual average time a plot takes to grow.
  */
-export function getFarmAverageGrowTime(farm, workers, cropId, feastBonusPercent = 0, townGrowthBonusPercent = 0, treasuryGrowBonus = 0) {
+export function getFarmAverageGrowTime(farm, workers, cropId, feastBonusPercent = 0, townGrowthBonusPercent = 0, treasuryGrowBonus = 0, fishMealBonus = 0) {
   const upgradedCount = farm.plots.filter((p) => p.upgraded).length;
   const totalPlots = farm.unlockedPlots;
   if (upgradedCount === 0) {
-    return getEffectiveGrowTime(farm, workers, cropId, null, feastBonusPercent, townGrowthBonusPercent, treasuryGrowBonus);
+    return getEffectiveGrowTime(farm, workers, cropId, null, feastBonusPercent, townGrowthBonusPercent, treasuryGrowBonus, fishMealBonus);
   }
   if (upgradedCount === totalPlots) {
-    return getEffectiveGrowTime(farm, workers, cropId, { upgraded: true }, feastBonusPercent, townGrowthBonusPercent, treasuryGrowBonus);
+    return getEffectiveGrowTime(farm, workers, cropId, { upgraded: true }, feastBonusPercent, townGrowthBonusPercent, treasuryGrowBonus, fishMealBonus);
   }
-  const plainTime = getEffectiveGrowTime(farm, workers, cropId, null, feastBonusPercent, townGrowthBonusPercent, treasuryGrowBonus);
-  const upgradedTime = getEffectiveGrowTime(farm, workers, cropId, { upgraded: true }, feastBonusPercent, townGrowthBonusPercent, treasuryGrowBonus);
+  const plainTime = getEffectiveGrowTime(farm, workers, cropId, null, feastBonusPercent, townGrowthBonusPercent, treasuryGrowBonus, fishMealBonus);
+  const upgradedTime = getEffectiveGrowTime(farm, workers, cropId, { upgraded: true }, feastBonusPercent, townGrowthBonusPercent, treasuryGrowBonus, fishMealBonus);
   const plainFraction = (totalPlots - upgradedCount) / totalPlots;
   const upgradedFraction = upgradedCount / totalPlots;
   return Math.max(3, Math.round(plainTime * plainFraction + upgradedTime * upgradedFraction));
