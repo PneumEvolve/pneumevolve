@@ -17,9 +17,11 @@ import {
   cancelKitchenWorkerRecipe, buildTownHome, buyTownBakery,
   buyJamBuilding, buySauceBuilding, toggleBakery, togglePantry,
   toggleCannery, upgradeTownBuilding, upgradeTownHall, setTreasuryTier,
-  buildBank, upgradeBank, setActiveBankTier, buyPond, upgradeRod, buyFishTrap, catchFish, applyGoldenBonus,
+  buildBank, upgradeBank, setActiveBankTier, buyPond, catchFish, unlockFishingBody, setFishingActiveBody,
+  upgradeFishingWorker, setFishingWorkerBait,
   buyAnimal, collectAnimal, collectAllAnimals, interactAnimal, buyPet, interactPet, toggleKitchenWorkerAutoRestart,
-  hireBarnWorker, fireBarnWorker, reassignBarnWorker, applyFishMeal, upgradeBarnWorker, upgradeAnimalStorage, getBarnWorkerHireCost
+  hireBarnWorker, fireBarnWorker, reassignBarnWorker, applyFishMeal, upgradeBarnWorker, upgradeAnimalStorage, getBarnWorkerHireCost,
+  hireFishingWorker, fireFishingWorker, 
 } from "./gameEngine";
 import {
   SAVE_KEY, SAVE_INTERVAL_MS, PRESTIGE_BONUSES,
@@ -309,10 +311,6 @@ export default function RootWork() {
  
   // Animals & Pond
   const handleBuyPond = useCallback(() => update((s) => { const n = buyPond(s); if (n === s) notify("Need $500 cash."); return n; }), [update, notify]);
-  const handleUpgradeRod = useCallback(() => update((s) => { const n = upgradeRod(s); if (n === s) notify("Not enough cash."); return n; }), [update, notify]);
-  const handleBuyTrap = useCallback(() => update((s) => { const n = buyFishTrap(s); if (n === s) notify("Need $300 cash."); return n; }), [update, notify]);
-  const handleCatchFish = useCallback((fishId, baitId) => update((s) => catchFish(s, fishId, baitId)), [update]);
-  const handleGoldenBonus = useCallback((bonusId) => { update((s) => applyGoldenBonus(s, bonusId)); notify("✨ Golden fish bonus!"); }, [update, notify]);
   const handleBuyAnimal = useCallback((animalId) => update((s) => { const n = buyAnimal(s, animalId); if (n === s) notify("Not enough cash."); return n; }), [update, notify]);
   const handleCollectAnimal = useCallback((animalId, instanceId) => update((s) => collectAnimal(s, animalId, instanceId)), [update]);
   const handleCollectAllAnimals = useCallback(() => { update((s) => collectAllAnimals(s)); notify("🧺 All products collected!"); }, [update, notify]);
@@ -331,6 +329,40 @@ export default function RootWork() {
   if (n === s) notify("Can't upgrade — check cash or requirements.");
   return n;
 }), [update, notify]);
+const handleUnlockFishingBody = useCallback((bodyId) => update((s) => {
+  const n = unlockFishingBody(s, bodyId);
+  if (n === s) notify("Can't unlock — check cash or order.");
+  return n;
+}), [update, notify]);
+
+const handleSetFishingActiveBody = useCallback((bodyId) => update((s) =>
+  setFishingActiveBody(s, bodyId)
+), [update]);
+
+const handleHireFishingWorker = useCallback((bodyId) => update((s) => {
+  const n = hireFishingWorker(s, bodyId);
+  if (n === s) notify("Can't hire — check cash or worker cap.");
+  return n;
+}), [update, notify]);
+
+const handleFireFishingWorker = useCallback((bodyId) => {
+  update((s) => fireFishingWorker(s, bodyId));
+  notify("Fisher dismissed.");
+}, [update, notify]);
+
+const handleUpgradeFishingWorker = useCallback((bodyId, upgradeId) => update((s) => {
+  const n = upgradeFishingWorker(s, bodyId, upgradeId);
+  if (n === s) notify("Can't upgrade — check cash or requirements.");
+  return n;
+}), [update, notify]);
+
+const handleSetFishingWorkerBait = useCallback((bodyId, baitId) => update((s) =>
+  setFishingWorkerBait(s, bodyId, baitId)
+), [update]);
+
+const handleCatchFish = useCallback((fishId, baitId) => update((s) =>
+  catchFish(s, fishId, baitId, s.fishing?.activeBody ?? "pond")
+), [update]);
 
 const handleUpgradeAnimalStorage = useCallback((animalId, instanceId) => update((s) => {
   const n = upgradeAnimalStorage(s, animalId, instanceId);
@@ -388,24 +420,27 @@ const handleUpgradeAnimalStorage = useCallback((animalId, instanceId) => update(
         )}
         {activeMainTab === "animals" && (
           <AnimalsZone
-            game={game}
-            onBuyPond={handleBuyPond}
-            onUpgradeRod={handleUpgradeRod}
-            onBuyTrap={handleBuyTrap}
-            onCatchFish={handleCatchFish}
-            onApplyGoldenBonus={handleGoldenBonus}
-            onBuyAnimal={handleBuyAnimal}
-            onCollectAnimal={handleCollectAnimal}
-            onCollectAll={handleCollectAllAnimals}
-            onInteractAnimal={handleInteractAnimal}
-            onBuyPet={handleBuyPet}
-            onInteractPet={handleInteractPet}
-            onHireBarnWorker={handleHireBarnWorker}
-            onFireBarnWorker={handleFireBarnWorker}
-            onReassignBarnWorker={handleReassignBarnWorker}
-            onUpgradeBarnWorker={handleUpgradeBarnWorker}
-            onUpgradeAnimalStorage={handleUpgradeAnimalStorage}
-          />
+  game={game}
+  onBuyPond={handleBuyPond}
+  onCatchFish={handleCatchFish}
+  onBuyAnimal={handleBuyAnimal}
+  onCollectAnimal={handleCollectAnimal}
+  onCollectAll={handleCollectAllAnimals}
+  onInteractAnimal={handleInteractAnimal}
+  onBuyPet={handleBuyPet}
+  onInteractPet={handleInteractPet}
+  onHireBarnWorker={handleHireBarnWorker}
+  onFireBarnWorker={handleFireBarnWorker}
+  onReassignBarnWorker={handleReassignBarnWorker}
+  onUpgradeBarnWorker={handleUpgradeBarnWorker}
+  onUpgradeAnimalStorage={handleUpgradeAnimalStorage}
+  onUnlockFishingBody={handleUnlockFishingBody}
+  onSetFishingActiveBody={handleSetFishingActiveBody}
+  onUpgradeFishingWorker={handleUpgradeFishingWorker}
+  onSetFishingWorkerBait={handleSetFishingWorkerBait}
+  onHireFishingWorker={handleHireFishingWorker}
+  onFireFishingWorker={handleFireFishingWorker}
+/>
         )}
       </div>
       <GameNav game={game} activeMainTab={activeMainTab} onMainTabChange={setActiveMainTab} prestigeReady={prestigeReady} />

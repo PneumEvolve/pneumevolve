@@ -260,8 +260,8 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
                 {RECIPE_LIST.map((recipeId) => {
                   const r = PROCESSING_RECIPES[recipeId];
                   const have = (game.crops[r.inputCrop] ?? 0)
-                    || (game.animalGoods?.[r.inputCrop] ?? 0)
-                    || (game.pond?.fish?.[r.inputCrop] ?? 0);
+  || (game.animalGoods?.[r.inputCrop] ?? 0)
+  || (game.fishing?.fish?.[r.inputCrop] ?? 0);
                   const totalInput = r.inputAmount * batch;
                   const canStart = have >= totalInput;
                   const effectiveSeconds = getEffectiveKitchenSeconds(worker, r.seconds);
@@ -594,15 +594,15 @@ function BaitInventory({ bait }) {
  
 // ─── Artisan inventory ────────────────────────────────────────────────────────
  
-function ArtisanInventory({ artisan, animalGoods, pond }) {
+function ArtisanInventory({ artisan, animalGoods, fishing }) {
   const items = [
-    { key: "bread",         emoji: "🍞", label: "Bread",         source: artisan },
-    { key: "jam",           emoji: "🍯", label: "Jam",           source: artisan },
-    { key: "sauce",         emoji: "🥫", label: "Sauce",         source: artisan },
-    { key: "omelette",      emoji: "🍳", label: "Omelette",      source: animalGoods },
-    { key: "cheese",        emoji: "🧀", label: "Cheese",        source: animalGoods },
-    { key: "knitted_goods", emoji: "🧶", label: "Knitted",       source: animalGoods },
-    { key: "smoked_fish",   emoji: "🐟", label: "Smoked Fish",   source: pond?.fish ?? {} },
+    { key: "bread",         emoji: "🍞", label: "Bread",       source: artisan },
+    { key: "jam",           emoji: "🍯", label: "Jam",         source: artisan },
+    { key: "sauce",         emoji: "🥫", label: "Sauce",       source: artisan },
+    { key: "omelette",      emoji: "🍳", label: "Omelette",    source: animalGoods },
+    { key: "cheese",        emoji: "🧀", label: "Cheese",      source: animalGoods },
+    { key: "knitted_goods", emoji: "🧶", label: "Knitted",     source: animalGoods },
+    { key: "smoked_fish",   emoji: "🐟", label: "Smoked Fish", source: fishing?.fish ?? {} },
   ];
 
   // Only show items that have ever been produced (recipe exists) — hide zeros for cleanliness
@@ -668,7 +668,7 @@ const isFirstWorker = workers.length === 0;
         </p>
       </div>
  
-      <ArtisanInventory artisan={game.artisan} animalGoods={game.animalGoods} pond={game.pond} />
+      <ArtisanInventory artisan={game.artisan} animalGoods={game.animalGoods} fishing={game.fishing} />
       <BaitInventory bait={game.bait} />
  
       <div style={{ marginBottom: "1.25rem" }}>

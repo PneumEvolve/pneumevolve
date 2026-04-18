@@ -30,10 +30,10 @@ const SELLABLE_ITEMS = [
   { type: "omelette",      label: "Omelette",       emoji: "🍳", isCrop: false,  isAnimal: true,  isFish: false },
   { type: "cheese",        label: "Cheese",         emoji: "🧀", isCrop: false,  isAnimal: true,  isFish: false },
   { type: "knitted_goods", label: "Knitted Goods",  emoji: "🧥", isCrop: false,  isAnimal: true,  isFish: false },
-  { type: "minnow",        label: "Minnow",         emoji: "🐟", isCrop: false,  isAnimal: false, isFish: true  },
-  { type: "bass",          label: "Bass",           emoji: "🎣", isCrop: false,  isAnimal: false, isFish: true  },
-  { type: "perch",         label: "Perch",          emoji: "🐠", isCrop: false,  isAnimal: false, isFish: true  },
-  { type: "pike",          label: "Pike",           emoji: "🦈", isCrop: false,  isAnimal: false, isFish: true  },
+  { type: "minnow", label: "Minnow",    emoji: "🐟", isCrop: false, isAnimal: false, isFish: true },
+  { type: "bass",   label: "Bass",      emoji: "🐠", isCrop: false, isAnimal: false, isFish: true },
+  { type: "perch",  label: "Perch",     emoji: "🐡", isCrop: false, isAnimal: false, isFish: true },
+  { type: "rare",   label: "Rare Fish", emoji: "✨", isCrop: false, isAnimal: false, isFish: true },
   { type: "fish_pie",      label: "Fish Pie",       emoji: "🥧", isCrop: false,  isAnimal: true, isFish: false  },
   { type: "smoked_fish",   label: "Smoked Fish",    emoji: "🐟", isCrop: false,  isAnimal: true, isFish: false  },
   { type: "fish_meal",     label: "Fish Meal",      emoji: "🌿", isCrop: false,  isAnimal: true, isFish: false  },
@@ -45,8 +45,14 @@ function SmartSellButton({ game, itemType, onAssign }) {
   const smartQty = getSmartSellAmount(game, itemType);
   const item = SELLABLE_ITEMS.find((i) => i.type === itemType);
   const have = item
-    ? item.isCrop ? (game.crops[item.type] ?? 0) : (game.artisan[item.type] ?? 0)
-    : 0;
+  ? item.isCrop
+    ? (game.crops[item.type] ?? 0)
+    : item.isAnimal
+      ? (game.animalGoods?.[item.type] ?? 0)
+      : item.isFish
+        ? (game.fishing?.fish?.[item.type] ?? 0)
+        : (game.artisan[item.type] ?? 0)
+  : 0;
   const reserve = have - smartQty;
   const bakeryOn = game.town?.bakeryOn === true && (game.town?.bakeryLevel ?? 0) >= 1;
   const foodItem = bakeryOn ? "bread" : "wheat";
@@ -112,7 +118,7 @@ function MarketWorkerCard({
   : item.isAnimal
     ? (game.animalGoods[item.type] ?? 0)
     : item.isFish
-      ? (game.pond?.fish?.[item.type] ?? 0)
+      ? (game.fishing?.fish?.[item.type] ?? 0)
       : (game.artisan[item.type] ?? 0);
     const qty = selectedAmount === "All" ? have : Math.min(selectedAmount, have);
     if (qty <= 0) return;
@@ -236,7 +242,7 @@ function MarketWorkerCard({
   : item.isAnimal
     ? (game.animalGoods[item.type] ?? 0)
     : item.isFish
-      ? (game.pond?.fish?.[item.type] ?? 0)
+      ? (game.fishing?.fish?.[item.type] ?? 0)
       : (game.artisan[item.type] ?? 0);
                     const isSelected = worker.standingOrder === item.type;
                     return (
@@ -368,7 +374,7 @@ function MarketWorkerCard({
   : item.isAnimal
     ? (game.animalGoods[item.type] ?? 0)
     : item.isFish
-      ? (game.pond?.fish?.[item.type] ?? 0)
+      ? (game.fishing?.fish?.[item.type] ?? 0)
       : (game.artisan[item.type] ?? 0);
                 const isSelected = selectedItem === item.type;
                 return (
@@ -403,7 +409,7 @@ function MarketWorkerCard({
           : item.isAnimal
             ? (game.animalGoods?.[item.type] ?? 0)
             : item.isFish
-              ? (game.pond?.fish?.[item.type] ?? 0)
+              ? (game.fishing?.fish?.[item.type] ?? 0)
               : (game.artisan[item.type] ?? 0)
         : 0;
       const qty = amt === "All" ? have : amt;

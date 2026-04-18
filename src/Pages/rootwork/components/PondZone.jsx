@@ -1,232 +1,587 @@
-// src/Pages/rootwork/components/PondZone.jsx
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
-  ROD_TIERS, ROD_ORDER, FISH_TYPES, FISH_TRAP_COST, BAIT_TYPES,
-  FISH_CATCH_RATES, NEEDLE_SWEEP_SPEED, REEL_DURATION,
-  REEL_DRAIN_RATE, REEL_TAP_AMOUNT, GOLDEN_FISH_BONUSES,
-  FISH_TRAP_CATCH_INTERVAL, POND_COST,
+  BAIT_TYPES, NEEDLE_SWEEP_SPEED, REEL_DURATION,
+  REEL_DRAIN_RATE, REEL_TAP_AMOUNT,
+  FISHING_BODIES, FISHING_BODY_ORDER, FISHING_FISH,
+  FISHING_CATCH_RATES, FISHING_BAIT_BONUS,
+  FISHING_WORKER_UPGRADES, POND_COST,
 } from "../gameConstants";
- 
-function getRodTier(rodId) { return ROD_TIERS.find((r) => r.id === rodId) ?? ROD_TIERS[0]; }
-function getNextRod(rodId) { const idx = ROD_ORDER.indexOf(rodId); if (idx === -1 || idx === ROD_ORDER.length - 1) return null; return ROD_TIERS[idx + 1]; }
-function rollFish(baitId, needleQuality) {
-  const rates = FISH_CATCH_RATES[baitId] ?? FISH_CATCH_RATES.none;
-  const canCatchRare = needleQuality > 0.85;
-  let { common, uncommon, rare, legendary } = rates;
-  if (!canCatchRare) { const lost = rare + legendary; common += lost * 0.7; uncommon += lost * 0.3; rare = 0; legendary = 0; }
-  const roll = Math.random();
-  if (roll < legendary) return "golden_fish";
-  if (roll < legendary + rare) return "pike";
-  if (roll < legendary + rare + uncommon) return Math.random() < 0.5 ? "bass" : "perch";
-  return "minnow";
-}
- 
+import {
+  getFishingWorkerInterval, getFishingWorkerHaul,
+  getFishingWorkerGearTier, rollFishForBody, getTotalWorkersHired,
+} from "../gameEngine";
+
+const SPEED_UPGRADES = ["speed_1", "speed_2"];
+const HAUL_UPGRADES  = ["haul_1",  "haul_2"];
+const GEAR_UPGRADES  = ["gear_good", "gear_expert"];
+
 const POND_STYLES = `
   @keyframes ripple { 0% { transform: scale(0.8); opacity: 0.6; } 100% { transform: scale(2.4); opacity: 0; } }
   @keyframes bobber-idle { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-4px); } }
   @keyframes bobber-bite { 0% { transform: translateY(0) rotate(0deg); } 25% { transform: translateY(8px) rotate(-10deg); } 75% { transform: translateY(7px) rotate(-7deg); } 100% { transform: translateY(0) rotate(0deg); } }
   @keyframes slide-up { from { transform: translateY(16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 `;
- 
+
+// ─── Needle bar ───────────────────────────────────────────────────────────────
+
 function NeedleBar({ position, sweetSpotStart, sweetSpotWidth, onTap }) {
   const inZone = position >= sweetSpotStart && position <= sweetSpotStart + sweetSpotWidth;
   const center = sweetSpotStart + sweetSpotWidth / 2;
   const quality = Math.max(0, 1 - Math.abs(position - center) / (sweetSpotWidth / 2));
   return (
     <div onPointerDown={onTap} style={{ width: "100%", cursor: "pointer", userSelect: "none" }}>
-      <div style={{ position: "relative", height: "60px", background: "rgba(0,0,0,0.6)", borderRadius: "14px", overflow: "hidden", border: `2px solid ${inZone ? "rgba(74,222,128,0.7)" : "rgba(255,255,255,0.15)"}`, boxShadow: inZone ? "0 0 20px rgba(74,222,128,0.2)" : "none", transition: "border-color 0.08s, box-shadow 0.08s" }}>
-        <div style={{ position: "absolute", top: 0, bottom: 0, left: `${sweetSpotStart * 100}%`, width: `${sweetSpotWidth * 100}%`, background: inZone ? `rgba(74,222,128,${0.2 + quality * 0.4})` : "rgba(74,222,128,0.12)", borderLeft: "2px solid rgba(74,222,128,0.5)", borderRight: "2px solid rgba(74,222,128,0.5)", transition: "background 0.08s" }} />
-        <div style={{ position: "absolute", top: "20%", bottom: "20%", left: `${center * 100}%`, width: "2px", background: "rgba(74,222,128,0.7)", transform: "translateX(-50%)" }} />
-        <div style={{ position: "absolute", top: "8px", bottom: "8px", left: `${position * 100}%`, width: "3px", borderRadius: "2px", transform: "translateX(-50%)", background: inZone ? "#fbbf24" : "#f87171", boxShadow: inZone ? "0 0 12px #fbbf24" : "0 0 8px #f87171", transition: "background 0.06s, box-shadow 0.06s" }} />
-        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.78rem", fontWeight: 800, letterSpacing: "0.1em", color: inZone ? "rgba(74,222,128,0.95)" : "rgba(255,255,255,0.35)", pointerEvents: "none", textShadow: inZone ? "0 0 10px rgba(74,222,128,0.6)" : "none", transition: "color 0.08s" }}>
+      <div style={{
+        position: "relative", height: "60px", background: "rgba(0,0,0,0.6)",
+        borderRadius: "14px", overflow: "hidden",
+        border: `2px solid ${inZone ? "rgba(74,222,128,0.7)" : "rgba(255,255,255,0.15)"}`,
+        boxShadow: inZone ? "0 0 20px rgba(74,222,128,0.2)" : "none",
+        transition: "border-color 0.08s, box-shadow 0.08s",
+      }}>
+        <div style={{
+          position: "absolute", top: 0, bottom: 0,
+          left: `${sweetSpotStart * 100}%`, width: `${sweetSpotWidth * 100}%`,
+          background: inZone ? `rgba(74,222,128,${0.2 + quality * 0.4})` : "rgba(74,222,128,0.12)",
+          borderLeft: "2px solid rgba(74,222,128,0.5)", borderRight: "2px solid rgba(74,222,128,0.5)",
+          transition: "background 0.08s",
+        }} />
+        <div style={{
+          position: "absolute", top: "20%", bottom: "20%",
+          left: `${center * 100}%`, width: "2px",
+          background: "rgba(74,222,128,0.7)", transform: "translateX(-50%)",
+        }} />
+        <div style={{
+          position: "absolute", top: "8px", bottom: "8px",
+          left: `${position * 100}%`, width: "3px", borderRadius: "2px",
+          transform: "translateX(-50%)",
+          background: inZone ? "#fbbf24" : "#f87171",
+          boxShadow: inZone ? "0 0 12px #fbbf24" : "0 0 8px #f87171",
+          transition: "background 0.06s, box-shadow 0.06s",
+        }} />
+        <div style={{
+          position: "absolute", inset: 0, display: "flex", alignItems: "center",
+          justifyContent: "center", fontSize: "0.78rem", fontWeight: 800,
+          letterSpacing: "0.1em",
+          color: inZone ? "rgba(74,222,128,0.95)" : "rgba(255,255,255,0.35)",
+          pointerEvents: "none",
+          textShadow: inZone ? "0 0 10px rgba(74,222,128,0.6)" : "none",
+          transition: "color 0.08s",
+        }}>
           {inZone ? `STOP! (${Math.round(quality * 100)}%)` : "TAP TO STOP"}
         </div>
       </div>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.58rem", color: "rgba(255,255,255,0.35)", marginTop: "0.2rem", padding: "0 4px" }}>
-        <span>← miss</span><span style={{ color: "rgba(74,222,128,0.5)" }}>● sweet spot</span><span>miss →</span>
+      <div style={{
+        display: "flex", justifyContent: "space-between",
+        fontSize: "0.58rem", color: "rgba(255,255,255,0.35)",
+        marginTop: "0.2rem", padding: "0 4px",
+      }}>
+        <span>← miss</span>
+        <span style={{ color: "rgba(74,222,128,0.5)" }}>● sweet spot</span>
+        <span>miss →</span>
       </div>
     </div>
   );
 }
- 
+
+// ─── Reel bar ─────────────────────────────────────────────────────────────────
+
 function ReelBar({ progress, timeLeft, onTap }) {
   const pct = Math.max(0, Math.min(100, progress * 100));
   const urgent = timeLeft < 1.5;
   const color = pct > 60 ? "#4ade80" : pct > 30 ? "#f59e0b" : "#ef4444";
   return (
     <div onPointerDown={onTap} style={{ width: "100%", cursor: "pointer", userSelect: "none" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem", padding: "0 2px" }}>
+      <div style={{
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        marginBottom: "0.4rem", padding: "0 2px",
+      }}>
         <span style={{ fontSize: "0.75rem", fontWeight: 800, color: "rgba(255,255,255,0.9)", letterSpacing: "0.08em" }}>REEL IT IN</span>
-        <span style={{ fontSize: "0.75rem", fontWeight: 700, color: urgent ? "#ef4444" : "rgba(255,255,255,0.5)", animation: urgent ? "rw-pulse 0.5s ease-in-out infinite" : "none" }}>{timeLeft.toFixed(1)}s</span>
+        <span style={{
+          fontSize: "0.75rem", fontWeight: 700,
+          color: urgent ? "#ef4444" : "rgba(255,255,255,0.5)",
+          animation: urgent ? "rw-pulse 0.5s ease-in-out infinite" : "none",
+        }}>{timeLeft.toFixed(1)}s</span>
       </div>
-      <div style={{ position: "relative", height: "64px", background: "rgba(0,0,0,0.6)", borderRadius: "14px", overflow: "hidden", border: `2px solid ${urgent ? "rgba(239,68,68,0.6)" : "rgba(255,255,255,0.12)"}`, transition: "border-color 0.2s" }}>
-        <div style={{ height: "100%", width: `${pct}%`, background: `linear-gradient(90deg, ${color}55, ${color}cc)`, borderRadius: "12px", transition: "background 0.2s", pointerEvents: "none" }} />
-        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.1rem", fontWeight: 900, letterSpacing: "0.18em", color: "#fff", textShadow: "0 2px 10px rgba(0,0,0,0.7)", pointerEvents: "none" }}>TAP TAP TAP!</div>
+      <div style={{
+        position: "relative", height: "64px", background: "rgba(0,0,0,0.6)",
+        borderRadius: "14px", overflow: "hidden",
+        border: `2px solid ${urgent ? "rgba(239,68,68,0.6)" : "rgba(255,255,255,0.12)"}`,
+        transition: "border-color 0.2s",
+      }}>
+        <div style={{
+          height: "100%", width: `${pct}%`,
+          background: `linear-gradient(90deg, ${color}55, ${color}cc)`,
+          borderRadius: "12px", transition: "background 0.2s", pointerEvents: "none",
+        }} />
+        <div style={{
+          position: "absolute", inset: 0, display: "flex", alignItems: "center",
+          justifyContent: "center", fontSize: "1.1rem", fontWeight: 900,
+          letterSpacing: "0.18em", color: "#fff",
+          textShadow: "0 2px 10px rgba(0,0,0,0.7)", pointerEvents: "none",
+        }}>TAP TAP TAP!</div>
       </div>
     </div>
   );
 }
- 
+
+// ─── Catch result card ────────────────────────────────────────────────────────
+
 function CatchResultCard({ result, onDismiss }) {
-  const fish = FISH_TYPES[result.fishId];
-  const isLegendary = result.fishId === "golden_fish";
-  const isRare = result.fishId === "pike";
+  const fish = FISHING_FISH[result.fishId];
+  const isRare = result.fishId === "rare";
   const escaped = !result.caught;
   return (
     <div style={{ animation: "slide-up 0.25s ease forwards" }}>
       <div style={{
         borderRadius: "14px", overflow: "hidden",
-        border: `2px solid ${isLegendary ? "#fbbf24" : isRare ? "#f59e0b" : escaped ? "#ef4444" : "#4ade80"}`,
-        background: isLegendary ? "linear-gradient(135deg, #3d2000, #5c3300)" : isRare ? "linear-gradient(135deg, #2d1a00, #4a2d00)" : escaped ? "linear-gradient(135deg, #2d0a0a, #3d1010)" : "linear-gradient(135deg, #0a2d1a, #0f3d22)",
-        boxShadow: isLegendary ? "0 0 40px rgba(251,191,36,0.4), inset 0 1px 0 rgba(251,191,36,0.2)" : isRare ? "0 0 20px rgba(245,158,11,0.25)" : "none",
+        border: `2px solid ${isRare ? "#fbbf24" : escaped ? "#ef4444" : "#4ade80"}`,
+        background: isRare
+          ? "linear-gradient(135deg, #3d2000, #5c3300)"
+          : escaped
+            ? "linear-gradient(135deg, #2d0a0a, #3d1010)"
+            : "linear-gradient(135deg, #0a2d1a, #0f3d22)",
+        boxShadow: isRare ? "0 0 40px rgba(251,191,36,0.4), inset 0 1px 0 rgba(251,191,36,0.2)" : "none",
       }}>
         <div style={{ padding: "1.1rem 1.1rem 0.9rem", display: "flex", alignItems: "center", gap: "1rem" }}>
-          <div style={{ fontSize: isLegendary ? "3.5rem" : isRare ? "2.8rem" : escaped ? "2rem" : "2.4rem", lineHeight: 1, flexShrink: 0, filter: isLegendary ? "drop-shadow(0 0 16px #fbbf24)" : isRare ? "drop-shadow(0 0 8px #f59e0b)" : "none", opacity: escaped ? 0.5 : 1 }}>
-            {escaped ? "💨" : fish.emoji}
+          <div style={{
+            fontSize: isRare ? "3.5rem" : escaped ? "2rem" : "2.4rem",
+            lineHeight: 1, flexShrink: 0,
+            filter: isRare ? "drop-shadow(0 0 16px #fbbf24)" : "none",
+            opacity: escaped ? 0.5 : 1,
+          }}>
+            {escaped ? "💨" : fish?.emoji ?? "🐟"}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: isLegendary ? "1.05rem" : "0.9rem", fontWeight: 900, letterSpacing: "0.04em", color: isLegendary ? "#fbbf24" : isRare ? "#fcd34d" : escaped ? "#fca5a5" : "#86efac", marginBottom: "0.2rem", textShadow: isLegendary ? "0 0 12px rgba(251,191,36,0.5)" : "none" }}>
-              {escaped ? "It got away!" : isLegendary ? "✨ LEGENDARY!" : isRare ? "🎉 Rare catch!" : `Caught a ${fish.name}!`}
+            <div style={{
+              fontSize: isRare ? "1.05rem" : "0.9rem", fontWeight: 900,
+              letterSpacing: "0.04em",
+              color: isRare ? "#fbbf24" : escaped ? "#fca5a5" : "#86efac",
+              marginBottom: "0.2rem",
+              textShadow: isRare ? "0 0 12px rgba(251,191,36,0.5)" : "none",
+            }}>
+              {escaped ? "It got away!" : isRare ? "✨ Rare catch!" : `Caught a ${fish?.name ?? "fish"}!`}
             </div>
-            {!escaped && <div style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.7)", fontWeight: 500 }}>{fish.name} · <span style={{ color: "#4ade80" }}>${fish.rawValue}</span> raw · added to inventory</div>}
-            {escaped && <div style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.5)" }}>Better luck next time</div>}
-            {result.bonus && (
-              <div style={{ fontSize: "0.78rem", color: "#fbbf24", marginTop: "0.4rem", fontWeight: 700, padding: "0.25rem 0.5rem", background: "rgba(251,191,36,0.15)", borderRadius: "6px", display: "inline-block" }}>
-                {result.bonus.emoji} {result.bonus.description}
+            {!escaped && (
+              <div style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.7)", fontWeight: 500 }}>
+                {fish?.name} · <span style={{ color: "#4ade80" }}>${fish?.rawValue ?? 0}</span> raw · added to inventory
               </div>
             )}
+            {escaped && <div style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.5)" }}>Better luck next time</div>}
           </div>
         </div>
-        <button onClick={onDismiss} style={{ width: "100%", padding: "0.75rem", background: escaped ? "rgba(239,68,68,0.2)" : isLegendary ? "rgba(251,191,36,0.2)" : "rgba(74,222,128,0.15)", border: "none", borderTop: `1px solid ${escaped ? "rgba(239,68,68,0.3)" : isLegendary ? "rgba(251,191,36,0.3)" : "rgba(74,222,128,0.2)"}`, color: escaped ? "#fca5a5" : isLegendary ? "#fbbf24" : "#86efac", fontSize: "0.82rem", fontWeight: 800, cursor: "pointer", letterSpacing: "0.08em" }}>
+        <button onClick={onDismiss} style={{
+          width: "100%", padding: "0.75rem",
+          background: escaped ? "rgba(239,68,68,0.2)" : isRare ? "rgba(251,191,36,0.2)" : "rgba(74,222,128,0.15)",
+          border: "none",
+          borderTop: `1px solid ${escaped ? "rgba(239,68,68,0.3)" : isRare ? "rgba(251,191,36,0.3)" : "rgba(74,222,128,0.2)"}`,
+          color: escaped ? "#fca5a5" : isRare ? "#fbbf24" : "#86efac",
+          fontSize: "0.82rem", fontWeight: 800, cursor: "pointer", letterSpacing: "0.08em",
+        }}>
           {escaped ? "Try again →" : "🎣 Cast again →"}
         </button>
       </div>
     </div>
   );
 }
- 
-function FishInventory({ pond }) {
-  const keys = ["minnow", "bass", "perch", "pike", "golden_fish"];
-  const entries = keys.filter((k) => (pond.fish?.[k] ?? 0) > 0);
+
+// ─── Fish inventory ───────────────────────────────────────────────────────────
+
+function FishInventory({ fish }) {
+  const entries = Object.entries(fish ?? {}).filter(([, v]) => v > 0);
   if (!entries.length) return null;
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
-      {entries.map((key) => {
-        const fish = FISH_TYPES[key];
-        const isSpecial = fish.rarity === "rare" || fish.rarity === "legendary";
+      {entries.map(([key, count]) => {
+        const f = FISHING_FISH[key];
+        const isRare = key === "rare";
         return (
-          <div key={key} style={{ display: "flex", alignItems: "center", gap: "0.3rem", background: isSpecial ? "rgba(251,191,36,0.15)" : "rgba(255,255,255,0.1)", border: `1px solid ${isSpecial ? "rgba(251,191,36,0.4)" : "rgba(255,255,255,0.15)"}`, borderRadius: "8px", padding: "0.28rem 0.6rem" }}>
-            <span style={{ fontSize: "0.95rem" }}>{fish.emoji}</span>
-            <span style={{ fontWeight: 700, color: "#fff", fontSize: "0.8rem" }}>{pond.fish[key]}</span>
-            <span style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.62rem" }}>{fish.name}</span>
-            {fish.rawValue > 0 && <span style={{ color: "#4ade80", fontSize: "0.58rem" }}>${fish.rawValue}</span>}
+          <div key={key} style={{
+            display: "flex", alignItems: "center", gap: "0.3rem",
+            background: isRare ? "rgba(251,191,36,0.15)" : "rgba(255,255,255,0.1)",
+            border: `1px solid ${isRare ? "rgba(251,191,36,0.4)" : "rgba(255,255,255,0.15)"}`,
+            borderRadius: "8px", padding: "0.28rem 0.6rem",
+          }}>
+            <span style={{ fontSize: "0.95rem" }}>{f?.emoji ?? "🐟"}</span>
+            <span style={{ fontWeight: 700, color: "#fff", fontSize: "0.8rem" }}>{count}</span>
+            <span style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.62rem" }}>{f?.name}</span>
+            {f?.rawValue > 0 && <span style={{ color: "#4ade80", fontSize: "0.58rem" }}>${f.rawValue}</span>}
           </div>
         );
       })}
     </div>
   );
 }
- 
+
+// ─── Bait row (minigame) ──────────────────────────────────────────────────────
+
 function BaitRow({ game, selectedBait, onSelect }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap" }}>
       <span style={{ fontSize: "0.58rem", color: "rgba(255,255,255,0.4)", letterSpacing: "0.06em", flexShrink: 0 }}>BAIT</span>
-      <button onClick={() => onSelect(null)} style={{ fontSize: "0.65rem", padding: "0.18rem 0.5rem", borderRadius: "6px", cursor: "pointer", background: !selectedBait ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.06)", border: `1px solid ${!selectedBait ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.15)"}`, color: !selectedBait ? "#fff" : "rgba(255,255,255,0.4)", fontWeight: !selectedBait ? 700 : 400 }}>None</button>
+      <button
+        onClick={() => onSelect(null)}
+        style={{
+          fontSize: "0.65rem", padding: "0.18rem 0.5rem", borderRadius: "6px", cursor: "pointer",
+          background: !selectedBait ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.06)",
+          border: `1px solid ${!selectedBait ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.15)"}`,
+          color: !selectedBait ? "#fff" : "rgba(255,255,255,0.4)",
+          fontWeight: !selectedBait ? 700 : 400,
+        }}
+      >None</button>
       {Object.values(BAIT_TYPES).map((bait) => {
         const have = game.bait?.[bait.id] ?? 0;
+        const bonus = FISHING_BAIT_BONUS[bait.id];
         const sel = selectedBait === bait.id;
         return (
-          <button key={bait.id} onClick={() => have > 0 && onSelect(sel ? null : bait.id)} disabled={have <= 0} style={{ fontSize: "0.65rem", padding: "0.18rem 0.5rem", borderRadius: "6px", cursor: have > 0 ? "pointer" : "default", background: sel ? "rgba(99,102,241,0.4)" : "rgba(255,255,255,0.06)", border: `1px solid ${sel ? "rgba(99,102,241,0.7)" : "rgba(255,255,255,0.12)"}`, color: sel ? "#fff" : have > 0 ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.2)", fontWeight: sel ? 700 : 400, opacity: have <= 0 ? 0.4 : 1 }}>
+          <button
+            key={bait.id}
+            onClick={() => have > 0 && onSelect(sel ? null : bait.id)}
+            disabled={have <= 0}
+            style={{
+              fontSize: "0.65rem", padding: "0.18rem 0.5rem", borderRadius: "6px",
+              cursor: have > 0 ? "pointer" : "default",
+              background: sel ? "rgba(99,102,241,0.4)" : "rgba(255,255,255,0.06)",
+              border: `1px solid ${sel ? "rgba(99,102,241,0.7)" : "rgba(255,255,255,0.12)"}`,
+              color: sel ? "#fff" : have > 0 ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.2)",
+              fontWeight: sel ? 700 : 400, opacity: have <= 0 ? 0.4 : 1,
+            }}
+          >
             {bait.emoji} {bait.name} ({have})
+            {bonus && <span style={{ marginLeft: "0.25rem", color: "#fbbf24", fontSize: "0.58rem" }}>+{bonus.rarePct}%</span>}
           </button>
         );
       })}
     </div>
   );
 }
- 
+
+// ─── Recent catches ───────────────────────────────────────────────────────────
+
 function RecentCatches({ catches }) {
   if (!catches.length) return null;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
       <span style={{ fontSize: "0.58rem", color: "rgba(255,255,255,0.35)", letterSpacing: "0.06em" }}>RECENT</span>
-      {catches.map((c, i) => <span key={c.id} style={{ fontSize: "1rem", opacity: 1 - i * 0.12 }}>{c.emoji}</span>)}
+      {catches.map((c, i) => (
+        <span key={c.id} style={{ fontSize: "1rem", opacity: 1 - i * 0.12 }}>{c.emoji}</span>
+      ))}
     </div>
   );
 }
- 
-function UpgradesPanel({ pond, game, onUpgradeRod, onBuyTrap }) {
-  const [open, setOpen] = useState(false);
-  const rod = getRodTier(pond.rodTier ?? "twig");
-  const nextRod = getNextRod(pond.rodTier ?? "twig");
-  const canAffordRod = nextRod && (game.cash ?? 0) >= nextRod.upgradeCost;
-  const trapOwned = pond.trapOwned === true;
-  const canAffordTrap = (game.cash ?? 0) >= FISH_TRAP_COST;
-  const trapPct = Math.min(100, ((pond.trapTimer ?? 0) / FISH_TRAP_CATCH_INTERVAL) * 100);
+
+// ─── Worker upgrade tree ──────────────────────────────────────────────────────
+
+function WorkerUpgradeTree({ label, upgradeIds, worker, game, bodyId, onUpgrade }) {
+  const upgrades = worker.upgrades ?? [];
   return (
-    <div style={{ background: "rgba(0,0,0,0.7)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "12px", overflow: "hidden" }}>
-      <button onClick={() => setOpen(v => !v)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.6rem 0.85rem", background: "none", border: "none", cursor: "pointer" }}>
-        <span style={{ fontSize: "0.72rem", fontWeight: 600, color: "rgba(255,255,255,0.7)", letterSpacing: "0.04em" }}>⚙ Upgrades</span>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <span style={{ fontSize: "0.62rem", color: "rgba(255,255,255,0.35)" }}>{rod.emoji} {rod.name} · {trapOwned ? "🪤 active" : "no trap"}</span>
-          <span style={{ fontSize: "0.58rem", color: "rgba(255,255,255,0.35)" }}>{open ? "▲" : "▼"}</span>
+    <div>
+      <div style={{ fontSize: "0.62rem", fontWeight: 600, color: "rgba(255,255,255,0.4)", marginBottom: "0.3rem", letterSpacing: "0.06em" }}>
+        {label}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+        {upgradeIds.map((uid) => {
+          const u = FISHING_WORKER_UPGRADES[uid];
+          const owned = upgrades.includes(uid);
+          const requiresMet = !u.requires || upgrades.includes(u.requires);
+          const canAfford = (game.cash ?? 0) >= u.cost;
+          const canBuy = !owned && requiresMet && canAfford;
+          const locked = !owned && !requiresMet;
+          return (
+            <div key={uid} style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "0.28rem 0.45rem", borderRadius: "6px",
+              background: owned ? "rgba(74,222,128,0.08)" : "rgba(0,0,0,0.3)",
+              border: `1px solid ${owned ? "rgba(74,222,128,0.3)" : "rgba(255,255,255,0.1)"}`,
+              opacity: locked ? 0.4 : 1,
+            }}>
+              <div style={{ fontSize: "0.68rem" }}>
+                <span style={{ fontWeight: 600, color: owned ? "#4ade80" : "#fff" }}>
+                  {owned ? "✓" : locked ? "🔒" : u.emoji} {u.name}
+                </span>
+                <span style={{ marginLeft: "0.35rem", fontSize: "0.6rem", color: "rgba(255,255,255,0.4)" }}>
+                  {u.description}
+                </span>
+              </div>
+              {!owned && (
+                <button
+                  onClick={() => canBuy && onUpgrade(bodyId, uid)}
+                  disabled={!canBuy}
+                  style={{
+                    fontSize: "0.62rem", padding: "0.15rem 0.4rem", borderRadius: "6px",
+                    cursor: canBuy ? "pointer" : "default", marginLeft: "0.4rem", flexShrink: 0,
+                    background: canBuy ? "rgba(99,102,241,0.4)" : "rgba(255,255,255,0.06)",
+                    border: `1px solid ${canBuy ? "rgba(99,102,241,0.7)" : "rgba(255,255,255,0.1)"}`,
+                    color: canBuy ? "#fff" : "rgba(255,255,255,0.3)",
+                    opacity: canBuy ? 1 : 0.6,
+                  }}
+                >
+                  ${u.cost}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Fishing worker card ──────────────────────────────────────────────────────
+
+function FishingWorkerCard({ bodyId, worker, game, onUpgrade, onSetBait }) {
+  const [showUpgrades, setShowUpgrades] = useState(false);
+  const interval = getFishingWorkerInterval(worker);
+  const haul = getFishingWorkerHaul(worker);
+  const gear = getFishingWorkerGearTier(worker);
+  const timerPct = Math.min(100, ((worker.timer ?? 0) / interval) * 100);
+  const assignedBait = worker.assignedBait;
+  const baitHave = assignedBait ? (game.bait?.[assignedBait] ?? 0) : 0;
+
+  return (
+    <div style={{
+      background: "rgba(0,0,0,0.5)", border: "1px solid rgba(255,255,255,0.12)",
+      borderRadius: "12px", overflow: "hidden",
+    }}>
+      {/* Header */}
+      <div style={{ padding: "0.6rem 0.75rem", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div>
+          <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "#fff" }}>
+            🎣 Fisher
+            <span style={{ marginLeft: "0.35rem", fontSize: "0.6rem", color: "rgba(255,255,255,0.4)", fontWeight: 400 }}>
+              {gear} rod · {haul} fish/{interval}s
+            </span>
+          </div>
+          <div style={{ fontSize: "0.62rem", color: "rgba(255,255,255,0.4)", marginTop: "0.1rem" }}>
+            {assignedBait
+              ? `${BAIT_TYPES[assignedBait]?.emoji} ${BAIT_TYPES[assignedBait]?.name} (${baitHave} left)`
+              : "No bait assigned"}
+          </div>
         </div>
-      </button>
-      {open && (
-        <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", padding: "0.75rem 0.85rem", display: "flex", flexDirection: "column", gap: "0.75rem", background: "rgba(0,0,0,0.4)" }}>
-          {/* Rod */}
-          <div>
-            <div style={{ fontSize: "0.58rem", color: "rgba(255,255,255,0.35)", letterSpacing: "0.08em", marginBottom: "0.4rem" }}>ROD</div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div>
-                <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "#fff" }}>{rod.emoji} {rod.name}</div>
-                <div style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.4)", marginTop: "0.1rem" }}>Sweet spot {Math.round(rod.sweetSpotWidth * 100)}% · Bite {rod.biteTimeMin}–{rod.biteTimeMax}s</div>
-              </div>
-              {nextRod
-                ? <button onClick={onUpgradeRod} disabled={!canAffordRod} style={{ fontSize: "0.68rem", padding: "0.25rem 0.6rem", borderRadius: "8px", cursor: canAffordRod ? "pointer" : "default", marginLeft: "0.5rem", flexShrink: 0, background: canAffordRod ? "rgba(99,102,241,0.4)" : "rgba(255,255,255,0.06)", border: `1px solid ${canAffordRod ? "rgba(99,102,241,0.7)" : "rgba(255,255,255,0.1)"}`, color: canAffordRod ? "#fff" : "rgba(255,255,255,0.25)", fontWeight: 600 }}>{nextRod.emoji} ${nextRod.upgradeCost}</button>
-                : <span style={{ fontSize: "0.62rem", color: "#4ade80" }}>✓ Max rod</span>
-              }
-            </div>
-          </div>
-          {/* Trap */}
-          <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: "0.75rem" }}>
-            <div style={{ fontSize: "0.58rem", color: "rgba(255,255,255,0.35)", letterSpacing: "0.08em", marginBottom: "0.4rem" }}>FISH TRAP</div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "#fff" }}>🪤 {trapOwned ? "Active" : "Fish Trap"}</div>
-                <div style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.4)", marginTop: "0.1rem" }}>Catches minnow & bass passively. No rare fish ever.</div>
-                {trapOwned && (
-                  <div style={{ marginTop: "0.4rem" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.58rem", color: "rgba(255,255,255,0.3)", marginBottom: "0.15rem" }}>
-                      <span>Next catch</span><span>{Math.ceil(FISH_TRAP_CATCH_INTERVAL - (pond.trapTimer ?? 0))}s</span>
-                    </div>
-                    <div style={{ height: "3px", background: "rgba(255,255,255,0.1)", borderRadius: "999px", overflow: "hidden" }}>
-                      <div style={{ height: "100%", width: `${trapPct}%`, background: "#4ade80", transition: "width 0.5s linear" }} />
-                    </div>
-                  </div>
-                )}
-              </div>
-              {!trapOwned && <button onClick={onBuyTrap} disabled={!canAffordTrap} style={{ fontSize: "0.68rem", padding: "0.25rem 0.6rem", borderRadius: "8px", cursor: canAffordTrap ? "pointer" : "default", marginLeft: "0.5rem", flexShrink: 0, background: canAffordTrap ? "rgba(99,102,241,0.4)" : "rgba(255,255,255,0.06)", border: `1px solid ${canAffordTrap ? "rgba(99,102,241,0.7)" : "rgba(255,255,255,0.1)"}`, color: canAffordTrap ? "#fff" : "rgba(255,255,255,0.25)", fontWeight: 600 }}>$300</button>}
-            </div>
-          </div>
-          {/* Sell rates */}
-          <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: "0.75rem" }}>
-            <div style={{ fontSize: "0.58rem", color: "rgba(255,255,255,0.35)", letterSpacing: "0.08em", marginBottom: "0.4rem" }}>RAW SELL RATES</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem" }}>
-              {["minnow", "bass", "perch", "pike"].map((id) => { const fish = FISH_TYPES[id]; return <div key={id} style={{ fontSize: "0.62rem", background: "rgba(255,255,255,0.08)", borderRadius: "6px", padding: "0.15rem 0.4rem", border: "1px solid rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.6)" }}>{fish.emoji} <strong style={{ color: "#fff" }}>${fish.rawValue}</strong></div>; })}
-              <div style={{ fontSize: "0.62rem", background: "rgba(251,191,36,0.12)", borderRadius: "6px", padding: "0.15rem 0.4rem", border: "1px solid rgba(251,191,36,0.3)", color: "#fbbf24" }}>✨ Priceless</div>
-            </div>
-            <div style={{ fontSize: "0.58rem", color: "rgba(255,255,255,0.25)", marginTop: "0.3rem" }}>Sell via market workers · craft in Crafting for more value</div>
-          </div>
+        <button
+          onClick={() => setShowUpgrades((v) => !v)}
+          style={{
+            fontSize: "0.65rem", padding: "0.2rem 0.45rem", borderRadius: "6px", cursor: "pointer",
+            background: showUpgrades ? "rgba(99,102,241,0.4)" : "rgba(255,255,255,0.08)",
+            border: `1px solid ${showUpgrades ? "rgba(99,102,241,0.7)" : "rgba(255,255,255,0.15)"}`,
+            color: "#fff",
+          }}
+        >
+          ⚡ Upgrades
+        </button>
+      </div>
+
+      {/* Timer bar */}
+      <div style={{ height: "3px", background: "rgba(255,255,255,0.08)" }}>
+        <div style={{
+          height: "100%", width: `${timerPct}%`,
+          background: "#4ade80", transition: "width 1s linear",
+        }} />
+      </div>
+
+      {/* Bait assignment */}
+      <div style={{
+        padding: "0.5rem 0.75rem", borderTop: "1px solid rgba(255,255,255,0.08)",
+        display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap",
+      }}>
+        <span style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.35)", letterSpacing: "0.06em" }}>BAIT</span>
+        <button
+          onClick={() => onSetBait(bodyId, null)}
+          style={{
+            fontSize: "0.62rem", padding: "0.15rem 0.4rem", borderRadius: "6px", cursor: "pointer",
+            background: !assignedBait ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.05)",
+            border: `1px solid ${!assignedBait ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.1)"}`,
+            color: !assignedBait ? "#fff" : "rgba(255,255,255,0.4)",
+            fontWeight: !assignedBait ? 700 : 400,
+          }}
+        >None</button>
+        {Object.values(BAIT_TYPES).map((bait) => {
+          const have = game.bait?.[bait.id] ?? 0;
+          const sel = assignedBait === bait.id;
+          const bonus = FISHING_BAIT_BONUS[bait.id];
+          return (
+            <button
+              key={bait.id}
+              onClick={() => onSetBait(bodyId, bait.id)}
+              style={{
+                fontSize: "0.62rem", padding: "0.15rem 0.4rem", borderRadius: "6px", cursor: "pointer",
+                background: sel ? "rgba(99,102,241,0.4)" : "rgba(255,255,255,0.05)",
+                border: `1px solid ${sel ? "rgba(99,102,241,0.7)" : "rgba(255,255,255,0.1)"}`,
+                color: sel ? "#fff" : have > 0 ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.25)",
+                fontWeight: sel ? 700 : 400,
+              }}
+            >
+              {bait.emoji} {bait.name} ({have}){bonus && ` +${bonus.rarePct}%`}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Upgrade trees */}
+      {showUpgrades && (
+        <div style={{
+          padding: "0.6rem 0.75rem", borderTop: "1px solid rgba(255,255,255,0.08)",
+          background: "rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", gap: "0.6rem",
+        }}>
+          <WorkerUpgradeTree label="⚡ SPEED"    upgradeIds={SPEED_UPGRADES} worker={worker} game={game} bodyId={bodyId} onUpgrade={onUpgrade} />
+          <WorkerUpgradeTree label="📦 HAUL"     upgradeIds={HAUL_UPGRADES}  worker={worker} game={game} bodyId={bodyId} onUpgrade={onUpgrade} />
+          <WorkerUpgradeTree label="🎣 GEAR"     upgradeIds={GEAR_UPGRADES}  worker={worker} game={game} bodyId={bodyId} onUpgrade={onUpgrade} />
         </div>
       )}
     </div>
   );
 }
- 
-export default function PondZone({ game, onBuyPond, onUpgradeRod, onBuyTrap, onCatchFish, onApplyGoldenBonus }) {
-  const pond = game.pond ?? {};
-  const pondOwned = pond.owned === true;
+
+// ─── Fishing bodies panel ─────────────────────────────────────────────────────
+
+function FishingBodiesPanel({ game, onUnlockBody, onHireWorker, onUpgradeWorker, onSetWorkerBait, onFireWorker }) {
+  const fishing = game.fishing ?? {};
+  const bodies = fishing.bodies ?? {};
+  const totalHired = getTotalWorkersHired(game);
+  const atWorkerCap = totalHired >= Math.floor(game.town?.people ?? 0);
+
+  return (
+    <div style={{
+      background: "rgba(0,0,0,0.7)", border: "1px solid rgba(255,255,255,0.12)",
+      borderRadius: "12px", overflow: "hidden",
+    }}>
+      <div style={{ padding: "0.6rem 0.85rem", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+        <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "rgba(255,255,255,0.7)", letterSpacing: "0.04em" }}>
+          🎣 Fishing Workers
+        </div>
+        <div style={{ fontSize: "0.62rem", color: "rgba(255,255,255,0.35)", marginTop: "0.1rem" }}>
+          One passive fisher per water body · uses a town worker slot
+        </div>
+      </div>
+
+      <div style={{ padding: "0.65rem 0.85rem", display: "flex", flexDirection: "column", gap: "0.85rem" }}>
+        {FISHING_BODY_ORDER.map((bodyId, idx) => {
+          const bodyDef = FISHING_BODIES[bodyId];
+          const bodyState = bodies[bodyId] ?? { unlocked: false, worker: null };
+          const unlocked = bodyState.unlocked;
+          const worker = bodyState.worker;
+          const workerHired = worker?.hired === true;
+          const prevBodyId = idx > 0 ? FISHING_BODY_ORDER[idx - 1] : null;
+          const prevUnlocked = !prevBodyId || bodies[prevBodyId]?.unlocked;
+          const canAffordUnlock = (game.cash ?? 0) >= bodyDef.unlockCost;
+          const canUnlock = !unlocked && prevUnlocked && canAffordUnlock && bodyDef.unlockCost > 0;
+          const HIRE_COST = 75;
+          const canAffordHire = (game.cash ?? 0) >= HIRE_COST;
+          const canHire = unlocked && !workerHired && !atWorkerCap && canAffordHire;
+
+          return (
+            <div key={bodyId}>
+              {/* Body header */}
+              <div style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                marginBottom: (unlocked && workerHired) ? "0.5rem" : "0",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                  <span style={{ fontSize: "1.2rem" }}>{bodyDef.emoji}</span>
+                  <div>
+                    <div style={{
+                      fontSize: "0.75rem", fontWeight: 700,
+                      color: unlocked ? "#fff" : "rgba(255,255,255,0.3)",
+                    }}>
+                      {bodyDef.name}
+                    </div>
+                    <div style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.3)" }}>
+                      {unlocked
+                        ? workerHired ? "Fisher assigned" : "No fisher yet"
+                        : bodyDef.unlockCost === 0 ? "Starter" : `$${bodyDef.unlockCost} to unlock`}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Unlock button */}
+                {!unlocked && bodyDef.unlockCost > 0 && (
+                  <button
+                    onClick={() => onUnlockBody(bodyId)}
+                    disabled={!canUnlock}
+                    style={{
+                      fontSize: "0.68rem", padding: "0.22rem 0.6rem", borderRadius: "8px",
+                      cursor: canUnlock ? "pointer" : "default",
+                      background: canUnlock ? "rgba(99,102,241,0.4)" : "rgba(255,255,255,0.06)",
+                      border: `1px solid ${canUnlock ? "rgba(99,102,241,0.7)" : "rgba(255,255,255,0.1)"}`,
+                      color: canUnlock ? "#fff" : "rgba(255,255,255,0.25)",
+                      fontWeight: 600, opacity: prevUnlocked ? 1 : 0.4,
+                    }}
+                  >
+                    {!prevUnlocked ? "🔒 Locked" : `Unlock $${bodyDef.unlockCost}`}
+                  </button>
+                )}
+
+                {/* Hire button — shown when unlocked but no worker yet */}
+                {unlocked && !workerHired && (
+                  <button
+                    onClick={() => canHire && onHireWorker(bodyId)}
+                    disabled={!canHire}
+                    style={{
+                      fontSize: "0.68rem", padding: "0.22rem 0.6rem", borderRadius: "8px",
+                      cursor: canHire ? "pointer" : "default",
+                      background: canHire ? "rgba(74,222,128,0.3)" : "rgba(255,255,255,0.06)",
+                      border: `1px solid ${canHire ? "rgba(74,222,128,0.6)" : "rgba(255,255,255,0.1)"}`,
+                      color: canHire ? "#fff" : "rgba(255,255,255,0.25)",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {atWorkerCap ? "👥 Town full" : canAffordHire ? `Hire Fisher $${HIRE_COST}` : `Need $${HIRE_COST}`}
+                  </button>
+                )}
+
+                {/* Active badge */}
+                {/* Active badge + fire button */}
+{unlocked && workerHired && (
+  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+    <span style={{ fontSize: "0.62rem", color: "#4ade80", fontWeight: 600 }}>✓ Fishing</span>
+    <button
+      onClick={() => onFireWorker(bodyId)}
+      style={{
+        fontSize: "0.6rem", padding: "0.15rem 0.4rem", borderRadius: "6px", cursor: "pointer",
+        background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.3)",
+        color: "#ef4444", fontWeight: 600,
+      }}
+    >
+      Fire
+    </button>
+  </div>
+)}
+              </div>
+
+              {/* Worker card */}
+              {unlocked && workerHired && worker && (
+                <FishingWorkerCard
+                  bodyId={bodyId}
+                  worker={worker}
+                  game={game}
+                  onUpgrade={onUpgradeWorker}
+                  onSetBait={onSetWorkerBait}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main PondZone ────────────────────────────────────────────────────────────
+
+export default function PondZone({
+  game,
+  onBuyPond,
+  onCatchFish,
+  onUnlockFishingBody,
+  onSetFishingActiveBody,
+  onHireFishingWorker,
+  onUpgradeFishingWorker,
+  onSetFishingWorkerBait,
+  onFireFishingWorker,
+}) {
+  const fishing = game.fishing ?? {};
+  const pondOwned = fishing.bodies?.pond?.unlocked === true;
+  const activeBody = fishing.activeBody ?? "pond";
+  const activeBodyDef = FISHING_BODIES[activeBody] ?? FISHING_BODIES.pond;
+
   const [phase, setPhase] = useState("idle");
   const [needlePos, setNeedlePos] = useState(0.1);
   const [needleDir, setNeedleDir] = useState(1);
@@ -237,7 +592,7 @@ export default function PondZone({ game, onBuyPond, onUpgradeRod, onBuyTrap, onC
   const [catchResult, setCatchResult] = useState(null);
   const [selectedBait, setSelectedBait] = useState(null);
   const [lastCatches, setLastCatches] = useState([]);
- 
+
   const animRef = useRef(null);
   const lastTimeRef = useRef(null);
   const phaseRef = useRef(phase);
@@ -245,182 +600,312 @@ export default function PondZone({ game, onBuyPond, onUpgradeRod, onBuyTrap, onC
   const needlePosRef = useRef(needlePos);
   const biteTimerRef = useRef(null);
   const reelProgressRef = useRef(0);
-  phaseRef.current = phase; needleDirRef.current = needleDir; needlePosRef.current = needlePos;
- 
-  const rod = getRodTier(pond.rodTier ?? "twig");
+
+  phaseRef.current = phase;
+  needleDirRef.current = needleDir;
+  needlePosRef.current = needlePos;
+
   const catBonus = (game.pets?.cat?.mood ?? 0) >= 50 ? 0.20 : 0;
-  const effectiveSweetSpotWidth = Math.min(0.6, rod.sweetSpotWidth * (1 + catBonus));
- 
+  const baseSweetSpot = 0.25;
+  const effectiveSweetSpotWidth = Math.min(0.6, baseSweetSpot * (1 + catBonus));
+
+  const BITE_MIN = 1500;
+  const BITE_MAX = 4000;
+
   const runLoop = useCallback((timestamp) => {
     if (!lastTimeRef.current) lastTimeRef.current = timestamp;
     const dt = Math.min((timestamp - lastTimeRef.current) / 1000, 0.1);
     lastTimeRef.current = timestamp;
     const p = phaseRef.current;
+
     if (p === "needle") {
       const dir = needleDirRef.current;
       let next = needlePosRef.current + NEEDLE_SWEEP_SPEED * dt * dir;
       let newDir = dir;
-      if (next >= 1) { next = 1; newDir = -1; } if (next <= 0) { next = 0; newDir = 1; }
+      if (next >= 1) { next = 1; newDir = -1; }
+      if (next <= 0) { next = 0; newDir = 1; }
       needlePosRef.current = next; setNeedlePos(next);
       if (newDir !== dir) { needleDirRef.current = newDir; setNeedleDir(newDir); }
     }
+
     if (p === "reel") {
-      // Use ref for progress to avoid stale closure in tap handler
       const newProgress = Math.max(0, reelProgressRef.current - REEL_DRAIN_RATE * dt);
       reelProgressRef.current = newProgress;
       setReelProgress(newProgress);
       setReelTimeLeft((prev) => {
         const next = prev - dt;
-        if (next <= 0) { setCatchResult({ caught: false, fishId: "bass" }); setPhase("result"); phaseRef.current = "result"; return 0; }
+        if (next <= 0) {
+          setCatchResult({ caught: false, fishId: "bass" });
+          setPhase("result"); phaseRef.current = "result";
+          return 0;
+        }
         return next;
       });
     }
+
     animRef.current = requestAnimationFrame(runLoop);
   }, []);
- 
+
   useEffect(() => {
-    if (phase === "needle" || phase === "reel") { lastTimeRef.current = null; animRef.current = requestAnimationFrame(runLoop); }
+    if (phase === "needle" || phase === "reel") {
+      lastTimeRef.current = null;
+      animRef.current = requestAnimationFrame(runLoop);
+    }
     return () => { if (animRef.current) cancelAnimationFrame(animRef.current); };
   }, [phase, runLoop]);
- 
+
   function handleCast() {
     if (phase !== "idle") return;
     setPhase("waiting"); phaseRef.current = "waiting";
-    const biteMs = (rod.biteTimeMin + Math.random() * (rod.biteTimeMax - rod.biteTimeMin)) * 1000;
+    const biteMs = BITE_MIN + Math.random() * (BITE_MAX - BITE_MIN);
     biteTimerRef.current = setTimeout(() => {
-      const margin = 0.05; const maxStart = 1 - effectiveSweetSpotWidth - margin;
-      const newStart = margin + Math.random() * (maxStart - margin); setSweetSpotStart(newStart);
-      const startPos = Math.random() < 0.5 ? 0.02 : 0.98; needlePosRef.current = startPos; setNeedlePos(startPos);
-      const newDir = startPos < 0.5 ? 1 : -1; needleDirRef.current = newDir; setNeedleDir(newDir);
+      const margin = 0.05;
+      const maxStart = 1 - effectiveSweetSpotWidth - margin;
+      const newStart = margin + Math.random() * (maxStart - margin);
+      setSweetSpotStart(newStart);
+      const startPos = Math.random() < 0.5 ? 0.02 : 0.98;
+      needlePosRef.current = startPos; setNeedlePos(startPos);
+      const newDir = startPos < 0.5 ? 1 : -1;
+      needleDirRef.current = newDir; setNeedleDir(newDir);
       setPhase("needle"); phaseRef.current = "needle";
     }, biteMs);
   }
- 
+
   function handleNeedleTap() {
     if (phase !== "needle") return;
     if (animRef.current) cancelAnimationFrame(animRef.current);
     const pos = needlePosRef.current;
     const inZone = pos >= sweetSpotStart && pos <= sweetSpotStart + effectiveSweetSpotWidth;
-    if (!inZone) { setCatchResult({ caught: false, fishId: "minnow" }); setPhase("result"); phaseRef.current = "result"; return; }
+    if (!inZone) {
+      setCatchResult({ caught: false, fishId: "minnow" });
+      setPhase("result"); phaseRef.current = "result";
+      return;
+    }
     const center = sweetSpotStart + effectiveSweetSpotWidth / 2;
     const quality = Math.max(0, 1 - Math.abs(pos - center) / (effectiveSweetSpotWidth / 2));
     const initialProgress = 0.15 + quality * 0.2;
-    setNeedleQuality(quality); reelProgressRef.current = initialProgress; setReelProgress(initialProgress); setReelTimeLeft(REEL_DURATION);
-    lastTimeRef.current = null; setPhase("reel"); phaseRef.current = "reel";
+    setNeedleQuality(quality);
+    reelProgressRef.current = initialProgress;
+    setReelProgress(initialProgress);
+    setReelTimeLeft(REEL_DURATION);
+    lastTimeRef.current = null;
+    setPhase("reel"); phaseRef.current = "reel";
   }
- 
+
   function handleReelTap() {
     if (phaseRef.current !== "reel") return;
-    // Apply tap directly to ref so it's never stale vs the rAF drain
     const next = reelProgressRef.current + REEL_TAP_AMOUNT;
     if (next >= 1) {
       reelProgressRef.current = 1;
       setReelProgress(1);
-      const fishId = rollFish(selectedBait ?? "none", needleQuality);
-      const fish = FISH_TYPES[fishId]; let bonus = null;
-      if (fishId === "golden_fish") { bonus = GOLDEN_FISH_BONUSES[Math.floor(Math.random() * GOLDEN_FISH_BONUSES.length)]; onApplyGoldenBonus?.(bonus.id); }
-      else { onCatchFish?.(fishId, selectedBait); }
-      setCatchResult({ caught: true, fishId, bonus });
-      setLastCatches((p) => [{ fishId, emoji: fish.emoji, id: Date.now() + Math.random() }, ...p].slice(0, 6));
+      const gearTier = needleQuality > 0.85 ? "expert" : needleQuality > 0.5 ? "good" : "basic";
+      const fishId = rollFishForBody(activeBody, gearTier, selectedBait);
+      const fish = FISHING_FISH[fishId];
+      onCatchFish?.(fishId, selectedBait);
+      setCatchResult({ caught: true, fishId });
+      setLastCatches((p) => [
+        { fishId, emoji: fish?.emoji ?? "🐟", id: Date.now() + Math.random() },
+        ...p,
+      ].slice(0, 6));
       setPhase("result"); phaseRef.current = "result";
     } else {
       reelProgressRef.current = next;
       setReelProgress(next);
     }
   }
- 
+
   function handleDismiss() {
     setCatchResult(null); setPhase("idle"); phaseRef.current = "idle";
     needlePosRef.current = 0.1; setNeedlePos(0.1); setNeedleDir(1);
     reelProgressRef.current = 0; setReelProgress(0); setNeedleQuality(0);
   }
- 
-  // ── Buy pond screen ──────────────────────────────────────────────────────
+
+  // ── Buy pond screen ────────────────────────────────────────────────────────
   if (!pondOwned) {
     const canAfford = (game.cash ?? 0) >= POND_COST;
     return (
-      <div style={{ background: "linear-gradient(135deg, #071929, #0c3356)", borderRadius: "16px", padding: "2.5rem 1.5rem", textAlign: "center", border: "1px solid rgba(255,255,255,0.1)" }}>
+      <div style={{
+        background: "linear-gradient(135deg, #071929, #0c3356)",
+        borderRadius: "16px", padding: "2.5rem 1.5rem",
+        textAlign: "center", border: "1px solid rgba(255,255,255,0.1)",
+      }}>
         <div style={{ fontSize: "3.5rem", marginBottom: "0.75rem" }}>🎣</div>
-        <h3 style={{ fontSize: "1.05rem", fontWeight: 800, color: "#fff", marginBottom: "0.4rem", letterSpacing: "0.04em" }}>Build a Pond</h3>
+        <h3 style={{ fontSize: "1.05rem", fontWeight: 800, color: "#fff", marginBottom: "0.4rem", letterSpacing: "0.04em" }}>
+          Build a Pond
+        </h3>
         <p style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.5)", lineHeight: 1.7, maxWidth: "250px", margin: "0 auto 1.5rem" }}>
-          Fish manually for rare catches, or set a trap for passive income. Rare fish only appear when you're actively playing.
+          Fish manually for rare catches. Hire a worker for passive income. Unlock lake, river and ocean for better fish.
         </p>
-        <button onClick={onBuyPond} disabled={!canAfford} style={{ background: canAfford ? "rgba(99,102,241,0.5)" : "rgba(255,255,255,0.06)", border: `1px solid ${canAfford ? "rgba(99,102,241,0.8)" : "rgba(255,255,255,0.12)"}`, borderRadius: "12px", padding: "0.7rem 1.75rem", fontSize: "0.82rem", fontWeight: 700, color: canAfford ? "#fff" : "rgba(255,255,255,0.25)", cursor: canAfford ? "pointer" : "default", letterSpacing: "0.04em" }}>
-          {canAfford ? `🎣 Build Pond — $${POND_COST}` : `Need $500 (have $${Math.floor(game.cash ?? 0)})`}
+        <button
+          onClick={onBuyPond}
+          disabled={!canAfford}
+          style={{
+            background: canAfford ? "rgba(99,102,241,0.5)" : "rgba(255,255,255,0.06)",
+            border: `1px solid ${canAfford ? "rgba(99,102,241,0.8)" : "rgba(255,255,255,0.12)"}`,
+            borderRadius: "12px", padding: "0.7rem 1.75rem",
+            fontSize: "0.82rem", fontWeight: 700,
+            color: canAfford ? "#fff" : "rgba(255,255,255,0.25)",
+            cursor: canAfford ? "pointer" : "default", letterSpacing: "0.04em",
+          }}
+        >
+          {canAfford ? `🎣 Build Pond — $${POND_COST}` : `Need $${POND_COST} (have $${Math.floor(game.cash ?? 0)})`}
         </button>
       </div>
     );
   }
- 
-  // ── Main pond UI — forced dark theme throughout ──────────────────────────
+
+  const fishInventory = fishing.fish ?? {};
+  const hasFish = Object.values(fishInventory).some((v) => v > 0);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", colorScheme: "dark", color: "#fff" }}>
       <style>{POND_STYLES}</style>
- 
-      {/* Main pond card */}
-      <div style={{ background: "linear-gradient(180deg, #071929 0%, #0d3050 100%)", borderRadius: "16px", border: "1px solid rgba(255,255,255,0.1)", overflow: "hidden" }}>
- 
-        {/* Bait + recent catches row */}
-        <div style={{ padding: "0.75rem 0.85rem 0", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.4rem" }}>
+
+      {/* Body selector tabs */}
+<div style={{
+  display: "flex", gap: "0.35rem",
+  background: "#0a1628",
+  padding: "0.5rem",
+  borderRadius: "12px",
+  border: "1px solid rgba(255,255,255,0.1)",
+}}>
+  {FISHING_BODY_ORDER.map((bodyId) => {
+    const def = FISHING_BODIES[bodyId];
+    const unlocked = fishing.bodies?.[bodyId]?.unlocked ?? false;
+    const active = activeBody === bodyId;
+    const workerHired = fishing.bodies?.[bodyId]?.worker?.hired === true;
+    return (
+      <button
+        key={bodyId}
+        onClick={() => unlocked && onSetFishingActiveBody(bodyId)}
+        disabled={!unlocked}
+        style={{
+          flex: 1, padding: "0.5rem 0.2rem", borderRadius: "8px",
+          cursor: unlocked ? "pointer" : "default", textAlign: "center",
+          background: active ? "rgba(99,102,241,0.5)" : "rgba(255,255,255,0.05)",
+          border: `1px solid ${active ? "rgba(99,102,241,0.8)" : "rgba(255,255,255,0.08)"}`,
+          opacity: unlocked ? 1 : 0.35,
+          transition: "all 0.15s ease",
+          color: "#fff",
+        }}
+      >
+        <div style={{ fontSize: "1.1rem", lineHeight: 1, marginBottom: "0.15rem" }}>
+          {def.emoji}
+        </div>
+        <div style={{
+          fontSize: "0.65rem",
+          fontWeight: active ? 700 : 400,
+          color: active ? "#fff" : unlocked ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.25)",
+          marginBottom: "0.1rem",
+        }}>
+          {def.name}
+        </div>
+        <div style={{
+          fontSize: "0.55rem",
+          color: !unlocked
+            ? "rgba(255,255,255,0.2)"
+            : workerHired
+              ? "#4ade80"
+              : "rgba(255,255,255,0.35)",
+        }}>
+          {!unlocked ? "🔒 locked" : workerHired ? "✓ fishing" : "no fisher"}
+        </div>
+      </button>
+    );
+  })}
+</div>
+
+      {/* Main fishing card */}
+      <div style={{
+        background: "linear-gradient(180deg, #071929 0%, #0d3050 100%)",
+        borderRadius: "16px", border: "1px solid rgba(255,255,255,0.1)", overflow: "hidden",
+      }}>
+        {/* Bait + recent catches */}
+        <div style={{
+          padding: "0.75rem 0.85rem 0",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          flexWrap: "wrap", gap: "0.4rem",
+        }}>
           <RecentCatches catches={lastCatches} />
           <BaitRow game={game} selectedBait={selectedBait} onSelect={setSelectedBait} />
         </div>
- 
-        {/* Water scene — game mechanics live inside here */}
+
+        {/* Active body label */}
+        <div style={{ padding: "0.4rem 0.85rem 0", fontSize: "0.62rem", color: "rgba(255,255,255,0.35)" }}>
+          Fishing in: <strong style={{ color: "rgba(255,255,255,0.7)" }}>{activeBodyDef.emoji} {activeBodyDef.name}</strong>
+          <span style={{ marginLeft: "0.5rem", color: "rgba(255,255,255,0.25)" }}>· needle quality = gear tier</span>
+        </div>
+
+        {/* Water scene */}
         <div style={{
           position: "relative", minHeight: "190px",
           background: "linear-gradient(180deg, #071a2e 0%, #0c3356 55%, #1a5c8a 100%)",
-          margin: "0.5rem 0.85rem 0.85rem",
-          borderRadius: "12px", overflow: "hidden",
+          margin: "0.5rem 0.85rem 0.85rem", borderRadius: "12px", overflow: "hidden",
           display: "flex", flexDirection: "column",
           alignItems: "center", justifyContent: "center",
           gap: "0.75rem", padding: "1rem",
         }}>
-          {/* Water shimmer */}
           <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "50px", background: "linear-gradient(to top, rgba(10,30,60,0.8), transparent)", pointerEvents: "none" }} />
-          {/* Lily pads */}
           <div style={{ position: "absolute", bottom: "12px", left: "8%", fontSize: "1.1rem", opacity: 0.45, pointerEvents: "none" }}>🌿</div>
           <div style={{ position: "absolute", bottom: "16px", right: "12%", fontSize: "0.85rem", opacity: 0.3, pointerEvents: "none" }}>🌿</div>
- 
-          {/* Idle */}
+
           {phase === "idle" && (
             <>
               <div style={{ fontSize: "2.5rem", lineHeight: 1 }}>🎣</div>
-              <button onClick={handleCast} style={{ padding: "0.65rem 2rem", background: "rgba(99,102,241,0.35)", border: "2px solid rgba(99,102,241,0.7)", borderRadius: "12px", fontSize: "0.88rem", fontWeight: 800, color: "#fff", cursor: "pointer", letterSpacing: "0.08em", boxShadow: "0 0 20px rgba(99,102,241,0.25)" }}>
+              <button
+                onClick={handleCast}
+                style={{
+                  padding: "0.65rem 2rem",
+                  background: "rgba(99,102,241,0.35)", border: "2px solid rgba(99,102,241,0.7)",
+                  borderRadius: "12px", fontSize: "0.88rem", fontWeight: 800, color: "#fff",
+                  cursor: "pointer", letterSpacing: "0.08em", boxShadow: "0 0 20px rgba(99,102,241,0.25)",
+                }}
+              >
                 Cast Line
               </button>
               <div style={{ fontSize: "0.62rem", color: "rgba(255,255,255,0.3)", letterSpacing: "0.06em" }}>
-                rare fish only appear while playing
+                center the needle for expert-tier catch rates
               </div>
             </>
           )}
- 
-          {/* Waiting */}
+
           {phase === "waiting" && (
             <>
               <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "0.5rem" }}>
                 <div style={{ fontSize: "2.2rem", animation: "bobber-idle 2s ease-in-out infinite" }}>🪝</div>
                 {[0, 0.6, 1.2].map((d, i) => (
-                  <div key={i} style={{ position: "absolute", top: "50%", left: "50%", width: "50px", height: "18px", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "50%", transform: "translate(-50%, 60%)", animation: `ripple 2.4s ease-out ${d}s infinite`, pointerEvents: "none" }} />
+                  <div key={i} style={{
+                    position: "absolute", top: "50%", left: "50%",
+                    width: "50px", height: "18px",
+                    border: "1px solid rgba(255,255,255,0.12)", borderRadius: "50%",
+                    transform: "translate(-50%, 60%)",
+                    animation: `ripple 2.4s ease-out ${d}s infinite`,
+                    pointerEvents: "none",
+                  }} />
                 ))}
               </div>
-              <div style={{ fontSize: "0.75rem", color: "rgba(255,255,255,0.5)", letterSpacing: "0.08em", fontWeight: 600 }}>Waiting for a bite...</div>
+              <div style={{ fontSize: "0.75rem", color: "rgba(255,255,255,0.5)", letterSpacing: "0.08em", fontWeight: 600 }}>
+                Waiting for a bite...
+              </div>
             </>
           )}
- 
-          {/* Needle */}
+
           {phase === "needle" && (
             <>
               <div style={{ fontSize: "0.8rem", fontWeight: 800, color: "#fbbf24", letterSpacing: "0.08em", animation: "bobber-bite 0.5s ease-in-out infinite" }}>
                 🐟 FISH ON THE LINE!
               </div>
               <div style={{ width: "100%", position: "relative", zIndex: 1 }}>
-                <NeedleBar position={needlePos} sweetSpotStart={sweetSpotStart} sweetSpotWidth={effectiveSweetSpotWidth} onTap={handleNeedleTap} />
+                <NeedleBar
+                  position={needlePos}
+                  sweetSpotStart={sweetSpotStart}
+                  sweetSpotWidth={effectiveSweetSpotWidth}
+                  onTap={handleNeedleTap}
+                />
               </div>
             </>
           )}
- 
-          {/* Reel */}
+
           {phase === "reel" && (
             <>
               <div style={{ fontSize: "0.8rem", fontWeight: 800, color: "#4ade80", letterSpacing: "0.08em" }}>
@@ -432,52 +917,89 @@ export default function PondZone({ game, onBuyPond, onUpgradeRod, onBuyTrap, onC
             </>
           )}
         </div>
- 
-        {/* Catch result — always BELOW the water scene */}
+
+        {/* Catch result */}
         {phase === "result" && catchResult && (
           <div style={{ padding: "0 0.85rem 0.85rem" }}>
             <CatchResultCard result={catchResult} onDismiss={handleDismiss} />
           </div>
         )}
       </div>
- 
-      {/* Fish inventory — only shown when there are fish */}
-      {Object.values(pond.fish ?? {}).some((v) => v > 0) && (
-        <div style={{ background: "rgba(0,0,0,0.7)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "12px", padding: "0.7rem 0.85rem" }}>
-          <div style={{ fontSize: "0.58rem", color: "rgba(255,255,255,0.35)", letterSpacing: "0.08em", marginBottom: "0.45rem" }}>FISH INVENTORY</div>
-          <FishInventory pond={pond} />
+
+      {/* Fish inventory */}
+      {hasFish && (
+        <div style={{
+          background: "rgba(0,0,0,0.7)", border: "1px solid rgba(255,255,255,0.12)",
+          borderRadius: "12px", padding: "0.7rem 0.85rem",
+        }}>
+          <div style={{ fontSize: "0.58rem", color: "rgba(255,255,255,0.35)", letterSpacing: "0.08em", marginBottom: "0.45rem" }}>
+            FISH INVENTORY
+          </div>
+          <FishInventory fish={fishInventory} />
         </div>
       )}
- 
-      {/* Fish rarity reference — always visible */}
-      <div style={{ background: "rgba(0,0,0,0.75)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "12px", padding: "0.65rem 0.85rem" }}>
-        <div style={{ fontSize: "0.58rem", color: "rgba(255,255,255,0.35)", letterSpacing: "0.08em", marginBottom: "0.5rem" }}>FISH & REWARDS</div>
+
+      {/* Catch rate reference */}
+      <div style={{
+        background: "rgba(0,0,0,0.75)", border: "1px solid rgba(255,255,255,0.1)",
+        borderRadius: "12px", padding: "0.65rem 0.85rem",
+      }}>
+        <div style={{ fontSize: "0.58rem", color: "rgba(255,255,255,0.35)", letterSpacing: "0.08em", marginBottom: "0.5rem" }}>
+          CATCH RATES — {activeBodyDef.emoji} {activeBodyDef.name.toUpperCase()}
+        </div>
         <div style={{ display: "flex", gap: "0.4rem" }}>
           {[
-            { emoji: "🐟", label: "Minnow", value: "$2",    sub: "Common",     color: "rgba(255,255,255,0.08)", border: "rgba(255,255,255,0.12)", textColor: "#fff" },
-            { emoji: "🎣", label: "Bass",   value: "$8",    sub: "Uncommon",   color: "rgba(99,102,241,0.1)",  border: "rgba(99,102,241,0.2)",  textColor: "#a5b4fc" },
-            { emoji: "🐠", label: "Perch",  value: "$12",   sub: "Uncommon",   color: "rgba(99,102,241,0.1)",  border: "rgba(99,102,241,0.2)",  textColor: "#a5b4fc" },
-            { emoji: "🦈", label: "Pike",   value: "$35",   sub: "Rare ✦",     color: "rgba(245,158,11,0.12)", border: "rgba(245,158,11,0.25)", textColor: "#fcd34d" },
-            { emoji: "✨", label: "Golden", value: "Bonus", sub: "Legend ✦✦",  color: "rgba(251,191,36,0.12)", border: "rgba(251,191,36,0.3)",  textColor: "#fbbf24" },
-          ].map(({ emoji, label, value, sub, color, border, textColor }) => (
-            <div key={label} style={{ flex: 1, textAlign: "center", background: color, border: `1px solid ${border}`, borderRadius: "10px", padding: "0.5rem 0.2rem" }}>
-              <div style={{ fontSize: "1.2rem", lineHeight: 1, marginBottom: "0.25rem" }}>{emoji}</div>
-              <div style={{ fontSize: "0.65rem", fontWeight: 800, color: textColor }}>{value}</div>
-              <div style={{ fontSize: "0.52rem", color: "rgba(255,255,255,0.3)", marginTop: "0.1rem", lineHeight: 1.3 }}>{sub}</div>
-            </div>
-          ))}
+  { id: "minnow", color: "rgba(255,255,255,0.08)", border: "rgba(255,255,255,0.12)", textColor: "#fff" },
+  { id: "bass",   color: "rgba(99,102,241,0.1)",  border: "rgba(99,102,241,0.2)",  textColor: "#a5b4fc" },
+  { id: "perch",  color: "rgba(99,102,241,0.1)",  border: "rgba(99,102,241,0.2)",  textColor: "#a5b4fc" },
+  { id: "rare",   color: "rgba(251,191,36,0.12)", border: "rgba(251,191,36,0.3)",  textColor: "#fbbf24" },
+].map(({ id, color, border, textColor }, i) => {
+  const fish = FISHING_FISH[id]; // ← pulls emoji/name/value from constants
+  const rates = FISHING_CATCH_RATES[activeBody];
+  const pcts = rates ? [rates.basic[i], rates.good[i], rates.expert[i]] : [0, 0, 0];
+  return (
+    <div key={id} style={{
+      flex: 1, textAlign: "center", background: color,
+      border: `1px solid ${border}`, borderRadius: "10px", padding: "0.5rem 0.2rem",
+    }}>
+      <div style={{ fontSize: "1.2rem", lineHeight: 1, marginBottom: "0.2rem" }}>{fish.emoji}</div>
+      <div style={{ fontSize: "0.65rem", fontWeight: 800, color: textColor }}>${fish.rawValue}</div>
+      <div style={{ fontSize: "0.52rem", color: "rgba(255,255,255,0.4)", marginTop: "0.15rem", lineHeight: 1.6 }}>
+        <div>B: {pcts[0]}%</div>
+        <div>G: {pcts[1]}%</div>
+        <div>E: {pcts[2]}%</div>
+      </div>
+    </div>
+  );
+})}
+        </div>
+        <div style={{ fontSize: "0.55rem", color: "rgba(255,255,255,0.25)", marginTop: "0.35rem" }}>
+          B=Basic · G=Good · E=Expert (rod upgrades) · needle center = expert tier when fishing manually
         </div>
       </div>
- 
+
+      {/* Fishing workers panel */}
+      <FishingBodiesPanel
+        game={game}
+        onUnlockBody={onUnlockFishingBody}
+        onHireWorker={onHireFishingWorker}
+        onUpgradeWorker={onUpgradeFishingWorker}
+        onSetWorkerBait={onSetFishingWorkerBait}
+        onFireWorker={onFireFishingWorker}
+      />
+
       {/* Tips */}
-      <div style={{ background: "rgba(0,0,0,0.75)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "10px", padding: "0.65rem 0.85rem", fontSize: "0.68rem", color: "rgba(255,255,255,0.5)", lineHeight: 1.8 }}>
-        <div>🎯 <strong style={{ color: "rgba(255,255,255,0.8)" }}>Needle:</strong> Stop in the green zone — center = better rare odds</div>
-        <div>🎣 <strong style={{ color: "rgba(255,255,255,0.8)" }}>Reel:</strong> Tap fast — the bar drains while you hesitate</div>
-        <div>✨ <strong style={{ color: "#fbbf24" }}>Rare & legendary fish only appear when you play manually</strong></div>
+      <div style={{
+        background: "rgba(0,0,0,0.75)", border: "1px solid rgba(255,255,255,0.1)",
+        borderRadius: "10px", padding: "0.65rem 0.85rem",
+        fontSize: "0.68rem", color: "rgba(255,255,255,0.5)", lineHeight: 1.8,
+      }}>
+        <div>🎯 <strong style={{ color: "rgba(255,255,255,0.8)" }}>Needle:</strong> Hit the center for expert gear tier — best rare odds</div>
+        <div>🎣 <strong style={{ color: "rgba(255,255,255,0.8)" }}>Reel:</strong> Tap fast before the timer runs out</div>
+        <div>🌊 <strong style={{ color: "#a5b4fc" }}>Deeper water</strong> = better base catch rates for your worker</div>
+        <div>🪱 <strong style={{ color: "#86efac" }}>Bait</strong> boosts rare chance and haul — assign to workers too</div>
+        <div>✨ <strong style={{ color: "#fbbf24" }}>Rare fish</strong> appear at expert gear tier or in deeper water</div>
       </div>
- 
-      {/* Upgrades — collapsed by default */}
-      <UpgradesPanel pond={pond} game={game} onUpgradeRod={onUpgradeRod} onBuyTrap={onBuyTrap} />
     </div>
   );
 }

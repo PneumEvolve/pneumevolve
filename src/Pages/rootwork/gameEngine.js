@@ -30,9 +30,7 @@ import {
   TOWN_HALL_MAX_LEVEL, TOWN_HALL_LEVEL_COSTS,
   TREASURY_TIERS, BUILDING_WORKERS_DIVISOR, BUILDING_PULSE_EXTRA_SECONDS,
   BUILDING_UPGRADE_COST, BANK_BUILD_COST, BANK_LEVEL_COSTS,
-  BANK_TIERS, BANK_MAX_LEVEL, GEAR_CROP_COSTS, POND_COST, FISH_TYPES, ROD_TIERS, ROD_ORDER, FISH_TRAP_COST,
-  FISH_TRAP_CATCH_INTERVAL, FISH_TRAP_FISH, FISH_CATCH_RATES,
-  GOLDEN_FISH_BONUSES, NEEDLE_SWEEP_SPEED, REEL_DURATION,
+  BANK_TIERS, BANK_MAX_LEVEL, GEAR_CROP_COSTS, POND_COST, NEEDLE_SWEEP_SPEED, REEL_DURATION,
   REEL_DRAIN_RATE, REEL_TAP_AMOUNT, BAIT_TYPES,
   ANIMAL_TYPES, MAX_ANIMALS_PER_TYPE,
   ANIMAL_INTERACT_MOOD_BOOST, ANIMAL_INTERACT_COOLDOWN,
@@ -42,6 +40,9 @@ BARN_WORKER_UPGRADES, ANIMAL_STORAGE_UPGRADES,
 BARN_WORKER_BASE_INTERVAL, BARN_WORKER_BASE_CAPACITY,
 ANIMAL_BASE_STOCK_MAX, ANIMAL_OVERFULL_MOOD_DRAIN, ANIMAL_FOOD_COSTS, PET_FOOD_COST, BREAD_FOOD_UNITS,
 PERSON_IDLE_FOOD_COST, PERSON_WORKING_FOOD_COST,
+FISHING_BODIES, FISHING_BODY_ORDER, FISHING_FISH,
+FISHING_CATCH_RATES, FISHING_BAIT_BONUS,
+FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL,
 } from "./gameConstants";
  
 let _idCounter = 0;
@@ -52,10 +53,14 @@ function genId(prefix = "id") {
 // ─── Population helpers ───────────────────────────────────────────────────────
  
 export function getTotalWorkersHired(state) {
+  const fishingWorkers = Object.values(state.fishing?.bodies ?? {})
+    .filter((b) => b?.unlocked && b?.worker?.hired === true).length;
   return (
     (state.workers ?? []).length +
     (state.kitchenWorkers ?? []).length +
-    (state.marketWorkers ?? []).length
+    (state.marketWorkers ?? []).length +
+    (state.barnWorkers ?? []).length +
+    fishingWorkers
   );
 }
  
@@ -513,7 +518,7 @@ export function cancelMarketWorkerQueue(state, workerId) {
       if (order.itemType in (next.crops ?? {})) next.crops[order.itemType] = (next.crops[order.itemType] ?? 0) + order.quantity;
       else if (order.itemType in (next.artisan ?? {})) next.artisan[order.itemType] = (next.artisan[order.itemType] ?? 0) + order.quantity;
       else if (order.itemType in (next.animalGoods ?? {})) next.animalGoods[order.itemType] = (next.animalGoods[order.itemType] ?? 0) + order.quantity;
-      else if (next.pond?.fish && order.itemType in next.pond.fish) next.pond.fish[order.itemType] = (next.pond.fish[order.itemType] ?? 0) + order.quantity;
+      else if (next.fishing?.fish && order.itemType in next.fishing.fish) next.fishing.fish[order.itemType] = (next.fishing.fish[order.itemType] ?? 0) + order.quantity;
     }
   worker.queue = [];
   return next;
@@ -617,7 +622,7 @@ export function cancelKitchenWorkerRecipe(state, workerId) {
       const refund = Math.floor(recipe.inputAmount * batch * 0.5);
       if (recipe.inputCrop in (next.crops ?? {})) next.crops[recipe.inputCrop] += refund;
       else if (recipe.inputCrop in (next.animalGoods ?? {})) next.animalGoods[recipe.inputCrop] += refund;
-      else if (next.pond?.fish && recipe.inputCrop in next.pond.fish) next.pond.fish[recipe.inputCrop] += refund;
+      else if (next.fishing?.fish && recipe.inputCrop in next.fishing.fish) next.fishing.fish[recipe.inputCrop] += refund;
     }
   }
   worker.busy = false;
@@ -627,7 +632,8 @@ export function cancelKitchenWorkerRecipe(state, workerId) {
   worker.batchSize = 1;
   return next;
 }
- 
+
+
 // ─── Factories ────────────────────────────────────────────────────────────────
  
 export function makePlot(id, halfGrown = false, growTime = 15) {
@@ -753,12 +759,23 @@ export function createInitialState() {
       marketCash: null,
     },
     // Animals & pond
-    pond: null,
+    pond: null, // keep for migration compatibility
+    fishing: {
+      activeBody: "pond",
+      bodies: {
+        pond:  { unlocked: false, worker: null },
+        lake:  { unlocked: false, worker: null },
+        river: { unlocked: false, worker: null },
+        ocean: { unlocked: false, worker: null },
+      },
+      fish: { minnow: 0, bass: 0, perch: 0, rare: 0 },
+    },
     animals: { chicken: [], cow: [], sheep: [] },
     pets: {},
     animalGoods: { egg: 0, milk: 0, wool: 0 },
     bait: { wheat_bait: 0, berry_bait: 0, tomato_bait: 0 },
     fishMealStacks: [],
+    barnWorkers: [],
   };
 }
  
@@ -871,6 +888,52 @@ export function getAnimalStorageUpgradeCost(animal) {
   const level = animal.storageLevel ?? 0;
   const next = ANIMAL_STORAGE_UPGRADES[level];
   return next ?? null;
+}
+
+// ─── Fishing helpers ──────────────────────────────────────────────────────────
+
+export function getFishingWorkerInterval(worker) {
+  const upgrades = worker.upgrades ?? [];
+  if (upgrades.includes("speed_2")) return 20;
+  if (upgrades.includes("speed_1")) return 40;
+  return FISHING_WORKER_BASE_INTERVAL;
+}
+
+export function getFishingWorkerHaul(worker) {
+  const upgrades = worker.upgrades ?? [];
+  if (upgrades.includes("haul_2")) return 5;
+  if (upgrades.includes("haul_1")) return 2;
+  return 1;
+}
+
+export function getFishingWorkerGearTier(worker) {
+  const upgrades = worker.upgrades ?? [];
+  if (upgrades.includes("gear_expert")) return "expert";
+  if (upgrades.includes("gear_good")) return "good";
+  return "basic";
+}
+
+export function rollFishForBody(bodyId, gearTier, baitId = null) {
+  const rates = [...(FISHING_CATCH_RATES[bodyId]?.[gearTier] ?? [80,20,0,0])];
+  // Apply bait rare bonus — steal from minnow first, then bass
+  if (baitId && FISHING_BAIT_BONUS[baitId]) {
+    const bonus = FISHING_BAIT_BONUS[baitId].rarePct;
+    let remaining = bonus;
+    const steal = Math.min(remaining, rates[0]);
+    rates[0] -= steal; rates[3] += steal; remaining -= steal;
+    if (remaining > 0) {
+      const steal2 = Math.min(remaining, rates[1]);
+      rates[1] -= steal2; rates[3] += steal2;
+    }
+  }
+  const roll = Math.random() * 100;
+  let cumulative = 0;
+  const fish = ["minnow", "bass", "perch", "rare"];
+  for (let i = 0; i < fish.length; i++) {
+    cumulative += rates[i];
+    if (roll < cumulative) return fish[i];
+  }
+  return "minnow";
 }
 
 export function getEffectiveGrowTime(farm, workers, cropId, plot = null, feastBonusPercent = 0, townGrowthBonusPercent = 0, treasuryGrowBonus = 0, fishMealBonus = 0) {
@@ -1045,7 +1108,7 @@ export function tick(state) {
       worker.busy = false;
       worker.batchSize = 1;
       if ((worker.upgrades ?? []).includes("auto_restart") && (worker.autoRestartEnabled ?? true)) {
-        _startKitchenWorkerRecipe(worker, worker.recipeId, next.crops, next.animalGoods, next.pond?.fish, next.bait);
+        _startKitchenWorkerRecipe(worker, worker.recipeId, next.crops, next.animalGoods, next.fishing?.fish, next.bait);
       }
     }
   }
@@ -1053,18 +1116,25 @@ export function tick(state) {
   // ── Market workers ─────────────────────────────────────────────────────────
   for (const worker of next.marketWorkers ?? []) {
     if (worker.hasStandingOrder && worker.standingOrder && (worker.queue ?? []).length === 0) {
-      const itemType = worker.standingOrder;
-      const ips = getMarketWorkerItemsPerSecond(worker);
-      const isCrop = itemType in (next.crops ?? {});
-      const isArtisan = itemType in (next.artisan ?? {});
-      const available = isCrop ? (next.crops[itemType] ?? 0) : isArtisan ? (next.artisan[itemType] ?? 0) : 0;
-      const toPull = Math.min(ips, available);
-      if (toPull > 0) {
-        if (isCrop) next.crops[itemType] -= toPull;
-        else if (isArtisan) next.artisan[itemType] -= toPull;
-        worker.queue = [{ id: genId("sale"), itemType, quantity: toPull }];
-      }
-    }
+  const itemType = worker.standingOrder;
+  const ips = getMarketWorkerItemsPerSecond(worker);
+  const isCrop = itemType in (next.crops ?? {});
+  const isArtisan = itemType in (next.artisan ?? {});
+  const isAnimal = itemType in (next.animalGoods ?? {});
+  const isFish = next.fishing?.fish && itemType in next.fishing.fish;
+  const available = isCrop ? (next.crops[itemType] ?? 0)
+    : isArtisan ? (next.artisan[itemType] ?? 0)
+    : isAnimal ? (next.animalGoods[itemType] ?? 0)
+    : isFish ? (next.fishing.fish[itemType] ?? 0) : 0;
+  const toPull = Math.min(ips, available);
+  if (toPull > 0) {
+    if (isCrop) next.crops[itemType] -= toPull;
+    else if (isArtisan) next.artisan[itemType] -= toPull;
+    else if (isAnimal) next.animalGoods[itemType] -= toPull;
+    else if (isFish) next.fishing.fish[itemType] -= toPull;
+    worker.queue = [{ id: genId("sale"), itemType, quantity: toPull }];
+  }
+}
  
     const itemsPerSecond = getMarketWorkerItemsPerSecond(worker);
     // Accumulate fractional progress — low satisfaction slows selling but never freezes it
@@ -1089,14 +1159,32 @@ export function tick(state) {
     }
   }
  
-  // ── Fish trap ────────────────────────────────────────────────────────────
-  if (next.pond?.owned && next.pond?.trapOwned) {
-    next.pond.trapTimer = (next.pond.trapTimer ?? 0) + 1;
-    if (next.pond.trapTimer >= FISH_TRAP_CATCH_INTERVAL) {
-      next.pond.trapTimer = 0;
-      const trapFish = FISH_TRAP_FISH[Math.floor(Math.random() * FISH_TRAP_FISH.length)];
-      if (!next.pond.fish) next.pond.fish = {};
-      next.pond.fish[trapFish] = (next.pond.fish[trapFish] ?? 0) + 1;
+  // ── Fishing workers ───────────────────────────────────────────────────────
+  if (next.fishing) {
+    for (const bodyId of FISHING_BODY_ORDER) {
+      const body = next.fishing.bodies?.[bodyId];
+      if (!body?.unlocked || !body.worker?.hired) continue;
+      const worker = body.worker;
+      const interval = getFishingWorkerInterval(worker);
+      const haul = getFishingWorkerHaul(worker);
+      const gearTier = getFishingWorkerGearTier(worker);
+      const baitId = worker.assignedBait;
+      const hasBait = baitId && (next.bait?.[baitId] ?? 0) > 0;
+      const effectiveBait = hasBait ? baitId : null;
+
+      worker.timer = (worker.timer ?? 0) + 1;
+      if (worker.timer >= interval) {
+        worker.timer = 0;
+        const baitBonus = effectiveBait ? FISHING_BAIT_BONUS[effectiveBait].haulBonus : 0;
+        const totalHaul = haul + baitBonus;
+        if (!next.fishing.fish) next.fishing.fish = {};
+        for (let i = 0; i < totalHaul; i++) {
+          const fishId = rollFishForBody(bodyId, gearTier, effectiveBait);
+          next.fishing.fish[fishId] = (next.fishing.fish[fishId] ?? 0) + 1;
+        }
+        // Consume bait
+        if (hasBait) next.bait[baitId] -= 1;
+      }
     }
   }
  
@@ -1582,7 +1670,7 @@ export function assignItemToMarketWorker(state, workerId, itemType, quantity) {
   const isCrop = itemType in (next.crops ?? {});
   const isArtisan = itemType in (next.artisan ?? {});
   const isAnimal = itemType in (next.animalGoods ?? {});
-  const isFish = next.pond?.fish && itemType in next.pond.fish;
+  const isFish = next.fishing?.fish && itemType in next.fishing.fish;
   if (isCrop) {
     if ((next.crops[itemType] ?? 0) < quantity) return state;
     next.crops[itemType] -= quantity;
@@ -1593,9 +1681,9 @@ export function assignItemToMarketWorker(state, workerId, itemType, quantity) {
     if ((next.animalGoods[itemType] ?? 0) < quantity) return state;
     next.animalGoods[itemType] -= quantity;
   } else if (isFish) {
-    if ((next.pond.fish[itemType] ?? 0) < quantity) return state;
-    next.pond.fish[itemType] -= quantity;
-  } else return state;
+  if ((next.fishing.fish[itemType] ?? 0) < quantity) return state;
+  next.fishing.fish[itemType] -= quantity;
+} else return state;
   const queue = worker.queue ?? [];
   const last = queue[queue.length - 1];
   if (last && last.itemType === itemType) last.quantity += quantity;
@@ -1611,7 +1699,7 @@ export function fireMarketWorker(state, workerId) {
       if (order.itemType in (next.crops ?? {})) next.crops[order.itemType] = (next.crops[order.itemType] ?? 0) + order.quantity;
       else if (order.itemType in (next.artisan ?? {})) next.artisan[order.itemType] = (next.artisan[order.itemType] ?? 0) + order.quantity;
       else if (order.itemType in (next.animalGoods ?? {})) next.animalGoods[order.itemType] = (next.animalGoods[order.itemType] ?? 0) + order.quantity;
-      else if (next.pond?.fish && order.itemType in next.pond.fish) next.pond.fish[order.itemType] = (next.pond.fish[order.itemType] ?? 0) + order.quantity;
+      else if (next.fishing?.fish && order.itemType in next.fishing.fish) next.fishing.fish[order.itemType] = (next.fishing.fish[order.itemType] ?? 0) + order.quantity;
     }
   next.marketWorkers = next.marketWorkers.filter((w) => w.id !== workerId);
   return next;
@@ -1641,7 +1729,7 @@ export function assignKitchenWorkerRecipe(state, workerId, recipeId) {
     worker.elapsedSeconds = 0;
     worker.batchSize = 1;
   }
-  if (!_startKitchenWorkerRecipe(worker, recipeId, next.crops, next.animalGoods, next.pond?.fish)) return state;
+  if (!_startKitchenWorkerRecipe(worker, recipeId, next.crops, next.animalGoods, next.fishing?.fish)) return state;
   return next;
 }
  
@@ -1762,6 +1850,90 @@ export function buyFeast(state) {
   next.artisan.sauce -= perGood;
   next.feastBonusPercent = Math.min(FEAST_MAX_BONUS, (next.feastBonusPercent ?? 0) + tier.bonusPercent);
   next.feastTierIndex = (next.feastTierIndex ?? 0) + 1;
+  return next;
+}
+
+export function unlockFishingBody(state, bodyId) {
+  const next = deepCloneState(state);
+  const body = FISHING_BODIES[bodyId];
+  if (!body) return state;
+  if (next.fishing?.bodies?.[bodyId]?.unlocked) return state;
+  const order = FISHING_BODY_ORDER;
+  const idx = order.indexOf(bodyId);
+  if (idx > 0) {
+    const prev = order[idx - 1];
+    if (!next.fishing?.bodies?.[prev]?.unlocked) return state;
+  }
+  if (body.unlockCost > 0 && (next.cash ?? 0) < body.unlockCost) return state;
+  if (body.unlockCost > 0) next.cash -= body.unlockCost;
+  if (!next.fishing) next.fishing = { activeBody: "pond", bodies: {}, fish: {} };
+  if (!next.fishing.bodies[bodyId]) next.fishing.bodies[bodyId] = {};
+  next.fishing.bodies[bodyId].unlocked = true;
+  next.fishing.bodies[bodyId].worker = null; // no worker until hired
+  return next;
+}
+
+export function hireFishingWorker(state, bodyId) {
+  const next = deepCloneState(state);
+  const body = next.fishing?.bodies?.[bodyId];
+  if (!body?.unlocked) return state;
+  if (body.worker?.hired) return state; // already has one
+  if (isAtWorkerCap(next)) return state;
+  const cost = 75; // flat cost, adjust as you like
+  if ((next.cash ?? 0) < cost) return state;
+  next.cash -= cost;
+  next.fishing.bodies[bodyId].worker = {
+    hired: true,
+    upgrades: [],
+    timer: 0,
+    assignedBait: null,
+  };
+  return next;
+}
+
+export function fireFishingWorker(state, bodyId) {
+  const next = deepCloneState(state);
+  const body = next.fishing?.bodies?.[bodyId];
+  if (!body?.worker?.hired) return state;
+  body.worker = null;
+  return next;
+}
+
+export function setFishingActiveBody(state, bodyId) {
+  const next = deepCloneState(state);
+  if (!next.fishing?.bodies?.[bodyId]?.unlocked) return state;
+  next.fishing.activeBody = bodyId;
+  return next;
+}
+
+export function upgradeFishingWorker(state, bodyId, upgradeId) {
+  const next = deepCloneState(state);
+  const worker = next.fishing?.bodies?.[bodyId]?.worker;
+  if (!worker) return state;
+  const upgrade = FISHING_WORKER_UPGRADES[upgradeId];
+  if (!upgrade) return state;
+  if ((worker.upgrades ?? []).includes(upgradeId)) return state;
+  if (upgrade.requires && !(worker.upgrades ?? []).includes(upgrade.requires)) return state;
+  if ((next.cash ?? 0) < upgrade.cost) return state;
+  next.cash -= upgrade.cost;
+  worker.upgrades = [...(worker.upgrades ?? []), upgradeId];
+  return next;
+}
+
+export function setFishingWorkerBait(state, bodyId, baitId) {
+  const next = deepCloneState(state);
+  const worker = next.fishing?.bodies?.[bodyId]?.worker;
+  if (!worker) return state;
+  worker.assignedBait = baitId;
+  return next;
+}
+
+export function catchFish(state, fishId, baitId, bodyId) {
+  if (!state.fishing) return state;
+  const next = deepCloneState(state);
+  if (!next.fishing.fish) next.fishing.fish = {};
+  next.fishing.fish[fishId] = (next.fishing.fish[fishId] ?? 0) + 1;
+  if (baitId && (next.bait?.[baitId] ?? 0) > 0) next.bait[baitId] -= 1;
   return next;
 }
  
@@ -1923,43 +2095,20 @@ export function assignKeptWorker(state, keptWorkerId, farmId) {
 }
  
 export function buyPond(state) {
-  if (state.pond?.owned) return state;
+  if (state.fishing?.bodies?.pond?.unlocked) return state;
   if ((state.cash ?? 0) < POND_COST) return state;
   const next = deepCloneState(state);
   next.cash -= POND_COST;
-  next.pond = { owned: true, rodTier: "twig", trapOwned: false, trapTimer: 0, fish: {} };
+  if (!next.fishing) next.fishing = { activeBody: "pond", bodies: {}, fish: {} };
+  next.fishing.bodies.pond = {
+    unlocked: true,
+    worker: { upgrades: [], timer: 0, assignedBait: null },
+  };
+  next.fishing.activeBody = "pond";
   return next;
 }
  
-export function upgradeRod(state) {
-  const next = deepCloneState(state);
-  const currentRodId = next.pond?.rodTier ?? "twig";
-  const idx = ROD_ORDER.indexOf(currentRodId);
-  if (idx === -1 || idx >= ROD_ORDER.length - 1) return state;
-  const nextRod = ROD_TIERS[idx + 1];
-  if ((next.cash ?? 0) < nextRod.upgradeCost) return state;
-  next.cash -= nextRod.upgradeCost;
-  next.pond.rodTier = nextRod.id;
-  return next;
-}
- 
-export function buyFishTrap(state) {
-  if (!state.pond?.owned || state.pond?.trapOwned) return state;
-  if ((state.cash ?? 0) < FISH_TRAP_COST) return state;
-  const next = deepCloneState(state);
-  next.cash -= FISH_TRAP_COST;
-  next.pond.trapOwned = true;
-  next.pond.trapTimer = 0;
-  return next;
-}
- 
-export function catchFish(state, fishId, baitId) {
-  if (!state.pond?.owned) return state;
-  const next = deepCloneState(state);
-  next.pond.fish = { ...(next.pond.fish ?? {}), [fishId]: ((next.pond.fish?.[fishId]) ?? 0) + 1 };
-  if (baitId && (next.bait?.[baitId] ?? 0) > 0) next.bait[baitId] -= 1;
-  return next;
-}
+
  
 export function applyGoldenBonus(state, bonusId) {
   const next = deepCloneState(state);
@@ -2199,6 +2348,39 @@ for (const w of parsed.barnWorkers ?? []) {
   if (w.upgrades === undefined) w.upgrades = [];
   if (w.collectTimer === undefined) w.collectTimer = 0;
   if (w.careTimer === undefined) w.careTimer = 0;
+}
+
+// Migrate pond.fish → fishing
+// Migrate pond.fish → fishing
+if (!parsed.fishing) {
+  parsed.fishing = {
+    activeBody: "pond",
+    bodies: {
+      pond:  { unlocked: parsed.pond?.owned === true, worker: parsed.pond?.owned ? { hired: true, upgrades: [], timer: 0, assignedBait: null } : null },
+      lake:  { unlocked: false, worker: null },
+      river: { unlocked: false, worker: null },
+      ocean: { unlocked: false, worker: null },
+    },
+    fish: { ...(parsed.pond?.fish ?? {}) },
+  };
+}
+// Also migrate existing fishing workers that are missing hired flag
+if (parsed.fishing?.bodies) {
+  for (const body of Object.values(parsed.fishing.bodies)) {
+    if (body?.worker && body.worker.hired === undefined) {
+      body.worker.hired = true; // treat existing workers as hired
+    }
+  }
+}
+// Migrate old fish types to new 4-fish system
+if (parsed.fishing?.fish) {
+  const f = parsed.fishing.fish;
+  if (f.pike) { f.rare = (f.rare ?? 0) + f.pike; delete f.pike; }
+  if (f.golden_fish) { f.rare = (f.rare ?? 0) + f.golden_fish; delete f.golden_fish; }
+  if (f.minnow === undefined) f.minnow = 0;
+  if (f.bass === undefined) f.bass = 0;
+  if (f.perch === undefined) f.perch = 0;
+  if (f.rare === undefined) f.rare = 0;
 }
  
     return parsed;

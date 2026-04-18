@@ -99,7 +99,7 @@ export const MARKET_SELL_RATES = {
   bread: 30,  jam: 50,       sauce: 80,
   egg: 5, milk: 15, wool: 25,
   omelette: 40, cheese: 60, knitted_goods: 90,
-  minnow: 2, bass: 8, perch: 12, pike: 35,
+  minnow: 2, bass: 8, perch: 12, rare: 35,
   fish_pie: 45, smoked_fish: 35, fish_meal: 20,
 };
  
@@ -270,30 +270,50 @@ export const SAVE_INTERVAL_MS = 30_000;
 export const MAX_OFFLINE_SECONDS = 4 * 60 * 60;
  
 // ─── Pond ─────────────────────────────────────────────────────────────────────
-export const POND_COST = 200; // Reduced from 500 to be accessible early-game
- 
-export const FISH_TYPES = {
-  minnow:      { id: "minnow",      name: "Minnow",      emoji: "🐟", rarity: "common",    rawValue: 2,  craftable: true,  manualOnly: false },
-  bass:        { id: "bass",        name: "Bass",         emoji: "🎣", rarity: "uncommon",  rawValue: 8,  craftable: true,  manualOnly: false },
-  perch:       { id: "perch",       name: "Perch",        emoji: "🐠", rarity: "uncommon",  rawValue: 12, craftable: true,  manualOnly: false },
-  pike:        { id: "pike",        name: "Pike",         emoji: "🦈", rarity: "rare",      rawValue: 35, craftable: false, manualOnly: true  },
-  golden_fish: { id: "golden_fish", name: "Golden Fish",  emoji: "✨", rarity: "legendary", rawValue: 0,  craftable: false, manualOnly: true  },
+
+export const FISHING_BODIES = {
+  pond:  { id: "pond",  name: "Pond",  emoji: "🏊", unlockCost: 0    },
+  lake:  { id: "lake",  name: "Lake",  emoji: "🏞️", unlockCost: 500  },
+  river: { id: "river", name: "River", emoji: "🏔️", unlockCost: 1500 },
+  ocean: { id: "ocean", name: "Ocean", emoji: "🌊", unlockCost: 4000 },
 };
+export const FISHING_BODY_ORDER = ["pond", "lake", "river", "ocean"];
+
+export const FISHING_FISH = {
+  minnow: { id: "minnow", name: "Minnow",   emoji: "🐟", rawValue: 2  },
+  bass:   { id: "bass",   name: "Bass",     emoji: "🐠", rawValue: 8  },
+  perch:  { id: "perch",  name: "Perch",    emoji: "🐡", rawValue: 12 },
+  rare:   { id: "rare",   name: "Rare Fish", emoji: "✨", rawValue: 35 },
+};
+
+// [minnow%, bass%, perch%, rare%] — must sum to 100
+export const FISHING_CATCH_RATES = {
+  pond:  { basic: [80,20,0,0],   good: [60,35,5,0],   expert: [40,40,18,2]  },
+  lake:  { basic: [50,35,14,1],  good: [30,35,30,5],  expert: [15,30,45,10] },
+  river: { basic: [20,35,40,5],  good: [10,25,45,20], expert: [5,20,45,30]  },
+  ocean: { basic: [10,25,40,25], good: [5,15,40,40],  expert: [0,10,40,50]  },
+};
+
+export const FISHING_BAIT_BONUS = {
+  wheat_bait:  { rarePct: 10, haulBonus: 1 },
+  berry_bait:  { rarePct: 15, haulBonus: 2 },
+  tomato_bait: { rarePct: 20, haulBonus: 3 },
+};
+
+export const FISHING_WORKER_UPGRADES = {
+  speed_1: { id: "speed_1", name: "Quick Cast",  emoji: "⚡", cost: 200, description: "Fish every 40s",   tree: "speed",    requires: null        },
+  speed_2: { id: "speed_2", name: "Sprint Cast", emoji: "⚡", cost: 400, description: "Fish every 20s",   tree: "speed",    requires: "speed_1"   },
+  haul_1:  { id: "haul_1",  name: "Big Net",     emoji: "📦", cost: 250, description: "Catch 2 at once",  tree: "haul",     requires: null        },
+  haul_2:  { id: "haul_2",  name: "Trawl Net",   emoji: "📦", cost: 500, description: "Catch 5 at once",  tree: "haul",     requires: "haul_1"    },
+  gear_good:   { id: "gear_good",   name: "Good Rod",   emoji: "🎣", cost: 300, description: "Unlocks perch",    tree: "gear",     requires: null        },
+  gear_expert: { id: "gear_expert", name: "Expert Rod",  emoji: "🎣", cost: 600, description: "Best rare odds",  tree: "gear",     requires: "gear_good" },
+};
+
+export const FISHING_WORKER_BASE_INTERVAL = 60;
+export const POND_COST = 200; // keep existing value
+
  
-// Needle sweet spot width by rod tier (fraction of bar, 0-1)
-// Better rod = wider sweet spot
-export const ROD_TIERS = [
-  { id: "twig",    name: "Twig Rod",    emoji: "🌿", sweetSpotWidth: 0.18, biteTimeMin: 3, biteTimeMax: 7, upgradeCost: null, description: "A basic stick. Gets the job done." },
-  { id: "bamboo",  name: "Bamboo Rod",  emoji: "🎋", sweetSpotWidth: 0.24, biteTimeMin: 2, biteTimeMax: 6, upgradeCost: 150,  description: "Wider sweet spot, faster bites." },
-  { id: "carbon",  name: "Carbon Rod",  emoji: "🎣", sweetSpotWidth: 0.30, biteTimeMin: 1, biteTimeMax: 5, upgradeCost: 500,  description: "Professional grade. Much easier to nail." },
-  { id: "pro",     name: "Pro Rod",     emoji: "⚡", sweetSpotWidth: 0.38, biteTimeMin: 1, biteTimeMax: 4, upgradeCost: 1500, description: "The best. Huge sweet spot, lightning bites." },
-];
-export const ROD_ORDER = ["twig", "bamboo", "carbon", "pro"];
- 
-// Fish trap automation
-export const FISH_TRAP_COST = 300;
-export const FISH_TRAP_CATCH_INTERVAL = 30; // seconds between catches
-export const FISH_TRAP_FISH = ["minnow", "bass"]; // only common/uncommon
+
  
 // Bait types — crafted in Kitchen from crops, boosts certain fish
 export const BAIT_TYPES = {
@@ -312,23 +332,8 @@ export const BAIT_RECIPES = {
   tomato_bait: { id: "tomato_bait", name: "Tomato Bait", emoji: "🍅", inputCrop: "tomatoes", inputAmount: 3, outputGood: "tomato_bait", outputAmount: 3, seconds: 45, description: "Craft tomato bait. Rare fish chance up.", isBait: true },
 };
  
-// Catch probability tables [no bait, with matching bait]
-// Needle quality multiplies rare/legendary chances
-export const FISH_CATCH_RATES = {
-  // [common%, uncommon%, rare%, legendary%]
-  none:        { common: 0.65, uncommon: 0.30, rare: 0.04, legendary: 0.01 },
-  wheat_bait:  { common: 0.80, uncommon: 0.18, rare: 0.02, legendary: 0.00 },
-  berry_bait:  { common: 0.40, uncommon: 0.54, rare: 0.05, legendary: 0.01 },
-  tomato_bait: { common: 0.30, uncommon: 0.35, rare: 0.30, legendary: 0.05 },
-};
+
  
-// Golden fish bonus pool — pick one at random
-export const GOLDEN_FISH_BONUSES = [
-  { id: "treasury_inject", description: "Injects $500 directly into your treasury", emoji: "💰" },
-  { id: "feast_boost",     description: "Doubles your feast grow bonus for 5 minutes", emoji: "🍽️" },
-  { id: "free_plot",       description: "Upgrades a random unupgraded plot for free", emoji: "⭐" },
-  { id: "town_sat",        description: "Instantly maxes town satisfaction", emoji: "😄" },
-];
  
 // Needle sweep speed (degrees/sec or normalized units per second)
 export const NEEDLE_SWEEP_SPEED = 0.6; // 0-1 bar units per second, bounces
@@ -437,5 +442,5 @@ export const ANIMAL_SELL_RATES = {
   egg: 5, milk: 15, wool: 25,
   omelette: 40, cheese: 60, knitted_goods: 90,
   fish_pie: 45, smoked_fish: 35, fish_meal: 20,
-  minnow: 2, bass: 8, perch: 12, pike: 35,
+  minnow: 2, bass: 8, perch: 12, rare: 35,
 };
