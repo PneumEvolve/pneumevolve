@@ -83,7 +83,7 @@ export default function TownZone({
   game, onBuildHome, onBuyBakery, onToggleBakery, onTogglePantry, onToggleCannery,
   onUpgradeTownBuilding, onBuyJamBuilding, onBuySauceBuilding,
   onUpgradeTownHall, onSetTreasuryTier, onBuildBank, onUpgradeBank, onSetActiveBankTier,
-  prestigeReady, onPrestige, onReset,
+  prestigeReady, onPrestige, onReset, onSetTreasuryCap,
 }) {
   const [subTab, setSubTab] = useState("town");
   const town = game.town ?? {};
@@ -157,6 +157,9 @@ export default function TownZone({
   const bakeryUpgradeLevel = getBuildingUpgradeLevel(game, "bakery");
   const pantryUpgradeLevel = getBuildingUpgradeLevel(game, "pantry");
   const canneryUpgradeLevel = getBuildingUpgradeLevel(game, "cannery");
+
+  const [capInput, setCapInput] = useState("");
+  const treasuryCap = town.treasuryCap ?? 0;
 
 
  
@@ -241,27 +244,93 @@ export default function TownZone({
       </div>
  
       {/* Treasury */}
-      <div className="card p-4" style={{ marginBottom: "1rem" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" }}>
-          <div style={{ fontWeight: 600 }}>🏦 Treasury</div>
-          <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "#4ade80" }}>${Math.floor(treasury).toLocaleString()}</div>
-        </div>
-        <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
-          Drain cash into the treasury to fund town purchases and earn a grow speed bonus. All town buildings are paid from here.
-          {treasuryGrowBonus > 0 && <span style={{ color: "#4ade80", marginLeft: "0.3rem", fontWeight: 600 }}>+{treasuryGrowBonus}% grow speed active</span>}
-        </div>
-        <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem", fontWeight: 600 }}>
-          Drain rate {thLevel === 0 ? "(unlock Town Hall first)" : `(max tier ${maxTreasuryTier})`}:
-        </div>
-        <TierPicker
-          tiers={TREASURY_TIERS}
-          activeTier={activeTreasuryTier}
-          maxTier={maxTreasuryTier}
-          onSelect={onSetTreasuryTier}
-          colorActive="#f59e0b"
-          label="grow"
-        />
+<div className="card p-4" style={{ marginBottom: "1rem" }}>
+  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" }}>
+    <div style={{ fontWeight: 600 }}>🏦 Treasury</div>
+    <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "#4ade80" }}>${Math.floor(treasury).toLocaleString()}</div>
+  </div>
+  <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
+    Drain cash into the treasury to fund town purchases and earn a grow speed bonus.
+    {treasuryGrowBonus > 0 && <span style={{ color: "#4ade80", marginLeft: "0.3rem", fontWeight: 600 }}>+{treasuryGrowBonus}% grow speed active</span>}
+  </div>
+  <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem", fontWeight: 600 }}>
+    Drain rate {thLevel === 0 ? "(unlock Town Hall first)" : `(max tier ${maxTreasuryTier})`}:
+  </div>
+  <TierPicker
+    tiers={TREASURY_TIERS}
+    activeTier={activeTreasuryTier}
+    maxTier={maxTreasuryTier}
+    onSelect={onSetTreasuryTier}
+    colorActive="#f59e0b"
+    label="grow"
+  />
+
+  {/* Treasury cap */}
+  {thLevel > 0 && (
+    <div style={{ marginTop: "0.75rem", paddingTop: "0.65rem", borderTop: "1px solid var(--border)" }}>
+      <div style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--muted)", marginBottom: "0.35rem" }}>
+        🛑 Auto-stop cap
+        {treasuryCap > 0 && (
+          <span style={{ marginLeft: "0.4rem", color: "#f59e0b", fontWeight: 700 }}>
+            ${treasuryCap.toLocaleString()}
+          </span>
+        )}
       </div>
+      <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.4rem" }}>
+        Drain pauses automatically when treasury reaches this amount. Set to 0 to disable.
+      </div>
+      <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+        {/* Quick presets */}
+        {[0, 500, 1000, 2500, 5000].map((preset) => (
+          <button
+            key={preset}
+            onClick={() => { onSetTreasuryCap(preset); setCapInput(""); }}
+            style={{
+              fontSize: "0.65rem", padding: "0.2rem 0.5rem", borderRadius: "6px", cursor: "pointer",
+              background: treasuryCap === preset ? "rgba(245,158,11,0.2)" : "var(--bg)",
+              border: `1px solid ${treasuryCap === preset ? "#f59e0b" : "var(--border)"}`,
+              color: treasuryCap === preset ? "#f59e0b" : "var(--muted)",
+              fontWeight: treasuryCap === preset ? 700 : 400,
+            }}
+          >
+            {preset === 0 ? "Off" : `$${preset.toLocaleString()}`}
+          </button>
+        ))}
+        {/* Custom input */}
+        <div style={{ display: "flex", gap: "0.3rem", flex: 1, minWidth: "120px" }}>
+          <input
+            type="number"
+            min="0"
+            placeholder="Custom…"
+            value={capInput}
+            onChange={(e) => setCapInput(e.target.value)}
+            style={{
+              flex: 1, fontSize: "0.68rem", padding: "0.2rem 0.4rem",
+              borderRadius: "6px", border: "1px solid var(--border)",
+              background: "var(--bg)", color: "var(--text)",
+              minWidth: 0,
+            }}
+          />
+          <button
+            onClick={() => {
+              const val = parseInt(capInput, 10);
+              if (!isNaN(val) && val >= 0) { onSetTreasuryCap(val); setCapInput(""); }
+            }}
+            className="btn btn-secondary"
+            style={{ fontSize: "0.65rem", padding: "0.2rem 0.5rem", flexShrink: 0 }}
+          >
+            Set
+          </button>
+        </div>
+      </div>
+      {treasuryCap > 0 && treasury >= treasuryCap && (
+        <div style={{ marginTop: "0.4rem", fontSize: "0.65rem", color: "#f59e0b", fontWeight: 600 }}>
+          ⏸ Cap reached — drain paused
+        </div>
+      )}
+    </div>
+  )}
+</div>
  
       {/* Town Hall */}
       <div className="card p-4" style={{ marginBottom: "1rem" }}>

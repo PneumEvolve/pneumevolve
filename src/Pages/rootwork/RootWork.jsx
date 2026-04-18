@@ -21,7 +21,7 @@ import {
   upgradeFishingWorker, setFishingWorkerBait,
   buyAnimal, collectAnimal, collectAllAnimals, interactAnimal, buyPet, interactPet, toggleKitchenWorkerAutoRestart,
   hireBarnWorker, fireBarnWorker, reassignBarnWorker, applyFishMeal, upgradeBarnWorker, upgradeAnimalStorage, getBarnWorkerHireCost,
-  hireFishingWorker, fireFishingWorker, 
+  hireFishingWorker, fireFishingWorker, setTreasuryCap,
 } from "./gameEngine";
 import {
   SAVE_KEY, SAVE_INTERVAL_MS, PRESTIGE_BONUSES,
@@ -305,6 +305,7 @@ export default function RootWork() {
   const handleBuySauceBuilding = useCallback(() => { update((s) => { const n = buySauceBuilding(s); if (n === s) notify("Requires Town Hall level 3 and treasury funds."); return n; }); notify("🥫 Cannery built!"); }, [update, notify]);
   const handleUpgradeTownHall = useCallback(() => update((s) => { const n = upgradeTownHall(s); if (n === s) notify("Not enough treasury funds."); return n; }), [update, notify]);
   const handleSetTreasuryTier = useCallback((tier) => update((s) => setTreasuryTier(s, tier)), [update]);
+  const handleSetTreasuryCap = useCallback((cap) => update((s) => setTreasuryCap(s, cap)), [update]);
   const handleBuildBank = useCallback(() => update((s) => { const n = buildBank(s); if (n === s) notify("Can't build bank yet."); return n; }), [update, notify]);
   const handleUpgradeBank = useCallback(() => update((s) => { const n = upgradeBank(s); if (n === s) notify("Not enough treasury funds."); return n; }), [update, notify]);
   const handleSetActiveBankTier = useCallback((tier) => update((s) => setActiveBankTier(s, tier)), [update]);
@@ -416,7 +417,7 @@ const handleUpgradeAnimalStorage = useCallback((animalId, instanceId) => update(
           <ProcessingZone game={game} onHireKitchenWorker={handleHireKitchenWorker} onAssignKitchenWorkerRecipe={handleAssignKitchenWorkerRecipe} onUpgradeKitchenWorker={handleUpgradeKitchenWorker} onFireKitchenWorker={handleFireKitchenWorker} onUpgradePlot={handleUpgradePlot} onBuyFeast={handleBuyFeast} onCancelKitchenWorkerRecipe={handleCancelKitchenWorkerRecipe} onToggleKitchenWorkerAutoRestart={handleToggleKitchenAutoRestart} onApplyFishMeal={handleApplyFishMeal} />
         )}
         {activeMainTab === "town" && (
-          <TownZone game={game} onBuildHome={handleBuildTownHome} onBuyBakery={handleBuyTownBakery} onToggleBakery={handleToggleBakery} onTogglePantry={handleTogglePantry} onToggleCannery={handleToggleCannery} onUpgradeTownBuilding={handleUpgradeTownBuilding} onBuyJamBuilding={handleBuyJamBuilding} onBuySauceBuilding={handleBuySauceBuilding} onUpgradeTownHall={handleUpgradeTownHall} onSetTreasuryTier={handleSetTreasuryTier} onBuildBank={handleBuildBank} onUpgradeBank={handleUpgradeBank} onSetActiveBankTier={handleSetActiveBankTier} prestigeReady={prestigeReady} onPrestige={() => setShowPrestigeModal(true)} onReset={handleResetGame} />
+          <TownZone game={game} onBuildHome={handleBuildTownHome} onBuyBakery={handleBuyTownBakery} onToggleBakery={handleToggleBakery} onTogglePantry={handleTogglePantry} onToggleCannery={handleToggleCannery} onUpgradeTownBuilding={handleUpgradeTownBuilding} onBuyJamBuilding={handleBuyJamBuilding} onBuySauceBuilding={handleBuySauceBuilding} onUpgradeTownHall={handleUpgradeTownHall} onSetTreasuryTier={handleSetTreasuryTier} onBuildBank={handleBuildBank} onUpgradeBank={handleUpgradeBank} onSetActiveBankTier={handleSetActiveBankTier} prestigeReady={prestigeReady} onPrestige={() => setShowPrestigeModal(true)} onReset={handleResetGame} onSetTreasuryCap={handleSetTreasuryCap} />
         )}
         {activeMainTab === "animals" && (
           <AnimalsZone

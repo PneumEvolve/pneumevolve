@@ -1000,17 +1000,18 @@ export function tick(state) {
  
   if (!next.stats) next.stats = { farmCrops: {}, kitchenGoods: {}, marketCash: null };
  
-  // ── Treasury drain ─────────────────────────────────────────────────────────
-  const activeTier = getActiveTreasuryTier(next);
-  if (activeTier) {
-    if ((next.cash ?? 0) < activeTier.drainRate) {
-      // Auto-pause: can't afford the full drain rate, turn off until player re-enables
-      next.town.treasuryActiveTier = 0;
-    } else {
-      next.cash = (next.cash ?? 0) - activeTier.drainRate;
-      next.town.treasuryBalance = (next.town.treasuryBalance ?? 0) + activeTier.drainRate;
-    }
+  // ── Treasury drain ─────────────────────────────────────────────────────────────
+const activeTier = getActiveTreasuryTier(next);
+if (activeTier) {
+  const treasuryCap = next.town.treasuryCap ?? 0; // 0 = no cap
+  const atCap = treasuryCap > 0 && (next.town.treasuryBalance ?? 0) >= treasuryCap;
+  if ((next.cash ?? 0) < activeTier.drainRate || atCap) {
+    next.town.treasuryActiveTier = 0;
+  } else {
+    next.cash = (next.cash ?? 0) - activeTier.drainRate;
+    next.town.treasuryBalance = (next.town.treasuryBalance ?? 0) + activeTier.drainRate;
   }
+}
  
   // ── Bank drain ─────────────────────────────────────────────────────────────
   const activeBankTier = getActiveBankTier(next);
@@ -1773,9 +1774,14 @@ export function applyFishMeal(state) {
   return next;
 }
  
-// ─── Feast ────────────────────────────────────────────────────────────────────
+// ─── Buildings ────────────────────────────────────────────────────────────────────
  
- 
+export function setTreasuryCap(state, cap) {
+  const next = deepCloneState(state);
+  next.town.treasuryCap = Math.max(0, Math.floor(cap));
+  return next;
+} 
+
 // ─── Barn worker actions ──────────────────────────────────────────────
  
 export function hireBarnWorker(state, animalType) {
@@ -2320,6 +2326,7 @@ export function deserializeState(raw) {
       // Migrate old drain-based townHall to treasury
       if (parsed.town.townHallDraining !== undefined) delete parsed.town.townHallDraining;
       if (parsed.town.townHallDrained !== undefined) delete parsed.town.townHallDrained;
+      if (parsed.town.treasuryCap === undefined) parsed.town.treasuryCap = 0;
     } // end town else
  
     // These must be outside the town block — always migrate regardless
