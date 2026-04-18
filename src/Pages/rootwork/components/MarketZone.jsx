@@ -34,9 +34,9 @@ const SELLABLE_ITEMS = [
   { type: "bass",          label: "Bass",           emoji: "🎣", isCrop: false,  isAnimal: false, isFish: true  },
   { type: "perch",         label: "Perch",          emoji: "🐠", isCrop: false,  isAnimal: false, isFish: true  },
   { type: "pike",          label: "Pike",           emoji: "🦈", isCrop: false,  isAnimal: false, isFish: true  },
-  { type: "fish_pie",      label: "Fish Pie",       emoji: "🥧", isCrop: false,  isAnimal: false, isFish: true  },
-  { type: "smoked_fish",   label: "Smoked Fish",    emoji: "🐟", isCrop: false,  isAnimal: false, isFish: true  },
-  { type: "fish_meal",     label: "Fish Meal",      emoji: "🌿", isCrop: false,  isAnimal: false, isFish: true  },
+  { type: "fish_pie",      label: "Fish Pie",       emoji: "🥧", isCrop: false,  isAnimal: true, isFish: false  },
+  { type: "smoked_fish",   label: "Smoked Fish",    emoji: "🐟", isCrop: false,  isAnimal: true, isFish: false  },
+  { type: "fish_meal",     label: "Fish Meal",      emoji: "🌿", isCrop: false,  isAnimal: true, isFish: false  },
 ];
  
 const SELL_AMOUNTS = [1, 10, 50, 100, "All"];

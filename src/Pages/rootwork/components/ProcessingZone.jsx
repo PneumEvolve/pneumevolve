@@ -428,32 +428,60 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
  
 // ─── Fish Meal panel ─────────────────────────────────────────────────────────
  
-function FishMealPanel({ game }) {
+function FishMealPanel({ game, onApplyFishMeal }) {
   const fishMealCount = Math.floor(game.animalGoods?.fish_meal ?? 0);
-  const stacks = game.fishMealStacks ?? [];
-  const activeBonus = stacks.reduce((s, st) => s + (st.secondsLeft > 0 ? st.bonus : 0), 0);
-  if (fishMealCount === 0 && stacks.length === 0) return null;
+  const stack = (game.fishMealStacks ?? []).find((s) => s.bonus === 10 && s.secondsLeft > 0);
+  const activeSeconds = stack?.secondsLeft ?? 0;
+  const MAX_SECONDS = 4 * 60 * 60;
+
+  if (fishMealCount === 0 && !stack) return null;
+
+  const hoursLeft = Math.floor(activeSeconds / 3600);
+  const minsLeft = Math.floor((activeSeconds % 3600) / 60);
+  const timeStr = hoursLeft > 0 ? `${hoursLeft}h ${minsLeft}m` : `${minsLeft}m`;
+  const pct = MAX_SECONDS > 0 ? Math.min(100, (activeSeconds / MAX_SECONDS) * 100) : 0;
+
   return (
     <div className="card p-4" style={{ marginBottom: "1.25rem", fontSize: "0.82rem" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.4rem" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
         <div>
           <div style={{ fontWeight: 600 }}>🌿 Fish Meal Fertilizer</div>
-          <div style={{ fontSize: "0.68rem", color: "var(--muted)" }}>Crafted from minnows. Auto-activates +10% grow speed for 10 min per batch.</div>
+          <div style={{ fontSize: "0.68rem", color: "var(--muted)" }}>
+            +10% grow speed per dose · stacks up to 4 hours
+          </div>
         </div>
-        {activeBonus > 0 && (
+        {activeSeconds > 0 && (
           <div style={{ fontSize: "0.72rem", color: "#4ade80", fontWeight: 700, background: "rgba(74,222,128,0.1)", borderRadius: "6px", padding: "0.2rem 0.5rem", flexShrink: 0, marginLeft: "0.5rem" }}>
-            +{activeBonus}% active
+            +10% · {timeStr}
           </div>
         )}
       </div>
-      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
-        <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>In stock: <strong style={{ color: fishMealCount > 0 ? "var(--text)" : "var(--muted)" }}>{fishMealCount} 🌿</strong></div>
-        {stacks.map((s, i) => (
-          <div key={i} style={{ fontSize: "0.62rem", background: "rgba(74,222,128,0.08)", border: "1px solid rgba(74,222,128,0.25)", borderRadius: "6px", padding: "0.15rem 0.4rem", color: "#4ade80" }}>
-            +{s.bonus}% · {Math.ceil(s.secondsLeft / 60)}min left
-          </div>
-        ))}
+
+      {/* Timer bar */}
+      {activeSeconds > 0 && (
+        <div style={{ height: "4px", borderRadius: "2px", background: "var(--border)", overflow: "hidden", marginBottom: "0.6rem" }}>
+          <div style={{ height: "100%", width: `${pct}%`, background: "#4ade80", borderRadius: "2px", transition: "width 1s linear" }} />
+        </div>
+      )}
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
+          In stock: <strong style={{ color: fishMealCount > 0 ? "var(--text)" : "var(--muted)" }}>{fishMealCount} 🌿</strong>
+        </div>
+        <button
+          onClick={onApplyFishMeal}
+          disabled={fishMealCount < 1}
+          className="btn btn-secondary"
+          style={{ fontSize: "0.7rem", padding: "0.25rem 0.7rem", opacity: fishMealCount >= 1 ? 1 : 0.4 }}
+        >
+          Apply dose
+        </button>
       </div>
+      {activeSeconds > 0 && (
+        <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginTop: "0.35rem" }}>
+          Each dose adds 10 min · max 4h stored
+        </div>
+      )}
     </div>
   );
 }
@@ -566,26 +594,34 @@ function BaitInventory({ bait }) {
  
 // ─── Artisan inventory ────────────────────────────────────────────────────────
  
-function ArtisanInventory({ artisan }) {
+function ArtisanInventory({ artisan, animalGoods, pond }) {
   const items = [
-    { key: "bread", emoji: "🍞", label: "Bread" },
-    { key: "jam",   emoji: "🍯", label: "Jam" },
-    { key: "sauce", emoji: "🥫", label: "Sauce" },
+    { key: "bread",         emoji: "🍞", label: "Bread",         source: artisan },
+    { key: "jam",           emoji: "🍯", label: "Jam",           source: artisan },
+    { key: "sauce",         emoji: "🥫", label: "Sauce",         source: artisan },
+    { key: "omelette",      emoji: "🍳", label: "Omelette",      source: animalGoods },
+    { key: "cheese",        emoji: "🧀", label: "Cheese",        source: animalGoods },
+    { key: "knitted_goods", emoji: "🧶", label: "Knitted",       source: animalGoods },
+    { key: "smoked_fish",   emoji: "🐟", label: "Smoked Fish",   source: pond?.fish ?? {} },
   ];
+
+  // Only show items that have ever been produced (recipe exists) — hide zeros for cleanliness
+  const visible = items.filter(({ key, source }) => (source?.[key] ?? 0) > 0 || key === "bread" || key === "jam" || key === "sauce");
+
   return (
     <div className="card p-3" style={{ marginBottom: "1.25rem" }}>
       <div style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--muted)", marginBottom: "0.5rem" }}>
-        Artisan Goods
+        Crafted Goods
       </div>
-      <div style={{ display: "flex", gap: "0.5rem" }}>
-        {items.map(({ key, emoji, label }) => (
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+        {visible.map(({ key, emoji, label, source }) => (
           <div key={key} style={{
-            flex: 1, textAlign: "center", padding: "0.5rem",
+            minWidth: "60px", flex: "1 1 60px", textAlign: "center", padding: "0.5rem",
             background: "var(--bg)", borderRadius: "8px",
           }}>
             <div style={{ fontSize: "1.2rem" }}>{emoji}</div>
             <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text)" }}>
-              {artisan[key] ?? 0}
+              {Math.floor(source?.[key] ?? 0)}
             </div>
             <div style={{ fontSize: "0.62rem", color: "var(--muted)" }}>{label}</div>
           </div>
@@ -607,6 +643,7 @@ export default function ProcessingZone({
   onCancelKitchenWorkerRecipe,
   onToggleKitchenWorkerAutoRestart,
   onBuyFeast,
+  onApplyFishMeal,
 }) {
   const [expandedWorkers, setExpandedWorkers] = useState({});
  
@@ -631,7 +668,7 @@ const isFirstWorker = workers.length === 0;
         </p>
       </div>
  
-      <ArtisanInventory artisan={game.artisan} />
+      <ArtisanInventory artisan={game.artisan} animalGoods={game.animalGoods} pond={game.pond} />
       <BaitInventory bait={game.bait} />
  
       <div style={{ marginBottom: "1.25rem" }}>
@@ -673,7 +710,7 @@ const isFirstWorker = workers.length === 0;
         </div>
       )}
  
-      <FishMealPanel game={game} />
+      <FishMealPanel game={game} onApplyFishMeal={onApplyFishMeal} />
       <FeastPanel game={game} onBuyFeast={onBuyFeast} />
  
     </div>

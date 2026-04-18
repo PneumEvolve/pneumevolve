@@ -305,7 +305,243 @@ function PetCard({ petId, game, onBuyPet, onInteractPet }) {
   );
 }
  
-export default function BarnZone({ game, onBuyAnimal, onCollectAnimal, onCollectAll, onInteractAnimal, onBuyPet, onInteractPet }) {
+const ANIMAL_TYPE_ORDER = ["chicken", "cow", "sheep"];
+const BARN_WORKER_HIRE_COST = 150;
+const BARN_WORKER_MAX = 3;
+const BARN_WORKER_INTERACT_COOLDOWN = 45;
+ 
+function BarnWorkerCard({ worker, game, index, onFire, onReassign }) {
+  const [confirmFire, setConfirmFire] = useState(false);
+  const [showReassign, setShowReassign] = useState(false);
+  const type = ANIMAL_DEFS[worker.animalType];
+  const animals = game.animals?.[worker.animalType] ?? [];
+  const readyCount = animals.filter((a) => a.ready).length;
+  const cooldown = worker.interactCooldown ?? 0;
+  const avgMood = animals.length > 0
+    ? Math.round(animals.reduce((s, a) => s + (a.mood ?? 100), 0) / animals.length)
+    : null;
+ 
+  return (
+    <div style={{
+      background: "var(--bg-elev)", border: "1px solid var(--border)",
+      borderRadius: "12px", padding: "0.75rem", fontSize: "0.82rem",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <span style={{ fontSize: "1.3rem" }}>🧑‍🌾</span>
+          <div>
+            <div style={{ fontWeight: 600, color: "var(--text)" }}>
+              Farmhand {index + 1}
+              <span style={{ marginLeft: "0.4rem", fontSize: "0.65rem", color: "var(--muted)", fontWeight: 400 }}>
+                → {type?.emoji} {type?.name}s
+              </span>
+            </div>
+            <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.1rem" }}>
+              {animals.length === 0
+                ? "No animals assigned type yet"
+                : readyCount > 0
+                  ? `🟡 Collecting ${readyCount} ready · avg mood ${avgMood}%`
+                  : `✓ All collected · avg mood ${avgMood}%`}
+            </div>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: "0.3rem", alignItems: "center" }}>
+          {cooldown > 0 && (
+            <div style={{ fontSize: "0.62rem", color: "var(--muted)", padding: "0.15rem 0.4rem", background: "var(--bg)", borderRadius: "6px", border: "1px solid var(--border)" }}>
+              💝 {Math.ceil(cooldown)}s
+            </div>
+          )}
+          {cooldown <= 0 && animals.length > 0 && (
+            <div style={{ fontSize: "0.62rem", color: "#4ade80", padding: "0.15rem 0.4rem", background: "rgba(74,222,128,0.1)", borderRadius: "6px", border: "1px solid rgba(74,222,128,0.3)" }}>
+              💝 ready
+            </div>
+          )}
+        </div>
+      </div>
+ 
+      {/* Reassign picker */}
+      {showReassign && (
+        <div style={{ display: "flex", gap: "0.35rem", marginBottom: "0.5rem" }}>
+          {ANIMAL_TYPE_ORDER.map((id) => {
+            const def = ANIMAL_DEFS[id];
+            const active = worker.animalType === id;
+            return (
+              <button
+                key={id}
+                onClick={() => { onReassign(worker.id, id); setShowReassign(false); }}
+                style={{
+                  flex: 1, padding: "0.3rem 0.3rem", borderRadius: "8px", cursor: "pointer",
+                  fontSize: "0.72rem", fontWeight: active ? 700 : 400,
+                  background: active ? "var(--accent)" : "var(--bg)",
+                  border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
+                  color: active ? "#fff" : "var(--text)",
+                }}
+              >
+                {def.emoji} {def.name}s
+              </button>
+            );
+          })}
+        </div>
+      )}
+ 
+      <div style={{ display: "flex", gap: "0.4rem" }}>
+        <button
+          onClick={() => setShowReassign((v) => !v)}
+          style={{
+            flex: 1, fontSize: "0.68rem", padding: "0.25rem 0.5rem",
+            borderRadius: "8px", cursor: "pointer",
+            background: "var(--bg)", border: "1px solid var(--border)", color: "var(--muted)",
+          }}
+        >
+          {showReassign ? "▲ Cancel" : "↔ Reassign"}
+        </button>
+        {!confirmFire ? (
+          <button
+            onClick={() => setConfirmFire(true)}
+            style={{
+              fontSize: "0.68rem", padding: "0.25rem 0.5rem", borderRadius: "8px",
+              cursor: "pointer", background: "var(--bg)",
+              border: "1px solid var(--border)", color: "var(--muted)",
+            }}
+          >
+            Fire
+          </button>
+        ) : (
+          <>
+            <button
+              onClick={() => { onFire(worker.id); setConfirmFire(false); }}
+              style={{
+                fontSize: "0.68rem", padding: "0.25rem 0.5rem", borderRadius: "8px",
+                cursor: "pointer", background: "#ef4444", border: "none", color: "#fff", fontWeight: 600,
+              }}
+            >
+              Confirm
+            </button>
+            <button
+              onClick={() => setConfirmFire(false)}
+              style={{
+                fontSize: "0.68rem", padding: "0.25rem 0.5rem", borderRadius: "8px",
+                cursor: "pointer", background: "var(--bg)", border: "1px solid var(--border)", color: "var(--muted)",
+              }}
+            >
+              Cancel
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+ 
+function BarnWorkersSection({ game, onHireBarnWorker, onFireBarnWorker, onReassignBarnWorker }) {
+  const [showHire, setShowHire] = useState(false);
+  const barnWorkers = game.barnWorkers ?? [];
+  const atMax = barnWorkers.length >= BARN_WORKER_MAX;
+  const atCap = Math.floor(game.town?.people ?? 0) <= (
+    (game.workers ?? []).length + (game.kitchenWorkers ?? []).length +
+    (game.marketWorkers ?? []).length + barnWorkers.length
+  );
+  const canAfford = (game.cash ?? 0) >= BARN_WORKER_HIRE_COST;
+  const canHire = !atMax && !atCap && canAfford;
+ 
+  return (
+    <div style={{ background: "var(--bg-elev)", border: "1px solid var(--border)", borderRadius: "12px", overflow: "hidden", marginBottom: "0.65rem" }}>
+      <div style={{ padding: "0.65rem 0.85rem", borderBottom: barnWorkers.length > 0 || showHire ? "1px solid var(--border)" : "none" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text)" }}>
+              🧑‍🌾 Farmhands
+              <span style={{ marginLeft: "0.4rem", fontSize: "0.65rem", color: "var(--muted)", fontWeight: 400 }}>
+                ({barnWorkers.length}/{BARN_WORKER_MAX})
+              </span>
+            </div>
+            <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginTop: "0.1rem" }}>
+              Auto-collect produce & boost animal mood
+            </div>
+          </div>
+          <button
+            onClick={() => setShowHire((v) => !v)}
+            disabled={atMax || atCap}
+            style={{
+              fontSize: "0.72rem", fontWeight: 600, padding: "0.3rem 0.75rem",
+              borderRadius: "8px", cursor: atMax || atCap ? "default" : "pointer",
+              background: canAfford && !atMax && !atCap ? "var(--accent)" : "var(--bg)",
+              border: `1px solid ${canAfford && !atMax && !atCap ? "var(--accent)" : "var(--border)"}`,
+              color: canAfford && !atMax && !atCap ? "#fff" : "var(--muted)",
+              opacity: atMax || atCap ? 0.5 : 1,
+            }}
+          >
+            {atMax ? "Max" : atCap ? "Town full" : `+ Hire $${BARN_WORKER_HIRE_COST}`}
+          </button>
+        </div>
+      </div>
+ 
+      {/* Hire picker */}
+      {showHire && !atMax && !atCap && (
+        <div style={{ padding: "0.65rem 0.85rem", borderBottom: barnWorkers.length > 0 ? "1px solid var(--border)" : "none", background: "var(--bg)" }}>
+          <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.4rem" }}>Assign to which animal type?</div>
+          <div style={{ display: "flex", gap: "0.4rem" }}>
+            {ANIMAL_TYPE_ORDER.map((id) => {
+              const def = ANIMAL_DEFS[id];
+              const seasonOk = (game.season ?? 1) >= def.unlockSeason;
+              const animalCount = (game.animals?.[id] ?? []).length;
+              return (
+                <button
+                  key={id}
+                  onClick={() => { if (canAfford && seasonOk) { onHireBarnWorker(id); setShowHire(false); } }}
+                  disabled={!canAfford || !seasonOk}
+                  style={{
+                    flex: 1, padding: "0.5rem 0.3rem", borderRadius: "8px",
+                    cursor: canAfford && seasonOk ? "pointer" : "default",
+                    background: canAfford && seasonOk ? "rgba(99,102,241,0.1)" : "var(--bg)",
+                    border: `1px solid ${canAfford && seasonOk ? "rgba(99,102,241,0.4)" : "var(--border)"}`,
+                    color: canAfford && seasonOk ? "var(--accent)" : "var(--muted)",
+                    opacity: seasonOk ? 1 : 0.4, fontSize: "0.72rem", textAlign: "center",
+                  }}
+                >
+                  <div style={{ fontSize: "1.2rem" }}>{def.emoji}</div>
+                  <div style={{ fontWeight: 600 }}>{def.name}s</div>
+                  <div style={{ fontSize: "0.6rem", color: "var(--muted)" }}>
+                    {!seasonOk ? `S${def.unlockSeason}` : `${animalCount} owned`}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          {!canAfford && (
+            <div style={{ fontSize: "0.65rem", color: "#ef4444", marginTop: "0.4rem" }}>
+              Need ${BARN_WORKER_HIRE_COST} cash (have ${Math.floor(game.cash ?? 0)})
+            </div>
+          )}
+        </div>
+      )}
+ 
+      {/* Worker cards */}
+      {barnWorkers.length > 0 && (
+        <div style={{ padding: "0.65rem 0.85rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+          {barnWorkers.map((w, idx) => (
+            <BarnWorkerCard
+              key={w.id}
+              worker={w}
+              game={game}
+              index={idx}
+              onFire={onFireBarnWorker}
+              onReassign={onReassignBarnWorker}
+            />
+          ))}
+        </div>
+      )}
+ 
+      {barnWorkers.length === 0 && !showHire && (
+        <div style={{ padding: "0.5rem 0.85rem 0.65rem", fontSize: "0.72rem", color: "var(--muted)" }}>
+          No farmhands hired. They auto-collect produce and keep animals happy.
+        </div>
+      )}
+    </div>
+  );
+}
+ 
+export default function BarnZone({ game, onBuyAnimal, onCollectAnimal, onCollectAll, onInteractAnimal, onBuyPet, onInteractPet, onHireBarnWorker, onFireBarnWorker, onReassignBarnWorker }) {
   const [subTab, setSubTab] = useState("barn");
  
   const totalAnimalFood = Object.entries(game.animals ?? {}).reduce((sum, [id, arr]) => {
@@ -351,6 +587,12 @@ export default function BarnZone({ game, onBuyAnimal, onCollectAnimal, onCollect
  
       {subTab === "barn" && (
         <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
+          <BarnWorkersSection
+            game={game}
+            onHireBarnWorker={onHireBarnWorker}
+            onFireBarnWorker={onFireBarnWorker}
+            onReassignBarnWorker={onReassignBarnWorker}
+          />
           {(() => {
             const totalReady = Object.values(game.animals ?? {}).reduce((s, arr) => s + arr.filter(a => a.ready).length, 0);
             return totalReady > 1 ? (

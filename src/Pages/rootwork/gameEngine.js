@@ -972,10 +972,7 @@ export function tick(state) {
       } else {
         if (!next.animalGoods) next.animalGoods = {};
         next.animalGoods[recipe.outputGood] = (next.animalGoods[recipe.outputGood] ?? 0) + produced;
-        if (recipe.outputGood === 'fish_meal') {
-          if (!next.fishMealStacks) next.fishMealStacks = [];
-          for (let i = 0; i < produced; i++) next.fishMealStacks.push({ bonus: 10, secondsLeft: 600 });
-        }
+        
       }
       // Stats
       next.stats.kitchenGoods[recipe.outputGood] = pushStat(next.stats.kitchenGoods[recipe.outputGood], produced, now);
@@ -1519,8 +1516,64 @@ export function fireKitchenWorker(state, workerId) {
   next.kitchenWorkers = next.kitchenWorkers.filter((w) => w.id !== workerId);
   return next;
 }
+
+export function applyFishMeal(state) {
+  const have = Math.floor(state.animalGoods?.fish_meal ?? 0);
+  if (have < 1) return state;
+  const next = deepCloneState(state);
+  next.animalGoods.fish_meal = have - 1;
+  if (!next.fishMealStacks) next.fishMealStacks = [];
+  const MAX_SECONDS = 4 * 60 * 60; // 4 hours
+  const PER_DOSE = 600; // 10 minutes
+  // Find existing active stack or create one
+  const existing = next.fishMealStacks.find((s) => s.bonus === 10);
+  if (existing) {
+    existing.secondsLeft = Math.min(existing.secondsLeft + PER_DOSE, MAX_SECONDS);
+  } else {
+    next.fishMealStacks.push({ bonus: 10, secondsLeft: PER_DOSE });
+  }
+  return next;
+}
  
 // ─── Feast ────────────────────────────────────────────────────────────────────
+ 
+ 
+// ─── Barn worker actions ──────────────────────────────────────────────
+ 
+export const BARN_WORKER_HIRE_COST = 150;
+export const BARN_WORKER_MAX = 3;
+ 
+export function hireBarnWorker(state, animalType) {
+  if (!ANIMAL_TYPES[animalType]) return state;
+  if (isAtWorkerCap(state)) return state;
+  if ((state.barnWorkers ?? []).length >= BARN_WORKER_MAX) return state;
+  if ((state.cash ?? 0) < BARN_WORKER_HIRE_COST) return state;
+  const next = deepCloneState(state);
+  next.cash -= BARN_WORKER_HIRE_COST;
+  next.barnWorkers = [...(next.barnWorkers ?? []), {
+    id: genId("bw"),
+    animalType,
+    interactCooldown: 0,
+    hiredAt: Date.now(),
+  }];
+  return next;
+}
+ 
+export function fireBarnWorker(state, workerId) {
+  const next = deepCloneState(state);
+  next.barnWorkers = (next.barnWorkers ?? []).filter((w) => w.id !== workerId);
+  return next;
+}
+ 
+export function reassignBarnWorker(state, workerId, animalType) {
+  if (!ANIMAL_TYPES[animalType]) return state;
+  const next = deepCloneState(state);
+  const worker = (next.barnWorkers ?? []).find((w) => w.id === workerId);
+  if (!worker) return state;
+  worker.animalType = animalType;
+  worker.interactCooldown = 0;
+  return next;
+}
  
 export function buyFeast(state) {
   const next = deepCloneState(state);
@@ -1956,6 +2009,7 @@ export function deserializeState(raw) {
     if (!parsed.animalGoods) parsed.animalGoods = { egg: 0, milk: 0, wool: 0 };
     if (!parsed.bait) parsed.bait = { wheat_bait: 0, berry_bait: 0, tomato_bait: 0 };
     if (!parsed.fishMealStacks) parsed.fishMealStacks = [];
+    if (!parsed.barnWorkers) parsed.barnWorkers = [];
     if (parsed.kitchenWorkers) {
       for (const w of parsed.kitchenWorkers) {
         if (w.autoRestartEnabled === undefined) w.autoRestartEnabled = true;

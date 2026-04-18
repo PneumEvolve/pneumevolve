@@ -8,6 +8,7 @@ export default function AnimalsZone({
   onBuyPond, onUpgradeRod, onBuyTrap, onCatchFish, onApplyGoldenBonus,
   onBuyAnimal, onCollectAnimal, onCollectAll, onInteractAnimal,
   onBuyPet, onInteractPet,
+  onHireBarnWorker, onFireBarnWorker, onReassignBarnWorker,
 }) {
   const [subTab, setSubTab] = useState("pond");
  
@@ -74,6 +75,9 @@ export default function AnimalsZone({
           onInteractAnimal={onInteractAnimal}
           onBuyPet={onBuyPet}
           onInteractPet={onInteractPet}
+          onHireBarnWorker={onHireBarnWorker}
+          onFireBarnWorker={onFireBarnWorker}
+          onReassignBarnWorker={onReassignBarnWorker}
         />
       )}
  
