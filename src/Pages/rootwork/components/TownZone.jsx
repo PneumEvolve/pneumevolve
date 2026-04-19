@@ -135,6 +135,47 @@ function ResearchBar({ progress, total }) {
     </div>
   );
 }
+
+function CollapsibleCard({ title, subtitle, defaultOpen = true, right, children }) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  return (
+    <div className="card" style={{ marginBottom: "1rem", overflow: "hidden" }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "0.75rem",
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          padding: "0.95rem 1rem",
+          textAlign: "left",
+          color: "var(--text)",
+        }}
+      >
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontSize: "0.86rem", fontWeight: 700 }}>{title}</div>
+          {subtitle && (
+            <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginTop: "0.2rem" }}>
+              {subtitle}
+            </div>
+          )}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexShrink: 0 }}>
+          {right ? <div>{right}</div> : null}
+          <span style={{ fontSize: "0.72rem", color: "var(--muted)", fontWeight: 700 }}>
+            {open ? "▲" : "▼"}
+          </span>
+        </div>
+      </button>
+      {open && <div style={{ padding: "0 1rem 1rem" }}>{children}</div>}
+    </div>
+  );
+}
  
 export default function TownZone({
   game,
@@ -326,6 +367,27 @@ export default function TownZone({
         <p style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: "0.15rem" }}>Feed your town to grow population. All town purchases use the treasury.</p>
       </div>
  
+      <div className="card p-4" style={{ marginBottom: "1rem" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "0.6rem" }}>
+          <div style={{ background: "var(--bg)", borderRadius: "10px", padding: "0.7rem" }}>
+            <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginBottom: "0.2rem" }}>Overview</div>
+            <div style={{ fontSize: "0.82rem", fontWeight: 700 }}>Town Hall {thLevel}/{TOWN_HALL_MAX_LEVEL}</div>
+            <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginTop: "0.15rem" }}>
+              Treasury ${Math.floor(treasury).toLocaleString()} · {freePeople} free people
+            </div>
+          </div>
+          <div style={{ background: "var(--bg)", borderRadius: "10px", padding: "0.7rem" }}>
+            <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginBottom: "0.2rem" }}>Buildings</div>
+            <div style={{ fontSize: "0.82rem", fontWeight: 700 }}>
+              {[clinicBuilt, schoolBuilt, tavernBuilt, restaurantBuilt, clothierBuilt].filter(Boolean).length} civic · {[bakeryLevel >= 1, jamOwned, sauceOwned, bankBuilt].filter(Boolean).length} utility
+            </div>
+            <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginTop: "0.15rem" }}>
+              {activeSchoolResearch ? `${activeSchoolResearch.emoji} ${activeSchoolResearch.name}` : schoolBuilt ? "No active research" : "School locked"}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Stats row */}
       <div className="card p-4" style={{ marginBottom: "1rem" }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem", marginBottom: "0.75rem" }}>
@@ -364,6 +426,12 @@ export default function TownZone({
         ))}
       </div>
  
+      <CollapsibleCard
+        title="🏛️ Core systems"
+        subtitle="Treasury, Town Hall, and Bank"
+        defaultOpen={true}
+        right={<span style={{ fontSize: "0.66rem", color: "#4ade80", fontWeight: 700 }}>${Math.floor(treasury).toLocaleString()}</span>}
+      >
       {/* Treasury */}
 <div className="card p-4" style={{ marginBottom: "1rem" }}>
   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" }}>
@@ -560,6 +628,14 @@ export default function TownZone({
         </div>
       </div>
  
+      </CollapsibleCard>
+
+      <CollapsibleCard
+        title="🍞 Food & housing"
+        subtitle="Pulse costs, stock, and homes"
+        defaultOpen={true}
+        right={<span style={{ fontSize: "0.66rem", color: starving ? "#ef4444" : "#4ade80", fontWeight: 700 }}>{starving ? "Hungry" : "Fed"}</span>}
+      >
       {/* Build Homes */}
       <div className="card p-4" style={{ marginBottom: "1rem" }}>
         <div style={{ fontWeight: 600, marginBottom: "0.3rem" }}>🏠 Build Homes</div>
@@ -574,6 +650,14 @@ export default function TownZone({
         </div>
       </div>
  
+      </CollapsibleCard>
+
+      <CollapsibleCard
+        title="🏭 Production buildings"
+        subtitle="Bakery, Pantry, and Cannery"
+        defaultOpen={false}
+        right={<span style={{ fontSize: "0.66rem", color: "var(--muted)", fontWeight: 700 }}>{[bakeryLevel >= 1, jamOwned, sauceOwned].filter(Boolean).length}/3 built</span>}
+      >
       {/* Bakery */}
       <div className="card p-4" style={{ marginBottom: "1rem", opacity: thLevel >= 1 ? 1 : 0.4 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" }}>
@@ -696,6 +780,14 @@ export default function TownZone({
         )}
       </div>
  
+      </CollapsibleCard>
+ 
+      <CollapsibleCard
+        title="🏗️ Town buildings"
+        subtitle="Clinic, School, Tavern, Restaurant, and Clothier"
+        defaultOpen={false}
+        right={<span style={{ fontSize: "0.66rem", color: freePeople > 0 ? "#4ade80" : "#f59e0b", fontWeight: 700 }}>{freePeople} free</span>}
+      >
       {/* ── NEW TOWN BUILDINGS ──────────────────────────────────────── */}
  
       {/* Free people indicator */}
@@ -1083,8 +1175,15 @@ export default function TownZone({
         )}
       </div>
  
+      </CollapsibleCard>
+
+      <CollapsibleCard
+        title="📘 How Town Works"
+        subtitle="Quick reference"
+        defaultOpen={false}
+      >
       {/* How it works */}
-      <div className="card p-4">
+      <div className="card p-4" style={{ marginBottom: 0 }}>
         <div style={{ fontWeight: 600, marginBottom: "0.3rem" }}>📘 How Town Works</div>
         <div style={{ fontSize: "0.72rem", color: "var(--muted)", lineHeight: 1.8 }}>
           <div>• <strong style={{ color: "var(--text)" }}>Treasury</strong> fills from your cash at your chosen drain rate. All town buildings are paid from it. Carries over on prestige.</div>
@@ -1096,6 +1195,7 @@ export default function TownZone({
           <div>• <strong style={{ color: "var(--text)" }}>Satisfaction</strong> multiplies all worker speed. Floor 25%, ceiling 150%.</div>
         </div>
       </div>
+      </CollapsibleCard>
       </div>
       )}
     </div>
