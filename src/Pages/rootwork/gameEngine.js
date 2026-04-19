@@ -593,9 +593,9 @@ function _startKitchenWorkerRecipe(worker, recipeId, crops, animalGoods, fish) {
   if (!recipe?.inputCrop) return false;
   const batch = getKitchenWorkerBatchSize(worker);
   const totalInput = recipe.inputAmount * batch;
-  const inCrops = recipe.inputCrop in (crops ?? {});
-  const inAnimal = recipe.inputCrop in (animalGoods ?? {});
-  const inFish = recipe.inputCrop in (fish ?? {});
+  const inCrops = (crops?.[recipe.inputCrop] ?? -1) >= 0;
+const inAnimal = (animalGoods?.[recipe.inputCrop] ?? -1) >= 0;
+const inFish = (fish?.[recipe.inputCrop] ?? -1) >= 0;
   const have = inCrops ? (crops[recipe.inputCrop] ?? 0)
     : inAnimal ? (animalGoods[recipe.inputCrop] ?? 0)
     : inFish ? (fish[recipe.inputCrop] ?? 0) : 0;
@@ -741,6 +741,7 @@ export function createInitialState() {
     workers: [],
     crops: { wheat: 5, berries: 0, tomatoes: 0 },
     artisan: { bread: 0, jam: 0, sauce: 0 },
+
     kitchenWorkers: [],
     marketWorkers: [],
     cash: 0,
@@ -772,7 +773,7 @@ export function createInitialState() {
     },
     animals: { chicken: [], cow: [], sheep: [] },
     pets: {},
-    animalGoods: { egg: 0, milk: 0, wool: 0 },
+    animalGoods: { egg: 0, milk: 0, wool: 0, omelette: 0, cheese: 0, knitted_goods: 0, fish_pie: 0, smoked_fish: 0, fish_meal: 0 },
     bait: { wheat_bait: 0, berry_bait: 0, tomato_bait: 0 },
     fishMealStacks: [],
     barnWorkers: [],
@@ -2373,7 +2374,14 @@ export function deserializeState(raw) {
     if (!parsed.pond) parsed.pond = null;
     if (!parsed.animals) parsed.animals = { chicken: [], cow: [], sheep: [] };
     if (!parsed.pets) parsed.pets = {};
-    if (!parsed.animalGoods) parsed.animalGoods = { egg: 0, milk: 0, wool: 0 };
+    if (!parsed.animalGoods) parsed.animalGoods = {};
+const allAnimalGoods = ["egg", "milk", "wool", "omelette", "cheese", "knitted_goods", "fish_pie", "smoked_fish", "fish_meal"];
+for (const key of allAnimalGoods) {
+  if (parsed.animalGoods[key] === undefined) parsed.animalGoods[key] = 0;
+}
+    if (parsed.animalGoods.egg === undefined) parsed.animalGoods.egg = 0;
+    if (parsed.animalGoods.milk === undefined) parsed.animalGoods.milk = 0;
+    if (parsed.animalGoods.wool === undefined) parsed.animalGoods.wool = 0;
     if (!parsed.bait) parsed.bait = { wheat_bait: 0, berry_bait: 0, tomato_bait: 0 };
     if (!parsed.fishMealStacks) parsed.fishMealStacks = [];
     if (!parsed.barnWorkers) parsed.barnWorkers = [];
