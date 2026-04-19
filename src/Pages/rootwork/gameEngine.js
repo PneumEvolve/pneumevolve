@@ -325,8 +325,16 @@ export function getSmartSellAmount(state, itemType) {
   const bakeryOn = state.town?.bakeryOn === true && (state.town?.bakeryLevel ?? 0) >= 1;
   const foodItem = bakeryOn ? "bread" : "wheat";
   if (itemType !== foodItem) {
-    const isCrop = itemType in (state.crops ?? {});
-    return isCrop ? Math.floor(state.crops[itemType] ?? 0) : Math.floor(state.artisan[itemType] ?? 0);
+    const isAnimal = itemType in (state.animalGoods ?? {});
+    const isFish = !isAnimal && state.fishing?.fish && itemType in state.fishing.fish;
+    const isCrop = !isAnimal && !isFish && itemType in (state.crops ?? {});
+    return isAnimal
+      ? Math.floor(state.animalGoods[itemType] ?? 0)
+      : isFish
+      ? Math.floor(state.fishing.fish[itemType] ?? 0)
+      : isCrop
+      ? Math.floor(state.crops[itemType] ?? 0)
+      : Math.floor(state.artisan[itemType] ?? 0);
   }
   const reserve = getTownFoodReserve(state);
   const have = itemType === "wheat"
@@ -1351,9 +1359,15 @@ function fireLastHiredWorker(state) {
     if (worker?.busy && worker.recipeId) {
       const recipe = PROCESSING_RECIPES[worker.recipeId];
       if (recipe?.inputCrop) {
-        state.crops[recipe.inputCrop] = (state.crops[recipe.inputCrop] ?? 0) + Math.floor(recipe.inputAmount * (worker.batchSize ?? 1) * 0.5);
-      }
-    }
+  const refund = Math.floor(recipe.inputAmount * (worker.batchSize ?? 1) * 0.5);
+  if (recipe.inputCrop in (state.crops ?? {})) {
+    state.crops[recipe.inputCrop] = (state.crops[recipe.inputCrop] ?? 0) + refund;
+  } else if (recipe.inputCrop in (state.animalGoods ?? {})) {
+    state.animalGoods[recipe.inputCrop] = (state.animalGoods[recipe.inputCrop] ?? 0) + refund;
+  } else if (state.fishing?.fish && recipe.inputCrop in state.fishing.fish) {
+    state.fishing.fish[recipe.inputCrop] = (state.fishing.fish[recipe.inputCrop] ?? 0) + refund;
+  }
+}
     state.kitchenWorkers = state.kitchenWorkers.filter((w) => w.id !== toFire.id);
   } else if (toFire.type === "market") {
     const worker = state.marketWorkers.find((w) => w.id === toFire.id);
@@ -1778,7 +1792,16 @@ export function fireKitchenWorker(state, workerId) {
   if (worker.busy && worker.recipeId) {
     const recipe = PROCESSING_RECIPES[worker.recipeId] ?? BAIT_RECIPES[worker.recipeId];
     if (recipe?.inputCrop) next.crops[recipe.inputCrop] = (next.crops[recipe.inputCrop] ?? 0) + Math.floor(recipe.inputAmount * 0.5);
+  }if (recipe?.inputCrop) {
+  const refund = Math.floor(recipe.inputAmount * (worker.batchSize ?? 1) * 0.5);
+  if (recipe.inputCrop in (next.crops ?? {})) {
+    next.crops[recipe.inputCrop] = (next.crops[recipe.inputCrop] ?? 0) + refund;
+  } else if (recipe.inputCrop in (next.animalGoods ?? {})) {
+    next.animalGoods[recipe.inputCrop] = (next.animalGoods[recipe.inputCrop] ?? 0) + refund;
+  } else if (next.fishing?.fish && recipe.inputCrop in next.fishing.fish) {
+    next.fishing.fish[recipe.inputCrop] = (next.fishing.fish[recipe.inputCrop] ?? 0) + refund;
   }
+}
   next.kitchenWorkers = next.kitchenWorkers.filter((w) => w.id !== workerId);
   return next;
 }
@@ -2390,6 +2413,13 @@ for (const key of allAnimalGoods) {
         if (w.autoRestartEnabled === undefined) w.autoRestartEnabled = true;
       }
     }
+
+    // In deserializeState, after the animalGoods block:
+if ((parsed.crops?.egg ?? 0) > 0) {
+  parsed.animalGoods.egg = (parsed.animalGoods.egg ?? 0) + parsed.crops.egg;
+  delete parsed.crops.egg;
+}
+
     // Migrate animals to stock-based system
 for (const animalId of Object.keys(parsed.animals ?? {})) {
   for (const animal of parsed.animals[animalId]) {
