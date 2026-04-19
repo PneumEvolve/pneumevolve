@@ -12,7 +12,7 @@ import {
   getBarnBuilding, getBarnBuildingTierData,
   getBarnBuildingAnimalSlots, getBarnBuildingWorkerSlots,
   canBuildBarnBuilding, canUpgradeBarnBuilding,
-  getAvailableWorkerSlots, isTownBuildingBuilt,
+  getAvailableWorkerSlots, isTownBuildingBuilt, hasSchoolResearch,
 } from "../gameEngine";
  
 const ANIMAL_DEFS = {
@@ -299,28 +299,83 @@ function AnimalCard({ animal, animalType, index, game, onCollect, onInteract, on
  
 function BarnWorkerUpgradeTree({ label, upgradeIds, worker, game, onUpgrade }) {
   const upgrades = worker.upgrades ?? [];
-  const schoolBuilt = isTownBuildingBuilt(game, "school");
-  const SCHOOL_GATED = ["capacity_2", "care_2"];
+
   return (
     <div>
-      <div style={{ fontSize: "0.62rem", fontWeight: 600, color: "var(--muted)", marginBottom: "0.25rem" }}>{label}</div>
+      <div style={{ fontSize: "0.62rem", fontWeight: 600, color: "var(--muted)", marginBottom: "0.25rem" }}>
+        {label}
+      </div>
+
       <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
         {upgradeIds.map((uid) => {
           const u = BARN_WORKER_UPGRADES[uid];
           const owned = upgrades.includes(uid);
           const requiresMet = !u.requires || upgrades.includes(u.requires);
-          const schoolLocked = SCHOOL_GATED.includes(uid) && !schoolBuilt;
+
+          const researchLocked =
+            (uid === "capacity_2" && !hasSchoolResearch(game, "barn_capacity_2")) ||
+            (uid === "care_2" && !hasSchoolResearch(game, "barn_care_2"));
+
           const canAfford = (game.cash ?? 0) >= u.cost;
-          const canBuy = !owned && requiresMet && canAfford && !schoolLocked;
+          const canBuy = !owned && requiresMet && canAfford && !researchLocked;
           const locked = !owned && !requiresMet;
+
           return (
-            <div key={uid} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.28rem 0.45rem", borderRadius: "6px", background: owned ? "rgba(74,222,128,0.08)" : "var(--bg)", border: `1px solid ${owned ? "rgba(74,222,128,0.3)" : schoolLocked && requiresMet ? "rgba(167,139,250,0.3)" : "var(--border)"}`, opacity: locked ? 0.4 : 1 }}>
+            <div
+              key={uid}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "0.28rem 0.45rem",
+                borderRadius: "6px",
+                background: owned ? "rgba(74,222,128,0.08)" : "var(--bg)",
+                border: `1px solid ${
+                  owned
+                    ? "rgba(74,222,128,0.3)"
+                    : researchLocked && requiresMet
+                    ? "rgba(167,139,250,0.3)"
+                    : "var(--border)"
+                }`,
+                opacity: locked ? 0.4 : 1,
+              }}
+            >
               <div style={{ fontSize: "0.68rem" }}>
-                <span style={{ fontWeight: 600, color: owned ? "#4ade80" : schoolLocked && requiresMet ? "#a78bfa" : "var(--text)" }}>{owned ? "✓" : schoolLocked && requiresMet ? "🏫" : locked ? "🔒" : u.emoji} {u.name}</span>
-                <span style={{ marginLeft: "0.35rem", fontSize: "0.62rem", color: "var(--muted)" }}>{schoolLocked && requiresMet ? "Requires School" : u.description}</span>
+                <span
+                  style={{
+                    fontWeight: 600,
+                    color: owned
+                      ? "#4ade80"
+                      : researchLocked && requiresMet
+                      ? "#a78bfa"
+                      : "var(--text)",
+                  }}
+                >
+                  {owned ? "✓" : researchLocked && requiresMet ? "🏫" : locked ? "🔒" : u.emoji} {u.name}
+                </span>
+
+                <span style={{ marginLeft: "0.35rem", fontSize: "0.62rem", color: "var(--muted)" }}>
+                  {researchLocked && requiresMet
+                    ? "Requires School Research"
+                    : u.description}
+                </span>
               </div>
-              {!owned && !schoolLocked && (
-                <button onClick={() => canBuy && onUpgrade(worker.id, uid)} disabled={!canBuy} className="btn btn-secondary" style={{ fontSize: "0.62rem", padding: "0.15rem 0.4rem", marginLeft: "0.4rem", flexShrink: 0, opacity: canBuy ? 1 : 0.5 }}>${u.cost}</button>
+
+              {!owned && !researchLocked && (
+                <button
+                  onClick={() => canBuy && onUpgrade(worker.id, uid)}
+                  disabled={!canBuy}
+                  className="btn btn-secondary"
+                  style={{
+                    fontSize: "0.62rem",
+                    padding: "0.15rem 0.4rem",
+                    marginLeft: "0.4rem",
+                    flexShrink: 0,
+                    opacity: canBuy ? 1 : 0.5,
+                  }}
+                >
+                  ${u.cost}
+                </button>
               )}
             </div>
           );

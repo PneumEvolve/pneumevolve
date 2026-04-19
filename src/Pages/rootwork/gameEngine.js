@@ -2345,15 +2345,18 @@ export function upgradeBarnWorker(state, workerId, upgradeId) {
   const next = deepCloneState(state);
   const worker = (next.barnWorkers ?? []).find((w) => w.id === workerId);
   if (!worker) return state;
+
   const upgrade = BARN_WORKER_UPGRADES[upgradeId];
   if (!upgrade) return state;
+
   if ((worker.upgrades ?? []).includes(upgradeId)) return state;
   if (upgrade.requires && !(worker.upgrades ?? []).includes(upgrade.requires)) return state;
   if ((next.cash ?? 0) < upgrade.cost) return state;
-  // School gate: tier-2 barn upgrades require the school
+
+  // Research gates for tier-2 barn upgrades
   if (upgradeId === "capacity_2" && !hasSchoolResearch(state, "barn_capacity_2")) return state;
   if (upgradeId === "care_2" && !hasSchoolResearch(state, "barn_care_2")) return state;
-  if (schoolGated.includes(upgradeId) && !isTownBuildingBuilt(state, "school")) return state;
+
   next.cash -= upgrade.cost;
   worker.upgrades = [...(worker.upgrades ?? []), upgradeId];
   return next;
