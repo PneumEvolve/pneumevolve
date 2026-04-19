@@ -9,7 +9,7 @@ export default function AnimalsZone({
   onBuyAnimal, onCollectAnimal, onCollectAll, onInteractAnimal,
   onBuyPet, onInteractPet,
   onHireBarnWorker, onFireBarnWorker, onReassignBarnWorker,
-  onUpgradeBarnWorker, onUpgradeAnimalStorage,
+  onUpgradeBarnWorker, onUpgradeAnimalStorage, onUpgradeAnimalYield,
   onUnlockFishingBody, onSetFishingActiveBody,
   onHireFishingWorker, onFireFishingWorker,
   onUpgradeFishingWorker, onSetFishingWorkerBait,
@@ -84,6 +84,7 @@ export default function AnimalsZone({
           onReassignBarnWorker={onReassignBarnWorker}
           onUpgradeBarnWorker={onUpgradeBarnWorker}
           onUpgradeAnimalStorage={onUpgradeAnimalStorage}
+          onUpgradeAnimalYield={onUpgradeAnimalYield}
         />
       )}
     </div>

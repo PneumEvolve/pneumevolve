@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import {
   BARN_WORKER_UPGRADES, ANIMAL_STORAGE_UPGRADES,
-  BARN_WORKER_BASE_INTERVAL, ANIMAL_BASE_STOCK_MAX,
+  BARN_WORKER_BASE_INTERVAL, ANIMAL_BASE_STOCK_MAX, ANIMAL_YIELD_UPGRADES
 } from "../gameConstants";
 import {
   getBarnWorkerHireCost, getBarnWorkerInterval,
@@ -45,7 +45,7 @@ function getAnimalCost(animalId, owned) {
 
 // ─── Animal card ──────────────────────────────────────────────────────────────
 
-function AnimalCard({ animal, animalType, index, game, onCollect, onInteract, onUpgradeStorage }) {
+function AnimalCard({ animal, animalType, index, game, onCollect, onInteract, onUpgradeStorage, onUpgradeYield }) {
   const [showUpgrades, setShowUpgrades] = useState(false);
   const mood = animal.mood ?? 100;
   const stock = animal.stock ?? 0;
@@ -178,6 +178,8 @@ function AnimalCard({ animal, animalType, index, game, onCollect, onInteract, on
       {/* Storage upgrades */}
       {showUpgrades && (
         <div style={{ marginTop: "0.5rem", borderTop: "1px solid var(--border)", paddingTop: "0.5rem" }}>
+          
+          {/* Storage */}
           <div style={{ fontSize: "0.65rem", fontWeight: 600, color: "var(--muted)", marginBottom: "0.35rem" }}>
             📦 Storage Upgrades
           </div>
@@ -214,15 +216,54 @@ function AnimalCard({ animal, animalType, index, game, onCollect, onInteract, on
               </div>
             );
           })}
+
+          {/* Yield */}
+          <div style={{ fontSize: "0.65rem", fontWeight: 600, color: "var(--muted)", marginBottom: "0.35rem", marginTop: "0.5rem" }}>
+            🥚 Yield Upgrades
+          </div>
+          {ANIMAL_YIELD_UPGRADES.map((upgrade) => {
+            const owned = (animal.yieldLevel ?? 0) >= upgrade.level;
+            const isNext = (animal.yieldLevel ?? 0) === upgrade.level - 1;
+            const canAfford = (game.cash ?? 0) >= upgrade.cost;
+            return (
+              <div key={upgrade.level} style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "0.3rem 0.45rem", borderRadius: "6px", marginBottom: "0.25rem",
+                background: owned ? "rgba(74,222,128,0.08)" : "var(--bg)",
+                border: `1px solid ${owned ? "rgba(74,222,128,0.3)" : "var(--border)"}`,
+                opacity: !owned && !isNext ? 0.4 : 1,
+              }}>
+                <div style={{ fontSize: "0.68rem" }}>
+                  <span style={{ fontWeight: 600, color: owned ? "#4ade80" : "var(--text)" }}>
+                    {owned ? "✓" : "🥚"} {upgrade.label}
+                  </span>
+                  <span style={{ marginLeft: "0.35rem", fontSize: "0.62rem", color: "var(--muted)" }}>
+                    +{upgrade.bonusYield} per lay
+                  </span>
+                </div>
+                {!owned && isNext && (
+                  <button
+                    onClick={() => canAfford && onUpgradeYield(animal.id)}
+                    disabled={!canAfford}
+                    className="btn btn-secondary"
+                    style={{ fontSize: "0.62rem", padding: "0.15rem 0.4rem", opacity: canAfford ? 1 : 0.5 }}
+                  >
+                    ${upgrade.cost}
+                   </button>
+                )}
+              </div>
+            );
+          })}
+
         </div>
       )}
+
     </div>
   );
-}
-
+}       
 // ─── Animal section ───────────────────────────────────────────────────────────
 
-function AnimalSection({ animalId, game, onBuyAnimal, onCollect, onInteract, onUpgradeStorage }) {
+function AnimalSection({ animalId, game, onBuyAnimal, onCollect, onInteract, onUpgradeStorage, onUpgradeYield }) {
   const [open, setOpen] = useState(true);
   const type = ANIMAL_DEFS[animalId];
   const owned = game.animals?.[animalId] ?? [];
@@ -312,6 +353,7 @@ function AnimalSection({ animalId, game, onBuyAnimal, onCollect, onInteract, onU
                   onCollect={(instanceId) => onCollect(animalId, instanceId)}
                   onInteract={(instanceId) => onInteract(animalId, instanceId)}
                   onUpgradeStorage={(instanceId) => onUpgradeStorage(animalId, instanceId)}
+                  onUpgradeYield={(instanceId) => onUpgradeYield(animalId, instanceId)}
                 />
               ))}
               <div style={{
@@ -633,6 +675,7 @@ export default function BarnZone({
   game, onBuyAnimal, onCollectAnimal, onCollectAll, onInteractAnimal,
   onBuyPet, onInteractPet, onHireBarnWorker, onFireBarnWorker,
   onReassignBarnWorker, onUpgradeBarnWorker, onUpgradeAnimalStorage,
+  onUpgradeAnimalYield,
 }) {
   const [subTab, setSubTab] = useState("barn");
 
@@ -675,7 +718,7 @@ export default function BarnZone({
             <AnimalSection
               key={animalId} animalId={animalId} game={game}
               onBuyAnimal={onBuyAnimal} onCollect={onCollectAnimal}
-              onInteract={onInteractAnimal} onUpgradeStorage={onUpgradeAnimalStorage}
+              onInteract={onInteractAnimal} onUpgradeStorage={onUpgradeAnimalStorage} onUpgradeYield={onUpgradeAnimalYield}
             />
           ))}
           <div style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: "10px", padding: "0.65rem 0.85rem" }}>

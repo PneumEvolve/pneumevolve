@@ -42,7 +42,7 @@ ANIMAL_BASE_STOCK_MAX, ANIMAL_OVERFULL_MOOD_DRAIN, ANIMAL_FOOD_COSTS, PET_FOOD_C
 PERSON_IDLE_FOOD_COST, PERSON_WORKING_FOOD_COST,
 FISHING_BODIES, FISHING_BODY_ORDER, FISHING_FISH,
 FISHING_CATCH_RATES, FISHING_BAIT_BONUS,
-FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL,
+FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, ANIMAL_YIELD_UPGRADES,
 } from "./gameConstants";
  
 let _idCounter = 0;
@@ -852,29 +852,29 @@ export function getBarnWorkerHireCost(state) {
 
 export function getBarnWorkerInterval(worker) {
   const upgrades = worker.upgrades ?? [];
-  if (upgrades.includes("speed_2")) return 10;
-  if (upgrades.includes("speed_1")) return 20;
-  return BARN_WORKER_BASE_INTERVAL;
+  if (upgrades.includes("speed_2")) return 20;
+  if (upgrades.includes("speed_1")) return 25;
+  return BARN_WORKER_BASE_INTERVAL; // 30
 }
 
 export function getBarnWorkerCapacity(worker) {
   const upgrades = worker.upgrades ?? [];
-  if (upgrades.includes("capacity_2")) return 6;
-  if (upgrades.includes("capacity_1")) return 3;
+  if (upgrades.includes("capacity_2")) return 3;
+  if (upgrades.includes("capacity_1")) return 2;
   return BARN_WORKER_BASE_CAPACITY;
 }
 
 export function getBarnWorkerCareInterval(worker) {
   const upgrades = worker.upgrades ?? [];
-  if (upgrades.includes("care_2")) return 45;
-  if (upgrades.includes("care_1")) return 60;
-  return null; // no care without upgrade
+  if (upgrades.includes("care_2")) return 60;
+  if (upgrades.includes("care_1")) return 90;
+  return null;
 }
 
 export function getBarnWorkerCareMood(worker) {
   const upgrades = worker.upgrades ?? [];
-  if (upgrades.includes("care_2")) return 25;
-  if (upgrades.includes("care_1")) return 15;
+  if (upgrades.includes("care_2")) return 35;
+  if (upgrades.includes("care_1")) return 20;
   return 0;
 }
 
@@ -888,6 +888,17 @@ export function getAnimalStorageUpgradeCost(animal) {
   const level = animal.storageLevel ?? 0;
   const next = ANIMAL_STORAGE_UPGRADES[level];
   return next ?? null;
+}
+
+export function getAnimalBonusYield(animal) {
+  const level = animal.yieldLevel ?? 0;
+  const upgrade = ANIMAL_YIELD_UPGRADES[level - 1];
+  return upgrade ? upgrade.bonusYield : 0;
+}
+
+export function getAnimalYieldUpgradeCost(animal) {
+  const level = animal.yieldLevel ?? 0;
+  return ANIMAL_YIELD_UPGRADES[level] ?? null;
 }
 
 // ─── Fishing helpers ──────────────────────────────────────────────────────────
@@ -1209,18 +1220,19 @@ if (activeTier) {
       if (!isFull) {
         animal.readyTick = (animal.readyTick ?? 0) + 1;
         if (animal.readyTick >= effectiveCycle) {
-          const mood = animal.mood ?? 100;
-          let produced = 1;
-          if (mood >= 80) {
-            const bonusChance = (mood - 80) / 20;
-            produced = 2 + (Math.random() < bonusChance ? 1 : 0);
-          } else {
-            const bonusChance = mood / 80;
-            produced = 1 + (Math.random() < bonusChance ? 1 : 0);
-          }
-          animal.stock = Math.min(stockMax, stock + produced);
-          animal.readyTick = 0;
-        }
+  const mood = animal.mood ?? 100;
+  const bonusYield = getAnimalBonusYield(animal);
+  let produced = 1 + bonusYield;
+  if (mood >= 80) {
+    const bonusChance = (mood - 80) / 20;
+    produced = 2 + bonusYield + (Math.random() < bonusChance ? 1 : 0);
+  } else {
+    const bonusChance = mood / 80;
+    produced = 1 + bonusYield + (Math.random() < bonusChance ? 1 : 0);
+  }
+  animal.stock = Math.min(stockMax, stock + produced);
+  animal.readyTick = 0;
+}
       }
 
       animal.ready = (animal.stock ?? 0) > 0;
@@ -1276,14 +1288,18 @@ if (activeTier) {
     }
 
     if (careInterval) {
-      worker.careTimer = (worker.careTimer ?? 0) + 1;
-      if (worker.careTimer >= careInterval) {
-        worker.careTimer = 0;
-        for (const animal of animals) {
-          animal.mood = Math.min(100, (animal.mood ?? 100) + careMood);
-        }
-      }
+  worker.careTimer = (worker.careTimer ?? 0) + 1;
+  if (worker.careTimer >= careInterval) {
+    worker.careTimer = 0;
+    // Find the single lowest-mood animal
+    const neediest = animals.reduce((lowest, animal) => {
+      return (animal.mood ?? 100) < (lowest?.mood ?? 100) ? animal : lowest;
+    }, null);
+    if (neediest) {
+      neediest.mood = Math.min(100, (neediest.mood ?? 100) + careMood);
     }
+  }
+}
   }
  
   // ── Pets ─────────────────────────────────────────────────────────────────
@@ -1845,6 +1861,19 @@ export function upgradeAnimalStorage(state, animalId, animalInstanceId) {
   return next;
 }
 
+export function upgradeAnimalYield(state, animalId, animalInstanceId) {
+  const next = deepCloneState(state);
+  const animals = next.animals?.[animalId] ?? [];
+  const animal = animals.find((a) => a.id === animalInstanceId);
+  if (!animal) return state;
+  const nextUpgrade = getAnimalYieldUpgradeCost(animal);
+  if (!nextUpgrade) return state;
+  if ((next.cash ?? 0) < nextUpgrade.cost) return state;
+  next.cash -= nextUpgrade.cost;
+  animal.yieldLevel = (animal.yieldLevel ?? 0) + 1;
+  return next;
+}
+
 export function buyFeast(state) {
   const next = deepCloneState(state);
   const tier = FEAST_TIERS[next.feastTierIndex ?? 0];
@@ -2347,6 +2376,7 @@ for (const animalId of Object.keys(parsed.animals ?? {})) {
   for (const animal of parsed.animals[animalId]) {
     if (animal.stock === undefined) animal.stock = animal.ready ? 1 : 0;
     if (animal.storageLevel === undefined) animal.storageLevel = 0;
+    if (animal.yieldLevel === undefined) animal.yieldLevel = 0;
     if (animal.missedFoodPulses === undefined) animal.missedFoodPulses = 0;
   }
 }

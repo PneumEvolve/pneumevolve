@@ -21,7 +21,7 @@ import {
   upgradeFishingWorker, setFishingWorkerBait,
   buyAnimal, collectAnimal, collectAllAnimals, interactAnimal, buyPet, interactPet, toggleKitchenWorkerAutoRestart,
   hireBarnWorker, fireBarnWorker, reassignBarnWorker, applyFishMeal, upgradeBarnWorker, upgradeAnimalStorage, getBarnWorkerHireCost,
-  hireFishingWorker, fireFishingWorker, setTreasuryCap,
+  hireFishingWorker, fireFishingWorker, setTreasuryCap, upgradeAnimalYield
 } from "./gameEngine";
 import {
   SAVE_KEY, SAVE_INTERVAL_MS, PRESTIGE_BONUSES,
@@ -371,6 +371,12 @@ const handleUpgradeAnimalStorage = useCallback((animalId, instanceId) => update(
   return n;
 }), [update, notify]);
 
+const handleUpgradeAnimalYield = useCallback((animalId, instanceId) => update((s) => {
+  const n = upgradeAnimalYield(s, animalId, instanceId);
+  if (n === s) notify("Not enough cash.");
+  return n;
+}), [update, notify]);
+
   // Feast / prestige / misc
   const handleBuyFeast = useCallback(() => { update((s) => { const n = buyFeast(s); if (n === s) notify("Not enough artisan goods."); return n; }); notify("🍽️ Feast held! Grow speed increased."); }, [update, notify]);
   const handlePrestigeComplete = useCallback((bonusId, workerIds) => { update((s) => beginPrestige(s, bonusId, workerIds)); setShowPrestigeModal(false); setActiveMainTab("farms"); setActiveFarmIndex(0); notify("🌱 New season begun!"); }, [update, notify]);
@@ -441,6 +447,7 @@ const handleUpgradeAnimalStorage = useCallback((animalId, instanceId) => update(
   onSetFishingWorkerBait={handleSetFishingWorkerBait}
   onHireFishingWorker={handleHireFishingWorker}
   onFireFishingWorker={handleFireFishingWorker}
+  onUpgradeAnimalYield={handleUpgradeAnimalYield}
 />
         )}
       </div>

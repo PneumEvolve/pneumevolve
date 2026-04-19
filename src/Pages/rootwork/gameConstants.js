@@ -141,16 +141,21 @@ export const KITCHEN_SLOT_UPGRADES = { speed_1: { speedMultiplier: 0.75 }, speed
 export const BARN_WORKER_HIRE_BASE_COST = 50;
 export const BARN_WORKER_HIRE_MULTIPLIER = 1.6;
 export const BARN_WORKER_UPGRADES = {
-  speed_1:    { id: "speed_1",    name: "Quick Rounds",  emoji: "⚡", cost: 150, description: "Collect every 20s",      requires: null,      tree: "speed" },
-  speed_2:    { id: "speed_2",    name: "Sprint Rounds", emoji: "⚡", cost: 300, description: "Collect every 10s",      requires: "speed_1", tree: "speed" },
-  capacity_1: { id: "capacity_1", name: "Big Basket",    emoji: "📦", cost: 200, description: "Collect 3 at once",      requires: null,      tree: "capacity" },
-  capacity_2: { id: "capacity_2", name: "Cargo Basket",  emoji: "📦", cost: 400, description: "Collect 6 at once",      requires: "capacity_1", tree: "capacity" },
-  care_1:     { id: "care_1",     name: "Gentle Hands",  emoji: "💝", cost: 150, description: "+15 mood every 60s",     requires: null,      tree: "care" },
-  care_2:     { id: "care_2",     name: "Animal Bond",   emoji: "💝", cost: 300, description: "+25 mood every 45s",     requires: "care_1",  tree: "care" },
+  speed_1:    { id: "speed_1",    name: "Quick Rounds",  emoji: "⚡", cost: 150, description: "Collect every 25s",     requires: null,         tree: "speed" },
+  speed_2:    { id: "speed_2",    name: "Sprint Rounds", emoji: "⚡", cost: 300, description: "Collect every 20s",     requires: "speed_1",    tree: "speed" },
+  capacity_1: { id: "capacity_1", name: "Big Basket",    emoji: "📦", cost: 200, description: "Collect 2 at once",     requires: null,         tree: "capacity" },
+  capacity_2: { id: "capacity_2", name: "Cargo Basket",  emoji: "📦", cost: 400, description: "Collect 3 at once",     requires: "capacity_1", tree: "capacity" },
+  care_1:     { id: "care_1",     name: "Gentle Hands",  emoji: "💝", cost: 150, description: "+20 mood to neediest animal every 90s",  requires: null,      tree: "care" },
+  care_2:     { id: "care_2",     name: "Animal Bond",   emoji: "💝", cost: 300, description: "+35 mood to neediest animal every 60s",  requires: "care_1",  tree: "care" },
 };
 export const ANIMAL_STORAGE_UPGRADES = [
   { level: 1, cost: 100, maxStock: 15, label: "Bigger Nest" },
   { level: 2, cost: 250, maxStock: 25, label: "Deluxe Nest" },
+];
+export const ANIMAL_YIELD_UPGRADES = [
+  { level: 1, cost: 150, bonusYield: 1, label: "Well Fed"    },
+  { level: 2, cost: 350, bonusYield: 2, label: "Pampered"    },
+  { level: 3, cost: 750, bonusYield: 3, label: "Prize Animal" },
 ];
 export const BARN_WORKER_BASE_INTERVAL = 30;  // seconds between collect actions
 export const BARN_WORKER_BASE_CAPACITY = 1;
