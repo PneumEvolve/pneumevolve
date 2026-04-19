@@ -1368,6 +1368,7 @@ function fireLastHiredWorker(state) {
     state.fishing.fish[recipe.inputCrop] = (state.fishing.fish[recipe.inputCrop] ?? 0) + refund;
   }
 }
+    }
     state.kitchenWorkers = state.kitchenWorkers.filter((w) => w.id !== toFire.id);
   } else if (toFire.type === "market") {
     const worker = state.marketWorkers.find((w) => w.id === toFire.id);
@@ -1766,7 +1767,16 @@ export function assignKitchenWorkerRecipe(state, workerId, recipeId) {
   if (worker.busy && worker.recipeId) {
     const recipe = PROCESSING_RECIPES[worker.recipeId] ?? BAIT_RECIPES[worker.recipeId];
     const batch = worker.batchSize ?? 1;
-    if (recipe?.inputCrop) next.crops[recipe.inputCrop] = (next.crops[recipe.inputCrop] ?? 0) + Math.floor(recipe.inputAmount * batch * 0.5);
+    if (recipe?.inputCrop) {
+      const refund = Math.floor(recipe.inputAmount * batch * 0.5);
+      if (recipe.inputCrop in (next.crops ?? {})) {
+        next.crops[recipe.inputCrop] = (next.crops[recipe.inputCrop] ?? 0) + refund;
+      } else if (recipe.inputCrop in (next.animalGoods ?? {})) {
+        next.animalGoods[recipe.inputCrop] = (next.animalGoods[recipe.inputCrop] ?? 0) + refund;
+      } else if (next.fishing?.fish && recipe.inputCrop in next.fishing.fish) {
+        next.fishing.fish[recipe.inputCrop] = (next.fishing.fish[recipe.inputCrop] ?? 0) + refund;
+      }
+    }
     worker.busy = false;
     worker.elapsedSeconds = 0;
     worker.batchSize = 1;
@@ -1791,17 +1801,17 @@ export function fireKitchenWorker(state, workerId) {
   if (!worker) return state;
   if (worker.busy && worker.recipeId) {
     const recipe = PROCESSING_RECIPES[worker.recipeId] ?? BAIT_RECIPES[worker.recipeId];
-    if (recipe?.inputCrop) next.crops[recipe.inputCrop] = (next.crops[recipe.inputCrop] ?? 0) + Math.floor(recipe.inputAmount * 0.5);
-  }if (recipe?.inputCrop) {
-  const refund = Math.floor(recipe.inputAmount * (worker.batchSize ?? 1) * 0.5);
-  if (recipe.inputCrop in (next.crops ?? {})) {
-    next.crops[recipe.inputCrop] = (next.crops[recipe.inputCrop] ?? 0) + refund;
-  } else if (recipe.inputCrop in (next.animalGoods ?? {})) {
-    next.animalGoods[recipe.inputCrop] = (next.animalGoods[recipe.inputCrop] ?? 0) + refund;
-  } else if (next.fishing?.fish && recipe.inputCrop in next.fishing.fish) {
-    next.fishing.fish[recipe.inputCrop] = (next.fishing.fish[recipe.inputCrop] ?? 0) + refund;
+    if (recipe?.inputCrop) {
+      const refund = Math.floor(recipe.inputAmount * (worker.batchSize ?? 1) * 0.5);
+      if (recipe.inputCrop in (next.crops ?? {})) {
+        next.crops[recipe.inputCrop] = (next.crops[recipe.inputCrop] ?? 0) + refund;
+      } else if (recipe.inputCrop in (next.animalGoods ?? {})) {
+        next.animalGoods[recipe.inputCrop] = (next.animalGoods[recipe.inputCrop] ?? 0) + refund;
+      } else if (next.fishing?.fish && recipe.inputCrop in next.fishing.fish) {
+        next.fishing.fish[recipe.inputCrop] = (next.fishing.fish[recipe.inputCrop] ?? 0) + refund;
+      }
+    }
   }
-}
   next.kitchenWorkers = next.kitchenWorkers.filter((w) => w.id !== workerId);
   return next;
 }
