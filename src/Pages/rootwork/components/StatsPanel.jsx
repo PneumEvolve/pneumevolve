@@ -5,6 +5,7 @@ import { CROPS, SEASON_FARMS, FIRST_EXTRA_FARM_SEASON } from "../gameConstants";
 import {
   getWorkerHarvestRate, getFarmAverageGrowTime, getStatPerMinute,
   getTreasuryGrowBonus, getBankPriceBonus, getSellRate, getFishMealGrowBonus,
+  getSchoolGrowBonus,
 } from "../gameEngine";
  
 function StatRow({ label, value, sub, valueColor }) {
@@ -27,7 +28,7 @@ function FarmStatsCard({ farm, game }) {
   const growTime = getFarmAverageGrowTime(
     farm, game.workers, farm.crop,
     game.feastBonusPercent ?? 0,
-    game.town?.growthBonusPercent ?? 0,
+    (game.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(game),
     getTreasuryGrowBonus(game),
     getFishMealGrowBonus(game)
   );
@@ -192,8 +193,10 @@ export default function StatsPanel({ game }) {
             const feast = game.feastBonusPercent ?? 0;
             const town = game.town?.growthBonusPercent ?? 0;
             const treasury = getTreasuryGrowBonus(game);
-            const total = feast + town + treasury;
-            return total > 0 ? `+${total}%` : "None";
+            const school = getSchoolGrowBonus(game);
+            const fishMeal = getFishMealGrowBonus(game);
+            const total = feast + town + treasury + school + fishMeal;
+            return total > 0 ? `+${total.toFixed(1)}%` : "None";
           })()
         } valueColor="#4ade80" />
         <StatRow label="Pulse interval" value={`${(() => {

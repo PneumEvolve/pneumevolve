@@ -9,7 +9,7 @@ import {
 import {
   isFarmPrestigeReady, getPrestigeBlockers, getNextFarmUnlockCost,
   getTownHallLevel, getEffectiveGrowTime, getWorkerHarvestRate,
-  getTreasuryGrowBonus, getFishMealGrowBonus,
+  getTreasuryGrowBonus, getFishMealGrowBonus, getSchoolGrowBonus,
 } from "../gameEngine";
  
 function FarmChecklist({ farm, game }) {
@@ -20,7 +20,7 @@ function FarmChecklist({ farm, game }) {
   const growTime = getEffectiveGrowTime(
     farm, game.workers, farm.crop, null,
     game.feastBonusPercent ?? 0,
-    game.town?.growthBonusPercent ?? 0,
+    (game.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(game),
     getTreasuryGrowBonus(game),
     getFishMealGrowBonus(game)
   );

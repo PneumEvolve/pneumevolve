@@ -30,16 +30,16 @@ export const MAX_PLOTS = 9;
  
 // ─── Farm investments ─────────────────────────────────────────────────────────
 export const FARM_INVESTMENT_PLOT_CAP = [
-  { id: "plots_4x4", name: "Expand to 4×4", maxPlots: 16, cost: 500,  description: "Unlock up to 16 plots on this farm." },
-  { id: "plots_5x5", name: "Expand to 5×5", maxPlots: 25, cost: 1200, description: "Unlock up to 25 plots on this farm." },
-  { id: "plots_6x6", name: "Expand to 6×6", maxPlots: 36, cost: 3000, description: "Unlock up to 36 plots on this farm." },
+  { id: "plots_4x4", name: "Expand to 4×4", maxPlots: 16, cost: 500,    description: "Unlock up to 16 plots on this farm." },
+  { id: "plots_5x5", name: "Expand to 5×5", maxPlots: 25, cost: 5000,   description: "Unlock up to 25 plots on this farm." },
+  { id: "plots_6x6", name: "Expand to 6×6", maxPlots: 36, cost: 20000,  description: "Unlock up to 36 plots on this farm." },
 ];
  
 export const FARM_INVESTMENT_YIELD = [
-  { id: "yield_1", name: "Fertilizer I",   bonusYield: 1, cost: 300,  description: "+1 crop per worker harvest." },
-  { id: "yield_2", name: "Fertilizer II",  bonusYield: 2, cost: 1500, description: "+2 crops per worker harvest." },
-  { id: "yield_3", name: "Fertilizer III", bonusYield: 3, cost: 3500, description: "+3 crops per worker harvest." },
-  { id: "yield_4", name: "Fertilizer IV",  bonusYield: 4, cost: 8000, description: "+4 crops per worker harvest." },
+  { id: "yield_1", name: "Fertilizer I",   bonusYield: 1, cost: 1000,  description: "+1 crop per worker harvest." },
+  { id: "yield_2", name: "Fertilizer II",  bonusYield: 2, cost: 5000,  description: "+2 crops per worker harvest." },
+  { id: "yield_3", name: "Fertilizer III", bonusYield: 3, cost: 15000, description: "+3 crops per worker harvest." },
+  { id: "yield_4", name: "Fertilizer IV",  bonusYield: 4, cost: 40000, description: "+4 crops per worker harvest." },
 ];
  
 // ─── Plot upgrade ─────────────────────────────────────────────────────────────
@@ -201,7 +201,7 @@ export const TOWN_SAUCE_BUILDING_COST = 4_000;
  
 // ─── Town Hall ────────────────────────────────────────────────────────────────
 export const TOWN_HALL_MAX_LEVEL = 3;
-export const TOWN_HALL_LEVEL_COSTS = [50, 600, 1500]; // cash cost per level
+export const TOWN_HALL_LEVEL_COSTS = [75, 3000, 8000]; // cash cost per level
  
 // Treasury drain tiers — player picks which tier is active
 // Each tier drains cash→treasury at drainRate/sec and gives grow speed bonus
@@ -232,7 +232,7 @@ export const BANK_MAX_LEVEL = 3;
 // ─── Building pulse costs ─────────────────────────────────────────────────────
 export const BUILDING_WORKERS_DIVISOR = 6;
 export const BUILDING_PULSE_EXTRA_SECONDS = 10;
-export const BUILDING_UPGRADE_COST = 200; // treasury cost
+export const BUILDING_UPGRADE_COST = 1000; // treasury cost
  
 // ─── Pulse system ─────────────────────────────────────────────────────────────
 export const TOWN_PULSE_SECONDS = 45;
@@ -277,10 +277,10 @@ export const MAX_OFFLINE_SECONDS = 4 * 60 * 60;
 // ─── Pond ─────────────────────────────────────────────────────────────────────
 
 export const FISHING_BODIES = {
-  pond:  { id: "pond",  name: "Pond",  emoji: "🏊", unlockCost: 0    },
-  lake:  { id: "lake",  name: "Lake",  emoji: "🏞️", unlockCost: 500  },
-  river: { id: "river", name: "River", emoji: "🏔️", unlockCost: 1500 },
-  ocean: { id: "ocean", name: "Ocean", emoji: "🌊", unlockCost: 4000 },
+  pond:  { id: "pond",  name: "Pond",  emoji: "🏊", unlockCost: 0     },
+  lake:  { id: "lake",  name: "Lake",  emoji: "🏞️", unlockCost: 2000  },
+  river: { id: "river", name: "River", emoji: "🏔️", unlockCost: 8000  },
+  ocean: { id: "ocean", name: "Ocean", emoji: "🌊", unlockCost: 25000 },
 };
 export const FISHING_BODY_ORDER = ["pond", "lake", "river", "ocean"];
 
@@ -389,8 +389,46 @@ export const ANIMAL_RAW_VALUES = {
   wool: 25,
 };
  
-export const MAX_ANIMALS_PER_TYPE = 5;
- 
+export const MAX_ANIMALS_PER_TYPE = 5; // legacy — slot cap now comes from barn building tier
+
+// ─── Barn Buildings ───────────────────────────────────────────────────────────
+export const BARN_BUILDINGS = {
+  chicken_coop: {
+    id: "chicken_coop", name: "Chicken Coop", emoji: "🐔",
+    animalType: "chicken",
+    buildCost: 500,
+    upkeepPerAnimalPerSec: 0.05,
+    unlockSeason: 1,
+  },
+  dairy: {
+    id: "dairy", name: "Dairy", emoji: "🐄",
+    animalType: "cow",
+    buildCost: 2000,
+    upkeepPerAnimalPerSec: 0.10,
+    unlockSeason: 2,
+  },
+  wool_shed: {
+    id: "wool_shed", name: "Wool Shed", emoji: "🐑",
+    animalType: "sheep",
+    buildCost: 5000,
+    upkeepPerAnimalPerSec: 0.20,
+    unlockSeason: 3,
+  },
+};
+
+export const BARN_BUILDING_ORDER = ["chicken_coop", "dairy", "wool_shed"];
+
+// tier 0 = not built yet; tiers 1-4 = built and upgraded
+export const BARN_BUILDING_TIERS = [
+  { tier: 1, name: "Basic",    animalSlots: 3,  workerSlots: 3,  upgradeCost: 0    },
+  { tier: 2, name: "Improved", animalSlots: 5,  workerSlots: 5,  upgradeCost: 1500 },
+  { tier: 3, name: "Advanced", animalSlots: 8,  workerSlots: 8,  upgradeCost: 4000 },
+  { tier: 4, name: "Premium",  animalSlots: 12, workerSlots: 12, upgradeCost: 9000 },
+];
+
+// Extra mood drain per second per animal when owner can't afford upkeep
+export const BARN_UPKEEP_DEBT_MOOD_DRAIN = 0.5;
+
 // Interact (pet/play) restores this much mood
 export const ANIMAL_INTERACT_MOOD_BOOST = 25;
 export const ANIMAL_INTERACT_COOLDOWN = 30; // seconds between interactions
@@ -448,4 +486,115 @@ export const ANIMAL_SELL_RATES = {
   omelette: 40, cheese: 60, knitted_goods: 90,
   fish_pie: 45, smoked_fish: 35, fish_meal: 20,
   minnow: 2, bass: 8, perch: 12, rare: 35,
+};
+// ─── Town Buildings (new) ─────────────────────────────────────────────────────
+ 
+// Build costs (from treasury)
+export const TOWN_CLINIC_COST        = 1_500;
+export const TOWN_SCHOOL_COST        = 2_500;
+export const TOWN_TAVERN_COST        = 3_000;
+export const TOWN_RESTAURANT_COST    = 5_000;
+export const TOWN_CLOTHIER_COST      = 4_000;
+ 
+// Per-worker bonuses
+export const CLINIC_CAP_PER_MEDIC        = 0.5;  // +0.5 pop cap per medic
+export const CLINIC_SAT_PER_MEDIC        = 0.3;  // +0.3% sat per medic
+export const SCHOOL_GROW_PER_RESEARCHER  = 0.2;  // +0.2% grow speed per researcher
+export const TAVERN_SAT_PER_BARTENDER    = 0.5;  // +0.5% sat per bartender
+export const RESTAURANT_SAT_PER_CHEF     = 0.8;  // +0.8% sat per chef
+export const CLOTHIER_CASH_PER_CLERK     = 8;    // +$X cash income per pulse per clerk
+ 
+// Pulse consumption (scales with workers assigned)
+// Restaurant: consumes 1 omelette + 1 cheese per N chefs each pulse
+export const RESTAURANT_OMELETTE_PER_PULSE_DIVISOR = 3; // 1 omelette per 3 chefs
+export const RESTAURANT_CHEESE_PER_PULSE_DIVISOR   = 3; // 1 cheese per 3 chefs
+// Tavern: consumes jam OR fish_pie
+export const TAVERN_GOODS_PER_PULSE_DIVISOR = 4; // 1 good per 4 bartenders
+// Clothier: consumes knitted_goods
+export const CLOTHIER_GOODS_PER_PULSE_DIVISOR = 3; // 1 knitted_goods per 3 clerks
+ 
+// Satisfaction cap from buildings (stacks on top of food sat)
+// Restaurant pushes sat target above TOWN_SAT_ALL_BUILDINGS ceiling
+export const RESTAURANT_SAT_BONUS_MAX = 20; // up to +20% sat target bonus
+export const TAVERN_SAT_BONUS_MAX     = 10;
+ 
+// School research time multiplier floor
+export const SCHOOL_RESEARCH_TIME_FLOOR = 0.05; // 5% of base — 95% max reduction
+
+export const SCHOOL_RESEARCH = {
+  fertilizer_iii: {
+    id: "fertilizer_iii",
+    name: "Fertilizer Theory",
+    emoji: "🧪",
+    description: "Unlock Fertilizer III for farms.",
+    seconds: 180,
+    requires: [],
+  },
+  fertilizer_iv: {
+    id: "fertilizer_iv",
+    name: "Advanced Fertilizer",
+    emoji: "🌿",
+    description: "Unlock Fertilizer IV for farms.",
+    seconds: 300,
+    requires: ["fertilizer_iii"],
+  },
+
+  kitchen_batch_5: {
+    id: "kitchen_batch_5",
+    name: "Bulk Cooking",
+    emoji: "📦",
+    description: "Unlock Batch ×5 for kitchen workers.",
+    seconds: 240,
+    requires: [],
+  },
+  kitchen_batch_10: {
+    id: "kitchen_batch_10",
+    name: "Industrial Kitchen",
+    emoji: "🏭",
+    description: "Unlock Batch ×10 for kitchen workers.",
+    seconds: 420,
+    requires: ["kitchen_batch_5"],
+  },
+
+  barn_capacity_2: {
+    id: "barn_capacity_2",
+    name: "Barn Logistics",
+    emoji: "📚",
+    description: "Unlock Capacity II for barn workers.",
+    seconds: 240,
+    requires: [],
+  },
+  barn_care_2: {
+    id: "barn_care_2",
+    name: "Animal Care Studies",
+    emoji: "❤️",
+    description: "Unlock Care II for barn workers.",
+    seconds: 240,
+    requires: [],
+  },
+  animal_yield_2: {
+    id: "animal_yield_2",
+    name: "Selective Breeding",
+    emoji: "🥚",
+    description: "Unlock higher animal yield upgrades.",
+    seconds: 300,
+    requires: [],
+  },
+
+  fishing_haul_2: {
+    id: "fishing_haul_2",
+    name: "Net Design",
+    emoji: "🎣",
+    description: "Unlock Haul II for fishing workers.",
+    seconds: 240,
+    requires: [],
+  },
+  fishing_gear_expert: {
+    id: "fishing_gear_expert",
+    name: "Master Tackle",
+    emoji: "🪝",
+    description: "Unlock Expert Gear for fishing workers.",
+    seconds: 300,
+    requires: ["fishing_haul_2"],
+  },
 };

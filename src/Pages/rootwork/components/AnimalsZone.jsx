@@ -13,6 +13,7 @@ export default function AnimalsZone({
   onUnlockFishingBody, onSetFishingActiveBody,
   onHireFishingWorker, onFireFishingWorker,
   onUpgradeFishingWorker, onSetFishingWorkerBait,
+  onBuildBarnBuilding, onUpgradeBarnBuilding,
 }) {
   const [subTab, setSubTab] = useState("pond");
 
@@ -85,6 +86,8 @@ export default function AnimalsZone({
           onUpgradeBarnWorker={onUpgradeBarnWorker}
           onUpgradeAnimalStorage={onUpgradeAnimalStorage}
           onUpgradeAnimalYield={onUpgradeAnimalYield}
+          onBuildBarnBuilding={onBuildBarnBuilding}
+          onUpgradeBarnBuilding={onUpgradeBarnBuilding}
         />
       )}
     </div>

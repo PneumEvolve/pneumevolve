@@ -21,7 +21,10 @@ import {
   upgradeFishingWorker, setFishingWorkerBait,
   buyAnimal, collectAnimal, collectAllAnimals, interactAnimal, buyPet, interactPet, toggleKitchenWorkerAutoRestart,
   hireBarnWorker, fireBarnWorker, reassignBarnWorker, applyFishMeal, upgradeBarnWorker, upgradeAnimalStorage, getBarnWorkerHireCost,
-  hireFishingWorker, fireFishingWorker, setTreasuryCap, upgradeAnimalYield
+  hireFishingWorker, fireFishingWorker, setTreasuryCap, upgradeAnimalYield,
+  buildBarnBuilding, upgradeBarnBuilding,
+  buildTownBuilding, setTavernMode, assignTownBuildingWorker,
+  startSchoolResearch,
 } from "./gameEngine";
 import {
   SAVE_KEY, SAVE_INTERVAL_MS, PRESTIGE_BONUSES,
@@ -309,7 +312,15 @@ export default function RootWork() {
   const handleBuildBank = useCallback(() => update((s) => { const n = buildBank(s); if (n === s) notify("Can't build bank yet."); return n; }), [update, notify]);
   const handleUpgradeBank = useCallback(() => update((s) => { const n = upgradeBank(s); if (n === s) notify("Not enough treasury funds."); return n; }), [update, notify]);
   const handleSetActiveBankTier = useCallback((tier) => update((s) => setActiveBankTier(s, tier)), [update]);
- 
+  const handleBuildTownBuilding = useCallback((key) => update((s) => { const n = buildTownBuilding(s, key); if (n === s) notify("Can't build yet — check requirements and treasury."); return n; }), [update, notify]);
+  const handleAssignTownBuildingWorker = useCallback((key, delta) => update((s) => { const n = assignTownBuildingWorker(s, key, delta); if (n === s && delta > 0) notify("No free people available."); return n; }), [update, notify]);
+  const handleToggleTavernMode = useCallback((mode) => update((s) => setTavernMode(s, mode)), [update]);
+  const handleStartSchoolResearch = useCallback((researchId) => update((s) => {
+    const n = startSchoolResearch(s, researchId);
+    if (n === s) notify("Can't start that research yet.");
+    return n;
+  }), [update, notify]);
+
   // Animals & Pond
   const handleBuyPond = useCallback(() => update((s) => { const n = buyPond(s); if (n === s) notify("Need $500 cash."); return n; }), [update, notify]);
   const handleBuyAnimal = useCallback((animalId) => update((s) => { const n = buyAnimal(s, animalId); if (n === s) notify("Not enough cash."); return n; }), [update, notify]);
@@ -377,6 +388,18 @@ const handleUpgradeAnimalYield = useCallback((animalId, instanceId) => update((s
   return n;
 }), [update, notify]);
 
+const handleBuildBarnBuilding = useCallback((buildingId) => update((s) => {
+  const n = buildBarnBuilding(s, buildingId);
+  if (n === s) notify("Not enough cash.");
+  return n;
+}), [update, notify]);
+
+const handleUpgradeBarnBuilding = useCallback((buildingId) => update((s) => {
+  const n = upgradeBarnBuilding(s, buildingId);
+  if (n === s) notify("Not enough cash.");
+  return n;
+}), [update, notify]);
+
   // Feast / prestige / misc
   const handleBuyFeast = useCallback(() => { update((s) => { const n = buyFeast(s); if (n === s) notify("Not enough artisan goods."); return n; }); notify("🍽️ Feast held! Grow speed increased."); }, [update, notify]);
   const handlePrestigeComplete = useCallback((bonusId, workerIds) => { update((s) => beginPrestige(s, bonusId, workerIds)); setShowPrestigeModal(false); setActiveMainTab("farms"); setActiveFarmIndex(0); notify("🌱 New season begun!"); }, [update, notify]);
@@ -423,7 +446,7 @@ const handleUpgradeAnimalYield = useCallback((animalId, instanceId) => update((s
           <ProcessingZone game={game} onHireKitchenWorker={handleHireKitchenWorker} onAssignKitchenWorkerRecipe={handleAssignKitchenWorkerRecipe} onUpgradeKitchenWorker={handleUpgradeKitchenWorker} onFireKitchenWorker={handleFireKitchenWorker} onUpgradePlot={handleUpgradePlot} onBuyFeast={handleBuyFeast} onCancelKitchenWorkerRecipe={handleCancelKitchenWorkerRecipe} onToggleKitchenWorkerAutoRestart={handleToggleKitchenAutoRestart} onApplyFishMeal={handleApplyFishMeal} />
         )}
         {activeMainTab === "town" && (
-          <TownZone game={game} onBuildHome={handleBuildTownHome} onBuyBakery={handleBuyTownBakery} onToggleBakery={handleToggleBakery} onTogglePantry={handleTogglePantry} onToggleCannery={handleToggleCannery} onUpgradeTownBuilding={handleUpgradeTownBuilding} onBuyJamBuilding={handleBuyJamBuilding} onBuySauceBuilding={handleBuySauceBuilding} onUpgradeTownHall={handleUpgradeTownHall} onSetTreasuryTier={handleSetTreasuryTier} onBuildBank={handleBuildBank} onUpgradeBank={handleUpgradeBank} onSetActiveBankTier={handleSetActiveBankTier} prestigeReady={prestigeReady} onPrestige={() => setShowPrestigeModal(true)} onReset={handleResetGame} onSetTreasuryCap={handleSetTreasuryCap} />
+          <TownZone game={game} onBuildHome={handleBuildTownHome} onBuyBakery={handleBuyTownBakery} onToggleBakery={handleToggleBakery} onTogglePantry={handleTogglePantry} onToggleCannery={handleToggleCannery} onUpgradeTownBuilding={handleUpgradeTownBuilding} onBuyJamBuilding={handleBuyJamBuilding} onBuySauceBuilding={handleBuySauceBuilding} onUpgradeTownHall={handleUpgradeTownHall} onSetTreasuryTier={handleSetTreasuryTier} onBuildBank={handleBuildBank} onUpgradeBank={handleUpgradeBank} onSetActiveBankTier={handleSetActiveBankTier} prestigeReady={prestigeReady} onPrestige={() => setShowPrestigeModal(true)} onReset={handleResetGame} onSetTreasuryCap={handleSetTreasuryCap} onBuildTownBuilding={handleBuildTownBuilding} onAssignTownBuildingWorker={handleAssignTownBuildingWorker} onToggleTavernMode={handleToggleTavernMode} onStartSchoolResearch={handleStartSchoolResearch}/>
         )}
         {activeMainTab === "animals" && (
           <AnimalsZone
@@ -448,6 +471,8 @@ const handleUpgradeAnimalYield = useCallback((animalId, instanceId) => update((s
   onHireFishingWorker={handleHireFishingWorker}
   onFireFishingWorker={handleFireFishingWorker}
   onUpgradeAnimalYield={handleUpgradeAnimalYield}
+  onBuildBarnBuilding={handleBuildBarnBuilding}
+  onUpgradeBarnBuilding={handleUpgradeBarnBuilding}
 />
         )}
       </div>

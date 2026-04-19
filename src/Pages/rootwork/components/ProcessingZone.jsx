@@ -16,6 +16,7 @@ import {
   getKitchenWorkerBatchSize,
   getAvailableWorkerSlots,
   getFishMealGrowBonus,
+  isTownBuildingBuilt,
 } from "../gameEngine";
  
 const RECIPE_LIST = ["bread", "jam", "sauce", "omelette", "cheese", "knitted_goods", "fish_pie", "smoked_fish", "fish_meal"];
@@ -42,6 +43,8 @@ function ProgressBar({ elapsed, total, color = "var(--accent)" }) {
  
 function UpgradeTree({ label, upgradeIds, worker, game, onUpgrade }) {
   const upgrades = worker.upgrades ?? [];
+  const schoolBuilt = isTownBuildingBuilt(game, "school");
+  const SCHOOL_GATED = ["batch_5", "batch_10"];
   return (
     <div>
       <div style={{ fontSize: "0.65rem", fontWeight: 600, color: "var(--muted)", marginBottom: "0.3rem" }}>
@@ -52,27 +55,28 @@ function UpgradeTree({ label, upgradeIds, worker, game, onUpgrade }) {
           const u = KITCHEN_WORKER_UPGRADES[uid];
           const owned = upgrades.includes(uid);
           const requiresMet = !u.requires || upgrades.includes(u.requires);
+          const schoolLocked = SCHOOL_GATED.includes(uid) && !schoolBuilt;
           const canAfford = (game.cash ?? 0) >= u.cost;
-          const canBuy = !owned && requiresMet && canAfford;
+          const canBuy = !owned && requiresMet && canAfford && !schoolLocked;
           const locked = !owned && !requiresMet;
- 
+
           return (
             <div key={uid} style={{
               display: "flex", alignItems: "center", justifyContent: "space-between",
               padding: "0.3rem 0.5rem", borderRadius: "6px",
               background: owned ? "rgba(74,222,128,0.08)" : "var(--bg)",
-              border: `1px solid ${owned ? "rgba(74,222,128,0.3)" : "var(--border)"}`,
+              border: `1px solid ${owned ? "rgba(74,222,128,0.3)" : schoolLocked && requiresMet ? "rgba(167,139,250,0.3)" : "var(--border)"}`,
               opacity: locked ? 0.4 : 1,
             }}>
               <div style={{ fontSize: "0.7rem" }}>
-                <span style={{ fontWeight: 600, color: owned ? "#4ade80" : "var(--text)" }}>
-                  {owned ? "✓" : locked ? "🔒" : u.emoji} {u.name}
+                <span style={{ fontWeight: 600, color: owned ? "#4ade80" : schoolLocked ? "#a78bfa" : "var(--text)" }}>
+                  {owned ? "✓" : schoolLocked && requiresMet ? "🏫" : locked ? "🔒" : u.emoji} {u.name}
                 </span>
                 <span style={{ marginLeft: "0.4rem", fontSize: "0.62rem", color: "var(--muted)" }}>
-                  {u.description}
+                  {schoolLocked && requiresMet ? "Requires School" : u.description}
                 </span>
               </div>
-              {!owned && (
+              {!owned && !schoolLocked && (
                 <button
                   onClick={() => canBuy && onUpgrade(worker.id, uid)}
                   disabled={!canBuy}
@@ -104,7 +108,8 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
   const idle = isKitchenWorkerIdle(worker);
   const recipe = worker.recipeId ? (PROCESSING_RECIPES[worker.recipeId] ?? BAIT_RECIPES[worker.recipeId]) : null;
   const upgrades = worker.upgrades ?? [];
-  const timeRemaining = worker.busy ? Math.max(0, Math.floor(worker.totalSeconds - worker.elapsedSeconds)) : 0;
+  const satMultiplier = (game.town?.satisfaction ?? 100) / 100;
+  const timeRemaining = worker.busy ? Math.max(0, Math.floor((worker.totalSeconds - worker.elapsedSeconds) / satMultiplier)) : 0;
   const batch = getKitchenWorkerBatchSize(worker);
   const hasAutoRestart = upgrades.includes("auto_restart");
  

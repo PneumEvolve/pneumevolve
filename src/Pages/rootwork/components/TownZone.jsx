@@ -10,6 +10,14 @@ import {
   BANK_TIERS, BANK_MAX_LEVEL,
   ANIMAL_FOOD_COSTS, PET_FOOD_COST, BREAD_FOOD_UNITS,
   PERSON_IDLE_FOOD_COST, PERSON_WORKING_FOOD_COST,
+  TOWN_CLINIC_COST, TOWN_SCHOOL_COST, TOWN_TAVERN_COST,
+  TOWN_RESTAURANT_COST, TOWN_CLOTHIER_COST,
+  CLINIC_CAP_PER_MEDIC, CLINIC_SAT_PER_MEDIC,
+  SCHOOL_GROW_PER_RESEARCHER,
+  TAVERN_SAT_PER_BARTENDER,
+  RESTAURANT_SAT_PER_CHEF,
+  CLOTHIER_CASH_PER_CLERK,
+  SCHOOL_RESEARCH,
 } from "../gameConstants";
 import {
   getTownHomeCost, getTownBakeryCost, getTotalWorkersHired,
@@ -19,11 +27,43 @@ import {
   canUpgradeBuilding, getEffectivePulseSeconds, getBankLevel,
   isBankBuilt, canBuildBank, getActiveBankTier, getTreasuryGrowBonus,
   getBankPriceBonus,
+  isTownBuildingBuilt, getTownBuildingWorkers, getFreePeople,
+  getClinicCapBonus, getClinicSatBonus,
+  getSchoolGrowBonus, getSchoolResearchMultiplier,
+  getTavernSatBonus, getTavernPulseCost,
+  getRestaurantSatBonus, getRestaurantOmeletteCost, getRestaurantCheeseCost,
+  getClothierCashPerPulse, getClothierPulseCost,
+  getTownBuildingWorkerCount, getSchoolData, getActiveSchoolResearch, getAvailableSchoolResearch,
 } from "../gameEngine";
 import SeasonPanel from "./SeasonPanel";
 import StatsPanel from "./StatsPanel";
  
 function clampPct(v) { return Math.max(0, Math.min(100, v)); }
+ 
+function WorkerAssigner({ workers, freePeople, onAdd, onRemove, label = "worker" }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+      <button
+        onClick={onRemove} disabled={workers <= 0}
+        style={{
+          width: "26px", height: "26px", borderRadius: "6px", border: "1px solid var(--border)",
+          background: "var(--bg)", color: "var(--text)", fontSize: "1rem", cursor: workers <= 0 ? "default" : "pointer",
+          opacity: workers <= 0 ? 0.3 : 1, display: "flex", alignItems: "center", justifyContent: "center",
+        }}
+      >−</button>
+      <div style={{ minWidth: "32px", textAlign: "center", fontWeight: 700, fontSize: "0.9rem" }}>{workers}</div>
+      <button
+        onClick={onAdd} disabled={freePeople <= 0}
+        style={{
+          width: "26px", height: "26px", borderRadius: "6px", border: "1px solid var(--border)",
+          background: "var(--bg)", color: "var(--text)", fontSize: "1rem", cursor: freePeople <= 0 ? "default" : "pointer",
+          opacity: freePeople <= 0 ? 0.3 : 1, display: "flex", alignItems: "center", justifyContent: "center",
+        }}
+      >+</button>
+      <span style={{ fontSize: "0.65rem", color: "var(--muted)" }}>{label}s</span>
+    </div>
+  );
+}
  
 function SatisfactionBar({ satisfaction }) {
   const pct = clampPct((satisfaction / 150) * 100);
@@ -78,12 +118,47 @@ function TierPicker({ tiers, activeTier, maxTier, onSelect, colorActive = "#f59e
     </div>
   );
 }
+
+function ResearchBar({ progress, total }) {
+  const pct = total > 0 ? Math.min(100, (progress / total) * 100) : 0;
+  return (
+    <div style={{ height: "6px", background: "var(--border)", borderRadius: "999px", overflow: "hidden" }}>
+      <div
+        style={{
+          width: `${pct}%`,
+          height: "100%",
+          background: "#a78bfa",
+          borderRadius: "999px",
+          transition: "width 0.35s ease",
+        }}
+      />
+    </div>
+  );
+}
  
 export default function TownZone({
-  game, onBuildHome, onBuyBakery, onToggleBakery, onTogglePantry, onToggleCannery,
-  onUpgradeTownBuilding, onBuyJamBuilding, onBuySauceBuilding,
-  onUpgradeTownHall, onSetTreasuryTier, onBuildBank, onUpgradeBank, onSetActiveBankTier,
-  prestigeReady, onPrestige, onReset, onSetTreasuryCap,
+  game,
+  onBuildHome,
+  onBuyBakery,
+  onToggleBakery,
+  onTogglePantry,
+  onToggleCannery,
+  onUpgradeTownBuilding,
+  onBuyJamBuilding,
+  onBuySauceBuilding,
+  onUpgradeTownHall,
+  onSetTreasuryTier,
+  onBuildBank,
+  onUpgradeBank,
+  onSetActiveBankTier,
+  prestigeReady,
+  onPrestige,
+  onReset,
+  onSetTreasuryCap,
+  onBuildTownBuilding,
+  onAssignTownBuildingWorker,
+  onToggleTavernMode,
+  onStartSchoolResearch,
 }) {
   const [subTab, setSubTab] = useState("town");
   const town = game.town ?? {};
@@ -161,6 +236,52 @@ export default function TownZone({
   const [capInput, setCapInput] = useState("");
   const treasuryCap = town.treasuryCap ?? 0;
 
+  // ── New town buildings ──────────────────────────────────────────────────────
+  const freePeople = getFreePeople(game);
+  const townBuildingWorkerCount = getTownBuildingWorkerCount(game);
+
+  const clinicBuilt    = isTownBuildingBuilt(game, "clinic");
+  const schoolBuilt    = isTownBuildingBuilt(game, "school");
+  const tavernBuilt    = isTownBuildingBuilt(game, "tavern");
+  const restaurantBuilt = isTownBuildingBuilt(game, "restaurant");
+  const clothierBuilt  = isTownBuildingBuilt(game, "clothier");
+
+  const clinicWorkers    = getTownBuildingWorkers(game, "clinic");
+  const schoolWorkers    = getTownBuildingWorkers(game, "school");
+  const tavernWorkers    = getTownBuildingWorkers(game, "tavern");
+  const restaurantWorkers = getTownBuildingWorkers(game, "restaurant");
+  const clothierWorkers  = getTownBuildingWorkers(game, "clothier");
+
+  const clinicCapBonus   = getClinicCapBonus(game);
+  const clinicSatBonus   = getClinicSatBonus(game);
+  const schoolGrowBonus  = getSchoolGrowBonus(game);
+  const schoolResearchMult = getSchoolResearchMultiplier(game);
+  const schoolData = getSchoolData(game);
+  const activeSchoolResearch = getActiveSchoolResearch(game);
+  const availableSchoolResearch = getAvailableSchoolResearch(game);
+  const unlockedSchoolResearch = schoolData?.unlockedResearch ?? [];
+  const tavernSatBonus   = getTavernSatBonus(game);
+  const tavernCost       = getTavernPulseCost(game);
+  const restaurantSatBonus = getRestaurantSatBonus(game);
+  const restaurantOmeletteCost = getRestaurantOmeletteCost(game);
+  const restaurantCheeseCost   = getRestaurantCheeseCost(game);
+  const clothierCash     = getClothierCashPerPulse(game);
+  const clothierCost     = getClothierPulseCost(game);
+
+  const tavernMode = town.townBuildings?.tavern?.mode ?? "jam";
+  const restaurantStocked = town.townBuildings?.restaurant?.stocked !== false;
+  const tavernStocked     = town.townBuildings?.tavern?.stocked !== false;
+  const clothierStocked   = town.townBuildings?.clothier?.stocked !== false;
+
+  const woolShedBuilt = game.barnBuildings?.wool_shed?.built === true;
+
+  // Gate checks
+  const canBuildClinic     = thLevel >= 2 && !clinicBuilt && treasury >= TOWN_CLINIC_COST;
+  const canBuildSchool     = clinicBuilt && !schoolBuilt && treasury >= TOWN_SCHOOL_COST;
+  const canBuildTavern     = schoolBuilt && !tavernBuilt && treasury >= TOWN_TAVERN_COST;
+  const canBuildRestaurant = schoolBuilt && bakeryLevel >= 1 && !restaurantBuilt && treasury >= TOWN_RESTAURANT_COST;
+  const canBuildClothier   = schoolBuilt && woolShedBuilt && !clothierBuilt && treasury >= TOWN_CLOTHIER_COST;
+
 
  
   const row = (label, value, valueColor) => (
@@ -210,9 +331,9 @@ export default function TownZone({
         <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem", marginBottom: "0.75rem" }}>
           {[
             { emoji: "👥", value: people, sub: `of ${capacity}` },
-            { emoji: "👷", value: `${totalWorkers}/${people}`, sub: availableSlots === 0 ? "full" : `${availableSlots} open`, color: availableSlots === 0 ? "#f59e0b" : undefined },
+            { emoji: "👷", value: `${totalWorkers}/${people}`, sub: freePeople === 0 ? "no free" : `${freePeople} free`, color: freePeople === 0 ? "#f59e0b" : undefined },
             { emoji: satEmoji, value: `${satisfaction}%`, sub: satisfaction === satisfactionTarget ? "stable" : satisfaction < satisfactionTarget ? `↑${satisfactionTarget}%` : `↓${satisfactionTarget}%`, color: satColor },
-            { emoji: "🌱", value: `+${growthBonusPercent}%`, sub: "grow", color: "#4ade80" },
+            { emoji: "🌱", value: `+${(growthBonusPercent + schoolGrowBonus).toFixed(1)}%`, sub: "grow", color: "#4ade80" },
           ].map(({ emoji, value, sub, color }, i) => (
             <div key={i} style={{ flex: 1, textAlign: "center", background: "var(--bg)", borderRadius: "8px", padding: "0.65rem" }}>
               <div style={{ fontSize: "1rem" }}>{emoji}</div>
@@ -571,6 +692,393 @@ export default function TownZone({
         {!bankBuilt && canBuildBank(game) && (
           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "0.4rem" }}>
             <button onClick={onBuildBank} className="btn">Build Bank</button>
+          </div>
+        )}
+      </div>
+ 
+      {/* ── NEW TOWN BUILDINGS ──────────────────────────────────────── */}
+ 
+      {/* Free people indicator */}
+      {(clinicBuilt || schoolBuilt || tavernBuilt || restaurantBuilt || clothierBuilt) && (
+        <div className="card p-4" style={{ marginBottom: "1rem", background: "var(--bg-elev)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.4rem" }}>
+            <div style={{ fontSize: "0.78rem", fontWeight: 600 }}>🏗️ Town Buildings</div>
+            <div style={{ fontSize: "0.72rem", color: "var(--muted)" }}>
+              <span style={{ color: freePeople > 0 ? "#4ade80" : "#f59e0b", fontWeight: 700 }}>{freePeople} free</span>
+              {" · "}{townBuildingWorkerCount} in buildings{" · "}{totalWorkers} total workers
+            </div>
+          </div>
+        </div>
+      )}
+ 
+      {/* 🏥 Clinic */}
+      <div className="card p-4" style={{ marginBottom: "1rem", opacity: thLevel >= 2 ? 1 : 0.4 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" }}>
+          <div style={{ fontWeight: 600 }}>🏥 Clinic</div>
+          {clinicBuilt && (
+            <span style={{ fontSize: "0.65rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "999px", background: "rgba(74,222,128,0.15)", border: "1px solid #4ade80", color: "#4ade80" }}>
+              Built · {clinicWorkers} medics
+            </span>
+          )}
+        </div>
+        <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.5rem", lineHeight: 1.6 }}>
+          {thLevel < 2
+            ? "Requires Town Hall level 2."
+            : "Assign medics from your population. Each medic adds +0.5 pop cap and +0.3% satisfaction. No limit — the more the better."}
+        </div>
+        {clinicBuilt && (
+          <>
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.4rem", flexWrap: "wrap" }}>
+              <WorkerAssigner
+                workers={clinicWorkers} freePeople={freePeople}
+                onAdd={() => onAssignTownBuildingWorker("clinic", 1)}
+                onRemove={() => onAssignTownBuildingWorker("clinic", -1)}
+              />
+              <div style={{ fontSize: "0.68rem", color: "var(--muted)" }}>
+                {clinicWorkers > 0 && (
+                  <span>+<strong style={{ color: "#4ade80" }}>{clinicCapBonus.toFixed(1)}</strong> pop cap · +<strong style={{ color: "#60a5fa" }}>{clinicSatBonus.toFixed(1)}%</strong> sat</span>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+        {!clinicBuilt && (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>${TOWN_CLINIC_COST.toLocaleString()} treasury</div>
+            <button onClick={() => onBuildTownBuilding("clinic")} disabled={!canBuildClinic} className="btn" style={{ opacity: canBuildClinic ? 1 : 0.5 }}>Build Clinic</button>
+          </div>
+        )}
+      </div>
+ 
+     {/* 🏫 School */}
+      <div className="card p-4" style={{ marginBottom: "1rem", opacity: clinicBuilt ? 1 : 0.4 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" }}>
+          <div style={{ fontWeight: 600 }}>🏫 School</div>
+          {schoolBuilt && (
+            <span style={{ fontSize: "0.65rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "999px", background: "rgba(74,222,128,0.15)", border: "1px solid #4ade80", color: "#4ade80" }}>
+              Built · {schoolWorkers} researchers
+            </span>
+          )}
+        </div>
+
+        <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.5rem", lineHeight: 1.6 }}>
+          {!clinicBuilt
+            ? "Requires Clinic."
+            : !schoolBuilt
+            ? "Build a School to assign researchers and unlock higher-tier upgrades."
+            : "Assign researchers to speed up growth and complete research projects that unlock advanced systems."}
+        </div>
+
+        {schoolBuilt && (
+          <>
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.6rem", flexWrap: "wrap" }}>
+              <WorkerAssigner
+                workers={schoolWorkers}
+                freePeople={freePeople}
+                onAdd={() => onAssignTownBuildingWorker("school", 1)}
+                onRemove={() => onAssignTownBuildingWorker("school", -1)}
+                label="researcher"
+              />
+              <div style={{ fontSize: "0.68rem", color: "var(--muted)" }}>
+                {schoolWorkers > 0 && (
+                  <span>
+                    +<strong style={{ color: "#4ade80" }}>{schoolGrowBonus.toFixed(1)}%</strong> grow ·
+                    research time <strong style={{ color: "#a78bfa" }}>{(schoolResearchMult * 100).toFixed(0)}%</strong>
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {activeSchoolResearch ? (
+              <div className="card p-3" style={{ marginBottom: "0.75rem", background: "var(--bg)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem" }}>
+                  <div style={{ fontSize: "0.78rem", fontWeight: 600 }}>
+                    {activeSchoolResearch.emoji} {activeSchoolResearch.name}
+                  </div>
+                  <div style={{ fontSize: "0.68rem", color: "#a78bfa", fontWeight: 700 }}>
+                    {schoolData?.researchProgress ?? 0} / {schoolData?.researchNeeded ?? 0}
+                  </div>
+                </div>
+
+                <ResearchBar
+                  progress={schoolData?.researchProgress ?? 0}
+                  total={schoolData?.researchNeeded ?? 0}
+                />
+
+                <div style={{ fontSize: "0.66rem", color: "var(--muted)", marginTop: "0.35rem" }}>
+                  {schoolWorkers > 0
+                    ? `${schoolWorkers} researcher${schoolWorkers !== 1 ? "s" : ""} working`
+                    : "Assign researchers to make progress"}
+                </div>
+              </div>
+            ) : (
+              <div
+                className="card p-3"
+                style={{
+                  marginBottom: "0.75rem",
+                  background: "var(--bg)",
+                  fontSize: "0.72rem",
+                  color: "var(--muted)",
+                }}
+              >
+                No active research selected.
+              </div>
+            )}
+
+            <div style={{ fontSize: "0.72rem", fontWeight: 600, marginBottom: "0.4rem" }}>
+              Available Research
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem", marginBottom: "0.75rem" }}>
+              {availableSchoolResearch.length === 0 ? (
+                <div style={{ fontSize: "0.7rem", color: "var(--muted)" }}>
+                  {activeSchoolResearch ? "Finish the current project first." : "All available research completed."}
+                </div>
+              ) : (
+                availableSchoolResearch.map((research) => {
+                  const blockedByActive = !!activeSchoolResearch;
+                  return (
+                    <div
+                      key={research.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: "0.75rem",
+                        padding: "0.55rem 0.65rem",
+                        borderRadius: "8px",
+                        background: "var(--bg)",
+                        border: "1px solid var(--border)",
+                        opacity: blockedByActive ? 0.6 : 1,
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontSize: "0.74rem", fontWeight: 600 }}>
+                          {research.emoji} {research.name}
+                        </div>
+                        <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.15rem" }}>
+                          {research.description} · base {research.seconds}s
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => onStartSchoolResearch(research.id)}
+                        disabled={blockedByActive}
+                        className="btn btn-secondary"
+                        style={{ opacity: blockedByActive ? 0.5 : 1, flexShrink: 0 }}
+                      >
+                        Research
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {unlockedSchoolResearch.length > 0 && (
+              <>
+                <div style={{ fontSize: "0.72rem", fontWeight: 600, marginBottom: "0.4rem" }}>
+                  Completed Research
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
+                  {unlockedSchoolResearch.map((id) => {
+                    const research = SCHOOL_RESEARCH[id];
+                    if (!research) return null;
+                    return (
+                      <span
+                        key={id}
+                        style={{
+                          fontSize: "0.66rem",
+                          fontWeight: 700,
+                          padding: "0.22rem 0.5rem",
+                          borderRadius: "999px",
+                          background: "rgba(74,222,128,0.12)",
+                          border: "1px solid rgba(74,222,128,0.35)",
+                          color: "#4ade80",
+                        }}
+                      >
+                        ✓ {research.emoji} {research.name}
+                      </span>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </>
+        )}
+
+        {!schoolBuilt && (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
+              ${TOWN_SCHOOL_COST.toLocaleString()} treasury
+            </div>
+            <button
+              onClick={() => onBuildTownBuilding("school")}
+              disabled={!canBuildSchool}
+              className="btn"
+              style={{ opacity: canBuildSchool ? 1 : 0.5 }}
+            >
+              Build School
+            </button>
+          </div>
+        )}
+      </div>
+ 
+      {/* 🍺 Tavern */}
+      <div className="card p-4" style={{ marginBottom: "1rem", opacity: schoolBuilt ? 1 : 0.4 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" }}>
+          <div style={{ fontWeight: 600 }}>🍺 Tavern</div>
+          {tavernBuilt && (
+            <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+              {tavernWorkers > 0 && (
+                <span style={{ fontSize: "0.62rem", color: tavernStocked ? "#4ade80" : "#f59e0b" }}>
+                  {tavernStocked ? "✓ stocked" : "⚠ out of goods"}
+                </span>
+              )}
+              <span style={{ fontSize: "0.65rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "999px", background: "rgba(74,222,128,0.15)", border: "1px solid #4ade80", color: "#4ade80" }}>
+                Built · {tavernWorkers} bartenders
+              </span>
+            </div>
+          )}
+        </div>
+        <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.5rem", lineHeight: 1.6 }}>
+          {!schoolBuilt
+            ? "Requires School."
+            : `Bartenders boost satisfaction (+${TAVERN_SAT_PER_BARTENDER}%/bartender). Consumes jam or fish pie each pulse. No limit.`}
+        </div>
+        {tavernBuilt && (
+          <>
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.35rem", flexWrap: "wrap" }}>
+              <WorkerAssigner
+                workers={tavernWorkers} freePeople={freePeople}
+                onAdd={() => onAssignTownBuildingWorker("tavern", 1)}
+                onRemove={() => onAssignTownBuildingWorker("tavern", -1)}
+              />
+              {tavernWorkers > 0 && (
+                <div style={{ fontSize: "0.68rem", color: "var(--muted)" }}>
+                  +<strong style={{ color: "#60a5fa" }}>{tavernSatBonus.toFixed(1)}%</strong> sat · consumes <strong>{tavernCost}</strong> {tavernMode === "jam" ? "🍯" : "🥧"}/pulse
+                </div>
+              )}
+            </div>
+            {tavernWorkers > 0 && (
+              <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.2rem" }}>
+                {["jam", "fish_pie"].map((mode) => (
+                  <button key={mode} onClick={() => onToggleTavernMode(mode)} style={{
+                    fontSize: "0.65rem", padding: "0.2rem 0.5rem", borderRadius: "6px", cursor: "pointer",
+                    background: tavernMode === mode ? "rgba(96,165,250,0.15)" : "var(--bg)",
+                    border: `1px solid ${tavernMode === mode ? "#60a5fa" : "var(--border)"}`,
+                    color: tavernMode === mode ? "#60a5fa" : "var(--muted)",
+                    fontWeight: tavernMode === mode ? 700 : 400,
+                  }}>
+                    {mode === "jam" ? "🍯 Jam" : "🥧 Fish Pie"}
+                  </button>
+                ))}
+                <span style={{ fontSize: "0.62rem", color: "var(--muted)", alignSelf: "center" }}>
+                  have: {tavernMode === "jam" ? Math.floor(game.artisan?.jam ?? 0) : Math.floor(game.animalGoods?.fish_pie ?? 0)}
+                </span>
+              </div>
+            )}
+          </>
+        )}
+        {!tavernBuilt && (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>${TOWN_TAVERN_COST.toLocaleString()} treasury</div>
+            <button onClick={() => onBuildTownBuilding("tavern")} disabled={!canBuildTavern} className="btn" style={{ opacity: canBuildTavern ? 1 : 0.5 }}>Build Tavern</button>
+          </div>
+        )}
+      </div>
+ 
+      {/* 🍽️ Restaurant */}
+      <div className="card p-4" style={{ marginBottom: "1rem", opacity: schoolBuilt ? 1 : 0.4 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" }}>
+          <div style={{ fontWeight: 600 }}>🍽️ Restaurant</div>
+          {restaurantBuilt && (
+            <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+              {restaurantWorkers > 0 && (
+                <span style={{ fontSize: "0.62rem", color: restaurantStocked ? "#4ade80" : "#f59e0b" }}>
+                  {restaurantStocked ? "✓ stocked" : "⚠ needs omelette+cheese"}
+                </span>
+              )}
+              <span style={{ fontSize: "0.65rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "999px", background: "rgba(74,222,128,0.15)", border: "1px solid #4ade80", color: "#4ade80" }}>
+                Built · {restaurantWorkers} chefs
+              </span>
+            </div>
+          )}
+        </div>
+        <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.5rem", lineHeight: 1.6 }}>
+          {!schoolBuilt
+            ? "Requires School."
+            : !bakeryLevel
+            ? "Requires Bakery."
+            : `Chefs boost satisfaction (+${RESTAURANT_SAT_PER_CHEF}%/chef) — can push sat above the food ceiling. Consumes omelettes + cheese each pulse.`}
+        </div>
+        {restaurantBuilt && (
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+            <WorkerAssigner
+              workers={restaurantWorkers} freePeople={freePeople}
+              onAdd={() => onAssignTownBuildingWorker("restaurant", 1)}
+              onRemove={() => onAssignTownBuildingWorker("restaurant", -1)}
+            />
+            {restaurantWorkers > 0 && (
+              <div style={{ fontSize: "0.68rem", color: "var(--muted)" }}>
+                +<strong style={{ color: "#60a5fa" }}>{restaurantSatBonus.toFixed(1)}%</strong> sat ·{" "}
+                <strong>{restaurantOmeletteCost}</strong>🍳 + <strong>{restaurantCheeseCost}</strong>🧀/pulse
+                {" · "}have: {Math.floor(game.animalGoods?.omelette ?? 0)}🍳 {Math.floor(game.animalGoods?.cheese ?? 0)}🧀
+              </div>
+            )}
+          </div>
+        )}
+        {!restaurantBuilt && (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>${TOWN_RESTAURANT_COST.toLocaleString()} treasury</div>
+            <button onClick={() => onBuildTownBuilding("restaurant")} disabled={!canBuildRestaurant} className="btn" style={{ opacity: canBuildRestaurant ? 1 : 0.5 }}>Build Restaurant</button>
+          </div>
+        )}
+      </div>
+ 
+      {/* 👗 Clothier */}
+      <div className="card p-4" style={{ marginBottom: "1rem", opacity: schoolBuilt ? 1 : 0.4 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" }}>
+          <div style={{ fontWeight: 600 }}>👗 Clothier</div>
+          {clothierBuilt && (
+            <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+              {clothierWorkers > 0 && (
+                <span style={{ fontSize: "0.62rem", color: clothierStocked ? "#4ade80" : "#f59e0b" }}>
+                  {clothierStocked ? "✓ selling" : "⚠ no wool goods"}
+                </span>
+              )}
+              <span style={{ fontSize: "0.65rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "999px", background: "rgba(74,222,128,0.15)", border: "1px solid #4ade80", color: "#4ade80" }}>
+                Built · {clothierWorkers} clerks
+              </span>
+            </div>
+          )}
+        </div>
+        <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.5rem", lineHeight: 1.6 }}>
+          {!schoolBuilt
+            ? "Requires School."
+            : !woolShedBuilt
+            ? "Requires Wool Shed."
+            : `Clerks sell knitted goods directly to the town for cash (${CLOTHIER_CASH_PER_CLERK}/clerk/pulse). Consumes knitted goods each pulse.`}
+        </div>
+        {clothierBuilt && (
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+            <WorkerAssigner
+              workers={clothierWorkers} freePeople={freePeople}
+              onAdd={() => onAssignTownBuildingWorker("clothier", 1)}
+              onRemove={() => onAssignTownBuildingWorker("clothier", -1)}
+            />
+            {clothierWorkers > 0 && (
+              <div style={{ fontSize: "0.68rem", color: "var(--muted)" }}>
+                +<strong style={{ color: "#4ade80" }}>${clothierCash}</strong>/pulse ·{" "}
+                <strong>{clothierCost}</strong>🧥/pulse · have: {Math.floor(game.animalGoods?.knitted_goods ?? 0)}
+              </div>
+            )}
+          </div>
+        )}
+        {!clothierBuilt && (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>${TOWN_CLOTHIER_COST.toLocaleString()} treasury</div>
+            <button onClick={() => onBuildTownBuilding("clothier")} disabled={!canBuildClothier} className="btn" style={{ opacity: canBuildClothier ? 1 : 0.5 }}>Build Clothier</button>
           </div>
         )}
       </div>

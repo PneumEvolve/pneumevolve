@@ -9,6 +9,7 @@ import {
   getNextPlotCapUpgrade,
   getNextYieldUpgrade,
   getPlotUpgradeCost,
+  isTownBuildingBuilt,
 } from "../gameEngine";
 
 export default function FarmInvestmentPanel({ farm, game, onBuyPlotCap, onBuyYield, onUpgradePlot }) {
@@ -16,6 +17,7 @@ export default function FarmInvestmentPanel({ farm, game, onBuyPlotCap, onBuyYie
   const maxPlots = getFarmMaxPlots(game, farm.id);
   const bonusYield = getFarmBonusYield(game, farm.id);
   const cash = game.cash ?? 0;
+  const schoolBuilt = isTownBuildingBuilt(game, "school");
 
   const artisanGood = CROP_ARTISAN[farm.crop];
   const artisanHave = artisanGood ? (game.artisan[artisanGood] ?? 0) : 0;
@@ -139,23 +141,26 @@ export default function FarmInvestmentPanel({ farm, game, onBuyPlotCap, onBuyYie
             const owned = inv.yieldIndex > idx;
             const isNext = inv.yieldIndex === idx;
             const canAfford = cash >= tier.cost;
+            // School gate: yield_3 and yield_4 are idx 2 and 3
+            const schoolLocked = idx >= 2 && !schoolBuilt;
+            const canBuy = isNext && canAfford && !schoolLocked;
             return (
               <div key={tier.id} style={{
                 display: "flex", alignItems: "center", justifyContent: "space-between",
                 padding: "0.4rem 0.6rem", borderRadius: "6px",
                 background: owned ? "rgba(74,222,128,0.08)" : "var(--bg)",
-                border: `1px solid ${owned ? "rgba(74,222,128,0.3)" : "var(--border)"}`,
+                border: `1px solid ${owned ? "rgba(74,222,128,0.3)" : schoolLocked && isNext ? "rgba(167,139,250,0.3)" : "var(--border)"}`,
                 opacity: !owned && !isNext ? 0.4 : 1,
               }}>
                 <div style={{ fontSize: "0.72rem" }}>
-                  <div style={{ fontWeight: 600, color: owned ? "#4ade80" : "var(--text)" }}>
-                    {owned ? "✓" : isNext ? "🌿" : "🔒"} {tier.name}
+                  <div style={{ fontWeight: 600, color: owned ? "#4ade80" : schoolLocked && isNext ? "#a78bfa" : "var(--text)" }}>
+                    {owned ? "✓" : schoolLocked && isNext ? "🏫" : isNext ? "🌿" : "🔒"} {tier.name}
                   </div>
                   <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.1rem" }}>
-                    {tier.description}
+                    {schoolLocked && isNext ? "Requires School to unlock" : tier.description}
                   </div>
                 </div>
-                {!owned && isNext && (
+                {!owned && isNext && !schoolLocked && (
                   <button
                     onClick={() => onBuyYield(farm.id)}
                     disabled={!canAfford}

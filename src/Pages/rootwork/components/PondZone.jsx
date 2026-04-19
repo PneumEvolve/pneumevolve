@@ -9,6 +9,7 @@ import {
 import {
   getFishingWorkerInterval, getFishingWorkerHaul,
   getFishingWorkerGearTier, rollFishForBody, getTotalWorkersHired,
+  isTownBuildingBuilt,
 } from "../gameEngine";
 
 const SPEED_UPGRADES = ["speed_1", "speed_2"];
@@ -272,6 +273,8 @@ function RecentCatches({ catches }) {
 
 function WorkerUpgradeTree({ label, upgradeIds, worker, game, bodyId, onUpgrade }) {
   const upgrades = worker.upgrades ?? [];
+  const schoolBuilt = isTownBuildingBuilt(game, "school");
+  const SCHOOL_GATED = ["haul_2", "gear_expert"];
   return (
     <div>
       <div style={{ fontSize: "0.62rem", fontWeight: 600, color: "rgba(255,255,255,0.4)", marginBottom: "0.3rem", letterSpacing: "0.06em" }}>
@@ -282,26 +285,27 @@ function WorkerUpgradeTree({ label, upgradeIds, worker, game, bodyId, onUpgrade 
           const u = FISHING_WORKER_UPGRADES[uid];
           const owned = upgrades.includes(uid);
           const requiresMet = !u.requires || upgrades.includes(u.requires);
+          const schoolLocked = SCHOOL_GATED.includes(uid) && !schoolBuilt;
           const canAfford = (game.cash ?? 0) >= u.cost;
-          const canBuy = !owned && requiresMet && canAfford;
+          const canBuy = !owned && requiresMet && canAfford && !schoolLocked;
           const locked = !owned && !requiresMet;
           return (
             <div key={uid} style={{
               display: "flex", alignItems: "center", justifyContent: "space-between",
               padding: "0.28rem 0.45rem", borderRadius: "6px",
               background: owned ? "rgba(74,222,128,0.08)" : "rgba(0,0,0,0.3)",
-              border: `1px solid ${owned ? "rgba(74,222,128,0.3)" : "rgba(255,255,255,0.1)"}`,
+              border: `1px solid ${owned ? "rgba(74,222,128,0.3)" : schoolLocked && requiresMet ? "rgba(167,139,250,0.4)" : "rgba(255,255,255,0.1)"}`,
               opacity: locked ? 0.4 : 1,
             }}>
               <div style={{ fontSize: "0.68rem" }}>
-                <span style={{ fontWeight: 600, color: owned ? "#4ade80" : "#fff" }}>
-                  {owned ? "✓" : locked ? "🔒" : u.emoji} {u.name}
+                <span style={{ fontWeight: 600, color: owned ? "#4ade80" : schoolLocked && requiresMet ? "#a78bfa" : "#fff" }}>
+                  {owned ? "✓" : schoolLocked && requiresMet ? "🏫" : locked ? "🔒" : u.emoji} {u.name}
                 </span>
                 <span style={{ marginLeft: "0.35rem", fontSize: "0.6rem", color: "rgba(255,255,255,0.4)" }}>
-                  {u.description}
+                  {schoolLocked && requiresMet ? "Requires School" : u.description}
                 </span>
               </div>
-              {!owned && (
+              {!owned && !schoolLocked && (
                 <button
                   onClick={() => canBuy && onUpgrade(bodyId, uid)}
                   disabled={!canBuy}

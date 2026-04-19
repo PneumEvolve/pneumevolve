@@ -21,7 +21,7 @@ import {
   TOWN_JAM_BUILDING_COST, TOWN_SAUCE_BUILDING_COST,
   TOWN_PULSE_SECONDS, TOWN_GROWTH_PER_PULSE, TOWN_DECLINE_PER_PULSE,
   TOWN_HOME_INSTANT_POPULATION,
-  TOWN_SATISFACTION_DEFAULT, TOWN_SATISFACTION_FLOOR,
+  TOWN_SATISFACTION_DEFAULT, TOWN_SATISFACTION_FLOOR, TOWN_SATISFACTION_CEILING,
   TOWN_SATISFACTION_STEP, TOWN_SATISFACTION_STARVE_STEP,
   TOWN_SAT_WHEAT, TOWN_SAT_BAKERY, TOWN_SAT_BAKERY_JAM,
   TOWN_SAT_BAKERY_SAUCE, TOWN_SAT_ALL_BUILDINGS,
@@ -33,6 +33,7 @@ import {
   BANK_TIERS, BANK_MAX_LEVEL, GEAR_CROP_COSTS, POND_COST, NEEDLE_SWEEP_SPEED, REEL_DURATION,
   REEL_DRAIN_RATE, REEL_TAP_AMOUNT, BAIT_TYPES,
   ANIMAL_TYPES, MAX_ANIMALS_PER_TYPE,
+  BARN_BUILDINGS, BARN_BUILDING_ORDER, BARN_BUILDING_TIERS, BARN_UPKEEP_DEBT_MOOD_DRAIN,
   ANIMAL_INTERACT_MOOD_BOOST, ANIMAL_INTERACT_COOLDOWN,
   PET_TYPES, PET_INTERACT_MOOD_BOOST, PET_INTERACT_COOLDOWN,
   BAIT_RECIPES, BARN_WORKER_HIRE_BASE_COST, BARN_WORKER_HIRE_MULTIPLIER,
@@ -40,9 +41,16 @@ BARN_WORKER_UPGRADES, ANIMAL_STORAGE_UPGRADES,
 BARN_WORKER_BASE_INTERVAL, BARN_WORKER_BASE_CAPACITY,
 ANIMAL_BASE_STOCK_MAX, ANIMAL_OVERFULL_MOOD_DRAIN, ANIMAL_FOOD_COSTS, PET_FOOD_COST, BREAD_FOOD_UNITS,
 PERSON_IDLE_FOOD_COST, PERSON_WORKING_FOOD_COST,
+TOWN_CLINIC_COST, TOWN_SCHOOL_COST, TOWN_TAVERN_COST, TOWN_RESTAURANT_COST, TOWN_CLOTHIER_COST,
+CLINIC_CAP_PER_MEDIC, CLINIC_SAT_PER_MEDIC,
+SCHOOL_GROW_PER_RESEARCHER, SCHOOL_RESEARCH_TIME_FLOOR,
+TAVERN_SAT_PER_BARTENDER, TAVERN_GOODS_PER_PULSE_DIVISOR,
+RESTAURANT_SAT_PER_CHEF, RESTAURANT_OMELETTE_PER_PULSE_DIVISOR, RESTAURANT_CHEESE_PER_PULSE_DIVISOR,
+CLOTHIER_CASH_PER_CLERK, CLOTHIER_GOODS_PER_PULSE_DIVISOR,
 FISHING_BODIES, FISHING_BODY_ORDER, FISHING_FISH,
 FISHING_CATCH_RATES, FISHING_BAIT_BONUS,
-FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, ANIMAL_YIELD_UPGRADES,
+FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, ANIMAL_YIELD_UPGRADES, 
+  SCHOOL_RESEARCH,
 } from "./gameConstants";
  
 let _idCounter = 0;
@@ -55,12 +63,16 @@ function genId(prefix = "id") {
 export function getTotalWorkersHired(state) {
   const fishingWorkers = Object.values(state.fishing?.bodies ?? {})
     .filter((b) => b?.unlocked && b?.worker?.hired === true).length;
+  const b = state.town?.townBuildings ?? {};
+  const townBuildingWorkers = (b.clinic?.workers ?? 0) + (b.school?.workers ?? 0) +
+    (b.tavern?.workers ?? 0) + (b.restaurant?.workers ?? 0) + (b.clothier?.workers ?? 0);
   return (
     (state.workers ?? []).length +
     (state.kitchenWorkers ?? []).length +
     (state.marketWorkers ?? []).length +
     (state.barnWorkers ?? []).length +
-    fishingWorkers
+    fishingWorkers +
+    townBuildingWorkers
   );
 }
  
@@ -218,7 +230,7 @@ export function isFarmPrestigeReady(farm, workers, state) {
   const growTime = getFarmAverageGrowTime(
     farm, workers, farm.crop,
     state.feastBonusPercent ?? 0,
-    state.town?.growthBonusPercent ?? 0,
+    (state.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(state),
     getTreasuryGrowBonus(state),
     getFishMealGrowBonus(state)
   );
@@ -278,10 +290,234 @@ export function getTownBakeryCost(state) {
   return Math.round(raw / 50) * 50;
 }
  
-export function getTownCapacity(state) {
-  return (state.town?.homes ?? 0) * TOWN_HOME_CAPACITY;
+// ─── Town building helpers ────────────────────────────────────────────────────
+
+export function getTownBuildings(state) {
+  return state.town?.townBuildings ?? {};
 }
- 
+
+export function isTownBuildingBuilt(state, key) {
+  return getTownBuildings(state)[key]?.built === true;
+}
+
+export function getTownBuildingWorkers(state, key) {
+  return getTownBuildings(state)[key]?.workers ?? 0;
+}
+
+// Clinic: each medic adds 0.5 to pop cap (additive on top of homes-based cap)
+export function getClinicCapBonus(state) {
+  if (!isTownBuildingBuilt(state, "clinic")) return 0;
+  return getTownBuildingWorkers(state, "clinic") * CLINIC_CAP_PER_MEDIC;
+}
+
+// Clinic: each medic adds 0.3% flat satisfaction bonus
+export function getClinicSatBonus(state) {
+  if (!isTownBuildingBuilt(state, "clinic")) return 0;
+  return getTownBuildingWorkers(state, "clinic") * CLINIC_SAT_PER_MEDIC;
+}
+
+// School: each researcher adds 0.2% grow speed bonus
+export function getSchoolGrowBonus(state) {
+  if (!isTownBuildingBuilt(state, "school")) return 0;
+  return getTownBuildingWorkers(state, "school") * SCHOOL_GROW_PER_RESEARCHER;
+}
+
+// School: research time multiplier (multiplicative reduction, floor 5%)
+export function getSchoolResearchMultiplier(state) {
+  if (!isTownBuildingBuilt(state, "school")) return 1;
+  const researchers = getTownBuildingWorkers(state, "school");
+  return Math.max(0.05, Math.pow(0.99, researchers)); // each researcher = 1% faster (multiplicative)
+}
+
+export function getSchoolData(state) {
+  const school = state.town?.townBuildings?.school ?? null;
+  if (!school?.built) return null;
+  return school;
+}
+
+export function getSchoolUnlockedResearch(state) {
+  const school = getSchoolData(state);
+  return school?.unlockedResearch ?? [];
+}
+
+export function hasSchoolResearch(state, researchId) {
+  return getSchoolUnlockedResearch(state).includes(researchId);
+}
+
+export function getActiveSchoolResearch(state) {
+  const school = getSchoolData(state);
+  if (!school?.activeResearchId) return null;
+  return SCHOOL_RESEARCH[school.activeResearchId] ?? null;
+}
+
+export function getAvailableSchoolResearch(state) {
+  const school = getSchoolData(state);
+  if (!school) return [];
+
+  const unlocked = school.unlockedResearch ?? [];
+  return Object.values(SCHOOL_RESEARCH).filter((research) => {
+    if (unlocked.includes(research.id)) return false;
+    return (research.requires ?? []).every((req) => unlocked.includes(req));
+  });
+}
+
+export function startSchoolResearch(state, researchId) {
+  if (!isTownBuildingBuilt(state, "school")) return state;
+
+  const research = SCHOOL_RESEARCH[researchId];
+  if (!research) return state;
+
+  const next = deepCloneState(state);
+  const school = next.town.townBuildings.school;
+
+  school.unlockedResearch = school.unlockedResearch ?? [];
+  if (school.unlockedResearch.includes(researchId)) return state;
+
+  const available = getAvailableSchoolResearch(next).map((r) => r.id);
+  if (!available.includes(researchId)) return state;
+
+  school.activeResearchId = researchId;
+  school.researchProgress = 0;
+  school.researchNeeded = Math.max(
+    1,
+    Math.floor(research.seconds * getSchoolResearchMultiplier(next))
+  );
+
+  return next;
+}
+
+// Tavern: each bartender adds 0.5% sat bonus
+export function getTavernSatBonus(state) {
+  if (!isTownBuildingBuilt(state, "tavern")) return 0;
+  return getTownBuildingWorkers(state, "tavern") * TAVERN_SAT_PER_BARTENDER;
+}
+
+// Tavern: how many goods consumed per pulse
+export function getTavernPulseCost(state) {
+  const workers = getTownBuildingWorkers(state, "tavern");
+  if (workers === 0) return 0;
+  return Math.max(1, Math.ceil(workers / TAVERN_GOODS_PER_PULSE_DIVISOR));
+}
+
+// Restaurant: each chef adds 0.8% sat bonus
+export function getRestaurantSatBonus(state) {
+  if (!isTownBuildingBuilt(state, "restaurant")) return 0;
+  return getTownBuildingWorkers(state, "restaurant") * RESTAURANT_SAT_PER_CHEF;
+}
+
+// Restaurant pulse costs
+export function getRestaurantOmeletteCost(state) {
+  const workers = getTownBuildingWorkers(state, "restaurant");
+  if (workers === 0) return 0;
+  return Math.max(1, Math.ceil(workers / RESTAURANT_OMELETTE_PER_PULSE_DIVISOR));
+}
+export function getRestaurantCheeseCost(state) {
+  const workers = getTownBuildingWorkers(state, "restaurant");
+  if (workers === 0) return 0;
+  return Math.max(1, Math.ceil(workers / RESTAURANT_CHEESE_PER_PULSE_DIVISOR));
+}
+
+// Clothier: cash per pulse = workers * CLOTHIER_CASH_PER_CLERK
+export function getClothierCashPerPulse(state) {
+  if (!isTownBuildingBuilt(state, "clothier")) return 0;
+  return getTownBuildingWorkers(state, "clothier") * CLOTHIER_CASH_PER_CLERK;
+}
+
+// Clothier: knitted goods consumed per pulse
+export function getClothierPulseCost(state) {
+  const workers = getTownBuildingWorkers(state, "clothier");
+  if (workers === 0) return 0;
+  return Math.max(1, Math.ceil(workers / CLOTHIER_GOODS_PER_PULSE_DIVISOR));
+}
+
+// Total sat bonus from all town buildings (flat %, added to target)
+export function getTownBuildingSatBonus(state) {
+  return getClinicSatBonus(state) + getTavernSatBonus(state) + getRestaurantSatBonus(state);
+}
+
+// Total workers assigned to town buildings (these count as working for food purposes)
+export function getTownBuildingWorkerCount(state) {
+  const b = getTownBuildings(state);
+  return (b.clinic?.workers ?? 0) + (b.school?.workers ?? 0) +
+         (b.tavern?.workers ?? 0) + (b.restaurant?.workers ?? 0) +
+         (b.clothier?.workers ?? 0);
+}
+
+// Available population for assignment (not already a farm/kitchen/market/barn/fishing/town-building worker)
+export function getFreePeople(state) {
+  return Math.max(0, Math.floor(state.town?.people ?? 0) - getTotalWorkersHired(state));
+}
+
+export function getTownCapacity(state) {
+  const homeCap = (state.town?.homes ?? 0) * TOWN_HOME_CAPACITY;
+  const clinicBonus = Math.floor(getClinicCapBonus(state));
+  return homeCap + clinicBonus;
+}
+
+// Build a town building
+export function buildTownBuilding(state, key) {
+  const costs = {
+    clinic: TOWN_CLINIC_COST, school: TOWN_SCHOOL_COST,
+    tavern: TOWN_TAVERN_COST, restaurant: TOWN_RESTAURANT_COST,
+    clothier: TOWN_CLOTHIER_COST,
+  };
+  const cost = costs[key];
+  if (!cost) return state;
+  if (isTownBuildingBuilt(state, key)) return state;
+  if ((state.town?.treasuryBalance ?? 0) < cost) return state;
+  // Gate checks
+  const thLevel = getTownHallLevel(state);
+  if (key === "clinic" && thLevel < 2) return state;
+  if (key === "school" && !isTownBuildingBuilt(state, "clinic")) return state;
+  if (key === "tavern" && !isTownBuildingBuilt(state, "school")) return state;
+  if (key === "restaurant" && !(isTownBuildingBuilt(state, "school") && (state.town?.bakeryLevel ?? 0) >= 1)) return state;
+  if (key === "clothier" && !(isTownBuildingBuilt(state, "school") && state.barnBuildings?.wool_shed?.built)) return state;
+
+  const next = deepCloneState(state);
+  next.town.treasuryBalance -= cost;
+  if (!next.town.townBuildings) next.town.townBuildings = {};
+  if (key === "school") {
+  next.town.townBuildings[key] = {
+    built: true,
+    workers: 0,
+    activeResearchId: null,
+    researchProgress: 0,
+    researchNeeded: 0,
+    unlockedResearch: [],
+  };
+} else {
+  next.town.townBuildings[key] = { built: true, workers: 0 };
+}
+  return next;
+}
+
+export function setTavernMode(state, mode) {
+  if (!isTownBuildingBuilt(state, "tavern")) return state;
+  if (mode !== "jam" && mode !== "fish_pie") return state;
+  const next = deepCloneState(state);
+  if (!next.town.townBuildings) next.town.townBuildings = {};
+  if (!next.town.townBuildings.tavern) next.town.townBuildings.tavern = { built: true, workers: 0 };
+  next.town.townBuildings.tavern.mode = mode;
+  return next;
+}
+
+export function assignTownBuildingWorker(state, key, delta) {
+  if (!isTownBuildingBuilt(state, key)) return state;
+  const next = deepCloneState(state);
+  if (!next.town.townBuildings) next.town.townBuildings = {};
+  if (!next.town.townBuildings[key]) next.town.townBuildings[key] = { built: true, workers: 0 };
+  const current = next.town.townBuildings[key].workers ?? 0;
+  if (delta > 0) {
+    // Need a free person
+    if (getFreePeople(next) <= 0) return state;
+    next.town.townBuildings[key].workers = current + 1;
+  } else {
+    if (current <= 0) return state;
+    next.town.townBuildings[key].workers = current - 1;
+  }
+  return next;
+}
+
 export function getTownGrowthBonusPercent(people) {
   const steps = Math.floor(Math.max(0, people) / TOWN_PEOPLE_PER_GROWTH_BONUS);
   return Math.min(TOWN_MAX_GROWTH_BONUS_PERCENT, steps * TOWN_GROWTH_BONUS_PER_STEP);
@@ -291,13 +527,17 @@ export function getSatisfactionTarget(state) {
   const town = state.town ?? {};
   if (town.starving) return TOWN_SATISFACTION_FLOOR;
   const bakeryOn = town.bakeryOn === true && (town.bakeryLevel ?? 0) >= 1;
-  if (!bakeryOn) return TOWN_SAT_WHEAT;
   const pantryOn = town.pantryOn === true && town.jamBuildingOwned === true;
   const canneryOn = town.canneryOn === true && town.sauceBuildingOwned === true;
-  if (pantryOn && canneryOn) return TOWN_SAT_ALL_BUILDINGS;
-  if (canneryOn) return TOWN_SAT_BAKERY_SAUCE;
-  if (pantryOn) return TOWN_SAT_BAKERY_JAM;
-  return TOWN_SAT_BAKERY;
+  let base;
+  if (!bakeryOn) base = TOWN_SAT_WHEAT;
+  else if (pantryOn && canneryOn) base = TOWN_SAT_ALL_BUILDINGS;
+  else if (canneryOn) base = TOWN_SAT_BAKERY_SAUCE;
+  else if (pantryOn) base = TOWN_SAT_BAKERY_JAM;
+  else base = TOWN_SAT_BAKERY;
+  // Add flat bonuses from town buildings (clinic, tavern, restaurant)
+  const buildingBonus = getTownBuildingSatBonus(state);
+  return Math.min(TOWN_SATISFACTION_CEILING, Math.round(base + buildingBonus));
 }
  
 export function getTownSatisfactionMultiplier(state) {
@@ -565,8 +805,10 @@ export function getKitchenWorkerSpeedMultiplier(worker) {
   return 1;
 }
  
-export function getEffectiveKitchenSeconds(worker, baseSeconds) {
-  return Math.max(5, Math.floor(baseSeconds * getKitchenWorkerSpeedMultiplier(worker)));
+export function getEffectiveKitchenSeconds(worker, baseSeconds, state = null) {
+  const workerMult = getKitchenWorkerSpeedMultiplier(worker);
+  const schoolMult = state ? getSchoolResearchMultiplier(state) : 1;
+  return Math.max(5, Math.floor(baseSeconds * workerMult * schoolMult));
 }
  
 export function isKitchenWorkerIdle(worker) {
@@ -585,6 +827,9 @@ export function canUpgradeKitchenWorker(state, workerId, upgradeId) {
   if ((worker.upgrades ?? []).includes(upgradeId)) return false;
   if (upgrade.requires && !(worker.upgrades ?? []).includes(upgrade.requires)) return false;
   if ((state.cash ?? 0) < upgrade.cost) return false;
+  // School gate: batch_5 and batch_10 require the school to be built
+  if (upgradeId === "batch_5" && !hasSchoolResearch(state, "kitchen_batch_5")) return false;
+  if (upgradeId === "batch_10" && !hasSchoolResearch(state, "kitchen_batch_10")) return false;
   return true;
 }
  
@@ -596,7 +841,7 @@ export function getKitchenWorkerBatchSize(worker) {
   return 1;
 }
  
-function _startKitchenWorkerRecipe(worker, recipeId, crops, animalGoods, fish) {
+function _startKitchenWorkerRecipe(worker, recipeId, crops, animalGoods, fish, bait, state = null) {
   const recipe = PROCESSING_RECIPES[recipeId] ?? BAIT_RECIPES[recipeId];
   if (!recipe?.inputCrop) return false;
   const batch = getKitchenWorkerBatchSize(worker);
@@ -613,7 +858,7 @@ if (have < totalInput) return false;
   else if (inFish) fish[recipe.inputCrop] -= totalInput;
   worker.recipeId = recipeId;
   worker.elapsedSeconds = 0;
-  worker.totalSeconds = getEffectiveKitchenSeconds(worker, recipe.seconds);
+  worker.totalSeconds = getEffectiveKitchenSeconds(worker, recipe.seconds, state);
   worker.batchSize = batch;
   worker.busy = true;
   return true;
@@ -732,6 +977,7 @@ function makeFreshTown() {
     foodType: "wheat",
     pulseSeconds: TOWN_PULSE_SECONDS,
     starving: false,
+    townBuildings: {},
   };
 }
  
@@ -785,6 +1031,11 @@ export function createInitialState() {
     bait: { wheat_bait: 0, berry_bait: 0, tomato_bait: 0 },
     fishMealStacks: [],
     barnWorkers: [],
+    barnBuildings: {
+      chicken_coop: { built: false, tier: 0 },
+      dairy:        { built: false, tier: 0 },
+      wool_shed:    { built: false, tier: 0 },
+    },
   };
 }
  
@@ -844,7 +1095,7 @@ export function getFishMealGrowBonus(state) {
 
 export function getAnimalEffectiveCycleSeconds(baseSeconds, state) {
   const feast = state.feastBonusPercent ?? 0;
-  const townBonus = state.town?.growthBonusPercent ?? 0;
+  const townBonus = (state.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(state);
   const treasuryBonus = getTreasuryGrowBonus(state);
   const fishMeal = getFishMealGrowBonus(state);
   const totalBonus = feast + townBonus + treasuryBonus + fishMeal;
@@ -910,7 +1161,82 @@ export function getAnimalYieldUpgradeCost(animal) {
   return ANIMAL_YIELD_UPGRADES[level] ?? null;
 }
 
-// ─── Fishing helpers ──────────────────────────────────────────────────────────
+// ─── Barn building helpers ────────────────────────────────────────────────────
+ 
+export function getBarnBuilding(state, buildingId) {
+  return state.barnBuildings?.[buildingId] ?? { built: false, tier: 0 };
+}
+ 
+export function getBarnBuildingTierData(state, buildingId) {
+  const b = getBarnBuilding(state, buildingId);
+  if (!b.built) return null;
+  return BARN_BUILDING_TIERS[b.tier - 1] ?? BARN_BUILDING_TIERS[0];
+}
+ 
+export function getBarnBuildingAnimalSlots(state, buildingId) {
+  const tier = getBarnBuildingTierData(state, buildingId);
+  return tier ? tier.animalSlots : 0;
+}
+ 
+export function getBarnBuildingWorkerSlots(state, buildingId) {
+  const tier = getBarnBuildingTierData(state, buildingId);
+  return tier ? tier.workerSlots : 0;
+}
+ 
+export function getBarnBuildingForAnimal(animalType) {
+  return Object.values(BARN_BUILDINGS).find((b) => b.animalType === animalType) ?? null;
+}
+ 
+export function canBuildBarnBuilding(state, buildingId) {
+  const def = BARN_BUILDINGS[buildingId];
+  if (!def) return false;
+  const b = getBarnBuilding(state, buildingId);
+  if (b.built) return false;
+  if ((state.season ?? 1) < def.unlockSeason) return false;
+  if ((state.cash ?? 0) < def.buildCost) return false;
+  return true;
+}
+ 
+export function buildBarnBuilding(state, buildingId) {
+  if (!canBuildBarnBuilding(state, buildingId)) return state;
+  const def = BARN_BUILDINGS[buildingId];
+  const next = deepCloneState(state);
+  next.cash -= def.buildCost;
+  if (!next.barnBuildings) next.barnBuildings = {};
+  next.barnBuildings[buildingId] = { built: true, tier: 1 };
+  return next;
+}
+ 
+export function canUpgradeBarnBuilding(state, buildingId) {
+  const b = getBarnBuilding(state, buildingId);
+  if (!b.built) return false;
+  if (b.tier >= BARN_BUILDING_TIERS.length) return false;
+  const nextTier = BARN_BUILDING_TIERS[b.tier]; // tier is 1-indexed, array is 0-indexed
+  if (!nextTier) return false;
+  if ((state.cash ?? 0) < nextTier.upgradeCost) return false;
+  return true;
+}
+ 
+export function upgradeBarnBuilding(state, buildingId) {
+  if (!canUpgradeBarnBuilding(state, buildingId)) return state;
+  const next = deepCloneState(state);
+  const b = next.barnBuildings[buildingId];
+  const nextTier = BARN_BUILDING_TIERS[b.tier];
+  next.cash -= nextTier.upgradeCost;
+  b.tier += 1;
+  return next;
+}
+ 
+export function getTotalBarnUpkeepPerSec(state) {
+  let total = 0;
+  for (const [buildingId, def] of Object.entries(BARN_BUILDINGS)) {
+    const b = getBarnBuilding(state, buildingId);
+    if (!b.built) continue;
+    const count = (state.animals?.[def.animalType] ?? []).length;
+    total += count * def.upkeepPerAnimalPerSec;
+  }
+  return total;
+}
 
 export function getFishingWorkerInterval(worker) {
   const upgrades = worker.upgrades ?? [];
@@ -1003,8 +1329,9 @@ export function calculateOfflineProgress(state, nowMs) {
  
 export function tick(state) {
   let next = deepCloneState(state);
+  next.pendingDeathEvents = []; // clear each tick; fresh events added below
   const feast = next.feastBonusPercent ?? 0;
-  const townBonus = next.town?.growthBonusPercent ?? 0;
+  const townBonus = (next.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(next);
   const treasuryGrowBonus = getTreasuryGrowBonus(next);
   const fishMealBonus = getFishMealGrowBonus(next);
  
@@ -1042,6 +1369,46 @@ if (activeTier) {
     // This is the "infinite money sink" — bank consumes treasury to give price bonus
   }
  
+// ── School research ────────────────────────────────────────────────────────
+  if (isTownBuildingBuilt(next, "school")) {
+    const school = next.town?.townBuildings?.school;
+    const researchers = school?.workers ?? 0;
+
+    if (school) {
+      school.unlockedResearch = school.unlockedResearch ?? [];
+
+      if (school.activeResearchId) {
+        const activeResearch = SCHOOL_RESEARCH[school.activeResearchId];
+
+        if (!activeResearch) {
+          school.activeResearchId = null;
+          school.researchProgress = 0;
+          school.researchNeeded = 0;
+        } else {
+          const needed = Math.max(
+            1,
+            Math.floor(activeResearch.seconds * getSchoolResearchMultiplier(next))
+          );
+
+          school.researchNeeded = needed;
+
+          if (researchers > 0) {
+            school.researchProgress = (school.researchProgress ?? 0) + researchers;
+          }
+
+          if ((school.researchProgress ?? 0) >= needed) {
+            if (!school.unlockedResearch.includes(activeResearch.id)) {
+              school.unlockedResearch.push(activeResearch.id);
+            }
+            school.activeResearchId = null;
+            school.researchProgress = 0;
+            school.researchNeeded = 0;
+          }
+        }
+      }
+    }
+  }
+
   // ── Farms ──────────────────────────────────────────────────────────────────
   for (const farm of next.farms) {
     const farmWorkers = next.workers.filter((w) => w.farmId === farm.id);
@@ -1129,7 +1496,7 @@ if (activeTier) {
       worker.busy = false;
       worker.batchSize = 1;
       if ((worker.upgrades ?? []).includes("auto_restart") && (worker.autoRestartEnabled ?? true)) {
-        _startKitchenWorkerRecipe(worker, worker.recipeId, next.crops, next.animalGoods, next.fishing?.fish, next.bait);
+        _startKitchenWorkerRecipe(worker, worker.recipeId, next.crops, next.animalGoods, next.fishing?.fish, next.bait, next);
       }
     }
   }
@@ -1209,6 +1576,23 @@ if (activeTier) {
     }
   }
  
+  // ── Barn upkeep drain ─────────────────────────────────────────────────────
+  for (const [buildingId, def] of Object.entries(BARN_BUILDINGS)) {
+    const b = getBarnBuilding(next, buildingId);
+    if (!b.built) continue;
+    const animals = next.animals?.[def.animalType] ?? [];
+    if (animals.length === 0) continue;
+    const upkeepThisTick = animals.length * def.upkeepPerAnimalPerSec;
+    if ((next.cash ?? 0) >= upkeepThisTick) {
+      next.cash -= upkeepThisTick;
+    } else {
+      // Can't afford — drain mood heavily on all animals in this building
+      for (const animal of animals) {
+        animal.mood = Math.max(0, (animal.mood ?? 100) - BARN_UPKEEP_DEBT_MOOD_DRAIN);
+      }
+    }
+  }
+ 
   // ── Animals ──────────────────────────────────────────────────────────────
   const dogOwned = next.pets?.dog !== undefined;
   const dogMoodOk = dogOwned && (next.pets.dog.mood ?? 0) >= 50;
@@ -1250,9 +1634,18 @@ if (activeTier) {
       const decayPerSecond = (type.moodDecayPerMinute / 60) * moodDecayMultiplier * (isFull ? ANIMAL_OVERFULL_MOOD_DRAIN : 1);
       animal.mood = Math.max(0, (animal.mood ?? 100) - decayPerSecond);
 
-      // Missed food pulse death check
-      if ((animal.missedFoodPulses ?? 0) >= 3) {
+      // Track ticks at zero mood — die after 180 seconds (3 min) at 0%
+      if (animal.mood <= 0) {
+        animal.zeroMoodTicks = (animal.zeroMoodTicks ?? 0) + 1;
+      } else {
+        animal.zeroMoodTicks = 0;
+      }
+
+      // Death conditions: 3 missed food pulses OR 180s at 0% mood
+      if ((animal.missedFoodPulses ?? 0) >= 3 || (animal.zeroMoodTicks ?? 0) >= 180) {
         toRemove.push(animal.id);
+        if (!next.pendingDeathEvents) next.pendingDeathEvents = [];
+        next.pendingDeathEvents.push({ animalId, animalType: type.name, emoji: type.emoji });
       }
 
       if ((animal.interactCooldown ?? 0) > 0) {
@@ -1482,8 +1875,65 @@ export function updateTown(state, seconds = 1) {
     next.town.jamNeeded = jamNeeded;
     next.town.sauceNeeded = sauceNeeded;
     next.town.foodType = foodType;
-    next.town.capacity = capacity;
+    next.town.capacity = getTownCapacity(next);
     next.town.growthBonusPercent = getTownGrowthBonusPercent(next.town.people ?? 0);
+
+    // ── Town Buildings pulse effects ────────────────────────────────────────
+    if (fed) {
+      // Restaurant: consume omelette + cheese
+      const restaurantBuilt = isTownBuildingBuilt(next, "restaurant");
+      const restaurantWorkers = getTownBuildingWorkers(next, "restaurant");
+      if (restaurantBuilt && restaurantWorkers > 0) {
+        const omeletteCost = getRestaurantOmeletteCost(next);
+        const cheeseCost = getRestaurantCheeseCost(next);
+        const hasIngredients = (next.animalGoods?.omelette ?? 0) >= omeletteCost &&
+                               (next.animalGoods?.cheese ?? 0) >= cheeseCost;
+        if (hasIngredients) {
+          next.animalGoods.omelette -= omeletteCost;
+          next.animalGoods.cheese -= cheeseCost;
+          next.town.townBuildings.restaurant.stocked = true;
+        } else {
+          next.town.townBuildings.restaurant.stocked = false;
+        }
+      }
+
+      // Tavern: consume jam (preferred) or fish_pie
+      const tavernBuilt = isTownBuildingBuilt(next, "tavern");
+      const tavernWorkers = getTownBuildingWorkers(next, "tavern");
+      if (tavernBuilt && tavernWorkers > 0) {
+        const tavernCost = getTavernPulseCost(next);
+        const tavernMode = next.town.townBuildings?.tavern?.mode ?? "jam";
+        const tavernStock = tavernMode === "jam"
+          ? (next.artisan?.jam ?? 0)
+          : (next.animalGoods?.fish_pie ?? 0);
+        if (tavernStock >= tavernCost) {
+          if (tavernMode === "jam") next.artisan.jam -= tavernCost;
+          else next.animalGoods.fish_pie -= tavernCost;
+          next.town.townBuildings.tavern.stocked = true;
+        } else {
+          next.town.townBuildings.tavern.stocked = false;
+        }
+      }
+
+      // Clothier: consume knitted_goods, generate cash
+      const clothierBuilt = isTownBuildingBuilt(next, "clothier");
+      const clothierWorkers = getTownBuildingWorkers(next, "clothier");
+      if (clothierBuilt && clothierWorkers > 0) {
+        const clothierCost = getClothierPulseCost(next);
+        if ((next.animalGoods?.knitted_goods ?? 0) >= clothierCost) {
+          next.animalGoods.knitted_goods -= clothierCost;
+          const cashEarned = getClothierCashPerPulse(next);
+          next.cash = (next.cash ?? 0) + cashEarned;
+          next.lifetimeCash = (next.lifetimeCash ?? 0) + cashEarned;
+          next.town.townBuildings.clothier.stocked = true;
+        } else {
+          next.town.townBuildings.clothier.stocked = false;
+        }
+      }
+
+      // School grow bonus is passive — already applied via getSchoolGrowBonus
+    }
+
     next.town.pulseSeconds += getEffectivePulseSeconds(next);
   }
  
@@ -1546,8 +1996,9 @@ export function tendPlot(state, farmId, plotId) {
   const growTime = getEffectiveGrowTime(
     farm, next.workers, farm.crop, plot,
     next.feastBonusPercent ?? 0,
-    next.town?.growthBonusPercent ?? 0,
-    getTreasuryGrowBonus(next)
+    (next.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(next),
+    getTreasuryGrowBonus(next),
+    getFishMealGrowBonus(next)
   );
   plot.growthTick = Math.min(plot.growthTick + TEND_SECONDS, growTime);
   if (plot.growthTick >= growTime) plot.state = "ready";
@@ -1661,6 +2112,10 @@ export function buyYieldUpgrade(state, farmId) {
   const next = deepCloneState(state);
   const upgrade = getNextYieldUpgrade(next, farmId);
   if (!upgrade || (next.cash ?? 0) < upgrade.cost) return state;
+  // School gate: yield_3 and yield_4 (index 2 and 3) require the school
+  const currentIndex = (next.farmInvestments?.[farmId]?.yieldIndex ?? 0);
+  if (currentIndex === 2 && !hasSchoolResearch(state, "fertilizer_iii")) return state;
+  if (currentIndex === 3 && !hasSchoolResearch(state, "fertilizer_iv")) return state;
   next.cash -= upgrade.cost;
   if (!next.farmInvestments) next.farmInvestments = {};
   if (!next.farmInvestments[farmId]) next.farmInvestments[farmId] = { plotCapIndex: 0, yieldIndex: 0 };
@@ -1781,7 +2236,7 @@ export function assignKitchenWorkerRecipe(state, workerId, recipeId) {
     worker.elapsedSeconds = 0;
     worker.batchSize = 1;
   }
-  if (!_startKitchenWorkerRecipe(worker, recipeId, next.crops, next.animalGoods, next.fishing?.fish)) return state;
+  if (!_startKitchenWorkerRecipe(worker, recipeId, next.crops, next.animalGoods, next.fishing?.fish, next.bait, next)) return state;
   return next;
 }
  
@@ -1847,6 +2302,14 @@ export function setTreasuryCap(state, cap) {
 export function hireBarnWorker(state, animalType) {
   if (!ANIMAL_TYPES[animalType]) return state;
   if (isAtWorkerCap(state)) return state;
+  // Check building exists and has worker slot available
+  const buildingDef = getBarnBuildingForAnimal(animalType);
+  if (!buildingDef) return state;
+  const building = getBarnBuilding(state, buildingDef.id);
+  if (!building.built) return state;
+  const workerSlots = getBarnBuildingWorkerSlots(state, buildingDef.id);
+  const currentWorkers = (state.barnWorkers ?? []).filter((w) => w.animalType === animalType).length;
+  if (currentWorkers >= workerSlots) return state;
   const cost = getBarnWorkerHireCost(state);
   if ((state.cash ?? 0) < cost) return state;
   const next = deepCloneState(state);
@@ -1887,6 +2350,10 @@ export function upgradeBarnWorker(state, workerId, upgradeId) {
   if ((worker.upgrades ?? []).includes(upgradeId)) return state;
   if (upgrade.requires && !(worker.upgrades ?? []).includes(upgrade.requires)) return state;
   if ((next.cash ?? 0) < upgrade.cost) return state;
+  // School gate: tier-2 barn upgrades require the school
+  if (upgradeId === "capacity_2" && !hasSchoolResearch(state, "barn_capacity_2")) return state;
+  if (upgradeId === "care_2" && !hasSchoolResearch(state, "barn_care_2")) return state;
+  if (schoolGated.includes(upgradeId) && !isTownBuildingBuilt(state, "school")) return state;
   next.cash -= upgrade.cost;
   worker.upgrades = [...(worker.upgrades ?? []), upgradeId];
   return next;
@@ -1913,6 +2380,8 @@ export function upgradeAnimalYield(state, animalId, animalInstanceId) {
   const nextUpgrade = getAnimalYieldUpgradeCost(animal);
   if (!nextUpgrade) return state;
   if ((next.cash ?? 0) < nextUpgrade.cost) return state;
+  // School gate: yield level 2+ requires the school
+  if (nextUpgrade.level >= 2 && !hasSchoolResearch(state, "animal_yield_2")) return state;
   next.cash -= nextUpgrade.cost;
   animal.yieldLevel = (animal.yieldLevel ?? 0) + 1;
   return next;
@@ -1995,6 +2464,9 @@ export function upgradeFishingWorker(state, bodyId, upgradeId) {
   if ((worker.upgrades ?? []).includes(upgradeId)) return state;
   if (upgrade.requires && !(worker.upgrades ?? []).includes(upgrade.requires)) return state;
   if ((next.cash ?? 0) < upgrade.cost) return state;
+  // School gate: tier-2 fishing upgrades require the school
+  if (upgradeId === "haul_2" && !hasSchoolResearch(state, "fishing_haul_2")) return state;
+  if (upgradeId === "gear_expert" && !hasSchoolResearch(state, "fishing_gear_expert")) return state;
   next.cash -= upgrade.cost;
   worker.upgrades = [...(worker.upgrades ?? []), upgradeId];
   return next;
@@ -2211,8 +2683,14 @@ export function buyAnimal(state, animalId) {
   const type = ANIMAL_TYPES[animalId];
   if (!type) return state;
   if ((state.season ?? 1) < type.unlockSeason) return state;
+  // Must have the barn building built
+  const buildingDef = getBarnBuildingForAnimal(animalId);
+  if (!buildingDef) return state;
+  const building = getBarnBuilding(state, buildingDef.id);
+  if (!building.built) return state;
+  const slotMax = getBarnBuildingAnimalSlots(state, buildingDef.id);
   const owned = (state.animals?.[animalId] ?? []).length;
-  if (owned >= MAX_ANIMALS_PER_TYPE) return state;
+  if (owned >= slotMax) return state;
   const cost = Math.round(type.baseCost * Math.pow(type.costMultiplier, owned));
   if ((state.cash ?? 0) < cost) return state;
   const next = deepCloneState(state);
@@ -2401,6 +2879,14 @@ export function deserializeState(raw) {
       if (parsed.town.townHallDraining !== undefined) delete parsed.town.townHallDraining;
       if (parsed.town.townHallDrained !== undefined) delete parsed.town.townHallDrained;
       if (parsed.town.treasuryCap === undefined) parsed.town.treasuryCap = 0;
+      if (parsed.town.townBuildings === undefined) parsed.town.townBuildings = {};
+      if (parsed.town.townBuildings.school?.built) {
+  const school = parsed.town.townBuildings.school;
+  if (school.activeResearchId === undefined) school.activeResearchId = null;
+  if (school.researchProgress === undefined) school.researchProgress = 0;
+  if (school.researchNeeded === undefined) school.researchNeeded = 0;
+  if (school.unlockedResearch === undefined) school.unlockedResearch = [];
+}
     } // end town else
  
     // These must be outside the town block — always migrate regardless
@@ -2444,6 +2930,21 @@ for (const w of parsed.barnWorkers ?? []) {
   if (w.upgrades === undefined) w.upgrades = [];
   if (w.collectTimer === undefined) w.collectTimer = 0;
   if (w.careTimer === undefined) w.careTimer = 0;
+}
+
+// Migrate: auto-build barn buildings for players who already have animals or workers
+if (!parsed.barnBuildings) {
+  parsed.barnBuildings = {
+    chicken_coop: { built: false, tier: 0 },
+    dairy:        { built: false, tier: 0 },
+    wool_shed:    { built: false, tier: 0 },
+  };
+  if ((parsed.animals?.chicken?.length ?? 0) > 0 || (parsed.barnWorkers ?? []).some(w => w.animalType === "chicken"))
+    parsed.barnBuildings.chicken_coop = { built: true, tier: 1 };
+  if ((parsed.animals?.cow?.length ?? 0) > 0 || (parsed.barnWorkers ?? []).some(w => w.animalType === "cow"))
+    parsed.barnBuildings.dairy = { built: true, tier: 1 };
+  if ((parsed.animals?.sheep?.length ?? 0) > 0 || (parsed.barnWorkers ?? []).some(w => w.animalType === "sheep"))
+    parsed.barnBuildings.wool_shed = { built: true, tier: 1 };
 }
 
 // Migrate pond.fish → fishing
