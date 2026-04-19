@@ -593,13 +593,13 @@ function _startKitchenWorkerRecipe(worker, recipeId, crops, animalGoods, fish) {
   if (!recipe?.inputCrop) return false;
   const batch = getKitchenWorkerBatchSize(worker);
   const totalInput = recipe.inputAmount * batch;
-  const inCrops = (crops?.[recipe.inputCrop] ?? -1) >= 0;
-const inAnimal = (animalGoods?.[recipe.inputCrop] ?? -1) >= 0;
-const inFish = (fish?.[recipe.inputCrop] ?? -1) >= 0;
-  const have = inCrops ? (crops[recipe.inputCrop] ?? 0)
-    : inAnimal ? (animalGoods[recipe.inputCrop] ?? 0)
-    : inFish ? (fish[recipe.inputCrop] ?? 0) : 0;
-  if (have < totalInput) return false;
+  const inCrops = recipe.inputCrop in (crops ?? {});
+const inAnimal = !inCrops && recipe.inputCrop in (animalGoods ?? {});
+const inFish = !inCrops && !inAnimal && recipe.inputCrop in (fish ?? {});
+const have = inCrops ? (crops[recipe.inputCrop] ?? 0)
+  : inAnimal ? (animalGoods[recipe.inputCrop] ?? 0)
+  : inFish ? (fish[recipe.inputCrop] ?? 0) : 0;
+if (have < totalInput) return false;
   if (inCrops) crops[recipe.inputCrop] -= totalInput;
   else if (inAnimal) animalGoods[recipe.inputCrop] -= totalInput;
   else if (inFish) fish[recipe.inputCrop] -= totalInput;
@@ -1695,10 +1695,10 @@ export function assignItemToMarketWorker(state, workerId, itemType, quantity) {
   const next = deepCloneState(state);
   const worker = (next.marketWorkers ?? []).find((w) => w.id === workerId);
   if (!worker) return state;
-  const isCrop = itemType in (next.crops ?? {});
-  const isArtisan = itemType in (next.artisan ?? {});
   const isAnimal = itemType in (next.animalGoods ?? {});
-  const isFish = next.fishing?.fish && itemType in next.fishing.fish;
+const isCrop = !isAnimal && itemType in (next.crops ?? {});
+const isArtisan = !isAnimal && !isCrop && itemType in (next.artisan ?? {});
+const isFish = !isAnimal && !isCrop && !isArtisan && next.fishing?.fish && itemType in next.fishing.fish;
   if (isCrop) {
     if ((next.crops[itemType] ?? 0) < quantity) return state;
     next.crops[itemType] -= quantity;
