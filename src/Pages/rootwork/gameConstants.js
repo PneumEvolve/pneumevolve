@@ -244,7 +244,7 @@ export const TOWN_DECLINE_PER_PULSE = 1;
 export const TOWN_HOME_INSTANT_POPULATION = 1;
 
 export const ANIMAL_FOOD_COSTS = { chicken: 2, cow: 3, sheep: 4 };
-export const PET_FOOD_COST = 1;
+export const PET_FOOD_COST = 2;
 export const BREAD_FOOD_UNITS = 10;
 export const PERSON_IDLE_FOOD_COST = 1;
 export const PERSON_WORKING_FOOD_COST = 2;

@@ -11,15 +11,15 @@ import {
 } from "../gameEngine";
 
 const ANIMAL_DEFS = {
-  chicken: { id: "chicken", name: "Chicken", emoji: "🐔", baseCost: 300, costMultiplier: 1.8, produces: "egg",  produceName: "Egg",  produceEmoji: "🥚", cycleSeconds: 60,  foodPulseCost: 1, moodDecayPerMinute: 2,   description: "Lays eggs every minute.", unlockSeason: 1 },
-  cow:     { id: "cow",     name: "Cow",     emoji: "🐄", baseCost: 800, costMultiplier: 1.6, produces: "milk", produceName: "Milk", produceEmoji: "🥛", cycleSeconds: 120, foodPulseCost: 2, moodDecayPerMinute: 1.5, description: "Produces milk every 2 minutes.", unlockSeason: 2 },
-  sheep:   { id: "sheep",   name: "Sheep",   emoji: "🐑", baseCost: 1500, costMultiplier: 1.5, produces: "wool", produceName: "Wool", produceEmoji: "🧶", cycleSeconds: 180, foodPulseCost: 2, moodDecayPerMinute: 1,   description: "Produces wool every 3 minutes.", unlockSeason: 3 },
+  chicken: { id: "chicken", name: "Chicken", emoji: "🐔", baseCost: 300, costMultiplier: 1.8, produces: "egg",  produceName: "Egg",  produceEmoji: "🥚", cycleSeconds: 60,  foodPulseCost: 2, moodDecayPerMinute: 2,   description: "Lays eggs every minute.", unlockSeason: 1 },
+  cow:     { id: "cow",     name: "Cow",     emoji: "🐄", baseCost: 800, costMultiplier: 1.6, produces: "milk", produceName: "Milk", produceEmoji: "🥛", cycleSeconds: 120, foodPulseCost: 3, moodDecayPerMinute: 1.5, description: "Produces milk every 2 minutes.", unlockSeason: 2 },
+  sheep:   { id: "sheep",   name: "Sheep",   emoji: "🐑", baseCost: 1500, costMultiplier: 1.5, produces: "wool", produceName: "Wool", produceEmoji: "🧶", cycleSeconds: 180, foodPulseCost: 4, moodDecayPerMinute: 1,   description: "Produces wool every 3 minutes.", unlockSeason: 3 },
 };
 
 const PET_DEFS = {
-  dog:    { id: "dog",    name: "Dog",    emoji: "🐕", cost: 400, bonus: "Slows mood decay on all barn animals by 30%.", foodCostPerPulse: 1 },
-  cat:    { id: "cat",    name: "Cat",    emoji: "🐈", cost: 400, bonus: "Widens the fishing needle sweet spot by 20%.", foodCostPerPulse: 1 },
-  rabbit: { id: "rabbit", name: "Rabbit", emoji: "🐇", cost: 400, bonus: "+5% town satisfaction while happy.",          foodCostPerPulse: 1 },
+  dog:    { id: "dog",    name: "Dog",    emoji: "🐕", cost: 400, bonus: "Slows mood decay on all barn animals by 30%.", foodCostPerPulse: 2 },
+  cat:    { id: "cat",    name: "Cat",    emoji: "🐈", cost: 400, bonus: "Widens the fishing needle sweet spot by 20%.", foodCostPerPulse: 2 },
+  rabbit: { id: "rabbit", name: "Rabbit", emoji: "🐇", cost: 400, bonus: "+5% town satisfaction while happy.",          foodCostPerPulse: 2 },
 };
 
 const MAX_PER_TYPE = 5;
