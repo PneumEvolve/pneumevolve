@@ -160,7 +160,7 @@ export const ANIMAL_YIELD_UPGRADES = [
 export const BARN_WORKER_BASE_INTERVAL = 30;  // seconds between collect actions
 export const BARN_WORKER_BASE_CAPACITY = 1;
 export const ANIMAL_BASE_STOCK_MAX = 10;
-export const ANIMAL_OVERFULL_MOOD_DRAIN = 5; // multiplier on normal drain when full
+export const ANIMAL_OVERFULL_MOOD_DRAIN = 15; // multiplier on normal drain when full
 
 // ─── Prestige bonuses ─────────────────────────────────────────────────────────
 export const PRESTIGE_BONUSES = {

@@ -81,10 +81,15 @@ function AnimalCard({ animal, animalType, index, game, onCollect, onInteract, on
             <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text)" }}>
               {animalType.name} #{index + 1}
               {(animal.storageLevel ?? 0) > 0 && (
-                <span style={{ marginLeft: "0.3rem", fontSize: "0.6rem", color: "#f59e0b" }}>
-                  {"⭐".repeat(animal.storageLevel)}
-                </span>
-              )}
+  <span style={{ marginLeft: "0.3rem", fontSize: "0.6rem", color: "#f59e0b" }}>
+    {"⭐".repeat(animal.storageLevel)}
+  </span>
+)}
+{(animal.yieldLevel ?? 0) > 0 && (
+  <span style={{ marginLeft: "0.3rem", fontSize: "0.6rem", color: "#a6e3a1" }}>
+    {"🥚".repeat(animal.yieldLevel)}
+  </span>
+)}
             </span>
             <span style={{ fontSize: "0.68rem", color: moodColor(mood), fontWeight: 600 }}>
               {moodEmoji(mood)} {Math.round(mood)}%
@@ -238,8 +243,8 @@ function AnimalCard({ animal, animalType, index, game, onCollect, onInteract, on
                     {owned ? "✓" : "🥚"} {upgrade.label}
                   </span>
                   <span style={{ marginLeft: "0.35rem", fontSize: "0.62rem", color: "var(--muted)" }}>
-                    +{upgrade.bonusYield} per lay
-                  </span>
+  +{upgrade.bonusYield} per {animalType.produceName.toLowerCase()}
+</span>
                 </div>
                 {!owned && isNext && (
                   <button
@@ -535,6 +540,7 @@ function BarnWorkerCard({ worker, game, index, onFire, onReassign, onUpgrade }) 
 // ─── Barn workers section ─────────────────────────────────────────────────────
 
 function BarnWorkersSection({ game, onHireBarnWorker, onFireBarnWorker, onReassignBarnWorker, onUpgradeBarnWorker }) {
+  const [open, setOpen] = useState(true);
   const [showHire, setShowHire] = useState(false);
   const barnWorkers = game.barnWorkers ?? [];
   const hireCost = getBarnWorkerHireCost(game);
@@ -546,9 +552,16 @@ function BarnWorkersSection({ game, onHireBarnWorker, onFireBarnWorker, onReassi
   const canHire = !atCap && canAfford;
 
   return (
-    <div style={{ background: "var(--bg-elev)", border: "1px solid var(--border)", borderRadius: "12px", overflow: "hidden", marginBottom: "0.65rem" }}>
-      <div style={{ padding: "0.65rem 0.85rem", borderBottom: barnWorkers.length > 0 || showHire ? "1px solid var(--border)" : "none" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+  <div style={{ background: "var(--bg-elev)", border: "1px solid var(--border)", borderRadius: "12px", overflow: "hidden", marginBottom: "0.65rem" }}>
+    <button
+      onClick={() => setOpen((v) => !v)}
+      style={{
+        width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "0.65rem 0.85rem", background: "none", border: "none", cursor: "pointer",
+        borderBottom: open ? "1px solid var(--border)" : "none",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
           <div>
             <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text)" }}>
               🧑‍🌾 Farmhands
@@ -557,7 +570,7 @@ function BarnWorkersSection({ game, onHireBarnWorker, onFireBarnWorker, onReassi
             <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginTop: "0.1rem" }}>Auto-collect produce · upgradeable</div>
           </div>
           <button
-            onClick={() => canHire && setShowHire((v) => !v)}
+  onClick={(e) => { e.stopPropagation(); canHire && setShowHire((v) => !v); }}
             style={{
               fontSize: "0.72rem", fontWeight: 600, padding: "0.3rem 0.75rem", borderRadius: "8px",
               cursor: canHire ? "pointer" : "default",
@@ -570,9 +583,10 @@ function BarnWorkersSection({ game, onHireBarnWorker, onFireBarnWorker, onReassi
             {atCap ? "Town full" : `+ Hire $${hireCost}`}
           </button>
         </div>
-      </div>
+      <span style={{ fontSize: "0.62rem", color: "var(--muted)", marginLeft: "0.5rem" }}>{open ? "▲" : "▼"}</span>
+    </button>
 
-      {showHire && !atCap && (
+      {open && showHire && !atCap && (
         <div style={{ padding: "0.65rem 0.85rem", borderBottom: "1px solid var(--border)", background: "var(--bg)" }}>
           <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.4rem" }}>Assign to which animal type?</div>
           <div style={{ display: "flex", gap: "0.4rem" }}>
@@ -604,7 +618,7 @@ function BarnWorkersSection({ game, onHireBarnWorker, onFireBarnWorker, onReassi
         </div>
       )}
 
-      {barnWorkers.length > 0 && (
+      {open && barnWorkers.length > 0 && (
         <div style={{ padding: "0.65rem 0.85rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
           {barnWorkers.map((w, idx) => (
             <BarnWorkerCard
@@ -615,7 +629,7 @@ function BarnWorkersSection({ game, onHireBarnWorker, onFireBarnWorker, onReassi
         </div>
       )}
 
-      {barnWorkers.length === 0 && !showHire && (
+      {open && barnWorkers.length === 0 && !showHire && (
         <div style={{ padding: "0.5rem 0.85rem 0.65rem", fontSize: "0.72rem", color: "var(--muted)" }}>
           No farmhands hired. They auto-collect produce and can be upgraded.
         </div>

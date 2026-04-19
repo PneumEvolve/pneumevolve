@@ -1322,10 +1322,14 @@ if (activeTier) {
  
 function fireLastHiredWorker(state) {
   const candidates = [
-    ...(state.workers ?? []).map((w) => ({ id: w.id, type: "farm", hiredAt: w.hiredAt ?? 0 })),
-    ...(state.kitchenWorkers ?? []).map((w) => ({ id: w.id, type: "kitchen", hiredAt: w.hiredAt ?? 0 })),
-    ...(state.marketWorkers ?? []).map((w) => ({ id: w.id, type: "market", hiredAt: w.hiredAt ?? 0 })),
-  ];
+  ...(state.workers ?? []).map((w) => ({ id: w.id, type: "farm", hiredAt: w.hiredAt ?? 0 })),
+  ...(state.kitchenWorkers ?? []).map((w) => ({ id: w.id, type: "kitchen", hiredAt: w.hiredAt ?? 0 })),
+  ...(state.marketWorkers ?? []).map((w) => ({ id: w.id, type: "market", hiredAt: w.hiredAt ?? 0 })),
+  ...(state.barnWorkers ?? []).map((w) => ({ id: w.id, type: "barn", hiredAt: w.hiredAt ?? 0 })),
+  ...Object.entries(state.fishing?.bodies ?? {})
+    .filter(([, b]) => b?.worker?.hired)
+    .map(([bodyId, b]) => ({ id: bodyId, type: "fishing", hiredAt: b.worker.hiredAt ?? 0 })),
+];
   if (candidates.length === 0) return state;
   candidates.sort((a, b) => b.hiredAt - a.hiredAt);
   const toFire = candidates[0];
@@ -1359,7 +1363,13 @@ function fireLastHiredWorker(state) {
       }
     }
     state.marketWorkers = state.marketWorkers.filter((w) => w.id !== toFire.id);
-  }
+  } else if (toFire.type === "barn") {
+    state.barnWorkers = state.barnWorkers.filter((w) => w.id !== toFire.id);
+  } else if (toFire.type === "fishing") {
+  const body = state.fishing?.bodies?.[toFire.id];
+  if (body?.worker) body.worker = null;
+}
+
   return state;
 }
  
@@ -1922,6 +1932,7 @@ export function hireFishingWorker(state, bodyId) {
     upgrades: [],
     timer: 0,
     assignedBait: null,
+    hiredAt: Date.now(),
   };
   return next;
 }
@@ -2405,8 +2416,11 @@ if (!parsed.fishing) {
 if (parsed.fishing?.bodies) {
   for (const body of Object.values(parsed.fishing.bodies)) {
     if (body?.worker && body.worker.hired === undefined) {
-      body.worker.hired = true; // treat existing workers as hired
-    }
+  body.worker.hired = true;
+}
+if (body?.worker && body.worker.hiredAt === undefined) {
+  body.worker.hiredAt = 0;
+}
   }
 }
 // Migrate old fish types to new 4-fish system
