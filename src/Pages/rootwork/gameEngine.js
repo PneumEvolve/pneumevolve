@@ -15,6 +15,8 @@ import {
   KITCHEN_WORKER_UPGRADES, KITCHEN_WORKER_UPGRADE_ORDER,
   getPrestigeCashThreshold, getFarmUnlockCost, EXTRA_FARM_CROPS,
   FARM_INVESTMENT_PLOT_CAP, FARM_INVESTMENT_YIELD,
+  SEASON_BARNS, FIRST_CHOICE_SEASON, PRESTIGE_MIN_BARN_WORKERS,
+  FISHING_WORKER_HIRE_COSTS,
   MARKET_WORKER_STANDING_ORDER_COST,
   TOWN_HOME_CAPACITY, TOWN_HOME_SECOND_COST, TOWN_HOME_COST_MULTIPLIER,
   TOWN_BAKERY_BASE_COST, TOWN_BAKERY_COST_MULTIPLIER,
@@ -1070,6 +1072,7 @@ export function createInitialState() {
     farmInvestments: {},
     extraFarmsUnlocked: 0,
     pendingFarmUnlock: false,
+    pendingSeasonUnlock: false,
     lastSavedTime: Date.now(),
     totalPlayTime: 0,
     pendingWorkerAssignments: false,
@@ -2530,9 +2533,9 @@ export function hireFishingWorker(state, bodyId) {
   const next = deepCloneState(state);
   const body = next.fishing?.bodies?.[bodyId];
   if (!body?.unlocked) return state;
-  if (body.worker?.hired) return state; // already has one
+  if (body.worker?.hired) return state;
   if (isAtWorkerCap(next)) return state;
-  const cost = 75; // flat cost, adjust as you like
+  const cost = FISHING_WORKER_HIRE_COSTS[bodyId] ?? 75;
   if ((next.cash ?? 0) < cost) return state;
   next.cash -= cost;
   next.fishing.bodies[bodyId].worker = {
@@ -2623,6 +2626,29 @@ export function unlockExtraFarm(state, cropId) {
   next.farms.push(makeFarm(cropId, true));
   return next;
 }
+
+export function unlockSeasonFarm(state, cropId) {
+  if (!state.pendingSeasonUnlock) return state;
+  if (!EXTRA_FARM_CROPS.includes(cropId)) return state;
+  const cost = getNextFarmUnlockCost(state);
+  if ((state.cash ?? 0) < cost) return state;
+  const next = deepCloneState(state);
+  next.cash -= cost;
+  next.extraFarmsUnlocked = (next.extraFarmsUnlocked ?? 0) + 1;
+  next.pendingSeasonUnlock = false;
+  next.farms.push(makeFarm(cropId, true));
+  return next;
+}
+
+export function unlockSeasonBarn(state, buildingId) {
+  if (!state.pendingSeasonUnlock) return state;
+  if (!BARN_BUILDINGS[buildingId]) return state;
+  if (state.barnBuildings?.[buildingId]?.built) return state;
+  const next = deepCloneState(state);
+  next.pendingSeasonUnlock = false;
+  next.barnBuildings[buildingId] = { built: true, tier: 1 };
+  return next;
+}
  
 export function getNextFarmUnlockCost(state) {
   return getFarmUnlockCost(state.extraFarmsUnlocked ?? 0);
@@ -2639,7 +2665,22 @@ function makeKeptWorker(worker, type) {
   if (type === "farm") return { ...base, gear: worker.gear, specialization: worker.specialization ?? "none", farmId: null, cycleProgress: 0, cycleCount: 0 };
   if (type === "kitchen") return { ...base, upgrades: [...(worker.upgrades ?? [])], recipeId: null, elapsedSeconds: 0, totalSeconds: 0, batchSize: 1, busy: false };
   if (type === "market") return { ...base, gear: worker.gear, hasStandingOrder: worker.hasStandingOrder ?? false, queue: [], standingOrder: null };
+  if (type === "fisher") return { ...base, bodyId: worker.bodyId, upgrades: [...(worker.upgrades ?? [])], timer: 0, assignedBait: null };
+  if (type === "barn") return { ...base, animalType: worker.animalType, upgrades: [...(worker.upgrades ?? [])], collectTimer: 0, careTimer: 0 };
   return base;
+}
+
+export function getBarnPrestigeReady(state) {
+  for (const [buildingId, b] of Object.entries(state.barnBuildings ?? {})) {
+    if (!b.built) continue;
+    const workers = (state.barnWorkers ?? []).filter((w) => w.animalType === BARN_BUILDINGS[buildingId]?.animalType);
+    if (workers.length < PRESTIGE_MIN_BARN_WORKERS) return false;
+  }
+  return true;
+}
+
+export function getAvailableBarnUnlocks(state) {
+  return BARN_BUILDING_ORDER.filter((id) => !(state.barnBuildings?.[id]?.built));
 }
  
 export function canPrestige(state) {
@@ -2651,6 +2692,7 @@ export function canPrestige(state) {
   for (const farm of farmsToCheck) {
     if (!isFarmPrestigeReady(farm, state.workers, state)) return false;
   }
+  if (state.season >= FIRST_CHOICE_SEASON && !getBarnPrestigeReady(state)) return false;
   if ((state.cash ?? 0) < getPrestigeCashThreshold(state.season)) return false;
   return true;
 }
@@ -2670,6 +2712,16 @@ export function getPrestigeBlockers(state) {
       blockers.push(`${crop.emoji} ${crop.name}: workers not keeping up with growth`);
     }
   }
+  if (state.season >= FIRST_CHOICE_SEASON) {
+    for (const [buildingId, b] of Object.entries(state.barnBuildings ?? {})) {
+      if (!b.built) continue;
+      const def = BARN_BUILDINGS[buildingId];
+      const workers = (state.barnWorkers ?? []).filter((w) => w.animalType === def?.animalType);
+      if (workers.length < PRESTIGE_MIN_BARN_WORKERS) {
+        blockers.push(`${def?.emoji ?? "🐄"} ${def?.name ?? buildingId}: needs at least 1 barn worker`);
+      }
+    }
+  }
   const threshold = getPrestigeCashThreshold(state.season);
   if ((state.cash ?? 0) < threshold) blockers.push(`Need $${threshold} cash (have $${Math.floor(state.cash ?? 0)})`);
   return blockers;
@@ -2682,40 +2734,65 @@ export function beginPrestige(state, _unused, keptWorkerIds) {
   // Award 1 prestige skill point
   next.prestigePoints = (next.prestigePoints ?? 0) + 1;
 
-  // keptWorkerIds can be a single id (legacy) or an array
   const idsToKeep = Array.isArray(keptWorkerIds)
     ? keptWorkerIds
     : keptWorkerIds ? [keptWorkerIds] : [];
 
+  // Collect all kept workers — now includes fishers and barn workers
   const previousKeptWorkers = [...(next.keptWorkers ?? [])];
   for (const keptWorkerId of idsToKeep) {
     const fw = next.workers.find((w) => w.id === keptWorkerId);
     const kw = next.kitchenWorkers.find((w) => w.id === keptWorkerId);
     const mw = next.marketWorkers.find((w) => w.id === keptWorkerId);
+    const bw = next.barnWorkers.find((w) => w.id === keptWorkerId);
+    // Fisher workers use "fisher_<bodyId>" as their keepId
+    const fisherBodyId = keptWorkerId.startsWith("fisher_") ? keptWorkerId.slice(7) : null;
+    const fisherBody = fisherBodyId ? next.fishing?.bodies?.[fisherBodyId] : null;
     if (fw) previousKeptWorkers.push(makeKeptWorker(fw, "farm"));
     else if (kw) previousKeptWorkers.push(makeKeptWorker(kw, "kitchen"));
     else if (mw) previousKeptWorkers.push(makeKeptWorker(mw, "market"));
+    else if (bw) previousKeptWorkers.push(makeKeptWorker(bw, "barn"));
+    else if (fisherBody?.worker?.hired) {
+      previousKeptWorkers.push(makeKeptWorker({ ...fisherBody.worker, bodyId: fisherBodyId, id: keptWorkerId }, "fisher"));
+    }
   }
   next.keptWorkers = previousKeptWorkers;
 
+  // Reset all worker types including fishers and barn workers
   next.workers = [];
   next.kitchenWorkers = [];
   next.marketWorkers = [];
+  next.barnWorkers = [];
+  // Fire all fishing workers (bodies stay unlocked)
+  for (const bodyId of Object.keys(next.fishing?.bodies ?? {})) {
+    if (next.fishing.bodies[bodyId]?.worker?.hired) {
+      next.fishing.bodies[bodyId].worker = null;
+    }
+  }
 
   for (const cropId of Object.keys(next.crops)) {
     next.crops[cropId] = Math.floor((next.crops[cropId] ?? 0) * 0.1);
   }
-
   next.yieldPool = 0;
 
-  if (newSeason >= FIRST_EXTRA_FARM_SEASON) {
-    next.pendingFarmUnlock = true;
-  } else {
+  // Seasons 1-3: auto-unlock farms from SEASON_FARMS
+  // Seasons 4-6: auto-build the barn for that season
+  // Season 7+: set pendingSeasonUnlock for player choice modal
+  if (newSeason <= 3) {
     const newFarmCrops = SEASON_FARMS[newSeason] ?? [];
     const existingCropIds = next.farms.map((f) => f.crop);
     for (const cropId of newFarmCrops) {
       if (!existingCropIds.includes(cropId)) next.farms.push(makeFarm(cropId, true));
     }
+  } else if (newSeason >= 4 && newSeason <= 6) {
+    const barnId = SEASON_BARNS[newSeason];
+    if (barnId && next.barnBuildings?.[barnId] && !next.barnBuildings[barnId].built) {
+      next.barnBuildings[barnId].built = true;
+      next.barnBuildings[barnId].tier = 1;
+    }
+  } else {
+    // Season 7+: player picks farm or barn
+    next.pendingSeasonUnlock = true;
   }
 
   for (const farm of next.farms) {
@@ -2738,18 +2815,28 @@ export function beginPrestige(state, _unused, keptWorkerIds) {
     next.town.satisfaction = Math.min(getSatisfactionCeiling(next), 150);
   }
 
+  // Restore kept workers by type
   const farmKept = next.keptWorkers.filter((w) => w.keptType === "farm");
   const kitchenKept = next.keptWorkers.filter((w) => w.keptType === "kitchen");
   const marketKept = next.keptWorkers.filter((w) => w.keptType === "market");
+  const barnKept = next.keptWorkers.filter((w) => w.keptType === "barn");
+  const fisherKept = next.keptWorkers.filter((w) => w.keptType === "fisher");
 
   for (const kw of kitchenKept) { if (isAtWorkerCap(next)) break; next.kitchenWorkers.push({ ...kw }); }
   for (const kw of marketKept) { if (isAtWorkerCap(next)) break; next.marketWorkers.push({ ...kw }); }
+  for (const kw of barnKept) { if (isAtWorkerCap(next)) break; next.barnWorkers.push({ ...kw, collectTimer: 0, careTimer: 0 }); }
+  for (const kw of fisherKept) {
+    if (isAtWorkerCap(next)) break;
+    const body = next.fishing?.bodies?.[kw.bodyId];
+    if (body?.unlocked && !body.worker?.hired) {
+      next.fishing.bodies[kw.bodyId].worker = { ...kw, hired: true, timer: 0 };
+    }
+  }
 
   next.keptWorkers = farmKept;
   next.pendingWorkerAssignments = farmKept.length > 0;
   next.season = newSeason;
   next.lastSavedTime = Date.now();
-  // Reset stats buffers on prestige
   next.stats = { farmCrops: {}, kitchenGoods: {}, marketCash: null };
   next.town.pulseSeconds = TOWN_PULSE_SECONDS;
   return next;
@@ -2958,6 +3045,7 @@ export function deserializeState(raw) {
     if (parsed.lifetimeCash === undefined) parsed.lifetimeCash = 0;
     if (parsed.extraFarmsUnlocked === undefined) parsed.extraFarmsUnlocked = 0;
     if (parsed.pendingFarmUnlock === undefined) parsed.pendingFarmUnlock = false;
+    if (parsed.pendingSeasonUnlock === undefined) parsed.pendingSeasonUnlock = false;
     if (!parsed.stats) parsed.stats = { farmCrops: {}, kitchenGoods: {}, marketCash: null };
  
     if (Array.isArray(parsed.prestigeBonuses)) {

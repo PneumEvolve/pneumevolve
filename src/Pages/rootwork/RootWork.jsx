@@ -25,12 +25,14 @@ import {
   buildBarnBuilding, upgradeBarnBuilding,
   buildTownBuilding, setTavernMode, assignTownBuildingWorker,
   startSchoolResearch, unlockPrestigeSkill, toggleFishingWorkerAllowedFish,
+  unlockSeasonFarm, unlockSeasonBarn, getAvailableBarnUnlocks,
 } from "./gameEngine";
 import {
   SAVE_KEY, SAVE_INTERVAL_MS,
   PRESTIGE_SKILL_TREE, PRESTIGE_SKILL_BRANCHES, PRESTIGE_BRANCH_META,
   CROPS, GEAR, SPECIALIZATIONS, KITCHEN_WORKER_UPGRADES, MARKET_WORKER_GEAR,
-  FISHING_FISH,
+  FISHING_FISH, FISHING_BODIES, FISHING_WORKER_HIRE_COSTS,
+  BARN_BUILDINGS, BARN_BUILDING_ORDER, EXTRA_FARM_CROPS,
 } from "./gameConstants";
 import GameNav, { FarmSubTabs } from "./components/GameNav";
 import ResourceBar from "./components/ResourceBar";
@@ -50,48 +52,97 @@ function saveToLocalStorage(state) {
  
 // ─── Prestige Skill Tree Modal ────────────────────────────────────────────────
 
-function PrestigeModal({ game, onComplete, onUnlockSkill, onCancel }) {
+function WorkerGroup({ label, color, workers, chosenIds, atLimit, onToggle, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen);
+  if (workers.length === 0) return null;
+  return (
+    <div style={{ marginBottom: "0.4rem", border: "1px solid var(--border)", borderRadius: "8px", overflow: "hidden" }}>
+      <button onClick={() => setOpen(v => !v)} style={{
+        width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center",
+        padding: "0.45rem 0.65rem", background: "var(--bg-elev)", border: "none", cursor: "pointer",
+      }}>
+        <span style={{ fontSize: "0.75rem", fontWeight: 700, color }}>{label} ({workers.length})</span>
+        <span style={{ fontSize: "0.65rem", color: "var(--muted)" }}>{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div style={{ padding: "0.4rem", display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+          {workers.map((worker) => {
+            const isSelected = chosenIds.includes(worker._keepId);
+            return (
+              <button key={worker._keepId} onClick={() => onToggle(worker._keepId, isSelected, atLimit)} style={{
+                textAlign: "left", padding: "0.4rem 0.5rem", borderRadius: "6px",
+                cursor: isSelected || !atLimit ? "pointer" : "default",
+                opacity: !isSelected && atLimit ? 0.4 : 1,
+                border: isSelected ? `2px solid ${color}` : "2px solid var(--border)",
+                background: isSelected ? `${color}11` : "var(--bg)",
+              }}>
+                <div style={{ fontSize: "0.78rem", fontWeight: 600 }}>{isSelected ? "✓ " : ""}{worker._title}</div>
+                <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.1rem" }}>{worker._subtitle}</div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PrestigeModal({ game, onComplete, onCancel }) {
   const [step, setStep] = useState(1);
   const [chosenWorkerIds, setChosenWorkerIds] = useState([]);
+  const [pendingSkills, setPendingSkills] = useState({});
 
-  const availablePoints = (game.prestigePoints ?? 0) - Object.values(game.prestigeSkills ?? {}).reduce((s, v) => s + v, 0);
+  const spentPoints = Object.values(game.prestigeSkills ?? {}).reduce((s, v) => s + v, 0);
+  const pendingSpent = Object.values(pendingSkills).reduce((s, v) => s + v, 0);
+  const availablePoints = (game.prestigePoints ?? 0) + 1 - spentPoints - pendingSpent;
 
-  const allWorkers = [
-    ...game.workers.map((w) => ({ ...w, _type: "farm" })),
-    ...game.kitchenWorkers.map((w) => ({ ...w, _type: "kitchen" })),
-    ...game.marketWorkers.map((w) => ({ ...w, _type: "market" })),
-  ];
+  const farmerWorkers = game.workers.map((w) => {
+    const gear = GEAR[w.gear]; const spec = SPECIALIZATIONS[w.specialization];
+    const farm = game.farms.find((f) => f.id === w.farmId); const crop = farm ? CROPS[farm.crop] : null;
+    return { _keepId: w.id, _title: `${gear.emoji} ${gear.name}${spec?.id !== "none" ? ` · ${spec.emoji} ${spec.name}` : ""}`, _subtitle: crop ? `${crop.emoji} ${crop.name} Farm` : "Farm" };
+  });
+  const crafterWorkers = game.kitchenWorkers.map((w) => {
+    const ups = (w.upgrades ?? []).map((u) => KITCHEN_WORKER_UPGRADES[u]?.emoji).filter(Boolean).join(" ");
+    return { _keepId: w.id, _title: `👨‍🍳 Crafter${ups ? ` ${ups}` : ""}`, _subtitle: (w.upgrades ?? []).map((u) => KITCHEN_WORKER_UPGRADES[u]?.name).filter(Boolean).join(", ") || "No upgrades" };
+  });
+  const merchantWorkers = game.marketWorkers.map((w) => {
+    const gear = MARKET_WORKER_GEAR[w.gear];
+    return { _keepId: w.id, _title: `🛒 ${gear.emoji} ${gear.name}`, _subtitle: `${gear.itemsPerSecond} items/sec${w.hasStandingOrder ? " · standing order" : ""}` };
+  });
+  const fisherWorkers = Object.entries(game.fishing?.bodies ?? {})
+    .filter(([, b]) => b?.worker?.hired)
+    .map(([bodyId]) => {
+      const body = FISHING_BODIES[bodyId]; const cost = FISHING_WORKER_HIRE_COSTS[bodyId] ?? 75;
+      return { _keepId: `fisher_${bodyId}`, _title: `🎣 ${body?.emoji ?? ""} ${body?.name ?? bodyId} Fisher`, _subtitle: `Rehire cost $${cost}` };
+    });
+  const barnWorkersList = (game.barnWorkers ?? []).map((w) => {
+    const animalType = w.animalType;
+    const barnEntry = Object.values(BARN_BUILDINGS).find(b => b.animalType === animalType);
+    return { _keepId: w.id, _title: `${barnEntry?.emoji ?? "🐾"} ${barnEntry?.name ?? animalType} Worker`, _subtitle: `${(w.upgrades ?? []).length} upgrade${(w.upgrades ?? []).length !== 1 ? "s" : ""}` };
+  });
 
-  function workerLabel(worker) {
-    if (worker._type === "farm") {
-      const gear = GEAR[worker.gear];
-      const spec = SPECIALIZATIONS[worker.specialization];
-      const farm = game.farms.find((f) => f.id === worker.farmId);
-      const farmCrop = farm ? CROPS[farm.crop] : null;
-      return { title: `👷 ${gear.emoji} ${gear.name}${spec && spec.id !== "none" ? ` · ${spec.emoji} ${spec.name}` : ""}`, subtitle: farmCrop ? `${farmCrop.emoji} ${farmCrop.name} Farm` : "Farm worker", typeLabel: "Farm", typeColor: "#4ade80" };
-    }
-    if (worker._type === "kitchen") {
-      const upgrades = worker.upgrades ?? [];
-      const upgradeNames = upgrades.map((u) => KITCHEN_WORKER_UPGRADES[u]?.emoji).filter(Boolean).join(" ");
-      return { title: `👨‍🍳 Chef${upgradeNames ? ` ${upgradeNames}` : ""}`, subtitle: upgrades.length > 0 ? upgrades.map((u) => KITCHEN_WORKER_UPGRADES[u]?.name).filter(Boolean).join(", ") : "No upgrades", typeLabel: "Kitchen", typeColor: "#f59e0b" };
-    }
-    if (worker._type === "market") {
-      const gear = MARKET_WORKER_GEAR[worker.gear];
-      return { title: `🛒 ${gear.emoji} ${gear.name}`, subtitle: `${gear.itemsPerSecond} item${gear.itemsPerSecond !== 1 ? "s" : ""}/sec${worker.hasStandingOrder ? " · has standing order" : ""}`, typeLabel: "Market", typeColor: "#60a5fa" };
-    }
-    return { title: "Worker", subtitle: "", typeLabel: "Unknown", typeColor: "var(--muted)" };
+  const allCount = farmerWorkers.length + crafterWorkers.length + merchantWorkers.length + fisherWorkers.length + barnWorkersList.length;
+  const atLimit = chosenWorkerIds.length >= game.season;
+
+  function toggleWorker(keepId, isSelected) {
+    if (isSelected) setChosenWorkerIds(ids => ids.filter(id => id !== keepId));
+    else if (!atLimit) setChosenWorkerIds(ids => [...ids, keepId]);
   }
 
-  const branchNodes = (branch) =>
-    Object.values(PRESTIGE_SKILL_TREE).filter((n) => n.branch === branch).sort((a, b) => a.tier - b.tier);
-
-  const isOwned = (id) => (game.prestigeSkills?.[id] ?? 0) > 0;
+  const branchNodes = (branch) => Object.values(PRESTIGE_SKILL_TREE).filter((n) => n.branch === branch).sort((a, b) => a.tier - b.tier);
+  const isOwned = (id) => (game.prestigeSkills?.[id] ?? 0) + (pendingSkills[id] ?? 0) > 0;
   const isUnlockable = (node) => {
     if (availablePoints < 1) return false;
     if (node.unique && isOwned(node.id)) return false;
     if (node.requires && !isOwned(node.requires)) return false;
     return true;
   };
+  function handleUnlock(nodeId) {
+    const node = PRESTIGE_SKILL_TREE[nodeId];
+    if (!node || !isUnlockable(node)) return;
+    setPendingSkills((prev) => ({ ...prev, [nodeId]: (prev[nodeId] ?? 0) + 1 }));
+  }
+  function handleComplete(workerIds) { onComplete(pendingSkills, workerIds); }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.6)" }}>
@@ -102,15 +153,12 @@ function PrestigeModal({ game, onComplete, onUnlockSkill, onCancel }) {
             <div style={{ marginBottom: "1rem", textAlign: "center" }}>
               <h2 style={{ fontSize: "1.2rem", fontWeight: 700 }}>🌱 New Season</h2>
               <p style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: "0.25rem" }}>
-                Completing this prestige awards <strong style={{ color: "#a78bfa" }}>+1 skill point</strong>
+                Prestige awards <strong style={{ color: "#a78bfa" }}>+1 skill point</strong> — spend it before you begin
               </p>
-              {availablePoints > 0 && (
-                <div style={{ marginTop: "0.5rem", fontSize: "0.72rem", fontWeight: 700, color: "#a78bfa" }}>
-                  {availablePoints} unspent point{availablePoints !== 1 ? "s" : ""} — spend them below!
-                </div>
-              )}
+              <div style={{ marginTop: "0.5rem", fontSize: "0.72rem", fontWeight: 700, color: "#a78bfa" }}>
+                {availablePoints} point{availablePoints !== 1 ? "s" : ""} to spend
+              </div>
             </div>
-
             {PRESTIGE_SKILL_BRANCHES.map((branch) => {
               const meta = PRESTIGE_BRANCH_META[branch];
               const nodes = branchNodes(branch);
@@ -121,8 +169,7 @@ function PrestigeModal({ game, onComplete, onUnlockSkill, onCancel }) {
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
                     {nodes.map((node, idx) => {
-                      const owned = isOwned(node.id);
-                      const unlockable = isUnlockable(node);
+                      const owned = isOwned(node.id); const unlockable = isUnlockable(node);
                       const parentOwned = !node.requires || isOwned(node.requires);
                       const locked = !owned && !parentOwned;
                       return (
@@ -141,19 +188,12 @@ function PrestigeModal({ game, onComplete, onUnlockSkill, onCancel }) {
                             <div style={{ fontSize: "0.63rem", color: "var(--muted)", marginTop: "0.1rem" }}>{node.description}</div>
                           </div>
                           {!owned && unlockable && (
-                            <button
-                              onClick={() => onUnlockSkill(node.id)}
-                              style={{
-                                marginLeft: "0.5rem", flexShrink: 0,
-                                fontSize: "0.65rem", fontWeight: 700,
-                                padding: "0.2rem 0.55rem", borderRadius: "6px",
-                                background: "rgba(167,139,250,0.2)",
-                                border: "1px solid rgba(167,139,250,0.5)",
-                                color: "#a78bfa", cursor: "pointer",
-                              }}
-                            >
-                              Unlock
-                            </button>
+                            <button onClick={() => handleUnlock(node.id)} style={{
+                              marginLeft: "0.5rem", flexShrink: 0, fontSize: "0.65rem", fontWeight: 700,
+                              padding: "0.2rem 0.55rem", borderRadius: "6px",
+                              background: "rgba(167,139,250,0.2)", border: "1px solid rgba(167,139,250,0.5)",
+                              color: "#a78bfa", cursor: "pointer",
+                            }}>Unlock</button>
                           )}
                           {!owned && !unlockable && parentOwned && availablePoints === 0 && (
                             <span style={{ marginLeft: "0.5rem", fontSize: "0.6rem", color: "var(--muted)", flexShrink: 0 }}>No pts</span>
@@ -165,12 +205,9 @@ function PrestigeModal({ game, onComplete, onUnlockSkill, onCancel }) {
                 </div>
               );
             })}
-
             <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
               <button onClick={onCancel} className="btn btn-secondary" style={{ flex: 1, fontSize: "0.8rem" }}>Cancel</button>
-              <button onClick={() => setStep(2)} className="btn" style={{ flex: 1, fontSize: "0.8rem" }}>
-                Keep Workers →
-              </button>
+              <button onClick={() => setStep(2)} className="btn" style={{ flex: 1, fontSize: "0.8rem" }}>Keep Workers →</button>
             </div>
           </>
         )}
@@ -186,44 +223,21 @@ function PrestigeModal({ game, onComplete, onUnlockSkill, onCancel }) {
                 {chosenWorkerIds.length}/{game.season} selected
               </p>
             </div>
-            {allWorkers.length === 0 ? (
+            {allCount === 0 ? (
               <p style={{ fontSize: "0.8rem", textAlign: "center", color: "var(--muted)", marginBottom: "1rem" }}>No workers to keep. You'll start fresh.</p>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", marginBottom: "1rem" }}>
-                {allWorkers.map((worker) => {
-                  const { title, subtitle, typeLabel, typeColor } = workerLabel(worker);
-                  const isSelected = chosenWorkerIds.includes(worker.id);
-                  const atLimit = chosenWorkerIds.length >= game.season;
-                  return (
-                    <button
-                      key={worker.id}
-                      onClick={() => {
-                        if (isSelected) setChosenWorkerIds((ids) => ids.filter((id) => id !== worker.id));
-                        else if (!atLimit) setChosenWorkerIds((ids) => [...ids, worker.id]);
-                      }}
-                      className="w-full text-left card p-3"
-                      style={{
-                        cursor: isSelected || !atLimit ? "pointer" : "default",
-                        opacity: !isSelected && atLimit ? 0.4 : 1,
-                        border: isSelected ? "2px solid var(--accent)" : "2px solid var(--border)",
-                      }}
-                    >
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                        <div style={{ fontWeight: 600, fontSize: "0.82rem" }}>{isSelected ? "✓ " : ""}{title}</div>
-                        <span style={{ fontSize: "0.62rem", fontWeight: 700, padding: "0.1rem 0.4rem", borderRadius: "999px", background: `${typeColor}22`, border: `1px solid ${typeColor}55`, color: typeColor }}>{typeLabel}</span>
-                      </div>
-                      <div style={{ fontSize: "0.7rem", color: "var(--muted)", marginTop: "0.15rem" }}>{subtitle}</div>
-                    </button>
-                  );
-                })}
+              <div style={{ marginBottom: "1rem" }}>
+                <WorkerGroup label="🌾 Farmers" color="#4ade80" workers={farmerWorkers} chosenIds={chosenWorkerIds} atLimit={atLimit} onToggle={toggleWorker} defaultOpen={farmerWorkers.length > 0} />
+                <WorkerGroup label="💹 Merchants" color="#60a5fa" workers={merchantWorkers} chosenIds={chosenWorkerIds} atLimit={atLimit} onToggle={toggleWorker} />
+                <WorkerGroup label="🍳 Crafters" color="#f59e0b" workers={crafterWorkers} chosenIds={chosenWorkerIds} atLimit={atLimit} onToggle={toggleWorker} />
+                <WorkerGroup label="🎣 Fishers" color="#22d3ee" workers={fisherWorkers} chosenIds={chosenWorkerIds} atLimit={atLimit} onToggle={toggleWorker} />
+                <WorkerGroup label="🐄 Barn Workers" color="#a78bfa" workers={barnWorkersList} chosenIds={chosenWorkerIds} atLimit={atLimit} onToggle={toggleWorker} />
               </div>
             )}
             <div style={{ display: "flex", gap: "0.5rem" }}>
               <button onClick={() => setStep(1)} className="btn btn-secondary" style={{ flex: 1, fontSize: "0.8rem" }}>← Back</button>
-              <button onClick={() => onComplete(null, chosenWorkerIds)} className="btn" style={{ flex: 1, fontSize: "0.8rem" }}>
-                {chosenWorkerIds.length > 0
-                  ? `✓ Keep ${chosenWorkerIds.length} & Begin`
-                  : "Begin Season →"}
+              <button onClick={() => handleComplete(chosenWorkerIds)} className="btn" style={{ flex: 1, fontSize: "0.8rem" }}>
+                {chosenWorkerIds.length > 0 ? `✓ Keep ${chosenWorkerIds.length} & Begin` : "Begin Season →"}
               </button>
             </div>
           </>
@@ -232,9 +246,104 @@ function PrestigeModal({ game, onComplete, onUnlockSkill, onCancel }) {
     </div>
   );
 }
- 
+
+// ─── Season Unlock Modal (season 7+) ─────────────────────────────────────────
+
+function SeasonUnlockModal({ game, onUnlockFarm, onUnlockBarn }) {
+  const [choice, setChoice] = useState(null);
+  const [selectedCrop, setSelectedCrop] = useState(null);
+  const [selectedBarn, setSelectedBarn] = useState(null);
+
+  const farmCost = 300 + (game.extraFarmsUnlocked ?? 0) * 200;
+  const cash = game.cash ?? 0;
+  const canAffordFarm = cash >= farmCost;
+  const availableBarns = BARN_BUILDING_ORDER.filter((id) => !(game.barnBuildings?.[id]?.built));
+  const existingCrops = (game.farms ?? []).map((f) => f.crop);
+  const availableCrops = EXTRA_FARM_CROPS.filter((c) => !existingCrops.includes(c));
+  const canConfirm = choice === "farm" ? (selectedCrop && canAffordFarm) : choice === "barn" ? selectedBarn != null : false;
+
+  function handleConfirm() {
+    if (choice === "farm" && selectedCrop) onUnlockFarm(selectedCrop);
+    else if (choice === "barn" && selectedBarn) onUnlockBarn(selectedBarn);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.7)" }}>
+      <div className="card p-6 w-full max-w-sm" style={{ maxHeight: "90vh", overflowY: "auto" }}>
+        <h2 style={{ fontSize: "1.1rem", fontWeight: 700, textAlign: "center", marginBottom: "0.25rem" }}>🌱 Season Unlock</h2>
+        <p style={{ fontSize: "0.72rem", color: "var(--muted)", textAlign: "center", marginBottom: "1rem" }}>
+          Season {game.season} — expand your farm or unlock a new barn
+        </p>
+        <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
+          {["farm", "barn"].map((opt) => {
+            const disabled = opt === "farm" ? availableCrops.length === 0 : availableBarns.length === 0;
+            return (
+              <button key={opt} onClick={() => !disabled && setChoice(opt)} disabled={disabled} style={{
+                flex: 1, padding: "0.65rem", borderRadius: "8px", cursor: disabled ? "default" : "pointer",
+                background: choice === opt ? "rgba(99,102,241,0.15)" : "var(--bg)",
+                border: `2px solid ${choice === opt ? "var(--accent)" : "var(--border)"}`,
+                color: disabled ? "var(--muted)" : "var(--text)",
+                fontWeight: choice === opt ? 700 : 400, fontSize: "0.82rem", opacity: disabled ? 0.4 : 1,
+              }}>
+                {opt === "farm" ? "🌾 New Farm" : "🐄 New Barn"}
+                {disabled && <div style={{ fontSize: "0.6rem", color: "var(--muted)" }}>{opt === "farm" ? "All crops unlocked" : "All barns built"}</div>}
+              </button>
+            );
+          })}
+        </div>
+        {choice === "farm" && (
+          <div style={{ marginBottom: "1rem" }}>
+            <div style={{ fontSize: "0.72rem", color: canAffordFarm ? "#4ade80" : "#ef4444", fontWeight: 600, marginBottom: "0.5rem", textAlign: "center" }}>
+              Cost: ${farmCost} · Have: ${Math.floor(cash)}
+            </div>
+            {availableCrops.map((cropId) => {
+              const crop = CROPS[cropId]; const sel = selectedCrop === cropId;
+              return (
+                <button key={cropId} onClick={() => setSelectedCrop(cropId)} style={{
+                  width: "100%", textAlign: "left", padding: "0.5rem 0.65rem", borderRadius: "8px",
+                  marginBottom: "0.35rem", cursor: "pointer",
+                  background: sel ? "rgba(99,102,241,0.08)" : "var(--bg-elev)",
+                  border: `2px solid ${sel ? "var(--accent)" : "var(--border)"}`,
+                }}>
+                  <div style={{ fontWeight: 600, fontSize: "0.85rem" }}>{crop.emoji} {crop.name}{sel && <span style={{ marginLeft: "0.5rem", color: "var(--accent)", fontSize: "0.72rem" }}>✓</span>}</div>
+                  <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginTop: "0.1rem" }}>Grows in {crop.growTime}s · {crop.workerYield} per worker harvest</div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {choice === "barn" && (
+          <div style={{ marginBottom: "1rem" }}>
+            <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginBottom: "0.5rem", textAlign: "center" }}>Free — you buy animals and hire workers yourself</div>
+            {availableBarns.map((buildingId) => {
+              const def = BARN_BUILDINGS[buildingId]; const sel = selectedBarn === buildingId;
+              return (
+                <button key={buildingId} onClick={() => setSelectedBarn(buildingId)} style={{
+                  width: "100%", textAlign: "left", padding: "0.5rem 0.65rem", borderRadius: "8px",
+                  marginBottom: "0.35rem", cursor: "pointer",
+                  background: sel ? "rgba(99,102,241,0.08)" : "var(--bg-elev)",
+                  border: `2px solid ${sel ? "var(--accent)" : "var(--border)"}`,
+                }}>
+                  <div style={{ fontWeight: 600, fontSize: "0.85rem" }}>{def.emoji} {def.name}{sel && <span style={{ marginLeft: "0.5rem", color: "var(--accent)", fontSize: "0.72rem" }}>✓</span>}</div>
+                  <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginTop: "0.1rem" }}>Raises {def.animalType}s · $${def.upkeepPerAnimalPerSec}/animal/s upkeep</div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <button onClick={handleConfirm} disabled={!canConfirm} className="btn w-full" style={{ opacity: canConfirm ? 1 : 0.5, fontSize: "0.85rem" }}>
+          {!choice ? "Choose an option above" : choice === "farm" && !canAffordFarm ? `Need $${farmCost}` : !canConfirm ? "Select one above" : choice === "farm" ? `🌾 Unlock ${CROPS[selectedCrop]?.name} Farm — $${farmCost}` : `🐄 Build ${BARN_BUILDINGS[selectedBarn]?.name}`}
+        </button>
+        {choice === "farm" && !canAffordFarm && (
+          <p style={{ fontSize: "0.68rem", color: "var(--muted)", textAlign: "center", marginTop: "0.5rem" }}>Earn more cash at the Market, then come back.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Farm assignment screen ───────────────────────────────────────────────────
- 
+
 function FarmAssignmentScreen({ game, onAssign }) {
   const keptWorkers = game.keptWorkers ?? [];
   const [assigningWorker, setAssigningWorker] = useState(keptWorkers[0] ?? null);
@@ -482,6 +591,8 @@ const handleUpgradeBarnBuilding = useCallback((buildingId) => update((s) => {
   const handleToggleFishingWorkerAllowedFish = useCallback((bodyId, fishId) => update((s) => toggleFishingWorkerAllowedFish(s, bodyId, fishId)), [update]);
   const handleAssignWorker = useCallback((keptWorkerId, farmId) => update((s) => assignKeptWorker(s, keptWorkerId, farmId)), [update]);
   const handleUnlockFarm = useCallback((cropId) => { update((s) => { const n = unlockExtraFarm(s, cropId); if (n === s) notify("Not enough cash."); return n; }); notify("🌾 New farm unlocked!"); }, [update, notify]);
+  const handleUnlockSeasonFarm = useCallback((cropId) => { update((s) => { const n = unlockSeasonFarm(s, cropId); if (n === s) notify("Not enough cash."); return n; }); notify("🌾 New farm unlocked!"); }, [update, notify]);
+  const handleUnlockSeasonBarn = useCallback((buildingId) => { update((s) => unlockSeasonBarn(s, buildingId)); notify("🐄 New barn unlocked!"); }, [update, notify]);
   const handleResetGame = useCallback(() => {
     if (!window.confirm("Reset all progress? This cannot be undone.")) return;
     localStorage.removeItem(SAVE_KEY);
@@ -494,6 +605,7 @@ const handleUpgradeBarnBuilding = useCallback((buildingId) => update((s) => {
   const prestigeReady = game ? canPrestige(game) : false;
   const hasPendingAssignments = game?.pendingWorkerAssignments && (game?.keptWorkers?.length ?? 0) > 0;
   const hasPendingFarmUnlock = game?.pendingFarmUnlock === true;
+  const hasPendingSeasonUnlock = game?.pendingSeasonUnlock === true;
  
   if (!loaded || !game) {
     return <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg)", color: "var(--muted)" }}><p className="text-sm">Loading RootWork…</p></div>;
@@ -556,8 +668,9 @@ const handleUpgradeBarnBuilding = useCallback((buildingId) => update((s) => {
       </div>
       <GameNav game={game} activeMainTab={activeMainTab} onMainTabChange={setActiveMainTab} prestigeReady={prestigeReady} />
       {hasPendingFarmUnlock && !hasPendingAssignments && <FarmUnlockModal game={game} onUnlock={handleUnlockFarm} />}
+      {hasPendingSeasonUnlock && !hasPendingAssignments && <SeasonUnlockModal game={game} onUnlockFarm={handleUnlockSeasonFarm} onUnlockBarn={handleUnlockSeasonBarn} />}
       {hasPendingAssignments && <FarmAssignmentScreen game={game} onAssign={handleAssignWorker} />}
-      {showPrestigeModal && <PrestigeModal game={game} onComplete={handlePrestigeComplete} onUnlockSkill={handleUnlockPrestigeSkill} onCancel={() => setShowPrestigeModal(false)} />}
+      {showPrestigeModal && <PrestigeModal game={game} onComplete={handlePrestigeComplete} onCancel={() => setShowPrestigeModal(false)} />}
     </div>
   );
 }

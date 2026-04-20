@@ -3,14 +3,16 @@
 import React from "react";
 import {
   CROPS, SEASON_FARMS, PRESTIGE_SKILL_TREE,
-  FIRST_EXTRA_FARM_SEASON, getPrestigeCashThreshold, PRESTIGE_MIN_PLOTS,
+  FIRST_EXTRA_FARM_SEASON, FIRST_CHOICE_SEASON,
+  getPrestigeCashThreshold, PRESTIGE_MIN_PLOTS, PRESTIGE_MIN_BARN_WORKERS,
+  BARN_BUILDINGS, BARN_BUILDING_ORDER,
   TOWN_HALL_LEVEL_COSTS,
 } from "../gameConstants";
 import {
   isFarmPrestigeReady, getPrestigeBlockers, getNextFarmUnlockCost,
   getTownHallLevel, getEffectiveGrowTime, getWorkerHarvestRate,
   getTreasuryGrowBonus, getFishMealGrowBonus, getSchoolGrowBonus,
-  getAvailablePrestigePoints,
+  getAvailablePrestigePoints, getBarnPrestigeReady,
 } from "../gameEngine";
  
 function FarmChecklist({ farm, game }) {
@@ -65,6 +67,39 @@ function FarmChecklist({ farm, game }) {
   );
 }
  
+function BarnChecklist({ buildingId, game }) {
+  const def = BARN_BUILDINGS[buildingId];
+  const workers = (game.barnWorkers ?? []).filter((w) => w.animalType === def?.animalType);
+  const hasWorker = workers.length >= PRESTIGE_MIN_BARN_WORKERS;
+  const animals = (game.animals?.[def?.animalType] ?? []).length;
+  const ready = hasWorker;
+  return (
+    <div style={{ padding: "0.75rem 0", borderBottom: "1px solid var(--border)", fontSize: "0.82rem" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+        <span style={{ fontWeight: 600 }}>{def?.emoji} {def?.name}</span>
+        <span style={{
+          fontSize: "0.7rem", fontWeight: 700, padding: "0.2rem 0.55rem", borderRadius: "999px",
+          background: ready ? "rgba(74,222,128,0.15)" : "rgba(245,158,11,0.15)",
+          border: `1px solid ${ready ? "#4ade80" : "#f59e0b"}`,
+          color: ready ? "#166534" : "#92400e",
+        }}>
+          {ready ? "✓ Ready" : "Needs worker"}
+        </span>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.75rem", color: hasWorker ? "#4ade80" : "var(--muted)" }}>
+          <span>{hasWorker ? "☑" : "☐"}</span>
+          <span>At least 1 barn worker assigned <span style={{ opacity: 0.7 }}>({workers.length}/{PRESTIGE_MIN_BARN_WORKERS})</span></span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.75rem", color: "var(--muted)" }}>
+          <span>ℹ</span>
+          <span>{animals} {def?.animalType ?? "animal"}{animals !== 1 ? "s" : ""} in barn</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+ 
 function SkillTag({ skillId, count }) {
   const node = PRESTIGE_SKILL_TREE[skillId];
   if (!node) return null;
@@ -95,7 +130,7 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
   const thOk = getTownHallLevel(game) >= requiredTHLevel;
   const blockers = getPrestigeBlockers(game);
   const nextFarmCost = getNextFarmUnlockCost(game);
-
+ 
   const prestigeSkills = game.prestigeSkills ?? {};
   const totalPoints = game.prestigePoints ?? 0;
   const availablePoints = getAvailablePrestigePoints(game);
@@ -141,6 +176,19 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
         ))}
       </div>
  
+      {/* Barn readiness checklist — season 7+ only */}
+      {game.season >= FIRST_CHOICE_SEASON && Object.entries(game.barnBuildings ?? {}).some(([, b]) => b.built) && (
+        <div className="card p-4" style={{ marginBottom: "1rem" }}>
+          <h3 style={{ fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.25rem" }}>Barn Readiness</h3>
+          <p style={{ fontSize: "0.7rem", color: "var(--muted)", marginBottom: "0.5rem" }}>
+            Each built barn needs at least one worker assigned.
+          </p>
+          {BARN_BUILDING_ORDER.filter((id) => game.barnBuildings?.[id]?.built).map((id) => (
+            <BarnChecklist key={id} buildingId={id} game={game} />
+          ))}
+        </div>
+      )}
+ 
       {/* Cash threshold */}
       <div className="card p-4" style={{ marginBottom: "1rem" }}>
         <h3 style={{ fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.5rem" }}>💰 Cash Requirement</h3>
@@ -183,7 +231,7 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
           </div>
         )}
       </div>
-
+ 
       {/* What carries over */}
       <div className="card p-4" style={{ marginBottom: "1rem", fontSize: "0.78rem", color: "var(--muted)", lineHeight: 1.7 }}>
         <h3 style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text)", marginBottom: "0.4rem" }}>New season — what carries over</h3>
@@ -197,9 +245,13 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
           <li>✅ Town — homes, population, all buildings persist</li>
           <li>✅ 1 kept worker per season with full gear</li>
           {game.keptWorkers.length > 0 && <li>✅ {game.keptWorkers.length + 1} total kept workers returning</li>}
-          {isExtraFarmSeason ? <li>✅ New farm slot — pick a crop (costs ${nextFarmCost})</li> : <li>✅ A new farm unlocks automatically</li>}
+          {game.season >= FIRST_CHOICE_SEASON
+            ? <li>✅ Season unlock — choose a new farm or barn</li>
+            : game.season >= 4 && game.season <= 6
+            ? <li>✅ New barn auto-unlocks (buy animals and hire workers yourself)</li>
+            : <li>✅ A new farm unlocks automatically</li>}
           <li>❌ Plot states reset (first plot starts planted)</li>
-          <li>❌ All non-kept workers reset</li>
+          <li>❌ All non-kept workers reset — farm, kitchen, market, barn, fishing</li>
         </ul>
       </div>
  

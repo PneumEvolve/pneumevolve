@@ -410,7 +410,10 @@ export const TOWN_MAX_GROWTH_BONUS_PERCENT = 25;
  
 // ─── Season structure ─────────────────────────────────────────────────────────
 export const SEASON_FARMS = { 1: ["wheat"], 2: ["wheat", "berries"], 3: ["wheat", "berries", "tomatoes"] };
+export const SEASON_BARNS = { 4: "chicken_coop", 5: "dairy", 6: "wool_shed" };
 export const FIRST_EXTRA_FARM_SEASON = 4;
+export const FIRST_CHOICE_SEASON = 7; // season 7+ player picks farm or barn each prestige
+export const PRESTIGE_MIN_BARN_WORKERS = 1; // each built barn needs at least this many workers
 export const MAX_SEASON = 999;
  
 // ─── Save config ──────────────────────────────────────────────────────────────
@@ -458,6 +461,12 @@ export const FISHING_WORKER_UPGRADES = {
   gear_expert: { id: "gear_expert", name: "Expert Rod",  emoji: "🎣", cost: 600, description: "Best rare odds",  tree: "gear",     requires: "gear_good" },
 };
 
+export const FISHING_WORKER_HIRE_COSTS = {
+  pond:  75,
+  lake:  300,
+  river: 1000,
+  ocean: 3000,
+};
 export const FISHING_WORKER_BASE_INTERVAL = 60;
 export const POND_COST = 200; // keep existing value
 
@@ -542,21 +551,18 @@ export const BARN_BUILDINGS = {
     animalType: "chicken",
     buildCost: 500,
     upkeepPerAnimalPerSec: 0.05,
-    unlockSeason: 1,
   },
   dairy: {
     id: "dairy", name: "Dairy", emoji: "🐄",
     animalType: "cow",
     buildCost: 2000,
     upkeepPerAnimalPerSec: 0.10,
-    unlockSeason: 2,
   },
   wool_shed: {
     id: "wool_shed", name: "Wool Shed", emoji: "🐑",
     animalType: "sheep",
     buildCost: 5000,
     upkeepPerAnimalPerSec: 0.20,
-    unlockSeason: 3,
   },
 };
 

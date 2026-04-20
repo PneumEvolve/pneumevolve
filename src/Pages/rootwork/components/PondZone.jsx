@@ -4,7 +4,7 @@ import {
   REEL_DRAIN_RATE, REEL_TAP_AMOUNT,
   FISHING_BODIES, FISHING_BODY_ORDER, FISHING_FISH,
   FISHING_CATCH_RATES, FISHING_BAIT_BONUS,
-  FISHING_WORKER_UPGRADES, POND_COST,
+  FISHING_WORKER_UPGRADES, POND_COST, FISHING_WORKER_HIRE_COSTS,
 } from "../gameConstants";
 import {
   getFishingWorkerInterval, getFishingWorkerHaul,
@@ -508,7 +508,7 @@ function FishingBodiesPanel({ game, onUnlockBody, onHireWorker, onUpgradeWorker,
           const prevUnlocked = !prevBodyId || bodies[prevBodyId]?.unlocked;
           const canAffordUnlock = (game.cash ?? 0) >= bodyDef.unlockCost;
           const canUnlock = !unlocked && prevUnlocked && canAffordUnlock && bodyDef.unlockCost > 0;
-          const HIRE_COST = 75;
+          const HIRE_COST = FISHING_WORKER_HIRE_COSTS[bodyId] ?? 75;
           const canAffordHire = (game.cash ?? 0) >= HIRE_COST;
           const canHire = unlocked && !workerHired && !atWorkerCap && canAffordHire;
 
