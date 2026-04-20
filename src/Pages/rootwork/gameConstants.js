@@ -256,7 +256,7 @@ export const PRESTIGE_SKILL_TREE = {
   fast_hands: {
     id: "fast_hands", branch: "rancher", tier: 1,
     name: "Fast Hands", emoji: "🧤",
-    description: "Newly hired farm workers start with Gloves instead of Bare Hands.",
+    description: "Newly hired barn workers start with Big Basket (capacity_1) already equipped.",
     requires: null,
   },
   sturdy_stock: {

@@ -979,7 +979,7 @@ export function makeFarmWorker(farmId, startWithGloves = false) {
   return {
     id: genId("worker"),
     farmId,
-    gear: startWithGloves ? "gloves" : "bare_hands",
+    gear: "bare_hands",
     specialization: "none",
     cycleProgress: 0,
     cycleCount: 0,
@@ -2156,8 +2156,7 @@ export function hireWorker(state, farmId) {
   const cost = getWorkerHireCost(next, farmId);
   if ((next.crops[farm.crop] ?? 0) < cost) return state;
   next.crops[farm.crop] -= cost;
-  const startWithGloves = hasPrestigeSkill(next, "fast_hands");
-  const newWorker = makeFarmWorker(farmId, startWithGloves);
+    const newWorker = makeFarmWorker(farmId, startWithGloves);
   newWorker.cycleProgress = getEffectiveCycleSeconds(newWorker) - 1;
   next.workers.push(newWorker);
   return next;
@@ -2422,7 +2421,7 @@ export function hireBarnWorker(state, animalType) {
   next.barnWorkers = [...(next.barnWorkers ?? []), {
     id: genId("bw"),
     animalType,
-    upgrades: [],
+    upgrades: hasPrestigeSkill(next, "fast_hands") ? ["capacity_1"] : [],
     collectTimer: 0,
     careTimer: 0,
     hiredAt: Date.now(),
