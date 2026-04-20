@@ -2,7 +2,7 @@
  
 import React from "react";
 import {
-  CROPS, SEASON_FARMS, PRESTIGE_BONUSES, GEAR,
+  CROPS, SEASON_FARMS, PRESTIGE_SKILL_TREE,
   FIRST_EXTRA_FARM_SEASON, getPrestigeCashThreshold, PRESTIGE_MIN_PLOTS,
   TOWN_HALL_LEVEL_COSTS,
 } from "../gameConstants";
@@ -10,6 +10,7 @@ import {
   isFarmPrestigeReady, getPrestigeBlockers, getNextFarmUnlockCost,
   getTownHallLevel, getEffectiveGrowTime, getWorkerHarvestRate,
   getTreasuryGrowBonus, getFishMealGrowBonus, getSchoolGrowBonus,
+  getAvailablePrestigePoints,
 } from "../gameEngine";
  
 function FarmChecklist({ farm, game }) {
@@ -64,16 +65,18 @@ function FarmChecklist({ farm, game }) {
   );
 }
  
-function BonusTag({ bonusId }) {
-  const bonus = PRESTIGE_BONUSES[bonusId];
-  if (!bonus) return null;
+function SkillTag({ skillId, count }) {
+  const node = PRESTIGE_SKILL_TREE[skillId];
+  if (!node) return null;
   return (
     <div style={{
       display: "inline-flex", alignItems: "center", gap: "0.3rem",
       fontSize: "0.72rem", padding: "0.2rem 0.6rem", borderRadius: "999px",
-      background: "rgba(99,102,241,0.10)", border: "1px solid rgba(99,102,241,0.25)", color: "var(--text)",
+      background: "rgba(167,139,250,0.12)", border: "1px solid rgba(167,139,250,0.3)", color: "var(--text)",
     }}>
-      <span>{bonus.emoji}</span><span>{bonus.name}</span>
+      <span>{node.emoji}</span>
+      <span>{node.name}</span>
+      {count > 1 && <span style={{ color: "#a78bfa", fontWeight: 700 }}>×{count}</span>}
     </div>
   );
 }
@@ -92,11 +95,11 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
   const thOk = getTownHallLevel(game) >= requiredTHLevel;
   const blockers = getPrestigeBlockers(game);
   const nextFarmCost = getNextFarmUnlockCost(game);
- 
-  const workerGearSummary = game.workers.reduce((acc, w) => {
-    acc[w.gear] = (acc[w.gear] ?? 0) + 1;
-    return acc;
-  }, {});
+
+  const prestigeSkills = game.prestigeSkills ?? {};
+  const totalPoints = game.prestigePoints ?? 0;
+  const availablePoints = getAvailablePrestigePoints(game);
+  const ownedSkillEntries = Object.entries(prestigeSkills).filter(([, count]) => count > 0);
  
   return (
     <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 4rem" }}>
@@ -154,33 +157,33 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
         }
       </div>
  
-      {/* Worker summary */}
-      {totalWorkers > 0 && (
-        <div className="card p-4" style={{ marginBottom: "1rem" }}>
-          <h3 style={{ fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.75rem" }}>Workers ({totalWorkers})</h3>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
-            {Object.entries(workerGearSummary).map(([gearId, count]) => {
-              const gear = GEAR[gearId];
-              return (
-                <div key={gearId} style={{ fontSize: "0.75rem", padding: "0.25rem 0.65rem", borderRadius: "999px", background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" }}>
-                  {gear.emoji} {gear.name} × {count}
-                </div>
-              );
-            })}
-          </div>
+      {/* Prestige skill tree summary */}
+      <div className="card p-4" style={{ marginBottom: "1rem" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+          <h3 style={{ fontSize: "0.85rem", fontWeight: 600 }}>⭐ Skill Tree</h3>
+          <span style={{ fontSize: "0.7rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "999px", background: "rgba(167,139,250,0.15)", border: "1px solid rgba(167,139,250,0.3)", color: "#a78bfa" }}>
+            {totalPoints} pt{totalPoints !== 1 ? "s" : ""} earned
+            {availablePoints > 0 && ` · ${availablePoints} unspent`}
+          </span>
         </div>
-      )}
- 
-      {/* Active bonuses */}
-      {game.prestigeBonuses.length > 0 && (
-        <div className="card p-4" style={{ marginBottom: "1rem" }}>
-          <h3 style={{ fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.75rem" }}>Bonuses Active</h3>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
-            {game.prestigeBonuses.map((bonusId, idx) => <BonusTag key={`${bonusId}_${idx}`} bonusId={bonusId} />)}
+        {ownedSkillEntries.length === 0 ? (
+          <p style={{ fontSize: "0.72rem", color: "var(--muted)" }}>
+            No skills unlocked yet. Prestige to earn your first point — spend it in the New Season screen.
+          </p>
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
+            {ownedSkillEntries.map(([skillId, count]) => (
+              <SkillTag key={skillId} skillId={skillId} count={count} />
+            ))}
           </div>
-        </div>
-      )}
- 
+        )}
+        {availablePoints > 0 && (
+          <div style={{ marginTop: "0.5rem", fontSize: "0.68rem", color: "#a78bfa", fontWeight: 600 }}>
+            💡 You have unspent points — open New Season to spend them!
+          </div>
+        )}
+      </div>
+
       {/* What carries over */}
       <div className="card p-4" style={{ marginBottom: "1rem", fontSize: "0.78rem", color: "var(--muted)", lineHeight: 1.7 }}>
         <h3 style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text)", marginBottom: "0.4rem" }}>New season — what carries over</h3>
@@ -188,13 +191,12 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
           <li>✅ 10% of your current crops</li>
           <li>✅ All artisan goods (bread, jam, sauce)</li>
           <li>✅ All cash and treasury balance</li>
-          <li>✅ All prestige bonuses (you pick a new one)</li>
+          <li>✅ All prestige skills (permanent — earn +1 point per season)</li>
           <li>✅ All unlocked plots and ⭐ upgrades</li>
           <li>✅ Global Feast speed bonus</li>
           <li>✅ Town — homes, population, all buildings persist</li>
           <li>✅ 1 kept worker per season with full gear</li>
           {game.keptWorkers.length > 0 && <li>✅ {game.keptWorkers.length + 1} total kept workers returning</li>}
-          {game.prestigeBonuses.includes("head_start") && <li>✅ Head Start: 1 free worker on each farm</li>}
           {isExtraFarmSeason ? <li>✅ New farm slot — pick a crop (costs ${nextFarmCost})</li> : <li>✅ A new farm unlocks automatically</li>}
           <li>❌ Plot states reset (first plot starts planted)</li>
           <li>❌ All non-kept workers reset</li>

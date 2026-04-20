@@ -51,6 +51,7 @@ FISHING_BODIES, FISHING_BODY_ORDER, FISHING_FISH,
 FISHING_CATCH_RATES, FISHING_BAIT_BONUS,
 FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, ANIMAL_YIELD_UPGRADES, 
   SCHOOL_RESEARCH,
+  PRESTIGE_SKILL_TREE,
 } from "./gameConstants";
  
 let _idCounter = 0;
@@ -186,7 +187,56 @@ export function setActiveBankTier(state, tier) {
  
 export function getTreasuryGrowBonus(state) {
   const tier = getActiveTreasuryTier(state);
-  return tier ? tier.growBonus : 0;
+  const base = tier ? tier.growBonus : 0;
+  // fertile_soil: +5% per stack
+  const fertileCount = getPrestigeSkillCount(state, "fertile_soil");
+  return base + fertileCount * 5;
+}
+
+// ─── Prestige Skill Tree helpers ──────────────────────────────────────────────
+
+export function getPrestigeSkillCount(state, id) {
+  return state.prestigeSkills?.[id] ?? 0;
+}
+
+export function hasPrestigeSkill(state, id) {
+  return getPrestigeSkillCount(state, id) > 0;
+}
+
+export function getPrestigePoints(state) {
+  return state.prestigePoints ?? 0;
+}
+
+export function getSpentPrestigePoints(state) {
+  return Object.values(state.prestigeSkills ?? {}).reduce((s, v) => s + v, 0);
+}
+
+export function getAvailablePrestigePoints(state) {
+  return getPrestigePoints(state) - getSpentPrestigePoints(state);
+}
+
+export function canUnlockPrestigeSkill(state, id) {
+  const node = PRESTIGE_SKILL_TREE[id];
+  if (!node) return false;
+  // Must have a point to spend
+  if (getAvailablePrestigePoints(state) < 1) return false;
+  // Unique nodes can only be bought once
+  if (node.unique && hasPrestigeSkill(state, id)) return false;
+  // Requires parent node
+  if (node.requires && !hasPrestigeSkill(state, node.requires)) return false;
+  return true;
+}
+
+export function unlockPrestigeSkill(state, id) {
+  if (!canUnlockPrestigeSkill(state, id)) return state;
+  const next = deepCloneState(state);
+  if (!next.prestigeSkills) next.prestigeSkills = {};
+  next.prestigeSkills[id] = (next.prestigeSkills[id] ?? 0) + 1;
+  return next;
+}
+
+export function getSatisfactionCeiling(state) {
+  return hasPrestigeSkill(state, "town_pride") ? 200 : TOWN_SATISFACTION_CEILING;
 }
  
 // ─── Sell price bonus (Bank) ──────────────────────────────────────────────────
@@ -537,7 +587,7 @@ export function getSatisfactionTarget(state) {
   else base = TOWN_SAT_BAKERY;
   // Add flat bonuses from town buildings (clinic, tavern, restaurant)
   const buildingBonus = getTownBuildingSatBonus(state);
-  return Math.min(TOWN_SATISFACTION_CEILING, Math.round(base + buildingBonus));
+  return Math.min(getSatisfactionCeiling(state), Math.round(base + buildingBonus));
 }
  
 export function getTownSatisfactionMultiplier(state) {
@@ -726,10 +776,16 @@ export function getStatPerMinute(buffer) {
  
 // ─── Market worker helpers ────────────────────────────────────────────────────
  
-export function getSellRate(itemType, prestigeBonuses = [], bankPriceBonus = 0) {
+export function getSellRate(itemType, prestigeBonuses = [], bankPriceBonus = 0, state = null) {
   const base = MARKET_SELL_RATES[itemType] ?? 0;
-  const savvyCount = (prestigeBonuses ?? []).filter((b) => b === "market_savvy").length;
-  let rate = savvyCount > 0 ? Math.round(base * Math.pow(1.25, savvyCount) * 100) / 100 : base;
+  // Legacy array support (old saves / callers that don't pass state)
+  const legacySavvyCount = (prestigeBonuses ?? []).filter((b) => b === "market_savvy").length;
+  // New skill tree
+  const sharpEyeCount = state ? getPrestigeSkillCount(state, "sharp_eye") : 0;
+  const hasSavvy = state ? hasPrestigeSkill(state, "market_savvy") : legacySavvyCount > 0;
+  const savvyMult = hasSavvy ? 1.25 : 1;
+  const sharpEyeMult = 1 + sharpEyeCount * 0.10;
+  let rate = Math.round(base * savvyMult * sharpEyeMult * 100) / 100;
   if (bankPriceBonus > 0) rate = Math.round(rate * (1 + bankPriceBonus / 100) * 100) / 100;
   return rate;
 }
@@ -808,7 +864,10 @@ export function getKitchenWorkerSpeedMultiplier(worker) {
 export function getEffectiveKitchenSeconds(worker, baseSeconds, state = null) {
   const workerMult = getKitchenWorkerSpeedMultiplier(worker);
   const schoolMult = state ? getSchoolResearchMultiplier(state) : 1;
-  return Math.max(5, Math.floor(baseSeconds * workerMult * schoolMult));
+  // swift_craft: -25% per stack
+  const swiftCount = state ? getPrestigeSkillCount(state, "swift_craft") : 0;
+  const swiftMult = Math.pow(0.75, swiftCount);
+  return Math.max(5, Math.floor(baseSeconds * workerMult * schoolMult * swiftMult));
 }
  
 export function isKitchenWorkerIdle(worker) {
@@ -845,7 +904,9 @@ function _startKitchenWorkerRecipe(worker, recipeId, crops, animalGoods, fish, b
   const recipe = PROCESSING_RECIPES[recipeId] ?? BAIT_RECIPES[recipeId];
   if (!recipe?.inputCrop) return false;
   const batch = getKitchenWorkerBatchSize(worker);
-  const totalInput = recipe.inputAmount * batch;
+  const efficient = state ? hasPrestigeSkill(state, "efficient_process") : false;
+  const inputMult = efficient ? 0.5 : 1;
+  const totalInput = Math.max(1, Math.floor(recipe.inputAmount * batch * inputMult));
   const inCrops = recipe.inputCrop in (crops ?? {});
 const inAnimal = !inCrops && recipe.inputCrop in (animalGoods ?? {});
 const inFish = !inCrops && !inAnimal && recipe.inputCrop in (fish ?? {});
@@ -872,7 +933,11 @@ export function cancelKitchenWorkerRecipe(state, workerId) {
     const recipe = PROCESSING_RECIPES[worker.recipeId];
     const batch = worker.batchSize ?? 1;
     if (recipe?.inputCrop) {
-      const refund = Math.floor(recipe.inputAmount * batch * 0.5);
+      const cleanSwitch = hasPrestigeSkill(next, "clean_switch");
+      const efficient = hasPrestigeSkill(next, "efficient_process");
+      const inputMult = efficient ? 0.5 : 1;
+      const totalConsumed = Math.max(1, Math.floor(recipe.inputAmount * batch * inputMult));
+      const refund = cleanSwitch ? totalConsumed : Math.floor(totalConsumed * 0.5);
       if (recipe.inputCrop in (next.crops ?? {})) next.crops[recipe.inputCrop] += refund;
       else if (recipe.inputCrop in (next.animalGoods ?? {})) next.animalGoods[recipe.inputCrop] += refund;
       else if (next.fishing?.fish && recipe.inputCrop in next.fishing.fish) next.fishing.fish[recipe.inputCrop] += refund;
@@ -987,6 +1052,8 @@ export function createInitialState() {
   return {
     season: 1,
     prestigeBonuses: [],
+    prestigeSkills: {},
+    prestigePoints: 0,
     keptWorkers: [],
     yieldPool: 0,
     feastBonusPercent: 0,
@@ -1175,7 +1242,9 @@ export function getBarnBuildingTierData(state, buildingId) {
  
 export function getBarnBuildingAnimalSlots(state, buildingId) {
   const tier = getBarnBuildingTierData(state, buildingId);
-  return tier ? tier.animalSlots : 0;
+  const base = tier ? tier.animalSlots : 0;
+  if (base === 0) return 0;
+  return base + (hasPrestigeSkill(state, "breeding_program") ? 2 : 0);
 }
  
 export function getBarnBuildingWorkerSlots(state, buildingId) {
@@ -1238,11 +1307,16 @@ export function getTotalBarnUpkeepPerSec(state) {
   return total;
 }
 
-export function getFishingWorkerInterval(worker) {
+export function getFishingWorkerInterval(worker, state = null) {
   const upgrades = worker.upgrades ?? [];
-  if (upgrades.includes("speed_2")) return 20;
-  if (upgrades.includes("speed_1")) return 40;
-  return FISHING_WORKER_BASE_INTERVAL;
+  let base;
+  if (upgrades.includes("speed_2")) base = 20;
+  else if (upgrades.includes("speed_1")) base = 40;
+  else base = FISHING_WORKER_BASE_INTERVAL;
+  // sea_legs: 20% faster per stack
+  const seaLegsCount = state ? getPrestigeSkillCount(state, "sea_legs") : 0;
+  if (seaLegsCount > 0) base = Math.max(5, Math.floor(base * Math.pow(0.8, seaLegsCount)));
+  return base;
 }
 
 export function getFishingWorkerHaul(worker) {
@@ -1442,7 +1516,7 @@ if (activeTier) {
           for (const plot of farm.plots) {
             if (harvested >= plotsPerCycle) break;
             if (plot.state === "ready") {
-              const { crops, newPool } = applyYieldBonuses(crop.workerYield, next.prestigeBonuses, next.yieldPool ?? 0, bonusYield);
+              const { crops, newPool } = applyYieldBonuses(crop.workerYield, next.prestigeBonuses, next.yieldPool ?? 0, bonusYield, next);
               next.crops[farm.crop] = (next.crops[farm.crop] ?? 0) + crops;
               next.yieldPool = newPool;
               cropsGained += crops;
@@ -1533,7 +1607,7 @@ if (activeTier) {
     while (toSellThisTick > 0 && (worker.queue ?? []).length > 0) {
       const order = worker.queue[0];
       const toSell = Math.min(toSellThisTick, order.quantity);
-      const rate = getSellRate(order.itemType, next.prestigeBonuses, bankPriceBonus);
+      const rate = getSellRate(order.itemType, next.prestigeBonuses, bankPriceBonus, next);
       order.quantity = Math.floor(order.quantity - toSell);
       const earned = toSell * rate;
       next.cash = (next.cash ?? 0) + earned;
@@ -1553,12 +1627,17 @@ if (activeTier) {
       const body = next.fishing.bodies?.[bodyId];
       if (!body?.unlocked || !body.worker?.hired) continue;
       const worker = body.worker;
-      const interval = getFishingWorkerInterval(worker);
+      const interval = getFishingWorkerInterval(worker, next);
       const haul = getFishingWorkerHaul(worker);
       const gearTier = getFishingWorkerGearTier(worker);
       const baitId = worker.assignedBait;
       const hasBait = baitId && (next.bait?.[baitId] ?? 0) > 0;
       const effectiveBait = hasBait ? baitId : null;
+      // deep_waters: no minnows — reroll until bass or better
+      const noMinnows = hasPrestigeSkill(next, "deep_waters");
+      // selective_haul: per-worker allowed fish toggle
+      const selectiveHaul = hasPrestigeSkill(next, "selective_haul");
+      const allowedFish = selectiveHaul ? (worker.allowedFish ?? null) : null;
 
       worker.timer = (worker.timer ?? 0) + 1;
       if (worker.timer >= interval) {
@@ -1567,7 +1646,14 @@ if (activeTier) {
         const totalHaul = haul + baitBonus;
         if (!next.fishing.fish) next.fishing.fish = {};
         for (let i = 0; i < totalHaul; i++) {
-          const fishId = rollFishForBody(bodyId, gearTier, effectiveBait);
+          let fishId = rollFishForBody(bodyId, gearTier, effectiveBait);
+          // deep_waters: reroll minnows once to get bass or better
+          if (noMinnows && fishId === "minnow") {
+            fishId = rollFishForBody(bodyId, gearTier === "basic" ? "good" : gearTier, effectiveBait);
+            if (fishId === "minnow") fishId = "bass";
+          }
+          // selective_haul: skip if not in allowed list
+          if (allowedFish && !allowedFish.includes(fishId)) continue;
           next.fishing.fish[fishId] = (next.fishing.fish[fishId] ?? 0) + 1;
         }
         // Consume bait
@@ -1623,6 +1709,9 @@ if (activeTier) {
     const bonusChance = mood / 80;
     produced = 1 + bonusYield + (Math.random() < bonusChance ? 1 : 0);
   }
+  // sturdy_stock: +20% per stack
+  const sturdyCount = getPrestigeSkillCount(next, "sturdy_stock");
+  if (sturdyCount > 0) produced = Math.ceil(produced * Math.pow(1.2, sturdyCount));
   animal.stock = Math.min(stockMax, stock + produced);
   animal.readyTick = 0;
 }
@@ -1865,9 +1954,20 @@ export function updateTown(state, seconds = 1) {
     next.town.satisfactionTarget = getSatisfactionTarget(next);
     const currentSat = next.town.satisfaction ?? TOWN_SATISFACTION_DEFAULT;
     const target = next.town.satisfactionTarget;
-    if (next.town.starving) next.town.satisfaction = Math.max(TOWN_SATISFACTION_FLOOR, currentSat - TOWN_SATISFACTION_STARVE_STEP);
-    else if (currentSat < target) next.town.satisfaction = Math.min(target, currentSat + TOWN_SATISFACTION_STEP);
-    else if (currentSat > target) next.town.satisfaction = Math.max(target, currentSat - TOWN_SATISFACTION_STEP);
+    const satCeiling = getSatisfactionCeiling(next);
+    // grand_opening: first 3 pulses of a new season start at 150
+    if ((next.town.grandOpeningPulsesLeft ?? 0) > 0) {
+      next.town.satisfaction = Math.min(satCeiling, Math.max(currentSat, 150));
+      next.town.grandOpeningPulsesLeft -= 1;
+    } else if (next.town.starving) {
+      next.town.satisfaction = Math.max(TOWN_SATISFACTION_FLOOR, currentSat - TOWN_SATISFACTION_STARVE_STEP);
+    } else if (currentSat < target) {
+      next.town.satisfaction = Math.min(target, currentSat + TOWN_SATISFACTION_STEP);
+    } else if (currentSat > target) {
+      next.town.satisfaction = Math.max(target, currentSat - TOWN_SATISFACTION_STEP);
+    }
+    // Hard clamp to ceiling (respects town_pride upgrade)
+    next.town.satisfaction = Math.min(satCeiling, next.town.satisfaction);
  
     next.town.rawFoodNeeded = foodNeeded;
     next.town.breadNeeded = foodNeeded;
@@ -1961,7 +2061,7 @@ export function harvestPlot(state, farmId, plotId) {
   const plot = farm.plots.find((p) => p.id === plotId);
   if (!plot || plot.state !== "ready") return state;
   const crop = CROPS[farm.crop];
-  const { crops, newPool } = applyYieldBonuses(crop.manualYield, next.prestigeBonuses, next.yieldPool ?? 0);
+  const { crops, newPool } = applyYieldBonuses(crop.manualYield, next.prestigeBonuses, next.yieldPool ?? 0, 0, next);
   next.crops[farm.crop] = (next.crops[farm.crop] ?? 0) + crops;
   next.yieldPool = newPool;
   plot.state = "empty";
@@ -1978,7 +2078,7 @@ export function tendPlot(state, farmId, plotId) {
  
   if (plot.state === "ready") {
     const crop = CROPS[farm.crop];
-    const { crops, newPool } = applyYieldBonuses(crop.manualYield, next.prestigeBonuses, next.yieldPool ?? 0);
+    const { crops, newPool } = applyYieldBonuses(crop.manualYield, next.prestigeBonuses, next.yieldPool ?? 0, 0, next);
     next.crops[farm.crop] = (next.crops[farm.crop] ?? 0) + crops;
     next.yieldPool = newPool;
     plot.state = "planted";
@@ -2005,10 +2105,12 @@ export function tendPlot(state, farmId, plotId) {
   return next;
 }
  
-export function getPlotUpgradeCost(farm) {
+export function getPlotUpgradeCost(farm, state = null) {
   const upgradedCount = farm.plots.filter((p) => p.upgraded).length;
   const costs = [1, 2, 3, 5, 7, 10, 13, 17, 22, 28];
-  return costs[upgradedCount] ?? Math.ceil(28 + (upgradedCount - 9) * 7);
+  const base = costs[upgradedCount] ?? Math.ceil(28 + (upgradedCount - 9) * 7);
+  if (state && hasPrestigeSkill(state, "bargain_soil")) return Math.max(1, Math.ceil(base * 0.5));
+  return base;
 }
  
 export function upgradePlot(state, farmId) {
@@ -2019,7 +2121,7 @@ export function upgradePlot(state, farmId) {
   if (!plot) return state;
   const artisanGood = CROP_ARTISAN[farm.crop];
   if (!artisanGood) return state;
-  const cost = getPlotUpgradeCost(farm);
+  const cost = getPlotUpgradeCost(farm, state);
   if ((next.artisan[artisanGood] ?? 0) < cost) return state;
   next.artisan[artisanGood] -= cost;
   plot.upgraded = true;
@@ -2048,11 +2150,10 @@ export function hireWorker(state, farmId) {
   const farm = next.farms.find((f) => f.id === farmId);
   if (!farm) return state;
   const workersOnFarm = next.workers.filter((w) => w.farmId === farmId).length;
-  const hasHeadStart = next.prestigeBonuses.includes("head_start") && workersOnFarm === 0;
-  const cost = hasHeadStart ? 0 : getWorkerHireCost(next, farmId);
+  const cost = getWorkerHireCost(next, farmId);
   if ((next.crops[farm.crop] ?? 0) < cost) return state;
   next.crops[farm.crop] -= cost;
-  const startWithGloves = next.prestigeBonuses.includes("fast_hands");
+  const startWithGloves = hasPrestigeSkill(next, "fast_hands");
   const newWorker = makeFarmWorker(farmId, startWithGloves);
   newWorker.cycleProgress = getEffectiveCycleSeconds(newWorker) - 1;
   next.workers.push(newWorker);
@@ -2123,11 +2224,12 @@ export function buyYieldUpgrade(state, farmId) {
   return next;
 }
  
-export function applyYieldBonuses(baseYield, prestigeBonuses, currentPool = 0, farmBonusYield = 0) {
-  const bumperCount = prestigeBonuses.filter((b) => b === "bumper_crop").length;
+export function applyYieldBonuses(baseYield, prestigeBonuses, currentPool = 0, farmBonusYield = 0, state = null) {
+  // New skill tree: bumper_crop is 15% per stack
+  const bumperCount = state ? getPrestigeSkillCount(state, "bumper_crop") : prestigeBonuses.filter((b) => b === "bumper_crop").length;
   const total = baseYield + farmBonusYield;
   if (bumperCount === 0) return { crops: total, newPool: currentPool };
-  const exact = total * (1 + bumperCount * 0.1);
+  const exact = total * (1 + bumperCount * 0.15);
   const whole = Math.floor(exact);
   const newPool = currentPool + (exact - whole);
   const bonus = Math.floor(newPool);
@@ -2483,6 +2585,22 @@ export function setFishingWorkerBait(state, bodyId, baitId) {
   return next;
 }
 
+export function toggleFishingWorkerAllowedFish(state, bodyId, fishId) {
+  const next = deepCloneState(state);
+  const worker = next.fishing?.bodies?.[bodyId]?.worker;
+  if (!worker) return state;
+  const all = ["minnow", "bass", "perch", "rare"];
+  const current = worker.allowedFish ?? all;
+  if (current.includes(fishId)) {
+    // Don't allow removing the last fish
+    const next_ = current.filter((f) => f !== fishId);
+    worker.allowedFish = next_.length > 0 ? next_ : current;
+  } else {
+    worker.allowedFish = [...current, fishId];
+  }
+  return next;
+}
+
 export function catchFish(state, fishId, baitId, bodyId) {
   if (!state.fishing) return state;
   const next = deepCloneState(state);
@@ -2557,16 +2675,18 @@ export function getPrestigeBlockers(state) {
   return blockers;
 }
  
-export function beginPrestige(state, chosenBonusId, keptWorkerIds) {
+export function beginPrestige(state, _unused, keptWorkerIds) {
   const next = deepCloneState(state);
   const newSeason = next.season + 1;
-  if (chosenBonusId) next.prestigeBonuses.push(chosenBonusId);
- 
+
+  // Award 1 prestige skill point
+  next.prestigePoints = (next.prestigePoints ?? 0) + 1;
+
   // keptWorkerIds can be a single id (legacy) or an array
   const idsToKeep = Array.isArray(keptWorkerIds)
     ? keptWorkerIds
     : keptWorkerIds ? [keptWorkerIds] : [];
- 
+
   const previousKeptWorkers = [...(next.keptWorkers ?? [])];
   for (const keptWorkerId of idsToKeep) {
     const fw = next.workers.find((w) => w.id === keptWorkerId);
@@ -2577,17 +2697,17 @@ export function beginPrestige(state, chosenBonusId, keptWorkerIds) {
     else if (mw) previousKeptWorkers.push(makeKeptWorker(mw, "market"));
   }
   next.keptWorkers = previousKeptWorkers;
- 
+
   next.workers = [];
   next.kitchenWorkers = [];
   next.marketWorkers = [];
- 
+
   for (const cropId of Object.keys(next.crops)) {
     next.crops[cropId] = Math.floor((next.crops[cropId] ?? 0) * 0.1);
   }
- 
+
   next.yieldPool = 0;
- 
+
   if (newSeason >= FIRST_EXTRA_FARM_SEASON) {
     next.pendingFarmUnlock = true;
   } else {
@@ -2597,7 +2717,7 @@ export function beginPrestige(state, chosenBonusId, keptWorkerIds) {
       if (!existingCropIds.includes(cropId)) next.farms.push(makeFarm(cropId, true));
     }
   }
- 
+
   for (const farm of next.farms) {
     farm.plots = farm.plots.map((plot, idx) => ({
       ...plot,
@@ -2605,27 +2725,26 @@ export function beginPrestige(state, chosenBonusId, keptWorkerIds) {
       growthTick: idx === 0 ? Math.floor(CROPS[farm.crop].growTime / 2) : 0,
     }));
   }
- 
-  if (next.prestigeBonuses.includes("head_start")) {
-    const startWithGloves = next.prestigeBonuses.includes("fast_hands");
-    const farmsForSeason = newSeason >= FIRST_EXTRA_FARM_SEASON
-      ? next.farms
-      : next.farms.filter((f) => (SEASON_FARMS[newSeason] ?? []).includes(f.crop));
-    for (const farm of farmsForSeason) {
-      if (isAtWorkerCap(next)) break;
-      const w = makeFarmWorker(farm.id, startWithGloves);
-      w.cycleProgress = getEffectiveCycleSeconds(w) - 1;
-      next.workers.push(w);
-    }
+
+  // warm_welcome: start with 1 extra home
+  if (hasPrestigeSkill(next, "warm_welcome")) {
+    next.town.homes = (next.town.homes ?? 0) + 1;
+    next.town.capacity = getTownCapacity(next);
   }
- 
+
+  // grand_opening: satisfaction boosted to 150 for first 3 town pulses
+  if (hasPrestigeSkill(next, "grand_opening")) {
+    next.town.grandOpeningPulsesLeft = 3;
+    next.town.satisfaction = Math.min(getSatisfactionCeiling(next), 150);
+  }
+
   const farmKept = next.keptWorkers.filter((w) => w.keptType === "farm");
   const kitchenKept = next.keptWorkers.filter((w) => w.keptType === "kitchen");
   const marketKept = next.keptWorkers.filter((w) => w.keptType === "market");
- 
+
   for (const kw of kitchenKept) { if (isAtWorkerCap(next)) break; next.kitchenWorkers.push({ ...kw }); }
   for (const kw of marketKept) { if (isAtWorkerCap(next)) break; next.marketWorkers.push({ ...kw }); }
- 
+
   next.keptWorkers = farmKept;
   next.pendingWorkerAssignments = farmKept.length > 0;
   next.season = newSeason;
@@ -2844,6 +2963,28 @@ export function deserializeState(raw) {
     if (Array.isArray(parsed.prestigeBonuses)) {
       parsed.prestigeBonuses = parsed.prestigeBonuses.map((b) => b === "bigger_kitchen" ? "market_savvy" : b);
     }
+
+    // ── Prestige skill tree migration ─────────────────────────────────────────
+    if (!parsed.prestigeSkills) parsed.prestigeSkills = {};
+    if (parsed.prestigePoints === undefined) parsed.prestigePoints = 0;
+    // Migrate old flat prestigeBonuses array into skill tree — one-time, then clear
+    if (Array.isArray(parsed.prestigeBonuses) && parsed.prestigeBonuses.length > 0 && parsed.prestigePoints === 0) {
+      const legacyMap = {
+        bumper_crop: "bumper_crop",
+        fast_hands: "fast_hands",
+        market_savvy: "market_savvy",
+        head_start: null, // no direct equivalent — grant a free point instead
+      };
+      for (const bonus of parsed.prestigeBonuses) {
+        const skillId = legacyMap[bonus];
+        if (skillId) {
+          parsed.prestigeSkills[skillId] = (parsed.prestigeSkills[skillId] ?? 0) + 1;
+        }
+        // Every old bonus was worth 1 point
+        parsed.prestigePoints += 1;
+      }
+      parsed.prestigeBonuses = [];
+    }
  
     if (parsed.town === undefined) {
       parsed.town = makeFreshTown();
@@ -2883,6 +3024,7 @@ export function deserializeState(raw) {
       if (parsed.town.townHallDrained !== undefined) delete parsed.town.townHallDrained;
       if (parsed.town.treasuryCap === undefined) parsed.town.treasuryCap = 0;
       if (parsed.town.townBuildings === undefined) parsed.town.townBuildings = {};
+      if (parsed.town.grandOpeningPulsesLeft === undefined) parsed.town.grandOpeningPulsesLeft = 0;
       if (parsed.town.townBuildings.school?.built) {
   const school = parsed.town.townBuildings.school;
   if (school.activeResearchId === undefined) school.activeResearchId = null;

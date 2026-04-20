@@ -24,11 +24,13 @@ import {
   hireFishingWorker, fireFishingWorker, setTreasuryCap, upgradeAnimalYield,
   buildBarnBuilding, upgradeBarnBuilding,
   buildTownBuilding, setTavernMode, assignTownBuildingWorker,
-  startSchoolResearch,
+  startSchoolResearch, unlockPrestigeSkill, toggleFishingWorkerAllowedFish,
 } from "./gameEngine";
 import {
-  SAVE_KEY, SAVE_INTERVAL_MS, PRESTIGE_BONUSES,
+  SAVE_KEY, SAVE_INTERVAL_MS,
+  PRESTIGE_SKILL_TREE, PRESTIGE_SKILL_BRANCHES, PRESTIGE_BRANCH_META,
   CROPS, GEAR, SPECIALIZATIONS, KITCHEN_WORKER_UPGRADES, MARKET_WORKER_GEAR,
+  FISHING_FISH,
 } from "./gameConstants";
 import GameNav, { FarmSubTabs } from "./components/GameNav";
 import ResourceBar from "./components/ResourceBar";
@@ -46,19 +48,20 @@ function saveToLocalStorage(state) {
   try { localStorage.setItem(SAVE_KEY, serializeState(state)); } catch {}
 }
  
-// ─── Prestige modal ───────────────────────────────────────────────────────────
- 
-function PrestigeModal({ game, onComplete, onCancel }) {
+// ─── Prestige Skill Tree Modal ────────────────────────────────────────────────
+
+function PrestigeModal({ game, onComplete, onUnlockSkill, onCancel }) {
   const [step, setStep] = useState(1);
-  const [chosenBonus, setChosenBonus] = useState(null);
   const [chosenWorkerIds, setChosenWorkerIds] = useState([]);
- 
+
+  const availablePoints = (game.prestigePoints ?? 0) - Object.values(game.prestigeSkills ?? {}).reduce((s, v) => s + v, 0);
+
   const allWorkers = [
     ...game.workers.map((w) => ({ ...w, _type: "farm" })),
     ...game.kitchenWorkers.map((w) => ({ ...w, _type: "kitchen" })),
     ...game.marketWorkers.map((w) => ({ ...w, _type: "market" })),
   ];
- 
+
   function workerLabel(worker) {
     if (worker._type === "farm") {
       const gear = GEAR[worker.gear];
@@ -78,43 +81,115 @@ function PrestigeModal({ game, onComplete, onCancel }) {
     }
     return { title: "Worker", subtitle: "", typeLabel: "Unknown", typeColor: "var(--muted)" };
   }
- 
+
+  const branchNodes = (branch) =>
+    Object.values(PRESTIGE_SKILL_TREE).filter((n) => n.branch === branch).sort((a, b) => a.tier - b.tier);
+
+  const isOwned = (id) => (game.prestigeSkills?.[id] ?? 0) > 0;
+  const isUnlockable = (node) => {
+    if (availablePoints < 1) return false;
+    if (node.unique && isOwned(node.id)) return false;
+    if (node.requires && !isOwned(node.requires)) return false;
+    return true;
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.6)" }}>
-      <div className="card p-6 w-full max-w-sm space-y-4" style={{ maxHeight: "90vh", overflowY: "auto" }}>
+      <div className="card p-5 w-full max-w-sm" style={{ maxHeight: "90vh", overflowY: "auto" }}>
+
         {step === 1 && (
           <>
-            <div>
-              <h2 className="text-xl font-bold text-center">🌱 New Season</h2>
-              <p className="text-xs text-center mt-1" style={{ color: "var(--muted)" }}>Step 1 of 2 — Choose a permanent bonus</p>
+            <div style={{ marginBottom: "1rem", textAlign: "center" }}>
+              <h2 style={{ fontSize: "1.2rem", fontWeight: 700 }}>🌱 New Season</h2>
+              <p style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: "0.25rem" }}>
+                Completing this prestige awards <strong style={{ color: "#a78bfa" }}>+1 skill point</strong>
+              </p>
+              {availablePoints > 0 && (
+                <div style={{ marginTop: "0.5rem", fontSize: "0.72rem", fontWeight: 700, color: "#a78bfa" }}>
+                  {availablePoints} unspent point{availablePoints !== 1 ? "s" : ""} — spend them below!
+                </div>
+              )}
             </div>
-            <p className="text-sm text-center" style={{ color: "var(--muted)", lineHeight: 1.6 }}>Workers reset. 10% of crops carry over. Artisan goods, cash and treasury carry over fully. Town persists.</p>
-            <div className="space-y-2">
-              {Object.values(PRESTIGE_BONUSES).map((bonus) => (
-                <button key={bonus.id} onClick={() => { setChosenBonus(bonus.id); setStep(2); }} className="w-full text-left card p-3 hover:shadow-md transition" style={{ cursor: "pointer" }}>
-                  <div className="font-medium text-sm">{bonus.emoji} {bonus.name}</div>
-                  <div className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>{bonus.description}</div>
-                </button>
-              ))}
+
+            {PRESTIGE_SKILL_BRANCHES.map((branch) => {
+              const meta = PRESTIGE_BRANCH_META[branch];
+              const nodes = branchNodes(branch);
+              return (
+                <div key={branch} style={{ marginBottom: "1rem" }}>
+                  <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--muted)", marginBottom: "0.4rem", letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                    {meta.emoji} {meta.label}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+                    {nodes.map((node, idx) => {
+                      const owned = isOwned(node.id);
+                      const unlockable = isUnlockable(node);
+                      const parentOwned = !node.requires || isOwned(node.requires);
+                      const locked = !owned && !parentOwned;
+                      return (
+                        <div key={node.id} style={{
+                          display: "flex", alignItems: "center", justifyContent: "space-between",
+                          padding: "0.45rem 0.6rem", borderRadius: "8px",
+                          background: owned ? "rgba(167,139,250,0.12)" : "var(--bg)",
+                          border: `1px solid ${owned ? "rgba(167,139,250,0.4)" : unlockable ? "rgba(167,139,250,0.25)" : "var(--border)"}`,
+                          opacity: locked ? 0.35 : 1,
+                        }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: "0.78rem", fontWeight: 600, color: owned ? "#a78bfa" : "var(--text)" }}>
+                              {owned ? "✓ " : idx > 0 ? "→ " : ""}{node.emoji} {node.name}
+                              {node.unique && owned && <span style={{ fontSize: "0.6rem", color: "var(--muted)", marginLeft: "0.3rem" }}>(max)</span>}
+                            </div>
+                            <div style={{ fontSize: "0.63rem", color: "var(--muted)", marginTop: "0.1rem" }}>{node.description}</div>
+                          </div>
+                          {!owned && unlockable && (
+                            <button
+                              onClick={() => onUnlockSkill(node.id)}
+                              style={{
+                                marginLeft: "0.5rem", flexShrink: 0,
+                                fontSize: "0.65rem", fontWeight: 700,
+                                padding: "0.2rem 0.55rem", borderRadius: "6px",
+                                background: "rgba(167,139,250,0.2)",
+                                border: "1px solid rgba(167,139,250,0.5)",
+                                color: "#a78bfa", cursor: "pointer",
+                              }}
+                            >
+                              Unlock
+                            </button>
+                          )}
+                          {!owned && !unlockable && parentOwned && availablePoints === 0 && (
+                            <span style={{ marginLeft: "0.5rem", fontSize: "0.6rem", color: "var(--muted)", flexShrink: 0 }}>No pts</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+
+            <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
+              <button onClick={onCancel} className="btn btn-secondary" style={{ flex: 1, fontSize: "0.8rem" }}>Cancel</button>
+              <button onClick={() => setStep(2)} className="btn" style={{ flex: 1, fontSize: "0.8rem" }}>
+                Keep Workers →
+              </button>
             </div>
-            <button onClick={onCancel} className="btn btn-secondary w-full text-sm">Cancel</button>
           </>
         )}
+
         {step === 2 && (
           <>
-            <div>
-              <h2 className="text-xl font-bold text-center">👷 Keep Workers</h2>
-              <p className="text-xs text-center mt-1" style={{ color: "var(--muted)" }}>
-                Step 2 of 2 — Pick up to {game.season} worker{game.season !== 1 ? "s" : ""} to carry over
+            <div style={{ marginBottom: "1rem", textAlign: "center" }}>
+              <h2 style={{ fontSize: "1.2rem", fontWeight: 700 }}>👷 Keep Workers</h2>
+              <p style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: "0.25rem" }}>
+                Pick up to {game.season} worker{game.season !== 1 ? "s" : ""} to carry over
+              </p>
+              <p style={{ fontSize: "0.72rem", color: "var(--accent)", fontWeight: 600, marginTop: "0.15rem" }}>
+                {chosenWorkerIds.length}/{game.season} selected
               </p>
             </div>
-            <p className="text-sm text-center" style={{ color: "var(--muted)", lineHeight: 1.5 }}>
-              {chosenWorkerIds.length}/{game.season} selected
-            </p>
             {allWorkers.length === 0 ? (
-              <p className="text-sm text-center" style={{ color: "var(--muted)" }}>No workers to keep. You'll start fresh.</p>
+              <p style={{ fontSize: "0.8rem", textAlign: "center", color: "var(--muted)", marginBottom: "1rem" }}>No workers to keep. You'll start fresh.</p>
             ) : (
-              <div className="space-y-2">
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", marginBottom: "1rem" }}>
                 {allWorkers.map((worker) => {
                   const { title, subtitle, typeLabel, typeColor } = workerLabel(worker);
                   const isSelected = chosenWorkerIds.includes(worker.id);
@@ -123,13 +198,10 @@ function PrestigeModal({ game, onComplete, onCancel }) {
                     <button
                       key={worker.id}
                       onClick={() => {
-                        if (isSelected) {
-                          setChosenWorkerIds((ids) => ids.filter((id) => id !== worker.id));
-                        } else if (!atLimit) {
-                          setChosenWorkerIds((ids) => [...ids, worker.id]);
-                        }
+                        if (isSelected) setChosenWorkerIds((ids) => ids.filter((id) => id !== worker.id));
+                        else if (!atLimit) setChosenWorkerIds((ids) => [...ids, worker.id]);
                       }}
-                      className="w-full text-left card p-3 hover:shadow-md transition"
+                      className="w-full text-left card p-3"
                       style={{
                         cursor: isSelected || !atLimit ? "pointer" : "default",
                         opacity: !isSelected && atLimit ? 0.4 : 1,
@@ -137,20 +209,23 @@ function PrestigeModal({ game, onComplete, onCancel }) {
                       }}
                     >
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                        <div className="font-medium text-sm">{isSelected ? "✓ " : ""}{title}</div>
+                        <div style={{ fontWeight: 600, fontSize: "0.82rem" }}>{isSelected ? "✓ " : ""}{title}</div>
                         <span style={{ fontSize: "0.62rem", fontWeight: 700, padding: "0.1rem 0.4rem", borderRadius: "999px", background: `${typeColor}22`, border: `1px solid ${typeColor}55`, color: typeColor }}>{typeLabel}</span>
                       </div>
-                      <div className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>{subtitle}</div>
+                      <div style={{ fontSize: "0.7rem", color: "var(--muted)", marginTop: "0.15rem" }}>{subtitle}</div>
                     </button>
                   );
                 })}
               </div>
             )}
-            <button onClick={() => onComplete(chosenBonus, chosenWorkerIds)} className="btn w-full text-sm">
-              {chosenWorkerIds.length > 0
-                ? `✓ Keep ${chosenWorkerIds.length} worker${chosenWorkerIds.length !== 1 ? "s" : ""} →`
-                : "Skip — start with no kept workers"}
-            </button>
+            <div style={{ display: "flex", gap: "0.5rem" }}>
+              <button onClick={() => setStep(1)} className="btn btn-secondary" style={{ flex: 1, fontSize: "0.8rem" }}>← Back</button>
+              <button onClick={() => onComplete(null, chosenWorkerIds)} className="btn" style={{ flex: 1, fontSize: "0.8rem" }}>
+                {chosenWorkerIds.length > 0
+                  ? `✓ Keep ${chosenWorkerIds.length} & Begin`
+                  : "Begin Season →"}
+              </button>
+            </div>
           </>
         )}
       </div>
@@ -403,6 +478,8 @@ const handleUpgradeBarnBuilding = useCallback((buildingId) => update((s) => {
   // Feast / prestige / misc
   const handleBuyFeast = useCallback(() => { update((s) => { const n = buyFeast(s); if (n === s) notify("Not enough artisan goods."); return n; }); notify("🍽️ Feast held! Grow speed increased."); }, [update, notify]);
   const handlePrestigeComplete = useCallback((bonusId, workerIds) => { update((s) => beginPrestige(s, bonusId, workerIds)); setShowPrestigeModal(false); setActiveMainTab("farms"); setActiveFarmIndex(0); notify("🌱 New season begun!"); }, [update, notify]);
+  const handleUnlockPrestigeSkill = useCallback((skillId) => { update((s) => unlockPrestigeSkill(s, skillId)); }, [update]);
+  const handleToggleFishingWorkerAllowedFish = useCallback((bodyId, fishId) => update((s) => toggleFishingWorkerAllowedFish(s, bodyId, fishId)), [update]);
   const handleAssignWorker = useCallback((keptWorkerId, farmId) => update((s) => assignKeptWorker(s, keptWorkerId, farmId)), [update]);
   const handleUnlockFarm = useCallback((cropId) => { update((s) => { const n = unlockExtraFarm(s, cropId); if (n === s) notify("Not enough cash."); return n; }); notify("🌾 New farm unlocked!"); }, [update, notify]);
   const handleResetGame = useCallback(() => {
@@ -473,13 +550,14 @@ const handleUpgradeBarnBuilding = useCallback((buildingId) => update((s) => {
   onUpgradeAnimalYield={handleUpgradeAnimalYield}
   onBuildBarnBuilding={handleBuildBarnBuilding}
   onUpgradeBarnBuilding={handleUpgradeBarnBuilding}
+  onToggleFishingWorkerAllowedFish={handleToggleFishingWorkerAllowedFish}
 />
         )}
       </div>
       <GameNav game={game} activeMainTab={activeMainTab} onMainTabChange={setActiveMainTab} prestigeReady={prestigeReady} />
       {hasPendingFarmUnlock && !hasPendingAssignments && <FarmUnlockModal game={game} onUnlock={handleUnlockFarm} />}
       {hasPendingAssignments && <FarmAssignmentScreen game={game} onAssign={handleAssignWorker} />}
-      {showPrestigeModal && <PrestigeModal game={game} onComplete={handlePrestigeComplete} onCancel={() => setShowPrestigeModal(false)} />}
+      {showPrestigeModal && <PrestigeModal game={game} onComplete={handlePrestigeComplete} onUnlockSkill={handleUnlockPrestigeSkill} onCancel={() => setShowPrestigeModal(false)} />}
     </div>
   );
 }

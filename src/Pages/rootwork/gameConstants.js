@@ -163,11 +163,155 @@ export const ANIMAL_BASE_STOCK_MAX = 10;
 export const ANIMAL_OVERFULL_MOOD_DRAIN = 15; // multiplier on normal drain when full
 
 // ─── Prestige bonuses ─────────────────────────────────────────────────────────
+// ─── Prestige Skill Tree ──────────────────────────────────────────────────────
+// Each prestige awards 1 skill point. Nodes are permanent — never reset.
+// Each tier requires the previous tier in the same branch to be unlocked first.
+// market_savvy may only be purchased once.
+
+export const PRESTIGE_SKILL_TREE = {
+  // 🌾 Farmer branch
+  fertile_soil: {
+    id: "fertile_soil", branch: "farmer", tier: 1,
+    name: "Fertile Soil", emoji: "🌾",
+    description: "Treasury grow bonus permanently +5%.",
+    requires: null,
+  },
+  bargain_soil: {
+    id: "bargain_soil", branch: "farmer", tier: 2,
+    name: "Bargain Soil", emoji: "💰",
+    description: "Plot upgrade costs reduced by 50%.",
+    requires: "fertile_soil",
+  },
+  bumper_crop: {
+    id: "bumper_crop", branch: "farmer", tier: 3,
+    name: "Bumper Crop", emoji: "📈",
+    description: "+15% yield on all harvests. Stacks.",
+    requires: "bargain_soil",
+  },
+
+  // 💹 Merchant branch
+  sharp_eye: {
+    id: "sharp_eye", branch: "merchant", tier: 1,
+    name: "Sharp Eye", emoji: "👁️",
+    description: "All market sell prices +10%. Stacks.",
+    requires: null,
+  },
+  bulk_dealer: {
+    id: "bulk_dealer", branch: "merchant", tier: 2,
+    name: "Bulk Dealer", emoji: "📦",
+    description: "Market worker sell speed +20%. Stacks.",
+    requires: "sharp_eye",
+  },
+  market_savvy: {
+    id: "market_savvy", branch: "merchant", tier: 3,
+    name: "Market Savvy", emoji: "💹",
+    description: "All market sell prices +25%. One time only.",
+    requires: "bulk_dealer",
+    unique: true, // can only be purchased once
+  },
+
+  // 🏘️ Mayor branch
+  warm_welcome: {
+    id: "warm_welcome", branch: "mayor", tier: 1,
+    name: "Warm Welcome", emoji: "🏠",
+    description: "Start each season with 1 extra home already built.",
+    requires: null,
+  },
+  grand_opening: {
+    id: "grand_opening", branch: "mayor", tier: 2,
+    name: "Grand Opening", emoji: "🎉",
+    description: "Satisfaction starts at 150% for the first 3 town pulses of a new season.",
+    requires: "warm_welcome",
+  },
+  town_pride: {
+    id: "town_pride", branch: "mayor", tier: 3,
+    name: "Town Pride", emoji: "🏆",
+    description: "Satisfaction ceiling raised to 200%.",
+    requires: "grand_opening",
+  },
+
+  // 🎣 Fisher branch
+  sea_legs: {
+    id: "sea_legs", branch: "fisher", tier: 1,
+    name: "Sea Legs", emoji: "⚓",
+    description: "Fishermen work 20% faster. Stacks.",
+    requires: null,
+  },
+  deep_waters: {
+    id: "deep_waters", branch: "fisher", tier: 2,
+    name: "Deep Waters", emoji: "🌊",
+    description: "Fishermen never catch minnows — bass or better minimum.",
+    requires: "sea_legs",
+    unique: true,
+  },
+  selective_haul: {
+    id: "selective_haul", branch: "fisher", tier: 3,
+    name: "Selective Haul", emoji: "🎯",
+    description: "Toggle which fish types each fisherman is allowed to catch.",
+    requires: "deep_waters",
+    unique: true,
+  },
+
+  // 🐄 Rancher branch
+  fast_hands: {
+    id: "fast_hands", branch: "rancher", tier: 1,
+    name: "Fast Hands", emoji: "🧤",
+    description: "Newly hired farm workers start with Gloves instead of Bare Hands.",
+    requires: null,
+  },
+  sturdy_stock: {
+    id: "sturdy_stock", branch: "rancher", tier: 2,
+    name: "Sturdy Stock", emoji: "💪",
+    description: "Animals produce 20% more goods. Stacks.",
+    requires: "fast_hands",
+  },
+  breeding_program: {
+    id: "breeding_program", branch: "rancher", tier: 3,
+    name: "Breeding Program", emoji: "🐣",
+    description: "Animal slot cap +2 per barn building.",
+    requires: "sturdy_stock",
+  },
+
+  // 🍳 Crafter branch
+  clean_switch: {
+    id: "clean_switch", branch: "crafter", tier: 1,
+    name: "Clean Switch", emoji: "🔄",
+    description: "No resource loss when switching recipes.",
+    requires: null,
+    unique: true,
+  },
+  swift_craft: {
+    id: "swift_craft", branch: "crafter", tier: 2,
+    name: "Swift Craft", emoji: "⚡",
+    description: "All craft times reduced by 25%. Stacks.",
+    requires: "clean_switch",
+  },
+  efficient_process: {
+    id: "efficient_process", branch: "crafter", tier: 3,
+    name: "Efficient Process", emoji: "♻️",
+    description: "All recipes consume 50% of resources.",
+    requires: "swift_craft",
+    unique: true,
+  },
+};
+
+export const PRESTIGE_SKILL_BRANCHES = ["farmer", "merchant", "mayor", "fisher", "rancher", "crafter"];
+
+export const PRESTIGE_BRANCH_META = {
+  farmer:   { label: "Farmer",   emoji: "🌾" },
+  merchant: { label: "Merchant", emoji: "💹" },
+  mayor:    { label: "Mayor",    emoji: "🏘️" },
+  fisher:   { label: "Fisher",   emoji: "🎣" },
+  rancher:  { label: "Rancher",  emoji: "🐄" },
+  crafter:  { label: "Crafter",  emoji: "🍳" },
+};
+
+// Legacy flat map — kept so old save references don't hard-crash
 export const PRESTIGE_BONUSES = {
-  bumper_crop:  { id: "bumper_crop",  name: "Bumper Crop",  emoji: "📈", description: "+10% yield on all harvests. Fractional yield accumulates." },
-  head_start:   { id: "head_start",   name: "Head Start",   emoji: "🙋", description: "Start each season with 1 free worker on every available farm." },
-  fast_hands:   { id: "fast_hands",   name: "Fast Hands",   emoji: "🧤", description: "All newly hired workers start with Gloves instead of Bare Hands." },
-  market_savvy: { id: "market_savvy", name: "Market Savvy", emoji: "💹", description: "All market sell prices permanently +25%. Stacks." },
+  bumper_crop:  PRESTIGE_SKILL_TREE.bumper_crop,
+  head_start:   { id: "head_start", name: "Head Start", emoji: "🙋", description: "Legacy — replaced by skill tree." },
+  fast_hands:   PRESTIGE_SKILL_TREE.fast_hands,
+  market_savvy: PRESTIGE_SKILL_TREE.market_savvy,
 };
  
 // ─── Prestige cash thresholds ─────────────────────────────────────────────────

@@ -9,7 +9,7 @@ import {
 import {
   getFishingWorkerInterval, getFishingWorkerHaul,
   getFishingWorkerGearTier, rollFishForBody, getTotalWorkersHired,
-  isTownBuildingBuilt,
+  isTownBuildingBuilt, hasPrestigeSkill,
 } from "../gameEngine";
 
 const SPEED_UPGRADES = ["speed_1", "speed_2"];
@@ -331,14 +331,18 @@ function WorkerUpgradeTree({ label, upgradeIds, worker, game, bodyId, onUpgrade 
 
 // ─── Fishing worker card ──────────────────────────────────────────────────────
 
-function FishingWorkerCard({ bodyId, worker, game, onUpgrade, onSetBait }) {
+function FishingWorkerCard({ bodyId, worker, game, onUpgrade, onSetBait, onToggleAllowedFish }) {
   const [showUpgrades, setShowUpgrades] = useState(false);
-  const interval = getFishingWorkerInterval(worker);
+  const interval = getFishingWorkerInterval(worker, game);
   const haul = getFishingWorkerHaul(worker);
   const gear = getFishingWorkerGearTier(worker);
   const timerPct = Math.min(100, ((worker.timer ?? 0) / interval) * 100);
   const assignedBait = worker.assignedBait;
   const baitHave = assignedBait ? (game.bait?.[assignedBait] ?? 0) : 0;
+  const hasSelectiveHaul = hasPrestigeSkill(game, "selective_haul");
+  const hasDeepWaters = hasPrestigeSkill(game, "deep_waters");
+  const allFishIds = ["minnow", "bass", "perch", "rare"];
+  const allowedFish = worker.allowedFish ?? allFishIds;
 
   return (
     <div style={{
@@ -419,6 +423,43 @@ function FishingWorkerCard({ bodyId, worker, game, onUpgrade, onSetBait }) {
         })}
       </div>
 
+      {/* Selective Haul — only visible with the skill */}
+      {hasSelectiveHaul && (
+        <div style={{
+          padding: "0.5rem 0.75rem", borderTop: "1px solid rgba(255,255,255,0.08)",
+          display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap",
+        }}>
+          <span style={{ fontSize: "0.6rem", color: "#a78bfa", letterSpacing: "0.06em", fontWeight: 700 }}>🎯 HAUL</span>
+          {allFishIds.map((fishId) => {
+            const fish = FISHING_FISH[fishId];
+            const isAllowed = allowedFish.includes(fishId);
+            const isMinnow = fishId === "minnow";
+            // deep_waters auto-skips minnows regardless of toggle
+            const effectivelyBlocked = isMinnow && hasDeepWaters;
+            return (
+              <button
+                key={fishId}
+                onClick={() => !effectivelyBlocked && onToggleAllowedFish(bodyId, fishId)}
+                style={{
+                  fontSize: "0.62rem", padding: "0.15rem 0.45rem", borderRadius: "6px",
+                  cursor: effectivelyBlocked ? "default" : "pointer",
+                  background: effectivelyBlocked
+                    ? "rgba(255,255,255,0.03)"
+                    : isAllowed ? "rgba(167,139,250,0.35)" : "rgba(255,255,255,0.05)",
+                  border: `1px solid ${effectivelyBlocked ? "rgba(255,255,255,0.07)" : isAllowed ? "rgba(167,139,250,0.7)" : "rgba(255,255,255,0.1)"}`,
+                  color: effectivelyBlocked ? "rgba(255,255,255,0.2)" : isAllowed ? "#fff" : "rgba(255,255,255,0.35)",
+                  fontWeight: isAllowed && !effectivelyBlocked ? 700 : 400,
+                  textDecoration: effectivelyBlocked ? "line-through" : "none",
+                }}
+              >
+                {fish.emoji} {fish.name}
+                {effectivelyBlocked && <span style={{ marginLeft: "0.2rem", fontSize: "0.55rem" }}>⛔</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Upgrade trees */}
       {showUpgrades && (
         <div style={{
@@ -436,7 +477,7 @@ function FishingWorkerCard({ bodyId, worker, game, onUpgrade, onSetBait }) {
 
 // ─── Fishing bodies panel ─────────────────────────────────────────────────────
 
-function FishingBodiesPanel({ game, onUnlockBody, onHireWorker, onUpgradeWorker, onSetWorkerBait, onFireWorker }) {
+function FishingBodiesPanel({ game, onUnlockBody, onHireWorker, onUpgradeWorker, onSetWorkerBait, onFireWorker, onToggleAllowedFish }) {
   const fishing = game.fishing ?? {};
   const bodies = fishing.bodies ?? {};
   const totalHired = getTotalWorkersHired(game);
@@ -558,6 +599,7 @@ function FishingBodiesPanel({ game, onUnlockBody, onHireWorker, onUpgradeWorker,
                   game={game}
                   onUpgrade={onUpgradeWorker}
                   onSetBait={onSetWorkerBait}
+                  onToggleAllowedFish={onToggleAllowedFish}
                 />
               )}
             </div>
@@ -580,6 +622,7 @@ export default function PondZone({
   onUpgradeFishingWorker,
   onSetFishingWorkerBait,
   onFireFishingWorker,
+  onToggleFishingWorkerAllowedFish,
 }) {
   const fishing = game.fishing ?? {};
   const pondOwned = fishing.bodies?.pond?.unlocked === true;
@@ -990,6 +1033,7 @@ export default function PondZone({
         onUpgradeWorker={onUpgradeFishingWorker}
         onSetWorkerBait={onSetFishingWorkerBait}
         onFireWorker={onFireFishingWorker}
+        onToggleAllowedFish={onToggleFishingWorkerAllowedFish}
       />
 
       {/* Tips */}

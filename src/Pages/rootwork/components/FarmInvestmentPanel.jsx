@@ -9,7 +9,7 @@ import {
   getNextPlotCapUpgrade,
   getNextYieldUpgrade,
   getPlotUpgradeCost,
-  isTownBuildingBuilt,
+  hasSchoolResearch,
 } from "../gameEngine";
 
 export default function FarmInvestmentPanel({ farm, game, onBuyPlotCap, onBuyYield, onUpgradePlot }) {
@@ -17,13 +17,12 @@ export default function FarmInvestmentPanel({ farm, game, onBuyPlotCap, onBuyYie
   const maxPlots = getFarmMaxPlots(game, farm.id);
   const bonusYield = getFarmBonusYield(game, farm.id);
   const cash = game.cash ?? 0;
-  const schoolBuilt = isTownBuildingBuilt(game, "school");
 
   const artisanGood = CROP_ARTISAN[farm.crop];
   const artisanHave = artisanGood ? (game.artisan[artisanGood] ?? 0) : 0;
   const upgradablePlots = farm.plots.filter((p) => !p.upgraded);
   const upgradedPlots = farm.plots.filter((p) => p.upgraded);
-  const nextUpgradeCost = getPlotUpgradeCost(farm);
+  const nextUpgradeCost = getPlotUpgradeCost(farm, game);
   const canAffordUpgrade = artisanHave >= nextUpgradeCost;
 
   return (
@@ -141,26 +140,27 @@ export default function FarmInvestmentPanel({ farm, game, onBuyPlotCap, onBuyYie
             const owned = inv.yieldIndex > idx;
             const isNext = inv.yieldIndex === idx;
             const canAfford = cash >= tier.cost;
-            // School gate: yield_3 and yield_4 are idx 2 and 3
-            const schoolLocked = idx >= 2 && !schoolBuilt;
-            const canBuy = isNext && canAfford && !schoolLocked;
+            // School research gate: Fertilizer III needs "fertilizer_iii" research, IV needs "fertilizer_iv"
+            const researchId = idx === 2 ? "fertilizer_iii" : idx === 3 ? "fertilizer_iv" : null;
+            const researchLocked = researchId !== null && !hasSchoolResearch(game, researchId);
+            const canBuy = isNext && canAfford && !researchLocked;
             return (
               <div key={tier.id} style={{
                 display: "flex", alignItems: "center", justifyContent: "space-between",
                 padding: "0.4rem 0.6rem", borderRadius: "6px",
                 background: owned ? "rgba(74,222,128,0.08)" : "var(--bg)",
-                border: `1px solid ${owned ? "rgba(74,222,128,0.3)" : schoolLocked && isNext ? "rgba(167,139,250,0.3)" : "var(--border)"}`,
+                border: `1px solid ${owned ? "rgba(74,222,128,0.3)" : researchLocked && isNext ? "rgba(167,139,250,0.3)" : "var(--border)"}`,
                 opacity: !owned && !isNext ? 0.4 : 1,
               }}>
                 <div style={{ fontSize: "0.72rem" }}>
-                  <div style={{ fontWeight: 600, color: owned ? "#4ade80" : schoolLocked && isNext ? "#a78bfa" : "var(--text)" }}>
-                    {owned ? "✓" : schoolLocked && isNext ? "🏫" : isNext ? "🌿" : "🔒"} {tier.name}
+                  <div style={{ fontWeight: 600, color: owned ? "#4ade80" : researchLocked && isNext ? "#a78bfa" : "var(--text)" }}>
+                    {owned ? "✓" : researchLocked && isNext ? "🏫" : isNext ? "🌿" : "🔒"} {tier.name}
                   </div>
                   <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.1rem" }}>
-                    {schoolLocked && isNext ? "Requires School to unlock" : tier.description}
+                    {researchLocked && isNext ? "Requires School Research" : tier.description}
                   </div>
                 </div>
-                {!owned && isNext && !schoolLocked && (
+                {!owned && isNext && !researchLocked && (
                   <button
                     onClick={() => onBuyYield(farm.id)}
                     disabled={!canAfford}
