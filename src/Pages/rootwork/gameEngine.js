@@ -2156,7 +2156,7 @@ export function hireWorker(state, farmId) {
   const cost = getWorkerHireCost(next, farmId);
   if ((next.crops[farm.crop] ?? 0) < cost) return state;
   next.crops[farm.crop] -= cost;
-    const newWorker = makeFarmWorker(farmId, startWithGloves);
+    const newWorker = makeFarmWorker(farmId);
   newWorker.cycleProgress = getEffectiveCycleSeconds(newWorker) - 1;
   next.workers.push(newWorker);
   return next;
