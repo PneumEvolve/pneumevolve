@@ -15,6 +15,9 @@ import {
   getAvailableWorkerSlots,
   getSmartSellAmount,       
   getTownFoodReserve,
+  getBankPriceBonus,
+  getPrestigeSkillCount,
+  hasPrestigeSkill,
 } from "../gameEngine";
  
 const SELLABLE_ITEMS = [
@@ -106,7 +109,7 @@ function MarketWorkerCard({
   const canAffordStandingOrder = (game.cash ?? 0) >= MARKET_WORKER_STANDING_ORDER_COST;
  
   const estimatedQueueValue = (worker.queue ?? []).reduce((sum, order) => {
-    const rate = getSellRate(order.itemType, game.prestigeBonuses ?? []);
+    const rate = getSellRate(order.itemType, game.prestigeBonuses ?? [], getBankPriceBonus(game), game);
     return sum + order.quantity * rate;
   }, 0);
  
@@ -336,7 +339,7 @@ function MarketWorkerCard({
                 </div>
                 {worker.queue.map((order) => {
                   const item = SELLABLE_ITEMS.find((i) => i.type === order.itemType);
-                  const rate = getSellRate(order.itemType, game.prestigeBonuses ?? []);
+                  const rate = getSellRate(order.itemType, game.prestigeBonuses ?? [], getBankPriceBonus(game), game);
                   return (
                     <div key={order.id} style={{ marginTop: "0.2rem", display: "flex", justifyContent: "space-between" }}>
                       <span>
@@ -597,8 +600,12 @@ const hireCost = getMarketWorkerHireCost(game);
 const isFirstWorker = (game.marketWorkers ?? []).length === 0;
 const canAffordCash = isFirstWorker || cash >= hireCost;
 const canHire = !atCap && canAffordCash;
-  const hasSavvy = (game.prestigeBonuses ?? []).includes("market_savvy");
- 
+  const sharpEyeCount = getPrestigeSkillCount(game, "sharp_eye");
+  const hasSavvy = hasPrestigeSkill(game, "market_savvy") || (game.prestigeBonuses ?? []).includes("market_savvy");
+  const hasBulkDealer = hasPrestigeSkill(game, "bulk_dealer");
+  const anyPriceSkill = sharpEyeCount > 0 || hasSavvy;
+  const bankBonus = getBankPriceBonus(game);
+
   return (
     <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 5rem" }}>
       <div style={{ marginBottom: "1rem" }}>
@@ -627,19 +634,23 @@ const canHire = !atCap && canAffordCash;
             </div>
           </div>
         </div>
-        {hasSavvy && (
-          <div
-            style={{
-              marginTop: "0.75rem",
-              fontSize: "0.7rem",
-              color: "#4ade80",
-              background: "rgba(74, 222, 128, 0.1)",
-              borderRadius: "6px",
-              padding: "0.3rem 0.6rem",
-              textAlign: "center",
-            }}
-          >
-            💹 Market Savvy active — sell prices boosted
+        {anyPriceSkill && (
+          <div style={{ marginTop: "0.75rem", display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+            {sharpEyeCount > 0 && (
+              <div style={{ fontSize: "0.7rem", color: "#4ade80", background: "rgba(74,222,128,0.1)", borderRadius: "6px", padding: "0.3rem 0.6rem", textAlign: "center" }}>
+                👁️ Sharp Eye active — +{sharpEyeCount * 10}% sales{sharpEyeCount > 1 ? ` (×${sharpEyeCount})` : ""}
+              </div>
+            )}
+            {hasSavvy && (
+              <div style={{ fontSize: "0.7rem", color: "#4ade80", background: "rgba(74,222,128,0.1)", borderRadius: "6px", padding: "0.3rem 0.6rem", textAlign: "center" }}>
+                💹 Market Savvy active — +25% sales
+              </div>
+            )}
+            {hasBulkDealer && (
+              <div style={{ fontSize: "0.7rem", color: "#4ade80", background: "rgba(74,222,128,0.1)", borderRadius: "6px", padding: "0.3rem 0.6rem", textAlign: "center" }}>
+                📦 Bulk Dealer active — sell speed +20%
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -650,7 +661,7 @@ const canHire = !atCap && canAffordCash;
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
           {SELLABLE_ITEMS.map((item) => {
-            const rate = getSellRate(item.type, game.prestigeBonuses ?? []);
+            const rate = getSellRate(item.type, game.prestigeBonuses ?? [], bankBonus, game);
             const base = MARKET_SELL_RATES[item.type];
             const boosted = rate > base;
             return (

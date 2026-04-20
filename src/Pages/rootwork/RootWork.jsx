@@ -586,7 +586,18 @@ const handleUpgradeBarnBuilding = useCallback((buildingId) => update((s) => {
 
   // Feast / prestige / misc
   const handleBuyFeast = useCallback(() => { update((s) => { const n = buyFeast(s); if (n === s) notify("Not enough artisan goods."); return n; }); notify("🍽️ Feast held! Grow speed increased."); }, [update, notify]);
-  const handlePrestigeComplete = useCallback((bonusId, workerIds) => { update((s) => beginPrestige(s, bonusId, workerIds)); setShowPrestigeModal(false); setActiveMainTab("farms"); setActiveFarmIndex(0); notify("🌱 New season begun!"); }, [update, notify]);
+  const handlePrestigeComplete = useCallback((pendingSkills, workerIds) => {
+    update((s) => {
+      let next = beginPrestige(s, null, workerIds);
+      for (const [skillId, count] of Object.entries(pendingSkills ?? {})) {
+        for (let i = 0; i < count; i++) {
+          next = unlockPrestigeSkill(next, skillId);
+        }
+      }
+      return next;
+    });
+    setShowPrestigeModal(false); setActiveMainTab("farms"); setActiveFarmIndex(0); notify("🌱 New season begun!");
+  }, [update, notify]);
   const handleUnlockPrestigeSkill = useCallback((skillId) => { update((s) => unlockPrestigeSkill(s, skillId)); }, [update]);
   const handleToggleFishingWorkerAllowedFish = useCallback((bodyId, fishId) => update((s) => toggleFishingWorkerAllowedFish(s, bodyId, fishId)), [update]);
   const handleAssignWorker = useCallback((keptWorkerId, farmId) => update((s) => assignKeptWorker(s, keptWorkerId, farmId)), [update]);

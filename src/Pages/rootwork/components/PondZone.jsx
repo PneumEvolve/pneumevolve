@@ -30,7 +30,7 @@ function NeedleBar({ position, sweetSpotStart, sweetSpotWidth, onTap }) {
   const center = sweetSpotStart + sweetSpotWidth / 2;
   const quality = Math.max(0, 1 - Math.abs(position - center) / (sweetSpotWidth / 2));
   return (
-    <div onPointerDown={onTap} style={{ width: "100%", cursor: "pointer", userSelect: "none" }}>
+    <div onPointerDown={onTap} style={{ width: "100%", cursor: "pointer", userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none" }}>
       <div style={{
         position: "relative", height: "60px", background: "rgba(0,0,0,0.6)",
         borderRadius: "14px", overflow: "hidden",
@@ -90,7 +90,7 @@ function ReelBar({ progress, timeLeft, onTap }) {
   const urgent = timeLeft < 1.5;
   const color = pct > 60 ? "#4ade80" : pct > 30 ? "#f59e0b" : "#ef4444";
   return (
-    <div onPointerDown={onTap} style={{ width: "100%", cursor: "pointer", userSelect: "none" }}>
+    <div onPointerDown={onTap} style={{ width: "100%", cursor: "pointer", userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none" }}>
       <div style={{
         display: "flex", justifyContent: "space-between", alignItems: "center",
         marginBottom: "0.4rem", padding: "0 2px",
@@ -718,7 +718,8 @@ export default function PondZone({
     }, biteMs);
   }
 
-  function handleNeedleTap() {
+  function handleNeedleTap(e) {
+    e?.preventDefault();
     if (phase !== "needle") return;
     if (animRef.current) cancelAnimationFrame(animRef.current);
     const pos = needlePosRef.current;
@@ -739,7 +740,8 @@ export default function PondZone({
     setPhase("reel"); phaseRef.current = "reel";
   }
 
-  function handleReelTap() {
+  function handleReelTap(e) {
+    e?.preventDefault();
     if (phaseRef.current !== "reel") return;
     const next = reelProgressRef.current + REEL_TAP_AMOUNT;
     if (next >= 1) {
