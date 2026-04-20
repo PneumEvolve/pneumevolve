@@ -345,7 +345,7 @@ export const TOWN_SAUCE_BUILDING_COST = 4_000;
  
 // ─── Town Hall ────────────────────────────────────────────────────────────────
 export const TOWN_HALL_MAX_LEVEL = 3;
-export const TOWN_HALL_LEVEL_COSTS = [75, 3000, 8000]; // cash cost per level
+export const TOWN_HALL_LEVEL_COSTS = [75, 1000, 3000]; // cash cost per level
  
 // Treasury drain tiers — player picks which tier is active
 // Each tier drains cash→treasury at drainRate/sec and gives grow speed bonus
