@@ -14,6 +14,7 @@ import {
   isKitchenWorkerIdle,
   getNextFeastTier,
   getKitchenWorkerBatchSize,
+  getKitchenWorkerMaxBatchSize,
   getAvailableWorkerSlots,
   getFishMealGrowBonus,
   isTownBuildingBuilt,
@@ -101,7 +102,7 @@ function UpgradeTree({ label, upgradeIds, worker, game, onUpgrade }) {
  
 // ─── Kitchen worker card ──────────────────────────────────────────────────────
  
-function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, onCancel, onToggleAutoRestart, workerNumber, expanded, onToggle }) {
+function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, onCancel, onToggleAutoRestart, onSetBatchOverride, workerNumber, expanded, onToggle }) {
   const [showRecipes, setShowRecipes] = useState(false);
   const [confirmFire, setConfirmFire] = useState(false);
  
@@ -111,6 +112,7 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
   const satMultiplier = (game.town?.satisfaction ?? 100) / 100;
   const timeRemaining = worker.busy ? Math.max(0, Math.floor((worker.totalSeconds - worker.elapsedSeconds) / satMultiplier)) : 0;
   const batch = getKitchenWorkerBatchSize(worker);
+  const maxBatch = getKitchenWorkerMaxBatchSize(worker);
   const hasAutoRestart = upgrades.includes("auto_restart");
  
   const statusText = idle
@@ -366,6 +368,34 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
               >
                 {(worker.autoRestartEnabled ?? true) ? "🟢 On" : "⚪ Off"}
               </button>
+            </div>
+          )}
+ 
+ 
+          {/* Batch size toggle */}
+          {maxBatch > 1 && (
+            <div style={{ padding: "0.35rem 0.5rem", background: "var(--bg)", borderRadius: "6px", border: "1px solid var(--border)" }}>
+              <div style={{ fontSize: "0.68rem", fontWeight: 600, color: "var(--text)", marginBottom: "0.35rem" }}>
+                📦 Batch Size
+                <span style={{ marginLeft: "0.35rem", fontSize: "0.62rem", color: "var(--muted)", fontWeight: 400 }}>Takes effect on next run</span>
+              </div>
+              <div style={{ display: "flex", gap: "0.3rem" }}>
+                {[1, 2, 5, 10].filter((n) => n <= maxBatch).map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => onSetBatchOverride(worker.id, n)}
+                    style={{
+                      fontSize: "0.7rem", padding: "0.2rem 0.5rem", borderRadius: "6px",
+                      cursor: "pointer", fontWeight: 700,
+                      background: batch === n ? "rgba(245,158,11,0.2)" : "var(--surface)",
+                      border: `1px solid ${batch === n ? "#f59e0b" : "var(--border)"}`,
+                      color: batch === n ? "#f59e0b" : "var(--muted)",
+                    }}
+                  >
+                    ×{n}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
  
@@ -710,6 +740,7 @@ const isFirstWorker = workers.length === 0;
               onFire={onFireKitchenWorker}
               onCancel={onCancelKitchenWorkerRecipe}
               onToggleAutoRestart={onToggleKitchenWorkerAutoRestart}
+              onSetBatchOverride={onSetBatchOverride}
             />
           ))}
         </div>

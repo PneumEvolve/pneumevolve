@@ -70,7 +70,7 @@ export const TEND_SECONDS = 3;
  
 // ─── Processing recipes ───────────────────────────────────────────────────────
 export const PROCESSING_RECIPES = {
-  bread: { id: "bread", name: "Bread", emoji: "🍞", inputCrop: "wheat",    inputAmount: 40, outputGood: "bread", outputAmount: 1, seconds: 90,  description: "Bake bread from wheat." },
+  bread: { id: "bread", name: "Bread", emoji: "🍞", inputCrop: "wheat",    inputAmount: 30, outputGood: "bread", outputAmount: 1, seconds: 90,  description: "Bake bread from wheat." },
   jam:   { id: "jam",   name: "Jam",   emoji: "🍯", inputCrop: "berries",  inputAmount: 30, outputGood: "jam",   outputAmount: 1, seconds: 120, description: "Craft jam from berries." },
   sauce: { id: "sauce", name: "Sauce", emoji: "🥫", inputCrop: "tomatoes", inputAmount: 20, outputGood: "sauce", outputAmount: 1, seconds: 150, description: "Make sauce from tomatoes." },
   omelette:      { id: "omelette",      name: "Omelette",      emoji: "🍳", inputCrop: "egg",    inputAmount: 3,  outputGood: "omelette",      outputAmount: 1, seconds: 60,  description: "Hearty meal. Crafted from eggs." },
@@ -124,14 +124,14 @@ export const KITCHEN_WORKER_HIRE_MULTIPLIER = 2.5;
  
 export const KITCHEN_WORKER_UPGRADES = {
   speed_1:      { id: "speed_1",      name: "Sharp Knife",  emoji: "🔪",     cost: 80,   description: "+25% processing speed.",                      speedMultiplier: 0.75, tree: "speed" },
-  speed_2:      { id: "speed_2",      name: "Prep Station", emoji: "🍳",     cost: 250,  description: "+50% processing speed (replaces Sharp Knife).", speedMultiplier: 0.5,  requires: "speed_1", tree: "speed" },
-  auto_restart: { id: "auto_restart", name: "Auto-Restart", emoji: "🔄",     cost: 600,  description: "Auto restarts recipe when finished.",           requires: "speed_2",   tree: "speed" },
+  auto_restart: { id: "auto_restart", name: "Auto-Restart", emoji: "🔄",     cost: 200,  description: "Auto restarts recipe when finished.",           requires: "speed_1",   tree: "speed" },
+  speed_2:      { id: "speed_2",      name: "Prep Station", emoji: "🍳",     cost: 500,  description: "50% faster crafting (replaces Sharp Knife).",  speedMultiplier: 0.5,  requires: "auto_restart", tree: "speed" },
   batch_2:      { id: "batch_2",      name: "Batch ×2",     emoji: "📦",     cost: 800,  description: "Double input, double output per run.",          batchSize: 2,          tree: "batch" },
   batch_5:      { id: "batch_5",      name: "Batch ×5",     emoji: "📦📦",   cost: 2000, description: "5× input, 5× output per run.",                  batchSize: 5,  requires: "batch_2", tree: "batch" },
   batch_10:     { id: "batch_10",     name: "Batch ×10",    emoji: "📦📦📦", cost: 8000, description: "10× input, 10× output per run.",                batchSize: 10, requires: "batch_5", tree: "batch" },
 };
  
-export const KITCHEN_WORKER_UPGRADE_ORDER = ["speed_1", "speed_2", "auto_restart", "batch_2", "batch_5", "batch_10"];
+export const KITCHEN_WORKER_UPGRADE_ORDER = ["speed_1", "auto_restart", "speed_2", "batch_2", "batch_5", "batch_10"];
  
 export const KITCHEN_BASE_COST = 20;
 export const KITCHEN_SLOT_COSTS = [50, 150];
@@ -551,14 +551,14 @@ export const BARN_BUILDINGS = {
     id: "chicken_coop", name: "Chicken Coop", emoji: "🐔",
     animalType: "chicken",
     buildCost: 500,
-    upkeepPerAnimalPerSec: 0.05,
+    upkeepPerAnimalPerSec: 0.50,
     unlockSeason: 4,
   },
   dairy: {
     id: "dairy", name: "Dairy", emoji: "🐄",
     animalType: "cow",
     buildCost: 2000,
-    upkeepPerAnimalPerSec: 0.10,
+    upkeepPerAnimalPerSec: 0.20,
     unlockSeason: 5,
   },
   wool_shed: {

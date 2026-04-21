@@ -894,12 +894,29 @@ export function canUpgradeKitchenWorker(state, workerId, upgradeId) {
   return true;
 }
  
-export function getKitchenWorkerBatchSize(worker) {
+export function getKitchenWorkerMaxBatchSize(worker) {
   const upgrades = worker.upgrades ?? [];
   if (upgrades.includes("batch_10")) return 10;
   if (upgrades.includes("batch_5")) return 5;
   if (upgrades.includes("batch_2")) return 2;
   return 1;
+}
+
+export function getKitchenWorkerBatchSize(worker) {
+  const max = getKitchenWorkerMaxBatchSize(worker);
+  const override = worker.activeBatchOverride;
+  if (override != null && override >= 1 && override <= max) return override;
+  return max;
+}
+
+export function setKitchenWorkerBatchOverride(state, workerId, batchSize) {
+  const next = deepCloneState(state);
+  const worker = (next.kitchenWorkers ?? []).find((w) => w.id === workerId);
+  if (!worker) return state;
+  const max = getKitchenWorkerMaxBatchSize(worker);
+  const clamped = Math.max(1, Math.min(max, batchSize));
+  worker.activeBatchOverride = clamped;
+  return next;
 }
  
 function _startKitchenWorkerRecipe(worker, recipeId, crops, animalGoods, fish, bait, state = null) {
@@ -1580,9 +1597,14 @@ if (activeTier) {
  
   // ── Market workers ─────────────────────────────────────────────────────────
   for (const worker of next.marketWorkers ?? []) {
+    // Effective IPS: worker.sellRateLimit (if set) caps the gear speed
+    const rawIps = getMarketWorkerItemsPerSecond(worker);
+    const effectiveIps = worker.sellRateLimit != null
+      ? Math.min(rawIps, worker.sellRateLimit)
+      : rawIps;
+
     if (worker.hasStandingOrder && worker.standingOrder && (worker.queue ?? []).length === 0) {
   const itemType = worker.standingOrder;
-  const ips = getMarketWorkerItemsPerSecond(worker);
   const isCrop = itemType in (next.crops ?? {});
   const isArtisan = itemType in (next.artisan ?? {});
   const isAnimal = itemType in (next.animalGoods ?? {});
@@ -1591,7 +1613,7 @@ if (activeTier) {
     : isArtisan ? (next.artisan[itemType] ?? 0)
     : isAnimal ? (next.animalGoods[itemType] ?? 0)
     : isFish ? (next.fishing.fish[itemType] ?? 0) : 0;
-  const toPull = Math.min(ips, available);
+  const toPull = Math.min(effectiveIps, available);
   if (toPull > 0) {
     if (isCrop) next.crops[itemType] -= toPull;
     else if (isArtisan) next.artisan[itemType] -= toPull;
@@ -1601,9 +1623,8 @@ if (activeTier) {
   }
 }
  
-    const itemsPerSecond = getMarketWorkerItemsPerSecond(worker);
     // Accumulate fractional progress — low satisfaction slows selling but never freezes it
-    worker.sellProgress = (worker.sellProgress ?? 0) + itemsPerSecond * satMultiplier;
+    worker.sellProgress = (worker.sellProgress ?? 0) + effectiveIps * satMultiplier;
     let toSellThisTick = Math.floor(worker.sellProgress);
     worker.sellProgress -= toSellThisTick;
     let cashEarned = 0;
@@ -2112,7 +2133,7 @@ export function getPlotUpgradeCost(farm, state = null) {
   const upgradedCount = farm.plots.filter((p) => p.upgraded).length;
   const costs = [1, 2, 3, 5, 7, 10, 13, 17, 22, 28];
   const base = costs[upgradedCount] ?? Math.ceil(28 + (upgradedCount - 9) * 7);
-  if (state && hasPrestigeSkill(state, "bargain_soil")) return Math.max(1, Math.ceil(base * 0.5));
+  if (state && hasPrestigeSkill(state, "bargain_soil")) return Math.max(1, Math.floor(base * 0.5));
   return base;
 }
  
@@ -2694,18 +2715,8 @@ export function canPrestige(state) {
   for (const farm of farmsToCheck) {
     if (!isFarmPrestigeReady(farm, state.workers, state)) return false;
   }
-  // Seasons 4-6: the season's specific barn must have at least 1 worker and 2 animals
-  if (state.season >= 4 && state.season <= 6) {
-    const barnId = SEASON_BARNS[state.season];
-    if (barnId && state.barnBuildings?.[barnId]?.built) {
-      const def = BARN_BUILDINGS[barnId];
-      const workers = (state.barnWorkers ?? []).filter((w) => w.animalType === def?.animalType);
-      if (workers.length < PRESTIGE_MIN_BARN_WORKERS) return false;
-      const animals = (state.animals?.[def?.animalType] ?? []).length;
-      if (animals < PRESTIGE_MIN_BARN_ANIMALS) return false;
-    }
-  }
-  if (state.season >= FIRST_CHOICE_SEASON && !getBarnPrestigeReady(state)) return false;
+  // Seasons 4+: all built barns must have at least 1 worker and the minimum animals
+  if (state.season >= 4 && !getBarnPrestigeReady(state)) return false;
   if ((state.cash ?? 0) < getPrestigeCashThreshold(state.season)) return false;
   return true;
 }
@@ -2725,22 +2736,8 @@ export function getPrestigeBlockers(state) {
       blockers.push(`${crop.emoji} ${crop.name}: workers not keeping up with growth`);
     }
   }
-  // Seasons 4-6: must automate the season's specific barn
-  if (state.season >= 4 && state.season <= 6) {
-    const barnId = SEASON_BARNS[state.season];
-    if (barnId && state.barnBuildings?.[barnId]?.built) {
-      const def = BARN_BUILDINGS[barnId];
-      const workers = (state.barnWorkers ?? []).filter((w) => w.animalType === def?.animalType);
-      if (workers.length < PRESTIGE_MIN_BARN_WORKERS) {
-        blockers.push(`${def?.emoji ?? "🐄"} ${def?.name ?? barnId}: needs at least 1 barn worker`);
-      }
-      const animals = (state.animals?.[def?.animalType] ?? []).length;
-      if (animals < PRESTIGE_MIN_BARN_ANIMALS) {
-        blockers.push(`${def?.emoji ?? "🐄"} ${def?.name ?? barnId}: needs at least ${PRESTIGE_MIN_BARN_ANIMALS} animals (have ${animals})`);
-      }
-    }
-  }
-  if (state.season >= FIRST_CHOICE_SEASON) {
+  // Seasons 4+: all built barns must have at least 1 worker and the minimum animals
+  if (state.season >= 4) {
     for (const [buildingId, b] of Object.entries(state.barnBuildings ?? {})) {
       if (!b.built) continue;
       const def = BARN_BUILDINGS[buildingId];
@@ -2948,6 +2945,20 @@ export function buyAnimal(state, animalId) {
   return next;
 }
  
+export function setMarketWorkerRateLimit(state, workerId, limit) {
+  const next = deepCloneState(state);
+  const worker = (next.marketWorkers ?? []).find((w) => w.id === workerId);
+  if (!worker) return state;
+  // null = unlimited; otherwise clamp to [1, gear max]
+  if (limit === null) {
+    worker.sellRateLimit = null;
+  } else {
+    const max = getMarketWorkerItemsPerSecond(worker);
+    worker.sellRateLimit = Math.max(1, Math.min(max, limit));
+  }
+  return next;
+}
+
 export function toggleKitchenWorkerAutoRestart(state, workerId) {
   const next = deepCloneState(state);
   const worker = next.kitchenWorkers.find((w) => w.id === workerId);

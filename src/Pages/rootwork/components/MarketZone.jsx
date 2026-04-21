@@ -92,6 +92,7 @@ function MarketWorkerCard({
   onBuyStandingOrder,
   onSetStandingOrder,
   onCancelQueue,
+  onSetRateLimit,
   expanded,
   onToggle,
   workerNumber,
@@ -492,6 +493,45 @@ function MarketWorkerCard({
               </div>
             )}
  
+            {/* Sell rate limit */}
+            <div style={{ padding: "0.35rem 0.5rem", background: "var(--bg)", borderRadius: "6px", border: "1px solid var(--border)" }}>
+              <div style={{ fontSize: "0.68rem", fontWeight: 600, color: "var(--text)", marginBottom: "0.35rem" }}>
+                ⚡ Sell Speed Limit
+                <span style={{ marginLeft: "0.35rem", fontSize: "0.62rem", color: "var(--muted)", fontWeight: 400 }}>
+                  Gear max: {ips}/sec
+                </span>
+              </div>
+              <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
+                {[1, 2, 4, 10, 20].filter((n) => n <= ips).map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => onSetRateLimit(worker.id, n)}
+                    style={{
+                      fontSize: "0.7rem", padding: "0.2rem 0.5rem", borderRadius: "6px",
+                      cursor: "pointer", fontWeight: 700,
+                      background: (worker.sellRateLimit ?? ips) === n ? "rgba(99,102,241,0.2)" : "var(--surface)",
+                      border: `1px solid ${(worker.sellRateLimit ?? ips) === n ? "var(--accent)" : "var(--border)"}`,
+                      color: (worker.sellRateLimit ?? ips) === n ? "var(--accent)" : "var(--muted)",
+                    }}
+                  >
+                    {n}/sec
+                  </button>
+                ))}
+                <button
+                  onClick={() => onSetRateLimit(worker.id, null)}
+                  style={{
+                    fontSize: "0.7rem", padding: "0.2rem 0.5rem", borderRadius: "6px",
+                    cursor: "pointer", fontWeight: 700,
+                    background: worker.sellRateLimit == null ? "rgba(99,102,241,0.2)" : "var(--surface)",
+                    border: `1px solid ${worker.sellRateLimit == null ? "var(--accent)" : "var(--border)"}`,
+                    color: worker.sellRateLimit == null ? "var(--accent)" : "var(--muted)",
+                  }}
+                >
+                  Max
+                </button>
+              </div>
+            </div>
+
             {nextGear ? (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div style={{ fontSize: "0.72rem", color: "var(--muted)" }}>
@@ -587,6 +627,7 @@ export default function MarketZone({
   onBuyMarketWorkerStandingOrder,
   onSetMarketWorkerStandingOrder,
   onCancelQueue,
+  onSetMarketWorkerRateLimit,
 }) {
   const [expandedWorkers, setExpandedWorkers] = useState({});
  
@@ -721,6 +762,7 @@ const canHire = !atCap && canAffordCash;
               onBuyStandingOrder={onBuyMarketWorkerStandingOrder}
               onSetStandingOrder={onSetMarketWorkerStandingOrder}
               onCancelQueue={onCancelQueue}
+              onSetRateLimit={onSetMarketWorkerRateLimit}
             />
           ))}
         </div>

@@ -20,6 +20,8 @@ import {
   buildBank, upgradeBank, setActiveBankTier, buyPond, catchFish, unlockFishingBody, setFishingActiveBody,
   upgradeFishingWorker, setFishingWorkerBait,
   buyAnimal, collectAnimal, collectAllAnimals, interactAnimal, buyPet, interactPet, toggleKitchenWorkerAutoRestart,
+  setKitchenWorkerBatchOverride,
+  setMarketWorkerRateLimit,
   hireBarnWorker, fireBarnWorker, reassignBarnWorker, applyFishMeal, upgradeBarnWorker, upgradeAnimalStorage, getBarnWorkerHireCost,
   hireFishingWorker, fireFishingWorker, setTreasuryCap, upgradeAnimalYield,
   buildBarnBuilding, upgradeBarnBuilding,
@@ -476,6 +478,8 @@ export default function RootWork() {
   const handleUpgradeKitchenWorker = useCallback((workerId, upgradeId) => update((s) => { const n = upgradeKitchenWorker(s, workerId, upgradeId); if (n === s) notify("Not enough cash."); return n; }), [update, notify]);
   const handleFireKitchenWorker = useCallback((workerId) => { update((s) => fireKitchenWorker(s, workerId)); notify("Kitchen worker fired."); }, [update, notify]);
   const handleToggleKitchenAutoRestart = useCallback((workerId) => update((s) => toggleKitchenWorkerAutoRestart(s, workerId)), [update]);
+  const handleSetKitchenBatchOverride = useCallback((workerId, batchSize) => update((s) => setKitchenWorkerBatchOverride(s, workerId, batchSize)), [update]);
+  const handleSetMarketWorkerRateLimit = useCallback((workerId, limit) => update((s) => setMarketWorkerRateLimit(s, workerId, limit)), [update]);
   const handleApplyFishMeal = useCallback(() => {
   update((s) => { const n = applyFishMeal(s); if (n === s) notify("No fish meal in stock."); return n; });
   notify("🌿 Fish meal applied! +10% grow speed.");
@@ -642,10 +646,10 @@ const handleUpgradeBarnBuilding = useCallback((buildingId) => update((s) => {
           <FarmZone key={activeFarm.id} farm={activeFarm} game={game} onPlant={handlePlant} onHarvest={handleHarvest} onTend={handleTend} onBuyPlot={handleBuyPlot} onHireWorker={handleHireWorker} onSellWorker={handleSellWorker} onUpgradeGear={handleUpgradeGear} onSpecialize={handleSpecialize} onBuyPlotCap={handleBuyPlotCapUpgrade} onBuyYield={handleBuyYieldUpgrade} onUpgradePlot={handleUpgradePlot} />
         )}
         {activeMainTab === "market" && (
-          <MarketZone game={game} onHireMarketWorker={handleHireMarketWorker} onAssignItem={handleAssignItem} onUpgradeMarketWorker={handleUpgradeMarketWorker} onFireMarketWorker={handleFireMarketWorker} onBuyMarketWorkerStandingOrder={handleBuyMarketWorkerStandingOrder} onSetMarketWorkerStandingOrder={handleSetMarketWorkerStandingOrder} onCancelQueue={handleCancelMarketWorkerQueue} />
+          <MarketZone game={game} onHireMarketWorker={handleHireMarketWorker} onAssignItem={handleAssignItem} onUpgradeMarketWorker={handleUpgradeMarketWorker} onFireMarketWorker={handleFireMarketWorker} onBuyMarketWorkerStandingOrder={handleBuyMarketWorkerStandingOrder} onSetMarketWorkerStandingOrder={handleSetMarketWorkerStandingOrder} onCancelQueue={handleCancelMarketWorkerQueue} onSetMarketWorkerRateLimit={handleSetMarketWorkerRateLimit} />
         )}
         {activeMainTab === "crafting" && (
-          <ProcessingZone game={game} onHireKitchenWorker={handleHireKitchenWorker} onAssignKitchenWorkerRecipe={handleAssignKitchenWorkerRecipe} onUpgradeKitchenWorker={handleUpgradeKitchenWorker} onFireKitchenWorker={handleFireKitchenWorker} onUpgradePlot={handleUpgradePlot} onBuyFeast={handleBuyFeast} onCancelKitchenWorkerRecipe={handleCancelKitchenWorkerRecipe} onToggleKitchenWorkerAutoRestart={handleToggleKitchenAutoRestart} onApplyFishMeal={handleApplyFishMeal} />
+          <ProcessingZone game={game} onHireKitchenWorker={handleHireKitchenWorker} onAssignKitchenWorkerRecipe={handleAssignKitchenWorkerRecipe} onUpgradeKitchenWorker={handleUpgradeKitchenWorker} onFireKitchenWorker={handleFireKitchenWorker} onUpgradePlot={handleUpgradePlot} onBuyFeast={handleBuyFeast} onCancelKitchenWorkerRecipe={handleCancelKitchenWorkerRecipe} onToggleKitchenWorkerAutoRestart={handleToggleKitchenAutoRestart} onSetBatchOverride={handleSetKitchenBatchOverride} onApplyFishMeal={handleApplyFishMeal} />
         )}
         {activeMainTab === "town" && (
           <TownZone game={game} onBuildHome={handleBuildTownHome} onBuyBakery={handleBuyTownBakery} onToggleBakery={handleToggleBakery} onTogglePantry={handleTogglePantry} onToggleCannery={handleToggleCannery} onUpgradeTownBuilding={handleUpgradeTownBuilding} onBuyJamBuilding={handleBuyJamBuilding} onBuySauceBuilding={handleBuySauceBuilding} onUpgradeTownHall={handleUpgradeTownHall} onSetTreasuryTier={handleSetTreasuryTier} onBuildBank={handleBuildBank} onUpgradeBank={handleUpgradeBank} onSetActiveBankTier={handleSetActiveBankTier} prestigeReady={prestigeReady} onPrestige={() => setShowPrestigeModal(true)} onReset={handleResetGame} onSetTreasuryCap={handleSetTreasuryCap} onBuildTownBuilding={handleBuildTownBuilding} onAssignTownBuildingWorker={handleAssignTownBuildingWorker} onToggleTavernMode={handleToggleTavernMode} onStartSchoolResearch={handleStartSchoolResearch}/>

@@ -210,7 +210,7 @@ function AnimalCard({ animal, animalType, index, game, onCollect, onInteract, on
                 <span style={{ marginLeft: "0.3rem", fontSize: "0.6rem", color: "#a6e3a1" }}>{"🥚".repeat(animal.yieldLevel)}</span>
               )}
             </span>
-            <span style={{ fontSize: "0.68rem", color: moodColor(mood), fontWeight: 600 }}>{moodEmoji(mood)} {Math.round(mood)}%</span>
+            <span style={{ fontSize: "0.68rem", color: moodColor(mood), fontWeight: 600 }}>{mood <= 0 ? "💀 0%" : `${moodEmoji(mood)} ${Math.round(mood)}%`}</span>
           </div>
           <div style={{ fontSize: "0.62rem", color: isFull ? "#ef4444" : "var(--muted)", marginTop: "0.1rem", fontWeight: isFull ? 600 : 400 }}>
             {isFull ? "⚠ Full! Mood draining fast"
@@ -220,9 +220,39 @@ function AnimalCard({ animal, animalType, index, game, onCollect, onInteract, on
         </div>
       </div>
  
-      <div style={{ height: "3px", background: "var(--border)", borderRadius: "999px", overflow: "hidden", marginBottom: "0.25rem" }}>
-        <div style={{ height: "100%", width: `${mood}%`, background: moodColor(mood), borderRadius: "999px", transition: "width 0.5s" }} />
-      </div>
+      {mood <= 0 ? (
+        /* ── DYING countdown bar ── */
+        (() => {
+          const zeroTicks = animal.zeroMoodTicks ?? 0;
+          const remaining = Math.max(0, 180 - zeroTicks);
+          const pct = (remaining / 180) * 100;
+          return (
+            <div style={{ marginBottom: "0.25rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.15rem" }}>
+                <span style={{ fontSize: "0.62rem", fontWeight: 700, color: "#ef4444", animation: "rw-pulse 1s ease-in-out infinite", letterSpacing: "0.05em" }}>
+                  💀 DYING
+                </span>
+                <span style={{ fontSize: "0.62rem", fontWeight: 700, color: "#ef4444" }}>
+                  {remaining}s left
+                </span>
+              </div>
+              <div style={{ height: "6px", background: "rgba(239,68,68,0.15)", borderRadius: "999px", overflow: "hidden", border: "1px solid rgba(239,68,68,0.3)" }}>
+                <div style={{
+                  height: "100%", width: `${pct}%`,
+                  background: "linear-gradient(90deg, #7f1d1d, #ef4444)",
+                  borderRadius: "999px",
+                  transition: "width 1s linear",
+                  boxShadow: "0 0 6px rgba(239,68,68,0.6)",
+                }} />
+              </div>
+            </div>
+          );
+        })()
+      ) : (
+        <div style={{ height: "3px", background: "var(--border)", borderRadius: "999px", overflow: "hidden", marginBottom: "0.25rem" }}>
+          <div style={{ height: "100%", width: `${mood}%`, background: moodColor(mood), borderRadius: "999px", transition: "width 0.5s" }} />
+        </div>
+      )}
       <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.35rem" }}>
         <div style={{ flex: 1, height: "5px", background: "var(--border)", borderRadius: "999px", overflow: "hidden" }}>
           <div style={{ height: "100%", width: `${stockPct}%`, background: isFull ? "#ef4444" : stock > 0 ? "#f59e0b" : "rgba(99,102,241,0.4)", borderRadius: "999px", transition: "width 0.5s" }} />
