@@ -2691,6 +2691,15 @@ export function canPrestige(state) {
   for (const farm of farmsToCheck) {
     if (!isFarmPrestigeReady(farm, state.workers, state)) return false;
   }
+  // Seasons 4-6: the season's specific barn must have at least 1 worker
+  if (state.season >= 4 && state.season <= 6) {
+    const barnId = SEASON_BARNS[state.season];
+    if (barnId && state.barnBuildings?.[barnId]?.built) {
+      const def = BARN_BUILDINGS[barnId];
+      const workers = (state.barnWorkers ?? []).filter((w) => w.animalType === def?.animalType);
+      if (workers.length < PRESTIGE_MIN_BARN_WORKERS) return false;
+    }
+  }
   if (state.season >= FIRST_CHOICE_SEASON && !getBarnPrestigeReady(state)) return false;
   if ((state.cash ?? 0) < getPrestigeCashThreshold(state.season)) return false;
   return true;
@@ -2709,6 +2718,17 @@ export function getPrestigeBlockers(state) {
       blockers.push(`${crop.emoji} ${crop.name}: needs 3×3 plots (${farm.unlockedPlots}/9)`);
     } else if (!isFarmPrestigeReady(farm, state.workers, state)) {
       blockers.push(`${crop.emoji} ${crop.name}: workers not keeping up with growth`);
+    }
+  }
+  // Seasons 4-6: must automate the season's specific barn
+  if (state.season >= 4 && state.season <= 6) {
+    const barnId = SEASON_BARNS[state.season];
+    if (barnId && state.barnBuildings?.[barnId]?.built) {
+      const def = BARN_BUILDINGS[barnId];
+      const workers = (state.barnWorkers ?? []).filter((w) => w.animalType === def?.animalType);
+      if (workers.length < PRESTIGE_MIN_BARN_WORKERS) {
+        blockers.push(`${def?.emoji ?? "🐄"} ${def?.name ?? barnId}: needs at least 1 barn worker`);
+      }
     }
   }
   if (state.season >= FIRST_CHOICE_SEASON) {

@@ -176,12 +176,14 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
         ))}
       </div>
  
-      {/* Barn readiness checklist — season 7+ only */}
-      {game.season >= FIRST_CHOICE_SEASON && Object.entries(game.barnBuildings ?? {}).some(([, b]) => b.built) && (
+      {/* Barn readiness checklist — seasons 4-6 (season-specific barn) and season 7+ (all barns) */}
+      {game.season >= 4 && Object.entries(game.barnBuildings ?? {}).some(([, b]) => b.built) && (
         <div className="card p-4" style={{ marginBottom: "1rem" }}>
           <h3 style={{ fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.25rem" }}>Barn Readiness</h3>
           <p style={{ fontSize: "0.7rem", color: "var(--muted)", marginBottom: "0.5rem" }}>
-            Each built barn needs at least one worker assigned.
+            {game.season >= FIRST_CHOICE_SEASON
+              ? "Each built barn needs at least one worker assigned."
+              : "Automate your barn by hiring at least one barn worker."}
           </p>
           {BARN_BUILDING_ORDER.filter((id) => game.barnBuildings?.[id]?.built).map((id) => (
             <BarnChecklist key={id} buildingId={id} game={game} />

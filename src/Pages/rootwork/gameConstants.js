@@ -551,18 +551,21 @@ export const BARN_BUILDINGS = {
     animalType: "chicken",
     buildCost: 500,
     upkeepPerAnimalPerSec: 0.05,
+    unlockSeason: 4,
   },
   dairy: {
     id: "dairy", name: "Dairy", emoji: "🐄",
     animalType: "cow",
     buildCost: 2000,
     upkeepPerAnimalPerSec: 0.10,
+    unlockSeason: 5,
   },
   wool_shed: {
     id: "wool_shed", name: "Wool Shed", emoji: "🐑",
     animalType: "sheep",
     buildCost: 5000,
     upkeepPerAnimalPerSec: 0.20,
+    unlockSeason: 6,
   },
 };
 
