@@ -2520,31 +2520,40 @@ export function reassignBarnWorker(state, workerId, animalType) {
 }
 
 export function upgradeBarnWorker(state, workerId, upgradeId) {
-  const next = deepCloneState(state);
-  const worker = (next.barnWorkers ?? []).find((w) => w.id === workerId);
-  if (!worker) return state;
+  // Find the worker in whichever array holds it — flat root array or barnInstance
+  // (old saves may only have workers in barnInstances, not in the flat array)
+  const flatWorker = (state.barnWorkers ?? []).find((w) => w.id === workerId);
+  let instWorkerRef = null;
+  for (const inst of state.barnInstances ?? []) {
+    const w = (inst.barnWorkers ?? []).find((w) => w.id === workerId);
+    if (w) { instWorkerRef = w; break; }
+  }
+  const canonical = flatWorker ?? instWorkerRef;
+  if (!canonical) return state;
 
   const upgrade = BARN_WORKER_UPGRADES[upgradeId];
   if (!upgrade) return state;
 
-  if ((worker.upgrades ?? []).includes(upgradeId)) return state;
-  if (upgrade.requires && !(worker.upgrades ?? []).includes(upgrade.requires)) return state;
-  if ((next.cash ?? 0) < upgrade.cost) return state;
+  if ((canonical.upgrades ?? []).includes(upgradeId)) return state;
+  if (upgrade.requires && !(canonical.upgrades ?? []).includes(upgrade.requires)) return state;
+  if ((state.cash ?? 0) < upgrade.cost) return state;
 
   // Research gates for tier-2 barn upgrades
   if (upgradeId === "capacity_2" && !hasSchoolResearch(state, "barn_capacity_2")) return state;
   if (upgradeId === "care_2" && !hasSchoolResearch(state, "barn_care_2")) return state;
 
+  const next = deepCloneState(state);
   next.cash -= upgrade.cost;
-  worker.upgrades = [...(worker.upgrades ?? []), upgradeId];
+  const newUpgrades = [...(canonical.upgrades ?? []), upgradeId];
 
-  // Also update the worker inside its barnInstance (both arrays must stay in sync)
+  // Update in flat root array (if present)
+  const nextFlatWorker = (next.barnWorkers ?? []).find((w) => w.id === workerId);
+  if (nextFlatWorker) nextFlatWorker.upgrades = newUpgrades;
+
+  // Update in barnInstances (always — this is what the tick and UI read from)
   for (const inst of next.barnInstances ?? []) {
     const instWorker = (inst.barnWorkers ?? []).find((w) => w.id === workerId);
-    if (instWorker) {
-      instWorker.upgrades = [...worker.upgrades];
-      break;
-    }
+    if (instWorker) { instWorker.upgrades = newUpgrades; break; }
   }
 
   return next;
