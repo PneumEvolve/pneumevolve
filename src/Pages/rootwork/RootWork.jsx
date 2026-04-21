@@ -528,9 +528,25 @@ export default function RootWork() {
   const handleFireBarnWorker = useCallback((workerId) => update((s) => fireBarnWorker(s, workerId)), [update]);
   const handleReassignBarnWorker = useCallback((workerId, animalType) => update((s) => reassignBarnWorker(s, workerId, animalType)), [update]);
   const handleUpgradeBarnWorker = useCallback((workerId, upgradeId) => update((s) => {
-  const n = upgradeBarnWorker(s, workerId, upgradeId);
-  if (n === s) notify("Can't upgrade — check cash or requirements.");
-  return n;
+  if (!worker || !upgradeId) {
+  console.error("Invalid upgrade call:", { worker, upgradeId });
+  notify("Upgrade failed — invalid data");
+  return;
+}
+
+const next = upgradeBarnWorker(state, worker.id, upgradeId);
+
+if (next === state) {
+  console.warn("Upgrade blocked:", {
+    worker,
+    upgradeId,
+    upgrades: worker.upgrades,
+    cash: state.cash,
+  });
+  notify("Upgrade blocked — see console");
+}
+
+setState(next);
 }), [update, notify]);
 const handleUnlockFishingBody = useCallback((bodyId) => update((s) => {
   const n = unlockFishingBody(s, bodyId);
