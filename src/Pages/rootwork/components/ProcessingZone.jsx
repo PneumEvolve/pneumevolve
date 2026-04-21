@@ -22,7 +22,7 @@ import {
  
 const RECIPE_LIST = ["bread", "jam", "sauce", "omelette", "cheese", "knitted_goods", "fish_pie", "smoked_fish", "fish_meal"];
 const BAIT_RECIPE_LIST = ["wheat_bait", "berry_bait", "tomato_bait"];
-const SPEED_UPGRADES = ["speed_1", "speed_2", "auto_restart"];
+const SPEED_UPGRADES = ["speed_1", "auto_restart", "speed_2" ];
 const BATCH_UPGRADES = ["batch_2", "batch_5", "batch_10"];
  
 // ─── Progress bar ─────────────────────────────────────────────────────────────
@@ -636,7 +636,7 @@ function ArtisanInventory({ artisan, animalGoods, fishing }) {
     { key: "sauce",         emoji: "🥫", label: "Sauce",       source: artisan },
     { key: "omelette",      emoji: "🍳", label: "Omelette",    source: animalGoods },
     { key: "cheese",        emoji: "🧀", label: "Cheese",      source: animalGoods },
-    { key: "knitted_goods", emoji: "🧶", label: "Knitted",     source: animalGoods },
+    { key: "knitted_goods", emoji: "🧥", label: "Knitted",     source: animalGoods },
     { key: "smoked_fish",   emoji: "🐟", label: "Smoked Fish", source: fishing?.fish ?? {} },
   ];
 

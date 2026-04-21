@@ -541,7 +541,10 @@ function BuildingTab({
   const workerSlotsUsed = barnWorkers.length;
   const workerSlotsFull = workerSlotsUsed >= workerSlots;
   const animalSlotsFull = animals.length >= animalSlots;
-  const nextAnimalCost = getAnimalCost(def.animalType, animals.length);
+  const allOwnedGlobally = (game.barnInstances ?? [])
+    .filter(i => BARN_BUILDINGS[i.buildingType]?.animalType === def.animalType)
+    .reduce((s, i) => s + (i.animals ?? []).length, 0);
+  const nextAnimalCost = getAnimalCost(def.animalType, allOwnedGlobally);
   const canAffordAnimal = cash >= nextAnimalCost;
   const hireCost = getBarnWorkerHireCost(game);
   const canHireWorker = !atWorkerCap && !workerSlotsFull && cash >= hireCost;
