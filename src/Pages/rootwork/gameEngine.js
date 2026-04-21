@@ -2663,10 +2663,14 @@ export function unlockSeasonFarm(state, cropId) {
 export function unlockSeasonBarn(state, buildingId) {
   if (!state.pendingSeasonUnlock) return state;
   if (!BARN_BUILDINGS[buildingId]) return state;
-  if (state.barnBuildings?.[buildingId]?.built) return state;
   const next = deepCloneState(state);
   next.pendingSeasonUnlock = false;
-  next.barnBuildings[buildingId] = { built: true, tier: 1 };
+  // If this barn type is already built, increment its count; otherwise mark as built
+  if (next.barnBuildings[buildingId]?.built) {
+    next.barnBuildings[buildingId].count = (next.barnBuildings[buildingId].count ?? 1) + 1;
+  } else {
+    next.barnBuildings[buildingId] = { built: true, tier: 1, count: 1 };
+  }
   return next;
 }
  

@@ -259,9 +259,8 @@ function SeasonUnlockModal({ game, onUnlockFarm, onUnlockBarn }) {
   const farmCost = 300 + (game.extraFarmsUnlocked ?? 0) * 200;
   const cash = game.cash ?? 0;
   const canAffordFarm = cash >= farmCost;
-  const availableBarns = BARN_BUILDING_ORDER.filter((id) => !(game.barnBuildings?.[id]?.built));
-  const existingCrops = (game.farms ?? []).map((f) => f.crop);
-  const availableCrops = EXTRA_FARM_CROPS.filter((c) => !existingCrops.includes(c));
+  const availableBarns = BARN_BUILDING_ORDER;
+  const availableCrops = EXTRA_FARM_CROPS;
   const canConfirm = choice === "farm" ? (selectedCrop && canAffordFarm) : choice === "barn" ? selectedBarn != null : false;
 
   function handleConfirm() {
@@ -277,21 +276,17 @@ function SeasonUnlockModal({ game, onUnlockFarm, onUnlockBarn }) {
           Season {game.season} — expand your farm or unlock a new barn
         </p>
         <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
-          {["farm", "barn"].map((opt) => {
-            const disabled = opt === "farm" ? availableCrops.length === 0 : availableBarns.length === 0;
-            return (
-              <button key={opt} onClick={() => !disabled && setChoice(opt)} disabled={disabled} style={{
-                flex: 1, padding: "0.65rem", borderRadius: "8px", cursor: disabled ? "default" : "pointer",
-                background: choice === opt ? "rgba(99,102,241,0.15)" : "var(--bg)",
-                border: `2px solid ${choice === opt ? "var(--accent)" : "var(--border)"}`,
-                color: disabled ? "var(--muted)" : "var(--text)",
-                fontWeight: choice === opt ? 700 : 400, fontSize: "0.82rem", opacity: disabled ? 0.4 : 1,
-              }}>
-                {opt === "farm" ? "🌾 New Farm" : "🐄 New Barn"}
-                {disabled && <div style={{ fontSize: "0.6rem", color: "var(--muted)" }}>{opt === "farm" ? "All crops unlocked" : "All barns built"}</div>}
-              </button>
-            );
-          })}
+          {["farm", "barn"].map((opt) => (
+            <button key={opt} onClick={() => setChoice(opt)} style={{
+              flex: 1, padding: "0.65rem", borderRadius: "8px", cursor: "pointer",
+              background: choice === opt ? "rgba(99,102,241,0.15)" : "var(--bg)",
+              border: `2px solid ${choice === opt ? "var(--accent)" : "var(--border)"}`,
+              color: "var(--text)",
+              fontWeight: choice === opt ? 700 : 400, fontSize: "0.82rem",
+            }}>
+              {opt === "farm" ? "🌾 New Farm" : "🐄 New Barn"}
+            </button>
+          ))}
         </div>
         {choice === "farm" && (
           <div style={{ marginBottom: "1rem" }}>
@@ -327,7 +322,7 @@ function SeasonUnlockModal({ game, onUnlockFarm, onUnlockBarn }) {
                   border: `2px solid ${sel ? "var(--accent)" : "var(--border)"}`,
                 }}>
                   <div style={{ fontWeight: 600, fontSize: "0.85rem" }}>{def.emoji} {def.name}{sel && <span style={{ marginLeft: "0.5rem", color: "var(--accent)", fontSize: "0.72rem" }}>✓</span>}</div>
-                  <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginTop: "0.1rem" }}>Raises {def.animalType}s · $${def.upkeepPerAnimalPerSec}/animal/s upkeep</div>
+                  <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginTop: "0.1rem" }}>Raises {def.animalType}s{(game.barnBuildings?.[buildingId]?.built) ? " · adds another" : ""} · ${def.upkeepPerAnimalPerSec}/animal/s upkeep</div>
                 </button>
               );
             })}
