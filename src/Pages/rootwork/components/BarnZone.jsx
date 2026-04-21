@@ -11,6 +11,7 @@ import {
   getAnimalStorageUpgradeCost,
   getBarnBuilding, getBarnBuildingTierData,
   getBarnBuildingAnimalSlots, getBarnBuildingWorkerSlots,
+  getBarnInstanceAnimalSlots, getBarnInstanceWorkerSlots,
   canBuildBarnBuilding, canUpgradeBarnBuilding,
   getAvailableWorkerSlots, isTownBuildingBuilt, hasSchoolResearch,
 } from "../gameEngine";
@@ -329,27 +330,27 @@ function AnimalCard({ animal, animalType, index, game, onCollect, onInteract, on
  
 function BarnWorkerUpgradeTree({ label, upgradeIds, worker, game, onUpgrade }) {
   const upgrades = worker.upgrades ?? [];
-
+ 
   return (
     <div>
       <div style={{ fontSize: "0.62rem", fontWeight: 600, color: "var(--muted)", marginBottom: "0.25rem" }}>
         {label}
       </div>
-
+ 
       <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
         {upgradeIds.map((uid) => {
           const u = BARN_WORKER_UPGRADES[uid];
           const owned = upgrades.includes(uid);
           const requiresMet = !u.requires || upgrades.includes(u.requires);
-
+ 
           const researchLocked =
             (uid === "capacity_2" && !hasSchoolResearch(game, "barn_capacity_2")) ||
             (uid === "care_2" && !hasSchoolResearch(game, "barn_care_2"));
-
+ 
           const canAfford = (game.cash ?? 0) >= u.cost;
           const canBuy = !owned && requiresMet && canAfford && !researchLocked;
           const locked = !owned && !requiresMet;
-
+ 
           return (
             <div
               key={uid}
@@ -383,14 +384,14 @@ function BarnWorkerUpgradeTree({ label, upgradeIds, worker, game, onUpgrade }) {
                 >
                   {owned ? "✓" : researchLocked && requiresMet ? "🏫" : locked ? "🔒" : u.emoji} {u.name}
                 </span>
-
+ 
                 <span style={{ marginLeft: "0.35rem", fontSize: "0.62rem", color: "var(--muted)" }}>
                   {researchLocked && requiresMet
                     ? "Requires School Research"
                     : u.description}
                 </span>
               </div>
-
+ 
               {!owned && !researchLocked && (
                 <button
                   onClick={() => canBuy && onUpgrade(worker.id, uid)}
@@ -417,10 +418,10 @@ function BarnWorkerUpgradeTree({ label, upgradeIds, worker, game, onUpgrade }) {
  
 // ─── Barn worker card ─────────────────────────────────────────────────────────
  
-function BarnWorkerCard({ worker, game, index, onFire, onUpgrade }) {
+function BarnWorkerCard({ worker, game, index, onFire, onUpgrade, instanceAnimals }) {
   const [confirmFire, setConfirmFire] = useState(false);
   const [showUpgrades, setShowUpgrades] = useState(false);
-  const animals = game.animals?.[worker.animalType] ?? [];
+  const animals = instanceAnimals ?? [];
   const totalStock = animals.reduce((s, a) => s + (a.stock ?? 0), 0);
   const avgMood = animals.length > 0
     ? Math.round(animals.reduce((s, a) => s + (a.mood ?? 100), 0) / animals.length)
@@ -474,26 +475,30 @@ function BarnWorkerCard({ worker, game, index, onFire, onUpgrade }) {
  
 // ─── Building tab content ─────────────────────────────────────────────────────
  
+// ─── Building tab content ─────────────────────────────────────────────────────
+ 
 function BuildingTab({
-  buildingId, game,
+  barnInstance, game,
   onBuyAnimal, onCollectAnimal, onInteractAnimal, onUpgradeAnimalStorage, onUpgradeAnimalYield,
   onHireBarnWorker, onFireBarnWorker, onUpgradeBarnWorker,
   onBuildBarnBuilding, onUpgradeBarnBuilding, onCollectAll,
 }) {
+  const buildingId = barnInstance.buildingType;
+  const instanceId = barnInstance.id;
   const def = BARN_BUILDINGS[buildingId];
   const animalTypeDef = ANIMAL_DEFS[def.animalType];
   const building = getBarnBuilding(game, buildingId);
-  const tierData = getBarnBuildingTierData(game, buildingId);
-  const animalSlots = getBarnBuildingAnimalSlots(game, buildingId);
-  const workerSlots = getBarnBuildingWorkerSlots(game, buildingId);
-  const animals = game.animals?.[def.animalType] ?? [];
-  const barnWorkers = (game.barnWorkers ?? []).filter((w) => w.animalType === def.animalType);
+  const inst = (game.barnInstances ?? []).find(i => i.id === instanceId);
+  const animals = inst?.animals ?? [];
+  const barnWorkers = inst?.barnWorkers ?? [];
+  const animalSlots = getBarnInstanceAnimalSlots(game, instanceId);
+  const workerSlots = getBarnInstanceWorkerSlots(game, instanceId);
   const totalStock = animals.reduce((s, a) => s + (a.stock ?? 0), 0);
   const cash = game.cash ?? 0;
   const seasonOk = (game.season ?? 1) >= def.unlockSeason;
  
   // ── Not built yet ──────────────────────────────────────────────────────────
-  if (!building.built) {
+  if (!building.built || !inst) {
     const canAfford = cash >= def.buildCost;
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
@@ -527,8 +532,10 @@ function BuildingTab({
   }
  
   // ── Built ──────────────────────────────────────────────────────────────────
-  const nextTierData = BARN_BUILDING_TIERS[building.tier]; // 1-indexed tier, 0-indexed array
-  const canUpgrade = canUpgradeBarnBuilding(game, buildingId);
+  const instTier = inst.tier ?? 1;
+  const tierData = BARN_BUILDING_TIERS[instTier - 1] ?? BARN_BUILDING_TIERS[0];
+  const nextTierData = BARN_BUILDING_TIERS[instTier]; // instTier is 1-indexed
+  const canUpgrade = canUpgradeBarnBuilding(game, buildingId, instanceId);
   const upkeepTotal = animals.length * def.upkeepPerAnimalPerSec;
   const atWorkerCap = getAvailableWorkerSlots(game) <= 0;
   const workerSlotsUsed = barnWorkers.length;
@@ -549,7 +556,7 @@ function BuildingTab({
             <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--text)" }}>
               {def.emoji} {def.name}
               <span style={{ marginLeft: "0.4rem", fontSize: "0.65rem", color: "var(--accent)", fontWeight: 600 }}>
-                Tier {building.tier} — {tierData?.name}
+                Tier {instTier} — {tierData?.name}
               </span>
             </div>
             <div style={{ fontSize: "0.65rem", marginTop: "0.15rem", color: upkeepTotal > 0 ? "#f59e0b" : "var(--muted)" }}>
@@ -559,9 +566,9 @@ function BuildingTab({
             </div>
           </div>
           {nextTierData ? (
-            <button onClick={() => onUpgradeBarnBuilding(buildingId)} disabled={!canUpgrade} className="btn btn-secondary"
+            <button onClick={() => onUpgradeBarnBuilding(buildingId, instanceId)} disabled={!canUpgrade} className="btn btn-secondary"
               style={{ fontSize: "0.68rem", padding: "0.3rem 0.6rem", opacity: canUpgrade ? 1 : 0.5, flexShrink: 0, marginLeft: "0.5rem" }}>
-              ↑ T{building.tier + 1} ${nextTierData.upgradeCost.toLocaleString()}
+              ↑ T{instTier + 1} ${nextTierData.upgradeCost.toLocaleString()}
             </button>
           ) : (
             <span style={{ fontSize: "0.65rem", color: "#4ade80", flexShrink: 0, marginLeft: "0.5rem" }}>✓ Max</span>
@@ -586,40 +593,35 @@ function BuildingTab({
         {animals.map((animal, idx) => (
           <AnimalCard
             key={animal.id} animal={animal} animalType={animalTypeDef} index={idx} game={game}
-            onCollect={(id) => onCollectAnimal(def.animalType, id)}
-            onInteract={(id) => onInteractAnimal(def.animalType, id)}
-            onUpgradeStorage={(id) => onUpgradeAnimalStorage(def.animalType, id)}
-            onUpgradeYield={(id) => onUpgradeAnimalYield(def.animalType, id)}
+            onCollect={(id) => onCollectAnimal(def.animalType, id, instanceId)}
+            onInteract={(id) => onInteractAnimal(def.animalType, id, instanceId)}
+            onUpgradeStorage={(id) => onUpgradeAnimalStorage(def.animalType, id, instanceId)}
+            onUpgradeYield={(id) => onUpgradeAnimalYield(def.animalType, id, instanceId)}
           />
         ))}
         {!animalSlotsFull ? (
-          <button onClick={() => onBuyAnimal(def.animalType)} disabled={!canAffordAnimal} className="btn w-full"
+          <button onClick={() => onBuyAnimal(def.animalType, instanceId)} disabled={!canAffordAnimal} className="btn w-full"
             style={{ opacity: canAffordAnimal ? 1 : 0.5, fontSize: "0.8rem" }}>
             {canAffordAnimal
               ? `${animalTypeDef.emoji} Buy ${animalTypeDef.name} — $${nextAnimalCost.toLocaleString()} (${animals.length}/${animalSlots})`
               : `Need $${nextAnimalCost.toLocaleString()} (${animals.length}/${animalSlots})`}
           </button>
         ) : (
-          <div style={{ fontSize: "0.72rem", color: "var(--muted)", textAlign: "center", padding: "0.35rem" }}>
-            {animalSlots} slots filled — upgrade barn to add more
+          <div style={{ textAlign: "center", fontSize: "0.72rem", color: "var(--muted)", padding: "0.5rem" }}>
+            ✓ All {animalSlots} slots filled
           </div>
         )}
       </div>
  
-      {/* Workers section */}
-      <div style={{ background: "var(--bg-elev)", border: "1px solid var(--border)", borderRadius: "12px", overflow: "hidden" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.6rem 0.85rem", borderBottom: barnWorkers.length > 0 ? "1px solid var(--border)" : "none" }}>
+      {/* Barn workers */}
+      <div style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: "12px", overflow: "hidden" }}>
+        <div style={{ padding: "0.65rem 0.85rem", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: barnWorkers.length > 0 ? "1px solid var(--border)" : "none" }}>
           <div>
-            <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text)" }}>
-              🧑‍🌾 Farmhands
-              <span style={{ marginLeft: "0.4rem", fontSize: "0.62rem", color: "var(--muted)", fontWeight: 400 }}>
-                {workerSlotsUsed}/{workerSlots} slots
-              </span>
-            </div>
+            <div style={{ fontSize: "0.8rem", fontWeight: 600 }}>👷 Barn Workers ({workerSlotsUsed}/{workerSlots})</div>
             <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginTop: "0.1rem" }}>Auto-collect produce · upgradeable</div>
           </div>
           <button
-            onClick={() => canHireWorker && onHireBarnWorker(def.animalType)}
+            onClick={() => canHireWorker && onHireBarnWorker(def.animalType, instanceId)}
             disabled={!canHireWorker}
             style={{
               fontSize: "0.72rem", fontWeight: 600, padding: "0.3rem 0.75rem", borderRadius: "8px",
@@ -636,7 +638,7 @@ function BuildingTab({
         {barnWorkers.length > 0 && (
           <div style={{ padding: "0.65rem 0.85rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
             {barnWorkers.map((w, idx) => (
-              <BarnWorkerCard key={w.id} worker={w} game={game} index={idx} onFire={onFireBarnWorker} onUpgrade={onUpgradeBarnWorker} />
+              <BarnWorkerCard key={w.id} worker={w} game={game} index={idx} onFire={onFireBarnWorker} onUpgrade={onUpgradeBarnWorker} instanceAnimals={animals} />
             ))}
           </div>
         )}
@@ -657,6 +659,58 @@ function BuildingTab({
   );
 }
  
+// ─── Barn instance sub-tab bar (mirrors FarmSubTabs) ─────────────────────────
+ 
+function BarnSubTabs({ instances, activeInstanceId, onTabChange }) {
+  if (instances.length <= 1) return null;
+  return (
+    <div style={{
+      background: "var(--bg-elev)",
+      borderBottom: "1px solid var(--border)",
+      display: "flex",
+      overflowX: "auto",
+      scrollbarWidth: "none",
+      marginBottom: "0.75rem",
+    }}>
+      {instances.map((inst) => {
+        const def = BARN_BUILDINGS[inst.buildingType];
+        const isActive = activeInstanceId === inst.id;
+        return (
+          <button
+            key={inst.id}
+            onClick={() => onTabChange(inst.id)}
+            style={{
+              position: "relative",
+              flex: "0 0 auto",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.35rem",
+              padding: "0.5rem 1rem",
+              background: "none",
+              border: "none",
+              borderBottom: isActive ? "2px solid var(--accent)" : "2px solid transparent",
+              cursor: "pointer",
+              color: isActive ? "var(--accent)" : "var(--muted)",
+              fontWeight: isActive ? 600 : 400,
+              fontSize: "0.78rem",
+              whiteSpace: "nowrap",
+            }}
+          >
+            <span>{def.emoji}</span>
+            <span>{inst.label}</span>
+            {inst.readyCount > 0 && (
+              <span style={{
+                fontSize: "0.6rem", background: "#fbbf24", color: "#000",
+                borderRadius: "999px", padding: "0.05rem 0.35rem", fontWeight: 700,
+              }}>{inst.readyCount}</span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+ 
 // ─── Main export ──────────────────────────────────────────────────────────────
  
 export default function BarnZone({
@@ -665,24 +719,64 @@ export default function BarnZone({
   onReassignBarnWorker, onUpgradeBarnWorker, onUpgradeAnimalStorage,
   onUpgradeAnimalYield, onBuildBarnBuilding, onUpgradeBarnBuilding,
 }) {
-  const [activeBuilding, setActiveBuilding] = useState("chicken_coop");
   const [deathNotifs, setDeathNotifs] = useState([]);
   const prevDeathEventsRef = useRef([]);
+ 
+  // Build flat list of all barn instances across all building types
+  const allInstances = BARN_BUILDING_ORDER.flatMap((buildingId) => {
+    const def = BARN_BUILDINGS[buildingId];
+    const instList = (game.barnInstances ?? []).filter(i => i.buildingType === buildingId);
+    return instList.map((inst, idx) => {
+      const readyCount = (inst.animals ?? []).filter(a => a.ready).length;
+      return {
+        ...inst,
+        label: instList.length > 1 ? `${def.name} ${idx + 1}` : def.name,
+        readyCount,
+      };
+    });
+  });
+ 
+  // Include unbuilt barns available this season
+  const unbuiltSlots = BARN_BUILDING_ORDER
+    .filter((id) => !(game.barnBuildings?.[id]?.built) && (game.season ?? 1) >= BARN_BUILDINGS[id].unlockSeason)
+    .map((id) => ({
+      id: `${id}_unbuilt`,
+      buildingType: id,
+      label: BARN_BUILDINGS[id].name,
+      tier: 0,
+      readyCount: 0,
+      unbuilt: true,
+      animals: [],
+      barnWorkers: [],
+    }));
+ 
+  const visibleInstances = [...allInstances, ...unbuiltSlots];
+ 
+  const [activeInstanceId, setActiveInstanceId] = useState(() => visibleInstances[0]?.id ?? null);
+ 
+  // Auto-switch to newest tab when a new barn is unlocked
+  const prevCountRef = useRef(visibleInstances.length);
+  useEffect(() => {
+    if (visibleInstances.length > prevCountRef.current) {
+      const newest = visibleInstances[visibleInstances.length - 1];
+      if (newest) setActiveInstanceId(newest.id);
+    }
+    prevCountRef.current = visibleInstances.length;
+  }, [visibleInstances.length]);
+ 
+  const activeInstance = visibleInstances.find((i) => i.id === activeInstanceId) ?? visibleInstances[0] ?? null;
  
   useEffect(() => {
     const events = game.pendingDeathEvents ?? [];
     if (events.length === 0) return;
-    // Only fire if this is a genuinely new set of events (pendingDeathEvents resets each tick)
     const prev = prevDeathEventsRef.current;
     if (events === prev) return;
     prevDeathEventsRef.current = events;
- 
     const newNotifs = events.map((evt) => ({
       id: `${evt.animalId}-${Date.now()}-${Math.random()}`,
       emoji: evt.emoji,
       animalType: evt.animalType,
     }));
- 
     setDeathNotifs((prev) => [...prev, ...newNotifs]);
     newNotifs.forEach(({ id }) => {
       setTimeout(() => setDeathNotifs((prev) => prev.filter((n) => n.id !== id)), 5000);
@@ -694,7 +788,7 @@ export default function BarnZone({
  
   return (
     <div style={{ display: "flex", flexDirection: "column" }}>
-
+ 
       {/* Death notifications */}
       {deathNotifs.map((notif) => (
         <div key={notif.id} style={{
@@ -702,7 +796,6 @@ export default function BarnZone({
           borderRadius: "10px", padding: "0.6rem 0.9rem", marginBottom: "0.6rem",
           fontSize: "0.78rem", color: "#ef4444", fontWeight: 600,
           display: "flex", alignItems: "center", gap: "0.5rem",
-          animation: "fadeInDown 0.3s ease",
         }}>
           <span style={{ fontSize: "1.1rem" }}>💀</span>
           {notif.emoji} 1 {notif.animalType} died from neglect!
@@ -719,49 +812,18 @@ export default function BarnZone({
         </div>
       )}
  
-      {/* Building tab bar */}
-      <div style={{ display: "flex", borderRadius: "10px 10px 0 0", overflow: "hidden", border: "1px solid var(--border)", borderBottom: "none", background: "var(--bg)" }}>
-        {BARN_BUILDING_ORDER.map((buildingId, i) => {
-          const def = BARN_BUILDINGS[buildingId];
-          const building = getBarnBuilding(game, buildingId);
-          const animals = game.animals?.[def.animalType] ?? [];
-          const readyCount = animals.filter((a) => a.ready).length;
-          const isActive = activeBuilding === buildingId;
-          const seasonOk = (game.season ?? 1) >= def.unlockSeason;
-          return (
-            <button
-              key={buildingId}
-              onClick={() => setActiveBuilding(buildingId)}
-              style={{
-                flex: 1, padding: "0.5rem 0.25rem", fontSize: "0.72rem",
-                fontWeight: isActive ? 700 : 400,
-                background: isActive ? "var(--accent)" : "none",
-                border: "none",
-                borderRight: i < BARN_BUILDING_ORDER.length - 1 ? "1px solid var(--border)" : "none",
-                cursor: "pointer",
-                color: isActive ? "#fff" : !seasonOk ? "var(--border)" : "var(--muted)",
-                display: "flex", flexDirection: "column", alignItems: "center", gap: "0.1rem",
-              }}
-            >
-              <span>{def.emoji}</span>
-              <span style={{ fontSize: "0.62rem" }}>
-                {building.built ? def.name.replace("Chicken ", "").replace(" Shed", "").replace("Dairy", "Dairy") : "🔒 " + def.name.split(" ")[0]}
-              </span>
-              {readyCount > 0 && (
-                <span style={{ fontSize: "0.55rem", background: "#fbbf24", color: "#000", borderRadius: "999px", padding: "0.05rem 0.35rem", fontWeight: 700 }}>
-                  {readyCount}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
+      {/* Scrollable barn instance tab bar */}
+      <BarnSubTabs
+        instances={visibleInstances}
+        activeInstanceId={activeInstance?.id}
+        onTabChange={setActiveInstanceId}
+      />
  
-      {/* Active building */}
-      <div style={{ border: "1px solid var(--border)", borderTop: "none", borderRadius: "0 0 12px 12px", padding: "0.75rem 0.75rem 1rem", background: "var(--bg-elev)", marginBottom: "0.5rem" }}>
+      {/* Active instance panel */}
+      {activeInstance && (
         <BuildingTab
-          key={activeBuilding}
-          buildingId={activeBuilding}
+          key={activeInstance.id}
+          barnInstance={activeInstance}
           game={game}
           onBuyAnimal={onBuyAnimal}
           onCollectAnimal={onCollectAnimal}
@@ -775,7 +837,7 @@ export default function BarnZone({
           onUpgradeBarnBuilding={onUpgradeBarnBuilding}
           onCollectAll={onCollectAll}
         />
-      </div>
+      )}
     </div>
   );
 }

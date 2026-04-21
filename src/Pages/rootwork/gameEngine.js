@@ -1113,6 +1113,7 @@ export function createInitialState() {
       fish: { minnow: 0, bass: 0, perch: 0, rare: 0 },
     },
     animals: { chicken: [], cow: [], sheep: [] },
+    barnInstances: [],
     pets: {},
     animalGoods: { egg: 0, milk: 0, wool: 0, omelette: 0, cheese: 0, knitted_goods: 0, fish_pie: 0, smoked_fish: 0, fish_meal: 0 },
     bait: { wheat_bait: 0, berry_bait: 0, tomato_bait: 0 },
@@ -1261,15 +1262,45 @@ export function getBarnBuildingTierData(state, buildingId) {
 }
  
 export function getBarnBuildingAnimalSlots(state, buildingId) {
-  const tier = getBarnBuildingTierData(state, buildingId);
-  const base = tier ? tier.animalSlots : 0;
-  if (base === 0) return 0;
-  return base + (hasPrestigeSkill(state, "breeding_program") ? 2 : 0);
+  // Total slots across all instances of this building type
+  const instances = (state.barnInstances ?? []).filter(i => i.buildingType === buildingId);
+  const breedingBonus = hasPrestigeSkill(state, "breeding_program") ? 2 : 0;
+  if (instances.length === 0) {
+    // Fallback to legacy tier-based calc if no instances yet
+    const tier = getBarnBuildingTierData(state, buildingId);
+    return tier ? (tier.animalSlots + breedingBonus) : 0;
+  }
+  return instances.reduce((sum, inst) => {
+    const tierData = BARN_BUILDING_TIERS[(inst.tier ?? 1) - 1] ?? BARN_BUILDING_TIERS[0];
+    return sum + tierData.animalSlots + breedingBonus;
+  }, 0);
+}
+
+export function getBarnInstanceAnimalSlots(state, instanceId) {
+  const inst = (state.barnInstances ?? []).find(i => i.id === instanceId);
+  if (!inst) return 0;
+  const tierData = BARN_BUILDING_TIERS[(inst.tier ?? 1) - 1] ?? BARN_BUILDING_TIERS[0];
+  const breedingBonus = hasPrestigeSkill(state, "breeding_program") ? 2 : 0;
+  return tierData.animalSlots + breedingBonus;
 }
  
 export function getBarnBuildingWorkerSlots(state, buildingId) {
-  const tier = getBarnBuildingTierData(state, buildingId);
-  return tier ? tier.workerSlots : 0;
+  const instances = (state.barnInstances ?? []).filter(i => i.buildingType === buildingId);
+  if (instances.length === 0) {
+    const tier = getBarnBuildingTierData(state, buildingId);
+    return tier ? tier.workerSlots : 0;
+  }
+  return instances.reduce((sum, inst) => {
+    const tierData = BARN_BUILDING_TIERS[(inst.tier ?? 1) - 1] ?? BARN_BUILDING_TIERS[0];
+    return sum + tierData.workerSlots;
+  }, 0);
+}
+
+export function getBarnInstanceWorkerSlots(state, instanceId) {
+  const inst = (state.barnInstances ?? []).find(i => i.id === instanceId);
+  if (!inst) return 0;
+  const tierData = BARN_BUILDING_TIERS[(inst.tier ?? 1) - 1] ?? BARN_BUILDING_TIERS[0];
+  return tierData.workerSlots;
 }
  
 export function getBarnBuildingForAnimal(animalType) {
@@ -1293,35 +1324,49 @@ export function buildBarnBuilding(state, buildingId) {
   next.cash -= def.buildCost;
   if (!next.barnBuildings) next.barnBuildings = {};
   next.barnBuildings[buildingId] = { built: true, tier: 1 };
+  if (!next.barnInstances) next.barnInstances = [];
+  next.barnInstances.push({ id: genId("bi"), buildingType: buildingId, tier: 1, animals: [], barnWorkers: [] });
   return next;
 }
  
-export function canUpgradeBarnBuilding(state, buildingId) {
+export function canUpgradeBarnBuilding(state, buildingId, instanceId) {
   const b = getBarnBuilding(state, buildingId);
   if (!b.built) return false;
-  if (b.tier >= BARN_BUILDING_TIERS.length) return false;
-  const nextTier = BARN_BUILDING_TIERS[b.tier]; // tier is 1-indexed, array is 0-indexed
+  const inst = instanceId
+    ? (state.barnInstances ?? []).find(i => i.id === instanceId)
+    : (state.barnInstances ?? []).find(i => i.buildingType === buildingId);
+  if (!inst) return false;
+  if (inst.tier >= BARN_BUILDING_TIERS.length) return false;
+  const nextTier = BARN_BUILDING_TIERS[inst.tier];
   if (!nextTier) return false;
   if ((state.cash ?? 0) < nextTier.upgradeCost) return false;
   return true;
 }
  
-export function upgradeBarnBuilding(state, buildingId) {
-  if (!canUpgradeBarnBuilding(state, buildingId)) return state;
+export function upgradeBarnBuilding(state, buildingId, instanceId) {
+  if (!canUpgradeBarnBuilding(state, buildingId, instanceId)) return state;
   const next = deepCloneState(state);
   const b = next.barnBuildings[buildingId];
-  const nextTier = BARN_BUILDING_TIERS[b.tier];
+  // Find target instance (if provided), otherwise upgrade first instance
+  const inst = instanceId
+    ? (next.barnInstances ?? []).find(i => i.id === instanceId)
+    : (next.barnInstances ?? []).find(i => i.buildingType === buildingId);
+  if (!inst) return state;
+  const nextTier = BARN_BUILDING_TIERS[inst.tier]; // inst.tier is 1-indexed
+  if (!nextTier) return state;
   next.cash -= nextTier.upgradeCost;
-  b.tier += 1;
+  inst.tier += 1;
+  // Keep building-level tier as max tier across instances
+  b.tier = Math.max(b.tier, inst.tier);
   return next;
 }
  
 export function getTotalBarnUpkeepPerSec(state) {
   let total = 0;
-  for (const [buildingId, def] of Object.entries(BARN_BUILDINGS)) {
-    const b = getBarnBuilding(state, buildingId);
-    if (!b.built) continue;
-    const count = (state.animals?.[def.animalType] ?? []).length;
+  for (const inst of state.barnInstances ?? []) {
+    const def = BARN_BUILDINGS[inst.buildingType];
+    if (!def) continue;
+    const count = (inst.animals ?? []).length;
     total += count * def.upkeepPerAnimalPerSec;
   }
   return total;
@@ -1686,75 +1731,72 @@ if (activeTier) {
     }
   }
  
-  // ── Barn upkeep drain ─────────────────────────────────────────────────────
-  for (const [buildingId, def] of Object.entries(BARN_BUILDINGS)) {
-    const b = getBarnBuilding(next, buildingId);
-    if (!b.built) continue;
-    const animals = next.animals?.[def.animalType] ?? [];
+  // ── Barn upkeep drain (per instance) ─────────────────────────────────────
+  for (const inst of next.barnInstances ?? []) {
+    const def = BARN_BUILDINGS[inst.buildingType];
+    if (!def) continue;
+    const animals = inst.animals ?? [];
     if (animals.length === 0) continue;
     const upkeepThisTick = animals.length * def.upkeepPerAnimalPerSec;
     if ((next.cash ?? 0) >= upkeepThisTick) {
       next.cash -= upkeepThisTick;
     } else {
-      // Can't afford — drain mood heavily on all animals in this building
       for (const animal of animals) {
         animal.mood = Math.max(0, (animal.mood ?? 100) - BARN_UPKEEP_DEBT_MOOD_DRAIN);
       }
     }
   }
  
-  // ── Animals ──────────────────────────────────────────────────────────────
+  // ── Animals (per barnInstance) ────────────────────────────────────────────
   const dogOwned = next.pets?.dog !== undefined;
   const dogMoodOk = dogOwned && (next.pets.dog.mood ?? 0) >= 50;
   const moodDecayMultiplier = dogMoodOk ? 0.70 : 1.0;
 
-  for (const animalId of Object.keys(next.animals ?? {})) {
+  for (const inst of next.barnInstances ?? []) {
+    const def = BARN_BUILDINGS[inst.buildingType];
+    if (!def) continue;
+    const animalId = def.animalType;
     const type = ANIMAL_TYPES[animalId];
     if (!type) continue;
     const toRemove = [];
 
-    for (const animal of next.animals[animalId]) {
+    for (const animal of inst.animals ?? []) {
       const stockMax = getAnimalStockMax(animal);
       const stock = animal.stock ?? 0;
       const isFull = stock >= stockMax;
       const effectiveCycle = getAnimalEffectiveCycleSeconds(type.cycleSeconds, next);
 
-      // Production — pauses when full
       if (!isFull) {
         animal.readyTick = (animal.readyTick ?? 0) + 1;
         if (animal.readyTick >= effectiveCycle) {
-  const mood = animal.mood ?? 100;
-  const bonusYield = getAnimalBonusYield(animal);
-  let produced = 1 + bonusYield;
-  if (mood >= 80) {
-    const bonusChance = (mood - 80) / 20;
-    produced = 2 + bonusYield + (Math.random() < bonusChance ? 1 : 0);
-  } else {
-    const bonusChance = mood / 80;
-    produced = 1 + bonusYield + (Math.random() < bonusChance ? 1 : 0);
-  }
-  // sturdy_stock: +20% per stack
-  const sturdyCount = getPrestigeSkillCount(next, "sturdy_stock");
-  if (sturdyCount > 0) produced = Math.ceil(produced * Math.pow(1.2, sturdyCount));
-  animal.stock = Math.min(stockMax, stock + produced);
-  animal.readyTick = 0;
-}
+          const mood = animal.mood ?? 100;
+          const bonusYield = getAnimalBonusYield(animal);
+          let produced = 1 + bonusYield;
+          if (mood >= 80) {
+            const bonusChance = (mood - 80) / 20;
+            produced = 2 + bonusYield + (Math.random() < bonusChance ? 1 : 0);
+          } else {
+            const bonusChance = mood / 80;
+            produced = 1 + bonusYield + (Math.random() < bonusChance ? 1 : 0);
+          }
+          const sturdyCount = getPrestigeSkillCount(next, "sturdy_stock");
+          if (sturdyCount > 0) produced = Math.ceil(produced * Math.pow(1.2, sturdyCount));
+          animal.stock = Math.min(stockMax, stock + produced);
+          animal.readyTick = 0;
+        }
       }
 
       animal.ready = (animal.stock ?? 0) > 0;
 
-      // Mood decay — 5x when full
       const decayPerSecond = (type.moodDecayPerMinute / 60) * moodDecayMultiplier * (isFull ? ANIMAL_OVERFULL_MOOD_DRAIN : 1);
       animal.mood = Math.max(0, (animal.mood ?? 100) - decayPerSecond);
 
-      // Track ticks at zero mood — die after 180 seconds (3 min) at 0%
       if (animal.mood <= 0) {
         animal.zeroMoodTicks = (animal.zeroMoodTicks ?? 0) + 1;
       } else {
         animal.zeroMoodTicks = 0;
       }
 
-      // Death conditions: 3 missed food pulses OR 180s at 0% mood
       if ((animal.missedFoodPulses ?? 0) >= 3 || (animal.zeroMoodTicks ?? 0) >= 180) {
         toRemove.push(animal.id);
         if (!next.pendingDeathEvents) next.pendingDeathEvents = [];
@@ -1766,55 +1808,61 @@ if (activeTier) {
       }
     }
 
-    // Remove dead animals
     if (toRemove.length > 0) {
-      next.animals[animalId] = next.animals[animalId].filter((a) => !toRemove.includes(a.id));
+      inst.animals = (inst.animals ?? []).filter((a) => !toRemove.includes(a.id));
     }
   }
 
-  // ── Barn workers ──────────────────────────────────────────────────────────
-  for (const worker of next.barnWorkers ?? []) {
-    const animalId = worker.animalType;
+  // Keep root-level next.animals in sync (for any legacy reads)
+  for (const animalId of Object.keys(next.animals ?? {})) {
+    next.animals[animalId] = (next.barnInstances ?? [])
+      .filter(i => BARN_BUILDINGS[i.buildingType]?.animalType === animalId)
+      .flatMap(i => i.animals ?? []);
+  }
+
+  // ── Barn workers (per instance) ───────────────────────────────────────────
+  for (const inst of next.barnInstances ?? []) {
+    const def = BARN_BUILDINGS[inst.buildingType];
+    if (!def) continue;
+    const animalId = def.animalType;
     const type = ANIMAL_TYPES[animalId];
     if (!type) continue;
-    const animals = next.animals?.[animalId] ?? [];
-    if (animals.length === 0) continue;
+    const animals = inst.animals ?? [];
 
-    const interval = getBarnWorkerInterval(worker);
-    const capacity = getBarnWorkerCapacity(worker);
-    const careInterval = getBarnWorkerCareInterval(worker);
-    const careMood = getBarnWorkerCareMood(worker);
+    for (const worker of inst.barnWorkers ?? []) {
+      if (animals.length === 0) continue;
+      const interval = getBarnWorkerInterval(worker);
+      const capacity = getBarnWorkerCapacity(worker);
+      const careInterval = getBarnWorkerCareInterval(worker);
+      const careMood = getBarnWorkerCareMood(worker);
 
-    worker.collectTimer = (worker.collectTimer ?? 0) + 1;
-    if (worker.collectTimer >= interval) {
-      worker.collectTimer = 0;
-      let remaining = capacity;
-      for (const animal of animals) {
-        if (remaining <= 0) break;
-        const stock = animal.stock ?? 0;
-        if (stock <= 0) continue;
-        const toCollect = Math.min(remaining, stock);
-        animal.stock = stock - toCollect;
-        animal.ready = animal.stock > 0;
-        if (!next.animalGoods) next.animalGoods = {};
-        next.animalGoods[type.produces] = (next.animalGoods[type.produces] ?? 0) + toCollect;
-        remaining -= toCollect;
+      worker.collectTimer = (worker.collectTimer ?? 0) + 1;
+      if (worker.collectTimer >= interval) {
+        worker.collectTimer = 0;
+        let remaining = capacity;
+        for (const animal of animals) {
+          if (remaining <= 0) break;
+          const stock = animal.stock ?? 0;
+          if (stock <= 0) continue;
+          const toCollect = Math.min(remaining, stock);
+          animal.stock = stock - toCollect;
+          animal.ready = animal.stock > 0;
+          if (!next.animalGoods) next.animalGoods = {};
+          next.animalGoods[type.produces] = (next.animalGoods[type.produces] ?? 0) + toCollect;
+          remaining -= toCollect;
+        }
+      }
+
+      if (careInterval) {
+        worker.careTimer = (worker.careTimer ?? 0) + 1;
+        if (worker.careTimer >= careInterval) {
+          worker.careTimer = 0;
+          const neediest = animals.reduce((lowest, animal) =>
+            (animal.mood ?? 100) < (lowest?.mood ?? 100) ? animal : lowest, null);
+          if (neediest) neediest.mood = Math.min(100, (neediest.mood ?? 100) + careMood);
+        }
       }
     }
-
-    if (careInterval) {
-  worker.careTimer = (worker.careTimer ?? 0) + 1;
-  if (worker.careTimer >= careInterval) {
-    worker.careTimer = 0;
-    // Find the single lowest-mood animal
-    const neediest = animals.reduce((lowest, animal) => {
-      return (animal.mood ?? 100) < (lowest?.mood ?? 100) ? animal : lowest;
-    }, null);
-    if (neediest) {
-      neediest.mood = Math.min(100, (neediest.mood ?? 100) + careMood);
-    }
-  }
-}
   }
  
   // ── Pets ─────────────────────────────────────────────────────────────────
@@ -2424,35 +2472,40 @@ export function setTreasuryCap(state, cap) {
 
 // ─── Barn worker actions ──────────────────────────────────────────────
  
-export function hireBarnWorker(state, animalType) {
+export function hireBarnWorker(state, animalType, instanceId) {
   if (!ANIMAL_TYPES[animalType]) return state;
   if (isAtWorkerCap(state)) return state;
-  // Check building exists and has worker slot available
-  const buildingDef = getBarnBuildingForAnimal(animalType);
-  if (!buildingDef) return state;
-  const building = getBarnBuilding(state, buildingDef.id);
-  if (!building.built) return state;
-  const workerSlots = getBarnBuildingWorkerSlots(state, buildingDef.id);
-  const currentWorkers = (state.barnWorkers ?? []).filter((w) => w.animalType === animalType).length;
-  if (currentWorkers >= workerSlots) return state;
+  const inst = (state.barnInstances ?? []).find(i => i.id === instanceId);
+  if (!inst) return state;
+  const instWorkerSlots = getBarnInstanceWorkerSlots(state, instanceId);
+  const instWorkerCount = (inst.barnWorkers ?? []).length;
+  if (instWorkerCount >= instWorkerSlots) return state;
   const cost = getBarnWorkerHireCost(state);
   if ((state.cash ?? 0) < cost) return state;
   const next = deepCloneState(state);
   next.cash -= cost;
-  next.barnWorkers = [...(next.barnWorkers ?? []), {
+  const worker = {
     id: genId("bw"),
     animalType,
+    instanceId,
     upgrades: hasPrestigeSkill(next, "fast_hands") ? ["capacity_1"] : [],
     collectTimer: 0,
     careTimer: 0,
     hiredAt: Date.now(),
-  }];
+  };
+  next.barnWorkers = [...(next.barnWorkers ?? []), worker];
+  const targetInst = next.barnInstances.find(i => i.id === instanceId);
+  if (!targetInst.barnWorkers) targetInst.barnWorkers = [];
+  targetInst.barnWorkers.push(worker);
   return next;
 }
  
 export function fireBarnWorker(state, workerId) {
   const next = deepCloneState(state);
   next.barnWorkers = (next.barnWorkers ?? []).filter((w) => w.id !== workerId);
+  for (const inst of next.barnInstances ?? []) {
+    inst.barnWorkers = (inst.barnWorkers ?? []).filter((w) => w.id !== workerId);
+  }
   return next;
 }
  
@@ -2487,10 +2540,19 @@ export function upgradeBarnWorker(state, workerId, upgradeId) {
   return next;
 }
 
-export function upgradeAnimalStorage(state, animalId, animalInstanceId) {
+export function upgradeAnimalStorage(state, animalId, animalInstanceId, barnInstanceId) {
   const next = deepCloneState(state);
-  const animals = next.animals?.[animalId] ?? [];
-  const animal = animals.find((a) => a.id === animalInstanceId);
+  let animal = null;
+  for (const inst of next.barnInstances ?? []) {
+    if (barnInstanceId && inst.id !== barnInstanceId) continue;
+    const found = (inst.animals ?? []).find(a => a.id === animalInstanceId);
+    if (found) { animal = found; break; }
+  }
+  // Legacy fallback
+  if (!animal) {
+    const animals = next.animals?.[animalId] ?? [];
+    animal = animals.find((a) => a.id === animalInstanceId);
+  }
   if (!animal) return state;
   const nextUpgrade = getAnimalStorageUpgradeCost(animal);
   if (!nextUpgrade) return state;
@@ -2500,10 +2562,18 @@ export function upgradeAnimalStorage(state, animalId, animalInstanceId) {
   return next;
 }
 
-export function upgradeAnimalYield(state, animalId, animalInstanceId) {
+export function upgradeAnimalYield(state, animalId, animalInstanceId, barnInstanceId) {
   const next = deepCloneState(state);
-  const animals = next.animals?.[animalId] ?? [];
-  const animal = animals.find((a) => a.id === animalInstanceId);
+  let animal = null;
+  for (const inst of next.barnInstances ?? []) {
+    if (barnInstanceId && inst.id !== barnInstanceId) continue;
+    const found = (inst.animals ?? []).find(a => a.id === animalInstanceId);
+    if (found) { animal = found; break; }
+  }
+  if (!animal) {
+    const animals = next.animals?.[animalId] ?? [];
+    animal = animals.find((a) => a.id === animalInstanceId);
+  }
   if (!animal) return state;
   const nextUpgrade = getAnimalYieldUpgradeCost(animal);
   if (!nextUpgrade) return state;
@@ -2665,11 +2735,13 @@ export function unlockSeasonBarn(state, buildingId) {
   if (!BARN_BUILDINGS[buildingId]) return state;
   const next = deepCloneState(state);
   next.pendingSeasonUnlock = false;
-  // If this barn type is already built, increment its count; otherwise mark as built
-  if (next.barnBuildings[buildingId]?.built) {
-    next.barnBuildings[buildingId].count = (next.barnBuildings[buildingId].count ?? 1) + 1;
+  if (!next.barnInstances) next.barnInstances = [];
+  if (next.barnBuildings?.[buildingId]?.built) {
+    // Add another instance of this barn type
+    next.barnInstances.push({ id: genId("bi"), buildingType: buildingId, tier: 1, animals: [], barnWorkers: [] });
   } else {
-    next.barnBuildings[buildingId] = { built: true, tier: 1, count: 1 };
+    next.barnBuildings[buildingId] = { built: true, tier: 1 };
+    next.barnInstances.push({ id: genId("bi"), buildingType: buildingId, tier: 1, animals: [], barnWorkers: [] });
   }
   return next;
 }
@@ -2695,12 +2767,12 @@ function makeKeptWorker(worker, type) {
 }
 
 export function getBarnPrestigeReady(state) {
-  for (const [buildingId, b] of Object.entries(state.barnBuildings ?? {})) {
-    if (!b.built) continue;
-    const def = BARN_BUILDINGS[buildingId];
-    const workers = (state.barnWorkers ?? []).filter((w) => w.animalType === def?.animalType);
-    if (workers.length < PRESTIGE_MIN_BARN_WORKERS) return false;
-    const animals = (state.animals?.[def?.animalType] ?? []).length;
+  for (const inst of state.barnInstances ?? []) {
+    const def = BARN_BUILDINGS[inst.buildingType];
+    if (!def) continue;
+    const workers = (inst.barnWorkers ?? []).length;
+    if (workers < PRESTIGE_MIN_BARN_WORKERS) return false;
+    const animals = (inst.animals ?? []).length;
     if (animals < PRESTIGE_MIN_BARN_ANIMALS) return false;
   }
   return true;
@@ -2742,16 +2814,16 @@ export function getPrestigeBlockers(state) {
   }
   // Seasons 4+: all built barns must have at least 1 worker and the minimum animals
   if (state.season >= 4) {
-    for (const [buildingId, b] of Object.entries(state.barnBuildings ?? {})) {
-      if (!b.built) continue;
-      const def = BARN_BUILDINGS[buildingId];
-      const workers = (state.barnWorkers ?? []).filter((w) => w.animalType === def?.animalType);
-      if (workers.length < PRESTIGE_MIN_BARN_WORKERS) {
-        blockers.push(`${def?.emoji ?? "🐄"} ${def?.name ?? buildingId}: needs at least 1 barn worker`);
+    for (const inst of state.barnInstances ?? []) {
+      const def = BARN_BUILDINGS[inst.buildingType];
+      const label = def ? `${def.emoji} ${def.name}` : inst.buildingType;
+      const workers = (inst.barnWorkers ?? []).length;
+      if (workers < PRESTIGE_MIN_BARN_WORKERS) {
+        blockers.push(`${label}: needs at least 1 barn worker`);
       }
-      const animals = (state.animals?.[def?.animalType] ?? []).length;
+      const animals = (inst.animals ?? []).length;
       if (animals < PRESTIGE_MIN_BARN_ANIMALS) {
-        blockers.push(`${def?.emoji ?? "🐄"} ${def?.name ?? buildingId}: needs at least ${PRESTIGE_MIN_BARN_ANIMALS} animals (have ${animals})`);
+        blockers.push(`${label}: needs at least ${PRESTIGE_MIN_BARN_ANIMALS} animals (have ${animals})`);
       }
     }
   }
@@ -2796,6 +2868,11 @@ export function beginPrestige(state, _unused, keptWorkerIds) {
   next.kitchenWorkers = [];
   next.marketWorkers = [];
   next.barnWorkers = [];
+  // Clear per-instance animals and workers (barn buildings/instances themselves persist)
+  for (const inst of next.barnInstances ?? []) {
+    inst.animals = [];
+    inst.barnWorkers = [];
+  }
   // Fire all fishing workers (bodies stay unlocked)
   for (const bodyId of Object.keys(next.fishing?.bodies ?? {})) {
     if (next.fishing.bodies[bodyId]?.worker?.hired) {
@@ -2822,6 +2899,8 @@ export function beginPrestige(state, _unused, keptWorkerIds) {
     if (barnId && next.barnBuildings?.[barnId] && !next.barnBuildings[barnId].built) {
       next.barnBuildings[barnId].built = true;
       next.barnBuildings[barnId].tier = 1;
+      if (!next.barnInstances) next.barnInstances = [];
+      next.barnInstances.push({ id: genId("bi"), buildingType: barnId, tier: 1, animals: [], barnWorkers: [] });
     }
   } else {
     // Season 7+: player picks farm or barn
@@ -2857,7 +2936,17 @@ export function beginPrestige(state, _unused, keptWorkerIds) {
 
   for (const kw of kitchenKept) { if (isAtWorkerCap(next)) break; next.kitchenWorkers.push({ ...kw }); }
   for (const kw of marketKept) { if (isAtWorkerCap(next)) break; next.marketWorkers.push({ ...kw }); }
-  for (const kw of barnKept) { if (isAtWorkerCap(next)) break; next.barnWorkers.push({ ...kw, collectTimer: 0, careTimer: 0 }); }
+  for (const kw of barnKept) {
+    if (isAtWorkerCap(next)) break;
+    // Find first instance matching this worker's animalType
+    const targetInst = (next.barnInstances ?? []).find(i => {
+      const def = BARN_BUILDINGS[i.buildingType];
+      return def?.animalType === kw.animalType;
+    });
+    const worker = { ...kw, collectTimer: 0, careTimer: 0 };
+    next.barnWorkers.push(worker); // keep root list for worker cap counting
+    if (targetInst) targetInst.barnWorkers.push(worker);
+  }
   for (const kw of fisherKept) {
     if (isAtWorkerCap(next)) break;
     const body = next.fishing?.bodies?.[kw.bodyId];
@@ -2921,31 +3010,42 @@ export function applyGoldenBonus(state, bonusId) {
   return next;
 }
  
-export function buyAnimal(state, animalId) {
+export function buyAnimal(state, animalId, instanceId) {
   const type = ANIMAL_TYPES[animalId];
   if (!type) return state;
   if ((state.season ?? 1) < type.unlockSeason) return state;
-  // Must have the barn building built
-  const buildingDef = getBarnBuildingForAnimal(animalId);
-  if (!buildingDef) return state;
-  const building = getBarnBuilding(state, buildingDef.id);
-  if (!building.built) return state;
-  const slotMax = getBarnBuildingAnimalSlots(state, buildingDef.id);
-  const owned = (state.animals?.[animalId] ?? []).length;
+  const inst = (state.barnInstances ?? []).find(i => i.id === instanceId);
+  if (!inst) return state;
+  const slotMax = getBarnInstanceAnimalSlots(state, instanceId);
+  const owned = (inst.animals ?? []).length;
   if (owned >= slotMax) return state;
-  const cost = Math.round(type.baseCost * Math.pow(type.costMultiplier, owned));
+  // Cost based on total owned across ALL instances of this type (global rarity curve)
+  const allOwned = (state.barnInstances ?? [])
+    .filter(i => BARN_BUILDINGS[i.buildingType]?.animalType === animalId)
+    .reduce((s, i) => s + (i.animals ?? []).length, 0);
+  const cost = Math.round(type.baseCost * Math.pow(type.costMultiplier, allOwned));
   if ((state.cash ?? 0) < cost) return state;
   const next = deepCloneState(state);
   next.cash -= cost;
-  if (!next.animals) next.animals = {};
-  if (!next.animals[animalId]) next.animals[animalId] = [];
-  next.animals[animalId].push({
+  const targetInst = next.barnInstances.find(i => i.id === instanceId);
+  if (!targetInst.animals) targetInst.animals = [];
+  targetInst.animals.push({
     id: genId("animal"),
     mood: 100,
     readyTick: 0,
     ready: false,
     interactCooldown: 0,
+    stock: 0,
+    storageLevel: 0,
+    yieldLevel: 0,
+    missedFoodPulses: 0,
   });
+  // Sync legacy root animals
+  if (!next.animals) next.animals = {};
+  if (!next.animals[animalId]) next.animals[animalId] = [];
+  next.animals[animalId] = (next.barnInstances ?? [])
+    .filter(i => BARN_BUILDINGS[i.buildingType]?.animalType === animalId)
+    .flatMap(i => i.animals ?? []);
   return next;
 }
  
@@ -2971,16 +3071,20 @@ export function toggleKitchenWorkerAutoRestart(state, workerId) {
   return next;
 }
  
-export function collectAnimal(state, animalId, animalInstanceId) {
+export function collectAnimal(state, animalId, animalInstanceId, barnInstanceId) {
   const type = ANIMAL_TYPES[animalId];
   if (!type) return state;
   const next = deepCloneState(state);
-  const animals = next.animals?.[animalId] ?? [];
-  const animal = animals.find((a) => a.id === animalInstanceId);
+  // Find animal in the specific barn instance
+  let animal = null;
+  for (const inst of next.barnInstances ?? []) {
+    if (barnInstanceId && inst.id !== barnInstanceId) continue;
+    const found = (inst.animals ?? []).find(a => a.id === animalInstanceId);
+    if (found) { animal = found; break; }
+  }
   if (!animal || (animal.stock ?? 0) <= 0) return state;
   const mood = animal.mood ?? 100;
   const stock = animal.stock ?? 0;
-  // Collect all stock, mood affects bonus on top
   const bonusChance = mood / 100;
   const bonus = Math.random() < bonusChance ? 1 : 0;
   const collected = stock + bonus;
@@ -2993,12 +3097,13 @@ export function collectAnimal(state, animalId, animalInstanceId) {
  
 export function collectAllAnimals(state) {
   const next = deepCloneState(state);
-  const ANIMAL_TYPES_LOCAL = { chicken: { produces: "egg" }, cow: { produces: "milk" }, sheep: { produces: "wool" } };
   let anyCollected = false;
-  for (const [animalId, animals] of Object.entries(next.animals ?? {})) {
-    const type = ANIMAL_TYPES_LOCAL[animalId];
+  for (const inst of next.barnInstances ?? []) {
+    const def = BARN_BUILDINGS[inst.buildingType];
+    if (!def) continue;
+    const type = ANIMAL_TYPES[def.animalType];
     if (!type) continue;
-    for (const animal of animals) {
+    for (const animal of inst.animals ?? []) {
       const stock = animal.stock ?? 0;
       if (stock <= 0) continue;
       const mood = animal.mood ?? 100;
@@ -3013,10 +3118,14 @@ export function collectAllAnimals(state) {
   return anyCollected ? next : state;
 }
  
-export function interactAnimal(state, animalId, animalInstanceId) {
+export function interactAnimal(state, animalId, animalInstanceId, barnInstanceId) {
   const next = deepCloneState(state);
-  const animals = next.animals?.[animalId] ?? [];
-  const animal = animals.find((a) => a.id === animalInstanceId);
+  let animal = null;
+  for (const inst of next.barnInstances ?? []) {
+    if (barnInstanceId && inst.id !== barnInstanceId) continue;
+    const found = (inst.animals ?? []).find(a => a.id === animalInstanceId);
+    if (found) { animal = found; break; }
+  }
   if (!animal || (animal.interactCooldown ?? 0) > 0) return state;
   animal.mood = Math.min(100, (animal.mood ?? 100) + ANIMAL_INTERACT_MOOD_BOOST);
   animal.interactCooldown = ANIMAL_INTERACT_COOLDOWN;
@@ -3225,6 +3334,67 @@ if (!parsed.barnBuildings) {
     parsed.barnBuildings.dairy = { built: true, tier: 1 };
   if ((parsed.animals?.sheep?.length ?? 0) > 0 || (parsed.barnWorkers ?? []).some(w => w.animalType === "sheep"))
     parsed.barnBuildings.wool_shed = { built: true, tier: 1 };
+}
+if (!parsed.barnInstances || parsed.barnInstances.length === 0) {
+  parsed.barnInstances = [];
+  const BTYPE_MAP = { chicken_coop: "chicken", dairy: "cow", wool_shed: "sheep" };
+  for (const [buildingId, b] of Object.entries(parsed.barnBuildings ?? {})) {
+    if (!b.built) continue;
+    const animalType = BTYPE_MAP[buildingId];
+    const instId = `${buildingId}_1`;
+    const legacyAnimals = (parsed.animals?.[animalType] ?? []).map(a => ({
+      ...a, stock: a.stock ?? (a.ready ? 1 : 0), storageLevel: a.storageLevel ?? 0,
+      yieldLevel: a.yieldLevel ?? 0, missedFoodPulses: a.missedFoodPulses ?? 0,
+    }));
+    const legacyWorkers = (parsed.barnWorkers ?? [])
+      .filter(w => w.animalType === animalType)
+      .map(w => ({ ...w, instanceId: instId }));
+    parsed.barnInstances.push({
+      id: instId, buildingType: buildingId, tier: b.tier ?? 1,
+      animals: legacyAnimals, barnWorkers: legacyWorkers,
+    });
+  }
+}
+{
+  const rootIds = new Set((parsed.barnWorkers ?? []).map(w => w.id));
+  for (const inst of parsed.barnInstances ?? []) {
+    for (const w of inst.barnWorkers ?? []) {
+      if (!rootIds.has(w.id)) { parsed.barnWorkers.push(w); rootIds.add(w.id); }
+    }
+  }
+}
+// Migrate: build barnInstances from barnBuildings + legacy animals/workers
+if (!parsed.barnInstances || parsed.barnInstances.length === 0) {
+  parsed.barnInstances = [];
+  const BTYPE_MAP = { chicken_coop: "chicken", dairy: "cow", wool_shed: "sheep" };
+  for (const [buildingId, b] of Object.entries(parsed.barnBuildings ?? {})) {
+    if (!b.built) continue;
+    const animalType = BTYPE_MAP[buildingId];
+    const instId = `${buildingId}_1`;
+    const legacyAnimals = (parsed.animals?.[animalType] ?? []).map(a => ({
+      ...a, stock: a.stock ?? (a.ready ? 1 : 0), storageLevel: a.storageLevel ?? 0,
+      yieldLevel: a.yieldLevel ?? 0, missedFoodPulses: a.missedFoodPulses ?? 0,
+    }));
+    const legacyWorkers = (parsed.barnWorkers ?? [])
+      .filter(w => w.animalType === animalType)
+      .map(w => ({ ...w, instanceId: instId }));
+    parsed.barnInstances.push({
+      id: instId,
+      buildingType: buildingId,
+      tier: b.tier ?? 1,
+      animals: legacyAnimals,
+      barnWorkers: legacyWorkers,
+    });
+  }
+}
+// Ensure all barnWorkers in instances also exist in root barnWorkers (for worker cap)
+{
+  const rootIds = new Set((parsed.barnWorkers ?? []).map(w => w.id));
+  for (const inst of parsed.barnInstances ?? []) {
+    for (const w of inst.barnWorkers ?? []) {
+      if (!rootIds.has(w.id)) { parsed.barnWorkers.push(w); rootIds.add(w.id); }
+    }
+  }
 }
 
 // Migrate pond.fish → fishing

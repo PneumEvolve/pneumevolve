@@ -259,8 +259,9 @@ function SeasonUnlockModal({ game, onUnlockFarm, onUnlockBarn }) {
   const farmCost = 300 + (game.extraFarmsUnlocked ?? 0) * 200;
   const cash = game.cash ?? 0;
   const canAffordFarm = cash >= farmCost;
-  const availableBarns = BARN_BUILDING_ORDER;
-  const availableCrops = EXTRA_FARM_CROPS;
+  const availableBarns = BARN_BUILDING_ORDER.filter((id) => !(game.barnBuildings?.[id]?.built));
+  const existingCrops = (game.farms ?? []).map((f) => f.crop);
+  const availableCrops = EXTRA_FARM_CROPS.filter((c) => !existingCrops.includes(c));
   const canConfirm = choice === "farm" ? (selectedCrop && canAffordFarm) : choice === "barn" ? selectedBarn != null : false;
 
   function handleConfirm() {
@@ -276,17 +277,21 @@ function SeasonUnlockModal({ game, onUnlockFarm, onUnlockBarn }) {
           Season {game.season} — expand your farm or unlock a new barn
         </p>
         <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
-          {["farm", "barn"].map((opt) => (
-            <button key={opt} onClick={() => setChoice(opt)} style={{
-              flex: 1, padding: "0.65rem", borderRadius: "8px", cursor: "pointer",
-              background: choice === opt ? "rgba(99,102,241,0.15)" : "var(--bg)",
-              border: `2px solid ${choice === opt ? "var(--accent)" : "var(--border)"}`,
-              color: "var(--text)",
-              fontWeight: choice === opt ? 700 : 400, fontSize: "0.82rem",
-            }}>
-              {opt === "farm" ? "🌾 New Farm" : "🐄 New Barn"}
-            </button>
-          ))}
+          {["farm", "barn"].map((opt) => {
+            const disabled = opt === "farm" ? availableCrops.length === 0 : availableBarns.length === 0;
+            return (
+              <button key={opt} onClick={() => !disabled && setChoice(opt)} disabled={disabled} style={{
+                flex: 1, padding: "0.65rem", borderRadius: "8px", cursor: disabled ? "default" : "pointer",
+                background: choice === opt ? "rgba(99,102,241,0.15)" : "var(--bg)",
+                border: `2px solid ${choice === opt ? "var(--accent)" : "var(--border)"}`,
+                color: disabled ? "var(--muted)" : "var(--text)",
+                fontWeight: choice === opt ? 700 : 400, fontSize: "0.82rem", opacity: disabled ? 0.4 : 1,
+              }}>
+                {opt === "farm" ? "🌾 New Farm" : "🐄 New Barn"}
+                {disabled && <div style={{ fontSize: "0.6rem", color: "var(--muted)" }}>{opt === "farm" ? "All crops unlocked" : "All barns built"}</div>}
+              </button>
+            );
+          })}
         </div>
         {choice === "farm" && (
           <div style={{ marginBottom: "1rem" }}>
@@ -322,7 +327,7 @@ function SeasonUnlockModal({ game, onUnlockFarm, onUnlockBarn }) {
                   border: `2px solid ${sel ? "var(--accent)" : "var(--border)"}`,
                 }}>
                   <div style={{ fontWeight: 600, fontSize: "0.85rem" }}>{def.emoji} {def.name}{sel && <span style={{ marginLeft: "0.5rem", color: "var(--accent)", fontSize: "0.72rem" }}>✓</span>}</div>
-                  <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginTop: "0.1rem" }}>Raises {def.animalType}s{(game.barnBuildings?.[buildingId]?.built) ? " · adds another" : ""} · ${def.upkeepPerAnimalPerSec}/animal/s upkeep</div>
+                  <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginTop: "0.1rem" }}>Raises {def.animalType}s · $${def.upkeepPerAnimalPerSec}/animal/s upkeep</div>
                 </button>
               );
             })}
@@ -506,14 +511,14 @@ export default function RootWork() {
 
   // Animals & Pond
   const handleBuyPond = useCallback(() => update((s) => { const n = buyPond(s); if (n === s) notify("Need $500 cash."); return n; }), [update, notify]);
-  const handleBuyAnimal = useCallback((animalId) => update((s) => { const n = buyAnimal(s, animalId); if (n === s) notify("Not enough cash."); return n; }), [update, notify]);
-  const handleCollectAnimal = useCallback((animalId, instanceId) => update((s) => collectAnimal(s, animalId, instanceId)), [update]);
+  const handleBuyAnimal = useCallback((animalId, barnInstanceId) => update((s) => { const n = buyAnimal(s, animalId, barnInstanceId); if (n === s) notify("Not enough cash."); return n; }), [update, notify]);
+  const handleCollectAnimal = useCallback((animalId, instanceId, barnInstanceId) => update((s) => collectAnimal(s, animalId, instanceId, barnInstanceId)), [update]);
   const handleCollectAllAnimals = useCallback(() => { update((s) => collectAllAnimals(s)); notify("🧺 All products collected!"); }, [update, notify]);
-  const handleInteractAnimal = useCallback((animalId, instanceId) => update((s) => interactAnimal(s, animalId, instanceId)), [update]);
+  const handleInteractAnimal = useCallback((animalId, instanceId, barnInstanceId) => update((s) => interactAnimal(s, animalId, instanceId, barnInstanceId)), [update]);
   const handleBuyPet = useCallback((petId) => update((s) => { const n = buyPet(s, petId); if (n === s) notify("Not enough cash."); return n; }), [update, notify]);
   const handleInteractPet = useCallback((petId) => update((s) => interactPet(s, petId)), [update]);
-  const handleHireBarnWorker = useCallback((animalType) => update((s) => {
-  const n = hireBarnWorker(s, animalType);
+  const handleHireBarnWorker = useCallback((animalType, instanceId) => update((s) => {
+  const n = hireBarnWorker(s, animalType, instanceId);
   if (n === s) notify("Can't hire — check cash or worker cap.");
   return n;
 }), [update, notify]);
@@ -559,14 +564,14 @@ const handleCatchFish = useCallback((fishId, baitId) => update((s) =>
   catchFish(s, fishId, baitId, s.fishing?.activeBody ?? "pond")
 ), [update]);
 
-const handleUpgradeAnimalStorage = useCallback((animalId, instanceId) => update((s) => {
-  const n = upgradeAnimalStorage(s, animalId, instanceId);
+const handleUpgradeAnimalStorage = useCallback((animalId, instanceId, barnInstanceId) => update((s) => {
+  const n = upgradeAnimalStorage(s, animalId, instanceId, barnInstanceId);
   if (n === s) notify("Not enough cash.");
   return n;
 }), [update, notify]);
 
-const handleUpgradeAnimalYield = useCallback((animalId, instanceId) => update((s) => {
-  const n = upgradeAnimalYield(s, animalId, instanceId);
+const handleUpgradeAnimalYield = useCallback((animalId, instanceId, barnInstanceId) => update((s) => {
+  const n = upgradeAnimalYield(s, animalId, instanceId, barnInstanceId);
   if (n === s) notify("Not enough cash.");
   return n;
 }), [update, notify]);
@@ -577,8 +582,8 @@ const handleBuildBarnBuilding = useCallback((buildingId) => update((s) => {
   return n;
 }), [update, notify]);
 
-const handleUpgradeBarnBuilding = useCallback((buildingId) => update((s) => {
-  const n = upgradeBarnBuilding(s, buildingId);
+const handleUpgradeBarnBuilding = useCallback((buildingId, instanceId) => update((s) => {
+  const n = upgradeBarnBuilding(s, buildingId, instanceId);
   if (n === s) notify("Not enough cash.");
   return n;
 }), [update, notify]);

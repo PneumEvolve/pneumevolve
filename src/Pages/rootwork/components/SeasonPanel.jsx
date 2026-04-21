@@ -67,17 +67,17 @@ function FarmChecklist({ farm, game }) {
   );
 }
  
-function BarnChecklist({ buildingId, game }) {
-  const def = BARN_BUILDINGS[buildingId];
-  const workers = (game.barnWorkers ?? []).filter((w) => w.animalType === def?.animalType);
-  const hasWorker = workers.length >= PRESTIGE_MIN_BARN_WORKERS;
-  const animals = (game.animals?.[def?.animalType] ?? []).length;
+function BarnChecklist({ barnInstance, game, label }) {
+  const def = BARN_BUILDINGS[barnInstance.buildingType];
+  const workers = (barnInstance.barnWorkers ?? []).length;
+  const hasWorker = workers >= PRESTIGE_MIN_BARN_WORKERS;
+  const animals = (barnInstance.animals ?? []).length;
   const hasAnimals = animals >= PRESTIGE_MIN_BARN_ANIMALS;
   const ready = hasWorker && hasAnimals;
   return (
     <div style={{ padding: "0.75rem 0", borderBottom: "1px solid var(--border)", fontSize: "0.82rem" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
-        <span style={{ fontWeight: 600 }}>{def?.emoji} {def?.name}</span>
+        <span style={{ fontWeight: 600 }}>{def?.emoji} {label}</span>
         <span style={{
           fontSize: "0.7rem", fontWeight: 700, padding: "0.2rem 0.55rem", borderRadius: "999px",
           background: ready ? "rgba(74,222,128,0.15)" : "rgba(245,158,11,0.15)",
@@ -90,7 +90,7 @@ function BarnChecklist({ buildingId, game }) {
       <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.75rem", color: hasWorker ? "#4ade80" : "var(--muted)" }}>
           <span>{hasWorker ? "☑" : "☐"}</span>
-          <span>At least 1 barn worker assigned <span style={{ opacity: 0.7 }}>({workers.length}/{PRESTIGE_MIN_BARN_WORKERS})</span></span>
+          <span>At least 1 barn worker assigned <span style={{ opacity: 0.7 }}>({workers}/{PRESTIGE_MIN_BARN_WORKERS})</span></span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.75rem", color: hasAnimals ? "#4ade80" : "var(--muted)" }}>
           <span>{hasAnimals ? "☑" : "☐"}</span>
@@ -178,7 +178,7 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
       </div>
  
       {/* Barn readiness checklist — seasons 4-6 (season-specific barn) and season 7+ (all barns) */}
-      {game.season >= 4 && Object.entries(game.barnBuildings ?? {}).some(([, b]) => b.built) && (
+      {game.season >= 4 && (game.barnInstances ?? []).length > 0 && (
         <div className="card p-4" style={{ marginBottom: "1rem" }}>
           <h3 style={{ fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.25rem" }}>Barn Readiness</h3>
           <p style={{ fontSize: "0.7rem", color: "var(--muted)", marginBottom: "0.5rem" }}>
@@ -186,9 +186,13 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
               ? "Each built barn needs at least one worker assigned."
               : "Automate your barn by hiring at least one barn worker."}
           </p>
-          {BARN_BUILDING_ORDER.filter((id) => game.barnBuildings?.[id]?.built).map((id) => (
-            <BarnChecklist key={id} buildingId={id} game={game} />
-          ))}
+          {(game.barnInstances ?? []).map((inst, idx) => {
+            const sameTypeBefore = (game.barnInstances ?? []).slice(0, idx).filter(i => i.buildingType === inst.buildingType).length;
+            const def = BARN_BUILDINGS[inst.buildingType];
+            const typeInstances = (game.barnInstances ?? []).filter(i => i.buildingType === inst.buildingType);
+            const label = typeInstances.length > 1 ? `${def?.name} ${sameTypeBefore + 1}` : def?.name;
+            return <BarnChecklist key={inst.id} barnInstance={inst} game={game} label={label} />;
+          })}
         </div>
       )}
  
