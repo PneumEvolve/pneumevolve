@@ -259,9 +259,12 @@ function SeasonUnlockModal({ game, onUnlockFarm, onUnlockBarn }) {
   const farmCost = 300 + (game.extraFarmsUnlocked ?? 0) * 200;
   const cash = game.cash ?? 0;
   const canAffordFarm = cash >= farmCost;
-  const availableBarns = BARN_BUILDING_ORDER.filter((id) => !(game.barnBuildings?.[id]?.built));
-  const existingCrops = (game.farms ?? []).map((f) => f.crop);
-  const availableCrops = EXTRA_FARM_CROPS.filter((c) => !existingCrops.includes(c));
+
+  // Season 7+ should always offer a real choice.
+  // Barns can already spawn duplicate instances in the engine,
+  // and farms should also be allowed to repeat crops once all three exist.
+  const availableBarns = BARN_BUILDING_ORDER;
+  const availableCrops = EXTRA_FARM_CROPS;
   const canConfirm = choice === "farm" ? (selectedCrop && canAffordFarm) : choice === "barn" ? selectedBarn != null : false;
 
   function handleConfirm() {
@@ -278,7 +281,7 @@ function SeasonUnlockModal({ game, onUnlockFarm, onUnlockBarn }) {
         </p>
         <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
           {["farm", "barn"].map((opt) => {
-            
+            const disabled = opt === "farm" ? availableCrops.length === 0 : availableBarns.length === 0;
             return (
               <button key={opt} onClick={() => !disabled && setChoice(opt)} disabled={disabled} style={{
                 flex: 1, padding: "0.65rem", borderRadius: "8px", cursor: disabled ? "default" : "pointer",
@@ -288,7 +291,7 @@ function SeasonUnlockModal({ game, onUnlockFarm, onUnlockBarn }) {
                 fontWeight: choice === opt ? 700 : 400, fontSize: "0.82rem", opacity: disabled ? 0.4 : 1,
               }}>
                 {opt === "farm" ? "🌾 New Farm" : "🐄 New Barn"}
-                {disabled && <div style={{ fontSize: "0.6rem", color: "var(--muted)" }}>{opt === "farm" ? "All crops unlocked" : "All barns built"}</div>}
+                {disabled && <div style={{ fontSize: "0.6rem", color: "var(--muted)" }}>Unavailable</div>}
               </button>
             );
           })}
@@ -308,7 +311,7 @@ function SeasonUnlockModal({ game, onUnlockFarm, onUnlockBarn }) {
                   border: `2px solid ${sel ? "var(--accent)" : "var(--border)"}`,
                 }}>
                   <div style={{ fontWeight: 600, fontSize: "0.85rem" }}>{crop.emoji} {crop.name}{sel && <span style={{ marginLeft: "0.5rem", color: "var(--accent)", fontSize: "0.72rem" }}>✓</span>}</div>
-                  <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginTop: "0.1rem" }}>Grows in {crop.growTime}s · {crop.workerYield} per worker harvest</div>
+                  <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginTop: "0.1rem" }}>Grows in {crop.growTime}s · {crop.workerYield} per worker harvest · adds another {crop.name.toLowerCase()} farm</div>
                 </button>
               );
             })}
@@ -327,7 +330,7 @@ function SeasonUnlockModal({ game, onUnlockFarm, onUnlockBarn }) {
                   border: `2px solid ${sel ? "var(--accent)" : "var(--border)"}`,
                 }}>
                   <div style={{ fontWeight: 600, fontSize: "0.85rem" }}>{def.emoji} {def.name}{sel && <span style={{ marginLeft: "0.5rem", color: "var(--accent)", fontSize: "0.72rem" }}>✓</span>}</div>
-                  <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginTop: "0.1rem" }}>Raises {def.animalType}s · $${def.upkeepPerAnimalPerSec}/animal/s upkeep</div>
+                  <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginTop: "0.1rem" }}>Raises {def.animalType}s · $${def.upkeepPerAnimalPerSec}/animal/s upkeep · builds a new instance even if one already exists</div>
                 </button>
               );
             })}
