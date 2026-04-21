@@ -677,6 +677,7 @@ export default function ProcessingZone({
   onUpgradePlot,
   onCancelKitchenWorkerRecipe,
   onToggleKitchenWorkerAutoRestart,
+  onSetBatchOverride,
   onBuyFeast,
   onApplyFishMeal,
 }) {

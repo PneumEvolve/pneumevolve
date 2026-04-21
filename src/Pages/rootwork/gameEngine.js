@@ -2850,15 +2850,19 @@ export function beginPrestige(state, _unused, keptWorkerIds) {
     const kw = next.kitchenWorkers.find((w) => w.id === keptWorkerId);
     const mw = next.marketWorkers.find((w) => w.id === keptWorkerId);
     const bw = next.barnWorkers.find((w) => w.id === keptWorkerId);
+
     // Fisher workers use "fisher_<bodyId>" as their keepId
     const fisherBodyId = keptWorkerId.startsWith("fisher_") ? keptWorkerId.slice(7) : null;
     const fisherBody = fisherBodyId ? next.fishing?.bodies?.[fisherBodyId] : null;
+
     if (fw) previousKeptWorkers.push(makeKeptWorker(fw, "farm"));
     else if (kw) previousKeptWorkers.push(makeKeptWorker(kw, "kitchen"));
     else if (mw) previousKeptWorkers.push(makeKeptWorker(mw, "market"));
     else if (bw) previousKeptWorkers.push(makeKeptWorker(bw, "barn"));
     else if (fisherBody?.worker?.hired) {
-      previousKeptWorkers.push(makeKeptWorker({ ...fisherBody.worker, bodyId: fisherBodyId, id: keptWorkerId }, "fisher"));
+      previousKeptWorkers.push(
+        makeKeptWorker({ ...fisherBody.worker, bodyId: fisherBodyId, id: keptWorkerId }, "fisher")
+      );
     }
   }
   next.keptWorkers = previousKeptWorkers;
@@ -2868,11 +2872,19 @@ export function beginPrestige(state, _unused, keptWorkerIds) {
   next.kitchenWorkers = [];
   next.marketWorkers = [];
   next.barnWorkers = [];
-  // Clear per-instance animals and workers (barn buildings/instances themselves persist)
+
+  // Keep animals, only clear barn workers from each instance
   for (const inst of next.barnInstances ?? []) {
-    inst.animals = [];
     inst.barnWorkers = [];
   }
+
+  // Keep legacy root animal arrays in sync with barn instances
+  for (const animalId of Object.keys(next.animals ?? {})) {
+    next.animals[animalId] = (next.barnInstances ?? [])
+      .filter((i) => BARN_BUILDINGS[i.buildingType]?.animalType === animalId)
+      .flatMap((i) => i.animals ?? []);
+  }
+
   // Fire all fishing workers (bodies stay unlocked)
   for (const bodyId of Object.keys(next.fishing?.bodies ?? {})) {
     if (next.fishing.bodies[bodyId]?.worker?.hired) {
@@ -2900,7 +2912,13 @@ export function beginPrestige(state, _unused, keptWorkerIds) {
       next.barnBuildings[barnId].built = true;
       next.barnBuildings[barnId].tier = 1;
       if (!next.barnInstances) next.barnInstances = [];
-      next.barnInstances.push({ id: genId("bi"), buildingType: barnId, tier: 1, animals: [], barnWorkers: [] });
+      next.barnInstances.push({
+        id: genId("bi"),
+        buildingType: barnId,
+        tier: 1,
+        animals: [],
+        barnWorkers: [],
+      });
     }
   } else {
     // Season 7+: player picks farm or barn
@@ -2923,32 +2941,38 @@ export function beginPrestige(state, _unused, keptWorkerIds) {
 
   // grand_opening: satisfaction boosted to 150 for first 3 town pulses
   if (hasPrestigeSkill(next, "grand_opening")) {
+    next.town.satisfaction = 150;
     next.town.grandOpeningPulsesLeft = 3;
-    next.town.satisfaction = Math.min(getSatisfactionCeiling(next), 150);
   }
 
-  // Restore kept workers by type
+  // Rehire kept non-farm workers immediately
   const farmKept = next.keptWorkers.filter((w) => w.keptType === "farm");
   const kitchenKept = next.keptWorkers.filter((w) => w.keptType === "kitchen");
   const marketKept = next.keptWorkers.filter((w) => w.keptType === "market");
   const barnKept = next.keptWorkers.filter((w) => w.keptType === "barn");
   const fisherKept = next.keptWorkers.filter((w) => w.keptType === "fisher");
 
-  for (const kw of kitchenKept) { if (isAtWorkerCap(next)) break; next.kitchenWorkers.push({ ...kw }); }
-  for (const kw of marketKept) { if (isAtWorkerCap(next)) break; next.marketWorkers.push({ ...kw }); }
+  for (const kw of kitchenKept) {
+    if (isAtWorkerCap(next)) break;
+    next.kitchenWorkers.push({ ...kw });
+  }
+
+  for (const kw of marketKept) {
+    if (isAtWorkerCap(next)) break;
+    next.marketWorkers.push({ ...kw });
+  }
+
   for (const kw of barnKept) {
     if (isAtWorkerCap(next)) break;
-    // Find first instance matching this worker's animalType
-    const targetInst = (next.barnInstances ?? []).find(i => {
-      const def = BARN_BUILDINGS[i.buildingType];
-      return def?.animalType === kw.animalType;
-    });
-    const worker = { ...kw, collectTimer: 0, careTimer: 0 };
-    next.barnWorkers.push(worker); // keep root list for worker cap counting
-    if (targetInst) targetInst.barnWorkers.push(worker);
+    next.barnWorkers.push({ ...kw });
+    const targetInst = (next.barnInstances ?? []).find((i) => i.id === kw.instanceId);
+    if (targetInst) {
+      if (!targetInst.barnWorkers) targetInst.barnWorkers = [];
+      targetInst.barnWorkers.push({ ...kw });
+    }
   }
+
   for (const kw of fisherKept) {
-    if (isAtWorkerCap(next)) break;
     const body = next.fishing?.bodies?.[kw.bodyId];
     if (body?.unlocked && !body.worker?.hired) {
       next.fishing.bodies[kw.bodyId].worker = { ...kw, hired: true, timer: 0 };
