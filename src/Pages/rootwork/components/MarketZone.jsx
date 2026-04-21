@@ -33,7 +33,7 @@ const SELLABLE_ITEMS = [
   { type: "omelette",      label: "Omelette",       emoji: "🍳", isCrop: false,  isAnimal: true,  isFish: false },
   { type: "cheese",        label: "Cheese",         emoji: "🧀", isCrop: false,  isAnimal: true,  isFish: false },
   { type: "knitted_goods", label: "Knitted Goods",  emoji: "🧥", isCrop: false,  isAnimal: true,  isFish: false },
-  { type: "minnow", label: "Minnow",    emoji: "🐟", isCrop: false, isAnimal: false, isFish: true },
+  { type: "minnow", label: "Minnow",    emoji: "🎣", isCrop: false, isAnimal: false, isFish: true },
   { type: "bass",   label: "Bass",      emoji: "🐠", isCrop: false, isAnimal: false, isFish: true },
   { type: "perch",  label: "Perch",     emoji: "🐡", isCrop: false, isAnimal: false, isFish: true },
   { type: "rare",   label: "Rare Fish", emoji: "✨", isCrop: false, isAnimal: false, isFish: true },

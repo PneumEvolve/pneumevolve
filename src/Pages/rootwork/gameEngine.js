@@ -2537,6 +2537,16 @@ export function upgradeBarnWorker(state, workerId, upgradeId) {
 
   next.cash -= upgrade.cost;
   worker.upgrades = [...(worker.upgrades ?? []), upgradeId];
+
+  // Also update the worker inside its barnInstance (both arrays must stay in sync)
+  for (const inst of next.barnInstances ?? []) {
+    const instWorker = (inst.barnWorkers ?? []).find((w) => w.id === workerId);
+    if (instWorker) {
+      instWorker.upgrades = [...worker.upgrades];
+      break;
+    }
+  }
+
   return next;
 }
 
