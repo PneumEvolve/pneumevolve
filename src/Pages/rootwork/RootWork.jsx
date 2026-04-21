@@ -278,7 +278,7 @@ function SeasonUnlockModal({ game, onUnlockFarm, onUnlockBarn }) {
         </p>
         <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
           {["farm", "barn"].map((opt) => {
-            const disabled = opt === "farm" ? availableCrops.length === 0 : availableBarns.length === 0;
+            
             return (
               <button key={opt} onClick={() => !disabled && setChoice(opt)} disabled={disabled} style={{
                 flex: 1, padding: "0.65rem", borderRadius: "8px", cursor: disabled ? "default" : "pointer",
