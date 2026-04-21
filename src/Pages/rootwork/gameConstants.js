@@ -414,6 +414,7 @@ export const SEASON_BARNS = { 4: "chicken_coop", 5: "dairy", 6: "wool_shed" };
 export const FIRST_EXTRA_FARM_SEASON = 4;
 export const FIRST_CHOICE_SEASON = 7; // season 7+ player picks farm or barn each prestige
 export const PRESTIGE_MIN_BARN_WORKERS = 1; // each built barn needs at least this many workers
+export const PRESTIGE_MIN_BARN_ANIMALS = 2; // each built barn needs at least this many animals
 export const MAX_SEASON = 999;
  
 // ─── Save config ──────────────────────────────────────────────────────────────

@@ -15,7 +15,7 @@ import {
   KITCHEN_WORKER_UPGRADES, KITCHEN_WORKER_UPGRADE_ORDER,
   getPrestigeCashThreshold, getFarmUnlockCost, EXTRA_FARM_CROPS,
   FARM_INVESTMENT_PLOT_CAP, FARM_INVESTMENT_YIELD,
-  SEASON_BARNS, FIRST_CHOICE_SEASON, PRESTIGE_MIN_BARN_WORKERS,
+  SEASON_BARNS, FIRST_CHOICE_SEASON, PRESTIGE_MIN_BARN_WORKERS, PRESTIGE_MIN_BARN_ANIMALS,
   FISHING_WORKER_HIRE_COSTS,
   MARKET_WORKER_STANDING_ORDER_COST,
   TOWN_HOME_CAPACITY, TOWN_HOME_SECOND_COST, TOWN_HOME_COST_MULTIPLIER,
@@ -2672,8 +2672,11 @@ function makeKeptWorker(worker, type) {
 export function getBarnPrestigeReady(state) {
   for (const [buildingId, b] of Object.entries(state.barnBuildings ?? {})) {
     if (!b.built) continue;
-    const workers = (state.barnWorkers ?? []).filter((w) => w.animalType === BARN_BUILDINGS[buildingId]?.animalType);
+    const def = BARN_BUILDINGS[buildingId];
+    const workers = (state.barnWorkers ?? []).filter((w) => w.animalType === def?.animalType);
     if (workers.length < PRESTIGE_MIN_BARN_WORKERS) return false;
+    const animals = (state.animals?.[def?.animalType] ?? []).length;
+    if (animals < PRESTIGE_MIN_BARN_ANIMALS) return false;
   }
   return true;
 }
@@ -2691,13 +2694,15 @@ export function canPrestige(state) {
   for (const farm of farmsToCheck) {
     if (!isFarmPrestigeReady(farm, state.workers, state)) return false;
   }
-  // Seasons 4-6: the season's specific barn must have at least 1 worker
+  // Seasons 4-6: the season's specific barn must have at least 1 worker and 2 animals
   if (state.season >= 4 && state.season <= 6) {
     const barnId = SEASON_BARNS[state.season];
     if (barnId && state.barnBuildings?.[barnId]?.built) {
       const def = BARN_BUILDINGS[barnId];
       const workers = (state.barnWorkers ?? []).filter((w) => w.animalType === def?.animalType);
       if (workers.length < PRESTIGE_MIN_BARN_WORKERS) return false;
+      const animals = (state.animals?.[def?.animalType] ?? []).length;
+      if (animals < PRESTIGE_MIN_BARN_ANIMALS) return false;
     }
   }
   if (state.season >= FIRST_CHOICE_SEASON && !getBarnPrestigeReady(state)) return false;
@@ -2729,6 +2734,10 @@ export function getPrestigeBlockers(state) {
       if (workers.length < PRESTIGE_MIN_BARN_WORKERS) {
         blockers.push(`${def?.emoji ?? "🐄"} ${def?.name ?? barnId}: needs at least 1 barn worker`);
       }
+      const animals = (state.animals?.[def?.animalType] ?? []).length;
+      if (animals < PRESTIGE_MIN_BARN_ANIMALS) {
+        blockers.push(`${def?.emoji ?? "🐄"} ${def?.name ?? barnId}: needs at least ${PRESTIGE_MIN_BARN_ANIMALS} animals (have ${animals})`);
+      }
     }
   }
   if (state.season >= FIRST_CHOICE_SEASON) {
@@ -2738,6 +2747,10 @@ export function getPrestigeBlockers(state) {
       const workers = (state.barnWorkers ?? []).filter((w) => w.animalType === def?.animalType);
       if (workers.length < PRESTIGE_MIN_BARN_WORKERS) {
         blockers.push(`${def?.emoji ?? "🐄"} ${def?.name ?? buildingId}: needs at least 1 barn worker`);
+      }
+      const animals = (state.animals?.[def?.animalType] ?? []).length;
+      if (animals < PRESTIGE_MIN_BARN_ANIMALS) {
+        blockers.push(`${def?.emoji ?? "🐄"} ${def?.name ?? buildingId}: needs at least ${PRESTIGE_MIN_BARN_ANIMALS} animals (have ${animals})`);
       }
     }
   }

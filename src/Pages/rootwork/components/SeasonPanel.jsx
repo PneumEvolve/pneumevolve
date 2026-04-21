@@ -4,7 +4,7 @@ import React from "react";
 import {
   CROPS, SEASON_FARMS, PRESTIGE_SKILL_TREE,
   FIRST_EXTRA_FARM_SEASON, FIRST_CHOICE_SEASON,
-  getPrestigeCashThreshold, PRESTIGE_MIN_PLOTS, PRESTIGE_MIN_BARN_WORKERS,
+  getPrestigeCashThreshold, PRESTIGE_MIN_PLOTS, PRESTIGE_MIN_BARN_WORKERS, PRESTIGE_MIN_BARN_ANIMALS,
   BARN_BUILDINGS, BARN_BUILDING_ORDER,
   TOWN_HALL_LEVEL_COSTS,
 } from "../gameConstants";
@@ -72,7 +72,8 @@ function BarnChecklist({ buildingId, game }) {
   const workers = (game.barnWorkers ?? []).filter((w) => w.animalType === def?.animalType);
   const hasWorker = workers.length >= PRESTIGE_MIN_BARN_WORKERS;
   const animals = (game.animals?.[def?.animalType] ?? []).length;
-  const ready = hasWorker;
+  const hasAnimals = animals >= PRESTIGE_MIN_BARN_ANIMALS;
+  const ready = hasWorker && hasAnimals;
   return (
     <div style={{ padding: "0.75rem 0", borderBottom: "1px solid var(--border)", fontSize: "0.82rem" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
@@ -83,7 +84,7 @@ function BarnChecklist({ buildingId, game }) {
           border: `1px solid ${ready ? "#4ade80" : "#f59e0b"}`,
           color: ready ? "#166534" : "#92400e",
         }}>
-          {ready ? "✓ Ready" : "Needs worker"}
+          {ready ? "✓ Ready" : "Not ready"}
         </span>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
@@ -91,9 +92,9 @@ function BarnChecklist({ buildingId, game }) {
           <span>{hasWorker ? "☑" : "☐"}</span>
           <span>At least 1 barn worker assigned <span style={{ opacity: 0.7 }}>({workers.length}/{PRESTIGE_MIN_BARN_WORKERS})</span></span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.75rem", color: "var(--muted)" }}>
-          <span>ℹ</span>
-          <span>{animals} {def?.animalType ?? "animal"}{animals !== 1 ? "s" : ""} in barn</span>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.75rem", color: hasAnimals ? "#4ade80" : "var(--muted)" }}>
+          <span>{hasAnimals ? "☑" : "☐"}</span>
+          <span>At least {PRESTIGE_MIN_BARN_ANIMALS} animals in barn <span style={{ opacity: 0.7 }}>({animals}/{PRESTIGE_MIN_BARN_ANIMALS})</span></span>
         </div>
       </div>
     </div>
