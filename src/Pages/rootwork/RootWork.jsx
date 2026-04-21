@@ -528,20 +528,19 @@ export default function RootWork() {
   const handleFireBarnWorker = useCallback((workerId) => update((s) => fireBarnWorker(s, workerId)), [update]);
   const handleReassignBarnWorker = useCallback((workerId, animalType) => update((s) => reassignBarnWorker(s, workerId, animalType)), [update]);
   const handleUpgradeBarnWorker = useCallback((workerId, upgradeId) => update((s) => {
-  if (!worker || !upgradeId) {
-  console.error("Invalid upgrade call:", { worker, upgradeId });
+  if (!workerId || !upgradeId) {
+  console.error("Invalid upgrade call:", { workerId, upgradeId });
   notify("Upgrade failed — invalid data");
   return;
 }
 
-const next = upgradeBarnWorker(state, worker.id, upgradeId);
+const next = upgradeBarnWorker(state, workerId, upgradeId);
 
 if (next === state) {
   console.warn("Upgrade blocked:", {
-    worker,
+    workerId,
     upgradeId,
-    upgrades: worker.upgrades,
-    cash: state.cash,
+    cash: state.cash
   });
   notify("Upgrade blocked — see console");
 }
