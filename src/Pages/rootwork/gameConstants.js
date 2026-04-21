@@ -433,7 +433,7 @@ export const FISHING_BODIES = {
 export const FISHING_BODY_ORDER = ["pond", "lake", "river", "ocean"];
 
 export const FISHING_FISH = {
-  minnow: { id: "minnow", name: "Minnow",   emoji: "🐟", rawValue: 2  },
+  minnow: { id: "minnow", name: "Minnow",   emoji: "🎣", rawValue: 2  },
   bass:   { id: "bass",   name: "Bass",     emoji: "🐠", rawValue: 8  },
   perch:  { id: "perch",  name: "Perch",    emoji: "🐡", rawValue: 12 },
   rare:   { id: "rare",   name: "Rare Fish", emoji: "✨", rawValue: 35 },

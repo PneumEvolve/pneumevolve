@@ -121,7 +121,7 @@ export default function ResourceBar({ game }) {
       {hasFish && (
         <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
           {[
-            { key: "minnow", emoji: "🐟" },
+            { key: "minnow", emoji: "🎣" },
             { key: "bass",   emoji: "🐠" },
             { key: "perch",  emoji: "🐡" },
             { key: "rare",   emoji: "✨" },
