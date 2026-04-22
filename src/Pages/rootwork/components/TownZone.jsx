@@ -6,6 +6,7 @@ import {
   TOWN_SAUCE_BUILDING_COST, TOWN_SAT_WHEAT, TOWN_SAT_BAKERY,
   TOWN_SAT_BAKERY_JAM, TOWN_SAT_ALL_BUILDINGS, TOWN_HALL_MAX_LEVEL,
   TOWN_HALL_LEVEL_COSTS, TREASURY_TIERS, BUILDING_UPGRADE_COST,
+  INVEST_NOW_CD_SECONDS,
   BUILDING_PULSE_EXTRA_SECONDS, BANK_BUILD_COST, BANK_LEVEL_COSTS,
   BANK_TIERS, BANK_MAX_LEVEL,
   ANIMAL_FOOD_COSTS, PET_FOOD_COST, BREAD_FOOD_UNITS,
@@ -34,6 +35,7 @@ import {
   getRestaurantSatBonus, getRestaurantOmeletteCost, getRestaurantCheeseCost,
   getClothierCashPerPulse, getClothierPulseCost,
   getTownBuildingWorkerCount, getSchoolData, getActiveSchoolResearch, getAvailableSchoolResearch,
+  canInvestNow, getInvestNowCooldownRemaining,
 } from "../gameEngine";
 import SeasonPanel from "./SeasonPanel";
 import StatsPanel from "./StatsPanel";
@@ -200,6 +202,7 @@ export default function TownZone({
   onAssignTownBuildingWorker,
   onToggleTavernMode,
   onStartSchoolResearch,
+  onInvestNow,
 }) {
   const [subTab, setSubTab] = useState("town");
   const town = game.town ?? {};
@@ -225,6 +228,9 @@ export default function TownZone({
   const treasuryGrowBonus = getTreasuryGrowBonus(game);
   const thNextCost = thLevel < TOWN_HALL_MAX_LEVEL ? TOWN_HALL_LEVEL_COSTS[thLevel] : null;
   const canUpgradeTownHall = thNextCost !== null && (game.cash ?? 0) >= thNextCost;
+  const investNowUnlocked = canInvestNow(game);
+  const investNowCdRemaining = Math.ceil(getInvestNowCooldownRemaining(game));
+  const investNowReady = investNowUnlocked && investNowCdRemaining === 0;
  
   const bankBuilt = isBankBuilt(game);
   const bankLevel = getBankLevel(game);
@@ -453,6 +459,43 @@ export default function TownZone({
     colorActive="#f59e0b"
     label="grow"
   />
+  {/* Invest Now */}
+  <div style={{ marginTop: "0.75rem", paddingTop: "0.65rem", borderTop: "1px solid var(--border)" }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" }}>
+      <div style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--muted)" }}>
+        💰 Invest Now
+        {investNowUnlocked && investNowCdRemaining > 0 && (
+          <span style={{ marginLeft: "0.4rem", color: "var(--muted)", fontWeight: 400 }}>
+            ({investNowCdRemaining}s)
+          </span>
+        )}
+      </div>
+      {!investNowUnlocked ? (
+        <span style={{ fontSize: "0.65rem", color: "var(--muted)", opacity: 0.5 }}>🔒 Town Hall 4</span>
+      ) : (
+        <button
+          onClick={onInvestNow}
+          disabled={!investNowReady}
+          style={{
+            fontSize: "0.72rem", fontWeight: 700, padding: "0.25rem 0.75rem",
+            borderRadius: "8px", cursor: investNowReady ? "pointer" : "default",
+            background: investNowReady ? "rgba(74,222,128,0.15)" : "var(--bg)",
+            border: `1px solid ${investNowReady ? "#4ade80" : "var(--border)"}`,
+            color: investNowReady ? "#4ade80" : "var(--muted)",
+            opacity: investNowReady ? 1 : 0.5,
+            transition: "all 0.2s ease",
+          }}
+        >
+          {investNowReady ? `+${Math.floor((game.cash ?? 0) * 0.1).toLocaleString()} →` : `⏳ ${investNowCdRemaining}s`}
+        </button>
+      )}
+    </div>
+    <div style={{ fontSize: "0.65rem", color: "var(--muted)", lineHeight: 1.5 }}>
+      {investNowUnlocked
+        ? "Instantly move 10% of your current cash into treasury. 30s cooldown."
+        : "Unlock at Town Hall level 4 to instantly dump 10% of cash into treasury with a 30s cooldown."}
+    </div>
+  </div>
 
   {/* Treasury cap */}
   {thLevel > 0 && (
@@ -536,7 +579,8 @@ export default function TownZone({
           {thLevel === 0 && "Build the Town Hall with cash to unlock the treasury, treasury drain tiers, prestige, and the Bakery."}
           {thLevel === 1 && "Level 2 unlocks the Pantry and treasury tier 2."}
           {thLevel === 2 && "Level 3 unlocks the Cannery, treasury tier 3, and the Bank."}
-          {thLevel >= 3 && "Fully upgraded. All buildings and treasury tiers available."}
+          {thLevel === 3 && "Level 4 unlocks Invest Now — instantly move 10% of your cash into treasury with a 30s cooldown."}
+          {thLevel >= 4 && "Fully upgraded. All systems unlocked including Invest Now."}
         </div>
         {thNextCost && (
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -549,10 +593,70 @@ export default function TownZone({
           </div>
         )}
         {thLevel >= TOWN_HALL_MAX_LEVEL && (
-          <div style={{ fontSize: "0.7rem", color: "#4ade80", textAlign: "center" }}>✓ Max level</div>
+          <div style={{ fontSize: "0.7rem", color: "#4ade80", textAlign: "center" }}>✓ Max level — Invest Now unlocked</div>
         )}
       </div>
- 
+
+      {/* 🏦 Bank */}
+      {(() => {
+        const bankRequirementsMet = thLevel >= TOWN_HALL_MAX_LEVEL && bakeryLevel >= 1 && jamOwned && sauceOwned;
+        const canAffordBank = treasury >= BANK_BUILD_COST;
+        const canBuyBank = bankRequirementsMet && canAffordBank && !bankBuilt;
+        return (
+          <div className="card p-4" style={{ marginBottom: "1rem", opacity: bankRequirementsMet ? 1 : 0.4 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" }}>
+              <div style={{ fontWeight: 600 }}>🏦 Bank</div>
+              {bankBuilt
+                ? <span style={{ fontSize: "0.65rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "999px", background: "rgba(74,222,128,0.15)", border: "1px solid #4ade80", color: "#4ade80" }}>Level {bankLevel}/{BANK_MAX_LEVEL}</span>
+                : bankRequirementsMet
+                  ? <span style={{ fontSize: "0.65rem", color: canAffordBank ? "#4ade80" : "var(--muted)", fontWeight: 600 }}>${Math.floor(treasury).toLocaleString()} / ${BANK_BUILD_COST.toLocaleString()}</span>
+                  : null
+              }
+            </div>
+            <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.5rem", lineHeight: 1.6 }}>
+              {!bankRequirementsMet
+                ? "Requires Town Hall level 4, Bakery, Pantry, and Cannery."
+                : !bankBuilt
+                  ? "Drains treasury to boost all sell prices. Each level unlocks a higher drain tier."
+                  : bankPriceBonus > 0 ? `Running. +${bankPriceBonus}% sell prices active.` : "Built. Choose a tier to activate price bonus."
+              }
+            </div>
+            {!bankBuilt && (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
+                  Cost: <strong style={{ color: canAffordBank && bankRequirementsMet ? "#4ade80" : "var(--text)" }}>${BANK_BUILD_COST.toLocaleString()} treasury</strong>
+                </div>
+                <button onClick={onBuildBank} disabled={!canBuyBank} className="btn" style={{ opacity: canBuyBank ? 1 : 0.5 }}>
+                  Build Bank
+                </button>
+              </div>
+            )}
+            {bankBuilt && (
+              <>
+                <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem", fontWeight: 600 }}>Active tier (drains treasury):</div>
+                <TierPicker
+                  tiers={BANK_TIERS}
+                  activeTier={activeBankTier}
+                  maxTier={bankLevel}
+                  onSelect={onSetActiveBankTier}
+                  colorActive="#60a5fa"
+                  label="price"
+                />
+                {bankNextLevelCost && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.6rem" }}>
+                    <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
+                      Upgrade: <strong style={{ color: canUpgradeBankBuilding ? "#4ade80" : "var(--text)" }}>${bankNextLevelCost.toLocaleString()} treasury</strong>
+                    </div>
+                    <button onClick={onUpgradeBank} disabled={!canUpgradeBankBuilding} className="btn" style={{ opacity: canUpgradeBankBuilding ? 1 : 0.5, fontSize: "0.75rem" }}>Upgrade →</button>
+                  </div>
+                )}
+                {bankLevel >= BANK_MAX_LEVEL && <div style={{ fontSize: "0.7rem", color: "#4ade80", marginTop: "0.4rem", textAlign: "center" }}>✓ Max level</div>}
+              </>
+            )}
+          </div>
+        );
+      })()}
+
       <div className="card p-4" style={{ marginBottom: "1rem" }}>
         <div style={{ fontWeight: 600, marginBottom: "0.5rem", fontSize: "0.85rem" }}>
           {foodEmoji} Food Pulse
@@ -735,49 +839,6 @@ export default function TownZone({
             {!sauceOwned && <button onClick={onBuySauceBuilding} disabled={!canBuySauce} className="btn" style={{ opacity: canBuySauce ? 1 : 0.5 }}>Build Cannery</button>}
           </div>
         </div>
-      </div>
- 
-      {/* Bank */}
-      <div className="card p-4" style={{ marginBottom: "1rem", opacity: thLevel >= TOWN_HALL_MAX_LEVEL && jamOwned && sauceOwned && bakeryLevel >= 1 ? 1 : 0.4 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" }}>
-          <div style={{ fontWeight: 600 }}>🏦 Bank</div>
-          {bankBuilt && <span style={{ fontSize: "0.65rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "999px", background: "rgba(74,222,128,0.15)", border: "1px solid #4ade80", color: "#4ade80" }}>Level {bankLevel}/{BANK_MAX_LEVEL}</span>}
-        </div>
-        <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.5rem", lineHeight: 1.6 }}>
-          {thLevel < TOWN_HALL_MAX_LEVEL || !jamOwned || !sauceOwned || bakeryLevel < 1
-            ? "Requires Town Hall level 3, Bakery, Pantry, and Cannery."
-            : !bankBuilt
-              ? `Build to unlock sell price bonuses. Drain treasury to run. Build cost: $${BANK_BUILD_COST.toLocaleString()}.`
-              : bankPriceBonus > 0 ? `Running. +${bankPriceBonus}% sell prices active.` : "Built. Choose a tier to activate price bonus."
-          }
-        </div>
-        {bankBuilt && (
-          <>
-            <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem", fontWeight: 600 }}>Active tier (drains treasury):</div>
-            <TierPicker
-              tiers={BANK_TIERS}
-              activeTier={activeBankTier}
-              maxTier={bankLevel}
-              onSelect={onSetActiveBankTier}
-              colorActive="#60a5fa"
-              label="price"
-            />
-            {bankNextLevelCost && (
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.6rem" }}>
-                <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
-                  Upgrade: <strong style={{ color: canUpgradeBankBuilding ? "#4ade80" : "var(--text)" }}>${bankNextLevelCost.toLocaleString()} treasury</strong>
-                </div>
-                <button onClick={onUpgradeBank} disabled={!canUpgradeBankBuilding} className="btn" style={{ opacity: canUpgradeBankBuilding ? 1 : 0.5, fontSize: "0.75rem" }}>Upgrade →</button>
-              </div>
-            )}
-            {bankLevel >= BANK_MAX_LEVEL && <div style={{ fontSize: "0.7rem", color: "#4ade80", marginTop: "0.4rem", textAlign: "center" }}>✓ Max level</div>}
-          </>
-        )}
-        {!bankBuilt && canBuildBank(game) && (
-          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "0.4rem" }}>
-            <button onClick={onBuildBank} className="btn">Build Bank</button>
-          </div>
-        )}
       </div>
  
       </CollapsibleCard>
@@ -1150,7 +1211,7 @@ export default function TownZone({
             ? "Requires School."
             : !woolShedBuilt
             ? "Requires Wool Shed."
-            : `Clerks sell knitted goods directly to the town for cash (${CLOTHIER_CASH_PER_CLERK}/clerk/pulse). Consumes knitted goods each pulse.`}
+            : `Clerks sell knitted goods directly to town for a price premium ($${CLOTHIER_CASH_PER_CLERK}/clerk/pulse). Consumes knitted goods each pulse.`}
         </div>
         {clothierBuilt && (
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>

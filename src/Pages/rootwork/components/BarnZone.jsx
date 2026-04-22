@@ -815,31 +815,55 @@ export default function BarnZone({
         </div>
       )}
  
-      {/* Scrollable barn instance tab bar */}
-      <BarnSubTabs
-        instances={visibleInstances}
-        activeInstanceId={activeInstance?.id}
-        onTabChange={setActiveInstanceId}
-      />
- 
-      {/* Active instance panel */}
-      {activeInstance && (
-        <BuildingTab
-          key={activeInstance.id}
-          barnInstance={activeInstance}
-          game={game}
-          onBuyAnimal={onBuyAnimal}
-          onCollectAnimal={onCollectAnimal}
-          onInteractAnimal={onInteractAnimal}
-          onUpgradeAnimalStorage={onUpgradeAnimalStorage}
-          onUpgradeAnimalYield={onUpgradeAnimalYield}
-          onHireBarnWorker={onHireBarnWorker}
-          onFireBarnWorker={onFireBarnWorker}
-          onUpgradeBarnWorker={onUpgradeBarnWorker}
-          onBuildBarnBuilding={onBuildBarnBuilding}
-          onUpgradeBarnBuilding={onUpgradeBarnBuilding}
-          onCollectAll={onCollectAll}
-        />
+      {/* No barns unlocked yet — show locked preview */}
+      {visibleInstances.length === 0 ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
+          <div style={{ fontSize: "0.72rem", color: "var(--muted)", textAlign: "center", marginBottom: "0.25rem" }}>
+            🔒 Barns unlock starting Season 4
+          </div>
+          {BARN_BUILDING_ORDER.map((id) => {
+            const def = BARN_BUILDINGS[id];
+            return (
+              <div key={id} style={{
+                background: "var(--bg-elev)", border: "1px solid var(--border)",
+                borderRadius: "14px", padding: "1.25rem 1rem", textAlign: "center", opacity: 0.5,
+              }}>
+                <div style={{ fontSize: "2.5rem", marginBottom: "0.4rem" }}>{def.emoji}</div>
+                <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "var(--text)", marginBottom: "0.2rem" }}>{def.name}</div>
+                <div style={{ fontSize: "0.72rem", color: "var(--muted)" }}>🔒 Next Barn Unlocks Season {def.unlockSeason}</div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <>
+          {/* Scrollable barn instance tab bar */}
+          <BarnSubTabs
+            instances={visibleInstances}
+            activeInstanceId={activeInstance?.id}
+            onTabChange={setActiveInstanceId}
+          />
+
+          {/* Active instance panel */}
+          {activeInstance && (
+            <BuildingTab
+              key={activeInstance.id}
+              barnInstance={activeInstance}
+              game={game}
+              onBuyAnimal={onBuyAnimal}
+              onCollectAnimal={onCollectAnimal}
+              onInteractAnimal={onInteractAnimal}
+              onUpgradeAnimalStorage={onUpgradeAnimalStorage}
+              onUpgradeAnimalYield={onUpgradeAnimalYield}
+              onHireBarnWorker={onHireBarnWorker}
+              onFireBarnWorker={onFireBarnWorker}
+              onUpgradeBarnWorker={onUpgradeBarnWorker}
+              onBuildBarnBuilding={onBuildBarnBuilding}
+              onUpgradeBarnBuilding={onUpgradeBarnBuilding}
+              onCollectAll={onCollectAll}
+            />
+          )}
+        </>
       )}
     </div>
   );

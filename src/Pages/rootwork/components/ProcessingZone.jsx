@@ -20,7 +20,7 @@ import {
   isTownBuildingBuilt,
 } from "../gameEngine";
  
-const RECIPE_LIST = ["bread", "jam", "sauce", "omelette", "cheese", "knitted_goods", "fish_pie", "smoked_fish", "fish_meal"];
+const RECIPE_LIST = ["bread", "jam", "sauce", "omelette", "cheese", "knitted_goods", "fish_pie", "smoked_fish", "fish_meal", "fish_meal_bass"];
 const BAIT_RECIPE_LIST = ["wheat_bait", "berry_bait", "tomato_bait"];
 const SPEED_UPGRADES = ["speed_1", "auto_restart", "speed_2" ];
 const BATCH_UPGRADES = ["batch_2", "batch_5", "batch_10"];
@@ -469,8 +469,6 @@ function FishMealPanel({ game, onApplyFishMeal }) {
   const activeSeconds = stack?.secondsLeft ?? 0;
   const MAX_SECONDS = 4 * 60 * 60;
 
-  if (fishMealCount === 0 && !stack) return null;
-
   const hoursLeft = Math.floor(activeSeconds / 3600);
   const minsLeft = Math.floor((activeSeconds % 3600) / 60);
   const timeStr = hoursLeft > 0 ? `${hoursLeft}h ${minsLeft}m` : `${minsLeft}m`;
@@ -499,19 +497,25 @@ function FishMealPanel({ game, onApplyFishMeal }) {
         </div>
       )}
 
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
-          In stock: <strong style={{ color: fishMealCount > 0 ? "var(--text)" : "var(--muted)" }}>{fishMealCount} 🌿</strong>
+      {fishMealCount === 0 && !stack ? (
+        <div style={{ fontSize: "0.72rem", color: "var(--muted)", padding: "0.3rem 0" }}>
+          Craft Fish Meal in the recipe list above — minnows ×5 or bass ×3. Each dose adds +10% grow speed.
         </div>
-        <button
-          onClick={onApplyFishMeal}
-          disabled={fishMealCount < 1}
-          className="btn btn-secondary"
-          style={{ fontSize: "0.7rem", padding: "0.25rem 0.7rem", opacity: fishMealCount >= 1 ? 1 : 0.4 }}
-        >
-          Apply dose
-        </button>
-      </div>
+      ) : (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
+            In stock: <strong style={{ color: fishMealCount > 0 ? "var(--text)" : "var(--muted)" }}>{fishMealCount} 🌿</strong>
+          </div>
+          <button
+            onClick={onApplyFishMeal}
+            disabled={fishMealCount < 1}
+            className="btn btn-secondary"
+            style={{ fontSize: "0.7rem", padding: "0.25rem 0.7rem", opacity: fishMealCount >= 1 ? 1 : 0.4 }}
+          >
+            Apply dose
+          </button>
+        </div>
+      )}
       {activeSeconds > 0 && (
         <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginTop: "0.35rem" }}>
           Each dose adds 10 min · max 4h stored

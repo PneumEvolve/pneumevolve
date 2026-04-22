@@ -42,7 +42,7 @@ const SELLABLE_ITEMS = [
   { type: "fish_meal",     label: "Fish Meal",      emoji: "🌿", isCrop: false,  isAnimal: true, isFish: false  },
 ];
  
-const SELL_AMOUNTS = [1, 10, 50, 100, "All"];
+const SELL_AMOUNTS = [1, 10, 50, 100, "All", "Custom"];
  
 function SmartSellButton({ game, itemType, onAssign }) {
   const smartQty = getSmartSellAmount(game, itemType);
@@ -99,6 +99,7 @@ function MarketWorkerCard({
 }) {
   const [selectedItem, setSelectedItem] = useState(null);
   const [selectedAmount, setSelectedAmount] = useState(10);
+  const [customAmount, setCustomAmount] = useState("");
   const [showStandingOrderPicker, setShowStandingOrderPicker] = useState(false);
   const [confirmFire, setConfirmFire] = useState(false);
  
@@ -124,10 +125,18 @@ function MarketWorkerCard({
     : item.isFish
       ? (game.fishing?.fish?.[item.type] ?? 0)
       : (game.artisan[item.type] ?? 0);
-    const qty = selectedAmount === "All" ? have : Math.min(selectedAmount, have);
+    let qty;
+    if (selectedAmount === "All") {
+      qty = have;
+    } else if (selectedAmount === "Custom") {
+      qty = Math.min(Math.max(1, parseInt(customAmount, 10) || 0), have);
+    } else {
+      qty = Math.min(selectedAmount, have);
+    }
     if (qty <= 0) return;
     onAssign(worker.id, selectedItem, qty);
     setSelectedItem(null);
+    setCustomAmount("");
   }
  
   return (
@@ -298,6 +307,43 @@ function MarketWorkerCard({
                   </button>
                 </div>
               )}
+
+              {/* Pull speed limit — only relevant for standing orders */}
+              <div style={{ marginTop: "0.5rem", paddingTop: "0.5rem", borderTop: "1px solid rgba(74,222,128,0.2)" }}>
+                <div style={{ fontSize: "0.65rem", fontWeight: 600, color: "var(--muted)", marginBottom: "0.3rem" }}>
+                  ⚡ Pull speed limit
+                  <span style={{ marginLeft: "0.3rem", fontWeight: 400 }}>Gear max: {ips}/sec</span>
+                </div>
+                <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
+                  {[1, 2, 4, 10, 20].filter((n) => n <= ips).map((n) => (
+                    <button
+                      key={n}
+                      onClick={() => onSetRateLimit(worker.id, n)}
+                      style={{
+                        fontSize: "0.68rem", padding: "0.15rem 0.45rem", borderRadius: "6px",
+                        cursor: "pointer", fontWeight: 700,
+                        background: (worker.sellRateLimit ?? ips) === n ? "rgba(99,102,241,0.2)" : "var(--bg)",
+                        border: `1px solid ${(worker.sellRateLimit ?? ips) === n ? "var(--accent)" : "var(--border)"}`,
+                        color: (worker.sellRateLimit ?? ips) === n ? "var(--accent)" : "var(--muted)",
+                      }}
+                    >
+                      {n}/sec
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => onSetRateLimit(worker.id, null)}
+                    style={{
+                      fontSize: "0.68rem", padding: "0.15rem 0.45rem", borderRadius: "6px",
+                      cursor: "pointer", fontWeight: 700,
+                      background: worker.sellRateLimit == null ? "rgba(99,102,241,0.2)" : "var(--bg)",
+                      border: `1px solid ${worker.sellRateLimit == null ? "var(--accent)" : "var(--border)"}`,
+                      color: worker.sellRateLimit == null ? "var(--accent)" : "var(--muted)",
+                    }}
+                  >
+                    Max
+                  </button>
+                </div>
+              </div>
             </div>
           )}
  
@@ -403,60 +449,119 @@ function MarketWorkerCard({
               })}
             </div>
  
-            {selectedItem && (
-  <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", alignItems: "center" }}>
-    {SELL_AMOUNTS.map((amt) => {
-      const item = SELLABLE_ITEMS.find((i) => i.type === selectedItem);
-      const have = item
-        ? item.isCrop
-          ? (game.crops[item.type] ?? 0)
-          : item.isAnimal
-            ? (game.animalGoods?.[item.type] ?? 0)
-            : item.isFish
-              ? (game.fishing?.fish?.[item.type] ?? 0)
-              : (game.artisan[item.type] ?? 0)
-        : 0;
-      const qty = amt === "All" ? have : amt;
-      const disabled = have < qty || qty <= 0;
-      return (
-        <button
-          key={amt}
-          onClick={() => setSelectedAmount(amt)}
-          disabled={disabled}
-          style={{
-            fontSize: "0.7rem",
-            padding: "0.25rem 0.5rem",
-            borderRadius: "6px",
-            cursor: disabled ? "default" : "pointer",
-            background: selectedAmount === amt ? "var(--accent)" : "var(--bg)",
-            color: selectedAmount === amt ? "#fff" : disabled ? "var(--border)" : "var(--text)",
-            border: `1px solid ${selectedAmount === amt ? "var(--accent)" : "var(--border)"}`,
-            opacity: disabled ? 0.4 : 1,
+            {selectedItem && (() => {
+  const item = SELLABLE_ITEMS.find((i) => i.type === selectedItem);
+  const have = item
+    ? item.isCrop
+      ? (game.crops[item.type] ?? 0)
+      : item.isAnimal
+        ? (game.animalGoods?.[item.type] ?? 0)
+        : item.isFish
+          ? (game.fishing?.fish?.[item.type] ?? 0)
+          : (game.artisan[item.type] ?? 0)
+    : 0;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+      <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", alignItems: "center" }}>
+        {SELL_AMOUNTS.map((amt) => {
+          if (amt === "Custom") {
+            const isSelected = selectedAmount === "Custom";
+            return (
+              <button
+                key="Custom"
+                onClick={() => setSelectedAmount("Custom")}
+                style={{
+                  fontSize: "0.7rem",
+                  padding: "0.25rem 0.5rem",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  background: isSelected ? "var(--accent)" : "var(--bg)",
+                  color: isSelected ? "#fff" : "var(--text)",
+                  border: `1px solid ${isSelected ? "var(--accent)" : "var(--border)"}`,
+                }}
+              >
+                Custom
+              </button>
+            );
+          }
+          const qty = amt === "All" ? have : amt;
+          const disabled = have < qty || qty <= 0;
+          return (
+            <button
+              key={amt}
+              onClick={() => setSelectedAmount(amt)}
+              disabled={disabled}
+              style={{
+                fontSize: "0.7rem",
+                padding: "0.25rem 0.5rem",
+                borderRadius: "6px",
+                cursor: disabled ? "default" : "pointer",
+                background: selectedAmount === amt ? "var(--accent)" : "var(--bg)",
+                color: selectedAmount === amt ? "#fff" : disabled ? "var(--border)" : "var(--text)",
+                border: `1px solid ${selectedAmount === amt ? "var(--accent)" : "var(--border)"}`,
+                opacity: disabled ? 0.4 : 1,
+              }}
+            >
+              {amt === "All" ? `All (${have})` : `×${amt}`}
+            </button>
+          );
+        })}
+
+        <SmartSellButton
+          game={game}
+          itemType={selectedItem}
+          onAssign={(qty) => {
+            onAssign(worker.id, selectedItem, qty);
+            setSelectedItem(null);
           }}
+        />
+
+        <button
+          onClick={handleAssign}
+          className="btn"
+          style={{ fontSize: "0.7rem", padding: "0.25rem 0.75rem", marginLeft: "auto" }}
         >
-          {amt === "All" ? `All (${have})` : `×${amt}`}
+          Assign →
         </button>
-      );
-    })}
- 
-    <SmartSellButton
-      game={game}
-      itemType={selectedItem}
-      onAssign={(qty) => {
-        onAssign(worker.id, selectedItem, qty);
-        setSelectedItem(null);
-      }}
-    />
- 
-    <button
-      onClick={handleAssign}
-      className="btn"
-      style={{ fontSize: "0.7rem", padding: "0.25rem 0.75rem", marginLeft: "auto" }}
-    >
-      Assign →
-    </button>
-  </div>
-)}
+      </div>
+
+      {selectedAmount === "Custom" && (() => {
+        const parsed = parseInt(customAmount, 10) || 0;
+        const clamped = Math.min(Math.max(0, parsed), have);
+        const valid = clamped > 0;
+        return (
+          <div style={{ display: "flex", gap: "0.3rem", alignItems: "center" }}>
+            <input
+              type="number"
+              min={1}
+              max={have}
+              value={customAmount}
+              onChange={(e) => setCustomAmount(e.target.value)}
+              placeholder={`1–${have}`}
+              style={{
+                width: "90px",
+                fontSize: "0.72rem",
+                padding: "0.2rem 0.4rem",
+                borderRadius: "6px",
+                border: "1px solid var(--border)",
+                background: "var(--bg)",
+                color: "var(--text)",
+              }}
+            />
+            <span style={{ fontSize: "0.65rem", color: "var(--muted)" }}>
+              of {have}
+              {valid && (
+                <span style={{ color: "#4ade80", marginLeft: "0.3rem" }}>
+                  ≈${(clamped * getSellRate(selectedItem, game.prestigeBonuses ?? [], getBankPriceBonus(game), game)).toFixed(0)}
+                </span>
+              )}
+            </span>
+          </div>
+        );
+      })()}
+    </div>
+  );
+})()}
           </div>
  
           <div
@@ -493,45 +598,6 @@ function MarketWorkerCard({
               </div>
             )}
  
-            {/* Sell rate limit */}
-            <div style={{ padding: "0.35rem 0.5rem", background: "var(--bg)", borderRadius: "6px", border: "1px solid var(--border)" }}>
-              <div style={{ fontSize: "0.68rem", fontWeight: 600, color: "var(--text)", marginBottom: "0.35rem" }}>
-                ⚡ Sell Speed Limit
-                <span style={{ marginLeft: "0.35rem", fontSize: "0.62rem", color: "var(--muted)", fontWeight: 400 }}>
-                  Gear max: {ips}/sec
-                </span>
-              </div>
-              <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
-                {[1, 2, 4, 10, 20].filter((n) => n <= ips).map((n) => (
-                  <button
-                    key={n}
-                    onClick={() => onSetRateLimit(worker.id, n)}
-                    style={{
-                      fontSize: "0.7rem", padding: "0.2rem 0.5rem", borderRadius: "6px",
-                      cursor: "pointer", fontWeight: 700,
-                      background: (worker.sellRateLimit ?? ips) === n ? "rgba(99,102,241,0.2)" : "var(--surface)",
-                      border: `1px solid ${(worker.sellRateLimit ?? ips) === n ? "var(--accent)" : "var(--border)"}`,
-                      color: (worker.sellRateLimit ?? ips) === n ? "var(--accent)" : "var(--muted)",
-                    }}
-                  >
-                    {n}/sec
-                  </button>
-                ))}
-                <button
-                  onClick={() => onSetRateLimit(worker.id, null)}
-                  style={{
-                    fontSize: "0.7rem", padding: "0.2rem 0.5rem", borderRadius: "6px",
-                    cursor: "pointer", fontWeight: 700,
-                    background: worker.sellRateLimit == null ? "rgba(99,102,241,0.2)" : "var(--surface)",
-                    border: `1px solid ${worker.sellRateLimit == null ? "var(--accent)" : "var(--border)"}`,
-                    color: worker.sellRateLimit == null ? "var(--accent)" : "var(--muted)",
-                  }}
-                >
-                  Max
-                </button>
-              </div>
-            </div>
-
             {nextGear ? (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div style={{ fontSize: "0.72rem", color: "var(--muted)" }}>

@@ -78,7 +78,8 @@ export const PROCESSING_RECIPES = {
   knitted_goods: { id: "knitted_goods", name: "Knitted Goods", emoji: "🧥", inputCrop: "wool",   inputAmount: 3,  outputGood: "knitted_goods", outputAmount: 1, seconds: 120, description: "Warm and valuable." },
   fish_pie:      { id: "fish_pie",      name: "Fish Pie",      emoji: "🥧", inputCrop: "bass",   inputAmount: 2,  outputGood: "fish_pie",      outputAmount: 1, seconds: 90,  description: "Tasty and filling." },
   smoked_fish:   { id: "smoked_fish",   name: "Smoked Fish",   emoji: "🐟", inputCrop: "perch",  inputAmount: 2,  outputGood: "smoked_fish",   outputAmount: 1, seconds: 75,  description: "Smoky and delicious." },
-  fish_meal:     { id: "fish_meal",     name: "Fish Meal",     emoji: "🌿", inputCrop: "minnow", inputAmount: 5,  outputGood: "fish_meal",     outputAmount: 1, seconds: 45,  description: "Fertilizer. Boosts grow speed." },
+  fish_meal:      { id: "fish_meal",      name: "Fish Meal",      emoji: "🌿", inputCrop: "minnow", inputAmount: 5, outputGood: "fish_meal", outputAmount: 1, seconds: 45,  description: "Fertilizer. Boosts grow speed." },
+  fish_meal_bass: { id: "fish_meal_bass", name: "Fish Meal (Bass)", emoji: "🌿", inputCrop: "bass",   inputAmount: 3, outputGood: "fish_meal", outputAmount: 1, seconds: 60,  description: "Fertilizer from bass. For when minnows are scarce." },
 };
  
 // ─── Feast tiers ──────────────────────────────────────────────────────────────
@@ -143,10 +144,10 @@ export const BARN_WORKER_HIRE_MULTIPLIER = 1.6;
 export const BARN_WORKER_UPGRADES = {
   speed_1:    { id: "speed_1",    name: "Quick Rounds",  emoji: "⚡", cost: 150, description: "Collect every 25s",     requires: null,         tree: "speed" },
   speed_2:    { id: "speed_2",    name: "Sprint Rounds", emoji: "⚡", cost: 300, description: "Collect every 20s",     requires: "speed_1",    tree: "speed" },
-  capacity_1: { id: "capacity_1", name: "Big Basket",    emoji: "📦", cost: 200, description: "Collect 2 at once",     requires: null,         tree: "capacity" },
-  capacity_2: { id: "capacity_2", name: "Cargo Basket",  emoji: "📦", cost: 400, description: "Collect 3 at once",     requires: "capacity_1", tree: "capacity" },
-  care_1:     { id: "care_1",     name: "Gentle Hands",  emoji: "💝", cost: 150, description: "+20 mood to neediest animal every 90s",  requires: null,      tree: "care" },
-  care_2:     { id: "care_2",     name: "Animal Bond",   emoji: "💝", cost: 300, description: "+35 mood to neediest animal every 60s",  requires: "care_1",  tree: "care" },
+  capacity_1: { id: "capacity_1", name: "Big Basket",    emoji: "📦", cost: 200, description: "Collect 3 at once",     requires: null,         tree: "capacity" },
+  capacity_2: { id: "capacity_2", name: "Cargo Basket",  emoji: "📦", cost: 400, description: "Collect 6 at once",     requires: "capacity_1", tree: "capacity" },
+  care_1:     { id: "care_1",     name: "Gentle Hands",  emoji: "💝", cost: 150, description: "+25 mood to neediest animal every 2min", requires: null,      tree: "care" },
+  care_2:     { id: "care_2",     name: "Animal Bond",   emoji: "💝", cost: 300, description: "+35 mood to neediest animal every 90s",  requires: "care_1",  tree: "care" },
 };
 export const ANIMAL_STORAGE_UPGRADES = [
   { level: 1, cost: 100, maxStock: 15, label: "Bigger Nest" },
@@ -240,7 +241,7 @@ export const PRESTIGE_SKILL_TREE = {
   deep_waters: {
     id: "deep_waters", branch: "fisher", tier: 2,
     name: "Deep Waters", emoji: "🌊",
-    description: "Fishermen never catch minnows — bass or better minimum.",
+    description: "Fishermen never catch minnows — bass or better minimum. Manual fishing still catches minnows.",
     requires: "sea_legs",
     unique: true,
   },
@@ -344,17 +345,22 @@ export const TOWN_JAM_BUILDING_COST = 2_000;
 export const TOWN_SAUCE_BUILDING_COST = 4_000;
  
 // ─── Town Hall ────────────────────────────────────────────────────────────────
-export const TOWN_HALL_MAX_LEVEL = 3;
-export const TOWN_HALL_LEVEL_COSTS = [75, 1000, 3000]; // cash cost per level
+export const TOWN_HALL_MAX_LEVEL = 4;
+export const TOWN_HALL_LEVEL_COSTS = [75, 1000, 3000, 8000]; // cash cost per level
  
 // Treasury drain tiers — player picks which tier is active
 // Each tier drains cash→treasury at drainRate/sec and gives grow speed bonus
 export const TREASURY_TIERS = [
-  { tier: 1, drainRate: 2,  growBonus: 10, label: "Slow"   },
-  { tier: 2, drainRate: 5,  growBonus: 20, label: "Steady" },
-  { tier: 3, drainRate: 10, growBonus: 35, label: "Fast"   },
+  { tier: 1, drainRate: 4,  growBonus: 10, label: "Slow"   },
+  { tier: 2, drainRate: 15, growBonus: 20, label: "Steady" },
+  { tier: 3, drainRate: 35, growBonus: 35, label: "Fast"   },
 ];
-// Max drain tier available = Town Hall level
+// Max drain tier available = min(Town Hall level, 3)
+// Town Hall 4 unlocks Invest Now (lump sum), not a new drain tier
+
+// ─── Invest Now ───────────────────────────────────────────────────────────────
+export const INVEST_NOW_PCT = 0.10;        // fraction of cash transferred instantly
+export const INVEST_NOW_CD_SECONDS = 30;   // cooldown between uses
 // e.g. Town Hall 1 → can only use tier 1; Town Hall 3 → can use tiers 1/2/3
  
 // ─── Bank ─────────────────────────────────────────────────────────────────────
@@ -389,7 +395,7 @@ export const TOWN_HOME_INSTANT_POPULATION = 1;
 
 export const ANIMAL_FOOD_COSTS = { chicken: 2, cow: 3, sheep: 4 };
 export const PET_FOOD_COST = 2;
-export const BREAD_FOOD_UNITS = 10;
+export const BREAD_FOOD_UNITS = 30;
 export const PERSON_IDLE_FOOD_COST = 1;
 export const PERSON_WORKING_FOOD_COST = 2;
  
@@ -469,7 +475,7 @@ export const FISHING_WORKER_HIRE_COSTS = {
   ocean: 3000,
 };
 export const FISHING_WORKER_BASE_INTERVAL = 60;
-export const POND_COST = 200; // keep existing value
+export const POND_COST = 0; // pond is free — first fisher hire is the investment
 
  
 
@@ -632,7 +638,8 @@ export const ANIMAL_CRAFTING_RECIPES = {
   knitted_goods: { id: "knitted_goods", name: "Knitted Goods",   emoji: "🧥", inputCrop: "wool",   inputAmount: 3,  outputGood: "knitted_goods", outputAmount: 1, seconds: 120, description: "Warm and valuable." },
   fish_pie:      { id: "fish_pie",      name: "Fish Pie",        emoji: "🥧", inputCrop: "bass",   inputAmount: 2,  outputGood: "fish_pie",      outputAmount: 1, seconds: 90,  description: "Tasty and filling." },
   smoked_fish:   { id: "smoked_fish",   name: "Smoked Fish",     emoji: "🐟", inputCrop: "perch",  inputAmount: 2,  outputGood: "smoked_fish",   outputAmount: 1, seconds: 75,  description: "Smoky and delicious." },
-  fish_meal:     { id: "fish_meal",     name: "Fish Meal",       emoji: "🌿", inputCrop: "minnow", inputAmount: 5,  outputGood: "fish_meal",     outputAmount: 1, seconds: 45,  description: "Fertilizer. Gives a 10min grow speed boost." },
+  fish_meal:     { id: "fish_meal",      name: "Fish Meal",         emoji: "🌿", inputCrop: "minnow", inputAmount: 5, outputGood: "fish_meal", outputAmount: 1, seconds: 45,  description: "Fertilizer. Gives a 10min grow speed boost." },
+  fish_meal_bass: { id: "fish_meal_bass", name: "Fish Meal (Bass)",  emoji: "🌿", inputCrop: "bass",   inputAmount: 3, outputGood: "fish_meal", outputAmount: 1, seconds: 60,  description: "Fertilizer from bass. For when minnows are scarce." },
 };
  
 export const ANIMAL_SELL_RATES = {
@@ -656,7 +663,7 @@ export const CLINIC_SAT_PER_MEDIC        = 0.3;  // +0.3% sat per medic
 export const SCHOOL_GROW_PER_RESEARCHER  = 0.2;  // +0.2% grow speed per researcher
 export const TAVERN_SAT_PER_BARTENDER    = 0.5;  // +0.5% sat per bartender
 export const RESTAURANT_SAT_PER_CHEF     = 0.8;  // +0.8% sat per chef
-export const CLOTHIER_CASH_PER_CLERK     = 8;    // +$X cash income per pulse per clerk
+export const CLOTHIER_CASH_PER_CLERK     = 40;   // +$X cash income per pulse per clerk (~33% premium over $90 market rate for 3 clerks/good)
  
 // Pulse consumption (scales with workers assigned)
 // Restaurant: consumes 1 omelette + 1 cheese per N chefs each pulse

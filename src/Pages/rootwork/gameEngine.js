@@ -30,6 +30,7 @@ import {
   TOWN_PEOPLE_PER_GROWTH_BONUS, TOWN_GROWTH_BONUS_PER_STEP,
   TOWN_MAX_GROWTH_BONUS_PERCENT, TOWN_STARTING_PEOPLE,
   TOWN_HALL_MAX_LEVEL, TOWN_HALL_LEVEL_COSTS,
+  INVEST_NOW_PCT, INVEST_NOW_CD_SECONDS,
   TREASURY_TIERS, BUILDING_WORKERS_DIVISOR, BUILDING_PULSE_EXTRA_SECONDS,
   BUILDING_UPGRADE_COST, BANK_BUILD_COST, BANK_LEVEL_COSTS,
   BANK_TIERS, BANK_MAX_LEVEL, GEAR_CROP_COSTS, POND_COST, NEEDLE_SWEEP_SPEED, REEL_DURATION,
@@ -104,7 +105,33 @@ export function getTownHallLevel(state) {
 }
  
 export function getMaxTreasuryTier(state) {
-  return getTownHallLevel(state);
+  // Tiers only go up to 3; TH level 4 unlocks Invest Now, not a new tier
+  return Math.min(getTownHallLevel(state), 3);
+}
+
+export function canInvestNow(state) {
+  return getTownHallLevel(state) >= 4;
+}
+
+export function getInvestNowCooldownRemaining(state) {
+  if (!canInvestNow(state)) return Infinity;
+  const last = state.town?.lastInvestTime ?? 0;
+  const elapsed = (state.totalPlayTime ?? 0) - last;
+  return Math.max(0, INVEST_NOW_CD_SECONDS - elapsed);
+}
+
+export function investNow(state) {
+  if (!canInvestNow(state)) return state;
+  if (getInvestNowCooldownRemaining(state) > 0) return state;
+  const cash = state.cash ?? 0;
+  if (cash <= 0) return state;
+  const next = deepCloneState(state);
+  const amount = Math.floor(cash * INVEST_NOW_PCT);
+  if (amount <= 0) return state;
+  next.cash -= amount;
+  next.town.treasuryBalance = (next.town.treasuryBalance ?? 0) + amount;
+  next.town.lastInvestTime = next.totalPlayTime ?? 0;
+  return next;
 }
  
 export function setTreasuryTier(state, tier) {
@@ -1105,7 +1132,7 @@ export function createInitialState() {
     fishing: {
       activeBody: "pond",
       bodies: {
-        pond:  { unlocked: false, worker: null },
+        pond:  { unlocked: true, worker: { hired: false, upgrades: [], timer: 0, assignedBait: null } },
         lake:  { unlocked: false, worker: null },
         river: { unlocked: false, worker: null },
         ocean: { unlocked: false, worker: null },
@@ -1207,22 +1234,22 @@ export function getBarnWorkerInterval(worker) {
 
 export function getBarnWorkerCapacity(worker) {
   const upgrades = worker.upgrades ?? [];
-  if (upgrades.includes("capacity_2")) return 3;
-  if (upgrades.includes("capacity_1")) return 2;
+  if (upgrades.includes("capacity_2")) return 6;
+  if (upgrades.includes("capacity_1")) return 3;
   return BARN_WORKER_BASE_CAPACITY;
 }
 
 export function getBarnWorkerCareInterval(worker) {
   const upgrades = worker.upgrades ?? [];
-  if (upgrades.includes("care_2")) return 60;
-  if (upgrades.includes("care_1")) return 90;
+  if (upgrades.includes("care_2")) return 90;
+  if (upgrades.includes("care_1")) return 120;
   return null;
 }
 
 export function getBarnWorkerCareMood(worker) {
   const upgrades = worker.upgrades ?? [];
   if (upgrades.includes("care_2")) return 35;
-  if (upgrades.includes("care_1")) return 20;
+  if (upgrades.includes("care_1")) return 25;
   return 0;
 }
 
@@ -3022,13 +3049,12 @@ export function assignKeptWorker(state, keptWorkerId, farmId) {
  
 export function buyPond(state) {
   if (state.fishing?.bodies?.pond?.unlocked) return state;
-  if ((state.cash ?? 0) < POND_COST) return state;
   const next = deepCloneState(state);
-  next.cash -= POND_COST;
+  // Pond is free — no cash cost
   if (!next.fishing) next.fishing = { activeBody: "pond", bodies: {}, fish: {} };
   next.fishing.bodies.pond = {
     unlocked: true,
-    worker: { upgrades: [], timer: 0, assignedBait: null },
+    worker: { hired: false, upgrades: [], timer: 0, assignedBait: null },
   };
   next.fishing.activeBody = "pond";
   return next;
@@ -3287,6 +3313,7 @@ export function deserializeState(raw) {
       if (parsed.town.townHallLevel === undefined) parsed.town.townHallLevel = 0;
       if (parsed.town.treasuryBalance === undefined) parsed.town.treasuryBalance = 0;
       if (parsed.town.treasuryActiveTier === undefined) parsed.town.treasuryActiveTier = 0;
+      if (parsed.town.lastInvestTime === undefined) parsed.town.lastInvestTime = 0;
       if (parsed.town.bankBuilt === undefined) parsed.town.bankBuilt = false;
       if (parsed.town.bankLevel === undefined) parsed.town.bankLevel = 0;
       if (parsed.town.bankActiveTier === undefined) parsed.town.bankActiveTier = 0;
@@ -3453,6 +3480,13 @@ if (!parsed.fishing) {
     },
     fish: { ...(parsed.pond?.fish ?? {}) },
   };
+}
+// Migration: pond is now free and unlocked from season 1
+if (parsed.fishing?.bodies?.pond && !parsed.fishing.bodies.pond.unlocked) {
+  parsed.fishing.bodies.pond.unlocked = true;
+  if (!parsed.fishing.bodies.pond.worker) {
+    parsed.fishing.bodies.pond.worker = { hired: false, upgrades: [], timer: 0, assignedBait: null };
+  }
 }
 // Also migrate existing fishing workers that are missing hired flag
 if (parsed.fishing?.bodies) {

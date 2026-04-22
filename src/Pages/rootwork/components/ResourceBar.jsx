@@ -1,6 +1,6 @@
 import React from "react";
 import { CROPS, SEASON_FARMS } from "../gameConstants";
-import { getTotalWorkersHired, getAvailableWorkerSlots, getEffectivePulseSeconds } from "../gameEngine";
+import { getTotalWorkersHired, getAvailableWorkerSlots, getEffectivePulseSeconds, getTreasuryGrowBonus, getSchoolGrowBonus, getFishMealGrowBonus } from "../gameEngine";
 
 export default function ResourceBar({ game }) {
   const availableCropIds = game.season >= 4
@@ -16,10 +16,14 @@ export default function ResourceBar({ game }) {
   const fishGoods = game.fishing?.fish ?? {};
   const hasFish = Object.values(fishGoods).some((v) => v > 0);
 
-  const fishMealBonus = (game.fishMealStacks ?? []).reduce((s, st) => s + (st.secondsLeft > 0 ? st.bonus : 0), 0);
+  const feast = game.feastBonusPercent ?? 0;
+  const townGrowth = game.town?.growthBonusPercent ?? 0;
+  const treasuryGrow = getTreasuryGrowBonus(game);
+  const schoolGrow = getSchoolGrowBonus(game);
+  const fishMealGrow = getFishMealGrowBonus(game);
+  const totalGrowBonus = feast + townGrowth + treasuryGrow + schoolGrow + fishMealGrow;
   const starving = game.town?.starving === true;
   const people = Math.floor(game.town?.people ?? 0);
-  const growthBonusPercent = game.town?.growthBonusPercent ?? 0;
   const satisfaction = game.town?.satisfaction ?? 100;
   const totalWorkers = getTotalWorkersHired(game);
   const atCap = people > 0 && totalWorkers >= people;
@@ -148,9 +152,9 @@ export default function ResourceBar({ game }) {
           <span>${Math.floor(cash)}</span>
         </div>
 
-        {fishMealBonus > 0 && (
+        {totalGrowBonus > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: "0.2rem", fontSize: "0.72rem", fontWeight: 600, color: "#86efac", background: "rgba(74,222,128,0.1)", borderRadius: "6px", padding: "0.1rem 0.4rem" }}>
-            🌿 +{fishMealBonus}%
+            🌱 +{totalGrowBonus.toFixed(totalGrowBonus % 1 === 0 ? 0 : 1)}%
           </div>
         )}
 
@@ -193,12 +197,6 @@ export default function ResourceBar({ game }) {
           <span style={{ color: satColor }}>
             {satEmoji} {satisfaction}%
           </span>
-          {growthBonusPercent > 0 && (
-            <>
-              <span style={{ color: "var(--border)" }}>·</span>
-              <span style={{ color: "#4ade80" }}>+{growthBonusPercent}%</span>
-            </>
-          )}
         </div>
 
         <div style={{
@@ -211,3 +209,9 @@ export default function ResourceBar({ game }) {
     </div>
   );
 }
+
+
+
+
+
+
