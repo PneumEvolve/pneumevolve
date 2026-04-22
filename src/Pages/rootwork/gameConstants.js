@@ -477,6 +477,32 @@ export const FISHING_WORKER_HIRE_COSTS = {
 export const FISHING_WORKER_BASE_INTERVAL = 60;
 export const POND_COST = 0; // pond is free — first fisher hire is the investment
 
+// ─── Player fishing upgrades (manual minigame) ────────────────────────────────
+// These are one-time cash purchases that persist across the session.
+// Stored in state.fishing.playerUpgrades as an array of upgrade IDs.
+export const FISHING_PLAYER_UPGRADES = {
+  // 🪝 Rod — widens the needle sweet spot
+  rod_1: { id: "rod_1", name: "Birch Rod",    emoji: "🪝", cost: 150,  tree: "rod",  requires: null,    description: "+10% wider sweet spot." },
+  rod_2: { id: "rod_2", name: "Oak Rod",      emoji: "🪝", cost: 350,  tree: "rod",  requires: "rod_1", description: "+10% wider sweet spot." },
+  rod_3: { id: "rod_3", name: "Carbon Rod",   emoji: "🪝", cost: 800,  tree: "rod",  requires: "rod_2", description: "+10% wider sweet spot." },
+  // ⏱️ Reel — more progress per tap
+  reel_1: { id: "reel_1", name: "Smooth Drag",   emoji: "⏱️", cost: 200,  tree: "reel", requires: null,     description: "+20% reel per tap." },
+  reel_2: { id: "reel_2", name: "Power Reel",    emoji: "⏱️", cost: 500,  tree: "reel", requires: "reel_1", description: "+20% reel per tap." },
+  // 🐢 Patience — slower needle sweep speed
+  patience_1: { id: "patience_1", name: "Weighted Float", emoji: "🐢", cost: 175,  tree: "patience", requires: null,          description: "-15% needle sweep speed." },
+  patience_2: { id: "patience_2", name: "Anchor Rig",     emoji: "🐢", cost: 450,  tree: "patience", requires: "patience_1", description: "-15% needle sweep speed." },
+  // 🧺 Haul — catch multiple fish per successful reel (OP endgame scaling)
+  haul_2:  { id: "haul_2",  name: "Creel Basket",  emoji: "🧺", cost: 500,  tree: "haul", requires: null,     description: "Catch 2 fish per successful reel." },
+  haul_5:  { id: "haul_5",  name: "Cast Net",       emoji: "🕸️", cost: 2000, tree: "haul", requires: "haul_2", description: "Catch 5 fish per successful reel." },
+  haul_10: { id: "haul_10", name: "Deep Net",       emoji: "🌊", cost: 8000, tree: "haul", requires: "haul_5", description: "Catch 10 fish per successful reel." },
+};
+export const FISHING_PLAYER_UPGRADE_ORDER = {
+  rod:      ["rod_1", "rod_2", "rod_3"],
+  reel:     ["reel_1", "reel_2"],
+  patience: ["patience_1", "patience_2"],
+  haul:     ["haul_2", "haul_5", "haul_10"],
+};
+
  
 
  

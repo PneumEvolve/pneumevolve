@@ -5,11 +5,13 @@ import {
   FISHING_BODIES, FISHING_BODY_ORDER, FISHING_FISH,
   FISHING_CATCH_RATES, FISHING_BAIT_BONUS,
   FISHING_WORKER_UPGRADES, POND_COST, FISHING_WORKER_HIRE_COSTS,
+  FISHING_PLAYER_UPGRADES, FISHING_PLAYER_UPGRADE_ORDER,
 } from "../gameConstants";
 import {
   getFishingWorkerInterval, getFishingWorkerHaul,
   getFishingWorkerGearTier, rollFishForBody, getTotalWorkersHired,
   isTownBuildingBuilt, hasPrestigeSkill,
+  getPlayerFishingSweetSpotBonus, getPlayerFishingReelBonus, getPlayerFishingPatienceBonus, getPlayerFishingHaul,
 } from "../gameEngine";
 
 const SPEED_UPGRADES = ["speed_1", "speed_2"];
@@ -130,6 +132,8 @@ function CatchResultCard({ result, onDismiss }) {
   const fish = FISHING_FISH[result.fishId];
   const isRare = result.fishId === "rare";
   const escaped = !result.caught;
+  const count = result.count ?? 1;
+  const totalValue = (fish?.rawValue ?? 0) * count;
   return (
     <div style={{ animation: "slide-up 0.25s ease forwards" }}>
       <div style={{
@@ -148,8 +152,18 @@ function CatchResultCard({ result, onDismiss }) {
             lineHeight: 1, flexShrink: 0,
             filter: isRare ? "drop-shadow(0 0 16px #fbbf24)" : "none",
             opacity: escaped ? 0.5 : 1,
+            position: "relative",
           }}>
             {escaped ? "💨" : fish?.emoji ?? "🐟"}
+            {!escaped && count > 1 && (
+              <span style={{
+                position: "absolute", top: "-6px", right: "-10px",
+                fontSize: "0.72rem", fontWeight: 900,
+                background: isRare ? "#fbbf24" : "#4ade80",
+                color: "#000", borderRadius: "999px",
+                padding: "0.05rem 0.35rem", lineHeight: 1.4,
+              }}>×{count}</span>
+            )}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{
@@ -159,11 +173,17 @@ function CatchResultCard({ result, onDismiss }) {
               marginBottom: "0.2rem",
               textShadow: isRare ? "0 0 12px rgba(251,191,36,0.5)" : "none",
             }}>
-              {escaped ? "It got away!" : isRare ? "✨ Rare catch!" : `Caught a ${fish?.name ?? "fish"}!`}
+              {escaped
+                ? "It got away!"
+                : isRare
+                  ? count > 1 ? `✨ ${count}× Rare catch!` : "✨ Rare catch!"
+                  : count > 1
+                    ? `${count}× ${fish?.name ?? "fish"} caught!`
+                    : `Caught a ${fish?.name ?? "fish"}!`}
             </div>
             {!escaped && (
               <div style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.7)", fontWeight: 500 }}>
-                {fish?.name} · <span style={{ color: "#4ade80" }}>${fish?.rawValue ?? 0}</span> raw · added to inventory
+                {fish?.name}{count > 1 ? ` ×${count}` : ""} · <span style={{ color: "#4ade80" }}>${totalValue}</span> raw value · added to inventory
               </div>
             )}
             {escaped && <div style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.5)" }}>Better luck next time</div>}
@@ -263,7 +283,17 @@ function RecentCatches({ catches }) {
     <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
       <span style={{ fontSize: "0.58rem", color: "rgba(255,255,255,0.35)", letterSpacing: "0.06em" }}>RECENT</span>
       {catches.map((c, i) => (
-        <span key={c.id} style={{ fontSize: "1rem", opacity: 1 - i * 0.12 }}>{c.emoji}</span>
+        <span key={c.id} style={{ fontSize: "1rem", opacity: 1 - i * 0.12, position: "relative" }}>
+          {c.emoji}
+          {(c.count ?? 1) > 1 && (
+            <span style={{
+              position: "absolute", top: "-4px", right: "-6px",
+              fontSize: "0.48rem", fontWeight: 900, color: "#4ade80",
+              background: "rgba(0,0,0,0.7)", borderRadius: "999px",
+              padding: "0.02rem 0.22rem", lineHeight: 1.4,
+            }}>×{c.count}</span>
+          )}
+        </span>
       ))}
     </div>
   );
@@ -612,6 +642,111 @@ function FishingBodiesPanel({ game, onUnlockBody, onHireWorker, onUpgradeWorker,
 
 // ─── Main PondZone ────────────────────────────────────────────────────────────
 
+// ─── Player upgrades panel ────────────────────────────────────────────────────
+
+function PlayerUpgradesPanel({ game, onBuyUpgrade }) {
+  const [open, setOpen] = useState(false);
+  const owned = game.fishing?.playerUpgrades ?? [];
+  const cash = game.cash ?? 0;
+
+  const TREE_META = {
+    rod:      { label: "🪝 Rod",      subtitle: "Wider sweet spot" },
+    reel:     { label: "⏱️ Reel",     subtitle: "More progress per tap" },
+    patience: { label: "🐢 Patience", subtitle: "Slower needle sweep" },
+    haul:     { label: "🧺 Haul",     subtitle: "Catch multiple fish per reel" },
+  };
+
+  return (
+    <div style={{
+      background: "rgba(0,0,0,0.7)", border: "1px solid rgba(255,255,255,0.12)",
+      borderRadius: "12px", overflow: "hidden",
+    }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          width: "100%", padding: "0.6rem 0.85rem",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          background: "none", border: "none", cursor: "pointer", color: "#fff",
+        }}
+      >
+        <div>
+          <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "rgba(255,255,255,0.7)", letterSpacing: "0.04em", textAlign: "left" }}>
+            🪝 Your Gear Upgrades
+          </div>
+          <div style={{ fontSize: "0.62rem", color: "rgba(255,255,255,0.35)", marginTop: "0.1rem", textAlign: "left" }}>
+            Improve your personal fishing minigame
+          </div>
+        </div>
+        <span style={{ fontSize: "0.65rem", color: "rgba(255,255,255,0.4)" }}>{open ? "▲" : "▼"}</span>
+      </button>
+
+      {open && (
+        <div style={{
+          padding: "0.5rem 0.85rem 0.75rem",
+          borderTop: "1px solid rgba(255,255,255,0.08)",
+          display: "flex", flexDirection: "column", gap: "0.75rem",
+        }}>
+          {Object.entries(FISHING_PLAYER_UPGRADE_ORDER).map(([tree, ids]) => {
+            const meta = TREE_META[tree];
+            return (
+              <div key={tree}>
+                <div style={{ fontSize: "0.62rem", fontWeight: 700, color: "rgba(255,255,255,0.5)", marginBottom: "0.3rem", letterSpacing: "0.06em" }}>
+                  {meta.label} <span style={{ fontWeight: 400, color: "rgba(255,255,255,0.3)" }}>— {meta.subtitle}</span>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                  {ids.map((uid) => {
+                    const u = FISHING_PLAYER_UPGRADES[uid];
+                    const isOwned = owned.includes(uid);
+                    const requiresMet = !u.requires || owned.includes(u.requires);
+                    const canAfford = cash >= u.cost;
+                    const canBuy = !isOwned && requiresMet && canAfford;
+                    const locked = !isOwned && !requiresMet;
+                    return (
+                      <div key={uid} style={{
+                        display: "flex", alignItems: "center", justifyContent: "space-between",
+                        padding: "0.28rem 0.45rem", borderRadius: "6px",
+                        background: isOwned ? "rgba(74,222,128,0.08)" : "rgba(0,0,0,0.3)",
+                        border: `1px solid ${isOwned ? "rgba(74,222,128,0.3)" : "rgba(255,255,255,0.1)"}`,
+                        opacity: locked ? 0.4 : 1,
+                      }}>
+                        <div style={{ fontSize: "0.68rem" }}>
+                          <span style={{ fontWeight: 600, color: isOwned ? "#4ade80" : "#fff" }}>
+                            {isOwned ? "✓" : locked ? "🔒" : u.emoji} {u.name}
+                          </span>
+                          <span style={{ marginLeft: "0.35rem", fontSize: "0.6rem", color: "rgba(255,255,255,0.4)" }}>
+                            {u.description}
+                          </span>
+                        </div>
+                        {!isOwned && requiresMet && (
+                          <button
+                            onClick={() => canBuy && onBuyUpgrade(uid)}
+                            disabled={!canBuy}
+                            style={{
+                              fontSize: "0.62rem", padding: "0.15rem 0.4rem", borderRadius: "6px",
+                              cursor: canBuy ? "pointer" : "default", marginLeft: "0.4rem", flexShrink: 0,
+                              background: canBuy ? "rgba(99,102,241,0.4)" : "rgba(255,255,255,0.06)",
+                              border: `1px solid ${canBuy ? "rgba(99,102,241,0.7)" : "rgba(255,255,255,0.1)"}`,
+                              color: canBuy ? "#fff" : "rgba(255,255,255,0.3)",
+                            }}
+                          >
+                            ${u.cost}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main PondZone ────────────────────────────────────────────────────────────
+
 export default function PondZone({
   game,
   onBuyPond,
@@ -623,6 +758,7 @@ export default function PondZone({
   onSetFishingWorkerBait,
   onFireFishingWorker,
   onToggleFishingWorkerAllowedFish,
+  onBuyFishingPlayerUpgrade,
 }) {
   const fishing = game.fishing ?? {};
   const pondOwned = fishing.bodies?.pond?.unlocked === true;
@@ -648,13 +784,25 @@ export default function PondZone({
   const biteTimerRef = useRef(null);
   const reelProgressRef = useRef(0);
 
+  const catBonus = (game.pets?.cat?.mood ?? 0) >= 50 ? 0.20 : 0;
+  const playerSweetSpotBonus = getPlayerFishingSweetSpotBonus(game);
+  const playerReelBonus = getPlayerFishingReelBonus(game);
+  const playerPatienceBonus = getPlayerFishingPatienceBonus(game);
+  const playerHaul = getPlayerFishingHaul(game);
+
+  const baseSweetSpot = 0.25;
+  const effectiveSweetSpotWidth = Math.min(0.6, baseSweetSpot * (1 + catBonus + playerSweetSpotBonus));
+  const effectiveReelTapAmount = REEL_TAP_AMOUNT * (1 + playerReelBonus);
+  const effectiveNeedleSpeed = NEEDLE_SWEEP_SPEED * (1 - playerPatienceBonus);
+
+  const effectiveNeedleSpeedRef = useRef(effectiveNeedleSpeed);
+  effectiveNeedleSpeedRef.current = effectiveNeedleSpeed;
+  const effectiveReelTapAmountRef = useRef(effectiveReelTapAmount);
+  effectiveReelTapAmountRef.current = effectiveReelTapAmount;
+
   phaseRef.current = phase;
   needleDirRef.current = needleDir;
   needlePosRef.current = needlePos;
-
-  const catBonus = (game.pets?.cat?.mood ?? 0) >= 50 ? 0.20 : 0;
-  const baseSweetSpot = 0.25;
-  const effectiveSweetSpotWidth = Math.min(0.6, baseSweetSpot * (1 + catBonus));
 
   const BITE_MIN = 1500;
   const BITE_MAX = 4000;
@@ -667,7 +815,7 @@ export default function PondZone({
 
     if (p === "needle") {
       const dir = needleDirRef.current;
-      let next = needlePosRef.current + NEEDLE_SWEEP_SPEED * dt * dir;
+      let next = needlePosRef.current + effectiveNeedleSpeedRef.current * dt * dir;
       let newDir = dir;
       if (next >= 1) { next = 1; newDir = -1; }
       if (next <= 0) { next = 0; newDir = 1; }
@@ -743,17 +891,17 @@ export default function PondZone({
   function handleReelTap(e) {
     e?.preventDefault();
     if (phaseRef.current !== "reel") return;
-    const next = reelProgressRef.current + REEL_TAP_AMOUNT;
+    const next = reelProgressRef.current + effectiveReelTapAmountRef.current;
     if (next >= 1) {
       reelProgressRef.current = 1;
       setReelProgress(1);
       const gearTier = needleQuality > 0.85 ? "expert" : needleQuality > 0.5 ? "good" : "basic";
       const fishId = rollFishForBody(activeBody, gearTier, selectedBait);
       const fish = FISHING_FISH[fishId];
-      onCatchFish?.(fishId, selectedBait);
-      setCatchResult({ caught: true, fishId });
+      onCatchFish?.(fishId, selectedBait, playerHaul);
+      setCatchResult({ caught: true, fishId, count: playerHaul });
       setLastCatches((p) => [
-        { fishId, emoji: fish?.emoji ?? "🐟", id: Date.now() + Math.random() },
+        { fishId, emoji: fish?.emoji ?? "🐟", id: Date.now() + Math.random(), count: playerHaul },
         ...p,
       ].slice(0, 6));
       setPhase("result"); phaseRef.current = "result";
@@ -910,10 +1058,11 @@ export default function PondZone({
                   cursor: "pointer", letterSpacing: "0.08em", boxShadow: "0 0 20px rgba(99,102,241,0.25)",
                 }}
               >
-                Cast Line
+                Cast Line{playerHaul > 1 ? ` ×${playerHaul}` : ""}
               </button>
               <div style={{ fontSize: "0.62rem", color: "rgba(255,255,255,0.3)", letterSpacing: "0.06em" }}>
                 center the needle for expert-tier catch rates
+                {playerHaul > 1 && <span style={{ color: "#4ade80", marginLeft: "0.4rem" }}>· {playerHaul} fish per catch</span>}
               </div>
             </>
           )}
@@ -1026,6 +1175,9 @@ export default function PondZone({
           B=Basic · G=Good · E=Expert (rod upgrades) · needle center = expert tier when fishing manually
         </div>
       </div>
+
+      {/* Player gear upgrades */}
+      <PlayerUpgradesPanel game={game} onBuyUpgrade={onBuyFishingPlayerUpgrade} />
 
       {/* Fishing workers panel */}
       <FishingBodiesPanel

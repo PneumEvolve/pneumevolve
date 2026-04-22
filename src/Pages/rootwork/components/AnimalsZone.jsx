@@ -15,6 +15,7 @@ export default function AnimalsZone({
   onUpgradeFishingWorker, onSetFishingWorkerBait,
   onBuildBarnBuilding, onUpgradeBarnBuilding,
   onToggleFishingWorkerAllowedFish,
+  onBuyFishingPlayerUpgrade,
 }) {
   const [subTab, setSubTab] = useState("pond");
 
@@ -70,6 +71,7 @@ export default function AnimalsZone({
           onUpgradeFishingWorker={onUpgradeFishingWorker}
           onSetFishingWorkerBait={onSetFishingWorkerBait}
           onToggleFishingWorkerAllowedFish={onToggleFishingWorkerAllowedFish}
+          onBuyFishingPlayerUpgrade={onBuyFishingPlayerUpgrade}
         />
       )}
 

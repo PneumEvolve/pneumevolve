@@ -29,6 +29,7 @@ import {
   buildTownBuilding, setTavernMode, assignTownBuildingWorker,
   startSchoolResearch, unlockPrestigeSkill, toggleFishingWorkerAllowedFish,
   unlockSeasonFarm, unlockSeasonBarn, getAvailableBarnUnlocks,
+  buyFishingPlayerUpgrade, getPlayerFishingHaul,
 } from "./gameEngine";
 import {
   SAVE_KEY, SAVE_INTERVAL_MS,
@@ -565,8 +566,8 @@ const handleSetFishingWorkerBait = useCallback((bodyId, baitId) => update((s) =>
   setFishingWorkerBait(s, bodyId, baitId)
 ), [update]);
 
-const handleCatchFish = useCallback((fishId, baitId) => update((s) =>
-  catchFish(s, fishId, baitId, s.fishing?.activeBody ?? "pond")
+const handleCatchFish = useCallback((fishId, baitId, count) => update((s) =>
+  catchFish(s, fishId, baitId, s.fishing?.activeBody ?? "pond", count)
 ), [update]);
 
 const handleUpgradeAnimalStorage = useCallback((animalId, instanceId, barnInstanceId) => update((s) => {
@@ -611,6 +612,11 @@ const handleUpgradeBarnBuilding = useCallback((buildingId, instanceId) => update
 }, [update, notify]);
   const handleUnlockPrestigeSkill = useCallback((skillId) => { update((s) => unlockPrestigeSkill(s, skillId)); }, [update]);
   const handleToggleFishingWorkerAllowedFish = useCallback((bodyId, fishId) => update((s) => toggleFishingWorkerAllowedFish(s, bodyId, fishId)), [update]);
+const handleBuyFishingPlayerUpgrade = useCallback((upgradeId) => update((s) => {
+  const n = buyFishingPlayerUpgrade(s, upgradeId);
+  if (n === s) notify("Can't buy — check cash or requirements.");
+  return n;
+}), [update, notify]);
   const handleAssignWorker = useCallback((keptWorkerId, farmId) => update((s) => assignKeptWorker(s, keptWorkerId, farmId)), [update]);
   const handleUnlockFarm = useCallback((cropId) => { update((s) => { const n = unlockExtraFarm(s, cropId); if (n === s) notify("Not enough cash."); return n; }); notify("🌾 New farm unlocked!"); }, [update, notify]);
   const handleUnlockSeasonFarm = useCallback((cropId) => { update((s) => { const n = unlockSeasonFarm(s, cropId); if (n === s) notify("Not enough cash."); return n; }); notify("🌾 New farm unlocked!"); }, [update, notify]);
@@ -685,6 +691,7 @@ const handleUpgradeBarnBuilding = useCallback((buildingId, instanceId) => update
   onBuildBarnBuilding={handleBuildBarnBuilding}
   onUpgradeBarnBuilding={handleUpgradeBarnBuilding}
   onToggleFishingWorkerAllowedFish={handleToggleFishingWorkerAllowedFish}
+  onBuyFishingPlayerUpgrade={handleBuyFishingPlayerUpgrade}
 />
         )}
       </div>

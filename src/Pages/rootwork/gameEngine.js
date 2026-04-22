@@ -52,7 +52,7 @@ RESTAURANT_SAT_PER_CHEF, RESTAURANT_OMELETTE_PER_PULSE_DIVISOR, RESTAURANT_CHEES
 CLOTHIER_CASH_PER_CLERK, CLOTHIER_GOODS_PER_PULSE_DIVISOR,
 FISHING_BODIES, FISHING_BODY_ORDER, FISHING_FISH,
 FISHING_CATCH_RATES, FISHING_BAIT_BONUS,
-FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, ANIMAL_YIELD_UPGRADES, 
+FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, ANIMAL_YIELD_UPGRADES, 
   SCHOOL_RESEARCH,
   PRESTIGE_SKILL_TREE,
 } from "./gameConstants";
@@ -2740,11 +2740,61 @@ export function toggleFishingWorkerAllowedFish(state, bodyId, fishId) {
   return next;
 }
 
-export function catchFish(state, fishId, baitId, bodyId) {
+// ─── Player fishing upgrades ──────────────────────────────────────────────────
+
+export function getPlayerFishingUpgrades(state) {
+  return state.fishing?.playerUpgrades ?? [];
+}
+
+/** Wider sweet spot: +10% per rod tier owned */
+export function getPlayerFishingSweetSpotBonus(state) {
+  const owned = getPlayerFishingUpgrades(state);
+  const rodTiers = ["rod_1", "rod_2", "rod_3"].filter((id) => owned.includes(id)).length;
+  return rodTiers * 0.10;
+}
+
+/** More reel per tap: +20% per reel tier owned */
+export function getPlayerFishingReelBonus(state) {
+  const owned = getPlayerFishingUpgrades(state);
+  const reelTiers = ["reel_1", "reel_2"].filter((id) => owned.includes(id)).length;
+  return reelTiers * 0.20;
+}
+
+/** Slower needle: -15% speed per patience tier owned */
+export function getPlayerFishingPatienceBonus(state) {
+  const owned = getPlayerFishingUpgrades(state);
+  const tiers = ["patience_1", "patience_2"].filter((id) => owned.includes(id)).length;
+  return tiers * 0.15;
+}
+
+/** How many fish per successful manual reel */
+export function getPlayerFishingHaul(state) {
+  const owned = getPlayerFishingUpgrades(state);
+  if (owned.includes("haul_10")) return 10;
+  if (owned.includes("haul_5")) return 5;
+  if (owned.includes("haul_2")) return 2;
+  return 1;
+}
+
+export function buyFishingPlayerUpgrade(state, upgradeId) {
+  const upgrade = FISHING_PLAYER_UPGRADES[upgradeId];
+  if (!upgrade) return state;
+  const owned = state.fishing?.playerUpgrades ?? [];
+  if (owned.includes(upgradeId)) return state;
+  if (upgrade.requires && !owned.includes(upgrade.requires)) return state;
+  if ((state.cash ?? 0) < upgrade.cost) return state;
+  const next = deepCloneState(state);
+  if (!next.fishing) return state;
+  next.fishing.playerUpgrades = [...owned, upgradeId];
+  next.cash -= upgrade.cost;
+  return next;
+}
+
+export function catchFish(state, fishId, baitId, bodyId, count = 1) {
   if (!state.fishing) return state;
   const next = deepCloneState(state);
   if (!next.fishing.fish) next.fishing.fish = {};
-  next.fishing.fish[fishId] = (next.fishing.fish[fishId] ?? 0) + 1;
+  next.fishing.fish[fishId] = (next.fishing.fish[fishId] ?? 0) + count;
   if (baitId && (next.bait?.[baitId] ?? 0) > 0) next.bait[baitId] -= 1;
   return next;
 }
