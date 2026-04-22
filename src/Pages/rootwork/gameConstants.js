@@ -397,7 +397,7 @@ export const ANIMAL_FOOD_COSTS = { chicken: 2, cow: 3, sheep: 4 };
 export const PET_FOOD_COST = 2;
 export const BREAD_FOOD_UNITS = 30;
 export const PERSON_IDLE_FOOD_COST = 1;
-export const PERSON_WORKING_FOOD_COST = 2;
+export const PERSON_WORKING_FOOD_COST = 3;
  
 // ─── Satisfaction ─────────────────────────────────────────────────────────────
 export const TOWN_SATISFACTION_DEFAULT = 100;
