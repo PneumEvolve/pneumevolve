@@ -1,6 +1,6 @@
 import React from "react";
 import { CROPS, SEASON_FARMS } from "../gameConstants";
-import { getTotalWorkersHired, getAvailableWorkerSlots, getEffectivePulseSeconds, getTreasuryGrowBonus, getSchoolGrowBonus, getFishMealGrowBonus } from "../gameEngine";
+import { getTotalWorkersHired, getAvailableWorkerSlots, getEffectivePulseSeconds, getTreasuryGrowBonus, getSchoolGrowBonus, getFishMealGrowBonus, getTownFoodReserve } from "../gameEngine";
 
 export default function ResourceBar({ game }) {
   const availableCropIds = game.season >= 4
@@ -34,7 +34,7 @@ export default function ResourceBar({ game }) {
   const pulsePct = Math.min(100, (1 - pulseSecondsLeft / effectivePulse) * 100);
   const bakeryOn = game.town?.bakeryOn === true && (game.town?.bakeryLevel ?? 0) >= 1;
   const foodEmoji = bakeryOn ? "🍞" : "🌾";
-  const foodNeeded = game.town?.rawFoodNeeded ?? 0;
+  const foodNeeded = getTownFoodReserve(game);
   const foodHave = bakeryOn
     ? Math.floor(game.artisan?.bread ?? 0)
     : Math.floor(game.crops?.wheat ?? 0);
@@ -209,9 +209,3 @@ export default function ResourceBar({ game }) {
     </div>
   );
 }
-
-
-
-
-
-

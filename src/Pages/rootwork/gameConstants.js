@@ -785,3 +785,228 @@ export const SCHOOL_RESEARCH = {
     requires: ["fishing_haul_2"],
   },
 };
+
+// ─── World / Adventurer System ────────────────────────────────────────────────
+
+export const ADVENTURER_CLASSES = {
+  fighter: { id: "fighter", name: "Fighter", emoji: "⚔️", description: "Balanced. Good all-around." },
+  ranger:  { id: "ranger",  name: "Ranger",  emoji: "🏹", description: "Fast missions, lower loot." },
+  mage:    { id: "mage",    name: "Mage",    emoji: "🧙", description: "Slower but higher XP gain." },
+};
+
+export const ADVENTURER_NAMES = [
+  "Aldric", "Brynn", "Cassia", "Dorin", "Elowen", "Fenn",
+  "Gala",   "Hazel", "Idris",  "Jora",  "Kael",   "Lyra",
+  "Maren",  "Niall", "Orin",   "Petra", "Quinn",  "Rowe",
+  "Sable",  "Thorn", "Ulara",  "Vex",   "Wren",   "Xan",
+];
+
+export const WORLD_ZONES = {
+  old_mine: {
+    id: "old_mine",
+    name: "Old Mine",
+    emoji: "⛏️",
+    description: "A collapsed mine on the edge of your land. Might have iron ore.",
+    baseDuration: 30,
+    clearsNeeded: 4,
+    unlockAfterClears: 0,
+    unlockRequiresZone: null,
+    gearRequired: 0,
+    xpReward: 8,
+    enemyName: "Mine Crawlers",
+    damagePerTick: 1,
+    maxEnemyHp: 20,
+    loot: [{ resourceKey: "iron_ore", emoji: "🪨", name: "Iron Ore", min: 2, max: 5 }],
+    workerResource: "Iron Ore",
+    workerEmoji: "🪨",
+    workerYieldPerMinute: 3,
+  },
+  birch_forest: {
+    id: "birch_forest",
+    name: "Birch Forest",
+    emoji: "🌲",
+    description: "A quiet forest with plenty of lumber. Also home to wolves.",
+    baseDuration: 45,
+    clearsNeeded: 5,
+    unlockAfterClears: 2,
+    unlockRequiresZone: "old_mine",
+    gearRequired: 1,
+    xpReward: 12,
+    enemyName: "Forest Wolves",
+    damagePerTick: 2,
+    maxEnemyHp: 35,
+    loot: [
+      { resourceKey: "lumber", emoji: "🪵", name: "Lumber", min: 3, max: 6 },
+      { resourceKey: "herbs",  emoji: "🌿", name: "Herbs",  min: 1, max: 3 },
+    ],
+    workerResource: "Lumber",
+    workerEmoji: "🪵",
+    workerYieldPerMinute: 2,
+  },
+  damp_cave: {
+    id: "damp_cave",
+    name: "Damp Cave",
+    emoji: "🧪",
+    description: "Dripping walls, strange fungi. Herbalists would love this place.",
+    baseDuration: 60,
+    clearsNeeded: 6,
+    unlockAfterClears: 5,
+    unlockRequiresZone: "birch_forest",
+    gearRequired: 2,
+    xpReward: 18,
+    enemyName: "Cave Horrors",
+    damagePerTick: 3,
+    maxEnemyHp: 50,
+    loot: [
+      { resourceKey: "herbs",    emoji: "🌿", name: "Herbs",    min: 4, max: 8 },
+      { resourceKey: "iron_ore", emoji: "🪨", name: "Iron Ore", min: 1, max: 3 },
+      { resourceKey: "rare_gem", emoji: "💎", name: "Rare Gem", min: 0, max: 1 },
+    ],
+    workerResource: "Herbs",
+    workerEmoji: "🌿",
+    workerYieldPerMinute: 4,
+  },
+};
+
+export const WORLD_RESOURCES = {
+  iron_ore: { name: "Iron Ore",  emoji: "🪨" },
+  lumber:   { name: "Lumber",    emoji: "🪵" },
+  herbs:    { name: "Herbs",     emoji: "🌿" },
+  rare_gem: { name: "Rare Gem",  emoji: "💎" },
+};
+
+// ─── Adventurer Stats ─────────────────────────────────────────────────────────
+
+export const ADVENTURER_BASE_HP = 40;
+export const ADVENTURER_HP_PER_LEVEL = 8;
+export const ADVENTURER_REGEN_PER_SECOND = 0.05; // passive regen while not on mission
+
+// ─── Crop Potions (brewed in Kitchen) ─────────────────────────────────────────
+
+export const CROP_POTION_RECIPES = {
+  wheat_potion: {
+    id: "wheat_potion",
+    name: "Wheat Brew",
+    emoji: "🫙",
+    description: "A basic restorative. Restores 15 HP when used.",
+    tier: 1,
+    inputs: { wheat: 6 },
+    inputCrop: "wheat",
+    inputAmount: 6,
+    outputGood: "wheat_potion",
+    outputAmount: 1,
+    output: { resourceKey: "wheat_potion", emoji: "🫙", name: "Wheat Brew" },
+    seconds: 15,
+    healAmount: 15,
+    category: "potion",
+  },
+  berry_potion: {
+    id: "berry_potion",
+    name: "Berry Elixir",
+    emoji: "🍶",
+    description: "A berry concentrate. Restores 30 HP when used.",
+    tier: 2,
+    inputs: { berry: 8 },
+    inputCrop: "berry",
+    inputAmount: 8,
+    outputGood: "berry_potion",
+    outputAmount: 1,
+    output: { resourceKey: "berry_potion", emoji: "🍶", name: "Berry Elixir" },
+    seconds: 25,
+    healAmount: 30,
+    category: "potion",
+  },
+  tomato_potion: {
+    id: "tomato_potion",
+    name: "Tomato Tonic",
+    emoji: "🧴",
+    description: "A rich red tonic. Restores 60 HP and removes debuffs.",
+    tier: 3,
+    inputs: { tomato: 6 },
+    inputCrop: "tomato",
+    inputAmount: 6,
+    outputGood: "tomato_potion",
+    outputAmount: 1,
+    output: { resourceKey: "tomato_potion", emoji: "🧴", name: "Tomato Tonic" },
+    seconds: 35,
+    healAmount: 60,
+    category: "potion",
+  },
+};
+
+export const CROP_POTION_LIST = ["wheat_potion", "berry_potion", "tomato_potion"];
+
+
+// ─── Forge System ─────────────────────────────────────────────────────────────
+
+export const FORGE_RECIPES = {
+  iron_sword: {
+    id: "iron_sword",
+    name: "Iron Sword",
+    emoji: "⚔️",
+    description: "Equip an adventurer. Reduces mission time by 15%.",
+    inputs: { iron_ore: 8 },
+    output: { resourceKey: "iron_sword", emoji: "⚔️", name: "Iron Sword" },
+    seconds: 20,
+    gearTier: 1,
+    category: "weapon",
+  },
+  iron_shield: {
+    id: "iron_shield",
+    name: "Iron Shield",
+    emoji: "🛡️",
+    description: "Equip an adventurer. Survive one failed mission without penalty.",
+    inputs: { iron_ore: 10 },
+    output: { resourceKey: "iron_shield", emoji: "🛡️", name: "Iron Shield" },
+    seconds: 25,
+    gearTier: 1,
+    category: "armor",
+  },
+  leather_armor: {
+    id: "leather_armor",
+    name: "Leather Armor",
+    emoji: "🥋",
+    description: "Equip an adventurer. Reduces fail chance by 10%.",
+    inputs: { iron_ore: 5, herbs: 4 },
+    output: { resourceKey: "leather_armor", emoji: "🥋", name: "Leather Armor" },
+    seconds: 18,
+    gearTier: 1,
+    category: "armor",
+  },
+  hunting_bow: {
+    id: "hunting_bow",
+    name: "Hunting Bow",
+    emoji: "🏹",
+    description: "Equip a ranger. Bonus loot from forest zones.",
+    inputs: { lumber: 10, iron_ore: 4 },
+    output: { resourceKey: "hunting_bow", emoji: "🏹", name: "Hunting Bow" },
+    seconds: 35,
+    gearTier: 2,
+    category: "weapon",
+    requires: "iron_sword",
+  },
+  health_potion: {
+    id: "health_potion",
+    name: "Health Potion",
+    emoji: "🧪",
+    description: "Consumable. Adventurer auto-uses on near-fail.",
+    inputs: { herbs: 6 },
+    output: { resourceKey: "health_potion", emoji: "🧪", name: "Health Potion" },
+    seconds: 12,
+    gearTier: 0,
+    category: "consumable",
+  },
+};
+
+export const FORGE_RECIPE_LIST = ["health_potion", "iron_sword", "leather_armor", "iron_shield", "hunting_bow"];
+
+export const FORGE_WORKER_HIRE_COST = 150;
+export const FORGE_WORKER_HIRE_MULTIPLIER = 1.5;
+
+export const FORGE_WORKER_UPGRADES = {
+  forge_speed_1: { id: "forge_speed_1", name: "Bellows",      emoji: "💨", description: "Craft 30% faster.", cost: 200, requires: null },
+  forge_auto:    { id: "forge_auto",    name: "Auto-Craft",   emoji: "🔄", description: "Auto-restarts last recipe.", cost: 300, requires: "forge_speed_1" },
+  forge_speed_2: { id: "forge_speed_2", name: "Master Forge", emoji: "🔥", description: "Craft 50% faster.", cost: 500, requires: "forge_auto" },
+};
+
+export const FORGE_WORKER_UPGRADE_ORDER = ["forge_speed_1", "forge_auto", "forge_speed_2"];

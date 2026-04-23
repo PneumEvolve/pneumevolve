@@ -149,7 +149,7 @@ export default function FarmZone({
             {farmWorkers.length} worker{farmWorkers.length !== 1 ? "s" : ""}
             {prestigeReady && (
               <span style={{ marginLeft: "0.5rem", color: "#4ade80", fontWeight: 600 }}>
-                · Prestige ready ✓
+                · Season ready ✓
               </span>
             )}
           </p>
@@ -166,7 +166,7 @@ export default function FarmZone({
             color: prestigeReady ? automatedColor : manualColor,
           }}
         >
-          {prestigeReady ? "Prestige ready" : "Manual"}
+          {prestigeReady ? "Season ready ✓" : "Working..."}
         </div>
       </div>
  

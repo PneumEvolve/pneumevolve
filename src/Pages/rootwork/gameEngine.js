@@ -55,6 +55,11 @@ FISHING_CATCH_RATES, FISHING_BAIT_BONUS,
 FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, ANIMAL_YIELD_UPGRADES, 
   SCHOOL_RESEARCH,
   PRESTIGE_SKILL_TREE,
+  FORGE_RECIPES, FORGE_WORKER_HIRE_COST, FORGE_WORKER_HIRE_MULTIPLIER,
+  FORGE_WORKER_UPGRADES, FORGE_WORKER_UPGRADE_ORDER, FORGE_RECIPE_LIST,
+  WORLD_ZONES, ADVENTURER_NAMES, ADVENTURER_CLASSES, WORLD_RESOURCES,
+  ADVENTURER_BASE_HP, ADVENTURER_HP_PER_LEVEL, ADVENTURER_REGEN_PER_SECOND,
+  CROP_POTION_RECIPES, CROP_POTION_LIST,
 } from "./gameConstants";
  
 let _idCounter = 0;
@@ -360,7 +365,7 @@ export function getTownHomeCost(state) {
   const homes = state.town?.homes ?? 0;
   if (homes === 0) return 0;
   const raw = TOWN_HOME_SECOND_COST * Math.pow(TOWN_HOME_COST_MULTIPLIER, homes - 1);
-  return Math.round(raw / 5) * 5;
+  return Math.min(100_000, Math.round(raw / 5) * 5);
 }
  
 export function getTownBakeryCost(state) {
@@ -452,9 +457,11 @@ export function startSchoolResearch(state, researchId) {
   school.unlockedResearch = school.unlockedResearch ?? [];
   if (school.unlockedResearch.includes(researchId)) return state;
 
+  // Allow switching research — just check it's in the available (not-yet-unlocked) list
   const available = getAvailableSchoolResearch(next).map((r) => r.id);
   if (!available.includes(researchId)) return state;
 
+  // Cancel current research (progress is lost — this is intentional)
   school.activeResearchId = researchId;
   school.researchProgress = 0;
   school.researchNeeded = Math.max(
@@ -947,7 +954,7 @@ export function setKitchenWorkerBatchOverride(state, workerId, batchSize) {
 }
  
 function _startKitchenWorkerRecipe(worker, recipeId, crops, animalGoods, fish, bait, state = null) {
-  const recipe = PROCESSING_RECIPES[recipeId] ?? BAIT_RECIPES[recipeId];
+  const recipe = PROCESSING_RECIPES[recipeId] ?? BAIT_RECIPES[recipeId] ?? CROP_POTION_RECIPES[recipeId];
   if (!recipe?.inputCrop) return false;
   const batch = getKitchenWorkerBatchSize(worker);
   const efficient = state ? hasPrestigeSkill(state, "efficient_process") : false;
@@ -1642,7 +1649,7 @@ if (activeTier) {
     if (!worker.busy || !worker.recipeId) continue;
     worker.elapsedSeconds = (worker.elapsedSeconds ?? 0) + satMultiplier;
     if (worker.elapsedSeconds >= worker.totalSeconds) {
-      const recipe = PROCESSING_RECIPES[worker.recipeId] ?? BAIT_RECIPES[worker.recipeId];
+      const recipe = PROCESSING_RECIPES[worker.recipeId] ?? BAIT_RECIPES[worker.recipeId] ?? CROP_POTION_RECIPES[worker.recipeId];
       const batch = worker.batchSize ?? 1;
       const produced = recipe.outputAmount * batch;
       const artisanGoods = ["bread", "jam", "sauce"];
@@ -1651,6 +1658,9 @@ if (activeTier) {
         next.bait[recipe.outputGood] = (next.bait[recipe.outputGood] ?? 0) + produced;
       } else if (artisanGoods.includes(recipe.outputGood)) {
         next.artisan[recipe.outputGood] = (next.artisan[recipe.outputGood] ?? 0) + produced;
+      } else if (["wheat_potion","berry_potion","tomato_potion"].includes(recipe.outputGood)) {
+        if (!next.cropPotions) next.cropPotions = {};
+        next.cropPotions[recipe.outputGood] = (next.cropPotions[recipe.outputGood] ?? 0) + produced;
       } else {
         if (!next.animalGoods) next.animalGoods = {};
         next.animalGoods[recipe.outputGood] = (next.animalGoods[recipe.outputGood] ?? 0) + produced;
@@ -1980,7 +1990,21 @@ export function updateTown(state, seconds = 1) {
   const effectivePulse = getEffectivePulseSeconds(next);
   if (next.town.pulseSeconds == null) next.town.pulseSeconds = effectivePulse;
   next.town.pulseSeconds -= seconds;
- 
+
+  // Population growth is decoupled from pulse length — always grows at base rate (1 per TOWN_PULSE_SECONDS)
+  // This prevents late-game building stacking from slowing population growth.
+  if (!next.town.starving) {
+    next.town.growthAccumulator = (next.town.growthAccumulator ?? 0) + seconds;
+    while (next.town.growthAccumulator >= TOWN_PULSE_SECONDS) {
+      next.town.growthAccumulator -= TOWN_PULSE_SECONDS;
+      const cap = getTownCapacity(next);
+      const ppl = Math.floor(Math.max(0, next.town.people ?? 0));
+      if (ppl < cap) next.town.people = Math.min(cap, ppl + TOWN_GROWTH_PER_PULSE);
+    }
+  } else {
+    next.town.growthAccumulator = 0;
+  }
+
   while (next.town.pulseSeconds <= 0) {
     const people = Math.floor(Math.max(0, next.town.people ?? 0));
     const capacity = getTownCapacity(next);
@@ -2033,8 +2057,6 @@ export function updateTown(state, seconds = 1) {
         }
       }
 
-      if (people < capacity) next.town.people = Math.min(capacity, people + TOWN_GROWTH_PER_PULSE);
-      else next.town.people = people;
       next.town.starving = false;
     } else {
       next.town.people = Math.max(0, people - TOWN_DECLINE_PER_PULSE);
@@ -2420,7 +2442,7 @@ export function assignKitchenWorkerRecipe(state, workerId, recipeId) {
   const worker = (next.kitchenWorkers ?? []).find((w) => w.id === workerId);
   if (!worker) return state;
   if (worker.busy && worker.recipeId) {
-    const recipe = PROCESSING_RECIPES[worker.recipeId] ?? BAIT_RECIPES[worker.recipeId];
+    const recipe = PROCESSING_RECIPES[worker.recipeId] ?? BAIT_RECIPES[worker.recipeId] ?? CROP_POTION_RECIPES[worker.recipeId];
     const batch = worker.batchSize ?? 1;
     if (recipe?.inputCrop) {
       const refund = Math.floor(recipe.inputAmount * batch * 0.5);
@@ -2455,7 +2477,7 @@ export function fireKitchenWorker(state, workerId) {
   const worker = (next.kitchenWorkers ?? []).find((w) => w.id === workerId);
   if (!worker) return state;
   if (worker.busy && worker.recipeId) {
-    const recipe = PROCESSING_RECIPES[worker.recipeId] ?? BAIT_RECIPES[worker.recipeId];
+    const recipe = PROCESSING_RECIPES[worker.recipeId] ?? BAIT_RECIPES[worker.recipeId] ?? CROP_POTION_RECIPES[worker.recipeId];
     if (recipe?.inputCrop) {
       const refund = Math.floor(recipe.inputAmount * (worker.batchSize ?? 1) * 0.5);
       if (recipe.inputCrop in (next.crops ?? {})) {
@@ -3380,6 +3402,7 @@ export function deserializeState(raw) {
       if (parsed.town.breadNeeded === undefined) parsed.town.breadNeeded = 0;
       if (parsed.town.rawBreadNeeded === undefined) parsed.town.rawBreadNeeded = 0;
       if (parsed.town.rawFoodNeeded === undefined) parsed.town.rawFoodNeeded = 0;
+  if (parsed.town.growthAccumulator === undefined) parsed.town.growthAccumulator = 0;
       parsed.town.foodType = parsed.town.bakeryOn ? "bread" : "wheat";
       if (parsed.town.pulseSeconds === undefined) parsed.town.pulseSeconds = TOWN_PULSE_SECONDS;
       if (parsed.town.starving === undefined) parsed.town.starving = false;
@@ -3587,4 +3610,443 @@ export function getFarmAverageGrowTime(farm, workers, cropId, feastBonusPercent 
   const plainFraction = (totalPlots - upgradedCount) / totalPlots;
   const upgradedFraction = upgradedCount / totalPlots;
   return Math.max(3, Math.round(plainTime * plainFraction + upgradedTime * upgradedFraction));
+}
+
+// ─── World / Adventurer Engine ────────────────────────────────────────────────
+
+function genWorldId(prefix) {
+  return prefix + "_" + Math.random().toString(36).slice(2, 8);
+}
+
+export function getAdventurerMaxHp(adventurer) {
+  return ADVENTURER_BASE_HP + ((adventurer.level ?? 1) - 1) * ADVENTURER_HP_PER_LEVEL;
+}
+
+export function createAdventurer(classId = "fighter") {
+  const names = ADVENTURER_NAMES;
+  const name = names[Math.floor(Math.random() * names.length)];
+  const maxHp = ADVENTURER_BASE_HP;
+  return {
+    id: genWorldId("adv"),
+    name,
+    class: classId,
+    level: 1,
+    xp: 0,
+    gear: 0,
+    equippedItem: null,
+    hp: maxHp,
+    maxHp,
+    potions: {},    // { wheat_potion: 2, berry_potion: 1, ... }
+    mission: null,
+  };
+}
+
+export function initWorldState(state) {
+  const next = { ...state };
+  if (!next.adventurers) next.adventurers = [];
+  if (!next.worldZoneClears) next.worldZoneClears = {};
+  if (!next.worldResources) next.worldResources = { iron_ore: 0, lumber: 0, herbs: 0, rare_gem: 0 };
+  if (!next.worldWorkers) next.worldWorkers = [];
+  if (!next.forgeWorkers) next.forgeWorkers = [];
+  if (!next.forgeGoods) next.forgeGoods = {};
+  if (!next.cropPotions) next.cropPotions = {};
+  if (next.adventurers.length === 0) {
+    next.adventurers = [createAdventurer("fighter")];
+  }
+  // Migrate existing adventurers to have hp/potions
+  next.adventurers = next.adventurers.map((adv) => {
+    const maxHp = getAdventurerMaxHp(adv);
+    return {
+      equippedItem: null,
+      potions: {},
+      ...adv,
+      maxHp,
+      hp: adv.hp !== undefined ? Math.min(adv.hp, maxHp) : maxHp,
+    };
+  });
+  return next;
+}
+
+function getAdventurerMissionDuration(adventurer, zone) {
+  const base = zone.baseDuration ?? 30;
+  const gearBonus = (adventurer.gear ?? 0) * 0.15;
+  const lvlBonus = ((adventurer.level ?? 1) - 1) * 0.08;
+  const reduction = Math.min(gearBonus + lvlBonus, 0.75);
+  return Math.round(base * (1 - reduction));
+}
+
+function getAdventurerFailChance(adventurer, zone) {
+  const gearScore = (adventurer.gear ?? 0) + (adventurer.level ?? 1);
+  const required = zone.gearRequired ?? 0;
+  if (gearScore >= required + 2) return 0;
+  if (gearScore >= required) return 0.05;
+  if (gearScore >= required - 1) return 0.30;
+  return 0.65;
+}
+
+function getAdventurerXpNeeded(level) {
+  return Math.floor(10 * Math.pow(1.4, level - 1));
+}
+
+export function sendAdventurer(state, adventurerId, zoneId) {
+  const zone = WORLD_ZONES[zoneId];
+  if (!zone) return state;
+  const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
+  if (advIdx === -1) return state;
+  const adventurer = state.adventurers[advIdx];
+  if (adventurer.mission) return state;
+
+  const duration = getAdventurerMissionDuration(adventurer, zone);
+  const updatedAdv = { ...adventurer, mission: { zoneId, zoneName: zone.name, startTime: Date.now(), duration } };
+  const next = { ...state, adventurers: [...state.adventurers] };
+  next.adventurers[advIdx] = updatedAdv;
+  return next;
+}
+
+export function returnAdventurer(state, adventurerId) {
+  const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
+  if (advIdx === -1) return { state, result: null };
+  const adventurer = state.adventurers[advIdx];
+  const mission = adventurer.mission;
+  if (!mission) return { state, result: null };
+  const zone = WORLD_ZONES[mission.zoneId];
+  if (!zone) return { state, result: null };
+
+  const elapsed = (Date.now() - mission.startTime) / 1000;
+  if (elapsed < mission.duration) return { state, result: null };
+
+  const failChance = getAdventurerFailChance(adventurer, zone);
+  const failed = Math.random() < failChance;
+
+  let loot = [];
+  let nextResources = { ...(state.worldResources ?? {}) };
+
+  if (!failed) {
+    for (const lootDef of zone.loot) {
+      const amount = Math.floor(Math.random() * (lootDef.max - lootDef.min + 1)) + lootDef.min;
+      if (amount > 0) {
+        loot.push({ ...lootDef, amount });
+        nextResources[lootDef.resourceKey] = (nextResources[lootDef.resourceKey] ?? 0) + amount;
+      }
+    }
+  }
+
+  const xpGained = failed ? Math.floor(zone.xpReward * 0.3) : zone.xpReward;
+  let newXp = (adventurer.xp ?? 0) + xpGained;
+  let newLevel = adventurer.level ?? 1;
+  let leveledUp = false;
+  while (newXp >= getAdventurerXpNeeded(newLevel)) {
+    newXp -= getAdventurerXpNeeded(newLevel);
+    newLevel++;
+    leveledUp = true;
+  }
+
+  const prevClears = (state.worldZoneClears ?? {})[zone.id] ?? 0;
+  const newClears = failed ? prevClears : Math.min(prevClears + 1, zone.clearsNeeded);
+  const zoneCleared = !failed && prevClears < zone.clearsNeeded && newClears >= zone.clearsNeeded;
+
+  // Calculate HP damage taken during mission
+  const missionSeconds = mission.duration;
+  const dmgPerTick = zone.damagePerTick ?? 1;
+  const rawDamage = Math.round(missionSeconds * dmgPerTick * (failed ? 1.5 : 0.6));
+  const newMaxHp = getAdventurerMaxHp({ ...adventurer, level: newLevel });
+  const hpAfterDamage = Math.max(1, (adventurer.hp ?? newMaxHp) - rawDamage);
+  // Passive regen while not on mission will handle recovery; cap at new maxHp
+  const newHp = Math.min(hpAfterDamage, newMaxHp);
+
+  const updatedAdv = { ...adventurer, xp: newXp, level: newLevel, maxHp: newMaxHp, hp: newHp, mission: null };
+  const next = {
+    ...state,
+    adventurers: state.adventurers.map((a) => a.id === adventurerId ? updatedAdv : a),
+    worldResources: nextResources,
+    worldZoneClears: { ...(state.worldZoneClears ?? {}), [zone.id]: newClears },
+  };
+
+  return { state: next, result: { failed, zoneName: mission.zoneName, loot, xpGained, leveledUp, zoneCleared, newClears, clearsNeeded: zone.clearsNeeded, hpLost: rawDamage, hpRemaining: newHp, maxHp: newMaxHp } };
+}
+
+// Equip a piece of forge goods as an adventurer's gear tier
+export function equipAdventurer(state, adventurerId, itemKey) {
+  const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
+  if (advIdx === -1) return state;
+  const forgeGoods = state.forgeGoods ?? {};
+  if ((forgeGoods[itemKey] ?? 0) < 1) return state;
+
+  // Determine gear tier from recipe definition
+  const recipe = Object.values(FORGE_RECIPES).find((r) => r.output.resourceKey === itemKey);
+  if (!recipe || recipe.category === "consumable") return state;
+
+  const gearTier = recipe.gearTier ?? 1;
+  const adventurer = state.adventurers[advIdx];
+
+  // Only equip if it's an upgrade (or same tier swap)
+  // Refund old item if same tier
+  const oldGear = adventurer.gear ?? 0;
+  let nextGoods = { ...forgeGoods, [itemKey]: forgeGoods[itemKey] - 1 };
+
+  // If adventurer already has gear, find what they had and refund it (simplified: track equippedItem)
+  const oldItemKey = adventurer.equippedItem ?? null;
+  if (oldItemKey && oldItemKey !== itemKey) {
+    nextGoods = { ...nextGoods, [oldItemKey]: (nextGoods[oldItemKey] ?? 0) + 1 };
+  }
+
+  const updatedAdv = { ...adventurer, gear: gearTier, equippedItem: itemKey };
+  return {
+    ...state,
+    adventurers: state.adventurers.map((a, i) => i === advIdx ? updatedAdv : a),
+    forgeGoods: nextGoods,
+  };
+}
+
+export function unequipAdventurer(state, adventurerId) {
+  const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
+  if (advIdx === -1) return state;
+  const adventurer = state.adventurers[advIdx];
+  const itemKey = adventurer.equippedItem ?? null;
+  if (!itemKey) return state;
+  const nextGoods = { ...(state.forgeGoods ?? {}), [itemKey]: ((state.forgeGoods ?? {})[itemKey] ?? 0) + 1 };
+  const updatedAdv = { ...adventurer, gear: 0, equippedItem: null };
+  return {
+    ...state,
+    adventurers: state.adventurers.map((a, i) => i === advIdx ? updatedAdv : a),
+    forgeGoods: nextGoods,
+  };
+}
+
+// Use a potion on an adventurer
+export function usePotion(state, adventurerId, potionKey) {
+  const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
+  if (advIdx === -1) return state;
+  const adventurer = state.adventurers[advIdx];
+  const potions = adventurer.potions ?? {};
+  if ((potions[potionKey] ?? 0) < 1) return state;
+  const recipe = CROP_POTION_RECIPES[potionKey];
+  if (!recipe) return state;
+  const newHp = Math.min((adventurer.hp ?? adventurer.maxHp), adventurer.maxHp) + (recipe.healAmount ?? 0);
+  const cappedHp = Math.min(newHp, adventurer.maxHp);
+  return {
+    ...state,
+    adventurers: state.adventurers.map((a, i) => i === advIdx
+      ? { ...a, hp: cappedHp, potions: { ...potions, [potionKey]: potions[potionKey] - 1 } }
+      : a
+    ),
+  };
+}
+
+// Transfer a potion from cropPotions inventory to adventurer's belt
+export function givePotion(state, adventurerId, potionKey) {
+  const count = (state.cropPotions ?? {})[potionKey] ?? 0;
+  if (count < 1) return state;
+  const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
+  if (advIdx === -1) return state;
+  const adventurer = state.adventurers[advIdx];
+  const beltTotal = Object.values(adventurer.potions ?? {}).reduce((s, v) => s + v, 0);
+  if (beltTotal >= 3) return state; // max 3 potions on belt
+  return {
+    ...state,
+    cropPotions: { ...(state.cropPotions ?? {}), [potionKey]: count - 1 },
+    adventurers: state.adventurers.map((a, i) => i === advIdx
+      ? { ...a, potions: { ...(a.potions ?? {}), [potionKey]: ((a.potions ?? {})[potionKey] ?? 0) + 1 } }
+      : a
+    ),
+  };
+}
+
+export function removePotion(state, adventurerId, potionKey) {
+  const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
+  if (advIdx === -1) return state;
+  const adventurer = state.adventurers[advIdx];
+  const count = (adventurer.potions ?? {})[potionKey] ?? 0;
+  if (count < 1) return state;
+  return {
+    ...state,
+    cropPotions: { ...(state.cropPotions ?? {}), [potionKey]: ((state.cropPotions ?? {})[potionKey] ?? 0) + 1 },
+    adventurers: state.adventurers.map((a, i) => i === advIdx
+      ? { ...a, potions: { ...(a.potions ?? {}), [potionKey]: count - 1 } }
+      : a
+    ),
+  };
+}
+
+// Brew a crop potion in the kitchen (consumes crops, adds to cropPotions)
+export function brewCropPotion(state, potionId) {
+  const recipe = CROP_POTION_RECIPES[potionId];
+  if (!recipe) return state;
+  const crops = state.crops ?? {};
+  for (const [crop, needed] of Object.entries(recipe.inputs)) {
+    if ((crops[crop] ?? 0) < needed) return state;
+  }
+  const nextCrops = { ...crops };
+  for (const [crop, needed] of Object.entries(recipe.inputs)) {
+    nextCrops[crop] = (nextCrops[crop] ?? 0) - needed;
+  }
+  return {
+    ...state,
+    crops: nextCrops,
+    cropPotions: { ...(state.cropPotions ?? {}), [potionId]: ((state.cropPotions ?? {})[potionId] ?? 0) + 1 },
+  };
+}
+
+// Tick adventurer regen (call from main tick, not forge tick)
+export function tickAdventurerRegen(state, dtSeconds) {
+  if (!(state.adventurers ?? []).length) return state;
+  const updated = state.adventurers.map((adv) => {
+    if (adv.mission) return adv; // no regen on mission
+    if ((adv.hp ?? adv.maxHp) >= adv.maxHp) return adv;
+    const newHp = Math.min(adv.maxHp, (adv.hp ?? adv.maxHp) + ADVENTURER_REGEN_PER_SECOND * dtSeconds);
+    return { ...adv, hp: newHp };
+  });
+  return { ...state, adventurers: updated };
+}
+
+// ─── Forge Engine ─────────────────────────────────────────────────────────────
+
+export function getForgeWorkerHireCost(state) {
+  const count = (state.forgeWorkers ?? []).length;
+  return Math.floor(FORGE_WORKER_HIRE_COST * Math.pow(FORGE_WORKER_HIRE_MULTIPLIER, count));
+}
+
+export function getForgeEffectiveSeconds(worker, recipe) {
+  let secs = recipe.seconds;
+  const upgrades = worker.upgrades ?? [];
+  if (upgrades.includes("forge_speed_1")) secs *= 0.7;
+  if (upgrades.includes("forge_speed_2")) secs *= 0.5;
+  return Math.max(1, Math.round(secs));
+}
+
+export function isForgeWorkerIdle(worker) {
+  return !worker.busy && !worker.recipeId;
+}
+
+export function hireForgeWorker(state) {
+  const cost = getForgeWorkerHireCost(state);
+  if ((state.cash ?? 0) < cost) return state;
+  const worker = {
+    id: "fw_" + Math.random().toString(36).slice(2, 8),
+    upgrades: [],
+    recipeId: null,
+    elapsedSeconds: 0,
+    totalSeconds: 0,
+    busy: false,
+    autoRestart: false,
+    lastRecipeId: null,
+  };
+  return { ...state, cash: state.cash - cost, forgeWorkers: [...(state.forgeWorkers ?? []), worker] };
+}
+
+export function fireForgeWorker(state, workerId) {
+  return { ...state, forgeWorkers: (state.forgeWorkers ?? []).filter((w) => w.id !== workerId) };
+}
+
+export function assignForgeWorkerRecipe(state, workerId, recipeId) {
+  const recipe = FORGE_RECIPES[recipeId];
+  if (!recipe) return state;
+  // Check resources
+  const resources = state.worldResources ?? {};
+  for (const [key, needed] of Object.entries(recipe.inputs)) {
+    if ((resources[key] ?? 0) < needed) return state;
+  }
+  // Deduct inputs
+  const nextResources = { ...resources };
+  for (const [key, needed] of Object.entries(recipe.inputs)) {
+    nextResources[key] = (nextResources[key] ?? 0) - needed;
+  }
+  const totalSeconds = getForgeEffectiveSeconds(
+    (state.forgeWorkers ?? []).find((w) => w.id === workerId) ?? {},
+    recipe
+  );
+  return {
+    ...state,
+    worldResources: nextResources,
+    forgeWorkers: (state.forgeWorkers ?? []).map((w) =>
+      w.id === workerId ? { ...w, recipeId, elapsedSeconds: 0, totalSeconds, busy: true, lastRecipeId: recipeId } : w
+    ),
+  };
+}
+
+export function cancelForgeWorkerRecipe(state, workerId) {
+  const worker = (state.forgeWorkers ?? []).find((w) => w.id === workerId);
+  if (!worker?.recipeId) return state;
+  // Refund inputs
+  const recipe = FORGE_RECIPES[worker.recipeId];
+  const nextResources = { ...(state.worldResources ?? {}) };
+  if (recipe) {
+    for (const [key, needed] of Object.entries(recipe.inputs)) {
+      nextResources[key] = (nextResources[key] ?? 0) + needed;
+    }
+  }
+  return {
+    ...state,
+    worldResources: nextResources,
+    forgeWorkers: (state.forgeWorkers ?? []).map((w) =>
+      w.id === workerId ? { ...w, recipeId: null, elapsedSeconds: 0, totalSeconds: 0, busy: false } : w
+    ),
+  };
+}
+
+export function upgradeForgeWorker(state, workerId, upgradeId) {
+  const upgrade = FORGE_WORKER_UPGRADES[upgradeId];
+  if (!upgrade) return state;
+  if ((state.cash ?? 0) < upgrade.cost) return state;
+  const worker = (state.forgeWorkers ?? []).find((w) => w.id === workerId);
+  if (!worker) return state;
+  if ((worker.upgrades ?? []).includes(upgradeId)) return state;
+  if (upgrade.requires && !(worker.upgrades ?? []).includes(upgrade.requires)) return state;
+  return {
+    ...state,
+    cash: state.cash - upgrade.cost,
+    forgeWorkers: (state.forgeWorkers ?? []).map((w) =>
+      w.id === workerId ? { ...w, upgrades: [...(w.upgrades ?? []), upgradeId] } : w
+    ),
+  };
+}
+
+export function toggleForgeWorkerAutoRestart(state, workerId) {
+  return {
+    ...state,
+    forgeWorkers: (state.forgeWorkers ?? []).map((w) =>
+      w.id === workerId ? { ...w, autoRestart: !w.autoRestart } : w
+    ),
+  };
+}
+
+// Called each tick — advances forge worker timers
+export function tickForgeWorkers(state, dtSeconds) {
+  if (!(state.forgeWorkers ?? []).length) return state;
+
+  let nextGoods = { ...(state.forgeGoods ?? {}) };
+  let nextResources = { ...(state.worldResources ?? {}) };
+  const nextWorkers = (state.forgeWorkers ?? []).map((worker) => {
+    if (!worker.busy || !worker.recipeId) return worker;
+    const newElapsed = (worker.elapsedSeconds ?? 0) + dtSeconds;
+    if (newElapsed < worker.totalSeconds) {
+      return { ...worker, elapsedSeconds: newElapsed };
+    }
+    // Craft complete
+    const recipe = FORGE_RECIPES[worker.recipeId];
+    if (recipe) {
+      nextGoods[recipe.output.resourceKey] = (nextGoods[recipe.output.resourceKey] ?? 0) + 1;
+    }
+    // Auto-restart?
+    const hasAutoUpgrade = (worker.upgrades ?? []).includes("forge_auto");
+    if (worker.autoRestart && hasAutoUpgrade && worker.lastRecipeId) {
+      const restartRecipe = FORGE_RECIPES[worker.lastRecipeId];
+      if (restartRecipe) {
+        // Check if resources are available (nextGoods reflects goods mid-tick, use nextResources below)
+        const canRestart = Object.entries(restartRecipe.inputs).every(
+          ([key, needed]) => (nextResources[key] ?? 0) >= needed
+        );
+        if (canRestart) {
+          for (const [key, needed] of Object.entries(restartRecipe.inputs)) {
+            nextResources[key] = (nextResources[key] ?? 0) - needed;
+          }
+          const newTotal = getForgeEffectiveSeconds(worker, restartRecipe);
+          return { ...worker, recipeId: worker.lastRecipeId, elapsedSeconds: 0, totalSeconds: newTotal, busy: true };
+        }
+      }
+    }
+    return { ...worker, recipeId: null, elapsedSeconds: 0, totalSeconds: 0, busy: false };
+  });
+
+  return { ...state, forgeWorkers: nextWorkers, forgeGoods: nextGoods, worldResources: nextResources };
 }

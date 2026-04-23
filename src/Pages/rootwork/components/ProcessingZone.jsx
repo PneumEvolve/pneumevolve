@@ -7,6 +7,8 @@ import {
   KITCHEN_WORKER_UPGRADE_ORDER,
   BAIT_TYPES,
   BAIT_RECIPES,
+  CROP_POTION_RECIPES,
+  CROP_POTION_LIST,
 } from "../gameConstants";
 import {
   getKitchenWorkerHireCost,
@@ -22,6 +24,7 @@ import {
  
 const RECIPE_LIST = ["bread", "jam", "sauce", "omelette", "cheese", "knitted_goods", "fish_pie", "smoked_fish", "fish_meal", "fish_meal_bass"];
 const BAIT_RECIPE_LIST = ["wheat_bait", "berry_bait", "tomato_bait"];
+const POTION_RECIPE_LIST = ["wheat_potion", "berry_potion", "tomato_potion"];
 const SPEED_UPGRADES = ["speed_1", "auto_restart", "speed_2" ];
 const BATCH_UPGRADES = ["batch_2", "batch_5", "batch_10"];
  
@@ -345,6 +348,49 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
                     </button>
                   );
                 })}
+
+                {/* Potion recipes */}
+                <div style={{ fontSize: "0.62rem", fontWeight: 600, color: "var(--muted)", marginTop: "0.25rem", paddingTop: "0.35rem", borderTop: "1px solid var(--border)", letterSpacing: "0.06em" }}>
+                  🫙 POTIONS
+                </div>
+                {POTION_RECIPE_LIST.map((recipeId) => {
+                  const r = CROP_POTION_RECIPES[recipeId];
+                  const have = game.crops[r.inputCrop] ?? 0;
+                  const totalInput = r.inputAmount * batch;
+                  const canStart = have >= totalInput;
+                  const effectiveSeconds = getEffectiveKitchenSeconds(worker, r.seconds);
+                  const inStock = (game.cropPotions ?? {})[recipeId] ?? 0;
+                  return (
+                    <button
+                      key={recipeId}
+                      onClick={() => { onAssignRecipe(worker.id, recipeId); setShowRecipes(false); }}
+                      disabled={!canStart}
+                      style={{
+                        display: "flex", alignItems: "center", justifyContent: "space-between",
+                        padding: "0.5rem 0.6rem", borderRadius: "6px",
+                        background: worker.recipeId === recipeId ? "rgba(99,102,241,0.1)" : "var(--bg)",
+                        border: `1px solid ${worker.recipeId === recipeId ? "var(--accent)" : "var(--border)"}`,
+                        cursor: canStart ? "pointer" : "default",
+                        opacity: canStart ? 1 : 0.5, fontSize: "0.75rem",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                        <span>{r.emoji}</span>
+                        <div style={{ textAlign: "left" }}>
+                          <div style={{ fontWeight: 600, color: "var(--text)" }}>{r.name}</div>
+                          <div style={{ fontSize: "0.62rem", color: "var(--muted)" }}>
+                            {totalInput}× {r.inputCrop} · {effectiveSeconds}s · have {have}
+                            {batch > 1 && <span style={{ marginLeft: "0.3rem", color: "#f59e0b" }}>· ×{batch} batch</span>}
+                            {inStock > 0 && <span style={{ marginLeft: "0.3rem", color: "#a78bfa" }}>· {inStock} in stock</span>}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: "0.68rem", color: "var(--muted)", textAlign: "right" }}>
+                        → {r.outputAmount * batch} {r.emoji} +{r.healAmount}hp
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -598,74 +644,89 @@ function FeastPanel({ game, onBuyFeast }) {
   );
 }
  
-// ─── Bait inventory ───────────────────────────────────────────────────────────
- 
-function BaitInventory({ bait }) {
-  const items = Object.values(BAIT_RECIPES);
-  const hasAny = items.some(({ id }) => (bait?.[id] ?? 0) > 0);
-  if (!hasAny) return null;
+
+// ─── Crafted Goods Inventory (grouped, collapsible) ──────────────────────────
+
+function GoodsGroup({ title, icon, items, defaultOpen = false, accentColor = "var(--muted)" }) {
+  const [open, setOpen] = React.useState(defaultOpen);
+  const hasAny = items.some(({ count }) => count > 0);
+  if (!hasAny && !defaultOpen) return null;
   return (
-    <div className="card p-3" style={{ marginBottom: "1rem" }}>
-      <div style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--muted)", marginBottom: "0.5rem" }}>
-        🪱 Bait Stock
-      </div>
-      <div style={{ display: "flex", gap: "0.5rem" }}>
-        {items.map(({ id, emoji, name }) => {
-          const count = bait?.[id] ?? 0;
-          return (
-            <div key={id} style={{
-              flex: 1, textAlign: "center", padding: "0.5rem",
+    <div style={{ borderBottom: "1px solid var(--border)" }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "0.45rem 0.6rem", background: "none", border: "none", cursor: "pointer",
+        }}
+      >
+        <span style={{ fontSize: "0.65rem", fontWeight: 700, color: accentColor, letterSpacing: "0.05em" }}>
+          {icon} {title}
+        </span>
+        <span style={{ fontSize: "0.6rem", color: "var(--muted)" }}>{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", padding: "0 0.6rem 0.55rem" }}>
+          {items.map(({ key, emoji, label, count }) => (
+            <div key={key} style={{
+              minWidth: "56px", flex: "1 1 56px", textAlign: "center", padding: "0.4rem 0.3rem",
               background: "var(--bg)", borderRadius: "8px",
-              border: `1px solid ${count > 0 ? "rgba(96,165,250,0.3)" : "var(--border)"}`,
+              border: `1px solid ${count > 0 ? "rgba(255,255,255,0.08)" : "var(--border)"}`,
+              opacity: count > 0 ? 1 : 0.45,
             }}>
-              <div style={{ fontSize: "1.2rem" }}>{emoji}</div>
-              <div style={{ fontSize: "0.75rem", fontWeight: 700, color: count > 0 ? "#60a5fa" : "var(--muted)" }}>
-                {count}
+              <div style={{ fontSize: "1.1rem" }}>{emoji}</div>
+              <div style={{ fontSize: "0.72rem", fontWeight: 700, color: count > 0 ? "var(--text)" : "var(--muted)" }}>
+                {Math.floor(count)}
               </div>
-              <div style={{ fontSize: "0.62rem", color: "var(--muted)" }}>{name.replace(" Bait", "")}</div>
+              <div style={{ fontSize: "0.58rem", color: "var(--muted)" }}>{label}</div>
             </div>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
- 
-// ─── Artisan inventory ────────────────────────────────────────────────────────
- 
-function ArtisanInventory({ artisan, animalGoods, fishing }) {
-  const items = [
-    { key: "bread",         emoji: "🍞", label: "Bread",       source: artisan },
-    { key: "jam",           emoji: "🍯", label: "Jam",         source: artisan },
-    { key: "sauce",         emoji: "🥫", label: "Sauce",       source: artisan },
-    { key: "omelette",      emoji: "🍳", label: "Omelette",    source: animalGoods },
-    { key: "cheese",        emoji: "🧀", label: "Cheese",      source: animalGoods },
-    { key: "knitted_goods", emoji: "🧥", label: "Knitted",     source: animalGoods },
-    { key: "smoked_fish",   emoji: "🐟", label: "Smoked Fish", source: fishing?.fish ?? {} },
+
+function CraftedGoodsInventory({ artisan, animalGoods, cropPotions, bait }) {
+  const cropItems = [
+    { key: "bread",  emoji: "🍞", label: "Bread",  count: artisan?.bread ?? 0 },
+    { key: "jam",    emoji: "🍯", label: "Jam",    count: artisan?.jam ?? 0 },
+    { key: "sauce",  emoji: "🥫", label: "Sauce",  count: artisan?.sauce ?? 0 },
+  ];
+  const barnItems = [
+    { key: "omelette",      emoji: "🍳", label: "Omelette",  count: animalGoods?.omelette ?? 0 },
+    { key: "cheese",        emoji: "🧀", label: "Cheese",    count: animalGoods?.cheese ?? 0 },
+    { key: "knitted_goods", emoji: "🧥", label: "Knitted",   count: animalGoods?.knitted_goods ?? 0 },
+  ];
+  const fishItems = [
+    { key: "fish_pie",    emoji: "🥧", label: "Fish Pie",    count: animalGoods?.fish_pie ?? 0 },
+    { key: "smoked_fish", emoji: "🐟", label: "Smoked Fish", count: animalGoods?.smoked_fish ?? 0 },
+    { key: "fish_meal",   emoji: "🌿", label: "Fish Meal",   count: animalGoods?.fish_meal ?? 0 },
+  ];
+  const potionItems = [
+    { key: "wheat_potion",  emoji: "🫙", label: "Wheat Brew",   count: cropPotions?.wheat_potion ?? 0 },
+    { key: "berry_potion",  emoji: "🍶", label: "Berry Elixir", count: cropPotions?.berry_potion ?? 0 },
+    { key: "tomato_potion", emoji: "🧴", label: "Tomato Tonic", count: cropPotions?.tomato_potion ?? 0 },
+  ];
+  const baitItems = [
+    { key: "wheat_bait",  emoji: "🌾", label: "Wheat",  count: bait?.wheat_bait ?? 0 },
+    { key: "berry_bait",  emoji: "🫐", label: "Berry",  count: bait?.berry_bait ?? 0 },
+    { key: "tomato_bait", emoji: "🍅", label: "Tomato", count: bait?.tomato_bait ?? 0 },
   ];
 
-  // Only show items that have ever been produced (recipe exists) — hide zeros for cleanliness
-  const visible = items.filter(({ key, source }) => (source?.[key] ?? 0) > 0 || key === "bread" || key === "jam" || key === "sauce");
+  const hasBarn = barnItems.some(i => i.count > 0);
+  const hasFish = fishItems.some(i => i.count > 0);
 
   return (
-    <div className="card p-3" style={{ marginBottom: "1.25rem" }}>
-      <div style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--muted)", marginBottom: "0.5rem" }}>
+    <div className="card" style={{ marginBottom: "1.25rem", overflow: "hidden" }}>
+      <div style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--muted)", padding: "0.55rem 0.6rem 0.4rem", borderBottom: "1px solid var(--border)" }}>
         Crafted Goods
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
-        {visible.map(({ key, emoji, label, source }) => (
-          <div key={key} style={{
-            minWidth: "60px", flex: "1 1 60px", textAlign: "center", padding: "0.5rem",
-            background: "var(--bg)", borderRadius: "8px",
-          }}>
-            <div style={{ fontSize: "1.2rem" }}>{emoji}</div>
-            <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text)" }}>
-              {Math.floor(source?.[key] ?? 0)}
-            </div>
-            <div style={{ fontSize: "0.62rem", color: "var(--muted)" }}>{label}</div>
-          </div>
-        ))}
-      </div>
+      <GoodsGroup title="CROP GOODS" icon="🌾" items={cropItems} defaultOpen={true} accentColor="#86efac" />
+      {hasBarn && <GoodsGroup title="BARN GOODS" icon="🐄" items={barnItems} defaultOpen={false} accentColor="#fbbf24" />}
+      {hasFish && <GoodsGroup title="FISH GOODS" icon="🐠" items={fishItems} defaultOpen={false} accentColor="#60a5fa" />}
+      <GoodsGroup title="POTIONS" icon="🧪" items={potionItems} defaultOpen={true} accentColor="#a78bfa" />
+      <GoodsGroup title="BAIT" icon="🪱" items={baitItems} defaultOpen={true} accentColor="#f97316" />
     </div>
   );
 }
@@ -708,8 +769,7 @@ const isFirstWorker = workers.length === 0;
         </p>
       </div>
  
-      <ArtisanInventory artisan={game.artisan} animalGoods={game.animalGoods} fishing={game.fishing} />
-      <BaitInventory bait={game.bait} />
+      <CraftedGoodsInventory artisan={game.artisan} animalGoods={game.animalGoods} cropPotions={game.cropPotions} bait={game.bait} />
  
       <div style={{ marginBottom: "1.25rem" }}>
         <button

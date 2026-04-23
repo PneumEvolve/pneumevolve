@@ -985,11 +985,11 @@ export default function TownZone({
             <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem", marginBottom: "0.75rem" }}>
               {availableSchoolResearch.length === 0 ? (
                 <div style={{ fontSize: "0.7rem", color: "var(--muted)" }}>
-                  {activeSchoolResearch ? "Finish the current project first." : "All available research completed."}
+                  All available research completed.
                 </div>
               ) : (
                 availableSchoolResearch.map((research) => {
-                  const blockedByActive = !!activeSchoolResearch;
+                  const isSwitching = !!activeSchoolResearch;
                   return (
                     <div
                       key={research.id}
@@ -1002,7 +1002,6 @@ export default function TownZone({
                         borderRadius: "8px",
                         background: "var(--bg)",
                         border: "1px solid var(--border)",
-                        opacity: blockedByActive ? 0.6 : 1,
                       }}
                     >
                       <div>
@@ -1016,11 +1015,10 @@ export default function TownZone({
 
                       <button
                         onClick={() => onStartSchoolResearch(research.id)}
-                        disabled={blockedByActive}
                         className="btn btn-secondary"
-                        style={{ opacity: blockedByActive ? 0.5 : 1, flexShrink: 0 }}
+                        style={{ flexShrink: 0 }}
                       >
-                        Research
+                        {isSwitching ? "Switch" : "Research"}
                       </button>
                     </div>
                   );
