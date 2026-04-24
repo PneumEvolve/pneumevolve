@@ -1,6 +1,6 @@
 // src/Pages/rootwork/components/WorldZone.jsx
 import React, { useState } from "react";
-import { WORLD_ZONES, ADVENTURER_CLASSES, FORGE_RECIPES, CROP_POTION_RECIPES, CROP_POTION_LIST, ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST, WORLD_RESOURCES, WORLD_WORKER_HIRE_COST, HERO_SKILLS } from "../gameConstants";
+import { WORLD_ZONES, ADVENTURER_CLASSES, FORGE_RECIPES, CROP_POTION_RECIPES, CROP_POTION_LIST, ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST, WORLD_RESOURCES, HERO_SKILLS } from "../gameConstants";
 import { getAdventurerSlotCost, getAdventurerSlotUnlocked } from "../gameEngine";
 
 function getAdventurerMaxHp(adventurer) {
@@ -81,7 +81,6 @@ function LootModal({ result, onDismiss }) {
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "1rem", fontSize: "0.72rem" }}>
           <span style={{ color: "#a78bfa" }}>✨ +{result.xpGained ?? 0} XP</span>
           {result.leveledUp && <span style={{ color: "#fbbf24", fontWeight: 700 }}>⬆️ LEVEL UP!</span>}
-          {result.zoneCleared && <span style={{ color: "#fbbf24", fontSize: "0.65rem" }}>Worker slot unlocked!</span>}
         </div>
         <button onClick={onDismiss} style={{ width: "100%", padding: "0.65rem", background: result.failed ? "rgba(239,68,68,0.15)" : "rgba(74,222,128,0.15)", border: `1px solid ${result.failed ? "rgba(239,68,68,0.4)" : "rgba(74,222,128,0.4)"}`, borderRadius: "10px", color: result.failed ? "#ef4444" : "#4ade80", fontWeight: 700, fontSize: "0.82rem", cursor: "pointer" }}>
           {result.failed ? "Try Again" : "Continue"}
@@ -282,7 +281,6 @@ function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onUsePotion,
         {/* Food Belt */}
         <div style={{ padding: "0.6rem 0.75rem", background: "rgba(251,191,36,0.05)", border: "1px solid rgba(251,191,36,0.2)", borderRadius: "10px", marginBottom: "0.65rem" }}>
           <div style={{ fontWeight: 600, marginBottom: "0.4rem", color: "var(--muted)", fontSize: "0.6rem", letterSpacing: "0.05em" }}>🍞 FOOD BELT <span style={{ color: "var(--muted)", fontWeight: 400 }}>(max 3 · auto-used on level up or tap)</span></div>
-          {/* Equipped food */}
           {(() => {
             const foodBelt = adventurer.foodBelt ?? {};
             const beltItems = ARTISAN_FOOD_LIST.filter((id) => (foodBelt[id] ?? 0) > 0);
@@ -347,66 +345,10 @@ function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onUsePotion,
 }
 
 
-// ─── Cleared Zones ─────────────────────────────────────────────────────────────
-function ClearedZones({ game, onHireWorldWorker, onFireWorldWorker }) {
-  const zones = Object.values(WORLD_ZONES);
-  const cleared = zones.filter((z) => (game.worldZoneClears?.[z.id] ?? 0) >= z.clearsNeeded);
-  if (cleared.length === 0) return null;
-  return (
-    <div style={{ marginBottom: "1rem" }}>
-      <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.5rem", letterSpacing: "0.06em" }}>CLEARED ZONES — PASSIVE WORKERS</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-        {cleared.map((zone) => {
-          const assigned = (game.worldWorkers ?? []).find((w) => w.zoneId === zone.id);
-          const resourceKey = Object.keys(WORLD_RESOURCES).find(
-            (k) => WORLD_RESOURCES[k].name.toLowerCase() === zone.workerResource?.toLowerCase()
-          ) ?? zone.loot?.[0]?.resourceKey;
-          const stockpile = resourceKey ? ((game.worldResources ?? {})[resourceKey] ?? 0) : 0;
-          const canAfford = (game.cash ?? 0) >= WORLD_WORKER_HIRE_COST;
-          return (
-            <div key={zone.id} style={{ padding: "0.6rem 0.75rem", background: "rgba(74,222,128,0.06)", border: "1px solid rgba(74,222,128,0.2)", borderRadius: "10px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-                <span style={{ fontSize: "1.2rem" }}>{zone.emoji}</span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: "0.78rem", fontWeight: 700 }}>{zone.name}</div>
-                  {assigned ? (
-                    <div style={{ fontSize: "0.6rem", color: "#4ade80" }}>
-                      ✓ Worker producing {zone.workerEmoji} {zone.workerResource} · {zone.workerYieldPerMinute}/min
-                    </div>
-                  ) : (
-                    <div style={{ fontSize: "0.6rem", color: "var(--muted)" }}>
-                      No worker · hire for ${WORLD_WORKER_HIRE_COST}
-                    </div>
-                  )}
-                </div>
-                {assigned ? (
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "0.25rem" }}>
-                    <div style={{ fontSize: "0.65rem", fontWeight: 700, color: "#fbbf24" }}>{zone.workerEmoji} ×{stockpile}</div>
-                    <button onClick={() => onFireWorldWorker(zone.id)} style={{ fontSize: "0.55rem", padding: "2px 7px", borderRadius: "5px", background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.35)", color: "#ef4444", cursor: "pointer" }}>
-                      Fire
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => onHireWorldWorker(zone.id)}
-                    disabled={!canAfford}
-                    style={{ fontSize: "0.65rem", padding: "0.3rem 0.6rem", borderRadius: "7px", background: canAfford ? "rgba(74,222,128,0.15)" : "rgba(255,255,255,0.04)", border: `1px solid ${canAfford ? "rgba(74,222,128,0.4)" : "var(--border)"}`, color: canAfford ? "#4ade80" : "var(--muted)", cursor: canAfford ? "pointer" : "default", fontWeight: 600, whiteSpace: "nowrap" }}
-                  >
-                    Hire $200
-                  </button>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 // ─── Adventurer Card ──────────────────────────────────────────────────────────
-function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero }) {
-  const [selectedZone, setSelectedZone] = useState(null);
+function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero, onUsePotion, onGivePotion }) {
+  const [selectedZoneId, setSelectedZoneId] = useState(null);
+  const [zonesOpen, setZonesOpen] = useState(true);
   const cls = ADVENTURER_CLASSES[adventurer.class] ?? ADVENTURER_CLASSES.fighter;
   const isOnMission = !!adventurer.mission;
   const mission = adventurer.mission;
@@ -419,6 +361,13 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero 
   const hp = adventurer.hp ?? maxHp;
   const availableZones = zones.filter((z) => isZoneUnlocked(z, game.worldZoneClears));
   const lockedZones = zones.filter((z) => !isZoneUnlocked(z, game.worldZoneClears));
+  const selectedZone = selectedZoneId ? WORLD_ZONES[selectedZoneId] : null;
+
+  // Potion quick-use: first potion on belt
+  const beltPotions = Object.entries(adventurer.potions ?? {}).filter(([, qty]) => qty > 0);
+  const firstBeltPotion = beltPotions[0] ?? null;
+  const stockPotions = CROP_POTION_LIST.filter((id) => (game.cropPotions ?? {})[id] > 0);
+  const canReplenish = stockPotions.length > 0 && beltPotions.reduce((s, [, q]) => s + q, 0) < 3;
 
   return (
     <div style={{ background: "var(--bg-elev)", border: "1px solid var(--border)", borderRadius: "14px", overflow: "hidden", marginBottom: "0.75rem" }}>
@@ -463,55 +412,117 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero 
 
       {/* Zone picker */}
       {!isOnMission && (
-        <div style={{ padding: "0.65rem 0.9rem", borderTop: "1px solid var(--border)" }}>
-          <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginBottom: "0.4rem", letterSpacing: "0.06em" }}>SELECT ZONE</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem", marginBottom: "0.55rem" }}>
-            {availableZones.map((zone) => {
-              const clears = game.worldZoneClears?.[zone.id] ?? 0;
-              const cleared = clears >= zone.clearsNeeded;
-              const failPct = getFailChance(adventurer, zone);
-              const dur = getMissionDuration(adventurer, zone);
-              const isSelected = selectedZone?.id === zone.id;
-              return (
-                <button key={zone.id} onClick={() => setSelectedZone(isSelected ? null : zone)} style={{ textAlign: "left", padding: "0.45rem 0.6rem", background: isSelected ? "rgba(99,102,241,0.12)" : "rgba(255,255,255,0.03)", border: isSelected ? "1px solid rgba(99,102,241,0.5)" : "1px solid var(--border)", borderRadius: "8px", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                  <span style={{ fontSize: "1.1rem" }}>{zone.emoji}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
-                      <span style={{ fontSize: "0.75rem", fontWeight: 600 }}>{zone.name}</span>
-                      {cleared && <span style={{ fontSize: "0.55rem", color: "#4ade80", fontWeight: 700 }}>✓</span>}
-                    </div>
-                    <div style={{ fontSize: "0.58rem", color: "var(--muted)" }}>
-                      {cleared ? `Cleared · ${dur}s` : `${clears}/${zone.clearsNeeded} clears · ${dur}s`}
-                      {zone.enemyName && <span style={{ color: "#ef4444", marginLeft: "0.35rem" }}>vs {zone.enemyName}</span>}
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", gap: "3px", flexShrink: 0 }}>
-                    {Array.from({ length: Math.min(zone.clearsNeeded, 6) }).map((_, i) => (
-                      <div key={i} style={{ width: "5px", height: "5px", borderRadius: "50%", background: i < clears ? "#4ade80" : "rgba(255,255,255,0.12)" }} />
-                    ))}
-                  </div>
-                  {failPct > 0 && <span style={{ fontSize: "0.58rem", fontWeight: 700, flexShrink: 0, color: failPct >= 50 ? "#ef4444" : "#fbbf24" }}>{failPct}%</span>}
-                </button>
-              );
-            })}
-            {lockedZones.map((zone) => {
-              const prereqZone = WORLD_ZONES[zone.unlockRequiresZone];
-              const prereqClears = game.worldZoneClears?.[zone.unlockRequiresZone] ?? 0;
-              return (
-                <div key={zone.id} style={{ padding: "0.45rem 0.6rem", background: "rgba(255,255,255,0.01)", border: "1px dashed rgba(255,255,255,0.1)", borderRadius: "8px", opacity: 0.5, display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                  <span style={{ fontSize: "1.1rem", filter: "grayscale(1)" }}>{zone.emoji}</span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--muted)" }}>{zone.name}</div>
-                    <div style={{ fontSize: "0.58rem", color: "var(--muted)" }}>🔒 {prereqZone?.name} {prereqClears}/{zone.unlockAfterClears} clears to unlock</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          {selectedZone && (
-            <button onClick={() => { onSend(adventurer.id, selectedZone.id); setSelectedZone(null); }} style={{ width: "100%", padding: "0.55rem", background: "rgba(99,102,241,0.2)", border: "1px solid rgba(99,102,241,0.5)", borderRadius: "8px", color: "var(--accent)", fontWeight: 700, fontSize: "0.82rem", cursor: "pointer" }}>
-              ⚔️ Send to {selectedZone.name} ({getMissionDuration(adventurer, selectedZone)}s)
+        <div style={{ borderTop: "1px solid var(--border)" }}>
+          {/* Always-visible action row: Go + potion buttons */}
+          <div style={{ display: "flex", gap: "0.5rem", padding: "0.6rem 0.9rem", borderBottom: zonesOpen ? "1px solid var(--border)" : "none" }}>
+            {/* Big GO button */}
+            <button
+              onClick={() => { if (selectedZone) { onSend(adventurer.id, selectedZone.id); } }}
+              disabled={!selectedZone}
+              style={{
+                flex: 2, padding: "0.65rem 0.5rem",
+                background: selectedZone ? "rgba(99,102,241,0.25)" : "rgba(255,255,255,0.04)",
+                border: `2px solid ${selectedZone ? "rgba(99,102,241,0.7)" : "var(--border)"}`,
+                borderRadius: "10px", color: selectedZone ? "var(--accent)" : "var(--muted)",
+                fontWeight: 800, fontSize: "1rem", cursor: selectedZone ? "pointer" : "default",
+                letterSpacing: "0.04em", transition: "all 0.15s",
+              }}
+            >
+              {selectedZone ? `⚔️ Go! · ${getMissionDuration(adventurer, selectedZone)}s` : "⚔️ Go!"}
             </button>
+
+            {/* Use potion button */}
+            {firstBeltPotion && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onUsePotion(adventurer.id, firstBeltPotion[0]); }}
+                style={{
+                  flex: 1, padding: "0.65rem 0.4rem",
+                  background: "rgba(74,222,128,0.12)", border: "1px solid rgba(74,222,128,0.35)",
+                  borderRadius: "10px", color: "#4ade80", fontWeight: 700, fontSize: "0.72rem",
+                  cursor: "pointer",
+                }}
+              >
+                {(() => { const r = CROP_POTION_RECIPES[firstBeltPotion[0]]; return `${r?.emoji ?? "🧪"} Use`; })()}
+                <div style={{ fontSize: "0.55rem", color: "rgba(74,222,128,0.7)", marginTop: "1px" }}>×{firstBeltPotion[1]}</div>
+              </button>
+            )}
+
+            {/* Replenish button */}
+            {canReplenish && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onGivePotion(adventurer.id, stockPotions[0]); }}
+                style={{
+                  flex: 1, padding: "0.65rem 0.4rem",
+                  background: "rgba(139,92,246,0.12)", border: "1px solid rgba(139,92,246,0.35)",
+                  borderRadius: "10px", color: "#a78bfa", fontWeight: 700, fontSize: "0.72rem",
+                  cursor: "pointer",
+                }}
+              >
+                {(() => { const r = CROP_POTION_RECIPES[stockPotions[0]]; return `${r?.emoji ?? "🫙"} Replenish`; })()}
+                <div style={{ fontSize: "0.55rem", color: "rgba(139,92,246,0.7)", marginTop: "1px" }}>
+                  ×{(game.cropPotions ?? {})[stockPotions[0]] ?? 0} in stock
+                </div>
+              </button>
+            )}
+          </div>
+
+          {/* Collapsible header */}
+          <button
+            onClick={() => setZonesOpen((v) => !v)}
+            style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.4rem 0.9rem", background: "none", border: "none", cursor: "pointer", borderBottom: zonesOpen ? "1px solid var(--border)" : "none" }}
+          >
+            <span style={{ fontSize: "0.62rem", color: "var(--muted)", letterSpacing: "0.06em", fontWeight: 600 }}>
+              ZONES {selectedZone ? `· ${selectedZone.emoji} ${selectedZone.name}` : ""}
+            </span>
+            <span style={{ fontSize: "0.65rem", color: "var(--muted)" }}>{zonesOpen ? "▲" : "▼"}</span>
+          </button>
+
+          {zonesOpen && (
+            <div style={{ padding: "0.65rem 0.9rem" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+                {availableZones.map((zone) => {
+                  const clears = game.worldZoneClears?.[zone.id] ?? 0;
+                  const cleared = clears >= zone.clearsNeeded;
+                  const failPct = getFailChance(adventurer, zone);
+                  const dur = getMissionDuration(adventurer, zone);
+                  const isSelected = selectedZoneId === zone.id;
+                  return (
+                    <button key={zone.id} onClick={() => setSelectedZoneId(isSelected ? null : zone.id)} style={{ textAlign: "left", padding: "0.45rem 0.6rem", background: isSelected ? "rgba(99,102,241,0.12)" : "rgba(255,255,255,0.03)", border: isSelected ? "1px solid rgba(99,102,241,0.5)" : "1px solid var(--border)", borderRadius: "8px", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                      <span style={{ fontSize: "1.1rem" }}>{zone.emoji}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                          <span style={{ fontSize: "0.75rem", fontWeight: 600 }}>{zone.name}</span>
+                          {cleared && <span style={{ fontSize: "0.55rem", color: "#4ade80", fontWeight: 700 }}>✓</span>}
+                        </div>
+                        <div style={{ fontSize: "0.58rem", color: "var(--muted)" }}>
+                          {cleared ? `Cleared · ${dur}s` : `${clears}/${zone.clearsNeeded} clears · ${dur}s`}
+                          {zone.enemyName && <span style={{ color: "#ef4444", marginLeft: "0.35rem" }}>vs {zone.enemyName}</span>}
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: "3px", flexShrink: 0 }}>
+                        {Array.from({ length: Math.min(zone.clearsNeeded, 8) }).map((_, i) => (
+                          <div key={i} style={{ width: "5px", height: "5px", borderRadius: "50%", background: i < clears ? "#4ade80" : "rgba(255,255,255,0.12)" }} />
+                        ))}
+                      </div>
+                      {failPct > 0 && <span style={{ fontSize: "0.58rem", fontWeight: 700, flexShrink: 0, color: failPct >= 50 ? "#ef4444" : "#fbbf24" }}>{failPct}%</span>}
+                    </button>
+                  );
+                })}
+                {lockedZones.map((zone) => {
+                  const prereqZone = WORLD_ZONES[zone.unlockRequiresZone];
+                  const prereqClears = game.worldZoneClears?.[zone.unlockRequiresZone] ?? 0;
+                  return (
+                    <div key={zone.id} style={{ padding: "0.45rem 0.6rem", background: "rgba(255,255,255,0.01)", border: "1px dashed rgba(255,255,255,0.1)", borderRadius: "8px", opacity: 0.5, display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                      <span style={{ fontSize: "1.1rem", filter: "grayscale(1)" }}>{zone.emoji}</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--muted)" }}>{zone.name}</div>
+                        <div style={{ fontSize: "0.58rem", color: "var(--muted)" }}>🔒 {prereqZone?.name} {prereqClears}/{zone.unlockAfterClears} clears to unlock</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           )}
         </div>
       )}
@@ -520,7 +531,7 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero 
 }
 
 // ─── Main WorldZone ────────────────────────────────────────────────────────────
-export default function WorldZone({ game, onSendAdventurer, onReturnAdventurer, onEquipAdventurer, onUnequipAdventurer, onUsePotionOnAdventurer, onGivePotion, onRemovePotion, onHireWorldWorker, onFireWorldWorker, onGiveArtisanFood, onRemoveArtisanFood, onUseArtisanFood, onHireAdventurer, onSpendSkillPoint }) {
+export default function WorldZone({ game, onSendAdventurer, onReturnAdventurer, onEquipAdventurer, onUnequipAdventurer, onUsePotionOnAdventurer, onGivePotion, onRemovePotion, onGiveArtisanFood, onRemoveArtisanFood, onUseArtisanFood, onHireAdventurer, onSpendSkillPoint }) {
   const [lootResult, setLootResult] = useState(null);
   const [heroModal, setHeroModal] = useState(null);
 
@@ -541,10 +552,18 @@ export default function WorldZone({ game, onSendAdventurer, onReturnAdventurer, 
         <p style={{ fontSize: "0.72rem", color: "var(--muted)" }}>Send adventurers to explore zones and gather resources.</p>
       </div>
 
-      <ClearedZones game={game} onHireWorldWorker={onHireWorldWorker} onFireWorldWorker={onFireWorldWorker} />
-
       {adventurers.map((adv) => (
-        <AdventurerCard key={adv.id} adventurer={adv} zones={zones} game={game} onSend={onSendAdventurer} onReturn={handleReturn} onOpenHero={setHeroModal} />
+        <AdventurerCard
+          key={adv.id}
+          adventurer={adv}
+          zones={zones}
+          game={game}
+          onSend={onSendAdventurer}
+          onReturn={handleReturn}
+          onOpenHero={setHeroModal}
+          onUsePotion={onUsePotionOnAdventurer}
+          onGivePotion={onGivePotion}
+        />
       ))}
 
       {/* Hire adventurer slot */}
@@ -553,7 +572,7 @@ export default function WorldZone({ game, onSendAdventurer, onReturnAdventurer, 
         const cost = getAdventurerSlotCost(game);
         const canAfford = (game.cash ?? 0) >= (cost ?? 0);
         const nextSeason = (game.adventurers ?? []).length + 1;
-        if (cost === null) return null; // all slots filled
+        if (cost === null) return null;
         if (!slotUnlocked) {
           return (
             <div style={{

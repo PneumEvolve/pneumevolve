@@ -408,7 +408,7 @@ export default function ForgeZone({
           >
             {canAfford
               ? `⚒️ Build Forge — $${FORGE_BUILD_COST} 🪨×${FORGE_IRON} 🪵×${FORGE_LUMBER}`
-              : `Need $${FORGE_BUILD_COST}${hasCash ? " ✓" : ` (have $${Math.floor(game.cash ?? 0)})`} 🪨×${FORGE_IRON}${hasIron ? " ✓" : ` (have ${Math.floor(game.worldResources?.iron_ore ?? 0)})`} 🪵×${FORGE_LUMBER}${hasLumber ? " ✓" : ` (have ${Math.floor(game.worldResources?.lumber ?? 0)})`}`}
+              : `Need $${FORGE_BUILD_COST}${hasCash ? " ✓" : ` (have $${Math.floor(game.cash ?? 0)})`} 🪨 Iron Ore×${FORGE_IRON}${hasIron ? " ✓" : ` (have ${Math.floor(game.worldResources?.iron_ore ?? 0)})`} 🪵 Lumber×${FORGE_LUMBER}${hasLumber ? " ✓" : ` (have ${Math.floor(game.worldResources?.lumber ?? 0)})`}`}
           </button>
         </div>
       </div>

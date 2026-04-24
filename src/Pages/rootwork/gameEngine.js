@@ -1154,7 +1154,7 @@ export function createInitialState() {
     fishing: {
       activeBody: "pond",
       bodies: {
-        pond:  { unlocked: true, worker: { hired: false, upgrades: [], timer: 0, assignedBait: null } },
+        pond:  { unlocked: false, worker: null },
         lake:  { unlocked: false, worker: null },
         river: { unlocked: false, worker: null },
         ocean: { unlocked: false, worker: null },
@@ -3609,13 +3609,7 @@ if (!parsed.fishing) {
     fish: { ...(parsed.pond?.fish ?? {}) },
   };
 }
-// Migration: pond is now free and unlocked from season 1
-if (parsed.fishing?.bodies?.pond && !parsed.fishing.bodies.pond.unlocked) {
-  parsed.fishing.bodies.pond.unlocked = true;
-  if (!parsed.fishing.bodies.pond.worker) {
-    parsed.fishing.bodies.pond.worker = { hired: false, upgrades: [], timer: 0, assignedBait: null };
-  }
-}
+// Migration: pond must be purchased with iron/lumber (no longer auto-unlocked)
 // Also migrate existing fishing workers that are missing hired flag
 if (parsed.fishing?.bodies) {
   for (const body of Object.values(parsed.fishing.bodies)) {
@@ -3836,37 +3830,68 @@ export function returnAdventurer(state, adventurerId) {
   const dmgPerTick = zone.damagePerTick ?? 1;
   const rawDamage = Math.round(missionSeconds * dmgPerTick * (failed ? 1.5 : 0.6));
   const newMaxHp = getAdventurerMaxHp({ ...adventurer, level: newLevel });
-  const hpAfterDamage = Math.max(1, (adventurer.hp ?? newMaxHp) - rawDamage);
-  // Level up restores full HP; otherwise cap at new maxHp
-  const newHp = leveledUp ? newMaxHp : Math.min(hpAfterDamage, newMaxHp);
+  // hpAfterDamage/newHp computed below with thick_skin bonus applied
 
   // Skill points: +1 per level gained
   const levelsGained = newLevel - (adventurer.level ?? 1);
   const newSkillPoints = (adventurer.skillPoints ?? 0) + levelsGained;
 
-  // Apply thick_skin HP bonus
+  // Apply thick_skin HP bonus (use stored maxHp if already has skill, else base calc)
   const skills = adventurer.skills ?? [];
   const hasThickSkin = skills.includes("thick_skin");
+  // adventurer.maxHp already includes thick_skin bonus if previously applied; recompute cleanly
   const bonusMaxHp = newMaxHp + (hasThickSkin ? 10 : 0);
+  // newHp: level up = full heal to bonusMaxHp, otherwise clamp damage to bonusMaxHp
+  const hpAfterDamageFinal = Math.max(1, (adventurer.hp ?? bonusMaxHp) - rawDamage);
+  const postMissionHp = leveledUp ? bonusMaxHp : Math.min(hpAfterDamageFinal, bonusMaxHp);
 
-  // Apply veteran XP bonus (xpGained already computed, apply to stored xp)
-  // (veteran bonus was already factored in above; handled during xp calc)
-
-  // Auto-battle: if skill unlocked and potions remain, queue same zone again
+  // Auto-battle: use potions/food to heal up between fights, then re-queue if belt still has items
   const hasAutoBattle = skills.includes("auto_battle");
-  const hasPotions = Object.values(adventurer.potions ?? {}).some((v) => v > 0) ||
-                     Object.values(adventurer.foodBelt ?? {}).some((v) => v > 0);
-  const autoQueue = !failed && hasAutoBattle && hasPotions;
+  let autoHp = postMissionHp;
+  let autoPotions = { ...(adventurer.potions ?? {}) };
+  let autoFoodBelt = { ...(adventurer.foodBelt ?? {}) };
 
-  // Iron will: full heal before auto re-queue
-  const hasIronWill = skills.includes("iron_will");
-  const hpAfterAuto = (autoQueue && hasIronWill) ? bonusMaxHp : Math.min(newHp, bonusMaxHp);
+  if (!failed && hasAutoBattle) {
+    // Heal loop: consume cheapest items first until full or belt empty
+    // Priority: wheat_potion(15) < bread(15) < berry_potion(30) < jam(50) < tomato_potion(60) < sauce(100)
+    const healItems = [
+      ...Object.entries(autoPotions)
+        .filter(([, qty]) => qty > 0)
+        .map(([id]) => ({ id, heal: CROP_POTION_RECIPES[id]?.healAmount ?? 0, belt: "potions" })),
+      ...Object.entries(autoFoodBelt)
+        .filter(([, qty]) => qty > 0)
+        .map(([id]) => ({ id, heal: ARTISAN_FOOD_HEAL[id]?.healAmount ?? 0, belt: "food" })),
+    ].sort((a, b) => a.heal - b.heal);
+
+    for (const item of healItems) {
+      if (autoHp >= bonusMaxHp) break;
+      if (item.belt === "potions" && (autoPotions[item.id] ?? 0) > 0) {
+        autoPotions = { ...autoPotions, [item.id]: autoPotions[item.id] - 1 };
+        autoHp = Math.min(bonusMaxHp, autoHp + item.heal);
+      } else if (item.belt === "food" && (autoFoodBelt[item.id] ?? 0) > 0) {
+        autoFoodBelt = { ...autoFoodBelt, [item.id]: autoFoodBelt[item.id] - 1 };
+        autoHp = Math.min(bonusMaxHp, autoHp + item.heal);
+      }
+    }
+  }
+
+  const beltHasItems = Object.values(autoPotions).some((v) => v > 0) ||
+                       Object.values(autoFoodBelt).some((v) => v > 0);
+  const autoQueue = !failed && hasAutoBattle && beltHasItems;
 
   const autoMission = autoQueue
     ? { zoneId: mission.zoneId, zoneName: zone.name, startTime: Date.now(), duration: getAdventurerMissionDuration({ ...adventurer, level: newLevel, skills }, zone) }
     : null;
 
-  const updatedAdv = { ...adventurer, xp: newXp, level: newLevel, maxHp: bonusMaxHp, hp: hpAfterAuto, mission: autoMission, skillPoints: newSkillPoints };
+  const updatedAdv = {
+    ...adventurer,
+    xp: newXp, level: newLevel, maxHp: bonusMaxHp,
+    hp: autoQueue ? autoHp : postMissionHp,
+    potions: autoPotions,
+    foodBelt: autoFoodBelt,
+    mission: autoMission,
+    skillPoints: newSkillPoints,
+  };
   const next = {
     ...state,
     adventurers: state.adventurers.map((a) => a.id === adventurerId ? updatedAdv : a),
@@ -3874,7 +3899,7 @@ export function returnAdventurer(state, adventurerId) {
     worldZoneClears: { ...(state.worldZoneClears ?? {}), [zone.id]: newClears },
   };
 
-  return { state: next, result: { failed, zoneName: mission.zoneName, loot, xpGained, leveledUp, zoneCleared, newClears, clearsNeeded: zone.clearsNeeded, hpLost: rawDamage, hpRemaining: newHp, maxHp: newMaxHp } };
+  return { state: next, result: { failed, zoneName: mission.zoneName, loot, xpGained, leveledUp, zoneCleared, newClears, clearsNeeded: zone.clearsNeeded, hpLost: rawDamage, hpRemaining: postMissionHp, maxHp: bonusMaxHp } };
 }
 
 // Spend a skill point to unlock a skill (order validation done in UI)
@@ -3884,11 +3909,17 @@ export function spendSkillPoint(state, adventurerId, skillId) {
   const adventurer = state.adventurers[advIdx];
   if ((adventurer.skillPoints ?? 0) < 1) return state;
   if ((adventurer.skills ?? []).includes(skillId)) return state;
-  const updatedAdv = {
+  const newSkills = [...(adventurer.skills ?? []), skillId];
+  let updatedAdv = {
     ...adventurer,
     skillPoints: (adventurer.skillPoints ?? 0) - 1,
-    skills: [...(adventurer.skills ?? []), skillId],
+    skills: newSkills,
   };
+  // Apply thick_skin HP bonus immediately on unlock
+  if (skillId === "thick_skin") {
+    const newMaxHp = (updatedAdv.maxHp ?? getAdventurerMaxHp(updatedAdv)) + 10;
+    updatedAdv = { ...updatedAdv, maxHp: newMaxHp, hp: Math.min((updatedAdv.hp ?? newMaxHp), newMaxHp) };
+  }
   return { ...state, adventurers: state.adventurers.map((a, i) => i === advIdx ? updatedAdv : a) };
 }
 
@@ -3961,6 +3992,10 @@ export function usePotion(state, adventurerId, potionKey) {
 }
 
 // Transfer a potion from cropPotions inventory to adventurer's belt
+export function getBeltCap(adventurer) {
+  return (adventurer.skills ?? []).includes("belt_capacity") ? 5 : 3;
+}
+
 export function givePotion(state, adventurerId, potionKey) {
   const count = (state.cropPotions ?? {})[potionKey] ?? 0;
   if (count < 1) return state;
@@ -3968,7 +4003,8 @@ export function givePotion(state, adventurerId, potionKey) {
   if (advIdx === -1) return state;
   const adventurer = state.adventurers[advIdx];
   const beltTotal = Object.values(adventurer.potions ?? {}).reduce((s, v) => s + v, 0);
-  if (beltTotal >= 3) return state; // max 3 potions on belt
+  const foodTotal = Object.values(adventurer.foodBelt ?? {}).reduce((s, v) => s + v, 0);
+  if (beltTotal + foodTotal >= getBeltCap(adventurer)) return state;
   return {
     ...state,
     cropPotions: { ...(state.cropPotions ?? {}), [potionKey]: count - 1 },
@@ -4005,8 +4041,9 @@ export function giveArtisanFood(state, adventurerId, foodId) {
   if ((artisan[foodId] ?? 0) < 1) return state;
   const adventurer = state.adventurers[advIdx];
   const belt = adventurer.foodBelt ?? {};
-  const beltTotal = Object.values(belt).reduce((s, v) => s + v, 0);
-  if (beltTotal >= 3) return state;
+  const foodTotal = Object.values(belt).reduce((s, v) => s + v, 0);
+  const potionTotal = Object.values(adventurer.potions ?? {}).reduce((s, v) => s + v, 0);
+  if (foodTotal + potionTotal >= getBeltCap(adventurer)) return state;
   const updatedAdv = { ...adventurer, foodBelt: { ...belt, [foodId]: (belt[foodId] ?? 0) + 1 } };
   return {
     ...state,

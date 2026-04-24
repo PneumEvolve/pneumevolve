@@ -949,7 +949,7 @@ export default function PondZone({
         >
           {canAfford
             ? `🎣 Build Pond — 🪨×${POND_IRON} 🪵×${POND_LUMBER}`
-            : `Need 🪨×${POND_IRON}${hasIron ? " ✓" : ` (have ${Math.floor(game.worldResources?.iron_ore ?? 0)})`} 🪵×${POND_LUMBER}${hasLumber ? " ✓" : ` (have ${Math.floor(game.worldResources?.lumber ?? 0)})`}`}
+            : `Need 🪨 Iron Ore ×${POND_IRON}${hasIron ? " ✓" : ` (have ${Math.floor(game.worldResources?.iron_ore ?? 0)})`} 🪵 Lumber ×${POND_LUMBER}${hasLumber ? " ✓" : ` (have ${Math.floor(game.worldResources?.lumber ?? 0)})`}`}
         </button>
       </div>
     );
