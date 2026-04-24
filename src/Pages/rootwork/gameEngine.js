@@ -3677,6 +3677,11 @@ if (body?.worker && body.worker.hiredAt === undefined) {
 }
   }
 }
+
+if (!parsed.cropPotions) {
+    parsed.cropPotions = {};
+  }
+
 // Migrate old fish types to new 4-fish system
 if (parsed.fishing?.fish) {
   const f = parsed.fishing.fish;
