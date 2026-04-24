@@ -59,7 +59,7 @@ FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, 
   FORGE_WORKER_UPGRADES, FORGE_WORKER_UPGRADE_ORDER, FORGE_RECIPE_LIST,
   WORLD_ZONES, ADVENTURER_NAMES, ADVENTURER_CLASSES, WORLD_RESOURCES,
   ADVENTURER_BASE_HP, ADVENTURER_HP_PER_LEVEL, ADVENTURER_REGEN_PER_SECOND,
-  CROP_POTION_RECIPES, CROP_POTION_LIST,
+  ADVENTURER_BUFF_ITEMS, ADVENTURER_BUFF_LIST,
   ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST,
   WORLD_WORKER_HIRE_COST,
 } from "./gameConstants";
@@ -68,6 +68,43 @@ let _idCounter = 0;
 function genId(prefix = "id") {
   return `${prefix}_${Date.now()}_${++_idCounter}`;
 }
+// ─── Upgrade material helpers ─────────────────────────────────────────────────
+// T2 upgrades cost iron_ore + lumber (from worldResources)
+// T3 upgrades cost a forge component (from forgeGoods)
+
+export function canAffordUpgradeMaterials(state, upgradeRequires) {
+  if (!upgradeRequires) return true;
+  for (const [key, qty] of Object.entries(upgradeRequires)) {
+    const inWorld = (state.worldResources ?? {})[key] ?? 0;
+    const inForge = (state.forgeGoods ?? {})[key] ?? 0;
+    const have = inWorld + inForge;
+    if (have < qty) return false;
+  }
+  return true;
+}
+
+export function consumeUpgradeMaterials(state, upgradeRequires) {
+  // state must already be a deep clone — mutates in place
+  if (!upgradeRequires) return;
+  for (const [key, qty] of Object.entries(upgradeRequires)) {
+    let remaining = qty;
+    // Drain from worldResources first (raw materials), then forgeGoods (components)
+    const wrHave = (state.worldResources ?? {})[key] ?? 0;
+    if (wrHave > 0) {
+      const take = Math.min(wrHave, remaining);
+      state.worldResources[key] = wrHave - take;
+      remaining -= take;
+    }
+    if (remaining > 0) {
+      const fgHave = (state.forgeGoods ?? {})[key] ?? 0;
+      const take = Math.min(fgHave, remaining);
+      if (!state.forgeGoods) state.forgeGoods = {};
+      state.forgeGoods[key] = fgHave - take;
+    }
+  }
+}
+
+
  
 // ─── Population helpers ───────────────────────────────────────────────────────
  
@@ -82,6 +119,7 @@ export function getTotalWorkersHired(state) {
     (state.kitchenWorkers ?? []).length +
     (state.marketWorkers ?? []).length +
     (state.barnWorkers ?? []).length +
+    (state.adventurers ?? []).length +
     fishingWorkers +
     townBuildingWorkers
   );
@@ -937,6 +975,7 @@ export function canUpgradeKitchenWorker(state, workerId, upgradeId) {
   if ((worker.upgrades ?? []).includes(upgradeId)) return false;
   if (upgrade.requires && !(worker.upgrades ?? []).includes(upgrade.requires)) return false;
   if ((state.cash ?? 0) < upgrade.cost) return false;
+  if (!canAffordUpgradeMaterials(state, upgrade.upgradeRequires)) return false;
   // School gate: batch_5 and batch_10 require the school to be built
   if (upgradeId === "batch_5" && !hasSchoolResearch(state, "kitchen_batch_5")) return false;
   if (upgradeId === "batch_10" && !hasSchoolResearch(state, "kitchen_batch_10")) return false;
@@ -969,7 +1008,7 @@ export function setKitchenWorkerBatchOverride(state, workerId, batchSize) {
 }
  
 function _startKitchenWorkerRecipe(worker, recipeId, crops, animalGoods, fish, bait, state = null) {
-  const recipe = PROCESSING_RECIPES[recipeId] ?? BAIT_RECIPES[recipeId] ?? CROP_POTION_RECIPES[recipeId];
+  const recipe = PROCESSING_RECIPES[recipeId] ?? BAIT_RECIPES[recipeId];
   if (!recipe?.inputCrop) return false;
   const batch = getKitchenWorkerBatchSize(worker);
   const efficient = state ? hasPrestigeSkill(state, "efficient_process") : false;
@@ -1672,7 +1711,7 @@ if (activeTier) {
     if (!worker.busy || !worker.recipeId) continue;
     worker.elapsedSeconds = (worker.elapsedSeconds ?? 0) + satMultiplier;
     if (worker.elapsedSeconds >= worker.totalSeconds) {
-      const recipe = PROCESSING_RECIPES[worker.recipeId] ?? BAIT_RECIPES[worker.recipeId] ?? CROP_POTION_RECIPES[worker.recipeId];
+      const recipe = PROCESSING_RECIPES[worker.recipeId] ?? BAIT_RECIPES[worker.recipeId];
       const batch = worker.batchSize ?? 1;
       const produced = recipe.outputAmount * batch;
       const artisanGoods = ["bread", "jam", "sauce"];
@@ -2328,9 +2367,12 @@ export function upgradeWorkerGear(state, workerId) {
   if (!worker || needsSpecialization(worker)) return state;
   const nextGearId = getNextGear(worker.gear);
   if (!nextGearId) return state;
-  const cost = GEAR[nextGearId].upgradeCost;
+  const gearDef = GEAR[nextGearId];
+  const cost = gearDef.upgradeCost;
   if (!cost || (next.cash ?? 0) < cost) return state;
+  if (!canAffordUpgradeMaterials(state, gearDef.upgradeRequires)) return state;
   next.cash -= cost;
+  consumeUpgradeMaterials(next, gearDef.upgradeRequires);
   worker.gear = nextGearId;
   return next;
 }
@@ -2351,7 +2393,9 @@ export function buyPlotCapUpgrade(state, farmId) {
   const next = deepCloneState(state);
   const upgrade = getNextPlotCapUpgrade(next, farmId);
   if (!upgrade || (next.cash ?? 0) < upgrade.cost) return state;
+  if (!canAffordUpgradeMaterials(state, upgrade.upgradeRequires)) return state;
   next.cash -= upgrade.cost;
+  consumeUpgradeMaterials(next, upgrade.upgradeRequires);
   if (!next.farmInvestments) next.farmInvestments = {};
   if (!next.farmInvestments[farmId]) next.farmInvestments[farmId] = { plotCapIndex: 0, yieldIndex: 0 };
   next.farmInvestments[farmId].plotCapIndex += 1;
@@ -2366,7 +2410,9 @@ export function buyYieldUpgrade(state, farmId) {
   const currentIndex = (next.farmInvestments?.[farmId]?.yieldIndex ?? 0);
   if (currentIndex === 2 && !hasSchoolResearch(state, "fertilizer_iii")) return state;
   if (currentIndex === 3 && !hasSchoolResearch(state, "fertilizer_iv")) return state;
+  if (!canAffordUpgradeMaterials(state, upgrade.upgradeRequires)) return state;
   next.cash -= upgrade.cost;
+  consumeUpgradeMaterials(next, upgrade.upgradeRequires);
   if (!next.farmInvestments) next.farmInvestments = {};
   if (!next.farmInvestments[farmId]) next.farmInvestments[farmId] = { plotCapIndex: 0, yieldIndex: 0 };
   next.farmInvestments[farmId].yieldIndex += 1;
@@ -2404,9 +2450,12 @@ export function upgradeMarketWorkerGear(state, workerId) {
   if (!worker) return state;
   const nextGear = getMarketWorkerNextGear(worker.gear);
   if (!nextGear) return state;
-  const cost = MARKET_WORKER_GEAR[nextGear].upgradeCost;
+  const gearDef = MARKET_WORKER_GEAR[nextGear];
+  const cost = gearDef.upgradeCost;
   if ((next.cash ?? 0) < cost) return state;
+  if (!canAffordUpgradeMaterials(state, gearDef.upgradeRequires)) return state;
   next.cash -= cost;
+  consumeUpgradeMaterials(next, gearDef.upgradeRequires);
   worker.gear = nextGear;
   return next;
 }
@@ -2481,7 +2530,7 @@ export function assignKitchenWorkerRecipe(state, workerId, recipeId) {
   const worker = (next.kitchenWorkers ?? []).find((w) => w.id === workerId);
   if (!worker) return state;
   if (worker.busy && worker.recipeId) {
-    const recipe = PROCESSING_RECIPES[worker.recipeId] ?? BAIT_RECIPES[worker.recipeId] ?? CROP_POTION_RECIPES[worker.recipeId];
+    const recipe = PROCESSING_RECIPES[worker.recipeId] ?? BAIT_RECIPES[worker.recipeId];
     const batch = worker.batchSize ?? 1;
     if (recipe?.inputCrop) {
       const refund = Math.floor(recipe.inputAmount * batch * 0.5);
@@ -2507,6 +2556,7 @@ export function upgradeKitchenWorker(state, workerId, upgradeId) {
   const worker = next.kitchenWorkers.find((w) => w.id === workerId);
   const upgrade = KITCHEN_WORKER_UPGRADES[upgradeId];
   next.cash -= upgrade.cost;
+  consumeUpgradeMaterials(next, upgrade.upgradeRequires);
   worker.upgrades = [...(worker.upgrades ?? []), upgradeId];
   return next;
 }
@@ -2516,7 +2566,7 @@ export function fireKitchenWorker(state, workerId) {
   const worker = (next.kitchenWorkers ?? []).find((w) => w.id === workerId);
   if (!worker) return state;
   if (worker.busy && worker.recipeId) {
-    const recipe = PROCESSING_RECIPES[worker.recipeId] ?? BAIT_RECIPES[worker.recipeId] ?? CROP_POTION_RECIPES[worker.recipeId];
+    const recipe = PROCESSING_RECIPES[worker.recipeId] ?? BAIT_RECIPES[worker.recipeId];
     if (recipe?.inputCrop) {
       const refund = Math.floor(recipe.inputAmount * (worker.batchSize ?? 1) * 0.5);
       if (recipe.inputCrop in (next.crops ?? {})) {
@@ -2625,6 +2675,7 @@ export function upgradeBarnWorker(state, workerId, upgradeId) {
   if ((canonical.upgrades ?? []).includes(upgradeId)) return state;
   if (upgrade.requires && !(canonical.upgrades ?? []).includes(upgrade.requires)) return state;
   if ((state.cash ?? 0) < upgrade.cost) return state;
+  if (!canAffordUpgradeMaterials(state, upgrade.upgradeRequires)) return state;
 
   // Research gates for tier-2 barn upgrades
   if (upgradeId === "capacity_2" && !hasSchoolResearch(state, "barn_capacity_2")) return state;
@@ -2632,6 +2683,7 @@ export function upgradeBarnWorker(state, workerId, upgradeId) {
 
   const next = deepCloneState(state);
   next.cash -= upgrade.cost;
+  consumeUpgradeMaterials(next, upgrade.upgradeRequires);
   const newUpgrades = [...(canonical.upgrades ?? []), upgradeId];
 
   // Update in flat root array (if present)
@@ -2687,7 +2739,9 @@ export function upgradeAnimalYield(state, animalId, animalInstanceId, barnInstan
   if ((next.cash ?? 0) < nextUpgrade.cost) return state;
   // School gate: yield level 2+ requires the school
   if (nextUpgrade.level >= 2 && !hasSchoolResearch(state, "animal_yield_2")) return state;
+  if (!canAffordUpgradeMaterials(state, nextUpgrade.upgradeRequires)) return state;
   next.cash -= nextUpgrade.cost;
+  consumeUpgradeMaterials(next, nextUpgrade.upgradeRequires);
   animal.yieldLevel = (animal.yieldLevel ?? 0) + 1;
   return next;
 }
@@ -2769,10 +2823,12 @@ export function upgradeFishingWorker(state, bodyId, upgradeId) {
   if ((worker.upgrades ?? []).includes(upgradeId)) return state;
   if (upgrade.requires && !(worker.upgrades ?? []).includes(upgrade.requires)) return state;
   if ((next.cash ?? 0) < upgrade.cost) return state;
+  if (!canAffordUpgradeMaterials(state, upgrade.upgradeRequires)) return state;
   // School gate: tier-2 fishing upgrades require the school
   if (upgradeId === "haul_2" && !hasSchoolResearch(state, "fishing_haul_2")) return state;
   if (upgradeId === "gear_expert" && !hasSchoolResearch(state, "fishing_gear_expert")) return state;
   next.cash -= upgrade.cost;
+  consumeUpgradeMaterials(next, upgrade.upgradeRequires);
   worker.upgrades = [...(worker.upgrades ?? []), upgradeId];
   return next;
 }
@@ -3773,7 +3829,11 @@ export function sendAdventurer(state, adventurerId, zoneId) {
   const adventurer = state.adventurers[advIdx];
   if (adventurer.mission) return state;
 
-  const duration = getAdventurerMissionDuration(adventurer, zone);
+  let duration = getAdventurerMissionDuration(adventurer, zone);
+  // Omelette buff: -50% run time for this mission
+  if ((adventurer.buffSlot ?? null) === "omelette") {
+    duration = Math.max(1, Math.round(duration * 0.5));
+  }
   const updatedAdv = { ...adventurer, mission: { zoneId, zoneName: zone.name, startTime: Date.now(), duration } };
   const next = { ...state, adventurers: [...state.adventurers] };
   next.adventurers[advIdx] = updatedAdv;
@@ -3798,11 +3858,14 @@ export function returnAdventurer(state, adventurerId) {
   let loot = [];
   let nextResources = { ...(state.worldResources ?? {}) };
 
+  const hasCheeseBuff = (adventurer.buffSlot ?? null) === "cheese";
+
   if (!failed) {
     for (const lootDef of zone.loot) {
       const amount = Math.floor(Math.random() * (lootDef.max - lootDef.min + 1)) + lootDef.min;
       const hasScavenger = (adventurer.skills ?? []).includes("scavenger");
-      const finalAmount = amount > 0 ? amount + (hasScavenger ? 1 : 0) : 0;
+      let finalAmount = amount > 0 ? amount + (hasScavenger ? 1 : 0) : 0;
+      if (hasCheeseBuff && finalAmount > 0) finalAmount = finalAmount * 2;
       if (finalAmount > 0) {
         loot.push({ ...lootDef, amount: finalAmount });
         nextResources[lootDef.resourceKey] = (nextResources[lootDef.resourceKey] ?? 0) + finalAmount;
@@ -3845,38 +3908,33 @@ export function returnAdventurer(state, adventurerId) {
   const hpAfterDamageFinal = Math.max(1, (adventurer.hp ?? bonusMaxHp) - rawDamage);
   const postMissionHp = leveledUp ? bonusMaxHp : Math.min(hpAfterDamageFinal, bonusMaxHp);
 
-  // Auto-battle: use potions/food to heal up between fights, then re-queue if belt still has items
+  // Auto-battle: use food belt to heal up between fights, then re-queue if belt still has items
   const hasAutoBattle = skills.includes("auto_battle");
   let autoHp = postMissionHp;
-  let autoPotions = { ...(adventurer.potions ?? {}) };
   let autoFoodBelt = { ...(adventurer.foodBelt ?? {}) };
 
   if (!failed && hasAutoBattle) {
     // Heal loop: consume cheapest items first until full or belt empty
-    // Priority: wheat_potion(15) < bread(15) < berry_potion(30) < jam(50) < tomato_potion(60) < sauce(100)
-    const healItems = [
-      ...Object.entries(autoPotions)
-        .filter(([, qty]) => qty > 0)
-        .map(([id]) => ({ id, heal: CROP_POTION_RECIPES[id]?.healAmount ?? 0, belt: "potions" })),
-      ...Object.entries(autoFoodBelt)
-        .filter(([, qty]) => qty > 0)
-        .map(([id]) => ({ id, heal: ARTISAN_FOOD_HEAL[id]?.healAmount ?? 0, belt: "food" })),
-    ].sort((a, b) => a.heal - b.heal);
+    // Priority: bread(30) < jam(50) < sauce(100)
+    const healItems = Object.entries(autoFoodBelt)
+      .filter(([, qty]) => qty > 0)
+      .map(([id]) => ({ id, heal: ARTISAN_FOOD_HEAL[id]?.healAmount ?? 0 }))
+      .sort((a, b) => a.heal - b.heal);
 
     for (const item of healItems) {
       if (autoHp >= bonusMaxHp) break;
-      if (item.belt === "potions" && (autoPotions[item.id] ?? 0) > 0) {
-        autoPotions = { ...autoPotions, [item.id]: autoPotions[item.id] - 1 };
-        autoHp = Math.min(bonusMaxHp, autoHp + item.heal);
-      } else if (item.belt === "food" && (autoFoodBelt[item.id] ?? 0) > 0) {
+      if ((autoFoodBelt[item.id] ?? 0) > 0) {
         autoFoodBelt = { ...autoFoodBelt, [item.id]: autoFoodBelt[item.id] - 1 };
         autoHp = Math.min(bonusMaxHp, autoHp + item.heal);
       }
     }
   }
 
-  const beltHasItems = Object.values(autoPotions).some((v) => v > 0) ||
-                       Object.values(autoFoodBelt).some((v) => v > 0);
+  // Buff slot: consume buff on mission complete
+  const buffSlot = adventurer.buffSlot ?? null;
+  const nextBuffSlot = null; // buff is consumed after each mission
+
+  const beltHasItems = Object.values(autoFoodBelt).some((v) => v > 0);
   const autoQueue = !failed && hasAutoBattle && beltHasItems;
 
   const autoMission = autoQueue
@@ -3887,8 +3945,8 @@ export function returnAdventurer(state, adventurerId) {
     ...adventurer,
     xp: newXp, level: newLevel, maxHp: bonusMaxHp,
     hp: autoQueue ? autoHp : postMissionHp,
-    potions: autoPotions,
     foodBelt: autoFoodBelt,
+    buffSlot: nextBuffSlot,
     mission: autoMission,
     skillPoints: newSkillPoints,
   };
@@ -3972,63 +4030,9 @@ export function unequipAdventurer(state, adventurerId) {
 }
 
 // Use a potion on an adventurer
-export function usePotion(state, adventurerId, potionKey) {
-  const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
-  if (advIdx === -1) return state;
-  const adventurer = state.adventurers[advIdx];
-  const potions = adventurer.potions ?? {};
-  if ((potions[potionKey] ?? 0) < 1) return state;
-  const recipe = CROP_POTION_RECIPES[potionKey];
-  if (!recipe) return state;
-  const newHp = Math.min((adventurer.hp ?? adventurer.maxHp), adventurer.maxHp) + (recipe.healAmount ?? 0);
-  const cappedHp = Math.min(newHp, adventurer.maxHp);
-  return {
-    ...state,
-    adventurers: state.adventurers.map((a, i) => i === advIdx
-      ? { ...a, hp: cappedHp, potions: { ...potions, [potionKey]: potions[potionKey] - 1 } }
-      : a
-    ),
-  };
-}
-
-// Transfer a potion from cropPotions inventory to adventurer's belt
+// Belt cap: food belt only
 export function getBeltCap(adventurer) {
   return (adventurer.skills ?? []).includes("belt_capacity") ? 5 : 3;
-}
-
-export function givePotion(state, adventurerId, potionKey) {
-  const count = (state.cropPotions ?? {})[potionKey] ?? 0;
-  if (count < 1) return state;
-  const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
-  if (advIdx === -1) return state;
-  const adventurer = state.adventurers[advIdx];
-  const beltTotal = Object.values(adventurer.potions ?? {}).reduce((s, v) => s + v, 0);
-  const foodTotal = Object.values(adventurer.foodBelt ?? {}).reduce((s, v) => s + v, 0);
-  if (beltTotal + foodTotal >= getBeltCap(adventurer)) return state;
-  return {
-    ...state,
-    cropPotions: { ...(state.cropPotions ?? {}), [potionKey]: count - 1 },
-    adventurers: state.adventurers.map((a, i) => i === advIdx
-      ? { ...a, potions: { ...(a.potions ?? {}), [potionKey]: ((a.potions ?? {})[potionKey] ?? 0) + 1 } }
-      : a
-    ),
-  };
-}
-
-export function removePotion(state, adventurerId, potionKey) {
-  const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
-  if (advIdx === -1) return state;
-  const adventurer = state.adventurers[advIdx];
-  const count = (adventurer.potions ?? {})[potionKey] ?? 0;
-  if (count < 1) return state;
-  return {
-    ...state,
-    cropPotions: { ...(state.cropPotions ?? {}), [potionKey]: ((state.cropPotions ?? {})[potionKey] ?? 0) + 1 },
-    adventurers: state.adventurers.map((a, i) => i === advIdx
-      ? { ...a, potions: { ...(a.potions ?? {}), [potionKey]: count - 1 } }
-      : a
-    ),
-  };
 }
 
 // ─── Artisan Food as Heal Items ────────────────────────────────────────────────
@@ -4042,13 +4046,43 @@ export function giveArtisanFood(state, adventurerId, foodId) {
   const adventurer = state.adventurers[advIdx];
   const belt = adventurer.foodBelt ?? {};
   const foodTotal = Object.values(belt).reduce((s, v) => s + v, 0);
-  const potionTotal = Object.values(adventurer.potions ?? {}).reduce((s, v) => s + v, 0);
-  if (foodTotal + potionTotal >= getBeltCap(adventurer)) return state;
+  if (foodTotal >= getBeltCap(adventurer)) return state;
   const updatedAdv = { ...adventurer, foodBelt: { ...belt, [foodId]: (belt[foodId] ?? 0) + 1 } };
   return {
     ...state,
     artisan: { ...artisan, [foodId]: artisan[foodId] - 1 },
     adventurers: state.adventurers.map((a, i) => i === advIdx ? updatedAdv : a),
+  };
+}
+
+// ─── Buff Slot (omelette/cheese) ──────────────────────────────────────────────
+
+export function giveBuffItem(state, adventurerId, buffId) {
+  if (!ADVENTURER_BUFF_LIST.includes(buffId)) return state;
+  const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
+  if (advIdx === -1) return state;
+  const adventurer = state.adventurers[advIdx];
+  // Only one buff slot — must be empty
+  if (adventurer.buffSlot) return state;
+  const animalGoods = state.animalGoods ?? {};
+  if ((animalGoods[buffId] ?? 0) < 1) return state;
+  return {
+    ...state,
+    animalGoods: { ...animalGoods, [buffId]: animalGoods[buffId] - 1 },
+    adventurers: state.adventurers.map((a, i) => i === advIdx ? { ...a, buffSlot: buffId } : a),
+  };
+}
+
+export function removeBuffItem(state, adventurerId) {
+  const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
+  if (advIdx === -1) return state;
+  const adventurer = state.adventurers[advIdx];
+  const buffId = adventurer.buffSlot;
+  if (!buffId) return state;
+  return {
+    ...state,
+    animalGoods: { ...(state.animalGoods ?? {}), [buffId]: ((state.animalGoods ?? {})[buffId] ?? 0) + 1 },
+    adventurers: state.adventurers.map((a, i) => i === advIdx ? { ...a, buffSlot: null } : a),
   };
 }
 
@@ -4083,24 +4117,7 @@ export function useArtisanFood(state, adventurerId, foodId) {
   return { ...state, adventurers: state.adventurers.map((a, i) => i === advIdx ? updatedAdv : a) };
 }
 
-// Brew a crop potion in the kitchen (consumes crops, adds to cropPotions)
-export function brewCropPotion(state, potionId) {
-  const recipe = CROP_POTION_RECIPES[potionId];
-  if (!recipe) return state;
-  const crops = state.crops ?? {};
-  for (const [crop, needed] of Object.entries(recipe.inputs)) {
-    if ((crops[crop] ?? 0) < needed) return state;
-  }
-  const nextCrops = { ...crops };
-  for (const [crop, needed] of Object.entries(recipe.inputs)) {
-    nextCrops[crop] = (nextCrops[crop] ?? 0) - needed;
-  }
-  return {
-    ...state,
-    crops: nextCrops,
-    cropPotions: { ...(state.cropPotions ?? {}), [potionId]: ((state.cropPotions ?? {})[potionId] ?? 0) + 1 },
-  };
-}
+
 
 // Tick adventurer regen (call from main tick, not forge tick)
 export function tickAdventurerRegen(state, dtSeconds) {

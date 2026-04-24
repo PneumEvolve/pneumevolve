@@ -1,6 +1,6 @@
 // src/Pages/rootwork/components/WorldZone.jsx
 import React, { useState } from "react";
-import { WORLD_ZONES, ADVENTURER_CLASSES, FORGE_RECIPES, CROP_POTION_RECIPES, CROP_POTION_LIST, ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST, WORLD_RESOURCES, HERO_SKILLS } from "../gameConstants";
+import { WORLD_ZONES, ADVENTURER_CLASSES, FORGE_RECIPES, ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST, ADVENTURER_BUFF_ITEMS, ADVENTURER_BUFF_LIST, WORLD_RESOURCES, HERO_SKILLS } from "../gameConstants";
 import { getAdventurerSlotCost, getAdventurerSlotUnlocked } from "../gameEngine";
 
 function getAdventurerMaxHp(adventurer) {
@@ -158,7 +158,7 @@ function SkillTree({ adventurer, onSpendSkillPoint }) {
 }
 
 // ─── Hero Modal ────────────────────────────────────────────────────────────────
-function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onUsePotion, onGivePotion, onRemovePotion, onGiveArtisanFood, onRemoveArtisanFood, onUseArtisanFood, onSpendSkillPoint }) {
+function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onGiveArtisanFood, onRemoveArtisanFood, onUseArtisanFood, onGiveBuffItem, onRemoveBuffItem, onSpendSkillPoint }) {
   const cls = ADVENTURER_CLASSES[adventurer.class] ?? ADVENTURER_CLASSES.fighter;
   const maxHp = adventurer.maxHp ?? getAdventurerMaxHp(adventurer);
   const hp = adventurer.hp ?? maxHp;
@@ -172,9 +172,7 @@ function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onUsePotion,
     ? Object.values(FORGE_RECIPES).find((r) => r.output.resourceKey === adventurer.equippedItem)
     : null;
 
-  const beltPotions = Object.entries(adventurer.potions ?? {}).filter(([, qty]) => qty > 0);
-  const stockPotions = CROP_POTION_LIST.filter((id) => (game.cropPotions ?? {})[id] > 0);
-  const beltTotal = beltPotions.reduce((s, [, qty]) => s + qty, 0);
+
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
@@ -243,39 +241,45 @@ function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onUsePotion,
           )}
         </div>
 
-        {/* Potion belt */}
-        <div style={{ marginBottom: "0.85rem" }}>
-          <div style={{ fontSize: "0.65rem", fontWeight: 700, color: "var(--muted)", marginBottom: "0.4rem", letterSpacing: "0.05em" }}>🧪 POTION BELT ({beltTotal}/3)</div>
-          <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", minHeight: "32px", marginBottom: "0.35rem" }}>
-            {beltPotions.length === 0 && <span style={{ fontSize: "0.68rem", color: "var(--muted)" }}>Belt empty — add potions from stock.</span>}
-            {beltPotions.map(([key, qty]) => {
-              const recipe = CROP_POTION_RECIPES[key];
-              return (
-                <div key={key} style={{ display: "flex", alignItems: "center", gap: "0.3rem", background: "rgba(74,222,128,0.1)", border: "1px solid rgba(74,222,128,0.3)", borderRadius: "8px", padding: "0.2rem 0.5rem" }}>
-                  <span style={{ fontSize: "0.9rem" }}>{recipe?.emoji}</span>
-                  <span style={{ fontSize: "0.7rem", fontWeight: 700 }}>×{qty}</span>
-                  <button onClick={() => onUsePotion(adventurer.id, key)} style={{ fontSize: "0.58rem", padding: "1px 5px", borderRadius: "4px", background: "rgba(74,222,128,0.2)", border: "1px solid rgba(74,222,128,0.4)", color: "#4ade80", cursor: "pointer" }}>Use</button>
-                  <button onClick={() => onRemovePotion(adventurer.id, key)} style={{ fontSize: "0.58rem", padding: "1px 5px", borderRadius: "4px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444", cursor: "pointer" }}>−</button>
-                </div>
-              );
-            })}
-          </div>
-          {stockPotions.length > 0 && beltTotal < 3 && (
-            <div>
-              <div style={{ fontSize: "0.58rem", color: "var(--muted)", marginBottom: "0.3rem" }}>ADD FROM STOCK</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem" }}>
-                {stockPotions.map((id) => {
-                  const recipe = CROP_POTION_RECIPES[id];
-                  const qty = (game.cropPotions ?? {})[id] ?? 0;
+        {/* Buff Slot */}
+        <div style={{ padding: "0.6rem 0.75rem", background: "rgba(139,92,246,0.05)", border: "1px solid rgba(139,92,246,0.2)", borderRadius: "10px", marginBottom: "0.65rem" }}>
+          <div style={{ fontWeight: 600, marginBottom: "0.4rem", color: "var(--muted)", fontSize: "0.6rem", letterSpacing: "0.05em" }}>✨ BUFF SLOT <span style={{ color: "var(--muted)", fontWeight: 400 }}>(1 slot · consumed on mission complete)</span></div>
+          {adventurer.buffSlot ? (
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              {(() => {
+                const def = ADVENTURER_BUFF_ITEMS[adventurer.buffSlot];
+                return (
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", background: "rgba(139,92,246,0.12)", border: "1px solid rgba(139,92,246,0.35)", borderRadius: "8px", padding: "4px 10px", flex: 1 }}>
+                    <span style={{ fontSize: "1.1rem" }}>{def?.emoji}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#a78bfa" }}>{def?.name}</div>
+                      <div style={{ fontSize: "0.6rem", color: "var(--muted)" }}>{def?.description}</div>
+                    </div>
+                    <button onClick={() => onRemoveBuffItem(adventurer.id)} style={{ fontSize: "0.58rem", padding: "2px 7px", borderRadius: "4px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444", cursor: "pointer" }}>Remove</button>
+                  </div>
+                );
+              })()}
+            </div>
+          ) : (
+            <div style={{ fontSize: "0.65rem", color: "var(--muted)", fontStyle: "italic", marginBottom: "0.4rem" }}>No buff active.</div>
+          )}
+          {!adventurer.buffSlot && (() => {
+            const available = ADVENTURER_BUFF_LIST.filter((id) => ((game.animalGoods ?? {})[id] ?? 0) > 0);
+            if (!available.length) return <div style={{ fontSize: "0.62rem", color: "var(--muted)" }}>No buff items in stock (craft omelettes/cheese in kitchen).</div>;
+            return (
+              <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.3rem" }}>
+                {available.map((id) => {
+                  const def = ADVENTURER_BUFF_ITEMS[id];
+                  const qty = (game.animalGoods ?? {})[id] ?? 0;
                   return (
-                    <button key={id} onClick={() => onGivePotion(adventurer.id, id)} style={{ fontSize: "0.67rem", padding: "2px 9px", borderRadius: "6px", cursor: "pointer", background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)" }}>
-                      {recipe?.emoji} {recipe?.name} ×{qty}
+                    <button key={id} onClick={() => onGiveBuffItem(adventurer.id, id)} style={{ fontSize: "0.65rem", padding: "3px 10px", borderRadius: "6px", cursor: "pointer", background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.35)", color: "#a78bfa" }}>
+                      {def.emoji} {def.name} ×{qty}
                     </button>
                   );
                 })}
               </div>
-            </div>
-          )}
+            );
+          })()}
         </div>
 
         {/* Food Belt */}
@@ -346,7 +350,7 @@ function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onUsePotion,
 
 
 // ─── Adventurer Card ──────────────────────────────────────────────────────────
-function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero, onUsePotion, onGivePotion }) {
+function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero, onGiveArtisanFood, onGiveBuffItem }) {
   const [selectedZoneId, setSelectedZoneId] = useState(null);
   const [zonesOpen, setZonesOpen] = useState(true);
   const cls = ADVENTURER_CLASSES[adventurer.class] ?? ADVENTURER_CLASSES.fighter;
@@ -363,11 +367,16 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
   const lockedZones = zones.filter((z) => !isZoneUnlocked(z, game.worldZoneClears));
   const selectedZone = selectedZoneId ? WORLD_ZONES[selectedZoneId] : null;
 
-  // Potion quick-use: first potion on belt
-  const beltPotions = Object.entries(adventurer.potions ?? {}).filter(([, qty]) => qty > 0);
-  const firstBeltPotion = beltPotions[0] ?? null;
-  const stockPotions = CROP_POTION_LIST.filter((id) => (game.cropPotions ?? {})[id] > 0);
-  const canReplenish = stockPotions.length > 0 && beltPotions.reduce((s, [, q]) => s + q, 0) < 3;
+  // Food belt quick-use
+  const foodBelt = adventurer.foodBelt ?? {};
+  const beltFoodTotal = Object.values(foodBelt).reduce((s, v) => s + v, 0);
+  const beltCapacity = (adventurer.skills ?? []).includes("belt_capacity") ? 5 : 3;
+  const firstBeltFood = ARTISAN_FOOD_LIST.find((id) => (foodBelt[id] ?? 0) > 0) ?? null;
+  const stockFood = ARTISAN_FOOD_LIST.filter((id) => ((game.artisan ?? {})[id] ?? 0) > 0);
+  const canReplenish = stockFood.length > 0 && beltFoodTotal < beltCapacity;
+  // Buff slot
+  const buffSlot = adventurer.buffSlot ?? null;
+  const availableBuffs = ADVENTURER_BUFF_LIST.filter((id) => ((game.animalGoods ?? {})[id] ?? 0) > 0);
 
   return (
     <div style={{ background: "var(--bg-elev)", border: "1px solid var(--border)", borderRadius: "14px", overflow: "hidden", marginBottom: "0.75rem" }}>
@@ -431,10 +440,10 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
               {selectedZone ? `⚔️ Go! · ${getMissionDuration(adventurer, selectedZone)}s` : "⚔️ Go!"}
             </button>
 
-            {/* Use potion button */}
-            {firstBeltPotion && (
+            {/* Use food button — first food item on belt */}
+            {firstBeltFood && (
               <button
-                onClick={(e) => { e.stopPropagation(); onUsePotion(adventurer.id, firstBeltPotion[0]); }}
+                onClick={(e) => { e.stopPropagation(); onOpenHero(adventurer); }}
                 style={{
                   flex: 1, padding: "0.65rem 0.4rem",
                   background: "rgba(74,222,128,0.12)", border: "1px solid rgba(74,222,128,0.35)",
@@ -442,26 +451,55 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
                   cursor: "pointer",
                 }}
               >
-                {(() => { const r = CROP_POTION_RECIPES[firstBeltPotion[0]]; return `${r?.emoji ?? "🧪"} Use`; })()}
-                <div style={{ fontSize: "0.55rem", color: "rgba(74,222,128,0.7)", marginTop: "1px" }}>×{firstBeltPotion[1]}</div>
+                {(() => { const def = ARTISAN_FOOD_HEAL[firstBeltFood]; return `${def?.emoji ?? "🍞"} Food`; })()}
+                <div style={{ fontSize: "0.55rem", color: "rgba(74,222,128,0.7)", marginTop: "1px" }}>×{foodBelt[firstBeltFood]} belt</div>
               </button>
             )}
 
-            {/* Replenish button */}
-            {canReplenish && (
+            {/* Replenish food button */}
+            {canReplenish && !firstBeltFood && (
               <button
-                onClick={(e) => { e.stopPropagation(); onGivePotion(adventurer.id, stockPotions[0]); }}
+                onClick={(e) => { e.stopPropagation(); onGiveArtisanFood(adventurer.id, stockFood[0]); }}
                 style={{
                   flex: 1, padding: "0.65rem 0.4rem",
-                  background: "rgba(139,92,246,0.12)", border: "1px solid rgba(139,92,246,0.35)",
+                  background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)",
+                  borderRadius: "10px", color: "#fbbf24", fontWeight: 700, fontSize: "0.72rem",
+                  cursor: "pointer",
+                }}
+              >
+                {(() => { const def = ARTISAN_FOOD_HEAL[stockFood[0]]; return `${def?.emoji ?? "🍞"} Add Food`; })()}
+                <div style={{ fontSize: "0.55rem", color: "rgba(251,191,36,0.6)", marginTop: "1px" }}>
+                  ×{(game.artisan ?? {})[stockFood[0]] ?? 0} stock
+                </div>
+              </button>
+            )}
+
+            {/* Buff slot button */}
+            {buffSlot ? (
+              <button
+                onClick={(e) => { e.stopPropagation(); onOpenHero(adventurer); }}
+                style={{
+                  flex: 1, padding: "0.65rem 0.4rem",
+                  background: "rgba(139,92,246,0.2)", border: "1px solid rgba(139,92,246,0.5)",
                   borderRadius: "10px", color: "#a78bfa", fontWeight: 700, fontSize: "0.72rem",
                   cursor: "pointer",
                 }}
               >
-                {(() => { const r = CROP_POTION_RECIPES[stockPotions[0]]; return `${r?.emoji ?? "🫙"} Replenish`; })()}
-                <div style={{ fontSize: "0.55rem", color: "rgba(139,92,246,0.7)", marginTop: "1px" }}>
-                  ×{(game.cropPotions ?? {})[stockPotions[0]] ?? 0} in stock
-                </div>
+                {ADVENTURER_BUFF_ITEMS[buffSlot]?.emoji} Buffed
+                <div style={{ fontSize: "0.55rem", color: "rgba(139,92,246,0.7)", marginTop: "1px" }}>{ADVENTURER_BUFF_ITEMS[buffSlot]?.name}</div>
+              </button>
+            ) : availableBuffs.length > 0 && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onGiveBuffItem(adventurer.id, availableBuffs[0]); }}
+                style={{
+                  flex: 1, padding: "0.65rem 0.4rem",
+                  background: "rgba(139,92,246,0.08)", border: "1px solid rgba(139,92,246,0.25)",
+                  borderRadius: "10px", color: "#a78bfa", fontWeight: 700, fontSize: "0.72rem",
+                  cursor: "pointer",
+                }}
+              >
+                {ADVENTURER_BUFF_ITEMS[availableBuffs[0]]?.emoji} Buff
+                <div style={{ fontSize: "0.55rem", color: "rgba(139,92,246,0.5)", marginTop: "1px" }}>×{(game.animalGoods ?? {})[availableBuffs[0]] ?? 0} stock</div>
               </button>
             )}
           </div>
@@ -531,7 +569,7 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
 }
 
 // ─── Main WorldZone ────────────────────────────────────────────────────────────
-export default function WorldZone({ game, onSendAdventurer, onReturnAdventurer, onEquipAdventurer, onUnequipAdventurer, onUsePotionOnAdventurer, onGivePotion, onRemovePotion, onGiveArtisanFood, onRemoveArtisanFood, onUseArtisanFood, onHireAdventurer, onSpendSkillPoint }) {
+export default function WorldZone({ game, onSendAdventurer, onReturnAdventurer, onEquipAdventurer, onUnequipAdventurer, onGiveArtisanFood, onRemoveArtisanFood, onUseArtisanFood, onGiveBuffItem, onRemoveBuffItem, onHireAdventurer, onSpendSkillPoint }) {
   const [lootResult, setLootResult] = useState(null);
   const [heroModal, setHeroModal] = useState(null);
 
@@ -561,8 +599,8 @@ export default function WorldZone({ game, onSendAdventurer, onReturnAdventurer, 
           onSend={onSendAdventurer}
           onReturn={handleReturn}
           onOpenHero={setHeroModal}
-          onUsePotion={onUsePotionOnAdventurer}
-          onGivePotion={onGivePotion}
+          onGiveArtisanFood={onGiveArtisanFood}
+          onGiveBuffItem={onGiveBuffItem}
         />
       ))}
 
@@ -607,8 +645,8 @@ export default function WorldZone({ game, onSendAdventurer, onReturnAdventurer, 
       {heroModalAdv && (
         <HeroModal adventurer={heroModalAdv} game={game} onClose={() => setHeroModal(null)}
           onEquip={onEquipAdventurer} onUnequip={onUnequipAdventurer}
-          onUsePotion={onUsePotionOnAdventurer} onGivePotion={onGivePotion} onRemovePotion={onRemovePotion}
           onGiveArtisanFood={onGiveArtisanFood} onRemoveArtisanFood={onRemoveArtisanFood} onUseArtisanFood={onUseArtisanFood}
+          onGiveBuffItem={onGiveBuffItem} onRemoveBuffItem={onRemoveBuffItem}
           onSpendSkillPoint={onSpendSkillPoint}
         />
       )}

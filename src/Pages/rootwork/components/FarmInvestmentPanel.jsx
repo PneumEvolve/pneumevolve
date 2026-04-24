@@ -12,6 +12,24 @@ import {
   hasSchoolResearch,
 } from "../gameEngine";
 
+
+// Material cost display helper — returns e.g. "5 Iron Ore + 3 Lumber"
+function matCostLabel(upgradeRequires) {
+  if (!upgradeRequires) return null;
+  const NAMES = {
+    iron_ore: "Iron Ore", lumber: "Lumber",
+    iron_fitting: "Iron Fitting", reinforced_crate: "Reinforced Crate", fine_tools: "Fine Tools",
+  };
+  return Object.entries(upgradeRequires).map(([k, v]) => `${v} ${NAMES[k] ?? k}`).join(" + ");
+}
+function canAffordMats(upgradeRequires, worldResources, forgeGoods) {
+  if (!upgradeRequires) return true;
+  for (const [k, qty] of Object.entries(upgradeRequires)) {
+    const have = (worldResources?.[k] ?? 0) + (forgeGoods?.[k] ?? 0);
+    if (have < qty) return false;
+  }
+  return true;
+}
 export default function FarmInvestmentPanel({ farm, game, onBuyPlotCap, onBuyYield, onUpgradePlot }) {
   const inv = getFarmInvestment(game, farm.id);
   const maxPlots = getFarmMaxPlots(game, farm.id);
@@ -84,6 +102,9 @@ export default function FarmInvestmentPanel({ farm, game, onBuyPlotCap, onBuyYie
             const owned = inv.plotCapIndex > idx;
             const isNext = inv.plotCapIndex === idx;
             const canAfford = cash >= tier.cost;
+            const matsOk = canAffordMats(tier.upgradeRequires, game.worldResources, game.forgeGoods);
+            const canBuy = isNext && canAfford && matsOk;
+            const matLabel = matCostLabel(tier.upgradeRequires);
             return (
               <div key={tier.id} style={{
                 display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -103,17 +124,22 @@ export default function FarmInvestmentPanel({ farm, game, onBuyPlotCap, onBuyYie
                         · Active ({maxPlots} max plots)
                       </span>
                     )}
+                    {!owned && isNext && matLabel && (
+                      <span style={{ display: "block", color: matsOk ? "#fbbf24" : "#ef4444", fontWeight: 600, marginTop: "0.1rem" }}>
+                        {matLabel}
+                      </span>
+                    )}
                   </div>
                 </div>
                 {!owned && isNext && (
                   <button
                     onClick={() => onBuyPlotCap(farm.id)}
-                    disabled={!canAfford}
+                    disabled={!canBuy}
                     className="btn btn-secondary"
                     style={{
                       fontSize: "0.68rem", padding: "0.2rem 0.5rem",
                       marginLeft: "0.5rem", flexShrink: 0,
-                      opacity: canAfford ? 1 : 0.5,
+                      opacity: canBuy ? 1 : 0.5,
                     }}
                   >
                     ${tier.cost}
@@ -143,7 +169,9 @@ export default function FarmInvestmentPanel({ farm, game, onBuyPlotCap, onBuyYie
             // School research gate: Fertilizer III needs "fertilizer_iii" research, IV needs "fertilizer_iv"
             const researchId = idx === 2 ? "fertilizer_iii" : idx === 3 ? "fertilizer_iv" : null;
             const researchLocked = researchId !== null && !hasSchoolResearch(game, researchId);
-            const canBuy = isNext && canAfford && !researchLocked;
+            const matsOk = canAffordMats(tier.upgradeRequires, game.worldResources, game.forgeGoods);
+            const canBuy = isNext && canAfford && !researchLocked && matsOk;
+            const matLabel = matCostLabel(tier.upgradeRequires);
             return (
               <div key={tier.id} style={{
                 display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -158,17 +186,22 @@ export default function FarmInvestmentPanel({ farm, game, onBuyPlotCap, onBuyYie
                   </div>
                   <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.1rem" }}>
                     {researchLocked && isNext ? "Requires School Research" : tier.description}
+                    {!owned && isNext && !researchLocked && matLabel && (
+                      <span style={{ display: "block", color: matsOk ? "#fbbf24" : "#ef4444", fontWeight: 600, marginTop: "0.1rem" }}>
+                        {matLabel}
+                      </span>
+                    )}
                   </div>
                 </div>
                 {!owned && isNext && !researchLocked && (
                   <button
                     onClick={() => onBuyYield(farm.id)}
-                    disabled={!canAfford}
+                    disabled={!canBuy}
                     className="btn btn-secondary"
                     style={{
                       fontSize: "0.68rem", padding: "0.2rem 0.5rem",
                       marginLeft: "0.5rem", flexShrink: 0,
-                      opacity: canAfford ? 1 : 0.5,
+                      opacity: canBuy ? 1 : 0.5,
                     }}
                   >
                     ${tier.cost}

@@ -317,8 +317,10 @@ function WorkerUpgradeTree({ label, upgradeIds, worker, game, bodyId, onUpgrade 
           const requiresMet = !u.requires || upgrades.includes(u.requires);
           const schoolLocked = SCHOOL_GATED.includes(uid) && !schoolBuilt;
           const canAfford = (game.cash ?? 0) >= u.cost;
-          const canBuy = !owned && requiresMet && canAfford && !schoolLocked;
+          const matsOk = canAffordMats(u.upgradeRequires, game.worldResources, game.forgeGoods);
+          const canBuy = !owned && requiresMet && canAfford && matsOk && !schoolLocked;
           const locked = !owned && !requiresMet;
+          const matLabel = matCostLabel(u.upgradeRequires);
           return (
             <div key={uid} style={{
               display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -334,6 +336,11 @@ function WorkerUpgradeTree({ label, upgradeIds, worker, game, bodyId, onUpgrade 
                 <span style={{ marginLeft: "0.35rem", fontSize: "0.6rem", color: "rgba(255,255,255,0.4)" }}>
                   {schoolLocked && requiresMet ? "Requires School" : u.description}
                 </span>
+                {!owned && requiresMet && !schoolLocked && matLabel && (
+                  <span style={{ display: "block", fontSize: "0.58rem", color: matsOk ? "#fbbf24" : "#ef4444", fontWeight: 600, marginTop: "0.1rem" }}>
+                    {matLabel}
+                  </span>
+                )}
               </div>
               {!owned && !schoolLocked && (
                 <button

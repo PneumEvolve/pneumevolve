@@ -11,6 +11,12 @@ import {
   isForgeWorkerIdle,
 } from "../gameEngine";
 
+
+// Plain-text resource name map — avoids emoji rendering gaps on desktop
+const RESOURCE_DISPLAY_NAMES = {
+  iron_ore: "Iron Ore", lumber: "Lumber", herbs: "Herbs", rare_gem: "Rare Gem",
+};
+
 // ─── Progress bar ─────────────────────────────────────────────────────────────
 
 function ProgressBar({ elapsed, total, color = "#f59e0b" }) {
@@ -209,12 +215,17 @@ function RecipePicker({ worker, game, onAssign, onCancel }) {
                         consumable
                       </span>
                     )}
+                    {recipe.category === "component" && (
+                      <span style={{ fontSize: "0.58rem", color: "#34d399", background: "rgba(52,211,153,0.1)", padding: "1px 5px", borderRadius: "4px" }}>
+                        upgrade component
+                      </span>
+                    )}
                   </div>
-                  {/* Input costs */}
+                  {/* Input costs — plain text names to avoid emoji gaps on desktop */}
                   <div style={{ display: "flex", gap: "0.35rem", marginTop: "0.2rem", flexWrap: "wrap" }}>
                     {Object.entries(recipe.inputs).map(([key, needed]) => {
                       const have = Math.floor(worldResources[key] ?? 0);
-                      const def = WORLD_RESOURCES[key];
+                      const displayName = RESOURCE_DISPLAY_NAMES[key] ?? (WORLD_RESOURCES[key]?.name ?? key);
                       const ok = have >= needed;
                       return (
                         <span key={key} style={{
@@ -222,7 +233,7 @@ function RecipePicker({ worker, game, onAssign, onCancel }) {
                           color: ok ? "var(--muted)" : "#ef4444",
                           fontWeight: ok ? 400 : 600,
                         }}>
-                          {def?.emoji ?? "📦"} {have}/{needed}
+                          {displayName} {have}/{needed}
                         </span>
                       );
                     })}
@@ -407,8 +418,8 @@ export default function ForgeZone({
             }}
           >
             {canAfford
-              ? `⚒️ Build Forge — $${FORGE_BUILD_COST} 🪨×${FORGE_IRON} 🪵×${FORGE_LUMBER}`
-              : `Need $${FORGE_BUILD_COST}${hasCash ? " ✓" : ` (have $${Math.floor(game.cash ?? 0)})`} 🪨 Iron Ore×${FORGE_IRON}${hasIron ? " ✓" : ` (have ${Math.floor(game.worldResources?.iron_ore ?? 0)})`} 🪵 Lumber×${FORGE_LUMBER}${hasLumber ? " ✓" : ` (have ${Math.floor(game.worldResources?.lumber ?? 0)})`}`}
+              ? `⚒️ Build Forge — $${FORGE_BUILD_COST} · ${FORGE_IRON} Iron Ore · ${FORGE_LUMBER} Lumber`
+              : `Need $${FORGE_BUILD_COST}${hasCash ? " ✓" : ` (have $${Math.floor(game.cash ?? 0)})`} · Iron Ore ${FORGE_IRON}${hasIron ? " ✓" : ` (have ${Math.floor(game.worldResources?.iron_ore ?? 0)})`} · Lumber ${FORGE_LUMBER}${hasLumber ? " ✓" : ` (have ${Math.floor(game.worldResources?.lumber ?? 0)})`}`}
           </button>
         </div>
       </div>

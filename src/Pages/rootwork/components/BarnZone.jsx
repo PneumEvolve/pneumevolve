@@ -307,15 +307,20 @@ function AnimalCard({ animal, animalType, index, game, onCollect, onInteract, on
             const isNext = (animal.yieldLevel ?? 0) === upgrade.level - 1;
             const canAfford = (game.cash ?? 0) >= upgrade.cost;
             const schoolLocked = upgrade.level >= 2 && !isTownBuildingBuilt(game, "school");
-            const canBuy = isNext && canAfford && !schoolLocked;
+            const matsOk = canAffordMats(upgrade.upgradeRequires, game.worldResources, game.forgeGoods);
+            const canBuy = isNext && canAfford && matsOk && !schoolLocked;
+            const matLabel = matCostLabel(upgrade.upgradeRequires);
             return (
               <div key={upgrade.level} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.3rem 0.45rem", borderRadius: "6px", marginBottom: "0.25rem", background: owned ? "rgba(74,222,128,0.08)" : "var(--bg)", border: `1px solid ${owned ? "rgba(74,222,128,0.3)" : schoolLocked && isNext ? "rgba(167,139,250,0.3)" : "var(--border)"}`, opacity: !owned && !isNext ? 0.4 : 1 }}>
                 <div style={{ fontSize: "0.68rem" }}>
                   <span style={{ fontWeight: 600, color: owned ? "#4ade80" : schoolLocked && isNext ? "#a78bfa" : "var(--text)" }}>{owned ? "✓" : schoolLocked && isNext ? "🏫" : "🥚"} {upgrade.label}</span>
                   <span style={{ marginLeft: "0.35rem", fontSize: "0.62rem", color: "var(--muted)" }}>{schoolLocked && isNext ? "Requires School" : `+${upgrade.bonusYield} per produce`}</span>
+                  {!owned && isNext && !schoolLocked && matLabel && (
+                    <span style={{ display: "block", fontSize: "0.6rem", color: matsOk ? "#fbbf24" : "#ef4444", fontWeight: 600, marginTop: "0.1rem" }}>{matLabel}</span>
+                  )}
                 </div>
                 {!owned && isNext && !schoolLocked && (
-                  <button onClick={() => canAfford && onUpgradeYield(animal.id)} disabled={!canAfford} className="btn btn-secondary" style={{ fontSize: "0.62rem", padding: "0.15rem 0.4rem", opacity: canAfford ? 1 : 0.5 }}>${upgrade.cost}</button>
+                  <button onClick={() => canBuy && onUpgradeYield(animal.id)} disabled={!canBuy} className="btn btn-secondary" style={{ fontSize: "0.62rem", padding: "0.15rem 0.4rem", opacity: canBuy ? 1 : 0.5 }}>${upgrade.cost}</button>
                 )}
               </div>
             );
@@ -326,6 +331,24 @@ function AnimalCard({ animal, animalType, index, game, onCollect, onInteract, on
   );
 }
  
+
+// Material cost display helper — returns e.g. "5 Iron Ore + 3 Lumber"
+function matCostLabel(upgradeRequires) {
+  if (!upgradeRequires) return null;
+  const NAMES = {
+    iron_ore: "Iron Ore", lumber: "Lumber",
+    iron_fitting: "Iron Fitting", reinforced_crate: "Reinforced Crate", fine_tools: "Fine Tools",
+  };
+  return Object.entries(upgradeRequires).map(([k, v]) => `${v} ${NAMES[k] ?? k}`).join(" + ");
+}
+function canAffordMats(upgradeRequires, worldResources, forgeGoods) {
+  if (!upgradeRequires) return true;
+  for (const [k, qty] of Object.entries(upgradeRequires)) {
+    const have = (worldResources?.[k] ?? 0) + (forgeGoods?.[k] ?? 0);
+    if (have < qty) return false;
+  }
+  return true;
+}
 // ─── Barn worker upgrade tree ─────────────────────────────────────────────────
  
 function BarnWorkerUpgradeTree({ label, upgradeIds, worker, game, onUpgrade }) {

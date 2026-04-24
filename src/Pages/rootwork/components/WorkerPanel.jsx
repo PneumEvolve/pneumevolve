@@ -16,6 +16,24 @@ import {
   getAvailableWorkerSlots,
 } from "../gameEngine";
  
+
+// Material cost display helper — returns e.g. "5 Iron Ore + 3 Lumber"
+function matCostLabel(upgradeRequires) {
+  if (!upgradeRequires) return null;
+  const NAMES = {
+    iron_ore: "Iron Ore", lumber: "Lumber",
+    iron_fitting: "Iron Fitting", reinforced_crate: "Reinforced Crate", fine_tools: "Fine Tools",
+  };
+  return Object.entries(upgradeRequires).map(([k, v]) => `${v} ${NAMES[k] ?? k}`).join(" + ");
+}
+function canAffordMats(upgradeRequires, worldResources, forgeGoods) {
+  if (!upgradeRequires) return true;
+  for (const [k, qty] of Object.entries(upgradeRequires)) {
+    const have = (worldResources?.[k] ?? 0) + (forgeGoods?.[k] ?? 0);
+    if (have < qty) return false;
+  }
+  return true;
+}
 // ─── Helpers ──────────────────────────────────────────────────────────────────
  
 function getEffectivePlots(worker) {
@@ -61,7 +79,9 @@ function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWor
   const canAffordSpec = (game.cash ?? 0) >= SPECIALIZE_COST;
  
   const upgradeCost = nextGear?.upgradeCost ?? 0;
-  const canUpgrade = !mustSpecialize && nextGear && (game.cash ?? 0) >= upgradeCost;
+  const matReq = nextGear?.upgradeRequires ?? null;
+  const matsOk = canAffordMats(matReq, game.worldResources, game.forgeGoods);
+  const canUpgrade = !mustSpecialize && nextGear && (game.cash ?? 0) >= upgradeCost && matsOk;
  
   const workersOnFarm = game.workers.filter((w) => w.farmId === farm.id).length;
   const prevCount = Math.max(0, workersOnFarm - 1);
@@ -150,7 +170,9 @@ function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWor
           >
             {canUpgrade
               ? `Upgrade to ${nextGear.emoji} ${nextGear.name} — $${upgradeCost}`
-              : `${nextGear.emoji} ${nextGear.name} — need $${upgradeCost}`}
+              : (game.cash ?? 0) < upgradeCost
+                ? `${nextGear.emoji} ${nextGear.name} — need $${upgradeCost}`
+                : `${nextGear.emoji} ${nextGear.name} — missing materials`}
           </button>
           <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginTop: "0.3rem", textAlign: "center" }}>
             {nextGear.description}
@@ -158,6 +180,11 @@ function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWor
             <span style={{ color: "var(--text)", fontWeight: 500 }}>
               {previewStatLine(worker, nextGearId)}
             </span>
+            {matReq && (
+              <span style={{ display: "block", marginTop: "0.15rem", color: matsOk ? "#fbbf24" : "#ef4444", fontWeight: 600 }}>
+                {matCostLabel(matReq)}
+              </span>
+            )}
           </div>
         </div>
       ) : (

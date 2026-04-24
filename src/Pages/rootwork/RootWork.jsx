@@ -31,7 +31,7 @@ import {
   unlockSeasonFarm, unlockSeasonBarn, getAvailableBarnUnlocks,
   buyFishingPlayerUpgrade, getPlayerFishingHaul,
   initWorldState, sendAdventurer, returnAdventurer, equipAdventurer, unequipAdventurer,
-  usePotion, givePotion, removePotion, brewCropPotion, tickAdventurerRegen,
+  giveBuffItem, removeBuffItem, tickAdventurerRegen,
   hireForgeWorker, fireForgeWorker, assignForgeWorkerRecipe, cancelForgeWorkerRecipe,
   upgradeForgeWorker, toggleForgeWorkerAutoRestart, tickForgeWorkers,
   hireWorldWorker, fireWorldWorker, tickWorldWorkers,
@@ -649,19 +649,11 @@ const handleUpgradeBarnBuilding = useCallback((buildingId, instanceId) => update
 
   const handleUnequipAdventurer = useCallback((adventurerId) => update((s) => unequipAdventurer(s, adventurerId)), [update]);
 
-  const handleUsePotionOnAdventurer = useCallback((adventurerId, potionKey) => {
-    update((s) => { const n = usePotion(s, adventurerId, potionKey); if (n === s) notify("No potion available."); return n; });
+  const handleGiveBuffItem = useCallback((adventurerId, buffId) => {
+    update((s) => { const n = giveBuffItem(s, adventurerId, buffId); if (n === s) notify("No buff item in stock or slot already filled."); return n; });
   }, [update, notify]);
 
-  const handleGivePotion = useCallback((adventurerId, potionKey) => {
-    update((s) => { const n = givePotion(s, adventurerId, potionKey); if (n === s) notify("No potion in stock or belt is full (max 3)."); return n; });
-  }, [update, notify]);
-
-  const handleRemovePotion = useCallback((adventurerId, potionKey) => update((s) => removePotion(s, adventurerId, potionKey)), [update]);
-
-  const handleBrewCropPotion = useCallback((potionId) => {
-    update((s) => { const n = brewCropPotion(s, potionId); if (n === s) notify("Not enough crops to brew."); return n; });
-  }, [update, notify]);
+  const handleRemoveBuffItem = useCallback((adventurerId) => update((s) => removeBuffItem(s, adventurerId)), [update]);
 
   const handleHireWorldWorker = useCallback((zoneId) => {
     update((s) => { const n = hireWorldWorker(s, zoneId); if (n === s) notify("Not enough cash ($200) or zone not cleared."); return n; });
@@ -822,10 +814,8 @@ const handleBuyFishingPlayerUpgrade = useCallback((upgradeId) => update((s) => {
             onUseArtisanFood={handleUseArtisanFood}
             onSpendSkillPoint={handleSpendSkillPoint}
             onUnequipAdventurer={handleUnequipAdventurer}
-            onUsePotionOnAdventurer={handleUsePotionOnAdventurer}
-            onGivePotion={handleGivePotion}
-            onRemovePotion={handleRemovePotion}
-            onBrewCropPotion={handleBrewCropPotion}
+            onGiveBuffItem={handleGiveBuffItem}
+            onRemoveBuffItem={handleRemoveBuffItem}
             onHireAdventurer={handleHireAdventurer}
           />
         )}

@@ -10,10 +10,10 @@ export const CROPS = {
 // ─── Gear ─────────────────────────────────────────────────────────────────────
 export const GEAR = {
   bare_hands:  { id: "bare_hands",  name: "Bare Hands",  emoji: "🤲", plotsPerCycle: 1, cycleSeconds: 15, upgradeCost: null, description: "Harvests and replants 1 plot every 15s." },
-  gloves:      { id: "gloves",      name: "Gloves",      emoji: "🧤", plotsPerCycle: 1, cycleSeconds: 10, upgradeCost: 15,   description: "Harvests and replants 1 plot every 10s. 33% faster." },
-  hoe:         { id: "hoe",         name: "Hoe",         emoji: "🪓", plotsPerCycle: 1, cycleSeconds: 6,  upgradeCost: 60,   description: "Harvests and replants 1 plot every 6s. 40% faster than gloves." },
-  wheelbarrow: { id: "wheelbarrow", name: "Wheelbarrow", emoji: "🛻", plotsPerCycle: 2, cycleSeconds: 6,  upgradeCost: 150,  description: "Harvests and replants 2 plots every 6s. Double the coverage." },
-  tractor:     { id: "tractor",     name: "Tractor",     emoji: "🚜", plotsPerCycle: 5, cycleSeconds: 6,  upgradeCost: 500,  description: "Harvests and replants 5 plots every 6s. Near full automation." },
+  gloves:      { id: "gloves",      name: "Gloves",      emoji: "🧤", plotsPerCycle: 1, cycleSeconds: 10, upgradeCost: 15,   upgradeTier: 1, description: "Harvests and replants 1 plot every 10s. 33% faster." },
+  hoe:         { id: "hoe",         name: "Hoe",         emoji: "🪓", plotsPerCycle: 1, cycleSeconds: 6,  upgradeCost: 60,   upgradeTier: 1, description: "Harvests and replants 1 plot every 6s. 40% faster than gloves." },
+  wheelbarrow: { id: "wheelbarrow", name: "Wheelbarrow", emoji: "🛻", plotsPerCycle: 2, cycleSeconds: 6,  upgradeCost: 150,  upgradeTier: 2, upgradeRequires: { iron_ore: 5, lumber: 3 }, description: "Harvests and replants 2 plots every 6s. Double the coverage." },
+  tractor:     { id: "tractor",     name: "Tractor",     emoji: "🚜", plotsPerCycle: 5, cycleSeconds: 6,  upgradeCost: 500,  upgradeTier: 3, upgradeRequires: { iron_fitting: 1 }, description: "Harvests and replants 5 plots every 6s. Near full automation." },
 };
  
 export const GEAR_ORDER = ["bare_hands", "gloves", "hoe", "wheelbarrow", "tractor"];
@@ -30,16 +30,16 @@ export const MAX_PLOTS = 9;
  
 // ─── Farm investments ─────────────────────────────────────────────────────────
 export const FARM_INVESTMENT_PLOT_CAP = [
-  { id: "plots_4x4", name: "Expand to 4×4", maxPlots: 16, cost: 500,    description: "Unlock up to 16 plots on this farm." },
-  { id: "plots_5x5", name: "Expand to 5×5", maxPlots: 25, cost: 5000,   description: "Unlock up to 25 plots on this farm." },
-  { id: "plots_6x6", name: "Expand to 6×6", maxPlots: 36, cost: 20000,  description: "Unlock up to 36 plots on this farm." },
+  { id: "plots_4x4", name: "Expand to 4×4", maxPlots: 16, cost: 500,    upgradeTier: 1, description: "Unlock up to 16 plots on this farm." },
+  { id: "plots_5x5", name: "Expand to 5×5", maxPlots: 25, cost: 5000,   upgradeTier: 2, upgradeRequires: { iron_ore: 5, lumber: 3 }, description: "Unlock up to 25 plots on this farm." },
+  { id: "plots_6x6", name: "Expand to 6×6", maxPlots: 36, cost: 20000,  upgradeTier: 3, upgradeRequires: { iron_fitting: 1 }, description: "Unlock up to 36 plots on this farm." },
 ];
  
 export const FARM_INVESTMENT_YIELD = [
-  { id: "yield_1", name: "Fertilizer I",   bonusYield: 1, cost: 1000,  description: "+1 crop per worker harvest." },
-  { id: "yield_2", name: "Fertilizer II",  bonusYield: 2, cost: 5000,  description: "+2 crops per worker harvest." },
-  { id: "yield_3", name: "Fertilizer III", bonusYield: 3, cost: 15000, description: "+3 crops per worker harvest." },
-  { id: "yield_4", name: "Fertilizer IV",  bonusYield: 4, cost: 40000, description: "+4 crops per worker harvest." },
+  { id: "yield_1", name: "Fertilizer I",   bonusYield: 1, cost: 1000,  upgradeTier: 2, upgradeRequires: { iron_ore: 5, lumber: 3 }, description: "+1 crop per worker harvest." },
+  { id: "yield_2", name: "Fertilizer II",  bonusYield: 2, cost: 5000,  upgradeTier: 2, upgradeRequires: { iron_ore: 5, lumber: 3 }, description: "+2 crops per worker harvest." },
+  { id: "yield_3", name: "Fertilizer III", bonusYield: 3, cost: 15000, upgradeTier: 3, upgradeRequires: { iron_fitting: 1 }, description: "+3 crops per worker harvest." },
+  { id: "yield_4", name: "Fertilizer IV",  bonusYield: 4, cost: 40000, upgradeTier: 3, upgradeRequires: { iron_fitting: 1 }, description: "+4 crops per worker harvest." },
 ];
  
 // ─── Plot upgrade ─────────────────────────────────────────────────────────────
@@ -106,6 +106,8 @@ export const MARKET_SELL_RATES = {
   iron_ore: 2, lumber: 6, herbs: 4, rare_gem: 120,
   // Forge goods
   health_potion: 25, iron_sword: 80, iron_shield: 90, leather_armor: 60, hunting_bow: 150,
+  // Upgrade components (not intended for sale but assign a value)
+  iron_fitting: 30, reinforced_crate: 30, fine_tools: 30,
 };
  
 // ─── Market workers ───────────────────────────────────────────────────────────
@@ -114,10 +116,10 @@ export const MARKET_WORKER_HIRE_MULTIPLIER = 2.5;
  
 export const MARKET_WORKER_GEAR = {
   cart:       { id: "cart",       name: "Cart",       emoji: "🛒", itemsPerSecond: 1,  upgradeCost: null  },
-  wagon:      { id: "wagon",      name: "Wagon",      emoji: "🪵", itemsPerSecond: 2,  upgradeCost: 120   },
-  truck:      { id: "truck",      name: "Truck",      emoji: "🚚", itemsPerSecond: 4,  upgradeCost: 400   },
-  freight:    { id: "freight",    name: "Freight",    emoji: "🚛", itemsPerSecond: 10, upgradeCost: 2200  },
-  export_hub: { id: "export_hub", name: "Export Hub", emoji: "🏗️", itemsPerSecond: 20, upgradeCost: 10000 },
+  wagon:      { id: "wagon",      name: "Wagon",      emoji: "🪵", itemsPerSecond: 2,  upgradeCost: 120,   upgradeTier: 1 },
+  truck:      { id: "truck",      name: "Truck",      emoji: "🚚", itemsPerSecond: 4,  upgradeCost: 400,   upgradeTier: 2, upgradeRequires: { iron_ore: 5, lumber: 3 } },
+  freight:    { id: "freight",    name: "Freight",    emoji: "🚛", itemsPerSecond: 10, upgradeCost: 2200,  upgradeTier: 2, upgradeRequires: { iron_ore: 5, lumber: 3 } },
+  export_hub: { id: "export_hub", name: "Export Hub", emoji: "🏗️", itemsPerSecond: 20, upgradeCost: 10000, upgradeTier: 3, upgradeRequires: { iron_fitting: 1 } },
 };
  
 export const MARKET_WORKER_GEAR_ORDER = ["cart", "wagon", "truck", "freight", "export_hub"];
@@ -128,12 +130,12 @@ export const KITCHEN_WORKER_HIRE_COST = 15;
 export const KITCHEN_WORKER_HIRE_MULTIPLIER = 2.5;
  
 export const KITCHEN_WORKER_UPGRADES = {
-  speed_1:      { id: "speed_1",      name: "Sharp Knife",  emoji: "🔪",     cost: 80,   description: "+25% processing speed.",                      speedMultiplier: 0.75, tree: "speed" },
-  auto_restart: { id: "auto_restart", name: "Auto-Restart", emoji: "🔄",     cost: 200,  description: "Auto restarts recipe when finished.",           requires: "speed_1",   tree: "speed" },
-  speed_2:      { id: "speed_2",      name: "Prep Station", emoji: "🍳",     cost: 500,  description: "50% faster crafting (replaces Sharp Knife).",  speedMultiplier: 0.5,  requires: "auto_restart", tree: "speed" },
-  batch_2:      { id: "batch_2",      name: "Batch ×2",     emoji: "📦",     cost: 800,  description: "Double input, double output per run.",          batchSize: 2,          tree: "batch" },
-  batch_5:      { id: "batch_5",      name: "Batch ×5",     emoji: "📦📦",   cost: 2000, description: "5× input, 5× output per run.",                  batchSize: 5,  requires: "batch_2", tree: "batch" },
-  batch_10:     { id: "batch_10",     name: "Batch ×10",    emoji: "📦📦📦", cost: 8000, description: "10× input, 10× output per run.",                batchSize: 10, requires: "batch_5", tree: "batch" },
+  speed_1:      { id: "speed_1",      name: "Sharp Knife",  emoji: "🔪",     cost: 80,   upgradeTier: 1, description: "+25% processing speed.",                      speedMultiplier: 0.75, tree: "speed" },
+  auto_restart: { id: "auto_restart", name: "Auto-Restart", emoji: "🔄",     cost: 200,  upgradeTier: 1, description: "Auto restarts recipe when finished.",           requires: "speed_1",   tree: "speed" },
+  speed_2:      { id: "speed_2",      name: "Prep Station", emoji: "🍳",     cost: 500,  upgradeTier: 2, upgradeRequires: { iron_ore: 5, lumber: 3 }, description: "50% faster crafting (replaces Sharp Knife).",  speedMultiplier: 0.5,  requires: "auto_restart", tree: "speed" },
+  batch_2:      { id: "batch_2",      name: "Batch ×2",     emoji: "📦",     cost: 800,  upgradeTier: 2, upgradeRequires: { iron_ore: 5, lumber: 3 }, description: "Double input, double output per run.",          batchSize: 2,          tree: "batch" },
+  batch_5:      { id: "batch_5",      name: "Batch ×5",     emoji: "📦📦",   cost: 2000, upgradeTier: 3, upgradeRequires: { reinforced_crate: 1 }, description: "5× input, 5× output per run.",                  batchSize: 5,  requires: "batch_2", tree: "batch" },
+  batch_10:     { id: "batch_10",     name: "Batch ×10",    emoji: "📦📦📦", cost: 8000, upgradeTier: 3, upgradeRequires: { reinforced_crate: 1 }, description: "10× input, 10× output per run.",                batchSize: 10, requires: "batch_5", tree: "batch" },
 };
  
 export const KITCHEN_WORKER_UPGRADE_ORDER = ["speed_1", "auto_restart", "speed_2", "batch_2", "batch_5", "batch_10"];
@@ -146,21 +148,21 @@ export const KITCHEN_SLOT_UPGRADES = { speed_1: { speedMultiplier: 0.75 }, speed
 export const BARN_WORKER_HIRE_BASE_COST = 50;
 export const BARN_WORKER_HIRE_MULTIPLIER = 1.6;
 export const BARN_WORKER_UPGRADES = {
-  speed_1:    { id: "speed_1",    name: "Quick Rounds",  emoji: "⚡", cost: 150, description: "Collect every 25s",     requires: null,         tree: "speed" },
-  speed_2:    { id: "speed_2",    name: "Sprint Rounds", emoji: "⚡", cost: 300, description: "Collect every 20s",     requires: "speed_1",    tree: "speed" },
-  capacity_1: { id: "capacity_1", name: "Big Basket",    emoji: "📦", cost: 200, description: "Collect 3 at once",     requires: null,         tree: "capacity" },
-  capacity_2: { id: "capacity_2", name: "Cargo Basket",  emoji: "📦", cost: 400, description: "Collect 6 at once",     requires: "capacity_1", tree: "capacity" },
-  care_1:     { id: "care_1",     name: "Gentle Hands",  emoji: "💝", cost: 150, description: "+25 mood to neediest animal every 2min", requires: null,      tree: "care" },
-  care_2:     { id: "care_2",     name: "Animal Bond",   emoji: "💝", cost: 300, description: "+35 mood to neediest animal every 90s",  requires: "care_1",  tree: "care" },
+  speed_1:    { id: "speed_1",    name: "Quick Rounds",  emoji: "⚡", cost: 150, upgradeTier: 1, description: "Collect every 25s",     requires: null,         tree: "speed" },
+  speed_2:    { id: "speed_2",    name: "Sprint Rounds", emoji: "⚡", cost: 300, upgradeTier: 2, upgradeRequires: { iron_ore: 5, lumber: 3 }, description: "Collect every 20s",     requires: "speed_1",    tree: "speed" },
+  capacity_1: { id: "capacity_1", name: "Big Basket",    emoji: "📦", cost: 200, upgradeTier: 1, description: "Collect 3 at once",     requires: null,         tree: "capacity" },
+  capacity_2: { id: "capacity_2", name: "Cargo Basket",  emoji: "📦", cost: 400, upgradeTier: 2, upgradeRequires: { iron_ore: 5, lumber: 3 }, description: "Collect 6 at once",     requires: "capacity_1", tree: "capacity" },
+  care_1:     { id: "care_1",     name: "Gentle Hands",  emoji: "💝", cost: 150, upgradeTier: 1, description: "+25 mood to neediest animal every 2min", requires: null,      tree: "care" },
+  care_2:     { id: "care_2",     name: "Animal Bond",   emoji: "💝", cost: 300, upgradeTier: 2, upgradeRequires: { iron_ore: 5, lumber: 3 }, description: "+35 mood to neediest animal every 90s",  requires: "care_1",  tree: "care" },
 };
 export const ANIMAL_STORAGE_UPGRADES = [
   { level: 1, cost: 100, maxStock: 15, label: "Bigger Nest" },
   { level: 2, cost: 250, maxStock: 25, label: "Deluxe Nest" },
 ];
 export const ANIMAL_YIELD_UPGRADES = [
-  { level: 1, cost: 150, bonusYield: 1, label: "Well Fed"    },
-  { level: 2, cost: 350, bonusYield: 2, label: "Pampered"    },
-  { level: 3, cost: 750, bonusYield: 3, label: "Prize Animal" },
+  { level: 1, cost: 150, bonusYield: 1, upgradeTier: 1, label: "Well Fed"    },
+  { level: 2, cost: 350, bonusYield: 2, upgradeTier: 2, upgradeRequires: { iron_ore: 5, lumber: 3 }, label: "Pampered"    },
+  { level: 3, cost: 750, bonusYield: 3, upgradeTier: 3, upgradeRequires: { fine_tools: 1 }, label: "Prize Animal" },
 ];
 export const BARN_WORKER_BASE_INTERVAL = 30;  // seconds between collect actions
 export const BARN_WORKER_BASE_CAPACITY = 1;
@@ -471,12 +473,12 @@ export const FISHING_BAIT_BONUS = {
 };
 
 export const FISHING_WORKER_UPGRADES = {
-  speed_1: { id: "speed_1", name: "Quick Cast",  emoji: "⚡", cost: 200, description: "Fish every 40s",   tree: "speed",    requires: null        },
-  speed_2: { id: "speed_2", name: "Sprint Cast", emoji: "⚡", cost: 400, description: "Fish every 20s",   tree: "speed",    requires: "speed_1"   },
-  haul_1:  { id: "haul_1",  name: "Big Net",     emoji: "📦", cost: 250, description: "Catch 2 at once",  tree: "haul",     requires: null        },
-  haul_2:  { id: "haul_2",  name: "Trawl Net",   emoji: "📦", cost: 500, description: "Catch 5 at once",  tree: "haul",     requires: "haul_1"    },
-  gear_good:   { id: "gear_good",   name: "Good Rod",   emoji: "🎣", cost: 300, description: "Unlocks perch",    tree: "gear",     requires: null        },
-  gear_expert: { id: "gear_expert", name: "Expert Rod",  emoji: "🎣", cost: 600, description: "Best rare odds",  tree: "gear",     requires: "gear_good" },
+  speed_1: { id: "speed_1", name: "Quick Cast",  emoji: "⚡", cost: 200, upgradeTier: 1, description: "Fish every 40s",   tree: "speed",    requires: null        },
+  speed_2: { id: "speed_2", name: "Sprint Cast", emoji: "⚡", cost: 400, upgradeTier: 2, upgradeRequires: { iron_ore: 5, lumber: 3 }, description: "Fish every 20s",   tree: "speed",    requires: "speed_1"   },
+  haul_1:  { id: "haul_1",  name: "Big Net",     emoji: "📦", cost: 250, upgradeTier: 1, description: "Catch 2 at once",  tree: "haul",     requires: null        },
+  haul_2:  { id: "haul_2",  name: "Trawl Net",   emoji: "📦", cost: 500, upgradeTier: 2, upgradeRequires: { iron_ore: 5, lumber: 3 }, description: "Catch 5 at once",  tree: "haul",     requires: "haul_1"    },
+  gear_good:   { id: "gear_good",   name: "Good Rod",   emoji: "🎣", cost: 300, upgradeTier: 2, upgradeRequires: { iron_ore: 5, lumber: 3 }, description: "Unlocks perch",    tree: "gear",     requires: null        },
+  gear_expert: { id: "gear_expert", name: "Expert Rod",  emoji: "🎣", cost: 600, upgradeTier: 3, upgradeRequires: { fine_tools: 1 }, description: "Best rare odds",  tree: "gear",     requires: "gear_good" },
 };
 
 export const FISHING_WORKER_HIRE_COSTS = {
@@ -1025,69 +1027,23 @@ export const ADVENTURER_BASE_HP = 40;
 export const ADVENTURER_HP_PER_LEVEL = 8;
 export const ADVENTURER_REGEN_PER_SECOND = 0.05; // passive regen while not on mission
 
-// ─── Crop Potions (brewed in Kitchen) ─────────────────────────────────────────
 
-export const CROP_POTION_RECIPES = {
-  wheat_potion: {
-    id: "wheat_potion",
-    name: "Wheat Brew",
-    emoji: "🫙",
-    description: "A basic restorative. Restores 15 HP when used.",
-    tier: 1,
-    inputs: { wheat: 6 },
-    inputCrop: "wheat",
-    inputAmount: 6,
-    outputGood: "wheat_potion",
-    outputAmount: 1,
-    output: { resourceKey: "wheat_potion", emoji: "🫙", name: "Wheat Brew" },
-    seconds: 15,
-    healAmount: 15,
-    category: "potion",
-  },
-  berry_potion: {
-    id: "berry_potion",
-    name: "Berry Elixir",
-    emoji: "🍶",
-    description: "A berry concentrate. Restores 30 HP when used.",
-    tier: 2,
-    inputs: { berry: 8 },
-    inputCrop: "berry",
-    inputAmount: 8,
-    outputGood: "berry_potion",
-    outputAmount: 1,
-    output: { resourceKey: "berry_potion", emoji: "🍶", name: "Berry Elixir" },
-    seconds: 25,
-    healAmount: 30,
-    category: "potion",
-  },
-  tomato_potion: {
-    id: "tomato_potion",
-    name: "Tomato Tonic",
-    emoji: "🧴",
-    description: "A rich red tonic. Restores 60 HP and removes debuffs.",
-    tier: 3,
-    inputs: { tomato: 6 },
-    inputCrop: "tomato",
-    inputAmount: 6,
-    outputGood: "tomato_potion",
-    outputAmount: 1,
-    output: { resourceKey: "tomato_potion", emoji: "🧴", name: "Tomato Tonic" },
-    seconds: 35,
-    healAmount: 60,
-    category: "potion",
-  },
-};
-
-export const CROP_POTION_LIST = ["wheat_potion", "berry_potion", "tomato_potion"];
 
 // ─── Artisan Food as Heal Items ───────────────────────────────────────────────
 
 export const ARTISAN_FOOD_HEAL = {
-  bread: { id: "bread", emoji: "🍞", name: "Bread", healAmount: 15 },
+  bread: { id: "bread", emoji: "🍞", name: "Bread", healAmount: 30 },
   jam:   { id: "jam",   emoji: "🍯", name: "Jam",   healAmount: 50 },
   sauce: { id: "sauce", emoji: "🥫", name: "Sauce", healAmount: 100 },
 };
 export const ARTISAN_FOOD_LIST = ["bread", "jam", "sauce"];
+
+// ─── Adventurer Buff Items (separate slot, not food belt) ────────────────────
+export const ADVENTURER_BUFF_ITEMS = {
+  omelette: { id: "omelette", emoji: "🍳", name: "Omelette", buffType: "run_time", buffValue: 0.5, description: "−50% mission run time for one mission." },
+  cheese:   { id: "cheese",   emoji: "🧀", name: "Cheese",   buffType: "double_loot", buffValue: 2,   description: "Double all loot for one mission." },
+};
+export const ADVENTURER_BUFF_LIST = ["omelette", "cheese"];
 
 // World Worker constants
 export const WORLD_WORKER_HIRE_COST = 200; // cash cost to hire a world zone worker
@@ -1152,9 +1108,43 @@ export const FORGE_RECIPES = {
     gearTier: 0,
     category: "consumable",
   },
+  // ─── Upgrade Components (T3 upgrade materials) ──────────────────────────────
+  iron_fitting: {
+    id: "iron_fitting",
+    name: "Iron Fitting",
+    emoji: "🔩",
+    description: "Component. Required for T3 farm and plot upgrades.",
+    inputs: { iron_ore: 12, lumber: 6 },
+    output: { resourceKey: "iron_fitting", emoji: "🔩", name: "Iron Fitting" },
+    seconds: 45,
+    gearTier: 0,
+    category: "component",
+  },
+  reinforced_crate: {
+    id: "reinforced_crate",
+    name: "Reinforced Crate",
+    emoji: "📦",
+    description: "Component. Required for T3 kitchen batch upgrades.",
+    inputs: { iron_ore: 8, lumber: 10 },
+    output: { resourceKey: "reinforced_crate", emoji: "📦", name: "Reinforced Crate" },
+    seconds: 40,
+    gearTier: 0,
+    category: "component",
+  },
+  fine_tools: {
+    id: "fine_tools",
+    name: "Fine Tools",
+    emoji: "🛠️",
+    description: "Component. Required for T3 fishing and barn upgrades.",
+    inputs: { iron_ore: 10, lumber: 8 },
+    output: { resourceKey: "fine_tools", emoji: "🛠️", name: "Fine Tools" },
+    seconds: 50,
+    gearTier: 0,
+    category: "component",
+  },
 };
 
-export const FORGE_RECIPE_LIST = ["health_potion", "iron_sword", "leather_armor", "iron_shield", "hunting_bow"];
+export const FORGE_RECIPE_LIST = ["health_potion", "iron_sword", "leather_armor", "iron_shield", "hunting_bow", "iron_fitting", "reinforced_crate", "fine_tools"];
 
 export const FORGE_WORKER_HIRE_COST = 150;
 export const FORGE_WORKER_HIRE_MULTIPLIER = 1.5;

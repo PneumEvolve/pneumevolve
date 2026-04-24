@@ -7,8 +7,7 @@ import {
   KITCHEN_WORKER_UPGRADE_ORDER,
   BAIT_TYPES,
   BAIT_RECIPES,
-  CROP_POTION_RECIPES,
-  CROP_POTION_LIST,
+
 } from "../gameConstants";
 import {
   getKitchenWorkerHireCost,
@@ -24,7 +23,6 @@ import {
  
 const RECIPE_LIST = ["bread", "jam", "sauce", "omelette", "cheese", "knitted_goods", "fish_pie", "smoked_fish", "fish_meal", "fish_meal_bass"];
 const BAIT_RECIPE_LIST = ["wheat_bait", "berry_bait", "tomato_bait"];
-const POTION_RECIPE_LIST = ["wheat_potion", "berry_potion", "tomato_potion"];
 const SPEED_UPGRADES = ["speed_1", "auto_restart", "speed_2" ];
 const BATCH_UPGRADES = ["batch_2", "batch_5", "batch_10"];
  
@@ -43,6 +41,24 @@ function ProgressBar({ elapsed, total, color = "var(--accent)" }) {
   );
 }
  
+
+// Material cost display helper — returns e.g. "5 Iron Ore + 3 Lumber"
+function matCostLabel(upgradeRequires) {
+  if (!upgradeRequires) return null;
+  const NAMES = {
+    iron_ore: "Iron Ore", lumber: "Lumber",
+    iron_fitting: "Iron Fitting", reinforced_crate: "Reinforced Crate", fine_tools: "Fine Tools",
+  };
+  return Object.entries(upgradeRequires).map(([k, v]) => `${v} ${NAMES[k] ?? k}`).join(" + ");
+}
+function canAffordMats(upgradeRequires, worldResources, forgeGoods) {
+  if (!upgradeRequires) return true;
+  for (const [k, qty] of Object.entries(upgradeRequires)) {
+    const have = (worldResources?.[k] ?? 0) + (forgeGoods?.[k] ?? 0);
+    if (have < qty) return false;
+  }
+  return true;
+}
 // ─── Upgrade tree ─────────────────────────────────────────────────────────────
  
 function UpgradeTree({ label, upgradeIds, worker, game, onUpgrade }) {
@@ -61,8 +77,10 @@ function UpgradeTree({ label, upgradeIds, worker, game, onUpgrade }) {
           const requiresMet = !u.requires || upgrades.includes(u.requires);
           const schoolLocked = SCHOOL_GATED.includes(uid) && !schoolBuilt;
           const canAfford = (game.cash ?? 0) >= u.cost;
-          const canBuy = !owned && requiresMet && canAfford && !schoolLocked;
+          const matsOk = canAffordMats(u.upgradeRequires, game.worldResources, game.forgeGoods);
+          const canBuy = !owned && requiresMet && canAfford && matsOk && !schoolLocked;
           const locked = !owned && !requiresMet;
+          const matLabel = matCostLabel(u.upgradeRequires);
 
           return (
             <div key={uid} style={{
@@ -79,6 +97,11 @@ function UpgradeTree({ label, upgradeIds, worker, game, onUpgrade }) {
                 <span style={{ marginLeft: "0.4rem", fontSize: "0.62rem", color: "var(--muted)" }}>
                   {schoolLocked && requiresMet ? "Requires School" : u.description}
                 </span>
+                {!owned && requiresMet && !schoolLocked && matLabel && (
+                  <span style={{ display: "block", fontSize: "0.6rem", color: matsOk ? "#fbbf24" : "#ef4444", fontWeight: 600, marginTop: "0.1rem" }}>
+                    {matLabel}
+                  </span>
+                )}
               </div>
               {!owned && !schoolLocked && (
                 <button
@@ -224,21 +247,13 @@ function RecipeGroups({ worker, game, batch, onAssignRecipe, onClose }) {
     baitRecipes[id] = buildRecipe(id, r, have, inStock, `→ ${r.outputAmount * batch} ${r.emoji}`);
   });
  
-  const potionRecipes = {};
-  POTION_RECIPE_LIST.forEach(id => {
-    const r = CROP_POTION_RECIPES[id];
-    if (!r) return;
-    const have = game.crops[r.inputCrop] ?? 0;
-    const inStock = (game.cropPotions ?? {})[id] ?? 0;
-    potionRecipes[id] = buildRecipe(id, r, have, inStock, `→ ${r.outputAmount * batch} ${r.emoji} +${r.healAmount}hp`);
-  });
  
   const activeCat =
     CROP_RECIPE_IDS.includes(worker.recipeId) ? "crop" :
     ANIMAL_RECIPE_IDS.includes(worker.recipeId) ? "animal" :
     FISH_RECIPE_IDS.includes(worker.recipeId) ? "fish" :
     BAIT_RECIPE_LIST.includes(worker.recipeId) ? "bait" :
-    POTION_RECIPE_LIST.includes(worker.recipeId) ? "potion" : null;
+    null;
  
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", marginTop: "0.4rem" }}>
@@ -258,10 +273,7 @@ function RecipeGroups({ worker, game, batch, onAssignRecipe, onClose }) {
         recipeIds={BAIT_RECIPE_LIST} recipes={baitRecipes}
         worker={worker} batch={batch} onAssignRecipe={onAssignRecipe} onClose={onClose}
         defaultOpen={activeCat === "bait"} />
-      <RecipeSection title="POTIONS" icon="🫙" accentColor="#a78bfa"
-        recipeIds={POTION_RECIPE_LIST} recipes={potionRecipes}
-        worker={worker} batch={batch} onAssignRecipe={onAssignRecipe} onClose={onClose}
-        defaultOpen={activeCat === "potion"} />
+
     </div>
   );
 }
@@ -273,7 +285,7 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
   const [confirmFire, setConfirmFire] = useState(false);
  
   const idle = isKitchenWorkerIdle(worker);
-  const recipe = worker.recipeId ? (PROCESSING_RECIPES[worker.recipeId] ?? BAIT_RECIPES[worker.recipeId] ?? CROP_POTION_RECIPES[worker.recipeId]) : null;
+  const recipe = worker.recipeId ? (PROCESSING_RECIPES[worker.recipeId] ?? BAIT_RECIPES[worker.recipeId]) : null;
   const upgrades = worker.upgrades ?? [];
   const satMultiplier = (game.town?.satisfaction ?? 100) / 100;
   const timeRemaining = worker.busy ? Math.max(0, Math.floor((worker.totalSeconds - worker.elapsedSeconds) / satMultiplier)) : 0;
@@ -690,7 +702,7 @@ function FeastPanel({ game, onBuyFeast }) {
 
 // ─── Crafted Goods Inventory (single collapsible, starts closed) ─────────────
 
-function CraftedGoodsInventory({ artisan, animalGoods, cropPotions, bait }) {
+function CraftedGoodsInventory({ artisan, animalGoods, bait }) {
   const [open, setOpen] = React.useState(false);
 
   const allItems = [
@@ -703,9 +715,7 @@ function CraftedGoodsInventory({ artisan, animalGoods, cropPotions, bait }) {
     { key: "fish_pie",      emoji: "🥧", label: "Fish Pie",    count: animalGoods?.fish_pie ?? 0 },
     { key: "smoked_fish",   emoji: "🐟", label: "Smoked Fish", count: animalGoods?.smoked_fish ?? 0 },
     { key: "fish_meal",     emoji: "🌿", label: "Fish Meal",   count: animalGoods?.fish_meal ?? 0 },
-    { key: "wheat_potion",  emoji: "🫙", label: "Wheat Brew",  count: cropPotions?.wheat_potion ?? 0 },
-    { key: "berry_potion",  emoji: "🍶", label: "Berry Elixir",count: cropPotions?.berry_potion ?? 0 },
-    { key: "tomato_potion", emoji: "🧴", label: "Tomato Tonic",count: cropPotions?.tomato_potion ?? 0 },
+
     { key: "wheat_bait",    emoji: "🌾", label: "Wheat Bait",  count: bait?.wheat_bait ?? 0 },
     { key: "berry_bait",    emoji: "🫐", label: "Berry Bait",  count: bait?.berry_bait ?? 0 },
     { key: "tomato_bait",   emoji: "🍅", label: "Tomato Bait", count: bait?.tomato_bait ?? 0 },
@@ -793,7 +803,7 @@ const isFirstWorker = workers.length === 0;
         </p>
       </div>
  
-      <CraftedGoodsInventory artisan={game.artisan} animalGoods={game.animalGoods} cropPotions={game.cropPotions} bait={game.bait} />
+      <CraftedGoodsInventory artisan={game.artisan} animalGoods={game.animalGoods} bait={game.bait} />
  
       <div style={{ marginBottom: "1.25rem" }}>
         <button
