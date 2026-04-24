@@ -3415,6 +3415,16 @@ export function deserializeState(raw) {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
     if (!Array.isArray(parsed.farms) || !Array.isArray(parsed.workers)) return null;
+
+    // 🔥 POTION REMOVAL (add this right here)
+if (parsed.potions !== undefined) {
+  delete parsed.potions;
+}
+
+// Ensure new system exists so nothing breaks
+if (parsed.cropPotions === undefined) {
+  parsed.cropPotions = {};
+}
  
     if (parsed.kitchenWorkers === undefined) {
       parsed.kitchenWorkers = [];
@@ -3652,7 +3662,6 @@ if (!parsed.barnInstances || parsed.barnInstances.length === 0) {
 }
 
 // Migrate pond.fish → fishing
-// Migrate pond.fish → fishing
 if (!parsed.fishing) {
   parsed.fishing = {
     activeBody: "pond",
@@ -3677,10 +3686,6 @@ if (body?.worker && body.worker.hiredAt === undefined) {
 }
   }
 }
-
-if (!parsed.cropPotions) {
-    parsed.cropPotions = {};
-  }
 
 // Migrate old fish types to new 4-fish system
 if (parsed.fishing?.fish) {
