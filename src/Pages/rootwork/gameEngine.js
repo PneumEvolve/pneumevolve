@@ -3417,8 +3417,8 @@ export function deserializeState(raw) {
     if (!Array.isArray(parsed.farms) || !Array.isArray(parsed.workers)) return null;
 
     // 🔥 POTION REMOVAL (add this right here)
-if (parsed.potions !== undefined) {
-  delete parsed.potions;
+if (parsed.wheat_potion !== undefined) {
+  delete parsed.wheat_potion;
 }
 
 // Ensure new system exists so nothing breaks
