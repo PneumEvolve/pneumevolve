@@ -5,7 +5,7 @@ import {
   TOWN_HOME_CAPACITY, TOWN_PULSE_SECONDS, TOWN_JAM_BUILDING_COST,
   TOWN_SAUCE_BUILDING_COST, TOWN_SAT_WHEAT, TOWN_SAT_BAKERY,
   TOWN_SAT_BAKERY_JAM, TOWN_SAT_ALL_BUILDINGS, TOWN_HALL_MAX_LEVEL,
-  TOWN_HALL_LEVEL_COSTS, TREASURY_TIERS, BUILDING_UPGRADE_COST,
+  TOWN_HALL_LEVEL_COSTS, TOWN_HALL_L1_IRON, TOWN_HALL_L1_LUMBER, TREASURY_TIERS, BUILDING_UPGRADE_COST,
   INVEST_NOW_CD_SECONDS,
   BUILDING_PULSE_EXTRA_SECONDS, BANK_BUILD_COST, BANK_LEVEL_COSTS,
   BANK_TIERS, BANK_MAX_LEVEL,
@@ -227,7 +227,8 @@ export default function TownZone({
   const maxTreasuryTier = getMaxTreasuryTier(game);
   const treasuryGrowBonus = getTreasuryGrowBonus(game);
   const thNextCost = thLevel < TOWN_HALL_MAX_LEVEL ? TOWN_HALL_LEVEL_COSTS[thLevel] : null;
-  const canUpgradeTownHall = thNextCost !== null && (game.cash ?? 0) >= thNextCost;
+  const canUpgradeTownHall = thNextCost !== null && (game.cash ?? 0) >= thNextCost &&
+  (thLevel !== 0 || ((game.worldResources?.iron_ore ?? 0) >= TOWN_HALL_L1_IRON && (game.worldResources?.lumber ?? 0) >= TOWN_HALL_L1_LUMBER));
   const investNowUnlocked = canInvestNow(game);
   const investNowCdRemaining = Math.ceil(getInvestNowCooldownRemaining(game));
   const investNowReady = investNowUnlocked && investNowCdRemaining === 0;
@@ -585,10 +586,16 @@ export default function TownZone({
         {thNextCost && (
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
-              Cost: <strong style={{ color: canUpgradeTownHall ? "#4ade80" : "var(--text)" }}>${thNextCost.toLocaleString()} cash</strong>
+              Cost: <strong style={{ color: canUpgradeTownHall ? "#4ade80" : "var(--text)" }}>${thNextCost.toLocaleString()}</strong>
+              {thLevel === 0 && (
+                <span style={{ marginLeft: "0.4rem" }}>
+                  + <strong style={{ color: (game.worldResources?.iron_ore ?? 0) >= TOWN_HALL_L1_IRON ? "#4ade80" : "#f87171" }}>🪨×{TOWN_HALL_L1_IRON}</strong>
+                  {" "}<strong style={{ color: (game.worldResources?.lumber ?? 0) >= TOWN_HALL_L1_LUMBER ? "#4ade80" : "#f87171" }}>🪵×{TOWN_HALL_L1_LUMBER}</strong>
+                </span>
+              )}
             </div>
             <button onClick={onUpgradeTownHall} disabled={!canUpgradeTownHall} className="btn" style={{ opacity: canUpgradeTownHall ? 1 : 0.5, fontSize: "0.75rem" }}>
-              Upgrade →
+              {thLevel === 0 ? "Build →" : "Upgrade →"}
             </button>
           </div>
         )}

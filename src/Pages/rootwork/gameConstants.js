@@ -70,9 +70,9 @@ export const TEND_SECONDS = 3;
  
 // ─── Processing recipes ───────────────────────────────────────────────────────
 export const PROCESSING_RECIPES = {
-  bread: { id: "bread", name: "Bread", emoji: "🍞", inputCrop: "wheat",    inputAmount: 30, outputGood: "bread", outputAmount: 1, seconds: 90,  description: "Bake bread from wheat." },
-  jam:   { id: "jam",   name: "Jam",   emoji: "🍯", inputCrop: "berries",  inputAmount: 30, outputGood: "jam",   outputAmount: 1, seconds: 120, description: "Craft jam from berries." },
-  sauce: { id: "sauce", name: "Sauce", emoji: "🥫", inputCrop: "tomatoes", inputAmount: 20, outputGood: "sauce", outputAmount: 1, seconds: 150, description: "Make sauce from tomatoes." },
+  bread: { id: "bread", name: "Bread", emoji: "🍞", inputCrop: "wheat",    inputAmount: 30, outputGood: "bread", outputAmount: 1, seconds: 90,  description: "Bake bread from wheat.", healAmount: 15 },
+  jam:   { id: "jam",   name: "Jam",   emoji: "🍯", inputCrop: "berries",  inputAmount: 30, outputGood: "jam",   outputAmount: 1, seconds: 120, description: "Craft jam from berries.", healAmount: 50 },
+  sauce: { id: "sauce", name: "Sauce", emoji: "🥫", inputCrop: "tomatoes", inputAmount: 20, outputGood: "sauce", outputAmount: 1, seconds: 150, description: "Make sauce from tomatoes.", healAmount: 100 },
   omelette:      { id: "omelette",      name: "Omelette",      emoji: "🍳", inputCrop: "egg",    inputAmount: 3,  outputGood: "omelette",      outputAmount: 1, seconds: 60,  description: "Hearty meal. Crafted from eggs." },
   cheese:        { id: "cheese",        name: "Cheese",        emoji: "🧀", inputCrop: "milk",   inputAmount: 4,  outputGood: "cheese",        outputAmount: 1, seconds: 90,  description: "Aged to perfection." },
   knitted_goods: { id: "knitted_goods", name: "Knitted Goods", emoji: "🧥", inputCrop: "wool",   inputAmount: 3,  outputGood: "knitted_goods", outputAmount: 1, seconds: 120, description: "Warm and valuable." },
@@ -102,6 +102,10 @@ export const MARKET_SELL_RATES = {
   omelette: 40, cheese: 60, knitted_goods: 90,
   minnow: 2, bass: 8, perch: 12, rare: 35,
   fish_pie: 45, smoked_fish: 35, fish_meal: 20,
+  // World loot
+  iron_ore: 2, lumber: 6, herbs: 4, rare_gem: 120,
+  // Forge goods
+  health_potion: 25, iron_sword: 80, iron_shield: 90, leather_armor: 60, hunting_bow: 150,
 };
  
 // ─── Market workers ───────────────────────────────────────────────────────────
@@ -346,7 +350,14 @@ export const TOWN_SAUCE_BUILDING_COST = 4_000;
  
 // ─── Town Hall ────────────────────────────────────────────────────────────────
 export const TOWN_HALL_MAX_LEVEL = 4;
-export const TOWN_HALL_LEVEL_COSTS = [75, 1000, 3000, 8000]; // cash cost per level
+export const TOWN_HALL_LEVEL_COSTS = [500, 1000, 3000, 8000]; // cash cost per level
+export const TOWN_HALL_L1_IRON = 5;   // iron ore required to build level 1
+export const TOWN_HALL_L1_LUMBER = 5; // lumber required to build level 1
+export const POND_IRON = 10;          // iron ore required to build pond
+export const POND_LUMBER = 5;         // lumber required to build pond
+export const FORGE_BUILD_COST = 150;  // cash required to build forge
+export const FORGE_IRON = 10;         // iron ore required to build forge
+export const FORGE_LUMBER = 5;        // lumber required to build forge
  
 // Treasury drain tiers — player picks which tier is active
 // Each tier drains cash→treasury at drainRate/sec and gives grow speed bonus
@@ -425,7 +436,7 @@ export const MAX_SEASON = 999;
  
 // ─── Save config ──────────────────────────────────────────────────────────────
 export const SAVE_KEY = "rootwork_save";
-export const SAVE_INTERVAL_MS = 30_000;
+export const SAVE_INTERVAL_MS = 10_000;
 export const MAX_OFFLINE_SECONDS = 4 * 60 * 60;
  
 // ─── Pond ─────────────────────────────────────────────────────────────────────
@@ -475,7 +486,7 @@ export const FISHING_WORKER_HIRE_COSTS = {
   ocean: 3000,
 };
 export const FISHING_WORKER_BASE_INTERVAL = 60;
-export const POND_COST = 0; // pond is free — first fisher hire is the investment
+export const POND_COST = 0; // cash cost (materials now required — see POND_IRON / POND_LUMBER)
 
 // ─── Player fishing upgrades (manual minigame) ────────────────────────────────
 // These are one-time cash purchases that persist across the session.
@@ -794,6 +805,65 @@ export const ADVENTURER_CLASSES = {
   mage:    { id: "mage",    name: "Mage",    emoji: "🧙", description: "Slower but higher XP gain." },
 };
 
+export const HERO_SKILLS = [
+  {
+    id: "quick_hands",
+    name: "Quick Hands",
+    emoji: "🏃",
+    description: "-5% mission duration.",
+    requiredLevel: 2,
+  },
+  {
+    id: "thick_skin",
+    name: "Thick Skin",
+    emoji: "🛡️",
+    description: "+10 max HP.",
+    requiredLevel: 3,
+  },
+  {
+    id: "scavenger",
+    name: "Scavenger",
+    emoji: "🌿",
+    description: "+1 minimum loot on all drops.",
+    requiredLevel: 4,
+  },
+  {
+    id: "lucky",
+    name: "Lucky",
+    emoji: "🍀",
+    description: "Fail chance reduced by half.",
+    requiredLevel: 5,
+  },
+  {
+    id: "auto_battle",
+    name: "Auto Battle",
+    emoji: "⚔️",
+    description: "Auto re-queues the same zone until potions run out.",
+    requiredLevel: 6,
+  },
+  {
+    id: "endurance",
+    name: "Endurance",
+    emoji: "❤️",
+    description: "HP regeneration increased to +5/min.",
+    requiredLevel: 7,
+  },
+  {
+    id: "veteran",
+    name: "Veteran",
+    emoji: "⭐",
+    description: "+15% XP gained from missions.",
+    requiredLevel: 8,
+  },
+  {
+    id: "iron_will",
+    name: "Iron Will",
+    emoji: "🔥",
+    description: "Fully heal before each auto-battle run.",
+    requiredLevel: 9,
+  },
+];
+
 export const ADVENTURER_NAMES = [
   "Aldric", "Brynn", "Cassia", "Dorin", "Elowen", "Fenn",
   "Gala",   "Hazel", "Idris",  "Jora",  "Kael",   "Lyra",
@@ -935,6 +1005,18 @@ export const CROP_POTION_RECIPES = {
 };
 
 export const CROP_POTION_LIST = ["wheat_potion", "berry_potion", "tomato_potion"];
+
+// ─── Artisan Food as Heal Items ───────────────────────────────────────────────
+
+export const ARTISAN_FOOD_HEAL = {
+  bread: { id: "bread", emoji: "🍞", name: "Bread", healAmount: 15 },
+  jam:   { id: "jam",   emoji: "🍯", name: "Jam",   healAmount: 50 },
+  sauce: { id: "sauce", emoji: "🥫", name: "Sauce", healAmount: 100 },
+};
+export const ARTISAN_FOOD_LIST = ["bread", "jam", "sauce"];
+
+// World Worker constants
+export const WORLD_WORKER_HIRE_COST = 200; // cash cost to hire a world zone worker
 
 
 // ─── Forge System ─────────────────────────────────────────────────────────────

@@ -18,7 +18,7 @@ import {
   buyJamBuilding, buySauceBuilding, toggleBakery, togglePantry,
   toggleCannery, upgradeTownBuilding, upgradeTownHall, setTreasuryTier,
   investNow, canInvestNow, getInvestNowCooldownRemaining,
-  buildBank, upgradeBank, setActiveBankTier, buyPond, catchFish, unlockFishingBody, setFishingActiveBody,
+  buildBank, upgradeBank, setActiveBankTier, buyPond, buildForge, catchFish, unlockFishingBody, setFishingActiveBody,
   upgradeFishingWorker, setFishingWorkerBait,
   buyAnimal, collectAnimal, collectAllAnimals, interactAnimal, buyPet, interactPet, toggleKitchenWorkerAutoRestart,
   setKitchenWorkerBatchOverride,
@@ -34,6 +34,9 @@ import {
   usePotion, givePotion, removePotion, brewCropPotion, tickAdventurerRegen,
   hireForgeWorker, fireForgeWorker, assignForgeWorkerRecipe, cancelForgeWorkerRecipe,
   upgradeForgeWorker, toggleForgeWorkerAutoRestart, tickForgeWorkers,
+  hireWorldWorker, fireWorldWorker, tickWorldWorkers,
+  giveArtisanFood, removeArtisanFood, useArtisanFood,
+  hireAdventurer, spendSkillPoint, getAdventurerSlotCost, getAdventurerSlotUnlocked,
 } from "./gameEngine";
 import {
   SAVE_KEY, SAVE_INTERVAL_MS,
@@ -445,7 +448,7 @@ export default function RootWork() {
     if (!loaded) return;
     if (showPrestigeModal) return; // pause while modal open
     const interval = setInterval(() => {
-      setGame((prev) => { if (!prev) return prev; let next = tick(prev); next = tickForgeWorkers(next, 1); next = tickAdventurerRegen(next, 1); gameRef.current = next; return next; });
+      setGame((prev) => { if (!prev) return prev; let next = tick(prev); next = tickForgeWorkers(next, 1); next = tickAdventurerRegen(next, 1); next = tickWorldWorkers(next, 1); gameRef.current = next; return next; });
     }, 1000);
     return () => clearInterval(interval);
   }, [loaded, showPrestigeModal]);
@@ -525,6 +528,9 @@ export default function RootWork() {
 
   // Animals & Pond
   const handleBuyPond = useCallback(() => update((s) => { const n = buyPond(s); if (n === s) notify("Need $500 cash."); return n; }), [update, notify]);
+  const handleBuildForge = useCallback(() => {
+    update((s) => { const n = buildForge(s); if (n === s) notify("Need 🪨×10 🪵×5 to build Forge."); return n; });
+  }, [update, notify]);
   const handleBuyAnimal = useCallback((animalId, barnInstanceId) => update((s) => { const n = buyAnimal(s, animalId, barnInstanceId); if (n === s) notify("Not enough cash."); return n; }), [update, notify]);
   const handleCollectAnimal = useCallback((animalId, instanceId, barnInstanceId) => update((s) => collectAnimal(s, animalId, instanceId, barnInstanceId)), [update]);
   const handleCollectAllAnimals = useCallback(() => { update((s) => collectAllAnimals(s)); notify("🧺 All products collected!"); }, [update, notify]);
@@ -657,6 +663,37 @@ const handleUpgradeBarnBuilding = useCallback((buildingId, instanceId) => update
     update((s) => { const n = brewCropPotion(s, potionId); if (n === s) notify("Not enough crops to brew."); return n; });
   }, [update, notify]);
 
+  const handleHireWorldWorker = useCallback((zoneId) => {
+    update((s) => { const n = hireWorldWorker(s, zoneId); if (n === s) notify("Not enough cash ($200) or zone not cleared."); return n; });
+  }, [update, notify]);
+  const handleFireWorldWorker = useCallback((zoneId) => update((s) => fireWorldWorker(s, zoneId)), [update]);
+
+  const handleHireAdventurer = useCallback(() => {
+    update((s) => {
+      const n = hireAdventurer(s);
+      if (n === s) {
+        if (!getAdventurerSlotUnlocked(s)) notify("Next hero slot unlocks next season.");
+        else {
+          const cost = getAdventurerSlotCost(s);
+          notify(cost ? `Not enough cash ($${cost}).` : "All hero slots filled.");
+        }
+      }
+      return n;
+    });
+  }, [update, notify]);
+
+  const handleSpendSkillPoint = useCallback((adventurerId, skillId) => {
+    update((s) => { const n = spendSkillPoint(s, adventurerId, skillId); if (n === s) notify("No skill points available."); return n; });
+  }, [update, notify]);
+
+  const handleGiveArtisanFood = useCallback((adventurerId, foodId) => {
+    update((s) => { const n = giveArtisanFood(s, adventurerId, foodId); if (n === s) notify("No food available or belt full (max 3)."); return n; });
+  }, [update, notify]);
+  const handleRemoveArtisanFood = useCallback((adventurerId, foodId) => update((s) => removeArtisanFood(s, adventurerId, foodId)), [update]);
+  const handleUseArtisanFood = useCallback((adventurerId, foodId) => {
+    update((s) => { const n = useArtisanFood(s, adventurerId, foodId); if (n === s) notify("Already full or no food on belt."); return n; });
+  }, [update, notify]);
+
   // Feast / prestige / misc
   const handleBuyFeast = useCallback(() => { update((s) => { const n = buyFeast(s); if (n === s) notify("Not enough artisan goods."); return n; }); notify("🍽️ Feast held! Grow speed increased."); }, [update, notify]);
   const handlePrestigeComplete = useCallback((pendingSkills, workerIds) => {
@@ -758,6 +795,7 @@ const handleBuyFishingPlayerUpgrade = useCallback((upgradeId) => update((s) => {
             {activeCraftingTab === "forge" && (
               <ForgeZone
                 game={game}
+                onBuildForge={handleBuildForge}
                 onHireForgeWorker={handleHireForgeWorker}
                 onAssignForgeWorkerRecipe={handleAssignForgeWorkerRecipe}
                 onUpgradeForgeWorker={handleUpgradeForgeWorker}
@@ -777,11 +815,18 @@ const handleBuyFishingPlayerUpgrade = useCallback((upgradeId) => update((s) => {
             onSendAdventurer={handleSendAdventurer}
             onReturnAdventurer={handleReturnAdventurer}
             onEquipAdventurer={handleEquipAdventurer}
+            onHireWorldWorker={handleHireWorldWorker}
+            onFireWorldWorker={handleFireWorldWorker}
+            onGiveArtisanFood={handleGiveArtisanFood}
+            onRemoveArtisanFood={handleRemoveArtisanFood}
+            onUseArtisanFood={handleUseArtisanFood}
+            onSpendSkillPoint={handleSpendSkillPoint}
             onUnequipAdventurer={handleUnequipAdventurer}
             onUsePotionOnAdventurer={handleUsePotionOnAdventurer}
             onGivePotion={handleGivePotion}
             onRemovePotion={handleRemovePotion}
             onBrewCropPotion={handleBrewCropPotion}
+            onHireAdventurer={handleHireAdventurer}
           />
         )}
         {activeMainTab === "animals" && (

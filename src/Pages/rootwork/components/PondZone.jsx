@@ -4,7 +4,7 @@ import {
   REEL_DRAIN_RATE, REEL_TAP_AMOUNT,
   FISHING_BODIES, FISHING_BODY_ORDER, FISHING_FISH,
   FISHING_CATCH_RATES, FISHING_BAIT_BONUS,
-  FISHING_WORKER_UPGRADES, POND_COST, FISHING_WORKER_HIRE_COSTS,
+  FISHING_WORKER_UPGRADES, POND_COST, POND_IRON, POND_LUMBER, FISHING_WORKER_HIRE_COSTS,
   FISHING_PLAYER_UPGRADES, FISHING_PLAYER_UPGRADE_ORDER,
 } from "../gameConstants";
 import {
@@ -919,7 +919,9 @@ export default function PondZone({
 
   // ── Buy pond screen ────────────────────────────────────────────────────────
   if (!pondOwned) {
-    const canAfford = (game.cash ?? 0) >= POND_COST;
+    const hasIron = (game.worldResources?.iron_ore ?? 0) >= POND_IRON;
+    const hasLumber = (game.worldResources?.lumber ?? 0) >= POND_LUMBER;
+    const canAfford = hasIron && hasLumber;
     return (
       <div style={{
         background: "linear-gradient(135deg, #071929, #0c3356)",
@@ -945,7 +947,9 @@ export default function PondZone({
             cursor: canAfford ? "pointer" : "default", letterSpacing: "0.04em",
           }}
         >
-          {canAfford ? `🎣 Build Pond — $${POND_COST}` : `Need $${POND_COST} (have $${Math.floor(game.cash ?? 0)})`}
+          {canAfford
+            ? `🎣 Build Pond — 🪨×${POND_IRON} 🪵×${POND_LUMBER}`
+            : `Need 🪨×${POND_IRON}${hasIron ? " ✓" : ` (have ${Math.floor(game.worldResources?.iron_ore ?? 0)})`} 🪵×${POND_LUMBER}${hasLumber ? " ✓" : ` (have ${Math.floor(game.worldResources?.lumber ?? 0)})`}`}
         </button>
       </div>
     );

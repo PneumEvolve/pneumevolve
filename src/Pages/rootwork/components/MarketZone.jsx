@@ -39,7 +39,18 @@ const SELLABLE_ITEMS = [
   { type: "rare",   label: "Rare Fish", emoji: "✨", isCrop: false, isAnimal: false, isFish: true },
   { type: "fish_pie",      label: "Fish Pie",       emoji: "🥧", isCrop: false,  isAnimal: true, isFish: false  },
   { type: "smoked_fish",   label: "Smoked Fish",    emoji: "🐟", isCrop: false,  isAnimal: true, isFish: false  },
-  { type: "fish_meal",     label: "Fish Meal",      emoji: "🌿", isCrop: false,  isAnimal: true, isFish: false  },
+  { type: "fish_meal",     label: "Fish Meal",      emoji: "🌿", isCrop: false,  isAnimal: true,  isFish: false },
+  // World loot — raw materials from zones
+  { type: "iron_ore",      label: "Iron Ore",       emoji: "🪨", isCrop: false,  isAnimal: false, isFish: false, isWorld: true },
+  { type: "lumber",        label: "Lumber",         emoji: "🪵", isCrop: false,  isAnimal: false, isFish: false, isWorld: true },
+  { type: "herbs",         label: "Herbs",          emoji: "🌿", isCrop: false,  isAnimal: false, isFish: false, isWorld: true },
+  { type: "rare_gem",      label: "Rare Gem",       emoji: "💎", isCrop: false,  isAnimal: false, isFish: false, isWorld: true },
+  // Forge goods
+  { type: "health_potion", label: "Health Potion",  emoji: "🧪", isCrop: false,  isAnimal: false, isFish: false, isForge: true },
+  { type: "iron_sword",    label: "Iron Sword",     emoji: "⚔️",  isCrop: false,  isAnimal: false, isFish: false, isForge: true },
+  { type: "iron_shield",   label: "Iron Shield",    emoji: "🛡️",  isCrop: false,  isAnimal: false, isFish: false, isForge: true },
+  { type: "leather_armor", label: "Leather Armor",  emoji: "🥋", isCrop: false,  isAnimal: false, isFish: false, isForge: true },
+  { type: "hunting_bow",   label: "Hunting Bow",    emoji: "🏹", isCrop: false,  isAnimal: false, isFish: false, isForge: true },
 ];
  
 const SELL_AMOUNTS = [1, 10, 50, 100, "All", "Custom"];
@@ -54,7 +65,11 @@ function SmartSellButton({ game, itemType, onAssign }) {
       ? (game.animalGoods?.[item.type] ?? 0)
       : item.isFish
         ? (game.fishing?.fish?.[item.type] ?? 0)
-        : (game.artisan[item.type] ?? 0)
+        : item.isForge
+          ? (game.forgeGoods?.[item.type] ?? 0)
+          : item.isWorld
+            ? (game.worldResources?.[item.type] ?? 0)
+            : (game.artisan[item.type] ?? 0)
   : 0;
   const reserve = have - smartQty;
   const bakeryOn = game.town?.bakeryOn === true && (game.town?.bakeryLevel ?? 0) >= 1;
@@ -124,7 +139,11 @@ function MarketWorkerCard({
     ? (game.animalGoods[item.type] ?? 0)
     : item.isFish
       ? (game.fishing?.fish?.[item.type] ?? 0)
-      : (game.artisan[item.type] ?? 0);
+      : item.isForge
+        ? (game.forgeGoods?.[item.type] ?? 0)
+        : item.isWorld
+          ? (game.worldResources?.[item.type] ?? 0)
+          : (game.artisan[item.type] ?? 0);
     let qty;
     if (selectedAmount === "All") {
       qty = have;
@@ -256,7 +275,11 @@ function MarketWorkerCard({
     ? (game.animalGoods[item.type] ?? 0)
     : item.isFish
       ? (game.fishing?.fish?.[item.type] ?? 0)
-      : (game.artisan[item.type] ?? 0);
+      : item.isForge
+        ? (game.forgeGoods?.[item.type] ?? 0)
+        : item.isWorld
+          ? (game.worldResources?.[item.type] ?? 0)
+          : (game.artisan[item.type] ?? 0);
                     const isSelected = worker.standingOrder === item.type;
                     return (
                       <button
@@ -425,7 +448,11 @@ function MarketWorkerCard({
     ? (game.animalGoods[item.type] ?? 0)
     : item.isFish
       ? (game.fishing?.fish?.[item.type] ?? 0)
-      : (game.artisan[item.type] ?? 0);
+      : item.isForge
+        ? (game.forgeGoods?.[item.type] ?? 0)
+        : item.isWorld
+          ? (game.worldResources?.[item.type] ?? 0)
+          : (game.artisan[item.type] ?? 0);
                 const isSelected = selectedItem === item.type;
                 return (
                   <button
@@ -458,7 +485,11 @@ function MarketWorkerCard({
         ? (game.animalGoods?.[item.type] ?? 0)
         : item.isFish
           ? (game.fishing?.fish?.[item.type] ?? 0)
-          : (game.artisan[item.type] ?? 0)
+          : item.isForge
+            ? (game.forgeGoods?.[item.type] ?? 0)
+            : item.isWorld
+              ? (game.worldResources?.[item.type] ?? 0)
+              : (game.artisan[item.type] ?? 0)
     : 0;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>

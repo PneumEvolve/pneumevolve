@@ -1,4 +1,5 @@
-// src/Pages/rootwork/gameEngine.js
+//
+ src/Pages/rootwork/gameEngine.js
  
 import {
   CROPS, GEAR, GEAR_ORDER,
@@ -29,11 +30,11 @@ import {
   TOWN_SAT_BAKERY_SAUCE, TOWN_SAT_ALL_BUILDINGS,
   TOWN_PEOPLE_PER_GROWTH_BONUS, TOWN_GROWTH_BONUS_PER_STEP,
   TOWN_MAX_GROWTH_BONUS_PERCENT, TOWN_STARTING_PEOPLE,
-  TOWN_HALL_MAX_LEVEL, TOWN_HALL_LEVEL_COSTS,
+  TOWN_HALL_MAX_LEVEL, TOWN_HALL_LEVEL_COSTS, TOWN_HALL_L1_IRON, TOWN_HALL_L1_LUMBER,
   INVEST_NOW_PCT, INVEST_NOW_CD_SECONDS,
   TREASURY_TIERS, BUILDING_WORKERS_DIVISOR, BUILDING_PULSE_EXTRA_SECONDS,
   BUILDING_UPGRADE_COST, BANK_BUILD_COST, BANK_LEVEL_COSTS,
-  BANK_TIERS, BANK_MAX_LEVEL, GEAR_CROP_COSTS, POND_COST, NEEDLE_SWEEP_SPEED, REEL_DURATION,
+  BANK_TIERS, BANK_MAX_LEVEL, GEAR_CROP_COSTS, POND_COST, POND_IRON, POND_LUMBER, FORGE_BUILD_COST, FORGE_IRON, FORGE_LUMBER, NEEDLE_SWEEP_SPEED, REEL_DURATION,
   REEL_DRAIN_RATE, REEL_TAP_AMOUNT, BAIT_TYPES,
   ANIMAL_TYPES, MAX_ANIMALS_PER_TYPE,
   BARN_BUILDINGS, BARN_BUILDING_ORDER, BARN_BUILDING_TIERS, BARN_UPKEEP_DEBT_MOOD_DRAIN,
@@ -60,6 +61,8 @@ FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, 
   WORLD_ZONES, ADVENTURER_NAMES, ADVENTURER_CLASSES, WORLD_RESOURCES,
   ADVENTURER_BASE_HP, ADVENTURER_HP_PER_LEVEL, ADVENTURER_REGEN_PER_SECOND,
   CROP_POTION_RECIPES, CROP_POTION_LIST,
+  ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST,
+  WORLD_WORKER_HIRE_COST,
 } from "./gameConstants";
  
 let _idCounter = 0;
@@ -154,6 +157,13 @@ export function upgradeTownHall(state) {
   if (currentLevel >= TOWN_HALL_MAX_LEVEL) return state;
   const cost = TOWN_HALL_LEVEL_COSTS[currentLevel];
   if ((next.cash ?? 0) < cost) return state;
+  // Level 0 → 1 also costs iron ore + lumber
+  if (currentLevel === 0) {
+    if ((next.worldResources?.iron_ore ?? 0) < TOWN_HALL_L1_IRON) return state;
+    if ((next.worldResources?.lumber ?? 0) < TOWN_HALL_L1_LUMBER) return state;
+    next.worldResources.iron_ore -= TOWN_HALL_L1_IRON;
+    next.worldResources.lumber -= TOWN_HALL_L1_LUMBER;
+  }
   next.cash -= cost;
   next.town.townHallLevel = currentLevel + 1;
   return next;
@@ -660,6 +670,10 @@ export function getSmartSellAmount(state, itemType) {
       ? Math.floor(state.fishing.fish[itemType] ?? 0)
       : isCrop
       ? Math.floor(state.crops[itemType] ?? 0)
+      : itemType in (state.forgeGoods ?? {})
+      ? Math.floor(state.forgeGoods[itemType] ?? 0)
+      : itemType in (state.worldResources ?? {})
+      ? Math.floor(state.worldResources[itemType] ?? 0)
       : Math.floor(state.artisan[itemType] ?? 0);
   }
   const reserve = getTownFoodReserve(state);
@@ -858,6 +872,8 @@ export function cancelMarketWorkerQueue(state, workerId) {
       if (order.itemType in (next.crops ?? {})) next.crops[order.itemType] = (next.crops[order.itemType] ?? 0) + order.quantity;
       else if (order.itemType in (next.artisan ?? {})) next.artisan[order.itemType] = (next.artisan[order.itemType] ?? 0) + order.quantity;
       else if (order.itemType in (next.animalGoods ?? {})) next.animalGoods[order.itemType] = (next.animalGoods[order.itemType] ?? 0) + order.quantity;
+      else if (order.itemType in (next.forgeGoods ?? {})) next.forgeGoods[order.itemType] = (next.forgeGoods[order.itemType] ?? 0) + order.quantity;
+      else if (order.itemType in (next.worldResources ?? {})) next.worldResources[order.itemType] = (next.worldResources[order.itemType] ?? 0) + order.quantity;
       else if (next.fishing?.fish && order.itemType in next.fishing.fish) next.fishing.fish[order.itemType] = (next.fishing.fish[order.itemType] ?? 0) + order.quantity;
     }
   worker.queue = [];
@@ -1153,6 +1169,14 @@ export function createInitialState() {
     bait: { wheat_bait: 0, berry_bait: 0, tomato_bait: 0 },
     fishMealStacks: [],
     barnWorkers: [],
+    adventurers: [],
+    worldZoneClears: {},
+    worldResources: { iron_ore: 0, lumber: 0, herbs: 0, rare_gem: 0 },
+    forgeBuilt: false,
+    worldWorkers: [],
+    forgeWorkers: [],
+    forgeGoods: {},
+    cropPotions: {},
     barnBuildings: {
       chicken_coop: { built: false, tier: 0 },
       dairy:        { built: false, tier: 0 },
@@ -1691,16 +1715,22 @@ if (activeTier) {
   const isArtisan = itemType in (next.artisan ?? {});
   const isAnimal = itemType in (next.animalGoods ?? {});
   const isFish = next.fishing?.fish && itemType in next.fishing.fish;
+  const isForge = !isCrop && !isArtisan && !isAnimal && !isFish && itemType in (next.forgeGoods ?? {});
+  const isWorld = !isCrop && !isArtisan && !isAnimal && !isFish && !isForge && itemType in (next.worldResources ?? {});
   const available = isCrop ? (next.crops[itemType] ?? 0)
     : isArtisan ? (next.artisan[itemType] ?? 0)
     : isAnimal ? (next.animalGoods[itemType] ?? 0)
-    : isFish ? (next.fishing.fish[itemType] ?? 0) : 0;
+    : isFish ? (next.fishing.fish[itemType] ?? 0)
+    : isForge ? (next.forgeGoods[itemType] ?? 0)
+    : isWorld ? (next.worldResources[itemType] ?? 0) : 0;
   const toPull = Math.min(effectiveIps, available);
   if (toPull > 0) {
     if (isCrop) next.crops[itemType] -= toPull;
     else if (isArtisan) next.artisan[itemType] -= toPull;
     else if (isAnimal) next.animalGoods[itemType] -= toPull;
     else if (isFish) next.fishing.fish[itemType] -= toPull;
+    else if (isForge) next.forgeGoods[itemType] -= toPull;
+    else if (isWorld) next.worldResources[itemType] -= toPull;
     worker.queue = [{ id: genId("sale"), itemType, quantity: toPull }];
   }
 }
@@ -2391,6 +2421,8 @@ export function assignItemToMarketWorker(state, workerId, itemType, quantity) {
 const isCrop = !isAnimal && itemType in (next.crops ?? {});
 const isArtisan = !isAnimal && !isCrop && itemType in (next.artisan ?? {});
 const isFish = !isAnimal && !isCrop && !isArtisan && next.fishing?.fish && itemType in next.fishing.fish;
+const isForge = !isAnimal && !isCrop && !isArtisan && !isFish && itemType in (next.forgeGoods ?? {});
+const isWorld = !isAnimal && !isCrop && !isArtisan && !isFish && !isForge && itemType in (next.worldResources ?? {});
   if (isCrop) {
     if ((next.crops[itemType] ?? 0) < quantity) return state;
     next.crops[itemType] -= quantity;
@@ -2403,6 +2435,12 @@ const isFish = !isAnimal && !isCrop && !isArtisan && next.fishing?.fish && itemT
   } else if (isFish) {
   if ((next.fishing.fish[itemType] ?? 0) < quantity) return state;
   next.fishing.fish[itemType] -= quantity;
+} else if (isForge) {
+  if ((next.forgeGoods[itemType] ?? 0) < quantity) return state;
+  next.forgeGoods[itemType] -= quantity;
+} else if (isWorld) {
+  if ((next.worldResources[itemType] ?? 0) < quantity) return state;
+  next.worldResources[itemType] -= quantity;
 } else return state;
   const queue = worker.queue ?? [];
   const last = queue[queue.length - 1];
@@ -2419,6 +2457,8 @@ export function fireMarketWorker(state, workerId) {
       if (order.itemType in (next.crops ?? {})) next.crops[order.itemType] = (next.crops[order.itemType] ?? 0) + order.quantity;
       else if (order.itemType in (next.artisan ?? {})) next.artisan[order.itemType] = (next.artisan[order.itemType] ?? 0) + order.quantity;
       else if (order.itemType in (next.animalGoods ?? {})) next.animalGoods[order.itemType] = (next.animalGoods[order.itemType] ?? 0) + order.quantity;
+      else if (order.itemType in (next.forgeGoods ?? {})) next.forgeGoods[order.itemType] = (next.forgeGoods[order.itemType] ?? 0) + order.quantity;
+      else if (order.itemType in (next.worldResources ?? {})) next.worldResources[order.itemType] = (next.worldResources[order.itemType] ?? 0) + order.quantity;
       else if (next.fishing?.fish && order.itemType in next.fishing.fish) next.fishing.fish[order.itemType] = (next.fishing.fish[order.itemType] ?? 0) + order.quantity;
     }
   next.marketWorkers = next.marketWorkers.filter((w) => w.id !== workerId);
@@ -3121,14 +3161,30 @@ export function assignKeptWorker(state, keptWorkerId, farmId) {
  
 export function buyPond(state) {
   if (state.fishing?.bodies?.pond?.unlocked) return state;
+  if ((state.worldResources?.iron_ore ?? 0) < POND_IRON) return state;
+  if ((state.worldResources?.lumber ?? 0) < POND_LUMBER) return state;
   const next = deepCloneState(state);
-  // Pond is free — no cash cost
+  next.worldResources.iron_ore -= POND_IRON;
+  next.worldResources.lumber -= POND_LUMBER;
   if (!next.fishing) next.fishing = { activeBody: "pond", bodies: {}, fish: {} };
   next.fishing.bodies.pond = {
     unlocked: true,
     worker: { hired: false, upgrades: [], timer: 0, assignedBait: null },
   };
   next.fishing.activeBody = "pond";
+  return next;
+}
+
+export function buildForge(state) {
+  if (state.forgeBuilt) return state;
+  if ((state.cash ?? 0) < FORGE_BUILD_COST) return state;
+  if ((state.worldResources?.iron_ore ?? 0) < FORGE_IRON) return state;
+  if ((state.worldResources?.lumber ?? 0) < FORGE_LUMBER) return state;
+  const next = { ...state, worldResources: { ...state.worldResources } };
+  next.cash = (next.cash ?? 0) - FORGE_BUILD_COST;
+  next.worldResources.iron_ore -= FORGE_IRON;
+  next.worldResources.lumber -= FORGE_LUMBER;
+  next.forgeBuilt = true;
   return next;
 }
  
@@ -3638,6 +3694,8 @@ export function createAdventurer(classId = "fighter") {
     maxHp,
     potions: {},    // { wheat_potion: 2, berry_potion: 1, ... }
     mission: null,
+    skillPoints: 0,
+    skills: [],
   };
 }
 
@@ -3650,9 +3708,6 @@ export function initWorldState(state) {
   if (!next.forgeWorkers) next.forgeWorkers = [];
   if (!next.forgeGoods) next.forgeGoods = {};
   if (!next.cropPotions) next.cropPotions = {};
-  if (next.adventurers.length === 0) {
-    next.adventurers = [createAdventurer("fighter")];
-  }
   // Migrate existing adventurers to have hp/potions
   next.adventurers = next.adventurers.map((adv) => {
     const maxHp = getAdventurerMaxHp(adv);
@@ -3662,8 +3717,33 @@ export function initWorldState(state) {
       ...adv,
       maxHp,
       hp: adv.hp !== undefined ? Math.min(adv.hp, maxHp) : maxHp,
+      skillPoints: adv.skillPoints ?? 0,
+      skills: adv.skills ?? [],
     };
   });
+  return next;
+}
+
+const ADVENTURER_HIRE_COSTS = [10, 100, 250, 500, 1000, 2000, 4000, 8000];
+
+export function getAdventurerSlotCost(state) {
+  const count = (state.adventurers ?? []).length;
+  return ADVENTURER_HIRE_COSTS[count] ?? null; // null = no more slots
+}
+
+export function getAdventurerSlotUnlocked(state) {
+  // Slot N unlocks on season N (1-indexed)
+  const count = (state.adventurers ?? []).length;
+  return (state.season ?? 1) > count;
+}
+
+export function hireAdventurer(state) {
+  if (!getAdventurerSlotUnlocked(state)) return state;
+  const cost = getAdventurerSlotCost(state);
+  if (cost === null) return state; // max adventurers reached
+  if ((state.cash ?? 0) < cost) return state;
+  const next = { ...state, cash: state.cash - cost };
+  next.adventurers = [...(next.adventurers ?? []), createAdventurer("fighter")];
   return next;
 }
 
@@ -3671,17 +3751,21 @@ function getAdventurerMissionDuration(adventurer, zone) {
   const base = zone.baseDuration ?? 30;
   const gearBonus = (adventurer.gear ?? 0) * 0.15;
   const lvlBonus = ((adventurer.level ?? 1) - 1) * 0.08;
-  const reduction = Math.min(gearBonus + lvlBonus, 0.75);
+  const quickHands = (adventurer.skills ?? []).includes("quick_hands") ? 0.05 : 0;
+  const reduction = Math.min(gearBonus + lvlBonus + quickHands, 0.75);
   return Math.round(base * (1 - reduction));
 }
 
 function getAdventurerFailChance(adventurer, zone) {
   const gearScore = (adventurer.gear ?? 0) + (adventurer.level ?? 1);
   const required = zone.gearRequired ?? 0;
-  if (gearScore >= required + 2) return 0;
-  if (gearScore >= required) return 0.05;
-  if (gearScore >= required - 1) return 0.30;
-  return 0.65;
+  let chance = 0;
+  if (gearScore >= required + 2) chance = 0;
+  else if (gearScore >= required) chance = 0.05;
+  else if (gearScore >= required - 1) chance = 0.30;
+  else chance = 0.65;
+  if ((adventurer.skills ?? []).includes("lucky")) chance = chance / 2;
+  return chance;
 }
 
 function getAdventurerXpNeeded(level) {
@@ -3724,14 +3808,17 @@ export function returnAdventurer(state, adventurerId) {
   if (!failed) {
     for (const lootDef of zone.loot) {
       const amount = Math.floor(Math.random() * (lootDef.max - lootDef.min + 1)) + lootDef.min;
-      if (amount > 0) {
-        loot.push({ ...lootDef, amount });
-        nextResources[lootDef.resourceKey] = (nextResources[lootDef.resourceKey] ?? 0) + amount;
+      const hasScavenger = (adventurer.skills ?? []).includes("scavenger");
+      const finalAmount = amount > 0 ? amount + (hasScavenger ? 1 : 0) : 0;
+      if (finalAmount > 0) {
+        loot.push({ ...lootDef, amount: finalAmount });
+        nextResources[lootDef.resourceKey] = (nextResources[lootDef.resourceKey] ?? 0) + finalAmount;
       }
     }
   }
 
-  const xpGained = failed ? Math.floor(zone.xpReward * 0.3) : zone.xpReward;
+  const hasVeteran = (adventurer.skills ?? []).includes("veteran");
+  const xpGained = failed ? Math.floor(zone.xpReward * 0.3) : Math.round(zone.xpReward * (hasVeteran ? 1.15 : 1));
   let newXp = (adventurer.xp ?? 0) + xpGained;
   let newLevel = adventurer.level ?? 1;
   let leveledUp = false;
@@ -3751,10 +3838,36 @@ export function returnAdventurer(state, adventurerId) {
   const rawDamage = Math.round(missionSeconds * dmgPerTick * (failed ? 1.5 : 0.6));
   const newMaxHp = getAdventurerMaxHp({ ...adventurer, level: newLevel });
   const hpAfterDamage = Math.max(1, (adventurer.hp ?? newMaxHp) - rawDamage);
-  // Passive regen while not on mission will handle recovery; cap at new maxHp
-  const newHp = Math.min(hpAfterDamage, newMaxHp);
+  // Level up restores full HP; otherwise cap at new maxHp
+  const newHp = leveledUp ? newMaxHp : Math.min(hpAfterDamage, newMaxHp);
 
-  const updatedAdv = { ...adventurer, xp: newXp, level: newLevel, maxHp: newMaxHp, hp: newHp, mission: null };
+  // Skill points: +1 per level gained
+  const levelsGained = newLevel - (adventurer.level ?? 1);
+  const newSkillPoints = (adventurer.skillPoints ?? 0) + levelsGained;
+
+  // Apply thick_skin HP bonus
+  const skills = adventurer.skills ?? [];
+  const hasThickSkin = skills.includes("thick_skin");
+  const bonusMaxHp = newMaxHp + (hasThickSkin ? 10 : 0);
+
+  // Apply veteran XP bonus (xpGained already computed, apply to stored xp)
+  // (veteran bonus was already factored in above; handled during xp calc)
+
+  // Auto-battle: if skill unlocked and potions remain, queue same zone again
+  const hasAutoBattle = skills.includes("auto_battle");
+  const hasPotions = Object.values(adventurer.potions ?? {}).some((v) => v > 0) ||
+                     Object.values(adventurer.foodBelt ?? {}).some((v) => v > 0);
+  const autoQueue = !failed && hasAutoBattle && hasPotions;
+
+  // Iron will: full heal before auto re-queue
+  const hasIronWill = skills.includes("iron_will");
+  const hpAfterAuto = (autoQueue && hasIronWill) ? bonusMaxHp : Math.min(newHp, bonusMaxHp);
+
+  const autoMission = autoQueue
+    ? { zoneId: mission.zoneId, zoneName: zone.name, startTime: Date.now(), duration: getAdventurerMissionDuration({ ...adventurer, level: newLevel, skills }, zone) }
+    : null;
+
+  const updatedAdv = { ...adventurer, xp: newXp, level: newLevel, maxHp: bonusMaxHp, hp: hpAfterAuto, mission: autoMission, skillPoints: newSkillPoints };
   const next = {
     ...state,
     adventurers: state.adventurers.map((a) => a.id === adventurerId ? updatedAdv : a),
@@ -3763,6 +3876,21 @@ export function returnAdventurer(state, adventurerId) {
   };
 
   return { state: next, result: { failed, zoneName: mission.zoneName, loot, xpGained, leveledUp, zoneCleared, newClears, clearsNeeded: zone.clearsNeeded, hpLost: rawDamage, hpRemaining: newHp, maxHp: newMaxHp } };
+}
+
+// Spend a skill point to unlock a skill (order validation done in UI)
+export function spendSkillPoint(state, adventurerId, skillId) {
+  const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
+  if (advIdx === -1) return state;
+  const adventurer = state.adventurers[advIdx];
+  if ((adventurer.skillPoints ?? 0) < 1) return state;
+  if ((adventurer.skills ?? []).includes(skillId)) return state;
+  const updatedAdv = {
+    ...adventurer,
+    skillPoints: (adventurer.skillPoints ?? 0) - 1,
+    skills: [...(adventurer.skills ?? []), skillId],
+  };
+  return { ...state, adventurers: state.adventurers.map((a, i) => i === advIdx ? updatedAdv : a) };
 }
 
 // Equip a piece of forge goods as an adventurer's gear tier
@@ -3868,6 +3996,57 @@ export function removePotion(state, adventurerId, potionKey) {
   };
 }
 
+// ─── Artisan Food as Heal Items ────────────────────────────────────────────────
+
+export function giveArtisanFood(state, adventurerId, foodId) {
+  if (!ARTISAN_FOOD_LIST.includes(foodId)) return state;
+  const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
+  if (advIdx === -1) return state;
+  const artisan = state.artisan ?? {};
+  if ((artisan[foodId] ?? 0) < 1) return state;
+  const adventurer = state.adventurers[advIdx];
+  const belt = adventurer.foodBelt ?? {};
+  const beltTotal = Object.values(belt).reduce((s, v) => s + v, 0);
+  if (beltTotal >= 3) return state;
+  const updatedAdv = { ...adventurer, foodBelt: { ...belt, [foodId]: (belt[foodId] ?? 0) + 1 } };
+  return {
+    ...state,
+    artisan: { ...artisan, [foodId]: artisan[foodId] - 1 },
+    adventurers: state.adventurers.map((a, i) => i === advIdx ? updatedAdv : a),
+  };
+}
+
+export function removeArtisanFood(state, adventurerId, foodId) {
+  const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
+  if (advIdx === -1) return state;
+  const adventurer = state.adventurers[advIdx];
+  const belt = adventurer.foodBelt ?? {};
+  if ((belt[foodId] ?? 0) < 1) return state;
+  const updatedBelt = { ...belt, [foodId]: belt[foodId] - 1 };
+  const updatedAdv = { ...adventurer, foodBelt: updatedBelt };
+  return {
+    ...state,
+    artisan: { ...(state.artisan ?? {}), [foodId]: ((state.artisan ?? {})[foodId] ?? 0) + 1 },
+    adventurers: state.adventurers.map((a, i) => i === advIdx ? updatedAdv : a),
+  };
+}
+
+export function useArtisanFood(state, adventurerId, foodId) {
+  const def = ARTISAN_FOOD_HEAL[foodId];
+  if (!def) return state;
+  const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
+  if (advIdx === -1) return state;
+  const adventurer = state.adventurers[advIdx];
+  const belt = adventurer.foodBelt ?? {};
+  if ((belt[foodId] ?? 0) < 1) return state;
+  const maxHp = adventurer.maxHp ?? getAdventurerMaxHp(adventurer);
+  if ((adventurer.hp ?? maxHp) >= maxHp) return state;
+  const newHp = Math.min(maxHp, (adventurer.hp ?? maxHp) + def.healAmount);
+  const updatedBelt = { ...belt, [foodId]: belt[foodId] - 1 };
+  const updatedAdv = { ...adventurer, hp: newHp, foodBelt: updatedBelt };
+  return { ...state, adventurers: state.adventurers.map((a, i) => i === advIdx ? updatedAdv : a) };
+}
+
 // Brew a crop potion in the kitchen (consumes crops, adds to cropPotions)
 export function brewCropPotion(state, potionId) {
   const recipe = CROP_POTION_RECIPES[potionId];
@@ -3897,6 +4076,53 @@ export function tickAdventurerRegen(state, dtSeconds) {
     return { ...adv, hp: newHp };
   });
   return { ...state, adventurers: updated };
+}
+
+// ─── World Workers ─────────────────────────────────────────────────────────────
+
+export function tickWorldWorkers(state, dtSeconds) {
+  const workers = state.worldWorkers ?? [];
+  if (workers.length === 0) return state;
+  let nextResources = { ...(state.worldResources ?? {}) };
+  const updatedWorkers = workers.map((w) => {
+    const zone = WORLD_ZONES[w.zoneId];
+    if (!zone) return w;
+    const ratePerSecond = (zone.workerYieldPerMinute ?? 2) / 60;
+    const accumulated = (w.accumulated ?? 0) + ratePerSecond * dtSeconds;
+    const gained = Math.floor(accumulated);
+    if (gained > 0) {
+      const resourceKey = Object.keys(WORLD_RESOURCES).find(
+        (k) => WORLD_RESOURCES[k].name.toLowerCase() === zone.workerResource?.toLowerCase()
+      ) ?? zone.loot?.[0]?.resourceKey;
+      if (resourceKey) nextResources[resourceKey] = (nextResources[resourceKey] ?? 0) + gained;
+    }
+    return { ...w, accumulated: accumulated - gained };
+  });
+  return { ...state, worldWorkers: updatedWorkers, worldResources: nextResources };
+}
+
+export function hireWorldWorker(state, zoneId) {
+  const zone = WORLD_ZONES[zoneId];
+  if (!zone) return state;
+  const clears = (state.worldZoneClears ?? {})[zoneId] ?? 0;
+  if (clears < zone.clearsNeeded) return state;
+  if ((state.worldWorkers ?? []).some((w) => w.zoneId === zoneId)) return state;
+  if ((state.cash ?? 0) < WORLD_WORKER_HIRE_COST) return state;
+  const worker = {
+    id: "ww_" + Math.random().toString(36).slice(2, 8),
+    zoneId,
+    name: zone.name + " Worker",
+    accumulated: 0,
+  };
+  return {
+    ...state,
+    cash: state.cash - WORLD_WORKER_HIRE_COST,
+    worldWorkers: [...(state.worldWorkers ?? []), worker],
+  };
+}
+
+export function fireWorldWorker(state, zoneId) {
+  return { ...state, worldWorkers: (state.worldWorkers ?? []).filter((w) => w.zoneId !== zoneId) };
 }
 
 // ─── Forge Engine ─────────────────────────────────────────────────────────────

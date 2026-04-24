@@ -1,6 +1,7 @@
 // src/Pages/rootwork/components/WorldZone.jsx
 import React, { useState } from "react";
-import { WORLD_ZONES, ADVENTURER_CLASSES, FORGE_RECIPES, CROP_POTION_RECIPES, CROP_POTION_LIST } from "../gameConstants";
+import { WORLD_ZONES, ADVENTURER_CLASSES, FORGE_RECIPES, CROP_POTION_RECIPES, CROP_POTION_LIST, ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST, WORLD_RESOURCES, WORLD_WORKER_HIRE_COST, HERO_SKILLS } from "../gameConstants";
+import { getAdventurerSlotCost, getAdventurerSlotUnlocked } from "../gameEngine";
 
 function getAdventurerMaxHp(adventurer) {
   return 40 + ((adventurer.level ?? 1) - 1) * 8;
@@ -90,8 +91,75 @@ function LootModal({ result, onDismiss }) {
   );
 }
 
+
+// ─── Skill Tree ───────────────────────────────────────────────────────────────
+function SkillTree({ adventurer, onSpendSkillPoint }) {
+  const skills = adventurer.skills ?? [];
+  const skillPoints = adventurer.skillPoints ?? 0;
+  const level = adventurer.level ?? 1;
+
+  return (
+    <div style={{ marginBottom: "0.85rem" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+        <div style={{ fontSize: "0.65rem", fontWeight: 700, color: "var(--muted)", letterSpacing: "0.05em" }}>🌟 SKILL TREE</div>
+        <div style={{
+          fontSize: "0.62rem", fontWeight: 700,
+          padding: "2px 8px", borderRadius: "999px",
+          background: skillPoints > 0 ? "rgba(251,191,36,0.15)" : "rgba(255,255,255,0.06)",
+          border: `1px solid ${skillPoints > 0 ? "rgba(251,191,36,0.5)" : "var(--border)"}`,
+          color: skillPoints > 0 ? "#fbbf24" : "var(--muted)",
+        }}>
+          {skillPoints} point{skillPoints !== 1 ? "s" : ""} available
+        </div>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+        {HERO_SKILLS.map((skill, idx) => {
+          const unlocked = skills.includes(skill.id);
+          const prevUnlocked = idx === 0 || skills.includes(HERO_SKILLS[idx - 1].id);
+          const meetsLevel = level >= skill.requiredLevel;
+          const canBuy = !unlocked && prevUnlocked && skillPoints > 0 && meetsLevel;
+          const locked = !unlocked && (!prevUnlocked || !meetsLevel);
+
+          return (
+            <div key={skill.id} style={{
+              display: "flex", alignItems: "center", gap: "0.6rem",
+              padding: "0.45rem 0.65rem", borderRadius: "8px",
+              background: unlocked ? "rgba(99,102,241,0.12)" : canBuy ? "rgba(251,191,36,0.06)" : "rgba(255,255,255,0.02)",
+              border: `1px solid ${unlocked ? "rgba(99,102,241,0.4)" : canBuy ? "rgba(251,191,36,0.3)" : "var(--border)"}`,
+              opacity: locked ? 0.45 : 1,
+            }}>
+              <div style={{ fontSize: "1.15rem", lineHeight: 1, flexShrink: 0 }}>{skill.emoji}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: "0.72rem", fontWeight: 700, color: unlocked ? "#a78bfa" : canBuy ? "#fbbf24" : "var(--text)" }}>
+                  {skill.name}
+                  {skill.id === "auto_battle" && <span style={{ fontSize: "0.58rem", marginLeft: "0.35rem", background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.3)", color: "#f87171", borderRadius: "4px", padding: "1px 5px" }}>KEY</span>}
+                </div>
+                <div style={{ fontSize: "0.6rem", color: "var(--muted)", lineHeight: 1.4 }}>{skill.description} · Req. Lv.{skill.requiredLevel}</div>
+              </div>
+              {unlocked ? (
+                <div style={{ fontSize: "0.75rem", color: "#4ade80", flexShrink: 0 }}>✓</div>
+              ) : canBuy ? (
+                <button
+                  onClick={() => onSpendSkillPoint(adventurer.id, skill.id)}
+                  style={{ fontSize: "0.6rem", padding: "3px 9px", borderRadius: "6px", cursor: "pointer", flexShrink: 0, background: "rgba(251,191,36,0.2)", border: "1px solid rgba(251,191,36,0.5)", color: "#fbbf24", fontWeight: 700 }}
+                >
+                  Unlock
+                </button>
+              ) : (
+                <div style={{ fontSize: "0.65rem", color: "var(--muted)", flexShrink: 0 }}>
+                  {!meetsLevel ? `Lv.${skill.requiredLevel}` : "🔒"}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Hero Modal ────────────────────────────────────────────────────────────────
-function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onUsePotion, onGivePotion, onRemovePotion }) {
+function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onUsePotion, onGivePotion, onRemovePotion, onGiveArtisanFood, onRemoveArtisanFood, onUseArtisanFood, onSpendSkillPoint }) {
   const cls = ADVENTURER_CLASSES[adventurer.class] ?? ADVENTURER_CLASSES.fighter;
   const maxHp = adventurer.maxHp ?? getAdventurerMaxHp(adventurer);
   const hp = adventurer.hp ?? maxHp;
@@ -211,6 +279,59 @@ function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onUsePotion,
           )}
         </div>
 
+        {/* Food Belt */}
+        <div style={{ padding: "0.6rem 0.75rem", background: "rgba(251,191,36,0.05)", border: "1px solid rgba(251,191,36,0.2)", borderRadius: "10px", marginBottom: "0.65rem" }}>
+          <div style={{ fontWeight: 600, marginBottom: "0.4rem", color: "var(--muted)", fontSize: "0.6rem", letterSpacing: "0.05em" }}>🍞 FOOD BELT <span style={{ color: "var(--muted)", fontWeight: 400 }}>(max 3 · auto-used on level up or tap)</span></div>
+          {/* Equipped food */}
+          {(() => {
+            const foodBelt = adventurer.foodBelt ?? {};
+            const beltItems = ARTISAN_FOOD_LIST.filter((id) => (foodBelt[id] ?? 0) > 0);
+            const beltTotal = Object.values(foodBelt).reduce((s, v) => s + v, 0);
+            const stockFood = ARTISAN_FOOD_LIST.filter((id) => ((game.artisan ?? {})[id] ?? 0) > 0);
+            return (
+              <>
+                {beltTotal === 0 ? (
+                  <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.4rem", fontStyle: "italic" }}>No food on belt.</div>
+                ) : (
+                  <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap", marginBottom: "0.4rem" }}>
+                    {beltItems.map((id) => {
+                      const def = ARTISAN_FOOD_HEAL[id];
+                      return (
+                        <div key={id} style={{ display: "flex", alignItems: "center", gap: "0.25rem", background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: "7px", padding: "3px 8px" }}>
+                          <span style={{ fontSize: "0.85rem" }}>{def.emoji}</span>
+                          <span style={{ fontSize: "0.65rem", fontWeight: 600 }}>×{foodBelt[id]}</span>
+                          <span style={{ fontSize: "0.58rem", color: "#4ade80" }}>+{def.healAmount}hp</span>
+                          <button onClick={() => onUseArtisanFood(adventurer.id, id)} style={{ fontSize: "0.55rem", padding: "1px 5px", borderRadius: "4px", background: "rgba(74,222,128,0.15)", border: "1px solid rgba(74,222,128,0.3)", color: "#4ade80", cursor: "pointer", marginLeft: "2px" }}>Use</button>
+                          <button onClick={() => onRemoveArtisanFood(adventurer.id, id)} style={{ fontSize: "0.55rem", padding: "1px 5px", borderRadius: "4px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)", color: "#ef4444", cursor: "pointer" }}>−</button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {stockFood.length > 0 && beltTotal < 3 && (
+                  <div>
+                    <div style={{ fontSize: "0.58rem", color: "var(--muted)", marginBottom: "0.25rem" }}>Add from stock:</div>
+                    <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
+                      {stockFood.map((id) => {
+                        const def = ARTISAN_FOOD_HEAL[id];
+                        const qty = (game.artisan ?? {})[id] ?? 0;
+                        return (
+                          <button key={id} onClick={() => onGiveArtisanFood(adventurer.id, id)} style={{ fontSize: "0.65rem", padding: "2px 9px", borderRadius: "6px", cursor: "pointer", background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)" }}>
+                            {def.emoji} {def.name} ×{qty}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
+        </div>
+
+        {/* Skill Tree */}
+        <SkillTree adventurer={adventurer} onSpendSkillPoint={onSpendSkillPoint} />
+
         {/* Stats */}
         <div style={{ padding: "0.55rem 0.7rem", background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)", borderRadius: "10px", fontSize: "0.68rem" }}>
           <div style={{ fontWeight: 600, marginBottom: "0.35rem", color: "var(--muted)", fontSize: "0.6rem", letterSpacing: "0.05em" }}>📊 COMBAT STATS</div>
@@ -227,24 +348,54 @@ function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onUsePotion,
 
 
 // ─── Cleared Zones ─────────────────────────────────────────────────────────────
-function ClearedZones({ game }) {
+function ClearedZones({ game, onHireWorldWorker, onFireWorldWorker }) {
   const zones = Object.values(WORLD_ZONES);
   const cleared = zones.filter((z) => (game.worldZoneClears?.[z.id] ?? 0) >= z.clearsNeeded);
   if (cleared.length === 0) return null;
   return (
     <div style={{ marginBottom: "1rem" }}>
-      <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.5rem", letterSpacing: "0.06em" }}>CLEARED ZONES — WORKER SLOTS</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+      <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.5rem", letterSpacing: "0.06em" }}>CLEARED ZONES — PASSIVE WORKERS</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
         {cleared.map((zone) => {
-          const assigned = game.worldWorkers?.find((w) => w.zoneId === zone.id);
+          const assigned = (game.worldWorkers ?? []).find((w) => w.zoneId === zone.id);
+          const resourceKey = Object.keys(WORLD_RESOURCES).find(
+            (k) => WORLD_RESOURCES[k].name.toLowerCase() === zone.workerResource?.toLowerCase()
+          ) ?? zone.loot?.[0]?.resourceKey;
+          const stockpile = resourceKey ? ((game.worldResources ?? {})[resourceKey] ?? 0) : 0;
+          const canAfford = (game.cash ?? 0) >= WORLD_WORKER_HIRE_COST;
           return (
-            <div key={zone.id} style={{ padding: "0.5rem 0.75rem", background: "rgba(74,222,128,0.06)", border: "1px solid rgba(74,222,128,0.2)", borderRadius: "8px", display: "flex", alignItems: "center", gap: "0.6rem" }}>
-              <span style={{ fontSize: "1.1rem" }}>{zone.emoji}</span>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: "0.75rem", fontWeight: 600 }}>{zone.name}</div>
-                <div style={{ fontSize: "0.6rem", color: "#4ade80" }}>{assigned ? `✓ ${assigned.name} assigned — producing ${zone.workerResource}` : "No worker assigned yet"}</div>
+            <div key={zone.id} style={{ padding: "0.6rem 0.75rem", background: "rgba(74,222,128,0.06)", border: "1px solid rgba(74,222,128,0.2)", borderRadius: "10px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                <span style={{ fontSize: "1.2rem" }}>{zone.emoji}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: "0.78rem", fontWeight: 700 }}>{zone.name}</div>
+                  {assigned ? (
+                    <div style={{ fontSize: "0.6rem", color: "#4ade80" }}>
+                      ✓ Worker producing {zone.workerEmoji} {zone.workerResource} · {zone.workerYieldPerMinute}/min
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: "0.6rem", color: "var(--muted)" }}>
+                      No worker · hire for ${WORLD_WORKER_HIRE_COST}
+                    </div>
+                  )}
+                </div>
+                {assigned ? (
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "0.25rem" }}>
+                    <div style={{ fontSize: "0.65rem", fontWeight: 700, color: "#fbbf24" }}>{zone.workerEmoji} ×{stockpile}</div>
+                    <button onClick={() => onFireWorldWorker(zone.id)} style={{ fontSize: "0.55rem", padding: "2px 7px", borderRadius: "5px", background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.35)", color: "#ef4444", cursor: "pointer" }}>
+                      Fire
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => onHireWorldWorker(zone.id)}
+                    disabled={!canAfford}
+                    style={{ fontSize: "0.65rem", padding: "0.3rem 0.6rem", borderRadius: "7px", background: canAfford ? "rgba(74,222,128,0.15)" : "rgba(255,255,255,0.04)", border: `1px solid ${canAfford ? "rgba(74,222,128,0.4)" : "var(--border)"}`, color: canAfford ? "#4ade80" : "var(--muted)", cursor: canAfford ? "pointer" : "default", fontWeight: 600, whiteSpace: "nowrap" }}
+                  >
+                    Hire $200
+                  </button>
+                )}
               </div>
-              <div style={{ fontSize: "0.6rem", color: "var(--muted)", background: "rgba(255,255,255,0.05)", padding: "2px 6px", borderRadius: "4px" }}>{zone.workerEmoji} {zone.workerResource}</div>
             </div>
           );
         })}
@@ -369,7 +520,7 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero 
 }
 
 // ─── Main WorldZone ────────────────────────────────────────────────────────────
-export default function WorldZone({ game, onSendAdventurer, onReturnAdventurer, onEquipAdventurer, onUnequipAdventurer, onUsePotionOnAdventurer, onGivePotion, onRemovePotion }) {
+export default function WorldZone({ game, onSendAdventurer, onReturnAdventurer, onEquipAdventurer, onUnequipAdventurer, onUsePotionOnAdventurer, onGivePotion, onRemovePotion, onHireWorldWorker, onFireWorldWorker, onGiveArtisanFood, onRemoveArtisanFood, onUseArtisanFood, onHireAdventurer, onSpendSkillPoint }) {
   const [lootResult, setLootResult] = useState(null);
   const [heroModal, setHeroModal] = useState(null);
 
@@ -390,16 +541,47 @@ export default function WorldZone({ game, onSendAdventurer, onReturnAdventurer, 
         <p style={{ fontSize: "0.72rem", color: "var(--muted)" }}>Send adventurers to explore zones and gather resources.</p>
       </div>
 
-      <ClearedZones game={game} />
+      <ClearedZones game={game} onHireWorldWorker={onHireWorldWorker} onFireWorldWorker={onFireWorldWorker} />
 
-      {adventurers.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "2rem 1rem", color: "var(--muted)", fontSize: "0.8rem", border: "1px dashed var(--border)", borderRadius: "12px" }}>
-          <div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>🗺️</div>
-          No adventurers yet.
-        </div>
-      ) : adventurers.map((adv) => (
+      {adventurers.map((adv) => (
         <AdventurerCard key={adv.id} adventurer={adv} zones={zones} game={game} onSend={onSendAdventurer} onReturn={handleReturn} onOpenHero={setHeroModal} />
       ))}
+
+      {/* Hire adventurer slot */}
+      {(() => {
+        const slotUnlocked = getAdventurerSlotUnlocked(game);
+        const cost = getAdventurerSlotCost(game);
+        const canAfford = (game.cash ?? 0) >= (cost ?? 0);
+        const nextSeason = (game.adventurers ?? []).length + 1;
+        if (cost === null) return null; // all slots filled
+        if (!slotUnlocked) {
+          return (
+            <div style={{
+              width: "100%", marginTop: "0.75rem", padding: "0.75rem",
+              background: "rgba(255,255,255,0.02)", border: "1px dashed var(--border)",
+              borderRadius: "12px", color: "var(--muted)", fontWeight: 600,
+              fontSize: "0.82rem", textAlign: "center",
+            }}>
+              🔒 Next hero slot unlocks Season {nextSeason} · ${cost?.toLocaleString()}
+            </div>
+          );
+        }
+        return (
+          <button
+            onClick={() => onHireAdventurer()}
+            disabled={!canAfford}
+            style={{
+              width: "100%", marginTop: "0.75rem", padding: "0.75rem",
+              background: canAfford ? "rgba(99,102,241,0.15)" : "rgba(255,255,255,0.03)",
+              border: `1px solid ${canAfford ? "rgba(99,102,241,0.5)" : "var(--border)"}`,
+              borderRadius: "12px", color: canAfford ? "var(--accent)" : "var(--muted)",
+              fontWeight: 700, fontSize: "0.85rem", cursor: canAfford ? "pointer" : "default",
+            }}
+          >
+            ⚔️ Hire Adventurer · ${cost?.toLocaleString()}
+          </button>
+        );
+      })()}
 
       <LootModal result={lootResult} onDismiss={() => setLootResult(null)} />
 
@@ -407,6 +589,8 @@ export default function WorldZone({ game, onSendAdventurer, onReturnAdventurer, 
         <HeroModal adventurer={heroModalAdv} game={game} onClose={() => setHeroModal(null)}
           onEquip={onEquipAdventurer} onUnequip={onUnequipAdventurer}
           onUsePotion={onUsePotionOnAdventurer} onGivePotion={onGivePotion} onRemovePotion={onRemovePotion}
+          onGiveArtisanFood={onGiveArtisanFood} onRemoveArtisanFood={onRemoveArtisanFood} onUseArtisanFood={onUseArtisanFood}
+          onSpendSkillPoint={onSpendSkillPoint}
         />
       )}
     </div>

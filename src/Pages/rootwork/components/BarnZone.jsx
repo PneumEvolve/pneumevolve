@@ -623,20 +623,60 @@ function BuildingTab({
             <div style={{ fontSize: "0.8rem", fontWeight: 600 }}>👷 Barn Workers ({workerSlotsUsed}/{workerSlots})</div>
             <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginTop: "0.1rem" }}>Auto-collect produce · upgradeable</div>
           </div>
-          <button
-            onClick={() => canHireWorker && onHireBarnWorker(def.animalType, instanceId)}
-            disabled={!canHireWorker}
-            style={{
-              fontSize: "0.72rem", fontWeight: 600, padding: "0.3rem 0.75rem", borderRadius: "8px",
-              cursor: canHireWorker ? "pointer" : "default",
-              background: canHireWorker ? "var(--accent)" : "var(--bg)",
-              border: `1px solid ${canHireWorker ? "var(--accent)" : "var(--border)"}`,
-              color: canHireWorker ? "#fff" : "var(--muted)",
-              opacity: workerSlotsFull || atWorkerCap ? 0.5 : 1,
-            }}
-          >
-            {atWorkerCap ? "Town full" : workerSlotsFull ? "Slots full" : `+ Hire $${hireCost}`}
-          </button>
+          <div style={{ display: "flex", gap: "0.4rem" }}>
+            {barnWorkers.length > 0 && (() => {
+              const ALL_UPGRADE_IDS = [...SPEED_UPGRADES, ...CAPACITY_UPGRADES, ...CARE_UPGRADES];
+              const nextUpgrades = barnWorkers.map((w) => {
+                const owned = w.upgrades ?? [];
+                return ALL_UPGRADE_IDS.find((uid) => {
+                  const u = BARN_WORKER_UPGRADES[uid];
+                  return !owned.includes(uid) && (!u.requires || owned.includes(u.requires));
+                });
+              }).filter(Boolean);
+              const totalCost = nextUpgrades.reduce((s, uid) => s + (BARN_WORKER_UPGRADES[uid]?.cost ?? 0), 0);
+              const canAffordAll = nextUpgrades.length > 0 && (cash >= totalCost);
+              if (nextUpgrades.length === 0) return null;
+              return (
+                <button
+                  onClick={() => {
+                    if (!canAffordAll) return;
+                    barnWorkers.forEach((w) => {
+                      const owned = w.upgrades ?? [];
+                      const uid = ALL_UPGRADE_IDS.find((id) => {
+                        const u = BARN_WORKER_UPGRADES[id];
+                        return !owned.includes(id) && (!u.requires || owned.includes(u.requires));
+                      });
+                      if (uid) onUpgradeBarnWorker(w.id, uid);
+                    });
+                  }}
+                  disabled={!canAffordAll}
+                  style={{
+                    fontSize: "0.65rem", fontWeight: 600, padding: "0.3rem 0.6rem", borderRadius: "8px",
+                    cursor: canAffordAll ? "pointer" : "default",
+                    background: canAffordAll ? "rgba(251,191,36,0.15)" : "var(--bg)",
+                    border: `1px solid ${canAffordAll ? "rgba(251,191,36,0.5)" : "var(--border)"}`,
+                    color: canAffordAll ? "#fbbf24" : "var(--muted)",
+                  }}
+                >
+                  ⬆ All ${totalCost.toLocaleString()}
+                </button>
+              );
+            })()}
+            <button
+              onClick={() => canHireWorker && onHireBarnWorker(def.animalType, instanceId)}
+              disabled={!canHireWorker}
+              style={{
+                fontSize: "0.72rem", fontWeight: 600, padding: "0.3rem 0.75rem", borderRadius: "8px",
+                cursor: canHireWorker ? "pointer" : "default",
+                background: canHireWorker ? "var(--accent)" : "var(--bg)",
+                border: `1px solid ${canHireWorker ? "var(--accent)" : "var(--border)"}`,
+                color: canHireWorker ? "#fff" : "var(--muted)",
+                opacity: workerSlotsFull || atWorkerCap ? 0.5 : 1,
+              }}
+            >
+              {atWorkerCap ? "Town full" : workerSlotsFull ? "Slots full" : `+ Hire $${hireCost}`}
+            </button>
+          </div>
         </div>
         {barnWorkers.length > 0 && (
           <div style={{ padding: "0.65rem 0.85rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>

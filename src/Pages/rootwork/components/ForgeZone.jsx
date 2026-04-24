@@ -3,7 +3,7 @@ import React, { useState } from "react";
 import {
   FORGE_RECIPES, FORGE_RECIPE_LIST,
   FORGE_WORKER_UPGRADES, FORGE_WORKER_UPGRADE_ORDER,
-  WORLD_RESOURCES,
+  WORLD_RESOURCES, FORGE_BUILD_COST, FORGE_IRON, FORGE_LUMBER,
 } from "../gameConstants";
 import {
   getForgeWorkerHireCost,
@@ -368,10 +368,53 @@ export default function ForgeZone({
   onFireForgeWorker,
   onCancelForgeWorkerRecipe,
   onToggleForgeWorkerAutoRestart,
+  onBuildForge,
 }) {
   const [expandedWorkers, setExpandedWorkers] = useState({});
 
   const toggleWorker = (id) => setExpandedWorkers((prev) => ({ ...prev, [id]: !prev[id] }));
+
+  // ── Locked splash ──────────────────────────────────────────────────────────
+  if (!game.forgeBuilt) {
+    const hasCash = (game.cash ?? 0) >= FORGE_BUILD_COST;
+    const hasIron = (game.worldResources?.iron_ore ?? 0) >= FORGE_IRON;
+    const hasLumber = (game.worldResources?.lumber ?? 0) >= FORGE_LUMBER;
+    const canAfford = hasCash && hasIron && hasLumber;
+    return (
+      <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 5rem" }}>
+        <div style={{
+          background: "linear-gradient(135deg, #1a0f00, #3d2200)",
+          borderRadius: "16px", padding: "2.5rem 1.5rem",
+          textAlign: "center", border: "1px solid rgba(255,200,100,0.15)",
+        }}>
+          <div style={{ fontSize: "3.5rem", marginBottom: "0.75rem" }}>⚒️</div>
+          <h3 style={{ fontSize: "1.05rem", fontWeight: 800, color: "#fff", marginBottom: "0.4rem", letterSpacing: "0.04em" }}>
+            Build a Forge
+          </h3>
+          <p style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.5)", lineHeight: 1.7, maxWidth: "250px", margin: "0 auto 1.5rem" }}>
+            Smelt world resources into gear and consumables for your adventurers. Hire smiths to craft automatically.
+          </p>
+          <button
+            onClick={onBuildForge}
+            disabled={!canAfford}
+            style={{
+              background: canAfford ? "rgba(217,119,6,0.5)" : "rgba(255,255,255,0.06)",
+              border: `1px solid ${canAfford ? "rgba(217,119,6,0.8)" : "rgba(255,255,255,0.12)"}`,
+              borderRadius: "12px", padding: "0.7rem 1.75rem",
+              fontSize: "0.82rem", fontWeight: 700,
+              color: canAfford ? "#fff" : "rgba(255,255,255,0.25)",
+              cursor: canAfford ? "pointer" : "default", letterSpacing: "0.04em",
+            }}
+          >
+            {canAfford
+              ? `⚒️ Build Forge — $${FORGE_BUILD_COST} 🪨×${FORGE_IRON} 🪵×${FORGE_LUMBER}`
+              : `Need $${FORGE_BUILD_COST}${hasCash ? " ✓" : ` (have $${Math.floor(game.cash ?? 0)})`} 🪨×${FORGE_IRON}${hasIron ? " ✓" : ` (have ${Math.floor(game.worldResources?.iron_ore ?? 0)})`} 🪵×${FORGE_LUMBER}${hasLumber ? " ✓" : ` (have ${Math.floor(game.worldResources?.lumber ?? 0)})`}`}
+          </button>
+        </div>
+      </div>
+    );
+  }
+  // ── End locked splash ──────────────────────────────────────────────────────
 
   const workers = game.forgeWorkers ?? [];
   const hireCost = getForgeWorkerHireCost(game);

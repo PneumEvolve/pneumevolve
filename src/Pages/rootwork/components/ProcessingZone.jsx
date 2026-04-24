@@ -103,6 +103,169 @@ function UpgradeTree({ label, upgradeIds, worker, game, onUpgrade }) {
   );
 }
  
+// ─── Recipe groups (collapsible sections inside assign recipe) ────────────────
+ 
+const CROP_RECIPE_IDS = ["bread", "jam", "sauce"];
+const FISH_RECIPE_IDS = ["fish_pie", "smoked_fish", "fish_meal", "fish_meal_bass"];
+const ANIMAL_RECIPE_IDS = ["omelette", "cheese", "knitted_goods"];
+ 
+function RecipeButton({ r, recipeId, worker, batch, onAssignRecipe, onClose, extraLabel }) {
+  return (
+    <button
+      key={recipeId}
+      onClick={() => { onAssignRecipe(worker.id, recipeId); onClose(); }}
+      disabled={!r._canStart}
+      style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "0.5rem 0.6rem", borderRadius: "6px",
+        background: worker.recipeId === recipeId ? "rgba(99,102,241,0.1)" : "var(--bg)",
+        border: `1px solid ${worker.recipeId === recipeId ? "var(--accent)" : "var(--border)"}`,
+        cursor: r._canStart ? "pointer" : "default",
+        opacity: r._canStart ? 1 : 0.5, fontSize: "0.75rem", width: "100%",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+        <span>{r.emoji}</span>
+        <div style={{ textAlign: "left" }}>
+          <div style={{ fontWeight: 600, color: "var(--text)" }}>{r.name}</div>
+          <div style={{ fontSize: "0.62rem", color: "var(--muted)" }}>
+            {r._totalInput}× {r.inputCrop} · {r._effectiveSeconds}s · have {r._have}
+            {batch > 1 && <span style={{ marginLeft: "0.3rem", color: "#f59e0b" }}>· ×{batch} batch</span>}
+            {r._inStock > 0 && <span style={{ marginLeft: "0.3rem", color: extraLabel?.color ?? "var(--muted)" }}>· {r._inStock} in stock</span>}
+          </div>
+        </div>
+      </div>
+      <div style={{ fontSize: "0.68rem", color: "var(--muted)", textAlign: "right" }}>
+        {r._output}
+      </div>
+    </button>
+  );
+}
+ 
+function RecipeSection({ title, icon, accentColor, recipeIds, recipes, worker, batch, onAssignRecipe, onClose, defaultOpen = false }) {
+  const [open, setOpen] = React.useState(defaultOpen);
+  const hasActive = recipeIds.some(id => worker.recipeId === id);
+  return (
+    <div style={{ border: "1px solid var(--border)", borderRadius: "8px", overflow: "hidden" }}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        style={{
+          width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "0.4rem 0.6rem", background: open ? "rgba(255,255,255,0.03)" : "none",
+          border: "none", cursor: "pointer",
+        }}
+      >
+        <span style={{ fontSize: "0.65rem", fontWeight: 700, color: hasActive ? accentColor : "var(--muted)", letterSpacing: "0.05em" }}>
+          {icon} {title}
+          {hasActive && <span style={{ marginLeft: "0.4rem", fontSize: "0.6rem", color: accentColor }}>● active</span>}
+        </span>
+        <span style={{ fontSize: "0.6rem", color: "var(--muted)" }}>{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", padding: "0.35rem 0.5rem 0.5rem" }}>
+          {recipeIds.map(id => {
+            const r = recipes[id];
+            if (!r) return null;
+            return <RecipeButton key={id} r={r} recipeId={id} worker={worker} batch={batch} onAssignRecipe={onAssignRecipe} onClose={onClose} extraLabel={{ color: accentColor }} />;
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+ 
+function RecipeGroups({ worker, game, batch, onAssignRecipe, onClose }) {
+  // Pre-compute recipe metadata for all categories
+  function buildRecipe(recipeId, baseRecipe, haveVal, inStockVal, outputLabel) {
+    const totalInput = baseRecipe.inputAmount * batch;
+    const effectiveSeconds = getEffectiveKitchenSeconds(worker, baseRecipe.seconds);
+    const canStart = haveVal >= totalInput;
+    return {
+      ...baseRecipe,
+      _have: haveVal,
+      _inStock: inStockVal,
+      _totalInput: totalInput,
+      _effectiveSeconds: effectiveSeconds,
+      _canStart: canStart,
+      _output: outputLabel,
+    };
+  }
+ 
+  const cropRecipes = {};
+  CROP_RECIPE_IDS.forEach(id => {
+    const r = PROCESSING_RECIPES[id];
+    if (!r) return;
+    const have = game.crops[r.inputCrop] ?? 0;
+    cropRecipes[id] = buildRecipe(id, r, have, 0, `→ ${r.outputAmount * batch} ${r.emoji}`);
+  });
+ 
+  const animalRecipes = {};
+  ANIMAL_RECIPE_IDS.forEach(id => {
+    const r = PROCESSING_RECIPES[id];
+    if (!r) return;
+    const have = game.animalGoods?.[r.inputCrop] ?? 0;
+    animalRecipes[id] = buildRecipe(id, r, have, 0, `→ ${r.outputAmount * batch} ${r.emoji}`);
+  });
+ 
+  const fishRecipes = {};
+  FISH_RECIPE_IDS.forEach(id => {
+    const r = PROCESSING_RECIPES[id];
+    if (!r) return;
+    const have = (game.fishing?.fish?.[r.inputCrop] ?? 0) || (game.animalGoods?.[r.inputCrop] ?? 0);
+    fishRecipes[id] = buildRecipe(id, r, have, 0, `→ ${r.outputAmount * batch} ${r.emoji}`);
+  });
+ 
+  const baitRecipes = {};
+  BAIT_RECIPE_LIST.forEach(id => {
+    const r = BAIT_RECIPES[id];
+    if (!r) return;
+    const have = game.crops[r.inputCrop] ?? 0;
+    const inStock = game.bait?.[id] ?? 0;
+    baitRecipes[id] = buildRecipe(id, r, have, inStock, `→ ${r.outputAmount * batch} ${r.emoji}`);
+  });
+ 
+  const potionRecipes = {};
+  POTION_RECIPE_LIST.forEach(id => {
+    const r = CROP_POTION_RECIPES[id];
+    if (!r) return;
+    const have = game.crops[r.inputCrop] ?? 0;
+    const inStock = (game.cropPotions ?? {})[id] ?? 0;
+    potionRecipes[id] = buildRecipe(id, r, have, inStock, `→ ${r.outputAmount * batch} ${r.emoji} +${r.healAmount}hp`);
+  });
+ 
+  const activeCat =
+    CROP_RECIPE_IDS.includes(worker.recipeId) ? "crop" :
+    ANIMAL_RECIPE_IDS.includes(worker.recipeId) ? "animal" :
+    FISH_RECIPE_IDS.includes(worker.recipeId) ? "fish" :
+    BAIT_RECIPE_LIST.includes(worker.recipeId) ? "bait" :
+    POTION_RECIPE_LIST.includes(worker.recipeId) ? "potion" : null;
+ 
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", marginTop: "0.4rem" }}>
+      <RecipeSection title="CROP GOODS" icon="🌾" accentColor="#86efac"
+        recipeIds={CROP_RECIPE_IDS} recipes={cropRecipes}
+        worker={worker} batch={batch} onAssignRecipe={onAssignRecipe} onClose={onClose}
+        defaultOpen={!activeCat || activeCat === "crop"} />
+      <RecipeSection title="BARN GOODS" icon="🐄" accentColor="#fbbf24"
+        recipeIds={ANIMAL_RECIPE_IDS} recipes={animalRecipes}
+        worker={worker} batch={batch} onAssignRecipe={onAssignRecipe} onClose={onClose}
+        defaultOpen={activeCat === "animal"} />
+      <RecipeSection title="FISH GOODS" icon="🐠" accentColor="#60a5fa"
+        recipeIds={FISH_RECIPE_IDS} recipes={fishRecipes}
+        worker={worker} batch={batch} onAssignRecipe={onAssignRecipe} onClose={onClose}
+        defaultOpen={activeCat === "fish"} />
+      <RecipeSection title="BAIT" icon="🪱" accentColor="#f97316"
+        recipeIds={BAIT_RECIPE_LIST} recipes={baitRecipes}
+        worker={worker} batch={batch} onAssignRecipe={onAssignRecipe} onClose={onClose}
+        defaultOpen={activeCat === "bait"} />
+      <RecipeSection title="POTIONS" icon="🫙" accentColor="#a78bfa"
+        recipeIds={POTION_RECIPE_LIST} recipes={potionRecipes}
+        worker={worker} batch={batch} onAssignRecipe={onAssignRecipe} onClose={onClose}
+        defaultOpen={activeCat === "potion"} />
+    </div>
+  );
+}
+ 
 // ─── Kitchen worker card ──────────────────────────────────────────────────────
  
 function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, onCancel, onToggleAutoRestart, onSetBatchOverride, workerNumber, expanded, onToggle }) {
@@ -110,7 +273,7 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
   const [confirmFire, setConfirmFire] = useState(false);
  
   const idle = isKitchenWorkerIdle(worker);
-  const recipe = worker.recipeId ? (PROCESSING_RECIPES[worker.recipeId] ?? BAIT_RECIPES[worker.recipeId]) : null;
+  const recipe = worker.recipeId ? (PROCESSING_RECIPES[worker.recipeId] ?? BAIT_RECIPES[worker.recipeId] ?? CROP_POTION_RECIPES[worker.recipeId]) : null;
   const upgrades = worker.upgrades ?? [];
   const satMultiplier = (game.town?.satisfaction ?? 100) / 100;
   const timeRemaining = worker.busy ? Math.max(0, Math.floor((worker.totalSeconds - worker.elapsedSeconds) / satMultiplier)) : 0;
@@ -265,133 +428,13 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
             </button>
  
             {showRecipes && (
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", marginTop: "0.4rem" }}>
-                {/* Standard recipes */}
-                {RECIPE_LIST.map((recipeId) => {
-                  const r = PROCESSING_RECIPES[recipeId];
-                  const have = (game.crops[r.inputCrop] ?? 0)
-  || (game.animalGoods?.[r.inputCrop] ?? 0)
-  || (game.fishing?.fish?.[r.inputCrop] ?? 0);
-                  const totalInput = r.inputAmount * batch;
-                  const canStart = have >= totalInput;
-                  const effectiveSeconds = getEffectiveKitchenSeconds(worker, r.seconds);
-                  return (
-                    <button
-                      key={recipeId}
-                      onClick={() => { onAssignRecipe(worker.id, recipeId); setShowRecipes(false); }}
-                      disabled={!canStart}
-                      style={{
-                        display: "flex", alignItems: "center", justifyContent: "space-between",
-                        padding: "0.5rem 0.6rem", borderRadius: "6px",
-                        background: worker.recipeId === recipeId ? "rgba(99,102,241,0.1)" : "var(--bg)",
-                        border: `1px solid ${worker.recipeId === recipeId ? "var(--accent)" : "var(--border)"}`,
-                        cursor: canStart ? "pointer" : "default",
-                        opacity: canStart ? 1 : 0.5, fontSize: "0.75rem",
-                      }}
-                    >
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                        <span>{r.emoji}</span>
-                        <div style={{ textAlign: "left" }}>
-                          <div style={{ fontWeight: 600, color: "var(--text)" }}>{r.name}</div>
-                          <div style={{ fontSize: "0.62rem", color: "var(--muted)" }}>
-                            {totalInput}× {r.inputCrop} · {effectiveSeconds}s · have {have}
-                            {batch > 1 && <span style={{ marginLeft: "0.3rem", color: "#f59e0b" }}>· ×{batch} batch</span>}
-                          </div>
-                        </div>
-                      </div>
-                      <div style={{ fontSize: "0.68rem", color: "var(--muted)", textAlign: "right" }}>
-                        → {r.outputAmount * batch} {r.emoji}
-                      </div>
-                    </button>
-                  );
-                })}
-
-                {/* Bait recipes */}
-                <div style={{ fontSize: "0.62rem", fontWeight: 600, color: "var(--muted)", marginTop: "0.25rem", paddingTop: "0.35rem", borderTop: "1px solid var(--border)", letterSpacing: "0.06em" }}>
-                  🪱 BAIT
-                </div>
-                {BAIT_RECIPE_LIST.map((recipeId) => {
-                  const r = BAIT_RECIPES[recipeId];
-                  const have = game.crops[r.inputCrop] ?? 0;
-                  const totalInput = r.inputAmount * batch;
-                  const canStart = have >= totalInput;
-                  const effectiveSeconds = getEffectiveKitchenSeconds(worker, r.seconds);
-                  const inStock = game.bait?.[recipeId] ?? 0;
-                  return (
-                    <button
-                      key={recipeId}
-                      onClick={() => { onAssignRecipe(worker.id, recipeId); setShowRecipes(false); }}
-                      disabled={!canStart}
-                      style={{
-                        display: "flex", alignItems: "center", justifyContent: "space-between",
-                        padding: "0.5rem 0.6rem", borderRadius: "6px",
-                        background: worker.recipeId === recipeId ? "rgba(99,102,241,0.1)" : "var(--bg)",
-                        border: `1px solid ${worker.recipeId === recipeId ? "var(--accent)" : "var(--border)"}`,
-                        cursor: canStart ? "pointer" : "default",
-                        opacity: canStart ? 1 : 0.5, fontSize: "0.75rem",
-                      }}
-                    >
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                        <span>{r.emoji}</span>
-                        <div style={{ textAlign: "left" }}>
-                          <div style={{ fontWeight: 600, color: "var(--text)" }}>{r.name}</div>
-                          <div style={{ fontSize: "0.62rem", color: "var(--muted)" }}>
-                            {totalInput}× {r.inputCrop} · {effectiveSeconds}s · have {have}
-                            {batch > 1 && <span style={{ marginLeft: "0.3rem", color: "#f59e0b" }}>· ×{batch} batch</span>}
-                            {inStock > 0 && <span style={{ marginLeft: "0.3rem", color: "#60a5fa" }}>· {inStock} in stock</span>}
-                          </div>
-                        </div>
-                      </div>
-                      <div style={{ fontSize: "0.68rem", color: "var(--muted)", textAlign: "right" }}>
-                        → {r.outputAmount * batch} {r.emoji}
-                      </div>
-                    </button>
-                  );
-                })}
-
-                {/* Potion recipes */}
-                <div style={{ fontSize: "0.62rem", fontWeight: 600, color: "var(--muted)", marginTop: "0.25rem", paddingTop: "0.35rem", borderTop: "1px solid var(--border)", letterSpacing: "0.06em" }}>
-                  🫙 POTIONS
-                </div>
-                {POTION_RECIPE_LIST.map((recipeId) => {
-                  const r = CROP_POTION_RECIPES[recipeId];
-                  const have = game.crops[r.inputCrop] ?? 0;
-                  const totalInput = r.inputAmount * batch;
-                  const canStart = have >= totalInput;
-                  const effectiveSeconds = getEffectiveKitchenSeconds(worker, r.seconds);
-                  const inStock = (game.cropPotions ?? {})[recipeId] ?? 0;
-                  return (
-                    <button
-                      key={recipeId}
-                      onClick={() => { onAssignRecipe(worker.id, recipeId); setShowRecipes(false); }}
-                      disabled={!canStart}
-                      style={{
-                        display: "flex", alignItems: "center", justifyContent: "space-between",
-                        padding: "0.5rem 0.6rem", borderRadius: "6px",
-                        background: worker.recipeId === recipeId ? "rgba(99,102,241,0.1)" : "var(--bg)",
-                        border: `1px solid ${worker.recipeId === recipeId ? "var(--accent)" : "var(--border)"}`,
-                        cursor: canStart ? "pointer" : "default",
-                        opacity: canStart ? 1 : 0.5, fontSize: "0.75rem",
-                      }}
-                    >
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                        <span>{r.emoji}</span>
-                        <div style={{ textAlign: "left" }}>
-                          <div style={{ fontWeight: 600, color: "var(--text)" }}>{r.name}</div>
-                          <div style={{ fontSize: "0.62rem", color: "var(--muted)" }}>
-                            {totalInput}× {r.inputCrop} · {effectiveSeconds}s · have {have}
-                            {batch > 1 && <span style={{ marginLeft: "0.3rem", color: "#f59e0b" }}>· ×{batch} batch</span>}
-                            {inStock > 0 && <span style={{ marginLeft: "0.3rem", color: "#a78bfa" }}>· {inStock} in stock</span>}
-                          </div>
-                        </div>
-                      </div>
-                      <div style={{ fontSize: "0.68rem", color: "var(--muted)", textAlign: "right" }}>
-                        → {r.outputAmount * batch} {r.emoji} +{r.healAmount}hp
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
+              <RecipeGroups
+                worker={worker}
+                game={game}
+                batch={batch}
+                onAssignRecipe={onAssignRecipe}
+                onClose={() => setShowRecipes(false)}
+              />
             )}
           </div>
  
@@ -645,34 +688,58 @@ function FeastPanel({ game, onBuyFeast }) {
 }
  
 
-// ─── Crafted Goods Inventory (grouped, collapsible) ──────────────────────────
+// ─── Crafted Goods Inventory (single collapsible, starts closed) ─────────────
 
-function GoodsGroup({ title, icon, items, defaultOpen = false, accentColor = "var(--muted)" }) {
-  const [open, setOpen] = React.useState(defaultOpen);
-  const hasAny = items.some(({ count }) => count > 0);
-  if (!hasAny && !defaultOpen) return null;
+function CraftedGoodsInventory({ artisan, animalGoods, cropPotions, bait }) {
+  const [open, setOpen] = React.useState(false);
+
+  const allItems = [
+    { key: "bread",         emoji: "🍞", label: "Bread",       count: artisan?.bread ?? 0 },
+    { key: "jam",           emoji: "🍯", label: "Jam",         count: artisan?.jam ?? 0 },
+    { key: "sauce",         emoji: "🥫", label: "Sauce",       count: artisan?.sauce ?? 0 },
+    { key: "omelette",      emoji: "🍳", label: "Omelette",    count: animalGoods?.omelette ?? 0 },
+    { key: "cheese",        emoji: "🧀", label: "Cheese",      count: animalGoods?.cheese ?? 0 },
+    { key: "knitted_goods", emoji: "🧥", label: "Knitted",     count: animalGoods?.knitted_goods ?? 0 },
+    { key: "fish_pie",      emoji: "🥧", label: "Fish Pie",    count: animalGoods?.fish_pie ?? 0 },
+    { key: "smoked_fish",   emoji: "🐟", label: "Smoked Fish", count: animalGoods?.smoked_fish ?? 0 },
+    { key: "fish_meal",     emoji: "🌿", label: "Fish Meal",   count: animalGoods?.fish_meal ?? 0 },
+    { key: "wheat_potion",  emoji: "🫙", label: "Wheat Brew",  count: cropPotions?.wheat_potion ?? 0 },
+    { key: "berry_potion",  emoji: "🍶", label: "Berry Elixir",count: cropPotions?.berry_potion ?? 0 },
+    { key: "tomato_potion", emoji: "🧴", label: "Tomato Tonic",count: cropPotions?.tomato_potion ?? 0 },
+    { key: "wheat_bait",    emoji: "🌾", label: "Wheat Bait",  count: bait?.wheat_bait ?? 0 },
+    { key: "berry_bait",    emoji: "🫐", label: "Berry Bait",  count: bait?.berry_bait ?? 0 },
+    { key: "tomato_bait",   emoji: "🍅", label: "Tomato Bait", count: bait?.tomato_bait ?? 0 },
+  ];
+
+  const totalCount = allItems.reduce((s, i) => s + i.count, 0);
+
   return (
-    <div style={{ borderBottom: "1px solid var(--border)" }}>
+    <div className="card" style={{ marginBottom: "1.25rem", overflow: "hidden" }}>
       <button
         onClick={() => setOpen((v) => !v)}
         style={{
           width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "0.45rem 0.6rem", background: "none", border: "none", cursor: "pointer",
+          padding: "0.55rem 0.75rem", background: "none", border: "none", cursor: "pointer",
         }}
       >
-        <span style={{ fontSize: "0.65rem", fontWeight: 700, color: accentColor, letterSpacing: "0.05em" }}>
-          {icon} {title}
+        <span style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--muted)" }}>
+          Crafted Goods
+          {totalCount > 0 && (
+            <span style={{ marginLeft: "0.5rem", fontSize: "0.65rem", color: "var(--text)", fontWeight: 700 }}>
+              ({totalCount})
+            </span>
+          )}
         </span>
         <span style={{ fontSize: "0.6rem", color: "var(--muted)" }}>{open ? "▲" : "▼"}</span>
       </button>
       {open && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", padding: "0 0.6rem 0.55rem" }}>
-          {items.map(({ key, emoji, label, count }) => (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", padding: "0 0.65rem 0.65rem" }}>
+          {allItems.map(({ key, emoji, label, count }) => (
             <div key={key} style={{
               minWidth: "56px", flex: "1 1 56px", textAlign: "center", padding: "0.4rem 0.3rem",
               background: "var(--bg)", borderRadius: "8px",
               border: `1px solid ${count > 0 ? "rgba(255,255,255,0.08)" : "var(--border)"}`,
-              opacity: count > 0 ? 1 : 0.45,
+              opacity: count > 0 ? 1 : 0.35,
             }}>
               <div style={{ fontSize: "1.1rem" }}>{emoji}</div>
               <div style={{ fontSize: "0.72rem", fontWeight: 700, color: count > 0 ? "var(--text)" : "var(--muted)" }}>
@@ -687,49 +754,6 @@ function GoodsGroup({ title, icon, items, defaultOpen = false, accentColor = "va
   );
 }
 
-function CraftedGoodsInventory({ artisan, animalGoods, cropPotions, bait }) {
-  const cropItems = [
-    { key: "bread",  emoji: "🍞", label: "Bread",  count: artisan?.bread ?? 0 },
-    { key: "jam",    emoji: "🍯", label: "Jam",    count: artisan?.jam ?? 0 },
-    { key: "sauce",  emoji: "🥫", label: "Sauce",  count: artisan?.sauce ?? 0 },
-  ];
-  const barnItems = [
-    { key: "omelette",      emoji: "🍳", label: "Omelette",  count: animalGoods?.omelette ?? 0 },
-    { key: "cheese",        emoji: "🧀", label: "Cheese",    count: animalGoods?.cheese ?? 0 },
-    { key: "knitted_goods", emoji: "🧥", label: "Knitted",   count: animalGoods?.knitted_goods ?? 0 },
-  ];
-  const fishItems = [
-    { key: "fish_pie",    emoji: "🥧", label: "Fish Pie",    count: animalGoods?.fish_pie ?? 0 },
-    { key: "smoked_fish", emoji: "🐟", label: "Smoked Fish", count: animalGoods?.smoked_fish ?? 0 },
-    { key: "fish_meal",   emoji: "🌿", label: "Fish Meal",   count: animalGoods?.fish_meal ?? 0 },
-  ];
-  const potionItems = [
-    { key: "wheat_potion",  emoji: "🫙", label: "Wheat Brew",   count: cropPotions?.wheat_potion ?? 0 },
-    { key: "berry_potion",  emoji: "🍶", label: "Berry Elixir", count: cropPotions?.berry_potion ?? 0 },
-    { key: "tomato_potion", emoji: "🧴", label: "Tomato Tonic", count: cropPotions?.tomato_potion ?? 0 },
-  ];
-  const baitItems = [
-    { key: "wheat_bait",  emoji: "🌾", label: "Wheat",  count: bait?.wheat_bait ?? 0 },
-    { key: "berry_bait",  emoji: "🫐", label: "Berry",  count: bait?.berry_bait ?? 0 },
-    { key: "tomato_bait", emoji: "🍅", label: "Tomato", count: bait?.tomato_bait ?? 0 },
-  ];
-
-  const hasBarn = barnItems.some(i => i.count > 0);
-  const hasFish = fishItems.some(i => i.count > 0);
-
-  return (
-    <div className="card" style={{ marginBottom: "1.25rem", overflow: "hidden" }}>
-      <div style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--muted)", padding: "0.55rem 0.6rem 0.4rem", borderBottom: "1px solid var(--border)" }}>
-        Crafted Goods
-      </div>
-      <GoodsGroup title="CROP GOODS" icon="🌾" items={cropItems} defaultOpen={true} accentColor="#86efac" />
-      {hasBarn && <GoodsGroup title="BARN GOODS" icon="🐄" items={barnItems} defaultOpen={false} accentColor="#fbbf24" />}
-      {hasFish && <GoodsGroup title="FISH GOODS" icon="🐠" items={fishItems} defaultOpen={false} accentColor="#60a5fa" />}
-      <GoodsGroup title="POTIONS" icon="🧪" items={potionItems} defaultOpen={true} accentColor="#a78bfa" />
-      <GoodsGroup title="BAIT" icon="🪱" items={baitItems} defaultOpen={true} accentColor="#f97316" />
-    </div>
-  );
-}
  
 // ─── Main zone ────────────────────────────────────────────────────────────────
  
