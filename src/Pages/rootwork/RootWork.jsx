@@ -28,7 +28,7 @@ import {
   buildBarnBuilding, upgradeBarnBuilding,
   buildTownBuilding, setTavernMode, assignTownBuildingWorker,
   startSchoolResearch, unlockPrestigeSkill, toggleFishingWorkerAllowedFish,
-  unlockSeasonFarm, unlockSeasonBarn, getAvailableBarnUnlocks,
+  unlockSeasonFarm, unlockSeasonBarn, skipSeasonUnlock, getAvailableBarnUnlocks,
   buyFishingPlayerUpgrade, getPlayerFishingHaul,
   initWorldState, sendAdventurer, returnAdventurer, equipAdventurer, unequipAdventurer,
   giveBuffItem, removeBuffItem, tickAdventurerRegen,
@@ -265,7 +265,7 @@ function PrestigeModal({ game, onComplete, onCancel }) {
 
 // ─── Season Unlock Modal (season 7+) ─────────────────────────────────────────
 
-function SeasonUnlockModal({ game, onUnlockFarm, onUnlockBarn }) {
+function SeasonUnlockModal({ game, onUnlockFarm, onUnlockBarn, onSkipUnlock }) {
   const [choice, setChoice] = useState(null);
   const [selectedCrop, setSelectedCrop] = useState(null);
   const [selectedBarn, setSelectedBarn] = useState(null);
@@ -353,6 +353,12 @@ function SeasonUnlockModal({ game, onUnlockFarm, onUnlockBarn }) {
         {choice === "farm" && !canAffordFarm && (
           <p style={{ fontSize: "0.68rem", color: "var(--muted)", textAlign: "center", marginTop: "0.5rem" }}>Earn more cash at the Market, then come back.</p>
         )}
+        <button
+          onClick={onSkipUnlock}
+          style={{ width: "100%", marginTop: "0.5rem", padding: "0.4rem", background: "none", border: "none", color: "var(--muted)", fontSize: "0.68rem", cursor: "pointer", textDecoration: "underline" }}
+        >
+          Decide later
+        </button>
       </div>
     </div>
   );
@@ -751,6 +757,7 @@ export default function RootWork() {
   const handleUnlockFarm = useCallback((cropId) => { update((s) => { const n = unlockExtraFarm(s, cropId); if (n === s) notify("Not enough cash."); return n; }); notify("🌾 New farm unlocked!"); }, [update, notify]);
   const handleUnlockSeasonFarm = useCallback((cropId) => { update((s) => { const n = unlockSeasonFarm(s, cropId); if (n === s) notify("Not enough cash."); return n; }); notify("🌾 New farm unlocked!"); }, [update, notify]);
   const handleUnlockSeasonBarn = useCallback((buildingId) => { update((s) => unlockSeasonBarn(s, buildingId)); notify("🐄 New barn unlocked!"); }, [update, notify]);
+  const handleSkipSeasonUnlock = useCallback(() => { update((s) => skipSeasonUnlock(s)); }, [update]);
   const handleResetGame = useCallback(() => {
     if (!window.confirm("Reset all progress? This cannot be undone.")) return;
     localStorage.removeItem(SAVE_KEY);
@@ -891,7 +898,7 @@ export default function RootWork() {
       </div>
       <GameNav game={game} activeMainTab={activeMainTab} onMainTabChange={setActiveMainTab} prestigeReady={prestigeReady} />
       {hasPendingFarmUnlock && !hasPendingAssignments && <FarmUnlockModal game={game} onUnlock={handleUnlockFarm} />}
-      {hasPendingSeasonUnlock && !hasPendingAssignments && <SeasonUnlockModal game={game} onUnlockFarm={handleUnlockSeasonFarm} onUnlockBarn={handleUnlockSeasonBarn} />}
+      {hasPendingSeasonUnlock && !hasPendingAssignments && <SeasonUnlockModal game={game} onUnlockFarm={handleUnlockSeasonFarm} onUnlockBarn={handleUnlockSeasonBarn} onSkipUnlock={handleSkipSeasonUnlock} />}
       {hasPendingAssignments && <FarmAssignmentScreen game={game} onAssign={handleAssignWorker} />}
       {showPrestigeModal && <PrestigeModal game={game} onComplete={handlePrestigeComplete} onCancel={() => setShowPrestigeModal(false)} />}
     </div>

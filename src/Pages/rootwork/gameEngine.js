@@ -2952,6 +2952,13 @@ export function unlockSeasonFarm(state, cropId) {
   return next;
 }
 
+export function skipSeasonUnlock(state) {
+  if (!state.pendingSeasonUnlock) return state;
+  const next = deepCloneState(state);
+  next.pendingSeasonUnlock = false;
+  return next;
+}
+
 export function unlockSeasonBarn(state, buildingId) {
   if (!state.pendingSeasonUnlock) return state;
   if (!BARN_BUILDINGS[buildingId]) return state;
