@@ -1056,7 +1056,7 @@ export const WORLD_ZONES = {
     gearRequired: 0,
     xpReward: 8,
     enemyName: "Mine Crawlers",
-    damagePerTick: 1,
+    damagePerTick: 7,
     maxEnemyHp: 15,
     loot: [{ resourceKey: "iron_ore", emoji: "🪨", name: "Iron Ore", min: 2, max: 5 }],
     workerResource: "Iron Ore",
@@ -1075,7 +1075,7 @@ export const WORLD_ZONES = {
     gearRequired: 1,
     xpReward: 12,
     enemyName: "Forest Wolves",
-    damagePerTick: 1,
+    damagePerTick: 7,
     maxEnemyHp: 35,
     loot: [
       { resourceKey: "lumber", emoji: "🪵", name: "Lumber", min: 3, max: 6 },
@@ -1097,7 +1097,7 @@ export const WORLD_ZONES = {
     gearRequired: 2,
     xpReward: 18,
     enemyName: "Cave Horrors",
-    damagePerTick: 3,
+    damagePerTick: 6,
     maxEnemyHp: 50,
     loot: [
       { resourceKey: "herbs",    emoji: "🌿", name: "Herbs",    min: 4, max: 8 },
@@ -1120,7 +1120,7 @@ export const WORLD_ZONES = {
     gearRequired: 1,
     xpReward: 14,
     enemyName: "Rock Golems",
-    damagePerTick: 2,
+    damagePerTick: 7,
     maxEnemyHp: 40,
     loot: [
       { resourceKey: "iron_ore", emoji: "🪨", name: "Iron Ore", min: 5, max: 10 },
@@ -1142,7 +1142,7 @@ export const WORLD_ZONES = {
     gearRequired: 2,
     xpReward: 20,
     enemyName: "Treants",
-    damagePerTick: 3,
+    damagePerTick: 7,
     maxEnemyHp: 55,
     loot: [
       { resourceKey: "lumber", emoji: "🪵", name: "Lumber", min: 6, max: 12 },
