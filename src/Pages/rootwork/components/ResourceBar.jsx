@@ -1,6 +1,13 @@
 import React from "react";
-import { CROPS, SEASON_FARMS } from "../gameConstants";
+import { CROPS, SEASON_FARMS, WORLD_RESOURCES, FORGE_RECIPES } from "../gameConstants";
 import { getTotalWorkersHired, getAvailableWorkerSlots, getEffectivePulseSeconds, getTreasuryGrowBonus, getSchoolGrowBonus, getFishMealGrowBonus, getTownFoodReserve } from "../gameEngine";
+
+// Forge goods display metadata (resourceKey → emoji + label)
+const FORGE_GOODS_DISPLAY = {
+  iron_fitting:     { emoji: "🔩", name: "Iron Fitting" },
+  reinforced_crate: { emoji: "📦", name: "Reinforced Crate" },
+  fine_tools:       { emoji: "🛠️", name: "Fine Tools" },
+};
 
 export default function ResourceBar({ game }) {
   const availableCropIds = game.season >= 4
@@ -15,6 +22,22 @@ export default function ResourceBar({ game }) {
   // ── Fixed: reads from fishing.fish not pond.fish ──
   const fishGoods = game.fishing?.fish ?? {};
   const hasFish = Object.values(fishGoods).some((v) => v > 0);
+
+  // ── World resources (iron ore, lumber, rare gem, etc.) ──
+  const worldResources = game.worldResources ?? {};
+  const worldResourceEntries = Object.entries(WORLD_RESOURCES ?? {})
+    .map(([key, def]) => ({ key, ...def, amount: Math.floor(worldResources[key] ?? 0) }))
+    .filter(({ key, amount }) =>
+      amount > 0 && ["iron_ore", "lumber", "rare_gem"].includes(key)
+    );
+  const hasWorldResources = worldResourceEntries.length > 0;
+
+  // ── Forge goods (iron fittings, reinforced crates, fine tools) ──
+  const forgeGoods = game.forgeGoods ?? {};
+  const forgeGoodsEntries = Object.entries(FORGE_GOODS_DISPLAY)
+    .map(([key, meta]) => ({ key, ...meta, amount: Math.floor(forgeGoods[key] ?? 0) }))
+    .filter(({ amount }) => amount > 0);
+  const hasForgeGoods = forgeGoodsEntries.length > 0;
 
   const feast = game.feastBonusPercent ?? 0;
   const townGrowth = game.town?.growthBonusPercent ?? 0;
@@ -121,7 +144,7 @@ export default function ResourceBar({ game }) {
         </div>
       )}
 
-      {/* Fish inventory — fixed emojis and source */}
+      {/* Fish inventory */}
       {hasFish && (
         <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
           {[
@@ -138,6 +161,36 @@ export default function ResourceBar({ game }) {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* World resources (iron ore, lumber, rare gems) */}
+      {hasWorldResources && (
+        <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+          {worldResourceEntries.map(({ key, emoji, name, amount }) => (
+            <div key={key} style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.85rem", fontWeight: 500 }}>
+              <span>{emoji}</span>
+              <span>{amount}</span>
+              <span style={{ fontSize: "0.7rem", color: "var(--muted)", fontWeight: 400 }}>
+                {name}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Forge goods (iron fittings, reinforced crates, fine tools) */}
+      {hasForgeGoods && (
+        <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+          {forgeGoodsEntries.map(({ key, emoji, name, amount }) => (
+            <div key={key} style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.85rem", fontWeight: 500 }}>
+              <span>{emoji}</span>
+              <span>{amount}</span>
+              <span style={{ fontSize: "0.7rem", color: "var(--muted)", fontWeight: 400 }}>
+                {name}
+              </span>
+            </div>
+          ))}
         </div>
       )}
 

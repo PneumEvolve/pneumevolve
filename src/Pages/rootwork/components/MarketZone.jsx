@@ -93,6 +93,7 @@ function SellAssignModal({ game, item, onClose, onAssign, onSetStandingOrder }) 
   function resolveQty() {
     if (selectedQtyMode === "All") return have;
     if (selectedQtyMode === "Custom") return Math.min(Math.max(1, parseInt(customInput, 10) || 0), have);
+    if (selectedQtyMode === "smart") return Math.min(getSmartSellAmount(game, item.type), have);
     return Math.min(selectedQtyMode, have);
   }
 
@@ -228,6 +229,34 @@ function SellAssignModal({ game, item, onClose, onAssign, onSetStandingOrder }) 
                     </button>
                   );
                 })}
+                {/* Smart button — mirrors SmartSellButton but inline in the modal */}
+                {(() => {
+                  const smartQty = getSmartSellAmount(game, item.type);
+                  const bakeryOn = game.town?.bakeryOn === true && (game.town?.bakeryLevel ?? 0) >= 1;
+                  const foodItem = bakeryOn ? "bread" : "wheat";
+                  const isFood = item.type === foodItem;
+                  const reserve = have - smartQty;
+                  const label = isFood && reserve > 0 ? `Smart (keep ${reserve})` : "Smart (all)";
+                  const isSelected = selectedQtyMode === "smart";
+                  return (
+                    <button
+                      key="smart"
+                      onClick={() => smartQty > 0 && setSelectedQtyMode("smart")}
+                      disabled={smartQty <= 0}
+                      style={{
+                        fontSize: "0.7rem", padding: "0.25rem 0.5rem", borderRadius: "6px",
+                        cursor: smartQty <= 0 ? "default" : "pointer",
+                        background: isSelected ? "rgba(99,102,241,0.25)" : "rgba(99,102,241,0.12)",
+                        color: smartQty <= 0 ? "var(--border)" : isSelected ? "#fff" : "var(--accent)",
+                        border: `1px solid ${smartQty <= 0 ? "var(--border)" : isSelected ? "var(--accent)" : "var(--accent)"}`,
+                        opacity: smartQty <= 0 ? 0.4 : 1,
+                        fontWeight: 600,
+                      }}
+                    >
+                      {label}
+                    </button>
+                  );
+                })()}
               </div>
               {selectedQtyMode === "Custom" && (
                 <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginTop: "0.4rem" }}>

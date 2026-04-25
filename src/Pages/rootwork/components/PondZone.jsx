@@ -299,6 +299,23 @@ function RecentCatches({ catches }) {
   );
 }
 
+function matCostLabel(upgradeRequires) {
+  if (!upgradeRequires) return null;
+  const NAMES = {
+    iron_ore: "Iron Ore", lumber: "Lumber",
+    iron_fitting: "Iron Fitting", reinforced_crate: "Reinforced Crate", fine_tools: "Fine Tools",
+  };
+  return Object.entries(upgradeRequires).map(([k, v]) => `${v} ${NAMES[k] ?? k}`).join(" + ");
+}
+function canAffordMats(upgradeRequires, worldResources, forgeGoods) {
+  if (!upgradeRequires) return true;
+  for (const [k, qty] of Object.entries(upgradeRequires)) {
+    const have = (worldResources?.[k] ?? 0) + (forgeGoods?.[k] ?? 0);
+    if (have < qty) return false;
+  }
+  return true;
+}
+
 // ─── Worker upgrade tree ──────────────────────────────────────────────────────
 
 function WorkerUpgradeTree({ label, upgradeIds, worker, game, bodyId, onUpgrade }) {

@@ -3416,15 +3416,6 @@ export function deserializeState(raw) {
     if (!parsed || typeof parsed !== "object") return null;
     if (!Array.isArray(parsed.farms) || !Array.isArray(parsed.workers)) return null;
 
-    // 🔥 POTION REMOVAL (add this right here)
-if (parsed.wheat_potion !== undefined) {
-  delete parsed.wheat_potion;
-}
-
-// Ensure new system exists so nothing breaks
-if (parsed.cropPotions === undefined) {
-  parsed.cropPotions = {};
-}
  
     if (parsed.kitchenWorkers === undefined) {
       parsed.kitchenWorkers = [];
@@ -3737,9 +3728,12 @@ export function getAdventurerMaxHp(adventurer) {
   return ADVENTURER_BASE_HP + ((adventurer.level ?? 1) - 1) * ADVENTURER_HP_PER_LEVEL;
 }
 
-export function createAdventurer(classId = "fighter") {
-  const names = ADVENTURER_NAMES;
-  const name = names[Math.floor(Math.random() * names.length)];
+export function createAdventurer(classId = "fighter", usedNames = new Set()) {
+  // Filter out already-used names, cycle back if all are used
+  const ALL_NAMES = ADVENTURER_NAMES;
+  const available = ALL_NAMES.filter((n) => !usedNames.has(n));
+  const pool = available.length > 0 ? available : ALL_NAMES;
+  const name = pool[Math.floor(Math.random() * pool.length)];
   const maxHp = ADVENTURER_BASE_HP;
   return {
     id: genWorldId("adv"),
@@ -3748,13 +3742,16 @@ export function createAdventurer(classId = "fighter") {
     level: 1,
     xp: 0,
     gear: 0,
-    equippedItem: null,
+    equippedItem: null,       // legacy — kept for save compat
+    equippedGear: { weapon: null, armour: null, body: null }, // new 3-slot system
     hp: maxHp,
     maxHp,
-    potions: {},    // { wheat_potion: 2, berry_potion: 1, ... }
+    foodBelt: {},
+    buffSlot: null,
     mission: null,
     skillPoints: 0,
     skills: [],
+    prestigeLevel: 0,
   };
 }
 
@@ -3778,6 +3775,10 @@ export function initWorldState(state) {
       hp: adv.hp !== undefined ? Math.min(adv.hp, maxHp) : maxHp,
       skillPoints: adv.skillPoints ?? 0,
       skills: adv.skills ?? [],
+      equippedGear: adv.equippedGear ?? { weapon: null, armour: null, body: null },
+      prestigeLevel: adv.prestigeLevel ?? 0,
+      foodBelt: adv.foodBelt ?? {},
+      buffSlot: adv.buffSlot ?? null,
     };
   });
   return next;
@@ -3796,13 +3797,14 @@ export function getAdventurerSlotUnlocked(state) {
   return (state.season ?? 1) > count;
 }
 
-export function hireAdventurer(state) {
+export function hireAdventurer(state, usedNames = new Set()) {
   if (!getAdventurerSlotUnlocked(state)) return state;
+  if (isAtWorkerCap(state)) return state;
   const cost = getAdventurerSlotCost(state);
-  if (cost === null) return state; // max adventurers reached
+  if (cost === null) return state;
   if ((state.cash ?? 0) < cost) return state;
   const next = { ...state, cash: state.cash - cost };
-  next.adventurers = [...(next.adventurers ?? []), createAdventurer("fighter")];
+  next.adventurers = [...(next.adventurers ?? []), createAdventurer("fighter", usedNames)];
   return next;
 }
 
@@ -3831,23 +3833,60 @@ function getAdventurerXpNeeded(level) {
   return Math.floor(10 * Math.pow(1.4, level - 1));
 }
 
-export function sendAdventurer(state, adventurerId, zoneId) {
+export function sendAdventurer(state, adventurerId, zoneId, autoBattle = false) {
   const zone = WORLD_ZONES[zoneId];
   if (!zone) return state;
   const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
   if (advIdx === -1) return state;
   const adventurer = state.adventurers[advIdx];
   if (adventurer.mission) return state;
-
+ 
+  // Block dead heroes
+  if ((adventurer.hp ?? adventurer.maxHp) <= 0) return state;
+ 
   let duration = getAdventurerMissionDuration(adventurer, zone);
-  // Omelette buff: -50% run time for this mission
+  // Omelette buff: -50% run time
   if ((adventurer.buffSlot ?? null) === "omelette") {
     duration = Math.max(1, Math.round(duration * 0.5));
   }
-  const updatedAdv = { ...adventurer, mission: { zoneId, zoneName: zone.name, startTime: Date.now(), duration } };
+ 
+  const mission = {
+    zoneId,
+    zoneName: zone.name,
+    startTime: Date.now(),
+    duration,
+    autoBattle,
+    // Auto battle tracking state
+    autoBattleRuns: 0,          // completed successful runs so far
+    autoBattleLoot: [],         // accumulated loot across all runs
+    autoBattleXp: 0,            // accumulated XP
+    autoBattleLeveled: false,
+    autoBattleDied: false,
+    autoBattleOutOfPotions: false,
+  };
+ 
+  const updatedAdv = { ...adventurer, mission };
   const next = { ...state, adventurers: [...state.adventurers] };
   next.adventurers[advIdx] = updatedAdv;
   return next;
+}
+
+// HELPER (internal): mergeLoot
+// Combines two loot arrays, summing amounts for matching resourceKeys
+// ─────────────────────────────────────────────────────────────────────────────
+function mergeLoot(existing, incoming) {
+  const map = {};
+  for (const l of existing) {
+    map[l.resourceKey] = { ...l };
+  }
+  for (const l of incoming) {
+    if (map[l.resourceKey]) {
+      map[l.resourceKey] = { ...map[l.resourceKey], amount: map[l.resourceKey].amount + l.amount };
+    } else {
+      map[l.resourceKey] = { ...l };
+    }
+  }
+  return Object.values(map).filter((l) => l.amount > 0);
 }
 
 export function returnAdventurer(state, adventurerId) {
@@ -3858,32 +3897,32 @@ export function returnAdventurer(state, adventurerId) {
   if (!mission) return { state, result: null };
   const zone = WORLD_ZONES[mission.zoneId];
   if (!zone) return { state, result: null };
-
+ 
   const elapsed = (Date.now() - mission.startTime) / 1000;
   if (elapsed < mission.duration) return { state, result: null };
-
+ 
+  // ── Single run result ────────────────────────────────────────────────────
+ 
   const failChance = getAdventurerFailChance(adventurer, zone);
   const failed = Math.random() < failChance;
-
-  let loot = [];
-  let nextResources = { ...(state.worldResources ?? {}) };
-
   const hasCheeseBuff = (adventurer.buffSlot ?? null) === "cheese";
-
+  const hasScavenger = (adventurer.skills ?? []).includes("scavenger");
+  const hasVeteran = (adventurer.skills ?? []).includes("veteran");
+  const skills = adventurer.skills ?? [];
+  const hasThickSkin = skills.includes("thick_skin");
+ 
+  let runLoot = [];
+  let nextResources = { ...(state.worldResources ?? {}) };
+ 
   if (!failed) {
     for (const lootDef of zone.loot) {
       const amount = Math.floor(Math.random() * (lootDef.max - lootDef.min + 1)) + lootDef.min;
-      const hasScavenger = (adventurer.skills ?? []).includes("scavenger");
       let finalAmount = amount > 0 ? amount + (hasScavenger ? 1 : 0) : 0;
       if (hasCheeseBuff && finalAmount > 0) finalAmount = finalAmount * 2;
-      if (finalAmount > 0) {
-        loot.push({ ...lootDef, amount: finalAmount });
-        nextResources[lootDef.resourceKey] = (nextResources[lootDef.resourceKey] ?? 0) + finalAmount;
-      }
+      if (finalAmount > 0) runLoot.push({ ...lootDef, amount: finalAmount });
     }
   }
-
-  const hasVeteran = (adventurer.skills ?? []).includes("veteran");
+ 
   const xpGained = failed ? Math.floor(zone.xpReward * 0.3) : Math.round(zone.xpReward * (hasVeteran ? 1.15 : 1));
   let newXp = (adventurer.xp ?? 0) + xpGained;
   let newLevel = adventurer.level ?? 1;
@@ -3893,44 +3932,180 @@ export function returnAdventurer(state, adventurerId) {
     newLevel++;
     leveledUp = true;
   }
-
+ 
+  const newMaxHp = getAdventurerMaxHp({ ...adventurer, level: newLevel });
+  const bonusMaxHp = newMaxHp + (hasThickSkin ? 10 : 0);
+ 
+  // HP damage calculation
+  const dmgPerTick = zone.damagePerTick ?? 1;
+  const rawDamage = Math.round(mission.duration * dmgPerTick * (failed ? 1.5 : 0.6));
+  const hpAfterDamage = Math.max(0, (adventurer.hp ?? bonusMaxHp) - rawDamage);
+  const levelsGained = newLevel - (adventurer.level ?? 1);
+  const newSkillPoints = (adventurer.skillPoints ?? 0) + levelsGained;
+  const buffSlotConsumed = null; // always consumed after a run
+ 
+  // Zone clears
   const prevClears = (state.worldZoneClears ?? {})[zone.id] ?? 0;
   const newClears = failed ? prevClears : Math.min(prevClears + 1, zone.clearsNeeded);
   const zoneCleared = !failed && prevClears < zone.clearsNeeded && newClears >= zone.clearsNeeded;
+ 
+  // ── Auto Battle branch ────────────────────────────────────────────────────
+  if (mission.autoBattle) {
+    const prevAccumLoot = mission.autoBattleLoot ?? [];
+    const prevAccumXp = mission.autoBattleXp ?? 0;
+    const prevRuns = mission.autoBattleRuns ?? 0;
+ 
+    // If this run failed, the dying run doesn't count for loot
+    // Hero dies — 50% of accumulated loot, mission ends, hp goes to 0
+    if (failed || hpAfterDamage <= 0) {
+      // Accumulate previous successful runs' loot (NOT this dying run's)
+      const finalLoot = mergeLoot(prevAccumLoot, []);
+      // Apply 50% to accumulated loot
+      const halvedLoot = finalLoot.map((l) => ({ ...l, amount: Math.floor(l.amount * 0.5) }));
+      // Credit resources
+      for (const l of halvedLoot) {
+        nextResources[l.resourceKey] = (nextResources[l.resourceKey] ?? 0) + l.amount;
+      }
+ 
+      const updatedAdv = {
+        ...adventurer,
+        xp: newXp, level: newLevel, maxHp: bonusMaxHp,
+        hp: 0, // dead
+        foodBelt: adventurer.foodBelt ?? {},
+        buffSlot: buffSlotConsumed,
+        mission: null,
+        skillPoints: newSkillPoints,
+        prestigeLevel: adventurer.prestigeLevel ?? 0,
+      };
+      const next = {
+        ...state,
+        adventurers: state.adventurers.map((a) => a.id === adventurerId ? updatedAdv : a),
+        worldResources: nextResources,
+        worldZoneClears: { ...(state.worldZoneClears ?? {}), [zone.id]: newClears },
+      };
+      return {
+        state: next,
+        result: {
+          autoBattle: true,
+          diedDuringAuto: true,
+          successfulRuns: prevRuns,
+          zoneName: mission.zoneName,
+          loot: halvedLoot,
+          xpGained: prevAccumXp + xpGained,
+          leveledUp,
+          zoneCleared,
+          hpLost: rawDamage,
+          hpRemaining: 0,
+          maxHp: bonusMaxHp,
+        },
+      };
+    }
+ 
+    // Successful run — accumulate loot + XP
+    const newAccumLoot = mergeLoot(prevAccumLoot, runLoot);
+    const newAccumXp = prevAccumXp + xpGained;
+    const newRuns = prevRuns + 1;
+ 
+    // Check if we can do another run — need food belt to heal between runs
+    const currentFoodBelt = { ...(adventurer.foodBelt ?? {}) };
+    const beltItems = ARTISAN_FOOD_LIST
+      .filter((id) => (currentFoodBelt[id] ?? 0) > 0)
+      .map((id) => ({ id, heal: ARTISAN_FOOD_HEAL[id]?.healAmount ?? 0 }))
+      .sort((a, b) => a.heal - b.heal); // consume smallest heal first
+    const hasBeltFood = beltItems.length > 0;
 
-  // Calculate HP damage taken during mission
-  const missionSeconds = mission.duration;
-  const dmgPerTick = zone.damagePerTick ?? 1;
-  const rawDamage = Math.round(missionSeconds * dmgPerTick * (failed ? 1.5 : 0.6));
-  const newMaxHp = getAdventurerMaxHp({ ...adventurer, level: newLevel });
-  // hpAfterDamage/newHp computed below with thick_skin bonus applied
+    if (!hasBeltFood) {
+      // Out of food — collect everything, mission ends cleanly
+      for (const l of newAccumLoot) {
+        nextResources[l.resourceKey] = (nextResources[l.resourceKey] ?? 0) + l.amount;
+      }
+      const updatedAdv = {
+        ...adventurer,
+        xp: newXp, level: newLevel, maxHp: bonusMaxHp,
+        hp: leveledUp ? bonusMaxHp : Math.min(hpAfterDamage, bonusMaxHp),
+        foodBelt: currentFoodBelt,
+        buffSlot: buffSlotConsumed,
+        mission: null,
+        skillPoints: newSkillPoints,
+        prestigeLevel: adventurer.prestigeLevel ?? 0,
+      };
+      const next = {
+        ...state,
+        adventurers: state.adventurers.map((a) => a.id === adventurerId ? updatedAdv : a),
+        worldResources: nextResources,
+        worldZoneClears: { ...(state.worldZoneClears ?? {}), [zone.id]: newClears },
+      };
+      return {
+        state: next,
+        result: {
+          autoBattle: true,
+          ranOutOfFood: true,
+          successfulRuns: newRuns,
+          zoneName: mission.zoneName,
+          loot: newAccumLoot,
+          xpGained: newAccumXp,
+          leveledUp,
+          zoneCleared,
+          hpLost: rawDamage,
+          hpRemaining: Math.max(0, hpAfterDamage),
+          maxHp: bonusMaxHp,
+        },
+      };
+    }
 
-  // Skill points: +1 per level gained
-  const levelsGained = newLevel - (adventurer.level ?? 1);
-  const newSkillPoints = (adventurer.skillPoints ?? 0) + levelsGained;
+    // Consume one food item (smallest heal first), heal up, queue next run
+    const foodToUse = beltItems[0];
+    currentFoodBelt[foodToUse.id] = (currentFoodBelt[foodToUse.id] ?? 1) - 1;
+    const hpAfterFood = Math.min(bonusMaxHp, hpAfterDamage + foodToUse.heal);
+    const nextDuration = getAdventurerMissionDuration({ ...adventurer, level: newLevel, skills }, zone);
+    const nextMission = {
+      ...mission,
+      startTime: Date.now(),
+      duration: nextDuration,
+      autoBattleRuns: newRuns,
+      autoBattleLoot: newAccumLoot,
+      autoBattleXp: newAccumXp,
+      autoBattleLeveled: leveledUp || (mission.autoBattleLeveled ?? false),
+    };
 
-  // Apply thick_skin HP bonus (use stored maxHp if already has skill, else base calc)
-  const skills = adventurer.skills ?? [];
-  const hasThickSkin = skills.includes("thick_skin");
-  // adventurer.maxHp already includes thick_skin bonus if previously applied; recompute cleanly
-  const bonusMaxHp = newMaxHp + (hasThickSkin ? 10 : 0);
-  // newHp: level up = full heal to bonusMaxHp, otherwise clamp damage to bonusMaxHp
-  const hpAfterDamageFinal = Math.max(1, (adventurer.hp ?? bonusMaxHp) - rawDamage);
-  const postMissionHp = leveledUp ? bonusMaxHp : Math.min(hpAfterDamageFinal, bonusMaxHp);
-
-  // Auto-battle: use food belt to heal up between fights, then re-queue if belt still has items
+    const updatedAdv = {
+      ...adventurer,
+      xp: newXp, level: newLevel, maxHp: bonusMaxHp,
+      hp: hpAfterFood,
+      foodBelt: currentFoodBelt,
+      buffSlot: buffSlotConsumed,
+      mission: nextMission,
+      skillPoints: newSkillPoints,
+      prestigeLevel: adventurer.prestigeLevel ?? 0,
+    };
+    const next = {
+      ...state,
+      adventurers: state.adventurers.map((a) => a.id === adventurerId ? updatedAdv : a),
+      worldZoneClears: { ...(state.worldZoneClears ?? {}), [zone.id]: newClears },
+    };
+    // Return null result — still running
+    return { state: next, result: null };
+  }
+ 
+  // ── Standard single-run branch ────────────────────────────────────────────
+ 
+  // Apply loot to resources
+  for (const l of runLoot) {
+    nextResources[l.resourceKey] = (nextResources[l.resourceKey] ?? 0) + l.amount;
+  }
+ 
+  const postMissionHp = leveledUp ? bonusMaxHp : Math.min(Math.max(0, hpAfterDamage), bonusMaxHp);
+ 
+  // Auto-battle food heal (only for non-auto-battle single runs with auto_battle skill)
   const hasAutoBattle = skills.includes("auto_battle");
   let autoHp = postMissionHp;
   let autoFoodBelt = { ...(adventurer.foodBelt ?? {}) };
-
+ 
   if (!failed && hasAutoBattle) {
-    // Heal loop: consume cheapest items first until full or belt empty
-    // Priority: bread(30) < jam(50) < sauce(100)
     const healItems = Object.entries(autoFoodBelt)
       .filter(([, qty]) => qty > 0)
       .map(([id]) => ({ id, heal: ARTISAN_FOOD_HEAL[id]?.healAmount ?? 0 }))
       .sort((a, b) => a.heal - b.heal);
-
     for (const item of healItems) {
       if (autoHp >= bonusMaxHp) break;
       if ((autoFoodBelt[item.id] ?? 0) > 0) {
@@ -3939,35 +4114,112 @@ export function returnAdventurer(state, adventurerId) {
       }
     }
   }
-
-  // Buff slot: consume buff on mission complete
-  const buffSlot = adventurer.buffSlot ?? null;
-  const nextBuffSlot = null; // buff is consumed after each mission
-
-  const beltHasItems = Object.values(autoFoodBelt).some((v) => v > 0);
-  const autoQueue = !failed && hasAutoBattle && beltHasItems;
-
-  const autoMission = autoQueue
-    ? { zoneId: mission.zoneId, zoneName: zone.name, startTime: Date.now(), duration: getAdventurerMissionDuration({ ...adventurer, level: newLevel, skills }, zone) }
-    : null;
-
+ 
   const updatedAdv = {
     ...adventurer,
     xp: newXp, level: newLevel, maxHp: bonusMaxHp,
-    hp: autoQueue ? autoHp : postMissionHp,
+    hp: Math.max(0, failed ? hpAfterDamage : autoHp),
     foodBelt: autoFoodBelt,
-    buffSlot: nextBuffSlot,
-    mission: autoMission,
+    buffSlot: buffSlotConsumed,
+    mission: null,
     skillPoints: newSkillPoints,
+    prestigeLevel: adventurer.prestigeLevel ?? 0,
   };
+ 
   const next = {
     ...state,
     adventurers: state.adventurers.map((a) => a.id === adventurerId ? updatedAdv : a),
     worldResources: nextResources,
     worldZoneClears: { ...(state.worldZoneClears ?? {}), [zone.id]: newClears },
   };
+ 
+  return {
+    state: next,
+    result: {
+      failed,
+      autoBattle: false,
+      zoneName: mission.zoneName,
+      loot: runLoot,
+      xpGained,
+      leveledUp,
+      zoneCleared,
+      newClears,
+      clearsNeeded: zone.clearsNeeded,
+      hpLost: rawDamage,
+      hpRemaining: Math.max(0, postMissionHp),
+      maxHp: bonusMaxHp,
+    },
+  };
+}
 
-  return { state: next, result: { failed, zoneName: mission.zoneName, loot, xpGained, leveledUp, zoneCleared, newClears, clearsNeeded: zone.clearsNeeded, hpLost: rawDamage, hpRemaining: postMissionHp, maxHp: bonusMaxHp } };
+// Costs $100 × max(1, prestigeLevel); sets hp to maxHp
+// ─────────────────────────────────────────────────────────────────────────────
+export function reviveAdventurer(state, adventurerId) {
+  const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
+  if (advIdx === -1) return state;
+  const adventurer = state.adventurers[advIdx];
+ 
+  // Only revive if actually dead
+  if ((adventurer.hp ?? adventurer.maxHp) > 0) return state;
+ 
+  const prestige = Math.max(1, adventurer.prestigeLevel ?? 0);
+  const cost = 100 * prestige;
+  if ((state.cash ?? 0) < cost) return state;
+ 
+  const updatedAdv = { ...adventurer, hp: adventurer.maxHp };
+  return {
+    ...state,
+    cash: (state.cash ?? 0) - cost,
+    adventurers: state.adventurers.map((a, i) => i === advIdx ? updatedAdv : a),
+  };
+}
+
+// Requires prestige skill unlocked; costs $1000 × (prestigeLevel+1)
+// Resets level to 1, xp to 0, skills to [], skillPoints to 1 (the permanent one)
+// Increments prestigeLevel; grants +1 food slot (via prestigeLevel in getBeltCap)
+// ─────────────────────────────────────────────────────────────────────────────
+export function prestigeAdventurer(state, adventurerId) {
+  const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
+  if (advIdx === -1) return state;
+  const adventurer = state.adventurers[advIdx];
+ 
+  // Must have the prestige skill unlocked
+  if (!(adventurer.skills ?? []).includes("prestige")) return state;
+ 
+  // Must not be dead or on a mission
+  if ((adventurer.hp ?? adventurer.maxHp) <= 0) return state;
+  if (adventurer.mission) return state;
+ 
+  const currentPrestige = adventurer.prestigeLevel ?? 0;
+  const cost = 1000 * (currentPrestige + 1);
+  if ((state.cash ?? 0) < cost) return state;
+ 
+  // Spend 3 skill points (already validated in UI before calling)
+  if ((adventurer.skillPoints ?? 0) < 3) return state;
+ 
+  const newPrestigeLevel = currentPrestige + 1;
+  const newMaxHp = ADVENTURER_BASE_HP; // back to level 1 base
+ 
+  const updatedAdv = {
+    ...adventurer,
+    level: 1,
+    xp: 0,
+    skills: [],             // all skills wiped
+    skillPoints: 1,         // 1 permanent skill point granted by prestige
+    prestigeLevel: newPrestigeLevel,
+    maxHp: newMaxHp,
+    hp: newMaxHp,           // full heal on prestige
+    mission: null,
+    // gear is kept — equipment carries over
+    // foodBelt is kept
+    // buffSlot is kept
+  };
+ 
+  return {
+    ...state,
+    cash: (state.cash ?? 0) - cost,
+    adventurers: state.adventurers.map((a, i) => i === advIdx ? updatedAdv : a),
+  };
 }
 
 // Spend a skill point to unlock a skill (order validation done in UI)
@@ -3991,32 +4243,40 @@ export function spendSkillPoint(state, adventurerId, skillId) {
   return { ...state, adventurers: state.adventurers.map((a, i) => i === advIdx ? updatedAdv : a) };
 }
 
-// Equip a piece of forge goods as an adventurer's gear tier
-export function equipAdventurer(state, adventurerId, itemKey) {
+export function equipAdventurer(state, adventurerId, slot, itemKey) {
+  // slot: "weapon" | "armour" | "body"
+  const VALID_SLOTS = ["weapon", "armour", "body"];
+  if (!VALID_SLOTS.includes(slot)) return state;
+ 
   const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
   if (advIdx === -1) return state;
+ 
+  const recipe = Object.values(FORGE_RECIPES).find((r) => r.output.resourceKey === itemKey);
+  // Exclude consumables and components — only weapon/armor categories allowed
+  if (!recipe || recipe.category === "consumable" || recipe.category === "component") return state;
+ 
   const forgeGoods = state.forgeGoods ?? {};
   if ((forgeGoods[itemKey] ?? 0) < 1) return state;
-
-  // Determine gear tier from recipe definition
-  const recipe = Object.values(FORGE_RECIPES).find((r) => r.output.resourceKey === itemKey);
-  if (!recipe || recipe.category === "consumable") return state;
-
-  const gearTier = recipe.gearTier ?? 1;
+ 
   const adventurer = state.adventurers[advIdx];
-
-  // Only equip if it's an upgrade (or same tier swap)
-  // Refund old item if same tier
-  const oldGear = adventurer.gear ?? 0;
+  const currentGear = adventurer.equippedGear ?? { weapon: null, armour: null, body: null };
+ 
+  // Refund previously equipped item in this slot
   let nextGoods = { ...forgeGoods, [itemKey]: forgeGoods[itemKey] - 1 };
-
-  // If adventurer already has gear, find what they had and refund it (simplified: track equippedItem)
-  const oldItemKey = adventurer.equippedItem ?? null;
+  const oldItemKey = currentGear[slot];
   if (oldItemKey && oldItemKey !== itemKey) {
     nextGoods = { ...nextGoods, [oldItemKey]: (nextGoods[oldItemKey] ?? 0) + 1 };
   }
-
-  const updatedAdv = { ...adventurer, gear: gearTier, equippedItem: itemKey };
+ 
+  const newGear = { ...currentGear, [slot]: itemKey };
+  // Recompute total gear tier as sum across all slots
+  const totalGearTier = Object.values(newGear).reduce((sum, key) => {
+    if (!key) return sum;
+    const r = Object.values(FORGE_RECIPES).find((r) => r.output.resourceKey === key);
+    return sum + (r?.gearTier ?? 0);
+  }, 0);
+ 
+  const updatedAdv = { ...adventurer, equippedGear: newGear, gear: totalGearTier };
   return {
     ...state,
     adventurers: state.adventurers.map((a, i) => i === advIdx ? updatedAdv : a),
@@ -4024,14 +4284,28 @@ export function equipAdventurer(state, adventurerId, itemKey) {
   };
 }
 
-export function unequipAdventurer(state, adventurerId) {
+export function unequipAdventurer(state, adventurerId, slot) {
+  const VALID_SLOTS = ["weapon", "armour", "body"];
+  if (!VALID_SLOTS.includes(slot)) return state;
+ 
   const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
   if (advIdx === -1) return state;
   const adventurer = state.adventurers[advIdx];
-  const itemKey = adventurer.equippedItem ?? null;
+  const currentGear = adventurer.equippedGear ?? { weapon: null, armour: null, body: null };
+  const itemKey = currentGear[slot];
   if (!itemKey) return state;
+ 
   const nextGoods = { ...(state.forgeGoods ?? {}), [itemKey]: ((state.forgeGoods ?? {})[itemKey] ?? 0) + 1 };
-  const updatedAdv = { ...adventurer, gear: 0, equippedItem: null };
+  const newGear = { ...currentGear, [slot]: null };
+ 
+  // Recompute total gear tier
+  const totalGearTier = Object.values(newGear).reduce((sum, key) => {
+    if (!key) return sum;
+    const r = Object.values(FORGE_RECIPES).find((r) => r.output.resourceKey === key);
+    return sum + (r?.gearTier ?? 0);
+  }, 0);
+ 
+  const updatedAdv = { ...adventurer, equippedGear: newGear, gear: totalGearTier };
   return {
     ...state,
     adventurers: state.adventurers.map((a, i) => i === advIdx ? updatedAdv : a),
@@ -4042,7 +4316,10 @@ export function unequipAdventurer(state, adventurerId) {
 // Use a potion on an adventurer
 // Belt cap: food belt only
 export function getBeltCap(adventurer) {
-  return (adventurer.skills ?? []).includes("belt_capacity") ? 5 : 3;
+  let cap = 3;
+  if ((adventurer.skills ?? []).includes("belt_capacity")) cap += 2;
+  cap += (adventurer.prestigeLevel ?? 0); // +1 per prestige
+  return cap;
 }
 
 // ─── Artisan Food as Heal Items ────────────────────────────────────────────────
@@ -4133,12 +4410,31 @@ export function useArtisanFood(state, adventurerId, foodId) {
 export function tickAdventurerRegen(state, dtSeconds) {
   if (!(state.adventurers ?? []).length) return state;
   const updated = state.adventurers.map((adv) => {
-    if (adv.mission) return adv; // no regen on mission
-    if ((adv.hp ?? adv.maxHp) >= adv.maxHp) return adv;
-    const newHp = Math.min(adv.maxHp, (adv.hp ?? adv.maxHp) + ADVENTURER_REGEN_PER_SECOND * dtSeconds);
+    const hp = adv.hp ?? adv.maxHp;
+    if (hp <= 0) return adv;         // dead — no regen until revived
+    if (adv.mission) return adv;     // on mission — no regen
+    if (hp >= adv.maxHp) return adv; // already full
+    const newHp = Math.min(adv.maxHp, hp + ADVENTURER_REGEN_PER_SECOND * dtSeconds);
     return { ...adv, hp: newHp };
   });
   return { ...state, adventurers: updated };
+}
+
+// ─── Auto-tick adventurer missions ───────────────────────────────────────────
+export function tickAdventurerMissions(state) {
+  let next = state;
+  for (const adv of (state.adventurers ?? [])) {
+    if (!adv.mission?.autoBattle) continue;
+    const elapsed = (Date.now() - adv.mission.startTime) / 1000;
+    if (elapsed < adv.mission.duration) continue;
+    const { state: afterState, result } = returnAdventurer(next, adv.id);
+    next = afterState;
+    if (result) {
+      // Park result for RootWork to pick up and show the modal
+      next = { ...next, pendingAutoBattleResult: { ...result, adventurerId: adv.id } };
+    }
+  }
+  return next;
 }
 
 // ─── World Workers ─────────────────────────────────────────────────────────────
