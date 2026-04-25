@@ -3856,7 +3856,7 @@ function getAdventurerFailChance(adventurer, zone) {
   else if (gearScore >= required) chance = 0.05;
   else if (gearScore >= required - 1) chance = 0.30;
   else chance = 0.65;
-  if ((adventurer.skills ?? []).includes("lucky")) chance = chance / 2;
+  if (hasHeroSkill(adventurer, "lucky")) chance = chance / 2; // legacy skill — no-op for new builds
   return chance;
 }
 
@@ -4617,7 +4617,7 @@ export function unequipAdventurer(state, adventurerId, slot) {
 // Belt cap: food belt only
 export function getBeltCap(adventurer) {
   let cap = 3;
-  if ((adventurer.skills ?? []).includes("belt_capacity")) cap += 2;
+  // belt_capacity legacy skill removed — slots now come from gear and prestige
   cap += (adventurer.prestigeLevel ?? 0); // +1 per prestige
   // Body armor: add foodSlotBonus from equipped body recipe
   const bodyKey = adventurer.equippedGear?.body ?? null;
