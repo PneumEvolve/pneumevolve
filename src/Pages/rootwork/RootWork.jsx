@@ -39,7 +39,7 @@ import {
   tickAdventurerMissions,
   hireAdventurer, spendSkillPoint, getAdventurerSlotCost, getAdventurerSlotUnlocked, isAtWorkerCap,
   // New adventurer functions
-  reviveAdventurer, prestigeAdventurer,
+  reviveAdventurer, prestigeAdventurer, requestAutoBattleStop,
 } from "./gameEngine";
 import {
   SAVE_KEY, SAVE_INTERVAL_MS,
@@ -708,6 +708,10 @@ export default function RootWork() {
     update((s) => sendAdventurer(s, adventurerId, zoneId, true));
   }, [update]);
 
+  const handleRequestAutoBattleStop = useCallback((adventurerId) => {
+    update((s) => requestAutoBattleStop(s, adventurerId));
+  }, [update]);
+
   // Auto battle collect: same as returnAdventurer but result has autoBattle=true
   const handleReturnAutoBattle = useCallback((adventurerId) => {
     const { state: next, result } = returnAdventurer(gameRef.current, adventurerId);
@@ -862,6 +866,7 @@ export default function RootWork() {
             onPrestigeAdventurer={handlePrestigeAdventurer}
             onStartAutoBattle={handleStartAutoBattle}
             onReturnAutoBattle={handleReturnAutoBattle}
+            onRequestAutoBattleStop={handleRequestAutoBattleStop}
             autoBattleLootResult={autoBattleLootResult}
             onDismissAutoBattleLoot={() => setAutoBattleLootResult(null)}
           />

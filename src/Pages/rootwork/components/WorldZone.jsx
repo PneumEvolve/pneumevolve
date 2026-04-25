@@ -156,6 +156,7 @@ function LootModal({ result, onDismiss }) {
   const maxHp = result.maxHp ?? 40;
   const isAutoBattle = result.autoBattle;
   const ranOutOfFood = result.ranOutOfFood;
+  const stoppedByPlayer = result.stoppedByPlayer;
   const diedDuringAuto = result.diedDuringAuto;
   const diedOnNormal = result.died && !isAutoBattle; // died on a normal non-auto run
   const successfulRuns = result.successfulRuns ?? 0;
@@ -170,10 +171,10 @@ function LootModal({ result, onDismiss }) {
       }}>
         <div style={{ textAlign: "center", marginBottom: "1rem" }}>
           <div style={{ fontSize: "2.8rem", marginBottom: "0.4rem" }}>
-            {diedDuringAuto ? "💀" : diedOnNormal ? "💀" : ranOutOfFood ? "🍞" : result.failed ? "❌" : result.zoneCleared ? "🏆" : isAutoBattle ? "⚔️" : "🎒"}
+            {diedDuringAuto ? "💀" : diedOnNormal ? "💀" : ranOutOfFood ? "🍞" : stoppedByPlayer ? "🏳️" : result.failed ? "❌" : result.zoneCleared ? "🏆" : isAutoBattle ? "⚔️" : "🎒"}
           </div>
           <div style={{ fontWeight: 800, fontSize: "1.05rem" }}>
-            {diedDuringAuto ? "Fell in Battle" : diedOnNormal ? "Hero Fallen" : ranOutOfFood ? "Out of Food!" : result.failed ? "Mission Failed" : result.zoneCleared ? "Zone Cleared!" : isAutoBattle ? "Auto Battle Done" : "Mission Complete"}
+            {diedDuringAuto ? "Fell in Battle" : diedOnNormal ? "Hero Fallen" : ranOutOfFood ? "Out of Food!" : stoppedByPlayer ? "Battle Recalled" : result.failed ? "Mission Failed" : result.zoneCleared ? "Zone Cleared!" : isAutoBattle ? "Auto Battle Done" : "Mission Complete"}
           </div>
           {diedOnNormal && (
             <div style={{ fontSize: "0.72rem", color: "#ef4444", marginTop: "0.3rem", fontWeight: 600 }}>
@@ -183,7 +184,9 @@ function LootModal({ result, onDismiss }) {
           {isAutoBattle && (
             <div style={{ fontSize: "0.72rem", color: "#a78bfa", marginTop: "0.2rem", fontWeight: 600 }}>
               {ranOutOfFood
-  ? `Ran out of food · ${successfulRuns} successful run${successfulRuns !== 1 ? "s" : ""}`
+  ? stoppedByPlayer
+    ? `Recalled after ${successfulRuns} run${successfulRuns !== 1 ? "s" : ""}`
+    : `Ran out of food · ${successfulRuns} successful run${successfulRuns !== 1 ? "s" : ""}`
                 : diedDuringAuto
                 ? `Fell on run ${successfulRuns + 1} · ${successfulRuns} run${successfulRuns !== 1 ? "s" : ""} counted · 50% loot`
                 : `${successfulRuns} run${successfulRuns !== 1 ? "s" : ""} completed`}
@@ -785,7 +788,7 @@ function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onGiveArtisa
 }
 
 // ─── Auto Battle Panel (shown in AdventurerCard when skill unlocked) ──────────
-function AutoBattlePanel({ adventurer, game, onStartAutoBattle, onReturnAutoBattle }) {
+function AutoBattlePanel({ adventurer, game, onStartAutoBattle, onReturnAutoBattle, onRequestStop }) {
   const isOnMission = !!adventurer.mission;
   const isAutoBattle = adventurer.mission?.autoBattle;
   const mission = adventurer.mission;
@@ -805,9 +808,23 @@ function AutoBattlePanel({ adventurer, game, onStartAutoBattle, onReturnAutoBatt
           <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "#ef4444" }}>
             {done ? "⚔️ Run complete!" : `⚔️ Auto Battle · ${mission.zoneName}`}
           </span>
-          <span style={{ fontSize: "0.58rem", color: "var(--muted)" }}>
-            {mission.autoBattleRuns ?? 0} run{(mission.autoBattleRuns ?? 0) !== 1 ? "s" : ""}
-          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+            <span style={{ fontSize: "0.58rem", color: "var(--muted)" }}>
+              {mission.autoBattleRuns ?? 0} run{(mission.autoBattleRuns ?? 0) !== 1 ? "s" : ""}
+            </span>
+            {mission.autoBattleStopRequested ? (
+              <span style={{ fontSize: "0.55rem", color: "#fbbf24", fontWeight: 700, background: "rgba(251,191,36,0.12)", border: "1px solid rgba(251,191,36,0.35)", borderRadius: "999px", padding: "1px 7px" }}>
+                ⏳ Stopping…
+              </span>
+            ) : (
+              <button
+                onClick={() => onRequestStop(adventurer.id)}
+                style={{ fontSize: "0.55rem", padding: "1px 8px", borderRadius: "999px", cursor: "pointer", background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.35)", color: "#f87171", fontWeight: 700 }}
+              >
+                ⏹ Stop
+              </button>
+            )}
+          </div>
         </div>
         <div style={{ height: "4px", background: "rgba(255,255,255,0.08)", borderRadius: "2px", overflow: "hidden", marginBottom: "0.4rem" }}>
           <div style={{ height: "100%", width: `${progress * 100}%`, background: "#ef4444", borderRadius: "2px", transition: "width 0.3s" }} />
@@ -828,7 +845,7 @@ function AutoBattlePanel({ adventurer, game, onStartAutoBattle, onReturnAutoBatt
 }
 
 // ─── Adventurer Card ──────────────────────────────────────────────────────────
-function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero, onGiveArtisanFood, onUseArtisanFood, onGiveBuffItem, onRevive, onStartAutoBattle, onReturnAutoBattle }) {
+function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero, onGiveArtisanFood, onUseArtisanFood, onGiveBuffItem, onRevive, onStartAutoBattle, onReturnAutoBattle, onRequestStop }) {
   const [selectedZoneId, setSelectedZoneId] = useState(null);
   const [zonesOpen, setZonesOpen] = useState(true);
   const [autoBattleMode, setAutoBattleMode] = useState(false);
@@ -938,6 +955,7 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
           adventurer={adventurer}
           game={game}
           onReturnAutoBattle={onReturnAutoBattle}
+          onRequestStop={onRequestStop}
         />
       )}
 
@@ -1190,6 +1208,7 @@ export default function WorldZone({
   onPrestigeAdventurer,
   onStartAutoBattle,
   onReturnAutoBattle,
+  onRequestAutoBattleStop,
   autoBattleLootResult, 
   onDismissAutoBattleLoot,
 }) {
@@ -1242,6 +1261,7 @@ export default function WorldZone({
           onRevive={onReviveAdventurer}
           onStartAutoBattle={onStartAutoBattle}
           onReturnAutoBattle={handleReturnAutoBattle}
+          onRequestStop={onRequestAutoBattleStop}
         />
       ))}
 

@@ -4076,6 +4076,45 @@ export function returnAdventurer(state, adventurerId) {
     const relentlessActive = hasHeroSkill(adventurer, "fighter_t4");
     const relentlessCanContinue = relentlessActive && hpAfterDamage > Math.floor(bonusMaxHp * 0.10);
 
+    // Player requested stop — finish this run then collect cleanly
+    if (mission.autoBattleStopRequested) {
+      for (const l of newAccumLoot) {
+        nextResources[l.resourceKey] = (nextResources[l.resourceKey] ?? 0) + l.amount;
+      }
+      const updatedAdvStop = {
+        ...adventurer,
+        xp: newXp, level: newLevel, maxHp: bonusMaxHp,
+        hp: leveledUp ? bonusMaxHp : Math.min(hpAfterDamage, bonusMaxHp),
+        foodBelt: currentFoodBelt,
+        buffSlot: buffSlotConsumed,
+        mission: null,
+        skillPoints: newSkillPoints,
+        prestigeLevel: adventurer.prestigeLevel ?? 0,
+      };
+      const nextStop = {
+        ...state,
+        adventurers: state.adventurers.map((a) => a.id === adventurerId ? updatedAdvStop : a),
+        worldResources: nextResources,
+        worldZoneClears: { ...(state.worldZoneClears ?? {}), [zone.id]: newClears },
+      };
+      return {
+        state: nextStop,
+        result: {
+          autoBattle: true,
+          stoppedByPlayer: true,
+          successfulRuns: newRuns,
+          zoneName: mission.zoneName,
+          loot: newAccumLoot,
+          xpGained: newAccumXp,
+          leveledUp,
+          zoneCleared,
+          hpLost: rawDamage,
+          hpRemaining: Math.max(0, hpAfterDamage),
+          maxHp: bonusMaxHp,
+        },
+      };
+    }
+
     if (!hasBeltFood && !relentlessCanContinue) {
       // Out of food — collect everything, mission ends cleanly
       for (const l of newAccumLoot) {
@@ -4734,6 +4773,20 @@ export function tickAdventurerRegen(state, dtSeconds) {
 }
 
 // ─── Auto-tick adventurer missions ───────────────────────────────────────────
+export function requestAutoBattleStop(state, adventurerId) {
+  const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
+  if (advIdx === -1) return state;
+  const adventurer = state.adventurers[advIdx];
+  if (!adventurer.mission?.autoBattle) return state;
+  const updatedAdv = {
+    ...adventurer,
+    mission: { ...adventurer.mission, autoBattleStopRequested: true },
+  };
+  const next = { ...state, adventurers: [...state.adventurers] };
+  next.adventurers[advIdx] = updatedAdv;
+  return next;
+}
+
 export function tickAdventurerMissions(state) {
   let next = state;
   for (const adv of (state.adventurers ?? [])) {
