@@ -10,15 +10,20 @@ import {
   getForgeEffectiveSeconds,
   isForgeWorkerIdle,
 } from "../gameEngine";
-
-
+ 
+ 
 // Plain-text resource name map — avoids emoji rendering gaps on desktop
 const RESOURCE_DISPLAY_NAMES = {
   iron_ore: "Iron Ore", lumber: "Lumber", herbs: "Herbs", rare_gem: "Rare Gem",
+  titan_core: "Titan Core",
+  iron_sword: "Iron Sword", steel_sword: "Steel Sword",
+  iron_shield: "Iron Shield", steel_shield: "Steel Shield",
+  leather_armor: "Leather Armor", chainmail: "Chainmail",
+  iron_fitting: "Iron Fitting", reinforced_crate: "Reinforced Crate"
 };
-
+ 
 // ─── Progress bar ─────────────────────────────────────────────────────────────
-
+ 
 function ProgressBar({ elapsed, total, color = "#f59e0b" }) {
   const pct = total > 0 ? Math.min(100, (elapsed / total) * 100) : 0;
   return (
@@ -31,14 +36,14 @@ function ProgressBar({ elapsed, total, color = "#f59e0b" }) {
     </div>
   );
 }
-
+ 
 // ─── World Resource Inventory ─────────────────────────────────────────────────
-
+ 
 function ResourceInventory({ worldResources }) {
   const entries = Object.entries(WORLD_RESOURCES).map(([key, def]) => ({
     key, ...def, amount: Math.floor(worldResources?.[key] ?? 0),
   })).filter((r) => r.amount > 0);
-
+ 
   if (!entries.length) {
     return (
       <div style={{
@@ -50,7 +55,7 @@ function ResourceInventory({ worldResources }) {
       </div>
     );
   }
-
+ 
   return (
     <div style={{
       display: "flex", flexWrap: "wrap", gap: "0.4rem",
@@ -75,13 +80,13 @@ function ResourceInventory({ worldResources }) {
     </div>
   );
 }
-
+ 
 // ─── Forge Goods Inventory ────────────────────────────────────────────────────
-
+ 
 function ForgeGoodsInventory({ forgeGoods }) {
   const entries = Object.entries(forgeGoods ?? {}).filter(([, v]) => v > 0);
   if (!entries.length) return null;
-
+ 
   return (
     <div style={{
       display: "flex", flexWrap: "wrap", gap: "0.4rem",
@@ -112,9 +117,9 @@ function ForgeGoodsInventory({ forgeGoods }) {
     </div>
   );
 }
-
+ 
 // ─── Upgrade tree ─────────────────────────────────────────────────────────────
-
+ 
 function ForgeUpgradeTree({ worker, game, onUpgrade }) {
   return (
     <div style={{ marginTop: "0.5rem" }}>
@@ -128,7 +133,7 @@ function ForgeUpgradeTree({ worker, game, onUpgrade }) {
           const requiresMet = !u.requires || (worker.upgrades ?? []).includes(u.requires);
           const canAfford = (game.cash ?? 0) >= u.cost;
           const locked = !owned && !requiresMet;
-
+ 
           return (
             <div key={uid} style={{
               display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -168,34 +173,33 @@ function ForgeUpgradeTree({ worker, game, onUpgrade }) {
     </div>
   );
 }
-
+ 
 // ─── Recipe groups ────────────────────────────────────────────────────────────
-
+ 
 const FORGE_RECIPE_GROUPS = [
   { id: "weapons",     label: "WEAPONS",    icon: "⚔️",  accentColor: "#f87171", ids: ["iron_sword", "steel_sword", "master_sword", "hunting_bow"] },
   { id: "armour",      label: "ARMOUR",     icon: "🛡️",  accentColor: "#60a5fa", ids: ["iron_shield", "steel_shield", "tower_shield", "leather_armor", "chainmail", "plate_armor"] },
   { id: "components",  label: "COMPONENTS", icon: "🔩",  accentColor: "#34d399", ids: ["iron_fitting", "reinforced_crate", "fine_tools"] },
   { id: "consumables", label: "CONSUMABLES",icon: "🧪",  accentColor: "#a78bfa", ids: ["health_potion"] },
 ];
-
+ 
 function ForgeRecipeRow({ recipeId, worker, worldResources, forgeGoods, onAssign, onCancel }) {
   const recipe = FORGE_RECIPES[recipeId];
   if (!recipe) return null;
   const isActive = worker.recipeId === recipeId;
   const effectiveSecs = getForgeEffectiveSeconds(worker, recipe);
-
-  const canCraft = Object.entries(recipe.inputs).every(
-    ([key, needed]) => (worldResources[key] ?? 0) >= needed
-  );
-  // requires check — a previous recipe in the chain must have been crafted at least once
-  const requiresMet = !recipe.requires || (forgeGoods?.[recipe.requires] ?? 0) > 0;
-
+ 
+  // Inputs may come from worldResources (raw materials) OR forgeGoods (gear items)
+  const canCraft = Object.entries(recipe.inputs).every(([key, needed]) => {
+    const have = (worldResources[key] ?? 0) + (forgeGoods?.[key] ?? 0);
+    return have >= needed;
+  });
+ 
   return (
     <div style={{
       padding: "0.45rem 0.55rem", borderRadius: "8px",
       background: isActive ? "rgba(245,158,11,0.1)" : "rgba(255,255,255,0.02)",
-      border: `1px solid ${isActive ? "rgba(245,158,11,0.4)" : requiresMet ? "var(--border)" : "rgba(255,255,255,0.06)"}`,
-      opacity: requiresMet ? 1 : 0.45,
+      border: `1px solid ${isActive ? "rgba(245,158,11,0.4)" : "var(--border)"}`,
     }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -207,15 +211,11 @@ function ForgeRecipeRow({ recipeId, worker, worldResources, forgeGoods, onAssign
                 T{recipe.gearTier}
               </span>
             )}
-            {!requiresMet && (
-              <span style={{ fontSize: "0.58rem", color: "var(--muted)", background: "rgba(255,255,255,0.06)", padding: "1px 5px", borderRadius: "4px" }}>
-                🔒 Requires {FORGE_RECIPES[recipe.requires]?.name}
-              </span>
-            )}
+ 
           </div>
           <div style={{ display: "flex", gap: "0.35rem", marginTop: "0.2rem", flexWrap: "wrap" }}>
             {Object.entries(recipe.inputs).map(([key, needed]) => {
-              const have = Math.floor(worldResources[key] ?? 0);
+              const have = Math.floor((worldResources[key] ?? 0) + (forgeGoods?.[key] ?? 0));
               const displayName = RESOURCE_DISPLAY_NAMES[key] ?? (WORLD_RESOURCES[key]?.name ?? key);
               const ok = have >= needed;
               return (
@@ -231,7 +231,7 @@ function ForgeRecipeRow({ recipeId, worker, worldResources, forgeGoods, onAssign
             <span style={{ fontSize: "0.62rem", color: "var(--muted)" }}>· {effectiveSecs}s</span>
           </div>
         </div>
-
+ 
         {isActive ? (
           <button
             onClick={() => onCancel(worker.id)}
@@ -245,14 +245,14 @@ function ForgeRecipeRow({ recipeId, worker, worldResources, forgeGoods, onAssign
           </button>
         ) : (
           <button
-            onClick={() => requiresMet && canCraft && onAssign(worker.id, recipeId)}
-            disabled={!canCraft || !requiresMet || worker.busy}
+            onClick={() => canCraft && onAssign(worker.id, recipeId)}
+            disabled={!canCraft || worker.busy}
             style={{
               fontSize: "0.65rem", padding: "2px 8px", borderRadius: "5px",
-              background: canCraft && requiresMet && !worker.busy ? "rgba(245,158,11,0.2)" : "rgba(255,255,255,0.05)",
-              border: `1px solid ${canCraft && requiresMet && !worker.busy ? "rgba(245,158,11,0.4)" : "var(--border)"}`,
-              color: canCraft && requiresMet && !worker.busy ? "#f59e0b" : "var(--muted)",
-              cursor: canCraft && requiresMet && !worker.busy ? "pointer" : "default",
+              background: canCraft && !worker.busy ? "rgba(245,158,11,0.2)" : "rgba(255,255,255,0.05)",
+              border: `1px solid ${canCraft && !worker.busy ? "rgba(245,158,11,0.4)" : "var(--border)"}`,
+              color: canCraft && !worker.busy ? "#f59e0b" : "var(--muted)",
+              cursor: canCraft && !worker.busy ? "pointer" : "default",
               whiteSpace: "nowrap", flexShrink: 0,
             }}
           >
@@ -263,11 +263,11 @@ function ForgeRecipeRow({ recipeId, worker, worldResources, forgeGoods, onAssign
     </div>
   );
 }
-
+ 
 function ForgeRecipeSection({ group, worker, worldResources, forgeGoods, onAssign, onCancel, defaultOpen }) {
   const [open, setOpen] = React.useState(defaultOpen);
   const hasActive = group.ids.includes(worker.recipeId);
-
+ 
   return (
     <div style={{ border: "1px solid var(--border)", borderRadius: "8px", overflow: "hidden" }}>
       <button
@@ -302,13 +302,13 @@ function ForgeRecipeSection({ group, worker, worldResources, forgeGoods, onAssig
     </div>
   );
 }
-
+ 
 function RecipePicker({ worker, game, onAssign, onCancel }) {
   const worldResources = game.worldResources ?? {};
   const forgeGoods = game.forgeGoods ?? {};
-
+ 
   const activeGroupId = FORGE_RECIPE_GROUPS.find((g) => g.ids.includes(worker.recipeId))?.id ?? null;
-
+ 
   return (
     <div style={{ marginTop: "0.5rem" }}>
       <div style={{ fontSize: "0.65rem", fontWeight: 600, color: "var(--muted)", marginBottom: "0.3rem" }}>
@@ -331,13 +331,13 @@ function RecipePicker({ worker, game, onAssign, onCancel }) {
     </div>
   );
 }
-
+ 
 // ─── Forge Worker Card ────────────────────────────────────────────────────────
-
+ 
 function ForgeWorkerCard({ worker, workerNumber, game, expanded, onToggle, onAssign, onUpgrade, onFire, onCancel, onToggleAutoRestart }) {
   const idle = isForgeWorkerIdle(worker);
   const recipe = worker.recipeId ? FORGE_RECIPES[worker.recipeId] : null;
-
+ 
   return (
     <div style={{
       border: "1px solid var(--border)", borderRadius: "10px", overflow: "hidden",
@@ -370,7 +370,7 @@ function ForgeWorkerCard({ worker, workerNumber, game, expanded, onToggle, onAss
         </div>
         <span style={{ fontSize: "0.65rem", color: "var(--muted)" }}>{expanded ? "▲" : "▼"}</span>
       </button>
-
+ 
       {/* Progress bar always visible when working */}
       {worker.busy && (
         <div style={{ padding: "0 0.75rem 0.4rem" }}>
@@ -385,7 +385,7 @@ function ForgeWorkerCard({ worker, workerNumber, game, expanded, onToggle, onAss
           </div>
         </div>
       )}
-
+ 
       {/* Expanded panel */}
       {expanded && (
         <div style={{ padding: "0 0.75rem 0.75rem", borderTop: "1px solid var(--border)" }}>
@@ -404,10 +404,10 @@ function ForgeWorkerCard({ worker, workerNumber, game, expanded, onToggle, onAss
               {worker.autoRestart ? "ON" : "OFF"}
             </button>
           </div>
-
+ 
           <RecipePicker worker={worker} game={game} onAssign={onAssign} onCancel={onCancel} />
           <ForgeUpgradeTree worker={worker} game={game} onUpgrade={onUpgrade} />
-
+ 
           <button
             onClick={() => onFire(worker.id)}
             style={{
@@ -423,9 +423,9 @@ function ForgeWorkerCard({ worker, workerNumber, game, expanded, onToggle, onAss
     </div>
   );
 }
-
+ 
 // ─── Main ForgeZone ───────────────────────────────────────────────────────────
-
+ 
 export default function ForgeZone({
   game,
   onHireForgeWorker,
@@ -437,9 +437,9 @@ export default function ForgeZone({
   onBuildForge,
 }) {
   const [expandedWorkers, setExpandedWorkers] = useState({});
-
+ 
   const toggleWorker = (id) => setExpandedWorkers((prev) => ({ ...prev, [id]: !prev[id] }));
-
+ 
   // ── Locked splash ──────────────────────────────────────────────────────────
   if (!game.forgeBuilt) {
     const hasCash = (game.cash ?? 0) >= FORGE_BUILD_COST;
@@ -481,11 +481,11 @@ export default function ForgeZone({
     );
   }
   // ── End locked splash ──────────────────────────────────────────────────────
-
+ 
   const workers = game.forgeWorkers ?? [];
   const hireCost = getForgeWorkerHireCost(game);
   const canHire = (game.cash ?? 0) >= hireCost;
-
+ 
   return (
     <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 5rem" }}>
       <div style={{ marginBottom: "1rem" }}>
@@ -494,10 +494,10 @@ export default function ForgeZone({
           Smelt world resources into gear and consumables for your adventurers.
         </p>
       </div>
-
+ 
       <ResourceInventory worldResources={game.worldResources} />
       <ForgeGoodsInventory forgeGoods={game.forgeGoods} />
-
+ 
       <div style={{ marginBottom: "1.25rem" }}>
         <button
           onClick={onHireForgeWorker}
@@ -513,7 +513,7 @@ export default function ForgeZone({
           </p>
         )}
       </div>
-
+ 
       {workers.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
           {workers.map((worker, idx) => (

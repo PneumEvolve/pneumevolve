@@ -4927,15 +4927,24 @@ export function fireForgeWorker(state, workerId) {
 export function assignForgeWorkerRecipe(state, workerId, recipeId) {
   const recipe = FORGE_RECIPES[recipeId];
   if (!recipe) return state;
-  // Check resources
+  // Check resources — inputs may come from worldResources OR forgeGoods (for gear upgrades)
   const resources = state.worldResources ?? {};
+  const forgeGoods = state.forgeGoods ?? {};
   for (const [key, needed] of Object.entries(recipe.inputs)) {
-    if ((resources[key] ?? 0) < needed) return state;
+    const have = (resources[key] ?? 0) + (forgeGoods[key] ?? 0);
+    if (have < needed) return state;
   }
-  // Deduct inputs
+  // Deduct inputs — prefer forgeGoods first for gear items, then worldResources
   const nextResources = { ...resources };
+  const nextForgeGoods = { ...forgeGoods };
   for (const [key, needed] of Object.entries(recipe.inputs)) {
-    nextResources[key] = (nextResources[key] ?? 0) - needed;
+    let remaining = needed;
+    const fromForge = Math.min(remaining, nextForgeGoods[key] ?? 0);
+    nextForgeGoods[key] = (nextForgeGoods[key] ?? 0) - fromForge;
+    remaining -= fromForge;
+    if (remaining > 0) {
+      nextResources[key] = (nextResources[key] ?? 0) - remaining;
+    }
   }
   const totalSeconds = getForgeEffectiveSeconds(
     (state.forgeWorkers ?? []).find((w) => w.id === workerId) ?? {},
@@ -4944,6 +4953,7 @@ export function assignForgeWorkerRecipe(state, workerId, recipeId) {
   return {
     ...state,
     worldResources: nextResources,
+    forgeGoods: nextForgeGoods,
     forgeWorkers: (state.forgeWorkers ?? []).map((w) =>
       w.id === workerId ? { ...w, recipeId, elapsedSeconds: 0, totalSeconds, busy: true, lastRecipeId: recipeId } : w
     ),
@@ -4953,17 +4963,25 @@ export function assignForgeWorkerRecipe(state, workerId, recipeId) {
 export function cancelForgeWorkerRecipe(state, workerId) {
   const worker = (state.forgeWorkers ?? []).find((w) => w.id === workerId);
   if (!worker?.recipeId) return state;
-  // Refund inputs
+  // Refund inputs — gear items go back to forgeGoods, raw materials to worldResources
   const recipe = FORGE_RECIPES[worker.recipeId];
   const nextResources = { ...(state.worldResources ?? {}) };
+  const nextForgeGoods = { ...(state.forgeGoods ?? {}) };
   if (recipe) {
     for (const [key, needed] of Object.entries(recipe.inputs)) {
-      nextResources[key] = (nextResources[key] ?? 0) + needed;
+      // If this key is a forge output (gear item), refund to forgeGoods
+      const isForgeItem = Object.values(FORGE_RECIPES).some((r) => r.output.resourceKey === key);
+      if (isForgeItem) {
+        nextForgeGoods[key] = (nextForgeGoods[key] ?? 0) + needed;
+      } else {
+        nextResources[key] = (nextResources[key] ?? 0) + needed;
+      }
     }
   }
   return {
     ...state,
     worldResources: nextResources,
+    forgeGoods: nextForgeGoods,
     forgeWorkers: (state.forgeWorkers ?? []).map((w) =>
       w.id === workerId ? { ...w, recipeId: null, elapsedSeconds: 0, totalSeconds: 0, busy: false } : w
     ),
