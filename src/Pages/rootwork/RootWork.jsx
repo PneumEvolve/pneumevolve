@@ -722,13 +722,20 @@ export default function RootWork() {
   const handleBuyFeast = useCallback(() => { update((s) => { const n = buyFeast(s); if (n === s) notify("Not enough artisan goods."); return n; }); notify("🍽️ Feast held! Grow speed increased."); }, [update, notify]);
   const handlePrestigeComplete = useCallback((pendingSkills, workerIds) => {
   update((s) => {
-    // Award the point FIRST so unlockPrestigeSkill can see it
-    let next = beginPrestige(s, null, workerIds);
+    // Commit pending skills BEFORE beginPrestige so advanceSeason (warm_welcome,
+    // grand_opening, etc.) can see them immediately.
+    // beginPrestige itself awards +1 prestigePoints, so we pre-add +1 here as a
+    // temporary credit that lets unlockPrestigeSkill spend the incoming point,
+    // then beginPrestige's own +1 restores the balance.
+    let next = { ...s, prestigePoints: (s.prestigePoints ?? 0) + 1 };
     for (const [skillId, count] of Object.entries(pendingSkills ?? {})) {
       for (let i = 0; i < count; i++) {
         next = unlockPrestigeSkill(next, skillId);
       }
     }
+    // Now advance the season — prestige skills are already in prestigeSkills
+    // beginPrestige will award the real +1 point (net effect: +0 since we pre-added one)
+    next = beginPrestige({ ...next, prestigePoints: (next.prestigePoints ?? 1) - 1 }, null, workerIds);
     return next;
   });
   setShowPrestigeModal(false); setActiveMainTab("farms"); setActiveFarmIndex(0); notify("🌱 New season begun!");
