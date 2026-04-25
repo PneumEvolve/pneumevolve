@@ -40,6 +40,9 @@ import {
   hireAdventurer, spendSkillPoint, getAdventurerSlotCost, getAdventurerSlotUnlocked, isAtWorkerCap,
   // New adventurer functions
   reviveAdventurer, prestigeAdventurer, requestAutoBattleStop,
+  tickBossFight, checkBossUnlock,
+  assignHeroToBoss, unassignHeroFromBoss, useBossAbility,
+  acknowledgeBossVictory, reviveHeroInBossFight,
 } from "./gameEngine";
 import {
   SAVE_KEY, SAVE_INTERVAL_MS,
@@ -462,6 +465,8 @@ export default function RootWork() {
     next = tickAdventurerRegen(next, 1);
     next = tickWorldWorkers(next, 1);
     next = tickAdventurerMissions(next);
+    next = tickBossFight(next, 1);
+    next = checkBossUnlock(next);
     // Surface any completed auto battle result
     if (next.pendingAutoBattleResult) {
       const result = next.pendingAutoBattleResult;
@@ -698,6 +703,27 @@ export default function RootWork() {
     update((s) => { const n = reviveAdventurer(s, adventurerId); if (n === s) notify("Not enough cash to revive."); return n; });
   }, [update, notify]);
 
+  // ─── Boss Fight handlers ──────────────────────────────────────────────────
+  const handleAssignHeroToBoss = useCallback((heroId) => {
+    update((s) => { const n = assignHeroToBoss(s, heroId); if (n === s) notify("Hero can't join — check HP or mission status."); return n; });
+  }, [update, notify]);
+
+  const handleUnassignHeroFromBoss = useCallback((heroId) => {
+    update((s) => unassignHeroFromBoss(s, heroId));
+  }, [update]);
+
+  const handleUseBossAbility = useCallback((heroId) => {
+    update((s) => { const n = useBossAbility(s, heroId); if (n === s) notify("Ability on cooldown."); return n; });
+  }, [update, notify]);
+
+  const handleAcknowledgeBossVictory = useCallback(() => {
+    update((s) => acknowledgeBossVictory(s));
+  }, [update]);
+
+  const handleReviveHeroInBossFight = useCallback((heroId) => {
+    update((s) => { const n = reviveHeroInBossFight(s, heroId); if (n === s) notify("Not enough cash to revive."); return n; });
+  }, [update, notify]);
+
   // Prestige a hero (costs 3 skill pts + cash, resets to level 1, grants +1 permanent skill pt)
   const handlePrestigeAdventurer = useCallback((adventurerId) => {
     update((s) => { const n = prestigeAdventurer(s, adventurerId); if (n === s) notify("Can't prestige — check skill points, cash, or hero must be alive."); return n; });
@@ -869,6 +895,11 @@ export default function RootWork() {
             onRequestAutoBattleStop={handleRequestAutoBattleStop}
             autoBattleLootResult={autoBattleLootResult}
             onDismissAutoBattleLoot={() => setAutoBattleLootResult(null)}
+            onAssignHeroToBoss={handleAssignHeroToBoss}
+            onUnassignHeroFromBoss={handleUnassignHeroFromBoss}
+            onUseBossAbility={handleUseBossAbility}
+            onAcknowledgeBossVictory={handleAcknowledgeBossVictory}
+            onReviveHeroInBossFight={handleReviveHeroInBossFight}
           />
         )}
         {activeMainTab === "animals" && (

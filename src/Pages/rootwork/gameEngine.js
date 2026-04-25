@@ -65,6 +65,9 @@ FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, 
   HERO_SKILL_TREES, HERO_SKILL_DEFS, HERO_CLASS_META,
   HERO_PRESTIGE_COST_BASE, HERO_PRESTIGE_SKILL_COST, HERO_PRESTIGE_REVIVE_BASE,
   HERO_DIP_TREE_PRESTIGE_TIER1, HERO_DIP_TREE_PRESTIGE_TIER2,
+  BOSS_DEFS, BOSS_ORDER, BOSS_TICK_INTERVAL,
+  BOSS_HERO_DAMAGE_LEVEL_SCALE, BOSS_HERO_DAMAGE_GEAR_SCALE,
+  BOSS_ABILITIES, BOSS_UNLOCK_LEVEL,
 } from "./gameConstants";
  
 let _idCounter = 0;
@@ -2166,7 +2169,16 @@ export function updateTown(state, seconds = 1) {
     }
     // Hard clamp to ceiling (respects town_pride upgrade)
     next.town.satisfaction = Math.min(satCeiling, next.town.satisfaction);
- 
+
+    // Boss fight victory bonus — temporary flat satisfaction boost
+    if ((next.bossSatBonus?.pulsesRemaining ?? 0) > 0) {
+      next.town.satisfaction = Math.min(satCeiling, next.town.satisfaction + next.bossSatBonus.flat);
+      next.bossSatBonus = {
+        ...next.bossSatBonus,
+        pulsesRemaining: next.bossSatBonus.pulsesRemaining - 1,
+      };
+    }
+
     next.town.rawFoodNeeded = foodNeeded;
     next.town.breadNeeded = foodNeeded;
     next.town.rawBreadNeeded = foodNeeded;
@@ -3931,6 +3943,15 @@ export function returnAdventurer(state, adventurerId) {
   const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
   if (advIdx === -1) return { state, result: null };
   const adventurer = state.adventurers[advIdx];
+
+  // If a completed auto-battle result is parked waiting for the player to collect, drain it now
+  if (adventurer.pendingAutoCollect) {
+    const result = adventurer.pendingAutoCollect;
+    const updatedAdv = { ...adventurer, pendingAutoCollect: null, mission: null };
+    const next = { ...state, adventurers: state.adventurers.map((a) => a.id === adventurerId ? updatedAdv : a) };
+    return { state: next, result };
+  }
+
   const mission = adventurer.mission;
   if (!mission) return { state, result: null };
   const zone = WORLD_ZONES[mission.zoneId];
@@ -3955,8 +3976,7 @@ export function returnAdventurer(state, adventurerId) {
       const amount = Math.floor(Math.random() * (lootDef.max - lootDef.min + 1)) + lootDef.min;
       let finalAmount = amount > 0 ? amount + minLootBonus : 0;
       if (hasCheeseBuff && finalAmount > 0) finalAmount = finalAmount * 2;
-      // Scavenger jackpot (auto battle): 15% double loot per run
-      if (hasHeroSkill(adventurer, "scavenger_t4") && Math.random() < 0.15) finalAmount = Math.floor(finalAmount * 2);
+      // Scavenger (auto battle): handled separately below — no loot modification here
       if (finalAmount > 0) runLoot.push({ ...lootDef, amount: finalAmount });
     }
   }
@@ -4025,25 +4045,7 @@ export function returnAdventurer(state, adventurerId) {
         nextResources[l.resourceKey] = (nextResources[l.resourceKey] ?? 0) + l.amount;
       }
  
-      const updatedAdv = {
-        ...adventurer,
-        xp: newXp, level: newLevel, maxHp: bonusMaxHp,
-        hp: 0, // dead
-        foodBelt: adventurer.foodBelt ?? {},
-        buffSlot: buffSlotConsumed,
-        mission: null,
-        skillPoints: newSkillPoints,
-        prestigeLevel: adventurer.prestigeLevel ?? 0,
-      };
-      const next = {
-        ...state,
-        adventurers: state.adventurers.map((a) => a.id === adventurerId ? updatedAdv : a),
-        worldResources: nextResources,
-        worldZoneClears: { ...(state.worldZoneClears ?? {}), [zone.id]: newClears },
-      };
-      return {
-        state: next,
-        result: {
+      const diedResult = {
           autoBattle: true,
           diedDuringAuto: true,
           successfulRuns: prevRuns,
@@ -4055,8 +4057,25 @@ export function returnAdventurer(state, adventurerId) {
           hpLost: rawDamage,
           hpRemaining: 0,
           maxHp: bonusMaxHp,
-        },
+        };
+      const updatedAdv = {
+        ...adventurer,
+        xp: newXp, level: newLevel, maxHp: bonusMaxHp,
+        hp: 0, // dead
+        foodBelt: adventurer.foodBelt ?? {},
+        buffSlot: buffSlotConsumed,
+        mission: null,
+        pendingAutoCollect: diedResult,
+        skillPoints: newSkillPoints,
+        prestigeLevel: adventurer.prestigeLevel ?? 0,
       };
+      const next = {
+        ...state,
+        adventurers: state.adventurers.map((a) => a.id === adventurerId ? updatedAdv : a),
+        worldResources: nextResources,
+        worldZoneClears: { ...(state.worldZoneClears ?? {}), [zone.id]: newClears },
+      };
+      return { state: next, result: null };
     }
  
     // Successful run — accumulate loot + XP
@@ -4064,42 +4083,40 @@ export function returnAdventurer(state, adventurerId) {
     const newAccumXp = prevAccumXp + xpGained;
     const newRuns = prevRuns + 1;
  
+    // Scavenger (scavenger_t4): 50% chance to find a food item and add it to belt
+    let scavengerFoundFood = null;
+    if (hasHeroSkill(adventurer, "scavenger_t4") && Math.random() < 0.50) {
+      const advForBelt = adventurer;
+      const beltCap = getBeltCap(advForBelt);
+      const currentBeltTotal = Object.values(advForBelt.foodBelt ?? {}).reduce((s, v) => s + v, 0);
+      if (currentBeltTotal < beltCap) {
+        // Pick a random food item from ARTISAN_FOOD_LIST (bread, jam, sauce)
+        const foodChoices = ARTISAN_FOOD_LIST;
+        const foundFoodId = foodChoices[Math.floor(Math.random() * foodChoices.length)];
+        scavengerFoundFood = foundFoodId;
+      }
+    }
+
     // Check if we can do another run — need food belt to heal between runs
     const currentFoodBelt = { ...(adventurer.foodBelt ?? {}) };
+    // Apply scavenger food find to belt before checking availability
+    if (scavengerFoundFood) {
+      currentFoodBelt[scavengerFoundFood] = (currentFoodBelt[scavengerFoundFood] ?? 0) + 1;
+    }
     const beltItems = ARTISAN_FOOD_LIST
       .filter((id) => (currentFoodBelt[id] ?? 0) > 0)
       .map((id) => ({ id, heal: ARTISAN_FOOD_HEAL[id]?.healAmount ?? 0 }))
       .sort((a, b) => a.heal - b.heal); // consume smallest heal first
     const hasBeltFood = beltItems.length > 0;
 
-    // Relentless (fighter_t4): even without food, can continue if above 10% HP
-    const relentlessActive = hasHeroSkill(adventurer, "fighter_t4");
-    const relentlessCanContinue = relentlessActive && hpAfterDamage > Math.floor(bonusMaxHp * 0.10);
+    // (Relentless handled below after food check)
 
     // Player requested stop — finish this run then collect cleanly
     if (mission.autoBattleStopRequested) {
       for (const l of newAccumLoot) {
         nextResources[l.resourceKey] = (nextResources[l.resourceKey] ?? 0) + l.amount;
       }
-      const updatedAdvStop = {
-        ...adventurer,
-        xp: newXp, level: newLevel, maxHp: bonusMaxHp,
-        hp: leveledUp ? bonusMaxHp : Math.min(hpAfterDamage, bonusMaxHp),
-        foodBelt: currentFoodBelt,
-        buffSlot: buffSlotConsumed,
-        mission: null,
-        skillPoints: newSkillPoints,
-        prestigeLevel: adventurer.prestigeLevel ?? 0,
-      };
-      const nextStop = {
-        ...state,
-        adventurers: state.adventurers.map((a) => a.id === adventurerId ? updatedAdvStop : a),
-        worldResources: nextResources,
-        worldZoneClears: { ...(state.worldZoneClears ?? {}), [zone.id]: newClears },
-      };
-      return {
-        state: nextStop,
-        result: {
+      const stoppedResult = {
           autoBattle: true,
           stoppedByPlayer: true,
           successfulRuns: newRuns,
@@ -4111,34 +4128,33 @@ export function returnAdventurer(state, adventurerId) {
           hpLost: rawDamage,
           hpRemaining: Math.max(0, hpAfterDamage),
           maxHp: bonusMaxHp,
-        },
-      };
-    }
-
-    if (!hasBeltFood && !relentlessCanContinue) {
-      // Out of food — collect everything, mission ends cleanly
-      for (const l of newAccumLoot) {
-        nextResources[l.resourceKey] = (nextResources[l.resourceKey] ?? 0) + l.amount;
-      }
-      const updatedAdv = {
+        };
+      const updatedAdvStop = {
         ...adventurer,
         xp: newXp, level: newLevel, maxHp: bonusMaxHp,
         hp: leveledUp ? bonusMaxHp : Math.min(hpAfterDamage, bonusMaxHp),
         foodBelt: currentFoodBelt,
         buffSlot: buffSlotConsumed,
         mission: null,
+        pendingAutoCollect: stoppedResult,
         skillPoints: newSkillPoints,
         prestigeLevel: adventurer.prestigeLevel ?? 0,
       };
-      const next = {
+      const nextStop = {
         ...state,
-        adventurers: state.adventurers.map((a) => a.id === adventurerId ? updatedAdv : a),
+        adventurers: state.adventurers.map((a) => a.id === adventurerId ? updatedAdvStop : a),
         worldResources: nextResources,
         worldZoneClears: { ...(state.worldZoneClears ?? {}), [zone.id]: newClears },
       };
-      return {
-        state: next,
-        result: {
+      return { state: nextStop, result: null };
+    }
+
+    if (!hasBeltFood) {
+      // Out of food — collect everything, mission ends cleanly
+      for (const l of newAccumLoot) {
+        nextResources[l.resourceKey] = (nextResources[l.resourceKey] ?? 0) + l.amount;
+      }
+      const outOfFoodResult = {
           autoBattle: true,
           ranOutOfFood: true,
           successfulRuns: newRuns,
@@ -4150,17 +4166,33 @@ export function returnAdventurer(state, adventurerId) {
           hpLost: rawDamage,
           hpRemaining: Math.max(0, hpAfterDamage),
           maxHp: bonusMaxHp,
-        },
+        };
+      const updatedAdv = {
+        ...adventurer,
+        xp: newXp, level: newLevel, maxHp: bonusMaxHp,
+        hp: leveledUp ? bonusMaxHp : Math.min(hpAfterDamage, bonusMaxHp),
+        foodBelt: currentFoodBelt,
+        buffSlot: buffSlotConsumed,
+        mission: null,
+        pendingAutoCollect: outOfFoodResult,
+        skillPoints: newSkillPoints,
+        prestigeLevel: adventurer.prestigeLevel ?? 0,
       };
+      const next = {
+        ...state,
+        adventurers: state.adventurers.map((a) => a.id === adventurerId ? updatedAdv : a),
+        worldResources: nextResources,
+        worldZoneClears: { ...(state.worldZoneClears ?? {}), [zone.id]: newClears },
+      };
+      return { state: next, result: null };
     }
 
-    // Relentless (fighter_t4): passively heal to 60% HP between runs even without food
-    const relentlessHp = hasHeroSkill(adventurer, "fighter_t4")
-      ? Math.max(hpAfterDamage, Math.floor(bonusMaxHp * 0.60))
-      : hpAfterDamage;
+    // Relentless (fighter_t4): skip food if HP is at or above 50% after a run
+    const relentlessActive = hasHeroSkill(adventurer, "fighter_t4");
+    const relentlessSkipFood = relentlessActive && hpAfterDamage >= Math.floor(bonusMaxHp * 0.50);
 
-    // Relentless with no food: skip food consumption, heal passively and re-queue
-    if (relentlessCanContinue && !hasBeltFood) {
+    // Relentless: if HP is above 50%, skip food consumption and re-queue without eating
+    if (relentlessSkipFood) {
       const nextDurationRelentless = getAdventurerMissionDuration({ ...adventurer, level: newLevel, skills }, zone);
       const nextMissionRelentless = {
         ...mission,
@@ -4174,7 +4206,7 @@ export function returnAdventurer(state, adventurerId) {
       const updatedAdvRelentless = {
         ...adventurer,
         xp: newXp, level: newLevel, maxHp: bonusMaxHp,
-        hp: relentlessHp,
+        hp: hpAfterDamage,
         foodBelt: currentFoodBelt,
         buffSlot: buffSlotConsumed,
         mission: nextMissionRelentless,
@@ -4195,7 +4227,7 @@ export function returnAdventurer(state, adventurerId) {
     // Apply food heal with Fighter Resilience bonus
     const { multiplier: healMult, flatBonus: healFlat } = getHeroHealBonus(adventurer);
     const foodHeal = Math.round(foodToUse.heal * healMult) + healFlat;
-    const hpAfterFood = Math.min(bonusMaxHp, relentlessHp + foodHeal);
+    const hpAfterFood = Math.min(bonusMaxHp, hpAfterDamage + foodHeal);
     const nextDuration = getAdventurerMissionDuration({ ...adventurer, level: newLevel, skills }, zone);
     const nextMission = {
       ...mission,
@@ -4762,11 +4794,12 @@ export function useArtisanFood(state, adventurerId, foodId) {
 export function tickAdventurerRegen(state, dtSeconds) {
   if (!(state.adventurers ?? []).length) return state;
   const updated = state.adventurers.map((adv) => {
-    const hp = adv.hp ?? adv.maxHp;
-    if (hp <= 0) return adv;         // dead — no regen until revived
-    if (adv.mission) return adv;     // on mission — no regen
-    if (hp >= adv.maxHp) return adv; // already full
-    const newHp = Math.min(adv.maxHp, hp + ADVENTURER_REGEN_PER_SECOND * dtSeconds);
+    const trueMax = (adv.maxHp ?? getAdventurerMaxHp(adv)) + getHeroBonusMaxHp(adv); // ← was just adv.maxHp
+    const hp = adv.hp ?? trueMax;
+    if (hp <= 0) return adv;
+    if (adv.mission) return adv;
+    if (hp >= trueMax) return adv;
+    const newHp = Math.min(trueMax, hp + ADVENTURER_REGEN_PER_SECOND * dtSeconds);
     return { ...adv, hp: newHp };
   });
   return { ...state, adventurers: updated };
@@ -4790,13 +4823,15 @@ export function requestAutoBattleStop(state, adventurerId) {
 export function tickAdventurerMissions(state) {
   let next = state;
   for (const adv of (state.adventurers ?? [])) {
+    // Already waiting for player to collect — don't re-process
+    if (adv.pendingAutoCollect) continue;
     if (!adv.mission?.autoBattle) continue;
     const elapsed = (Date.now() - adv.mission.startTime) / 1000;
     if (elapsed < adv.mission.duration) continue;
     const { state: afterState, result } = returnAdventurer(next, adv.id);
     next = afterState;
+    // result is now always null for auto-battle endings — parked on adventurer instead
     if (result) {
-      // Park result for RootWork to pick up and show the modal
       next = { ...next, pendingAutoBattleResult: { ...result, adventurerId: adv.id } };
     }
   }
@@ -5000,4 +5035,332 @@ export function tickForgeWorkers(state, dtSeconds) {
   });
 
   return { ...state, forgeWorkers: nextWorkers, forgeGoods: nextGoods, worldResources: nextResources };
+}
+
+// ─── Boss Fight Engine ────────────────────────────────────────────────────────
+
+// Returns the hero class for boss ability purposes
+// Reads heroClass (set by skill tree) — falls back to adventurer.class for pre-skill heroes
+function getHeroBossClass(adventurer) {
+  return adventurer.heroClass ?? adventurer.class ?? null;
+}
+
+// Damage a hero deals to the boss per tick
+function getHeroBossDamage(adventurer) {
+  const level = adventurer.level ?? 1;
+  const gearTier = adventurer.gear ?? 0;
+  const base = (adventurer.bossFightAbility?.tripleNextDamage ? 3 : 1);
+  const def = BOSS_DEFS[Object.keys(BOSS_DEFS)[0]]; // use base values
+  const dmg = (def?.heroDamageBase ?? 8)
+    + (level - 1) * BOSS_HERO_DAMAGE_LEVEL_SCALE
+    + gearTier * BOSS_HERO_DAMAGE_GEAR_SCALE;
+  return Math.round(dmg * base);
+}
+
+// Initialise boss fight state (called when boss unlocks or after victory)
+export function initBossFight(state, bossId) {
+  const def = BOSS_DEFS[bossId];
+  if (!def) return state;
+  return {
+    ...state,
+    bossFight: {
+      bossId,
+      bossHp: def.maxHp,
+      bossMaxHp: def.maxHp,
+      assignedHeroIds: [],
+      tickAccum: 0,
+      blindNextTick: false,      // scavenger ability queued
+      phase: "idle",             // "idle" | "fighting" | "defeated"
+      pendingResult: null,       // set on victory, cleared after UI reads it
+    },
+  };
+}
+
+// Assign a hero to the boss fight (removes from mission flow)
+export function assignHeroToBoss(state, heroId) {
+  const bossFight = state.bossFight;
+  if (!bossFight || bossFight.phase === "defeated") return state;
+  const hero = (state.adventurers ?? []).find((a) => a.id === heroId);
+  if (!hero || hero.mission || hero.bossAssigned) return state;
+  if ((hero.hp ?? hero.maxHp ?? 40) <= 0) return state; // dead hero can't join
+  if ((bossFight.assignedHeroIds ?? []).includes(heroId)) return state;
+
+  const updatedAdv = { ...hero, bossAssigned: true };
+  return {
+    ...state,
+    adventurers: state.adventurers.map((a) => a.id === heroId ? updatedAdv : a),
+    bossFight: {
+      ...bossFight,
+      assignedHeroIds: [...(bossFight.assignedHeroIds ?? []), heroId],
+      phase: "fighting",
+    },
+  };
+}
+
+// Remove a hero from the boss fight (they return to idle, keep their current HP)
+export function unassignHeroFromBoss(state, heroId) {
+  const bossFight = state.bossFight;
+  if (!bossFight) return state;
+  const updatedAdv = (state.adventurers ?? []).map((a) =>
+    a.id === heroId ? { ...a, bossAssigned: false, bossFightAbility: null } : a
+  );
+  const newIds = (bossFight.assignedHeroIds ?? []).filter((id) => id !== heroId);
+  return {
+    ...state,
+    adventurers: updatedAdv,
+    bossFight: {
+      ...bossFight,
+      assignedHeroIds: newIds,
+      phase: newIds.length > 0 ? bossFight.phase : "idle",
+    },
+  };
+}
+
+// Use a hero's boss fight ability
+export function useBossAbility(state, heroId) {
+  const bossFight = state.bossFight;
+  if (!bossFight || bossFight.phase !== "fighting") return state;
+  const hero = (state.adventurers ?? []).find((a) => a.id === heroId);
+  if (!hero || !hero.bossAssigned) return state;
+
+  const heroClass = getHeroBossClass(hero);
+  const abilityDef = BOSS_ABILITIES[heroClass];
+  if (!abilityDef) return state;
+
+  const ability = hero.bossFightAbility ?? {};
+  if ((ability.cooldownRemaining ?? 0) > 0) return state; // still on cooldown
+
+  let nextState = state;
+  let updatedAbility = { ...ability, cooldownRemaining: abilityDef.cooldown };
+
+  if (abilityDef.effect === "triple_damage") {
+    updatedAbility.tripleNextDamage = true;
+  } else if (abilityDef.effect === "heal_party") {
+    // Immediately heal all assigned living heroes
+    const healAmount = abilityDef.healAmount ?? 25;
+    const healedAdventurers = (nextState.adventurers ?? []).map((a) => {
+      if (!(bossFight.assignedHeroIds ?? []).includes(a.id)) return a;
+      if ((a.hp ?? 0) <= 0) return a;
+      const maxHp = a.maxHp ?? (40 + ((a.level ?? 1) - 1) * 8);
+      return { ...a, hp: Math.min(maxHp, (a.hp ?? maxHp) + healAmount) };
+    });
+    nextState = { ...nextState, adventurers: healedAdventurers };
+  } else if (abilityDef.effect === "blind_boss") {
+    nextState = {
+      ...nextState,
+      bossFight: { ...nextState.bossFight, blindNextTick: true },
+    };
+  }
+
+  const updatedAdventurers = (nextState.adventurers ?? []).map((a) =>
+    a.id === heroId ? { ...a, bossFightAbility: updatedAbility } : a
+  );
+  return { ...nextState, adventurers: updatedAdventurers };
+}
+
+// Main boss fight tick — call from the main game loop each second
+export function tickBossFight(state, dtSeconds) {
+  const bossFight = state.bossFight;
+  if (!bossFight || bossFight.phase === "defeated") return state;
+
+  // Regen boss HP when idle (no heroes assigned / all left)
+  if (bossFight.phase === "idle") {
+    const bossDef = BOSS_DEFS[bossFight.bossId];
+    const regenPerSecond = (bossDef?.maxHp ?? 1200) * 0.005;
+    const newHp = Math.min(bossFight.bossMaxHp, (bossFight.bossHp ?? 0) + regenPerSecond * dtSeconds);
+    if (newHp === bossFight.bossHp) return state;
+    return { ...state, bossFight: { ...bossFight, bossHp: newHp } };
+  }
+
+  if (bossFight.phase !== "fighting") return state;
+
+  const assignedIds = bossFight.assignedHeroIds ?? [];
+  const livingAssigned = assignedIds.filter((id) => {
+    const h = (state.adventurers ?? []).find((a) => a.id === id);
+    return h && (h.hp ?? 0) > 0;
+  });
+
+  // If no heroes alive (or none assigned), boss regens HP — making solo wins nearly impossible
+  if (livingAssigned.length === 0) {
+    const bossDef = BOSS_DEFS[bossFight.bossId];
+    const regenPerSecond = (bossDef?.maxHp ?? 1200) * 0.005; // 0.5% max HP per second
+    const newHp = Math.min(bossFight.bossMaxHp, (bossFight.bossHp ?? 0) + regenPerSecond * dtSeconds);
+    if (newHp === bossFight.bossHp) return state; // no change needed
+    return { ...state, bossFight: { ...bossFight, bossHp: newHp } };
+  }
+
+  // Tick down ability cooldowns each second
+  let nextAdventurers = (state.adventurers ?? []).map((a) => {
+    if (!a.bossFightAbility || !assignedIds.includes(a.id)) return a;
+    const cd = a.bossFightAbility.cooldownRemaining ?? 0;
+    if (cd <= 0) return a;
+    return { ...a, bossFightAbility: { ...a.bossFightAbility, cooldownRemaining: cd - dtSeconds } };
+  });
+
+  // Accumulate time — damage fires every BOSS_TICK_INTERVAL seconds
+  const newAccum = (bossFight.tickAccum ?? 0) + dtSeconds;
+  if (newAccum < BOSS_TICK_INTERVAL) {
+    return {
+      ...state,
+      adventurers: nextAdventurers,
+      bossFight: { ...bossFight, tickAccum: newAccum },
+    };
+  }
+
+  // ── Damage tick fires ────────────────────────────────────────────────────
+  let nextBossHp = bossFight.bossHp;
+  const bossDef = BOSS_DEFS[bossFight.bossId];
+
+  // Heroes attack boss
+  let heroDmgTotal = 0;
+  nextAdventurers = nextAdventurers.map((a) => {
+    if (!assignedIds.includes(a.id) || (a.hp ?? 0) <= 0) return a;
+    const dmg = getHeroBossDamage(a);
+    heroDmgTotal += dmg;
+    // Clear triple_damage flag after use
+    if (a.bossFightAbility?.tripleNextDamage) {
+      return { ...a, bossFightAbility: { ...a.bossFightAbility, tripleNextDamage: false } };
+    }
+    return a;
+  });
+  nextBossHp = Math.max(0, nextBossHp - heroDmgTotal);
+
+  // Boss attacks heroes — damage split across living heroes, halved if blind
+  const bossDmgPerHero = Math.round(
+    (bossDef?.damagePerTick ?? 18)
+    / Math.sqrt(Math.max(1, livingAssigned.length))
+    * (bossFight.blindNextTick ? 0.5 : 1)
+  );
+
+  nextAdventurers = nextAdventurers.map((a) => {
+    if (!livingAssigned.includes(a.id)) return a;
+    const maxHp = a.maxHp ?? (40 + ((a.level ?? 1) - 1) * 8);
+    const newHp = Math.max(0, (a.hp ?? maxHp) - bossDmgPerHero);
+    return { ...a, hp: newHp };
+  });
+
+  // Clear blind flag
+  const nextBlind = false;
+
+  // ── Check victory ────────────────────────────────────────────────────────
+  if (nextBossHp <= 0) {
+    // Award drop resource
+    const dropKey = bossDef?.dropResource ?? "titan_core";
+    const dropAmt = bossDef?.dropAmount ?? 3;
+    const nextResources = {
+      ...(state.worldResources ?? {}),
+      [dropKey]: ((state.worldResources ?? {})[dropKey] ?? 0) + dropAmt,
+    };
+
+    // Award XP to all surviving assigned heroes
+    const xpReward = bossDef?.xpReward ?? 50;
+    nextAdventurers = nextAdventurers.map((a) => {
+      if (!assignedIds.includes(a.id) || (a.hp ?? 0) <= 0) return a;
+      let newXp = (a.xp ?? 0) + xpReward;
+      let newLevel = a.level ?? 1;
+      let skillPointsGained = 0;
+      while (newXp >= getAdventurerXpNeeded(newLevel)) {
+        newXp -= getAdventurerXpNeeded(newLevel);
+        newLevel++;
+        skillPointsGained++;
+      }
+      const newMaxHp = getAdventurerMaxHp({ ...a, level: newLevel }) + getHeroBonusMaxHp({ ...a, level: newLevel });
+      return {
+        ...a,
+        xp: newXp,
+        level: newLevel,
+        maxHp: newMaxHp,
+        skillPoints: (a.skillPoints ?? 0) + skillPointsGained,
+        bossAssigned: false,
+        bossFightAbility: null,
+      };
+    });
+
+    // Town satisfaction bonus
+    const satBonus = bossDef?.townSatisfactionBonus ?? 10;
+    const satPulses = bossDef?.townSatBonusPulses ?? 2;
+    const prevBonus = state.bossSatBonus ?? { flat: 0, pulsesRemaining: 0 };
+    const nextSatBonus = {
+      flat: satBonus,
+      pulsesRemaining: prevBonus.pulsesRemaining + satPulses,
+    };
+
+    // Determine next boss in progression
+    const currentIdx = BOSS_ORDER.indexOf(bossFight.bossId);
+    const nextBossId = BOSS_ORDER[currentIdx + 1] ?? null;
+
+    return {
+      ...state,
+      adventurers: nextAdventurers,
+      worldResources: nextResources,
+      bossSatBonus: nextSatBonus,
+      bossFight: {
+        bossId: bossFight.bossId,
+        bossHp: 0,
+        bossMaxHp: bossDef?.maxHp ?? 1200,
+        assignedHeroIds: [],
+        tickAccum: 0,
+        blindNextTick: false,
+        phase: "defeated",
+        pendingResult: {
+          bossId: bossFight.bossId,
+          bossName: bossDef?.name ?? "Boss",
+          dropResource: dropKey,
+          dropAmount: dropAmt,
+          nextBossId,
+        },
+      },
+    };
+  }
+
+  return {
+    ...state,
+    adventurers: nextAdventurers,
+    bossFight: {
+      ...bossFight,
+      bossHp: nextBossHp,
+      tickAccum: newAccum - BOSS_TICK_INTERVAL,
+      blindNextTick: nextBlind,
+    },
+  };
+}
+
+// Call after player dismisses victory screen — resets to next boss (or keeps defeated state)
+export function acknowledgeBossVictory(state) {
+  const bossFight = state.bossFight;
+  if (!bossFight || bossFight.phase !== "defeated") return state;
+  const nextBossId = bossFight.pendingResult?.nextBossId ?? null;
+  if (nextBossId) {
+    return initBossFight({ ...state, bossFight: { ...bossFight, pendingResult: null } }, nextBossId);
+  }
+  // No more bosses — keep defeated state but clear pendingResult
+  return { ...state, bossFight: { ...bossFight, pendingResult: null } };
+}
+
+// Check if boss should unlock (any hero hit level 10) — call from level-up path
+export function checkBossUnlock(state) {
+  const alreadyUnlocked = !!(state.bossFight);
+  if (alreadyUnlocked) return state;
+  const anyHeroLvl10 = (state.adventurers ?? []).some((a) => (a.level ?? 1) >= BOSS_UNLOCK_LEVEL);
+  if (!anyHeroLvl10) return state;
+  return initBossFight(state, BOSS_ORDER[0]);
+}
+
+// Revive a hero while in boss fight (same cost as normal revive)
+export function reviveHeroInBossFight(state, heroId) {
+  const bossFight = state.bossFight;
+  if (!bossFight) return state;
+  const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === heroId);
+  if (advIdx === -1) return state;
+  const hero = state.adventurers[advIdx];
+  if ((hero.hp ?? 0) > 0) return state; // not dead
+  const cost = Math.max(1, hero.prestigeLevel ?? 0) * 100;
+  if ((state.cash ?? 0) < cost) return state;
+  const maxHp = hero.maxHp ?? (40 + ((hero.level ?? 1) - 1) * 8);
+  const updated = { ...hero, hp: Math.floor(maxHp * 0.5) }; // revive at 50% HP
+  return {
+    ...state,
+    cash: (state.cash ?? 0) - cost,
+    adventurers: state.adventurers.map((a, i) => i === advIdx ? updated : a),
+  };
 }

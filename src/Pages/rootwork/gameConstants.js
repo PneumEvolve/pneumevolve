@@ -110,6 +110,8 @@ export const MARKET_SELL_RATES = {
   plate_armor: 260,
   // Upgrade components (not intended for sale but assign a value)
   iron_fitting: 30, reinforced_crate: 30, fine_tools: 30,
+  // Boss drop
+  titan_core: 500,
 };
  
 // ─── Market workers ───────────────────────────────────────────────────────────
@@ -859,7 +861,7 @@ export const HERO_SKILL_TREES = {
       name: "Relentless",
       emoji: "🔄",
       tier: 4,
-      description: "Auto-battle: heal to 60% HP between runs even without food.",
+      description: "Auto-battle: only consume food if below 50% HP after a run. Conserve your belt.",
       requiredLevel: 8,
       maxRank: 1,
       grantsAutoBattle: true,
@@ -986,10 +988,10 @@ export const HERO_SKILL_TREES = {
     },
     {
       id: "scavenger_t4",
-      name: "Jackpot",
-      emoji: "🎰",
+      name: "Scavenger",
+      emoji: "🌿",
       tier: 4,
-      description: "Auto-battle: 15% chance of double loot per run.",
+      description: "Auto-battle: 50% chance to find a food item and auto-equip it to your belt each run.",
       requiredLevel: 8,
       maxRank: 1,
       grantsAutoBattle: true,
@@ -1211,6 +1213,97 @@ export const ADVENTURER_BUFF_LIST = ["omelette", "cheese"];
 // World Worker constants
 export const WORLD_WORKER_HIRE_COST = 200; // cash cost to hire a world zone worker
 
+// ─── Boss Fight System ────────────────────────────────────────────────────────
+
+export const BOSS_UNLOCK_LEVEL = 10; // any hero hitting this level spawns the first boss
+
+// Boss definitions
+export const BOSS_DEFS = {
+  forest_titan: {
+    id: "forest_titan",
+    name: "Forest Titan",
+    emoji: "🌲",
+    description: "An ancient spirit of the deep woods, twisted by corruption. Hits hard but slow.",
+    maxHp: 1200,
+    // Damage the boss deals to each hero per tick (before hero count scaling)
+    damagePerTick: 18,
+    // How much damage a hero deals per tick (base — scaled by level + gear)
+    heroDamageBase: 8,
+    // Heroes take sqrt-scaled damage: boss dmg / sqrt(assignedCount)
+    // Solo: full damage. 2 heroes: ~71%. 3 heroes: ~58%. 4 heroes: ~50%.
+    dropResource: "titan_core",
+    dropAmount: 3,
+    townSatisfactionBonus: 10,   // flat sat added on kill
+    townSatBonusPulses: 2,        // how many pulses the bonus lasts
+    xpReward: 50,                 // XP each surviving assigned hero gets
+    color: "#4ade80",
+  },
+  stone_colossus: {
+    id: "stone_colossus",
+    name: "Stone Colossus",
+    emoji: "🪨",
+    description: "A towering sentinel of ancient granite. Nearly impervious — but slow.",
+    maxHp: 2500,
+    damagePerTick: 28,
+    heroDamageBase: 10,
+    dropResource: "titan_core",
+    dropAmount: 6,
+    townSatisfactionBonus: 15,
+    townSatBonusPulses: 2,
+    xpReward: 80,
+    color: "#94a3b8",
+  },
+};
+
+export const BOSS_ORDER = ["forest_titan", "stone_colossus"]; // progression order
+
+// Boss tick interval — how often damage fires (seconds)
+export const BOSS_TICK_INTERVAL = 5;
+
+// Hero damage formula per tick:
+//   base + (level - 1) * levelScale + gearTier * gearScale
+export const BOSS_HERO_DAMAGE_LEVEL_SCALE = 1.5;
+export const BOSS_HERO_DAMAGE_GEAR_SCALE  = 4;
+
+// Class abilities — one per hero class, usable during boss fight
+export const BOSS_ABILITIES = {
+  fighter: {
+    id: "fighter",
+    name: "War Cry",
+    emoji: "⚔️",
+    description: "Next attack deals 3× damage.",
+    cooldown: 30, // seconds
+    effect: "triple_damage", // tag read by tick engine
+  },
+  mage: {
+    id: "mage",
+    name: "Mend",
+    emoji: "💚",
+    description: "Immediately heals all assigned heroes for 25 HP.",
+    cooldown: 45,
+    effect: "heal_party",
+    healAmount: 25,
+  },
+  scavenger: {
+    id: "scavenger",
+    name: "Blind",
+    emoji: "🌫️",
+    description: "Next boss attack deals 50% less damage to all heroes.",
+    cooldown: 40,
+    effect: "blind_boss",
+  },
+};
+
+// The drop resource — goes into worldResources like iron_ore / lumber
+export const TITAN_CORE = {
+  id: "titan_core",
+  name: "Titan Core",
+  emoji: "💠",
+  description: "Crystallized essence of a defeated boss. Used to forge T3 gear.",
+};
+
+
+
 
 // ─── Forge System ─────────────────────────────────────────────────────────────
 
@@ -1285,7 +1378,7 @@ export const FORGE_RECIPES = {
     name: "Tower Shield",
     emoji: "🏰",
     description: "Equip an adventurer. −40% damage taken.",
-    inputs: { iron_ore: 30, lumber: 14, reinforced_crate: 2, rare_gem: 1 },
+    inputs: { iron_ore: 30, lumber: 14, reinforced_crate: 2, rare_gem: 1, titan_core: 1 },
     output: { resourceKey: "tower_shield", emoji: "🏰", name: "Tower Shield" },
     seconds: 90,
     gearTier: 3,
@@ -1324,7 +1417,7 @@ export const FORGE_RECIPES = {
     name: "Plate Armor",
     emoji: "🪖",
     description: "Equip an adventurer. +5 food belt slots.",
-    inputs: { iron_ore: 28, lumber: 20, reinforced_crate: 1, iron_fitting: 2 },
+    inputs: { iron_ore: 28, lumber: 20, reinforced_crate: 1, iron_fitting: 2, titan_core: 1 },
     output: { resourceKey: "plate_armor", emoji: "🪖", name: "Plate Armor" },
     seconds: 100,
     gearTier: 3,
