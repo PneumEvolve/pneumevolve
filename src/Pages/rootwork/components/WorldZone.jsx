@@ -11,7 +11,7 @@ const EXCLUDED_GEAR_CATEGORIES = new Set(["consumable", "component"]);
 // Slot → forge category mapping
 const SLOT_CATEGORIES = {
   weapon: "weapon",
-  armour: "armor",
+  armour: "armour",
   body: "body", // reserved for future items
 };
 
