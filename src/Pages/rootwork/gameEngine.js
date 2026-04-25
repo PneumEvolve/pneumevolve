@@ -62,6 +62,9 @@ FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, 
   ADVENTURER_BUFF_ITEMS, ADVENTURER_BUFF_LIST,
   ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST,
   WORLD_WORKER_HIRE_COST,
+  HERO_SKILL_TREES, HERO_SKILL_DEFS, HERO_CLASS_META,
+  HERO_PRESTIGE_COST_BASE, HERO_PRESTIGE_SKILL_COST, HERO_PRESTIGE_REVIVE_BASE,
+  HERO_DIP_TREE_PRESTIGE_TIER1, HERO_DIP_TREE_PRESTIGE_TIER2,
 } from "./gameConstants";
  
 let _idCounter = 0;
@@ -867,12 +870,14 @@ export function getSellRate(itemType, prestigeBonuses = [], bankPriceBonus = 0, 
   const base = MARKET_SELL_RATES[itemType] ?? 0;
   // Legacy array support (old saves / callers that don't pass state)
   const legacySavvyCount = (prestigeBonuses ?? []).filter((b) => b === "market_savvy").length;
-  // New skill tree
+  // Prestige skill tree
   const sharpEyeCount = state ? getPrestigeSkillCount(state, "sharp_eye") : 0;
   const hasSavvy = state ? hasPrestigeSkill(state, "market_savvy") : legacySavvyCount > 0;
   const savvyMult = hasSavvy ? 1.25 : 1;
   const sharpEyeMult = 1 + sharpEyeCount * 0.10;
-  let rate = Math.round(base * savvyMult * sharpEyeMult * 100) / 100;
+  // Hero skill tree: Scavenger Fence Network +10%
+  const heroMarketMult = state ? getHeroMarketBonus(state) : 1.0;
+  let rate = Math.round(base * savvyMult * sharpEyeMult * heroMarketMult * 100) / 100;
   if (bankPriceBonus > 0) rate = Math.round(rate * (1 + bankPriceBonus / 100) * 100) / 100;
   return rate;
 }
@@ -950,13 +955,15 @@ export function getKitchenWorkerSpeedMultiplier(worker) {
   return 1;
 }
  
-export function getEffectiveKitchenSeconds(worker, baseSeconds, state = null) {
+export function getEffectiveKitchenSeconds(worker, baseSeconds, state = null, recipeId = null) {
   const workerMult = getKitchenWorkerSpeedMultiplier(worker);
   const schoolMult = state ? getSchoolResearchMultiplier(state) : 1;
   // swift_craft: -25% per stack
   const swiftCount = state ? getPrestigeSkillCount(state, "swift_craft") : 0;
   const swiftMult = Math.pow(0.75, swiftCount);
-  return Math.max(5, Math.floor(baseSeconds * workerMult * schoolMult * swiftMult));
+  // Fighter Hearth Guardian: bread bakes 30% faster
+  const breadMult = (state && recipeId === "bread") ? getHeroBreadSpeedMultiplier(state) : 1.0;
+  return Math.max(5, Math.floor(baseSeconds * workerMult * schoolMult * swiftMult * breadMult));
 }
  
 export function isKitchenWorkerIdle(worker) {
@@ -1026,7 +1033,7 @@ if (have < totalInput) return false;
   else if (inFish) fish[recipe.inputCrop] -= totalInput;
   worker.recipeId = recipeId;
   worker.elapsedSeconds = 0;
-  worker.totalSeconds = getEffectiveKitchenSeconds(worker, recipe.seconds, state);
+  worker.totalSeconds = getEffectiveKitchenSeconds(worker, recipe.seconds, state, recipeId);
   worker.batchSize = batch;
   worker.busy = true;
   return true;
@@ -1713,7 +1720,9 @@ if (activeTier) {
     if (worker.elapsedSeconds >= worker.totalSeconds) {
       const recipe = PROCESSING_RECIPES[worker.recipeId] ?? BAIT_RECIPES[worker.recipeId];
       const batch = worker.batchSize ?? 1;
-      const produced = recipe.outputAmount * batch;
+      // Mage Arcane Focus: 20% chance of +1 bonus output per craft
+      const arcaneBonus = (!recipe.isBait && Math.random() < getHeroKitchenBonusChance(next)) ? 1 : 0;
+      const produced = recipe.outputAmount * batch + arcaneBonus;
       const artisanGoods = ["bread", "jam", "sauce"];
       if (recipe.isBait) {
         if (!next.bait) next.bait = {};
@@ -3750,8 +3759,10 @@ export function createAdventurer(classId = "fighter", usedNames = new Set()) {
     buffSlot: null,
     mission: null,
     skillPoints: 0,
-    skills: [],
+    skills: {},               // now a map: { skillId: rank }
+    heroClass: null,          // set when tier-1 class skill is unlocked
     prestigeLevel: 0,
+    prestigeBonuses: {},      // tracks { classId: timesPrestigedAsClass }
   };
 }
 
@@ -3766,7 +3777,19 @@ export function initWorldState(state) {
   if (!next.cropPotions) next.cropPotions = {};
   // Migrate existing adventurers to have hp/potions
   next.adventurers = next.adventurers.map((adv) => {
-    const maxHp = getAdventurerMaxHp(adv);
+    // Migrate legacy flat-array skills to map format { skillId: rank }
+    let migratedSkills = adv.skills ?? {};
+    if (Array.isArray(migratedSkills)) {
+      migratedSkills = Object.fromEntries(migratedSkills.map((id) => [id, 1]));
+    }
+    // Infer heroClass from legacy skills if missing
+    let heroClass = adv.heroClass ?? null;
+    if (!heroClass) {
+      if (migratedSkills["fighter_t1"]) heroClass = "fighter";
+      else if (migratedSkills["mage_t1"]) heroClass = "mage";
+      else if (migratedSkills["scavenger_t1"]) heroClass = "scavenger";
+    }
+    const maxHp = getAdventurerMaxHp(adv) + getHeroBonusMaxHp({ ...adv, skills: migratedSkills });
     return {
       equippedItem: null,
       potions: {},
@@ -3774,9 +3797,11 @@ export function initWorldState(state) {
       maxHp,
       hp: adv.hp !== undefined ? Math.min(adv.hp, maxHp) : maxHp,
       skillPoints: adv.skillPoints ?? 0,
-      skills: adv.skills ?? [],
+      skills: migratedSkills,
+      heroClass,
       equippedGear: adv.equippedGear ?? { weapon: null, armour: null, body: null },
       prestigeLevel: adv.prestigeLevel ?? 0,
+      prestigeBonuses: adv.prestigeBonuses ?? {},
       foodBelt: adv.foodBelt ?? {},
       buffSlot: adv.buffSlot ?? null,
     };
@@ -3810,11 +3835,17 @@ export function hireAdventurer(state, usedNames = new Set()) {
 
 function getAdventurerMissionDuration(adventurer, zone) {
   const base = zone.baseDuration ?? 30;
-  const gearBonus = (adventurer.gear ?? 0) * 0.15;
+  const weaponKey = adventurer.equippedGear?.weapon ?? null;
+  const weaponRecipe = weaponKey ? Object.values(FORGE_RECIPES).find((r) => r.output.resourceKey === weaponKey) : null;
+  const weaponBonus = weaponRecipe?.missionTimeReduction ?? (weaponKey ? 0 : (adventurer.gear ?? 0) * 0.15);
   const lvlBonus = ((adventurer.level ?? 1) - 1) * 0.08;
-  const quickHands = (adventurer.skills ?? []).includes("quick_hands") ? 0.05 : 0;
-  const reduction = Math.min(gearBonus + lvlBonus + quickHands, 0.75);
-  return Math.round(base * (1 - reduction));
+  // New skill tree duration bonus
+  const skillMult = getHeroDurationMultiplier(adventurer);
+  // skillMult already accounts for mage_t1, mage_t5 stacks
+  // Apply weapon/level reduction first, then skill multiplier
+  const gearLvlReduction = Math.min(weaponBonus + lvlBonus, 0.60);
+  const afterGear = base * (1 - gearLvlReduction);
+  return Math.max(5, Math.round(afterGear * skillMult));
 }
 
 function getAdventurerFailChance(adventurer, zone) {
@@ -3906,48 +3937,68 @@ export function returnAdventurer(state, adventurerId) {
   const failChance = getAdventurerFailChance(adventurer, zone);
   const failed = Math.random() < failChance;
   const hasCheeseBuff = (adventurer.buffSlot ?? null) === "cheese";
-  const hasScavenger = (adventurer.skills ?? []).includes("scavenger");
-  const hasVeteran = (adventurer.skills ?? []).includes("veteran");
-  const skills = adventurer.skills ?? [];
-  const hasThickSkin = skills.includes("thick_skin");
- 
+  const skills = adventurer.skills ?? {};
+  const minLootBonus = getHeroMinLootBonus(adventurer);
+
   let runLoot = [];
   let nextResources = { ...(state.worldResources ?? {}) };
- 
+
   if (!failed) {
     for (const lootDef of zone.loot) {
       const amount = Math.floor(Math.random() * (lootDef.max - lootDef.min + 1)) + lootDef.min;
-      let finalAmount = amount > 0 ? amount + (hasScavenger ? 1 : 0) : 0;
+      let finalAmount = amount > 0 ? amount + minLootBonus : 0;
       if (hasCheeseBuff && finalAmount > 0) finalAmount = finalAmount * 2;
+      // Scavenger jackpot (auto battle): 15% double loot per run
+      if (hasHeroSkill(adventurer, "scavenger_t4") && Math.random() < 0.15) finalAmount = Math.floor(finalAmount * 2);
       if (finalAmount > 0) runLoot.push({ ...lootDef, amount: finalAmount });
     }
   }
  
-  const xpGained = failed ? Math.floor(zone.xpReward * 0.3) : Math.round(zone.xpReward * (hasVeteran ? 1.15 : 1));
+  // HP damage calculation — must happen BEFORE level-up so death can't be escaped by leveling
+  const dmgPerTick = zone.damagePerTick ?? 1;
+  // Shield: use damageReduction from equipped armour recipe
+  const shieldKey = adventurer.equippedGear?.armour ?? null;
+  const shieldRecipe = shieldKey ? Object.values(FORGE_RECIPES).find((r) => r.output.resourceKey === shieldKey) : null;
+  const damageReduction = shieldRecipe?.damageReduction ?? 0;
+  const currentMaxHp = getAdventurerMaxHp(adventurer) + getHeroBonusMaxHp(adventurer);
+  // Evasion: scavenger tree — each 10s tick has a chance to deal 0 damage
+  const evasionChance = getHeroEvasionChance(adventurer);
+  const totalTicks = Math.floor(mission.duration / 10);
+  let rawDamage = 0;
+  for (let i = 0; i < totalTicks; i++) {
+    if (Math.random() >= evasionChance) {
+      rawDamage += dmgPerTick * (failed ? 1.5 : 0.6) * (1 - damageReduction);
+    }
+  }
+  rawDamage = Math.round(rawDamage);
+  const hpAfterDamage = Math.max(0, (adventurer.hp ?? currentMaxHp) - rawDamage);
+
+  // Non-auto-battle death: if HP hits 0, hard fail regardless of fail chance
+  const diedOnNormalRun = !mission.autoBattle && hpAfterDamage <= 0;
+  const effectiveFailed = failed || diedOnNormalRun;
+
+  const xpGained = effectiveFailed ? 0 : Math.round(zone.xpReward * getHeroXpMultiplier(adventurer));
   let newXp = (adventurer.xp ?? 0) + xpGained;
   let newLevel = adventurer.level ?? 1;
   let leveledUp = false;
-  while (newXp >= getAdventurerXpNeeded(newLevel)) {
-    newXp -= getAdventurerXpNeeded(newLevel);
-    newLevel++;
-    leveledUp = true;
+  if (!diedOnNormalRun) {
+    while (newXp >= getAdventurerXpNeeded(newLevel)) {
+      newXp -= getAdventurerXpNeeded(newLevel);
+      newLevel++;
+      leveledUp = true;
+    }
   }
- 
+
   const newMaxHp = getAdventurerMaxHp({ ...adventurer, level: newLevel });
-  const bonusMaxHp = newMaxHp + (hasThickSkin ? 10 : 0);
- 
-  // HP damage calculation
-  const dmgPerTick = zone.damagePerTick ?? 1;
-  const rawDamage = Math.round(mission.duration * dmgPerTick * (failed ? 1.5 : 0.6));
-  const hpAfterDamage = Math.max(0, (adventurer.hp ?? bonusMaxHp) - rawDamage);
+  const bonusMaxHp = newMaxHp + getHeroBonusMaxHp({ ...adventurer, level: newLevel });
   const levelsGained = newLevel - (adventurer.level ?? 1);
   const newSkillPoints = (adventurer.skillPoints ?? 0) + levelsGained;
   const buffSlotConsumed = null; // always consumed after a run
- 
+
   // Zone clears
   const prevClears = (state.worldZoneClears ?? {})[zone.id] ?? 0;
-  const newClears = failed ? prevClears : Math.min(prevClears + 1, zone.clearsNeeded);
-  const zoneCleared = !failed && prevClears < zone.clearsNeeded && newClears >= zone.clearsNeeded;
+  const newClears = effectiveFailed ? prevClears : Math.min(prevClears + 1, zone.clearsNeeded);
+  const zoneCleared = !effectiveFailed && prevClears < zone.clearsNeeded && newClears >= zone.clearsNeeded;
  
   // ── Auto Battle branch ────────────────────────────────────────────────────
   if (mission.autoBattle) {
@@ -4014,7 +4065,11 @@ export function returnAdventurer(state, adventurerId) {
       .sort((a, b) => a.heal - b.heal); // consume smallest heal first
     const hasBeltFood = beltItems.length > 0;
 
-    if (!hasBeltFood) {
+    // Relentless (fighter_t4): even without food, can continue if above 10% HP
+    const relentlessActive = hasHeroSkill(adventurer, "fighter_t4");
+    const relentlessCanContinue = relentlessActive && hpAfterDamage > Math.floor(bonusMaxHp * 0.10);
+
+    if (!hasBeltFood && !relentlessCanContinue) {
       // Out of food — collect everything, mission ends cleanly
       for (const l of newAccumLoot) {
         nextResources[l.resourceKey] = (nextResources[l.resourceKey] ?? 0) + l.amount;
@@ -4053,10 +4108,48 @@ export function returnAdventurer(state, adventurerId) {
       };
     }
 
+    // Relentless (fighter_t4): passively heal to 60% HP between runs even without food
+    const relentlessHp = hasHeroSkill(adventurer, "fighter_t4")
+      ? Math.max(hpAfterDamage, Math.floor(bonusMaxHp * 0.60))
+      : hpAfterDamage;
+
+    // Relentless with no food: skip food consumption, heal passively and re-queue
+    if (relentlessCanContinue && !hasBeltFood) {
+      const nextDurationRelentless = getAdventurerMissionDuration({ ...adventurer, level: newLevel, skills }, zone);
+      const nextMissionRelentless = {
+        ...mission,
+        startTime: Date.now(),
+        duration: nextDurationRelentless,
+        autoBattleRuns: newRuns,
+        autoBattleLoot: newAccumLoot,
+        autoBattleXp: newAccumXp,
+        autoBattleLeveled: leveledUp || (mission.autoBattleLeveled ?? false),
+      };
+      const updatedAdvRelentless = {
+        ...adventurer,
+        xp: newXp, level: newLevel, maxHp: bonusMaxHp,
+        hp: relentlessHp,
+        foodBelt: currentFoodBelt,
+        buffSlot: buffSlotConsumed,
+        mission: nextMissionRelentless,
+        skillPoints: newSkillPoints,
+        prestigeLevel: adventurer.prestigeLevel ?? 0,
+      };
+      const nextRelentless = {
+        ...state,
+        adventurers: state.adventurers.map((a) => a.id === adventurerId ? updatedAdvRelentless : a),
+        worldZoneClears: { ...(state.worldZoneClears ?? {}), [zone.id]: newClears },
+      };
+      return { state: nextRelentless, result: null };
+    }
+
     // Consume one food item (smallest heal first), heal up, queue next run
     const foodToUse = beltItems[0];
     currentFoodBelt[foodToUse.id] = (currentFoodBelt[foodToUse.id] ?? 1) - 1;
-    const hpAfterFood = Math.min(bonusMaxHp, hpAfterDamage + foodToUse.heal);
+    // Apply food heal with Fighter Resilience bonus
+    const { multiplier: healMult, flatBonus: healFlat } = getHeroHealBonus(adventurer);
+    const foodHeal = Math.round(foodToUse.heal * healMult) + healFlat;
+    const hpAfterFood = Math.min(bonusMaxHp, relentlessHp + foodHeal);
     const nextDuration = getAdventurerMissionDuration({ ...adventurer, level: newLevel, skills }, zone);
     const nextMission = {
       ...mission,
@@ -4088,38 +4181,59 @@ export function returnAdventurer(state, adventurerId) {
   }
  
   // ── Standard single-run branch ────────────────────────────────────────────
- 
-  // Apply loot to resources
-  for (const l of runLoot) {
+
+  // If hero died on a normal run — hard fail: no loot, no XP, hp=0, mission ends
+  if (diedOnNormalRun) {
+    const updatedAdvDead = {
+      ...adventurer,
+      xp: adventurer.xp ?? 0, // no XP on death
+      level: adventurer.level ?? 1,
+      maxHp: currentMaxHp,
+      hp: 0,
+      foodBelt: adventurer.foodBelt ?? {},
+      buffSlot: buffSlotConsumed,
+      mission: null,
+      skillPoints: adventurer.skillPoints ?? 0,
+      prestigeLevel: adventurer.prestigeLevel ?? 0,
+    };
+    const nextDead = {
+      ...state,
+      adventurers: state.adventurers.map((a) => a.id === adventurerId ? updatedAdvDead : a),
+      worldZoneClears: { ...(state.worldZoneClears ?? {}), [zone.id]: prevClears },
+    };
+    return {
+      state: nextDead,
+      result: {
+        failed: true,
+        died: true,
+        autoBattle: false,
+        zoneName: mission.zoneName,
+        loot: [],
+        xpGained: 0,
+        leveledUp: false,
+        zoneCleared: false,
+        newClears: prevClears,
+        clearsNeeded: zone.clearsNeeded,
+        hpLost: rawDamage,
+        hpRemaining: 0,
+        maxHp: currentMaxHp,
+      },
+    };
+  }
+
+  // Apply loot to resources (only reach here if not dead and not diedOnNormalRun)
+  const finalLootForRun = effectiveFailed ? [] : runLoot;
+  for (const l of finalLootForRun) {
     nextResources[l.resourceKey] = (nextResources[l.resourceKey] ?? 0) + l.amount;
   }
  
   const postMissionHp = leveledUp ? bonusMaxHp : Math.min(Math.max(0, hpAfterDamage), bonusMaxHp);
  
-  // Auto-battle food heal (only for non-auto-battle single runs with auto_battle skill)
-  const hasAutoBattle = skills.includes("auto_battle");
-  let autoHp = postMissionHp;
-  let autoFoodBelt = { ...(adventurer.foodBelt ?? {}) };
- 
-  if (!failed && hasAutoBattle) {
-    const healItems = Object.entries(autoFoodBelt)
-      .filter(([, qty]) => qty > 0)
-      .map(([id]) => ({ id, heal: ARTISAN_FOOD_HEAL[id]?.healAmount ?? 0 }))
-      .sort((a, b) => a.heal - b.heal);
-    for (const item of healItems) {
-      if (autoHp >= bonusMaxHp) break;
-      if ((autoFoodBelt[item.id] ?? 0) > 0) {
-        autoFoodBelt = { ...autoFoodBelt, [item.id]: autoFoodBelt[item.id] - 1 };
-        autoHp = Math.min(bonusMaxHp, autoHp + item.heal);
-      }
-    }
-  }
- 
   const updatedAdv = {
     ...adventurer,
     xp: newXp, level: newLevel, maxHp: bonusMaxHp,
-    hp: Math.max(0, failed ? hpAfterDamage : autoHp),
-    foodBelt: autoFoodBelt,
+    hp: Math.max(0, effectiveFailed ? hpAfterDamage : postMissionHp),
+    foodBelt: adventurer.foodBelt ?? {},
     buffSlot: buffSlotConsumed,
     mission: null,
     skillPoints: newSkillPoints,
@@ -4136,10 +4250,10 @@ export function returnAdventurer(state, adventurerId) {
   return {
     state: next,
     result: {
-      failed,
+      failed: effectiveFailed,
       autoBattle: false,
       zoneName: mission.zoneName,
-      loot: runLoot,
+      loot: finalLootForRun,
       xpGained,
       leveledUp,
       zoneCleared,
@@ -4174,47 +4288,59 @@ export function reviveAdventurer(state, adventurerId) {
   };
 }
 
-// Requires prestige skill unlocked; costs $1000 × (prestigeLevel+1)
-// Resets level to 1, xp to 0, skills to [], skillPoints to 1 (the permanent one)
-// Increments prestigeLevel; grants +1 food slot (via prestigeLevel in getBeltCap)
+// Prestige an adventurer:
+// - Must have reached Lv8+ (tier 4 skill unlocked as gate)
+// - Costs HERO_PRESTIGE_SKILL_COST skill points + cash
+// - Resets level to 1, xp to 0, skills to {}, heroClass to null (respec available)
+// - Grants 1 skill point for the new run
+// - prestigeLevel increments — permanent class bonuses accumulate via prestige bonuses object
 // ─────────────────────────────────────────────────────────────────────────────
 export function prestigeAdventurer(state, adventurerId) {
   const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
   if (advIdx === -1) return state;
   const adventurer = state.adventurers[advIdx];
- 
-  // Must have the prestige skill unlocked
-  if (!(adventurer.skills ?? []).includes("prestige")) return state;
- 
+
   // Must not be dead or on a mission
   if ((adventurer.hp ?? adventurer.maxHp) <= 0) return state;
   if (adventurer.mission) return state;
- 
+
+  // Must have at least HERO_PRESTIGE_SKILL_COST skill points to spend
+  if ((adventurer.skillPoints ?? 0) < HERO_PRESTIGE_SKILL_COST) return state;
+
+  // Must have unlocked the t4 skill (auto battle tier) of their class — gate for prestige
+  const heroClass = getHeroClass(adventurer);
+  if (!heroClass) return state;
+  const t4SkillId = `${heroClass}_t4`;
+  if (!hasHeroSkill(adventurer, t4SkillId)) return state;
+
   const currentPrestige = adventurer.prestigeLevel ?? 0;
-  const cost = 1000 * (currentPrestige + 1);
+  const cost = HERO_PRESTIGE_COST_BASE * (currentPrestige + 1);
   if ((state.cash ?? 0) < cost) return state;
- 
-  // Spend 3 skill points (already validated in UI before calling)
-  if ((adventurer.skillPoints ?? 0) < 3) return state;
- 
+
   const newPrestigeLevel = currentPrestige + 1;
-  const newMaxHp = ADVENTURER_BASE_HP; // back to level 1 base
- 
+  const newMaxHp = ADVENTURER_BASE_HP; // resets to base — skills rebuild it
+
+  // Record the last class for "suggested class" on next run
+  const prestigeBonuses = { ...(adventurer.prestigeBonuses ?? {}) };
+  if (heroClass) {
+    prestigeBonuses[heroClass] = (prestigeBonuses[heroClass] ?? 0) + 1;
+  }
+
   const updatedAdv = {
     ...adventurer,
     level: 1,
     xp: 0,
-    skills: [],             // all skills wiped
-    skillPoints: 1,         // 1 permanent skill point granted by prestige
+    skills: {},             // full reset — respec available
+    heroClass: null,        // class choice unlocked again
+    skillPoints: 1,         // 1 skill point granted by prestige
     prestigeLevel: newPrestigeLevel,
+    prestigeBonuses,        // track which classes have been run
     maxHp: newMaxHp,
-    hp: newMaxHp,           // full heal on prestige
+    hp: newMaxHp,
     mission: null,
-    // gear is kept — equipment carries over
-    // foodBelt is kept
-    // buffSlot is kept
+    // gear/foodBelt/buffSlot all kept
   };
- 
+
   return {
     ...state,
     cash: (state.cash ?? 0) - cost,
@@ -4222,24 +4348,198 @@ export function prestigeAdventurer(state, adventurerId) {
   };
 }
 
-// Spend a skill point to unlock a skill (order validation done in UI)
+// ─── Hero skill tree helpers ─────────────────────────────────────────────────
+
+// skills is now stored as { skillId: rank } — rank >= 1 means owned
+export function getHeroSkillRank(adventurer, skillId) {
+  const skills = adventurer.skills ?? {};
+  // Legacy: handle old flat array saves gracefully
+  if (Array.isArray(skills)) return skills.includes(skillId) ? 1 : 0;
+  return skills[skillId] ?? 0;
+}
+
+export function hasHeroSkill(adventurer, skillId) {
+  return getHeroSkillRank(adventurer, skillId) > 0;
+}
+
+// Returns the class tree the hero has chosen (null if none chosen yet)
+export function getHeroClass(adventurer) {
+  return adventurer.heroClass ?? null;
+}
+
+// Returns true if the hero has auto_battle (any tree's t4 grants it)
+export function heroHasAutoBattle(adventurer) {
+  return (
+    hasHeroSkill(adventurer, "fighter_t4") ||
+    hasHeroSkill(adventurer, "mage_t4") ||
+    hasHeroSkill(adventurer, "scavenger_t4")
+  );
+}
+
+// Computed stat helpers
+export function getHeroBonusMaxHp(adventurer) {
+  let bonus = 0;
+  if (hasHeroSkill(adventurer, "fighter_t1")) bonus += 20;
+  const t5Rank = getHeroSkillRank(adventurer, "fighter_t5");
+  bonus += t5Rank * 8;
+  return bonus;
+}
+
+export function getHeroHealBonus(adventurer) {
+  // Fighter resilience (+20% healing) + iron rations (+3 per rank)
+  const resilienceBonus = hasHeroSkill(adventurer, "fighter_t2") ? 0.20 : 0;
+  const ironRationsBonus = getHeroSkillRank(adventurer, "fighter_t6") * 3;
+  return { multiplier: 1 + resilienceBonus, flatBonus: ironRationsBonus };
+}
+
+export function getHeroEvasionChance(adventurer) {
+  let chance = 0;
+  if (hasHeroSkill(adventurer, "scavenger_t2")) chance += 0.20;
+  chance += getHeroSkillRank(adventurer, "scavenger_t6") * 0.04;
+  return Math.min(chance, 0.75); // cap at 75%
+}
+
+export function getHeroMinLootBonus(adventurer) {
+  let bonus = 0;
+  if (hasHeroSkill(adventurer, "scavenger_t1")) bonus += 1;
+  bonus += getHeroSkillRank(adventurer, "scavenger_t5");
+  return bonus;
+}
+
+export function getHeroDurationMultiplier(adventurer) {
+  let reduction = 0;
+  if (hasHeroSkill(adventurer, "mage_t1")) reduction += 0.15;
+  if (hasHeroSkill(adventurer, "mage_t4")) reduction += 0.20; // auto-battle stacking bonus — applied per run in engine
+  reduction += getHeroSkillRank(adventurer, "mage_t5") * 0.03;
+  return Math.max(0.25, 1 - reduction); // floor at 25% of base
+}
+
+export function getHeroXpMultiplier(adventurer) {
+  let bonus = 0;
+  if (hasHeroSkill(adventurer, "mage_t2")) bonus += 0.15;
+  bonus += getHeroSkillRank(adventurer, "mage_t6") * 0.10;
+  return 1 + bonus;
+}
+
+// Returns true if this hero's tree has cross-system effect active
+export function heroHasCrossEffect(adventurer, effectId) {
+  const effectMap = {
+    bread_speed:    "fighter_t3",
+    kitchen_bonus:  "mage_t3",
+    market_bonus:   "scavenger_t3",
+  };
+  const skillId = effectMap[effectId];
+  return skillId ? hasHeroSkill(adventurer, skillId) : false;
+}
+
+// Returns true if ANY adventurer has a given cross-system effect
+export function anyHeroHasCrossEffect(state, effectId) {
+  return (state.adventurers ?? []).some((a) => heroHasCrossEffect(a, effectId));
+}
+
+// Returns 0.7 (30% faster) if bread_speed active, else 1.0
+export function getHeroBreadSpeedMultiplier(state) {
+  return anyHeroHasCrossEffect(state, "bread_speed") ? 0.70 : 1.0;
+}
+
+// Returns 1.10 (10% bonus) if market_bonus active, else 1.0
+export function getHeroMarketBonus(state) {
+  return anyHeroHasCrossEffect(state, "market_bonus") ? 1.10 : 1.0;
+}
+
+// Returns chance (0.20) if kitchen_bonus active, else 0
+export function getHeroKitchenBonusChance(state) {
+  return anyHeroHasCrossEffect(state, "kitchen_bonus") ? 0.20 : 0;
+}
+
+// Validation: can a skill point be spent on a given skill?
+export function canSpendHeroSkillPoint(adventurer, skillId, prestigeLevel) {
+  const def = HERO_SKILL_DEFS[skillId];
+  if (!def) return false;
+  if ((adventurer.skillPoints ?? 0) < 1) return false;
+  if ((adventurer.level ?? 1) < def.requiredLevel) return false;
+
+  const currentRank = getHeroSkillRank(adventurer, skillId);
+  if (currentRank >= def.maxRank) return false; // already maxed
+
+  const heroClass = getHeroClass(adventurer);
+  const pLevel = prestigeLevel ?? 0;
+
+  // Determine which tree this skill belongs to
+  const skillTree = Object.entries(HERO_SKILL_TREES).find(([, skills]) =>
+    skills.some((s) => s.id === skillId)
+  )?.[0];
+  if (!skillTree) return false;
+
+  // Tier-1 skills: choosing a class — only if no class chosen yet
+  if (def.tier === 1) {
+    if (heroClass !== null && heroClass !== undefined) return false; // already classed
+    return true;
+  }
+
+  // All other tiers: must be in hero's primary class
+  if (skillTree === heroClass) {
+    // Must have previous tier unlocked
+    const treeDefs = HERO_SKILL_TREES[heroClass];
+    const prevDef = treeDefs.find((s) => s.tier === def.tier - 1);
+    if (prevDef && getHeroSkillRank(adventurer, prevDef.id) === 0) return false;
+    return true;
+  }
+
+  // Cross-tree dipping for second tree
+  if (heroClass && skillTree !== heroClass) {
+    if (pLevel < HERO_DIP_TREE_PRESTIGE_TIER1) return false;
+    if (def.tier === 1) return true; // tier 1 dip allowed at P5+
+    if (def.tier === 2 && pLevel >= HERO_DIP_TREE_PRESTIGE_TIER2) return true;
+    return false;
+  }
+
+  return false;
+}
+
+// Spend a skill point to unlock or rank up a skill
 export function spendSkillPoint(state, adventurerId, skillId) {
   const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
   if (advIdx === -1) return state;
-  const adventurer = state.adventurers[advIdx];
-  if ((adventurer.skillPoints ?? 0) < 1) return state;
-  if ((adventurer.skills ?? []).includes(skillId)) return state;
-  const newSkills = [...(adventurer.skills ?? []), skillId];
+  let adventurer = state.adventurers[advIdx];
+  const pLevel = adventurer.prestigeLevel ?? 0;
+
+  if (!canSpendHeroSkillPoint(adventurer, skillId, pLevel)) return state;
+
+  const def = HERO_SKILL_DEFS[skillId];
+  const currentRank = getHeroSkillRank(adventurer, skillId);
+  const newRank = currentRank + 1;
+
+  // Migrate legacy flat-array skills to map format
+  const currentSkillMap = Array.isArray(adventurer.skills ?? [])
+    ? Object.fromEntries((adventurer.skills ?? []).map((id) => [id, 1]))
+    : { ...(adventurer.skills ?? {}) };
+
+  const newSkillMap = { ...currentSkillMap, [skillId]: newRank };
+
+  // If this is a class-unlock (tier 1), set heroClass
+  let newHeroClass = adventurer.heroClass ?? null;
+  if (def.tier === 1 && def.classUnlock) {
+    newHeroClass = def.classUnlock;
+  }
+
   let updatedAdv = {
     ...adventurer,
     skillPoints: (adventurer.skillPoints ?? 0) - 1,
-    skills: newSkills,
+    skills: newSkillMap,
+    heroClass: newHeroClass,
   };
-  // Apply thick_skin HP bonus immediately on unlock
-  if (skillId === "thick_skin") {
-    const newMaxHp = (updatedAdv.maxHp ?? getAdventurerMaxHp(updatedAdv)) + 10;
-    updatedAdv = { ...updatedAdv, maxHp: newMaxHp, hp: Math.min((updatedAdv.hp ?? newMaxHp), newMaxHp) };
+
+  // Apply immediate HP bonus for fighter_t1 and fighter_t5
+  if (skillId === "fighter_t1") {
+    const newMaxHp = (updatedAdv.maxHp ?? getAdventurerMaxHp(updatedAdv)) + 20;
+    updatedAdv = { ...updatedAdv, maxHp: newMaxHp };
   }
+  if (skillId === "fighter_t5") {
+    const newMaxHp = (updatedAdv.maxHp ?? getAdventurerMaxHp(updatedAdv)) + 8;
+    updatedAdv = { ...updatedAdv, maxHp: newMaxHp };
+  }
+
   return { ...state, adventurers: state.adventurers.map((a, i) => i === advIdx ? updatedAdv : a) };
 }
 
@@ -4319,6 +4619,10 @@ export function getBeltCap(adventurer) {
   let cap = 3;
   if ((adventurer.skills ?? []).includes("belt_capacity")) cap += 2;
   cap += (adventurer.prestigeLevel ?? 0); // +1 per prestige
+  // Body armor: add foodSlotBonus from equipped body recipe
+  const bodyKey = adventurer.equippedGear?.body ?? null;
+  const bodyRecipe = bodyKey ? Object.values(FORGE_RECIPES).find((r) => r.output.resourceKey === bodyKey) : null;
+  cap += bodyRecipe?.foodSlotBonus ?? 0;
   return cap;
 }
 
@@ -4398,7 +4702,9 @@ export function useArtisanFood(state, adventurerId, foodId) {
   if ((belt[foodId] ?? 0) < 1) return state;
   const maxHp = adventurer.maxHp ?? getAdventurerMaxHp(adventurer);
   if ((adventurer.hp ?? maxHp) >= maxHp) return state;
-  const newHp = Math.min(maxHp, (adventurer.hp ?? maxHp) + def.healAmount);
+  const { multiplier: healMult, flatBonus: healFlat } = getHeroHealBonus(adventurer);
+  const effectiveHeal = Math.round(def.healAmount * healMult) + healFlat;
+  const newHp = Math.min(maxHp, (adventurer.hp ?? maxHp) + effectiveHeal);
   const updatedBelt = { ...belt, [foodId]: belt[foodId] - 1 };
   const updatedAdv = { ...adventurer, hp: newHp, foodBelt: updatedBelt };
   return { ...state, adventurers: state.adventurers.map((a, i) => i === advIdx ? updatedAdv : a) };

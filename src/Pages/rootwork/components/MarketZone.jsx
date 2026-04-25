@@ -45,11 +45,19 @@ const SELLABLE_ITEMS = [
   { type: "lumber",        label: "Lumber",         emoji: "🪵", isCrop: false,  isAnimal: false, isFish: false, isWorld: true },
   { type: "herbs",         label: "Herbs",          emoji: "🌿", isCrop: false,  isAnimal: false, isFish: false, isWorld: true },
   { type: "rare_gem",      label: "Rare Gem",       emoji: "💎", isCrop: false,  isAnimal: false, isFish: false, isWorld: true },
-  // Forge goods
+  // Forge goods — swords
   { type: "health_potion", label: "Health Potion",  emoji: "🧪", isCrop: false,  isAnimal: false, isFish: false, isForge: true },
   { type: "iron_sword",    label: "Iron Sword",     emoji: "⚔️",  isCrop: false,  isAnimal: false, isFish: false, isForge: true },
+  { type: "steel_sword",   label: "Steel Sword",    emoji: "🗡️",  isCrop: false,  isAnimal: false, isFish: false, isForge: true },
+  { type: "master_sword",  label: "Master Sword",   emoji: "🔱", isCrop: false,  isAnimal: false, isFish: false, isForge: true },
+  // Forge goods — shields
   { type: "iron_shield",   label: "Iron Shield",    emoji: "🛡️",  isCrop: false,  isAnimal: false, isFish: false, isForge: true },
+  { type: "steel_shield",  label: "Steel Shield",   emoji: "🔰", isCrop: false,  isAnimal: false, isFish: false, isForge: true },
+  { type: "tower_shield",  label: "Tower Shield",   emoji: "🏰", isCrop: false,  isAnimal: false, isFish: false, isForge: true },
+  // Forge goods — body armor
   { type: "leather_armor", label: "Leather Armor",  emoji: "🥋", isCrop: false,  isAnimal: false, isFish: false, isForge: true },
+  { type: "chainmail",     label: "Chainmail",      emoji: "⛓️", isCrop: false,  isAnimal: false, isFish: false, isForge: true },
+  { type: "plate_armor",   label: "Plate Armor",    emoji: "🪖", isCrop: false,  isAnimal: false, isFish: false, isForge: true },
   { type: "hunting_bow",   label: "Hunting Bow",    emoji: "🏹", isCrop: false,  isAnimal: false, isFish: false, isForge: true },
   // Upgrade components — craftable in forge, sellable if surplus
   { type: "iron_fitting",      label: "Iron Fitting",      emoji: "🔩", isCrop: false, isAnimal: false, isFish: false, isForge: true },
@@ -74,7 +82,7 @@ const INVENTORY_CATEGORIES = [
   { id: "animal",  label: "🐄 Animal",   types: ["egg", "milk", "wool", "omelette", "cheese", "knitted_goods", "fish_pie", "smoked_fish", "fish_meal"] },
   { id: "fish",    label: "🎣 Fish",     types: ["minnow", "bass", "perch", "rare"] },
   { id: "world",   label: "🪨 World",    types: ["iron_ore", "lumber", "herbs", "rare_gem"] },
-  { id: "forge",   label: "⚒️ Forge",   types: ["health_potion", "iron_sword", "iron_shield", "leather_armor", "hunting_bow", "iron_fitting", "reinforced_crate", "fine_tools"] },
+  { id: "forge",   label: "⚒️ Forge",   types: ["health_potion", "iron_sword", "steel_sword", "master_sword", "iron_shield", "steel_shield", "tower_shield", "leather_armor", "chainmail", "plate_armor", "hunting_bow", "iron_fitting", "reinforced_crate", "fine_tools"] },
 ];
 
 // ─── Sell Assign Modal ────────────────────────────────────────────────────────

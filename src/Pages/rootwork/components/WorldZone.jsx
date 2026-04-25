@@ -1,6 +1,6 @@
 // src/Pages/rootwork/components/WorldZone.jsx
 import React, { useState, useEffect, useRef } from "react";
-import { WORLD_ZONES, ADVENTURER_CLASSES, FORGE_RECIPES, ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST, ADVENTURER_BUFF_ITEMS, ADVENTURER_BUFF_LIST, WORLD_RESOURCES, HERO_SKILLS } from "../gameConstants";
+import { WORLD_ZONES, ADVENTURER_CLASSES, FORGE_RECIPES, ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST, ADVENTURER_BUFF_ITEMS, ADVENTURER_BUFF_LIST, WORLD_RESOURCES, HERO_SKILLS, HERO_SKILL_TREES, HERO_CLASS_META, HERO_PRESTIGE_COST_BASE, HERO_DIP_TREE_PRESTIGE_TIER1, HERO_DIP_TREE_PRESTIGE_TIER2 } from "../gameConstants";
 import { getAdventurerSlotCost, getAdventurerSlotUnlocked } from "../gameEngine";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -22,9 +22,8 @@ const SLOT_META = {
   body:   { label: "Body",   emoji: "👕" },
 };
 
-// Prestige skill config
-const PRESTIGE_SKILL_COST_POINTS = 3;
-const PRESTIGE_REVIVE_BASE_COST = 100; // × hero prestige level (min 1)
+// Prestige skill config (values imported from gameConstants)
+// HERO_PRESTIGE_SKILL_COST = 3, HERO_PRESTIGE_REVIVE_BASE = 100
 
 // Adventurer name pool — cycle through, no repeats until exhausted
 const ADVENTURER_NAME_POOL = [
@@ -109,9 +108,14 @@ function getHeroPrestigeLevel(adventurer) {
 }
 
 function getBeltCapacity(adventurer) {
-  const skills = adventurer.skills ?? [];
+  const gear = adventurer.equippedGear ?? {};
   let cap = 3;
-  if (skills.includes("belt_capacity")) cap += 2;
+  // Body armor adds food slots
+  const bodyKey = gear.body;
+  if (bodyKey) {
+    const bodyRecipe = Object.values(FORGE_RECIPES).find((r) => r.output.resourceKey === bodyKey);
+    cap += bodyRecipe?.foodSlotBonus ?? 0;
+  }
   // Each prestige adds +1 food slot
   cap += getHeroPrestigeLevel(adventurer);
   return cap;
@@ -124,12 +128,12 @@ function isDead(adventurer) {
 
 function getReviveCost(adventurer) {
   const prestige = Math.max(1, getHeroPrestigeLevel(adventurer));
-  return PRESTIGE_REVIVE_BASE_COST * prestige;
+  return 100 * prestige; // HERO_PRESTIGE_REVIVE_BASE × prestigeLevel
 }
 
 function getPrestigeCost(adventurer) {
   const nextLevel = getHeroPrestigeLevel(adventurer) + 1;
-  return 1000 * nextLevel;
+  return HERO_PRESTIGE_COST_BASE * nextLevel;
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -153,6 +157,7 @@ function LootModal({ result, onDismiss }) {
   const isAutoBattle = result.autoBattle;
   const ranOutOfFood = result.ranOutOfFood;
   const diedDuringAuto = result.diedDuringAuto;
+  const diedOnNormal = result.died && !isAutoBattle; // died on a normal non-auto run
   const successfulRuns = result.successfulRuns ?? 0;
 
   return (
@@ -165,11 +170,16 @@ function LootModal({ result, onDismiss }) {
       }}>
         <div style={{ textAlign: "center", marginBottom: "1rem" }}>
           <div style={{ fontSize: "2.8rem", marginBottom: "0.4rem" }}>
-            {diedDuringAuto ? "💀" : ranOutOfFood ? "🍞" : result.failed ? "💀" : result.zoneCleared ? "🏆" : isAutoBattle ? "⚔️" : "🎒"}
+            {diedDuringAuto ? "💀" : diedOnNormal ? "💀" : ranOutOfFood ? "🍞" : result.failed ? "❌" : result.zoneCleared ? "🏆" : isAutoBattle ? "⚔️" : "🎒"}
           </div>
           <div style={{ fontWeight: 800, fontSize: "1.05rem" }}>
-            {diedDuringAuto ? "Fell in Battle" : ranOutOfFood ? "Out of Food!" : result.failed ? "Mission Failed" : result.zoneCleared ? "Zone Cleared!" : isAutoBattle ? "Auto Battle Done" : "Mission Complete"}
+            {diedDuringAuto ? "Fell in Battle" : diedOnNormal ? "Hero Fallen" : ranOutOfFood ? "Out of Food!" : result.failed ? "Mission Failed" : result.zoneCleared ? "Zone Cleared!" : isAutoBattle ? "Auto Battle Done" : "Mission Complete"}
           </div>
+          {diedOnNormal && (
+            <div style={{ fontSize: "0.72rem", color: "#ef4444", marginTop: "0.3rem", fontWeight: 600 }}>
+              No rewards. Revive your hero to continue.
+            </div>
+          )}
           {isAutoBattle && (
             <div style={{ fontSize: "0.72rem", color: "#a78bfa", marginTop: "0.2rem", fontWeight: 600 }}>
               {ranOutOfFood
@@ -194,8 +204,8 @@ function LootModal({ result, onDismiss }) {
           </div>
         </div>
 
-        {/* Loot */}
-        {(result.loot?.length ?? 0) > 0 && (
+        {/* Loot — hidden on normal death */}
+        {!diedOnNormal && (result.loot?.length ?? 0) > 0 && (
           <div style={{ marginBottom: "0.85rem" }}>
             <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginBottom: "0.35rem", letterSpacing: "0.05em" }}>
               LOOT {diedDuringAuto ? "(50%)" : ""}
@@ -210,13 +220,16 @@ function LootModal({ result, onDismiss }) {
           </div>
         )}
 
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "1rem", fontSize: "0.72rem" }}>
-          <span style={{ color: "#a78bfa" }}>✨ +{result.xpGained ?? 0} XP</span>
-          {result.leveledUp && <span style={{ color: "#fbbf24", fontWeight: 700 }}>⬆️ LEVEL UP!</span>}
-        </div>
+        {/* XP — hidden on normal death */}
+        {!diedOnNormal && (
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "1rem", fontSize: "0.72rem" }}>
+            <span style={{ color: "#a78bfa" }}>✨ +{result.xpGained ?? 0} XP</span>
+            {result.leveledUp && <span style={{ color: "#fbbf24", fontWeight: 700 }}>⬆️ LEVEL UP!</span>}
+          </div>
+        )}
 
-        <button onClick={onDismiss} style={{ width: "100%", padding: "0.65rem", background: (result.failed && !isAutoBattle) ? "rgba(239,68,68,0.15)" : "rgba(74,222,128,0.15)", border: `1px solid ${(result.failed && !isAutoBattle) ? "rgba(239,68,68,0.4)" : "rgba(74,222,128,0.4)"}`, borderRadius: "10px", color: (result.failed && !isAutoBattle) ? "#ef4444" : "#4ade80", fontWeight: 700, fontSize: "0.82rem", cursor: "pointer" }}>
-          {(result.failed && !isAutoBattle) ? "Try Again" : "Continue"}
+        <button onClick={onDismiss} style={{ width: "100%", padding: "0.65rem", background: result.failed ? "rgba(239,68,68,0.15)" : "rgba(74,222,128,0.15)", border: `1px solid ${result.failed ? "rgba(239,68,68,0.4)" : "rgba(74,222,128,0.4)"}`, borderRadius: "10px", color: result.failed ? "#ef4444" : "#4ade80", fontWeight: 700, fontSize: "0.82rem", cursor: "pointer" }}>
+          {diedOnNormal ? "Close" : result.failed ? "Try Again" : "Continue"}
         </button>
       </div>
     </div>
@@ -344,22 +357,78 @@ function EquipmentPanel({ adventurer, game, onEquip, onUnequip }) {
 
 // ─── Skill Tree ────────────────────────────────────────────────────────────────
 function SkillTree({ adventurer, game, onSpendSkillPoint, onPrestige }) {
-  const skills = adventurer.skills ?? [];
+  const skillMap = (() => {
+    const s = adventurer.skills ?? {};
+    if (Array.isArray(s)) return Object.fromEntries(s.map((id) => [id, 1]));
+    return s;
+  })();
   const skillPoints = adventurer.skillPoints ?? 0;
   const level = adventurer.level ?? 1;
-  const prestigeLevel = getHeroPrestigeLevel(adventurer);
-  const prestigeCost = getPrestigeCost(adventurer);
+  const heroClass = adventurer.heroClass ?? null;
+  const prestigeLevel = adventurer.prestigeLevel ?? 0;
+
+  // Prestige gate: need tier-4 skill of chosen class + HERO_PRESTIGE_SKILL_COST points + cash
+  const t4SkillId = heroClass ? `${heroClass}_t4` : null;
+  const hasT4 = t4SkillId ? (skillMap[t4SkillId] ?? 0) > 0 : false;
+  const prestigeCost = 1000 * (prestigeLevel + 1);
   const canAffordPrestige = (game.cash ?? 0) >= prestigeCost;
-  const hasPrestigeSkill = skills.includes("prestige");
-  const canUnlockPrestige =
-    !hasPrestigeSkill &&
-    skillPoints >= PRESTIGE_SKILL_COST_POINTS &&
-    canAffordPrestige;
+  const canPrestige = hasT4 && skillPoints >= 3 && canAffordPrestige;
+
+  function getSkillRank(id) { return skillMap[id] ?? 0; }
+  function hasSkill(id) { return getSkillRank(id) > 0; }
+
+  function canBuy(skillDef) {
+    if (skillPoints < 1) return false;
+    if (level < skillDef.requiredLevel) return false;
+    const rank = getSkillRank(skillDef.id);
+    if (rank >= skillDef.maxRank) return false;
+
+    if (skillDef.tier === 1) return !heroClass; // class choice: only if unclassed
+
+    const skillTree = Object.entries(HERO_SKILL_TREES).find(([, skills]) =>
+      skills.some((s) => s.id === skillDef.id)
+    )?.[0];
+
+    if (skillTree === heroClass) {
+      const treeDefs = HERO_SKILL_TREES[heroClass];
+      const prevDef = treeDefs.find((s) => s.tier === skillDef.tier - 1);
+      if (prevDef && getSkillRank(prevDef.id) === 0) return false;
+      return true;
+    }
+    // Dip tree
+    if (heroClass && skillTree !== heroClass) {
+      if (prestigeLevel < 5) return false;
+      if (skillDef.tier === 1) return true;
+      if (skillDef.tier === 2 && prestigeLevel >= 10) return true;
+      return false;
+    }
+    return false;
+  }
+
+  const CLASS_COLORS = {
+    fighter:   { bg: "rgba(239,68,68,0.1)",   border: "rgba(239,68,68,0.4)",   text: "#ef4444"  },
+    mage:      { bg: "rgba(167,139,250,0.1)",  border: "rgba(167,139,250,0.4)", text: "#a78bfa"  },
+    scavenger: { bg: "rgba(74,222,128,0.1)",   border: "rgba(74,222,128,0.4)",  text: "#4ade80"  },
+  };
+  const activeColor = heroClass ? CLASS_COLORS[heroClass] : { bg: "rgba(251,191,36,0.06)", border: "rgba(251,191,36,0.3)", text: "#fbbf24" };
+
+  // Which trees to show: primary (if chosen), or all 3 if classless
+  const treesToShow = heroClass
+    ? [heroClass, ...Object.keys(HERO_SKILL_TREES).filter((t) => t !== heroClass)]
+    : Object.keys(HERO_SKILL_TREES);
 
   return (
     <div style={{ marginBottom: "0.85rem" }}>
+      {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
-        <div style={{ fontSize: "0.65rem", fontWeight: 700, color: "var(--muted)", letterSpacing: "0.05em" }}>🌟 SKILL TREE</div>
+        <div style={{ fontSize: "0.65rem", fontWeight: 700, color: "var(--muted)", letterSpacing: "0.05em" }}>
+          🌟 SKILL TREE
+          {heroClass && (
+            <span style={{ marginLeft: "0.4rem", color: activeColor.text, fontSize: "0.6rem", fontWeight: 600, textTransform: "capitalize" }}>
+              · {HERO_CLASS_META[heroClass]?.emoji} {HERO_CLASS_META[heroClass]?.name}
+            </span>
+          )}
+        </div>
         <div style={{
           fontSize: "0.62rem", fontWeight: 700,
           padding: "2px 8px", borderRadius: "999px",
@@ -367,104 +436,151 @@ function SkillTree({ adventurer, game, onSpendSkillPoint, onPrestige }) {
           border: `1px solid ${skillPoints > 0 ? "rgba(251,191,36,0.5)" : "var(--border)"}`,
           color: skillPoints > 0 ? "#fbbf24" : "var(--muted)",
         }}>
-          {skillPoints} point{skillPoints !== 1 ? "s" : ""} available
+          {skillPoints} pt{skillPoints !== 1 ? "s" : ""}
         </div>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
-        {HERO_SKILLS.map((skill, idx) => {
-          const unlocked = skills.includes(skill.id);
-          const prevUnlocked = idx === 0 || skills.includes(HERO_SKILLS[idx - 1].id);
-          const meetsLevel = level >= skill.requiredLevel;
-          const canBuy = !unlocked && prevUnlocked && skillPoints > 0 && meetsLevel;
-          const locked = !unlocked && (!prevUnlocked || !meetsLevel);
 
-          return (
-            <div key={skill.id} style={{
-              display: "flex", alignItems: "center", gap: "0.6rem",
-              padding: "0.45rem 0.65rem", borderRadius: "8px",
-              background: unlocked ? "rgba(99,102,241,0.12)" : canBuy ? "rgba(251,191,36,0.06)" : "rgba(255,255,255,0.02)",
-              border: `1px solid ${unlocked ? "rgba(99,102,241,0.4)" : canBuy ? "rgba(251,191,36,0.3)" : "var(--border)"}`,
-              opacity: locked ? 0.45 : 1,
-            }}>
-              <div style={{ fontSize: "1.15rem", lineHeight: 1, flexShrink: 0 }}>{skill.emoji}</div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: "0.72rem", fontWeight: 700, color: unlocked ? "#a78bfa" : canBuy ? "#fbbf24" : "var(--text)" }}>
-                  {skill.name}
-                  {skill.id === "auto_battle" && <span style={{ fontSize: "0.58rem", marginLeft: "0.35rem", background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.3)", color: "#f87171", borderRadius: "4px", padding: "1px 5px" }}>KEY</span>}
-                </div>
-                <div style={{ fontSize: "0.6rem", color: "var(--muted)", lineHeight: 1.4 }}>{skill.description} · Req. Lv.{skill.requiredLevel}</div>
-              </div>
-              {unlocked ? (
-                <div style={{ fontSize: "0.75rem", color: "#4ade80", flexShrink: 0 }}>✓</div>
-              ) : canBuy ? (
-                <button
-                  onClick={() => onSpendSkillPoint(adventurer.id, skill.id)}
-                  style={{ fontSize: "0.6rem", padding: "3px 9px", borderRadius: "6px", cursor: "pointer", flexShrink: 0, background: "rgba(251,191,36,0.2)", border: "1px solid rgba(251,191,36,0.5)", color: "#fbbf24", fontWeight: 700 }}
-                >
-                  Unlock
-                </button>
-              ) : (
-                <div style={{ fontSize: "0.65rem", color: "var(--muted)", flexShrink: 0 }}>
-                  {!meetsLevel ? `Lv.${skill.requiredLevel}` : "🔒"}
-                </div>
-              )}
-            </div>
-          );
-        })}
+      {/* Class choice prompt */}
+      {!heroClass && (
+        <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginBottom: "0.4rem", padding: "0.35rem 0.5rem", background: "rgba(251,191,36,0.05)", border: "1px solid rgba(251,191,36,0.2)", borderRadius: "7px" }}>
+          ✨ Choose your class by spending your first skill point (Lv2 required)
+        </div>
+      )}
 
-        {/* ── Prestige Row ── */}
-        <div style={{
-          display: "flex", alignItems: "center", gap: "0.6rem",
-          padding: "0.55rem 0.65rem", borderRadius: "8px",
-          background: hasPrestigeSkill
-            ? "rgba(251,191,36,0.08)"
-            : canUnlockPrestige
-            ? "rgba(251,191,36,0.06)"
-            : "rgba(255,255,255,0.02)",
-          border: `1px solid ${hasPrestigeSkill ? "rgba(251,191,36,0.5)" : canUnlockPrestige ? "rgba(251,191,36,0.3)" : "var(--border)"}`,
-        }}>
-          <div style={{ fontSize: "1.15rem", lineHeight: 1, flexShrink: 0 }}>⭐</div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: "0.72rem", fontWeight: 700, color: hasPrestigeSkill ? "#fbbf24" : canUnlockPrestige ? "#fbbf24" : "var(--text)" }}>
-              Prestige
-              {prestigeLevel > 0 && <span style={{ marginLeft: "0.4rem", fontSize: "0.6rem", background: "rgba(251,191,36,0.15)", border: "1px solid rgba(251,191,36,0.4)", color: "#fbbf24", borderRadius: "4px", padding: "1px 5px" }}>Lv.{prestigeLevel}</span>}
+      {/* Trees */}
+      {treesToShow.map((treeId) => {
+        const treeDefs = HERO_SKILL_TREES[treeId];
+        const meta = HERO_CLASS_META[treeId];
+        const isPrimary = treeId === heroClass;
+        const isDip = heroClass && treeId !== heroClass;
+        const isClassless = !heroClass;
+        const color = CLASS_COLORS[treeId];
+
+        // For dip trees, only show up to tier 2 if P10+, tier 1 if P5+
+        const maxVisibleTier = isDip
+          ? (prestigeLevel >= 10 ? 2 : prestigeLevel >= 5 ? 1 : 0)
+          : 6;
+        if (isDip && maxVisibleTier === 0) return null;
+
+        const visibleSkills = treeDefs.filter((s) => s.tier <= maxVisibleTier);
+
+        return (
+          <div key={treeId} style={{
+            marginBottom: "0.5rem",
+            background: isPrimary ? color.bg : "rgba(255,255,255,0.02)",
+            border: `1px solid ${isPrimary ? color.border : "var(--border)"}`,
+            borderRadius: "10px",
+            overflow: "hidden",
+            opacity: isDip ? 0.85 : 1,
+          }}>
+            {/* Tree header */}
+            <div style={{ padding: "0.35rem 0.6rem", borderBottom: `1px solid ${isPrimary ? color.border : "var(--border)"}`, display: "flex", alignItems: "center", gap: "0.4rem" }}>
+              <span style={{ fontSize: "0.85rem" }}>{meta.emoji}</span>
+              <span style={{ fontSize: "0.65rem", fontWeight: 700, color: isPrimary ? color.text : "var(--muted)" }}>{meta.name}</span>
+              {isDip && <span style={{ fontSize: "0.52rem", color: "var(--muted)", marginLeft: "auto" }}>Dip tree · P{prestigeLevel >= 10 ? "10" : "5"}+</span>}
+              {isClassless && <span style={{ fontSize: "0.52rem", color: "var(--muted)", marginLeft: "auto" }}>{meta.description}</span>}
             </div>
-            <div style={{ fontSize: "0.6rem", color: "var(--muted)", lineHeight: 1.4 }}>
-              Reset to Lv.1 · Keep permanent skill point · +1 food slot · Costs {PRESTIGE_SKILL_COST_POINTS} pts + ${prestigeCost.toLocaleString()}
+
+            {/* Skills */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
+              {visibleSkills.map((skillDef) => {
+                const rank = getSkillRank(skillDef.id);
+                const owned = rank > 0;
+                const maxed = rank >= skillDef.maxRank;
+                const buyable = canBuy(skillDef);
+                const meetsLevel = level >= skillDef.requiredLevel;
+                const locked = !owned && !buyable;
+
+                const rankLabel = skillDef.repeatable
+                  ? ` ${rank}/${skillDef.maxRank}`
+                  : owned ? " ✓" : "";
+
+                return (
+                  <div key={skillDef.id} style={{
+                    display: "flex", alignItems: "center", gap: "0.5rem",
+                    padding: "0.4rem 0.6rem",
+                    background: owned
+                      ? (isPrimary ? `${color.bg}` : "rgba(99,102,241,0.08)")
+                      : buyable ? "rgba(251,191,36,0.04)" : "transparent",
+                    borderBottom: "1px solid rgba(255,255,255,0.04)",
+                    opacity: (locked && !meetsLevel) ? 0.35 : locked ? 0.5 : 1,
+                  }}>
+                    <div style={{ fontSize: "1rem", lineHeight: 1, flexShrink: 0 }}>{skillDef.emoji}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: "0.7rem", fontWeight: 700, color: owned ? (isPrimary ? color.text : "#a78bfa") : buyable ? "#fbbf24" : "var(--text)", display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                        {skillDef.name}
+                        {skillDef.repeatable && <span style={{ fontSize: "0.55rem", color: "var(--muted)", fontWeight: 400 }}>{rank}/{skillDef.maxRank}</span>}
+                        {skillDef.crossSystemEffect && <span style={{ fontSize: "0.5rem", background: "rgba(74,222,128,0.2)", border: "1px solid rgba(74,222,128,0.4)", color: "#4ade80", borderRadius: "4px", padding: "1px 4px" }}>FARM</span>}
+                        {skillDef.grantsAutoBattle && <span style={{ fontSize: "0.5rem", background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.3)", color: "#f87171", borderRadius: "4px", padding: "1px 4px" }}>AUTO</span>}
+                      </div>
+                      <div style={{ fontSize: "0.58rem", color: "var(--muted)", lineHeight: 1.3 }}>
+                        {skillDef.description}
+                        {!meetsLevel && !owned && <span style={{ color: "#ef4444", marginLeft: "0.3rem" }}>· Lv{skillDef.requiredLevel}</span>}
+                      </div>
+                    </div>
+                    {maxed ? (
+                      <div style={{ fontSize: "0.65rem", color: isPrimary ? color.text : "#4ade80", flexShrink: 0, fontWeight: 700 }}>MAX</div>
+                    ) : buyable ? (
+                      <button
+                        onClick={() => onSpendSkillPoint(adventurer.id, skillDef.id)}
+                        style={{ fontSize: "0.58rem", padding: "3px 8px", borderRadius: "6px", cursor: "pointer", flexShrink: 0, background: "rgba(251,191,36,0.2)", border: "1px solid rgba(251,191,36,0.5)", color: "#fbbf24", fontWeight: 700 }}
+                      >
+                        {skillDef.tier === 1 ? "Choose" : skillDef.repeatable ? "Rank up" : "Unlock"}
+                      </button>
+                    ) : owned && !maxed ? (
+                      <div style={{ fontSize: "0.55rem", color: "var(--muted)", flexShrink: 0 }}>
+                        {skillPoints < 1 ? "no pts" : `Lv${skillDef.requiredLevel}`}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: "0.6rem", color: "var(--muted)", flexShrink: 0 }}>🔒</div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
-          {hasPrestigeSkill ? (
-            <button
-              onClick={() => onPrestige(adventurer.id)}
-              disabled={!canAffordPrestige}
-              style={{
-                fontSize: "0.6rem", padding: "3px 9px", borderRadius: "6px",
-                cursor: canAffordPrestige ? "pointer" : "default", flexShrink: 0,
-                background: canAffordPrestige ? "rgba(251,191,36,0.2)" : "rgba(255,255,255,0.04)",
-                border: `1px solid ${canAffordPrestige ? "rgba(251,191,36,0.5)" : "var(--border)"}`,
-                color: canAffordPrestige ? "#fbbf24" : "var(--muted)", fontWeight: 700,
-              }}
-            >
-              Prestige
-            </button>
-          ) : canUnlockPrestige ? (
-            <button
-              onClick={() => onSpendSkillPoint(adventurer.id, "prestige")}
-              style={{ fontSize: "0.6rem", padding: "3px 9px", borderRadius: "6px", cursor: "pointer", flexShrink: 0, background: "rgba(251,191,36,0.2)", border: "1px solid rgba(251,191,36,0.5)", color: "#fbbf24", fontWeight: 700 }}
-            >
-              Unlock ({PRESTIGE_SKILL_COST_POINTS}pts)
-            </button>
-          ) : (
-            <div style={{ fontSize: "0.62rem", color: "var(--muted)", flexShrink: 0, textAlign: "right" }}>
-              {skillPoints < PRESTIGE_SKILL_COST_POINTS
-                ? `${skillPoints}/${PRESTIGE_SKILL_COST_POINTS} pts`
-                : !canAffordPrestige
-                ? `$${prestigeCost.toLocaleString()}`
-                : "🔒"}
-            </div>
-          )}
+        );
+      })}
+
+      {/* Prestige row */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: "0.6rem",
+        padding: "0.55rem 0.65rem", borderRadius: "8px",
+        background: canPrestige ? "rgba(251,191,36,0.08)" : "rgba(255,255,255,0.02)",
+        border: `1px solid ${canPrestige ? "rgba(251,191,36,0.4)" : "var(--border)"}`,
+        marginTop: "0.25rem",
+      }}>
+        <div style={{ fontSize: "1.15rem", flexShrink: 0 }}>⭐</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: "0.72rem", fontWeight: 700, color: canPrestige ? "#fbbf24" : "var(--text)" }}>
+            Prestige
+            {prestigeLevel > 0 && <span style={{ marginLeft: "0.4rem", fontSize: "0.58rem", background: "rgba(251,191,36,0.15)", border: "1px solid rgba(251,191,36,0.4)", color: "#fbbf24", borderRadius: "4px", padding: "1px 5px" }}>Lv.{prestigeLevel}</span>}
+          </div>
+          <div style={{ fontSize: "0.58rem", color: "var(--muted)", lineHeight: 1.4 }}>
+            Reset to Lv.1 · Keep gear · Respec class · +1 food slot · Costs 3pts + ${prestigeCost.toLocaleString()}
+            {!hasT4 && <span style={{ color: "#ef4444", marginLeft: "0.3rem" }}>· Unlock class tier 4 first</span>}
+          </div>
         </div>
+        {canPrestige ? (
+          <button
+            onClick={() => onPrestige(adventurer.id)}
+            style={{ fontSize: "0.6rem", padding: "3px 9px", borderRadius: "6px", cursor: "pointer", flexShrink: 0, background: "rgba(251,191,36,0.2)", border: "1px solid rgba(251,191,36,0.5)", color: "#fbbf24", fontWeight: 700 }}
+          >
+            Prestige
+          </button>
+        ) : (
+          <div style={{ fontSize: "0.6rem", color: "var(--muted)", flexShrink: 0, textAlign: "right" }}>
+            {!hasT4 ? "🔒" : skillPoints < 3 ? `${skillPoints}/3pts` : !canAffordPrestige ? `$${prestigeCost.toLocaleString()}` : "🔒"}
+          </div>
+        )}
       </div>
+
+      {/* Dip tree unlock hint */}
+      {heroClass && prestigeLevel < 5 && (
+        <div style={{ fontSize: "0.58rem", color: "var(--muted)", marginTop: "0.35rem", textAlign: "center" }}>
+          🌿 Prestige 5 times to unlock a second tree for dipping
+        </div>
+      )}
     </div>
   );
 }
@@ -728,7 +844,8 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
   const maxHp = adventurer.maxHp ?? getAdventurerMaxHp(adventurer);
   const hp = adventurer.hp ?? maxHp;
   const dead = isDead(adventurer);
-  const hasAutoBattle = (adventurer.skills ?? []).includes("auto_battle");
+  const _skillMap = (() => { const s = adventurer.skills ?? {}; return Array.isArray(s) ? Object.fromEntries(s.map((id) => [id, 1])) : s; })();
+  const hasAutoBattle = !!(_skillMap["fighter_t4"] || _skillMap["mage_t4"] || _skillMap["scavenger_t4"]);
   const availableZones = zones.filter((z) => isZoneUnlocked(z, game.worldZoneClears));
   const lockedZones = zones.filter((z) => !isZoneUnlocked(z, game.worldZoneClears));
   const selectedZone = selectedZoneId ? WORLD_ZONES[selectedZoneId] : null;
@@ -1093,8 +1210,8 @@ export default function WorldZone({
   }
 
   function handleReturnAutoBattle(adventurerId) {
-    const result = onReturnAutoBattle?.(adventurerId);
-    if (result) setLootResult({ ...result, autoBattle: true });
+    // Auto battle loot is collected silently — no modal, loot just goes into resources
+    onReturnAutoBattle?.(adventurerId);
   }
 
   const heroModalAdv = heroModal ? (adventurers.find((a) => a.id === heroModal.id) ?? null) : null;
@@ -1173,8 +1290,6 @@ export default function WorldZone({
       })()}
 
       <LootModal result={lootResult} onDismiss={() => setLootResult(null)} />
-
-        <LootModal result={autoBattleLootResult} onDismiss={onDismissAutoBattleLoot} />
 
       {heroModalAdv && (
         <HeroModal

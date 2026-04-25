@@ -169,109 +169,164 @@ function ForgeUpgradeTree({ worker, game, onUpgrade }) {
   );
 }
 
-// ─── Recipe picker ────────────────────────────────────────────────────────────
+// ─── Recipe groups ────────────────────────────────────────────────────────────
+
+const FORGE_RECIPE_GROUPS = [
+  { id: "weapons",     label: "WEAPONS",    icon: "⚔️",  accentColor: "#f87171", ids: ["iron_sword", "steel_sword", "master_sword", "hunting_bow"] },
+  { id: "armour",      label: "ARMOUR",     icon: "🛡️",  accentColor: "#60a5fa", ids: ["iron_shield", "steel_shield", "tower_shield", "leather_armor", "chainmail", "plate_armor"] },
+  { id: "components",  label: "COMPONENTS", icon: "🔩",  accentColor: "#34d399", ids: ["iron_fitting", "reinforced_crate", "fine_tools"] },
+  { id: "consumables", label: "CONSUMABLES",icon: "🧪",  accentColor: "#a78bfa", ids: ["health_potion"] },
+];
+
+function ForgeRecipeRow({ recipeId, worker, worldResources, forgeGoods, onAssign, onCancel }) {
+  const recipe = FORGE_RECIPES[recipeId];
+  if (!recipe) return null;
+  const isActive = worker.recipeId === recipeId;
+  const effectiveSecs = getForgeEffectiveSeconds(worker, recipe);
+
+  const canCraft = Object.entries(recipe.inputs).every(
+    ([key, needed]) => (worldResources[key] ?? 0) >= needed
+  );
+  // requires check — a previous recipe in the chain must have been crafted at least once
+  const requiresMet = !recipe.requires || (forgeGoods?.[recipe.requires] ?? 0) > 0;
+
+  return (
+    <div style={{
+      padding: "0.45rem 0.55rem", borderRadius: "8px",
+      background: isActive ? "rgba(245,158,11,0.1)" : "rgba(255,255,255,0.02)",
+      border: `1px solid ${isActive ? "rgba(245,158,11,0.4)" : requiresMet ? "var(--border)" : "rgba(255,255,255,0.06)"}`,
+      opacity: requiresMet ? 1 : 0.45,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: "0.75rem", fontWeight: 600, display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap" }}>
+            <span>{recipe.emoji}</span>
+            <span>{recipe.name}</span>
+            {recipe.gearTier > 0 && (
+              <span style={{ fontSize: "0.58rem", color: "#fbbf24", background: "rgba(251,191,36,0.1)", padding: "1px 5px", borderRadius: "4px" }}>
+                T{recipe.gearTier}
+              </span>
+            )}
+            {!requiresMet && (
+              <span style={{ fontSize: "0.58rem", color: "var(--muted)", background: "rgba(255,255,255,0.06)", padding: "1px 5px", borderRadius: "4px" }}>
+                🔒 Requires {FORGE_RECIPES[recipe.requires]?.name}
+              </span>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: "0.35rem", marginTop: "0.2rem", flexWrap: "wrap" }}>
+            {Object.entries(recipe.inputs).map(([key, needed]) => {
+              const have = Math.floor(worldResources[key] ?? 0);
+              const displayName = RESOURCE_DISPLAY_NAMES[key] ?? (WORLD_RESOURCES[key]?.name ?? key);
+              const ok = have >= needed;
+              return (
+                <span key={key} style={{
+                  fontSize: "0.62rem",
+                  color: ok ? "var(--muted)" : "#ef4444",
+                  fontWeight: ok ? 400 : 600,
+                }}>
+                  {displayName} {have}/{needed}
+                </span>
+              );
+            })}
+            <span style={{ fontSize: "0.62rem", color: "var(--muted)" }}>· {effectiveSecs}s</span>
+          </div>
+        </div>
+
+        {isActive ? (
+          <button
+            onClick={() => onCancel(worker.id)}
+            style={{
+              fontSize: "0.65rem", padding: "2px 8px", borderRadius: "5px",
+              background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.3)",
+              color: "#ef4444", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
+            }}
+          >
+            Cancel
+          </button>
+        ) : (
+          <button
+            onClick={() => requiresMet && canCraft && onAssign(worker.id, recipeId)}
+            disabled={!canCraft || !requiresMet || worker.busy}
+            style={{
+              fontSize: "0.65rem", padding: "2px 8px", borderRadius: "5px",
+              background: canCraft && requiresMet && !worker.busy ? "rgba(245,158,11,0.2)" : "rgba(255,255,255,0.05)",
+              border: `1px solid ${canCraft && requiresMet && !worker.busy ? "rgba(245,158,11,0.4)" : "var(--border)"}`,
+              color: canCraft && requiresMet && !worker.busy ? "#f59e0b" : "var(--muted)",
+              cursor: canCraft && requiresMet && !worker.busy ? "pointer" : "default",
+              whiteSpace: "nowrap", flexShrink: 0,
+            }}
+          >
+            Craft
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ForgeRecipeSection({ group, worker, worldResources, forgeGoods, onAssign, onCancel, defaultOpen }) {
+  const [open, setOpen] = React.useState(defaultOpen);
+  const hasActive = group.ids.includes(worker.recipeId);
+
+  return (
+    <div style={{ border: "1px solid var(--border)", borderRadius: "8px", overflow: "hidden" }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "0.4rem 0.6rem", background: open ? "rgba(255,255,255,0.03)" : "none",
+          border: "none", cursor: "pointer",
+        }}
+      >
+        <span style={{ fontSize: "0.65rem", fontWeight: 700, color: hasActive ? group.accentColor : "var(--muted)", letterSpacing: "0.05em" }}>
+          {group.icon} {group.label}
+          {hasActive && <span style={{ marginLeft: "0.4rem", fontSize: "0.6rem", color: group.accentColor }}>● active</span>}
+        </span>
+        <span style={{ fontSize: "0.6rem", color: "var(--muted)" }}>{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem", padding: "0.35rem 0.5rem 0.5rem" }}>
+          {group.ids.map((id) => (
+            <ForgeRecipeRow
+              key={id}
+              recipeId={id}
+              worker={worker}
+              worldResources={worldResources}
+              forgeGoods={forgeGoods}
+              onAssign={onAssign}
+              onCancel={onCancel}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function RecipePicker({ worker, game, onAssign, onCancel }) {
   const worldResources = game.worldResources ?? {};
+  const forgeGoods = game.forgeGoods ?? {};
+
+  const activeGroupId = FORGE_RECIPE_GROUPS.find((g) => g.ids.includes(worker.recipeId))?.id ?? null;
 
   return (
     <div style={{ marginTop: "0.5rem" }}>
       <div style={{ fontSize: "0.65rem", fontWeight: 600, color: "var(--muted)", marginBottom: "0.3rem" }}>
         RECIPES
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
-        {FORGE_RECIPE_LIST.map((recipeId) => {
-          const recipe = FORGE_RECIPES[recipeId];
-          const isActive = worker.recipeId === recipeId;
-          const requiresMet = !recipe.requires ||
-            (game.forgeGoods?.[recipe.requires] ?? 0) > 0 ||
-            Object.values(game.forgeGoods ?? {}).some((_, k) => k === recipe.requires);
-
-          // Check if we have enough resources
-          const canCraft = Object.entries(recipe.inputs).every(
-            ([key, needed]) => (worldResources[key] ?? 0) >= needed
-          );
-
-          const effectiveSecs = getForgeEffectiveSeconds(worker, recipe);
-
-          return (
-            <div key={recipeId} style={{
-              padding: "0.45rem 0.55rem", borderRadius: "8px",
-              background: isActive ? "rgba(245,158,11,0.1)" : "rgba(255,255,255,0.02)",
-              border: `1px solid ${isActive ? "rgba(245,158,11,0.4)" : "var(--border)"}`,
-            }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: "0.75rem", fontWeight: 600, display: "flex", alignItems: "center", gap: "0.35rem" }}>
-                    <span>{recipe.emoji}</span>
-                    <span>{recipe.name}</span>
-                    {recipe.gearTier > 0 && (
-                      <span style={{ fontSize: "0.58rem", color: "#fbbf24", background: "rgba(251,191,36,0.1)", padding: "1px 5px", borderRadius: "4px" }}>
-                        T{recipe.gearTier}
-                      </span>
-                    )}
-                    {recipe.category === "consumable" && (
-                      <span style={{ fontSize: "0.58rem", color: "#a78bfa", background: "rgba(167,139,250,0.1)", padding: "1px 5px", borderRadius: "4px" }}>
-                        consumable
-                      </span>
-                    )}
-                    {recipe.category === "component" && (
-                      <span style={{ fontSize: "0.58rem", color: "#34d399", background: "rgba(52,211,153,0.1)", padding: "1px 5px", borderRadius: "4px" }}>
-                        upgrade component
-                      </span>
-                    )}
-                  </div>
-                  {/* Input costs — plain text names to avoid emoji gaps on desktop */}
-                  <div style={{ display: "flex", gap: "0.35rem", marginTop: "0.2rem", flexWrap: "wrap" }}>
-                    {Object.entries(recipe.inputs).map(([key, needed]) => {
-                      const have = Math.floor(worldResources[key] ?? 0);
-                      const displayName = RESOURCE_DISPLAY_NAMES[key] ?? (WORLD_RESOURCES[key]?.name ?? key);
-                      const ok = have >= needed;
-                      return (
-                        <span key={key} style={{
-                          fontSize: "0.62rem",
-                          color: ok ? "var(--muted)" : "#ef4444",
-                          fontWeight: ok ? 400 : 600,
-                        }}>
-                          {displayName} {have}/{needed}
-                        </span>
-                      );
-                    })}
-                    <span style={{ fontSize: "0.62rem", color: "var(--muted)" }}>· {effectiveSecs}s</span>
-                  </div>
-                </div>
-
-                {isActive ? (
-                  <button
-                    onClick={() => onCancel(worker.id)}
-                    style={{
-                      fontSize: "0.65rem", padding: "2px 8px", borderRadius: "5px",
-                      background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.3)",
-                      color: "#ef4444", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
-                    }}
-                  >
-                    Cancel
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => canCraft && onAssign(worker.id, recipeId)}
-                    disabled={!canCraft || worker.busy}
-                    style={{
-                      fontSize: "0.65rem", padding: "2px 8px", borderRadius: "5px",
-                      background: canCraft && !worker.busy ? "rgba(245,158,11,0.2)" : "rgba(255,255,255,0.05)",
-                      border: `1px solid ${canCraft && !worker.busy ? "rgba(245,158,11,0.4)" : "var(--border)"}`,
-                      color: canCraft && !worker.busy ? "#f59e0b" : "var(--muted)",
-                      cursor: canCraft && !worker.busy ? "pointer" : "default",
-                      whiteSpace: "nowrap", flexShrink: 0,
-                    }}
-                  >
-                    Craft
-                  </button>
-                )}
-              </div>
-            </div>
-          );
-        })}
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+        {FORGE_RECIPE_GROUPS.map((group) => (
+          <ForgeRecipeSection
+            key={group.id}
+            group={group}
+            worker={worker}
+            worldResources={worldResources}
+            forgeGoods={forgeGoods}
+            onAssign={onAssign}
+            onCancel={onCancel}
+            defaultOpen={group.id === "components" || activeGroupId === group.id}
+          />
+        ))}
       </div>
     </div>
   );
