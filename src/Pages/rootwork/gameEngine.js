@@ -1782,12 +1782,12 @@ if (activeTier) {
 
     if (worker.hasStandingOrder && worker.standingOrder && (worker.queue ?? []).length === 0) {
   const itemType = worker.standingOrder;
-  const isCrop = itemType in (next.crops ?? {});
-  const isArtisan = itemType in (next.artisan ?? {});
-  const isAnimal = itemType in (next.animalGoods ?? {});
-  const isFish = next.fishing?.fish && itemType in next.fishing.fish;
-  const isForge = !isCrop && !isArtisan && !isAnimal && !isFish && itemType in (next.forgeGoods ?? {});
-  const isWorld = !isCrop && !isArtisan && !isAnimal && !isFish && !isForge && itemType in (next.worldResources ?? {});
+  const isWorld  = itemType in WORLD_RESOURCES;
+  const isForge  = !isWorld && Object.values(FORGE_RECIPES).some((r) => r.output.resourceKey === itemType);
+  const isFish   = !isWorld && !isForge && itemType in (FISHING_FISH ?? {});
+  const isAnimal = !isWorld && !isForge && !isFish && itemType in (next.animalGoods ?? {});
+  const isArtisan = !isWorld && !isForge && !isFish && !isAnimal && itemType in (next.artisan ?? {});
+  const isCrop   = !isWorld && !isForge && !isFish && !isAnimal && !isArtisan;
   const available = isCrop ? (next.crops[itemType] ?? 0)
     : isArtisan ? (next.artisan[itemType] ?? 0)
     : isAnimal ? (next.animalGoods[itemType] ?? 0)
@@ -2507,12 +2507,12 @@ export function assignItemToMarketWorker(state, workerId, itemType, quantity) {
   const next = deepCloneState(state);
   const worker = (next.marketWorkers ?? []).find((w) => w.id === workerId);
   if (!worker) return state;
-  const isAnimal = itemType in (next.animalGoods ?? {});
-const isCrop = !isAnimal && itemType in (next.crops ?? {});
-const isArtisan = !isAnimal && !isCrop && itemType in (next.artisan ?? {});
-const isFish = !isAnimal && !isCrop && !isArtisan && next.fishing?.fish && itemType in next.fishing.fish;
-const isForge = !isAnimal && !isCrop && !isArtisan && !isFish && itemType in (next.forgeGoods ?? {});
-const isWorld = !isAnimal && !isCrop && !isArtisan && !isFish && !isForge && itemType in (next.worldResources ?? {});
+  const isWorld  = itemType in WORLD_RESOURCES;
+const isForge  = !isWorld && Object.values(FORGE_RECIPES).some((r) => r.output.resourceKey === itemType);
+const isFish   = !isWorld && !isForge && itemType in (FISHING_FISH ?? {});
+const isAnimal = !isWorld && !isForge && !isFish && itemType in (next.animalGoods ?? {});
+const isArtisan = !isWorld && !isForge && !isFish && !isAnimal && itemType in (next.artisan ?? {});
+const isCrop   = !isWorld && !isForge && !isFish && !isAnimal && !isArtisan;
   if (isCrop) {
     if ((next.crops[itemType] ?? 0) < quantity) return state;
     next.crops[itemType] -= quantity;
@@ -4112,10 +4112,14 @@ export function returnAdventurer(state, adventurerId) {
       const beltCap = getBeltCap(advForBelt);
       const currentBeltTotal = Object.values(advForBelt.foodBelt ?? {}).reduce((s, v) => s + v, 0);
       if (currentBeltTotal < beltCap) {
-        // Pick a random food item from ARTISAN_FOOD_LIST (bread, jam, sauce)
-        const foodChoices = ARTISAN_FOOD_LIST;
-        const foundFoodId = foodChoices[Math.floor(Math.random() * foodChoices.length)];
-        scavengerFoundFood = foundFoodId;
+        // Pick a random food item — only foods the player can actually craft (crop unlocked)
+        const foodChoices = ARTISAN_FOOD_LIST.filter((id) => {
+          const recipe = PROCESSING_RECIPES[id];
+          return recipe && (state.crops?.[recipe.inputCrop] !== undefined);
+        });
+        if (foodChoices.length > 0) {
+          scavengerFoundFood = foodChoices[Math.floor(Math.random() * foodChoices.length)];
+        }
       }
     }
 
