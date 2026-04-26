@@ -33,7 +33,7 @@ import {
   initWorldState, sendAdventurer, returnAdventurer, equipAdventurer, unequipAdventurer,
   giveBuffItem, removeBuffItem, tickAdventurerRegen,
   hireForgeWorker, fireForgeWorker, assignForgeWorkerRecipe, cancelForgeWorkerRecipe,
-  upgradeForgeWorker, toggleForgeWorkerAutoRestart, tickForgeWorkers,
+  upgradeForgeWorker, toggleForgeWorkerAutoRestart, tickForgeWorkers, upgradeForgeInstance,
   hireWorldWorker, fireWorldWorker, tickWorldWorkers,
   giveArtisanFood, removeArtisanFood, useArtisanFood,
   tickAdventurerMissions,
@@ -652,15 +652,23 @@ export default function RootWork() {
     return result;
   }, []);
 
-  // 3-slot equipment: takes (adventurerId, slot, itemKey)
-  const handleEquipAdventurer = useCallback((adventurerId, slot, itemKey) => {
-    update((s) => { const n = equipAdventurer(s, adventurerId, slot, itemKey); if (n === s) notify("No gear available."); return n; });
+  // 3-slot equipment: takes (adventurerId, slot, itemKey, instanceId?)
+  const handleEquipAdventurer = useCallback((adventurerId, slot, itemKey, instanceId = null) => {
+    update((s) => { const n = equipAdventurer(s, adventurerId, slot, itemKey, instanceId); if (n === s) notify("No gear available."); return n; });
   }, [update, notify]);
 
   // 3-slot unequip: takes (adventurerId, slot)
   const handleUnequipAdventurer = useCallback((adventurerId, slot) => {
     update((s) => unequipAdventurer(s, adventurerId, slot));
   }, [update]);
+
+  const handleUpgradeForgeInstance = useCallback((instanceId) => {
+    update((s) => {
+      const n = upgradeForgeInstance(s, instanceId);
+      if (n === s) notify("Cannot upgrade — check crystals, cash, or unequip first.");
+      return n;
+    });
+  }, [update, notify]);
 
   const handleGiveBuffItem = useCallback((adventurerId, buffId) => {
     update((s) => { const n = giveBuffItem(s, adventurerId, buffId); if (n === s) notify("No buff item in stock or slot already filled."); return n; });
@@ -865,6 +873,7 @@ export default function RootWork() {
                 onFireForgeWorker={handleFireForgeWorker}
                 onCancelForgeWorkerRecipe={handleCancelForgeWorkerRecipe}
                 onToggleForgeWorkerAutoRestart={handleToggleForgeWorkerAutoRestart}
+                onUpgradeForgeInstance={handleUpgradeForgeInstance}
               />
             )}
           </>

@@ -1659,7 +1659,12 @@ if (activeTier) {
           school.researchNeeded = needed;
 
           if (researchers > 0) {
-            school.researchProgress = (school.researchProgress ?? 0) + researchers;
+            const crystalCost = researchers;
+            const availableCrystals = next.worldResources?.mana_crystal ?? 0;
+            if (availableCrystals >= crystalCost) {
+              next.worldResources.mana_crystal = availableCrystals - crystalCost;
+              school.researchProgress = (school.researchProgress ?? 0) + researchers;
+            }
           }
 
           if ((school.researchProgress ?? 0) >= needed) {
@@ -3738,6 +3743,46 @@ if (parsed.fishing?.fish) {
   if (f.rare === undefined) f.rare = 0;
 }
  
+    // ── forgeGoodsInstanced migration ──────────────────────────────────────────
+    if (!parsed.forgeGoodsInstanced) parsed.forgeGoodsInstanced = [];
+    const INSTANCED_KEYS = ["master_sword", "tower_shield", "plate_armor"];
+    const BASE_TIERS = { master_sword: 3, tower_shield: 3, plate_armor: 3 };
+    // Migrate flat forgeGoods counts — always runs so re-saves don't get stuck
+    for (const key of INSTANCED_KEYS) {
+      const count = Math.floor((parsed.forgeGoods ?? {})[key] ?? 0);
+      if (count > 0) {
+        for (let i = 0; i < count; i++) {
+          parsed.forgeGoodsInstanced.push({
+            id: "fgi_" + Math.random().toString(36).slice(2, 10),
+            key,
+            upgradeTier: BASE_TIERS[key],
+          });
+        }
+        delete parsed.forgeGoods[key];
+      }
+    }
+    // Migrate equipped instanced gear on adventurers — assign equippedInstanceId
+    for (const adv of parsed.adventurers ?? []) {
+      if (!adv.equippedInstanceId) adv.equippedInstanceId = {};
+      for (const slot of ["weapon", "armour", "body"]) {
+        const equippedKey = adv.equippedGear?.[slot];
+        if (equippedKey && INSTANCED_KEYS.includes(equippedKey) && !adv.equippedInstanceId[slot]) {
+          // Find a free instance or create one
+          let inst = parsed.forgeGoodsInstanced.find((i) => i.key === equippedKey && !i._equippedBy);
+          if (!inst) {
+            inst = {
+              id: "fgi_" + Math.random().toString(36).slice(2, 10),
+              key: equippedKey,
+              upgradeTier: BASE_TIERS[equippedKey],
+            };
+            parsed.forgeGoodsInstanced.push(inst);
+          }
+          inst._equippedBy = adv.id;
+          adv.equippedInstanceId[slot] = inst.id;
+        }
+      }
+    }
+
     return parsed;
   } catch { return null; }
 }
@@ -4647,73 +4692,141 @@ export function spendSkillPoint(state, adventurerId, skillId) {
   return { ...state, adventurers: state.adventurers.map((a, i) => i === advIdx ? updatedAdv : a) };
 }
 
-export function equipAdventurer(state, adventurerId, slot, itemKey) {
-  // slot: "weapon" | "armour" | "body"
-  const VALID_SLOTS = ["weapon", "armour", "body"];
-  if (!VALID_SLOTS.includes(slot)) return state;
- 
-  const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
-  if (advIdx === -1) return state;
- 
-  const recipe = Object.values(FORGE_RECIPES).find((r) => r.output.resourceKey === itemKey);
-  // Exclude consumables and components — only weapon/armor categories allowed
-  if (!recipe || recipe.category === "consumable" || recipe.category === "component") return state;
- 
-  const forgeGoods = state.forgeGoods ?? {};
-  if ((forgeGoods[itemKey] ?? 0) < 1) return state;
- 
-  const adventurer = state.adventurers[advIdx];
-  const currentGear = adventurer.equippedGear ?? { weapon: null, armour: null, body: null };
- 
-  // Refund previously equipped item in this slot
-  let nextGoods = { ...forgeGoods, [itemKey]: forgeGoods[itemKey] - 1 };
-  const oldItemKey = currentGear[slot];
-  if (oldItemKey && oldItemKey !== itemKey) {
-    nextGoods = { ...nextGoods, [oldItemKey]: (nextGoods[oldItemKey] ?? 0) + 1 };
-  }
- 
-  const newGear = { ...currentGear, [slot]: itemKey };
-  // Recompute total gear tier as sum across all slots
-  const totalGearTier = Object.values(newGear).reduce((sum, key) => {
+// Helper: compute total gear tier across all slots, respecting instanced item upgrade tiers
+function computeTotalGearTier(equippedGear, equippedInstanceId, forgeGoodsInstanced) {
+  const instanced = forgeGoodsInstanced ?? [];
+  return Object.entries(equippedGear ?? {}).reduce((sum, [slot, key]) => {
     if (!key) return sum;
+    const instId = (equippedInstanceId ?? {})[slot];
+    if (instId) {
+      const inst = instanced.find((i) => i.id === instId);
+      return sum + (inst?.upgradeTier ?? 0);
+    }
     const r = Object.values(FORGE_RECIPES).find((r) => r.output.resourceKey === key);
     return sum + (r?.gearTier ?? 0);
   }, 0);
- 
-  const updatedAdv = { ...adventurer, equippedGear: newGear, gear: totalGearTier };
-  return {
-    ...state,
-    adventurers: state.adventurers.map((a, i) => i === advIdx ? updatedAdv : a),
-    forgeGoods: nextGoods,
-  };
+}
+
+export function equipAdventurer(state, adventurerId, slot, itemKey, instanceId = null) {
+  // slot: "weapon" | "armour" | "body"
+  const VALID_SLOTS = ["weapon", "armour", "body"];
+  if (!VALID_SLOTS.includes(slot)) return state;
+
+  const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
+  if (advIdx === -1) return state;
+
+  const recipe = Object.values(FORGE_RECIPES).find((r) => r.output.resourceKey === itemKey);
+  if (!recipe || recipe.category === "consumable" || recipe.category === "component") return state;
+
+  const INSTANCED_KEYS = ["master_sword", "tower_shield", "plate_armor"];
+  const isInstanced = INSTANCED_KEYS.includes(itemKey);
+
+  const adventurer = state.adventurers[advIdx];
+  const currentGear = adventurer.equippedGear ?? { weapon: null, armour: null, body: null };
+  const currentInstanceIds = adventurer.equippedInstanceId ?? {};
+
+  let nextGoods = { ...(state.forgeGoods ?? {}) };
+  let nextInstanced = [...(state.forgeGoodsInstanced ?? [])];
+
+  if (isInstanced) {
+    // Must supply a valid instanceId
+    const inst = nextInstanced.find((i) => i.id === instanceId && i.key === itemKey);
+    if (!inst) return state;
+
+    // Unequip current instanced item in this slot — return it to pool (remove _equippedBy)
+    const oldInstId = currentInstanceIds[slot];
+    if (oldInstId) {
+      nextInstanced = nextInstanced.map((i) =>
+        i.id === oldInstId ? { ...i, _equippedBy: undefined } : i
+      );
+    } else if (currentGear[slot] && !INSTANCED_KEYS.includes(currentGear[slot])) {
+      // Was a flat item — refund it
+      nextGoods = { ...nextGoods, [currentGear[slot]]: (nextGoods[currentGear[slot]] ?? 0) + 1 };
+    }
+
+    // Mark instance as equipped
+    nextInstanced = nextInstanced.map((i) =>
+      i.id === instanceId ? { ...i, _equippedBy: adventurerId } : i
+    );
+
+    const newGear = { ...currentGear, [slot]: itemKey };
+    const newInstanceIds = { ...currentInstanceIds, [slot]: instanceId };
+    const totalGearTier = computeTotalGearTier(newGear, newInstanceIds, nextInstanced);
+    const updatedAdv = { ...adventurer, equippedGear: newGear, equippedInstanceId: newInstanceIds, gear: totalGearTier };
+    return {
+      ...state,
+      adventurers: state.adventurers.map((a, i) => i === advIdx ? updatedAdv : a),
+      forgeGoods: nextGoods,
+      forgeGoodsInstanced: nextInstanced,
+    };
+  } else {
+    // Non-instanced path — original logic
+    if ((nextGoods[itemKey] ?? 0) < 1) return state;
+
+    nextGoods = { ...nextGoods, [itemKey]: nextGoods[itemKey] - 1 };
+    const oldItemKey = currentGear[slot];
+    // Unequip old item in slot
+    if (oldItemKey) {
+      const oldInstId = currentInstanceIds[slot];
+      if (oldInstId) {
+        // Old was instanced — return to pool
+        nextInstanced = nextInstanced.map((i) =>
+          i.id === oldInstId ? { ...i, _equippedBy: undefined } : i
+        );
+      } else {
+        nextGoods = { ...nextGoods, [oldItemKey]: (nextGoods[oldItemKey] ?? 0) + 1 };
+      }
+    }
+
+    const newGear = { ...currentGear, [slot]: itemKey };
+    const newInstanceIds = { ...currentInstanceIds, [slot]: null };
+    const totalGearTier = computeTotalGearTier(newGear, newInstanceIds, nextInstanced);
+    const updatedAdv = { ...adventurer, equippedGear: newGear, equippedInstanceId: newInstanceIds, gear: totalGearTier };
+    return {
+      ...state,
+      adventurers: state.adventurers.map((a, i) => i === advIdx ? updatedAdv : a),
+      forgeGoods: nextGoods,
+      forgeGoodsInstanced: nextInstanced,
+    };
+  }
 }
 
 export function unequipAdventurer(state, adventurerId, slot) {
   const VALID_SLOTS = ["weapon", "armour", "body"];
   if (!VALID_SLOTS.includes(slot)) return state;
- 
+
   const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
   if (advIdx === -1) return state;
   const adventurer = state.adventurers[advIdx];
   const currentGear = adventurer.equippedGear ?? { weapon: null, armour: null, body: null };
+  const currentInstanceIds = adventurer.equippedInstanceId ?? {};
   const itemKey = currentGear[slot];
   if (!itemKey) return state;
- 
-  const nextGoods = { ...(state.forgeGoods ?? {}), [itemKey]: ((state.forgeGoods ?? {})[itemKey] ?? 0) + 1 };
+
+  const INSTANCED_KEYS = ["master_sword", "tower_shield", "plate_armor"];
+  let nextGoods = { ...(state.forgeGoods ?? {}) };
+  let nextInstanced = [...(state.forgeGoodsInstanced ?? [])];
+
+  const instId = currentInstanceIds[slot];
+  if (instId && INSTANCED_KEYS.includes(itemKey)) {
+    // Return instanced item to pool
+    nextInstanced = nextInstanced.map((i) =>
+      i.id === instId ? { ...i, _equippedBy: undefined } : i
+    );
+  } else {
+    nextGoods = { ...nextGoods, [itemKey]: (nextGoods[itemKey] ?? 0) + 1 };
+  }
+
   const newGear = { ...currentGear, [slot]: null };
- 
-  // Recompute total gear tier
-  const totalGearTier = Object.values(newGear).reduce((sum, key) => {
-    if (!key) return sum;
-    const r = Object.values(FORGE_RECIPES).find((r) => r.output.resourceKey === key);
-    return sum + (r?.gearTier ?? 0);
-  }, 0);
- 
-  const updatedAdv = { ...adventurer, equippedGear: newGear, gear: totalGearTier };
+  const newInstanceIds = { ...currentInstanceIds, [slot]: null };
+  const totalGearTier = computeTotalGearTier(newGear, newInstanceIds, nextInstanced);
+
+  const updatedAdv = { ...adventurer, equippedGear: newGear, equippedInstanceId: newInstanceIds, gear: totalGearTier };
   return {
     ...state,
     adventurers: state.adventurers.map((a, i) => i === advIdx ? updatedAdv : a),
     forgeGoods: nextGoods,
+    forgeGoodsInstanced: nextInstanced,
   };
 }
 
@@ -5031,6 +5144,41 @@ export function upgradeForgeWorker(state, workerId, upgradeId) {
   };
 }
 
+// ─── Instanced Gear Upgrade ───────────────────────────────────────────────────
+// Upgrades a specific forgeGoodsInstanced item by bumping its upgradeTier.
+// Cost: 50 × current tier mana crystals + $1000 × current tier cash
+export function upgradeForgeInstance(state, instanceId) {
+  const instIdx = (state.forgeGoodsInstanced ?? []).findIndex((i) => i.id === instanceId);
+  if (instIdx === -1) return state;
+  const inst = state.forgeGoodsInstanced[instIdx];
+
+  // Cannot upgrade while equipped — must unequip first
+  if (inst._equippedBy) return state;
+
+  const currentTier = inst.upgradeTier ?? 3;
+  const crystalCost = 50 * currentTier;
+  const cashCost = 1000 * currentTier;
+  const titanCoreCost = 1;
+
+  if ((state.worldResources?.mana_crystal ?? 0) < crystalCost) return state;
+  if ((state.cash ?? 0) < cashCost) return state;
+  if ((state.worldResources?.titan_core ?? 0) < titanCoreCost) return state;
+
+  const nextInstanced = (state.forgeGoodsInstanced ?? []).map((i, idx) =>
+    idx === instIdx ? { ...i, upgradeTier: currentTier + 1 } : i
+  );
+  return {
+    ...state,
+    cash: (state.cash ?? 0) - cashCost,
+    worldResources: {
+      ...(state.worldResources ?? {}),
+      mana_crystal: (state.worldResources?.mana_crystal ?? 0) - crystalCost,
+      titan_core: (state.worldResources?.titan_core ?? 0) - titanCoreCost,
+    },
+    forgeGoodsInstanced: nextInstanced,
+  };
+}
+
 export function toggleForgeWorkerAutoRestart(state, workerId) {
   return {
     ...state,
@@ -5265,6 +5413,15 @@ export function tickBossFight(state, dtSeconds) {
   let nextBossHp = bossFight.bossHp;
   const bossDef = getBossDef(bossFight.bossId);
 
+  // Track participation: increment tick count for each living assigned hero
+  const prevHeroTicks = bossFight.heroTicksParticipated ?? {};
+  const prevTotalTicks = bossFight.totalBossTicks ?? 0;
+  const nextHeroTicks = { ...prevHeroTicks };
+  for (const id of livingAssigned) {
+    nextHeroTicks[id] = (nextHeroTicks[id] ?? 0) + 1;
+  }
+  const nextTotalTicks = prevTotalTicks + 1;
+
   // Heroes attack boss
   let heroDmgTotal = 0;
   nextAdventurers = nextAdventurers.map((a) => {
@@ -5306,19 +5463,36 @@ export function tickBossFight(state, dtSeconds) {
       [dropKey]: ((state.worldResources ?? {})[dropKey] ?? 0) + dropAmt,
     };
 
-    // Award XP to all surviving assigned heroes
+    // Award XP to all surviving assigned heroes — gated by participation ratio
     const xpReward = bossDef?.xpReward ?? 50;
+    const MIN_PARTICIPATION = 0.20; // hero must have participated in ≥20% of ticks
+    const heroResults = [];
     nextAdventurers = nextAdventurers.map((a) => {
-      if (!assignedIds.includes(a.id) || (a.hp ?? 0) <= 0) return a;
-      let newXp = (a.xp ?? 0) + xpReward;
+      if (!assignedIds.includes(a.id) || (a.hp ?? 0) <= 0) return { ...a, bossAssigned: false, bossFightAbility: null };
+      const ticksParticipated = (nextHeroTicks[a.id] ?? 0);
+      const participationRatio = nextTotalTicks > 0 ? ticksParticipated / nextTotalTicks : 1;
+      const qualified = participationRatio >= MIN_PARTICIPATION;
+      const earnedXp = qualified ? xpReward : 0;
+      let newXp = (a.xp ?? 0) + earnedXp;
       let newLevel = a.level ?? 1;
       let skillPointsGained = 0;
+      const oldLevel = newLevel;
       while (newXp >= getAdventurerXpNeeded(newLevel)) {
         newXp -= getAdventurerXpNeeded(newLevel);
         newLevel++;
         skillPointsGained++;
       }
       const newMaxHp = getAdventurerMaxHp({ ...a, level: newLevel }) + getHeroBonusMaxHp({ ...a, level: newLevel });
+      heroResults.push({
+        heroId: a.id,
+        heroName: a.name ?? "Hero",
+        heroClass: a.class ?? null,
+        xpGained: earnedXp,
+        leveledUp: newLevel > oldLevel,
+        newLevel,
+        participationPct: Math.round(participationRatio * 100),
+        qualified,
+      });
       return {
         ...a,
         xp: newXp,
@@ -5374,7 +5548,10 @@ export function tickBossFight(state, dtSeconds) {
           dropResource: dropKey,
           dropAmount: dropAmt,
           nextBossId,
+          heroResults,
         },
+        heroTicksParticipated: {},
+        totalBossTicks: 0,
       },
     };
   }
@@ -5387,6 +5564,8 @@ export function tickBossFight(state, dtSeconds) {
       bossHp: nextBossHp,
       tickAccum: newAccum - BOSS_TICK_INTERVAL,
       blindNextTick: nextBlind,
+      heroTicksParticipated: nextHeroTicks,
+      totalBossTicks: nextTotalTicks,
     },
   };
 }

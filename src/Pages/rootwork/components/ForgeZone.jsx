@@ -426,6 +426,131 @@ function ForgeWorkerCard({ worker, workerNumber, game, expanded, onToggle, onAss
   );
 }
  
+
+// ─── Instanced Gear Panel ─────────────────────────────────────────────────────
+
+const INSTANCED_META = {
+  master_sword: { emoji: "⚔️", name: "Master Sword", slot: "weapon" },
+  tower_shield:  { emoji: "🛡️", name: "Tower Shield",  slot: "armour" },
+  plate_armor:   { emoji: "🧥", name: "Plate Armor",   slot: "body"   },
+};
+
+function InstancedGearPanel({ game, onUpgradeForgeInstance }) {
+  const instanced = game.forgeGoodsInstanced ?? [];
+  const inStock = instanced.filter((i) => !i._equippedBy);
+  const equipped = instanced.filter((i) => !!i._equippedBy);
+
+  if (instanced.length === 0) return null;
+
+  const crystals = Math.floor(game.worldResources?.mana_crystal ?? 0);
+  const cash = Math.floor(game.cash ?? 0);
+
+  return (
+    <div style={{
+      marginBottom: "1.25rem",
+      padding: "0.75rem 0.85rem",
+      background: "rgba(139,92,246,0.06)",
+      border: "1px solid rgba(139,92,246,0.25)",
+      borderRadius: "12px",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.65rem" }}>
+        <span style={{ fontSize: "1.1rem" }}>🔮</span>
+        <div>
+          <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#a78bfa" }}>Arcane Upgrade Machine</div>
+          <div style={{ fontSize: "0.6rem", color: "var(--muted)" }}>Infuse mana crystals into top-tier gear to push beyond normal limits</div>
+        </div>
+      </div>
+
+      {/* Stock items — upgradeable */}
+      {inStock.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", marginBottom: equipped.length > 0 ? "0.5rem" : 0 }}>
+          {inStock.map((inst) => {
+            const meta = INSTANCED_META[inst.key] ?? { emoji: "⚔️", name: inst.key, slot: "weapon" };
+            const currentTier = inst.upgradeTier ?? 3;
+            const crystalCost = 50 * currentTier;
+            const cashCost = 1000 * currentTier;
+            const canAfford = crystals >= crystalCost && cash >= cashCost;
+            return (
+              <div key={inst.id} style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "0.45rem 0.6rem",
+                background: "rgba(139,92,246,0.08)",
+                border: "1px solid rgba(139,92,246,0.25)",
+                borderRadius: "8px",
+                gap: "0.5rem",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flex: 1, minWidth: 0 }}>
+                  <span style={{ fontSize: "1rem" }}>{meta.emoji}</span>
+                  <div>
+                    <div style={{ fontSize: "0.72rem", fontWeight: 700 }}>
+                      {meta.name}
+                      <span style={{
+                        marginLeft: "0.35rem", fontSize: "0.58rem",
+                        background: "rgba(139,92,246,0.2)", border: "1px solid rgba(139,92,246,0.4)",
+                        color: "#a78bfa", borderRadius: "4px", padding: "1px 5px",
+                      }}>T{currentTier}</span>
+                    </div>
+                    <div style={{ fontSize: "0.58rem", color: "var(--muted)" }}>
+                      Upgrade cost: {crystalCost} 🔮 · ${cashCost.toLocaleString()}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => onUpgradeForgeInstance(inst.id)}
+                  disabled={!canAfford}
+                  style={{
+                    fontSize: "0.62rem", padding: "4px 10px", borderRadius: "7px",
+                    flexShrink: 0, fontWeight: 700,
+                    background: canAfford ? "rgba(139,92,246,0.3)" : "rgba(255,255,255,0.05)",
+                    border: `1px solid ${canAfford ? "rgba(139,92,246,0.6)" : "var(--border)"}`,
+                    color: canAfford ? "#c4b5fd" : "var(--muted)",
+                    cursor: canAfford ? "pointer" : "default",
+                  }}
+                >
+                  T{currentTier} → T{currentTier + 1}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Equipped items — show tier but can't upgrade while equipped */}
+      {equipped.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+          <div style={{ fontSize: "0.58rem", color: "var(--muted)", letterSpacing: "0.05em", marginBottom: "0.1rem" }}>EQUIPPED (unequip to upgrade)</div>
+          {equipped.map((inst) => {
+            const meta = INSTANCED_META[inst.key] ?? { emoji: "⚔️", name: inst.key };
+            const adv = (game.adventurers ?? []).find((a) => a.id === inst._equippedBy);
+            return (
+              <div key={inst.id} style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "0.35rem 0.6rem",
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid var(--border)",
+                borderRadius: "7px", opacity: 0.7,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                  <span>{meta.emoji}</span>
+                  <span style={{ fontSize: "0.7rem", fontWeight: 600 }}>{meta.name}</span>
+                  <span style={{
+                    fontSize: "0.55rem",
+                    background: "rgba(139,92,246,0.15)", border: "1px solid rgba(139,92,246,0.3)",
+                    color: "#a78bfa", borderRadius: "4px", padding: "1px 5px",
+                  }}>T{inst.upgradeTier ?? 3}</span>
+                </div>
+                <span style={{ fontSize: "0.6rem", color: "var(--muted)" }}>
+                  {adv ? `on ${adv.name}` : "equipped"}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main ForgeZone ───────────────────────────────────────────────────────────
  
 export default function ForgeZone({
@@ -437,6 +562,7 @@ export default function ForgeZone({
   onCancelForgeWorkerRecipe,
   onToggleForgeWorkerAutoRestart,
   onBuildForge,
+  onUpgradeForgeInstance,
 }) {
   const [expandedWorkers, setExpandedWorkers] = useState({});
  
@@ -536,6 +662,10 @@ export default function ForgeZone({
           ))}
         </div>
       )}
+
+      <div style={{ marginTop: "1.25rem" }}>
+        <InstancedGearPanel game={game} onUpgradeForgeInstance={onUpgradeForgeInstance} />
+      </div>
     </div>
   );
 }

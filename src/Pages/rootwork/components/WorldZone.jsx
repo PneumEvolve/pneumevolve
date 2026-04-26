@@ -97,11 +97,14 @@ function getEquippedRecipe(adventurer, slot) {
 }
 
 // Returns all equippable recipes for a slot (in stock, right category, not excluded)
+const INSTANCED_ITEM_KEYS = new Set(["master_sword", "tower_shield", "plate_armor"]);
+
 function getEquippableForSlot(slot, forgeGoods) {
   const cat = SLOT_CATEGORIES[slot];
   return Object.values(FORGE_RECIPES).filter(
     (r) =>
       !EXCLUDED_GEAR_CATEGORIES.has(r.category) &&
+      !INSTANCED_ITEM_KEYS.has(r.output.resourceKey) &&
       r.category === cat &&
       ((forgeGoods ?? {})[r.output.resourceKey] ?? 0) > 0
   );
@@ -288,8 +291,12 @@ function DeadHeroOverlay({ adventurer, game, onRevive }) {
 }
 
 // ─── Equipment Slots Panel ────────────────────────────────────────────────────
+const INSTANCED_SLOT_MAP = { master_sword: "weapon", tower_shield: "armour", plate_armor: "body" };
+
 function EquipmentPanel({ adventurer, game, onEquip, onUnequip }) {
   const forgeGoods = game.forgeGoods ?? {};
+  const allInstanced = game.forgeGoodsInstanced ?? [];
+  const equippedInstanceId = adventurer.equippedInstanceId ?? {};
 
   return (
     <div style={{ marginBottom: "0.85rem" }}>
@@ -298,7 +305,17 @@ function EquipmentPanel({ adventurer, game, onEquip, onUnequip }) {
         {(["weapon", "armour", "body"]).map((slot) => {
           const meta = SLOT_META[slot];
           const equipped = getEquippedRecipe(adventurer, slot);
+          const equippedInstId = equippedInstanceId[slot];
+          const equippedInst = equippedInstId ? allInstanced.find((i) => i.id === equippedInstId) : null;
+
+          // Flat items available for this slot (non-instanced)
           const available = getEquippableForSlot(slot, forgeGoods);
+          // Instanced items available for this slot (in stock, not equipped by anyone)
+          const availableInstanced = allInstanced.filter(
+            (i) => INSTANCED_SLOT_MAP[i.key] === slot && !i._equippedBy
+          );
+
+          const hasAnything = available.length > 0 || availableInstanced.length > 0;
 
           return (
             <div key={slot} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)", borderRadius: "10px", padding: "0.5rem 0.65rem" }}>
@@ -313,7 +330,16 @@ function EquipmentPanel({ adventurer, game, onEquip, onUnequip }) {
                   <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
                     <span style={{ fontSize: "1.1rem" }}>{equipped.emoji}</span>
                     <div>
-                      <div style={{ fontSize: "0.72rem", fontWeight: 600, color: "#fbbf24" }}>{equipped.name}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                        <span style={{ fontSize: "0.72rem", fontWeight: 600, color: "#fbbf24" }}>{equipped.name}</span>
+                        {equippedInst && (
+                          <span style={{
+                            fontSize: "0.55rem", fontWeight: 700,
+                            background: "rgba(139,92,246,0.2)", border: "1px solid rgba(139,92,246,0.4)",
+                            color: "#a78bfa", borderRadius: "4px", padding: "1px 5px",
+                          }}>T{equippedInst.upgradeTier ?? 3}</span>
+                        )}
+                      </div>
                       <div style={{ fontSize: "0.58rem", color: "var(--muted)" }}>{equipped.description}</div>
                     </div>
                   </div>
@@ -325,20 +351,20 @@ function EquipmentPanel({ adventurer, game, onEquip, onUnequip }) {
                   </button>
                 </div>
               ) : (
-                <div style={{ fontSize: "0.65rem", color: "var(--muted)", fontStyle: "italic", marginBottom: available.length > 0 ? "0.3rem" : 0 }}>
+                <div style={{ fontSize: "0.65rem", color: "var(--muted)", fontStyle: "italic", marginBottom: hasAnything ? "0.3rem" : 0 }}>
                   Empty
                 </div>
               )}
 
-              {/* Available to equip */}
+              {/* Available to equip — flat items */}
               {!equipped && available.length > 0 && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "0.25rem", marginTop: "0.25rem" }}>
                   {available.map((r) => {
-                    const qty = (forgeGoods)[r.output.resourceKey] ?? 0;
+                    const qty = forgeGoods[r.output.resourceKey] ?? 0;
                     return (
                       <button
                         key={r.output.resourceKey}
-                        onClick={() => onEquip(adventurer.id, slot, r.output.resourceKey)}
+                        onClick={() => onEquip(adventurer.id, slot, r.output.resourceKey, null)}
                         style={{ fontSize: "0.65rem", padding: "2px 9px", borderRadius: "6px", cursor: "pointer", background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", color: "#fbbf24" }}
                       >
                         {r.emoji} {r.name} ×{qty}
@@ -348,8 +374,31 @@ function EquipmentPanel({ adventurer, game, onEquip, onUnequip }) {
                 </div>
               )}
 
+              {/* Available to equip — instanced items */}
+              {!equipped && availableInstanced.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "0.25rem", marginTop: "0.25rem" }}>
+                  {availableInstanced.map((inst) => {
+                    const r = Object.values(FORGE_RECIPES).find((r) => r.output.resourceKey === inst.key);
+                    return (
+                      <button
+                        key={inst.id}
+                        onClick={() => onEquip(adventurer.id, slot, inst.key, inst.id)}
+                        style={{ fontSize: "0.65rem", padding: "2px 9px", borderRadius: "6px", cursor: "pointer", background: "rgba(139,92,246,0.12)", border: "1px solid rgba(139,92,246,0.4)", color: "#c4b5fd", display: "flex", alignItems: "center", gap: "0.3rem" }}
+                      >
+                        <span>{r?.output.emoji ?? "⚔️"}</span>
+                        <span>{r?.output.name ?? inst.key}</span>
+                        <span style={{
+                          fontSize: "0.55rem", fontWeight: 700,
+                          background: "rgba(139,92,246,0.2)", borderRadius: "3px", padding: "1px 4px",
+                        }}>T{inst.upgradeTier ?? 3}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
               {/* No items available and empty */}
-              {!equipped && available.length === 0 && (
+              {!equipped && !hasAnything && (
                 <div style={{ fontSize: "0.58rem", color: "rgba(255,255,255,0.2)", marginTop: "0.15rem" }}>
                   No {meta.label.toLowerCase()} in forge stock
                 </div>
@@ -1374,7 +1423,7 @@ function BossVictoryOverlay({ result, bossDef, onAcknowledge }) {
         <div style={{ fontSize: "1.3rem", fontWeight: 800, color: "#fbbf24", marginBottom: "0.25rem" }}>Boss Defeated!</div>
         <div style={{ fontSize: "0.82rem", color: "var(--muted)", marginBottom: "1.25rem" }}>{bossDef?.name ?? "Boss"}</div>
 
-        <div style={{ background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.25)", borderRadius: "12px", padding: "0.75rem", marginBottom: "1rem" }}>
+        <div style={{ background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.25)", borderRadius: "12px", padding: "0.75rem", marginBottom: "0.75rem" }}>
           <div style={{ fontSize: "0.6rem", color: "var(--muted)", marginBottom: "0.35rem", letterSpacing: "0.05em" }}>DROPS</div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem", fontSize: "0.9rem", fontWeight: 700, color: "#fbbf24" }}>
             <span>💠</span>
@@ -1382,7 +1431,32 @@ function BossVictoryOverlay({ result, bossDef, onAcknowledge }) {
           </div>
         </div>
 
-        <div style={{ fontSize: "0.72rem", color: "#4ade80", marginBottom: "1.25rem" }}>
+        {/* Hero XP results */}
+        {result.heroResults && result.heroResults.length > 0 && (
+          <div style={{ background: "rgba(74,222,128,0.06)", border: "1px solid rgba(74,222,128,0.2)", borderRadius: "12px", padding: "0.6rem 0.75rem", marginBottom: "0.75rem", textAlign: "left" }}>
+            <div style={{ fontSize: "0.6rem", color: "var(--muted)", marginBottom: "0.4rem", letterSpacing: "0.05em" }}>HERO XP</div>
+            {result.heroResults.map((r) => (
+              <div key={r.heroId} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" }}>
+                <div style={{ fontSize: "0.75rem", color: r.qualified ? "var(--fg)" : "var(--muted)", fontWeight: 600 }}>
+                  {r.heroName}
+                  {r.leveledUp && <span style={{ marginLeft: "0.3rem", color: "#fbbf24", fontSize: "0.65rem" }}>⬆️ Lv.{r.newLevel}</span>}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                  {r.qualified ? (
+                    <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "#4ade80" }}>+{r.xpGained} XP</span>
+                  ) : (
+                    <span style={{ fontSize: "0.65rem", color: "var(--muted)", fontStyle: "italic" }}>no XP ({r.participationPct}%)</span>
+                  )}
+                  <div style={{ width: "40px", height: "4px", background: "rgba(255,255,255,0.08)", borderRadius: "2px", overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${Math.min(100, r.participationPct)}%`, background: r.qualified ? "#4ade80" : "#ef4444", borderRadius: "2px" }} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ fontSize: "0.72rem", color: "#4ade80", marginBottom: "1rem" }}>
           🏘️ +10% town satisfaction for 2 pulses
         </div>
 

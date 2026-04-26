@@ -28,7 +28,7 @@ export default function ResourceBar({ game }) {
   const worldResourceEntries = Object.entries(WORLD_RESOURCES ?? {})
     .map(([key, def]) => ({ key, ...def, amount: Math.floor(worldResources[key] ?? 0) }))
     .filter(({ key, amount }) =>
-      amount > 0 && ["iron_ore", "lumber", "rare_gem"].includes(key)
+      amount > 0 && ["iron_ore", "lumber", "rare_gem", "mana_crystal", "titan_core"].includes(key)
     );
   const hasWorldResources = worldResourceEntries.length > 0;
 

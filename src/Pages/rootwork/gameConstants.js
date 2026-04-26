@@ -103,7 +103,7 @@ export const MARKET_SELL_RATES = {
   minnow: 2, bass: 8, perch: 12, rare: 35,
   fish_pie: 45, smoked_fish: 35, fish_meal: 20,
   // World loot
-  iron_ore: 2, lumber: 4, herbs: 3, rare_gem: 50, mana_crystal: 150,
+  iron_ore: 2, lumber: 4, herbs: 3, rare_gem: 50, mana_crystal: 100,
   // Forge goods
   iron_sword: 120, iron_shield: 110, leather_armor: 100, hunting_bow: 200,
   steel_sword: 300, master_sword: 800, steel_shield: 320, tower_shield: 850, chainmail: 350,

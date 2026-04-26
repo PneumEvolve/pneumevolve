@@ -946,7 +946,8 @@ export default function TownZone({
                 {schoolWorkers > 0 && (
                   <span>
                     +<strong style={{ color: "#4ade80" }}>{schoolGrowBonus.toFixed(1)}%</strong> grow ·
-                    research time <strong style={{ color: "#a78bfa" }}>{(schoolResearchMult * 100).toFixed(0)}%</strong>
+                    research time <strong style={{ color: "#a78bfa" }}>{(schoolResearchMult * 100).toFixed(0)}%</strong> ·
+                    consumes <strong style={{ color: "#c084fc" }}>{schoolWorkers}🔮</strong>/s
                   </span>
                 )}
               </div>
