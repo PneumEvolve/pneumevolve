@@ -3050,7 +3050,7 @@ export function getAvailableBarnUnlocks(state) {
 }
  
 export function canPrestige(state) {
-  const requiredTHLevel = Math.min(2, state.season);
+  const requiredTHLevel = Math.min(4, state.season);
   if (getTownHallLevel(state) < requiredTHLevel) return false;
   const farmsToCheck = state.season >= FIRST_EXTRA_FARM_SEASON
     ? state.farms
@@ -3066,7 +3066,7 @@ export function canPrestige(state) {
  
 export function getPrestigeBlockers(state) {
   const blockers = [];
-  const requiredTHLevel = Math.min(2, state.season);
+  const requiredTHLevel = Math.min(4, state.season);
   if (getTownHallLevel(state) < requiredTHLevel) blockers.push(`Town Hall level ${requiredTHLevel} required`);
   const farmsToCheck = state.season >= FIRST_EXTRA_FARM_SEASON
     ? state.farms
@@ -3139,6 +3139,7 @@ export function beginPrestige(state, _unused, keptWorkerIds) {
   next.kitchenWorkers = [];
   next.marketWorkers = [];
   next.barnWorkers = [];
+  next.forgeWorkers = [];
 
   // Keep animals, only clear barn workers from each instance
   for (const inst of next.barnInstances ?? []) {

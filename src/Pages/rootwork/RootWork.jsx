@@ -50,6 +50,7 @@ import {
   CROPS, GEAR, SPECIALIZATIONS, KITCHEN_WORKER_UPGRADES, MARKET_WORKER_GEAR,
   FISHING_FISH, FISHING_BODIES, FISHING_WORKER_HIRE_COSTS,
   BARN_BUILDINGS, BARN_BUILDING_ORDER, EXTRA_FARM_CROPS,
+  FORGE_WORKER_UPGRADES,
 } from "./gameConstants";
 import GameNav, { FarmSubTabs } from "./components/GameNav";
 import ResourceBar from "./components/ResourceBar";
@@ -140,7 +141,12 @@ function PrestigeModal({ game, onComplete, onCancel }) {
     return { _keepId: w.id, _title: `${barnEntry?.emoji ?? "🐾"} ${barnEntry?.name ?? animalType} Worker`, _subtitle: `${(w.upgrades ?? []).length} upgrade${(w.upgrades ?? []).length !== 1 ? "s" : ""}` };
   });
 
-  const allCount = farmerWorkers.length + crafterWorkers.length + merchantWorkers.length + fisherWorkers.length + barnWorkersList.length;
+  const forgeWorkersList = (game.forgeWorkers ?? []).map((w) => {
+    const ups = (w.upgrades ?? []).map((u) => FORGE_WORKER_UPGRADES[u]?.emoji).filter(Boolean).join(" ");
+    return { _keepId: w.id, _title: "🔨 Smith" + (ups ? " " + ups : ""), _subtitle: (w.upgrades ?? []).map((u) => FORGE_WORKER_UPGRADES[u]?.name).filter(Boolean).join(", ") || "No upgrades" };
+  });
+
+  const allCount = farmerWorkers.length + crafterWorkers.length + merchantWorkers.length + fisherWorkers.length + barnWorkersList.length + forgeWorkersList.length;
   const atLimit = chosenWorkerIds.length >= game.season;
 
   function toggleWorker(keepId, isSelected) {
@@ -251,6 +257,7 @@ function PrestigeModal({ game, onComplete, onCancel }) {
                 <WorkerGroup label="🍳 Crafters" color="#f59e0b" workers={crafterWorkers} chosenIds={chosenWorkerIds} atLimit={atLimit} onToggle={toggleWorker} />
                 <WorkerGroup label="🎣 Fishers" color="#22d3ee" workers={fisherWorkers} chosenIds={chosenWorkerIds} atLimit={atLimit} onToggle={toggleWorker} />
                 <WorkerGroup label="🐄 Barn Workers" color="#a78bfa" workers={barnWorkersList} chosenIds={chosenWorkerIds} atLimit={atLimit} onToggle={toggleWorker} />
+                <WorkerGroup label="🔨 Smiths" color="#fb923c" workers={forgeWorkersList} chosenIds={chosenWorkerIds} atLimit={atLimit} onToggle={toggleWorker} />
               </div>
             )}
             <div style={{ display: "flex", gap: "0.5rem" }}>

@@ -356,7 +356,7 @@ export const TOWN_SAUCE_BUILDING_COST = 4_000;
  
 // ─── Town Hall ────────────────────────────────────────────────────────────────
 export const TOWN_HALL_MAX_LEVEL = 4;
-export const TOWN_HALL_LEVEL_COSTS = [500, 1000, 3000, 8000]; // cash cost per level
+export const TOWN_HALL_LEVEL_COSTS = [300, 800, 2000, 6000]; // cash cost per level
 export const TOWN_HALL_L1_IRON = 5;   // iron ore required to build level 1
 export const TOWN_HALL_L1_LUMBER = 5; // lumber required to build level 1
 export const POND_IRON = 10;          // iron ore required to build pond

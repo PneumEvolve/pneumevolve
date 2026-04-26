@@ -127,7 +127,7 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
   const cashThreshold = getPrestigeCashThreshold(game.season);
   const cash = game.cash ?? 0;
   const cashOk = cash >= cashThreshold;
-  const requiredTHLevel = Math.min(2, game.season);
+  const requiredTHLevel = Math.min(4, game.season);
   const thOk = getTownHallLevel(game) >= requiredTHLevel;
   const blockers = getPrestigeBlockers(game);
   const nextFarmCost = getNextFarmUnlockCost(game);
