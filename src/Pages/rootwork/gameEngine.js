@@ -1447,6 +1447,12 @@ export function canUpgradeBarnBuilding(state, buildingId, instanceId) {
   const nextTier = BARN_BUILDING_TIERS[inst.tier];
   if (!nextTier) return false;
   if ((state.cash ?? 0) < nextTier.upgradeCost) return false;
+  // Check material costs
+  const matCost = nextTier.upgradeMaterialCost ?? {};
+  for (const [key, needed] of Object.entries(matCost)) {
+    const have = (state.worldResources?.[key] ?? 0) + (state.forgeGoods?.[key] ?? 0);
+    if (have < needed) return false;
+  }
   return true;
 }
  
@@ -1462,6 +1468,20 @@ export function upgradeBarnBuilding(state, buildingId, instanceId) {
   const nextTier = BARN_BUILDING_TIERS[inst.tier]; // inst.tier is 1-indexed
   if (!nextTier) return state;
   next.cash -= nextTier.upgradeCost;
+  // Deduct material costs (worldResources first, then forgeGoods)
+  const matCost = nextTier.upgradeMaterialCost ?? {};
+  for (const [key, needed] of Object.entries(matCost)) {
+    let remaining = needed;
+    const fromWorld = Math.min(remaining, next.worldResources?.[key] ?? 0);
+    if (fromWorld > 0) {
+      next.worldResources[key] = (next.worldResources[key] ?? 0) - fromWorld;
+      remaining -= fromWorld;
+    }
+    if (remaining > 0) {
+      next.forgeGoods = next.forgeGoods ?? {};
+      next.forgeGoods[key] = (next.forgeGoods[key] ?? 0) - remaining;
+    }
+  }
   inst.tier += 1;
   // Keep building-level tier as max tier across instances
   b.tier = Math.max(b.tier, inst.tier);

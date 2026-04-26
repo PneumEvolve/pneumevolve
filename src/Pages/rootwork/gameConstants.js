@@ -103,7 +103,7 @@ export const MARKET_SELL_RATES = {
   minnow: 2, bass: 8, perch: 12, rare: 35,
   fish_pie: 45, smoked_fish: 35, fish_meal: 20,
   // World loot
-  iron_ore: 2, lumber: 4, herbs: 3, rare_gem: 100,
+  iron_ore: 2, lumber: 4, herbs: 3, rare_gem: 50, mana_crystal: 150,
   // Forge goods
   iron_sword: 120, iron_shield: 110, leather_armor: 100, hunting_bow: 200,
   steel_sword: 300, master_sword: 800, steel_shield: 320, tower_shield: 850, chainmail: 350,
@@ -623,10 +623,10 @@ export const BARN_BUILDING_ORDER = ["chicken_coop", "dairy", "wool_shed"];
 
 // tier 0 = not built yet; tiers 1-4 = built and upgraded
 export const BARN_BUILDING_TIERS = [
-  { tier: 1, name: "Basic",    animalSlots: 3,  workerSlots: 3,  upgradeCost: 0    },
-  { tier: 2, name: "Improved", animalSlots: 5,  workerSlots: 5,  upgradeCost: 1500 },
-  { tier: 3, name: "Advanced", animalSlots: 8,  workerSlots: 8,  upgradeCost: 4000 },
-  { tier: 4, name: "Premium",  animalSlots: 12, workerSlots: 12, upgradeCost: 9000 },
+  { tier: 1, name: "Basic",    animalSlots: 3,  workerSlots: 3,  upgradeCost: 0,    upgradeMaterialCost: {} },
+  { tier: 2, name: "Improved", animalSlots: 5,  workerSlots: 5,  upgradeCost: 1500, upgradeMaterialCost: { iron_ore: 15, lumber: 15 } },
+  { tier: 3, name: "Advanced", animalSlots: 8,  workerSlots: 8,  upgradeCost: 4000, upgradeMaterialCost: { iron_ore: 25, lumber: 25, iron_fitting: 2 } },
+  { tier: 4, name: "Premium",  animalSlots: 12, workerSlots: 12, upgradeCost: 9000, upgradeMaterialCost: { iron_ore: 40, lumber: 40, iron_fitting: 4, fine_tools: 2 } },
 ];
 
 // Extra mood drain per second per animal when owner can't afford upkeep
@@ -1057,7 +1057,7 @@ export const WORLD_ZONES = {
     unlockAfterClears: 0,
     unlockRequiresZone: null,
     gearRequired: 1,
-    xpReward: 8,
+    xpReward: 4,
     enemyName: "Mine Crawlers",
     damagePerTick: 6,
     maxEnemyHp: 12,
@@ -1077,7 +1077,7 @@ export const WORLD_ZONES = {
     unlockAfterClears: 2,
     unlockRequiresZone: "old_mine",
     gearRequired: 2,
-    xpReward: 12,
+    xpReward: 7,
     enemyName: "Forest Wolves",
     damagePerTick: 8,
     maxEnemyHp: 30,
@@ -1100,7 +1100,7 @@ export const WORLD_ZONES = {
     unlockAfterClears: 0,
     unlockRequiresZone: null,
     gearRequired: 4,
-    xpReward: 18,
+    xpReward: 12,
     enemyName: "Cave Horrors",
     damagePerTick: 9,
     maxEnemyHp: 45,
@@ -1124,7 +1124,7 @@ export const WORLD_ZONES = {
     unlockAfterClears: 0,
     unlockRequiresZone: null,
     gearRequired: 5,
-    xpReward: 22,
+    xpReward: 15,
     enemyName: "Rock Golems",
     damagePerTick: 11,
     maxEnemyHp: 55,
@@ -1240,6 +1240,7 @@ export const WORLD_RESOURCES = {
   herbs:        { name: "Herbs",        emoji: "🌿" },
   rare_gem:     { name: "Rare Gem",     emoji: "💎" },
   mana_crystal: { name: "Mana Crystal", emoji: "🔮" },
+  titan_core:   { name: "Titan Core",    emoji: "💠" },
 };
 
 // ─── Adventurer Stats ─────────────────────────────────────────────────────────

@@ -600,11 +600,29 @@ function BuildingTab({
             <span style={{ fontSize: "0.65rem", color: "#4ade80", flexShrink: 0, marginLeft: "0.5rem" }}>✓ Max</span>
           )}
         </div>
-        {nextTierData && (
-          <div style={{ fontSize: "0.6rem", color: "var(--muted)" }}>
-            Next: {nextTierData.animalSlots} animal slots · {nextTierData.workerSlots} worker slots
-          </div>
-        )}
+        {nextTierData && (() => {
+          const matCost = nextTierData.upgradeMaterialCost ?? {};
+          const MAT_LABELS = { iron_ore: "🪨", lumber: "🪵", iron_fitting: "🔩", reinforced_crate: "📦", fine_tools: "🛠️" };
+          const matEntries = Object.entries(matCost);
+          return (
+            <div style={{ fontSize: "0.6rem", color: "var(--muted)" }}>
+              Next: {nextTierData.animalSlots} animal slots · {nextTierData.workerSlots} worker slots
+              {matEntries.length > 0 && (
+                <span style={{ marginLeft: "0.4rem" }}>
+                  · {matEntries.map(([k, v]) => {
+                    const have = Math.floor((game.worldResources?.[k] ?? 0) + (game.forgeGoods?.[k] ?? 0));
+                    const ok = have >= v;
+                    return (
+                      <span key={k} style={{ color: ok ? "#4ade80" : "#ef4444", marginRight: "0.3rem" }}>
+                        {MAT_LABELS[k] ?? k}×{v}{ok ? "✓" : ` (${have})`}
+                      </span>
+                    );
+                  })}
+                </span>
+              )}
+            </div>
+          );
+        })()}
       </div>
  
       {/* Collect all */}

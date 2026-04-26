@@ -45,6 +45,8 @@ const SELLABLE_ITEMS = [
   { type: "lumber",        label: "Lumber",         emoji: "🪵", isCrop: false,  isAnimal: false, isFish: false, isWorld: true },
   { type: "herbs",         label: "Herbs",          emoji: "🌿", isCrop: false,  isAnimal: false, isFish: false, isWorld: true },
   { type: "rare_gem",      label: "Rare Gem",       emoji: "💎", isCrop: false,  isAnimal: false, isFish: false, isWorld: true },
+  { type: "mana_crystal",   label: "Mana Crystal",   emoji: "🔮", isCrop: false,  isAnimal: false, isFish: false, isWorld: true },
+  { type: "titan_core",     label: "Titan Core",     emoji: "💠", isCrop: false,  isAnimal: false, isFish: false, isWorld: true },
   // Forge goods — swords
   { type: "iron_sword",    label: "Iron Sword",     emoji: "⚔️",  isCrop: false,  isAnimal: false, isFish: false, isForge: true },
   { type: "steel_sword",   label: "Steel Sword",    emoji: "🗡️",  isCrop: false,  isAnimal: false, isFish: false, isForge: true },
@@ -80,7 +82,7 @@ const INVENTORY_CATEGORIES = [
   { id: "artisan", label: "🍞 Artisan",  types: ["bread", "jam", "sauce"] },
   { id: "animal",  label: "🐄 Animal",   types: ["egg", "milk", "wool", "omelette", "cheese", "knitted_goods", "fish_pie", "smoked_fish", "fish_meal"] },
   { id: "fish",    label: "🎣 Fish",     types: ["minnow", "bass", "perch", "rare"] },
-  { id: "world",   label: "🪨 World",    types: ["iron_ore", "lumber", "herbs", "rare_gem"] },
+  { id: "world",   label: "🪨 World",    types: ["iron_ore", "lumber", "herbs", "rare_gem", "mana_crystal", "titan_core"] },
   { id: "forge",   label: "⚒️ Forge",   types: ["iron_sword", "steel_sword", "master_sword", "iron_shield", "steel_shield", "tower_shield", "leather_armor", "chainmail", "plate_armor", "hunting_bow", "iron_fitting", "reinforced_crate", "fine_tools"] },
 ];
 

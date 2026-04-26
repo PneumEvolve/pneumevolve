@@ -560,7 +560,13 @@ function FishingBodiesPanel({ game, onUnlockBody, onHireWorker, onUpgradeWorker,
           const workerHired = worker?.hired === true;
           const prevBodyId = idx > 0 ? FISHING_BODY_ORDER[idx - 1] : null;
           const prevUnlocked = !prevBodyId || bodies[prevBodyId]?.unlocked;
-          const canAffordUnlock = (game.cash ?? 0) >= bodyDef.unlockCost;
+          const matCost = bodyDef.materialCost ?? {};
+          const canAffordMats = Object.entries(matCost).every(([key, needed]) => {
+            const have = (game.worldResources?.[key] ?? 0) + (game.forgeGoods?.[key] ?? 0);
+            return have >= needed;
+          });
+          const canAffordCash = (game.cash ?? 0) >= bodyDef.unlockCost;
+          const canAffordUnlock = canAffordCash && canAffordMats;
           const canUnlock = !unlocked && prevUnlocked && canAffordUnlock && bodyDef.unlockCost > 0;
           const HIRE_COST = FISHING_WORKER_HIRE_COSTS[bodyId] ?? 75;
           const canAffordHire = (game.cash ?? 0) >= HIRE_COST;
@@ -585,7 +591,14 @@ function FishingBodiesPanel({ game, onUnlockBody, onHireWorker, onUpgradeWorker,
                     <div style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.3)" }}>
                       {unlocked
                         ? workerHired ? "Fisher assigned" : "No fisher yet"
-                        : bodyDef.unlockCost === 0 ? "Starter" : `$${bodyDef.unlockCost} to unlock`}
+                        : bodyDef.unlockCost === 0 ? "Starter" : (() => {
+                            const matCost = bodyDef.materialCost ?? {};
+                            const matStr = Object.entries(matCost).map(([k, v]) => {
+                              const labels = { iron_ore: "🪨", lumber: "🪵", iron_fitting: "🔩", reinforced_crate: "📦" };
+                              return `${labels[k] ?? k}×${v}`;
+                            }).join(" ");
+                            return `$${bodyDef.unlockCost.toLocaleString()} + ${matStr}`;
+                          })()}
                     </div>
                   </div>
                 </div>
@@ -604,7 +617,17 @@ function FishingBodiesPanel({ game, onUnlockBody, onHireWorker, onUpgradeWorker,
                       fontWeight: 600, opacity: prevUnlocked ? 1 : 0.4,
                     }}
                   >
-                    {!prevUnlocked ? "🔒 Locked" : `Unlock $${bodyDef.unlockCost}`}
+                    {!prevUnlocked ? "🔒 Locked" : (() => {
+                      const matCost = bodyDef.materialCost ?? {};
+                      const labels = { iron_ore: "🪨", lumber: "🪵", iron_fitting: "🔩", reinforced_crate: "📦" };
+                      const matStr = Object.entries(matCost).map(([k, v]) => {
+                        const have = Math.floor((game.worldResources?.[k] ?? 0) + (game.forgeGoods?.[k] ?? 0));
+                        const ok = have >= v;
+                        return `${labels[k] ?? k}×${v}${ok ? "✓" : ` (${have})`}`;
+                      }).join(" ");
+                      const cashOk = (game.cash ?? 0) >= bodyDef.unlockCost;
+                      return `Unlock — $${bodyDef.unlockCost.toLocaleString()}${cashOk ? "✓" : ""} ${matStr}`;
+                    })()}
                   </button>
                 )}
 
