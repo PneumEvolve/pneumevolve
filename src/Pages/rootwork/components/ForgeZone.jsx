@@ -9,6 +9,7 @@ import {
   getForgeWorkerHireCost,
   getForgeEffectiveSeconds,
   isForgeWorkerIdle,
+  getAvailableWorkerSlots,
 } from "../gameEngine";
  
  
@@ -180,7 +181,6 @@ const FORGE_RECIPE_GROUPS = [
   { id: "weapons",     label: "WEAPONS",    icon: "⚔️",  accentColor: "#f87171", ids: ["iron_sword", "steel_sword", "master_sword", "hunting_bow"] },
   { id: "armour",      label: "ARMOUR",     icon: "🛡️",  accentColor: "#60a5fa", ids: ["iron_shield", "steel_shield", "tower_shield", "leather_armor", "chainmail", "plate_armor"] },
   { id: "components",  label: "COMPONENTS", icon: "🔩",  accentColor: "#34d399", ids: ["iron_fitting", "reinforced_crate", "fine_tools"] },
-  { id: "consumables", label: "CONSUMABLES",icon: "🧪",  accentColor: "#a78bfa", ids: ["health_potion"] },
 ];
  
 function ForgeRecipeRow({ recipeId, worker, worldResources, forgeGoods, onAssign, onCancel }) {
@@ -389,21 +389,23 @@ function ForgeWorkerCard({ worker, workerNumber, game, expanded, onToggle, onAss
       {/* Expanded panel */}
       {expanded && (
         <div style={{ padding: "0 0.75rem 0.75rem", borderTop: "1px solid var(--border)" }}>
-          {/* Auto-restart toggle */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.4rem 0", marginBottom: "0.25rem" }}>
-            <span style={{ fontSize: "0.7rem", color: "var(--muted)" }}>Auto-restart last recipe</span>
-            <button
-              onClick={() => onToggleAutoRestart(worker.id)}
-              style={{
-                fontSize: "0.65rem", padding: "2px 10px", borderRadius: "5px", cursor: "pointer",
-                background: worker.autoRestart ? "rgba(74,222,128,0.15)" : "rgba(255,255,255,0.05)",
-                border: `1px solid ${worker.autoRestart ? "rgba(74,222,128,0.4)" : "var(--border)"}`,
-                color: worker.autoRestart ? "#4ade80" : "var(--muted)",
-              }}
-            >
-              {worker.autoRestart ? "ON" : "OFF"}
-            </button>
-          </div>
+          {/* Auto-restart toggle — only shown once forge_auto upgrade is purchased */}
+          {(worker.upgrades ?? []).includes("forge_auto") && (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.4rem 0", marginBottom: "0.25rem" }}>
+              <span style={{ fontSize: "0.7rem", color: "var(--muted)" }}>🔄 Auto-restart last recipe</span>
+              <button
+                onClick={() => onToggleAutoRestart(worker.id)}
+                style={{
+                  fontSize: "0.65rem", padding: "2px 10px", borderRadius: "5px", cursor: "pointer",
+                  background: worker.autoRestart ? "rgba(74,222,128,0.15)" : "rgba(255,255,255,0.05)",
+                  border: `1px solid ${worker.autoRestart ? "rgba(74,222,128,0.4)" : "var(--border)"}`,
+                  color: worker.autoRestart ? "#4ade80" : "var(--muted)",
+                }}
+              >
+                {worker.autoRestart ? "ON" : "OFF"}
+              </button>
+            </div>
+          )}
  
           <RecipePicker worker={worker} game={game} onAssign={onAssign} onCancel={onCancel} />
           <ForgeUpgradeTree worker={worker} game={game} onUpgrade={onUpgrade} />
@@ -484,7 +486,8 @@ export default function ForgeZone({
  
   const workers = game.forgeWorkers ?? [];
   const hireCost = getForgeWorkerHireCost(game);
-  const canHire = (game.cash ?? 0) >= hireCost;
+  const atPopCap = getAvailableWorkerSlots(game) <= 0;
+  const canHire = !atPopCap && (game.cash ?? 0) >= hireCost;
  
   return (
     <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 5rem" }}>
@@ -505,7 +508,7 @@ export default function ForgeZone({
           className="btn w-full"
           style={{ opacity: canHire ? 1 : 0.5 }}
         >
-          🔨 Hire Smith — ${hireCost}
+          {atPopCap ? "👥 Town full — grow population to hire" : `🔨 Hire Smith — $${hireCost}`}
         </button>
         {workers.length === 0 && (
           <p style={{ fontSize: "0.7rem", color: "var(--muted)", marginTop: "0.4rem", textAlign: "center" }}>

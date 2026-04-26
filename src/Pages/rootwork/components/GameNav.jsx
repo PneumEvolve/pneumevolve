@@ -82,6 +82,11 @@ export default function GameNav({
   const idleKitchenWorkers = (game.kitchenWorkers ?? []).filter(
     (w) => !w.busy
   ).length;
+
+  const idleSmithWorkers = (game.forgeWorkers ?? []).filter(
+    (w) => !w.busy
+  ).length;
+  const totalIdleCrafters = idleKitchenWorkers + idleSmithWorkers;
  
   const marketQueueTotal = (game.marketWorkers ?? []).reduce(
     (s, w) => s + (w.queue ?? []).reduce((qs, o) => qs + o.quantity, 0),
@@ -103,6 +108,7 @@ export default function GameNav({
   const availableWorkerSlots = getAvailableWorkerSlots(game);
  
   const adventurerMissionDone = (game.adventurers ?? []).some((adv) => {
+    if (adv.pendingAutoCollect) return true;
     if (!adv.mission) return false;
     const elapsed = (Date.now() - adv.mission.startTime) / 1000;
     return elapsed >= adv.mission.duration;
@@ -111,7 +117,7 @@ export default function GameNav({
   const tabs = [
     { id: "farms",    label: "Farms",    emoji: "🌱", badge: null },
     { id: "market",   label: "Market",   emoji: "💰", badge: marketQueueTotal > 0 ? marketQueueTotal : null, badgeColor: "#4ade80" },
-    { id: "crafting", label: "Crafting", emoji: "🏭", badge: idleKitchenWorkers > 0 ? idleKitchenWorkers : null, badgeColor: "#ef4444" },
+    { id: "crafting", label: "Crafting", emoji: "🏭", badge: totalIdleCrafters > 0 ? totalIdleCrafters : null, badgeColor: "#ef4444" },
     { id: "animals",  label: "Animals",  emoji: "🐾", badge: unhappyAnimals > 0 ? "⚠" : readyAnimals > 0 ? readyAnimals : null, badgeColor: unhappyAnimals > 0 ? "#ef4444" : "#fbbf24" },
     { id: "town",     label: "Town",     emoji: "🏘️", badge: townUnlocked ? starvingTown ? "!" : prestigeReady ? "🌱" : availableWorkerSlots > 0 ? `+${availableWorkerSlots}` : null : null, badgeColor: starvingTown ? "#ef4444" : prestigeReady ? "#f59e0b" : "#4ade80" },
     { id: "world",    label: "World",    emoji: "⚔️", badge: adventurerMissionDone ? "!" : null, badgeColor: "#4ade80" },

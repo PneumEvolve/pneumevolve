@@ -65,7 +65,7 @@ FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, 
   HERO_SKILL_TREES, HERO_SKILL_DEFS, HERO_CLASS_META,
   HERO_PRESTIGE_COST_BASE, HERO_PRESTIGE_SKILL_COST, HERO_PRESTIGE_REVIVE_BASE,
   HERO_DIP_TREE_PRESTIGE_TIER1, HERO_DIP_TREE_PRESTIGE_TIER2,
-  BOSS_DEFS, BOSS_ORDER, BOSS_TICK_INTERVAL,
+  BOSS_DEFS, BOSS_ORDER, BOSS_TICK_INTERVAL, generateInfiniteBoss,
   BOSS_HERO_DAMAGE_LEVEL_SCALE, BOSS_HERO_DAMAGE_GEAR_SCALE,
   BOSS_ABILITIES, BOSS_UNLOCK_LEVEL,
 } from "./gameConstants";
@@ -126,6 +126,7 @@ export function getTotalWorkersHired(state) {
     (state.marketWorkers ?? []).length +
     (state.barnWorkers ?? []).length +
     (state.adventurers ?? []).length +
+    (state.forgeWorkers ?? []).length +
     fishingWorkers +
     townBuildingWorkers
   );
@@ -3857,14 +3858,15 @@ function getAdventurerMissionDuration(adventurer, zone) {
   const weaponKey = adventurer.equippedGear?.weapon ?? null;
   const weaponRecipe = weaponKey ? Object.values(FORGE_RECIPES).find((r) => r.output.resourceKey === weaponKey) : null;
   const weaponBonus = weaponRecipe?.missionTimeReduction ?? (weaponKey ? 0 : (adventurer.gear ?? 0) * 0.15);
-  const lvlBonus = ((adventurer.level ?? 1) - 1) * 0.08;
+  const lvlBonus = Math.min(((adventurer.level ?? 1) - 1) * 0.05, 0.30); // caps at 30% from levels alone
   // New skill tree duration bonus
   const skillMult = getHeroDurationMultiplier(adventurer);
   // skillMult already accounts for mage_t1, mage_t5 stacks
   // Apply weapon/level reduction first, then skill multiplier
-  const gearLvlReduction = Math.min(weaponBonus + lvlBonus, 0.60);
+  // Level capped at 30%, gear adds up to another 30% (combined 60% max)
+  const gearLvlReduction = Math.min(Math.min(weaponBonus, 0.30) + lvlBonus, 0.60);
   const afterGear = base * (1 - gearLvlReduction);
-  return Math.max(5, Math.round(afterGear * skillMult));
+  return Math.max(12, Math.round(afterGear * skillMult));
 }
 
 function getAdventurerFailChance(adventurer, zone) {
@@ -5063,12 +5065,21 @@ function getHeroBossClass(adventurer) {
   return adventurer.heroClass ?? adventurer.class ?? null;
 }
 
+// Resolve a boss def — handles both static BOSS_DEFS and procedural infinite bosses
+// Infinite boss IDs are formatted as "infinite_N" where N is the 1-indexed wave number
+function getBossDef(bossId) {
+  if (BOSS_DEFS[bossId]) return BOSS_DEFS[bossId];
+  const m = /^infinite_(\d+)$/.exec(bossId);
+  if (m) return generateInfiniteBoss(parseInt(m[1], 10));
+  return null;
+}
+
 // Damage a hero deals to the boss per tick
-function getHeroBossDamage(adventurer) {
+function getHeroBossDamage(adventurer, bossId) {
   const level = adventurer.level ?? 1;
   const gearTier = adventurer.gear ?? 0;
   const base = (adventurer.bossFightAbility?.tripleNextDamage ? 3 : 1);
-  const def = BOSS_DEFS[Object.keys(BOSS_DEFS)[0]]; // use base values
+  const def = getBossDef(bossId) ?? BOSS_DEFS[Object.keys(BOSS_DEFS)[0]];
   const dmg = (def?.heroDamageBase ?? 8)
     + (level - 1) * BOSS_HERO_DAMAGE_LEVEL_SCALE
     + gearTier * BOSS_HERO_DAMAGE_GEAR_SCALE;
@@ -5077,7 +5088,7 @@ function getHeroBossDamage(adventurer) {
 
 // Initialise boss fight state (called when boss unlocks or after victory)
 export function initBossFight(state, bossId) {
-  const def = BOSS_DEFS[bossId];
+  const def = getBossDef(bossId);
   if (!def) return state;
   return {
     ...state,
@@ -5090,6 +5101,7 @@ export function initBossFight(state, bossId) {
       blindNextTick: false,      // scavenger ability queued
       phase: "idle",             // "idle" | "fighting" | "defeated"
       pendingResult: null,       // set on victory, cleared after UI reads it
+      infiniteWave: def.infiniteWave ?? null,
     },
   };
 }
@@ -5183,7 +5195,7 @@ export function tickBossFight(state, dtSeconds) {
 
   // Regen boss HP when idle (no heroes assigned / all left)
   if (bossFight.phase === "idle") {
-    const bossDef = BOSS_DEFS[bossFight.bossId];
+    const bossDef = getBossDef(bossFight.bossId);
     const regenPerSecond = (bossDef?.maxHp ?? 1200) * 0.005;
     const newHp = Math.min(bossFight.bossMaxHp, (bossFight.bossHp ?? 0) + regenPerSecond * dtSeconds);
     if (newHp === bossFight.bossHp) return state;
@@ -5200,7 +5212,7 @@ export function tickBossFight(state, dtSeconds) {
 
   // If no heroes alive (or none assigned), boss regens HP — making solo wins nearly impossible
   if (livingAssigned.length === 0) {
-    const bossDef = BOSS_DEFS[bossFight.bossId];
+    const bossDef = getBossDef(bossFight.bossId);
     const regenPerSecond = (bossDef?.maxHp ?? 1200) * 0.005; // 0.5% max HP per second
     const newHp = Math.min(bossFight.bossMaxHp, (bossFight.bossHp ?? 0) + regenPerSecond * dtSeconds);
     if (newHp === bossFight.bossHp) return state; // no change needed
@@ -5227,13 +5239,13 @@ export function tickBossFight(state, dtSeconds) {
 
   // ── Damage tick fires ────────────────────────────────────────────────────
   let nextBossHp = bossFight.bossHp;
-  const bossDef = BOSS_DEFS[bossFight.bossId];
+  const bossDef = getBossDef(bossFight.bossId);
 
   // Heroes attack boss
   let heroDmgTotal = 0;
   nextAdventurers = nextAdventurers.map((a) => {
     if (!assignedIds.includes(a.id) || (a.hp ?? 0) <= 0) return a;
-    const dmg = getHeroBossDamage(a);
+    const dmg = getHeroBossDamage(a, bossFight.bossId);
     heroDmgTotal += dmg;
     // Clear triple_damage flag after use
     if (a.bossFightAbility?.tripleNextDamage) {
@@ -5303,9 +5315,21 @@ export function tickBossFight(state, dtSeconds) {
       pulsesRemaining: prevBonus.pulsesRemaining + satPulses,
     };
 
-    // Determine next boss in progression
+    // Determine next boss in progression (infinite after BOSS_ORDER exhausted)
     const currentIdx = BOSS_ORDER.indexOf(bossFight.bossId);
-    const nextBossId = BOSS_ORDER[currentIdx + 1] ?? null;
+    let nextBossId;
+    if (currentIdx >= 0 && currentIdx + 1 < BOSS_ORDER.length) {
+      // Still within the curated list
+      nextBossId = BOSS_ORDER[currentIdx + 1];
+    } else {
+      // Infinite mode — figure out current wave and increment
+      const currentWave = bossFight.infiniteWave ?? (
+        /^infinite_(\d+)$/.test(bossFight.bossId)
+          ? parseInt(bossFight.bossId.replace("infinite_", ""), 10)
+          : 0
+      );
+      nextBossId = `infinite_${currentWave + 1}`;
+    }
 
     return {
       ...state,
@@ -5343,7 +5367,7 @@ export function tickBossFight(state, dtSeconds) {
   };
 }
 
-// Call after player dismisses victory screen — resets to next boss (or keeps defeated state)
+// Call after player dismisses victory screen — always chains to next boss
 export function acknowledgeBossVictory(state) {
   const bossFight = state.bossFight;
   if (!bossFight || bossFight.phase !== "defeated") return state;
@@ -5351,7 +5375,7 @@ export function acknowledgeBossVictory(state) {
   if (nextBossId) {
     return initBossFight({ ...state, bossFight: { ...bossFight, pendingResult: null } }, nextBossId);
   }
-  // No more bosses — keep defeated state but clear pendingResult
+  // Fallback (should not happen with infinite chain) — clear result
   return { ...state, bossFight: { ...bossFight, pendingResult: null } };
 }
 

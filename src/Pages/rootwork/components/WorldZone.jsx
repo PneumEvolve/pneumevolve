@@ -1,6 +1,6 @@
 // src/Pages/rootwork/components/WorldZone.jsx
 import React, { useState, useEffect, useRef } from "react";
-import { WORLD_ZONES, ADVENTURER_CLASSES, FORGE_RECIPES, ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST, ADVENTURER_BUFF_ITEMS, ADVENTURER_BUFF_LIST, WORLD_RESOURCES, HERO_SKILLS, HERO_SKILL_TREES, HERO_CLASS_META, HERO_PRESTIGE_COST_BASE, HERO_DIP_TREE_PRESTIGE_TIER1, HERO_DIP_TREE_PRESTIGE_TIER2, BOSS_DEFS, BOSS_ABILITIES, BOSS_UNLOCK_LEVEL, BOSS_TICK_INTERVAL } from "../gameConstants";
+import { WORLD_ZONES, ADVENTURER_CLASSES, FORGE_RECIPES, ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST, ADVENTURER_BUFF_ITEMS, ADVENTURER_BUFF_LIST, WORLD_RESOURCES, HERO_SKILLS, HERO_SKILL_TREES, HERO_CLASS_META, HERO_PRESTIGE_COST_BASE, HERO_DIP_TREE_PRESTIGE_TIER1, HERO_DIP_TREE_PRESTIGE_TIER2, BOSS_DEFS, BOSS_ABILITIES, BOSS_UNLOCK_LEVEL, BOSS_TICK_INTERVAL, generateInfiniteBoss } from "../gameConstants";
 import { getAdventurerSlotCost, getAdventurerSlotUnlocked } from "../gameEngine";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -61,7 +61,11 @@ function getXpNeeded(level) {
   return Math.floor(10 * Math.pow(1.4, level - 1));
 }
 
-function isZoneUnlocked(zone, worldZoneClears) {
+function isZoneUnlocked(zone, adventurer, worldZoneClears) {
+  // Hero-level gate (per-hero)
+  const heroLevel = adventurer?.level ?? 1;
+  if (zone.heroLevelRequired && heroLevel < zone.heroLevelRequired) return false;
+  // Clears-based chain unlock (global)
   if (!zone.unlockRequiresZone) return true;
   return (worldZoneClears?.[zone.unlockRequiresZone] ?? 0) >= zone.unlockAfterClears;
 }
@@ -850,7 +854,10 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
   const [zonesOpen, setZonesOpen] = useState(true);
   const [autoBattleMode, setAutoBattleMode] = useState(false);
 
-  const cls = ADVENTURER_CLASSES[adventurer.class] ?? ADVENTURER_CLASSES.fighter;
+  const heroClass = adventurer.heroClass ?? null;
+  const cls = heroClass
+    ? (HERO_CLASS_META[heroClass] ? { ...HERO_CLASS_META[heroClass], emoji: HERO_CLASS_META[heroClass].emoji, name: HERO_CLASS_META[heroClass].name } : ADVENTURER_CLASSES[adventurer.class] ?? ADVENTURER_CLASSES.fighter)
+    : (ADVENTURER_CLASSES[adventurer.class] ?? ADVENTURER_CLASSES.fighter);
   const isOnMission = !!adventurer.mission;
   const mission = adventurer.mission;
   const elapsed = isOnMission ? Math.min((Date.now() - mission.startTime) / 1000, mission.duration) : 0;
@@ -863,8 +870,8 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
   const dead = isDead(adventurer);
   const _skillMap = (() => { const s = adventurer.skills ?? {}; return Array.isArray(s) ? Object.fromEntries(s.map((id) => [id, 1])) : s; })();
   const hasAutoBattle = !!(_skillMap["fighter_t4"] || _skillMap["mage_t4"] || _skillMap["scavenger_t4"]);
-  const availableZones = zones.filter((z) => isZoneUnlocked(z, game.worldZoneClears));
-  const lockedZones = zones.filter((z) => !isZoneUnlocked(z, game.worldZoneClears));
+  const availableZones = zones.filter((z) => isZoneUnlocked(z, adventurer, game.worldZoneClears));
+  const lockedZones = zones.filter((z) => !isZoneUnlocked(z, adventurer, game.worldZoneClears));
   const selectedZone = selectedZoneId ? WORLD_ZONES[selectedZoneId] : null;
 
   // Food belt quick info
@@ -886,7 +893,7 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
   return (
     <div style={{ background: "var(--bg-elev)", border: `1px solid ${dead ? "rgba(239,68,68,0.35)" : "var(--border)"}`, borderRadius: "14px", overflow: "hidden", marginBottom: "0.75rem" }}>
       {/* Header */}
-      <button onClick={() => onOpenHero(adventurer)} style={{ width: "100%", display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.75rem 0.9rem 0.6rem", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>
+      <button onClick={() => !isOnMission && !dead && onOpenHero(adventurer)} style={{ width: "100%", display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.75rem 0.9rem 0.6rem", background: "none", border: "none", cursor: (isOnMission || dead) ? "default" : "pointer", textAlign: "left" }}>
         <div style={{ fontSize: "2rem", lineHeight: 1, background: dead ? "rgba(239,68,68,0.12)" : "rgba(99,102,241,0.12)", border: `1px solid ${dead ? "rgba(239,68,68,0.25)" : "rgba(99,102,241,0.25)"}`, borderRadius: "10px", padding: "0.3rem 0.45rem" }}>
           {dead ? "💀" : cls.emoji}
         </div>
@@ -912,7 +919,8 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
           <div style={{ fontSize: "0.72rem", fontWeight: 700, color: getTotalGearTier(adventurer) === 0 ? "var(--muted)" : "#fbbf24", background: "rgba(255,255,255,0.05)", borderRadius: "6px", padding: "2px 7px" }}>
             {getTotalGearTier(adventurer) === 0 ? "None" : `T${getTotalGearTier(adventurer)}`}
           </div>
-          <div style={{ fontSize: "0.48rem", color: "var(--muted)", marginTop: "2px" }}>tap to manage</div>
+          {!isOnMission && !dead && <div style={{ fontSize: "0.48rem", color: "var(--muted)", marginTop: "2px" }}>tap to manage</div>}
+          {isOnMission && <div style={{ fontSize: "0.48rem", color: "rgba(251,191,36,0.7)", marginTop: "2px" }}>on mission</div>}
           {(adventurer.skillPoints ?? 0) > 0 && (
             <div style={{
               marginTop: "3px",
@@ -1187,14 +1195,21 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
                   );
                 })}
                 {lockedZones.map((zone) => {
+                  const heroLevel = adventurer?.level ?? 1;
+                  const levelLocked = zone.heroLevelRequired && heroLevel < zone.heroLevelRequired;
                   const prereqZone = WORLD_ZONES[zone.unlockRequiresZone];
                   const prereqClears = game.worldZoneClears?.[zone.unlockRequiresZone] ?? 0;
+                  const lockLabel = levelLocked
+                    ? `Reach level ${zone.heroLevelRequired} to unlock (you are ${heroLevel})`
+                    : prereqZone
+                    ? `${prereqZone.name}: ${prereqClears}/${zone.unlockAfterClears} clears`
+                    : "Locked";
                   return (
                     <div key={zone.id} style={{ padding: "0.45rem 0.6rem", background: "rgba(255,255,255,0.01)", border: "1px dashed rgba(255,255,255,0.1)", borderRadius: "8px", opacity: 0.5, display: "flex", alignItems: "center", gap: "0.5rem" }}>
                       <span style={{ fontSize: "1.1rem", filter: "grayscale(1)" }}>{zone.emoji}</span>
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--muted)" }}>{zone.name}</div>
-                        <div style={{ fontSize: "0.58rem", color: "var(--muted)" }}>🔒 {prereqZone?.name} {prereqClears}/{zone.unlockAfterClears} clears to unlock</div>
+                        <div style={{ fontSize: "0.58rem", color: "var(--muted)" }}>🔒 {lockLabel}</div>
                       </div>
                     </div>
                   );
@@ -1371,12 +1386,20 @@ function BossVictoryOverlay({ result, bossDef, onAcknowledge }) {
           🏘️ +10% town satisfaction for 2 pulses
         </div>
 
-        {result.nextBossId ? (
-          <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "1rem" }}>
-            Next boss unlocked: <strong style={{ color: "var(--fg)" }}>{BOSS_DEFS[result.nextBossId]?.name}</strong>
-          </div>
-        ) : (
-          <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "1rem" }}>All bosses defeated. More coming soon.</div>
+        {result.nextBossId ? (() => {
+          // For infinite bosses, generate the def on the fly for the name
+          const nextDef = BOSS_DEFS[result.nextBossId] ?? (() => {
+            const m = /^infinite_(\d+)$/.exec(result.nextBossId);
+            return m ? generateInfiniteBoss(parseInt(m[1], 10)) : null;
+          })();
+          const waveLabel = nextDef?.infiniteWave ? ` (Wave ${nextDef.infiniteWave})` : "";
+          return (
+            <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "1rem" }}>
+              Next boss: <strong style={{ color: nextDef?.color ?? "var(--fg)" }}>{nextDef?.emoji} {nextDef?.name}{waveLabel}</strong>
+            </div>
+          );
+        })() : (
+          <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "1rem" }}>More bosses coming soon.</div>
         )}
 
         <button
@@ -1454,6 +1477,7 @@ function BossTab({ game, adventurers, bossFight, bossDef, onAssign, onUnassign, 
 
         <div style={{ fontWeight: 800, fontSize: "1.1rem", marginBottom: "0.1rem" }}>
           {phase === "defeated" ? "Defeated" : (bossDef?.name ?? "Boss")}
+          {bossDef?.infiniteWave ? <span style={{ fontSize: "0.65rem", color: "var(--muted)", fontWeight: 500, marginLeft: "0.35rem" }}>Wave {bossDef.infiniteWave}</span> : null}
         </div>
         <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginBottom: "0.85rem" }}>
           {phase === "idle" ? "Waiting for heroes…" : phase === "fighting" ? `${Math.floor(bossHp).toLocaleString()} / ${bossMaxHp.toLocaleString()} HP` : "Boss has been slain"}
@@ -1640,7 +1664,10 @@ export default function WorldZone({
 
   const bossFight = game.bossFight ?? null;
   const bossUnlocked = !!bossFight;
-  const bossDef = bossFight ? BOSS_DEFS[bossFight.bossId] ?? null : null;
+  const bossDef = bossFight ? (BOSS_DEFS[bossFight.bossId] ?? (() => {
+    const m = /^infinite_(\d+)$/.exec(bossFight.bossId ?? "");
+    return m ? generateInfiniteBoss(parseInt(m[1], 10)) : null;
+  })()) : null;
 
   return (
     <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 5rem" }}>

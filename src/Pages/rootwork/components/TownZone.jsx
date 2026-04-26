@@ -242,6 +242,8 @@ export default function TownZone({
  
   const effectivePulse = getEffectivePulseSeconds(game);
   const pulseSeconds = Math.ceil(Math.max(0, town.pulseSeconds ?? effectivePulse));
+  const growthAccumulator = town.growthAccumulator ?? 0;
+  const growthSecondsLeft = Math.ceil(Math.max(0, TOWN_PULSE_SECONDS - growthAccumulator));
  
   const totalWorkers = getTotalWorkersHired(game);
   const availableSlots = getAvailableWorkerSlots(game);
@@ -732,6 +734,7 @@ export default function TownZone({
 
         <div style={{ fontSize: "0.75rem", color: "var(--muted)", lineHeight: 2 }}>
           {row("Next pulse in", `${pulseSeconds}s`)}
+          {!starving && row("👥 Pop grows in", `${growthSecondsLeft}s`, "var(--muted)")}
           {row(`${foodEmoji} in stock`, `${foodHave}`, foodHave >= nextPulseFoodCost ? "#4ade80" : "#ef4444")}
           {jamOwned && row("🍯 jam/pulse", pantryOn ? `${jamPulseCost} (have ${jamHave})` : `${getBuildingEffectivePulseCost(game, "pantry")} (off · ${jamHave} in stock)`, pantryOn ? (jamHave >= jamPulseCost ? "#4ade80" : "#ef4444") : "var(--muted)")}
           {sauceOwned && row("🥫 sauce/pulse", canneryOn ? `${saucePulseCost} (have ${sauceHave})` : `${getBuildingEffectivePulseCost(game, "cannery")} (off · ${sauceHave} in stock)`, canneryOn ? (sauceHave >= saucePulseCost ? "#4ade80" : "#ef4444") : "var(--muted)")}
