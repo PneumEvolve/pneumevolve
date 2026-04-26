@@ -143,6 +143,31 @@ function getPrestigeCost(adventurer) {
   return HERO_PRESTIGE_COST_BASE * nextLevel;
 }
 
+// Returns stat summary line for a gear recipe
+function getGearStatLine(recipe) {
+  if (!recipe) return null;
+  const parts = [];
+  if (recipe.missionTimeReduction) parts.push(`⏱ −${Math.round(recipe.missionTimeReduction * 100)}% mission time`);
+  if (recipe.damageReduction)       parts.push(`🛡 −${Math.round(recipe.damageReduction * 100)}% damage`);
+  if (recipe.foodSlotBonus)         parts.push(`🍞 +${recipe.foodSlotBonus} food slot${recipe.foodSlotBonus > 1 ? "s" : ""}`);
+  return parts.length ? parts.join(" · ") : null;
+}
+
+// Compute mission duration showing before/after for a hypothetical equip/unequip
+function getMissionDurationWithSlot(adventurer, zone, slotOverride) {
+  // slotOverride: { slot, key } — temporarily set that slot
+  const base = zone.baseDuration ?? 30;
+  const gear = { ...(adventurer.equippedGear ?? {}), ...(slotOverride ?? {}) };
+  let totalGear = 0;
+  for (const s of ["weapon", "armour", "body"]) {
+    const key = gear[s];
+    if (key) totalGear += FORGE_RECIPES[key]?.gearTier ?? 0;
+  }
+  const gearBonus = totalGear * 0.15;
+  const lvlBonus = ((adventurer.level ?? 1) - 1) * 0.08;
+  return Math.round(base * (1 - Math.min(gearBonus + lvlBonus, 0.75)));
+}
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function HpBar({ hp, maxHp, height = 6 }) {
@@ -341,6 +366,11 @@ function EquipmentPanel({ adventurer, game, onEquip, onUnequip }) {
                         )}
                       </div>
                       <div style={{ fontSize: "0.58rem", color: "var(--muted)" }}>{equipped.description}</div>
+                      {getGearStatLine(equipped) && (
+                        <div style={{ fontSize: "0.57rem", color: "#a78bfa", marginTop: "1px", fontWeight: 600 }}>
+                          {getGearStatLine(equipped)}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <button
@@ -358,16 +388,18 @@ function EquipmentPanel({ adventurer, game, onEquip, onUnequip }) {
 
               {/* Available to equip — flat items */}
               {!equipped && available.length > 0 && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "0.25rem", marginTop: "0.25rem" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem", marginTop: "0.25rem" }}>
                   {available.map((r) => {
                     const qty = forgeGoods[r.output.resourceKey] ?? 0;
+                    const statLine = getGearStatLine(r);
                     return (
                       <button
                         key={r.output.resourceKey}
                         onClick={() => onEquip(adventurer.id, slot, r.output.resourceKey, null)}
-                        style={{ fontSize: "0.65rem", padding: "2px 9px", borderRadius: "6px", cursor: "pointer", background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", color: "#fbbf24" }}
+                        style={{ fontSize: "0.65rem", padding: "4px 9px", borderRadius: "6px", cursor: "pointer", background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", color: "#fbbf24", textAlign: "left" }}
                       >
-                        {r.emoji} {r.name} ×{qty}
+                        <div>{r.emoji} {r.name} ×{qty}</div>
+                        {statLine && <div style={{ fontSize: "0.57rem", color: "#a78bfa", marginTop: "1px" }}>{statLine}</div>}
                       </button>
                     );
                   })}
@@ -412,7 +444,7 @@ function EquipmentPanel({ adventurer, game, onEquip, onUnequip }) {
 }
 
 // ─── Skill Tree ────────────────────────────────────────────────────────────────
-function SkillTree({ adventurer, game, onSpendSkillPoint, onPrestige }) {
+function SkillTree({ adventurer, game, onSpendSkillPoint, onPrestige, onShowPrestigeBanner }) {
   const skillMap = (() => {
     const s = adventurer.skills ?? {};
     if (Array.isArray(s)) return Object.fromEntries(s.map((id) => [id, 1]));
@@ -433,11 +465,19 @@ function SkillTree({ adventurer, game, onSpendSkillPoint, onPrestige }) {
   function getSkillRank(id) { return skillMap[id] ?? 0; }
   function hasSkill(id) { return getSkillRank(id) > 0; }
 
+  // Cost to buy the next rank: rank 1 costs 1pt, rank 2 costs 2pts, rank 3 costs 3pts
+  function nextRankCost(skillDef) {
+    const rank = getSkillRank(skillDef.id);
+    return rank + 1;
+  }
+
   function canBuy(skillDef) {
-    if (skillPoints < 1) return false;
-    if (level < skillDef.requiredLevel) return false;
     const rank = getSkillRank(skillDef.id);
     if (rank >= skillDef.maxRank) return false;
+    if (level < skillDef.requiredLevel) return false;
+
+    const cost = nextRankCost(skillDef);
+    if (skillPoints < cost) return false;
 
     if (skillDef.tier === 1) return !heroClass; // class choice: only if unclassed
 
@@ -448,6 +488,7 @@ function SkillTree({ adventurer, game, onSpendSkillPoint, onPrestige }) {
     if (skillTree === heroClass) {
       const treeDefs = HERO_SKILL_TREES[heroClass];
       const prevDef = treeDefs.find((s) => s.tier === skillDef.tier - 1);
+      // Gate: need at least rank 1 in previous tier
       if (prevDef && getSkillRank(prevDef.id) === 0) return false;
       return true;
     }
@@ -547,9 +588,10 @@ function SkillTree({ adventurer, game, onSpendSkillPoint, onPrestige }) {
                 const meetsLevel = level >= skillDef.requiredLevel;
                 const locked = !owned && !buyable;
 
-                const rankLabel = skillDef.repeatable
-                  ? ` ${rank}/${skillDef.maxRank}`
-                  : owned ? " ✓" : "";
+                // Rank dots: ●●○ style for all 3-rank skills
+                const rankDots = skillDef.maxRank > 1
+                  ? Array.from({ length: skillDef.maxRank }, (_, i) => i < rank ? "●" : "○").join("")
+                  : null;
 
                 return (
                   <div key={skillDef.id} style={{
@@ -565,7 +607,11 @@ function SkillTree({ adventurer, game, onSpendSkillPoint, onPrestige }) {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: "0.7rem", fontWeight: 700, color: owned ? (isPrimary ? color.text : "#a78bfa") : buyable ? "#fbbf24" : "var(--text)", display: "flex", alignItems: "center", gap: "0.3rem" }}>
                         {skillDef.name}
-                        {skillDef.repeatable && <span style={{ fontSize: "0.55rem", color: "var(--muted)", fontWeight: 400 }}>{rank}/{skillDef.maxRank}</span>}
+                        {rankDots && (
+                          <span style={{ fontSize: "0.6rem", letterSpacing: "0.05em", color: rank >= skillDef.maxRank ? (isPrimary ? color.text : "#4ade80") : rank > 0 ? "#fbbf24" : "var(--muted)", fontWeight: 400 }}>
+                            {rankDots}
+                          </span>
+                        )}
                         {skillDef.crossSystemEffect && <span style={{ fontSize: "0.5rem", background: "rgba(74,222,128,0.2)", border: "1px solid rgba(74,222,128,0.4)", color: "#4ade80", borderRadius: "4px", padding: "1px 4px" }}>FARM</span>}
                         {skillDef.grantsAutoBattle && <span style={{ fontSize: "0.5rem", background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.3)", color: "#f87171", borderRadius: "4px", padding: "1px 4px" }}>AUTO</span>}
                       </div>
@@ -579,13 +625,13 @@ function SkillTree({ adventurer, game, onSpendSkillPoint, onPrestige }) {
                     ) : buyable ? (
                       <button
                         onClick={() => onSpendSkillPoint(adventurer.id, skillDef.id)}
-                        style={{ fontSize: "0.58rem", padding: "3px 8px", borderRadius: "6px", cursor: "pointer", flexShrink: 0, background: "rgba(251,191,36,0.2)", border: "1px solid rgba(251,191,36,0.5)", color: "#fbbf24", fontWeight: 700 }}
+                        style={{ fontSize: "0.58rem", padding: "3px 8px", borderRadius: "6px", cursor: "pointer", flexShrink: 0, background: "rgba(251,191,36,0.2)", border: "1px solid rgba(251,191,36,0.5)", color: "#fbbf24", fontWeight: 700, whiteSpace: "nowrap" }}
                       >
-                        {skillDef.tier === 1 ? "Choose" : skillDef.repeatable ? "Rank up" : "Unlock"}
+                        {skillDef.tier === 1 && rank === 0 ? "Choose" : `+1 rank · ${nextRankCost(skillDef)}pt`}
                       </button>
-                    ) : owned && !maxed ? (
+                    ) : !maxed && rank > 0 ? (
                       <div style={{ fontSize: "0.55rem", color: "var(--muted)", flexShrink: 0 }}>
-                        {skillPoints < 1 ? "no pts" : `Lv${skillDef.requiredLevel}`}
+                        {skillPoints < nextRankCost(skillDef) ? `need ${nextRankCost(skillDef)}pt` : `Lv${skillDef.requiredLevel}`}
                       </div>
                     ) : (
                       <div style={{ fontSize: "0.6rem", color: "var(--muted)", flexShrink: 0 }}>🔒</div>
@@ -614,15 +660,15 @@ function SkillTree({ adventurer, game, onSpendSkillPoint, onPrestige }) {
           </div>
           <div style={{ fontSize: "0.58rem", color: "var(--muted)", lineHeight: 1.4 }}>
             Reset to Lv.1 · Keep gear · Respec class · +1 food slot · Costs 3pts + ${prestigeCost.toLocaleString()}
-            {!hasT4 && <span style={{ color: "#ef4444", marginLeft: "0.3rem" }}>· Unlock class tier 4 first</span>}
+            {!hasT4 && <span style={{ color: "#ef4444", marginLeft: "0.3rem" }}>· Unlock class tier 4 special first</span>}
           </div>
         </div>
         {canPrestige ? (
           <button
-            onClick={() => onPrestige(adventurer.id)}
+            onClick={() => { onPrestige(adventurer.id); onShowPrestigeBanner && onShowPrestigeBanner(); }}
             style={{ fontSize: "0.6rem", padding: "3px 9px", borderRadius: "6px", cursor: "pointer", flexShrink: 0, background: "rgba(251,191,36,0.2)", border: "1px solid rgba(251,191,36,0.5)", color: "#fbbf24", fontWeight: 700 }}
           >
-            Prestige
+            ⭐ Prestige!
           </button>
         ) : (
           <div style={{ fontSize: "0.6rem", color: "var(--muted)", flexShrink: 0, textAlign: "right" }}>
@@ -643,6 +689,7 @@ function SkillTree({ adventurer, game, onSpendSkillPoint, onPrestige }) {
 
 // ─── Hero Modal ────────────────────────────────────────────────────────────────
 function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onGiveArtisanFood, onRemoveArtisanFood, onUseArtisanFood, onGiveBuffItem, onRemoveBuffItem, onSpendSkillPoint, onPrestige, onRevive }) {
+  const [prestigeBanner, setPrestigeBanner] = React.useState(false);
   const cls = ADVENTURER_CLASSES[adventurer.class] ?? ADVENTURER_CLASSES.fighter;
   const maxHp = adventurer.maxHp ?? getAdventurerMaxHp(adventurer);
   const hp = adventurer.hp ?? maxHp;
@@ -665,6 +712,15 @@ function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onGiveArtisa
           </div>
           <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--muted)", fontSize: "1.1rem", cursor: "pointer", padding: "0.25rem 0.5rem" }}>✕</button>
         </div>
+
+        {/* Prestige banner */}
+        {prestigeBanner && (
+          <div style={{ textAlign: "center", background: "rgba(251,191,36,0.15)", border: "1px solid rgba(251,191,36,0.5)", borderRadius: "12px", padding: "0.75rem", marginBottom: "0.85rem", animation: "pulse 1.2s ease-in-out 3" }}>
+            <div style={{ fontSize: "2rem", marginBottom: "0.2rem" }}>⭐</div>
+            <div style={{ fontWeight: 800, color: "#fbbf24", fontSize: "1rem" }}>Prestige!</div>
+            <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.15rem" }}>Back to Lv.1 · Gear kept · +1 food slot · Respec class</div>
+          </div>
+        )}
 
         {/* Dead banner */}
         {dead && (
@@ -823,17 +879,34 @@ function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onGiveArtisa
         </div>
 
         {/* Skill Tree */}
-        <SkillTree adventurer={adventurer} game={game} onSpendSkillPoint={onSpendSkillPoint} onPrestige={onPrestige} />
+        <SkillTree adventurer={adventurer} game={game} onSpendSkillPoint={onSpendSkillPoint} onPrestige={onPrestige} onShowPrestigeBanner={() => { setPrestigeBanner(true); setTimeout(() => setPrestigeBanner(false), 4000); }} />
 
         {/* Stats */}
         <div style={{ padding: "0.55rem 0.7rem", background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)", borderRadius: "10px", fontSize: "0.68rem" }}>
           <div style={{ fontWeight: 600, marginBottom: "0.35rem", color: "var(--muted)", fontSize: "0.6rem", letterSpacing: "0.05em" }}>📊 COMBAT STATS</div>
-          <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
-            <span>⚔️ Total Gear: <strong>{getTotalGearTier(adventurer)}</strong></span>
-            <span>⏱ Speed Bonus: <strong>−{Math.round(((adventurer.level ?? 1) - 1) * 8)}%</strong></span>
-            <span>❤️ Regen: <strong>+3 HP/min</strong></span>
-            {getHeroPrestigeLevel(adventurer) > 0 && <span>⭐ Prestige: <strong>Lv.{getHeroPrestigeLevel(adventurer)}</strong></span>}
-          </div>
+          {(() => {
+            const lvl = adventurer.level ?? 1;
+            const gear = adventurer.equippedGear ?? {};
+            const weaponKey = gear.weapon;
+            const armourKey = gear.armour;
+            const bodyKey = gear.body;
+            const weaponR = weaponKey ? FORGE_RECIPES[weaponKey] : null;
+            const armourR = armourKey ? FORGE_RECIPES[armourKey] : null;
+            const bodyR = bodyKey ? Object.values(FORGE_RECIPES).find(r => r.output.resourceKey === bodyKey) : null;
+            const lvlSpeedPct = Math.round((lvl - 1) * 8);
+            const weaponPct = weaponR?.missionTimeReduction ? Math.round(weaponR.missionTimeReduction * 100) : 0;
+            const totalSpeedPct = Math.min(75, lvlSpeedPct + weaponPct + getTotalGearTier(adventurer) * 15);
+            const armourPct = armourR?.damageReduction ? Math.round(armourR.damageReduction * 100) : 0;
+            const foodSlots = getBeltCapacity(adventurer);
+            return (
+              <div style={{ display: "flex", gap: "0.5rem 1rem", flexWrap: "wrap" }}>
+                <span>⏱ Missions: <strong>−{totalSpeedPct}% faster</strong></span>
+                {armourPct > 0 && <span>🛡 Damage: <strong>−{armourPct}%</strong></span>}
+                <span>🍞 Belt: <strong>{foodSlots} slots</strong></span>
+                {getHeroPrestigeLevel(adventurer) > 0 && <span>⭐ Prestige: <strong>Lv.{getHeroPrestigeLevel(adventurer)}</strong></span>}
+              </div>
+            );
+          })()}
         </div>
       </div>
     </div>
@@ -918,7 +991,7 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
   const hp = adventurer.hp ?? maxHp;
   const dead = isDead(adventurer);
   const _skillMap = (() => { const s = adventurer.skills ?? {}; return Array.isArray(s) ? Object.fromEntries(s.map((id) => [id, 1])) : s; })();
-  const hasAutoBattle = !!(_skillMap["fighter_t4"] || _skillMap["mage_t4"] || _skillMap["scavenger_t4"]);
+  const hasAutoBattle = !!(_skillMap["fighter_t1"] || _skillMap["mage_t1"] || _skillMap["scavenger_t1"]);
   const availableZones = zones.filter((z) => isZoneUnlocked(z, adventurer, game.worldZoneClears));
   const lockedZones = zones.filter((z) => !isZoneUnlocked(z, adventurer, game.worldZoneClears));
   const selectedZone = selectedZoneId ? WORLD_ZONES[selectedZoneId] : null;
@@ -970,20 +1043,29 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
           </div>
           {!isOnMission && !dead && <div style={{ fontSize: "0.48rem", color: "var(--muted)", marginTop: "2px" }}>tap to manage</div>}
           {isOnMission && <div style={{ fontSize: "0.48rem", color: "rgba(251,191,36,0.7)", marginTop: "2px" }}>on mission</div>}
-          {(adventurer.skillPoints ?? 0) > 0 && (
-            <div style={{
-              marginTop: "3px",
-              fontSize: "0.52rem", fontWeight: 800,
-              background: "rgba(251,191,36,0.25)",
-              border: "1px solid rgba(251,191,36,0.6)",
-              color: "#fbbf24",
-              borderRadius: "999px",
-              padding: "1px 6px",
-              animation: "pulse 1.5s ease-in-out infinite",
-            }}>
-              ✨ {adventurer.skillPoints} pt{adventurer.skillPoints !== 1 ? "s" : ""}
-            </div>
-          )}
+          {(adventurer.skillPoints ?? 0) > 0 && (() => {
+            const pts = adventurer.skillPoints;
+            const heroClass = adventurer.heroClass ?? null;
+            const skillMap = (() => { const s = adventurer.skills ?? {}; return Array.isArray(s) ? Object.fromEntries(s.map((id) => [id, 1])) : s; })();
+            const hasT4 = heroClass ? (skillMap[`${heroClass}_t4`] ?? 0) > 0 : false;
+            const canPrestigeNow = hasT4 && pts >= 3;
+            const noClass = !heroClass && (adventurer.level ?? 1) >= 2;
+            const label = canPrestigeNow ? "⭐ Prestige ready!" : noClass ? "✨ Choose class!" : `✨ ${pts} pt${pts !== 1 ? "s" : ""} · open hero`;
+            return (
+              <div style={{
+                marginTop: "3px",
+                fontSize: "0.52rem", fontWeight: 800,
+                background: canPrestigeNow ? "rgba(251,191,36,0.35)" : "rgba(251,191,36,0.25)",
+                border: `1px solid ${canPrestigeNow ? "rgba(251,191,36,0.8)" : "rgba(251,191,36,0.6)"}`,
+                color: "#fbbf24",
+                borderRadius: "999px",
+                padding: "1px 6px",
+                animation: "pulse 1.5s ease-in-out infinite",
+              }}>
+                {label}
+              </div>
+            );
+          })()}
         </div>
       </button>
 
@@ -1225,21 +1307,27 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
                     <button key={zone.id} onClick={() => setSelectedZoneId(isSelected ? null : zone.id)} style={{ textAlign: "left", padding: "0.45rem 0.6rem", background: isSelected ? "rgba(99,102,241,0.12)" : "rgba(255,255,255,0.03)", border: isSelected ? "1px solid rgba(99,102,241,0.5)" : "1px solid var(--border)", borderRadius: "8px", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.5rem" }}>
                       <span style={{ fontSize: "1.1rem" }}>{zone.emoji}</span>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap" }}>
                           <span style={{ fontSize: "0.75rem", fontWeight: 600 }}>{zone.name}</span>
                           {cleared && <span style={{ fontSize: "0.55rem", color: "#4ade80", fontWeight: 700 }}>✓</span>}
+                          <span style={{ fontSize: "0.58rem", color: "#a78bfa", fontWeight: 600 }}>{dur}s</span>
                         </div>
                         <div style={{ fontSize: "0.58rem", color: "var(--muted)" }}>
-                          {cleared ? `Cleared · ${dur}s` : `${clears}/${zone.clearsNeeded} clears · ${dur}s`}
+                          {cleared ? "Cleared" : `${clears}/${zone.clearsNeeded} clears`}
                           {zone.enemyName && <span style={{ color: "#ef4444", marginLeft: "0.35rem" }}>vs {zone.enemyName}</span>}
                         </div>
+                        {zone.loot && zone.loot.length > 0 && (
+                          <div style={{ fontSize: "0.55rem", color: "var(--muted)", marginTop: "1px" }}>
+                            🎒 {zone.loot.slice(0, 3).map(l => `${l.emoji ?? ""} ${l.name ?? l.resourceKey}`).join(", ")}{zone.loot.length > 3 ? ` +${zone.loot.length - 3} more` : ""}
+                          </div>
+                        )}
                       </div>
                       <div style={{ display: "flex", gap: "3px", flexShrink: 0 }}>
                         {Array.from({ length: Math.min(zone.clearsNeeded, 8) }).map((_, i) => (
                           <div key={i} style={{ width: "5px", height: "5px", borderRadius: "50%", background: i < clears ? "#4ade80" : "rgba(255,255,255,0.12)" }} />
                         ))}
                       </div>
-                      {failPct > 0 && <span style={{ fontSize: "0.58rem", fontWeight: 700, flexShrink: 0, color: failPct >= 50 ? "#ef4444" : "#fbbf24" }}>{failPct}%</span>}
+                      {failPct > 0 && <span style={{ fontSize: "0.58rem", fontWeight: 700, flexShrink: 0, color: failPct >= 50 ? "#ef4444" : "#fbbf24" }}>{failPct}%✗</span>}
                     </button>
                   );
                 })}
@@ -1789,7 +1877,7 @@ export default function WorldZone({
       {/* ── HEROES TAB ── */}
       {worldTab === "heroes" && (
         <>
-          {adventurers.map((adv) => (
+          {[...adventurers].reverse().map((adv) => (
             <AdventurerCard
               key={adv.id}
               adventurer={adv}

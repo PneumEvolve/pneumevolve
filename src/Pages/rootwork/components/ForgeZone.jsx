@@ -230,6 +230,26 @@ function ForgeRecipeRow({ recipeId, worker, worldResources, forgeGoods, onAssign
             })}
             <span style={{ fontSize: "0.62rem", color: "var(--muted)" }}>· {effectiveSecs}s</span>
           </div>
+          {/* Gear stat line */}
+          {recipe.gearTier > 0 && (
+            <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.25rem", flexWrap: "wrap" }}>
+              {recipe.missionTimeReduction && (
+                <span style={{ fontSize: "0.6rem", background: "rgba(99,102,241,0.12)", border: "1px solid rgba(99,102,241,0.3)", color: "#a78bfa", borderRadius: "4px", padding: "1px 5px" }}>
+                  ⏱ −{Math.round(recipe.missionTimeReduction * 100)}% mission time
+                </span>
+              )}
+              {recipe.damageReduction && (
+                <span style={{ fontSize: "0.6rem", background: "rgba(74,222,128,0.1)", border: "1px solid rgba(74,222,128,0.3)", color: "#4ade80", borderRadius: "4px", padding: "1px 5px" }}>
+                  🛡 −{Math.round(recipe.damageReduction * 100)}% damage taken
+                </span>
+              )}
+              {recipe.foodSlotBonus && (
+                <span style={{ fontSize: "0.6rem", background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", color: "#fbbf24", borderRadius: "4px", padding: "1px 5px" }}>
+                  🍞 +{recipe.foodSlotBonus} food belt slot{recipe.foodSlotBonus > 1 ? "s" : ""}
+                </span>
+              )}
+            </div>
+          )}
         </div>
  
         {isActive ? (

@@ -214,12 +214,17 @@ function RecipeGroups({ worker, game, batch, onAssignRecipe, onClose }) {
     };
   }
  
+  const ARTISAN_HEAL = { bread: 30, jam: 50, sauce: 100 };
   const cropRecipes = {};
   CROP_RECIPE_IDS.forEach(id => {
     const r = PROCESSING_RECIPES[id];
     if (!r) return;
     const have = game.crops[r.inputCrop] ?? 0;
-    cropRecipes[id] = buildRecipe(id, r, have, 0, `→ ${r.outputAmount * batch} ${r.emoji}`);
+    const healAmt = ARTISAN_HEAL[id];
+    const outputLabel = healAmt
+      ? `→ ${r.outputAmount * batch} ${r.emoji} · ❤️+${healAmt}hp`
+      : `→ ${r.outputAmount * batch} ${r.emoji}`;
+    cropRecipes[id] = buildRecipe(id, r, have, 0, outputLabel);
   });
  
   const animalRecipes = {};
@@ -408,7 +413,7 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
               </div>
               <ProgressBar elapsed={worker.elapsedSeconds} total={worker.totalSeconds} />
               <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginTop: "0.3rem" }}>
-                Produces {recipe.outputAmount * batch} {recipe.emoji} · consumes {recipe.inputAmount * batch}× {recipe.inputCrop}
+                Produces {recipe.outputAmount * batch} {recipe.emoji}{recipe.healAmount ? ` · ❤️+${recipe.healAmount}hp each` : ""} · consumes {recipe.inputAmount * batch}× {recipe.inputCrop}
               </div>
             </div>
           )}

@@ -4151,9 +4151,11 @@ export function returnAdventurer(state, adventurerId) {
     const newAccumXp = prevAccumXp + xpGained;
     const newRuns = prevRuns + 1;
  
-    // Scavenger (scavenger_t4): 50% chance to find a food item and add it to belt
+    // Scavenger (scavenger_t4): rank 2 = 30% food find, rank 3 = 60% food find
     let scavengerFoundFood = null;
-    if (hasHeroSkill(adventurer, "scavenger_t4") && Math.random() < 0.50) {
+    const _scavRank = getHeroSkillRank(adventurer, "scavenger_t4");
+    const _foodFindChance = [0, 0.15, 0.30, 0.60][Math.min(_scavRank, 3)] ?? 0;
+    if (_scavRank >= 1 && _foodFindChance > 0 && Math.random() < _foodFindChance) {
       const advForBelt = adventurer;
       const beltCap = getBeltCap(advForBelt);
       const currentBeltTotal = Object.values(advForBelt.foodBelt ?? {}).reduce((s, v) => s + v, 0);
@@ -4482,7 +4484,7 @@ export function prestigeAdventurer(state, adventurerId) {
     xp: 0,
     skills: {},             // full reset — respec available
     heroClass: null,        // class choice unlocked again
-    skillPoints: 1,         // 1 skill point granted by prestige
+    skillPoints: newPrestigeLevel,       // 1 skill point granted by prestige
     prestigeLevel: newPrestigeLevel,
     prestigeBonuses,        // track which classes have been run
     maxHp: newMaxHp,
@@ -4519,59 +4521,74 @@ export function getHeroClass(adventurer) {
 
 // Returns true if the hero has auto_battle (any tree's t4 grants it)
 export function heroHasAutoBattle(adventurer) {
+  // Auto-battle granted at class selection (tier 1)
   return (
-    hasHeroSkill(adventurer, "fighter_t4") ||
-    hasHeroSkill(adventurer, "mage_t4") ||
-    hasHeroSkill(adventurer, "scavenger_t4")
+    hasHeroSkill(adventurer, "fighter_t1") ||
+    hasHeroSkill(adventurer, "mage_t1") ||
+    hasHeroSkill(adventurer, "scavenger_t1")
   );
 }
 
 // Computed stat helpers
 export function getHeroBonusMaxHp(adventurer) {
   let bonus = 0;
-  if (hasHeroSkill(adventurer, "fighter_t1")) bonus += 20;
-  const t5Rank = getHeroSkillRank(adventurer, "fighter_t5");
-  bonus += t5Rank * 8;
+  // fighter_t1: +10 HP per rank (ranks 1/2/3 => +10/+20/+30)
+  bonus += getHeroSkillRank(adventurer, "fighter_t1") * 10;
+  // fighter_t5: +10 HP per rank
+  bonus += getHeroSkillRank(adventurer, "fighter_t5") * 10;
   return bonus;
 }
 
 export function getHeroHealBonus(adventurer) {
-  // Fighter resilience (+20% healing) + iron rations (+3 per rank)
-  const resilienceBonus = hasHeroSkill(adventurer, "fighter_t2") ? 0.20 : 0;
-  const ironRationsBonus = getHeroSkillRank(adventurer, "fighter_t6") * 3;
+  // fighter_t2 Resilience: +10% per rank (ranks 1/2/3 => +10%/+20%/+30%)
+  const resilienceBonus = getHeroSkillRank(adventurer, "fighter_t2") * 0.10;
+  // fighter_t6 Iron Rations: +5 HP per rank
+  const ironRationsBonus = getHeroSkillRank(adventurer, "fighter_t6") * 5;
   return { multiplier: 1 + resilienceBonus, flatBonus: ironRationsBonus };
 }
 
 export function getHeroEvasionChance(adventurer) {
   let chance = 0;
-  if (hasHeroSkill(adventurer, "scavenger_t2")) chance += 0.20;
-  chance += getHeroSkillRank(adventurer, "scavenger_t6") * 0.04;
+  // scavenger_t2 Ghost Step: +10% evasion per rank
+  chance += getHeroSkillRank(adventurer, "scavenger_t2") * 0.10;
+  // scavenger_t6 Phantom: +5% evasion per rank
+  chance += getHeroSkillRank(adventurer, "scavenger_t6") * 0.05;
   return Math.min(chance, 0.75); // cap at 75%
 }
 
 export function getHeroMinLootBonus(adventurer) {
   let bonus = 0;
-  if (hasHeroSkill(adventurer, "scavenger_t1")) bonus += 1;
+  // scavenger_t1 Sharp Eyes: +1 min loot per rank
+  bonus += getHeroSkillRank(adventurer, "scavenger_t1");
+  // scavenger_t5 Keen Eye: +1 min loot per rank
   bonus += getHeroSkillRank(adventurer, "scavenger_t5");
   return bonus;
 }
 
 export function getHeroDurationMultiplier(adventurer) {
   let reduction = 0;
-  if (hasHeroSkill(adventurer, "mage_t1")) reduction += 0.15;
-  if (hasHeroSkill(adventurer, "mage_t4")) reduction += 0.20; // auto-battle stacking bonus — applied per run in engine
-  reduction += getHeroSkillRank(adventurer, "mage_t5") * 0.03;
+  // mage_t1 Flicker Step: -8%/-15%/-22% per rank
+  const flickerByRank = [0, 0.08, 0.15, 0.22];
+  reduction += flickerByRank[Math.min(getHeroSkillRank(adventurer, "mage_t1"), 3)] ?? 0;
+  // mage_t4 Blink: rank 2 = -15%, rank 3 = -25% (rank 1 = auto-battle only)
+  const blinkByRank = [0, 0.10, 0.15, 0.25];
+  reduction += blinkByRank[Math.min(getHeroSkillRank(adventurer, "mage_t4"), 3)] ?? 0;
+  // mage_t5 Swiftness: -5% per rank
+  reduction += getHeroSkillRank(adventurer, "mage_t5") * 0.05;
   return Math.max(0.25, 1 - reduction); // floor at 25% of base
 }
 
 export function getHeroXpMultiplier(adventurer) {
   let bonus = 0;
-  if (hasHeroSkill(adventurer, "mage_t2")) bonus += 0.15;
-  bonus += getHeroSkillRank(adventurer, "mage_t6") * 0.10;
+  // mage_t2 Spell Surge: +8%/+15%/+22% per rank
+  const surgeByRank = [0, 0.08, 0.15, 0.22];
+  bonus += surgeByRank[Math.min(getHeroSkillRank(adventurer, "mage_t2"), 3)] ?? 0;
+  // mage_t6 Mind Over Matter: +15% per rank
+  bonus += getHeroSkillRank(adventurer, "mage_t6") * 0.15;
   return 1 + bonus;
 }
 
-// Returns true if this hero's tree has cross-system effect active
+// Returns true if this hero's tree has cross-system effect active (rank >= 1)
 export function heroHasCrossEffect(adventurer, effectId) {
   const effectMap = {
     bread_speed:    "fighter_t3",
@@ -4587,30 +4604,47 @@ export function anyHeroHasCrossEffect(state, effectId) {
   return (state.adventurers ?? []).some((a) => heroHasCrossEffect(a, effectId));
 }
 
-// Returns 0.7 (30% faster) if bread_speed active, else 1.0
+// Returns the highest rank of a given cross-system skill across all adventurers
+function maxHeroCrossRank(state, skillId) {
+  return Math.max(0, ...(state.adventurers ?? []).map((a) => getHeroSkillRank(a, skillId)));
+}
+
+// fighter_t3 Hearth Guardian: 15%/30%/50% bread speed reduction per rank
 export function getHeroBreadSpeedMultiplier(state) {
-  return anyHeroHasCrossEffect(state, "bread_speed") ? 0.70 : 1.0;
+  const rank = maxHeroCrossRank(state, "fighter_t3");
+  const reductions = [0, 0.15, 0.30, 0.50];
+  const reduction = reductions[Math.min(rank, 3)] ?? 0;
+  return 1 - reduction; // e.g. rank 3 => 0.50 => multiplier 0.50
 }
 
-// Returns 1.10 (10% bonus) if market_bonus active, else 1.0
+// scavenger_t3 Fence Network: +5%/+10%/+15% market price per rank
 export function getHeroMarketBonus(state) {
-  return anyHeroHasCrossEffect(state, "market_bonus") ? 1.10 : 1.0;
+  const rank = maxHeroCrossRank(state, "scavenger_t3");
+  return 1 + rank * 0.05;
 }
 
-// Returns chance (0.20) if kitchen_bonus active, else 0
+// mage_t3 Arcane Focus: 10%/20%/30% kitchen bonus chance per rank
 export function getHeroKitchenBonusChance(state) {
-  return anyHeroHasCrossEffect(state, "kitchen_bonus") ? 0.20 : 0;
+  const rank = maxHeroCrossRank(state, "mage_t3");
+  return rank * 0.10;
+}
+
+// Cost to buy the next rank of a skill: rank 1 costs 1pt, rank 2 costs 2pts, rank 3 costs 3pts
+export function getSkillRankCost(currentRank) {
+  return currentRank + 1; // buying rank (currentRank+1) costs (currentRank+1) points
 }
 
 // Validation: can a skill point be spent on a given skill?
 export function canSpendHeroSkillPoint(adventurer, skillId, prestigeLevel) {
   const def = HERO_SKILL_DEFS[skillId];
   if (!def) return false;
-  if ((adventurer.skillPoints ?? 0) < 1) return false;
   if ((adventurer.level ?? 1) < def.requiredLevel) return false;
 
   const currentRank = getHeroSkillRank(adventurer, skillId);
   if (currentRank >= def.maxRank) return false; // already maxed
+
+  const cost = getSkillRankCost(currentRank);
+  if ((adventurer.skillPoints ?? 0) < cost) return false;
 
   const heroClass = getHeroClass(adventurer);
   const pLevel = prestigeLevel ?? 0;
@@ -4673,20 +4707,19 @@ export function spendSkillPoint(state, adventurerId, skillId) {
     newHeroClass = def.classUnlock;
   }
 
+  // Cost scales with rank being purchased: rank 1=1pt, rank 2=2pts, rank 3=3pts
+  const rankCost = getSkillRankCost(currentRank);
+
   let updatedAdv = {
     ...adventurer,
-    skillPoints: (adventurer.skillPoints ?? 0) - 1,
+    skillPoints: (adventurer.skillPoints ?? 0) - rankCost,
     skills: newSkillMap,
     heroClass: newHeroClass,
   };
 
-  // Apply immediate HP bonus for fighter_t1 and fighter_t5
-  if (skillId === "fighter_t1") {
-    const newMaxHp = (updatedAdv.maxHp ?? getAdventurerMaxHp(updatedAdv)) + 20;
-    updatedAdv = { ...updatedAdv, maxHp: newMaxHp };
-  }
-  if (skillId === "fighter_t5") {
-    const newMaxHp = (updatedAdv.maxHp ?? getAdventurerMaxHp(updatedAdv)) + 8;
+  // Apply immediate HP bonus for fighter_t1 (+10 per rank) and fighter_t5 (+10 per rank)
+  if (skillId === "fighter_t1" || skillId === "fighter_t5") {
+    const newMaxHp = (updatedAdv.maxHp ?? getAdventurerMaxHp(updatedAdv)) + 10;
     updatedAdv = { ...updatedAdv, maxHp: newMaxHp };
   }
 
@@ -4841,6 +4874,10 @@ export function getBeltCap(adventurer) {
   const bodyKey = adventurer.equippedGear?.body ?? null;
   const bodyRecipe = bodyKey ? Object.values(FORGE_RECIPES).find((r) => r.output.resourceKey === bodyKey) : null;
   cap += bodyRecipe?.foodSlotBonus ?? 0;
+  // Food slot skills: Provisioner / Abundance / Pack Rat (+1/+2/+3 per rank)
+  cap += getHeroSkillRank(adventurer, "fighter_t4b");
+  cap += getHeroSkillRank(adventurer, "mage_t4b");
+  cap += getHeroSkillRank(adventurer, "scavenger_t4b");
   return cap;
 }
 
