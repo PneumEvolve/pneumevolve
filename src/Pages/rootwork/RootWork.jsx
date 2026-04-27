@@ -25,6 +25,7 @@ import {
   setMarketWorkerRateLimit,
   hireBarnWorker, fireBarnWorker, reassignBarnWorker, applyFishMeal, upgradeBarnWorker, upgradeAnimalStorage, getBarnWorkerHireCost,
   hireFishingWorker, fireFishingWorker, setTreasuryCap, upgradeAnimalYield,
+  hasSchoolResearch, isTownBuildingBuilt, canAffordUpgradeMaterials,
   buildBarnBuilding, upgradeBarnBuilding,
   buildTownBuilding, setTavernMode, assignTownBuildingWorker,
   startSchoolResearch, unlockPrestigeSkill, toggleFishingWorkerAllowedFish,
@@ -614,7 +615,17 @@ export default function RootWork() {
   }), [update, notify]);
   const handleUpgradeAnimalYield = useCallback((animalId, instanceId, barnInstanceId) => update((s) => {
     const n = upgradeAnimalYield(s, animalId, instanceId, barnInstanceId);
-    if (n === s) notify("Not enough cash.");
+    if (n === s) {
+      if (!isTownBuildingBuilt(s, "school")) {
+        notify("Requires a School.");
+      } else if (!hasSchoolResearch(s, "animal_yield_2")) {
+        notify("Requires School research: Selective Breeding.");
+      } else if (!canAffordUpgradeMaterials(s, { iron_ore: 20, lumber: 15 })) {
+        notify("Not enough materials.");
+      } else {
+        notify("Not enough cash.");
+      }
+    }
     return n;
   }), [update, notify]);
   const handleBuildBarnBuilding = useCallback((buildingId) => update((s) => {

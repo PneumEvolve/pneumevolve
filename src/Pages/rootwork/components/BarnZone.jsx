@@ -306,15 +306,18 @@ function AnimalCard({ animal, animalType, index, game, onCollect, onInteract, on
             const owned = (animal.yieldLevel ?? 0) >= upgrade.level;
             const isNext = (animal.yieldLevel ?? 0) === upgrade.level - 1;
             const canAfford = (game.cash ?? 0) >= upgrade.cost;
-            const schoolLocked = upgrade.level >= 2 && !isTownBuildingBuilt(game, "school");
+            const noSchool = upgrade.level >= 2 && !isTownBuildingBuilt(game, "school");
+            const noResearch = upgrade.level >= 2 && isTownBuildingBuilt(game, "school") && !hasSchoolResearch(game, "animal_yield_2");
+            const schoolLocked = noSchool || noResearch;
             const matsOk = canAffordMats(upgrade.upgradeRequires, game.worldResources, game.forgeGoods);
             const canBuy = isNext && canAfford && matsOk && !schoolLocked;
             const matLabel = matCostLabel(upgrade.upgradeRequires);
+            const lockLabel = noSchool ? "Requires School" : noResearch ? "Requires: Selective Breeding" : null;
             return (
               <div key={upgrade.level} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.3rem 0.45rem", borderRadius: "6px", marginBottom: "0.25rem", background: owned ? "rgba(74,222,128,0.08)" : "var(--bg)", border: `1px solid ${owned ? "rgba(74,222,128,0.3)" : schoolLocked && isNext ? "rgba(167,139,250,0.3)" : "var(--border)"}`, opacity: !owned && !isNext ? 0.4 : 1 }}>
                 <div style={{ fontSize: "0.68rem" }}>
                   <span style={{ fontWeight: 600, color: owned ? "#4ade80" : schoolLocked && isNext ? "#a78bfa" : "var(--text)" }}>{owned ? "✓" : schoolLocked && isNext ? "🏫" : "🥚"} {upgrade.label}</span>
-                  <span style={{ marginLeft: "0.35rem", fontSize: "0.62rem", color: "var(--muted)" }}>{schoolLocked && isNext ? "Requires School" : `+${upgrade.bonusYield} per produce`}</span>
+                  <span style={{ marginLeft: "0.35rem", fontSize: "0.62rem", color: "var(--muted)" }}>{lockLabel && isNext ? lockLabel : `+${upgrade.bonusYield} per produce`}</span>
                   {!owned && isNext && !schoolLocked && matLabel && (
                     <span style={{ display: "block", fontSize: "0.6rem", color: matsOk ? "#fbbf24" : "#ef4444", fontWeight: 600, marginTop: "0.1rem" }}>{matLabel}</span>
                   )}
