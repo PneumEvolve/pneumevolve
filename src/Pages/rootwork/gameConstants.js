@@ -1291,6 +1291,17 @@ export const WORLD_RESOURCES = {
 export const ADVENTURER_BASE_HP = 40;
 export const ADVENTURER_HP_PER_LEVEL = 8;
 export const ADVENTURER_REGEN_PER_SECOND = 0.05; // passive regen while not on mission
+export const TAVERN_REGEN_BONUS = 0.10;       // extra HP/s while resting at tavern (tier 1)
+export const TAVERN_XP_PER_PULSE = 3;          // XP gained per town pulse while resting w/ jam (tier 2)
+export const TAVERN_BUFF_DURATION_MISSIONS = 1; // buff lasts 1 mission
+
+// Class-appropriate buffs granted when resting with fish_pie (tier 3)
+export const TAVERN_CLASS_BUFFS = {
+  fighter:   { id: "tavern_fighter",   emoji: "🍖", name: "Battle Hardened",  description: "+20% max HP for next mission.",        effect: "bonus_maxhp",    value: 0.20 },
+  mage:      { id: "tavern_mage",      emoji: "⚡", name: "Arcane Clarity",   description: "-20% mission duration for next mission.", effect: "bonus_speed",   value: 0.20 },
+  scavenger: { id: "tavern_scavenger", emoji: "👁️", name: "Keen Senses",      description: "+2 min loot for next mission.",         effect: "bonus_loot",    value: 2    },
+  none:      { id: "tavern_none",      emoji: "🍺", name: "Well Rested",       description: "+10 HP restored on mission start.",     effect: "bonus_heal",    value: 10   },
+};
 
 
 

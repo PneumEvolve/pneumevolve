@@ -978,7 +978,7 @@ function AutoBattlePanel({ adventurer, game, onStartAutoBattle, onReturnAutoBatt
 }
 
 // ─── Adventurer Card ──────────────────────────────────────────────────────────
-function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero, onGiveArtisanFood, onUseArtisanFood, onGiveBuffItem, onRevive, onStartAutoBattle, onReturnAutoBattle, onRequestStop }) {
+function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero, onGiveArtisanFood, onUseArtisanFood, onGiveBuffItem, onRevive, onStartAutoBattle, onReturnAutoBattle, onRequestStop, onAssignTavern, onRemoveTavern }) {
   const [selectedZoneId, setSelectedZoneId] = useState(null);
   const [zonesOpen, setZonesOpen] = useState(true);
   const [autoBattleMode, setAutoBattleMode] = useState(false);
@@ -1018,6 +1018,14 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
   // Buff slot
   const buffSlot = adventurer.buffSlot ?? null;
   const availableBuffs = ADVENTURER_BUFF_LIST.filter((id) => ((game.animalGoods ?? {})[id] ?? 0) > 0);
+
+  // Tavern rest
+  const tavernBuilt = game.town?.townBuildings?.tavern?.built === true;
+  const isResting = !!adventurer.tavernResting;
+  const tavernBuff = adventurer.tavernBuff ?? null;
+  const tavernMode = game.town?.townBuildings?.tavern?.mode ?? "jam";
+  const tavernStocked = game.town?.townBuildings?.tavern?.stocked !== false;
+  const tavernWorkers = game.town?.townBuildings?.tavern?.workers ?? 0;
 
   // Auto battle potion check
   const potionCount = game.forgeGoods?.health_potion ?? 0;
@@ -1330,6 +1338,61 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
               </button>
             )}
           </div>
+
+          {/* Tavern rest button */}
+          {tavernBuilt && !isResting && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onAssignTavern?.(adventurer.id); }}
+              style={{
+                margin: "0 0.9rem 0.5rem",
+                padding: "0.45rem 0.5rem",
+                background: "rgba(234,179,8,0.08)",
+                border: "1px solid rgba(234,179,8,0.25)",
+                borderRadius: "8px",
+                color: "#fbbf24",
+                fontWeight: 600,
+                fontSize: "0.65rem",
+                cursor: "pointer",
+                width: "calc(100% - 1.8rem)",
+                textAlign: "left",
+                display: "flex",
+                alignItems: "center",
+                gap: "0.4rem",
+              }}
+            >
+              <span>🍺</span>
+              <span>Rest at Tavern</span>
+              <span style={{ marginLeft: "auto", fontSize: "0.58rem", color: "rgba(234,179,8,0.6)" }}>
+                {tavernWorkers === 0 ? "HP regen" : tavernMode === "jam" && tavernStocked ? "HP + XP" : tavernMode === "fish_pie" && tavernStocked ? "HP + Buff" : "HP regen"}
+              </span>
+            </button>
+          )}
+          {tavernBuilt && isResting && (
+            <div style={{
+              margin: "0 0.9rem 0.5rem",
+              padding: "0.45rem 0.7rem",
+              background: "rgba(234,179,8,0.12)",
+              border: "1px solid rgba(234,179,8,0.4)",
+              borderRadius: "8px",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem",
+            }}>
+              <span style={{ fontSize: "0.85rem" }}>🍺</span>
+              <div style={{ flex: 1, fontSize: "0.62rem" }}>
+                <span style={{ fontWeight: 700, color: "#fbbf24" }}>Resting at Tavern</span>
+                {tavernBuff && (
+                  <span style={{ marginLeft: "0.4rem", fontSize: "0.58rem", color: "#a78bfa" }}>· buff ready!</span>
+                )}
+              </div>
+              <button
+                onClick={(e) => { e.stopPropagation(); onRemoveTavern?.(adventurer.id); }}
+                style={{ fontSize: "0.6rem", padding: "0.15rem 0.5rem", background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)", borderRadius: "6px", color: "var(--muted)", cursor: "pointer" }}
+              >
+                Leave
+              </button>
+            </div>
+          )}
 
           {/* Potion count row for auto battle */}
           {autoBattleMode && (
@@ -1851,6 +1914,8 @@ export default function WorldZone({
   onUseBossAbility,
   onAcknowledgeBossVictory,
   onReviveHeroInBossFight,
+  onAssignHeroToTavern,
+  onRemoveHeroFromTavern,
 }) {
   const [lootResult, setLootResult] = useState(null);
   const [heroModal, setHeroModal] = useState(null);
@@ -1946,6 +2011,8 @@ export default function WorldZone({
               onUseArtisanFood={onUseArtisanFood}
               onGiveBuffItem={onGiveBuffItem}
               onRevive={onReviveAdventurer}
+              onAssignTavern={onAssignHeroToTavern}
+              onRemoveTavern={onRemoveHeroFromTavern}
               onStartAutoBattle={onStartAutoBattle}
               onReturnAutoBattle={handleReturnAutoBattle}
               onRequestStop={onRequestAutoBattleStop}

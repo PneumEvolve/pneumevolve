@@ -42,6 +42,7 @@ import {
   tickBossFight, checkBossUnlock,
   assignHeroToBoss, unassignHeroFromBoss, useBossAbility,
   acknowledgeBossVictory, reviveHeroInBossFight,
+  assignHeroToTavern, removeHeroFromTavern,
 } from "./gameEngine";
 import {
   SAVE_KEY, SAVE_INTERVAL_MS,
@@ -737,6 +738,15 @@ export default function RootWork() {
     update((s) => { const n = reviveHeroInBossFight(s, heroId); if (n === s) notify("Not enough cash to revive."); return n; });
   }, [update, notify]);
 
+  // Tavern rest handlers
+  const handleAssignHeroToTavern = useCallback((heroId) => {
+    update((s) => { const n = assignHeroToTavern(s, heroId); if (n === s) notify("Hero can't rest — check tavern is built and hero is idle."); return n; });
+  }, [update, notify]);
+
+  const handleRemoveHeroFromTavern = useCallback((heroId) => {
+    update((s) => removeHeroFromTavern(s, heroId));
+  }, [update]);
+
   // Prestige a hero (costs 3 skill pts + cash, resets to level 1, grants +1 permanent skill pt)
   const handlePrestigeAdventurer = useCallback((adventurerId) => {
     update((s) => { const n = prestigeAdventurer(s, adventurerId); if (n === s) notify("Can't prestige — check skill points, cash, or hero must be alive."); return n; });
@@ -908,6 +918,8 @@ export default function RootWork() {
             onUseBossAbility={handleUseBossAbility}
             onAcknowledgeBossVictory={handleAcknowledgeBossVictory}
             onReviveHeroInBossFight={handleReviveHeroInBossFight}
+            onAssignHeroToTavern={handleAssignHeroToTavern}
+            onRemoveHeroFromTavern={handleRemoveHeroFromTavern}
           />
         )}
         {activeMainTab === "animals" && (

@@ -951,6 +951,11 @@ export default function TownZone({
                   </span>
                 )}
               </div>
+              <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginLeft: "auto" }}>
+                🔮 <strong style={{ color: (game.worldResources?.mana_crystal ?? 0) > 0 ? "#c084fc" : "#ef4444" }}>
+                  {Math.floor(game.worldResources?.mana_crystal ?? 0).toLocaleString()}
+                </strong> crystals
+              </div>
             </div>
 
             {activeSchoolResearch ? (
@@ -974,6 +979,11 @@ export default function TownZone({
                     ? `${schoolWorkers} researcher${schoolWorkers !== 1 ? "s" : ""} working`
                     : "Assign researchers to make progress"}
                 </div>
+                {schoolWorkers > 0 && (game.worldResources?.mana_crystal ?? 0) < schoolWorkers && (
+                  <div style={{ fontSize: "0.65rem", color: "#f87171", marginTop: "0.25rem", fontWeight: 600 }}>
+                    ⚠️ Not enough 🔮 crystals — research stalled! ({Math.floor(game.worldResources?.mana_crystal ?? 0)} / {schoolWorkers} needed/s)
+                  </div>
+                )}
               </div>
             ) : (
               <div
@@ -1001,6 +1011,9 @@ export default function TownZone({
               ) : (
                 availableSchoolResearch.map((research) => {
                   const isSwitching = !!activeSchoolResearch;
+                  const savedProgress = schoolData?.researchProgressMap?.[research.id] ?? 0;
+                  const savedNeeded = Math.max(1, Math.floor(research.seconds * schoolResearchMult));
+                  const hasSaved = savedProgress > 0;
                   return (
                     <div
                       key={research.id}
@@ -1012,7 +1025,7 @@ export default function TownZone({
                         padding: "0.55rem 0.65rem",
                         borderRadius: "8px",
                         background: "var(--bg)",
-                        border: "1px solid var(--border)",
+                        border: `1px solid ${hasSaved ? "rgba(167,139,250,0.35)" : "var(--border)"}`,
                       }}
                     >
                       <div>
@@ -1022,6 +1035,11 @@ export default function TownZone({
                         <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.15rem" }}>
                           {research.description} · base {research.seconds}s
                         </div>
+                        {hasSaved && (
+                          <div style={{ fontSize: "0.63rem", color: "#a78bfa", marginTop: "0.1rem", fontWeight: 600 }}>
+                            💾 {savedProgress} / {savedNeeded} progress saved
+                          </div>
+                        )}
                       </div>
 
                       <button
@@ -1140,6 +1158,46 @@ export default function TownZone({
                 </span>
               </div>
             )}
+          {/* Resting heroes list */}
+          {(() => {
+            const restingHeroes = (game.adventurers ?? []).filter((a) => a.tavernResting);
+            if (!restingHeroes.length) return null;
+            const tavernMode = game.town?.townBuildings?.tavern?.mode ?? "jam";
+            const tavernStockedNow = game.town?.townBuildings?.tavern?.stocked !== false;
+            const bartenders = game.town?.townBuildings?.tavern?.workers ?? 0;
+            return (
+              <div style={{ marginTop: "0.6rem", paddingTop: "0.5rem", borderTop: "1px solid var(--border)" }}>
+                <div style={{ fontSize: "0.6rem", fontWeight: 700, color: "var(--muted)", marginBottom: "0.35rem", letterSpacing: "0.05em" }}>
+                  🍺 RESTING HEROES ({restingHeroes.length})
+                </div>
+                {restingHeroes.map((hero) => {
+                  const maxHp = hero.maxHp ?? 40;
+                  const hp = hero.hp ?? maxHp;
+                  const hpPct = Math.min(100, (hp / maxHp) * 100);
+                  const hasBuff = !!hero.tavernBuff;
+                  const tierLabel = bartenders === 0 ? "HP regen" : tavernMode === "jam" && tavernStockedNow ? "+XP" : tavernMode === "fish_pie" && tavernStockedNow ? "buffing" : "HP regen";
+                  return (
+                    <div key={hero.id} style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.3rem", padding: "0.3rem 0.45rem", background: "rgba(234,179,8,0.06)", border: "1px solid rgba(234,179,8,0.2)", borderRadius: "7px" }}>
+                      <span style={{ fontSize: "0.85rem" }}>
+                        {hasBuff ? "✨" : "😴"}
+                      </span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                          <span style={{ fontSize: "0.65rem", fontWeight: 600 }}>{hero.name}</span>
+                          <span style={{ fontSize: "0.55rem", color: "#fbbf24" }}>· {tierLabel}</span>
+                          {hasBuff && <span style={{ fontSize: "0.55rem", color: "#a78bfa", fontWeight: 700 }}>· buff!</span>}
+                        </div>
+                        <div style={{ height: "3px", background: "rgba(255,255,255,0.08)", borderRadius: "2px", marginTop: "2px", overflow: "hidden" }}>
+                          <div style={{ height: "100%", width: `${hpPct}%`, background: hpPct > 60 ? "#4ade80" : hpPct > 30 ? "#fbbf24" : "#ef4444", borderRadius: "2px" }} />
+                        </div>
+                      </div>
+                      <span style={{ fontSize: "0.58rem", color: "var(--muted)", whiteSpace: "nowrap" }}>{Math.floor(hp)}/{maxHp}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
           </>
         )}
         {!tavernBuilt && (

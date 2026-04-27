@@ -59,6 +59,7 @@ FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, 
   FORGE_WORKER_UPGRADES, FORGE_WORKER_UPGRADE_ORDER, FORGE_RECIPE_LIST,
   WORLD_ZONES, ADVENTURER_NAMES, ADVENTURER_CLASSES, WORLD_RESOURCES,
   ADVENTURER_BASE_HP, ADVENTURER_HP_PER_LEVEL, ADVENTURER_REGEN_PER_SECOND,
+  TAVERN_REGEN_BONUS, TAVERN_XP_PER_PULSE, TAVERN_CLASS_BUFFS,
   ADVENTURER_BUFF_ITEMS, ADVENTURER_BUFF_LIST,
   ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST,
   WORLD_WORKER_HIRE_COST,
@@ -515,9 +516,18 @@ export function startSchoolResearch(state, researchId) {
   const available = getAvailableSchoolResearch(next).map((r) => r.id);
   if (!available.includes(researchId)) return state;
 
-  // Cancel current research (progress is lost — this is intentional)
+  // Save current research progress before switching
+  if (school.activeResearchId && school.activeResearchId !== researchId) {
+    school.researchProgressMap = school.researchProgressMap ?? {};
+    school.researchProgressMap[school.activeResearchId] = school.researchProgress ?? 0;
+  }
+
+  // Restore saved progress for this research if it exists
+  school.researchProgressMap = school.researchProgressMap ?? {};
+  const savedProgress = school.researchProgressMap[researchId] ?? 0;
+
   school.activeResearchId = researchId;
-  school.researchProgress = 0;
+  school.researchProgress = savedProgress;
   school.researchNeeded = Math.max(
     1,
     Math.floor(research.seconds * getSchoolResearchMultiplier(next))
@@ -1690,6 +1700,10 @@ if (activeTier) {
             if (!school.unlockedResearch.includes(activeResearch.id)) {
               school.unlockedResearch.push(activeResearch.id);
             }
+            // Clear saved progress for completed research
+            if (school.researchProgressMap) {
+              delete school.researchProgressMap[activeResearch.id];
+            }
             school.activeResearchId = null;
             school.researchProgress = 0;
             school.researchNeeded = 0;
@@ -2269,6 +2283,9 @@ export function updateTown(state, seconds = 1) {
           next.town.townBuildings.tavern.stocked = false;
         }
       }
+
+      // Tavern rest pulse — XP and class buffs for resting heroes
+      next = tickTavernRestPulse(next);
 
       // Clothier: consume knitted_goods, generate cash
       const clothierBuilt = isTownBuildingBuilt(next, "clothier");
@@ -3985,13 +4002,20 @@ export function sendAdventurer(state, adventurerId, zoneId, autoBattle = false) 
   if ((adventurer.buffSlot ?? null) === "omelette") {
     duration = Math.max(1, Math.round(duration * 0.5));
   }
- 
+
+  // Tavern buff: mage gets speed boost
+  const tavernBuff = getHeroTavernBuff(adventurer);
+  if (tavernBuff?.effect === "bonus_speed") {
+    duration = Math.max(1, Math.round(duration * (1 - tavernBuff.value)));
+  }
+
   const mission = {
     zoneId,
     zoneName: zone.name,
     startTime: Date.now(),
     duration,
     autoBattle,
+    tavernBuffEffect: tavernBuff ? { effect: tavernBuff.effect, value: tavernBuff.value } : null,
     // Auto battle tracking state
     autoBattleRuns: 0,          // completed successful runs so far
     autoBattleLoot: [],         // accumulated loot across all runs
@@ -4001,7 +4025,18 @@ export function sendAdventurer(state, adventurerId, zoneId, autoBattle = false) 
     autoBattleOutOfPotions: false,
   };
  
-  const updatedAdv = { ...adventurer, mission };
+  // Fighter buff: bonus_maxhp temporarily boosts starting HP (healed in as bonus)
+  // bonus_heal: flat HP restored on mission start
+  let heroHpAtStart = adventurer.hp ?? (adventurer.maxHp ?? 40);
+  if (tavernBuff?.effect === "bonus_heal") {
+    const trueMax = (adventurer.maxHp ?? getAdventurerMaxHp(adventurer)) + getHeroBonusMaxHp(adventurer);
+    heroHpAtStart = Math.min(trueMax, heroHpAtStart + tavernBuff.value);
+  } else if (tavernBuff?.effect === "bonus_maxhp") {
+    const trueMax = (adventurer.maxHp ?? getAdventurerMaxHp(adventurer)) + getHeroBonusMaxHp(adventurer);
+    const bonusHp = Math.round(trueMax * tavernBuff.value);
+    heroHpAtStart = Math.min(trueMax + bonusHp, heroHpAtStart + bonusHp);
+  }
+  const updatedAdv = { ...adventurer, mission, tavernResting: false, tavernBuff: null, hp: heroHpAtStart }; // buff consumed on departure
   const next = { ...state, adventurers: [...state.adventurers] };
   next.adventurers[advIdx] = updatedAdv;
   return next;
@@ -4052,12 +4087,20 @@ export function returnAdventurer(state, adventurerId) {
   if (elapsed < mission.duration) return { state, result: null };
  
   // ── Single run result ────────────────────────────────────────────────────
- 
+
+  // Read any queued tavern buff (already consumed from hero on sendAdventurer, passed via mission snapshot)
+  // The buff was stored on the adventurer before mission start — we read from current adventurer state
+  // Actually tavernBuff was cleared on departure so we need to read from mission if stored, or we skip
+  // (buff effects applied at send time for duration; loot/hp read from adventurer.tavernBuffApplied)
+  // NOTE: tavernBuff is consumed at send — so during the run the hero has no tavernBuff field.
+  // We handle bonus_loot and bonus_heal by storing tavernBuffEffect on the mission object at send time.
+  const activeTavernEffect = mission.tavernBuffEffect ?? null;
+
   const failChance = getAdventurerFailChance(adventurer, zone);
   const failed = Math.random() < failChance;
   const hasCheeseBuff = (adventurer.buffSlot ?? null) === "cheese";
   const skills = adventurer.skills ?? {};
-  const minLootBonus = getHeroMinLootBonus(adventurer);
+  const minLootBonus = getHeroMinLootBonus(adventurer) + (activeTavernEffect?.effect === "bonus_loot" ? activeTavernEffect.value : 0);
 
   let runLoot = [];
   let nextResources = { ...(state.worldResources ?? {}) };
@@ -4991,16 +5034,112 @@ export function useArtisanFood(state, adventurerId, foodId) {
 // Tick adventurer regen (call from main tick, not forge tick)
 export function tickAdventurerRegen(state, dtSeconds) {
   if (!(state.adventurers ?? []).length) return state;
+  const tavernBuilt = isTownBuildingBuilt(state, "tavern");
   const updated = state.adventurers.map((adv) => {
-    const trueMax = (adv.maxHp ?? getAdventurerMaxHp(adv)) + getHeroBonusMaxHp(adv); // ← was just adv.maxHp
+    const trueMax = (adv.maxHp ?? getAdventurerMaxHp(adv)) + getHeroBonusMaxHp(adv);
     const hp = adv.hp ?? trueMax;
     if (hp <= 0) return adv;
     if (adv.mission) return adv;
+    if (adv.bossAssigned) return adv;
     if (hp >= trueMax) return adv;
-    const newHp = Math.min(trueMax, hp + ADVENTURER_REGEN_PER_SECOND * dtSeconds);
+    // Tavern bonus regen for heroes resting there
+    const restingBonus = (tavernBuilt && adv.tavernResting) ? TAVERN_REGEN_BONUS : 0;
+    const newHp = Math.min(trueMax, hp + (ADVENTURER_REGEN_PER_SECOND + restingBonus) * dtSeconds);
     return { ...adv, hp: newHp };
   });
   return { ...state, adventurers: updated };
+}
+
+// ─── Tavern rest assign/remove ────────────────────────────────────────────────
+
+export function assignHeroToTavern(state, heroId) {
+  const tavernBuilt = isTownBuildingBuilt(state, "tavern");
+  if (!tavernBuilt) return state;
+  const adv = (state.adventurers ?? []).find((a) => a.id === heroId);
+  if (!adv) return state;
+  if (adv.mission || adv.bossAssigned) return state; // busy
+  if ((adv.hp ?? adv.maxHp) <= 0) return state;      // dead
+  if (adv.tavernResting) return state;                // already there
+  return {
+    ...state,
+    adventurers: state.adventurers.map((a) =>
+      a.id === heroId ? { ...a, tavernResting: true } : a
+    ),
+  };
+}
+
+export function removeHeroFromTavern(state, heroId) {
+  return {
+    ...state,
+    adventurers: (state.adventurers ?? []).map((a) =>
+      a.id === heroId ? { ...a, tavernResting: false } : a
+    ),
+  };
+}
+
+// Called each town pulse — awards XP (tier 2) and class buff (tier 3) to resting heroes
+export function tickTavernRestPulse(state) {
+  const tavernBuilt = isTownBuildingBuilt(state, "tavern");
+  if (!tavernBuilt) return state;
+  const tavernMode = state.town?.townBuildings?.tavern?.mode ?? "jam";
+  const tavernStocked = state.town?.townBuildings?.tavern?.stocked !== false;
+  const tavernWorkers = getTownBuildingWorkers(state, "tavern");
+
+  const restingHeroes = (state.adventurers ?? []).filter(
+    (a) => a.tavernResting && !a.mission && !a.bossAssigned && (a.hp ?? a.maxHp) > 0
+  );
+  if (!restingHeroes.length) return state;
+
+  // Tier 2: jam mode + stocked → award XP
+  const awardXp = tavernWorkers > 0 && tavernStocked && tavernMode === "jam";
+  // Tier 3: fish_pie mode + stocked → award class buff (replaces jam XP for this pulse)
+  const awardBuff = tavernWorkers > 0 && tavernStocked && tavernMode === "fish_pie";
+
+  if (!awardXp && !awardBuff) return state; // tier 1 — regen only, nothing to pulse
+
+  const updatedAdventurers = (state.adventurers ?? []).map((adv) => {
+    if (!adv.tavernResting || adv.mission || adv.bossAssigned) return adv;
+    if ((adv.hp ?? adv.maxHp) <= 0) return adv;
+
+    if (awardBuff) {
+      // Only grant buff if they don't already have one queued
+      if (adv.tavernBuff) return adv;
+      const heroClass = getHeroClass(adv) ?? "none";
+      const buffDef = TAVERN_CLASS_BUFFS[heroClass] ?? TAVERN_CLASS_BUFFS.none;
+      return { ...adv, tavernBuff: buffDef.id };
+    }
+
+    if (awardXp) {
+      // Grant XP, handle level-up
+      let newXp = (adv.xp ?? 0) + TAVERN_XP_PER_PULSE;
+      let newLevel = adv.level ?? 1;
+      let skillPointsGained = 0;
+      while (newXp >= getAdventurerXpNeeded(newLevel)) {
+        newXp -= getAdventurerXpNeeded(newLevel);
+        newLevel++;
+        skillPointsGained++;
+      }
+      const newMaxHp = getAdventurerMaxHp({ ...adv, level: newLevel }) + getHeroBonusMaxHp({ ...adv, level: newLevel });
+      return {
+        ...adv,
+        xp: newXp,
+        level: newLevel,
+        maxHp: newMaxHp,
+        skillPoints: (adv.skillPoints ?? 0) + skillPointsGained,
+      };
+    }
+
+    return adv;
+  });
+
+  return { ...state, adventurers: updatedAdventurers };
+}
+
+// Helper: get the tavern buff def for a hero
+export function getHeroTavernBuff(adventurer) {
+  const buffId = adventurer.tavernBuff ?? null;
+  if (!buffId) return null;
+  return Object.values(TAVERN_CLASS_BUFFS).find((b) => b.id === buffId) ?? null;
 }
 
 // ─── Auto-tick adventurer missions ───────────────────────────────────────────
@@ -5328,7 +5467,7 @@ export function assignHeroToBoss(state, heroId) {
   if ((hero.hp ?? hero.maxHp ?? 40) <= 0) return state; // dead hero can't join
   if ((bossFight.assignedHeroIds ?? []).includes(heroId)) return state;
 
-  const updatedAdv = { ...hero, bossAssigned: true };
+  const updatedAdv = { ...hero, bossAssigned: true, tavernResting: false, tavernBuff: null };
   return {
     ...state,
     adventurers: state.adventurers.map((a) => a.id === heroId ? updatedAdv : a),
