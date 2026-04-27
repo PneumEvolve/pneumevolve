@@ -1585,7 +1585,27 @@ export function calculateOfflineProgress(state, nowMs) {
   const seconds = Math.min(rawSeconds, MAX_OFFLINE_SECONDS);
   if (seconds <= 0) return { state, offlineSeconds: 0 };
   let next = deepCloneState(state);
-  for (let i = 0; i < seconds; i++) next = tick(next);
+  // Offline: shift adventurer mission startTimes back by `seconds` so the
+  // per-second tick loop can naturally fire tickAdventurerMissions each time
+  // a run completes, rather than relying on Date.now() inside the loop.
+  const offlineSimStart = nowMs - seconds * 1000;
+  next.adventurers = (next.adventurers ?? []).map((adv) => {
+    if (!adv.mission) return adv;
+    // Rebase startTime relative to offlineSimStart so run completions
+    // happen at the right simulated second rather than never.
+    const elapsed = (nowMs - adv.mission.startTime) / 1000;
+    const rebasedStart = offlineSimStart - elapsed * 1000;
+    return { ...adv, mission: { ...adv.mission, startTime: rebasedStart } };
+  });
+  for (let i = 0; i < seconds; i++) {
+    next = tick(next);
+    next = tickForgeWorkers(next, 1);
+    next = tickAdventurerRegen(next, 1);
+    // Advance sim clock so mission startTime comparisons work correctly
+    const simNow = offlineSimStart + (i + 1) * 1000;
+    next = tickAdventurerMissionsAt(next, simNow);
+    next = tickBossFight(next, 1);
+  }
   next.lastSavedTime = nowMs;
   return { state: next, offlineSeconds: seconds };
 }
@@ -4014,7 +4034,12 @@ export function returnAdventurer(state, adventurerId) {
   if (adventurer.pendingAutoCollect) {
     const result = adventurer.pendingAutoCollect;
     const updatedAdv = { ...adventurer, pendingAutoCollect: null, mission: null };
-    const next = { ...state, adventurers: state.adventurers.map((a) => a.id === adventurerId ? updatedAdv : a) };
+    // Credit loot to worldResources NOW (on collect click, not when run ended)
+    let nextResources = { ...(state.worldResources ?? {}) };
+    for (const l of (result.loot ?? [])) {
+      nextResources[l.resourceKey] = (nextResources[l.resourceKey] ?? 0) + l.amount;
+    }
+    const next = { ...state, adventurers: state.adventurers.map((a) => a.id === adventurerId ? updatedAdv : a), worldResources: nextResources };
     return { state: next, result };
   }
 
@@ -4106,10 +4131,7 @@ export function returnAdventurer(state, adventurerId) {
       const finalLoot = mergeLoot(prevAccumLoot, []);
       // Apply 50% to accumulated loot
       const halvedLoot = finalLoot.map((l) => ({ ...l, amount: Math.floor(l.amount * 0.5) }));
-      // Credit resources
-      for (const l of halvedLoot) {
-        nextResources[l.resourceKey] = (nextResources[l.resourceKey] ?? 0) + l.amount;
-      }
+      // Loot credited on collect click (not here)
  
       const diedResult = {
           autoBattle: true,
@@ -4185,9 +4207,7 @@ export function returnAdventurer(state, adventurerId) {
 
     // Player requested stop — finish this run then collect cleanly
     if (mission.autoBattleStopRequested) {
-      for (const l of newAccumLoot) {
-        nextResources[l.resourceKey] = (nextResources[l.resourceKey] ?? 0) + l.amount;
-      }
+      // Loot credited on collect click (not here)
       const stoppedResult = {
           autoBattle: true,
           stoppedByPlayer: true,
@@ -4223,9 +4243,7 @@ export function returnAdventurer(state, adventurerId) {
 
     if (!hasBeltFood) {
       // Out of food — collect everything, mission ends cleanly
-      for (const l of newAccumLoot) {
-        nextResources[l.resourceKey] = (nextResources[l.resourceKey] ?? 0) + l.amount;
-      }
+      // Loot credited on collect click (not here)
       const outOfFoodResult = {
           autoBattle: true,
           ranOutOfFood: true,
@@ -5002,16 +5020,32 @@ export function requestAutoBattleStop(state, adventurerId) {
 }
 
 export function tickAdventurerMissions(state) {
+  return tickAdventurerMissionsAt(state, Date.now());
+}
+
+export function tickAdventurerMissionsAt(state, nowMs) {
   let next = state;
   for (const adv of (state.adventurers ?? [])) {
     // Already waiting for player to collect — don't re-process
     if (adv.pendingAutoCollect) continue;
     if (!adv.mission?.autoBattle) continue;
-    const elapsed = (Date.now() - adv.mission.startTime) / 1000;
+    const elapsed = (nowMs - adv.mission.startTime) / 1000;
     if (elapsed < adv.mission.duration) continue;
     const { state: afterState, result } = returnAdventurer(next, adv.id);
     next = afterState;
-    // result is now always null for auto-battle endings — parked on adventurer instead
+    // After auto-battle fires during offline sim, update the new mission's startTime
+    // relative to simNow so subsequent iterations can fire further completions
+    const freshAdv = next.adventurers?.find((a) => a.id === adv.id);
+    if (freshAdv?.mission) {
+      const overrun = elapsed - adv.mission.duration;
+      const newStart = nowMs - overrun * 1000;
+      next = {
+        ...next,
+        adventurers: next.adventurers.map((a) =>
+          a.id === adv.id ? { ...a, mission: { ...a.mission, startTime: newStart } } : a
+        ),
+      };
+    }
     if (result) {
       next = { ...next, pendingAutoBattleResult: { ...result, adventurerId: adv.id } };
     }
@@ -5189,6 +5223,7 @@ export function tickForgeWorkers(state, dtSeconds) {
 
   let nextGoods = { ...(state.forgeGoods ?? {}) };
   let nextResources = { ...(state.worldResources ?? {}) };
+  let nextGoodsInstanced = [...(state.forgeGoodsInstanced ?? [])];
   const nextWorkers = (state.forgeWorkers ?? []).map((worker) => {
     if (!worker.busy || !worker.recipeId) return worker;
     const newElapsed = (worker.elapsedSeconds ?? 0) + dtSeconds;
@@ -5198,7 +5233,19 @@ export function tickForgeWorkers(state, dtSeconds) {
     // Craft complete
     const recipe = FORGE_RECIPES[worker.recipeId];
     if (recipe) {
-      nextGoods[recipe.output.resourceKey] = (nextGoods[recipe.output.resourceKey] ?? 0) + 1;
+      const INSTANCED_FORGE_KEYS = new Set(["master_sword", "tower_shield", "plate_armor"]);
+      if (INSTANCED_FORGE_KEYS.has(recipe.output.resourceKey)) {
+        // T3 instanced items: push to forgeGoodsInstanced (not flat forgeGoods)
+        // nextGoodsInstanced is mutated below after map returns
+        nextGoodsInstanced.push({
+          id: "fgi_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6),
+          key: recipe.output.resourceKey,
+          upgradeTier: 0,
+          _equippedBy: null,
+        });
+      } else {
+        nextGoods[recipe.output.resourceKey] = (nextGoods[recipe.output.resourceKey] ?? 0) + 1;
+      }
     }
     // Auto-restart?
     const hasAutoUpgrade = (worker.upgrades ?? []).includes("forge_auto");
@@ -5221,7 +5268,7 @@ export function tickForgeWorkers(state, dtSeconds) {
     return { ...worker, recipeId: null, elapsedSeconds: 0, totalSeconds: 0, busy: false };
   });
 
-  return { ...state, forgeWorkers: nextWorkers, forgeGoods: nextGoods, worldResources: nextResources };
+  return { ...state, forgeWorkers: nextWorkers, forgeGoods: nextGoods, forgeGoodsInstanced: nextGoodsInstanced, worldResources: nextResources };
 }
 
 // ─── Boss Fight Engine ────────────────────────────────────────────────────────
