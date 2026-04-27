@@ -1073,8 +1073,9 @@ export const HERO_SKILL_DEFS = Object.fromEntries(
 export const HERO_SKILLS = [];
 
 // Prestige constants for hero skill tree
-export const HERO_PRESTIGE_COST_BASE = 1000;  // × (prestigeLevel + 1) in cash
-export const HERO_PRESTIGE_SKILL_COST = 3;    // skill points required to unlock prestige ability
+export const HERO_PRESTIGE_COST_BASE = 10000; // × (prestigeLevel + 1) in cash
+export const HERO_PRESTIGE_SKILL_COST = 3;    // skill points required to unlock prestige ability (legacy — no longer used as gate)
+export const HERO_PRESTIGE_MIN_LEVEL = 15;    // minimum level required to prestige
 export const HERO_PRESTIGE_REVIVE_BASE = 100; // × max(1, prestigeLevel) in cash
 
 // Cross-tree dip unlock thresholds

@@ -71,7 +71,15 @@ function getItemStock(game, item) {
   if (item.isCrop)   return Math.floor(game.crops?.[item.type] ?? 0);
   if (item.isAnimal) return Math.floor(game.animalGoods?.[item.type] ?? 0);
   if (item.isFish)   return Math.floor(game.fishing?.fish?.[item.type] ?? 0);
-  if (item.isForge)  return Math.floor(game.forgeGoods?.[item.type] ?? 0);
+  if (item.isForge) {
+    const INSTANCED_T3 = new Set(["master_sword", "tower_shield", "plate_armor"]);
+    if (INSTANCED_T3.has(item.type)) {
+      return (game.forgeGoodsInstanced ?? []).filter(
+        (i) => i.key === item.type && !i._equippedBy && i.upgradeTier === 3
+      ).length;
+    }
+    return Math.floor(game.forgeGoods?.[item.type] ?? 0);
+  }
   if (item.isWorld)  return Math.floor(game.worldResources?.[item.type] ?? 0);
   return Math.floor(game.artisan?.[item.type] ?? 0);
 }
@@ -452,6 +460,42 @@ function InventorySellPanel({ game, onAssignItem, onSetMarketWorkerStandingOrder
               })}
             </div>
 
+
+            {/* Arcane-upgraded T3 items: locked from selling */}
+            {activeCategory === "forge" && (() => {
+              const INSTANCED_T3 = ["master_sword", "tower_shield", "plate_armor"];
+              const arcaneItems = (game.forgeGoodsInstanced ?? []).filter(
+                (i) => !i._equippedBy && i.upgradeTier > 3
+              );
+              if (arcaneItems.length === 0) return null;
+              return (
+                <div style={{ padding: "0 0.65rem 0.5rem" }}>
+                  <div style={{ fontSize: "0.6rem", color: "rgba(139,92,246,0.7)", marginBottom: "0.3rem", fontWeight: 600, letterSpacing: "0.05em" }}>
+                    🔒 ARCANE UPGRADED — Cannot be sold
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
+                    {arcaneItems.map((inst) => {
+                      const meta = { master_sword: { emoji: "🔱", name: "Master Sword" }, tower_shield: { emoji: "🏰", name: "Tower Shield" }, plate_armor: { emoji: "🪖", name: "Plate Armor" } }[inst.key] ?? { emoji: "⚔️", name: inst.key };
+                      return (
+                        <div key={inst.id} style={{
+                          minWidth: "62px", flex: "1 1 62px", textAlign: "center",
+                          padding: "0.45rem 0.3rem", borderRadius: "8px",
+                          background: "rgba(139,92,246,0.06)",
+                          border: "1px solid rgba(139,92,246,0.25)",
+                          opacity: 0.7,
+                          position: "relative",
+                        }}>
+                          <span style={{ position: "absolute", top: "3px", right: "4px", fontSize: "0.5rem", color: "#a78bfa" }}>🔒</span>
+                          <div style={{ fontSize: "1.1rem" }}>{meta.emoji}</div>
+                          <div style={{ fontSize: "0.62rem", fontWeight: 700, color: "#a78bfa" }}>T{inst.upgradeTier}</div>
+                          <div style={{ fontSize: "0.5rem", color: "rgba(139,92,246,0.6)", marginTop: "0.05rem" }}>No sale</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
             {(game.marketWorkers ?? []).length === 0 && (
               <div style={{ fontSize: "0.68rem", color: "var(--muted)", textAlign: "center", padding: "0 0.65rem 0.65rem" }}>
                 Hire a market worker below to assign items.

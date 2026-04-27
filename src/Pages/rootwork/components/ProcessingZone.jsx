@@ -19,6 +19,7 @@ import {
   getAvailableWorkerSlots,
   getFishMealGrowBonus,
   isTownBuildingBuilt,
+  hasSchoolResearch,
 } from "../gameEngine";
  
 const RECIPE_LIST = ["bread", "jam", "sauce", "omelette", "cheese", "knitted_goods", "fish_pie", "smoked_fish", "fish_meal", "fish_meal_bass"];
@@ -63,8 +64,10 @@ function canAffordMats(upgradeRequires, worldResources, forgeGoods) {
  
 function UpgradeTree({ label, upgradeIds, worker, game, onUpgrade }) {
   const upgrades = worker.upgrades ?? [];
-  const schoolBuilt = isTownBuildingBuilt(game, "school");
-  const SCHOOL_GATED = ["batch_5", "batch_10"];
+  const SCHOOL_RESEARCH_GATE = {
+    batch_5:  "kitchen_batch_5",
+    batch_10: "kitchen_batch_10",
+  };
   return (
     <div>
       <div style={{ fontSize: "0.65rem", fontWeight: 600, color: "var(--muted)", marginBottom: "0.3rem" }}>
@@ -75,7 +78,8 @@ function UpgradeTree({ label, upgradeIds, worker, game, onUpgrade }) {
           const u = KITCHEN_WORKER_UPGRADES[uid];
           const owned = upgrades.includes(uid);
           const requiresMet = !u.requires || upgrades.includes(u.requires);
-          const schoolLocked = SCHOOL_GATED.includes(uid) && !schoolBuilt;
+          const researchId = SCHOOL_RESEARCH_GATE[uid];
+          const schoolLocked = researchId ? !hasSchoolResearch(game, researchId) : false;
           const canAfford = (game.cash ?? 0) >= u.cost;
           const matsOk = canAffordMats(u.upgradeRequires, game.worldResources, game.forgeGoods);
           const canBuy = !owned && requiresMet && canAfford && matsOk && !schoolLocked;
@@ -95,7 +99,7 @@ function UpgradeTree({ label, upgradeIds, worker, game, onUpgrade }) {
                   {owned ? "✓" : schoolLocked && requiresMet ? "🏫" : locked ? "🔒" : u.emoji} {u.name}
                 </span>
                 <span style={{ marginLeft: "0.4rem", fontSize: "0.62rem", color: "var(--muted)" }}>
-                  {schoolLocked && requiresMet ? "Requires School" : u.description}
+                  {schoolLocked && requiresMet ? "Requires School Research" : u.description}
                 </span>
                 {!owned && requiresMet && !schoolLocked && matLabel && (
                   <span style={{ display: "block", fontSize: "0.6rem", color: matsOk ? "#fbbf24" : "#ef4444", fontWeight: 600, marginTop: "0.1rem" }}>

@@ -1,7 +1,7 @@
 // src/Pages/rootwork/components/WorldZone.jsx
 import React, { useState, useEffect, useRef } from "react";
 import { WORLD_ZONES, ADVENTURER_CLASSES, FORGE_RECIPES, ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST, ADVENTURER_BUFF_ITEMS, ADVENTURER_BUFF_LIST, WORLD_RESOURCES, HERO_SKILLS, HERO_SKILL_TREES, HERO_CLASS_META, HERO_PRESTIGE_COST_BASE, HERO_DIP_TREE_PRESTIGE_TIER1, HERO_DIP_TREE_PRESTIGE_TIER2, BOSS_DEFS, BOSS_ABILITIES, BOSS_UNLOCK_LEVEL, BOSS_TICK_INTERVAL, generateInfiniteBoss } from "../gameConstants";
-import { getAdventurerSlotCost, getAdventurerSlotUnlocked } from "../gameEngine";
+import { getAdventurerSlotCost, getAdventurerSlotUnlocked, setHeroFillFood } from "../gameEngine";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -460,12 +460,10 @@ function SkillTree({ adventurer, game, onSpendSkillPoint, onPrestige, onShowPres
   const heroClass = adventurer.heroClass ?? null;
   const prestigeLevel = adventurer.prestigeLevel ?? 0;
 
-  // Prestige gate: need tier-4 skill of chosen class + HERO_PRESTIGE_SKILL_COST points + cash
-  const t4SkillId = heroClass ? `${heroClass}_t4` : null;
-  const hasT4 = t4SkillId ? (skillMap[t4SkillId] ?? 0) > 0 : false;
-  const prestigeCost = 1000 * (prestigeLevel + 1);
+  // Prestige gate: level 15+ and cash
+  const prestigeCost = HERO_PRESTIGE_COST_BASE * (prestigeLevel + 1);
   const canAffordPrestige = (game.cash ?? 0) >= prestigeCost;
-  const canPrestige = hasT4 && skillPoints >= 3 && canAffordPrestige;
+  const canPrestige = level >= 15 && canAffordPrestige;
 
   function getSkillRank(id) { return skillMap[id] ?? 0; }
   function hasSkill(id) { return getSkillRank(id) > 0; }
@@ -666,8 +664,8 @@ function SkillTree({ adventurer, game, onSpendSkillPoint, onPrestige, onShowPres
             {prestigeLevel > 0 && <span style={{ marginLeft: "0.4rem", fontSize: "0.58rem", background: "rgba(251,191,36,0.15)", border: "1px solid rgba(251,191,36,0.4)", color: "#fbbf24", borderRadius: "4px", padding: "1px 5px" }}>Lv.{prestigeLevel}</span>}
           </div>
           <div style={{ fontSize: "0.58rem", color: "var(--muted)", lineHeight: 1.4 }}>
-            Reset to Lv.1 · Keep gear · Respec class · +1 skill point · +1 food slot · Costs 3pts + ${prestigeCost.toLocaleString()}
-            {!hasT4 && <span style={{ color: "#ef4444", marginLeft: "0.3rem" }}>· Unlock class tier 4 special first</span>}
+            Reset to Lv.1 · Keep gear · Respec class · +1 skill point · +1 food slot · Costs $${prestigeCost.toLocaleString()}
+            {level < 15 && <span style={{ color: "#ef4444", marginLeft: "0.3rem" }}>· Requires level 15</span>}
           </div>
         </div>
         {canPrestige ? (
@@ -679,7 +677,7 @@ function SkillTree({ adventurer, game, onSpendSkillPoint, onPrestige, onShowPres
           </button>
         ) : (
           <div style={{ fontSize: "0.6rem", color: "var(--muted)", flexShrink: 0, textAlign: "right" }}>
-            {!hasT4 ? "🔒" : skillPoints < 3 ? `${skillPoints}/3pts` : !canAffordPrestige ? `$${prestigeCost.toLocaleString()}` : "🔒"}
+            {level < 15 ? `Lv${level}/15` : !canAffordPrestige ? `$${prestigeCost.toLocaleString()}` : "🔒"}
           </div>
         )}
       </div>
@@ -978,11 +976,17 @@ function AutoBattlePanel({ adventurer, game, onStartAutoBattle, onReturnAutoBatt
 }
 
 // ─── Adventurer Card ──────────────────────────────────────────────────────────
-function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero, onGiveArtisanFood, onUseArtisanFood, onGiveBuffItem, onRevive, onStartAutoBattle, onReturnAutoBattle, onRequestStop, onAssignTavern, onRemoveTavern }) {
+function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero, onGiveArtisanFood, onUseArtisanFood, onGiveBuffItem, onRevive, onStartAutoBattle, onReturnAutoBattle, onRequestStop, onAssignTavern, onRemoveTavern, onSetFillFood }) {
   const [selectedZoneId, setSelectedZoneId] = useState(null);
   const [zonesOpen, setZonesOpen] = useState(true);
   const [autoBattleMode, setAutoBattleMode] = useState(false);
-  const [fillFoodIdx, setFillFoodIdx] = useState(0);
+
+  // Seed from persisted lastFillFoodId so the chosen food survives re-renders
+  const stockFood = ARTISAN_FOOD_LIST.filter((id) => ((game.artisan ?? {})[id] ?? 0) > 0);
+  const savedIdx = adventurer.lastFillFoodId
+    ? Math.max(0, stockFood.indexOf(adventurer.lastFillFoodId))
+    : 0;
+  const [fillFoodIdx, setFillFoodIdx] = useState(savedIdx);
   const [fillHolding, setFillHolding] = useState(false);
   const fillHoldTimer = useRef(null);
   const fillHoldFired = useRef(false);
@@ -1066,8 +1070,7 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
             const pts = adventurer.skillPoints;
             const heroClass = adventurer.heroClass ?? null;
             const skillMap = (() => { const s = adventurer.skills ?? {}; return Array.isArray(s) ? Object.fromEntries(s.map((id) => [id, 1])) : s; })();
-            const hasT4 = heroClass ? (skillMap[`${heroClass}_t4`] ?? 0) > 0 : false;
-            const canPrestigeNow = hasT4 && pts >= 3;
+            const canPrestigeNow = (adventurer.level ?? 1) >= 15 && (game.cash ?? 0) >= (HERO_PRESTIGE_COST_BASE * ((adventurer.prestigeLevel ?? 0) + 1));
             const noClass = !heroClass && (adventurer.level ?? 1) >= 2;
             const label = canPrestigeNow ? "⭐ Prestige ready!" : noClass ? "✨ Choose class!" : `✨ ${pts} pt${pts !== 1 ? "s" : ""} · open hero`;
             return (
@@ -1255,7 +1258,12 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
                 fillHoldTimer.current = setTimeout(() => {
                   fillHoldFired.current = true;
                   setFillHolding(false);
-                  setFillFoodIdx((prev) => (prev + 1) % stockFood.length);
+                  setFillFoodIdx((prev) => {
+                    const nextIdx = (prev + 1) % stockFood.length;
+                    const nextFoodId = stockFood[nextIdx];
+                    if (nextFoodId) onSetFillFood?.(adventurer.id, nextFoodId);
+                    return nextIdx;
+                  });
                 }, 900);
               }
               function cancelHold(e) {
@@ -1836,8 +1844,22 @@ function BossTab({ game, adventurers, bossFight, bossDef, onAssign, onUnassign, 
       {/* ── Available heroes to send ── */}
       {phase !== "defeated" && availableHeroes.length > 0 && (
         <div style={{ marginBottom: "0.75rem" }}>
-          <div style={{ fontSize: "0.65rem", fontWeight: 700, color: "var(--muted)", letterSpacing: "0.05em", marginBottom: "0.4rem" }}>
-            SEND TO BATTLE
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.4rem" }}>
+            <div style={{ fontSize: "0.65rem", fontWeight: 700, color: "var(--muted)", letterSpacing: "0.05em" }}>
+              SEND TO BATTLE
+            </div>
+            {availableHeroes.length > 1 && (
+              <button
+                onClick={() => availableHeroes.forEach((a) => onAssign(a.id))}
+                style={{
+                  fontSize: "0.62rem", padding: "2px 10px", borderRadius: "8px", cursor: "pointer",
+                  background: "rgba(99,102,241,0.18)", border: "1px solid rgba(99,102,241,0.45)",
+                  color: "var(--accent)", fontWeight: 700,
+                }}
+              >
+                ⚔️ Join All
+              </button>
+            )}
           </div>
           {availableHeroes.map((adv) => {
             const cls = adv.heroClass ?? adv.class ?? "fighter";
@@ -1916,6 +1938,7 @@ export default function WorldZone({
   onReviveHeroInBossFight,
   onAssignHeroToTavern,
   onRemoveHeroFromTavern,
+  onSetHeroFillFood,
 }) {
   const [lootResult, setLootResult] = useState(null);
   const [heroModal, setHeroModal] = useState(null);
@@ -2016,6 +2039,7 @@ export default function WorldZone({
               onStartAutoBattle={onStartAutoBattle}
               onReturnAutoBattle={handleReturnAutoBattle}
               onRequestStop={onRequestAutoBattleStop}
+              onSetFillFood={onSetHeroFillFood}
             />
           ))}
 

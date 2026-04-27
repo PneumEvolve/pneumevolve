@@ -35,7 +35,7 @@ import {
   giveBuffItem, removeBuffItem, tickAdventurerRegen,
   hireForgeWorker, fireForgeWorker, assignForgeWorkerRecipe, cancelForgeWorkerRecipe,
   upgradeForgeWorker, toggleForgeWorkerAutoRestart, tickForgeWorkers, upgradeForgeInstance,
-  giveArtisanFood, removeArtisanFood, useArtisanFood,
+  giveArtisanFood, removeArtisanFood, useArtisanFood, setHeroFillFood,
   tickAdventurerMissions,
   hireAdventurer, spendSkillPoint, getAdventurerSlotCost, getAdventurerSlotUnlocked, isAtWorkerCap,
   // New adventurer functions
@@ -719,6 +719,8 @@ export default function RootWork() {
 
   const handleRemoveArtisanFood = useCallback((adventurerId, foodId) => update((s) => removeArtisanFood(s, adventurerId, foodId)), [update]);
 
+  const handleSetHeroFillFood = useCallback((adventurerId, foodId) => update((s) => setHeroFillFood(s, adventurerId, foodId)), [update]);
+
   const handleUseArtisanFood = useCallback((adventurerId, foodId) => {
     update((s) => { const n = useArtisanFood(s, adventurerId, foodId); if (n === s) notify("Already full or no food on belt."); return n; });
   }, [update, notify]);
@@ -931,6 +933,7 @@ export default function RootWork() {
             onReviveHeroInBossFight={handleReviveHeroInBossFight}
             onAssignHeroToTavern={handleAssignHeroToTavern}
             onRemoveHeroFromTavern={handleRemoveHeroFromTavern}
+            onSetHeroFillFood={handleSetHeroFillFood}
           />
         )}
         {activeMainTab === "animals" && (

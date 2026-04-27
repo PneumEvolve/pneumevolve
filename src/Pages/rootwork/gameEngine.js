@@ -64,7 +64,7 @@ FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, 
   ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST,
   WORLD_WORKER_HIRE_COST,
   HERO_SKILL_TREES, HERO_SKILL_DEFS, HERO_CLASS_META,
-  HERO_PRESTIGE_COST_BASE, HERO_PRESTIGE_SKILL_COST, HERO_PRESTIGE_REVIVE_BASE,
+  HERO_PRESTIGE_COST_BASE, HERO_PRESTIGE_SKILL_COST, HERO_PRESTIGE_MIN_LEVEL, HERO_PRESTIGE_REVIVE_BASE,
   HERO_DIP_TREE_PRESTIGE_TIER1, HERO_DIP_TREE_PRESTIGE_TIER2,
   BOSS_DEFS, BOSS_ORDER, BOSS_TICK_INTERVAL, generateInfiniteBoss,
   BOSS_HERO_DAMAGE_LEVEL_SCALE, BOSS_HERO_DAMAGE_GEAR_SCALE,
@@ -2567,8 +2567,24 @@ const isCrop   = !isWorld && !isForge && !isFish && !isAnimal && !isArtisan;
   if ((next.fishing.fish[itemType] ?? 0) < quantity) return state;
   next.fishing.fish[itemType] -= quantity;
 } else if (isForge) {
-  if ((next.forgeGoods[itemType] ?? 0) < quantity) return state;
-  next.forgeGoods[itemType] -= quantity;
+  const INSTANCED_FORGE_KEYS = new Set(["master_sword", "tower_shield", "plate_armor"]);
+  if (INSTANCED_FORGE_KEYS.has(itemType)) {
+    const available = (next.forgeGoodsInstanced ?? []).filter(
+      (i) => i.key === itemType && !i._equippedBy && i.upgradeTier === 3
+    );
+    if (available.length < quantity) return state;
+    let removed = 0;
+    next.forgeGoodsInstanced = (next.forgeGoodsInstanced ?? []).filter((i) => {
+      if (i.key === itemType && !i._equippedBy && i.upgradeTier === 3 && removed < quantity) {
+        removed++;
+        return false;
+      }
+      return true;
+    });
+  } else {
+    if ((next.forgeGoods[itemType] ?? 0) < quantity) return state;
+    next.forgeGoods[itemType] -= quantity;
+  }
 } else if (isWorld) {
   if ((next.worldResources[itemType] ?? 0) < quantity) return state;
   next.worldResources[itemType] -= quantity;
@@ -3930,11 +3946,11 @@ export function initWorldState(state) {
   return next;
 }
 
-const ADVENTURER_HIRE_COSTS = [10, 100, 250, 500, 1000, 2000, 4000, 8000];
-
+// Infinite hero slots: cost doubles each slot with a steeper base
+// Slot 0=$50, 1=$200, 2=$600, 3=$1.5k, 4=$4k, 5=$10k, 6=$25k ...
 export function getAdventurerSlotCost(state) {
   const count = (state.adventurers ?? []).length;
-  return ADVENTURER_HIRE_COSTS[count] ?? null; // null = no more slots
+  return Math.round(50 * Math.pow(3.5, count));
 }
 
 export function getAdventurerSlotUnlocked(state) {
@@ -4528,14 +4544,10 @@ export function prestigeAdventurer(state, adventurerId) {
   if ((adventurer.hp ?? adventurer.maxHp) <= 0) return state;
   if (adventurer.mission) return state;
 
-  // Must have at least HERO_PRESTIGE_SKILL_COST skill points to spend
-  if ((adventurer.skillPoints ?? 0) < HERO_PRESTIGE_SKILL_COST) return state;
+  // Must be level 15+ to prestige
+  if ((adventurer.level ?? 1) < HERO_PRESTIGE_MIN_LEVEL) return state;
 
-  // Must have unlocked the t4 skill (auto battle tier) of their class — gate for prestige
   const heroClass = getHeroClass(adventurer);
-  if (!heroClass) return state;
-  const t4SkillId = `${heroClass}_t4`;
-  if (!hasHeroSkill(adventurer, t4SkillId)) return state;
 
   const currentPrestige = adventurer.prestigeLevel ?? 0;
   const cost = HERO_PRESTIGE_COST_BASE * (currentPrestige + 1);
@@ -4550,6 +4562,28 @@ export function prestigeAdventurer(state, adventurerId) {
     prestigeBonuses[heroClass] = (prestigeBonuses[heroClass] ?? 0) + 1;
   }
 
+  // After skills reset, compute the new belt cap (no skill bonuses, just prestige+gear)
+  // and trim any excess food from the belt so count never exceeds cap.
+  const postPrestigeAdv = { ...adventurer, skills: {}, heroClass: null, prestigeLevel: newPrestigeLevel };
+  const newBeltCap = getBeltCap(postPrestigeAdv);
+  const oldBelt = adventurer.foodBelt ?? {};
+  let trimmedBelt = { ...oldBelt };
+  let beltTotal = Object.values(trimmedBelt).reduce((s, v) => s + v, 0);
+  if (beltTotal > newBeltCap) {
+    // Remove items from the belt (return them to artisan stock) until within cap
+    // Iterate in a defined order and remove from the last food type first
+    const beltKeys = Object.keys(trimmedBelt).filter((k) => trimmedBelt[k] > 0);
+    let toRemove = beltTotal - newBeltCap;
+    // We just drop the excess (simpler than returning to stock mid-prestige)
+    for (let ki = beltKeys.length - 1; ki >= 0 && toRemove > 0; ki--) {
+      const key = beltKeys[ki];
+      const remove = Math.min(trimmedBelt[key], toRemove);
+      trimmedBelt[key] = trimmedBelt[key] - remove;
+      toRemove -= remove;
+      if (trimmedBelt[key] === 0) delete trimmedBelt[key];
+    }
+  }
+
   const updatedAdv = {
     ...adventurer,
     level: 1,
@@ -4562,7 +4596,8 @@ export function prestigeAdventurer(state, adventurerId) {
     maxHp: newMaxHp,
     hp: newMaxHp,
     mission: null,
-    // gear/foodBelt/buffSlot all kept
+    foodBelt: trimmedBelt,  // trimmed to new cap (skill bonuses gone until re-bought)
+    // gear/buffSlot kept as-is
   };
 
   return {
@@ -5019,6 +5054,16 @@ export function removeArtisanFood(state, adventurerId, foodId) {
   };
 }
 
+// Persist the hero's preferred fill food so the Fill button remembers it across renders
+export function setHeroFillFood(state, adventurerId, foodId) {
+  const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
+  if (advIdx === -1) return state;
+  return {
+    ...state,
+    adventurers: state.adventurers.map((a, i) => i === advIdx ? { ...a, lastFillFoodId: foodId } : a),
+  };
+}
+
 export function useArtisanFood(state, adventurerId, foodId) {
   const def = ARTISAN_FOOD_HEAL[foodId];
   if (!def) return state;
@@ -5386,7 +5431,7 @@ export function tickForgeWorkers(state, dtSeconds) {
         nextGoodsInstanced.push({
           id: "fgi_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6),
           key: recipe.output.resourceKey,
-          upgradeTier: 0,
+          upgradeTier: recipe.gearTier,
           _equippedBy: null,
         });
       } else {
@@ -5398,13 +5443,20 @@ export function tickForgeWorkers(state, dtSeconds) {
     if (worker.autoRestart && hasAutoUpgrade && worker.lastRecipeId) {
       const restartRecipe = FORGE_RECIPES[worker.lastRecipeId];
       if (restartRecipe) {
-        // Check if resources are available (nextGoods reflects goods mid-tick, use nextResources below)
-        const canRestart = Object.entries(restartRecipe.inputs).every(
-          ([key, needed]) => (nextResources[key] ?? 0) >= needed
-        );
+        // Check if resources are available — inputs may come from forgeGoods (T1 gear used in T2/T3)
+        // or worldResources (raw materials like iron_ore, lumber, rare_gem, etc.)
+        const canRestart = Object.entries(restartRecipe.inputs).every(([key, needed]) => {
+          const fromGoods = nextGoods[key] ?? 0;
+          const fromResources = nextResources[key] ?? 0;
+          return (fromGoods + fromResources) >= needed;
+        });
         if (canRestart) {
           for (const [key, needed] of Object.entries(restartRecipe.inputs)) {
-            nextResources[key] = (nextResources[key] ?? 0) - needed;
+            // Deduct from forgeGoods first, then worldResources for the remainder
+            const fromGoods = Math.min(nextGoods[key] ?? 0, needed);
+            if (fromGoods > 0) nextGoods[key] = (nextGoods[key] ?? 0) - fromGoods;
+            const remainder = needed - fromGoods;
+            if (remainder > 0) nextResources[key] = (nextResources[key] ?? 0) - remainder;
           }
           const newTotal = getForgeEffectiveSeconds(worker, restartRecipe);
           return { ...worker, recipeId: worker.lastRecipeId, elapsedSeconds: 0, totalSeconds: newTotal, busy: true };
