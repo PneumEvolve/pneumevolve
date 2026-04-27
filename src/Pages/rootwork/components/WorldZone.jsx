@@ -1016,7 +1016,6 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
   const beltCapacity = getBeltCapacity(adventurer);
   const beltFoodTotal = Object.values(foodBelt).reduce((s, v) => s + v, 0);
   const firstBeltFood = ARTISAN_FOOD_LIST.find((id) => (foodBelt[id] ?? 0) > 0) ?? null;
-  const stockFood = ARTISAN_FOOD_LIST.filter((id) => ((game.artisan ?? {})[id] ?? 0) > 0);
   const canReplenish = stockFood.length > 0 && beltFoodTotal < beltCapacity;
 
   // Buff slot
