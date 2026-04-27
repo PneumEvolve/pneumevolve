@@ -4659,7 +4659,6 @@ export function getSkillRankCost(currentRank) {
 export function canSpendHeroSkillPoint(adventurer, skillId, prestigeLevel) {
   const def = HERO_SKILL_DEFS[skillId];
   if (!def) return false;
-  if ((adventurer.level ?? 1) < def.requiredLevel) return false;
 
   const currentRank = getHeroSkillRank(adventurer, skillId);
   if (currentRank >= def.maxRank) return false; // already maxed

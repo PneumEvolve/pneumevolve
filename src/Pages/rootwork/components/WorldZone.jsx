@@ -479,7 +479,6 @@ function SkillTree({ adventurer, game, onSpendSkillPoint, onPrestige, onShowPres
   function canBuy(skillDef) {
     const rank = getSkillRank(skillDef.id);
     if (rank >= skillDef.maxRank) return false;
-    if (level < skillDef.requiredLevel) return false;
 
     const cost = nextRankCost(skillDef);
     if (skillPoints < cost) return false;
@@ -550,7 +549,7 @@ function SkillTree({ adventurer, game, onSpendSkillPoint, onPrestige, onShowPres
       {/* Class choice prompt */}
       {!heroClass && (
         <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginBottom: "0.4rem", padding: "0.35rem 0.5rem", background: "rgba(251,191,36,0.05)", border: "1px solid rgba(251,191,36,0.2)", borderRadius: "7px" }}>
-          ✨ Choose your class by spending your first skill point (Lv2 required)
+          ✨ Choose your class by spending your first skill point
         </div>
       )}
 
@@ -595,7 +594,6 @@ function SkillTree({ adventurer, game, onSpendSkillPoint, onPrestige, onShowPres
                 const owned = rank > 0;
                 const maxed = rank >= skillDef.maxRank;
                 const buyable = canBuy(skillDef);
-                const meetsLevel = level >= skillDef.requiredLevel;
                 const locked = !owned && !buyable;
 
                 // Rank dots: ●●○ style for all 3-rank skills
@@ -611,7 +609,7 @@ function SkillTree({ adventurer, game, onSpendSkillPoint, onPrestige, onShowPres
                       ? (isPrimary ? `${color.bg}` : "rgba(99,102,241,0.08)")
                       : buyable ? "rgba(251,191,36,0.04)" : "transparent",
                     borderBottom: "1px solid rgba(255,255,255,0.04)",
-                    opacity: (locked && !meetsLevel) ? 0.35 : locked ? 0.5 : 1,
+                    opacity: locked ? 0.4 : 1,
                   }}>
                     <div style={{ fontSize: "1rem", lineHeight: 1, flexShrink: 0 }}>{skillDef.emoji}</div>
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -627,7 +625,6 @@ function SkillTree({ adventurer, game, onSpendSkillPoint, onPrestige, onShowPres
                       </div>
                       <div style={{ fontSize: "0.58rem", color: "var(--muted)", lineHeight: 1.3 }}>
                         {skillDef.description}
-                        {!meetsLevel && !owned && <span style={{ color: "#ef4444", marginLeft: "0.3rem" }}>· Lv{skillDef.requiredLevel}</span>}
                       </div>
                     </div>
                     {maxed ? (
@@ -641,7 +638,7 @@ function SkillTree({ adventurer, game, onSpendSkillPoint, onPrestige, onShowPres
                       </button>
                     ) : !maxed && rank > 0 ? (
                       <div style={{ fontSize: "0.55rem", color: "var(--muted)", flexShrink: 0 }}>
-                        {skillPoints < nextRankCost(skillDef) ? `need ${nextRankCost(skillDef)}pt` : `Lv${skillDef.requiredLevel}`}
+                        {`need ${nextRankCost(skillDef)}pt`}
                       </div>
                     ) : (
                       <div style={{ fontSize: "0.6rem", color: "var(--muted)", flexShrink: 0 }}>🔒</div>
