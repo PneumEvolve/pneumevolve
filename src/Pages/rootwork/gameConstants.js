@@ -1270,6 +1270,7 @@ export const WORLD_ZONES = {
       { resourceKey: "mana_crystal", emoji: "🔮", name: "Mana Crystal", min: 2, max: 5 },
       { resourceKey: "rare_gem",     emoji: "💎", name: "Rare Gem",     min: 2, max: 6 },
       { resourceKey: "iron_ore",     emoji: "🪨", name: "Iron Ore",     min: 8, max: 18 },
+      { resourceKey: "lumber",       emoji: "🪵", name: "Lumber",       min: 5, max: 12 },
     ],
     workerResource: "Mana Crystal",
     workerEmoji: "🔮",
