@@ -867,7 +867,7 @@ export const HERO_SKILL_TREES = {
       name: "Relentless",
       emoji: "🔄",
       tier: 4,
-      description: "Rank 1: conserve food below 50% HP. Rank 2: conserve below 70% HP. Rank 3: never waste food.",
+      description: "Rank 1: skip food if HP ≥ 70% (barely hurt). Rank 2: skip food if HP ≥ 50%. Rank 3: skip food if HP ≥ 30% (trust the belt).",
       requiredLevel: 8,
       maxRank: 3,
     },

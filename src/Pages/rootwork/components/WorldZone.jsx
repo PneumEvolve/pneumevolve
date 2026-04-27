@@ -125,6 +125,11 @@ function getBeltCapacity(adventurer) {
   }
   // Each prestige adds +1 food slot
   cap += getHeroPrestigeLevel(adventurer);
+  // Food slot skills: Provisioner (fighter_t4b) / Abundance (mage_t4b) / Pack Rat (scavenger_t4b)
+  const skillMap = (() => { const s = adventurer.skills ?? {}; return Array.isArray(s) ? Object.fromEntries(s.map((id) => [id, 1])) : s; })();
+  cap += skillMap["fighter_t4b"] ?? 0;
+  cap += skillMap["mage_t4b"] ?? 0;
+  cap += skillMap["scavenger_t4b"] ?? 0;
   return cap;
 }
 
@@ -479,11 +484,16 @@ function SkillTree({ adventurer, game, onSpendSkillPoint, onPrestige, onShowPres
     const cost = nextRankCost(skillDef);
     if (skillPoints < cost) return false;
 
-    if (skillDef.tier === 1) return !heroClass; // class choice: only if unclassed
-
     const skillTree = Object.entries(HERO_SKILL_TREES).find(([, skills]) =>
       skills.some((s) => s.id === skillDef.id)
     )?.[0];
+
+    // Tier-1: rank 1 unlocks class; ranks 2-3 continue as normal if it's your own class
+    if (skillDef.tier === 1) {
+      if (!heroClass) return true; // no class yet — allow first purchase (class unlock)
+      if (skillTree !== heroClass) return false; // can't rank up another class's tier-1
+      // own class tier-1 ranks 2-3 fall through to normal tree check below
+    }
 
     if (skillTree === heroClass) {
       const treeDefs = HERO_SKILL_TREES[heroClass];
@@ -659,7 +669,7 @@ function SkillTree({ adventurer, game, onSpendSkillPoint, onPrestige, onShowPres
             {prestigeLevel > 0 && <span style={{ marginLeft: "0.4rem", fontSize: "0.58rem", background: "rgba(251,191,36,0.15)", border: "1px solid rgba(251,191,36,0.4)", color: "#fbbf24", borderRadius: "4px", padding: "1px 5px" }}>Lv.{prestigeLevel}</span>}
           </div>
           <div style={{ fontSize: "0.58rem", color: "var(--muted)", lineHeight: 1.4 }}>
-            Reset to Lv.1 · Keep gear · Respec class · +1 food slot · Costs 3pts + ${prestigeCost.toLocaleString()}
+            Reset to Lv.1 · Keep gear · Respec class · +1 skill point · +1 food slot · Costs 3pts + ${prestigeCost.toLocaleString()}
             {!hasT4 && <span style={{ color: "#ef4444", marginLeft: "0.3rem" }}>· Unlock class tier 4 special first</span>}
           </div>
         </div>
@@ -718,7 +728,7 @@ function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onGiveArtisa
           <div style={{ textAlign: "center", background: "rgba(251,191,36,0.15)", border: "1px solid rgba(251,191,36,0.5)", borderRadius: "12px", padding: "0.75rem", marginBottom: "0.85rem", animation: "pulse 1.2s ease-in-out 3" }}>
             <div style={{ fontSize: "2rem", marginBottom: "0.2rem" }}>⭐</div>
             <div style={{ fontWeight: 800, color: "#fbbf24", fontSize: "1rem" }}>Prestige!</div>
-            <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.15rem" }}>Back to Lv.1 · Gear kept · +1 food slot · Respec class</div>
+            <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.15rem" }}>Back to Lv.1 · Gear kept · +1 skill point · +1 food slot · Respec class</div>
           </div>
         )}
 
@@ -975,6 +985,10 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
   const [selectedZoneId, setSelectedZoneId] = useState(null);
   const [zonesOpen, setZonesOpen] = useState(true);
   const [autoBattleMode, setAutoBattleMode] = useState(false);
+  const [fillFoodIdx, setFillFoodIdx] = useState(0);
+  const [fillHolding, setFillHolding] = useState(false);
+  const fillHoldTimer = useRef(null);
+  const fillHoldFired = useRef(false);
 
   const heroClass = adventurer.heroClass ?? null;
   const cls = heroClass
@@ -1218,38 +1232,83 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
               );
             })()}
 
-            {/* Fill button — replenish belt from stock */}
+            {/* Fill button — tap to fill, hold 1s to swap food type */}
             {(() => {
-              const topStock = stockFood[0] ?? null;
+              const safeIdx = stockFood.length > 0 ? fillFoodIdx % stockFood.length : 0;
+              const topStock = stockFood[safeIdx] ?? null;
               const def = topStock ? ARTISAN_FOOD_HEAL[topStock] : null;
               const stockQty = topStock ? ((game.artisan ?? {})[topStock] ?? 0) : 0;
               const fillAmt = topStock ? Math.min(beltCapacity - beltFoodTotal, stockQty) : 0;
               const canFill = topStock !== null && fillAmt > 0;
+              const multiStock = stockFood.length > 1;
+
+              function startHold(e) {
+                e.stopPropagation();
+                if (!multiStock) return;
+                fillHoldFired.current = false;
+                setFillHolding(true);
+                fillHoldTimer.current = setTimeout(() => {
+                  fillHoldFired.current = true;
+                  setFillHolding(false);
+                  setFillFoodIdx((prev) => (prev + 1) % stockFood.length);
+                }, 900);
+              }
+              function cancelHold(e) {
+                e.stopPropagation();
+                clearTimeout(fillHoldTimer.current);
+                setFillHolding(false);
+                // If the hold didn't fire, treat as a normal tap fill
+                if (!fillHoldFired.current && canFill) {
+                  for (let i = 0; i < fillAmt; i++) onGiveArtisanFood(adventurer.id, topStock);
+                }
+                fillHoldFired.current = false;
+              }
+
               return (
                 <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (canFill) {
-                      for (let i = 0; i < fillAmt; i++) onGiveArtisanFood(adventurer.id, topStock);
-                    }
-                  }}
-                  disabled={!canFill}
+                  onPointerDown={startHold}
+                  onPointerUp={cancelHold}
+                  onPointerLeave={(e) => { clearTimeout(fillHoldTimer.current); setFillHolding(false); fillHoldFired.current = false; e.stopPropagation(); }}
+                  disabled={!canFill && stockFood.length === 0}
                   style={{
                     flex: 1, padding: "0.65rem 0.4rem",
-                    background: canFill ? "rgba(251,191,36,0.12)" : "rgba(255,255,255,0.03)",
-                    border: `1px solid ${canFill ? "rgba(251,191,36,0.35)" : "var(--border)"}`,
+                    position: "relative", overflow: "hidden",
+                    background: fillHolding
+                      ? "rgba(251,191,36,0.22)"
+                      : canFill ? "rgba(251,191,36,0.12)" : "rgba(255,255,255,0.03)",
+                    border: `1px solid ${fillHolding ? "rgba(251,191,36,0.7)" : canFill ? "rgba(251,191,36,0.35)" : "var(--border)"}`,
                     borderRadius: "10px",
                     color: canFill ? "#fbbf24" : "var(--muted)",
                     fontWeight: 700, fontSize: "0.72rem",
-                    cursor: canFill ? "pointer" : "default",
-                    opacity: canFill ? 1 : 0.4,
+                    cursor: canFill || multiStock ? "pointer" : "default",
+                    opacity: (canFill || multiStock) ? 1 : 0.4,
+                    userSelect: "none", WebkitUserSelect: "none",
+                    transition: "background 0.1s, border-color 0.1s",
                   }}
                 >
-                  {def?.emoji ?? "🍞"} Fill
-                  <div style={{ fontSize: "0.55rem", marginTop: "1px", opacity: 0.8 }}>
-                    {canFill
-                      ? `+${fillAmt} (${beltFoodTotal}/${beltCapacity})`
-                      : beltFoodTotal >= beltCapacity ? `${beltFoodTotal}/${beltCapacity} full` : "no stock"}
+                  {/* Hold-progress sweep overlay */}
+                  {fillHolding && (
+                    <div style={{
+                      position: "absolute", inset: 0,
+                      background: "rgba(251,191,36,0.15)",
+                      animation: "fillHoldSweep 0.9s linear forwards",
+                      transformOrigin: "left center",
+                      borderRadius: "10px",
+                      pointerEvents: "none",
+                    }} />
+                  )}
+                  <span style={{ position: "relative", zIndex: 1 }}>
+                    {def?.emoji ?? "🍞"} Fill
+                    {multiStock && (
+                      <span style={{ fontSize: "0.5rem", marginLeft: "3px", opacity: 0.65 }}>⇄</span>
+                    )}
+                  </span>
+                  <div style={{ fontSize: "0.55rem", marginTop: "1px", opacity: 0.8, position: "relative", zIndex: 1 }}>
+                    {fillHolding
+                      ? `hold to swap…`
+                      : canFill
+                        ? `+${fillAmt} (${beltFoodTotal}/${beltCapacity})`
+                        : beltFoodTotal >= beltCapacity ? `${beltFoodTotal}/${beltCapacity} full` : "no stock"}
                   </div>
                 </button>
               );
@@ -1833,7 +1892,7 @@ export default function WorldZone({
 
   return (
     <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 5rem" }}>
-      <style>{`@keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.55; } } @keyframes bossShake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-3px)} 75%{transform:translateX(3px)} }`}</style>
+      <style>{`@keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.55; } } @keyframes bossShake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-3px)} 75%{transform:translateX(3px)} } @keyframes fillHoldSweep { from { transform: scaleX(0); } to { transform: scaleX(1); } }`}</style>
 
       {/* Page header */}
       <div style={{ marginBottom: "0.85rem" }}>

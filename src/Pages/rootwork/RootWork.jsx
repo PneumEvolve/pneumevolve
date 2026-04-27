@@ -34,7 +34,6 @@ import {
   giveBuffItem, removeBuffItem, tickAdventurerRegen,
   hireForgeWorker, fireForgeWorker, assignForgeWorkerRecipe, cancelForgeWorkerRecipe,
   upgradeForgeWorker, toggleForgeWorkerAutoRestart, tickForgeWorkers, upgradeForgeInstance,
-  hireWorldWorker, fireWorldWorker, tickWorldWorkers,
   giveArtisanFood, removeArtisanFood, useArtisanFood,
   tickAdventurerMissions,
   hireAdventurer, spendSkillPoint, getAdventurerSlotCost, getAdventurerSlotUnlocked, isAtWorkerCap,
@@ -470,7 +469,6 @@ export default function RootWork() {
     let next = tick(prev);
     next = tickForgeWorkers(next, 1);
     next = tickAdventurerRegen(next, 1);
-    next = tickWorldWorkers(next, 1);
     next = tickAdventurerMissions(next);
     next = tickBossFight(next, 1);
     next = checkBossUnlock(next);
@@ -764,10 +762,6 @@ export default function RootWork() {
     return result;
   }, []);
 
-  const handleHireWorldWorker = useCallback((zoneId) => {
-    update((s) => { const n = hireWorldWorker(s, zoneId); if (n === s) notify("Not enough cash ($200) or zone not cleared."); return n; });
-  }, [update, notify]);
-  const handleFireWorldWorker = useCallback((zoneId) => update((s) => fireWorldWorker(s, zoneId)), [update]);
 
   // Feast / prestige / misc
   const handleBuyFeast = useCallback(() => { update((s) => { const n = buyFeast(s); if (n === s) notify("Not enough artisan goods."); return n; }); notify("🍽️ Feast held! Grow speed increased."); }, [update, notify]);
@@ -895,8 +889,6 @@ export default function RootWork() {
             onReturnAdventurer={handleReturnAdventurer}
             onEquipAdventurer={handleEquipAdventurer}
             onUnequipAdventurer={handleUnequipAdventurer}
-            onHireWorldWorker={handleHireWorldWorker}
-            onFireWorldWorker={handleFireWorldWorker}
             onGiveArtisanFood={handleGiveArtisanFood}
             onRemoveArtisanFood={handleRemoveArtisanFood}
             onUseArtisanFood={handleUseArtisanFood}

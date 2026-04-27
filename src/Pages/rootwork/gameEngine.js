@@ -1222,7 +1222,6 @@ export function createInitialState() {
     worldZoneClears: {},
     worldResources: { iron_ore: 0, lumber: 0, herbs: 0, rare_gem: 0 },
     forgeBuilt: false,
-    worldWorkers: [],
     forgeWorkers: [],
     forgeGoods: {},
     cropPotions: {},
@@ -3857,7 +3856,6 @@ export function initWorldState(state) {
   if (!next.adventurers) next.adventurers = [];
   if (!next.worldZoneClears) next.worldZoneClears = {};
   if (!next.worldResources) next.worldResources = { iron_ore: 0, lumber: 0, herbs: 0, rare_gem: 0 };
-  if (!next.worldWorkers) next.worldWorkers = [];
   if (!next.forgeWorkers) next.forgeWorkers = [];
   if (!next.forgeGoods) next.forgeGoods = {};
   if (!next.cropPotions) next.cropPotions = {};
@@ -4261,11 +4259,16 @@ export function returnAdventurer(state, adventurerId) {
       return { state: next, result: null };
     }
 
-    // Relentless (fighter_t4): skip food if HP is at or above 50% after a run
-    const relentlessActive = hasHeroSkill(adventurer, "fighter_t4");
-    const relentlessSkipFood = relentlessActive && hpAfterDamage >= Math.floor(bonusMaxHp * 0.50);
+    // Relentless (fighter_t4): skip food based on rank — higher rank = more aggressive food saving
+    // Rank 1: skip food if HP >= 70% (barely hurt)
+    // Rank 2: skip food if HP >= 50% (moderately hurt)
+    // Rank 3: skip food if HP >= 30% (pretty hurt, trust the belt)
+    const relentlessRank = getHeroSkillRank(adventurer, "fighter_t4");
+    const relentlessThresholds = [0, 0.70, 0.50, 0.30];
+    const relentlessThreshold = relentlessThresholds[Math.min(relentlessRank, 3)] ?? 0;
+    const relentlessSkipFood = relentlessRank > 0 && hpAfterDamage >= Math.floor(bonusMaxHp * relentlessThreshold);
 
-    // Relentless: if HP is above 50%, skip food consumption and re-queue without eating
+    // Relentless: skip food consumption and re-queue without eating
     if (relentlessSkipFood) {
       const nextDurationRelentless = getAdventurerMissionDuration({ ...adventurer, level: newLevel, skills }, zone);
       const nextMissionRelentless = {
@@ -4655,10 +4658,11 @@ export function canSpendHeroSkillPoint(adventurer, skillId, prestigeLevel) {
   )?.[0];
   if (!skillTree) return false;
 
-  // Tier-1 skills: choosing a class — only if no class chosen yet
+  // Tier-1 skills: rank 1 unlocks class; ranks 2-3 continue normally in own class
   if (def.tier === 1) {
-    if (heroClass !== null && heroClass !== undefined) return false; // already classed
-    return true;
+    if (!heroClass) return true; // no class yet — allow first purchase
+    if (skillTree !== heroClass) return false; // can't rank another class's tier-1
+    // own class tier-1 ranks 2-3 fall through to normal primary-tree check
   }
 
   // All other tiers: must be in hero's primary class
@@ -5013,53 +5017,6 @@ export function tickAdventurerMissions(state) {
     }
   }
   return next;
-}
-
-// ─── World Workers ─────────────────────────────────────────────────────────────
-
-export function tickWorldWorkers(state, dtSeconds) {
-  const workers = state.worldWorkers ?? [];
-  if (workers.length === 0) return state;
-  let nextResources = { ...(state.worldResources ?? {}) };
-  const updatedWorkers = workers.map((w) => {
-    const zone = WORLD_ZONES[w.zoneId];
-    if (!zone) return w;
-    const ratePerSecond = (zone.workerYieldPerMinute ?? 2) / 60;
-    const accumulated = (w.accumulated ?? 0) + ratePerSecond * dtSeconds;
-    const gained = Math.floor(accumulated);
-    if (gained > 0) {
-      const resourceKey = Object.keys(WORLD_RESOURCES).find(
-        (k) => WORLD_RESOURCES[k].name.toLowerCase() === zone.workerResource?.toLowerCase()
-      ) ?? zone.loot?.[0]?.resourceKey;
-      if (resourceKey) nextResources[resourceKey] = (nextResources[resourceKey] ?? 0) + gained;
-    }
-    return { ...w, accumulated: accumulated - gained };
-  });
-  return { ...state, worldWorkers: updatedWorkers, worldResources: nextResources };
-}
-
-export function hireWorldWorker(state, zoneId) {
-  const zone = WORLD_ZONES[zoneId];
-  if (!zone) return state;
-  const clears = (state.worldZoneClears ?? {})[zoneId] ?? 0;
-  if (clears < zone.clearsNeeded) return state;
-  if ((state.worldWorkers ?? []).some((w) => w.zoneId === zoneId)) return state;
-  if ((state.cash ?? 0) < WORLD_WORKER_HIRE_COST) return state;
-  const worker = {
-    id: "ww_" + Math.random().toString(36).slice(2, 8),
-    zoneId,
-    name: zone.name + " Worker",
-    accumulated: 0,
-  };
-  return {
-    ...state,
-    cash: state.cash - WORLD_WORKER_HIRE_COST,
-    worldWorkers: [...(state.worldWorkers ?? []), worker],
-  };
-}
-
-export function fireWorldWorker(state, zoneId) {
-  return { ...state, worldWorkers: (state.worldWorkers ?? []).filter((w) => w.zoneId !== zoneId) };
 }
 
 // ─── Forge Engine ─────────────────────────────────────────────────────────────
