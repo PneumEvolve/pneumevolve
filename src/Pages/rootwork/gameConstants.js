@@ -696,13 +696,13 @@ export const ANIMAL_SELL_RATES = {
 // Build costs (from treasury)
 export const TOWN_CLINIC_COST        = 1_500;
 export const TOWN_SCHOOL_COST        = 2_500;
-export const TOWN_TAVERN_COST        = 3_000;
+export const TOWN_TAVERN_COST        = 1_500;
 export const TOWN_RESTAURANT_COST    = 5_000;
 export const TOWN_CLOTHIER_COST      = 5_500;
  
 // Per-worker bonuses
-export const CLINIC_CAP_PER_MEDIC        = 0.5;  // +0.5 pop cap per medic
-export const CLINIC_SAT_PER_MEDIC        = 0.3;  // +0.3% sat per medic
+export const CLINIC_CAP_PER_MEDIC        = 2;    // +2 pop cap per medic
+export const CLINIC_SAT_PER_MEDIC        = 0.5;  // +0.5% sat per medic
 export const SCHOOL_GROW_PER_RESEARCHER  = 0.2;  // +0.2% grow speed per researcher
 export const TAVERN_SAT_PER_BARTENDER    = 0.5;  // +0.5% sat per bartender
 export const RESTAURANT_SAT_PER_CHEF     = 0.8;  // +0.8% sat per chef

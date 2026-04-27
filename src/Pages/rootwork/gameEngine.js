@@ -617,9 +617,9 @@ export function buildTownBuilding(state, key) {
   if ((state.town?.treasuryBalance ?? 0) < cost) return state;
   // Gate checks
   const thLevel = getTownHallLevel(state);
-  if (key === "clinic" && thLevel < 2) return state;
+  if (key === "tavern" && thLevel < 1) return state;  // tavern: TH1 only
+  if (key === "clinic" && !isTownBuildingBuilt(state, "tavern")) return state; // clinic: after tavern
   if (key === "school" && !isTownBuildingBuilt(state, "clinic")) return state;
-  if (key === "tavern" && !isTownBuildingBuilt(state, "school")) return state;
   if (key === "restaurant" && !(isTownBuildingBuilt(state, "school") && (state.town?.bakeryLevel ?? 0) >= 1)) return state;
   if (key === "clothier" && !(isTownBuildingBuilt(state, "school") && state.barnBuildings?.wool_shed?.built)) return state;
 
@@ -4331,7 +4331,9 @@ export function returnAdventurer(state, adventurerId) {
 
     // Relentless: skip food consumption and re-queue without eating
     if (relentlessSkipFood) {
-      const nextDurationRelentless = getAdventurerMissionDuration({ ...adventurer, level: newLevel, skills }, zone);
+      let nextDurationRelentless = getAdventurerMissionDuration({ ...adventurer, level: newLevel, skills }, zone);
+      // Tavern buff persists for whole auto battle series
+      if (activeTavernEffect?.effect === "bonus_speed") nextDurationRelentless = Math.max(1, Math.round(nextDurationRelentless * (1 - activeTavernEffect.value)));
       const nextMissionRelentless = {
         ...mission,
         startTime: Date.now(),
@@ -4365,8 +4367,14 @@ export function returnAdventurer(state, adventurerId) {
     // Apply food heal with Fighter Resilience bonus
     const { multiplier: healMult, flatBonus: healFlat } = getHeroHealBonus(adventurer);
     const foodHeal = Math.round(foodToUse.heal * healMult) + healFlat;
-    const hpAfterFood = Math.min(bonusMaxHp, hpAfterDamage + foodHeal);
-    const nextDuration = getAdventurerMissionDuration({ ...adventurer, level: newLevel, skills }, zone);
+    // Tavern fighter buff: bonus maxhp persists across all auto runs
+    const autoRunMaxHp = activeTavernEffect?.effect === "bonus_maxhp"
+      ? bonusMaxHp + Math.round(bonusMaxHp * activeTavernEffect.value)
+      : bonusMaxHp;
+    const hpAfterFood = Math.min(autoRunMaxHp, hpAfterDamage + foodHeal);
+    let nextDuration = getAdventurerMissionDuration({ ...adventurer, level: newLevel, skills }, zone);
+    // Tavern mage buff: speed bonus persists across all auto runs
+    if (activeTavernEffect?.effect === "bonus_speed") nextDuration = Math.max(1, Math.round(nextDuration * (1 - activeTavernEffect.value)));
     const nextMission = {
       ...mission,
       startTime: Date.now(),
@@ -4379,7 +4387,7 @@ export function returnAdventurer(state, adventurerId) {
 
     const updatedAdv = {
       ...adventurer,
-      xp: newXp, level: newLevel, maxHp: bonusMaxHp,
+      xp: newXp, level: newLevel, maxHp: autoRunMaxHp,
       hp: hpAfterFood,
       foodBelt: currentFoodBelt,
       buffSlot: buffSlotConsumed,
