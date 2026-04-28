@@ -3100,16 +3100,19 @@ export function getBarnInstanceDemandRate(inst, state) {
   // produces/sec all animals in this barn generate, accounting for all modifiers
   const animals = inst.animals ?? [];
   if (animals.length === 0) return 0;
+  // Derive animal type from the building definition (animals don't store their own type)
+  const def = BARN_BUILDINGS[inst.buildingType];
+  const animalTypeId = def?.animalType;
+  const type = ANIMAL_TYPES[animalTypeId];
+  if (!type) return 0;
   const sturdyCount = state ? getPrestigeSkillCount(state, "sturdy_stock") : 0;
+  const cycleSeconds = state
+    ? getAnimalEffectiveCycleSeconds(type.cycleSeconds, state)
+    : type.cycleSeconds;
   return animals.reduce((sum, animal) => {
-    const type = ANIMAL_TYPES[animal.animalType ?? inst.animalType];
-    if (!type) return sum;
-    const cycleSeconds = state
-      ? getAnimalEffectiveCycleSeconds(type.cycleSeconds, state)
-      : type.cycleSeconds;
-    // Base yield per cycle (mirrors tick engine logic, using average mood bonus chance)
+    // Base yield per cycle (mirrors tick engine logic, ignoring mood bonus chance for simplicity)
     const bonusYield = getAnimalBonusYield(animal);
-    let avgProduced = 1 + bonusYield; // conservative: ignore mood bonus chance
+    let avgProduced = 1 + bonusYield;
     if (sturdyCount > 0) avgProduced = Math.ceil(avgProduced * Math.pow(1.2, sturdyCount));
     return sum + (avgProduced / cycleSeconds);
   }, 0);
