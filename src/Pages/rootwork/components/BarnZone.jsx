@@ -374,7 +374,9 @@ function BarnWorkerUpgradeTree({ label, upgradeIds, worker, game, onUpgrade }) {
             (uid === "care_2" && !hasSchoolResearch(game, "barn_care_2"));
  
           const canAfford = (game.cash ?? 0) >= u.cost;
-          const canBuy = !owned && requiresMet && canAfford && !researchLocked;
+          const matsOk = canAffordMats(u.upgradeRequires, game.worldResources, game.forgeGoods);
+          const matLabel = matCostLabel(u.upgradeRequires);
+          const canBuy = !owned && requiresMet && canAfford && matsOk && !researchLocked;
           const locked = !owned && !requiresMet;
  
           return (
@@ -416,6 +418,11 @@ function BarnWorkerUpgradeTree({ label, upgradeIds, worker, game, onUpgrade }) {
                     ? "Requires School Research"
                     : u.description}
                 </span>
+                {!owned && requiresMet && !researchLocked && matLabel && (
+                  <span style={{ display: "block", fontSize: "0.6rem", color: matsOk ? "#fbbf24" : "#ef4444", fontWeight: 600, marginTop: "0.1rem" }}>
+                    {matLabel}
+                  </span>
+                )}
               </div>
  
               {!owned && !researchLocked && (
