@@ -589,17 +589,7 @@ function MarketWorkerCard({
   function handleAssign() {
     if (!selectedItem) return;
     const item = SELLABLE_ITEMS.find((i) => i.type === selectedItem);
-    const have = item.isCrop
-  ? (game.crops[item.type] ?? 0)
-  : item.isAnimal
-    ? (game.animalGoods[item.type] ?? 0)
-    : item.isFish
-      ? (game.fishing?.fish?.[item.type] ?? 0)
-      : item.isForge
-        ? (game.forgeGoods?.[item.type] ?? 0)
-        : item.isWorld
-          ? (game.worldResources?.[item.type] ?? 0)
-          : (game.artisan[item.type] ?? 0);
+    const have = getItemStock(game, item);
     let qty;
     if (selectedAmount === "All") {
       qty = have;
@@ -725,17 +715,7 @@ function MarketWorkerCard({
               {showStandingOrderPicker && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", marginTop: "0.5rem" }}>
                   {SELLABLE_ITEMS.map((item) => {
-                    const have = item.isCrop
-  ? (game.crops[item.type] ?? 0)
-  : item.isAnimal
-    ? (game.animalGoods[item.type] ?? 0)
-    : item.isFish
-      ? (game.fishing?.fish?.[item.type] ?? 0)
-      : item.isForge
-        ? (game.forgeGoods?.[item.type] ?? 0)
-        : item.isWorld
-          ? (game.worldResources?.[item.type] ?? 0)
-          : (game.artisan[item.type] ?? 0);
+                    const have = getItemStock(game, item);
                     const isSelected = worker.standingOrder === item.type;
                     return (
                       <button
@@ -898,17 +878,7 @@ function MarketWorkerCard({
             </div>
             <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", marginBottom: "0.4rem" }}>
               {SELLABLE_ITEMS.map((item) => {
-                const have = item.isCrop
-  ? (game.crops[item.type] ?? 0)
-  : item.isAnimal
-    ? (game.animalGoods[item.type] ?? 0)
-    : item.isFish
-      ? (game.fishing?.fish?.[item.type] ?? 0)
-      : item.isForge
-        ? (game.forgeGoods?.[item.type] ?? 0)
-        : item.isWorld
-          ? (game.worldResources?.[item.type] ?? 0)
-          : (game.artisan[item.type] ?? 0);
+                const have = getItemStock(game, item);
                 const isSelected = selectedItem === item.type;
                 return (
                   <button
