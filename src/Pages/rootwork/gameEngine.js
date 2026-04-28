@@ -30,6 +30,9 @@ import {
   TOWN_PEOPLE_PER_GROWTH_BONUS, TOWN_GROWTH_BONUS_PER_STEP,
   TOWN_MAX_GROWTH_BONUS_PERCENT, TOWN_STARTING_PEOPLE,
   TOWN_HALL_MAX_LEVEL, TOWN_HALL_LEVEL_COSTS, TOWN_HALL_L1_IRON, TOWN_HALL_L1_LUMBER,
+  TOWN_HALL_L2_IRON, TOWN_HALL_L2_LUMBER,
+  TOWN_HALL_L3_IRON, TOWN_HALL_L3_LUMBER, TOWN_HALL_L3_FITTING,
+  TOWN_HALL_L4_FITTING, TOWN_HALL_L4_CRATE,
   INVEST_NOW_PCT, INVEST_NOW_CD_SECONDS,
   TREASURY_TIERS, BUILDING_WORKERS_DIVISOR, BUILDING_PULSE_EXTRA_SECONDS,
   BUILDING_UPGRADE_COST, BANK_BUILD_COST, BANK_LEVEL_COSTS,
@@ -202,12 +205,47 @@ export function upgradeTownHall(state) {
   if (currentLevel >= TOWN_HALL_MAX_LEVEL) return state;
   const cost = TOWN_HALL_LEVEL_COSTS[currentLevel];
   if ((next.cash ?? 0) < cost) return state;
-  // Level 0 → 1 also costs iron ore + lumber
+  // Level 0 → 1: iron + lumber
   if (currentLevel === 0) {
     if ((next.worldResources?.iron_ore ?? 0) < TOWN_HALL_L1_IRON) return state;
     if ((next.worldResources?.lumber ?? 0) < TOWN_HALL_L1_LUMBER) return state;
     next.worldResources.iron_ore -= TOWN_HALL_L1_IRON;
     next.worldResources.lumber -= TOWN_HALL_L1_LUMBER;
+  }
+  // Level 1 → 2: more iron + lumber
+  if (currentLevel === 1) {
+    if ((next.worldResources?.iron_ore ?? 0) < TOWN_HALL_L2_IRON) return state;
+    if ((next.worldResources?.lumber ?? 0) < TOWN_HALL_L2_LUMBER) return state;
+    next.worldResources.iron_ore -= TOWN_HALL_L2_IRON;
+    next.worldResources.lumber -= TOWN_HALL_L2_LUMBER;
+  }
+  // Level 2 → 3: iron + lumber + iron fittings
+  if (currentLevel === 2) {
+    if ((next.worldResources?.iron_ore ?? 0) < TOWN_HALL_L3_IRON) return state;
+    if ((next.worldResources?.lumber ?? 0) < TOWN_HALL_L3_LUMBER) return state;
+    const fittingsHave = (next.worldResources?.iron_fitting ?? 0) + (next.forgeGoods?.iron_fitting ?? 0);
+    if (fittingsHave < TOWN_HALL_L3_FITTING) return state;
+    next.worldResources.iron_ore -= TOWN_HALL_L3_IRON;
+    next.worldResources.lumber -= TOWN_HALL_L3_LUMBER;
+    let fittingsNeeded = TOWN_HALL_L3_FITTING;
+    const fromWorld = Math.min(fittingsNeeded, next.worldResources?.iron_fitting ?? 0);
+    if (fromWorld > 0) { next.worldResources.iron_fitting = (next.worldResources.iron_fitting ?? 0) - fromWorld; fittingsNeeded -= fromWorld; }
+    if (fittingsNeeded > 0) { next.forgeGoods = next.forgeGoods ?? {}; next.forgeGoods.iron_fitting = (next.forgeGoods.iron_fitting ?? 0) - fittingsNeeded; }
+  }
+  // Level 3 → 4: iron fittings + reinforced crates
+  if (currentLevel === 3) {
+    const fittingsHave = (next.worldResources?.iron_fitting ?? 0) + (next.forgeGoods?.iron_fitting ?? 0);
+    const cratesHave = (next.worldResources?.reinforced_crate ?? 0) + (next.forgeGoods?.reinforced_crate ?? 0);
+    if (fittingsHave < TOWN_HALL_L4_FITTING) return state;
+    if (cratesHave < TOWN_HALL_L4_CRATE) return state;
+    let fNeeded = TOWN_HALL_L4_FITTING;
+    const fFromWorld = Math.min(fNeeded, next.worldResources?.iron_fitting ?? 0);
+    if (fFromWorld > 0) { next.worldResources.iron_fitting = (next.worldResources.iron_fitting ?? 0) - fFromWorld; fNeeded -= fFromWorld; }
+    if (fNeeded > 0) { next.forgeGoods = next.forgeGoods ?? {}; next.forgeGoods.iron_fitting = (next.forgeGoods.iron_fitting ?? 0) - fNeeded; }
+    let cNeeded = TOWN_HALL_L4_CRATE;
+    const cFromWorld = Math.min(cNeeded, next.worldResources?.reinforced_crate ?? 0);
+    if (cFromWorld > 0) { next.worldResources.reinforced_crate = (next.worldResources.reinforced_crate ?? 0) - cFromWorld; cNeeded -= cFromWorld; }
+    if (cNeeded > 0) { next.forgeGoods = next.forgeGoods ?? {}; next.forgeGoods.reinforced_crate = (next.forgeGoods.reinforced_crate ?? 0) - cNeeded; }
   }
   next.cash -= cost;
   next.town.townHallLevel = currentLevel + 1;
@@ -2394,8 +2432,15 @@ export function tendPlot(state, farmId, plotId) {
  
 export function getPlotUpgradeCost(farm, state = null) {
   const upgradedCount = farm.plots.filter((p) => p.upgraded).length;
-  const costs = [1, 2, 3, 5, 7, 10, 13, 17, 22, 28];
-  const base = costs[upgradedCount] ?? Math.ceil(28 + (upgradedCount - 9) * 7);
+  // Costs for plots 1–36. Early plots are cheap; costs accelerate through mid-game
+  // and become genuinely painful by 6×6 expansion territory.
+  const costs = [
+    2,  4,  6,  10, 14, 20, 28, 38, 50,   // plots 1–9  (3×3 base)
+    65, 82, 102, 125, 150, 178, 210,       // plots 10–16 (4×4 expansion)
+    245, 285, 330, 380, 435, 495, 562, 635, 715, // plots 17–25 (5×5)
+    800, 895, 1000, 1115, 1240, 1380, 1530, 1695, 1875, 2075, 2300, // plots 26–36 (6×6)
+  ];
+  const base = costs[upgradedCount] ?? Math.ceil(2300 + (upgradedCount - 36) * 300);
   if (state && hasPrestigeSkill(state, "bargain_soil")) return Math.max(1, Math.floor(base * 0.5));
   return base;
 }

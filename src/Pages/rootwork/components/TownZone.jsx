@@ -5,7 +5,11 @@ import {
   TOWN_HOME_CAPACITY, TOWN_PULSE_SECONDS, TOWN_JAM_BUILDING_COST,
   TOWN_SAUCE_BUILDING_COST, TOWN_SAT_WHEAT, TOWN_SAT_BAKERY,
   TOWN_SAT_BAKERY_JAM, TOWN_SAT_ALL_BUILDINGS, TOWN_HALL_MAX_LEVEL,
-  TOWN_HALL_LEVEL_COSTS, TOWN_HALL_L1_IRON, TOWN_HALL_L1_LUMBER, TREASURY_TIERS, BUILDING_UPGRADE_COST,
+  TOWN_HALL_LEVEL_COSTS, TOWN_HALL_L1_IRON, TOWN_HALL_L1_LUMBER,
+  TOWN_HALL_L2_IRON, TOWN_HALL_L2_LUMBER,
+  TOWN_HALL_L3_IRON, TOWN_HALL_L3_LUMBER, TOWN_HALL_L3_FITTING,
+  TOWN_HALL_L4_FITTING, TOWN_HALL_L4_CRATE,
+  TREASURY_TIERS, BUILDING_UPGRADE_COST,
   INVEST_NOW_CD_SECONDS,
   BUILDING_PULSE_EXTRA_SECONDS, BANK_BUILD_COST, BANK_LEVEL_COSTS,
   BANK_TIERS, BANK_MAX_LEVEL,
@@ -227,8 +231,16 @@ export default function TownZone({
   const maxTreasuryTier = getMaxTreasuryTier(game);
   const treasuryGrowBonus = getTreasuryGrowBonus(game);
   const thNextCost = thLevel < TOWN_HALL_MAX_LEVEL ? TOWN_HALL_LEVEL_COSTS[thLevel] : null;
-  const canUpgradeTownHall = thNextCost !== null && (game.cash ?? 0) >= thNextCost &&
-  (thLevel !== 0 || ((game.worldResources?.iron_ore ?? 0) >= TOWN_HALL_L1_IRON && (game.worldResources?.lumber ?? 0) >= TOWN_HALL_L1_LUMBER));
+  const thIronHave   = game.worldResources?.iron_ore ?? 0;
+  const thLumberHave = game.worldResources?.lumber ?? 0;
+  const thFittingHave = (game.worldResources?.iron_fitting ?? 0) + (game.forgeGoods?.iron_fitting ?? 0);
+  const thCrateHave   = (game.worldResources?.reinforced_crate ?? 0) + (game.forgeGoods?.reinforced_crate ?? 0);
+  const canUpgradeTownHall = thNextCost !== null && (game.cash ?? 0) >= thNextCost && (
+    (thLevel === 0 && thIronHave >= TOWN_HALL_L1_IRON && thLumberHave >= TOWN_HALL_L1_LUMBER) ||
+    (thLevel === 1 && thIronHave >= TOWN_HALL_L2_IRON && thLumberHave >= TOWN_HALL_L2_LUMBER) ||
+    (thLevel === 2 && thIronHave >= TOWN_HALL_L3_IRON && thLumberHave >= TOWN_HALL_L3_LUMBER && thFittingHave >= TOWN_HALL_L3_FITTING) ||
+    (thLevel === 3 && thFittingHave >= TOWN_HALL_L4_FITTING && thCrateHave >= TOWN_HALL_L4_CRATE)
+  );
   const investNowUnlocked = canInvestNow(game);
   const investNowCdRemaining = Math.ceil(getInvestNowCooldownRemaining(game));
   const investNowReady = investNowUnlocked && investNowCdRemaining === 0;
@@ -579,28 +591,62 @@ export default function TownZone({
           }}>Level {thLevel}/{TOWN_HALL_MAX_LEVEL}</span>
         </div>
         <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
-          {thLevel === 0 && "Build the Town Hall with cash to unlock the treasury, treasury drain tiers, prestige, and the Bakery."}
+          {thLevel === 0 && "Build the Town Hall to unlock the treasury, drain tiers, prestige, and the Bakery."}
           {thLevel === 1 && "Level 2 unlocks the Pantry and treasury tier 2."}
           {thLevel === 2 && "Level 3 unlocks the Cannery, treasury tier 3, and the Bank."}
           {thLevel === 3 && "Level 4 unlocks Invest Now — instantly move 10% of your cash into treasury with a 30s cooldown."}
           {thLevel >= 4 && "Fully upgraded. All systems unlocked including Invest Now."}
         </div>
-        {thNextCost && (
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
-              Cost: <strong style={{ color: canUpgradeTownHall ? "#4ade80" : "var(--text)" }}>${thNextCost.toLocaleString()}</strong>
-              {thLevel === 0 && (
-                <span style={{ marginLeft: "0.4rem" }}>
-                  + <strong style={{ color: (game.worldResources?.iron_ore ?? 0) >= TOWN_HALL_L1_IRON ? "#4ade80" : "#f87171" }}>🪨×{TOWN_HALL_L1_IRON}</strong>
-                  {" "}<strong style={{ color: (game.worldResources?.lumber ?? 0) >= TOWN_HALL_L1_LUMBER ? "#4ade80" : "#f87171" }}>🪵×{TOWN_HALL_L1_LUMBER}</strong>
-                </span>
-              )}
+        {thNextCost && (() => {
+          // Per-level material requirements displayed inline
+          const matRows = {
+            0: [
+              { emoji: "🪨", label: "Iron Ore",         have: thIronHave,   need: TOWN_HALL_L1_IRON },
+              { emoji: "🪵", label: "Lumber",            have: thLumberHave, need: TOWN_HALL_L1_LUMBER },
+            ],
+            1: [
+              { emoji: "🪨", label: "Iron Ore",         have: thIronHave,   need: TOWN_HALL_L2_IRON },
+              { emoji: "🪵", label: "Lumber",            have: thLumberHave, need: TOWN_HALL_L2_LUMBER },
+            ],
+            2: [
+              { emoji: "🪨", label: "Iron Ore",         have: thIronHave,   need: TOWN_HALL_L3_IRON },
+              { emoji: "🪵", label: "Lumber",            have: thLumberHave, need: TOWN_HALL_L3_LUMBER },
+              { emoji: "🔩", label: "Iron Fitting",     have: thFittingHave, need: TOWN_HALL_L3_FITTING },
+            ],
+            3: [
+              { emoji: "🔩", label: "Iron Fitting",     have: thFittingHave, need: TOWN_HALL_L4_FITTING },
+              { emoji: "📦", label: "Reinforced Crate", have: thCrateHave,   need: TOWN_HALL_L4_CRATE },
+            ],
+          };
+          const mats = matRows[thLevel] ?? [];
+          const cashOk = (game.cash ?? 0) >= thNextCost;
+          return (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem" }}>
+                <div style={{ fontSize: "0.72rem", color: "var(--muted)", flex: 1 }}>
+                  <div style={{ marginBottom: mats.length ? "0.35rem" : 0 }}>
+                    Cash: <strong style={{ color: cashOk ? "#4ade80" : "#f87171" }}>${thNextCost.toLocaleString()}</strong>
+                  </div>
+                  {mats.map(({ emoji, label, have, need }) => {
+                    const ok = have >= need;
+                    return (
+                      <div key={label} style={{ display: "flex", alignItems: "center", gap: "0.3rem", marginBottom: "0.15rem" }}>
+                        <span>{emoji}</span>
+                        <span style={{ color: ok ? "#4ade80" : "#f87171", fontWeight: 600 }}>
+                          {label}: {Math.floor(have)}/{need}
+                        </span>
+                        {ok && <span style={{ color: "#4ade80", fontSize: "0.65rem" }}>✓</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+                <button onClick={onUpgradeTownHall} disabled={!canUpgradeTownHall} className="btn" style={{ opacity: canUpgradeTownHall ? 1 : 0.5, fontSize: "0.75rem", flexShrink: 0 }}>
+                  {thLevel === 0 ? "Build →" : "Upgrade →"}
+                </button>
+              </div>
             </div>
-            <button onClick={onUpgradeTownHall} disabled={!canUpgradeTownHall} className="btn" style={{ opacity: canUpgradeTownHall ? 1 : 0.5, fontSize: "0.75rem" }}>
-              {thLevel === 0 ? "Build →" : "Upgrade →"}
-            </button>
-          </div>
-        )}
+          );
+        })()}
         {thLevel >= TOWN_HALL_MAX_LEVEL && (
           <div style={{ fontSize: "0.7rem", color: "#4ade80", textAlign: "center" }}>✓ Max level — Invest Now unlocked</div>
         )}
