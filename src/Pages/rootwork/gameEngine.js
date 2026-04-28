@@ -1822,16 +1822,19 @@ if (activeTier) {
 
     if (worker.hasStandingOrder && worker.standingOrder && (worker.queue ?? []).length === 0) {
   const itemType = worker.standingOrder;
+  const INSTANCED_FORGE_KEYS = new Set(["master_sword", "tower_shield", "plate_armor"]);
   const isWorld  = itemType in WORLD_RESOURCES;
   const isForge  = !isWorld && Object.values(FORGE_RECIPES).some((r) => r.output.resourceKey === itemType);
   const isFish   = !isWorld && !isForge && itemType in (FISHING_FISH ?? {});
   const isAnimal = !isWorld && !isForge && !isFish && itemType in (next.animalGoods ?? {});
   const isArtisan = !isWorld && !isForge && !isFish && !isAnimal && itemType in (next.artisan ?? {});
   const isCrop   = !isWorld && !isForge && !isFish && !isAnimal && !isArtisan;
+  const isInstancedForge = isForge && INSTANCED_FORGE_KEYS.has(itemType);
   const available = isCrop ? (next.crops[itemType] ?? 0)
     : isArtisan ? (next.artisan[itemType] ?? 0)
     : isAnimal ? (next.animalGoods[itemType] ?? 0)
     : isFish ? (next.fishing.fish[itemType] ?? 0)
+    : isInstancedForge ? (next.forgeGoodsInstanced ?? []).filter((i) => i.key === itemType && !i._equippedBy && i.upgradeTier === 3).length
     : isForge ? (next.forgeGoods[itemType] ?? 0)
     : isWorld ? (next.worldResources[itemType] ?? 0) : 0;
   const toPull = Math.min(effectiveIps, available);
@@ -1840,6 +1843,16 @@ if (activeTier) {
     else if (isArtisan) next.artisan[itemType] -= toPull;
     else if (isAnimal) next.animalGoods[itemType] -= toPull;
     else if (isFish) next.fishing.fish[itemType] -= toPull;
+    else if (isInstancedForge) {
+      let removed = 0;
+      next.forgeGoodsInstanced = (next.forgeGoodsInstanced ?? []).filter((i) => {
+        if (i.key === itemType && !i._equippedBy && i.upgradeTier === 3 && removed < toPull) {
+          removed++;
+          return false;
+        }
+        return true;
+      });
+    }
     else if (isForge) next.forgeGoods[itemType] -= toPull;
     else if (isWorld) next.worldResources[itemType] -= toPull;
     worker.queue = [{ id: genId("sale"), itemType, quantity: toPull }];
