@@ -73,7 +73,10 @@ function BarnChecklist({ barnInstance, game, label }) {
   const hasWorker = workers >= PRESTIGE_MIN_BARN_WORKERS;
   const animals = (barnInstance.animals ?? []).length;
   const hasAnimals = animals >= PRESTIGE_MIN_BARN_ANIMALS;
-  const ready = hasWorker && hasAnimals;
+  const supplyRate = getBarnInstanceSupplyRate(barnInstance);
+  const demandRate = getBarnInstanceDemandRate(barnInstance, game);
+  const workerKeepsUp = hasWorker && hasAnimals && supplyRate >= demandRate;
+  const ready = hasWorker && hasAnimals && workerKeepsUp;
   return (
     <div style={{ padding: "0.75rem 0", borderBottom: "1px solid var(--border)", fontSize: "0.82rem" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
@@ -96,6 +99,17 @@ function BarnChecklist({ barnInstance, game, label }) {
           <span>{hasAnimals ? "☑" : "☐"}</span>
           <span>At least {PRESTIGE_MIN_BARN_ANIMALS} animals in barn <span style={{ opacity: 0.7 }}>({animals}/{PRESTIGE_MIN_BARN_ANIMALS})</span></span>
         </div>
+        {hasWorker && hasAnimals && (
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.75rem", color: workerKeepsUp ? "#4ade80" : "var(--muted)" }}>
+            <span>{workerKeepsUp ? "☑" : "☐"}</span>
+            <span>
+              Workers keeping up
+              <span style={{ opacity: 0.7, marginLeft: "0.4rem" }}>
+                ({supplyRate.toFixed(3)} collects/s ≥ {demandRate.toFixed(3)} needed)
+              </span>
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -183,8 +197,8 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
           <h3 style={{ fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.25rem" }}>Barn Readiness</h3>
           <p style={{ fontSize: "0.7rem", color: "var(--muted)", marginBottom: "0.5rem" }}>
             {game.season >= FIRST_CHOICE_SEASON
-              ? "Each built barn needs at least one worker assigned."
-              : "Automate your barn by hiring at least one barn worker."}
+              ? "Each built barn needs workers keeping up with animal production."
+              : "Automate your barn — workers must keep pace with how fast animals produce."}
           </p>
           {(game.barnInstances ?? []).map((inst, idx) => {
             const sameTypeBefore = (game.barnInstances ?? []).slice(0, idx).filter(i => i.buildingType === inst.buildingType).length;

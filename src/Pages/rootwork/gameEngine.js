@@ -3087,14 +3087,43 @@ function makeKeptWorker(worker, type) {
   return base;
 }
 
+export function getBarnInstanceSupplyRate(inst) {
+  // collects/sec this barn's workers can handle
+  return (inst.barnWorkers ?? []).reduce((sum, w) => {
+    const interval = getBarnWorkerInterval(w);
+    const capacity = getBarnWorkerCapacity(w);
+    return sum + (capacity / interval);
+  }, 0);
+}
+
+export function getBarnInstanceDemandRate(inst, state) {
+  // produces/sec all animals in this barn generate, accounting for all modifiers
+  const animals = inst.animals ?? [];
+  if (animals.length === 0) return 0;
+  const sturdyCount = state ? getPrestigeSkillCount(state, "sturdy_stock") : 0;
+  return animals.reduce((sum, animal) => {
+    const type = ANIMAL_TYPES[animal.animalType ?? inst.animalType];
+    if (!type) return sum;
+    const cycleSeconds = state
+      ? getAnimalEffectiveCycleSeconds(type.cycleSeconds, state)
+      : type.cycleSeconds;
+    // Base yield per cycle (mirrors tick engine logic, using average mood bonus chance)
+    const bonusYield = getAnimalBonusYield(animal);
+    let avgProduced = 1 + bonusYield; // conservative: ignore mood bonus chance
+    if (sturdyCount > 0) avgProduced = Math.ceil(avgProduced * Math.pow(1.2, sturdyCount));
+    return sum + (avgProduced / cycleSeconds);
+  }, 0);
+}
+
 export function getBarnPrestigeReady(state) {
   for (const inst of state.barnInstances ?? []) {
     const def = BARN_BUILDINGS[inst.buildingType];
     if (!def) continue;
-    const workers = (inst.barnWorkers ?? []).length;
-    if (workers < PRESTIGE_MIN_BARN_WORKERS) return false;
-    const animals = (inst.animals ?? []).length;
-    if (animals < PRESTIGE_MIN_BARN_ANIMALS) return false;
+    if ((inst.barnWorkers ?? []).length < PRESTIGE_MIN_BARN_WORKERS) return false;
+    if ((inst.animals ?? []).length < PRESTIGE_MIN_BARN_ANIMALS) return false;
+    const supply = getBarnInstanceSupplyRate(inst);
+    const demand = getBarnInstanceDemandRate(inst, state);
+    if (supply < demand) return false;
   }
   return true;
 }
@@ -3141,10 +3170,17 @@ export function getPrestigeBlockers(state) {
       const workers = (inst.barnWorkers ?? []).length;
       if (workers < PRESTIGE_MIN_BARN_WORKERS) {
         blockers.push(`${label}: needs at least 1 barn worker`);
+        continue;
       }
       const animals = (inst.animals ?? []).length;
       if (animals < PRESTIGE_MIN_BARN_ANIMALS) {
         blockers.push(`${label}: needs at least ${PRESTIGE_MIN_BARN_ANIMALS} animals (have ${animals})`);
+        continue;
+      }
+      const supply = getBarnInstanceSupplyRate(inst);
+      const demand = getBarnInstanceDemandRate(inst, state);
+      if (supply < demand) {
+        blockers.push(`${label}: workers not keeping up (${supply.toFixed(3)} collects/s < ${demand.toFixed(3)} needed)`);
       }
     }
   }
