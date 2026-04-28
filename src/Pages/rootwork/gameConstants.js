@@ -300,7 +300,7 @@ export const PRESTIGE_SKILL_TREE = {
   efficient_process: {
     id: "efficient_process", branch: "crafter", tier: 3,
     name: "Efficient Process", emoji: "♻️",
-    description: "All recipes consume 50% of resources.",
+    description: "All recipes consume 25% fewer resources.",
     requires: "swift_craft",
     unique: true,
   },

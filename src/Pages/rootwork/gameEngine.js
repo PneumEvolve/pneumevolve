@@ -1035,7 +1035,7 @@ function _startKitchenWorkerRecipe(worker, recipeId, crops, animalGoods, fish, b
   if (!recipe?.inputCrop) return false;
   const batch = getKitchenWorkerBatchSize(worker);
   const efficient = state ? hasPrestigeSkill(state, "efficient_process") : false;
-  const inputMult = efficient ? 0.5 : 1;
+  const inputMult = efficient ? 0.75 : 1;
   const totalInput = Math.max(1, Math.floor(recipe.inputAmount * batch * inputMult));
   const inCrops = recipe.inputCrop in (crops ?? {});
 const inAnimal = !inCrops && recipe.inputCrop in (animalGoods ?? {});
@@ -1065,7 +1065,7 @@ export function cancelKitchenWorkerRecipe(state, workerId) {
     if (recipe?.inputCrop) {
       const cleanSwitch = hasPrestigeSkill(next, "clean_switch");
       const efficient = hasPrestigeSkill(next, "efficient_process");
-      const inputMult = efficient ? 0.5 : 1;
+      const inputMult = efficient ? 0.75 : 1;
       const totalConsumed = Math.max(1, Math.floor(recipe.inputAmount * batch * inputMult));
       const refund = cleanSwitch ? totalConsumed : Math.floor(totalConsumed * 0.5);
       if (recipe.inputCrop in (next.crops ?? {})) next.crops[recipe.inputCrop] += refund;

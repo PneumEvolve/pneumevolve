@@ -205,7 +205,7 @@ function RecipeSection({ title, icon, accentColor, recipeIds, recipes, worker, b
 function RecipeGroups({ worker, game, batch, onAssignRecipe, onClose }) {
   // Pre-compute recipe metadata for all categories
   function buildRecipe(recipeId, baseRecipe, haveVal, inStockVal, outputLabel) {
-    const efficientMult = hasPrestigeSkill(game, "efficient_process") ? 0.5 : 1;
+    const efficientMult = hasPrestigeSkill(game, "efficient_process") ? 0.75 : 1;
     const totalInput = Math.max(1, Math.floor(baseRecipe.inputAmount * batch * efficientMult));
     const effectiveSeconds = getEffectiveKitchenSeconds(worker, baseRecipe.seconds);
     const canStart = haveVal >= totalInput;
@@ -420,7 +420,7 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
               <ProgressBar elapsed={worker.elapsedSeconds} total={worker.totalSeconds} />
               <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginTop: "0.3rem" }}>
                 {(() => {
-                  const efficientMult = hasPrestigeSkill(game, "efficient_process") ? 0.5 : 1;
+                  const efficientMult = hasPrestigeSkill(game, "efficient_process") ? 0.75 : 1;
                   const consumed = Math.max(1, Math.floor(recipe.inputAmount * batch * efficientMult));
                   return `Produces ${recipe.outputAmount * batch} ${recipe.emoji}${recipe.healAmount ? ` · ❤️+${recipe.healAmount}hp each` : ""} · consumes ${consumed}× ${recipe.inputCrop}`;
                 })()}
@@ -435,7 +435,7 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
               background: "var(--bg)", borderRadius: "6px", padding: "0.4rem 0.6rem",
             }}>
               {hasAutoRestart
-                ? `Waiting for ${Math.max(1, Math.floor(recipe.inputAmount * batch * (hasPrestigeSkill(game, "efficient_process") ? 0.5 : 1)))}× ${recipe.inputCrop} to restart`
+                ? `Waiting for ${Math.max(1, Math.floor(recipe.inputAmount * batch * (hasPrestigeSkill(game, "efficient_process") ? 0.75 : 1)))}× ${recipe.inputCrop} to restart`
                 : `✓ Done — tap 🍳 Again or assign a new recipe below`}
             </div>
           )}
