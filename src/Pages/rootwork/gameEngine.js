@@ -687,7 +687,9 @@ export function getSatisfactionTarget(state) {
   else base = TOWN_SAT_BAKERY;
   // Add flat bonuses from town buildings (clinic, tavern, restaurant)
   const buildingBonus = getTownBuildingSatBonus(state);
-  return Math.min(getSatisfactionCeiling(state), Math.round(base + buildingBonus));
+  // Add rabbit pet bonus (+5 sat while mood >= 50)
+  const rabbitBonus = (state.pets?.rabbit && (state.pets.rabbit.mood ?? 0) >= 50) ? 5 : 0;
+  return Math.min(getSatisfactionCeiling(state), Math.round(base + buildingBonus + rabbitBonus));
 }
  
 export function getTownSatisfactionMultiplier(state) {
