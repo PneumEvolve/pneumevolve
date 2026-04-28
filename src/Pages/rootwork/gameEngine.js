@@ -1318,9 +1318,9 @@ export function getBarnWorkerHireCost(state) {
 
 export function getBarnWorkerInterval(worker) {
   const upgrades = worker.upgrades ?? [];
-  if (upgrades.includes("speed_2")) return 20;
-  if (upgrades.includes("speed_1")) return 25;
-  return BARN_WORKER_BASE_INTERVAL; // 30
+  if (upgrades.includes("speed_2")) return 40;
+  if (upgrades.includes("speed_1")) return 50;
+  return BARN_WORKER_BASE_INTERVAL; // 60
 }
 
 export function getBarnWorkerCapacity(worker) {

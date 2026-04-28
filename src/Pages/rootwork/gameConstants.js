@@ -99,7 +99,7 @@ export const MARKET_SELL_RATES = {
   wheat: 0.5, berries: 1.25, tomatoes: 3,
   bread: 30,  jam: 50,       sauce: 80,
   egg: 5, milk: 15, wool: 25,
-  omelette: 40, cheese: 60, knitted_goods: 90,
+  omelette: 40, cheese: 70, knitted_goods: 90,
   minnow: 2, bass: 8, perch: 12, rare: 35,
   fish_pie: 45, smoked_fish: 35, fish_meal: 20,
   // World loot
@@ -152,8 +152,8 @@ export const KITCHEN_SLOT_UPGRADES = { speed_1: { speedMultiplier: 0.75 }, speed
 export const BARN_WORKER_HIRE_BASE_COST = 50;
 export const BARN_WORKER_HIRE_MULTIPLIER = 1.6;
 export const BARN_WORKER_UPGRADES = {
-  speed_1:    { id: "speed_1",    name: "Quick Rounds",  emoji: "⚡", cost: 150, upgradeTier: 1, upgradeRequires: { iron_ore: 5, lumber: 4 }, description: "Collect every 25s",     requires: null,         tree: "speed" },
-  speed_2:    { id: "speed_2",    name: "Sprint Rounds", emoji: "⚡", cost: 350, upgradeTier: 2, upgradeRequires: { iron_ore: 20, lumber: 15 }, description: "Collect every 20s",     requires: "speed_1",    tree: "speed" },
+  speed_1:    { id: "speed_1",    name: "Quick Rounds",  emoji: "⚡", cost: 150, upgradeTier: 1, upgradeRequires: { iron_ore: 5, lumber: 4 }, description: "Collect every 50s",     requires: null,         tree: "speed" },
+  speed_2:    { id: "speed_2",    name: "Sprint Rounds", emoji: "⚡", cost: 350, upgradeTier: 2, upgradeRequires: { iron_ore: 20, lumber: 15 }, description: "Collect every 40s",     requires: "speed_1",    tree: "speed" },
   capacity_1: { id: "capacity_1", name: "Big Basket",    emoji: "📦", cost: 200, upgradeTier: 1, upgradeRequires: { iron_ore: 5, lumber: 4 }, description: "Collect 3 at once",     requires: null,         tree: "capacity" },
   capacity_2: { id: "capacity_2", name: "Cargo Basket",  emoji: "📦", cost: 400, upgradeTier: 2, upgradeRequires: { iron_ore: 20, lumber: 15 }, description: "Collect 6 at once",     requires: "capacity_1", tree: "capacity" },
   care_1:     { id: "care_1",     name: "Gentle Hands",  emoji: "💝", cost: 150, upgradeTier: 1, upgradeRequires: { iron_ore: 5, lumber: 4 }, description: "+25 mood to neediest animal every 2min", requires: null,      tree: "care" },
@@ -168,7 +168,7 @@ export const ANIMAL_YIELD_UPGRADES = [
   { level: 2, cost: 350, bonusYield: 2, upgradeTier: 2, upgradeRequires: { iron_ore: 20, lumber: 15 }, label: "Pampered"    },
   { level: 3, cost: 1200, bonusYield: 3, upgradeTier: 3, upgradeRequires: { fine_tools: 5 }, label: "Prize Animal" },
 ];
-export const BARN_WORKER_BASE_INTERVAL = 30;  // seconds between collect actions
+export const BARN_WORKER_BASE_INTERVAL = 60;  // seconds between collect actions
 export const BARN_WORKER_BASE_CAPACITY = 1;
 export const ANIMAL_BASE_STOCK_MAX = 10;
 export const ANIMAL_OVERFULL_MOOD_DRAIN = 15; // multiplier on normal drain when full
@@ -601,21 +601,21 @@ export const BARN_BUILDINGS = {
     id: "chicken_coop", name: "Chicken Coop", emoji: "🐔",
     animalType: "chicken",
     buildCost: 500,
-    upkeepPerAnimalPerSec: 0.50,
+    upkeepPerAnimalPerSec: 0.15,
     unlockSeason: 4,
   },
   dairy: {
     id: "dairy", name: "Dairy", emoji: "🐄",
     animalType: "cow",
     buildCost: 2000,
-    upkeepPerAnimalPerSec: 0.20,
+    upkeepPerAnimalPerSec: 0.25,
     unlockSeason: 5,
   },
   wool_shed: {
     id: "wool_shed", name: "Wool Shed", emoji: "🐑",
     animalType: "sheep",
     buildCost: 5000,
-    upkeepPerAnimalPerSec: 0.20,
+    upkeepPerAnimalPerSec: 0.30,
     unlockSeason: 6,
   },
 };
