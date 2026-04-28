@@ -695,8 +695,9 @@ function SkillTree({ adventurer, game, onSpendSkillPoint, onPrestige, onShowPres
 // ─── Hero Modal ────────────────────────────────────────────────────────────────
 function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onGiveArtisanFood, onRemoveArtisanFood, onUseArtisanFood, onGiveBuffItem, onRemoveBuffItem, onSpendSkillPoint, onPrestige, onRevive }) {
   const [prestigeBanner, setPrestigeBanner] = React.useState(false);
-  const cls = heroClass
-    ? (HERO_CLASS_META[heroClass] ?? ADVENTURER_CLASSES[adventurer.class] ?? { name: "Adventurer", emoji: "🧭" })
+  const _heroClass = adventurer.heroClass ?? null;
+  const cls = _heroClass
+    ? (HERO_CLASS_META[_heroClass] ?? { name: "Adventurer", emoji: "🧭" })
     : { name: "Adventurer", emoji: "🧭" };
   const maxHp = adventurer.maxHp ?? getAdventurerMaxHp(adventurer);
   const hp = adventurer.hp ?? maxHp;
