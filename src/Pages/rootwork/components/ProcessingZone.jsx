@@ -20,6 +20,7 @@ import {
   getFishMealGrowBonus,
   isTownBuildingBuilt,
   hasSchoolResearch,
+  hasPrestigeSkill,
 } from "../gameEngine";
  
 const RECIPE_LIST = ["bread", "jam", "sauce", "omelette", "cheese", "knitted_goods", "fish_pie", "smoked_fish", "fish_meal", "fish_meal_bass"];
@@ -204,7 +205,8 @@ function RecipeSection({ title, icon, accentColor, recipeIds, recipes, worker, b
 function RecipeGroups({ worker, game, batch, onAssignRecipe, onClose }) {
   // Pre-compute recipe metadata for all categories
   function buildRecipe(recipeId, baseRecipe, haveVal, inStockVal, outputLabel) {
-    const totalInput = baseRecipe.inputAmount * batch;
+    const efficientMult = hasPrestigeSkill(game, "efficient_process") ? 0.5 : 1;
+    const totalInput = Math.max(1, Math.floor(baseRecipe.inputAmount * batch * efficientMult));
     const effectiveSeconds = getEffectiveKitchenSeconds(worker, baseRecipe.seconds);
     const canStart = haveVal >= totalInput;
     return {
@@ -417,7 +419,11 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
               </div>
               <ProgressBar elapsed={worker.elapsedSeconds} total={worker.totalSeconds} />
               <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginTop: "0.3rem" }}>
-                Produces {recipe.outputAmount * batch} {recipe.emoji}{recipe.healAmount ? ` · ❤️+${recipe.healAmount}hp each` : ""} · consumes {recipe.inputAmount * batch}× {recipe.inputCrop}
+                {(() => {
+                  const efficientMult = hasPrestigeSkill(game, "efficient_process") ? 0.5 : 1;
+                  const consumed = Math.max(1, Math.floor(recipe.inputAmount * batch * efficientMult));
+                  return `Produces ${recipe.outputAmount * batch} ${recipe.emoji}${recipe.healAmount ? ` · ❤️+${recipe.healAmount}hp each` : ""} · consumes ${consumed}× ${recipe.inputCrop}`;
+                })()}
               </div>
             </div>
           )}
@@ -429,7 +435,7 @@ function KitchenWorkerCard({ worker, game, onAssignRecipe, onUpgrade, onFire, on
               background: "var(--bg)", borderRadius: "6px", padding: "0.4rem 0.6rem",
             }}>
               {hasAutoRestart
-                ? `Waiting for ${recipe.inputAmount * batch}× ${recipe.inputCrop} to restart`
+                ? `Waiting for ${Math.max(1, Math.floor(recipe.inputAmount * batch * (hasPrestigeSkill(game, "efficient_process") ? 0.5 : 1)))}× ${recipe.inputCrop} to restart`
                 : `✓ Done — tap 🍳 Again or assign a new recipe below`}
             </div>
           )}
