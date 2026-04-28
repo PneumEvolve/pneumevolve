@@ -13,6 +13,7 @@ import {
   getTownHallLevel, getEffectiveGrowTime, getWorkerHarvestRate,
   getTreasuryGrowBonus, getFishMealGrowBonus, getSchoolGrowBonus,
   getAvailablePrestigePoints, getBarnPrestigeReady,
+  getBarnInstanceSupplyRate, getBarnInstanceDemandRate,
 } from "../gameEngine";
  
 function FarmChecklist({ farm, game }) {
