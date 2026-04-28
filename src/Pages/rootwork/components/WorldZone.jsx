@@ -695,7 +695,9 @@ function SkillTree({ adventurer, game, onSpendSkillPoint, onPrestige, onShowPres
 // ─── Hero Modal ────────────────────────────────────────────────────────────────
 function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onGiveArtisanFood, onRemoveArtisanFood, onUseArtisanFood, onGiveBuffItem, onRemoveBuffItem, onSpendSkillPoint, onPrestige, onRevive }) {
   const [prestigeBanner, setPrestigeBanner] = React.useState(false);
-  const cls = ADVENTURER_CLASSES[adventurer.class] ?? ADVENTURER_CLASSES.fighter;
+  const cls = heroClass
+    ? (HERO_CLASS_META[heroClass] ?? ADVENTURER_CLASSES[adventurer.class] ?? { name: "Adventurer", emoji: "🧭" })
+    : { name: "Adventurer", emoji: "🧭" };
   const maxHp = adventurer.maxHp ?? getAdventurerMaxHp(adventurer);
   const hp = adventurer.hp ?? maxHp;
   const xpNeeded = getXpNeeded(adventurer.level ?? 1);
@@ -993,8 +995,8 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
 
   const heroClass = adventurer.heroClass ?? null;
   const cls = heroClass
-    ? (HERO_CLASS_META[heroClass] ? { ...HERO_CLASS_META[heroClass], emoji: HERO_CLASS_META[heroClass].emoji, name: HERO_CLASS_META[heroClass].name } : ADVENTURER_CLASSES[adventurer.class] ?? ADVENTURER_CLASSES.fighter)
-    : (ADVENTURER_CLASSES[adventurer.class] ?? ADVENTURER_CLASSES.fighter);
+    ? (HERO_CLASS_META[heroClass] ?? ADVENTURER_CLASSES[adventurer.class] ?? { name: "Adventurer", emoji: "🧭" })
+    : { name: "Adventurer", emoji: "🧭" };
   const isOnMission = !!adventurer.mission;
   const mission = adventurer.mission;
   const elapsed = isOnMission ? Math.min((Date.now() - mission.startTime) / 1000, mission.duration) : 0;
@@ -1501,8 +1503,8 @@ function BossHpBar({ hp, maxHp }) {
 }
 
 function BossHeroSlot({ adventurer, game, onUnassign, onUseAbility, onRevive, onUseArtisanFood }) {
-  const cls = adventurer.heroClass ?? adventurer.class ?? "fighter";
-  const classMeta = HERO_CLASS_META[cls] ?? { emoji: "⚔️", color: "#ef4444" };
+  const cls = adventurer.heroClass ?? adventurer.class ?? null;
+  const classMeta = (cls ? HERO_CLASS_META[cls] : null) ?? { name: "Adventurer", emoji: "🧭", color: "#94a3b8" };
   const abilityDef = BOSS_ABILITIES[cls] ?? null;
   const ability = adventurer.bossFightAbility ?? {};
   const cooldownLeft = Math.max(0, Math.ceil(ability.cooldownRemaining ?? 0));
@@ -1861,8 +1863,8 @@ function BossTab({ game, adventurers, bossFight, bossDef, onAssign, onUnassign, 
             )}
           </div>
           {availableHeroes.map((adv) => {
-            const cls = adv.heroClass ?? adv.class ?? "fighter";
-            const classMeta = HERO_CLASS_META[cls] ?? { emoji: "⚔️", name: "Fighter" };
+            const cls = adv.heroClass ?? adv.class ?? null;
+            const classMeta = (cls ? HERO_CLASS_META[cls] : null) ?? { emoji: "🧭", name: "Adventurer" };
             const maxHp = adv.maxHp ?? (40 + ((adv.level ?? 1) - 1) * 8);
             const hp = adv.hp ?? maxHp;
             return (
