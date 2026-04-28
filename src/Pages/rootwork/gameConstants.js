@@ -327,11 +327,12 @@ export const PRESTIGE_BONUSES = {
  
 // ─── Prestige cash thresholds ─────────────────────────────────────────────────
 export const PRESTIGE_CASH_THRESHOLDS = [120, 400, 800];
-export const PRESTIGE_CASH_THRESHOLD_INCREMENT = 400;
+export const PRESTIGE_CASH_THRESHOLD_BASE_S4 = 2000;
+export const PRESTIGE_CASH_THRESHOLD_MULTIPLIER = 1.6;
  
 export function getPrestigeCashThreshold(currentSeason) {
   if (currentSeason <= 3) return PRESTIGE_CASH_THRESHOLDS[currentSeason - 1];
-  return 400 + (currentSeason - 3) * PRESTIGE_CASH_THRESHOLD_INCREMENT;
+  return Math.round(PRESTIGE_CASH_THRESHOLD_BASE_S4 * Math.pow(PRESTIGE_CASH_THRESHOLD_MULTIPLIER, currentSeason - 4));
 }
  
 // ─── Extra farm unlocks (season 4+) ──────────────────────────────────────────
