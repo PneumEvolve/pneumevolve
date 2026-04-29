@@ -461,10 +461,10 @@ export const MAX_OFFLINE_SECONDS = 4 * 60 * 60;
 // ─── Pond ─────────────────────────────────────────────────────────────────────
 
 export const FISHING_BODIES = {
-  pond:  { id: "pond",  name: "Pond",  emoji: "🏊", unlockCost: 0     },
-  lake:  { id: "lake",  name: "Lake",  emoji: "🏞️", unlockCost: 2000,  materialCost: { lumber: 15, iron_ore: 10 } },
-  river: { id: "river", name: "River", emoji: "🏔️", unlockCost: 8000,  materialCost: { lumber: 30, iron_fitting: 3 } },
-  ocean: { id: "ocean", name: "Ocean", emoji: "🌊", unlockCost: 25000, materialCost: { iron_fitting: 5, fine_tools: 3 } },
+  pond:  { id: "pond",  name: "Pond",  emoji: "🏊", unlockCost: 0,     maxWorkers: 1 },
+  lake:  { id: "lake",  name: "Lake",  emoji: "🏞️", unlockCost: 2000,  maxWorkers: 2, materialCost: { lumber: 15, iron_ore: 10 } },
+  river: { id: "river", name: "River", emoji: "🏔️", unlockCost: 8000,  maxWorkers: 4, materialCost: { lumber: 30, iron_fitting: 3 } },
+  ocean: { id: "ocean", name: "Ocean", emoji: "🌊", unlockCost: 25000, maxWorkers: 8, materialCost: { iron_fitting: 5, fine_tools: 3 } },
 };
 export const FISHING_BODY_ORDER = ["pond", "lake", "river", "ocean"];
 

@@ -14,10 +14,6 @@ import {
   getPlayerFishingSweetSpotBonus, getPlayerFishingReelBonus, getPlayerFishingPatienceBonus, getPlayerFishingHaul,
 } from "../gameEngine";
 
-const SPEED_UPGRADES = ["speed_1", "speed_2"];
-const HAUL_UPGRADES  = ["haul_1",  "haul_2"];
-const GEAR_UPGRADES  = ["gear_good", "gear_expert"];
-
 const POND_STYLES = `
   @keyframes ripple { 0% { transform: scale(0.8); opacity: 0.6; } 100% { transform: scale(2.4); opacity: 0; } }
   @keyframes bobber-idle { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-4px); } }
@@ -316,79 +312,10 @@ function canAffordMats(upgradeRequires, worldResources, forgeGoods) {
   return true;
 }
 
-// ─── Worker upgrade tree ──────────────────────────────────────────────────────
-
-function WorkerUpgradeTree({ label, upgradeIds, worker, game, bodyId, onUpgrade }) {
-  const upgrades = worker.upgrades ?? [];
-  const SCHOOL_RESEARCH_GATE = {
-    haul_2:      "fishing_haul_2",
-    gear_expert: "fishing_gear_expert",
-  };
-  return (
-    <div>
-      <div style={{ fontSize: "0.62rem", fontWeight: 600, color: "rgba(255,255,255,0.4)", marginBottom: "0.3rem", letterSpacing: "0.06em" }}>
-        {label}
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-        {upgradeIds.map((uid) => {
-          const u = FISHING_WORKER_UPGRADES[uid];
-          const owned = upgrades.includes(uid);
-          const requiresMet = !u.requires || upgrades.includes(u.requires);
-          const researchId = SCHOOL_RESEARCH_GATE[uid];
-          const schoolLocked = researchId ? !hasSchoolResearch(game, researchId) : false;
-          const canAfford = (game.cash ?? 0) >= u.cost;
-          const matsOk = canAffordMats(u.upgradeRequires, game.worldResources, game.forgeGoods);
-          const canBuy = !owned && requiresMet && canAfford && matsOk && !schoolLocked;
-          const locked = !owned && !requiresMet;
-          const matLabel = matCostLabel(u.upgradeRequires);
-          return (
-            <div key={uid} style={{
-              display: "flex", alignItems: "center", justifyContent: "space-between",
-              padding: "0.28rem 0.45rem", borderRadius: "6px",
-              background: owned ? "rgba(74,222,128,0.08)" : "rgba(0,0,0,0.3)",
-              border: `1px solid ${owned ? "rgba(74,222,128,0.3)" : schoolLocked && requiresMet ? "rgba(167,139,250,0.4)" : "rgba(255,255,255,0.1)"}`,
-              opacity: locked ? 0.4 : 1,
-            }}>
-              <div style={{ fontSize: "0.68rem" }}>
-                <span style={{ fontWeight: 600, color: owned ? "#4ade80" : schoolLocked && requiresMet ? "#a78bfa" : "#fff" }}>
-                  {owned ? "✓" : schoolLocked && requiresMet ? "🏫" : locked ? "🔒" : u.emoji} {u.name}
-                </span>
-                <span style={{ marginLeft: "0.35rem", fontSize: "0.6rem", color: "rgba(255,255,255,0.4)" }}>
-                  {schoolLocked && requiresMet ? "Requires School Research" : u.description}
-                </span>
-                {!owned && requiresMet && !schoolLocked && matLabel && (
-                  <span style={{ display: "block", fontSize: "0.58rem", color: matsOk ? "#fbbf24" : "#ef4444", fontWeight: 600, marginTop: "0.1rem" }}>
-                    {matLabel}
-                  </span>
-                )}
-              </div>
-              {!owned && !schoolLocked && (
-                <button
-                  onClick={() => canBuy && onUpgrade(bodyId, uid)}
-                  disabled={!canBuy}
-                  style={{
-                    fontSize: "0.62rem", padding: "0.15rem 0.4rem", borderRadius: "6px",
-                    cursor: canBuy ? "pointer" : "default", marginLeft: "0.4rem", flexShrink: 0,
-                    background: canBuy ? "rgba(99,102,241,0.4)" : "rgba(255,255,255,0.06)",
-                    border: `1px solid ${canBuy ? "rgba(99,102,241,0.7)" : "rgba(255,255,255,0.1)"}`,
-                    color: canBuy ? "#fff" : "rgba(255,255,255,0.3)",
-                    opacity: canBuy ? 1 : 0.6,
-                  }}
-                >
-                  ${u.cost}
-                </button>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 // ─── Fishing worker card ──────────────────────────────────────────────────────
 
-function FishingWorkerCard({ bodyId, worker, game, onUpgrade, onSetBait, onToggleAllowedFish }) {
+function FishingWorkerCard({ bodyId, workerIndex, worker, game, onUpgrade, onSetBait, onFireWorker, onToggleAllowedFish }) {
   const [showUpgrades, setShowUpgrades] = useState(false);
   const interval = getFishingWorkerInterval(worker, game);
   const haul = getFishingWorkerHaul(worker);
@@ -401,60 +328,69 @@ function FishingWorkerCard({ bodyId, worker, game, onUpgrade, onSetBait, onToggl
   const allFishIds = ["minnow", "bass", "perch", "rare"];
   const allowedFish = worker.allowedFish ?? allFishIds;
 
+  const SPEED_UPGRADES = ["speed_1", "speed_2"];
+  const HAUL_UPGRADES  = ["haul_1",  "haul_2"];
+  const GEAR_UPGRADES  = ["gear_good", "gear_expert"];
+
   return (
     <div style={{
-      background: "rgba(0,0,0,0.5)", border: "1px solid rgba(255,255,255,0.12)",
-      borderRadius: "12px", overflow: "hidden",
+      background: "rgba(0,0,0,0.45)", border: "1px solid rgba(255,255,255,0.1)",
+      borderRadius: "10px", overflow: "hidden",
     }}>
       {/* Header */}
-      <div style={{ padding: "0.6rem 0.75rem", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div style={{ padding: "0.5rem 0.65rem", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
-          <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "#fff" }}>
-            🎣 Fisher
-            <span style={{ marginLeft: "0.35rem", fontSize: "0.6rem", color: "rgba(255,255,255,0.4)", fontWeight: 400 }}>
+          <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#fff" }}>
+            🎣 Fisher #{workerIndex + 1}
+            <span style={{ marginLeft: "0.3rem", fontSize: "0.58rem", color: "rgba(255,255,255,0.4)", fontWeight: 400 }}>
               {gear} rod · {haul} fish/{interval}s
             </span>
           </div>
-          <div style={{ fontSize: "0.62rem", color: "rgba(255,255,255,0.4)", marginTop: "0.1rem" }}>
+          <div style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.35)", marginTop: "0.08rem" }}>
             {assignedBait
               ? `${BAIT_TYPES[assignedBait]?.emoji} ${BAIT_TYPES[assignedBait]?.name} (${baitHave} left)`
               : "No bait assigned"}
           </div>
         </div>
-        <button
-          onClick={() => setShowUpgrades((v) => !v)}
-          style={{
-            fontSize: "0.65rem", padding: "0.2rem 0.45rem", borderRadius: "6px", cursor: "pointer",
-            background: showUpgrades ? "rgba(99,102,241,0.4)" : "rgba(255,255,255,0.08)",
-            border: `1px solid ${showUpgrades ? "rgba(99,102,241,0.7)" : "rgba(255,255,255,0.15)"}`,
-            color: "#fff",
-          }}
-        >
-          ⚡ Upgrades
-        </button>
+        <div style={{ display: "flex", gap: "0.3rem", alignItems: "center" }}>
+          <button
+            onClick={() => setShowUpgrades((v) => !v)}
+            style={{
+              fontSize: "0.6rem", padding: "0.18rem 0.4rem", borderRadius: "6px", cursor: "pointer",
+              background: showUpgrades ? "rgba(99,102,241,0.4)" : "rgba(255,255,255,0.08)",
+              border: `1px solid ${showUpgrades ? "rgba(99,102,241,0.7)" : "rgba(255,255,255,0.12)"}`,
+              color: "#fff",
+            }}
+          >⚡</button>
+          <button
+            onClick={() => onFireWorker(bodyId, workerIndex)}
+            style={{
+              fontSize: "0.6rem", padding: "0.18rem 0.4rem", borderRadius: "6px", cursor: "pointer",
+              background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.25)",
+              color: "#ef4444", fontWeight: 600,
+            }}
+          >✕</button>
+        </div>
       </div>
 
       {/* Timer bar */}
-      <div style={{ height: "3px", background: "rgba(255,255,255,0.08)" }}>
-        <div style={{
-          height: "100%", width: `${timerPct}%`,
-          background: "#4ade80", transition: "width 1s linear",
-        }} />
+      <div style={{ height: "2px", background: "rgba(255,255,255,0.06)" }}>
+        <div style={{ height: "100%", width: `${timerPct}%`, background: "#4ade80", transition: "width 1s linear" }} />
       </div>
 
       {/* Bait assignment */}
       <div style={{
-        padding: "0.5rem 0.75rem", borderTop: "1px solid rgba(255,255,255,0.08)",
-        display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap",
+        padding: "0.4rem 0.65rem", borderTop: "1px solid rgba(255,255,255,0.06)",
+        display: "flex", alignItems: "center", gap: "0.3rem", flexWrap: "wrap",
       }}>
-        <span style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.35)", letterSpacing: "0.06em" }}>BAIT</span>
+        <span style={{ fontSize: "0.56rem", color: "rgba(255,255,255,0.3)", letterSpacing: "0.06em" }}>BAIT</span>
         <button
-          onClick={() => onSetBait(bodyId, null)}
+          onClick={() => onSetBait(bodyId, null, workerIndex)}
           style={{
-            fontSize: "0.62rem", padding: "0.15rem 0.4rem", borderRadius: "6px", cursor: "pointer",
-            background: !assignedBait ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.05)",
-            border: `1px solid ${!assignedBait ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.1)"}`,
-            color: !assignedBait ? "#fff" : "rgba(255,255,255,0.4)",
+            fontSize: "0.58rem", padding: "0.12rem 0.35rem", borderRadius: "5px", cursor: "pointer",
+            background: !assignedBait ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.04)",
+            border: `1px solid ${!assignedBait ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.08)"}`,
+            color: !assignedBait ? "#fff" : "rgba(255,255,255,0.35)",
             fontWeight: !assignedBait ? 700 : 400,
           }}
         >None</button>
@@ -465,12 +401,12 @@ function FishingWorkerCard({ bodyId, worker, game, onUpgrade, onSetBait, onToggl
           return (
             <button
               key={bait.id}
-              onClick={() => onSetBait(bodyId, bait.id)}
+              onClick={() => onSetBait(bodyId, bait.id, workerIndex)}
               style={{
-                fontSize: "0.62rem", padding: "0.15rem 0.4rem", borderRadius: "6px", cursor: "pointer",
-                background: sel ? "rgba(99,102,241,0.4)" : "rgba(255,255,255,0.05)",
-                border: `1px solid ${sel ? "rgba(99,102,241,0.7)" : "rgba(255,255,255,0.1)"}`,
-                color: sel ? "#fff" : have > 0 ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.25)",
+                fontSize: "0.58rem", padding: "0.12rem 0.35rem", borderRadius: "5px", cursor: "pointer",
+                background: sel ? "rgba(99,102,241,0.4)" : "rgba(255,255,255,0.04)",
+                border: `1px solid ${sel ? "rgba(99,102,241,0.7)" : "rgba(255,255,255,0.08)"}`,
+                color: sel ? "#fff" : have > 0 ? "rgba(255,255,255,0.55)" : "rgba(255,255,255,0.2)",
                 fontWeight: sel ? 700 : 400,
               }}
             >
@@ -480,38 +416,30 @@ function FishingWorkerCard({ bodyId, worker, game, onUpgrade, onSetBait, onToggl
         })}
       </div>
 
-      {/* Selective Haul — only visible with the skill */}
+      {/* Selective Haul */}
       {hasSelectiveHaul && (
         <div style={{
-          padding: "0.5rem 0.75rem", borderTop: "1px solid rgba(255,255,255,0.08)",
-          display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap",
+          padding: "0.4rem 0.65rem", borderTop: "1px solid rgba(255,255,255,0.06)",
+          display: "flex", alignItems: "center", gap: "0.3rem", flexWrap: "wrap",
         }}>
-          <span style={{ fontSize: "0.6rem", color: "#a78bfa", letterSpacing: "0.06em", fontWeight: 700 }}>🎯 HAUL</span>
+          <span style={{ fontSize: "0.56rem", color: "#a78bfa", letterSpacing: "0.06em", fontWeight: 700 }}>🎯 HAUL</span>
           {allFishIds.map((fishId) => {
             const fish = FISHING_FISH[fishId];
             const isAllowed = allowedFish.includes(fishId);
-            const isMinnow = fishId === "minnow";
-            // deep_waters auto-skips minnows regardless of toggle
-            const effectivelyBlocked = isMinnow && hasDeepWaters;
+            const effectivelyBlocked = fishId === "minnow" && hasDeepWaters;
             return (
               <button
                 key={fishId}
-                onClick={() => !effectivelyBlocked && onToggleAllowedFish(bodyId, fishId)}
+                onClick={() => !effectivelyBlocked && onToggleAllowedFish(bodyId, fishId, workerIndex)}
                 style={{
-                  fontSize: "0.62rem", padding: "0.15rem 0.45rem", borderRadius: "6px",
+                  fontSize: "0.58rem", padding: "0.12rem 0.35rem", borderRadius: "5px",
                   cursor: effectivelyBlocked ? "default" : "pointer",
-                  background: effectivelyBlocked
-                    ? "rgba(255,255,255,0.03)"
-                    : isAllowed ? "rgba(167,139,250,0.35)" : "rgba(255,255,255,0.05)",
-                  border: `1px solid ${effectivelyBlocked ? "rgba(255,255,255,0.07)" : isAllowed ? "rgba(167,139,250,0.7)" : "rgba(255,255,255,0.1)"}`,
-                  color: effectivelyBlocked ? "rgba(255,255,255,0.2)" : isAllowed ? "#fff" : "rgba(255,255,255,0.35)",
-                  fontWeight: isAllowed && !effectivelyBlocked ? 700 : 400,
+                  background: effectivelyBlocked ? "rgba(255,255,255,0.02)" : isAllowed ? "rgba(167,139,250,0.3)" : "rgba(255,255,255,0.04)",
+                  border: `1px solid ${effectivelyBlocked ? "rgba(255,255,255,0.05)" : isAllowed ? "rgba(167,139,250,0.6)" : "rgba(255,255,255,0.08)"}`,
+                  color: effectivelyBlocked ? "rgba(255,255,255,0.15)" : isAllowed ? "#fff" : "rgba(255,255,255,0.3)",
                   textDecoration: effectivelyBlocked ? "line-through" : "none",
                 }}
-              >
-                {fish.emoji} {fish.name}
-                {effectivelyBlocked && <span style={{ marginLeft: "0.2rem", fontSize: "0.55rem" }}>⛔</span>}
-              </button>
+              >{fish.emoji} {fish.name}</button>
             );
           })}
         </div>
@@ -520,19 +448,111 @@ function FishingWorkerCard({ bodyId, worker, game, onUpgrade, onSetBait, onToggl
       {/* Upgrade trees */}
       {showUpgrades && (
         <div style={{
-          padding: "0.6rem 0.75rem", borderTop: "1px solid rgba(255,255,255,0.08)",
-          background: "rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", gap: "0.6rem",
+          padding: "0.5rem 0.65rem", borderTop: "1px solid rgba(255,255,255,0.08)",
+          background: "rgba(0,0,0,0.25)", display: "flex", flexDirection: "column", gap: "0.5rem",
         }}>
-          <WorkerUpgradeTree label="⚡ SPEED"    upgradeIds={SPEED_UPGRADES} worker={worker} game={game} bodyId={bodyId} onUpgrade={onUpgrade} />
-          <WorkerUpgradeTree label="📦 HAUL"     upgradeIds={HAUL_UPGRADES}  worker={worker} game={game} bodyId={bodyId} onUpgrade={onUpgrade} />
-          <WorkerUpgradeTree label="🎣 GEAR"     upgradeIds={GEAR_UPGRADES}  worker={worker} game={game} bodyId={bodyId} onUpgrade={onUpgrade} />
+          {[
+            { label: "⚡ SPEED", ids: SPEED_UPGRADES },
+            { label: "📦 HAUL",  ids: HAUL_UPGRADES },
+            { label: "🎣 GEAR",  ids: GEAR_UPGRADES },
+          ].map(({ label, ids }) => {
+            const upgrades = worker.upgrades ?? [];
+            const SCHOOL_GATE = { haul_2: "fishing_haul_2", gear_expert: "fishing_gear_expert" };
+            return (
+              <div key={label}>
+                <div style={{ fontSize: "0.58rem", fontWeight: 600, color: "rgba(255,255,255,0.35)", marginBottom: "0.2rem", letterSpacing: "0.06em" }}>{label}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem" }}>
+                  {ids.map((uid) => {
+                    const u = FISHING_WORKER_UPGRADES[uid];
+                    const owned = upgrades.includes(uid);
+                    const requiresMet = !u.requires || upgrades.includes(u.requires);
+                    const researchId = SCHOOL_GATE[uid];
+                    const schoolLocked = researchId ? !hasSchoolResearch(game, researchId) : false;
+                    const canAfford = (game.cash ?? 0) >= u.cost;
+                    const matsOk = (() => {
+                      if (!u.upgradeRequires) return true;
+                      return Object.entries(u.upgradeRequires).every(([k, v]) => ((game.worldResources?.[k] ?? 0) + (game.forgeGoods?.[k] ?? 0)) >= v);
+                    })();
+                    const canBuy = !owned && requiresMet && canAfford && matsOk && !schoolLocked;
+                    const locked = !owned && !requiresMet;
+                    return (
+                      <div key={uid} style={{
+                        display: "flex", alignItems: "center", justifyContent: "space-between",
+                        padding: "0.22rem 0.4rem", borderRadius: "5px",
+                        background: owned ? "rgba(74,222,128,0.07)" : "rgba(0,0,0,0.25)",
+                        border: `1px solid ${owned ? "rgba(74,222,128,0.25)" : schoolLocked && requiresMet ? "rgba(167,139,250,0.3)" : "rgba(255,255,255,0.08)"}`,
+                        opacity: locked ? 0.35 : 1,
+                      }}>
+                        <div style={{ fontSize: "0.62rem" }}>
+                          <span style={{ fontWeight: 600, color: owned ? "#4ade80" : schoolLocked && requiresMet ? "#a78bfa" : "#fff" }}>
+                            {owned ? "✓" : schoolLocked && requiresMet ? "🏫" : locked ? "🔒" : u.emoji} {u.name}
+                          </span>
+                          <span style={{ marginLeft: "0.3rem", fontSize: "0.57rem", color: "rgba(255,255,255,0.35)" }}>
+                            {schoolLocked && requiresMet ? "Needs School Research" : u.description}
+                          </span>
+                        </div>
+                        {!owned && !schoolLocked && (
+                          <button
+                            onClick={() => canBuy && onUpgrade(bodyId, uid, workerIndex)}
+                            disabled={!canBuy}
+                            style={{
+                              fontSize: "0.58rem", padding: "0.12rem 0.35rem", borderRadius: "5px",
+                              cursor: canBuy ? "pointer" : "default", marginLeft: "0.35rem", flexShrink: 0,
+                              background: canBuy ? "rgba(99,102,241,0.4)" : "rgba(255,255,255,0.05)",
+                              border: `1px solid ${canBuy ? "rgba(99,102,241,0.7)" : "rgba(255,255,255,0.08)"}`,
+                              color: canBuy ? "#fff" : "rgba(255,255,255,0.25)",
+                            }}
+                          >${u.cost}</button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
 
-// ─── Fishing bodies panel ─────────────────────────────────────────────────────
+// ─── Empty worker slot ─────────────────────────────────────────────────────────
+
+function EmptyWorkerSlot({ slotIndex, bodyId, bodyDef, game, onHireWorker, atWorkerCap }) {
+  const HIRE_COST = FISHING_WORKER_HIRE_COSTS[bodyId] ?? 75;
+  const canAffordHire = (game.cash ?? 0) >= HIRE_COST;
+  const canHire = !atWorkerCap && canAffordHire;
+  return (
+    <div style={{
+      border: "1px dashed rgba(255,255,255,0.1)", borderRadius: "10px",
+      padding: "0.55rem 0.65rem",
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+      background: "rgba(0,0,0,0.2)",
+    }}>
+      <div style={{ fontSize: "0.65rem", color: "rgba(255,255,255,0.3)", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+        <span style={{ fontSize: "1rem", opacity: 0.3 }}>🪑</span>
+        <span>Slot {slotIndex + 1} — empty</span>
+      </div>
+      <button
+        onClick={() => canHire && onHireWorker(bodyId)}
+        disabled={!canHire}
+        style={{
+          fontSize: "0.65rem", padding: "0.22rem 0.6rem", borderRadius: "8px",
+          cursor: canHire ? "pointer" : "default",
+          background: canHire ? "rgba(74,222,128,0.25)" : "rgba(255,255,255,0.05)",
+          border: `1px solid ${canHire ? "rgba(74,222,128,0.5)" : "rgba(255,255,255,0.08)"}`,
+          color: canHire ? "#86efac" : "rgba(255,255,255,0.2)",
+          fontWeight: 600,
+        }}
+      >
+        {atWorkerCap ? "👥 Town full" : canAffordHire ? `Hire $${HIRE_COST}` : `Need $${HIRE_COST}`}
+      </button>
+    </div>
+  );
+}
+
+// ─── Fishing bodies panel ──────────────────────────────────────────────────────
 
 function FishingBodiesPanel({ game, onUnlockBody, onHireWorker, onUpgradeWorker, onSetWorkerBait, onFireWorker, onToggleAllowedFish }) {
   const fishing = game.fishing ?? {};
@@ -540,157 +560,176 @@ function FishingBodiesPanel({ game, onUnlockBody, onHireWorker, onUpgradeWorker,
   const totalHired = getTotalWorkersHired(game);
   const atWorkerCap = totalHired >= Math.floor(game.town?.people ?? 0);
 
+  // Collapsible state: track which bodyIds are collapsed
+  const [collapsed, setCollapsed] = useState({});
+  const toggleCollapse = (bodyId) => setCollapsed((prev) => ({ ...prev, [bodyId]: !prev[bodyId] }));
+
   return (
-    <div style={{
-      background: "rgba(0,0,0,0.7)", border: "1px solid rgba(255,255,255,0.12)",
-      borderRadius: "12px", overflow: "hidden",
-    }}>
-      <div style={{ padding: "0.6rem 0.85rem", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-        <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "rgba(255,255,255,0.7)", letterSpacing: "0.04em" }}>
-          🎣 Fishing Workers
-        </div>
-        <div style={{ fontSize: "0.62rem", color: "rgba(255,255,255,0.35)", marginTop: "0.1rem" }}>
-          One passive fisher per water body · uses a town worker slot
-        </div>
-      </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+      {FISHING_BODY_ORDER.map((bodyId, idx) => {
+        const bodyDef = FISHING_BODIES[bodyId];
+        const bodyState = bodies[bodyId] ?? { unlocked: false, workers: [] };
+        const unlocked = bodyState.unlocked;
+        const workers = bodyState.workers ?? (bodyState.worker?.hired ? [bodyState.worker] : []);
+        const hiredCount = workers.filter(w => w?.hired).length;
+        const maxWorkers = bodyDef.maxWorkers ?? 1;
 
-      <div style={{ padding: "0.65rem 0.85rem", display: "flex", flexDirection: "column", gap: "0.85rem" }}>
-        {FISHING_BODY_ORDER.map((bodyId, idx) => {
-          const bodyDef = FISHING_BODIES[bodyId];
-          const bodyState = bodies[bodyId] ?? { unlocked: false, worker: null };
-          const unlocked = bodyState.unlocked;
-          const worker = bodyState.worker;
-          const workerHired = worker?.hired === true;
-          const prevBodyId = idx > 0 ? FISHING_BODY_ORDER[idx - 1] : null;
-          const prevUnlocked = !prevBodyId || bodies[prevBodyId]?.unlocked;
-          const matCost = bodyDef.materialCost ?? {};
-          const canAffordMats = Object.entries(matCost).every(([key, needed]) => {
-            const have = (game.worldResources?.[key] ?? 0) + (game.forgeGoods?.[key] ?? 0);
-            return have >= needed;
-          });
-          const canAffordCash = (game.cash ?? 0) >= bodyDef.unlockCost;
-          const canAffordUnlock = canAffordCash && canAffordMats;
-          const canUnlock = !unlocked && prevUnlocked && canAffordUnlock && bodyDef.unlockCost > 0;
-          const HIRE_COST = FISHING_WORKER_HIRE_COSTS[bodyId] ?? 75;
-          const canAffordHire = (game.cash ?? 0) >= HIRE_COST;
-          const canHire = unlocked && !workerHired && !atWorkerCap && canAffordHire;
+        const prevBodyId = idx > 0 ? FISHING_BODY_ORDER[idx - 1] : null;
+        const prevUnlocked = !prevBodyId || bodies[prevBodyId]?.unlocked;
 
-          return (
-            <div key={bodyId}>
-              {/* Body header */}
-              <div style={{
+        const matCost = bodyDef.materialCost ?? {};
+        const canAffordMats = Object.entries(matCost).every(([key, needed]) => {
+          const have = (game.worldResources?.[key] ?? 0) + (game.forgeGoods?.[key] ?? 0);
+          return have >= needed;
+        });
+        const canAffordCash = (game.cash ?? 0) >= bodyDef.unlockCost;
+        const canAffordUnlock = canAffordCash && canAffordMats;
+        const canUnlock = !unlocked && prevUnlocked && canAffordUnlock && bodyDef.unlockCost > 0;
+
+        const isCollapsed = collapsed[bodyId] ?? false;
+        const HIRE_COST = FISHING_WORKER_HIRE_COSTS[bodyId] ?? 75;
+
+        // Teaser info for locked bodies
+        const catchRates = FISHING_CATCH_RATES[bodyId];
+        const rarePct = catchRates?.expert?.[3] ?? 0;
+
+        return (
+          <div key={bodyId} style={{
+            background: unlocked ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.35)",
+            border: `1px solid ${unlocked ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.06)"}`,
+            borderRadius: "12px", overflow: "hidden",
+          }}>
+            {/* Section header — always visible */}
+            <button
+              onClick={() => unlocked && toggleCollapse(bodyId)}
+              style={{
+                width: "100%", padding: "0.65rem 0.85rem",
                 display: "flex", alignItems: "center", justifyContent: "space-between",
-                marginBottom: (unlocked && workerHired) ? "0.5rem" : "0",
-              }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
-                  <span style={{ fontSize: "1.2rem" }}>{bodyDef.emoji}</span>
-                  <div>
-                    <div style={{
-                      fontSize: "0.75rem", fontWeight: 700,
-                      color: unlocked ? "#fff" : "rgba(255,255,255,0.3)",
-                    }}>
-                      {bodyDef.name}
-                    </div>
-                    <div style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.3)" }}>
-                      {unlocked
-                        ? workerHired ? "Fisher assigned" : "No fisher yet"
-                        : bodyDef.unlockCost === 0 ? "Starter" : (() => {
-                            const matCost = bodyDef.materialCost ?? {};
-                            const matStr = Object.entries(matCost).map(([k, v]) => {
-                              const labels = { iron_ore: "🪨", lumber: "🪵", iron_fitting: "🔩", reinforced_crate: "📦" };
-                              return `${labels[k] ?? k}×${v}`;
-                            }).join(" ");
-                            return `$${bodyDef.unlockCost.toLocaleString()} + ${matStr}`;
-                          })()}
-                    </div>
+                background: "none", border: "none",
+                cursor: unlocked ? "pointer" : "default", color: "#fff",
+                borderBottom: (!isCollapsed && unlocked) ? "1px solid rgba(255,255,255,0.07)" : "none",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <span style={{ fontSize: "1.3rem", opacity: unlocked ? 1 : 0.4 }}>{bodyDef.emoji}</span>
+                <div style={{ textAlign: "left" }}>
+                  <div style={{ fontSize: "0.78rem", fontWeight: 700, color: unlocked ? "#fff" : "rgba(255,255,255,0.3)" }}>
+                    {bodyDef.name}
+                    {unlocked && (
+                      <span style={{ marginLeft: "0.4rem", fontSize: "0.6rem", fontWeight: 400, color: "rgba(255,255,255,0.4)" }}>
+                        {hiredCount}/{maxWorkers} workers
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.3)", marginTop: "0.05rem" }}>
+                    {unlocked
+                      ? hiredCount === 0
+                        ? "No fishers assigned"
+                        : `${hiredCount} fisher${hiredCount > 1 ? "s" : ""} · expert ${rarePct}% rare`
+                      : bodyDef.unlockCost === 0
+                        ? "Starter"
+                        : !prevUnlocked
+                          ? `🔒 Unlock ${FISHING_BODIES[prevBodyId]?.name} first`
+                          : (() => {
+                              const labels = { iron_ore: "🪨", lumber: "🪵", iron_fitting: "🔩", reinforced_crate: "📦", fine_tools: "🔧" };
+                              const matStr = Object.entries(matCost).map(([k, v]) => `${labels[k] ?? k}×${v}`).join(" ");
+                              return `$${bodyDef.unlockCost.toLocaleString()} + ${matStr} · up to ${maxWorkers} worker${maxWorkers > 1 ? "s" : ""} · ${rarePct}% rare`;
+                            })()}
                   </div>
                 </div>
+              </div>
 
+              <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexShrink: 0 }}>
                 {/* Unlock button */}
-                {!unlocked && bodyDef.unlockCost > 0 && (
+                {!unlocked && bodyDef.unlockCost > 0 && prevUnlocked && (
                   <button
-                    onClick={() => onUnlockBody(bodyId)}
+                    onClick={(e) => { e.stopPropagation(); canUnlock && onUnlockBody(bodyId); }}
                     disabled={!canUnlock}
                     style={{
-                      fontSize: "0.68rem", padding: "0.22rem 0.6rem", borderRadius: "8px",
+                      fontSize: "0.65rem", padding: "0.22rem 0.55rem", borderRadius: "8px",
                       cursor: canUnlock ? "pointer" : "default",
-                      background: canUnlock ? "rgba(99,102,241,0.4)" : "rgba(255,255,255,0.06)",
-                      border: `1px solid ${canUnlock ? "rgba(99,102,241,0.7)" : "rgba(255,255,255,0.1)"}`,
-                      color: canUnlock ? "#fff" : "rgba(255,255,255,0.25)",
-                      fontWeight: 600, opacity: prevUnlocked ? 1 : 0.4,
+                      background: canUnlock ? "rgba(99,102,241,0.4)" : "rgba(255,255,255,0.05)",
+                      border: `1px solid ${canUnlock ? "rgba(99,102,241,0.7)" : "rgba(255,255,255,0.08)"}`,
+                      color: canUnlock ? "#fff" : "rgba(255,255,255,0.2)",
+                      fontWeight: 600,
                     }}
                   >
-                    {!prevUnlocked ? "🔒 Locked" : (() => {
-                      const matCost = bodyDef.materialCost ?? {};
-                      const labels = { iron_ore: "🪨", lumber: "🪵", iron_fitting: "🔩", reinforced_crate: "📦" };
+                    {(() => {
+                      const labels = { iron_ore: "🪨", lumber: "🪵", iron_fitting: "🔩", reinforced_crate: "📦", fine_tools: "🔧" };
                       const matStr = Object.entries(matCost).map(([k, v]) => {
                         const have = Math.floor((game.worldResources?.[k] ?? 0) + (game.forgeGoods?.[k] ?? 0));
                         const ok = have >= v;
                         return `${labels[k] ?? k}×${v}${ok ? "✓" : ` (${have})`}`;
                       }).join(" ");
                       const cashOk = (game.cash ?? 0) >= bodyDef.unlockCost;
-                      return `Unlock — $${bodyDef.unlockCost.toLocaleString()}${cashOk ? "✓" : ""} ${matStr}`;
+                      return `Unlock $${bodyDef.unlockCost.toLocaleString()}${cashOk ? "✓" : ""} ${matStr}`;
                     })()}
                   </button>
                 )}
 
-                {/* Hire button — shown when unlocked but no worker yet */}
-                {unlocked && !workerHired && (
-                  <button
-                    onClick={() => canHire && onHireWorker(bodyId)}
-                    disabled={!canHire}
-                    style={{
-                      fontSize: "0.68rem", padding: "0.22rem 0.6rem", borderRadius: "8px",
-                      cursor: canHire ? "pointer" : "default",
-                      background: canHire ? "rgba(74,222,128,0.3)" : "rgba(255,255,255,0.06)",
-                      border: `1px solid ${canHire ? "rgba(74,222,128,0.6)" : "rgba(255,255,255,0.1)"}`,
-                      color: canHire ? "#fff" : "rgba(255,255,255,0.25)",
-                      fontWeight: 600,
-                    }}
-                  >
-                    {atWorkerCap ? "👥 Town full" : canAffordHire ? `Hire Fisher $${HIRE_COST}` : `Need $${HIRE_COST}`}
-                  </button>
+                {/* What you unlock preview for locked bodies */}
+                {!unlocked && !prevUnlocked && (
+                  <span style={{
+                    fontSize: "0.6rem", color: "rgba(255,255,255,0.2)",
+                    background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)",
+                    borderRadius: "6px", padding: "0.15rem 0.4rem",
+                  }}>
+                    🔒 {maxWorkers} slots · {rarePct}% rare
+                  </span>
                 )}
 
-                {/* Active badge */}
-                {/* Active badge + fire button */}
-{unlocked && workerHired && (
-  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-    <span style={{ fontSize: "0.62rem", color: "#4ade80", fontWeight: 600 }}>✓ Fishing</span>
-    <button
-      onClick={() => onFireWorker(bodyId)}
-      style={{
-        fontSize: "0.6rem", padding: "0.15rem 0.4rem", borderRadius: "6px", cursor: "pointer",
-        background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.3)",
-        color: "#ef4444", fontWeight: 600,
-      }}
-    >
-      Fire
-    </button>
-  </div>
-)}
+                {/* Collapse arrow for unlocked */}
+                {unlocked && (
+                  <span style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.3)" }}>
+                    {isCollapsed ? "▶" : "▼"}
+                  </span>
+                )}
               </div>
+            </button>
 
-              {/* Worker card */}
-              {unlocked && workerHired && worker && (
-                <FishingWorkerCard
-                  bodyId={bodyId}
-                  worker={worker}
-                  game={game}
-                  onUpgrade={onUpgradeWorker}
-                  onSetBait={onSetWorkerBait}
-                  onToggleAllowedFish={onToggleAllowedFish}
-                />
-              )}
-            </div>
-          );
-        })}
-      </div>
+            {/* Worker slots — shown when unlocked and not collapsed */}
+            {unlocked && !isCollapsed && (
+              <div style={{ padding: "0.55rem 0.75rem", display: "flex", flexDirection: "column", gap: "0.45rem" }}>
+                {/* Render existing workers */}
+                {workers.map((worker, wi) => (
+                  <FishingWorkerCard
+                    key={wi}
+                    bodyId={bodyId}
+                    workerIndex={wi}
+                    worker={worker}
+                    game={game}
+                    onUpgrade={onUpgradeWorker}
+                    onSetBait={onSetWorkerBait}
+                    onFireWorker={onFireWorker}
+                    onToggleAllowedFish={onToggleAllowedFish}
+                  />
+                ))}
+                {/* Render empty slots */}
+                {Array.from({ length: maxWorkers - hiredCount }, (_, si) => (
+                  <EmptyWorkerSlot
+                    key={`empty-${si}`}
+                    slotIndex={hiredCount + si}
+                    bodyId={bodyId}
+                    bodyDef={bodyDef}
+                    game={game}
+                    onHireWorker={onHireWorker}
+                    atWorkerCap={atWorkerCap}
+                  />
+                ))}
+                {/* Slot info footer */}
+                {maxWorkers > 1 && (
+                  <div style={{ fontSize: "0.57rem", color: "rgba(255,255,255,0.2)", textAlign: "center", marginTop: "0.1rem" }}>
+                    {maxWorkers} fisher slots · each upgrades independently · costs ${HIRE_COST} each
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
-
-// ─── Main PondZone ────────────────────────────────────────────────────────────
 
 // ─── Player upgrades panel ────────────────────────────────────────────────────
 

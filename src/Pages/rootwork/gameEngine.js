@@ -120,7 +120,7 @@ export function consumeUpgradeMaterials(state, upgradeRequires) {
  
 export function getTotalWorkersHired(state) {
   const fishingWorkers = Object.values(state.fishing?.bodies ?? {})
-    .filter((b) => b?.unlocked && b?.worker?.hired === true).length;
+    .reduce((sum, b) => sum + (b?.unlocked ? (b.workers ?? (b.worker?.hired ? 1 : 0)) : 0), 0);
   const b = state.town?.townBuildings ?? {};
   const townBuildingWorkers = (b.clinic?.workers ?? 0) + (b.school?.workers ?? 0) +
     (b.tavern?.workers ?? 0) + (b.restaurant?.workers ?? 0) + (b.clothier?.workers ?? 0);
@@ -1956,43 +1956,43 @@ if (activeTier) {
     }
   }
  
-  // ── Fishing workers ───────────────────────────────────────────────────────
+  // ── Fishing workers ───────────────────────────────────────────────
   if (next.fishing) {
+    const noMinnows = hasPrestigeSkill(next, "deep_waters");
+    const selectiveHaul = hasPrestigeSkill(next, "selective_haul");
     for (const bodyId of FISHING_BODY_ORDER) {
       const body = next.fishing.bodies?.[bodyId];
-      if (!body?.unlocked || !body.worker?.hired) continue;
-      const worker = body.worker;
-      const interval = getFishingWorkerInterval(worker, next);
-      const haul = getFishingWorkerHaul(worker);
-      const gearTier = getFishingWorkerGearTier(worker);
-      const baitId = worker.assignedBait;
-      const hasBait = baitId && (next.bait?.[baitId] ?? 0) > 0;
-      const effectiveBait = hasBait ? baitId : null;
-      // deep_waters: no minnows — reroll until bass or better
-      const noMinnows = hasPrestigeSkill(next, "deep_waters");
-      // selective_haul: per-worker allowed fish toggle
-      const selectiveHaul = hasPrestigeSkill(next, "selective_haul");
-      const allowedFish = selectiveHaul ? (worker.allowedFish ?? null) : null;
+      if (!body?.unlocked) continue;
+      // Support both new (workers array) and legacy (worker single)
+      const workers = body.workers ?? (body.worker?.hired ? [body.worker] : []);
+      for (const worker of workers) {
+        if (!worker?.hired) continue;
+        const interval = getFishingWorkerInterval(worker, next);
+        const haul = getFishingWorkerHaul(worker);
+        const gearTier = getFishingWorkerGearTier(worker);
+        const baitId = worker.assignedBait;
+        const hasBait = baitId && (next.bait?.[baitId] ?? 0) > 0;
+        const effectiveBait = hasBait ? baitId : null;
+        const allowedFish = selectiveHaul ? (worker.allowedFish ?? null) : null;
 
-      worker.timer = (worker.timer ?? 0) + 1;
-      if (worker.timer >= interval) {
-        worker.timer = 0;
-        const baitBonus = effectiveBait ? FISHING_BAIT_BONUS[effectiveBait].haulBonus : 0;
-        const totalHaul = haul + baitBonus;
-        if (!next.fishing.fish) next.fishing.fish = {};
-        for (let i = 0; i < totalHaul; i++) {
-          let fishId = rollFishForBody(bodyId, gearTier, effectiveBait);
-          // deep_waters: reroll minnows once to get bass or better
-          if (noMinnows && fishId === "minnow") {
-            fishId = rollFishForBody(bodyId, gearTier === "basic" ? "good" : gearTier, effectiveBait);
-            if (fishId === "minnow") fishId = "bass";
+        worker.timer = (worker.timer ?? 0) + 1;
+        if (worker.timer >= interval) {
+          worker.timer = 0;
+          if (!next.fishing.fish) next.fishing.fish = {};
+          for (let i = 0; i < haul; i++) {
+            let fishId = rollFishForBody(bodyId, gearTier, effectiveBait);
+            // deep_waters: reroll minnows once to get bass or better
+            if (noMinnows && fishId === "minnow") {
+              fishId = rollFishForBody(bodyId, gearTier === "basic" ? "good" : gearTier, effectiveBait);
+              if (fishId === "minnow") fishId = "bass";
+            }
+            // selective_haul: skip if not in allowed list
+            if (allowedFish && !allowedFish.includes(fishId)) continue;
+            next.fishing.fish[fishId] = (next.fishing.fish[fishId] ?? 0) + 1;
           }
-          // selective_haul: skip if not in allowed list
-          if (allowedFish && !allowedFish.includes(fishId)) continue;
-          next.fishing.fish[fishId] = (next.fishing.fish[fishId] ?? 0) + 1;
+          // Consume 1 bait per catch cycle (bait boosts rare rates, not haul count)
+          if (hasBait) next.bait[baitId] = Math.max(0, (next.bait[baitId] ?? 0) - 1);
         }
-        // Consume bait
-        if (hasBait) next.bait[baitId] -= 1;
       }
     }
   }
@@ -2156,8 +2156,8 @@ function fireLastHiredWorker(state) {
   ...(state.marketWorkers ?? []).map((w) => ({ id: w.id, type: "market", hiredAt: w.hiredAt ?? 0 })),
   ...(state.barnWorkers ?? []).map((w) => ({ id: w.id, type: "barn", hiredAt: w.hiredAt ?? 0 })),
   ...Object.entries(state.fishing?.bodies ?? {})
-    .filter(([, b]) => b?.worker?.hired)
-    .map(([bodyId, b]) => ({ id: bodyId, type: "fishing", hiredAt: b.worker.hiredAt ?? 0 })),
+    .flatMap(([bodyId, b]) => (b?.workers ?? (b?.worker?.hired ? [b.worker] : []))
+      .map((w, idx) => ({ id: bodyId, type: "fishing", workerIndex: idx, hiredAt: w.hiredAt ?? 0 }))),
 ];
   if (candidates.length === 0) return state;
   candidates.sort((a, b) => b.hiredAt - a.hiredAt);
@@ -2203,7 +2203,11 @@ function fireLastHiredWorker(state) {
     state.barnWorkers = state.barnWorkers.filter((w) => w.id !== toFire.id);
   } else if (toFire.type === "fishing") {
   const body = state.fishing?.bodies?.[toFire.id];
-  if (body?.worker) body.worker = null;
+  if (body?.workers) {
+    body.workers.splice(toFire.workerIndex ?? 0, 1);
+  } else if (body?.worker) {
+    body.worker = null;
+  }
 }
 
   return state;
@@ -2972,7 +2976,7 @@ export function unlockFishingBody(state, bodyId) {
   if (!next.fishing) next.fishing = { activeBody: "pond", bodies: {}, fish: {} };
   if (!next.fishing.bodies[bodyId]) next.fishing.bodies[bodyId] = {};
   next.fishing.bodies[bodyId].unlocked = true;
-  next.fishing.bodies[bodyId].worker = null; // no worker until hired
+  next.fishing.bodies[bodyId].workers = next.fishing.bodies[bodyId].workers ?? []; // empty workers array
   return next;
 }
 
@@ -2980,26 +2984,35 @@ export function hireFishingWorker(state, bodyId) {
   const next = deepCloneState(state);
   const body = next.fishing?.bodies?.[bodyId];
   if (!body?.unlocked) return state;
-  if (body.worker?.hired) return state;
   if (isAtWorkerCap(next)) return state;
+  const bodyDef = FISHING_BODIES[bodyId];
+  const maxWorkers = bodyDef?.maxWorkers ?? 1;
+  if (!body.workers) next.fishing.bodies[bodyId].workers = [];
+  if (next.fishing.bodies[bodyId].workers.length >= maxWorkers) return state;
   const cost = FISHING_WORKER_HIRE_COSTS[bodyId] ?? 75;
   if ((next.cash ?? 0) < cost) return state;
   next.cash -= cost;
-  next.fishing.bodies[bodyId].worker = {
+  next.fishing.bodies[bodyId].workers.push({
     hired: true,
     upgrades: [],
     timer: 0,
     assignedBait: null,
     hiredAt: Date.now(),
-  };
+  });
   return next;
 }
 
-export function fireFishingWorker(state, bodyId) {
+export function fireFishingWorker(state, bodyId, workerIndex) {
   const next = deepCloneState(state);
   const body = next.fishing?.bodies?.[bodyId];
-  if (!body?.worker?.hired) return state;
-  body.worker = null;
+  if (!body) return state;
+  if (body.workers) {
+    if (workerIndex == null || workerIndex < 0 || workerIndex >= body.workers.length) return state;
+    body.workers.splice(workerIndex, 1);
+  } else {
+    if (!body.worker?.hired) return state;
+    body.worker = null;
+  }
   return next;
 }
 
@@ -3010,9 +3023,11 @@ export function setFishingActiveBody(state, bodyId) {
   return next;
 }
 
-export function upgradeFishingWorker(state, bodyId, upgradeId) {
+export function upgradeFishingWorker(state, bodyId, upgradeId, workerIndex = 0) {
   const next = deepCloneState(state);
-  const worker = next.fishing?.bodies?.[bodyId]?.worker;
+  const body = next.fishing?.bodies?.[bodyId];
+  const workers = body?.workers ?? (body?.worker ? [body.worker] : []);
+  const worker = workers[workerIndex];
   if (!worker) return state;
   const upgrade = FISHING_WORKER_UPGRADES[upgradeId];
   if (!upgrade) return state;
@@ -3028,23 +3043,24 @@ export function upgradeFishingWorker(state, bodyId, upgradeId) {
   worker.upgrades = [...(worker.upgrades ?? []), upgradeId];
   return next;
 }
-
-export function setFishingWorkerBait(state, bodyId, baitId) {
+export function setFishingWorkerBait(state, bodyId, baitId, workerIndex = 0) {
   const next = deepCloneState(state);
-  const worker = next.fishing?.bodies?.[bodyId]?.worker;
+  const body = next.fishing?.bodies?.[bodyId];
+  const workers = body?.workers ?? (body?.worker ? [body.worker] : []);
+  const worker = workers[workerIndex];
   if (!worker) return state;
   worker.assignedBait = baitId;
   return next;
 }
-
-export function toggleFishingWorkerAllowedFish(state, bodyId, fishId) {
+export function toggleFishingWorkerAllowedFish(state, bodyId, fishId, workerIndex = 0) {
   const next = deepCloneState(state);
-  const worker = next.fishing?.bodies?.[bodyId]?.worker;
+  const body = next.fishing?.bodies?.[bodyId];
+  const workers = body?.workers ?? (body?.worker ? [body.worker] : []);
+  const worker = workers[workerIndex];
   if (!worker) return state;
   const all = ["minnow", "bass", "perch", "rare"];
   const current = worker.allowedFish ?? all;
   if (current.includes(fishId)) {
-    // Don't allow removing the last fish
     const next_ = current.filter((f) => f !== fishId);
     worker.allowedFish = next_.length > 0 ? next_ : current;
   } else {
@@ -3052,8 +3068,6 @@ export function toggleFishingWorkerAllowedFish(state, bodyId, fishId) {
   }
   return next;
 }
-
-// ─── Player fishing upgrades ──────────────────────────────────────────────────
 
 export function getPlayerFishingUpgrades(state) {
   return state.fishing?.playerUpgrades ?? [];
@@ -3314,10 +3328,13 @@ export function beginPrestige(state, _unused, keptWorkerIds) {
     else if (kw) previousKeptWorkers.push(makeKeptWorker(kw, "kitchen"));
     else if (mw) previousKeptWorkers.push(makeKeptWorker(mw, "market"));
     else if (bw) previousKeptWorkers.push(makeKeptWorker(bw, "barn"));
-    else if (fisherBody?.worker?.hired) {
-      previousKeptWorkers.push(
-        makeKeptWorker({ ...fisherBody.worker, bodyId: fisherBodyId, id: keptWorkerId }, "fisher")
-      );
+    else if (fisherBody) {
+      const fisherWorkers = fisherBody.workers ?? (fisherBody.worker?.hired ? [fisherBody.worker] : []);
+      fisherWorkers.forEach((fw, fi) => {
+        previousKeptWorkers.push(
+          makeKeptWorker({ ...fw, bodyId: fisherBodyId, id: keptWorkerId + (fi > 0 ? "_" + fi : "") }, "fisher")
+        );
+      });
     }
   }
   next.keptWorkers = previousKeptWorkers;
@@ -3343,9 +3360,8 @@ export function beginPrestige(state, _unused, keptWorkerIds) {
 
   // Fire all fishing workers (bodies stay unlocked)
   for (const bodyId of Object.keys(next.fishing?.bodies ?? {})) {
-    if (next.fishing.bodies[bodyId]?.worker?.hired) {
-      next.fishing.bodies[bodyId].worker = null;
-    }
+    next.fishing.bodies[bodyId].workers = [];
+    next.fishing.bodies[bodyId].worker = null; // clear legacy too
   }
 
   for (const cropId of Object.keys(next.crops)) {
@@ -3431,8 +3447,12 @@ export function beginPrestige(state, _unused, keptWorkerIds) {
 
   for (const kw of fisherKept) {
     const body = next.fishing?.bodies?.[kw.bodyId];
-    if (body?.unlocked && !body.worker?.hired) {
-      next.fishing.bodies[kw.bodyId].worker = { ...kw, hired: true, timer: 0 };
+    if (!body?.unlocked) continue;
+    const bodyDef = FISHING_BODIES[kw.bodyId];
+    const maxWorkers = bodyDef?.maxWorkers ?? 1;
+    if (!body.workers) next.fishing.bodies[kw.bodyId].workers = [];
+    if (next.fishing.bodies[kw.bodyId].workers.length < maxWorkers && !isAtWorkerCap(next)) {
+      next.fishing.bodies[kw.bodyId].workers.push({ ...kw, hired: true, timer: 0 });
     }
   }
 
@@ -3468,7 +3488,7 @@ export function buyPond(state) {
   if (!next.fishing) next.fishing = { activeBody: "pond", bodies: {}, fish: {} };
   next.fishing.bodies.pond = {
     unlocked: true,
-    worker: { hired: false, upgrades: [], timer: 0, assignedBait: null },
+    workers: [],
   };
   next.fishing.activeBody = "pond";
   return next;
@@ -3933,10 +3953,10 @@ if (!parsed.fishing) {
   parsed.fishing = {
     activeBody: "pond",
     bodies: {
-      pond:  { unlocked: parsed.pond?.owned === true, worker: parsed.pond?.owned ? { hired: true, upgrades: [], timer: 0, assignedBait: null } : null },
-      lake:  { unlocked: false, worker: null },
-      river: { unlocked: false, worker: null },
-      ocean: { unlocked: false, worker: null },
+      pond:  { unlocked: parsed.pond?.owned === true, workers: parsed.pond?.owned ? [{ hired: true, upgrades: [], timer: 0, assignedBait: null, hiredAt: 0 }] : [] },
+      lake:  { unlocked: false, workers: [] },
+      river: { unlocked: false, workers: [] },
+      ocean: { unlocked: false, workers: [] },
     },
     fish: { ...(parsed.pond?.fish ?? {}) },
   };
@@ -3945,12 +3965,15 @@ if (!parsed.fishing) {
 // Also migrate existing fishing workers that are missing hired flag
 if (parsed.fishing?.bodies) {
   for (const body of Object.values(parsed.fishing.bodies)) {
-    if (body?.worker && body.worker.hired === undefined) {
-  body.worker.hired = true;
-}
-if (body?.worker && body.worker.hiredAt === undefined) {
-  body.worker.hiredAt = 0;
-}
+    // Migrate legacy single worker to workers array
+    if (body?.worker) {
+      if (!body.workers) {
+        body.workers = body.worker.hired !== false ? [{ ...body.worker, hired: true, hiredAt: body.worker.hiredAt ?? 0 }] : [];
+      }
+      delete body.worker;
+    }
+    // Ensure workers array exists
+    if (!body.workers) body.workers = [];
   }
 }
 

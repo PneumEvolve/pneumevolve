@@ -597,16 +597,16 @@ export default function RootWork() {
     if (n === s) notify("Can't hire — check cash or worker cap.");
     return n;
   }), [update, notify]);
-  const handleFireFishingWorker = useCallback((bodyId) => {
-    update((s) => fireFishingWorker(s, bodyId));
+  const handleFireFishingWorker = useCallback((bodyId, workerIndex) => {
+    update((s) => fireFishingWorker(s, bodyId, workerIndex));
     notify("Fisher dismissed.");
   }, [update, notify]);
-  const handleUpgradeFishingWorker = useCallback((bodyId, upgradeId) => update((s) => {
-    const n = upgradeFishingWorker(s, bodyId, upgradeId);
+  const handleUpgradeFishingWorker = useCallback((bodyId, upgradeId, workerIndex) => update((s) => {
+    const n = upgradeFishingWorker(s, bodyId, upgradeId, workerIndex);
     if (n === s) notify("Can't upgrade — check cash or requirements.");
     return n;
   }), [update, notify]);
-  const handleSetFishingWorkerBait = useCallback((bodyId, baitId) => update((s) => setFishingWorkerBait(s, bodyId, baitId)), [update]);
+  const handleSetFishingWorkerBait = useCallback((bodyId, baitId, workerIndex) => update((s) => setFishingWorkerBait(s, bodyId, baitId, workerIndex)), [update]);
   const handleCatchFish = useCallback((fishId, baitId, count) => update((s) =>
     catchFish(s, fishId, baitId, s.fishing?.activeBody ?? "pond", count)
   ), [update]);
@@ -811,7 +811,7 @@ export default function RootWork() {
   setShowPrestigeModal(false); setActiveMainTab("farms"); setActiveFarmIndex(0); notify("🌱 New season begun!");
 }, [update, notify]);
   const handleUnlockPrestigeSkill = useCallback((skillId) => { update((s) => unlockPrestigeSkill(s, skillId)); }, [update]);
-  const handleToggleFishingWorkerAllowedFish = useCallback((bodyId, fishId) => update((s) => toggleFishingWorkerAllowedFish(s, bodyId, fishId)), [update]);
+  const handleToggleFishingWorkerAllowedFish = useCallback((bodyId, fishId, workerIndex) => update((s) => toggleFishingWorkerAllowedFish(s, bodyId, fishId, workerIndex)), [update]);
   const handleBuyFishingPlayerUpgrade = useCallback((upgradeId) => update((s) => {
     const n = buyFishingPlayerUpgrade(s, upgradeId);
     if (n === s) notify("Can't buy — check cash or requirements.");
