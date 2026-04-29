@@ -860,20 +860,20 @@ export const HERO_SKILL_TREES = {
     },
     {
       id: "fighter_t2",
-      name: "Resilience",
-      emoji: "💪",
+      name: "Iron Rations",
+      emoji: "🍖",
       tier: 2,
-      description: "Healing from food/items +10%/+20%/+30% per rank.",
+      description: "Food heals +5 HP per rank (up to +15 bonus healing).",
       requiredLevel: 4,
       maxRank: 3,
-      healMultPerRank: 0.10,
+      healBonusPerRank: 5,
     },
     {
       id: "fighter_t3",
       name: "Hearth Guardian",
       emoji: "🍞",
       tier: 3,
-      description: "🌾 Bread bakes 15%/30%/50% faster globally per rank.",
+      description: "🌾 Bread bakes 15%/30%/50% faster globally per rank. (Only the highest rank among all heroes applies — does not stack.)",
       requiredLevel: 6,
       maxRank: 3,
       crossSystemEffect: "bread_speed",
@@ -911,14 +911,14 @@ export const HERO_SKILL_TREES = {
     },
     {
       id: "fighter_t6",
-      name: "Iron Rations",
-      emoji: "🍖",
+      name: "Resilience",
+      emoji: "💪",
       tier: 6,
-      description: "Food heals +5 HP per rank (up to +15 bonus healing).",
+      description: "Healing from food/items +10%/+20%/+30% per rank.",
       requiredLevel: 12,
       maxRank: 3,
       repeatable: true,
-      healBonusPerRank: 5,
+      healMultPerRank: 0.10,
     },
   ],
 
@@ -951,7 +951,7 @@ export const HERO_SKILL_TREES = {
       name: "Arcane Focus",
       emoji: "🍳",
       tier: 3,
-      description: "🌾 Kitchen bonus output chance 10%/20%/30% per rank.",
+      description: "🌾 Kitchen bonus output chance 10%/20%/30% per rank. (Only the highest rank among all heroes applies — does not stack.)",
       requiredLevel: 6,
       maxRank: 3,
       crossSystemEffect: "kitchen_bonus",
@@ -1030,7 +1030,7 @@ export const HERO_SKILL_TREES = {
       name: "Fence Network",
       emoji: "💰",
       tier: 3,
-      description: "🌾 Market sell prices +5%/+10%/+15% per rank.",
+      description: "🌾 Market sell prices +5%/+10%/+15% per rank. (Only the highest rank among all heroes applies — does not stack.)",
       requiredLevel: 6,
       maxRank: 3,
       crossSystemEffect: "market_bonus",
@@ -1309,7 +1309,7 @@ export const WORLD_RESOURCES = {
 
 export const ADVENTURER_BASE_HP = 40;
 export const ADVENTURER_HP_PER_LEVEL = 8;
-export const ADVENTURER_REGEN_PER_SECOND = 0.05; // passive regen while not on mission
+export const ADVENTURER_REGEN_PER_SECOND = 0; // passive regen removed — heal via bread or tavern only
 // Tavern regen is now level-based via TAVERN_LEVEL_REGEN array
 export const TAVERN_REGEN_BONUS = 0.10; // legacy kept for save compat - use getTavernRegenRate()
 

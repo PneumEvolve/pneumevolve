@@ -4791,10 +4791,10 @@ export function getHeroBonusMaxHp(adventurer) {
 }
 
 export function getHeroHealBonus(adventurer) {
-  // fighter_t2 Resilience: +10% per rank (ranks 1/2/3 => +10%/+20%/+30%)
-  const resilienceBonus = getHeroSkillRank(adventurer, "fighter_t2") * 0.10;
-  // fighter_t6 Iron Rations: +5 HP per rank
-  const ironRationsBonus = getHeroSkillRank(adventurer, "fighter_t6") * 5;
+  // fighter_t2 Iron Rations: +5 HP flat per rank (swapped from t6)
+  const ironRationsBonus = getHeroSkillRank(adventurer, "fighter_t2") * 5;
+  // fighter_t6 Resilience: +10% per rank (swapped from t2)
+  const resilienceBonus = getHeroSkillRank(adventurer, "fighter_t6") * 0.10;
   return { multiplier: 1 + resilienceBonus, flatBonus: ironRationsBonus };
 }
 
@@ -5245,10 +5245,10 @@ export function tickAdventurerRegen(state, dtSeconds) {
     if (adv.mission) return adv;
     if (adv.bossAssigned) return adv;
     if (hp >= trueMax) return adv;
-    // Tavern bonus regen for heroes resting there (level-based)
+    // Only regen if resting at tavern — no passive regen otherwise
+    if (!tavernBuilt || !adv.tavernResting) return adv;
     const tavernRegen = getTavernRegenRate(state);
-    const restingBonus = (tavernBuilt && adv.tavernResting) ? tavernRegen : 0;
-    const newHp = Math.min(trueMax, hp + (ADVENTURER_REGEN_PER_SECOND + restingBonus) * dtSeconds);
+    const newHp = Math.min(trueMax, hp + tavernRegen * dtSeconds);
     return { ...adv, hp: newHp };
   });
   return { ...state, adventurers: updated };
