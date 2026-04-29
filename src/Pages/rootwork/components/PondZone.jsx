@@ -600,7 +600,7 @@ function FishingBodiesPanel({ game, onUnlockBody, onHireWorker, onUpgradeWorker,
             borderRadius: "12px", overflow: "hidden",
           }}>
             {/* Section header — always visible */}
-            <button
+            <div
               onClick={() => unlocked && toggleCollapse(bodyId)}
               style={{
                 width: "100%", padding: "0.65rem 0.85rem",
@@ -685,7 +685,7 @@ function FishingBodiesPanel({ game, onUnlockBody, onHireWorker, onUpgradeWorker,
                   </span>
                 )}
               </div>
-            </button>
+            </div>
 
             {/* Worker slots — shown when unlocked and not collapsed */}
             {unlocked && !isCollapsed && (

@@ -120,7 +120,7 @@ export function consumeUpgradeMaterials(state, upgradeRequires) {
  
 export function getTotalWorkersHired(state) {
   const fishingWorkers = Object.values(state.fishing?.bodies ?? {})
-    .reduce((sum, b) => sum + (b?.unlocked ? (b.workers ?? (b.worker?.hired ? 1 : 0)) : 0), 0);
+    .reduce((sum, b) => sum + (b?.unlocked ? (Array.isArray(b.workers) ? b.workers.filter(w => w?.hired).length : (b.worker?.hired ? 1 : 0)) : 0), 0);
   const b = state.town?.townBuildings ?? {};
   const townBuildingWorkers = (b.clinic?.workers ?? 0) + (b.school?.workers ?? 0) +
     (b.tavern?.workers ?? 0) + (b.restaurant?.workers ?? 0) + (b.clothier?.workers ?? 0);
