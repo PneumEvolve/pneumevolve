@@ -355,6 +355,7 @@ function RecipePicker({ worker, game, onAssign, onCancel }) {
 // ─── Forge Worker Card ────────────────────────────────────────────────────────
  
 function ForgeWorkerCard({ worker, workerNumber, game, expanded, onToggle, onAssign, onUpgrade, onFire, onCancel, onToggleAutoRestart }) {
+  const [confirmFire, setConfirmFire] = useState(false);
   const idle = isForgeWorkerIdle(worker);
   const recipe = worker.recipeId ? FORGE_RECIPES[worker.recipeId] : null;
  
@@ -430,16 +431,41 @@ function ForgeWorkerCard({ worker, workerNumber, game, expanded, onToggle, onAss
           <RecipePicker worker={worker} game={game} onAssign={onAssign} onCancel={onCancel} />
           <ForgeUpgradeTree worker={worker} game={game} onUpgrade={onUpgrade} />
  
-          <button
-            onClick={() => onFire(worker.id)}
-            style={{
-              marginTop: "0.75rem", width: "100%", padding: "0.3rem",
-              background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)",
-              borderRadius: "6px", color: "#ef4444", fontSize: "0.65rem", cursor: "pointer",
-            }}
-          >
-            Dismiss Smith
-          </button>
+          {!confirmFire ? (
+            <button
+              onClick={() => setConfirmFire(true)}
+              style={{
+                marginTop: "0.75rem", width: "100%", padding: "0.3rem",
+                background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)",
+                borderRadius: "6px", color: "#ef4444", fontSize: "0.65rem", cursor: "pointer",
+              }}
+            >
+              Dismiss Smith
+            </button>
+          ) : (
+            <div style={{ marginTop: "0.75rem", display: "flex", gap: "0.4rem" }}>
+              <button
+                onClick={() => { onFire(worker.id); setConfirmFire(false); }}
+                style={{
+                  flex: 1, padding: "0.3rem",
+                  background: "#ef4444", border: "none",
+                  borderRadius: "6px", color: "#fff", fontSize: "0.65rem", fontWeight: 700, cursor: "pointer",
+                }}
+              >
+                ✓ Confirm Dismiss
+              </button>
+              <button
+                onClick={() => setConfirmFire(false)}
+                style={{
+                  flex: 1, padding: "0.3rem",
+                  background: "var(--bg)", border: "1px solid var(--border)",
+                  borderRadius: "6px", color: "var(--muted)", fontSize: "0.65rem", cursor: "pointer",
+                }}
+              >
+                ✕ Cancel
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -465,6 +491,19 @@ function InstancedGearPanel({ game, onUpgradeForgeInstance }) {
   const crystals = Math.floor(game.worldResources?.mana_crystal ?? 0);
   const cash = Math.floor(game.cash ?? 0);
 
+  // Helper: per-item bonus description based on type and current tier
+  function getArcaneBonusLabel(key, currentTier) {
+    const arcTiers = Math.max(0, currentTier - 3);
+    const nextArcTiers = arcTiers + 1;
+    if (key === "master_sword")  return { current: arcTiers  > 0 ? `+${arcTiers  * 6} boss dmg` : null, next: `+${nextArcTiers * 6} boss dmg` };
+    if (key === "tower_shield")  return { current: arcTiers  > 0 ? `−${arcTiers  * 5} boss dmg taken` : null, next: `−${nextArcTiers * 5} boss dmg taken` };
+    if (key === "plate_armor")   return { current: arcTiers  > 0 ? `+${arcTiers} food slot${arcTiers > 1 ? "s" : ""}` : null, next: `+${nextArcTiers} food slot${nextArcTiers > 1 ? "s" : ""}` };
+    return { current: null, next: null };
+  }
+
+  // Combine inStock and equipped into one unified list
+  const allItems = [...inStock, ...equipped];
+
   return (
     <div style={{
       marginBottom: "1.25rem",
@@ -473,100 +512,103 @@ function InstancedGearPanel({ game, onUpgradeForgeInstance }) {
       border: "1px solid rgba(139,92,246,0.25)",
       borderRadius: "12px",
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.65rem" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.4rem" }}>
         <span style={{ fontSize: "1.1rem" }}>🔮</span>
         <div>
           <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#a78bfa" }}>Arcane Upgrade Machine</div>
           <div style={{ fontSize: "0.6rem", color: "var(--muted)" }}>Infuse mana crystals into top-tier gear to push beyond normal limits</div>
         </div>
       </div>
+      {/* Warning: items become unsellable */}
+      <div style={{
+        fontSize: "0.57rem", color: "#f59e0b", marginBottom: "0.55rem",
+        padding: "3px 7px", borderRadius: "5px",
+        background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.25)",
+        display: "inline-flex", alignItems: "center", gap: "0.3rem",
+      }}>
+        ⚠️ Arcane-upgraded items cannot be sold
+      </div>
 
-      {/* Stock items — upgradeable */}
-      {inStock.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", marginBottom: equipped.length > 0 ? "0.5rem" : 0 }}>
-          {inStock.map((inst) => {
-            const meta = INSTANCED_META[inst.key] ?? { emoji: "⚔️", name: inst.key, slot: "weapon" };
-            const currentTier = inst.upgradeTier ?? 3;
-            const crystalCost = 50 * currentTier;
-            const cashCost = 1000 * currentTier;
-            const canAfford = crystals >= crystalCost && cash >= cashCost;
-            return (
-              <div key={inst.id} style={{
-                display: "flex", alignItems: "center", justifyContent: "space-between",
-                padding: "0.45rem 0.6rem",
-                background: "rgba(139,92,246,0.08)",
-                border: "1px solid rgba(139,92,246,0.25)",
-                borderRadius: "8px",
-                gap: "0.5rem",
-              }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flex: 1, minWidth: 0 }}>
-                  <span style={{ fontSize: "1rem" }}>{meta.emoji}</span>
-                  <div>
-                    <div style={{ fontSize: "0.72rem", fontWeight: 700 }}>
-                      {meta.name}
-                      <span style={{
-                        marginLeft: "0.35rem", fontSize: "0.58rem",
-                        background: "rgba(139,92,246,0.2)", border: "1px solid rgba(139,92,246,0.4)",
-                        color: "#a78bfa", borderRadius: "4px", padding: "1px 5px",
-                      }}>T{currentTier}</span>
-                    </div>
-                    <div style={{ fontSize: "0.58rem", color: "var(--muted)" }}>
-                      Upgrade cost: {crystalCost} 🔮 · ${cashCost.toLocaleString()}
-                    </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+        {allItems.map((inst) => {
+          const meta = INSTANCED_META[inst.key] ?? { emoji: "⚔️", name: inst.key, slot: "weapon" };
+          const currentTier = inst.upgradeTier ?? 3;
+          const crystalCost = 50 * currentTier;
+          const cashCost = 1000 * currentTier;
+          const canAfford = crystals >= crystalCost && cash >= cashCost;
+          const bonus = getArcaneBonusLabel(inst.key, currentTier);
+
+          const adv = inst._equippedBy ? (game.adventurers ?? []).find((a) => a.id === inst._equippedBy) : null;
+          const heroIdle = adv && !adv.mission && !adv.tavernResting;
+          const heroOnMission = adv && !!adv.mission;
+          const heroResting = adv && !!adv.tavernResting;
+
+          // Can upgrade if: in stock OR equipped on idle hero
+          const canUpgrade = canAfford && (!inst._equippedBy || heroIdle);
+
+          let lockReason = null;
+          if (inst._equippedBy && heroOnMission)  lockReason = `${adv?.name ?? "Hero"} is on mission`;
+          if (inst._equippedBy && heroResting)     lockReason = `${adv?.name ?? "Hero"} is resting`;
+
+          return (
+            <div key={inst.id} style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "0.45rem 0.6rem",
+              background: inst._equippedBy ? "rgba(255,255,255,0.03)" : "rgba(139,92,246,0.08)",
+              border: `1px solid ${inst._equippedBy ? "var(--border)" : "rgba(139,92,246,0.25)"}`,
+              borderRadius: "8px",
+              gap: "0.5rem",
+              opacity: lockReason ? 0.65 : 1,
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flex: 1, minWidth: 0 }}>
+                <span style={{ fontSize: "1rem" }}>{meta.emoji}</span>
+                <div>
+                  <div style={{ fontSize: "0.72rem", fontWeight: 700 }}>
+                    {meta.name}
+                    <span style={{
+                      marginLeft: "0.35rem", fontSize: "0.58rem",
+                      background: "rgba(139,92,246,0.2)", border: "1px solid rgba(139,92,246,0.4)",
+                      color: "#a78bfa", borderRadius: "4px", padding: "1px 5px",
+                    }}>T{currentTier}</span>
+                    {adv && (
+                      <span style={{ marginLeft: "0.3rem", fontSize: "0.56rem", color: "var(--muted)" }}>
+                        · {adv.name}
+                      </span>
+                    )}
                   </div>
+                  <div style={{ fontSize: "0.57rem", color: "var(--muted)", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                    {lockReason ? (
+                      <span style={{ color: "#f59e0b" }}>🔒 {lockReason}</span>
+                    ) : (
+                      <>
+                        <span>{crystalCost} 🔮 · ${cashCost.toLocaleString()}</span>
+                        {bonus.next && <span style={{ color: "#86efac" }}>→ {bonus.next}</span>}
+                      </>
+                    )}
+                  </div>
+                  {bonus.current && !lockReason && (
+                    <div style={{ fontSize: "0.54rem", color: "#a78bfa", marginTop: "1px" }}>Active: {bonus.current}</div>
+                  )}
                 </div>
-                <button
-                  onClick={() => onUpgradeForgeInstance(inst.id)}
-                  disabled={!canAfford}
-                  style={{
-                    fontSize: "0.62rem", padding: "4px 10px", borderRadius: "7px",
-                    flexShrink: 0, fontWeight: 700,
-                    background: canAfford ? "rgba(139,92,246,0.3)" : "rgba(255,255,255,0.05)",
-                    border: `1px solid ${canAfford ? "rgba(139,92,246,0.6)" : "var(--border)"}`,
-                    color: canAfford ? "#c4b5fd" : "var(--muted)",
-                    cursor: canAfford ? "pointer" : "default",
-                  }}
-                >
-                  T{currentTier} → T{currentTier + 1}
-                </button>
               </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Equipped items — show tier but can't upgrade while equipped */}
-      {equipped.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
-          <div style={{ fontSize: "0.58rem", color: "var(--muted)", letterSpacing: "0.05em", marginBottom: "0.1rem" }}>EQUIPPED (unequip to upgrade)</div>
-          {equipped.map((inst) => {
-            const meta = INSTANCED_META[inst.key] ?? { emoji: "⚔️", name: inst.key };
-            const adv = (game.adventurers ?? []).find((a) => a.id === inst._equippedBy);
-            return (
-              <div key={inst.id} style={{
-                display: "flex", alignItems: "center", justifyContent: "space-between",
-                padding: "0.35rem 0.6rem",
-                background: "rgba(255,255,255,0.03)",
-                border: "1px solid var(--border)",
-                borderRadius: "7px", opacity: 0.7,
-              }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                  <span>{meta.emoji}</span>
-                  <span style={{ fontSize: "0.7rem", fontWeight: 600 }}>{meta.name}</span>
-                  <span style={{
-                    fontSize: "0.55rem",
-                    background: "rgba(139,92,246,0.15)", border: "1px solid rgba(139,92,246,0.3)",
-                    color: "#a78bfa", borderRadius: "4px", padding: "1px 5px",
-                  }}>T{inst.upgradeTier ?? 3}</span>
-                </div>
-                <span style={{ fontSize: "0.6rem", color: "var(--muted)" }}>
-                  {adv ? `on ${adv.name}` : "equipped"}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      )}
+              <button
+                onClick={() => onUpgradeForgeInstance(inst.id)}
+                disabled={!canUpgrade}
+                style={{
+                  fontSize: "0.62rem", padding: "4px 10px", borderRadius: "7px",
+                  flexShrink: 0, fontWeight: 700,
+                  background: canUpgrade ? "rgba(139,92,246,0.3)" : "rgba(255,255,255,0.05)",
+                  border: `1px solid ${canUpgrade ? "rgba(139,92,246,0.6)" : "var(--border)"}`,
+                  color: canUpgrade ? "#c4b5fd" : "var(--muted)",
+                  cursor: canUpgrade ? "pointer" : "default",
+                }}
+              >
+                T{currentTier} → T{currentTier + 1}
+              </button>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

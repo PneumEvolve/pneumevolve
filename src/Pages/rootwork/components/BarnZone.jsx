@@ -174,7 +174,8 @@ function PetsRow({ game, onBuyPet, onInteractPet }) {
  
 // ─── Animal card ──────────────────────────────────────────────────────────────
  
-function AnimalCard({ animal, animalType, index, game, onCollect, onInteract, onUpgradeStorage, onUpgradeYield }) {
+function AnimalCard({ animal, animalType, index, game, onCollect, onInteract, onUpgradeStorage, onUpgradeYield, onSell }) {
+  const [confirmSell, setConfirmSell] = useState(false);
   const [showUpgrades, setShowUpgrades] = useState(false);
   const mood = animal.mood ?? 100;
   const stock = animal.stock ?? 0;
@@ -280,6 +281,16 @@ function AnimalCard({ animal, animalType, index, game, onCollect, onInteract, on
           {canInteract ? "💝 +25%" : `💝 ${Math.ceil(cooldown)}s`}
         </button>
         <button onClick={() => setShowUpgrades((v) => !v)} style={{ fontSize: "0.68rem", padding: "0.28rem 0.45rem", borderRadius: "8px", cursor: "pointer", background: showUpgrades ? "var(--accent)" : "var(--bg)", border: `1px solid ${showUpgrades ? "var(--accent)" : "var(--border)"}`, color: showUpgrades ? "#fff" : "var(--muted)" }}>⭐</button>
+        {!confirmSell ? (
+          <button onClick={() => setConfirmSell(true)} style={{ fontSize: "0.65rem", padding: "0.28rem 0.45rem", borderRadius: "8px", cursor: "pointer", background: "var(--bg)", border: "1px solid var(--border)", color: "var(--muted)" }} title={`Sell for $${Math.floor(animalType.baseCost * (mood / 100))}`}>💰</button>
+        ) : (
+          <>
+            <button onClick={() => { onSell(animal.id); setConfirmSell(false); }} style={{ fontSize: "0.6rem", padding: "0.28rem 0.4rem", borderRadius: "8px", cursor: "pointer", background: "#ef4444", border: "none", color: "#fff", fontWeight: 700 }}>
+              ${Math.floor(animalType.baseCost * (mood / 100))}✓
+            </button>
+            <button onClick={() => setConfirmSell(false)} style={{ fontSize: "0.6rem", padding: "0.28rem 0.4rem", borderRadius: "8px", cursor: "pointer", background: "var(--bg)", border: "1px solid var(--border)", color: "var(--muted)" }}>✕</button>
+          </>
+        )}
       </div>
  
       {showUpgrades && (
@@ -512,7 +523,7 @@ function BarnWorkerCard({ worker, game, index, onFire, onUpgrade, instanceAnimal
  
 function BuildingTab({
   barnInstance, game,
-  onBuyAnimal, onCollectAnimal, onInteractAnimal, onUpgradeAnimalStorage, onUpgradeAnimalYield,
+  onBuyAnimal, onSellAnimal, onCollectAnimal, onInteractAnimal, onUpgradeAnimalStorage, onUpgradeAnimalYield,
   onHireBarnWorker, onFireBarnWorker, onUpgradeBarnWorker,
   onBuildBarnBuilding, onUpgradeBarnBuilding, onCollectAll,
 }) {
@@ -651,6 +662,7 @@ function BuildingTab({
             onInteract={(id) => onInteractAnimal(def.animalType, id, instanceId)}
             onUpgradeStorage={(id) => onUpgradeAnimalStorage(def.animalType, id, instanceId)}
             onUpgradeYield={(id) => onUpgradeAnimalYield(def.animalType, id, instanceId)}
+            onSell={(id) => onSellAnimal(def.animalType, id, instanceId)}
           />
         ))}
         {!animalSlotsFull ? (
@@ -808,7 +820,7 @@ function BarnSubTabs({ instances, activeInstanceId, onTabChange }) {
 // ─── Main export ──────────────────────────────────────────────────────────────
  
 export default function BarnZone({
-  game, onBuyAnimal, onCollectAnimal, onCollectAll, onInteractAnimal,
+  game, onBuyAnimal, onSellAnimal, onCollectAnimal, onCollectAll, onInteractAnimal,
   onBuyPet, onInteractPet, onHireBarnWorker, onFireBarnWorker,
   onReassignBarnWorker, onUpgradeBarnWorker, onUpgradeAnimalStorage,
   onUpgradeAnimalYield, onBuildBarnBuilding, onUpgradeBarnBuilding,
@@ -942,6 +954,7 @@ export default function BarnZone({
               barnInstance={activeInstance}
               game={game}
               onBuyAnimal={onBuyAnimal}
+              onSellAnimal={onSellAnimal}
               onCollectAnimal={onCollectAnimal}
               onInteractAnimal={onInteractAnimal}
               onUpgradeAnimalStorage={onUpgradeAnimalStorage}

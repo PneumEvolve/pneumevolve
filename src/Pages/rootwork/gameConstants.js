@@ -361,9 +361,9 @@ export const TOWN_SAUCE_BUILDING_COST = 4_000;
  
 // ─── Town Hall ────────────────────────────────────────────────────────────────
 export const TOWN_HALL_MAX_LEVEL = 4;
-export const TOWN_HALL_LEVEL_COSTS = [300, 2500, 6000, 20000]; // cash cost per level
-export const TOWN_HALL_L1_IRON = 5;   // iron ore required to build level 1
-export const TOWN_HALL_L1_LUMBER = 5; // lumber required to build level 1
+export const TOWN_HALL_LEVEL_COSTS = [100, 2500, 6000, 20000]; // cash cost per level
+export const TOWN_HALL_L1_IRON = 0;   // iron ore required to build level 1 (removed - moved to tavern)
+export const TOWN_HALL_L1_LUMBER = 0; // lumber required to build level 1 (removed - moved to tavern)
 // Material requirements for Town Hall levels 2–4
 export const TOWN_HALL_L2_IRON = 20;   // iron ore for level 2
 export const TOWN_HALL_L2_LUMBER = 20; // lumber for level 2
@@ -709,7 +709,11 @@ export const ANIMAL_SELL_RATES = {
 // Build costs (from treasury)
 export const TOWN_CLINIC_COST        = 1_500;
 export const TOWN_SCHOOL_COST        = 2_500;
-export const TOWN_TAVERN_COST        = 3_000;
+export const TOWN_TAVERN_COST        = 3_000; // legacy - unused
+export const TAVERN_LEVEL_COSTS    = [50, 500, 2_000, 8_000];   // treasury cost per level (0-indexed = level 1-4)
+export const TAVERN_LEVEL_IRON     = [10,  15,    20,      0];   // iron ore per level
+export const TAVERN_LEVEL_LUMBER   = [ 5,   0,    10,      0];   // lumber per level
+export const TAVERN_LEVEL_REGEN    = [0.7, 1.0,  1.5,    2.5];  // HP/s regen per level
 export const TOWN_RESTAURANT_COST    = 12_000;
 export const TOWN_CLOTHIER_COST      = 15_000;
  
@@ -1306,17 +1310,8 @@ export const WORLD_RESOURCES = {
 export const ADVENTURER_BASE_HP = 40;
 export const ADVENTURER_HP_PER_LEVEL = 8;
 export const ADVENTURER_REGEN_PER_SECOND = 0.05; // passive regen while not on mission
-export const TAVERN_REGEN_BONUS = 0.10;       // extra HP/s while resting at tavern (tier 1)
-export const TAVERN_XP_PER_PULSE = 3;          // XP gained per town pulse while resting w/ jam (tier 2)
-export const TAVERN_BUFF_DURATION_MISSIONS = 1; // buff lasts 1 mission
-
-// Class-appropriate buffs granted when resting with fish_pie (tier 3)
-export const TAVERN_CLASS_BUFFS = {
-  fighter:   { id: "tavern_fighter",   emoji: "🍖", name: "Battle Hardened",  description: "+20% max HP for next mission.",        effect: "bonus_maxhp",    value: 0.20 },
-  mage:      { id: "tavern_mage",      emoji: "⚡", name: "Arcane Clarity",   description: "-20% mission duration for next mission.", effect: "bonus_speed",   value: 0.20 },
-  scavenger: { id: "tavern_scavenger", emoji: "👁️", name: "Keen Senses",      description: "+2 min loot for next mission.",         effect: "bonus_loot",    value: 2    },
-  none:      { id: "tavern_none",      emoji: "🍺", name: "Well Rested",       description: "+10 HP restored on mission start.",     effect: "bonus_heal",    value: 10   },
-};
+// Tavern regen is now level-based via TAVERN_LEVEL_REGEN array
+export const TAVERN_REGEN_BONUS = 0.10; // legacy kept for save compat - use getTavernRegenRate()
 
 
 

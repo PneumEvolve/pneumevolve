@@ -114,7 +114,7 @@ function getHeroPrestigeLevel(adventurer) {
   return adventurer.prestigeLevel ?? 0;
 }
 
-function getBeltCapacity(adventurer) {
+function getBeltCapacity(adventurer, forgeGoodsInstanced = []) {
   const gear = adventurer.equippedGear ?? {};
   let cap = 3;
   // Body armor adds food slots
@@ -130,6 +130,10 @@ function getBeltCapacity(adventurer) {
   cap += skillMap["fighter_t4b"] ?? 0;
   cap += skillMap["mage_t4b"] ?? 0;
   cap += skillMap["scavenger_t4b"] ?? 0;
+  // Arcane armor bonus: +1 food slot per arcane tier above 3
+  const armorInstId = (adventurer.equippedInstanceId ?? {}).body ?? null;
+  const armorInst = armorInstId ? forgeGoodsInstanced.find((i) => i.id === armorInstId) : null;
+  cap += armorInst ? Math.max(0, (armorInst.upgradeTier ?? 3) - 3) : 0;
   return cap;
 }
 
@@ -704,7 +708,7 @@ function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onGiveArtisa
   const xpNeeded = getXpNeeded(adventurer.level ?? 1);
   const xpPct = ((adventurer.xp ?? 0) / xpNeeded) * 100;
   const dead = isDead(adventurer);
-  const beltCapacity = getBeltCapacity(adventurer);
+  const beltCapacity = getBeltCapacity(adventurer, game.forgeGoodsInstanced ?? []);
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
@@ -905,7 +909,7 @@ function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onGiveArtisa
             const weaponPct = weaponR?.missionTimeReduction ? Math.round(weaponR.missionTimeReduction * 100) : 0;
             const totalSpeedPct = Math.min(75, lvlSpeedPct + weaponPct + getTotalGearTier(adventurer) * 15);
             const armourPct = armourR?.damageReduction ? Math.round(armourR.damageReduction * 100) : 0;
-            const foodSlots = getBeltCapacity(adventurer);
+            const foodSlots = getBeltCapacity(adventurer, game.forgeGoodsInstanced ?? []);
             return (
               <div style={{ display: "flex", gap: "0.5rem 1rem", flexWrap: "wrap" }}>
                 <span>⏱ Missions: <strong>−{totalSpeedPct}% faster</strong></span>
@@ -1016,7 +1020,7 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
 
   // Food belt quick info
   const foodBelt = adventurer.foodBelt ?? {};
-  const beltCapacity = getBeltCapacity(adventurer);
+  const beltCapacity = getBeltCapacity(adventurer, game.forgeGoodsInstanced ?? []);
   const beltFoodTotal = Object.values(foodBelt).reduce((s, v) => s + v, 0);
   const firstBeltFood = ARTISAN_FOOD_LIST.find((id) => (foodBelt[id] ?? 0) > 0) ?? null;
   const canReplenish = stockFood.length > 0 && beltFoodTotal < beltCapacity;
@@ -1028,7 +1032,6 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
   // Tavern rest
   const tavernBuilt = game.town?.townBuildings?.tavern?.built === true;
   const isResting = !!adventurer.tavernResting;
-  const tavernBuff = adventurer.tavernBuff ?? null;
   const tavernMode = game.town?.townBuildings?.tavern?.mode ?? "jam";
   const tavernStocked = game.town?.townBuildings?.tavern?.stocked !== false;
   const tavernWorkers = game.town?.townBuildings?.tavern?.workers ?? 0;
@@ -1391,9 +1394,7 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
               <span style={{ fontSize: "0.85rem" }}>🍺</span>
               <div style={{ flex: 1, fontSize: "0.62rem" }}>
                 <span style={{ fontWeight: 700, color: "#fbbf24" }}>Resting at Tavern</span>
-                {tavernBuff && (
-                  <span style={{ marginLeft: "0.4rem", fontSize: "0.58rem", color: "#a78bfa" }}>· buff ready!</span>
-                )}
+
               </div>
               <button
                 onClick={(e) => { e.stopPropagation(); onRemoveTavern?.(adventurer.id); }}

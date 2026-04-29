@@ -15,11 +15,11 @@ import {
   BANK_TIERS, BANK_MAX_LEVEL,
   ANIMAL_FOOD_COSTS, PET_FOOD_COST, BREAD_FOOD_UNITS,
   PERSON_IDLE_FOOD_COST, PERSON_WORKING_FOOD_COST,
-  TOWN_CLINIC_COST, TOWN_SCHOOL_COST, TOWN_TAVERN_COST,
+  TOWN_CLINIC_COST, TOWN_SCHOOL_COST, TAVERN_LEVEL_COSTS, TAVERN_LEVEL_IRON, TAVERN_LEVEL_LUMBER, TAVERN_LEVEL_REGEN,
   TOWN_RESTAURANT_COST, TOWN_CLOTHIER_COST,
   CLINIC_CAP_PER_MEDIC, CLINIC_SAT_PER_MEDIC,
   SCHOOL_GROW_PER_RESEARCHER,
-  TAVERN_SAT_PER_BARTENDER, TAVERN_CLASS_BUFFS,
+  TAVERN_SAT_PER_BARTENDER,
   RESTAURANT_SAT_PER_CHEF,
   CLOTHIER_CASH_PER_CLERK,
   SCHOOL_RESEARCH,
@@ -35,7 +35,7 @@ import {
   isTownBuildingBuilt, getTownBuildingWorkers, getFreePeople,
   getClinicCapBonus, getClinicSatBonus,
   getSchoolGrowBonus, getSchoolResearchMultiplier,
-  getTavernSatBonus, getTavernPulseCost,
+  getTavernSatBonus, getTavernPulseCost, getTavernLevel, getTavernRegenRate,
   getRestaurantSatBonus, getRestaurantOmeletteCost, getRestaurantCheeseCost,
   getClothierCashPerPulse, getClothierPulseCost,
   getTownBuildingWorkerCount, getSchoolData, getActiveSchoolResearch, getAvailableSchoolResearch,
@@ -204,7 +204,7 @@ export default function TownZone({
   onSetTreasuryCap,
   onBuildTownBuilding,
   onAssignTownBuildingWorker,
-  onToggleTavernMode,
+  onUpgradeTavern,
   onStartSchoolResearch,
   onInvestNow,
 }) {
@@ -304,7 +304,8 @@ export default function TownZone({
 
   const clinicBuilt    = isTownBuildingBuilt(game, "clinic");
   const schoolBuilt    = isTownBuildingBuilt(game, "school");
-  const tavernBuilt    = isTownBuildingBuilt(game, "tavern");
+  const tavernLevel    = getTavernLevel(game);
+  const tavernBuilt    = tavernLevel > 0;
   const restaurantBuilt = isTownBuildingBuilt(game, "restaurant");
   const clothierBuilt  = isTownBuildingBuilt(game, "clothier");
 
@@ -338,7 +339,15 @@ export default function TownZone({
   const woolShedBuilt = game.barnBuildings?.wool_shed?.built === true;
 
   // Gate checks
-  const canBuildTavern     = thLevel >= 1 && !tavernBuilt && treasury >= TOWN_TAVERN_COST;
+  const tavernMaxLevel = 4;
+  const tavernNextIdx  = tavernLevel; // 0-indexed
+  const tavernNextCost = tavernLevel < tavernMaxLevel ? TAVERN_LEVEL_COSTS[tavernNextIdx] : null;
+  const tavernNextIron = tavernLevel < tavernMaxLevel ? TAVERN_LEVEL_IRON[tavernNextIdx] : 0;
+  const tavernNextLumber = tavernLevel < tavernMaxLevel ? TAVERN_LEVEL_LUMBER[tavernNextIdx] : 0;
+  const canUpgradeTavern = thLevel >= 1 && tavernLevel < tavernMaxLevel
+    && treasury >= (tavernNextCost ?? Infinity)
+    && (game.worldResources?.iron_ore ?? 0) >= tavernNextIron
+    && (game.worldResources?.lumber ?? 0) >= tavernNextLumber;
   const canBuildClinic     = tavernBuilt && !clinicBuilt && treasury >= TOWN_CLINIC_COST;
   const canBuildSchool     = clinicBuilt && !schoolBuilt && treasury >= TOWN_SCHOOL_COST;
   const canBuildRestaurant = schoolBuilt && bakeryLevel >= 1 && !restaurantBuilt && treasury >= TOWN_RESTAURANT_COST;
@@ -922,178 +931,132 @@ export default function TownZone({
  
       {/* 🍺 Tavern */}
       {(() => {
-        const restingHeroes = (game.adventurers ?? []).filter((a) => a.tavernResting);
-        const activeTier = tavernWorkers === 0 ? 1 : tavernStocked ? (tavernMode === "fish_pie" ? 3 : 2) : 1;
-        const tierColors = { 1: "#94a3b8", 2: "#60a5fa", 3: "#a78bfa" };
-        const tierColor = tierColors[activeTier] ?? "#94a3b8";
-        return (
-          <div className="card p-4" style={{ marginBottom: "1rem", opacity: thLevel >= 1 ? 1 : 0.4 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.4rem" }}>
-              <div style={{ fontWeight: 600 }}>🍺 Tavern</div>
-              {tavernBuilt && (
-                <span style={{ fontSize: "0.65rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "999px", background: "rgba(74,222,128,0.15)", border: "1px solid #4ade80", color: "#4ade80" }}>
-                  Built · {tavernWorkers} bartenders
-                </span>
-              )}
-            </div>
+         const restingHeroes = (game.adventurers ?? []).filter((a) => a.tavernResting);
+         const regenRate = getTavernRegenRate(game);
+         const LEVEL_LABELS = ["", "Basic", "Improved", "Superior", "Grand"];
+         return (
+           <div className="card p-4" style={{ marginBottom: "1rem", opacity: thLevel >= 1 ? 1 : 0.4 }}>
+             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.4rem" }}>
+               <div style={{ fontWeight: 600 }}>🍺 Tavern</div>
+               {tavernBuilt && (
+                 <span style={{ fontSize: "0.65rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "999px", background: "rgba(74,222,128,0.15)", border: "1px solid #4ade80", color: "#4ade80" }}>
+                   Lv.{tavernLevel} {LEVEL_LABELS[tavernLevel]} · {tavernWorkers} bartenders
+                 </span>
+               )}
+             </div>
 
-            {/* How it works — always visible once built */}
-            {tavernBuilt ? (
-              <>
-                {/* Tier explanation */}
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem", marginBottom: "0.75rem" }}>
-                  {[
-                    { tier: 1, label: "Always active", icon: "❤️", desc: "Heroes resting here regen HP 3× faster. Free — no bartenders or items needed." },
-                    { tier: 2, label: "With bartender + 🍯 Jam", icon: "⭐", desc: `Resting heroes also gain ${3} XP per town pulse. Jam consumed per pulse.` },
-                    { tier: 3, label: "With bartender + 🥧 Fish Pie", icon: "✨", desc: "Resting heroes earn a class buff (Fighter: +HP · Mage: faster run · Scavenger: +loot) that fires on their next mission." },
-                  ].map(({ tier, label, icon, desc }) => {
-                    const isActive = tavernBuilt && activeTier >= tier;
-                    return (
-                      <div key={tier} style={{
-                        display: "flex", gap: "0.5rem", alignItems: "flex-start",
-                        padding: "0.35rem 0.5rem", borderRadius: "7px",
-                        background: isActive ? `rgba(${tier === 1 ? "148,163,184" : tier === 2 ? "96,165,250" : "167,139,250"},0.08)` : "rgba(255,255,255,0.02)",
-                        border: `1px solid ${isActive ? `rgba(${tier === 1 ? "148,163,184" : tier === 2 ? "96,165,250" : "167,139,250"},0.25)` : "rgba(255,255,255,0.06)"}`,
-                        opacity: isActive ? 1 : 0.45,
-                      }}>
-                        <span style={{ fontSize: "0.75rem", marginTop: "1px" }}>{icon}</span>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: "0.6rem", fontWeight: 700, color: isActive ? tierColors[tier] : "var(--muted)", marginBottom: "1px" }}>
-                            TIER {tier} · {label}
-                          </div>
-                          <div style={{ fontSize: "0.62rem", color: "var(--muted)", lineHeight: 1.5 }}>{desc}</div>
-                        </div>
-                        {isActive && tier === activeTier && (
-                          <span style={{ fontSize: "0.55rem", fontWeight: 700, color: tierColors[tier], background: `rgba(${tier === 1 ? "148,163,184" : tier === 2 ? "96,165,250" : "167,139,250"},0.15)`, border: `1px solid ${tierColors[tier]}`, padding: "1px 5px", borderRadius: "4px", whiteSpace: "nowrap", alignSelf: "center" }}>ACTIVE</span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+             {tavernBuilt ? (
+               <>
+                 {/* Regen stat */}
+                 <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginBottom: "0.75rem", padding: "0.4rem 0.6rem", background: "rgba(234,179,8,0.06)", border: "1px solid rgba(234,179,8,0.2)", borderRadius: "8px" }}>
+                   ❤️ <strong style={{ color: "#fbbf24" }}>{regenRate.toFixed(1)} HP/s</strong> regen for resting heroes · free, no upkeep
+                   {tavernLevel < 4 && <span style={{ color: "rgba(234,179,8,0.5)", marginLeft: "0.4rem" }}>· upgrade for {TAVERN_LEVEL_REGEN[tavernLevel].toFixed(1)} HP/s</span>}
+                 </div>
 
-                {/* Bartender workers + sat bonus */}
-                <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.4rem", flexWrap: "wrap" }}>
-                  <WorkerAssigner
-                    workers={tavernWorkers} freePeople={freePeople}
-                    onAdd={() => onAssignTownBuildingWorker("tavern", 1)}
-                    onRemove={() => onAssignTownBuildingWorker("tavern", -1)}
-                  />
-                  {tavernWorkers > 0 && (
-                    <div style={{ fontSize: "0.65rem", color: "var(--muted)" }}>
-                      +<strong style={{ color: "#60a5fa" }}>{tavernSatBonus.toFixed(1)}%</strong> satisfaction · consumes <strong>{tavernCost}</strong>/pulse
-                    </div>
-                  )}
-                  {tavernWorkers === 0 && (
-                    <div style={{ fontSize: "0.62rem", color: "var(--muted)", fontStyle: "italic" }}>
-                      Add a bartender to unlock Tier 2 &amp; 3
-                    </div>
-                  )}
-                </div>
+                 {/* Bartender workers + sat bonus */}
+                 <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.4rem", flexWrap: "wrap" }}>
+                   <WorkerAssigner
+                     workers={tavernWorkers} freePeople={freePeople}
+                     onAdd={() => onAssignTownBuildingWorker("tavern", 1)}
+                     onRemove={() => onAssignTownBuildingWorker("tavern", -1)}
+                   />
+                   {tavernWorkers > 0 && (
+                     <div style={{ fontSize: "0.65rem", color: "var(--muted)" }}>
+                       +<strong style={{ color: "#60a5fa" }}>{tavernSatBonus.toFixed(1)}%</strong> satisfaction · consumes <strong>{tavernCost}</strong>/pulse
+                     </div>
+                   )}
+                   {tavernWorkers === 0 && (
+                     <div style={{ fontSize: "0.62rem", color: "var(--muted)", fontStyle: "italic" }}>
+                       Add a bartender for satisfaction bonus
+                     </div>
+                   )}
+                 </div>
 
-                {/* Item toggle — visible always (greyed when no bartenders) */}
-                <div style={{ marginBottom: "0.5rem" }}>
-                  <div style={{ fontSize: "0.58rem", color: "var(--muted)", fontWeight: 600, marginBottom: "0.3rem", letterSpacing: "0.04em" }}>
-                    ITEM MODE {tavernWorkers === 0 && <span style={{ fontWeight: 400, color: "var(--muted)", opacity: 0.6 }}>· needs bartender</span>}
-                    {tavernWorkers > 0 && !tavernStocked && <span style={{ fontWeight: 400, color: "#f59e0b" }}> · ⚠ out of stock</span>}
-                  </div>
-                  <div style={{ display: "flex", gap: "0.4rem" }}>
-                    {[
-                      { mode: "jam",      emoji: "🍯", label: "Jam",      subLabel: "XP gain",   stock: Math.floor(game.artisan?.jam ?? 0) },
-                      { mode: "fish_pie", emoji: "🥧", label: "Fish Pie", subLabel: "Class buff", stock: Math.floor(game.animalGoods?.fish_pie ?? 0) },
-                    ].map(({ mode, emoji, label, subLabel, stock }) => {
-                      const active = tavernMode === mode;
-                      const disabled = tavernWorkers === 0;
-                      return (
-                        <button
-                          key={mode}
-                          onClick={() => !disabled && onToggleTavernMode(mode)}
-                          style={{
-                            flex: 1, padding: "0.4rem 0.5rem",
-                            borderRadius: "8px",
-                            cursor: disabled ? "default" : "pointer",
-                            background: active && !disabled ? `rgba(${mode === "jam" ? "96,165,250" : "167,139,250"},0.15)` : "rgba(255,255,255,0.03)",
-                            border: `1px solid ${active && !disabled ? (mode === "jam" ? "#60a5fa" : "#a78bfa") : "var(--border)"}`,
-                            color: disabled ? "var(--muted)" : active ? (mode === "jam" ? "#60a5fa" : "#a78bfa") : "var(--muted)",
-                            opacity: disabled ? 0.45 : 1,
-                            textAlign: "left",
-                          }}
-                        >
-                          <div style={{ fontSize: "0.68rem", fontWeight: 700 }}>{emoji} {label}</div>
-                          <div style={{ fontSize: "0.55rem", marginTop: "1px", opacity: 0.8 }}>{subLabel} · {stock} in stock</div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+                 {/* Resting heroes */}
+                 {restingHeroes.length > 0 && (
+                   <div style={{ paddingTop: "0.5rem", borderTop: "1px solid var(--border)" }}>
+                     <div style={{ fontSize: "0.58rem", fontWeight: 700, color: "var(--muted)", marginBottom: "0.35rem", letterSpacing: "0.05em" }}>
+                       😴 RESTING ({restingHeroes.length}) · send them on a mission from the World tab
+                     </div>
+                     {restingHeroes.map((hero) => {
+                       const maxHp = hero.maxHp ?? 40;
+                       const hp = hero.hp ?? maxHp;
+                       const hpPct = Math.min(100, (hp / maxHp) * 100);
+                       const isFullHp = hp >= maxHp;
+                       return (
+                         <div key={hero.id} style={{
+                           display: "flex", alignItems: "center", gap: "0.5rem",
+                           marginBottom: "0.3rem", padding: "0.35rem 0.5rem",
+                           background: "rgba(234,179,8,0.05)",
+                           border: "1px solid rgba(234,179,8,0.18)",
+                           borderRadius: "7px",
+                         }}>
+                           <span style={{ fontSize: "0.9rem" }}>{isFullHp ? "💤" : "😴"}</span>
+                           <div style={{ flex: 1, minWidth: 0 }}>
+                             <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", marginBottom: "2px" }}>
+                               <span style={{ fontSize: "0.65rem", fontWeight: 600 }}>{hero.name}</span>
+                               <span style={{ fontSize: "0.55rem", color: isFullHp ? "#4ade80" : "#fbbf24" }}>
+                                 {isFullHp ? "✓ full HP" : `+${regenRate.toFixed(1)} HP/s`}
+                               </span>
+                             </div>
+                             <div style={{ height: "3px", background: "rgba(255,255,255,0.08)", borderRadius: "2px", overflow: "hidden" }}>
+                               <div style={{ height: "100%", width: `${hpPct}%`, background: hpPct > 60 ? "#4ade80" : hpPct > 30 ? "#fbbf24" : "#ef4444", borderRadius: "2px" }} />
+                             </div>
+                           </div>
+                           <span style={{ fontSize: "0.58rem", color: "var(--muted)", whiteSpace: "nowrap" }}>{Math.floor(hp)}/{maxHp}</span>
+                         </div>
+                       );
+                     })}
+                   </div>
+                 )}
+                 {restingHeroes.length === 0 && (
+                   <div style={{ fontSize: "0.62rem", color: "var(--muted)", fontStyle: "italic", paddingTop: "0.3rem" }}>
+                     No heroes resting. Use the "Rest at Tavern" button on any idle hero in the World tab.
+                   </div>
+                 )}
 
-                {/* Resting heroes */}
-                {restingHeroes.length > 0 && (
-                  <div style={{ paddingTop: "0.5rem", borderTop: "1px solid var(--border)" }}>
-                    <div style={{ fontSize: "0.58rem", fontWeight: 700, color: "var(--muted)", marginBottom: "0.35rem", letterSpacing: "0.05em" }}>
-                      😴 RESTING ({restingHeroes.length}) · send them on a mission from the World tab
-                    </div>
-                    {restingHeroes.map((hero) => {
-                      const maxHp = hero.maxHp ?? 40;
-                      const hp = hero.hp ?? maxHp;
-                      const hpPct = Math.min(100, (hp / maxHp) * 100);
-                      const hasBuff = !!hero.tavernBuff;
-                      const buffDef = hasBuff ? Object.values(TAVERN_CLASS_BUFFS).find((b) => b.id === hero.tavernBuff) : null;
-                      const isFullHp = hp >= maxHp;
-                      return (
-                        <div key={hero.id} style={{
-                          display: "flex", alignItems: "center", gap: "0.5rem",
-                          marginBottom: "0.3rem", padding: "0.35rem 0.5rem",
-                          background: hasBuff ? "rgba(167,139,250,0.08)" : "rgba(234,179,8,0.05)",
-                          border: `1px solid ${hasBuff ? "rgba(167,139,250,0.3)" : "rgba(234,179,8,0.18)"}`,
-                          borderRadius: "7px",
-                        }}>
-                          <span style={{ fontSize: "0.9rem" }}>{hasBuff ? "✨" : isFullHp ? "💤" : "😴"}</span>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", marginBottom: "2px" }}>
-                              <span style={{ fontSize: "0.65rem", fontWeight: 600 }}>{hero.name}</span>
-                              {hasBuff ? (
-                                <span style={{ fontSize: "0.55rem", color: "#a78bfa", fontWeight: 700, background: "rgba(167,139,250,0.15)", padding: "1px 5px", borderRadius: "4px" }}>
-                                  {buffDef?.emoji} {buffDef?.name} ready!
-                                </span>
-                              ) : (
-                                <span style={{ fontSize: "0.55rem", color: isFullHp ? "#4ade80" : "#fbbf24" }}>
-                                  {isFullHp ? "✓ full HP" : `+HP regen${activeTier >= 2 ? " +XP" : ""}`}
-                                </span>
-                              )}
-                            </div>
-                            <div style={{ height: "3px", background: "rgba(255,255,255,0.08)", borderRadius: "2px", overflow: "hidden" }}>
-                              <div style={{ height: "100%", width: `${hpPct}%`, background: hpPct > 60 ? "#4ade80" : hpPct > 30 ? "#fbbf24" : "#ef4444", borderRadius: "2px" }} />
-                            </div>
-                          </div>
-                          <span style={{ fontSize: "0.58rem", color: "var(--muted)", whiteSpace: "nowrap" }}>{Math.floor(hp)}/{maxHp}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-                {restingHeroes.length === 0 && (
-                  <div style={{ fontSize: "0.62rem", color: "var(--muted)", fontStyle: "italic", paddingTop: "0.3rem" }}>
-                    No heroes resting. Use the "Rest at Tavern" button on any idle hero in the World tab.
-                  </div>
-                )}
-              </>
-            ) : (
-              <>
-                {/* Pre-build teaser */}
-                <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
-                  {!clinicBuilt
-                    ? "Requires Town Hall Level 1."
-                    : "A place for heroes to rest between missions. Idle heroes regen HP 3× faster here. Add bartenders + jam for bonus XP, or fish pie for class-specific mission buffs."}
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>${TOWN_TAVERN_COST.toLocaleString()} treasury</div>
-                  <button onClick={() => onBuildTownBuilding("tavern")} disabled={!canBuildTavern} className="btn" style={{ opacity: canBuildTavern ? 1 : 0.5 }}>Build Tavern</button>
-                </div>
-              </>
-            )}
-          </div>
-        );
-      })()}
+                 {/* Upgrade button */}
+                 {tavernLevel < 4 && (
+                   <div style={{ marginTop: "0.75rem", paddingTop: "0.5rem", borderTop: "1px solid var(--border)" }}>
+                     <div style={{ fontSize: "0.58rem", fontWeight: 700, color: "var(--muted)", marginBottom: "0.4rem", letterSpacing: "0.05em" }}>
+                       UPGRADE TO LEVEL {tavernLevel + 1} · {LEVEL_LABELS[tavernLevel + 1]}
+                     </div>
+                     <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginBottom: "0.4rem" }}>
+                       {TAVERN_LEVEL_REGEN[tavernLevel].toFixed(1)} HP/s regen
+                       {tavernNextIron > 0 && <span> · {tavernNextIron} iron ore</span>}
+                       {tavernNextLumber > 0 && <span> · {tavernNextLumber} lumber</span>}
+                     </div>
+                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                       <div style={{ fontSize: "0.72rem", color: "var(--muted)" }}>${tavernNextCost?.toLocaleString()} treasury</div>
+                       <button onClick={onUpgradeTavern} disabled={!canUpgradeTavern} className="btn" style={{ opacity: canUpgradeTavern ? 1 : 0.5 }}>
+                         Upgrade Tavern
+                       </button>
+                     </div>
+                   </div>
+                 )}
+                 {tavernLevel >= 4 && (
+                   <div style={{ marginTop: "0.5rem", fontSize: "0.62rem", color: "#4ade80", fontStyle: "italic" }}>✓ Max level</div>
+                 )}
+               </>
+             ) : (
+               <>
+                 <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
+                   {thLevel < 1
+                     ? "Requires Town Hall Level 1 and treasury."
+                     : "A place for heroes to rest and heal between missions. Heroes regen HP passively — free, no upkeep. Upgrade for faster regen as your heroes grow stronger."}
+                 </div>
+                 <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginBottom: "0.4rem" }}>
+                   10 iron ore · 5 lumber
+                 </div>
+                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                   <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>${TAVERN_LEVEL_COSTS[0].toLocaleString()} treasury</div>
+                   <button onClick={onUpgradeTavern} disabled={!canUpgradeTavern} className="btn" style={{ opacity: canUpgradeTavern ? 1 : 0.5 }}>Build Tavern</button>
+                 </div>
+               </>
+             )}
+           </div>
+         );
+       })()}
  
       {/* 🏥 Clinic */}
       <div className="card p-4" style={{ marginBottom: "1rem", opacity: tavernBuilt ? 1 : 0.4 }}>

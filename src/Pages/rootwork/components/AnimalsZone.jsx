@@ -6,7 +6,7 @@ import BarnZone from "./BarnZone";
 export default function AnimalsZone({
   game,
   onBuyPond, onCatchFish,
-  onBuyAnimal, onCollectAnimal, onCollectAll, onInteractAnimal,
+  onBuyAnimal, onSellAnimal, onCollectAnimal, onCollectAll, onInteractAnimal,
   onBuyPet, onInteractPet,
   onHireBarnWorker, onFireBarnWorker, onReassignBarnWorker,
   onUpgradeBarnWorker, onUpgradeAnimalStorage, onUpgradeAnimalYield,
@@ -79,6 +79,7 @@ export default function AnimalsZone({
         <BarnZone
           game={game}
           onBuyAnimal={onBuyAnimal}
+          onSellAnimal={onSellAnimal}
           onCollectAnimal={onCollectAnimal}
           onCollectAll={onCollectAll}
           onInteractAnimal={onInteractAnimal}

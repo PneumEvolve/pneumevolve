@@ -20,14 +20,14 @@ import {
   investNow, canInvestNow, getInvestNowCooldownRemaining,
   buildBank, upgradeBank, setActiveBankTier, buyPond, buildForge, catchFish, unlockFishingBody, setFishingActiveBody,
   upgradeFishingWorker, setFishingWorkerBait,
-  buyAnimal, collectAnimal, collectAllAnimals, interactAnimal, buyPet, interactPet, toggleKitchenWorkerAutoRestart,
+  buyAnimal, sellAnimal, collectAnimal, collectAllAnimals, interactAnimal, buyPet, interactPet, toggleKitchenWorkerAutoRestart,
   setKitchenWorkerBatchOverride,
   setMarketWorkerRateLimit,
   hireBarnWorker, fireBarnWorker, reassignBarnWorker, applyFishMeal, upgradeBarnWorker, upgradeAnimalStorage, getBarnWorkerHireCost,
   hireFishingWorker, fireFishingWorker, setTreasuryCap, upgradeAnimalYield,
   hasSchoolResearch, isTownBuildingBuilt, canAffordUpgradeMaterials,
   buildBarnBuilding, upgradeBarnBuilding,
-  buildTownBuilding, setTavernMode, assignTownBuildingWorker,
+  buildTownBuilding, upgradeTavern, setTavernMode, assignTownBuildingWorker,
   startSchoolResearch, unlockPrestigeSkill, toggleFishingWorkerAllowedFish,
   unlockSeasonFarm, unlockSeasonBarn, skipSeasonUnlock, getAvailableBarnUnlocks,
   buyFishingPlayerUpgrade, getPlayerFishingHaul,
@@ -555,6 +555,7 @@ export default function RootWork() {
   const handleBuildTownBuilding = useCallback((key) => update((s) => { const n = buildTownBuilding(s, key); if (n === s) notify("Can't build yet — check requirements and treasury."); return n; }), [update, notify]);
   const handleAssignTownBuildingWorker = useCallback((key, delta) => update((s) => { const n = assignTownBuildingWorker(s, key, delta); if (n === s && delta > 0) notify("No free people available."); return n; }), [update, notify]);
   const handleToggleTavernMode = useCallback((mode) => update((s) => setTavernMode(s, mode)), [update]);
+  const handleUpgradeTavern = useCallback(() => update((s) => { const n = upgradeTavern(s); if (n === s) notify("Can't upgrade yet — check treasury and materials."); return n; }), [update]);
   const handleStartSchoolResearch = useCallback((researchId) => update((s) => {
     const n = startSchoolResearch(s, researchId);
     if (n === s) notify("Can't start that research yet.");
@@ -567,6 +568,7 @@ export default function RootWork() {
     update((s) => { const n = buildForge(s); if (n === s) notify("Need 🪨×10 🪵×5 to build Forge."); return n; });
   }, [update, notify]);
   const handleBuyAnimal = useCallback((animalId, barnInstanceId) => update((s) => { const n = buyAnimal(s, animalId, barnInstanceId); if (n === s) notify("Not enough cash."); return n; }), [update, notify]);
+  const handleSellAnimal = useCallback((animalId, animalInstanceId, barnInstanceId) => update((s) => sellAnimal(s, animalId, animalInstanceId, barnInstanceId)), [update]);
   const handleCollectAnimal = useCallback((animalId, instanceId, barnInstanceId) => update((s) => collectAnimal(s, animalId, instanceId, barnInstanceId)), [update]);
   const handleCollectAllAnimals = useCallback(() => { update((s) => collectAllAnimals(s)); notify("🧺 All products collected!"); }, [update, notify]);
   const handleInteractAnimal = useCallback((animalId, instanceId, barnInstanceId) => update((s) => interactAnimal(s, animalId, instanceId, barnInstanceId)), [update]);
@@ -903,7 +905,7 @@ export default function RootWork() {
           </>
         )}
         {activeMainTab === "town" && (
-          <TownZone game={game} onBuildHome={handleBuildTownHome} onBuyBakery={handleBuyTownBakery} onToggleBakery={handleToggleBakery} onTogglePantry={handleTogglePantry} onToggleCannery={handleToggleCannery} onUpgradeTownBuilding={handleUpgradeTownBuilding} onBuyJamBuilding={handleBuyJamBuilding} onBuySauceBuilding={handleBuySauceBuilding} onUpgradeTownHall={handleUpgradeTownHall} onSetTreasuryTier={handleSetTreasuryTier} onBuildBank={handleBuildBank} onUpgradeBank={handleUpgradeBank} onSetActiveBankTier={handleSetActiveBankTier} prestigeReady={prestigeReady} onPrestige={() => setShowPrestigeModal(true)} onReset={handleResetGame} onSetTreasuryCap={handleSetTreasuryCap} onBuildTownBuilding={handleBuildTownBuilding} onAssignTownBuildingWorker={handleAssignTownBuildingWorker} onToggleTavernMode={handleToggleTavernMode} onStartSchoolResearch={handleStartSchoolResearch} onInvestNow={handleInvestNow}/>
+          <TownZone game={game} onBuildHome={handleBuildTownHome} onBuyBakery={handleBuyTownBakery} onToggleBakery={handleToggleBakery} onTogglePantry={handleTogglePantry} onToggleCannery={handleToggleCannery} onUpgradeTownBuilding={handleUpgradeTownBuilding} onBuyJamBuilding={handleBuyJamBuilding} onBuySauceBuilding={handleBuySauceBuilding} onUpgradeTownHall={handleUpgradeTownHall} onSetTreasuryTier={handleSetTreasuryTier} onBuildBank={handleBuildBank} onUpgradeBank={handleUpgradeBank} onSetActiveBankTier={handleSetActiveBankTier} prestigeReady={prestigeReady} onPrestige={() => setShowPrestigeModal(true)} onReset={handleResetGame} onSetTreasuryCap={handleSetTreasuryCap} onBuildTownBuilding={handleBuildTownBuilding} onAssignTownBuildingWorker={handleAssignTownBuildingWorker} onUpgradeTavern={handleUpgradeTavern} onToggleTavernMode={handleToggleTavernMode} onStartSchoolResearch={handleStartSchoolResearch} onInvestNow={handleInvestNow}/>
         )}
         {activeMainTab === "world" && (
           <WorldZone
@@ -942,6 +944,7 @@ export default function RootWork() {
             onBuyPond={handleBuyPond}
             onCatchFish={handleCatchFish}
             onBuyAnimal={handleBuyAnimal}
+            onSellAnimal={handleSellAnimal}
             onCollectAnimal={handleCollectAnimal}
             onCollectAll={handleCollectAllAnimals}
             onInteractAnimal={handleInteractAnimal}
