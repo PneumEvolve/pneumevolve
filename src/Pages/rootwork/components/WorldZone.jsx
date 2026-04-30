@@ -771,46 +771,62 @@ function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onGiveArtisa
         {/* Equipment */}
         <EquipmentPanel adventurer={adventurer} game={game} onEquip={onEquip} onUnequip={onUnequip} />
 
-        {/* Buff Slot */}
-        <div style={{ padding: "0.6rem 0.75rem", background: "rgba(139,92,246,0.05)", border: "1px solid rgba(139,92,246,0.2)", borderRadius: "10px", marginBottom: "0.65rem" }}>
-          <div style={{ fontWeight: 600, marginBottom: "0.4rem", color: "var(--muted)", fontSize: "0.6rem", letterSpacing: "0.05em" }}>✨ BUFF SLOT <span style={{ color: "var(--muted)", fontWeight: 400 }}>(1 slot · consumed on mission complete)</span></div>
-          {adventurer.buffSlot ? (
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              {(() => {
-                const def = ADVENTURER_BUFF_ITEMS[adventurer.buffSlot];
-                return (
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", background: "rgba(139,92,246,0.12)", border: "1px solid rgba(139,92,246,0.35)", borderRadius: "8px", padding: "4px 10px", flex: 1 }}>
-                    <span style={{ fontSize: "1.1rem" }}>{def?.emoji}</span>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#a78bfa" }}>{def?.name}</div>
-                      <div style={{ fontSize: "0.6rem", color: "var(--muted)" }}>{def?.description}</div>
-                    </div>
-                    <button onClick={() => onRemoveBuffItem(adventurer.id)} style={{ fontSize: "0.58rem", padding: "2px 7px", borderRadius: "4px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444", cursor: "pointer" }}>Remove</button>
+        {/* Buff Belt */}
+        {(() => {
+          const heroBuffBelt = adventurer.buffBelt ?? {};
+          const heroBuffTotal = Object.values(heroBuffBelt).reduce((s, v) => s + v, 0);
+          const heroBuffCap = beltCapacity;
+          const loadedBuffTypes = ADVENTURER_BUFF_LIST.filter((id) => (heroBuffBelt[id] ?? 0) > 0);
+          const availableBuffStock = ADVENTURER_BUFF_LIST.filter((id) => {
+            const def = ADVENTURER_BUFF_ITEMS[id];
+            const src = def?.source ?? "animalGoods";
+            const stock = src === "artisan" ? (game.artisan ?? {}) : (game.animalGoods ?? {});
+            return (stock[id] ?? 0) > 0;
+          });
+          return (
+            <div style={{ padding: "0.6rem 0.75rem", background: "rgba(139,92,246,0.05)", border: "1px solid rgba(139,92,246,0.2)", borderRadius: "10px", marginBottom: "0.65rem" }}>
+              <div style={{ fontWeight: 600, marginBottom: "0.4rem", color: "var(--muted)", fontSize: "0.6rem", letterSpacing: "0.05em" }}>✨ BUFF BELT <span style={{ color: "var(--muted)", fontWeight: 400 }}>({heroBuffCap} slots · 1 consumed per run)</span></div>
+              {loadedBuffTypes.length > 0 ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem", marginBottom: "0.4rem" }}>
+                  {loadedBuffTypes.map((id) => {
+                    const def = ADVENTURER_BUFF_ITEMS[id];
+                    return (
+                      <div key={id} style={{ display: "flex", alignItems: "center", gap: "0.35rem", background: "rgba(139,92,246,0.12)", border: "1px solid rgba(139,92,246,0.35)", borderRadius: "8px", padding: "4px 10px" }}>
+                        <span style={{ fontSize: "1.1rem" }}>{def?.emoji}</span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#a78bfa" }}>{def?.name} ×{heroBuffBelt[id]}</div>
+                          <div style={{ fontSize: "0.6rem", color: "var(--muted)" }}>{def?.description}</div>
+                        </div>
+                        <button onClick={() => onRemoveBuffItem(adventurer.id, id)} style={{ fontSize: "0.58rem", padding: "2px 7px", borderRadius: "4px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444", cursor: "pointer" }}>Remove</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div style={{ fontSize: "0.65rem", color: "var(--muted)", fontStyle: "italic", marginBottom: "0.4rem" }}>No buffs loaded. ({heroBuffTotal}/{heroBuffCap} slots used)</div>
+              )}
+              {heroBuffTotal < heroBuffCap && (
+                availableBuffStock.length > 0 ? (
+                  <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.3rem" }}>
+                    {availableBuffStock.map((id) => {
+                      const def = ADVENTURER_BUFF_ITEMS[id];
+                      const src = def?.source ?? "animalGoods";
+                      const stock = src === "artisan" ? (game.artisan ?? {}) : (game.animalGoods ?? {});
+                      const qty = stock[id] ?? 0;
+                      return (
+                        <button key={id} onClick={() => onGiveBuffItem(adventurer.id, id)} style={{ fontSize: "0.65rem", padding: "3px 10px", borderRadius: "6px", cursor: "pointer", background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.35)", color: "#a78bfa" }}>
+                          {def.emoji} {def.name} ×{qty}
+                        </button>
+                      );
+                    })}
                   </div>
-                );
-              })()}
+                ) : (
+                  <div style={{ fontSize: "0.62rem", color: "var(--muted)" }}>No buff items in stock. Craft smoked fish, fish pie, omelettes, or cheese.</div>
+                )
+              )}
             </div>
-          ) : (
-            <div style={{ fontSize: "0.65rem", color: "var(--muted)", fontStyle: "italic", marginBottom: "0.4rem" }}>No buff active.</div>
-          )}
-          {!adventurer.buffSlot && (() => {
-            const available = ADVENTURER_BUFF_LIST.filter((id) => ((game.animalGoods ?? {})[id] ?? 0) > 0);
-            if (!available.length) return <div style={{ fontSize: "0.62rem", color: "var(--muted)" }}>No buff items in stock (craft omelettes/cheese in kitchen).</div>;
-            return (
-              <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.3rem" }}>
-                {available.map((id) => {
-                  const def = ADVENTURER_BUFF_ITEMS[id];
-                  const qty = (game.animalGoods ?? {})[id] ?? 0;
-                  return (
-                    <button key={id} onClick={() => onGiveBuffItem(adventurer.id, id)} style={{ fontSize: "0.65rem", padding: "3px 10px", borderRadius: "6px", cursor: "pointer", background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.35)", color: "#a78bfa" }}>
-                      {def.emoji} {def.name} ×{qty}
-                    </button>
-                  );
-                })}
-              </div>
-            );
-          })()}
-        </div>
+          );
+        })()}
 
         {/* Food Belt */}
         <div style={{ padding: "0.6rem 0.75rem", background: "rgba(251,191,36,0.05)", border: "1px solid rgba(251,191,36,0.2)", borderRadius: "10px", marginBottom: "0.65rem" }}>
@@ -1025,9 +1041,16 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
   const firstBeltFood = ARTISAN_FOOD_LIST.find((id) => (foodBelt[id] ?? 0) > 0) ?? null;
   const canReplenish = stockFood.length > 0 && beltFoodTotal < beltCapacity;
 
-  // Buff slot
-  const buffSlot = adventurer.buffSlot ?? null;
-  const availableBuffs = ADVENTURER_BUFF_LIST.filter((id) => ((game.animalGoods ?? {})[id] ?? 0) > 0);
+  // Buff belt (mirrors food belt)
+  const buffBelt = adventurer.buffBelt ?? {};
+  const buffBeltTotal = Object.values(buffBelt).reduce((s, v) => s + v, 0);
+  const firstBuffType = ADVENTURER_BUFF_LIST.find((id) => (buffBelt[id] ?? 0) > 0) ?? null;
+  const availableBuffs = ADVENTURER_BUFF_LIST.filter((id) => {
+    const def = ADVENTURER_BUFF_ITEMS[id];
+    const src = def?.source ?? "animalGoods";
+    const stock = src === "artisan" ? (game.artisan ?? {}) : (game.animalGoods ?? {});
+    return (stock[id] ?? 0) > 0;
+  });
 
   // Tavern rest
   const tavernBuilt = game.town?.townBuildings?.tavern?.built === true;
@@ -1332,22 +1355,22 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
               );
             })()}
 
-            {/* Buff slot button */}
-            {buffSlot ? (
+            {/* Buff belt button */}
+            {buffBeltTotal > 0 ? (
               <button
                 onClick={(e) => { e.stopPropagation(); onOpenHero(adventurer); }}
                 style={{ flex: 1, padding: "0.65rem 0.4rem", background: "rgba(139,92,246,0.2)", border: "1px solid rgba(139,92,246,0.5)", borderRadius: "10px", color: "#a78bfa", fontWeight: 700, fontSize: "0.72rem", cursor: "pointer" }}
               >
-                {ADVENTURER_BUFF_ITEMS[buffSlot]?.emoji} Buffed
-                <div style={{ fontSize: "0.55rem", color: "rgba(139,92,246,0.7)", marginTop: "1px" }}>{ADVENTURER_BUFF_ITEMS[buffSlot]?.name}</div>
+                {ADVENTURER_BUFF_ITEMS[firstBuffType]?.emoji} Buffed
+                <div style={{ fontSize: "0.55rem", color: "rgba(139,92,246,0.7)", marginTop: "1px" }}>{buffBeltTotal}/{beltCapacity} loaded</div>
               </button>
             ) : availableBuffs.length > 0 && (
               <button
                 onClick={(e) => { e.stopPropagation(); onGiveBuffItem(adventurer.id, availableBuffs[0]); }}
                 style={{ flex: 1, padding: "0.65rem 0.4rem", background: "rgba(139,92,246,0.08)", border: "1px solid rgba(139,92,246,0.25)", borderRadius: "10px", color: "#a78bfa", fontWeight: 700, fontSize: "0.72rem", cursor: "pointer" }}
               >
-                {ADVENTURER_BUFF_ITEMS[availableBuffs[0]]?.emoji} Buff
-                <div style={{ fontSize: "0.55rem", color: "rgba(139,92,246,0.5)", marginTop: "1px" }}>×{(game.animalGoods ?? {})[availableBuffs[0]] ?? 0} stock</div>
+                ✨ Load Buff
+                <div style={{ fontSize: "0.55rem", color: "rgba(139,92,246,0.5)", marginTop: "1px" }}>{ADVENTURER_BUFF_ITEMS[availableBuffs[0]]?.emoji} {ADVENTURER_BUFF_ITEMS[availableBuffs[0]]?.name}</div>
               </button>
             )}
           </div>

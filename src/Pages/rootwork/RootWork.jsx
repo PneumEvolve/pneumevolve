@@ -699,10 +699,10 @@ export default function RootWork() {
   }, [update, notify]);
 
   const handleGiveBuffItem = useCallback((adventurerId, buffId) => {
-    update((s) => { const n = giveBuffItem(s, adventurerId, buffId); if (n === s) notify("No buff item in stock or slot already filled."); return n; });
+    update((s) => { const n = giveBuffItem(s, adventurerId, buffId); if (n === s) notify("No buff item in stock or buff belt full."); return n; });
   }, [update, notify]);
 
-  const handleRemoveBuffItem = useCallback((adventurerId) => update((s) => removeBuffItem(s, adventurerId)), [update]);
+  const handleRemoveBuffItem = useCallback((adventurerId, buffId) => update((s) => removeBuffItem(s, adventurerId, buffId)), [update]);
 
   // Hire: passes usedNames Set so engine can avoid repeating names
   const handleHireAdventurer = useCallback((usedNames) => {

@@ -1326,10 +1326,12 @@ export const ARTISAN_FOOD_LIST = ["bread", "jam", "sauce"];
 
 // ─── Adventurer Buff Items (separate slot, not food belt) ────────────────────
 export const ADVENTURER_BUFF_ITEMS = {
-  omelette: { id: "omelette", emoji: "🍳", name: "Omelette", buffType: "run_time", buffValue: 0.5, description: "−50% mission run time for one mission." },
-  cheese:   { id: "cheese",   emoji: "🧀", name: "Cheese",   buffType: "double_loot", buffValue: 2,   description: "Double all loot for one mission." },
+  smoked_fish: { id: "smoked_fish", emoji: "🐟", name: "Smoked Fish", buffType: "hp_boost",   buffValue: 0.10, description: "+10% max HP for the run (damage soak).", source: "artisan" },
+  fish_pie:    { id: "fish_pie",    emoji: "🥧", name: "Fish Pie",    buffType: "min_loot",   buffValue: 1,    description: "+1 to min loot rolls this run.", source: "artisan" },
+  omelette:    { id: "omelette",    emoji: "🍳", name: "Omelette",    buffType: "xp_boost",   buffValue: 0.25, description: "+25% XP this run.", source: "animalGoods" },
+  cheese:      { id: "cheese",      emoji: "🧀", name: "Cheese",      buffType: "loot_boost", buffValue: 0.25, description: "+25% loot this run.", source: "animalGoods" },
 };
-export const ADVENTURER_BUFF_LIST = ["omelette", "cheese"];
+export const ADVENTURER_BUFF_LIST = ["smoked_fish", "fish_pie", "omelette", "cheese"];
 
 // World Worker constants
 export const WORLD_WORKER_HIRE_COST = 200; // cash cost to hire a world zone worker

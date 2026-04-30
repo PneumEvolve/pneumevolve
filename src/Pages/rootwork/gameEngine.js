@@ -4112,7 +4112,7 @@ export function createAdventurer(classId = "fighter", usedNames = new Set()) {
     hp: maxHp,
     maxHp,
     foodBelt: {},
-    buffSlot: null,
+    buffBelt: {},
     mission: null,
     skillPoints: 0,
     skills: {},               // now a map: { skillId: rank }
@@ -4158,7 +4158,7 @@ export function initWorldState(state) {
       prestigeLevel: adv.prestigeLevel ?? 0,
       prestigeBonuses: adv.prestigeBonuses ?? {},
       foodBelt: adv.foodBelt ?? {},
-      buffSlot: adv.buffSlot ?? null,
+      buffBelt: adv.buffBelt ?? (adv.buffSlot ? { [adv.buffSlot]: 1 } : {}),
     };
   });
   return next;
@@ -4232,10 +4232,7 @@ export function sendAdventurer(state, adventurerId, zoneId, autoBattle = false) 
   if ((adventurer.hp ?? adventurer.maxHp) <= 0) return state;
  
   let duration = getAdventurerMissionDuration(adventurer, zone);
-  // Omelette buff: -50% run time
-  if ((adventurer.buffSlot ?? null) === "omelette") {
-    duration = Math.max(1, Math.round(duration * 0.5));
-  }
+  // (omelette is now +25% XP via buffBelt, no run_time effect)
 
   const mission = {
     zoneId,
@@ -4254,7 +4251,7 @@ export function sendAdventurer(state, adventurerId, zoneId, autoBattle = false) 
   };
  
   let heroHpAtStart = adventurer.hp ?? (adventurer.maxHp ?? 40);
-  const updatedAdv = { ...adventurer, mission, tavernResting: false, tavernBuff: null, hp: heroHpAtStart }; // buff consumed on departure
+  const updatedAdv = { ...adventurer, mission, tavernResting: false, tavernBuff: null, hp: heroHpAtStart };
   const next = { ...state, adventurers: [...state.adventurers] };
   next.adventurers[advIdx] = updatedAdv;
   return next;
@@ -4312,7 +4309,15 @@ export function returnAdventurer(state, adventurerId) {
 
   const failChance = getAdventurerFailChance(adventurer, zone);
   const failed = Math.random() < failChance;
-  const hasCheeseBuff = (adventurer.buffSlot ?? null) === "cheese";
+  const activeBuff = (() => {
+    const belt = adventurer.buffBelt ?? {};
+    for (const id of ADVENTURER_BUFF_LIST) { if ((belt[id] ?? 0) > 0) return id; }
+    return null;
+  })();
+  const hasCheeseBuff  = activeBuff === "cheese";
+  const hasOmeletBuff  = activeBuff === "omelette";
+  const hasFishPieBuff = activeBuff === "fish_pie";
+  const hasSmokedFish  = activeBuff === "smoked_fish";
   const skills = adventurer.skills ?? {};
   const minLootBonus = getHeroMinLootBonus(adventurer);
 
@@ -4323,7 +4328,8 @@ export function returnAdventurer(state, adventurerId) {
     for (const lootDef of zone.loot) {
       const amount = Math.floor(Math.random() * (lootDef.max - lootDef.min + 1)) + lootDef.min;
       let finalAmount = amount > 0 ? amount + minLootBonus : 0;
-      if (hasCheeseBuff && finalAmount > 0) finalAmount = finalAmount * 2;
+      if (hasCheeseBuff  && finalAmount > 0) finalAmount = Math.round(finalAmount * 1.25);
+      if (hasFishPieBuff && finalAmount > 0) finalAmount = finalAmount + 1; // +1 min loot
       // Scavenger (auto battle): handled separately below — no loot modification here
       if (finalAmount > 0) runLoot.push({ ...lootDef, amount: finalAmount });
     }
@@ -4336,6 +4342,7 @@ export function returnAdventurer(state, adventurerId) {
   const shieldRecipe = shieldKey ? Object.values(FORGE_RECIPES).find((r) => r.output.resourceKey === shieldKey) : null;
   const damageReduction = shieldRecipe?.damageReduction ?? 0;
   const currentMaxHp = getAdventurerMaxHp(adventurer) + getHeroBonusMaxHp(adventurer);
+  const effectiveMaxHp = hasSmokedFish ? Math.round(currentMaxHp * 1.10) : currentMaxHp;
   // Evasion: scavenger tree — each 10s tick has a chance to deal 0 damage
   const evasionChance = getHeroEvasionChance(adventurer);
   const totalTicks = Math.floor(mission.duration / 10);
@@ -4346,13 +4353,13 @@ export function returnAdventurer(state, adventurerId) {
     }
   }
   rawDamage = Math.round(rawDamage);
-  const hpAfterDamage = Math.max(0, (adventurer.hp ?? currentMaxHp) - rawDamage);
+  const hpAfterDamage = Math.max(0, (adventurer.hp ?? effectiveMaxHp) - rawDamage);
 
   // Non-auto-battle death: if HP hits 0, hard fail regardless of fail chance
   const diedOnNormalRun = !mission.autoBattle && hpAfterDamage <= 0;
   const effectiveFailed = failed || diedOnNormalRun;
 
-  const xpGained = effectiveFailed ? 0 : Math.round(zone.xpReward * getHeroXpMultiplier(adventurer));
+  const xpGained = effectiveFailed ? 0 : Math.round(zone.xpReward * getHeroXpMultiplier(adventurer) * (hasOmeletBuff ? 1.25 : 1));
   let newXp = (adventurer.xp ?? 0) + xpGained;
   let newLevel = adventurer.level ?? 1;
   let leveledUp = false;
@@ -4368,7 +4375,14 @@ export function returnAdventurer(state, adventurerId) {
   const bonusMaxHp = newMaxHp + getHeroBonusMaxHp({ ...adventurer, level: newLevel });
   const levelsGained = newLevel - (adventurer.level ?? 1);
   const newSkillPoints = (adventurer.skillPoints ?? 0) + levelsGained;
-  const buffSlotConsumed = null; // always consumed after a run
+  // Consume one buff from buffBelt (the active buff for this run)
+  const buffSlotConsumed = (() => {
+    if (!activeBuff) return adventurer.buffBelt ?? {};
+    const belt = { ...(adventurer.buffBelt ?? {}) };
+    belt[activeBuff] = Math.max(0, (belt[activeBuff] ?? 1) - 1);
+    if (belt[activeBuff] === 0) delete belt[activeBuff];
+    return belt;
+  })();
 
   // Zone clears
   const prevClears = (state.worldZoneClears ?? {})[zone.id] ?? 0;
@@ -4408,7 +4422,7 @@ export function returnAdventurer(state, adventurerId) {
         xp: newXp, level: newLevel, maxHp: bonusMaxHp,
         hp: 0, // dead
         foodBelt: adventurer.foodBelt ?? {},
-        buffSlot: buffSlotConsumed,
+        buffBelt: buffSlotConsumed,
         mission: null,
         pendingAutoCollect: diedResult,
         skillPoints: newSkillPoints,
@@ -4483,7 +4497,7 @@ export function returnAdventurer(state, adventurerId) {
         xp: newXp, level: newLevel, maxHp: bonusMaxHp,
         hp: leveledUp ? bonusMaxHp : Math.min(hpAfterDamage, bonusMaxHp),
         foodBelt: currentFoodBelt,
-        buffSlot: buffSlotConsumed,
+        buffBelt: buffSlotConsumed,
         mission: null,
         pendingAutoCollect: stoppedResult,
         skillPoints: newSkillPoints,
@@ -4519,7 +4533,7 @@ export function returnAdventurer(state, adventurerId) {
         xp: newXp, level: newLevel, maxHp: bonusMaxHp,
         hp: leveledUp ? bonusMaxHp : Math.min(hpAfterDamage, bonusMaxHp),
         foodBelt: currentFoodBelt,
-        buffSlot: buffSlotConsumed,
+        buffBelt: buffSlotConsumed,
         mission: null,
         pendingAutoCollect: outOfFoodResult,
         skillPoints: newSkillPoints,
@@ -4561,7 +4575,7 @@ export function returnAdventurer(state, adventurerId) {
         xp: newXp, level: newLevel, maxHp: bonusMaxHp,
         hp: hpAfterDamage,
         foodBelt: currentFoodBelt,
-        buffSlot: buffSlotConsumed,
+        buffBelt: buffSlotConsumed,
         mission: nextMissionRelentless,
         skillPoints: newSkillPoints,
         prestigeLevel: adventurer.prestigeLevel ?? 0,
@@ -4599,7 +4613,7 @@ export function returnAdventurer(state, adventurerId) {
       xp: newXp, level: newLevel, maxHp: autoRunMaxHp,
       hp: hpAfterFood,
       foodBelt: currentFoodBelt,
-      buffSlot: buffSlotConsumed,
+      buffBelt: buffSlotConsumed,
       mission: nextMission,
       skillPoints: newSkillPoints,
       prestigeLevel: adventurer.prestigeLevel ?? 0,
@@ -4624,7 +4638,7 @@ export function returnAdventurer(state, adventurerId) {
       maxHp: currentMaxHp,
       hp: 0,
       foodBelt: adventurer.foodBelt ?? {},
-      buffSlot: buffSlotConsumed,
+      buffBelt: buffSlotConsumed,
       mission: null,
       skillPoints: adventurer.skillPoints ?? 0,
       prestigeLevel: adventurer.prestigeLevel ?? 0,
@@ -4667,7 +4681,7 @@ export function returnAdventurer(state, adventurerId) {
     xp: newXp, level: newLevel, maxHp: bonusMaxHp,
     hp: Math.max(0, effectiveFailed ? hpAfterDamage : postMissionHp),
     foodBelt: adventurer.foodBelt ?? {},
-    buffSlot: buffSlotConsumed,
+    buffBelt: buffSlotConsumed,
     mission: null,
     skillPoints: newSkillPoints,
     prestigeLevel: adventurer.prestigeLevel ?? 0,
@@ -4777,20 +4791,32 @@ export function prestigeAdventurer(state, adventurerId) {
     }
   }
 
+  // Trim buffBelt to new cap
+  const newBuffBelt = { ...(adventurer.buffBelt ?? {}) };
+  let buffBeltTotal = Object.values(newBuffBelt).reduce((s, v) => s + v, 0);
+  for (const id of ADVENTURER_BUFF_LIST) {
+    while (buffBeltTotal > newBeltCap && (newBuffBelt[id] ?? 0) > 0) {
+      newBuffBelt[id]--;
+      if (newBuffBelt[id] === 0) delete newBuffBelt[id];
+      buffBeltTotal--;
+    }
+  }
+
   const updatedAdv = {
     ...adventurer,
     level: 1,
     xp: 0,
     skills: {},             // full reset — respec available
     heroClass: null,        // class choice unlocked again
-    skillPoints: newPrestigeLevel,       // 1 skill point granted by prestige
+    skillPoints: newPrestigeLevel,
     prestigeLevel: newPrestigeLevel,
-    prestigeBonuses,        // track which classes have been run
+    prestigeBonuses,
     maxHp: newMaxHp,
     hp: newMaxHp,
     mission: null,
-    foodBelt: trimmedBelt,  // trimmed to new cap (skill bonuses gone until re-bought)
-    // gear/buffSlot kept as-is
+    foodBelt: trimmedBelt,
+    buffBelt: newBuffBelt,
+    // gear kept as-is
   };
 
   return {
@@ -5017,10 +5043,10 @@ export function spendSkillPoint(state, adventurerId, skillId) {
     heroClass: newHeroClass,
   };
 
-  // Apply immediate HP bonus for fighter_t1 (+10 per rank) and fighter_t5 (+10 per rank)
+  // Heal hero to new computed max when buying HP skills (getHeroBonusMaxHp handles the bonus, no manual mutation)
   if (skillId === "fighter_t1" || skillId === "fighter_t5") {
-    const newMaxHp = (updatedAdv.maxHp ?? getAdventurerMaxHp(updatedAdv)) + 10;
-    updatedAdv = { ...updatedAdv, maxHp: newMaxHp };
+    const trueNewMax = getAdventurerMaxHp(updatedAdv) + getHeroBonusMaxHp(updatedAdv);
+    updatedAdv = { ...updatedAdv, maxHp: trueNewMax, hp: trueNewMax };
   }
 
   return { ...state, adventurers: state.adventurers.map((a, i) => i === advIdx ? updatedAdv : a) };
@@ -5214,27 +5240,42 @@ export function giveBuffItem(state, adventurerId, buffId) {
   const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
   if (advIdx === -1) return state;
   const adventurer = state.adventurers[advIdx];
-  // Only one buff slot — must be empty
-  if (adventurer.buffSlot) return state;
-  const animalGoods = state.animalGoods ?? {};
-  if ((animalGoods[buffId] ?? 0) < 1) return state;
+  // Check buff belt cap (mirrors food belt cap)
+  const beltCap = getBeltCap(adventurer, state.forgeGoodsInstanced ?? []);
+  const buffBelt = adventurer.buffBelt ?? {};
+  const buffTotal = Object.values(buffBelt).reduce((s, v) => s + v, 0);
+  if (buffTotal >= beltCap) return state;
+  // Source: artisan goods or animal goods depending on item
+  const itemDef = ADVENTURER_BUFF_ITEMS[buffId];
+  const source = itemDef?.source ?? "animalGoods";
+  const stockObj = source === "artisan" ? (state.artisan ?? {}) : (state.animalGoods ?? {});
+  if ((stockObj[buffId] ?? 0) < 1) return state;
+  const newStock = { ...stockObj, [buffId]: stockObj[buffId] - 1 };
+  const newBelt = { ...buffBelt, [buffId]: (buffBelt[buffId] ?? 0) + 1 };
   return {
     ...state,
-    animalGoods: { ...animalGoods, [buffId]: animalGoods[buffId] - 1 },
-    adventurers: state.adventurers.map((a, i) => i === advIdx ? { ...a, buffSlot: buffId } : a),
+    ...(source === "artisan" ? { artisan: newStock } : { animalGoods: newStock }),
+    adventurers: state.adventurers.map((a, i) => i === advIdx ? { ...a, buffBelt: newBelt } : a),
   };
 }
 
-export function removeBuffItem(state, adventurerId) {
+export function removeBuffItem(state, adventurerId, buffId) {
   const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
   if (advIdx === -1) return state;
   const adventurer = state.adventurers[advIdx];
-  const buffId = adventurer.buffSlot;
-  if (!buffId) return state;
+  const buffBelt = adventurer.buffBelt ?? {};
+  const qty = buffBelt[buffId] ?? 0;
+  if (!buffId || qty <= 0) return state;
+  const itemDef = ADVENTURER_BUFF_ITEMS[buffId];
+  const source = itemDef?.source ?? "animalGoods";
+  const stockObj = source === "artisan" ? (state.artisan ?? {}) : (state.animalGoods ?? {});
+  const newStock = { ...stockObj, [buffId]: (stockObj[buffId] ?? 0) + qty };
+  const newBelt = { ...buffBelt };
+  delete newBelt[buffId];
   return {
     ...state,
-    animalGoods: { ...(state.animalGoods ?? {}), [buffId]: ((state.animalGoods ?? {})[buffId] ?? 0) + 1 },
-    adventurers: state.adventurers.map((a, i) => i === advIdx ? { ...a, buffSlot: null } : a),
+    ...(source === "artisan" ? { artisan: newStock } : { animalGoods: newStock }),
+    adventurers: state.adventurers.map((a, i) => i === advIdx ? { ...a, buffBelt: newBelt } : a),
   };
 }
 
