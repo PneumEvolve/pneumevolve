@@ -365,15 +365,19 @@ function ForgeWorkerCard({ worker, workerNumber, game, expanded, onToggle, onAss
       background: "var(--bg-elev)",
     }}>
       {/* Header row */}
-      <button
-        onClick={onToggle}
-        style={{
-          width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "0.55rem 0.75rem", background: "none", border: "none", cursor: "pointer",
-          gap: "0.5rem",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flex: 1, minWidth: 0 }}>
+      <div style={{
+        width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "0.55rem 0.75rem", gap: "0.5rem",
+      }}>
+        {/* Left — expand/collapse toggle */}
+        <button
+          onClick={onToggle}
+          style={{
+            flex: 1, display: "flex", alignItems: "center",
+            gap: "0.5rem", background: "none", border: "none",
+            cursor: "pointer", textAlign: "left", minWidth: 0, padding: 0,
+          }}
+        >
           <span style={{ fontSize: "1rem" }}>🔨</span>
           <div style={{ textAlign: "left", flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: "0.78rem", fontWeight: 600 }}>
@@ -388,9 +392,43 @@ function ForgeWorkerCard({ worker, workerNumber, game, expanded, onToggle, onAss
               {idle ? "⏸ idle" : recipe ? `⚒️ ${recipe.name}` : "working"}
             </div>
           </div>
-        </div>
-        <span style={{ fontSize: "0.65rem", color: "var(--muted)" }}>{expanded ? "▲" : "▼"}</span>
-      </button>
+          <span style={{ fontSize: "0.65rem", color: "var(--muted)", flexShrink: 0 }}>{expanded ? "▲" : "▼"}</span>
+        </button>
+
+        {/* Cancel button — show when busy */}
+        {worker.busy && (
+          <button
+            onClick={() => onCancel(worker.id)}
+            style={{
+              fontSize: "0.65rem", padding: "0.2rem 0.5rem",
+              borderRadius: "6px", cursor: "pointer", flexShrink: 0,
+              marginLeft: "0.5rem",
+              background: "rgba(239,68,68,0.1)",
+              border: "1px solid rgba(239,68,68,0.3)",
+              color: "#ef4444", fontWeight: 600,
+            }}
+          >
+            ✕
+          </button>
+        )}
+
+        {/* Forge Again button — show when done with a previous recipe */}
+        {!worker.busy && !idle && recipe && (
+          <button
+            onClick={() => onAssign(worker.id, worker.recipeId)}
+            style={{
+              fontSize: "0.65rem", padding: "0.2rem 0.5rem",
+              borderRadius: "6px", cursor: "pointer", flexShrink: 0,
+              marginLeft: "0.5rem",
+              background: "rgba(245,158,11,0.1)",
+              border: "1px solid rgba(245,158,11,0.3)",
+              color: "#f59e0b", fontWeight: 600,
+            }}
+          >
+            ⚒️ Again
+          </button>
+        )}
+      </div>
  
       {/* Progress bar always visible when working */}
       {worker.busy && (

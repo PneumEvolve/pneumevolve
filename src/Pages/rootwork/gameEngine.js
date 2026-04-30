@@ -5547,7 +5547,9 @@ export function upgradeForgeWorker(state, workerId, upgradeId) {
     ...state,
     cash: state.cash - upgrade.cost,
     forgeWorkers: (state.forgeWorkers ?? []).map((w) =>
-      w.id === workerId ? { ...w, upgrades: [...(w.upgrades ?? []), upgradeId] } : w
+      w.id === workerId
+        ? { ...w, upgrades: [...(w.upgrades ?? []), upgradeId], ...(upgradeId === "forge_auto" ? { autoRestart: true } : {}) }
+        : w
     ),
   };
 }
