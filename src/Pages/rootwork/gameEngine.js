@@ -2224,20 +2224,8 @@ export function updateTown(state, seconds = 1) {
   if (next.town.pulseSeconds == null) next.town.pulseSeconds = effectivePulse;
   next.town.pulseSeconds -= seconds;
 
-  // Population growth is decoupled from pulse length — always grows at base rate (1 per TOWN_PULSE_SECONDS)
-  // This prevents late-game building stacking from slowing population growth.
-  if (!next.town.starving) {
-    next.town.growthAccumulator = (next.town.growthAccumulator ?? 0) + seconds;
-    while (next.town.growthAccumulator >= TOWN_PULSE_SECONDS) {
-      next.town.growthAccumulator -= TOWN_PULSE_SECONDS;
-      const cap = getTownCapacity(next);
-      const ppl = Math.floor(Math.max(0, next.town.people ?? 0));
-      if (ppl < cap) next.town.people = Math.min(cap, ppl + TOWN_GROWTH_PER_PULSE);
-    }
-  } else {
-    next.town.growthAccumulator = 0;
-  }
-
+  // Food pulse fires BEFORE population growth so a newly grown person is never charged
+  // food in the same tick they appeared (belt-and-suspenders with the accumulator offset).
   while (next.town.pulseSeconds <= 0) {
     const people = Math.floor(Math.max(0, next.town.people ?? 0));
     const capacity = getTownCapacity(next);
@@ -2402,7 +2390,22 @@ export function updateTown(state, seconds = 1) {
 
     next.town.pulseSeconds += getEffectivePulseSeconds(next);
   }
- 
+
+  // Population growth fires AFTER the food pulse so a newly grown person is never charged
+  // food in the same tick they appeared. growthAccumulator is offset by half a pulse on init
+  // so the two timers are staggered (belt-and-suspenders).
+  if (!next.town.starving) {
+    next.town.growthAccumulator = (next.town.growthAccumulator ?? 0) + seconds;
+    while (next.town.growthAccumulator >= TOWN_PULSE_SECONDS) {
+      next.town.growthAccumulator -= TOWN_PULSE_SECONDS;
+      const cap = getTownCapacity(next);
+      const ppl = Math.floor(Math.max(0, next.town.people ?? 0));
+      if (ppl < cap) next.town.people = Math.min(cap, ppl + TOWN_GROWTH_PER_PULSE);
+    }
+  } else {
+    next.town.growthAccumulator = 0;
+  }
+
   next.town.growthBonusPercent = getTownGrowthBonusPercent(next.town.people ?? 0);
   return next;
 }
@@ -3833,7 +3836,7 @@ export function deserializeState(raw) {
       if (parsed.town.breadNeeded === undefined) parsed.town.breadNeeded = 0;
       if (parsed.town.rawBreadNeeded === undefined) parsed.town.rawBreadNeeded = 0;
       if (parsed.town.rawFoodNeeded === undefined) parsed.town.rawFoodNeeded = 0;
-  if (parsed.town.growthAccumulator === undefined) parsed.town.growthAccumulator = 0;
+  if (parsed.town.growthAccumulator === undefined) parsed.town.growthAccumulator = TOWN_PULSE_SECONDS / 2; // offset from food pulse so they don't fire same tick
       parsed.town.foodType = parsed.town.bakeryOn ? "bread" : "wheat";
       if (parsed.town.pulseSeconds === undefined) parsed.town.pulseSeconds = TOWN_PULSE_SECONDS;
       if (parsed.town.starving === undefined) parsed.town.starving = false;
