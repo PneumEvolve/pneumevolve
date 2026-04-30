@@ -5329,7 +5329,7 @@ export function tickAdventurerRegen(state, dtSeconds) {
   if (!(state.adventurers ?? []).length) return state;
   const tavernBuilt = isTownBuildingBuilt(state, "tavern");
   const updated = state.adventurers.map((adv) => {
-    const trueMax = (adv.maxHp ?? getAdventurerMaxHp(adv)) + getHeroBonusMaxHp(adv);
+    const trueMax = adv.maxHp ?? (getAdventurerMaxHp(adv) + getHeroBonusMaxHp(adv));
     const hp = adv.hp ?? trueMax;
     if (hp <= 0) return adv;
     if (adv.mission) return adv;
