@@ -600,7 +600,7 @@ export default function TownZone({
           }}>Level {thLevel}/{TOWN_HALL_MAX_LEVEL}</span>
         </div>
         <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
-          {thLevel === 0 && "Build the Town Hall to unlock the treasury, drain tiers, prestige, and the Bakery."}
+          {thLevel === 0 && "Build the Town Hall to unlock the treasury tier 1, prestige, the Tavern, and the Bakery."}
           {thLevel === 1 && "Level 2 unlocks the Pantry and treasury tier 2."}
           {thLevel === 2 && "Level 3 unlocks the Cannery, treasury tier 3, and the Bank."}
           {thLevel === 3 && "Level 4 unlocks Invest Now — instantly move 10% of your cash into treasury with a 30s cooldown."}
