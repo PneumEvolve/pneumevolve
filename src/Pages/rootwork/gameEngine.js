@@ -1700,7 +1700,9 @@ export function calculateOfflineProgress(state, nowMs) {
 // ─── Tick ─────────────────────────────────────────────────────────────────────
  
 export function tick(state) {
-  let next = deepCloneState(state);
+  // Shallow clone only — every sub-object mutation in tick() uses spread operators
+  // deepCloneState (full JSON.parse/stringify) every second was the main perf killer on mobile
+  let next = { ...state };
   next.pendingDeathEvents = []; // clear each tick; fresh events added below
   const feast = next.feastBonusPercent ?? 0;
   const townBonus = (next.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(next);

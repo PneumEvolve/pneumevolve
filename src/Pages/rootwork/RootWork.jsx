@@ -437,9 +437,12 @@ export default function RootWork() {
  
   const saveGame = useCallback((state) => {
     if (!state) return;
-    saveToLocalStorage(state);
+    // Serialize once, reuse for both destinations — avoids double JSON.stringify on every save
+    let serialized;
+    try { serialized = serializeState(state); } catch(e) { console.error('[Rootwork] serializeState failed:', e); return; }
+    try { localStorage.setItem(SAVE_KEY, serialized); } catch(e) { console.error('[Rootwork] localStorage save FAILED:', e?.message ?? e); }
     if (accessToken && userId) {
-      api.post("/rootwork/state", { data: serializeState(state) }, { headers: { Authorization: `Bearer ${accessToken}` } }).catch(() => {});
+      api.post("/rootwork/state", { data: serialized }, { headers: { Authorization: `Bearer ${accessToken}` } }).catch(() => {});
     }
   }, [accessToken, userId]);
  
@@ -477,21 +480,26 @@ export default function RootWork() {
     const interval = setInterval(() => {
   setGame((prev) => {
     if (!prev) return prev;
-    let next = tick(prev);
-    next = tickForgeWorkers(next, 1);
-    next = tickAdventurerRegen(next, 1);
-    next = tickAdventurerMissions(next);
-    next = tickBossFight(next, 1);
-    next = checkBossUnlock(next);
-    // Surface any completed auto battle result
-    if (next.pendingAutoBattleResult) {
-      const result = next.pendingAutoBattleResult;
-      next = { ...next, pendingAutoBattleResult: null };
-      // Schedule modal outside of setState
-      setTimeout(() => setAutoBattleLootResult(result), 0);
+    try {
+      let next = tick(prev);
+      next = tickForgeWorkers(next, 1);
+      next = tickAdventurerRegen(next, 1);
+      next = tickAdventurerMissions(next);
+      next = tickBossFight(next, 1);
+      next = checkBossUnlock(next);
+      // Surface any completed auto battle result
+      if (next.pendingAutoBattleResult) {
+        const result = next.pendingAutoBattleResult;
+        next = { ...next, pendingAutoBattleResult: null };
+        // Schedule modal outside of setState
+        setTimeout(() => setAutoBattleLootResult(result), 0);
+      }
+      gameRef.current = next;
+      return next;
+    } catch(e) {
+      console.error('[Rootwork] tick error — game loop preserved:', e);
+      return prev; // return unchanged state so the interval keeps running
     }
-    gameRef.current = next;
-    return next;
   });
 }, 1000);
     return () => clearInterval(interval);
