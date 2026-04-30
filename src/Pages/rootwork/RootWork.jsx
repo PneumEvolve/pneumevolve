@@ -67,8 +67,17 @@ import ForgeZone from "./components/ForgeZone";
 function loadFromLocalStorage() {
   try { const raw = localStorage.getItem(SAVE_KEY); if (!raw) return null; return deserializeState(raw); } catch { return null; }
 }
+const MAX_SAVE_BYTES = 3.5 * 1024 * 1024; // 3.5MB warning threshold
 function saveToLocalStorage(state) {
-  try { localStorage.setItem(SAVE_KEY, serializeState(state)); } catch {}
+  try {
+    const serialized = serializeState(state);
+    if (serialized.length > MAX_SAVE_BYTES) {
+      console.warn('[Rootwork] Save size warning:', (serialized.length / 1024).toFixed(1), 'KB — approaching localStorage limit');
+    }
+    localStorage.setItem(SAVE_KEY, serialized);
+  } catch (e) {
+    console.error('[Rootwork] Save FAILED (storage full?):', e?.message ?? e);
+  }
 }
  
 // ─── Prestige Skill Tree Modal ────────────────────────────────────────────────
@@ -497,7 +506,7 @@ export default function RootWork() {
   }, [loaded, saveGame]);
  
   const update = useCallback((fn) => {
-    setGame((prev) => { const next = fn(prev); gameRef.current = next; saveToLocalStorage(next); return next; });
+    setGame((prev) => { const next = fn(prev); gameRef.current = next; return next; });
   }, []);
  
   // Farm

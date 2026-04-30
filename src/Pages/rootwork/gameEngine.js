@@ -3695,7 +3695,30 @@ export function interactPet(state, petId) {
 // ─── Serialization ────────────────────────────────────────────────────────────
  
 export function serializeState(state) {
-  return JSON.stringify({ ...state, lastSavedTime: Date.now() });
+  // Prune stale farm stats keys (farms that no longer exist)
+  const activeFarmIds = new Set((state.farms ?? []).map(f => f.id));
+  const cleanFarmCrops = Object.fromEntries(
+    Object.entries(state.stats?.farmCrops ?? {}).filter(([id]) => activeFarmIds.has(id))
+  );
+
+  // Cap forgeGoodsInstanced: only keep equipped items + unequipped up to 200
+  const equippedInstanceIds = new Set(
+    (state.adventurers ?? []).flatMap(a => Object.values(a.equippedInstanceId ?? {})).filter(Boolean)
+  );
+  const equippedItems = (state.forgeGoodsInstanced ?? []).filter(i => equippedInstanceIds.has(i.id));
+  const unequippedItems = (state.forgeGoodsInstanced ?? []).filter(i => !equippedInstanceIds.has(i.id)).slice(-200);
+  const cleanForgeInstanced = [...equippedItems, ...unequippedItems];
+
+  const cleanState = {
+    ...state,
+    lastSavedTime: Date.now(),
+    stats: { ...state.stats, farmCrops: cleanFarmCrops },
+    forgeGoodsInstanced: cleanForgeInstanced,
+    // Clear transient tick-only fields — no need to persist these
+    pendingDeathEvents: [],
+    pendingAutoBattleResult: null,
+  };
+  return JSON.stringify(cleanState);
 }
  
 export function deserializeState(raw) {
