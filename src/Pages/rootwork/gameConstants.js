@@ -97,7 +97,7 @@ export const FEAST_MAX_BONUS = 50;
 // ─── Market ───────────────────────────────────────────────────────────────────
 export const MARKET_SELL_RATES = {
   wheat: 0.5, berries: 1.25, tomatoes: 3,
-  bread: 30,  jam: 50,       sauce: 80,
+  bread: 30,  jam: 75,       sauce: 135,
   egg: 5, milk: 15, wool: 25,
   omelette: 40, cheese: 70, knitted_goods: 90,
   minnow: 2, bass: 8, perch: 12, rare: 35,
@@ -962,10 +962,10 @@ export const HERO_SKILL_TREES = {
       name: "Blink",
       emoji: "⚡",
       tier: 4,
-      description: "Rank 1: -10% run duration. Rank 2: -15% run duration. Rank 3: -25% run duration.",
+      description: "Rank 1: -5% run duration. Rank 2: -10% run duration. Rank 3: -15% run duration.",
       requiredLevel: 8,
       maxRank: 3,
-      blinkBonusPerRank: [0, 0.10, 0.15, 0.25],
+      blinkBonusPerRank: [0, 0.05, 0.10, 0.15],
     },
     {
       id: "mage_t4b",

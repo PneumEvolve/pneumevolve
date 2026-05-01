@@ -1824,6 +1824,35 @@ function BossTab({ game, adventurers, bossFight, bossDef, onAssign, onUnassign, 
           </div>
         )}
 
+        {/* Party + gear hints (idle phase only) */}
+        {phase === "idle" && (
+          <div style={{ marginTop: "0.65rem", display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+            <div style={{ fontSize: "0.62rem", color: "var(--muted)", background: "rgba(255,255,255,0.04)", borderRadius: "8px", padding: "0.35rem 0.6rem" }}>
+              Recommended: 2–3 heroes. Solo heroes fall fast.
+            </div>
+            {bossDef?.infiniteWave && (() => {
+              const wave = bossDef.infiniteWave;
+              const recGear = wave <= 2 ? 6 : wave <= 5 ? 9 : wave <= 10 ? 12 : 15;
+              const avgGear = assignedHeroes.length > 0
+                ? Math.round(assignedHeroes.reduce((s, a) => s + (a.gear ?? 0), 0) / assignedHeroes.length)
+                : null;
+              const underGeared = avgGear !== null && avgGear < recGear;
+              const gearLabel = recGear <= 6 ? "T2 gear" : recGear <= 9 ? "T3 gear" : recGear <= 12 ? "T4 gear" : "T4+ gear";
+              return (
+                <div style={{
+                  fontSize: "0.62rem",
+                  borderRadius: "8px",
+                  padding: "0.35rem 0.6rem",
+                  background: underGeared ? "rgba(251,191,36,0.1)" : "rgba(255,255,255,0.04)",
+                  color: underGeared ? "#f59e0b" : "var(--muted)",
+                }}>
+                  Recommended: {gearLabel} for Wave {wave}{underGeared ? " — your party is undergeared" : ""}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
         {/* Drops preview */}
         {phase !== "defeated" && bossDef && (
           <div style={{ display: "flex", justifyContent: "center", gap: "1rem", marginTop: "0.75rem", fontSize: "0.65rem", color: "var(--muted)" }}>
