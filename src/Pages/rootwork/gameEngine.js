@@ -4454,7 +4454,7 @@ export function returnAdventurer(state, adventurerId) {
     const _scavRank = getHeroSkillRank(adventurer, "scavenger_t4");
     const _foodFindChance = [0, 0.15, 0.30, 0.60][Math.min(_scavRank, 3)] ?? 0;
     if (_scavRank >= 1 && _foodFindChance > 0 && Math.random() < _foodFindChance) {
-      const beltCap = getBeltCap(adventurer, next.forgeGoodsInstanced ?? []);
+      const beltCap = getBeltCap(adventurer, state.forgeGoodsInstanced ?? []);
       const currentBeltTotal = Object.values(currentFoodBelt).reduce((s, v) => s + v, 0);
       if (currentBeltTotal < beltCap) {
         // Pick a random food item — only foods the player can actually craft (crop unlocked)
