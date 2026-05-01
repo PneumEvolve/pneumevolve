@@ -148,10 +148,7 @@ function buildLayout(game) {
 
   // ── Row 2: Tavern — full width, centered ────────────────────────────────────
   const row2Y = row1Y + row1MaxH + ZONE_GAP;
-  const tavernBuilt = !!(game.town?.tavernBuilt) ||
-    !!(game.townBuildings?.tavern?.built) ||
-    (game.town?.tavernLevel ?? 0) >= 1 ||
-    ((game.town?.tavern?.level ?? 0) >= 1);
+  const tavernBuilt = !!(game.town?.townBuildings?.tavern?.built);
   const adventurers = game.adventurers ?? [];
   const tavernW = Math.max(totalW - ZONE_PAD * 2, 200);
   const tavernH = 110;
@@ -196,7 +193,7 @@ function initWorkerVisuals(zones, existing) {
 export default function LiveView({ game }) {
   const canvasRef    = useRef(null);
   const gameRef      = useRef(game);
-  const camRef       = useRef({ x: 0, y: 0, z: 1 });
+  const camRef       = useRef(null);  // initialised to world center on first layout
   const workerVis    = useRef({});  // id → { x, y, tx, ty, state, timer }
   const dragRef      = useRef(null);
   const rafRef       = useRef(null);
@@ -240,7 +237,13 @@ export default function LiveView({ game }) {
     const layout = buildLayout(g);
     layoutRef.current = layout;
 
-    const cam = camRef.current;
+    // First frame: centre camera on world content
+    if (!camRef.current) {
+      camRef.current = { x: layout.worldW / 2, y: layout.worldH / 2, z: 0.85 };
+    }
+
+    const cam = camRef.current ?? { x: 0, y: 0, z: 1 };
+    if (!camRef.current) return;
     const DPR = window.devicePixelRatio || 1;
     const CW = canvas.width / DPR;
     const CH = canvas.height / DPR;
@@ -853,9 +856,9 @@ export default function LiveView({ game }) {
   function onTouchEnd() { touchRef.current = {}; }
 
   // ── Zoom buttons ──────────────────────────────────────────────────────────
-  function zoomIn()  { camRef.current.z = Math.min(3, camRef.current.z * 1.25); }
-  function zoomOut() { camRef.current.z = Math.max(0.3, camRef.current.z * 0.8); }
-  function resetCam() { camRef.current = { x: 0, y: 0, z: 1 }; }
+  function zoomIn()  { if (camRef.current) camRef.current.z = Math.min(3, camRef.current.z * 1.25); }
+  function zoomOut() { if (camRef.current) camRef.current.z = Math.max(0.3, camRef.current.z * 0.8); }
+  function resetCam() { if (layoutRef.current) camRef.current = { x: layoutRef.current.worldW / 2, y: layoutRef.current.worldH / 2, z: 0.85 }; }
 
   return (
     <div style={{ width: "100%", height: "calc(100dvh - 8rem)", position: "relative", overflow: "hidden", background: "var(--bg)" }}>
