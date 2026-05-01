@@ -4456,7 +4456,7 @@ export function returnAdventurer(state, adventurerId) {
     if (_scavRank >= 1 && _foodFindChance > 0 && Math.random() < _foodFindChance) {
       const beltCap = getBeltCap(adventurer, state.forgeGoodsInstanced ?? []);
       const currentBeltTotal = Object.values(currentFoodBelt).reduce((s, v) => s + v, 0);
-      if (currentBeltTotal < beltCap) {
+      if (currentBeltTotal - 1 < beltCap) { // -1 accounts for food that will be consumed this run
         // Pick a random food item — only foods the player can actually craft (crop unlocked)
         const foodChoices = ARTISAN_FOOD_LIST.filter((id) => {
           const recipe = PROCESSING_RECIPES[id];
