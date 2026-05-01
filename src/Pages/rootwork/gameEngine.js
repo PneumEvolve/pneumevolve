@@ -4444,14 +4444,18 @@ export function returnAdventurer(state, adventurerId) {
     const newAccumXp = prevAccumXp + xpGained;
     const newRuns = prevRuns + 1;
  
-    // Scavenger (scavenger_t4): rank 2 = 30% food find, rank 3 = 60% food find
-    let scavengerFoundFood = null;
+    // Check if we can do another run — need food belt to heal between runs
+    const currentFoodBelt = { ...(adventurer.foodBelt ?? {}) };
+
+    // Scavenger (scavenger_t4): food find fires BEFORE the cap check uses currentFoodBelt.
+    // Must use currentFoodBelt (not adventurer.foodBelt) for the cap check — food consumption
+    // happens later this tick, so adventurer.foodBelt is stale (1 item too full), which was
+    // blocking Scavenger from adding food even when a slot was about to free up.
     const _scavRank = getHeroSkillRank(adventurer, "scavenger_t4");
     const _foodFindChance = [0, 0.15, 0.30, 0.60][Math.min(_scavRank, 3)] ?? 0;
     if (_scavRank >= 1 && _foodFindChance > 0 && Math.random() < _foodFindChance) {
-      const advForBelt = adventurer;
-      const beltCap = getBeltCap(advForBelt, next.forgeGoodsInstanced ?? []);
-      const currentBeltTotal = Object.values(advForBelt.foodBelt ?? {}).reduce((s, v) => s + v, 0);
+      const beltCap = getBeltCap(adventurer, next.forgeGoodsInstanced ?? []);
+      const currentBeltTotal = Object.values(currentFoodBelt).reduce((s, v) => s + v, 0);
       if (currentBeltTotal < beltCap) {
         // Pick a random food item — only foods the player can actually craft (crop unlocked)
         const foodChoices = ARTISAN_FOOD_LIST.filter((id) => {
@@ -4459,16 +4463,10 @@ export function returnAdventurer(state, adventurerId) {
           return recipe && (state.crops?.[recipe.inputCrop] !== undefined);
         });
         if (foodChoices.length > 0) {
-          scavengerFoundFood = foodChoices[Math.floor(Math.random() * foodChoices.length)];
+          const foundFoodId = foodChoices[Math.floor(Math.random() * foodChoices.length)];
+          currentFoodBelt[foundFoodId] = (currentFoodBelt[foundFoodId] ?? 0) + 1;
         }
       }
-    }
-
-    // Check if we can do another run — need food belt to heal between runs
-    const currentFoodBelt = { ...(adventurer.foodBelt ?? {}) };
-    // Apply scavenger food find to belt before checking availability
-    if (scavengerFoundFood) {
-      currentFoodBelt[scavengerFoundFood] = (currentFoodBelt[scavengerFoundFood] ?? 0) + 1;
     }
     const beltItems = ARTISAN_FOOD_LIST
       .filter((id) => (currentFoodBelt[id] ?? 0) > 0)
