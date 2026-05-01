@@ -43,13 +43,20 @@ function dist(a, b) { return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2); }
 function randomBetween(a, b) { return a + Math.random() * (b - a); }
 
 // ─── Build world layout from game state ──────────────────────────────────────
+// Layout rows (top → bottom):
+//   Row 0: Farms (grid, 3 per row)
+//   Row 1: Barns + Fishing (side by side)
+//   Row 2: Tavern (full width, centered)
+//   Row 3: Dungeon (centered below tavern)
 function buildLayout(game) {
   const zones = [];
-  let curX = ZONE_PAD;
+  const FARM_COLS = 3;
+  const FISH_EMOJIS = { pond: "🏊", lake: "🏞️", river: "🏔️", ocean: "🌊" };
+  const FISH_COLORS = { pond: "rgba(96,165,250,0.25)", lake: "rgba(37,99,235,0.25)", river: "rgba(30,64,175,0.25)", ocean: "rgba(15,23,42,0.35)" };
 
-  // ── Farm zones ──
+  // ── Row 0: Farm grid ────────────────────────────────────────────────────────
   const farms = game.farms ?? [];
-  farms.forEach((farm, fi) => {
+  const farmZones = farms.map((farm, fi) => {
     const crop = CROPS[farm.crop];
     const plots = farm.plots ?? [];
     const unlocked = farm.unlockedPlots ?? plots.length;
@@ -57,16 +64,47 @@ function buildLayout(game) {
     const rows = Math.ceil(unlocked / cols);
     const w = cols * (PLOT_SIZE + PLOT_GAP) - PLOT_GAP + ZONE_PAD * 2;
     const h = rows * (PLOT_SIZE + PLOT_GAP) - PLOT_GAP + ZONE_PAD * 2 + 22;
-    zones.push({
-      type: "farm", id: farm.id, farmIndex: fi, farm,
-      crop, cols, rows, plots: plots.slice(0, unlocked),
-      x: curX, y: 0, w, h,
-      label: `${crop?.emoji ?? "🌾"} ${crop?.name ?? "Farm"}`,
-    });
-    curX += w + ZONE_GAP;
+    return { type: "farm", id: farm.id, farmIndex: fi, farm, crop, cols, rows,
+      plots: plots.slice(0, unlocked), w, h,
+      label: `${crop?.emoji ?? "🌾"} ${crop?.name ?? "Farm"}` };
   });
 
-  // ── Barn zones ──
+  // Position farm grid: 3 per row, left-aligned
+  let farmRowMaxH = 0;
+  farmZones.forEach((fz, fi) => {
+    const col = fi % FARM_COLS;
+    const row = Math.floor(fi / FARM_COLS);
+    // All farms in the same grid-row share the same x stride
+    const colW = Math.max(...farmZones.filter((_, i) => i % FARM_COLS === col).map(f => f.w));
+    const rowH  = Math.max(...farmZones.filter((_, i) => Math.floor(i / FARM_COLS) === row).map(f => f.h));
+    // Compute cumulative x offset for this column
+    let xOff = ZONE_PAD;
+    for (let c = 0; c < col; c++) {
+      xOff += Math.max(...farmZones.filter((_, i) => i % FARM_COLS === c).map(f => f.w)) + ZONE_GAP;
+    }
+    let yOff = ZONE_PAD;
+    for (let r = 0; r < row; r++) {
+      yOff += Math.max(...farmZones.filter((_, i) => Math.floor(i / FARM_COLS) === r).map(f => f.h)) + ZONE_GAP;
+    }
+    fz.x = xOff;
+    fz.y = yOff;
+    farmRowMaxH = Math.max(farmRowMaxH, yOff + fz.h);
+  });
+  zones.push(...farmZones);
+
+  // Total width driven by farms (at least 3 cols)
+  const farmNumCols = Math.min(farms.length, FARM_COLS);
+  let totalW = ZONE_PAD;
+  for (let c = 0; c < farmNumCols; c++) {
+    totalW += Math.max(...farmZones.filter((_, i) => i % FARM_COLS === c).map(f => f.w), 0) + (c < farmNumCols - 1 ? ZONE_GAP : 0);
+  }
+  totalW += ZONE_PAD;
+
+  // ── Row 1: Barns + Fishing ──────────────────────────────────────────────────
+  const row1Y = farmRowMaxH + ZONE_GAP;
+  let row1X = ZONE_PAD;
+  let row1MaxH = 0;
+
   const barnInstances = game.barnInstances ?? [];
   barnInstances.forEach((inst, bi) => {
     const def = BARN_BUILDINGS[inst.buildingType];
@@ -76,29 +114,21 @@ function buildLayout(game) {
     const animalCols = Math.min(slotCount, 4);
     const animalRows = Math.ceil(slotCount / animalCols);
     const w = animalCols * 28 + ZONE_PAD * 2;
-    const h = animalRows * 28 + ZONE_PAD * 2 + 22 + (workers.length > 0 ? 14 : 0);
-    zones.push({
-      type: "barn", id: inst.id, barnIndex: bi, inst, def, animals, workers,
-      animalCols, animalRows, slotCount,
-      x: curX, y: 0, w, h,
-      label: `${def?.emoji ?? "🐄"} ${def?.name ?? "Barn"}`,
-    });
-    curX += w + ZONE_GAP;
+    const h = animalRows * 28 + ZONE_PAD * 2 + 22;
+    zones.push({ type: "barn", id: inst.id, barnIndex: bi, inst, def, animals, workers,
+      animalCols, animalRows, slotCount, x: row1X, y: row1Y, w, h,
+      label: `${def?.emoji ?? "🐄"} ${def?.name ?? "Barn"}` });
+    row1MaxH = Math.max(row1MaxH, h);
+    row1X += w + ZONE_GAP;
   });
 
-  // ── Fishing zones ──
   const fishingBodies = game.fishing?.bodies ?? {};
   const activeBodies = FISHING_BODY_ORDER.filter(id => fishingBodies[id]?.unlocked);
-  const FISH_EMOJIS = { pond: "🏊", lake: "🏞️", river: "🏔️", ocean: "🌊" };
-  const FISH_COLORS = { pond: "rgba(96,165,250,0.25)", lake: "rgba(37,99,235,0.25)", river: "rgba(30,64,175,0.25)", ocean: "rgba(15,23,42,0.35)" };
-
   if (activeBodies.length > 0) {
-    const maxWorkers = activeBodies.reduce((m, id) => {
-      const ws = fishingBodies[id]?.workers ?? [];
-      return Math.max(m, ws.length);
-    }, 1);
-    const w = Math.max(110, maxWorkers * 28 + ZONE_PAD * 2);
-    const h = activeBodies.length * 52 + ZONE_PAD * 2 + 22;
+    const maxWorkers = activeBodies.reduce((m, id) =>
+      Math.max(m, (fishingBodies[id]?.workers ?? []).length), 1);
+    const fw = Math.max(120, maxWorkers * 28 + ZONE_PAD * 2);
+    const fh = activeBodies.length * 52 + ZONE_PAD * 2 + 22;
     zones.push({
       type: "fishing", id: "fishing",
       bodies: activeBodies.map(id => ({
@@ -107,29 +137,45 @@ function buildLayout(game) {
         waterColor: FISH_COLORS[id] ?? FISH_COLORS.pond,
         label: id.charAt(0).toUpperCase() + id.slice(1),
       })),
-      x: curX, y: 0, w, h,
-      label: "🎣 Fishing",
+      x: row1X, y: row1Y, w: fw, h: fh, label: "🎣 Fishing",
     });
-    curX += w + ZONE_GAP;
+    row1MaxH = Math.max(row1MaxH, fh);
+    row1X += fw + ZONE_GAP;
   }
 
-  // ── Dungeon zone (heroes + tavern) ──
+  // Stretch total width to fit row1 if needed
+  totalW = Math.max(totalW, row1X + ZONE_PAD - ZONE_GAP);
+
+  // ── Row 2: Tavern — full width, centered ────────────────────────────────────
+  const row2Y = row1Y + row1MaxH + ZONE_GAP;
+  const tavernBuilt = !!(game.town?.tavernBuilt) ||
+    !!(game.townBuildings?.tavern?.built) ||
+    (game.town?.tavernLevel ?? 0) >= 1 ||
+    ((game.town?.tavern?.level ?? 0) >= 1);
   const adventurers = game.adventurers ?? [];
-  const tavernBuilt = game.town?.tavernBuilt === true || (game.townBuildings?.tavern?.built === true);
+  const tavernW = Math.max(totalW - ZONE_PAD * 2, 200);
+  const tavernH = 110;
+  zones.push({
+    type: "tavern", id: "tavern",
+    tavernBuilt, adventurers,
+    x: ZONE_PAD, y: row2Y, w: tavernW, h: tavernH,
+    label: "🍺 Tavern & Heroes",
+  });
+
+  // ── Row 3: Dungeon — centered below tavern ──────────────────────────────────
+  const row3Y = row2Y + tavernH + ZONE_GAP;
   const bossFight = game.bossFight;
-  const w = Math.max(160, adventurers.length * 30 + ZONE_PAD * 2);
-  const h = 200;
+  const dungeonW = Math.min(totalW - ZONE_PAD * 2, 280);
+  const dungeonX = ZONE_PAD + (tavernW - dungeonW) / 2;
   zones.push({
     type: "dungeon", id: "dungeon",
-    adventurers, tavernBuilt, bossFight,
-    x: curX, y: 0, w, h,
+    adventurers, bossFight,
+    x: dungeonX, y: row3Y, w: dungeonW, h: 120,
     label: "⚔️ Dungeon",
   });
-  curX += w + ZONE_PAD;
 
-  const worldW = curX;
-  const worldH = Math.max(...zones.map(z => z.h)) + ZONE_PAD * 2;
-  return { zones, worldW, worldH };
+  const worldH = row3Y + 120 + ZONE_PAD;
+  return { zones, worldW: totalW, worldH };
 }
 
 // ─── Worker visual state (animated positions, keyed by worker ID) ─────────────
@@ -375,6 +421,65 @@ export default function LiveView({ game }) {
       });
     }
 
+    if (zone.type === "tavern") {
+      // Wide tavern building bg
+      ctx.fillStyle = isDark ? "rgba(234,179,8,0.08)" : "rgba(234,179,8,0.06)";
+      roundRect(ctx, x, y + 18, w, h - 18, 10);
+      ctx.fill();
+      ctx.strokeStyle = COLORS.tavernBorder;
+      ctx.lineWidth = 0.75;
+      roundRect(ctx, x, y + 18, w, h - 18, 10);
+      ctx.stroke();
+
+      if (zone.tavernBuilt) {
+        // Tavern building — centered
+        const bw = 70, bh = 60;
+        const bx = x + w / 2 - bw / 2;
+        const by = y + 18 + (h - 18) / 2 - bh / 2;
+        ctx.fillStyle = isDark ? "rgba(234,179,8,0.18)" : "rgba(234,179,8,0.15)";
+        roundRect(ctx, bx, by, bw, bh, 8);
+        ctx.fill();
+        ctx.strokeStyle = COLORS.tavernBorder;
+        ctx.lineWidth = 1.5;
+        roundRect(ctx, bx, by, bw, bh, 8);
+        ctx.stroke();
+        // Roof triangle
+        ctx.fillStyle = isDark ? "rgba(186,117,23,0.6)" : "rgba(186,117,23,0.5)";
+        ctx.beginPath();
+        ctx.moveTo(bx - 6, by);
+        ctx.lineTo(bx + bw / 2, by - 16);
+        ctx.lineTo(bx + bw + 6, by);
+        ctx.closePath();
+        ctx.fill();
+        // Sign
+        ctx.font = "22px system-ui";
+        ctx.textAlign = "center";
+        ctx.fillText("🍺", bx + bw / 2, by + bh / 2 + 8);
+        ctx.font = "500 9px system-ui";
+        ctx.fillStyle = isDark ? "rgba(234,179,8,0.8)" : "rgba(120,80,10,0.9)";
+        ctx.fillText("Tavern", bx + bw / 2, by + bh - 6);
+
+        // Resting hero name tags near tavern
+        const restingHeroes = (zone.adventurers ?? []).filter(a => a.tavernResting);
+        restingHeroes.forEach((hero, i) => {
+          const tagX = bx + bw / 2 + (i - restingHeroes.length / 2) * 38;
+          const tagY = by + bh + 14;
+          ctx.fillStyle = isDark ? "rgba(234,179,8,0.15)" : "rgba(234,179,8,0.12)";
+          roundRect(ctx, tagX - 14, tagY - 8, 28, 12, 3);
+          ctx.fill();
+          ctx.font = "8px system-ui";
+          ctx.fillStyle = isDark ? "rgba(234,179,8,0.9)" : "rgba(120,80,10,0.9)";
+          ctx.fillText("💤 " + hero.name.slice(0, 5), tagX, tagY);
+        });
+      } else {
+        // Tavern not built
+        ctx.font = "11px system-ui";
+        ctx.fillStyle = mutedColor;
+        ctx.textAlign = "center";
+        ctx.fillText("Tavern not yet built", x + w / 2, y + 18 + (h - 18) / 2 + 4);
+      }
+    }
+
     if (zone.type === "dungeon") {
       // Dark moody bg
       ctx.fillStyle = isDark ? "rgba(60,52,137,0.25)" : "rgba(60,52,137,0.12)";
@@ -385,45 +490,39 @@ export default function LiveView({ game }) {
       roundRect(ctx, x, y + 18, w, h - 18, 10);
       ctx.stroke();
 
-      // Dungeon entrance
-      const ex = x + w - 52;
-      const ey = y + h - 70;
-      ctx.fillStyle = isDark ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.4)";
-      roundRect(ctx, ex, ey, 40, 50, 20, 20, 0, 0);
+      // Dungeon entrance — centered
+      const ex = x + w / 2 - 22;
+      const ey = y + 28;
+      ctx.fillStyle = isDark ? "rgba(0,0,0,0.65)" : "rgba(0,0,0,0.45)";
+      roundRect(ctx, ex, ey, 44, 72, 22, 22, 0, 0);
       ctx.fill();
-      ctx.strokeStyle = "rgba(127,119,221,0.6)";
+      ctx.strokeStyle = "rgba(127,119,221,0.7)";
       ctx.lineWidth = 1.5;
-      roundRect(ctx, ex, ey, 40, 50, 20, 20, 0, 0);
+      roundRect(ctx, ex, ey, 44, 72, 22, 22, 0, 0);
       ctx.stroke();
-      ctx.font = "18px system-ui";
+      ctx.font = "22px system-ui";
       ctx.textAlign = "center";
-      ctx.fillText("🌑", ex + 20, ey + 32);
+      ctx.fillText("🌑", ex + 22, ey + 44);
 
       // Boss indicator
       if (zone.bossFight?.phase === "fighting") {
         ctx.fillStyle = "#ef4444";
-        ctx.font = "bold 9px system-ui";
-        ctx.fillText("⚔ BOSS", ex + 20, ey - 6);
+        ctx.font = "bold 10px system-ui";
+        ctx.textAlign = "center";
+        ctx.fillText("⚔ BOSS", ex + 22, ey - 6);
+        // Pulsing ring
+        ctx.strokeStyle = "rgba(239,68,68,0.5)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(ex + 22, ey + 36, 32, 0, Math.PI * 2);
+        ctx.stroke();
       }
 
-      // Tavern
-      if (zone.tavernBuilt) {
-        const tx = x + ZONE_PAD;
-        const ty = y + h - 64;
-        ctx.fillStyle = isDark ? COLORS.tavernBg : "rgba(234,179,8,0.1)";
-        roundRect(ctx, tx, ty, 50, 40, 6);
-        ctx.fill();
-        ctx.strokeStyle = COLORS.tavernBorder;
-        ctx.lineWidth = 0.75;
-        roundRect(ctx, tx, ty, 50, 40, 6);
-        ctx.stroke();
-        ctx.font = "16px system-ui";
-        ctx.textAlign = "center";
-        ctx.fillText("🍺", tx + 25, ty + 26);
-        ctx.font = "8px system-ui";
-        ctx.fillStyle = mutedColor;
-        ctx.fillText("Tavern", tx + 25, ty + 38);
-      }
+      // Dungeon label
+      ctx.font = "10px system-ui";
+      ctx.fillStyle = mutedColor;
+      ctx.textAlign = "center";
+      ctx.fillText("Dungeon", ex + 22, y + h - 8);
     }
   }
 
@@ -540,102 +639,103 @@ export default function LiveView({ game }) {
       });
     });
 
-    // Heroes
+    // Heroes — drawn across tavern zone (idle/resting) and dungeon zone (mission/boss)
+    const tavernZone  = layout.zones.find(z => z.type === "tavern");
     const dungeonZone = layout.zones.find(z => z.type === "dungeon");
-    if (dungeonZone) {
-      const dz = dungeonZone;
-      const entrance = { x: dz.x + dz.w - 32, y: dz.y + dz.h - 45 };
-      const tavernCenter = { x: dz.x + ZONE_PAD + 25, y: dz.y + dz.h - 44 };
+    if (!tavernZone || !dungeonZone) return;
 
-      (g.adventurers ?? []).forEach((adv, ai) => {
-        const cls = adv.heroClass ?? adv.class ?? "default";
-        const color = COLORS.workerHero[cls] ?? COLORS.workerHero.default;
-        const baseX = dz.x + ZONE_PAD + 16 + (ai % 4) * 28;
-        const baseY = dz.y + 38 + Math.floor(ai / 4) * 28;
-        const vis = ensureWorkerVis(`hero-${adv.id}`, baseX, baseY, color, 6);
-        vis.color = color;
+    const dz = dungeonZone;
+    const tz = tavernZone;
+    // Dungeon entrance is centered in the dungeon zone
+    const entrance = { x: dz.x + dz.w / 2, y: dz.y + 64 };
+    // Tavern building center
+    const tavernCenter = { x: tz.x + tz.w / 2, y: tz.y + 18 + (tz.h - 18) / 2 };
 
-        vis.timer -= dt;
+    (g.adventurers ?? []).forEach((adv, ai) => {
+      const cls = adv.heroClass ?? adv.class ?? "default";
+      const color = COLORS.workerHero[cls] ?? COLORS.workerHero.default;
 
-        const isDead   = (adv.hp ?? 1) <= 0;
-        const isResting = adv.tavernResting === true;
-        const isBoss   = adv.bossAssigned === true;
-        const onMission = !!adv.mission && !adv.bossAssigned;
+      // Default idle position — spread across tavern zone
+      const idleX = tz.x + ZONE_PAD + 16 + (ai % 8) * Math.max(28, (tz.w - ZONE_PAD * 2) / 8);
+      const idleY = tz.y + 36 + Math.floor(ai / 8) * 28;
 
-        if (isDead) {
-          // Stay put, dim
-          vis.tx = baseX;
-          vis.ty = baseY;
-        } else if (isResting && dz.tavernBuilt) {
-          // Hang around the tavern
-          if (vis.timer <= 0) {
-            vis.tx = tavernCenter.x + randomBetween(-12, 12);
-            vis.ty = tavernCenter.y + randomBetween(-8, 8);
-            vis.timer = randomBetween(2, 4);
-          }
-        } else if (isBoss) {
-          // March toward dungeon entrance
-          vis.tx = entrance.x + randomBetween(-6, 6);
-          vis.ty = entrance.y + randomBetween(-4, 4);
-          vis.timer = 0.5;
-        } else if (onMission) {
-          // Walking into dungeon
-          if (vis.timer <= 0) {
-            const inDungeon = Math.random() > 0.4;
-            vis.tx = inDungeon
-              ? entrance.x + randomBetween(-8, 4)
-              : entrance.x + randomBetween(-20, -8);
-            vis.ty = entrance.y + randomBetween(-5, 5);
-            vis.timer = randomBetween(1.5, 3.5);
-          }
-        } else {
-          // Idle — mill around in dungeon zone
-          if (vis.timer <= 0) {
-            vis.tx = baseX + randomBetween(-8, 8);
-            vis.ty = baseY + randomBetween(-8, 8);
-            vis.timer = randomBetween(1.5, 4);
-          }
+      const vis = ensureWorkerVis(`hero-${adv.id}`, idleX, idleY, color, 6);
+      vis.color = color;
+      vis.timer -= dt;
+
+      const isDead    = (adv.hp ?? 1) <= 0;
+      const isResting = adv.tavernResting === true;
+      const isBoss    = adv.bossAssigned === true;
+      const onMission = !!adv.mission && !adv.bossAssigned;
+
+      if (isDead) {
+        vis.tx = idleX; vis.ty = idleY;
+      } else if (isResting) {
+        // Cluster tightly around the tavern building
+        if (vis.timer <= 0) {
+          vis.tx = tavernCenter.x + randomBetween(-30, 30);
+          vis.ty = tavernCenter.y + randomBetween(-18, 18);
+          vis.timer = randomBetween(2, 5);
         }
-
-        moveToward(vis, onMission || isBoss ? 30 : 18, dt);
-
-        const alpha = isDead ? 0.3 : 1;
-        ctx.globalAlpha = alpha;
-        drawDot(ctx, vis.x, vis.y, color, 6);
-        ctx.globalAlpha = 1;
-
-        // Class badge
-        const classMeta = HERO_CLASS_META[cls];
-        if (classMeta && !isDead) {
-          ctx.font = "8px system-ui";
-          ctx.textAlign = "center";
-          ctx.fillText(classMeta.emoji, vis.x, vis.y - 8);
+      } else if (isBoss) {
+        // Right at the dungeon entrance
+        vis.tx = entrance.x + randomBetween(-10, 10);
+        vis.ty = entrance.y + randomBetween(-6, 6);
+        vis.timer = 0.4;
+      } else if (onMission) {
+        // Walk between tavern and dungeon entrance
+        if (vis.timer <= 0) {
+          const inDungeon = Math.random() > 0.35;
+          vis.tx = inDungeon ? entrance.x + randomBetween(-12, 12) : entrance.x + randomBetween(-30, -12);
+          vis.ty = inDungeon ? entrance.y + randomBetween(-4, 4)   : entrance.y + randomBetween(-8, 8);
+          vis.timer = randomBetween(1.2, 3);
         }
-
-        // Status ring
-        if (isBoss) {
-          ctx.strokeStyle = "#ef4444";
-          ctx.lineWidth = 1.5;
-          ctx.beginPath();
-          ctx.arc(vis.x, vis.y, 8, 0, Math.PI * 2);
-          ctx.stroke();
-        } else if (onMission) {
-          ctx.strokeStyle = "#a78bfa";
-          ctx.lineWidth = 1;
-          ctx.setLineDash([2, 2]);
-          ctx.beginPath();
-          ctx.arc(vis.x, vis.y, 8, 0, Math.PI * 2);
-          ctx.stroke();
-          ctx.setLineDash([]);
-        } else if (isResting) {
-          ctx.strokeStyle = "#fbbf24";
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.arc(vis.x, vis.y, 8, 0, Math.PI * 2);
-          ctx.stroke();
+      } else {
+        // Idle — mill around the tavern zone
+        if (vis.timer <= 0) {
+          vis.tx = idleX + randomBetween(-10, 10);
+          vis.ty = idleY + randomBetween(-10, 10);
+          vis.timer = randomBetween(1.5, 4);
         }
-      });
-    }
+      }
+
+      moveToward(vis, onMission || isBoss ? 32 : 18, dt);
+
+      ctx.globalAlpha = isDead ? 0.25 : 1;
+      drawDot(ctx, vis.x, vis.y, color, 6);
+      ctx.globalAlpha = 1;
+
+      // Class emoji badge above dot
+      const classMeta = HERO_CLASS_META[cls];
+      if (classMeta && !isDead) {
+        ctx.font = "8px system-ui";
+        ctx.textAlign = "center";
+        ctx.fillText(classMeta.emoji, vis.x, vis.y - 9);
+      }
+
+      // Status ring
+      if (isBoss) {
+        ctx.strokeStyle = "#ef4444";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(vis.x, vis.y, 8, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (onMission) {
+        ctx.strokeStyle = "#a78bfa";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2, 2]);
+        ctx.beginPath();
+        ctx.arc(vis.x, vis.y, 8, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      } else if (isResting) {
+        ctx.strokeStyle = "#fbbf24";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(vis.x, vis.y, 8, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    });
   }
 
   function moveToward(vis, speed, dt) {
