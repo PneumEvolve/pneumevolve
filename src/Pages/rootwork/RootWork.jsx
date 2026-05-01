@@ -54,6 +54,7 @@ import {
   FORGE_WORKER_UPGRADES,
 } from "./gameConstants";
 import GameNav, { FarmSubTabs } from "./components/GameNav";
+import LiveView from "./components/LiveView";
 import ResourceBar from "./components/ResourceBar";
 import FarmZone from "./components/FarmZone";
 import ProcessingZone from "./components/ProcessingZone";
@@ -954,6 +955,9 @@ export default function RootWork() {
             onRemoveHeroFromTavern={handleRemoveHeroFromTavern}
             onSetHeroFillFood={handleSetHeroFillFood}
           />
+        )}
+        {activeMainTab === "view" && (
+          <LiveView game={game} />
         )}
         {activeMainTab === "animals" && (
           <AnimalsZone
