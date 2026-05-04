@@ -1,1410 +1,798 @@
 // src/Pages/rootwork/components/TownZone.jsx
- 
+
 import React, { useState } from "react";
 import {
-  TOWN_HOME_CAPACITY, TOWN_PULSE_SECONDS, TOWN_JAM_BUILDING_COST,
-  TOWN_SAUCE_BUILDING_COST, TOWN_SAT_WHEAT, TOWN_SAT_BAKERY,
-  TOWN_SAT_BAKERY_JAM, TOWN_SAT_ALL_BUILDINGS, TOWN_HALL_MAX_LEVEL,
+  TOWN_HOME_CAPACITY, TOWN_PULSE_SECONDS, TOWN_HALL_MAX_LEVEL,
   TOWN_HALL_LEVEL_COSTS, TOWN_HALL_L1_IRON, TOWN_HALL_L1_LUMBER,
   TOWN_HALL_L2_IRON, TOWN_HALL_L2_LUMBER,
   TOWN_HALL_L3_IRON, TOWN_HALL_L3_LUMBER, TOWN_HALL_L3_FITTING,
   TOWN_HALL_L4_FITTING, TOWN_HALL_L4_CRATE,
-  TREASURY_TIERS, BUILDING_UPGRADE_COST,
-  INVEST_NOW_CD_SECONDS,
-  BUILDING_PULSE_EXTRA_SECONDS, BANK_BUILD_COST, BANK_LEVEL_COSTS,
-  BANK_TIERS, BANK_MAX_LEVEL,
-  ANIMAL_FOOD_COSTS, PET_FOOD_COST, BREAD_FOOD_UNITS,
-  PERSON_IDLE_FOOD_COST, PERSON_WORKING_FOOD_COST,
-  TOWN_CLINIC_COST, TOWN_SCHOOL_COST, TAVERN_LEVEL_COSTS, TAVERN_LEVEL_IRON, TAVERN_LEVEL_LUMBER, TAVERN_LEVEL_REGEN,
-  TOWN_RESTAURANT_COST, TOWN_CLOTHIER_COST,
-  CLINIC_CAP_PER_MEDIC, CLINIC_SAT_PER_MEDIC,
-  SCHOOL_GROW_PER_RESEARCHER,
-  TAVERN_SAT_PER_BARTENDER,
-  RESTAURANT_SAT_PER_CHEF,
-  CLOTHIER_CASH_PER_CLERK,
+  PERSON_IDLE_FOOD_COST, PERSON_WORKING_FOOD_COST, BREAD_FOOD_UNITS,
+  TOWN_CLINIC_COST, TOWN_SCHOOL_COST,
+  TAVERN_LEVEL_COSTS, TAVERN_LEVEL_IRON, TAVERN_LEVEL_LUMBER, TAVERN_LEVEL_REGEN,
+  CLINIC_BASE_CAP, CLINIC_CAP_PER_MEDIC,
+  FOOD_HALL_SAT_CEILING, FOOD_HALL_FOOD_MODE,
+  TOWN_FOOD_HALL_COST, TOWN_FOOD_HALL_TIER2_COST, TOWN_FOOD_HALL_TIER3_COST,
+  TOWN_FOOD_HALL_TIER2_REQUIRES, TOWN_FOOD_HALL_TIER3_REQUIRES,
+  TOWN_WAREHOUSE_COST, WAREHOUSE_TIER_UPGRADE_COSTS, WAREHOUSE_TIER_UPGRADE_REQUIRES,
+  WAREHOUSE_BASE_CAP, WAREHOUSE_CAP_PER_WORKER, WAREHOUSE_MAX_WORKERS, WAREHOUSE_TIER_NAMES,
+  TOWN_KITCHEN_HALL_COST, KITCHEN_HALL_LEVEL_COSTS, KITCHEN_HALL_LEVEL_REQUIRES,
+  KITCHEN_HALL_MAX_WORKERS, KITCHEN_HALL_RETAIN_COUNT,
+  TOWN_MARKET_HALL_COST, MARKET_HALL_LEVEL_COSTS, MARKET_HALL_LEVEL_REQUIRES,
+  MARKET_HALL_MAX_WORKERS, MARKET_HALL_PRICE_BONUS, MARKET_HALL_RETAIN_COUNT,
+  TOWN_GUILD_HALL_COST, GUILD_HALL_LEVEL_COSTS, GUILD_HALL_LEVEL_REQUIRES,
+  GUILD_HALL_MAX_HEROES, GUILD_HALL_QUEST_TIER,
   SCHOOL_RESEARCH,
 } from "../gameConstants";
 import {
-  getTownHomeCost, getTownBakeryCost, getTotalWorkersHired,
-  getAvailableWorkerSlots, getSatisfactionTarget, getTownHallLevel,
-  getTreasuryBalance, getActiveTreasuryTier, getMaxTreasuryTier,
-  getBuildingEffectivePulseCost, getBuildingUpgradeLevel,
-  canUpgradeBuilding, getEffectivePulseSeconds, getBankLevel,
-  isBankBuilt, canBuildBank, getActiveBankTier, getTreasuryGrowBonus,
-  getBankPriceBonus,
+  getTownHomeCost, getTotalWorkersHired, getAvailableWorkerSlots,
+  getSatisfactionTarget, getTownHallLevel, getEffectivePulseSeconds,
   isTownBuildingBuilt, getTownBuildingWorkers, getFreePeople,
-  getClinicCapBonus, getClinicSatBonus,
   getSchoolGrowBonus, getSchoolResearchMultiplier,
-  getTavernSatBonus, getTavernPulseCost, getTavernLevel, getTavernRegenRate,
-  getRestaurantSatBonus, getRestaurantOmeletteCost, getRestaurantCheeseCost,
-  getClothierCashPerPulse, getClothierPulseCost,
-  getTownBuildingWorkerCount, getSchoolData, getActiveSchoolResearch, getAvailableSchoolResearch,
-  canInvestNow, getInvestNowCooldownRemaining,
+  getTavernLevel, getTavernRegenRate,
+  getTownCapacity, getSchoolData, getActiveSchoolResearch, getAvailableSchoolResearch,
+  getWarehouseCropCap, getMaxKitchenWorkers, getMaxMarketWorkers,
+  getMaxHeroes, getGuildHallQuestTier, getSatisfactionCeiling,
+  getBankPriceBonus,
 } from "../gameEngine";
 import SeasonPanel from "./SeasonPanel";
 import StatsPanel from "./StatsPanel";
- 
-function clampPct(v) { return Math.max(0, Math.min(100, v)); }
- 
-function WorkerAssigner({ workers, freePeople, onAdd, onRemove, label = "worker" }) {
+
+// ─── Shared helpers ────────────────────────────────────────────────────────────
+
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+function fmt(n) { return Math.floor(n).toLocaleString(); }
+
+// ─── Sub-components ────────────────────────────────────────────────────────────
+
+function WorkerAssigner({ workers, maxWorkers, freePeople, onAdd, onRemove }) {
+  const atMax = workers >= maxWorkers;
+  const atMin = workers <= 0;
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-      <button
-        onClick={onRemove} disabled={workers <= 0}
-        style={{
-          width: "26px", height: "26px", borderRadius: "6px", border: "1px solid var(--border)",
-          background: "var(--bg)", color: "var(--text)", fontSize: "1rem", cursor: workers <= 0 ? "default" : "pointer",
-          opacity: workers <= 0 ? 0.3 : 1, display: "flex", alignItems: "center", justifyContent: "center",
-        }}
-      >−</button>
-      <div style={{ minWidth: "32px", textAlign: "center", fontWeight: 700, fontSize: "0.9rem" }}>{workers}</div>
-      <button
-        onClick={onAdd} disabled={freePeople <= 0}
-        style={{
-          width: "26px", height: "26px", borderRadius: "6px", border: "1px solid var(--border)",
-          background: "var(--bg)", color: "var(--text)", fontSize: "1rem", cursor: freePeople <= 0 ? "default" : "pointer",
-          opacity: freePeople <= 0 ? 0.3 : 1, display: "flex", alignItems: "center", justifyContent: "center",
-        }}
-      >+</button>
-      <span style={{ fontSize: "0.65rem", color: "var(--muted)" }}>{label}s</span>
+    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+      <button onClick={onRemove} disabled={atMin} className="btn"
+        style={{ width: 28, height: 28, padding: 0, fontSize: "1rem", opacity: atMin ? 0.3 : 1 }}>−</button>
+      <span style={{ minWidth: 32, textAlign: "center", fontWeight: 700 }}>{workers}</span>
+      <button onClick={onAdd} disabled={atMax || freePeople <= 0} className="btn"
+        style={{ width: 28, height: 28, padding: 0, fontSize: "1rem", opacity: (atMax || freePeople <= 0) ? 0.3 : 1 }}>+</button>
+      <span style={{ fontSize: "0.65rem", color: "var(--muted)" }}>/ {maxWorkers} max</span>
     </div>
   );
 }
- 
-function SatisfactionBar({ satisfaction }) {
-  const pct = clampPct((satisfaction / 150) * 100);
-  const color = satisfaction >= 110 ? "#4ade80" : satisfaction >= 100 ? "#a3e635" : satisfaction >= 75 ? "#f59e0b" : "#ef4444";
+
+function SatBar({ satisfaction, ceiling }) {
+  const pct = clamp((satisfaction / ceiling) * 100, 0, 100);
+  const color = satisfaction >= 125 ? "#4ade80"
+    : satisfaction >= 100 ? "#a3e635"
+    : satisfaction >= 80  ? "#f59e0b"
+    : "#ef4444";
   return (
-    <div style={{ height: "6px", background: "var(--border)", borderRadius: "999px", overflow: "hidden" }}>
-      <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: "999px", transition: "width 0.4s ease" }} />
+    <div style={{ height: 6, background: "var(--border)", borderRadius: 999, overflow: "hidden" }}>
+      <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 999, transition: "width 0.4s ease" }} />
     </div>
   );
 }
- 
-function ToggleButton({ on, onToggle, labelOn, labelOff }) {
+
+// A collapsible building card
+function BuildingCard({ emoji, title, badge, badgeColor = "#4ade80", locked, lockedMsg, children }) {
+  const [open, setOpen] = useState(false);
   return (
-    <button onClick={onToggle} style={{
-      fontSize: "0.7rem", fontWeight: 700, padding: "0.2rem 0.65rem", borderRadius: "999px", cursor: "pointer",
-      background: on ? "rgba(74,222,128,0.15)" : "var(--bg)",
-      border: `1px solid ${on ? "#4ade80" : "var(--border)"}`,
-      color: on ? "#4ade80" : "var(--muted)",
+    <div style={{
+      border: "1px solid var(--border)", borderRadius: 12,
+      overflow: "hidden", opacity: locked ? 0.5 : 1,
+      marginBottom: "0.6rem",
     }}>
-      {on ? `🟢 ${labelOn}` : `⚪ ${labelOff ?? labelOn}`}
-    </button>
+      <button
+        onClick={() => !locked && setOpen(o => !o)}
+        style={{
+          width: "100%", background: "var(--card)", border: "none", cursor: locked ? "default" : "pointer",
+          padding: "0.75rem 1rem", display: "flex", alignItems: "center", gap: "0.5rem",
+          textAlign: "left",
+        }}
+      >
+        <span style={{ fontSize: "1.1rem" }}>{emoji}</span>
+        <span style={{ fontWeight: 700, fontSize: "0.88rem", flex: 1 }}>{title}</span>
+        {badge && (
+          <span style={{
+            fontSize: "0.62rem", fontWeight: 700, padding: "0.15rem 0.5rem",
+            borderRadius: 999, background: `${badgeColor}22`, border: `1px solid ${badgeColor}`,
+            color: badgeColor,
+          }}>{badge}</span>
+        )}
+        {locked
+          ? <span style={{ fontSize: "0.65rem", color: "var(--muted)" }}>🔒 {lockedMsg}</span>
+          : <span style={{ fontSize: "0.7rem", color: "var(--muted)" }}>{open ? "▲" : "▼"}</span>
+        }
+      </button>
+      {open && !locked && (
+        <div style={{ padding: "0 1rem 1rem", background: "var(--card)" }}>
+          {children}
+        </div>
+      )}
+    </div>
   );
 }
- 
-function TierPicker({ tiers, activeTier, maxTier, onSelect, colorActive = "#f59e0b", label }) {
+
+function Row({ label, value, sub, valueColor }) {
   return (
-    <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap", marginTop: "0.4rem" }}>
-      <button onClick={() => onSelect(0)} style={{
-        fontSize: "0.68rem", padding: "0.2rem 0.5rem", borderRadius: "6px", cursor: "pointer",
-        background: activeTier === 0 ? "var(--bg-elev)" : "var(--bg)",
-        border: `1px solid ${activeTier === 0 ? "var(--border)" : "var(--border)"}`,
-        color: activeTier === 0 ? "var(--text)" : "var(--muted)",
-        fontWeight: activeTier === 0 ? 600 : 400,
-      }}>Off</button>
-      {tiers.map((t) => {
-        const locked = t.tier > maxTier;
-        const active = activeTier === t.tier;
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: "0.78rem", marginBottom: "0.25rem" }}>
+      <span style={{ color: "var(--muted)" }}>{label}</span>
+      <span style={{ fontWeight: 600, color: valueColor ?? "var(--text)" }}>
+        {value}{sub && <span style={{ color: "var(--muted)", fontWeight: 400, fontSize: "0.7rem" }}> {sub}</span>}
+      </span>
+    </div>
+  );
+}
+
+function CostLine({ cash, cashCost, materials, have }) {
+  const canAfford = (cash ?? 0) >= (cashCost ?? 0);
+  return (
+    <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: "0.4rem" }}>
+      {cashCost != null && (
+        <span style={{ color: canAfford ? "var(--muted)" : "#ef4444" }}>${fmt(cashCost)}</span>
+      )}
+      {materials && Object.entries(materials).map(([k, v]) => {
+        const h = have?.[k] ?? 0;
         return (
-          <button key={t.tier} onClick={() => !locked && onSelect(t.tier)} disabled={locked} style={{
-            fontSize: "0.68rem", padding: "0.2rem 0.5rem", borderRadius: "6px",
-            cursor: locked ? "default" : "pointer",
-            background: active ? `rgba(245,158,11,0.15)` : "var(--bg)",
-            border: `1px solid ${active ? colorActive : locked ? "var(--border)" : "var(--border)"}`,
-            color: active ? colorActive : locked ? "var(--muted)" : "var(--text)",
-            fontWeight: active ? 700 : 400,
-            opacity: locked ? 0.4 : 1,
-          }}>
-            {t.label} (−${t.drainRate}/s · {label === "grow" ? `+${t.growBonus}% grow` : `+${t.priceBonus}% prices`})
-          </button>
+          <span key={k} style={{ marginLeft: "0.4rem", color: h >= v ? "var(--muted)" : "#ef4444" }}>
+            {v} {k.replace("_", " ")}
+          </span>
         );
       })}
     </div>
   );
 }
 
-function ResearchBar({ progress, total }) {
-  const pct = total > 0 ? Math.min(100, (progress / total) * 100) : 0;
-  return (
-    <div style={{ height: "6px", background: "var(--border)", borderRadius: "999px", overflow: "hidden" }}>
-      <div
-        style={{
-          width: `${pct}%`,
-          height: "100%",
-          background: "#a78bfa",
-          borderRadius: "999px",
-          transition: "width 0.35s ease",
-        }}
-      />
-    </div>
-  );
-}
+// ─── Main component ────────────────────────────────────────────────────────────
 
-function CollapsibleCard({ title, subtitle, defaultOpen = true, right, children }) {
-  const [open, setOpen] = useState(defaultOpen);
-
-  return (
-    <div className="card" style={{ marginBottom: "1rem", overflow: "hidden" }}>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        style={{
-          width: "100%",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "0.75rem",
-          background: "none",
-          border: "none",
-          cursor: "pointer",
-          padding: "0.95rem 1rem",
-          textAlign: "left",
-          color: "var(--text)",
-        }}
-      >
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: "0.86rem", fontWeight: 700 }}>{title}</div>
-          {subtitle && (
-            <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginTop: "0.2rem" }}>
-              {subtitle}
-            </div>
-          )}
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexShrink: 0 }}>
-          {right ? <div>{right}</div> : null}
-          <span style={{ fontSize: "0.72rem", color: "var(--muted)", fontWeight: 700 }}>
-            {open ? "▲" : "▼"}
-          </span>
-        </div>
-      </button>
-      {open && <div style={{ padding: "0 1rem 1rem" }}>{children}</div>}
-    </div>
-  );
-}
- 
 export default function TownZone({
   game,
   onBuildHome,
-  onBuyBakery,
-  onToggleBakery,
-  onTogglePantry,
-  onToggleCannery,
-  onUpgradeTownBuilding,
-  onBuyJamBuilding,
-  onBuySauceBuilding,
   onUpgradeTownHall,
-  onSetTreasuryTier,
-  onBuildBank,
-  onUpgradeBank,
-  onSetActiveBankTier,
-  prestigeReady,
-  onPrestige,
-  onReset,
-  onSetTreasuryCap,
   onBuildTownBuilding,
   onAssignTownBuildingWorker,
   onUpgradeTavern,
   onStartSchoolResearch,
-  onInvestNow,
+  prestigeReady,
+  onPrestige,
+  onReset,
+  // New building actions — wired up in RootWork
+  onBuildFoodHall,
+  onUpgradeFoodHall,
+  onBuildWarehouse,
+  onUpgradeWarehouse,
+  onBuildKitchenHall,
+  onUpgradeKitchenHall,
+  onBuildMarketHall,
+  onUpgradeMarketHall,
+  onBuildGuildHall,
+  onUpgradeGuildHall,
+  // Legacy props kept so RootWork doesn't need changes yet — ignored
+  onBuyBakery, onToggleBakery, onTogglePantry, onToggleCannery,
+  onUpgradeTownBuilding, onBuyJamBuilding, onBuySauceBuilding,
+  onSetTreasuryTier, onBuildBank, onUpgradeBank, onSetActiveBankTier,
+  onSetTreasuryCap, onInvestNow, onToggleTavernMode,
 }) {
   const [subTab, setSubTab] = useState("town");
-  const town = game.town ?? {};
-  const homes = town.homes ?? 0;
-  const bakeryLevel = town.bakeryLevel ?? 0;
-  const bakeryOn = town.bakeryOn === true && bakeryLevel >= 1;
-  const pantryOn = town.pantryOn === true && town.jamBuildingOwned === true;
-  const canneryOn = town.canneryOn === true && town.sauceBuildingOwned === true;
-  const jamOwned = town.jamBuildingOwned === true;
-  const sauceOwned = town.sauceBuildingOwned === true;
-  const people = Math.floor(town.people ?? 0);
-  const capacity = town.capacity ?? homes * TOWN_HOME_CAPACITY;
-  const satisfaction = town.satisfaction ?? 100;
-  const satisfactionTarget = getSatisfactionTarget(game);
-  const growthBonusPercent = town.growthBonusPercent ?? 0;
-  const starving = town.starving === true;
-  const foodType = bakeryOn ? "bread" : "wheat";
- 
-  const thLevel = getTownHallLevel(game);
-  const treasury = getTreasuryBalance(game);
-  const activeTreasuryTier = (getActiveTreasuryTier(game)?.tier ?? 0);
-  const maxTreasuryTier = getMaxTreasuryTier(game);
-  const treasuryGrowBonus = getTreasuryGrowBonus(game);
-  const thNextCost = thLevel < TOWN_HALL_MAX_LEVEL ? TOWN_HALL_LEVEL_COSTS[thLevel] : null;
-  const thIronHave   = game.worldResources?.iron_ore ?? 0;
-  const thLumberHave = game.worldResources?.lumber ?? 0;
-  const thFittingHave = (game.worldResources?.iron_fitting ?? 0) + (game.forgeGoods?.iron_fitting ?? 0);
-  const thCrateHave   = (game.worldResources?.reinforced_crate ?? 0) + (game.forgeGoods?.reinforced_crate ?? 0);
-  const canUpgradeTownHall = thNextCost !== null && (game.cash ?? 0) >= thNextCost && (
-    (thLevel === 0 && thIronHave >= TOWN_HALL_L1_IRON && thLumberHave >= TOWN_HALL_L1_LUMBER) ||
-    (thLevel === 1 && thIronHave >= TOWN_HALL_L2_IRON && thLumberHave >= TOWN_HALL_L2_LUMBER) ||
-    (thLevel === 2 && thIronHave >= TOWN_HALL_L3_IRON && thLumberHave >= TOWN_HALL_L3_LUMBER && thFittingHave >= TOWN_HALL_L3_FITTING) ||
-    (thLevel === 3 && thFittingHave >= TOWN_HALL_L4_FITTING && thCrateHave >= TOWN_HALL_L4_CRATE)
-  );
-  const investNowUnlocked = canInvestNow(game);
-  const investNowCdRemaining = Math.ceil(getInvestNowCooldownRemaining(game));
-  const investNowReady = investNowUnlocked && investNowCdRemaining === 0;
- 
-  const bankBuilt = isBankBuilt(game);
-  const bankLevel = getBankLevel(game);
-  const activeBankTier = (getActiveBankTier(game)?.tier ?? 0);
-  const bankPriceBonus = getBankPriceBonus(game);
-  const bankNextLevelCost = bankBuilt && bankLevel < BANK_MAX_LEVEL ? BANK_LEVEL_COSTS[bankLevel] : null;
-  const canUpgradeBankBuilding = bankNextLevelCost !== null && treasury >= bankNextLevelCost;
- 
-  const effectivePulse = getEffectivePulseSeconds(game);
-  const pulseSeconds = Math.ceil(Math.max(0, town.pulseSeconds ?? effectivePulse));
-  const growthAccumulator = town.growthAccumulator ?? 0;
-  const growthSecondsLeft = Math.ceil(Math.max(0, TOWN_PULSE_SECONDS - growthAccumulator));
- 
+
+  const town        = game.town ?? {};
+  const buildings   = town.buildings ?? {};
+  const cash        = game.cash ?? 0;
+  const worldRes    = game.worldResources ?? {};
+  const forgeGoods  = game.forgeGoods ?? {};
+
+  // Helper to get material amounts from worldRes + forgeGoods
+  function have(key) {
+    return (worldRes[key] ?? 0) + (forgeGoods[key] ?? 0);
+  }
+
+  // Core town stats
+  const people       = Math.floor(town.people ?? 0);
+  const capacity     = getTownCapacity(game);
   const totalWorkers = getTotalWorkersHired(game);
-  const availableSlots = getAvailableWorkerSlots(game);
-  const nextHomeCost = getTownHomeCost(game);
-  const nextBakeryCost = getTownBakeryCost(game);
-  const canBuildHome = treasury >= nextHomeCost || nextHomeCost === 0;
-  const canBuyBakery = thLevel >= 1 && treasury >= nextBakeryCost;
-  const canBuyJam = thLevel >= 2 && bakeryLevel >= 1 && !jamOwned && treasury >= TOWN_JAM_BUILDING_COST;
-  const canBuySauce = thLevel >= 3 && jamOwned && !sauceOwned && treasury >= TOWN_SAUCE_BUILDING_COST;
- 
-  const foodEmoji = foodType === "wheat" ? "🌾" : "🍞";
-  const foodHave = foodType === "wheat" ? Math.floor(game.crops?.wheat ?? 0) : Math.floor(game.artisan?.bread ?? 0);
-  
-  const idlePeople = Math.max(0, people - totalWorkers);
-  const peopleFoodUnits = (idlePeople * PERSON_IDLE_FOOD_COST) + (totalWorkers * PERSON_WORKING_FOOD_COST);
-  const animalFoodUnits = Object.entries(game.animals ?? {}).reduce((sum, [id, arr]) => {
-    return sum + arr.length * (ANIMAL_FOOD_COSTS[id] ?? 0);
-  }, 0);
-  const petFoodUnits = Object.keys(game.pets ?? {}).length * PET_FOOD_COST;
-  const totalFoodUnits = peopleFoodUnits + animalFoodUnits + petFoodUnits;
-  const nextPulseFoodCost = totalFoodUnits === 0 ? 0
-    : bakeryOn
-      ? Math.max(1, Math.ceil(totalFoodUnits / BREAD_FOOD_UNITS))
-      : totalFoodUnits;
+  const freePeople   = getFreePeople(game);
+  const satisfaction = town.satisfaction ?? 80;
+  const satCeiling   = getSatisfactionCeiling(game);
+  const satTarget    = getSatisfactionTarget(game);
+  const starving     = town.starving === true;
+  const foodMode     = town.foodMode ?? "wheat";
+  const pulseLeft    = Math.ceil(Math.max(0, town.pulseSeconds ?? TOWN_PULSE_SECONDS));
 
-  const jamPulseCost = pantryOn ? getBuildingEffectivePulseCost(game, "pantry") : 0;
-  const saucePulseCost = canneryOn ? getBuildingEffectivePulseCost(game, "cannery") : 0;
-  const jamHave = Math.floor(game.artisan?.jam ?? 0);
-  const sauceHave = Math.floor(game.artisan?.sauce ?? 0);
- 
-  const satColor = satisfaction >= 110 ? "#4ade80" : satisfaction >= 100 ? "#a3e635" : satisfaction >= 75 ? "#f59e0b" : "#ef4444";
-  const satEmoji = satisfaction >= 110 ? "😄" : satisfaction >= 100 ? "😊" : satisfaction >= 75 ? "😐" : "😟";
-  const populationPct = clampPct(capacity > 0 ? (people / capacity) * 100 : 0);
-  const workerSlotsPct = clampPct(people > 0 ? (totalWorkers / people) * 100 : 0);
- 
-  const bakeryUpgradeLevel = getBuildingUpgradeLevel(game, "bakery");
-  const pantryUpgradeLevel = getBuildingUpgradeLevel(game, "pantry");
-  const canneryUpgradeLevel = getBuildingUpgradeLevel(game, "cannery");
+  const thLevel      = getTownHallLevel(game);
+  const thNextCost   = thLevel < TOWN_HALL_MAX_LEVEL ? TOWN_HALL_LEVEL_COSTS[thLevel] : null;
+  const canUpgradeTH = thNextCost !== null && cash >= thNextCost && (() => {
+    if (thLevel === 1) return (worldRes.iron_ore ?? 0) >= TOWN_HALL_L2_IRON && (worldRes.lumber ?? 0) >= TOWN_HALL_L2_LUMBER;
+    if (thLevel === 2) return (worldRes.iron_ore ?? 0) >= TOWN_HALL_L3_IRON && (worldRes.lumber ?? 0) >= TOWN_HALL_L3_LUMBER && have("iron_fitting") >= TOWN_HALL_L3_FITTING;
+    if (thLevel === 3) return have("iron_fitting") >= TOWN_HALL_L4_FITTING && have("reinforced_crate") >= TOWN_HALL_L4_CRATE;
+    return cash >= thNextCost;
+  })();
 
-  const [capInput, setCapInput] = useState("");
-  const treasuryCap = town.treasuryCap ?? 0;
+  // Building state shortcuts
+  const clinicBuilt   = buildings.clinic?.built === true;
+  const foodHallTier  = buildings.food_hall?.tier ?? 0;
+  const foodHallBuilt = foodHallTier > 0;
+  const warehouseBuilt = buildings.warehouse?.built === true;
+  const warehouseTier  = buildings.warehouse?.tier ?? 0;
+  const warehouseWorkers = buildings.warehouse?.workers ?? 0;
+  const kitchenHallBuilt = buildings.kitchen_hall?.built === true;
+  const kitchenHallLevel = buildings.kitchen_hall?.level ?? 0;
+  const marketHallBuilt  = buildings.market_hall?.built === true;
+  const marketHallLevel  = buildings.market_hall?.level ?? 0;
+  const guildHallBuilt   = buildings.guild_hall?.built === true;
+  const guildHallLevel   = buildings.guild_hall?.level ?? 0;
+  const tavernLevel      = getTavernLevel(game);
+  const tavernBuilt      = tavernLevel > 0;
+  const schoolBuilt      = buildings.school?.built === true;
 
-  // ── New town buildings ──────────────────────────────────────────────────────
-  const freePeople = getFreePeople(game);
-  const townBuildingWorkerCount = getTownBuildingWorkerCount(game);
+  const clinicWorkers = buildings.clinic?.workers ?? 0;
+  const schoolWorkers = buildings.school?.workers ?? 0;
 
-  const clinicBuilt    = isTownBuildingBuilt(game, "clinic");
-  const schoolBuilt    = isTownBuildingBuilt(game, "school");
-  const tavernLevel    = getTavernLevel(game);
-  const tavernBuilt    = tavernLevel > 0;
-  const restaurantBuilt = isTownBuildingBuilt(game, "restaurant");
-  const clothierBuilt  = isTownBuildingBuilt(game, "clothier");
+  const homeCost    = getTownHomeCost(game);
+  const canBuyHome  = cash >= homeCost;
 
-  const clinicWorkers    = getTownBuildingWorkers(game, "clinic");
-  const schoolWorkers    = getTownBuildingWorkers(game, "school");
-  const tavernWorkers    = getTownBuildingWorkers(game, "tavern");
-  const restaurantWorkers = getTownBuildingWorkers(game, "restaurant");
-  const clothierWorkers  = getTownBuildingWorkers(game, "clothier");
+  // TH gates
+  const th0 = thLevel >= 0; // always available
+  const th1 = thLevel >= 1;
+  const th2 = thLevel >= 2;
 
-  const clinicCapBonus   = getClinicCapBonus(game);
-  const clinicSatBonus   = getClinicSatBonus(game);
-  const schoolGrowBonus  = getSchoolGrowBonus(game);
-  const schoolResearchMult = getSchoolResearchMultiplier(game);
-  const schoolData = getSchoolData(game);
-  const activeSchoolResearch = getActiveSchoolResearch(game);
-  const availableSchoolResearch = getAvailableSchoolResearch(game);
-  const unlockedSchoolResearch = schoolData?.unlockedResearch ?? [];
-  const tavernSatBonus   = getTavernSatBonus(game);
-  const tavernCost       = getTavernPulseCost(game);
-  const restaurantSatBonus = getRestaurantSatBonus(game);
-  const restaurantOmeletteCost = getRestaurantOmeletteCost(game);
-  const restaurantCheeseCost   = getRestaurantCheeseCost(game);
-  const clothierCash     = getClothierCashPerPulse(game);
-  const clothierCost     = getClothierPulseCost(game);
+  // Food mode display
+  const foodModeEmoji = { wheat: "🌾", bread: "🍞", jam: "🍯", sauce: "🥫" }[foodMode] ?? "🌾";
+  const foodModeLabel = { wheat: "Wheat", bread: "Bread", jam: "Jam", sauce: "Sauce" }[foodMode] ?? "Wheat";
 
-  const tavernMode = town.townBuildings?.tavern?.mode ?? "jam";
-  const restaurantStocked = town.townBuildings?.restaurant?.stocked !== false;
-  const tavernStocked     = town.townBuildings?.tavern?.stocked !== false;
-  const clothierStocked   = town.townBuildings?.clothier?.stocked !== false;
+  // Sat color
+  const satColor = satisfaction >= 125 ? "#4ade80" : satisfaction >= 100 ? "#a3e635" : satisfaction >= 80 ? "#f59e0b" : "#ef4444";
+  const satEmoji = satisfaction >= 125 ? "😄" : satisfaction >= 100 ? "😊" : satisfaction >= 80 ? "😐" : "😟";
 
-  const woolShedBuilt = game.barnBuildings?.wool_shed?.built === true;
-
-  // Gate checks
-  const tavernMaxLevel = 4;
-  const tavernNextIdx  = tavernLevel; // 0-indexed
-  const tavernNextCost = tavernLevel < tavernMaxLevel ? TAVERN_LEVEL_COSTS[tavernNextIdx] : null;
-  const tavernNextIron = tavernLevel < tavernMaxLevel ? TAVERN_LEVEL_IRON[tavernNextIdx] : 0;
-  const tavernNextLumber = tavernLevel < tavernMaxLevel ? TAVERN_LEVEL_LUMBER[tavernNextIdx] : 0;
-  const canUpgradeTavern = thLevel >= 1 && tavernLevel < tavernMaxLevel
-    && treasury >= (tavernNextCost ?? Infinity)
-    && (game.worldResources?.iron_ore ?? 0) >= tavernNextIron
-    && (game.worldResources?.lumber ?? 0) >= tavernNextLumber;
-  const canBuildClinic     = tavernBuilt && !clinicBuilt && treasury >= TOWN_CLINIC_COST;
-  const canBuildSchool     = clinicBuilt && !schoolBuilt && treasury >= TOWN_SCHOOL_COST;
-  const canBuildRestaurant = schoolBuilt && bakeryLevel >= 1 && !restaurantBuilt && treasury >= TOWN_RESTAURANT_COST;
-  const canBuildClothier   = schoolBuilt && woolShedBuilt && !clothierBuilt && treasury >= TOWN_CLOTHIER_COST;
-
-
- 
-  const row = (label, value, valueColor) => (
-    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", color: "var(--muted)", lineHeight: 2 }}>
-      <span>{label}</span>
-      <strong style={{ color: valueColor ?? "var(--text)" }}>{value}</strong>
-    </div>
-  );
- 
-  const subTabs = [
-    { id: "town", label: "🏘️ Town" },
-    { id: "season", label: "🌱 Season" },
-    { id: "stats", label: "📊 Stats" },
-  ];
+  // School
+  const schoolData           = getSchoolData(game);
+  const activeResearch       = getActiveSchoolResearch(game);
+  const availableResearch    = getAvailableSchoolResearch(game);
+  const unlockedResearch     = schoolData?.unlockedResearch ?? [];
 
   return (
-    <div style={{ maxWidth: "480px", margin: "0 auto", padding: "0 0 5rem" }}>
-      {/* Sub-tab bar */}
-      <div style={{
-        display: "flex", borderBottom: "1px solid var(--border)",
-        background: "var(--bg-elev)", position: "sticky", top: 0, zIndex: 10,
-      }}>
-        {subTabs.map((t) => (
-          <button key={t.id} onClick={() => setSubTab(t.id)} style={{
-            flex: 1, padding: "0.6rem 0.25rem", background: "none", border: "none",
-            borderBottom: subTab === t.id ? "2px solid var(--accent)" : "2px solid transparent",
-            color: subTab === t.id ? "var(--accent)" : "var(--muted)",
-            fontWeight: subTab === t.id ? 700 : 400, fontSize: "0.78rem", cursor: "pointer",
-          }}>{t.label}</button>
+    <div style={{ paddingBottom: "5rem" }}>
+      {/* ── Sub-tabs ─────────────────────────────────────────────────────── */}
+      <div style={{ display: "flex", gap: "0.4rem", marginBottom: "1rem" }}>
+        {[["town", "🏘️ Town"], ["stats", "📊 Stats"], ["season", "🌿 Season"]].map(([id, label]) => (
+          <button key={id} onClick={() => setSubTab(id)} className="btn"
+            style={{ flex: 1, fontSize: "0.75rem", padding: "0.4rem",
+              background: subTab === id ? "var(--accent)" : "var(--card)",
+              color: subTab === id ? "#fff" : "var(--text)",
+              border: `1px solid ${subTab === id ? "var(--accent)" : "var(--border)"}`,
+            }}>
+            {label}
+          </button>
         ))}
       </div>
+
+      {/* ── Stats tab ────────────────────────────────────────────────────── */}
+      {subTab === "stats" && <StatsPanel game={game} />}
+
+      {/* ── Season tab ───────────────────────────────────────────────────── */}
       {subTab === "season" && (
         <SeasonPanel game={game} prestigeReady={prestigeReady} onPrestige={onPrestige} onReset={onReset} />
       )}
-      {subTab === "stats" && (
-        <StatsPanel game={game} />
-      )}
+
+      {/* ── Town tab ─────────────────────────────────────────────────────── */}
       {subTab === "town" && (
-      <div style={{ padding: "1rem 1rem 0" }}>
-      <div style={{ marginBottom: "1rem" }}>
-        <h2 style={{ fontSize: "1.2rem", fontWeight: 700 }}>🏘️ Town</h2>
-        <p style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: "0.15rem" }}>Feed your town to grow population. All town purchases use the treasury.</p>
-      </div>
- 
-      <div className="card p-4" style={{ marginBottom: "1rem" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "0.6rem" }}>
-          <div style={{ background: "var(--bg)", borderRadius: "10px", padding: "0.7rem" }}>
-            <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginBottom: "0.2rem" }}>Overview</div>
-            <div style={{ fontSize: "0.82rem", fontWeight: 700 }}>Town Hall {thLevel}/{TOWN_HALL_MAX_LEVEL}</div>
-            <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginTop: "0.15rem" }}>
-              Treasury ${Math.floor(treasury).toLocaleString()} · {freePeople} free people
-            </div>
-          </div>
-          <div style={{ background: "var(--bg)", borderRadius: "10px", padding: "0.7rem" }}>
-            <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginBottom: "0.2rem" }}>Buildings</div>
-            <div style={{ fontSize: "0.82rem", fontWeight: 700 }}>
-              {[clinicBuilt, schoolBuilt, tavernBuilt, restaurantBuilt, clothierBuilt].filter(Boolean).length} civic · {[bakeryLevel >= 1, jamOwned, sauceOwned, bankBuilt].filter(Boolean).length} utility
-            </div>
-            <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginTop: "0.15rem" }}>
-              {activeSchoolResearch ? `${activeSchoolResearch.emoji} ${activeSchoolResearch.name}` : schoolBuilt ? "No active research" : "School locked"}
-            </div>
-          </div>
-        </div>
-      </div>
+        <div>
 
-      {/* Stats row */}
-      <div className="card p-4" style={{ marginBottom: "1rem" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem", marginBottom: "0.75rem" }}>
-          {[
-            { emoji: "👥", value: people, sub: `of ${capacity}` },
-            { emoji: "👷", value: `${totalWorkers}/${people}`, sub: freePeople === 0 ? "no free" : `${freePeople} free`, color: freePeople === 0 ? "#f59e0b" : undefined },
-            { emoji: satEmoji, value: `${satisfaction}%`, sub: satisfaction === satisfactionTarget ? "stable" : satisfaction < satisfactionTarget ? `↑${satisfactionTarget}%` : `↓${satisfactionTarget}%`, color: satColor },
-            { emoji: "🌱", value: `+${(growthBonusPercent + schoolGrowBonus).toFixed(1)}%`, sub: "grow", color: "#4ade80" },
-          ].map(({ emoji, value, sub, color }, i) => (
-            <div key={i} style={{ flex: 1, textAlign: "center", background: "var(--bg)", borderRadius: "8px", padding: "0.65rem" }}>
-              <div style={{ fontSize: "1rem" }}>{emoji}</div>
-              <div style={{ fontSize: "1rem", fontWeight: 700, color: color ?? "var(--text)" }}>{value}</div>
-              <div style={{ fontSize: "0.6rem", color: "var(--muted)" }}>{sub}</div>
-            </div>
-          ))}
-        </div>
-        <div style={{ marginBottom: "0.5rem" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.68rem", color: "var(--muted)", marginBottom: "0.2rem" }}>
-            <span>Satisfaction — multiplies worker speed</span>
-            <span style={{ color: satColor, fontWeight: 600 }}>{satisfaction}%</span>
-          </div>
-          <SatisfactionBar satisfaction={satisfaction} />
-        </div>
-        {[
-          { label: "Workers", value: `${totalWorkers}/${people}`, pct: workerSlotsPct, color: availableSlots === 0 ? "#f59e0b" : "var(--accent)" },
-          { label: "Housing", value: `${people}/${capacity}`, pct: populationPct, color: "#4ade80" },
-        ].map(({ label, value, pct, color }) => (
-          <div key={label} style={{ marginTop: "0.35rem" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.68rem", color: "var(--muted)", marginBottom: "0.15rem" }}>
-              <span>{label}</span><span style={{ color: "var(--text)", fontWeight: 600 }}>{value}</span>
-            </div>
-            <div style={{ height: "5px", background: "var(--border)", borderRadius: "999px", overflow: "hidden" }}>
-              <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: "999px", transition: "width 0.3s ease" }} />
-            </div>
-          </div>
-        ))}
-      </div>
- 
-      <CollapsibleCard
-        title="🏛️ Core systems"
-        subtitle="Treasury, Town Hall, and Bank"
-        defaultOpen={true}
-        right={<span style={{ fontSize: "0.66rem", color: "#4ade80", fontWeight: 700 }}>${Math.floor(treasury).toLocaleString()}</span>}
-      >
-      {/* Treasury */}
-<div className="card p-4" style={{ marginBottom: "1rem" }}>
-  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" }}>
-    <div style={{ fontWeight: 600 }}>🏦 Treasury</div>
-    <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "#4ade80" }}>${Math.floor(treasury).toLocaleString()}</div>
-  </div>
-  <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
-    Drain cash into the treasury to fund town purchases and earn a grow speed bonus.
-    {treasuryGrowBonus > 0 && <span style={{ color: "#4ade80", marginLeft: "0.3rem", fontWeight: 600 }}>+{treasuryGrowBonus}% grow speed active</span>}
-  </div>
-  <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem", fontWeight: 600 }}>
-    Drain rate {thLevel === 0 ? "(unlock Town Hall first)" : `(max tier ${maxTreasuryTier})`}:
-  </div>
-  <TierPicker
-    tiers={TREASURY_TIERS}
-    activeTier={activeTreasuryTier}
-    maxTier={maxTreasuryTier}
-    onSelect={onSetTreasuryTier}
-    colorActive="#f59e0b"
-    label="grow"
-  />
-  {/* Invest Now */}
-  <div style={{ marginTop: "0.75rem", paddingTop: "0.65rem", borderTop: "1px solid var(--border)" }}>
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" }}>
-      <div style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--muted)" }}>
-        💰 Invest Now
-        {investNowUnlocked && investNowCdRemaining > 0 && (
-          <span style={{ marginLeft: "0.4rem", color: "var(--muted)", fontWeight: 400 }}>
-            ({investNowCdRemaining}s)
-          </span>
-        )}
-      </div>
-      {!investNowUnlocked ? (
-        <span style={{ fontSize: "0.65rem", color: "var(--muted)", opacity: 0.5 }}>🔒 Town Hall 4</span>
-      ) : (
-        <button
-          onClick={onInvestNow}
-          disabled={!investNowReady}
-          style={{
-            fontSize: "0.72rem", fontWeight: 700, padding: "0.25rem 0.75rem",
-            borderRadius: "8px", cursor: investNowReady ? "pointer" : "default",
-            background: investNowReady ? "rgba(74,222,128,0.15)" : "var(--bg)",
-            border: `1px solid ${investNowReady ? "#4ade80" : "var(--border)"}`,
-            color: investNowReady ? "#4ade80" : "var(--muted)",
-            opacity: investNowReady ? 1 : 0.5,
-            transition: "all 0.2s ease",
-          }}
-        >
-          {investNowReady ? `+${Math.floor((game.cash ?? 0) * 0.1).toLocaleString()} →` : `⏳ ${investNowCdRemaining}s`}
-        </button>
-      )}
-    </div>
-    <div style={{ fontSize: "0.65rem", color: "var(--muted)", lineHeight: 1.5 }}>
-      {investNowUnlocked
-        ? "Instantly move 10% of your current cash into treasury. 30s cooldown."
-        : "Unlock at Town Hall level 4 to instantly dump 10% of cash into treasury with a 30s cooldown."}
-    </div>
-  </div>
-
-  {/* Treasury cap */}
-  {thLevel > 0 && (
-    <div style={{ marginTop: "0.75rem", paddingTop: "0.65rem", borderTop: "1px solid var(--border)" }}>
-      <div style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--muted)", marginBottom: "0.35rem" }}>
-        🛑 Auto-stop cap
-        {treasuryCap > 0 && (
-          <span style={{ marginLeft: "0.4rem", color: "#f59e0b", fontWeight: 700 }}>
-            ${treasuryCap.toLocaleString()}
-          </span>
-        )}
-      </div>
-      <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.4rem" }}>
-        Drain pauses automatically when treasury reaches this amount. Set to 0 to disable.
-      </div>
-      <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
-        {/* Quick presets */}
-        {[0, 500, 1000, 2500, 5000].map((preset) => (
-          <button
-            key={preset}
-            onClick={() => { onSetTreasuryCap(preset); setCapInput(""); }}
-            style={{
-              fontSize: "0.65rem", padding: "0.2rem 0.5rem", borderRadius: "6px", cursor: "pointer",
-              background: treasuryCap === preset ? "rgba(245,158,11,0.2)" : "var(--bg)",
-              border: `1px solid ${treasuryCap === preset ? "#f59e0b" : "var(--border)"}`,
-              color: treasuryCap === preset ? "#f59e0b" : "var(--muted)",
-              fontWeight: treasuryCap === preset ? 700 : 400,
-            }}
-          >
-            {preset === 0 ? "Off" : `$${preset.toLocaleString()}`}
-          </button>
-        ))}
-        {/* Custom input */}
-        <div style={{ display: "flex", gap: "0.3rem", flex: 1, minWidth: "120px" }}>
-          <input
-            type="number"
-            min="0"
-            placeholder="Custom…"
-            value={capInput}
-            onChange={(e) => setCapInput(e.target.value)}
-            style={{
-              flex: 1, fontSize: "0.68rem", padding: "0.2rem 0.4rem",
-              borderRadius: "6px", border: "1px solid var(--border)",
-              background: "var(--bg)", color: "var(--text)",
-              minWidth: 0,
-            }}
-          />
-          <button
-            onClick={() => {
-              const val = parseInt(capInput, 10);
-              if (!isNaN(val) && val >= 0) { onSetTreasuryCap(val); setCapInput(""); }
-            }}
-            className="btn btn-secondary"
-            style={{ fontSize: "0.65rem", padding: "0.2rem 0.5rem", flexShrink: 0 }}
-          >
-            Set
-          </button>
-        </div>
-      </div>
-      {treasuryCap > 0 && treasury >= treasuryCap && (
-        <div style={{ marginTop: "0.4rem", fontSize: "0.65rem", color: "#f59e0b", fontWeight: 600 }}>
-          ⏸ Cap reached — drain paused
-        </div>
-      )}
-    </div>
-  )}
-</div>
- 
-      {/* Town Hall */}
-      <div className="card p-4" style={{ marginBottom: "1rem" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" }}>
-          <div style={{ fontWeight: 600 }}>🏛️ Town Hall</div>
-          <span style={{
-            fontSize: "0.65rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "999px",
-            background: thLevel > 0 ? "rgba(74,222,128,0.15)" : "var(--bg)",
-            border: `1px solid ${thLevel > 0 ? "#4ade80" : "var(--border)"}`,
-            color: thLevel > 0 ? "#4ade80" : "var(--muted)",
-          }}>Level {thLevel}/{TOWN_HALL_MAX_LEVEL}</span>
-        </div>
-        <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
-          {thLevel === 0 && "Build the Town Hall to unlock the treasury tier 1, prestige, the Tavern, and the Bakery."}
-          {thLevel === 1 && "Level 2 unlocks the Pantry and treasury tier 2."}
-          {thLevel === 2 && "Level 3 unlocks the Cannery, treasury tier 3, and the Bank."}
-          {thLevel === 3 && "Level 4 unlocks Invest Now — instantly move 10% of your cash into treasury with a 30s cooldown."}
-          {thLevel >= 4 && "Fully upgraded. All systems unlocked including Invest Now."}
-        </div>
-        {thNextCost && (() => {
-          // Per-level material requirements displayed inline
-          const matRows = {
-            0: [
-              { emoji: "🪨", label: "Iron Ore",         have: thIronHave,   need: TOWN_HALL_L1_IRON },
-              { emoji: "🪵", label: "Lumber",            have: thLumberHave, need: TOWN_HALL_L1_LUMBER },
-            ],
-            1: [
-              { emoji: "🪨", label: "Iron Ore",         have: thIronHave,   need: TOWN_HALL_L2_IRON },
-              { emoji: "🪵", label: "Lumber",            have: thLumberHave, need: TOWN_HALL_L2_LUMBER },
-            ],
-            2: [
-              { emoji: "🪨", label: "Iron Ore",         have: thIronHave,   need: TOWN_HALL_L3_IRON },
-              { emoji: "🪵", label: "Lumber",            have: thLumberHave, need: TOWN_HALL_L3_LUMBER },
-              { emoji: "🔩", label: "Iron Fitting",     have: thFittingHave, need: TOWN_HALL_L3_FITTING },
-            ],
-            3: [
-              { emoji: "🔩", label: "Iron Fitting",     have: thFittingHave, need: TOWN_HALL_L4_FITTING },
-              { emoji: "📦", label: "Reinforced Crate", have: thCrateHave,   need: TOWN_HALL_L4_CRATE },
-            ],
-          };
-          const mats = matRows[thLevel] ?? [];
-          const cashOk = (game.cash ?? 0) >= thNextCost;
-          return (
-            <div>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem" }}>
-                <div style={{ fontSize: "0.72rem", color: "var(--muted)", flex: 1 }}>
-                  <div style={{ marginBottom: mats.length ? "0.35rem" : 0 }}>
-                    Cash: <strong style={{ color: cashOk ? "#4ade80" : "#f87171" }}>${thNextCost.toLocaleString()}</strong>
-                  </div>
-                  {mats.map(({ emoji, label, have, need }) => {
-                    const ok = have >= need;
-                    return (
-                      <div key={label} style={{ display: "flex", alignItems: "center", gap: "0.3rem", marginBottom: "0.15rem" }}>
-                        <span>{emoji}</span>
-                        <span style={{ color: ok ? "#4ade80" : "#f87171", fontWeight: 600 }}>
-                          {label}: {Math.floor(have)}/{need}
-                        </span>
-                        {ok && <span style={{ color: "#4ade80", fontSize: "0.65rem" }}>✓</span>}
-                      </div>
-                    );
-                  })}
+          {/* ── Town overview card ─────────────────────────────────────── */}
+          <div className="card p-4" style={{ marginBottom: "1rem" }}>
+            {/* Stat grid */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.5rem", marginBottom: "0.75rem" }}>
+              {[
+                { emoji: "👥", value: `${people}/${capacity}`, sub: "people" },
+                { emoji: "💼", value: `${totalWorkers}`, sub: `${freePeople} free` },
+                { emoji: satEmoji, value: `${satisfaction}%`, sub: "sat", color: satColor },
+                { emoji: foodModeEmoji, value: foodModeLabel, sub: `${pulseLeft}s`, color: "var(--text)" },
+              ].map(({ emoji, value, sub, color }, i) => (
+                <div key={i} style={{ background: "var(--bg)", borderRadius: 8, padding: "0.5rem", textAlign: "center" }}>
+                  <div style={{ fontSize: "1rem" }}>{emoji}</div>
+                  <div style={{ fontSize: "0.88rem", fontWeight: 700, color: color ?? "var(--text)" }}>{value}</div>
+                  <div style={{ fontSize: "0.58rem", color: "var(--muted)" }}>{sub}</div>
                 </div>
-                <button onClick={onUpgradeTownHall} disabled={!canUpgradeTownHall} className="btn" style={{ opacity: canUpgradeTownHall ? 1 : 0.5, fontSize: "0.75rem", flexShrink: 0 }}>
-                  {thLevel === 0 ? "Build →" : "Upgrade →"}
-                </button>
-              </div>
-            </div>
-          );
-        })()}
-        {thLevel >= TOWN_HALL_MAX_LEVEL && (
-          <div style={{ fontSize: "0.7rem", color: "#4ade80", textAlign: "center" }}>✓ Max level — Invest Now unlocked</div>
-        )}
-      </div>
-
-      {/* 🏦 Bank */}
-      {(() => {
-        const bankRequirementsMet = thLevel >= TOWN_HALL_MAX_LEVEL && bakeryLevel >= 1 && jamOwned && sauceOwned;
-        const canAffordBank = treasury >= BANK_BUILD_COST;
-        const canBuyBank = bankRequirementsMet && canAffordBank && !bankBuilt;
-        return (
-          <div className="card p-4" style={{ marginBottom: "1rem", opacity: bankRequirementsMet ? 1 : 0.4 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" }}>
-              <div style={{ fontWeight: 600 }}>🏦 Bank</div>
-              {bankBuilt
-                ? <span style={{ fontSize: "0.65rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "999px", background: "rgba(74,222,128,0.15)", border: "1px solid #4ade80", color: "#4ade80" }}>Level {bankLevel}/{BANK_MAX_LEVEL}</span>
-                : bankRequirementsMet
-                  ? <span style={{ fontSize: "0.65rem", color: canAffordBank ? "#4ade80" : "var(--muted)", fontWeight: 600 }}>${Math.floor(treasury).toLocaleString()} / ${BANK_BUILD_COST.toLocaleString()}</span>
-                  : null
-              }
-            </div>
-            <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.5rem", lineHeight: 1.6 }}>
-              {!bankRequirementsMet
-                ? "Requires Town Hall level 4, Bakery, Pantry, and Cannery."
-                : !bankBuilt
-                  ? "Drains treasury to boost all sell prices. Each level unlocks a higher drain tier."
-                  : bankPriceBonus > 0 ? `Running. +${bankPriceBonus}% sell prices active.` : "Built. Choose a tier to activate price bonus."
-              }
-            </div>
-            {!bankBuilt && (
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
-                  Cost: <strong style={{ color: canAffordBank && bankRequirementsMet ? "#4ade80" : "var(--text)" }}>${BANK_BUILD_COST.toLocaleString()} treasury</strong>
-                </div>
-                <button onClick={onBuildBank} disabled={!canBuyBank} className="btn" style={{ opacity: canBuyBank ? 1 : 0.5 }}>
-                  Build Bank
-                </button>
-              </div>
-            )}
-            {bankBuilt && (
-              <>
-                <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem", fontWeight: 600 }}>Active tier (drains treasury):</div>
-                <TierPicker
-                  tiers={BANK_TIERS}
-                  activeTier={activeBankTier}
-                  maxTier={bankLevel}
-                  onSelect={onSetActiveBankTier}
-                  colorActive="#60a5fa"
-                  label="price"
-                />
-                {bankNextLevelCost && (
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.6rem" }}>
-                    <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
-                      Upgrade: <strong style={{ color: canUpgradeBankBuilding ? "#4ade80" : "var(--text)" }}>${bankNextLevelCost.toLocaleString()} treasury</strong>
-                    </div>
-                    <button onClick={onUpgradeBank} disabled={!canUpgradeBankBuilding} className="btn" style={{ opacity: canUpgradeBankBuilding ? 1 : 0.5, fontSize: "0.75rem" }}>Upgrade →</button>
-                  </div>
-                )}
-                {bankLevel >= BANK_MAX_LEVEL && <div style={{ fontSize: "0.7rem", color: "#4ade80", marginTop: "0.4rem", textAlign: "center" }}>✓ Max level</div>}
-              </>
-            )}
-          </div>
-        );
-      })()}
-
-      <div className="card p-4" style={{ marginBottom: "1rem" }}>
-        <div style={{ fontWeight: 600, marginBottom: "0.5rem", fontSize: "0.85rem" }}>
-          {foodEmoji} Food Pulse
-          <span style={{ fontSize: "0.65rem", color: "var(--muted)", fontWeight: 400, marginLeft: "0.5rem" }}>
-            every {effectivePulse}s
-            {effectivePulse > TOWN_PULSE_SECONDS && (
-              <span style={{ color: "#4ade80", marginLeft: "0.3rem" }}>
-                (+{effectivePulse - TOWN_PULSE_SECONDS}s from buildings)
-              </span>
-            )}
-          </span>
-        </div>
-
-        {/* Food units breakdown */}
-        <div style={{
-          background: "var(--bg)", borderRadius: "8px", padding: "0.5rem 0.65rem",
-          marginBottom: "0.5rem", fontSize: "0.68rem", color: "var(--muted)", lineHeight: 1.9,
-        }}>
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
-            <span>🧍 Idle people ({idlePeople} × {PERSON_IDLE_FOOD_COST})</span>
-            <strong style={{ color: "var(--text)" }}>{idlePeople * PERSON_IDLE_FOOD_COST} units</strong>
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
-            <span>👷 Workers ({totalWorkers} × {PERSON_WORKING_FOOD_COST})</span>
-            <strong style={{ color: "var(--text)" }}>{totalWorkers * PERSON_WORKING_FOOD_COST} units</strong>
-          </div>
-          {animalFoodUnits > 0 && (
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span>🐾 Animals</span>
-              <strong style={{ color: "#f59e0b" }}>{animalFoodUnits} units</strong>
-            </div>
-          )}
-          {animalFoodUnits > 0 && (
-            <div style={{ fontSize: "0.62rem", color: "var(--muted)", paddingLeft: "0.5rem" }}>
-              {Object.entries(game.animals ?? {}).filter(([, arr]) => arr.length > 0).map(([id, arr]) => (
-                <span key={id} style={{ marginRight: "0.5rem" }}>
-                  {id === "chicken" ? "🐔" : id === "cow" ? "🐄" : "🐑"} {arr.length} × {ANIMAL_FOOD_COSTS[id]} = {arr.length * ANIMAL_FOOD_COSTS[id]}
-                </span>
               ))}
             </div>
-          )}
-          {petFoodUnits > 0 && (
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span>🐾 Pets ({Object.keys(game.pets ?? {}).length} × {PET_FOOD_COST})</span>
-              <strong style={{ color: "#f59e0b" }}>{petFoodUnits} units</strong>
-            </div>
-          )}
-          <div style={{
-            display: "flex", justifyContent: "space-between", marginTop: "0.2rem",
-            paddingTop: "0.3rem", borderTop: "1px solid var(--border)",
-          }}>
-            <span>Total food units needed</span>
-            <strong style={{ color: "var(--text)" }}>{totalFoodUnits}</strong>
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
-            <span>
-              {bakeryOn
-                ? `→ bread (${totalFoodUnits} ÷ ${BREAD_FOOD_UNITS} = ${nextPulseFoodCost} 🍞)`
-                : `→ wheat (1 unit = 1 🌾)`}
-            </span>
-            <strong style={{ color: foodHave >= nextPulseFoodCost ? "#4ade80" : "#ef4444" }}>
-              {nextPulseFoodCost} {foodEmoji}
-            </strong>
-          </div>
-        </div>
 
-        <div style={{ fontSize: "0.75rem", color: "var(--muted)", lineHeight: 2 }}>
-          {row("Next pulse in", `${pulseSeconds}s`)}
-          {!starving && row("👥 Pop grows in", `${growthSecondsLeft}s`, "var(--muted)")}
-          {row(`${foodEmoji} in stock`, `${foodHave}`, foodHave >= nextPulseFoodCost ? "#4ade80" : "#ef4444")}
-          {jamOwned && row("🍯 jam/pulse", pantryOn ? `${jamPulseCost} (have ${jamHave})` : `${getBuildingEffectivePulseCost(game, "pantry")} (off · ${jamHave} in stock)`, pantryOn ? (jamHave >= jamPulseCost ? "#4ade80" : "#ef4444") : "var(--muted)")}
-          {sauceOwned && row("🥫 sauce/pulse", canneryOn ? `${saucePulseCost} (have ${sauceHave})` : `${getBuildingEffectivePulseCost(game, "cannery")} (off · ${sauceHave} in stock)`, canneryOn ? (sauceHave >= saucePulseCost ? "#4ade80" : "#ef4444") : "var(--muted)")}
-          {row("Status", starving ? "😟 Hungry" : "😊 Fed", starving ? "#ef4444" : "#4ade80")}
-        </div>
-      </div>
- 
-      </CollapsibleCard>
-
-      <CollapsibleCard
-        title="🍞 Food & housing"
-        subtitle="Pulse costs, stock, and homes"
-        defaultOpen={true}
-        right={<span style={{ fontSize: "0.66rem", color: starving ? "#ef4444" : "#4ade80", fontWeight: 700 }}>{starving ? "Hungry" : "Fed"}</span>}
-      >
-      {/* Build Homes */}
-      <div className="card p-4" style={{ marginBottom: "1rem" }}>
-        <div style={{ fontWeight: 600, marginBottom: "0.3rem" }}>🏠 Build Homes</div>
-        <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.75rem" }}>
-          Each home holds {TOWN_HOME_CAPACITY} people. One resident moves in immediately. {homes} home{homes !== 1 ? "s" : ""} · {capacity} capacity. <strong style={{ color: "#f59e0b" }}>Paid from treasury.</strong>
-        </div>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
-            Next: <strong style={{ color: "var(--text)" }}>{nextHomeCost === 0 ? "Free" : `$${nextHomeCost.toLocaleString()}`}</strong>
-          </div>
-          <button onClick={onBuildHome} disabled={!canBuildHome} className="btn" style={{ opacity: canBuildHome ? 1 : 0.5 }}>Build Home</button>
-        </div>
-      </div>
- 
-      </CollapsibleCard>
-
-      <CollapsibleCard
-        title="🏭 Production buildings"
-        subtitle="Bakery, Pantry, and Cannery"
-        defaultOpen={false}
-        right={<span style={{ fontSize: "0.66rem", color: "var(--muted)", fontWeight: 700 }}>{[bakeryLevel >= 1, jamOwned, sauceOwned].filter(Boolean).length}/3 built</span>}
-      >
-      {/* Bakery */}
-      <div className="card p-4" style={{ marginBottom: "1rem", opacity: thLevel >= 1 ? 1 : 0.4 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" }}>
-          <div style={{ fontWeight: 600 }}>🥖 Bakery</div>
-          {bakeryLevel >= 1 && <ToggleButton on={bakeryOn} onToggle={onToggleBakery} labelOn="Bread mode" labelOff="Bread mode" />}
-        </div>
-        <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.5rem", lineHeight: 1.6 }}>
-          {thLevel < 1 ? "Requires Town Hall level 1." : bakeryLevel === 0 ? `Buy to enable bread mode — 1 bread = ${BREAD_FOOD_UNITS} food units. Sat target: ${TOWN_SAT_BAKERY}%.` : bakeryOn ? `Bread mode active. +${BUILDING_PULSE_EXTRA_SECONDS}s pulse. Sat: ${satisfactionTarget}%.` : "Toggle for higher satisfaction. Paid from treasury."}
-        </div>
-        {bakeryLevel >= 1 && (
-          <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginBottom: "0.4rem" }}>
-            Upgrade level: {bakeryUpgradeLevel} · reduces bread cost by {bakeryUpgradeLevel}/pulse
-          </div>
-        )}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
-            {bakeryLevel === 0 ? <>${nextBakeryCost.toLocaleString()} treasury</> : <>Level {bakeryLevel}</>}
-          </div>
-          <div style={{ display: "flex", gap: "0.4rem" }}>
-            {bakeryLevel >= 1 && canUpgradeBuilding(game, "bakery") && (
-              <button onClick={() => onUpgradeTownBuilding("bakery")} className="btn" style={{ fontSize: "0.7rem", padding: "0.2rem 0.6rem" }}>
-                Upgrade −${BUILDING_UPGRADE_COST}
-              </button>
-            )}
-            {bakeryLevel === 0 && <button onClick={onBuyBakery} disabled={!canBuyBakery} className="btn" style={{ opacity: canBuyBakery ? 1 : 0.5 }}>Buy Bakery</button>}
-          </div>
-        </div>
-      </div>
- 
-      {/* Pantry */}
-      <div className="card p-4" style={{ marginBottom: "1rem", opacity: thLevel >= 2 ? 1 : 0.4 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" }}>
-          <div style={{ fontWeight: 600 }}>🍯 Pantry</div>
-          {jamOwned && <ToggleButton on={pantryOn} onToggle={onTogglePantry} labelOn="Jam mode" />}
-        </div>
-        <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.5rem", lineHeight: 1.6 }}>
-          {thLevel < 2 ? "Requires Town Hall level 2." : !jamOwned ? `Toggle on to consume ${getBuildingEffectivePulseCost(game, "pantry")} jam/pulse (+${BUILDING_PULSE_EXTRA_SECONDS}s, sat ${TOWN_SAT_BAKERY_JAM}%).` : pantryOn ? `Jam mode active. Consumes ${jamPulseCost} 🍯/pulse. Sat: ${satisfactionTarget}%.` : "Toggle for higher satisfaction."}
-        </div>
-        {jamOwned && (
-          <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginBottom: "0.4rem" }}>
-            Upgrade level: {pantryUpgradeLevel} · reduces jam cost by {pantryUpgradeLevel}/pulse
-          </div>
-        )}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
-            {!jamOwned ? <>${TOWN_JAM_BUILDING_COST.toLocaleString()} treasury</> : <span style={{ color: "#4ade80", fontSize: "0.65rem", fontWeight: 700 }}>✓ Built</span>}
-          </div>
-          <div style={{ display: "flex", gap: "0.4rem" }}>
-            {jamOwned && canUpgradeBuilding(game, "pantry") && <button onClick={() => onUpgradeTownBuilding("pantry")} className="btn" style={{ fontSize: "0.7rem", padding: "0.2rem 0.6rem" }}>Upgrade −${BUILDING_UPGRADE_COST}</button>}
-            {!jamOwned && <button onClick={onBuyJamBuilding} disabled={!canBuyJam} className="btn" style={{ opacity: canBuyJam ? 1 : 0.5 }}>Build Pantry</button>}
-          </div>
-        </div>
-      </div>
- 
-      {/* Cannery */}
-      <div className="card p-4" style={{ marginBottom: "1rem", opacity: thLevel >= 3 ? 1 : 0.4 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" }}>
-          <div style={{ fontWeight: 600 }}>🥫 Cannery</div>
-          {sauceOwned && <ToggleButton on={canneryOn} onToggle={onToggleCannery} labelOn="Sauce mode" />}
-        </div>
-        <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.5rem", lineHeight: 1.6 }}>
-          {thLevel < 3 ? "Requires Town Hall level 3." : !sauceOwned ? `Toggle on to consume ${getBuildingEffectivePulseCost(game, "cannery")} sauce/pulse (+${BUILDING_PULSE_EXTRA_SECONDS}s, sat ${TOWN_SAT_ALL_BUILDINGS}%).` : canneryOn ? `Sauce mode active. Consumes ${saucePulseCost} 🥫/pulse. Sat: ${satisfactionTarget}%.` : "Toggle for max satisfaction."}
-        </div>
-        {sauceOwned && (
-          <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginBottom: "0.4rem" }}>
-            Upgrade level: {canneryUpgradeLevel} · reduces sauce cost by {canneryUpgradeLevel}/pulse
-          </div>
-        )}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
-            {!sauceOwned ? <>${TOWN_SAUCE_BUILDING_COST.toLocaleString()} treasury</> : <span style={{ color: "#4ade80", fontSize: "0.65rem", fontWeight: 700 }}>✓ Built</span>}
-          </div>
-          <div style={{ display: "flex", gap: "0.4rem" }}>
-            {sauceOwned && canUpgradeBuilding(game, "cannery") && <button onClick={() => onUpgradeTownBuilding("cannery")} className="btn" style={{ fontSize: "0.7rem", padding: "0.2rem 0.6rem" }}>Upgrade −${BUILDING_UPGRADE_COST}</button>}
-            {!sauceOwned && <button onClick={onBuySauceBuilding} disabled={!canBuySauce} className="btn" style={{ opacity: canBuySauce ? 1 : 0.5 }}>Build Cannery</button>}
-          </div>
-        </div>
-      </div>
- 
-      </CollapsibleCard>
- 
-      <CollapsibleCard
-        title="🏗️ Town buildings"
-        subtitle="Clinic, School, Tavern, Restaurant, and Clothier"
-        defaultOpen={false}
-        right={<span style={{ fontSize: "0.66rem", color: freePeople > 0 ? "#4ade80" : "#f59e0b", fontWeight: 700 }}>{freePeople} free</span>}
-      >
-      {/* ── NEW TOWN BUILDINGS ──────────────────────────────────────── */}
- 
-      {/* Free people indicator */}
-      {(tavernBuilt || clinicBuilt || schoolBuilt || restaurantBuilt || clothierBuilt) && (
-        <div className="card p-4" style={{ marginBottom: "1rem", background: "var(--bg-elev)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.4rem" }}>
-            <div style={{ fontSize: "0.78rem", fontWeight: 600 }}>🏗️ Town Buildings</div>
-            <div style={{ fontSize: "0.72rem", color: "var(--muted)" }}>
-              <span style={{ color: freePeople > 0 ? "#4ade80" : "#f59e0b", fontWeight: 700 }}>{freePeople} free</span>
-              {" · "}{townBuildingWorkerCount} in buildings{" · "}{totalWorkers} total workers
-            </div>
-          </div>
-        </div>
-      )}
- 
-      {/* 🍺 Tavern */}
-      {(() => {
-         const restingHeroes = (game.adventurers ?? []).filter((a) => a.tavernResting);
-         const regenRate = getTavernRegenRate(game);
-         const LEVEL_LABELS = ["", "Basic", "Improved", "Superior", "Grand"];
-         return (
-           <div className="card p-4" style={{ marginBottom: "1rem", opacity: thLevel >= 1 ? 1 : 0.4 }}>
-             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.4rem" }}>
-               <div style={{ fontWeight: 600 }}>🍺 Tavern</div>
-               {tavernBuilt && (
-                 <span style={{ fontSize: "0.65rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "999px", background: "rgba(74,222,128,0.15)", border: "1px solid #4ade80", color: "#4ade80" }}>
-                   Lv.{tavernLevel} {LEVEL_LABELS[tavernLevel]} · {tavernWorkers} bartenders
-                 </span>
-               )}
-             </div>
-
-             {tavernBuilt ? (
-               <>
-                 {/* Regen stat */}
-                 <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginBottom: "0.75rem", padding: "0.4rem 0.6rem", background: "rgba(234,179,8,0.06)", border: "1px solid rgba(234,179,8,0.2)", borderRadius: "8px" }}>
-                   ❤️ <strong style={{ color: "#fbbf24" }}>{regenRate.toFixed(1)} HP/s</strong> regen for resting heroes · free, no upkeep
-                   {tavernLevel < 4 && <span style={{ color: "rgba(234,179,8,0.5)", marginLeft: "0.4rem" }}>· upgrade for {TAVERN_LEVEL_REGEN[tavernLevel].toFixed(1)} HP/s</span>}
-                 </div>
-
-                 {/* Bartender workers + sat bonus */}
-                 <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.4rem", flexWrap: "wrap" }}>
-                   <WorkerAssigner
-                     workers={tavernWorkers} freePeople={freePeople}
-                     onAdd={() => onAssignTownBuildingWorker("tavern", 1)}
-                     onRemove={() => onAssignTownBuildingWorker("tavern", -1)}
-                   />
-                   {tavernWorkers > 0 && (
-                     <div style={{ fontSize: "0.65rem", color: "var(--muted)" }}>
-                       +<strong style={{ color: "#60a5fa" }}>{tavernSatBonus.toFixed(1)}%</strong> satisfaction · consumes <strong>{tavernCost}</strong>/pulse
-                     </div>
-                   )}
-                   {tavernWorkers === 0 && (
-                     <div style={{ fontSize: "0.62rem", color: "var(--muted)", fontStyle: "italic" }}>
-                       Add a bartender for satisfaction bonus
-                     </div>
-                   )}
-                 </div>
-
-                 {/* Resting heroes */}
-                 {restingHeroes.length > 0 && (
-                   <div style={{ paddingTop: "0.5rem", borderTop: "1px solid var(--border)" }}>
-                     <div style={{ fontSize: "0.58rem", fontWeight: 700, color: "var(--muted)", marginBottom: "0.35rem", letterSpacing: "0.05em" }}>
-                       😴 RESTING ({restingHeroes.length}) · send them on a mission from the World tab
-                     </div>
-                     {restingHeroes.map((hero) => {
-                       const maxHp = hero.maxHp ?? 40;
-                       const hp = hero.hp ?? maxHp;
-                       const hpPct = Math.min(100, (hp / maxHp) * 100);
-                       const isFullHp = hp >= maxHp;
-                       return (
-                         <div key={hero.id} style={{
-                           display: "flex", alignItems: "center", gap: "0.5rem",
-                           marginBottom: "0.3rem", padding: "0.35rem 0.5rem",
-                           background: "rgba(234,179,8,0.05)",
-                           border: "1px solid rgba(234,179,8,0.18)",
-                           borderRadius: "7px",
-                         }}>
-                           <span style={{ fontSize: "0.9rem" }}>{isFullHp ? "💤" : "😴"}</span>
-                           <div style={{ flex: 1, minWidth: 0 }}>
-                             <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", marginBottom: "2px" }}>
-                               <span style={{ fontSize: "0.65rem", fontWeight: 600 }}>{hero.name}</span>
-                               <span style={{ fontSize: "0.55rem", color: isFullHp ? "#4ade80" : "#fbbf24" }}>
-                                 {isFullHp ? "✓ full HP" : `+${regenRate.toFixed(1)} HP/s`}
-                               </span>
-                             </div>
-                             <div style={{ height: "3px", background: "rgba(255,255,255,0.08)", borderRadius: "2px", overflow: "hidden" }}>
-                               <div style={{ height: "100%", width: `${hpPct}%`, background: hpPct > 60 ? "#4ade80" : hpPct > 30 ? "#fbbf24" : "#ef4444", borderRadius: "2px" }} />
-                             </div>
-                           </div>
-                           <span style={{ fontSize: "0.58rem", color: "var(--muted)", whiteSpace: "nowrap" }}>{Math.floor(hp)}/{maxHp}</span>
-                         </div>
-                       );
-                     })}
-                   </div>
-                 )}
-                 {restingHeroes.length === 0 && (
-                   <div style={{ fontSize: "0.62rem", color: "var(--muted)", fontStyle: "italic", paddingTop: "0.3rem" }}>
-                     No heroes resting. Use the "Rest at Tavern" button on any idle hero in the World tab.
-                   </div>
-                 )}
-
-                 {/* Upgrade button */}
-                 {tavernLevel < 4 && (
-                   <div style={{ marginTop: "0.75rem", paddingTop: "0.5rem", borderTop: "1px solid var(--border)" }}>
-                     <div style={{ fontSize: "0.58rem", fontWeight: 700, color: "var(--muted)", marginBottom: "0.4rem", letterSpacing: "0.05em" }}>
-                       UPGRADE TO LEVEL {tavernLevel + 1} · {LEVEL_LABELS[tavernLevel + 1]}
-                     </div>
-                     <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginBottom: "0.4rem" }}>
-                       {TAVERN_LEVEL_REGEN[tavernLevel].toFixed(1)} HP/s regen
-                       {tavernNextIron > 0 && <span> · {tavernNextIron} iron ore</span>}
-                       {tavernNextLumber > 0 && <span> · {tavernNextLumber} lumber</span>}
-                     </div>
-                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                       <div style={{ fontSize: "0.72rem", color: "var(--muted)" }}>${tavernNextCost?.toLocaleString()} treasury</div>
-                       <button onClick={onUpgradeTavern} disabled={!canUpgradeTavern} className="btn" style={{ opacity: canUpgradeTavern ? 1 : 0.5 }}>
-                         Upgrade Tavern
-                       </button>
-                     </div>
-                   </div>
-                 )}
-                 {tavernLevel >= 4 && (
-                   <div style={{ marginTop: "0.5rem", fontSize: "0.62rem", color: "#4ade80", fontStyle: "italic" }}>✓ Max level</div>
-                 )}
-               </>
-             ) : (
-               <>
-                 <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
-                   {thLevel < 1
-                     ? "Requires Town Hall Level 1 and treasury."
-                     : "A place for heroes to rest and heal between missions. Heroes regen HP passively — free, no upkeep. Upgrade for faster regen as your heroes grow stronger."}
-                 </div>
-                 <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginBottom: "0.4rem" }}>
-                   10 iron ore · 5 lumber
-                 </div>
-                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                   <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>${TAVERN_LEVEL_COSTS[0].toLocaleString()} treasury</div>
-                   <button onClick={onUpgradeTavern} disabled={!canUpgradeTavern} className="btn" style={{ opacity: canUpgradeTavern ? 1 : 0.5 }}>Build Tavern</button>
-                 </div>
-               </>
-             )}
-           </div>
-         );
-       })()}
- 
-      {/* 🏥 Clinic */}
-      <div className="card p-4" style={{ marginBottom: "1rem", opacity: tavernBuilt ? 1 : 0.4 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" }}>
-          <div style={{ fontWeight: 600 }}>🏥 Clinic</div>
-          {clinicBuilt && (
-            <span style={{ fontSize: "0.65rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "999px", background: "rgba(74,222,128,0.15)", border: "1px solid #4ade80", color: "#4ade80" }}>
-              Built · {clinicWorkers} doctors
-            </span>
-          )}
-        </div>
-        <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.5rem", lineHeight: 1.6 }}>
-          {!tavernBuilt
-            ? "Requires Tavern."
-            : "Assign doctors to increase your town's population cap (+2/doctor) and satisfaction (+0.5%/doctor). Each doctor more than pays for themselves — 5 doctors = +10 population slots."}
-        </div>
-        {clinicBuilt && (
-          <>
-            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.4rem", flexWrap: "wrap" }}>
-              <WorkerAssigner
-                workers={clinicWorkers} freePeople={freePeople}
-                onAdd={() => onAssignTownBuildingWorker("clinic", 1)}
-                onRemove={() => onAssignTownBuildingWorker("clinic", -1)}
-              />
-              <div style={{ fontSize: "0.68rem", color: "var(--muted)" }}>
-                {clinicWorkers > 0 && (
-                  <span>+<strong style={{ color: "#4ade80" }}>{clinicCapBonus.toFixed(1)}</strong> pop cap · +<strong style={{ color: "#60a5fa" }}>{clinicSatBonus.toFixed(1)}%</strong> sat</span>
-                )}
+            {/* Satisfaction bar */}
+            <div style={{ marginBottom: "0.3rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.68rem", color: "var(--muted)", marginBottom: "0.2rem" }}>
+                <span>Satisfaction → worker speed</span>
+                <span style={{ color: satColor }}>{satisfaction}% / {satCeiling}% ceiling</span>
               </div>
+              <SatBar satisfaction={satisfaction} ceiling={satCeiling} />
             </div>
-          </>
-        )}
-        {!clinicBuilt && (
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>${TOWN_CLINIC_COST.toLocaleString()} treasury</div>
-            <button onClick={() => onBuildTownBuilding("clinic")} disabled={!canBuildClinic} className="btn" style={{ opacity: canBuildClinic ? 1 : 0.5 }}>Build Clinic</button>
-          </div>
-        )}
-      </div>
- 
-     {/* 🏫 School */}
-      <div className="card p-4" style={{ marginBottom: "1rem", opacity: clinicBuilt ? 1 : 0.4 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" }}>
-          <div style={{ fontWeight: 600 }}>🏫 School</div>
-          {schoolBuilt && (
-            <span style={{ fontSize: "0.65rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "999px", background: "rgba(74,222,128,0.15)", border: "1px solid #4ade80", color: "#4ade80" }}>
-              Built · {schoolWorkers} researchers
-            </span>
-          )}
-        </div>
-
-        <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.5rem", lineHeight: 1.6 }}>
-          {!clinicBuilt
-            ? "Requires Clinic."
-            : !schoolBuilt
-            ? "Build a School to assign researchers and unlock higher-tier upgrades."
-            : "Assign researchers to speed up growth and complete research projects that unlock advanced systems."}
-        </div>
-
-        {schoolBuilt && (
-          <>
-            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.6rem", flexWrap: "wrap" }}>
-              <WorkerAssigner
-                workers={schoolWorkers}
-                freePeople={freePeople}
-                onAdd={() => onAssignTownBuildingWorker("school", 1)}
-                onRemove={() => onAssignTownBuildingWorker("school", -1)}
-                label="researcher"
-              />
-              <div style={{ fontSize: "0.68rem", color: "var(--muted)" }}>
-                {schoolWorkers > 0 && (
-                  <span>
-                    +<strong style={{ color: "#4ade80" }}>{schoolGrowBonus.toFixed(1)}%</strong> grow ·
-                    research time <strong style={{ color: "#a78bfa" }}>{(schoolResearchMult * 100).toFixed(0)}%</strong> ·
-                    consumes <strong style={{ color: "#c084fc" }}>{schoolWorkers}🔮</strong>/s
-                  </span>
-                )}
-              </div>
-              <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginLeft: "auto" }}>
-                🔮 <strong style={{ color: (game.worldResources?.mana_crystal ?? 0) > 0 ? "#c084fc" : "#ef4444" }}>
-                  {Math.floor(game.worldResources?.mana_crystal ?? 0).toLocaleString()}
-                </strong> crystals
-              </div>
-            </div>
-
-            {activeSchoolResearch ? (
-              <div className="card p-3" style={{ marginBottom: "0.75rem", background: "var(--bg)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem" }}>
-                  <div style={{ fontSize: "0.78rem", fontWeight: 600 }}>
-                    {activeSchoolResearch.emoji} {activeSchoolResearch.name}
-                  </div>
-                  <div style={{ fontSize: "0.68rem", color: "#a78bfa", fontWeight: 700 }}>
-                    {schoolData?.researchProgress ?? 0} / {schoolData?.researchNeeded ?? 0}
-                  </div>
-                </div>
-
-                <ResearchBar
-                  progress={schoolData?.researchProgress ?? 0}
-                  total={schoolData?.researchNeeded ?? 0}
-                />
-
-                <div style={{ fontSize: "0.66rem", color: "var(--muted)", marginTop: "0.35rem" }}>
-                  {schoolWorkers > 0
-                    ? `${schoolWorkers} researcher${schoolWorkers !== 1 ? "s" : ""} working`
-                    : "Assign researchers to make progress"}
-                </div>
-                {schoolWorkers > 0 && (game.worldResources?.mana_crystal ?? 0) < schoolWorkers && (
-                  <div style={{ fontSize: "0.65rem", color: "#f87171", marginTop: "0.25rem", fontWeight: 600 }}>
-                    ⚠️ Not enough 🔮 crystals — research stalled! ({Math.floor(game.worldResources?.mana_crystal ?? 0)} / {schoolWorkers} needed/s)
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div
-                className="card p-3"
-                style={{
-                  marginBottom: "0.75rem",
-                  background: "var(--bg)",
-                  fontSize: "0.72rem",
-                  color: "var(--muted)",
-                }}
-              >
-                No active research selected.
+            {starving && (
+              <div style={{ marginTop: "0.4rem", fontSize: "0.72rem", color: "#ef4444", fontWeight: 600 }}>
+                ⚠️ Town is starving — people are leaving
               </div>
             )}
+          </div>
 
-            <div style={{ fontSize: "0.72rem", fontWeight: 600, marginBottom: "0.4rem" }}>
-              Available Research
+          {/* ── Town Hall ──────────────────────────────────────────────── */}
+          <BuildingCard
+            emoji="🏛️" title="Town Hall"
+            badge={thLevel > 0 ? `Level ${thLevel}` : "Not built"}
+            badgeColor={thLevel > 0 ? "#4ade80" : "#f59e0b"}
+          >
+            <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
+              Gates all buildings and is required to prestige each season.
+              {thLevel >= TOWN_HALL_MAX_LEVEL && " Fully upgraded."}
             </div>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem", marginBottom: "0.75rem" }}>
-              {availableSchoolResearch.length === 0 ? (
-                <div style={{ fontSize: "0.7rem", color: "var(--muted)" }}>
-                  All available research completed.
-                </div>
-              ) : (
-                availableSchoolResearch.map((research) => {
-                  const isSwitching = !!activeSchoolResearch;
-                  const savedProgress = schoolData?.researchProgressMap?.[research.id] ?? 0;
-                  const savedNeeded = Math.max(1, Math.floor(research.seconds * schoolResearchMult));
-                  const hasSaved = savedProgress > 0;
-                  return (
-                    <div
-                      key={research.id}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        gap: "0.75rem",
-                        padding: "0.55rem 0.65rem",
-                        borderRadius: "8px",
-                        background: "var(--bg)",
-                        border: `1px solid ${hasSaved ? "rgba(167,139,250,0.35)" : "var(--border)"}`,
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontSize: "0.74rem", fontWeight: 600 }}>
-                          {research.emoji} {research.name}
-                        </div>
-                        <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.15rem" }}>
-                          {research.description} · base {research.seconds}s
-                        </div>
-                        {hasSaved && (
-                          <div style={{ fontSize: "0.63rem", color: "#a78bfa", marginTop: "0.1rem", fontWeight: 600 }}>
-                            💾 {savedProgress} / {savedNeeded} progress saved
-                          </div>
-                        )}
-                      </div>
-
-                      <button
-                        onClick={() => onStartSchoolResearch(research.id)}
-                        className="btn btn-secondary"
-                        style={{ flexShrink: 0 }}
-                      >
-                        {isSwitching ? "Switch" : "Research"}
-                      </button>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            {unlockedSchoolResearch.length > 0 && (
+            <Row label="Current level" value={thLevel} />
+            <Row label="Unlocks at TH1" value="Kitchen Hall, Market Hall, Tavern" />
+            <Row label="Unlocks at TH2" value="Guild Hall, School" />
+            {thLevel < TOWN_HALL_MAX_LEVEL && (
               <>
-                <div style={{ fontSize: "0.72rem", fontWeight: 600, marginBottom: "0.4rem" }}>
-                  Completed Research
+                <div style={{ marginTop: "0.5rem", paddingTop: "0.4rem", borderTop: "1px solid var(--border)" }}>
+                  <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem" }}>Upgrade to level {thLevel + 1}</div>
+                  <CostLine cash={cash} cashCost={thNextCost}
+                    materials={
+                      thLevel === 1 ? { iron_ore: TOWN_HALL_L2_IRON, lumber: TOWN_HALL_L2_LUMBER }
+                      : thLevel === 2 ? { iron_ore: TOWN_HALL_L3_IRON, lumber: TOWN_HALL_L3_LUMBER, iron_fitting: TOWN_HALL_L3_FITTING }
+                      : thLevel === 3 ? { iron_fitting: TOWN_HALL_L4_FITTING, reinforced_crate: TOWN_HALL_L4_CRATE }
+                      : null
+                    }
+                    have={{ iron_ore: worldRes.iron_ore ?? 0, lumber: worldRes.lumber ?? 0, iron_fitting: have("iron_fitting"), reinforced_crate: have("reinforced_crate") }}
+                  />
                 </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
-                  {unlockedSchoolResearch.map((id) => {
-                    const research = SCHOOL_RESEARCH[id];
-                    if (!research) return null;
-                    return (
-                      <span
-                        key={id}
-                        style={{
-                          fontSize: "0.66rem",
-                          fontWeight: 700,
-                          padding: "0.22rem 0.5rem",
-                          borderRadius: "999px",
-                          background: "rgba(74,222,128,0.12)",
-                          border: "1px solid rgba(74,222,128,0.35)",
-                          color: "#4ade80",
-                        }}
-                      >
-                        ✓ {research.emoji} {research.name}
-                      </span>
-                    );
-                  })}
-                </div>
+                <button onClick={onUpgradeTownHall} disabled={!canUpgradeTH} className="btn w-full"
+                  style={{ marginTop: "0.5rem", opacity: canUpgradeTH ? 1 : 0.5 }}>
+                  Upgrade Town Hall → Level {thLevel + 1}
+                </button>
               </>
             )}
-          </>
-        )}
+          </BuildingCard>
 
-        {!schoolBuilt && (
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
-              ${TOWN_SCHOOL_COST.toLocaleString()} treasury
+          {/* ── Homes ──────────────────────────────────────────────────── */}
+          <BuildingCard emoji="🏠" title="Homes"
+            badge={`${town.homes ?? 0} built · ${people}/${capacity} people`}
+            badgeColor="#60a5fa"
+          >
+            <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
+              Each home adds {TOWN_HOME_CAPACITY} population capacity. Workers and adventurers
+              require population slots. Clinic caps how many can actually move in.
             </div>
-            <button
-              onClick={() => onBuildTownBuilding("school")}
-              disabled={!canBuildSchool}
-              className="btn"
-              style={{ opacity: canBuildSchool ? 1 : 0.5 }}
-            >
-              Build School
+            <Row label="Homes built" value={town.homes ?? 0} />
+            <Row label="Capacity" value={`${people} / ${capacity}`} sub="(clinic-capped)" />
+            <Row label="Next home cost" value={`$${fmt(homeCost)}`} />
+            <button onClick={onBuildHome} disabled={!canBuyHome} className="btn w-full"
+              style={{ marginTop: "0.5rem", opacity: canBuyHome ? 1 : 0.5 }}>
+              Build Home — ${fmt(homeCost)}
             </button>
-          </div>
-        )}
-      </div>
- 
-      {/* 🍽️ Restaurant */}
-      <div className="card p-4" style={{ marginBottom: "1rem", opacity: schoolBuilt ? 1 : 0.4 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" }}>
-          <div style={{ fontWeight: 600 }}>🍽️ Restaurant</div>
-          {restaurantBuilt && (
-            <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
-              {restaurantWorkers > 0 && (
-                <span style={{ fontSize: "0.62rem", color: restaurantStocked ? "#4ade80" : "#f59e0b" }}>
-                  {restaurantStocked ? "✓ stocked" : "⚠ needs omelette+cheese"}
-                </span>
-              )}
-              <span style={{ fontSize: "0.65rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "999px", background: "rgba(74,222,128,0.15)", border: "1px solid #4ade80", color: "#4ade80" }}>
-                Built · {restaurantWorkers} chefs
-              </span>
-            </div>
-          )}
-        </div>
-        <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.5rem", lineHeight: 1.6 }}>
-          {!schoolBuilt
-            ? "Requires School."
-            : !bakeryLevel
-            ? "Requires Bakery."
-            : `Chefs boost satisfaction (+${RESTAURANT_SAT_PER_CHEF}%/chef) — can push sat above the food ceiling. Consumes omelettes + cheese each pulse.`}
-        </div>
-        {restaurantBuilt && (
-          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
-            <WorkerAssigner
-              workers={restaurantWorkers} freePeople={freePeople}
-              onAdd={() => onAssignTownBuildingWorker("restaurant", 1)}
-              onRemove={() => onAssignTownBuildingWorker("restaurant", -1)}
-            />
-            {restaurantWorkers > 0 && (
-              <div style={{ fontSize: "0.68rem", color: "var(--muted)" }}>
-                +<strong style={{ color: "#60a5fa" }}>{restaurantSatBonus.toFixed(1)}%</strong> sat ·{" "}
-                <strong>{restaurantOmeletteCost}</strong>🍳 + <strong>{restaurantCheeseCost}</strong>🧀/pulse
-                {" · "}have: {Math.floor(game.animalGoods?.omelette ?? 0)}🍳 {Math.floor(game.animalGoods?.cheese ?? 0)}🧀
-              </div>
-            )}
-          </div>
-        )}
-        {!restaurantBuilt && (
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>${TOWN_RESTAURANT_COST.toLocaleString()} treasury</div>
-            <button onClick={() => onBuildTownBuilding("restaurant")} disabled={!canBuildRestaurant} className="btn" style={{ opacity: canBuildRestaurant ? 1 : 0.5 }}>Build Restaurant</button>
-          </div>
-        )}
-      </div>
- 
-      {/* 👗 Clothier */}
-      <div className="card p-4" style={{ marginBottom: "1rem", opacity: schoolBuilt ? 1 : 0.4 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.3rem" }}>
-          <div style={{ fontWeight: 600 }}>👗 Clothier</div>
-          {clothierBuilt && (
-            <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
-              {clothierWorkers > 0 && (
-                <span style={{ fontSize: "0.62rem", color: clothierStocked ? "#4ade80" : "#f59e0b" }}>
-                  {clothierStocked ? "✓ selling" : "⚠ no wool goods"}
-                </span>
-              )}
-              <span style={{ fontSize: "0.65rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "999px", background: "rgba(74,222,128,0.15)", border: "1px solid #4ade80", color: "#4ade80" }}>
-                Built · {clothierWorkers} clerks
-              </span>
-            </div>
-          )}
-        </div>
-        <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.5rem", lineHeight: 1.6 }}>
-          {!schoolBuilt
-            ? "Requires School."
-            : !woolShedBuilt
-            ? "Requires Wool Shed."
-            : `Clerks sell knitted goods directly to town for a price premium ($${CLOTHIER_CASH_PER_CLERK}/clerk/pulse). Consumes knitted goods each pulse.`}
-        </div>
-        {clothierBuilt && (
-          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
-            <WorkerAssigner
-              workers={clothierWorkers} freePeople={freePeople}
-              onAdd={() => onAssignTownBuildingWorker("clothier", 1)}
-              onRemove={() => onAssignTownBuildingWorker("clothier", -1)}
-            />
-            {clothierWorkers > 0 && (
-              <div style={{ fontSize: "0.68rem", color: "var(--muted)" }}>
-                +<strong style={{ color: "#4ade80" }}>${clothierCash}</strong>/pulse ·{" "}
-                <strong>{clothierCost}</strong>🧥/pulse · have: {Math.floor(game.animalGoods?.knitted_goods ?? 0)}
-              </div>
-            )}
-          </div>
-        )}
-        {!clothierBuilt && (
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>${TOWN_CLOTHIER_COST.toLocaleString()} treasury</div>
-            <button onClick={() => onBuildTownBuilding("clothier")} disabled={!canBuildClothier} className="btn" style={{ opacity: canBuildClothier ? 1 : 0.5 }}>Build Clothier</button>
-          </div>
-        )}
-      </div>
- 
-      </CollapsibleCard>
+          </BuildingCard>
 
-      <CollapsibleCard
-        title="📘 How Town Works"
-        subtitle="Quick reference"
-        defaultOpen={false}
-      >
-      {/* How it works */}
-      <div className="card p-4" style={{ marginBottom: 0 }}>
-        <div style={{ fontWeight: 600, marginBottom: "0.3rem" }}>📘 How Town Works</div>
-        <div style={{ fontSize: "0.72rem", color: "var(--muted)", lineHeight: 1.8 }}>
-          <div>• <strong style={{ color: "var(--text)" }}>Treasury</strong> fills from your cash at your chosen drain rate. All town buildings are paid from it. Carries over on prestige.</div>
-          <div>• <strong style={{ color: "var(--text)" }}>Town Hall</strong> is built with cash and unlocks the treasury system. Each level gates more buildings and higher treasury drain tiers.</div>
-          <div>• <strong style={{ color: "var(--text)" }}>Treasury drain</strong> gives a grow speed bonus while active. Higher tiers cost more but give a bigger boost.</div>
-          <div>• <strong style={{ color: "var(--text)" }}>Bank</strong> drains treasury to boost sell prices. Bigger tier = higher cost + bigger bonus.</div>
-          <div>• Every {TOWN_PULSE_SECONDS}s base: food costs are unified units. Idle people cost {PERSON_IDLE_FOOD_COST}/pulse, workers cost {PERSON_WORKING_FOOD_COST}/pulse, chickens {ANIMAL_FOOD_COSTS.chicken}, cows {ANIMAL_FOOD_COSTS.cow}, sheep {ANIMAL_FOOD_COSTS.sheep}. Wheat mode: 1 unit = 1 🌾. Bread mode: 1 🍞 = {BREAD_FOOD_UNITS} units.</div>
-          <div>• Toggling Bakery/Pantry/Cannery adds +{BUILDING_PULSE_EXTRA_SECONDS}s to pulse and costs food per pulse. Upgrades reduce cost.</div>
-          <div>• <strong style={{ color: "var(--text)" }}>Satisfaction</strong> multiplies all worker speed. Floor 25%, ceiling 150%.</div>
+          {/* ── Clinic ─────────────────────────────────────────────────── */}
+          <BuildingCard emoji="🏥" title="Clinic"
+            badge={clinicBuilt ? `${clinicWorkers} medics` : "Not built"}
+            badgeColor={clinicBuilt ? "#4ade80" : "#f59e0b"}
+          >
+            <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
+              Hard-caps how many people can live here. Without the clinic nobody moves in past {CLINIC_BASE_CAP}.
+              Each medic raises the cap by +{CLINIC_CAP_PER_MEDIC}.
+            </div>
+            <Row label="Current pop cap" value={capacity} />
+            <Row label="Base cap (no medics)" value={CLINIC_BASE_CAP} />
+            <Row label="Cap per medic" value={`+${CLINIC_CAP_PER_MEDIC}`} />
+            {clinicBuilt ? (
+              <>
+                <Row label="Medics assigned" value={clinicWorkers} />
+                <WorkerAssigner
+                  workers={clinicWorkers} maxWorkers={8} freePeople={freePeople}
+                  onAdd={() => onAssignTownBuildingWorker("clinic", 1)}
+                  onRemove={() => onAssignTownBuildingWorker("clinic", -1)}
+                />
+              </>
+            ) : (
+              <>
+                <CostLine cash={cash} cashCost={TOWN_CLINIC_COST} />
+                <button onClick={() => onBuildTownBuilding("clinic")} disabled={cash < TOWN_CLINIC_COST} className="btn w-full"
+                  style={{ marginTop: "0.5rem", opacity: cash >= TOWN_CLINIC_COST ? 1 : 0.5 }}>
+                  Build Clinic — ${fmt(TOWN_CLINIC_COST)}
+                </button>
+              </>
+            )}
+          </BuildingCard>
+
+          {/* ── Food Hall ──────────────────────────────────────────────── */}
+          <BuildingCard emoji="🍽️" title="Food Hall"
+            badge={foodHallBuilt ? `Tier ${foodHallTier} · ${foodModeLabel} mode` : "Not built"}
+            badgeColor={foodHallBuilt ? "#4ade80" : "#f59e0b"}
+          >
+            <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
+              Sets how well the town is fed and the satisfaction ceiling. Upgrading tiers
+              switches food mode and raises the ceiling — workers move faster.
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.4rem", marginBottom: "0.6rem" }}>
+              {FOOD_HALL_FOOD_MODE.map((mode, tier) => {
+                const emoji = { wheat: "🌾", bread: "🍞", jam: "🍯", sauce: "🥫" }[mode];
+                const active = foodHallTier === tier;
+                const unlocked = foodHallTier >= tier;
+                return (
+                  <div key={tier} style={{
+                    textAlign: "center", padding: "0.4rem 0.2rem", borderRadius: 8,
+                    border: `1px solid ${active ? "#4ade80" : "var(--border)"}`,
+                    background: active ? "rgba(74,222,128,0.1)" : unlocked ? "var(--bg)" : "transparent",
+                    opacity: unlocked ? 1 : 0.4,
+                  }}>
+                    <div style={{ fontSize: "1rem" }}>{emoji}</div>
+                    <div style={{ fontSize: "0.6rem", fontWeight: 700, color: "var(--text)" }}>{mode}</div>
+                    <div style={{ fontSize: "0.58rem", color: "#4ade80" }}>{FOOD_HALL_SAT_CEILING[tier]}% ceil</div>
+                  </div>
+                );
+              })}
+            </div>
+            {!foodHallBuilt ? (
+              <>
+                <CostLine cash={cash} cashCost={TOWN_FOOD_HALL_COST} />
+                <button onClick={onBuildFoodHall} disabled={cash < TOWN_FOOD_HALL_COST} className="btn w-full"
+                  style={{ marginTop: "0.5rem", opacity: cash >= TOWN_FOOD_HALL_COST ? 1 : 0.5 }}>
+                  Build Food Hall — ${fmt(TOWN_FOOD_HALL_COST)}
+                </button>
+              </>
+            ) : foodHallTier < 3 ? (
+              <>
+                <div style={{ marginTop: "0.4rem", paddingTop: "0.4rem", borderTop: "1px solid var(--border)" }}>
+                  <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
+                    Upgrade to Tier {foodHallTier + 1} — {FOOD_HALL_FOOD_MODE[foodHallTier + 1]} mode ({FOOD_HALL_SAT_CEILING[foodHallTier + 1]}% ceiling)
+                  </div>
+                  <CostLine
+                    cash={cash}
+                    cashCost={foodHallTier === 1 ? TOWN_FOOD_HALL_TIER2_COST : TOWN_FOOD_HALL_TIER3_COST}
+                    materials={foodHallTier === 1 ? TOWN_FOOD_HALL_TIER2_REQUIRES : TOWN_FOOD_HALL_TIER3_REQUIRES}
+                    have={{ iron_ore: worldRes.iron_ore ?? 0, lumber: worldRes.lumber ?? 0, iron_fitting: have("iron_fitting") }}
+                  />
+                </div>
+                <button onClick={onUpgradeFoodHall} className="btn w-full" style={{ marginTop: "0.5rem" }}>
+                  Upgrade Food Hall → Tier {foodHallTier + 1}
+                </button>
+              </>
+            ) : (
+              <div style={{ fontSize: "0.72rem", color: "#4ade80", marginTop: "0.4rem" }}>✓ Fully upgraded — sauce mode active</div>
+            )}
+          </BuildingCard>
+
+          {/* ── Warehouse ──────────────────────────────────────────────── */}
+          <BuildingCard emoji="🏗️" title="Warehouse"
+            badge={warehouseBuilt ? `Tier ${warehouseTier + 1} · ${warehouseWorkers} workers` : "Not built"}
+            badgeColor={warehouseBuilt ? "#4ade80" : "#f59e0b"}
+          >
+            <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
+              Caps crop storage for wheat, berries, and tomatoes. Overflow is lost — expand
+              the warehouse to keep producing. Workers increase capacity per tier.
+            </div>
+            {warehouseBuilt ? (
+              <>
+                <Row label="Tier" value={`${warehouseTier + 1} — ${WAREHOUSE_TIER_NAMES[warehouseTier]}`} />
+                <Row label="Base cap" value={fmt(WAREHOUSE_BASE_CAP[warehouseTier])} sub="per crop" />
+                <Row label="Per worker" value={`+${fmt(WAREHOUSE_CAP_PER_WORKER[warehouseTier])}`} />
+                <Row label="Current cap" value={fmt(getWarehouseCropCap(game))} sub="per crop" valueColor="#4ade80" />
+                <div style={{ marginTop: "0.5rem" }}>
+                  <WorkerAssigner
+                    workers={warehouseWorkers}
+                    maxWorkers={WAREHOUSE_MAX_WORKERS[warehouseTier]}
+                    freePeople={freePeople}
+                    onAdd={() => onAssignTownBuildingWorker("warehouse", 1)}
+                    onRemove={() => onAssignTownBuildingWorker("warehouse", -1)}
+                  />
+                </div>
+                {warehouseTier < 2 && (
+                  <>
+                    <div style={{ marginTop: "0.5rem", paddingTop: "0.4rem", borderTop: "1px solid var(--border)" }}>
+                      <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
+                        Upgrade to {WAREHOUSE_TIER_NAMES[warehouseTier + 1]}
+                      </div>
+                      <CostLine
+                        cash={cash}
+                        cashCost={WAREHOUSE_TIER_UPGRADE_COSTS[warehouseTier]}
+                        materials={WAREHOUSE_TIER_UPGRADE_REQUIRES[warehouseTier]}
+                        have={{ iron_ore: worldRes.iron_ore ?? 0, lumber: worldRes.lumber ?? 0, iron_fitting: have("iron_fitting") }}
+                      />
+                    </div>
+                    <button onClick={onUpgradeWarehouse} className="btn w-full" style={{ marginTop: "0.5rem" }}>
+                      Upgrade Warehouse
+                    </button>
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                <CostLine cash={cash} cashCost={TOWN_WAREHOUSE_COST} />
+                <button onClick={onBuildWarehouse} disabled={cash < TOWN_WAREHOUSE_COST} className="btn w-full"
+                  style={{ marginTop: "0.5rem", opacity: cash >= TOWN_WAREHOUSE_COST ? 1 : 0.5 }}>
+                  Build Warehouse — ${fmt(TOWN_WAREHOUSE_COST)}
+                </button>
+              </>
+            )}
+          </BuildingCard>
+
+          {/* ── Kitchen Hall ───────────────────────────────────────────── */}
+          <BuildingCard emoji="🍳" title="Kitchen Hall"
+            badge={kitchenHallBuilt ? `Level ${kitchenHallLevel}` : "Not built"}
+            badgeColor={kitchenHallBuilt ? "#4ade80" : "#f59e0b"}
+            locked={!th1} lockedMsg="Requires Town Hall level 1"
+          >
+            <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
+              Gates how many kitchen workers you can hire and unlocks batch upgrades.
+              Higher levels also retain workers across season prestige.
+            </div>
+            {kitchenHallBuilt ? (
+              <>
+                <Row label="Max kitchen workers" value={KITCHEN_HALL_MAX_WORKERS[kitchenHallLevel - 1]} />
+                <Row label="Auto-retain on prestige" value={`${KITCHEN_HALL_RETAIN_COUNT[kitchenHallLevel - 1]} workers`} />
+                {kitchenHallLevel < 3 && (
+                  <>
+                    <div style={{ marginTop: "0.5rem", paddingTop: "0.4rem", borderTop: "1px solid var(--border)" }}>
+                      <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
+                        Upgrade to Level {kitchenHallLevel + 1} — {KITCHEN_HALL_MAX_WORKERS[kitchenHallLevel]} workers max
+                      </div>
+                      <CostLine
+                        cash={cash}
+                        cashCost={KITCHEN_HALL_LEVEL_COSTS[kitchenHallLevel - 1]}
+                        materials={KITCHEN_HALL_LEVEL_REQUIRES[kitchenHallLevel - 1]}
+                        have={{ iron_ore: worldRes.iron_ore ?? 0, lumber: worldRes.lumber ?? 0, iron_fitting: have("iron_fitting") }}
+                      />
+                    </div>
+                    <button onClick={onUpgradeKitchenHall} className="btn w-full" style={{ marginTop: "0.5rem" }}>
+                      Upgrade Kitchen Hall
+                    </button>
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                <CostLine cash={cash} cashCost={TOWN_KITCHEN_HALL_COST} />
+                <button onClick={onBuildKitchenHall} disabled={cash < TOWN_KITCHEN_HALL_COST} className="btn w-full"
+                  style={{ marginTop: "0.5rem", opacity: cash >= TOWN_KITCHEN_HALL_COST ? 1 : 0.5 }}>
+                  Build Kitchen Hall — ${fmt(TOWN_KITCHEN_HALL_COST)}
+                </button>
+              </>
+            )}
+          </BuildingCard>
+
+          {/* ── Market Hall ────────────────────────────────────────────── */}
+          <BuildingCard emoji="🛒" title="Market Hall"
+            badge={marketHallBuilt ? `Level ${marketHallLevel}` : "Not built"}
+            badgeColor={marketHallBuilt ? "#4ade80" : "#f59e0b"}
+            locked={!th1} lockedMsg="Requires Town Hall level 1"
+          >
+            <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
+              Gates market worker count and unlocks sell price bonuses.
+              Level 2 gives +10% sell prices. Level 3 gives +25%. Also retains workers across prestige.
+            </div>
+            {marketHallBuilt ? (
+              <>
+                <Row label="Max market workers" value={MARKET_HALL_MAX_WORKERS[marketHallLevel - 1]} />
+                <Row label="Sell price bonus" value={`+${MARKET_HALL_PRICE_BONUS[marketHallLevel - 1]}%`} valueColor="#4ade80" />
+                <Row label="Auto-retain on prestige" value={`${MARKET_HALL_RETAIN_COUNT[marketHallLevel - 1]} workers`} />
+                {marketHallLevel < 3 && (
+                  <>
+                    <div style={{ marginTop: "0.5rem", paddingTop: "0.4rem", borderTop: "1px solid var(--border)" }}>
+                      <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
+                        Upgrade to Level {marketHallLevel + 1} — +{MARKET_HALL_PRICE_BONUS[marketHallLevel]}% sell prices
+                      </div>
+                      <CostLine
+                        cash={cash}
+                        cashCost={MARKET_HALL_LEVEL_COSTS[marketHallLevel - 1]}
+                        materials={MARKET_HALL_LEVEL_REQUIRES[marketHallLevel - 1]}
+                        have={{ iron_ore: worldRes.iron_ore ?? 0, lumber: worldRes.lumber ?? 0, iron_fitting: have("iron_fitting") }}
+                      />
+                    </div>
+                    <button onClick={onUpgradeMarketHall} className="btn w-full" style={{ marginTop: "0.5rem" }}>
+                      Upgrade Market Hall
+                    </button>
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                <CostLine cash={cash} cashCost={TOWN_MARKET_HALL_COST} />
+                <button onClick={onBuildMarketHall} disabled={cash < TOWN_MARKET_HALL_COST} className="btn w-full"
+                  style={{ marginTop: "0.5rem", opacity: cash >= TOWN_MARKET_HALL_COST ? 1 : 0.5 }}>
+                  Build Market Hall — ${fmt(TOWN_MARKET_HALL_COST)}
+                </button>
+              </>
+            )}
+          </BuildingCard>
+
+          {/* ── Guild Hall ─────────────────────────────────────────────── */}
+          <BuildingCard emoji="⚔️" title="Guild Hall"
+            badge={guildHallBuilt ? `Level ${guildHallLevel}` : "Not built"}
+            badgeColor={guildHallBuilt ? "#4ade80" : "#f59e0b"}
+            locked={!th2} lockedMsg="Requires Town Hall level 2"
+          >
+            <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
+              Unlocks quest tiers and additional hero slots. Without the Guild Hall only
+              beginner zones and your starter hero are available.
+            </div>
+            {guildHallBuilt ? (
+              <>
+                <Row label="Max heroes" value={GUILD_HALL_MAX_HEROES[guildHallLevel]} />
+                <Row label="Quest tier unlocked" value={`Tier ${GUILD_HALL_QUEST_TIER[guildHallLevel]}`} />
+                {guildHallLevel < 3 && (
+                  <>
+                    <div style={{ marginTop: "0.5rem", paddingTop: "0.4rem", borderTop: "1px solid var(--border)" }}>
+                      <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
+                        Upgrade to Level {guildHallLevel + 1} — {GUILD_HALL_MAX_HEROES[guildHallLevel + 1]} heroes, Quest Tier {GUILD_HALL_QUEST_TIER[guildHallLevel + 1]}
+                      </div>
+                      <CostLine
+                        cash={cash}
+                        cashCost={GUILD_HALL_LEVEL_COSTS[guildHallLevel - 1]}
+                        materials={GUILD_HALL_LEVEL_REQUIRES[guildHallLevel - 1]}
+                        have={{ iron_ore: worldRes.iron_ore ?? 0, lumber: worldRes.lumber ?? 0, iron_fitting: have("iron_fitting"), reinforced_crate: have("reinforced_crate") }}
+                      />
+                    </div>
+                    <button onClick={onUpgradeGuildHall} className="btn w-full" style={{ marginTop: "0.5rem" }}>
+                      Upgrade Guild Hall
+                    </button>
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
+                  Level 1 unlocks 2 heroes and Tier 2 quests
+                </div>
+                <CostLine cash={cash} cashCost={TOWN_GUILD_HALL_COST}
+                  materials={GUILD_HALL_LEVEL_REQUIRES[0]}
+                  have={{ iron_ore: worldRes.iron_ore ?? 0, lumber: worldRes.lumber ?? 0 }}
+                />
+                <button onClick={onBuildGuildHall}
+                  disabled={cash < TOWN_GUILD_HALL_COST}
+                  className="btn w-full"
+                  style={{ marginTop: "0.5rem", opacity: cash >= TOWN_GUILD_HALL_COST ? 1 : 0.5 }}>
+                  Build Guild Hall — ${fmt(TOWN_GUILD_HALL_COST)}
+                </button>
+              </>
+            )}
+          </BuildingCard>
+
+          {/* ── Tavern ─────────────────────────────────────────────────── */}
+          <BuildingCard emoji="🍺" title="Tavern"
+            badge={tavernBuilt ? `Level ${tavernLevel} · ${TAVERN_LEVEL_REGEN[tavernLevel - 1]} HP/s regen` : "Not built"}
+            badgeColor={tavernBuilt ? "#4ade80" : "#f59e0b"}
+            locked={!th1} lockedMsg="Requires Town Hall level 1"
+          >
+            <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
+              Idle heroes auto-rest here and regen HP each town pulse. Higher levels regen faster.
+            </div>
+            {tavernBuilt ? (
+              <>
+                <Row label="Regen rate" value={`${TAVERN_LEVEL_REGEN[tavernLevel - 1]} HP/s`} valueColor="#4ade80" />
+                <Row label="HP per pulse" value={`+${(TAVERN_LEVEL_REGEN[tavernLevel - 1] * TOWN_PULSE_SECONDS).toFixed(0)}`} />
+                {tavernLevel < 4 && (() => {
+                  const nextCost = TAVERN_LEVEL_COSTS[tavernLevel];
+                  const nextIron = TAVERN_LEVEL_IRON[tavernLevel];
+                  const nextLumber = TAVERN_LEVEL_LUMBER[tavernLevel];
+                  return (
+                    <>
+                      <div style={{ marginTop: "0.5rem", paddingTop: "0.4rem", borderTop: "1px solid var(--border)" }}>
+                        <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
+                          Upgrade to Level {tavernLevel + 1} — {TAVERN_LEVEL_REGEN[tavernLevel]} HP/s
+                        </div>
+                        <CostLine
+                          cash={cash} cashCost={nextCost}
+                          materials={nextIron || nextLumber ? {
+                            ...(nextIron ? { iron_ore: nextIron } : {}),
+                            ...(nextLumber ? { lumber: nextLumber } : {}),
+                          } : null}
+                          have={{ iron_ore: worldRes.iron_ore ?? 0, lumber: worldRes.lumber ?? 0 }}
+                        />
+                      </div>
+                      <button onClick={onUpgradeTavern} disabled={cash < nextCost} className="btn w-full"
+                        style={{ marginTop: "0.5rem", opacity: cash >= nextCost ? 1 : 0.5 }}>
+                        Upgrade Tavern
+                      </button>
+                    </>
+                  );
+                })()}
+              </>
+            ) : (
+              <>
+                <CostLine cash={cash} cashCost={TAVERN_LEVEL_COSTS[0]}
+                  materials={{ iron_ore: TAVERN_LEVEL_IRON[0], lumber: TAVERN_LEVEL_LUMBER[0] }}
+                  have={{ iron_ore: worldRes.iron_ore ?? 0, lumber: worldRes.lumber ?? 0 }}
+                />
+                <button onClick={onUpgradeTavern}
+                  disabled={cash < TAVERN_LEVEL_COSTS[0] || (worldRes.iron_ore ?? 0) < TAVERN_LEVEL_IRON[0]}
+                  className="btn w-full"
+                  style={{ marginTop: "0.5rem", opacity: cash >= TAVERN_LEVEL_COSTS[0] ? 1 : 0.5 }}>
+                  Build Tavern — ${fmt(TAVERN_LEVEL_COSTS[0])}
+                </button>
+              </>
+            )}
+          </BuildingCard>
+
+          {/* ── School ─────────────────────────────────────────────────── */}
+          <BuildingCard emoji="📚" title="School"
+            badge={schoolBuilt ? `${schoolWorkers} researchers` : "Not built"}
+            badgeColor={schoolBuilt ? "#4ade80" : "#f59e0b"}
+            locked={!th2} lockedMsg="Requires Town Hall level 2"
+          >
+            <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
+              Researchers unlock gated upgrades across all systems. Research costs mana crystals
+              — the same ones you'd sell for cash, so it's a real trade-off.
+            </div>
+            {schoolBuilt ? (
+              <>
+                <Row label="Researchers" value={schoolWorkers} />
+                <Row label="Grow speed bonus" value={`+${getSchoolGrowBonus(game).toFixed(1)}%`} valueColor="#4ade80" />
+                <WorkerAssigner
+                  workers={schoolWorkers} maxWorkers={8} freePeople={freePeople}
+                  onAdd={() => onAssignTownBuildingWorker("school", 1)}
+                  onRemove={() => onAssignTownBuildingWorker("school", -1)}
+                />
+                {/* Active research */}
+                {activeResearch ? (
+                  <div style={{ marginTop: "0.6rem", padding: "0.5rem", background: "var(--bg)", borderRadius: 8, fontSize: "0.75rem" }}>
+                    <div style={{ fontWeight: 600 }}>🔬 {activeResearch.name}</div>
+                    <div style={{ color: "var(--muted)", marginTop: "0.2rem" }}>
+                      {Math.floor(schoolData?.researchProgress ?? 0)}s / {schoolData?.researchNeeded ?? "?"}s
+                    </div>
+                  </div>
+                ) : availableResearch.length > 0 ? (
+                  <div style={{ marginTop: "0.6rem" }}>
+                    <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.4rem" }}>Available research:</div>
+                    {availableResearch.map((r) => (
+                      <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.3rem" }}>
+                        <span style={{ fontSize: "0.75rem" }}>{r.emoji} {r.name}</span>
+                        <button onClick={() => onStartSchoolResearch(r.id)} className="btn"
+                          style={{ fontSize: "0.65rem", padding: "0.2rem 0.5rem" }}>
+                          Start
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ marginTop: "0.5rem", fontSize: "0.72rem", color: "#4ade80" }}>✓ All research complete</div>
+                )}
+                {/* Unlocked research */}
+                {unlockedResearch.length > 0 && (
+                  <div style={{ marginTop: "0.6rem", paddingTop: "0.4rem", borderTop: "1px solid var(--border)" }}>
+                    <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginBottom: "0.3rem" }}>Completed:</div>
+                    {unlockedResearch.map((id) => {
+                      const r = SCHOOL_RESEARCH[id];
+                      return r ? (
+                        <div key={id} style={{ fontSize: "0.68rem", color: "#4ade80", marginBottom: "0.15rem" }}>
+                          ✓ {r.emoji} {r.name}
+                        </div>
+                      ) : null;
+                    })}
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <CostLine cash={cash} cashCost={TOWN_SCHOOL_COST} />
+                <button onClick={() => onBuildTownBuilding("school")} disabled={cash < TOWN_SCHOOL_COST} className="btn w-full"
+                  style={{ marginTop: "0.5rem", opacity: cash >= TOWN_SCHOOL_COST ? 1 : 0.5 }}>
+                  Build School — ${fmt(TOWN_SCHOOL_COST)}
+                </button>
+              </>
+            )}
+          </BuildingCard>
+
+          {/* ── How Town Works reference ────────────────────────────────── */}
+          <details style={{ marginTop: "0.5rem" }}>
+            <summary style={{ fontSize: "0.72rem", color: "var(--muted)", cursor: "pointer", padding: "0.4rem 0" }}>
+              📘 How Town Works
+            </summary>
+            <div className="card p-3" style={{ marginTop: "0.4rem", fontSize: "0.7rem", color: "var(--muted)", lineHeight: 1.8 }}>
+              <div>• <strong style={{ color: "var(--text)" }}>Satisfaction</strong> multiplies all worker speed. Floor 25%. Ceiling set by Food Hall tier.</div>
+              <div>• <strong style={{ color: "var(--text)" }}>Clinic</strong> hard-caps how many people can move in — expand it or population stops growing.</div>
+              <div>• <strong style={{ color: "var(--text)" }}>Warehouse</strong> caps crop storage. Overflow is lost — workers increase the cap.</div>
+              <div>• <strong style={{ color: "var(--text)" }}>Kitchen/Market Halls</strong> gate worker counts. Upgrade to hire more.</div>
+              <div>• <strong style={{ color: "var(--text)" }}>Guild Hall</strong> gates hero count and quest tiers.</div>
+              <div>• <strong style={{ color: "var(--text)" }}>Tavern</strong> auto-regens idle heroes. No manual feeding needed when they're resting.</div>
+              <div>• <strong style={{ color: "var(--text)" }}>School</strong> unlocks upgrades using mana crystals instead of cash.</div>
+              <div>• Idle people cost {PERSON_IDLE_FOOD_COST} food/pulse. Workers cost {PERSON_WORKING_FOOD_COST} food/pulse.</div>
+              <div>• 1 bread = {BREAD_FOOD_UNITS} food units. Jam = 2× bread efficiency. Sauce = 4× bread efficiency.</div>
+            </div>
+          </details>
+
         </div>
-      </div>
-      </CollapsibleCard>
-      </div>
       )}
     </div>
   );

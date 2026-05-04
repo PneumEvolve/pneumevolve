@@ -350,99 +350,185 @@ export function getFarmUnlockCost(extraFarmIndex) {
 export const EXTRA_FARM_CROPS = ["wheat", "berries", "tomatoes"];
  
 // ─── Town ─────────────────────────────────────────────────────────────────────
-export const TOWN_STARTING_PEOPLE = 1;
-export const TOWN_HOME_CAPACITY = 4;
-export const TOWN_HOME_SECOND_COST = 50;
+
+// ── Population & Homes ────────────────────────────────────────────────────────
+export const TOWN_STARTING_PEOPLE      = 1;
+export const TOWN_HOME_CAPACITY        = 4;   // people per home
+export const TOWN_HOME_SECOND_COST     = 50;
 export const TOWN_HOME_COST_MULTIPLIER = 1.6;
-export const TOWN_BAKERY_BASE_COST = 800;
-export const TOWN_BAKERY_COST_MULTIPLIER = 1.5;
-export const TOWN_JAM_BUILDING_COST = 2_000;
-export const TOWN_SAUCE_BUILDING_COST = 4_000;
- 
-// ─── Town Hall ────────────────────────────────────────────────────────────────
-export const TOWN_HALL_MAX_LEVEL = 4;
-export const TOWN_HALL_LEVEL_COSTS = [100, 1500, 4000, 15000]; // cash cost per level
-export const TOWN_HALL_L1_IRON = 0;   // iron ore required to build level 1 (removed - moved to tavern)
-export const TOWN_HALL_L1_LUMBER = 0; // lumber required to build level 1 (removed - moved to tavern)
-// Material requirements for Town Hall levels 2–4
-export const TOWN_HALL_L2_IRON = 20;   // iron ore for level 2
-export const TOWN_HALL_L2_LUMBER = 20; // lumber for level 2
-export const TOWN_HALL_L3_IRON = 15;   // iron ore for level 3
-export const TOWN_HALL_L3_LUMBER = 15; // lumber for level 3
-export const TOWN_HALL_L3_FITTING = 3; // iron fittings for level 3
-export const TOWN_HALL_L4_FITTING = 5; // iron fittings for level 4
-export const TOWN_HALL_L4_CRATE = 3;   // reinforced crates for level 4
-export const POND_IRON = 10;          // iron ore required to build pond
-export const POND_LUMBER = 5;         // lumber required to build pond
-export const FORGE_BUILD_COST = 50;  // cash required to build forge
-export const FORGE_IRON = 10;         // iron ore required to build forge
-export const FORGE_LUMBER = 5;        // lumber required to build forge
- 
-// Treasury drain tiers — player picks which tier is active
-// Each tier drains cash→treasury at drainRate/sec and gives grow speed bonus
-export const TREASURY_TIERS = [
-  { tier: 1, drainRate: 4,  growBonus: 10, label: "Slow"   },
-  { tier: 2, drainRate: 15, growBonus: 20, label: "Steady" },
-  { tier: 3, drainRate: 35, growBonus: 35, label: "Fast"   },
-];
-// Max drain tier available = min(Town Hall level, 3)
-// Town Hall 4 unlocks Invest Now (lump sum), not a new drain tier
-
-// ─── Invest Now ───────────────────────────────────────────────────────────────
-export const INVEST_NOW_PCT = 0.10;        // fraction of cash transferred instantly
-export const INVEST_NOW_CD_SECONDS = 30;   // cooldown between uses
-// e.g. Town Hall 1 → can only use tier 1; Town Hall 3 → can use tiers 1/2/3
- 
-// ─── Bank ─────────────────────────────────────────────────────────────────────
-// Gated: Town Hall level 3 + all food buildings (bakery, pantry, cannery)
-// Levels upgrade the bank; each level unlocks the next drain tier
-// All costs paid from treasury
-export const BANK_BUILD_COST = 15_000;
-export const BANK_LEVEL_COSTS = [4_000, 10_000, 25_000];
-// Bank drain rates are intentionally capped at or below the matching treasury tier's
-// fill rate so the bank can never drain treasury faster than cash can replenish it.
-// Treasury tiers fill at 2 / 5 / 10 per second — bank tiers drain at 1 / 4 / 9.
-export const BANK_TIERS = [
-  { tier: 1, drainRate: 1,  priceBonus: 10, label: "Branch"  },
-  { tier: 2, drainRate: 4,  priceBonus: 20, label: "Regional"},
-  { tier: 3, drainRate: 9,  priceBonus: 35, label: "Central" },
-];
-export const BANK_MAX_LEVEL = 3;
- 
-// ─── Building pulse costs ─────────────────────────────────────────────────────
-export const BUILDING_WORKERS_DIVISOR = 6;
-export const BUILDING_PULSE_EXTRA_SECONDS = 10;
-export const BUILDING_UPGRADE_COST = 1000; // treasury cost
- 
-// ─── Pulse system ─────────────────────────────────────────────────────────────
-export const TOWN_PULSE_SECONDS = 45;
-
-
-
-export const TOWN_GROWTH_PER_PULSE = 1;
-export const TOWN_DECLINE_PER_PULSE = 1;
 export const TOWN_HOME_INSTANT_POPULATION = 1;
+export const TOWN_GROWTH_PER_PULSE     = 1;
+export const TOWN_DECLINE_PER_PULSE    = 1;
 
-export const ANIMAL_FOOD_COSTS = { chicken: 2, cow: 3, sheep: 4 };
-export const PET_FOOD_COST = 2;
-export const BREAD_FOOD_UNITS = 30;
-export const PERSON_IDLE_FOOD_COST = 1;
-export const PERSON_WORKING_FOOD_COST = 3;
- 
-// ─── Satisfaction ─────────────────────────────────────────────────────────────
-export const TOWN_SATISFACTION_DEFAULT = 100;
-export const TOWN_SATISFACTION_FLOOR = 25;
-export const TOWN_SATISFACTION_CEILING = 150;
-export const TOWN_SATISFACTION_STEP = 5;
-export const TOWN_SATISFACTION_STARVE_STEP = 10;
-export const TOWN_SAT_WHEAT = 100;
-export const TOWN_SAT_BAKERY = 110;
-export const TOWN_SAT_BAKERY_JAM = 125;
-export const TOWN_SAT_BAKERY_SAUCE = 140;
-export const TOWN_SAT_ALL_BUILDINGS = 150;
-export const TOWN_PEOPLE_PER_GROWTH_BONUS = 5;
-export const TOWN_GROWTH_BONUS_PER_STEP = 1;
+// ── Pulse system ──────────────────────────────────────────────────────────────
+export const TOWN_PULSE_SECONDS        = 45;
+
+// ── Food costs per pulse ──────────────────────────────────────────────────────
+export const ANIMAL_FOOD_COSTS         = { chicken: 2, cow: 3, sheep: 4 };
+export const PET_FOOD_COST             = 2;
+export const BREAD_FOOD_UNITS          = 30;  // 1 bread feeds this many food units
+export const PERSON_IDLE_FOOD_COST     = 1;
+export const PERSON_WORKING_FOOD_COST  = 3;
+
+// ── Satisfaction ──────────────────────────────────────────────────────────────
+// Starts at 80 so there is immediate pressure even before Food Hall is built.
+// Satisfaction multiplies all worker speed (floor 25%, ceiling per food tier).
+export const TOWN_SATISFACTION_DEFAULT     = 80;
+export const TOWN_SATISFACTION_FLOOR       = 25;
+export const TOWN_SATISFACTION_STEP        = 5;   // drift per pulse toward target
+export const TOWN_SATISFACTION_STARVE_STEP = 10;  // drop per pulse when starving
+export const TOWN_PEOPLE_PER_GROWTH_BONUS  = 5;
+export const TOWN_GROWTH_BONUS_PER_STEP    = 1;
 export const TOWN_MAX_GROWTH_BONUS_PERCENT = 25;
+
+// ── Food Hall — satisfaction ceilings per tier ────────────────────────────────
+// tier 0 = no Food Hall (wheat only), 1 = bread, 2 = jam, 3 = sauce
+export const FOOD_HALL_SAT_CEILING = [80, 100, 125, 150];
+export const FOOD_HALL_FOOD_MODE   = ["wheat", "bread", "jam", "sauce"];
+
+// ── Town Hall ─────────────────────────────────────────────────────────────────
+export const TOWN_HALL_MAX_LEVEL   = 4;
+export const TOWN_HALL_LEVEL_COSTS = [100, 1_500, 4_000, 15_000];
+export const TOWN_HALL_L1_IRON     = 0;
+export const TOWN_HALL_L1_LUMBER   = 0;
+export const TOWN_HALL_L2_IRON     = 20;
+export const TOWN_HALL_L2_LUMBER   = 20;
+export const TOWN_HALL_L3_IRON     = 15;
+export const TOWN_HALL_L3_LUMBER   = 15;
+export const TOWN_HALL_L3_FITTING  = 3;
+export const TOWN_HALL_L4_FITTING  = 5;
+export const TOWN_HALL_L4_CRATE    = 3;
+// TH 0: Homes, Clinic, Warehouse, Food Hall
+// TH 1: Kitchen Hall, Market Hall, Tavern
+// TH 2: Guild Hall, School
+// TH 3+: all level 2+ building upgrades
+export const TOWN_HALL_BUILDING_GATES = {
+  homes: 0, clinic: 0, warehouse: 0, food_hall: 0,
+  kitchen_hall: 1, market_hall: 1, tavern: 1,
+  guild_hall: 2, school: 2,
+};
+
+// ── Pond / Forge build costs (unchanged) ─────────────────────────────────────
+export const POND_IRON        = 10;
+export const POND_LUMBER      = 5;
+export const FORGE_BUILD_COST = 50;
+export const FORGE_IRON       = 10;
+export const FORGE_LUMBER     = 5;
+
+// ── Clinic ────────────────────────────────────────────────────────────────────
+// Hard-caps population. Nobody new moves in past CLINIC_BASE_CAP without medics.
+export const TOWN_CLINIC_COST     = 1_500;
+export const CLINIC_BASE_CAP      = 8;
+export const CLINIC_CAP_PER_MEDIC = 4;
+
+// ── Food Hall ─────────────────────────────────────────────────────────────────
+// One building, three upgrade tiers. Each tier raises sat ceiling + switches food mode.
+export const TOWN_FOOD_HALL_COST           = 800;
+export const TOWN_FOOD_HALL_TIER2_COST     = 2_000;
+export const TOWN_FOOD_HALL_TIER3_COST     = 4_000;
+export const TOWN_FOOD_HALL_TIER2_REQUIRES = { iron_ore: 10, lumber: 10 };
+export const TOWN_FOOD_HALL_TIER3_REQUIRES = { iron_fitting: 3 };
+
+// ── Warehouse ─────────────────────────────────────────────────────────────────
+// Per-crop storage cap (wheat, berries, tomatoes independently).
+// Cap = WAREHOUSE_BASE_CAP[tier] + workers * WAREHOUSE_CAP_PER_WORKER[tier]
+// Overflow is lost — waste pressure enforces warehouse investment.
+export const TOWN_WAREHOUSE_COST             = 500;
+export const WAREHOUSE_TIER_UPGRADE_COSTS    = [1_500, 5_000];
+export const WAREHOUSE_TIER_UPGRADE_REQUIRES = [
+  { iron_ore: 10, lumber: 10 },
+  { iron_fitting: 3, lumber: 20 },
+];
+export const WAREHOUSE_BASE_CAP       = [500, 1_500, 4_000];  // per tier (0-indexed)
+export const WAREHOUSE_CAP_PER_WORKER = [200,   600, 1_500];  // per worker per tier
+export const WAREHOUSE_MAX_WORKERS    = [3, 5, 8];
+export const WAREHOUSE_TIER_NAMES     = ["Basic Shelving", "Forklifts", "Conveyor Belts"];
+
+// ── Kitchen Hall ──────────────────────────────────────────────────────────────
+// Gates kitchen worker count + upgrades. Level 2 = retain 1st worker on prestige.
+export const TOWN_KITCHEN_HALL_COST      = 300;
+export const KITCHEN_HALL_LEVEL_COSTS    = [1_500, 6_000];
+export const KITCHEN_HALL_LEVEL_REQUIRES = [
+  { iron_ore: 10, lumber: 8 },
+  { iron_ore: 20, lumber: 15, iron_fitting: 2 },
+];
+export const KITCHEN_HALL_MAX_WORKERS  = [1, 2, 4]; // per level (1, 2, 3)
+export const KITCHEN_HALL_RETAIN_COUNT = [0, 1, 2]; // auto-retain on prestige per level
+
+// ── Market Hall ───────────────────────────────────────────────────────────────
+// Gates market worker count + sell price bonus (absorbs old Bank role).
+export const TOWN_MARKET_HALL_COST      = 400;
+export const MARKET_HALL_LEVEL_COSTS    = [2_000, 8_000];
+export const MARKET_HALL_LEVEL_REQUIRES = [
+  { iron_ore: 10, lumber: 8 },
+  { iron_ore: 25, lumber: 20, iron_fitting: 3 },
+];
+export const MARKET_HALL_MAX_WORKERS  = [1, 2, 4];   // per level
+export const MARKET_HALL_PRICE_BONUS  = [0, 10, 25]; // % sell price bonus per level
+export const MARKET_HALL_RETAIN_COUNT = [0, 1, 2];   // auto-retain on prestige per level
+
+// ── Guild Hall ────────────────────────────────────────────────────────────────
+// Gates quest tiers (world zone availability) and max hero count.
+export const TOWN_GUILD_HALL_COST      = 2_000;
+export const GUILD_HALL_LEVEL_COSTS    = [5_000, 15_000, 40_000];
+export const GUILD_HALL_LEVEL_REQUIRES = [
+  { iron_ore: 15, lumber: 15 },
+  { iron_ore: 30, lumber: 25, iron_fitting: 3 },
+  { iron_fitting: 5, reinforced_crate: 3 },
+];
+// level 0 = not built = 1 hero max (starter only)
+export const GUILD_HALL_MAX_HEROES = [1, 2, 3, 4]; // indexed by level (0-3)
+export const GUILD_HALL_QUEST_TIER = [1, 2, 3, 4]; // world zone tier unlocked per level
+
+// ── Tavern ────────────────────────────────────────────────────────────────────
+// Heroes auto-rest here when idle until full HP. Level increases regen rate.
+export const TAVERN_LEVEL_COSTS  = [50, 500, 2_000, 8_000];
+export const TAVERN_LEVEL_IRON   = [10,  15,    20,      0];
+export const TAVERN_LEVEL_LUMBER = [ 5,   0,    10,      0];
+export const TAVERN_LEVEL_REGEN  = [0.7, 1.0,  1.5,    2.5]; // HP/s per level
+
+// ── School ────────────────────────────────────────────────────────────────────
+// Research unlocks gated upgrades. Costs mana crystals (competing with selling).
+export const TOWN_SCHOOL_COST           = 2_500;
+export const SCHOOL_RESEARCH_TIME_FLOOR = 0.05;
+export const SCHOOL_GROW_PER_RESEARCHER = 0.2;
+
+// ── Legacy constants — kept for save-file compat, no longer drive new logic ──
+export const TOWN_SATISFACTION_CEILING           = 150;
+export const TOWN_SAT_WHEAT                      = 80;
+export const TOWN_SAT_BAKERY                     = 100;
+export const TOWN_SAT_BAKERY_JAM                 = 125;
+export const TOWN_SAT_BAKERY_SAUCE               = 140;
+export const TOWN_SAT_ALL_BUILDINGS              = 150;
+export const TREASURY_TIERS                      = [];
+export const BANK_BUILD_COST                     = 0;
+export const BANK_LEVEL_COSTS                    = [];
+export const BANK_TIERS                          = [];
+export const BANK_MAX_LEVEL                      = 0;
+export const BUILDING_WORKERS_DIVISOR            = 6;
+export const BUILDING_PULSE_EXTRA_SECONDS        = 10;
+export const BUILDING_UPGRADE_COST               = 1000;
+export const INVEST_NOW_PCT                      = 0.10;
+export const INVEST_NOW_CD_SECONDS               = 30;
+export const TOWN_BAKERY_BASE_COST               = 800;
+export const TOWN_BAKERY_COST_MULTIPLIER         = 1.5;
+export const TOWN_JAM_BUILDING_COST              = 2_000;
+export const TOWN_SAUCE_BUILDING_COST            = 4_000;
+export const CLINIC_SAT_PER_MEDIC                = 0;
+// CLINIC_CAP_PER_MEDIC defined above in new Clinic section
+export const TAVERN_SAT_PER_BARTENDER            = 0;
+export const RESTAURANT_SAT_PER_CHEF             = 0;
+export const CLOTHIER_CASH_PER_CLERK             = 0;
+export const RESTAURANT_OMELETTE_PER_PULSE_DIVISOR = 3;
+export const RESTAURANT_CHEESE_PER_PULSE_DIVISOR   = 3;
+export const TAVERN_GOODS_PER_PULSE_DIVISOR      = 4;
+export const CLOTHIER_GOODS_PER_PULSE_DIVISOR    = 3;
+export const RESTAURANT_SAT_BONUS_MAX            = 0;
+export const TAVERN_SAT_BONUS_MAX                = 0;
+export const TOWN_TAVERN_COST                    = 3_000;
+export const TOWN_RESTAURANT_COST                = 0;
+export const TOWN_CLOTHIER_COST                  = 0;
+export const SCHOOL_GROW_PER_RESEARCHER_OLD      = 0.2;
  
 // ─── Season structure ─────────────────────────────────────────────────────────
 export const SEASON_FARMS = { 1: ["wheat"], 2: ["wheat", "berries"], 3: ["wheat", "berries", "tomatoes"] };
@@ -704,43 +790,6 @@ export const ANIMAL_SELL_RATES = {
   fish_pie: 45, smoked_fish: 35, fish_meal: 20,
   minnow: 2, bass: 8, perch: 12, rare: 35,
 };
-// ─── Town Buildings (new) ─────────────────────────────────────────────────────
- 
-// Build costs (from treasury)
-export const TOWN_CLINIC_COST        = 1_500;
-export const TOWN_SCHOOL_COST        = 2_500;
-export const TOWN_TAVERN_COST        = 3_000; // legacy - unused
-export const TAVERN_LEVEL_COSTS    = [50, 500, 2_000, 8_000];   // treasury cost per level (0-indexed = level 1-4)
-export const TAVERN_LEVEL_IRON     = [10,  15,    20,      0];   // iron ore per level
-export const TAVERN_LEVEL_LUMBER   = [ 5,   0,    10,      0];   // lumber per level
-export const TAVERN_LEVEL_REGEN    = [0.7, 1.0,  1.5,    2.5];  // HP/s regen per level
-export const TOWN_RESTAURANT_COST    = 12_000;
-export const TOWN_CLOTHIER_COST      = 15_000;
- 
-// Per-worker bonuses
-export const CLINIC_CAP_PER_MEDIC        = 2;    // +2 pop cap per medic
-export const CLINIC_SAT_PER_MEDIC        = 0.5;  // +0.5% sat per medic
-export const SCHOOL_GROW_PER_RESEARCHER  = 0.2;  // +0.2% grow speed per researcher
-export const TAVERN_SAT_PER_BARTENDER    = 0.5;  // +0.5% sat per bartender
-export const RESTAURANT_SAT_PER_CHEF     = 0.8;  // +0.8% sat per chef
-export const CLOTHIER_CASH_PER_CLERK     = 40;   // +$X cash income per pulse per clerk (~33% premium over $90 market rate for 3 clerks/good)
- 
-// Pulse consumption (scales with workers assigned)
-// Restaurant: consumes 1 omelette + 1 cheese per N chefs each pulse
-export const RESTAURANT_OMELETTE_PER_PULSE_DIVISOR = 3; // 1 omelette per 3 chefs
-export const RESTAURANT_CHEESE_PER_PULSE_DIVISOR   = 3; // 1 cheese per 3 chefs
-// Tavern: consumes jam OR fish_pie
-export const TAVERN_GOODS_PER_PULSE_DIVISOR = 4; // 1 good per 4 bartenders
-// Clothier: consumes knitted_goods
-export const CLOTHIER_GOODS_PER_PULSE_DIVISOR = 3; // 1 knitted_goods per 3 clerks
- 
-// Satisfaction cap from buildings (stacks on top of food sat)
-// Restaurant pushes sat target above TOWN_SAT_ALL_BUILDINGS ceiling
-export const RESTAURANT_SAT_BONUS_MAX = 20; // up to +20% sat target bonus
-export const TAVERN_SAT_BONUS_MAX     = 10;
- 
-// School research time multiplier floor
-export const SCHOOL_RESEARCH_TIME_FLOOR = 0.05; // 5% of base — 95% max reduction
 
 export const SCHOOL_RESEARCH = {
   fertilizer_iii: {

@@ -44,6 +44,12 @@ import {
   assignHeroToBoss, unassignHeroFromBoss, useBossAbility,
   acknowledgeBossVictory, reviveHeroInBossFight,
   assignHeroToTavern, removeHeroFromTavern,
+  // New town building actions
+  buildFoodHall, upgradeFoodHall,
+  buildWarehouse, upgradeWarehouse,
+  buildKitchenHall, upgradeKitchenHall,
+  buildMarketHall, upgradeMarketHall,
+  buildGuildHall, upgradeGuildHall,
 } from "./gameEngine";
 import {
   SAVE_KEY, SAVE_INTERVAL_MS,
@@ -580,6 +586,19 @@ export default function RootWork() {
     return n;
   }), [update, notify]);
 
+  // New town building handlers
+  const handleBuildFoodHall    = useCallback(() => update((s) => { const n = buildFoodHall(s);    if (n === s) notify('Not enough cash.'); return n; }), [update, notify]);
+  const handleUpgradeFoodHall  = useCallback(() => update((s) => { const n = upgradeFoodHall(s);  if (n === s) notify('Cannot upgrade Food Hall.'); return n; }), [update, notify]);
+  const handleBuildWarehouse   = useCallback(() => update((s) => { const n = buildWarehouse(s);   if (n === s) notify('Not enough cash.'); return n; }), [update, notify]);
+  const handleUpgradeWarehouse = useCallback(() => update((s) => { const n = upgradeWarehouse(s); if (n === s) notify('Cannot upgrade Warehouse.'); return n; }), [update, notify]);
+  const handleBuildKitchenHall   = useCallback(() => update((s) => { const n = buildKitchenHall(s);   if (n === s) notify('Requires Town Hall level 1.'); return n; }), [update, notify]);
+  const handleUpgradeKitchenHall = useCallback(() => update((s) => { const n = upgradeKitchenHall(s); if (n === s) notify('Cannot upgrade Kitchen Hall.'); return n; }), [update, notify]);
+  const handleBuildMarketHall   = useCallback(() => update((s) => { const n = buildMarketHall(s);   if (n === s) notify('Requires Town Hall level 1.'); return n; }), [update, notify]);
+  const handleUpgradeMarketHall = useCallback(() => update((s) => { const n = upgradeMarketHall(s); if (n === s) notify('Cannot upgrade Market Hall.'); return n; }), [update, notify]);
+  const handleBuildGuildHall   = useCallback(() => update((s) => { const n = buildGuildHall(s);   if (n === s) notify('Requires Town Hall level 2.'); return n; }), [update, notify]);
+  const handleUpgradeGuildHall = useCallback(() => update((s) => { const n = upgradeGuildHall(s); if (n === s) notify('Cannot upgrade Guild Hall.'); return n; }), [update, notify]);
+
+
   // Animals & Pond
   const handleBuyPond = useCallback(() => update((s) => { const n = buyPond(s); if (n === s) notify("Need $500 cash."); return n; }), [update, notify]);
   const handleBuildForge = useCallback(() => {
@@ -923,7 +942,41 @@ export default function RootWork() {
           </>
         )}
         {activeMainTab === "town" && (
-          <TownZone game={game} onBuildHome={handleBuildTownHome} onBuyBakery={handleBuyTownBakery} onToggleBakery={handleToggleBakery} onTogglePantry={handleTogglePantry} onToggleCannery={handleToggleCannery} onUpgradeTownBuilding={handleUpgradeTownBuilding} onBuyJamBuilding={handleBuyJamBuilding} onBuySauceBuilding={handleBuySauceBuilding} onUpgradeTownHall={handleUpgradeTownHall} onSetTreasuryTier={handleSetTreasuryTier} onBuildBank={handleBuildBank} onUpgradeBank={handleUpgradeBank} onSetActiveBankTier={handleSetActiveBankTier} prestigeReady={prestigeReady} onPrestige={() => setShowPrestigeModal(true)} onReset={handleResetGame} onSetTreasuryCap={handleSetTreasuryCap} onBuildTownBuilding={handleBuildTownBuilding} onAssignTownBuildingWorker={handleAssignTownBuildingWorker} onUpgradeTavern={handleUpgradeTavern} onToggleTavernMode={handleToggleTavernMode} onStartSchoolResearch={handleStartSchoolResearch} onInvestNow={handleInvestNow}/>
+          <TownZone game={game} 
+              onBuildHome={handleBuildTownHome}
+              onUpgradeTownHall={handleUpgradeTownHall}
+              onBuildTownBuilding={handleBuildTownBuilding}
+              onAssignTownBuildingWorker={handleAssignTownBuildingWorker}
+              onUpgradeTavern={handleUpgradeTavern}
+              onStartSchoolResearch={handleStartSchoolResearch}
+              prestigeReady={prestigeReady}
+              onPrestige={() => setShowPrestigeModal(true)}
+              onReset={handleResetGame}
+              onBuildFoodHall={handleBuildFoodHall}
+              onUpgradeFoodHall={handleUpgradeFoodHall}
+              onBuildWarehouse={handleBuildWarehouse}
+              onUpgradeWarehouse={handleUpgradeWarehouse}
+              onBuildKitchenHall={handleBuildKitchenHall}
+              onUpgradeKitchenHall={handleUpgradeKitchenHall}
+              onBuildMarketHall={handleBuildMarketHall}
+              onUpgradeMarketHall={handleUpgradeMarketHall}
+              onBuildGuildHall={handleBuildGuildHall}
+              onUpgradeGuildHall={handleUpgradeGuildHall}
+              onBuyBakery={handleBuyTownBakery}
+              onToggleBakery={handleToggleBakery}
+              onTogglePantry={handleTogglePantry}
+              onToggleCannery={handleToggleCannery}
+              onUpgradeTownBuilding={handleUpgradeTownBuilding}
+              onBuyJamBuilding={handleBuyJamBuilding}
+              onBuySauceBuilding={handleBuySauceBuilding}
+              onSetTreasuryTier={handleSetTreasuryTier}
+              onBuildBank={handleBuildBank}
+              onUpgradeBank={handleUpgradeBank}
+              onSetActiveBankTier={handleSetActiveBankTier}
+              onSetTreasuryCap={handleSetTreasuryCap}
+              onInvestNow={handleInvestNow}
+              onToggleTavernMode={handleToggleTavernMode}
+            />
         )}
         {activeMainTab === "world" && (
           <WorldZone

@@ -72,6 +72,20 @@ FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, 
   BOSS_DEFS, BOSS_ORDER, BOSS_TICK_INTERVAL, generateInfiniteBoss,
   BOSS_HERO_DAMAGE_LEVEL_SCALE, BOSS_HERO_DAMAGE_GEAR_SCALE,
   BOSS_ABILITIES, BOSS_UNLOCK_LEVEL,
+  // New town building constants
+  FOOD_HALL_SAT_CEILING, FOOD_HALL_FOOD_MODE,
+  TOWN_HALL_BUILDING_GATES,
+  CLINIC_BASE_CAP,
+  TOWN_FOOD_HALL_COST, TOWN_FOOD_HALL_TIER2_COST, TOWN_FOOD_HALL_TIER3_COST,
+  TOWN_FOOD_HALL_TIER2_REQUIRES, TOWN_FOOD_HALL_TIER3_REQUIRES,
+  TOWN_WAREHOUSE_COST, WAREHOUSE_TIER_UPGRADE_COSTS, WAREHOUSE_TIER_UPGRADE_REQUIRES,
+  WAREHOUSE_BASE_CAP, WAREHOUSE_CAP_PER_WORKER, WAREHOUSE_MAX_WORKERS, WAREHOUSE_TIER_NAMES,
+  TOWN_KITCHEN_HALL_COST, KITCHEN_HALL_LEVEL_COSTS, KITCHEN_HALL_LEVEL_REQUIRES,
+  KITCHEN_HALL_MAX_WORKERS, KITCHEN_HALL_RETAIN_COUNT,
+  TOWN_MARKET_HALL_COST, MARKET_HALL_LEVEL_COSTS, MARKET_HALL_LEVEL_REQUIRES,
+  MARKET_HALL_MAX_WORKERS, MARKET_HALL_PRICE_BONUS, MARKET_HALL_RETAIN_COUNT,
+  TOWN_GUILD_HALL_COST, GUILD_HALL_LEVEL_COSTS, GUILD_HALL_LEVEL_REQUIRES,
+  GUILD_HALL_MAX_HEROES, GUILD_HALL_QUEST_TIER,
 } from "./gameConstants";
  
 let _idCounter = 0;
@@ -121,9 +135,11 @@ export function consumeUpgradeMaterials(state, upgradeRequires) {
 export function getTotalWorkersHired(state) {
   const fishingWorkers = Object.values(state.fishing?.bodies ?? {})
     .reduce((sum, b) => sum + (b?.unlocked ? (Array.isArray(b.workers) ? b.workers.filter(w => w?.hired).length : (b.worker?.hired ? 1 : 0)) : 0), 0);
-  const b = state.town?.townBuildings ?? {};
-  const townBuildingWorkers = (b.clinic?.workers ?? 0) + (b.school?.workers ?? 0) +
-    (b.tavern?.workers ?? 0) + (b.restaurant?.workers ?? 0) + (b.clothier?.workers ?? 0);
+  const bldgs = state.town?.buildings ?? {};
+  const townBuildingWorkers =
+    (bldgs.clinic?.workers ?? 0) +
+    (bldgs.school?.workers ?? 0) +
+    (bldgs.warehouse?.workers ?? 0);
   return (
     (state.workers ?? []).length +
     (state.kitchenWorkers ?? []).length +
@@ -157,7 +173,9 @@ export function getActiveTreasuryTier(state) {
 }
  
 export function getTownHallLevel(state) {
-  return state.town?.townHallLevel ?? 0;
+  // New: read from buildings.town_hall.level
+  // Fallback to legacy townHallLevel for saves mid-migration
+  return state.town?.buildings?.town_hall?.level ?? state.town?.townHallLevel ?? 0;
 }
  
 export function getMaxTreasuryTier(state) {
@@ -313,11 +331,9 @@ export function setActiveBankTier(state, tier) {
 // ─── Grow speed bonus (Treasury) ──────────────────────────────────────────────
  
 export function getTreasuryGrowBonus(state) {
-  const tier = getActiveTreasuryTier(state);
-  const base = tier ? tier.growBonus : 0;
-  // fertile_soil: +5% per stack
+  // Treasury system removed. Grow bonus now comes from fertile_soil prestige skill only.
   const fertileCount = getPrestigeSkillCount(state, "fertile_soil");
-  return base + fertileCount * 5;
+  return fertileCount * 5;
 }
 
 // ─── Prestige Skill Tree helpers ──────────────────────────────────────────────
@@ -363,14 +379,17 @@ export function unlockPrestigeSkill(state, id) {
 }
 
 export function getSatisfactionCeiling(state) {
-  return hasPrestigeSkill(state, "town_pride") ? 200 : TOWN_SATISFACTION_CEILING;
+  if (hasPrestigeSkill(state, "town_pride")) return 200;
+  const tier = state.town?.buildings?.food_hall?.tier ?? 0;
+  return FOOD_HALL_SAT_CEILING[tier] ?? FOOD_HALL_SAT_CEILING[0];
 }
  
 // ─── Sell price bonus (Bank) ──────────────────────────────────────────────────
  
 export function getBankPriceBonus(state) {
-  const tier = getActiveBankTier(state);
-  return tier ? tier.priceBonus : 0;
+  // Bank removed — sell price bonus now comes from Market Hall level
+  const level = state.town?.buildings?.market_hall?.level ?? 0;
+  return MARKET_HALL_PRICE_BONUS[level - 1] ?? 0;
 }
  
 // ─── Automation check (gear-aware, per farm) ──────────────────────────────────
@@ -470,37 +489,49 @@ export function getTownBakeryCost(state) {
 // ─── Town building helpers ────────────────────────────────────────────────────
 
 export function getTownBuildings(state) {
+  // Legacy shim — returns old townBuildings shape for backwards compat during migration
   return state.town?.townBuildings ?? {};
 }
 
-export function getTavernLevel(state) {
-  return state.town?.townBuildings?.tavern?.level ?? 0;
+export function getTownBuildingDef(state, key) {
+  // New accessor — reads from buildings{}
+  return state.town?.buildings?.[key] ?? null;
 }
 
-export function getTavernRegenRate(state) {
-  const level = getTavernLevel(state);
-  if (level === 0) return 0;
-  return TAVERN_LEVEL_REGEN[level - 1] ?? 0;
+export function getTavernLevel(state) {
+  return state.town?.buildings?.tavern?.level ?? state.town?.townBuildings?.tavern?.level ?? 0;
 }
+
+
 
 export function isTownBuildingBuilt(state, key) {
+  // New shape: buildings[key].built
+  const newDef = state.town?.buildings?.[key];
+  if (newDef !== undefined) return newDef.built === true;
+  // Legacy fallback
   return getTownBuildings(state)[key]?.built === true;
 }
 
 export function getTownBuildingWorkers(state, key) {
+  // New shape: buildings[key].workers
+  const newDef = state.town?.buildings?.[key];
+  if (newDef !== undefined) return newDef.workers ?? 0;
+  // Legacy fallback
   return getTownBuildings(state)[key]?.workers ?? 0;
 }
 
 // Clinic: each medic adds 0.5 to pop cap (additive on top of homes-based cap)
 export function getClinicCapBonus(state) {
-  if (!isTownBuildingBuilt(state, "clinic")) return 0;
+  // Clinic no longer adds sat. It hard-caps population.
+  // Return the bonus population cap above the base home capacity.
+  const clinicBuilt = isTownBuildingBuilt(state, "clinic");
+  if (!clinicBuilt) return 0;
   return getTownBuildingWorkers(state, "clinic") * CLINIC_CAP_PER_MEDIC;
 }
 
 // Clinic: each medic adds 0.3% flat satisfaction bonus
 export function getClinicSatBonus(state) {
-  if (!isTownBuildingBuilt(state, "clinic")) return 0;
-  return getTownBuildingWorkers(state, "clinic") * CLINIC_SAT_PER_MEDIC;
+  return 0; // Clinic no longer gives satisfaction bonus — only population cap
 }
 
 // School: each researcher adds 0.2% grow speed bonus
@@ -517,7 +548,8 @@ export function getSchoolResearchMultiplier(state) {
 }
 
 export function getSchoolData(state) {
-  const school = state.town?.townBuildings?.school ?? null;
+  // New shape: buildings.school. Legacy fallback: townBuildings.school
+  const school = state.town?.buildings?.school ?? state.town?.townBuildings?.school ?? null;
   if (!school?.built) return null;
   return school;
 }
@@ -555,7 +587,8 @@ export function startSchoolResearch(state, researchId) {
   if (!research) return state;
 
   const next = deepCloneState(state);
-  const school = next.town.townBuildings.school;
+  // Write to new buildings.school (with legacy fallback)
+  const school = next.town.buildings?.school ?? next.town.townBuildings?.school;
 
   school.unlockedResearch = school.unlockedResearch ?? [];
   if (school.unlockedResearch.includes(researchId)) return state;
@@ -646,72 +679,150 @@ export function getFreePeople(state) {
   return Math.max(0, Math.floor(state.town?.people ?? 0) - getTotalWorkersHired(state));
 }
 
+// ─── New building helpers ──────────────────────────────────────────────────────
+
+export function getTownHallBuildingGate(buildingKey) {
+  return TOWN_HALL_BUILDING_GATES[buildingKey] ?? 99;
+}
+
+export function isBuildingUnlocked(state, key) {
+  return getTownHallLevel(state) >= getTownHallBuildingGate(key);
+}
+
+// Warehouse: per-crop storage cap
+// Returns Infinity if no warehouse built (no cap until warehouse exists)
+export function getWarehouseCropCap(state) {
+  const w = state.town?.buildings?.warehouse;
+  if (!w?.built) return Infinity;
+  const tier = w.tier ?? 0;
+  const workers = w.workers ?? 0;
+  const base = WAREHOUSE_BASE_CAP[tier] ?? WAREHOUSE_BASE_CAP[0];
+  const perWorker = WAREHOUSE_CAP_PER_WORKER[tier] ?? WAREHOUSE_CAP_PER_WORKER[0];
+  return base + workers * perWorker;
+}
+
+// Kitchen Hall: max kitchen workers allowed
+export function getMaxKitchenWorkers(state) {
+  const kh = state.town?.buildings?.kitchen_hall;
+  if (!kh?.built) return 1; // legacy: 1 worker always allowed before hall built
+  const level = kh.level ?? 1;
+  return KITCHEN_HALL_MAX_WORKERS[level - 1] ?? 1;
+}
+
+// Market Hall: max market workers allowed
+export function getMaxMarketWorkers(state) {
+  const mh = state.town?.buildings?.market_hall;
+  if (!mh?.built) return 1; // legacy: 1 worker always allowed
+  const level = mh.level ?? 1;
+  return MARKET_HALL_MAX_WORKERS[level - 1] ?? 1;
+}
+
+// Guild Hall: max heroes allowed
+export function getMaxHeroes(state) {
+  const gh = state.town?.buildings?.guild_hall;
+  if (!gh?.built) return 1; // starter hero always allowed
+  const level = gh.level ?? 1;
+  return GUILD_HALL_MAX_HEROES[level] ?? 1; // indexed by level (0=not built handled above)
+}
+
+// Guild Hall: current quest tier (gates which world zones are available)
+export function getGuildHallQuestTier(state) {
+  const gh = state.town?.buildings?.guild_hall;
+  if (!gh?.built) return 1; // tier 1 zones always available
+  const level = gh.level ?? 1;
+  return GUILD_HALL_QUEST_TIER[level] ?? 1;
+}
+
+// Kitchen Hall: how many workers auto-retain on prestige
+export function getKitchenHallRetainCount(state) {
+  const kh = state.town?.buildings?.kitchen_hall;
+  if (!kh?.built) return 0;
+  const level = kh.level ?? 1;
+  return KITCHEN_HALL_RETAIN_COUNT[level - 1] ?? 0;
+}
+
+// Market Hall: how many workers auto-retain on prestige
+export function getMarketHallRetainCount(state) {
+  const mh = state.town?.buildings?.market_hall;
+  if (!mh?.built) return 0;
+  const level = mh.level ?? 1;
+  return MARKET_HALL_RETAIN_COUNT[level - 1] ?? 0;
+}
+
+// Tavern: regen rate in HP/s
+export function getTavernRegenRate(state) {
+  const t = state.town?.buildings?.tavern;
+  if (!t?.built) return 0;
+  const level = t.level ?? 1;
+  return TAVERN_LEVEL_REGEN[level - 1] ?? 0;
+}
+
+
+
+// School: is built
+export function isSchoolBuilt(state) {
+  return state.town?.buildings?.school?.built === true;
+}
+
 export function getTownCapacity(state) {
   const homeCap = (state.town?.homes ?? 0) * TOWN_HOME_CAPACITY;
-  const clinicBonus = Math.floor(getClinicCapBonus(state));
-  return homeCap + clinicBonus;
+  const clinicBuilt = isTownBuildingBuilt(state, "clinic");
+  // Clinic hard-caps: nobody moves in past the clinic cap
+  const clinicCap = clinicBuilt
+    ? CLINIC_BASE_CAP + getTownBuildingWorkers(state, "clinic") * CLINIC_CAP_PER_MEDIC
+    : CLINIC_BASE_CAP; // no clinic = hard cap at base
+  return Math.min(homeCap, clinicCap);
 }
 
 // Build a town building
 export function buildTownBuilding(state, key) {
-  const costs = {
-    clinic: TOWN_CLINIC_COST, school: TOWN_SCHOOL_COST,
-    tavern: TOWN_TAVERN_COST, restaurant: TOWN_RESTAURANT_COST,
-    clothier: TOWN_CLOTHIER_COST,
-  };
+  // Only handles clinic and school now — other buildings have dedicated functions
+  const costs = { clinic: TOWN_CLINIC_COST, school: TOWN_SCHOOL_COST };
   const cost = costs[key];
   if (!cost) return state;
   if (isTownBuildingBuilt(state, key)) return state;
-  if ((state.town?.treasuryBalance ?? 0) < cost) return state;
-  // Gate checks
+  if ((state.cash ?? 0) < cost) return state;
   const thLevel = getTownHallLevel(state);
-  if (key === "tavern") return state; // tavern uses upgradeTavern() instead
-  if (key === "clinic" && !isTownBuildingBuilt(state, "tavern")) return state; // clinic: after tavern
-  if (key === "school" && !isTownBuildingBuilt(state, "clinic")) return state;
-  if (key === "restaurant" && !(isTownBuildingBuilt(state, "school") && (state.town?.bakeryLevel ?? 0) >= 1)) return state;
-  if (key === "clothier" && !(isTownBuildingBuilt(state, "school") && state.barnBuildings?.wool_shed?.built)) return state;
+  if (key === "school" && thLevel < TOWN_HALL_BUILDING_GATES.school) return state;
 
   const next = deepCloneState(state);
-  next.town.treasuryBalance -= cost;
-  if (!next.town.townBuildings) next.town.townBuildings = {};
+  next.cash -= cost;
+  if (!next.town.buildings) next.town.buildings = {};
   if (key === "school") {
-  next.town.townBuildings[key] = {
-    built: true,
-    workers: 0,
-    activeResearchId: null,
-    researchProgress: 0,
-    researchNeeded: 0,
-    unlockedResearch: [],
-  };
-} else {
-  next.town.townBuildings[key] = { built: true, workers: 0 };
-}
+    next.town.buildings.school = {
+      built: true, workers: 0,
+      activeResearchId: null, researchProgress: 0,
+      researchNeeded: 0, unlockedResearch: [],
+    };
+  } else {
+    next.town.buildings[key] = { built: true, workers: 0 };
+  }
   return next;
 }
 
 // Upgrade (or build) the tavern — level 1 = initial build, levels 2-4 = upgrades
 export function upgradeTavern(state) {
   const thLevel = getTownHallLevel(state);
-  if (thLevel < 1) return state; // needs TH level 1
+  if (thLevel < TOWN_HALL_BUILDING_GATES.tavern) return state;
   const currentLevel = getTavernLevel(state);
-  if (currentLevel >= 4) return state; // max level
-  const idx = currentLevel; // 0-indexed into arrays
+  if (currentLevel >= 4) return state;
+  const idx = currentLevel; // 0-indexed (0 = build, 1-3 = upgrade)
   const cost = TAVERN_LEVEL_COSTS[idx];
   const ironNeeded = TAVERN_LEVEL_IRON[idx];
   const lumberNeeded = TAVERN_LEVEL_LUMBER[idx];
-  if ((state.town?.treasuryBalance ?? 0) < cost) return state;
+  if ((state.cash ?? 0) < cost) return state;
   if ((state.worldResources?.iron_ore ?? 0) < ironNeeded) return state;
   if ((state.worldResources?.lumber ?? 0) < lumberNeeded) return state;
   const next = deepCloneState(state);
-  next.town.treasuryBalance -= cost;
+  next.cash -= cost;
   if (ironNeeded > 0) next.worldResources.iron_ore -= ironNeeded;
   if (lumberNeeded > 0) next.worldResources.lumber -= lumberNeeded;
-  if (!next.town.townBuildings) next.town.townBuildings = {};
-  if (!next.town.townBuildings.tavern) {
-    next.town.townBuildings.tavern = { built: true, workers: 0, level: 1 };
+  if (!next.town.buildings) next.town.buildings = {};
+  if (!next.town.buildings.tavern) {
+    next.town.buildings.tavern = { built: true, level: 1 };
   } else {
-    next.town.townBuildings.tavern.built = true;
-    next.town.townBuildings.tavern.level = currentLevel + 1;
+    next.town.buildings.tavern.built = true;
+    next.town.buildings.tavern.level = currentLevel + 1;
   }
   return next;
 }
@@ -720,26 +831,189 @@ export function setTavernMode(state, mode) {
   if (!isTownBuildingBuilt(state, "tavern")) return state;
   if (mode !== "jam" && mode !== "fish_pie") return state;
   const next = deepCloneState(state);
-  if (!next.town.townBuildings) next.town.townBuildings = {};
-  if (!next.town.townBuildings.tavern) next.town.townBuildings.tavern = { built: true, workers: 0 };
-  next.town.townBuildings.tavern.mode = mode;
+  if (!next.town.buildings) next.town.buildings = {};
+  if (!next.town.buildings.tavern) next.town.buildings.tavern = { built: true, level: 0 };
+  next.town.buildings.tavern.mode = mode;
   return next;
 }
 
 export function assignTownBuildingWorker(state, key, delta) {
   if (!isTownBuildingBuilt(state, key)) return state;
   const next = deepCloneState(state);
-  if (!next.town.townBuildings) next.town.townBuildings = {};
-  if (!next.town.townBuildings[key]) next.town.townBuildings[key] = { built: true, workers: 0 };
-  const current = next.town.townBuildings[key].workers ?? 0;
+  if (!next.town.buildings) next.town.buildings = {};
+  if (!next.town.buildings[key]) next.town.buildings[key] = { built: true, workers: 0 };
+  const current = next.town.buildings[key].workers ?? 0;
   if (delta > 0) {
-    // Need a free person
     if (getFreePeople(next) <= 0) return state;
-    next.town.townBuildings[key].workers = current + 1;
+    // Warehouse has a per-tier worker cap
+    if (key === "warehouse") {
+      const tier = next.town.buildings.warehouse.tier ?? 0;
+      const maxW = WAREHOUSE_MAX_WORKERS[tier] ?? 3;
+      if (current >= maxW) return state;
+    }
+    next.town.buildings[key].workers = current + 1;
   } else {
     if (current <= 0) return state;
-    next.town.townBuildings[key].workers = current - 1;
+    next.town.buildings[key].workers = current - 1;
+    // Warehouse: trim crops to new cap immediately
+    if (key === "warehouse") {
+      const newCap = getWarehouseCropCap(next);
+      if (isFinite(newCap)) {
+        for (const crop of ["wheat", "berries", "tomatoes"]) {
+          if ((next.crops?.[crop] ?? 0) > newCap) next.crops[crop] = newCap;
+        }
+      }
+    }
   }
+  return next;
+}
+
+// ─── New building actions ──────────────────────────────────────────────────────
+
+export function buildFoodHall(state) {
+  if (isTownBuildingBuilt(state, "food_hall")) return state;
+  if ((state.cash ?? 0) < TOWN_FOOD_HALL_COST) return state;
+  const next = deepCloneState(state);
+  next.cash -= TOWN_FOOD_HALL_COST;
+  if (!next.town.buildings) next.town.buildings = {};
+  next.town.buildings.food_hall = { built: true, tier: 1 };
+  next.town.foodMode = FOOD_HALL_FOOD_MODE[1]; // bread mode
+  return next;
+}
+
+export function upgradeFoodHall(state) {
+  const tier = state.town?.buildings?.food_hall?.tier ?? 0;
+  if (tier === 0) return buildFoodHall(state); // not built yet
+  if (tier >= 3) return state; // max
+  const cost = tier === 1 ? TOWN_FOOD_HALL_TIER2_COST : TOWN_FOOD_HALL_TIER3_COST;
+  const requires = tier === 1 ? TOWN_FOOD_HALL_TIER2_REQUIRES : TOWN_FOOD_HALL_TIER3_REQUIRES;
+  if ((state.cash ?? 0) < cost) return state;
+  if (!canAffordUpgradeMaterials(state, requires)) return state;
+  const next = deepCloneState(state);
+  next.cash -= cost;
+  consumeUpgradeMaterials(next, requires);
+  next.town.buildings.food_hall.tier = tier + 1;
+  next.town.foodMode = FOOD_HALL_FOOD_MODE[tier + 1];
+  return next;
+}
+
+export function buildWarehouse(state) {
+  if (state.town?.buildings?.warehouse?.built) return state;
+  if ((state.cash ?? 0) < TOWN_WAREHOUSE_COST) return state;
+  const next = deepCloneState(state);
+  next.cash -= TOWN_WAREHOUSE_COST;
+  if (!next.town.buildings) next.town.buildings = {};
+  next.town.buildings.warehouse = { built: true, tier: 0, workers: 0 };
+  return next;
+}
+
+export function upgradeWarehouse(state) {
+  const w = state.town?.buildings?.warehouse;
+  if (!w?.built) return state;
+  const tier = w.tier ?? 0;
+  if (tier >= 2) return state;
+  const cost = WAREHOUSE_TIER_UPGRADE_COSTS[tier];
+  const requires = WAREHOUSE_TIER_UPGRADE_REQUIRES[tier];
+  if ((state.cash ?? 0) < cost) return state;
+  if (!canAffordUpgradeMaterials(state, requires)) return state;
+  const next = deepCloneState(state);
+  next.cash -= cost;
+  consumeUpgradeMaterials(next, requires);
+  next.town.buildings.warehouse.tier = tier + 1;
+  return next;
+}
+
+export function buildKitchenHall(state) {
+  const thLevel = getTownHallLevel(state);
+  if (thLevel < TOWN_HALL_BUILDING_GATES.kitchen_hall) return state;
+  if (state.town?.buildings?.kitchen_hall?.built) return state;
+  if ((state.cash ?? 0) < TOWN_KITCHEN_HALL_COST) return state;
+  const next = deepCloneState(state);
+  next.cash -= TOWN_KITCHEN_HALL_COST;
+  if (!next.town.buildings) next.town.buildings = {};
+  next.town.buildings.kitchen_hall = { built: true, level: 1 };
+  return next;
+}
+
+export function upgradeKitchenHall(state) {
+  const kh = state.town?.buildings?.kitchen_hall;
+  if (!kh?.built) return state;
+  const level = kh.level ?? 1;
+  if (level >= 3) return state;
+  const cost = KITCHEN_HALL_LEVEL_COSTS[level - 1];
+  const requires = KITCHEN_HALL_LEVEL_REQUIRES[level - 1];
+  const thLevel = getTownHallLevel(state);
+  if (thLevel < 3) return state; // level 2+ upgrades need TH3
+  if ((state.cash ?? 0) < cost) return state;
+  if (!canAffordUpgradeMaterials(state, requires)) return state;
+  const next = deepCloneState(state);
+  next.cash -= cost;
+  consumeUpgradeMaterials(next, requires);
+  next.town.buildings.kitchen_hall.level = level + 1;
+  return next;
+}
+
+export function buildMarketHall(state) {
+  const thLevel = getTownHallLevel(state);
+  if (thLevel < TOWN_HALL_BUILDING_GATES.market_hall) return state;
+  if (state.town?.buildings?.market_hall?.built) return state;
+  if ((state.cash ?? 0) < TOWN_MARKET_HALL_COST) return state;
+  const next = deepCloneState(state);
+  next.cash -= TOWN_MARKET_HALL_COST;
+  if (!next.town.buildings) next.town.buildings = {};
+  next.town.buildings.market_hall = { built: true, level: 1 };
+  return next;
+}
+
+export function upgradeMarketHall(state) {
+  const mh = state.town?.buildings?.market_hall;
+  if (!mh?.built) return state;
+  const level = mh.level ?? 1;
+  if (level >= 3) return state;
+  const cost = MARKET_HALL_LEVEL_COSTS[level - 1];
+  const requires = MARKET_HALL_LEVEL_REQUIRES[level - 1];
+  const thLevel = getTownHallLevel(state);
+  if (thLevel < 3) return state;
+  if ((state.cash ?? 0) < cost) return state;
+  if (!canAffordUpgradeMaterials(state, requires)) return state;
+  const next = deepCloneState(state);
+  next.cash -= cost;
+  consumeUpgradeMaterials(next, requires);
+  next.town.buildings.market_hall.level = level + 1;
+  return next;
+}
+
+export function buildGuildHall(state) {
+  const thLevel = getTownHallLevel(state);
+  if (thLevel < TOWN_HALL_BUILDING_GATES.guild_hall) return state;
+  if (state.town?.buildings?.guild_hall?.built) return state;
+  const cost = TOWN_GUILD_HALL_COST;
+  const requires = GUILD_HALL_LEVEL_REQUIRES[0];
+  if ((state.cash ?? 0) < cost) return state;
+  if (!canAffordUpgradeMaterials(state, requires)) return state;
+  const next = deepCloneState(state);
+  next.cash -= cost;
+  consumeUpgradeMaterials(next, requires);
+  if (!next.town.buildings) next.town.buildings = {};
+  next.town.buildings.guild_hall = { built: true, level: 1 };
+  return next;
+}
+
+export function upgradeGuildHall(state) {
+  const gh = state.town?.buildings?.guild_hall;
+  if (!gh?.built) return state;
+  const level = gh.level ?? 1;
+  if (level >= 3) return state;
+  const cost = GUILD_HALL_LEVEL_COSTS[level - 1];
+  const requires = GUILD_HALL_LEVEL_REQUIRES[level]; // next tier's requirements
+  const thLevel = getTownHallLevel(state);
+  if (thLevel < 3) return state;
+  if ((state.cash ?? 0) < cost) return state;
+  if (!canAffordUpgradeMaterials(state, requires)) return state;
+  const next = deepCloneState(state);
+  next.cash -= cost;
+  consumeUpgradeMaterials(next, requires);
+  next.town.buildings.guild_hall.level = level + 1;
   return next;
 }
 
@@ -751,20 +1025,11 @@ export function getTownGrowthBonusPercent(people) {
 export function getSatisfactionTarget(state) {
   const town = state.town ?? {};
   if (town.starving) return TOWN_SATISFACTION_FLOOR;
-  const bakeryOn = town.bakeryOn === true && (town.bakeryLevel ?? 0) >= 1;
-  const pantryOn = town.pantryOn === true && town.jamBuildingOwned === true;
-  const canneryOn = town.canneryOn === true && town.sauceBuildingOwned === true;
-  let base;
-  if (!bakeryOn) base = TOWN_SAT_WHEAT;
-  else if (pantryOn && canneryOn) base = TOWN_SAT_ALL_BUILDINGS;
-  else if (canneryOn) base = TOWN_SAT_BAKERY_SAUCE;
-  else if (pantryOn) base = TOWN_SAT_BAKERY_JAM;
-  else base = TOWN_SAT_BAKERY;
-  // Add flat bonuses from town buildings (clinic, tavern, restaurant)
-  const buildingBonus = getTownBuildingSatBonus(state);
-  // Add rabbit pet bonus (+5 sat while mood >= 50)
+  // Sat ceiling is determined entirely by food_hall tier
+  const ceiling = getSatisfactionCeiling(state);
+  // Rabbit pet bonus (+5 sat while mood >= 50)
   const rabbitBonus = (state.pets?.rabbit && (state.pets.rabbit.mood ?? 0) >= 50) ? 5 : 0;
-  return Math.min(getSatisfactionCeiling(state), Math.round(base + buildingBonus + rabbitBonus));
+  return Math.min(getSatisfactionCeiling(state), Math.round(ceiling + rabbitBonus));
 }
  
 export function getTownSatisfactionMultiplier(state) {
@@ -819,12 +1084,9 @@ export function getTownFoodType(state) {
 }
  
 export function getEffectivePulseSeconds(state) {
-  const town = state.town ?? {};
-  let extra = 0;
-  if (town.bakeryOn === true && (town.bakeryLevel ?? 0) >= 1) extra += BUILDING_PULSE_EXTRA_SECONDS;
-  if (town.pantryOn === true && town.jamBuildingOwned === true) extra += BUILDING_PULSE_EXTRA_SECONDS;
-  if (town.canneryOn === true && town.sauceBuildingOwned === true) extra += BUILDING_PULSE_EXTRA_SECONDS;
-  return TOWN_PULSE_SECONDS + extra;
+  // Pulse length is now fixed — building toggles no longer add extra seconds.
+  // Kept as a function so existing callers don't break.
+  return TOWN_PULSE_SECONDS;
 }
  
 export function getBuildingEffectivePulseCost(state, buildingKey) {
@@ -862,10 +1124,10 @@ export function upgradeTownBuilding(state, buildingKey) {
 // ─── Town purchase actions (all from treasury) ────────────────────────────────
  
 export function buildTownHome(state) {
+  const cost = getTownHomeCost(state);
+  if ((state.cash ?? 0) < cost) return state;
   const next = deepCloneState(state);
-  const cost = getTownHomeCost(next);
-  if ((next.town.treasuryBalance ?? 0) < cost) return state;
-  if (cost > 0) next.town.treasuryBalance -= cost;
+  if (cost > 0) next.cash -= cost;
   next.town.homes = (next.town.homes ?? 0) + 1;
   next.town.capacity = getTownCapacity(next);
   const newPeople = Math.min(next.town.capacity, (next.town.people ?? 0) + TOWN_HOME_INSTANT_POPULATION);
@@ -1219,35 +1481,39 @@ function makeFreshTown() {
   return {
     unlocked: true,
     homes: 2,
-    bakeryLevel: 0,
-    bakeryOn: false,
-    pantryOn: false,
-    canneryOn: false,
-    jamBuildingOwned: false,
-    sauceBuildingOwned: false,
-    bankBuilt: false,
-    bankLevel: 0,
-    bankActiveTier: 0,
-    townHallLevel: 0,
-    treasuryBalance: 0,
-    treasuryActiveTier: 0,
-    bakeryUpgradeLevel: 0,
-    pantryUpgradeLevel: 0,
-    canneryUpgradeLevel: 0,
     people: TOWN_STARTING_PEOPLE,
     capacity: TOWN_HOME_CAPACITY,
-    satisfaction: TOWN_SATISFACTION_DEFAULT,
-    satisfactionTarget: TOWN_SAT_WHEAT,
+    // Food mode: "wheat"|"bread"|"jam"|"sauce" — driven by food_hall.tier
+    foodMode: "wheat",
+    // Satisfaction
+    satisfaction: TOWN_SATISFACTION_DEFAULT,  // starts at 80, below 100 for immediate pressure
+    satisfactionTarget: TOWN_SATISFACTION_DEFAULT,
     growthBonusPercent: 0,
-    breadNeeded: 0,
-    rawBreadNeeded: 0,
-    rawFoodNeeded: 0,
-    jamNeeded: 0,
-    sauceNeeded: 0,
-    foodType: "wheat",
+    // Pulse timers
     pulseSeconds: TOWN_PULSE_SECONDS,
+    growthAccumulator: TOWN_PULSE_SECONDS / 2,
     starving: false,
-    townBuildings: {},
+    // Cached food needed (computed each pulse, shown in UI)
+    rawFoodNeeded: 0,
+    // Buildings — all live here, consistent shape
+    buildings: {
+      town_hall:    { level: 0 },
+      clinic:       { built: false, workers: 0 },
+      food_hall:    { built: false, tier: 0 },      // tier 0=none,1=bread,2=jam,3=sauce
+      warehouse:    { built: false, tier: 0, workers: 0 },
+      kitchen_hall: { built: false, level: 0 },
+      market_hall:  { built: false, level: 0 },
+      guild_hall:   { built: false, level: 0 },
+      tavern:       { built: false, level: 0 },
+      school:       {
+        built: false,
+        workers: 0,
+        activeResearchId: null,
+        researchProgress: 0,
+        researchNeeded: 0,
+        unlockedResearch: [],
+      },
+    },
   };
 }
  
@@ -1745,7 +2011,7 @@ if (activeTier) {
  
 // ── School research ────────────────────────────────────────────────────────
   if (isTownBuildingBuilt(next, "school")) {
-    const school = next.town?.townBuildings?.school;
+    const school = next.town?.buildings?.school ?? next.town?.townBuildings?.school;
     const researchers = school?.workers ?? 0;
 
     if (school) {
@@ -2218,75 +2484,76 @@ function fireLastHiredWorker(state) {
 export function updateTown(state, seconds = 1) {
   let next = deepCloneState(state);
   if (!next.town) next.town = makeFreshTown();
- 
+
   next.town.unlocked = true;
   next.town.capacity = getTownCapacity(next);
- 
-  const effectivePulse = getEffectivePulseSeconds(next);
+
+  const effectivePulse = TOWN_PULSE_SECONDS; // pulse length is now fixed — no per-building extras
   if (next.town.pulseSeconds == null) next.town.pulseSeconds = effectivePulse;
   next.town.pulseSeconds -= seconds;
 
-  // Food pulse fires BEFORE population growth so a newly grown person is never charged
-  // food in the same tick they appeared (belt-and-suspenders with the accumulator offset).
+  // ── Food pulse ─────────────────────────────────────────────────────────────
+  // Fires before population growth so new arrivals aren't charged on arrival tick.
   while (next.town.pulseSeconds <= 0) {
-    const people = Math.floor(Math.max(0, next.town.people ?? 0));
-    const capacity = getTownCapacity(next);
+    const people       = Math.floor(Math.max(0, next.town.people ?? 0));
     const totalWorkers = getTotalWorkersHired(next);
-    const bakeryOn = next.town.bakeryOn === true && (next.town.bakeryLevel ?? 0) >= 1;
-    const pantryOn = next.town.pantryOn === true && next.town.jamBuildingOwned === true;
-    const canneryOn = next.town.canneryOn === true && next.town.sauceBuildingOwned === true;
-    const foodType = bakeryOn ? "bread" : "wheat";
+    const foodMode     = next.town.buildings?.food_hall?.tier > 0
+      ? FOOD_HALL_FOOD_MODE[next.town.buildings.food_hall.tier] ?? "wheat"
+      : "wheat";
 
-    // ← all your new food unit calculations go here
-    const idlePeople = Math.max(0, people - totalWorkers);
+    // Sync foodMode onto town for UI reads
+    next.town.foodMode = foodMode;
+
+    // ── Calculate food needed ─────────────────────────────────────────────
+    const idlePeople     = Math.max(0, people - totalWorkers);
     const peopleFoodUnits = (idlePeople * PERSON_IDLE_FOOD_COST) + (totalWorkers * PERSON_WORKING_FOOD_COST);
-    const animalFoodUnits = Object.entries(next.animals ?? {}).reduce((sum, [id, arr]) => {
-      return sum + arr.length * (ANIMAL_FOOD_COSTS[id] ?? 0);
-    }, 0);
-    const petFoodUnits = Object.keys(next.pets ?? {}).reduce((sum, petId) => sum + PET_FOOD_COST, 0);
-    const totalFoodUnits = peopleFoodUnits + animalFoodUnits + petFoodUnits;
+    const animalFoodUnits = Object.entries(next.animals ?? {}).reduce((sum, [id, arr]) =>
+      sum + arr.length * (ANIMAL_FOOD_COSTS[id] ?? 0), 0);
+    const petFoodUnits    = Object.keys(next.pets ?? {}).length * PET_FOOD_COST;
+    const totalFoodUnits  = peopleFoodUnits + animalFoodUnits + petFoodUnits;
 
-    const foodNeeded = totalFoodUnits === 0 ? 0
-      : bakeryOn
-        ? Math.max(1, Math.ceil(totalFoodUnits / BREAD_FOOD_UNITS))
-        : totalFoodUnits;
-
-    const foodHave = bakeryOn
-      ? Math.floor(next.artisan?.bread ?? 0)
-      : Math.floor(next.crops?.wheat ?? 0);
+    // Convert food units → actual resource needed based on food mode
+    let foodNeeded = 0;
+    let foodHave   = 0;
+    if (foodMode === "wheat") {
+      foodNeeded = totalFoodUnits;
+      foodHave   = Math.floor(next.crops?.wheat ?? 0);
+    } else if (foodMode === "bread") {
+      foodNeeded = totalFoodUnits === 0 ? 0 : Math.max(1, Math.ceil(totalFoodUnits / BREAD_FOOD_UNITS));
+      foodHave   = Math.floor(next.artisan?.bread ?? 0);
+    } else if (foodMode === "jam") {
+      // Jam feeds at 2× efficiency of bread — rewards upgrading Food Hall
+      foodNeeded = totalFoodUnits === 0 ? 0 : Math.max(1, Math.ceil(totalFoodUnits / (BREAD_FOOD_UNITS * 2)));
+      foodHave   = Math.floor(next.artisan?.jam ?? 0);
+    } else if (foodMode === "sauce") {
+      // Sauce feeds at 4× efficiency — best mode
+      foodNeeded = totalFoodUnits === 0 ? 0 : Math.max(1, Math.ceil(totalFoodUnits / (BREAD_FOOD_UNITS * 4)));
+      foodHave   = Math.floor(next.artisan?.sauce ?? 0);
+    }
 
     const fed = foodHave >= foodNeeded;
 
-    // Jam/sauce building costs (unchanged)
-    let jamNeeded = 0;
-    let sauceNeeded = 0;
-    if (pantryOn && fed) jamNeeded = getBuildingEffectivePulseCost(next, "pantry");
-    if (canneryOn && fed) sauceNeeded = getBuildingEffectivePulseCost(next, "cannery");
-    const jamFed = !pantryOn || (next.artisan?.jam ?? 0) >= jamNeeded;
-    const sauceFed = !canneryOn || (next.artisan?.sauce ?? 0) >= sauceNeeded;
-
+    // ── Consume food ──────────────────────────────────────────────────────
     if (fed) {
       if (foodNeeded > 0) {
-        if (bakeryOn) next.artisan.bread = (next.artisan.bread ?? 0) - foodNeeded;
-        else next.crops.wheat = (next.crops.wheat ?? 0) - foodNeeded;
+        if (foodMode === "wheat")  next.crops.wheat       = (next.crops.wheat  ?? 0) - foodNeeded;
+        if (foodMode === "bread")  next.artisan.bread     = (next.artisan.bread ?? 0) - foodNeeded;
+        if (foodMode === "jam")    next.artisan.jam       = (next.artisan.jam   ?? 0) - foodNeeded;
+        if (foodMode === "sauce")  next.artisan.sauce     = (next.artisan.sauce ?? 0) - foodNeeded;
       }
-      if (pantryOn && jamFed && jamNeeded > 0) next.artisan.jam = (next.artisan.jam ?? 0) - jamNeeded;
-      if (canneryOn && sauceFed && sauceNeeded > 0) next.artisan.sauce = (next.artisan.sauce ?? 0) - sauceNeeded;
-
       // Reset missed food pulses on animals
       for (const animalId of Object.keys(next.animals ?? {})) {
         for (const animal of next.animals[animalId]) {
           animal.missedFoodPulses = 0;
         }
       }
-
       next.town.starving = false;
     } else {
+      // Starving: lose a person and fire last-hired worker
       next.town.people = Math.max(0, people - TOWN_DECLINE_PER_PULSE);
       next.town.starving = true;
       if (getTotalWorkersHired(next) > next.town.people) next = fireLastHiredWorker(next);
-
-      // Animals lose mood when not fed, track missed pulses
+      // Animals lose mood when town starves
       for (const animalId of Object.keys(next.animals ?? {})) {
         for (const animal of next.animals[animalId]) {
           animal.mood = Math.max(0, (animal.mood ?? 100) - 20);
@@ -2294,12 +2561,24 @@ export function updateTown(state, seconds = 1) {
         }
       }
     }
- 
+
+    // ── Warehouse overflow — trim crops to cap ────────────────────────────
+    const cropCap = getWarehouseCropCap(next);
+    if (isFinite(cropCap)) {
+      for (const crop of ["wheat", "berries", "tomatoes"]) {
+        if ((next.crops?.[crop] ?? 0) > cropCap) {
+          next.crops[crop] = cropCap;
+        }
+      }
+    }
+
+    // ── Satisfaction ──────────────────────────────────────────────────────
     next.town.satisfactionTarget = getSatisfactionTarget(next);
-    const currentSat = next.town.satisfaction ?? TOWN_SATISFACTION_DEFAULT;
-    const target = next.town.satisfactionTarget;
-    const satCeiling = getSatisfactionCeiling(next);
-    // grand_opening: first 3 pulses of a new season start at 150
+    const currentSat  = next.town.satisfaction ?? TOWN_SATISFACTION_DEFAULT;
+    const target      = next.town.satisfactionTarget;
+    const satCeiling  = getSatisfactionCeiling(next);
+
+    // grand_opening prestige skill: first 3 pulses of new season start at 150
     if ((next.town.grandOpeningPulsesLeft ?? 0) > 0) {
       next.town.satisfaction = Math.min(satCeiling, Math.max(currentSat, 150));
       next.town.grandOpeningPulsesLeft -= 1;
@@ -2310,92 +2589,34 @@ export function updateTown(state, seconds = 1) {
     } else if (currentSat > target) {
       next.town.satisfaction = Math.max(target, currentSat - TOWN_SATISFACTION_STEP);
     }
-    // Hard clamp to ceiling (respects town_pride upgrade)
     next.town.satisfaction = Math.min(satCeiling, next.town.satisfaction);
 
-    // Boss fight victory bonus — temporary flat satisfaction boost
+    // Boss fight victory bonus — temporary flat sat boost
     if ((next.bossSatBonus?.pulsesRemaining ?? 0) > 0) {
       next.town.satisfaction = Math.min(satCeiling, next.town.satisfaction + next.bossSatBonus.flat);
-      next.bossSatBonus = {
-        ...next.bossSatBonus,
-        pulsesRemaining: next.bossSatBonus.pulsesRemaining - 1,
-      };
+      next.bossSatBonus = { ...next.bossSatBonus, pulsesRemaining: next.bossSatBonus.pulsesRemaining - 1 };
     }
 
-    next.town.rawFoodNeeded = foodNeeded;
-    next.town.breadNeeded = foodNeeded;
-    next.town.rawBreadNeeded = foodNeeded;
-    next.town.jamNeeded = jamNeeded;
-    next.town.sauceNeeded = sauceNeeded;
-    next.town.foodType = foodType;
-    next.town.capacity = getTownCapacity(next);
+    // ── Tavern pulse — hero auto-rest ─────────────────────────────────────
+    // tickTavernRestPulse handles HP regen for idle heroes
+    if (fed) next = tickTavernRestPulse(next);
+
+    // Cache values for UI
+    next.town.rawFoodNeeded      = foodNeeded;
+    // Legacy fields — kept so existing UI reads don't crash
+    next.town.breadNeeded        = foodMode === "bread"  ? foodNeeded : 0;
+    next.town.rawBreadNeeded     = foodMode === "bread"  ? foodNeeded : 0;
+    next.town.jamNeeded          = foodMode === "jam"    ? foodNeeded : 0;
+    next.town.sauceNeeded        = foodMode === "sauce"  ? foodNeeded : 0;
+    next.town.foodType           = foodMode === "wheat" ? "wheat" : "bread"; // legacy shape
+    next.town.capacity           = getTownCapacity(next);
     next.town.growthBonusPercent = getTownGrowthBonusPercent(next.town.people ?? 0);
 
-    // ── Town Buildings pulse effects ────────────────────────────────────────
-    if (fed) {
-      // Restaurant: consume omelette + cheese
-      const restaurantBuilt = isTownBuildingBuilt(next, "restaurant");
-      const restaurantWorkers = getTownBuildingWorkers(next, "restaurant");
-      if (restaurantBuilt && restaurantWorkers > 0) {
-        const omeletteCost = getRestaurantOmeletteCost(next);
-        const cheeseCost = getRestaurantCheeseCost(next);
-        const hasIngredients = (next.animalGoods?.omelette ?? 0) >= omeletteCost &&
-                               (next.animalGoods?.cheese ?? 0) >= cheeseCost;
-        if (hasIngredients) {
-          next.animalGoods.omelette -= omeletteCost;
-          next.animalGoods.cheese -= cheeseCost;
-          next.town.townBuildings.restaurant.stocked = true;
-        } else {
-          next.town.townBuildings.restaurant.stocked = false;
-        }
-      }
-
-      // Tavern: consume jam (preferred) or fish_pie
-      const tavernBuilt = isTownBuildingBuilt(next, "tavern");
-      const tavernWorkers = getTownBuildingWorkers(next, "tavern");
-      if (tavernBuilt && tavernWorkers > 0) {
-        const tavernCost = getTavernPulseCost(next);
-        const tavernMode = next.town.townBuildings?.tavern?.mode ?? "jam";
-        const tavernStock = tavernMode === "jam"
-          ? (next.artisan?.jam ?? 0)
-          : (next.animalGoods?.fish_pie ?? 0);
-        if (tavernStock >= tavernCost) {
-          if (tavernMode === "jam") next.artisan.jam -= tavernCost;
-          else next.animalGoods.fish_pie -= tavernCost;
-          next.town.townBuildings.tavern.stocked = true;
-        } else {
-          next.town.townBuildings.tavern.stocked = false;
-        }
-      }
-
-      // Tavern rest pulse — XP and class buffs for resting heroes
-      next = tickTavernRestPulse(next);
-
-      // Clothier: consume knitted_goods, generate cash
-      const clothierBuilt = isTownBuildingBuilt(next, "clothier");
-      const clothierWorkers = getTownBuildingWorkers(next, "clothier");
-      if (clothierBuilt && clothierWorkers > 0) {
-        const clothierCost = getClothierPulseCost(next);
-        if ((next.animalGoods?.knitted_goods ?? 0) >= clothierCost) {
-          next.animalGoods.knitted_goods -= clothierCost;
-          const cashEarned = getClothierCashPerPulse(next);
-          next.cash = (next.cash ?? 0) + cashEarned;
-          next.lifetimeCash = (next.lifetimeCash ?? 0) + cashEarned;
-          next.town.townBuildings.clothier.stocked = true;
-        } else {
-          next.town.townBuildings.clothier.stocked = false;
-        }
-      }
-
-      // School grow bonus is passive — already applied via getSchoolGrowBonus
-    }
-
-    next.town.pulseSeconds += getEffectivePulseSeconds(next);
+    next.town.pulseSeconds += effectivePulse;
   }
 
-  // Population growth fires AFTER the food pulse so a newly grown person is never charged
-  // food in the same tick they appeared. growthAccumulator is offset by half a pulse on init
-  // so the two timers are staggered (belt-and-suspenders).
+  // ── Population growth ─────────────────────────────────────────────────────
+  // Fires AFTER food pulse so new arrivals aren't charged food on arrival tick.
   if (!next.town.starving) {
     next.town.growthAccumulator = (next.town.growthAccumulator ?? 0) + seconds;
     while (next.town.growthAccumulator >= TOWN_PULSE_SECONDS) {
@@ -3802,59 +4023,104 @@ export function deserializeState(raw) {
     if (parsed.town === undefined) {
       parsed.town = makeFreshTown();
     } else {
+      // ── Migrate old town shape → new buildings{} shape ──────────────────────
       parsed.town.unlocked = true;
       if (!parsed.town.homes || parsed.town.homes === 0) parsed.town.homes = 1;
-      if (parsed.town.bakeryLevel === undefined) parsed.town.bakeryLevel = 0;
-      if (parsed.town.bakeryOn === undefined) parsed.town.bakeryOn = false;
-      if (parsed.town.pantryOn === undefined) parsed.town.pantryOn = false;
-      if (parsed.town.canneryOn === undefined) parsed.town.canneryOn = false;
-      if (parsed.town.jamBuildingOwned === undefined) parsed.town.jamBuildingOwned = false;
-      if (parsed.town.sauceBuildingOwned === undefined) parsed.town.sauceBuildingOwned = false;
-      if (parsed.town.townHallLevel === undefined) parsed.town.townHallLevel = 0;
-      // Migrate tavern: add level field if built but missing level
-      if (parsed.town.townBuildings?.tavern?.built && parsed.town.townBuildings.tavern.level === undefined) {
-        parsed.town.townBuildings.tavern.level = 1;
-      }
-      // Clear legacy tavernBuff from all heroes
-      if (parsed.adventurers) {
-        parsed.adventurers = parsed.adventurers.map((a) => ({ ...a, tavernBuff: null }));
-      }
-      if (parsed.town.treasuryBalance === undefined) parsed.town.treasuryBalance = 0;
-      if (parsed.town.treasuryActiveTier === undefined) parsed.town.treasuryActiveTier = 0;
-      if (parsed.town.lastInvestTime === undefined) parsed.town.lastInvestTime = 0;
-      if (parsed.town.bankBuilt === undefined) parsed.town.bankBuilt = false;
-      if (parsed.town.bankLevel === undefined) parsed.town.bankLevel = 0;
-      if (parsed.town.bankActiveTier === undefined) parsed.town.bankActiveTier = 0;
-      if (parsed.town.bakeryUpgradeLevel === undefined) parsed.town.bakeryUpgradeLevel = 0;
-      if (parsed.town.pantryUpgradeLevel === undefined) parsed.town.pantryUpgradeLevel = 0;
-      if (parsed.town.canneryUpgradeLevel === undefined) parsed.town.canneryUpgradeLevel = 0;
-      if (parsed.town.jamNeeded === undefined) parsed.town.jamNeeded = 0;
-      if (parsed.town.sauceNeeded === undefined) parsed.town.sauceNeeded = 0;
       if (parsed.town.people === undefined || parsed.town.people === 0) parsed.town.people = TOWN_STARTING_PEOPLE;
       if (parsed.town.capacity === undefined) parsed.town.capacity = TOWN_HOME_CAPACITY;
       if (parsed.town.satisfaction === undefined || parsed.town.satisfaction <= 1) parsed.town.satisfaction = TOWN_SATISFACTION_DEFAULT;
-      if (parsed.town.satisfactionTarget === undefined) parsed.town.satisfactionTarget = TOWN_SAT_WHEAT;
-      if (parsed.town.growthBonusPercent === undefined) parsed.town.growthBonusPercent = 0;
-      if (parsed.town.breadNeeded === undefined) parsed.town.breadNeeded = 0;
-      if (parsed.town.rawBreadNeeded === undefined) parsed.town.rawBreadNeeded = 0;
-      if (parsed.town.rawFoodNeeded === undefined) parsed.town.rawFoodNeeded = 0;
-  if (parsed.town.growthAccumulator === undefined) parsed.town.growthAccumulator = TOWN_PULSE_SECONDS / 2; // offset from food pulse so they don't fire same tick
-      parsed.town.foodType = parsed.town.bakeryOn ? "bread" : "wheat";
       if (parsed.town.pulseSeconds === undefined) parsed.town.pulseSeconds = TOWN_PULSE_SECONDS;
+      if (parsed.town.growthAccumulator === undefined) parsed.town.growthAccumulator = TOWN_PULSE_SECONDS / 2;
       if (parsed.town.starving === undefined) parsed.town.starving = false;
-      // Migrate old drain-based townHall to treasury
-      if (parsed.town.townHallDraining !== undefined) delete parsed.town.townHallDraining;
-      if (parsed.town.townHallDrained !== undefined) delete parsed.town.townHallDrained;
-      if (parsed.town.treasuryCap === undefined) parsed.town.treasuryCap = 0;
-      if (parsed.town.townBuildings === undefined) parsed.town.townBuildings = {};
-      if (parsed.town.grandOpeningPulsesLeft === undefined) parsed.town.grandOpeningPulsesLeft = 0;
-      if (parsed.town.townBuildings.school?.built) {
-  const school = parsed.town.townBuildings.school;
-  if (school.activeResearchId === undefined) school.activeResearchId = null;
-  if (school.researchProgress === undefined) school.researchProgress = 0;
-  if (school.researchNeeded === undefined) school.researchNeeded = 0;
-  if (school.unlockedResearch === undefined) school.unlockedResearch = [];
-}
+      if (parsed.town.growthBonusPercent === undefined) parsed.town.growthBonusPercent = 0;
+      if (parsed.town.rawFoodNeeded === undefined) parsed.town.rawFoodNeeded = 0;
+
+      // Build new buildings{} object if missing (first migration from old save)
+      if (!parsed.town.buildings) {
+        parsed.town.buildings = makeFreshTown().buildings;
+        const tb = parsed.town.townBuildings ?? {};
+        const thLevel = parsed.town.townHallLevel ?? 0;
+
+        // Town Hall
+        parsed.town.buildings.town_hall.level = thLevel;
+
+        // Clinic
+        if (tb.clinic?.built) {
+          parsed.town.buildings.clinic.built = true;
+          parsed.town.buildings.clinic.workers = tb.clinic.workers ?? 0;
+        }
+
+        // Food Hall — infer tier from old bakery/pantry/cannery flags
+        const bakeryLevel = parsed.town.bakeryLevel ?? 0;
+        const jamOwned    = parsed.town.jamBuildingOwned === true;
+        const sauceOwned  = parsed.town.sauceBuildingOwned === true;
+        const pantryOn    = parsed.town.pantryOn === true;
+        const canneryOn   = parsed.town.canneryOn === true;
+        if (bakeryLevel >= 1) {
+          parsed.town.buildings.food_hall.built = true;
+          if (sauceOwned && canneryOn) parsed.town.buildings.food_hall.tier = 3;
+          else if (jamOwned && pantryOn) parsed.town.buildings.food_hall.tier = 2;
+          else parsed.town.buildings.food_hall.tier = 1;
+        }
+
+        // Warehouse — not in old saves, start unbuilt
+        // (players will need to build it; crop caps are Infinity until built)
+
+        // Kitchen Hall — infer level from kitchen worker count
+        const kitchenWorkerCount = (parsed.kitchenWorkers ?? []).length;
+        if (kitchenWorkerCount >= 1) {
+          parsed.town.buildings.kitchen_hall.built = true;
+          parsed.town.buildings.kitchen_hall.level = kitchenWorkerCount >= 3 ? 3 : kitchenWorkerCount >= 2 ? 2 : 1;
+        }
+
+        // Market Hall — infer from market worker count
+        const marketWorkerCount = (parsed.marketWorkers ?? []).length;
+        if (marketWorkerCount >= 1) {
+          parsed.town.buildings.market_hall.built = true;
+          parsed.town.buildings.market_hall.level = marketWorkerCount >= 3 ? 3 : marketWorkerCount >= 2 ? 2 : 1;
+        }
+
+        // Guild Hall — infer from adventurer count
+        const heroCount = (parsed.adventurers ?? []).length;
+        if (heroCount >= 1) {
+          parsed.town.buildings.guild_hall.built = true;
+          parsed.town.buildings.guild_hall.level = Math.min(3, Math.max(0, heroCount - 1));
+        }
+
+        // Tavern
+        if (tb.tavern?.built) {
+          parsed.town.buildings.tavern.built = true;
+          parsed.town.buildings.tavern.level = tb.tavern.level ?? 1;
+        }
+
+        // School
+        if (tb.school?.built) {
+          parsed.town.buildings.school.built = true;
+          parsed.town.buildings.school.workers = tb.school.workers ?? 0;
+          parsed.town.buildings.school.activeResearchId = tb.school.activeResearchId ?? null;
+          parsed.town.buildings.school.researchProgress = tb.school.researchProgress ?? 0;
+          parsed.town.buildings.school.researchNeeded = tb.school.researchNeeded ?? 0;
+          parsed.town.buildings.school.unlockedResearch = tb.school.unlockedResearch ?? [];
+        }
+      }
+
+      // Ensure all building keys exist (in case new buildings added after save)
+      const freshBuildings = makeFreshTown().buildings;
+      for (const [key, def] of Object.entries(freshBuildings)) {
+        if (!parsed.town.buildings[key]) parsed.town.buildings[key] = { ...def };
+      }
+
+      // Derive foodMode from food_hall tier
+      parsed.town.foodMode = FOOD_HALL_FOOD_MODE[parsed.town.buildings.food_hall?.tier ?? 0] ?? "wheat";
+
+      // satisfactionTarget will be recomputed on first tick — set to current sat for now
+      if (parsed.town.satisfactionTarget === undefined) {
+        parsed.town.satisfactionTarget = parsed.town.satisfaction ?? TOWN_SATISFACTION_DEFAULT;
+      }
+
+      // Clear legacy fields that are no longer used
+      // (keep them for one cycle so old code doesn't crash, then they're ignored)
+      parsed.town.grandOpeningPulsesLeft = parsed.town.grandOpeningPulsesLeft ?? 0;
     } // end town else
  
     // These must be outside the town block — always migrate regardless
@@ -5373,9 +5639,21 @@ export function removeHeroFromTavern(state, heroId) {
 
 // Called each town pulse — awards XP (tier 2) and class buff (tier 3) to resting heroes
 export function tickTavernRestPulse(state) {
-  // Tavern XP and class buffs removed. Regen is handled by the HP regen tick.
-  // Food consumption and satisfaction bonus still handled in the main town tick.
-  return state;
+  // Auto-rest: idle heroes at the tavern regen HP each town pulse.
+  // "Idle" means not on a mission and not assigned to a boss fight.
+  const tavernBuilt = isTownBuildingBuilt(state, "tavern");
+  if (!tavernBuilt) return state;
+  const regenPerPulse = getTavernRegenRate(state) * TOWN_PULSE_SECONDS;
+  if (regenPerPulse <= 0) return state;
+
+  const next = state; // already a deep clone from updateTown caller
+  next.adventurers = (next.adventurers ?? []).map((adv) => {
+    const isIdle    = !adv.mission && !adv.bossAssigned;
+    const needsHeal = (adv.hp ?? 0) < (adv.maxHp ?? 1);
+    if (!isIdle || !needsHeal) return adv;
+    return { ...adv, hp: Math.min(adv.maxHp ?? adv.hp, (adv.hp ?? 0) + regenPerPulse) };
+  });
+  return next;
 }
 
 // Legacy: tavern class buffs removed. Kept for save compat.
