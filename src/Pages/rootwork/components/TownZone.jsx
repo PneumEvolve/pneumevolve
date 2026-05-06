@@ -547,26 +547,37 @@ export default function TownZone({
             </div>
             {kitchenHallBuilt ? (
               <>
-                <Row label="Max kitchen workers" value={KITCHEN_HALL_MAX_WORKERS[kitchenHallLevel - 1]} />
-                <Row label="Auto-retain on prestige" value={`${KITCHEN_HALL_RETAIN_COUNT[kitchenHallLevel - 1]} workers`} />
-                {kitchenHallLevel < 3 && (
-                  <>
-                    <div style={{ marginTop: "0.5rem", paddingTop: "0.4rem", borderTop: "1px solid var(--border)" }}>
-                      <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
-                        Upgrade to Level {kitchenHallLevel + 1} — {KITCHEN_HALL_MAX_WORKERS[kitchenHallLevel]} workers max
+                <Row label="Max kitchen workers" value={getMaxKitchenWorkers(game)} />
+                <Row label="Auto-retain on prestige" value={`${KITCHEN_HALL_RETAIN_COUNT[Math.min(kitchenHallLevel - 1, KITCHEN_HALL_RETAIN_COUNT.length - 1)]} workers`} />
+                {(() => {
+                  const nextCost = kitchenHallLevel <= 2
+                    ? KITCHEN_HALL_LEVEL_COSTS[kitchenHallLevel - 1]
+                    : Math.round(6_000 * Math.pow(2, kitchenHallLevel - 3));
+                  const nextRequires = kitchenHallLevel <= 2
+                    ? KITCHEN_HALL_LEVEL_REQUIRES[kitchenHallLevel - 1]
+                    : { iron_fitting: 2 + (kitchenHallLevel - 3) * 2, iron_ore: 20 + (kitchenHallLevel - 3) * 10, lumber: 15 + (kitchenHallLevel - 3) * 8 };
+                  const nextMaxWorkers = kitchenHallLevel < 3
+                    ? KITCHEN_HALL_MAX_WORKERS[kitchenHallLevel]
+                    : 4 + (kitchenHallLevel - 2) * 2;
+                  return (
+                    <>
+                      <div style={{ marginTop: "0.5rem", paddingTop: "0.4rem", borderTop: "1px solid var(--border)" }}>
+                        <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
+                          Upgrade to Level {kitchenHallLevel + 1} — {nextMaxWorkers} workers max
+                        </div>
+                        <CostLine
+                          cash={cash}
+                          cashCost={nextCost}
+                          materials={nextRequires}
+                          have={{ iron_ore: worldRes.iron_ore ?? 0, lumber: worldRes.lumber ?? 0, iron_fitting: have("iron_fitting") }}
+                        />
                       </div>
-                      <CostLine
-                        cash={cash}
-                        cashCost={KITCHEN_HALL_LEVEL_COSTS[kitchenHallLevel - 1]}
-                        materials={KITCHEN_HALL_LEVEL_REQUIRES[kitchenHallLevel - 1]}
-                        have={{ iron_ore: worldRes.iron_ore ?? 0, lumber: worldRes.lumber ?? 0, iron_fitting: have("iron_fitting") }}
-                      />
-                    </div>
-                    <button onClick={onUpgradeKitchenHall} className="btn w-full" style={{ marginTop: "0.5rem" }}>
-                      Upgrade Kitchen Hall
-                    </button>
-                  </>
-                )}
+                      <button onClick={onUpgradeKitchenHall} className="btn w-full" style={{ marginTop: "0.5rem" }}>
+                        Upgrade Kitchen Hall
+                      </button>
+                    </>
+                  );
+                })()}
               </>
             ) : (
               <>
@@ -591,27 +602,39 @@ export default function TownZone({
             </div>
             {marketHallBuilt ? (
               <>
-                <Row label="Max market workers" value={MARKET_HALL_MAX_WORKERS[marketHallLevel - 1]} />
-                <Row label="Sell price bonus" value={`+${MARKET_HALL_PRICE_BONUS[marketHallLevel - 1]}%`} valueColor="#4ade80" />
-                <Row label="Auto-retain on prestige" value={`${MARKET_HALL_RETAIN_COUNT[marketHallLevel - 1]} workers`} />
-                {marketHallLevel < 3 && (
-                  <>
-                    <div style={{ marginTop: "0.5rem", paddingTop: "0.4rem", borderTop: "1px solid var(--border)" }}>
-                      <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
-                        Upgrade to Level {marketHallLevel + 1} — +{MARKET_HALL_PRICE_BONUS[marketHallLevel]}% sell prices
+                <Row label="Max market workers" value={getMaxMarketWorkers(game)} />
+                <Row label="Sell price bonus" value={`+${MARKET_HALL_PRICE_BONUS[Math.min(marketHallLevel - 1, MARKET_HALL_PRICE_BONUS.length - 1)]}%`} valueColor="#4ade80" />
+                <Row label="Auto-retain on prestige" value={`${MARKET_HALL_RETAIN_COUNT[Math.min(marketHallLevel - 1, MARKET_HALL_RETAIN_COUNT.length - 1)]} workers`} />
+                {(() => {
+                  const nextCost = marketHallLevel <= 2
+                    ? MARKET_HALL_LEVEL_COSTS[marketHallLevel - 1]
+                    : Math.round(8_000 * Math.pow(2, marketHallLevel - 3));
+                  const nextRequires = marketHallLevel <= 2
+                    ? MARKET_HALL_LEVEL_REQUIRES[marketHallLevel - 1]
+                    : { iron_fitting: 3 + (marketHallLevel - 3) * 2, iron_ore: 25 + (marketHallLevel - 3) * 10, lumber: 20 + (marketHallLevel - 3) * 8 };
+                  const nextMaxWorkers = marketHallLevel < 3
+                    ? MARKET_HALL_MAX_WORKERS[marketHallLevel]
+                    : 4 + (marketHallLevel - 2) * 2;
+                  const nextPriceBonus = MARKET_HALL_PRICE_BONUS[Math.min(marketHallLevel, MARKET_HALL_PRICE_BONUS.length - 1)];
+                  return (
+                    <>
+                      <div style={{ marginTop: "0.5rem", paddingTop: "0.4rem", borderTop: "1px solid var(--border)" }}>
+                        <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
+                          Upgrade to Level {marketHallLevel + 1} — {nextMaxWorkers} workers max{marketHallLevel < 3 ? ` · +${nextPriceBonus}% sell prices` : ""}
+                        </div>
+                        <CostLine
+                          cash={cash}
+                          cashCost={nextCost}
+                          materials={nextRequires}
+                          have={{ iron_ore: worldRes.iron_ore ?? 0, lumber: worldRes.lumber ?? 0, iron_fitting: have("iron_fitting") }}
+                        />
                       </div>
-                      <CostLine
-                        cash={cash}
-                        cashCost={MARKET_HALL_LEVEL_COSTS[marketHallLevel - 1]}
-                        materials={MARKET_HALL_LEVEL_REQUIRES[marketHallLevel - 1]}
-                        have={{ iron_ore: worldRes.iron_ore ?? 0, lumber: worldRes.lumber ?? 0, iron_fitting: have("iron_fitting") }}
-                      />
-                    </div>
-                    <button onClick={onUpgradeMarketHall} className="btn w-full" style={{ marginTop: "0.5rem" }}>
-                      Upgrade Market Hall
-                    </button>
-                  </>
-                )}
+                      <button onClick={onUpgradeMarketHall} className="btn w-full" style={{ marginTop: "0.5rem" }}>
+                        Upgrade Market Hall
+                      </button>
+                    </>
+                  );
+                })()}
               </>
             ) : (
               <>

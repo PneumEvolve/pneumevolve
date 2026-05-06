@@ -17,6 +17,7 @@ import {
   getKitchenWorkerBatchSize,
   getKitchenWorkerMaxBatchSize,
   getAvailableWorkerSlots,
+  getMaxKitchenWorkers,
   getFishMealGrowBonus,
   isTownBuildingBuilt,
   hasSchoolResearch,
@@ -804,8 +805,12 @@ export default function ProcessingZone({
   const hireCost = getKitchenWorkerHireCost(game);
 const atCap = getAvailableWorkerSlots(game) <= 0;
 const canAffordCash = (game.cash ?? 0) >= hireCost;
-const canHire = !atCap && canAffordCash;
 const workers = game.kitchenWorkers ?? [];
+const kitchenHallBuilt = game.town?.buildings?.kitchen_hall?.built ?? false;
+const kitchenHallLevel = game.town?.buildings?.kitchen_hall?.level ?? 1;
+const maxKitchenWorkers = getMaxKitchenWorkers(game);
+const atKitchenHallCap = workers.length >= maxKitchenWorkers;
+const canHire = !atCap && !atKitchenHallCap && canAffordCash;
 const isFirstWorker = workers.length === 0;
  
   return (
@@ -829,7 +834,9 @@ const isFirstWorker = workers.length === 0;
 >
   {atCap
     ? "👥 Town full — grow population to hire"
-    : `👨‍🍳 Hire Kitchen Worker — $${hireCost}`
+    : atKitchenHallCap
+      ? `🍳 Upgrade Kitchen Hall to hire more (${workers.length}/${maxKitchenWorkers})`
+      : `👨‍🍳 Hire Kitchen Worker — $${hireCost}`
   }
 </button>
 {isFirstWorker && !atCap && (

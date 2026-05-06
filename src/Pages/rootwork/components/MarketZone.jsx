@@ -13,6 +13,7 @@ import {
   getMarketWorkerItemsPerSecond,
   getMarketWorkerQueueTotal,
   getAvailableWorkerSlots,
+  getMaxMarketWorkers,
   getSmartSellAmount,       
   getTownFoodReserve,
   getBankPriceBonus,
@@ -1192,9 +1193,12 @@ const cash = game.cash ?? 0;
 const lifetimeCash = game.lifetimeCash ?? 0;
   const atCap = getAvailableWorkerSlots(game) <= 0;
 const hireCost = getMarketWorkerHireCost(game);
-const isFirstWorker = (game.marketWorkers ?? []).length === 0;
+const workers = game.marketWorkers ?? [];
+const isFirstWorker = workers.length === 0;
+const maxMarketWorkers = getMaxMarketWorkers(game);
+const atMarketHallCap = workers.length >= maxMarketWorkers;
 const canAffordCash = isFirstWorker || cash >= hireCost;
-const canHire = !atCap && canAffordCash;
+const canHire = !atCap && !atMarketHallCap && canAffordCash;
   const sharpEyeCount = getPrestigeSkillCount(game, "sharp_eye");
   const hasSavvy = hasPrestigeSkill(game, "market_savvy") || (game.prestigeBonuses ?? []).includes("market_savvy");
   const hasBulkDealer = hasPrestigeSkill(game, "bulk_dealer");
@@ -1296,7 +1300,9 @@ const canHire = !atCap && canAffordCash;
   >
     {atCap
       ? "👥 Town full — grow population to hire"
-      : `🛒 Hire Market Worker — ${isFirstWorker ? "Free!" : `$${hireCost}`}`
+      : atMarketHallCap
+        ? `🛒 Upgrade Market Hall to hire more (${workers.length}/${maxMarketWorkers})`
+        : `🛒 Hire Market Worker — ${isFirstWorker ? "Free!" : `$${hireCost}`}`
     }
   </button>
   {isFirstWorker && !atCap && (

@@ -707,12 +707,14 @@ export function getWarehouseCropCap(state) {
   return base + workers * perWorker;
 }
 
-// Kitchen Hall: max kitchen workers allowed
+// Kitchen Hall: max kitchen workers allowed (infinite scaling: L1=1, L2=2, L3=4, L4+=level+1 each)
 export function getMaxKitchenWorkers(state) {
   const kh = state.town?.buildings?.kitchen_hall;
   if (!kh?.built) return 1; // legacy: 1 worker always allowed before hall built
   const level = kh.level ?? 1;
-  return KITCHEN_HALL_MAX_WORKERS[level - 1] ?? 1;
+  if (level <= 3) return KITCHEN_HALL_MAX_WORKERS[level - 1] ?? 1;
+  // Level 4+: each level adds 2 more workers (4 base + 2 per level above 3)
+  return 4 + (level - 3) * 2;
 }
 
 // Market Hall: max market workers allowed
@@ -720,7 +722,9 @@ export function getMaxMarketWorkers(state) {
   const mh = state.town?.buildings?.market_hall;
   if (!mh?.built) return 1; // legacy: 1 worker always allowed
   const level = mh.level ?? 1;
-  return MARKET_HALL_MAX_WORKERS[level - 1] ?? 1;
+  if (level <= 3) return MARKET_HALL_MAX_WORKERS[level - 1] ?? 1;
+  // Level 4+: each level adds 2 more workers (4 base + 2 per level above 3)
+  return 4 + (level - 3) * 2;
 }
 
 // Guild Hall: max heroes allowed
@@ -936,15 +940,26 @@ export function buildKitchenHall(state) {
   return next;
 }
 
+// Kitchen Hall upgrade cost formula for levels beyond the defined array
+function getKitchenHallUpgradeCost(level) {
+  if (level - 1 < KITCHEN_HALL_LEVEL_COSTS.length) return KITCHEN_HALL_LEVEL_COSTS[level - 1];
+  // Level 4+: exponential scaling starting from 6000, doubling each time
+  return Math.round(6_000 * Math.pow(2, level - 3));
+}
+function getKitchenHallUpgradeRequires(level) {
+  if (level - 1 < KITCHEN_HALL_LEVEL_REQUIRES.length) return KITCHEN_HALL_LEVEL_REQUIRES[level - 1];
+  // Level 4+: iron_fitting cost scales with level
+  const fittings = 2 + (level - 3) * 2;
+  return { iron_fitting: fittings, iron_ore: 20 + (level - 3) * 10, lumber: 15 + (level - 3) * 8 };
+}
 export function upgradeKitchenHall(state) {
   const kh = state.town?.buildings?.kitchen_hall;
   if (!kh?.built) return state;
   const level = kh.level ?? 1;
-  if (level >= 3) return state;
-  const cost = KITCHEN_HALL_LEVEL_COSTS[level - 1];
-  const requires = KITCHEN_HALL_LEVEL_REQUIRES[level - 1];
+  const cost = getKitchenHallUpgradeCost(level);
+  const requires = getKitchenHallUpgradeRequires(level);
   const thLevel = getTownHallLevel(state);
-  if (thLevel < 3) return state; // level 2+ upgrades need TH3
+  if (thLevel < 3) return state; // upgrades need TH3
   if ((state.cash ?? 0) < cost) return state;
   if (!canAffordUpgradeMaterials(state, requires)) return state;
   const next = deepCloneState(state);
@@ -966,13 +981,23 @@ export function buildMarketHall(state) {
   return next;
 }
 
+function getMarketHallUpgradeCost(level) {
+  if (level - 1 < MARKET_HALL_LEVEL_COSTS.length) return MARKET_HALL_LEVEL_COSTS[level - 1];
+  // Level 4+: exponential scaling starting from 8000, doubling each time
+  return Math.round(8_000 * Math.pow(2, level - 3));
+}
+function getMarketHallUpgradeRequires(level) {
+  if (level - 1 < MARKET_HALL_LEVEL_REQUIRES.length) return MARKET_HALL_LEVEL_REQUIRES[level - 1];
+  // Level 4+: scaling material costs
+  const fittings = 3 + (level - 3) * 2;
+  return { iron_fitting: fittings, iron_ore: 25 + (level - 3) * 10, lumber: 20 + (level - 3) * 8 };
+}
 export function upgradeMarketHall(state) {
   const mh = state.town?.buildings?.market_hall;
   if (!mh?.built) return state;
   const level = mh.level ?? 1;
-  if (level >= 3) return state;
-  const cost = MARKET_HALL_LEVEL_COSTS[level - 1];
-  const requires = MARKET_HALL_LEVEL_REQUIRES[level - 1];
+  const cost = getMarketHallUpgradeCost(level);
+  const requires = getMarketHallUpgradeRequires(level);
   const thLevel = getTownHallLevel(state);
   if (thLevel < 3) return state;
   if ((state.cash ?? 0) < cost) return state;
