@@ -1,5 +1,6 @@
 import React from "react";
 import { CROPS, SEASON_FARMS, WORLD_RESOURCES, FORGE_RECIPES } from "../gameConstants";
+import { getWarehouseCropCap } from "../gameEngine";
 import { getTotalWorkersHired, getAvailableWorkerSlots, getEffectivePulseSeconds, getTreasuryGrowBonus, getSchoolGrowBonus, getFishMealGrowBonus, getTownFoodReserve } from "../gameEngine";
 
 // Forge goods display metadata (resourceKey → emoji + label)
@@ -86,16 +87,21 @@ export default function ResourceBar({ game }) {
         {availableCropIds.map((cropId) => {
           const crop = CROPS[cropId];
           const amount = game.crops[cropId] ?? 0;
+          const cap = getWarehouseCropCap(game);
+          const isFull = Math.floor(amount) >= cap;
           return (
-            <div key={cropId} style={{
+            <div key={cropId} title={`${Math.floor(amount)} / ${cap} ${crop.name}`} style={{
               display: "flex", alignItems: "center", gap: "0.3rem",
               fontSize: "0.85rem", fontWeight: 500,
+              background: isFull ? "rgba(239,68,68,0.1)" : undefined,
+              border: isFull ? "1px solid rgba(239,68,68,0.35)" : "1px solid transparent",
+              borderRadius: isFull ? "6px" : undefined,
+              padding: isFull ? "0.05rem 0.35rem" : undefined,
             }}>
               <span>{crop.emoji}</span>
-              <span>{Math.floor(amount)}</span>
-              <span style={{ fontSize: "0.7rem", color: "var(--muted)", fontWeight: 400 }}>
-                {crop.name}
-              </span>
+              <span style={{ color: isFull ? "#ef4444" : undefined }}>{Math.floor(amount)}</span>
+              {isFull && <span style={{ fontSize: "0.62rem", color: "#ef4444", fontWeight: 700 }}>/{cap} FULL</span>}
+              {!isFull && <span style={{ fontSize: "0.7rem", color: "var(--muted)", fontWeight: 400 }}>{crop.name}</span>}
             </div>
           );
         })}

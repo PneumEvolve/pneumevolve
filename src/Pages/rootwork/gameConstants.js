@@ -70,7 +70,7 @@ export const TEND_SECONDS = 3;
  
 // ─── Processing recipes ───────────────────────────────────────────────────────
 export const PROCESSING_RECIPES = {
-  bread: { id: "bread", name: "Bread", emoji: "🍞", inputCrop: "wheat",    inputAmount: 30, outputGood: "bread", outputAmount: 1, seconds: 90,  description: "Bake bread from wheat.", healAmount: 30 },
+  bread: { id: "bread", name: "Bread", emoji: "🍞", inputCrop: "wheat",    inputAmount: 30, outputGood: "bread", outputAmount: 1, seconds: 60,  description: "Bake bread from wheat.", healAmount: 30 },
   jam:   { id: "jam",   name: "Jam",   emoji: "🍯", inputCrop: "berries",  inputAmount: 30, outputGood: "jam",   outputAmount: 1, seconds: 120, description: "Craft jam from berries.", healAmount: 50 },
   sauce: { id: "sauce", name: "Sauce", emoji: "🥫", inputCrop: "tomatoes", inputAmount: 20, outputGood: "sauce", outputAmount: 1, seconds: 150, description: "Make sauce from tomatoes.", healAmount: 100 },
   omelette:      { id: "omelette",      name: "Omelette",      emoji: "🍳", inputCrop: "egg",    inputAmount: 3,  outputGood: "omelette",      outputAmount: 1, seconds: 60,  description: "Hearty meal. Crafted from eggs." },
@@ -433,6 +433,7 @@ export const TOWN_FOOD_HALL_TIER3_REQUIRES = { iron_fitting: 3 };
 // Per-crop storage cap (wheat, berries, tomatoes independently).
 // Cap = WAREHOUSE_BASE_CAP[tier] + workers * WAREHOUSE_CAP_PER_WORKER[tier]
 // Overflow is lost — waste pressure enforces warehouse investment.
+export const WAREHOUSE_NO_BUILDING_CAP = 150; // hard cap per crop before warehouse is built
 export const TOWN_WAREHOUSE_COST             = 500;
 export const WAREHOUSE_TIER_UPGRADE_COSTS    = [1_500, 5_000];
 export const WAREHOUSE_TIER_UPGRADE_REQUIRES = [

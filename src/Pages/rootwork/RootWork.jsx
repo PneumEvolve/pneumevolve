@@ -37,7 +37,8 @@ import {
   upgradeForgeWorker, toggleForgeWorkerAutoRestart, tickForgeWorkers, upgradeForgeInstance,
   giveArtisanFood, removeArtisanFood, useArtisanFood, setHeroFillFood,
   tickAdventurerMissions,
-  hireAdventurer, spendSkillPoint, getAdventurerSlotCost, getAdventurerSlotUnlocked, isAtWorkerCap,
+  hireAdventurer, spendSkillPoint, getAdventurerSlotCost, isAtWorkerCap,
+  getKitchenHallRetainCount, getMarketHallRetainCount,
   // New adventurer functions
   reviveAdventurer, prestigeAdventurer, requestAutoBattleStop,
   tickBossFight, checkBossUnlock,
@@ -49,7 +50,7 @@ import {
   buildWarehouse, upgradeWarehouse,
   buildKitchenHall, upgradeKitchenHall,
   buildMarketHall, upgradeMarketHall,
-  buildGuildHall, upgradeGuildHall,
+  buildGuildHall, upgradeGuildHall, getEffectiveGrowTime
 } from "./gameEngine";
 import {
   SAVE_KEY, SAVE_INTERVAL_MS,
@@ -71,6 +72,9 @@ import AnimalsZone from "./components/AnimalsZone";
 import WorldZone from "./components/WorldZone";
 import ForgeZone from "./components/ForgeZone";
  
+// Module-level interval ID — lives outside React so StrictMode double-invoke can't create two loops
+let _gameTickInterval = null;
+
 function loadFromLocalStorage() {
   try { const raw = localStorage.getItem(SAVE_KEY); if (!raw) return null; return deserializeState(raw); } catch { return null; }
 }
@@ -89,9 +93,10 @@ function saveToLocalStorage(state) {
  
 // ─── Prestige Skill Tree Modal ────────────────────────────────────────────────
 
-function WorkerGroup({ label, color, workers, chosenIds, atLimit, onToggle, defaultOpen = false }) {
+function WorkerGroup({ label, color, workers, chosenIds, canSelect, onToggle, slotLabel, defaultOpen = false }) {
   const [open, setOpen] = useState(defaultOpen);
   if (workers.length === 0) return null;
+  const selectedInGroup = workers.filter(w => chosenIds.includes(w._keepId)).length;
   return (
     <div style={{ marginBottom: "0.4rem", border: "1px solid var(--border)", borderRadius: "8px", overflow: "hidden" }}>
       <button onClick={() => setOpen(v => !v)} style={{
@@ -99,17 +104,21 @@ function WorkerGroup({ label, color, workers, chosenIds, atLimit, onToggle, defa
         padding: "0.45rem 0.65rem", background: "var(--bg-elev)", border: "none", cursor: "pointer",
       }}>
         <span style={{ fontSize: "0.75rem", fontWeight: 700, color }}>{label} ({workers.length})</span>
-        <span style={{ fontSize: "0.65rem", color: "var(--muted)" }}>{open ? "▲" : "▼"}</span>
+        <span style={{ fontSize: "0.65rem", color: "var(--muted)" }}>
+          {slotLabel && <span style={{ marginRight: "0.4rem", color: selectedInGroup > 0 ? color : "var(--muted)" }}>{slotLabel}</span>}
+          {open ? "▲" : "▼"}
+        </span>
       </button>
       {open && (
         <div style={{ padding: "0.4rem", display: "flex", flexDirection: "column", gap: "0.3rem" }}>
           {workers.map((worker) => {
             const isSelected = chosenIds.includes(worker._keepId);
+            const selectable = isSelected || canSelect(worker._keepId);
             return (
-              <button key={worker._keepId} onClick={() => onToggle(worker._keepId, isSelected, atLimit)} style={{
+              <button key={worker._keepId} onClick={() => onToggle(worker._keepId, isSelected)} style={{
                 textAlign: "left", padding: "0.4rem 0.5rem", borderRadius: "6px",
-                cursor: isSelected || !atLimit ? "pointer" : "default",
-                opacity: !isSelected && atLimit ? 0.4 : 1,
+                cursor: selectable ? "pointer" : "default",
+                opacity: !selectable ? 0.4 : 1,
                 border: isSelected ? `2px solid ${color}` : "2px solid var(--border)",
                 background: isSelected ? `${color}11` : "var(--bg)",
               }}>
@@ -164,11 +173,42 @@ function PrestigeModal({ game, onComplete, onCancel }) {
   });
 
   const allCount = farmerWorkers.length + crafterWorkers.length + merchantWorkers.length + fisherWorkers.length + barnWorkersList.length + forgeWorkersList.length;
-  const atLimit = chosenWorkerIds.length >= game.season;
+
+  // Per-type dedicated retain slots (from hall buildings)
+  const kitchenRetainSlots = getKitchenHallRetainCount(game);
+  const marketRetainSlots = getMarketHallRetainCount(game);
+
+  // How many chosen workers of each type
+  const kitchenChosenIds = new Set(crafterWorkers.map(w => w._keepId));
+  const marketChosenIds  = new Set(merchantWorkers.map(w => w._keepId));
+  const kitchenSelected  = chosenWorkerIds.filter(id => kitchenChosenIds.has(id)).length;
+  const marketSelected   = chosenWorkerIds.filter(id => marketChosenIds.has(id)).length;
+
+  // How many kitchen/market workers overflow into the base pool
+  const kitchenBaseUsed = Math.max(0, kitchenSelected - kitchenRetainSlots);
+  const marketBaseUsed  = Math.max(0, marketSelected  - marketRetainSlots);
+  const otherSelected   = chosenWorkerIds.length - kitchenSelected - marketSelected;
+  const baseUsed        = kitchenBaseUsed + marketBaseUsed + otherSelected;
+  const baseAtLimit     = baseUsed >= game.season;
+
+  // canSelect(keepId): true if this worker can still be added
+  function canSelect(keepId) {
+    if (kitchenChosenIds.has(keepId)) {
+      // Can use a hall slot or a base slot
+      return kitchenSelected < kitchenRetainSlots || !baseAtLimit;
+    }
+    if (marketChosenIds.has(keepId)) {
+      return marketSelected < marketRetainSlots || !baseAtLimit;
+    }
+    return !baseAtLimit;
+  }
 
   function toggleWorker(keepId, isSelected) {
-    if (isSelected) setChosenWorkerIds(ids => ids.filter(id => id !== keepId));
-    else if (!atLimit) setChosenWorkerIds(ids => [...ids, keepId]);
+    if (isSelected) {
+      setChosenWorkerIds(ids => ids.filter(id => id !== keepId));
+    } else if (canSelect(keepId)) {
+      setChosenWorkerIds(ids => [...ids, keepId]);
+    }
   }
 
   const branchNodes = (branch) => Object.values(PRESTIGE_SKILL_TREE).filter((n) => n.branch === branch).sort((a, b) => a.tier - b.tier);
@@ -260,21 +300,26 @@ function PrestigeModal({ game, onComplete, onCancel }) {
               <h2 style={{ fontSize: "1.2rem", fontWeight: 700 }}>👷 Keep Workers</h2>
               <p style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: "0.25rem" }}>
                 Pick up to {game.season} worker{game.season !== 1 ? "s" : ""} to carry over
+                {(kitchenRetainSlots > 0 || marketRetainSlots > 0) && (
+                  <span> · plus hall retain slots</span>
+                )}
               </p>
               <p style={{ fontSize: "0.72rem", color: "var(--accent)", fontWeight: 600, marginTop: "0.15rem" }}>
-                {chosenWorkerIds.length}/{game.season} selected
+                {baseUsed}/{game.season} base slots · {chosenWorkerIds.length} total kept
               </p>
             </div>
             {allCount === 0 ? (
               <p style={{ fontSize: "0.8rem", textAlign: "center", color: "var(--muted)", marginBottom: "1rem" }}>No workers to keep. You'll start fresh.</p>
             ) : (
               <div style={{ marginBottom: "1rem" }}>
-                <WorkerGroup label="🌾 Farmers" color="#4ade80" workers={farmerWorkers} chosenIds={chosenWorkerIds} atLimit={atLimit} onToggle={toggleWorker} defaultOpen={farmerWorkers.length > 0} />
-                <WorkerGroup label="💹 Merchants" color="#60a5fa" workers={merchantWorkers} chosenIds={chosenWorkerIds} atLimit={atLimit} onToggle={toggleWorker} />
-                <WorkerGroup label="🍳 Crafters" color="#f59e0b" workers={crafterWorkers} chosenIds={chosenWorkerIds} atLimit={atLimit} onToggle={toggleWorker} />
-                <WorkerGroup label="🎣 Fishers" color="#22d3ee" workers={fisherWorkers} chosenIds={chosenWorkerIds} atLimit={atLimit} onToggle={toggleWorker} />
-                <WorkerGroup label="🐄 Barn Workers" color="#a78bfa" workers={barnWorkersList} chosenIds={chosenWorkerIds} atLimit={atLimit} onToggle={toggleWorker} />
-                <WorkerGroup label="🔨 Smiths" color="#fb923c" workers={forgeWorkersList} chosenIds={chosenWorkerIds} atLimit={atLimit} onToggle={toggleWorker} />
+                <WorkerGroup label="🌾 Farmers" color="#4ade80" workers={farmerWorkers} chosenIds={chosenWorkerIds} canSelect={canSelect} onToggle={toggleWorker} defaultOpen={farmerWorkers.length > 0} />
+                <WorkerGroup label="🍳 Crafters" color="#f59e0b" workers={crafterWorkers} chosenIds={chosenWorkerIds} canSelect={canSelect} onToggle={toggleWorker}
+                  slotLabel={kitchenRetainSlots > 0 ? `${kitchenSelected}/${kitchenRetainSlots} hall` : null} defaultOpen={crafterWorkers.length > 0} />
+                <WorkerGroup label="💹 Merchants" color="#60a5fa" workers={merchantWorkers} chosenIds={chosenWorkerIds} canSelect={canSelect} onToggle={toggleWorker}
+                  slotLabel={marketRetainSlots > 0 ? `${marketSelected}/${marketRetainSlots} hall` : null} />
+                <WorkerGroup label="🎣 Fishers" color="#22d3ee" workers={fisherWorkers} chosenIds={chosenWorkerIds} canSelect={canSelect} onToggle={toggleWorker} />
+                <WorkerGroup label="🐄 Barn Workers" color="#a78bfa" workers={barnWorkersList} chosenIds={chosenWorkerIds} canSelect={canSelect} onToggle={toggleWorker} />
+                <WorkerGroup label="🔨 Smiths" color="#fb923c" workers={forgeWorkersList} chosenIds={chosenWorkerIds} canSelect={canSelect} onToggle={toggleWorker} />
               </div>
             )}
             <div style={{ display: "flex", gap: "0.5rem" }}>
@@ -436,6 +481,7 @@ export default function RootWork() {
   const [showPrestigeModal, setShowPrestigeModal] = useState(false);
   const [notification, setNotification] = useState(null);
   const gameRef = useRef(null);
+  const tickIntervalRef = useRef(null);
   const [autoBattleLootResult, setAutoBattleLootResult] = useState(null);
  
   useEffect(() => { if (game) gameRef.current = game; }, [game]);
@@ -482,34 +528,42 @@ export default function RootWork() {
   }, [accessToken, userId]);
  
   useEffect(() => {
+    // Always clear the module-level interval first — StrictMode double-invoke safe
+    if (_gameTickInterval) { clearInterval(_gameTickInterval); _gameTickInterval = null; }
     if (!loaded) return;
     if (showPrestigeModal) return;
-    const interval = setInterval(() => {
-  setGame((prev) => {
-    if (!prev) return prev;
-    try {
-      let next = tick(prev);
-      next = tickForgeWorkers(next, 1);
-      next = tickAdventurerRegen(next, 1);
-      next = tickAdventurerMissions(next);
-      next = tickBossFight(next, 1);
-      next = checkBossUnlock(next);
-      // Surface any completed auto battle result
-      if (next.pendingAutoBattleResult) {
-        const result = next.pendingAutoBattleResult;
-        next = { ...next, pendingAutoBattleResult: null };
-        // Schedule modal outside of setState
-        setTimeout(() => setAutoBattleLootResult(result), 0);
-      }
-      gameRef.current = next;
-      return next;
-    } catch(e) {
-      console.error('[Rootwork] tick error — game loop preserved:', e);
-      return prev; // return unchanged state so the interval keeps running
-    }
-  });
-}, 1000);
-    return () => clearInterval(interval);
+    _gameTickInterval = setInterval(() => {
+      setGame((prev) => {
+        if (!prev) return prev;
+        try {
+          let next = tick(prev);
+          const wf = next.farms?.[0];
+if (wf) {
+  const before = prev.crops?.wheat ?? 0;
+  const after = next.crops?.wheat ?? 0;
+  if (after !== before) console.log('wheat delta:', after - before, '| workers on farm:', next.workers?.filter(w => w.farmId === wf.id).length);
+}
+          next = tickForgeWorkers(next, 1);
+          next = tickAdventurerRegen(next, 1);
+          next = tickAdventurerMissions(next);
+          next = tickBossFight(next, 1);
+          next = checkBossUnlock(next);
+          // Surface any completed auto battle result
+          if (next.pendingAutoBattleResult) {
+            const result = next.pendingAutoBattleResult;
+            next = { ...next, pendingAutoBattleResult: null };
+            // Schedule modal outside of setState
+            setTimeout(() => setAutoBattleLootResult(result), 0);
+          }
+          gameRef.current = next;
+          return next;
+        } catch(e) {
+          console.error('[Rootwork] tick error — game loop preserved:', e);
+          return prev;
+        }
+      });
+    }, 1000);
+    return () => { clearInterval(_gameTickInterval); _gameTickInterval = null; };
   }, [loaded, showPrestigeModal]);
  
   useEffect(() => {
@@ -737,8 +791,7 @@ export default function RootWork() {
     update((s) => {
       const n = hireAdventurer(s, usedNames ?? new Set());
       if (n === s) {
-        if (!getAdventurerSlotUnlocked(s)) notify("Next hero slot unlocks next season.");
-        else if (isAtWorkerCap(s)) notify("Population full · Build more housing first.");
+        if (isAtWorkerCap(s)) notify("Population full · Build more housing first.");
         else {
           const cost = getAdventurerSlotCost(s);
           notify(cost ? `Not enough cash ($${cost}).` : "All hero slots filled.");

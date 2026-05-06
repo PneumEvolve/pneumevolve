@@ -14,7 +14,6 @@ export default function Plot({ plot, farm, game, onPlant, onHarvest, onTend, ten
   const feast = game.feastBonusPercent ?? 0;
   const townBonus = (game.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(game);
   const growTime = getEffectiveGrowTime(farm, game.workers, farm.crop, plot, feast, townBonus, getTreasuryGrowBonus(game), getFishMealGrowBonus(game));
- 
   const growPercent = getGrowPercent(plot, growTime);
   const isReady = plot.state === "ready";
   const isPlanted = plot.state === "planted";

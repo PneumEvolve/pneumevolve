@@ -93,7 +93,6 @@ function Root() {
   }, []);
  
   return (
-    <React.StrictMode>
       <HelmetProvider>
         <AuthProvider>
           <BrowserRouter>
@@ -194,7 +193,7 @@ function Root() {
           </BrowserRouter>
         </AuthProvider>
       </HelmetProvider>
-    </React.StrictMode>
+    
   );
 }
  

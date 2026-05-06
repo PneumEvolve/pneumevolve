@@ -79,7 +79,7 @@ FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, 
   TOWN_FOOD_HALL_COST, TOWN_FOOD_HALL_TIER2_COST, TOWN_FOOD_HALL_TIER3_COST,
   TOWN_FOOD_HALL_TIER2_REQUIRES, TOWN_FOOD_HALL_TIER3_REQUIRES,
   TOWN_WAREHOUSE_COST, WAREHOUSE_TIER_UPGRADE_COSTS, WAREHOUSE_TIER_UPGRADE_REQUIRES,
-  WAREHOUSE_BASE_CAP, WAREHOUSE_CAP_PER_WORKER, WAREHOUSE_MAX_WORKERS, WAREHOUSE_TIER_NAMES,
+  WAREHOUSE_NO_BUILDING_CAP, WAREHOUSE_BASE_CAP, WAREHOUSE_CAP_PER_WORKER, WAREHOUSE_MAX_WORKERS, WAREHOUSE_TIER_NAMES,
   TOWN_KITCHEN_HALL_COST, KITCHEN_HALL_LEVEL_COSTS, KITCHEN_HALL_LEVEL_REQUIRES,
   KITCHEN_HALL_MAX_WORKERS, KITCHEN_HALL_RETAIN_COUNT,
   TOWN_MARKET_HALL_COST, MARKET_HALL_LEVEL_COSTS, MARKET_HALL_LEVEL_REQUIRES,
@@ -173,9 +173,12 @@ export function getActiveTreasuryTier(state) {
 }
  
 export function getTownHallLevel(state) {
-  // New: read from buildings.town_hall.level
-  // Fallback to legacy townHallLevel for saves mid-migration
-  return state.town?.buildings?.town_hall?.level ?? state.town?.townHallLevel ?? 0;
+  const newLevel = state.town?.buildings?.town_hall?.level;
+  const legacyLevel = state.town?.townHallLevel ?? 0;
+  // If new field exists and is > 0, trust it; otherwise fall back to legacy
+  // (avoids a stale 0 in buildings.town_hall shadowing a valid legacy value)
+  if (newLevel != null && newLevel > 0) return newLevel;
+  return legacyLevel;
 }
  
 export function getMaxTreasuryTier(state) {
@@ -267,6 +270,9 @@ export function upgradeTownHall(state) {
   }
   next.cash -= cost;
   next.town.townHallLevel = currentLevel + 1;
+  if (!next.town.buildings) next.town.buildings = {};
+  if (!next.town.buildings.town_hall) next.town.buildings.town_hall = {};
+  next.town.buildings.town_hall.level = currentLevel + 1;
   return next;
 }
  
@@ -690,10 +696,10 @@ export function isBuildingUnlocked(state, key) {
 }
 
 // Warehouse: per-crop storage cap
-// Returns Infinity if no warehouse built (no cap until warehouse exists)
+// Returns WAREHOUSE_NO_BUILDING_CAP (150) before warehouse is built, then tier-based cap
 export function getWarehouseCropCap(state) {
   const w = state.town?.buildings?.warehouse;
-  if (!w?.built) return Infinity;
+  if (!w?.built) return WAREHOUSE_NO_BUILDING_CAP;
   const tier = w.tier ?? 0;
   const workers = w.workers ?? 0;
   const base = WAREHOUSE_BASE_CAP[tier] ?? WAREHOUSE_BASE_CAP[0];
@@ -766,12 +772,7 @@ export function isSchoolBuilt(state) {
 
 export function getTownCapacity(state) {
   const homeCap = (state.town?.homes ?? 0) * TOWN_HOME_CAPACITY;
-  const clinicBuilt = isTownBuildingBuilt(state, "clinic");
-  // Clinic hard-caps: nobody moves in past the clinic cap
-  const clinicCap = clinicBuilt
-    ? CLINIC_BASE_CAP + getTownBuildingWorkers(state, "clinic") * CLINIC_CAP_PER_MEDIC
-    : CLINIC_BASE_CAP; // no clinic = hard cap at base
-  return Math.min(homeCap, clinicCap);
+  return homeCap;
 }
 
 // Build a town building
@@ -1037,7 +1038,10 @@ export function getTownSatisfactionMultiplier(state) {
 }
  
 export function getTownFoodReserve(state) {
-  const bakeryOn = state.town?.bakeryOn === true && (state.town?.bakeryLevel ?? 0) >= 1;
+  // Food mode is now driven by food_hall tier (0=wheat, 1=bread, 2=jam, 3=sauce)
+  // Legacy bakeryOn flag used as fallback for saves that haven't migrated yet
+  const foodHallTier = state.town?.buildings?.food_hall?.tier ?? 0;
+  const usingBread = foodHallTier >= 1 || (state.town?.bakeryOn === true && (state.town?.bakeryLevel ?? 0) >= 1);
   const people = Math.floor(state.town?.people ?? 0);
   const totalWorkers = getTotalWorkersHired(state);
   const idlePeople = Math.max(0, people - totalWorkers);
@@ -1049,7 +1053,7 @@ export function getTownFoodReserve(state) {
   const petCost = Object.keys(state.pets ?? {}).reduce((sum, petId) => sum + PET_FOOD_COST, 0);
   const totalFoodUnits = peopleCost + animalCost + petCost;
 
-  if (bakeryOn) return Math.max(1, Math.ceil(totalFoodUnits / BREAD_FOOD_UNITS));
+  if (usingBread) return Math.max(1, Math.ceil(totalFoodUnits / BREAD_FOOD_UNITS));
   return totalFoodUnits;
 }
  
@@ -1969,6 +1973,12 @@ export function tick(state) {
   // Shallow clone only — every sub-object mutation in tick() uses spread operators
   // deepCloneState (full JSON.parse/stringify) every second was the main perf killer on mobile
   let next = { ...state };
+  // Clone farms+plots and workers so direct mutations don't touch original references.
+  // Without this, React StrictMode's double-invoke of the updater increments growthTick twice per tick.
+  next.farms = next.farms.map((f) => ({ ...f, plots: f.plots.map((p) => ({ ...p })) }));
+  next.workers = next.workers.map((w) => ({ ...w }));
+  next.kitchenWorkers = (next.kitchenWorkers ?? []).map((w) => ({ ...w }));
+  next.marketWorkers  = (next.marketWorkers  ?? []).map((w) => ({ ...w, queue: (w.queue ?? []).map((o) => ({ ...o })) }));
   next.pendingDeathEvents = []; // clear each tick; fresh events added below
   const feast = next.feastBonusPercent ?? 0;
   const townBonus = (next.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(next);
@@ -2092,7 +2102,7 @@ if (activeTier) {
             if (harvested >= plotsPerCycle) break;
             if (plot.state === "ready") {
               const { crops, newPool } = applyYieldBonuses(crop.workerYield, next.prestigeBonuses, next.yieldPool ?? 0, bonusYield, next);
-              next.crops[farm.crop] = (next.crops[farm.crop] ?? 0) + crops;
+              next.crops[farm.crop] = Math.min((next.crops[farm.crop] ?? 0) + crops, getWarehouseCropCap(next));
               next.yieldPool = newPool;
               cropsGained += crops;
               plot.state = "empty";
@@ -2512,34 +2522,63 @@ export function updateTown(state, seconds = 1) {
     const petFoodUnits    = Object.keys(next.pets ?? {}).length * PET_FOOD_COST;
     const totalFoodUnits  = peopleFoodUnits + animalFoodUnits + petFoodUnits;
 
-    // Convert food units → actual resource needed based on food mode
-    let foodNeeded = 0;
-    let foodHave   = 0;
+    // Convert food units → actual resource needed based on food mode.
+    // Bread is always the caloric cost. Jam/sauce are bonus resources that must
+    // match the bread quantity to earn the sat ceiling.
+    let foodNeeded = 0; // bread (or wheat) quantity required this pulse
+    let fed = false;
+
     if (foodMode === "wheat") {
       foodNeeded = totalFoodUnits;
-      foodHave   = Math.floor(next.crops?.wheat ?? 0);
-    } else if (foodMode === "bread") {
+      const wheatHave = Math.floor(next.crops?.wheat ?? 0);
+      fed = wheatHave >= foodNeeded;
+    } else {
+      // All artisan modes: bread is always the caloric base
       foodNeeded = totalFoodUnits === 0 ? 0 : Math.max(1, Math.ceil(totalFoodUnits / BREAD_FOOD_UNITS));
-      foodHave   = Math.floor(next.artisan?.bread ?? 0);
-    } else if (foodMode === "jam") {
-      // Jam feeds at 2× efficiency of bread — rewards upgrading Food Hall
-      foodNeeded = totalFoodUnits === 0 ? 0 : Math.max(1, Math.ceil(totalFoodUnits / (BREAD_FOOD_UNITS * 2)));
-      foodHave   = Math.floor(next.artisan?.jam ?? 0);
-    } else if (foodMode === "sauce") {
-      // Sauce feeds at 4× efficiency — best mode
-      foodNeeded = totalFoodUnits === 0 ? 0 : Math.max(1, Math.ceil(totalFoodUnits / (BREAD_FOOD_UNITS * 4)));
-      foodHave   = Math.floor(next.artisan?.sauce ?? 0);
+      const breadHave = Math.floor(next.artisan?.bread ?? 0);
+      const jamHave   = Math.floor(next.artisan?.jam   ?? 0);
+      const sauceHave = Math.floor(next.artisan?.sauce ?? 0);
+
+      if (foodMode === "bread") {
+        fed = breadHave >= foodNeeded;
+      } else if (foodMode === "jam") {
+        // Jam mode: bread feeds, jam is the sat bonus — need both in equal quantity.
+        // Missing bread or jam → starve once and drop back to wheat mode.
+        if (breadHave < foodNeeded || jamHave < foodNeeded) {
+          fed = false;
+          if (next.town.buildings?.food_hall) next.town.buildings.food_hall.tier = 0;
+          next.town.foodMode = "wheat";
+        } else {
+          fed = true;
+        }
+      } else if (foodMode === "sauce") {
+        // Sauce mode: need bread + jam + sauce in equal quantity.
+        // Any one missing → starve and fall back to wheat mode.
+        if (breadHave < foodNeeded || jamHave < foodNeeded || sauceHave < foodNeeded) {
+          fed = false;
+          if (next.town.buildings?.food_hall) next.town.buildings.food_hall.tier = 0;
+          next.town.foodMode = "wheat";
+        } else {
+          fed = true;
+        }
+      }
     }
 
-    const fed = foodHave >= foodNeeded;
-
-    // ── Consume food ──────────────────────────────────────────────────────
+    // ── Consume food ────────────────────────────────────────────────────────────────────────────────────
     if (fed) {
       if (foodNeeded > 0) {
-        if (foodMode === "wheat")  next.crops.wheat       = (next.crops.wheat  ?? 0) - foodNeeded;
-        if (foodMode === "bread")  next.artisan.bread     = (next.artisan.bread ?? 0) - foodNeeded;
-        if (foodMode === "jam")    next.artisan.jam       = (next.artisan.jam   ?? 0) - foodNeeded;
-        if (foodMode === "sauce")  next.artisan.sauce     = (next.artisan.sauce ?? 0) - foodNeeded;
+        if (foodMode === "wheat") {
+          next.crops.wheat = (next.crops.wheat ?? 0) - foodNeeded;
+        } else if (foodMode === "bread") {
+          next.artisan.bread = (next.artisan.bread ?? 0) - foodNeeded;
+        } else if (foodMode === "jam") {
+          next.artisan.bread = (next.artisan.bread ?? 0) - foodNeeded;
+          next.artisan.jam   = (next.artisan.jam   ?? 0) - foodNeeded;
+        } else if (foodMode === "sauce") {
+          next.artisan.bread = (next.artisan.bread ?? 0) - foodNeeded;
+          next.artisan.jam   = (next.artisan.jam   ?? 0) - foodNeeded;
+          next.artisan.sauce = (next.artisan.sauce ?? 0) - foodNeeded;
+        }
       }
       // Reset missed food pulses on animals
       for (const animalId of Object.keys(next.animals ?? {})) {
@@ -2564,11 +2603,9 @@ export function updateTown(state, seconds = 1) {
 
     // ── Warehouse overflow — trim crops to cap ────────────────────────────
     const cropCap = getWarehouseCropCap(next);
-    if (isFinite(cropCap)) {
-      for (const crop of ["wheat", "berries", "tomatoes"]) {
-        if ((next.crops?.[crop] ?? 0) > cropCap) {
-          next.crops[crop] = cropCap;
-        }
+    for (const crop of ["wheat", "berries", "tomatoes"]) {
+      if ((next.crops?.[crop] ?? 0) > cropCap) {
+        next.crops[crop] = cropCap;
       }
     }
 
@@ -2603,30 +2640,33 @@ export function updateTown(state, seconds = 1) {
 
     // Cache values for UI
     next.town.rawFoodNeeded      = foodNeeded;
-    // Legacy fields — kept so existing UI reads don't crash
-    next.town.breadNeeded        = foodMode === "bread"  ? foodNeeded : 0;
-    next.town.rawBreadNeeded     = foodMode === "bread"  ? foodNeeded : 0;
-    next.town.jamNeeded          = foodMode === "jam"    ? foodNeeded : 0;
-    next.town.sauceNeeded        = foodMode === "sauce"  ? foodNeeded : 0;
+    // Cache needed amounts for UI display
+    next.town.breadNeeded        = (foodMode !== "wheat") ? foodNeeded : 0;
+    next.town.rawBreadNeeded     = next.town.breadNeeded;
+    next.town.jamNeeded          = (foodMode === "jam" || foodMode === "sauce") ? foodNeeded : 0;
+    next.town.sauceNeeded        = foodMode === "sauce" ? foodNeeded : 0;
     next.town.foodType           = foodMode === "wheat" ? "wheat" : "bread"; // legacy shape
     next.town.capacity           = getTownCapacity(next);
     next.town.growthBonusPercent = getTownGrowthBonusPercent(next.town.people ?? 0);
 
-    next.town.pulseSeconds += effectivePulse;
-  }
-
-  // ── Population growth ─────────────────────────────────────────────────────
-  // Fires AFTER food pulse so new arrivals aren't charged food on arrival tick.
-  if (!next.town.starving) {
-    next.town.growthAccumulator = (next.town.growthAccumulator ?? 0) + seconds;
-    while (next.town.growthAccumulator >= TOWN_PULSE_SECONDS) {
-      next.town.growthAccumulator -= TOWN_PULSE_SECONDS;
-      const cap = getTownCapacity(next);
-      const ppl = Math.floor(Math.max(0, next.town.people ?? 0));
-      if (ppl < cap) next.town.people = Math.min(cap, ppl + TOWN_GROWTH_PER_PULSE);
+    // ── Population growth ─────────────────────────────────────────────────
+    // Runs inside the pulse loop, advancing by effectivePulse each time so
+    // growth rate stays constant (every TOWN_PULSE_SECONDS) regardless of
+    // how long the food pulse is (bakery/pantry/cannery extensions don't
+    // slow population). Growth only fires when the town is fed.
+    if (!next.town.starving) {
+      next.town.growthAccumulator = (next.town.growthAccumulator ?? 0) + effectivePulse;
+      while (next.town.growthAccumulator >= TOWN_PULSE_SECONDS) {
+        next.town.growthAccumulator -= TOWN_PULSE_SECONDS;
+        const cap = getTownCapacity(next);
+        const ppl = Math.floor(Math.max(0, next.town.people ?? 0));
+        if (ppl < cap) next.town.people = Math.min(cap, ppl + TOWN_GROWTH_PER_PULSE);
+      }
+    } else {
+      next.town.growthAccumulator = 0;
     }
-  } else {
-    next.town.growthAccumulator = 0;
+
+    next.town.pulseSeconds += effectivePulse;
   }
 
   next.town.growthBonusPercent = getTownGrowthBonusPercent(next.town.people ?? 0);
@@ -2654,7 +2694,7 @@ export function harvestPlot(state, farmId, plotId) {
   if (!plot || plot.state !== "ready") return state;
   const crop = CROPS[farm.crop];
   const { crops, newPool } = applyYieldBonuses(crop.manualYield, next.prestigeBonuses, next.yieldPool ?? 0, 0, next);
-  next.crops[farm.crop] = (next.crops[farm.crop] ?? 0) + crops;
+  next.crops[farm.crop] = Math.min((next.crops[farm.crop] ?? 0) + crops, getWarehouseCropCap(next));
   next.yieldPool = newPool;
   plot.state = "empty";
   plot.growthTick = 0;
@@ -2671,7 +2711,7 @@ export function tendPlot(state, farmId, plotId) {
   if (plot.state === "ready") {
     const crop = CROPS[farm.crop];
     const { crops, newPool } = applyYieldBonuses(crop.manualYield, next.prestigeBonuses, next.yieldPool ?? 0, 0, next);
-    next.crops[farm.crop] = (next.crops[farm.crop] ?? 0) + crops;
+    next.crops[farm.crop] = Math.min((next.crops[farm.crop] ?? 0) + crops, getWarehouseCropCap(next));
     next.yieldPool = newPool;
     plot.state = "planted";
     plot.growthTick = 0;
@@ -2846,6 +2886,7 @@ export function applyYieldBonuses(baseYield, prestigeBonuses, currentPool = 0, f
 export function hireMarketWorker(state) {
   const next = deepCloneState(state);
   if (isAtWorkerCap(next)) return state;
+  if ((next.marketWorkers ?? []).length >= getMaxMarketWorkers(next)) return state;
   const isFirst = (next.marketWorkers ?? []).length === 0;
   const cost = isFirst ? 0 : getMarketWorkerHireCost(next);
   if (!isFirst && (next.cash ?? 0) < cost) return state;
@@ -2944,6 +2985,7 @@ export function fireMarketWorker(state, workerId) {
 export function hireKitchenWorker(state) {
   const next = deepCloneState(state);
   if (isAtWorkerCap(next)) return state;
+  if ((next.kitchenWorkers ?? []).length >= getMaxKitchenWorkers(next)) return state;
   const cost = getKitchenWorkerHireCost(next);
   if ((next.cash ?? 0) < cost) return state;
   next.cash -= cost;
@@ -3626,6 +3668,7 @@ export function beginPrestige(state, _unused, keptWorkerIds) {
   for (const farm of next.farms) {
     farm.plots = farm.plots.map((plot, idx) => ({
       ...plot,
+      upgraded: false,
       state: idx === 0 ? "planted" : "empty",
       growthTick: idx === 0 ? Math.floor(CROPS[farm.crop].growTime / 2) : 0,
     }));
@@ -4439,15 +4482,9 @@ export function getAdventurerSlotCost(state) {
   return Math.round(50 * Math.pow(3.5, count));
 }
 
-export function getAdventurerSlotUnlocked(state) {
-  // Slot N unlocks on season N (1-indexed)
-  const count = (state.adventurers ?? []).length;
-  return (state.season ?? 1) > count;
-}
-
 export function hireAdventurer(state, usedNames = new Set()) {
-  if (!getAdventurerSlotUnlocked(state)) return state;
   if (isAtWorkerCap(state)) return state;
+  if ((state.adventurers ?? []).length >= getMaxHeroes(state)) return state;
   const cost = getAdventurerSlotCost(state);
   if (cost === null) return state;
   if ((state.cash ?? 0) < cost) return state;
@@ -5649,8 +5686,10 @@ export function tickTavernRestPulse(state) {
   const next = state; // already a deep clone from updateTown caller
   next.adventurers = (next.adventurers ?? []).map((adv) => {
     const isIdle    = !adv.mission && !adv.bossAssigned;
+    const isAlive   = (adv.hp ?? 0) > 0;       // dead heroes must be manually revived
+    const isResting = adv.tavernResting === true; // must be explicitly assigned to tavern
     const needsHeal = (adv.hp ?? 0) < (adv.maxHp ?? 1);
-    if (!isIdle || !needsHeal) return adv;
+    if (!isIdle || !isAlive || !isResting || !needsHeal) return adv;
     return { ...adv, hp: Math.min(adv.maxHp ?? adv.hp, (adv.hp ?? 0) + regenPerPulse) };
   });
   return next;
@@ -5706,6 +5745,22 @@ export function tickAdventurerMissionsAt(state, nowMs) {
     if (result) {
       next = { ...next, pendingAutoBattleResult: { ...result, adventurerId: adv.id } };
     }
+  }
+  // Auto-rest: if tavern is built, any hero who just returned (idle, alive, not full HP)
+  // automatically starts resting so the player doesn't have to manually press "Rest".
+  if (isTownBuildingBuilt(next, "tavern")) {
+    next = {
+      ...next,
+      adventurers: (next.adventurers ?? []).map((a) => {
+        if (a.mission) return a;                      // still on a mission
+        if (a.pendingAutoCollect) return a;           // waiting for collect tap
+        if (a.bossAssigned) return a;                 // in boss fight
+        if ((a.hp ?? 0) <= 0) return a;               // dead — must be revived manually
+        if (a.tavernResting) return a;                // already resting
+        if ((a.hp ?? 0) >= (a.maxHp ?? 1)) return a; // full HP, no need
+        return { ...a, tavernResting: true };
+      }),
+    };
   }
   return next;
 }

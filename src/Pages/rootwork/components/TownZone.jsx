@@ -8,9 +8,8 @@ import {
   TOWN_HALL_L3_IRON, TOWN_HALL_L3_LUMBER, TOWN_HALL_L3_FITTING,
   TOWN_HALL_L4_FITTING, TOWN_HALL_L4_CRATE,
   PERSON_IDLE_FOOD_COST, PERSON_WORKING_FOOD_COST, BREAD_FOOD_UNITS,
-  TOWN_CLINIC_COST, TOWN_SCHOOL_COST,
+  TOWN_SCHOOL_COST,
   TAVERN_LEVEL_COSTS, TAVERN_LEVEL_IRON, TAVERN_LEVEL_LUMBER, TAVERN_LEVEL_REGEN,
-  CLINIC_BASE_CAP, CLINIC_CAP_PER_MEDIC,
   FOOD_HALL_SAT_CEILING, FOOD_HALL_FOOD_MODE,
   TOWN_FOOD_HALL_COST, TOWN_FOOD_HALL_TIER2_COST, TOWN_FOOD_HALL_TIER3_COST,
   TOWN_FOOD_HALL_TIER2_REQUIRES, TOWN_FOOD_HALL_TIER3_REQUIRES,
@@ -209,7 +208,6 @@ export default function TownZone({
   })();
 
   // Building state shortcuts
-  const clinicBuilt   = buildings.clinic?.built === true;
   const foodHallTier  = buildings.food_hall?.tier ?? 0;
   const foodHallBuilt = foodHallTier > 0;
   const warehouseBuilt = buildings.warehouse?.built === true;
@@ -225,7 +223,6 @@ export default function TownZone({
   const tavernBuilt      = tavernLevel > 0;
   const schoolBuilt      = buildings.school?.built === true;
 
-  const clinicWorkers = buildings.clinic?.workers ?? 0;
   const schoolWorkers = buildings.school?.workers ?? 0;
 
   const homeCost    = getTownHomeCost(game);
@@ -353,7 +350,7 @@ export default function TownZone({
           >
             <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
               Each home adds {TOWN_HOME_CAPACITY} population capacity. Workers and adventurers
-              require population slots. Clinic caps how many can actually move in.
+              each require one population slot.
             </div>
             <Row label="Homes built" value={town.homes ?? 0} />
             <Row label="Capacity" value={`${people} / ${capacity}`} sub="(clinic-capped)" />
@@ -364,47 +361,17 @@ export default function TownZone({
             </button>
           </BuildingCard>
 
-          {/* ── Clinic ─────────────────────────────────────────────────── */}
-          <BuildingCard emoji="🏥" title="Clinic"
-            badge={clinicBuilt ? `${clinicWorkers} medics` : "Not built"}
-            badgeColor={clinicBuilt ? "#4ade80" : "#f59e0b"}
-          >
-            <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
-              Hard-caps how many people can live here. Without the clinic nobody moves in past {CLINIC_BASE_CAP}.
-              Each medic raises the cap by +{CLINIC_CAP_PER_MEDIC}.
-            </div>
-            <Row label="Current pop cap" value={capacity} />
-            <Row label="Base cap (no medics)" value={CLINIC_BASE_CAP} />
-            <Row label="Cap per medic" value={`+${CLINIC_CAP_PER_MEDIC}`} />
-            {clinicBuilt ? (
-              <>
-                <Row label="Medics assigned" value={clinicWorkers} />
-                <WorkerAssigner
-                  workers={clinicWorkers} maxWorkers={8} freePeople={freePeople}
-                  onAdd={() => onAssignTownBuildingWorker("clinic", 1)}
-                  onRemove={() => onAssignTownBuildingWorker("clinic", -1)}
-                />
-              </>
-            ) : (
-              <>
-                <CostLine cash={cash} cashCost={TOWN_CLINIC_COST} />
-                <button onClick={() => onBuildTownBuilding("clinic")} disabled={cash < TOWN_CLINIC_COST} className="btn w-full"
-                  style={{ marginTop: "0.5rem", opacity: cash >= TOWN_CLINIC_COST ? 1 : 0.5 }}>
-                  Build Clinic — ${fmt(TOWN_CLINIC_COST)}
-                </button>
-              </>
-            )}
-          </BuildingCard>
-
           {/* ── Food Hall ──────────────────────────────────────────────── */}
           <BuildingCard emoji="🍽️" title="Food Hall"
             badge={foodHallBuilt ? `Tier ${foodHallTier} · ${foodModeLabel} mode` : "Not built"}
             badgeColor={foodHallBuilt ? "#4ade80" : "#f59e0b"}
           >
             <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
-              Sets how well the town is fed and the satisfaction ceiling. Upgrading tiers
-              switches food mode and raises the ceiling — workers move faster.
+              Sets the satisfaction ceiling and what food the town consumes each pulse.
+              Bread always feeds — jam and sauce match the bread cost for the sat bonus.
             </div>
+
+            {/* Tier grid */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.4rem", marginBottom: "0.6rem" }}>
               {FOOD_HALL_FOOD_MODE.map((mode, tier) => {
                 const emoji = { wheat: "🌾", bread: "🍞", jam: "🍯", sauce: "🥫" }[mode];
@@ -424,6 +391,55 @@ export default function TownZone({
                 );
               })}
             </div>
+
+            {/* Live food cost breakdown */}
+            {(() => {
+              const idlePpl = Math.max(0, people - totalWorkers);
+              const foodUnits = (idlePpl * PERSON_IDLE_FOOD_COST) + (totalWorkers * PERSON_WORKING_FOOD_COST);
+              const breadCost = foodUnits === 0 ? 0 : Math.max(1, Math.ceil(foodUnits / BREAD_FOOD_UNITS));
+              const wheatCost = foodUnits;
+              const modeEmoji = { wheat: "🌾", bread: "🍞", jam: "🍯", sauce: "🥫" }[foodMode] ?? "🌾";
+              const breadHave  = Math.floor(game.artisan?.bread ?? 0);
+              const jamHave    = Math.floor(game.artisan?.jam   ?? 0);
+              const sauceHave  = Math.floor(game.artisan?.sauce ?? 0);
+              const wheatHave  = Math.floor(game.crops?.wheat   ?? 0);
+
+              const rows = [];
+              if (foodMode === "wheat") {
+                rows.push({ emoji: "🌾", label: "Wheat / pulse", cost: wheatCost, have: wheatHave });
+              } else {
+                rows.push({ emoji: "🍞", label: "Bread / pulse", cost: breadCost, have: breadHave });
+                if (foodMode === "jam" || foodMode === "sauce") {
+                  rows.push({ emoji: "🍯", label: "Jam / pulse", cost: breadCost, have: jamHave });
+                }
+                if (foodMode === "sauce") {
+                  rows.push({ emoji: "🥫", label: "Sauce / pulse", cost: breadCost, have: sauceHave });
+                }
+              }
+
+              return (
+                <div style={{ background: "var(--bg)", borderRadius: 8, padding: "0.5rem 0.6rem", marginBottom: "0.6rem" }}>
+                  <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.35rem", fontWeight: 600 }}>
+                    {modeEmoji} Next pulse cost — {people} people, {totalWorkers} working
+                  </div>
+                  <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
+                    Food units needed: <strong style={{ color: "var(--text)" }}>{foodUnits}</strong>
+                    <span style={{ fontSize: "0.62rem" }}> ({idlePpl} idle ×{PERSON_IDLE_FOOD_COST} + {totalWorkers} working ×{PERSON_WORKING_FOOD_COST})</span>
+                  </div>
+                  {rows.map(({ emoji, label, cost, have }) => (
+                    <div key={label} style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", marginBottom: "0.15rem" }}>
+                      <span style={{ color: "var(--muted)" }}>{emoji} {label}</span>
+                      <span style={{ fontWeight: 700, color: have >= cost ? "#4ade80" : "#ef4444" }}>
+                        {cost} <span style={{ fontWeight: 400, fontSize: "0.65rem", color: "var(--muted)" }}>({have} on hand)</span>
+                      </span>
+                    </div>
+                  ))}
+                  {starving && (
+                    <div style={{ marginTop: "0.3rem", fontSize: "0.68rem", color: "#ef4444", fontWeight: 700 }}>⚠ Town is starving!</div>
+                  )}
+                </div>
+              );
+            })()}
             {!foodHallBuilt ? (
               <>
                 <CostLine cash={cash} cashCost={TOWN_FOOD_HALL_COST} />
@@ -499,6 +515,17 @@ export default function TownZone({
               </>
             ) : (
               <>
+                <div style={{ background: "var(--bg)", borderRadius: 8, padding: "0.5rem 0.6rem", marginBottom: "0.5rem" }}>
+                  <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.3rem", fontWeight: 600 }}>
+                    📦 Storage without warehouse
+                  </div>
+                  <div style={{ fontSize: "0.72rem", color: "#ef4444", marginBottom: "0.2rem" }}>
+                    150
+                  </div>
+                  <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.3rem" }}>
+                    After building: <strong style={{ color: "var(--text)" }}>{fmt(WAREHOUSE_BASE_CAP[0])}</strong> per crop (+ {fmt(WAREHOUSE_CAP_PER_WORKER[0])} per worker)
+                  </div>
+                </div>
                 <CostLine cash={cash} cashCost={TOWN_WAREHOUSE_COST} />
                 <button onClick={onBuildWarehouse} disabled={cash < TOWN_WAREHOUSE_COST} className="btn w-full"
                   style={{ marginTop: "0.5rem", opacity: cash >= TOWN_WAREHOUSE_COST ? 1 : 0.5 }}>
@@ -597,58 +624,6 @@ export default function TownZone({
             )}
           </BuildingCard>
 
-          {/* ── Guild Hall ─────────────────────────────────────────────── */}
-          <BuildingCard emoji="⚔️" title="Guild Hall"
-            badge={guildHallBuilt ? `Level ${guildHallLevel}` : "Not built"}
-            badgeColor={guildHallBuilt ? "#4ade80" : "#f59e0b"}
-            locked={!th2} lockedMsg="Requires Town Hall level 2"
-          >
-            <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
-              Unlocks quest tiers and additional hero slots. Without the Guild Hall only
-              beginner zones and your starter hero are available.
-            </div>
-            {guildHallBuilt ? (
-              <>
-                <Row label="Max heroes" value={GUILD_HALL_MAX_HEROES[guildHallLevel]} />
-                <Row label="Quest tier unlocked" value={`Tier ${GUILD_HALL_QUEST_TIER[guildHallLevel]}`} />
-                {guildHallLevel < 3 && (
-                  <>
-                    <div style={{ marginTop: "0.5rem", paddingTop: "0.4rem", borderTop: "1px solid var(--border)" }}>
-                      <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
-                        Upgrade to Level {guildHallLevel + 1} — {GUILD_HALL_MAX_HEROES[guildHallLevel + 1]} heroes, Quest Tier {GUILD_HALL_QUEST_TIER[guildHallLevel + 1]}
-                      </div>
-                      <CostLine
-                        cash={cash}
-                        cashCost={GUILD_HALL_LEVEL_COSTS[guildHallLevel - 1]}
-                        materials={GUILD_HALL_LEVEL_REQUIRES[guildHallLevel - 1]}
-                        have={{ iron_ore: worldRes.iron_ore ?? 0, lumber: worldRes.lumber ?? 0, iron_fitting: have("iron_fitting"), reinforced_crate: have("reinforced_crate") }}
-                      />
-                    </div>
-                    <button onClick={onUpgradeGuildHall} className="btn w-full" style={{ marginTop: "0.5rem" }}>
-                      Upgrade Guild Hall
-                    </button>
-                  </>
-                )}
-              </>
-            ) : (
-              <>
-                <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
-                  Level 1 unlocks 2 heroes and Tier 2 quests
-                </div>
-                <CostLine cash={cash} cashCost={TOWN_GUILD_HALL_COST}
-                  materials={GUILD_HALL_LEVEL_REQUIRES[0]}
-                  have={{ iron_ore: worldRes.iron_ore ?? 0, lumber: worldRes.lumber ?? 0 }}
-                />
-                <button onClick={onBuildGuildHall}
-                  disabled={cash < TOWN_GUILD_HALL_COST}
-                  className="btn w-full"
-                  style={{ marginTop: "0.5rem", opacity: cash >= TOWN_GUILD_HALL_COST ? 1 : 0.5 }}>
-                  Build Guild Hall — ${fmt(TOWN_GUILD_HALL_COST)}
-                </button>
-              </>
-            )}
-          </BuildingCard>
-
           {/* ── Tavern ─────────────────────────────────────────────────── */}
           <BuildingCard emoji="🍺" title="Tavern"
             badge={tavernBuilt ? `Level ${tavernLevel} · ${TAVERN_LEVEL_REGEN[tavernLevel - 1]} HP/s regen` : "Not built"}
@@ -700,6 +675,58 @@ export default function TownZone({
                   className="btn w-full"
                   style={{ marginTop: "0.5rem", opacity: cash >= TAVERN_LEVEL_COSTS[0] ? 1 : 0.5 }}>
                   Build Tavern — ${fmt(TAVERN_LEVEL_COSTS[0])}
+                </button>
+              </>
+            )}
+          </BuildingCard>
+
+          {/* ── Guild Hall ─────────────────────────────────────────────── */}
+          <BuildingCard emoji="⚔️" title="Guild Hall"
+            badge={guildHallBuilt ? `Level ${guildHallLevel}` : "Not built"}
+            badgeColor={guildHallBuilt ? "#4ade80" : "#f59e0b"}
+            locked={!th2} lockedMsg="Requires Town Hall level 2"
+          >
+            <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
+              Unlocks quest tiers and additional hero slots. Without the Guild Hall only
+              beginner zones and your starter hero are available.
+            </div>
+            {guildHallBuilt ? (
+              <>
+                <Row label="Max heroes" value={GUILD_HALL_MAX_HEROES[guildHallLevel]} />
+                <Row label="Quest tier unlocked" value={`Tier ${GUILD_HALL_QUEST_TIER[guildHallLevel]}`} />
+                {guildHallLevel < 3 && (
+                  <>
+                    <div style={{ marginTop: "0.5rem", paddingTop: "0.4rem", borderTop: "1px solid var(--border)" }}>
+                      <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
+                        Upgrade to Level {guildHallLevel + 1} — {GUILD_HALL_MAX_HEROES[guildHallLevel + 1]} heroes, Quest Tier {GUILD_HALL_QUEST_TIER[guildHallLevel + 1]}
+                      </div>
+                      <CostLine
+                        cash={cash}
+                        cashCost={GUILD_HALL_LEVEL_COSTS[guildHallLevel - 1]}
+                        materials={GUILD_HALL_LEVEL_REQUIRES[guildHallLevel - 1]}
+                        have={{ iron_ore: worldRes.iron_ore ?? 0, lumber: worldRes.lumber ?? 0, iron_fitting: have("iron_fitting"), reinforced_crate: have("reinforced_crate") }}
+                      />
+                    </div>
+                    <button onClick={onUpgradeGuildHall} className="btn w-full" style={{ marginTop: "0.5rem" }}>
+                      Upgrade Guild Hall
+                    </button>
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
+                  Level 1 unlocks 2 heroes and Tier 2 quests
+                </div>
+                <CostLine cash={cash} cashCost={TOWN_GUILD_HALL_COST}
+                  materials={GUILD_HALL_LEVEL_REQUIRES[0]}
+                  have={{ iron_ore: worldRes.iron_ore ?? 0, lumber: worldRes.lumber ?? 0 }}
+                />
+                <button onClick={onBuildGuildHall}
+                  disabled={cash < TOWN_GUILD_HALL_COST}
+                  className="btn w-full"
+                  style={{ marginTop: "0.5rem", opacity: cash >= TOWN_GUILD_HALL_COST ? 1 : 0.5 }}>
+                  Build Guild Hall — ${fmt(TOWN_GUILD_HALL_COST)}
                 </button>
               </>
             )}
@@ -781,14 +808,13 @@ export default function TownZone({
             </summary>
             <div className="card p-3" style={{ marginTop: "0.4rem", fontSize: "0.7rem", color: "var(--muted)", lineHeight: 1.8 }}>
               <div>• <strong style={{ color: "var(--text)" }}>Satisfaction</strong> multiplies all worker speed. Floor 25%. Ceiling set by Food Hall tier.</div>
-              <div>• <strong style={{ color: "var(--text)" }}>Clinic</strong> hard-caps how many people can move in — expand it or population stops growing.</div>
               <div>• <strong style={{ color: "var(--text)" }}>Warehouse</strong> caps crop storage. Overflow is lost — workers increase the cap.</div>
               <div>• <strong style={{ color: "var(--text)" }}>Kitchen/Market Halls</strong> gate worker counts. Upgrade to hire more.</div>
               <div>• <strong style={{ color: "var(--text)" }}>Guild Hall</strong> gates hero count and quest tiers.</div>
               <div>• <strong style={{ color: "var(--text)" }}>Tavern</strong> auto-regens idle heroes. No manual feeding needed when they're resting.</div>
               <div>• <strong style={{ color: "var(--text)" }}>School</strong> unlocks upgrades using mana crystals instead of cash.</div>
               <div>• Idle people cost {PERSON_IDLE_FOOD_COST} food/pulse. Workers cost {PERSON_WORKING_FOOD_COST} food/pulse.</div>
-              <div>• 1 bread = {BREAD_FOOD_UNITS} food units. Jam = 2× bread efficiency. Sauce = 4× bread efficiency.</div>
+              <div>• 1 bread feeds {BREAD_FOOD_UNITS} food units. Jam + sauce must match bread quantity each pulse — they earn the satisfaction ceiling, not extra food.</div>
             </div>
           </details>
 

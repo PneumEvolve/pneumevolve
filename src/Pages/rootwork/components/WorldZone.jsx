@@ -1,7 +1,7 @@
 // src/Pages/rootwork/components/WorldZone.jsx
 import React, { useState, useEffect, useRef } from "react";
 import { WORLD_ZONES, ADVENTURER_CLASSES, FORGE_RECIPES, ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST, ADVENTURER_BUFF_ITEMS, ADVENTURER_BUFF_LIST, WORLD_RESOURCES, HERO_SKILLS, HERO_SKILL_TREES, HERO_CLASS_META, HERO_PRESTIGE_COST_BASE, HERO_DIP_TREE_PRESTIGE_TIER1, HERO_DIP_TREE_PRESTIGE_TIER2, BOSS_DEFS, BOSS_ABILITIES, BOSS_UNLOCK_LEVEL, BOSS_TICK_INTERVAL, generateInfiniteBoss } from "../gameConstants";
-import { getAdventurerSlotCost, getAdventurerSlotUnlocked, setHeroFillFood } from "../gameEngine";
+import { getAdventurerSlotCost, getMaxHeroes, setHeroFillFood } from "../gameEngine";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -1053,11 +1053,11 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
   });
 
   // Tavern rest
-  const tavernBuilt = game.town?.townBuildings?.tavern?.built === true;
+  const tavernBuilt = game.town?.buildings?.tavern?.built === true;
   const isResting = !!adventurer.tavernResting;
-  const tavernMode = game.town?.townBuildings?.tavern?.mode ?? "jam";
-  const tavernStocked = game.town?.townBuildings?.tavern?.stocked !== false;
-  const tavernWorkers = game.town?.townBuildings?.tavern?.workers ?? 0;
+  const tavernMode = game.town?.buildings?.tavern?.mode ?? "jam";
+  const tavernStocked = game.town?.buildings?.tavern?.stocked !== false;
+  const tavernWorkers = game.town?.buildings?.tavern?.workers ?? 0;
 
   // Auto battle potion check
   const potionCount = game.forgeGoods?.health_potion ?? 0;
@@ -2100,15 +2100,20 @@ export default function WorldZone({
 
           {/* Hire adventurer slot */}
           {(() => {
-            const slotUnlocked = getAdventurerSlotUnlocked(game);
             const cost = getAdventurerSlotCost(game);
             const canAfford = (game.cash ?? 0) >= (cost ?? 0);
-            const nextSeason = (game.adventurers ?? []).length + 1;
+            const heroCount = (game.adventurers ?? []).length;
+            const maxHeroes = getMaxHeroes(game);
+            const atGuildCap = heroCount >= maxHeroes;
+            const gh = game.town?.buildings?.guild_hall;
+            const ghBuilt = gh?.built ?? false;
+            const ghLevel = gh?.level ?? 0;
             if (cost === null) return null;
-            if (!slotUnlocked) {
+            if (atGuildCap) {
+              const upgradeNeeded = ghBuilt ? `Upgrade Guild Hall to Level ${ghLevel + 1}` : "Build a Guild Hall in Town";
               return (
                 <div style={{ width: "100%", marginTop: "0.75rem", padding: "0.75rem", background: "rgba(255,255,255,0.02)", border: "1px dashed var(--border)", borderRadius: "12px", color: "var(--muted)", fontWeight: 600, fontSize: "0.82rem", textAlign: "center" }}>
-                  🔒 Next hero slot unlocks Season {nextSeason} · ${cost?.toLocaleString()}
+                  ⚔️ {upgradeNeeded} to unlock another hero slot
                 </div>
               );
             }
