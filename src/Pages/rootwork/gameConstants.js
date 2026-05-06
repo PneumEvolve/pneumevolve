@@ -453,7 +453,7 @@ export const KITCHEN_HALL_LEVEL_REQUIRES = [
   { iron_ore: 10, lumber: 8 },
   { iron_ore: 20, lumber: 15, iron_fitting: 2 },
 ];
-export const KITCHEN_HALL_MAX_WORKERS  = [1, 2, 4]; // per level (1, 2, 3)
+export const KITCHEN_HALL_MAX_WORKERS  = [2, 4, 6]; // per level (1, 2, 3)
 export const KITCHEN_HALL_RETAIN_COUNT = [0, 1, 2]; // auto-retain on prestige per level
 
 // ── Market Hall ───────────────────────────────────────────────────────────────
@@ -464,7 +464,7 @@ export const MARKET_HALL_LEVEL_REQUIRES = [
   { iron_ore: 10, lumber: 8 },
   { iron_ore: 25, lumber: 20, iron_fitting: 3 },
 ];
-export const MARKET_HALL_MAX_WORKERS  = [1, 2, 4];   // per level
+export const MARKET_HALL_MAX_WORKERS  = [2, 4, 6];   // per level
 export const MARKET_HALL_PRICE_BONUS  = [0, 10, 25]; // % sell price bonus per level
 export const MARKET_HALL_RETAIN_COUNT = [0, 1, 2];   // auto-retain on prestige per level
 
