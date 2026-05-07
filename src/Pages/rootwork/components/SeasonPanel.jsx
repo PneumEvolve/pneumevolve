@@ -14,7 +14,7 @@ import {
   getTreasuryGrowBonus, getFishMealGrowBonus, getSchoolGrowBonus,
   getAvailablePrestigePoints, getBarnPrestigeReady,
   getBarnInstanceSupplyRate, getBarnInstanceDemandRate, getCompletedQuestIds,
-  evaluateQuestCondition
+  evaluateQuestCondition,
 } from "../gameEngine";
  
 function FarmChecklist({ farm, game }) {
@@ -224,7 +224,7 @@ function QuestProgressBar({ tracker, done }) {
 }
 
 
-export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }) {
+export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset, onClaimQuestReward }) {
   const isExtraFarmSeason = game.season >= FIRST_EXTRA_FARM_SEASON;
   const farmsToCheck = isExtraFarmSeason
     ? game.farms
