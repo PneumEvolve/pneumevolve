@@ -971,8 +971,6 @@ export function upgradeKitchenHall(state) {
   const level = kh.level ?? 1;
   const cost = getKitchenHallUpgradeCost(level);
   const requires = getKitchenHallUpgradeRequires(level);
-  const thLevel = getTownHallLevel(state);
-  if (thLevel < 3) return state; // upgrades need TH3
   if ((state.cash ?? 0) < cost) return state;
   if (!canAffordUpgradeMaterials(state, requires)) return state;
   const next = deepCloneState(state);
@@ -1011,8 +1009,6 @@ export function upgradeMarketHall(state) {
   const level = mh.level ?? 1;
   const cost = getMarketHallUpgradeCost(level);
   const requires = getMarketHallUpgradeRequires(level);
-  const thLevel = getTownHallLevel(state);
-  if (thLevel < 3) return state;
   if ((state.cash ?? 0) < cost) return state;
   if (!canAffordUpgradeMaterials(state, requires)) return state;
   const next = deepCloneState(state);

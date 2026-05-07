@@ -388,8 +388,8 @@ function ForgeWorkerCard({ worker, workerNumber, game, expanded, onToggle, onAss
                 </span>
               ))}
             </div>
-            <div style={{ fontSize: "0.62rem", color: idle ? "#fbbf24" : "#4ade80" }}>
-              {idle ? "⏸ idle" : recipe ? `⚒️ ${recipe.name}` : "working"}
+            <div style={{ fontSize: "0.62rem", color: idle && !worker.lastRecipeId ? "#fbbf24" : "#4ade80" }}>
+              {idle ? (worker.lastRecipeId ? `✓ Done — ${FORGE_RECIPES[worker.lastRecipeId]?.emoji} ${FORGE_RECIPES[worker.lastRecipeId]?.name}` : "⏸ idle") : recipe ? `⚒️ ${recipe.name}` : "working"}
             </div>
           </div>
           <span style={{ fontSize: "0.65rem", color: "var(--muted)", flexShrink: 0 }}>{expanded ? "▲" : "▼"}</span>
