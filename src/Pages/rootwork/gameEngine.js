@@ -1076,10 +1076,7 @@ export function getTownSatisfactionMultiplier(state) {
 }
  
 export function getTownFoodReserve(state) {
-  // Food mode is now driven by food_hall tier (0=wheat, 1=bread, 2=jam, 3=sauce)
-  // Legacy bakeryOn flag used as fallback for saves that haven't migrated yet
-  const foodHallTier = state.town?.buildings?.food_hall?.tier ?? 0;
-  const usingBread = foodHallTier >= 1 || (state.town?.bakeryOn === true && (state.town?.bakeryLevel ?? 0) >= 1);
+  const foodMode = state.town?.foodMode ?? "wheat";
   const people = Math.floor(state.town?.people ?? 0);
   const totalWorkers = getTotalWorkersHired(state);
   const idlePeople = Math.max(0, people - totalWorkers);
@@ -1091,8 +1088,8 @@ export function getTownFoodReserve(state) {
   const petCost = Object.keys(state.pets ?? {}).reduce((sum, petId) => sum + PET_FOOD_COST, 0);
   const totalFoodUnits = peopleCost + animalCost + petCost;
 
-  if (usingBread) return Math.max(1, Math.ceil(totalFoodUnits / BREAD_FOOD_UNITS));
-  return totalFoodUnits;
+  if (foodMode === "wheat") return totalFoodUnits;
+  return Math.max(1, Math.ceil(totalFoodUnits / BREAD_FOOD_UNITS));
 }
  
 export function getSmartSellAmount(state, itemType) {
