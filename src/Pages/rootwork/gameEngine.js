@@ -911,7 +911,7 @@ export function setFoodMode(state, mode) {
   const tierForMode = { wheat: 0, bread: 1, jam: 2, sauce: 3 };
   const required = tierForMode[mode] ?? 999;
   if (required > tier) return state; // mode not unlocked yet
-  const next = { ...state, town: { ...state.town, selectedFoodMode: mode } };
+  const next = { ...state, town: { ...state.town, selectedFoodMode: mode, foodMode: mode } };
   return next;
 }
 
@@ -2555,7 +2555,6 @@ export function updateTown(state, seconds = 1) {
 
     // Sync foodMode onto town for UI reads
     next.town.foodMode = foodMode;
-    next.town.selectedFoodMode = foodMode; // keep in sync for UI
 
     // ── Calculate food needed ─────────────────────────────────────────────
     const idlePeople     = Math.max(0, people - totalWorkers);
