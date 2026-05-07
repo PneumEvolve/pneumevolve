@@ -159,6 +159,7 @@ export default function TownZone({
   // New building actions — wired up in RootWork
   onBuildFoodHall,
   onUpgradeFoodHall,
+  onSetFoodMode,
   onBuildWarehouse,
   onUpgradeWarehouse,
   onBuildKitchenHall,
@@ -253,12 +254,21 @@ export default function TownZone({
       <div style={{ display: "flex", gap: "0.4rem", marginBottom: "1rem" }}>
         {[["town", "🏘️ Town"], ["stats", "📊 Stats"], ["season", "🌿 Season"]].map(([id, label]) => (
           <button key={id} onClick={() => setSubTab(id)} className="btn"
-            style={{ flex: 1, fontSize: "0.75rem", padding: "0.4rem",
+            style={{ flex: 1, fontSize: "0.75rem", padding: "0.4rem", position: "relative",
               background: subTab === id ? "var(--accent)" : "var(--card)",
               color: subTab === id ? "#fff" : "var(--text)",
               border: `1px solid ${subTab === id ? "var(--accent)" : "var(--border)"}`,
             }}>
             {label}
+            {id === "season" && prestigeReady && (
+              <span style={{
+                position: "absolute", top: "3px", right: "5px",
+                background: "#f59e0b", color: "#fff",
+                fontSize: "0.5rem", fontWeight: 700,
+                borderRadius: "999px", padding: "1px 4px",
+                lineHeight: 1.4,
+              }}>🌱</span>
+            )}
           </button>
         ))}
       </div>
@@ -371,22 +381,28 @@ export default function TownZone({
               Bread always feeds — jam and sauce match the bread cost for the sat bonus.
             </div>
 
-            {/* Tier grid */}
+            {/* Tier grid — click any unlocked mode to switch */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.4rem", marginBottom: "0.6rem" }}>
               {FOOD_HALL_FOOD_MODE.map((mode, tier) => {
                 const emoji = { wheat: "🌾", bread: "🍞", jam: "🍯", sauce: "🥫" }[mode];
-                const active = foodHallTier === tier;
+                // "wheat" (tier 0) is always selectable once the Food Hall is built; others require foodHallTier >= tier
+                const selectable = foodHallBuilt && (tier === 0 || foodHallTier >= tier);
+                const active = foodMode === mode;
                 const unlocked = foodHallTier >= tier;
                 return (
-                  <div key={tier} style={{
-                    textAlign: "center", padding: "0.4rem 0.2rem", borderRadius: 8,
-                    border: `1px solid ${active ? "#4ade80" : "var(--border)"}`,
-                    background: active ? "rgba(74,222,128,0.1)" : unlocked ? "var(--bg)" : "transparent",
-                    opacity: unlocked ? 1 : 0.4,
-                  }}>
+                  <div key={tier}
+                    onClick={selectable && !active ? () => onSetFoodMode(mode) : undefined}
+                    style={{
+                      textAlign: "center", padding: "0.4rem 0.2rem", borderRadius: 8,
+                      border: `1px solid ${active ? "#4ade80" : selectable ? "var(--border)" : "var(--border)"}`,
+                      background: active ? "rgba(74,222,128,0.1)" : unlocked ? "var(--bg)" : "transparent",
+                      opacity: unlocked ? 1 : 0.4,
+                      cursor: selectable && !active ? "pointer" : "default",
+                      transition: "border-color 0.15s, background 0.15s",
+                    }}>
                     <div style={{ fontSize: "1rem" }}>{emoji}</div>
-                    <div style={{ fontSize: "0.6rem", fontWeight: 700, color: "var(--text)" }}>{mode}</div>
-                    <div style={{ fontSize: "0.58rem", color: "#4ade80" }}>{FOOD_HALL_SAT_CEILING[tier]}% ceil</div>
+                    <div style={{ fontSize: "0.6rem", fontWeight: 700, color: active ? "#4ade80" : "var(--text)" }}>{mode}</div>
+                    <div style={{ fontSize: "0.58rem", color: active ? "#4ade80" : "#a3e635" }}>{FOOD_HALL_SAT_CEILING[tier]}% ceil</div>
                   </div>
                 );
               })}

@@ -56,12 +56,17 @@ export default function ResourceBar({ game }) {
   const effectivePulse = getEffectivePulseSeconds(game);
   const pulseSecondsLeft = Math.ceil(Math.max(0, game.town?.pulseSeconds ?? effectivePulse));
   const pulsePct = Math.min(100, (1 - pulseSecondsLeft / effectivePulse) * 100);
-  const bakeryOn = game.town?.bakeryOn === true && (game.town?.bakeryLevel ?? 0) >= 1;
-  const foodEmoji = bakeryOn ? "🍞" : "🌾";
+  const foodMode = game.town?.foodMode ?? "wheat";
+  const foodEmoji = { wheat: "🌾", bread: "🍞", jam: "🍯", sauce: "🥫" }[foodMode] ?? "🌾";
   const foodNeeded = getTownFoodReserve(game);
-  const foodHave = bakeryOn
+  // Show the primary stock that determines if the town is fed
+  const foodHave = foodMode === "wheat"
+    ? Math.floor(game.crops?.wheat ?? 0)
+    : foodMode === "bread"
     ? Math.floor(game.artisan?.bread ?? 0)
-    : Math.floor(game.crops?.wheat ?? 0);
+    : foodMode === "jam"
+    ? Math.min(Math.floor(game.artisan?.bread ?? 0), Math.floor(game.artisan?.jam ?? 0))
+    : Math.min(Math.floor(game.artisan?.bread ?? 0), Math.floor(game.artisan?.jam ?? 0), Math.floor(game.artisan?.sauce ?? 0));
   const canFeed = foodHave >= foodNeeded;
 
   const satColor = satisfaction >= 110 ? "#4ade80"

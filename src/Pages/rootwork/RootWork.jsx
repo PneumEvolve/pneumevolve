@@ -46,7 +46,7 @@ import {
   acknowledgeBossVictory, reviveHeroInBossFight,
   assignHeroToTavern, removeHeroFromTavern,
   // New town building actions
-  buildFoodHall, upgradeFoodHall,
+  buildFoodHall, upgradeFoodHall, setFoodMode,
   buildWarehouse, upgradeWarehouse,
   buildKitchenHall, upgradeKitchenHall,
   buildMarketHall, upgradeMarketHall,
@@ -643,6 +643,7 @@ if (wf) {
   // New town building handlers
   const handleBuildFoodHall    = useCallback(() => update((s) => { const n = buildFoodHall(s);    if (n === s) notify('Not enough cash.'); return n; }), [update, notify]);
   const handleUpgradeFoodHall  = useCallback(() => update((s) => { const n = upgradeFoodHall(s);  if (n === s) notify('Cannot upgrade Food Hall.'); return n; }), [update, notify]);
+  const handleSetFoodMode      = useCallback((mode) => update((s) => setFoodMode(s, mode)), [update]);
   const handleBuildWarehouse   = useCallback(() => update((s) => { const n = buildWarehouse(s);   if (n === s) notify('Not enough cash.'); return n; }), [update, notify]);
   const handleUpgradeWarehouse = useCallback(() => update((s) => { const n = upgradeWarehouse(s); if (n === s) notify('Cannot upgrade Warehouse.'); return n; }), [update, notify]);
   const handleBuildKitchenHall   = useCallback(() => update((s) => { const n = buildKitchenHall(s);   if (n === s) notify('Requires Town Hall level 1.'); return n; }), [update, notify]);
@@ -1007,6 +1008,7 @@ if (wf) {
               onReset={handleResetGame}
               onBuildFoodHall={handleBuildFoodHall}
               onUpgradeFoodHall={handleUpgradeFoodHall}
+              onSetFoodMode={handleSetFoodMode}
               onBuildWarehouse={handleBuildWarehouse}
               onUpgradeWarehouse={handleUpgradeWarehouse}
               onBuildKitchenHall={handleBuildKitchenHall}

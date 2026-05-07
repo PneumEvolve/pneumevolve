@@ -412,22 +412,31 @@ function ForgeWorkerCard({ worker, workerNumber, game, expanded, onToggle, onAss
           </button>
         )}
 
-        {/* Forge Again button — show when done with a previous recipe */}
-        {!worker.busy && !idle && recipe && (
-          <button
-            onClick={() => onAssign(worker.id, worker.recipeId)}
-            style={{
-              fontSize: "0.65rem", padding: "0.2rem 0.5rem",
-              borderRadius: "6px", cursor: "pointer", flexShrink: 0,
-              marginLeft: "0.5rem",
-              background: "rgba(245,158,11,0.1)",
-              border: "1px solid rgba(245,158,11,0.3)",
-              color: "#f59e0b", fontWeight: 600,
-            }}
-          >
-            ⚒️ Again
-          </button>
-        )}
+        {/* Craft Again button — show when done with a previous recipe */}
+        {!worker.busy && !idle && recipe && (() => {
+          const worldResources = game.worldResources ?? {};
+          const forgeGoods = game.forgeGoods ?? {};
+          const canCraftAgain = Object.entries(recipe.inputs).every(([key, needed]) => {
+            const have = (worldResources[key] ?? 0) + (forgeGoods?.[key] ?? 0);
+            return have >= needed;
+          });
+          return (
+            <button
+              onClick={() => canCraftAgain && onAssign(worker.id, worker.recipeId)}
+              disabled={!canCraftAgain}
+              style={{
+                fontSize: "0.65rem", padding: "0.2rem 0.5rem",
+                borderRadius: "6px", cursor: canCraftAgain ? "pointer" : "default", flexShrink: 0,
+                marginLeft: "0.5rem",
+                background: canCraftAgain ? "rgba(245,158,11,0.1)" : "rgba(255,255,255,0.04)",
+                border: `1px solid ${canCraftAgain ? "rgba(245,158,11,0.3)" : "var(--border)"}`,
+                color: canCraftAgain ? "#f59e0b" : "var(--muted)", fontWeight: 600,
+              }}
+            >
+              ⚒️ Again
+            </button>
+          );
+        })()}
       </div>
  
       {/* Progress bar always visible when working */}

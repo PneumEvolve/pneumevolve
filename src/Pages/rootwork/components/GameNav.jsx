@@ -30,6 +30,10 @@ export function FarmSubTabs({ game, activeFarmIndex, onFarmChange }) {
         const automated = isFarmAutomated(farm, game.workers);
         const isActive = activeFarmIndex === idx;
  
+        const hasWorkers = (game.workers ?? []).some((w) => w.farmId === farm.id);
+        const hasReady = (farm.plots ?? []).some((p) => p.state === "ready");
+        const needsAttention = !hasWorkers && hasReady;
+
         return (
           <button
             key={farm.id}
@@ -65,6 +69,15 @@ export function FarmSubTabs({ game, activeFarmIndex, onFarmChange }) {
               >
                 ✓
               </span>
+            )}
+            {needsAttention && (
+              <span style={{
+                position: "absolute", top: "4px", right: "6px",
+                background: "#ef4444", color: "#fff",
+                fontSize: "0.5rem", fontWeight: 700,
+                borderRadius: "999px", padding: "1px 3px",
+                lineHeight: 1.4, minWidth: "12px", textAlign: "center",
+              }}>!</span>
             )}
           </button>
         );
@@ -107,20 +120,41 @@ export default function GameNav({
  
   const availableWorkerSlots = getAvailableWorkerSlots(game);
  
-  const adventurerMissionDone = (game.adventurers ?? []).some((adv) => {
+  // World badge: red > yellow > green priority
+  const adventurers = game.adventurers ?? [];
+  const anyAdventurerDead = adventurers.some((adv) => (adv.hp ?? 1) <= 0);
+  const adventurerLootReady = adventurers.some((adv) => {
     if (adv.pendingAutoCollect) return true;
     if (!adv.mission) return false;
     const elapsed = (Date.now() - adv.mission.startTime) / 1000;
     return elapsed >= adv.mission.duration;
   });
+  const adventurerReadyToGo = adventurers.some((adv) =>
+    !adv.mission && !adv.tavernResting && (adv.hp ?? 0) >= (adv.maxHp ?? adv.hp ?? 1)
+  );
+  const worldBadge = anyAdventurerDead ? "💀"
+    : adventurerLootReady ? "!"
+    : adventurerReadyToGo ? "●"
+    : null;
+  const worldBadgeColor = anyAdventurerDead ? "#ef4444"
+    : adventurerLootReady ? "#fbbf24"
+    : "#4ade80";
  
+  // Farm badge: any farm with no workers but ready plots
+  const farms = game.farms ?? [];
+  const farmNeedsAttention = farms.some((farm) => {
+    const hasWorkers = (game.workers ?? []).some((w) => w.farmId === farm.id);
+    const hasReady = (farm.plots ?? []).some((p) => p.state === "ready");
+    return !hasWorkers && hasReady;
+  });
+
   const tabs = [
-    { id: "farms",    label: "Farms",    emoji: "🌱", badge: null },
+    { id: "farms",    label: "Farms",    emoji: "🌱", badge: farmNeedsAttention ? "!" : null, badgeColor: "#ef4444" },
     { id: "market",   label: "Market",   emoji: "💰", badge: marketQueueTotal > 0 ? marketQueueTotal : null, badgeColor: "#4ade80" },
     { id: "crafting", label: "Crafting", emoji: "🏭", badge: totalIdleCrafters > 0 ? totalIdleCrafters : null, badgeColor: "#ef4444" },
     { id: "animals",  label: "Animals",  emoji: "🐾", badge: unhappyAnimals > 0 ? "⚠" : readyAnimals > 0 ? readyAnimals : null, badgeColor: unhappyAnimals > 0 ? "#ef4444" : "#fbbf24" },
     { id: "town",     label: "Town",     emoji: "🏘️", badge: townUnlocked ? starvingTown ? "!" : prestigeReady ? "🌱" : availableWorkerSlots > 0 ? `+${availableWorkerSlots}` : null : null, badgeColor: starvingTown ? "#ef4444" : prestigeReady ? "#f59e0b" : "#4ade80" },
-    { id: "world",    label: "World",    emoji: "⚔️", badge: adventurerMissionDone ? "!" : null, badgeColor: "#4ade80" },
+    { id: "world",    label: "World",    emoji: "⚔️", badge: worldBadge, badgeColor: worldBadgeColor },
     { id: "view",     label: "Live",     emoji: "🗺️", badge: null },
   ];
  

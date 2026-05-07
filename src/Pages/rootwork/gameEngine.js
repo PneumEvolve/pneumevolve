@@ -883,6 +883,7 @@ export function buildFoodHall(state) {
   if (!next.town.buildings) next.town.buildings = {};
   next.town.buildings.food_hall = { built: true, tier: 1 };
   next.town.foodMode = FOOD_HALL_FOOD_MODE[1]; // bread mode
+  next.town.selectedFoodMode = FOOD_HALL_FOOD_MODE[1];
   return next;
 }
 
@@ -899,6 +900,18 @@ export function upgradeFoodHall(state) {
   consumeUpgradeMaterials(next, requires);
   next.town.buildings.food_hall.tier = tier + 1;
   next.town.foodMode = FOOD_HALL_FOOD_MODE[tier + 1];
+  return next;
+}
+
+
+export function setFoodMode(state, mode) {
+  const tier = state.town?.buildings?.food_hall?.tier ?? 0;
+  if (tier === 0) return state; // Food Hall not built
+  // Allowed modes: "wheat" always allowed; other modes require their tier to be unlocked
+  const tierForMode = { wheat: 0, bread: 1, jam: 2, sauce: 3 };
+  const required = tierForMode[mode] ?? 999;
+  if (required > tier) return state; // mode not unlocked yet
+  const next = { ...state, town: { ...state.town, selectedFoodMode: mode } };
   return next;
 }
 
@@ -2532,12 +2545,17 @@ export function updateTown(state, seconds = 1) {
   while (next.town.pulseSeconds <= 0) {
     const people       = Math.floor(Math.max(0, next.town.people ?? 0));
     const totalWorkers = getTotalWorkersHired(next);
-    const foodMode     = next.town.buildings?.food_hall?.tier > 0
-      ? FOOD_HALL_FOOD_MODE[next.town.buildings.food_hall.tier] ?? "wheat"
-      : "wheat";
+    const _fhTier      = next.town.buildings?.food_hall?.tier ?? 0;
+    const _selected    = next.town.selectedFoodMode ?? null;
+    // Player can choose any mode up to their unlocked tier; "wheat" always allowed
+    const _tierForMode = { wheat: 0, bread: 1, jam: 2, sauce: 3 };
+    const foodMode     = _fhTier > 0 && _selected && (_tierForMode[_selected] ?? 999) <= _fhTier
+      ? _selected
+      : _fhTier > 0 ? FOOD_HALL_FOOD_MODE[_fhTier] : "wheat";
 
     // Sync foodMode onto town for UI reads
     next.town.foodMode = foodMode;
+    next.town.selectedFoodMode = foodMode; // keep in sync for UI
 
     // ── Calculate food needed ─────────────────────────────────────────────
     const idlePeople     = Math.max(0, people - totalWorkers);
