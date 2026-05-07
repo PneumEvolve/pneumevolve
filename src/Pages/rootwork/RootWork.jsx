@@ -50,7 +50,7 @@ import {
   buildWarehouse, upgradeWarehouse,
   buildKitchenHall, upgradeKitchenHall,
   buildMarketHall, upgradeMarketHall,
-  buildGuildHall, upgradeGuildHall, getEffectiveGrowTime
+  buildGuildHall, upgradeGuildHall, getEffectiveGrowTime, claimQuestReward
 } from "./gameEngine";
 import {
   SAVE_KEY, SAVE_INTERVAL_MS,
@@ -854,6 +854,10 @@ if (wf) {
   }, [update]);
 
   // Prestige a hero (costs 3 skill pts + cash, resets to level 1, grants +1 permanent skill pt)
+  const handleClaimQuestReward = useCallback((questId) => {
+    update((s) => claimQuestReward(s, questId));
+  }, [update]);
+
   const handlePrestigeAdventurer = useCallback((adventurerId) => {
     update((s) => { const n = prestigeAdventurer(s, adventurerId); if (n === s) notify("Can't prestige — check skill points, cash, or hero must be alive."); return n; });
   }, [update, notify]);
@@ -1031,6 +1035,7 @@ if (wf) {
               onSetTreasuryCap={handleSetTreasuryCap}
               onInvestNow={handleInvestNow}
               onToggleTavernMode={handleToggleTavernMode}
+              onClaimQuestReward={handleClaimQuestReward}
             />
         )}
         {activeMainTab === "world" && (

@@ -6,14 +6,15 @@ import {
   FIRST_EXTRA_FARM_SEASON, FIRST_CHOICE_SEASON,
   getPrestigeCashThreshold, PRESTIGE_MIN_PLOTS, PRESTIGE_MIN_BARN_WORKERS, PRESTIGE_MIN_BARN_ANIMALS,
   BARN_BUILDINGS, BARN_BUILDING_ORDER,
-  TOWN_HALL_LEVEL_COSTS,
+  TOWN_HALL_LEVEL_COSTS, SEASONAL_QUESTS, QUEST_GATE_STARTS_SEASON
 } from "../gameConstants";
 import {
   isFarmPrestigeReady, getPrestigeBlockers, getNextFarmUnlockCost,
   getTownHallLevel, getEffectiveGrowTime, getWorkerHarvestRate,
   getTreasuryGrowBonus, getFishMealGrowBonus, getSchoolGrowBonus,
   getAvailablePrestigePoints, getBarnPrestigeReady,
-  getBarnInstanceSupplyRate, getBarnInstanceDemandRate,
+  getBarnInstanceSupplyRate, getBarnInstanceDemandRate, getCompletedQuestIds,
+  evaluateQuestCondition
 } from "../gameEngine";
  
 function FarmChecklist({ farm, game }) {
@@ -132,6 +133,97 @@ function SkillTag({ skillId, count }) {
   );
 }
  
+// ─── Quest Progress Tracker ────────────────────────────────────────────────────
+function getQuestTracker(game, quest) {
+  const c = quest.condition;
+  const qp = game.questProgress ?? {};
+  if (c.type === "counter") {
+    return { current: Math.min(qp[c.key] ?? 0, c.value), target: c.value };
+  }
+  if (c.type === "hero_level") {
+    const best = Math.max(0, ...(game.adventurers ?? []).map(a => a.level ?? 1));
+    return { current: Math.min(best, c.value), target: c.value, label: `Best hero: Lv ${best}` };
+  }
+  if (c.type === "hero_prestige") {
+    const cur = qp.heroPrestiges ?? 0;
+    return { current: Math.min(cur, c.value), target: c.value };
+  }
+  if (c.type === "live_check") {
+    switch (c.check) {
+      case "crop_stockpile_10k": {
+        const best = Math.max(0, ...Object.values(game.crops ?? {}).map(v => Number(v) || 0));
+        return { current: Math.min(best, 10000), target: 10000, label: `Best crop: ${Math.floor(best).toLocaleString()} / 10,000` };
+      }
+      case "two_heroes_level_15": {
+        const count = (game.adventurers ?? []).filter(a => (a.level ?? 1) >= 15).length;
+        return { current: Math.min(count, 2), target: 2, label: `Heroes at Lv 15: ${count} / 2` };
+      }
+      case "tractor_workers": {
+        const req = c.value ?? 2;
+        const count = (game.workers ?? []).filter(w => w.gear === "tractor").length;
+        return { current: Math.min(count, req), target: req, label: `Tractor workers: ${count} / ${req}` };
+      }
+      case "kitchen_workers_active": {
+        const req = c.value ?? 1;
+        const count = (game.kitchenWorkers ?? []).filter(w => w.recipeId && w.busy).length;
+        return { current: Math.min(count, req), target: req, label: `Active kitchen workers: ${count} / ${req}` };
+      }
+      case "fishing_workers_active": {
+        const req = c.value ?? 1;
+        const count = Object.values(game.fishing?.bodies ?? {}).filter(b => b.worker).length;
+        return { current: Math.min(count, req), target: req, label: `Fishing workers: ${count} / ${req}` };
+      }
+      case "two_prestiged_heroes": {
+        const count = (game.adventurers ?? []).filter(a => (a.prestigeLevel ?? 0) >= 1).length;
+        return { current: Math.min(count, 2), target: 2, label: `Prestiged heroes: ${count} / 2` };
+      }
+      case "farm_expanded_5x5": {
+        const done = (game.farms ?? []).some(farm => ((game.farmInvestments ?? {})[farm.id]?.plotCapIndex ?? 0) >= 2);
+        return { boolean: true, done };
+      }
+      case "barn_upgraded_and_full": {
+        const done = (game.barnInstances ?? []).some(inst => (inst.tier ?? 1) >= 2);
+        return { boolean: true, done };
+      }
+      default: {
+        const done = evaluateQuestCondition(game, quest);
+        return { boolean: true, done };
+      }
+    }
+  }
+  return null;
+}
+
+function QuestProgressBar({ tracker, done }) {
+  if (!tracker || done) return null;
+  if (tracker.boolean) {
+    return (
+      <div style={{ fontSize: "0.6rem", color: tracker.done ? "#4ade80" : "var(--muted)", marginTop: "0.25rem" }}>
+        {tracker.done ? "✓ Complete" : "✗ Not yet"}
+      </div>
+    );
+  }
+  const pct = Math.min(100, (tracker.current / tracker.target) * 100);
+  const label = tracker.label ?? `${tracker.current.toLocaleString()} / ${tracker.target.toLocaleString()}`;
+  return (
+    <div style={{ marginTop: "0.25rem" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.6rem", color: "var(--muted)", marginBottom: "0.15rem" }}>
+        <span>{label}</span>
+        <span style={{ color: pct >= 100 ? "#4ade80" : "var(--muted)" }}>{Math.floor(pct)}%</span>
+      </div>
+      <div style={{ height: 4, borderRadius: 3, background: "var(--border)", overflow: "hidden" }}>
+        <div style={{
+          height: "100%", borderRadius: 3,
+          width: `${pct}%`,
+          background: pct >= 100 ? "#4ade80" : pct >= 60 ? "#fbbf24" : "#60a5fa",
+          transition: "width 0.3s ease",
+        }} />
+      </div>
+    </div>
+  );
+}
+
+
 export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }) {
   const isExtraFarmSeason = game.season >= FIRST_EXTRA_FARM_SEASON;
   const farmsToCheck = isExtraFarmSeason
@@ -142,8 +234,8 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
   const cashThreshold = getPrestigeCashThreshold(game.season);
   const cash = game.cash ?? 0;
   const cashOk = cash >= cashThreshold;
-  const requiredTHLevel = Math.min(4, game.season);
-  const thOk = getTownHallLevel(game) >= requiredTHLevel;
+  const requiredTHLevel = game.season <= 3 ? game.season : null;
+  const thOk = requiredTHLevel === null || getTownHallLevel(game) >= requiredTHLevel;
   const blockers = getPrestigeBlockers(game);
   const nextFarmCost = getNextFarmUnlockCost(game);
  
@@ -161,25 +253,128 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset }
         </p>
       </div>
  
-      {/* Town Hall requirement */}
-      <div className="card p-4" style={{ marginBottom: "1rem" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <h3 style={{ fontSize: "0.85rem", fontWeight: 600 }}>🏛️ Town Hall</h3>
-          <span style={{
-            fontSize: "0.7rem", fontWeight: 700, padding: "0.2rem 0.55rem", borderRadius: "999px",
-            background: thOk ? "rgba(74,222,128,0.15)" : "rgba(245,158,11,0.15)",
-            border: `1px solid ${thOk ? "#4ade80" : "#f59e0b"}`,
-            color: thOk ? "#166534" : "#92400e",
-          }}>
-            {thOk ? `✓ Level ${requiredTHLevel} reached` : `Level ${requiredTHLevel} required`}
-          </span>
+      {/* Quest board — full for S1-3, compact summary for S4+ */}
+      {(() => {
+        const season = game.season ?? 1;
+        const questData = SEASONAL_QUESTS[Math.min(season, 10)];
+        if (!questData) return null;
+        const completedIds = getCompletedQuestIds(game);
+        const claimedIds = new Set(game.questProgress?.claimedQuestIds ?? []);
+        const completedCount = questData.quests.filter(q => completedIds.has(q.id)).length;
+        const requiredCount = questData.requiredCount ?? 0;
+        const reward = season * 100;
+        const isGated = season >= QUEST_GATE_STARTS_SEASON;
+        const guildHallBuilt = game.town?.buildings?.guild_hall?.built === true;
+
+        if (isGated && guildHallBuilt) {
+          return (
+            <div className="card p-4" style={{ marginBottom: "1rem" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <h3 style={{ fontSize: "0.85rem", fontWeight: 600 }}>📋 Seasonal Quests</h3>
+                <span style={{
+                  fontSize: "0.7rem", fontWeight: 700, padding: "0.2rem 0.55rem", borderRadius: "999px",
+                  background: completedCount >= requiredCount ? "rgba(74,222,128,0.15)" : "rgba(245,158,11,0.15)",
+                  border: `1px solid ${completedCount >= requiredCount ? "#4ade80" : "#f59e0b"}`,
+                  color: completedCount >= requiredCount ? "#166534" : "#92400e",
+                }}>
+                  {completedCount}/{requiredCount} done
+                </span>
+              </div>
+              <p style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: "0.3rem" }}>
+                Visit the Guild Hall to view and claim quest rewards (${reward} each).
+              </p>
+            </div>
+          );
+        }
+
+        return (
+          <div className="card p-4" style={{ marginBottom: "1rem" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+              <h3 style={{ fontSize: "0.85rem", fontWeight: 600 }}>📋 Season {season} Quests</h3>
+              {isGated ? (
+                <span style={{
+                  fontSize: "0.7rem", fontWeight: 700, padding: "0.2rem 0.55rem", borderRadius: "999px",
+                  background: completedCount >= requiredCount ? "rgba(74,222,128,0.15)" : "rgba(245,158,11,0.15)",
+                  border: `1px solid ${completedCount >= requiredCount ? "#4ade80" : "#f59e0b"}`,
+                  color: completedCount >= requiredCount ? "#166534" : "#92400e",
+                }}>
+                  {completedCount}/{requiredCount} required
+                </span>
+              ) : (
+                <span style={{ fontSize: "0.65rem", color: "var(--muted)", fontStyle: "italic" }}>Optional</span>
+              )}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+              {questData.quests.map(quest => {
+                const done = completedIds.has(quest.id);
+                const claimed = claimedIds.has(quest.id);
+                const claimable = done && !claimed;
+                return (
+                  <div key={quest.id} style={{
+                    display: "flex", alignItems: "flex-start", gap: "0.5rem",
+                    padding: "0.4rem 0.55rem", borderRadius: "7px",
+                    background: claimed ? "rgba(74,222,128,0.08)" : claimable ? "rgba(250,204,21,0.08)" : "var(--bg)",
+                    border: `1px solid ${claimed ? "rgba(74,222,128,0.3)" : claimable ? "rgba(250,204,21,0.5)" : "var(--border)"}`,
+                  }}>
+                    <span style={{ fontSize: "0.8rem", flexShrink: 0, marginTop: "0.05rem" }}>
+                      {claimed ? "✅" : claimable ? "🎁" : quest.emoji}
+                    </span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: "0.72rem", fontWeight: 600, color: claimed ? "#4ade80" : claimable ? "#fbbf24" : "var(--text)" }}>
+                        {quest.title}
+                      </div>
+                      <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.1rem", lineHeight: 1.4 }}>
+                        {quest.description}
+                      </div>
+                      <QuestProgressBar tracker={getQuestTracker(game, quest)} done={done} />
+                    </div>
+                    {claimable && (
+                      <button
+                        onClick={() => onClaimQuestReward && onClaimQuestReward(quest.id)}
+                        style={{
+                          flexShrink: 0, fontSize: "0.65rem", fontWeight: 700,
+                          padding: "0.2rem 0.5rem", borderRadius: "6px", cursor: "pointer",
+                          background: "rgba(250,204,21,0.2)", border: "1px solid #fbbf24",
+                          color: "#92400e", whiteSpace: "nowrap",
+                        }}>
+                        Claim ${reward}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {!isGated && (
+              <p style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.4rem", fontStyle: "italic", textAlign: "center" }}>
+                Quests become required for prestige starting Season {QUEST_GATE_STARTS_SEASON}
+              </p>
+            )}
+          </div>
+        );
+      })()}
+
+
+      {/* Town Hall requirement — only shown for seasons 1-3 */}
+      {requiredTHLevel !== null && (
+        <div className="card p-4" style={{ marginBottom: "1rem" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <h3 style={{ fontSize: "0.85rem", fontWeight: 600 }}>🏛️ Town Hall</h3>
+            <span style={{
+              fontSize: "0.7rem", fontWeight: 700, padding: "0.2rem 0.55rem", borderRadius: "999px",
+              background: thOk ? "rgba(74,222,128,0.15)" : "rgba(245,158,11,0.15)",
+              border: `1px solid ${thOk ? "#4ade80" : "#f59e0b"}`,
+              color: thOk ? "#166534" : "#92400e",
+            }}>
+              {thOk ? `✓ Level ${requiredTHLevel} reached` : `Level ${requiredTHLevel} required`}
+            </span>
+          </div>
+          {!thOk && (
+            <p style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: "0.4rem" }}>
+              Build Town Hall to level {requiredTHLevel} (costs ${TOWN_HALL_LEVEL_COSTS[requiredTHLevel - 1]}) to unlock prestige.
+            </p>
+          )}
         </div>
-        {!thOk && (
-          <p style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: "0.4rem" }}>
-            Build Town Hall to level {requiredTHLevel} (costs ${TOWN_HALL_LEVEL_COSTS[requiredTHLevel - 1]}) to unlock prestige.
-          </p>
-        )}
-      </div>
+      )}
  
       {/* Farm automation checklist */}
       <div className="card p-4" style={{ marginBottom: "1rem" }}>

@@ -148,17 +148,118 @@ function CostLine({ cash, cashCost, materials, have }) {
 // ─── Main component ────────────────────────────────────────────────────────────
 
 
+
+// ─── Quest Progress Tracker ────────────────────────────────────────────────────
+function getQuestTracker(game, quest) {
+  const c = quest.condition;
+  const qp = game.questProgress ?? {};
+
+  if (c.type === "counter") {
+    return { current: Math.min(qp[c.key] ?? 0, c.value), target: c.value };
+  }
+  if (c.type === "hero_level") {
+    const best = Math.max(0, ...(game.adventurers ?? []).map(a => a.level ?? 1));
+    return { current: Math.min(best, c.value), target: c.value, label: `Best hero: Lv ${best}` };
+  }
+  if (c.type === "hero_prestige") {
+    const cur = qp.heroPrestiges ?? 0;
+    return { current: Math.min(cur, c.value), target: c.value };
+  }
+  if (c.type === "live_check") {
+    switch (c.check) {
+      case "crop_stockpile_10k": {
+        const best = Math.max(0, ...Object.values(game.crops ?? {}).map(v => Number(v) || 0));
+        return { current: Math.min(best, 10000), target: 10000, label: `Best crop: ${Math.floor(best).toLocaleString()} / 10,000` };
+      }
+      case "two_heroes_level_15": {
+        const count = (game.adventurers ?? []).filter(a => (a.level ?? 1) >= 15).length;
+        return { current: Math.min(count, 2), target: 2, label: `Heroes at Lv 15: ${count} / 2` };
+      }
+      case "tractor_workers": {
+        const req = c.value ?? 2;
+        const count = (game.workers ?? []).filter(w => w.gear === "tractor").length;
+        return { current: Math.min(count, req), target: req, label: `Tractor workers: ${count} / ${req}` };
+      }
+      case "kitchen_workers_active": {
+        const req = c.value ?? 1;
+        const count = (game.kitchenWorkers ?? []).filter(w => w.recipeId && w.busy).length;
+        return { current: Math.min(count, req), target: req, label: `Active kitchen workers: ${count} / ${req}` };
+      }
+      case "fishing_workers_active": {
+        const req = c.value ?? 1;
+        const count = Object.values(game.fishing?.bodies ?? {}).filter(b => b.worker).length;
+        return { current: Math.min(count, req), target: req, label: `Fishing workers: ${count} / ${req}` };
+      }
+      case "two_prestiged_heroes": {
+        const count = (game.adventurers ?? []).filter(a => (a.prestigeLevel ?? 0) >= 1).length;
+        return { current: Math.min(count, 2), target: 2, label: `Prestiged heroes: ${count} / 2` };
+      }
+      case "farm_expanded_5x5": {
+        const done = (game.farms ?? []).some(farm => ((game.farmInvestments ?? {})[farm.id]?.plotCapIndex ?? 0) >= 2);
+        return { boolean: true, done };
+      }
+      case "barn_upgraded_and_full": {
+        const done = (game.barnInstances ?? []).some(inst => (inst.tier ?? 1) >= 2);
+        return { boolean: true, done };
+      }
+      case "hero_gear_tier_9": {
+        return { boolean: true, done: false }; // complex — skip numeric tracker
+      }
+      case "hero_has_crafted_weapon":
+      case "chainmail_or_better_crafted":
+      case "t3_item_crafted": {
+        const done = evaluateQuestCondition(game, quest);
+        return { boolean: true, done };
+      }
+      default:
+        return null;
+    }
+  }
+  return null;
+}
+
+function QuestProgressBar({ tracker, done }) {
+  if (!tracker || done) return null;
+  if (tracker.boolean) {
+    return (
+      <div style={{ fontSize: "0.6rem", color: tracker.done ? "#4ade80" : "var(--muted)", marginTop: "0.25rem" }}>
+        {tracker.done ? "✓ Complete" : "✗ Not yet"}
+      </div>
+    );
+  }
+  const pct = Math.min(100, (tracker.current / tracker.target) * 100);
+  const label = tracker.label ?? `${tracker.current.toLocaleString()} / ${tracker.target.toLocaleString()}`;
+  return (
+    <div style={{ marginTop: "0.25rem" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.6rem", color: "var(--muted)", marginBottom: "0.15rem" }}>
+        <span>{label}</span>
+        <span style={{ color: pct >= 100 ? "#4ade80" : "var(--muted)" }}>{Math.floor(pct)}%</span>
+      </div>
+      <div style={{ height: 4, borderRadius: 3, background: "var(--border)", overflow: "hidden" }}>
+        <div style={{
+          height: "100%", borderRadius: 3,
+          width: `${pct}%`,
+          background: pct >= 100 ? "#4ade80" : pct >= 60 ? "#fbbf24" : "#60a5fa",
+          transition: "width 0.3s ease",
+        }} />
+      </div>
+    </div>
+  );
+}
+
 // ─── Quest Board ───────────────────────────────────────────────────────────────
 
-function QuestBoard({ game }) {
+function QuestBoard({ game, onClaim }) {
   const season = game.season ?? 1;
   const questData = SEASONAL_QUESTS[Math.min(season, 10)];
   if (!questData) return null;
 
   const isGated = season >= QUEST_GATE_STARTS_SEASON;
   const completedIds = getCompletedQuestIds(game);
+  const claimedIds = new Set(game.questProgress?.claimedQuestIds ?? []);
   const completedCount = questData.quests.filter(q => completedIds.has(q.id)).length;
   const requiredCount = questData.requiredCount ?? 0;
+  const reward = season * 100;
 
   return (
     <div style={{ marginTop: "0.75rem", paddingTop: "0.6rem", borderTop: "1px solid var(--border)" }}>
@@ -182,24 +283,39 @@ function QuestBoard({ game }) {
       <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
         {questData.quests.map(quest => {
           const done = completedIds.has(quest.id);
+          const claimed = claimedIds.has(quest.id);
+          const claimable = done && !claimed;
           return (
             <div key={quest.id} style={{
               display: "flex", alignItems: "flex-start", gap: "0.5rem",
               padding: "0.4rem 0.55rem", borderRadius: "7px",
-              background: done ? "rgba(74,222,128,0.08)" : "var(--bg)",
-              border: `1px solid ${done ? "rgba(74,222,128,0.3)" : "var(--border)"}`,
+              background: claimed ? "rgba(74,222,128,0.08)" : claimable ? "rgba(250,204,21,0.08)" : "var(--bg)",
+              border: `1px solid ${claimed ? "rgba(74,222,128,0.3)" : claimable ? "rgba(250,204,21,0.5)" : "var(--border)"}`,
             }}>
               <span style={{ fontSize: "0.8rem", flexShrink: 0, marginTop: "0.05rem" }}>
-                {done ? "✅" : quest.emoji}
+                {claimed ? "✅" : claimable ? "🎁" : quest.emoji}
               </span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: "0.72rem", fontWeight: 600, color: done ? "#4ade80" : "var(--text)" }}>
+                <div style={{ fontSize: "0.72rem", fontWeight: 600, color: claimed ? "#4ade80" : claimable ? "#fbbf24" : "var(--text)" }}>
                   {quest.title}
                 </div>
                 <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.1rem", lineHeight: 1.4 }}>
                   {quest.description}
                 </div>
+                <QuestProgressBar tracker={getQuestTracker(game, quest)} done={done} />
               </div>
+              {claimable && (
+                <button
+                  onClick={() => onClaim && onClaim(quest.id)}
+                  style={{
+                    flexShrink: 0, fontSize: "0.65rem", fontWeight: 700,
+                    padding: "0.2rem 0.5rem", borderRadius: "6px", cursor: "pointer",
+                    background: "rgba(250,204,21,0.2)", border: "1px solid #fbbf24",
+                    color: "#92400e", whiteSpace: "nowrap",
+                  }}>
+                  Claim ${reward}
+                </button>
+              )}
             </div>
           );
         })}
@@ -240,7 +356,7 @@ export default function TownZone({
   onBuyBakery, onToggleBakery, onTogglePantry, onToggleCannery,
   onUpgradeTownBuilding, onBuyJamBuilding, onBuySauceBuilding,
   onSetTreasuryTier, onBuildBank, onUpgradeBank, onSetActiveBankTier,
-  onSetTreasuryCap, onInvestNow, onToggleTavernMode,
+  onSetTreasuryCap, onInvestNow, onToggleTavernMode, onClaimQuestReward,
 }) {
   const [subTab, setSubTab] = useState("town");
 
@@ -346,7 +462,7 @@ export default function TownZone({
 
       {/* ── Season tab ───────────────────────────────────────────────────── */}
       {subTab === "season" && (
-        <SeasonPanel game={game} prestigeReady={prestigeReady} onPrestige={onPrestige} onReset={onReset} />
+        <SeasonPanel game={game} prestigeReady={prestigeReady} onPrestige={onPrestige} onReset={onReset} onClaimQuestReward={onClaimQuestReward} />
       )}
 
       {/* ── Town tab ─────────────────────────────────────────────────────── */}
@@ -819,7 +935,7 @@ export default function TownZone({
                     </button>
                   </>
                 )}
-                <QuestBoard game={game} />
+                <QuestBoard game={game} onClaim={onClaimQuestReward} />
               </>
             ) : (
               <>

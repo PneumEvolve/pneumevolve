@@ -58,7 +58,7 @@ FISHING_CATCH_RATES, FISHING_BAIT_BONUS,
 FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, ANIMAL_YIELD_UPGRADES, 
   SCHOOL_RESEARCH,
   PRESTIGE_SKILL_TREE,
- FORGE_WORKER_HIRE_COST, FORGE_WORKER_HIRE_MULTIPLIER,
+  FORGE_WORKER_HIRE_COST, FORGE_WORKER_HIRE_MULTIPLIER,
   FORGE_WORKER_UPGRADES, FORGE_WORKER_UPGRADE_ORDER, FORGE_RECIPE_LIST,
   WORLD_ZONES, ADVENTURER_NAMES, ADVENTURER_CLASSES, WORLD_RESOURCES,
   ADVENTURER_BASE_HP, ADVENTURER_HP_PER_LEVEL, ADVENTURER_REGEN_PER_SECOND,
@@ -1599,7 +1599,7 @@ export function createInitialState() {
       breadCrafted: 0, jamCrafted: 0, sauceCrafted: 0, eggsCollected: 0,
       milkCollected: 0, woolCollected: 0, omelettesCrafted: 0, forgeItemsCrafted: 0,
       heroQuestsCompleted: 0, tier2QuestsCompleted: 0, bossFightsWon: 0, heroPrestiges: 0,
-      chainmailOrBetterCrafted: false, t3ItemCrafted: false,
+      chainmailOrBetterCrafted: false, t3ItemCrafted: false, claimedQuestIds: [],
     },
     // Animals & pond
     pond: null, // keep for migration compatibility
@@ -3648,6 +3648,29 @@ export function areQuestsComplete(state) {
   return getCompletedQuestIds(state).size >= questData.requiredCount;
 }
 
+
+export function claimQuestReward(state, questId) {
+  const season = state.season ?? 1;
+  const questData = SEASONAL_QUESTS[Math.min(season, 10)];
+  if (!questData) return state;
+  const quest = questData.quests.find(q => q.id === questId);
+  if (!quest) return state;
+  // Must be complete
+  if (!evaluateQuestCondition(state, quest)) return state;
+  // Must not already be claimed
+  const claimed = state.questProgress?.claimedQuestIds ?? [];
+  if (claimed.includes(questId)) return state;
+  const reward = season * 100;
+  return {
+    ...state,
+    cash: (state.cash ?? 0) + reward,
+    questProgress: {
+      ...(state.questProgress ?? {}),
+      claimedQuestIds: [...claimed, questId],
+    },
+  };
+}
+
 export function canPrestige(state) {
   if (state.season <= 3) { if (getTownHallLevel(state) < state.season) return false; }
   if (state.season >= QUEST_GATE_STARTS_SEASON) { if (!areQuestsComplete(state)) return false; }
@@ -3718,7 +3741,7 @@ export function beginPrestige(state, _unused, keptWorkerIds) {
 
   // Award 1 prestige skill point
   next.prestigePoints = (next.prestigePoints ?? 0) + 1;
-  next.questProgress = { manualHarvestCount: 0, fishCaughtCount: 0, qualityFishCount: 0, rareFishCount: 0, breadCrafted: 0, jamCrafted: 0, sauceCrafted: 0, eggsCollected: 0, milkCollected: 0, woolCollected: 0, omelettesCrafted: 0, forgeItemsCrafted: 0, heroQuestsCompleted: 0, tier2QuestsCompleted: 0, bossFightsWon: 0, heroPrestiges: 0, chainmailOrBetterCrafted: false, t3ItemCrafted: false };
+  next.questProgress = { manualHarvestCount: 0, fishCaughtCount: 0, qualityFishCount: 0, rareFishCount: 0, breadCrafted: 0, jamCrafted: 0, sauceCrafted: 0, eggsCollected: 0, milkCollected: 0, woolCollected: 0, omelettesCrafted: 0, forgeItemsCrafted: 0, heroQuestsCompleted: 0, tier2QuestsCompleted: 0, bossFightsWon: 0, heroPrestiges: 0, chainmailOrBetterCrafted: false, t3ItemCrafted: false, claimedQuestIds: [] };
 
   const idsToKeep = Array.isArray(keptWorkerIds)
     ? keptWorkerIds
