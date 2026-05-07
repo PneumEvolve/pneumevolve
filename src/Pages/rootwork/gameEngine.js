@@ -1,7 +1,7 @@
 //src/Pages/rootwork/gameEngine.js
  
 import {
-  CROPS, GEAR, GEAR_ORDER,
+  CROPS, GEAR, GEAR_ORDER, SEASONAL_QUESTS, QUEST_GATE_STARTS_SEASON, BARN_BUILDING_TIERS, FORGE_RECIPES,
   PLOT_BASE_COST, PLOT_COST_MULTIPLIER, MAX_PLOTS,
   WORKER_HIRE_BASE_COST, WORKER_HIRE_MULTIPLIER,
   SPECIALIZATIONS, SEASON_FARMS, FIRST_EXTRA_FARM_SEASON,
@@ -39,7 +39,7 @@ import {
   BANK_TIERS, BANK_MAX_LEVEL, GEAR_CROP_COSTS, POND_COST, POND_IRON, POND_LUMBER, FORGE_BUILD_COST, FORGE_IRON, FORGE_LUMBER, NEEDLE_SWEEP_SPEED, REEL_DURATION,
   REEL_DRAIN_RATE, REEL_TAP_AMOUNT, BAIT_TYPES,
   ANIMAL_TYPES, MAX_ANIMALS_PER_TYPE,
-  BARN_BUILDINGS, BARN_BUILDING_ORDER, BARN_BUILDING_TIERS, BARN_UPKEEP_DEBT_MOOD_DRAIN,
+  BARN_BUILDINGS, BARN_BUILDING_ORDER, BARN_UPKEEP_DEBT_MOOD_DRAIN,
   ANIMAL_INTERACT_MOOD_BOOST, ANIMAL_INTERACT_COOLDOWN,
   PET_TYPES, PET_INTERACT_MOOD_BOOST, PET_INTERACT_COOLDOWN,
   BAIT_RECIPES, BARN_WORKER_HIRE_BASE_COST, BARN_WORKER_HIRE_MULTIPLIER,
@@ -58,7 +58,7 @@ FISHING_CATCH_RATES, FISHING_BAIT_BONUS,
 FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, ANIMAL_YIELD_UPGRADES, 
   SCHOOL_RESEARCH,
   PRESTIGE_SKILL_TREE,
-  FORGE_RECIPES, FORGE_WORKER_HIRE_COST, FORGE_WORKER_HIRE_MULTIPLIER,
+ FORGE_WORKER_HIRE_COST, FORGE_WORKER_HIRE_MULTIPLIER,
   FORGE_WORKER_UPGRADES, FORGE_WORKER_UPGRADE_ORDER, FORGE_RECIPE_LIST,
   WORLD_ZONES, ADVENTURER_NAMES, ADVENTURER_CLASSES, WORLD_RESOURCES,
   ADVENTURER_BASE_HP, ADVENTURER_HP_PER_LEVEL, ADVENTURER_REGEN_PER_SECOND,
@@ -1594,6 +1594,13 @@ export function createInitialState() {
       kitchenGoods: {},
       marketCash: null,
     },
+    questProgress: {
+      manualHarvestCount: 0, fishCaughtCount: 0, qualityFishCount: 0, rareFishCount: 0,
+      breadCrafted: 0, jamCrafted: 0, sauceCrafted: 0, eggsCollected: 0,
+      milkCollected: 0, woolCollected: 0, omelettesCrafted: 0, forgeItemsCrafted: 0,
+      heroQuestsCompleted: 0, tier2QuestsCompleted: 0, bossFightsWon: 0, heroPrestiges: 0,
+      chainmailOrBetterCrafted: false, t3ItemCrafted: false,
+    },
     // Animals & pond
     pond: null, // keep for migration compatibility
     fishing: {
@@ -2190,6 +2197,11 @@ if (activeTier) {
       } else {
         if (!next.animalGoods) next.animalGoods = {};
         next.animalGoods[recipe.outputGood] = (next.animalGoods[recipe.outputGood] ?? 0) + produced;
+        if (!next.questProgress) next.questProgress = {};
+        if (recipe.outputGood === "bread")    next.questProgress.breadCrafted     = (next.questProgress.breadCrafted     ?? 0) + produced;
+        if (recipe.outputGood === "jam")      next.questProgress.jamCrafted       = (next.questProgress.jamCrafted       ?? 0) + produced;
+        if (recipe.outputGood === "sauce")    next.questProgress.sauceCrafted     = (next.questProgress.sauceCrafted     ?? 0) + produced;
+        if (recipe.outputGood === "omelette") next.questProgress.omelettesCrafted = (next.questProgress.omelettesCrafted ?? 0) + produced;
         
       }
       // Stats
@@ -2305,6 +2317,10 @@ if (activeTier) {
             // selective_haul: skip if not in allowed list
             if (allowedFish && !allowedFish.includes(fishId)) continue;
             next.fishing.fish[fishId] = (next.fishing.fish[fishId] ?? 0) + 1;
+            if (!next.questProgress) next.questProgress = {};
+            next.questProgress.fishCaughtCount = (next.questProgress.fishCaughtCount ?? 0) + 1;
+            if (fishId === "bass" || fishId === "perch" || fishId === "rare") next.questProgress.qualityFishCount = (next.questProgress.qualityFishCount ?? 0) + 1;
+            if (fishId === "rare") next.questProgress.rareFishCount = (next.questProgress.rareFishCount ?? 0) + 1;
           }
           // Consume 1 bait per catch cycle (bait boosts rare rates, not haul count)
           if (hasBait) next.bait[baitId] = Math.max(0, (next.bait[baitId] ?? 0) - 1);
@@ -2431,6 +2447,10 @@ if (activeTier) {
           animal.ready = animal.stock > 0;
           if (!next.animalGoods) next.animalGoods = {};
           next.animalGoods[type.produces] = (next.animalGoods[type.produces] ?? 0) + toCollect;
+          if (!next.questProgress) next.questProgress = {};
+          if (type.produces === "egg")  next.questProgress.eggsCollected  = (next.questProgress.eggsCollected  ?? 0) + toCollect;
+          if (type.produces === "milk") next.questProgress.milkCollected   = (next.questProgress.milkCollected  ?? 0) + toCollect;
+          if (type.produces === "wool") next.questProgress.woolCollected   = (next.questProgress.woolCollected  ?? 0) + toCollect;
           remaining -= toCollect;
         }
       }
@@ -2740,6 +2760,8 @@ export function harvestPlot(state, farmId, plotId) {
   next.yieldPool = newPool;
   plot.state = "empty";
   plot.growthTick = 0;
+  if (!next.questProgress) next.questProgress = {};
+  next.questProgress.manualHarvestCount = (next.questProgress.manualHarvestCount ?? 0) + 1;
   return next;
 }
  
@@ -3556,9 +3578,79 @@ export function getAvailableBarnUnlocks(state) {
   return BARN_BUILDING_ORDER.filter((id) => !(state.barnBuildings?.[id]?.built));
 }
  
+
+// ─── Quest evaluation ─────────────────────────────────────────────────────────
+
+export function evaluateQuestCondition(state, quest) {
+  const c = quest.condition;
+  const qp = state.questProgress ?? {};
+  if (c.type === "counter") return (qp[c.key] ?? 0) >= c.value;
+  if (c.type === "hero_level") return (state.adventurers ?? []).some(a => (a.level ?? 1) >= c.value);
+  if (c.type === "hero_prestige") return (qp.heroPrestiges ?? 0) >= c.value;
+  if (c.type === "live_check") {
+    switch (c.check) {
+      case "hero_has_crafted_weapon":
+        return (state.adventurers ?? []).some(a => {
+          const wKey = a.equippedGear?.weapon;
+          return wKey && Object.values(FORGE_RECIPES).some(r => r.output.resourceKey === wKey);
+        });
+      case "fishing_workers_active":
+        return Object.values(state.fishing?.bodies ?? {}).filter(b => b.worker).length >= (c.value ?? 1);
+      case "chainmail_or_better_crafted":
+        return qp.chainmailOrBetterCrafted === true;
+      case "farm_expanded_5x5":
+        return (state.farms ?? []).some(farm => ((state.farmInvestments ?? {})[farm.id]?.plotCapIndex ?? 0) >= 2);
+      case "kitchen_workers_active":
+        return (state.kitchenWorkers ?? []).filter(w => w.recipeId && w.busy).length >= (c.value ?? 1);
+      case "barn_upgraded_and_full":
+        return (state.barnInstances ?? []).some(inst => {
+          const tier = inst.tier ?? 1;
+          if (tier < 2) return false;
+          const tierData = BARN_BUILDING_TIERS[(tier - 1)] ?? BARN_BUILDING_TIERS[0];
+          const cap = tierData.animalSlots + (hasPrestigeSkill(state, "breeding_program") ? 2 : 0);
+          return (inst.animals ?? []).length >= cap;
+        });
+      case "t3_item_crafted":
+        return qp.t3ItemCrafted === true;
+      case "crop_stockpile_10k":
+        return Object.values(state.crops ?? {}).some(v => v >= 10000);
+      case "two_heroes_level_15":
+        return (state.adventurers ?? []).filter(a => (a.level ?? 1) >= 15).length >= 2;
+      case "tractor_workers":
+        return (state.workers ?? []).filter(w => w.gear === "tractor").length >= (c.value ?? 2);
+      case "two_prestiged_heroes":
+        return (state.adventurers ?? []).filter(a => (a.prestigeLevel ?? 0) >= 1).length >= 2;
+      case "hero_gear_tier_9":
+        return (state.adventurers ?? []).some(a =>
+          computeTotalGearTier(a.equippedGear, a.equippedInstanceId, state.forgeGoodsInstanced) >= 9
+        );
+      default: return false;
+    }
+  }
+  return false;
+}
+
+export function getCompletedQuestIds(state) {
+  const questData = SEASONAL_QUESTS[Math.min(state.season ?? 1, 10)];
+  if (!questData) return new Set();
+  const completed = new Set();
+  for (const quest of questData.quests) {
+    if (evaluateQuestCondition(state, quest)) completed.add(quest.id);
+  }
+  return completed;
+}
+
+export function areQuestsComplete(state) {
+  const season = state.season ?? 1;
+  if (season < QUEST_GATE_STARTS_SEASON) return true;
+  const questData = SEASONAL_QUESTS[Math.min(season, 10)];
+  if (!questData || questData.requiredCount === 0) return true;
+  return getCompletedQuestIds(state).size >= questData.requiredCount;
+}
+
 export function canPrestige(state) {
-  const requiredTHLevel = Math.min(4, state.season);
-  if (getTownHallLevel(state) < requiredTHLevel) return false;
+  if (state.season <= 3) { if (getTownHallLevel(state) < state.season) return false; }
+  if (state.season >= QUEST_GATE_STARTS_SEASON) { if (!areQuestsComplete(state)) return false; }
   const farmsToCheck = state.season >= FIRST_EXTRA_FARM_SEASON
     ? state.farms
     : state.farms.filter((f) => (SEASON_FARMS[Math.min(state.season, 3)] ?? []).includes(f.crop));
@@ -3573,8 +3665,15 @@ export function canPrestige(state) {
  
 export function getPrestigeBlockers(state) {
   const blockers = [];
-  const requiredTHLevel = Math.min(4, state.season);
-  if (getTownHallLevel(state) < requiredTHLevel) blockers.push(`Town Hall level ${requiredTHLevel} required`);
+  if (state.season <= 3) { const rTH = state.season; if (getTownHallLevel(state) < rTH) blockers.push(`Town Hall level ${rTH} required`); }
+  if (state.season >= QUEST_GATE_STARTS_SEASON) {
+    const questData = SEASONAL_QUESTS[Math.min(state.season, 10)];
+    if (questData && questData.requiredCount > 0) {
+      const completed = getCompletedQuestIds(state);
+      const completedCount = (questData.quests ?? []).filter(q => completed.has(q.id)).length;
+      if (completedCount < questData.requiredCount) blockers.push(`Complete ${questData.requiredCount} seasonal quests (${completedCount}/${questData.requiredCount} done) — see Guild Hall`);
+    }
+  }
   const farmsToCheck = state.season >= FIRST_EXTRA_FARM_SEASON
     ? state.farms
     : state.farms.filter((f) => (SEASON_FARMS[Math.min(state.season, 3)] ?? []).includes(f.crop));
@@ -3619,6 +3718,7 @@ export function beginPrestige(state, _unused, keptWorkerIds) {
 
   // Award 1 prestige skill point
   next.prestigePoints = (next.prestigePoints ?? 0) + 1;
+  next.questProgress = { manualHarvestCount: 0, fishCaughtCount: 0, qualityFishCount: 0, rareFishCount: 0, breadCrafted: 0, jamCrafted: 0, sauceCrafted: 0, eggsCollected: 0, milkCollected: 0, woolCollected: 0, omelettesCrafted: 0, forgeItemsCrafted: 0, heroQuestsCompleted: 0, tier2QuestsCompleted: 0, bossFightsWon: 0, heroPrestiges: 0, chainmailOrBetterCrafted: false, t3ItemCrafted: false };
 
   const idsToKeep = Array.isArray(keptWorkerIds)
     ? keptWorkerIds
@@ -5034,11 +5134,17 @@ export function returnAdventurer(state, adventurerId) {
     prestigeLevel: adventurer.prestigeLevel ?? 0,
   };
  
+  const nextQPHero = { ...(state.questProgress ?? {}) };
+  if (!effectiveFailed) {
+    nextQPHero.heroQuestsCompleted = (nextQPHero.heroQuestsCompleted ?? 0) + 1;
+    if ((zone.gearRequired ?? 1) >= 4) nextQPHero.tier2QuestsCompleted = (nextQPHero.tier2QuestsCompleted ?? 0) + 1;
+  }
   const next = {
     ...state,
     adventurers: state.adventurers.map((a) => a.id === adventurerId ? updatedAdv : a),
     worldResources: nextResources,
     worldZoneClears: { ...(state.worldZoneClears ?? {}), [zone.id]: newClears },
+    questProgress: nextQPHero,
   };
  
   return {
@@ -5079,6 +5185,7 @@ export function reviveAdventurer(state, adventurerId) {
     ...state,
     cash: (state.cash ?? 0) - cost,
     adventurers: state.adventurers.map((a, i) => i === advIdx ? updatedAdv : a),
+    questProgress: nextQPPrestige,
   };
 }
 
@@ -5109,6 +5216,7 @@ export function prestigeAdventurer(state, adventurerId) {
 
   const newPrestigeLevel = currentPrestige + 1;
   const newMaxHp = ADVENTURER_BASE_HP; // resets to base — skills rebuild it
+  const nextQPPrestige = { ...(state.questProgress ?? {}), heroPrestiges: ((state.questProgress?.heroPrestiges ?? 0) + 1) };
 
   // Record the last class for "suggested class" on next run
   const prestigeBonuses = { ...(adventurer.prestigeBonuses ?? {}) };
@@ -5986,6 +6094,7 @@ export function tickForgeWorkers(state, dtSeconds) {
   let nextGoods = { ...(state.forgeGoods ?? {}) };
   let nextResources = { ...(state.worldResources ?? {}) };
   let nextGoodsInstanced = [...(state.forgeGoodsInstanced ?? [])];
+  let forgeQuestTrackItem = null;
   const nextWorkers = (state.forgeWorkers ?? []).map((worker) => {
     if (!worker.busy || !worker.recipeId) return worker;
     const newElapsed = (worker.elapsedSeconds ?? 0) + dtSeconds;
@@ -6008,6 +6117,7 @@ export function tickForgeWorkers(state, dtSeconds) {
       } else {
         nextGoods[recipe.output.resourceKey] = (nextGoods[recipe.output.resourceKey] ?? 0) + 1;
       }
+      forgeQuestTrackItem = recipe;
     }
     // Auto-restart?
     const hasAutoUpgrade = (worker.upgrades ?? []).includes("forge_auto");
@@ -6037,7 +6147,13 @@ export function tickForgeWorkers(state, dtSeconds) {
     return { ...worker, recipeId: null, elapsedSeconds: 0, totalSeconds: 0, busy: false };
   });
 
-  return { ...state, forgeWorkers: nextWorkers, forgeGoods: nextGoods, forgeGoodsInstanced: nextGoodsInstanced, worldResources: nextResources };
+  const nextQPForge = { ...(state.questProgress ?? {}) };
+  if (forgeQuestTrackItem) {
+    nextQPForge.forgeItemsCrafted = (nextQPForge.forgeItemsCrafted ?? 0) + 1;
+    if (["chainmail","plate_armor","tower_shield","master_sword"].includes(forgeQuestTrackItem.output.resourceKey)) nextQPForge.chainmailOrBetterCrafted = true;
+    if (["master_sword","tower_shield","plate_armor"].includes(forgeQuestTrackItem.output.resourceKey)) nextQPForge.t3ItemCrafted = true;
+  }
+  return { ...state, forgeWorkers: nextWorkers, forgeGoods: nextGoods, forgeGoodsInstanced: nextGoodsInstanced, worldResources: nextResources, questProgress: nextQPForge };
 }
 
 // ─── Boss Fight Engine ────────────────────────────────────────────────────────

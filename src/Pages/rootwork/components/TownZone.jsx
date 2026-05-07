@@ -21,6 +21,7 @@ import {
   MARKET_HALL_MAX_WORKERS, MARKET_HALL_PRICE_BONUS, MARKET_HALL_RETAIN_COUNT,
   TOWN_GUILD_HALL_COST, GUILD_HALL_LEVEL_COSTS, GUILD_HALL_LEVEL_REQUIRES,
   GUILD_HALL_MAX_HEROES, GUILD_HALL_QUEST_TIER,
+  SEASONAL_QUESTS, QUEST_GATE_STARTS_SEASON,
   SCHOOL_RESEARCH,
 } from "../gameConstants";
 import {
@@ -32,6 +33,7 @@ import {
   getTownCapacity, getSchoolData, getActiveSchoolResearch, getAvailableSchoolResearch,
   getWarehouseCropCap, getMaxKitchenWorkers, getMaxMarketWorkers,
   getMaxHeroes, getGuildHallQuestTier, getSatisfactionCeiling,
+  evaluateQuestCondition, getCompletedQuestIds,
   getBankPriceBonus,
 } from "../gameEngine";
 import SeasonPanel from "./SeasonPanel";
@@ -144,6 +146,72 @@ function CostLine({ cash, cashCost, materials, have }) {
 }
 
 // ─── Main component ────────────────────────────────────────────────────────────
+
+
+// ─── Quest Board ───────────────────────────────────────────────────────────────
+
+function QuestBoard({ game }) {
+  const season = game.season ?? 1;
+  const questData = SEASONAL_QUESTS[Math.min(season, 10)];
+  if (!questData) return null;
+
+  const isGated = season >= QUEST_GATE_STARTS_SEASON;
+  const completedIds = getCompletedQuestIds(game);
+  const completedCount = questData.quests.filter(q => completedIds.has(q.id)).length;
+  const requiredCount = questData.requiredCount ?? 0;
+
+  return (
+    <div style={{ marginTop: "0.75rem", paddingTop: "0.6rem", borderTop: "1px solid var(--border)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+        <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--muted)", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+          📋 Season {season} Quests
+        </div>
+        {isGated ? (
+          <div style={{
+            fontSize: "0.65rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "999px",
+            background: completedCount >= requiredCount ? "rgba(74,222,128,0.15)" : "rgba(245,158,11,0.12)",
+            border: `1px solid ${completedCount >= requiredCount ? "#4ade80" : "#f59e0b"}`,
+            color: completedCount >= requiredCount ? "#166534" : "#92400e",
+          }}>
+            {completedCount}/{requiredCount} required
+          </div>
+        ) : (
+          <div style={{ fontSize: "0.65rem", color: "var(--muted)", fontStyle: "italic" }}>Optional</div>
+        )}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+        {questData.quests.map(quest => {
+          const done = completedIds.has(quest.id);
+          return (
+            <div key={quest.id} style={{
+              display: "flex", alignItems: "flex-start", gap: "0.5rem",
+              padding: "0.4rem 0.55rem", borderRadius: "7px",
+              background: done ? "rgba(74,222,128,0.08)" : "var(--bg)",
+              border: `1px solid ${done ? "rgba(74,222,128,0.3)" : "var(--border)"}`,
+            }}>
+              <span style={{ fontSize: "0.8rem", flexShrink: 0, marginTop: "0.05rem" }}>
+                {done ? "✅" : quest.emoji}
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: "0.72rem", fontWeight: 600, color: done ? "#4ade80" : "var(--text)" }}>
+                  {quest.title}
+                </div>
+                <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.1rem", lineHeight: 1.4 }}>
+                  {quest.description}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {!isGated && (
+        <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.4rem", fontStyle: "italic", textAlign: "center" }}>
+          Quests become required for prestige starting Season {QUEST_GATE_STARTS_SEASON}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function TownZone({
   game,
@@ -751,6 +819,7 @@ export default function TownZone({
                     </button>
                   </>
                 )}
+                <QuestBoard game={game} />
               </>
             ) : (
               <>

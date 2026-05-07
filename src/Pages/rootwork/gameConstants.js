@@ -1702,3 +1702,105 @@ export const FORGE_WORKER_UPGRADES = {
 };
 
 export const FORGE_WORKER_UPGRADE_ORDER = ["forge_speed_1", "forge_auto", "forge_speed_2"];
+// ─── Seasonal Quests ──────────────────────────────────────────────────────────
+// condition types:
+//   counter        — questProgress[key] >= value
+//   live_check     — evaluated dynamically in evaluateQuestCondition()
+//   hero_level     — any adventurer has level >= value
+//   hero_prestige  — any adventurer has prestiged (heroPrestigeCount >= value)
+
+export const SEASONAL_QUESTS = {
+  1: {
+    requiredCount: 0, // optional
+    quests: [
+      { id: "s1_harvest",  emoji: "🌾", title: "First Harvest",  description: "Manually harvest 25 plots",         condition: { type: "counter", key: "manualHarvestCount", value: 25 } },
+      { id: "s1_hero",     emoji: "⚔️", title: "Adventurer",     description: "Have a hero complete a quest and return", condition: { type: "counter", key: "heroQuestsCompleted", value: 1 } },
+      { id: "s1_fish",     emoji: "🎣", title: "First Cast",     description: "Catch 5 fish",                      condition: { type: "counter", key: "fishCaughtCount", value: 5 } },
+      { id: "s1_craft",    emoji: "🍞", title: "Baker",          description: "Craft 5 bread",                     condition: { type: "counter", key: "breadCrafted", value: 5 } },
+    ],
+  },
+  2: {
+    requiredCount: 0,
+    quests: [
+      { id: "s2_harvest",  emoji: "🫐", title: "Berry Picker",   description: "Harvest 100 berries",               condition: { type: "counter", key: "manualHarvestCount", value: 100 } },
+      { id: "s2_hero",     emoji: "⚔️", title: "Leveling",       description: "Have a hero reach level 5",         condition: { type: "hero_level", value: 5 } },
+      { id: "s2_fish",     emoji: "🎣", title: "Fisherman",      description: "Catch 20 fish",                     condition: { type: "counter", key: "fishCaughtCount", value: 20 } },
+      { id: "s2_craft",    emoji: "🍓", title: "Jam Session",    description: "Produce 5 jam",                     condition: { type: "counter", key: "jamCrafted", value: 5 } },
+    ],
+  },
+  3: {
+    requiredCount: 0,
+    quests: [
+      { id: "s3_harvest",  emoji: "🍅", title: "Red Harvest",    description: "Harvest 150 tomatoes",              condition: { type: "counter", key: "manualHarvestCount", value: 150 } },
+      { id: "s3_hero",     emoji: "⚔️", title: "Level Up",       description: "Have a hero reach level 10",        condition: { type: "hero_level", value: 10 } },
+      { id: "s3_fish",     emoji: "🎣", title: "Good Catch",     description: "Catch 3 bass or better",            condition: { type: "counter", key: "qualityFishCount", value: 3 } },
+      { id: "s3_craft",    emoji: "🍅", title: "Sauce Run",      description: "Produce 20 sauce",                  condition: { type: "counter", key: "sauceCrafted", value: 20 } },
+    ],
+  },
+  4: {
+    requiredCount: 2,
+    quests: [
+      { id: "s4_barn",     emoji: "🐔", title: "Egg Collector",  description: "Collect 30 eggs",                   condition: { type: "counter", key: "eggsCollected", value: 30 } },
+      { id: "s4_hero",     emoji: "⚔️", title: "Seasoned",       description: "Have a hero reach level 15",        condition: { type: "hero_level", value: 15 } },
+      { id: "s4_fish",     emoji: "🎣", title: "Deep Waters",    description: "Catch 5 bass or better",            condition: { type: "counter", key: "qualityFishCount", value: 5 } },
+      { id: "s4_craft",    emoji: "🧀", title: "Dairy Crafter",  description: "Produce 20 omelettes",              condition: { type: "counter", key: "omelettesCrafted", value: 20 } },
+    ],
+  },
+  5: {
+    requiredCount: 2,
+    quests: [
+      { id: "s5_barn",     emoji: "🐄", title: "Dairy Farmer",   description: "Collect 50 milk",                   condition: { type: "counter", key: "milkCollected", value: 50 } },
+      { id: "s5_hero",     emoji: "⚔️", title: "Quest Runner",   description: "Have a hero prestige",              condition: { type: "hero_prestige", value: 1 } },
+      { id: "s5_fish",     emoji: "🎣", title: "Trophy Fish",    description: "Catch a rare fish",                 condition: { type: "counter", key: "rareFishCount", value: 1 } },
+      { id: "s5_craft",    emoji: "🔩", title: "Forged",         description: "Craft any item in the Forge",       condition: { type: "counter", key: "forgeItemsCrafted", value: 1 } },
+    ],
+  },
+  6: {
+    requiredCount: 3,
+    quests: [
+      { id: "s6_barn",     emoji: "🐑", title: "Wool Baron",     description: "Collect 80 wool",                   condition: { type: "counter", key: "woolCollected", value: 80 } },
+      { id: "s6_hero",     emoji: "⚔️", title: "Geared Up",      description: "Have a hero equipped with a crafted weapon", condition: { type: "live_check", check: "hero_has_crafted_weapon" } },
+      { id: "s6_fish",     emoji: "🎣", title: "Fleet Fisher",   description: "Have 3 fishing workers active simultaneously", condition: { type: "live_check", check: "fishing_workers_active", value: 3 } },
+      { id: "s6_craft",    emoji: "⛓️", title: "Armorer",        description: "Craft chainmail or better",         condition: { type: "live_check", check: "chainmail_or_better_crafted" } },
+    ],
+  },
+  7: {
+    requiredCount: 3,
+    quests: [
+      { id: "s7_farm",     emoji: "🌾", title: "Expanded Fields", description: "Expand any farm to 5×5",           condition: { type: "live_check", check: "farm_expanded_5x5" } },
+      { id: "s7_hero",     emoji: "⚔️", title: "Boss Hunter",    description: "Defeat a boss",                     condition: { type: "counter", key: "bossFightsWon", value: 1 } },
+      { id: "s7_fish",     emoji: "🎣", title: "Rare Haul",      description: "Catch 3 rare fish in one season",   condition: { type: "counter", key: "rareFishCount", value: 3 } },
+      { id: "s7_craft",    emoji: "🍳", title: "Full Kitchen",   description: "Have 3 kitchen workers all running recipes simultaneously", condition: { type: "live_check", check: "kitchen_workers_active", value: 3 } },
+    ],
+  },
+  8: {
+    requiredCount: 3,
+    quests: [
+      { id: "s8_barn",     emoji: "🐄", title: "Ranch Baron",    description: "Have at least 1 barn upgraded and full of animals", condition: { type: "live_check", check: "barn_upgraded_and_full" } },
+      { id: "s8_hero",     emoji: "⚔️", title: "Tier 2 Veteran", description: "Complete 5 Tier 2 hero quests",     condition: { type: "counter", key: "tier2QuestsCompleted", value: 5 } },
+      { id: "s8_fish",     emoji: "🎣", title: "Master Angler",  description: "Catch 5 rare fish in one season",   condition: { type: "counter", key: "rareFishCount", value: 5 } },
+      { id: "s8_craft",    emoji: "🪖", title: "Full Arsenal",   description: "Craft a T3 item",                   condition: { type: "live_check", check: "t3_item_crafted" } },
+    ],
+  },
+  9: {
+    requiredCount: 3,
+    quests: [
+      { id: "s9_farm",     emoji: "🌾", title: "Abundance",      description: "Stockpile 10,000 of any single crop", condition: { type: "live_check", check: "crop_stockpile_10k" } },
+      { id: "s9_hero",     emoji: "🧠", title: "Legend",         description: "Have 2 heroes at level 15",          condition: { type: "live_check", check: "two_heroes_level_15" } },
+      { id: "s9_fish",     emoji: "🎣", title: "Legend of the Lake", description: "Catch 10 rare fish in one season", condition: { type: "counter", key: "rareFishCount", value: 10 } },
+      { id: "s9_craft",    emoji: "🍳", title: "Processing Line", description: "Have 4 kitchen workers all running simultaneously", condition: { type: "live_check", check: "kitchen_workers_active", value: 4 } },
+    ],
+  },
+  10: {
+    requiredCount: 4,
+    quests: [
+      { id: "s10_farm",    emoji: "🌾", title: "Mechanized",     description: "Have at least 2 tractor workers on farms", condition: { type: "live_check", check: "tractor_workers", value: 2 } },
+      { id: "s10_hero",    emoji: "⚔️", title: "Elite",          description: "Have 2 prestiged heroes",            condition: { type: "live_check", check: "two_prestiged_heroes" } },
+      { id: "s10_fish",    emoji: "🎣", title: "Legendary Catch", description: "Catch 15 rare fish in one season",  condition: { type: "counter", key: "rareFishCount", value: 15 } },
+      { id: "s10_craft",   emoji: "🪖", title: "Outfitted",      description: "Have a hero at Tier 9 gear or higher", condition: { type: "live_check", check: "hero_gear_tier_9" } },
+    ],
+  },
+};
+
+// For seasons beyond 10, reuse season 10 quests with no required count (optional)
+export const QUEST_GATE_STARTS_SEASON = 4;
