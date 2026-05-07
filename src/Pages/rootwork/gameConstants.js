@@ -22,6 +22,7 @@ export const GEAR_CROP_COSTS = {};
 // ─── Specialization ───────────────────────────────────────────────────────────
 export const SPECIALIZE_COST = 100;
 export const SPECIALIZE_CROP = null;
+export const SPECIALIZE_REQUIRES = { iron_fitting: 1 };
  
 // ─── Plot unlock costs ────────────────────────────────────────────────────────
 export const PLOT_BASE_COST = 3;

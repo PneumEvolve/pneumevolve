@@ -7,7 +7,7 @@ import {
   SPECIALIZATIONS, SEASON_FARMS, FIRST_EXTRA_FARM_SEASON,
   AUTOMATION_THRESHOLD, MIN_PLOTS_FOR_AUTOMATION, PRESTIGE_MIN_PLOTS,
   MAX_OFFLINE_SECONDS, PROCESSING_RECIPES, TEND_SECONDS,
-  SPECIALIZE_COST, PLOT_UPGRADE_GROW_MULTIPLIER, CROP_ARTISAN,
+  SPECIALIZE_COST, SPECIALIZE_REQUIRES, PLOT_UPGRADE_GROW_MULTIPLIER, CROP_ARTISAN,
   FEAST_TIERS, FEAST_MAX_BONUS, MARKET_SELL_RATES,
   MARKET_WORKER_HIRE_COST, MARKET_WORKER_HIRE_MULTIPLIER,
   MARKET_WORKER_GEAR, MARKET_WORKER_GEAR_ORDER,
@@ -1064,11 +1064,18 @@ export function getTownGrowthBonusPercent(people) {
 export function getSatisfactionTarget(state) {
   const town = state.town ?? {};
   if (town.starving) return TOWN_SATISFACTION_FLOOR;
-  // Sat ceiling is determined entirely by food_hall tier
-  const ceiling = getSatisfactionCeiling(state);
+  // Target is the ceiling for the ACTIVE food mode, not the food hall's max tier.
+  // e.g. switching from bread (100%) back to wheat (80%) should pull sat down to 80.
+  const foodMode = town.foodMode ?? "wheat";
+  const foodModeIndex = FOOD_HALL_FOOD_MODE.indexOf(foodMode);
+  const modeCeiling = foodModeIndex >= 0
+    ? (FOOD_HALL_SAT_CEILING[foodModeIndex] ?? FOOD_HALL_SAT_CEILING[0])
+    : FOOD_HALL_SAT_CEILING[0];
+  // The hard ceiling (food hall tier) still caps how high sat can physically go.
+  const hardCeiling = getSatisfactionCeiling(state);
   // Rabbit pet bonus (+5 sat while mood >= 50)
   const rabbitBonus = (state.pets?.rabbit && (state.pets.rabbit.mood ?? 0) >= 50) ? 5 : 0;
-  return Math.min(getSatisfactionCeiling(state), Math.round(ceiling + rabbitBonus));
+  return Math.min(hardCeiling, Math.round(modeCeiling + rabbitBonus));
 }
  
 export function getTownSatisfactionMultiplier(state) {
@@ -2872,7 +2879,9 @@ export function specializeWorker(state, workerId, specializationId) {
   if (!worker || worker.gear !== "hoe" || worker.specialization !== "none") return state;
   if (!SPECIALIZATIONS[specializationId] || specializationId === "none") return state;
   if ((next.cash ?? 0) < SPECIALIZE_COST) return state;
+  if (!canAffordUpgradeMaterials(state, SPECIALIZE_REQUIRES)) return state;
   next.cash -= SPECIALIZE_COST;
+  consumeUpgradeMaterials(next, SPECIALIZE_REQUIRES);
   worker.specialization = specializationId;
   worker.cycleCount = 0;
   return next;

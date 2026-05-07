@@ -6,7 +6,7 @@ import {
   GEAR,
   GEAR_ORDER,
   SPECIALIZATIONS,
-  SPECIALIZE_COST,
+  SPECIALIZE_COST, SPECIALIZE_REQUIRES,
 } from "../gameConstants";
 import {
   getNextGear,
@@ -76,7 +76,8 @@ function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWor
   const farmCrop = CROPS[farm.crop];
  
   const mustSpecialize = needsSpecialization(worker);
-  const canAffordSpec = (game.cash ?? 0) >= SPECIALIZE_COST;
+  const specFittings = (game.forgeGoods?.iron_fitting ?? 0) + (game.worldResources?.iron_fitting ?? 0);
+  const canAffordSpec = (game.cash ?? 0) >= SPECIALIZE_COST && specFittings >= (SPECIALIZE_REQUIRES.iron_fitting ?? 0);
  
   const upgradeCost = nextGear?.upgradeCost ?? 0;
   const matReq = nextGear?.upgradeRequires ?? null;
@@ -134,8 +135,10 @@ function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWor
             style={{ fontSize: "0.75rem", padding: "0.4rem 0.75rem" }}
           >
             {canAffordSpec
-              ? `✨ Specialize — $${SPECIALIZE_COST}`
-              : `✨ Specialize — need $${SPECIALIZE_COST}`}
+              ? `✨ Specialize — $${SPECIALIZE_COST} + 🔩1`
+              : (game.cash ?? 0) < SPECIALIZE_COST
+                ? `✨ Specialize — need $${SPECIALIZE_COST} + 🔩1`
+                : `✨ Specialize — need 🔩 Iron Fitting`}
           </button>
           <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginTop: "0.3rem", textAlign: "center" }}>
             Choose a specialization to unlock Wheelbarrow upgrades

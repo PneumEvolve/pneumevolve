@@ -412,17 +412,19 @@ function ForgeWorkerCard({ worker, workerNumber, game, expanded, onToggle, onAss
           </button>
         )}
 
-        {/* Craft Again button — show when done with a previous recipe */}
-        {!worker.busy && !idle && recipe && (() => {
+        {/* Craft Again button — show when idle but has a lastRecipeId to repeat */}
+        {!worker.busy && idle && worker.lastRecipeId && (() => {
+          const lastRecipe = FORGE_RECIPES[worker.lastRecipeId];
+          if (!lastRecipe) return null;
           const worldResources = game.worldResources ?? {};
           const forgeGoods = game.forgeGoods ?? {};
-          const canCraftAgain = Object.entries(recipe.inputs).every(([key, needed]) => {
+          const canCraftAgain = Object.entries(lastRecipe.inputs).every(([key, needed]) => {
             const have = (worldResources[key] ?? 0) + (forgeGoods?.[key] ?? 0);
             return have >= needed;
           });
           return (
             <button
-              onClick={() => canCraftAgain && onAssign(worker.id, worker.recipeId)}
+              onClick={() => canCraftAgain && onAssign(worker.id, worker.lastRecipeId)}
               disabled={!canCraftAgain}
               style={{
                 fontSize: "0.65rem", padding: "0.2rem 0.5rem",
