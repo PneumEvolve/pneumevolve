@@ -483,13 +483,18 @@ function FishingWorkerCard({ bodyId, workerIndex, worker, game, onUpgrade, onSet
                         border: `1px solid ${owned ? "rgba(74,222,128,0.25)" : schoolLocked && requiresMet ? "rgba(167,139,250,0.3)" : "rgba(255,255,255,0.08)"}`,
                         opacity: locked ? 0.35 : 1,
                       }}>
-                        <div style={{ fontSize: "0.62rem" }}>
+                        <div style={{ fontSize: "0.62rem", flex: 1, minWidth: 0 }}>
                           <span style={{ fontWeight: 600, color: owned ? "#4ade80" : schoolLocked && requiresMet ? "#a78bfa" : "#fff" }}>
                             {owned ? "✓" : schoolLocked && requiresMet ? "🏫" : locked ? "🔒" : u.emoji} {u.name}
                           </span>
                           <span style={{ marginLeft: "0.3rem", fontSize: "0.57rem", color: "rgba(255,255,255,0.35)" }}>
                             {schoolLocked && requiresMet ? "Needs School Research" : u.description}
                           </span>
+                          {!owned && !schoolLocked && !locked && u.upgradeRequires && (
+                            <span style={{ display: "block", fontSize: "0.55rem", marginTop: "0.08rem", color: matsOk ? "#fbbf24" : "#ef4444", fontWeight: 600 }}>
+                              {matCostLabel(u.upgradeRequires)}
+                            </span>
+                          )}
                         </div>
                         {!owned && !schoolLocked && (
                           <button

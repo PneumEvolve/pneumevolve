@@ -19,8 +19,8 @@ import {
   KITCHEN_HALL_MAX_WORKERS, KITCHEN_HALL_RETAIN_COUNT,
   TOWN_MARKET_HALL_COST, MARKET_HALL_LEVEL_COSTS, MARKET_HALL_LEVEL_REQUIRES,
   MARKET_HALL_MAX_WORKERS, MARKET_HALL_PRICE_BONUS, MARKET_HALL_RETAIN_COUNT,
-  TOWN_GUILD_HALL_COST, GUILD_HALL_LEVEL_COSTS, GUILD_HALL_LEVEL_REQUIRES,
-  GUILD_HALL_MAX_HEROES, GUILD_HALL_QUEST_TIER,
+  TOWN_GUILD_HALL_COST, getGuildHallUpgradeCost, getGuildHallUpgradeRequires,
+  GUILD_HALL_QUEST_TIER,
   TOWN_REC_HALL_COST, TOWN_REC_HALL_REQUIRES, REC_HALL_UPGRADE_COSTS, REC_HALL_UPGRADE_REQUIRES,
   REC_HALL_CASH_PER_WORKER,
   SCHOOL_RESEARCH,
@@ -740,40 +740,33 @@ export default function TownZone({
             locked={!th2} lockedMsg="Requires Town Hall level 2"
           >
             <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
-              Unlocks quest tiers and additional hero slots. Without the Guild Hall only
-              beginner zones and your starter hero are available.
+              Each level unlocks an additional hero slot. Without the Guild Hall only your starter hero is available.
             </div>
             {guildHallBuilt ? (
               <>
-                <Row label="Max heroes" value={GUILD_HALL_MAX_HEROES[guildHallLevel]} />
-                <Row label="Quest tier unlocked" value={`Tier ${GUILD_HALL_QUEST_TIER[guildHallLevel]}`} />
-                {guildHallLevel < 3 && (
-                  <>
-                    <div style={{ marginTop: "0.5rem", paddingTop: "0.4rem", borderTop: "1px solid var(--border)" }}>
-                      <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
-                        Upgrade to Level {guildHallLevel + 1} — {GUILD_HALL_MAX_HEROES[guildHallLevel + 1]} heroes, Quest Tier {GUILD_HALL_QUEST_TIER[guildHallLevel + 1]}
-                      </div>
-                      <CostLine
-                        cash={cash}
-                        cashCost={GUILD_HALL_LEVEL_COSTS[guildHallLevel - 1]}
-                        materials={GUILD_HALL_LEVEL_REQUIRES[guildHallLevel - 1]}
-                        have={{ iron_ore: worldRes.iron_ore ?? 0, lumber: worldRes.lumber ?? 0, iron_fitting: have("iron_fitting"), reinforced_crate: have("reinforced_crate") }}
-                      />
-                    </div>
-                    <button onClick={onUpgradeGuildHall} className="btn w-full" style={{ marginTop: "0.5rem" }}>
-                      Upgrade Guild Hall
-                    </button>
-                  </>
-                )}
-
+                <Row label="Max heroes" value={guildHallLevel + 1} />
+                <div style={{ marginTop: "0.5rem", paddingTop: "0.4rem", borderTop: "1px solid var(--border)" }}>
+                  <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
+                    Upgrade to Level {guildHallLevel + 1} — {guildHallLevel + 2} heroes
+                  </div>
+                  <CostLine
+                    cash={cash}
+                    cashCost={getGuildHallUpgradeCost(guildHallLevel)}
+                    materials={getGuildHallUpgradeRequires(guildHallLevel)}
+                    have={{ iron_ore: worldRes.iron_ore ?? 0, lumber: worldRes.lumber ?? 0, iron_fitting: have("iron_fitting"), reinforced_crate: have("reinforced_crate") }}
+                  />
+                </div>
+                <button onClick={onUpgradeGuildHall} className="btn w-full" style={{ marginTop: "0.5rem" }}>
+                  Upgrade Guild Hall
+                </button>
               </>
             ) : (
               <>
                 <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
-                  Level 1 unlocks 2 heroes and Tier 2 quests
+                  Level 1 unlocks a second hero slot
                 </div>
                 <CostLine cash={cash} cashCost={TOWN_GUILD_HALL_COST}
-                  materials={GUILD_HALL_LEVEL_REQUIRES[0]}
+                  materials={getGuildHallUpgradeRequires(0)}
                   have={{ iron_ore: worldRes.iron_ore ?? 0, lumber: worldRes.lumber ?? 0 }}
                 />
                 <button onClick={onBuildGuildHall}
@@ -928,7 +921,7 @@ export default function TownZone({
               <div>• <strong style={{ color: "var(--text)" }}>Satisfaction</strong> multiplies all worker speed. Floor 25%. Ceiling set by Food Hall tier.</div>
               <div>• <strong style={{ color: "var(--text)" }}>Warehouse</strong> caps crop storage. Overflow is lost — workers increase the cap.</div>
               <div>• <strong style={{ color: "var(--text)" }}>Kitchen/Market Halls</strong> gate worker counts. Upgrade to hire more.</div>
-              <div>• <strong style={{ color: "var(--text)" }}>Guild Hall</strong> gates hero count and quest tiers.</div>
+              <div>• <strong style={{ color: "var(--text)" }}>Guild Hall</strong> gates hero count — each level unlocks one more hero slot.</div>
               <div>• <strong style={{ color: "var(--text)" }}>Tavern</strong> auto-regens idle heroes. No manual feeding needed when they're resting.</div>
               <div>• <strong style={{ color: "var(--text)" }}>School</strong> unlocks upgrades using mana crystals instead of cash.</div>
               <div>• <strong style={{ color: "var(--text)" }}>Recreation Hall</strong> pushes satisfaction past the Food Hall ceiling. Costs $0.05/worker/second.</div>

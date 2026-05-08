@@ -86,8 +86,8 @@ FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, 
   KITCHEN_HALL_MAX_WORKERS, KITCHEN_HALL_RETAIN_COUNT,
   TOWN_MARKET_HALL_COST, MARKET_HALL_LEVEL_COSTS, MARKET_HALL_LEVEL_REQUIRES,
   MARKET_HALL_MAX_WORKERS, MARKET_HALL_PRICE_BONUS, MARKET_HALL_RETAIN_COUNT,
-  TOWN_GUILD_HALL_COST, GUILD_HALL_LEVEL_COSTS, GUILD_HALL_LEVEL_REQUIRES,
-  GUILD_HALL_MAX_HEROES, GUILD_HALL_QUEST_TIER,
+  TOWN_GUILD_HALL_COST, getGuildHallUpgradeCost, getGuildHallUpgradeRequires,
+  GUILD_HALL_QUEST_TIER,
 } from "./gameConstants";
  
 let _idCounter = 0;
@@ -747,7 +747,7 @@ export function getMaxHeroes(state) {
   const gh = state.town?.buildings?.guild_hall;
   if (!gh?.built) return 1; // starter hero always allowed
   const level = gh.level ?? 1;
-  return GUILD_HALL_MAX_HEROES[level] ?? 1; // indexed by level (0=not built handled above)
+  return level + 1; // each level adds one hero slot
 }
 
 // Guild Hall: current quest tier (gates which world zones are available)
@@ -1089,9 +1089,8 @@ export function upgradeGuildHall(state) {
   const gh = state.town?.buildings?.guild_hall;
   if (!gh?.built) return state;
   const level = gh.level ?? 1;
-  if (level >= 3) return state;
-  const cost = GUILD_HALL_LEVEL_COSTS[level - 1];
-  const requires = GUILD_HALL_LEVEL_REQUIRES[level]; // next tier's requirements
+  const cost = getGuildHallUpgradeCost(level);
+  const requires = getGuildHallUpgradeRequires(level);
   if ((state.cash ?? 0) < cost) return state;
   if (!canAffordUpgradeMaterials(state, requires)) return state;
   const next = deepCloneState(state);

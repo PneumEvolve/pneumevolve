@@ -472,16 +472,25 @@ export const MARKET_HALL_RETAIN_COUNT = [0, 1, 2];   // auto-retain on prestige 
 
 // ── Guild Hall ────────────────────────────────────────────────────────────────
 // Gates quest tiers (world zone availability) and max hero count.
-export const TOWN_GUILD_HALL_COST      = 2_000;
-export const GUILD_HALL_LEVEL_COSTS    = [5_000, 15_000, 40_000];
-export const GUILD_HALL_LEVEL_REQUIRES = [
-  { iron_ore: 15, lumber: 15 },
-  { iron_ore: 30, lumber: 25, iron_fitting: 3 },
-  { iron_fitting: 5, reinforced_crate: 3 },
-];
-// level 0 = not built = 1 hero max (starter only)
-export const GUILD_HALL_MAX_HEROES = [1, 2, 3, 4]; // indexed by level (0-3)
-export const GUILD_HALL_QUEST_TIER = [1, 2, 3, 4]; // world zone tier unlocked per level
+export const TOWN_GUILD_HALL_COST = 2_000;
+
+// Guild Hall scales infinitely. Use getGuildHallUpgradeCost(level) and
+// getGuildHallUpgradeRequires(level) for the upgrade from level -> level+1.
+export function getGuildHallUpgradeCost(level) {
+  return Math.round(5000 * Math.pow(1.8, level - 1) / 100) * 100;
+}
+export function getGuildHallUpgradeRequires(level) {
+  const iron   = Math.round(15 * Math.pow(1.5, level - 1) / 5) * 5;
+  const lumber = iron;
+  const fittings = level >= 3 ? Math.round(2 * Math.pow(1.6, level - 3)) : 0;
+  const crates   = level >= 6 ? Math.round(2 * Math.pow(1.6, level - 6)) : 0;
+  const req = { iron_ore: iron, lumber };
+  if (fittings > 0) req.iron_fitting = fittings;
+  if (crates   > 0) req.reinforced_crate = crates;
+  return req;
+}
+// maxHeroes = guildHallLevel + 1  (computed inline, no array needed)
+export const GUILD_HALL_QUEST_TIER = [1, 2, 3, 4]; // legacy — kept for WorldZone compat
 
 // ── Tavern ────────────────────────────────────────────────────────────────────
 // Heroes auto-rest here when idle until full HP. Level increases regen rate.
