@@ -1092,8 +1092,6 @@ export function upgradeGuildHall(state) {
   if (level >= 3) return state;
   const cost = GUILD_HALL_LEVEL_COSTS[level - 1];
   const requires = GUILD_HALL_LEVEL_REQUIRES[level]; // next tier's requirements
-  const thLevel = getTownHallLevel(state);
-  if (thLevel < 3) return state;
   if ((state.cash ?? 0) < cost) return state;
   if (!canAffordUpgradeMaterials(state, requires)) return state;
   const next = deepCloneState(state);

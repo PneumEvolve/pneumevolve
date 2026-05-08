@@ -182,7 +182,13 @@ function getQuestTracker(game, quest) {
         return { boolean: true, done };
       }
       case "barn_upgraded_and_full": {
-        const done = (game.barnInstances ?? []).some(inst => (inst.tier ?? 1) >= 2);
+        const bestInst = (game.barnInstances ?? []).find(inst => (inst.tier ?? 1) >= 2);
+        if (bestInst) {
+          const animalCount = (bestInst.animals ?? []).length;
+          const cap = BARN_BUILDINGS[bestInst.buildingType]?.animalSlots ?? 4;
+          return { boolean: false, current: animalCount, target: cap, label: `Barn animals: ${animalCount} / ${cap} (upgraded ✓)` };
+        }
+        const done = evaluateQuestCondition(game, quest);
         return { boolean: true, done };
       }
       default: {
@@ -304,6 +310,11 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset, 
                       <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.1rem", lineHeight: 1.4 }}>
                         {quest.description}
                       </div>
+                      {claimed && (
+                        <div style={{ fontSize: "0.6rem", color: "#4ade80", marginTop: "0.15rem", fontWeight: 600 }}>
+                          💰 Cash claimed
+                        </div>
+                      )}
                       <QuestProgressBar tracker={getQuestTracker(game, quest)} done={done} />
                     </div>
                     {claimable && (

@@ -1791,7 +1791,7 @@ export const SEASONAL_QUESTS = {
   8: {
     requiredCount: 3,
     quests: [
-      { id: "s8_barn",     emoji: "🐄", title: "Ranch Baron",    description: "Have at least 1 barn upgraded and full of animals", condition: { type: "live_check", check: "barn_upgraded_and_full" } },
+      { id: "s8_barn",     emoji: "🐄", title: "Ranch Baron",    description: "Upgrade a barn to tier 2 and fill it with animals", condition: { type: "live_check", check: "barn_upgraded_and_full" } },
       { id: "s8_hero",     emoji: "⚔️", title: "Quest Runner",   description: "Have a hero prestige",              condition: { type: "hero_prestige", value: 1 } },
       { id: "s8_fish",     emoji: "🎣", title: "Master Angler",  description: "Catch 5 rare fish in one season",   condition: { type: "counter", key: "rareFishCount", value: 5 } },
       { id: "s8_craft",    emoji: "🪖", title: "Full Arsenal",   description: "Craft a T3 item",                   condition: { type: "live_check", check: "t3_item_crafted" } },
