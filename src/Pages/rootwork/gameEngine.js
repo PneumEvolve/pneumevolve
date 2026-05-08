@@ -334,10 +334,10 @@ export function setActiveBankTier(state, tier) {
   return next;
 }
  
-// ─── Grow speed bonus (Treasury) ──────────────────────────────────────────────
+// ─── Grow speed bonus (fertile_soil prestige) ──────────────────────────────────────────────
  
 export function getTreasuryGrowBonus(state) {
-  // Treasury system removed. Grow bonus now comes from fertile_soil prestige skill only.
+  // +5% grow speed per fertile_soil prestige skill stack.
   const fertileCount = getPrestigeSkillCount(state, "fertile_soil");
   return fertileCount * 5;
 }

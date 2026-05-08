@@ -189,7 +189,7 @@ export const PRESTIGE_SKILL_TREE = {
   fertile_soil: {
     id: "fertile_soil", branch: "farmer", tier: 1,
     name: "Fertile Soil", emoji: "🌾",
-    description: "Treasury grow bonus permanently +5%.",
+    description: "Permanently +5% grow speed. Stacks.",
     requires: null,
   },
   bargain_soil: {
