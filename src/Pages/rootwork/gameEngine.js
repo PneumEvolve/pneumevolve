@@ -3624,6 +3624,8 @@ export function evaluateQuestCondition(state, quest) {
         return qp.t3ItemCrafted === true;
       case "crop_stockpile_10k":
         return Object.values(state.crops ?? {}).some(v => v >= 10000);
+      case "two_heroes":
+        return (state.adventurers ?? []).length >= 2;
       case "two_heroes_level_15":
         return (state.adventurers ?? []).filter(a => (a.level ?? 1) >= 15).length >= 2;
       case "tractor_workers":

@@ -1750,7 +1750,7 @@ export const SEASONAL_QUESTS = {
     requiredCount: 2,
     quests: [
       { id: "s5_barn",     emoji: "🐄", title: "Dairy Farmer",   description: "Collect 50 milk",                   condition: { type: "counter", key: "milkCollected", value: 50 } },
-      { id: "s5_hero",     emoji: "⚔️", title: "Quest Runner",   description: "Have a hero prestige",              condition: { type: "hero_prestige", value: 1 } },
+      { id: "s5_hero",     emoji: "⚔️", title: "Guild Expansion", description: "Recruit a second hero",             condition: { type: "live_check", check: "two_heroes" } },
       { id: "s5_fish",     emoji: "🎣", title: "Trophy Fish",    description: "Catch a rare fish",                 condition: { type: "counter", key: "rareFishCount", value: 1 } },
       { id: "s5_craft",    emoji: "🔩", title: "Forged",         description: "Craft any item in the Forge",       condition: { type: "counter", key: "forgeItemsCrafted", value: 1 } },
     ],
@@ -1777,7 +1777,7 @@ export const SEASONAL_QUESTS = {
     requiredCount: 3,
     quests: [
       { id: "s8_barn",     emoji: "🐄", title: "Ranch Baron",    description: "Have at least 1 barn upgraded and full of animals", condition: { type: "live_check", check: "barn_upgraded_and_full" } },
-      { id: "s8_hero",     emoji: "⚔️", title: "Tier 2 Veteran", description: "Complete 5 Tier 2 hero quests",     condition: { type: "counter", key: "tier2QuestsCompleted", value: 5 } },
+      { id: "s8_hero",     emoji: "⚔️", title: "Quest Runner",   description: "Have a hero prestige",              condition: { type: "hero_prestige", value: 1 } },
       { id: "s8_fish",     emoji: "🎣", title: "Master Angler",  description: "Catch 5 rare fish in one season",   condition: { type: "counter", key: "rareFishCount", value: 5 } },
       { id: "s8_craft",    emoji: "🪖", title: "Full Arsenal",   description: "Craft a T3 item",                   condition: { type: "live_check", check: "t3_item_crafted" } },
     ],
