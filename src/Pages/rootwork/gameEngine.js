@@ -2194,6 +2194,10 @@ if (activeTier) {
         next.bait[recipe.outputGood] = (next.bait[recipe.outputGood] ?? 0) + produced;
       } else if (artisanGoods.includes(recipe.outputGood)) {
         next.artisan[recipe.outputGood] = (next.artisan[recipe.outputGood] ?? 0) + produced;
+        if (!next.questProgress) next.questProgress = {};
+        if (recipe.outputGood === "bread") next.questProgress.breadCrafted = (next.questProgress.breadCrafted ?? 0) + produced;
+        if (recipe.outputGood === "jam")   next.questProgress.jamCrafted   = (next.questProgress.jamCrafted   ?? 0) + produced;
+        if (recipe.outputGood === "sauce") next.questProgress.sauceCrafted = (next.questProgress.sauceCrafted ?? 0) + produced;
       } else if (["wheat_potion","berry_potion","tomato_potion"].includes(recipe.outputGood)) {
         if (!next.cropPotions) next.cropPotions = {};
         next.cropPotions[recipe.outputGood] = (next.cropPotions[recipe.outputGood] ?? 0) + produced;
@@ -2201,11 +2205,7 @@ if (activeTier) {
         if (!next.animalGoods) next.animalGoods = {};
         next.animalGoods[recipe.outputGood] = (next.animalGoods[recipe.outputGood] ?? 0) + produced;
         if (!next.questProgress) next.questProgress = {};
-        if (recipe.outputGood === "bread")    next.questProgress.breadCrafted     = (next.questProgress.breadCrafted     ?? 0) + produced;
-        if (recipe.outputGood === "jam")      next.questProgress.jamCrafted       = (next.questProgress.jamCrafted       ?? 0) + produced;
-        if (recipe.outputGood === "sauce")    next.questProgress.sauceCrafted     = (next.questProgress.sauceCrafted     ?? 0) + produced;
         if (recipe.outputGood === "omelette") next.questProgress.omelettesCrafted = (next.questProgress.omelettesCrafted ?? 0) + produced;
-        
       }
       // Stats
       next.stats.kitchenGoods[recipe.outputGood] = pushStat(next.stats.kitchenGoods[recipe.outputGood], produced, now);
