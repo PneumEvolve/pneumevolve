@@ -1722,7 +1722,7 @@ export const SEASONAL_QUESTS = {
   2: {
     requiredCount: 0,
     quests: [
-      { id: "s2_harvest",  emoji: "🫐", title: "Berry Picker",   description: "Harvest 100 berries",               condition: { type: "counter", key: "manualHarvestCount", value: 100 } },
+      { id: "s2_harvest",  emoji: "🫐", title: "Berry Picker",   description: "Harvest 100 berries",               condition: { type: "counter", key: "berriesHarvested", value: 100 } },
       { id: "s2_hero",     emoji: "⚔️", title: "Leveling",       description: "Have a hero reach level 5",         condition: { type: "hero_level", value: 5 } },
       { id: "s2_fish",     emoji: "🎣", title: "Fisherman",      description: "Catch 20 fish",                     condition: { type: "counter", key: "fishCaughtCount", value: 20 } },
       { id: "s2_craft",    emoji: "🍓", title: "Jam Session",    description: "Produce 5 jam",                     condition: { type: "counter", key: "jamCrafted", value: 5 } },
