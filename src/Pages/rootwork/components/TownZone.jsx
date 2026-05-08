@@ -189,7 +189,7 @@ function getQuestTracker(game, quest) {
       }
       case "fishing_workers_active": {
         const req = c.value ?? 1;
-        const count = Object.values(game.fishing?.bodies ?? {}).filter(b => b.worker).length;
+        const count = Object.values(game.fishing?.bodies ?? {}).reduce((sum, b) => sum + ((b.workers ?? (b.worker?.hired ? [b.worker] : [])).filter(w => w?.hired).length > 0 ? 1 : 0), 0);
         return { current: Math.min(count, req), target: req, label: `Fishing workers: ${count} / ${req}` };
       }
       case "two_prestiged_heroes": {

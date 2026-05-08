@@ -128,7 +128,7 @@ function buildLayout(game) {
     const maxWorkers = activeBodies.reduce((m, id) =>
       Math.max(m, (fishingBodies[id]?.workers ?? []).length), 1);
     const fw = Math.max(120, maxWorkers * 28 + ZONE_PAD * 2);
-    const fh = activeBodies.length * 52 + ZONE_PAD * 2 + 22;
+    const fh = activeBodies.length * 68 + ZONE_PAD * 2 + 22;
     zones.push({
       type: "fishing", id: "fishing",
       bodies: activeBodies.map(id => ({
@@ -148,7 +148,7 @@ function buildLayout(game) {
 
   // ── Row 2: Tavern — full width, centered ────────────────────────────────────
   const row2Y = row1Y + row1MaxH + ZONE_GAP;
-  const tavernBuilt = !!(game.town?.townBuildings?.tavern?.built);
+  const tavernBuilt = !!(game.town?.buildings?.tavern?.built);
   const adventurers = game.adventurers ?? [];
   const tavernW = Math.max(totalW - ZONE_PAD * 2, 200);
   const tavernH = 110;
@@ -395,12 +395,12 @@ export default function LiveView({ game }) {
 
       // Each body of water
       zone.bodies.forEach((body, bi) => {
-        const by = y + 18 + ZONE_PAD + bi * 52;
+        const by = y + 18 + ZONE_PAD + bi * 68;
         const bw = w - ZONE_PAD * 2;
 
         // Water area
         ctx.fillStyle = body.waterColor;
-        roundRect(ctx, x + ZONE_PAD, by + 14, bw, 32, 5);
+        roundRect(ctx, x + ZONE_PAD, by + 14, bw, 48, 5);
         ctx.fill();
 
         // Body label
@@ -418,7 +418,7 @@ export default function LiveView({ game }) {
           ctx.lineWidth = 1.5;
           ctx.beginPath();
           ctx.moveTo(wx + 5, wy + 5);
-          ctx.lineTo(wx + 5, wy + 28);
+          ctx.lineTo(wx + 5, wy + 44);
           ctx.stroke();
         });
       });
@@ -594,7 +594,7 @@ export default function LiveView({ game }) {
     // Fishing workers
     layout.zones.filter(z => z.type === "fishing").forEach(zone => {
       zone.bodies.forEach((body, bi) => {
-        const byBase = zone.y + 18 + ZONE_PAD + bi * 52;
+        const byBase = zone.y + 18 + ZONE_PAD + bi * 68;
         body.workers.forEach((w, wi) => {
           const id = `fish-${body.id}-${wi}`;
           const dockX = zone.x + ZONE_PAD + 6 + wi * 26 + 5;
