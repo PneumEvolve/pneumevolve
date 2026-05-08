@@ -264,28 +264,6 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset, 
         const requiredCount = questData.requiredCount ?? 0;
         const reward = season * 100;
         const isGated = season >= QUEST_GATE_STARTS_SEASON;
-        const guildHallBuilt = game.town?.buildings?.guild_hall?.built === true;
-
-        if (isGated && guildHallBuilt) {
-          return (
-            <div className="card p-4" style={{ marginBottom: "1rem" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <h3 style={{ fontSize: "0.85rem", fontWeight: 600 }}>📋 Seasonal Quests</h3>
-                <span style={{
-                  fontSize: "0.7rem", fontWeight: 700, padding: "0.2rem 0.55rem", borderRadius: "999px",
-                  background: completedCount >= requiredCount ? "rgba(74,222,128,0.15)" : "rgba(245,158,11,0.15)",
-                  border: `1px solid ${completedCount >= requiredCount ? "#4ade80" : "#f59e0b"}`,
-                  color: completedCount >= requiredCount ? "#166534" : "#92400e",
-                }}>
-                  {completedCount}/{requiredCount} done
-                </span>
-              </div>
-              <p style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: "0.3rem" }}>
-                Visit the Guild Hall to view and claim quest rewards (${reward} each).
-              </p>
-            </div>
-          );
-        }
 
         return (
           <div className="card p-4" style={{ marginBottom: "1rem" }}>

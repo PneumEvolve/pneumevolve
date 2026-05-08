@@ -3664,7 +3664,7 @@ export function evaluateQuestCondition(state, quest) {
           return wKey && Object.values(FORGE_RECIPES).some(r => r.output.resourceKey === wKey);
         });
       case "fishing_workers_active":
-        return Object.values(state.fishing?.bodies ?? {}).filter(b => b.worker).length >= (c.value ?? 1);
+        return Object.values(state.fishing?.bodies ?? {}).reduce((sum, b) => sum + (b.workers ?? (b.worker?.hired ? [b.worker] : [])).filter(w => w?.hired).length, 0) >= (c.value ?? 1);
       case "chainmail_or_better_crafted":
         return qp.chainmailOrBetterCrafted === true;
       case "farm_expanded_5x5":
