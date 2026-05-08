@@ -4078,6 +4078,10 @@ export function collectAnimal(state, animalId, animalInstanceId, barnInstanceId)
   animal.ready = false;
   if (!next.animalGoods) next.animalGoods = {};
   next.animalGoods[type.produces] = (next.animalGoods[type.produces] ?? 0) + collected;
+  if (!next.questProgress) next.questProgress = {};
+  if (type.produces === "egg")  next.questProgress.eggsCollected  = (next.questProgress.eggsCollected  ?? 0) + collected;
+  if (type.produces === "milk") next.questProgress.milkCollected   = (next.questProgress.milkCollected  ?? 0) + collected;
+  if (type.produces === "wool") next.questProgress.woolCollected   = (next.questProgress.woolCollected  ?? 0) + collected;
   return next;
 }
  
@@ -4095,7 +4099,12 @@ export function collectAllAnimals(state) {
       const mood = animal.mood ?? 100;
       const bonusChance = mood / 100;
       const bonus = Math.random() < bonusChance ? 1 : 0;
-      next.animalGoods[type.produces] = (next.animalGoods[type.produces] ?? 0) + stock + bonus;
+      const totalCollected = stock + bonus;
+      next.animalGoods[type.produces] = (next.animalGoods[type.produces] ?? 0) + totalCollected;
+      if (!next.questProgress) next.questProgress = {};
+      if (type.produces === "egg")  next.questProgress.eggsCollected  = (next.questProgress.eggsCollected  ?? 0) + totalCollected;
+      if (type.produces === "milk") next.questProgress.milkCollected   = (next.questProgress.milkCollected  ?? 0) + totalCollected;
+      if (type.produces === "wool") next.questProgress.woolCollected   = (next.questProgress.woolCollected  ?? 0) + totalCollected;
       animal.stock = 0;
       animal.ready = false;
       anyCollected = true;
