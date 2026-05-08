@@ -1782,7 +1782,7 @@ export const SEASONAL_QUESTS = {
   7: {
     requiredCount: 3,
     quests: [
-      { id: "s7_farm",     emoji: "🌾", title: "Expanded Fields", description: "Expand any farm to 5×5",           condition: { type: "live_check", check: "farm_expanded_5x5" } },
+      { id: "s7_farm",     emoji: "🌾", title: "Expanded Fields", description: "Purchase 5×5 expansion on any farm",           condition: { type: "live_check", check: "farm_expanded_5x5" } },
       { id: "s7_hero",     emoji: "⚔️", title: "Boss Hunter",    description: "Defeat a boss",                     condition: { type: "counter", key: "bossFightsWon", value: 1 } },
       { id: "s7_fish",     emoji: "🎣", title: "Rare Haul",      description: "Catch 3 rare fish in one season",   condition: { type: "counter", key: "rareFishCount", value: 3 } },
       { id: "s7_craft",    emoji: "🍳", title: "Full Kitchen",   description: "Have 3 kitchen workers all running recipes simultaneously", condition: { type: "live_check", check: "kitchen_workers_active", value: 3 } },

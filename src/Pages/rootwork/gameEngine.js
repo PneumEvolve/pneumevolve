@@ -6621,12 +6621,22 @@ export function tickBossFight(state, dtSeconds) {
 export function acknowledgeBossVictory(state) {
   const bossFight = state.bossFight;
   if (!bossFight || bossFight.phase !== "defeated") return state;
+
+  // Increment boss win counter for quest tracking
+  const stateWithCount = {
+    ...state,
+    questProgress: {
+      ...(state.questProgress ?? {}),
+      bossFightsWon: ((state.questProgress?.bossFightsWon) ?? 0) + 1,
+    },
+  };
+
   const nextBossId = bossFight.pendingResult?.nextBossId ?? null;
   if (nextBossId) {
-    return initBossFight({ ...state, bossFight: { ...bossFight, pendingResult: null } }, nextBossId);
+    return initBossFight({ ...stateWithCount, bossFight: { ...bossFight, pendingResult: null } }, nextBossId);
   }
   // Fallback (should not happen with infinite chain) — clear result
-  return { ...state, bossFight: { ...bossFight, pendingResult: null } };
+  return { ...stateWithCount, bossFight: { ...bossFight, pendingResult: null } };
 }
 
 // Check if boss should unlock (any hero hit level 10) — call from level-up path
