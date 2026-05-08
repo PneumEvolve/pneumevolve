@@ -3687,6 +3687,8 @@ export function evaluateQuestCondition(state, quest) {
         return (state.adventurers ?? []).filter(a => (a.level ?? 1) >= 15).length >= 2;
       case "tractor_workers":
         return (state.workers ?? []).filter(w => w.gear === "tractor").length >= (c.value ?? 2);
+      case "has_prestiged_hero":
+        return (state.adventurers ?? []).some(a => (a.prestigeLevel ?? 0) >= 1);
       case "two_prestiged_heroes":
         return (state.adventurers ?? []).filter(a => (a.prestigeLevel ?? 0) >= 1).length >= 2;
       case "hero_gear_tier_9":
