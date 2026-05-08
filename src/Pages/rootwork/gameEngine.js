@@ -3463,6 +3463,10 @@ export function catchFish(state, fishId, baitId, bodyId, count = 1) {
   if (!next.fishing.fish) next.fishing.fish = {};
   next.fishing.fish[fishId] = (next.fishing.fish[fishId] ?? 0) + count;
   if (baitId && (next.bait?.[baitId] ?? 0) > 0) next.bait[baitId] -= 1;
+  if (!next.questProgress) next.questProgress = {};
+  next.questProgress.fishCaughtCount = (next.questProgress.fishCaughtCount ?? 0) + count;
+  if (fishId === "bass" || fishId === "perch" || fishId === "rare") next.questProgress.qualityFishCount = (next.questProgress.qualityFishCount ?? 0) + count;
+  if (fishId === "rare") next.questProgress.rareFishCount = (next.questProgress.rareFishCount ?? 0) + count;
   return next;
 }
  
@@ -5818,7 +5822,10 @@ export function tickAdventurerRegen(state, dtSeconds) {
     if (hp <= 0) return adv;
     if (adv.mission) return adv;
     if (adv.bossAssigned) return adv;
-    if (hp >= trueMax) return adv;
+    if (hp >= trueMax) {
+      // Full HP — done resting, clear the flag so the world badge fires
+      return adv.tavernResting ? { ...adv, tavernResting: false } : adv;
+    }
     // Only regen if resting at tavern — no passive regen otherwise
     if (!tavernBuilt || !adv.tavernResting) return adv;
     const tavernRegen = getTavernRegenRate(state);
