@@ -1734,7 +1734,7 @@ export const SEASONAL_QUESTS = {
       { id: "s3_harvest",  emoji: "🍅", title: "Red Harvest",    description: "Harvest 150 tomatoes",              condition: { type: "counter", key: "manualHarvestCount", value: 150 } },
       { id: "s3_hero",     emoji: "⚔️", title: "Level Up",       description: "Have a hero reach level 10",        condition: { type: "hero_level", value: 10 } },
       { id: "s3_fish",     emoji: "🎣", title: "Good Catch",     description: "Catch 3 bass or better",            condition: { type: "counter", key: "qualityFishCount", value: 3 } },
-      { id: "s3_craft",    emoji: "🍅", title: "Sauce Run",      description: "Produce 20 sauce",                  condition: { type: "counter", key: "sauceCrafted", value: 20 } },
+      { id: "s3_craft",    emoji: "🍅", title: "Sauce Run",      description: "Produce 5 sauce",                  condition: { type: "counter", key: "sauceCrafted", value: 5 } },
     ],
   },
   4: {
@@ -1743,7 +1743,7 @@ export const SEASONAL_QUESTS = {
       { id: "s4_barn",     emoji: "🐔", title: "Egg Collector",  description: "Collect 30 eggs",                   condition: { type: "counter", key: "eggsCollected", value: 30 } },
       { id: "s4_hero",     emoji: "⚔️", title: "Seasoned",       description: "Have a hero reach level 15",        condition: { type: "hero_level", value: 15 } },
       { id: "s4_fish",     emoji: "🎣", title: "Deep Waters",    description: "Catch 5 bass or better",            condition: { type: "counter", key: "qualityFishCount", value: 5 } },
-      { id: "s4_craft",    emoji: "🧀", title: "Dairy Crafter",  description: "Produce 20 omelettes",              condition: { type: "counter", key: "omelettesCrafted", value: 20 } },
+      { id: "s4_craft",    emoji: "🧀", title: "Dairy Crafter",  description: "Produce 5 omelettes",              condition: { type: "counter", key: "omelettesCrafted", value: 5 } },
     ],
   },
   5: {
