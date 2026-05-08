@@ -402,11 +402,12 @@ export const TOWN_HALL_L4_CRATE    = 3;
 // TH 0: Homes, Clinic, Warehouse, Food Hall
 // TH 1: Kitchen Hall, Market Hall, Tavern
 // TH 2: Guild Hall, School
-// TH 3+: all level 2+ building upgrades
+// TH 3+: Recreation Hall; all level 2+ building upgrades
 export const TOWN_HALL_BUILDING_GATES = {
   homes: 0, clinic: 0, warehouse: 0, food_hall: 0,
   kitchen_hall: 1, market_hall: 1, tavern: 1,
   guild_hall: 2, school: 2,
+  recreation_hall: 3,
 };
 
 // ── Pond / Forge build costs (unchanged) ─────────────────────────────────────
@@ -494,6 +495,20 @@ export const TAVERN_LEVEL_REGEN  = [0.7, 1.0,  1.5,    2.5]; // HP/s per level
 export const TOWN_SCHOOL_COST           = 2_500;
 export const SCHOOL_RESEARCH_TIME_FLOOR = 0.05;
 export const SCHOOL_GROW_PER_RESEARCHER = 0.2;
+
+// ── Recreation Hall ─────────────────────────────────────────────────────────
+// Workers push satisfaction past the Food Hall ceiling. Cash drain per second.
+export const TOWN_REC_HALL_COST             = 4_000;
+export const TOWN_REC_HALL_REQUIRES         = { iron_fitting: 3, lumber: 20 };
+export const REC_HALL_SAT_PER_WORKER        = 0.5;  // % sat bonus per worker
+export const REC_HALL_CASH_PER_WORKER       = 0.05; // $/second/worker
+export const REC_HALL_MAX_WORKERS_BASE      = 10;
+export const REC_HALL_MAX_WORKERS_PER_TIER  = 10;
+export const REC_HALL_UPGRADE_COSTS         = [8_000, 18_000];
+export const REC_HALL_UPGRADE_REQUIRES      = [
+  { iron_fitting: 5, reinforced_crate: 2 },
+  { iron_fitting: 8, reinforced_crate: 4 },
+];
 
 // ── Legacy constants — kept for save-file compat, no longer drive new logic ──
 export const TOWN_SATISFACTION_CEILING           = 150;

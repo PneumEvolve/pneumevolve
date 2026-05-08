@@ -21,6 +21,8 @@ import {
   MARKET_HALL_MAX_WORKERS, MARKET_HALL_PRICE_BONUS, MARKET_HALL_RETAIN_COUNT,
   TOWN_GUILD_HALL_COST, GUILD_HALL_LEVEL_COSTS, GUILD_HALL_LEVEL_REQUIRES,
   GUILD_HALL_MAX_HEROES, GUILD_HALL_QUEST_TIER,
+  TOWN_REC_HALL_COST, TOWN_REC_HALL_REQUIRES, REC_HALL_UPGRADE_COSTS, REC_HALL_UPGRADE_REQUIRES,
+  REC_HALL_CASH_PER_WORKER,
   SEASONAL_QUESTS, QUEST_GATE_STARTS_SEASON,
   SCHOOL_RESEARCH,
 } from "../gameConstants";
@@ -34,7 +36,7 @@ import {
   getWarehouseCropCap, getMaxKitchenWorkers, getMaxMarketWorkers,
   getMaxHeroes, getGuildHallQuestTier, getSatisfactionCeiling,
   evaluateQuestCondition, getCompletedQuestIds,
-  getBankPriceBonus,
+  getBankPriceBonus, getRecHallSatBonus, getRecHallMaxWorkers,
 } from "../gameEngine";
 import SeasonPanel from "./SeasonPanel";
 import StatsPanel from "./StatsPanel";
@@ -352,6 +354,8 @@ export default function TownZone({
   onUpgradeMarketHall,
   onBuildGuildHall,
   onUpgradeGuildHall,
+  onBuildRecHall,
+  onUpgradeRecHall,
   // Legacy props kept so RootWork doesn't need changes yet — ignored
   onBuyBakery, onToggleBakery, onTogglePantry, onToggleCannery,
   onUpgradeTownBuilding, onBuyJamBuilding, onBuySauceBuilding,
@@ -409,6 +413,11 @@ export default function TownZone({
   const schoolBuilt      = buildings.school?.built === true;
 
   const schoolWorkers = buildings.school?.workers ?? 0;
+
+  const recHallBuilt   = buildings.recreation_hall?.built === true;
+  const recHallTier    = buildings.recreation_hall?.tier ?? 1;
+  const recHallWorkers = buildings.recreation_hall?.workers ?? 0;
+  const th3            = thLevel >= 3;
 
   const homeCost    = getTownHomeCost(game);
   const canBuyHome  = cash >= homeCost;
@@ -1025,6 +1034,70 @@ export default function TownZone({
             )}
           </BuildingCard>
 
+          {/* ── Recreation Hall ─────────────────────────────────────────── */}
+          <BuildingCard emoji="🎪" title="Recreation Hall"
+            badge={recHallBuilt ? `Tier ${recHallTier} · ${recHallWorkers} workers · +${getRecHallSatBonus(game).toFixed(1)}% sat` : "Not built"}
+            badgeColor={recHallBuilt ? "#4ade80" : "#f59e0b"}
+            locked={!th3} lockedMsg="Requires Town Hall level 3"
+          >
+            <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
+              Each worker pushes satisfaction past the Food Hall ceiling by +0.5%.
+              Costs ${REC_HALL_CASH_PER_WORKER}/worker/second to run.
+            </div>
+            {recHallBuilt ? (
+              <>
+                <Row label="Sat bonus" value={`+${getRecHallSatBonus(game).toFixed(1)}%`} valueColor="#4ade80" />
+                <Row label="Effective ceiling" value={`${getSatisfactionCeiling(game).toFixed(1)}`} />
+                <Row label="Cash drain" value={`$${(recHallWorkers * REC_HALL_CASH_PER_WORKER).toFixed(2)}/s`} valueColor="#f59e0b" />
+                <WorkerAssigner
+                  workers={recHallWorkers} maxWorkers={getRecHallMaxWorkers(game)} freePeople={freePeople}
+                  onAdd={() => onAssignTownBuildingWorker("recreation_hall", 1)}
+                  onRemove={() => onAssignTownBuildingWorker("recreation_hall", -1)}
+                />
+                {(() => {
+                  const idx = recHallTier - 1;
+                  const nextCost = idx < REC_HALL_UPGRADE_COSTS.length
+                    ? REC_HALL_UPGRADE_COSTS[idx]
+                    : Math.round(18_000 * Math.pow(2, idx - 1));
+                  const nextReq = idx < REC_HALL_UPGRADE_REQUIRES.length
+                    ? REC_HALL_UPGRADE_REQUIRES[idx]
+                    : { iron_fitting: 8 + (idx - 1) * 4, reinforced_crate: 4 + (idx - 1) * 2 };
+                  const canUpgrade = cash >= nextCost &&
+                    Object.entries(nextReq).every(([k, v]) => have(k) >= v);
+                  return (
+                    <>
+                      <div style={{ marginTop: "0.5rem", paddingTop: "0.4rem", borderTop: "1px solid var(--border)" }}>
+                        <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
+                          Upgrade to Tier {recHallTier + 1} — {getRecHallMaxWorkers(game) + 10} workers max
+                        </div>
+                        <CostLine cash={cash} cashCost={nextCost} materials={nextReq}
+                          have={{ iron_ore: worldRes.iron_ore ?? 0, lumber: worldRes.lumber ?? 0, iron_fitting: have("iron_fitting"), reinforced_crate: have("reinforced_crate") }}
+                        />
+                      </div>
+                      <button onClick={onUpgradeRecHall} disabled={!canUpgrade} className="btn w-full"
+                        style={{ marginTop: "0.5rem", opacity: canUpgrade ? 1 : 0.5 }}>
+                        Upgrade Recreation Hall
+                      </button>
+                    </>
+                  );
+                })()}
+              </>
+            ) : (
+              <>
+                <CostLine cash={cash} cashCost={TOWN_REC_HALL_COST}
+                  materials={TOWN_REC_HALL_REQUIRES}
+                  have={{ iron_ore: worldRes.iron_ore ?? 0, lumber: worldRes.lumber ?? 0, iron_fitting: have("iron_fitting"), reinforced_crate: have("reinforced_crate") }}
+                />
+                <button onClick={onBuildRecHall}
+                  disabled={cash < TOWN_REC_HALL_COST}
+                  className="btn w-full"
+                  style={{ marginTop: "0.5rem", opacity: cash >= TOWN_REC_HALL_COST ? 1 : 0.5 }}>
+                  Build Recreation Hall — ${fmt(TOWN_REC_HALL_COST)}
+                </button>
+              </>
+            )}
+          </BuildingCard>
+
           {/* ── How Town Works reference ────────────────────────────────── */}
           <details style={{ marginTop: "0.5rem" }}>
             <summary style={{ fontSize: "0.72rem", color: "var(--muted)", cursor: "pointer", padding: "0.4rem 0" }}>
@@ -1037,6 +1110,7 @@ export default function TownZone({
               <div>• <strong style={{ color: "var(--text)" }}>Guild Hall</strong> gates hero count and quest tiers.</div>
               <div>• <strong style={{ color: "var(--text)" }}>Tavern</strong> auto-regens idle heroes. No manual feeding needed when they're resting.</div>
               <div>• <strong style={{ color: "var(--text)" }}>School</strong> unlocks upgrades using mana crystals instead of cash.</div>
+              <div>• <strong style={{ color: "var(--text)" }}>Recreation Hall</strong> pushes satisfaction past the Food Hall ceiling. Costs $0.05/worker/second.</div>
               <div>• Idle people cost {PERSON_IDLE_FOOD_COST} food/pulse. Workers cost {PERSON_WORKING_FOOD_COST} food/pulse.</div>
               <div>• 1 bread feeds {BREAD_FOOD_UNITS} food units. Jam + sauce must match bread quantity each pulse — they earn the satisfaction ceiling, not extra food.</div>
             </div>

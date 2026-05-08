@@ -50,7 +50,8 @@ import {
   buildWarehouse, upgradeWarehouse,
   buildKitchenHall, upgradeKitchenHall,
   buildMarketHall, upgradeMarketHall,
-  buildGuildHall, upgradeGuildHall, getEffectiveGrowTime, claimQuestReward
+  buildGuildHall, upgradeGuildHall, getEffectiveGrowTime, claimQuestReward,
+  buildRecHall, upgradeRecHall,
 } from "./gameEngine";
 import {
   SAVE_KEY, SAVE_INTERVAL_MS,
@@ -652,6 +653,8 @@ if (wf) {
   const handleUpgradeMarketHall = useCallback(() => update((s) => { const n = upgradeMarketHall(s); if (n === s) notify('Cannot upgrade Market Hall.'); return n; }), [update, notify]);
   const handleBuildGuildHall   = useCallback(() => update((s) => { const n = buildGuildHall(s);   if (n === s) notify('Requires Town Hall level 2.'); return n; }), [update, notify]);
   const handleUpgradeGuildHall = useCallback(() => update((s) => { const n = upgradeGuildHall(s); if (n === s) notify('Cannot upgrade Guild Hall.'); return n; }), [update, notify]);
+  const handleBuildRecHall   = useCallback(() => update((s) => { const n = buildRecHall(s);   if (n === s) notify('Requires Town Hall level 3 and materials.'); return n; }), [update, notify]);
+  const handleUpgradeRecHall = useCallback(() => update((s) => { const n = upgradeRecHall(s); if (n === s) notify('Cannot upgrade Recreation Hall.'); return n; }), [update, notify]);
 
 
   // Animals & Pond
@@ -1021,6 +1024,8 @@ if (wf) {
               onUpgradeMarketHall={handleUpgradeMarketHall}
               onBuildGuildHall={handleBuildGuildHall}
               onUpgradeGuildHall={handleUpgradeGuildHall}
+              onBuildRecHall={handleBuildRecHall}
+              onUpgradeRecHall={handleUpgradeRecHall}
               onBuyBakery={handleBuyTownBakery}
               onToggleBakery={handleToggleBakery}
               onTogglePantry={handleTogglePantry}

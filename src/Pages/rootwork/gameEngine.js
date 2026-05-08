@@ -48,6 +48,8 @@ BARN_WORKER_BASE_INTERVAL, BARN_WORKER_BASE_CAPACITY,
 ANIMAL_BASE_STOCK_MAX, ANIMAL_OVERFULL_MOOD_DRAIN, ANIMAL_FOOD_COSTS, PET_FOOD_COST, BREAD_FOOD_UNITS,
 PERSON_IDLE_FOOD_COST, PERSON_WORKING_FOOD_COST,
 TOWN_CLINIC_COST, TOWN_SCHOOL_COST, TOWN_TAVERN_COST, TOWN_RESTAURANT_COST, TOWN_CLOTHIER_COST,
+TOWN_REC_HALL_COST, TOWN_REC_HALL_REQUIRES, REC_HALL_SAT_PER_WORKER, REC_HALL_CASH_PER_WORKER,
+REC_HALL_MAX_WORKERS_BASE, REC_HALL_MAX_WORKERS_PER_TIER, REC_HALL_UPGRADE_COSTS, REC_HALL_UPGRADE_REQUIRES,
 CLINIC_CAP_PER_MEDIC, CLINIC_SAT_PER_MEDIC,
 SCHOOL_GROW_PER_RESEARCHER, SCHOOL_RESEARCH_TIME_FLOOR,
 TAVERN_SAT_PER_BARTENDER, TAVERN_GOODS_PER_PULSE_DIVISOR,
@@ -387,7 +389,8 @@ export function unlockPrestigeSkill(state, id) {
 export function getSatisfactionCeiling(state) {
   if (hasPrestigeSkill(state, "town_pride")) return 200;
   const tier = state.town?.buildings?.food_hall?.tier ?? 0;
-  return FOOD_HALL_SAT_CEILING[tier] ?? FOOD_HALL_SAT_CEILING[0];
+  const base = FOOD_HALL_SAT_CEILING[tier] ?? FOOD_HALL_SAT_CEILING[0];
+  return base + getRecHallSatBonus(state);
 }
  
 // ─── Sell price bonus (Bank) ──────────────────────────────────────────────────
@@ -667,6 +670,18 @@ export function getClothierPulseCost(state) {
   return Math.max(1, Math.ceil(workers / CLOTHIER_GOODS_PER_PULSE_DIVISOR));
 }
 
+// Rec Hall: each worker adds 0.5% sat (pushes past Food Hall ceiling)
+export function getRecHallSatBonus(state) {
+  if (!isTownBuildingBuilt(state, "recreation_hall")) return 0;
+  return getTownBuildingWorkers(state, "recreation_hall") * REC_HALL_SAT_PER_WORKER;
+}
+
+// Rec Hall: max workers allowed (base 10, +10 per upgrade tier)
+export function getRecHallMaxWorkers(state) {
+  const tier = state.town?.buildings?.recreation_hall?.tier ?? 1;
+  return REC_HALL_MAX_WORKERS_BASE + (tier - 1) * REC_HALL_MAX_WORKERS_PER_TIER;
+}
+
 // Total sat bonus from all town buildings (flat %, added to target)
 export function getTownBuildingSatBonus(state) {
   return getClinicSatBonus(state) + getTavernSatBonus(state) + getRestaurantSatBonus(state);
@@ -677,7 +692,7 @@ export function getTownBuildingWorkerCount(state) {
   const b = getTownBuildings(state);
   return (b.clinic?.workers ?? 0) + (b.school?.workers ?? 0) +
          (b.tavern?.workers ?? 0) + (b.restaurant?.workers ?? 0) +
-         (b.clothier?.workers ?? 0);
+         (b.clothier?.workers ?? 0) + (b.recreation_hall?.workers ?? 0);
 }
 
 // Available population for assignment (not already a farm/kitchen/market/barn/fishing/town-building worker)
@@ -802,6 +817,42 @@ export function buildTownBuilding(state, key) {
   } else {
     next.town.buildings[key] = { built: true, workers: 0 };
   }
+  return next;
+}
+
+// Build the Recreation Hall (TH3 gate, material cost)
+export function buildRecHall(state) {
+  const thLevel = getTownHallLevel(state);
+  if (thLevel < TOWN_HALL_BUILDING_GATES.recreation_hall) return state;
+  if (isTownBuildingBuilt(state, "recreation_hall")) return state;
+  if ((state.cash ?? 0) < TOWN_REC_HALL_COST) return state;
+  if (!canAffordUpgradeMaterials(state, TOWN_REC_HALL_REQUIRES)) return state;
+  const next = deepCloneState(state);
+  next.cash -= TOWN_REC_HALL_COST;
+  consumeUpgradeMaterials(next, TOWN_REC_HALL_REQUIRES);
+  if (!next.town.buildings) next.town.buildings = {};
+  next.town.buildings.recreation_hall = { built: true, tier: 1, workers: 0 };
+  return next;
+}
+
+// Upgrade the Recreation Hall (increases max worker cap by 10)
+export function upgradeRecHall(state) {
+  const rh = state.town?.buildings?.recreation_hall;
+  if (!rh?.built) return state;
+  const tier = rh.tier ?? 1;
+  const idx = tier - 1;
+  const cost = idx < REC_HALL_UPGRADE_COSTS.length
+    ? REC_HALL_UPGRADE_COSTS[idx]
+    : Math.round(18_000 * Math.pow(2, idx - 1));
+  const requires = idx < REC_HALL_UPGRADE_REQUIRES.length
+    ? REC_HALL_UPGRADE_REQUIRES[idx]
+    : { iron_fitting: 8 + (idx - 1) * 4, reinforced_crate: 4 + (idx - 1) * 2 };
+  if ((state.cash ?? 0) < cost) return state;
+  if (!canAffordUpgradeMaterials(state, requires)) return state;
+  const next = deepCloneState(state);
+  next.cash -= cost;
+  consumeUpgradeMaterials(next, requires);
+  next.town.buildings.recreation_hall.tier = tier + 1;
   return next;
 }
 
@@ -2481,6 +2532,14 @@ if (activeTier) {
     }
   }
  
+  // ── Rec Hall cash drain (per second) ──────────────────────────────────────
+  if (isTownBuildingBuilt(next, "recreation_hall")) {
+    const recWorkers = getTownBuildingWorkers(next, "recreation_hall");
+    if (recWorkers > 0) {
+      next.cash = Math.max(0, (next.cash ?? 0) - recWorkers * REC_HALL_CASH_PER_WORKER);
+    }
+  }
+
   next = updateTown(next, 1);
   next.totalPlayTime = (next.totalPlayTime ?? 0) + 1;
   return next;
