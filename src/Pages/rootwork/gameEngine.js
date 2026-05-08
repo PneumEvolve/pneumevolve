@@ -5227,7 +5227,7 @@ export function reviveAdventurer(state, adventurerId) {
     ...state,
     cash: (state.cash ?? 0) - cost,
     adventurers: state.adventurers.map((a, i) => i === advIdx ? updatedAdv : a),
-    questProgress: nextQPPrestige,
+    questProgress: state.questProgress,
   };
 }
 
