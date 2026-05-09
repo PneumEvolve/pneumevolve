@@ -71,7 +71,12 @@ function isZoneUnlocked(zone, adventurer, worldZoneClears) {
 }
 
 // Returns sum of gear tiers across all 3 slots
+// Returns total gear tier — reads adventurer.gear which is kept accurate by
+// equipAdventurer, unequipAdventurer, and upgradeForgeInstance in gameEngine.
+// Falls back to summing base recipe tiers for legacy saves without .gear set.
 function getTotalGearTier(adventurer) {
+  if (adventurer.gear != null) return adventurer.gear;
+  // Legacy fallback
   const gear = adventurer.equippedGear ?? {};
   let total = 0;
   for (const slot of ["weapon", "armour", "body"]) {
@@ -81,7 +86,6 @@ function getTotalGearTier(adventurer) {
       total += recipe?.gearTier ?? 0;
     }
   }
-  // Legacy: also count old equippedItem if present
   if (adventurer.equippedItem && !gear.weapon && !gear.armour && !gear.body) {
     const recipe = FORGE_RECIPES[adventurer.equippedItem];
     total += recipe?.gearTier ?? 0;

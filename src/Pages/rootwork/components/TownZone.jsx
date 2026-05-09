@@ -18,6 +18,8 @@ import {
   KITCHEN_HALL_MAX_WORKERS, KITCHEN_HALL_RETAIN_COUNT,
   TOWN_MARKET_HALL_COST, MARKET_HALL_LEVEL_COSTS, MARKET_HALL_LEVEL_REQUIRES,
   MARKET_HALL_MAX_WORKERS, MARKET_HALL_PRICE_BONUS, MARKET_HALL_RETAIN_COUNT,
+  TOWN_BARN_HALL_COST, BARN_HALL_LEVEL_COSTS, BARN_HALL_LEVEL_REQUIRES,
+  TOWN_FORGE_HALL_COST, FORGE_HALL_LEVEL_COSTS, FORGE_HALL_LEVEL_REQUIRES,
   TOWN_GUILD_HALL_COST, getGuildHallUpgradeCost, getGuildHallUpgradeRequires,
   GUILD_HALL_QUEST_TIER,
   TOWN_REC_HALL_COST, TOWN_REC_HALL_REQUIRES, REC_HALL_UPGRADE_COSTS, REC_HALL_UPGRADE_REQUIRES,
@@ -33,7 +35,8 @@ import {
   getTownCapacity, getSchoolData, getActiveSchoolResearch, getAvailableSchoolResearch,
   getWarehouseCropCap, getWarehouseUpgradeCost, getWarehouseUpgradeRequires,
   getWarehouseLevelBaseCap, getWarehouseLevelCapPerWorker, getWarehouseLevelMaxWorkers, getWarehouseLevelName,
-  getMaxKitchenWorkers, getMaxMarketWorkers,
+  getMaxKitchenWorkers, getMaxMarketWorkers, getMaxBarnWorkersPerBuilding, getBarnHallRetainCount,
+  getMaxForgeWorkers, getForgeHallRecipeTier, getForgeHallRetainCount,
   getMaxHeroes, getGuildHallQuestTier, getSatisfactionCeiling,
   getBankPriceBonus, getRecHallSatBonus, getRecHallMaxWorkers,
 } from "../gameEngine";
@@ -176,6 +179,10 @@ export default function TownZone({
   onUpgradeMarketHall,
   onBuildGuildHall,
   onUpgradeGuildHall,
+  onBuildBarnHall,
+  onUpgradeBarnHall,
+  onBuildForgeHall,
+  onUpgradeForgeHall,
   onBuildRecHall,
   onUpgradeRecHall,
   // Legacy props kept so RootWork doesn't need changes yet — ignored
@@ -230,6 +237,10 @@ export default function TownZone({
   const marketHallLevel  = buildings.market_hall?.level ?? 0;
   const guildHallBuilt   = buildings.guild_hall?.built === true;
   const guildHallLevel   = buildings.guild_hall?.level ?? 0;
+  const barnHallBuilt    = buildings.barn_hall?.built === true;
+  const barnHallLevel    = buildings.barn_hall?.level ?? 0;
+  const forgeHallBuilt   = buildings.forge_hall?.built === true;
+  const forgeHallLevel   = buildings.forge_hall?.level ?? 0;
   const tavernLevel      = getTavernLevel(game);
   const tavernBuilt      = tavernLevel > 0;
   const schoolBuilt      = buildings.school?.built === true;
@@ -344,8 +355,8 @@ export default function TownZone({
               {thLevel >= TOWN_HALL_MAX_LEVEL && " Fully upgraded."}
             </div>
             <Row label="Current level" value={thLevel} />
-            <Row label="Unlocks at TH1" value="Kitchen Hall, Market Hall, Tavern" />
-            <Row label="Unlocks at TH2" value="Guild Hall, School" />
+            <Row label="Unlocks at TH1" value="Kitchen Hall, Market Hall, Forge Hall, Tavern" />
+            <Row label="Unlocks at TH2" value="Guild Hall, Barn Hall, School" />
             {thLevel < TOWN_HALL_MAX_LEVEL && (
               <>
                 <div style={{ marginTop: "0.5rem", paddingTop: "0.4rem", borderTop: "1px solid var(--border)" }}>
@@ -684,6 +695,62 @@ export default function TownZone({
             )}
           </BuildingCard>
 
+          {/* ── Forge Hall ────────────────────────────── */}
+          <BuildingCard emoji="⚒️" title="Forge Hall"
+            badge={forgeHallBuilt ? `Level ${forgeHallLevel}` : "Not built"}
+            badgeColor={forgeHallBuilt ? "#4ade80" : "#f59e0b"}
+            locked={!th1} lockedMsg="Requires Town Hall level 1"
+          >
+            <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
+              Gates how many smiths you can hire. L2 unlocks T2 recipes, L3 unlocks T3 recipes, L4 unlocks the Arcane Upgrade Machine.
+              Higher levels also retain smiths across season prestige.
+            </div>
+            {forgeHallBuilt ? (
+              <>
+                <Row label="Max smiths" value={getMaxForgeWorkers(game)} />
+                <Row label="Recipe tier" value={`T${getForgeHallRecipeTier(game)} unlocked`} />
+                <Row label="Arcane Machine" value={forgeHallLevel >= 4 ? "✓ Unlocked" : `Unlocks at L4`} valueColor={forgeHallLevel >= 4 ? "#4ade80" : "var(--muted)"} />
+                <Row label="Auto-retain on prestige" value={`${getForgeHallRetainCount(game)} smiths`} />
+                {(() => {
+                  const nextCost = forgeHallLevel <= 3
+                    ? FORGE_HALL_LEVEL_COSTS[forgeHallLevel - 1]
+                    : Math.round(15_000 * Math.pow(2, forgeHallLevel - 4));
+                  const nextRequires = forgeHallLevel <= 3
+                    ? FORGE_HALL_LEVEL_REQUIRES[forgeHallLevel - 1]
+                    : { iron_fitting: 6 + (forgeHallLevel - 4) * 2, reinforced_crate: 3 + (forgeHallLevel - 4), fine_tools: 2 + (forgeHallLevel - 4) };
+                  const nextMaxWorkers = (forgeHallLevel + 1) * 2;
+                  return (
+                    <>
+                      <div style={{ marginTop: "0.5rem", paddingTop: "0.4rem", borderTop: "1px solid var(--border)" }}>
+                        <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
+                          Upgrade to Level {forgeHallLevel + 1} — {nextMaxWorkers} smiths max
+                          {forgeHallLevel + 1 === 2 ? " · unlocks T2 recipes" : forgeHallLevel + 1 === 3 ? " · unlocks T3 recipes" : forgeHallLevel + 1 === 4 ? " · unlocks Arcane Machine" : ""}
+                        </div>
+                        <CostLine
+                          cash={cash}
+                          cashCost={nextCost}
+                          materials={nextRequires}
+                          have={{ iron_ore: worldRes.iron_ore ?? 0, lumber: worldRes.lumber ?? 0, iron_fitting: have("iron_fitting"), reinforced_crate: have("reinforced_crate"), fine_tools: have("fine_tools") }}
+                        />
+                      </div>
+                      <button onClick={onUpgradeForgeHall} className="btn w-full" style={{ marginTop: "0.5rem" }}>
+                        Upgrade Forge Hall
+                      </button>
+                    </>
+                  );
+                })()}
+              </>
+            ) : (
+              <>
+                <CostLine cash={cash} cashCost={TOWN_FORGE_HALL_COST} />
+                <button onClick={onBuildForgeHall} disabled={cash < TOWN_FORGE_HALL_COST} className="btn w-full"
+                  style={{ marginTop: "0.5rem", opacity: cash >= TOWN_FORGE_HALL_COST ? 1 : 0.5 }}>
+                  Build Forge Hall — ${fmt(TOWN_FORGE_HALL_COST)}
+                </button>
+              </>
+            )}
+          </BuildingCard>
+
           {/* ── Tavern ─────────────────────────────────────────────────── */}
           <BuildingCard emoji="🍺" title="Tavern"
             badge={tavernBuilt ? `Level ${tavernLevel} · ${TAVERN_LEVEL_REGEN[tavernLevel - 1]} HP/s regen` : "Not built"}
@@ -781,6 +848,60 @@ export default function TownZone({
                   className="btn w-full"
                   style={{ marginTop: "0.5rem", opacity: cash >= TOWN_GUILD_HALL_COST ? 1 : 0.5 }}>
                   Build Guild Hall — ${fmt(TOWN_GUILD_HALL_COST)}
+                </button>
+              </>
+            )}
+          </BuildingCard>
+
+          {/* ── Barn Hall ───────────────────────────── */}
+          <BuildingCard emoji="🐄" title="Barn Hall"
+            badge={barnHallBuilt ? `Level ${barnHallLevel}` : "Not built"}
+            badgeColor={barnHallBuilt ? "#4ade80" : "#f59e0b"}
+            locked={!th2} lockedMsg="Requires Town Hall level 2"
+          >
+            <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
+              Gates how many barn workers you can hire per barn building. Each level adds 1 worker slot per building.
+              Higher levels retain workers across prestige.
+            </div>
+            {barnHallBuilt ? (
+              <>
+                <Row label="Workers per barn" value={getMaxBarnWorkersPerBuilding(game)} />
+                <Row label="Auto-retain on prestige" value={`${getBarnHallRetainCount(game)} per barn`} />
+                {(() => {
+                  const nextCost = barnHallLevel <= 2
+                    ? BARN_HALL_LEVEL_COSTS[barnHallLevel - 1]
+                    : Math.round(7_000 * Math.pow(2, barnHallLevel - 3));
+                  const nextRequires = barnHallLevel <= 2
+                    ? BARN_HALL_LEVEL_REQUIRES[barnHallLevel - 1]
+                    : { iron_fitting: 3 + (barnHallLevel - 3) * 2, iron_ore: 25 + (barnHallLevel - 3) * 10, lumber: 20 + (barnHallLevel - 3) * 8 };
+                  const nextWorkers = barnHallLevel + 1;
+                  const nextRetain = Math.floor((barnHallLevel + 1) / 2);
+                  return (
+                    <>
+                      <div style={{ marginTop: "0.5rem", paddingTop: "0.4rem", borderTop: "1px solid var(--border)" }}>
+                        <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
+                          Upgrade to Level {barnHallLevel + 1} — {nextWorkers} workers per barn · {nextRetain} retain on prestige
+                        </div>
+                        <CostLine
+                          cash={cash}
+                          cashCost={nextCost}
+                          materials={nextRequires}
+                          have={{ iron_ore: worldRes.iron_ore ?? 0, lumber: worldRes.lumber ?? 0, iron_fitting: have("iron_fitting") }}
+                        />
+                      </div>
+                      <button onClick={onUpgradeBarnHall} className="btn w-full" style={{ marginTop: "0.5rem" }}>
+                        Upgrade Barn Hall
+                      </button>
+                    </>
+                  );
+                })()}
+              </>
+            ) : (
+              <>
+                <CostLine cash={cash} cashCost={TOWN_BARN_HALL_COST} />
+                <button onClick={onBuildBarnHall} disabled={cash < TOWN_BARN_HALL_COST} className="btn w-full"
+                  style={{ marginTop: "0.5rem", opacity: cash >= TOWN_BARN_HALL_COST ? 1 : 0.5 }}>
+                  Build Barn Hall — ${fmt(TOWN_BARN_HALL_COST)}
                 </button>
               </>
             )}
@@ -928,6 +1049,8 @@ export default function TownZone({
               <div>• <strong style={{ color: "var(--text)" }}>Satisfaction</strong> multiplies all worker speed. Floor 25%. Ceiling set by Food Hall tier.</div>
               <div>• <strong style={{ color: "var(--text)" }}>Warehouse</strong> caps crop storage. Overflow is lost — workers increase the cap.</div>
               <div>• <strong style={{ color: "var(--text)" }}>Kitchen/Market Halls</strong> gate worker counts. Upgrade to hire more.</div>
+              <div>• <strong style={{ color: "var(--text)" }}>Forge Hall</strong> gates smiths, recipe tiers (T2 at L2, T3 at L3), and Arcane Machine (L4).</div>
+              <div>• <strong style={{ color: "var(--text)" }}>Barn Hall</strong> gates barn workers per building. Level N = N workers per barn.</div>
               <div>• <strong style={{ color: "var(--text)" }}>Guild Hall</strong> gates hero count — each level unlocks one more hero slot.</div>
               <div>• <strong style={{ color: "var(--text)" }}>Tavern</strong> auto-regens idle heroes. No manual feeding needed when they're resting.</div>
               <div>• <strong style={{ color: "var(--text)" }}>School</strong> unlocks upgrades using mana crystals instead of cash.</div>

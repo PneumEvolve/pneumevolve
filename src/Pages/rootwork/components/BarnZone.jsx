@@ -10,8 +10,8 @@ import {
   getBarnWorkerCareMood, getAnimalStockMax,
   getAnimalStorageUpgradeCost,
   getBarnBuilding, getBarnBuildingTierData,
-  getBarnBuildingAnimalSlots, getBarnBuildingWorkerSlots,
-  getBarnInstanceAnimalSlots, getBarnInstanceWorkerSlots,
+  getBarnBuildingAnimalSlots,
+  getBarnInstanceAnimalSlots, getMaxBarnWorkersPerBuilding,
   canBuildBarnBuilding, canUpgradeBarnBuilding,
   getAvailableWorkerSlots, isTownBuildingBuilt, hasSchoolResearch,
 } from "../gameEngine";
@@ -536,7 +536,7 @@ function BuildingTab({
   const animals = inst?.animals ?? [];
   const barnWorkers = inst?.barnWorkers ?? [];
   const animalSlots = getBarnInstanceAnimalSlots(game, instanceId);
-  const workerSlots = getBarnInstanceWorkerSlots(game, instanceId);
+  const workerSlots = getMaxBarnWorkersPerBuilding(game);
   const totalStock = animals.reduce((s, a) => s + (a.stock ?? 0), 0);
   const cash = game.cash ?? 0;
   const seasonOk = (game.season ?? 1) >= def.unlockSeason;
@@ -608,8 +608,8 @@ function BuildingTab({
             </div>
             <div style={{ fontSize: "0.65rem", marginTop: "0.15rem", color: upkeepTotal > 0 ? "#f59e0b" : "var(--muted)" }}>
               {upkeepTotal > 0
-                ? `💸 $${upkeepTotal.toFixed(2)}/sec · ${animalSlots - animals.length} animal slots · ${workerSlots - workerSlotsUsed} worker slots free`
-                : `${animalSlots} animal slots · ${workerSlots} worker slots`}
+                ? `💸 $${upkeepTotal.toFixed(2)}/sec · ${animalSlots - animals.length} animal slots free`
+                : `${animalSlots} animal slots`}
             </div>
           </div>
           {nextTierData ? (
@@ -627,7 +627,7 @@ function BuildingTab({
           const matEntries = Object.entries(matCost);
           return (
             <div style={{ fontSize: "0.6rem", color: "var(--muted)" }}>
-              Next: {nextTierData.animalSlots} animal slots · {nextTierData.workerSlots} worker slots
+              Next: {nextTierData.animalSlots} animal slots
               {matEntries.length > 0 && (
                 <span style={{ marginLeft: "0.4rem" }}>
                   · {matEntries.map(([k, v]) => {

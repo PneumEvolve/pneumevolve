@@ -86,6 +86,8 @@ FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, 
   KITCHEN_HALL_MAX_WORKERS, KITCHEN_HALL_RETAIN_COUNT,
   TOWN_MARKET_HALL_COST, MARKET_HALL_LEVEL_COSTS, MARKET_HALL_LEVEL_REQUIRES,
   MARKET_HALL_MAX_WORKERS, MARKET_HALL_PRICE_BONUS, MARKET_HALL_RETAIN_COUNT,
+  TOWN_BARN_HALL_COST, BARN_HALL_LEVEL_COSTS, BARN_HALL_LEVEL_REQUIRES,
+  TOWN_FORGE_HALL_COST, FORGE_HALL_LEVEL_COSTS, FORGE_HALL_LEVEL_REQUIRES,
   TOWN_GUILD_HALL_COST, getGuildHallUpgradeCost, getGuildHallUpgradeRequires,
   GUILD_HALL_QUEST_TIER,
 } from "./gameConstants";
@@ -1107,6 +1109,103 @@ export function upgradeMarketHall(state) {
   return next;
 }
 
+// Barn Hall
+export function buildBarnHall(state) {
+  if (getTownHallLevel(state) < TOWN_HALL_BUILDING_GATES.barn_hall) return state;
+  if (state.town?.buildings?.barn_hall?.built) return state;
+  if ((state.cash ?? 0) < TOWN_BARN_HALL_COST) return state;
+  const next = deepCloneState(state);
+  next.cash -= TOWN_BARN_HALL_COST;
+  if (!next.town.buildings) next.town.buildings = {};
+  next.town.buildings.barn_hall = { built: true, level: 1 };
+  return next;
+}
+
+function getBarnHallUpgradeCost(level) {
+  if (level - 1 < BARN_HALL_LEVEL_COSTS.length) return BARN_HALL_LEVEL_COSTS[level - 1];
+  return Math.round(7_000 * Math.pow(2, level - 3));
+}
+function getBarnHallUpgradeRequires(level) {
+  if (level - 1 < BARN_HALL_LEVEL_REQUIRES.length) return BARN_HALL_LEVEL_REQUIRES[level - 1];
+  const fittings = 3 + (level - 3) * 2;
+  return { iron_fitting: fittings, iron_ore: 25 + (level - 3) * 10, lumber: 20 + (level - 3) * 8 };
+}
+export function upgradeBarnHall(state) {
+  const bh = state.town?.buildings?.barn_hall;
+  if (!bh?.built) return state;
+  const level = bh.level ?? 1;
+  const cost = getBarnHallUpgradeCost(level);
+  const requires = getBarnHallUpgradeRequires(level);
+  if ((state.cash ?? 0) < cost) return state;
+  if (!canAffordUpgradeMaterials(state, requires)) return state;
+  const next = deepCloneState(state);
+  next.cash -= cost;
+  consumeUpgradeMaterials(next, requires);
+  next.town.buildings.barn_hall.level = level + 1;
+  return next;
+}
+
+// Forge Hall
+export function buildForgeHall(state) {
+  if (getTownHallLevel(state) < TOWN_HALL_BUILDING_GATES.forge_hall) return state;
+  if (state.town?.buildings?.forge_hall?.built) return state;
+  if ((state.cash ?? 0) < TOWN_FORGE_HALL_COST) return state;
+  const next = deepCloneState(state);
+  next.cash -= TOWN_FORGE_HALL_COST;
+  if (!next.town.buildings) next.town.buildings = {};
+  next.town.buildings.forge_hall = { built: true, level: 1 };
+  return next;
+}
+
+function getForgeHallUpgradeCost(level) {
+  if (level - 1 < FORGE_HALL_LEVEL_COSTS.length) return FORGE_HALL_LEVEL_COSTS[level - 1];
+  return Math.round(15_000 * Math.pow(2, level - 4));
+}
+function getForgeHallUpgradeRequires(level) {
+  if (level - 1 < FORGE_HALL_LEVEL_REQUIRES.length) return FORGE_HALL_LEVEL_REQUIRES[level - 1];
+  const fittings = 6 + (level - 4) * 2;
+  return { iron_fitting: fittings, reinforced_crate: 3 + (level - 4), fine_tools: 2 + (level - 4) };
+}
+export function upgradeForgeHall(state) {
+  const fh = state.town?.buildings?.forge_hall;
+  if (!fh?.built) return state;
+  const level = fh.level ?? 1;
+  const cost = getForgeHallUpgradeCost(level);
+  const requires = getForgeHallUpgradeRequires(level);
+  if ((state.cash ?? 0) < cost) return state;
+  if (!canAffordUpgradeMaterials(state, requires)) return state;
+  const next = deepCloneState(state);
+  next.cash -= cost;
+  consumeUpgradeMaterials(next, requires);
+  next.town.buildings.forge_hall.level = level + 1;
+  return next;
+}
+
+export function getMaxForgeWorkers(state) {
+  const fh = state.town?.buildings?.forge_hall;
+  if (!fh?.built) return 0;
+  return (fh.level ?? 1) * 2;
+}
+
+export function getForgeHallRecipeTier(state) {
+  const fh = state.town?.buildings?.forge_hall;
+  if (!fh?.built) return 0;
+  const level = fh.level ?? 1;
+  return Math.min(level, 3);
+}
+
+export function isArcaneUnlocked(state) {
+  const fh = state.town?.buildings?.forge_hall;
+  if (!fh?.built) return false;
+  return (fh.level ?? 1) >= 4;
+}
+
+export function getForgeHallRetainCount(state) {
+  const fh = state.town?.buildings?.forge_hall;
+  if (!fh?.built) return 0;
+  return fh.level ?? 1;
+}
+
 export function buildGuildHall(state) {
   const thLevel = getTownHallLevel(state);
   if (thLevel < TOWN_HALL_BUILDING_GATES.guild_hall) return state;
@@ -1631,6 +1730,8 @@ function makeFreshTown() {
       warehouse:    { built: false, level: 1, workers: 0 },
       kitchen_hall: { built: false, level: 0 },
       market_hall:  { built: false, level: 0 },
+      barn_hall:    { built: false, level: 0 },
+      forge_hall:   { built: false, level: 0 },
       guild_hall:   { built: false, level: 0 },
       tavern:       { built: false, level: 0 },
       school:       {
@@ -1686,6 +1787,7 @@ export function createInitialState() {
       milkCollected: 0, woolCollected: 0, omelettesCrafted: 0, forgeItemsCrafted: 0,
       heroQuestsCompleted: 0, tier2QuestsCompleted: 0, bossFightsWon: 0, heroPrestiges: 0,
       chainmailOrBetterCrafted: false, t3ItemCrafted: false, claimedQuestIds: [],
+      maxAutoBattleRun: 0, maxSimultaneousAutoBattlers: 0,
     },
     // Animals & pond
     pond: null, // keep for migration compatibility
@@ -1878,23 +1980,28 @@ export function getBarnInstanceAnimalSlots(state, instanceId) {
   return tierData.animalSlots + breedingBonus;
 }
  
+// Barn Hall: max workers per barn building instance
+export function getMaxBarnWorkersPerBuilding(state) {
+  const bh = state.town?.buildings?.barn_hall;
+  if (!bh?.built) return 0;
+  return bh.level ?? 1;
+}
+
+// Barn Hall: how many workers retain per building on prestige
+export function getBarnHallRetainCount(state) {
+  const bh = state.town?.buildings?.barn_hall;
+  if (!bh?.built) return 0;
+  return Math.floor((bh.level ?? 1) / 2);
+}
+
 export function getBarnBuildingWorkerSlots(state, buildingId) {
+  const maxPerBuilding = getMaxBarnWorkersPerBuilding(state);
   const instances = (state.barnInstances ?? []).filter(i => i.buildingType === buildingId);
-  if (instances.length === 0) {
-    const tier = getBarnBuildingTierData(state, buildingId);
-    return tier ? tier.workerSlots : 0;
-  }
-  return instances.reduce((sum, inst) => {
-    const tierData = BARN_BUILDING_TIERS[(inst.tier ?? 1) - 1] ?? BARN_BUILDING_TIERS[0];
-    return sum + tierData.workerSlots;
-  }, 0);
+  return instances.length * maxPerBuilding;
 }
 
 export function getBarnInstanceWorkerSlots(state, instanceId) {
-  const inst = (state.barnInstances ?? []).find(i => i.id === instanceId);
-  if (!inst) return 0;
-  const tierData = BARN_BUILDING_TIERS[(inst.tier ?? 1) - 1] ?? BARN_BUILDING_TIERS[0];
-  return tierData.workerSlots;
+  return getMaxBarnWorkersPerBuilding(state);
 }
  
 export function getBarnBuildingForAnimal(animalType) {
@@ -3631,6 +3738,7 @@ function makeKeptWorker(worker, type) {
   if (type === "market") return { ...base, gear: worker.gear, hasStandingOrder: worker.hasStandingOrder ?? false, queue: [], standingOrder: null };
   if (type === "fisher") return { ...base, bodyId: worker.bodyId, upgrades: [...(worker.upgrades ?? [])], timer: 0, assignedBait: null };
   if (type === "barn") return { ...base, animalType: worker.animalType, instanceId: worker.instanceId, upgrades: [...(worker.upgrades ?? [])], collectTimer: 0, careTimer: 0 };
+  if (type === "forge") return { ...base, upgrades: [...(worker.upgrades ?? [])], recipeId: null, elapsedSeconds: 0, totalSeconds: 0, busy: false, autoRestart: worker.autoRestart ?? false, lastRecipeId: null };
   return base;
 }
 
@@ -3691,6 +3799,7 @@ export function evaluateQuestCondition(state, quest) {
   if (c.type === "counter") return (qp[c.key] ?? 0) >= c.value;
   if (c.type === "hero_level") return (state.adventurers ?? []).some(a => (a.level ?? 1) >= c.value);
   if (c.type === "hero_prestige") return (qp.heroPrestiges ?? 0) >= c.value;
+  if (c.type === "and") return (c.conditions ?? []).every(sub => evaluateQuestCondition(state, { condition: sub }));
   if (c.type === "live_check") {
     switch (c.check) {
       case "hero_has_crafted_weapon":
@@ -3777,6 +3886,14 @@ export function evaluateQuestCondition(state, quest) {
         return (state.adventurers ?? []).filter(a => (a.prestigeLevel ?? 0) >= 10).length >= 2;
       case "three_heroes_prestige_10":
         return (state.adventurers ?? []).filter(a => (a.prestigeLevel ?? 0) >= 10).length >= 3;
+      case "heroes_auto_battling":
+        return (qp.maxSimultaneousAutoBattlers ?? 0) >= (c.value ?? 1);
+      case "longest_auto_run":
+        return (qp.maxAutoBattleRun ?? 0) >= (c.value ?? 1);
+      case "all_farms_5x5_plots":
+        return (state.farms ?? []).length >= 3 && (state.farms ?? []).every(f => (f.unlockedPlots ?? 0) >= 25);
+      case "artisan_goods_500_each":
+        return ["bread","jam","sauce","omelette"].every(k => (state.artisan?.[k] ?? 0) >= 500);
       default: return false;
     }
   }
@@ -3894,7 +4011,7 @@ export function beginPrestige(state, _unused, keptWorkerIds) {
 
   // Award 1 prestige skill point
   next.prestigePoints = (next.prestigePoints ?? 0) + 1;
-  next.questProgress = { manualHarvestCount: 0, berriesHarvested: 0, fishCaughtCount: 0, qualityFishCount: 0, rareFishCount: 0, breadCrafted: 0, jamCrafted: 0, sauceCrafted: 0, eggsCollected: 0, milkCollected: 0, woolCollected: 0, omelettesCrafted: 0, forgeItemsCrafted: 0, heroQuestsCompleted: 0, tier2QuestsCompleted: 0, bossFightsWon: 0, heroPrestiges: 0, chainmailOrBetterCrafted: false, t3ItemCrafted: false, claimedQuestIds: [] };
+  next.questProgress = { manualHarvestCount: 0, berriesHarvested: 0, fishCaughtCount: 0, qualityFishCount: 0, rareFishCount: 0, breadCrafted: 0, jamCrafted: 0, sauceCrafted: 0, eggsCollected: 0, milkCollected: 0, woolCollected: 0, omelettesCrafted: 0, forgeItemsCrafted: 0, heroQuestsCompleted: 0, tier2QuestsCompleted: 0, bossFightsWon: 0, heroPrestiges: 0, chainmailOrBetterCrafted: false, t3ItemCrafted: false, claimedQuestIds: [], maxAutoBattleRun: 0, maxSimultaneousAutoBattlers: 0 };
 
   const idsToKeep = Array.isArray(keptWorkerIds)
     ? keptWorkerIds
@@ -3912,10 +4029,12 @@ export function beginPrestige(state, _unused, keptWorkerIds) {
     const fisherBodyId = keptWorkerId.startsWith("fisher_") ? keptWorkerId.slice(7) : null;
     const fisherBody = fisherBodyId ? next.fishing?.bodies?.[fisherBodyId] : null;
 
+    const forgeW = next.forgeWorkers.find((w) => w.id === keptWorkerId);
     if (fw) previousKeptWorkers.push(makeKeptWorker(fw, "farm"));
     else if (kw) previousKeptWorkers.push(makeKeptWorker(kw, "kitchen"));
     else if (mw) previousKeptWorkers.push(makeKeptWorker(mw, "market"));
     else if (bw) previousKeptWorkers.push(makeKeptWorker(bw, "barn"));
+    else if (forgeW) previousKeptWorkers.push(makeKeptWorker(forgeW, "forge"));
     else if (fisherBody) {
       const fisherWorkers = fisherBody.workers ?? (fisherBody.worker?.hired ? [fisherBody.worker] : []);
       fisherWorkers.forEach((fw, fi) => {
@@ -3988,7 +4107,6 @@ export function beginPrestige(state, _unused, keptWorkerIds) {
   for (const farm of next.farms) {
     farm.plots = farm.plots.map((plot, idx) => ({
       ...plot,
-      upgraded: false,
       state: idx === 0 ? "planted" : "empty",
       growthTick: idx === 0 ? Math.floor(CROPS[farm.crop].growTime / 2) : 0,
     }));
@@ -4011,6 +4129,7 @@ export function beginPrestige(state, _unused, keptWorkerIds) {
   const kitchenKept = next.keptWorkers.filter((w) => w.keptType === "kitchen");
   const marketKept = next.keptWorkers.filter((w) => w.keptType === "market");
   const barnKept = next.keptWorkers.filter((w) => w.keptType === "barn");
+  const forgeKept = next.keptWorkers.filter((w) => w.keptType === "forge");
   const fisherKept = next.keptWorkers.filter((w) => w.keptType === "fisher");
 
   for (const kw of kitchenKept) {
@@ -4032,6 +4151,13 @@ export function beginPrestige(state, _unused, keptWorkerIds) {
       if (!targetInst.barnWorkers) targetInst.barnWorkers = [];
       targetInst.barnWorkers.push({ ...kw, instanceId: targetInst.id });
     }
+  }
+
+  for (const kw of forgeKept) {
+    if (isAtWorkerCap(next)) break;
+    if ((next.forgeWorkers ?? []).length >= getMaxForgeWorkers(next)) break;
+    if (!next.forgeWorkers) next.forgeWorkers = [];
+    next.forgeWorkers.push({ ...kw });
   }
 
   for (const kw of fisherKept) {
@@ -4486,6 +4612,31 @@ export function deserializeState(raw) {
       const freshBuildings = makeFreshTown().buildings;
       for (const [key, def] of Object.entries(freshBuildings)) {
         if (!parsed.town.buildings[key]) parsed.town.buildings[key] = { ...def };
+      }
+
+      // Migrate: barn_hall -- infer level from existing barn workers across all instances
+      if (!parsed.town.buildings.barn_hall?.built) {
+        const totalBarnWorkers = (parsed.barnInstances ?? []).reduce(
+          (sum, inst) => sum + (inst.barnWorkers ?? []).length, 0
+        );
+        const barnCount = Math.max(1, (parsed.barnInstances ?? []).length);
+        const maxPerBuilding = totalBarnWorkers > 0
+          ? Math.ceil(Math.max(...(parsed.barnInstances ?? [{ barnWorkers: [] }]).map(i => (i.barnWorkers ?? []).length)) || 1)
+          : 0;
+        if (totalBarnWorkers > 0) {
+          const inferredLevel = Math.max(1, maxPerBuilding);
+          parsed.town.buildings.barn_hall = { built: true, level: inferredLevel };
+        }
+      }
+
+      // Migrate: forge_hall -- infer level from existing forge workers
+      if (!parsed.town.buildings.forge_hall?.built) {
+        const forgeWorkerCount = (parsed.forgeWorkers ?? []).length;
+        if (forgeWorkerCount > 0) {
+          // L1=2 workers, L2=4, L3=6 -- infer minimum level needed to hold current workers
+          const inferredLevel = Math.max(1, Math.ceil(forgeWorkerCount / 2));
+          parsed.town.buildings.forge_hall = { built: true, level: inferredLevel };
+        }
       }
 
       // Derive foodMode from food_hall tier
@@ -5081,6 +5232,10 @@ export function returnAdventurer(state, adventurerId) {
     const newAccumLoot = mergeLoot(prevAccumLoot, runLoot);
     const newAccumXp = prevAccumXp + xpGained;
     const newRuns = prevRuns + 1;
+    // Track high-water mark for quest progress
+    if (state.questProgress && newRuns > (state.questProgress.maxAutoBattleRun ?? 0)) {
+      state = { ...state, questProgress: { ...state.questProgress, maxAutoBattleRun: newRuns } };
+    }
  
     // Check if we can do another run — need food belt to heal between runs
     const currentFoodBelt = { ...(adventurer.foodBelt ?? {}) };
@@ -6066,6 +6221,14 @@ export function tickAdventurerMissions(state) {
 }
 
 export function tickAdventurerMissionsAt(state, nowMs) {
+  // Track simultaneous auto-battlers high-water mark
+  const activeAutoBattlers = (state.adventurers ?? []).filter(a => a.mission?.autoBattle === true).length;
+  if (activeAutoBattlers > 0 && state.questProgress) {
+    const prev = state.questProgress.maxSimultaneousAutoBattlers ?? 0;
+    if (activeAutoBattlers > prev) {
+      state = { ...state, questProgress: { ...state.questProgress, maxSimultaneousAutoBattlers: activeAutoBattlers } };
+    }
+  }
   let next = state;
   for (const adv of (state.adventurers ?? [])) {
     // Already waiting for player to collect — don't re-process
@@ -6131,6 +6294,8 @@ export function isForgeWorkerIdle(worker) {
 }
 
 export function hireForgeWorker(state) {
+  if (!state.town?.buildings?.forge_hall?.built) return state;
+  if ((state.forgeWorkers ?? []).length >= getMaxForgeWorkers(state)) return state;
   const cost = getForgeWorkerHireCost(state);
   if ((state.cash ?? 0) < cost) return state;
   const worker = {
@@ -6153,6 +6318,9 @@ export function fireForgeWorker(state, workerId) {
 export function assignForgeWorkerRecipe(state, workerId, recipeId) {
   const recipe = FORGE_RECIPES[recipeId];
   if (!recipe) return state;
+  // Block recipe assignment if forge hall level is insufficient (gearTier 0 = components, always allowed)
+  const forgeRecipeTier = getForgeHallRecipeTier(state);
+  if (recipe.gearTier > 0 && recipe.gearTier > forgeRecipeTier) return state;
   // Check resources — inputs may come from worldResources OR forgeGoods (for gear upgrades)
   const resources = state.worldResources ?? {};
   const forgeGoods = state.forgeGoods ?? {};

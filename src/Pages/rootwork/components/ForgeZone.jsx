@@ -3,13 +3,16 @@ import React, { useState } from "react";
 import {
   FORGE_RECIPES, FORGE_RECIPE_LIST,
   FORGE_WORKER_UPGRADES, FORGE_WORKER_UPGRADE_ORDER,
-  WORLD_RESOURCES, FORGE_BUILD_COST, FORGE_IRON, FORGE_LUMBER,
+  WORLD_RESOURCES,
 } from "../gameConstants";
 import {
   getForgeWorkerHireCost,
   getForgeEffectiveSeconds,
   isForgeWorkerIdle,
   getAvailableWorkerSlots,
+  getMaxForgeWorkers,
+  getForgeHallRecipeTier,
+  isArcaneUnlocked,
 } from "../gameEngine";
  
  
@@ -183,7 +186,7 @@ const FORGE_RECIPE_GROUPS = [
   { id: "components",  label: "COMPONENTS", icon: "🔩",  accentColor: "#34d399", ids: ["iron_fitting", "reinforced_crate", "fine_tools"] },
 ];
  
-function ForgeRecipeRow({ recipeId, worker, worldResources, forgeGoods, onAssign, onCancel }) {
+function ForgeRecipeRow({ recipeId, worker, worldResources, forgeGoods, recipeTier, onAssign, onCancel }) {
   const recipe = FORGE_RECIPES[recipeId];
   if (!recipe) return null;
   const isActive = worker.recipeId === recipeId;
@@ -194,6 +197,8 @@ function ForgeRecipeRow({ recipeId, worker, worldResources, forgeGoods, onAssign
     const have = (worldResources[key] ?? 0) + (forgeGoods?.[key] ?? 0);
     return have >= needed;
   });
+  // gearTier 0 = components (always allowed); gearTier 1/2/3 require forge hall level
+  const tierLocked = recipe.gearTier > 0 && (recipeTier ?? 0) < recipe.gearTier;
  
   return (
     <div style={{
@@ -207,8 +212,13 @@ function ForgeRecipeRow({ recipeId, worker, worldResources, forgeGoods, onAssign
             <span>{recipe.emoji}</span>
             <span>{recipe.name}</span>
             {recipe.gearTier > 0 && (
-              <span style={{ fontSize: "0.58rem", color: "#fbbf24", background: "rgba(251,191,36,0.1)", padding: "1px 5px", borderRadius: "4px" }}>
+              <span style={{ fontSize: "0.58rem", color: tierLocked ? "#ef4444" : "#fbbf24", background: tierLocked ? "rgba(239,68,68,0.1)" : "rgba(251,191,36,0.1)", padding: "1px 5px", borderRadius: "4px" }}>
                 T{recipe.gearTier}
+              </span>
+            )}
+            {tierLocked && (
+              <span style={{ fontSize: "0.58rem", color: "#ef4444", background: "rgba(239,68,68,0.08)", padding: "1px 5px", borderRadius: "4px" }}>
+                🔒 Forge Hall L{recipe.gearTier}
               </span>
             )}
  
@@ -265,8 +275,8 @@ function ForgeRecipeRow({ recipeId, worker, worldResources, forgeGoods, onAssign
           </button>
         ) : (
           <button
-            onClick={() => canCraft && onAssign(worker.id, recipeId)}
-            disabled={!canCraft || worker.busy}
+            onClick={() => canCraft && !tierLocked && onAssign(worker.id, recipeId)}
+            disabled={!canCraft || worker.busy || tierLocked}
             style={{
               fontSize: "0.65rem", padding: "2px 8px", borderRadius: "5px",
               background: canCraft && !worker.busy ? "rgba(245,158,11,0.2)" : "rgba(255,255,255,0.05)",
@@ -284,7 +294,7 @@ function ForgeRecipeRow({ recipeId, worker, worldResources, forgeGoods, onAssign
   );
 }
  
-function ForgeRecipeSection({ group, worker, worldResources, forgeGoods, onAssign, onCancel, defaultOpen }) {
+function ForgeRecipeSection({ group, worker, worldResources, forgeGoods, recipeTier, onAssign, onCancel, defaultOpen }) {
   const [open, setOpen] = React.useState(defaultOpen);
   const hasActive = group.ids.includes(worker.recipeId);
  
@@ -313,6 +323,7 @@ function ForgeRecipeSection({ group, worker, worldResources, forgeGoods, onAssig
               worker={worker}
               worldResources={worldResources}
               forgeGoods={forgeGoods}
+              recipeTier={recipeTier}
               onAssign={onAssign}
               onCancel={onCancel}
             />
@@ -326,6 +337,7 @@ function ForgeRecipeSection({ group, worker, worldResources, forgeGoods, onAssig
 function RecipePicker({ worker, game, onAssign, onCancel }) {
   const worldResources = game.worldResources ?? {};
   const forgeGoods = game.forgeGoods ?? {};
+  const recipeTier = getForgeHallRecipeTier(game);
  
   const activeGroupId = FORGE_RECIPE_GROUPS.find((g) => g.ids.includes(worker.recipeId))?.id ?? null;
  
@@ -342,6 +354,7 @@ function RecipePicker({ worker, game, onAssign, onCancel }) {
             worker={worker}
             worldResources={worldResources}
             forgeGoods={forgeGoods}
+            recipeTier={recipeTier}
             onAssign={onAssign}
             onCancel={onCancel}
             defaultOpen={group.id === "components" || activeGroupId === group.id}
@@ -536,6 +549,7 @@ function InstancedGearPanel({ game, onUpgradeForgeInstance }) {
   const equipped = instanced.filter((i) => !!i._equippedBy);
 
   if (instanced.length === 0) return null;
+  if (!isArcaneUnlocked(game)) return null;
 
   const crystals = Math.floor(game.worldResources?.mana_crystal ?? 0);
   const cash = Math.floor(game.cash ?? 0);
@@ -672,7 +686,6 @@ export default function ForgeZone({
   onFireForgeWorker,
   onCancelForgeWorkerRecipe,
   onToggleForgeWorkerAutoRestart,
-  onBuildForge,
   onUpgradeForgeInstance,
 }) {
   const [expandedWorkers, setExpandedWorkers] = useState({});
@@ -680,51 +693,15 @@ export default function ForgeZone({
   const toggleWorker = (id) => setExpandedWorkers((prev) => ({ ...prev, [id]: !prev[id] }));
  
   // ── Locked splash ──────────────────────────────────────────────────────────
-  if (!game.forgeBuilt) {
-    const hasCash = (game.cash ?? 0) >= FORGE_BUILD_COST;
-    const hasIron = (game.worldResources?.iron_ore ?? 0) >= FORGE_IRON;
-    const hasLumber = (game.worldResources?.lumber ?? 0) >= FORGE_LUMBER;
-    const canAfford = hasCash && hasIron && hasLumber;
-    return (
-      <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 5rem" }}>
-        <div style={{
-          background: "linear-gradient(135deg, #1a0f00, #3d2200)",
-          borderRadius: "16px", padding: "2.5rem 1.5rem",
-          textAlign: "center", border: "1px solid rgba(255,200,100,0.15)",
-        }}>
-          <div style={{ fontSize: "3.5rem", marginBottom: "0.75rem" }}>⚒️</div>
-          <h3 style={{ fontSize: "1.05rem", fontWeight: 800, color: "#fff", marginBottom: "0.4rem", letterSpacing: "0.04em" }}>
-            Build a Forge
-          </h3>
-          <p style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.5)", lineHeight: 1.7, maxWidth: "250px", margin: "0 auto 1.5rem" }}>
-            Smelt world resources into gear and consumables for your adventurers. Hire smiths to craft automatically.
-          </p>
-          <button
-            onClick={onBuildForge}
-            disabled={!canAfford}
-            style={{
-              background: canAfford ? "rgba(217,119,6,0.5)" : "rgba(255,255,255,0.06)",
-              border: `1px solid ${canAfford ? "rgba(217,119,6,0.8)" : "rgba(255,255,255,0.12)"}`,
-              borderRadius: "12px", padding: "0.7rem 1.75rem",
-              fontSize: "0.82rem", fontWeight: 700,
-              color: canAfford ? "#fff" : "rgba(255,255,255,0.25)",
-              cursor: canAfford ? "pointer" : "default", letterSpacing: "0.04em",
-            }}
-          >
-            {canAfford
-              ? `⚒️ Build Forge — $${FORGE_BUILD_COST} · ${FORGE_IRON} Iron Ore · ${FORGE_LUMBER} Lumber`
-              : `Need $${FORGE_BUILD_COST}${hasCash ? " ✓" : ` (have $${Math.floor(game.cash ?? 0)})`} · Iron Ore ${FORGE_IRON}${hasIron ? " ✓" : ` (have ${Math.floor(game.worldResources?.iron_ore ?? 0)})`} · Lumber ${FORGE_LUMBER}${hasLumber ? " ✓" : ` (have ${Math.floor(game.worldResources?.lumber ?? 0)})`}`}
-          </button>
-        </div>
-      </div>
-    );
-  }
-  // ── End locked splash ──────────────────────────────────────────────────────
+  // Forge access is now gated by Forge Hall in Town (see forgeHallBuilt check on hire button)
  
   const workers = game.forgeWorkers ?? [];
   const hireCost = getForgeWorkerHireCost(game);
   const atPopCap = getAvailableWorkerSlots(game) <= 0;
-  const canHire = !atPopCap && (game.cash ?? 0) >= hireCost;
+  const maxForgeWorkers = getMaxForgeWorkers(game);
+  const forgeHallBuilt = game.town?.buildings?.forge_hall?.built === true;
+  const atForgeCap = workers.length >= maxForgeWorkers;
+  const canHire = forgeHallBuilt && !atPopCap && !atForgeCap && (game.cash ?? 0) >= hireCost;
  
   return (
     <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 5rem" }}>
@@ -745,7 +722,10 @@ export default function ForgeZone({
           className="btn w-full"
           style={{ opacity: canHire ? 1 : 0.5 }}
         >
-          {atPopCap ? "👥 Town full — grow population to hire" : `🔨 Hire Smith — $${hireCost}`}
+          {!forgeHallBuilt ? "🔒 Build Forge Hall in Town to hire smiths"
+           : atPopCap ? "👥 Town full — grow population to hire"
+           : atForgeCap ? `🔨 ${workers.length}/${maxForgeWorkers} smiths — upgrade Forge Hall for more`
+           : `🔨 Hire Smith — $${hireCost}`}
         </button>
         {workers.length === 0 && (
           <p style={{ fontSize: "0.7rem", color: "var(--muted)", marginTop: "0.4rem", textAlign: "center" }}>

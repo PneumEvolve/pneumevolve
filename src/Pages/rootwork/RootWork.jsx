@@ -38,7 +38,7 @@ import {
   giveArtisanFood, removeArtisanFood, useArtisanFood, setHeroFillFood,
   tickAdventurerMissions,
   hireAdventurer, spendSkillPoint, getAdventurerSlotCost, isAtWorkerCap,
-  getKitchenHallRetainCount, getMarketHallRetainCount,
+  getKitchenHallRetainCount, getMarketHallRetainCount, getForgeHallRetainCount,
   // New adventurer functions
   reviveAdventurer, prestigeAdventurer, requestAutoBattleStop,
   tickBossFight, checkBossUnlock,
@@ -51,6 +51,8 @@ import {
   buildKitchenHall, upgradeKitchenHall,
   buildMarketHall, upgradeMarketHall,
   buildGuildHall, upgradeGuildHall, getEffectiveGrowTime, claimQuestReward,
+  buildBarnHall, upgradeBarnHall,
+  buildForgeHall, upgradeForgeHall,
   buildRecHall, upgradeRecHall,
 } from "./gameEngine";
 import {
@@ -178,18 +180,22 @@ function PrestigeModal({ game, onComplete, onCancel }) {
   // Per-type dedicated retain slots (from hall buildings)
   const kitchenRetainSlots = getKitchenHallRetainCount(game);
   const marketRetainSlots = getMarketHallRetainCount(game);
+  const forgeRetainSlots  = getForgeHallRetainCount(game);
 
   // How many chosen workers of each type
   const kitchenChosenIds = new Set(crafterWorkers.map(w => w._keepId));
   const marketChosenIds  = new Set(merchantWorkers.map(w => w._keepId));
+  const forgeChosenIds   = new Set(forgeWorkersList.map(w => w._keepId));
   const kitchenSelected  = chosenWorkerIds.filter(id => kitchenChosenIds.has(id)).length;
   const marketSelected   = chosenWorkerIds.filter(id => marketChosenIds.has(id)).length;
+  const forgeSelected    = chosenWorkerIds.filter(id => forgeChosenIds.has(id)).length;
 
-  // How many kitchen/market workers overflow into the base pool
+  // How many kitchen/market/forge workers overflow into the base pool
   const kitchenBaseUsed = Math.max(0, kitchenSelected - kitchenRetainSlots);
   const marketBaseUsed  = Math.max(0, marketSelected  - marketRetainSlots);
-  const otherSelected   = chosenWorkerIds.length - kitchenSelected - marketSelected;
-  const baseUsed        = kitchenBaseUsed + marketBaseUsed + otherSelected;
+  const forgeBaseUsed   = Math.max(0, forgeSelected   - forgeRetainSlots);
+  const otherSelected   = chosenWorkerIds.length - kitchenSelected - marketSelected - forgeSelected;
+  const baseUsed        = kitchenBaseUsed + marketBaseUsed + forgeBaseUsed + otherSelected;
   const baseAtLimit     = baseUsed >= game.season;
 
   // canSelect(keepId): true if this worker can still be added
@@ -200,6 +206,9 @@ function PrestigeModal({ game, onComplete, onCancel }) {
     }
     if (marketChosenIds.has(keepId)) {
       return marketSelected < marketRetainSlots || !baseAtLimit;
+    }
+    if (forgeChosenIds.has(keepId)) {
+      return forgeSelected < forgeRetainSlots || !baseAtLimit;
     }
     return !baseAtLimit;
   }
@@ -320,7 +329,8 @@ function PrestigeModal({ game, onComplete, onCancel }) {
                   slotLabel={marketRetainSlots > 0 ? `${marketSelected}/${marketRetainSlots} hall` : null} />
                 <WorkerGroup label="🎣 Fishers" color="#22d3ee" workers={fisherWorkers} chosenIds={chosenWorkerIds} canSelect={canSelect} onToggle={toggleWorker} />
                 <WorkerGroup label="🐄 Barn Workers" color="#a78bfa" workers={barnWorkersList} chosenIds={chosenWorkerIds} canSelect={canSelect} onToggle={toggleWorker} />
-                <WorkerGroup label="🔨 Smiths" color="#fb923c" workers={forgeWorkersList} chosenIds={chosenWorkerIds} canSelect={canSelect} onToggle={toggleWorker} />
+                <WorkerGroup label="🔨 Smiths" color="#fb923c" workers={forgeWorkersList} chosenIds={chosenWorkerIds} canSelect={canSelect} onToggle={toggleWorker}
+                  slotLabel={forgeRetainSlots > 0 ? `${forgeSelected}/${forgeRetainSlots} hall` : null} />
               </div>
             )}
             <div style={{ display: "flex", gap: "0.5rem" }}>
@@ -652,6 +662,10 @@ if (wf) {
   const handleBuildMarketHall   = useCallback(() => update((s) => { const n = buildMarketHall(s);   if (n === s) notify('Requires Town Hall level 1.'); return n; }), [update, notify]);
   const handleUpgradeMarketHall = useCallback(() => update((s) => { const n = upgradeMarketHall(s); if (n === s) notify('Cannot upgrade Market Hall.'); return n; }), [update, notify]);
   const handleBuildGuildHall   = useCallback(() => update((s) => { const n = buildGuildHall(s);   if (n === s) notify('Requires Town Hall level 2.'); return n; }), [update, notify]);
+  const handleBuildBarnHall    = useCallback(() => update((s) => { const n = buildBarnHall(s);    if (n === s) notify('Requires Town Hall level 2.'); return n; }), [update, notify]);
+  const handleUpgradeBarnHall  = useCallback(() => update((s) => { const n = upgradeBarnHall(s);  if (n === s) notify('Cannot upgrade Barn Hall.'); return n; }), [update, notify]);
+  const handleBuildForgeHall   = useCallback(() => update((s) => { const n = buildForgeHall(s);   if (n === s) notify('Requires Town Hall level 1.'); return n; }), [update, notify]);
+  const handleUpgradeForgeHall = useCallback(() => update((s) => { const n = upgradeForgeHall(s); if (n === s) notify('Cannot upgrade Forge Hall.'); return n; }), [update, notify]);
   const handleUpgradeGuildHall = useCallback(() => update((s) => { const n = upgradeGuildHall(s); if (n === s) notify('Cannot upgrade Guild Hall.'); return n; }), [update, notify]);
   const handleBuildRecHall   = useCallback(() => update((s) => { const n = buildRecHall(s);   if (n === s) notify('Requires Town Hall level 3 and materials.'); return n; }), [update, notify]);
   const handleUpgradeRecHall = useCallback(() => update((s) => { const n = upgradeRecHall(s); if (n === s) notify('Cannot upgrade Recreation Hall.'); return n; }), [update, notify]);
@@ -1024,6 +1038,10 @@ if (wf) {
               onUpgradeMarketHall={handleUpgradeMarketHall}
               onBuildGuildHall={handleBuildGuildHall}
               onUpgradeGuildHall={handleUpgradeGuildHall}
+              onBuildBarnHall={handleBuildBarnHall}
+              onUpgradeBarnHall={handleUpgradeBarnHall}
+              onBuildForgeHall={handleBuildForgeHall}
+              onUpgradeForgeHall={handleUpgradeForgeHall}
               onBuildRecHall={handleBuildRecHall}
               onUpgradeRecHall={handleUpgradeRecHall}
               onBuyBakery={handleBuyTownBakery}
