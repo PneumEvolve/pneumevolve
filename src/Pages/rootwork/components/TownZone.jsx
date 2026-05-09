@@ -585,7 +585,7 @@ export default function TownZone({
             {kitchenHallBuilt ? (
               <>
                 <Row label="Max kitchen workers" value={getMaxKitchenWorkers(game)} />
-                <Row label="Auto-retain on prestige" value={`${KITCHEN_HALL_RETAIN_COUNT[Math.min(kitchenHallLevel - 1, KITCHEN_HALL_RETAIN_COUNT.length - 1)]} workers`} />
+                <Row label="Auto-retain on prestige" value={`${kitchenHallLevel <= KITCHEN_HALL_RETAIN_COUNT.length ? KITCHEN_HALL_RETAIN_COUNT[kitchenHallLevel - 1] : kitchenHallLevel - 1} workers`} />
                 {(() => {
                   const nextCost = kitchenHallLevel <= 2
                     ? KITCHEN_HALL_LEVEL_COSTS[kitchenHallLevel - 1]
@@ -600,7 +600,7 @@ export default function TownZone({
                     <>
                       <div style={{ marginTop: "0.5rem", paddingTop: "0.4rem", borderTop: "1px solid var(--border)" }}>
                         <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
-                          Upgrade to Level {kitchenHallLevel + 1} — {nextMaxWorkers} workers max
+                          Upgrade to Level {kitchenHallLevel + 1} — {nextMaxWorkers} workers max · {kitchenHallLevel <= KITCHEN_HALL_RETAIN_COUNT.length ? KITCHEN_HALL_RETAIN_COUNT[kitchenHallLevel] ?? kitchenHallLevel : kitchenHallLevel} retain on prestige
                         </div>
                         <CostLine
                           cash={cash}

@@ -800,7 +800,9 @@ export function getKitchenHallRetainCount(state) {
   const kh = state.town?.buildings?.kitchen_hall;
   if (!kh?.built) return 0;
   const level = kh.level ?? 1;
-  return KITCHEN_HALL_RETAIN_COUNT[level - 1] ?? 0;
+  // L1=0, L2=1, L3=2, L4=3 ... (+1 per level, starting at 0)
+  if (level <= KITCHEN_HALL_RETAIN_COUNT.length) return KITCHEN_HALL_RETAIN_COUNT[level - 1] ?? 0;
+  return level - 1;
 }
 
 // Market Hall: how many workers auto-retain on prestige
