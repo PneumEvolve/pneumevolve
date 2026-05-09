@@ -713,43 +713,50 @@ export function isBuildingUnlocked(state, key) {
 // Warehouse: per-crop storage cap
 // Returns WAREHOUSE_NO_BUILDING_CAP (150) before warehouse is built, then level-based cap
 export function getWarehouseLevel(state) {
-  return state.town?.buildings?.warehouse?.level ?? 1;
+  const w = state.town?.buildings?.warehouse;
+  // Migrate tier→level on the fly if migration didn't run (e.g. stale save)
+  if (w?.tier !== undefined && w.level === undefined) return (w.tier ?? 0) + 1;
+  return w?.level ?? 1;
 }
 export function getWarehouseCropCap(state) {
   const w = state.town?.buildings?.warehouse;
   if (!w?.built) return WAREHOUSE_NO_BUILDING_CAP;
-  const level = w.level ?? 1;
+  // Inline tier→level fallback in case migration didn't run
+  const level = w.level ?? ((w.tier ?? 0) + 1);
   const workers = w.workers ?? 0;
   const base = getWarehouseLevelBaseCap(level);
   const perWorker = getWarehouseLevelCapPerWorker(level);
   return base + workers * perWorker;
 }
 export function getWarehouseLevelBaseCap(level) {
-  // Levels 1-4 use the table; level 5+ scales ×2.5 per level from L4
-  if (level <= WAREHOUSE_LEVEL_BASE_CAP.length) return WAREHOUSE_LEVEL_BASE_CAP[level - 1];
-  return Math.round(WAREHOUSE_LEVEL_BASE_CAP[WAREHOUSE_LEVEL_BASE_CAP.length - 1] * Math.pow(2.5, level - WAREHOUSE_LEVEL_BASE_CAP.length));
+  const l = level || 1;
+  if (l <= WAREHOUSE_LEVEL_BASE_CAP.length) return WAREHOUSE_LEVEL_BASE_CAP[l - 1];
+  return Math.round(WAREHOUSE_LEVEL_BASE_CAP[WAREHOUSE_LEVEL_BASE_CAP.length - 1] * Math.pow(2.5, l - WAREHOUSE_LEVEL_BASE_CAP.length));
 }
 export function getWarehouseLevelCapPerWorker(level) {
-  if (level <= WAREHOUSE_LEVEL_CAP_PER_WORKER.length) return WAREHOUSE_LEVEL_CAP_PER_WORKER[level - 1];
-  return Math.round(WAREHOUSE_LEVEL_CAP_PER_WORKER[WAREHOUSE_LEVEL_CAP_PER_WORKER.length - 1] * Math.pow(2.5, level - WAREHOUSE_LEVEL_CAP_PER_WORKER.length));
+  const l = level || 1;
+  if (l <= WAREHOUSE_LEVEL_CAP_PER_WORKER.length) return WAREHOUSE_LEVEL_CAP_PER_WORKER[l - 1];
+  return Math.round(WAREHOUSE_LEVEL_CAP_PER_WORKER[WAREHOUSE_LEVEL_CAP_PER_WORKER.length - 1] * Math.pow(2.5, l - WAREHOUSE_LEVEL_CAP_PER_WORKER.length));
 }
 export function getWarehouseLevelMaxWorkers(level) {
-  if (level <= WAREHOUSE_LEVEL_MAX_WORKERS.length) return WAREHOUSE_LEVEL_MAX_WORKERS[level - 1];
-  // Level 5+: +4 workers per level
-  return WAREHOUSE_LEVEL_MAX_WORKERS[WAREHOUSE_LEVEL_MAX_WORKERS.length - 1] + (level - WAREHOUSE_LEVEL_MAX_WORKERS.length) * 4;
+  const l = level || 1;
+  if (l <= WAREHOUSE_LEVEL_MAX_WORKERS.length) return WAREHOUSE_LEVEL_MAX_WORKERS[l - 1];
+  return WAREHOUSE_LEVEL_MAX_WORKERS[WAREHOUSE_LEVEL_MAX_WORKERS.length - 1] + (l - WAREHOUSE_LEVEL_MAX_WORKERS.length) * 4;
 }
 export function getWarehouseUpgradeCost(level) {
-  if (level - 1 < WAREHOUSE_LEVEL_COSTS.length) return WAREHOUSE_LEVEL_COSTS[level - 1];
-  // Level 4+: exponential scaling from 15000, ×2 each level
-  return Math.round(15_000 * Math.pow(2, level - WAREHOUSE_LEVEL_COSTS.length));
+  const l = level || 1;
+  if (l - 1 < WAREHOUSE_LEVEL_COSTS.length) return WAREHOUSE_LEVEL_COSTS[l - 1];
+  return Math.round(15_000 * Math.pow(2, l - WAREHOUSE_LEVEL_COSTS.length));
 }
 export function getWarehouseUpgradeRequires(level) {
-  if (level - 1 < WAREHOUSE_LEVEL_REQUIRES.length) return WAREHOUSE_LEVEL_REQUIRES[level - 1];
-  const extra = level - WAREHOUSE_LEVEL_REQUIRES.length;
+  const l = level || 1;
+  if (l - 1 < WAREHOUSE_LEVEL_REQUIRES.length) return WAREHOUSE_LEVEL_REQUIRES[l - 1];
+  const extra = l - WAREHOUSE_LEVEL_REQUIRES.length;
   return { iron_fitting: 10 + extra * 5, iron_ore: 40 + extra * 20, lumber: 30 + extra * 10 };
 }
 export function getWarehouseLevelName(level) {
-  return WAREHOUSE_LEVEL_NAMES[Math.min(level - 1, WAREHOUSE_LEVEL_NAMES.length - 1)];
+  const l = level || 1;
+  return WAREHOUSE_LEVEL_NAMES[Math.min(l - 1, WAREHOUSE_LEVEL_NAMES.length - 1)];
 }
 
 // Kitchen Hall: max kitchen workers allowed (infinite scaling: L1=1, L2=2, L3=4, L4+=level+1 each)

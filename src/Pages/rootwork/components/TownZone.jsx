@@ -222,7 +222,8 @@ export default function TownZone({
   const foodHallTier  = buildings.food_hall?.tier ?? 0;
   const foodHallBuilt = foodHallTier > 0;
   const warehouseBuilt = buildings.warehouse?.built === true;
-    const warehouseWorkers = buildings.warehouse?.workers ?? 0;
+  const warehouseLevel   = buildings.warehouse?.level ?? ((buildings.warehouse?.tier ?? 0) + 1);
+  const warehouseWorkers = buildings.warehouse?.workers ?? 0;
   const kitchenHallBuilt = buildings.kitchen_hall?.built === true;
   const kitchenHallLevel = buildings.kitchen_hall?.level ?? 0;
   const marketHallBuilt  = buildings.market_hall?.built === true;
