@@ -191,6 +191,95 @@ function getQuestTracker(game, quest) {
         const done = evaluateQuestCondition(game, quest);
         return { boolean: true, done };
       }
+      case "farm_expanded_7x7": {
+        const done = (game.farms ?? []).some(farm => ((game.farmInvestments ?? {})[farm.id]?.plotCapIndex ?? 0) >= 3);
+        return { boolean: true, done };
+      }
+      case "all_farms_expanded_7x7": {
+        const total = (game.farms ?? []).length;
+        const done_count = (game.farms ?? []).filter(farm => ((game.farmInvestments ?? {})[farm.id]?.plotCapIndex ?? 0) >= 3).length;
+        return { current: done_count, target: total, label: `Farms at 7×7: ${done_count} / ${total}` };
+      }
+      case "hero_prestige_level": {
+        const req = c.value ?? 1;
+        const best = Math.max(0, ...(game.adventurers ?? []).map(a => a.prestigeLevel ?? 0));
+        return { current: Math.min(best, req), target: req, label: `Best hero prestige: P${best}` };
+      }
+      case "hero_gear_tier": {
+        const req = c.value ?? 9;
+        const best = Math.max(0, ...(game.adventurers ?? []).map(a => {
+          // Simple proxy — show tier without full computation
+          return (a.equippedGear ? Object.keys(a.equippedGear).length * 3 : 0);
+        }));
+        const done = evaluateQuestCondition(game, quest);
+        return { boolean: true, done };
+      }
+      case "crop_stockpile_25k": {
+        const best = Math.max(0, ...Object.values(game.crops ?? {}).map(v => Number(v) || 0));
+        return { current: Math.min(best, 25000), target: 25000, label: `Best crop: ${Math.floor(best).toLocaleString()} / 25,000` };
+      }
+      case "crop_stockpile_50k": {
+        const best = Math.max(0, ...Object.values(game.crops ?? {}).map(v => Number(v) || 0));
+        return { current: Math.min(best, 50000), target: 50000, label: `Best crop: ${Math.floor(best).toLocaleString()} / 50,000` };
+      }
+      case "crop_stockpile_100k": {
+        const best = Math.max(0, ...Object.values(game.crops ?? {}).map(v => Number(v) || 0));
+        return { current: Math.min(best, 100000), target: 100000, label: `Best crop: ${Math.floor(best).toLocaleString()} / 100,000` };
+      }
+      case "crop_stockpile_250k": {
+        const best = Math.max(0, ...Object.values(game.crops ?? {}).map(v => Number(v) || 0));
+        return { current: Math.min(best, 250000), target: 250000, label: `Best crop: ${Math.floor(best).toLocaleString()} / 250,000` };
+      }
+      case "crop_stockpile_500k": {
+        const best = Math.max(0, ...Object.values(game.crops ?? {}).map(v => Number(v) || 0));
+        return { current: Math.min(best, 500000), target: 500000, label: `Best crop: ${Math.floor(best).toLocaleString()} / 500,000` };
+      }
+      case "crop_diversity_5": {
+        const count = Object.values(game.crops ?? {}).filter(v => v >= 1000).length;
+        return { current: Math.min(count, 5), target: 5, label: `Crops at 1k+: ${count} / 5` };
+      }
+      case "crop_diversity_5_10k": {
+        const count = Object.values(game.crops ?? {}).filter(v => v >= 10000).length;
+        return { current: Math.min(count, 5), target: 5, label: `Crops at 10k+: ${count} / 5` };
+      }
+      case "three_prestiged_heroes": {
+        const count = (game.adventurers ?? []).filter(a => (a.prestigeLevel ?? 0) >= 1).length;
+        return { current: Math.min(count, 3), target: 3, label: `Prestiged heroes: ${count} / 3` };
+      }
+      case "three_heroes_level_15": {
+        const count = (game.adventurers ?? []).filter(a => (a.level ?? 1) >= 15).length;
+        return { current: Math.min(count, 3), target: 3, label: `Heroes at Lv 15: ${count} / 3` };
+      }
+      case "all_barns_tier2": {
+        const total = (game.barnInstances ?? []).length;
+        const done_count = (game.barnInstances ?? []).filter(inst => (inst.tier ?? 1) >= 2).length;
+        return { current: done_count, target: total, label: `Barns at tier 2+: ${done_count} / ${total}` };
+      }
+      case "all_barns_tier3": {
+        const total = (game.barnInstances ?? []).length;
+        const done_count = (game.barnInstances ?? []).filter(inst => (inst.tier ?? 1) >= 3).length;
+        return { current: done_count, target: total, label: `Barns at tier 3: ${done_count} / ${total}` };
+      }
+      case "two_heroes_prestige_3": {
+        const count = (game.adventurers ?? []).filter(a => (a.prestigeLevel ?? 0) >= 3).length;
+        return { current: Math.min(count, 2), target: 2, label: `Heroes at P3+: ${count} / 2` };
+      }
+      case "three_heroes_prestige_3": {
+        const count = (game.adventurers ?? []).filter(a => (a.prestigeLevel ?? 0) >= 3).length;
+        return { current: Math.min(count, 3), target: 3, label: `Heroes at P3+: ${count} / 3` };
+      }
+      case "three_heroes_prestige_5": {
+        const count = (game.adventurers ?? []).filter(a => (a.prestigeLevel ?? 0) >= 5).length;
+        return { current: Math.min(count, 3), target: 3, label: `Heroes at P5+: ${count} / 3` };
+      }
+      case "two_heroes_prestige_10": {
+        const count = (game.adventurers ?? []).filter(a => (a.prestigeLevel ?? 0) >= 10).length;
+        return { current: Math.min(count, 2), target: 2, label: `Heroes at P10+: ${count} / 2` };
+      }
+      case "three_heroes_prestige_10": {
+        const count = (game.adventurers ?? []).filter(a => (a.prestigeLevel ?? 0) >= 10).length;
+        return { current: Math.min(count, 3), target: 3, label: `Heroes at P10+: ${count} / 3` };
+      }
       default: {
         const done = evaluateQuestCondition(game, quest);
         return { boolean: true, done };
@@ -262,7 +351,7 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset, 
       {/* Quest board — full for S1-3, compact summary for S4+ */}
       {(() => {
         const season = game.season ?? 1;
-        const questData = SEASONAL_QUESTS[Math.min(season, 10)];
+        const questData = SEASONAL_QUESTS[Math.min(season, 20)];
         if (!questData) return null;
         const completedIds = getCompletedQuestIds(game);
         const claimedIds = new Set(game.questProgress?.claimedQuestIds ?? []);

@@ -80,8 +80,8 @@ FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, 
   CLINIC_BASE_CAP,
   TOWN_FOOD_HALL_COST, TOWN_FOOD_HALL_TIER2_COST, TOWN_FOOD_HALL_TIER3_COST,
   TOWN_FOOD_HALL_TIER2_REQUIRES, TOWN_FOOD_HALL_TIER3_REQUIRES,
-  TOWN_WAREHOUSE_COST, WAREHOUSE_TIER_UPGRADE_COSTS, WAREHOUSE_TIER_UPGRADE_REQUIRES,
-  WAREHOUSE_NO_BUILDING_CAP, WAREHOUSE_BASE_CAP, WAREHOUSE_CAP_PER_WORKER, WAREHOUSE_MAX_WORKERS, WAREHOUSE_TIER_NAMES,
+  TOWN_WAREHOUSE_COST, WAREHOUSE_LEVEL_COSTS, WAREHOUSE_LEVEL_REQUIRES,
+  WAREHOUSE_NO_BUILDING_CAP, WAREHOUSE_LEVEL_BASE_CAP, WAREHOUSE_LEVEL_CAP_PER_WORKER, WAREHOUSE_LEVEL_MAX_WORKERS, WAREHOUSE_LEVEL_NAMES,
   TOWN_KITCHEN_HALL_COST, KITCHEN_HALL_LEVEL_COSTS, KITCHEN_HALL_LEVEL_REQUIRES,
   KITCHEN_HALL_MAX_WORKERS, KITCHEN_HALL_RETAIN_COUNT,
   TOWN_MARKET_HALL_COST, MARKET_HALL_LEVEL_COSTS, MARKET_HALL_LEVEL_REQUIRES,
@@ -711,15 +711,45 @@ export function isBuildingUnlocked(state, key) {
 }
 
 // Warehouse: per-crop storage cap
-// Returns WAREHOUSE_NO_BUILDING_CAP (150) before warehouse is built, then tier-based cap
+// Returns WAREHOUSE_NO_BUILDING_CAP (150) before warehouse is built, then level-based cap
+export function getWarehouseLevel(state) {
+  return state.town?.buildings?.warehouse?.level ?? 1;
+}
 export function getWarehouseCropCap(state) {
   const w = state.town?.buildings?.warehouse;
   if (!w?.built) return WAREHOUSE_NO_BUILDING_CAP;
-  const tier = w.tier ?? 0;
+  const level = w.level ?? 1;
   const workers = w.workers ?? 0;
-  const base = WAREHOUSE_BASE_CAP[tier] ?? WAREHOUSE_BASE_CAP[0];
-  const perWorker = WAREHOUSE_CAP_PER_WORKER[tier] ?? WAREHOUSE_CAP_PER_WORKER[0];
+  const base = getWarehouseLevelBaseCap(level);
+  const perWorker = getWarehouseLevelCapPerWorker(level);
   return base + workers * perWorker;
+}
+export function getWarehouseLevelBaseCap(level) {
+  // Levels 1-4 use the table; level 5+ scales ×2.5 per level from L4
+  if (level <= WAREHOUSE_LEVEL_BASE_CAP.length) return WAREHOUSE_LEVEL_BASE_CAP[level - 1];
+  return Math.round(WAREHOUSE_LEVEL_BASE_CAP[WAREHOUSE_LEVEL_BASE_CAP.length - 1] * Math.pow(2.5, level - WAREHOUSE_LEVEL_BASE_CAP.length));
+}
+export function getWarehouseLevelCapPerWorker(level) {
+  if (level <= WAREHOUSE_LEVEL_CAP_PER_WORKER.length) return WAREHOUSE_LEVEL_CAP_PER_WORKER[level - 1];
+  return Math.round(WAREHOUSE_LEVEL_CAP_PER_WORKER[WAREHOUSE_LEVEL_CAP_PER_WORKER.length - 1] * Math.pow(2.5, level - WAREHOUSE_LEVEL_CAP_PER_WORKER.length));
+}
+export function getWarehouseLevelMaxWorkers(level) {
+  if (level <= WAREHOUSE_LEVEL_MAX_WORKERS.length) return WAREHOUSE_LEVEL_MAX_WORKERS[level - 1];
+  // Level 5+: +4 workers per level
+  return WAREHOUSE_LEVEL_MAX_WORKERS[WAREHOUSE_LEVEL_MAX_WORKERS.length - 1] + (level - WAREHOUSE_LEVEL_MAX_WORKERS.length) * 4;
+}
+export function getWarehouseUpgradeCost(level) {
+  if (level - 1 < WAREHOUSE_LEVEL_COSTS.length) return WAREHOUSE_LEVEL_COSTS[level - 1];
+  // Level 4+: exponential scaling from 15000, ×2 each level
+  return Math.round(15_000 * Math.pow(2, level - WAREHOUSE_LEVEL_COSTS.length));
+}
+export function getWarehouseUpgradeRequires(level) {
+  if (level - 1 < WAREHOUSE_LEVEL_REQUIRES.length) return WAREHOUSE_LEVEL_REQUIRES[level - 1];
+  const extra = level - WAREHOUSE_LEVEL_REQUIRES.length;
+  return { iron_fitting: 10 + extra * 5, iron_ore: 40 + extra * 20, lumber: 30 + extra * 10 };
+}
+export function getWarehouseLevelName(level) {
+  return WAREHOUSE_LEVEL_NAMES[Math.min(level - 1, WAREHOUSE_LEVEL_NAMES.length - 1)];
 }
 
 // Kitchen Hall: max kitchen workers allowed (infinite scaling: L1=1, L2=2, L3=4, L4+=level+1 each)
@@ -903,8 +933,8 @@ export function assignTownBuildingWorker(state, key, delta) {
     if (getFreePeople(next) <= 0) return state;
     // Warehouse has a per-tier worker cap
     if (key === "warehouse") {
-      const tier = next.town.buildings.warehouse.tier ?? 0;
-      const maxW = WAREHOUSE_MAX_WORKERS[tier] ?? 3;
+      const level = next.town.buildings.warehouse.level ?? 1;
+      const maxW = getWarehouseLevelMaxWorkers(level);
       if (current >= maxW) return state;
     }
     next.town.buildings[key].workers = current + 1;
@@ -972,23 +1002,22 @@ export function buildWarehouse(state) {
   const next = deepCloneState(state);
   next.cash -= TOWN_WAREHOUSE_COST;
   if (!next.town.buildings) next.town.buildings = {};
-  next.town.buildings.warehouse = { built: true, tier: 0, workers: 0 };
+  next.town.buildings.warehouse = { built: true, level: 1, workers: 0 };
   return next;
 }
 
 export function upgradeWarehouse(state) {
   const w = state.town?.buildings?.warehouse;
   if (!w?.built) return state;
-  const tier = w.tier ?? 0;
-  if (tier >= 2) return state;
-  const cost = WAREHOUSE_TIER_UPGRADE_COSTS[tier];
-  const requires = WAREHOUSE_TIER_UPGRADE_REQUIRES[tier];
+  const level = w.level ?? 1;
+  const cost = getWarehouseUpgradeCost(level);
+  const requires = getWarehouseUpgradeRequires(level);
   if ((state.cash ?? 0) < cost) return state;
   if (!canAffordUpgradeMaterials(state, requires)) return state;
   const next = deepCloneState(state);
   next.cash -= cost;
   consumeUpgradeMaterials(next, requires);
-  next.town.buildings.warehouse.tier = tier + 1;
+  next.town.buildings.warehouse.level = level + 1;
   return next;
 }
 
@@ -1590,7 +1619,7 @@ function makeFreshTown() {
       town_hall:    { level: 0 },
       clinic:       { built: false, workers: 0 },
       food_hall:    { built: false, tier: 0 },      // tier 0=none,1=bread,2=jam,3=sauce
-      warehouse:    { built: false, tier: 0, workers: 0 },
+      warehouse:    { built: false, level: 1, workers: 0 },
       kitchen_hall: { built: false, level: 0 },
       market_hall:  { built: false, level: 0 },
       guild_hall:   { built: false, level: 0 },
@@ -3694,6 +3723,49 @@ export function evaluateQuestCondition(state, quest) {
         return (state.adventurers ?? []).some(a =>
           computeTotalGearTier(a.equippedGear, a.equippedInstanceId, state.forgeGoodsInstanced) >= 9
         );
+      // ── Late-game checks (S11-20) ──────────────────────────────────────────
+      case "farm_expanded_7x7":
+        return (state.farms ?? []).some(farm => ((state.farmInvestments ?? {})[farm.id]?.plotCapIndex ?? 0) >= 3);
+      case "all_farms_expanded_7x7":
+        return (state.farms ?? []).length > 0 && (state.farms ?? []).every(farm => ((state.farmInvestments ?? {})[farm.id]?.plotCapIndex ?? 0) >= 3);
+      case "hero_prestige_level":
+        return (state.adventurers ?? []).some(a => (a.prestigeLevel ?? 0) >= (c.value ?? 1));
+      case "hero_gear_tier":
+        return (state.adventurers ?? []).some(a =>
+          computeTotalGearTier(a.equippedGear, a.equippedInstanceId, state.forgeGoodsInstanced) >= (c.value ?? 9)
+        );
+      case "crop_stockpile_25k":
+        return Object.values(state.crops ?? {}).some(v => v >= 25000);
+      case "crop_stockpile_50k":
+        return Object.values(state.crops ?? {}).some(v => v >= 50000);
+      case "crop_stockpile_100k":
+        return Object.values(state.crops ?? {}).some(v => v >= 100000);
+      case "crop_stockpile_250k":
+        return Object.values(state.crops ?? {}).some(v => v >= 250000);
+      case "crop_stockpile_500k":
+        return Object.values(state.crops ?? {}).some(v => v >= 500000);
+      case "crop_diversity_5":
+        return Object.values(state.crops ?? {}).filter(v => v >= 1000).length >= 5;
+      case "crop_diversity_5_10k":
+        return Object.values(state.crops ?? {}).filter(v => v >= 10000).length >= 5;
+      case "three_prestiged_heroes":
+        return (state.adventurers ?? []).filter(a => (a.prestigeLevel ?? 0) >= 1).length >= 3;
+      case "three_heroes_level_15":
+        return (state.adventurers ?? []).filter(a => (a.level ?? 1) >= 15).length >= 3;
+      case "all_barns_tier2":
+        return (state.barnInstances ?? []).length > 0 && (state.barnInstances ?? []).every(inst => (inst.tier ?? 1) >= 2);
+      case "all_barns_tier3":
+        return (state.barnInstances ?? []).length > 0 && (state.barnInstances ?? []).every(inst => (inst.tier ?? 1) >= 3);
+      case "two_heroes_prestige_3":
+        return (state.adventurers ?? []).filter(a => (a.prestigeLevel ?? 0) >= 3).length >= 2;
+      case "three_heroes_prestige_3":
+        return (state.adventurers ?? []).filter(a => (a.prestigeLevel ?? 0) >= 3).length >= 3;
+      case "three_heroes_prestige_5":
+        return (state.adventurers ?? []).filter(a => (a.prestigeLevel ?? 0) >= 5).length >= 3;
+      case "two_heroes_prestige_10":
+        return (state.adventurers ?? []).filter(a => (a.prestigeLevel ?? 0) >= 10).length >= 2;
+      case "three_heroes_prestige_10":
+        return (state.adventurers ?? []).filter(a => (a.prestigeLevel ?? 0) >= 10).length >= 3;
       default: return false;
     }
   }
@@ -3701,7 +3773,7 @@ export function evaluateQuestCondition(state, quest) {
 }
 
 export function getCompletedQuestIds(state) {
-  const questData = SEASONAL_QUESTS[Math.min(state.season ?? 1, 10)];
+  const questData = SEASONAL_QUESTS[Math.min(state.season ?? 1, 20)];
   if (!questData) return new Set();
   const completed = new Set();
   for (const quest of questData.quests) {
@@ -3713,7 +3785,7 @@ export function getCompletedQuestIds(state) {
 export function areQuestsComplete(state) {
   const season = state.season ?? 1;
   if (season < QUEST_GATE_STARTS_SEASON) return true;
-  const questData = SEASONAL_QUESTS[Math.min(season, 10)];
+  const questData = SEASONAL_QUESTS[Math.min(season, 20)];
   if (!questData || questData.requiredCount === 0) return true;
   return getCompletedQuestIds(state).size >= questData.requiredCount;
 }
@@ -3721,7 +3793,7 @@ export function areQuestsComplete(state) {
 
 export function claimQuestReward(state, questId) {
   const season = state.season ?? 1;
-  const questData = SEASONAL_QUESTS[Math.min(season, 10)];
+  const questData = SEASONAL_QUESTS[Math.min(season, 20)];
   if (!questData) return state;
   const quest = questData.quests.find(q => q.id === questId);
   if (!quest) return state;
@@ -3760,7 +3832,7 @@ export function getPrestigeBlockers(state) {
   const blockers = [];
   if (state.season <= 3) { const rTH = state.season; if (getTownHallLevel(state) < rTH) blockers.push(`Town Hall level ${rTH} required`); }
   if (state.season >= QUEST_GATE_STARTS_SEASON) {
-    const questData = SEASONAL_QUESTS[Math.min(state.season, 10)];
+    const questData = SEASONAL_QUESTS[Math.min(state.season, 20)];
     if (questData && questData.requiredCount > 0) {
       const completed = getCompletedQuestIds(state);
       const completedCount = (questData.quests ?? []).filter(q => completed.has(q.id)).length;
@@ -4309,7 +4381,13 @@ export function deserializeState(raw) {
       parsed.prestigeBonuses = [];
     }
  
-    if (parsed.town === undefined) {
+    // ── Warehouse tier→level migration ────────────────────────────────────────
+  if (parsed.town?.buildings?.warehouse?.tier !== undefined && parsed.town.buildings.warehouse.level === undefined) {
+    parsed.town.buildings.warehouse.level = (parsed.town.buildings.warehouse.tier ?? 0) + 1;
+    delete parsed.town.buildings.warehouse.tier;
+  }
+
+  if (parsed.town === undefined) {
       parsed.town = makeFreshTown();
     } else {
       // ── Migrate old town shape → new buildings{} shape ──────────────────────
@@ -6256,7 +6334,7 @@ export function tickForgeWorkers(state, dtSeconds) {
   if (forgeQuestTrackItem) {
     nextQPForge.forgeItemsCrafted = (nextQPForge.forgeItemsCrafted ?? 0) + 1;
     if (["chainmail","plate_armor","tower_shield","master_sword"].includes(forgeQuestTrackItem.output.resourceKey)) nextQPForge.chainmailOrBetterCrafted = true;
-    if (["master_sword","tower_shield","plate_armor"].includes(forgeQuestTrackItem.output.resourceKey)) nextQPForge.t3ItemCrafted = true;
+    if (["master_sword","tower_shield","plate_armor"].includes(forgeQuestTrackItem.output.resourceKey)) { nextQPForge.t3ItemCrafted = true; nextQPForge.t3ItemsCrafted = (nextQPForge.t3ItemsCrafted ?? 0) + 1; }
   }
   return { ...state, forgeWorkers: nextWorkers, forgeGoods: nextGoods, forgeGoodsInstanced: nextGoodsInstanced, worldResources: nextResources, questProgress: nextQPForge };
 }

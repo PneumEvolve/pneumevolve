@@ -34,6 +34,7 @@ export const FARM_INVESTMENT_PLOT_CAP = [
   { id: "plots_4x4", name: "Expand to 4×4", maxPlots: 16, cost: 1500,    upgradeTier: 1, upgradeRequires: { iron_ore: 5, lumber: 4 }, description: "Unlock up to 16 plots on this farm." },
   { id: "plots_5x5", name: "Expand to 5×5", maxPlots: 25, cost: 15000,   upgradeTier: 2, upgradeRequires: { iron_ore: 20, lumber: 15 }, description: "Unlock up to 25 plots on this farm." },
   { id: "plots_6x6", name: "Expand to 6×6", maxPlots: 36, cost: 80000,  upgradeTier: 3, upgradeRequires: { iron_fitting: 5 }, description: "Unlock up to 36 plots on this farm." },
+  { id: "plots_7x7", name: "Expand to 7×7", maxPlots: 49, cost: 400000, upgradeTier: 4, upgradeRequires: { iron_fitting: 20, iron_ore: 50 }, description: "Unlock up to 49 plots on this farm." },
 ];
  
 export const FARM_INVESTMENT_YIELD = [
@@ -433,19 +434,22 @@ export const TOWN_FOOD_HALL_TIER3_REQUIRES = { iron_fitting: 3 };
 
 // ── Warehouse ─────────────────────────────────────────────────────────────────
 // Per-crop storage cap (wheat, berries, tomatoes independently).
-// Cap = WAREHOUSE_BASE_CAP[tier] + workers * WAREHOUSE_CAP_PER_WORKER[tier]
+// Warehouse: infinite level scaling. Cap = base + workers * perWorker (per level).
 // Overflow is lost — waste pressure enforces warehouse investment.
 export const WAREHOUSE_NO_BUILDING_CAP = 150; // hard cap per crop before warehouse is built
-export const TOWN_WAREHOUSE_COST             = 500;
-export const WAREHOUSE_TIER_UPGRADE_COSTS    = [1_500, 5_000];
-export const WAREHOUSE_TIER_UPGRADE_REQUIRES = [
+export const TOWN_WAREHOUSE_COST       = 500;
+// First 3 levels use these fixed costs; level 4+ scales exponentially
+export const WAREHOUSE_LEVEL_COSTS     = [1_500, 5_000, 15_000];  // levels 1→2, 2→3, 3→4
+export const WAREHOUSE_LEVEL_REQUIRES  = [
   { iron_ore: 10, lumber: 10 },
   { iron_fitting: 3, lumber: 20 },
+  { iron_fitting: 8, iron_ore: 30 },
 ];
-export const WAREHOUSE_BASE_CAP       = [500, 1_500, 4_000];  // per tier (0-indexed)
-export const WAREHOUSE_CAP_PER_WORKER = [200,   600, 1_500];  // per worker per tier
-export const WAREHOUSE_MAX_WORKERS    = [3, 5, 8];
-export const WAREHOUSE_TIER_NAMES     = ["Basic Shelving", "Forklifts", "Conveyor Belts"];
+// Per-level stats (index = level-1). Level 4+ extrapolates from these.
+export const WAREHOUSE_LEVEL_BASE_CAP      = [500, 1_500, 4_000, 10_000]; // base cap per level
+export const WAREHOUSE_LEVEL_CAP_PER_WORKER = [200,  600,  1_500,  4_000]; // per worker per level
+export const WAREHOUSE_LEVEL_MAX_WORKERS    = [3, 5, 8, 12];               // worker slots per level
+export const WAREHOUSE_LEVEL_NAMES          = ["Basic Shelving", "Forklifts", "Conveyor Belts", "Automated Sorting"];
 
 // ── Kitchen Hall ──────────────────────────────────────────────────────────────
 // Gates kitchen worker count + upgrades. Level 2 = retain 1st worker on prestige.
@@ -1824,7 +1828,106 @@ export const SEASONAL_QUESTS = {
       { id: "s10_craft",   emoji: "🪖", title: "Outfitted",      description: "Have a hero at Tier 9 gear or higher", condition: { type: "live_check", check: "hero_gear_tier_9" } },
     ],
   },
+  11: {
+    requiredCount: 4,
+    quests: [
+      { id: "s11_farm",    emoji: "🌾", title: "Vast Fields",      description: "Purchase 7×7 expansion on any farm",           condition: { type: "live_check", check: "farm_expanded_7x7" } },
+      { id: "s11_hero",    emoji: "⭐", title: "Veteran",          description: "Prestige a hero 2 times",                      condition: { type: "live_check", check: "hero_prestige_level", value: 2 } },
+      { id: "s11_fish",    emoji: "🎣", title: "Rare Bounty",      description: "Catch 20 rare fish in one season",             condition: { type: "counter", key: "rareFishCount", value: 20 } },
+      { id: "s11_craft",   emoji: "🍳", title: "Bustling Kitchen", description: "Have 5 kitchen workers all running simultaneously", condition: { type: "live_check", check: "kitchen_workers_active", value: 5 } },
+      { id: "s11_hero2",   emoji: "⚔️", title: "Boss Slayer",      description: "Defeat 3 bosses in one season",                condition: { type: "counter", key: "bossFightsWon", value: 3 } },
+    ],
+  },
+  12: {
+    requiredCount: 4,
+    quests: [
+      { id: "s12_farm",    emoji: "🌽", title: "Surplus",          description: "Stockpile 25,000 of any single crop",          condition: { type: "live_check", check: "crop_stockpile_25k" } },
+      { id: "s12_hero",    emoji: "🪖", title: "Warlord",          description: "Have a hero at Tier 12 gear or higher",        condition: { type: "live_check", check: "hero_gear_tier", value: 12 } },
+      { id: "s12_fish",    emoji: "🎣", title: "Four Waters",      description: "Have 4 fishing workers active simultaneously", condition: { type: "live_check", check: "fishing_workers_active", value: 4 } },
+      { id: "s12_hero2",   emoji: "⭐", title: "Twice Reborn",     description: "Prestige a hero 3 times",                      condition: { type: "live_check", check: "hero_prestige_level", value: 3 } },
+      { id: "s12_craft",   emoji: "🔥", title: "Forge Master",     description: "Craft 10 T3 items total",                      condition: { type: "counter", key: "t3ItemsCrafted", value: 10 } },
+    ],
+  },
+  13: {
+    requiredCount: 4,
+    quests: [
+      { id: "s13_barn",    emoji: "🐑", title: "Wool Empire",      description: "Collect 200 wool in one season",               condition: { type: "counter", key: "woolCollected", value: 200 } },
+      { id: "s13_hero",    emoji: "⭐", title: "Triple Threat",    description: "Have 3 prestiged heroes",                      condition: { type: "live_check", check: "three_prestiged_heroes" } },
+      { id: "s13_boss",    emoji: "👹", title: "Warlord",          description: "Defeat 10 bosses in one season",               condition: { type: "counter", key: "bossFightsWon", value: 10 } },
+      { id: "s13_farm",    emoji: "🌾", title: "Crop Diversity",   description: "Have 5 different crops stockpiled at 1,000+",  condition: { type: "live_check", check: "crop_diversity_5" } },
+      { id: "s13_craft",   emoji: "🪖", title: "Arsenal",          description: "Craft 20 T3 items total",                      condition: { type: "counter", key: "t3ItemsCrafted", value: 20 } },
+    ],
+  },
+  14: {
+    requiredCount: 4,
+    quests: [
+      { id: "s14_farm",    emoji: "🚜", title: "Tractor Army",     description: "Have at least 4 tractor workers on farms",     condition: { type: "live_check", check: "tractor_workers", value: 4 } },
+      { id: "s14_hero",    emoji: "⭐", title: "Phoenix",          description: "Prestige a hero 5 times",                      condition: { type: "live_check", check: "hero_prestige_level", value: 5 } },
+      { id: "s14_barn",    emoji: "🐄", title: "All Upgraded",     description: "Have all barns at tier 2 or higher",           condition: { type: "live_check", check: "all_barns_tier2" } },
+      { id: "s14_fish",    emoji: "🎣", title: "Trophy Wall",      description: "Catch 30 rare fish in one season",             condition: { type: "counter", key: "rareFishCount", value: 30 } },
+      { id: "s14_hero2",   emoji: "🧠", title: "Legends Three",    description: "Have 3 heroes at level 15",                    condition: { type: "live_check", check: "three_heroes_level_15" } },
+    ],
+  },
+  15: {
+    requiredCount: 5,
+    quests: [
+      { id: "s15_farm",    emoji: "🌽", title: "Overflow",         description: "Stockpile 50,000 of any single crop",          condition: { type: "live_check", check: "crop_stockpile_50k" } },
+      { id: "s15_farm2",   emoji: "🚜", title: "Full Mechanized",  description: "Have at least 5 tractor workers on farms",     condition: { type: "live_check", check: "tractor_workers", value: 5 } },
+      { id: "s15_hero",    emoji: "⭐", title: "Reborn Again",     description: "Prestige a hero 7 times",                      condition: { type: "live_check", check: "hero_prestige_level", value: 7 } },
+      { id: "s15_boss",    emoji: "👹", title: "Champion",         description: "Defeat 20 bosses in one season",               condition: { type: "counter", key: "bossFightsWon", value: 20 } },
+      { id: "s15_craft",   emoji: "🍳", title: "Full Operation",   description: "Have 5 fishing workers active simultaneously", condition: { type: "live_check", check: "fishing_workers_active", value: 5 } },
+    ],
+  },
+  16: {
+    requiredCount: 5,
+    quests: [
+      { id: "s16_farm",    emoji: "🌾", title: "Grand Fields",     description: "Have all farms expanded to 7×7",               condition: { type: "live_check", check: "all_farms_expanded_7x7" } },
+      { id: "s16_barn",    emoji: "🐄", title: "All Maxed",        description: "Have all barns at tier 3",                     condition: { type: "live_check", check: "all_barns_tier3" } },
+      { id: "s16_hero",    emoji: "⭐", title: "Ascendant",        description: "Have 2 heroes prestiged 3+ times",             condition: { type: "live_check", check: "two_heroes_prestige_3" } },
+      { id: "s16_fish",    emoji: "🎣", title: "Deep Haul",        description: "Catch 40 rare fish in one season",             condition: { type: "counter", key: "rareFishCount", value: 40 } },
+      { id: "s16_craft",   emoji: "🪖", title: "Armory",           description: "Craft 40 T3 items total",                      condition: { type: "counter", key: "t3ItemsCrafted", value: 40 } },
+    ],
+  },
+  17: {
+    requiredCount: 5,
+    quests: [
+      { id: "s17_farm",    emoji: "🌽", title: "Legendary Harvest", description: "Stockpile 100,000 of any single crop",        condition: { type: "live_check", check: "crop_stockpile_100k" } },
+      { id: "s17_hero",    emoji: "⭐", title: "Immortal",          description: "Prestige a hero 10 times",                    condition: { type: "live_check", check: "hero_prestige_level", value: 10 } },
+      { id: "s17_boss",    emoji: "👹", title: "Warbringer",        description: "Defeat 30 bosses in one season",              condition: { type: "counter", key: "bossFightsWon", value: 30 } },
+      { id: "s17_hero2",   emoji: "🧠", title: "Elite Force",       description: "Have 3 heroes all at prestige 3+",            condition: { type: "live_check", check: "three_heroes_prestige_3" } },
+      { id: "s17_craft",   emoji: "🔥", title: "Legendary Forge",   description: "Have a hero at Tier 15 gear or higher",       condition: { type: "live_check", check: "hero_gear_tier", value: 15 } },
+    ],
+  },
+  18: {
+    requiredCount: 5,
+    quests: [
+      { id: "s18_farm",    emoji: "🌾", title: "Crop Mastery",      description: "Have 5 crops all stockpiled at 10,000+",      condition: { type: "live_check", check: "crop_diversity_5_10k" } },
+      { id: "s18_farm2",   emoji: "🚜", title: "Iron Fleet",        description: "Have at least 6 tractor workers on farms",    condition: { type: "live_check", check: "tractor_workers", value: 6 } },
+      { id: "s18_hero",    emoji: "⭐", title: "Undying",           description: "Have 3 heroes prestiged 5+ times",            condition: { type: "live_check", check: "three_heroes_prestige_5" } },
+      { id: "s18_fish",    emoji: "🎣", title: "Sea Legend",        description: "Catch 50 rare fish in one season",            condition: { type: "counter", key: "rareFishCount", value: 50 } },
+      { id: "s18_boss",    emoji: "👹", title: "Colossus",          description: "Defeat 40 bosses in one season",              condition: { type: "counter", key: "bossFightsWon", value: 40 } },
+    ],
+  },
+  19: {
+    requiredCount: 5,
+    quests: [
+      { id: "s19_farm",    emoji: "🌽", title: "Mythic Surplus",    description: "Stockpile 250,000 of any single crop",        condition: { type: "live_check", check: "crop_stockpile_250k" } },
+      { id: "s19_hero",    emoji: "⭐", title: "Transcendent",      description: "Have 2 heroes prestiged 10+ times",           condition: { type: "live_check", check: "two_heroes_prestige_10" } },
+      { id: "s19_craft",   emoji: "🪖", title: "Forge Legend",      description: "Craft 100 T3 items total",                    condition: { type: "counter", key: "t3ItemsCrafted", value: 100 } },
+      { id: "s19_boss",    emoji: "👹", title: "Titan",             description: "Defeat 50 bosses in one season",              condition: { type: "counter", key: "bossFightsWon", value: 50 } },
+      { id: "s19_hero2",   emoji: "🧠", title: "Godlike",           description: "Have a hero at Tier 18 gear or higher",       condition: { type: "live_check", check: "hero_gear_tier", value: 18 } },
+    ],
+  },
+  20: {
+    requiredCount: 5,
+    quests: [
+      { id: "s20_farm",    emoji: "🌾", title: "World Farm",        description: "Stockpile 500,000 of any single crop",        condition: { type: "live_check", check: "crop_stockpile_500k" } },
+      { id: "s20_hero",    emoji: "⭐", title: "Eternal",           description: "Have 3 heroes prestiged 10+ times",           condition: { type: "live_check", check: "three_heroes_prestige_10" } },
+      { id: "s20_boss",    emoji: "👹", title: "Apocalypse",        description: "Defeat 75 bosses in one season",              condition: { type: "counter", key: "bossFightsWon", value: 75 } },
+      { id: "s20_craft",   emoji: "🔥", title: "Grand Arsenal",     description: "Have a hero at Tier 20 gear or higher",       condition: { type: "live_check", check: "hero_gear_tier", value: 20 } },
+      { id: "s20_fish",    emoji: "🎣", title: "Ocean Sovereign",   description: "Catch 75 rare fish in one season",            condition: { type: "counter", key: "rareFishCount", value: 75 } },
+    ],
+  },
 };
 
-// For seasons beyond 10, reuse season 10 quests with no required count (optional)
 export const QUEST_GATE_STARTS_SEASON = 4;

@@ -13,8 +13,7 @@ import {
   FOOD_HALL_SAT_CEILING, FOOD_HALL_FOOD_MODE,
   TOWN_FOOD_HALL_COST, TOWN_FOOD_HALL_TIER2_COST, TOWN_FOOD_HALL_TIER3_COST,
   TOWN_FOOD_HALL_TIER2_REQUIRES, TOWN_FOOD_HALL_TIER3_REQUIRES,
-  TOWN_WAREHOUSE_COST, WAREHOUSE_TIER_UPGRADE_COSTS, WAREHOUSE_TIER_UPGRADE_REQUIRES,
-  WAREHOUSE_BASE_CAP, WAREHOUSE_CAP_PER_WORKER, WAREHOUSE_MAX_WORKERS, WAREHOUSE_TIER_NAMES,
+  TOWN_WAREHOUSE_COST,
   TOWN_KITCHEN_HALL_COST, KITCHEN_HALL_LEVEL_COSTS, KITCHEN_HALL_LEVEL_REQUIRES,
   KITCHEN_HALL_MAX_WORKERS, KITCHEN_HALL_RETAIN_COUNT,
   TOWN_MARKET_HALL_COST, MARKET_HALL_LEVEL_COSTS, MARKET_HALL_LEVEL_REQUIRES,
@@ -32,7 +31,9 @@ import {
   getSchoolGrowBonus, getSchoolResearchMultiplier,
   getTavernLevel, getTavernRegenRate,
   getTownCapacity, getSchoolData, getActiveSchoolResearch, getAvailableSchoolResearch,
-  getWarehouseCropCap, getMaxKitchenWorkers, getMaxMarketWorkers,
+  getWarehouseCropCap, getWarehouseUpgradeCost, getWarehouseUpgradeRequires,
+  getWarehouseLevelBaseCap, getWarehouseLevelCapPerWorker, getWarehouseLevelMaxWorkers, getWarehouseLevelName,
+  getMaxKitchenWorkers, getMaxMarketWorkers,
   getMaxHeroes, getGuildHallQuestTier, getSatisfactionCeiling,
   getBankPriceBonus, getRecHallSatBonus, getRecHallMaxWorkers,
 } from "../gameEngine";
@@ -221,8 +222,7 @@ export default function TownZone({
   const foodHallTier  = buildings.food_hall?.tier ?? 0;
   const foodHallBuilt = foodHallTier > 0;
   const warehouseBuilt = buildings.warehouse?.built === true;
-  const warehouseTier  = buildings.warehouse?.tier ?? 0;
-  const warehouseWorkers = buildings.warehouse?.workers ?? 0;
+    const warehouseWorkers = buildings.warehouse?.workers ?? 0;
   const kitchenHallBuilt = buildings.kitchen_hall?.built === true;
   const kitchenHallLevel = buildings.kitchen_hall?.level ?? 0;
   const marketHallBuilt  = buildings.market_hall?.built === true;
@@ -501,69 +501,75 @@ export default function TownZone({
           </BuildingCard>
 
           {/* ── Warehouse ──────────────────────────────────────────────── */}
-          <BuildingCard emoji="🏗️" title="Warehouse"
-            badge={warehouseBuilt ? `Tier ${warehouseTier + 1} · ${warehouseWorkers} workers` : "Not built"}
-            badgeColor={warehouseBuilt ? "#4ade80" : "#f59e0b"}
-          >
-            <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
-              Caps crop storage for wheat, berries, and tomatoes. Overflow is lost — expand
-              the warehouse to keep producing. Workers increase capacity per tier.
-            </div>
-            {warehouseBuilt ? (
-              <>
-                <Row label="Tier" value={`${warehouseTier + 1} — ${WAREHOUSE_TIER_NAMES[warehouseTier]}`} />
-                <Row label="Base cap" value={fmt(WAREHOUSE_BASE_CAP[warehouseTier])} sub="per crop" />
-                <Row label="Per worker" value={`+${fmt(WAREHOUSE_CAP_PER_WORKER[warehouseTier])}`} />
-                <Row label="Current cap" value={fmt(getWarehouseCropCap(game))} sub="per crop" valueColor="#4ade80" />
-                <div style={{ marginTop: "0.5rem" }}>
-                  <WorkerAssigner
-                    workers={warehouseWorkers}
-                    maxWorkers={WAREHOUSE_MAX_WORKERS[warehouseTier]}
-                    freePeople={freePeople}
-                    onAdd={() => onAssignTownBuildingWorker("warehouse", 1)}
-                    onRemove={() => onAssignTownBuildingWorker("warehouse", -1)}
-                  />
+          {(() => {
+            const upgradeCost = warehouseBuilt ? getWarehouseUpgradeCost(warehouseLevel) : 0;
+            const upgradeReqs = warehouseBuilt ? getWarehouseUpgradeRequires(warehouseLevel) : {};
+            const maxW = warehouseBuilt ? getWarehouseLevelMaxWorkers(warehouseLevel) : 0;
+            const baseCap = warehouseBuilt ? getWarehouseLevelBaseCap(warehouseLevel) : 0;
+            const perWorker = warehouseBuilt ? getWarehouseLevelCapPerWorker(warehouseLevel) : 0;
+            const levelName = warehouseBuilt ? getWarehouseLevelName(warehouseLevel) : "";
+            const canUpgrade = warehouseBuilt && (cash >= upgradeCost) && Object.entries(upgradeReqs).every(([k, v]) => have(k) >= v);
+            return (
+              <BuildingCard emoji="🏗️" title="Warehouse"
+                badge={warehouseBuilt ? `Level ${warehouseLevel} · ${warehouseWorkers}/${maxW} workers` : "Not built"}
+                badgeColor={warehouseBuilt ? "#4ade80" : "#f59e0b"}
+              >
+                <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
+                  Caps crop storage. Overflow is lost — upgrade the warehouse to raise the cap.
+                  Workers multiply the cap per level.
                 </div>
-                {warehouseTier < 2 && (
+                {warehouseBuilt ? (
                   <>
+                    <Row label="Level" value={`${warehouseLevel} — ${levelName}`} />
+                    <Row label="Base cap" value={fmt(baseCap)} sub="per crop" />
+                    <Row label="Per worker" value={`+${fmt(perWorker)}`} />
+                    <Row label="Current cap" value={fmt(getWarehouseCropCap(game))} sub="per crop" valueColor="#4ade80" />
+                    <div style={{ marginTop: "0.5rem" }}>
+                      <WorkerAssigner
+                        workers={warehouseWorkers}
+                        maxWorkers={maxW}
+                        freePeople={freePeople}
+                        onAdd={() => onAssignTownBuildingWorker("warehouse", 1)}
+                        onRemove={() => onAssignTownBuildingWorker("warehouse", -1)}
+                      />
+                    </div>
                     <div style={{ marginTop: "0.5rem", paddingTop: "0.4rem", borderTop: "1px solid var(--border)" }}>
                       <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
-                        Upgrade to {WAREHOUSE_TIER_NAMES[warehouseTier + 1]}
+                        Upgrade to Level {warehouseLevel + 1} — {getWarehouseLevelName(warehouseLevel + 1)}
                       </div>
                       <CostLine
                         cash={cash}
-                        cashCost={WAREHOUSE_TIER_UPGRADE_COSTS[warehouseTier]}
-                        materials={WAREHOUSE_TIER_UPGRADE_REQUIRES[warehouseTier]}
+                        cashCost={upgradeCost}
+                        materials={upgradeReqs}
                         have={{ iron_ore: worldRes.iron_ore ?? 0, lumber: worldRes.lumber ?? 0, iron_fitting: have("iron_fitting") }}
                       />
                     </div>
-                    <button onClick={onUpgradeWarehouse} className="btn w-full" style={{ marginTop: "0.5rem" }}>
-                      Upgrade Warehouse
+                    <button onClick={onUpgradeWarehouse} disabled={!canUpgrade} className="btn w-full"
+                      style={{ marginTop: "0.5rem", opacity: canUpgrade ? 1 : 0.5 }}>
+                      Upgrade Warehouse → Level {warehouseLevel + 1}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ background: "var(--bg)", borderRadius: 8, padding: "0.5rem 0.6rem", marginBottom: "0.5rem" }}>
+                      <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.3rem", fontWeight: 600 }}>
+                        📦 Storage without warehouse
+                      </div>
+                      <div style={{ fontSize: "0.72rem", color: "#ef4444", marginBottom: "0.2rem" }}>150 per crop</div>
+                      <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.3rem" }}>
+                        After building: <strong style={{ color: "var(--text)" }}>500</strong> base per crop (+ 200 per worker)
+                      </div>
+                    </div>
+                    <CostLine cash={cash} cashCost={TOWN_WAREHOUSE_COST} />
+                    <button onClick={onBuildWarehouse} disabled={cash < TOWN_WAREHOUSE_COST} className="btn w-full"
+                      style={{ marginTop: "0.5rem", opacity: cash >= TOWN_WAREHOUSE_COST ? 1 : 0.5 }}>
+                      Build Warehouse — ${fmt(TOWN_WAREHOUSE_COST)}
                     </button>
                   </>
                 )}
-              </>
-            ) : (
-              <>
-                <div style={{ background: "var(--bg)", borderRadius: 8, padding: "0.5rem 0.6rem", marginBottom: "0.5rem" }}>
-                  <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.3rem", fontWeight: 600 }}>
-                    📦 Storage without warehouse
-                  </div>
-                  <div style={{ fontSize: "0.72rem", color: "#ef4444", marginBottom: "0.2rem" }}>
-                    150
-                  </div>
-                  <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.3rem" }}>
-                    After building: <strong style={{ color: "var(--text)" }}>{fmt(WAREHOUSE_BASE_CAP[0])}</strong> per crop (+ {fmt(WAREHOUSE_CAP_PER_WORKER[0])} per worker)
-                  </div>
-                </div>
-                <CostLine cash={cash} cashCost={TOWN_WAREHOUSE_COST} />
-                <button onClick={onBuildWarehouse} disabled={cash < TOWN_WAREHOUSE_COST} className="btn w-full"
-                  style={{ marginTop: "0.5rem", opacity: cash >= TOWN_WAREHOUSE_COST ? 1 : 0.5 }}>
-                  Build Warehouse — ${fmt(TOWN_WAREHOUSE_COST)}
-                </button>
-              </>
-            )}
-          </BuildingCard>
+              </BuildingCard>
+            );
+          })()}
 
           {/* ── Kitchen Hall ───────────────────────────────────────────── */}
           <BuildingCard emoji="🍳" title="Kitchen Hall"
