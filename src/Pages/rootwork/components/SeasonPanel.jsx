@@ -14,7 +14,7 @@ import {
   getTreasuryGrowBonus, getFishMealGrowBonus, getSchoolGrowBonus,
   getAvailablePrestigePoints, getBarnPrestigeReady,
   getBarnInstanceSupplyRate, getBarnInstanceDemandRate, getCompletedQuestIds,
-  evaluateQuestCondition,
+  evaluateQuestCondition, getFarmAverageGrowTime,
 } from "../gameEngine";
  
 function FarmChecklist({ farm, game }) {
@@ -22,13 +22,13 @@ function FarmChecklist({ farm, game }) {
   const farmWorkers = game.workers.filter((w) => w.farmId === farm.id);
   const plotsOk = farm.unlockedPlots >= PRESTIGE_MIN_PLOTS;
  
-  const growTime = getEffectiveGrowTime(
-    farm, game.workers, farm.crop, null,
-    game.feastBonusPercent ?? 0,
-    (game.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(game),
-    getTreasuryGrowBonus(game),
-    getFishMealGrowBonus(game)
-  );
+  const growTime = getFarmAverageGrowTime(
+  farm, game.workers, farm.crop,
+  game.feastBonusPercent ?? 0,
+  (game.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(game),
+  getTreasuryGrowBonus(game),
+  getFishMealGrowBonus(game)
+);
   const demandRate = farm.unlockedPlots / growTime;
   const supplyRate = farmWorkers.reduce((sum, w) => sum + getWorkerHarvestRate(w), 0);
   const workersOk = farmWorkers.length > 0 && supplyRate >= demandRate;
