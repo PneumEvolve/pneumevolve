@@ -3731,10 +3731,12 @@ export function evaluateQuestCondition(state, quest) {
           computeTotalGearTier(a.equippedGear, a.equippedInstanceId, state.forgeGoodsInstanced) >= 9
         );
       // ── Late-game checks (S11-20) ──────────────────────────────────────────
-      case "farm_expanded_7x7":
+      case "farm_expanded_6x6":
         return (state.farms ?? []).some(farm => ((state.farmInvestments ?? {})[farm.id]?.plotCapIndex ?? 0) >= 3);
+      case "farm_expanded_7x7":
+        return (state.farms ?? []).some(farm => ((state.farmInvestments ?? {})[farm.id]?.plotCapIndex ?? 0) >= 4);
       case "all_farms_expanded_7x7":
-        return (state.farms ?? []).length > 0 && (state.farms ?? []).every(farm => ((state.farmInvestments ?? {})[farm.id]?.plotCapIndex ?? 0) >= 3);
+        return (state.farms ?? []).length > 0 && (state.farms ?? []).every(farm => ((state.farmInvestments ?? {})[farm.id]?.plotCapIndex ?? 0) >= 4);
       case "hero_prestige_level":
         return (state.adventurers ?? []).some(a => (a.prestigeLevel ?? 0) >= (c.value ?? 1));
       case "hero_gear_tier":

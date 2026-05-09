@@ -1831,7 +1831,7 @@ export const SEASONAL_QUESTS = {
   11: {
     requiredCount: 4,
     quests: [
-      { id: "s11_farm",    emoji: "🌾", title: "Vast Fields",      description: "Purchase 7×7 expansion on any farm",           condition: { type: "live_check", check: "farm_expanded_7x7" } },
+      { id: "s11_farm",    emoji: "🌾", title: "Vast Fields",      description: "Purchase 6×6 expansion on any farm",           condition: { type: "live_check", check: "farm_expanded_6x6" } },
       { id: "s11_hero",    emoji: "⭐", title: "Veteran",          description: "Prestige a hero 2 times",                      condition: { type: "live_check", check: "hero_prestige_level", value: 2 } },
       { id: "s11_fish",    emoji: "🎣", title: "Rare Bounty",      description: "Catch 20 rare fish in one season",             condition: { type: "counter", key: "rareFishCount", value: 20 } },
       { id: "s11_craft",   emoji: "🍳", title: "Bustling Kitchen", description: "Have 5 kitchen workers all running simultaneously", condition: { type: "live_check", check: "kitchen_workers_active", value: 5 } },
@@ -1842,6 +1842,7 @@ export const SEASONAL_QUESTS = {
     requiredCount: 4,
     quests: [
       { id: "s12_farm",    emoji: "🌽", title: "Surplus",          description: "Stockpile 25,000 of any single crop",          condition: { type: "live_check", check: "crop_stockpile_25k" } },
+      { id: "s12_farm2",   emoji: "🌾", title: "Vast Fields",      description: "Purchase 7×7 expansion on any farm",           condition: { type: "live_check", check: "farm_expanded_7x7" } },
       { id: "s12_hero",    emoji: "🪖", title: "Warlord",          description: "Have a hero at Tier 12 gear or higher",        condition: { type: "live_check", check: "hero_gear_tier", value: 12 } },
       { id: "s12_fish",    emoji: "🎣", title: "Four Waters",      description: "Have 4 fishing workers active simultaneously", condition: { type: "live_check", check: "fishing_workers_active", value: 4 } },
       { id: "s12_hero2",   emoji: "⭐", title: "Twice Reborn",     description: "Prestige a hero 3 times",                      condition: { type: "live_check", check: "hero_prestige_level", value: 3 } },

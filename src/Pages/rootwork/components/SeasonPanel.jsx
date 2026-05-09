@@ -191,13 +191,17 @@ function getQuestTracker(game, quest) {
         const done = evaluateQuestCondition(game, quest);
         return { boolean: true, done };
       }
-      case "farm_expanded_7x7": {
+      case "farm_expanded_6x6": {
         const done = (game.farms ?? []).some(farm => ((game.farmInvestments ?? {})[farm.id]?.plotCapIndex ?? 0) >= 3);
+        return { boolean: true, done };
+      }
+      case "farm_expanded_7x7": {
+        const done = (game.farms ?? []).some(farm => ((game.farmInvestments ?? {})[farm.id]?.plotCapIndex ?? 0) >= 4);
         return { boolean: true, done };
       }
       case "all_farms_expanded_7x7": {
         const total = (game.farms ?? []).length;
-        const done_count = (game.farms ?? []).filter(farm => ((game.farmInvestments ?? {})[farm.id]?.plotCapIndex ?? 0) >= 3).length;
+        const done_count = (game.farms ?? []).filter(farm => ((game.farmInvestments ?? {})[farm.id]?.plotCapIndex ?? 0) >= 4).length;
         return { current: done_count, target: total, label: `Farms at 7×7: ${done_count} / ${total}` };
       }
       case "hero_prestige_level": {
