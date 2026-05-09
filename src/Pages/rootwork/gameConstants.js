@@ -1842,7 +1842,6 @@ export const SEASONAL_QUESTS = {
     requiredCount: 4,
     quests: [
       { id: "s12_farm",    emoji: "🌽", title: "Surplus",          description: "Stockpile 25,000 of any single crop",          condition: { type: "live_check", check: "crop_stockpile_25k" } },
-      { id: "s12_farm2",   emoji: "🌾", title: "Vast Fields",      description: "Purchase 7×7 expansion on any farm",           condition: { type: "live_check", check: "farm_expanded_7x7" } },
       { id: "s12_hero",    emoji: "🪖", title: "Warlord",          description: "Have a hero at Tier 12 gear or higher",        condition: { type: "live_check", check: "hero_gear_tier", value: 12 } },
       { id: "s12_fish",    emoji: "🎣", title: "Four Waters",      description: "Have 4 fishing workers active simultaneously", condition: { type: "live_check", check: "fishing_workers_active", value: 4 } },
       { id: "s12_hero2",   emoji: "⭐", title: "Twice Reborn",     description: "Prestige a hero 3 times",                      condition: { type: "live_check", check: "hero_prestige_level", value: 3 } },
@@ -1882,7 +1881,7 @@ export const SEASONAL_QUESTS = {
   16: {
     requiredCount: 5,
     quests: [
-      { id: "s16_farm",    emoji: "🌾", title: "Grand Fields",     description: "Have all farms expanded to 7×7",               condition: { type: "live_check", check: "all_farms_expanded_7x7" } },
+      { id: "s16_farm",    emoji: "🌾", title: "Vast Fields",      description: "Purchase 7×7 expansion on any farm",           condition: { type: "live_check", check: "farm_expanded_7x7" } },
       { id: "s16_barn",    emoji: "🐄", title: "All Maxed",        description: "Have all barns at tier 3",                     condition: { type: "live_check", check: "all_barns_tier3" } },
       { id: "s16_hero",    emoji: "⭐", title: "Ascendant",        description: "Have 2 heroes prestiged 3+ times",             condition: { type: "live_check", check: "two_heroes_prestige_3" } },
       { id: "s16_fish",    emoji: "🎣", title: "Deep Haul",        description: "Catch 40 rare fish in one season",             condition: { type: "counter", key: "rareFishCount", value: 40 } },
