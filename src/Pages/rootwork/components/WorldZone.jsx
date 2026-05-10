@@ -2106,6 +2106,7 @@ export default function WorldZone({
   const [worldTab, setWorldTab] = useState("heroes"); // "heroes" | "boss" | "towns"
   const [expeditionHeroIds, setExpeditionHeroIds] = useState([]);
   const [expeditionTierId, setExpeditionTierId] = useState(null);
+  const [expeditionsOpen, setExpeditionsOpen] = useState(true);
   const [bonusHeroPickerId, setBonusHeroPickerId] = useState(null);
 
   const adventurers = game.adventurers ?? [];
@@ -2198,23 +2199,27 @@ export default function WorldZone({
           const firstTier = EXPEDITION_TIERS[EXPEDITION_TIER_ORDER[0]];
           return (
             <div style={{ marginBottom: "1.25rem", paddingBottom: "1rem", borderBottom: "1px solid var(--border)" }}>
-              <div style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--muted)", marginBottom: "0.4rem" }}>
-                🗺️ Expeditions <span style={{ fontSize: "0.65rem", fontWeight: 400, color: "var(--muted)", marginLeft: "0.3rem" }}>· locked</span>
-              </div>
+              <button onClick={() => setExpeditionsOpen(o => !o)} style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.82rem", fontWeight: 700, color: "var(--muted)", background: "none", border: "none", cursor: "pointer", padding: 0, marginBottom: "0.4rem" }}>
+                <span style={{ fontSize: "0.6rem", opacity: 0.6 }}>{expeditionsOpen ? "▼" : "▶"}</span>
+                🗺️ Expeditions <span style={{ fontSize: "0.65rem", fontWeight: 400, marginLeft: "0.3rem" }}>· locked</span>
+              </button>
+              {expeditionsOpen && (
               <div style={{ fontSize: "0.72rem", color: "var(--muted)", padding: "0.5rem 0.6rem", background: "rgba(255,255,255,0.02)", border: "1px dashed var(--border)", borderRadius: "8px" }}>
                 Requires Guild Hall L{firstTier.ghLevel} + Road L{firstTier.roadLevel} to unlock. Heroes go on permanent expeditions — staying until their food belt runs dry.
               </div>
+              )}
             </div>
           );
         }
 
         return (
           <div style={{ marginBottom: "1.25rem", paddingBottom: "1rem", borderBottom: "1px solid var(--border)" }}>
-            <div style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--accent)", marginBottom: "0.75rem" }}>
+            <button onClick={() => setExpeditionsOpen(o => !o)} style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.82rem", fontWeight: 700, color: "var(--accent)", background: "none", border: "none", cursor: "pointer", padding: 0, marginBottom: "0.75rem" }}>
+              <span style={{ fontSize: "0.6rem", opacity: 0.6 }}>{expeditionsOpen ? "▼" : "▶"}</span>
               🗺️ Expeditions
-            </div>
+            </button>
 
-            {EXPEDITION_TIER_ORDER.map(tierId => {
+            {expeditionsOpen && EXPEDITION_TIER_ORDER.map(tierId => {
               const tier = EXPEDITION_TIERS[tierId];
               const available = getExpeditionAvailable(game, tierId);
               const activeExp = (game.expeditions ?? {})[tierId];
@@ -2266,7 +2271,7 @@ export default function WorldZone({
                           <div key={heroId} style={{ marginBottom: "0.4rem" }}>
                             <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.68rem", marginBottom: "0.15rem" }}>
                               <span style={{ color: "var(--text)", fontWeight: 600 }}>{hero?.name ?? heroId}</span>
-                              <span style={{ color: hpColor }}>{currentHp}/{maxHp} HP · {beltTotal > 0 ? beltItems : "🚫 belt empty"}</span>
+                              <span style={{ color: hpColor }}>{Math.round(currentHp)}/{maxHp} HP · {beltTotal > 0 ? beltItems : "🚫 belt empty"}</span>
                             </div>
                             <div style={{ background: "rgba(255,255,255,0.08)", borderRadius: "4px", height: "5px", overflow: "hidden" }}>
                               <div style={{ height: "100%", width: `${hpPct}%`, background: hpColor, transition: "width 0.5s" }} />

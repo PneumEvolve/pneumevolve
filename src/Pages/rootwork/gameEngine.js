@@ -7187,6 +7187,11 @@ export function isTownConnected(state, townId) {
   if (state.roads?.disrupted) return false;
   // Check that the specific road tier for this town is enabled
   if (!isRoadEnabled(state, def.roadLevel)) return false;
+  // Require an active expedition matching this town's road level
+  const hasEscort = Object.values(EXPEDITION_TIERS).some(
+    (tier) => tier.roadLevel === def.roadLevel && !!(state.expeditions ?? {})[tier.id]
+  );
+  if (!hasEscort) return false;
   return true;
 }
 
