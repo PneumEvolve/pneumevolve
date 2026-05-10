@@ -40,7 +40,7 @@ import {
   getMaxForgeWorkers, getForgeHallRecipeTier, getForgeHallRetainCount,
   getMaxHeroes, getGuildHallQuestTier, getSatisfactionCeiling,
   getBankPriceBonus, getRecHallSatBonus, getRecHallMaxWorkers,
-  getRoadLevel, getRoadNextTier, canAffordRoad,
+  getRoadLevel, getRoadNextTier, canAffordRoad, isRoadEnabled, getTotalRoadDrain,
 } from "../gameEngine";
 import SeasonPanel from "./SeasonPanel";
 import StatsPanel from "./StatsPanel";
@@ -188,6 +188,7 @@ export default function TownZone({
   onBuildRecHall,
   onUpgradeRecHall,
   onBuildOrUpgradeRoad,
+  onToggleRoad,
   // Legacy props kept so RootWork doesn't need changes yet — ignored
   onBuyBakery, onToggleBakery, onTogglePantry, onToggleCannery,
   onUpgradeTownBuilding, onBuyJamBuilding, onBuySauceBuilding,
@@ -1047,27 +1048,78 @@ export default function TownZone({
           {/* ── Roads ──────────────────────────────────────────────────── */}
           {(() => {
             const roadLevel = getRoadLevel(game);
-            const currentTier = ROAD_TIERS[roadLevel - 1] ?? null;
             const nextTier = getRoadNextTier(game);
             const affordable = canAffordRoad(game);
-            const worldRes = game.worldResources ?? {};
             const disrupted = game.roads?.disrupted ?? false;
-
-            const upkeepStr = currentTier
-              ? Object.entries(currentTier.upkeepPerTick).map(([k,v]) => `${v} ${k}/s`).join(' + ')
-              : null;
+            const totalDrain = getTotalRoadDrain(game);
+            const totalDrainStr = [
+              totalDrain.iron_ore > 0 ? `${totalDrain.iron_ore} iron/s` : null,
+              totalDrain.lumber > 0   ? `${totalDrain.lumber} lumber/s` : null,
+            ].filter(Boolean).join(' + ') || 'none';
 
             return (
               <BuildingCard
                 emoji="🛤️"
                 title="Roads"
-                badge={roadLevel === 0 ? "Not built" : `${currentTier?.name} · Level ${roadLevel}${disrupted ? " · ⚠️ Disrupted" : ""}`}
+                badge={roadLevel === 0 ? "Not built" : disrupted ? "⚠️ Disrupted" : `${roadLevel} built`}
               >
                 {roadLevel > 0 && (
-                  <div style={{ marginBottom: "0.5rem", fontSize: "0.78rem", color: "var(--muted)" }}>
-                    <div>Upkeep: <span style={{ color: disrupted ? "#ef4444" : "var(--text)" }}>{upkeepStr}</span></div>
-                    <div style={{ marginTop: "0.25rem" }}>Unlocks: <span style={{ color: "#a78bfa" }}>{currentTier?.unlocksTown} · {currentTier?.unlocksExpedition} expedition</span></div>
-                  </div>
+                  <>
+                    {/* Total drain summary */}
+                    <div style={{
+                      marginBottom: "0.75rem", padding: "0.5rem 0.6rem",
+                      background: disrupted ? "rgba(239,68,68,0.08)" : "rgba(255,255,255,0.03)",
+                      border: `1px solid ${disrupted ? "rgba(239,68,68,0.3)" : "var(--border)"}`,
+                      borderRadius: "8px", fontSize: "0.75rem",
+                    }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ color: "var(--muted)" }}>Total drain</span>
+                        <span style={{ fontWeight: 700, color: disrupted ? "#ef4444" : "var(--text)" }}>{totalDrainStr}</span>
+                      </div>
+                      {disrupted && (
+                        <div style={{ marginTop: "0.25rem", fontSize: "0.68rem", color: "#ef4444" }}>
+                          ⚠️ Not enough iron ore or lumber — roads disrupted
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Per-road toggles */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", marginBottom: "0.6rem" }}>
+                      {ROAD_TIERS.slice(0, roadLevel).map(rt => {
+                        const enabled = isRoadEnabled(game, rt.level);
+                        const drainStr = Object.entries(rt.upkeepPerTick).map(([k,v]) => `${v} ${k === 'iron_ore' ? 'iron' : k}/s`).join(' + ');
+                        return (
+                          <div key={rt.level} style={{
+                            display: "flex", alignItems: "center", justifyContent: "space-between",
+                            padding: "0.4rem 0.6rem",
+                            background: enabled ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.15)",
+                            border: `1px solid ${enabled ? "var(--border)" : "rgba(255,255,255,0.06)"}`,
+                            borderRadius: "8px", fontSize: "0.73rem",
+                          }}>
+                            <div>
+                              <span style={{ marginRight: "0.35rem" }}>{rt.emoji}</span>
+                              <span style={{ fontWeight: 600, color: enabled ? "var(--text)" : "var(--muted)" }}>{rt.name}</span>
+                              <span style={{ marginLeft: "0.5rem", fontSize: "0.65rem", color: "var(--muted)" }}>
+                                — {drainStr}
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => onToggleRoad(rt.level)}
+                              style={{
+                                padding: "0.2rem 0.55rem", borderRadius: "6px", fontSize: "0.65rem", fontWeight: 700,
+                                cursor: "pointer",
+                                background: enabled ? "rgba(74,222,128,0.12)" : "rgba(239,68,68,0.1)",
+                                border: `1px solid ${enabled ? "rgba(74,222,128,0.35)" : "rgba(239,68,68,0.3)"}`,
+                                color: enabled ? "#4ade80" : "#f87171",
+                              }}
+                            >
+                              {enabled ? "ON" : "OFF"}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
                 )}
                 {nextTier ? (
                   <>
@@ -1089,7 +1141,7 @@ export default function TownZone({
                       {roadLevel === 0 ? "Build Roads" : `Upgrade to ${nextTier.name}`} — ${fmt(nextTier.buildCost)}
                     </button>
                     <div style={{ fontSize: "0.7rem", color: "var(--muted)", marginTop: "0.35rem" }}>
-                      Upkeep: {Object.entries(nextTier.upkeepPerTick).map(([k,v]) => `${v} ${k}/s`).join(' + ')}
+                      New upkeep: {Object.entries(nextTier.upkeepPerTick).map(([k,v]) => `${v} ${k}/s`).join(' + ')}
                     </div>
                   </>
                 ) : (

@@ -57,7 +57,7 @@ import {
   buildOrUpgradeRoad, tickRoads,
   tickTradeTowns, fulfillTownPulse, isTownConnected, getTownBonusActive,
   getMillhavenGrowBonus, getAshportFishBonus, getVelmoorXpBonus, getVelmoorExpeditionBonus,
-  sendExpedition, tickExpeditions, claimExpedition,
+  sendExpedition, recallExpedition, tickExpeditions, claimExpedition, toggleRoad,
   getRoadLevel, getRoadNextTier, canAffordRoad, getExpeditionAvailable,
   isHeroBusyForExpedition, isHeroOnExpedition,
 } from "./gameEngine";
@@ -68,7 +68,7 @@ import {
   FISHING_FISH, FISHING_BODIES, FISHING_WORKER_HIRE_COSTS,
   BARN_BUILDINGS, BARN_BUILDING_ORDER, EXTRA_FARM_CROPS,
   FORGE_WORKER_UPGRADES,
-  EXPEDITION_TIER_ORDER, EXPEDITION_TIERS, EXPEDITION_LOOT,
+  EXPEDITION_TIER_ORDER, EXPEDITION_TIERS,
   TRADE_TOWN_ORDER, TRADE_TOWNS, ROAD_TIERS,
 } from "./gameConstants";
 import GameNav, { FarmSubTabs } from "./components/GameNav";
@@ -502,7 +502,6 @@ export default function RootWork() {
   const gameRef = useRef(null);
   const tickIntervalRef = useRef(null);
   const [autoBattleLootResult, setAutoBattleLootResult] = useState(null);
-  const [expeditionClaimResult, setExpeditionClaimResult] = useState(null);
  
   useEffect(() => { if (game) gameRef.current = game; }, [game]);
  
@@ -571,10 +570,6 @@ if (wf) {
           next = tickRoads(next);
           next = tickTradeTowns(next);
           next = tickExpeditions(next);
-          if (next.expedition?.active?.pendingClaim && !prev.expedition?.active?.pendingClaim) {
-            const claim = next.expedition.active;
-            setTimeout(() => setExpeditionClaimResult({ tierId: claim.tierId, loot: claim.pendingClaim, heroIds: claim.heroIds }), 0);
-          }
           // Surface any completed auto battle result
           if (next.pendingAutoBattleResult) {
             const result = next.pendingAutoBattleResult;
@@ -690,10 +685,9 @@ if (wf) {
   const handleBuildOrUpgradeRoad = useCallback(() => update((s) => { const n = buildOrUpgradeRoad(s); if (n === s) notify('Cannot build/upgrade Road — check costs.'); return n; }), [update, notify]);
   const handleFulfillTownPulse = useCallback((townId) => update((s) => { const n = fulfillTownPulse(s, townId); if (n === s) notify('Not enough goods to fulfill request.'); return n; }), [update, notify]);
   const handleSendExpedition = useCallback((tierId, heroIds) => update((s) => { const n = sendExpedition(s, tierId, heroIds); if (n === s) notify('Cannot send expedition — check requirements.'); return n; }), [update, notify]);
-  const handleClaimExpedition = useCallback((bonusHeroId) => {
-    update((s) => claimExpedition(s, bonusHeroId));
-    setExpeditionClaimResult(null);
-  }, [update]);
+  const handleRecallExpedition = useCallback((tierId) => update((s) => recallExpedition(s, tierId)), [update]);
+  const handleToggleRoad = useCallback((roadLevel) => update((s) => toggleRoad(s, roadLevel)), [update]);
+  const handleClaimExpedition = useCallback(() => update((s) => claimExpedition(s)), [update]);
 
 
   // Animals & Pond
@@ -1085,6 +1079,7 @@ if (wf) {
               onToggleTavernMode={handleToggleTavernMode}
               onClaimQuestReward={handleClaimQuestReward}
               onBuildOrUpgradeRoad={handleBuildOrUpgradeRoad}
+            onToggleRoad={handleToggleRoad}
             />
         )}
         {activeMainTab === "world" && (
@@ -1117,10 +1112,8 @@ if (wf) {
             onRemoveHeroFromTavern={handleRemoveHeroFromTavern}
             onSetHeroFillFood={handleSetHeroFillFood}
             onSendExpedition={handleSendExpedition}
+            onRecallExpedition={handleRecallExpedition}
             onFulfillTownPulse={handleFulfillTownPulse}
-            expeditionClaimResult={expeditionClaimResult}
-            onClaimExpedition={handleClaimExpedition}
-            onDismissExpeditionClaim={() => setExpeditionClaimResult(null)}
           />
         )}
         {activeMainTab === "view" && (

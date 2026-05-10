@@ -91,7 +91,7 @@ FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, 
   TOWN_GUILD_HALL_COST, getGuildHallUpgradeCost, getGuildHallUpgradeRequires,
   GUILD_HALL_QUEST_TIER,
   ROAD_TIERS, TRADE_TOWNS, TRADE_TOWN_ORDER,
-  EXPEDITION_TIERS, EXPEDITION_TIER_ORDER, EXPEDITION_LOOT,
+  EXPEDITION_TIERS, EXPEDITION_TIER_ORDER, EXPEDITION_CLASS_BONUSES,
 } from "./gameConstants";
  
 let _idCounter = 0;
@@ -1835,7 +1835,7 @@ export function createInitialState() {
       ironfeld:  { pulseTicksRemaining: 5400, bonusActive: false, bonusTicksRemaining: 0, streak: 0, currentRequest: null, disrupted: false },
       velmoor:   { pulseTicksRemaining: 7200, bonusActive: false, bonusTicksRemaining: 0, streak: 0, currentRequest: null, disrupted: false },
     },
-    expedition: { active: null },
+    expeditions: {},
   };
 }
  
@@ -4888,7 +4888,9 @@ if (parsed.fishing?.fish) {
       if (t.streak === undefined) t.streak = 0;
       if (t.currentRequest === null || t.currentRequest === undefined) t.currentRequest = null;
     }
-    if (!parsed.expedition) parsed.expedition = { active: null };
+    if (!parsed.expeditions) parsed.expeditions = {};
+    // Migrate old single-expedition state
+    if (parsed.expedition) { delete parsed.expedition; }
 
     return parsed;
   } catch { return null; }
@@ -7068,12 +7070,18 @@ export function buildOrUpgradeRoad(state) {
     if (fromWorld > 0) { newResources[k] = (newResources[k] ?? 0) - fromWorld; needed -= fromWorld; }
     if (needed > 0) { newForgeGoods[k] = (newForgeGoods[k] ?? 0) - needed; }
   }
+  // Immediately prime the newly unlocked town's pulse so the first request fires right away
+  const newTradeTowns = { ...(state.tradeTowns ?? {}) };
+  if (next.unlocksTown && newTradeTowns[next.unlocksTown]) {
+    newTradeTowns[next.unlocksTown] = { ...newTradeTowns[next.unlocksTown], pulseTicksRemaining: 0 };
+  }
   return {
     ...state,
     cash: (state.cash ?? 0) - next.buildCost,
     worldResources: newResources,
     forgeGoods: newForgeGoods,
     roads: { level: next.level },
+    tradeTowns: newTradeTowns,
   };
 }
 
@@ -7084,8 +7092,16 @@ export function tickRoads(state) {
   let totalIron = 0;
   let totalLumber = 0;
   for (let i = 0; i < level; i++) {
-    totalIron  += ROAD_TIERS[i].upkeepPerTick.iron_ore;
-    totalLumber += ROAD_TIERS[i].upkeepPerTick.lumber;
+    const roadTier = ROAD_TIERS[i];
+    const enabledKey = `road_${roadTier.level}_enabled`;
+    // Default to enabled if key not set; skip drain if disabled
+    if (state.roads?.[enabledKey] === false) continue;
+    totalIron  += roadTier.upkeepPerTick.iron_ore;
+    totalLumber += roadTier.upkeepPerTick.lumber;
+  }
+  if (totalIron === 0 && totalLumber === 0) {
+    next.roads = { ...next.roads, disrupted: false };
+    return next;
   }
   const canAfford = (next.worldResources.iron_ore ?? 0) >= totalIron &&
                     (next.worldResources.lumber   ?? 0) >= totalLumber;
@@ -7099,8 +7115,39 @@ export function tickRoads(state) {
   return next;
 }
 
+export function toggleRoad(state, roadLevel) {
+  const enabledKey = `road_${roadLevel}_enabled`;
+  const currentlyEnabled = state.roads?.[enabledKey] !== false;
+  return {
+    ...state,
+    roads: { ...(state.roads ?? {}), [enabledKey]: !currentlyEnabled },
+  };
+}
+
+export function isRoadEnabled(state, roadLevel) {
+  const enabledKey = `road_${roadLevel}_enabled`;
+  return state.roads?.[enabledKey] !== false;
+}
+
+export function getTotalRoadDrain(state) {
+  const level = getRoadLevel(state);
+  let iron = 0, lumber = 0;
+  for (let i = 0; i < level; i++) {
+    const rt = ROAD_TIERS[i];
+    if (isRoadEnabled(state, rt.level)) {
+      iron += rt.upkeepPerTick.iron_ore;
+      lumber += rt.upkeepPerTick.lumber;
+    }
+  }
+  return { iron_ore: iron, lumber };
+}
+
 export function isRoadConnected(state) {
   return getRoadLevel(state) > 0 && !(state.roads?.disrupted);
+}
+
+export function isSpecificRoadConnected(state, roadLevel) {
+  return getRoadLevel(state) >= roadLevel && !(state.roads?.disrupted) && isRoadEnabled(state, roadLevel);
 }
 
 // =============================================================================
@@ -7138,6 +7185,8 @@ export function isTownConnected(state, townId) {
   if (!def) return false;
   if (getRoadLevel(state) < def.roadLevel) return false;
   if (state.roads?.disrupted) return false;
+  // Check that the specific road tier for this town is enabled
+  if (!isRoadEnabled(state, def.roadLevel)) return false;
   return true;
 }
 
@@ -7250,31 +7299,18 @@ export function getVelmoorExpeditionBonus(state) {
 // EXPEDITIONS
 // =============================================================================
 
-function _computeExpeditionPower(adventurers) {
-  return adventurers.reduce((sum, a) => {
-    return sum + (a.gear ?? 0) + (a.prestigeLevel ?? 0) * 2;
-  }, 0);
-}
-
-function _computeExpeditionLoot(tierId, powerScore, state) {
-  const tierDef = EXPEDITION_TIERS[tierId];
-  const lootDef = EXPEDITION_LOOT[tierId];
-  const raw = powerScore / tierDef.fullPowerThreshold;
-  const velmoorBonus = getVelmoorExpeditionBonus(state);
-  const lootFraction = Math.min(1.0, Math.max(0.2, raw) * (1 + velmoorBonus));
-
-  const loot = {};
-  loot.cash = Math.round(lootDef.cash[0] + lootFraction * (lootDef.cash[1] - lootDef.cash[0]));
-  loot.worldResources = {};
-  for (const [key, [min, max]] of Object.entries(lootDef.worldResources ?? {})) {
-    loot.worldResources[key] = Math.round(min + lootFraction * (max - min));
-  }
-  loot.bonusSkillPoint = lootDef.bonusSkillPoint === true && lootFraction >= 0.7;
-  return loot;
-}
 
 export function isHeroOnExpedition(state, heroId) {
-  return (state.expedition?.active?.heroIds ?? []).includes(heroId);
+  const exps = state.expeditions ?? {};
+  return Object.values(exps).some(exp => (exp?.heroIds ?? []).includes(heroId));
+}
+
+export function getHeroExpeditionTierId(state, heroId) {
+  const exps = state.expeditions ?? {};
+  for (const [tierId, exp] of Object.entries(exps)) {
+    if ((exp?.heroIds ?? []).includes(heroId)) return tierId;
+  }
+  return null;
 }
 
 export function isHeroBusyForExpedition(state, adventurer) {
@@ -7292,80 +7328,278 @@ export function getExpeditionAvailable(state, tierId) {
   if (!tier) return false;
   const ghLevel = state.town?.buildings?.guild_hall?.level ?? 0;
   const roadLevel = getRoadLevel(state);
-  return ghLevel >= tier.ghLevel && roadLevel >= tier.roadLevel;
+  if (ghLevel < tier.ghLevel || roadLevel < tier.roadLevel) return false;
+  // Road for this tier must be enabled (not toggled off)
+  const enabledKey = `road_${tier.roadLevel}_enabled`;
+  return state.roads?.[enabledKey] !== false;
 }
 
 export function sendExpedition(state, tierId, heroIds) {
-  if (state.expedition?.active) return state; // one at a time
   const tier = EXPEDITION_TIERS[tierId];
   if (!tier) return state;
   if (!getExpeditionAvailable(state, tierId)) return state;
-  if (heroIds.length < tier.minHeroes || heroIds.length > tier.maxHeroes) return state;
+  if (heroIds.length < 1 || heroIds.length > tier.maxHeroes) return state;
   const heroes = heroIds.map(id => state.adventurers?.find(a => a.id === id)).filter(Boolean);
   if (heroes.length !== heroIds.length) return state;
   for (const h of heroes) {
     if (isHeroBusyForExpedition(state, h)) return state;
   }
-  const powerScore = _computeExpeditionPower(heroes);
+  // Snapshot each hero's current HP and food belt into the expedition
+  const heroStates = Object.fromEntries(heroes.map(h => [
+    h.id,
+    { hp: h.hp ?? h.maxHp ?? 40, foodBelt: { ...(h.foodBelt ?? {}) } }
+  ]));
   return {
     ...state,
-    expedition: {
-      active: {
+    expeditions: {
+      ...(state.expeditions ?? {}),
+      [tierId]: {
         tierId,
         heroIds,
-        ticksRemaining: tier.durationTicks,
-        totalTicks: tier.durationTicks,
-        powerScore,
-        pendingClaim: null,
+        heroStates,
+        ticksSinceLastRareRoll: 0,
+        accumulatedResources: {},
+        lastRareDropped: null,
       },
     },
   };
 }
 
-export function tickExpeditions(state) {
-  const active = state.expedition?.active;
-  if (!active) return state;
-  if (active.pendingClaim) return state; // waiting for player to claim
-  const newTicks = active.ticksRemaining - 1;
-  if (newTicks > 0) {
-    return {
-      ...state,
-      expedition: { active: { ...active, ticksRemaining: newTicks } },
-    };
+export function recallExpedition(state, tierId) {
+  const exp = (state.expeditions ?? {})[tierId];
+  if (!exp) return state;
+  // Return heroes to 1hp (they made it back alive but exhausted)
+  let advs = state.adventurers ?? [];
+  for (const heroId of exp.heroIds) {
+    advs = advs.map(a => {
+      if (a.id !== heroId) return a;
+      const hs = exp.heroStates?.[heroId];
+      return { ...a, hp: Math.max(1, hs?.hp ?? 1), foodBelt: hs?.foodBelt ?? {} };
+    });
   }
-  // Timer done — compute loot
-  const loot = _computeExpeditionLoot(active.tierId, active.powerScore, state);
-  return {
-    ...state,
-    expedition: { active: { ...active, ticksRemaining: 0, pendingClaim: loot } },
-  };
+  const { [tierId]: _removed, ...rest } = state.expeditions ?? {};
+  return { ...state, expeditions: rest, adventurers: advs };
 }
 
-export function claimExpedition(state, bonusHeroId = null) {
-  const active = state.expedition?.active;
-  if (!active?.pendingClaim) return state;
-  const loot = active.pendingClaim;
-  let next = {
-    ...state,
-    cash: (state.cash ?? 0) + (loot.cash ?? 0),
-    expedition: { active: null },
-  };
-  // Deliver world resources
-  if (loot.worldResources) {
+export function tickExpeditions(state) {
+  const exps = state.expeditions ?? {};
+  if (Object.keys(exps).length === 0) return state;
+
+  const tierIndexMap = { scout: 0, dungeon: 1, dragon: 2, legendary: 3 };
+
+  let next = { ...state, expeditions: { ...exps } };
+  const completedTiers = [];
+
+  for (const tierId of Object.keys(exps)) {
+    const exp = exps[tierId];
+    if (!exp) continue;
+    const tier = EXPEDITION_TIERS[tierId];
+    if (!tier) continue;
+
+    let heroStates = { ...exp.heroStates };
+    let heroIds = [...exp.heroIds];
+    let accumulatedResources = { ...(exp.accumulatedResources ?? {}) };
+    let accumulatedXp = { ...(exp.accumulatedXp ?? {}) };
+    let ticksSinceLastRareRoll = (exp.ticksSinceLastRareRoll ?? 0) + 1;
+    const withdrawnHeroes = [];
+
+    // Damage phase -- with Fighter class damage reduction
+    for (const heroId of heroIds) {
+      let hs = { ...heroStates[heroId] };
+      const hero = (next.adventurers ?? []).find(a => a.id === heroId);
+      const heroClass = hero?.heroClass ?? null;
+
+      // Fighter: damage reduction based on level + gear tier
+      let effectiveDamage = tier.damagePerTick;
+      if (heroClass === "fighter") {
+        const cfg = EXPEDITION_CLASS_BONUSES.fighter;
+        const level = hero?.level ?? 1;
+        const gearTier = hero?.gear ?? 0;
+        const statPoints = level + gearTier;
+        const reduction = Math.min(cfg.maxDmgReduction, statPoints * cfg.dmgReductionPerStatPoint);
+        effectiveDamage = tier.damagePerTick * (1 - reduction);
+      }
+
+      hs.hp = (hs.hp ?? 40) - effectiveDamage;
+
+      if (hs.hp <= 0) {
+        const belt = { ...(hs.foodBelt ?? {}) };
+        const beltItems = ARTISAN_FOOD_LIST
+          .filter(id => (belt[id] ?? 0) > 0)
+          .map(id => ({ id, heal: ARTISAN_FOOD_HEAL[id]?.healAmount ?? 0 }))
+          .sort((a, b) => a.heal - b.heal);
+
+        if (beltItems.length > 0) {
+          const food = beltItems[0];
+          belt[food.id] = belt[food.id] - 1;
+          if (belt[food.id] <= 0) delete belt[food.id];
+          hs.hp = food.heal;
+          hs.foodBelt = belt;
+        } else {
+          withdrawnHeroes.push(heroId);
+          hs.hp = 1;
+        }
+      }
+      heroStates[heroId] = hs;
+    }
+
+    // XP accumulation per hero per tick
+    const baseXpPerTick = tier.xpPerHeroPerTick ?? 0;
+    for (const heroId of heroIds) {
+      if (withdrawnHeroes.includes(heroId)) continue;
+      const hero = (next.adventurers ?? []).find(a => a.id === heroId);
+      if (!hero) continue;
+
+      // Build XP multiplier: existing skill tree + prestige + Velmoor + Mage class bonus
+      let xpMult = getHeroXpMultiplier(hero) * (1 + getHeroPrestigeXpBonus(hero)) * (1 + getVelmoorXpBonus(state));
+      if (hero.heroClass === "mage") {
+        xpMult *= (1 + EXPEDITION_CLASS_BONUSES.mage.xpBonus);
+      }
+
+      accumulatedXp[heroId] = (accumulatedXp[heroId] ?? 0) + baseXpPerTick * xpMult;
+    }
+
+    // Flush whole XP to heroes (level-up if needed)
+    let advForXp = next.adventurers ?? [];
+    let didChangeXp = false;
+    for (const heroId of heroIds) {
+      if (withdrawnHeroes.includes(heroId)) continue;
+      const wholeXp = Math.floor(accumulatedXp[heroId] ?? 0);
+      if (wholeXp <= 0) continue;
+      accumulatedXp[heroId] = (accumulatedXp[heroId] ?? 0) - wholeXp;
+      advForXp = advForXp.map(a => {
+        if (a.id !== heroId) return a;
+        let newXp = (a.xp ?? 0) + wholeXp;
+        let newLevel = a.level ?? 1;
+        let newSkillPoints = a.skillPoints ?? 0;
+        while (newXp >= getAdventurerXpNeeded(newLevel)) {
+          newXp -= getAdventurerXpNeeded(newLevel);
+          newLevel++;
+          newSkillPoints++;
+        }
+        const newMaxHp = getAdventurerMaxHp({ ...a, level: newLevel }) + getHeroBonusMaxHp({ ...a, level: newLevel });
+        return { ...a, xp: newXp, level: newLevel, maxHp: newMaxHp, skillPoints: newSkillPoints };
+      });
+      didChangeXp = true;
+    }
+    if (didChangeXp) next = { ...next, adventurers: advForXp };
+
+    // Withdraw heroes with empty belts
+    let updatedAdventurers = next.adventurers ?? [];
+    for (const heroId of withdrawnHeroes) {
+      heroIds = heroIds.filter(id => id !== heroId);
+      delete heroStates[heroId];
+      delete accumulatedXp[heroId];
+      updatedAdventurers = updatedAdventurers.map(a =>
+        a.id !== heroId ? a : { ...a, hp: 1, foodBelt: {} }
+      );
+    }
+    next = { ...next, adventurers: updatedAdventurers };
+
+    if (heroIds.length === 0) {
+      completedTiers.push(tierId);
+      continue;
+    }
+
+    // Resource reward per hero per tick
+    for (const [res, amount] of Object.entries(tier.rewardPerHeroPerTick ?? {})) {
+      accumulatedResources[res] = (accumulatedResources[res] ?? 0) + amount * heroIds.length;
+    }
+
+    // Flush whole-number resources to worldResources
     const wr = { ...(next.worldResources ?? {}) };
-    for (const [k, v] of Object.entries(loot.worldResources)) {
-      wr[k] = (wr[k] ?? 0) + v;
+    for (const [res, amount] of Object.entries(accumulatedResources)) {
+      const whole = Math.floor(amount);
+      if (whole > 0) {
+        wr[res] = (wr[res] ?? 0) + whole;
+        accumulatedResources[res] = amount - whole;
+      }
     }
     next = { ...next, worldResources: wr };
-  }
-  // Award bonus skill point
-  if (loot.bonusSkillPoint && bonusHeroId) {
+
+    // Rare loot roll every rareLootRollIntervalTicks
+    let rareDropped = {};
+    if (ticksSinceLastRareRoll >= tier.rareLootRollIntervalTicks) {
+      ticksSinceLastRareRoll = 0;
+      const tierIndex = tierIndexMap[tierId] ?? 0;
+      for (const heroId of heroIds) {
+        const hero = (next.adventurers ?? []).find(a => a.id === heroId);
+        const gearTier = hero?.gear ?? 0;
+        const heroClass = hero?.heroClass ?? null;
+
+        // Base rare loot chance from gear
+        let chance = Math.min(0.8, 0.20 + gearTier * 0.05);
+
+        // Scavenger: +10% chance per expedition tier index (0=scout..3=legendary)
+        if (heroClass === "scavenger") {
+          const scavBonus = EXPEDITION_CLASS_BONUSES.scavenger.rareLootChancePerTierIndex * tierIndex;
+          chance = Math.min(0.9, chance + scavBonus);
+        }
+
+        if (Math.random() < chance) {
+          for (const [res, [min, max]] of Object.entries(tier.rareLoot ?? {})) {
+            let amount = Math.floor(min + Math.random() * (max - min + 1));
+            // Scavenger: add minLoot bonus to rare drop amounts
+            if (heroClass === "scavenger") {
+              amount += getHeroMinLootBonus(hero) + getHeroPrestigeMinLootBonus(hero);
+            }
+            rareDropped[res] = (rareDropped[res] ?? 0) + amount;
+          }
+        }
+
+        // Mage: 5% chance per roll to find a mana_crystal (any tier)
+        if (heroClass === "mage") {
+          const mageCfg = EXPEDITION_CLASS_BONUSES.mage;
+          if (Math.random() < mageCfg.manaCrystalChancePerRoll) {
+            const [cMin, cMax] = mageCfg.manaCrystalAmount;
+            rareDropped.mana_crystal = (rareDropped.mana_crystal ?? 0) + Math.floor(cMin + Math.random() * (cMax - cMin + 1));
+          }
+        }
+      }
+      if (Object.keys(rareDropped).length > 0) {
+        const wr2 = { ...(next.worldResources ?? {}) };
+        for (const [res, amount] of Object.entries(rareDropped)) wr2[res] = (wr2[res] ?? 0) + amount;
+        next = { ...next, worldResources: wr2 };
+      }
+    }
+
+    // Write hero HP and food belt back to adventurer state
+    let advs = next.adventurers ?? [];
+    for (const heroId of heroIds) {
+      const hs = heroStates[heroId];
+      advs = advs.map(a => a.id === heroId ? { ...a, hp: Math.max(1, hs.hp), foodBelt: hs.foodBelt ?? a.foodBelt } : a);
+    }
+
     next = {
       ...next,
-      adventurers: next.adventurers.map(a =>
-        a.id === bonusHeroId ? { ...a, skillPoints: (a.skillPoints ?? 0) + 1 } : a
-      ),
+      adventurers: advs,
+      expeditions: {
+        ...next.expeditions,
+        [tierId]: {
+          ...exp,
+          heroIds,
+          heroStates,
+          accumulatedResources,
+          accumulatedXp,
+          ticksSinceLastRareRoll,
+          lastRareDropped: Object.keys(rareDropped).length > 0 ? rareDropped : (exp.lastRareDropped ?? null),
+        },
+      },
     };
   }
+
+  for (const tierId of completedTiers) {
+    const { [tierId]: _removed, ...rest } = next.expeditions;
+    next = { ...next, expeditions: rest };
+  }
+
   return next;
+}
+
+export function claimExpedition(state, _bonusHeroId = null) {
+  // Clear old single-expedition state if present
+  if (state.expedition?.active?.pendingClaim) {
+    return { ...state, expedition: { active: null } };
+  }
+  return state;
 }

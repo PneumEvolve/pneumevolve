@@ -2057,47 +2057,78 @@ export const TRADE_TOWNS = {
 export const TRADE_TOWN_ORDER = ["millhaven", "ashport", "ironfeld", "velmoor"];
 
 // --- Expeditions -------------------------------------------------------------
+// Expeditions are now persistent: heroes stay until food belt is empty or recalled.
+// damagePerTick: HP drained each tick from every hero on the expedition.
+// rewardPerHeroPerTick: world resources yielded per hero per tick (matches road upkeep at 1 hero).
+// rareLootRollIntervalTicks: how often a rare drop is rolled per hero.
 export const EXPEDITION_TIERS = {
   scout: {
     id: "scout", name: "Scout Run", emoji: "\u{1F5FA}\uFE0F",
-    durationTicks: 1800,
-    minHeroes: 1, maxHeroes: 2,
     ghLevel: 1, roadLevel: 1,
-    fullPowerThreshold: 12,
-    description: "A short scouting mission through nearby woods.",
+    maxHeroes: 4,
+    damagePerTick: 1,
+    xpPerHeroPerTick: 0.3,
+    rewardPerHeroPerTick: { iron_ore: 1, lumber: 1 },
+    rareLootRollIntervalTicks: 60,
+    rareLoot: { iron_ore: [5, 20], lumber: [5, 20] },
+    description: "A short scouting run through nearby woods. 1 hero covers road upkeep.",
   },
   dungeon: {
     id: "dungeon", name: "Dungeon Raid", emoji: "\u2694\uFE0F",
-    durationTicks: 5400,
-    minHeroes: 2, maxHeroes: 3,
     ghLevel: 2, roadLevel: 2,
-    fullPowerThreshold: 24,
-    description: "Delve into a dangerous dungeon for valuable loot.",
+    maxHeroes: 4,
+    damagePerTick: 2,
+    xpPerHeroPerTick: 0.6,
+    rewardPerHeroPerTick: { iron_ore: 2, lumber: 1 },
+    rareLootRollIntervalTicks: 60,
+    rareLoot: { rare_gem: [1, 4], iron_fitting: [2, 8] },
+    description: "Delve into a dangerous dungeon. 1 hero covers road upkeep.",
   },
   dragon: {
-    id: "dragon", name: "Dragon's Lair", emoji: "\u{1F409}",
-    durationTicks: 10800,
-    minHeroes: 3, maxHeroes: 4,
+    id: "dragon", name: "Dragon\'s Lair", emoji: "\u{1F409}",
     ghLevel: 3, roadLevel: 3,
-    fullPowerThreshold: 36,
-    description: "Face the dragon and claim its hoard.",
+    maxHeroes: 4,
+    damagePerTick: 3,
+    xpPerHeroPerTick: 1.0,
+    rewardPerHeroPerTick: { iron_ore: 3, lumber: 2 },
+    rareLootRollIntervalTicks: 60,
+    rareLoot: { mana_crystal: [2, 8], iron_fitting: [3, 12] },
+    description: "Face the dragon and claim its hoard. 1 hero covers road upkeep.",
   },
   legendary: {
     id: "legendary", name: "Legendary Vault", emoji: "\u{1F3DB}\uFE0F",
-    durationTicks: 14400,
-    minHeroes: 4, maxHeroes: 4,
     ghLevel: 4, roadLevel: 4,
-    fullPowerThreshold: 48,
-    description: "A mythic heist into a vault of ancient treasures.",
+    maxHeroes: 4,
+    damagePerTick: 4,
+    xpPerHeroPerTick: 1.5,
+    rewardPerHeroPerTick: { iron_ore: 4, lumber: 3 },
+    rareLootRollIntervalTicks: 60,
+    rareLoot: { rare_gem: [3, 10], mana_crystal: [1, 4] },
+    description: "A mythic heist into a vault of ancient treasures. 1 hero covers road upkeep.",
   },
 };
 export const EXPEDITION_TIER_ORDER = ["scout", "dungeon", "dragon", "legendary"];
 
-export const EXPEDITION_LOOT = {
-  scout:     { cash: [300, 1500],    worldResources: { iron_ore: [3, 15], lumber: [3, 15] } },
-  dungeon:   { cash: [1000, 5000],   worldResources: { rare_gem: [1, 6], iron_fitting: [3, 15] } },
-  dragon:    { cash: [5000, 20000],  worldResources: { mana_crystal: [5, 25], iron_fitting: [3, 15] } },
-  legendary: { cash: [15000, 60000], worldResources: { rare_gem: [3, 10] }, bonusSkillPoint: true },
+// Class-specific expedition bonuses
+// fighter: damage reduction per (level + gearTier), capped at 40%
+// mage:    +XP bonus flat, + small chance to find mana_crystal on any tier
+// scavenger: +rare loot roll chance per expedition tier index, +minLoot on rare drops
+export const EXPEDITION_CLASS_BONUSES = {
+  fighter: {
+    // dmgReductionPerStatPoint: applied to (level + gearTier) combined
+    dmgReductionPerStatPoint: 0.015, // 1.5% per point, capped at maxDmgReduction
+    maxDmgReduction: 0.40,           // hard cap: 40% max damage reduction
+  },
+  mage: {
+    xpBonus: 0.25,                   // flat +25% XP on top of existing multipliers
+    manaCrystalChancePerRoll: 0.05,  // 5% chance per rare-loot roll to find a mana_crystal
+    manaCrystalAmount: [1, 2],       // [min, max] crystals found
+  },
+  scavenger: {
+    // +10% rare loot roll chance per expedition tier index (0=scout,1=dungeon,2=dragon,3=legendary)
+    rareLootChancePerTierIndex: 0.10,
+    // min loot bonus on rare drops = getHeroMinLootBonus(hero) (reuses existing stat)
+  },
 };
 
 export const QUEST_GATE_STARTS_SEASON = 4;
