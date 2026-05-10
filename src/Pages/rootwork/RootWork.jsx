@@ -54,6 +54,12 @@ import {
   buildBarnHall, upgradeBarnHall,
   buildForgeHall, upgradeForgeHall,
   buildRecHall, upgradeRecHall,
+  buildOrUpgradeRoad, tickRoads,
+  tickTradeTowns, fulfillTownPulse, isTownConnected, getTownBonusActive,
+  getMillhavenGrowBonus, getAshportFishBonus, getVelmoorXpBonus, getVelmoorExpeditionBonus,
+  sendExpedition, tickExpeditions, claimExpedition,
+  getRoadLevel, getRoadNextTier, canAffordRoad, getExpeditionAvailable,
+  isHeroBusyForExpedition, isHeroOnExpedition,
 } from "./gameEngine";
 import {
   SAVE_KEY, SAVE_INTERVAL_MS,
@@ -62,6 +68,8 @@ import {
   FISHING_FISH, FISHING_BODIES, FISHING_WORKER_HIRE_COSTS,
   BARN_BUILDINGS, BARN_BUILDING_ORDER, EXTRA_FARM_CROPS,
   FORGE_WORKER_UPGRADES,
+  EXPEDITION_TIER_ORDER, EXPEDITION_TIERS, EXPEDITION_LOOT,
+  TRADE_TOWN_ORDER, TRADE_TOWNS, ROAD_TIERS,
 } from "./gameConstants";
 import GameNav, { FarmSubTabs } from "./components/GameNav";
 import LiveView from "./components/LiveView";
@@ -494,6 +502,7 @@ export default function RootWork() {
   const gameRef = useRef(null);
   const tickIntervalRef = useRef(null);
   const [autoBattleLootResult, setAutoBattleLootResult] = useState(null);
+  const [expeditionClaimResult, setExpeditionClaimResult] = useState(null);
  
   useEffect(() => { if (game) gameRef.current = game; }, [game]);
  
@@ -559,6 +568,13 @@ if (wf) {
           next = tickAdventurerMissions(next);
           next = tickBossFight(next, 1);
           next = checkBossUnlock(next);
+          next = tickRoads(next);
+          next = tickTradeTowns(next);
+          next = tickExpeditions(next);
+          if (next.expedition?.active?.pendingClaim && !prev.expedition?.active?.pendingClaim) {
+            const claim = next.expedition.active;
+            setTimeout(() => setExpeditionClaimResult({ tierId: claim.tierId, loot: claim.pendingClaim, heroIds: claim.heroIds }), 0);
+          }
           // Surface any completed auto battle result
           if (next.pendingAutoBattleResult) {
             const result = next.pendingAutoBattleResult;
@@ -669,6 +685,15 @@ if (wf) {
   const handleUpgradeGuildHall = useCallback(() => update((s) => { const n = upgradeGuildHall(s); if (n === s) notify('Cannot upgrade Guild Hall.'); return n; }), [update, notify]);
   const handleBuildRecHall   = useCallback(() => update((s) => { const n = buildRecHall(s);   if (n === s) notify('Requires Town Hall level 3 and materials.'); return n; }), [update, notify]);
   const handleUpgradeRecHall = useCallback(() => update((s) => { const n = upgradeRecHall(s); if (n === s) notify('Cannot upgrade Recreation Hall.'); return n; }), [update, notify]);
+
+  // Roads & Trade Towns & Expeditions
+  const handleBuildOrUpgradeRoad = useCallback(() => update((s) => { const n = buildOrUpgradeRoad(s); if (n === s) notify('Cannot build/upgrade Road — check costs.'); return n; }), [update, notify]);
+  const handleFulfillTownPulse = useCallback((townId) => update((s) => { const n = fulfillTownPulse(s, townId); if (n === s) notify('Not enough goods to fulfill request.'); return n; }), [update, notify]);
+  const handleSendExpedition = useCallback((tierId, heroIds) => update((s) => { const n = sendExpedition(s, tierId, heroIds); if (n === s) notify('Cannot send expedition — check requirements.'); return n; }), [update, notify]);
+  const handleClaimExpedition = useCallback((bonusHeroId) => {
+    update((s) => claimExpedition(s, bonusHeroId));
+    setExpeditionClaimResult(null);
+  }, [update]);
 
 
   // Animals & Pond
@@ -1059,6 +1084,7 @@ if (wf) {
               onInvestNow={handleInvestNow}
               onToggleTavernMode={handleToggleTavernMode}
               onClaimQuestReward={handleClaimQuestReward}
+              onBuildOrUpgradeRoad={handleBuildOrUpgradeRoad}
             />
         )}
         {activeMainTab === "world" && (
@@ -1090,6 +1116,11 @@ if (wf) {
             onAssignHeroToTavern={handleAssignHeroToTavern}
             onRemoveHeroFromTavern={handleRemoveHeroFromTavern}
             onSetHeroFillFood={handleSetHeroFillFood}
+            onSendExpedition={handleSendExpedition}
+            onFulfillTownPulse={handleFulfillTownPulse}
+            expeditionClaimResult={expeditionClaimResult}
+            onClaimExpedition={handleClaimExpedition}
+            onDismissExpeditionClaim={() => setExpeditionClaimResult(null)}
           />
         )}
         {activeMainTab === "view" && (

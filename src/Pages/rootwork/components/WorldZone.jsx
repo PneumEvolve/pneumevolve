@@ -1,7 +1,8 @@
 // src/Pages/rootwork/components/WorldZone.jsx
 import React, { useState, useEffect, useRef } from "react";
-import { WORLD_ZONES, ADVENTURER_CLASSES, FORGE_RECIPES, ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST, ADVENTURER_BUFF_ITEMS, ADVENTURER_BUFF_LIST, WORLD_RESOURCES, HERO_SKILLS, HERO_SKILL_TREES, HERO_CLASS_META, HERO_PRESTIGE_COST_BASE, HERO_DIP_TREE_PRESTIGE_TIER1, HERO_DIP_TREE_PRESTIGE_TIER2, BOSS_DEFS, BOSS_ABILITIES, BOSS_UNLOCK_LEVEL, BOSS_TICK_INTERVAL, generateInfiniteBoss } from "../gameConstants";
-import { getAdventurerSlotCost, getMaxHeroes, setHeroFillFood, getHeroPrestigeDmgBonus, getHeroPrestigeDmgReduction, getHeroPrestigeXpBonus, getHeroPrestigeMinLootBonus, PRESTIGE_DMG_RED_FLOOR } from "../gameEngine";
+import { WORLD_ZONES, ADVENTURER_CLASSES, FORGE_RECIPES, ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST, ADVENTURER_BUFF_ITEMS, ADVENTURER_BUFF_LIST, WORLD_RESOURCES, HERO_SKILLS, HERO_SKILL_TREES, HERO_CLASS_META, HERO_PRESTIGE_COST_BASE, HERO_DIP_TREE_PRESTIGE_TIER1, HERO_DIP_TREE_PRESTIGE_TIER2, BOSS_DEFS, BOSS_ABILITIES, BOSS_UNLOCK_LEVEL, BOSS_TICK_INTERVAL, generateInfiniteBoss, EXPEDITION_TIER_ORDER, EXPEDITION_TIERS, EXPEDITION_LOOT, TRADE_TOWN_ORDER, TRADE_TOWNS } from "../gameConstants";
+import { getAdventurerSlotCost, getMaxHeroes, setHeroFillFood, getHeroPrestigeDmgBonus, getHeroPrestigeDmgReduction, getHeroPrestigeXpBonus, getHeroPrestigeMinLootBonus, PRESTIGE_DMG_RED_FLOOR, getRoadLevel, isTownConnected, getExpeditionAvailable, isHeroBusyForExpedition, isHeroOnExpedition } from "../gameEngine";
+
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -2082,10 +2083,18 @@ export default function WorldZone({
   onAssignHeroToTavern,
   onRemoveHeroFromTavern,
   onSetHeroFillFood,
+  onSendExpedition,
+  onFulfillTownPulse,
+  expeditionClaimResult,
+  onClaimExpedition,
+  onDismissExpeditionClaim,
 }) {
   const [lootResult, setLootResult] = useState(null);
   const [heroModal, setHeroModal] = useState(null);
-  const [worldTab, setWorldTab] = useState("heroes"); // "heroes" | "boss"
+  const [worldTab, setWorldTab] = useState("heroes"); // "heroes" | "boss" | "towns"
+  const [expeditionHeroIds, setExpeditionHeroIds] = useState([]);
+  const [expeditionTierId, setExpeditionTierId] = useState(null);
+  const [bonusHeroPickerId, setBonusHeroPickerId] = useState(null);
 
   const adventurers = game.adventurers ?? [];
   const zones = Object.values(WORLD_ZONES);
@@ -2130,28 +2139,33 @@ export default function WorldZone({
 
       {/* Tab bar */}
       <div style={{ display: "flex", gap: "0.35rem", marginBottom: "1rem" }}>
-        {["heroes", "boss"].map((tab) => {
-          const labels = { heroes: "⚔️ Heroes", boss: bossUnlocked ? `👹 Boss` : "👹 Boss" };
+        {["heroes", "boss", "towns"].map((tab) => {
+          const roadLevel = game.roads?.level ?? 0;
+          const labels = { heroes: "⚔️ Heroes", boss: "👹 Boss", towns: "🏘️ Towns" };
           const active = worldTab === tab;
           const isBossLocked = tab === "boss" && !bossUnlocked;
+          const isTownsLocked = tab === "towns" && roadLevel === 0;
           return (
             <button
               key={tab}
-              onClick={() => !isBossLocked && setWorldTab(tab)}
+              onClick={() => !isBossLocked && !isTownsLocked && setWorldTab(tab)}
               style={{
                 flex: 1, padding: "0.45rem 0.5rem",
                 background: active ? "rgba(99,102,241,0.18)" : "rgba(255,255,255,0.04)",
                 border: `1px solid ${active ? "rgba(99,102,241,0.55)" : "var(--border)"}`,
                 borderRadius: "10px",
-                color: isBossLocked ? "var(--muted)" : active ? "var(--accent)" : "var(--fg)",
+                color: (isBossLocked || isTownsLocked) ? "var(--muted)" : active ? "var(--accent)" : "var(--fg)",
                 fontWeight: active ? 700 : 500,
                 fontSize: "0.78rem",
-                cursor: isBossLocked ? "default" : "pointer",
+                cursor: (isBossLocked || isTownsLocked) ? "default" : "pointer",
               }}
             >
               {labels[tab]}
               {tab === "boss" && !bossUnlocked && (
                 <span style={{ fontSize: "0.6rem", marginLeft: "0.3rem", color: "var(--muted)" }}>· Lv{BOSS_UNLOCK_LEVEL}</span>
+              )}
+              {tab === "towns" && roadLevel === 0 && (
+                <span style={{ fontSize: "0.6rem", marginLeft: "0.3rem", color: "var(--muted)" }}>· Build Roads</span>
               )}
               {tab === "boss" && bossUnlocked && bossFight.phase === "fighting" && (
                 <span style={{ fontSize: "0.6rem", marginLeft: "0.3rem", color: "#ef4444", animation: "pulse 1.5s ease-in-out infinite" }}>● LIVE</span>
@@ -2231,6 +2245,112 @@ export default function WorldZone({
         </>
       )}
 
+
+      {/* ── EXPEDITIONS (heroes tab) ─────────────────────────────────── */}
+      {worldTab === "heroes" && (() => {
+        const ghLevel = game.town?.buildings?.guild_hall?.level ?? 0;
+        const roadLevel = getRoadLevel(game);
+        const activeExp = game.expedition?.active;
+        const anyAvailable = EXPEDITION_TIER_ORDER.some(tid => getExpeditionAvailable(game, tid));
+        if (!anyAvailable) return null;
+
+        return (
+          <div style={{ marginTop: "1.5rem", borderTop: "1px solid var(--border)", paddingTop: "1rem" }}>
+            <div style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--accent)", marginBottom: "0.75rem" }}>
+              🗺️ Expeditions
+            </div>
+
+            {activeExp && !activeExp.pendingClaim && (
+              <div style={{ padding: "0.75rem", background: "rgba(99,102,241,0.1)", border: "1px solid rgba(99,102,241,0.3)", borderRadius: "12px", marginBottom: "0.75rem" }}>
+                <div style={{ fontWeight: 700, fontSize: "0.85rem", color: "var(--accent)", marginBottom: "0.4rem" }}>
+                  {EXPEDITION_TIERS[activeExp.tierId]?.emoji} {EXPEDITION_TIERS[activeExp.tierId]?.name} — In Progress
+                </div>
+                <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.4rem" }}>
+                  Heroes: {activeExp.heroIds.map(id => game.adventurers?.find(a => a.id === id)?.name ?? id).join(", ")}
+                </div>
+                <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: "6px", height: "8px", overflow: "hidden", marginBottom: "0.3rem" }}>
+                  <div style={{ height: "100%", width: `${Math.round(((activeExp.totalTicks - activeExp.ticksRemaining) / activeExp.totalTicks) * 100)}%`, background: "var(--accent)", transition: "width 1s linear" }} />
+                </div>
+                <div style={{ fontSize: "0.72rem", color: "var(--muted)" }}>
+                  {Math.ceil(activeExp.ticksRemaining / 60)} min remaining
+                </div>
+              </div>
+            )}
+
+            {!activeExp && EXPEDITION_TIER_ORDER.map(tierId => {
+              const tier = EXPEDITION_TIERS[tierId];
+              const available = getExpeditionAvailable(game, tierId);
+              const selected = expeditionTierId === tierId;
+              const freeHeroes = (game.adventurers ?? []).filter(a => !isHeroBusyForExpedition(game, a));
+              const canSend = selected && expeditionHeroIds.length >= tier.minHeroes && expeditionHeroIds.length <= tier.maxHeroes;
+              const lootDef = EXPEDITION_LOOT[tierId];
+
+              if (!available) {
+                return (
+                  <div key={tierId} style={{ padding: "0.6rem 0.75rem", background: "rgba(255,255,255,0.02)", border: "1px dashed var(--border)", borderRadius: "10px", marginBottom: "0.5rem", opacity: 0.5, fontSize: "0.78rem", color: "var(--muted)" }}>
+                    {tier.emoji} {tier.name} — Requires GH L{tier.ghLevel} + Road L{tier.roadLevel}
+                  </div>
+                );
+              }
+
+              return (
+                <div key={tierId} style={{ padding: "0.75rem", background: selected ? "rgba(99,102,241,0.1)" : "rgba(255,255,255,0.03)", border: `1px solid ${selected ? "rgba(99,102,241,0.4)" : "var(--border)"}`, borderRadius: "12px", marginBottom: "0.6rem" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem" }}>
+                    <div style={{ fontWeight: 700, fontSize: "0.85rem" }}>{tier.emoji} {tier.name}</div>
+                    <div style={{ fontSize: "0.7rem", color: "var(--muted)" }}>{Math.round(tier.durationTicks / 60)} min · {tier.minHeroes}–{tier.maxHeroes} heroes</div>
+                  </div>
+                  <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.4rem" }}>{tier.description}</div>
+                  <div style={{ fontSize: "0.72rem", color: "#a78bfa", marginBottom: "0.5rem" }}>
+                    Loot: ${lootDef.cash[0].toLocaleString()}–${lootDef.cash[1].toLocaleString()} +{" "}
+                    {Object.entries(lootDef.worldResources).map(([k,[mn,mx]]) => `${mn}–${mx} ${k}`).join(", ")}
+                    {lootDef.bonusSkillPoint ? " · bonus skill point (70%+ power)" : ""}
+                  </div>
+                  {!selected ? (
+                    <button onClick={() => { setExpeditionTierId(tierId); setExpeditionHeroIds([]); }}
+                      style={{ fontSize: "0.78rem", padding: "0.3rem 0.75rem", background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.4)", borderRadius: "8px", color: "var(--accent)", cursor: "pointer" }}>
+                      Select Heroes
+                    </button>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.35rem" }}>
+                        Select {tier.minHeroes}–{tier.maxHeroes} heroes ({expeditionHeroIds.length} selected):
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", marginBottom: "0.5rem" }}>
+                        {(game.adventurers ?? []).map(a => {
+                          const busy = isHeroBusyForExpedition(game, a);
+                          const picked = expeditionHeroIds.includes(a.id);
+                          return (
+                            <button key={a.id}
+                              disabled={busy && !picked}
+                              onClick={() => {
+                                if (picked) setExpeditionHeroIds(ids => ids.filter(id => id !== a.id));
+                                else if (expeditionHeroIds.length < tier.maxHeroes) setExpeditionHeroIds(ids => [...ids, a.id]);
+                              }}
+                              style={{ fontSize: "0.72rem", padding: "0.25rem 0.5rem", borderRadius: "8px", border: `1px solid ${picked ? "#4ade80" : busy ? "#ef4444" : "var(--border)"}`, background: picked ? "rgba(74,222,128,0.15)" : busy ? "rgba(239,68,68,0.08)" : "rgba(255,255,255,0.05)", color: picked ? "#4ade80" : busy ? "#ef4444" : "var(--muted)", cursor: busy && !picked ? "default" : "pointer" }}>
+                              {a.name} {busy ? "(busy)" : `T${a.gear ?? 0}`}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div style={{ display: "flex", gap: "0.5rem" }}>
+                        <button onClick={() => { setExpeditionTierId(null); setExpeditionHeroIds([]); }}
+                          style={{ fontSize: "0.75rem", padding: "0.3rem 0.6rem", background: "rgba(255,255,255,0.05)", border: "1px solid var(--border)", borderRadius: "8px", color: "var(--muted)", cursor: "pointer" }}>
+                          Cancel
+                        </button>
+                        <button disabled={!canSend} onClick={() => { onSendExpedition(tierId, expeditionHeroIds); setExpeditionTierId(null); setExpeditionHeroIds([]); }}
+                          style={{ flex: 1, fontSize: "0.78rem", padding: "0.3rem 0.75rem", background: canSend ? "rgba(99,102,241,0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${canSend ? "rgba(99,102,241,0.5)" : "var(--border)"}`, borderRadius: "8px", color: canSend ? "var(--accent)" : "var(--muted)", cursor: canSend ? "pointer" : "default" }}>
+                          Send Expedition
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
       {/* ── BOSS TAB ── */}
       {worldTab === "boss" && (
         <BossTab
@@ -2249,6 +2369,139 @@ export default function WorldZone({
       )}
 
       <LootModal result={lootResult} onDismiss={() => setLootResult(null)} />
+
+
+      {/* ── TOWNS TAB ── */}
+      {worldTab === "towns" && (
+        <div>
+          {TRADE_TOWN_ORDER.map(townId => {
+            const def = TRADE_TOWNS[townId];
+            const connected = isTownConnected(game, townId);
+            const roadLevel = getRoadLevel(game);
+            const locked = roadLevel < def.roadLevel;
+            const town = game.tradeTowns?.[townId] ?? {};
+            const req = town.currentRequest;
+            const bonusActive = town.bonusActive ?? false;
+            const bonusTicks = town.bonusTicksRemaining ?? 0;
+            const streak = town.streak ?? 0;
+            const pulseTicks = town.pulseTicksRemaining ?? def.pulseDurationTicks;
+            const disrupted = town.disrupted ?? false;
+
+            // Stock check for fulfillment
+            let haveStock = 0;
+            if (req) {
+              if (req.source === "artisan") haveStock = game.artisan?.[req.itemKey] ?? 0;
+              else if (req.source === "animalGoods") haveStock = game.animalGoods?.[req.itemKey] ?? 0;
+              else if (req.source === "worldResources") haveStock = game.worldResources?.[req.itemKey] ?? 0;
+            }
+            const canFulfill = req && haveStock >= req.quantity;
+
+            return (
+              <div key={townId} style={{ padding: "0.85rem", background: "rgba(255,255,255,0.03)", border: `1px solid ${connected ? (bonusActive ? "rgba(74,222,128,0.4)" : "rgba(99,102,241,0.25)") : "var(--border)"}`, borderRadius: "14px", marginBottom: "0.75rem", opacity: locked ? 0.5 : 1 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.4rem" }}>
+                  <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>{def.emoji} {def.name}</div>
+                  <div style={{ fontSize: "0.7rem", padding: "0.15rem 0.45rem", borderRadius: "6px",
+                    background: locked ? "rgba(255,255,255,0.05)" : disrupted ? "rgba(239,68,68,0.15)" : connected ? "rgba(99,102,241,0.15)" : "rgba(255,255,255,0.05)",
+                    color: locked ? "var(--muted)" : disrupted ? "#ef4444" : connected ? "var(--accent)" : "var(--muted)" }}>
+                    {locked ? `🔒 Road L${def.roadLevel} required` : disrupted ? "⚠️ Disrupted" : connected ? "✓ Connected" : "Disconnected"}
+                  </div>
+                </div>
+                <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.5rem" }}>{def.flavor}</div>
+
+                {!locked && connected && (
+                  <>
+                    {/* Bonus status */}
+                    <div style={{ fontSize: "0.75rem", marginBottom: "0.5rem", padding: "0.35rem 0.5rem", background: bonusActive ? "rgba(74,222,128,0.1)" : "rgba(255,255,255,0.03)", border: `1px solid ${bonusActive ? "rgba(74,222,128,0.3)" : "var(--border)"}`, borderRadius: "8px" }}>
+                      <span style={{ color: bonusActive ? "#4ade80" : "var(--muted)" }}>
+                        {bonusActive ? `✓ ${def.bonus.description}` : `⏸ Bonus inactive — fulfill a request to activate`}
+                      </span>
+                      {bonusActive && <span style={{ color: "var(--muted)", marginLeft: "0.5rem" }}>({Math.ceil(bonusTicks / 60)}m left)</span>}
+                      {streak > 0 && <span style={{ color: "#f59e0b", marginLeft: "0.5rem" }}>🔥 Streak {streak}</span>}
+                    </div>
+
+                    {/* Pulse request */}
+                    {req ? (
+                      <div style={{ padding: "0.5rem 0.6rem", background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: "10px" }}>
+                        <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "#fbbf24", marginBottom: "0.3rem" }}>
+                          📦 Request: {req.quantity}× {req.itemKey.replace(/_/g, " ")}
+                        </div>
+                        <div style={{ fontSize: "0.7rem", color: "var(--muted)", marginBottom: "0.4rem" }}>
+                          You have: {Math.floor(haveStock)} — {canFulfill ? "✓ Enough" : `Need ${req.quantity - Math.floor(haveStock)} more`}
+                        </div>
+                        <button disabled={!canFulfill} onClick={() => onFulfillTownPulse(townId)}
+                          style={{ fontSize: "0.78rem", padding: "0.3rem 0.75rem", background: canFulfill ? "rgba(251,191,36,0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${canFulfill ? "rgba(251,191,36,0.5)" : "var(--border)"}`, borderRadius: "8px", color: canFulfill ? "#fbbf24" : "var(--muted)", cursor: canFulfill ? "pointer" : "default" }}>
+                          Fulfill Request
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: "0.72rem", color: "var(--muted)", padding: "0.35rem 0" }}>
+                        Next request in {Math.ceil(pulseTicks / 60)} min
+                      </div>
+                    )}
+                  </>
+                )}
+                {!locked && disrupted && (
+                  <div style={{ fontSize: "0.72rem", color: "#ef4444", marginTop: "0.35rem" }}>
+                    Road upkeep cannot be met — connection lost. Produce more iron ore and lumber.
+                  </div>
+                )}
+                {locked && (
+                  <div style={{ fontSize: "0.72rem", color: "var(--muted)" }}>Build Road Level {def.roadLevel} in the Town to connect.</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+
+      {/* ── EXPEDITION CLAIM MODAL ── */}
+      {expeditionClaimResult && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: "1rem" }}>
+          <div style={{ background: "var(--card)", border: "1px solid rgba(99,102,241,0.5)", borderRadius: "18px", padding: "1.5rem", width: "100%", maxWidth: "380px" }}>
+            <div style={{ fontSize: "1.3rem", fontWeight: 800, textAlign: "center", marginBottom: "0.25rem" }}>
+              {EXPEDITION_TIERS[expeditionClaimResult.tierId]?.emoji} Expedition Complete!
+            </div>
+            <div style={{ fontSize: "0.82rem", color: "var(--muted)", textAlign: "center", marginBottom: "1rem" }}>
+              {EXPEDITION_TIERS[expeditionClaimResult.tierId]?.name}
+            </div>
+            <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: "12px", padding: "0.75rem", marginBottom: "1rem" }}>
+              <div style={{ fontWeight: 700, fontSize: "0.8rem", marginBottom: "0.5rem", color: "var(--accent)" }}>Loot</div>
+              <div style={{ fontSize: "0.82rem", color: "#4ade80", marginBottom: "0.25rem" }}>
+                💰 ${(expeditionClaimResult.loot.cash ?? 0).toLocaleString()}
+              </div>
+              {Object.entries(expeditionClaimResult.loot.worldResources ?? {}).map(([k, v]) => (
+                <div key={k} style={{ fontSize: "0.82rem", color: "var(--text)" }}>+{v} {k.replace(/_/g, " ")}</div>
+              ))}
+              {expeditionClaimResult.loot.bonusSkillPoint && (
+                <div style={{ fontSize: "0.82rem", color: "#f59e0b", marginTop: "0.4rem" }}>⭐ Bonus Skill Point!</div>
+              )}
+            </div>
+
+            {expeditionClaimResult.loot.bonusSkillPoint && (
+              <>
+                <div style={{ fontSize: "0.78rem", color: "var(--muted)", marginBottom: "0.5rem" }}>Choose a hero to receive the bonus skill point:</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", marginBottom: "0.75rem" }}>
+                  {(game.adventurers ?? []).map(a => (
+                    <button key={a.id}
+                      onClick={() => setBonusHeroPickerId(a.id)}
+                      style={{ fontSize: "0.75rem", padding: "0.25rem 0.6rem", borderRadius: "8px", border: `1px solid ${bonusHeroPickerId === a.id ? "#4ade80" : "var(--border)"}`, background: bonusHeroPickerId === a.id ? "rgba(74,222,128,0.15)" : "rgba(255,255,255,0.05)", color: bonusHeroPickerId === a.id ? "#4ade80" : "var(--muted)", cursor: "pointer" }}>
+                      {a.name}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            <button
+              disabled={expeditionClaimResult.loot.bonusSkillPoint && !bonusHeroPickerId}
+              onClick={() => { onClaimExpedition(bonusHeroPickerId); setBonusHeroPickerId(null); }}
+              style={{ width: "100%", padding: "0.75rem", background: "rgba(99,102,241,0.2)", border: "1px solid rgba(99,102,241,0.5)", borderRadius: "12px", color: "var(--accent)", fontWeight: 700, fontSize: "0.9rem", cursor: expeditionClaimResult.loot.bonusSkillPoint && !bonusHeroPickerId ? "default" : "pointer", opacity: expeditionClaimResult.loot.bonusSkillPoint && !bonusHeroPickerId ? 0.5 : 1 }}>
+              {expeditionClaimResult.loot.bonusSkillPoint && !bonusHeroPickerId ? "Pick a hero first" : "Claim Loot"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {heroModalAdv && (
         <HeroModal

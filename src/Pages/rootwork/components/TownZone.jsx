@@ -22,7 +22,8 @@ import {
   TOWN_FORGE_HALL_COST, FORGE_HALL_LEVEL_COSTS, FORGE_HALL_LEVEL_REQUIRES,
   TOWN_GUILD_HALL_COST, getGuildHallUpgradeCost, getGuildHallUpgradeRequires,
   GUILD_HALL_QUEST_TIER,
-  TOWN_REC_HALL_COST, TOWN_REC_HALL_REQUIRES, REC_HALL_UPGRADE_COSTS, REC_HALL_UPGRADE_REQUIRES,
+  TOWN_REC_HALL_COST,
+  ROAD_TIERS, TOWN_REC_HALL_REQUIRES, REC_HALL_UPGRADE_COSTS, REC_HALL_UPGRADE_REQUIRES,
   REC_HALL_CASH_PER_WORKER,
   SCHOOL_RESEARCH,
 } from "../gameConstants";
@@ -39,6 +40,7 @@ import {
   getMaxForgeWorkers, getForgeHallRecipeTier, getForgeHallRetainCount,
   getMaxHeroes, getGuildHallQuestTier, getSatisfactionCeiling,
   getBankPriceBonus, getRecHallSatBonus, getRecHallMaxWorkers,
+  getRoadLevel, getRoadNextTier, canAffordRoad,
 } from "../gameEngine";
 import SeasonPanel from "./SeasonPanel";
 import StatsPanel from "./StatsPanel";
@@ -185,6 +187,7 @@ export default function TownZone({
   onUpgradeForgeHall,
   onBuildRecHall,
   onUpgradeRecHall,
+  onBuildOrUpgradeRoad,
   // Legacy props kept so RootWork doesn't need changes yet — ignored
   onBuyBakery, onToggleBakery, onTogglePantry, onToggleCannery,
   onUpgradeTownBuilding, onBuyJamBuilding, onBuySauceBuilding,
@@ -1039,6 +1042,62 @@ export default function TownZone({
               </>
             )}
           </BuildingCard>
+
+
+          {/* ── Roads ──────────────────────────────────────────────────── */}
+          {(() => {
+            const roadLevel = getRoadLevel(game);
+            const currentTier = ROAD_TIERS[roadLevel - 1] ?? null;
+            const nextTier = getRoadNextTier(game);
+            const affordable = canAffordRoad(game);
+            const worldRes = game.worldResources ?? {};
+            const disrupted = game.roads?.disrupted ?? false;
+
+            const upkeepStr = currentTier
+              ? Object.entries(currentTier.upkeepPerTick).map(([k,v]) => `${v} ${k}/s`).join(' + ')
+              : null;
+
+            return (
+              <BuildingCard
+                emoji="🛤️"
+                title="Roads"
+                badge={roadLevel === 0 ? "Not built" : `${currentTier?.name} · Level ${roadLevel}${disrupted ? " · ⚠️ Disrupted" : ""}`}
+              >
+                {roadLevel > 0 && (
+                  <div style={{ marginBottom: "0.5rem", fontSize: "0.78rem", color: "var(--muted)" }}>
+                    <div>Upkeep: <span style={{ color: disrupted ? "#ef4444" : "var(--text)" }}>{upkeepStr}</span></div>
+                    <div style={{ marginTop: "0.25rem" }}>Unlocks: <span style={{ color: "#a78bfa" }}>{currentTier?.unlocksTown} · {currentTier?.unlocksExpedition} expedition</span></div>
+                  </div>
+                )}
+                {nextTier ? (
+                  <>
+                    <div style={{ fontSize: "0.78rem", color: "var(--muted)", marginBottom: "0.35rem" }}>
+                      Next: <strong style={{ color: "var(--text)" }}>{nextTier.name}</strong> — unlocks {nextTier.unlocksTown} & {nextTier.unlocksExpedition} expedition
+                    </div>
+                    <CostLine
+                      cash={game.cash ?? 0}
+                      cashCost={nextTier.buildCost}
+                      materials={nextTier.buildRequires}
+                      have={Object.fromEntries(Object.keys(nextTier.buildRequires).map(k => [k, worldRes[k] ?? 0]))}
+                    />
+                    <button
+                      onClick={onBuildOrUpgradeRoad}
+                      disabled={!affordable}
+                      className="btn w-full"
+                      style={{ marginTop: "0.5rem", opacity: affordable ? 1 : 0.5 }}
+                    >
+                      {roadLevel === 0 ? "Build Roads" : `Upgrade to ${nextTier.name}`} — ${fmt(nextTier.buildCost)}
+                    </button>
+                    <div style={{ fontSize: "0.7rem", color: "var(--muted)", marginTop: "0.35rem" }}>
+                      Upkeep: {Object.entries(nextTier.upkeepPerTick).map(([k,v]) => `${v} ${k}/s`).join(' + ')}
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ fontSize: "0.78rem", color: "#4ade80" }}>All road tiers built. Max connectivity reached.</div>
+                )}
+              </BuildingCard>
+            );
+          })()}
 
           {/* ── How Town Works reference ────────────────────────────────── */}
           <details style={{ marginTop: "0.5rem" }}>

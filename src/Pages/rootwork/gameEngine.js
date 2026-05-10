@@ -90,6 +90,8 @@ FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, 
   TOWN_FORGE_HALL_COST, FORGE_HALL_LEVEL_COSTS, FORGE_HALL_LEVEL_REQUIRES,
   TOWN_GUILD_HALL_COST, getGuildHallUpgradeCost, getGuildHallUpgradeRequires,
   GUILD_HALL_QUEST_TIER,
+  ROAD_TIERS, TRADE_TOWNS, TRADE_TOWN_ORDER,
+  EXPEDITION_TIERS, EXPEDITION_TIER_ORDER, EXPEDITION_LOOT,
 } from "./gameConstants";
  
 let _idCounter = 0;
@@ -437,7 +439,7 @@ export function isFarmPrestigeReady(farm, workers, state) {
   const growTime = getFarmAverageGrowTime(
     farm, workers, farm.crop,
     state.feastBonusPercent ?? 0,
-    (state.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(state),
+    (state.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(state) + getMillhavenGrowBonus(state) * 100,
     getTreasuryGrowBonus(state),
     getFishMealGrowBonus(state)
   );
@@ -1826,6 +1828,14 @@ export function createInitialState() {
       dairy:        { built: false, tier: 0 },
       wool_shed:    { built: false, tier: 0 },
     },
+    roads: { level: 0 },
+    tradeTowns: {
+      millhaven: { pulseTicksRemaining: 2700, bonusActive: false, bonusTicksRemaining: 0, streak: 0, currentRequest: null, disrupted: false },
+      ashport:   { pulseTicksRemaining: 3600, bonusActive: false, bonusTicksRemaining: 0, streak: 0, currentRequest: null, disrupted: false },
+      ironfeld:  { pulseTicksRemaining: 5400, bonusActive: false, bonusTicksRemaining: 0, streak: 0, currentRequest: null, disrupted: false },
+      velmoor:   { pulseTicksRemaining: 7200, bonusActive: false, bonusTicksRemaining: 0, streak: 0, currentRequest: null, disrupted: false },
+    },
+    expedition: { active: null },
   };
 }
  
@@ -1885,7 +1895,7 @@ export function getFishMealGrowBonus(state) {
 
 export function getAnimalEffectiveCycleSeconds(baseSeconds, state) {
   const feast = state.feastBonusPercent ?? 0;
-  const townBonus = (state.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(state);
+  const townBonus = (state.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(state) + getMillhavenGrowBonus(state) * 100;
   const treasuryBonus = getTreasuryGrowBonus(state);
   const fishMeal = getFishMealGrowBonus(state);
   const totalBonus = feast + townBonus + treasuryBonus + fishMeal;
@@ -2225,7 +2235,7 @@ export function tick(state) {
   next.marketWorkers  = (next.marketWorkers  ?? []).map((w) => ({ ...w, queue: (w.queue ?? []).map((o) => ({ ...o })) }));
   next.pendingDeathEvents = []; // clear each tick; fresh events added below
   const feast = next.feastBonusPercent ?? 0;
-  const townBonus = (next.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(next);
+  const townBonus = (next.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(next) + getMillhavenGrowBonus(next) * 100;
   const treasuryGrowBonus = getTreasuryGrowBonus(next);
   const fishMealBonus = getFishMealGrowBonus(next);
  
@@ -2497,7 +2507,8 @@ if (activeTier) {
       const workers = body.workers ?? (body.worker?.hired ? [body.worker] : []);
       for (const worker of workers) {
         if (!worker?.hired) continue;
-        const interval = getFishingWorkerInterval(worker, next);
+        const ashportBonus = getAshportFishBonus(next);
+        const interval = Math.max(1, Math.round(getFishingWorkerInterval(worker, next) / (1 + ashportBonus)));
         const haul = getFishingWorkerHaul(worker);
         const gearTier = getFishingWorkerGearTier(worker);
         const baitId = worker.assignedBait;
@@ -3005,7 +3016,7 @@ export function tendPlot(state, farmId, plotId) {
   const growTime = getEffectiveGrowTime(
     farm, next.workers, farm.crop, plot,
     next.feastBonusPercent ?? 0,
-    (next.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(next),
+    (next.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(next) + getMillhavenGrowBonus(next) * 100,
     getTreasuryGrowBonus(next),
     getFishMealGrowBonus(next)
   );
@@ -4863,6 +4874,22 @@ if (parsed.fishing?.fish) {
       }
     }
 
+    // --- Roads / TradeTowns / Expedition migration --------------------------
+    if (!parsed.roads) parsed.roads = { level: 0 };
+    if (parsed.roads.level === undefined) parsed.roads.level = 0;
+    if (!parsed.tradeTowns) parsed.tradeTowns = {};
+    const defaultTownState = (dur) => ({ pulseTicksRemaining: dur, bonusActive: false, bonusTicksRemaining: 0, streak: 0, currentRequest: null, disrupted: false });
+    if (!parsed.tradeTowns.millhaven) parsed.tradeTowns.millhaven = defaultTownState(2700);
+    if (!parsed.tradeTowns.ashport)   parsed.tradeTowns.ashport   = defaultTownState(3600);
+    if (!parsed.tradeTowns.ironfeld)  parsed.tradeTowns.ironfeld  = defaultTownState(5400);
+    if (!parsed.tradeTowns.velmoor)   parsed.tradeTowns.velmoor   = defaultTownState(7200);
+    for (const t of Object.values(parsed.tradeTowns)) {
+      if (t.disrupted === undefined) t.disrupted = false;
+      if (t.streak === undefined) t.streak = 0;
+      if (t.currentRequest === null || t.currentRequest === undefined) t.currentRequest = null;
+    }
+    if (!parsed.expedition) parsed.expedition = { active: null };
+
     return parsed;
   } catch { return null; }
 }
@@ -5162,7 +5189,7 @@ export function returnAdventurer(state, adventurerId) {
   const diedOnNormalRun = !mission.autoBattle && hpAfterDamage <= 0;
   const effectiveFailed = failed || diedOnNormalRun;
 
-  const xpGained = effectiveFailed ? 0 : Math.round(zone.xpReward * getHeroXpMultiplier(adventurer) * (1 + getHeroPrestigeXpBonus(adventurer)) * (hasOmeletBuff ? 1.25 : 1));
+  const xpGained = effectiveFailed ? 0 : Math.round(zone.xpReward * getHeroXpMultiplier(adventurer) * (1 + getHeroPrestigeXpBonus(adventurer)) * (hasOmeletBuff ? 1.25 : 1) * (1 + getVelmoorXpBonus(state)));
   let newXp = (adventurer.xp ?? 0) + xpGained;
   let newLevel = adventurer.level ?? 1;
   let leveledUp = false;
@@ -6998,4 +7025,341 @@ export function reviveHeroInBossFight(state, heroId) {
     cash: (state.cash ?? 0) - cost,
     adventurers: state.adventurers.map((a, i) => i === advIdx ? updated : a),
   };
+}
+
+// =============================================================================
+// ROADS
+// =============================================================================
+
+export function getRoadLevel(state) {
+  return state.roads?.level ?? 0;
+}
+
+export function getRoadTier(state) {
+  const level = getRoadLevel(state);
+  return ROAD_TIERS[level - 1] ?? null;
+}
+
+export function getRoadNextTier(state) {
+  const level = getRoadLevel(state);
+  return ROAD_TIERS[level] ?? null;
+}
+
+export function canAffordRoad(state) {
+  const next = getRoadNextTier(state);
+  if (!next) return false;
+  if ((state.cash ?? 0) < next.buildCost) return false;
+  for (const [k, v] of Object.entries(next.buildRequires ?? {})) {
+    if ((state.worldResources?.[k] ?? 0) < v) return false;
+  }
+  return true;
+}
+
+export function buildOrUpgradeRoad(state) {
+  const next = getRoadNextTier(state);
+  if (!next) return state;
+  if (!canAffordRoad(state)) return state;
+  const newResources = { ...(state.worldResources ?? {}) };
+  for (const [k, v] of Object.entries(next.buildRequires ?? {})) {
+    newResources[k] = (newResources[k] ?? 0) - v;
+  }
+  return {
+    ...state,
+    cash: (state.cash ?? 0) - next.buildCost,
+    worldResources: newResources,
+    roads: { level: next.level },
+  };
+}
+
+export function tickRoads(state) {
+  const level = getRoadLevel(state);
+  if (level === 0) return state;
+  let next = { ...state, worldResources: { ...(state.worldResources ?? {}) } };
+  let totalIron = 0;
+  let totalLumber = 0;
+  for (let i = 0; i < level; i++) {
+    totalIron  += ROAD_TIERS[i].upkeepPerTick.iron_ore;
+    totalLumber += ROAD_TIERS[i].upkeepPerTick.lumber;
+  }
+  const canAfford = (next.worldResources.iron_ore ?? 0) >= totalIron &&
+                    (next.worldResources.lumber   ?? 0) >= totalLumber;
+  if (canAfford) {
+    next.worldResources.iron_ore = (next.worldResources.iron_ore ?? 0) - totalIron;
+    next.worldResources.lumber   = (next.worldResources.lumber   ?? 0) - totalLumber;
+    next.roads = { ...next.roads, disrupted: false };
+  } else {
+    next.roads = { ...next.roads, disrupted: true };
+  }
+  return next;
+}
+
+export function isRoadConnected(state) {
+  return getRoadLevel(state) > 0 && !(state.roads?.disrupted);
+}
+
+// =============================================================================
+// TRADE TOWNS
+// =============================================================================
+
+function _makeTownRequest(townId) {
+  const def = TRADE_TOWNS[townId];
+  if (!def) return null;
+  const pick = def.requests[Math.floor(Math.random() * def.requests.length)];
+  const [min, max] = pick.quantity;
+  const qty = Math.floor(min + Math.random() * (max - min + 1));
+  return { itemKey: pick.itemKey, source: pick.source, quantity: qty };
+}
+
+function _getTownItemStock(state, source, itemKey) {
+  if (source === "artisan")       return state.artisan?.[itemKey]      ?? 0;
+  if (source === "animalGoods")   return state.animalGoods?.[itemKey]  ?? 0;
+  if (source === "worldResources")return state.worldResources?.[itemKey] ?? 0;
+  return 0;
+}
+
+function _deductTownItem(state, source, itemKey, quantity) {
+  if (source === "artisan")
+    return { ...state, artisan: { ...(state.artisan ?? {}), [itemKey]: (state.artisan?.[itemKey] ?? 0) - quantity } };
+  if (source === "animalGoods")
+    return { ...state, animalGoods: { ...(state.animalGoods ?? {}), [itemKey]: (state.animalGoods?.[itemKey] ?? 0) - quantity } };
+  if (source === "worldResources")
+    return { ...state, worldResources: { ...(state.worldResources ?? {}), [itemKey]: (state.worldResources?.[itemKey] ?? 0) - quantity } };
+  return state;
+}
+
+export function isTownConnected(state, townId) {
+  const def = TRADE_TOWNS[townId];
+  if (!def) return false;
+  if (getRoadLevel(state) < def.roadLevel) return false;
+  if (state.roads?.disrupted) return false;
+  return true;
+}
+
+export function getTownBonusActive(state, townId) {
+  return state.tradeTowns?.[townId]?.bonusActive ?? false;
+}
+
+export function fulfillTownPulse(state, townId) {
+  const def = TRADE_TOWNS[townId];
+  if (!def) return state;
+  if (!isTownConnected(state, townId)) return state;
+  const town = state.tradeTowns?.[townId];
+  if (!town?.currentRequest) return state;
+  const { itemKey, source, quantity } = town.currentRequest;
+  const stock = _getTownItemStock(state, source, itemKey);
+  if (stock < quantity) return state;
+
+  let next = _deductTownItem(state, source, itemKey, quantity);
+  const newStreak = (town.streak ?? 0) + 1;
+  const bonusTicks = def.pulseDurationTicks;
+  next = {
+    ...next,
+    tradeTowns: {
+      ...(next.tradeTowns ?? {}),
+      [townId]: {
+        ...town,
+        streak: newStreak,
+        bonusActive: true,
+        bonusTicksRemaining: bonusTicks,
+        currentRequest: null,
+        pulseTicksRemaining: def.pulseDurationTicks,
+      },
+    },
+  };
+  return next;
+}
+
+export function tickTradeTowns(state) {
+  let next = state;
+  for (const townId of TRADE_TOWN_ORDER) {
+    const def = TRADE_TOWNS[townId];
+    const connected = isTownConnected(next, townId);
+    const town = next.tradeTowns?.[townId];
+    if (!town) continue;
+
+    let updated = { ...town };
+
+    if (!connected) {
+      // Connection lost — freeze timers, break streak
+      updated.disrupted = true;
+      updated.bonusActive = false;
+      updated.streak = 0;
+    } else {
+      updated.disrupted = false;
+      // Tick bonus
+      if (updated.bonusActive) {
+        updated.bonusTicksRemaining = Math.max(0, (updated.bonusTicksRemaining ?? 0) - 1);
+        if (updated.bonusTicksRemaining === 0) updated.bonusActive = false;
+      }
+      // Tick pulse — only when no pending request
+      if (!updated.currentRequest) {
+        updated.pulseTicksRemaining = Math.max(0, (updated.pulseTicksRemaining ?? def.pulseDurationTicks) - 1);
+        if (updated.pulseTicksRemaining === 0) {
+          updated.currentRequest = _makeTownRequest(townId);
+          updated.pulseTicksRemaining = def.pulseDurationTicks;
+        }
+      }
+      // Ironfeld trickle bonus
+      if (townId === "ironfeld" && updated.bonusActive) {
+        next = {
+          ...next,
+          worldResources: {
+            ...(next.worldResources ?? {}),
+            iron_ore: (next.worldResources?.iron_ore ?? 0) + 6,
+            lumber:   (next.worldResources?.lumber   ?? 0) + 4,
+          },
+        };
+      }
+    }
+
+    next = {
+      ...next,
+      tradeTowns: { ...(next.tradeTowns ?? {}), [townId]: updated },
+    };
+  }
+  return next;
+}
+
+// Bonus getters for other systems to read
+export function getMillhavenGrowBonus(state) {
+  if (!getTownBonusActive(state, "millhaven")) return 0;
+  const town = state.tradeTowns?.millhaven;
+  const stacks = Math.min(town?.streak ?? 0, 3);
+  return stacks * 0.10;
+}
+
+export function getAshportFishBonus(state) {
+  return getTownBonusActive(state, "ashport") ? 0.20 : 0;
+}
+
+export function getVelmoorXpBonus(state) {
+  return getTownBonusActive(state, "velmoor") ? 0.25 : 0;
+}
+
+export function getVelmoorExpeditionBonus(state) {
+  return getTownBonusActive(state, "velmoor") ? 0.15 : 0;
+}
+
+// =============================================================================
+// EXPEDITIONS
+// =============================================================================
+
+function _computeExpeditionPower(adventurers) {
+  return adventurers.reduce((sum, a) => {
+    return sum + (a.gear ?? 0) + (a.prestigeLevel ?? 0) * 2;
+  }, 0);
+}
+
+function _computeExpeditionLoot(tierId, powerScore, state) {
+  const tierDef = EXPEDITION_TIERS[tierId];
+  const lootDef = EXPEDITION_LOOT[tierId];
+  const raw = powerScore / tierDef.fullPowerThreshold;
+  const velmoorBonus = getVelmoorExpeditionBonus(state);
+  const lootFraction = Math.min(1.0, Math.max(0.2, raw) * (1 + velmoorBonus));
+
+  const loot = {};
+  loot.cash = Math.round(lootDef.cash[0] + lootFraction * (lootDef.cash[1] - lootDef.cash[0]));
+  loot.worldResources = {};
+  for (const [key, [min, max]] of Object.entries(lootDef.worldResources ?? {})) {
+    loot.worldResources[key] = Math.round(min + lootFraction * (max - min));
+  }
+  loot.bonusSkillPoint = lootDef.bonusSkillPoint === true && lootFraction >= 0.7;
+  return loot;
+}
+
+export function isHeroOnExpedition(state, heroId) {
+  return (state.expedition?.active?.heroIds ?? []).includes(heroId);
+}
+
+export function isHeroBusyForExpedition(state, adventurer) {
+  // Busy if on a mission, in boss fight, on tavern rest, or already on expedition
+  if (isHeroOnExpedition(state, adventurer.id)) return true;
+  if (adventurer.missionZone) return true;
+  if (adventurer.autoMission) return true;
+  if ((state.bossFight?.assignedHeroIds ?? []).includes(adventurer.id)) return true;
+  if ((state.tavernRest ?? []).find(t => t.heroId === adventurer.id)) return true;
+  return false;
+}
+
+export function getExpeditionAvailable(state, tierId) {
+  const tier = EXPEDITION_TIERS[tierId];
+  if (!tier) return false;
+  const ghLevel = state.town?.buildings?.guild_hall?.level ?? 0;
+  const roadLevel = getRoadLevel(state);
+  return ghLevel >= tier.ghLevel && roadLevel >= tier.roadLevel;
+}
+
+export function sendExpedition(state, tierId, heroIds) {
+  if (state.expedition?.active) return state; // one at a time
+  const tier = EXPEDITION_TIERS[tierId];
+  if (!tier) return state;
+  if (!getExpeditionAvailable(state, tierId)) return state;
+  if (heroIds.length < tier.minHeroes || heroIds.length > tier.maxHeroes) return state;
+  const heroes = heroIds.map(id => state.adventurers?.find(a => a.id === id)).filter(Boolean);
+  if (heroes.length !== heroIds.length) return state;
+  for (const h of heroes) {
+    if (isHeroBusyForExpedition(state, h)) return state;
+  }
+  const powerScore = _computeExpeditionPower(heroes);
+  return {
+    ...state,
+    expedition: {
+      active: {
+        tierId,
+        heroIds,
+        ticksRemaining: tier.durationTicks,
+        totalTicks: tier.durationTicks,
+        powerScore,
+        pendingClaim: null,
+      },
+    },
+  };
+}
+
+export function tickExpeditions(state) {
+  const active = state.expedition?.active;
+  if (!active) return state;
+  if (active.pendingClaim) return state; // waiting for player to claim
+  const newTicks = active.ticksRemaining - 1;
+  if (newTicks > 0) {
+    return {
+      ...state,
+      expedition: { active: { ...active, ticksRemaining: newTicks } },
+    };
+  }
+  // Timer done — compute loot
+  const loot = _computeExpeditionLoot(active.tierId, active.powerScore, state);
+  return {
+    ...state,
+    expedition: { active: { ...active, ticksRemaining: 0, pendingClaim: loot } },
+  };
+}
+
+export function claimExpedition(state, bonusHeroId = null) {
+  const active = state.expedition?.active;
+  if (!active?.pendingClaim) return state;
+  const loot = active.pendingClaim;
+  let next = {
+    ...state,
+    cash: (state.cash ?? 0) + (loot.cash ?? 0),
+    expedition: { active: null },
+  };
+  // Deliver world resources
+  if (loot.worldResources) {
+    const wr = { ...(next.worldResources ?? {}) };
+    for (const [k, v] of Object.entries(loot.worldResources)) {
+      wr[k] = (wr[k] ?? 0) + v;
+    }
+    next = { ...next, worldResources: wr };
+  }
+  // Award bonus skill point
+  if (loot.bonusSkillPoint && bonusHeroId) {
+    next = {
+      ...next,
+      adventurers: next.adventurers.map(a =>
+        a.id === bonusHeroId ? { ...a, skillPoints: (a.skillPoints ?? 0) + 1 } : a
+      ),
+    };
+  }
+  return next;
 }

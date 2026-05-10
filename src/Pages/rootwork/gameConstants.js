@@ -1954,4 +1954,150 @@ export const SEASONAL_QUESTS = {
   },
 };
 
+
+// --- Roads -------------------------------------------------------------------
+export const ROAD_TIERS = [
+  {
+    level: 1,
+    name: "Dirt Road",
+    emoji: "\u{1F6E4}\uFE0F",
+    buildCost: 2000,
+    buildRequires: { lumber: 20, iron_ore: 10 },
+    upkeepPerTick: { iron_ore: 1, lumber: 1 },
+    unlocksTown: "millhaven",
+    unlocksExpedition: "scout",
+  },
+  {
+    level: 2,
+    name: "Gravel Road",
+    emoji: "\u{1F6E3}\uFE0F",
+    buildCost: 8000,
+    buildRequires: { lumber: 40, iron_ore: 20, iron_fitting: 3 },
+    upkeepPerTick: { iron_ore: 2, lumber: 1 },
+    unlocksTown: "ashport",
+    unlocksExpedition: "dungeon",
+  },
+  {
+    level: 3,
+    name: "Stone Road",
+    emoji: "\u{1F3D7}\uFE0F",
+    buildCost: 25000,
+    buildRequires: { lumber: 60, iron_ore: 40, iron_fitting: 8 },
+    upkeepPerTick: { iron_ore: 3, lumber: 2 },
+    unlocksTown: "ironfeld",
+    unlocksExpedition: "dragon",
+  },
+  {
+    level: 4,
+    name: "Royal Road",
+    emoji: "\u{1F451}",
+    buildCost: 80000,
+    buildRequires: { iron_fitting: 30, fine_tools: 10 },
+    upkeepPerTick: { iron_ore: 4, lumber: 3 },
+    unlocksTown: "velmoor",
+    unlocksExpedition: "legendary",
+  },
+];
+
+// --- Trade Towns -------------------------------------------------------------
+export const TRADE_TOWNS = {
+  millhaven: {
+    id: "millhaven",
+    name: "Millhaven",
+    emoji: "\u{1F33E}",
+    flavor: "A hungry farming village that can barely feed itself.",
+    roadLevel: 1,
+    pulseDurationTicks: 2700,
+    requests: [
+      { itemKey: "bread", source: "artisan",    quantity: [50, 100] },
+      { itemKey: "jam",   source: "artisan",    quantity: [50, 100] },
+    ],
+    bonus: { type: "crop_grow_speed", valuePerStack: 0.10, maxStacks: 3, description: "+10% crop grow speed per stack (max 3x)" },
+  },
+  ashport: {
+    id: "ashport",
+    name: "Ashport",
+    emoji: "\u{2693}",
+    flavor: "A coastal fishing town that needs livestock to feed their workers.",
+    roadLevel: 2,
+    pulseDurationTicks: 3600,
+    requests: [
+      { itemKey: "egg",  source: "animalGoods", quantity: [30, 60] },
+      { itemKey: "milk", source: "animalGoods", quantity: [20, 40] },
+    ],
+    bonus: { type: "fish_catch_rate", value: 0.20, description: "+20% fish catch rate" },
+  },
+  ironfeld: {
+    id: "ironfeld",
+    name: "Ironfeld",
+    emoji: "\u2692\uFE0F",
+    flavor: "A mining settlement. Resource-rich but food-poor.",
+    roadLevel: 3,
+    pulseDurationTicks: 5400,
+    requests: [
+      { itemKey: "cheese",        source: "animalGoods", quantity: [10, 20] },
+      { itemKey: "knitted_goods", source: "animalGoods", quantity: [15, 30] },
+    ],
+    bonus: { type: "road_upkeep_trickle", iron_ore: 6, lumber: 4, description: "Covers all road upkeep — trickles +6 iron ore & +4 lumber/sec" },
+  },
+  velmoor: {
+    id: "velmoor",
+    name: "Velmoor",
+    emoji: "\u{1F52E}",
+    flavor: "A distant arcane city. Mysterious and hungry for rare specimens.",
+    roadLevel: 4,
+    pulseDurationTicks: 7200,
+    requests: [
+      { itemKey: "rare_gem",     source: "worldResources", quantity: [5, 15] },
+      { itemKey: "mana_crystal", source: "worldResources", quantity: [1, 3] },
+    ],
+    bonus: { type: "hero_xp_and_expedition", xpBonus: 0.25, expeditionBonus: 0.15, description: "+25% hero XP & +15% expedition loot quality" },
+  },
+};
+export const TRADE_TOWN_ORDER = ["millhaven", "ashport", "ironfeld", "velmoor"];
+
+// --- Expeditions -------------------------------------------------------------
+export const EXPEDITION_TIERS = {
+  scout: {
+    id: "scout", name: "Scout Run", emoji: "\u{1F5FA}\uFE0F",
+    durationTicks: 1800,
+    minHeroes: 1, maxHeroes: 2,
+    ghLevel: 1, roadLevel: 1,
+    fullPowerThreshold: 12,
+    description: "A short scouting mission through nearby woods.",
+  },
+  dungeon: {
+    id: "dungeon", name: "Dungeon Raid", emoji: "\u2694\uFE0F",
+    durationTicks: 5400,
+    minHeroes: 2, maxHeroes: 3,
+    ghLevel: 2, roadLevel: 2,
+    fullPowerThreshold: 24,
+    description: "Delve into a dangerous dungeon for valuable loot.",
+  },
+  dragon: {
+    id: "dragon", name: "Dragon's Lair", emoji: "\u{1F409}",
+    durationTicks: 10800,
+    minHeroes: 3, maxHeroes: 4,
+    ghLevel: 3, roadLevel: 3,
+    fullPowerThreshold: 36,
+    description: "Face the dragon and claim its hoard.",
+  },
+  legendary: {
+    id: "legendary", name: "Legendary Vault", emoji: "\u{1F3DB}\uFE0F",
+    durationTicks: 14400,
+    minHeroes: 4, maxHeroes: 4,
+    ghLevel: 4, roadLevel: 4,
+    fullPowerThreshold: 48,
+    description: "A mythic heist into a vault of ancient treasures.",
+  },
+};
+export const EXPEDITION_TIER_ORDER = ["scout", "dungeon", "dragon", "legendary"];
+
+export const EXPEDITION_LOOT = {
+  scout:     { cash: [300, 1500],    worldResources: { iron_ore: [3, 15], lumber: [3, 15] } },
+  dungeon:   { cash: [1000, 5000],   worldResources: { rare_gem: [1, 6], iron_fitting: [3, 15] } },
+  dragon:    { cash: [5000, 20000],  worldResources: { mana_crystal: [5, 25], iron_fitting: [3, 15] } },
+  legendary: { cash: [15000, 60000], worldResources: { rare_gem: [3, 10] }, bonusSkillPoint: true },
+};
+
 export const QUEST_GATE_STARTS_SEASON = 4;
