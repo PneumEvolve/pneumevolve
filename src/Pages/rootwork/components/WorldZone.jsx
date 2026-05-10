@@ -1,7 +1,7 @@
 // src/Pages/rootwork/components/WorldZone.jsx
 import React, { useState, useEffect, useRef } from "react";
 import { WORLD_ZONES, ADVENTURER_CLASSES, FORGE_RECIPES, ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST, ADVENTURER_BUFF_ITEMS, ADVENTURER_BUFF_LIST, WORLD_RESOURCES, HERO_SKILLS, HERO_SKILL_TREES, HERO_CLASS_META, HERO_PRESTIGE_COST_BASE, HERO_DIP_TREE_PRESTIGE_TIER1, HERO_DIP_TREE_PRESTIGE_TIER2, BOSS_DEFS, BOSS_ABILITIES, BOSS_UNLOCK_LEVEL, BOSS_TICK_INTERVAL, generateInfiniteBoss } from "../gameConstants";
-import { getAdventurerSlotCost, getMaxHeroes, setHeroFillFood } from "../gameEngine";
+import { getAdventurerSlotCost, getMaxHeroes, setHeroFillFood, getHeroPrestigeDmgBonus, getHeroPrestigeDmgReduction, getHeroPrestigeXpBonus, getHeroPrestigeMinLootBonus, PRESTIGE_DMG_RED_FLOOR } from "../gameEngine";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -672,7 +672,7 @@ function SkillTree({ adventurer, game, onSpendSkillPoint, onPrestige, onShowPres
             {prestigeLevel > 0 && <span style={{ marginLeft: "0.4rem", fontSize: "0.58rem", background: "rgba(251,191,36,0.15)", border: "1px solid rgba(251,191,36,0.4)", color: "#fbbf24", borderRadius: "4px", padding: "1px 5px" }}>Lv.{prestigeLevel}</span>}
           </div>
           <div style={{ fontSize: "0.58rem", color: "var(--muted)", lineHeight: 1.4 }}>
-            Reset to Lv.1 · Keep gear · Respec class · +1 skill point · +1 food slot · Costs $${prestigeCost.toLocaleString()}
+            Reset to Lv.1 · Keep gear · Respec class · +1 skill point · +1 food slot · +2% dmg · −1.6% dmg taken · Costs $${prestigeCost.toLocaleString()}
             {level < 15 && <span style={{ color: "#ef4444", marginLeft: "0.3rem" }}>· Requires level 15</span>}
           </div>
         </div>
@@ -701,6 +701,87 @@ function SkillTree({ adventurer, game, onSpendSkillPoint, onPrestige, onShowPres
 }
 
 // ─── Hero Modal ────────────────────────────────────────────────────────────────
+// ─── Prestige Bonus Panel ─────────────────────────────────────────────────────
+function PrestigeBonusPanel({ adventurer }) {
+  const [open, setOpen] = React.useState(false);
+  const p = adventurer.prestigeLevel ?? 0;
+  if (p === 0) return null;
+
+  const pb = adventurer.prestigeBonuses ?? {};
+  const fighterStacks = Math.min(pb.fighter ?? 0, 5);
+  const mageStacks    = Math.min(pb.mage    ?? 0, 5);
+  const scavStacks    = Math.min(pb.scavenger ?? 0, 5);
+
+  const baseDmgPct      = Math.round(p * 2);
+  const baseDmgRedPct   = (p * 1.6).toFixed(1);
+  const bossDmgPct      = Math.round(p * 4);   // base + boss layer
+  const bossDmgRedPct   = (p * 3.2).toFixed(1); // base + boss layer
+  const totalDmgRed     = getHeroPrestigeDmgReduction(adventurer, false);
+  const totalBossDmgRed = getHeroPrestigeDmgReduction(adventurer, true);
+  const atFloor         = totalBossDmgRed >= PRESTIGE_DMG_RED_FLOOR;
+
+  const xpBonusPct      = mageStacks * 2;
+  const minLootBonus    = scavStacks;
+  const fighterRedPct   = (fighterStacks * 1).toFixed(0);
+
+  const Row = ({ label, value, sub, color }) => (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.25rem" }}>
+      <span style={{ fontSize: "0.68rem", color: "var(--muted)" }}>{label}</span>
+      <span style={{ fontSize: "0.7rem", fontWeight: 700, color: color ?? "#fbbf24" }}>
+        {value}
+        {sub && <span style={{ fontSize: "0.58rem", fontWeight: 400, color: "var(--muted)", marginLeft: "0.3rem" }}>{sub}</span>}
+      </span>
+    </div>
+  );
+
+  return (
+    <div style={{ border: "1px solid rgba(251,191,36,0.3)", borderRadius: "10px", overflow: "hidden", marginTop: "0.5rem" }}>
+      {/* Header / toggle */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.5rem 0.7rem", background: "rgba(251,191,36,0.07)", border: "none", cursor: "pointer", color: "#fbbf24" }}
+      >
+        <span style={{ fontSize: "0.72rem", fontWeight: 700 }}>⭐ Prestige Bonuses · Lv.{p}</span>
+        <span style={{ fontSize: "0.65rem" }}>{open ? "▲" : "▼"}</span>
+      </button>
+
+      {open && (
+        <div style={{ padding: "0.6rem 0.75rem", background: "rgba(0,0,0,0.15)" }}>
+
+          {/* Base (missions + bosses) */}
+          <div style={{ fontSize: "0.58rem", color: "var(--muted)", letterSpacing: "0.05em", marginBottom: "0.3rem", textTransform: "uppercase" }}>Base · Missions &amp; Bosses</div>
+          <Row label="Damage dealt" value={`+${baseDmgPct}%`} color="#f87171" />
+          <Row label="Damage taken" value={`−${baseDmgRedPct}%`} color="#4ade80" />
+
+          {/* Boss-only */}
+          <div style={{ fontSize: "0.58rem", color: "var(--muted)", letterSpacing: "0.05em", margin: "0.4rem 0 0.3rem", textTransform: "uppercase" }}>Boss Fights (total incl. base)</div>
+          <Row label="Damage dealt" value={`+${bossDmgPct}%`} color="#f87171" />
+          <Row
+            label="Damage taken"
+            value={atFloor ? "−50% (cap)" : `−${bossDmgRedPct}%`}
+            color={atFloor ? "#fbbf24" : "#4ade80"}
+          />
+
+          {/* Class history */}
+          {(fighterStacks > 0 || mageStacks > 0 || scavStacks > 0) && (
+            <>
+              <div style={{ fontSize: "0.58rem", color: "var(--muted)", letterSpacing: "0.05em", margin: "0.4rem 0 0.3rem", textTransform: "uppercase" }}>Class History Bonuses</div>
+              {fighterStacks > 0 && <Row label={`⚔️ Fighter ×${fighterStacks}`} value={`−${fighterRedPct}% dmg taken`} sub="(included above)" color="#4ade80" />}
+              {mageStacks   > 0 && <Row label={`🧙 Mage ×${mageStacks}`}    value={`+${xpBonusPct}% XP`}          color="#a78bfa" />}
+              {scavStacks   > 0 && <Row label={`🌿 Scavenger ×${scavStacks}`} value={`+${minLootBonus} min loot`}  color="#4ade80" />}
+            </>
+          )}
+
+          {/* Cap reminder */}
+          <div style={{ marginTop: "0.5rem", paddingTop: "0.4rem", borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: "0.58rem", color: "var(--muted)", lineHeight: 1.4 }}>
+            Class bonuses cap at 5 stacks each. Damage reduction is hard-capped at 50% total.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onGiveArtisanFood, onRemoveArtisanFood, onUseArtisanFood, onGiveBuffItem, onRemoveBuffItem, onSpendSkillPoint, onPrestige, onRevive }) {
   const [prestigeBanner, setPrestigeBanner] = React.useState(false);
   const _heroClass = adventurer.heroClass ?? null;
@@ -912,6 +993,9 @@ function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onGiveArtisa
 
         {/* Skill Tree */}
         <SkillTree adventurer={adventurer} game={game} onSpendSkillPoint={onSpendSkillPoint} onPrestige={onPrestige} onShowPrestigeBanner={() => { setPrestigeBanner(true); setTimeout(() => setPrestigeBanner(false), 4000); }} />
+
+        {/* Prestige Bonuses */}
+        <PrestigeBonusPanel adventurer={adventurer} />
 
         {/* Stats */}
         <div style={{ padding: "0.55rem 0.7rem", background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)", borderRadius: "10px", fontSize: "0.68rem" }}>

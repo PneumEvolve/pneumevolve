@@ -5110,7 +5110,7 @@ export function returnAdventurer(state, adventurerId) {
   const hasFishPieBuff = activeBuff === "fish_pie";
   const hasSmokedFish  = activeBuff === "smoked_fish";
   const skills = adventurer.skills ?? {};
-  const minLootBonus = getHeroMinLootBonus(adventurer);
+  const minLootBonus = getHeroMinLootBonus(adventurer) + getHeroPrestigeMinLootBonus(adventurer);
 
   let runLoot = [];
   let nextResources = { ...(state.worldResources ?? {}) };
@@ -5140,7 +5140,7 @@ export function returnAdventurer(state, adventurerId) {
   let rawDamage = 0;
   for (let i = 0; i < totalTicks; i++) {
     if (Math.random() >= evasionChance) {
-      rawDamage += dmgPerTick * (failed ? 1.5 : 0.6) * (1 - damageReduction);
+      rawDamage += dmgPerTick * (failed ? 1.5 : 0.6) * (1 - damageReduction) * (1 - getHeroPrestigeDmgReduction(adventurer, false));
     }
   }
   rawDamage = Math.round(rawDamage);
@@ -5150,7 +5150,7 @@ export function returnAdventurer(state, adventurerId) {
   const diedOnNormalRun = !mission.autoBattle && hpAfterDamage <= 0;
   const effectiveFailed = failed || diedOnNormalRun;
 
-  const xpGained = effectiveFailed ? 0 : Math.round(zone.xpReward * getHeroXpMultiplier(adventurer) * (hasOmeletBuff ? 1.25 : 1));
+  const xpGained = effectiveFailed ? 0 : Math.round(zone.xpReward * getHeroXpMultiplier(adventurer) * (1 + getHeroPrestigeXpBonus(adventurer)) * (hasOmeletBuff ? 1.25 : 1));
   let newXp = (adventurer.xp ?? 0) + xpGained;
   let newLevel = adventurer.level ?? 1;
   let leveledUp = false;
@@ -5657,6 +5657,57 @@ export function heroHasAutoBattle(adventurer) {
 }
 
 // Computed stat helpers
+// ─── Prestige Combat Bonuses ──────────────────────────────────────────────────
+// Base: +2% dmg dealt / -1.6% dmg taken per prestige level (missions + bosses)
+// Boss-only: additional +2% dmg dealt / -1.6% dmg taken per prestige level
+// Class history (additive, capped at 5 stacks each):
+//   fighter prestiges → -1% dmg taken per stack (max -5%)
+//   mage    prestiges → +2% XP per stack (max +10%)
+//   scavenger prestiges → +1 min loot per stack (max +5)
+// Hard floor: total prestige damage reduction never exceeds 50%
+
+export const PRESTIGE_DMG_BONUS_PER_LEVEL   = 0.02;  // +2% per prestige
+export const PRESTIGE_DMG_RED_PER_LEVEL     = 0.016; // -1.6% per prestige
+export const PRESTIGE_BOSS_DMG_BONUS        = 0.02;  // extra +2% per prestige vs bosses
+export const PRESTIGE_BOSS_DMG_RED          = 0.016; // extra -1.6% per prestige vs bosses
+export const PRESTIGE_CLASS_STACK_CAP       = 5;
+export const PRESTIGE_DMG_RED_FLOOR         = 0.50;  // max 50% total prestige dmg reduction
+
+// Returns additive damage dealt multiplier bonus from prestige (e.g. 0.06 = +6%)
+export function getHeroPrestigeDmgBonus(adventurer, isBoss = false) {
+  const p = adventurer.prestigeLevel ?? 0;
+  if (p === 0) return 0;
+  const base = p * PRESTIGE_DMG_BONUS_PER_LEVEL;
+  const bossExtra = isBoss ? p * PRESTIGE_BOSS_DMG_BONUS : 0;
+  return base + bossExtra;
+}
+
+// Returns damage reduction from prestige (0–0.5 range, hard floor at 0.5)
+export function getHeroPrestigeDmgReduction(adventurer, isBoss = false) {
+  const p = adventurer.prestigeLevel ?? 0;
+  if (p === 0) return 0;
+  const pb = adventurer.prestigeBonuses ?? {};
+  const fighterStacks = Math.min(pb.fighter ?? 0, PRESTIGE_CLASS_STACK_CAP);
+  const base = p * PRESTIGE_DMG_RED_PER_LEVEL;
+  const bossExtra = isBoss ? p * PRESTIGE_BOSS_DMG_RED : 0;
+  const classBonus = fighterStacks * 0.01;
+  return Math.min(PRESTIGE_DMG_RED_FLOOR, base + bossExtra + classBonus);
+}
+
+// Returns additive XP multiplier bonus from mage prestige history (e.g. 0.06 = +6%)
+export function getHeroPrestigeXpBonus(adventurer) {
+  const pb = adventurer.prestigeBonuses ?? {};
+  const mageStacks = Math.min(pb.mage ?? 0, PRESTIGE_CLASS_STACK_CAP);
+  return mageStacks * 0.02;
+}
+
+// Returns flat min loot bonus from scavenger prestige history (integer, max +5)
+export function getHeroPrestigeMinLootBonus(adventurer) {
+  const pb = adventurer.prestigeBonuses ?? {};
+  const scavStacks = Math.min(pb.scavenger ?? 0, PRESTIGE_CLASS_STACK_CAP);
+  return scavStacks;
+}
+
 export function getHeroBonusMaxHp(adventurer) {
   let bonus = 0;
   // fighter_t1: +10 HP per rank (ranks 1/2/3 => +10/+20/+30)
@@ -6551,7 +6602,8 @@ function getHeroBossDamage(adventurer, bossId, forgeGoodsInstanced = []) {
     + (level - 1) * BOSS_HERO_DAMAGE_LEVEL_SCALE
     + gearTier * BOSS_HERO_DAMAGE_GEAR_SCALE
     + arcaneSwordTiers * 7;
-  return Math.round(dmg * base);
+  const prestigeDmgMult = 1 + getHeroPrestigeDmgBonus(adventurer, true);
+  return Math.round(dmg * base * prestigeDmgMult);
 }
 
 // Initialise boss fight state (called when boss unlocks or after victory)
@@ -6748,7 +6800,8 @@ export function tickBossFight(state, dtSeconds) {
       ? (state.forgeGoodsInstanced ?? []).find((i) => i.id === shieldInstId)
       : null;
     const arcaneShieldTiers = shieldInst ? Math.max(0, (shieldInst.upgradeTier ?? 3) - 3) : 0;
-    const reducedDmg = Math.max(0, bossDmgPerHero - arcaneShieldTiers * 5);
+    const prestigeReduce = getHeroPrestigeDmgReduction(a, true);
+    const reducedDmg = Math.max(0, Math.round((bossDmgPerHero - arcaneShieldTiers * 5) * (1 - prestigeReduce)));
     const newHp = Math.max(0, (a.hp ?? maxHp) - reducedDmg);
     return { ...a, hp: newHp };
   });
