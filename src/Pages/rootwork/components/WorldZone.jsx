@@ -1144,6 +1144,7 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
   // Tavern rest
   const tavernBuilt = game.town?.buildings?.tavern?.built === true;
   const isResting = !!adventurer.tavernResting;
+  const isOnExpedition = isHeroOnExpedition(game, adventurer.id);
   const tavernMode = game.town?.buildings?.tavern?.mode ?? "jam";
   const tavernStocked = game.town?.buildings?.tavern?.stocked !== false;
   const tavernWorkers = game.town?.buildings?.tavern?.workers ?? 0;
@@ -1183,6 +1184,7 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
           </div>
           {!isOnMission && !dead && <div style={{ fontSize: "0.48rem", color: "var(--muted)", marginTop: "2px" }}>tap to manage</div>}
           {isOnMission && <div style={{ fontSize: "0.48rem", color: "rgba(251,191,36,0.7)", marginTop: "2px" }}>on mission</div>}
+          {isOnExpedition && !isOnMission && <div style={{ fontSize: "0.48rem", color: "rgba(99,102,241,0.8)", marginTop: "2px" }}>on expedition</div>}
           {(adventurer.skillPoints ?? 0) > 0 && (() => {
             const pts = adventurer.skillPoints;
             const heroClass = adventurer.heroClass ?? null;
@@ -1294,7 +1296,7 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
                   }
                 }
               }}
-              disabled={!selectedZone || (autoBattleMode && !canStartAutoBattle)}
+              disabled={!selectedZone || (autoBattleMode && !canStartAutoBattle) || isOnExpedition}
               style={{
                 flex: 2, padding: "0.65rem 0.5rem",
                 background: selectedZone
@@ -1312,15 +1314,18 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
                   ? autoBattleMode ? "#ef4444" : "var(--accent)"
                   : "var(--muted)",
                 fontWeight: 800, fontSize: "1rem",
-                cursor: (selectedZone && (!autoBattleMode || canStartAutoBattle)) ? "pointer" : "default",
+                cursor: (selectedZone && (!autoBattleMode || canStartAutoBattle) && !isOnExpedition) ? "pointer" : "default",
                 letterSpacing: "0.04em", transition: "all 0.15s",
+                opacity: isOnExpedition ? 0.4 : 1,
               }}
             >
-              {selectedZone
-                ? autoBattleMode
-                  ? `⚔️ Auto! · ${getMissionDuration(adventurer, selectedZone)}s`
-                  : `⚔️ Go! · ${getMissionDuration(adventurer, selectedZone)}s`
-                : "⚔️ Go!"}
+              {isOnExpedition
+                ? "🗺️ On Expedition"
+                : selectedZone
+                  ? autoBattleMode
+                    ? `⚔️ Auto! · ${getMissionDuration(adventurer, selectedZone)}s`
+                    : `⚔️ Go! · ${getMissionDuration(adventurer, selectedZone)}s`
+                  : "⚔️ Go!"}
             </button>
 
             {/* Heal button — tap to instantly consume one belt food */}
@@ -2178,6 +2183,124 @@ export default function WorldZone({
       {/* ── HEROES TAB ── */}
       {worldTab === "heroes" && (
         <>
+
+          {/* ── EXPEDITIONS ─────────────────────────────────── */}
+          {(() => {
+        const ghLevel = game.town?.buildings?.guild_hall?.level ?? 0;
+        const roadLevel = getRoadLevel(game);
+        const activeExp = game.expedition?.active;
+        const anyAvailable = EXPEDITION_TIER_ORDER.some(tid => getExpeditionAvailable(game, tid));
+        if (!anyAvailable) {
+          // Tease what's needed
+          const firstTier = EXPEDITION_TIERS[EXPEDITION_TIER_ORDER[0]];
+          return (
+            <div style={{ marginBottom: "1.25rem", paddingBottom: "1rem", borderBottom: "1px solid var(--border)" }}>
+              <div style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--muted)", marginBottom: "0.4rem" }}>
+                🗺️ Expeditions <span style={{ fontSize: "0.65rem", fontWeight: 400, color: "var(--muted)", marginLeft: "0.3rem" }}>· locked</span>
+              </div>
+              <div style={{ fontSize: "0.72rem", color: "var(--muted)", padding: "0.5rem 0.6rem", background: "rgba(255,255,255,0.02)", border: "1px dashed var(--border)", borderRadius: "8px" }}>
+                Requires Guild Hall L{firstTier.ghLevel} + Road L{firstTier.roadLevel} to unlock. Send heroes on multi-hour expeditions for rare loot.
+              </div>
+            </div>
+          );
+        }
+
+        return (
+          <div style={{ marginBottom: "1.25rem", paddingBottom: "1rem", borderBottom: "1px solid var(--border)" }}>
+            <div style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--accent)", marginBottom: "0.75rem" }}>
+              🗺️ Expeditions
+            </div>
+
+            {activeExp && !activeExp.pendingClaim && (
+              <div style={{ padding: "0.75rem", background: "rgba(99,102,241,0.1)", border: "1px solid rgba(99,102,241,0.3)", borderRadius: "12px", marginBottom: "0.75rem" }}>
+                <div style={{ fontWeight: 700, fontSize: "0.85rem", color: "var(--accent)", marginBottom: "0.4rem" }}>
+                  {EXPEDITION_TIERS[activeExp.tierId]?.emoji} {EXPEDITION_TIERS[activeExp.tierId]?.name} — In Progress
+                </div>
+                <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.4rem" }}>
+                  Heroes: {activeExp.heroIds.map(id => game.adventurers?.find(a => a.id === id)?.name ?? id).join(", ")}
+                </div>
+                <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: "6px", height: "8px", overflow: "hidden", marginBottom: "0.3rem" }}>
+                  <div style={{ height: "100%", width: `${Math.round(((activeExp.totalTicks - activeExp.ticksRemaining) / activeExp.totalTicks) * 100)}%`, background: "var(--accent)", transition: "width 1s linear" }} />
+                </div>
+                <div style={{ fontSize: "0.72rem", color: "var(--muted)" }}>
+                  {Math.ceil(activeExp.ticksRemaining / 60)} min remaining
+                </div>
+              </div>
+            )}
+
+            {!activeExp && EXPEDITION_TIER_ORDER.map(tierId => {
+              const tier = EXPEDITION_TIERS[tierId];
+              const available = getExpeditionAvailable(game, tierId);
+              const selected = expeditionTierId === tierId;
+              const freeHeroes = (game.adventurers ?? []).filter(a => !isHeroBusyForExpedition(game, a));
+              const canSend = selected && expeditionHeroIds.length >= tier.minHeroes && expeditionHeroIds.length <= tier.maxHeroes && expeditionHeroIds.every(id => { const h = (game.adventurers ?? []).find(a => a.id === id); return h && !isHeroBusyForExpedition(game, h); });
+              const lootDef = EXPEDITION_LOOT[tierId];
+
+              if (!available) {
+                return (
+                  <div key={tierId} style={{ padding: "0.6rem 0.75rem", background: "rgba(255,255,255,0.02)", border: "1px dashed var(--border)", borderRadius: "10px", marginBottom: "0.5rem", opacity: 0.5, fontSize: "0.78rem", color: "var(--muted)" }}>
+                    {tier.emoji} {tier.name} — Requires GH L{tier.ghLevel} + Road L{tier.roadLevel}
+                  </div>
+                );
+              }
+
+              return (
+                <div key={tierId} style={{ padding: "0.75rem", background: selected ? "rgba(99,102,241,0.1)" : "rgba(255,255,255,0.03)", border: `1px solid ${selected ? "rgba(99,102,241,0.4)" : "var(--border)"}`, borderRadius: "12px", marginBottom: "0.6rem" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem" }}>
+                    <div style={{ fontWeight: 700, fontSize: "0.85rem" }}>{tier.emoji} {tier.name}</div>
+                    <div style={{ fontSize: "0.7rem", color: "var(--muted)" }}>{Math.round(tier.durationTicks / 60)} min · {tier.minHeroes}–{tier.maxHeroes} heroes</div>
+                  </div>
+                  <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.4rem" }}>{tier.description}</div>
+                  <div style={{ fontSize: "0.72rem", color: "#a78bfa", marginBottom: "0.5rem" }}>
+                    Loot: ${lootDef.cash[0].toLocaleString()}–${lootDef.cash[1].toLocaleString()} +{" "}
+                    {Object.entries(lootDef.worldResources).map(([k,[mn,mx]]) => `${mn}–${mx} ${k}`).join(", ")}
+                    {lootDef.bonusSkillPoint ? " · bonus skill point (70%+ power)" : ""}
+                  </div>
+                  {!selected ? (
+                    <button onClick={() => { setExpeditionTierId(tierId); setExpeditionHeroIds([]); }}
+                      style={{ fontSize: "0.78rem", padding: "0.3rem 0.75rem", background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.4)", borderRadius: "8px", color: "var(--accent)", cursor: "pointer" }}>
+                      Select Heroes
+                    </button>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.35rem" }}>
+                        Select {tier.minHeroes}–{tier.maxHeroes} heroes ({expeditionHeroIds.length} selected):
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", marginBottom: "0.5rem" }}>
+                        {(game.adventurers ?? []).map(a => {
+                          const busy = isHeroBusyForExpedition(game, a);
+                          const picked = expeditionHeroIds.includes(a.id);
+                          return (
+                            <button key={a.id}
+                              disabled={busy && !picked}
+                              onClick={() => {
+                                if (picked) setExpeditionHeroIds(ids => ids.filter(id => id !== a.id));
+                                else if (expeditionHeroIds.length < tier.maxHeroes) setExpeditionHeroIds(ids => [...ids, a.id]);
+                              }}
+                              style={{ fontSize: "0.72rem", padding: "0.25rem 0.5rem", borderRadius: "8px", border: `1px solid ${picked ? "#4ade80" : busy ? "#ef4444" : "var(--border)"}`, background: picked ? "rgba(74,222,128,0.15)" : busy ? "rgba(239,68,68,0.08)" : "rgba(255,255,255,0.05)", color: picked ? "#4ade80" : busy ? "#ef4444" : "var(--muted)", cursor: busy && !picked ? "default" : "pointer" }}>
+                              {a.name} {busy ? "(busy)" : `T${a.gear ?? 0}`}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div style={{ display: "flex", gap: "0.5rem" }}>
+                        <button onClick={() => { setExpeditionTierId(null); setExpeditionHeroIds([]); }}
+                          style={{ fontSize: "0.75rem", padding: "0.3rem 0.6rem", background: "rgba(255,255,255,0.05)", border: "1px solid var(--border)", borderRadius: "8px", color: "var(--muted)", cursor: "pointer" }}>
+                          Cancel
+                        </button>
+                        <button disabled={!canSend} onClick={() => { onSendExpedition(tierId, expeditionHeroIds); setExpeditionTierId(null); setExpeditionHeroIds([]); }}
+                          style={{ flex: 1, fontSize: "0.78rem", padding: "0.3rem 0.75rem", background: canSend ? "rgba(99,102,241,0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${canSend ? "rgba(99,102,241,0.5)" : "var(--border)"}`, borderRadius: "8px", color: canSend ? "var(--accent)" : "var(--muted)", cursor: canSend ? "pointer" : "default" }}>
+                          Send Expedition
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
           {[...adventurers].reverse().map((adv) => (
             <AdventurerCard
               key={adv.id}
@@ -2246,110 +2369,6 @@ export default function WorldZone({
       )}
 
 
-      {/* ── EXPEDITIONS (heroes tab) ─────────────────────────────────── */}
-      {worldTab === "heroes" && (() => {
-        const ghLevel = game.town?.buildings?.guild_hall?.level ?? 0;
-        const roadLevel = getRoadLevel(game);
-        const activeExp = game.expedition?.active;
-        const anyAvailable = EXPEDITION_TIER_ORDER.some(tid => getExpeditionAvailable(game, tid));
-        if (!anyAvailable) return null;
-
-        return (
-          <div style={{ marginTop: "1.5rem", borderTop: "1px solid var(--border)", paddingTop: "1rem" }}>
-            <div style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--accent)", marginBottom: "0.75rem" }}>
-              🗺️ Expeditions
-            </div>
-
-            {activeExp && !activeExp.pendingClaim && (
-              <div style={{ padding: "0.75rem", background: "rgba(99,102,241,0.1)", border: "1px solid rgba(99,102,241,0.3)", borderRadius: "12px", marginBottom: "0.75rem" }}>
-                <div style={{ fontWeight: 700, fontSize: "0.85rem", color: "var(--accent)", marginBottom: "0.4rem" }}>
-                  {EXPEDITION_TIERS[activeExp.tierId]?.emoji} {EXPEDITION_TIERS[activeExp.tierId]?.name} — In Progress
-                </div>
-                <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.4rem" }}>
-                  Heroes: {activeExp.heroIds.map(id => game.adventurers?.find(a => a.id === id)?.name ?? id).join(", ")}
-                </div>
-                <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: "6px", height: "8px", overflow: "hidden", marginBottom: "0.3rem" }}>
-                  <div style={{ height: "100%", width: `${Math.round(((activeExp.totalTicks - activeExp.ticksRemaining) / activeExp.totalTicks) * 100)}%`, background: "var(--accent)", transition: "width 1s linear" }} />
-                </div>
-                <div style={{ fontSize: "0.72rem", color: "var(--muted)" }}>
-                  {Math.ceil(activeExp.ticksRemaining / 60)} min remaining
-                </div>
-              </div>
-            )}
-
-            {!activeExp && EXPEDITION_TIER_ORDER.map(tierId => {
-              const tier = EXPEDITION_TIERS[tierId];
-              const available = getExpeditionAvailable(game, tierId);
-              const selected = expeditionTierId === tierId;
-              const freeHeroes = (game.adventurers ?? []).filter(a => !isHeroBusyForExpedition(game, a));
-              const canSend = selected && expeditionHeroIds.length >= tier.minHeroes && expeditionHeroIds.length <= tier.maxHeroes;
-              const lootDef = EXPEDITION_LOOT[tierId];
-
-              if (!available) {
-                return (
-                  <div key={tierId} style={{ padding: "0.6rem 0.75rem", background: "rgba(255,255,255,0.02)", border: "1px dashed var(--border)", borderRadius: "10px", marginBottom: "0.5rem", opacity: 0.5, fontSize: "0.78rem", color: "var(--muted)" }}>
-                    {tier.emoji} {tier.name} — Requires GH L{tier.ghLevel} + Road L{tier.roadLevel}
-                  </div>
-                );
-              }
-
-              return (
-                <div key={tierId} style={{ padding: "0.75rem", background: selected ? "rgba(99,102,241,0.1)" : "rgba(255,255,255,0.03)", border: `1px solid ${selected ? "rgba(99,102,241,0.4)" : "var(--border)"}`, borderRadius: "12px", marginBottom: "0.6rem" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem" }}>
-                    <div style={{ fontWeight: 700, fontSize: "0.85rem" }}>{tier.emoji} {tier.name}</div>
-                    <div style={{ fontSize: "0.7rem", color: "var(--muted)" }}>{Math.round(tier.durationTicks / 60)} min · {tier.minHeroes}–{tier.maxHeroes} heroes</div>
-                  </div>
-                  <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.4rem" }}>{tier.description}</div>
-                  <div style={{ fontSize: "0.72rem", color: "#a78bfa", marginBottom: "0.5rem" }}>
-                    Loot: ${lootDef.cash[0].toLocaleString()}–${lootDef.cash[1].toLocaleString()} +{" "}
-                    {Object.entries(lootDef.worldResources).map(([k,[mn,mx]]) => `${mn}–${mx} ${k}`).join(", ")}
-                    {lootDef.bonusSkillPoint ? " · bonus skill point (70%+ power)" : ""}
-                  </div>
-                  {!selected ? (
-                    <button onClick={() => { setExpeditionTierId(tierId); setExpeditionHeroIds([]); }}
-                      style={{ fontSize: "0.78rem", padding: "0.3rem 0.75rem", background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.4)", borderRadius: "8px", color: "var(--accent)", cursor: "pointer" }}>
-                      Select Heroes
-                    </button>
-                  ) : (
-                    <>
-                      <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.35rem" }}>
-                        Select {tier.minHeroes}–{tier.maxHeroes} heroes ({expeditionHeroIds.length} selected):
-                      </div>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", marginBottom: "0.5rem" }}>
-                        {(game.adventurers ?? []).map(a => {
-                          const busy = isHeroBusyForExpedition(game, a);
-                          const picked = expeditionHeroIds.includes(a.id);
-                          return (
-                            <button key={a.id}
-                              disabled={busy && !picked}
-                              onClick={() => {
-                                if (picked) setExpeditionHeroIds(ids => ids.filter(id => id !== a.id));
-                                else if (expeditionHeroIds.length < tier.maxHeroes) setExpeditionHeroIds(ids => [...ids, a.id]);
-                              }}
-                              style={{ fontSize: "0.72rem", padding: "0.25rem 0.5rem", borderRadius: "8px", border: `1px solid ${picked ? "#4ade80" : busy ? "#ef4444" : "var(--border)"}`, background: picked ? "rgba(74,222,128,0.15)" : busy ? "rgba(239,68,68,0.08)" : "rgba(255,255,255,0.05)", color: picked ? "#4ade80" : busy ? "#ef4444" : "var(--muted)", cursor: busy && !picked ? "default" : "pointer" }}>
-                              {a.name} {busy ? "(busy)" : `T${a.gear ?? 0}`}
-                            </button>
-                          );
-                        })}
-                      </div>
-                      <div style={{ display: "flex", gap: "0.5rem" }}>
-                        <button onClick={() => { setExpeditionTierId(null); setExpeditionHeroIds([]); }}
-                          style={{ fontSize: "0.75rem", padding: "0.3rem 0.6rem", background: "rgba(255,255,255,0.05)", border: "1px solid var(--border)", borderRadius: "8px", color: "var(--muted)", cursor: "pointer" }}>
-                          Cancel
-                        </button>
-                        <button disabled={!canSend} onClick={() => { onSendExpedition(tierId, expeditionHeroIds); setExpeditionTierId(null); setExpeditionHeroIds([]); }}
-                          style={{ flex: 1, fontSize: "0.78rem", padding: "0.3rem 0.75rem", background: canSend ? "rgba(99,102,241,0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${canSend ? "rgba(99,102,241,0.5)" : "var(--border)"}`, borderRadius: "8px", color: canSend ? "var(--accent)" : "var(--muted)", cursor: canSend ? "pointer" : "default" }}>
-                          Send Expedition
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        );
-      })()}
 
       {/* ── BOSS TAB ── */}
       {worldTab === "boss" && (

@@ -7050,7 +7050,8 @@ export function canAffordRoad(state) {
   if (!next) return false;
   if ((state.cash ?? 0) < next.buildCost) return false;
   for (const [k, v] of Object.entries(next.buildRequires ?? {})) {
-    if ((state.worldResources?.[k] ?? 0) < v) return false;
+    const have = (state.worldResources?.[k] ?? 0) + (state.forgeGoods?.[k] ?? 0);
+    if (have < v) return false;
   }
   return true;
 }
@@ -7060,13 +7061,18 @@ export function buildOrUpgradeRoad(state) {
   if (!next) return state;
   if (!canAffordRoad(state)) return state;
   const newResources = { ...(state.worldResources ?? {}) };
+  const newForgeGoods = { ...(state.forgeGoods ?? {}) };
   for (const [k, v] of Object.entries(next.buildRequires ?? {})) {
-    newResources[k] = (newResources[k] ?? 0) - v;
+    let needed = v;
+    const fromWorld = Math.min(needed, newResources[k] ?? 0);
+    if (fromWorld > 0) { newResources[k] = (newResources[k] ?? 0) - fromWorld; needed -= fromWorld; }
+    if (needed > 0) { newForgeGoods[k] = (newForgeGoods[k] ?? 0) - needed; }
   }
   return {
     ...state,
     cash: (state.cash ?? 0) - next.buildCost,
     worldResources: newResources,
+    forgeGoods: newForgeGoods,
     roads: { level: next.level },
   };
 }

@@ -1078,7 +1078,7 @@ export default function TownZone({
                       cash={game.cash ?? 0}
                       cashCost={nextTier.buildCost}
                       materials={nextTier.buildRequires}
-                      have={Object.fromEntries(Object.keys(nextTier.buildRequires).map(k => [k, worldRes[k] ?? 0]))}
+                      have={Object.fromEntries(Object.keys(nextTier.buildRequires).map(k => [k, have(k)]))}
                     />
                     <button
                       onClick={onBuildOrUpgradeRoad}
