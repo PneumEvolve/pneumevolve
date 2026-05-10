@@ -134,8 +134,9 @@ function SkillTag({ skillId, count }) {
 }
  
 // ─── Quest Progress Tracker ────────────────────────────────────────────────────
-function getQuestTracker(game, quest) {
-  const c = quest.condition;
+
+// Returns a tracker for a single bare condition object (not the full quest wrapper).
+function getConditionTracker(game, c) {
   const qp = game.questProgress ?? {};
   if (c.type === "counter") {
     return { current: Math.min(qp[c.key] ?? 0, c.value), target: c.value };
@@ -149,6 +150,8 @@ function getQuestTracker(game, quest) {
     return { current: Math.min(cur, c.value), target: c.value };
   }
   if (c.type === "live_check") {
+    // Synthesise a minimal quest wrapper so we can reuse evaluateQuestCondition
+    const fakeQuest = { condition: c };
     switch (c.check) {
       case "crop_stockpile_10k": {
         const best = Math.max(0, ...Object.values(game.crops ?? {}).map(v => Number(v) || 0));
@@ -188,7 +191,7 @@ function getQuestTracker(game, quest) {
           const cap = BARN_BUILDINGS[bestInst.buildingType]?.animalSlots ?? 4;
           return { boolean: false, current: animalCount, target: cap, label: `Barn animals: ${animalCount} / ${cap} (upgraded ✓)` };
         }
-        const done = evaluateQuestCondition(game, quest);
+        const done = evaluateQuestCondition(game, fakeQuest);
         return { boolean: true, done };
       }
       case "farm_expanded_6x6": {
@@ -210,13 +213,18 @@ function getQuestTracker(game, quest) {
         return { current: Math.min(best, req), target: req, label: `Best hero prestige: P${best}` };
       }
       case "hero_gear_tier": {
-        const req = c.value ?? 9;
-        const best = Math.max(0, ...(game.adventurers ?? []).map(a => {
-          // Simple proxy — show tier without full computation
-          return (a.equippedGear ? Object.keys(a.equippedGear).length * 3 : 0);
-        }));
-        const done = evaluateQuestCondition(game, quest);
+        const done = evaluateQuestCondition(game, fakeQuest);
         return { boolean: true, done };
+      }
+      case "heroes_auto_battling": {
+        const req = c.value ?? 1;
+        const cur = qp.maxSimultaneousAutoBattlers ?? 0;
+        return { current: Math.min(cur, req), target: req, label: `Max simultaneous auto-battlers: ${cur} / ${req}` };
+      }
+      case "longest_auto_run": {
+        const req = c.value ?? 1;
+        const cur = qp.maxAutoBattleRun ?? 0;
+        return { current: Math.min(cur, req), target: req, label: `Longest auto-battle run: ${cur} / ${req}` };
       }
       case "crop_stockpile_25k": {
         const best = Math.max(0, ...Object.values(game.crops ?? {}).map(v => Number(v) || 0));
@@ -285,7 +293,7 @@ function getQuestTracker(game, quest) {
         return { current: Math.min(count, 3), target: 3, label: `Heroes at P10+: ${count} / 3` };
       }
       default: {
-        const done = evaluateQuestCondition(game, quest);
+        const done = evaluateQuestCondition(game, fakeQuest);
         return { boolean: true, done };
       }
     }
@@ -293,8 +301,64 @@ function getQuestTracker(game, quest) {
   return null;
 }
 
+// Wraps getConditionTracker for a full quest object; handles "and" type by returning sub-trackers.
+function getQuestTracker(game, quest) {
+  const c = quest.condition;
+  if (c.type === "and") {
+    const parts = (c.conditions ?? []).map(sub => {
+      const t = getConditionTracker(game, sub);
+      // Attach a human-readable label for each sub-condition if not already set
+      if (t && !t.label) {
+        if (sub.type === "counter") t.label = sub.key.replace(/([A-Z])/g, ' $1').trim() + `: ${Math.min(game.questProgress?.[sub.key] ?? 0, sub.value)} / ${sub.value}`;
+      }
+      return t;
+    });
+    return { type: "and", parts };
+  }
+  return getConditionTracker(game, c);
+}
+
 function QuestProgressBar({ tracker, done }) {
   if (!tracker || done) return null;
+
+  // "and" quest — render each sub-condition as its own row
+  if (tracker.type === "and") {
+    return (
+      <div style={{ marginTop: "0.3rem", display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+        {(tracker.parts ?? []).map((part, i) => {
+          if (!part) return null;
+          const partDone = part.boolean ? part.done : part.current >= part.target;
+          if (part.boolean) {
+            return (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.6rem" }}>
+                <span style={{ color: partDone ? "#4ade80" : "var(--muted)", flexShrink: 0 }}>{partDone ? "✓" : "✗"}</span>
+                <span style={{ color: partDone ? "#4ade80" : "var(--muted)" }}>{part.label ?? (partDone ? "Complete" : "Not yet")}</span>
+              </div>
+            );
+          }
+          const pct = Math.min(100, (part.current / part.target) * 100);
+          const label = part.label ?? `${part.current.toLocaleString()} / ${part.target.toLocaleString()}`;
+          return (
+            <div key={i}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.6rem", color: partDone ? "#4ade80" : "var(--muted)", marginBottom: "0.1rem" }}>
+                <span>{label}</span>
+                <span>{Math.floor(pct)}%</span>
+              </div>
+              <div style={{ height: 3, borderRadius: 3, background: "var(--border)", overflow: "hidden" }}>
+                <div style={{
+                  height: "100%", borderRadius: 3,
+                  width: `${pct}%`,
+                  background: pct >= 100 ? "#4ade80" : pct >= 60 ? "#fbbf24" : "#60a5fa",
+                  transition: "width 0.3s ease",
+                }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
   if (tracker.boolean) {
     return (
       <div style={{ fontSize: "0.6rem", color: tracker.done ? "#4ade80" : "var(--muted)", marginTop: "0.25rem" }}>

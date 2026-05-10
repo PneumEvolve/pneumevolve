@@ -1491,13 +1491,19 @@ export function cancelMarketWorkerQueue(state, workerId) {
   const worker = (next.marketWorkers ?? []).find((w) => w.id === workerId);
   if (!worker) return state;
   for (const order of worker.queue ?? []) {
-      if (order.itemType in (next.crops ?? {})) next.crops[order.itemType] = (next.crops[order.itemType] ?? 0) + order.quantity;
-      else if (order.itemType in (next.artisan ?? {})) next.artisan[order.itemType] = (next.artisan[order.itemType] ?? 0) + order.quantity;
-      else if (order.itemType in (next.animalGoods ?? {})) next.animalGoods[order.itemType] = (next.animalGoods[order.itemType] ?? 0) + order.quantity;
-      else if (order.itemType in (next.forgeGoods ?? {})) next.forgeGoods[order.itemType] = (next.forgeGoods[order.itemType] ?? 0) + order.quantity;
-      else if (order.itemType in (next.worldResources ?? {})) next.worldResources[order.itemType] = (next.worldResources[order.itemType] ?? 0) + order.quantity;
-      else if (next.fishing?.fish && order.itemType in next.fishing.fish) next.fishing.fish[order.itemType] = (next.fishing.fish[order.itemType] ?? 0) + order.quantity;
-    }
+    const t = order.itemType;
+    const isWorld  = t in WORLD_RESOURCES;
+    const isForge  = !isWorld && Object.values(FORGE_RECIPES).some((r) => r.output.resourceKey === t);
+    const isFish   = !isWorld && !isForge && !!(next.fishing?.fish) && t in next.fishing.fish;
+    const isAnimal = !isWorld && !isForge && !isFish && t in (next.animalGoods ?? {});
+    const isArtisan = !isWorld && !isForge && !isFish && !isAnimal && t in (next.artisan ?? {});
+    if      (isWorld)   next.worldResources[t] = (next.worldResources[t] ?? 0) + order.quantity;
+    else if (isForge)   next.forgeGoods[t] = (next.forgeGoods[t] ?? 0) + order.quantity;
+    else if (isFish)    next.fishing.fish[t] = (next.fishing.fish[t] ?? 0) + order.quantity;
+    else if (isAnimal)  next.animalGoods[t] = (next.animalGoods[t] ?? 0) + order.quantity;
+    else if (isArtisan) next.artisan[t] = (next.artisan[t] ?? 0) + order.quantity;
+    else                next.crops[t] = (next.crops[t] ?? 0) + order.quantity;
+  }
   worker.queue = [];
   return next;
 }
@@ -3242,13 +3248,19 @@ export function fireMarketWorker(state, workerId) {
   const worker = (next.marketWorkers ?? []).find((w) => w.id === workerId);
   if (!worker) return state;
   for (const order of worker.queue ?? []) {
-      if (order.itemType in (next.crops ?? {})) next.crops[order.itemType] = (next.crops[order.itemType] ?? 0) + order.quantity;
-      else if (order.itemType in (next.artisan ?? {})) next.artisan[order.itemType] = (next.artisan[order.itemType] ?? 0) + order.quantity;
-      else if (order.itemType in (next.animalGoods ?? {})) next.animalGoods[order.itemType] = (next.animalGoods[order.itemType] ?? 0) + order.quantity;
-      else if (order.itemType in (next.forgeGoods ?? {})) next.forgeGoods[order.itemType] = (next.forgeGoods[order.itemType] ?? 0) + order.quantity;
-      else if (order.itemType in (next.worldResources ?? {})) next.worldResources[order.itemType] = (next.worldResources[order.itemType] ?? 0) + order.quantity;
-      else if (next.fishing?.fish && order.itemType in next.fishing.fish) next.fishing.fish[order.itemType] = (next.fishing.fish[order.itemType] ?? 0) + order.quantity;
-    }
+    const t = order.itemType;
+    const isWorld  = t in WORLD_RESOURCES;
+    const isForge  = !isWorld && Object.values(FORGE_RECIPES).some((r) => r.output.resourceKey === t);
+    const isFish   = !isWorld && !isForge && !!(next.fishing?.fish) && t in next.fishing.fish;
+    const isAnimal = !isWorld && !isForge && !isFish && t in (next.animalGoods ?? {});
+    const isArtisan = !isWorld && !isForge && !isFish && !isAnimal && t in (next.artisan ?? {});
+    if      (isWorld)   next.worldResources[t] = (next.worldResources[t] ?? 0) + order.quantity;
+    else if (isForge)   next.forgeGoods[t] = (next.forgeGoods[t] ?? 0) + order.quantity;
+    else if (isFish)    next.fishing.fish[t] = (next.fishing.fish[t] ?? 0) + order.quantity;
+    else if (isAnimal)  next.animalGoods[t] = (next.animalGoods[t] ?? 0) + order.quantity;
+    else if (isArtisan) next.artisan[t] = (next.artisan[t] ?? 0) + order.quantity;
+    else                next.crops[t] = (next.crops[t] ?? 0) + order.quantity;
+  }
   next.marketWorkers = next.marketWorkers.filter((w) => w.id !== workerId);
   return next;
 }
@@ -6479,6 +6491,17 @@ export function upgradeForgeInstance(state, instanceId) {
   const nextInstanced = (state.forgeGoodsInstanced ?? []).map((i, idx) =>
     idx === instIdx ? { ...i, upgradeTier: currentTier + 1 } : i
   );
+
+  // If the upgraded item is equipped on a hero, recalculate that hero's gear score
+  let nextAdventurers = state.adventurers ?? [];
+  if (inst._equippedBy) {
+    nextAdventurers = nextAdventurers.map((a) => {
+      if (a.id !== inst._equippedBy) return a;
+      const totalGearTier = computeTotalGearTier(a.equippedGear, a.equippedInstanceId, nextInstanced);
+      return { ...a, gear: totalGearTier };
+    });
+  }
+
   return {
     ...state,
     cash: (state.cash ?? 0) - cashCost,
@@ -6488,6 +6511,7 @@ export function upgradeForgeInstance(state, instanceId) {
       titan_core: (state.worldResources?.titan_core ?? 0) - titanCoreCost,
     },
     forgeGoodsInstanced: nextInstanced,
+    adventurers: nextAdventurers,
   };
 }
 
