@@ -3010,6 +3010,11 @@ export function tendPlot(state, farmId, plotId) {
     const { crops, newPool } = applyYieldBonuses(crop.manualYield, next.prestigeBonuses, next.yieldPool ?? 0, 0, next);
     next.crops[farm.crop] = Math.min((next.crops[farm.crop] ?? 0) + crops, getWarehouseCropCap(next));
     next.yieldPool = newPool;
+    if (!next.questProgress) next.questProgress = {};
+    next.questProgress.manualHarvestCount = (next.questProgress.manualHarvestCount ?? 0) + 1;
+    if (farm.crop === "berries") {
+      next.questProgress.berriesHarvested = (next.questProgress.berriesHarvested ?? 0) + crops;
+    }
     plot.state = "planted";
     plot.growthTick = 0;
     return next;
