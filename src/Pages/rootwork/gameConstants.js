@@ -2019,12 +2019,12 @@ export const TRADE_TOWNS = {
     id: "ashport",
     name: "Ashport",
     emoji: "⚓",
-    flavor: "A coastal fishing town that needs livestock to feed their workers.",
+    flavor: "A coastal fishing town that feeds its crew with farm-kitchen staples.",
     roadLevel: 2,
     routes: [
-      { id: "t1", label: "Egg Route",  itemKey: "egg",  source: "animalGoods", drainPerTick: 0.3, bonus: { type: "fish_catch_rate", value: 0.10 }, description: "+10% fish catch rate" },
-      { id: "t2", label: "Milk Route", itemKey: "milk", source: "animalGoods", drainPerTick: 0.2, bonus: { type: "fish_catch_rate", value: 0.15 }, description: "+15% fish catch rate" },
-      { id: "t3", label: "Wool Route", itemKey: "wool", source: "animalGoods", drainPerTick: 0.2, bonus: { type: "fish_catch_rate", value: 0.25 }, description: "+25% fish catch rate" },
+      { id: "t1", label: "Omelette Route", itemKey: "omelette", source: "artisan",      drainPerTick: 0.3, bonus: { type: "fish_catch_rate", value: 0.10 }, description: "+10% fish catch rate" },
+      { id: "t2", label: "Cheese Route",   itemKey: "cheese",   source: "artisan",      drainPerTick: 0.2, bonus: { type: "fish_catch_rate", value: 0.15 }, description: "+15% fish catch rate" },
+      { id: "t3", label: "Egg Route",      itemKey: "egg",      source: "animalGoods",  drainPerTick: 0.2, bonus: { type: "fish_catch_rate", value: 0.25 }, description: "+25% fish catch rate" },
     ],
   },
   ironfeld: {
@@ -2034,9 +2034,9 @@ export const TRADE_TOWNS = {
     flavor: "A mining settlement. Resource-rich but food-poor.",
     roadLevel: 3,
     routes: [
-      { id: "t1", label: "Omelette Route",      itemKey: "omelette",      source: "animalGoods", drainPerTick: 0.1, bonus: { type: "iron_trickle",       iron_ore: 3 },            description: "+3 iron ore/sec" },
-      { id: "t2", label: "Cheese Route",        itemKey: "cheese",        source: "animalGoods", drainPerTick: 0.1, bonus: { type: "lumber_trickle",     lumber: 3 },              description: "+3 lumber/sec" },
-      { id: "t3", label: "Knitted Goods Route", itemKey: "knitted_goods", source: "animalGoods", drainPerTick: 0.1, bonus: { type: "full_upkeep_cover", iron_ore: 6, lumber: 4 }, description: "Covers road upkeep (+6 iron +4 lumber/sec)" },
+      { id: "t1", label: "Smoked Fish Route",   itemKey: "smoked_fish",   source: "artisan",      drainPerTick: 0.1, bonus: { type: "iron_trickle",       iron_ore: 3 },            description: "+3 iron ore/sec" },
+      { id: "t2", label: "Fish Pie Route",      itemKey: "fish_pie",      source: "artisan",      drainPerTick: 0.1, bonus: { type: "lumber_trickle",     lumber: 3 },              description: "+3 lumber/sec" },
+      { id: "t3", label: "Legendary Fish Route",itemKey: "rare",          source: "pond",         drainPerTick: 0.05,bonus: { type: "full_upkeep_cover", iron_ore: 6, lumber: 4 }, description: "Covers road upkeep (+6 iron +4 lumber/sec)" },
     ],
   },
   velmoor: {

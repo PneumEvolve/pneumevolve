@@ -7163,6 +7163,7 @@ function _getStock(state, source, itemKey) {
   if (source === "artisan")        return state.artisan?.[itemKey]       ?? 0;
   if (source === "animalGoods")    return state.animalGoods?.[itemKey]   ?? 0;
   if (source === "worldResources") return state.worldResources?.[itemKey] ?? 0;
+  if (source === "pond")           return state.fishing?.fish?.[itemKey]  ?? 0;
   return 0;
 }
 
@@ -7173,6 +7174,8 @@ function _deductStock(state, source, itemKey, amount) {
     return { ...state, animalGoods: { ...(state.animalGoods ?? {}), [itemKey]: Math.max(0, (state.animalGoods?.[itemKey] ?? 0) - amount) } };
   if (source === "worldResources")
     return { ...state, worldResources: { ...(state.worldResources ?? {}), [itemKey]: Math.max(0, (state.worldResources?.[itemKey] ?? 0) - amount) } };
+  if (source === "pond")
+    return { ...state, fishing: { ...(state.fishing ?? {}), fish: { ...(state.fishing?.fish ?? {}), [itemKey]: Math.max(0, (state.fishing?.fish?.[itemKey] ?? 0) - amount) } } };
   return state;
 }
 
