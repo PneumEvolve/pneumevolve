@@ -1186,7 +1186,7 @@ export function upgradeForgeHall(state) {
 export function getMaxForgeWorkers(state) {
   const fh = state.town?.buildings?.forge_hall;
   if (!fh?.built) return 0;
-  return (fh.level ?? 1) * 2;
+  return (fh.level ?? 1) * 2 - 1;
 }
 
 export function getForgeHallRecipeTier(state) {
@@ -1205,7 +1205,7 @@ export function isArcaneUnlocked(state) {
 export function getForgeHallRetainCount(state) {
   const fh = state.town?.buildings?.forge_hall;
   if (!fh?.built) return 0;
-  return fh.level ?? 1;
+  return (fh.level ?? 1) - 1;
 }
 
 export function buildGuildHall(state) {

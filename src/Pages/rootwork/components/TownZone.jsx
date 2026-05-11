@@ -722,7 +722,7 @@ export default function TownZone({
                   const nextRequires = forgeHallLevel <= 3
                     ? FORGE_HALL_LEVEL_REQUIRES[forgeHallLevel - 1]
                     : { iron_fitting: 6 + (forgeHallLevel - 4) * 2, reinforced_crate: 3 + (forgeHallLevel - 4), fine_tools: 2 + (forgeHallLevel - 4) };
-                  const nextMaxWorkers = (forgeHallLevel + 1) * 2;
+                  const nextMaxWorkers = (forgeHallLevel + 1) * 2 - 1;
                   return (
                     <>
                       <div style={{ marginTop: "0.5rem", paddingTop: "0.4rem", borderTop: "1px solid var(--border)" }}>
