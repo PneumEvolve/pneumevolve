@@ -44,8 +44,8 @@ function getMissionDuration(adventurer, zone) {
   const base = zone.baseDuration ?? 30;
   const totalGear = getTotalGearTier(adventurer);
   const gearBonus = totalGear * 0.15;
-  const lvlBonus = ((adventurer.level ?? 1) - 1) * 0.08;
-  return Math.round(base * (1 - Math.min(gearBonus + lvlBonus, 0.75)));
+  const lvlBonus = Math.min(((adventurer.level ?? 1) - 1) * 0.02, 0.15);
+  return Math.round(base * (1 - Math.min(gearBonus + lvlBonus, 0.45)));
 }
 
 function getFailChance(adventurer, zone) {
@@ -178,8 +178,8 @@ function getMissionDurationWithSlot(adventurer, zone, slotOverride) {
     if (key) totalGear += FORGE_RECIPES[key]?.gearTier ?? 0;
   }
   const gearBonus = totalGear * 0.15;
-  const lvlBonus = ((adventurer.level ?? 1) - 1) * 0.08;
-  return Math.round(base * (1 - Math.min(gearBonus + lvlBonus, 0.75)));
+  const lvlBonus = Math.min(((adventurer.level ?? 1) - 1) * 0.02, 0.15);
+  return Math.round(base * (1 - Math.min(gearBonus + lvlBonus, 0.45)));
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -1011,9 +1011,9 @@ function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onGiveArtisa
             const weaponR = weaponKey ? FORGE_RECIPES[weaponKey] : null;
             const armourR = armourKey ? FORGE_RECIPES[armourKey] : null;
             const bodyR = bodyKey ? Object.values(FORGE_RECIPES).find(r => r.output.resourceKey === bodyKey) : null;
-            const lvlSpeedPct = Math.round((lvl - 1) * 8);
+            const lvlSpeedPct = Math.round(Math.min((lvl - 1) * 2, 15));
             const weaponPct = weaponR?.missionTimeReduction ? Math.round(weaponR.missionTimeReduction * 100) : 0;
-            const totalSpeedPct = Math.min(75, lvlSpeedPct + weaponPct + getTotalGearTier(adventurer) * 15);
+            const totalSpeedPct = Math.min(45, lvlSpeedPct + weaponPct);
             const armourPct = armourR?.damageReduction ? Math.round(armourR.damageReduction * 100) : 0;
             const foodSlots = getBeltCapacity(adventurer, game.forgeGoodsInstanced ?? []);
             return (
