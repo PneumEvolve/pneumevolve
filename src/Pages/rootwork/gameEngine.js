@@ -1213,12 +1213,9 @@ export function buildGuildHall(state) {
   if (thLevel < TOWN_HALL_BUILDING_GATES.guild_hall) return state;
   if (state.town?.buildings?.guild_hall?.built) return state;
   const cost = TOWN_GUILD_HALL_COST;
-  const requires = GUILD_HALL_LEVEL_REQUIRES[0];
   if ((state.cash ?? 0) < cost) return state;
-  if (!canAffordUpgradeMaterials(state, requires)) return state;
   const next = deepCloneState(state);
   next.cash -= cost;
-  consumeUpgradeMaterials(next, requires);
   if (!next.town.buildings) next.town.buildings = {};
   next.town.buildings.guild_hall = { built: true, level: 1 };
   return next;
