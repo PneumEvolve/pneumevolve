@@ -1785,7 +1785,7 @@ export const SEASONAL_QUESTS = {
   3: {
     requiredCount: 0,
     quests: [
-      { id: "s3_harvest",  emoji: "🍅", title: "Red Harvest",    description: "Harvest 150 tomatoes",              condition: { type: "counter", key: "manualHarvestCount", value: 150 } },
+      { id: "s3_harvest",  emoji: "🍅", title: "Red Harvest",    description: "Harvest 150 tomatoes",              condition: { type: "counter", key: "tomatoesHarvested", value: 150 } },
       { id: "s3_hero",     emoji: "⚔️", title: "Level Up",       description: "Have a hero reach level 10",        condition: { type: "hero_level", value: 10 } },
       { id: "s3_fish",     emoji: "🎣", title: "Good Catch",     description: "Catch 3 bass or better",            condition: { type: "counter", key: "qualityFishCount", value: 3 } },
       { id: "s3_craft",    emoji: "🍅", title: "Sauce Run",      description: "Produce 5 sauce",                  condition: { type: "counter", key: "sauceCrafted", value: 5 } },

@@ -1795,7 +1795,7 @@ export function createInitialState() {
       marketCash: null,
     },
     questProgress: {
-      manualHarvestCount: 0, berriesHarvested: 0, fishCaughtCount: 0, qualityFishCount: 0, rareFishCount: 0,
+      manualHarvestCount: 0, berriesHarvested: 0, tomatoesHarvested: 0, fishCaughtCount: 0, qualityFishCount: 0, rareFishCount: 0,
       breadCrafted: 0, jamCrafted: 0, sauceCrafted: 0, eggsCollected: 0,
       milkCollected: 0, woolCollected: 0, omelettesCrafted: 0, forgeItemsCrafted: 0,
       heroQuestsCompleted: 0, tier2QuestsCompleted: 0, bossFightsWon: 0, heroPrestiges: 0,
@@ -2370,6 +2370,9 @@ if (activeTier) {
               cropsGained += crops;
               if (farm.crop === "berries") {
                 next.questProgress.berriesHarvested = (next.questProgress.berriesHarvested ?? 0) + crops;
+              }
+              if (farm.crop === "tomatoes") {
+                next.questProgress.tomatoesHarvested = (next.questProgress.tomatoesHarvested ?? 0) + crops;
               }
               plot.state = "empty";
               plot.growthTick = 0;
@@ -2995,6 +2998,9 @@ export function harvestPlot(state, farmId, plotId) {
   if (farm.crop === "berries") {
     next.questProgress.berriesHarvested = (next.questProgress.berriesHarvested ?? 0) + crops;
   }
+  if (farm.crop === "tomatoes") {
+    next.questProgress.tomatoesHarvested = (next.questProgress.tomatoesHarvested ?? 0) + crops;
+  }
   return next;
 }
  
@@ -3014,6 +3020,9 @@ export function tendPlot(state, farmId, plotId) {
     next.questProgress.manualHarvestCount = (next.questProgress.manualHarvestCount ?? 0) + 1;
     if (farm.crop === "berries") {
       next.questProgress.berriesHarvested = (next.questProgress.berriesHarvested ?? 0) + crops;
+    }
+    if (farm.crop === "tomatoes") {
+      next.questProgress.tomatoesHarvested = (next.questProgress.tomatoesHarvested ?? 0) + crops;
     }
     plot.state = "planted";
     plot.growthTick = 0;
@@ -4048,7 +4057,7 @@ export function beginPrestige(state, _unused, keptWorkerIds) {
 
   // Award 1 prestige skill point
   next.prestigePoints = (next.prestigePoints ?? 0) + 1;
-  next.questProgress = { manualHarvestCount: 0, berriesHarvested: 0, fishCaughtCount: 0, qualityFishCount: 0, rareFishCount: 0, breadCrafted: 0, jamCrafted: 0, sauceCrafted: 0, eggsCollected: 0, milkCollected: 0, woolCollected: 0, omelettesCrafted: 0, forgeItemsCrafted: 0, heroQuestsCompleted: 0, tier2QuestsCompleted: 0, bossFightsWon: 0, heroPrestiges: 0, chainmailOrBetterCrafted: false, t3ItemCrafted: false, claimedQuestIds: [], maxAutoBattleRun: 0, maxSimultaneousAutoBattlers: 0 };
+  next.questProgress = { manualHarvestCount: 0, berriesHarvested: 0, tomatoesHarvested: 0, fishCaughtCount: 0, qualityFishCount: 0, rareFishCount: 0, breadCrafted: 0, jamCrafted: 0, sauceCrafted: 0, eggsCollected: 0, milkCollected: 0, woolCollected: 0, omelettesCrafted: 0, forgeItemsCrafted: 0, heroQuestsCompleted: 0, tier2QuestsCompleted: 0, bossFightsWon: 0, heroPrestiges: 0, chainmailOrBetterCrafted: false, t3ItemCrafted: false, claimedQuestIds: [], maxAutoBattleRun: 0, maxSimultaneousAutoBattlers: 0 };
 
   const idsToKeep = Array.isArray(keptWorkerIds)
     ? keptWorkerIds
