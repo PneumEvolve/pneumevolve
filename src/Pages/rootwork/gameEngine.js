@@ -4888,9 +4888,9 @@ if (parsed.fishing?.fish) {
     if (parsed.roads.level === undefined) parsed.roads.level = 0;
     if (!parsed.tradeTowns) parsed.tradeTowns = {};
     const defaultTownRoutes = () => ({ routes: { t1: { enabled: false, active: false }, t2: { enabled: false, active: false }, t3: { enabled: false, active: false } }, disrupted: false });
-    if (!s.tradeTowns.thornwick)   s.tradeTowns.thornwick   = defaultTownRoutes();
-    if (!s.tradeTowns.crestfall)   s.tradeTowns.crestfall   = defaultTownRoutes();
-    if (!s.tradeTowns.glenhollow)  s.tradeTowns.glenhollow  = defaultTownRoutes();
+    if (!parsed.tradeTowns.thornwick)   parsed.tradeTowns.thornwick   = defaultTownRoutes();
+    if (!parsed.tradeTowns.crestfall)   parsed.tradeTowns.crestfall   = defaultTownRoutes();
+    if (!parsed.tradeTowns.glenhollow)  parsed.tradeTowns.glenhollow  = defaultTownRoutes();
     // Migrate old pulse-based saves to new route-based system
     for (const townId of ["millhaven", "ashport", "ironfeld", "velmoor"]) {
       if (!parsed.tradeTowns[townId]) {
