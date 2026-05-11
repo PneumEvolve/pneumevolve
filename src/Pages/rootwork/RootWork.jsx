@@ -570,7 +570,6 @@ if (wf) {
   const after = next.crops?.wheat ?? 0;
   if (after !== before) console.log('wheat delta:', after - before, '| workers on farm:', next.workers?.filter(w => w.farmId === wf.id).length);
 }
-          next = tickForgeWorkers(next, 1);
           next = tickAdventurerRegen(next, 1);
           next = tickAdventurerMissions(next);
           next = tickBossFight(next, 1);

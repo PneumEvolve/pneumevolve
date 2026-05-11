@@ -1214,8 +1214,11 @@ export function buildGuildHall(state) {
   if (state.town?.buildings?.guild_hall?.built) return state;
   const cost = TOWN_GUILD_HALL_COST;
   if ((state.cash ?? 0) < cost) return state;
+  const requires = getGuildHallUpgradeRequires(0);
+  if (!canAffordUpgradeMaterials(state, requires)) return state;
   const next = deepCloneState(state);
   next.cash -= cost;
+  consumeUpgradeMaterials(next, requires);
   if (!next.town.buildings) next.town.buildings = {};
   next.town.buildings.guild_hall = { built: true, level: 1 };
   return next;
@@ -2215,7 +2218,6 @@ export function calculateOfflineProgress(state, nowMs) {
   });
   for (let i = 0; i < seconds; i++) {
     next = tick(next);
-    next = tickForgeWorkers(next, 1);
     next = tickAdventurerRegen(next, 1);
     // Advance sim clock so mission startTime comparisons work correctly
     const simNow = offlineSimStart + (i + 1) * 1000;
@@ -2525,7 +2527,7 @@ if (activeTier) {
         const effectiveBait = hasBait ? baitId : null;
         const allowedFish = selectiveHaul ? (worker.allowedFish ?? null) : null;
 
-        worker.timer = (worker.timer ?? 0) + 1;
+        worker.timer = (worker.timer ?? 0) + satMultiplier;
         if (worker.timer >= interval) {
           worker.timer = 0;
           if (!next.fishing.fish) next.fishing.fish = {};
@@ -2656,7 +2658,7 @@ if (activeTier) {
       const careInterval = getBarnWorkerCareInterval(worker);
       const careMood = getBarnWorkerCareMood(worker);
 
-      worker.collectTimer = (worker.collectTimer ?? 0) + 1;
+      worker.collectTimer = (worker.collectTimer ?? 0) + satMultiplier;
       if (worker.collectTimer >= interval) {
         worker.collectTimer = 0;
         let remaining = capacity;
@@ -2678,7 +2680,7 @@ if (activeTier) {
       }
 
       if (careInterval) {
-        worker.careTimer = (worker.careTimer ?? 0) + 1;
+        worker.careTimer = (worker.careTimer ?? 0) + satMultiplier;
         if (worker.careTimer >= careInterval) {
           worker.careTimer = 0;
           const neediest = animals.reduce((lowest, animal) =>
@@ -2707,6 +2709,9 @@ if (activeTier) {
       next.cash = Math.max(0, (next.cash ?? 0) - recWorkers * REC_HALL_CASH_PER_WORKER);
     }
   }
+
+  // ── Forge workers (inside tick so satMultiplier applies) ───────────────
+  next = tickForgeWorkers(next, satMultiplier);
 
   next = updateTown(next, 1);
   next.totalPlayTime = (next.totalPlayTime ?? 0) + 1;
@@ -5048,15 +5053,15 @@ function getAdventurerMissionDuration(adventurer, zone) {
   const weaponKey = adventurer.equippedGear?.weapon ?? null;
   const weaponRecipe = weaponKey ? Object.values(FORGE_RECIPES).find((r) => r.output.resourceKey === weaponKey) : null;
   const weaponBonus = weaponRecipe?.missionTimeReduction ?? (weaponKey ? 0 : (adventurer.gear ?? 0) * 0.15);
-  const lvlBonus = Math.min(((adventurer.level ?? 1) - 1) * 0.05, 0.30); // caps at 30% from levels alone
-  // New skill tree duration bonus
+  const lvlBonus = Math.min(((adventurer.level ?? 1) - 1) * 0.02, 0.15); // 2% per level, caps at 15% at level 8
+  // Skill tree multiplier (mage speed skills)
   const skillMult = getHeroDurationMultiplier(adventurer);
-  // skillMult already accounts for mage_t1, mage_t5 stacks
-  // Apply weapon/level reduction first, then skill multiplier
-  // Level capped at 30%, gear adds up to another 30% (combined 60% max)
-  const gearLvlReduction = Math.min(Math.min(weaponBonus, 0.30) + lvlBonus, 0.60);
+  // Prestige speed bonus: -3% per prestige level, capped at 30% (all classes)
+  const prestigeSpeedMult = getHeroPrestigeDurationBonus(adventurer);
+  // Apply weapon/level reduction first (combined cap 45%: 15% level + 30% weapon)
+  const gearLvlReduction = Math.min(Math.min(weaponBonus, 0.30) + lvlBonus, 0.45);
   const afterGear = base * (1 - gearLvlReduction);
-  return Math.max(12, Math.round(afterGear * skillMult));
+  return Math.max(12, Math.round(afterGear * skillMult * prestigeSpeedMult));
 }
 
 function getAdventurerFailChance(adventurer, zone) {
@@ -5770,6 +5775,15 @@ export function getHeroPrestigeMinLootBonus(adventurer) {
   const pb = adventurer.prestigeBonuses ?? {};
   const scavStacks = Math.min(pb.scavenger ?? 0, PRESTIGE_CLASS_STACK_CAP);
   return scavStacks;
+}
+
+// Returns duration multiplier from prestige speed: -3% per prestige level, capped at 30%.
+// Applies to all heroes regardless of class.
+export function getHeroPrestigeDurationBonus(adventurer) {
+  const p = adventurer.prestigeLevel ?? 0;
+  if (p === 0) return 1;
+  const reduction = Math.min(p * 0.03, 0.30);
+  return 1 - reduction;
 }
 
 export function getHeroBonusMaxHp(adventurer) {
