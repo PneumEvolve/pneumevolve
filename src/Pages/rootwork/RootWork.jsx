@@ -529,7 +529,15 @@ export default function RootWork() {
       }
       if (!saved) saved = loadFromLocalStorage();
       if (saved) {
-        const { state: withOffline, offlineSeconds } = calculateOfflineProgress(saved, Date.now());
+        let withOffline = saved;
+        let offlineSeconds = 0;
+        try {
+          ({ state: withOffline, offlineSeconds } = calculateOfflineProgress(saved, Date.now()));
+        } catch (e) {
+          console.error('[Rootwork] calculateOfflineProgress failed, loading raw save:', e);
+          withOffline = saved;
+          offlineSeconds = 0;
+        }
         const withWorld = initWorldState(withOffline);
         setGame(withWorld); gameRef.current = withWorld;
         if (offlineSeconds > 60) {

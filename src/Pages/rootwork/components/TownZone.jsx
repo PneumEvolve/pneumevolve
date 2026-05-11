@@ -1124,7 +1124,7 @@ export default function TownZone({
                 {nextTier ? (
                   <>
                     <div style={{ fontSize: "0.78rem", color: "var(--muted)", marginBottom: "0.35rem" }}>
-                      Next: <strong style={{ color: "var(--text)" }}>{nextTier.name}</strong> — unlocks {nextTier.unlocksTown} & {nextTier.unlocksExpedition} expedition
+                      Next: <strong style={{ color: "var(--text)" }}>{nextTier.name}</strong> — unlocks {(nextTier.unlocksTowns ?? [nextTier.unlocksTown]).join(" & ")} · {nextTier.unlocksExpedition} expedition
                     </div>
                     <CostLine
                       cash={game.cash ?? 0}

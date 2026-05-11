@@ -86,13 +86,13 @@ export const PROCESSING_RECIPES = {
  
 // ─── Feast tiers ──────────────────────────────────────────────────────────────
 export const FEAST_TIERS = [
-  { cost: 3,   bonusPercent: 1  },
-  { cost: 6,   bonusPercent: 2  },
-  { cost: 12,  bonusPercent: 3  },
-  { cost: 25,  bonusPercent: 5  },
-  { cost: 50,  bonusPercent: 8  },
-  { cost: 100, bonusPercent: 12 },
-  { cost: 200, bonusPercent: 19 },
+  { cost: 30,   bonusPercent: 1  },
+  { cost: 75,   bonusPercent: 2  },
+  { cost: 150,  bonusPercent: 3  },
+  { cost: 300,  bonusPercent: 5  },
+  { cost: 600,  bonusPercent: 8  },
+  { cost: 1050, bonusPercent: 12 },
+  { cost: 1500, bonusPercent: 19 },
 ];
 export const FEAST_MAX_BONUS = 50;
  
@@ -1966,7 +1966,7 @@ export const ROAD_TIERS = [
     buildCost: 2000,
     buildRequires: { lumber: 20, iron_ore: 10 },
     upkeepPerTick: { iron_ore: 1, lumber: 1 },
-    unlocksTown: "millhaven",
+    unlocksTowns: ["thornwick", "crestfall"],
     unlocksExpedition: "scout",
   },
   {
@@ -1976,7 +1976,7 @@ export const ROAD_TIERS = [
     buildCost: 8000,
     buildRequires: { lumber: 40, iron_ore: 20, iron_fitting: 3 },
     upkeepPerTick: { iron_ore: 2, lumber: 1 },
-    unlocksTown: "ashport",
+    unlocksTowns: ["millhaven", "ironfeld"],
     unlocksExpedition: "dungeon",
   },
   {
@@ -1986,7 +1986,7 @@ export const ROAD_TIERS = [
     buildCost: 25000,
     buildRequires: { lumber: 60, iron_ore: 40, iron_fitting: 8 },
     upkeepPerTick: { iron_ore: 3, lumber: 2 },
-    unlocksTown: "ironfeld",
+    unlocksTowns: ["glenhollow", "ashport"],
     unlocksExpedition: "dragon",
   },
   {
@@ -1996,35 +1996,49 @@ export const ROAD_TIERS = [
     buildCost: 80000,
     buildRequires: { iron_fitting: 30, fine_tools: 10 },
     upkeepPerTick: { iron_ore: 4, lumber: 3 },
-    unlocksTown: "velmoor",
+    unlocksTowns: ["velmoor"],
     unlocksExpedition: "legendary",
   },
 ];
 
 // --- Trade Towns -------------------------------------------------------------
 export const TRADE_TOWNS = {
+  // ── Road 1 ───────────────────────────────────────────────────────────────────────────
+  thornwick: {
+    id: "thornwick",
+    name: "Thornwick",
+    emoji: "🌾",
+    flavor: "A modest market village. They buy raw harvests and pay in kind.",
+    roadLevel: 1,
+    routes: [
+      { id: "t1", label: "Wheat Route",  itemKey: "wheat",    source: "crops", drainPerTick: 2.0, bonus: { type: "crop_grow_speed", value: 0.10 }, description: "+10% crop grow speed" },
+      { id: "t2", label: "Berry Route",  itemKey: "berries",  source: "crops", drainPerTick: 1.5, bonus: { type: "crop_grow_speed", value: 0.20 }, description: "+20% crop grow speed" },
+      { id: "t3", label: "Tomato Route", itemKey: "tomatoes", source: "crops", drainPerTick: 1.0, bonus: { type: "crop_grow_speed", value: 0.30 }, description: "+30% crop grow speed" },
+    ],
+  },
+  crestfall: {
+    id: "crestfall",
+    name: "Crestfall",
+    emoji: "🎣",
+    flavor: "A riverside town. Fresh fish are their lifeblood.",
+    roadLevel: 1,
+    routes: [
+      { id: "t1", label: "Minnow Route", itemKey: "minnow", source: "pond", drainPerTick: 1.0, bonus: { type: "fishing_rate", value: 0.10 }, description: "+10% fishing rate" },
+      { id: "t2", label: "Bass Route",   itemKey: "bass",   source: "pond", drainPerTick: 0.5, bonus: { type: "fishing_rate", value: 0.20 }, description: "+20% fishing rate" },
+      { id: "t3", label: "Perch Route",  itemKey: "perch",  source: "pond", drainPerTick: 0.3, bonus: { type: "fishing_rate", value: 0.30 }, description: "+30% fishing rate" },
+    ],
+  },
+  // ── Road 2 ───────────────────────────────────────────────────────────────────────────
   millhaven: {
     id: "millhaven",
     name: "Millhaven",
-    emoji: "🌾",
-    flavor: "A hungry farming village that can barely feed itself.",
-    roadLevel: 1,
-    routes: [
-      { id: "t1", label: "Bread Route", itemKey: "bread", source: "artisan", drainPerTick: 0.5, bonus: { type: "crop_grow_speed", value: 0.10 }, description: "+10% crop grow speed" },
-      { id: "t2", label: "Jam Route",   itemKey: "jam",   source: "artisan", drainPerTick: 0.5, bonus: { type: "crop_grow_speed", value: 0.20 }, description: "+20% crop grow speed" },
-      { id: "t3", label: "Sauce Route", itemKey: "sauce", source: "artisan", drainPerTick: 0.5, bonus: { type: "crop_grow_speed", value: 0.35 }, description: "+35% crop grow speed" },
-    ],
-  },
-  ashport: {
-    id: "ashport",
-    name: "Ashport",
-    emoji: "⚓",
-    flavor: "A coastal fishing town that feeds its crew with farm-kitchen staples.",
+    emoji: "🍞",
+    flavor: "A hungry town that can't get enough processed food. They repay with efficiency.",
     roadLevel: 2,
     routes: [
-      { id: "t1", label: "Omelette Route", itemKey: "omelette", source: "artisan",      drainPerTick: 0.3, bonus: { type: "fish_catch_rate", value: 0.10 }, description: "+10% fish catch rate" },
-      { id: "t2", label: "Cheese Route",   itemKey: "cheese",   source: "artisan",      drainPerTick: 0.2, bonus: { type: "fish_catch_rate", value: 0.15 }, description: "+15% fish catch rate" },
-      { id: "t3", label: "Egg Route",      itemKey: "egg",      source: "animalGoods",  drainPerTick: 0.2, bonus: { type: "fish_catch_rate", value: 0.25 }, description: "+25% fish catch rate" },
+      { id: "t1", label: "Bread Route", itemKey: "bread", source: "artisan", drainPerTick: 0.5, bonus: { type: "crafting_material_reduction", value: 0.10 }, description: "-10% crafting materials" },
+      { id: "t2", label: "Jam Route",   itemKey: "jam",   source: "artisan", drainPerTick: 0.4, bonus: { type: "crafting_material_reduction", value: 0.20 }, description: "-20% crafting materials" },
+      { id: "t3", label: "Sauce Route", itemKey: "sauce", source: "artisan", drainPerTick: 0.3, bonus: { type: "crafting_material_reduction", value: 0.30 }, description: "-30% crafting materials" },
     ],
   },
   ironfeld: {
@@ -2032,13 +2046,39 @@ export const TRADE_TOWNS = {
     name: "Ironfeld",
     emoji: "⚒️",
     flavor: "A mining settlement. Resource-rich but food-poor.",
-    roadLevel: 3,
+    roadLevel: 2,
     routes: [
-      { id: "t1", label: "Smoked Fish Route",   itemKey: "smoked_fish",   source: "artisan",      drainPerTick: 0.1, bonus: { type: "iron_trickle",       iron_ore: 3 },            description: "+3 iron ore/sec" },
-      { id: "t2", label: "Fish Pie Route",      itemKey: "fish_pie",      source: "artisan",      drainPerTick: 0.1, bonus: { type: "lumber_trickle",     lumber: 3 },              description: "+3 lumber/sec" },
-      { id: "t3", label: "Legendary Fish Route",itemKey: "rare",          source: "pond",         drainPerTick: 0.05,bonus: { type: "full_upkeep_cover", iron_ore: 6, lumber: 4 }, description: "Covers road upkeep (+6 iron +4 lumber/sec)" },
+      { id: "t1", label: "Smoked Fish Route",    itemKey: "smoked_fish", source: "animalGoods", drainPerTick: 0.1, bonus: { type: "iron_trickle",       iron_ore: 3 },            description: "+3 iron ore/sec" },
+      { id: "t2", label: "Fish Pie Route",       itemKey: "fish_pie",    source: "animalGoods", drainPerTick: 0.1, bonus: { type: "lumber_trickle",     lumber: 3 },              description: "+3 lumber/sec" },
+      { id: "t3", label: "Legendary Fish Route", itemKey: "rare",        source: "pond",        drainPerTick: 0.05,bonus: { type: "full_upkeep_cover", iron_ore: 6, lumber: 4 }, description: "Covers road upkeep (+6 iron +4 lumber/sec)" },
     ],
   },
+  // ── Road 3 ───────────────────────────────────────────────────────────────────────────
+  glenhollow: {
+    id: "glenhollow",
+    name: "Glenhollow",
+    emoji: "🐄",
+    flavor: "A pastoral settlement. They depend on animal farmers to survive the winters.",
+    roadLevel: 3,
+    routes: [
+      { id: "t1", label: "Egg Route",  itemKey: "egg",  source: "animalGoods", drainPerTick: 1.0, bonus: { type: "barn_cycle_speed", value: 0.10 }, description: "+10% barn cycle speed" },
+      { id: "t2", label: "Milk Route", itemKey: "milk", source: "animalGoods", drainPerTick: 0.6, bonus: { type: "barn_cycle_speed", value: 0.20 }, description: "+20% barn cycle speed" },
+      { id: "t3", label: "Wool Route", itemKey: "wool", source: "animalGoods", drainPerTick: 0.4, bonus: { type: "barn_cycle_speed", value: 0.30 }, description: "+30% barn cycle speed" },
+    ],
+  },
+  ashport: {
+    id: "ashport",
+    name: "Ashport",
+    emoji: "⚓",
+    flavor: "A coastal fishing town. Artisan goods keep their crews working faster.",
+    roadLevel: 3,
+    routes: [
+      { id: "t1", label: "Omelette Route",      itemKey: "omelette",      source: "animalGoods", drainPerTick: 0.3, bonus: { type: "crafting_time_reduction", value: 0.10 }, description: "-10% crafting time" },
+      { id: "t2", label: "Cheese Route",        itemKey: "cheese",        source: "animalGoods", drainPerTick: 0.2, bonus: { type: "crafting_time_reduction", value: 0.20 }, description: "-20% crafting time" },
+      { id: "t3", label: "Knitted Goods Route", itemKey: "knitted_goods", source: "animalGoods", drainPerTick: 0.2, bonus: { type: "crafting_time_reduction", value: 0.30 }, description: "-30% crafting time" },
+    ],
+  },
+  // ── Road 4 ───────────────────────────────────────────────────────────────────────────
   velmoor: {
     id: "velmoor",
     name: "Velmoor",
@@ -2052,7 +2092,7 @@ export const TRADE_TOWNS = {
     ],
   },
 };
-export const TRADE_TOWN_ORDER = ["millhaven", "ashport", "ironfeld", "velmoor"];
+export const TRADE_TOWN_ORDER = ["thornwick", "crestfall", "millhaven", "ironfeld", "glenhollow", "ashport", "velmoor"];
 
 // --- Expeditions -------------------------------------------------------------
 // Expeditions are now persistent: heroes stay until food belt is empty or recalled.

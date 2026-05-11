@@ -439,7 +439,7 @@ export function isFarmPrestigeReady(farm, workers, state) {
   const growTime = getFarmAverageGrowTime(
     farm, workers, farm.crop,
     state.feastBonusPercent ?? 0,
-    (state.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(state) + getMillhavenGrowBonus(state) * 100,
+    (state.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(state) + (getMillhavenGrowBonus(state) + getThornwickGrowBonus(state)) * 100,
     getTreasuryGrowBonus(state),
     getFishMealGrowBonus(state)
   );
@@ -1551,7 +1551,10 @@ export function getEffectiveKitchenSeconds(worker, baseSeconds, state = null, re
   const swiftMult = Math.pow(0.75, swiftCount);
   // Fighter Hearth Guardian: bread bakes 30% faster
   const breadMult = (state && recipeId === "bread") ? getHeroBreadSpeedMultiplier(state) : 1.0;
-  return Math.max(5, Math.floor(baseSeconds * workerMult * schoolMult * swiftMult * breadMult));
+  // Ashport: crafting time reduction (highest active tier replaces lower)
+  const ashportReduction = state ? getAshportCraftingTimeBonus(state) : 0;
+  const ashportMult = 1 - ashportReduction;
+  return Math.max(5, Math.floor(baseSeconds * workerMult * schoolMult * swiftMult * breadMult * ashportMult));
 }
  
 export function isKitchenWorkerIdle(worker) {
@@ -1607,7 +1610,8 @@ function _startKitchenWorkerRecipe(worker, recipeId, crops, animalGoods, fish, b
   if (!recipe?.inputCrop) return false;
   const batch = getKitchenWorkerBatchSize(worker);
   const efficient = state ? hasPrestigeSkill(state, "efficient_process") : false;
-  const inputMult = efficient ? 0.75 : 1;
+  const millhavenReduction = state ? getMillhavenMaterialBonus(state) : 0;
+  const inputMult = (efficient ? 0.75 : 1) * (1 - millhavenReduction);
   const totalInput = Math.max(1, Math.floor(recipe.inputAmount * batch * inputMult));
   const inCrops = recipe.inputCrop in (crops ?? {});
 const inAnimal = !inCrops && recipe.inputCrop in (animalGoods ?? {});
@@ -1637,7 +1641,8 @@ export function cancelKitchenWorkerRecipe(state, workerId) {
     if (recipe?.inputCrop) {
       const cleanSwitch = hasPrestigeSkill(next, "clean_switch");
       const efficient = hasPrestigeSkill(next, "efficient_process");
-      const inputMult = efficient ? 0.75 : 1;
+      const millhavenReduction = getMillhavenMaterialBonus(next);
+      const inputMult = (efficient ? 0.75 : 1) * (1 - millhavenReduction);
       const totalConsumed = Math.max(1, Math.floor(recipe.inputAmount * batch * inputMult));
       const refund = cleanSwitch ? totalConsumed : Math.floor(totalConsumed * 0.5);
       if (recipe.inputCrop in (next.crops ?? {})) next.crops[recipe.inputCrop] += refund;
@@ -1895,12 +1900,15 @@ export function getFishMealGrowBonus(state) {
 
 export function getAnimalEffectiveCycleSeconds(baseSeconds, state) {
   const feast = state.feastBonusPercent ?? 0;
-  const townBonus = (state.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(state) + getMillhavenGrowBonus(state) * 100;
+  const townBonus = (state.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(state) + (getMillhavenGrowBonus(state) + getThornwickGrowBonus(state)) * 100;
   const treasuryBonus = getTreasuryGrowBonus(state);
   const fishMeal = getFishMealGrowBonus(state);
   const totalBonus = feast + townBonus + treasuryBonus + fishMeal;
-  if (totalBonus <= 0) return baseSeconds;
-  return Math.max(10, Math.floor(baseSeconds / (1 + totalBonus / 100)));
+  const barnSpeedBonus = getGlenhollowBarnBonus(state); // 0–0.30 from Glenhollow
+  const baseMult = totalBonus > 0 ? (1 + totalBonus / 100) : 1;
+  const totalMult = baseMult * (1 + barnSpeedBonus);
+  if (totalMult <= 1) return baseSeconds;
+  return Math.max(10, Math.floor(baseSeconds / totalMult));
 }
 // ─── Barn worker helpers ──────────────────────────────────────────────────────
 
@@ -2236,7 +2244,7 @@ export function tick(state) {
   next.marketWorkers  = (next.marketWorkers  ?? []).map((w) => ({ ...w, queue: (w.queue ?? []).map((o) => ({ ...o })) }));
   next.pendingDeathEvents = []; // clear each tick; fresh events added below
   const feast = next.feastBonusPercent ?? 0;
-  const townBonus = (next.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(next) + getMillhavenGrowBonus(next) * 100;
+  const townBonus = (next.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(next) + (getMillhavenGrowBonus(next) + getThornwickGrowBonus(next)) * 100;
   const treasuryGrowBonus = getTreasuryGrowBonus(next);
   const fishMealBonus = getFishMealGrowBonus(next);
  
@@ -3017,7 +3025,7 @@ export function tendPlot(state, farmId, plotId) {
   const growTime = getEffectiveGrowTime(
     farm, next.workers, farm.crop, plot,
     next.feastBonusPercent ?? 0,
-    (next.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(next) + getMillhavenGrowBonus(next) * 100,
+    (next.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(next) + (getMillhavenGrowBonus(next) + getThornwickGrowBonus(next)) * 100,
     getTreasuryGrowBonus(next),
     getFishMealGrowBonus(next)
   );
@@ -4880,6 +4888,9 @@ if (parsed.fishing?.fish) {
     if (parsed.roads.level === undefined) parsed.roads.level = 0;
     if (!parsed.tradeTowns) parsed.tradeTowns = {};
     const defaultTownRoutes = () => ({ routes: { t1: { enabled: false, active: false }, t2: { enabled: false, active: false }, t3: { enabled: false, active: false } }, disrupted: false });
+    if (!s.tradeTowns.thornwick)   s.tradeTowns.thornwick   = defaultTownRoutes();
+    if (!s.tradeTowns.crestfall)   s.tradeTowns.crestfall   = defaultTownRoutes();
+    if (!s.tradeTowns.glenhollow)  s.tradeTowns.glenhollow  = defaultTownRoutes();
     // Migrate old pulse-based saves to new route-based system
     for (const townId of ["millhaven", "ashport", "ironfeld", "velmoor"]) {
       if (!parsed.tradeTowns[townId]) {
@@ -7164,6 +7175,7 @@ function _getStock(state, source, itemKey) {
   if (source === "animalGoods")    return state.animalGoods?.[itemKey]   ?? 0;
   if (source === "worldResources") return state.worldResources?.[itemKey] ?? 0;
   if (source === "pond")           return state.fishing?.fish?.[itemKey]  ?? 0;
+  if (source === "crops")          return state.crops?.[itemKey]          ?? 0;
   return 0;
 }
 
@@ -7176,6 +7188,8 @@ function _deductStock(state, source, itemKey, amount) {
     return { ...state, worldResources: { ...(state.worldResources ?? {}), [itemKey]: Math.max(0, (state.worldResources?.[itemKey] ?? 0) - amount) } };
   if (source === "pond")
     return { ...state, fishing: { ...(state.fishing ?? {}), fish: { ...(state.fishing?.fish ?? {}), [itemKey]: Math.max(0, (state.fishing?.fish?.[itemKey] ?? 0) - amount) } } };
+  if (source === "crops")
+    return { ...state, crops: { ...(state.crops ?? {}), [itemKey]: Math.max(0, (state.crops?.[itemKey] ?? 0) - amount) } };
   return state;
 }
 
@@ -7248,10 +7262,12 @@ export function tickTradeTowns(state) {
         updatedRoutes[r.id] = { ...(updatedRoutes[r.id] ?? {}), active: false };
       }
     } else {
-      // Drain goods for each enabled route
+      // Drain goods for each enabled route.
+      // If a tier goes inactive (out of stock), all higher tiers cascade off.
+      let cascadeOff = false;
       for (const r of def.routes) {
         const rs = updatedRoutes[r.id] ?? { enabled: false, active: false };
-        if (!rs.enabled) {
+        if (!rs.enabled || cascadeOff) {
           updatedRoutes[r.id] = { ...rs, active: false };
           continue;
         }
@@ -7260,8 +7276,9 @@ export function tickTradeTowns(state) {
           next = _deductStock(next, r.source, r.itemKey, r.drainPerTick);
           updatedRoutes[r.id] = { ...rs, active: true };
         } else {
-          // Out of stock — stay enabled but go inactive
+          // Out of stock — go inactive and cascade all higher tiers off
           updatedRoutes[r.id] = { ...rs, active: false };
+          cascadeOff = true;
         }
       }
 
@@ -7303,28 +7320,52 @@ export function tickTradeTowns(state) {
 }
 
 // --- Bonus getters -----------------------------------------------------------
-// Each returns the summed bonus from all active routes for that town.
-
-export function getMillhavenGrowBonus(state) {
-  const def = TRADE_TOWNS.millhaven;
-  const town = state.tradeTowns?.millhaven;
-  if (!town) return 0;
-  let total = 0;
+// Each returns the highest active tier value (replace semantics, not additive).
+// Helper: get the highest active bonus value of a given type across a town's routes.
+function _getHighestActiveTownBonus(state, townId, bonusType) {
+  const def = TRADE_TOWNS[townId];
+  const town = state.tradeTowns?.[townId];
+  if (!def || !town) return 0;
+  let highest = 0;
   for (const r of def.routes) {
-    if (town.routes?.[r.id]?.active && r.bonus.type === "crop_grow_speed") total += r.bonus.value;
+    if (town.routes?.[r.id]?.active && r.bonus.type === bonusType) {
+      highest = Math.max(highest, r.bonus.value ?? 0);
+    }
   }
-  return total;
+  return highest;
 }
 
+// Thornwick: raw crops → crop grow speed (replaces old Millhaven role)
+export function getThornwickGrowBonus(state) {
+  return _getHighestActiveTownBonus(state, "thornwick", "crop_grow_speed");
+}
+
+// Crestfall: raw fish → fishing rate
+export function getCrestfallFishingBonus(state) {
+  return _getHighestActiveTownBonus(state, "crestfall", "fishing_rate");
+}
+
+// Millhaven: processed food → crafting material reduction (0–0.30)
+export function getMillhavenMaterialBonus(state) {
+  return _getHighestActiveTownBonus(state, "millhaven", "crafting_material_reduction");
+}
+
+// Glenhollow: raw barn goods → barn cycle speed (0–0.30)
+export function getGlenhollowBarnBonus(state) {
+  return _getHighestActiveTownBonus(state, "glenhollow", "barn_cycle_speed");
+}
+
+// Ashport: artisan barn goods → crafting time reduction (0–0.30)
+export function getAshportCraftingTimeBonus(state) {
+  return _getHighestActiveTownBonus(state, "ashport", "crafting_time_reduction");
+}
+
+// Legacy: getMillhavenGrowBonus kept as 0 (Thornwick now owns crop_grow_speed)
+export function getMillhavenGrowBonus(state) { return 0; }
+
+// Legacy: getAshportFishBonus kept — now Crestfall handles fishing_rate
 export function getAshportFishBonus(state) {
-  const def = TRADE_TOWNS.ashport;
-  const town = state.tradeTowns?.ashport;
-  if (!town) return 0;
-  let total = 0;
-  for (const r of def.routes) {
-    if (town.routes?.[r.id]?.active && r.bonus.type === "fish_catch_rate") total += r.bonus.value;
-  }
-  return total;
+  return getCrestfallFishingBonus(state);
 }
 
 export function getVelmoorXpBonus(state) {
