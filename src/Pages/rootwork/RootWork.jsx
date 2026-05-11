@@ -55,7 +55,7 @@ import {
   buildForgeHall, upgradeForgeHall,
   buildRecHall, upgradeRecHall,
   buildOrUpgradeRoad, tickRoads,
-  tickTradeTowns, fulfillTownPulse, isTownConnected, getTownBonusActive,
+  tickTradeTowns, toggleTownRoute, isTownConnected, getTownBonusActive,
   getMillhavenGrowBonus, getAshportFishBonus, getVelmoorXpBonus, getVelmoorExpeditionBonus,
   sendExpedition, recallExpedition, tickExpeditions, claimExpedition, toggleRoad,
   getRoadLevel, getRoadNextTier, canAffordRoad, getExpeditionAvailable,
@@ -683,10 +683,25 @@ if (wf) {
 
   // Roads & Trade Towns & Expeditions
   const handleBuildOrUpgradeRoad = useCallback(() => update((s) => { const n = buildOrUpgradeRoad(s); if (n === s) notify('Cannot build/upgrade Road — check costs.'); return n; }), [update, notify]);
-  const handleFulfillTownPulse = useCallback((townId) => update((s) => { const n = fulfillTownPulse(s, townId); if (n === s) notify('Not enough goods to fulfill request.'); return n; }), [update, notify]);
+  const handleToggleTownRoute = useCallback((townId, routeId) => update((s) => toggleTownRoute(s, townId, routeId)), [update]);
   const handleSendExpedition = useCallback((tierId, heroIds) => update((s) => { const n = sendExpedition(s, tierId, heroIds); if (n === s) notify('Cannot send expedition — check requirements.'); return n; }), [update, notify]);
   const handleRecallExpedition = useCallback((tierId) => update((s) => recallExpedition(s, tierId)), [update]);
-  const handleToggleRoad = useCallback((roadLevel) => update((s) => toggleRoad(s, roadLevel)), [update]);
+  const handleToggleRoad = useCallback((roadLevel) => update((s) => {
+    let next = toggleRoad(s, roadLevel);
+    // If this road was just disabled, recall any expeditions that require it
+    const enabledKey = `road_${roadLevel}_enabled`;
+    const nowDisabled = next.roads?.[enabledKey] === false;
+    if (nowDisabled) {
+      const exps = next.expeditions ?? {};
+      for (const tierId of Object.keys(exps)) {
+        const tierDef = EXPEDITION_TIERS[tierId];
+        if (tierDef && tierDef.roadLevel === roadLevel) {
+          next = recallExpedition(next, tierId);
+        }
+      }
+    }
+    return next;
+  }), [update]);
   const handleClaimExpedition = useCallback(() => update((s) => claimExpedition(s)), [update]);
 
 
@@ -1113,7 +1128,7 @@ if (wf) {
             onSetHeroFillFood={handleSetHeroFillFood}
             onSendExpedition={handleSendExpedition}
             onRecallExpedition={handleRecallExpedition}
-            onFulfillTownPulse={handleFulfillTownPulse}
+            onToggleTownRoute={handleToggleTownRoute}
           />
         )}
         {activeMainTab === "view" && (

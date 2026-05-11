@@ -1421,11 +1421,13 @@ export const TAVERN_REGEN_BONUS = 0.10; // legacy kept for save compat - use get
 // ─── Artisan Food as Heal Items ───────────────────────────────────────────────
 
 export const ARTISAN_FOOD_HEAL = {
-  bread: { id: "bread", emoji: "🍞", name: "Bread", healAmount: 30 },
-  jam:   { id: "jam",   emoji: "🍯", name: "Jam",   healAmount: 50 },
-  sauce: { id: "sauce", emoji: "🥫", name: "Sauce", healAmount: 100 },
+  bread:       { id: "bread",       emoji: "🍞", name: "Bread",       healAmount: 30,  source: "artisan" },
+  jam:         { id: "jam",         emoji: "🍯", name: "Jam",         healAmount: 50,  source: "artisan" },
+  sauce:       { id: "sauce",       emoji: "🥫", name: "Sauce",       healAmount: 100, source: "artisan" },
+  fish_pie:    { id: "fish_pie",    emoji: "🥧", name: "Fish Pie",    healAmount: 125, source: "animalGoods" },
+  smoked_fish: { id: "smoked_fish", emoji: "🐟", name: "Smoked Fish", healAmount: 150, source: "animalGoods" },
 };
-export const ARTISAN_FOOD_LIST = ["bread", "jam", "sauce"];
+export const ARTISAN_FOOD_LIST = ["bread", "jam", "sauce", "fish_pie", "smoked_fish"];
 
 // ─── Adventurer Buff Items (separate slot, not food belt) ────────────────────
 export const ADVENTURER_BUFF_ITEMS = {
@@ -2004,54 +2006,50 @@ export const TRADE_TOWNS = {
   millhaven: {
     id: "millhaven",
     name: "Millhaven",
-    emoji: "\u{1F33E}",
+    emoji: "🌾",
     flavor: "A hungry farming village that can barely feed itself.",
     roadLevel: 1,
-    pulseDurationTicks: 2700,
-    requests: [
-      { itemKey: "bread", source: "artisan",    quantity: [50, 100] },
-      { itemKey: "jam",   source: "artisan",    quantity: [50, 100] },
+    routes: [
+      { id: "t1", label: "Bread Route", itemKey: "bread", source: "artisan", drainPerTick: 0.5, bonus: { type: "crop_grow_speed", value: 0.10 }, description: "+10% crop grow speed" },
+      { id: "t2", label: "Jam Route",   itemKey: "jam",   source: "artisan", drainPerTick: 0.5, bonus: { type: "crop_grow_speed", value: 0.20 }, description: "+20% crop grow speed" },
+      { id: "t3", label: "Sauce Route", itemKey: "sauce", source: "artisan", drainPerTick: 0.5, bonus: { type: "crop_grow_speed", value: 0.35 }, description: "+35% crop grow speed" },
     ],
-    bonus: { type: "crop_grow_speed", valuePerStack: 0.10, maxStacks: 3, description: "+10% crop grow speed per stack (max 3x)" },
   },
   ashport: {
     id: "ashport",
     name: "Ashport",
-    emoji: "\u{2693}",
+    emoji: "⚓",
     flavor: "A coastal fishing town that needs livestock to feed their workers.",
     roadLevel: 2,
-    pulseDurationTicks: 3600,
-    requests: [
-      { itemKey: "egg",  source: "animalGoods", quantity: [30, 60] },
-      { itemKey: "milk", source: "animalGoods", quantity: [20, 40] },
+    routes: [
+      { id: "t1", label: "Egg Route",  itemKey: "egg",  source: "animalGoods", drainPerTick: 0.3, bonus: { type: "fish_catch_rate", value: 0.10 }, description: "+10% fish catch rate" },
+      { id: "t2", label: "Milk Route", itemKey: "milk", source: "animalGoods", drainPerTick: 0.2, bonus: { type: "fish_catch_rate", value: 0.15 }, description: "+15% fish catch rate" },
+      { id: "t3", label: "Wool Route", itemKey: "wool", source: "animalGoods", drainPerTick: 0.2, bonus: { type: "fish_catch_rate", value: 0.25 }, description: "+25% fish catch rate" },
     ],
-    bonus: { type: "fish_catch_rate", value: 0.20, description: "+20% fish catch rate" },
   },
   ironfeld: {
     id: "ironfeld",
     name: "Ironfeld",
-    emoji: "\u2692\uFE0F",
+    emoji: "⚒️",
     flavor: "A mining settlement. Resource-rich but food-poor.",
     roadLevel: 3,
-    pulseDurationTicks: 5400,
-    requests: [
-      { itemKey: "cheese",        source: "animalGoods", quantity: [10, 20] },
-      { itemKey: "knitted_goods", source: "animalGoods", quantity: [15, 30] },
+    routes: [
+      { id: "t1", label: "Omelette Route",      itemKey: "omelette",      source: "animalGoods", drainPerTick: 0.1, bonus: { type: "iron_trickle",       iron_ore: 3 },            description: "+3 iron ore/sec" },
+      { id: "t2", label: "Cheese Route",        itemKey: "cheese",        source: "animalGoods", drainPerTick: 0.1, bonus: { type: "lumber_trickle",     lumber: 3 },              description: "+3 lumber/sec" },
+      { id: "t3", label: "Knitted Goods Route", itemKey: "knitted_goods", source: "animalGoods", drainPerTick: 0.1, bonus: { type: "full_upkeep_cover", iron_ore: 6, lumber: 4 }, description: "Covers road upkeep (+6 iron +4 lumber/sec)" },
     ],
-    bonus: { type: "road_upkeep_trickle", iron_ore: 6, lumber: 4, description: "Covers all road upkeep — trickles +6 iron ore & +4 lumber/sec" },
   },
   velmoor: {
     id: "velmoor",
     name: "Velmoor",
-    emoji: "\u{1F52E}",
+    emoji: "🔮",
     flavor: "A distant arcane city. Mysterious and hungry for rare specimens.",
     roadLevel: 4,
-    pulseDurationTicks: 7200,
-    requests: [
-      { itemKey: "rare_gem",     source: "worldResources", quantity: [5, 15] },
-      { itemKey: "mana_crystal", source: "worldResources", quantity: [1, 3] },
+    routes: [
+      { id: "t1", label: "Gem Route",     itemKey: "rare_gem",     source: "worldResources", drainPerTick: 0.02, bonus: { type: "hero_xp",                xpBonus: 0.15 },                        description: "+15% hero XP" },
+      { id: "t2", label: "Crystal Route", itemKey: "mana_crystal", source: "worldResources", drainPerTick: 0.01, bonus: { type: "expedition_loot",       expeditionBonus: 0.10 },                description: "+10% expedition loot" },
+      { id: "t3", label: "Arcane Route",  itemKey: "rare_gem",     source: "worldResources", drainPerTick: 0.02, bonus: { type: "hero_xp_and_expedition", xpBonus: 0.25, expeditionBonus: 0.15 }, description: "+25% hero XP & +15% expedition loot" },
     ],
-    bonus: { type: "hero_xp_and_expedition", xpBonus: 0.25, expeditionBonus: 0.15, description: "+25% hero XP & +15% expedition loot quality" },
   },
 };
 export const TRADE_TOWN_ORDER = ["millhaven", "ashport", "ironfeld", "velmoor"];

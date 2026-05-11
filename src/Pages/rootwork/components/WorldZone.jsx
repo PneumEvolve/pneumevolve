@@ -923,13 +923,14 @@ function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onGiveArtisa
             const foodBelt = adventurer.foodBelt ?? {};
             const beltItems = ARTISAN_FOOD_LIST.filter((id) => (foodBelt[id] ?? 0) > 0);
             const beltTotal = Object.values(foodBelt).reduce((s, v) => s + v, 0);
-            const stockFood = ARTISAN_FOOD_LIST.filter((id) => ((game.artisan ?? {})[id] ?? 0) > 0);
+            const _getFoodStock = (id) => ARTISAN_FOOD_HEAL[id]?.source === "animalGoods" ? (game.animalGoods ?? {})[id] ?? 0 : (game.artisan ?? {})[id] ?? 0;
+            const stockFood = ARTISAN_FOOD_LIST.filter((id) => _getFoodStock(id) > 0);
             // Last food type used on belt (for replenish — first belt item, or first in stock)
             const lastBeltType = beltItems[0] ?? stockFood[0] ?? null;
-            const canReplenish = lastBeltType && beltTotal < beltCapacity && ((game.artisan ?? {})[lastBeltType] ?? 0) > 0;
+            const canReplenish = lastBeltType && beltTotal < beltCapacity && _getFoodStock(lastBeltType) > 0;
             const replenishAmount = lastBeltType ? Math.min(
               beltCapacity - beltTotal,
-              (game.artisan ?? {})[lastBeltType] ?? 0
+              _getFoodStock(lastBeltType)
             ) : 0;
 
             return (
@@ -1096,7 +1097,8 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
   const [autoBattleMode, setAutoBattleMode] = useState(false);
 
   // Seed from persisted lastFillFoodId so the chosen food survives re-renders
-  const stockFood = ARTISAN_FOOD_LIST.filter((id) => ((game.artisan ?? {})[id] ?? 0) > 0);
+  const getFoodStock = (id) => ARTISAN_FOOD_HEAL[id]?.source === "animalGoods" ? (game.animalGoods ?? {})[id] ?? 0 : (game.artisan ?? {})[id] ?? 0;
+  const stockFood = ARTISAN_FOOD_LIST.filter((id) => getFoodStock(id) > 0);
   const savedIdx = adventurer.lastFillFoodId
     ? Math.max(0, stockFood.indexOf(adventurer.lastFillFoodId))
     : 0;
@@ -1373,7 +1375,7 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
               const safeIdx = stockFood.length > 0 ? fillFoodIdx % stockFood.length : 0;
               const topStock = stockFood[safeIdx] ?? null;
               const def = topStock ? ARTISAN_FOOD_HEAL[topStock] : null;
-              const stockQty = topStock ? ((game.artisan ?? {})[topStock] ?? 0) : 0;
+              const stockQty = topStock ? getFoodStock(topStock) : 0;
               const fillAmt = topStock ? Math.min(beltCapacity - beltFoodTotal, stockQty) : 0;
               const canFill = topStock !== null && fillAmt > 0;
               const multiStock = stockFood.length > 1;
@@ -2096,7 +2098,7 @@ export default function WorldZone({
   onSetHeroFillFood,
   onSendExpedition,
   onRecallExpedition,
-  onFulfillTownPulse,
+  onToggleTownRoute,
   expeditionClaimResult,
   onClaimExpedition,
   onDismissExpeditionClaim,
@@ -2495,24 +2497,22 @@ export default function WorldZone({
             const roadLevel = getRoadLevel(game);
             const locked = roadLevel < def.roadLevel;
             const town = game.tradeTowns?.[townId] ?? {};
-            const req = town.currentRequest;
-            const bonusActive = town.bonusActive ?? false;
-            const bonusTicks = town.bonusTicksRemaining ?? 0;
-            const streak = town.streak ?? 0;
-            const pulseTicks = town.pulseTicksRemaining ?? def.pulseDurationTicks;
             const disrupted = town.disrupted ?? false;
+            const townRoutes = town.routes ?? {};
 
-            // Stock check for fulfillment
-            let haveStock = 0;
-            if (req) {
-              if (req.source === "artisan") haveStock = game.artisan?.[req.itemKey] ?? 0;
-              else if (req.source === "animalGoods") haveStock = game.animalGoods?.[req.itemKey] ?? 0;
-              else if (req.source === "worldResources") haveStock = game.worldResources?.[req.itemKey] ?? 0;
+            // Helper: stock for a route
+            function getStock(r) {
+              if (r.source === "artisan")        return game.artisan?.[r.itemKey]       ?? 0;
+              if (r.source === "animalGoods")    return game.animalGoods?.[r.itemKey]   ?? 0;
+              if (r.source === "worldResources") return game.worldResources?.[r.itemKey] ?? 0;
+              return 0;
             }
-            const canFulfill = req && haveStock >= req.quantity;
+
+            const anyActive = def.routes.some(r => townRoutes[r.id]?.active);
 
             return (
-              <div key={townId} style={{ padding: "0.85rem", background: "rgba(255,255,255,0.03)", border: `1px solid ${connected ? (bonusActive ? "rgba(74,222,128,0.4)" : "rgba(99,102,241,0.25)") : "var(--border)"}`, borderRadius: "14px", marginBottom: "0.75rem", opacity: locked ? 0.5 : 1 }}>
+              <div key={townId} style={{ padding: "0.85rem", background: "rgba(255,255,255,0.03)", border: `1px solid ${connected ? (anyActive ? "rgba(74,222,128,0.4)" : "rgba(99,102,241,0.25)") : "var(--border)"}`, borderRadius: "14px", marginBottom: "0.75rem", opacity: locked ? 0.5 : 1 }}>
+                {/* Header */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.4rem" }}>
                   <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>{def.emoji} {def.name}</div>
                   <div style={{ fontSize: "0.7rem", padding: "0.15rem 0.45rem", borderRadius: "6px",
@@ -2521,47 +2521,84 @@ export default function WorldZone({
                     {locked ? `🔒 Road L${def.roadLevel} required` : disrupted ? "⚠️ Disrupted" : connected ? "✓ Connected" : "Disconnected"}
                   </div>
                 </div>
-                <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.5rem" }}>{def.flavor}</div>
+                <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.6rem" }}>{def.flavor}</div>
 
-                {!locked && connected && (
-                  <>
-                    {/* Bonus status */}
-                    <div style={{ fontSize: "0.75rem", marginBottom: "0.5rem", padding: "0.35rem 0.5rem", background: bonusActive ? "rgba(74,222,128,0.1)" : "rgba(255,255,255,0.03)", border: `1px solid ${bonusActive ? "rgba(74,222,128,0.3)" : "var(--border)"}`, borderRadius: "8px" }}>
-                      <span style={{ color: bonusActive ? "#4ade80" : "var(--muted)" }}>
-                        {bonusActive ? `✓ ${def.bonus.description}` : `⏸ Bonus inactive — fulfill a request to activate`}
-                      </span>
-                      {bonusActive && <span style={{ color: "var(--muted)", marginLeft: "0.5rem" }}>({Math.ceil(bonusTicks / 60)}m left)</span>}
-                      {streak > 0 && <span style={{ color: "#f59e0b", marginLeft: "0.5rem" }}>🔥 Streak {streak}</span>}
-                    </div>
-
-                    {/* Pulse request */}
-                    {req ? (
-                      <div style={{ padding: "0.5rem 0.6rem", background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: "10px" }}>
-                        <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "#fbbf24", marginBottom: "0.3rem" }}>
-                          📦 Request: {req.quantity}× {req.itemKey.replace(/_/g, " ")}
-                        </div>
-                        <div style={{ fontSize: "0.7rem", color: "var(--muted)", marginBottom: "0.4rem" }}>
-                          You have: {Math.floor(haveStock)} — {canFulfill ? "✓ Enough" : `Need ${req.quantity - Math.floor(haveStock)} more`}
-                        </div>
-                        <button disabled={!canFulfill} onClick={() => onFulfillTownPulse(townId)}
-                          style={{ fontSize: "0.78rem", padding: "0.3rem 0.75rem", background: canFulfill ? "rgba(251,191,36,0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${canFulfill ? "rgba(251,191,36,0.5)" : "var(--border)"}`, borderRadius: "8px", color: canFulfill ? "#fbbf24" : "var(--muted)", cursor: canFulfill ? "pointer" : "default" }}>
-                          Fulfill Request
-                        </button>
-                      </div>
-                    ) : (
-                      <div style={{ fontSize: "0.72rem", color: "var(--muted)", padding: "0.35rem 0" }}>
-                        Next request in {Math.ceil(pulseTicks / 60)} min
-                      </div>
-                    )}
-                  </>
+                {locked && (
+                  <div style={{ fontSize: "0.72rem", color: "var(--muted)" }}>Build Road Level {def.roadLevel} in the Town to connect.</div>
                 )}
                 {!locked && disrupted && (
-                  <div style={{ fontSize: "0.72rem", color: "#ef4444", marginTop: "0.35rem" }}>
+                  <div style={{ fontSize: "0.72rem", color: "#ef4444" }}>
                     Road upkeep cannot be met — connection lost. Produce more iron ore and lumber.
                   </div>
                 )}
-                {locked && (
-                  <div style={{ fontSize: "0.72rem", color: "var(--muted)" }}>Build Road Level {def.roadLevel} in the Town to connect.</div>
+
+                {!locked && !disrupted && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
+                    {def.routes.map((r, idx) => {
+                      const rs = townRoutes[r.id] ?? { enabled: false, active: false };
+                      const stock = getStock(r);
+                      const stockStr = r.source === "worldResources"
+                        ? stock.toFixed(2)
+                        : Math.floor(stock);
+                      const drainStr = r.drainPerTick < 1
+                        ? r.drainPerTick.toFixed(2)
+                        : r.drainPerTick.toFixed(1);
+
+                      // Tier label color
+                      const tierColor = idx === 0 ? "#60a5fa" : idx === 1 ? "#a78bfa" : "#f59e0b";
+                      const tierLabel = idx === 0 ? "T1" : idx === 1 ? "T2" : "T3";
+
+                      return (
+                        <div key={r.id} style={{
+                          display: "flex", alignItems: "center", gap: "0.6rem",
+                          padding: "0.45rem 0.6rem",
+                          background: rs.active ? "rgba(74,222,128,0.07)" : rs.enabled ? "rgba(251,191,36,0.06)" : "rgba(255,255,255,0.02)",
+                          border: `1px solid ${rs.active ? "rgba(74,222,128,0.3)" : rs.enabled ? "rgba(251,191,36,0.25)" : "var(--border)"}`,
+                          borderRadius: "10px",
+                          opacity: connected ? 1 : 0.5,
+                        }}>
+                          {/* Tier badge */}
+                          <div style={{ fontSize: "0.6rem", fontWeight: 700, color: tierColor, minWidth: 18, textAlign: "center",
+                            background: `${tierColor}22`, borderRadius: 4, padding: "1px 4px" }}>{tierLabel}</div>
+
+                          {/* Good + drain rate */}
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                              {r.itemKey.replace(/_/g, " ")} <span style={{ color: "var(--muted)", fontWeight: 400 }}>−{drainStr}/s</span>
+                            </div>
+                            <div style={{ fontSize: "0.67rem", color: rs.active ? "#4ade80" : "var(--muted)" }}>
+                              {r.description}
+                            </div>
+                          </div>
+
+                          {/* Stock */}
+                          <div style={{ fontSize: "0.67rem", color: "var(--muted)", textAlign: "right", minWidth: 48 }}>
+                            <div>{stockStr}</div>
+                            <div style={{ fontSize: "0.6rem" }}>in stock</div>
+                          </div>
+
+                          {/* Status dot */}
+                          <div style={{ width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
+                            background: rs.active ? "#4ade80" : rs.enabled ? "#f59e0b" : "var(--border)" }} />
+
+                          {/* Toggle button */}
+                          <button
+                            disabled={!connected}
+                            onClick={() => onToggleTownRoute(townId, r.id)}
+                            style={{
+                              fontSize: "0.7rem", padding: "0.2rem 0.55rem", borderRadius: "7px", cursor: connected ? "pointer" : "default",
+                              background: rs.enabled ? "rgba(74,222,128,0.15)" : "rgba(255,255,255,0.05)",
+                              border: `1px solid ${rs.enabled ? "rgba(74,222,128,0.4)" : "var(--border)"}`,
+                              color: rs.enabled ? "#4ade80" : "var(--muted)",
+                              fontWeight: 600, minWidth: 36,
+                            }}
+                          >
+                            {rs.enabled ? "ON" : "OFF"}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
             );
