@@ -39,7 +39,7 @@ import {
   getMaxKitchenWorkers, getMaxMarketWorkers, getMaxBarnWorkersPerBuilding, getBarnHallRetainCount,
   getMaxForgeWorkers, getForgeHallRecipeTier, getForgeHallRetainCount,
   getMaxHeroes, getGuildHallQuestTier, getSatisfactionCeiling,
-  getBankPriceBonus, getRecHallSatBonus, getRecHallMaxWorkers,
+  getBankPriceBonus, getRecHallSatBonus, getRecHallMaxWorkers, getTradeTownSatBonus,
   getRoadLevel, getRoadNextTier, canAffordRoad, isRoadEnabled, getTotalRoadDrain,
 } from "../gameEngine";
 import SeasonPanel from "./SeasonPanel";
@@ -336,7 +336,7 @@ export default function TownZone({
             <div style={{ marginBottom: "0.3rem" }}>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.68rem", color: "var(--muted)", marginBottom: "0.2rem" }}>
                 <span>Satisfaction → worker speed</span>
-                <span style={{ color: satColor }}>{satisfaction}% / {satCeiling}% ceiling</span>
+                <span style={{ color: satColor }}>{satisfaction}% / {satCeiling}% ceiling{getTradeTownSatBonus(game) > 0 ? ` (+${getTradeTownSatBonus(game)}% towns)` : ""}</span>
               </div>
               <SatBar satisfaction={satisfaction} ceiling={satCeiling} />
             </div>

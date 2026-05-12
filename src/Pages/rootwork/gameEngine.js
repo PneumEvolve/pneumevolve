@@ -390,11 +390,24 @@ export function unlockPrestigeSkill(state, id) {
   return next;
 }
 
+// Trade towns sat bonus: +5% per town with T3 route active
+export function getTradeTownSatBonus(state) {
+  let bonus = 0;
+  for (const townId of TRADE_TOWN_ORDER) {
+    const def = TRADE_TOWNS[townId];
+    const town = state.tradeTowns?.[townId];
+    if (!def || !town) continue;
+    const t3Route = def.routes[2]; // T3 is always index 2
+    if (t3Route && town.routes?.[t3Route.id]?.active) bonus += 5;
+  }
+  return bonus;
+}
+
 export function getSatisfactionCeiling(state) {
   if (hasPrestigeSkill(state, "town_pride")) return 200;
   const tier = state.town?.buildings?.food_hall?.tier ?? 0;
   const base = FOOD_HALL_SAT_CEILING[tier] ?? FOOD_HALL_SAT_CEILING[0];
-  return base + getRecHallSatBonus(state);
+  return base + getRecHallSatBonus(state) + getTradeTownSatBonus(state);
 }
  
 // ─── Sell price bonus (Bank) ──────────────────────────────────────────────────
@@ -1258,7 +1271,10 @@ export function getSatisfactionTarget(state) {
   const hardCeiling = getSatisfactionCeiling(state);
   // Rabbit pet bonus (+5 sat while mood >= 50)
   const rabbitBonus = (state.pets?.rabbit && (state.pets.rabbit.mood ?? 0) >= 50) ? 5 : 0;
-  return Math.min(hardCeiling, Math.round(modeCeiling + rabbitBonus));
+  // Rec Hall and trade town bonuses raise the ceiling AND the target — sat drifts toward the new ceiling
+  const recBonus = getRecHallSatBonus(state);
+  const tradeTownBonus = getTradeTownSatBonus(state);
+  return Math.min(hardCeiling, Math.round(modeCeiling + rabbitBonus + recBonus + tradeTownBonus));
 }
  
 export function getTownSatisfactionMultiplier(state) {
@@ -2463,7 +2479,7 @@ if (activeTier) {
     : isInstancedForge ? (next.forgeGoodsInstanced ?? []).filter((i) => i.key === itemType && !i._equippedBy && i.upgradeTier === 3).length
     : isForge ? (next.forgeGoods[itemType] ?? 0)
     : isWorld ? (next.worldResources[itemType] ?? 0) : 0;
-  const toPull = Math.min(effectiveIps, available);
+  const toPull = Math.floor(Math.min(effectiveIps, available));
   if (toPull > 0) {
     if (isCrop) next.crops[itemType] -= toPull;
     else if (isArtisan) next.artisan[itemType] -= toPull;
@@ -2839,22 +2855,20 @@ export function updateTown(state, seconds = 1) {
       if (foodMode === "bread") {
         fed = breadHave >= foodNeeded;
       } else if (foodMode === "jam") {
-        // Jam mode: bread feeds, jam is the sat bonus — need both in equal quantity.
-        // Missing bread or jam → starve once and drop back to wheat mode.
+        // Jam mode: need bread + jam. Failure drops to bread mode (tier preserved).
         if (breadHave < foodNeeded || jamHave < foodNeeded) {
           fed = false;
-          if (next.town.buildings?.food_hall) next.town.buildings.food_hall.tier = 0;
-          next.town.foodMode = "wheat";
+          next.town.foodMode = "bread";
+          next.town.selectedFoodMode = "bread";
         } else {
           fed = true;
         }
       } else if (foodMode === "sauce") {
-        // Sauce mode: need bread + jam + sauce in equal quantity.
-        // Any one missing → starve and fall back to wheat mode.
+        // Sauce mode: need bread + jam + sauce. Failure drops to jam mode (tier preserved).
         if (breadHave < foodNeeded || jamHave < foodNeeded || sauceHave < foodNeeded) {
           fed = false;
-          if (next.town.buildings?.food_hall) next.town.buildings.food_hall.tier = 0;
-          next.town.foodMode = "wheat";
+          next.town.foodMode = "jam";
+          next.town.selectedFoodMode = "jam";
         } else {
           fed = true;
         }
@@ -7289,13 +7303,18 @@ export function tickTradeTowns(state) {
           updatedRoutes[r.id] = { ...rs, active: false };
           continue;
         }
+        // Accumulate fractional drain — only deduct whole units to avoid decimal goods
+        const drainAccum = (rs.drainAccum ?? 0) + r.drainPerTick;
+        const intDrain = Math.floor(drainAccum);
         const stock = _getStock(next, r.source, r.itemKey);
         if (stock >= r.drainPerTick) {
-          next = _deductStock(next, r.source, r.itemKey, r.drainPerTick);
-          updatedRoutes[r.id] = { ...rs, active: true };
+          if (intDrain > 0 && stock >= intDrain) {
+            next = _deductStock(next, r.source, r.itemKey, intDrain);
+          }
+          updatedRoutes[r.id] = { ...rs, active: true, drainAccum: drainAccum - (intDrain > 0 && stock >= intDrain ? intDrain : 0) };
         } else {
           // Out of stock — go inactive and cascade all higher tiers off
-          updatedRoutes[r.id] = { ...rs, active: false };
+          updatedRoutes[r.id] = { ...rs, active: false, drainAccum: 0 };
           cascadeOff = true;
         }
       }

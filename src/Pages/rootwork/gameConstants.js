@@ -2012,9 +2012,9 @@ export const TRADE_TOWNS = {
     flavor: "A modest market village. They buy raw harvests and pay in kind.",
     roadLevel: 1,
     routes: [
-      { id: "t1", label: "Wheat Route",  itemKey: "wheat",    source: "crops", drainPerTick: 2.0, bonus: { type: "crop_grow_speed", value: 0.10 }, description: "+10% crop grow speed" },
-      { id: "t2", label: "Berry Route",  itemKey: "berries",  source: "crops", drainPerTick: 1.5, bonus: { type: "crop_grow_speed", value: 0.20 }, description: "+20% crop grow speed" },
-      { id: "t3", label: "Tomato Route", itemKey: "tomatoes", source: "crops", drainPerTick: 1.0, bonus: { type: "crop_grow_speed", value: 0.30 }, description: "+30% crop grow speed" },
+      { id: "t1", label: "Wheat Route",  itemKey: "wheat",    source: "crops", drainPerTick: 0.5, bonus: { type: "crop_grow_speed", value: 0.15 }, description: "+15% crop grow speed" },
+      { id: "t2", label: "Berry Route",  itemKey: "berries",  source: "crops", drainPerTick: 0.3, bonus: { type: "crop_grow_speed", value: 0.25 }, description: "+25% crop grow speed" },
+      { id: "t3", label: "Tomato Route", itemKey: "tomatoes", source: "crops", drainPerTick: 0.2, bonus: { type: "crop_grow_speed", value: 0.45 }, description: "+45% crop grow speed" },
     ],
   },
   crestfall: {
@@ -2024,9 +2024,9 @@ export const TRADE_TOWNS = {
     flavor: "A riverside town. Fresh fish are their lifeblood.",
     roadLevel: 1,
     routes: [
-      { id: "t1", label: "Minnow Route", itemKey: "minnow", source: "pond", drainPerTick: 1.0, bonus: { type: "fishing_rate", value: 0.10 }, description: "+10% fishing rate" },
-      { id: "t2", label: "Bass Route",   itemKey: "bass",   source: "pond", drainPerTick: 0.5, bonus: { type: "fishing_rate", value: 0.20 }, description: "+20% fishing rate" },
-      { id: "t3", label: "Perch Route",  itemKey: "perch",  source: "pond", drainPerTick: 0.3, bonus: { type: "fishing_rate", value: 0.30 }, description: "+30% fishing rate" },
+      { id: "t1", label: "Minnow Route", itemKey: "minnow", source: "pond", drainPerTick: 0.3, bonus: { type: "fishing_rate", value: 0.15 }, description: "+15% fishing rate" },
+      { id: "t2", label: "Bass Route",   itemKey: "bass",   source: "pond", drainPerTick: 0.15, bonus: { type: "fishing_rate", value: 0.30 }, description: "+30% fishing rate" },
+      { id: "t3", label: "Perch Route",  itemKey: "perch",  source: "pond", drainPerTick: 0.1, bonus: { type: "fishing_rate", value: 0.50 }, description: "+50% fishing rate" },
     ],
   },
   // ── Road 2 ───────────────────────────────────────────────────────────────────────────
@@ -2037,9 +2037,9 @@ export const TRADE_TOWNS = {
     flavor: "A hungry town that can't get enough processed food. They repay with efficiency.",
     roadLevel: 2,
     routes: [
-      { id: "t1", label: "Bread Route", itemKey: "bread", source: "artisan", drainPerTick: 0.5, bonus: { type: "crafting_material_reduction", value: 0.10 }, description: "-10% crafting materials" },
-      { id: "t2", label: "Jam Route",   itemKey: "jam",   source: "artisan", drainPerTick: 0.4, bonus: { type: "crafting_material_reduction", value: 0.20 }, description: "-20% crafting materials" },
-      { id: "t3", label: "Sauce Route", itemKey: "sauce", source: "artisan", drainPerTick: 0.3, bonus: { type: "crafting_material_reduction", value: 0.30 }, description: "-30% crafting materials" },
+      { id: "t1", label: "Bread Route", itemKey: "bread", source: "artisan", drainPerTick: 0.2, bonus: { type: "crafting_material_reduction", value: 0.15 }, description: "-15% crafting materials" },
+      { id: "t2", label: "Jam Route",   itemKey: "jam",   source: "artisan", drainPerTick: 0.15, bonus: { type: "crafting_material_reduction", value: 0.25 }, description: "-25% crafting materials" },
+      { id: "t3", label: "Sauce Route", itemKey: "sauce", source: "artisan", drainPerTick: 0.1, bonus: { type: "crafting_material_reduction", value: 0.40 }, description: "-40% crafting materials" },
     ],
   },
   ironfeld: {
@@ -2049,9 +2049,9 @@ export const TRADE_TOWNS = {
     flavor: "A mining settlement. Resource-rich but food-poor.",
     roadLevel: 2,
     routes: [
-      { id: "t1", label: "Smoked Fish Route",    itemKey: "smoked_fish", source: "animalGoods", drainPerTick: 0.1, bonus: { type: "iron_trickle",       iron_ore: 3 },            description: "+3 iron ore/sec" },
-      { id: "t2", label: "Fish Pie Route",       itemKey: "fish_pie",    source: "animalGoods", drainPerTick: 0.1, bonus: { type: "lumber_trickle",     lumber: 3 },              description: "+3 lumber/sec" },
-      { id: "t3", label: "Legendary Fish Route", itemKey: "rare",        source: "pond",        drainPerTick: 0.05,bonus: { type: "full_upkeep_cover", iron_ore: 6, lumber: 4 }, description: "Covers road upkeep (+6 iron +4 lumber/sec)" },
+      { id: "t1", label: "Smoked Fish Route",    itemKey: "smoked_fish", source: "animalGoods", drainPerTick: 0.05, bonus: { type: "iron_trickle",       iron_ore: 4 },            description: "+4 iron ore/sec" },
+      { id: "t2", label: "Fish Pie Route",       itemKey: "fish_pie",    source: "animalGoods", drainPerTick: 0.05, bonus: { type: "lumber_trickle",     lumber: 4 },              description: "+4 lumber/sec" },
+      { id: "t3", label: "Legendary Fish Route", itemKey: "rare",        source: "pond",        drainPerTick: 0.02, bonus: { type: "full_upkeep_cover", iron_ore: 8, lumber: 6 }, description: "Covers road upkeep (+8 iron +6 lumber/sec)" },
     ],
   },
   // ── Road 3 ───────────────────────────────────────────────────────────────────────────
@@ -2062,9 +2062,9 @@ export const TRADE_TOWNS = {
     flavor: "A pastoral settlement. They depend on animal farmers to survive the winters.",
     roadLevel: 3,
     routes: [
-      { id: "t1", label: "Egg Route",  itemKey: "egg",  source: "animalGoods", drainPerTick: 1.0, bonus: { type: "barn_cycle_speed", value: 0.10 }, description: "+10% barn cycle speed" },
-      { id: "t2", label: "Milk Route", itemKey: "milk", source: "animalGoods", drainPerTick: 0.6, bonus: { type: "barn_cycle_speed", value: 0.20 }, description: "+20% barn cycle speed" },
-      { id: "t3", label: "Wool Route", itemKey: "wool", source: "animalGoods", drainPerTick: 0.4, bonus: { type: "barn_cycle_speed", value: 0.30 }, description: "+30% barn cycle speed" },
+      { id: "t1", label: "Egg Route",  itemKey: "egg",  source: "animalGoods", drainPerTick: 0.05, bonus: { type: "barn_cycle_speed", value: 0.15 }, description: "+15% barn cycle speed" },
+      { id: "t2", label: "Milk Route", itemKey: "milk", source: "animalGoods", drainPerTick: 0.03, bonus: { type: "barn_cycle_speed", value: 0.30 }, description: "+30% barn cycle speed" },
+      { id: "t3", label: "Wool Route", itemKey: "wool", source: "animalGoods", drainPerTick: 0.02, bonus: { type: "barn_cycle_speed", value: 0.50 }, description: "+50% barn cycle speed" },
     ],
   },
   ashport: {
@@ -2074,9 +2074,9 @@ export const TRADE_TOWNS = {
     flavor: "A coastal fishing town. Artisan goods keep their crews working faster.",
     roadLevel: 3,
     routes: [
-      { id: "t1", label: "Omelette Route",      itemKey: "omelette",      source: "animalGoods", drainPerTick: 0.3, bonus: { type: "crafting_time_reduction", value: 0.10 }, description: "-10% crafting time" },
-      { id: "t2", label: "Cheese Route",        itemKey: "cheese",        source: "animalGoods", drainPerTick: 0.2, bonus: { type: "crafting_time_reduction", value: 0.20 }, description: "-20% crafting time" },
-      { id: "t3", label: "Knitted Goods Route", itemKey: "knitted_goods", source: "animalGoods", drainPerTick: 0.2, bonus: { type: "crafting_time_reduction", value: 0.30 }, description: "-30% crafting time" },
+      { id: "t1", label: "Omelette Route",      itemKey: "omelette",      source: "animalGoods", drainPerTick: 0.1,  bonus: { type: "crafting_time_reduction", value: 0.15 }, description: "-15% crafting time" },
+      { id: "t2", label: "Cheese Route",        itemKey: "cheese",        source: "animalGoods", drainPerTick: 0.07, bonus: { type: "crafting_time_reduction", value: 0.30 }, description: "-30% crafting time" },
+      { id: "t3", label: "Knitted Goods Route", itemKey: "knitted_goods", source: "animalGoods", drainPerTick: 0.05, bonus: { type: "crafting_time_reduction", value: 0.50 }, description: "-50% crafting time" },
     ],
   },
   // ── Road 4 ───────────────────────────────────────────────────────────────────────────
@@ -2087,9 +2087,9 @@ export const TRADE_TOWNS = {
     flavor: "A distant arcane city. Mysterious and hungry for rare specimens.",
     roadLevel: 4,
     routes: [
-      { id: "t1", label: "Gem Route",     itemKey: "rare_gem",     source: "worldResources", drainPerTick: 0.02, bonus: { type: "hero_xp",                xpBonus: 0.15 },                        description: "+15% hero XP" },
-      { id: "t2", label: "Crystal Route", itemKey: "mana_crystal", source: "worldResources", drainPerTick: 0.01, bonus: { type: "expedition_loot",       expeditionBonus: 0.10 },                description: "+10% expedition loot" },
-      { id: "t3", label: "Arcane Route",  itemKey: "rare_gem",     source: "worldResources", drainPerTick: 0.02, bonus: { type: "hero_xp_and_expedition", xpBonus: 0.25, expeditionBonus: 0.15 }, description: "+25% hero XP & +15% expedition loot" },
+      { id: "t1", label: "Gem Route",     itemKey: "rare_gem",     source: "worldResources", drainPerTick: 0.01, bonus: { type: "hero_xp",                xpBonus: 0.20 },                        description: "+20% hero XP" },
+      { id: "t2", label: "Crystal Route", itemKey: "mana_crystal", source: "worldResources", drainPerTick: 0.008, bonus: { type: "expedition_loot",       expeditionBonus: 0.20 },                description: "+20% expedition loot" },
+      { id: "t3", label: "Arcane Route",  itemKey: "rare_gem",     source: "worldResources", drainPerTick: 0.01, bonus: { type: "hero_xp_and_expedition", xpBonus: 0.40, expeditionBonus: 0.30 }, description: "+40% hero XP & +30% expedition loot" },
     ],
   },
 };
