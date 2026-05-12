@@ -146,8 +146,47 @@ function buildLayout(game) {
   // Stretch total width to fit row1 if needed
   totalW = Math.max(totalW, row1X + ZONE_PAD - ZONE_GAP);
 
-  // ── Row 2: Tavern — full width, centered ────────────────────────────────────
+  // ── Row 2: Kitchen + Forge ─────────────────────────────────────────────────
   const row2Y = row1Y + row1MaxH + ZONE_GAP;
+  let row2X = ZONE_PAD;
+  let row2MaxH = 0;
+
+  const kitchenWorkers = game.kitchenWorkers ?? [];
+  if (kitchenWorkers.length > 0 || game.town?.buildings?.kitchen_hall?.built) {
+    const kwCols = Math.min(kitchenWorkers.length || 1, 3);
+    const kwRows = Math.max(1, Math.ceil(kitchenWorkers.length / kwCols));
+    const kw = Math.max(140, kwCols * 60 + ZONE_PAD * 2);
+    const kh = kwRows * 52 + ZONE_PAD * 2 + 22;
+    zones.push({
+      type: "kitchen", id: "kitchen",
+      workers: kitchenWorkers, kwCols, kwRows,
+      x: row2X, y: row2Y, w: kw, h: kh,
+      label: "🍳 Kitchen",
+    });
+    row2MaxH = Math.max(row2MaxH, kh);
+    row2X += kw + ZONE_GAP;
+  }
+
+  const forgeWorkers = game.forgeWorkers ?? [];
+  if (forgeWorkers.length > 0 || game.town?.buildings?.forge_hall?.built) {
+    const fwCols = Math.min(forgeWorkers.length || 1, 3);
+    const fwRows = Math.max(1, Math.ceil(forgeWorkers.length / fwCols));
+    const fw2 = Math.max(140, fwCols * 60 + ZONE_PAD * 2);
+    const fh2 = fwRows * 52 + ZONE_PAD * 2 + 22;
+    zones.push({
+      type: "forge", id: "forge",
+      workers: forgeWorkers, fwCols, fwRows,
+      x: row2X, y: row2Y, w: fw2, h: fh2,
+      label: "⚒️ Forge",
+    });
+    row2MaxH = Math.max(row2MaxH, fh2);
+    row2X += fw2 + ZONE_GAP;
+  }
+
+  totalW = Math.max(totalW, row2X + ZONE_PAD - ZONE_GAP);
+
+  // ── Row 3: Tavern — full width, centered ────────────────────────────────────
+  const row3Y = row2Y + (row2MaxH > 0 ? row2MaxH + ZONE_GAP : 0);
   const tavernBuilt = !!(game.town?.buildings?.tavern?.built);
   const adventurers = game.adventurers ?? [];
   const tavernW = Math.max(totalW - ZONE_PAD * 2, 200);
@@ -155,23 +194,44 @@ function buildLayout(game) {
   zones.push({
     type: "tavern", id: "tavern",
     tavernBuilt, adventurers,
-    x: ZONE_PAD, y: row2Y, w: tavernW, h: tavernH,
+    x: ZONE_PAD, y: row3Y, w: tavernW, h: tavernH,
     label: "🍺 Tavern & Heroes",
   });
 
-  // ── Row 3: Dungeon — centered below tavern ──────────────────────────────────
-  const row3Y = row2Y + tavernH + ZONE_GAP;
+  // ── Row 4: Dungeon — centered below tavern ──────────────────────────────────
+  const row4Y = row3Y + tavernH + ZONE_GAP;
   const bossFight = game.bossFight;
   const dungeonW = Math.min(totalW - ZONE_PAD * 2, 280);
   const dungeonX = ZONE_PAD + (tavernW - dungeonW) / 2;
   zones.push({
     type: "dungeon", id: "dungeon",
     adventurers, bossFight,
-    x: dungeonX, y: row3Y, w: dungeonW, h: 120,
+    x: dungeonX, y: row4Y, w: dungeonW, h: 120,
     label: "⚔️ Dungeon",
   });
 
-  const worldH = row3Y + 120 + ZONE_PAD;
+  // ── Row 5: World — expeditions + roads + trade towns ───────────────────────
+  const row5Y = row4Y + 120 + ZONE_GAP;
+  const roadLevel = game.roads?.level ?? 0;
+  const activeExps = game.expeditions ?? {};
+  // Build town nodes: all towns unlocked by current road level
+  const unlockedTowns = TRADE_TOWN_ORDER.filter(id => {
+    const def = TRADE_TOWNS[id];
+    return roadLevel >= def.roadLevel;
+  });
+  const tradeTowns = game.tradeTowns ?? {};
+  const worldZoneW = Math.max(totalW - ZONE_PAD * 2, 300);
+  const worldZoneH = Math.max(160, 60 + unlockedTowns.length * 0 + Object.keys(activeExps).length * 40);
+  if (roadLevel > 0 || Object.keys(activeExps).length > 0) {
+    zones.push({
+      type: "world", id: "world",
+      roadLevel, activeExps, unlockedTowns, tradeTowns,
+      x: ZONE_PAD, y: row5Y, w: worldZoneW, h: worldZoneH,
+      label: "🗺️ World",
+    });
+  }
+
+  const worldH = row5Y + (roadLevel > 0 || Object.keys(activeExps).length > 0 ? worldZoneH + ZONE_PAD : 0) + (roadLevel === 0 ? 120 + ZONE_PAD : 0);
   return { zones, worldW: totalW, worldH };
 }
 
@@ -527,6 +587,266 @@ export default function LiveView({ game }) {
       ctx.textAlign = "center";
       ctx.fillText("Dungeon", ex + 22, y + h - 8);
     }
+
+    // ── Kitchen zone ──────────────────────────────────────────────────────────
+    if (zone.type === "kitchen") {
+      ctx.fillStyle = isDark ? COLORS.kitchenBg : "rgba(239,68,68,0.05)";
+      roundRect(ctx, x, y + 18, w, h - 18, 10);
+      ctx.fill();
+      ctx.strokeStyle = COLORS.kitchenBorder;
+      ctx.lineWidth = 0.75;
+      roundRect(ctx, x, y + 18, w, h - 18, 10);
+      ctx.stroke();
+
+      if (zone.workers.length === 0) {
+        ctx.font = "10px system-ui";
+        ctx.fillStyle = mutedColor;
+        ctx.textAlign = "center";
+        ctx.fillText("No kitchen workers", x + w / 2, y + 18 + (h - 18) / 2 + 4);
+      } else {
+        zone.workers.forEach((worker, wi) => {
+          const col = wi % zone.kwCols;
+          const row = Math.floor(wi / zone.kwCols);
+          const wx = x + ZONE_PAD + col * ((w - ZONE_PAD * 2) / zone.kwCols);
+          const wy = y + 18 + ZONE_PAD + row * 52;
+          const slotW = (w - ZONE_PAD * 2) / zone.kwCols - 4;
+
+          // Worker slot bg
+          ctx.fillStyle = isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)";
+          roundRect(ctx, wx, wy, slotW, 46, 5);
+          ctx.fill();
+
+          const recipe = worker.recipeId ? (PROCESSING_RECIPES[worker.recipeId] ?? null) : null;
+          if (recipe && worker.busy) {
+            // Recipe emoji
+            ctx.font = "16px system-ui";
+            ctx.textAlign = "center";
+            ctx.fillText(recipe.emoji, wx + slotW / 2, wy + 19);
+            // Progress bar
+            const pct = Math.min(1, (worker.elapsedSeconds ?? 0) / Math.max(1, worker.totalSeconds ?? 1));
+            ctx.fillStyle = isDark ? "rgba(0,0,0,0.3)" : "rgba(0,0,0,0.12)";
+            roundRect(ctx, wx + 3, wy + 31, slotW - 6, 5, 2);
+            ctx.fill();
+            ctx.fillStyle = "#ef4444";
+            roundRect(ctx, wx + 3, wy + 31, (slotW - 6) * pct, 5, 2);
+            ctx.fill();
+            // Timer text
+            const secsLeft = Math.ceil(Math.max(0, (worker.totalSeconds ?? 0) - (worker.elapsedSeconds ?? 0)));
+            ctx.font = "7px system-ui";
+            ctx.fillStyle = mutedColor;
+            ctx.textAlign = "center";
+            ctx.fillText(secsLeft + "s", wx + slotW / 2, wy + 44);
+          } else {
+            // Idle
+            ctx.font = "12px system-ui";
+            ctx.textAlign = "center";
+            ctx.fillStyle = mutedColor;
+            ctx.fillText("💤", wx + slotW / 2, wy + 22);
+            ctx.font = "7px system-ui";
+            ctx.fillText("idle", wx + slotW / 2, wy + 38);
+          }
+        });
+      }
+    }
+
+    // ── Forge zone ────────────────────────────────────────────────────────────
+    if (zone.type === "forge") {
+      ctx.fillStyle = isDark ? COLORS.forgeBg : "rgba(251,146,60,0.05)";
+      roundRect(ctx, x, y + 18, w, h - 18, 10);
+      ctx.fill();
+      ctx.strokeStyle = COLORS.forgeBorder;
+      ctx.lineWidth = 0.75;
+      roundRect(ctx, x, y + 18, w, h - 18, 10);
+      ctx.stroke();
+
+      if (zone.workers.length === 0) {
+        ctx.font = "10px system-ui";
+        ctx.fillStyle = mutedColor;
+        ctx.textAlign = "center";
+        ctx.fillText("No forge workers", x + w / 2, y + 18 + (h - 18) / 2 + 4);
+      } else {
+        zone.workers.forEach((worker, wi) => {
+          const col = wi % zone.fwCols;
+          const row = Math.floor(wi / zone.fwCols);
+          const wx = x + ZONE_PAD + col * ((w - ZONE_PAD * 2) / zone.fwCols);
+          const wy = y + 18 + ZONE_PAD + row * 52;
+          const slotW = (w - ZONE_PAD * 2) / zone.fwCols - 4;
+
+          ctx.fillStyle = isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)";
+          roundRect(ctx, wx, wy, slotW, 46, 5);
+          ctx.fill();
+
+          const recipe = worker.recipeId ? (FORGE_RECIPES[worker.recipeId] ?? null) : null;
+          if (recipe && worker.busy) {
+            ctx.font = "16px system-ui";
+            ctx.textAlign = "center";
+            ctx.fillText(recipe.emoji ?? "⚒️", wx + slotW / 2, wy + 19);
+            const pct = Math.min(1, (worker.elapsedSeconds ?? 0) / Math.max(1, worker.totalSeconds ?? 1));
+            ctx.fillStyle = isDark ? "rgba(0,0,0,0.3)" : "rgba(0,0,0,0.12)";
+            roundRect(ctx, wx + 3, wy + 31, slotW - 6, 5, 2);
+            ctx.fill();
+            ctx.fillStyle = "#fb923c";
+            roundRect(ctx, wx + 3, wy + 31, (slotW - 6) * pct, 5, 2);
+            ctx.fill();
+            const secsLeft = Math.ceil(Math.max(0, (worker.totalSeconds ?? 0) - (worker.elapsedSeconds ?? 0)));
+            ctx.font = "7px system-ui";
+            ctx.fillStyle = mutedColor;
+            ctx.textAlign = "center";
+            ctx.fillText(secsLeft + "s", wx + slotW / 2, wy + 44);
+          } else {
+            ctx.font = "12px system-ui";
+            ctx.textAlign = "center";
+            ctx.fillStyle = mutedColor;
+            ctx.fillText("💤", wx + slotW / 2, wy + 22);
+            ctx.font = "7px system-ui";
+            ctx.fillText("idle", wx + slotW / 2, wy + 38);
+          }
+        });
+      }
+    }
+
+    // ── World zone (roads + expeditions + towns) ──────────────────────────────
+    if (zone.type === "world") {
+      ctx.fillStyle = isDark ? COLORS.worldBg : "rgba(99,102,241,0.05)";
+      roundRect(ctx, x, y + 18, w, h - 18, 10);
+      ctx.fill();
+      ctx.strokeStyle = COLORS.worldBorder;
+      ctx.lineWidth = 0.75;
+      roundRect(ctx, x, y + 18, w, h - 18, 10);
+      ctx.stroke();
+
+      const roadLevel = zone.roadLevel;
+      const roadTier = roadLevel > 0 ? ROAD_TIERS[roadLevel - 1] : null;
+      const contentY = y + 18 + ZONE_PAD;
+
+      // Road tier badge
+      if (roadTier) {
+        ctx.fillStyle = isDark ? "rgba(186,117,23,0.25)" : "rgba(186,117,23,0.15)";
+        roundRect(ctx, x + ZONE_PAD, contentY, 110, 20, 5);
+        ctx.fill();
+        ctx.font = "500 9px system-ui";
+        ctx.fillStyle = isDark ? "rgba(251,191,36,0.9)" : "rgba(120,80,10,0.9)";
+        ctx.textAlign = "left";
+        ctx.fillText(`${roadTier.emoji} ${roadTier.name}`, x + ZONE_PAD + 5, contentY + 13);
+      }
+
+      // Town nodes — draw as small buildings along the bottom portion
+      const towns = zone.unlockedTowns;
+      const townNodeW = 48;
+      const townStartX = x + ZONE_PAD;
+      const townY = contentY + 32;
+      const townSpacing = towns.length > 0 ? Math.min(70, (w - ZONE_PAD * 2) / towns.length) : 70;
+
+      // Draw road line connecting towns
+      if (towns.length > 1) {
+        ctx.strokeStyle = COLORS.roadColor;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        ctx.moveTo(townStartX + townNodeW / 2, townY + 24);
+        for (let ti = 1; ti < towns.length; ti++) {
+          ctx.lineTo(townStartX + ti * townSpacing + townNodeW / 2, townY + 24);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // Draw "home" node (the player town)
+      const homeTX = townStartX - 8;
+      const homeTY = townY;
+      ctx.fillStyle = isDark ? "rgba(99,153,34,0.25)" : "rgba(99,153,34,0.18)";
+      roundRect(ctx, homeTX, homeTY, 40, 40, 6);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(99,153,34,0.6)";
+      ctx.lineWidth = 1.5;
+      roundRect(ctx, homeTX, homeTY, 40, 40, 6);
+      ctx.stroke();
+      ctx.font = "18px system-ui";
+      ctx.textAlign = "center";
+      ctx.fillText("🏡", homeTX + 20, homeTY + 26);
+      ctx.font = "7px system-ui";
+      ctx.fillStyle = mutedColor;
+      ctx.fillText("Home", homeTX + 20, homeTY + 38);
+
+      // Draw each town node
+      towns.forEach((townId, ti) => {
+        const def = TRADE_TOWNS[townId];
+        const tx2 = townStartX + (ti + 1) * townSpacing;
+        const ty2 = townY;
+        const townState = zone.tradeTowns?.[townId];
+        const activeRoutes = (townState?.routes ?? []).filter(r => r.active).length;
+        const hasActive = activeRoutes > 0;
+
+        ctx.fillStyle = hasActive
+          ? (isDark ? "rgba(99,102,241,0.25)" : "rgba(99,102,241,0.18)")
+          : (isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)");
+        roundRect(ctx, tx2, ty2, townNodeW, 40, 6);
+        ctx.fill();
+        ctx.strokeStyle = hasActive ? "rgba(99,102,241,0.55)" : (isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.15)");
+        ctx.lineWidth = 1.5;
+        roundRect(ctx, tx2, ty2, townNodeW, 40, 6);
+        ctx.stroke();
+        ctx.font = "14px system-ui";
+        ctx.textAlign = "center";
+        ctx.fillText(def.emoji, tx2 + townNodeW / 2, ty2 + 20);
+        ctx.font = "7px system-ui";
+        ctx.fillStyle = mutedColor;
+        ctx.fillText(def.name, tx2 + townNodeW / 2, ty2 + 32);
+        if (hasActive) {
+          // Active route indicator dot
+          ctx.fillStyle = "#4ade80";
+          ctx.beginPath();
+          ctx.arc(tx2 + townNodeW - 5, ty2 + 5, 3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      });
+
+      // Expedition panels — below towns
+      const exps = Object.values(zone.activeExps);
+      const expY = townY + 50;
+      exps.forEach((exp, ei) => {
+        if (!exp) return;
+        const tier = EXPEDITION_TIERS[exp.tierId];
+        if (!tier) return;
+        const ex2 = x + ZONE_PAD + ei * 180;
+        const ey2 = expY;
+        const ew = 165;
+        const eh = 40;
+
+        ctx.fillStyle = isDark ? "rgba(127,119,221,0.15)" : "rgba(127,119,221,0.10)";
+        roundRect(ctx, ex2, ey2, ew, eh, 6);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(127,119,221,0.45)";
+        ctx.lineWidth = 1;
+        roundRect(ctx, ex2, ey2, ew, eh, 6);
+        ctx.stroke();
+
+        ctx.font = "11px system-ui";
+        ctx.textAlign = "left";
+        ctx.fillStyle = textColor;
+        ctx.fillText(`${tier.emoji} ${tier.name}`, ex2 + 6, ey2 + 14);
+
+        const heroCount = (exp.heroIds ?? []).length;
+        ctx.font = "9px system-ui";
+        ctx.fillStyle = mutedColor;
+        ctx.fillText(`${heroCount} hero${heroCount !== 1 ? "es" : ""}`, ex2 + 6, ey2 + 27);
+
+        // Hero class dots
+        (exp.heroIds ?? []).forEach((hid, hi) => {
+          const hero = (g?.adventurers ?? []).find(a => a.id === hid);
+          const cls = hero?.heroClass ?? hero?.class ?? "default";
+          const dotColor = COLORS.workerHero[cls] ?? COLORS.workerHero.default;
+          ctx.fillStyle = dotColor;
+          ctx.beginPath();
+          ctx.arc(ex2 + 95 + hi * 16, ey2 + 20, 5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "rgba(255,255,255,0.6)";
+          ctx.beginPath();
+          ctx.arc(ex2 + 95 + hi * 16, ey2 + 20, 2, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      });
+    }
   }
 
   // ── Draw animated worker dots ─────────────────────────────────────────────
@@ -639,6 +959,61 @@ export default function LiveView({ game }) {
 
           drawDot(ctx, vis.x, vis.y, COLORS.workerFish, 5);
         });
+      });
+    });
+
+    // Kitchen workers
+    layout.zones.filter(z => z.type === "kitchen").forEach(zone => {
+      zone.workers.forEach((worker, wi) => {
+        const col = wi % zone.kwCols;
+        const row = Math.floor(wi / zone.kwCols);
+        const slotW = (zone.w - ZONE_PAD * 2) / zone.kwCols;
+        const cx = zone.x + ZONE_PAD + col * slotW + slotW / 2;
+        const cy = zone.y + 18 + ZONE_PAD + row * 52 + 12;
+        const vis = ensureWorkerVis(worker.id ?? `kw-${wi}`, cx, cy, COLORS.workerKitchen);
+
+        vis.timer -= dt;
+        if (vis.timer <= 0 || dist(vis, { x: vis.tx, y: vis.ty }) < 1) {
+          if (worker.busy) {
+            // Busy — small jitter near station center
+            vis.tx = cx + randomBetween(-4, 4);
+            vis.ty = cy + randomBetween(-3, 3);
+          } else {
+            // Idle — drift more
+            vis.tx = cx + randomBetween(-8, 8);
+            vis.ty = cy + randomBetween(-5, 5);
+          }
+          vis.timer = worker.busy ? randomBetween(0.4, 1.2) : randomBetween(1.5, 3.5);
+        }
+        moveToward(vis, worker.busy ? 16 : 10, dt);
+        drawDot(ctx, vis.x, vis.y, COLORS.workerKitchen, 4.5);
+      });
+    });
+
+    // Forge workers
+    layout.zones.filter(z => z.type === "forge").forEach(zone => {
+      zone.workers.forEach((worker, wi) => {
+        const col = wi % zone.fwCols;
+        const row = Math.floor(wi / zone.fwCols);
+        const slotW = (zone.w - ZONE_PAD * 2) / zone.fwCols;
+        const cx = zone.x + ZONE_PAD + col * slotW + slotW / 2;
+        const cy = zone.y + 18 + ZONE_PAD + row * 52 + 12;
+        const vis = ensureWorkerVis(worker.id ?? `fw-${wi}`, cx, cy, COLORS.workerForge);
+
+        vis.timer -= dt;
+        if (vis.timer <= 0 || dist(vis, { x: vis.tx, y: vis.ty }) < 1) {
+          if (worker.busy) {
+            // Forge workers shake near the anvil
+            vis.tx = cx + randomBetween(-3, 3);
+            vis.ty = cy + randomBetween(-2, 2);
+          } else {
+            vis.tx = cx + randomBetween(-8, 8);
+            vis.ty = cy + randomBetween(-5, 5);
+          }
+          vis.timer = worker.busy ? randomBetween(0.3, 0.9) : randomBetween(1.5, 3.5);
+        }
+        moveToward(vis, worker.busy ? 20 : 10, dt);
+        drawDot(ctx, vis.x, vis.y, COLORS.workerForge, 4.5);
       });
     });
 
@@ -901,9 +1276,11 @@ export default function LiveView({ game }) {
         background: "rgba(0,0,0,0.35)", borderRadius: 8, padding: "6px 10px",
       }}>
         {[
-          { color: COLORS.workerFarm, label: "Farm worker" },
-          { color: COLORS.workerBarn, label: "Barn worker" },
+          { color: COLORS.workerFarm, label: "Farm" },
+          { color: COLORS.workerBarn, label: "Barn" },
           { color: COLORS.workerFish, label: "Fisher" },
+          { color: COLORS.workerKitchen, label: "Kitchen" },
+          { color: COLORS.workerForge, label: "Forge" },
           { color: COLORS.workerHero.fighter, label: "Fighter" },
           { color: COLORS.workerHero.mage,    label: "Mage" },
           { color: COLORS.workerHero.scavenger, label: "Scavenger" },
