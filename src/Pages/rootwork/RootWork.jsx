@@ -167,10 +167,15 @@ function PrestigeModal({ game, onComplete, onCancel }) {
     return { _keepId: w.id, _title: `🛒 ${gear.emoji} ${gear.name}`, _subtitle: `${gear.itemsPerSecond} items/sec${w.hasStandingOrder ? " · standing order" : ""}` };
   });
   const fisherWorkers = Object.entries(game.fishing?.bodies ?? {})
-    .filter(([, b]) => b?.worker?.hired)
-    .map(([bodyId]) => {
+    .flatMap(([bodyId, b]) => {
+      const workerList = b?.workers?.length > 0 ? b.workers : (b?.worker?.hired ? [b.worker] : []);
+      if (workerList.length === 0) return [];
       const body = FISHING_BODIES[bodyId]; const cost = FISHING_WORKER_HIRE_COSTS[bodyId] ?? 75;
-      return { _keepId: `fisher_${bodyId}`, _title: `🎣 ${body?.emoji ?? ""} ${body?.name ?? bodyId} Fisher`, _subtitle: `Rehire cost $${cost}` };
+      return workerList.map((_, wi) => ({
+        _keepId: `fisher_${bodyId}${wi > 0 ? "_" + wi : ""}`,
+        _title: `🎣 ${body?.emoji ?? ""} ${body?.name ?? bodyId} Fisher${workerList.length > 1 ? " #" + (wi + 1) : ""}`,
+        _subtitle: `Rehire cost $${cost}`,
+      }));
     });
   const barnWorkersList = (game.barnWorkers ?? []).map((w) => {
     const animalType = w.animalType;

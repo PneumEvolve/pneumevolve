@@ -1,7 +1,7 @@
 // src/Pages/rootwork/components/WorldZone.jsx
 import React, { useState, useEffect, useRef } from "react";
 import { WORLD_ZONES, ADVENTURER_CLASSES, FORGE_RECIPES, ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST, ADVENTURER_BUFF_ITEMS, ADVENTURER_BUFF_LIST, WORLD_RESOURCES, HERO_SKILLS, HERO_SKILL_TREES, HERO_CLASS_META, HERO_PRESTIGE_COST_BASE, HERO_DIP_TREE_PRESTIGE_TIER1, HERO_DIP_TREE_PRESTIGE_TIER2, BOSS_DEFS, BOSS_ABILITIES, BOSS_UNLOCK_LEVEL, BOSS_TICK_INTERVAL, generateInfiniteBoss, EXPEDITION_TIER_ORDER, EXPEDITION_TIERS, TRADE_TOWN_ORDER, TRADE_TOWNS } from "../gameConstants";
-import { getAdventurerSlotCost, getMaxHeroes, setHeroFillFood, getHeroPrestigeDmgBonus, getHeroPrestigeDmgReduction, getHeroPrestigeXpBonus, getHeroPrestigeMinLootBonus, PRESTIGE_DMG_RED_FLOOR, getRoadLevel, isTownConnected, getExpeditionAvailable, isHeroBusyForExpedition, isHeroOnExpedition, getHeroExpeditionTierId, getThornwickGrowBonus, getCrestfallFishingBonus, getMillhavenMaterialBonus, getGlenhollowBarnBonus, getAshportCraftingTimeBonus } from "../gameEngine";
+import { getAdventurerSlotCost, getMaxHeroes, setHeroFillFood, getHeroPrestigeDmgBonus, getHeroPrestigeDmgReduction, getHeroPrestigeXpBonus, getHeroPrestigeMinLootBonus, PRESTIGE_DMG_RED_FLOOR, getRoadLevel, isTownConnected, getExpeditionAvailable, isHeroBusyForExpedition, isHeroOnExpedition, getHeroExpeditionTierId, getThornwickGrowBonus, getCrestfallFishingBonus, getMillhavenMaterialBonus, getGlenhollowBarnBonus, getAshportCraftingTimeBonus, getHeroPrestigeDurationBonus, getHeroDurationMultiplier } from "../gameEngine";
 
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -42,10 +42,15 @@ function getAdventurerMaxHp(adventurer) {
 
 function getMissionDuration(adventurer, zone) {
   const base = zone.baseDuration ?? 30;
-  const totalGear = getTotalGearTier(adventurer);
-  const gearBonus = totalGear * 0.15;
+  const weaponKey = adventurer.equippedGear?.weapon ?? null;
+  const weaponRecipe = weaponKey ? Object.values(FORGE_RECIPES).find((r) => r.output.resourceKey === weaponKey) : null;
+  const weaponBonus = weaponRecipe?.missionTimeReduction ?? (weaponKey ? 0 : (adventurer.gear ?? 0) * 0.15);
   const lvlBonus = Math.min(((adventurer.level ?? 1) - 1) * 0.02, 0.15);
-  return Math.round(base * (1 - Math.min(gearBonus + lvlBonus, 0.45)));
+  const skillMult = getHeroDurationMultiplier(adventurer);
+  const prestigeSpeedMult = getHeroPrestigeDurationBonus(adventurer);
+  const gearLvlReduction = Math.min(Math.min(weaponBonus, 0.30) + lvlBonus, 0.45);
+  const afterGear = base * (1 - gearLvlReduction);
+  return Math.max(12, Math.round(afterGear * skillMult * prestigeSpeedMult));
 }
 
 function getFailChance(adventurer, zone) {
@@ -2530,7 +2535,7 @@ export default function WorldZone({
                 )}
                 {!locked && disrupted && (
                   <div style={{ fontSize: "0.72rem", color: "#ef4444" }}>
-                    Road upkeep cannot be met — connection lost. Produce more iron ore and lumber.
+                    Road ran out of materials and shut off. Re-enable it in the Town tab to restore connection.
                   </div>
                 )}
 

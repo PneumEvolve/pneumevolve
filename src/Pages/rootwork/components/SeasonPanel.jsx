@@ -5,7 +5,7 @@ import {
   CROPS, SEASON_FARMS, PRESTIGE_SKILL_TREE,
   FIRST_EXTRA_FARM_SEASON, FIRST_CHOICE_SEASON,
   getPrestigeCashThreshold, PRESTIGE_MIN_PLOTS, PRESTIGE_MIN_BARN_WORKERS, PRESTIGE_MIN_BARN_ANIMALS,
-  BARN_BUILDINGS, BARN_BUILDING_ORDER,
+  BARN_BUILDINGS, BARN_BUILDING_ORDER, BARN_BUILDING_TIERS,
   TOWN_HALL_LEVEL_COSTS, SEASONAL_QUESTS, QUEST_GATE_STARTS_SEASON
 } from "../gameConstants";
 import {
@@ -188,7 +188,8 @@ function getConditionTracker(game, c) {
         const bestInst = (game.barnInstances ?? []).find(inst => (inst.tier ?? 1) >= 2);
         if (bestInst) {
           const animalCount = (bestInst.animals ?? []).length;
-          const cap = BARN_BUILDINGS[bestInst.buildingType]?.animalSlots ?? 4;
+          const tierData = BARN_BUILDING_TIERS[(bestInst.tier ?? 1) - 1] ?? BARN_BUILDING_TIERS[0];
+          const cap = tierData.animalSlots;
           return { boolean: false, current: animalCount, target: cap, label: `Barn animals: ${animalCount} / ${cap} (upgraded ✓)` };
         }
         const done = evaluateQuestCondition(game, fakeQuest);

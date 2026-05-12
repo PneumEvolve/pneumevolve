@@ -4073,8 +4073,14 @@ export function beginPrestige(state, _unused, keptWorkerIds) {
     const mw = next.marketWorkers.find((w) => w.id === keptWorkerId);
     const bw = next.barnWorkers.find((w) => w.id === keptWorkerId);
 
-    // Fisher workers use "fisher_<bodyId>" as their keepId
-    const fisherBodyId = keptWorkerId.startsWith("fisher_") ? keptWorkerId.slice(7) : null;
+    // Fisher workers use "fisher_<bodyId>" or "fisher_<bodyId>_<index>" as their keepId
+    let fisherBodyId = null;
+    if (keptWorkerId.startsWith("fisher_")) {
+      const withoutPrefix = keptWorkerId.slice(7); // e.g. "pond", "lake_1", "river_2"
+      // Match against known body IDs (strip trailing _N if present)
+      const knownBodies = Object.keys(next.fishing?.bodies ?? {});
+      fisherBodyId = knownBodies.find(id => withoutPrefix === id || withoutPrefix.startsWith(id + "_")) ?? null;
+    }
     const fisherBody = fisherBodyId ? next.fishing?.bodies?.[fisherBodyId] : null;
 
     const forgeW = next.forgeWorkers.find((w) => w.id === keptWorkerId);
@@ -4084,12 +4090,15 @@ export function beginPrestige(state, _unused, keptWorkerIds) {
     else if (bw) previousKeptWorkers.push(makeKeptWorker(bw, "barn"));
     else if (forgeW) previousKeptWorkers.push(makeKeptWorker(forgeW, "forge"));
     else if (fisherBody) {
-      const fisherWorkers = fisherBody.workers ?? (fisherBody.worker?.hired ? [fisherBody.worker] : []);
-      fisherWorkers.forEach((fw, fi) => {
-        previousKeptWorkers.push(
-          makeKeptWorker({ ...fw, bodyId: fisherBodyId, id: keptWorkerId + (fi > 0 ? "_" + fi : "") }, "fisher")
-        );
-      });
+      const fisherWorkerList = fisherBody.workers?.length > 0 ? fisherBody.workers : (fisherBody.worker?.hired ? [fisherBody.worker] : []);
+      // Determine which specific worker index this keepId refers to
+      const withoutPrefix = keptWorkerId.slice(7); // e.g. "pond" or "pond_1"
+      const afterBodyId = withoutPrefix.slice(fisherBodyId.length); // e.g. "" or "_1"
+      const workerIndex = afterBodyId.startsWith("_") ? parseInt(afterBodyId.slice(1), 10) : 0;
+      const fw = fisherWorkerList[workerIndex];
+      if (fw) {
+        previousKeptWorkers.push(makeKeptWorker({ ...fw, bodyId: fisherBodyId, id: keptWorkerId }, "fisher"));
+      }
     }
   }
   next.keptWorkers = previousKeptWorkers;
@@ -4386,19 +4395,15 @@ export function collectAnimal(state, animalId, animalInstanceId, barnInstanceId)
     if (found) { animal = found; break; }
   }
   if (!animal || (animal.stock ?? 0) <= 0) return state;
-  const mood = animal.mood ?? 100;
   const stock = animal.stock ?? 0;
-  const bonusChance = mood / 100;
-  const bonus = Math.random() < bonusChance ? 1 : 0;
-  const collected = stock + bonus;
   animal.stock = 0;
   animal.ready = false;
   if (!next.animalGoods) next.animalGoods = {};
-  next.animalGoods[type.produces] = (next.animalGoods[type.produces] ?? 0) + collected;
+  next.animalGoods[type.produces] = (next.animalGoods[type.produces] ?? 0) + stock;
   if (!next.questProgress) next.questProgress = {};
-  if (type.produces === "egg")  next.questProgress.eggsCollected  = (next.questProgress.eggsCollected  ?? 0) + collected;
-  if (type.produces === "milk") next.questProgress.milkCollected   = (next.questProgress.milkCollected  ?? 0) + collected;
-  if (type.produces === "wool") next.questProgress.woolCollected   = (next.questProgress.woolCollected  ?? 0) + collected;
+  if (type.produces === "egg")  next.questProgress.eggsCollected  = (next.questProgress.eggsCollected  ?? 0) + stock;
+  if (type.produces === "milk") next.questProgress.milkCollected   = (next.questProgress.milkCollected  ?? 0) + stock;
+  if (type.produces === "wool") next.questProgress.woolCollected   = (next.questProgress.woolCollected  ?? 0) + stock;
   return next;
 }
  
@@ -4413,15 +4418,11 @@ export function collectAllAnimals(state) {
     for (const animal of inst.animals ?? []) {
       const stock = animal.stock ?? 0;
       if (stock <= 0) continue;
-      const mood = animal.mood ?? 100;
-      const bonusChance = mood / 100;
-      const bonus = Math.random() < bonusChance ? 1 : 0;
-      const totalCollected = stock + bonus;
-      next.animalGoods[type.produces] = (next.animalGoods[type.produces] ?? 0) + totalCollected;
+      next.animalGoods[type.produces] = (next.animalGoods[type.produces] ?? 0) + stock;
       if (!next.questProgress) next.questProgress = {};
-      if (type.produces === "egg")  next.questProgress.eggsCollected  = (next.questProgress.eggsCollected  ?? 0) + totalCollected;
-      if (type.produces === "milk") next.questProgress.milkCollected   = (next.questProgress.milkCollected  ?? 0) + totalCollected;
-      if (type.produces === "wool") next.questProgress.woolCollected   = (next.questProgress.woolCollected  ?? 0) + totalCollected;
+      if (type.produces === "egg")  next.questProgress.eggsCollected  = (next.questProgress.eggsCollected  ?? 0) + stock;
+      if (type.produces === "milk") next.questProgress.milkCollected   = (next.questProgress.milkCollected  ?? 0) + stock;
+      if (type.produces === "wool") next.questProgress.woolCollected   = (next.questProgress.woolCollected  ?? 0) + stock;
       animal.stock = 0;
       animal.ready = false;
       anyCollected = true;
@@ -7130,29 +7131,26 @@ export function tickRoads(state) {
   const level = getRoadLevel(state);
   if (level === 0) return state;
   let next = { ...state, worldResources: { ...(state.worldResources ?? {}) } };
-  let totalIron = 0;
-  let totalLumber = 0;
+  let anyDisabled = false;
+  // Evaluate each tier independently — highest failing tier gets toggled off
   for (let i = 0; i < level; i++) {
     const roadTier = ROAD_TIERS[i];
     const enabledKey = `road_${roadTier.level}_enabled`;
-    // Default to enabled if key not set; skip drain if disabled
-    if (state.roads?.[enabledKey] === false) continue;
-    totalIron  += roadTier.upkeepPerTick.iron_ore;
-    totalLumber += roadTier.upkeepPerTick.lumber;
+    if (next.roads?.[enabledKey] === false) continue;
+    const iron   = roadTier.upkeepPerTick.iron_ore;
+    const lumber = roadTier.upkeepPerTick.lumber;
+    const canAfford = (next.worldResources.iron_ore ?? 0) >= iron &&
+                      (next.worldResources.lumber   ?? 0) >= lumber;
+    if (canAfford) {
+      next.worldResources.iron_ore = (next.worldResources.iron_ore ?? 0) - iron;
+      next.worldResources.lumber   = (next.worldResources.lumber   ?? 0) - lumber;
+    } else {
+      // Can't afford this tier — toggle it off (player must re-enable)
+      next.roads = { ...next.roads, [enabledKey]: false };
+      anyDisabled = true;
+    }
   }
-  if (totalIron === 0 && totalLumber === 0) {
-    next.roads = { ...next.roads, disrupted: false };
-    return next;
-  }
-  const canAfford = (next.worldResources.iron_ore ?? 0) >= totalIron &&
-                    (next.worldResources.lumber   ?? 0) >= totalLumber;
-  if (canAfford) {
-    next.worldResources.iron_ore = (next.worldResources.iron_ore ?? 0) - totalIron;
-    next.worldResources.lumber   = (next.worldResources.lumber   ?? 0) - totalLumber;
-    next.roads = { ...next.roads, disrupted: false };
-  } else {
-    next.roads = { ...next.roads, disrupted: true };
-  }
+  next.roads = { ...next.roads, disrupted: anyDisabled };
   return next;
 }
 
@@ -7222,12 +7220,7 @@ export function isTownConnected(state, townId) {
   const def = TRADE_TOWNS[townId];
   if (!def) return false;
   if (getRoadLevel(state) < def.roadLevel) return false;
-  if (state.roads?.disrupted) return false;
   if (!isRoadEnabled(state, def.roadLevel)) return false;
-  const hasEscort = Object.values(EXPEDITION_TIERS).some(
-    (tier) => tier.roadLevel === def.roadLevel && !!(state.expeditions ?? {})[tier.id]
-  );
-  if (!hasEscort) return false;
   return true;
 }
 

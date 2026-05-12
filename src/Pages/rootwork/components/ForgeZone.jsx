@@ -549,8 +549,8 @@ function InstancedGearPanel({ game, onUpgradeForgeInstance }) {
   const equipped = instanced.filter((i) => !!i._equippedBy);
 
   if (instanced.length === 0) return null;
-  if (!isArcaneUnlocked(game)) return null;
 
+  const arcaneUnlocked = isArcaneUnlocked(game);
   const crystals = Math.floor(game.worldResources?.mana_crystal ?? 0);
   const cash = Math.floor(game.cash ?? 0);
 
@@ -582,15 +582,26 @@ function InstancedGearPanel({ game, onUpgradeForgeInstance }) {
           <div style={{ fontSize: "0.6rem", color: "var(--muted)" }}>Infuse mana crystals into top-tier gear to push beyond normal limits</div>
         </div>
       </div>
-      {/* Warning: items become unsellable */}
-      <div style={{
-        fontSize: "0.57rem", color: "#f59e0b", marginBottom: "0.55rem",
-        padding: "3px 7px", borderRadius: "5px",
-        background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.25)",
-        display: "inline-flex", alignItems: "center", gap: "0.3rem",
-      }}>
-        ⚠️ Arcane-upgraded items cannot be sold
-      </div>
+      {/* Lock banner or unsellable warning */}
+      {!arcaneUnlocked ? (
+        <div style={{
+          fontSize: "0.57rem", color: "var(--muted)", marginBottom: "0.55rem",
+          padding: "3px 7px", borderRadius: "5px",
+          background: "rgba(255,255,255,0.04)", border: "1px solid var(--border)",
+          display: "inline-flex", alignItems: "center", gap: "0.3rem",
+        }}>
+          🔒 Requires Forge Hall Level 4 to activate
+        </div>
+      ) : (
+        <div style={{
+          fontSize: "0.57rem", color: "#f59e0b", marginBottom: "0.55rem",
+          padding: "3px 7px", borderRadius: "5px",
+          background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.25)",
+          display: "inline-flex", alignItems: "center", gap: "0.3rem",
+        }}>
+          ⚠️ Arcane-upgraded items cannot be sold
+        </div>
+      )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
         {allItems.map((inst) => {
@@ -606,8 +617,8 @@ function InstancedGearPanel({ game, onUpgradeForgeInstance }) {
           const heroOnMission = adv && !!adv.mission;
           const heroResting = adv && !!adv.tavernResting;
 
-          // Can upgrade if: in stock OR equipped on idle hero
-          const canUpgrade = canAfford && (!inst._equippedBy || heroIdle);
+          // Can upgrade if: arcane unlocked AND (in stock OR equipped on idle hero)
+          const canUpgrade = arcaneUnlocked && canAfford && (!inst._equippedBy || heroIdle);
 
           let lockReason = null;
           if (inst._equippedBy && heroOnMission)  lockReason = `${adv?.name ?? "Hero"} is on mission`;
@@ -640,7 +651,9 @@ function InstancedGearPanel({ game, onUpgradeForgeInstance }) {
                     )}
                   </div>
                   <div style={{ fontSize: "0.57rem", color: "var(--muted)", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-                    {lockReason ? (
+                    {!arcaneUnlocked ? (
+                      <span style={{ color: "var(--muted)" }}>🔒 Forge Hall L4 required</span>
+                    ) : lockReason ? (
                       <span style={{ color: "#f59e0b" }}>🔒 {lockReason}</span>
                     ) : (
                       <>
