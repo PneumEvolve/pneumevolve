@@ -1,6 +1,6 @@
 // src/Pages/rootwork/components/LiveView.jsx
 import React, { useEffect, useRef, useCallback } from "react";
-import { CROPS, BARN_BUILDINGS, FISHING_BODY_ORDER, HERO_CLASS_META, FISHING_WORKER_BASE_INTERVAL } from "../gameConstants";
+import { CROPS, BARN_BUILDINGS, FISHING_BODY_ORDER, HERO_CLASS_META, FISHING_WORKER_BASE_INTERVAL, PROCESSING_RECIPES, FORGE_RECIPES, EXPEDITION_TIERS, ROAD_TIERS, TRADE_TOWNS, TRADE_TOWN_ORDER } from "../gameConstants";
 
 // ─── Layout constants ─────────────────────────────────────────────────────────
 const PLOT_SIZE  = 18;
