@@ -75,16 +75,16 @@ function buildLayout(game) {
     const col = fi % FARM_COLS;
     const row = Math.floor(fi / FARM_COLS);
     // All farms in the same grid-row share the same x stride
-    const colW = Math.max(...farmZones.filter((_, i) => i % FARM_COLS === col).map(f => f.w));
-    const rowH  = Math.max(...farmZones.filter((_, i) => Math.floor(i / FARM_COLS) === row).map(f => f.h));
+    const colW = Math.max(0, ...farmZones.filter((_, i) => i % FARM_COLS === col).map(f => f.w));
+    const rowH  = Math.max(0, ...farmZones.filter((_, i) => Math.floor(i / FARM_COLS) === row).map(f => f.h));
     // Compute cumulative x offset for this column
     let xOff = ZONE_PAD;
     for (let c = 0; c < col; c++) {
-      xOff += Math.max(...farmZones.filter((_, i) => i % FARM_COLS === c).map(f => f.w)) + ZONE_GAP;
+      xOff += Math.max(0, ...farmZones.filter((_, i) => i % FARM_COLS === c).map(f => f.w)) + ZONE_GAP;
     }
     let yOff = ZONE_PAD;
     for (let r = 0; r < row; r++) {
-      yOff += Math.max(...farmZones.filter((_, i) => Math.floor(i / FARM_COLS) === r).map(f => f.h)) + ZONE_GAP;
+      yOff += Math.max(0, ...farmZones.filter((_, i) => Math.floor(i / FARM_COLS) === r).map(f => f.h)) + ZONE_GAP;
     }
     fz.x = xOff;
     fz.y = yOff;
@@ -221,8 +221,9 @@ function buildLayout(game) {
   });
   const tradeTowns = game.tradeTowns ?? {};
   const worldZoneW = Math.max(totalW - ZONE_PAD * 2, 300);
-  const worldZoneH = Math.max(160, 60 + unlockedTowns.length * 0 + Object.keys(activeExps).length * 40);
-  if (roadLevel > 0 || Object.keys(activeExps).length > 0) {
+  const worldZoneH = Math.max(160, 80 + Object.keys(activeExps).length * 50);
+  const hasWorldZone = roadLevel > 0 || Object.keys(activeExps).length > 0;
+  if (hasWorldZone) {
     zones.push({
       type: "world", id: "world",
       roadLevel, activeExps, unlockedTowns, tradeTowns,
@@ -231,7 +232,7 @@ function buildLayout(game) {
     });
   }
 
-  const worldH = row5Y + (roadLevel > 0 || Object.keys(activeExps).length > 0 ? worldZoneH + ZONE_PAD : 0) + (roadLevel === 0 ? 120 + ZONE_PAD : 0);
+  const worldH = row5Y + (hasWorldZone ? worldZoneH + ZONE_PAD : 0);
   return { zones, worldW: totalW, worldH };
 }
 
@@ -294,7 +295,13 @@ export default function LiveView({ game }) {
     const dt = Math.min((ts - (lastTimeRef.current ?? ts)) / 1000, 0.05);
     lastTimeRef.current = ts;
 
-    const layout = buildLayout(g);
+    let layout;
+    try {
+      layout = buildLayout(g);
+    } catch (e) {
+      console.error("[LiveView] buildLayout error:", e);
+      return;
+    }
     layoutRef.current = layout;
 
     // First frame: centre camera on world content
@@ -328,11 +335,19 @@ export default function LiveView({ game }) {
 
     // ── Draw each zone ──
     layout.zones.forEach(zone => {
-      drawZone(ctx, zone, g, dt, isDark);
+      try {
+        drawZone(ctx, zone, g, dt, isDark);
+      } catch (e) {
+        console.error("[LiveView] drawZone error in zone", zone.type, e);
+      }
     });
 
     // ── Draw all animated workers on top ──
-    drawWorkers(ctx, layout, g, dt, isDark);
+    try {
+      drawWorkers(ctx, layout, g, dt, isDark);
+    } catch (e) {
+      console.error("[LiveView] drawWorkers error:", e);
+    }
 
     ctx.restore();
   }, []);
