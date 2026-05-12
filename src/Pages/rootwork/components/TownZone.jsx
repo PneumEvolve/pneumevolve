@@ -6,7 +6,7 @@ import {
   TOWN_HALL_LEVEL_COSTS, TOWN_HALL_L1_IRON, TOWN_HALL_L1_LUMBER,
   TOWN_HALL_L2_IRON, TOWN_HALL_L2_LUMBER,
   TOWN_HALL_L3_IRON, TOWN_HALL_L3_LUMBER, TOWN_HALL_L3_FITTING,
-  TOWN_HALL_L4_FITTING, TOWN_HALL_L4_CRATE,
+  
   PERSON_IDLE_FOOD_COST, PERSON_WORKING_FOOD_COST, BREAD_FOOD_UNITS,
   TOWN_SCHOOL_COST,
   TAVERN_LEVEL_COSTS, TAVERN_LEVEL_IRON, TAVERN_LEVEL_LUMBER, TAVERN_LEVEL_REGEN,
@@ -225,7 +225,6 @@ export default function TownZone({
   const canUpgradeTH = thNextCost !== null && cash >= thNextCost && (() => {
     if (thLevel === 1) return (worldRes.iron_ore ?? 0) >= TOWN_HALL_L2_IRON && (worldRes.lumber ?? 0) >= TOWN_HALL_L2_LUMBER;
     if (thLevel === 2) return (worldRes.iron_ore ?? 0) >= TOWN_HALL_L3_IRON && (worldRes.lumber ?? 0) >= TOWN_HALL_L3_LUMBER && have("iron_fitting") >= TOWN_HALL_L3_FITTING;
-    if (thLevel === 3) return have("iron_fitting") >= TOWN_HALL_L4_FITTING && have("reinforced_crate") >= TOWN_HALL_L4_CRATE;
     return cash >= thNextCost;
   })();
 
@@ -360,7 +359,8 @@ export default function TownZone({
             </div>
             <Row label="Current level" value={thLevel} />
             <Row label="Unlocks at TH1" value="Kitchen Hall, Market Hall, Forge Hall, Tavern" />
-            <Row label="Unlocks at TH2" value="Guild Hall, Barn Hall, School" />
+            <Row label="Unlocks at TH2" value="Guild Hall, School, Recreation Hall" />
+            <Row label="Unlocks at TH3" value="Barn Hall (Season 4+)" />
             {thLevel < TOWN_HALL_MAX_LEVEL && (
               <>
                 <div style={{ marginTop: "0.5rem", paddingTop: "0.4rem", borderTop: "1px solid var(--border)" }}>
@@ -369,10 +369,9 @@ export default function TownZone({
                     materials={
                       thLevel === 1 ? { iron_ore: TOWN_HALL_L2_IRON, lumber: TOWN_HALL_L2_LUMBER }
                       : thLevel === 2 ? { iron_ore: TOWN_HALL_L3_IRON, lumber: TOWN_HALL_L3_LUMBER, iron_fitting: TOWN_HALL_L3_FITTING }
-                      : thLevel === 3 ? { iron_fitting: TOWN_HALL_L4_FITTING, reinforced_crate: TOWN_HALL_L4_CRATE }
                       : null
                     }
-                    have={{ iron_ore: worldRes.iron_ore ?? 0, lumber: worldRes.lumber ?? 0, iron_fitting: have("iron_fitting"), reinforced_crate: have("reinforced_crate") }}
+                    have={{ iron_ore: worldRes.iron_ore ?? 0, lumber: worldRes.lumber ?? 0, iron_fitting: have("iron_fitting") }}
                   />
                 </div>
                 <button onClick={onUpgradeTownHall} disabled={!canUpgradeTH} className="btn w-full"
@@ -861,7 +860,7 @@ export default function TownZone({
           <BuildingCard emoji="🐄" title="Barn Hall"
             badge={barnHallBuilt ? `Level ${barnHallLevel}` : "Not built"}
             badgeColor={barnHallBuilt ? "#4ade80" : "#f59e0b"}
-            locked={!th2} lockedMsg="Requires Town Hall level 2"
+            locked={!th3} lockedMsg="Requires Town Hall level 3"
           >
             <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
               Gates how many barn workers you can hire per barn building. Each level adds 1 worker slot per building.
@@ -984,7 +983,7 @@ export default function TownZone({
           <BuildingCard emoji="🎪" title="Recreation Hall"
             badge={recHallBuilt ? `Tier ${recHallTier} · ${recHallWorkers} workers · +${getRecHallSatBonus(game).toFixed(1)}% sat` : "Not built"}
             badgeColor={recHallBuilt ? "#4ade80" : "#f59e0b"}
-            locked={!th3} lockedMsg="Requires Town Hall level 3"
+            locked={!th2} lockedMsg="Requires Town Hall level 2"
           >
             <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
               Each worker pushes satisfaction past the Food Hall ceiling by +0.5%.

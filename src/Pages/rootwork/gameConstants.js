@@ -11,9 +11,9 @@ export const CROPS = {
 export const GEAR = {
   bare_hands:  { id: "bare_hands",  name: "Bare Hands",  emoji: "🤲", plotsPerCycle: 1, cycleSeconds: 15, upgradeCost: null, description: "Harvests and replants 1 plot every 15s." },
   gloves:      { id: "gloves",      name: "Gloves",      emoji: "🧤", plotsPerCycle: 1, cycleSeconds: 10, upgradeCost: 40,   upgradeTier: 1, upgradeRequires: { iron_ore: 5, lumber: 4 }, description: "Harvests and replants 1 plot every 10s. 33% faster." },
-  hoe:         { id: "hoe",         name: "Hoe",         emoji: "🪓", plotsPerCycle: 1, cycleSeconds: 6,  upgradeCost: 180,   upgradeTier: 1, upgradeRequires: { iron_ore: 10, lumber: 6 }, description: "Harvests and replants 1 plot every 6s. 40% faster than gloves." },
-  wheelbarrow: { id: "wheelbarrow", name: "Wheelbarrow", emoji: "🛻", plotsPerCycle: 2, cycleSeconds: 6,  upgradeCost: 600,  upgradeTier: 2, upgradeRequires: { iron_ore: 20, lumber: 15 }, description: "Harvests and replants 2 plots every 6s. Double the coverage." },
-  tractor:     { id: "tractor",     name: "Tractor",     emoji: "🚜", plotsPerCycle: 5, cycleSeconds: 6,  upgradeCost: 2000,  upgradeTier: 3, upgradeRequires: { iron_fitting: 5 }, description: "Harvests and replants 5 plots every 6s. Near full automation." },
+  hoe:         { id: "hoe",         name: "Hoe",         emoji: "🪓", plotsPerCycle: 1, cycleSeconds: 6,  upgradeCost: 180,   upgradeTier: 1, upgradeRequires: { iron_ore: 15, lumber: 10 }, description: "Harvests and replants 1 plot every 6s. 40% faster than gloves." },
+  wheelbarrow: { id: "wheelbarrow", name: "Wheelbarrow", emoji: "🛻", plotsPerCycle: 2, cycleSeconds: 6,  upgradeCost: 600,  upgradeTier: 2, upgradeRequires: { iron_ore: 80, lumber: 60 }, description: "Harvests and replants 2 plots every 6s. Double the coverage." },
+  tractor:     { id: "tractor",     name: "Tractor",     emoji: "🚜", plotsPerCycle: 5, cycleSeconds: 6,  upgradeCost: 2000,  upgradeTier: 3, upgradeRequires: { iron_fitting: 5, iron_ore: 40, lumber: 30 }, description: "Harvests and replants 5 plots every 6s. Near full automation." },
 };
  
 export const GEAR_ORDER = ["bare_hands", "gloves", "hoe", "wheelbarrow", "tractor"];
@@ -32,16 +32,16 @@ export const MAX_PLOTS = 9;
 // ─── Farm investments ─────────────────────────────────────────────────────────
 export const FARM_INVESTMENT_PLOT_CAP = [
   { id: "plots_4x4", name: "Expand to 4×4", maxPlots: 16, cost: 1500,    upgradeTier: 1, upgradeRequires: { iron_ore: 5, lumber: 4 }, description: "Unlock up to 16 plots on this farm." },
-  { id: "plots_5x5", name: "Expand to 5×5", maxPlots: 25, cost: 15000,   upgradeTier: 2, upgradeRequires: { iron_ore: 20, lumber: 15 }, description: "Unlock up to 25 plots on this farm." },
-  { id: "plots_6x6", name: "Expand to 6×6", maxPlots: 36, cost: 80000,  upgradeTier: 3, upgradeRequires: { iron_fitting: 5 }, description: "Unlock up to 36 plots on this farm." },
-  { id: "plots_7x7", name: "Expand to 7×7", maxPlots: 49, cost: 400000, upgradeTier: 4, upgradeRequires: { iron_fitting: 20, iron_ore: 50 }, description: "Unlock up to 49 plots on this farm." },
+  { id: "plots_5x5", name: "Expand to 5×5", maxPlots: 25, cost: 15000,   upgradeTier: 2, upgradeRequires: { iron_ore: 100, lumber: 80 }, description: "Unlock up to 25 plots on this farm." },
+  { id: "plots_6x6", name: "Expand to 6×6", maxPlots: 36, cost: 80000,  upgradeTier: 3, upgradeRequires: { iron_fitting: 5, iron_ore: 60, lumber: 50 }, description: "Unlock up to 36 plots on this farm." },
+  { id: "plots_7x7", name: "Expand to 7×7", maxPlots: 49, cost: 400000, upgradeTier: 4, upgradeRequires: { iron_fitting: 20, iron_ore: 150, lumber: 100 }, description: "Unlock up to 49 plots on this farm." },
 ];
  
 export const FARM_INVESTMENT_YIELD = [
-  { id: "yield_1", name: "Fertilizer I",   bonusYield: 1, cost: 3000,  upgradeTier: 2, upgradeRequires: { iron_ore: 20, lumber: 15 }, description: "+1 crop per worker harvest." },
-  { id: "yield_2", name: "Fertilizer II",  bonusYield: 2, cost: 10000,  upgradeTier: 2, upgradeRequires: { iron_ore: 20, lumber: 15 }, description: "+2 crops per worker harvest." },
-  { id: "yield_3", name: "Fertilizer III", bonusYield: 3, cost: 35000, upgradeTier: 3, upgradeRequires: { iron_fitting: 5 }, description: "+3 crops per worker harvest." },
-  { id: "yield_4", name: "Fertilizer IV",  bonusYield: 4, cost: 120000, upgradeTier: 3, upgradeRequires: { iron_fitting: 5, fine_tools: 5 }, description: "+4 crops per worker harvest." },
+  { id: "yield_1", name: "Fertilizer I",   bonusYield: 1, cost: 3000,  upgradeTier: 2, upgradeRequires: { iron_ore: 80, lumber: 60 }, description: "+1 crop per worker harvest." },
+  { id: "yield_2", name: "Fertilizer II",  bonusYield: 2, cost: 10000,  upgradeTier: 2, upgradeRequires: { iron_ore: 120, lumber: 100 }, description: "+2 crops per worker harvest." },
+  { id: "yield_3", name: "Fertilizer III", bonusYield: 3, cost: 35000, upgradeTier: 3, upgradeRequires: { iron_fitting: 5, iron_ore: 50 }, description: "+3 crops per worker harvest." },
+  { id: "yield_4", name: "Fertilizer IV",  bonusYield: 4, cost: 120000, upgradeTier: 3, upgradeRequires: { iron_fitting: 8, fine_tools: 8, iron_ore: 80 }, description: "+4 crops per worker harvest." },
 ];
  
 // ─── Plot upgrade ─────────────────────────────────────────────────────────────
@@ -125,9 +125,9 @@ export const MARKET_WORKER_HIRE_MULTIPLIER = 3.0;
 export const MARKET_WORKER_GEAR = {
   cart:       { id: "cart",       name: "Cart",       emoji: "🛒", itemsPerSecond: 1,  upgradeCost: null  },
   wagon:      { id: "wagon",      name: "Wagon",      emoji: "🪵", itemsPerSecond: 2,  upgradeCost: 400,   upgradeTier: 1, upgradeRequires: { iron_ore: 5, lumber: 4 } },
-  truck:      { id: "truck",      name: "Truck",      emoji: "🚚", itemsPerSecond: 4,  upgradeCost: 1500,   upgradeTier: 2, upgradeRequires: { iron_ore: 20, lumber: 15 } },
-  freight:    { id: "freight",    name: "Freight",    emoji: "🚛", itemsPerSecond: 10, upgradeCost: 8000,  upgradeTier: 2, upgradeRequires: { iron_ore: 20, lumber: 15 } },
-  export_hub: { id: "export_hub", name: "Export Hub", emoji: "🏗️", itemsPerSecond: 20, upgradeCost: 30000, upgradeTier: 3, upgradeRequires: { iron_fitting: 5 } },
+  truck:      { id: "truck",      name: "Truck",      emoji: "🚚", itemsPerSecond: 4,  upgradeCost: 1500,   upgradeTier: 2, upgradeRequires: { iron_ore: 80, lumber: 60 } },
+  freight:    { id: "freight",    name: "Freight",    emoji: "🚛", itemsPerSecond: 10, upgradeCost: 8000,  upgradeTier: 2, upgradeRequires: { iron_ore: 100, lumber: 80 } },
+  export_hub: { id: "export_hub", name: "Export Hub", emoji: "🏗️", itemsPerSecond: 20, upgradeCost: 30000, upgradeTier: 3, upgradeRequires: { iron_fitting: 5, iron_ore: 50, lumber: 40 } },
 };
  
 export const MARKET_WORKER_GEAR_ORDER = ["cart", "wagon", "truck", "freight", "export_hub"];
@@ -142,10 +142,10 @@ export const KITCHEN_WORKER_HIRE_MULTIPLIER = 3.0;
 export const KITCHEN_WORKER_UPGRADES = {
   speed_1:      { id: "speed_1",      name: "Sharp Knife",  emoji: "🔪",     cost: 250,   upgradeTier: 1, upgradeRequires: { iron_ore: 5, lumber: 4 }, description: "+25% processing speed.",                      speedMultiplier: 0.75, tree: "speed" },
   auto_restart: { id: "auto_restart", name: "Auto-Restart", emoji: "🔄",     cost: 500,  upgradeTier: 1, description: "Auto restarts recipe when finished.",           requires: "speed_1",   tree: "speed" },
-  speed_2:      { id: "speed_2",      name: "Prep Station", emoji: "🍳",     cost: 1000,  upgradeTier: 2, upgradeRequires: { iron_ore: 20, lumber: 15 }, description: "50% faster crafting (replaces Sharp Knife).",  speedMultiplier: 0.5,  requires: "auto_restart", tree: "speed" },
-  batch_2:      { id: "batch_2",      name: "Batch ×2",     emoji: "📦",     cost: 2000,  upgradeTier: 2, upgradeRequires: { iron_ore: 20, lumber: 15 }, description: "Double input, double output per run.",          batchSize: 2,          tree: "batch" },
-  batch_5:      { id: "batch_5",      name: "Batch ×5",     emoji: "📦📦",   cost: 8000, upgradeTier: 3, upgradeRequires: { reinforced_crate: 5 }, description: "5× input, 5× output per run.",                  batchSize: 5,  requires: "batch_2", tree: "batch" },
-  batch_10:     { id: "batch_10",     name: "Batch ×10",    emoji: "📦📦📦", cost: 25000, upgradeTier: 3, upgradeRequires: { reinforced_crate: 5 }, description: "10× input, 10× output per run.",                batchSize: 10, requires: "batch_5", tree: "batch" },
+  speed_2:      { id: "speed_2",      name: "Prep Station", emoji: "🍳",     cost: 1000,  upgradeTier: 2, upgradeRequires: { iron_ore: 80, lumber: 60 }, description: "50% faster crafting (replaces Sharp Knife).",  speedMultiplier: 0.5,  requires: "auto_restart", tree: "speed" },
+  batch_2:      { id: "batch_2",      name: "Batch ×2",     emoji: "📦",     cost: 2000,  upgradeTier: 2, upgradeRequires: { iron_ore: 80, lumber: 60 }, description: "Double input, double output per run.",          batchSize: 2,          tree: "batch" },
+  batch_5:      { id: "batch_5",      name: "Batch ×5",     emoji: "📦📦",   cost: 8000, upgradeTier: 3, upgradeRequires: { reinforced_crate: 5, iron_ore: 30 }, description: "5× input, 5× output per run.",                  batchSize: 5,  requires: "batch_2", tree: "batch" },
+  batch_10:     { id: "batch_10",     name: "Batch ×10",    emoji: "📦📦📦", cost: 25000, upgradeTier: 3, upgradeRequires: { reinforced_crate: 8, iron_ore: 50 }, description: "10× input, 10× output per run.",                batchSize: 10, requires: "batch_5", tree: "batch" },
 };
  
 export const KITCHEN_WORKER_UPGRADE_ORDER = ["speed_1", "auto_restart", "speed_2", "batch_2", "batch_5", "batch_10"];
@@ -159,11 +159,11 @@ export const BARN_WORKER_HIRE_BASE_COST = 120;
 export const BARN_WORKER_HIRE_MULTIPLIER = 2.0;
 export const BARN_WORKER_UPGRADES = {
   speed_1:    { id: "speed_1",    name: "Quick Rounds",  emoji: "⚡", cost: 500, upgradeTier: 1, upgradeRequires: { iron_ore: 5, lumber: 4 }, description: "Collect every 50s",     requires: null,         tree: "speed" },
-  speed_2:    { id: "speed_2",    name: "Sprint Rounds", emoji: "⚡", cost: 1200, upgradeTier: 2, upgradeRequires: { iron_ore: 20, lumber: 15 }, description: "Collect every 40s",     requires: "speed_1",    tree: "speed" },
+  speed_2:    { id: "speed_2",    name: "Sprint Rounds", emoji: "⚡", cost: 1200, upgradeTier: 2, upgradeRequires: { iron_ore: 100, lumber: 80 }, description: "Collect every 40s",     requires: "speed_1",    tree: "speed" },
   capacity_1: { id: "capacity_1", name: "Big Basket",    emoji: "📦", cost: 600, upgradeTier: 1, upgradeRequires: { iron_ore: 5, lumber: 4 }, description: "Collect 3 at once",     requires: null,         tree: "capacity" },
-  capacity_2: { id: "capacity_2", name: "Cargo Basket",  emoji: "📦", cost: 1500, upgradeTier: 2, upgradeRequires: { iron_ore: 20, lumber: 15 }, description: "Collect 6 at once",     requires: "capacity_1", tree: "capacity" },
+  capacity_2: { id: "capacity_2", name: "Cargo Basket",  emoji: "📦", cost: 1500, upgradeTier: 2, upgradeRequires: { iron_ore: 100, lumber: 80 }, description: "Collect 6 at once",     requires: "capacity_1", tree: "capacity" },
   care_1:     { id: "care_1",     name: "Gentle Hands",  emoji: "💝", cost: 400, upgradeTier: 1, upgradeRequires: { iron_ore: 5, lumber: 4 }, description: "+25 mood to neediest animal every 2min", requires: null,      tree: "care" },
-  care_2:     { id: "care_2",     name: "Animal Bond",   emoji: "💝", cost: 900, upgradeTier: 2, upgradeRequires: { iron_ore: 20, lumber: 15 }, description: "+35 mood to neediest animal every 90s",  requires: "care_1",  tree: "care" },
+  care_2:     { id: "care_2",     name: "Animal Bond",   emoji: "💝", cost: 900, upgradeTier: 2, upgradeRequires: { iron_ore: 100, lumber: 80 }, description: "+35 mood to neediest animal every 90s",  requires: "care_1",  tree: "care" },
 };
 export const ANIMAL_STORAGE_UPGRADES = [
   { level: 1, cost: 400, maxStock: 15, label: "Bigger Nest" },
@@ -171,8 +171,8 @@ export const ANIMAL_STORAGE_UPGRADES = [
 ];
 export const ANIMAL_YIELD_UPGRADES = [
   { level: 1, cost: 600, bonusYield: 1, upgradeTier: 1, label: "Well Fed"    },
-  { level: 2, cost: 1800, bonusYield: 2, upgradeTier: 2, upgradeRequires: { iron_ore: 20, lumber: 15 }, label: "Pampered"    },
-  { level: 3, cost: 5000, bonusYield: 3, upgradeTier: 3, upgradeRequires: { fine_tools: 5 }, label: "Prize Animal" },
+  { level: 2, cost: 1800, bonusYield: 2, upgradeTier: 2, upgradeRequires: { iron_ore: 100, lumber: 80 }, label: "Pampered"    },
+  { level: 3, cost: 5000, bonusYield: 3, upgradeTier: 3, upgradeRequires: { fine_tools: 5, iron_ore: 30 }, label: "Prize Animal" },
 ];
 export const BARN_WORKER_BASE_INTERVAL = 60;  // seconds between collect actions
 export const BARN_WORKER_BASE_CAPACITY = 1;
@@ -389,17 +389,17 @@ export const FOOD_HALL_SAT_CEILING = [80, 100, 125, 150];
 export const FOOD_HALL_FOOD_MODE   = ["wheat", "bread", "jam", "sauce"];
 
 // ── Town Hall ─────────────────────────────────────────────────────────────────
-export const TOWN_HALL_MAX_LEVEL   = 4;
-export const TOWN_HALL_LEVEL_COSTS = [100, 1_500, 4_000, 15_000];
+export const TOWN_HALL_MAX_LEVEL   = 3;
+export const TOWN_HALL_LEVEL_COSTS = [100, 1_500, 4_000];
 export const TOWN_HALL_L1_IRON     = 0;
 export const TOWN_HALL_L1_LUMBER   = 0;
-export const TOWN_HALL_L2_IRON     = 20;
-export const TOWN_HALL_L2_LUMBER   = 20;
-export const TOWN_HALL_L3_IRON     = 15;
-export const TOWN_HALL_L3_LUMBER   = 15;
-export const TOWN_HALL_L3_FITTING  = 3;
-export const TOWN_HALL_L4_FITTING  = 5;
-export const TOWN_HALL_L4_CRATE    = 3;
+export const TOWN_HALL_L2_IRON     = 50;
+export const TOWN_HALL_L2_LUMBER   = 50;
+export const TOWN_HALL_L3_IRON     = 100;
+export const TOWN_HALL_L3_LUMBER   = 80;
+export const TOWN_HALL_L3_FITTING  = 8;
+export const TOWN_HALL_L4_FITTING  = 0; // L4 removed
+export const TOWN_HALL_L4_CRATE    = 0; // L4 removed
 // TH 0: Homes, Clinic, Warehouse, Food Hall
 // TH 1: Kitchen Hall, Market Hall, Tavern
 // TH 2: Guild Hall, School
@@ -407,8 +407,9 @@ export const TOWN_HALL_L4_CRATE    = 3;
 export const TOWN_HALL_BUILDING_GATES = {
   homes: 0, clinic: 0, warehouse: 0, food_hall: 0,
   kitchen_hall: 1, market_hall: 1, tavern: 1, forge_hall: 1,
-  guild_hall: 2, school: 2, barn_hall: 2,
-  recreation_hall: 3,
+  guild_hall: 2, school: 2,
+  barn_hall: 3,
+  recreation_hall: 2,
 };
 
 // ── Pond / Forge build costs (unchanged) ─────────────────────────────────────
@@ -429,8 +430,8 @@ export const CLINIC_CAP_PER_MEDIC = 4;
 export const TOWN_FOOD_HALL_COST           = 800;
 export const TOWN_FOOD_HALL_TIER2_COST     = 2_000;
 export const TOWN_FOOD_HALL_TIER3_COST     = 4_000;
-export const TOWN_FOOD_HALL_TIER2_REQUIRES = { iron_ore: 10, lumber: 10 };
-export const TOWN_FOOD_HALL_TIER3_REQUIRES = { iron_fitting: 3 };
+export const TOWN_FOOD_HALL_TIER2_REQUIRES = { iron_ore: 60, lumber: 40 };
+export const TOWN_FOOD_HALL_TIER3_REQUIRES = { iron_fitting: 3, iron_ore: 100, lumber: 80 };
 
 // ── Warehouse ─────────────────────────────────────────────────────────────────
 // Per-crop storage cap (wheat, berries, tomatoes independently).
@@ -441,9 +442,9 @@ export const TOWN_WAREHOUSE_COST       = 500;
 // First 3 levels use these fixed costs; level 4+ scales exponentially
 export const WAREHOUSE_LEVEL_COSTS     = [1_500, 5_000, 15_000];  // levels 1→2, 2→3, 3→4
 export const WAREHOUSE_LEVEL_REQUIRES  = [
-  { iron_ore: 10, lumber: 10 },
-  { iron_fitting: 3, lumber: 20 },
-  { iron_fitting: 8, iron_ore: 30 },
+  { iron_ore: 60, lumber: 40 },
+  { iron_fitting: 3, iron_ore: 60, lumber: 80 },
+  { iron_fitting: 8, iron_ore: 120, lumber: 100 },
 ];
 // Per-level stats (index = level-1). Level 4+ extrapolates from these.
 export const WAREHOUSE_LEVEL_BASE_CAP      = [500, 1_500, 4_000, 10_000]; // base cap per level
@@ -456,8 +457,8 @@ export const WAREHOUSE_LEVEL_NAMES          = ["Basic Shelving", "Forklifts", "C
 export const TOWN_KITCHEN_HALL_COST      = 300;
 export const KITCHEN_HALL_LEVEL_COSTS    = [1_500, 6_000];
 export const KITCHEN_HALL_LEVEL_REQUIRES = [
-  { iron_ore: 10, lumber: 8 },
-  { iron_ore: 20, lumber: 15, iron_fitting: 2 },
+  { iron_ore: 80, lumber: 60 },
+  { iron_ore: 120, lumber: 100, iron_fitting: 5 },
 ];
 export const KITCHEN_HALL_MAX_WORKERS  = [2, 4, 6]; // per level (1, 2, 3)
 export const KITCHEN_HALL_RETAIN_COUNT = [0, 1, 2]; // auto-retain on prestige per level
@@ -467,8 +468,8 @@ export const KITCHEN_HALL_RETAIN_COUNT = [0, 1, 2]; // auto-retain on prestige p
 export const TOWN_MARKET_HALL_COST      = 400;
 export const MARKET_HALL_LEVEL_COSTS    = [2_000, 8_000];
 export const MARKET_HALL_LEVEL_REQUIRES = [
-  { iron_ore: 10, lumber: 8 },
-  { iron_ore: 25, lumber: 20, iron_fitting: 3 },
+  { iron_ore: 80, lumber: 60 },
+  { iron_ore: 150, lumber: 120, iron_fitting: 6 },
 ];
 export const MARKET_HALL_MAX_WORKERS  = [2, 4, 6];   // per level
 export const MARKET_HALL_PRICE_BONUS  = [0, 10, 25]; // % sell price bonus per level
@@ -480,8 +481,8 @@ export const MARKET_HALL_RETAIN_COUNT = [0, 1, 2];   // auto-retain on prestige 
 export const TOWN_BARN_HALL_COST       = 1_500;
 export const BARN_HALL_LEVEL_COSTS     = [3_000, 7_000]; // L2, L3 costs (L4+ scales)
 export const BARN_HALL_LEVEL_REQUIRES  = [
-  { iron_ore: 20, lumber: 20 },           // L2
-  { iron_ore: 30, lumber: 25, iron_fitting: 3 }, // L3
+  { iron_ore: 100, lumber: 80 },                         // L2
+  { iron_ore: 150, lumber: 120, iron_fitting: 8 },         // L3
 ];
 // Workers per building = hall level. Retain = floor(level / 2)
 
@@ -492,9 +493,9 @@ export const BARN_HALL_LEVEL_REQUIRES  = [
 export const TOWN_FORGE_HALL_COST       = 500;
 export const FORGE_HALL_LEVEL_COSTS     = [2_000, 6_000, 15_000]; // L2, L3, L4
 export const FORGE_HALL_LEVEL_REQUIRES  = [
-  { iron_ore: 15, lumber: 15 },                       // L2
-  { iron_ore: 30, lumber: 25, iron_fitting: 3 },      // L3
-  { iron_fitting: 6, reinforced_crate: 3, fine_tools: 2 }, // L4
+  { iron_ore: 100, lumber: 80 },                                         // L2
+  { iron_ore: 150, lumber: 120, iron_fitting: 8 },                         // L3
+  { iron_fitting: 10, reinforced_crate: 6, fine_tools: 4, iron_ore: 80 },  // L4
 ];
 // Max workers = level * 2; retain = level per prestige; T2 at L2, T3 at L3, Arcane at L4
 
@@ -523,8 +524,8 @@ export const GUILD_HALL_QUEST_TIER = [1, 2, 3, 4]; // legacy — kept for WorldZ
 // ── Tavern ────────────────────────────────────────────────────────────────────
 // Heroes auto-rest here when idle until full HP. Level increases regen rate.
 export const TAVERN_LEVEL_COSTS  = [50, 500, 2_000, 8_000];
-export const TAVERN_LEVEL_IRON   = [10,  15,    20,      0];
-export const TAVERN_LEVEL_LUMBER = [ 5,   0,    10,      0];
+export const TAVERN_LEVEL_IRON   = [10,  60,   100,    120];
+export const TAVERN_LEVEL_LUMBER = [ 5,  40,    80,      0];
 export const TAVERN_LEVEL_REGEN  = [0.7, 1.0,  1.5,    2.5]; // HP/s per level
 
 // ── School ────────────────────────────────────────────────────────────────────
