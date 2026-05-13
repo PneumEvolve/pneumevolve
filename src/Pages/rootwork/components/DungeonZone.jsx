@@ -172,8 +172,6 @@ function UnitCircle({ unit, selected, onClick }) {
   const size = UNIT_R*2;
   return (
     <div
-      onPointerDown={e => e.stopPropagation()}
-      onClick={e => e.stopPropagation()}
       style={{
       position:"absolute", left:unit.x-UNIT_R, top:unit.y-UNIT_R,
       width:size, height:size, borderRadius:"50%",
@@ -490,12 +488,12 @@ function Battlefield({ game, enemies: initEnemies, onCombatEnd }) {
       <div
         onPointerDown={handleTap}
         style={{
-        position:"relative", width:BF_W, height:BF_H,
+        position:"relative", width:"100%", maxWidth:BF_W, height:BF_H,
         background:"linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)",
         borderRadius:12, border:"1px solid rgba(255,255,255,0.1)",
         overflow:"hidden", cursor:"crosshair", marginBottom:"0.55rem",
         boxShadow:"inset 0 2px 20px rgba(0,0,0,0.5)",
-        userSelect:"none",
+        userSelect:"none", touchAction:"none",
       }}>
         {/* Grid texture */}
         <div style={{ position:"absolute", inset:0, pointerEvents:"none",
