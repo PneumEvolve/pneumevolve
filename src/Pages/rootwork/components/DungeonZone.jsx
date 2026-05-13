@@ -254,19 +254,32 @@ function Battlefield({ game, enemies: initEnemies, onCombatEnd }) {
   const [selected, setSelected] = useState(null);
   const [floats, setFloats] = useState([]);
   const [log, setLog] = useState([]);
-  const [phase, setPhase] = useState("fighting");
+  const [phase, setPhase] = useState("prep");
+  const [countdown, setCountdown] = useState(5);
   const [result, setResult] = useState(null);
 
   const heroesRef = useRef(initHeroes);
   const enemiesRef = useRef(initEnemies);
   const selectedRef = useRef(null);
-  const phaseRef = useRef("fighting");
+  const phaseRef = useRef("prep");
   const floatIdRef = useRef(0);
 
   useEffect(() => { heroesRef.current = heroes; }, [heroes]);
   useEffect(() => { enemiesRef.current = enemies; }, [enemies]);
   useEffect(() => { selectedRef.current = selected; }, [selected]);
   useEffect(() => { phaseRef.current = phase; }, [phase]);
+
+  // ── Prep countdown ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (phase !== "prep") return;
+    if (countdown <= 0) {
+      setPhase("fighting");
+      phaseRef.current = "fighting";
+      return;
+    }
+    const t = setTimeout(() => setCountdown(c => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [phase, countdown]);
 
   function addFloat(x, y, text, color) {
     const id = ++floatIdRef.current;
@@ -282,7 +295,23 @@ function Battlefield({ game, enemies: initEnemies, onCombatEnd }) {
   useEffect(() => {
     let last = performance.now();
     const loop = setInterval(() => {
-      if (phaseRef.current !== "fighting") return;
+      const currentPhase = phaseRef.current;
+      if (currentPhase === "prep") {
+        // During prep: heroes can move to their targets, enemies stay still
+        const hs = heroesRef.current.map(h => ({ ...h }));
+        const dt = Math.min((performance.now() - last) / 1000, 0.15);
+        last = performance.now();
+        hs.forEach(hero => {
+          if (hero.dead) return;
+          const newPos = moveToward({ x:hero.x, y:hero.y }, { x:hero.targetX, y:hero.targetY }, HERO_SPEED, dt);
+          hero.x = clamp(newPos.x, UNIT_R, BF_W-UNIT_R);
+          hero.y = clamp(newPos.y, UNIT_R, BF_H-UNIT_R);
+        });
+        heroesRef.current = hs;
+        setHeroes([...hs]);
+        return;
+      }
+      if (currentPhase !== "fighting") return;
       const now = performance.now();
       const dt = Math.min((now - last) / 1000, 0.15);
       last = now;
@@ -387,7 +416,7 @@ function Battlefield({ game, enemies: initEnemies, onCombatEnd }) {
 
   // ── Tap handler — works on both mouse and touch ────────────────────────
   function handleTap(e) {
-    if (phase !== "fighting") return;
+    if (phase !== "fighting" && phase !== "prep") return;
     // pointerdown gives clientX/Y for both mouse and touch
     const rect = e.currentTarget.getBoundingClientRect();
     // support both pointer/mouse events (clientX) and legacy touch events (touches[0])
@@ -402,10 +431,14 @@ function Battlefield({ game, enemies: initEnemies, onCombatEnd }) {
 
     const tappedEnemy = enemiesRef.current.find(en => !en.dead && dist({x,y},en) < UNIT_R*1.5);
     if (tappedEnemy) {
-      if (selectedRef.current) {
-        setHeroes(prev => prev.map(h => h.id === selectedRef.current
-          ? { ...h, attackTarget: tappedEnemy.id, targetX: tappedEnemy.x, targetY: tappedEnemy.y }
-          : h));
+      if (selectedRef.current && phase === "fighting") {
+        setHeroes(prev => {
+          const next = prev.map(h => h.id === selectedRef.current
+            ? { ...h, attackTarget: tappedEnemy.id, targetX: tappedEnemy.x, targetY: tappedEnemy.y }
+            : h);
+          heroesRef.current = next;
+          return next;
+        });
       }
       return;
     }
@@ -413,13 +446,18 @@ function Battlefield({ game, enemies: initEnemies, onCombatEnd }) {
     const tappedHero = heroesRef.current.find(h => !h.dead && dist({x,y},h) < UNIT_R*1.5);
     if (tappedHero) {
       setSelected(prev => prev === tappedHero.id ? null : tappedHero.id);
+      selectedRef.current = tappedHero.id === selectedRef.current ? null : tappedHero.id;
       return;
     }
 
     if (selectedRef.current) {
-      setHeroes(prev => prev.map(h => h.id === selectedRef.current
-        ? { ...h, targetX: x, targetY: y, attackTarget: null }
-        : h));
+      setHeroes(prev => {
+        const next = prev.map(h => h.id === selectedRef.current
+          ? { ...h, targetX: x, targetY: y, attackTarget: null }
+          : h);
+        heroesRef.current = next;
+        return next;
+      });
     }
   }
 
@@ -471,17 +509,19 @@ function Battlefield({ game, enemies: initEnemies, onCombatEnd }) {
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"0.4rem" }}>
         <div style={{ fontSize:"0.85rem", fontWeight:800 }}>⚔️ Combat</div>
         <div style={{ fontSize:"0.65rem", fontWeight:700, padding:"0.18rem 0.55rem", borderRadius:20,
-          background: phase==="fighting"?"rgba(74,222,128,0.12)":phase==="victory"?"rgba(251,191,36,0.15)":"rgba(239,68,68,0.12)",
-          border:`1px solid ${phase==="fighting"?"rgba(74,222,128,0.35)":phase==="victory"?"rgba(251,191,36,0.4)":"rgba(239,68,68,0.35)"}`,
-          color: phase==="fighting"?"#4ade80":phase==="victory"?"#fbbf24":"#f87171",
+          background: phase==="prep"?"rgba(251,191,36,0.12)":phase==="fighting"?"rgba(74,222,128,0.12)":phase==="victory"?"rgba(251,191,36,0.15)":"rgba(239,68,68,0.12)",
+          border:`1px solid ${phase==="prep"?"rgba(251,191,36,0.4)":phase==="fighting"?"rgba(74,222,128,0.35)":phase==="victory"?"rgba(251,191,36,0.4)":"rgba(239,68,68,0.35)"}`,
+          color: phase==="prep"?"#fbbf24":phase==="fighting"?"#4ade80":phase==="victory"?"#fbbf24":"#f87171",
         }}>
-          {phase==="fighting"?"LIVE":phase==="victory"?"VICTORY":"DEFEAT"}
+          {phase==="prep"?`⏳ ${countdown}s`:phase==="fighting"?"LIVE":phase==="victory"?"VICTORY":"DEFEAT"}
         </div>
       </div>
 
       {/* Hint */}
       <div style={{ fontSize:"0.6rem", color:"var(--muted)", marginBottom:"0.4rem" }}>
-        {selHero ? `${selHero.emoji} ${selHero.name} · tap to move · tap enemy to attack` : "Tap a hero to select"}
+        {phase === "prep"
+          ? (selHero ? `${selHero.emoji} ${selHero.name} · tap to position before battle` : "Tap a hero to select and position them")
+          : selHero ? `${selHero.emoji} ${selHero.name} · tap to move · tap enemy to attack` : "Tap a hero to select"}
       </div>
 
       {/* Battlefield */}
@@ -511,12 +551,32 @@ function Battlefield({ game, enemies: initEnemies, onCombatEnd }) {
           <UnitCircle key={h.id} unit={h} selected={selected===h.id} onClick={() => {}} />
         ))}
         {/* Victory/Defeat overlay */}
-        {phase !== "fighting" && (
+        {phase !== "fighting" && phase !== "prep" && (
           <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center",
             background:"rgba(0,0,0,0.6)", flexDirection:"column", gap:"0.5rem" }}>
             <div style={{ fontSize:"2.5rem" }}>{phase==="victory"?"🏆":"💀"}</div>
             <div style={{ fontSize:"1rem", fontWeight:800, color:phase==="victory"?"#fbbf24":"#ef4444" }}>
               {phase==="victory"?"Victory!":"Defeated"}
+            </div>
+          </div>
+        )}
+        {/* Prep countdown overlay */}
+        {phase === "prep" && (
+          <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center",
+            background:"rgba(0,0,0,0.45)", flexDirection:"column", gap:"0.35rem", pointerEvents:"none" }}>
+            <div style={{ fontSize:"0.65rem", fontWeight:700, color:"rgba(255,255,255,0.6)", letterSpacing:"0.12em", textTransform:"uppercase" }}>
+              Battle starts in
+            </div>
+            <div style={{
+              fontSize:"3.5rem", fontWeight:900, lineHeight:1,
+              color: countdown <= 2 ? "#ef4444" : countdown <= 3 ? "#fbbf24" : "#4ade80",
+              textShadow:`0 0 30px ${countdown <= 2 ? "#ef4444" : countdown <= 3 ? "#fbbf24" : "#4ade80"}`,
+              animation:"ringPulse 0.9s ease-in-out infinite",
+            }}>
+              {countdown}
+            </div>
+            <div style={{ fontSize:"0.6rem", color:"rgba(255,255,255,0.45)" }}>
+              Position your heroes
             </div>
           </div>
         )}
