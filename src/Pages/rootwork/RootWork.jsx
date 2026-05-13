@@ -60,6 +60,7 @@ import {
   sendExpedition, recallExpedition, recallSingleHeroFromExpedition, tickExpeditions, claimExpedition, toggleRoad,
   getRoadLevel, getRoadNextTier, canAffordRoad, getExpeditionAvailable,
   isHeroBusyForExpedition, isHeroOnExpedition,
+  applyDungeonResult, claimDungeonReward, startDungeonRun, saveDungeonRun,
 } from "./gameEngine";
 import {
   SAVE_KEY, SAVE_INTERVAL_MS,
@@ -82,6 +83,7 @@ import TownZone from "./components/TownZone";
 import AnimalsZone from "./components/AnimalsZone";
 import WorldZone from "./components/WorldZone";
 import ForgeZone from "./components/ForgeZone";
+import DungeonZone from "./components/DungeonZone";
  
 // Module-level interval ID — lives outside React so StrictMode double-invoke can't create two loops
 let _gameTickInterval = null;
@@ -724,6 +726,12 @@ if (wf) {
   }), [update]);
   const handleClaimExpedition = useCallback(() => update((s) => claimExpedition(s)), [update]);
 
+  // Dungeon
+  const handleDungeonComplete = useCallback((result) => update((s) => applyDungeonResult(s, result)), [update]);
+  const handleClaimDungeon = useCallback(() => update((s) => claimDungeonReward(s)), [update]);
+  const handleStartDungeonRun = useCallback((heroIds) => update((s) => startDungeonRun(s, heroIds)), [update]);
+  const handleSaveDungeonRun = useCallback((runState) => update((s) => saveDungeonRun(s, runState)), [update]);
+
 
   // Animals & Pond
   const handleBuyPond = useCallback(() => update((s) => { const n = buyPond(s); if (n === s) notify("Need $500 cash."); return n; }), [update, notify]);
@@ -1150,6 +1158,10 @@ if (wf) {
             onRecallExpedition={handleRecallExpedition}
             onRecallSingleHero={handleRecallSingleHero}
             onToggleTownRoute={handleToggleTownRoute}
+            onDungeonComplete={handleDungeonComplete}
+            onClaimDungeon={handleClaimDungeon}
+            onStartDungeonRun={handleStartDungeonRun}
+            onSaveDungeonRun={handleSaveDungeonRun}
           />
         )}
         {activeMainTab === "view" && (

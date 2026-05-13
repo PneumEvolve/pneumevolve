@@ -2109,6 +2109,10 @@ export default function WorldZone({
   expeditionClaimResult,
   onClaimExpedition,
   onDismissExpeditionClaim,
+  onDungeonComplete,
+  onClaimDungeon,
+  onStartDungeonRun,
+  onSaveDungeonRun,
 }) {
   const [lootResult, setLootResult] = useState(null);
   const [heroModal, setHeroModal] = useState(null);
@@ -2161,9 +2165,9 @@ export default function WorldZone({
 
       {/* Tab bar */}
       <div style={{ display: "flex", gap: "0.35rem", marginBottom: "1rem" }}>
-        {["heroes", "boss", "towns", "dungeon"].map((tab) => {
+        {["heroes", "dungeon", "boss", "towns"].map((tab) => {
           const roadLevel = game.roads?.level ?? 0;
-          const labels = { heroes: "⚔️ Heroes", boss: "👹 Boss", towns: "🏘️ Towns", dungeon: "⚔️ Dungeon" };
+          const labels = { heroes: "⚔️ Heroes", boss: "👹 Boss", towns: "🏘️ Towns", dungeon: "🏰 Dungeon" };
           const active = worldTab === tab;
           const isBossLocked = tab === "boss" && !bossUnlocked;
           const isTownsLocked = tab === "towns" && roadLevel === 0;
@@ -2192,6 +2196,12 @@ export default function WorldZone({
               )}
               {tab === "boss" && bossUnlocked && bossFight.phase === "fighting" && (
                 <span style={{ fontSize: "0.6rem", marginLeft: "0.3rem", color: "#ef4444", animation: "pulse 1.5s ease-in-out infinite" }}>● LIVE</span>
+              )}
+              {tab === "dungeon" && !!game.pendingDungeonReward && (
+                <span style={{ fontSize: "0.6rem", marginLeft: "0.3rem", color: "#fbbf24" }}>🎒</span>
+              )}
+              {tab === "dungeon" && !!game.dungeonRun?.active && !game.pendingDungeonReward && (
+                <span style={{ fontSize: "0.6rem", marginLeft: "0.3rem", color: "#4ade80", animation: "pulse 1.5s ease-in-out infinite" }}>● ACTIVE</span>
               )}
             </button>
           );
@@ -2633,7 +2643,13 @@ export default function WorldZone({
 
       {/* ── DUNGEON TAB ── */}
       {worldTab === "dungeon" && (
-        <DungeonZone game={game} />
+        <DungeonZone
+          game={game}
+          onDungeonComplete={onDungeonComplete}
+          onClaimDungeon={onClaimDungeon}
+          onStartRun={onStartDungeonRun}
+          onSaveRun={onSaveDungeonRun}
+        />
       )}
 
       {heroModalAdv && (

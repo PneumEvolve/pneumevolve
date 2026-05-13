@@ -7470,12 +7470,13 @@ export function getHeroExpeditionTierId(state, heroId) {
 }
 
 export function isHeroBusyForExpedition(state, adventurer) {
-  // Busy if on a mission, in boss fight, on tavern rest, or already on expedition
+  // Busy if on a mission, in boss fight, on tavern rest, already on expedition, or in dungeon
   if (isHeroOnExpedition(state, adventurer.id)) return true;
   if (adventurer.missionZone) return true;
   if (adventurer.autoMission) return true;
   if ((state.bossFight?.assignedHeroIds ?? []).includes(adventurer.id)) return true;
   if ((state.tavernRest ?? []).find(t => t.heroId === adventurer.id)) return true;
+  if ((state.dungeonRun?.heroIds ?? []).includes(adventurer.id)) return true;
   return false;
 }
 
@@ -7785,4 +7786,93 @@ export function claimExpedition(state, _bonusHeroId = null) {
     return { ...state, expedition: { active: null } };
   }
   return state;
+}
+
+// --- DUNGEON -----------------------------------------------------------------------
+
+
+// Apply dungeon run results: deliver loot to worldResources + XP to each hero
+export function applyDungeonResult(state, result) {
+  let next = { ...state };
+
+  // Merge loot into worldResources
+  if (result.loot && Object.keys(result.loot).length > 0) {
+    next.worldResources = { ...(next.worldResources ?? {}) };
+    Object.entries(result.loot).forEach(([key, val]) => {
+      next.worldResources[key] = (next.worldResources[key] ?? 0) + val;
+    });
+  }
+
+  // Apply XP per hero, triggering level-ups via existing formula
+  if (result.xpByHeroId && Object.keys(result.xpByHeroId).length > 0) {
+    next.adventurers = (next.adventurers ?? []).map(adv => {
+      const earned = result.xpByHeroId[adv.id] ?? 0;
+      if (earned <= 0) return adv;
+      let newXp = (adv.xp ?? 0) + earned;
+      let newLevel = adv.level ?? 1;
+      while (newXp >= getAdventurerXpNeeded(newLevel)) {
+        newXp -= getAdventurerXpNeeded(newLevel);
+        newLevel++;
+      }
+      const levelsGained = newLevel - (adv.level ?? 1);
+      const newMaxHp = getAdventurerMaxHp({ ...adv, level: newLevel });
+      const newSkillPoints = (adv.skillPoints ?? 0) + levelsGained;
+      return { ...adv, xp: newXp, level: newLevel, maxHp: newMaxHp, skillPoints: newSkillPoints };
+    });
+  }
+
+  // Apply foodBelt deductions
+  if (result.foodBeltDeltas && Object.keys(result.foodBeltDeltas).length > 0) {
+    next.adventurers = (next.adventurers ?? []).map(adv => {
+      const deltas = result.foodBeltDeltas[adv.id];
+      if (!deltas) return adv;
+      const belt = { ...(adv.foodBelt ?? {}) };
+      Object.entries(deltas).forEach(([itemId, used]) => {
+        belt[itemId] = Math.max(0, (belt[itemId] ?? 0) - used);
+        if (belt[itemId] === 0) delete belt[itemId];
+      });
+      return { ...adv, foodBelt: belt };
+    });
+  }
+
+  // Store as pending claim
+  next.pendingDungeonReward = result;
+  return next;
+}
+
+
+// --- DUNGEON STATE ---
+
+export function getDungeonParty(state) {
+  return (state.adventurers ?? []).filter(a => {
+    if ((a.hp ?? a.maxHp ?? 40) <= 0) return false;
+    if (a.mission) return false;
+    if (a.tavernResting) return false;
+    if (isHeroOnExpedition(state, a.id)) return false;
+    if ((state.dungeonRun?.heroIds ?? []).includes(a.id)) return false;
+    return true;
+  }).slice(0, 3);
+}
+
+// Start a dungeon run -- lock heroes in game state
+export function startDungeonRun(state, heroIds) {
+  return { ...state, dungeonRun: { heroIds, mode: 'explore', active: true } };
+}
+
+// Save mid-run dungeon state (called on navigation away)
+export function saveDungeonRun(state, runState) {
+  if (!state.dungeonRun?.active) return state;
+  return { ...state, dungeonRun: { ...state.dungeonRun, ...runState } };
+}
+
+// Clear dungeon run (called on retreat or exit)
+export function clearDungeonRun(state) {
+  return { ...state, dungeonRun: null };
+}
+
+
+// Claim the pending dungeon reward
+export function claimDungeonReward(state) {
+  if (!state.pendingDungeonReward) return state;
+  return { ...state, pendingDungeonReward: null };
 }
