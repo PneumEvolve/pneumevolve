@@ -199,12 +199,18 @@ function makeEnemy(typeId, index, depth) {
 
 function generateMap() {
   const cx = Math.floor(MAP_W / 2), cy = Math.floor(MAP_H / 2);
+  // Randomize exit: pick a random edge cell that isn't the start
+  const edgeCells = [];
+  for (let ex = 0; ex < MAP_W; ex++) { edgeCells.push({ x: ex, y: 0 }); edgeCells.push({ x: ex, y: MAP_H - 1 }); }
+  for (let ey = 1; ey < MAP_H - 1; ey++) { edgeCells.push({ x: 0, y: ey }); edgeCells.push({ x: MAP_W - 1, y: ey }); }
+  const validExits = edgeCells.filter(e => !(e.x === cx && e.y === cy));
+  const exitCell = validExits[Math.floor(Math.random() * validExits.length)];
   const cells = [];
   for (let y = 0; y < MAP_H; y++) {
     for (let x = 0; x < MAP_W; x++) {
       let type = "empty";
       if (x === cx && y === cy) type = "start";
-      else if (x === cx && y === 0) type = "exit";
+      else if (x === exitCell.x && y === exitCell.y) type = "exit";
       else {
         const d = Math.abs(x - cx) + Math.abs(y - cy), r = Math.random();
         if (d === 1)     type = r < 0.3  ? "enemy" : "empty";
@@ -625,12 +631,16 @@ function Battlefield({
 
 // ─── EXPLORE MODE ─────────────────────────────────────────────────────────────
 
-function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat, onCollectTreasure, onRest, onRetreat, onExit, onFinishRun, lootTotal }) {
+const MIN_EXPLORE_PCT = 0.55; // must explore 55% before exit is usable
+
+function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat, onCollectTreasure, onRest, onRetreat, onExit, onFinishRun, lootTotal, onUseFood }) {
   const CELL = 40;
   function getCell(x, y) { return cells.find(c => c.x === x && c.y === y) ?? null; }
   function adj() {
     return [[0, -1], [0, 1], [-1, 0], [1, 0]].map(([dx, dy]) => getCell(pos.x + dx, pos.y + dy)).filter(Boolean);
   }
+  const explorePct = cells.length > 0 ? cells.filter(c => c.visited).length / cells.length : 0;
+  const exitUnlocked = explorePct >= MIN_EXPLORE_PCT;
   function moveToCell(x, y) {
     const target = getCell(x, y); if (!target) return;
     setCells(prev => prev.map(c => c.x === x && c.y === y ? { ...c, visited: true } : c));
@@ -639,7 +649,7 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
       if (target.type === "enemy")    onEnterCombat(x, y);
       if (target.type === "treasure") onCollectTreasure(x, y);
       if (target.type === "rest")     onRest(x, y);
-      if (target.type === "exit")     onExit();
+      if (target.type === "exit" && exitUnlocked) onExit();
     }
   }
   const adjacent = adj();
@@ -650,7 +660,7 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
     <div style={{ padding: "0.65rem" }}>
       <div style={{ display: "flex", gap: 6, marginBottom: "0.6rem" }}>
         {[
-          { label: "Explored", value: `${cells.filter(c => c.visited).length}/${cells.length}`, color: "#a78bfa" },
+          { label: "Explored", value: `${Math.round(explorePct * 100)}%${!exitUnlocked ? " 🔒" : ""}`, color: exitUnlocked ? "#a78bfa" : "#fbbf24" },
           { label: "Enemies",  value: cells.filter(c => c.type === "enemy" && !c.cleared).length, color: "#f87171" },
           { label: "Depth",    value: depth, color: "#fbbf24" },
         ].map(s => (
@@ -692,7 +702,7 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: "0.5rem" }}>
         <div style={{ width: "100%", fontSize: "0.62rem", color: "#a78bfa", marginBottom: "0.1rem" }}>
-          Depth {depth} — reach 🚪 Exit to go deeper · ✅ Finish Run to collect loot
+          Depth {depth} — reach 🚪 Exit ({Math.round(MIN_EXPLORE_PCT * 100)}% explored needed{!exitUnlocked ? ` · ${Math.round(explorePct * 100)}% so far` : " ✓"}) · ✅ Finish Run to collect loot
         </div>
         {[["🧭", "Party"], ["👹", "Enemy"], ["💰", "Treasure"], ["🏕️", "Rest"], ["🚪", "Exit"]].map(([e, l]) => (
           <span key={l} style={{ fontSize: "0.6rem", color: "var(--muted)", display: "flex", gap: 3, alignItems: "center" }}>
@@ -704,13 +714,28 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
       <div style={{ display: "flex", gap: 4, marginBottom: "0.5rem" }}>
         {party.map(h => {
           const cls = (h.heroClass && DUNGEON_CLASS[h.heroClass]) ? DUNGEON_CLASS[h.heroClass] : { emoji: "🧭" };
+          const currentHp = h.currentDungeonHp ?? h.hp ?? h.maxHp;
+          const nextFood = getNextBeltItem(h.foodBelt);
+          const foodDef = nextFood ? ARTISAN_FOOD_HEAL?.[nextFood.id] : null;
+          const isDead = currentHp <= 0;
           return (
-            <div key={h.id} style={{ flex: 1, background: "rgba(255,255,255,0.04)", borderRadius: 7, padding: "0.3rem 0.35rem", border: "1px solid rgba(255,255,255,0.07)" }}>
+            <div key={h.id} style={{ flex: 1, background: "rgba(255,255,255,0.04)", borderRadius: 7, padding: "0.3rem 0.35rem", border: `1px solid ${isDead ? "rgba(239,68,68,0.3)" : "rgba(255,255,255,0.07)"}`, opacity: isDead ? 0.5 : 1 }}>
               <div style={{ fontSize: "0.8rem", textAlign: "center" }}>{cls.emoji}</div>
-              <HpBar hp={h.currentDungeonHp ?? h.hp ?? h.maxHp} maxHp={h.maxHp} />
-              <div style={{ fontSize: "0.52rem", color: "var(--muted)", textAlign: "center", marginTop: 2 }}>
-                {Math.floor(h.currentDungeonHp ?? h.hp ?? h.maxHp)}/{h.maxHp}
+              <HpBar hp={currentHp} maxHp={h.maxHp} />
+              <div style={{ fontSize: "0.52rem", color: isDead ? "#ef4444" : "var(--muted)", textAlign: "center", marginTop: 2 }}>
+                {isDead ? "💀 Dead" : `${Math.floor(currentHp)}/${h.maxHp}`}
               </div>
+              {!isDead && nextFood && onUseFood && (
+                <button
+                  onClick={() => onUseFood(h.id, nextFood.id)}
+                  style={{
+                    marginTop: 3, width: "100%", padding: "0.15rem 0", borderRadius: 5,
+                    background: "rgba(74,222,128,0.14)", border: "1px solid rgba(74,222,128,0.35)",
+                    color: "#4ade80", fontSize: "0.48rem", fontWeight: 700, cursor: "pointer",
+                  }}>
+                  {foodDef?.emoji ?? "🍞"} +{foodDef?.healAmount ?? "?"}
+                </button>
+              )}
             </div>
           );
         })}
@@ -744,12 +769,34 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
 
 // ─── LOBBY ────────────────────────────────────────────────────────────────────
 
-function Lobby({ game, lastRun, pendingReward, onStart, onClaim }) {
-  const activeHeroIds = game?.dungeonRun?.heroIds ?? [];
-  const party = activeHeroIds.length > 0
-    ? (game?.adventurers ?? []).filter(a => activeHeroIds.includes(a.id))
-    : getDungeonPartyLocal(game);
+function Lobby({ game, lastRun, pendingReward, onStart, onClaim, selectedHeroIds, setSelectedHeroIds, startDepth, setStartDepth }) {
   const hasPending = !!pendingReward;
+  const maxDepthUnlocked = game?.maxDungeonDepth ?? 1;
+
+  // All available heroes (not busy)
+  const expeditionHeroIds = new Set();
+  const exps = game?.expeditions ?? {};
+  Object.values(exps).forEach(exp => { (exp.heroIds ?? []).forEach(id => expeditionHeroIds.add(id)); });
+  const dungeonHeroIds = new Set(game?.dungeonRun?.heroIds ?? []);
+  const availableHeroes = (game?.adventurers ?? []).filter(a => {
+    if ((a.hp ?? a.maxHp ?? 40) <= 0) return false;
+    if (a.mission) return false;
+    if (a.tavernResting) return false;
+    if (expeditionHeroIds.has(a.id)) return false;
+    if (dungeonHeroIds.has(a.id)) return false;
+    return true;
+  });
+
+  function toggleHero(id) {
+    setSelectedHeroIds(prev => {
+      if (prev.includes(id)) return prev.filter(x => x !== id);
+      if (prev.length >= PARTY_SIZE) return prev; // cap at 3
+      return [...prev, id];
+    });
+  }
+
+  const selectedParty = availableHeroes.filter(h => selectedHeroIds.includes(h.id));
+  const canEnter = selectedParty.length > 0 && !hasPending;
 
   return (
     <div style={{ padding: "1rem" }}>
@@ -798,23 +845,30 @@ function Lobby({ game, lastRun, pendingReward, onStart, onClaim }) {
 
       <div style={{ marginBottom: "0.85rem" }}>
         <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginBottom: "0.4rem", fontWeight: 600 }}>
-          YOUR PARTY ({party.length}/{PARTY_SIZE})
+          SELECT PARTY ({selectedParty.length}/{PARTY_SIZE}) — tap to add/remove
         </div>
-        {party.length === 0 ? (
+        {availableHeroes.length === 0 ? (
           <div style={{ fontSize: "0.72rem", color: "var(--muted)", padding: "0.6rem", background: "rgba(255,255,255,0.03)", borderRadius: 8 }}>
             No idle heroes. Heroes must be free (not on missions, expeditions, or resting) to enter the dungeon.
           </div>
         ) : (
-          <div style={{ display: "flex", gap: 6 }}>
-            {party.map(adv => {
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {availableHeroes.map(adv => {
               const cls = (adv.heroClass && DUNGEON_CLASS[adv.heroClass]) ? DUNGEON_CLASS[adv.heroClass] : { emoji: "🧭", label: "Adventurer", color: "#94a3b8" };
               const beltItems = ARTISAN_FOOD_LIST.filter(id => (adv.foodBelt?.[id] ?? 0) > 0);
+              const isSelected = selectedHeroIds.includes(adv.id);
+              const isDisabled = !isSelected && selectedParty.length >= PARTY_SIZE;
               return (
-                <div key={adv.id} style={{
-                  flex: 1, padding: "0.45rem 0.35rem", borderRadius: 9,
-                  background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.09)",
-                  textAlign: "center",
-                }}>
+                <div key={adv.id}
+                  onClick={() => !isDisabled && toggleHero(adv.id)}
+                  style={{
+                    width: "calc(33% - 4px)", minWidth: 80, padding: "0.45rem 0.35rem", borderRadius: 9,
+                    background: isSelected ? `${cls.color}22` : "rgba(255,255,255,0.05)",
+                    border: `2px solid ${isSelected ? cls.color + "88" : "rgba(255,255,255,0.09)"}`,
+                    textAlign: "center", cursor: isDisabled ? "default" : "pointer",
+                    opacity: isDisabled ? 0.4 : 1, transition: "all 0.15s",
+                    boxShadow: isSelected ? `0 0 8px ${cls.color}44` : "none",
+                  }}>
                   <div style={{ fontSize: "1.1rem" }}>{cls.emoji}</div>
                   <div style={{ fontSize: "0.6rem", fontWeight: 700, color: cls.color, marginTop: 2 }}>{cls.label}</div>
                   <div style={{ fontSize: "0.55rem", color: "var(--muted)" }}>Lv{adv.level ?? 1}</div>
@@ -823,12 +877,32 @@ function Lobby({ game, lastRun, pendingReward, onStart, onClaim }) {
                       {beltItems.map(id => `${adv.foodBelt[id]}×${ARTISAN_FOOD_HEAL?.[id]?.emoji ?? "🍞"}`).join(" ")}
                     </div>
                   )}
+                  {isSelected && <div style={{ fontSize: "0.5rem", color: cls.color, marginTop: 2, fontWeight: 800 }}>✓ In Party</div>}
                 </div>
               );
             })}
           </div>
         )}
       </div>
+
+      {/* Starting depth selector */}
+      {maxDepthUnlocked > 1 && (
+        <div style={{ marginBottom: "0.75rem" }}>
+          <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginBottom: "0.35rem", fontWeight: 600 }}>
+            START DEPTH (max unlocked: {maxDepthUnlocked})
+          </div>
+          <div style={{ display: "flex", gap: 4 }}>
+            {Array.from({ length: maxDepthUnlocked }, (_, i) => i + 1).map(d => (
+              <button key={d} onClick={() => setStartDepth(d)} style={{
+                flex: 1, padding: "0.3rem", borderRadius: 7, fontSize: "0.7rem", fontWeight: 700,
+                background: startDepth === d ? "rgba(251,191,36,0.2)" : "rgba(255,255,255,0.04)",
+                border: `1px solid ${startDepth === d ? "rgba(251,191,36,0.55)" : "rgba(255,255,255,0.08)"}`,
+                color: startDepth === d ? "#fbbf24" : "var(--muted)", cursor: "pointer",
+              }}>{d}</button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div style={{ marginBottom: "0.85rem", padding: "0.55rem 0.7rem", borderRadius: 9, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
         <div style={{ fontSize: "0.65rem", color: "var(--muted)", fontWeight: 600, marginBottom: "0.35rem" }}>ABILITIES</div>
@@ -847,16 +921,16 @@ function Lobby({ game, lastRun, pendingReward, onStart, onClaim }) {
       </div>
 
       <button
-        onClick={onStart}
-        disabled={!party.length || hasPending}
+        onClick={canEnter ? onStart : undefined}
+        disabled={!canEnter}
         style={{
           width: "100%", padding: "0.75rem", borderRadius: 10, fontWeight: 700, fontSize: "0.88rem",
-          background: (party.length && !hasPending) ? "rgba(99,102,241,0.2)" : "rgba(255,255,255,0.04)",
-          border: `2px solid ${(party.length && !hasPending) ? "rgba(99,102,241,0.55)" : "rgba(255,255,255,0.08)"}`,
-          color: (party.length && !hasPending) ? "#a5b4fc" : "var(--muted)",
-          cursor: (party.length && !hasPending) ? "pointer" : "default",
+          background: canEnter ? "rgba(99,102,241,0.2)" : "rgba(255,255,255,0.04)",
+          border: `2px solid ${canEnter ? "rgba(99,102,241,0.55)" : "rgba(255,255,255,0.08)"}`,
+          color: canEnter ? "#a5b4fc" : "var(--muted)",
+          cursor: canEnter ? "pointer" : "default",
         }}>
-        {hasPending ? "⏳ Claim reward before next run" : "⚔️ Enter Dungeon"}
+        {hasPending ? "⏳ Claim reward before next run" : selectedParty.length === 0 ? "Select heroes to enter" : `⚔️ Enter Dungeon (${selectedParty.length} hero${selectedParty.length > 1 ? "s" : ""})`}
       </button>
     </div>
   );
@@ -891,6 +965,8 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
   const [cells, setCells] = useState(savedRun?.cells ?? []);
   const [pos, setPos] = useState(savedRun?.pos ?? { x: 3, y: 3 });
   const [depth, setDepth] = useState(savedRun?.depth ?? 1);
+  const [selectedHeroIds, setSelectedHeroIds] = useState([]);
+  const [startDepth, setStartDepth] = useState(1);
   const [combatPos, setCombatPos] = useState(null);
   const [lootTotal, setLootTotal] = useState(savedRun?.lootTotal ?? {});
   const [xpTotal, setXpTotal] = useState(savedRun?.xpTotal ?? {});
@@ -1290,13 +1366,28 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
     }
 
     if (selectedRef.current) {
-      setCombatHeroes(prev => {
-        const next = prev.map(h => h.id === selectedRef.current
-          ? { ...h, targetX: x, targetY: y, attackTarget: null }
-          : h);
-        heroesRef.current = next;
-        return next;
-      });
+      // If tapping near an enemy (slightly past attack range), auto-target instead of walk-through
+      const nearbyEnemy = enemiesRef.current
+        .filter(en => !en.dead)
+        .find(en => dist({ x, y }, en) < ATTACK_RANGE * 2.5);
+      if (nearbyEnemy) {
+        // redirect to attack that enemy
+        setCombatHeroes(prev => {
+          const next = prev.map(h => h.id === selectedRef.current
+            ? { ...h, attackTarget: nearbyEnemy.id, targetX: nearbyEnemy.x, targetY: nearbyEnemy.y }
+            : h);
+          heroesRef.current = next;
+          return next;
+        });
+      } else {
+        setCombatHeroes(prev => {
+          const next = prev.map(h => h.id === selectedRef.current
+            ? { ...h, targetX: x, targetY: y, attackTarget: null }
+            : h);
+          heroesRef.current = next;
+          return next;
+        });
+      }
     }
   }, []);
 
@@ -1373,9 +1464,15 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
 
   function startRun() {
     if (pendingReward) return;
-    const currentParty = getDungeonPartyLocal(game);
+    // Use manually selected heroes; fall back to auto-pick if none selected
+    const allAvailable = getDungeonPartyLocal(game);
+    const manualParty = selectedHeroIds.length > 0
+      ? allAvailable.filter(a => selectedHeroIds.includes(a.id))
+      : [];
+    const currentParty = manualParty.length > 0 ? manualParty : allAvailable;
     if (!currentParty.length) return;
     const heroIds = currentParty.map(a => a.id);
+    const chosenDepth = Math.max(1, Math.min(startDepth, game?.maxDungeonDepth ?? 1));
     const newCells = generateMap();
     const startPos = { x: 3, y: 3 };
     setParty(currentParty);
@@ -1384,10 +1481,11 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
     setLootTotal({});
     setXpTotal({});
     setFoodUsedTotal({});
-    setDepth(1);
+    setDepth(chosenDepth);
+    setSelectedHeroIds([]);
     setMode("explore");
     if (onStartRun) onStartRun(heroIds);
-    if (onSaveRun) onSaveRun({ mode: "explore", cells: newCells, pos: startPos, depth: 1, lootTotal: {}, xpTotal: {}, foodUsedTotal: {} });
+    if (onSaveRun) onSaveRun({ mode: "explore", cells: newCells, pos: startPos, depth: chosenDepth, lootTotal: {}, xpTotal: {}, foodUsedTotal: {} });
   }
 
   function enterCombat(x, y) {
@@ -1437,10 +1535,13 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
       Object.entries(result.xpByHeroId ?? {}).forEach(([heroId, xp]) => { newXp[heroId] = (newXp[heroId] ?? 0) + xp; });
 
       if (result.heroHpSnapshot) {
-        setParty(prev => prev.map(h => {
-          const snap = result.heroHpSnapshot[h.id];
-          return snap != null ? { ...h, currentDungeonHp: snap } : h;
-        }));
+        setParty(prev => prev
+          .map(h => {
+            const snap = result.heroHpSnapshot[h.id];
+            return snap != null ? { ...h, currentDungeonHp: snap } : h;
+          })
+          .filter(h => (h.currentDungeonHp ?? h.maxHp ?? 40) > 0) // dead heroes leave party
+        );
       }
 
       setLootTotal(newLoot);
@@ -1472,7 +1573,7 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
 
   function endRun(victory, hpSnapshot = {}) {
     const totalXp = Object.values(xpTotal).reduce((s, v) => s + v, 0);
-    const runResult = { victory, loot: lootTotal, xpByHeroId: xpTotal, foodBeltDeltas: foodUsedTotal, totalXp, hpSnapshot };
+    const runResult = { victory, loot: lootTotal, xpByHeroId: xpTotal, foodBeltDeltas: foodUsedTotal, totalXp, hpSnapshot, depth };
     const label = victory ? "Victory" : `Retreated at depth ${depth}`;
     setLastRun({ victory, label, loot: lootTotal, depth });
     onDungeonComplete(runResult);
@@ -1489,8 +1590,32 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
   // ── Render ────────────────────────────────────────────────────────────────
 
   if (mode === "lobby") return (
-    <Lobby game={game} lastRun={lastRun} pendingReward={pendingReward} onStart={startRun} onClaim={onClaimDungeon} />
+    <Lobby game={game} lastRun={lastRun} pendingReward={pendingReward} onStart={startRun} onClaim={onClaimDungeon}
+      selectedHeroIds={selectedHeroIds} setSelectedHeroIds={setSelectedHeroIds}
+      startDepth={startDepth} setStartDepth={setStartDepth} />
   );
+
+  // Between-battle food healing (applied directly to party HP)
+  function handleExploreFoodUse(heroId, itemId) {
+    const foodEntry = ARTISAN_FOOD_HEAL?.[itemId];
+    if (!foodEntry) return;
+    setParty(prev => prev.map(h => {
+      if (h.id !== heroId) return h;
+      const belt = { ...(h.foodBelt ?? {}) };
+      if ((belt[itemId] ?? 0) <= 0) return h;
+      belt[itemId] = belt[itemId] - 1;
+      if (belt[itemId] === 0) delete belt[itemId];
+      const foodUsedDelta = { [itemId]: 1 };
+      setFoodUsedTotal(prev2 => {
+        const next = { ...prev2 };
+        next[heroId] = { ...(next[heroId] ?? {}), [itemId]: (next[heroId]?.[itemId] ?? 0) + 1 };
+        return next;
+      });
+      const currentHp = h.currentDungeonHp ?? h.maxHp ?? 40;
+      const newHp = Math.min(h.maxHp ?? 40, currentHp + foodEntry.healAmount);
+      return { ...h, foodBelt: belt, currentDungeonHp: newHp };
+    }));
+  }
 
   if (mode === "explore") return (
     <ExploreMode
@@ -1505,6 +1630,10 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
       onRetreat={() => endRun(false)}
       onExit={() => {
         const newDepth = depth + 1;
+        const maxSeen = game?.maxDungeonDepth ?? 1;
+        if (newDepth > maxSeen && onSaveRun) {
+          // notify parent to persist new max depth via the run save (engine picks it up)
+        }
         const newCells = generateMap();
         const startPos = { x: 3, y: 3 };
         setDepth(newDepth);
@@ -1513,6 +1642,7 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
         saveRun({ mode: "explore", depth: newDepth, cells: newCells, pos: startPos });
       }}
       lootTotal={lootTotal}
+      onUseFood={handleExploreFoodUse}
     />
   );
 
