@@ -1,7 +1,7 @@
 // src/Pages/rootwork/components/WorldZone.jsx
 import React, { useState, useEffect, useRef } from "react";
 import { WORLD_ZONES, ADVENTURER_CLASSES, FORGE_RECIPES, ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST, ADVENTURER_BUFF_ITEMS, ADVENTURER_BUFF_LIST, WORLD_RESOURCES, HERO_SKILLS, HERO_SKILL_TREES, HERO_CLASS_META, HERO_PRESTIGE_COST_BASE, HERO_DIP_TREE_PRESTIGE_TIER1, HERO_DIP_TREE_PRESTIGE_TIER2, BOSS_DEFS, BOSS_ABILITIES, BOSS_UNLOCK_LEVEL, BOSS_TICK_INTERVAL, generateInfiniteBoss, EXPEDITION_TIER_ORDER, EXPEDITION_TIERS, TRADE_TOWN_ORDER, TRADE_TOWNS } from "../gameConstants";
-import { getAdventurerSlotCost, getMaxHeroes, setHeroFillFood, getHeroPrestigeDmgBonus, getHeroPrestigeDmgReduction, getHeroPrestigeXpBonus, getHeroPrestigeMinLootBonus, PRESTIGE_DMG_RED_FLOOR, getRoadLevel, isTownConnected, getExpeditionAvailable, isHeroBusyForExpedition, isHeroOnExpedition, getHeroExpeditionTierId, getThornwickGrowBonus, getCrestfallFishingBonus, getMillhavenMaterialBonus, getGlenhollowBarnBonus, getAshportCraftingTimeBonus, getHeroPrestigeDurationBonus, getHeroDurationMultiplier } from "../gameEngine";
+import { getAdventurerSlotCost, getMaxHeroes, setHeroFillFood, getHeroPrestigeDmgBonus, getHeroPrestigeDmgReduction, getHeroPrestigeXpBonus, getHeroPrestigeMinLootBonus, PRESTIGE_DMG_RED_FLOOR, getRoadLevel, isTownConnected, getExpeditionAvailable, isHeroBusyForExpedition, isHeroOnExpedition, getHeroExpeditionTierId, getThornwickGrowBonus, getCrestfallFishingBonus, getMillhavenMaterialBonus, getGlenhollowBarnBonus, getAshportCraftingTimeBonus, getHeroPrestigeDurationBonus, getHeroDurationMultiplier, recallSingleHeroFromExpedition } from "../gameEngine";
 
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -2103,6 +2103,7 @@ export default function WorldZone({
   onSetHeroFillFood,
   onSendExpedition,
   onRecallExpedition,
+  onRecallSingleHero,
   onToggleTownRoute,
   expeditionClaimResult,
   onClaimExpedition,
@@ -2291,12 +2292,25 @@ export default function WorldZone({
                           ✨ Last rare drop: {Object.entries(activeExp.lastRareDropped).map(([k,v]) => `+${v} ${k}`).join(", ")}
                         </div>
                       )}
-                      <button
-                        onClick={() => onRecallExpedition(tierId)}
-                        style={{ marginTop: "0.4rem", width: "100%", padding: "0.3rem 0.5rem", fontSize: "0.72rem", fontWeight: 600, background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "8px", color: "#f87171", cursor: "pointer" }}
-                      >
-                        Recall Heroes
-                      </button>
+                      <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap", marginTop: "0.4rem" }}>
+                        {activeExp.heroIds.map(heroId => {
+                          const recallHero = (game.adventurers ?? []).find(a => a.id === heroId);
+                          return (
+                            <button key={heroId}
+                              onClick={() => onRecallSingleHero(tierId, heroId)}
+                              style={{ fontSize: "0.65rem", fontWeight: 600, padding: "0.25rem 0.5rem", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: "7px", color: "#f87171", cursor: "pointer" }}
+                            >
+                              Recall {recallHero?.name ?? heroId}
+                            </button>
+                          );
+                        })}
+                        <button
+                          onClick={() => onRecallExpedition(tierId)}
+                          style={{ fontSize: "0.65rem", fontWeight: 600, padding: "0.25rem 0.5rem", background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.35)", borderRadius: "7px", color: "#f87171", cursor: "pointer" }}
+                        >
+                          Recall All
+                        </button>
+                      </div>
                     </div>
                   )}
 

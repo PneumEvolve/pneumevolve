@@ -38,7 +38,7 @@ import {
   giveArtisanFood, removeArtisanFood, useArtisanFood, setHeroFillFood,
   tickAdventurerMissions,
   hireAdventurer, spendSkillPoint, getAdventurerSlotCost, isAtWorkerCap,
-  getKitchenHallRetainCount, getMarketHallRetainCount, getForgeHallRetainCount,
+  getKitchenHallRetainCount, getMarketHallRetainCount, getForgeHallRetainCount, getBarnHallRetainCount,
   // New adventurer functions
   reviveAdventurer, prestigeAdventurer, requestAutoBattleStop,
   tickBossFight, checkBossUnlock,
@@ -57,7 +57,7 @@ import {
   buildOrUpgradeRoad, tickRoads,
   tickTradeTowns, toggleTownRoute, isTownConnected, getTownBonusActive,
   getMillhavenGrowBonus, getAshportFishBonus, getVelmoorXpBonus, getVelmoorExpeditionBonus,
-  sendExpedition, recallExpedition, tickExpeditions, claimExpedition, toggleRoad,
+  sendExpedition, recallExpedition, recallSingleHeroFromExpedition, tickExpeditions, claimExpedition, toggleRoad,
   getRoadLevel, getRoadNextTier, canAffordRoad, getExpeditionAvailable,
   isHeroBusyForExpedition, isHeroOnExpedition,
 } from "./gameEngine";
@@ -194,21 +194,25 @@ function PrestigeModal({ game, onComplete, onCancel }) {
   const kitchenRetainSlots = getKitchenHallRetainCount(game);
   const marketRetainSlots = getMarketHallRetainCount(game);
   const forgeRetainSlots  = getForgeHallRetainCount(game);
+  const barnRetainSlots   = getBarnHallRetainCount(game);
 
   // How many chosen workers of each type
   const kitchenChosenIds = new Set(crafterWorkers.map(w => w._keepId));
   const marketChosenIds  = new Set(merchantWorkers.map(w => w._keepId));
   const forgeChosenIds   = new Set(forgeWorkersList.map(w => w._keepId));
+  const barnChosenIds    = new Set(barnWorkersList.map(w => w._keepId));
   const kitchenSelected  = chosenWorkerIds.filter(id => kitchenChosenIds.has(id)).length;
   const marketSelected   = chosenWorkerIds.filter(id => marketChosenIds.has(id)).length;
   const forgeSelected    = chosenWorkerIds.filter(id => forgeChosenIds.has(id)).length;
+  const barnSelected     = chosenWorkerIds.filter(id => barnChosenIds.has(id)).length;
 
-  // How many kitchen/market/forge workers overflow into the base pool
+  // How many kitchen/market/forge/barn workers overflow into the base pool
   const kitchenBaseUsed = Math.max(0, kitchenSelected - kitchenRetainSlots);
   const marketBaseUsed  = Math.max(0, marketSelected  - marketRetainSlots);
   const forgeBaseUsed   = Math.max(0, forgeSelected   - forgeRetainSlots);
-  const otherSelected   = chosenWorkerIds.length - kitchenSelected - marketSelected - forgeSelected;
-  const baseUsed        = kitchenBaseUsed + marketBaseUsed + forgeBaseUsed + otherSelected;
+  const barnBaseUsed    = Math.max(0, barnSelected    - barnRetainSlots);
+  const otherSelected   = chosenWorkerIds.length - kitchenSelected - marketSelected - forgeSelected - barnSelected;
+  const baseUsed        = kitchenBaseUsed + marketBaseUsed + forgeBaseUsed + barnBaseUsed + otherSelected;
   const baseAtLimit     = baseUsed >= game.season;
 
   // canSelect(keepId): true if this worker can still be added
@@ -222,6 +226,9 @@ function PrestigeModal({ game, onComplete, onCancel }) {
     }
     if (forgeChosenIds.has(keepId)) {
       return forgeSelected < forgeRetainSlots || !baseAtLimit;
+    }
+    if (barnChosenIds.has(keepId)) {
+      return barnSelected < barnRetainSlots || !baseAtLimit;
     }
     return !baseAtLimit;
   }
@@ -698,6 +705,7 @@ if (wf) {
   const handleToggleTownRoute = useCallback((townId, routeId) => update((s) => toggleTownRoute(s, townId, routeId)), [update]);
   const handleSendExpedition = useCallback((tierId, heroIds) => update((s) => { const n = sendExpedition(s, tierId, heroIds); if (n === s) notify('Cannot send expedition — check requirements.'); return n; }), [update, notify]);
   const handleRecallExpedition = useCallback((tierId) => update((s) => recallExpedition(s, tierId)), [update]);
+  const handleRecallSingleHero = useCallback((tierId, heroId) => update((s) => recallSingleHeroFromExpedition(s, tierId, heroId)), [update]);
   const handleToggleRoad = useCallback((roadLevel) => update((s) => {
     let next = toggleRoad(s, roadLevel);
     // If this road was just disabled, recall any expeditions that require it
@@ -1140,6 +1148,7 @@ if (wf) {
             onSetHeroFillFood={handleSetHeroFillFood}
             onSendExpedition={handleSendExpedition}
             onRecallExpedition={handleRecallExpedition}
+            onRecallSingleHero={handleRecallSingleHero}
             onToggleTownRoute={handleToggleTownRoute}
           />
         )}

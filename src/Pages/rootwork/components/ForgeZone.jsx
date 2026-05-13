@@ -564,8 +564,17 @@ function InstancedGearPanel({ game, onUpgradeForgeInstance }) {
     return { current: null, next: null };
   }
 
-  // Combine inStock and equipped into one unified list
-  const allItems = [...inStock, ...equipped];
+  // Group: in-stock items first, then group equipped by hero
+  // Build hero groups: heroId -> { hero, items[] }
+  const heroGroups = {};
+  for (const item of equipped) {
+    const heroId = item._equippedBy;
+    if (!heroGroups[heroId]) {
+      const hero = (game.adventurers ?? []).find(a => a.id === heroId);
+      heroGroups[heroId] = { hero, items: [] };
+    }
+    heroGroups[heroId].items.push(item);
+  }
 
   return (
     <div style={{
@@ -604,86 +613,101 @@ function InstancedGearPanel({ game, onUpgradeForgeInstance }) {
       )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-        {allItems.map((inst) => {
-          const meta = INSTANCED_META[inst.key] ?? { emoji: "⚔️", name: inst.key, slot: "weapon" };
-          const currentTier = inst.upgradeTier ?? 3;
-          const crystalCost = 50 * currentTier;
-          const cashCost = 1000 * currentTier;
-          const canAfford = crystals >= crystalCost && cash >= cashCost;
-          const bonus = getArcaneBonusLabel(inst.key, currentTier);
-
-          const adv = inst._equippedBy ? (game.adventurers ?? []).find((a) => a.id === inst._equippedBy) : null;
-          const heroIdle = adv && !adv.mission && !adv.tavernResting;
-          const heroOnMission = adv && !!adv.mission;
-          const heroResting = adv && !!adv.tavernResting;
-
-          // Can upgrade if: arcane unlocked AND (in stock OR equipped on idle hero)
-          const canUpgrade = arcaneUnlocked && canAfford && (!inst._equippedBy || heroIdle);
-
-          let lockReason = null;
-          if (inst._equippedBy && heroOnMission)  lockReason = `${adv?.name ?? "Hero"} is on mission`;
-          if (inst._equippedBy && heroResting)     lockReason = `${adv?.name ?? "Hero"} is resting`;
+        {/* Helper to render a single instanced gear item */}
+        {(() => {
+          function renderItem(inst) {
+            const meta = INSTANCED_META[inst.key] ?? { emoji: "⚔️", name: inst.key, slot: "weapon" };
+            const currentTier = inst.upgradeTier ?? 3;
+            const crystalCost = 50 * currentTier;
+            const cashCost = 1000 * currentTier;
+            const canAfford = crystals >= crystalCost && cash >= cashCost;
+            const bonus = getArcaneBonusLabel(inst.key, currentTier);
+            const adv = inst._equippedBy ? (game.adventurers ?? []).find((a) => a.id === inst._equippedBy) : null;
+            const heroIdle = adv && !adv.missionZone && !adv.autoMission && !adv.tavernResting;
+            const heroOnMission = adv && (!!adv.missionZone || !!adv.autoMission);
+            const heroResting = adv && !!adv.tavernResting;
+            const canUpgrade = arcaneUnlocked && canAfford && (!inst._equippedBy || heroIdle);
+            let lockReason = null;
+            if (inst._equippedBy && heroOnMission)  lockReason = `${adv?.name ?? "Hero"} is on mission`;
+            if (inst._equippedBy && heroResting)     lockReason = `${adv?.name ?? "Hero"} is resting`;
+            return (
+              <div key={inst.id} style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "0.45rem 0.6rem",
+                background: inst._equippedBy ? "rgba(255,255,255,0.03)" : "rgba(139,92,246,0.08)",
+                border: `1px solid ${inst._equippedBy ? "var(--border)" : "rgba(139,92,246,0.25)"}`,
+                borderRadius: "8px",
+                gap: "0.5rem",
+                opacity: lockReason ? 0.65 : 1,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flex: 1, minWidth: 0 }}>
+                  <span style={{ fontSize: "1rem" }}>{meta.emoji}</span>
+                  <div>
+                    <div style={{ fontSize: "0.72rem", fontWeight: 700 }}>
+                      {meta.name}
+                      <span style={{
+                        marginLeft: "0.35rem", fontSize: "0.58rem",
+                        background: "rgba(139,92,246,0.2)", border: "1px solid rgba(139,92,246,0.4)",
+                        color: "#a78bfa", borderRadius: "4px", padding: "1px 5px",
+                      }}>T{currentTier}</span>
+                    </div>
+                    <div style={{ fontSize: "0.57rem", color: "var(--muted)", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                      {!arcaneUnlocked ? (
+                        <span style={{ color: "var(--muted)" }}>🔒 Forge Hall L4 required</span>
+                      ) : lockReason ? (
+                        <span style={{ color: "#f59e0b" }}>🔒 {lockReason}</span>
+                      ) : (
+                        <>
+                          <span>{crystalCost} 🔮 · ${cashCost.toLocaleString()}</span>
+                          {bonus.next && <span style={{ color: "#86efac" }}>→ {bonus.next}</span>}
+                        </>
+                      )}
+                    </div>
+                    {bonus.current && !lockReason && (
+                      <div style={{ fontSize: "0.54rem", color: "#a78bfa", marginTop: "1px" }}>Active: {bonus.current}</div>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={() => onUpgradeForgeInstance(inst.id)}
+                  disabled={!canUpgrade}
+                  style={{
+                    fontSize: "0.62rem", padding: "4px 10px", borderRadius: "7px",
+                    flexShrink: 0, fontWeight: 700,
+                    background: canUpgrade ? "rgba(139,92,246,0.3)" : "rgba(255,255,255,0.05)",
+                    border: `1px solid ${canUpgrade ? "rgba(139,92,246,0.6)" : "var(--border)"}`,
+                    color: canUpgrade ? "#c4b5fd" : "var(--muted)",
+                    cursor: canUpgrade ? "pointer" : "default",
+                  }}
+                >
+                  T{currentTier} → T{currentTier + 1}
+                </button>
+              </div>
+            );
+          }
 
           return (
-            <div key={inst.id} style={{
-              display: "flex", alignItems: "center", justifyContent: "space-between",
-              padding: "0.45rem 0.6rem",
-              background: inst._equippedBy ? "rgba(255,255,255,0.03)" : "rgba(139,92,246,0.08)",
-              border: `1px solid ${inst._equippedBy ? "var(--border)" : "rgba(139,92,246,0.25)"}`,
-              borderRadius: "8px",
-              gap: "0.5rem",
-              opacity: lockReason ? 0.65 : 1,
-            }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flex: 1, minWidth: 0 }}>
-                <span style={{ fontSize: "1rem" }}>{meta.emoji}</span>
+            <>
+              {/* In-stock items */}
+              {inStock.length > 0 && (
                 <div>
-                  <div style={{ fontSize: "0.72rem", fontWeight: 700 }}>
-                    {meta.name}
-                    <span style={{
-                      marginLeft: "0.35rem", fontSize: "0.58rem",
-                      background: "rgba(139,92,246,0.2)", border: "1px solid rgba(139,92,246,0.4)",
-                      color: "#a78bfa", borderRadius: "4px", padding: "1px 5px",
-                    }}>T{currentTier}</span>
-                    {adv && (
-                      <span style={{ marginLeft: "0.3rem", fontSize: "0.56rem", color: "var(--muted)" }}>
-                        · {adv.name}
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ fontSize: "0.57rem", color: "var(--muted)", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-                    {!arcaneUnlocked ? (
-                      <span style={{ color: "var(--muted)" }}>🔒 Forge Hall L4 required</span>
-                    ) : lockReason ? (
-                      <span style={{ color: "#f59e0b" }}>🔒 {lockReason}</span>
-                    ) : (
-                      <>
-                        <span>{crystalCost} 🔮 · ${cashCost.toLocaleString()}</span>
-                        {bonus.next && <span style={{ color: "#86efac" }}>→ {bonus.next}</span>}
-                      </>
-                    )}
-                  </div>
-                  {bonus.current && !lockReason && (
-                    <div style={{ fontSize: "0.54rem", color: "#a78bfa", marginTop: "1px" }}>Active: {bonus.current}</div>
-                  )}
+                  <div style={{ fontSize: "0.58rem", color: "var(--muted)", fontWeight: 600, letterSpacing: "0.05em", marginBottom: "0.25rem", textTransform: "uppercase" }}>In Stock</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>{inStock.map(renderItem)}</div>
                 </div>
-              </div>
-              <button
-                onClick={() => onUpgradeForgeInstance(inst.id)}
-                disabled={!canUpgrade}
-                style={{
-                  fontSize: "0.62rem", padding: "4px 10px", borderRadius: "7px",
-                  flexShrink: 0, fontWeight: 700,
-                  background: canUpgrade ? "rgba(139,92,246,0.3)" : "rgba(255,255,255,0.05)",
-                  border: `1px solid ${canUpgrade ? "rgba(139,92,246,0.6)" : "var(--border)"}`,
-                  color: canUpgrade ? "#c4b5fd" : "var(--muted)",
-                  cursor: canUpgrade ? "pointer" : "default",
-                }}
-              >
-                T{currentTier} → T{currentTier + 1}
-              </button>
-            </div>
+              )}
+              {/* Equipped — grouped by hero */}
+              {Object.values(heroGroups).map(({ hero, items }) => (
+                <div key={hero?.id ?? "unknown"}>
+                  <div style={{ fontSize: "0.58rem", color: "#a78bfa", fontWeight: 600, letterSpacing: "0.05em", marginBottom: "0.25rem", display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                    <span>⚔️</span>
+                    <span style={{ textTransform: "uppercase" }}>Equipped — {hero?.name ?? "Unknown Hero"}</span>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>{items.map(renderItem)}</div>
+                </div>
+              ))}
+            </>
           );
-        })}
+        })()}
       </div>
     </div>
   );

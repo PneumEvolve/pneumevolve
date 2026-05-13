@@ -1843,7 +1843,7 @@ export const SEASONAL_QUESTS = {
       { id: "s9_farm",     emoji: "🌾", title: "Abundance",      description: "Stockpile 10,000 of any single crop", condition: { type: "live_check", check: "crop_stockpile_10k" } },
       { id: "s9_hero",     emoji: "🧠", title: "Legend",         description: "Have 2 heroes at level 15",          condition: { type: "live_check", check: "two_heroes_level_15" } },
       { id: "s9_fish",     emoji: "🎣", title: "Legend of the Lake", description: "Catch 10 rare fish in one season", condition: { type: "counter", key: "rareFishCount", value: 10 } },
-      { id: "s9_craft",    emoji: "🍳", title: "Processing Line", description: "Have 4 kitchen workers all running simultaneously", condition: { type: "live_check", check: "kitchen_workers_active", value: 4 } },
+      { id: "s9_craft",    emoji: "🍳", title: "Processing Line", description: "Have 4 kitchen workers all running simultaneously", condition: { type: "live_check", check: "processing_line_reached" } },
     ],
   },
   10: {

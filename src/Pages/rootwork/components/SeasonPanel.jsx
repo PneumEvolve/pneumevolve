@@ -166,6 +166,10 @@ function getConditionTracker(game, c) {
         const count = (game.workers ?? []).filter(w => w.gear === "tractor").length;
         return { current: Math.min(count, req), target: req, label: `Tractor workers: ${count} / ${req}` };
       }
+      case "processing_line_reached": {
+        const done = (game.questProgress?.processingLineReached) === true;
+        return { boolean: true, done };
+      }
       case "kitchen_workers_active": {
         const req = c.value ?? 1;
         const count = (game.kitchenWorkers ?? []).filter(w => w.recipeId && w.busy).length;

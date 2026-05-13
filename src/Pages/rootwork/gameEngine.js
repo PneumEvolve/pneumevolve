@@ -2027,11 +2027,11 @@ export function getMaxBarnWorkersPerBuilding(state) {
   return bh.level ?? 1;
 }
 
-// Barn Hall: how many workers retain per building on prestige
+// Barn Hall: how many barn workers retained total on prestige (1 per hall level)
 export function getBarnHallRetainCount(state) {
   const bh = state.town?.buildings?.barn_hall;
   if (!bh?.built) return 0;
-  return Math.floor((bh.level ?? 1) / 2);
+  return bh.level ?? 1;
 }
 
 export function getBarnBuildingWorkerSlots(state, buildingId) {
@@ -2297,6 +2297,15 @@ if (activeTier) {
     // This is the "infinite money sink" — bank consumes treasury to give price bonus
   }
  
+
+  // ── Track Processing Line quest milestone (S9) ─────────────────────────────────────
+  if (!next.questProgress?.processingLineReached) {
+    const activeKitchenCount = (next.kitchenWorkers ?? []).filter(w => w.recipeId && w.busy).length;
+    if (activeKitchenCount >= 4) {
+      next.questProgress = { ...(next.questProgress ?? {}), processingLineReached: true };
+    }
+  }
+
 // ── School research ────────────────────────────────────────────────────────
   if (isTownBuildingBuilt(next, "school")) {
     const school = next.town?.buildings?.school ?? next.town?.townBuildings?.school;
@@ -3878,6 +3887,8 @@ export function evaluateQuestCondition(state, quest) {
         return (state.farms ?? []).some(farm => ((state.farmInvestments ?? {})[farm.id]?.plotCapIndex ?? 0) >= 2);
       case "kitchen_workers_active":
         return (state.kitchenWorkers ?? []).filter(w => w.recipeId && w.busy).length >= (c.value ?? 1);
+      case "processing_line_reached":
+        return qp.processingLineReached === true;
       case "barn_upgraded_and_full":
         return (state.barnInstances ?? []).some(inst => {
           const tier = inst.tier ?? 1;
@@ -4074,7 +4085,7 @@ export function beginPrestige(state, _unused, keptWorkerIds) {
 
   // Award 1 prestige skill point
   next.prestigePoints = (next.prestigePoints ?? 0) + 1;
-  next.questProgress = { manualHarvestCount: 0, berriesHarvested: 0, tomatoesHarvested: 0, fishCaughtCount: 0, qualityFishCount: 0, rareFishCount: 0, breadCrafted: 0, jamCrafted: 0, sauceCrafted: 0, eggsCollected: 0, milkCollected: 0, woolCollected: 0, omelettesCrafted: 0, forgeItemsCrafted: 0, heroQuestsCompleted: 0, tier2QuestsCompleted: 0, bossFightsWon: 0, heroPrestiges: 0, chainmailOrBetterCrafted: false, t3ItemCrafted: false, claimedQuestIds: [], maxAutoBattleRun: 0, maxSimultaneousAutoBattlers: 0 };
+  next.questProgress = { manualHarvestCount: 0, berriesHarvested: 0, tomatoesHarvested: 0, fishCaughtCount: 0, qualityFishCount: 0, rareFishCount: 0, breadCrafted: 0, jamCrafted: 0, sauceCrafted: 0, eggsCollected: 0, milkCollected: 0, woolCollected: 0, omelettesCrafted: 0, forgeItemsCrafted: 0, heroQuestsCompleted: 0, tier2QuestsCompleted: 0, bossFightsWon: 0, heroPrestiges: 0, chainmailOrBetterCrafted: false, t3ItemCrafted: false, claimedQuestIds: [], maxAutoBattleRun: 0, maxSimultaneousAutoBattlers: 0, processingLineReached: false };
 
   const idsToKeep = Array.isArray(keptWorkerIds)
     ? keptWorkerIds
@@ -7524,6 +7535,33 @@ export function recallExpedition(state, tierId) {
   }
   const { [tierId]: _removed, ...rest } = state.expeditions ?? {};
   return { ...state, expeditions: rest, adventurers: advs };
+}
+
+export function recallSingleHeroFromExpedition(state, tierId, heroId) {
+  const exp = (state.expeditions ?? {})[tierId];
+  if (!exp) return state;
+  if (!exp.heroIds.includes(heroId)) return state;
+  const hs = exp.heroStates?.[heroId];
+  // Restore hero HP from expedition state
+  const advs = (state.adventurers ?? []).map(a => {
+    if (a.id !== heroId) return a;
+    return { ...a, hp: Math.max(1, hs?.hp ?? 1), foodBelt: hs?.foodBelt ?? {} };
+  });
+  const newHeroIds = exp.heroIds.filter(id => id !== heroId);
+  const { [heroId]: _hs, ...newHeroStates } = exp.heroStates ?? {};
+  // If no heroes left, close the expedition
+  if (newHeroIds.length === 0) {
+    const { [tierId]: _removed, ...rest } = state.expeditions ?? {};
+    return { ...state, expeditions: rest, adventurers: advs };
+  }
+  return {
+    ...state,
+    adventurers: advs,
+    expeditions: {
+      ...(state.expeditions ?? {}),
+      [tierId]: { ...exp, heroIds: newHeroIds, heroStates: newHeroStates },
+    },
+  };
 }
 
 export function tickExpeditions(state) {

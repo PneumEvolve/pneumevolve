@@ -869,7 +869,7 @@ export default function TownZone({
             {barnHallBuilt ? (
               <>
                 <Row label="Workers per barn" value={getMaxBarnWorkersPerBuilding(game)} />
-                <Row label="Auto-retain on prestige" value={`${getBarnHallRetainCount(game)} per barn`} />
+                <Row label="Auto-retain on prestige" value={`${getBarnHallRetainCount(game)} barn worker${getBarnHallRetainCount(game) !== 1 ? "s" : ""}`} />
                 {(() => {
                   const nextCost = barnHallLevel <= 2
                     ? BARN_HALL_LEVEL_COSTS[barnHallLevel - 1]
@@ -883,7 +883,7 @@ export default function TownZone({
                     <>
                       <div style={{ marginTop: "0.5rem", paddingTop: "0.4rem", borderTop: "1px solid var(--border)" }}>
                         <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
-                          Upgrade to Level {barnHallLevel + 1} — {nextWorkers} workers per barn · {nextRetain} retain on prestige
+                          Upgrade to Level {barnHallLevel + 1} — {nextWorkers} workers per barn · {barnHallLevel + 1} workers retained on prestige
                         </div>
                         <CostLine
                           cash={cash}
@@ -924,6 +924,9 @@ export default function TownZone({
               <>
                 <Row label="Researchers" value={schoolWorkers} />
                 <Row label="Grow speed bonus" value={`+${getSchoolGrowBonus(game).toFixed(1)}%`} valueColor="#4ade80" />
+                {schoolWorkers > 0 && activeResearch && (
+                  <Row label="🔮 Crystal drain" value={`${schoolWorkers}/s`} valueColor="#f59e0b" />
+                )}
                 <WorkerAssigner
                   workers={schoolWorkers} maxWorkers={8} freePeople={freePeople}
                   onAdd={() => onAssignTownBuildingWorker("school", 1)}
