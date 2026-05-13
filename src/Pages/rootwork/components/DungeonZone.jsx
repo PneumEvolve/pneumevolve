@@ -148,8 +148,9 @@ function makeHero(adv, index) {
   };
   const baseHp = adv.maxHp ?? 40;
   const baseAtk = 5 + (adv.level ?? 1) * 1.5 + (adv.gear ?? 0) * 4;
-  const startX = 45 + (index % 2) * 60;
-  const startY = 80 + Math.floor(index / 2) * 110;
+  // Heroes start unplaced (off the left edge); player positions them in placement phase
+  const startX = -UNIT_R * 3;
+  const startY = 60 + index * 70;
   const maxHpVal = Math.floor(baseHp * cls.hpMult);
   const currentHp = adv.currentDungeonHp != null ? Math.min(adv.currentDungeonHp, maxHpVal) : maxHpVal;
   return {
@@ -157,6 +158,7 @@ function makeHero(adv, index) {
     heroClass: resolvedClass,
     emoji: cls.emoji, color: cls.color, bg: cls.bg, label: cls.label,
     x: startX, y: startY, targetX: startX, targetY: startY,
+    placed: false,
     attackTarget: null,
     hp: currentHp, maxHp: maxHpVal,
     atk: Math.floor(baseAtk * cls.atkMult), def: cls.defBonus + Math.floor((adv.gear ?? 0) * 0.5),
@@ -389,7 +391,7 @@ function AbilityBar({ hero, onUseAbility, onUseFood }) {
 
 function Battlefield({
   heroes, enemies, selected, floats, log, phase, initResult, countdown, result,
-  depth, onTap, onSelectHero, onUseAbility, onUseFood, onCombatEnd,
+  depth, onTap, onSelectHero, onUseAbility, onUseFood, onCombatEnd, onPlacementReady,
 }) {
   const battlefieldRef = useRef(null);
   const lastTapTimeRef = useRef(0);
@@ -428,18 +430,27 @@ function Battlefield({
         <div style={{ fontSize: "0.85rem", fontWeight: 800 }}>⚔️ Combat — Depth {depth}</div>
         <div style={{
           fontSize: "0.65rem", fontWeight: 700, padding: "0.18rem 0.55rem", borderRadius: 20,
-          background: phase === "prep" ? "rgba(74,222,128,0.12)" : phase === "enemy_advance" ? "rgba(239,68,68,0.12)" : phase === "fighting" ? "rgba(74,222,128,0.12)" : phase === "victory" ? "rgba(251,191,36,0.15)" : "rgba(239,68,68,0.12)",
-          border: `1px solid ${phase === "prep" ? "rgba(74,222,128,0.35)" : phase === "enemy_advance" ? "rgba(239,68,68,0.35)" : phase === "fighting" ? "rgba(74,222,128,0.35)" : phase === "victory" ? "rgba(251,191,36,0.4)" : "rgba(239,68,68,0.35)"}`,
-          color: phase === "prep" ? "#4ade80" : phase === "enemy_advance" ? "#f87171" : phase === "fighting" ? "#4ade80" : phase === "victory" ? "#fbbf24" : "#f87171",
+          background: phase === "placement" ? "rgba(99,102,241,0.15)" : phase === "prep" ? "rgba(74,222,128,0.12)" : phase === "enemy_advance" ? "rgba(239,68,68,0.12)" : phase === "fighting" ? "rgba(74,222,128,0.12)" : phase === "victory" ? "rgba(251,191,36,0.15)" : "rgba(239,68,68,0.12)",
+          border: `1px solid ${phase === "placement" ? "rgba(99,102,241,0.45)" : phase === "prep" ? "rgba(74,222,128,0.35)" : phase === "enemy_advance" ? "rgba(239,68,68,0.35)" : phase === "fighting" ? "rgba(74,222,128,0.35)" : phase === "victory" ? "rgba(251,191,36,0.4)" : "rgba(239,68,68,0.35)"}`,
+          color: phase === "placement" ? "#a5b4fc" : phase === "prep" ? "#4ade80" : phase === "enemy_advance" ? "#f87171" : phase === "fighting" ? "#4ade80" : phase === "victory" ? "#fbbf24" : "#f87171",
         }}>
-          {phase === "initiative" ? "⚄ INITIATIVE" : phase === "prep" ? `⏳ ${countdown}s` : phase === "enemy_advance" ? `⚠️ ${countdown}s` : phase === "fighting" ? "LIVE" : phase === "victory" ? "VICTORY" : "DEFEAT"}
+          {phase === "placement" ? "📍 PLACE" : phase === "initiative" ? "⚄ INITIATIVE" : phase === "prep" ? `⏳ ${countdown}s` : phase === "enemy_advance" ? `⚠️ ${countdown}s` : phase === "fighting" ? "LIVE" : phase === "victory" ? "VICTORY" : "DEFEAT"}
         </div>
       </div>
 
       {/* Hint */}
       <div style={{ fontSize: "0.6rem", color: "var(--muted)", marginBottom: "0.4rem" }}>
-        {phase === "prep"
-          ? (selHero ? `${selHero.emoji} ${selHero.name} · tap to position` : "You go first — position your heroes")
+        {phase === "placement"
+          ? (() => {
+              const unplaced = heroes.filter(h => !h.placed && !h.dead);
+              const sel = heroes.find(h => h.id === selected);
+              if (unplaced.length === 0) return "All heroes placed — tap Ready to begin!";
+              return sel
+                ? `📍 ${sel.emoji} ${sel.name} · tap left half to place (${unplaced.length} remaining)`
+                : "Tap a hero below to select, then tap the left side to place";
+            })()
+          : phase === "prep"
+          ? (selHero ? `${selHero.emoji} ${selHero.name} · tap to reposition` : "Adjust positions before battle!")
           : phase === "enemy_advance"
           ? "⚠️ Enemies are advancing — brace yourself!"
           : selHero
@@ -471,9 +482,26 @@ function Battlefield({
           background: "linear-gradient(to bottom,transparent,rgba(255,255,255,0.07),transparent)",
         }} />
 
+        {/* Placement zone highlight */}
+        {phase === "placement" && (
+          <div style={{
+            position: "absolute", left: 0, top: 0, width: BF_W / 2 - 2, bottom: 0,
+            background: "rgba(99,102,241,0.07)", borderRight: "1px dashed rgba(99,102,241,0.35)",
+            pointerEvents: "none",
+          }}>
+            <div style={{ position: "absolute", bottom: 6, left: 0, right: 0, textAlign: "center", fontSize: "0.55rem", color: "rgba(99,102,241,0.6)", fontWeight: 700, letterSpacing: "0.08em" }}>
+              PLACE HEROES HERE
+            </div>
+          </div>
+        )}
+
         <FloatingText items={floats} />
         {enemies.map(e => <UnitCircle key={e.id} unit={e} selected={false} />)}
-        {heroes.map(h => <UnitCircle key={h.id} unit={h} selected={selected === h.id} />)}
+        {heroes.map(h => (
+          <div key={h.id} style={{ opacity: (!h.placed && phase === "placement") ? 0.45 : 1, transition: "opacity 0.2s" }}>
+            <UnitCircle unit={h} selected={selected === h.id} />
+          </div>
+        ))}
 
         {/* Initiative overlay */}
         {phase === "initiative" && initResult && (
@@ -501,6 +529,34 @@ function Battlefield({
             </div>
           </div>
         )}
+
+        {/* Placement overlay — shows "READY" button when all placed */}
+        {phase === "placement" && (() => {
+          const allPlaced = heroes.every(h => h.placed || h.dead);
+          if (!allPlaced) return null;
+          return (
+            <div style={{
+              position: "absolute", inset: 0, display: "flex", alignItems: "center",
+              justifyContent: "center", background: "rgba(0,0,0,0.45)",
+              flexDirection: "column", gap: "0.5rem",
+            }}>
+              <div style={{ fontSize: "0.7rem", fontWeight: 700, color: "rgba(255,255,255,0.7)", letterSpacing: "0.1em" }}>
+                All heroes placed!
+              </div>
+              <button
+                onClick={onPlacementReady}
+                style={{
+                  padding: "0.55rem 2rem", borderRadius: 10, fontWeight: 800, fontSize: "0.9rem",
+                  background: "rgba(99,102,241,0.25)", border: "2px solid rgba(99,102,241,0.7)",
+                  color: "#a5b4fc", cursor: "pointer",
+                  boxShadow: "0 0 20px rgba(99,102,241,0.4)",
+                  animation: "ringPulse 1s ease-in-out infinite",
+                }}>
+                ⚔️ Ready!
+              </button>
+            </div>
+          );
+        })()}
 
         {/* Prep overlay */}
         {phase === "prep" && (
@@ -569,14 +625,13 @@ function Battlefield({
             style={{
               flex: 1, padding: "0.3rem 0.35rem", borderRadius: 7, cursor: h.dead ? "default" : "pointer",
               background: selected === h.id ? `${h.color}18` : "rgba(255,255,255,0.04)",
-              border: `1px solid ${selected === h.id ? h.color + "55" : "rgba(255,255,255,0.07)"}`,
+              border: `1px solid ${selected === h.id ? h.color + "55" : h.placed === false && phase === "placement" ? "rgba(251,191,36,0.4)" : "rgba(255,255,255,0.07)"}`,
               opacity: h.dead ? 0.35 : 1, transition: "all 0.15s",
             }}>
             <div style={{ fontSize: "0.75rem", textAlign: "center" }}>{h.emoji}</div>
             <HpBar hp={h.hp} maxHp={h.maxHp} height={3} />
             <div style={{ fontSize: "0.5rem", color: "var(--muted)", textAlign: "center", marginTop: 2 }}>
-              {Math.floor(h.hp)}/{h.maxHp}
-              {h.hotRemaining > 0 ? " 🌿" : ""}
+              {phase === "placement" && !h.placed ? "📍 place" : `${Math.floor(h.hp)}/${h.maxHp}${h.hotRemaining > 0 ? " 🌿" : ""}`}
             </div>
           </div>
         ))}
@@ -1041,7 +1096,8 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
       const nextPhase = playerWins ? "prep" : "enemy_advance";
       setCombatPhase(nextPhase);
       phaseRef.current = nextPhase;
-      setCombatCountdown(5);
+      // Short countdown after placement — heroes already positioned
+      setCombatCountdown(playerWins ? 2 : 3);
     }, 2500);
     return () => clearTimeout(t);
   }, [combatPhase, combatHeroes.length]);
@@ -1069,10 +1125,15 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
       const dt = Math.min((now - last) / 1000, 0.15);
       last = now;
 
+      if (currentPhase === "placement") {
+        // No movement during placement — heroes are static until placed by player
+        return;
+      }
+
       if (currentPhase === "prep") {
         const hs = heroesRef.current.map(h => ({ ...h }));
         hs.forEach(hero => {
-          if (hero.dead) return;
+          if (hero.dead || !hero.placed) return;
           const np = moveToward({ x: hero.x, y: hero.y }, { x: hero.targetX, y: hero.targetY }, HERO_SPEED, dt);
           hero.x = clamp(np.x, UNIT_R, BF_W - UNIT_R);
           hero.y = clamp(np.y, UNIT_R, BF_H - UNIT_R);
@@ -1338,8 +1399,54 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
   }, [mode]); // only restarts when mode changes (combat ↔ explore)
 
   // ── Tap handler (passed to Battlefield) ──────────────────────────────────
+  // Called by Battlefield when player taps "Ready" during placement
+  const handlePlacementReady = useCallback(() => {
+    // Place any still-unplaced heroes at default left-side positions
+    setCombatHeroes(prev => {
+      const next = prev.map((h, i) => {
+        if (h.placed) return h;
+        const dx = 40 + (i % 2) * 55;
+        const dy = 70 + Math.floor(i / 2) * 100;
+        return { ...h, x: dx, y: dy, targetX: dx, targetY: dy, placed: true };
+      });
+      heroesRef.current = next;
+      return next;
+    });
+    // Trigger initiative roll
+    setCombatPhase("initiative");
+    phaseRef.current = "initiative";
+  }, []);
+
   const handleBattlefieldTap = useCallback((x, y, phase) => {
     const currentPhase = phaseRef.current;
+
+    // ── Placement phase: tap left half to place selected hero ──────────────
+    if (currentPhase === "placement") {
+      const heroId = selectedRef.current;
+      if (!heroId) return;
+      // Restrict to left half only
+      if (x > BF_W / 2 - UNIT_R) return;
+      const clampedX = clamp(x, UNIT_R + 2, BF_W / 2 - UNIT_R - 4);
+      const clampedY = clamp(y, UNIT_R + 2, BF_H - UNIT_R - 2);
+      setCombatHeroes(prev => {
+        const next = prev.map(h => h.id !== heroId ? h : {
+          ...h, x: clampedX, y: clampedY, targetX: clampedX, targetY: clampedY, placed: true,
+        });
+        heroesRef.current = next;
+        // Auto-select next unplaced hero
+        const nextUnplaced = next.find(h => !h.placed && !h.dead);
+        if (nextUnplaced) {
+          setCombatSelected(nextUnplaced.id);
+          selectedRef.current = nextUnplaced.id;
+        } else {
+          setCombatSelected(null);
+          selectedRef.current = null;
+        }
+        return next;
+      });
+      return;
+    }
+
     if (currentPhase !== "fighting" && currentPhase !== "prep") return;
     const HIT_R = UNIT_R * 1.8;
 
@@ -1499,17 +1606,17 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
     setCombatPos({ x, y });
     setCombatHeroes(newHeroes);
     setCombatEnemies(newEnemies);
-    setCombatSelected(null);
+    setCombatSelected(newHeroes[0]?.id ?? null); // auto-select first hero for placement
     setCombatFloats([]);
     setCombatLog([]);
-    setCombatPhase("initiative");
+    setCombatPhase("placement");
     setCombatInitResult(null);
     setCombatCountdown(5);
     setCombatResult(null);
     heroesRef.current = newHeroes;
     enemiesRef.current = newEnemies;
-    selectedRef.current = null;
-    phaseRef.current = "initiative";
+    selectedRef.current = newHeroes[0]?.id ?? null;
+    phaseRef.current = "placement";
     initiativeRolledRef.current = false; // allow initiative to re-roll
 
     setMode("combat");
@@ -1663,6 +1770,7 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
       onUseAbility={handleUseAbility}
       onUseFood={handleUseFood}
       onCombatEnd={onCombatEnd}
+      onPlacementReady={handlePlacementReady}
     />
   );
 
