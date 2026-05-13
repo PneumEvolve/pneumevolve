@@ -51,15 +51,15 @@ const DUNGEON_CLASS = {
 const ENEMY_TYPES = {
   goblin: {
     name: "Goblin", emoji: "👺", color: "#dc2626", bg: "#450a0a",
-    hp: 35, atk: 7, def: 1, speed: ENEMY_SPEED * 1.2, attackSpeed: 0.9,
+    hp: 28, atk: 12, def: 1, speed: ENEMY_SPEED * 1.2, attackSpeed: 1.0,
     attackRange: ENEMY_ATTACK_RANGE, xp: 8,
-    loot: { iron_ore: [2, 5] },
+    loot: { iron_ore: [1, 3], lumber: [1, 3] },
   },
   skeleton: {
     name: "Skeleton", emoji: "💀", color: "#9ca3af", bg: "#111827",
     hp: 45, atk: 9, def: 2, speed: ENEMY_SPEED, attackSpeed: 0.7,
     attackRange: ENEMY_ATTACK_RANGE, xp: 12,
-    loot: { lumber: [2, 4] },
+    loot: { iron_ore: [1, 3], lumber: [1, 3] },
     special: "revive", // rises once at 50% HP
   },
   orc: {
@@ -141,18 +141,28 @@ function getNextBeltItem(foodBelt) {
 // ─── Unit factories ───────────────────────────────────────────────────────────
 
 function makeHero(adv, index) {
-  const cls = DUNGEON_CLASS[adv.heroClass ?? adv.class ?? "fighter"] ?? DUNGEON_CLASS.fighter;
+  // No fallback to "fighter" -- classless heroes exist
+  const resolvedClass = adv.heroClass ?? adv.class ?? null;
+  const cls = (resolvedClass && DUNGEON_CLASS[resolvedClass]) ? DUNGEON_CLASS[resolvedClass] : {
+    label: "Adventurer", emoji: "\U0001f9ed", color: "#94a3b8", bg: "#1e293b",
+    hpMult: 1.0, atkMult: 1.0, defBonus: 0,
+    attackSpeed: 1.0, attackRange: ATTACK_RANGE,
+    ability: { name: "Focus", emoji: "\U0001f3af", cooldown: 12, desc: "Concentrate, dealing 1.5x damage on next attack" },
+  };
   const baseHp = adv.maxHp ?? 40;
-  const baseAtk = 8 + (adv.level ?? 1) * 2 + (adv.gear ?? 0) * 3;
+  const baseAtk = 5 + (adv.level ?? 1) * 1.5 + (adv.gear ?? 0) * 4;
   const startX = 45 + (index % 2) * 60;
   const startY = 80 + Math.floor(index / 2) * 110;
+  // Preserve HP from previous combat this run (currentDungeonHp set by onCombatEnd)
+  const maxHpVal = Math.floor(baseHp * cls.hpMult);
+  const currentHp = adv.currentDungeonHp != null ? Math.min(adv.currentDungeonHp, maxHpVal) : maxHpVal;
   return {
     id: adv.id, kind: "hero", name: adv.name,
-    heroClass: adv.heroClass ?? adv.class ?? "fighter",
+    heroClass: resolvedClass,
     emoji: cls.emoji, color: cls.color, bg: cls.bg, label: cls.label,
     x: startX, y: startY, targetX: startX, targetY: startY,
     attackTarget: null,
-    hp: Math.floor(baseHp * cls.hpMult), maxHp: Math.floor(baseHp * cls.hpMult),
+    hp: currentHp, maxHp: maxHpVal,
     atk: Math.floor(baseAtk * cls.atkMult), def: cls.defBonus + Math.floor((adv.gear ?? 0) * 0.5),
     attackSpeed: cls.attackSpeed, attackRange: cls.attackRange,
     attackCooldown: 0,
@@ -171,7 +181,7 @@ function makeHero(adv, index) {
 
 function makeEnemy(typeId, index, depth) {
   const def = ENEMY_TYPES[typeId];
-  const scale = 1 + depth * 0.18;
+  const scale = 1 + depth * 0.28;
   const col = index % 2;
   const row = Math.floor(index / 2);
   return {
@@ -182,7 +192,7 @@ function makeEnemy(typeId, index, depth) {
     hp: Math.floor(def.hp * scale), maxHp: Math.floor(def.hp * scale),
     atk: Math.floor(def.atk * scale), def: def.def,
     speed: def.speed, attackSpeed: def.attackSpeed, attackRange: def.attackRange,
-    attackCooldown: randInt(0, 15) / 10,
+    attackCooldown: 0,
     taunted: false, dead: false, flashHit: false,
     special: def.special ?? null,
     // Special state
@@ -511,8 +521,10 @@ function Battlefield({ party, enemies: initEnemies, onCombatEnd, depth }) {
         // Build result from what was earned so far
         const foodBeltDeltas = {};
         hs.forEach(h => { if (Object.keys(h.foodUsed ?? {}).length > 0) foodBeltDeltas[h.id] = h.foodUsed; });
+        const heroHpSnapshotDefeat = {};
+        hs.forEach(h => { heroHpSnapshotDefeat[h.id] = Math.floor(h.hp); });
         setPhase("defeat");
-        setResult({ victory: false, loot: {}, xpByHeroId: {}, foodBeltDeltas });
+        setResult({ victory: false, loot: {}, xpByHeroId: {}, foodBeltDeltas, heroHpSnapshot: heroHpSnapshotDefeat });
         return;
       }
       if (aliveEnemies.length === 0) {
@@ -528,8 +540,10 @@ function Battlefield({ party, enemies: initEnemies, onCombatEnd, depth }) {
         });
         const foodBeltDeltas = {};
         hs.forEach(h => { if (Object.keys(h.foodUsed ?? {}).length > 0) foodBeltDeltas[h.id] = h.foodUsed; });
+        const heroHpSnapshot = {};
+        hs.forEach(h => { heroHpSnapshot[h.id] = Math.floor(h.hp); });
         setPhase("victory");
-        setResult({ victory: true, loot, xpByHeroId, foodBeltDeltas, totalXp });
+        setResult({ victory: true, loot, xpByHeroId, foodBeltDeltas, totalXp, heroHpSnapshot });
         return;
       }
 
@@ -774,6 +788,25 @@ function Battlefield({ party, enemies: initEnemies, onCombatEnd, depth }) {
         }
         enemy.flashHit = false;
       });
+
+      // Separation push: prevent circles from overlapping
+      const allUnits = [...hs.filter(h => !h.dead), ...es.filter(e => !e.dead)];
+      const SEP = UNIT_R * 2 + 3;
+      for (let i = 0; i < allUnits.length; i++) {
+        for (let j = i + 1; j < allUnits.length; j++) {
+          const a = allUnits[i], b = allUnits[j];
+          const dx = b.x - a.x, dy = b.y - a.y;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d < SEP && d > 0.01) {
+            const push = (SEP - d) / 2;
+            const nx = dx / d, ny = dy / d;
+            a.x = clamp(a.x - nx * push, UNIT_R, BF_W - UNIT_R);
+            a.y = clamp(a.y - ny * push, UNIT_R, BF_H - UNIT_R);
+            b.x = clamp(b.x + nx * push, UNIT_R, BF_W - UNIT_R);
+            b.y = clamp(b.y + ny * push, UNIT_R, BF_H - UNIT_R);
+          }
+        }
+      }
 
       setHeroes([...hs]);
       setEnemies([...es]);
@@ -1108,7 +1141,10 @@ function Battlefield({ party, enemies: initEnemies, onCombatEnd, depth }) {
         fontFamily: "monospace", border: "1px solid rgba(255,255,255,0.07)",
         display: "flex", flexDirection: "column", gap: 1,
       }}>
-        {log.map(e => <div key={e.id} style={{ color: e.color }}>{e.text}</div>)}
+        {log.map(e => <div key={e.id} style={{
+          color: e.color === "#4ade80" ? "#b8f0cb" : e.color === "var(--muted)" ? "#9eb4cc" : e.color,
+          textShadow: "0 1px 3px rgba(0,0,0,0.95)",
+        }}>{e.text}</div>)}
       </div>
 
       {/* Result panel */}
@@ -1145,7 +1181,7 @@ function Battlefield({ party, enemies: initEnemies, onCombatEnd, depth }) {
 
 // ─── EXPLORE MODE ─────────────────────────────────────────────────────────────
 
-function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat, onCollectTreasure, onRest, onRetreat, onExit, lootTotal }) {
+function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat, onCollectTreasure, onRest, onRetreat, onExit, onFinishRun, lootTotal }) {
   const CELL = 40;
   function getCell(x, y) { return cells.find(c => c.x === x && c.y === y) ?? null; }
   function adj() {
@@ -1163,7 +1199,7 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
     }
   }
   const adjacent = adj();
-  const roomColor = { start: "#4ade8020", empty: "#ffffff08", enemy: "#ef444420", treasure: "#fbbf2420", rest: "#4ade8015", exit: "#a78bfa25" };
+  const roomColor = { start: "#4ade8025", empty: "#ffffff08", enemy: "#ef444445", treasure: "#fbbf2445", rest: "#4ade8035", exit: "#a78bfa50" };
   const roomEmoji = { start: "🏠", empty: "", enemy: "👹", treasure: "💰", rest: "🏕️", exit: "🚪" };
 
   return (
@@ -1198,10 +1234,14 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
               display: "flex", alignItems: "center", justifyContent: "center",
               fontSize: isParty ? "1.2rem" : "0.95rem",
               background: !visible ? "rgba(0,0,0,0.7)" : isParty ? "rgba(99,102,241,0.28)" : roomColor[cell.type] ?? "#ffffff08",
-              border: isParty ? "2px solid rgba(99,102,241,0.75)" : canMove ? "1px solid rgba(255,255,255,0.3)" : cell.visited ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(255,255,255,0.03)",
+              border: isParty ? "2px solid rgba(99,102,241,0.75)" : canMove ? `2px solid ${ cell.type === "enemy" ? "rgba(239,68,68,0.75)" : cell.type === "treasure" ? "rgba(251,191,36,0.75)" : cell.type === "exit" ? "rgba(167,139,250,0.75)" : "rgba(255,255,255,0.4)"}` : cell.visited ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(255,255,255,0.03)",
               cursor: canMove ? "pointer" : "default", opacity: !visible ? 0.2 : 1, transition: "all 0.12s",
             }}>
-              {isParty ? "🧭" : !visible ? null : cell.visited ? (cell.cleared && cell.type !== "start" ? <span style={{ fontSize: "0.65rem", color: "#4ade80" }}>✓</span> : roomEmoji[cell.type]) : <span style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.25)" }}>?</span>}
+              {isParty ? "🧭" : !visible ? null : cell.visited ? (
+                (cell.type === "empty" || cell.cleared) && cell.type !== "start" && cell.type !== "exit"
+                  ? <span style={{ fontSize: "0.65rem", color: "#4ade80" }}>✓</span>
+                  : (roomEmoji[cell.type] || null)
+              ) : <span style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.25)" }}>?</span>}
             </div>
           );
         })}
@@ -1209,7 +1249,10 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
 
       {/* Legend */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: "0.5rem" }}>
-        {[["🧭", "Party"], ["👹", "Enemy"], ["💰", "Treasure"], ["🏕️", "Rest"], ["🚪", "Exit"]].map(([e, l]) => (
+        <div style={{ fontSize: "0.62rem", color: "#a78bfa", marginBottom: "0.25rem" }}>
+        Depth {depth} — reach 🚪 Exit to go deeper · ✅ Finish Run to collect loot
+      </div>
+      {[["🧭", "Party"], ["👹", "Enemy"], ["💰", "Treasure"], ["🏕️", "Rest"], ["🚪", "Exit"]].map(([e, l]) => (
           <span key={l} style={{ fontSize: "0.6rem", color: "var(--muted)", display: "flex", gap: 3, alignItems: "center" }}>
             <span>{e}</span>{l}
           </span>
@@ -1243,13 +1286,22 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
         </div>
       )}
 
-      <button onClick={onRetreat} style={{
-        width: "100%", padding: "0.45rem", borderRadius: 8, fontSize: "0.72rem", fontWeight: 600,
-        background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.28)",
-        color: "#f87171", cursor: "pointer",
-      }}>
-        🏳️ Retreat and keep loot
-      </button>
+      <div style={{ display: "flex", gap: 6 }}>
+        <button onClick={onRetreat} style={{
+          flex: 1, padding: "0.45rem", borderRadius: 8, fontSize: "0.72rem", fontWeight: 600,
+          background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.28)",
+          color: "#f87171", cursor: "pointer",
+        }}>
+          🏳️ Retreat
+        </button>
+        <button onClick={onFinishRun} style={{
+          flex: 1, padding: "0.45rem", borderRadius: 8, fontSize: "0.72rem", fontWeight: 700,
+          background: "rgba(74,222,128,0.12)", border: "1px solid rgba(74,222,128,0.35)",
+          color: "#4ade80", cursor: "pointer",
+        }}>
+          ✅ Finish Run
+        </button>
+      </div>
     </div>
   );
 }
@@ -1257,7 +1309,11 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
 // ─── LOBBY ────────────────────────────────────────────────────────────────────
 
 function Lobby({ game, lastRun, pendingReward, onStart, onClaim }) {
-  const party = getDungeonPartyLocal(game);
+  // When an active run exists, show those heroes; otherwise show available heroes
+  const activeHeroIds = game?.dungeonRun?.heroIds ?? [];
+  const party = activeHeroIds.length > 0
+    ? (game?.adventurers ?? []).filter(a => activeHeroIds.includes(a.id))
+    : getDungeonPartyLocal(game);
   const hasPending = !!pendingReward;
 
   return (
@@ -1303,7 +1359,7 @@ function Lobby({ game, lastRun, pendingReward, onStart, onClaim }) {
           border: `1px solid ${lastRun.victory ? "rgba(74,222,128,0.25)" : "rgba(239,68,68,0.2)"}`,
         }}>
           <div style={{ fontSize: "0.7rem", fontWeight: 700, color: lastRun.victory ? "#4ade80" : "#f87171", marginBottom: "0.15rem" }}>
-            {lastRun.victory ? "✅ Last run: Victory" : "💀 Last run: Defeated"}
+            {lastRun.victory ? "✅ Last run: Victory" : `🏳️ Last run: ${lastRun.label ?? "Defeated"}`}
           </div>
           {Object.entries(lastRun.loot ?? {}).map(([k, v]) => (
             <div key={k} style={{ fontSize: "0.63rem", color: "var(--text)" }}>+{v} {k.replace(/_/g, " ")}</div>
@@ -1488,6 +1544,14 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
       const newXp = { ...xpTotal };
       Object.entries(result.xpByHeroId ?? {}).forEach(([heroId, xp]) => { newXp[heroId] = (newXp[heroId] ?? 0) + xp; });
 
+      // Persist hero HP from this combat back into party for next room
+      if (result.heroHpSnapshot) {
+        setParty(prev => prev.map(h => {
+          const snap = result.heroHpSnapshot[h.id];
+          return snap != null ? { ...h, currentDungeonHp: snap } : h;
+        }));
+      }
+
       setLootTotal(newLoot);
       setXpTotal(newXp);
       if (combatPos) setCells(prev => prev.map(c => c.x === combatPos.x && c.y === combatPos.y ? { ...c, cleared: true } : c));
@@ -1495,7 +1559,7 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
       setMode("explore");
       saveRun({ mode: "explore", lootTotal: newLoot, xpTotal: newXp });
     } else {
-      endRun(false);
+      endRun(false, result.heroHpSnapshot ?? {});
     }
   }
 
@@ -1515,7 +1579,7 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
     setCells(prev => prev.map(c => c.x === x && c.y === y ? { ...c, cleared: true } : c));
   }
 
-  function endRun(victory) {
+  function endRun(victory, hpSnapshot = {}) {
     const totalXp = Object.values(xpTotal).reduce((s, v) => s + v, 0);
     const runResult = {
       victory,
@@ -1523,9 +1587,11 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
       xpByHeroId: xpTotal,
       foodBeltDeltas: foodUsedTotal,
       totalXp,
+      hpSnapshot,
     };
-    setLastRun({ victory, loot: lootTotal });
-    onDungeonComplete(runResult);  // triggers applyDungeonResult in engine (clears dungeonRun, sets pendingReward)
+    const label = victory ? "Victory" : `Retreated at depth ${depth}`;
+    setLastRun({ victory, label, loot: lootTotal, depth });
+    onDungeonComplete(runResult);
     setMode("lobby");
     setCells([]);
     setPos({ x: 3, y: 3 });
@@ -1555,11 +1621,17 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
       onEnterCombat={enterCombat}
       onCollectTreasure={collectTreasure}
       onRest={doRest}
+      onFinishRun={() => endRun(true)}
       onRetreat={() => endRun(false)}
       onExit={() => {
+        // Advance to next depth: new map, keep loot/party
         const newDepth = depth + 1;
+        const newCells = generateMap();
+        const startPos = { x: 3, y: 3 };
         setDepth(newDepth);
-        endRun(true);
+        setCells(newCells);
+        setPos(startPos);
+        saveRun({ mode: "explore", depth: newDepth, cells: newCells, pos: startPos });
       }}
       lootTotal={lootTotal}
     />

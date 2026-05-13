@@ -7795,13 +7795,8 @@ export function claimExpedition(state, _bonusHeroId = null) {
 export function applyDungeonResult(state, result) {
   let next = { ...state };
 
-  // Merge loot into worldResources
-  if (result.loot && Object.keys(result.loot).length > 0) {
-    next.worldResources = { ...(next.worldResources ?? {}) };
-    Object.entries(result.loot).forEach(([key, val]) => {
-      next.worldResources[key] = (next.worldResources[key] ?? 0) + val;
-    });
-  }
+  // NOTE: Loot is NOT applied here -- it is applied when the player clicks "Claim Reward"
+  // This way retreat/finish goes to pending and clicking claim adds it to inventory.
 
   // Apply XP per hero, triggering level-ups via existing formula
   if (result.xpByHeroId && Object.keys(result.xpByHeroId).length > 0) {
@@ -7835,8 +7830,18 @@ export function applyDungeonResult(state, result) {
     });
   }
 
+  // Persist hero HP from dungeon (heroes don't heal between runs)
+  if (result.hpSnapshot && Object.keys(result.hpSnapshot).length > 0) {
+    next.adventurers = (next.adventurers ?? []).map(adv => {
+      const hp = result.hpSnapshot[adv.id];
+      if (hp == null) return adv;
+      return { ...adv, hp: Math.max(0, hp) };
+    });
+  }
+
   // Store as pending claim
   next.pendingDungeonReward = result;
+  next.dungeonRun = null; // clear the active run
   return next;
 }
 
@@ -7871,8 +7876,17 @@ export function clearDungeonRun(state) {
 }
 
 
-// Claim the pending dungeon reward
+// Claim the pending dungeon reward -- adds loot to worldResources
 export function claimDungeonReward(state) {
   if (!state.pendingDungeonReward) return state;
-  return { ...state, pendingDungeonReward: null };
+  let next = { ...state };
+  const reward = state.pendingDungeonReward;
+  if (reward.loot && Object.keys(reward.loot).length > 0) {
+    next.worldResources = { ...(next.worldResources ?? {}) };
+    Object.entries(reward.loot).forEach(([key, val]) => {
+      next.worldResources[key] = (next.worldResources[key] ?? 0) + val;
+    });
+  }
+  next.pendingDungeonReward = null;
+  return next;
 }

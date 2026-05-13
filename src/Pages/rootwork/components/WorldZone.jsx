@@ -1155,6 +1155,7 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
   const tavernBuilt = game.town?.buildings?.tavern?.built === true;
   const isResting = !!adventurer.tavernResting;
   const isOnExpedition = isHeroOnExpedition(game, adventurer.id);
+  const isInDungeon = (game?.dungeonRun?.heroIds ?? []).includes(adventurer.id);
   const tavernMode = game.town?.buildings?.tavern?.mode ?? "jam";
   const tavernStocked = game.town?.buildings?.tavern?.stocked !== false;
   const tavernWorkers = game.town?.buildings?.tavern?.workers ?? 0;
@@ -1162,6 +1163,31 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
   // Auto battle potion check
   const potionCount = game.forgeGoods?.health_potion ?? 0;
   const canStartAutoBattle = hasAutoBattle && selectedZone && beltFoodTotal > 0 && !dead;
+
+  // Collapsed card for heroes locked in dungeon
+  if (isInDungeon) {
+    return (
+      <div style={{ background: "var(--bg-elev)", border: "1px solid rgba(99,102,241,0.35)", borderRadius: "14px", overflow: "hidden", marginBottom: "0.75rem", opacity: 0.75 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.65rem", padding: "0.6rem 0.9rem" }}>
+          <div style={{ fontSize: "1.5rem", lineHeight: 1, background: "rgba(99,102,241,0.12)", border: "1px solid rgba(99,102,241,0.25)", borderRadius: "10px", padding: "0.25rem 0.4rem" }}>
+            {cls.emoji}
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+              <span style={{ fontWeight: 700, fontSize: "0.82rem" }}>{adventurer.name}</span>
+              <span style={{ fontSize: "0.58rem", color: "#a78bfa", background: "rgba(99,102,241,0.12)", border: "1px solid rgba(99,102,241,0.25)", padding: "1px 6px", borderRadius: "999px" }}>🏰 In Dungeon</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.2rem" }}>
+              <span style={{ fontSize: "0.55rem", color: "#ef4444" }}>❤️</span>
+              <HpBar hp={hp} maxHp={maxHp} height={3} />
+              <span style={{ fontSize: "0.52rem", color: "var(--muted)" }}>{Math.floor(hp)}/{maxHp}</span>
+            </div>
+          </div>
+          <span style={{ fontSize: "0.6rem", color: "var(--muted)", fontStyle: "italic" }}>Lv.{adventurer.level ?? 1}</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ background: "var(--bg-elev)", border: `1px solid ${dead ? "rgba(239,68,68,0.35)" : "var(--border)"}`, borderRadius: "14px", overflow: "hidden", marginBottom: "0.75rem" }}>
