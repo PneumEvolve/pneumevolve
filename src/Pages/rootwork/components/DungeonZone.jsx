@@ -417,6 +417,7 @@ function Battlefield({ party, enemies: initEnemies, onCombatEnd, depth }) {
   const selectedRef = useRef(null);
   const phaseRef = useRef("initiative");
   const floatIdRef = useRef(0);
+  const battlefieldRef = useRef(null); // stable ref for coordinate math
 
   useEffect(() => { heroesRef.current = heroes; }, [heroes]);
   useEffect(() => { enemiesRef.current = enemies; }, [enemies]);
@@ -818,15 +819,21 @@ function Battlefield({ party, enemies: initEnemies, onCombatEnd, depth }) {
   // Single onPointerDown on the battlefield div handles ALL input.
   // Using phaseRef (not `phase`) avoids stale closure bugs.
   // No onClick on child circles -- that caused double-fire deselection on mobile.
+  const lastTapTimeRef = useRef(0);
   function handleTap(e) {
-    e.preventDefault(); // prevent ghost clicks / scroll on mobile
+    // Deduplicate: onTouchStart + onClick both fire on mobile, ignore the second one
+    const now = Date.now();
+    if (now - lastTapTimeRef.current < 400) return;
+    lastTapTimeRef.current = now;
     const currentPhase = phaseRef.current;
     if (currentPhase !== "fighting" && currentPhase !== "prep") return;
 
-    const rect = e.currentTarget.getBoundingClientRect();
-    // pointerdown always has .clientX/.clientY (mouse, touch, stylus)
-    const clientX = e.clientX;
-    const clientY = e.clientY;
+    // Use stable ref for rect -- e.currentTarget can be null in React synthetic events on mobile
+    if (!battlefieldRef.current) return;
+    const rect = battlefieldRef.current.getBoundingClientRect();
+    // Handle both touch events and mouse/click events
+    const clientX = e.touches?.[0]?.clientX ?? e.changedTouches?.[0]?.clientX ?? e.clientX;
+    const clientY = e.touches?.[0]?.clientY ?? e.changedTouches?.[0]?.clientY ?? e.clientY;
     if (clientX == null || clientY == null) return;
 
     const scaleX = BF_W / rect.width;
@@ -836,6 +843,10 @@ function Battlefield({ party, enemies: initEnemies, onCombatEnd, depth }) {
 
     // Generous hit radius for mobile (finger-sized ~48px)
     const HIT_R = UNIT_R * 1.8;
+
+    // DEBUG: log tap coordinates vs hero positions
+    const heroPositions = heroesRef.current.map(h => ({ id: h.id, hx: Math.round(h.x), hy: Math.round(h.y), d: Math.round(dist({x,y}, h)) }));
+    console.log("[DungeonTap] tap=", Math.round(x), Math.round(y), "rect=", Math.round(rect.width), "x", Math.round(rect.height), "heroes=", heroPositions, "phase=", currentPhase);
 
     // 1. Enemy hit? Order selected hero to attack.
     const tappedEnemy = enemiesRef.current.find(en => !en.dead && dist({ x, y }, en) < HIT_R);
@@ -994,7 +1005,9 @@ function Battlefield({ party, enemies: initEnemies, onCombatEnd, depth }) {
 
       {/* Battlefield */}
       <div
-        onPointerDown={handleTap}
+        ref={battlefieldRef}
+        onTouchStart={handleTap}
+        onClick={handleTap}
         style={{
           position: "relative", width: "100%", maxWidth: BF_W, height: BF_H,
           background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)",
