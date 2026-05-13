@@ -1,5 +1,6 @@
 // src/Pages/rootwork/components/WorldZone.jsx
 import React, { useState, useEffect, useRef } from "react";
+import DungeonZone from "./DungeonZone";
 import { WORLD_ZONES, ADVENTURER_CLASSES, FORGE_RECIPES, ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST, ADVENTURER_BUFF_ITEMS, ADVENTURER_BUFF_LIST, WORLD_RESOURCES, HERO_SKILLS, HERO_SKILL_TREES, HERO_CLASS_META, HERO_PRESTIGE_COST_BASE, HERO_DIP_TREE_PRESTIGE_TIER1, HERO_DIP_TREE_PRESTIGE_TIER2, BOSS_DEFS, BOSS_ABILITIES, BOSS_UNLOCK_LEVEL, BOSS_TICK_INTERVAL, generateInfiniteBoss, EXPEDITION_TIER_ORDER, EXPEDITION_TIERS, TRADE_TOWN_ORDER, TRADE_TOWNS } from "../gameConstants";
 import { getAdventurerSlotCost, getMaxHeroes, setHeroFillFood, getHeroPrestigeDmgBonus, getHeroPrestigeDmgReduction, getHeroPrestigeXpBonus, getHeroPrestigeMinLootBonus, PRESTIGE_DMG_RED_FLOOR, getRoadLevel, isTownConnected, getExpeditionAvailable, isHeroBusyForExpedition, isHeroOnExpedition, getHeroExpeditionTierId, getThornwickGrowBonus, getCrestfallFishingBonus, getMillhavenMaterialBonus, getGlenhollowBarnBonus, getAshportCraftingTimeBonus, getHeroPrestigeDurationBonus, getHeroDurationMultiplier, recallSingleHeroFromExpedition } from "../gameEngine";
 
@@ -2160,22 +2161,23 @@ export default function WorldZone({
 
       {/* Tab bar */}
       <div style={{ display: "flex", gap: "0.35rem", marginBottom: "1rem" }}>
-        {["heroes", "boss", "towns"].map((tab) => {
+        {["heroes", "boss", "towns", "dungeon"].map((tab) => {
           const roadLevel = game.roads?.level ?? 0;
-          const labels = { heroes: "⚔️ Heroes", boss: "👹 Boss", towns: "🏘️ Towns" };
+          const labels = { heroes: "⚔️ Heroes", boss: "👹 Boss", towns: "🏘️ Towns", dungeon: "⚔️ Dungeon" };
           const active = worldTab === tab;
           const isBossLocked = tab === "boss" && !bossUnlocked;
           const isTownsLocked = tab === "towns" && roadLevel === 0;
+          const isDungeonLocked = false;
           return (
             <button
               key={tab}
-              onClick={() => !isBossLocked && !isTownsLocked && setWorldTab(tab)}
+              onClick={() => !isBossLocked && !isTownsLocked && !isDungeonLocked && setWorldTab(tab)}
               style={{
                 flex: 1, padding: "0.45rem 0.5rem",
                 background: active ? "rgba(99,102,241,0.18)" : "rgba(255,255,255,0.04)",
                 border: `1px solid ${active ? "rgba(99,102,241,0.55)" : "var(--border)"}`,
                 borderRadius: "10px",
-                color: (isBossLocked || isTownsLocked) ? "var(--muted)" : active ? "var(--accent)" : "var(--fg)",
+                color: (isBossLocked || isTownsLocked || isDungeonLocked) ? "var(--muted)" : active ? "var(--accent)" : "var(--fg)",
                 fontWeight: active ? 700 : 500,
                 fontSize: "0.78rem",
                 cursor: (isBossLocked || isTownsLocked) ? "default" : "pointer",
@@ -2627,6 +2629,12 @@ export default function WorldZone({
         </div>
       )}
 
+
+
+      {/* ── DUNGEON TAB ── */}
+      {worldTab === "dungeon" && (
+        <DungeonZone game={game} />
+      )}
 
       {heroModalAdv && (
         <HeroModal
