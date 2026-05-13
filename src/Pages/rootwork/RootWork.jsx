@@ -1,5 +1,14 @@
 // src/Pages/rootwork/RootWork.jsx
  
+// TEMP DEBUG - remove when done
+if (typeof window !== "undefined" && !window.__vconsole_loaded) {
+  window.__vconsole_loaded = true;
+  const s = document.createElement("script");
+  s.src = "https://unpkg.com/vconsole@latest/dist/vconsole.min.js";
+  s.onload = () => { new window.VConsole(); };
+  document.head.appendChild(s);
+}
+
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
