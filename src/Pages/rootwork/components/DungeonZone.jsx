@@ -215,9 +215,9 @@ function generateMap() {
       else if (x === exitCell.x && y === exitCell.y) type = "exit";
       else {
         const d = Math.abs(x - cx) + Math.abs(y - cy), r = Math.random();
-        if (d === 1)     type = r < 0.3  ? "enemy" : "empty";
-        else if (d <= 3) type = r < 0.5  ? "enemy" : r < 0.65 ? "treasure" : "empty";
-        else             type = r < 0.55 ? "enemy" : r < 0.7  ? "treasure" : r < 0.8 ? "rest" : "empty";
+        if (d === 1)     type = r < 0.2  ? "enemy" : r < 0.28 ? "trap" : "empty";
+        else if (d <= 3) type = r < 0.35 ? "enemy" : r < 0.45 ? "trap" : r < 0.62 ? "treasure" : "empty";
+        else             type = r < 0.38 ? "enemy" : r < 0.48 ? "trap" : r < 0.65 ? "treasure" : r < 0.78 ? "rest" : "empty";
       }
       cells.push({ x, y, type, visited: x === cx && y === cy, cleared: false });
     }
@@ -688,7 +688,7 @@ function Battlefield({
 
 const MIN_EXPLORE_PCT = 0.55; // must explore 55% before exit is usable
 
-function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat, onCollectTreasure, onRest, onRetreat, onExit, onFinishRun, lootTotal, onUseFood }) {
+function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat, onCollectTreasure, onRest, onTrap, onRetreat, onExit, onFinishRun, lootTotal, onUseFood }) {
   const CELL = 40;
   function getCell(x, y) { return cells.find(c => c.x === x && c.y === y) ?? null; }
   function adj() {
@@ -704,12 +704,13 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
       if (target.type === "enemy")    onEnterCombat(x, y);
       if (target.type === "treasure") onCollectTreasure(x, y);
       if (target.type === "rest")     onRest(x, y);
+      if (target.type === "trap")     onTrap(x, y);
       if (target.type === "exit" && exitUnlocked) onExit();
     }
   }
   const adjacent = adj();
-  const roomColor = { start: "#4ade8025", empty: "#ffffff08", enemy: "#ef444445", treasure: "#fbbf2445", rest: "#4ade8035", exit: "#a78bfa50" };
-  const roomEmoji = { start: "🏠", empty: "", enemy: "👹", treasure: "💰", rest: "🏕️", exit: "🚪" };
+  const roomColor = { start: "#4ade8025", empty: "#ffffff08", enemy: "#ef444445", trap: "#ef444430", treasure: "#fbbf2445", rest: "#4ade8035", exit: "#a78bfa50" };
+  const roomEmoji = { start: "🏠", empty: "", enemy: "👹", trap: "⚠️", treasure: "💰", rest: "🏕️", exit: "🚪" };
 
   return (
     <div style={{ padding: "0.65rem" }}>
@@ -759,7 +760,7 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
         <div style={{ width: "100%", fontSize: "0.62rem", color: "#a78bfa", marginBottom: "0.1rem" }}>
           Depth {depth} — reach 🚪 Exit ({Math.round(MIN_EXPLORE_PCT * 100)}% explored needed{!exitUnlocked ? ` · ${Math.round(explorePct * 100)}% so far` : " ✓"}) · ✅ Finish Run to collect loot
         </div>
-        {[["🧭", "Party"], ["👹", "Enemy"], ["💰", "Treasure"], ["🏕️", "Rest"], ["🚪", "Exit"]].map(([e, l]) => (
+        {[["🧭", "Party"], ["👹", "Enemy"], ["⚠️", "Trap"], ["💰", "Treasure"], ["🏕️", "Rest"], ["🚪", "Exit"]].map(([e, l]) => (
           <span key={l} style={{ fontSize: "0.6rem", color: "var(--muted)", display: "flex", gap: 3, alignItems: "center" }}>
             <span>{e}</span>{l}
           </span>
@@ -776,9 +777,9 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
           return (
             <div key={h.id} style={{ flex: 1, background: "rgba(255,255,255,0.04)", borderRadius: 7, padding: "0.3rem 0.35rem", border: `1px solid ${isDead ? "rgba(239,68,68,0.3)" : "rgba(255,255,255,0.07)"}`, opacity: isDead ? 0.5 : 1 }}>
               <div style={{ fontSize: "0.8rem", textAlign: "center" }}>{cls.emoji}</div>
-              <HpBar hp={currentHp} maxHp={h.maxHp} />
+              <HpBar hp={currentHp} maxHp={h.dungeonMaxHp ?? h.maxHp} />
               <div style={{ fontSize: "0.52rem", color: isDead ? "#ef4444" : "var(--muted)", textAlign: "center", marginTop: 2 }}>
-                {isDead ? "💀 Dead" : `${Math.floor(currentHp)}/${h.maxHp}`}
+                {isDead ? "💀 Dead" : `${Math.floor(currentHp)}/${h.dungeonMaxHp ?? h.maxHp}`}
               </div>
               {!isDead && nextFood && onUseFood && (
                 <button
@@ -1093,11 +1094,33 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
     const playerWins = playerRoll >= enemyRoll;
     setCombatInitResult({ playerRoll, enemyRoll, playerWins });
     const t = setTimeout(() => {
-      const nextPhase = playerWins ? "prep" : "enemy_advance";
-      setCombatPhase(nextPhase);
-      phaseRef.current = nextPhase;
-      // Short countdown after placement — heroes already positioned
-      setCombatCountdown(playerWins ? 2 : 3);
+      if (playerWins) {
+        // Player goes first: enter placement phase so they can position heroes
+        setCombatPhase("placement");
+        phaseRef.current = "placement";
+      } else {
+        // Enemies go first: auto-place heroes (mage closest to enemies, scav middle, fighter furthest)
+        setCombatHeroes(prev => {
+          const sorted = [...prev].sort((a, b) => {
+            const order = { mage: 0, scavenger: 1, fighter: 2 };
+            return (order[a.heroClass] ?? 1) - (order[b.heroClass] ?? 1);
+          });
+          // mage=rightmost (closest to enemies), scav=mid, fighter=leftmost
+          const xPositions = [BF_W / 2 - 60, BF_W / 2 - 115, BF_W / 2 - 170];
+          const yPositions = [BF_H * 0.5, BF_H * 0.3, BF_H * 0.7];
+          const next = prev.map(h => {
+            const rank = sorted.findIndex(s => s.id === h.id);
+            const px = xPositions[rank] ?? (60 + rank * 50);
+            const py = yPositions[rank] ?? (BF_H / 2);
+            return { ...h, x: px, y: py, targetX: px, targetY: py, placed: true };
+          });
+          heroesRef.current = next;
+          return next;
+        });
+        setCombatPhase("enemy_advance");
+        phaseRef.current = "enemy_advance";
+        setCombatCountdown(3);
+      }
     }, 2500);
     return () => clearTimeout(t);
   }, [combatPhase, combatHeroes.length]);
@@ -1181,23 +1204,43 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
       }
 
       if (aliveEnemies.length === 0) {
+        // Let any active HoT finish ticking before declaring victory
+        const anyHot = aliveHeroes.some(h => (h.hotRemaining ?? 0) > 0);
+        if (anyHot) {
+          aliveHeroes.forEach(hero => {
+            if ((hero.hotRemaining ?? 0) > 0 && (hero.hotDuration ?? 0) > 0) {
+              const healThisTick = (hero.hotRemaining / hero.hotDuration) * dt;
+              hero.hp = Math.min(hero.maxHp, hero.hp + healThisTick);
+              hero.hotDuration = Math.max(0, hero.hotDuration - dt);
+              hero.hotRemaining = hero.hotDuration <= 0 ? 0 : hero.hotRemaining - healThisTick;
+            }
+          });
+          heroesRef.current = hs;
+          setCombatHeroes([...hs]);
+          return;
+        }
         const loot = {};
         const totalXp = es.reduce((s, e) => s + (ENEMY_TYPES[e.typeId]?.xp ?? 0), 0);
         const xpEach = Math.floor(totalXp / Math.max(1, aliveHeroes.length));
         const xpByHeroId = {};
         aliveHeroes.forEach(h => { xpByHeroId[h.id] = xpEach; });
+        const lootScale = 1 + (depth - 1) * 0.3; // +30% per depth level
         es.forEach(e => {
           const def = ENEMY_TYPES[e.typeId];
           if (!def?.loot) return;
-          Object.entries(def.loot).forEach(([k, [mn, mx]]) => { loot[k] = (loot[k] ?? 0) + randInt(mn, mx); });
+          Object.entries(def.loot).forEach(([k, [mn, mx]]) => {
+            const scaled = Math.round(randInt(mn, mx) * lootScale);
+            loot[k] = (loot[k] ?? 0) + Math.max(mn, scaled);
+          });
         });
         const foodBeltDeltas = {};
         hs.forEach(h => { if (Object.keys(h.foodUsed ?? {}).length > 0) foodBeltDeltas[h.id] = h.foodUsed; });
         const heroHpSnapshot = {};
-        hs.forEach(h => { heroHpSnapshot[h.id] = Math.floor(h.hp); });
+        const heroMaxHpSnapshot = {};
+        hs.forEach(h => { heroHpSnapshot[h.id] = Math.floor(h.hp); heroMaxHpSnapshot[h.id] = h.maxHp; });
         phaseRef.current = "victory";
         setCombatPhase("victory");
-        setCombatResult({ victory: true, loot, xpByHeroId, foodBeltDeltas, totalXp, heroHpSnapshot });
+        setCombatResult({ victory: true, loot, xpByHeroId, foodBeltDeltas, totalXp, heroHpSnapshot, heroMaxHpSnapshot });
         return;
       }
 
@@ -1412,9 +1455,10 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
       heroesRef.current = next;
       return next;
     });
-    // Trigger initiative roll
-    setCombatPhase("initiative");
-    phaseRef.current = "initiative";
+    // Initiative already rolled — go straight to prep (short countdown before fighting)
+    setCombatPhase("prep");
+    phaseRef.current = "prep";
+    setCombatCountdown(2);
   }, []);
 
   const handleBattlefieldTap = useCallback((x, y, phase) => {
@@ -1598,9 +1642,14 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
   function enterCombat(x, y) {
     const poolIndex = Math.min(depth - 1, ENEMY_POOL.length - 1);
     const pool = ENEMY_POOL[poolIndex];
-    const count = clamp(1 + Math.floor(depth * 0.9), 1, 5);
+    const count = clamp(1 + Math.floor(depth * 0.6), 1, 4);
     const newEnemies = Array.from({ length: count }, (_, i) => makeEnemy(pool[Math.floor(Math.random() * pool.length)], i, depth));
     const newHeroes = party.slice(0, PARTY_SIZE).map((adv, i) => makeHero(adv, i));
+    // Seed dungeonMaxHp on party so explore mode shows correct HP scale from first combat
+    setParty(prev => prev.map(h => {
+      const combatHero = newHeroes.find(ch => ch.id === h.id);
+      return combatHero ? { ...h, dungeonMaxHp: combatHero.maxHp } : h;
+    }));
 
     // Reset all combat state fresh
     setCombatPos({ x, y });
@@ -1609,14 +1658,14 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
     setCombatSelected(newHeroes[0]?.id ?? null); // auto-select first hero for placement
     setCombatFloats([]);
     setCombatLog([]);
-    setCombatPhase("placement");
+    setCombatPhase("initiative");
     setCombatInitResult(null);
     setCombatCountdown(5);
     setCombatResult(null);
     heroesRef.current = newHeroes;
     enemiesRef.current = newEnemies;
     selectedRef.current = newHeroes[0]?.id ?? null;
-    phaseRef.current = "placement";
+    phaseRef.current = "initiative";
     initiativeRolledRef.current = false; // allow initiative to re-roll
 
     setMode("combat");
@@ -1645,7 +1694,10 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
         setParty(prev => prev
           .map(h => {
             const snap = result.heroHpSnapshot[h.id];
-            return snap != null ? { ...h, currentDungeonHp: snap } : h;
+            const maxSnap = result.heroMaxHpSnapshot?.[h.id];
+            const updates = snap != null ? { currentDungeonHp: snap } : {};
+            if (maxSnap != null) updates.dungeonMaxHp = maxSnap;
+            return { ...h, ...updates };
           })
           .filter(h => (h.currentDungeonHp ?? h.maxHp ?? 40) > 0) // dead heroes leave party
         );
@@ -1675,6 +1727,16 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
       ...h,
       currentDungeonHp: Math.min(h.maxHp ?? 40, Math.floor((h.currentDungeonHp ?? h.hp ?? h.maxHp ?? 40) + (h.maxHp ?? 40) * 0.3)),
     })));
+    setCells(prev => prev.map(c => c.x === x && c.y === y ? { ...c, cleared: true } : c));
+  }
+
+  function doTrap(x, y) {
+    setParty(prev => prev.map(h => {
+      const maxHp = h.dungeonMaxHp ?? h.maxHp ?? 40;
+      const dmg = Math.max(1, Math.floor(maxHp * 0.10));
+      const currentHp = h.currentDungeonHp ?? maxHp;
+      return { ...h, currentDungeonHp: Math.max(0, currentHp - dmg) };
+    }));
     setCells(prev => prev.map(c => c.x === x && c.y === y ? { ...c, cleared: true } : c));
   }
 
@@ -1733,6 +1795,7 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
       onEnterCombat={enterCombat}
       onCollectTreasure={collectTreasure}
       onRest={doRest}
+      onTrap={doTrap}
       onFinishRun={() => endRun(true)}
       onRetreat={() => endRun(false)}
       onExit={() => {
