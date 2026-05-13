@@ -2484,7 +2484,7 @@ if (activeTier) {
     : isInstancedForge ? (next.forgeGoodsInstanced ?? []).filter((i) => i.key === itemType && !i._equippedBy && i.upgradeTier === 3).length
     : isForge ? (next.forgeGoods[itemType] ?? 0)
     : isWorld ? (next.worldResources[itemType] ?? 0) : 0;
-  const toPull = Math.floor(Math.min(effectiveIps, available));
+  const toPull = Math.floor(Math.min(toSellThisTick, available));
   if (toPull > 0) {
     if (isCrop) next.crops[itemType] -= toPull;
     else if (isArtisan) next.artisan[itemType] -= toPull;
