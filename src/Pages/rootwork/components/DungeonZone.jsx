@@ -311,10 +311,10 @@ function CombatLog({ entries }) {
   useEffect(() => { if (ref.current) ref.current.scrollTop = ref.current.scrollHeight; }, [entries]);
   return (
     <div ref={ref} style={{
-      height: 72, overflowY: "auto", background: "rgba(0,0,0,0.3)",
-      borderRadius: 8, padding: "0.35rem 0.55rem", fontSize: "0.67rem",
+      height: 64, overflowY: "auto", background: "rgba(0,0,0,0.35)",
+      borderRadius: 8, padding: "0.3rem 0.55rem", fontSize: "0.66rem",
       color: "var(--muted)", display: "flex", flexDirection: "column", gap: 2,
-      border: "1px solid rgba(255,255,255,0.06)"
+      border: "1px solid rgba(255,255,255,0.07)", fontFamily: "monospace",
     }}>
       {entries.map((e, i) => (
         <div key={i} style={{ color: e.color ?? "var(--muted)", lineHeight: 1.35 }}>{e.text}</div>
@@ -398,6 +398,8 @@ function CombatMode({ heroes: initialHeroes, enemies: initialEnemies, depth, onC
   const [turn, setTurn] = useState(1);
   const [result, setResult] = useState(null);
   const [flashCells, setFlashCells] = useState({}); // { "x,y": color } for hit flash
+  const [selectedEnemy, setSelectedEnemy] = useState(null); // enemyId — tap to reveal intent
+  const [pendingAction, setPendingAction] = useState(null); // { heroId, actionId, cells } — attack preview before confirm
 
   function addLog(text, color) {
     setLog(prev => [...prev, { text, color }]);
@@ -453,14 +455,7 @@ function CombatMode({ heroes: initialHeroes, enemies: initialEnemies, depth, onC
   const enemyByPos = {};
   enemies.forEach(e => { if (e.hp > 0) enemyByPos[`${e.gx},${e.gy}`] = e; });
 
-  // All danger cells from enemy intents
-  const dangerCells = {};
-  enemies.forEach(e => {
-    if (!e.intent) return;
-    e.intent.cells.forEach(([cx, cy]) => {
-      dangerCells[`${cx},${cy}`] = e.intent.attackDef.color ?? "#ef4444";
-    });
-  });
+
 
   // Valid moves for selected hero
   const sel = selected ? heroes.find(h => h.id === selected) : null;
@@ -476,13 +471,30 @@ function CombatMode({ heroes: initialHeroes, enemies: initialEnemies, depth, onC
     }
   }
 
-  // Hero attack cells for selected hero (for preview)
+  // Hero attack preview cells — only set when player has picked an action and is confirming
   const heroAttackCells = {};
-  if (sel && phase === "hero_act") {
-    const shape = heroActions[sel.id] === "special" ? sel.specialShape : sel.attackShape;
-    resolveHeroAttack(shape, sel.gx, sel.gy).forEach(([gx, gy]) => {
+  if (pendingAction) {
+    pendingAction.cells.forEach(([gx, gy]) => {
       if (enemyByPos[`${gx},${gy}`]) heroAttackCells[`${gx},${gy}`] = true;
     });
+  }
+
+  // Enemy danger cells — only for the tapped enemy (selectedEnemy), or all during enemy_intent phase
+  const dangerCells = {};
+  if (phase === "enemy_intent") {
+    enemies.forEach(e => {
+      if (!e.intent) return;
+      e.intent.cells.forEach(([cx, cy]) => {
+        dangerCells[`${cx},${cy}`] = e.intent.attackDef.color ?? "#ef4444";
+      });
+    });
+  } else if (selectedEnemy) {
+    const se = enemies.find(e => e.id === selectedEnemy);
+    if (se?.intent) {
+      se.intent.cells.forEach(([cx, cy]) => {
+        dangerCells[`${cx},${cy}`] = se.intent.attackDef.color ?? "#ef4444";
+      });
+    }
   }
 
   function handleCellClick(gx, gy) {
@@ -490,7 +502,21 @@ function CombatMode({ heroes: initialHeroes, enemies: initialEnemies, depth, onC
     const clickedHero = heroByPos[key];
     const clickedEnemy = enemyByPos[key];
 
+    // Tapping an enemy always shows its intent zone (works in any phase)
+    if (clickedEnemy) {
+      setSelectedEnemy(prev => prev === clickedEnemy.id ? null : clickedEnemy.id);
+      setSelected(null);
+      setPendingAction(null);
+      return;
+    }
+
     if (phase !== "hero_act") return;
+
+    // If there's a pending action preview, clicking elsewhere cancels it
+    if (pendingAction) {
+      setPendingAction(null);
+      return;
+    }
 
     // Click on a hero: select it, or open action modal if already selected + tapped again
     if (clickedHero) {
@@ -499,6 +525,7 @@ function CombatMode({ heroes: initialHeroes, enemies: initialEnemies, depth, onC
         setActionModal(clickedHero.id);
       } else {
         setSelected(clickedHero.id);
+        setSelectedEnemy(null);
       }
       return;
     }
@@ -520,12 +547,30 @@ function CombatMode({ heroes: initialHeroes, enemies: initialEnemies, depth, onC
 
   function handleChooseAction(heroId, actionId) {
     setActionModal(null);
+    const hero = heroes.find(h => h.id === heroId);
+    if (!hero) return;
+
+    if (actionId === "attack" || actionId === "special") {
+      // Show attack preview on grid — player must confirm
+      const shape = actionId === "special" ? hero.specialShape : hero.attackShape;
+      const cells = resolveHeroAttack(shape, hero.gx, hero.gy);
+      setPendingAction({ heroId, actionId, cells });
+      return;
+    }
+
+    // Defend and potion commit immediately
+    commitAction(heroId, actionId);
+  }
+
+  function commitAction(heroId, actionId) {
+    setPendingAction(null);
     setHeroActions(prev => ({ ...prev, [heroId]: actionId }));
     setHeroes(prev => prev.map(h => h.id === heroId
       ? { ...h, actionUsed: true, defending: actionId === "defend", stepsLeft: 0 }
       : h
     ));
-    addLog(`${heroes.find(h=>h.id===heroId)?.name}: ${actionId}`, "#888");
+    const hero = heroes.find(h => h.id === heroId);
+    addLog(`${hero?.name ?? "Hero"}: ${actionId}`, "#888");
   }
 
   // ── End hero turn → resolve ───────────────────────────────────────────────────
@@ -636,34 +681,41 @@ function CombatMode({ heroes: initialHeroes, enemies: initialEnemies, depth, onC
     <div style={{ padding: "0.6rem" }}>
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
-        <div style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--text)" }}>⚔️ Combat · Turn {turn}</div>
-        <div style={{ fontSize: "0.7rem", fontWeight: 600,
-          color: phase === "hero_act" ? "#4ade80" : phase === "resolve" ? "#fbbf24" : "#a78bfa" }}>
-          {phase === "enemy_intent" ? "👁 Enemies telegraphing..." : phase === "hero_act" ? "Your move" : phase === "resolve" ? "Resolving..." : result?.victory ? "Victory!" : "Defeat"}
+        <div style={{ fontSize: "0.85rem", fontWeight: 800, color: "var(--text)", letterSpacing: "0.01em" }}>
+          ⚔️ Turn {turn}
+        </div>
+        <div style={{
+          fontSize: "0.7rem", fontWeight: 700, letterSpacing: "0.04em",
+          padding: "0.2rem 0.6rem", borderRadius: 20,
+          background: phase === "hero_act" ? "rgba(74,222,128,0.15)" : phase === "resolve" ? "rgba(251,191,36,0.15)" : "rgba(239,68,68,0.12)",
+          border: `1px solid ${phase === "hero_act" ? "rgba(74,222,128,0.4)" : phase === "resolve" ? "rgba(251,191,36,0.4)" : "rgba(239,68,68,0.35)"}`,
+          color: phase === "hero_act" ? "#4ade80" : phase === "resolve" ? "#fbbf24" : "#f87171",
+        }}>
+          {phase === "enemy_intent" ? "👁 ENEMIES MOVE" : phase === "hero_act" ? "YOUR TURN" : phase === "resolve" ? "RESOLVING" : result?.victory ? "VICTORY" : "DEFEAT"}
         </div>
       </div>
 
       {/* Phase hint */}
-      {phase === "hero_act" && (
-        <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginBottom: "0.4rem", padding: "0.25rem 0.5rem", background: "rgba(255,255,255,0.04)", borderRadius: 6 }}>
-          {sel ? `${sel.name} selected · tap to move · tap again to act` : "Tap a hero to select · avoid red zones · tap hero again to act"}
-        </div>
-      )}
-      {phase === "enemy_intent" && (
-        <div style={{ fontSize: "0.62rem", color: "#f87171", marginBottom: "0.4rem", padding: "0.25rem 0.5rem", background: "rgba(239,68,68,0.06)", borderRadius: 6 }}>
-          🔴 Red zones show enemy attack areas — move your heroes clear!
-        </div>
-      )}
+      <div style={{ fontSize: "0.62rem", marginBottom: "0.45rem", padding: "0.28rem 0.6rem", borderRadius: 20,
+        background: phase === "enemy_intent" ? "rgba(239,68,68,0.08)" : "rgba(255,255,255,0.04)",
+        border: phase === "enemy_intent" ? "1px solid rgba(239,68,68,0.2)" : "1px solid rgba(255,255,255,0.07)",
+        color: phase === "enemy_intent" ? "#f87171" : "var(--muted)",
+      }}>
+        {phase === "enemy_intent" ? "🔴 Tap an enemy to see where it attacks. Move your heroes clear." :
+         phase === "hero_act" ? (sel ? `${sel.name} selected · tap to move · tap again to act` : "Tap a hero · move 2 steps · tap again to choose action") :
+         "Resolving..."}
+      </div>
 
       {/* Combat Grid */}
       <div style={{
         display: "grid",
         gridTemplateColumns: `repeat(${COMBAT_W}, ${CELL}px)`,
         gridTemplateRows: `repeat(${COMBAT_H}, ${CELL}px)`,
-        gap: 2, marginBottom: "0.5rem",
-        background: "rgba(0,0,0,0.45)", borderRadius: 10, padding: "0.4rem",
-        border: "1px solid rgba(255,255,255,0.07)",
+        gap: 3, marginBottom: "0.5rem",
+        background: "#0d0d12", borderRadius: 12, padding: "0.5rem",
+        border: "1px solid rgba(255,255,255,0.1)",
         overflowX: "auto",
+        boxShadow: "inset 0 2px 12px rgba(0,0,0,0.6)",
       }}>
         {Array.from({ length: COMBAT_H }, (_, gy) =>
           Array.from({ length: COMBAT_W }, (_, gx) => {
@@ -677,19 +729,19 @@ function CombatMode({ heroes: initialHeroes, enemies: initialEnemies, depth, onC
             const isFlash = flashCells[key];
             const isMidLine = gx === 3 || gx === 4;
 
-            let bg = "rgba(255,255,255,0.03)";
-            if (isFlash)      bg = `${isFlash}33`;
-            else if (inDanger && phase === "enemy_intent") bg = `${inDanger}30`;
+            let bg = "rgba(255,255,255,0.04)";
+            if (isFlash)      bg = `${isFlash}55`;
+            else if (inDanger) bg = `${inDanger}45`;
             else if (isSelected) bg = "rgba(99,102,241,0.3)";
             else if (isValidMove) bg = "rgba(74,222,128,0.18)";
             else if (isHeroAttack) bg = "rgba(251,191,36,0.15)";
-            else if (hero)    bg = "rgba(99,102,241,0.1)";
-            else if (enemy)   bg = "rgba(239,68,68,0.1)";
+            else if (hero)    bg = "rgba(99,102,241,0.18)";
+            else if (enemy)   bg = "rgba(239,68,68,0.18)";
             else if (isMidLine) bg = "rgba(255,255,255,0.015)";
 
             let border = "1px solid rgba(255,255,255,0.05)";
             if (isFlash)      border = `1px solid ${isFlash}88`;
-            else if (inDanger && phase === "enemy_intent") border = `1px solid ${inDanger}88`;
+            else if (inDanger) border = `2px solid ${inDanger}cc`;
             else if (isSelected) border = "2px solid rgba(99,102,241,0.7)";
             else if (isValidMove) border = "1px solid rgba(74,222,128,0.5)";
             else if (isHeroAttack) border = "1px solid rgba(251,191,36,0.45)";
@@ -699,17 +751,18 @@ function CombatMode({ heroes: initialHeroes, enemies: initialEnemies, depth, onC
                 key={key}
                 onClick={() => handleCellClick(gx, gy)}
                 style={{
-                  width: CELL, height: CELL, borderRadius: 6,
+                  width: CELL, height: CELL, borderRadius: 5,
                   display: "flex", alignItems: "center", justifyContent: "center",
                   flexDirection: "column", background: bg, border,
-                  cursor: (hero || isValidMove) ? "pointer" : "default",
-                  transition: "background 0.12s, border 0.12s",
+                  cursor: (hero || enemy || isValidMove) ? "pointer" : "default",
+                  transition: "background 0.15s, border 0.15s",
                   position: "relative", flexShrink: 0,
+                  boxShadow: (hero || enemy) ? "inset 0 0 0 1px rgba(255,255,255,0.06)" : "none",
                 }}
               >
                 {hero && (
                   <>
-                    <span style={{ fontSize: "1.15rem", lineHeight: 1 }}>{hero.emoji}</span>
+                    <span style={{ fontSize: "1.3rem", lineHeight: 1, filter: "drop-shadow(0 1px 3px rgba(0,0,0,0.8))" }}>{hero.emoji}</span>
                     <div style={{ position: "absolute", bottom: 2, left: 3, right: 3 }}>
                       <HpBar hp={hero.hp} maxHp={hero.maxHp} height={3} />
                     </div>
@@ -723,7 +776,7 @@ function CombatMode({ heroes: initialHeroes, enemies: initialEnemies, depth, onC
                 )}
                 {enemy && (
                   <>
-                    <span style={{ fontSize: "1.15rem", lineHeight: 1 }}>{enemy.emoji}</span>
+                    <span style={{ fontSize: "1.3rem", lineHeight: 1, filter: "drop-shadow(0 1px 4px rgba(239,68,68,0.5))" }}>{enemy.emoji}</span>
                     <div style={{ position: "absolute", bottom: 2, left: 3, right: 3 }}>
                       <HpBar hp={enemy.hp} maxHp={enemy.maxHp} height={3} />
                     </div>
@@ -732,11 +785,15 @@ function CombatMode({ heroes: initialHeroes, enemies: initialEnemies, depth, onC
                         {enemy.intent.attackDef.name}
                       </div>
                     )}
+                    {selectedEnemy === enemy.id && (
+                      <div style={{ position: "absolute", inset: 0, borderRadius: 6, border: "2px solid #f87171", pointerEvents: "none" }} />
+                    )}
                   </>
                 )}
-                {/* Separator line between hero/enemy halves */}
+                {/* Battle line separator */}
                 {gx === 3 && !hero && !enemy && (
-                  <div style={{ position: "absolute", right: -1, top: "10%", bottom: "10%", width: 1, background: "rgba(255,255,255,0.08)" }} />
+                  <div style={{ position: "absolute", right: -2, top: 0, bottom: 0, width: 2,
+                    background: "linear-gradient(to bottom, transparent, rgba(255,80,80,0.25), rgba(100,100,255,0.25), transparent)" }} />
                 )}
               </div>
             );
@@ -751,18 +808,19 @@ function CombatMode({ heroes: initialHeroes, enemies: initialEnemies, depth, onC
             key={hero.id}
             onClick={() => { if (phase === "hero_act" && hero.hp > 0) { setSelected(hero.id); } }}
             style={{
-              flex: 1, padding: "0.3rem 0.35rem", borderRadius: 8,
-              background: sel?.id === hero.id ? "rgba(99,102,241,0.18)" : "rgba(255,255,255,0.04)",
-              border: `1px solid ${sel?.id === hero.id ? "rgba(99,102,241,0.5)" : hero.hp <= 0 ? "rgba(239,68,68,0.2)" : "rgba(255,255,255,0.08)"}`,
-              opacity: hero.hp <= 0 ? 0.35 : 1,
+              flex: 1, padding: "0.35rem 0.35rem", borderRadius: 9,
+              background: sel?.id === hero.id ? "rgba(99,102,241,0.22)" : "rgba(255,255,255,0.05)",
+              border: `1px solid ${sel?.id === hero.id ? "rgba(99,102,241,0.6)" : hero.hp <= 0 ? "rgba(239,68,68,0.3)" : "rgba(255,255,255,0.1)"}`,
+              opacity: hero.hp <= 0 ? 0.3 : 1,
               cursor: phase === "hero_act" && hero.hp > 0 ? "pointer" : "default",
+              boxShadow: sel?.id === hero.id ? "0 0 8px rgba(99,102,241,0.3)" : "none",
             }}>
-            <div style={{ textAlign: "center", fontSize: "0.85rem" }}>{hero.emoji}</div>
+            <div style={{ textAlign: "center", fontSize: "1rem", filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.5))" }}>{hero.emoji}</div>
             <div style={{ display: "flex", alignItems: "center", gap: 2, margin: "2px 0" }}>
               <HpBar hp={hero.hp} maxHp={hero.maxHp} height={3} />
             </div>
-            <div style={{ fontSize: "0.52rem", color: hero.actionUsed ? "#4ade80" : "var(--muted)", textAlign: "center" }}>
-              {hero.actionUsed ? "✓ done" : `${hero.stepsLeft} steps`}
+            <div style={{ fontSize: "0.55rem", fontWeight: 600, color: hero.actionUsed ? "#4ade80" : "var(--muted)", textAlign: "center", marginTop: 2 }}>
+              {hero.actionUsed ? "✓" : `${hero.stepsLeft}ap`}
             </div>
           </div>
         ))}
@@ -772,8 +830,11 @@ function CombatMode({ heroes: initialHeroes, enemies: initialEnemies, depth, onC
       {(phase === "enemy_intent" || phase === "hero_act") && enemies.some(e => e.hp > 0 && e.intent) && (
         <div style={{ marginBottom: "0.45rem", display: "flex", flexWrap: "wrap", gap: 4 }}>
           {enemies.filter(e => e.hp > 0 && e.intent).map(e => (
-            <div key={e.id} style={{ fontSize: "0.62rem", padding: "0.2rem 0.5rem", borderRadius: 6,
-              background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)", color: "#f87171" }}>
+            <div key={e.id} onClick={() => setSelectedEnemy(prev => prev === e.id ? null : e.id)}
+              style={{ fontSize: "0.62rem", padding: "0.2rem 0.55rem", borderRadius: 20, cursor: "pointer",
+                background: selectedEnemy === e.id ? "rgba(239,68,68,0.22)" : "rgba(239,68,68,0.1)",
+                border: `1px solid ${selectedEnemy === e.id ? "rgba(239,68,68,0.6)" : "rgba(239,68,68,0.25)"}`,
+                color: "#f87171", fontWeight: selectedEnemy === e.id ? 700 : 400 }}>
               {e.emoji} {e.name}: {e.intent.attackDef.name}
             </div>
           ))}
@@ -782,8 +843,32 @@ function CombatMode({ heroes: initialHeroes, enemies: initialEnemies, depth, onC
 
       <CombatLog entries={log} />
 
+      {/* Attack confirm bar */}
+      {pendingAction && (() => {
+        const hero = heroes.find(h => h.id === pendingAction.heroId);
+        const hitsCount = pendingAction.cells.filter(([gx,gy]) => enemyByPos[`${gx},${gy}`]).length;
+        return (
+          <div style={{ marginTop: "0.45rem", display: "flex", gap: 6 }}>
+            <div style={{ flex: 1, padding: "0.4rem 0.6rem", borderRadius: 8, fontSize: "0.7rem",
+              background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", color: "#fbbf24" }}>
+              {hero?.emoji} {hero?.name}: {pendingAction.actionId} · {hitsCount} target{hitsCount !== 1 ? "s" : ""} in range
+            </div>
+            <button onClick={() => commitAction(pendingAction.heroId, pendingAction.actionId)}
+              style={{ padding: "0.4rem 0.9rem", borderRadius: 8, fontWeight: 700, fontSize: "0.75rem",
+                background: "rgba(251,191,36,0.2)", border: "1px solid rgba(251,191,36,0.5)", color: "#fbbf24", cursor: "pointer" }}>
+              Confirm ✓
+            </button>
+            <button onClick={() => setPendingAction(null)}
+              style={{ padding: "0.4rem 0.6rem", borderRadius: 8, fontSize: "0.75rem",
+                background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", color: "var(--muted)", cursor: "pointer" }}>
+              ✕
+            </button>
+          </div>
+        );
+      })()}
+
       {/* End turn button */}
-      {phase === "hero_act" && !result && (
+      {phase === "hero_act" && !result && !pendingAction && (
         <button
           onClick={resolve}
           style={{
@@ -1199,4 +1284,3 @@ export default function DungeonZone({ game }) {
 
   return null;
 }
-
