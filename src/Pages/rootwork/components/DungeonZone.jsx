@@ -171,7 +171,7 @@ function UnitCircle({ unit, selected, onClick }) {
   const barCol = pct>0.55 ? "#4ade80" : pct>0.25 ? "#fbbf24" : "#ef4444";
   const size = UNIT_R*2;
   return (
-    <div onClick={onClick} style={{
+    <div onClick={e => { e.stopPropagation(); onClick(e); }} style={{
       position:"absolute", left:unit.x-UNIT_R, top:unit.y-UNIT_R,
       width:size, height:size, borderRadius:"50%",
       background:unit.bg,
@@ -494,16 +494,10 @@ function Battlefield({ game, enemies: initEnemies, onCombatEnd }) {
         <FloatingText items={floats} />
         {/* Units */}
         {enemies.map(e => (
-          <UnitCircle key={e.id} unit={e} selected={false} onClick={() => {
-            if (selectedRef.current) {
-              setHeroes(prev => prev.map(h => h.id===selectedRef.current
-                ? { ...h, attackTarget:e.id, targetX:e.x, targetY:e.y } : h));
-            }
-          }} />
+          <UnitCircle key={e.id} unit={e} selected={false} onClick={() => {}} />
         ))}
         {heroes.map(h => (
-          <UnitCircle key={h.id} unit={h} selected={selected===h.id}
-            onClick={() => setSelected(prev => prev===h.id?null:h.id)} />
+          <UnitCircle key={h.id} unit={h} selected={selected===h.id} onClick={() => {}} />
         ))}
         {/* Victory/Defeat overlay */}
         {phase !== "fighting" && (
