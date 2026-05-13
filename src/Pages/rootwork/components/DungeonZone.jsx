@@ -171,7 +171,10 @@ function UnitCircle({ unit, selected, onClick }) {
   const barCol = pct>0.55 ? "#4ade80" : pct>0.25 ? "#fbbf24" : "#ef4444";
   const size = UNIT_R*2;
   return (
-    <div onClick={e => { e.stopPropagation(); onClick(e); }} style={{
+    <div
+      onPointerDown={e => e.stopPropagation()}
+      onClick={e => e.stopPropagation()}
+      style={{
       position:"absolute", left:unit.x-UNIT_R, top:unit.y-UNIT_R,
       width:size, height:size, borderRadius:"50%",
       background:unit.bg,
@@ -384,12 +387,20 @@ function Battlefield({ game, enemies: initEnemies, onCombatEnd }) {
     return () => clearInterval(loop);
   }, []);
 
-  // ── Tap handler ────────────────────────────────────────────────────────────
+  // ── Tap handler — works on both mouse and touch ────────────────────────
   function handleTap(e) {
     if (phase !== "fighting") return;
+    // pointerdown gives clientX/Y for both mouse and touch
     const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    // support both pointer/mouse events (clientX) and legacy touch events (touches[0])
+    const clientX = e.clientX ?? e.touches?.[0]?.clientX ?? e.changedTouches?.[0]?.clientX;
+    const clientY = e.clientY ?? e.touches?.[0]?.clientY ?? e.changedTouches?.[0]?.clientY;
+    if (clientX == null || clientY == null) return;
+    // scale: battlefield may render at a different visual size than BF_W/BF_H
+    const scaleX = BF_W / rect.width;
+    const scaleY = BF_H / rect.height;
+    const x = (clientX - rect.left) * scaleX;
+    const y = (clientY - rect.top) * scaleY;
 
     const tappedEnemy = enemiesRef.current.find(en => !en.dead && dist({x,y},en) < UNIT_R*1.5);
     if (tappedEnemy) {
@@ -476,7 +487,9 @@ function Battlefield({ game, enemies: initEnemies, onCombatEnd }) {
       </div>
 
       {/* Battlefield */}
-      <div onClick={handleTap} style={{
+      <div
+        onPointerDown={handleTap}
+        style={{
         position:"relative", width:BF_W, height:BF_H,
         background:"linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)",
         borderRadius:12, border:"1px solid rgba(255,255,255,0.1)",
