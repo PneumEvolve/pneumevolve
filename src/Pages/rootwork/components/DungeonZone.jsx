@@ -258,7 +258,7 @@ function FloatingText({ items }) {
 
 // ─── UnitCircle ───────────────────────────────────────────────────────────────
 
-function UnitCircle({ unit, selected, onClick }) {
+function UnitCircle({ unit, selected }) {
   const pct = clamp(unit.hp / unit.maxHp, 0, 1);
   const barCol = pct > 0.55 ? "#4ade80" : pct > 0.25 ? "#fbbf24" : "#ef4444";
   const size = UNIT_R * 2;
@@ -266,7 +266,6 @@ function UnitCircle({ unit, selected, onClick }) {
   const isBladeRush = unit.kind === "hero" && unit.bladeRushActive;
   return (
     <div
-      onClick={onClick}
       style={{
         position: "absolute", left: unit.x - UNIT_R, top: unit.y - UNIT_R,
         width: size, height: size, borderRadius: "50%",
@@ -815,21 +814,33 @@ function Battlefield({ party, enemies: initEnemies, onCombatEnd, depth }) {
     return () => clearInterval(loop);
   }, []);
 
-  // ── Tap handler ───────────────────────────────────────────────────────────
+  // ── Tap handler ────────────────────────────────────────────────────────────────────────────────────
+  // Single onPointerDown on the battlefield div handles ALL input.
+  // Using phaseRef (not `phase`) avoids stale closure bugs.
+  // No onClick on child circles -- that caused double-fire deselection on mobile.
   function handleTap(e) {
-    if (phase !== "fighting" && phase !== "prep") return;
+    e.preventDefault(); // prevent ghost clicks / scroll on mobile
+    const currentPhase = phaseRef.current;
+    if (currentPhase !== "fighting" && currentPhase !== "prep") return;
+
     const rect = e.currentTarget.getBoundingClientRect();
-    const clientX = e.clientX ?? e.touches?.[0]?.clientX ?? e.changedTouches?.[0]?.clientX;
-    const clientY = e.clientY ?? e.touches?.[0]?.clientY ?? e.changedTouches?.[0]?.clientY;
+    // pointerdown always has .clientX/.clientY (mouse, touch, stylus)
+    const clientX = e.clientX;
+    const clientY = e.clientY;
     if (clientX == null || clientY == null) return;
+
     const scaleX = BF_W / rect.width;
     const scaleY = BF_H / rect.height;
     const x = (clientX - rect.left) * scaleX;
     const y = (clientY - rect.top) * scaleY;
 
-    const tappedEnemy = enemiesRef.current.find(en => !en.dead && dist({ x, y }, en) < UNIT_R * 1.5);
+    // Generous hit radius for mobile (finger-sized ~48px)
+    const HIT_R = UNIT_R * 1.8;
+
+    // 1. Enemy hit? Order selected hero to attack.
+    const tappedEnemy = enemiesRef.current.find(en => !en.dead && dist({ x, y }, en) < HIT_R);
     if (tappedEnemy) {
-      if (selectedRef.current && phase === "fighting") {
+      if (selectedRef.current && currentPhase === "fighting") {
         setHeroes(prev => {
           const next = prev.map(h => h.id === selectedRef.current
             ? { ...h, attackTarget: tappedEnemy.id, targetX: tappedEnemy.x, targetY: tappedEnemy.y }
@@ -841,7 +852,8 @@ function Battlefield({ party, enemies: initEnemies, onCombatEnd, depth }) {
       return;
     }
 
-    const tappedHero = heroesRef.current.find(h => !h.dead && dist({ x, y }, h) < UNIT_R * 1.5);
+    // 2. Hero hit? Toggle selection.
+    const tappedHero = heroesRef.current.find(h => !h.dead && dist({ x, y }, h) < HIT_R);
     if (tappedHero) {
       const newSel = tappedHero.id === selectedRef.current ? null : tappedHero.id;
       setSelected(newSel);
@@ -849,6 +861,7 @@ function Battlefield({ party, enemies: initEnemies, onCombatEnd, depth }) {
       return;
     }
 
+    // 3. Empty ground? Move selected hero there.
     if (selectedRef.current) {
       setHeroes(prev => {
         const next = prev.map(h => h.id === selectedRef.current
@@ -1002,13 +1015,8 @@ function Battlefield({ party, enemies: initEnemies, onCombatEnd, depth }) {
         }} />
 
         <FloatingText items={floats} />
-        {enemies.map(e => <UnitCircle key={e.id} unit={e} selected={false} onClick={() => {}} />)}
-        {heroes.map(h => <UnitCircle key={h.id} unit={h} selected={selected === h.id} onClick={() => {
-          if (phase !== "fighting" && phase !== "prep") return;
-          const newSel = h.id === selected ? null : h.id;
-          setSelected(newSel);
-          selectedRef.current = newSel;
-        }} />)}
+        {enemies.map(e => <UnitCircle key={e.id} unit={e} selected={false} />)}
+        {heroes.map(h => <UnitCircle key={h.id} unit={h} selected={selected === h.id} />)}
 
         {/* Initiative overlay */}
         {phase === "initiative" && initResult && (
