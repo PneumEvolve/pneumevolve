@@ -384,7 +384,7 @@ function Battlefield({ game, enemies: initEnemies, onCombatEnd }) {
       es.forEach(enemy => {
         if (enemy.dead) return;
         const tauntHero = hs.find(h => !h.dead && h.tauntActive);
-        const tgt = tauntHero ?? aliveHeroes.reduce((a,b) => dist(enemy,a)<dist(enemy,b)?a:b, null);
+        const tgt = tauntHero ?? (aliveHeroes.length ? aliveHeroes.reduce((a,b) => dist(enemy,a)<dist(enemy,b)?a:b) : null);
         enemy.taunted = !!tauntHero;
         if (!tgt) return;
         const d = dist(enemy, tgt);
