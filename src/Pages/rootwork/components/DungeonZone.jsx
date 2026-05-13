@@ -1,7 +1,8 @@
 // src/Pages/rootwork/components/DungeonZone.jsx
 // Battleheart-style dungeon — real-time, tap to move/attack, 3-hero party
+// Combat state is lifted into DungeonZone so tab-switching doesn't reset it.
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST } from "../gameConstants";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -17,10 +18,10 @@ const ENEMY_ATTACK_RANGE = UNIT_R * 2.4;
 const MAP_W = 7;
 const MAP_H = 7;
 const PARTY_SIZE = 3;
-const BLADE_RUSH_DURATION = 2;      // seconds of speed boost
-const BLADE_RUSH_ATTACK_COUNT = 3;  // rapid attacks after dash
-const BLADE_RUSH_ATTACK_GAP = 0.12; // seconds between rapid attacks
-const HOT_DURATION = 5;             // seconds for food HoT
+const BLADE_RUSH_DURATION = 2;
+const BLADE_RUSH_ATTACK_COUNT = 3;
+const BLADE_RUSH_ATTACK_GAP = 0.12;
+const HOT_DURATION = 5;
 
 // ─── Class definitions ────────────────────────────────────────────────────────
 
@@ -43,7 +44,6 @@ const DUNGEON_CLASS = {
     attackSpeed: 1.2, attackRange: ATTACK_RANGE,
     ability: { name: "Blade Rush", emoji: "⚡", cooldown: 6, desc: "+50% speed for 2s then 3 rapid attacks" },
   },
-  
 };
 
 // ─── Enemy types ──────────────────────────────────────────────────────────────
@@ -60,7 +60,7 @@ const ENEMY_TYPES = {
     hp: 45, atk: 9, def: 2, speed: ENEMY_SPEED, attackSpeed: 0.7,
     attackRange: ENEMY_ATTACK_RANGE, xp: 12,
     loot: { iron_ore: [1, 3], lumber: [1, 3] },
-    special: "revive", // rises once at 50% HP
+    special: "revive",
   },
   orc: {
     name: "Orc", emoji: "👹", color: "#f97316", bg: "#431407",
@@ -79,39 +79,38 @@ const ENEMY_TYPES = {
     hp: 55, atk: 11, def: 1, speed: ENEMY_SPEED * 1.4, attackSpeed: 1.0,
     attackRange: ENEMY_ATTACK_RANGE, xp: 18,
     loot: { iron_ore: [1, 3] },
-    special: "teleport", // teleports to random hero every 4s
+    special: "teleport",
   },
   cultist: {
     name: "Cultist", emoji: "🔮", color: "#c084fc", bg: "#3b0764",
     hp: 50, atk: 18, def: 1, speed: ENEMY_SPEED * 0.8, attackSpeed: 0.3,
     attackRange: ENEMY_ATTACK_RANGE * 2.2, xp: 20,
     loot: { lumber: [1, 3] },
-    special: "channel", // 2s channel before high-damage bolt, interruptable
+    special: "channel",
   },
   stone_golem: {
     name: "Stone Golem", emoji: "🪨", color: "#78716c", bg: "#1c1917",
     hp: 120, atk: 16, def: 10, speed: ENEMY_SPEED * 0.4, attackSpeed: 0.35,
     attackRange: ENEMY_ATTACK_RANGE * 1.1, xp: 35,
     loot: { iron_ore: [3, 6], iron_fitting: [1, 2] },
-    special: "armor_break", // DEF halved below 50% HP
+    special: "armor_break",
   },
   banshee: {
     name: "Banshee", emoji: "👻", color: "#e879f9", bg: "#4a044e",
     hp: 65, atk: 13, def: 0, speed: ENEMY_SPEED * 1.1, attackSpeed: 0.8,
     attackRange: ENEMY_ATTACK_RANGE, xp: 28,
     loot: { lumber: [2, 4] },
-    special: "death_curse", // on death: all living heroes take 25% maxHp damage
+    special: "death_curse",
   },
 };
 
-// Enemy pool by depth — deeper = harder mix
 const ENEMY_POOL = [
-  ["goblin"],                          // depth 1
-  ["goblin", "shadow"],                // depth 2
-  ["skeleton", "cultist"],             // depth 3
-  ["orc", "stone_golem"],             // depth 4
-  ["troll", "banshee"],               // depth 5
-  ["orc", "troll", "shadow", "banshee", "stone_golem", "cultist"], // depth 6+
+  ["goblin"],
+  ["goblin", "shadow"],
+  ["skeleton", "cultist"],
+  ["orc", "stone_golem"],
+  ["troll", "banshee"],
+  ["orc", "troll", "shadow", "banshee", "stone_golem", "cultist"],
 ];
 
 // ─── Utility ──────────────────────────────────────────────────────────────────
@@ -129,7 +128,6 @@ function moveToward(pos, target, speed, dt) {
   return { x: lerp(pos.x, target.x, t), y: lerp(pos.y, target.y, t) };
 }
 
-// Get the next food item in a hero's belt (smallest healAmount first, matching engine order)
 function getNextBeltItem(foodBelt) {
   const items = ARTISAN_FOOD_LIST
     .filter(id => (foodBelt?.[id] ?? 0) > 0)
@@ -141,19 +139,17 @@ function getNextBeltItem(foodBelt) {
 // ─── Unit factories ───────────────────────────────────────────────────────────
 
 function makeHero(adv, index) {
-  // No fallback to "fighter" -- classless heroes exist
   const resolvedClass = adv.heroClass ?? adv.class ?? null;
   const cls = (resolvedClass && DUNGEON_CLASS[resolvedClass]) ? DUNGEON_CLASS[resolvedClass] : {
-    label: "Adventurer", emoji: "\U0001f9ed", color: "#94a3b8", bg: "#1e293b",
+    label: "Adventurer", emoji: "🧭", color: "#94a3b8", bg: "#1e293b",
     hpMult: 1.0, atkMult: 1.0, defBonus: 0,
     attackSpeed: 1.0, attackRange: ATTACK_RANGE,
-    ability: { name: "Focus", emoji: "\U0001f3af", cooldown: 12, desc: "Concentrate, dealing 1.5x damage on next attack" },
+    ability: { name: "Focus", emoji: "🎯", cooldown: 12, desc: "Deal 1.5x damage on next attack" },
   };
   const baseHp = adv.maxHp ?? 40;
   const baseAtk = 5 + (adv.level ?? 1) * 1.5 + (adv.gear ?? 0) * 4;
   const startX = 45 + (index % 2) * 60;
   const startY = 80 + Math.floor(index / 2) * 110;
-  // Preserve HP from previous combat this run (currentDungeonHp set by onCombatEnd)
   const maxHpVal = Math.floor(baseHp * cls.hpMult);
   const currentHp = adv.currentDungeonHp != null ? Math.min(adv.currentDungeonHp, maxHpVal) : maxHpVal;
   return {
@@ -168,14 +164,11 @@ function makeHero(adv, index) {
     attackCooldown: 0,
     ability: { ...cls.ability, cooldownLeft: 0 },
     tauntActive: false, dead: false, flashHit: false,
-    // Blade Rush state
     bladeRushActive: false, bladeRushTimeLeft: 0,
     bladeRushAttacksLeft: 0, bladeRushAttackTimer: 0,
-    // HoT state
     hotRemaining: 0, hotDuration: 0,
-    // Food belt (local copy — deductions tracked separately)
     foodBelt: { ...(adv.foodBelt ?? {}) },
-    foodUsed: {}, // tracks deductions for result payload
+    foodUsed: {},
   };
 }
 
@@ -195,13 +188,10 @@ function makeEnemy(typeId, index, depth) {
     attackCooldown: 0,
     taunted: false, dead: false, flashHit: false,
     special: def.special ?? null,
-    // Special state
-    revived: false,               // skeleton: has it already revived?
-    teleportTimer: randInt(2, 4), // shadow: time until next teleport
-    channelTimer: 0,              // cultist: channel progress
-    channeling: false,            // cultist: currently channeling?
-    interrupted: false,           // cultist: was channel interrupted?
-    defReduced: false,            // stone_golem: DEF already halved?
+    revived: false,
+    teleportTimer: randInt(2, 4),
+    channelTimer: 0, channeling: false, interrupted: false,
+    defReduced: false,
   };
 }
 
@@ -256,7 +246,7 @@ function FloatingText({ items }) {
   </>;
 }
 
-// ─── UnitCircle ───────────────────────────────────────────────────────────────
+// ─── UnitCircle — pure display, no event handlers ────────────────────────────
 
 function UnitCircle({ unit, selected }) {
   const pct = clamp(unit.hp / unit.maxHp, 0, 1);
@@ -265,31 +255,29 @@ function UnitCircle({ unit, selected }) {
   const hasHot = unit.kind === "hero" && (unit.hotRemaining ?? 0) > 0;
   const isBladeRush = unit.kind === "hero" && unit.bladeRushActive;
   return (
-    <div
-      style={{
-        position: "absolute", left: unit.x - UNIT_R, top: unit.y - UNIT_R,
-        width: size, height: size, borderRadius: "50%",
-        background: unit.bg,
-        border: `2px solid ${selected ? "#fff" : unit.color}`,
-        display: "flex", alignItems: "center", justifyContent: "center",
-        cursor: "pointer", fontSize: "1rem", userSelect: "none",
-        transition: "left 0.08s linear, top 0.08s linear",
-        boxShadow: selected
-          ? `0 0 0 3px ${unit.color}, 0 0 14px ${unit.color}88`
-          : unit.flashHit ? "0 0 12px #ef444488"
-          : "0 2px 8px rgba(0,0,0,0.6)",
-        opacity: unit.dead ? 0 : 1,
-        zIndex: selected ? 10 : unit.kind === "hero" ? 5 : 4,
-      }}>
+    <div style={{
+      position: "absolute", left: unit.x - UNIT_R, top: unit.y - UNIT_R,
+      width: size, height: size, borderRadius: "50%",
+      background: unit.bg,
+      border: `2px solid ${selected ? "#fff" : unit.color}`,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontSize: "1rem", userSelect: "none",
+      transition: "left 0.08s linear, top 0.08s linear",
+      boxShadow: selected
+        ? `0 0 0 3px ${unit.color}, 0 0 14px ${unit.color}88`
+        : unit.flashHit ? "0 0 12px #ef444488"
+        : "0 2px 8px rgba(0,0,0,0.6)",
+      opacity: unit.dead ? 0 : 1,
+      zIndex: selected ? 10 : unit.kind === "hero" ? 5 : 4,
+      pointerEvents: "none", // all input goes through the battlefield div
+    }}>
       {unit.emoji}
-      {/* HP bar */}
       <div style={{
         position: "absolute", bottom: -6, left: -2, right: -2, height: 3,
         background: "rgba(0,0,0,0.5)", borderRadius: 2, overflow: "hidden",
       }}>
         <div style={{ width: `${pct * 100}%`, height: "100%", background: barCol, transition: "width 0.2s" }} />
       </div>
-      {/* Selected ring */}
       {selected && (
         <div style={{
           position: "absolute", inset: -5, borderRadius: "50%",
@@ -298,7 +286,6 @@ function UnitCircle({ unit, selected }) {
           pointerEvents: "none",
         }} />
       )}
-      {/* HoT glow */}
       {hasHot && (
         <div style={{
           position: "absolute", inset: -4, borderRadius: "50%",
@@ -307,7 +294,6 @@ function UnitCircle({ unit, selected }) {
           pointerEvents: "none", opacity: 0.8,
         }} />
       )}
-      {/* Blade rush speed trail */}
       {isBladeRush && (
         <div style={{
           position: "absolute", inset: -3, borderRadius: "50%",
@@ -316,15 +302,13 @@ function UnitCircle({ unit, selected }) {
           pointerEvents: "none",
         }} />
       )}
-      {/* Taunt indicator */}
-      {unit.taunted && <div style={{ position: "absolute", top: -10, fontSize: "0.6rem" }}>📢</div>}
-      {/* Cultist channel indicator */}
-      {unit.channeling && <div style={{ position: "absolute", top: -12, fontSize: "0.65rem", animation: "ringPulse 0.5s infinite" }}>🔮</div>}
+      {unit.taunted && <div style={{ position: "absolute", top: -10, fontSize: "0.6rem", pointerEvents: "none" }}>📢</div>}
+      {unit.channeling && <div style={{ position: "absolute", top: -12, fontSize: "0.65rem", animation: "ringPulse 0.5s infinite", pointerEvents: "none" }}>🔮</div>}
     </div>
   );
 }
 
-// ─── AbilityBar — shown only when a hero is selected ─────────────────────────
+// ─── AbilityBar ───────────────────────────────────────────────────────────────
 
 function AbilityBar({ hero, onUseAbility, onUseFood }) {
   if (!hero) return null;
@@ -340,7 +324,6 @@ function AbilityBar({ hero, onUseAbility, onUseFood }) {
       background: "rgba(255,255,255,0.03)",
       borderRadius: 10, border: "1px solid rgba(255,255,255,0.08)",
     }}>
-      {/* Class ability */}
       <button
         onClick={() => abilityReady && onUseAbility(hero.id)}
         disabled={!abilityReady}
@@ -365,8 +348,6 @@ function AbilityBar({ hero, onUseAbility, onUseFood }) {
           </div>
         )}
       </button>
-
-      {/* Food belt */}
       <button
         onClick={() => nextFood && onUseFood(hero.id, nextFood.id)}
         disabled={!nextFood}
@@ -383,7 +364,7 @@ function AbilityBar({ hero, onUseAbility, onUseFood }) {
             <span style={{ fontSize: "1rem" }}>{foodDef?.emoji ?? "🍞"}</span>
             <span>{foodDef?.name ?? nextFood.id}</span>
             <span style={{ fontSize: "0.52rem", color: "rgba(74,222,128,0.7)" }}>
-              +{foodDef?.healAmount ?? "?"} HP {foodDef?.healAmount ? "· HoT" : ""}
+              +{foodDef?.healAmount ?? "?"} HP · HoT
             </span>
           </>
         ) : (
@@ -397,441 +378,24 @@ function AbilityBar({ hero, onUseAbility, onUseFood }) {
   );
 }
 
-// ─── BATTLEFIELD ──────────────────────────────────────────────────────────────
+// ─── Battlefield — pure display + input, no game state ───────────────────────
+// All state lives in DungeonZone above so tab-switching doesn't reset combat.
 
-function Battlefield({ party, enemies: initEnemies, onCombatEnd, depth }) {
-  const initHeroes = party.slice(0, PARTY_SIZE).map((adv, i) => makeHero(adv, i));
-
-  const [heroes, setHeroes] = useState(initHeroes);
-  const [enemies, setEnemies] = useState(initEnemies);
-  const [selected, setSelected] = useState(null);
-  const [floats, setFloats] = useState([]);
-  const [log, setLog] = useState([]);
-  const [phase, setPhase] = useState("initiative"); // initiative → prep/enemy_advance → fighting → victory/defeat
-  const [initResult, setInitResult] = useState(null); // { playerRoll, enemyRoll, playerWins }
-  const [countdown, setCountdown] = useState(5);
-  const [result, setResult] = useState(null);
-
-  const heroesRef = useRef(initHeroes);
-  const enemiesRef = useRef(initEnemies);
-  const selectedRef = useRef(null);
-  const phaseRef = useRef("initiative");
-  const floatIdRef = useRef(0);
-  const battlefieldRef = useRef(null); // stable ref for coordinate math
-
-  useEffect(() => { heroesRef.current = heroes; }, [heroes]);
-  useEffect(() => { enemiesRef.current = enemies; }, [enemies]);
-  useEffect(() => { selectedRef.current = selected; }, [selected]);
-  useEffect(() => { phaseRef.current = phase; }, [phase]);
-
-  // ── Initiative roll on mount ──────────────────────────────────────────────
-  useEffect(() => {
-    const playerRoll = randInt(1, 20);
-    const enemyRoll = randInt(1, 20);
-    const playerWins = playerRoll >= enemyRoll;
-    setInitResult({ playerRoll, enemyRoll, playerWins });
-    // Show result for 2.5s then enter appropriate phase
-    const t = setTimeout(() => {
-      const nextPhase = playerWins ? "prep" : "enemy_advance";
-      setPhase(nextPhase);
-      phaseRef.current = nextPhase;
-      setCountdown(5);
-    }, 2500);
-    return () => clearTimeout(t);
-  }, []);
-
-  // ── Countdown (prep or enemy_advance) → fighting ──────────────────────────
-  useEffect(() => {
-    if (phase !== "prep" && phase !== "enemy_advance") return;
-    if (countdown <= 0) {
-      setPhase("fighting");
-      phaseRef.current = "fighting";
-      return;
-    }
-    const t = setTimeout(() => setCountdown(c => c - 1), 1000);
-    return () => clearTimeout(t);
-  }, [phase, countdown]);
-
-  function addFloat(x, y, text, color) {
-    const id = ++floatIdRef.current;
-    setFloats(prev => [...prev, { id, x, y, text, color }]);
-    setTimeout(() => setFloats(prev => prev.filter(f => f.id !== id)), 1000);
-  }
-
-  function addLog(text, color = "var(--muted)") {
-    setLog(prev => [...prev.slice(-12), { id: Date.now() + Math.random(), text, color }]);
-  }
-
-  // ── Main game loop ────────────────────────────────────────────────────────
-  useEffect(() => {
-    let last = performance.now();
-
-    const loop = setInterval(() => {
-      const currentPhase = phaseRef.current;
-      const now = performance.now();
-      const dt = Math.min((now - last) / 1000, 0.15);
-      last = now;
-
-      // Prep phase: heroes can position, enemies frozen
-      if (currentPhase === "prep") {
-        const hs = heroesRef.current.map(h => ({ ...h }));
-        hs.forEach(hero => {
-          if (hero.dead) return;
-          const np = moveToward({ x: hero.x, y: hero.y }, { x: hero.targetX, y: hero.targetY }, HERO_SPEED, dt);
-          hero.x = clamp(np.x, UNIT_R, BF_W - UNIT_R);
-          hero.y = clamp(np.y, UNIT_R, BF_H - UNIT_R);
-        });
-        heroesRef.current = hs;
-        setHeroes([...hs]);
-        return;
-      }
-
-      // Enemy advance: enemies move toward heroes, heroes frozen, enemies cannot attack
-      if (currentPhase === "enemy_advance") {
-        const hs = heroesRef.current;
-        const es = enemiesRef.current.map(e => ({ ...e }));
-        const aliveHeroes = hs.filter(h => !h.dead);
-        es.forEach(enemy => {
-          if (enemy.dead) return;
-          const tgt = aliveHeroes.length
-            ? aliveHeroes.reduce((a, b) => dist(enemy, a) < dist(enemy, b) ? a : b)
-            : null;
-          if (!tgt) return;
-          if (dist(enemy, tgt) > enemy.attackRange) {
-            const np = moveToward({ x: enemy.x, y: enemy.y }, tgt, enemy.speed, dt);
-            enemy.x = clamp(np.x, UNIT_R, BF_W - UNIT_R);
-            enemy.y = clamp(np.y, UNIT_R, BF_H - UNIT_R);
-          }
-          // No attacking during enemy advance
-        });
-        enemiesRef.current = es;
-        setEnemies([...es]);
-        return;
-      }
-
-      if (currentPhase !== "fighting") return;
-
-      const hs = heroesRef.current.map(h => ({ ...h, ability: { ...h.ability } }));
-      const es = enemiesRef.current.map(e => ({ ...e }));
-      const aliveHeroes = hs.filter(h => !h.dead);
-      const aliveEnemies = es.filter(e => !e.dead);
-
-      // Check win/loss
-      if (aliveHeroes.length === 0) {
-        // Build result from what was earned so far
-        const foodBeltDeltas = {};
-        hs.forEach(h => { if (Object.keys(h.foodUsed ?? {}).length > 0) foodBeltDeltas[h.id] = h.foodUsed; });
-        const heroHpSnapshotDefeat = {};
-        hs.forEach(h => { heroHpSnapshotDefeat[h.id] = Math.floor(h.hp); });
-        setPhase("defeat");
-        setResult({ victory: false, loot: {}, xpByHeroId: {}, foodBeltDeltas, heroHpSnapshot: heroHpSnapshotDefeat });
-        return;
-      }
-      if (aliveEnemies.length === 0) {
-        const loot = {};
-        const totalXp = es.reduce((s, e) => s + (ENEMY_TYPES[e.typeId]?.xp ?? 0), 0);
-        const xpEach = Math.floor(totalXp / Math.max(1, aliveHeroes.length));
-        const xpByHeroId = {};
-        aliveHeroes.forEach(h => { xpByHeroId[h.id] = xpEach; });
-        es.forEach(e => {
-          const def = ENEMY_TYPES[e.typeId];
-          if (!def?.loot) return;
-          Object.entries(def.loot).forEach(([k, [mn, mx]]) => { loot[k] = (loot[k] ?? 0) + randInt(mn, mx); });
-        });
-        const foodBeltDeltas = {};
-        hs.forEach(h => { if (Object.keys(h.foodUsed ?? {}).length > 0) foodBeltDeltas[h.id] = h.foodUsed; });
-        const heroHpSnapshot = {};
-        hs.forEach(h => { heroHpSnapshot[h.id] = Math.floor(h.hp); });
-        setPhase("victory");
-        setResult({ victory: true, loot, xpByHeroId, foodBeltDeltas, totalXp, heroHpSnapshot });
-        return;
-      }
-
-      // ── Heroes tick ────────────────────────────────────────────────────────
-      hs.forEach(hero => {
-        if (hero.dead) return;
-
-        // HoT tick
-        if (hero.hotRemaining > 0 && hero.hotDuration > 0) {
-          const healThisTick = (hero.hotRemaining / hero.hotDuration) * dt;
-          hero.hp = Math.min(hero.maxHp, hero.hp + healThisTick);
-          hero.hotDuration = Math.max(0, hero.hotDuration - dt);
-          hero.hotRemaining = hero.hotDuration <= 0 ? 0 : hero.hotRemaining - healThisTick;
-        }
-
-        // Blade Rush — speed boost phase
-        if (hero.bladeRushActive) {
-          hero.bladeRushTimeLeft = Math.max(0, hero.bladeRushTimeLeft - dt);
-          if (hero.bladeRushTimeLeft <= 0) {
-            hero.bladeRushActive = false;
-            // Transition to rapid attack phase
-            if (hero.bladeRushAttacksLeft <= 0) hero.bladeRushAttacksLeft = BLADE_RUSH_ATTACK_COUNT;
-          }
-        }
-
-        // Blade Rush rapid attacks
-        if (!hero.bladeRushActive && hero.bladeRushAttacksLeft > 0) {
-          hero.bladeRushAttackTimer = Math.max(0, (hero.bladeRushAttackTimer ?? 0) - dt);
-          if (hero.bladeRushAttackTimer <= 0) {
-            // Find nearest enemy
-            const nearest = aliveEnemies.reduce((best, e) => {
-              const d = dist(hero, e);
-              return (!best || d < dist(hero, best)) ? e : best;
-            }, null);
-            if (nearest && dist(hero, nearest) <= hero.attackRange) {
-              const dmg = Math.max(1, hero.atk - nearest.def + randInt(-2, 3));
-              const ei = es.findIndex(e => e.id === nearest.id);
-              if (ei >= 0 && !es[ei].dead) {
-                // Interrupt cultist channel
-                if (es[ei].channeling) {
-                  es[ei].channeling = false;
-                  es[ei].channelTimer = 0;
-                  es[ei].interrupted = true;
-                  addLog(`⚡ ${hero.name} interrupts ${nearest.name}'s channel!`, "#fbbf24");
-                }
-                // Stone golem armor break
-                if (es[ei].special === "armor_break" && !es[ei].defReduced && es[ei].hp / es[ei].maxHp < 0.5) {
-                  es[ei].def = Math.floor(es[ei].def / 2);
-                  es[ei].defReduced = true;
-                  addLog(`🪨 ${nearest.name}'s armor cracks!`, "#fbbf24");
-                }
-                es[ei].hp = Math.max(0, es[ei].hp - dmg);
-                if (es[ei].hp <= 0) {
-                  es[ei].dead = true;
-                  addLog(`${nearest.emoji} ${nearest.name} defeated!`, "#4ade80");
-                  // Banshee death curse
-                  if (es[ei].special === "death_curse") {
-                    aliveHeroes.forEach(h => {
-                      const curse = Math.floor(h.maxHp * 0.25);
-                      const hi2 = hs.findIndex(hh => hh.id === h.id);
-                      if (hi2 >= 0) {
-                        hs[hi2].hp = Math.max(0, hs[hi2].hp - curse);
-                        if (hs[hi2].hp <= 0) hs[hi2].dead = true;
-                        addFloat(h.x, h.y - 15, `-${curse}💀`, "#e879f9");
-                      }
-                    });
-                    addLog(`👻 ${nearest.name}'s death curse strikes all heroes!`, "#e879f9");
-                  }
-                }
-                addFloat(nearest.x, nearest.y - 10, `-${dmg}⚡`, "#fbbf24");
-              }
-              hero.bladeRushAttacksLeft--;
-              hero.bladeRushAttackTimer = BLADE_RUSH_ATTACK_GAP;
-            } else {
-              // Out of range — fizzle remaining attacks
-              hero.bladeRushAttacksLeft = 0;
-              addLog(`⚡ ${hero.name}'s rush fizzled — no target in range`, "var(--muted)");
-            }
-          }
-          return; // Don't do normal attack during rapid attack sequence
-        }
-
-        // Normal movement
-        const speed = hero.bladeRushActive ? HERO_SPEED * 1.5 : HERO_SPEED;
-        const np = moveToward({ x: hero.x, y: hero.y }, { x: hero.targetX, y: hero.targetY }, speed, dt);
-        hero.x = clamp(np.x, UNIT_R, BF_W - UNIT_R);
-        hero.y = clamp(np.y, UNIT_R, BF_H - UNIT_R);
-
-        // Chase attack target
-        if (hero.attackTarget) {
-          const tgt = aliveEnemies.find(e => e.id === hero.attackTarget);
-          if (!tgt) { hero.attackTarget = null; }
-          else if (dist(hero, tgt) > hero.attackRange) {
-            hero.targetX = tgt.x; hero.targetY = tgt.y;
-          }
-        }
-
-        // Normal auto-attack
-        if (hero.attackCooldown > 0) {
-          hero.attackCooldown -= dt;
-        } else {
-          let atk = null;
-          if (hero.attackTarget) {
-            const t = aliveEnemies.find(e => e.id === hero.attackTarget);
-            if (t && dist(hero, t) <= hero.attackRange) atk = t;
-          }
-          if (!atk) {
-            const inRange = aliveEnemies.filter(e => dist(hero, e) <= hero.attackRange);
-            if (inRange.length > 0) atk = inRange.reduce((a, b) => dist(hero, a) < dist(hero, b) ? a : b);
-          }
-          if (atk) {
-            const baseDmg = Math.max(1, hero.atk - atk.def + randInt(-2, 3));
-            const ei = es.findIndex(e => e.id === atk.id);
-            if (ei >= 0 && !es[ei].dead) {
-              // Interrupt cultist channel on any hit
-              if (es[ei].channeling) {
-                es[ei].channeling = false;
-                es[ei].channelTimer = 0;
-                es[ei].interrupted = true;
-                addLog(`${hero.emoji} ${hero.name} interrupts ${atk.name}'s channel!`, "#fbbf24");
-              }
-              // Stone golem armor break
-              if (es[ei].special === "armor_break" && !es[ei].defReduced && es[ei].hp / es[ei].maxHp < 0.5) {
-                es[ei].def = Math.floor(es[ei].def / 2);
-                es[ei].defReduced = true;
-                addLog(`🪨 ${atk.name}'s armor cracks! DEF halved.`, "#fbbf24");
-              }
-              es[ei].hp = Math.max(0, es[ei].hp - baseDmg);
-              if (es[ei].hp <= 0) {
-                es[ei].dead = true;
-                addLog(`${atk.emoji} ${atk.name} defeated!`, "#4ade80");
-                // Banshee death curse
-                if (es[ei].special === "death_curse") {
-                  aliveHeroes.forEach(h => {
-                    const curse = Math.floor(h.maxHp * 0.25);
-                    const hi2 = hs.findIndex(hh => hh.id === h.id);
-                    if (hi2 >= 0) {
-                      hs[hi2].hp = Math.max(0, hs[hi2].hp - curse);
-                      if (hs[hi2].hp <= 0) hs[hi2].dead = true;
-                      addFloat(h.x, h.y - 15, `-${curse}💀`, "#e879f9");
-                    }
-                  });
-                  addLog(`👻 ${atk.name}'s death curse strikes all heroes!`, "#e879f9");
-                }
-              }
-              addFloat(atk.x, atk.y - 10, `-${baseDmg}`, "#f87171");
-            }
-            hero.attackCooldown = 1 / hero.attackSpeed;
-          }
-        }
-
-        // Ability cooldown tick
-        if (hero.ability.cooldownLeft > 0) hero.ability.cooldownLeft = Math.max(0, hero.ability.cooldownLeft - dt);
-        hero.flashHit = false;
-      });
-
-      // ── Enemies tick ──────────────────────────────────────────────────────
-      es.forEach(enemy => {
-        if (enemy.dead) return;
-
-        // Special: Shadow teleport
-        if (enemy.special === "teleport") {
-          enemy.teleportTimer = (enemy.teleportTimer ?? 4) - dt;
-          if (enemy.teleportTimer <= 0) {
-            const targets = aliveHeroes.filter(h => !h.dead);
-            if (targets.length > 0) {
-              const tgt = targets[randInt(0, targets.length - 1)];
-              enemy.x = clamp(tgt.x + randInt(-30, 30), UNIT_R, BF_W - UNIT_R);
-              enemy.y = clamp(tgt.y + randInt(-30, 30), UNIT_R, BF_H - UNIT_R);
-              addFloat(enemy.x, enemy.y - 15, "💨 Teleport!", "#6366f1");
-            }
-            enemy.teleportTimer = 4;
-          }
-        }
-
-        // Special: Cultist channel
-        if (enemy.special === "channel") {
-          if (!enemy.channeling && enemy.attackCooldown <= 0) {
-            enemy.channeling = true;
-            enemy.channelTimer = 2;
-            enemy.interrupted = false;
-            addLog(`🔮 ${enemy.name} begins channeling!`, "#c084fc");
-          }
-          if (enemy.channeling) {
-            enemy.channelTimer -= dt;
-            if (enemy.channelTimer <= 0 && !enemy.interrupted) {
-              // Fire bolt at nearest hero
-              const tgt = aliveHeroes.reduce((a, b) => dist(enemy, a) < dist(enemy, b) ? a : b, aliveHeroes[0]);
-              if (tgt) {
-                const hi = hs.findIndex(h => h.id === tgt.id);
-                if (hi >= 0 && !hs[hi].dead) {
-                  const bolt = Math.floor(enemy.atk * 2);
-                  hs[hi].hp = Math.max(0, hs[hi].hp - bolt);
-                  if (hs[hi].hp <= 0) { hs[hi].dead = true; addLog(`💀 ${hs[hi].name} fallen!`, "#ef4444"); }
-                  addFloat(tgt.x, tgt.y - 10, `-${bolt}🔮`, "#c084fc");
-                  addLog(`🔮 ${enemy.name} fires a bolt for ${bolt}!`, "#c084fc");
-                }
-              }
-              enemy.attackCooldown = 1 / enemy.attackSpeed;
-              enemy.channeling = false;
-              enemy.channelTimer = 0;
-            }
-            // Don't move while channeling
-            enemy.flashHit = false;
-            return;
-          }
-        }
-
-        // Skeleton revive
-        if (enemy.special === "revive" && !enemy.revived && enemy.hp / enemy.maxHp <= 0.5) {
-          enemy.revived = true;
-          enemy.dead = false;
-          enemy.hp = Math.floor(enemy.maxHp * 0.4);
-          addFloat(enemy.x, enemy.y - 15, "Revived!", "#9ca3af");
-          addLog(`💀 ${enemy.name} rises again!`, "#9ca3af");
-        }
-
-        const tauntHero = hs.find(h => !h.dead && h.tauntActive);
-        const tgt = tauntHero ?? (aliveHeroes.length
-          ? aliveHeroes.reduce((a, b) => dist(enemy, a) < dist(enemy, b) ? a : b)
-          : null);
-        enemy.taunted = !!tauntHero;
-        if (!tgt) return;
-
-        const d = dist(enemy, tgt);
-        if (d > enemy.attackRange) {
-          const np = moveToward({ x: enemy.x, y: enemy.y }, tgt, enemy.speed, dt);
-          enemy.x = clamp(np.x, UNIT_R, BF_W - UNIT_R);
-          enemy.y = clamp(np.y, UNIT_R, BF_H - UNIT_R);
-        }
-        if (enemy.attackCooldown > 0) {
-          enemy.attackCooldown -= dt;
-        } else if (d <= enemy.attackRange) {
-          const hi = hs.findIndex(h => h.id === tgt.id);
-          if (hi >= 0 && !hs[hi].dead) {
-            const dmg = Math.max(1, enemy.atk - hs[hi].def + randInt(-1, 3));
-            hs[hi].hp = Math.max(0, hs[hi].hp - dmg);
-            if (hs[hi].hp <= 0) { hs[hi].dead = true; addLog(`💀 ${hs[hi].name} fallen!`, "#ef4444"); }
-            addFloat(tgt.x, tgt.y - 10, `-${dmg}`, "#a78bfa");
-            enemy.attackCooldown = 1 / enemy.attackSpeed;
-          }
-        }
-        enemy.flashHit = false;
-      });
-
-      // Separation push: prevent circles from overlapping
-      const allUnits = [...hs.filter(h => !h.dead), ...es.filter(e => !e.dead)];
-      const SEP = UNIT_R * 2 + 3;
-      for (let i = 0; i < allUnits.length; i++) {
-        for (let j = i + 1; j < allUnits.length; j++) {
-          const a = allUnits[i], b = allUnits[j];
-          const dx = b.x - a.x, dy = b.y - a.y;
-          const d = Math.sqrt(dx * dx + dy * dy);
-          if (d < SEP && d > 0.01) {
-            const push = (SEP - d) / 2;
-            const nx = dx / d, ny = dy / d;
-            a.x = clamp(a.x - nx * push, UNIT_R, BF_W - UNIT_R);
-            a.y = clamp(a.y - ny * push, UNIT_R, BF_H - UNIT_R);
-            b.x = clamp(b.x + nx * push, UNIT_R, BF_W - UNIT_R);
-            b.y = clamp(b.y + ny * push, UNIT_R, BF_H - UNIT_R);
-          }
-        }
-      }
-
-      setHeroes([...hs]);
-      setEnemies([...es]);
-    }, TICK_MS);
-
-    return () => clearInterval(loop);
-  }, []);
-
-  // ── Tap handler ────────────────────────────────────────────────────────────────────────────────────
-  // Single onPointerDown on the battlefield div handles ALL input.
-  // Using phaseRef (not `phase`) avoids stale closure bugs.
-  // No onClick on child circles -- that caused double-fire deselection on mobile.
+function Battlefield({
+  heroes, enemies, selected, floats, log, phase, initResult, countdown, result,
+  depth, onTap, onSelectHero, onUseAbility, onUseFood, onCombatEnd,
+}) {
+  const battlefieldRef = useRef(null);
   const lastTapTimeRef = useRef(0);
+
   function handleTap(e) {
-    // Deduplicate: onTouchStart + onClick both fire on mobile, ignore the second one
+    // Deduplicate onTouchStart + onClick (both fire on mobile)
     const now = Date.now();
     if (now - lastTapTimeRef.current < 400) return;
     lastTapTimeRef.current = now;
-    const currentPhase = phaseRef.current;
-    if (currentPhase !== "fighting" && currentPhase !== "prep") return;
 
-    // Use stable ref for rect -- e.currentTarget can be null in React synthetic events on mobile
     if (!battlefieldRef.current) return;
     const rect = battlefieldRef.current.getBoundingClientRect();
-    // Handle both touch events and mouse/click events
     const clientX = e.touches?.[0]?.clientX ?? e.changedTouches?.[0]?.clientX ?? e.clientX;
     const clientY = e.touches?.[0]?.clientY ?? e.changedTouches?.[0]?.clientY ?? e.clientY;
     if (clientX == null || clientY == null) return;
@@ -841,133 +405,7 @@ function Battlefield({ party, enemies: initEnemies, onCombatEnd, depth }) {
     const x = (clientX - rect.left) * scaleX;
     const y = (clientY - rect.top) * scaleY;
 
-    // Generous hit radius for mobile (finger-sized ~48px)
-    const HIT_R = UNIT_R * 1.8;
-
-    // DEBUG: log tap coordinates vs hero positions
-    const heroPositions = heroesRef.current.map(h => ({ id: h.id, hx: Math.round(h.x), hy: Math.round(h.y), d: Math.round(dist({x,y}, h)) }));
-    console.log("[DungeonTap] tap=", Math.round(x), Math.round(y), "rect=", Math.round(rect.width), "x", Math.round(rect.height), "heroes=", heroPositions, "phase=", currentPhase);
-
-    // 1. Enemy hit? Order selected hero to attack.
-    const tappedEnemy = enemiesRef.current.find(en => !en.dead && dist({ x, y }, en) < HIT_R);
-    if (tappedEnemy) {
-      if (selectedRef.current && currentPhase === "fighting") {
-        setHeroes(prev => {
-          const next = prev.map(h => h.id === selectedRef.current
-            ? { ...h, attackTarget: tappedEnemy.id, targetX: tappedEnemy.x, targetY: tappedEnemy.y }
-            : h);
-          heroesRef.current = next;
-          return next;
-        });
-      }
-      return;
-    }
-
-    // 2. Hero hit? Toggle selection.
-    const tappedHero = heroesRef.current.find(h => !h.dead && dist({ x, y }, h) < HIT_R);
-    if (tappedHero) {
-      const newSel = tappedHero.id === selectedRef.current ? null : tappedHero.id;
-      setSelected(newSel);
-      selectedRef.current = newSel;
-      return;
-    }
-
-    // 3. Empty ground? Move selected hero there.
-    if (selectedRef.current) {
-      setHeroes(prev => {
-        const next = prev.map(h => h.id === selectedRef.current
-          ? { ...h, targetX: x, targetY: y, attackTarget: null }
-          : h);
-        heroesRef.current = next;
-        return next;
-      });
-    }
-  }
-
-  // ── Ability use ───────────────────────────────────────────────────────────
-  function useAbility(heroId) {
-    const hero = heroesRef.current.find(h => h.id === heroId);
-    if (!hero || hero.ability.cooldownLeft > 0 || hero.dead || hero.bladeRushActive) return;
-
-    if (hero.heroClass === "fighter") {
-      addLog(`📢 ${hero.name} taunts! Enemies focus Fighter!`, "#f87171");
-      setHeroes(prev => prev.map(h => {
-        if (h.id !== heroId) return h;
-        return { ...h, tauntActive: true, ability: { ...h.ability, cooldownLeft: h.ability.cooldown } };
-      }));
-      heroesRef.current = heroesRef.current.map(h =>
-        h.id !== heroId ? h : { ...h, tauntActive: true, ability: { ...h.ability, cooldownLeft: h.ability.cooldown } }
-      );
-      setTimeout(() => {
-        setHeroes(prev => prev.map(h => h.id === heroId ? { ...h, tauntActive: false } : h));
-        heroesRef.current = heroesRef.current.map(h => h.id === heroId ? { ...h, tauntActive: false } : h);
-      }, 4000);
-
-    } else if (hero.heroClass === "mage") {
-      setHeroes(prev => {
-        const alive = prev.filter(h => !h.dead);
-        if (!alive.length) return prev;
-        const lowest = alive.reduce((a, b) => (a.hp / a.maxHp) < (b.hp / b.maxHp) ? a : b);
-        const healAmt = Math.floor(lowest.maxHp * 0.35);
-        addLog(`💚 ${hero.name} heals ${lowest.name} for ${healAmt}!`, "#4ade80");
-        addFloat(lowest.x, lowest.y - 15, `+${healAmt}`, "#4ade80");
-        const next = prev.map(h => {
-          if (h.id === heroId) return { ...h, ability: { ...h.ability, cooldownLeft: h.ability.cooldown } };
-          if (h.id === lowest.id) return { ...h, hp: Math.min(h.maxHp, h.hp + healAmt) };
-          return h;
-        });
-        heroesRef.current = next;
-        return next;
-      });
-
-    } else {
-      // Scavenger / Ranger — Blade Rush
-      addLog(`⚡ ${hero.name} launches Blade Rush!`, "#34d399");
-      setHeroes(prev => {
-        const next = prev.map(h => h.id !== heroId ? h : {
-          ...h,
-          bladeRushActive: true,
-          bladeRushTimeLeft: BLADE_RUSH_DURATION,
-          bladeRushAttacksLeft: 0,
-          bladeRushAttackTimer: 0,
-          ability: { ...h.ability, cooldownLeft: h.ability.cooldown },
-        });
-        heroesRef.current = next;
-        return next;
-      });
-    }
-  }
-
-  // ── Food belt use ─────────────────────────────────────────────────────────
-  function useFood(heroId, itemId) {
-    const foodEntry = ARTISAN_FOOD_HEAL?.[itemId];
-    if (!foodEntry) return;
-
-    setHeroes(prev => {
-      const next = prev.map(h => {
-        if (h.id !== heroId) return h;
-        const belt = { ...(h.foodBelt ?? {}) };
-        if ((belt[itemId] ?? 0) <= 0) return h;
-        belt[itemId] = belt[itemId] - 1;
-        if (belt[itemId] === 0) delete belt[itemId];
-
-        const foodUsed = { ...(h.foodUsed ?? {}) };
-        foodUsed[itemId] = (foodUsed[itemId] ?? 0) + 1;
-
-        addLog(`${foodEntry.emoji ?? "🍞"} ${h.name} eats ${foodEntry.name} — healing over time!`, "#4ade80");
-        addFloat(h.x, h.y - 20, `+${foodEntry.healAmount}🌿`, "#4ade80");
-
-        return {
-          ...h,
-          foodBelt: belt,
-          foodUsed,
-          hotRemaining: (h.hotRemaining ?? 0) + foodEntry.healAmount,
-          hotDuration: HOT_DURATION,
-        };
-      });
-      heroesRef.current = next;
-      return next;
-    });
+    onTap(x, y, phase);
   }
 
   const selHero = heroes.find(h => h.id === selected && !h.dead) ?? null;
@@ -1003,7 +441,7 @@ function Battlefield({ party, enemies: initEnemies, onCombatEnd, depth }) {
           : "Tap a hero to select"}
       </div>
 
-      {/* Battlefield */}
+      {/* Battlefield canvas */}
       <div
         ref={battlefieldRef}
         onTouchStart={handleTap}
@@ -1016,7 +454,7 @@ function Battlefield({ party, enemies: initEnemies, onCombatEnd, depth }) {
           boxShadow: "inset 0 2px 20px rgba(0,0,0,0.5)",
           userSelect: "none", touchAction: "none",
         }}>
-        {/* Grid texture */}
+        {/* Grid lines */}
         <div style={{
           position: "absolute", inset: 0, pointerEvents: "none",
           backgroundImage: "repeating-linear-gradient(0deg,transparent,transparent 39px,rgba(255,255,255,0.018) 39px,rgba(255,255,255,0.018) 40px),repeating-linear-gradient(90deg,transparent,transparent 39px,rgba(255,255,255,0.018) 39px,rgba(255,255,255,0.018) 40px)",
@@ -1036,31 +474,23 @@ function Battlefield({ party, enemies: initEnemies, onCombatEnd, depth }) {
           <div style={{
             position: "absolute", inset: 0, display: "flex", alignItems: "center",
             justifyContent: "center", background: "rgba(0,0,0,0.7)",
-            flexDirection: "column", gap: "0.4rem",
+            flexDirection: "column", gap: "0.4rem", pointerEvents: "none",
           }}>
             <div style={{ fontSize: "0.7rem", fontWeight: 700, color: "rgba(255,255,255,0.6)", letterSpacing: "0.1em", textTransform: "uppercase" }}>
               Initiative Roll
             </div>
             <div style={{ display: "flex", gap: "1.5rem", alignItems: "center" }}>
               <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: "2rem", fontWeight: 900, color: initResult.playerWins ? "#4ade80" : "#f87171" }}>
-                  {initResult.playerRoll}
-                </div>
+                <div style={{ fontSize: "2rem", fontWeight: 900, color: initResult.playerWins ? "#4ade80" : "#f87171" }}>{initResult.playerRoll}</div>
                 <div style={{ fontSize: "0.58rem", color: "var(--muted)" }}>Your Party</div>
               </div>
               <div style={{ fontSize: "1rem", color: "var(--muted)" }}>vs</div>
               <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: "2rem", fontWeight: 900, color: initResult.playerWins ? "#f87171" : "#4ade80" }}>
-                  {initResult.enemyRoll}
-                </div>
+                <div style={{ fontSize: "2rem", fontWeight: 900, color: initResult.playerWins ? "#f87171" : "#4ade80" }}>{initResult.enemyRoll}</div>
                 <div style={{ fontSize: "0.58rem", color: "var(--muted)" }}>Enemies</div>
               </div>
             </div>
-            <div style={{
-              fontSize: "0.75rem", fontWeight: 800,
-              color: initResult.playerWins ? "#4ade80" : "#f87171",
-              marginTop: "0.2rem",
-            }}>
+            <div style={{ fontSize: "0.75rem", fontWeight: 800, color: initResult.playerWins ? "#4ade80" : "#f87171", marginTop: "0.2rem" }}>
               {initResult.playerWins ? "⚡ You go first!" : "💀 Enemies advance!"}
             </div>
           </div>
@@ -1104,9 +534,7 @@ function Battlefield({ party, enemies: initEnemies, onCombatEnd, depth }) {
             }}>
               {countdown}
             </div>
-            <div style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.45)" }}>
-              Brace for impact
-            </div>
+            <div style={{ fontSize: "0.6rem", color: "rgba(255,255,255,0.45)" }}>Brace for impact</div>
           </div>
         )}
 
@@ -1115,7 +543,7 @@ function Battlefield({ party, enemies: initEnemies, onCombatEnd, depth }) {
           <div style={{
             position: "absolute", inset: 0, display: "flex", alignItems: "center",
             justifyContent: "center", background: "rgba(0,0,0,0.6)",
-            flexDirection: "column", gap: "0.5rem",
+            flexDirection: "column", gap: "0.5rem", pointerEvents: "none",
           }}>
             <div style={{ fontSize: "2.5rem" }}>{phase === "victory" ? "🏆" : "💀"}</div>
             <div style={{ fontSize: "1rem", fontWeight: 800, color: phase === "victory" ? "#fbbf24" : "#ef4444" }}>
@@ -1125,17 +553,13 @@ function Battlefield({ party, enemies: initEnemies, onCombatEnd, depth }) {
         )}
       </div>
 
-      {/* Mini hero bars — always visible */}
+      {/* Mini hero bars — tap to select */}
       <div style={{ display: "flex", gap: 4, marginBottom: "0.4rem" }}>
         {heroes.map(h => (
           <div
             key={h.id}
-            onClick={() => {
-              if (h.dead) return;
-              const newSel = h.id === selected ? null : h.id;
-              setSelected(newSel);
-              selectedRef.current = newSel;
-            }}
+            onTouchStart={() => !h.dead && onSelectHero(h.id)}
+            onClick={() => !h.dead && onSelectHero(h.id)}
             style={{
               flex: 1, padding: "0.3rem 0.35rem", borderRadius: 7, cursor: h.dead ? "default" : "pointer",
               background: selected === h.id ? `${h.color}18` : "rgba(255,255,255,0.04)",
@@ -1152,20 +576,21 @@ function Battlefield({ party, enemies: initEnemies, onCombatEnd, depth }) {
         ))}
       </div>
 
-      {/* Ability bar — only when hero selected */}
-      <AbilityBar hero={selHero} onUseAbility={useAbility} onUseFood={useFood} />
+      <AbilityBar hero={selHero} onUseAbility={onUseAbility} onUseFood={onUseFood} />
 
       {/* Combat log */}
       <div style={{
         height: 52, overflowY: "auto", background: "rgba(0,0,0,0.25)", borderRadius: 8,
-        padding: "0.28rem 0.5rem", fontSize: "0.62rem", color: "var(--muted)",
+        padding: "0.28rem 0.5rem", fontSize: "0.62rem",
         fontFamily: "monospace", border: "1px solid rgba(255,255,255,0.07)",
         display: "flex", flexDirection: "column", gap: 1,
       }}>
-        {log.map(e => <div key={e.id} style={{
-          color: e.color === "#4ade80" ? "#b8f0cb" : e.color === "var(--muted)" ? "#9eb4cc" : e.color,
-          textShadow: "0 1px 3px rgba(0,0,0,0.95)",
-        }}>{e.text}</div>)}
+        {log.map(e => (
+          <div key={e.id} style={{
+            color: e.color === "#4ade80" ? "#b8f0cb" : e.color === "var(--muted)" ? "#9eb4cc" : e.color,
+            textShadow: "0 1px 3px rgba(0,0,0,0.95)",
+          }}>{e.text}</div>
+        ))}
       </div>
 
       {/* Result panel */}
@@ -1179,9 +604,7 @@ function Battlefield({ party, enemies: initEnemies, onCombatEnd, depth }) {
             <div key={k} style={{ fontSize: "0.75rem", color: "var(--text)" }}>🎒 +{v} {k.replace(/_/g, " ")}</div>
           ))}
           {result.victory && result.totalXp > 0 && (
-            <div style={{ fontSize: "0.7rem", color: "#a78bfa", marginTop: "0.2rem" }}>
-              ✨ +{result.totalXp} XP shared across party
-            </div>
+            <div style={{ fontSize: "0.7rem", color: "#a78bfa", marginTop: "0.2rem" }}>✨ +{result.totalXp} XP shared</div>
           )}
           <button
             onClick={() => onCombatEnd(result)}
@@ -1238,7 +661,6 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
         ))}
       </div>
 
-      {/* Map */}
       <div style={{
         display: "grid", gridTemplateColumns: `repeat(${MAP_W},${CELL}px)`, gap: 3,
         justifyContent: "center", background: "#0d0d12", borderRadius: 12, padding: "0.45rem",
@@ -1255,7 +677,7 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
               display: "flex", alignItems: "center", justifyContent: "center",
               fontSize: isParty ? "1.2rem" : "0.95rem",
               background: !visible ? "rgba(0,0,0,0.7)" : isParty ? "rgba(99,102,241,0.28)" : roomColor[cell.type] ?? "#ffffff08",
-              border: isParty ? "2px solid rgba(99,102,241,0.75)" : canMove ? `2px solid ${ cell.type === "enemy" ? "rgba(239,68,68,0.75)" : cell.type === "treasure" ? "rgba(251,191,36,0.75)" : cell.type === "exit" ? "rgba(167,139,250,0.75)" : "rgba(255,255,255,0.4)"}` : cell.visited ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(255,255,255,0.03)",
+              border: isParty ? "2px solid rgba(99,102,241,0.75)" : canMove ? `2px solid ${cell.type === "enemy" ? "rgba(239,68,68,0.75)" : cell.type === "treasure" ? "rgba(251,191,36,0.75)" : cell.type === "exit" ? "rgba(167,139,250,0.75)" : "rgba(255,255,255,0.4)"}` : cell.visited ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(255,255,255,0.03)",
               cursor: canMove ? "pointer" : "default", opacity: !visible ? 0.2 : 1, transition: "all 0.12s",
             }}>
               {isParty ? "🧭" : !visible ? null : cell.visited ? (
@@ -1268,35 +690,32 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
         })}
       </div>
 
-      {/* Legend */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: "0.5rem" }}>
-        <div style={{ fontSize: "0.62rem", color: "#a78bfa", marginBottom: "0.25rem" }}>
-        Depth {depth} — reach 🚪 Exit to go deeper · ✅ Finish Run to collect loot
-      </div>
-      {[["🧭", "Party"], ["👹", "Enemy"], ["💰", "Treasure"], ["🏕️", "Rest"], ["🚪", "Exit"]].map(([e, l]) => (
+        <div style={{ width: "100%", fontSize: "0.62rem", color: "#a78bfa", marginBottom: "0.1rem" }}>
+          Depth {depth} — reach 🚪 Exit to go deeper · ✅ Finish Run to collect loot
+        </div>
+        {[["🧭", "Party"], ["👹", "Enemy"], ["💰", "Treasure"], ["🏕️", "Rest"], ["🚪", "Exit"]].map(([e, l]) => (
           <span key={l} style={{ fontSize: "0.6rem", color: "var(--muted)", display: "flex", gap: 3, alignItems: "center" }}>
             <span>{e}</span>{l}
           </span>
         ))}
       </div>
 
-      {/* Party HP */}
       <div style={{ display: "flex", gap: 4, marginBottom: "0.5rem" }}>
         {party.map(h => {
-          const cls = DUNGEON_CLASS[h.heroClass ?? h.class ?? "fighter"] ?? DUNGEON_CLASS.fighter;
+          const cls = (h.heroClass && DUNGEON_CLASS[h.heroClass]) ? DUNGEON_CLASS[h.heroClass] : { emoji: "🧭" };
           return (
             <div key={h.id} style={{ flex: 1, background: "rgba(255,255,255,0.04)", borderRadius: 7, padding: "0.3rem 0.35rem", border: "1px solid rgba(255,255,255,0.07)" }}>
               <div style={{ fontSize: "0.8rem", textAlign: "center" }}>{cls.emoji}</div>
-              <HpBar hp={h.hp ?? h.maxHp} maxHp={h.maxHp} />
+              <HpBar hp={h.currentDungeonHp ?? h.hp ?? h.maxHp} maxHp={h.maxHp} />
               <div style={{ fontSize: "0.52rem", color: "var(--muted)", textAlign: "center", marginTop: 2 }}>
-                {Math.floor(h.hp ?? h.maxHp)}/{h.maxHp}
+                {Math.floor(h.currentDungeonHp ?? h.hp ?? h.maxHp)}/{h.maxHp}
               </div>
             </div>
           );
         })}
       </div>
 
-      {/* Loot so far */}
       {Object.keys(lootTotal).length > 0 && (
         <div style={{
           marginBottom: "0.5rem", padding: "0.4rem 0.6rem", borderRadius: 8,
@@ -1312,16 +731,12 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
           flex: 1, padding: "0.45rem", borderRadius: 8, fontSize: "0.72rem", fontWeight: 600,
           background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.28)",
           color: "#f87171", cursor: "pointer",
-        }}>
-          🏳️ Retreat
-        </button>
+        }}>🏳️ Retreat</button>
         <button onClick={onFinishRun} style={{
           flex: 1, padding: "0.45rem", borderRadius: 8, fontSize: "0.72rem", fontWeight: 700,
           background: "rgba(74,222,128,0.12)", border: "1px solid rgba(74,222,128,0.35)",
           color: "#4ade80", cursor: "pointer",
-        }}>
-          ✅ Finish Run
-        </button>
+        }}>✅ Finish Run</button>
       </div>
     </div>
   );
@@ -1330,7 +745,6 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
 // ─── LOBBY ────────────────────────────────────────────────────────────────────
 
 function Lobby({ game, lastRun, pendingReward, onStart, onClaim }) {
-  // When an active run exists, show those heroes; otherwise show available heroes
   const activeHeroIds = game?.dungeonRun?.heroIds ?? [];
   const party = activeHeroIds.length > 0
     ? (game?.adventurers ?? []).filter(a => activeHeroIds.includes(a.id))
@@ -1346,15 +760,12 @@ function Lobby({ game, lastRun, pendingReward, onStart, onClaim }) {
         </p>
       </div>
 
-      {/* Pending reward claim */}
       {hasPending && (
         <div style={{
           marginBottom: "0.85rem", padding: "0.7rem 0.85rem", borderRadius: 10,
           background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.3)",
         }}>
-          <div style={{ fontSize: "0.7rem", fontWeight: 700, color: "#fbbf24", marginBottom: "0.35rem" }}>
-            🎒 Unclaimed Dungeon Reward
-          </div>
+          <div style={{ fontSize: "0.7rem", fontWeight: 700, color: "#fbbf24", marginBottom: "0.35rem" }}>🎒 Unclaimed Dungeon Reward</div>
           {Object.entries(pendingReward.loot ?? {}).map(([k, v]) => (
             <div key={k} style={{ fontSize: "0.68rem", color: "var(--text)" }}>+{v} {k.replace(/_/g, " ")}</div>
           ))}
@@ -1366,13 +777,10 @@ function Lobby({ game, lastRun, pendingReward, onStart, onClaim }) {
             fontWeight: 700, fontSize: "0.75rem",
             background: "rgba(251,191,36,0.18)", border: "1px solid rgba(251,191,36,0.45)",
             color: "#fbbf24", cursor: "pointer",
-          }}>
-            ✅ Claim Reward
-          </button>
+          }}>✅ Claim Reward</button>
         </div>
       )}
 
-      {/* Last run summary (when no pending) */}
       {!hasPending && lastRun && (
         <div style={{
           marginBottom: "0.75rem", padding: "0.6rem 0.75rem", borderRadius: 10,
@@ -1388,7 +796,6 @@ function Lobby({ game, lastRun, pendingReward, onStart, onClaim }) {
         </div>
       )}
 
-      {/* Party */}
       <div style={{ marginBottom: "0.85rem" }}>
         <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginBottom: "0.4rem", fontWeight: 600 }}>
           YOUR PARTY ({party.length}/{PARTY_SIZE})
@@ -1400,7 +807,7 @@ function Lobby({ game, lastRun, pendingReward, onStart, onClaim }) {
         ) : (
           <div style={{ display: "flex", gap: 6 }}>
             {party.map(adv => {
-              const cls = DUNGEON_CLASS[adv.heroClass ?? adv.class ?? "fighter"] ?? DUNGEON_CLASS.fighter;
+              const cls = (adv.heroClass && DUNGEON_CLASS[adv.heroClass]) ? DUNGEON_CLASS[adv.heroClass] : { emoji: "🧭", label: "Adventurer", color: "#94a3b8" };
               const beltItems = ARTISAN_FOOD_LIST.filter(id => (adv.foodBelt?.[id] ?? 0) > 0);
               return (
                 <div key={adv.id} style={{
@@ -1423,7 +830,6 @@ function Lobby({ game, lastRun, pendingReward, onStart, onClaim }) {
         )}
       </div>
 
-      {/* Ability reference */}
       <div style={{ marginBottom: "0.85rem", padding: "0.55rem 0.7rem", borderRadius: 9, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
         <div style={{ fontSize: "0.65rem", color: "var(--muted)", fontWeight: 600, marginBottom: "0.35rem" }}>ABILITIES</div>
         {[DUNGEON_CLASS.fighter, DUNGEON_CLASS.mage, DUNGEON_CLASS.scavenger].map(cls => (
@@ -1456,7 +862,8 @@ function Lobby({ game, lastRun, pendingReward, onStart, onClaim }) {
   );
 }
 
-// Local helper mirrors engine getDungeonParty without importing (avoids circular dep)
+// ─── Helper ───────────────────────────────────────────────────────────────────
+
 function getDungeonPartyLocal(game) {
   const expeditionHeroIds = new Set();
   const exps = game?.expeditions ?? {};
@@ -1474,31 +881,53 @@ function getDungeonPartyLocal(game) {
   }).slice(0, PARTY_SIZE);
 }
 
-// ─── MAIN ─────────────────────────────────────────────────────────────────────
+// ─── MAIN — owns ALL combat state so tab-switching doesn't reset it ───────────
 
 export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, onStartRun, onSaveRun }) {
-  // Restore from game.dungeonRun if an active run exists
   const savedRun = game?.dungeonRun?.active ? game.dungeonRun : null;
 
+  // ── Explore/lobby state ──────────────────────────────────────────────────
   const [mode, setMode] = useState(savedRun?.mode ?? "lobby");
   const [cells, setCells] = useState(savedRun?.cells ?? []);
   const [pos, setPos] = useState(savedRun?.pos ?? { x: 3, y: 3 });
   const [depth, setDepth] = useState(savedRun?.depth ?? 1);
-  const [combatEnemies, setCombatEnemies] = useState([]);
   const [combatPos, setCombatPos] = useState(null);
   const [lootTotal, setLootTotal] = useState(savedRun?.lootTotal ?? {});
   const [xpTotal, setXpTotal] = useState(savedRun?.xpTotal ?? {});
   const [foodUsedTotal, setFoodUsedTotal] = useState(savedRun?.foodUsedTotal ?? {});
   const [lastRun, setLastRun] = useState(null);
   const [party, setParty] = useState(() => {
-    // Restore party from saved heroIds
     if (!savedRun?.heroIds?.length) return [];
     return (game?.adventurers ?? []).filter(a => savedRun.heroIds.includes(a.id));
   });
 
+  // ── Combat state — lives here so tab-switching doesn't reset it ──────────
+  const [combatHeroes, setCombatHeroes] = useState([]);
+  const [combatEnemies, setCombatEnemies] = useState([]);
+  const [combatSelected, setCombatSelected] = useState(null);
+  const [combatFloats, setCombatFloats] = useState([]);
+  const [combatLog, setCombatLog] = useState([]);
+  const [combatPhase, setCombatPhase] = useState("initiative");
+  const [combatInitResult, setCombatInitResult] = useState(null);
+  const [combatCountdown, setCombatCountdown] = useState(5);
+  const [combatResult, setCombatResult] = useState(null);
+
+  // Refs for use inside the game loop interval (avoid stale closures)
+  const heroesRef = useRef([]);
+  const enemiesRef = useRef([]);
+  const selectedRef = useRef(null);
+  const phaseRef = useRef("initiative");
+  const floatIdRef = useRef(0);
+
+  useEffect(() => { heroesRef.current = combatHeroes; }, [combatHeroes]);
+  useEffect(() => { enemiesRef.current = combatEnemies; }, [combatEnemies]);
+  useEffect(() => { selectedRef.current = combatSelected; }, [combatSelected]);
+  useEffect(() => { phaseRef.current = combatPhase; }, [combatPhase]);
+
   const pendingReward = game?.pendingDungeonReward ?? null;
 
-  // Persist run state to game whenever key state changes
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
   function saveRun(overrides = {}) {
     if (!onSaveRun) return;
     onSaveRun({
@@ -1511,6 +940,436 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
       foodUsedTotal: overrides.foodUsedTotal ?? foodUsedTotal,
     });
   }
+
+  function addFloat(x, y, text, color) {
+    const id = ++floatIdRef.current;
+    setCombatFloats(prev => [...prev, { id, x, y, text, color }]);
+    setTimeout(() => setCombatFloats(prev => prev.filter(f => f.id !== id)), 1000);
+  }
+
+  function addLog(text, color = "var(--muted)") {
+    setCombatLog(prev => [...prev.slice(-12), { id: Date.now() + Math.random(), text, color }]);
+  }
+
+  // ── Initiative roll — runs once when combat is entered ────────────────────
+  // Tracked with a ref so it doesn't re-fire on re-render
+  const initiativeRolledRef = useRef(false);
+  useEffect(() => {
+    if (combatPhase !== "initiative" || initiativeRolledRef.current || combatHeroes.length === 0) return;
+    initiativeRolledRef.current = true;
+    const playerRoll = randInt(1, 20);
+    const enemyRoll = randInt(1, 20);
+    const playerWins = playerRoll >= enemyRoll;
+    setCombatInitResult({ playerRoll, enemyRoll, playerWins });
+    const t = setTimeout(() => {
+      const nextPhase = playerWins ? "prep" : "enemy_advance";
+      setCombatPhase(nextPhase);
+      phaseRef.current = nextPhase;
+      setCombatCountdown(5);
+    }, 2500);
+    return () => clearTimeout(t);
+  }, [combatPhase, combatHeroes.length]);
+
+  // ── Countdown → fighting ──────────────────────────────────────────────────
+  useEffect(() => {
+    if (combatPhase !== "prep" && combatPhase !== "enemy_advance") return;
+    if (combatCountdown <= 0) {
+      setCombatPhase("fighting");
+      phaseRef.current = "fighting";
+      return;
+    }
+    const t = setTimeout(() => setCombatCountdown(c => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [combatPhase, combatCountdown]);
+
+  // ── Main game loop ────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (mode !== "combat") return; // only run when in combat
+
+    let last = performance.now();
+    const loop = setInterval(() => {
+      const currentPhase = phaseRef.current;
+      const now = performance.now();
+      const dt = Math.min((now - last) / 1000, 0.15);
+      last = now;
+
+      if (currentPhase === "prep") {
+        const hs = heroesRef.current.map(h => ({ ...h }));
+        hs.forEach(hero => {
+          if (hero.dead) return;
+          const np = moveToward({ x: hero.x, y: hero.y }, { x: hero.targetX, y: hero.targetY }, HERO_SPEED, dt);
+          hero.x = clamp(np.x, UNIT_R, BF_W - UNIT_R);
+          hero.y = clamp(np.y, UNIT_R, BF_H - UNIT_R);
+        });
+        heroesRef.current = hs;
+        setCombatHeroes([...hs]);
+        return;
+      }
+
+      if (currentPhase === "enemy_advance") {
+        const hs = heroesRef.current;
+        const es = enemiesRef.current.map(e => ({ ...e }));
+        const aliveHeroes = hs.filter(h => !h.dead);
+        es.forEach(enemy => {
+          if (enemy.dead) return;
+          const tgt = aliveHeroes.length ? aliveHeroes.reduce((a, b) => dist(enemy, a) < dist(enemy, b) ? a : b) : null;
+          if (!tgt) return;
+          if (dist(enemy, tgt) > enemy.attackRange) {
+            const np = moveToward({ x: enemy.x, y: enemy.y }, tgt, enemy.speed, dt);
+            enemy.x = clamp(np.x, UNIT_R, BF_W - UNIT_R);
+            enemy.y = clamp(np.y, UNIT_R, BF_H - UNIT_R);
+          }
+        });
+        enemiesRef.current = es;
+        setCombatEnemies([...es]);
+        return;
+      }
+
+      if (currentPhase !== "fighting") return;
+
+      const hs = heroesRef.current.map(h => ({ ...h, ability: { ...h.ability } }));
+      const es = enemiesRef.current.map(e => ({ ...e }));
+      const aliveHeroes = hs.filter(h => !h.dead);
+      const aliveEnemies = es.filter(e => !e.dead);
+
+      if (aliveHeroes.length === 0) {
+        const foodBeltDeltas = {};
+        hs.forEach(h => { if (Object.keys(h.foodUsed ?? {}).length > 0) foodBeltDeltas[h.id] = h.foodUsed; });
+        const heroHpSnapshot = {};
+        hs.forEach(h => { heroHpSnapshot[h.id] = Math.floor(h.hp); });
+        phaseRef.current = "defeat";
+        setCombatPhase("defeat");
+        setCombatResult({ victory: false, loot: {}, xpByHeroId: {}, foodBeltDeltas, heroHpSnapshot });
+        return;
+      }
+
+      if (aliveEnemies.length === 0) {
+        const loot = {};
+        const totalXp = es.reduce((s, e) => s + (ENEMY_TYPES[e.typeId]?.xp ?? 0), 0);
+        const xpEach = Math.floor(totalXp / Math.max(1, aliveHeroes.length));
+        const xpByHeroId = {};
+        aliveHeroes.forEach(h => { xpByHeroId[h.id] = xpEach; });
+        es.forEach(e => {
+          const def = ENEMY_TYPES[e.typeId];
+          if (!def?.loot) return;
+          Object.entries(def.loot).forEach(([k, [mn, mx]]) => { loot[k] = (loot[k] ?? 0) + randInt(mn, mx); });
+        });
+        const foodBeltDeltas = {};
+        hs.forEach(h => { if (Object.keys(h.foodUsed ?? {}).length > 0) foodBeltDeltas[h.id] = h.foodUsed; });
+        const heroHpSnapshot = {};
+        hs.forEach(h => { heroHpSnapshot[h.id] = Math.floor(h.hp); });
+        phaseRef.current = "victory";
+        setCombatPhase("victory");
+        setCombatResult({ victory: true, loot, xpByHeroId, foodBeltDeltas, totalXp, heroHpSnapshot });
+        return;
+      }
+
+      // ── Heroes tick ──────────────────────────────────────────────────────
+      hs.forEach(hero => {
+        if (hero.dead) return;
+
+        if (hero.hotRemaining > 0 && hero.hotDuration > 0) {
+          const healThisTick = (hero.hotRemaining / hero.hotDuration) * dt;
+          hero.hp = Math.min(hero.maxHp, hero.hp + healThisTick);
+          hero.hotDuration = Math.max(0, hero.hotDuration - dt);
+          hero.hotRemaining = hero.hotDuration <= 0 ? 0 : hero.hotRemaining - healThisTick;
+        }
+
+        if (hero.bladeRushActive) {
+          hero.bladeRushTimeLeft = Math.max(0, hero.bladeRushTimeLeft - dt);
+          if (hero.bladeRushTimeLeft <= 0) {
+            hero.bladeRushActive = false;
+            if (hero.bladeRushAttacksLeft <= 0) hero.bladeRushAttacksLeft = BLADE_RUSH_ATTACK_COUNT;
+          }
+        }
+
+        if (!hero.bladeRushActive && hero.bladeRushAttacksLeft > 0) {
+          hero.bladeRushAttackTimer = Math.max(0, (hero.bladeRushAttackTimer ?? 0) - dt);
+          if (hero.bladeRushAttackTimer <= 0) {
+            const nearest = aliveEnemies.reduce((best, e) => (!best || dist(hero, e) < dist(hero, best)) ? e : best, null);
+            if (nearest && dist(hero, nearest) <= hero.attackRange) {
+              const dmg = Math.max(1, hero.atk - nearest.def + randInt(-2, 3));
+              const ei = es.findIndex(e => e.id === nearest.id);
+              if (ei >= 0 && !es[ei].dead) {
+                if (es[ei].channeling) { es[ei].channeling = false; es[ei].channelTimer = 0; es[ei].interrupted = true; addLog(`⚡ ${hero.name} interrupts ${nearest.name}'s channel!`, "#fbbf24"); }
+                if (es[ei].special === "armor_break" && !es[ei].defReduced && es[ei].hp / es[ei].maxHp < 0.5) { es[ei].def = Math.floor(es[ei].def / 2); es[ei].defReduced = true; addLog(`🪨 ${nearest.name}'s armor cracks!`, "#fbbf24"); }
+                es[ei].hp = Math.max(0, es[ei].hp - dmg);
+                if (es[ei].hp <= 0) {
+                  es[ei].dead = true;
+                  addLog(`${nearest.emoji} ${nearest.name} defeated!`, "#4ade80");
+                  if (es[ei].special === "death_curse") {
+                    aliveHeroes.forEach(h => { const curse = Math.floor(h.maxHp * 0.25); const hi2 = hs.findIndex(hh => hh.id === h.id); if (hi2 >= 0) { hs[hi2].hp = Math.max(0, hs[hi2].hp - curse); if (hs[hi2].hp <= 0) hs[hi2].dead = true; addFloat(h.x, h.y - 15, `-${curse}💀`, "#e879f9"); } });
+                    addLog(`👻 ${nearest.name}'s death curse strikes all heroes!`, "#e879f9");
+                  }
+                }
+                addFloat(nearest.x, nearest.y - 10, `-${dmg}⚡`, "#fbbf24");
+              }
+              hero.bladeRushAttacksLeft--;
+              hero.bladeRushAttackTimer = BLADE_RUSH_ATTACK_GAP;
+            } else {
+              hero.bladeRushAttacksLeft = 0;
+              addLog(`⚡ ${hero.name}'s rush fizzled`, "var(--muted)");
+            }
+          }
+          return;
+        }
+
+        const speed = HERO_SPEED;
+        const np = moveToward({ x: hero.x, y: hero.y }, { x: hero.targetX, y: hero.targetY }, speed, dt);
+        hero.x = clamp(np.x, UNIT_R, BF_W - UNIT_R);
+        hero.y = clamp(np.y, UNIT_R, BF_H - UNIT_R);
+
+        if (hero.attackTarget) {
+          const tgt = aliveEnemies.find(e => e.id === hero.attackTarget);
+          if (!tgt) { hero.attackTarget = null; }
+          else if (dist(hero, tgt) > hero.attackRange) { hero.targetX = tgt.x; hero.targetY = tgt.y; }
+        }
+
+        if (hero.attackCooldown > 0) {
+          hero.attackCooldown -= dt;
+        } else {
+          let atk = null;
+          if (hero.attackTarget) { const t = aliveEnemies.find(e => e.id === hero.attackTarget); if (t && dist(hero, t) <= hero.attackRange) atk = t; }
+          if (!atk) { const inRange = aliveEnemies.filter(e => dist(hero, e) <= hero.attackRange); if (inRange.length > 0) atk = inRange.reduce((a, b) => dist(hero, a) < dist(hero, b) ? a : b); }
+          if (atk) {
+            const baseDmg = Math.max(1, hero.atk - atk.def + randInt(-2, 3));
+            const ei = es.findIndex(e => e.id === atk.id);
+            if (ei >= 0 && !es[ei].dead) {
+              if (es[ei].channeling) { es[ei].channeling = false; es[ei].channelTimer = 0; es[ei].interrupted = true; addLog(`${hero.emoji} ${hero.name} interrupts ${atk.name}'s channel!`, "#fbbf24"); }
+              if (es[ei].special === "armor_break" && !es[ei].defReduced && es[ei].hp / es[ei].maxHp < 0.5) { es[ei].def = Math.floor(es[ei].def / 2); es[ei].defReduced = true; addLog(`🪨 ${atk.name}'s armor cracks! DEF halved.`, "#fbbf24"); }
+              es[ei].hp = Math.max(0, es[ei].hp - baseDmg);
+              if (es[ei].hp <= 0) {
+                es[ei].dead = true;
+                addLog(`${atk.emoji} ${atk.name} defeated!`, "#4ade80");
+                if (es[ei].special === "death_curse") {
+                  aliveHeroes.forEach(h => { const curse = Math.floor(h.maxHp * 0.25); const hi2 = hs.findIndex(hh => hh.id === h.id); if (hi2 >= 0) { hs[hi2].hp = Math.max(0, hs[hi2].hp - curse); if (hs[hi2].hp <= 0) hs[hi2].dead = true; addFloat(h.x, h.y - 15, `-${curse}💀`, "#e879f9"); } });
+                  addLog(`👻 ${atk.name}'s death curse strikes all heroes!`, "#e879f9");
+                }
+              }
+              addFloat(atk.x, atk.y - 10, `-${baseDmg}`, "#f87171");
+            }
+            hero.attackCooldown = 1 / hero.attackSpeed;
+          }
+        }
+
+        if (hero.ability.cooldownLeft > 0) hero.ability.cooldownLeft = Math.max(0, hero.ability.cooldownLeft - dt);
+        hero.flashHit = false;
+      });
+
+      // ── Enemies tick ────────────────────────────────────────────────────
+      es.forEach(enemy => {
+        if (enemy.dead) return;
+
+        if (enemy.special === "teleport") {
+          enemy.teleportTimer = (enemy.teleportTimer ?? 4) - dt;
+          if (enemy.teleportTimer <= 0) {
+            const targets = aliveHeroes.filter(h => !h.dead);
+            if (targets.length > 0) {
+              const tgt = targets[randInt(0, targets.length - 1)];
+              enemy.x = clamp(tgt.x + randInt(-30, 30), UNIT_R, BF_W - UNIT_R);
+              enemy.y = clamp(tgt.y + randInt(-30, 30), UNIT_R, BF_H - UNIT_R);
+              addFloat(enemy.x, enemy.y - 15, "💨 Teleport!", "#6366f1");
+            }
+            enemy.teleportTimer = 4;
+          }
+        }
+
+        if (enemy.special === "channel") {
+          if (!enemy.channeling && enemy.attackCooldown <= 0) {
+            enemy.channeling = true; enemy.channelTimer = 2; enemy.interrupted = false;
+            addLog(`🔮 ${enemy.name} begins channeling!`, "#c084fc");
+          }
+          if (enemy.channeling) {
+            enemy.channelTimer -= dt;
+            if (enemy.channelTimer <= 0 && !enemy.interrupted) {
+              const tgt = aliveHeroes.reduce((a, b) => dist(enemy, a) < dist(enemy, b) ? a : b, aliveHeroes[0]);
+              if (tgt) {
+                const hi = hs.findIndex(h => h.id === tgt.id);
+                if (hi >= 0 && !hs[hi].dead) {
+                  const bolt = Math.floor(enemy.atk * 2);
+                  hs[hi].hp = Math.max(0, hs[hi].hp - bolt);
+                  if (hs[hi].hp <= 0) { hs[hi].dead = true; addLog(`💀 ${hs[hi].name} fallen!`, "#ef4444"); }
+                  addFloat(tgt.x, tgt.y - 10, `-${bolt}🔮`, "#c084fc");
+                  addLog(`🔮 ${enemy.name} fires a bolt for ${bolt}!`, "#c084fc");
+                }
+              }
+              enemy.attackCooldown = 1 / enemy.attackSpeed;
+              enemy.channeling = false; enemy.channelTimer = 0;
+            }
+            enemy.flashHit = false;
+            return;
+          }
+        }
+
+        if (enemy.special === "revive" && !enemy.revived && enemy.hp / enemy.maxHp <= 0.5) {
+          enemy.revived = true; enemy.dead = false; enemy.hp = Math.floor(enemy.maxHp * 0.4);
+          addFloat(enemy.x, enemy.y - 15, "Revived!", "#9ca3af");
+          addLog(`💀 ${enemy.name} rises again!`, "#9ca3af");
+        }
+
+        const tauntHero = hs.find(h => !h.dead && h.tauntActive);
+        const tgt = tauntHero ?? (aliveHeroes.length ? aliveHeroes.reduce((a, b) => dist(enemy, a) < dist(enemy, b) ? a : b) : null);
+        enemy.taunted = !!tauntHero;
+        if (!tgt) return;
+
+        const d = dist(enemy, tgt);
+        if (d > enemy.attackRange) {
+          const np = moveToward({ x: enemy.x, y: enemy.y }, tgt, enemy.speed, dt);
+          enemy.x = clamp(np.x, UNIT_R, BF_W - UNIT_R);
+          enemy.y = clamp(np.y, UNIT_R, BF_H - UNIT_R);
+        }
+        if (enemy.attackCooldown > 0) {
+          enemy.attackCooldown -= dt;
+        } else if (d <= enemy.attackRange) {
+          const hi = hs.findIndex(h => h.id === tgt.id);
+          if (hi >= 0 && !hs[hi].dead) {
+            const dmg = Math.max(1, enemy.atk - hs[hi].def + randInt(-1, 3));
+            hs[hi].hp = Math.max(0, hs[hi].hp - dmg);
+            if (hs[hi].hp <= 0) { hs[hi].dead = true; addLog(`💀 ${hs[hi].name} fallen!`, "#ef4444"); }
+            addFloat(tgt.x, tgt.y - 10, `-${dmg}`, "#a78bfa");
+            enemy.attackCooldown = 1 / enemy.attackSpeed;
+          }
+        }
+        enemy.flashHit = false;
+      });
+
+      // Separation push
+      const allUnits = [...hs.filter(h => !h.dead), ...es.filter(e => !e.dead)];
+      const SEP = UNIT_R * 2 + 3;
+      for (let i = 0; i < allUnits.length; i++) {
+        for (let j = i + 1; j < allUnits.length; j++) {
+          const a = allUnits[i], b = allUnits[j];
+          const dx = b.x - a.x, dy = b.y - a.y;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d < SEP && d > 0.01) {
+            const push = (SEP - d) / 2;
+            const nx = dx / d, ny = dy / d;
+            a.x = clamp(a.x - nx * push, UNIT_R, BF_W - UNIT_R);
+            a.y = clamp(a.y - ny * push, UNIT_R, BF_H - UNIT_R);
+            b.x = clamp(b.x + nx * push, UNIT_R, BF_W - UNIT_R);
+            b.y = clamp(b.y + ny * push, UNIT_R, BF_H - UNIT_R);
+          }
+        }
+      }
+
+      heroesRef.current = hs;
+      enemiesRef.current = es;
+      setCombatHeroes([...hs]);
+      setCombatEnemies([...es]);
+    }, TICK_MS);
+
+    return () => clearInterval(loop);
+  }, [mode]); // only restarts when mode changes (combat ↔ explore)
+
+  // ── Tap handler (passed to Battlefield) ──────────────────────────────────
+  const handleBattlefieldTap = useCallback((x, y, phase) => {
+    const currentPhase = phaseRef.current;
+    if (currentPhase !== "fighting" && currentPhase !== "prep") return;
+    const HIT_R = UNIT_R * 1.8;
+
+    const tappedEnemy = enemiesRef.current.find(en => !en.dead && dist({ x, y }, en) < HIT_R);
+    if (tappedEnemy) {
+      if (selectedRef.current && currentPhase === "fighting") {
+        setCombatHeroes(prev => {
+          const next = prev.map(h => h.id === selectedRef.current
+            ? { ...h, attackTarget: tappedEnemy.id, targetX: tappedEnemy.x, targetY: tappedEnemy.y }
+            : h);
+          heroesRef.current = next;
+          return next;
+        });
+      }
+      return;
+    }
+
+    const tappedHero = heroesRef.current.find(h => !h.dead && dist({ x, y }, h) < HIT_R);
+    if (tappedHero) {
+      const newSel = tappedHero.id === selectedRef.current ? null : tappedHero.id;
+      setCombatSelected(newSel);
+      selectedRef.current = newSel;
+      return;
+    }
+
+    if (selectedRef.current) {
+      setCombatHeroes(prev => {
+        const next = prev.map(h => h.id === selectedRef.current
+          ? { ...h, targetX: x, targetY: y, attackTarget: null }
+          : h);
+        heroesRef.current = next;
+        return next;
+      });
+    }
+  }, []);
+
+  const handleSelectHero = useCallback((heroId) => {
+    const newSel = heroId === selectedRef.current ? null : heroId;
+    setCombatSelected(newSel);
+    selectedRef.current = newSel;
+  }, []);
+
+  // ── Ability use ───────────────────────────────────────────────────────────
+  const handleUseAbility = useCallback((heroId) => {
+    const hero = heroesRef.current.find(h => h.id === heroId);
+    if (!hero || hero.ability.cooldownLeft > 0 || hero.dead || hero.bladeRushActive) return;
+
+    if (hero.heroClass === "fighter") {
+      addLog(`📢 ${hero.name} taunts! Enemies focus Fighter!`, "#f87171");
+      setCombatHeroes(prev => {
+        const next = prev.map(h => h.id !== heroId ? h : { ...h, tauntActive: true, ability: { ...h.ability, cooldownLeft: h.ability.cooldown } });
+        heroesRef.current = next;
+        return next;
+      });
+      setTimeout(() => {
+        setCombatHeroes(prev => { const next = prev.map(h => h.id === heroId ? { ...h, tauntActive: false } : h); heroesRef.current = next; return next; });
+      }, 4000);
+    } else if (hero.heroClass === "mage") {
+      setCombatHeroes(prev => {
+        const alive = prev.filter(h => !h.dead);
+        if (!alive.length) return prev;
+        const lowest = alive.reduce((a, b) => (a.hp / a.maxHp) < (b.hp / b.maxHp) ? a : b);
+        const healAmt = Math.floor(lowest.maxHp * 0.35);
+        addLog(`💚 ${hero.name} heals ${lowest.name} for ${healAmt}!`, "#4ade80");
+        addFloat(lowest.x, lowest.y - 15, `+${healAmt}`, "#4ade80");
+        const next = prev.map(h => {
+          if (h.id === heroId) return { ...h, ability: { ...h.ability, cooldownLeft: h.ability.cooldown } };
+          if (h.id === lowest.id) return { ...h, hp: Math.min(h.maxHp, h.hp + healAmt) };
+          return h;
+        });
+        heroesRef.current = next;
+        return next;
+      });
+    } else {
+      addLog(`⚡ ${hero.name} launches Blade Rush!`, "#34d399");
+      setCombatHeroes(prev => {
+        const next = prev.map(h => h.id !== heroId ? h : { ...h, bladeRushActive: true, bladeRushTimeLeft: BLADE_RUSH_DURATION, bladeRushAttacksLeft: 0, bladeRushAttackTimer: 0, ability: { ...h.ability, cooldownLeft: h.ability.cooldown } });
+        heroesRef.current = next;
+        return next;
+      });
+    }
+  }, []);
+
+  // ── Food use ──────────────────────────────────────────────────────────────
+  const handleUseFood = useCallback((heroId, itemId) => {
+    const foodEntry = ARTISAN_FOOD_HEAL?.[itemId];
+    if (!foodEntry) return;
+    setCombatHeroes(prev => {
+      const next = prev.map(h => {
+        if (h.id !== heroId) return h;
+        const belt = { ...(h.foodBelt ?? {}) };
+        if ((belt[itemId] ?? 0) <= 0) return h;
+        belt[itemId] = belt[itemId] - 1;
+        if (belt[itemId] === 0) delete belt[itemId];
+        const foodUsed = { ...(h.foodUsed ?? {}) };
+        foodUsed[itemId] = (foodUsed[itemId] ?? 0) + 1;
+        addLog(`${foodEntry.emoji ?? "🍞"} ${h.name} eats ${foodEntry.name}!`, "#4ade80");
+        addFloat(h.x, h.y - 20, `+${foodEntry.healAmount}🌿`, "#4ade80");
+        return { ...h, foodBelt: belt, foodUsed, hotRemaining: (h.hotRemaining ?? 0) + foodEntry.healAmount, hotDuration: HOT_DURATION };
+      });
+      heroesRef.current = next;
+      return next;
+    });
+  }, []);
+
+  // ── Run management ────────────────────────────────────────────────────────
 
   function startRun() {
     if (pendingReward) return;
@@ -1527,22 +1386,36 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
     setFoodUsedTotal({});
     setDepth(1);
     setMode("explore");
-    // Lock heroes and persist initial run state
     if (onStartRun) onStartRun(heroIds);
     if (onSaveRun) onSaveRun({ mode: "explore", cells: newCells, pos: startPos, depth: 1, lootTotal: {}, xpTotal: {}, foodUsedTotal: {} });
   }
 
   function enterCombat(x, y) {
-    setCombatPos({ x, y });
     const poolIndex = Math.min(depth - 1, ENEMY_POOL.length - 1);
     const pool = ENEMY_POOL[poolIndex];
     const count = clamp(1 + Math.floor(depth * 0.9), 1, 5);
-    setCombatEnemies(Array.from({ length: count }, (_, i) =>
-      makeEnemy(pool[Math.floor(Math.random() * pool.length)], i, depth)
-    ));
-    const newMode = "combat";
-    setMode(newMode);
-    saveRun({ mode: newMode });
+    const newEnemies = Array.from({ length: count }, (_, i) => makeEnemy(pool[Math.floor(Math.random() * pool.length)], i, depth));
+    const newHeroes = party.slice(0, PARTY_SIZE).map((adv, i) => makeHero(adv, i));
+
+    // Reset all combat state fresh
+    setCombatPos({ x, y });
+    setCombatHeroes(newHeroes);
+    setCombatEnemies(newEnemies);
+    setCombatSelected(null);
+    setCombatFloats([]);
+    setCombatLog([]);
+    setCombatPhase("initiative");
+    setCombatInitResult(null);
+    setCombatCountdown(5);
+    setCombatResult(null);
+    heroesRef.current = newHeroes;
+    enemiesRef.current = newEnemies;
+    selectedRef.current = null;
+    phaseRef.current = "initiative";
+    initiativeRolledRef.current = false; // allow initiative to re-roll
+
+    setMode("combat");
+    saveRun({ mode: "combat" });
   }
 
   function onCombatEnd(result) {
@@ -1551,9 +1424,7 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
         const next = { ...prev };
         Object.entries(result.foodBeltDeltas).forEach(([heroId, deltas]) => {
           next[heroId] = next[heroId] ? { ...next[heroId] } : {};
-          Object.entries(deltas).forEach(([itemId, used]) => {
-            next[heroId][itemId] = (next[heroId][itemId] ?? 0) + used;
-          });
+          Object.entries(deltas).forEach(([itemId, used]) => { next[heroId][itemId] = (next[heroId][itemId] ?? 0) + used; });
         });
         return next;
       });
@@ -1565,7 +1436,6 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
       const newXp = { ...xpTotal };
       Object.entries(result.xpByHeroId ?? {}).forEach(([heroId, xp]) => { newXp[heroId] = (newXp[heroId] ?? 0) + xp; });
 
-      // Persist hero HP from this combat back into party for next room
       if (result.heroHpSnapshot) {
         setParty(prev => prev.map(h => {
           const snap = result.heroHpSnapshot[h.id];
@@ -1595,21 +1465,14 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
   function doRest(x, y) {
     setParty(prev => prev.map(h => ({
       ...h,
-      hp: Math.min(h.maxHp ?? 40, Math.floor((h.hp ?? h.maxHp ?? 40) + (h.maxHp ?? 40) * 0.3)),
+      currentDungeonHp: Math.min(h.maxHp ?? 40, Math.floor((h.currentDungeonHp ?? h.hp ?? h.maxHp ?? 40) + (h.maxHp ?? 40) * 0.3)),
     })));
     setCells(prev => prev.map(c => c.x === x && c.y === y ? { ...c, cleared: true } : c));
   }
 
   function endRun(victory, hpSnapshot = {}) {
     const totalXp = Object.values(xpTotal).reduce((s, v) => s + v, 0);
-    const runResult = {
-      victory,
-      loot: lootTotal,
-      xpByHeroId: xpTotal,
-      foodBeltDeltas: foodUsedTotal,
-      totalXp,
-      hpSnapshot,
-    };
+    const runResult = { victory, loot: lootTotal, xpByHeroId: xpTotal, foodBeltDeltas: foodUsedTotal, totalXp, hpSnapshot };
     const label = victory ? "Victory" : `Retreated at depth ${depth}`;
     setLastRun({ victory, label, loot: lootTotal, depth });
     onDungeonComplete(runResult);
@@ -1623,14 +1486,10 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
     setParty([]);
   }
 
+  // ── Render ────────────────────────────────────────────────────────────────
+
   if (mode === "lobby") return (
-    <Lobby
-      game={game}
-      lastRun={lastRun}
-      pendingReward={pendingReward}
-      onStart={startRun}
-      onClaim={onClaimDungeon}
-    />
+    <Lobby game={game} lastRun={lastRun} pendingReward={pendingReward} onStart={startRun} onClaim={onClaimDungeon} />
   );
 
   if (mode === "explore") return (
@@ -1645,7 +1504,6 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
       onFinishRun={() => endRun(true)}
       onRetreat={() => endRun(false)}
       onExit={() => {
-        // Advance to next depth: new map, keep loot/party
         const newDepth = depth + 1;
         const newCells = generateMap();
         const startPos = { x: 3, y: 3 };
@@ -1660,10 +1518,21 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
 
   if (mode === "combat") return (
     <Battlefield
-      party={party}
+      heroes={combatHeroes}
       enemies={combatEnemies}
-      onCombatEnd={onCombatEnd}
+      selected={combatSelected}
+      floats={combatFloats}
+      log={combatLog}
+      phase={combatPhase}
+      initResult={combatInitResult}
+      countdown={combatCountdown}
+      result={combatResult}
       depth={depth}
+      onTap={handleBattlefieldTap}
+      onSelectHero={handleSelectHero}
+      onUseAbility={handleUseAbility}
+      onUseFood={handleUseFood}
+      onCombatEnd={onCombatEnd}
     />
   );
 
