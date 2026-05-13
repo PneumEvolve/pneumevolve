@@ -2462,7 +2462,12 @@ if (activeTier) {
       ? Math.min(rawIps, worker.sellRateLimit)
       : rawIps;
 
-    if (worker.hasStandingOrder && worker.standingOrder && (worker.queue ?? []).length === 0) {
+    // Accumulate fractional progress — low satisfaction slows selling but never freezes it
+    worker.sellProgress = (worker.sellProgress ?? 0) + effectiveIps * satMultiplier;
+    let toSellThisTick = Math.floor(worker.sellProgress);
+    worker.sellProgress -= toSellThisTick;
+
+    if (worker.hasStandingOrder && worker.standingOrder && (worker.queue ?? []).length === 0 && toSellThisTick > 0) {
   const itemType = worker.standingOrder;
   const INSTANCED_FORGE_KEYS = new Set(["master_sword", "tower_shield", "plate_armor"]);
   const isWorld  = itemType in WORLD_RESOURCES;
@@ -2501,10 +2506,6 @@ if (activeTier) {
   }
 }
  
-    // Accumulate fractional progress — low satisfaction slows selling but never freezes it
-    worker.sellProgress = (worker.sellProgress ?? 0) + effectiveIps * satMultiplier;
-    let toSellThisTick = Math.floor(worker.sellProgress);
-    worker.sellProgress -= toSellThisTick;
     let cashEarned = 0;
     while (toSellThisTick > 0 && (worker.queue ?? []).length > 0) {
       const order = worker.queue[0];
