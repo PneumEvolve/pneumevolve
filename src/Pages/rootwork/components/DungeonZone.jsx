@@ -66,7 +66,7 @@ const ENEMY_TYPES = {
     name: "Orc", emoji: "👹", color: "#f97316", bg: "#431407",
     hp: 80, atk: 14, def: 4, speed: ENEMY_SPEED * 0.7, attackSpeed: 0.5,
     attackRange: ENEMY_ATTACK_RANGE * 1.1, xp: 22,
-    loot: { iron_fitting: [1, 2] },
+    loot: { iron_fitting: [1, 2], rare_gem: [1, 1] },
   },
   troll: {
     name: "Troll", emoji: "🧌", color: "#84cc16", bg: "#1a2e05",
@@ -78,28 +78,28 @@ const ENEMY_TYPES = {
     name: "Shadow", emoji: "🌑", color: "#6366f1", bg: "#1e1b4b",
     hp: 55, atk: 11, def: 1, speed: ENEMY_SPEED * 1.4, attackSpeed: 1.0,
     attackRange: ENEMY_ATTACK_RANGE, xp: 18,
-    loot: { iron_ore: [1, 3] },
+    loot: { iron_ore: [1, 3], mana_crystal: [1, 1] },
     special: "teleport",
   },
   cultist: {
     name: "Cultist", emoji: "🔮", color: "#c084fc", bg: "#3b0764",
     hp: 50, atk: 18, def: 1, speed: ENEMY_SPEED * 0.8, attackSpeed: 0.3,
     attackRange: ENEMY_ATTACK_RANGE * 2.2, xp: 20,
-    loot: { lumber: [1, 3] },
+    loot: { lumber: [1, 3], mana_crystal: [1, 1] },
     special: "channel",
   },
   stone_golem: {
     name: "Stone Golem", emoji: "🪨", color: "#78716c", bg: "#1c1917",
     hp: 120, atk: 16, def: 10, speed: ENEMY_SPEED * 0.4, attackSpeed: 0.35,
     attackRange: ENEMY_ATTACK_RANGE * 1.1, xp: 35,
-    loot: { iron_ore: [3, 6], iron_fitting: [1, 2] },
+    loot: { iron_ore: [3, 6], iron_fitting: [1, 2], rare_gem: [1, 1] },
     special: "armor_break",
   },
   banshee: {
     name: "Banshee", emoji: "👻", color: "#e879f9", bg: "#4a044e",
     hp: 65, atk: 13, def: 0, speed: ENEMY_SPEED * 1.1, attackSpeed: 0.8,
     attackRange: ENEMY_ATTACK_RANGE, xp: 28,
-    loot: { lumber: [2, 4] },
+    loot: { lumber: [2, 4], rare_gem: [1, 1], mana_crystal: [1, 1] },
     special: "death_curse",
   },
 };
@@ -1249,6 +1249,9 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
           const def = ENEMY_TYPES[e.typeId];
           if (!def?.loot) return;
           Object.entries(def.loot).forEach(([k, [mn, mx]]) => {
+            // Depth gates: rare_gem needs depth>=2, mana_crystal needs depth>=3
+            if (k === "rare_gem" && depth < 2) return;
+            if (k === "mana_crystal" && depth < 3) return;
             const scaled = Math.round(randInt(mn, mx) * lootScale);
             loot[k] = (loot[k] ?? 0) + Math.max(mn, scaled);
           });
@@ -1741,8 +1744,17 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
   }
 
   function collectTreasure(x, y) {
-    const amt = randInt(3, 8) + depth * 2;
-    const newLoot = { ...lootTotal, iron_ore: (lootTotal.iron_ore ?? 0) + amt };
+    const oreAmt = randInt(3, 8) + depth * 2;
+    const lumberAmt = oreAmt - randInt(1, 2);
+    const gemAmt = depth >= 2 ? randInt(0, 2 + depth) : 0;
+    const crystalAmt = depth >= 3 ? randInt(0, 2 + depth) : 0;
+    const newLoot = {
+      ...lootTotal,
+      iron_ore: (lootTotal.iron_ore ?? 0) + oreAmt,
+      lumber: (lootTotal.lumber ?? 0) + lumberAmt,
+      ...(gemAmt > 0 ? { rare_gem: (lootTotal.rare_gem ?? 0) + gemAmt } : {}),
+      ...(crystalAmt > 0 ? { mana_crystal: (lootTotal.mana_crystal ?? 0) + crystalAmt } : {}),
+    };
     setLootTotal(newLoot);
     setCells(prev => prev.map(c => c.x === x && c.y === y ? { ...c, cleared: true } : c));
     saveRun({ lootTotal: newLoot });
