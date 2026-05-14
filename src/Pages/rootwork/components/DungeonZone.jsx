@@ -3,7 +3,7 @@
 // Combat state is lifted into DungeonZone so tab-switching doesn't reset it.
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST } from "../gameConstants";
+import { ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST, FORGE_RECIPES } from "../gameConstants";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -31,18 +31,21 @@ const DUNGEON_CLASS = {
     hpMult: 1.5, atkMult: 0.8, defBonus: 4,
     attackSpeed: 1.4, attackRange: ATTACK_RANGE,
     ability: { name: "Taunt", emoji: "📢", cooldown: 8, desc: "All enemies focus Fighter for 4s" },
+    passive: { emoji: "🎲", desc: "+5 to initiative roll" },
   },
   mage: {
     label: "Mage", emoji: "🧙", color: "#a78bfa", bg: "#2e1065",
     hpMult: 0.8, atkMult: 1.1, defBonus: 0,
     attackSpeed: 0.7, attackRange: ATTACK_RANGE * 1.5,
-    ability: { name: "Mend", emoji: "💚", cooldown: 10, desc: "Heals lowest HP ally" },
+    ability: { name: "Mend", emoji: "💚", cooldown: 10, desc: "Heals lowest HP ally (scales with level)" },
+    passive: { emoji: "💚", desc: "Heals party between rooms" },
   },
   scavenger: {
     label: "Scavenger", emoji: "🌿", color: "#34d399", bg: "#064e3b",
     hpMult: 0.95, atkMult: 1.6, defBonus: 1,
     attackSpeed: 1.2, attackRange: ATTACK_RANGE,
     ability: { name: "Blade Rush", emoji: "⚡", cooldown: 6, desc: "+50% speed for 2s then 3 rapid attacks" },
+    passive: { emoji: "🦺", desc: "Immune to trap damage" },
   },
 };
 
@@ -147,7 +150,31 @@ function makeHero(adv, index) {
     ability: null,
   };
   const baseHp = adv.maxHp ?? 40;
-  const baseAtk = 5 + (adv.level ?? 1) * 1.5 + (adv.gear ?? 0) * 4;
+
+  // Slot-specific gear bonuses — weapon → atk, armour → def, body → atk speed (no HP change)
+  const equippedGear = adv.equippedGear ?? {};
+  const getSlotTier = (slot) => {
+    const key = equippedGear[slot];
+    if (!key) return 0;
+    const instId = (adv.equippedInstanceId ?? {})[slot];
+    if (instId) {
+      // For instanced items, use their upgradeTier directly (passed via game prop elsewhere;
+      // we don't have access here so fall back to the recipe base tier)
+      const recipe = Object.values(FORGE_RECIPES).find(r => r.output.resourceKey === key);
+      return recipe?.gearTier ?? 0;
+    }
+    const recipe = Object.values(FORGE_RECIPES).find(r => r.output.resourceKey === key);
+    return recipe?.gearTier ?? 0;
+  };
+  const weaponTier = getSlotTier("weapon");
+  const armourTier = getSlotTier("armour");
+  const bodyTier   = getSlotTier("body");
+
+  // Weapon: +5 atk per tier | Armour: +3 def per tier | Body: +0.07 atk speed per tier (small)
+  const baseAtk = 5 + (adv.level ?? 1) * 1.5 + weaponTier * 5;
+  const baseDef = cls.defBonus + armourTier * 3;
+  const bodyAtkSpeedBonus = bodyTier * 0.07;
+
   // Heroes start unplaced (off the left edge); player positions them in placement phase
   const startX = -UNIT_R * 3;
   const startY = 60 + index * 70;
@@ -156,13 +183,15 @@ function makeHero(adv, index) {
   return {
     id: adv.id, kind: "hero", name: adv.name,
     heroClass: resolvedClass,
+    level: adv.level ?? 1,
     emoji: cls.emoji, color: cls.color, bg: cls.bg, label: cls.label,
     x: startX, y: startY, targetX: startX, targetY: startY,
     placed: false,
     attackTarget: null,
     hp: currentHp, maxHp: maxHpVal,
-    atk: Math.floor(baseAtk * cls.atkMult), def: cls.defBonus + Math.floor((adv.gear ?? 0) * 0.5),
-    attackSpeed: cls.attackSpeed, attackRange: cls.attackRange,
+    atk: Math.floor(baseAtk * cls.atkMult), def: baseDef,
+    attackSpeed: Math.min(cls.attackSpeed + bodyAtkSpeedBonus, cls.attackSpeed * 1.5),
+    attackRange: cls.attackRange,
     attackCooldown: 0,
     ability: cls.ability ? { ...cls.ability, cooldownLeft: 0 } : null,
     tauntActive: false, dead: false, flashHit: false,
@@ -392,7 +421,7 @@ function AbilityBar({ hero, onUseAbility, onUseFood, combatOver }) {
 
 function Battlefield({
   heroes, enemies, selected, floats, log, phase, initResult, countdown, result,
-  depth, onTap, onSelectHero, onUseAbility, onUseFood, onCombatEnd, onPlacementReady,
+  depth, onTap, onDragMove, onSelectHero, onUseAbility, onUseFood, onCombatEnd, onPlacementReady,
 }) {
   const battlefieldRef = useRef(null);
   const dragStateRef = useRef(null);
@@ -439,7 +468,8 @@ function Battlefield({
     const ddx = x - dragStateRef.current.startX;
     const ddy = y - dragStateRef.current.startY;
     if (Math.sqrt(ddx * ddx + ddy * ddy) > 8) {
-      setDragLine({ x1: hero.x, y1: hero.y, x2: x, y2: y });
+      setDragLine({ x2: x, y2: y });
+      onDragMove(dragStateRef.current.heroId, x, y);
     }
   }
 
@@ -451,7 +481,7 @@ function Battlefield({
     const ddx = curX - startX;
     const ddy = curY - startY;
     if (Math.sqrt(ddx * ddx + ddy * ddy) < 10) return;
-    onTap(curX, curY, phase);
+    onDragMove(heroId, curX, curY);
   }
 
   const selHero = heroes.find(h => h.id === selected && !h.dead) ?? null;
@@ -546,7 +576,7 @@ function Battlefield({
               </marker>
             </defs>
             <line
-              x1={dragLine.x1} y1={dragLine.y1}
+              x1={selHero?.x ?? dragLine.x2} y1={selHero?.y ?? dragLine.y2}
               x2={dragLine.x2} y2={dragLine.y2}
               stroke="rgba(74,222,128,0.75)"
               strokeWidth="2"
@@ -571,7 +601,7 @@ function Battlefield({
             flexDirection: "column", gap: "0.4rem", pointerEvents: "none",
           }}>
             <div style={{ fontSize: "0.7rem", fontWeight: 700, color: "rgba(255,255,255,0.6)", letterSpacing: "0.1em", textTransform: "uppercase" }}>
-              Initiative Roll
+              Initiative Roll{initResult?.fighterBonus ? " ⚔️+5" : ""}
             </div>
             <div style={{ display: "flex", gap: "1.5rem", alignItems: "center" }}>
               <div style={{ textAlign: "center" }}>
@@ -1011,6 +1041,18 @@ function Lobby({ game, lastRun, pendingReward, onStart, onClaim, selectedHeroIds
             </div>
           </div>
         ))}
+        <div style={{ marginTop: "0.35rem", fontSize: "0.6rem", color: "var(--muted)", borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "0.35rem", marginBottom: "0.35rem" }}>
+          Passives (always active):
+        </div>
+        {[DUNGEON_CLASS.fighter, DUNGEON_CLASS.mage, DUNGEON_CLASS.scavenger].map(cls => cls.passive && (
+          <div key={cls.label + "_passive"} style={{ display: "flex", gap: 6, fontSize: "0.63rem", alignItems: "flex-start", marginBottom: 4 }}>
+            <span style={{ fontSize: "0.9rem", minWidth: 20 }}>{cls.passive.emoji}</span>
+            <div>
+              <span style={{ color: cls.color, fontWeight: 700 }}>{cls.label}:</span>
+              <span style={{ color: "var(--muted)", marginLeft: 4 }}>{cls.passive.desc}</span>
+            </div>
+          </div>
+        ))}
         <div style={{ marginTop: "0.35rem", fontSize: "0.6rem", color: "var(--muted)", borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "0.35rem" }}>
           🍞 Food heals over {HOT_DURATION}s in the dungeon. Select a hero to use their food belt.
         </div>
@@ -1130,10 +1172,13 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
   useEffect(() => {
     if (combatPhase !== "initiative" || initiativeRolledRef.current || combatHeroes.length === 0) return;
     initiativeRolledRef.current = true;
-    const playerRoll = randInt(1, 20);
+    const hasFighter = combatHeroes.some(h => h.heroClass === "fighter" && !h.dead);
+    const playerRollRaw = randInt(1, 20);
+    const fighterBonus = hasFighter ? 5 : 0;
+    const playerRoll = Math.min(20, playerRollRaw + fighterBonus);
     const enemyRoll = randInt(1, 20);
     const playerWins = playerRoll >= enemyRoll;
-    setCombatInitResult({ playerRoll, enemyRoll, playerWins });
+    setCombatInitResult({ playerRoll, enemyRoll, playerWins, fighterBonus });
     const t = setTimeout(() => {
       if (playerWins) {
         // Player goes first: enter placement phase so they can position heroes
@@ -1572,6 +1617,24 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
     selectedRef.current = newSel;
   }, []);
 
+  // ── Drag-to-move: directly move a specific hero to destination ─────────────
+  const handleDragMove = useCallback((heroId, x, y) => {
+    const currentPhase = phaseRef.current;
+    if (currentPhase !== "fighting" && currentPhase !== "prep") return;
+    const nearbyEnemy = enemiesRef.current
+      .filter(en => !en.dead)
+      .find(en => dist({ x, y }, en) < ATTACK_RANGE * 2.5);
+    setCombatHeroes(prev => {
+      const next = prev.map(h => h.id === heroId
+        ? nearbyEnemy
+          ? { ...h, attackTarget: nearbyEnemy.id, targetX: nearbyEnemy.x, targetY: nearbyEnemy.y }
+          : { ...h, targetX: x, targetY: y, attackTarget: null }
+        : h);
+      heroesRef.current = next;
+      return next;
+    });
+  }, []);
+
   // ── Ability use ───────────────────────────────────────────────────────────
   const handleUseAbility = useCallback((heroId) => {
     const hero = heroesRef.current.find(h => h.id === heroId);
@@ -1592,7 +1655,9 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
         const alive = prev.filter(h => !h.dead);
         if (!alive.length) return prev;
         const lowest = alive.reduce((a, b) => (a.hp / a.maxHp) < (b.hp / b.maxHp) ? a : b);
-        const healAmt = Math.floor(lowest.maxHp * 0.35);
+        const mageLevel = hero.level ?? 1;
+        const healPct = Math.min(0.35 + (mageLevel - 1) * 0.005, 0.60); // 35% base, +0.5% per level, cap 60%
+        const healAmt = Math.floor(lowest.maxHp * healPct);
         addLog(`💚 ${hero.name} heals ${lowest.name} for ${healAmt}!`, "#4ade80");
         addFloat(lowest.x, lowest.y - 15, `+${healAmt}`, "#4ade80");
         const next = prev.map(h => {
@@ -1757,25 +1822,47 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
       ...(crystalAmt > 0 ? { mana_crystal: (lootTotal.mana_crystal ?? 0) + crystalAmt } : {}),
     };
     setLootTotal(newLoot);
+    setParty(prev => applyMageExploreRegen(prev));
     setCells(prev => prev.map(c => c.x === x && c.y === y ? { ...c, cleared: true } : c));
     saveRun({ lootTotal: newLoot });
   }
 
+  // Mage passive: heals the party for 8% of each hero's max HP when entering any new room
+  // (triggered after any non-combat room resolution — trap, treasure, rest, or empty)
+  function applyMageExploreRegen(prevParty) {
+    const hasMage = prevParty.some(h => h.heroClass === "mage");
+    if (!hasMage) return prevParty;
+    return prevParty.map(h => {
+      const maxHp = h.dungeonMaxHp ?? h.maxHp ?? 40;
+      const healAmt = Math.floor(maxHp * 0.08);
+      const currentHp = h.currentDungeonHp ?? maxHp;
+      return { ...h, currentDungeonHp: Math.min(maxHp, currentHp + healAmt) };
+    });
+  }
+
   function doRest(x, y) {
-    setParty(prev => prev.map(h => ({
-      ...h,
-      currentDungeonHp: Math.min(h.dungeonMaxHp ?? h.maxHp ?? 40, Math.floor((h.currentDungeonHp ?? h.dungeonMaxHp ?? h.maxHp ?? 40) + (h.dungeonMaxHp ?? h.maxHp ?? 40) * 0.3)),
-    })));
+    setParty(prev => {
+      const rested = prev.map(h => ({
+        ...h,
+        currentDungeonHp: Math.min(h.dungeonMaxHp ?? h.maxHp ?? 40, Math.floor((h.currentDungeonHp ?? h.dungeonMaxHp ?? h.maxHp ?? 40) + (h.dungeonMaxHp ?? h.maxHp ?? 40) * 0.3)),
+      }));
+      return applyMageExploreRegen(rested);
+    });
     setCells(prev => prev.map(c => c.x === x && c.y === y ? { ...c, cleared: true } : c));
   }
 
   function doTrap(x, y) {
-    setParty(prev => prev.map(h => {
-      const maxHp = h.dungeonMaxHp ?? h.maxHp ?? 40;
-      const dmg = Math.max(1, Math.floor(maxHp * 0.10));
-      const currentHp = h.currentDungeonHp ?? maxHp;
-      return { ...h, currentDungeonHp: Math.max(0, currentHp - dmg) };
-    }));
+    // Scavengers in the party have trap immunity — only non-scavengers take damage
+    setParty(prev => {
+      const afterTrap = prev.map(h => {
+        if (h.heroClass === "scavenger") return h; // immune!
+        const maxHp = h.dungeonMaxHp ?? h.maxHp ?? 40;
+        const dmg = Math.max(1, Math.floor(maxHp * 0.10));
+        const currentHp = h.currentDungeonHp ?? maxHp;
+        return { ...h, currentDungeonHp: Math.max(0, currentHp - dmg) };
+      });
+      return applyMageExploreRegen(afterTrap);
+    });
     setCells(prev => prev.map(c => c.x === x && c.y === y ? { ...c, cleared: true } : c));
   }
 
@@ -1872,6 +1959,7 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
       result={combatResult}
       depth={depth}
       onTap={handleBattlefieldTap}
+      onDragMove={handleDragMove}
       onSelectHero={handleSelectHero}
       onUseAbility={handleUseAbility}
       onUseFood={handleUseFood}
