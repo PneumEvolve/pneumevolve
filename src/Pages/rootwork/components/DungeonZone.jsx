@@ -770,7 +770,7 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
       <div style={{ display: "flex", gap: 4, marginBottom: "0.5rem" }}>
         {party.map(h => {
           const cls = (h.heroClass && DUNGEON_CLASS[h.heroClass]) ? DUNGEON_CLASS[h.heroClass] : { emoji: "🧭" };
-          const currentHp = h.currentDungeonHp ?? h.hp ?? h.maxHp;
+          const currentHp = h.currentDungeonHp ?? h.dungeonMaxHp ?? h.maxHp ?? 40;
           const nextFood = getNextBeltItem(h.foodBelt);
           const foodDef = nextFood ? ARTISAN_FOOD_HEAL?.[nextFood.id] : null;
           const isDead = currentHp <= 0;
@@ -1579,7 +1579,7 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
         heroesRef.current = next;
         return next;
       });
-    } else {
+    } else if (hero.heroClass === "scavenger") {
       addLog(`⚡ ${hero.name} launches Blade Rush!`, "#34d399");
       setCombatHeroes(prev => {
         const next = prev.map(h => h.id !== heroId ? h : { ...h, bladeRushActive: true, bladeRushTimeLeft: BLADE_RUSH_DURATION, bladeRushAttacksLeft: 0, bladeRushAttackTimer: 0, ability: { ...h.ability, cooldownLeft: h.ability.cooldown } });
@@ -1587,6 +1587,7 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
         return next;
       });
     }
+    // No-op for classless Adventurer (no ability defined)
   }, []);
 
   // ── Food use ──────────────────────────────────────────────────────────────
@@ -1626,7 +1627,12 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
     const chosenDepth = Math.max(1, Math.min(startDepth, game?.maxDungeonDepth ?? 1));
     const newCells = generateMap();
     const startPos = { x: 3, y: 3 };
-    setParty(currentParty);
+    // Pre-seed dungeonMaxHp so explore screen shows correct HP bar from the start
+    const seededParty = currentParty.map((adv, i) => {
+      const tmpHero = makeHero(adv, i);
+      return { ...adv, dungeonMaxHp: tmpHero.maxHp, currentDungeonHp: adv.currentDungeonHp ?? tmpHero.maxHp };
+    });
+    setParty(seededParty);
     setCells(newCells);
     setPos(startPos);
     setLootTotal({});
@@ -1725,7 +1731,7 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
   function doRest(x, y) {
     setParty(prev => prev.map(h => ({
       ...h,
-      currentDungeonHp: Math.min(h.maxHp ?? 40, Math.floor((h.currentDungeonHp ?? h.hp ?? h.maxHp ?? 40) + (h.maxHp ?? 40) * 0.3)),
+      currentDungeonHp: Math.min(h.dungeonMaxHp ?? h.maxHp ?? 40, Math.floor((h.currentDungeonHp ?? h.dungeonMaxHp ?? h.maxHp ?? 40) + (h.dungeonMaxHp ?? h.maxHp ?? 40) * 0.3)),
     })));
     setCells(prev => prev.map(c => c.x === x && c.y === y ? { ...c, cleared: true } : c));
   }
@@ -1785,7 +1791,7 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
         return next;
       });
       const currentHp = h.currentDungeonHp ?? h.maxHp ?? 40;
-      const newHp = Math.min(h.maxHp ?? 40, currentHp + foodEntry.healAmount);
+      const newHp = Math.min(h.dungeonMaxHp ?? h.maxHp ?? 40, currentHp + foodEntry.healAmount);
       return { ...h, foodBelt: belt, currentDungeonHp: newHp };
     }));
   }
