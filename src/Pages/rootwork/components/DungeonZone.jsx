@@ -139,7 +139,7 @@ function getNextBeltItem(foodBelt) {
 // ─── Unit factories ───────────────────────────────────────────────────────────
 
 function makeHero(adv, index) {
-  const resolvedClass = adv.heroClass ?? adv.class ?? null;
+  const resolvedClass = adv.heroClass ?? null;
   const cls = (resolvedClass && DUNGEON_CLASS[resolvedClass]) ? DUNGEON_CLASS[resolvedClass] : {
     label: "Adventurer", emoji: "🧭", color: "#94a3b8", bg: "#1e293b",
     hpMult: 1.0, atkMult: 1.0, defBonus: 0,
