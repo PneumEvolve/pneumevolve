@@ -630,7 +630,8 @@ function Battlefield({
             </div>
             <div style={{
               fontSize: "3.5rem", fontWeight: 900, lineHeight: 1,
-              color: countdown <= 2 ? "#ef4444" : countdown <= 3 ? "#fbbf24" : "#4ade80: "0 0 30px #ef4444",
+              color: countdown <= 2 ? "#ef4444" : countdown <= 3 ? "#fbbf24" : "#4ade80",
+              textShadow: countdown <= 2 ? "0 0 30px #ef4444" : "none",
               animation: "ringPulse 0.9s ease-in-out infinite",
             }}>
               {countdown}
