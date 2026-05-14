@@ -395,26 +395,63 @@ function Battlefield({
   depth, onTap, onSelectHero, onUseAbility, onUseFood, onCombatEnd, onPlacementReady,
 }) {
   const battlefieldRef = useRef(null);
-  const lastTapTimeRef = useRef(0);
+  const dragStateRef = useRef(null);
+  const [dragLine, setDragLine] = useState(null);
 
-  function handleTap(e) {
-    // Deduplicate onTouchStart + onClick (both fire on mobile)
-    const now = Date.now();
-    if (now - lastTapTimeRef.current < 400) return;
-    lastTapTimeRef.current = now;
-
-    if (!battlefieldRef.current) return;
+  function getBFCoords(e) {
+    if (!battlefieldRef.current) return null;
     const rect = battlefieldRef.current.getBoundingClientRect();
     const clientX = e.touches?.[0]?.clientX ?? e.changedTouches?.[0]?.clientX ?? e.clientX;
     const clientY = e.touches?.[0]?.clientY ?? e.changedTouches?.[0]?.clientY ?? e.clientY;
-    if (clientX == null || clientY == null) return;
+    if (clientX == null || clientY == null) return null;
+    return {
+      x: (clientX - rect.left) * (BF_W / rect.width),
+      y: (clientY - rect.top) * (BF_H / rect.height),
+    };
+  }
 
-    const scaleX = BF_W / rect.width;
-    const scaleY = BF_H / rect.height;
-    const x = (clientX - rect.left) * scaleX;
-    const y = (clientY - rect.top) * scaleY;
-
+  function handlePointerDown(e) {
+    const coords = getBFCoords(e);
+    if (!coords) return;
+    const { x, y } = coords;
+    const HIT_R = UNIT_R * 1.8;
+    if (phase === "placement") { onTap(x, y, phase); return; }
+    if (phase !== "fighting" && phase !== "prep") return;
+    const tappedHero = heroes.find(h => !h.dead && dist({ x, y }, h) < HIT_R);
+    if (tappedHero) {
+      onSelectHero(tappedHero.id);
+      dragStateRef.current = { heroId: tappedHero.id, startX: x, startY: y, curX: x, curY: y };
+      e.currentTarget.setPointerCapture(e.pointerId);
+      return;
+    }
     onTap(x, y, phase);
+  }
+
+  function handlePointerMove(e) {
+    if (!dragStateRef.current) return;
+    const coords = getBFCoords(e);
+    if (!coords) return;
+    const { x, y } = coords;
+    dragStateRef.current.curX = x;
+    dragStateRef.current.curY = y;
+    const hero = heroes.find(h => h.id === dragStateRef.current.heroId);
+    if (!hero) return;
+    const ddx = x - dragStateRef.current.startX;
+    const ddy = y - dragStateRef.current.startY;
+    if (Math.sqrt(ddx * ddx + ddy * ddy) > 8) {
+      setDragLine({ x1: hero.x, y1: hero.y, x2: x, y2: y });
+    }
+  }
+
+  function handlePointerUp(e) {
+    if (!dragStateRef.current) { setDragLine(null); return; }
+    const { heroId, startX, startY, curX, curY } = dragStateRef.current;
+    dragStateRef.current = null;
+    setDragLine(null);
+    const ddx = curX - startX;
+    const ddy = curY - startY;
+    if (Math.sqrt(ddx * ddx + ddy * ddy) < 10) return;
+    onTap(curX, curY, phase);
   }
 
   const selHero = heroes.find(h => h.id === selected && !h.dead) ?? null;
@@ -431,11 +468,11 @@ function Battlefield({
         <div style={{ fontSize: "0.85rem", fontWeight: 800 }}>⚔️ Combat — Depth {depth}</div>
         <div style={{
           fontSize: "0.65rem", fontWeight: 700, padding: "0.18rem 0.55rem", borderRadius: 20,
-          background: phase === "placement" ? "rgba(99,102,241,0.15)" : phase === "prep" ? "rgba(74,222,128,0.12)" : phase === "enemy_advance" ? "rgba(239,68,68,0.12)" : phase === "fighting" ? "rgba(74,222,128,0.12)" : phase === "victory" ? "rgba(251,191,36,0.15)" : "rgba(239,68,68,0.12)",
-          border: `1px solid ${phase === "placement" ? "rgba(99,102,241,0.45)" : phase === "prep" ? "rgba(74,222,128,0.35)" : phase === "enemy_advance" ? "rgba(239,68,68,0.35)" : phase === "fighting" ? "rgba(74,222,128,0.35)" : phase === "victory" ? "rgba(251,191,36,0.4)" : "rgba(239,68,68,0.35)"}`,
-          color: phase === "placement" ? "#a5b4fc" : phase === "prep" ? "#4ade80" : phase === "enemy_advance" ? "#f87171" : phase === "fighting" ? "#4ade80" : phase === "victory" ? "#fbbf24" : "#f87171",
+          background: phase === "placement" ? "rgba(99,102,241,0.15)" : phase === "prep" ? "rgba(74,222,128,0.12)" : phase === "fighting" ? "rgba(74,222,128,0.12)" : phase === "victory" ? "rgba(251,191,36,0.15)" : "rgba(239,68,68,0.12)",
+          border: `1px solid ${phase === "placement" ? "rgba(99,102,241,0.45)" : phase === "prep" ? "rgba(74,222,128,0.35)" : phase === "fighting" ? "rgba(74,222,128,0.35)" : phase === "victory" ? "rgba(251,191,36,0.4)" : "rgba(239,68,68,0.35)"}`,
+          color: phase === "placement" ? "#a5b4fc" : phase === "prep" ? "#4ade80" : phase === "fighting" ? "#4ade80" : phase === "victory" ? "#fbbf24" : "#f87171",
         }}>
-          {phase === "placement" ? "📍 PLACE" : phase === "initiative" ? "⚄ INITIATIVE" : phase === "prep" ? `⏳ ${countdown}s` : phase === "enemy_advance" ? `⚠️ ${countdown}s` : phase === "fighting" ? "LIVE" : phase === "victory" ? "VICTORY" : "DEFEAT"}
+          {phase === "placement" ? "📍 PLACE" : phase === "initiative" ? "⚄ INITIATIVE" : phase === "prep" ? `⏳ ${countdown}s` : phase === "fighting" ? "LIVE" : phase === "victory" ? "VICTORY" : "DEFEAT"}
         </div>
       </div>
 
@@ -452,18 +489,18 @@ function Battlefield({
             })()
           : phase === "prep"
           ? (selHero ? `${selHero.emoji} ${selHero.name} · tap to reposition` : "Adjust positions before battle!")
-          : phase === "enemy_advance"
-          ? "⚠️ Enemies are advancing — brace yourself!"
           : selHero
-          ? `${selHero.emoji} ${selHero.name} · tap to move · tap enemy to attack`
-          : "Tap a hero to select"}
+          ? `${selHero.emoji} ${selHero.name} · hold & drag to move · tap enemy to attack`
+          : "Tap a hero to select, then drag to move"}
       </div>
 
       {/* Battlefield canvas */}
       <div
         ref={battlefieldRef}
-        onTouchStart={handleTap}
-        onClick={handleTap}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
         style={{
           position: "relative", width: "100%", maxWidth: BF_W, height: BF_H,
           background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)",
@@ -497,6 +534,28 @@ function Battlefield({
         )}
 
         <FloatingText items={floats} />
+        {dragLine && (
+          <svg
+            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", overflow: "visible", zIndex: 15 }}
+            viewBox={`0 0 ${BF_W} ${BF_H}`}
+            preserveAspectRatio="none"
+          >
+            <defs>
+              <marker id="mvArrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+                <path d="M0,0 L6,3 L0,6 Z" fill="rgba(74,222,128,0.9)" />
+              </marker>
+            </defs>
+            <line
+              x1={dragLine.x1} y1={dragLine.y1}
+              x2={dragLine.x2} y2={dragLine.y2}
+              stroke="rgba(74,222,128,0.75)"
+              strokeWidth="2"
+              strokeDasharray="6 4"
+              markerEnd="url(#mvArrow)"
+            />
+            <circle cx={dragLine.x2} cy={dragLine.y2} r="5" fill="rgba(74,222,128,0.25)" stroke="rgba(74,222,128,0.8)" strokeWidth="1.5" />
+          </svg>
+        )}
         {enemies.map(e => <UnitCircle key={e.id} unit={e} selected={false} />)}
         {heroes.map(h => (
           <div key={h.id} style={{ opacity: (!h.placed && phase === "placement") ? 0.45 : 1, transition: "opacity 0.2s" }}>
@@ -571,28 +630,7 @@ function Battlefield({
             </div>
             <div style={{
               fontSize: "3.5rem", fontWeight: 900, lineHeight: 1,
-              color: countdown <= 2 ? "#ef4444" : countdown <= 3 ? "#fbbf24" : "#4ade80",
-              textShadow: `0 0 30px ${countdown <= 2 ? "#ef4444" : countdown <= 3 ? "#fbbf24" : "#4ade80"}`,
-              animation: "ringPulse 0.9s ease-in-out infinite",
-            }}>
-              {countdown}
-            </div>
-          </div>
-        )}
-
-        {/* Enemy advance overlay */}
-        {phase === "enemy_advance" && (
-          <div style={{
-            position: "absolute", inset: 0, display: "flex", alignItems: "center",
-            justifyContent: "center", background: "rgba(0,0,0,0.45)",
-            flexDirection: "column", gap: "0.35rem", pointerEvents: "none",
-          }}>
-            <div style={{ fontSize: "0.65rem", fontWeight: 700, color: "#f87171", letterSpacing: "0.12em", textTransform: "uppercase" }}>
-              ⚠️ Enemies Advance
-            </div>
-            <div style={{
-              fontSize: "3.5rem", fontWeight: 900, lineHeight: 1, color: "#ef4444",
-              textShadow: "0 0 30px #ef4444",
+              color: countdown <= 2 ? "#ef4444" : countdown <= 3 ? "#fbbf24" : "#4ade80: "0 0 30px #ef4444",
               animation: "ringPulse 0.9s ease-in-out infinite",
             }}>
               {countdown}
@@ -1119,9 +1157,8 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
           heroesRef.current = next;
           return next;
         });
-        setCombatPhase("enemy_advance");
-        phaseRef.current = "enemy_advance";
-        setCombatCountdown(3);
+        setCombatPhase("fighting");
+        phaseRef.current = "fighting";
       }
     }, 2500);
     return () => clearTimeout(t);
@@ -1129,7 +1166,7 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
 
   // ── Countdown → fighting ──────────────────────────────────────────────────
   useEffect(() => {
-    if (combatPhase !== "prep" && combatPhase !== "enemy_advance") return;
+    if (combatPhase !== "prep") return;
     if (combatCountdown <= 0) {
       setCombatPhase("fighting");
       phaseRef.current = "fighting";
@@ -1165,25 +1202,6 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
         });
         heroesRef.current = hs;
         setCombatHeroes([...hs]);
-        return;
-      }
-
-      if (currentPhase === "enemy_advance") {
-        const hs = heroesRef.current;
-        const es = enemiesRef.current.map(e => ({ ...e }));
-        const aliveHeroes = hs.filter(h => !h.dead);
-        es.forEach(enemy => {
-          if (enemy.dead) return;
-          const tgt = aliveHeroes.length ? aliveHeroes.reduce((a, b) => dist(enemy, a) < dist(enemy, b) ? a : b) : null;
-          if (!tgt) return;
-          if (dist(enemy, tgt) > enemy.attackRange) {
-            const np = moveToward({ x: enemy.x, y: enemy.y }, tgt, enemy.speed, dt);
-            enemy.x = clamp(np.x, UNIT_R, BF_W - UNIT_R);
-            enemy.y = clamp(np.y, UNIT_R, BF_H - UNIT_R);
-          }
-        });
-        enemiesRef.current = es;
-        setCombatEnemies([...es]);
         return;
       }
 
