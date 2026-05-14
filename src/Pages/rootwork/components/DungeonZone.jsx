@@ -318,11 +318,11 @@ function UnitCircle({ unit, selected }) {
 
 // ─── AbilityBar ───────────────────────────────────────────────────────────────
 
-function AbilityBar({ hero, onUseAbility, onUseFood }) {
+function AbilityBar({ hero, onUseAbility, onUseFood, combatOver }) {
   if (!hero) return null;
   const ab = hero.ability;
   const hasAbility = ab != null;
-  const abilityReady = hasAbility && ab.cooldownLeft <= 0 && !hero.dead && !hero.bladeRushActive;
+  const abilityReady = hasAbility && ab.cooldownLeft <= 0 && !hero.dead && !hero.bladeRushActive && !combatOver;
   const nextFood = getNextBeltItem(hero.foodBelt);
   const foodDef = nextFood ? ARTISAN_FOOD_HEAL?.[nextFood.id] : null;
 
@@ -358,14 +358,14 @@ function AbilityBar({ hero, onUseAbility, onUseFood }) {
         )}
       </button>}
       <button
-        onClick={() => nextFood && onUseFood(hero.id, nextFood.id)}
-        disabled={!nextFood}
+        onClick={() => nextFood && !combatOver && onUseFood(hero.id, nextFood.id)}
+        disabled={!nextFood || combatOver}
         style={{
           flex: 1, padding: "0.35rem 0.25rem", borderRadius: 8,
-          background: nextFood ? "rgba(74,222,128,0.12)" : "rgba(255,255,255,0.03)",
-          border: `1px solid ${nextFood ? "rgba(74,222,128,0.4)" : "rgba(255,255,255,0.08)"}`,
-          color: nextFood ? "#4ade80" : "var(--muted)",
-          fontSize: "0.6rem", fontWeight: 700, cursor: nextFood ? "pointer" : "default",
+          background: nextFood && !combatOver ? "rgba(74,222,128,0.12)" : "rgba(255,255,255,0.03)",
+          border: `1px solid ${nextFood && !combatOver ? "rgba(74,222,128,0.4)" : "rgba(255,255,255,0.08)"}`,
+          color: nextFood && !combatOver ? "#4ade80" : "var(--muted)",
+          fontSize: "0.6rem", fontWeight: 700, cursor: nextFood && !combatOver ? "pointer" : "default",
           display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
         }}>
         {nextFood ? (
@@ -638,7 +638,7 @@ function Battlefield({
         ))}
       </div>
 
-      <AbilityBar hero={selHero} onUseAbility={onUseAbility} onUseFood={onUseFood} />
+      <AbilityBar hero={selHero} onUseAbility={onUseAbility} onUseFood={onUseFood} combatOver={!!result} />
 
       {/* Combat log */}
       <div style={{
