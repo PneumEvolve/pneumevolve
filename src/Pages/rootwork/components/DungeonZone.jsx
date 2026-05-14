@@ -1628,7 +1628,7 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
       const next = prev.map(h => h.id === heroId
         ? nearbyEnemy
           ? { ...h, attackTarget: nearbyEnemy.id, targetX: nearbyEnemy.x, targetY: nearbyEnemy.y }
-          : { ...h, targetX: x, targetY: y, attackTarget: null }
+          : { ...h, x, y, targetX: x, targetY: y, attackTarget: null }
         : h);
       heroesRef.current = next;
       return next;
@@ -1661,8 +1661,11 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
         addLog(`💚 ${hero.name} heals ${lowest.name} for ${healAmt}!`, "#4ade80");
         addFloat(lowest.x, lowest.y - 15, `+${healAmt}`, "#4ade80");
         const next = prev.map(h => {
-          if (h.id === heroId) return { ...h, ability: { ...h.ability, cooldownLeft: h.ability.cooldown } };
-          if (h.id === lowest.id) return { ...h, hp: Math.min(h.maxHp, h.hp + healAmt) };
+          const isMage = h.id === heroId;
+          const isLowest = h.id === lowest.id;
+          if (isMage && isLowest) return { ...h, hp: Math.min(h.maxHp, h.hp + healAmt), ability: { ...h.ability, cooldownLeft: h.ability.cooldown } };
+          if (isMage) return { ...h, ability: { ...h.ability, cooldownLeft: h.ability.cooldown } };
+          if (isLowest) return { ...h, hp: Math.min(h.maxHp, h.hp + healAmt) };
           return h;
         });
         heroesRef.current = next;
