@@ -7841,7 +7841,7 @@ export function applyDungeonResult(state, result) {
 
   // Track max depth reached (for unlock system)
   if (result.depth && result.depth > (next.maxDungeonDepth ?? 1)) {
-    next.maxDungeonDepth = result.depth;
+    next.maxDungeonDepth = Math.max(1, result.depth - 1);
   }
 
   // Store as pending claim
