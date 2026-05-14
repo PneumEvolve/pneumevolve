@@ -421,7 +421,7 @@ function AbilityBar({ hero, onUseAbility, onUseFood, combatOver }) {
 
 function Battlefield({
   heroes, enemies, selected, floats, log, phase, initResult, countdown, result,
-  depth, onTap, onDragMove, onSelectHero, onUseAbility, onUseFood, onCombatEnd, onPlacementReady,
+  depth, mendArmed, onTap, onDragMove, onSelectHero, onUseAbility, onMendTarget, onDisarmMend, onUseFood, onCombatEnd, onPlacementReady,
 }) {
   const battlefieldRef = useRef(null);
   const dragStateRef = useRef(null);
@@ -685,29 +685,84 @@ function Battlefield({
         )}
       </div>
 
-      {/* Mini hero bars — tap to select */}
+      {/* Party strip: HP, ability, food inline — tap to select / mend target */}
       <div style={{ display: "flex", gap: 4, marginBottom: "0.4rem" }}>
-        {heroes.map(h => (
-          <div
-            key={h.id}
-            onTouchStart={() => !h.dead && onSelectHero(h.id)}
-            onClick={() => !h.dead && onSelectHero(h.id)}
-            style={{
-              flex: 1, padding: "0.3rem 0.35rem", borderRadius: 7, cursor: h.dead ? "default" : "pointer",
-              background: selected === h.id ? `${h.color}18` : "rgba(255,255,255,0.04)",
-              border: `1px solid ${selected === h.id ? h.color + "55" : h.placed === false && phase === "placement" ? "rgba(251,191,36,0.4)" : "rgba(255,255,255,0.07)"}`,
-              opacity: h.dead ? 0.35 : 1, transition: "all 0.15s",
-            }}>
-            <div style={{ fontSize: "0.75rem", textAlign: "center" }}>{h.emoji}</div>
-            <HpBar hp={h.hp} maxHp={h.maxHp} height={3} />
-            <div style={{ fontSize: "0.5rem", color: "var(--muted)", textAlign: "center", marginTop: 2 }}>
-              {phase === "placement" && !h.placed ? "📍 place" : `${Math.floor(h.hp)}/${h.maxHp}${h.hotRemaining > 0 ? " 🌿" : ""}`}
+        {heroes.map(h => {
+          const ab = h.ability;
+          const isMage = h.heroClass === "mage";
+          const abilityReady = ab && ab.cooldownLeft <= 0 && !h.dead && !h.bladeRushActive && !result;
+          const isMendArmed = mendArmed && isMage;
+          const isSelected = selected === h.id;
+          const nextFood = getNextBeltItem(h.foodBelt);
+          const foodDef = nextFood ? ARTISAN_FOOD_HEAL?.[nextFood.id] : null;
+          const handleCardTap = (e) => {
+            e.stopPropagation();
+            if (h.dead) return;
+            if (mendArmed && !isMage) { onMendTarget(h.id); return; }
+            if (mendArmed && isMage) { onDisarmMend(); return; }
+            onSelectHero(h.id);
+          };
+          const cardBg = mendArmed && !isMage && !h.dead ? "rgba(74,222,128,0.12)" : isSelected ? h.color + "18" : "rgba(255,255,255,0.04)";
+          const cardBorder = "1.5px solid " + (mendArmed && !isMage && !h.dead ? "rgba(74,222,128,0.6)" : isMendArmed ? "#4ade80" : isSelected ? h.color + "66" : phase === "placement" && !h.placed ? "rgba(251,191,36,0.4)" : "rgba(255,255,255,0.07)");
+          return (
+            <div key={h.id} onTouchStart={handleCardTap} onClick={handleCardTap}
+              style={{
+                flex: 1, padding: "0.28rem 0.3rem", borderRadius: 8,
+                cursor: h.dead ? "default" : "pointer",
+                background: cardBg, border: cardBorder,
+                opacity: h.dead ? 0.3 : 1, transition: "all 0.12s",
+                display: "flex", flexDirection: "column", gap: 2,
+              }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                <span style={{ fontSize: "0.82rem" }}>{h.emoji}</span>
+                <span style={{ fontSize: "0.45rem", color: isSelected ? h.color : "var(--muted)", fontWeight: 700, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.name}</span>
+                {(h.hotRemaining ?? 0) > 0 && <span style={{ fontSize: "0.5rem" }}>🌿</span>}
+              </div>
+              <HpBar hp={h.hp} maxHp={h.maxHp} height={3} />
+              <div style={{ fontSize: "0.44rem", color: "var(--muted)", textAlign: "center" }}>
+                {phase === "placement" && !h.placed ? "📍" : Math.floor(h.hp) + "/" + h.maxHp}
+              </div>
+              {!h.dead && (
+                <div style={{ display: "flex", gap: 2, marginTop: 1 }}>
+                  {ab && (
+                    <button
+                      onClick={e => { e.stopPropagation(); if (abilityReady) onUseAbility(h.id); }}
+                      onTouchStart={e => { e.stopPropagation(); if (abilityReady) onUseAbility(h.id); }}
+                      style={{
+                        flex: 1, padding: "0.15rem 0", borderRadius: 5, fontSize: "0.55rem",
+                        background: isMendArmed ? "rgba(74,222,128,0.3)" : abilityReady ? h.color + "22" : "rgba(255,255,255,0.04)",
+                        border: "1px solid " + (isMendArmed ? "#4ade80" : abilityReady ? h.color + "66" : "rgba(255,255,255,0.1)"),
+                        color: isMendArmed ? "#4ade80" : abilityReady ? h.color : "var(--muted)",
+                        cursor: abilityReady ? "pointer" : "default", fontWeight: 700,
+                        display: "flex", alignItems: "center", justifyContent: "center", gap: 2,
+                        animation: isMendArmed ? "ringPulse 0.8s ease-in-out infinite" : "none",
+                      }}>
+                      <span>{ab.emoji}</span>
+                      <span style={{ fontSize: "0.42rem" }}>
+                        {isMendArmed ? "→?" : ab.cooldownLeft > 0 ? Math.ceil(ab.cooldownLeft) + "s" : ab.name}
+                      </span>
+                    </button>
+                  )}
+                  {nextFood && (
+                    <button
+                      onClick={e => { e.stopPropagation(); if (!result) onUseFood(h.id, nextFood.id); }}
+                      onTouchStart={e => { e.stopPropagation(); if (!result) onUseFood(h.id, nextFood.id); }}
+                      style={{
+                        flex: 1, padding: "0.15rem 0", borderRadius: 5, fontSize: "0.55rem",
+                        background: "rgba(74,222,128,0.12)", border: "1px solid rgba(74,222,128,0.4)",
+                        color: "#4ade80", cursor: result ? "default" : "pointer",
+                        fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 2,
+                      }}>
+                      <span>{foodDef?.emoji ?? "🍞"}</span>
+                      <span style={{ fontSize: "0.42rem" }}>+{foodDef?.healAmount ?? "?"}</span>
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
-
-      <AbilityBar hero={selHero} onUseAbility={onUseAbility} onUseFood={onUseFood} combatOver={!!result} />
 
       {/* Combat log */}
       <div style={{
@@ -1120,6 +1175,7 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
   const [combatHeroes, setCombatHeroes] = useState([]);
   const [combatEnemies, setCombatEnemies] = useState([]);
   const [combatSelected, setCombatSelected] = useState(null);
+  const [mendArmed, setMendArmed] = useState(false);
   const [combatFloats, setCombatFloats] = useState([]);
   const [combatLog, setCombatLog] = useState([]);
   const [combatPhase, setCombatPhase] = useState("initiative");
@@ -1133,11 +1189,13 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
   const selectedRef = useRef(null);
   const phaseRef = useRef("initiative");
   const floatIdRef = useRef(0);
+  const mendArmedRef = useRef(false);
 
   useEffect(() => { heroesRef.current = combatHeroes; }, [combatHeroes]);
   useEffect(() => { enemiesRef.current = combatEnemies; }, [combatEnemies]);
   useEffect(() => { selectedRef.current = combatSelected; }, [combatSelected]);
   useEffect(() => { phaseRef.current = combatPhase; }, [combatPhase]);
+  useEffect(() => { mendArmedRef.current = mendArmed; }, [mendArmed]);
 
   const pendingReward = game?.pendingDungeonReward ?? null;
 
@@ -1579,6 +1637,11 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
 
     const tappedHero = heroesRef.current.find(h => !h.dead && dist({ x, y }, h) < HIT_R);
     if (tappedHero) {
+      if (mendArmedRef.current) {
+        // Mend is armed — heal this hero instead of selecting
+        handleMendTarget(tappedHero.id);
+        return;
+      }
       const newSel = tappedHero.id === selectedRef.current ? null : tappedHero.id;
       setCombatSelected(newSel);
       selectedRef.current = newSel;
@@ -1617,7 +1680,7 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
     selectedRef.current = newSel;
   }, []);
 
-  // ── Drag-to-move: directly move a specific hero to destination ─────────────
+  // ── Drag-to-move: only update targetX/targetY so game loop smoothly interpolates ──
   const handleDragMove = useCallback((heroId, x, y) => {
     const currentPhase = phaseRef.current;
     if (currentPhase !== "fighting" && currentPhase !== "prep") return;
@@ -1628,7 +1691,7 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
       const next = prev.map(h => h.id === heroId
         ? nearbyEnemy
           ? { ...h, attackTarget: nearbyEnemy.id, targetX: nearbyEnemy.x, targetY: nearbyEnemy.y }
-          : { ...h, x, y, targetX: x, targetY: y, attackTarget: null }
+          : { ...h, targetX: x, targetY: y, attackTarget: null }
         : h);
       heroesRef.current = next;
       return next;
@@ -1651,27 +1714,9 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
         setCombatHeroes(prev => { const next = prev.map(h => h.id === heroId ? { ...h, tauntActive: false } : h); heroesRef.current = next; return next; });
       }, 4000);
     } else if (hero.heroClass === "mage") {
-      setCombatHeroes(prev => {
-        const alive = prev.filter(h => !h.dead);
-        if (!alive.length) return prev;
-        const lowest = alive.reduce((a, b) => (a.hp / a.maxHp) < (b.hp / b.maxHp) ? a : b);
-        const mageLevel = hero.level ?? 1;
-        const healPct = Math.min(0.35 + (mageLevel - 1) * 0.005, 0.60); // 35% base, +0.5% per level, cap 60%
-        const healAmt = Math.floor(lowest.maxHp * healPct);
-        addLog(`💚 ${hero.name} heals ${lowest.name} for ${healAmt}!`, "#4ade80");
-        addFloat(lowest.x, lowest.y - 15, `+${healAmt}`, "#4ade80");
-        const next = prev.map(h => {
-          const isMage = h.id === heroId;
-          const isLowest = h.id === lowest.id;
-          if (isMage && isLowest) return { ...h, hp: Math.min(h.maxHp, h.hp + healAmt), ability: { ...h.ability, cooldownLeft: h.ability.cooldown } };
-          if (isMage) return { ...h, ability: { ...h.ability, cooldownLeft: h.ability.cooldown } };
-          if (isLowest) return { ...h, hp: Math.min(h.maxHp, h.hp + healAmt) };
-          return h;
-        });
-        heroesRef.current = next;
-        return next;
-      });
-    } else if (hero.heroClass === "scavenger") {
+      // Mend is two-tap: arm here, player taps a hero card to target
+      setMendArmed(true);
+        } else if (hero.heroClass === "scavenger") {
       addLog(`⚡ ${hero.name} launches Blade Rush!`, "#34d399");
       setCombatHeroes(prev => {
         const next = prev.map(h => h.id !== heroId ? h : { ...h, bladeRushActive: true, bladeRushTimeLeft: BLADE_RUSH_DURATION, bladeRushAttacksLeft: 0, bladeRushAttackTimer: 0, ability: { ...h.ability, cooldownLeft: h.ability.cooldown } });
@@ -1680,6 +1725,30 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
       });
     }
     // No-op for classless Adventurer (no ability defined)
+  }, []);
+
+  // ── Mend target ────────────────────────────────────────────────────────────────────────────
+  const handleMendTarget = useCallback((targetHeroId) => {
+    const mage = heroesRef.current.find(h => h.heroClass === "mage" && !h.dead);
+    if (!mage || !mage.ability || mage.ability.cooldownLeft > 0) { setMendArmed(false); return; }
+    const target = heroesRef.current.find(h => h.id === targetHeroId && !h.dead);
+    if (!target) { setMendArmed(false); return; }
+    const mageLevel = mage.level ?? 1;
+    const healPct = Math.min(0.35 + (mageLevel - 1) * 0.005, 0.60);
+    const healAmt = Math.floor(target.maxHp * healPct);
+    addLog(`💚 ${mage.name} heals ${target.name} for ${healAmt}!`, "#4ade80");
+    addFloat(target.x, target.y - 15, `+${healAmt}`, "#4ade80");
+    setCombatHeroes(prev => {
+      const next = prev.map(h => {
+        if (h.id === mage.id && h.id === targetHeroId) return { ...h, hp: Math.min(h.maxHp, h.hp + healAmt), ability: { ...h.ability, cooldownLeft: h.ability.cooldown } };
+        if (h.id === mage.id) return { ...h, ability: { ...h.ability, cooldownLeft: h.ability.cooldown } };
+        if (h.id === targetHeroId) return { ...h, hp: Math.min(h.maxHp, h.hp + healAmt) };
+        return h;
+      });
+      heroesRef.current = next;
+      return next;
+    });
+    setMendArmed(false);
   }, []);
 
   // ── Food use ──────────────────────────────────────────────────────────────
@@ -1760,6 +1829,7 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
     setCombatInitResult(null);
     setCombatCountdown(5);
     setCombatResult(null);
+    setMendArmed(false);
     heroesRef.current = newHeroes;
     enemiesRef.current = newEnemies;
     selectedRef.current = newHeroes[0]?.id ?? null;
@@ -1965,6 +2035,9 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
       onDragMove={handleDragMove}
       onSelectHero={handleSelectHero}
       onUseAbility={handleUseAbility}
+      mendArmed={mendArmed}
+      onMendTarget={handleMendTarget}
+      onDisarmMend={() => setMendArmed(false)}
       onUseFood={handleUseFood}
       onCombatEnd={onCombatEnd}
       onPlacementReady={handlePlacementReady}
