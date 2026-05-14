@@ -1125,7 +1125,7 @@ if (wf) {
             onToggleRoad={handleToggleRoad}
             />
         )}
-        {activeMainTab === "world" && (
+        <div style={{ display: activeMainTab === "world" ? undefined : "none" }}>
           <WorldZone
             game={game}
             onSendAdventurer={handleSendAdventurer}
@@ -1163,7 +1163,7 @@ if (wf) {
             onStartDungeonRun={handleStartDungeonRun}
             onSaveDungeonRun={handleSaveDungeonRun}
           />
-        )}
+        </div>
         {activeMainTab === "view" && (
           <LiveView game={game} />
         )}
