@@ -10,7 +10,7 @@ import { ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST, FORGE_RECIPES } from "../gameCons
 const BF_W = 340;
 const BF_H = 280;
 const UNIT_R = 22;
-const TICK_MS = 80;
+const TICK_MS = 110;
 const HERO_SPEED = 55;
 const ENEMY_SPEED = 38;
 const ATTACK_RANGE = UNIT_R * 2.6;
@@ -463,13 +463,11 @@ function Battlefield({
     const { x, y } = coords;
     dragStateRef.current.curX = x;
     dragStateRef.current.curY = y;
-    const hero = heroes.find(h => h.id === dragStateRef.current.heroId);
-    if (!hero) return;
     const ddx = x - dragStateRef.current.startX;
     const ddy = y - dragStateRef.current.startY;
     if (Math.sqrt(ddx * ddx + ddy * ddy) > 8) {
       setDragLine({ x2: x, y2: y });
-      onDragMove(dragStateRef.current.heroId, x, y);
+      // Don't call onDragMove here — hero stops at wherever pointer is released
     }
   }
 
@@ -813,14 +811,15 @@ function Battlefield({
 
 const MIN_EXPLORE_PCT = 0.55; // must explore 55% before exit is usable
 
-function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat, onCollectTreasure, onRest, onTrap, onRetreat, onExit, onFinishRun, lootTotal, onUseFood }) {
+function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat, onCollectTreasure, onRest, onTrap, onRetreat, onExit, onFinishRun, lootTotal, onUseFood, roomsClearedThisDepth }) {
   const CELL = 40;
   function getCell(x, y) { return cells.find(c => c.x === x && c.y === y) ?? null; }
   function adj() {
     return [[0, -1], [0, 1], [-1, 0], [1, 0]].map(([dx, dy]) => getCell(pos.x + dx, pos.y + dy)).filter(Boolean);
   }
   const explorePct = cells.length > 0 ? cells.filter(c => c.visited).length / cells.length : 0;
-  const exitUnlocked = explorePct >= MIN_EXPLORE_PCT;
+  const exitUnlocked = explorePct >= MIN_EXPLORE_PCT && (roomsClearedThisDepth ?? 0) >= 1;
+  const canEscape = (roomsClearedThisDepth ?? 0) >= 1; // need 1 enemy room cleared to retreat safely too
   function moveToCell(x, y) {
     const target = getCell(x, y); if (!target) return;
     setCells(prev => prev.map(c => c.x === x && c.y === y ? { ...c, visited: true } : c));
@@ -883,7 +882,7 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: "0.5rem" }}>
         <div style={{ width: "100%", fontSize: "0.62rem", color: "#a78bfa", marginBottom: "0.1rem" }}>
-          Depth {depth} — reach 🚪 Exit ({Math.round(MIN_EXPLORE_PCT * 100)}% explored needed{!exitUnlocked ? ` · ${Math.round(explorePct * 100)}% so far` : " ✓"}) · ✅ Finish Run to collect loot
+          Depth {depth} — reach 🚪 Exit (explore {Math.round(MIN_EXPLORE_PCT * 100)}% + clear 1 room{!exitUnlocked ? ` · ${Math.round(explorePct * 100)}% explored, ${roomsClearedThisDepth ?? 0} room(s) cleared` : " ✓"}) · Retreat returns 50% loot
         </div>
         {[["🧭", "Party"], ["👹", "Enemy"], ["⚠️", "Trap"], ["💰", "Treasure"], ["🏕️", "Rest"], ["🚪", "Exit"]].map(([e, l]) => (
           <span key={l} style={{ fontSize: "0.6rem", color: "var(--muted)", display: "flex", gap: 3, alignItems: "center" }}>
@@ -933,11 +932,12 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
       )}
 
       <div style={{ display: "flex", gap: 6 }}>
-        <button onClick={onRetreat} style={{
+        <button onClick={canEscape ? onRetreat : undefined} disabled={!canEscape} style={{
           flex: 1, padding: "0.45rem", borderRadius: 8, fontSize: "0.72rem", fontWeight: 600,
-          background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.28)",
-          color: "#f87171", cursor: "pointer",
-        }}>🏳️ Retreat</button>
+          background: canEscape ? "rgba(239,68,68,0.1)" : "rgba(255,255,255,0.04)",
+          border: `1px solid ${canEscape ? "rgba(239,68,68,0.28)" : "rgba(255,255,255,0.08)"}`,
+          color: canEscape ? "#f87171" : "var(--muted)", cursor: canEscape ? "pointer" : "default",
+        }}>{canEscape ? "🏳️ Retreat (50% loot)" : "🔒 Clear 1 room to escape"}</button>
         <button onClick={onFinishRun} style={{
           flex: 1, padding: "0.45rem", borderRadius: 8, fontSize: "0.72rem", fontWeight: 700,
           background: "rgba(74,222,128,0.12)", border: "1px solid rgba(74,222,128,0.35)",
@@ -1165,6 +1165,7 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
   const [lootTotal, setLootTotal] = useState(savedRun?.lootTotal ?? {});
   const [xpTotal, setXpTotal] = useState(savedRun?.xpTotal ?? {});
   const [foodUsedTotal, setFoodUsedTotal] = useState(savedRun?.foodUsedTotal ?? {});
+  const [roomsClearedThisDepth, setRoomsClearedThisDepth] = useState(0); // tracks enemy rooms cleared since last depth change
   const [lastRun, setLastRun] = useState(null);
   const [party, setParty] = useState(() => {
     if (!savedRun?.heroIds?.length) return [];
@@ -1875,6 +1876,7 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
       setXpTotal(newXp);
       if (combatPos) setCells(prev => prev.map(c => c.x === combatPos.x && c.y === combatPos.y ? { ...c, cleared: true } : c));
       setCombatPos(null);
+      setRoomsClearedThisDepth(prev => prev + 1); // one enemy room cleared at this depth
       setMode("explore");
       saveRun({ mode: "explore", lootTotal: newLoot, xpTotal: newXp });
     } else {
@@ -1945,9 +1947,13 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
     const partyHpSnapshot = {};
     party.forEach(h => { partyHpSnapshot[h.id] = h.currentDungeonHp ?? h.maxHp ?? 40; });
     const mergedHpSnapshot = { ...partyHpSnapshot, ...hpSnapshot }; // explicit overrides win
-    const runResult = { victory, loot: lootTotal, xpByHeroId: xpTotal, foodBeltDeltas: foodUsedTotal, totalXp, hpSnapshot: mergedHpSnapshot, depth };
-    const label = victory ? "Victory" : `Retreated at depth ${depth}`;
-    setLastRun({ victory, label, loot: lootTotal, depth });
+    // On retreat or wipe, only keep 50% of collected loot
+    const finalLoot = victory
+      ? lootTotal
+      : Object.fromEntries(Object.entries(lootTotal).map(([k, v]) => [k, Math.floor(v * 0.5)]).filter(([, v]) => v > 0));
+    const runResult = { victory, loot: finalLoot, xpByHeroId: xpTotal, foodBeltDeltas: foodUsedTotal, totalXp, hpSnapshot: mergedHpSnapshot, depth };
+    const label = victory ? "Victory" : `Retreated at depth ${depth} (50% loot)`;
+    setLastRun({ victory, label, loot: finalLoot, depth });
     onDungeonComplete(runResult);
     setMode("lobby");
     setCells([]);
