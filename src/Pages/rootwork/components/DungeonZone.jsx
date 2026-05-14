@@ -1742,7 +1742,11 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
 
   function endRun(victory, hpSnapshot = {}) {
     const totalXp = Object.values(xpTotal).reduce((s, v) => s + v, 0);
-    const runResult = { victory, loot: lootTotal, xpByHeroId: xpTotal, foodBeltDeltas: foodUsedTotal, totalXp, hpSnapshot, depth };
+    // Build hpSnapshot from current party state so post-dungeon HP persists on adventurers
+    const partyHpSnapshot = {};
+    party.forEach(h => { partyHpSnapshot[h.id] = h.currentDungeonHp ?? h.maxHp ?? 40; });
+    const mergedHpSnapshot = { ...partyHpSnapshot, ...hpSnapshot }; // explicit overrides win
+    const runResult = { victory, loot: lootTotal, xpByHeroId: xpTotal, foodBeltDeltas: foodUsedTotal, totalXp, hpSnapshot: mergedHpSnapshot, depth };
     const label = victory ? "Victory" : `Retreated at depth ${depth}`;
     setLastRun({ victory, label, loot: lootTotal, depth });
     onDungeonComplete(runResult);
