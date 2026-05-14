@@ -28,21 +28,21 @@ const HOT_DURATION = 5;
 const DUNGEON_CLASS = {
   fighter: {
     label: "Fighter", emoji: "⚔️", color: "#f87171", bg: "#7f1d1d",
-    hpMult: 1.5, atkMult: 0.8, defBonus: 4,
+    hpMult: 1.0, atkMult: 0.8, defBonus: 4,
     attackSpeed: 1.4, attackRange: ATTACK_RANGE,
     ability: { name: "Taunt", emoji: "📢", cooldown: 8, desc: "All enemies focus Fighter for 4s" },
     passive: { emoji: "🎲", desc: "+5 to initiative roll" },
   },
   mage: {
     label: "Mage", emoji: "🧙", color: "#a78bfa", bg: "#2e1065",
-    hpMult: 0.8, atkMult: 1.1, defBonus: 0,
+    hpMult: 1.0, atkMult: 1.1, defBonus: 0,
     attackSpeed: 0.7, attackRange: ATTACK_RANGE * 1.5,
     ability: { name: "Mend", emoji: "💚", cooldown: 10, desc: "Heals lowest HP ally (scales with level)" },
     passive: { emoji: "💚", desc: "Heals party between rooms" },
   },
   scavenger: {
     label: "Scavenger", emoji: "🌿", color: "#34d399", bg: "#064e3b",
-    hpMult: 0.95, atkMult: 1.6, defBonus: 1,
+    hpMult: 1.0, atkMult: 1.6, defBonus: 1,
     attackSpeed: 1.2, attackRange: ATTACK_RANGE,
     ability: { name: "Blade Rush", emoji: "⚡", cooldown: 6, desc: "+50% speed for 2s then 3 rapid attacks" },
     passive: { emoji: "🦺", desc: "Immune to trap damage" },
