@@ -1018,7 +1018,8 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
   const savedRun = game?.dungeonRun?.active ? game.dungeonRun : null;
 
   // ── Explore/lobby state ──────────────────────────────────────────────────
-  const [mode, setMode] = useState(savedRun?.mode ?? "lobby");
+  // "combat" mode cannot be resumed on remount (heroes/enemies aren't persisted); fall back to explore
+  const [mode, setMode] = useState(savedRun?.mode === "combat" ? "explore" : (savedRun?.mode ?? "lobby"));
   const [cells, setCells] = useState(savedRun?.cells ?? []);
   const [pos, setPos] = useState(savedRun?.pos ?? { x: 3, y: 3 });
   const [depth, setDepth] = useState(savedRun?.depth ?? 1);
