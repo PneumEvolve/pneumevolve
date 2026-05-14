@@ -144,7 +144,7 @@ function makeHero(adv, index) {
     label: "Adventurer", emoji: "🧭", color: "#94a3b8", bg: "#1e293b",
     hpMult: 1.0, atkMult: 1.0, defBonus: 0,
     attackSpeed: 1.0, attackRange: ATTACK_RANGE,
-    ability: { name: "Focus", emoji: "🎯", cooldown: 12, desc: "Deal 1.5x damage on next attack" },
+    ability: null,
   };
   const baseHp = adv.maxHp ?? 40;
   const baseAtk = 5 + (adv.level ?? 1) * 1.5 + (adv.gear ?? 0) * 4;
@@ -164,7 +164,7 @@ function makeHero(adv, index) {
     atk: Math.floor(baseAtk * cls.atkMult), def: cls.defBonus + Math.floor((adv.gear ?? 0) * 0.5),
     attackSpeed: cls.attackSpeed, attackRange: cls.attackRange,
     attackCooldown: 0,
-    ability: { ...cls.ability, cooldownLeft: 0 },
+    ability: cls.ability ? { ...cls.ability, cooldownLeft: 0 } : null,
     tauntActive: false, dead: false, flashHit: false,
     bladeRushActive: false, bladeRushTimeLeft: 0,
     bladeRushAttacksLeft: 0, bladeRushAttackTimer: 0,
@@ -321,7 +321,8 @@ function UnitCircle({ unit, selected }) {
 function AbilityBar({ hero, onUseAbility, onUseFood }) {
   if (!hero) return null;
   const ab = hero.ability;
-  const abilityReady = ab.cooldownLeft <= 0 && !hero.dead && !hero.bladeRushActive;
+  const hasAbility = ab != null;
+  const abilityReady = hasAbility && ab.cooldownLeft <= 0 && !hero.dead && !hero.bladeRushActive;
   const nextFood = getNextBeltItem(hero.foodBelt);
   const foodDef = nextFood ? ARTISAN_FOOD_HEAL?.[nextFood.id] : null;
 
@@ -332,7 +333,7 @@ function AbilityBar({ hero, onUseAbility, onUseFood }) {
       background: "rgba(255,255,255,0.03)",
       borderRadius: 10, border: "1px solid rgba(255,255,255,0.08)",
     }}>
-      <button
+      {hasAbility && <button
         onClick={() => abilityReady && onUseAbility(hero.id)}
         disabled={!abilityReady}
         style={{
@@ -355,7 +356,7 @@ function AbilityBar({ hero, onUseAbility, onUseFood }) {
             {Math.ceil(ab.cooldownLeft)}s
           </div>
         )}
-      </button>
+      </button>}
       <button
         onClick={() => nextFood && onUseFood(hero.id, nextFood.id)}
         disabled={!nextFood}
@@ -1332,7 +1333,7 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
           }
         }
 
-        if (hero.ability.cooldownLeft > 0) hero.ability.cooldownLeft = Math.max(0, hero.ability.cooldownLeft - dt);
+        if (hero.ability && hero.ability.cooldownLeft > 0) hero.ability.cooldownLeft = Math.max(0, hero.ability.cooldownLeft - dt);
         hero.flashHit = false;
       });
 
@@ -1551,7 +1552,7 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
   // ── Ability use ───────────────────────────────────────────────────────────
   const handleUseAbility = useCallback((heroId) => {
     const hero = heroesRef.current.find(h => h.id === heroId);
-    if (!hero || hero.ability.cooldownLeft > 0 || hero.dead || hero.bladeRushActive) return;
+    if (!hero || !hero.ability || hero.ability.cooldownLeft > 0 || hero.dead || hero.bladeRushActive) return;
 
     if (hero.heroClass === "fighter") {
       addLog(`📢 ${hero.name} taunts! Enemies focus Fighter!`, "#f87171");
