@@ -467,7 +467,7 @@ function Battlefield({
     const ddy = y - dragStateRef.current.startY;
     if (Math.sqrt(ddx * ddx + ddy * ddy) > 8) {
       setDragLine({ x2: x, y2: y });
-      // Don't call onDragMove here — hero stops at wherever pointer is released
+      onDragMove(dragStateRef.current.heroId, x, y);
     }
   }
 
@@ -839,14 +839,18 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
   return (
     <div style={{ padding: "0.65rem" }}>
       <div style={{ display: "flex", gap: 6, marginBottom: "0.6rem" }}>
-        {[
-          { label: "Explored", value: `${Math.round(explorePct * 100)}%${!exitUnlocked ? " 🔒" : ""}`, color: exitUnlocked ? "#a78bfa" : "#fbbf24" },
-          { label: "Enemies",  value: cells.filter(c => c.type === "enemy" && !c.cleared).length, color: "#f87171" },
-          { label: "Depth",    value: depth, color: "#fbbf24" },
-        ].map(s => (
+        {(() => {
+          const tilesOk = explorePct >= MIN_EXPLORE_PCT;
+          const roomsOk = (roomsClearedThisDepth ?? 0) >= 1;
+          return [
+            { label: tilesOk ? "Explored ✓" : `Need ${Math.round(MIN_EXPLORE_PCT * 100)}% 🔒`, value: `${Math.round(explorePct * 100)}%`, color: tilesOk ? "#a78bfa" : "#fbbf24" },
+            { label: roomsOk ? "Room Cleared ✓" : "Clear 1 Room 🔒", value: `${roomsClearedThisDepth ?? 0}/1`, color: roomsOk ? "#4ade80" : "#fbbf24" },
+            { label: "Depth", value: depth, color: "#fbbf24" },
+          ];
+        })().map(s => (
           <div key={s.label} style={{ flex: 1, textAlign: "center", background: "rgba(255,255,255,0.04)", borderRadius: 8, padding: "0.3rem" }}>
             <div style={{ fontSize: "0.85rem", fontWeight: 700, color: s.color }}>{s.value}</div>
-            <div style={{ fontSize: "0.55rem", color: "var(--muted)" }}>{s.label}</div>
+            <div style={{ fontSize: "0.55rem", color: s.color === "#fbbf24" ? "#fbbf24" : "var(--muted)" }}>{s.label}</div>
           </div>
         ))}
       </div>
@@ -882,7 +886,7 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: "0.5rem" }}>
         <div style={{ width: "100%", fontSize: "0.62rem", color: "#a78bfa", marginBottom: "0.1rem" }}>
-          Depth {depth} — reach 🚪 Exit (explore {Math.round(MIN_EXPLORE_PCT * 100)}% + clear 1 room{!exitUnlocked ? ` · ${Math.round(explorePct * 100)}% explored, ${roomsClearedThisDepth ?? 0} room(s) cleared` : " ✓"}) · Retreat returns 50% loot
+          Depth {depth} — Clear 1 enemy room per depth for full loot · Retreat or Complete early = 50% loot
         </div>
         {[["🧭", "Party"], ["👹", "Enemy"], ["⚠️", "Trap"], ["💰", "Treasure"], ["🏕️", "Rest"], ["🚪", "Exit"]].map(([e, l]) => (
           <span key={l} style={{ fontSize: "0.6rem", color: "var(--muted)", display: "flex", gap: 3, alignItems: "center" }}>
@@ -932,17 +936,17 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
       )}
 
       <div style={{ display: "flex", gap: 6 }}>
-        <button onClick={canEscape ? onRetreat : undefined} disabled={!canEscape} style={{
+        <button onClick={onRetreat} style={{
           flex: 1, padding: "0.45rem", borderRadius: 8, fontSize: "0.72rem", fontWeight: 600,
-          background: canEscape ? "rgba(239,68,68,0.1)" : "rgba(255,255,255,0.04)",
-          border: `1px solid ${canEscape ? "rgba(239,68,68,0.28)" : "rgba(255,255,255,0.08)"}`,
-          color: canEscape ? "#f87171" : "var(--muted)", cursor: canEscape ? "pointer" : "default",
-        }}>{canEscape ? "🏳️ Retreat (50% loot)" : "🔒 Clear 1 room to escape"}</button>
+          background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.28)",
+          color: "#f87171", cursor: "pointer",
+        }}>🏳️ Retreat (50% loot)</button>
         <button onClick={onFinishRun} style={{
           flex: 1, padding: "0.45rem", borderRadius: 8, fontSize: "0.72rem", fontWeight: 700,
-          background: "rgba(74,222,128,0.12)", border: "1px solid rgba(74,222,128,0.35)",
-          color: "#4ade80", cursor: "pointer",
-        }}>✅ Finish Run</button>
+          background: roomsClearedThisDepth >= 1 ? "rgba(74,222,128,0.12)" : "rgba(251,191,36,0.08)",
+          border: `1px solid ${roomsClearedThisDepth >= 1 ? "rgba(74,222,128,0.35)" : "rgba(251,191,36,0.3)"}`,
+          color: roomsClearedThisDepth >= 1 ? "#4ade80" : "#fbbf24", cursor: "pointer",
+        }}>{roomsClearedThisDepth >= 1 ? "✅ Complete Run" : "⚠️ Complete Run (50% loot)"}</button>
       </div>
     </div>
   );
@@ -2005,7 +2009,7 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
       onCollectTreasure={collectTreasure}
       onRest={doRest}
       onTrap={doTrap}
-      onFinishRun={() => endRun(true)}
+      onFinishRun={() => endRun(roomsClearedThisDepth >= 1)}
       onRetreat={() => endRun(false)}
       onExit={() => {
         const newDepth = depth + 1;
