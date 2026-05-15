@@ -118,6 +118,20 @@ const ENEMY_POOL = [
 
 // ─── Utility ──────────────────────────────────────────────────────────────────
 
+// ─── Depth metadata ─────────────────────────────────────────────────────────────────────────────────────────
+
+const DEPTH_META = [
+  { name: "Outer Corridors", emoji: "🏰", enemies: ["goblin"], loot: ["iron ore", "lumber"], color: "#94a3b8" },
+  { name: "The Barracks",    emoji: "🛡️",  enemies: ["goblin", "shadow"], loot: ["iron ore", "lumber"], color: "#f87171" },
+  { name: "The Crypts",      emoji: "💀",  enemies: ["skeleton", "cultist"], loot: ["iron ore", "lumber", "rare gems"], color: "#9ca3af" },
+  { name: "The Abyss",       emoji: "🌑",  enemies: ["orc", "stone golem"], loot: ["iron fittings", "rare gems"], color: "#f97316" },
+  { name: "The Lair",        emoji: "🔥",  enemies: ["troll", "banshee"], loot: ["rare gems", "mana crystals"], color: "#c084fc" },
+];
+function getDepthMeta(depth) {
+  if (depth <= DEPTH_META.length) return DEPTH_META[depth - 1];
+  return { name: "The Deep", emoji: "🌀", enemies: ["all"], loot: ["rare gems", "mana crystals"], color: "#6366f1" };
+}
+
 let _uid = 0;
 function uid(p = "u") { return `${p}_${++_uid}_${Date.now()}`; }
 function randInt(min, max) { return min + Math.floor(Math.random() * (max - min + 1)); }
@@ -557,7 +571,7 @@ function Battlefield({
             pointerEvents: "none",
           }}>
             <div style={{ position: "absolute", bottom: 6, left: 0, right: 0, textAlign: "center", fontSize: "0.55rem", color: "rgba(99,102,241,0.6)", fontWeight: 700, letterSpacing: "0.08em" }}>
-              PLACE HEROES HERE
+              BATTLE PREPARATION — TAP TO PLACE HEROES
             </div>
           </div>
         )}
@@ -655,7 +669,7 @@ function Battlefield({
             flexDirection: "column", gap: "0.35rem", pointerEvents: "none",
           }}>
             <div style={{ fontSize: "0.65rem", fontWeight: 700, color: "rgba(255,255,255,0.6)", letterSpacing: "0.12em", textTransform: "uppercase" }}>
-              Battle starts in
+              Battle Preparation
             </div>
             <div style={{
               fontSize: "3.5rem", fontWeight: 900, lineHeight: 1,
@@ -781,26 +795,37 @@ function Battlefield({
       {/* Result panel */}
       {result && (
         <div style={{
-          marginTop: "0.5rem", padding: "0.7rem", borderRadius: 12, textAlign: "center",
-          background: result.victory ? "rgba(74,222,128,0.08)" : "rgba(239,68,68,0.08)",
-          border: `1px solid ${result.victory ? "rgba(74,222,128,0.3)" : "rgba(239,68,68,0.3)"}`,
+          marginTop: "0.5rem", padding: result.victory ? "1rem" : "0.7rem", borderRadius: 12, textAlign: "center",
+          background: result.victory ? "rgba(74,222,128,0.1)" : "rgba(239,68,68,0.08)",
+          border: `2px solid ${result.victory ? "rgba(74,222,128,0.4)" : "rgba(239,68,68,0.3)"}`,
+          boxShadow: result.victory ? "0 0 24px rgba(74,222,128,0.15)" : "none",
         }}>
-          {result.victory && Object.entries(result.loot ?? {}).map(([k, v]) => (
-            <div key={k} style={{ fontSize: "0.75rem", color: "var(--text)" }}>🎒 +{v} {k.replace(/_/g, " ")}</div>
-          ))}
+          {result.victory && (
+            <div style={{ fontSize: "1.6rem", marginBottom: "0.25rem" }}>🏆</div>
+          )}
+          <div style={{ fontSize: result.victory ? "0.85rem" : "0.75rem", fontWeight: 800, color: result.victory ? "#4ade80" : "#ef4444", marginBottom: "0.4rem" }}>
+            {result.victory ? "Victory!" : "Defeated"}
+          </div>
+          {result.victory && Object.keys(result.loot ?? {}).length > 0 && (
+            <div style={{ marginBottom: "0.35rem", padding: "0.4rem 0.5rem", borderRadius: 8, background: "rgba(0,0,0,0.2)" }}>
+              {Object.entries(result.loot).map(([k, v]) => (
+                <div key={k} style={{ fontSize: "0.75rem", color: "var(--text)", lineHeight: 1.6 }}>🎒 +{v} {k.replace(/_/g, " ")}</div>
+              ))}
+            </div>
+          )}
           {result.victory && result.totalXp > 0 && (
-            <div style={{ fontSize: "0.7rem", color: "#a78bfa", marginTop: "0.2rem" }}>✨ +{result.totalXp} XP shared</div>
+            <div style={{ fontSize: "0.72rem", color: "#a78bfa", marginBottom: "0.35rem" }}>✨ +{result.totalXp} XP shared</div>
           )}
           <button
             onClick={() => onCombatEnd(result)}
             style={{
-              marginTop: "0.5rem", padding: "0.45rem 1.5rem", borderRadius: 8,
-              fontWeight: 700, fontSize: "0.78rem",
-              background: result.victory ? "rgba(74,222,128,0.2)" : "rgba(239,68,68,0.12)",
-              border: `1px solid ${result.victory ? "rgba(74,222,128,0.5)" : "rgba(239,68,68,0.4)"}`,
+              marginTop: result.victory ? "0.5rem" : "0.35rem", padding: result.victory ? "0.55rem 2rem" : "0.45rem 1.5rem", borderRadius: 8,
+              fontWeight: 700, fontSize: result.victory ? "0.85rem" : "0.78rem",
+              background: result.victory ? "rgba(74,222,128,0.25)" : "rgba(239,68,68,0.12)",
+              border: `1px solid ${result.victory ? "rgba(74,222,128,0.6)" : "rgba(239,68,68,0.4)"}`,
               color: result.victory ? "#4ade80" : "#ef4444", cursor: "pointer",
             }}>
-            {result.victory ? "Continue →" : "Retreat"}
+            {result.victory ? "🗺️ Continue →" : "🏳️ Retreat (50% loot)"}
           </button>
         </div>
       )}
@@ -846,7 +871,7 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
           return [
             { label: tilesOk ? "Explored ✓" : `Need ${Math.round(MIN_EXPLORE_PCT * 100)}% 🔒`, value: `${Math.round(explorePct * 100)}%`, color: tilesOk ? "#a78bfa" : "#fbbf24" },
             { label: roomsOk ? "Room Cleared ✓" : "Clear 1 Room 🔒", value: `${roomsClearedThisDepth ?? 0}/1`, color: roomsOk ? "#4ade80" : "#fbbf24" },
-            { label: "Depth", value: depth, color: "#fbbf24" },
+            { label: getDepthMeta(depth).name, value: `${getDepthMeta(depth).emoji} D${depth}`, color: getDepthMeta(depth).color },
           ];
         })().map(s => (
           <div key={s.label} style={{ flex: 1, textAlign: "center", background: "rgba(255,255,255,0.04)", borderRadius: 8, padding: "0.3rem" }}>
@@ -887,9 +912,9 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: "0.5rem" }}>
         <div style={{ width: "100%", fontSize: "0.62rem", color: "#a78bfa", marginBottom: "0.1rem" }}>
-          Depth {depth} — Clear 1 enemy room per depth for full loot · Retreat or Complete early = 50% loot
+          {getDepthMeta(depth).emoji} {getDepthMeta(depth).name} — Clear rooms then Cash Out, or find the Exit to go deeper
         </div>
-        {[["🧭", "Party"], ["👹", "Enemy"], ["⚠️", "Trap"], ["💰", "Treasure"], ["🏕️", "Rest"], ["🚪", "Exit"]].map(([e, l]) => (
+        {[["🧭", "Party"], ["👹", "Enemy"], ["⚠️", "Trap"], ["💰", "Treasure"], ["🏕️", "Rest"], ["🚪", "Exit (Go Deeper)"]].map(([e, l]) => (
           <span key={l} style={{ fontSize: "0.6rem", color: "var(--muted)", display: "flex", gap: 3, alignItems: "center" }}>
             <span>{e}</span>{l}
           </span>
@@ -926,6 +951,37 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
         })}
       </div>
 
+      {/* Enemy roster for current depth */}
+      {(() => {
+        const meta = getDepthMeta(depth);
+        const poolIndex = Math.min(depth - 1, ENEMY_POOL.length - 1);
+        const pool = ENEMY_POOL[poolIndex];
+        const uniqueTypes = [...new Set(pool)];
+        return (
+          <div style={{ marginBottom: "0.5rem", padding: "0.4rem 0.6rem", borderRadius: 8, background: "rgba(255,255,255,0.03)", border: `1px solid ${meta.color}33` }}>
+            <div style={{ fontSize: "0.58rem", fontWeight: 700, color: meta.color, marginBottom: "0.25rem", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+              {meta.emoji} {meta.name} — Enemies
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {uniqueTypes.map(typeId => {
+                const def = ENEMY_TYPES[typeId];
+                if (!def) return null;
+                const specialLabels = { revive: "Revives at 50% HP", teleport: "Teleports", channel: "Channels bolt", armor_break: "Armor break", death_curse: "Death curse" };
+                return (
+                  <div key={typeId} style={{ display: "flex", alignItems: "center", gap: 3, padding: "0.15rem 0.35rem", borderRadius: 6, background: def.bg + "aa", border: `1px solid ${def.color}44` }}>
+                    <span style={{ fontSize: "0.75rem" }}>{def.emoji}</span>
+                    <div>
+                      <div style={{ fontSize: "0.55rem", fontWeight: 700, color: def.color }}>{def.name}</div>
+                      {def.special && <div style={{ fontSize: "0.48rem", color: "rgba(255,255,255,0.45)" }}>{specialLabels[def.special] ?? def.special}</div>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
       {Object.keys(lootTotal).length > 0 && (
         <div style={{
           marginBottom: "0.5rem", padding: "0.4rem 0.6rem", borderRadius: 8,
@@ -947,7 +1003,7 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
           background: roomsClearedThisDepth >= 1 ? "rgba(74,222,128,0.12)" : "rgba(251,191,36,0.08)",
           border: `1px solid ${roomsClearedThisDepth >= 1 ? "rgba(74,222,128,0.35)" : "rgba(251,191,36,0.3)"}`,
           color: roomsClearedThisDepth >= 1 ? "#4ade80" : "#fbbf24", cursor: "pointer",
-        }}>{roomsClearedThisDepth >= 1 ? "✅ Complete Run" : "⚠️ Complete Run (50% loot)"}</button>
+        }}>{roomsClearedThisDepth >= 1 ? "💰 Cash Out" : "⚠️ Cash Out (50% loot)"}</button>
       </div>
     </div>
   );
@@ -991,6 +1047,11 @@ function Lobby({ game, lastRun, pendingReward, onStart, onClaim, selectedHeroIds
         <p style={{ fontSize: "0.72rem", color: "var(--muted)" }}>
           Real-time battle. Select a hero, tap to move, tap an enemy to attack. Use abilities and food to survive.
         </p>
+        {maxDepthUnlocked > 0 && (
+          <div style={{ fontSize: "0.65rem", color: getDepthMeta(startDepth).color, marginTop: "0.25rem", fontWeight: 600 }}>
+            {getDepthMeta(startDepth).emoji} Starting at: {getDepthMeta(startDepth).name}
+          </div>
+        )}
       </div>
 
       {hasPending && (
@@ -1077,18 +1138,65 @@ function Lobby({ game, lastRun, pendingReward, onStart, onClaim, selectedHeroIds
           <div style={{ fontSize: "0.68rem", color: "var(--muted)", marginBottom: "0.35rem", fontWeight: 600 }}>
             START DEPTH (max unlocked: {maxDepthUnlocked})
           </div>
-          <div style={{ display: "flex", gap: 4 }}>
-            {Array.from({ length: maxDepthUnlocked }, (_, i) => i + 1).map(d => (
-              <button key={d} onClick={() => setStartDepth(d)} style={{
-                flex: 1, padding: "0.3rem", borderRadius: 7, fontSize: "0.7rem", fontWeight: 700,
-                background: startDepth === d ? "rgba(251,191,36,0.2)" : "rgba(255,255,255,0.04)",
-                border: `1px solid ${startDepth === d ? "rgba(251,191,36,0.55)" : "rgba(255,255,255,0.08)"}`,
-                color: startDepth === d ? "#fbbf24" : "var(--muted)", cursor: "pointer",
-              }}>{d}</button>
-            ))}
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {Array.from({ length: maxDepthUnlocked }, (_, i) => i + 1).map(d => {
+              const dm = getDepthMeta(d);
+              const isActive = startDepth === d;
+              const poolIndex = Math.min(d - 1, ENEMY_POOL.length - 1);
+              const pool = [...new Set(ENEMY_POOL[poolIndex])];
+              return (
+                <button key={d} onClick={() => setStartDepth(d)} style={{
+                  width: "100%", padding: "0.4rem 0.6rem", borderRadius: 8,
+                  background: isActive ? `${dm.color}18` : "rgba(255,255,255,0.03)",
+                  border: `1px solid ${isActive ? dm.color + "55" : "rgba(255,255,255,0.08)"}`,
+                  cursor: "pointer", textAlign: "left",
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: "1rem" }}>{dm.emoji}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: "0.68rem", fontWeight: 700, color: isActive ? dm.color : "var(--fg)" }}>D{d}: {dm.name}</div>
+                      <div style={{ fontSize: "0.55rem", color: "var(--muted)", marginTop: 1 }}>
+                        {pool.map(t => ENEMY_TYPES[t]?.emoji ?? "").join(" ")} · Loot: {dm.loot.join(", ")}
+                      </div>
+                    </div>
+                    {isActive && <span style={{ fontSize: "0.65rem", color: dm.color }}>✓</span>}
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
+
+      {/* Enemy preview for chosen start depth */}
+      {(() => {
+        const dm = getDepthMeta(startDepth);
+        const poolIndex = Math.min(startDepth - 1, ENEMY_POOL.length - 1);
+        const pool = [...new Set(ENEMY_POOL[poolIndex])];
+        const specialLabels = { revive: "Revives", teleport: "Teleports", channel: "Channels bolt", armor_break: "Armor break", death_curse: "Death curse" };
+        return (
+          <div style={{ marginBottom: "0.85rem", padding: "0.55rem 0.7rem", borderRadius: 9, background: `${dm.color}0d`, border: `1px solid ${dm.color}33` }}>
+            <div style={{ fontSize: "0.62rem", fontWeight: 700, color: dm.color, marginBottom: "0.35rem", letterSpacing: "0.05em" }}>
+              {dm.emoji} {dm.name} — ENEMIES YOU'LL FACE
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {pool.map(typeId => {
+                const def = ENEMY_TYPES[typeId];
+                if (!def) return null;
+                return (
+                  <div key={typeId} style={{ display: "flex", alignItems: "center", gap: 4, padding: "0.2rem 0.4rem", borderRadius: 7, background: def.bg + "cc", border: `1px solid ${def.color}55` }}>
+                    <span style={{ fontSize: "0.9rem" }}>{def.emoji}</span>
+                    <div>
+                      <div style={{ fontSize: "0.6rem", fontWeight: 700, color: def.color }}>{def.name}</div>
+                      {def.special && <div style={{ fontSize: "0.5rem", color: "rgba(255,255,255,0.5)" }}>{specialLabels[def.special] ?? def.special}</div>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       <div style={{ marginBottom: "0.85rem", padding: "0.55rem 0.7rem", borderRadius: 9, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
         <div style={{ fontSize: "0.65rem", color: "var(--muted)", fontWeight: 600, marginBottom: "0.35rem" }}>ABILITIES</div>
@@ -1172,6 +1280,7 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
   const [foodUsedTotal, setFoodUsedTotal] = useState(savedRun?.foodUsedTotal ?? {});
   const [roomsClearedThisDepth, setRoomsClearedThisDepth] = useState(0); // tracks enemy rooms cleared since last depth change
   const [lastRun, setLastRun] = useState(null);
+  const [depthUnlockBanner, setDepthUnlockBanner] = useState(null); // { depth, name, emoji }
   const [party, setParty] = useState(() => {
     if (!savedRun?.heroIds?.length) return [];
     return (game?.adventurers ?? []).filter(a => savedRun.heroIds.includes(a.id));
@@ -1516,8 +1625,8 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
 
         if (enemy.special === "revive" && !enemy.revived && enemy.hp / enemy.maxHp <= 0.5) {
           enemy.revived = true; enemy.dead = false; enemy.hp = Math.floor(enemy.maxHp * 0.4);
-          addFloat(enemy.x, enemy.y - 15, "Revived!", "#9ca3af");
-          addLog(`💀 ${enemy.name} rises again!`, "#9ca3af");
+          addFloat(enemy.x, enemy.y - 15, "💀 Revived!", "#9ca3af");
+          addLog(`💀 ${enemy.name} revives! (rises from death when first brought below 50% HP)`, "#9ca3af");
         }
 
         const tauntHero = hs.find(h => !h.dead && h.tauntActive);
@@ -1973,9 +2082,31 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
   // ── Render ────────────────────────────────────────────────────────────────
 
   if (mode === "lobby") return (
-    <Lobby game={game} lastRun={lastRun} pendingReward={pendingReward} onStart={startRun} onClaim={onClaimDungeon}
+    <>
+      {depthUnlockBanner && (
+        <div style={{
+          position: "fixed", top: "5rem", left: "50%", transform: "translateX(-50%)",
+          zIndex: 999, padding: "0.8rem 1.2rem", borderRadius: 14,
+          background: "rgba(15,15,25,0.97)", border: `2px solid ${depthUnlockBanner.color}`,
+          boxShadow: `0 0 32px ${depthUnlockBanner.color}44`,
+          textAlign: "center", minWidth: 220, animation: "floatUp 0.4s ease-out",
+        }}>
+          <div style={{ fontSize: "1.8rem", marginBottom: "0.2rem" }}>{depthUnlockBanner.emoji}</div>
+          <div style={{ fontSize: "0.75rem", fontWeight: 800, color: depthUnlockBanner.color, marginBottom: "0.1rem" }}>
+            Depth {depthUnlockBanner.depth} Unlocked!
+          </div>
+          <div style={{ fontSize: "0.68rem", fontWeight: 700, color: "var(--fg)", marginBottom: "0.25rem" }}>
+            {depthUnlockBanner.name}
+          </div>
+          <div style={{ fontSize: "0.58rem", color: "var(--muted)" }}>
+            New loot: {depthUnlockBanner.loot.join(", ")}
+          </div>
+        </div>
+      )}
+      <Lobby game={game} lastRun={lastRun} pendingReward={pendingReward} onStart={startRun} onClaim={onClaimDungeon}
       selectedHeroIds={selectedHeroIds} setSelectedHeroIds={setSelectedHeroIds}
       startDepth={startDepth} setStartDepth={setStartDepth} />
+    </>
   );
 
   // Between-battle food healing (applied directly to party HP)
@@ -2015,8 +2146,10 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
       onExit={() => {
         const newDepth = depth + 1;
         const maxSeen = game?.maxDungeonDepth ?? 1;
-        if (newDepth > maxSeen && onSaveRun) {
-          // notify parent to persist new max depth via the run save (engine picks it up)
+        if (newDepth > maxSeen) {
+          const dm = getDepthMeta(newDepth);
+          setDepthUnlockBanner({ depth: newDepth, name: dm.name, emoji: dm.emoji, color: dm.color, loot: dm.loot });
+          setTimeout(() => setDepthUnlockBanner(null), 4000);
         }
         const newCells = generateMap();
         const startPos = { x: 3, y: 3 };
