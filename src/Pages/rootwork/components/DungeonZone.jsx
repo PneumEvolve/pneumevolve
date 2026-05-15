@@ -430,8 +430,9 @@ function Battlefield({
   function getBFCoords(e) {
     if (!battlefieldRef.current) return null;
     const rect = battlefieldRef.current.getBoundingClientRect();
-    const clientX = e.touches?.[0]?.clientX ?? e.changedTouches?.[0]?.clientX ?? e.clientX;
-    const clientY = e.touches?.[0]?.clientY ?? e.changedTouches?.[0]?.clientY ?? e.clientY;
+    // For pointer events use clientX directly; fall back to touches only for legacy touch events
+    const clientX = e.clientX ?? e.touches?.[0]?.clientX ?? e.changedTouches?.[0]?.clientX;
+    const clientY = e.clientY ?? e.touches?.[0]?.clientY ?? e.changedTouches?.[0]?.clientY;
     if (clientX == null || clientY == null) return null;
     return {
       x: (clientX - rect.left) * (BF_W / rect.width),
@@ -2022,10 +2023,12 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
         setDepth(newDepth);
         setCells(newCells);
         setPos(startPos);
+        setRoomsClearedThisDepth(0);
         saveRun({ mode: "explore", depth: newDepth, cells: newCells, pos: startPos });
       }}
       lootTotal={lootTotal}
       onUseFood={handleExploreFoodUse}
+      roomsClearedThisDepth={roomsClearedThisDepth}
     />
   );
 
