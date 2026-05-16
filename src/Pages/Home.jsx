@@ -2,88 +2,70 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
- 
+
 const LS_KEY = "pe_home_v2";
- 
+
 function loadState() {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return null;
     return JSON.parse(raw);
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
- 
+
 function saveState(next) {
-  try {
-    localStorage.setItem(LS_KEY, JSON.stringify(next));
-  } catch {}
+  try { localStorage.setItem(LS_KEY, JSON.stringify(next)); } catch {}
 }
- 
-const EXPERIMENTS = [
+
+// ─── Tool registry ────────────────────────────────────────────────────────────
+const TOOLS = [
+  // Stillness
   {
-    id: "projects",
-    title: "Projects",
-    desc: "Organize tasks and personal goals.",
-    to: "/projects",
-    tags: ["organize", "goals"],
+    id: "clear-and-calm",
+    title: "Clear & Calm",
+    desc: "Ride out cravings with breathing. Build a daily meditation practice. Track the shift.",
+    to: "/clear-and-calm",
+    tags: ["breath", "habit"],
+    category: "stillness",
     isPublic: true,
-    isFeatured: false,
-    updatedAtISO: "2026-04-10",
+    isFeatured: true,
+    updatedAtISO: "2026-05-15",
     requiresAuth: true,
+    isNew: true,
   },
   {
-  id: "meal-planner",
-  title: "Meal Planner",
-  desc: "Plan your meals for the week. Syncs with your pantry and recipe collection.",
-  to: "/meal-planning",
-  tags: ["food", "planning"],
-  isPublic: true,
-  isFeatured: false,
-  updatedAtISO: "2026-04-11",
-  requiresAuth: true,
-},
+    id: "shared-stillness",
+    title: "Shared Stillness",
+    desc: "Take a moment with your people, daily. No words. Just presence across the miles.",
+    to: "/stillness",
+    tags: ["shared", "moment"],
+    category: "stillness",
+    isPublic: true,
+    isFeatured: false,
+    updatedAtISO: "2026-04-06",
+    requiresAuth: false,
+  },
+
+  // Clarity
   {
     id: "preforge-local",
     title: "Pre-Forge",
-    desc: "An idea and problem clarifier and organizer.",
+    desc: "An idea and problem clarifier. Get it out of your head and into something real.",
     to: "/preforge",
     tags: ["organize", "clarity"],
+    category: "clarity",
     isPublic: true,
     isFeatured: false,
     updatedAtISO: "2026-01-02",
     requiresAuth: false,
   },
   {
-  id: "clear-and-calm",
-  title: "Clear & Calm",
-  desc: "Ride out cravings with breathing exercises. Build a daily meditation practice. Track your journey.",
-  to: "/clear-and-calm",
-  tags: ["clarity", "breath", "habit"],
-  isPublic: true,
-  isFeatured: true,
-  updatedAtISO: "2026-05-15",
-  requiresAuth: true,
-},
-  {
-    id: "shared-stillness",
-    title: "Shared Stillness",
-    desc: "Take a moment with your people, daily.",
-    to: "/stillness",
-    tags: ["shared", "moment"],
-    isPublic: true,
-    isFeatured: false,
-    updatedAtISO: "2026-04-06",
-    requiresAuth: false,
-  },
-  
-  {
     id: "decision-board",
     title: "Decision Board",
-    desc: "Put pros/cons somewhere real so they stop looping in your head.",
+    desc: "Put pros and cons somewhere real so they stop looping in your head.",
     to: "/decision-board",
     tags: ["decisions"],
+    category: "clarity",
     isPublic: true,
     isFeatured: false,
     updatedAtISO: "2026-01-02",
@@ -92,430 +74,440 @@ const EXPERIMENTS = [
   {
     id: "flow-map",
     title: "Flow Map",
-    desc: "Map a trigger → choice → behavior → ripple. Just to see it.",
+    desc: "Map a trigger → choice → behavior → ripple. Just to see it clearly.",
     to: "/flow",
     tags: ["patterns", "behavior"],
+    category: "clarity",
     isPublic: true,
     isFeatured: false,
     updatedAtISO: "2026-01-02",
     requiresAuth: false,
   },
-  {
-    id: "dream-machine",
-    title: "Dream Machine",
-    desc: "Share your vision of a better world and read what others have shared.",
-    to: "/experiments/dream-machine",
-    tags: ["wonder", "together"],
-    isPublic: false,
-    isFeatured: false,
-    updatedAtISO: "2026-01-02",
-    requiresAuth: true,
-  },
-  {
-  id: "widget-board",
-  title: "Mini-tools",
-  desc: "A personal page of mini-tools. Add what you need, hide the rest. Saves locally.",
-  to: "/tools",
-  tags: ["customize", "personal"],
-  isPublic: true,
-  isFeatured: false,
-  updatedAtISO: "2026-04-10",
-  requiresAuth: false,
-},
   {
     id: "skipped-step",
     title: "The Step We Skip",
     desc: "Find what you're skipping, then decide with less regret.",
     to: "/skipped-step",
     tags: ["decisions", "clarity"],
+    category: "clarity",
     isPublic: true,
     isFeatured: false,
     updatedAtISO: "2026-01-02",
     requiresAuth: false,
   },
+  // Life
+  {
+    id: "projects",
+    title: "Projects",
+    desc: "Organize tasks and personal goals. Keep track of what you're actually working on.",
+    to: "/projects",
+    tags: ["organize", "goals"],
+    category: "life",
+    isPublic: true,
+    isFeatured: false,
+    updatedAtISO: "2026-04-10",
+    requiresAuth: true,
+  },
+  {
+    id: "meal-planner",
+    title: "Meal Planner",
+    desc: "Plan your meals for the week. Syncs with your pantry and recipe collection.",
+    to: "/meal-planning",
+    tags: ["food", "planning"],
+    category: "life",
+    isPublic: true,
+    isFeatured: false,
+    updatedAtISO: "2026-04-11",
+    requiresAuth: true,
+  },
+  {
+    id: "widget-board",
+    title: "Mini-tools",
+    desc: "A personal page of mini-tools. Add what you need, hide the rest.",
+    to: "/tools",
+    tags: ["customize", "personal"],
+    category: "life",
+    isPublic: true,
+    isFeatured: false,
+    updatedAtISO: "2026-04-10",
+    requiresAuth: false,
+  },
+  // Together
+  {
+    id: "dream-machine",
+    title: "Dream Machine",
+    desc: "Share your vision of a better world and read what others have shared.",
+    to: "/experiments/dream-machine",
+    tags: ["wonder", "together"],
+    category: "together",
+    isPublic: false,
+    isFeatured: false,
+    updatedAtISO: "2026-01-02",
+    requiresAuth: true,
+  },
 ];
- 
-function Card({ title, subtitle, children }) {
-  return (
-    <section className="rounded-2xl border border-[var(--border)] bg-[var(--bg-elev)] p-5 shadow-sm">
-      <div className="space-y-1">
-        <h2 className="text-base font-semibold">{title}</h2>
-        {subtitle ? <p className="text-xs text-[var(--muted)]">{subtitle}</p> : null}
-      </div>
-      <div className="mt-3 text-sm leading-6 text-[var(--muted)]">{children}</div>
-    </section>
-  );
-}
- 
+
+const CATEGORIES = [
+  {
+    id: "stillness",
+    label: "Stillness",
+    desc: "Slow down. Breathe. Be here.",
+    icon: "🌿",
+  },
+  {
+    id: "clarity",
+    label: "Clarity",
+    desc: "When your head is full and you need to see clearly.",
+    icon: "🔦",
+  },
+  {
+    id: "life",
+    label: "Life",
+    desc: "The practical stuff. It matters too.",
+    icon: "📋",
+  },
+  {
+    id: "together",
+    label: "Together",
+    desc: "Tools that reach outward.",
+    icon: "🤝",
+  },
+];
+
+// ─── UI helpers ───────────────────────────────────────────────────────────────
 function Pill({ children, className = "" }) {
   return (
-    <span
-      className={
-        "rounded-full border border-[var(--border)] bg-[var(--bg)] px-3 py-1 text-[11px] text-[var(--muted)] " +
-        className
-      }
-    >
+    <span className={
+      "rounded-full border border-[var(--border)] bg-[var(--bg)] px-2.5 py-0.5 text-[11px] text-[var(--muted)] " + className
+    }>
       {children}
     </span>
   );
 }
- 
-function SmallButton({ children, onClick, type = "button", className = "" }) {
+
+function SmallBtn({ children, onClick, className = "" }) {
   return (
-    <button
-      type={type}
-      onClick={onClick}
-      className={
-        "rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition " +
-        className
-      }
-    >
+    <button type="button" onClick={onClick}
+      className={"rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--bg-elev)] transition " + className}>
       {children}
     </button>
   );
 }
- 
-function PrimaryLink({ to, children }) {
+
+// ─── Featured card ────────────────────────────────────────────────────────────
+function FeaturedCard({ tool, onOpen, onPin, isPinned, canAccess }) {
+  if (!tool) return null;
   return (
-    <Link
-      to={to}
-      className="inline-flex items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
-    >
-      {children}
-    </Link>
+    <div className="relative overflow-hidden rounded-2xl border border-[var(--accent)] bg-[var(--bg-elev)] p-6 shadow-lg">
+      {/* Subtle glow */}
+      <div className="pointer-events-none absolute inset-0 rounded-2xl"
+        style={{ background: "radial-gradient(600px at 0% 0%, color-mix(in oklab, var(--accent) 8%, transparent), transparent)" }}/>
+
+      <div className="relative">
+        <div className="flex items-start justify-between gap-4 mb-3">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[11px] font-semibold uppercase tracking-widest text-[var(--accent)]">
+                Featured
+              </span>
+              {tool.isNew && (
+                <span className="rounded-full bg-[var(--accent)] text-[var(--accent-contrast)] px-2 py-0.5 text-[10px] font-semibold">
+                  New
+                </span>
+              )}
+            </div>
+            <h2 className="text-xl font-semibold text-[var(--text)]">{tool.title}</h2>
+          </div>
+          {tool.requiresAuth && <Pill className="shrink-0 opacity-70">🔒 login</Pill>}
+        </div>
+
+        <p className="text-sm text-[var(--muted)] leading-6 mb-4">{tool.desc}</p>
+
+        <div className="flex flex-wrap gap-2 mb-5">
+          {tool.tags.map(t => <Pill key={t}>{t}</Pill>)}
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => onOpen(tool)}
+            className="rounded-xl bg-[var(--accent)] text-[var(--accent-contrast)] px-5 py-2 text-sm font-semibold hover:opacity-90 transition shadow">
+            {canAccess(tool) ? "Open →" : "Log in to open →"}
+          </button>
+          <SmallBtn onClick={() => onPin(tool)}>
+            {isPinned ? "Unpin" : "Pin"}
+          </SmallBtn>
+        </div>
+      </div>
+    </div>
   );
 }
- 
-function pickFeatured(experiments) {
-  const featured = experiments.filter((e) => e.isFeatured && e.isPublic);
-  if (featured.length) return featured[0];
-  const sorted = [...experiments]
-    .filter((e) => e.isPublic)
-    .sort((a, b) => (b.updatedAtISO || "").localeCompare(a.updatedAtISO || ""));
-  return sorted[0] || null;
+
+// ─── Tool card ────────────────────────────────────────────────────────────────
+function ToolCard({ tool, onOpen, onPin, onHide, isPinned, canAccess }) {
+  return (
+    <div className="group rounded-2xl border border-[var(--border)] bg-[var(--bg-elev)] p-4 hover:border-[var(--accent)] hover:shadow-md transition-all duration-200">
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-semibold text-[var(--text)]">{tool.title}</p>
+            {tool.isNew && (
+              <span className="rounded-full bg-[var(--accent)] text-[var(--accent-contrast)] px-2 py-0.5 text-[10px] font-semibold">New</span>
+            )}
+            {tool.requiresAuth && <Pill className="opacity-70">🔒</Pill>}
+          </div>
+          <p className="mt-1 text-xs text-[var(--muted)] leading-5">{tool.desc}</p>
+        </div>
+        <button type="button" onClick={() => onPin(tool)}
+          className="shrink-0 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--muted)] hover:text-[var(--text)] hover:bg-[var(--bg)] transition">
+          {isPinned ? "Pinned ★" : "Pin"}
+        </button>
+      </div>
+
+      <div className="flex flex-wrap gap-1.5 mb-3">
+        {tool.tags.map(t => <Pill key={t}>{t}</Pill>)}
+      </div>
+
+      <div className="flex gap-2">
+        <button type="button" onClick={() => onOpen(tool)}
+          className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--bg-elev)] hover:shadow-sm transition">
+          {canAccess(tool) ? "Open →" : "Log in →"}
+        </button>
+        <button type="button" onClick={() => onHide(tool)}
+          className="rounded-lg px-3 py-1.5 text-xs text-[var(--muted)] hover:text-[var(--text)] transition">
+          Hide
+        </button>
+      </div>
+    </div>
+  );
 }
- 
+
+// ─── Category section ─────────────────────────────────────────────────────────
+function CategorySection({ category, tools, onOpen, onPin, onHide, pinnedId, canAccess }) {
+  if (!tools.length) return null;
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-3">
+        <span className="text-lg">{category.icon}</span>
+        <div>
+          <h3 className="text-sm font-semibold text-[var(--text)]">{category.label}</h3>
+          <p className="text-xs text-[var(--muted)]">{category.desc}</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {tools.map(t => (
+          <ToolCard key={t.id} tool={t}
+            onOpen={onOpen} onPin={onPin} onHide={onHide}
+            isPinned={pinnedId === t.id} canAccess={canAccess}/>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
 export default function Home() {
   const navigate = useNavigate();
   const { isLoggedIn, displayName } = useAuth?.() || { isLoggedIn: false, displayName: null };
- 
+
   const initial = useMemo(() => {
     const stored = loadState();
-    return (
-      stored || {
-        lastExperimentId: null,
-        pinnedExperimentId: null,
-        hiddenExperimentIds: [],
-        createdAtISO: new Date().toISOString().slice(0, 10),
-        version: 2,
-      }
-    );
+    return stored || {
+      lastToolId: null,
+      pinnedToolId: null,
+      hiddenToolIds: [],
+      createdAtISO: new Date().toISOString().slice(0, 10),
+      version: 3,
+    };
   }, []);
- 
-  const [lastExperimentId, setLastExperimentId] = useState(initial.lastExperimentId);
-  const [pinnedExperimentId, setPinnedExperimentId] = useState(initial.pinnedExperimentId);
-  const [hiddenExperimentIds, setHiddenExperimentIds] = useState(initial.hiddenExperimentIds || []);
- 
+
+  const [lastToolId, setLastToolId]       = useState(initial.lastToolId);
+  const [pinnedToolId, setPinnedToolId]   = useState(initial.pinnedToolId);
+  const [hiddenToolIds, setHiddenToolIds] = useState(initial.hiddenToolIds || []);
+
   useEffect(() => {
-    saveState({
-      lastExperimentId,
-      pinnedExperimentId,
-      hiddenExperimentIds,
-      createdAtISO: initial.createdAtISO,
-      version: 2,
+    saveState({ lastToolId, pinnedToolId, hiddenToolIds, createdAtISO: initial.createdAtISO, version: 3 });
+  }, [lastToolId, pinnedToolId, hiddenToolIds]);
+
+  const visibleTools = useMemo(() =>
+    TOOLS.filter(t => t.isPublic && !hiddenToolIds.includes(t.id)),
+    [hiddenToolIds]
+  );
+
+  const featured = useMemo(() => {
+    const f = visibleTools.find(t => t.isFeatured);
+    if (f) return f;
+    return [...visibleTools].sort((a, b) => b.updatedAtISO.localeCompare(a.updatedAtISO))[0] || null;
+  }, [visibleTools]);
+
+  const lastTool = useMemo(() =>
+    lastToolId ? TOOLS.find(t => t.id === lastToolId) || null : null,
+    [lastToolId]
+  );
+
+  const pinned = useMemo(() =>
+    pinnedToolId ? TOOLS.find(t => t.id === pinnedToolId) || null : null,
+    [pinnedToolId]
+  );
+
+  const canAccess = (t) => !(t?.requiresAuth && !isLoggedIn);
+
+  const openTool = (t) => {
+    if (!t) return;
+    if (!canAccess(t)) { navigate(`/login?next=${encodeURIComponent(t.to)}`); return; }
+    setLastToolId(t.id);
+    navigate(t.to);
+  };
+
+  const pinTool = (t) => setPinnedToolId(prev => prev === t.id ? null : t.id);
+  const hideTool = (t) => setHiddenToolIds(prev => prev.includes(t.id) ? prev : [t.id, ...prev]);
+  const restoreAll = () => setHiddenToolIds([]);
+
+  const toolsByCategory = useMemo(() => {
+    const map = {};
+    CATEGORIES.forEach(c => { map[c.id] = []; });
+    visibleTools.forEach(t => {
+      if (map[t.category]) map[t.category].push(t);
     });
-  }, [lastExperimentId, pinnedExperimentId, hiddenExperimentIds]);
- 
-  const visibleExperiments = useMemo(() => {
-    return EXPERIMENTS.filter((e) => e.isPublic && !hiddenExperimentIds.includes(e.id));
-  }, [hiddenExperimentIds]);
- 
-  const featured = useMemo(() => pickFeatured(visibleExperiments), [visibleExperiments]);
- 
-  const lastExperiment = useMemo(() => {
-    if (!lastExperimentId) return null;
-    return EXPERIMENTS.find((e) => e.id === lastExperimentId) || null;
-  }, [lastExperimentId]);
- 
-  const pinned = useMemo(() => {
-    if (!pinnedExperimentId) return null;
-    return EXPERIMENTS.find((e) => e.id === pinnedExperimentId) || null;
-  }, [pinnedExperimentId]);
- 
-  const canAccess = (exp) => !(exp?.requiresAuth && !isLoggedIn);
- 
-  const openOrLogin = (exp) => {
-    if (!exp) return;
-    if (!canAccess(exp)) {
-      navigate(`/login?next=${encodeURIComponent(exp.to)}`);
-      return;
-    }
-    setLastExperimentId(exp.id);
-    navigate(exp.to);
-  };
- 
-  const showContinue = isLoggedIn && lastExperiment && canAccess(lastExperiment);
- 
-  const onPin = (exp) => {
-    setPinnedExperimentId((prev) => (prev === exp.id ? null : exp.id));
-  };
- 
-  const onHide = (exp) => {
-    setHiddenExperimentIds((prev) => {
-      if (prev.includes(exp.id)) return prev;
-      return [exp.id, ...prev];
-    });
-  };
- 
-  const scrollToTools = () => {
-    const el = document.getElementById("tools");
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
- 
-  const restoreHidden = () => {
-    setHiddenExperimentIds([]);
-  };
- 
+    return map;
+  }, [visibleTools]);
+
+  const showContinue = isLoggedIn && lastTool && canAccess(lastTool) && lastTool.id !== featured?.id;
+
   return (
     <main className="min-h-screen bg-[var(--bg)] text-[var(--text)]">
-      <div className="mx-auto max-w-5xl px-5 py-10">
- 
-        {/* ── Hero ─────────────────────────────────────────────────────── */}
-        <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-  <div className="space-y-2">
-    <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight leading-tight">
-      Small tools that reduce mental loops—alone, and together.
-    </h1>
+      <div className="mx-auto max-w-4xl px-5 py-12 space-y-10">
 
-    <p className="text-sm text-[var(--muted)] leading-6 max-w-prose">
-      PneumEvolve is a collection of standalone pages that help you think, decide, and notice patterns.
-    </p>
+        {/* ── Hero ──────────────────────────────────────────────────────── */}
+        <header>
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-6">
+            <div className="space-y-3 max-w-xl">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-widest text-[var(--accent)] mb-2">
+                  PneumEvolve
+                </p>
+                <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight leading-snug">
+                  I built this for myself.
+                  <br />
+                  <span className="text-[var(--muted)] font-normal">You're welcome here too.</span>
+                </h1>
+              </div>
+              <p className="text-sm text-[var(--muted)] leading-6">
+                A collection of tools for thinking, breathing, and becoming. Started as something spiritual. Turned into something practical. Still both.
+              </p>
+              {isLoggedIn && (
+                <p className="text-xs text-[var(--muted)]">
+                  Welcome back{displayName ? `, ${displayName}` : ""}.
+                </p>
+              )}
+            </div>
 
-    {isLoggedIn ? (
-      <p className="text-[11px] text-[var(--muted)]">
-        Signed in{displayName ? ` as ${displayName}` : ""}. Continue/pin/hide saves locally on this device.
-      </p>
-    ) : (
-      <p className="text-[11px] text-[var(--muted)]">
-        No account required for most tools. Some are optionally gated.
-      </p>
-    )}
-  </div>
+            <div className="flex flex-col gap-2 sm:items-end shrink-0">
+              {isLoggedIn ? (
+                <Link to="/account"
+                  className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-4 py-2 text-xs font-medium hover:shadow transition text-center">
+                  Account
+                </Link>
+              ) : (
+                <>
+                  <Link to="/login"
+                    className="rounded-xl bg-[var(--accent)] text-[var(--accent-contrast)] px-4 py-2 text-xs font-semibold hover:opacity-90 transition shadow text-center">
+                    Log in
+                  </Link>
+                  <Link to="/signup"
+                    className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-4 py-2 text-xs font-medium hover:shadow transition text-center">
+                    Create account
+                  </Link>
+                </>
+              )}
+            </div>
+          </div>
+        </header>
 
-  <div className="flex flex-wrap gap-2 sm:justify-end sm:shrink-0">
-    <button
-      type="button"
-      onClick={scrollToTools}
-      className="inline-flex items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
-    >
-      Browse tools →
-    </button>
-    {isLoggedIn ? (
-      <PrimaryLink to="/account">Account</PrimaryLink>
-    ) : (
-      <>
-        <PrimaryLink to="/login">Log in</PrimaryLink>
-        <PrimaryLink to="/signup">Create account</PrimaryLink>
-      </>
-    )}
-  </div>
-</header>
- 
-        {/* ── Top row: Featured + Continue/What this is + Pinned ───────── */}
-        <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <Card
-            title="Featured"
-            subtitle={featured ? "Start here if you're not sure." : "Add one when you're ready."}
-          >
-            {featured ? (
-              <>
-                <div className="space-y-2">
-                  <p className="text-base font-semibold text-[var(--text)]">{featured.title}</p>
-                  <p>{featured.desc}</p>
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    {(featured.tags || []).map((t) => (
-                      <Pill key={t}>{t}</Pill>
-                    ))}
-                    {featured.requiresAuth ? <Pill className="opacity-80">🔒 login</Pill> : null}
-                  </div>
-                </div>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => openOrLogin(featured)}
-                    className="rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
-                  >
-                    {canAccess(featured) ? "Open →" : "Log in to open →"}
-                  </button>
-                  <SmallButton onClick={() => onPin(featured)}>
-                    {pinnedExperimentId === featured.id ? "Unpin" : "Pin"}
-                  </SmallButton>
-                  <SmallButton onClick={() => onHide(featured)}>Hide</SmallButton>
-                </div>
-              </>
-            ) : (
-              <>
-                <p>No tools are visible right now.</p>
-                <div className="mt-3">
-                  <button
-                    type="button"
-                    onClick={scrollToTools}
-                    className="inline-flex items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
-                  >
-                    Browse tools →
-                  </button>
-                </div>
-              </>
-            )}
-          </Card>
- 
-          <Card
-            title={showContinue ? "Continue" : "What this is"}
-            subtitle={showContinue ? "Pick up where you left off." : "No pressure. No promises."}
-          >
-            {showContinue ? (
-              <>
-                <p className="text-base font-semibold text-[var(--text)]">{lastExperiment.title}</p>
-                <p>{lastExperiment.desc}</p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => openOrLogin(lastExperiment)}
-                    className="rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
-                  >
+        {/* ── Quick strip: Continue + Pinned ────────────────────────────── */}
+        {(showContinue || pinned) && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {showContinue && (
+              <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-elev)] p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-[var(--muted)] mb-2">Continue</p>
+                <p className="text-sm font-semibold text-[var(--text)]">{lastTool.title}</p>
+                <p className="text-xs text-[var(--muted)] mt-0.5 mb-3">{lastTool.desc}</p>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => openTool(lastTool)}
+                    className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 text-xs font-medium hover:shadow transition">
                     Continue →
                   </button>
-                  <SmallButton onClick={() => setLastExperimentId(null)}>Clear</SmallButton>
+                  <SmallBtn onClick={() => setLastToolId(null)}>Clear</SmallBtn>
                 </div>
-              </>
-            ) : (
-              <>
-                <p>
-                  Each tool is a standalone page. You can dip in for two minutes or stay longer.
-                  Nothing tracks you unless you choose to save.
-                </p>
-                <div className="mt-4">
-                  <button
-                    type="button"
-                    onClick={scrollToTools}
-                    className="inline-flex items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
-                  >
-                    Browse tools →
-                  </button>
-                </div>
-              </>
-            )}
-          </Card>
- 
-          <Card
-            title={pinned ? "Pinned" : "Quick start"}
-            subtitle={pinned ? "One thing you chose to keep close." : "A tiny reset, no tracking."}
-          >
-            {pinned ? (
-              <>
-                <p className="text-base font-semibold text-[var(--text)]">{pinned.title}</p>
-                <p>{pinned.desc}</p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {(pinned.tags || []).map((t) => (
-                    <Pill key={t}>{t}</Pill>
-                  ))}
-                  {pinned.requiresAuth ? <Pill className="opacity-80">🔒 login</Pill> : null}
-                </div>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => openOrLogin(pinned)}
-                    className="rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
-                  >
-                    {canAccess(pinned) ? "Open →" : "Log in to open →"}
-                  </button>
-                  <SmallButton onClick={() => setPinnedExperimentId(null)}>Unpin</SmallButton>
-                </div>
-              </>
-            ) : (
-              <>
-                <p className="text-sm">
-                  Drop your shoulders. Slow inhale. Longer exhale. Repeat twice.
-                </p>
-                <p className="mt-3 text-[11px] text-[var(--muted)]">
-                  No saving. No tracking. Just a breath.
-                </p>
-              </>
-            )}
-          </Card>
-        </div>
- 
-        {/* ── Tools list ───────────────────────────────────────────────── */}
-        {/*
-          CHANGED: "All experiments" → "Tools" with a warmer subtitle.
-          Also renamed the scroll anchor id from "experiments" to "tools"
-          to match the updated CTA button label above.
-        */}
-        <div className="mt-6 grid grid-cols-1 gap-4">
-          <div id="tools">
-            <Card
-              title="Tools"
-              subtitle="Short. Standalone. Dip in and leave whenever."
-            >
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {visibleExperiments.map((exp) => {
-                  const locked = exp.requiresAuth && !isLoggedIn;
-                  return (
-                    <div
-                      key={exp.id}
-                      className="rounded-2xl border border-[var(--border)] bg-[var(--bg)] p-4"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <p className="text-sm font-semibold text-[var(--text)]">{exp.title}</p>
-                            {exp.requiresAuth ? <Pill className="opacity-80">🔒 login</Pill> : null}
-                          </div>
-                          <p className="mt-1 text-sm text-[var(--muted)] leading-6">{exp.desc}</p>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {(exp.tags || []).map((t) => (
-                              <Pill key={t}>{t}</Pill>
-                            ))}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => onPin(exp)}
-                          className="shrink-0 rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-3 py-2 text-[11px] font-medium shadow-sm hover:shadow transition"
-                          aria-label={pinnedExperimentId === exp.id ? "Unpin" : "Pin"}
-                          title={pinnedExperimentId === exp.id ? "Unpin" : "Pin"}
-                        >
-                          {pinnedExperimentId === exp.id ? "Pinned" : "Pin"}
-                        </button>
-                      </div>
- 
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => openOrLogin(exp)}
-                          className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition"
-                        >
-                          {locked ? "Log in to open →" : "Open →"}
-                        </button>
-                        <SmallButton onClick={() => onHide(exp)}>Hide</SmallButton>
-                      </div>
-                    </div>
-                  );
-                })}
               </div>
- 
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-                {hiddenExperimentIds.length ? (
-                  <SmallButton onClick={restoreHidden}>Restore hidden</SmallButton>
-                ) : (
-                  <span className="text-[11px] text-[var(--muted)]">
-                    Tip: hide anything you don't need right now.
-                  </span>
-                )}
+            )}
+            {pinned && (
+              <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-elev)] p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-[var(--muted)] mb-2">Pinned</p>
+                <p className="text-sm font-semibold text-[var(--text)]">{pinned.title}</p>
+                <p className="text-xs text-[var(--muted)] mt-0.5 mb-3">{pinned.desc}</p>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => openTool(pinned)}
+                    className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 text-xs font-medium hover:shadow transition">
+                    {canAccess(pinned) ? "Open →" : "Log in →"}
+                  </button>
+                  <SmallBtn onClick={() => setPinnedToolId(null)}>Unpin</SmallBtn>
+                </div>
               </div>
-            </Card>
+            )}
           </div>
+        )}
+
+        {/* ── Featured ──────────────────────────────────────────────────── */}
+        {featured && (
+          <FeaturedCard
+            tool={featured}
+            onOpen={openTool}
+            onPin={pinTool}
+            isPinned={pinnedToolId === featured.id}
+            canAccess={canAccess}
+          />
+        )}
+
+        {/* ── Divider ───────────────────────────────────────────────────── */}
+        <div className="flex items-center gap-4">
+          <div className="flex-1 h-px bg-[var(--border)]"/>
+          <span className="text-xs text-[var(--muted)] font-medium">All tools</span>
+          <div className="flex-1 h-px bg-[var(--border)]"/>
         </div>
+
+        {/* ── Categorized tools ─────────────────────────────────────────── */}
+        <div className="space-y-10">
+          {CATEGORIES.map(cat => (
+            <CategorySection
+              key={cat.id}
+              category={cat}
+              tools={toolsByCategory[cat.id] || []}
+              onOpen={openTool}
+              onPin={pinTool}
+              onHide={hideTool}
+              pinnedId={pinnedToolId}
+              canAccess={canAccess}
+            />
+          ))}
+        </div>
+
+        {/* ── Footer ────────────────────────────────────────────────────── */}
+        <footer className="pt-4 border-t border-[var(--border)] flex flex-col sm:flex-row items-center justify-between gap-3">
+          <p className="text-xs text-[var(--muted)]">
+            PneumEvolve — breathe and evolve.
+          </p>
+          <div className="flex items-center gap-4">
+            {hiddenToolIds.length > 0 && (
+              <button type="button" onClick={restoreAll}
+                className="text-xs text-[var(--muted)] hover:text-[var(--text)] underline transition">
+                Restore hidden tools
+              </button>
+            )}
+            <Link to="/sitemap" className="text-xs text-[var(--muted)] hover:text-[var(--text)] transition">
+              Sitemap
+            </Link>
+          </div>
+        </footer>
+
       </div>
     </main>
   );
