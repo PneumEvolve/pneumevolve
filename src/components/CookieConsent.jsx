@@ -1,40 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { getConsent, setConsent, needsConsentPrompt } from "@/lib/consent";
 
-// "Above the component" = here (outside CookieConsent)
-let analyticsTried = false;
-
-async function safeLoadAnalytics() {
-  // Optional: never load analytics in dev (uncomment if you want zero noise locally)
-  if (import.meta.env.DEV) return;
-
-  if (analyticsTried) return;
-  analyticsTried = true;
-
-  try {
-    const mod = await import("../lib/analytics");
-    mod?.loadAnalytics?.();
-  } catch {
-    // Blocked by client / missing file / etc. -> silently ignore
-  }
-}
-
 export default function CookieConsent() {
   const [open, setOpen] = useState(false);
   const [prefs, setPrefs] = useState(getConsent());
 
   useEffect(() => {
-    // Decide once on mount
-    const initialPrompt = needsConsentPrompt();
-    setOpen(initialPrompt);
+    setOpen(needsConsentPrompt());
 
-    // If already consented to analytics, try loading once
-    const c = getConsent();
-    if (!initialPrompt && c.analytics) {
-      safeLoadAnalytics();
-    }
-
-    // cross-tab & in-app sync
     const onStorage = (e) => {
       if (e.key === "pe_consent_v1") {
         const updated = getConsent();
@@ -62,7 +35,6 @@ export default function CookieConsent() {
     const updated = setConsent({ analytics: true });
     setPrefs(updated);
     setOpen(false);
-    safeLoadAnalytics();
   }
 
   function rejectAll() {
@@ -76,19 +48,19 @@ export default function CookieConsent() {
   return (
     <div className="fixed inset-x-0 bottom-0 z-50">
       <div className="mx-auto max-w-3xl m-4 p-4 rounded-2xl shadow-lg bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
-        <h2 className="text-lg font-semibold mb-1">Cookies &amp; Privacy</h2>
+        <h2 className="text-lg font-semibold mb-1">Analytics</h2>
         <p className="text-sm opacity-90 mb-3">
-          We use essential cookies to run the site. May we also use anonymous analytics to improve PneumEvolve?
+          PneumEvolve uses anonymous analytics to understand how the site is being used. No personal data is collected or sold.
         </p>
         <div className="flex gap-2 flex-wrap">
           <button
             onClick={acceptAll}
             className="px-3 py-2 rounded-lg bg-black text-white dark:bg-white dark:text-black"
           >
-            Allow analytics
+            That's fine
           </button>
           <button onClick={rejectAll} className="px-3 py-2 rounded-lg border">
-            Essential only
+            Opt out
           </button>
           <a href="/cookies" className="px-3 py-2 rounded-lg border">
             Learn more
