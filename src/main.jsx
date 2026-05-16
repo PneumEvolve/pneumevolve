@@ -75,6 +75,8 @@ import PreForge from "@/Pages/PreForge";
 import { StillnessList, StillnessSession, StillnessJoin } from "@/Pages/SharedStillness";
 import RootWork from "./Pages/rootwork/RootWork";
 import Thoughts from "./Pages/Thoughts";
+
+import ClearAndCalm from "./Pages/ClearAndCalm"
  
 import { HelmetProvider } from "react-helmet-async";
 import "./index.css";
@@ -184,6 +186,8 @@ function Root() {
 
                 <Route path="/rootwork" element={<RootWork />} />
                 <Route path="/thoughts" element={<Thoughts />} />
+
+                <Route path="/clear-and-calm" element={<RequireAuth><ClearAndCalm /></RequireAuth>} />
  
                 <Route path="/privacy" element={<PrivacyPolicy />} />
                 <Route path="/terms" element={<Terms />} />

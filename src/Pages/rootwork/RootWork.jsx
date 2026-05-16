@@ -350,7 +350,8 @@ function PrestigeModal({ game, onComplete, onCancel }) {
                 <WorkerGroup label="💹 Merchants" color="#60a5fa" workers={merchantWorkers} chosenIds={chosenWorkerIds} canSelect={canSelect} onToggle={toggleWorker}
                   slotLabel={marketRetainSlots > 0 ? `${marketSelected}/${marketRetainSlots} hall` : null} />
                 <WorkerGroup label="🎣 Fishers" color="#22d3ee" workers={fisherWorkers} chosenIds={chosenWorkerIds} canSelect={canSelect} onToggle={toggleWorker} />
-                <WorkerGroup label="🐄 Barn Workers" color="#a78bfa" workers={barnWorkersList} chosenIds={chosenWorkerIds} canSelect={canSelect} onToggle={toggleWorker} />
+                <WorkerGroup label="🐄 Barn Workers" color="#a78bfa" workers={barnWorkersList} chosenIds={chosenWorkerIds} canSelect={canSelect} onToggle={toggleWorker}
+                  slotLabel={barnRetainSlots > 0 ? `${barnSelected}/${barnRetainSlots} hall` : null} />
                 <WorkerGroup label="🔨 Smiths" color="#fb923c" workers={forgeWorkersList} chosenIds={chosenWorkerIds} canSelect={canSelect} onToggle={toggleWorker}
                   slotLabel={forgeRetainSlots > 0 ? `${forgeSelected}/${forgeRetainSlots} hall` : null} />
               </div>

@@ -1,0 +1,641 @@
+// src/Pages/ClearAndCalm.jsx
+import React, { useState, useEffect, useRef } from "react";
+import { Link } from "react-router-dom";
+import {
+  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
+} from "recharts";
+
+// ─── Storage helpers ───────────────────────────────────────────────────────────
+const LS_CRAVINGS   = "cc_cravings_v1";
+const LS_MEDITATIONS = "cc_meditations_v1";
+const LS_SOBER_START = "cc_sober_start_v1";
+
+function loadJSON(key, fallback) {
+  try { const r = localStorage.getItem(key); return r ? JSON.parse(r) : fallback; }
+  catch { return fallback; }
+}
+function saveJSON(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* ignore */ }
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function dayKey(ts) {
+  const d = new Date(ts);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+function soberDays(startTs) {
+  if (!startTs) return 0;
+  return Math.floor((Date.now() - startTs) / 86400000);
+}
+function mmss(secs) {
+  const s = Math.max(0, secs);
+  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+}
+
+// ─── Breathing configs by intensity ───────────────────────────────────────────
+function getBreathConfig(intensity) {
+  if (intensity <= 3) return {
+    label: "Quick Reset",
+    desc: "A gentle breath to ease the edge.",
+    cycles: 4, inhale: 4, hold: 0, exhale: 6, holdOut: 0,
+  };
+  if (intensity <= 6) return {
+    label: "Box Breathing",
+    desc: "Equal sides. Equal time. Steady yourself.",
+    cycles: 8, inhale: 4, hold: 4, exhale: 4, holdOut: 4,
+  };
+  return {
+    label: "Full Reset",
+    desc: "You're at a 7 or higher. Let's really bring you back.",
+    cycles: 12, inhale: 4, hold: 7, exhale: 8, holdOut: 0,
+  };
+}
+
+// ─── Meditation presets ────────────────────────────────────────────────────────
+const MED_PRESETS = [
+  { label: "2 min",  secs: 120 },
+  { label: "5 min",  secs: 300 },
+  { label: "10 min", secs: 600 },
+  { label: "20 min", secs: 1200 },
+];
+
+// ─── Shared UI ────────────────────────────────────────────────────────────────
+function Card({ children, className = "" }) {
+  return (
+    <div className={`rounded-2xl border border-[var(--border)] bg-[var(--bg-elev)] p-5 shadow-sm ${className}`}>
+      {children}
+    </div>
+  );
+}
+
+function Btn({ children, onClick, variant = "primary", className = "", disabled = false }) {
+  const base = "rounded-xl px-5 py-2.5 text-sm font-semibold transition-all disabled:opacity-40";
+  const v = {
+    primary: "bg-[var(--accent)] text-[var(--accent-contrast)] hover:opacity-90 shadow",
+    ghost:   "border border-[var(--border)] bg-[var(--bg)] hover:bg-[var(--bg-elev)]",
+    success: "bg-emerald-500 text-white hover:bg-emerald-600 shadow",
+  };
+  return (
+    <button type="button" onClick={onClick} disabled={disabled}
+      className={`${base} ${v[variant]} ${className}`}>
+      {children}
+    </button>
+  );
+}
+
+function IntensityScale({ label, onSelect, includeZero = false }) {
+  const numbers = includeZero ? [0,1,2,3,4,5,6,7,8,9,10] : [1,2,3,4,5,6,7,8,9,10];
+  return (
+    <div className="space-y-3">
+      <div className="text-sm font-medium text-center">{label}</div>
+      <div className={`grid gap-2 ${includeZero ? "grid-cols-4" : "grid-cols-5"}`}>
+        {numbers.map(n => (
+          <button key={n} type="button" onClick={() => onSelect(n)}
+            className={`rounded-xl py-3 text-sm font-bold border transition-all hover:scale-105 active:scale-95
+              ${n === 0 ? "border-emerald-600 text-emerald-700 bg-emerald-50 dark:bg-emerald-950 dark:text-emerald-400"
+                : n <= 3 ? "border-emerald-400 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950"
+                : n <= 6 ? "border-yellow-400 text-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-950"
+                : "border-red-400 text-red-500 hover:bg-red-50 dark:hover:bg-red-950"}`}>
+            {n === 0 ? "0 ✓" : n}
+          </button>
+        ))}
+      </div>
+      <div className="flex justify-between text-xs text-[var(--muted)] px-1">
+        <span>{includeZero ? "Gone completely" : "Barely there"}</span><span>All-consuming</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Breathing Exercise ────────────────────────────────────────────────────────
+function BreathingExercise({ config, onComplete }) {
+  const phases = buildPhases(config);
+  const [phaseIdx, setPhaseIdx]     = useState(0);
+  const [cyclesDone, setCyclesDone] = useState(0);
+  const [secondsLeft, setSecondsLeft] = useState(phases[0].secs);
+  const [done, setDone]             = useState(false);
+  const ref = useRef(null);
+
+  function buildPhases(cfg) {
+    const p = [];
+    if (cfg.inhale)  p.push({ label: "Inhale",  secs: cfg.inhale });
+    if (cfg.hold)    p.push({ label: "Hold",    secs: cfg.hold });
+    if (cfg.exhale)  p.push({ label: "Exhale",  secs: cfg.exhale });
+    if (cfg.holdOut) p.push({ label: "Hold",    secs: cfg.holdOut });
+    return p;
+  }
+
+  useEffect(() => {
+    if (done) return;
+    ref.current = setInterval(() => {
+      setSecondsLeft(prev => {
+        if (prev > 1) return prev - 1;
+        setPhaseIdx(pi => {
+          const next = pi + 1;
+          if (next >= phases.length) {
+            setCyclesDone(cd => {
+              const newCd = cd + 1;
+              if (newCd >= config.cycles) {
+                clearInterval(ref.current);
+                setDone(true);
+              }
+              return newCd;
+            });
+            setTimeout(() => setSecondsLeft(phases[0].secs), 0);
+            return 0;
+          }
+          setTimeout(() => setSecondsLeft(phases[next].secs), 0);
+          return next;
+        });
+        return prev;
+      });
+    }, 1000);
+    return () => clearInterval(ref.current);
+  }, [done]);
+
+  const circumference = 2 * Math.PI * 54;
+  const progress      = cyclesDone / config.cycles;
+  const currentPhase  = phases[phaseIdx] || phases[0];
+  const scale = currentPhase.label === "Inhale" ? 1.15
+    : currentPhase.label === "Exhale" ? 0.85 : 1;
+
+  if (done) return (
+    <div className="flex flex-col items-center gap-5 py-6 text-center">
+      <div className="text-5xl">✨</div>
+      <div>
+        <div className="text-lg font-semibold">Well done.</div>
+        <div className="text-xs text-[var(--muted)] mt-1">Now — how does the craving feel?</div>
+      </div>
+      <Btn variant="success" onClick={onComplete}>Rate it again →</Btn>
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col items-center gap-5 py-2">
+      <div className="text-center">
+        <div className="text-sm font-semibold">{config.label}</div>
+        <div className="text-xs text-[var(--muted)] mt-0.5">{config.desc}</div>
+      </div>
+      <div className="relative flex items-center justify-center w-40 h-40">
+        <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 120 120">
+          <circle cx="60" cy="60" r="54" fill="none" stroke="var(--border)" strokeWidth="6"/>
+          <circle cx="60" cy="60" r="54" fill="none" stroke="var(--accent)" strokeWidth="6"
+            strokeDasharray={circumference}
+            strokeDashoffset={circumference * (1 - progress)}
+            strokeLinecap="round"
+            style={{ transition: "stroke-dashoffset 0.8s ease" }}/>
+        </svg>
+        <div className="w-24 h-24 rounded-full bg-[var(--accent)] opacity-20"
+          style={{ transform: `scale(${scale})`, transition: `transform ${currentPhase.secs * 0.9}s ease-in-out` }}/>
+        <div className="absolute flex flex-col items-center">
+          <div className="text-2xl font-bold">{secondsLeft}</div>
+          <div className="text-xs text-[var(--muted)]">{currentPhase.label}</div>
+        </div>
+      </div>
+      <div className="text-xs text-[var(--muted)]">
+        Cycle {Math.min(cyclesDone + 1, config.cycles)} of {config.cycles}
+      </div>
+    </div>
+  );
+}
+
+// ─── Craving Section ───────────────────────────────────────────────────────────
+function CravingSection({ cravings, setCravings }) {
+  const [step, setStep]                 = useState("idle"); // idle|scale|breathing|check|done
+  const [intensityBefore, setIBefore]   = useState(null);
+  const [survived, setSurvived]         = useState(null);
+
+  function handleBefore(val) { setIBefore(val); setStep("breathing"); }
+  function handleBreathDone() { setStep("check"); }
+
+  function handleAfter(val) {
+    const reduction = intensityBefore - val;
+    const entry = { ts: Date.now(), intensityBefore, intensityAfter: val, reduction, survived: reduction >= 0 };
+    const updated = [entry, ...cravings];
+    setCravings(updated);
+    saveJSON(LS_CRAVINGS, updated);
+    setStep("done");
+  }
+
+  function reset() { setStep("idle"); setIBefore(null); setSurvived(null); }
+
+  const config   = intensityBefore ? getBreathConfig(intensityBefore) : null;
+  const lastEntry = cravings[0];
+
+  function reductionMsg(r) {
+    if (r >= 5) return "Huge shift. The breathing is working.";
+    if (r >= 3) return "Solid reduction. Keep building this habit.";
+    if (r >= 1) return "A little easier. Every bit counts.";
+    if (r === 0) return "No change — we'll note this and try a different approach next time.";
+    return "It got harder. That's real data. We'll adjust.";
+  }
+
+  function intensityColor(n) {
+    return n >= 7 ? "text-red-500" : n >= 4 ? "text-yellow-500" : "text-emerald-500";
+  }
+
+  return (
+    <Card>
+      <h2 className="text-base font-semibold mb-1">Clear</h2>
+      <p className="text-xs text-[var(--muted)] mb-4">Track and ride out your cravings.</p>
+
+      {step === "idle" && (
+        <button type="button" onClick={() => setStep("scale")}
+          className="w-full rounded-2xl bg-[var(--accent)] text-[var(--accent-contrast)] py-6 text-xl font-bold shadow-lg hover:opacity-90 active:scale-95 transition-all">
+          I'm Craving Now
+        </button>
+      )}
+
+      {step === "scale" && (
+        <div className="space-y-4">
+          <IntensityScale label="How intense is the craving right now?" onSelect={handleBefore}/>
+          <Btn variant="ghost" onClick={reset} className="w-full">Cancel</Btn>
+        </div>
+      )}
+
+      {step === "breathing" && config && (
+        <div>
+          <div className="text-xs text-[var(--muted)] text-center mb-2">
+            Before: <span className="font-semibold text-[var(--text)]">{intensityBefore}/10</span>
+          </div>
+          <BreathingExercise config={config} onComplete={handleBreathDone}/>
+        </div>
+      )}
+
+      {step === "check" && (
+        <div className="space-y-4">
+          <div className="text-center">
+            <div className="text-xs text-[var(--muted)]">
+              Before: <span className="font-semibold text-[var(--text)]">{intensityBefore}/10</span>
+            </div>
+          </div>
+          <IntensityScale label="Rate the craving again — honestly." onSelect={handleAfter} includeZero/>
+        </div>
+      )}
+
+      {step === "done" && lastEntry && (
+        <div className="text-center space-y-4 py-2">
+          <div className="text-4xl">{lastEntry.reduction >= 0 ? "💪" : "🌱"}</div>
+
+          <div className="flex items-center justify-center gap-3">
+            <div className="text-center">
+              <div className={`text-2xl font-bold ${intensityColor(lastEntry.intensityBefore)}`}>
+                {lastEntry.intensityBefore}
+              </div>
+              <div className="text-xs text-[var(--muted)]">before</div>
+            </div>
+            <div className="text-[var(--muted)] text-lg">→</div>
+            <div className="text-center">
+              <div className={`text-2xl font-bold ${intensityColor(lastEntry.intensityAfter)}`}>
+                {lastEntry.intensityAfter}
+              </div>
+              <div className="text-xs text-[var(--muted)]">after</div>
+            </div>
+            <div className="text-[var(--muted)] text-lg">=</div>
+            <div className="text-center">
+              <div className={`text-2xl font-bold ${lastEntry.reduction > 0 ? "text-emerald-500" : lastEntry.reduction < 0 ? "text-red-500" : "text-[var(--muted)]"}`}>
+                {lastEntry.reduction > 0 ? `−${lastEntry.reduction}` : lastEntry.reduction < 0 ? `+${Math.abs(lastEntry.reduction)}` : "0"}
+              </div>
+              <div className="text-xs text-[var(--muted)]">shift</div>
+            </div>
+          </div>
+
+          <div className="text-xs text-[var(--muted)] px-2">{reductionMsg(lastEntry.reduction)}</div>
+          <Btn onClick={reset} className="w-full">Back</Btn>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ─── Meditation Section ────────────────────────────────────────────────────────
+function MeditationSection({ meditations, setMeditations }) {
+  const [selected, setSelected]     = useState(null);
+  const [running, setRunning]       = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState(0);
+  const [done, setDone]             = useState(false);
+  const ref = useRef(null);
+
+  const selectedRef = useRef(null);
+
+  function start(preset) {
+    setSelected(preset);
+    selectedRef.current = preset;
+    setSecondsLeft(preset.secs);
+    setRunning(true); setDone(false);
+  }
+
+  useEffect(() => {
+    if (!running) return;
+    ref.current = setInterval(() => {
+      setSecondsLeft(prev => {
+        if (prev <= 1) {
+          clearInterval(ref.current);
+          setTimeout(() => {
+            setRunning(false); setDone(true);
+            setMeditations(p => {
+              const updated = [{ ts: Date.now(), secs: selectedRef.current?.secs ?? 0 }, ...p];
+              saveJSON(LS_MEDITATIONS, updated);
+              return updated;
+            });
+          }, 0);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(ref.current);
+  }, [running]);
+
+  function stop() { clearInterval(ref.current); setRunning(false); setSelected(null); setDone(false); }
+
+  const circumference = 2 * Math.PI * 54;
+  const progress = selected ? (selected.secs - secondsLeft) / selected.secs : 0;
+
+  return (
+    <Card>
+      <h2 className="text-base font-semibold mb-1">Calm</h2>
+      <p className="text-xs text-[var(--muted)] mb-4">Build your daily stillness practice.</p>
+
+      {!running && !done && (
+        <div className="grid grid-cols-2 gap-2">
+          {MED_PRESETS.map(p => (
+            <button key={p.label} type="button" onClick={() => start(p)}
+              className="rounded-xl border border-[var(--border)] bg-[var(--bg)] py-4 text-sm font-semibold hover:bg-[var(--bg-elev)] hover:scale-105 active:scale-95 transition-all">
+              {p.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {running && (
+        <div className="flex flex-col items-center gap-5">
+          <div className="relative flex items-center justify-center w-40 h-40">
+            <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 120 120">
+              <circle cx="60" cy="60" r="54" fill="none" stroke="var(--border)" strokeWidth="6"/>
+              <circle cx="60" cy="60" r="54" fill="none" stroke="var(--accent)" strokeWidth="6"
+                strokeDasharray={circumference}
+                strokeDashoffset={circumference * (1 - progress)}
+                strokeLinecap="round"
+                style={{ transition: "stroke-dashoffset 1s linear" }}/>
+            </svg>
+            <div className="absolute text-center">
+              <div className="text-2xl font-bold">{mmss(secondsLeft)}</div>
+              <div className="text-xs text-[var(--muted)]">remaining</div>
+            </div>
+          </div>
+          <div className="text-xs text-[var(--muted)] text-center">Be here. That's all.</div>
+          <Btn variant="ghost" onClick={stop}>End early</Btn>
+        </div>
+      )}
+
+      {done && (
+        <div className="text-center space-y-4 py-4">
+          <div className="text-4xl">🌿</div>
+          <div className="text-sm font-semibold">Session complete.</div>
+          <div className="text-xs text-[var(--muted)]">
+            {selected?.secs / 60} minutes of stillness. It adds up.
+          </div>
+          <Btn onClick={stop} className="w-full">Back</Btn>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ─── Stats Section ─────────────────────────────────────────────────────────────
+function StatsSection({ cravings, meditations, soberStart }) {
+  const [win, setWin] = useState("week");
+  const [chartView, setChartView] = useState("both"); // cravings | meditation | both
+
+  const now     = Date.now();
+  const winMs   = win === "day" ? 86400000 : win === "week" ? 604800000 : 2592000000;
+  const filtered = cravings.filter(c => now - c.ts < winMs);
+  const filteredMeds = meditations.filter(m => now - m.ts < winMs);
+
+  // Build unified chart data grouped by day
+  const dayMap = {};
+  filtered.forEach(c => {
+    const k = dayKey(c.ts);
+    if (!dayMap[k]) dayMap[k] = { date: k, cravings: 0, meditation: 0 };
+    dayMap[k].cravings++;
+  });
+  filteredMeds.forEach(m => {
+    const k = dayKey(m.ts);
+    if (!dayMap[k]) dayMap[k] = { date: k, cravings: 0, meditation: 0 };
+    dayMap[k].meditation++;
+  });
+  const chartData = Object.values(dayMap).sort((a, b) => a.date.localeCompare(b.date));
+
+  const totalMedMins = filteredMeds.reduce((acc, m) => acc + m.secs / 60, 0);
+
+  const days = soberDays(soberStart);
+  const withReduction = filtered.filter(c => c.reduction !== undefined);
+  const avgReduction = withReduction.length
+    ? (withReduction.reduce((a, c) => a + c.reduction, 0) / withReduction.length).toFixed(1)
+    : null;
+
+  function intensityColor(n) {
+    return n >= 7 ? "text-red-500" : n >= 4 ? "text-yellow-500" : "text-emerald-500";
+  }
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-base font-semibold">Your Journey</h2>
+        <div className="flex gap-1">
+          {["day","week","month"].map(w => (
+            <button key={w} type="button" onClick={() => setWin(w)}
+              className={`rounded-lg px-3 py-1 text-xs font-medium transition-all
+                ${win === w
+                  ? "bg-[var(--accent)] text-[var(--accent-contrast)]"
+                  : "border border-[var(--border)] text-[var(--muted)] hover:text-[var(--text)]"}`}>
+              {w}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Key stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+        {[
+          { label: "Days Clear",   value: days,                         sub: "sober streak" },
+          { label: "Cravings",     value: filtered.length,              sub: `this ${win}` },
+          { label: "Avg Reduction",value: avgReduction ? `−${avgReduction}` : "—", sub: "intensity shift" },
+          { label: "Meditation",   value: `${Math.round(totalMedMins)}m`, sub: `this ${win}` },
+        ].map(s => (
+          <div key={s.label} className="rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3 text-center">
+            <div className="text-2xl font-bold text-[var(--accent)]">{s.value}</div>
+            <div className="text-xs font-medium mt-0.5">{s.label}</div>
+            <div className="text-xs text-[var(--muted)]">{s.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Chart toggle */}
+      <div className="flex gap-1 mb-3">
+        {["cravings","meditation","both"].map(v => (
+          <button key={v} type="button" onClick={() => setChartView(v)}
+            className={"rounded-lg px-3 py-1 text-xs font-medium transition-all capitalize " +
+              (chartView === v
+                ? "bg-[var(--accent)] text-[var(--accent-contrast)]"
+                : "border border-[var(--border)] text-[var(--muted)] hover:text-[var(--text)]")}>
+            {v}
+          </button>
+        ))}
+      </div>
+
+      {/* Chart */}
+      {chartData.length > 0 ? (
+        <div className="mb-4">
+          <ResponsiveContainer width="100%" height={150}>
+            <LineChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+              <XAxis dataKey="date" tick={{ fontSize: 10, fill: "var(--muted)" }} />
+              <YAxis tick={{ fontSize: 10, fill: "var(--muted)" }} allowDecimals={false} />
+              <Tooltip contentStyle={{
+                background: "var(--bg-elev)", border: "1px solid var(--border)",
+                borderRadius: 8, fontSize: 12,
+              }}/>
+              {(chartView === "cravings" || chartView === "both") && (
+                <Line type="monotone" dataKey="cravings" stroke="#f59e0b"
+                  strokeWidth={2} dot={{ fill: "#f59e0b", r: 3 }} name="Cravings"/>
+              )}
+              {(chartView === "meditation" || chartView === "both") && (
+                <Line type="monotone" dataKey="meditation" stroke="#10b981"
+                  strokeWidth={2} dot={{ fill: "#10b981", r: 3 }} name="Meditation"/>
+              )}
+            </LineChart>
+          </ResponsiveContainer>
+          <div className="flex gap-4 justify-center mt-1">
+            {(chartView === "cravings" || chartView === "both") && (
+              <div className="flex items-center gap-1 text-xs text-[var(--muted)]">
+                <div className="w-3 h-0.5 bg-amber-400 rounded"/>Cravings
+              </div>
+            )}
+            {(chartView === "meditation" || chartView === "both") && (
+              <div className="flex items-center gap-1 text-xs text-[var(--muted)]">
+                <div className="w-3 h-0.5 bg-emerald-500 rounded"/>Meditation
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="text-center text-xs text-[var(--muted)] py-6 mb-4">
+          Nothing logged this {win} yet. Keep going.
+        </div>
+      )}
+
+      {/* Recent log */}
+      {cravings.length > 0 && (
+        <div>
+          <div className="text-xs text-[var(--muted)] mb-2">Recent log</div>
+          <div className="space-y-1.5 max-h-48 overflow-y-auto">
+            {cravings.slice(0, 20).map((c, i) => (
+              <div key={i} className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-xs">
+                <span className="text-[var(--muted)]">
+                  {new Date(c.ts).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                </span>
+                <div className="flex items-center gap-3">
+                  <span className="text-[var(--muted)]">
+                    <span className={`font-semibold ${intensityColor(c.intensityBefore)}`}>{c.intensityBefore}</span>
+                    {" → "}
+                    <span className={`font-semibold ${intensityColor(c.intensityAfter)}`}>{c.intensityAfter}</span>
+                  </span>
+                  <span className={`font-semibold ${c.reduction > 0 ? "text-emerald-500" : c.reduction < 0 ? "text-red-500" : "text-[var(--muted)]"}`}>
+                    {c.reduction > 0 ? `−${c.reduction}` : c.reduction < 0 ? `+${Math.abs(c.reduction)}` : "0"}
+                  </span>
+                  <span>{c.reduction >= 0 ? "💪" : "🌱"}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ─── Sober Start Banner ────────────────────────────────────────────────────────
+function SoberStartBanner({ soberStart, setSoberStart }) {
+  const [editing, setEditing] = useState(false);
+  const [dateVal, setDateVal] = useState(() => new Date().toISOString().slice(0, 10));
+
+  if (soberStart && !editing) {
+    const days = soberDays(soberStart);
+    return (
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-elev)] px-5 py-3 flex items-center justify-between">
+        <div>
+          <span className="text-sm font-semibold text-[var(--accent)]">
+            {days} day{days !== 1 ? "s" : ""} clear
+          </span>
+          <span className="text-xs text-[var(--muted)] ml-2">
+            since {new Date(soberStart).toLocaleDateString()}
+          </span>
+        </div>
+        <button type="button" onClick={() => setEditing(true)}
+          className="text-xs text-[var(--muted)] hover:text-[var(--text)] underline">
+          edit
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-elev)] px-5 py-4 space-y-3">
+      <div className="text-sm font-medium">When did you start your clear journey?</div>
+      <div className="flex flex-wrap gap-2 items-center">
+        <input type="date" value={dateVal} onChange={e => setDateVal(e.target.value)}
+          className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 text-sm"/>
+        <Btn onClick={() => {
+          const ts = new Date(dateVal).getTime();
+          setSoberStart(ts); saveJSON(LS_SOBER_START, ts); setEditing(false);
+        }}>Set Date</Btn>
+        <Btn variant="ghost" onClick={() => {
+          const ts = Date.now();
+          setSoberStart(ts); saveJSON(LS_SOBER_START, ts); setEditing(false);
+        }}>Starting Today</Btn>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Page ─────────────────────────────────────────────────────────────────
+export default function ClearAndCalm() {
+  const [cravings, setCravings]       = useState(() => loadJSON(LS_CRAVINGS, []));
+  const [meditations, setMeditations] = useState(() => loadJSON(LS_MEDITATIONS, []));
+  const [soberStart, setSoberStart]   = useState(() => loadJSON(LS_SOBER_START, null));
+
+  return (
+    <main className="min-h-screen bg-[var(--bg)] text-[var(--text)]">
+      <div className="mx-auto max-w-2xl px-4 py-10 space-y-5">
+
+        <header className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Clear & Calm</h1>
+            <p className="text-sm text-[var(--muted)] mt-0.5">
+              Quit what dulls you. Build what grounds you.
+            </p>
+          </div>
+          <Link to="/"
+            className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] px-4 py-2 text-xs font-medium shadow-sm hover:shadow transition">
+            ← Home
+          </Link>
+        </header>
+
+        <SoberStartBanner soberStart={soberStart} setSoberStart={setSoberStart}/>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <CravingSection cravings={cravings} setCravings={setCravings}/>
+          <MeditationSection meditations={meditations} setMeditations={setMeditations}/>
+        </div>
+
+        <StatsSection cravings={cravings} meditations={meditations} soberStart={soberStart}/>
+
+        <p className="text-center text-xs text-[var(--muted)] pb-4">
+          All data is stored locally on this device. Your journey, your privacy.
+        </p>
+      </div>
+    </main>
+  );
+}

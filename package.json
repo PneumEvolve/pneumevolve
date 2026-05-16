@@ -4,9 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host",                
+    "dev": "vite --host",
     "dev:staging": "vite --host --mode staging",
-    "build": "vite build",                
+    "build": "vite build",
     "build:staging": "vite build --mode staging",
     "lint": "eslint .",
     "preview": "vite preview"
@@ -32,6 +32,7 @@
     "react-helmet-async": "^2.0.5",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.6.0",
+    "recharts": "^3.8.1",
     "rehype-raw": "^7.0.0",
     "remark-gfm": "^4.0.1",
     "tailwindcss": "^4.1.7",
