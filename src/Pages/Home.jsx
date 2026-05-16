@@ -9,7 +9,13 @@ function loadState() {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return null;
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    // Migrate old single pinnedToolId to array
+    if (parsed.pinnedToolId && !parsed.pinnedToolIds) {
+      parsed.pinnedToolIds = [parsed.pinnedToolId];
+      delete parsed.pinnedToolId;
+    }
+    return parsed;
   } catch { return null; }
 }
 
@@ -199,7 +205,6 @@ function FeaturedCard({ tool, onOpen, onPin, isPinned, canAccess }) {
   if (!tool) return null;
   return (
     <div className="relative overflow-hidden rounded-2xl border border-[var(--accent)] bg-[var(--bg-elev)] p-6 shadow-lg">
-      {/* Subtle glow */}
       <div className="pointer-events-none absolute inset-0 rounded-2xl"
         style={{ background: "radial-gradient(600px at 0% 0%, color-mix(in oklab, var(--accent) 8%, transparent), transparent)" }}/>
 
@@ -281,7 +286,7 @@ function ToolCard({ tool, onOpen, onPin, onHide, isPinned, canAccess }) {
 }
 
 // ─── Category section ─────────────────────────────────────────────────────────
-function CategorySection({ category, tools, onOpen, onPin, onHide, pinnedId, canAccess }) {
+function CategorySection({ category, tools, onOpen, onPin, onHide, pinnedIds, canAccess }) {
   if (!tools.length) return null;
   return (
     <div>
@@ -296,7 +301,7 @@ function CategorySection({ category, tools, onOpen, onPin, onHide, pinnedId, can
         {tools.map(t => (
           <ToolCard key={t.id} tool={t}
             onOpen={onOpen} onPin={onPin} onHide={onHide}
-            isPinned={pinnedId === t.id} canAccess={canAccess}/>
+            isPinned={pinnedIds.includes(t.id)} canAccess={canAccess}/>
         ))}
       </div>
     </div>
@@ -312,20 +317,20 @@ export default function Home() {
     const stored = loadState();
     return stored || {
       lastToolId: null,
-      pinnedToolId: null,
+      pinnedToolIds: [],
       hiddenToolIds: [],
       createdAtISO: new Date().toISOString().slice(0, 10),
       version: 3,
     };
   }, []);
 
-  const [lastToolId, setLastToolId]       = useState(initial.lastToolId);
-  const [pinnedToolId, setPinnedToolId]   = useState(initial.pinnedToolId);
-  const [hiddenToolIds, setHiddenToolIds] = useState(initial.hiddenToolIds || []);
+  const [lastToolId, setLastToolId]         = useState(initial.lastToolId);
+  const [pinnedToolIds, setPinnedToolIds]   = useState(initial.pinnedToolIds || []);
+  const [hiddenToolIds, setHiddenToolIds]   = useState(initial.hiddenToolIds || []);
 
   useEffect(() => {
-    saveState({ lastToolId, pinnedToolId, hiddenToolIds, createdAtISO: initial.createdAtISO, version: 3 });
-  }, [lastToolId, pinnedToolId, hiddenToolIds]);
+    saveState({ lastToolId, pinnedToolIds, hiddenToolIds, createdAtISO: initial.createdAtISO, version: 3 });
+  }, [lastToolId, pinnedToolIds, hiddenToolIds]);
 
   const visibleTools = useMemo(() =>
     TOOLS.filter(t => t.isPublic && !hiddenToolIds.includes(t.id)),
@@ -343,9 +348,9 @@ export default function Home() {
     [lastToolId]
   );
 
-  const pinned = useMemo(() =>
-    pinnedToolId ? TOOLS.find(t => t.id === pinnedToolId) || null : null,
-    [pinnedToolId]
+  const pinnedTools = useMemo(() =>
+    pinnedToolIds.map(id => TOOLS.find(t => t.id === id)).filter(Boolean),
+    [pinnedToolIds]
   );
 
   const canAccess = (t) => !(t?.requiresAuth && !isLoggedIn);
@@ -357,7 +362,10 @@ export default function Home() {
     navigate(t.to);
   };
 
-  const pinTool = (t) => setPinnedToolId(prev => prev === t.id ? null : t.id);
+  const pinTool = (t) => setPinnedToolIds(prev =>
+    prev.includes(t.id) ? prev.filter(id => id !== t.id) : [...prev, t.id]
+  );
+
   const hideTool = (t) => setHiddenToolIds(prev => prev.includes(t.id) ? prev : [t.id, ...prev]);
   const restoreAll = () => setHiddenToolIds([]);
 
@@ -394,8 +402,8 @@ export default function Home() {
                 A collection of tools for thinking, breathing, and becoming. Started as something spiritual. Turned into something practical. Still both.
               </p>
               <Link to="/about" className="text-xs text-[var(--muted)] hover:text-[var(--text)] underline underline-offset-2 transition mt-2 inline-block">
-  What is this? →
-</Link>
+                What is this? →
+              </Link>
               {isLoggedIn && (
                 <p className="text-xs text-[var(--muted)]">
                   Welcome back{displayName ? `, ${displayName}` : ""}.
@@ -426,8 +434,8 @@ export default function Home() {
         </header>
 
         {/* ── Quick strip: Continue + Pinned ────────────────────────────── */}
-        {(showContinue || pinned) && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {(showContinue || pinnedTools.length > 0) && (
+          <div className="space-y-3">
             {showContinue && (
               <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-elev)] p-4">
                 <p className="text-[11px] font-semibold uppercase tracking-widest text-[var(--muted)] mb-2">Continue</p>
@@ -442,17 +450,23 @@ export default function Home() {
                 </div>
               </div>
             )}
-            {pinned && (
-              <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-elev)] p-4">
+            {pinnedTools.length > 0 && (
+              <div>
                 <p className="text-[11px] font-semibold uppercase tracking-widest text-[var(--muted)] mb-2">Pinned</p>
-                <p className="text-sm font-semibold text-[var(--text)]">{pinned.title}</p>
-                <p className="text-xs text-[var(--muted)] mt-0.5 mb-3">{pinned.desc}</p>
-                <div className="flex gap-2">
-                  <button type="button" onClick={() => openTool(pinned)}
-                    className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 text-xs font-medium hover:shadow transition">
-                    {canAccess(pinned) ? "Open →" : "Log in →"}
-                  </button>
-                  <SmallBtn onClick={() => setPinnedToolId(null)}>Unpin</SmallBtn>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {pinnedTools.map(pinned => (
+                    <div key={pinned.id} className="rounded-2xl border border-[var(--border)] bg-[var(--bg-elev)] p-4">
+                      <p className="text-sm font-semibold text-[var(--text)]">{pinned.title}</p>
+                      <p className="text-xs text-[var(--muted)] mt-0.5 mb-3">{pinned.desc}</p>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => openTool(pinned)}
+                          className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 text-xs font-medium hover:shadow transition">
+                          {canAccess(pinned) ? "Open →" : "Log in →"}
+                        </button>
+                        <SmallBtn onClick={() => pinTool(pinned)}>Unpin</SmallBtn>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
@@ -465,7 +479,7 @@ export default function Home() {
             tool={featured}
             onOpen={openTool}
             onPin={pinTool}
-            isPinned={pinnedToolId === featured.id}
+            isPinned={pinnedToolIds.includes(featured.id)}
             canAccess={canAccess}
           />
         )}
@@ -487,7 +501,7 @@ export default function Home() {
               onOpen={openTool}
               onPin={pinTool}
               onHide={hideTool}
-              pinnedId={pinnedToolId}
+              pinnedIds={pinnedToolIds}
               canAccess={canAccess}
             />
           ))}
