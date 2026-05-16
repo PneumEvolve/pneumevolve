@@ -393,6 +393,9 @@ export default function Home() {
               <p className="text-sm text-[var(--muted)] leading-6">
                 A collection of tools for thinking, breathing, and becoming. Started as something spiritual. Turned into something practical. Still both.
               </p>
+              <Link to="/about" className="text-xs text-[var(--muted)] hover:text-[var(--text)] underline underline-offset-2 transition mt-2 inline-block">
+  What is this? →
+</Link>
               {isLoggedIn && (
                 <p className="text-xs text-[var(--muted)]">
                   Welcome back{displayName ? `, ${displayName}` : ""}.

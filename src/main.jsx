@@ -76,7 +76,8 @@ import { StillnessList, StillnessSession, StillnessJoin } from "@/Pages/SharedSt
 import RootWork from "./Pages/rootwork/RootWork";
 import Thoughts from "./Pages/Thoughts";
 
-import ClearAndCalm from "./Pages/ClearAndCalm"
+import ClearAndCalm from "./Pages/ClearAndCalm";
+import About from "./Pages/About";
  
 import { HelmetProvider } from "react-helmet-async";
 import "./index.css";
@@ -188,6 +189,7 @@ function Root() {
                 <Route path="/thoughts" element={<Thoughts />} />
 
                 <Route path="/clear-and-calm" element={<RequireAuth><ClearAndCalm /></RequireAuth>} />
+                <Route path="/about" element={<About />} />
  
                 <Route path="/privacy" element={<PrivacyPolicy />} />
                 <Route path="/terms" element={<Terms />} />
