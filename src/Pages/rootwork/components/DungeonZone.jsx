@@ -8,13 +8,14 @@ import { ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST, FORGE_RECIPES } from "../gameCons
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const BF_W = 340;
-const BF_H = 280;
+const BF_H = 340;
 const UNIT_R = 22;
-const TICK_MS = 110;
+const TICK_MS = 160;
 const HERO_SPEED = 55;
 const ENEMY_SPEED = 38;
-const ATTACK_RANGE = UNIT_R * 2.6;
-const ENEMY_ATTACK_RANGE = UNIT_R * 2.4;
+const ATTACK_RANGE = UNIT_R * 2.5;
+const ENEMY_ATTACK_RANGE = UNIT_R * 2.3;
+const MOVE_RESET_THRESHOLD = 6; // px moved per tick to reset attack charge
 const MAP_W = 7;
 const MAP_H = 7;
 const PARTY_SIZE = 3;
@@ -56,13 +57,13 @@ const ENEMY_TYPES = {
     name: "Goblin", emoji: "👺", color: "#dc2626", bg: "#450a0a",
     hp: 28, atk: 12, def: 1, speed: ENEMY_SPEED * 1.2, attackSpeed: 1.0,
     attackRange: ENEMY_ATTACK_RANGE, xp: 8,
-    loot: { iron_ore: [1, 3], lumber: [1, 3] },
+    loot: { iron_ore: [1, 3], lumber: [1, 3], rare_gem: [1, 1] },
   },
   skeleton: {
     name: "Skeleton", emoji: "💀", color: "#9ca3af", bg: "#111827",
     hp: 45, atk: 9, def: 2, speed: ENEMY_SPEED, attackSpeed: 0.7,
     attackRange: ENEMY_ATTACK_RANGE, xp: 12,
-    loot: { iron_ore: [1, 3], lumber: [1, 3] },
+    loot: { iron_ore: [1, 3], lumber: [1, 3], rare_gem: [1, 1] },
     special: "revive",
   },
   orc: {
@@ -207,6 +208,8 @@ function makeHero(adv, index) {
     attackSpeed: Math.min(cls.attackSpeed + bodyAtkSpeedBonus, cls.attackSpeed * 1.5),
     attackRange: cls.attackRange,
     attackCooldown: 0,
+    attackCharge: 0,
+    lastHitAt: 0,
     ability: cls.ability ? { ...cls.ability, cooldownLeft: 0 } : null,
     tauntActive: false, dead: false, flashHit: false,
     bladeRushActive: false, bladeRushTimeLeft: 0,
@@ -219,18 +222,20 @@ function makeHero(adv, index) {
 
 function makeEnemy(typeId, index, depth) {
   const def = ENEMY_TYPES[typeId];
-  const scale = 1 + depth * 0.28;
+  const scale = 1 + depth * 0.18;
   const col = index % 2;
   const row = Math.floor(index / 2);
   return {
     id: uid("e"), kind: "enemy", typeId,
     name: def.name, emoji: def.emoji, color: def.color, bg: def.bg,
-    x: clamp(BF_W - 55 - col * 65 + randInt(-10, 10), UNIT_R + 5, BF_W - UNIT_R - 5),
-    y: clamp(60 + row * 80 + randInt(-10, 10), UNIT_R + 5, BF_H - UNIT_R - 5),
+    x: clamp(80 + col * 90 + randInt(-15, 15), UNIT_R + 5, BF_W - UNIT_R - 5),
+    y: clamp(UNIT_R + 20 + row * 70 + randInt(-10, 10), UNIT_R + 5, BF_H / 2 - UNIT_R - 10),
     hp: Math.floor(def.hp * scale), maxHp: Math.floor(def.hp * scale),
     atk: Math.floor(def.atk * scale), def: def.def,
     speed: def.speed, attackSpeed: def.attackSpeed, attackRange: def.attackRange,
     attackCooldown: 0,
+    attackCharge: 0,
+    lastHitAt: 0,
     taunted: false, dead: false, flashHit: false,
     special: def.special ?? null,
     revived: false,
@@ -299,62 +304,110 @@ function FloatingText({ items }) {
 
 // ─── UnitCircle — pure display, no event handlers ────────────────────────────
 
-function UnitCircle({ unit, selected }) {
+function UnitCircle({ unit, selected, showRangePx }) {
   const pct = clamp(unit.hp / unit.maxHp, 0, 1);
   const barCol = pct > 0.55 ? "#4ade80" : pct > 0.25 ? "#fbbf24" : "#ef4444";
-  const size = UNIT_R * 2;
   const hasHot = unit.kind === "hero" && (unit.hotRemaining ?? 0) > 0;
   const isBladeRush = unit.kind === "hero" && unit.bladeRushActive;
+  const charge = unit.attackCharge ?? 0;
+  const chargeBarW = Math.round(UNIT_R * 2 * 0.85);
+  // Charge bar color: green → yellow → red as about to fire
+  const chargeCol = charge < 0.6 ? "#4ade80" : charge < 0.85 ? "#fbbf24" : "#f87171";
+  // Attack flash: bright ring for 200ms after hit
+  const justHit = (unit.lastHitAt ?? 0) > Date.now() - 200;
+
   return (
-    <div style={{
-      position: "absolute", left: unit.x - UNIT_R, top: unit.y - UNIT_R,
-      width: size, height: size, borderRadius: "50%",
-      background: unit.bg,
-      border: `2px solid ${selected ? "#fff" : unit.color}`,
-      display: "flex", alignItems: "center", justifyContent: "center",
-      fontSize: "1rem", userSelect: "none",
-      transition: "left 0.08s linear, top 0.08s linear",
-      boxShadow: selected
-        ? `0 0 0 3px ${unit.color}, 0 0 14px ${unit.color}88`
-        : unit.flashHit ? "0 0 12px #ef444488"
-        : "0 2px 8px rgba(0,0,0,0.6)",
+    <div style={{ position: "absolute", pointerEvents: "none",
+      left: unit.x - UNIT_R, top: unit.y - UNIT_R,
+      width: UNIT_R * 2, height: UNIT_R * 2,
+      transition: "left 0.13s linear, top 0.13s linear",
       opacity: unit.dead ? 0 : 1,
       zIndex: selected ? 10 : unit.kind === "hero" ? 5 : 4,
-      pointerEvents: "none", // all input goes through the battlefield div
     }}>
-      {unit.emoji}
+      {/* Range ring — positioned relative to unit center so it moves with the unit */}
+      {showRangePx != null && (
+        <svg style={{
+          position: "absolute",
+          left: UNIT_R - showRangePx,
+          top: UNIT_R - showRangePx,
+          width: showRangePx * 2,
+          height: showRangePx * 2,
+          overflow: "visible",
+          pointerEvents: "none",
+        }}>
+          <circle
+            cx={showRangePx} cy={showRangePx} r={showRangePx - 1}
+            fill="none"
+            stroke={unit.kind === "hero" ? unit.color : "#ef4444"}
+            strokeWidth="1.5"
+            strokeDasharray="5 4"
+            opacity="0.45"
+          />
+        </svg>
+      )}
+      {/* Unit body */}
       <div style={{
-        position: "absolute", bottom: -6, left: -2, right: -2, height: 3,
-        background: "rgba(0,0,0,0.5)", borderRadius: 2, overflow: "hidden",
+        position: "absolute", left: 0, top: 0,
+        width: UNIT_R * 2, height: UNIT_R * 2, borderRadius: "50%",
+        background: unit.bg,
+        border: `2px solid ${selected ? "#fff" : unit.color}`,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: "1rem", userSelect: "none",
+        boxShadow: justHit
+          ? `0 0 0 4px ${unit.kind === "hero" ? unit.color : "#ef4444"}, 0 0 18px ${unit.kind === "hero" ? unit.color : "#ef4444"}cc`
+          : selected
+          ? `0 0 0 3px ${unit.color}, 0 0 14px ${unit.color}88`
+          : unit.flashHit ? "0 0 12px #ef444488"
+          : "0 2px 8px rgba(0,0,0,0.6)",
+        pointerEvents: "none",
       }}>
-        <div style={{ width: `${pct * 100}%`, height: "100%", background: barCol, transition: "width 0.2s" }} />
+        {unit.emoji}
+        {/* HP bar */}
+        <div style={{
+          position: "absolute", bottom: -6, left: -2, right: -2, height: 3,
+          background: "rgba(0,0,0,0.5)", borderRadius: 2, overflow: "hidden",
+        }}>
+          <div style={{ width: `${pct * 100}%`, height: "100%", background: barCol, transition: "width 0.2s" }} />
+        </div>
+        {/* Attack charge bar — below HP bar */}
+        <div style={{
+          position: "absolute", bottom: -12,
+          left: -(chargeBarW / 2 - UNIT_R), width: chargeBarW, height: 3,
+          background: "rgba(0,0,0,0.4)", borderRadius: 2, overflow: "hidden",
+        }}>
+          <div style={{
+            width: `${charge * 100}%`, height: "100%", background: chargeCol,
+            transition: charge === 0 ? "none" : "width 0.05s",
+            boxShadow: charge > 0.85 ? `0 0 4px ${chargeCol}` : "none",
+          }} />
+        </div>
+        {selected && (
+          <div style={{
+            position: "absolute", inset: -5, borderRadius: "50%",
+            border: `2px solid ${unit.color}`,
+            animation: "ringPulse 1s ease-in-out infinite",
+            pointerEvents: "none",
+          }} />
+        )}
+        {hasHot && (
+          <div style={{
+            position: "absolute", inset: -4, borderRadius: "50%",
+            border: "2px solid #4ade80",
+            animation: "ringPulse 0.7s ease-in-out infinite",
+            pointerEvents: "none", opacity: 0.8,
+          }} />
+        )}
+        {isBladeRush && (
+          <div style={{
+            position: "absolute", inset: -3, borderRadius: "50%",
+            border: "2px solid #fbbf24",
+            animation: "ringPulse 0.4s ease-in-out infinite",
+            pointerEvents: "none",
+          }} />
+        )}
+        {unit.taunted && <div style={{ position: "absolute", top: -10, fontSize: "0.6rem", pointerEvents: "none" }}>📢</div>}
+        {unit.channeling && <div style={{ position: "absolute", top: -12, fontSize: "0.65rem", animation: "ringPulse 0.5s infinite", pointerEvents: "none" }}>🔮</div>}
       </div>
-      {selected && (
-        <div style={{
-          position: "absolute", inset: -5, borderRadius: "50%",
-          border: `2px solid ${unit.color}`,
-          animation: "ringPulse 1s ease-in-out infinite",
-          pointerEvents: "none",
-        }} />
-      )}
-      {hasHot && (
-        <div style={{
-          position: "absolute", inset: -4, borderRadius: "50%",
-          border: "2px solid #4ade80",
-          animation: "ringPulse 0.7s ease-in-out infinite",
-          pointerEvents: "none", opacity: 0.8,
-        }} />
-      )}
-      {isBladeRush && (
-        <div style={{
-          position: "absolute", inset: -3, borderRadius: "50%",
-          border: "2px solid #fbbf24",
-          animation: "ringPulse 0.4s ease-in-out infinite",
-          pointerEvents: "none",
-        }} />
-      )}
-      {unit.taunted && <div style={{ position: "absolute", top: -10, fontSize: "0.6rem", pointerEvents: "none" }}>📢</div>}
-      {unit.channeling && <div style={{ position: "absolute", top: -12, fontSize: "0.65rem", animation: "ringPulse 0.5s infinite", pointerEvents: "none" }}>🔮</div>}
     </div>
   );
 }
@@ -527,8 +580,8 @@ function Battlefield({
               const sel = heroes.find(h => h.id === selected);
               if (unplaced.length === 0) return "All heroes placed — tap Ready to begin!";
               return sel
-                ? `📍 ${sel.emoji} ${sel.name} · tap left half to place (${unplaced.length} remaining)`
-                : "Tap a hero below to select, then tap the left side to place";
+                ? `📍 ${sel.emoji} ${sel.name} · tap bottom half to place (${unplaced.length} remaining)`
+                : "Tap a hero below to select, then tap the bottom half to place";
             })()
           : phase === "prep"
           ? (selHero ? `${selHero.emoji} ${selHero.name} · tap to reposition` : "Adjust positions before battle!")
@@ -558,20 +611,20 @@ function Battlefield({
           backgroundImage: "repeating-linear-gradient(0deg,transparent,transparent 39px,rgba(255,255,255,0.018) 39px,rgba(255,255,255,0.018) 40px),repeating-linear-gradient(90deg,transparent,transparent 39px,rgba(255,255,255,0.018) 39px,rgba(255,255,255,0.018) 40px)",
         }} />
         <div style={{
-          position: "absolute", left: BF_W / 2 - 1, top: "8%", bottom: "8%", width: 1,
+          position: "absolute", top: BF_H / 2 - 1, left: "4%", right: "4%", height: 1,
           pointerEvents: "none",
-          background: "linear-gradient(to bottom,transparent,rgba(255,255,255,0.07),transparent)",
+          background: "linear-gradient(to right,transparent,rgba(255,255,255,0.07),transparent)",
         }} />
 
         {/* Placement zone highlight */}
         {phase === "placement" && (
           <div style={{
-            position: "absolute", left: 0, top: 0, width: BF_W / 2 - 2, bottom: 0,
-            background: "rgba(99,102,241,0.07)", borderRight: "1px dashed rgba(99,102,241,0.35)",
+            position: "absolute", left: 0, top: BF_H / 2 + 1, right: 0, bottom: 0,
+            background: "rgba(99,102,241,0.07)", borderTop: "1px dashed rgba(99,102,241,0.35)",
             pointerEvents: "none",
           }}>
             <div style={{ position: "absolute", bottom: 6, left: 0, right: 0, textAlign: "center", fontSize: "0.55rem", color: "rgba(99,102,241,0.6)", fontWeight: 700, letterSpacing: "0.08em" }}>
-              BATTLE PREPARATION — TAP TO PLACE HEROES
+              BATTLE PREPARATION — TAP BELOW TO PLACE HEROES
             </div>
           </div>
         )}
@@ -599,10 +652,19 @@ function Battlefield({
             <circle cx={dragLine.x2} cy={dragLine.y2} r="5" fill="rgba(74,222,128,0.25)" stroke="rgba(74,222,128,0.8)" strokeWidth="1.5" />
           </svg>
         )}
-        {enemies.map(e => <UnitCircle key={e.id} unit={e} selected={false} />)}
+        {enemies.map(e => {
+          const selH = selHero;
+          // Show enemy range when: this enemy is targeted by selected hero, or selected is this enemy
+          const showEnemyRange = selH && selH.attackTarget === e.id;
+          return (
+            <UnitCircle key={e.id} unit={e} selected={false}
+              showRangePx={showEnemyRange ? e.attackRange : undefined} />
+          );
+        })}
         {heroes.map(h => (
           <div key={h.id} style={{ opacity: (!h.placed && phase === "placement") ? 0.45 : 1, transition: "opacity 0.2s" }}>
-            <UnitCircle unit={h} selected={selected === h.id} />
+            <UnitCircle unit={h} selected={selected === h.id}
+              showRangePx={selected === h.id ? h.attackRange : undefined} />
           </div>
         ))}
 
@@ -683,8 +745,8 @@ function Battlefield({
           </div>
         )}
 
-        {/* Victory/Defeat overlay */}
-        {(phase === "victory" || phase === "defeat") && (
+        {/* Victory/Defeat overlay — minimal, just emoji + phase label */}
+        {(phase === "victory" || phase === "defeat") && !result && (
           <div style={{
             position: "absolute", inset: 0, display: "flex", alignItems: "center",
             justifyContent: "center", background: "rgba(0,0,0,0.6)",
@@ -694,6 +756,68 @@ function Battlefield({
             <div style={{ fontSize: "1rem", fontWeight: 800, color: phase === "victory" ? "#fbbf24" : "#ef4444" }}>
               {phase === "victory" ? "Victory!" : "Defeated"}
             </div>
+          </div>
+        )}
+
+        {/* Full result overlay — replaces scrolling panel below */}
+        {result && (
+          <div style={{
+            position: "absolute", inset: 0, zIndex: 20,
+            background: result.victory ? "rgba(0,0,0,0.82)" : "rgba(0,0,0,0.88)",
+            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+            gap: "0.5rem", padding: "1.2rem",
+            borderRadius: 12,
+          }}>
+            <div style={{ fontSize: "2.4rem" }}>{result.victory ? "🏆" : "💀"}</div>
+            <div style={{ fontSize: "1.1rem", fontWeight: 900, color: result.victory ? "#4ade80" : "#ef4444" }}>
+              {result.victory ? "Victory!" : "Defeated"}
+            </div>
+            {result.victory && Object.keys(result.loot ?? {}).length > 0 && (() => {
+              const LOOT_STYLE = {
+                iron_ore:     { emoji: "⛏️", color: "#94a3b8", label: "Iron Ore" },
+                lumber:       { emoji: "🪵", color: "#a3813a", label: "Lumber" },
+                iron_fitting: { emoji: "⚙️", color: "#cbd5e1", label: "Iron Fitting" },
+                rare_gem:     { emoji: "💎", color: "#67e8f9", label: "Rare Gem" },
+                mana_crystal: { emoji: "🔮", color: "#c084fc", label: "Mana Crystal" },
+              };
+              return (
+                <div style={{
+                  padding: "0.5rem 0.7rem", borderRadius: 10, width: "100%",
+                  background: "rgba(0,0,0,0.35)", border: "1px solid rgba(255,255,255,0.1)",
+                  display: "flex", flexDirection: "column", gap: "0.3rem",
+                }}>
+                  {Object.entries(result.loot).map(([k, v]) => {
+                    const s = LOOT_STYLE[k] ?? { emoji: "🎒", color: "#e2e8f0", label: k.replace(/_/g, " ") };
+                    return (
+                      <div key={k} style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                        <span style={{ fontSize: "1.1rem" }}>{s.emoji}</span>
+                        <span style={{ fontSize: "0.85rem", fontWeight: 800, color: s.color, textShadow: `0 0 8px ${s.color}88` }}>
+                          +{v}
+                        </span>
+                        <span style={{ fontSize: "0.75rem", color: "rgba(255,255,255,0.7)", fontWeight: 600 }}>
+                          {s.label}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+            {result.victory && result.totalXp > 0 && (
+              <div style={{ fontSize: "0.78rem", color: "#a78bfa" }}>✨ +{result.totalXp} XP shared</div>
+            )}
+            <button
+              onClick={() => onCombatEnd(result)}
+              style={{
+                marginTop: "0.4rem", padding: "0.7rem 2.5rem", borderRadius: 10,
+                fontWeight: 800, fontSize: "0.95rem",
+                background: result.victory ? "rgba(74,222,128,0.25)" : "rgba(239,68,68,0.15)",
+                border: `2px solid ${result.victory ? "rgba(74,222,128,0.7)" : "rgba(239,68,68,0.5)"}`,
+                color: result.victory ? "#4ade80" : "#ef4444", cursor: "pointer",
+                boxShadow: result.victory ? "0 0 20px rgba(74,222,128,0.2)" : "none",
+              }}>
+              {result.victory ? "🗺️ Continue →" : "🏳️ Retreat (50% loot)"}
+            </button>
           </div>
         )}
       </div>
@@ -742,16 +866,17 @@ function Battlefield({
                       onClick={e => { e.stopPropagation(); if (abilityReady) onUseAbility(h.id); }}
                       onTouchStart={e => { e.stopPropagation(); if (abilityReady) onUseAbility(h.id); }}
                       style={{
-                        flex: 1, padding: "0.15rem 0", borderRadius: 5, fontSize: "0.55rem",
+                        flex: 1, padding: "0.3rem 0", borderRadius: 6, fontSize: "0.65rem",
                         background: isMendArmed ? "rgba(74,222,128,0.3)" : abilityReady ? h.color + "22" : "rgba(255,255,255,0.04)",
                         border: "1px solid " + (isMendArmed ? "#4ade80" : abilityReady ? h.color + "66" : "rgba(255,255,255,0.1)"),
                         color: isMendArmed ? "#4ade80" : abilityReady ? h.color : "var(--muted)",
                         cursor: abilityReady ? "pointer" : "default", fontWeight: 700,
-                        display: "flex", alignItems: "center", justifyContent: "center", gap: 2,
+                        display: "flex", alignItems: "center", justifyContent: "center", gap: 3,
                         animation: isMendArmed ? "ringPulse 0.8s ease-in-out infinite" : "none",
+                        minHeight: "2rem",
                       }}>
-                      <span>{ab.emoji}</span>
-                      <span style={{ fontSize: "0.42rem" }}>
+                      <span style={{ fontSize: "0.9rem" }}>{ab.emoji}</span>
+                      <span style={{ fontSize: "0.5rem" }}>
                         {isMendArmed ? "→?" : ab.cooldownLeft > 0 ? Math.ceil(ab.cooldownLeft) + "s" : ab.name}
                       </span>
                     </button>
@@ -761,13 +886,14 @@ function Battlefield({
                       onClick={e => { e.stopPropagation(); if (!result) onUseFood(h.id, nextFood.id); }}
                       onTouchStart={e => { e.stopPropagation(); if (!result) onUseFood(h.id, nextFood.id); }}
                       style={{
-                        flex: 1, padding: "0.15rem 0", borderRadius: 5, fontSize: "0.55rem",
+                        flex: 1, padding: "0.3rem 0", borderRadius: 6, fontSize: "0.65rem",
                         background: "rgba(74,222,128,0.12)", border: "1px solid rgba(74,222,128,0.4)",
                         color: "#4ade80", cursor: result ? "default" : "pointer",
-                        fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 2,
+                        fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 3,
+                        minHeight: "2rem",
                       }}>
-                      <span>{foodDef?.emoji ?? "🍞"}</span>
-                      <span style={{ fontSize: "0.42rem" }}>+{foodDef?.healAmount ?? "?"}</span>
+                      <span style={{ fontSize: "0.9rem" }}>{foodDef?.emoji ?? "🍞"}</span>
+                      <span style={{ fontSize: "0.5rem" }}>+{foodDef?.healAmount ?? "?"}</span>
                     </button>
                   )}
                 </div>
@@ -779,56 +905,29 @@ function Battlefield({
 
       {/* Combat log */}
       <div style={{
-        height: 52, overflowY: "auto", background: "rgba(0,0,0,0.25)", borderRadius: 8,
-        padding: "0.28rem 0.5rem", fontSize: "0.62rem",
-        fontFamily: "monospace", border: "1px solid rgba(255,255,255,0.07)",
-        display: "flex", flexDirection: "column", gap: 1,
+        height: 60, overflowY: "auto", background: "rgba(0,0,0,0.4)", borderRadius: 8,
+        padding: "0.3rem 0.55rem", fontSize: "0.65rem",
+        fontFamily: "monospace", border: "1px solid rgba(255,255,255,0.1)",
+        display: "flex", flexDirection: "column", gap: 2,
       }}>
-        {log.map(e => (
-          <div key={e.id} style={{
-            color: e.color === "#4ade80" ? "#b8f0cb" : e.color === "var(--muted)" ? "#9eb4cc" : e.color,
-            textShadow: "0 1px 3px rgba(0,0,0,0.95)",
-          }}>{e.text}</div>
-        ))}
+        {log.map((e, i) => {
+          const isLatest = i === log.length - 1;
+          // Map known muted/grey colors to something readable
+          const col = e.color === "var(--muted)" ? "#94a3b8"
+            : e.color === "#9ca3af" ? "#e2e8f0"  // skeleton grey → bright white
+            : e.color;
+          return (
+            <div key={e.id} style={{
+              color: col,
+              fontWeight: isLatest ? 700 : 500,
+              opacity: isLatest ? 1 : 0.75,
+              textShadow: isLatest ? `0 0 8px ${col}88, 0 1px 3px rgba(0,0,0,0.9)` : "0 1px 2px rgba(0,0,0,0.8)",
+              lineHeight: 1.35,
+            }}>{e.text}</div>
+          );
+        })}
       </div>
 
-      {/* Result panel */}
-      {result && (
-        <div style={{
-          marginTop: "0.5rem", padding: result.victory ? "1rem" : "0.7rem", borderRadius: 12, textAlign: "center",
-          background: result.victory ? "rgba(74,222,128,0.1)" : "rgba(239,68,68,0.08)",
-          border: `2px solid ${result.victory ? "rgba(74,222,128,0.4)" : "rgba(239,68,68,0.3)"}`,
-          boxShadow: result.victory ? "0 0 24px rgba(74,222,128,0.15)" : "none",
-        }}>
-          {result.victory && (
-            <div style={{ fontSize: "1.6rem", marginBottom: "0.25rem" }}>🏆</div>
-          )}
-          <div style={{ fontSize: result.victory ? "0.85rem" : "0.75rem", fontWeight: 800, color: result.victory ? "#4ade80" : "#ef4444", marginBottom: "0.4rem" }}>
-            {result.victory ? "Victory!" : "Defeated"}
-          </div>
-          {result.victory && Object.keys(result.loot ?? {}).length > 0 && (
-            <div style={{ marginBottom: "0.35rem", padding: "0.4rem 0.5rem", borderRadius: 8, background: "rgba(0,0,0,0.2)" }}>
-              {Object.entries(result.loot).map(([k, v]) => (
-                <div key={k} style={{ fontSize: "0.75rem", color: "var(--text)", lineHeight: 1.6 }}>🎒 +{v} {k.replace(/_/g, " ")}</div>
-              ))}
-            </div>
-          )}
-          {result.victory && result.totalXp > 0 && (
-            <div style={{ fontSize: "0.72rem", color: "#a78bfa", marginBottom: "0.35rem" }}>✨ +{result.totalXp} XP shared</div>
-          )}
-          <button
-            onClick={() => onCombatEnd(result)}
-            style={{
-              marginTop: result.victory ? "0.5rem" : "0.35rem", padding: result.victory ? "0.55rem 2rem" : "0.45rem 1.5rem", borderRadius: 8,
-              fontWeight: 700, fontSize: result.victory ? "0.85rem" : "0.78rem",
-              background: result.victory ? "rgba(74,222,128,0.25)" : "rgba(239,68,68,0.12)",
-              border: `1px solid ${result.victory ? "rgba(74,222,128,0.6)" : "rgba(239,68,68,0.4)"}`,
-              color: result.victory ? "#4ade80" : "#ef4444", cursor: "pointer",
-            }}>
-            {result.victory ? "🗺️ Continue →" : "🏳️ Retreat (50% loot)"}
-          </button>
-        </div>
-      )}
     </div>
   );
 }
@@ -846,6 +945,7 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
   const explorePct = cells.length > 0 ? cells.filter(c => c.visited).length / cells.length : 0;
   const exitUnlocked = explorePct >= MIN_EXPLORE_PCT && (roomsClearedThisDepth ?? 0) >= 1;
   const canEscape = (roomsClearedThisDepth ?? 0) >= 1; // need 1 enemy room cleared to retreat safely too
+  const [exitModalOpen, setExitModalOpen] = useState(false);
   function moveToCell(x, y) {
     const target = getCell(x, y); if (!target) return;
     setCells(prev => prev.map(c => c.x === x && c.y === y ? { ...c, visited: true } : c));
@@ -855,7 +955,7 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
       if (target.type === "treasure") onCollectTreasure(x, y);
       if (target.type === "rest")     onRest(x, y);
       if (target.type === "trap")     onTrap(x, y);
-      if (target.type === "exit" && exitUnlocked) onExit();
+      if (target.type === "exit" && exitUnlocked) setExitModalOpen(true);
     }
   }
   const adjacent = adj();
@@ -912,7 +1012,7 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: "0.5rem" }}>
         <div style={{ width: "100%", fontSize: "0.62rem", color: "#a78bfa", marginBottom: "0.1rem" }}>
-          {getDepthMeta(depth).emoji} {getDepthMeta(depth).name} — Clear rooms then Cash Out, or find the Exit to go deeper
+          {getDepthMeta(depth).emoji} {getDepthMeta(depth).name} — Clear rooms, then find the 🚪 Exit to cash out or go deeper
         </div>
         {[["🧭", "Party"], ["👹", "Enemy"], ["⚠️", "Trap"], ["💰", "Treasure"], ["🏕️", "Rest"], ["🚪", "Exit (Go Deeper)"]].map(([e, l]) => (
           <span key={l} style={{ fontSize: "0.6rem", color: "var(--muted)", display: "flex", gap: 3, alignItems: "center" }}>
@@ -966,7 +1066,7 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
               {uniqueTypes.map(typeId => {
                 const def = ENEMY_TYPES[typeId];
                 if (!def) return null;
-                const specialLabels = { revive: "Revives at 50% HP", teleport: "Teleports", channel: "Channels bolt", armor_break: "Armor break", death_curse: "Death curse" };
+                const specialLabels = { revive: "Rises from death", teleport: "Teleports", channel: "Channels bolt", armor_break: "Armor break", death_curse: "Death curse" };
                 return (
                   <div key={typeId} style={{ display: "flex", alignItems: "center", gap: 3, padding: "0.15rem 0.35rem", borderRadius: 6, background: def.bg + "aa", border: `1px solid ${def.color}44` }}>
                     <span style={{ fontSize: "0.75rem" }}>{def.emoji}</span>
@@ -998,13 +1098,47 @@ function ExploreMode({ party, cells, setCells, pos, setPos, depth, onEnterCombat
           background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.28)",
           color: "#f87171", cursor: "pointer",
         }}>🏳️ Retreat (50% loot)</button>
-        <button onClick={onFinishRun} style={{
-          flex: 1, padding: "0.45rem", borderRadius: 8, fontSize: "0.72rem", fontWeight: 700,
-          background: roomsClearedThisDepth >= 1 ? "rgba(74,222,128,0.12)" : "rgba(251,191,36,0.08)",
-          border: `1px solid ${roomsClearedThisDepth >= 1 ? "rgba(74,222,128,0.35)" : "rgba(251,191,36,0.3)"}`,
-          color: roomsClearedThisDepth >= 1 ? "#4ade80" : "#fbbf24", cursor: "pointer",
-        }}>{roomsClearedThisDepth >= 1 ? "💰 Cash Out" : "⚠️ Cash Out (50% loot)"}</button>
       </div>
+
+      {/* Exit modal — shown when hero steps on 🚪 with conditions met */}
+      {exitModalOpen && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 100,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          background: "rgba(0,0,0,0.75)",
+        }}>
+          <div style={{
+            background: "#0f172a", border: "1px solid rgba(167,139,250,0.4)",
+            borderRadius: 16, padding: "1.4rem 1.2rem", width: "min(320px, 90vw)",
+            display: "flex", flexDirection: "column", gap: "0.75rem",
+            boxShadow: "0 0 40px rgba(167,139,250,0.2)",
+          }}>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: "2rem", marginBottom: "0.25rem" }}>🚪</div>
+              <div style={{ fontSize: "0.95rem", fontWeight: 800, color: "#a78bfa" }}>Exit Found</div>
+              <div style={{ fontSize: "0.65rem", color: "rgba(255,255,255,0.45)", marginTop: "0.2rem" }}>
+                What will you do?
+              </div>
+            </div>
+            <button onClick={() => setExitModalOpen(false)} style={{
+              padding: "0.65rem", borderRadius: 10, fontWeight: 700, fontSize: "0.82rem",
+              background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)",
+              color: "rgba(255,255,255,0.8)", cursor: "pointer",
+            }}>🏕️ Stay &amp; Keep Exploring</button>
+            <button onClick={() => { setExitModalOpen(false); onFinishRun(); }} style={{
+              padding: "0.65rem", borderRadius: 10, fontWeight: 700, fontSize: "0.82rem",
+              background: "rgba(74,222,128,0.15)", border: "1px solid rgba(74,222,128,0.45)",
+              color: "#4ade80", cursor: "pointer",
+            }}>💰 Exit With Full Loot</button>
+            <button onClick={() => { setExitModalOpen(false); onExit(); }} style={{
+              padding: "0.65rem", borderRadius: 10, fontWeight: 800, fontSize: "0.82rem",
+              background: "rgba(167,139,250,0.15)", border: "2px solid rgba(167,139,250,0.55)",
+              color: "#a78bfa", cursor: "pointer",
+              boxShadow: "0 0 16px rgba(167,139,250,0.15)",
+            }}>⬇️ Descend Deeper</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1365,12 +1499,12 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
             return (order[a.heroClass] ?? 1) - (order[b.heroClass] ?? 1);
           });
           // mage=rightmost (closest to enemies), scav=mid, fighter=leftmost
-          const xPositions = [BF_W / 2 - 60, BF_W / 2 - 115, BF_W / 2 - 170];
-          const yPositions = [BF_H * 0.5, BF_H * 0.3, BF_H * 0.7];
+          const xPositions = [BF_W / 2, BF_W / 2 - 70, BF_W / 2 + 70];
+          const yPositions = [BF_H - UNIT_R - 20, BF_H - UNIT_R - 80, BF_H - UNIT_R - 80];
           const next = prev.map(h => {
             const rank = sorted.findIndex(s => s.id === h.id);
-            const px = xPositions[rank] ?? (60 + rank * 50);
-            const py = yPositions[rank] ?? (BF_H / 2);
+            const px = xPositions[rank] ?? (BF_W / 2 + (rank - 1) * 70);
+            const py = yPositions[rank] ?? (BF_H - UNIT_R - 50);
             return { ...h, x: px, y: py, targetX: px, targetY: py, placed: true };
           });
           heroesRef.current = next;
@@ -1468,8 +1602,12 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
           const def = ENEMY_TYPES[e.typeId];
           if (!def?.loot) return;
           Object.entries(def.loot).forEach(([k, [mn, mx]]) => {
-            // Depth gates: rare_gem needs depth>=2, mana_crystal needs depth>=3
-            if (k === "rare_gem" && depth < 2) return;
+            // rare_gem: guaranteed drop at depth 2+, 10% chance per enemy at depth 1
+            if (k === "rare_gem") {
+              if (depth < 1) return;
+              if (depth === 1 && Math.random() >= 0.25) return;
+            }
+            // mana_crystal: depth 3+ only
             if (k === "mana_crystal" && depth < 3) return;
             const scaled = Math.round(randInt(mn, mx) * lootScale);
             loot[k] = (loot[k] ?? 0) + Math.max(mn, scaled);
@@ -1517,11 +1655,19 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
                 if (es[ei].special === "armor_break" && !es[ei].defReduced && es[ei].hp / es[ei].maxHp < 0.5) { es[ei].def = Math.floor(es[ei].def / 2); es[ei].defReduced = true; addLog(`🪨 ${nearest.name}'s armor cracks!`, "#fbbf24"); }
                 es[ei].hp = Math.max(0, es[ei].hp - dmg);
                 if (es[ei].hp <= 0) {
-                  es[ei].dead = true;
-                  addLog(`${nearest.emoji} ${nearest.name} defeated!`, "#4ade80");
-                  if (es[ei].special === "death_curse") {
-                    aliveHeroes.forEach(h => { const curse = Math.floor(h.maxHp * 0.25); const hi2 = hs.findIndex(hh => hh.id === h.id); if (hi2 >= 0) { hs[hi2].hp = Math.max(0, hs[hi2].hp - curse); if (hs[hi2].hp <= 0) hs[hi2].dead = true; addFloat(h.x, h.y - 15, `-${curse}💀`, "#e879f9"); } });
-                    addLog(`👻 ${nearest.name}'s death curse strikes all heroes!`, "#e879f9");
+                  if (es[ei].special === "revive" && !es[ei].revived) {
+                    es[ei].revived = true;
+                    es[ei].hp = es[ei].maxHp;
+                    es[ei].dead = false;
+                    addFloat(es[ei].x, es[ei].y - 15, "💀 Rises!", "#9ca3af");
+                    addLog(`💀 ${es[ei].name} rises from the dead at full health!`, "#9ca3af");
+                  } else {
+                    es[ei].dead = true;
+                    addLog(`${nearest.emoji} ${nearest.name} defeated!`, "#4ade80");
+                    if (es[ei].special === "death_curse") {
+                      aliveHeroes.forEach(h => { const curse = Math.floor(h.maxHp * 0.25); const hi2 = hs.findIndex(hh => hh.id === h.id); if (hi2 >= 0) { hs[hi2].hp = Math.max(0, hs[hi2].hp - curse); if (hs[hi2].hp <= 0) hs[hi2].dead = true; addFloat(h.x, h.y - 15, `-${curse}💀`, "#e879f9"); } });
+                      addLog(`👻 ${nearest.name}'s death curse strikes all heroes!`, "#e879f9");
+                    }
                   }
                 }
                 addFloat(nearest.x, nearest.y - 10, `-${dmg}⚡`, "#fbbf24");
@@ -1537,19 +1683,44 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
         }
 
         const speed = HERO_SPEED;
-        const np = moveToward({ x: hero.x, y: hero.y }, { x: hero.targetX, y: hero.targetY }, speed, dt);
-        hero.x = clamp(np.x, UNIT_R, BF_W - UNIT_R);
-        hero.y = clamp(np.y, UNIT_R, BF_H - UNIT_R);
 
         if (hero.attackTarget) {
           const tgt = aliveEnemies.find(e => e.id === hero.attackTarget);
-          if (!tgt) { hero.attackTarget = null; }
-          else if (dist(hero, tgt) > hero.attackRange) { hero.targetX = tgt.x; hero.targetY = tgt.y; }
+          if (!tgt) {
+            hero.attackTarget = null;
+          } else {
+            const dToTgt = dist(hero, tgt);
+            if (dToTgt > hero.attackRange) {
+              // Walk toward enemy but stop exactly at attack range — never overlap
+              const stopDist = hero.attackRange - 2;
+              const ratio = stopDist / dToTgt;
+              const stopX = tgt.x + (hero.x - tgt.x) * ratio;
+              const stopY = tgt.y + (hero.y - tgt.y) * ratio;
+              const np = moveToward({ x: hero.x, y: hero.y }, { x: stopX, y: stopY }, speed, dt);
+              hero.x = clamp(np.x, UNIT_R, BF_W - UNIT_R);
+              hero.y = clamp(np.y, UNIT_R, BF_H - UNIT_R);
+              hero.targetX = stopX;
+              hero.targetY = stopY;
+            }
+            // Already in range — stand still, don't update position
+          }
+        } else {
+          // No attack target — move freely toward player-set destination
+          const np = moveToward({ x: hero.x, y: hero.y }, { x: hero.targetX, y: hero.targetY }, speed, dt);
+          hero.x = clamp(np.x, UNIT_R, BF_W - UNIT_R);
+          hero.y = clamp(np.y, UNIT_R, BF_H - UNIT_R);
         }
 
-        if (hero.attackCooldown > 0) {
-          hero.attackCooldown -= dt;
+        // Attack charge: reset when player explicitly issued a move command, otherwise accumulate
+        const isRepositioning = hero.playerMoved === true;
+        hero.playerMoved = false; // consume the flag
+        if (isRepositioning) {
+          hero.attackCharge = 0;
         } else {
+          hero.attackCharge = Math.min(1, (hero.attackCharge ?? 0) + dt * hero.attackSpeed);
+        }
+
+        if (hero.attackCharge >= 1) {
           let atk = null;
           if (hero.attackTarget) { const t = aliveEnemies.find(e => e.id === hero.attackTarget); if (t && dist(hero, t) <= hero.attackRange) atk = t; }
           if (!atk) { const inRange = aliveEnemies.filter(e => dist(hero, e) <= hero.attackRange); if (inRange.length > 0) atk = inRange.reduce((a, b) => dist(hero, a) < dist(hero, b) ? a : b); }
@@ -1561,16 +1732,26 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
               if (es[ei].special === "armor_break" && !es[ei].defReduced && es[ei].hp / es[ei].maxHp < 0.5) { es[ei].def = Math.floor(es[ei].def / 2); es[ei].defReduced = true; addLog(`🪨 ${atk.name}'s armor cracks! DEF halved.`, "#fbbf24"); }
               es[ei].hp = Math.max(0, es[ei].hp - baseDmg);
               if (es[ei].hp <= 0) {
-                es[ei].dead = true;
-                addLog(`${atk.emoji} ${atk.name} defeated!`, "#4ade80");
-                if (es[ei].special === "death_curse") {
-                  aliveHeroes.forEach(h => { const curse = Math.floor(h.maxHp * 0.25); const hi2 = hs.findIndex(hh => hh.id === h.id); if (hi2 >= 0) { hs[hi2].hp = Math.max(0, hs[hi2].hp - curse); if (hs[hi2].hp <= 0) hs[hi2].dead = true; addFloat(h.x, h.y - 15, `-${curse}💀`, "#e879f9"); } });
-                  addLog(`👻 ${atk.name}'s death curse strikes all heroes!`, "#e879f9");
+                // Revive special: skeleton rises once at full HP instead of dying
+                if (es[ei].special === "revive" && !es[ei].revived) {
+                  es[ei].revived = true;
+                  es[ei].hp = es[ei].maxHp;
+                  es[ei].dead = false;
+                  addFloat(es[ei].x, es[ei].y - 15, "💀 Rises!", "#9ca3af");
+                  addLog(`💀 ${es[ei].name} rises from the dead at full health!`, "#9ca3af");
+                } else {
+                  es[ei].dead = true;
+                  addLog(`${atk.emoji} ${atk.name} defeated!`, "#4ade80");
+                  if (es[ei].special === "death_curse") {
+                    aliveHeroes.forEach(h => { const curse = Math.floor(h.maxHp * 0.25); const hi2 = hs.findIndex(hh => hh.id === h.id); if (hi2 >= 0) { hs[hi2].hp = Math.max(0, hs[hi2].hp - curse); if (hs[hi2].hp <= 0) hs[hi2].dead = true; addFloat(h.x, h.y - 15, `-${curse}💀`, "#e879f9"); } });
+                    addLog(`👻 ${atk.name}'s death curse strikes all heroes!`, "#e879f9");
+                  }
                 }
               }
               addFloat(atk.x, atk.y - 10, `-${baseDmg}`, "#f87171");
+              hero.lastHitAt = Date.now();
             }
-            hero.attackCooldown = 1 / hero.attackSpeed;
+            hero.attackCharge = 0;
           }
         }
 
@@ -1623,48 +1804,54 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
           }
         }
 
-        if (enemy.special === "revive" && !enemy.revived && enemy.hp / enemy.maxHp <= 0.5) {
-          enemy.revived = true; enemy.dead = false; enemy.hp = Math.floor(enemy.maxHp * 0.4);
-          addFloat(enemy.x, enemy.y - 15, "💀 Revived!", "#9ca3af");
-          addLog(`💀 ${enemy.name} revives! (rises from death when first brought below 50% HP)`, "#9ca3af");
-        }
-
         const tauntHero = hs.find(h => !h.dead && h.tauntActive);
         const tgt = tauntHero ?? (aliveHeroes.length ? aliveHeroes.reduce((a, b) => dist(enemy, a) < dist(enemy, b) ? a : b) : null);
         enemy.taunted = !!tauntHero;
         if (!tgt) return;
 
         const d = dist(enemy, tgt);
-        if (d > enemy.attackRange) {
-          const np = moveToward({ x: enemy.x, y: enemy.y }, tgt, enemy.speed, dt);
+        const decidedToMove = d > enemy.attackRange;
+        enemy.decidedToMove = decidedToMove;
+        if (decidedToMove) {
+          // Stop at attack range — never overlap the target
+          const stopDist = enemy.attackRange - 2;
+          const ratio = stopDist / d;
+          const stopX = tgt.x + (enemy.x - tgt.x) * ratio;
+          const stopY = tgt.y + (enemy.y - tgt.y) * ratio;
+          const np = moveToward({ x: enemy.x, y: enemy.y }, { x: stopX, y: stopY }, enemy.speed, dt);
           enemy.x = clamp(np.x, UNIT_R, BF_W - UNIT_R);
           enemy.y = clamp(np.y, UNIT_R, BF_H - UNIT_R);
         }
-        if (enemy.attackCooldown > 0) {
-          enemy.attackCooldown -= dt;
-        } else if (d <= enemy.attackRange) {
+        if (enemy.decidedToMove) {
+          enemy.attackCharge = 0;
+        } else {
+          enemy.attackCharge = Math.min(1, (enemy.attackCharge ?? 0) + dt * enemy.attackSpeed);
+        }
+        if (enemy.attackCharge >= 1 && d <= enemy.attackRange) {
           const hi = hs.findIndex(h => h.id === tgt.id);
           if (hi >= 0 && !hs[hi].dead) {
             const dmg = Math.max(1, enemy.atk - hs[hi].def + randInt(-1, 3));
             hs[hi].hp = Math.max(0, hs[hi].hp - dmg);
             if (hs[hi].hp <= 0) { hs[hi].dead = true; addLog(`💀 ${hs[hi].name} fallen!`, "#ef4444"); }
             addFloat(tgt.x, tgt.y - 10, `-${dmg}`, "#a78bfa");
-            enemy.attackCooldown = 1 / enemy.attackSpeed;
+            enemy.lastHitAt = Date.now();
+            enemy.attackCharge = 0;
           }
         }
         enemy.flashHit = false;
       });
 
-      // Separation push
+      // Separation push — damped so units settle softly instead of snapping apart
       const allUnits = [...hs.filter(h => !h.dead), ...es.filter(e => !e.dead)];
-      const SEP = UNIT_R * 2 + 3;
+      const SEP = UNIT_R * 2 + 2;
+      const SEP_DAMP = 0.55;
       for (let i = 0; i < allUnits.length; i++) {
         for (let j = i + 1; j < allUnits.length; j++) {
           const a = allUnits[i], b = allUnits[j];
           const dx = b.x - a.x, dy = b.y - a.y;
           const d = Math.sqrt(dx * dx + dy * dy);
           if (d < SEP && d > 0.01) {
-            const push = (SEP - d) / 2;
+            const push = ((SEP - d) / 2) * SEP_DAMP;
             const nx = dx / d, ny = dy / d;
             a.x = clamp(a.x - nx * push, UNIT_R, BF_W - UNIT_R);
             a.y = clamp(a.y - ny * push, UNIT_R, BF_H - UNIT_R);
@@ -1690,8 +1877,8 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
     setCombatHeroes(prev => {
       const next = prev.map((h, i) => {
         if (h.placed) return h;
-        const dx = 40 + (i % 2) * 55;
-        const dy = 70 + Math.floor(i / 2) * 100;
+        const dx = 80 + (i % 3) * 90;
+        const dy = BF_H - 55 - Math.floor(i / 3) * 60;
         return { ...h, x: dx, y: dy, targetX: dx, targetY: dy, placed: true };
       });
       heroesRef.current = next;
@@ -1710,10 +1897,10 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
     if (currentPhase === "placement") {
       const heroId = selectedRef.current;
       if (!heroId) return;
-      // Restrict to left half only
-      if (x > BF_W / 2 - UNIT_R) return;
-      const clampedX = clamp(x, UNIT_R + 2, BF_W / 2 - UNIT_R - 4);
-      const clampedY = clamp(y, UNIT_R + 2, BF_H - UNIT_R - 2);
+      // Restrict to bottom half only
+      if (y < BF_H / 2 + UNIT_R) return;
+      const clampedX = clamp(x, UNIT_R + 2, BF_W - UNIT_R - 2);
+      const clampedY = clamp(y, BF_H / 2 + UNIT_R + 2, BF_H - UNIT_R - 2);
       setCombatHeroes(prev => {
         const next = prev.map(h => h.id !== heroId ? h : {
           ...h, x: clampedX, y: clampedY, targetX: clampedX, targetY: clampedY, placed: true,
@@ -1780,7 +1967,7 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
       } else {
         setCombatHeroes(prev => {
           const next = prev.map(h => h.id === selectedRef.current
-            ? { ...h, targetX: x, targetY: y, attackTarget: null }
+            ? { ...h, targetX: x, targetY: y, attackTarget: null, playerMoved: true }
             : h);
           heroesRef.current = next;
           return next;
@@ -1806,7 +1993,7 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
       const next = prev.map(h => h.id === heroId
         ? nearbyEnemy
           ? { ...h, attackTarget: nearbyEnemy.id, targetX: nearbyEnemy.x, targetY: nearbyEnemy.y }
-          : { ...h, targetX: x, targetY: y, attackTarget: null }
+          : { ...h, targetX: x, targetY: y, attackTarget: null, playerMoved: true }
         : h);
       heroesRef.current = next;
       return next;
@@ -1831,6 +2018,7 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
     } else if (hero.heroClass === "mage") {
       // Mend is two-tap: arm here, player taps a hero card to target
       setMendArmed(true);
+      mendArmedRef.current = true; // sync ref immediately so same-tick tap fires correctly
         } else if (hero.heroClass === "scavenger") {
       addLog(`⚡ ${hero.name} launches Blade Rush!`, "#34d399");
       setCombatHeroes(prev => {
