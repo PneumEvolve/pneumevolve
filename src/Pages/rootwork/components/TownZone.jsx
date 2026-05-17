@@ -26,6 +26,7 @@ import {
   ROAD_TIERS, TOWN_REC_HALL_REQUIRES, REC_HALL_UPGRADE_COSTS, REC_HALL_UPGRADE_REQUIRES,
   REC_HALL_CASH_PER_WORKER,
   SCHOOL_RESEARCH,
+  SEASONAL_QUESTS,
 } from "../gameConstants";
 import {
   getTownHomeCost, getTotalWorkersHired, getAvailableWorkerSlots,
@@ -41,6 +42,7 @@ import {
   getMaxHeroes, getGuildHallQuestTier, getSatisfactionCeiling,
   getBankPriceBonus, getRecHallSatBonus, getRecHallMaxWorkers, getTradeTownSatBonus,
   getRoadLevel, getRoadNextTier, canAffordRoad, isRoadEnabled, getTotalRoadDrain,
+  getCompletedQuestIds,
 } from "../gameEngine";
 import SeasonPanel from "./SeasonPanel";
 import StatsPanel from "./StatsPanel";
@@ -203,6 +205,16 @@ export default function TownZone({
   const worldRes    = game.worldResources ?? {};
   const forgeGoods  = game.forgeGoods ?? {};
 
+  // Quest claimable badge for Season sub-tab
+  const _tz_season = game.season ?? 1;
+  const _tz_questData = SEASONAL_QUESTS[Math.min(_tz_season, 20)];
+  const _tz_completedIds = _tz_questData ? getCompletedQuestIds(game) : new Set();
+  const _tz_claimedIds = new Set(game?.questProgress?.claimedQuestIds ?? []);
+  const questClaimableCount = _tz_questData
+    ? _tz_questData.quests.filter(q => _tz_completedIds.has(q.id) && !_tz_claimedIds.has(q.id)).length
+    : 0;
+
+
   // Helper to get material amounts from worldRes + forgeGoods
   function have(key) {
     return (worldRes[key] ?? 0) + (forgeGoods[key] ?? 0);
@@ -297,6 +309,15 @@ export default function TownZone({
                 borderRadius: "999px", padding: "1px 4px",
                 lineHeight: 1.4,
               }}>🌱</span>
+            )}
+            {id === "season" && !prestigeReady && questClaimableCount > 0 && (
+              <span style={{
+                position: "absolute", top: "3px", right: "5px",
+                background: "#fbbf24", color: "#78350f",
+                fontSize: "0.5rem", fontWeight: 700,
+                borderRadius: "999px", padding: "1px 4px",
+                lineHeight: 1.4, minWidth: "12px", textAlign: "center",
+              }}>!</span>
             )}
           </button>
         ))}

@@ -1,6 +1,6 @@
 import React from "react";
-import { CROPS, SEASON_FARMS } from "../gameConstants";
-import { isFarmAutomated, isFarmPrestigeReady, getAvailableWorkerSlots } from "../gameEngine";
+import { CROPS, SEASON_FARMS, SEASONAL_QUESTS } from "../gameConstants";
+import { isFarmAutomated, isFarmPrestigeReady, getAvailableWorkerSlots, getCompletedQuestIds } from "../gameEngine";
  
 export const MAIN_TABS = ["farms", "market", "kitchen", "town", "world", "view"];
  
@@ -119,6 +119,16 @@ export default function GameNav({
   );
  
   const availableWorkerSlots = getAvailableWorkerSlots(game);
+
+  // Quest badge: any quest done but not yet claimed
+  const _season = game?.season ?? 1;
+  const _questData = SEASONAL_QUESTS[Math.min(_season, 20)];
+  const _completedIds = _questData ? getCompletedQuestIds(game) : new Set();
+  const _claimedIds = new Set(game?.questProgress?.claimedQuestIds ?? []);
+  const questClaimableCount = _questData
+    ? _questData.quests.filter(q => _completedIds.has(q.id) && !_claimedIds.has(q.id)).length
+    : 0;
+
  
   // World badge: red > yellow > green priority
   const adventurers = game.adventurers ?? [];
@@ -153,7 +163,7 @@ export default function GameNav({
     { id: "market",   label: "Market",   emoji: "💰", badge: marketQueueTotal > 0 ? marketQueueTotal : null, badgeColor: "#4ade80" },
     { id: "crafting", label: "Crafting", emoji: "🏭", badge: totalIdleCrafters > 0 ? totalIdleCrafters : null, badgeColor: "#ef4444" },
     { id: "animals",  label: "Animals",  emoji: "🐾", badge: unhappyAnimals > 0 ? "⚠" : readyAnimals > 0 ? readyAnimals : null, badgeColor: unhappyAnimals > 0 ? "#ef4444" : "#fbbf24" },
-    { id: "town",     label: "Town",     emoji: "🏘️", badge: townUnlocked ? starvingTown ? "!" : prestigeReady ? "🌱" : availableWorkerSlots > 0 ? `+${availableWorkerSlots}` : null : null, badgeColor: starvingTown ? "#ef4444" : prestigeReady ? "#f59e0b" : "#4ade80" },
+    { id: "town",     label: "Town",     emoji: "🏘️", badge: townUnlocked ? starvingTown ? "!" : prestigeReady ? "🌱" : availableWorkerSlots > 0 ? `+${availableWorkerSlots}` : questClaimableCount > 0 ? "!" : null : null, badgeColor: starvingTown ? "#ef4444" : prestigeReady ? "#f59e0b" : questClaimableCount > 0 && !availableWorkerSlots ? "#fbbf24" : "#4ade80" },
     { id: "world",    label: "World",    emoji: "⚔️", badge: worldBadge, badgeColor: worldBadgeColor },
     { id: "view",     label: "Live",     emoji: "🗺️", badge: null },
   ];
