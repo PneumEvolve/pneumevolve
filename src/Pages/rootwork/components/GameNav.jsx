@@ -117,7 +117,7 @@ export function FarmSubTabs({ game, activeFarmIndex, onFarmChange }) {
                 </span>
               )}
               {anyPrestigeReady && (
-                <span style={{ fontSize: "0.6rem", color: "#4ade80", fontWeight: 700 }}>\u2713</span>
+                <span style={{ fontSize: "0.6rem", color: "#4ade80", fontWeight: 700 }}>✓</span>
               )}
               {anyNeedsAttention && (
                 <span style={{
@@ -128,7 +128,7 @@ export function FarmSubTabs({ game, activeFarmIndex, onFarmChange }) {
               )}
               {farmsOfType.length > 1 && (
                 <span style={{ fontSize: "0.6rem", color: "var(--muted)", marginLeft: "1px" }}>
-                  {isOpen ? "\u25b2" : "\u25bc"}
+                  {isOpen ? "▲" : "▼"}
                 </span>
               )}
             </button>
@@ -186,7 +186,7 @@ export function FarmSubTabs({ game, activeFarmIndex, onFarmChange }) {
                         {crop.name} Farm {i + 1}
                       </span>
                       {prestigeReady && (
-                        <span style={{ fontSize: "0.6rem", color: "#4ade80", fontWeight: 700 }}>\u2713</span>
+                        <span style={{ fontSize: "0.6rem", color: "#4ade80", fontWeight: 700 }}>✓</span>
                       )}
                       {needsAttention && (
                         <span style={{
