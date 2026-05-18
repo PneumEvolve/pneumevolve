@@ -102,6 +102,7 @@ function Root() {
         <AuthProvider>
           <BrowserRouter>
             <LastVisitedPathSaver />
+            <PwaManifest />
             <Routes>
               <Route path="/" element={<Layout />}>
                 <Route index element={<Home />} />
@@ -193,7 +194,7 @@ function Root() {
                 <Route path="/clear-and-calm" element={<RequireAuth><ClearAndCalm /></RequireAuth>} />
                 <Route path="/about" element={<About />} />
 
-                <PwaManifest />
+                
  
                 <Route path="/privacy" element={<PrivacyPolicy />} />
                 <Route path="/terms" element={<Terms />} />
