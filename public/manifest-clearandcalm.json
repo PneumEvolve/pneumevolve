@@ -1,10 +1,10 @@
 {
   "id": "/clear-and-calm",
-  "start_url": "/clear-and-calm?source=pwa"
   "name": "Clear & Calm",
   "short_name": "Clear & Calm",
   "description": "Track cravings, breathe through them, build your stillness practice.",
   "start_url": "/clear-and-calm",
+  "scope": "/clear-and-calm",
   "display": "standalone",
   "background_color": "#0e9aa7",
   "theme_color": "#0e9aa7",
