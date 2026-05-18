@@ -57,7 +57,7 @@ const ENEMY_TYPES = {
     name: "Goblin", emoji: "👺", color: "#dc2626", bg: "#450a0a",
     hp: 28, atk: 12, def: 1, speed: ENEMY_SPEED * 1.2, attackSpeed: 1.0,
     attackRange: ENEMY_ATTACK_RANGE, xp: 8,
-    loot: { iron_ore: [1, 3], lumber: [1, 3], rare_gem: [1, 1] },
+    loot: { iron_ore: [1, 3], lumber: [1, 3] },
   },
   skeleton: {
     name: "Skeleton", emoji: "💀", color: "#9ca3af", bg: "#111827",
@@ -82,7 +82,7 @@ const ENEMY_TYPES = {
     name: "Shadow", emoji: "🌑", color: "#6366f1", bg: "#1e1b4b",
     hp: 55, atk: 11, def: 1, speed: ENEMY_SPEED * 1.4, attackSpeed: 1.0,
     attackRange: ENEMY_ATTACK_RANGE, xp: 18,
-    loot: { iron_ore: [1, 3], mana_crystal: [1, 1] },
+    loot: { iron_ore: [1, 3] },
     special: "teleport",
   },
   cultist: {
@@ -1149,6 +1149,22 @@ function Lobby({ game, lastRun, pendingReward, onStart, onClaim, selectedHeroIds
   const hasPending = !!pendingReward;
   const maxDepthUnlocked = game?.maxDungeonDepth ?? 1;
 
+  // Recommended gear thresholds per depth
+  const DEPTH_GEAR_RECOMMEND = { 1: 0, 2: 3, 3: 6, 4: 10, 5: 14 };
+  function getDepthGearWarning(d, party) {
+    const rec = DEPTH_GEAR_RECOMMEND[d] ?? 16;
+    if (rec === 0 || party.length === 0) return null;
+    const avgGear = party.reduce((s, h) => {
+      const gear = h.gear ?? Object.values(h.equippedGear ?? {}).reduce((t, k) => {
+        const r = Object.values(FORGE_RECIPES ?? {}).find(r => r.output?.resourceKey === k);
+        return t + (r?.gearTier ?? 0);
+      }, 0);
+      return s + gear;
+    }, 0) / party.length;
+    if (avgGear >= rec) return null;
+    return `⚠ Recommended T${rec}+ gear (party avg T${Math.floor(avgGear)})`;
+  }
+
   // All available heroes (not busy)
   const expeditionHeroIds = new Set();
   const exps = game?.expeditions ?? {};
@@ -1186,6 +1202,12 @@ function Lobby({ game, lastRun, pendingReward, onStart, onClaim, selectedHeroIds
             {getDepthMeta(startDepth).emoji} Starting at: {getDepthMeta(startDepth).name}
           </div>
         )}
+        {(() => {
+          const warn = getDepthGearWarning(startDepth, selectedParty);
+          return warn ? (
+            <div style={{ fontSize: "0.62rem", color: "#fbbf24", marginTop: "0.2rem", fontWeight: 600 }}>{warn}</div>
+          ) : null;
+        })()}
       </div>
 
       {hasPending && (
@@ -1292,6 +1314,12 @@ function Lobby({ game, lastRun, pendingReward, onStart, onClaim, selectedHeroIds
                       <div style={{ fontSize: "0.55rem", color: "var(--muted)", marginTop: 1 }}>
                         {pool.map(t => ENEMY_TYPES[t]?.emoji ?? "").join(" ")} · Loot: {dm.loot.join(", ")}
                       </div>
+                      {(() => {
+                        const warn = getDepthGearWarning(d, selectedParty);
+                        return warn ? (
+                          <div style={{ fontSize: "0.52rem", color: "#fbbf24", marginTop: 2, fontWeight: 600 }}>{warn}</div>
+                        ) : null;
+                      })()}
                     </div>
                     {isActive && <span style={{ fontSize: "0.65rem", color: dm.color }}>✓</span>}
                   </div>
@@ -1602,13 +1630,8 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
           const def = ENEMY_TYPES[e.typeId];
           if (!def?.loot) return;
           Object.entries(def.loot).forEach(([k, [mn, mx]]) => {
-            // rare_gem: guaranteed drop at depth 2+, 10% chance per enemy at depth 1
-            if (k === "rare_gem") {
-              if (depth < 1) return;
-              if (depth === 1 && Math.random() >= 0.25) return;
-            }
-            // mana_crystal: depth 3+ only
-            if (k === "mana_crystal" && depth < 3) return;
+            // mana_crystal: depth 4+ only (matches Sunken Ruins tier)
+            if (k === "mana_crystal" && depth < 4) return;
             const scaled = Math.round(randInt(mn, mx) * lootScale);
             loot[k] = (loot[k] ?? 0) + Math.max(mn, scaled);
           });
@@ -2187,10 +2210,10 @@ export default function DungeonZone({ game, onDungeonComplete, onClaimDungeon, o
   }
 
   function collectTreasure(x, y) {
-    const oreAmt = randInt(3, 8) + depth * 2;
-    const lumberAmt = oreAmt - randInt(1, 2);
-    const gemAmt = depth >= 2 ? randInt(0, 2 + depth) : 0;
-    const crystalAmt = depth >= 3 ? randInt(0, 2 + depth) : 0;
+    const oreAmt = Math.min(20, randInt(3, 8) + depth * 2);
+    const lumberAmt = Math.min(20, Math.max(1, oreAmt - randInt(1, 2)));
+    const gemAmt = depth >= 2 ? Math.min(4, randInt(0, depth - 1)) : 0;
+    const crystalAmt = depth >= 4 ? Math.min(3, randInt(0, depth - 3)) : 0;
     const newLoot = {
       ...lootTotal,
       iron_ore: (lootTotal.iron_ore ?? 0) + oreAmt,

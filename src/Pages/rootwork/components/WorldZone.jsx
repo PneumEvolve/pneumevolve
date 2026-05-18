@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import DungeonZone from "./DungeonZone";
 import { WORLD_ZONES, ADVENTURER_CLASSES, FORGE_RECIPES, ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST, ADVENTURER_BUFF_ITEMS, ADVENTURER_BUFF_LIST, WORLD_RESOURCES, HERO_SKILLS, HERO_SKILL_TREES, HERO_CLASS_META, HERO_PRESTIGE_COST_BASE, HERO_DIP_TREE_PRESTIGE_TIER1, HERO_DIP_TREE_PRESTIGE_TIER2, BOSS_DEFS, BOSS_ABILITIES, BOSS_UNLOCK_LEVEL, BOSS_TICK_INTERVAL, generateInfiniteBoss, EXPEDITION_TIER_ORDER, EXPEDITION_TIERS, TRADE_TOWN_ORDER, TRADE_TOWNS } from "../gameConstants";
-import { getAdventurerSlotCost, getMaxHeroes, setHeroFillFood, getHeroPrestigeDmgBonus, getHeroPrestigeDmgReduction, getHeroPrestigeXpBonus, getHeroPrestigeMinLootBonus, PRESTIGE_DMG_RED_FLOOR, getRoadLevel, isTownConnected, getExpeditionAvailable, isHeroBusyForExpedition, isHeroOnExpedition, getHeroExpeditionTierId, getThornwickGrowBonus, getCrestfallFishingBonus, getMillhavenMaterialBonus, getGlenhollowBarnBonus, getAshportCraftingTimeBonus, getHeroPrestigeDurationBonus, getHeroDurationMultiplier, recallSingleHeroFromExpedition } from "../gameEngine";
+import { getAdventurerSlotCost, getMaxHeroes, setHeroFillFood, getHeroPrestigeDmgBonus, getHeroPrestigeDmgReduction, getHeroPrestigeXpBonus, getHeroPrestigeMinLootBonus, PRESTIGE_DMG_RED_FLOOR, getRoadLevel, isTownConnected, getExpeditionAvailable, isHeroBusyForExpedition, isHeroOnExpedition, getHeroExpeditionTierId, getThornwickGrowBonus, getCrestfallFishingBonus, getMillhavenMaterialBonus, getGlenhollowBarnBonus, getAshportCraftingTimeBonus, getHeroPrestigeDurationBonus, getHeroDurationMultiplier } from "../gameEngine";
 
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -342,9 +342,10 @@ function EquipmentPanel({ adventurer, game, onEquip, onUnequip }) {
   const forgeGoods = game.forgeGoods ?? {};
   const allInstanced = game.forgeGoodsInstanced ?? [];
   const equippedInstanceId = adventurer.equippedInstanceId ?? {};
+  const isLocked = !onEquip && !onUnequip;
 
   return (
-    <div style={{ marginBottom: "0.85rem" }}>
+    <div style={{ marginBottom: "0.85rem", opacity: isLocked ? 0.7 : 1 }}>
       <div style={{ fontSize: "0.65rem", fontWeight: 700, color: "var(--muted)", marginBottom: "0.4rem", letterSpacing: "0.05em" }}>⚔️ EQUIPMENT</div>
       <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
         {(["weapon", "armour", "body"]).map((slot) => {
@@ -393,12 +394,14 @@ function EquipmentPanel({ adventurer, game, onEquip, onUnequip }) {
                       )}
                     </div>
                   </div>
-                  <button
-                    onClick={() => onUnequip(adventurer.id, slot)}
-                    style={{ fontSize: "0.58rem", padding: "2px 8px", borderRadius: "5px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444", cursor: "pointer", flexShrink: 0 }}
-                  >
-                    Remove
-                  </button>
+                  {onUnequip && (
+                    <button
+                      onClick={() => onUnequip(adventurer.id, slot)}
+                      style={{ fontSize: "0.58rem", padding: "2px 8px", borderRadius: "5px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444", cursor: "pointer", flexShrink: 0 }}
+                    >
+                      Remove
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div style={{ fontSize: "0.65rem", color: "var(--muted)", fontStyle: "italic", marginBottom: hasAnything ? "0.3rem" : 0 }}>
@@ -406,8 +409,8 @@ function EquipmentPanel({ adventurer, game, onEquip, onUnequip }) {
                 </div>
               )}
 
-              {/* Available to equip — flat items */}
-              {!equipped && available.length > 0 && (
+              {/* Available to equip — flat items (hidden when locked) */}
+              {onEquip && !equipped && available.length > 0 && (
                 <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem", marginTop: "0.25rem" }}>
                   {available.map((r) => {
                     const qty = forgeGoods[r.output.resourceKey] ?? 0;
@@ -426,8 +429,8 @@ function EquipmentPanel({ adventurer, game, onEquip, onUnequip }) {
                 </div>
               )}
 
-              {/* Available to equip — instanced items */}
-              {!equipped && availableInstanced.length > 0 && (
+              {/* Available to equip — instanced items (hidden when locked) */}
+              {onEquip && !equipped && availableInstanced.length > 0 && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "0.25rem", marginTop: "0.25rem" }}>
                   {availableInstanced.map((inst) => {
                     const r = Object.values(FORGE_RECIPES).find((r) => r.output.resourceKey === inst.key);
@@ -642,7 +645,7 @@ function SkillTree({ adventurer, game, onSpendSkillPoint, onPrestige, onShowPres
                     </div>
                     {maxed ? (
                       <div style={{ fontSize: "0.65rem", color: isPrimary ? color.text : "#4ade80", flexShrink: 0, fontWeight: 700 }}>MAX</div>
-                    ) : buyable ? (
+                    ) : buyable && onSpendSkillPoint ? (
                       <button
                         onClick={() => onSpendSkillPoint(adventurer.id, skillDef.id)}
                         style={{ fontSize: "0.58rem", padding: "3px 8px", borderRadius: "6px", cursor: "pointer", flexShrink: 0, background: "rgba(251,191,36,0.2)", border: "1px solid rgba(251,191,36,0.5)", color: "#fbbf24", fontWeight: 700, whiteSpace: "nowrap" }}
@@ -685,7 +688,7 @@ function SkillTree({ adventurer, game, onSpendSkillPoint, onPrestige, onShowPres
         </div>
         {canPrestige ? (
           <button
-            onClick={() => { onPrestige(adventurer.id); onShowPrestigeBanner && onShowPrestigeBanner(); }}
+            onClick={() => { onPrestige && onPrestige(adventurer.id); onShowPrestigeBanner && onShowPrestigeBanner(); }}
             style={{ fontSize: "0.6rem", padding: "3px 9px", borderRadius: "6px", cursor: "pointer", flexShrink: 0, background: "rgba(251,191,36,0.2)", border: "1px solid rgba(251,191,36,0.5)", color: "#fbbf24", fontWeight: 700 }}
           >
             ⭐ Prestige!
@@ -792,32 +795,35 @@ function PrestigeBonusPanel({ adventurer }) {
 function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onGiveArtisanFood, onRemoveArtisanFood, onUseArtisanFood, onGiveBuffItem, onRemoveBuffItem, onSpendSkillPoint, onPrestige, onRevive }) {
   const [prestigeBanner, setPrestigeBanner] = React.useState(false);
   const _heroClass = adventurer.heroClass ?? null;
-  const cls = _heroClass
-    ? (HERO_CLASS_META[_heroClass] ?? { name: "Adventurer", emoji: "🧭" })
-    : { name: "Adventurer", emoji: "🧭" };
+  const cls = _heroClass ? (HERO_CLASS_META[_heroClass] ?? { name: "Adventurer", emoji: "🧭" }) : { name: "Adventurer", emoji: "🧭" };
   const maxHp = adventurer.maxHp ?? getAdventurerMaxHp(adventurer);
   const hp = adventurer.hp ?? maxHp;
   const xpNeeded = getXpNeeded(adventurer.level ?? 1);
   const xpPct = ((adventurer.xp ?? 0) / xpNeeded) * 100;
   const dead = isDead(adventurer);
   const beltCapacity = getBeltCapacity(adventurer, game.forgeGoodsInstanced ?? []);
+  const isOnMission = !!adventurer.mission;
+  const isOnExpedition = isHeroOnExpedition(game, adventurer.id);
+  const isInDungeon = (game?.dungeonRun?.heroIds ?? []).includes(adventurer.id);
+  const isResting = !!adventurer.tavernResting;
+  const isLocked = isOnMission || isOnExpedition || isInDungeon || isResting;
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: "var(--bg-elev)", border: "1px solid var(--border)", borderRadius: "18px 18px 0 0", padding: "1.25rem 1rem 2.5rem", width: "100%", maxWidth: "480px", maxHeight: "85vh", overflowY: "auto" }}>
-        {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1rem" }}>
-          <div style={{ fontSize: "2.2rem", background: dead ? "rgba(239,68,68,0.12)" : "rgba(99,102,241,0.12)", border: `1px solid ${dead ? "rgba(239,68,68,0.25)" : "rgba(99,102,241,0.25)"}`, borderRadius: "10px", padding: "0.3rem 0.45rem" }}>
-            {dead ? "💀" : cls.emoji}
-          </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem" }}>
+          <div style={{ fontSize: "2.2rem", background: dead ? "rgba(239,68,68,0.12)" : "rgba(99,102,241,0.12)", border: `1px solid ${dead ? "rgba(239,68,68,0.25)" : "rgba(99,102,241,0.25)"}`, borderRadius: "10px", padding: "0.3rem 0.45rem" }}>{dead ? "💀" : cls.emoji}</div>
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 800, fontSize: "1rem" }}>{adventurer.name}</div>
             <div style={{ fontSize: "0.65rem", color: "var(--muted)" }}>{cls.name} · Lv.{adventurer.level ?? 1}{getHeroPrestigeLevel(adventurer) > 0 ? ` · ⭐ P${getHeroPrestigeLevel(adventurer)}` : ""}</div>
           </div>
           <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--muted)", fontSize: "1.1rem", cursor: "pointer", padding: "0.25rem 0.5rem" }}>✕</button>
         </div>
-
-        {/* Prestige banner */}
+        {isLocked && (
+          <div style={{ padding: "0.45rem 0.7rem", background: "rgba(255,255,255,0.04)", border: "1px solid var(--border)", borderRadius: "8px", marginBottom: "0.75rem", fontSize: "0.65rem", color: "var(--muted)", textAlign: "center" }}>
+            🔒 Hero is busy — viewing only, management locked
+          </div>
+        )}
         {prestigeBanner && (
           <div style={{ textAlign: "center", background: "rgba(251,191,36,0.15)", border: "1px solid rgba(251,191,36,0.5)", borderRadius: "12px", padding: "0.75rem", marginBottom: "0.85rem", animation: "pulse 1.2s ease-in-out 3" }}>
             <div style={{ fontSize: "2rem", marginBottom: "0.2rem" }}>⭐</div>
@@ -825,22 +831,15 @@ function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onGiveArtisa
             <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.15rem" }}>Back to Lv.1 · Gear kept · +1 skill point · +1 food slot · Respec class</div>
           </div>
         )}
-
-        {/* Dead banner */}
         {dead && (
           <div style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "10px", padding: "0.65rem 0.75rem", marginBottom: "0.85rem", textAlign: "center" }}>
             <div style={{ fontWeight: 700, color: "#ef4444", fontSize: "0.82rem", marginBottom: "0.3rem" }}>💀 Hero Fallen</div>
-            <button
-              onClick={() => onRevive(adventurer.id)}
-              disabled={(game.cash ?? 0) < getReviveCost(adventurer)}
-              style={{ padding: "0.4rem 1rem", background: (game.cash ?? 0) >= getReviveCost(adventurer) ? "rgba(239,68,68,0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${(game.cash ?? 0) >= getReviveCost(adventurer) ? "rgba(239,68,68,0.6)" : "var(--border)"}`, borderRadius: "8px", color: (game.cash ?? 0) >= getReviveCost(adventurer) ? "#ef4444" : "var(--muted)", fontWeight: 700, fontSize: "0.78rem", cursor: (game.cash ?? 0) >= getReviveCost(adventurer) ? "pointer" : "default" }}
-            >
+            <button onClick={() => onRevive(adventurer.id)} disabled={(game.cash ?? 0) < getReviveCost(adventurer)}
+              style={{ padding: "0.4rem 1rem", background: (game.cash ?? 0) >= getReviveCost(adventurer) ? "rgba(239,68,68,0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${(game.cash ?? 0) >= getReviveCost(adventurer) ? "rgba(239,68,68,0.6)" : "var(--border)"}`, borderRadius: "8px", color: (game.cash ?? 0) >= getReviveCost(adventurer) ? "#ef4444" : "var(--muted)", fontWeight: 700, fontSize: "0.78rem", cursor: (game.cash ?? 0) >= getReviveCost(adventurer) ? "pointer" : "default" }}>
               ❤️ Revive · ${getReviveCost(adventurer).toLocaleString()}
             </button>
           </div>
         )}
-
-        {/* HP */}
         <div style={{ padding: "0.65rem 0.75rem", background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)", borderRadius: "10px", marginBottom: "0.85rem" }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.35rem" }}>
             <span style={{ fontSize: "0.65rem", fontWeight: 600, color: "var(--muted)" }}>❤️ HEALTH</span>
@@ -851,182 +850,116 @@ function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onGiveArtisa
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: "0.35rem", fontSize: "0.58rem", color: "var(--muted)" }}>
               <span>XP: {adventurer.xp ?? 0}/{xpNeeded}</span>
               <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
-                <div style={{ width: "70px", height: "3px", background: "rgba(255,255,255,0.08)", borderRadius: "2px", overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: `${xpPct}%`, background: "#a78bfa", borderRadius: "2px" }} />
-                </div>
+                <div style={{ width: "70px", height: "3px", background: "rgba(255,255,255,0.08)", borderRadius: "2px", overflow: "hidden" }}><div style={{ height: "100%", width: `${xpPct}%`, background: "#a78bfa", borderRadius: "2px" }} /></div>
                 <span style={{ color: "#a78bfa" }}>Lv.{adventurer.level ?? 1}</span>
               </div>
             </div>
           )}
         </div>
-
-        {/* Equipment */}
-        <EquipmentPanel adventurer={adventurer} game={game} onEquip={onEquip} onUnequip={onUnequip} />
-
-        {/* Buff Belt */}
+        <EquipmentPanel adventurer={adventurer} game={game} onEquip={isLocked ? null : onEquip} onUnequip={isLocked ? null : onUnequip} />
         {(() => {
           const heroBuffBelt = adventurer.buffBelt ?? {};
           const heroBuffTotal = Object.values(heroBuffBelt).reduce((s, v) => s + v, 0);
-          const heroBuffCap = beltCapacity;
-          const loadedBuffTypes = ADVENTURER_BUFF_LIST.filter((id) => (heroBuffBelt[id] ?? 0) > 0);
-          const availableBuffStock = ADVENTURER_BUFF_LIST.filter((id) => {
+          const loadedBuffTypes = ADVENTURER_BUFF_LIST.filter(id => (heroBuffBelt[id] ?? 0) > 0);
+          const availableBuffStock = ADVENTURER_BUFF_LIST.filter(id => {
             const def = ADVENTURER_BUFF_ITEMS[id];
             const src = def?.source ?? "animalGoods";
             const stock = src === "artisan" ? (game.artisan ?? {}) : (game.animalGoods ?? {});
             return (stock[id] ?? 0) > 0;
           });
           return (
-            <div style={{ padding: "0.6rem 0.75rem", background: "rgba(139,92,246,0.05)", border: "1px solid rgba(139,92,246,0.2)", borderRadius: "10px", marginBottom: "0.65rem" }}>
-              <div style={{ fontWeight: 600, marginBottom: "0.4rem", color: "var(--muted)", fontSize: "0.6rem", letterSpacing: "0.05em" }}>✨ BUFF BELT <span style={{ color: "var(--muted)", fontWeight: 400 }}>({heroBuffCap} slots · 1 consumed per run)</span></div>
+            <div style={{ padding: "0.6rem 0.75rem", background: "rgba(139,92,246,0.05)", border: "1px solid rgba(139,92,246,0.2)", borderRadius: "10px", marginBottom: "0.65rem", opacity: isLocked ? 0.7 : 1 }}>
+              <div style={{ fontWeight: 600, marginBottom: "0.4rem", color: "var(--muted)", fontSize: "0.6rem", letterSpacing: "0.05em" }}>✨ BUFF BELT <span style={{ fontWeight: 400 }}>({beltCapacity} slots · 1 per run)</span></div>
               {loadedBuffTypes.length > 0 ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem", marginBottom: "0.4rem" }}>
-                  {loadedBuffTypes.map((id) => {
+                  {loadedBuffTypes.map(id => {
                     const def = ADVENTURER_BUFF_ITEMS[id];
                     return (
                       <div key={id} style={{ display: "flex", alignItems: "center", gap: "0.35rem", background: "rgba(139,92,246,0.12)", border: "1px solid rgba(139,92,246,0.35)", borderRadius: "8px", padding: "4px 10px" }}>
                         <span style={{ fontSize: "1.1rem" }}>{def?.emoji}</span>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#a78bfa" }}>{def?.name} ×{heroBuffBelt[id]}</div>
-                          <div style={{ fontSize: "0.6rem", color: "var(--muted)" }}>{def?.description}</div>
-                        </div>
-                        <button onClick={() => onRemoveBuffItem(adventurer.id, id)} style={{ fontSize: "0.58rem", padding: "2px 7px", borderRadius: "4px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444", cursor: "pointer" }}>Remove</button>
+                        <div style={{ flex: 1 }}><div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#a78bfa" }}>{def?.name} ×{heroBuffBelt[id]}</div><div style={{ fontSize: "0.6rem", color: "var(--muted)" }}>{def?.description}</div></div>
+                        {!isLocked && <button onClick={() => onRemoveBuffItem(adventurer.id, id)} style={{ fontSize: "0.58rem", padding: "2px 7px", borderRadius: "4px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444", cursor: "pointer" }}>Remove</button>}
                       </div>
                     );
                   })}
                 </div>
-              ) : (
-                <div style={{ fontSize: "0.65rem", color: "var(--muted)", fontStyle: "italic", marginBottom: "0.4rem" }}>No buffs loaded. ({heroBuffTotal}/{heroBuffCap} slots used)</div>
-              )}
-              {heroBuffTotal < heroBuffCap && (
-                availableBuffStock.length > 0 ? (
-                  <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.3rem" }}>
-                    {availableBuffStock.map((id) => {
-                      const def = ADVENTURER_BUFF_ITEMS[id];
-                      const src = def?.source ?? "animalGoods";
-                      const stock = src === "artisan" ? (game.artisan ?? {}) : (game.animalGoods ?? {});
-                      const qty = stock[id] ?? 0;
-                      return (
-                        <button key={id} onClick={() => onGiveBuffItem(adventurer.id, id)} style={{ fontSize: "0.65rem", padding: "3px 10px", borderRadius: "6px", cursor: "pointer", background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.35)", color: "#a78bfa" }}>
-                          {def.emoji} {def.name} ×{qty}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div style={{ fontSize: "0.62rem", color: "var(--muted)" }}>No buff items in stock. Craft smoked fish, fish pie, omelettes, or cheese.</div>
-                )
+              ) : <div style={{ fontSize: "0.65rem", color: "var(--muted)", fontStyle: "italic", marginBottom: "0.4rem" }}>No buffs loaded. ({heroBuffTotal}/{beltCapacity} slots)</div>}
+              {!isLocked && heroBuffTotal < beltCapacity && availableBuffStock.length > 0 && (
+                <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.3rem" }}>
+                  {availableBuffStock.map(id => {
+                    const def = ADVENTURER_BUFF_ITEMS[id];
+                    const src = def?.source ?? "animalGoods";
+                    const qty = (src === "artisan" ? game.artisan : game.animalGoods)?.[id] ?? 0;
+                    return <button key={id} onClick={() => onGiveBuffItem(adventurer.id, id)} style={{ fontSize: "0.65rem", padding: "2px 9px", borderRadius: "6px", cursor: "pointer", background: "rgba(139,92,246,0.12)", border: "1px solid rgba(139,92,246,0.3)", color: "#a78bfa" }}>{def?.emoji} {def?.name} ×{qty}</button>;
+                  })}
+                </div>
               )}
             </div>
           );
         })()}
-
-        {/* Food Belt */}
-        <div style={{ padding: "0.6rem 0.75rem", background: "rgba(251,191,36,0.05)", border: "1px solid rgba(251,191,36,0.2)", borderRadius: "10px", marginBottom: "0.65rem" }}>
-          <div style={{ fontWeight: 600, marginBottom: "0.4rem", color: "var(--muted)", fontSize: "0.6rem", letterSpacing: "0.05em" }}>
-            🍞 FOOD BELT <span style={{ color: "var(--muted)", fontWeight: 400 }}>({beltCapacity} slots · auto-used on level up)</span>
-          </div>
-          {(() => {
-            const foodBelt = adventurer.foodBelt ?? {};
-            const beltItems = ARTISAN_FOOD_LIST.filter((id) => (foodBelt[id] ?? 0) > 0);
-            const beltTotal = Object.values(foodBelt).reduce((s, v) => s + v, 0);
-            const _getFoodStock = (id) => ARTISAN_FOOD_HEAL[id]?.source === "animalGoods" ? (game.animalGoods ?? {})[id] ?? 0 : (game.artisan ?? {})[id] ?? 0;
-            const stockFood = ARTISAN_FOOD_LIST.filter((id) => _getFoodStock(id) > 0);
-            // Last food type used on belt (for replenish — first belt item, or first in stock)
-            const lastBeltType = beltItems[0] ?? stockFood[0] ?? null;
-            const canReplenish = lastBeltType && beltTotal < beltCapacity && _getFoodStock(lastBeltType) > 0;
-            const replenishAmount = lastBeltType ? Math.min(
-              beltCapacity - beltTotal,
-              _getFoodStock(lastBeltType)
-            ) : 0;
-
-            return (
-              <>
-                {/* Current belt items */}
-                {beltTotal === 0 ? (
-                  <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.4rem", fontStyle: "italic" }}>No food on belt.</div>
-                ) : (
-                  <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap", marginBottom: "0.4rem" }}>
-                    {beltItems.map((id) => {
-                      const def = ARTISAN_FOOD_HEAL[id];
-                      return (
-                        <div key={id} style={{ display: "flex", alignItems: "center", gap: "0.25rem", background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: "7px", padding: "3px 8px" }}>
-                          <span style={{ fontSize: "0.85rem" }}>{def.emoji}</span>
-                          <span style={{ fontSize: "0.65rem", fontWeight: 600 }}>×{foodBelt[id]}</span>
-                          <span style={{ fontSize: "0.58rem", color: "#4ade80" }}>+{def.healAmount}hp</span>
-                          <button onClick={() => onUseArtisanFood(adventurer.id, id)} style={{ fontSize: "0.55rem", padding: "1px 5px", borderRadius: "4px", background: "rgba(74,222,128,0.15)", border: "1px solid rgba(74,222,128,0.3)", color: "#4ade80", cursor: "pointer", marginLeft: "2px" }}>Use</button>
-                          <button onClick={() => onRemoveArtisanFood(adventurer.id, id)} style={{ fontSize: "0.55rem", padding: "1px 5px", borderRadius: "4px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)", color: "#ef4444", cursor: "pointer" }}>−</button>
-                        </div>
-                      );
-                    })}
+        {(() => {
+          const foodBelt = adventurer.foodBelt ?? {};
+          const beltItems = ARTISAN_FOOD_LIST.filter(id => (foodBelt[id] ?? 0) > 0);
+          const beltTotal = Object.values(foodBelt).reduce((s, v) => s + v, 0);
+          const _getStock = id => ARTISAN_FOOD_HEAL[id]?.source === "animalGoods" ? (game.animalGoods ?? {})[id] ?? 0 : (game.artisan ?? {})[id] ?? 0;
+          const stockFood = ARTISAN_FOOD_LIST.filter(id => _getStock(id) > 0);
+          const lastBeltType = beltItems[0] ?? stockFood[0] ?? null;
+          const canReplenish = !isLocked && lastBeltType && beltTotal < beltCapacity && _getStock(lastBeltType) > 0;
+          const replenishAmt = lastBeltType ? Math.min(beltCapacity - beltTotal, _getStock(lastBeltType)) : 0;
+          return (
+            <div style={{ padding: "0.6rem 0.75rem", background: "rgba(251,191,36,0.05)", border: "1px solid rgba(251,191,36,0.2)", borderRadius: "10px", marginBottom: "0.65rem", opacity: isLocked ? 0.7 : 1 }}>
+              <div style={{ fontWeight: 600, marginBottom: "0.4rem", color: "var(--muted)", fontSize: "0.6rem", letterSpacing: "0.05em" }}>🍞 FOOD BELT <span style={{ fontWeight: 400 }}>({beltCapacity} slots)</span></div>
+              {beltTotal === 0 ? <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.4rem", fontStyle: "italic" }}>No food on belt.</div> : (
+                <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap", marginBottom: "0.4rem" }}>
+                  {beltItems.map(id => {
+                    const def = ARTISAN_FOOD_HEAL[id];
+                    return (
+                      <div key={id} style={{ display: "flex", alignItems: "center", gap: "0.25rem", background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: "7px", padding: "3px 8px" }}>
+                        <span style={{ fontSize: "0.85rem" }}>{def.emoji}</span>
+                        <span style={{ fontSize: "0.65rem", fontWeight: 600 }}>×{foodBelt[id]}</span>
+                        <span style={{ fontSize: "0.58rem", color: "#4ade80" }}>+{def.healAmount}hp</span>
+                        {!isLocked && <button onClick={() => onUseArtisanFood(adventurer.id, id)} style={{ fontSize: "0.55rem", padding: "1px 5px", borderRadius: "4px", background: "rgba(74,222,128,0.15)", border: "1px solid rgba(74,222,128,0.3)", color: "#4ade80", cursor: "pointer", marginLeft: "2px" }}>Use</button>}
+                        {!isLocked && <button onClick={() => onRemoveArtisanFood(adventurer.id, id)} style={{ fontSize: "0.55rem", padding: "1px 5px", borderRadius: "4px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)", color: "#ef4444", cursor: "pointer" }}>−</button>}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {canReplenish && <button onClick={() => { for (let i = 0; i < replenishAmt; i++) onGiveArtisanFood(adventurer.id, lastBeltType); }} style={{ fontSize: "0.65rem", padding: "3px 10px", borderRadius: "6px", cursor: "pointer", background: "rgba(251,191,36,0.2)", border: "1px solid rgba(251,191,36,0.45)", color: "#fbbf24", fontWeight: 700, marginBottom: "0.35rem", display: "block" }}>{ARTISAN_FOOD_HEAL[lastBeltType]?.emoji} Replenish ×{replenishAmt} ({beltTotal}/{beltCapacity})</button>}
+              {!isLocked && stockFood.length > 0 && beltTotal < beltCapacity && (
+                <div style={{ marginTop: "0.25rem" }}>
+                  <div style={{ fontSize: "0.58rem", color: "var(--muted)", marginBottom: "0.25rem" }}>Add from stock:</div>
+                  <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
+                    {stockFood.map(id => { const def = ARTISAN_FOOD_HEAL[id]; const qty = _getStock(id); return <button key={id} onClick={() => onGiveArtisanFood(adventurer.id, id)} style={{ fontSize: "0.65rem", padding: "2px 9px", borderRadius: "6px", cursor: "pointer", background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)" }}>{def.emoji} {def.name} ×{qty}</button>; })}
                   </div>
-                )}
-
-                {/* Replenish button — always visible when applicable */}
-                {canReplenish && (
-                  <div style={{ marginBottom: "0.35rem" }}>
-                    <button
-                      onClick={() => {
-                        for (let i = 0; i < replenishAmount; i++) {
-                          onGiveArtisanFood(adventurer.id, lastBeltType);
-                        }
-                      }}
-                      style={{ fontSize: "0.65rem", padding: "3px 10px", borderRadius: "6px", cursor: "pointer", background: "rgba(251,191,36,0.2)", border: "1px solid rgba(251,191,36,0.45)", color: "#fbbf24", fontWeight: 700 }}
-                    >
-                      {ARTISAN_FOOD_HEAL[lastBeltType]?.emoji} Replenish ×{replenishAmount} ({beltTotal}/{beltCapacity} slots used)
-                    </button>
-                  </div>
-                )}
-
-                {/* Add from stock — shown when belt not full and other types available */}
-                {stockFood.length > 0 && beltTotal < beltCapacity && (
-                  <div>
-                    <div style={{ fontSize: "0.58rem", color: "var(--muted)", marginBottom: "0.25rem" }}>Add from stock:</div>
-                    <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
-                      {stockFood.map((id) => {
-                        const def = ARTISAN_FOOD_HEAL[id];
-                        const qty = (game.artisan ?? {})[id] ?? 0;
-                        return (
-                          <button key={id} onClick={() => onGiveArtisanFood(adventurer.id, id)} style={{ fontSize: "0.65rem", padding: "2px 9px", borderRadius: "6px", cursor: "pointer", background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)" }}>
-                            {def.emoji} {def.name} ×{qty}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </>
-            );
-          })()}
-        </div>
-
-        {/* Skill Tree */}
-        <SkillTree adventurer={adventurer} game={game} onSpendSkillPoint={onSpendSkillPoint} onPrestige={onPrestige} onShowPrestigeBanner={() => { setPrestigeBanner(true); setTimeout(() => setPrestigeBanner(false), 4000); }} />
-
-        {/* Prestige Bonuses */}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+        <SkillTree adventurer={adventurer} game={game}
+          onSpendSkillPoint={isLocked ? null : onSpendSkillPoint}
+          onPrestige={isLocked ? null : onPrestige}
+          onShowPrestigeBanner={isLocked ? null : (() => { setPrestigeBanner(true); setTimeout(() => setPrestigeBanner(false), 4000); })} />
         <PrestigeBonusPanel adventurer={adventurer} />
-
-        {/* Stats */}
         <div style={{ padding: "0.55rem 0.7rem", background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)", borderRadius: "10px", fontSize: "0.68rem" }}>
           <div style={{ fontWeight: 600, marginBottom: "0.35rem", color: "var(--muted)", fontSize: "0.6rem", letterSpacing: "0.05em" }}>📊 COMBAT STATS</div>
           {(() => {
             const lvl = adventurer.level ?? 1;
             const gear = adventurer.equippedGear ?? {};
-            const weaponKey = gear.weapon;
-            const armourKey = gear.armour;
-            const bodyKey = gear.body;
-            const weaponR = weaponKey ? FORGE_RECIPES[weaponKey] : null;
-            const armourR = armourKey ? FORGE_RECIPES[armourKey] : null;
-            const bodyR = bodyKey ? Object.values(FORGE_RECIPES).find(r => r.output.resourceKey === bodyKey) : null;
+            const weaponR = gear.weapon ? FORGE_RECIPES[gear.weapon] : null;
+            const armourR = gear.armour ? FORGE_RECIPES[gear.armour] : null;
             const lvlSpeedPct = Math.round(Math.min((lvl - 1) * 2, 15));
             const weaponPct = weaponR?.missionTimeReduction ? Math.round(weaponR.missionTimeReduction * 100) : 0;
             const totalSpeedPct = Math.min(45, lvlSpeedPct + weaponPct);
             const armourPct = armourR?.damageReduction ? Math.round(armourR.damageReduction * 100) : 0;
-            const foodSlots = getBeltCapacity(adventurer, game.forgeGoodsInstanced ?? []);
+            const gearTier = getTotalGearTier(adventurer);
             return (
               <div style={{ display: "flex", gap: "0.5rem 1rem", flexWrap: "wrap" }}>
                 <span>⏱ Missions: <strong>−{totalSpeedPct}% faster</strong></span>
                 {armourPct > 0 && <span>🛡 Damage: <strong>−{armourPct}%</strong></span>}
-                <span>🍞 Belt: <strong>{foodSlots} slots</strong></span>
+                <span>🍞 Belt: <strong>{beltCapacity} slots</strong></span>
+                <span>⚔️ Gear: <strong>{gearTier === 0 ? "None" : `T${gearTier}`}</strong></span>
                 {getHeroPrestigeLevel(adventurer) > 0 && <span>⭐ Prestige: <strong>Lv.{getHeroPrestigeLevel(adventurer)}</strong></span>}
               </div>
             );
@@ -1036,7 +969,6 @@ function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onGiveArtisa
     </div>
   );
 }
-
 // ─── Auto Battle Panel (shown in AdventurerCard when skill unlocked) ──────────
 function AutoBattlePanel({ adventurer, game, onStartAutoBattle, onReturnAutoBattle, onRequestStop }) {
   const isOnMission = !!adventurer.mission;
@@ -1094,24 +1026,109 @@ function AutoBattlePanel({ adventurer, game, onStartAutoBattle, onReturnAutoBatt
   return null;
 }
 
-// ─── Adventurer Card ──────────────────────────────────────────────────────────
-function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero, onGiveArtisanFood, onUseArtisanFood, onGiveBuffItem, onRevive, onStartAutoBattle, onReturnAutoBattle, onRequestStop, onAssignTavern, onRemoveTavern, onSetFillFood }) {
-  const [selectedZoneId, setSelectedZoneId] = useState(null);
-  const [zonesOpen, setZonesOpen] = useState(
-    () => !Object.values(game.expeditions ?? {}).some(exp => (exp.heroIds ?? []).includes(adventurer.id))
-  );
-  const [autoBattleMode, setAutoBattleMode] = useState(false);
+// ─── Zone Details Popover ─────────────────────────────────────────────────────
+function ZoneDetailsPopover({ zone, adventurer, game, onSelect, isSelected, onClose }) {
+  const dur = getMissionDuration(adventurer, zone);
+  const failPct = getFailChance(adventurer, zone);
+  const clears = game.worldZoneClears?.[zone.id] ?? 0;
+  const cleared = clears >= zone.clearsNeeded;
 
-  // Seed from persisted lastFillFoodId so the chosen food survives re-renders
+  // HP loss estimate: dmgPerTick × ticks × (1 - damageReduction) × (1 - prestigeReduction)
+  const dmgPerTick = zone.damagePerTick ?? 1;
+  const shieldKey = adventurer.equippedGear?.armour ?? null;
+  const shieldRecipe = shieldKey ? Object.values(FORGE_RECIPES).find(r => r.output.resourceKey === shieldKey) : null;
+  const damageReduction = shieldRecipe?.damageReduction ?? 0;
+  const prestigeReduction = getHeroPrestigeDmgReduction ? getHeroPrestigeDmgReduction(adventurer, false) : 0;
+  const totalTicks = Math.floor(dur / 10);
+  const estHpLoss = Math.round(dmgPerTick * totalTicks * 0.6 * (1 - damageReduction) * (1 - prestigeReduction));
+
+  const failColor = failPct === 0 ? "#4ade80" : failPct <= 5 ? "#fbbf24" : "#ef4444";
+
+  return (
+    <div style={{ margin: "0.3rem 0 0.5rem", padding: "0.7rem 0.8rem", background: "rgba(99,102,241,0.07)", border: "1px solid rgba(99,102,241,0.3)", borderRadius: "10px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.4rem" }}>
+        <div style={{ fontSize: "0.78rem", fontWeight: 700 }}>{zone.emoji} {zone.name}</div>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--muted)", fontSize: "0.8rem", cursor: "pointer", padding: "0 0 0 0.5rem" }}>✕</button>
+      </div>
+      <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginBottom: "0.5rem", lineHeight: 1.4 }}>{zone.description}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.3rem 0.6rem", marginBottom: "0.5rem" }}>
+        <div style={{ fontSize: "0.62rem" }}><span style={{ color: "var(--muted)" }}>Duration: </span><span style={{ color: "#a78bfa", fontWeight: 700 }}>{dur}s</span></div>
+        <div style={{ fontSize: "0.62rem" }}><span style={{ color: "var(--muted)" }}>Fail chance: </span><span style={{ color: failColor, fontWeight: 700 }}>{failPct}%</span></div>
+        <div style={{ fontSize: "0.62rem" }}><span style={{ color: "var(--muted)" }}>Est. HP loss: </span><span style={{ color: "#f87171", fontWeight: 700 }}>~{estHpLoss}</span></div>
+        <div style={{ fontSize: "0.62rem" }}><span style={{ color: "var(--muted)" }}>Clears: </span><span style={{ color: cleared ? "#4ade80" : "var(--fg)", fontWeight: 700 }}>{clears}/{zone.clearsNeeded}{cleared ? " ✓" : ""}</span></div>
+        {zone.enemyName && <div style={{ fontSize: "0.62rem", gridColumn: "1/-1" }}><span style={{ color: "var(--muted)" }}>Enemies: </span><span style={{ color: "#ef4444", fontWeight: 600 }}>{zone.enemyName}</span></div>}
+      </div>
+      {zone.loot && zone.loot.length > 0 && (
+        <div style={{ marginBottom: "0.5rem" }}>
+          <div style={{ fontSize: "0.58rem", color: "var(--muted)", marginBottom: "0.2rem" }}>Loot per run:</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.25rem" }}>
+            {zone.loot.map(l => (
+              <span key={l.resourceKey} style={{ fontSize: "0.6rem", padding: "1px 7px", borderRadius: "6px", background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)" }}>
+                {l.emoji} {l.name}: {l.min}–{l.max}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      <button
+        onClick={() => { onSelect(zone.id); onClose(); }}
+        style={{ width: "100%", padding: "0.4rem", borderRadius: "8px", fontWeight: 700, fontSize: "0.72rem", background: isSelected ? "rgba(74,222,128,0.15)" : "rgba(99,102,241,0.2)", border: `1px solid ${isSelected ? "rgba(74,222,128,0.4)" : "rgba(99,102,241,0.5)"}`, color: isSelected ? "#4ade80" : "#a5b4fc", cursor: "pointer" }}
+      >
+        {isSelected ? "✓ Selected" : "Select this zone"}
+      </button>
+    </div>
+  );
+}
+
+// ─── Food Fill Picker ─────────────────────────────────────────────────────────
+function FoodFillPicker({ adventurer, game, beltCapacity, onFill, onClose }) {
   const getFoodStock = (id) => ARTISAN_FOOD_HEAL[id]?.source === "animalGoods" ? (game.animalGoods ?? {})[id] ?? 0 : (game.artisan ?? {})[id] ?? 0;
-  const stockFood = ARTISAN_FOOD_LIST.filter((id) => getFoodStock(id) > 0);
-  const savedIdx = adventurer.lastFillFoodId
-    ? Math.max(0, stockFood.indexOf(adventurer.lastFillFoodId))
-    : 0;
-  const [fillFoodIdx, setFillFoodIdx] = useState(savedIdx);
-  const [fillHolding, setFillHolding] = useState(false);
-  const fillHoldTimer = useRef(null);
-  const fillHoldFired = useRef(false);
+  const beltFoodTotal = Object.values(adventurer.foodBelt ?? {}).reduce((s, v) => s + v, 0);
+  const slotsLeft = beltCapacity - beltFoodTotal;
+  const availableFoods = ARTISAN_FOOD_LIST.filter(id => getFoodStock(id) > 0);
+
+  if (availableFoods.length === 0) return (
+    <div style={{ margin: "0.3rem 0 0.5rem", padding: "0.55rem 0.7rem", background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)", borderRadius: "10px", fontSize: "0.65rem", color: "var(--muted)" }}>
+      No food in stock. <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: "0.65rem", textDecoration: "underline" }}>Close</button>
+    </div>
+  );
+
+  return (
+    <div style={{ margin: "0.3rem 0 0.5rem", padding: "0.6rem 0.7rem", background: "rgba(251,191,36,0.06)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: "10px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" }}>
+        <div style={{ fontSize: "0.62rem", fontWeight: 700, color: "#fbbf24" }}>Fill belt ({slotsLeft} slot{slotsLeft !== 1 ? "s" : ""} free)</div>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--muted)", fontSize: "0.8rem", cursor: "pointer" }}>✕</button>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+        {availableFoods.map(id => {
+          const def = ARTISAN_FOOD_HEAL[id];
+          const stock = getFoodStock(id);
+          const fillAmt = Math.min(slotsLeft, stock);
+          if (fillAmt <= 0) return null;
+          return (
+            <button key={id} onClick={() => { onFill(id, fillAmt); onClose(); }}
+              style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.4rem 0.6rem", background: "rgba(255,255,255,0.05)", border: "1px solid var(--border)", borderRadius: "8px", cursor: "pointer", textAlign: "left" }}>
+              <span style={{ fontSize: "1.1rem" }}>{def?.emoji ?? "🍞"}</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--fg)" }}>{def?.name ?? id}</div>
+                <div style={{ fontSize: "0.58rem", color: "var(--muted)" }}>+{def?.healAmount ?? "?"}hp · stock: {stock}</div>
+              </div>
+              <div style={{ fontSize: "0.62rem", color: "#fbbf24", fontWeight: 700 }}>Fill ×{fillAmt}</div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Adventurer Card ──────────────────────────────────────────────────────────
+function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero, onGiveArtisanFood, onUseArtisanFood, onGiveBuffItem, onRevive, onStartAutoBattle, onReturnAutoBattle, onRequestStop, onAssignTavern, onRemoveTavern, onSetFillFood, onRecallSingleHero }) {
+  const [expanded, setExpanded] = useState(false);
+  const [selectedZoneId, setSelectedZoneId] = useState(null);
+  const [detailZoneId, setDetailZoneId] = useState(null); // zone details popover
+  const [autoBattleMode, setAutoBattleMode] = useState(false);
+  const [showFoodFill, setShowFoodFill] = useState(false);
 
   const heroClass = adventurer.heroClass ?? null;
   const cls = heroClass
@@ -1133,131 +1150,101 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
   const lockedZones = zones.filter((z) => !isZoneUnlocked(z, adventurer, game.worldZoneClears));
   const selectedZone = selectedZoneId ? WORLD_ZONES[selectedZoneId] : null;
 
-  // Food belt quick info
   const foodBelt = adventurer.foodBelt ?? {};
   const beltCapacity = getBeltCapacity(adventurer, game.forgeGoodsInstanced ?? []);
   const beltFoodTotal = Object.values(foodBelt).reduce((s, v) => s + v, 0);
   const firstBeltFood = ARTISAN_FOOD_LIST.find((id) => (foodBelt[id] ?? 0) > 0) ?? null;
-  const canReplenish = stockFood.length > 0 && beltFoodTotal < beltCapacity;
 
-  // Buff belt (mirrors food belt)
-  const buffBelt = adventurer.buffBelt ?? {};
-  const buffBeltTotal = Object.values(buffBelt).reduce((s, v) => s + v, 0);
-  const firstBuffType = ADVENTURER_BUFF_LIST.find((id) => (buffBelt[id] ?? 0) > 0) ?? null;
-  const availableBuffs = ADVENTURER_BUFF_LIST.filter((id) => {
-    const def = ADVENTURER_BUFF_ITEMS[id];
-    const src = def?.source ?? "animalGoods";
-    const stock = src === "artisan" ? (game.artisan ?? {}) : (game.animalGoods ?? {});
-    return (stock[id] ?? 0) > 0;
-  });
-
-  // Tavern rest
-  const tavernBuilt = game.town?.buildings?.tavern?.built === true;
-  const isResting = !!adventurer.tavernResting;
   const isOnExpedition = isHeroOnExpedition(game, adventurer.id);
   const isInDungeon = (game?.dungeonRun?.heroIds ?? []).includes(adventurer.id);
-  const tavernMode = game.town?.buildings?.tavern?.mode ?? "jam";
-  const tavernStocked = game.town?.buildings?.tavern?.stocked !== false;
-  const tavernWorkers = game.town?.buildings?.tavern?.workers ?? 0;
+  const isResting = !!adventurer.tavernResting;
+  const tavernBuilt = game.town?.buildings?.tavern?.built === true;
+  const isBusy = isOnMission || isOnExpedition || isInDungeon || isResting || dead;
 
-  // Auto battle potion check
-  const potionCount = game.forgeGoods?.health_potion ?? 0;
   const canStartAutoBattle = hasAutoBattle && selectedZone && beltFoodTotal > 0 && !dead;
+  const skillPoints = adventurer.skillPoints ?? 0;
+  const canPrestigeNow = (adventurer.level ?? 1) >= 15 && (game.cash ?? 0) >= (HERO_PRESTIGE_COST_BASE * ((adventurer.prestigeLevel ?? 0) + 1));
+  const noClass = !heroClass && (adventurer.level ?? 1) >= 2;
+  const hasAlert = skillPoints > 0 || canPrestigeNow || noClass;
 
-  // Collapsed card for heroes locked in dungeon
-  if (isInDungeon) {
-    return (
-      <div style={{ background: "var(--bg-elev)", border: "1px solid rgba(99,102,241,0.35)", borderRadius: "14px", overflow: "hidden", marginBottom: "0.75rem", opacity: 0.75 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.65rem", padding: "0.6rem 0.9rem" }}>
-          <div style={{ fontSize: "1.5rem", lineHeight: 1, background: "rgba(99,102,241,0.12)", border: "1px solid rgba(99,102,241,0.25)", borderRadius: "10px", padding: "0.25rem 0.4rem" }}>
-            {cls.emoji}
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-              <span style={{ fontWeight: 700, fontSize: "0.82rem" }}>{adventurer.name}</span>
-              <span style={{ fontSize: "0.58rem", color: "#a78bfa", background: "rgba(99,102,241,0.12)", border: "1px solid rgba(99,102,241,0.25)", padding: "1px 6px", borderRadius: "999px" }}>🏰 In Dungeon</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.2rem" }}>
-              <span style={{ fontSize: "0.55rem", color: "#ef4444" }}>❤️</span>
-              <HpBar hp={hp} maxHp={maxHp} height={3} />
-              <span style={{ fontSize: "0.52rem", color: "var(--muted)" }}>{Math.floor(hp)}/{maxHp}</span>
-            </div>
-          </div>
-          <span style={{ fontSize: "0.6rem", color: "var(--muted)", fontStyle: "italic" }}>Lv.{adventurer.level ?? 1}</span>
+  // Status badge
+  function getStatusBadge() {
+    if (dead) return { label: "💀 Fallen", color: "#ef4444", bg: "rgba(239,68,68,0.12)", border: "rgba(239,68,68,0.3)" };
+    if (isInDungeon) return { label: "🏰 Dungeon", color: "#a78bfa", bg: "rgba(99,102,241,0.12)", border: "rgba(99,102,241,0.3)" };
+    if (isResting) return { label: "🍺 Resting", color: "#fbbf24", bg: "rgba(251,191,36,0.1)", border: "rgba(251,191,36,0.3)" };
+    if (isOnExpedition) {
+      const expTierId = getHeroExpeditionTierId(game, adventurer.id);
+      const expTier = expTierId ? EXPEDITION_TIERS[expTierId] : null;
+      return { label: `${expTier?.emoji ?? "🗺️"} Expedition`, color: "#a78bfa", bg: "rgba(99,102,241,0.1)", border: "rgba(99,102,241,0.25)" };
+    }
+    if (isOnMission && mission?.autoBattle) return { label: `⚔️ Auto · ${mission.zoneName}`, color: "#ef4444", bg: "rgba(239,68,68,0.08)", border: "rgba(239,68,68,0.25)" };
+    if (isOnMission) return { label: done ? "✅ Done!" : `⚔️ ${mission.zoneName}`, color: done ? "#4ade80" : "#fbbf24", bg: done ? "rgba(74,222,128,0.1)" : "rgba(251,191,36,0.08)", border: done ? "rgba(74,222,128,0.3)" : "rgba(251,191,36,0.25)" };
+    return { label: "Idle", color: "var(--muted)", bg: "rgba(255,255,255,0.04)", border: "rgba(255,255,255,0.1)" };
+  }
+  const status = getStatusBadge();
+
+  // Tiny card row — always visible
+  const tinyCard = (
+    <button
+      onClick={() => !isInDungeon && setExpanded(v => !v)}
+      style={{ width: "100%", display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.55rem 0.75rem", background: "none", border: "none", cursor: isInDungeon ? "default" : "pointer", textAlign: "left" }}
+    >
+      {/* Emoji pill */}
+      <div style={{ fontSize: "1.4rem", lineHeight: 1, flexShrink: 0, background: dead ? "rgba(239,68,68,0.12)" : "rgba(99,102,241,0.1)", border: `1px solid ${dead ? "rgba(239,68,68,0.25)" : "rgba(99,102,241,0.22)"}`, borderRadius: "9px", padding: "0.2rem 0.35rem" }}>
+        {dead ? "💀" : cls.emoji}
+      </div>
+      {/* Name + class + level */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap" }}>
+          <span style={{ fontWeight: 700, fontSize: "0.85rem" }}>{adventurer.name}</span>
+          <span style={{ fontSize: "0.58rem", color: "var(--muted)", background: "rgba(255,255,255,0.06)", padding: "0px 5px", borderRadius: "999px" }}>{cls.name}</span>
+          <span style={{ fontSize: "0.58rem", color: "#a78bfa", fontWeight: 700 }}>Lv{adventurer.level ?? 1}</span>
+          {getHeroPrestigeLevel(adventurer) > 0 && <span style={{ fontSize: "0.52rem", color: "#fbbf24" }}>⭐P{getHeroPrestigeLevel(adventurer)}</span>}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", marginTop: "0.18rem" }}>
+          <HpBar hp={dead ? 0 : hp} maxHp={maxHp} height={3} />
+          <span style={{ fontSize: "0.52rem", color: dead ? "#ef4444" : "var(--muted)", whiteSpace: "nowrap" }}>{dead ? "DEAD" : `${Math.floor(hp)}/${maxHp}`}</span>
         </div>
       </div>
-    );
-  }
+      {/* Status badge */}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "3px", flexShrink: 0 }}>
+        <span style={{ fontSize: "0.55rem", fontWeight: 700, padding: "2px 7px", borderRadius: "999px", background: status.bg, border: `1px solid ${status.border}`, color: status.color, whiteSpace: "nowrap" }}>
+          {status.label}
+        </span>
+        {hasAlert && !isInDungeon && (
+          <span style={{ fontSize: "0.5rem", fontWeight: 800, padding: "1px 5px", borderRadius: "999px", background: "rgba(251,191,36,0.2)", border: "1px solid rgba(251,191,36,0.55)", color: "#fbbf24", animation: "pulse 1.5s ease-in-out infinite", whiteSpace: "nowrap" }}>
+            {canPrestigeNow ? "⭐ Prestige!" : noClass ? "✨ Choose class" : `✨ ${skillPoints}pt`}
+          </span>
+        )}
+        {/* Leave tavern button - directly on tiny card */}
+        {isResting && (
+          <button onClick={(e) => { e.stopPropagation(); onRemoveTavern?.(adventurer.id); }}
+            style={{ fontSize: "0.5rem", padding: "1px 6px", borderRadius: "5px", background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", color: "#fbbf24", cursor: "pointer", fontWeight: 600 }}>
+            Leave
+          </button>
+        )}
+      </div>
+    </button>
+  );
 
-  return (
-    <div style={{ background: "var(--bg-elev)", border: `1px solid ${dead ? "rgba(239,68,68,0.35)" : "var(--border)"}`, borderRadius: "14px", overflow: "hidden", marginBottom: "0.75rem" }}>
-      {/* Header */}
-      <button onClick={() => !isOnMission && !dead && onOpenHero(adventurer)} style={{ width: "100%", display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.75rem 0.9rem 0.6rem", background: "none", border: "none", cursor: (isOnMission || dead) ? "default" : "pointer", textAlign: "left" }}>
-        <div style={{ fontSize: "2rem", lineHeight: 1, background: dead ? "rgba(239,68,68,0.12)" : "rgba(99,102,241,0.12)", border: `1px solid ${dead ? "rgba(239,68,68,0.25)" : "rgba(99,102,241,0.25)"}`, borderRadius: "10px", padding: "0.3rem 0.45rem" }}>
-          {dead ? "💀" : cls.emoji}
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: "0.4rem" }}>
-            <span style={{ fontWeight: 700, fontSize: "0.9rem" }}>{adventurer.name}</span>
-            <span style={{ fontSize: "0.62rem", color: "var(--muted)", background: "rgba(255,255,255,0.06)", padding: "1px 6px", borderRadius: "999px" }}>{cls.name}</span>
-            {dead && <span style={{ fontSize: "0.58rem", color: "#ef4444", background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)", padding: "1px 6px", borderRadius: "999px", fontWeight: 700 }}>FALLEN</span>}
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.2rem" }}>
-            <span style={{ fontSize: "0.6rem", color: "#a78bfa", fontWeight: 700 }}>Lv.{adventurer.level ?? 1}</span>
-            <div style={{ width: "50px", height: "3px", background: "rgba(255,255,255,0.08)", borderRadius: "2px", overflow: "hidden" }}><div style={{ height: "100%", width: `${xpPct}%`, background: "#a78bfa" }} /></div>
-            {getHeroPrestigeLevel(adventurer) > 0 && <span style={{ fontSize: "0.55rem", color: "#fbbf24" }}>⭐P{getHeroPrestigeLevel(adventurer)}</span>}
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", marginTop: "0.2rem" }}>
-            <span style={{ fontSize: "0.55rem", color: "#ef4444" }}>❤️</span>
-            <HpBar hp={dead ? 0 : hp} maxHp={maxHp} height={4} />
-            <span style={{ fontSize: "0.55rem", color: dead ? "#ef4444" : "var(--muted)", whiteSpace: "nowrap" }}>{dead ? "DEAD" : `${Math.floor(hp)}/${maxHp}`}</span>
-          </div>
-        </div>
-        <div style={{ textAlign: "center", flexShrink: 0 }}>
-          <div style={{ fontSize: "0.52rem", color: "var(--muted)", marginBottom: "1px" }}>GEAR</div>
-          <div style={{ fontSize: "0.72rem", fontWeight: 700, color: getTotalGearTier(adventurer) === 0 ? "var(--muted)" : "#fbbf24", background: "rgba(255,255,255,0.05)", borderRadius: "6px", padding: "2px 7px" }}>
-            {getTotalGearTier(adventurer) === 0 ? "None" : `T${getTotalGearTier(adventurer)}`}
-          </div>
-          {!isOnMission && !dead && <div style={{ fontSize: "0.48rem", color: "var(--muted)", marginTop: "2px" }}>tap to manage</div>}
-          {isOnMission && <div style={{ fontSize: "0.48rem", color: "rgba(251,191,36,0.7)", marginTop: "2px" }}>on mission</div>}
-          {isOnExpedition && !isOnMission && (() => {
-            const expTierId = getHeroExpeditionTierId(game, adventurer.id);
-            const expTier = expTierId ? EXPEDITION_TIERS[expTierId] : null;
-            return <div style={{ fontSize: "0.48rem", color: "rgba(99,102,241,0.8)", marginTop: "2px" }}>{expTier ? `${expTier.emoji} expedition` : "on expedition"}</div>;
-          })()}
-          {(adventurer.skillPoints ?? 0) > 0 && (() => {
-            const pts = adventurer.skillPoints;
-            const heroClass = adventurer.heroClass ?? null;
-            const skillMap = (() => { const s = adventurer.skills ?? {}; return Array.isArray(s) ? Object.fromEntries(s.map((id) => [id, 1])) : s; })();
-            const canPrestigeNow = (adventurer.level ?? 1) >= 15 && (game.cash ?? 0) >= (HERO_PRESTIGE_COST_BASE * ((adventurer.prestigeLevel ?? 0) + 1));
-            const noClass = !heroClass && (adventurer.level ?? 1) >= 2;
-            const label = canPrestigeNow ? "⭐ Prestige ready!" : noClass ? "✨ Choose class!" : `✨ ${pts} pt${pts !== 1 ? "s" : ""} · open hero`;
-            return (
-              <div style={{
-                marginTop: "3px",
-                fontSize: "0.52rem", fontWeight: 800,
-                background: canPrestigeNow ? "rgba(251,191,36,0.35)" : "rgba(251,191,36,0.25)",
-                border: `1px solid ${canPrestigeNow ? "rgba(251,191,36,0.8)" : "rgba(251,191,36,0.6)"}`,
-                color: "#fbbf24",
-                borderRadius: "999px",
-                padding: "1px 6px",
-                animation: "pulse 1.5s ease-in-out infinite",
-              }}>
-                {label}
-              </div>
-            );
-          })()}
-        </div>
-      </button>
+  // ── Expanded Level 1 content ─────────────────────────────────────────────
+  const level1 = expanded && !isInDungeon && (
+    <div style={{ borderTop: "1px solid var(--border)", padding: "0.6rem 0.75rem" }}>
+      {/* Open hero detail button */}
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "0.5rem" }}>
+        <button onClick={() => onOpenHero(adventurer)}
+          style={{ fontSize: "0.62rem", padding: "3px 10px", borderRadius: "6px", background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)", color: "var(--muted)", cursor: "pointer", fontWeight: 600 }}>
+          ⚙️ Hero Details
+        </button>
+      </div>
 
-      {/* Dead overlay */}
-      {dead && !isOnMission && !adventurer.pendingAutoCollect && (
+      {/* ── BUSY STATES ── */}
+      {dead && (
         <DeadHeroOverlay adventurer={adventurer} game={game} onRevive={onRevive} />
       )}
 
-      {/* Mission progress */}
       {isOnMission && !mission?.autoBattle && (
-        <div style={{ padding: "0.65rem 0.9rem", borderTop: "1px solid var(--border)" }}>
+        <div style={{ marginBottom: "0.6rem" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.3rem" }}>
             <span style={{ fontSize: "0.75rem", fontWeight: 600 }}>{done ? "✅ Mission complete!" : `⚔️ ${mission.zoneName}`}</span>
             {!done && <span style={{ fontSize: "0.65rem", color: "var(--muted)" }}>{Math.ceil(mission.duration - elapsed)}s</span>}
@@ -1269,380 +1256,188 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
         </div>
       )}
 
-      {/* Auto Battle progress */}
       {isOnMission && mission?.autoBattle && (
-        <AutoBattlePanel
-          adventurer={adventurer}
-          game={game}
-          onReturnAutoBattle={onReturnAutoBattle}
-          onRequestStop={onRequestStop}
-        />
+        <AutoBattlePanel adventurer={adventurer} game={game} onReturnAutoBattle={onReturnAutoBattle} onRequestStop={onRequestStop} />
       )}
 
-      {/* Pending auto-collect button — shown when auto battle ended and is waiting for collection */}
       {!isOnMission && adventurer.pendingAutoCollect && (
-        <div style={{ padding: "0.65rem 0.9rem", borderTop: "1px solid var(--border)", background: "rgba(239,68,68,0.04)" }}>
+        <div style={{ marginBottom: "0.6rem", padding: "0.55rem 0.7rem", borderRadius: "8px", background: "rgba(239,68,68,0.04)", border: "1px solid rgba(239,68,68,0.2)" }}>
           <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.4rem" }}>
-            {adventurer.pendingAutoCollect.diedDuringAuto
-              ? `💀 Fell in battle · ${adventurer.pendingAutoCollect.successfulRuns} run${adventurer.pendingAutoCollect.successfulRuns !== 1 ? "s" : ""} · 50% loot`
-              : adventurer.pendingAutoCollect.stoppedByPlayer
-              ? `🏳️ Recalled · ${adventurer.pendingAutoCollect.successfulRuns} run${adventurer.pendingAutoCollect.successfulRuns !== 1 ? "s" : ""} completed`
-              : `🍞 Out of food · ${adventurer.pendingAutoCollect.successfulRuns} run${adventurer.pendingAutoCollect.successfulRuns !== 1 ? "s" : ""} completed`}
+            {adventurer.pendingAutoCollect.diedDuringAuto ? `💀 Fell in battle · ${adventurer.pendingAutoCollect.successfulRuns} runs · 50% loot`
+              : adventurer.pendingAutoCollect.stoppedByPlayer ? `🏳️ Recalled · ${adventurer.pendingAutoCollect.successfulRuns} runs`
+              : `🍞 Out of food · ${adventurer.pendingAutoCollect.successfulRuns} runs`}
           </div>
-          <button
-            onClick={() => onReturnAutoBattle(adventurer.id)}
-            style={{ width: "100%", padding: "0.5rem", background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.4)", borderRadius: "8px", color: "#ef4444", fontWeight: 700, fontSize: "0.8rem", cursor: "pointer" }}
-          >
+          <button onClick={() => onReturnAutoBattle(adventurer.id)}
+            style={{ width: "100%", padding: "0.5rem", background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.4)", borderRadius: "8px", color: "#ef4444", fontWeight: 700, fontSize: "0.8rem", cursor: "pointer" }}>
             🎒 Collect Auto Loot
           </button>
         </div>
       )}
 
-      {/* Zone picker — hidden when on mission or dead or awaiting auto-collect */}
-      {!isOnMission && !dead && !adventurer.pendingAutoCollect && (
-        <div style={{ borderTop: "1px solid var(--border)" }}>
-          {/* Auto battle mode toggle — only show if skill unlocked */}
+      {isOnExpedition && !isOnMission && (() => {
+        const expTierId = getHeroExpeditionTierId(game, adventurer.id);
+        const activeExp = expTierId ? (game.expeditions ?? {})[expTierId] : null;
+        const hs = activeExp?.heroStates?.[adventurer.id];
+        const currentHp = Math.max(0, hs?.hp ?? maxHp);
+        const hpPct = Math.round((currentHp / maxHp) * 100);
+        const hpColor = hpPct > 60 ? "#4ade80" : hpPct > 30 ? "#fbbf24" : "#ef4444";
+        const belt = hs?.foodBelt ?? {};
+        const beltTotal = Object.values(belt).reduce((s, v) => s + v, 0);
+        return (
+          <div style={{ marginBottom: "0.6rem", padding: "0.55rem 0.7rem", borderRadius: "8px", background: "rgba(99,102,241,0.06)", border: "1px solid rgba(99,102,241,0.25)" }}>
+            <div style={{ fontSize: "0.68rem", fontWeight: 700, color: "var(--accent)", marginBottom: "0.3rem" }}>{EXPEDITION_TIERS[expTierId]?.emoji} {EXPEDITION_TIERS[expTierId]?.name}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.3rem" }}>
+              <span style={{ fontSize: "0.58rem", color: "#ef4444" }}>❤️</span>
+              <HpBar hp={currentHp} maxHp={maxHp} height={4} />
+              <span style={{ fontSize: "0.55rem", color: hpColor, fontWeight: 700 }}>{Math.round(currentHp)}/{maxHp}</span>
+            </div>
+            <div style={{ fontSize: "0.58rem", color: "var(--muted)" }}>🍞 Food belt: {beltTotal} remaining</div>
+            <button onClick={() => onRecallSingleHero && expTierId && onRecallSingleHero(expTierId, adventurer.id)}
+              style={{ marginTop: "0.4rem", width: "100%", padding: "0.35rem", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: "7px", color: "#ef4444", fontSize: "0.65rem", cursor: "pointer", fontWeight: 600 }}>
+              Recall from Expedition
+            </button>
+          </div>
+        );
+      })()}
+
+      {isResting && (
+        <div style={{ marginBottom: "0.6rem", padding: "0.5rem 0.7rem", borderRadius: "8px", background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.3)" }}>
+          <div style={{ fontSize: "0.68rem", fontWeight: 700, color: "#fbbf24" }}>🍺 Resting at Tavern</div>
+          <div style={{ fontSize: "0.58rem", color: "var(--muted)", marginTop: "0.15rem" }}>Hero is recovering HP.</div>
+        </div>
+      )}
+
+      {/* ── IDLE ACTIONS ── */}
+      {!isBusy && !adventurer.pendingAutoCollect && (
+        <>
+          {/* Auto battle toggle */}
           {hasAutoBattle && (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.4rem 0.9rem", background: autoBattleMode ? "rgba(239,68,68,0.05)" : "transparent", borderBottom: "1px solid var(--border)" }}>
-              <div>
-                <span style={{ fontSize: "0.65rem", fontWeight: 700, color: autoBattleMode ? "#ef4444" : "var(--muted)" }}>⚔️ Auto Battle</span>
-                <span style={{ fontSize: "0.58rem", color: "var(--muted)", marginLeft: "0.4rem" }}>uses food · runs until empty</span>
-              </div>
-              <button
-                onClick={() => setAutoBattleMode((v) => !v)}
-                style={{
-                  fontSize: "0.6rem", padding: "2px 10px", borderRadius: "999px",
-                  background: autoBattleMode ? "rgba(239,68,68,0.2)" : "rgba(255,255,255,0.06)",
-                  border: `1px solid ${autoBattleMode ? "rgba(239,68,68,0.5)" : "var(--border)"}`,
-                  color: autoBattleMode ? "#ef4444" : "var(--muted)",
-                  cursor: "pointer", fontWeight: 700,
-                }}
-              >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.35rem 0.5rem", background: autoBattleMode ? "rgba(239,68,68,0.05)" : "transparent", border: `1px solid ${autoBattleMode ? "rgba(239,68,68,0.25)" : "var(--border)"}`, borderRadius: "8px", marginBottom: "0.45rem" }}>
+              <span style={{ fontSize: "0.65rem", fontWeight: 700, color: autoBattleMode ? "#ef4444" : "var(--muted)" }}>⚔️ Auto Battle <span style={{ fontWeight: 400, fontSize: "0.58rem" }}>· uses food belt</span></span>
+              <button onClick={() => setAutoBattleMode(v => !v)}
+                style={{ fontSize: "0.6rem", padding: "2px 10px", borderRadius: "999px", background: autoBattleMode ? "rgba(239,68,68,0.2)" : "rgba(255,255,255,0.06)", border: `1px solid ${autoBattleMode ? "rgba(239,68,68,0.5)" : "var(--border)"}`, color: autoBattleMode ? "#ef4444" : "var(--muted)", cursor: "pointer", fontWeight: 700 }}>
                 {autoBattleMode ? "ON" : "OFF"}
               </button>
             </div>
           )}
 
-          {/* Action row */}
-          <div style={{ display: "flex", gap: "0.5rem", padding: "0.6rem 0.9rem", borderBottom: zonesOpen ? "1px solid var(--border)" : "none" }}>
-            {/* GO button */}
-            <button
-              onClick={() => {
-                if (selectedZone) {
-                  if (autoBattleMode) {
-                    onStartAutoBattle(adventurer.id, selectedZone.id);
-                  } else {
-                    onSend(adventurer.id, selectedZone.id);
-                  }
-                }
-              }}
-              disabled={!selectedZone || (autoBattleMode && !canStartAutoBattle) || isOnExpedition}
-              style={{
-                flex: 2, padding: "0.65rem 0.5rem",
-                background: selectedZone
-                  ? autoBattleMode
-                    ? "rgba(239,68,68,0.2)"
-                    : "rgba(99,102,241,0.25)"
-                  : "rgba(255,255,255,0.04)",
-                border: `2px solid ${selectedZone
-                  ? autoBattleMode
-                    ? "rgba(239,68,68,0.6)"
-                    : "rgba(99,102,241,0.7)"
-                  : "var(--border)"}`,
-                borderRadius: "10px",
-                color: selectedZone
-                  ? autoBattleMode ? "#ef4444" : "var(--accent)"
-                  : "var(--muted)",
-                fontWeight: 800, fontSize: "1rem",
-                cursor: (selectedZone && (!autoBattleMode || canStartAutoBattle) && !isOnExpedition) ? "pointer" : "default",
-                letterSpacing: "0.04em", transition: "all 0.15s",
-                opacity: isOnExpedition ? 0.4 : 1,
-              }}
-            >
-              {isOnExpedition
-                ? "🗺️ On Expedition"
-                : selectedZone
-                  ? autoBattleMode
-                    ? `⚔️ Auto! · ${getMissionDuration(adventurer, selectedZone)}s`
-                    : `⚔️ Go! · ${getMissionDuration(adventurer, selectedZone)}s`
-                  : "⚔️ Go!"}
-            </button>
+          {/* Zone list */}
+          <div style={{ fontSize: "0.6rem", color: "var(--muted)", fontWeight: 600, letterSpacing: "0.05em", marginBottom: "0.3rem" }}>ZONES</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", marginBottom: "0.5rem" }}>
+            {availableZones.map((zone) => {
+              const clears = game.worldZoneClears?.[zone.id] ?? 0;
+              const cleared = clears >= zone.clearsNeeded;
+              const dur = getMissionDuration(adventurer, zone);
+              const isSelected = selectedZoneId === zone.id;
+              const isDetail = detailZoneId === zone.id;
+              return (
+                <div key={zone.id}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.4rem 0.55rem", background: isSelected ? "rgba(99,102,241,0.1)" : "rgba(255,255,255,0.03)", border: `1px solid ${isSelected ? "rgba(99,102,241,0.45)" : "var(--border)"}`, borderRadius: "8px" }}>
+                    <span style={{ fontSize: "1rem", flexShrink: 0 }}>{zone.emoji}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                        <span style={{ fontSize: "0.72rem", fontWeight: 600 }}>{zone.name}</span>
+                        {cleared && <span style={{ fontSize: "0.52rem", color: "#4ade80", fontWeight: 700 }}>✓</span>}
+                        <span style={{ fontSize: "0.55rem", color: "#a78bfa", fontWeight: 600 }}>{dur}s</span>
+                      </div>
+                      <div style={{ fontSize: "0.55rem", color: "var(--muted)" }}>{cleared ? "Cleared" : `${clears}/${zone.clearsNeeded}`}{zone.enemyName ? ` · ${zone.enemyName}` : ""}</div>
+                    </div>
+                    <div style={{ display: "flex", gap: "0.3rem", flexShrink: 0 }}>
+                      <button onClick={() => setDetailZoneId(isDetail ? null : zone.id)}
+                        style={{ fontSize: "0.55rem", padding: "2px 7px", borderRadius: "5px", background: isDetail ? "rgba(99,102,241,0.2)" : "rgba(255,255,255,0.06)", border: `1px solid ${isDetail ? "rgba(99,102,241,0.4)" : "var(--border)"}`, color: isDetail ? "var(--accent)" : "var(--muted)", cursor: "pointer", fontWeight: 600 }}>
+                        Info
+                      </button>
+                      <button onClick={() => { setSelectedZoneId(isSelected ? null : zone.id); setDetailZoneId(null); }}
+                        style={{ fontSize: "0.55rem", padding: "2px 7px", borderRadius: "5px", background: isSelected ? "rgba(99,102,241,0.25)" : "rgba(255,255,255,0.06)", border: `1px solid ${isSelected ? "rgba(99,102,241,0.55)" : "var(--border)"}`, color: isSelected ? "var(--accent)" : "var(--muted)", cursor: "pointer", fontWeight: 700 }}>
+                        {isSelected ? "✓" : "Select"}
+                      </button>
+                    </div>
+                  </div>
+                  {isDetail && (
+                    <ZoneDetailsPopover
+                      zone={zone} adventurer={adventurer} game={game}
+                      isSelected={isSelected}
+                      onSelect={(id) => setSelectedZoneId(id)}
+                      onClose={() => setDetailZoneId(null)}
+                    />
+                  )}
+                </div>
+              );
+            })}
+            {lockedZones.map((zone) => {
+              const heroLevel = adventurer?.level ?? 1;
+              const levelLocked = zone.heroLevelRequired && heroLevel < zone.heroLevelRequired;
+              const prereqZone = WORLD_ZONES[zone.unlockRequiresZone];
+              const prereqClears = game.worldZoneClears?.[zone.unlockRequiresZone] ?? 0;
+              const lockLabel = levelLocked ? `Level ${zone.heroLevelRequired} required` : prereqZone ? `${prereqZone.name}: ${prereqClears}/${zone.unlockAfterClears}` : "Locked";
+              return (
+                <div key={zone.id} style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.4rem 0.55rem", background: "rgba(255,255,255,0.01)", border: "1px dashed rgba(255,255,255,0.09)", borderRadius: "8px", opacity: 0.5 }}>
+                  <span style={{ fontSize: "1rem", filter: "grayscale(1)", flexShrink: 0 }}>{zone.emoji}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: "0.68rem", fontWeight: 600, color: "var(--muted)" }}>{zone.name}</div>
+                    <div style={{ fontSize: "0.55rem", color: "var(--muted)" }}>🔒 {lockLabel}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
 
-            {/* Heal button — tap to instantly consume one belt food */}
+          {/* Food fill + Go row */}
+          <div style={{ display: "flex", gap: "0.4rem", marginBottom: "0.3rem" }}>
+            {/* Heal button */}
             {(() => {
               const hasBeltFood = firstBeltFood !== null;
               const def = hasBeltFood ? ARTISAN_FOOD_HEAL[firstBeltFood] : null;
               const atFullHp = hp >= maxHp;
-              const canUse = hasBeltFood && !atFullHp && !dead;
+              const canUse = hasBeltFood && !atFullHp;
               return (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (canUse) onUseArtisanFood(adventurer.id, firstBeltFood);
-                  }}
+                <button onClick={(e) => { e.stopPropagation(); if (canUse) onUseArtisanFood(adventurer.id, firstBeltFood); }}
                   disabled={!canUse}
-                  style={{
-                    flex: 1, padding: "0.65rem 0.4rem",
-                    background: canUse ? "rgba(74,222,128,0.12)" : "rgba(255,255,255,0.03)",
-                    border: `1px solid ${canUse ? "rgba(74,222,128,0.35)" : "var(--border)"}`,
-                    borderRadius: "10px",
-                    color: canUse ? "#4ade80" : "var(--muted)",
-                    fontWeight: 700, fontSize: "0.72rem",
-                    cursor: canUse ? "pointer" : "default",
-                    opacity: hasBeltFood ? 1 : 0.4,
-                  }}
-                >
+                  style={{ flex: 1, padding: "0.5rem 0.3rem", background: canUse ? "rgba(74,222,128,0.1)" : "rgba(255,255,255,0.03)", border: `1px solid ${canUse ? "rgba(74,222,128,0.3)" : "var(--border)"}`, borderRadius: "8px", color: canUse ? "#4ade80" : "var(--muted)", fontWeight: 700, fontSize: "0.68rem", cursor: canUse ? "pointer" : "default" }}>
                   {def?.emoji ?? "🍞"} Heal
-                  <div style={{ fontSize: "0.55rem", marginTop: "1px", opacity: 0.8 }}>
-                    {hasBeltFood
-                      ? atFullHp ? `×${beltFoodTotal} · full` : `+${def?.healAmount ?? "?"}hp · ×${beltFoodTotal}`
-                      : "belt empty"}
-                  </div>
+                  <div style={{ fontSize: "0.52rem", opacity: 0.8 }}>{hasBeltFood ? (atFullHp ? "Full HP" : `+${def?.healAmount}hp`) : "belt empty"}</div>
                 </button>
               );
             })()}
-
-            {/* Fill button — tap to fill, hold 1s to swap food type */}
-            {(() => {
-              const safeIdx = stockFood.length > 0 ? fillFoodIdx % stockFood.length : 0;
-              const topStock = stockFood[safeIdx] ?? null;
-              const def = topStock ? ARTISAN_FOOD_HEAL[topStock] : null;
-              const stockQty = topStock ? getFoodStock(topStock) : 0;
-              const fillAmt = topStock ? Math.min(beltCapacity - beltFoodTotal, stockQty) : 0;
-              const canFill = topStock !== null && fillAmt > 0;
-              const multiStock = stockFood.length > 1;
-
-              function startHold(e) {
-                e.stopPropagation();
-                if (!multiStock) return;
-                fillHoldFired.current = false;
-                setFillHolding(true);
-                fillHoldTimer.current = setTimeout(() => {
-                  fillHoldFired.current = true;
-                  setFillHolding(false);
-                  setFillFoodIdx((prev) => {
-                    const nextIdx = (prev + 1) % stockFood.length;
-                    const nextFoodId = stockFood[nextIdx];
-                    if (nextFoodId) onSetFillFood?.(adventurer.id, nextFoodId);
-                    return nextIdx;
-                  });
-                }, 900);
-              }
-              function cancelHold(e) {
-                e.stopPropagation();
-                clearTimeout(fillHoldTimer.current);
-                setFillHolding(false);
-                // If the hold didn't fire, treat as a normal tap fill
-                if (!fillHoldFired.current && canFill) {
-                  for (let i = 0; i < fillAmt; i++) onGiveArtisanFood(adventurer.id, topStock);
-                }
-                fillHoldFired.current = false;
-              }
-
-              return (
-                <button
-                  onPointerDown={startHold}
-                  onPointerUp={cancelHold}
-                  onPointerLeave={(e) => { clearTimeout(fillHoldTimer.current); setFillHolding(false); fillHoldFired.current = false; e.stopPropagation(); }}
-                  disabled={!canFill && stockFood.length === 0}
-                  style={{
-                    flex: 1, padding: "0.65rem 0.4rem",
-                    position: "relative", overflow: "hidden",
-                    background: fillHolding
-                      ? "rgba(251,191,36,0.22)"
-                      : canFill ? "rgba(251,191,36,0.12)" : "rgba(255,255,255,0.03)",
-                    border: `1px solid ${fillHolding ? "rgba(251,191,36,0.7)" : canFill ? "rgba(251,191,36,0.35)" : "var(--border)"}`,
-                    borderRadius: "10px",
-                    color: canFill ? "#fbbf24" : "var(--muted)",
-                    fontWeight: 700, fontSize: "0.72rem",
-                    cursor: canFill || multiStock ? "pointer" : "default",
-                    opacity: (canFill || multiStock) ? 1 : 0.4,
-                    userSelect: "none", WebkitUserSelect: "none",
-                    transition: "background 0.1s, border-color 0.1s",
-                  }}
-                >
-                  {/* Hold-progress sweep overlay */}
-                  {fillHolding && (
-                    <div style={{
-                      position: "absolute", inset: 0,
-                      background: "rgba(251,191,36,0.15)",
-                      animation: "fillHoldSweep 0.9s linear forwards",
-                      transformOrigin: "left center",
-                      borderRadius: "10px",
-                      pointerEvents: "none",
-                    }} />
-                  )}
-                  <span style={{ position: "relative", zIndex: 1 }}>
-                    {def?.emoji ?? "🍞"} Fill
-                    {multiStock && (
-                      <span style={{ fontSize: "0.5rem", marginLeft: "3px", opacity: 0.65 }}>⇄</span>
-                    )}
-                  </span>
-                  <div style={{ fontSize: "0.55rem", marginTop: "1px", opacity: 0.8, position: "relative", zIndex: 1 }}>
-                    {fillHolding
-                      ? `hold to swap…`
-                      : canFill
-                        ? `+${fillAmt} (${beltFoodTotal}/${beltCapacity})`
-                        : beltFoodTotal >= beltCapacity ? `${beltFoodTotal}/${beltCapacity} full` : "no stock"}
-                  </div>
-                </button>
-              );
-            })()}
-
-            {/* Buff belt button */}
-            {buffBeltTotal > 0 ? (
-              <button
-                onClick={(e) => { e.stopPropagation(); onOpenHero(adventurer); }}
-                style={{ flex: 1, padding: "0.65rem 0.4rem", background: "rgba(139,92,246,0.2)", border: "1px solid rgba(139,92,246,0.5)", borderRadius: "10px", color: "#a78bfa", fontWeight: 700, fontSize: "0.72rem", cursor: "pointer" }}
-              >
-                {ADVENTURER_BUFF_ITEMS[firstBuffType]?.emoji} Buffed
-                <div style={{ fontSize: "0.55rem", color: "rgba(139,92,246,0.7)", marginTop: "1px" }}>{buffBeltTotal}/{beltCapacity} loaded</div>
-              </button>
-            ) : availableBuffs.length > 0 && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onGiveBuffItem(adventurer.id, availableBuffs[0]); }}
-                style={{ flex: 1, padding: "0.65rem 0.4rem", background: "rgba(139,92,246,0.08)", border: "1px solid rgba(139,92,246,0.25)", borderRadius: "10px", color: "#a78bfa", fontWeight: 700, fontSize: "0.72rem", cursor: "pointer" }}
-              >
-                ✨ Load Buff
-                <div style={{ fontSize: "0.55rem", color: "rgba(139,92,246,0.5)", marginTop: "1px" }}>{ADVENTURER_BUFF_ITEMS[availableBuffs[0]]?.emoji} {ADVENTURER_BUFF_ITEMS[availableBuffs[0]]?.name}</div>
-              </button>
-            )}
+            {/* Fill button */}
+            <button onClick={() => setShowFoodFill(v => !v)}
+              style={{ flex: 1, padding: "0.5rem 0.3rem", background: showFoodFill ? "rgba(251,191,36,0.15)" : "rgba(255,255,255,0.04)", border: `1px solid ${showFoodFill ? "rgba(251,191,36,0.45)" : "var(--border)"}`, borderRadius: "8px", color: showFoodFill ? "#fbbf24" : "var(--muted)", fontWeight: 700, fontSize: "0.68rem", cursor: "pointer" }}>
+              🍞 Fill
+              <div style={{ fontSize: "0.52rem", opacity: 0.8 }}>{beltFoodTotal}/{beltCapacity} slots</div>
+            </button>
+            {/* Go button */}
+            <button onClick={() => { if (selectedZone) { if (autoBattleMode) onStartAutoBattle(adventurer.id, selectedZone.id); else onSend(adventurer.id, selectedZone.id); } }}
+              disabled={!selectedZone}
+              style={{ flex: 2, padding: "0.5rem 0.5rem", background: selectedZone ? (autoBattleMode ? "rgba(239,68,68,0.2)" : "rgba(99,102,241,0.25)") : "rgba(255,255,255,0.04)", border: `2px solid ${selectedZone ? (autoBattleMode ? "rgba(239,68,68,0.6)" : "rgba(99,102,241,0.7)") : "var(--border)"}`, borderRadius: "9px", color: selectedZone ? (autoBattleMode ? "#ef4444" : "var(--accent)") : "var(--muted)", fontWeight: 800, fontSize: "0.9rem", cursor: selectedZone ? "pointer" : "default" }}>
+              {selectedZone ? (autoBattleMode ? `⚔️ Auto! · ${getMissionDuration(adventurer, selectedZone)}s` : `⚔️ Go! · ${getMissionDuration(adventurer, selectedZone)}s`) : "⚔️ Go!"}
+            </button>
           </div>
 
-          {/* Tavern rest button */}
+          {/* Food fill picker */}
+          {showFoodFill && (
+            <FoodFillPicker
+              adventurer={adventurer} game={game} beltCapacity={beltCapacity}
+              onFill={(foodId, amount) => { for (let i = 0; i < amount; i++) onGiveArtisanFood(adventurer.id, foodId); }}
+              onClose={() => setShowFoodFill(false)}
+            />
+          )}
+
+          {/* Tavern button (idle only) */}
           {tavernBuilt && !isResting && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onAssignTavern?.(adventurer.id); }}
-              style={{
-                margin: "0 0.9rem 0.5rem",
-                padding: "0.45rem 0.5rem",
-                background: "rgba(234,179,8,0.08)",
-                border: "1px solid rgba(234,179,8,0.25)",
-                borderRadius: "8px",
-                color: "#fbbf24",
-                fontWeight: 600,
-                fontSize: "0.65rem",
-                cursor: "pointer",
-                width: "calc(100% - 1.8rem)",
-                textAlign: "left",
-                display: "flex",
-                alignItems: "center",
-                gap: "0.4rem",
-              }}
-            >
-              <span>🍺</span>
-              <span>Rest at Tavern</span>
-              <span style={{ marginLeft: "auto", fontSize: "0.58rem", color: "rgba(234,179,8,0.6)" }}>
-                {tavernWorkers === 0 ? "HP regen" : tavernMode === "jam" && tavernStocked ? "HP + XP" : tavernMode === "fish_pie" && tavernStocked ? "HP + Buff" : "HP regen"}
-              </span>
+            <button onClick={() => onAssignTavern?.(adventurer.id)}
+              style={{ width: "100%", marginTop: "0.3rem", padding: "0.4rem 0.55rem", background: "rgba(234,179,8,0.07)", border: "1px solid rgba(234,179,8,0.22)", borderRadius: "8px", color: "#fbbf24", fontWeight: 600, fontSize: "0.65rem", cursor: "pointer", textAlign: "left" }}>
+              🍺 Rest at Tavern
             </button>
           )}
-          {tavernBuilt && isResting && (
-            <div style={{
-              margin: "0 0.9rem 0.5rem",
-              padding: "0.45rem 0.7rem",
-              background: "rgba(234,179,8,0.12)",
-              border: "1px solid rgba(234,179,8,0.4)",
-              borderRadius: "8px",
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem",
-            }}>
-              <span style={{ fontSize: "0.85rem" }}>🍺</span>
-              <div style={{ flex: 1, fontSize: "0.62rem" }}>
-                <span style={{ fontWeight: 700, color: "#fbbf24" }}>Resting at Tavern</span>
-
-              </div>
-              <button
-                onClick={(e) => { e.stopPropagation(); onRemoveTavern?.(adventurer.id); }}
-                style={{ fontSize: "0.6rem", padding: "0.15rem 0.5rem", background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)", borderRadius: "6px", color: "var(--muted)", cursor: "pointer" }}
-              >
-                Leave
-              </button>
-            </div>
-          )}
-
-          {/* Potion count row for auto battle */}
-          {autoBattleMode && (
-  <div style={{ padding: "0.3rem 0.9rem", borderBottom: "1px solid var(--border)", display: "flex", gap: "0.75rem", fontSize: "0.62rem", color: "var(--muted)" }}>
-    <span>🍞 Belt food: <strong style={{ color: beltFoodTotal > 0 ? "#4ade80" : "#ef4444" }}>{beltFoodTotal}</strong></span>
-    {beltFoodTotal === 0 && <span style={{ color: "#ef4444" }}>⚠ Need belt food to auto battle</span>}
-  </div>
-)}
-
-          {/* Collapsible zone header */}
-          <button
-            onClick={() => setZonesOpen((v) => !v)}
-            style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.4rem 0.9rem", background: "none", border: "none", cursor: "pointer", borderBottom: zonesOpen ? "1px solid var(--border)" : "none" }}
-          >
-            <span style={{ fontSize: "0.62rem", color: "var(--muted)", letterSpacing: "0.06em", fontWeight: 600 }}>
-              ZONES {selectedZone ? `· ${selectedZone.emoji} ${selectedZone.name}` : ""}
-            </span>
-            <span style={{ fontSize: "0.65rem", color: "var(--muted)" }}>{zonesOpen ? "▲" : "▼"}</span>
-          </button>
-
-          {zonesOpen && (
-            <div style={{ padding: "0.65rem 0.9rem" }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
-                {availableZones.map((zone) => {
-                  const clears = game.worldZoneClears?.[zone.id] ?? 0;
-                  const cleared = clears >= zone.clearsNeeded;
-                  const failPct = getFailChance(adventurer, zone);
-                  const dur = getMissionDuration(adventurer, zone);
-                  const isSelected = selectedZoneId === zone.id;
-                  return (
-                    <button key={zone.id} onClick={() => setSelectedZoneId(isSelected ? null : zone.id)} style={{ textAlign: "left", padding: "0.45rem 0.6rem", background: isSelected ? "rgba(99,102,241,0.12)" : "rgba(255,255,255,0.03)", border: isSelected ? "1px solid rgba(99,102,241,0.5)" : "1px solid var(--border)", borderRadius: "8px", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                      <span style={{ fontSize: "1.1rem" }}>{zone.emoji}</span>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap" }}>
-                          <span style={{ fontSize: "0.75rem", fontWeight: 600 }}>{zone.name}</span>
-                          {cleared && <span style={{ fontSize: "0.55rem", color: "#4ade80", fontWeight: 700 }}>✓</span>}
-                          <span style={{ fontSize: "0.58rem", color: "#a78bfa", fontWeight: 600 }}>{dur}s</span>
-                        </div>
-                        <div style={{ fontSize: "0.58rem", color: "var(--muted)" }}>
-                          {cleared ? "Cleared" : `${clears}/${zone.clearsNeeded} clears`}
-                          {zone.enemyName && <span style={{ color: "#ef4444", marginLeft: "0.35rem" }}>vs {zone.enemyName}</span>}
-                        </div>
-                        {zone.loot && zone.loot.length > 0 && (
-                          <div style={{ fontSize: "0.55rem", color: "var(--muted)", marginTop: "1px" }}>
-                            🎒 {zone.loot.slice(0, 3).map(l => `${l.emoji ?? ""} ${l.name ?? l.resourceKey}`).join(", ")}{zone.loot.length > 3 ? ` +${zone.loot.length - 3} more` : ""}
-                          </div>
-                        )}
-                      </div>
-                      <div style={{ display: "flex", gap: "3px", flexShrink: 0 }}>
-                        {Array.from({ length: Math.min(zone.clearsNeeded, 8) }).map((_, i) => (
-                          <div key={i} style={{ width: "5px", height: "5px", borderRadius: "50%", background: i < clears ? "#4ade80" : "rgba(255,255,255,0.12)" }} />
-                        ))}
-                      </div>
-                      {failPct > 0 && <span style={{ fontSize: "0.58rem", fontWeight: 700, flexShrink: 0, color: failPct >= 50 ? "#ef4444" : "#fbbf24" }}>{failPct}%✗</span>}
-                    </button>
-                  );
-                })}
-                {lockedZones.map((zone) => {
-                  const heroLevel = adventurer?.level ?? 1;
-                  const levelLocked = zone.heroLevelRequired && heroLevel < zone.heroLevelRequired;
-                  const prereqZone = WORLD_ZONES[zone.unlockRequiresZone];
-                  const prereqClears = game.worldZoneClears?.[zone.unlockRequiresZone] ?? 0;
-                  const lockLabel = levelLocked
-                    ? `Reach level ${zone.heroLevelRequired} to unlock (you are ${heroLevel})`
-                    : prereqZone
-                    ? `${prereqZone.name}: ${prereqClears}/${zone.unlockAfterClears} clears`
-                    : "Locked";
-                  return (
-                    <div key={zone.id} style={{ padding: "0.45rem 0.6rem", background: "rgba(255,255,255,0.01)", border: "1px dashed rgba(255,255,255,0.1)", borderRadius: "8px", opacity: 0.5, display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                      <span style={{ fontSize: "1.1rem", filter: "grayscale(1)" }}>{zone.emoji}</span>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--muted)" }}>{zone.name}</div>
-                        <div style={{ fontSize: "0.58rem", color: "var(--muted)" }}>🔒 {lockLabel}</div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
+        </>
       )}
+    </div>
+  );
+
+  return (
+    <div style={{ background: "var(--bg-elev)", border: `1px solid ${dead ? "rgba(239,68,68,0.3)" : isInDungeon ? "rgba(99,102,241,0.3)" : "var(--border)"}`, borderRadius: "12px", overflow: "hidden", marginBottom: "0.6rem", opacity: isInDungeon ? 0.75 : 1 }}>
+      {tinyCard}
+      {level1}
     </div>
   );
 }
@@ -2475,6 +2270,7 @@ export default function WorldZone({
               onReturnAutoBattle={handleReturnAutoBattle}
               onRequestStop={onRequestAutoBattleStop}
               onSetFillFood={onSetHeroFillFood}
+              onRecallSingleHero={onRecallSingleHero}
             />
           ))}
 

@@ -11,7 +11,7 @@ export const CROPS = {
 export const GEAR = {
   bare_hands:  { id: "bare_hands",  name: "Bare Hands",  emoji: "🤲", plotsPerCycle: 1, cycleSeconds: 15, upgradeCost: null, description: "Harvests and replants 1 plot every 15s." },
   gloves:      { id: "gloves",      name: "Gloves",      emoji: "🧤", plotsPerCycle: 1, cycleSeconds: 10, upgradeCost: 40,   upgradeTier: 1, upgradeRequires: { iron_ore: 5, lumber: 4 }, description: "Harvests and replants 1 plot every 10s. 33% faster." },
-  hoe:         { id: "hoe",         name: "Hoe",         emoji: "🪓", plotsPerCycle: 1, cycleSeconds: 6,  upgradeCost: 180,   upgradeTier: 1, upgradeRequires: { iron_ore: 15, lumber: 10 }, description: "Harvests and replants 1 plot every 6s. 40% faster than gloves." },
+  hoe:         { id: "hoe",         name: "Hoe",         emoji: "🪓", plotsPerCycle: 1, cycleSeconds: 6,  upgradeCost: 100,   upgradeTier: 1, upgradeRequires: { iron_ore: 15, lumber: 10 }, description: "Harvests and replants 1 plot every 6s. 40% faster than gloves." },
   wheelbarrow: { id: "wheelbarrow", name: "Wheelbarrow", emoji: "🛻", plotsPerCycle: 2, cycleSeconds: 6,  upgradeCost: 600,  upgradeTier: 2, upgradeRequires: { iron_ore: 80, lumber: 60 }, description: "Harvests and replants 2 plots every 6s. Double the coverage." },
   tractor:     { id: "tractor",     name: "Tractor",     emoji: "🚜", plotsPerCycle: 5, cycleSeconds: 6,  upgradeCost: 2000,  upgradeTier: 3, upgradeRequires: { iron_fitting: 5, iron_ore: 40, lumber: 30 }, description: "Harvests and replants 5 plots every 6s. Near full automation." },
 };
@@ -20,7 +20,7 @@ export const GEAR_ORDER = ["bare_hands", "gloves", "hoe", "wheelbarrow", "tracto
 export const GEAR_CROP_COSTS = {};
  
 // ─── Specialization ───────────────────────────────────────────────────────────
-export const SPECIALIZE_COST = 100;
+export const SPECIALIZE_COST = 200;
 export const SPECIALIZE_CROP = null;
 export const SPECIALIZE_REQUIRES = { iron_fitting: 1 };
  
