@@ -1,32 +1,19 @@
 // src/Pages/ClearAndCalm.jsx
 import React, { useState, useEffect, useRef } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
 } from "recharts";
-
-// ─── Storage helpers ───────────────────────────────────────────────────────────
-const LS_CRAVINGS    = "cc_cravings_v1";
-const LS_MEDITATIONS = "cc_meditations_v1";
-const LS_SOBER_START = "cc_sober_start_v1";
-const LS_SMOKED      = "cc_smoked_v1";
-
-function loadJSON(key, fallback) {
-  try { const r = localStorage.getItem(key); return r ? JSON.parse(r) : fallback; }
-  catch { return fallback; }
-}
-function saveJSON(key, value) {
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* ignore */ }
-}
+import { api } from "@/lib/api";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function dayKey(ts) {
   const d = new Date(ts);
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
-function soberDays(startTs) {
-  if (!startTs) return 0;
-  return Math.floor((Date.now() - startTs) / 86400000);
+function soberDays(startIso) {
+  if (!startIso) return 0;
+  return Math.floor((Date.now() - new Date(startIso).getTime()) / 86400000);
 }
 function mmss(secs) {
   const s = Math.max(0, secs);
@@ -110,7 +97,7 @@ function IntensityScale({ label, onSelect, includeZero = false }) {
 }
 
 // ─── Breathing Exercise ────────────────────────────────────────────────────────
-function BreathingExercise({ config, onComplete }) {
+function BreathingExercise({ config, onComplete, onSkip }) {
   const phases = buildPhases(config);
   const [phaseIdx, setPhaseIdx]       = useState(0);
   const [cyclesDone, setCyclesDone]   = useState(0);
@@ -197,6 +184,13 @@ function BreathingExercise({ config, onComplete }) {
       <div className="text-xs text-[var(--muted)]">
         Cycle {Math.min(cyclesDone + 1, config.cycles)} of {config.cycles}
       </div>
+      <button
+        type="button"
+        onClick={onSkip}
+        className="text-xs text-[var(--muted)] hover:text-[var(--text)] underline transition-colors"
+      >
+        skip breathing
+      </button>
     </div>
   );
 }
@@ -205,20 +199,39 @@ function BreathingExercise({ config, onComplete }) {
 function CravingSection({ cravings, setCravings }) {
   const [step, setStep]               = useState("idle");
   const [intensityBefore, setIBefore] = useState(null);
+  const [skipped, setSkipped]         = useState(false);
+  const [saving, setSaving]           = useState(false);
 
-  function handleBefore(val) { setIBefore(val); setStep("breathing"); }
+  function handleBefore(val) { setIBefore(val); setSkipped(false); setStep("breathing"); }
   function handleBreathDone() { setStep("check"); }
+  function handleSkip() { setSkipped(true); setStep("check"); }
 
-  function handleAfter(val) {
-    const reduction = intensityBefore - val;
-    const entry = { ts: Date.now(), intensityBefore, intensityAfter: val, reduction, survived: reduction >= 0 };
-    const updated = [entry, ...cravings];
-    setCravings(updated);
-    saveJSON(LS_CRAVINGS, updated);
-    setStep("done");
+  async function handleAfter(val) {
+    setSaving(true);
+    try {
+      const { data } = await api.post("/clear-and-calm/cravings", {
+        intensity_before:  intensityBefore,
+        intensity_after:   val,
+        skipped_breathing: skipped,
+        recorded_at:       new Date().toISOString(),
+      });
+      const entry = {
+        ts:               new Date(data.recorded_at).getTime(),
+        intensityBefore:  data.intensity_before,
+        intensityAfter:   data.intensity_after,
+        reduction:        data.reduction,
+        skippedBreathing: data.skipped_breathing,
+      };
+      setCravings(prev => [entry, ...prev]);
+      setStep("done");
+    } catch {
+      // silently stay on "check" so they can retry
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function reset() { setStep("idle"); setIBefore(null); }
+  function reset() { setStep("idle"); setIBefore(null); setSkipped(false); }
 
   const config    = intensityBefore ? getBreathConfig(intensityBefore) : null;
   const lastEntry = cravings[0];
@@ -259,7 +272,7 @@ function CravingSection({ cravings, setCravings }) {
           <div className="text-xs text-[var(--muted)] text-center mb-2">
             Before: <span className="font-semibold text-[var(--text)]">{intensityBefore}/10</span>
           </div>
-          <BreathingExercise config={config} onComplete={handleBreathDone}/>
+          <BreathingExercise config={config} onComplete={handleBreathDone} onSkip={handleSkip}/>
         </div>
       )}
 
@@ -269,8 +282,14 @@ function CravingSection({ cravings, setCravings }) {
             <div className="text-xs text-[var(--muted)]">
               Before: <span className="font-semibold text-[var(--text)]">{intensityBefore}/10</span>
             </div>
+            {skipped && (
+              <div className="inline-block mt-1 rounded-full bg-[var(--bg)] border border-[var(--border)] px-2 py-0.5 text-xs text-[var(--muted)]">
+                breathing skipped
+              </div>
+            )}
           </div>
           <IntensityScale label="Rate the craving again — honestly." onSelect={handleAfter} includeZero/>
+          {saving && <div className="text-xs text-center text-[var(--muted)]">Saving…</div>}
         </div>
       )}
 
@@ -299,6 +318,11 @@ function CravingSection({ cravings, setCravings }) {
               <div className="text-xs text-[var(--muted)]">shift</div>
             </div>
           </div>
+          {lastEntry.skippedBreathing && (
+            <div className="inline-block rounded-full bg-[var(--bg)] border border-[var(--border)] px-2 py-0.5 text-xs text-[var(--muted)]">
+              breathing skipped
+            </div>
+          )}
           <div className="text-xs text-[var(--muted)] px-2">{reductionMsg(lastEntry.reduction)}</div>
           <Btn onClick={reset} className="w-full">Back</Btn>
         </div>
@@ -309,22 +333,30 @@ function CravingSection({ cravings, setCravings }) {
 
 // ─── Meditation Section ────────────────────────────────────────────────────────
 function MeditationSection({ meditations, setMeditations }) {
-  const [selected, setSelected]       = useState(null);
-  const [running, setRunning]         = useState(false);
-  const [secondsLeft, setSecondsLeft] = useState(0);
-  const [done, setDone]               = useState(false);
+  const [selected, setSelected]         = useState(null);
+  const [running, setRunning]           = useState(false);
+  const [secondsLeft, setSecondsLeft]   = useState(0);
+  const [done, setDone]                 = useState(false);
+  const [showManual, setShowManual]     = useState(false);
+  const [manualMins, setManualMins]     = useState("");
+  const [manualDate, setManualDate]     = useState(() => {
+    const now = new Date();
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    return now.toISOString().slice(0, 16);
+  });
+  const [manualSaving, setManualSaving] = useState(false);
+  const [manualDone, setManualDone]     = useState(false);
+
   const intervalRef  = useRef(null);
   const selectedRef  = useRef(null);
-  const startedAtRef = useRef(null); // tracks when session began for elapsed calc
+  const startedAtRef = useRef(null);
   const wakeLockRef  = useRef(null);
 
   async function requestWakeLock() {
     if (!("wakeLock" in navigator)) return;
     try {
       wakeLockRef.current = await navigator.wakeLock.request("screen");
-    } catch {
-      // silently fail — timer still works, screen may dim
-    }
+    } catch { /* silently fail */ }
   }
 
   function releaseWakeLock() {
@@ -334,24 +366,29 @@ function MeditationSection({ meditations, setMeditations }) {
     }
   }
 
-  // Re-acquire wake lock if tab becomes visible again (e.g. user switches back)
   useEffect(() => {
     function handleVisibilityChange() {
-      if (document.visibilityState === "visible" && running) {
-        requestWakeLock();
-      }
+      if (document.visibilityState === "visible" && running) requestWakeLock();
     }
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, [running]);
 
-  function logSession(elapsedSecs) {
+  async function logSession(elapsedSecs, recordedAt) {
     const secs = Math.max(1, Math.round(elapsedSecs));
-    setMeditations(p => {
-      const updated = [{ ts: Date.now(), secs }, ...p];
-      saveJSON(LS_MEDITATIONS, updated);
-      return updated;
-    });
+    try {
+      const payload = { duration_secs: secs };
+      if (recordedAt) payload.recorded_at = recordedAt;
+      const { data } = await api.post("/clear-and-calm/meditations", payload);
+      const entry = {
+        ts:   new Date(data.recorded_at).getTime(),
+        secs: data.duration_secs,
+      };
+      setMeditations(prev => [entry, ...prev]);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   function start(preset) {
@@ -361,6 +398,7 @@ function MeditationSection({ meditations, setMeditations }) {
     setSecondsLeft(preset.secs);
     setRunning(true);
     setDone(false);
+    setShowManual(false);
     requestWakeLock();
   }
 
@@ -371,11 +409,11 @@ function MeditationSection({ meditations, setMeditations }) {
         if (prev <= 1) {
           clearInterval(intervalRef.current);
           releaseWakeLock();
-          // Full completion — log the full preset duration
           setTimeout(() => {
             setRunning(false);
             setDone(true);
             logSession(selectedRef.current?.secs ?? 0);
+            startedAtRef.current = null;
           }, 0);
           return 0;
         }
@@ -388,17 +426,32 @@ function MeditationSection({ meditations, setMeditations }) {
   function stop() {
     clearInterval(intervalRef.current);
     releaseWakeLock();
-    // Log however many seconds actually elapsed
     if (startedAtRef.current) {
       const elapsed = (Date.now() - startedAtRef.current) / 1000;
-      if (elapsed >= 10) { // only log if they did at least 10 seconds
-        logSession(elapsed);
-      }
+      if (elapsed >= 10) logSession(elapsed);
     }
     setRunning(false);
     setSelected(null);
     setDone(false);
     startedAtRef.current = null;
+  }
+
+  async function submitManual() {
+    const mins = parseFloat(manualMins);
+    if (!mins || mins <= 0) return;
+    const secs = Math.round(mins * 60);
+    const recordedAt = manualDate ? new Date(manualDate).toISOString() : undefined;
+    setManualSaving(true);
+    const ok = await logSession(secs, recordedAt);
+    setManualSaving(false);
+    if (ok) {
+      setManualDone(true);
+      setManualMins("");
+      const now = new Date();
+      now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+      setManualDate(now.toISOString().slice(0, 16));
+      setTimeout(() => { setManualDone(false); setShowManual(false); }, 2000);
+    }
   }
 
   const circumference = 2 * Math.PI * 54;
@@ -410,14 +463,65 @@ function MeditationSection({ meditations, setMeditations }) {
       <p className="text-xs text-[var(--muted)] mb-4">Build your daily stillness practice.</p>
 
       {!running && !done && (
-        <div className="grid grid-cols-2 gap-2">
-          {MED_PRESETS.map(p => (
-            <button key={p.label} type="button" onClick={() => start(p)}
-              className="rounded-xl border border-[var(--border)] bg-[var(--bg)] py-4 text-sm font-semibold hover:bg-[var(--bg-elev)] hover:scale-105 active:scale-95 transition-all">
-              {p.label}
-            </button>
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-2 gap-2">
+            {MED_PRESETS.map(p => (
+              <button key={p.label} type="button" onClick={() => start(p)}
+                className="rounded-xl border border-[var(--border)] bg-[var(--bg)] py-4 text-sm font-semibold hover:bg-[var(--bg-elev)] hover:scale-105 active:scale-95 transition-all">
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Manual log */}
+          <div className="mt-4 border-t border-[var(--border)] pt-3">
+            {!showManual ? (
+              <button
+                type="button"
+                onClick={() => setShowManual(true)}
+                className="w-full text-left text-xs text-[var(--muted)] hover:text-[var(--text)] transition-colors py-1"
+              >
+                + Log a session I already did
+              </button>
+            ) : manualDone ? (
+              <div className="text-xs text-emerald-500 text-center py-1">✓ Logged</div>
+            ) : (
+              <div className="space-y-3">
+                <div className="text-xs font-medium text-[var(--muted)]">Log a past session</div>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    placeholder="minutes"
+                    value={manualMins}
+                    onChange={e => setManualMins(e.target.value)}
+                    className="w-28 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 text-sm"
+                  />
+                  <span className="text-xs text-[var(--muted)]">min</span>
+                </div>
+                <input
+                  type="datetime-local"
+                  value={manualDate}
+                  onChange={e => setManualDate(e.target.value)}
+                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 text-sm"
+                />
+                <div className="flex gap-2">
+                  <Btn
+                    onClick={submitManual}
+                    disabled={manualSaving || !manualMins || parseFloat(manualMins) <= 0}
+                    className="flex-1"
+                  >
+                    {manualSaving ? "Saving…" : "Log it"}
+                  </Btn>
+                  <Btn variant="ghost" onClick={() => setShowManual(false)} className="flex-1">
+                    Cancel
+                  </Btn>
+                </div>
+              </div>
+            )}
+          </div>
+        </>
       )}
 
       {running && (
@@ -457,19 +561,18 @@ function MeditationSection({ meditations, setMeditations }) {
 
 // ─── Stats Section ─────────────────────────────────────────────────────────────
 function StatsSection({ cravings, meditations, soberStart, smoked }) {
-  const [win, setWin]     = useState("week");
-  const [showCravings, setShowCravings]   = useState(true);
+  const [win, setWin]                       = useState("week");
+  const [showCravings, setShowCravings]     = useState(true);
   const [showMeditation, setShowMeditation] = useState(true);
-  const [showGaveIn, setShowGaveIn]       = useState(true);
+  const [showGaveIn, setShowGaveIn]         = useState(true);
 
-  const now    = Date.now();
-  const winMs  = win === "day" ? 86400000 : win === "week" ? 604800000 : 2592000000;
+  const now   = Date.now();
+  const winMs = win === "day" ? 86400000 : win === "week" ? 604800000 : 2592000000;
 
-  const filtered     = cravings.filter(c => now - c.ts < winMs);
-  const filteredMeds = meditations.filter(m => now - m.ts < winMs);
+  const filtered       = cravings.filter(c => now - c.ts < winMs);
+  const filteredMeds   = meditations.filter(m => now - m.ts < winMs);
   const filteredSmoked = smoked.filter(s => now - s.ts < winMs);
 
-  // Build unified chart data grouped by day
   const dayMap = {};
   filtered.forEach(c => {
     const k = dayKey(c.ts);
@@ -488,9 +591,8 @@ function StatsSection({ cravings, meditations, soberStart, smoked }) {
   });
   const chartData = Object.values(dayMap).sort((a, b) => a.date.localeCompare(b.date));
 
-  const totalMedMins = filteredMeds.reduce((acc, m) => acc + m.secs / 60, 0);
-  const days         = soberDays(soberStart);
-
+  const totalMedMins  = filteredMeds.reduce((acc, m) => acc + m.secs / 60, 0);
+  const days          = soberDays(soberStart);
   const withReduction = filtered.filter(c => c.reduction !== undefined);
   const avgReduction  = withReduction.length
     ? (withReduction.reduce((a, c) => a + c.reduction, 0) / withReduction.length).toFixed(1)
@@ -500,7 +602,6 @@ function StatsSection({ cravings, meditations, soberStart, smoked }) {
     return n >= 7 ? "text-red-500" : n >= 4 ? "text-yellow-500" : "text-emerald-500";
   }
 
-  // Merge cravings + smoked into one log, sorted newest first
   const allEvents = [
     ...cravings.map(c => ({ ...c, type: "craving" })),
     ...smoked.map(s => ({ ...s, type: "smoked" })),
@@ -523,14 +624,13 @@ function StatsSection({ cravings, meditations, soberStart, smoked }) {
         </div>
       </div>
 
-      {/* Key stats — now 5 tiles, wraps naturally */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-5">
         {[
-          { label: "Days Clear",    value: days,                                      sub: "sober streak" },
-          { label: "Cravings",      value: filtered.length,                           sub: `this ${win}` },
-          { label: "Avg Reduction", value: avgReduction ? `−${avgReduction}` : "—",  sub: "intensity shift" },
-          { label: "Meditation",    value: `${Math.round(totalMedMins)}m`,            sub: `this ${win}` },
-          { label: "Gave In",       value: filteredSmoked.length,                     sub: `this ${win}` },
+          { label: "Days Clear",    value: days,                                     sub: "sober streak" },
+          { label: "Cravings",      value: filtered.length,                          sub: `this ${win}` },
+          { label: "Avg Reduction", value: avgReduction ? `−${avgReduction}` : "—", sub: "intensity shift" },
+          { label: "Meditation",    value: `${Math.round(totalMedMins)}m`,           sub: `this ${win}` },
+          { label: "Gave In",       value: filteredSmoked.length,                    sub: `this ${win}` },
         ].map(s => (
           <div key={s.label} className="rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3 text-center">
             <div className="text-2xl font-bold text-[var(--accent)]">{s.value}</div>
@@ -540,12 +640,11 @@ function StatsSection({ cravings, meditations, soberStart, smoked }) {
         ))}
       </div>
 
-      {/* Chart toggle — independent */}
       <div className="flex gap-1 mb-3 flex-wrap">
         {[
-          { key: "cravings",   label: "Cravings",   active: showCravings,   set: setShowCravings,   color: "bg-amber-400" },
-          { key: "meditation", label: "Meditation",  active: showMeditation, set: setShowMeditation, color: "bg-emerald-500" },
-          { key: "gaveIn",     label: "Gave In",     active: showGaveIn,     set: setShowGaveIn,     color: "bg-rose-400" },
+          { key: "cravings",   label: "Cravings",  active: showCravings,   set: setShowCravings },
+          { key: "meditation", label: "Meditation", active: showMeditation, set: setShowMeditation },
+          { key: "gaveIn",     label: "Gave In",    active: showGaveIn,     set: setShowGaveIn },
         ].map(({ key, label, active, set }) => (
           <button key={key} type="button" onClick={() => set(v => !v)}
             className={"rounded-lg px-3 py-1 text-xs font-medium transition-all " +
@@ -557,7 +656,6 @@ function StatsSection({ cravings, meditations, soberStart, smoked }) {
         ))}
       </div>
 
-      {/* Chart */}
       {chartData.length > 0 ? (
         <div className="mb-4">
           <ResponsiveContainer width="100%" height={150}>
@@ -584,21 +682,9 @@ function StatsSection({ cravings, meditations, soberStart, smoked }) {
             </LineChart>
           </ResponsiveContainer>
           <div className="flex gap-4 justify-center mt-1 flex-wrap">
-            {showCravings && (
-              <div className="flex items-center gap-1 text-xs text-[var(--muted)]">
-                <div className="w-3 h-0.5 bg-amber-400 rounded"/>Cravings
-              </div>
-            )}
-            {showMeditation && (
-              <div className="flex items-center gap-1 text-xs text-[var(--muted)]">
-                <div className="w-3 h-0.5 bg-emerald-500 rounded"/>Meditation
-              </div>
-            )}
-            {showGaveIn && (
-              <div className="flex items-center gap-1 text-xs text-[var(--muted)]">
-                <div className="w-3 h-0.5 bg-rose-400 rounded"/>Gave In
-              </div>
-            )}
+            {showCravings   && <div className="flex items-center gap-1 text-xs text-[var(--muted)]"><div className="w-3 h-0.5 bg-amber-400 rounded"/>Cravings</div>}
+            {showMeditation && <div className="flex items-center gap-1 text-xs text-[var(--muted)]"><div className="w-3 h-0.5 bg-emerald-500 rounded"/>Meditation</div>}
+            {showGaveIn     && <div className="flex items-center gap-1 text-xs text-[var(--muted)]"><div className="w-3 h-0.5 bg-rose-400 rounded"/>Gave In</div>}
           </div>
         </div>
       ) : (
@@ -607,7 +693,6 @@ function StatsSection({ cravings, meditations, soberStart, smoked }) {
         </div>
       )}
 
-      {/* Recent log — cravings + smoked interleaved */}
       {allEvents.length > 0 && (
         <div>
           <div className="text-xs text-[var(--muted)] mb-2">Recent log</div>
@@ -619,6 +704,9 @@ function StatsSection({ cravings, meditations, soberStart, smoked }) {
                     {new Date(e.ts).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
                   </span>
                   <div className="flex items-center gap-3">
+                    {e.skippedBreathing && (
+                      <span className="text-[var(--muted)] opacity-50" title="breathing skipped">⏭</span>
+                    )}
                     <span className="text-[var(--muted)]">
                       <span className={`font-semibold ${intensityColor(e.intensityBefore)}`}>{e.intensityBefore}</span>
                       {" → "}
@@ -651,53 +739,55 @@ function StatsSection({ cravings, meditations, soberStart, smoked }) {
 
 // ─── Gave In Section ──────────────────────────────────────────────────────────
 function SmokedSection({ smoked, setSmoked, soberStart, setSoberStart }) {
-  const [step, setStep] = useState("idle"); // idle | when | streak | done
-  const [showPicker, setShowPicker] = useState(false);
+  const [step, setStep]               = useState("idle");
+  const [showPicker, setShowPicker]   = useState(false);
   const [customDateTime, setCustomDateTime] = useState("");
-  const pendingEntryRef = useRef(null);
+  const [saving, setSaving]           = useState(false);
+  const pendingTsRef = useRef(null);
 
   function handleGaveIn() {
     setStep("when");
     setShowPicker(false);
-    // Pre-fill picker with current time for convenience
     const now = new Date();
     now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
     setCustomDateTime(now.toISOString().slice(0, 16));
   }
 
   function handleWhen(ts) {
-    const entry = { ts };
-    pendingEntryRef.current = entry;
+    pendingTsRef.current = ts;
     const days = soberDays(soberStart);
     if (soberStart && days > 0) {
       setStep("streak");
     } else {
-      commitLog(entry);
+      commitLog(ts, false);
     }
   }
 
-  function commitLog(entry) {
-    const updated = [entry, ...(smoked || [])];
-    setSmoked(updated);
-    saveJSON(LS_SMOKED, updated);
-    setStep("done");
+  async function commitLog(ts, resetStreak) {
+    setSaving(true);
+    try {
+      await api.post("/clear-and-calm/gave-in", {
+        occurred_at:  new Date(ts).toISOString(),
+        reset_streak: resetStreak,
+      });
+      const entry = { ts, type: "smoked" };
+      setSmoked(prev => [entry, ...prev]);
+      if (resetStreak) setSoberStart(new Date(ts).toISOString());
+      setStep("done");
+    } catch {
+      setStep("idle");
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function handleStreakReset() {
-    const ts = pendingEntryRef.current.ts;
-    setSoberStart(ts);
-    saveJSON(LS_SOBER_START, ts);
-    commitLog(pendingEntryRef.current);
-  }
-
-  function handleStreakKeep() {
-    commitLog(pendingEntryRef.current);
-  }
+  function handleStreakReset() { commitLog(pendingTsRef.current, true);  }
+  function handleStreakKeep()  { commitLog(pendingTsRef.current, false); }
 
   function reset() {
     setStep("idle");
     setShowPicker(false);
-    pendingEntryRef.current = null;
+    pendingTsRef.current = null;
   }
 
   const days = soberDays(soberStart);
@@ -715,12 +805,8 @@ function SmokedSection({ smoked, setSmoked, soberStart, setSoberStart }) {
         <div className="space-y-3">
           <div className="text-xs font-medium text-[var(--muted)]">When did it happen?</div>
           <div className="flex gap-2">
-            <Btn variant="primary" onClick={() => handleWhen(Date.now())} className="flex-1">
-              Now
-            </Btn>
-            <Btn variant="ghost" onClick={() => setShowPicker(v => !v)} className="flex-1">
-              Earlier…
-            </Btn>
+            <Btn variant="primary" onClick={() => handleWhen(Date.now())} className="flex-1">Now</Btn>
+            <Btn variant="ghost" onClick={() => setShowPicker(v => !v)} className="flex-1">Earlier…</Btn>
           </div>
           {showPicker && (
             <div className="flex gap-2 items-center pt-1">
@@ -733,9 +819,7 @@ function SmokedSection({ smoked, setSmoked, soberStart, setSoberStart }) {
               <Btn onClick={() => {
                 const ts = new Date(customDateTime).getTime();
                 if (!isNaN(ts)) handleWhen(ts);
-              }}>
-                Log
-              </Btn>
+              }}>Log</Btn>
             </div>
           )}
           <button type="button" onClick={reset}
@@ -752,8 +836,8 @@ function SmokedSection({ smoked, setSmoked, soberStart, setSoberStart }) {
           </div>
           <p className="text-xs text-[var(--muted)]">Do you want to reset it?</p>
           <div className="flex gap-2 justify-center">
-            <Btn variant="danger" onClick={handleStreakReset}>Reset streak</Btn>
-            <Btn variant="ghost" onClick={handleStreakKeep}>Keep it</Btn>
+            <Btn variant="danger" onClick={handleStreakReset} disabled={saving}>Reset streak</Btn>
+            <Btn variant="ghost" onClick={handleStreakKeep}  disabled={saving}>Keep it</Btn>
           </div>
         </div>
       )}
@@ -775,6 +859,17 @@ function SmokedSection({ smoked, setSmoked, soberStart, setSoberStart }) {
 function SoberStartBanner({ soberStart, setSoberStart }) {
   const [editing, setEditing] = useState(false);
   const [dateVal, setDateVal] = useState(() => new Date().toISOString().slice(0, 10));
+  const [saving, setSaving]   = useState(false);
+
+  async function save(isoString) {
+    setSaving(true);
+    try {
+      await api.put("/clear-and-calm/sober-start", { started_at: isoString });
+      setSoberStart(isoString);
+      setEditing(false);
+    } catch { /* stay in edit mode */ }
+    finally { setSaving(false); }
+  }
 
   if (soberStart && !editing) {
     const days = soberDays(soberStart);
@@ -802,14 +897,12 @@ function SoberStartBanner({ soberStart, setSoberStart }) {
       <div className="flex flex-wrap gap-2 items-center">
         <input type="date" value={dateVal} onChange={e => setDateVal(e.target.value)}
           className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 text-sm"/>
-        <Btn onClick={() => {
-          const ts = new Date(dateVal).getTime();
-          setSoberStart(ts); saveJSON(LS_SOBER_START, ts); setEditing(false);
-        }}>Set Date</Btn>
-        <Btn variant="ghost" onClick={() => {
-          const ts = Date.now();
-          setSoberStart(ts); saveJSON(LS_SOBER_START, ts); setEditing(false);
-        }}>Starting Today</Btn>
+        <Btn disabled={saving} onClick={() => save(new Date(dateVal).toISOString())}>
+          Set Date
+        </Btn>
+        <Btn variant="ghost" disabled={saving} onClick={() => save(new Date().toISOString())}>
+          Starting Today
+        </Btn>
       </div>
     </div>
   );
@@ -817,10 +910,58 @@ function SoberStartBanner({ soberStart, setSoberStart }) {
 
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 export default function ClearAndCalm() {
-  const [cravings, setCravings]       = useState(() => loadJSON(LS_CRAVINGS, []));
-  const [meditations, setMeditations] = useState(() => loadJSON(LS_MEDITATIONS, []));
-  const [soberStart, setSoberStart]   = useState(() => loadJSON(LS_SOBER_START, null));
-  const [smoked, setSmoked]           = useState(() => loadJSON(LS_SMOKED, []));
+  const navigate = useNavigate();
+
+  const [loading, setLoading]         = useState(true);
+  const [cravings, setCravings]       = useState([]);
+  const [meditations, setMeditations] = useState([]);
+  const [soberStart, setSoberStart]   = useState(null);
+  const [smoked, setSmoked]           = useState([]);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const { data } = await api.get("/clear-and-calm/sync");
+
+        setCravings(
+          (data.cravings || []).map(c => ({
+            ts:               new Date(c.recorded_at).getTime(),
+            intensityBefore:  c.intensity_before,
+            intensityAfter:   c.intensity_after,
+            reduction:        c.reduction,
+            skippedBreathing: c.skipped_breathing,
+          }))
+        );
+        setMeditations(
+          (data.meditations || []).map(m => ({
+            ts:   new Date(m.recorded_at).getTime(),
+            secs: m.duration_secs,
+          }))
+        );
+        setSmoked(
+          (data.gave_in || []).map(g => ({
+            ts: new Date(g.occurred_at).getTime(),
+          }))
+        );
+        setSoberStart(data.sober_start || null);
+      } catch (err) {
+        if (err?.response?.status === 401) {
+          navigate("/login");
+        }
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, [navigate]);
+
+  if (loading) {
+    return (
+      <main className="min-h-screen bg-[var(--bg)] text-[var(--text)] flex items-center justify-center">
+        <div className="text-sm text-[var(--muted)]">Loading…</div>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-[var(--bg)] text-[var(--text)]">
@@ -861,8 +1002,9 @@ export default function ClearAndCalm() {
         />
 
         <p className="text-center text-xs text-[var(--muted)] pb-4">
-          All data is stored locally on this device. Your journey, your privacy.
+          Your journey, your data. Stored securely to your account.
         </p>
+
       </div>
     </main>
   );
