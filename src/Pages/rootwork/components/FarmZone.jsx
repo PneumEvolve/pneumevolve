@@ -1,6 +1,6 @@
 // src/Pages/rootwork/components/FarmZone.jsx
  
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { CROPS } from "../gameConstants";
 import {
   getPlotUnlockCost,
@@ -116,50 +116,34 @@ export default function FarmZone({
   const tendActiveColor = "#365314";
   const tendHintBg = "rgba(163, 230, 53, 0.12)";
  
+  const investmentRef = useRef(null);
+  const [investOpen, setInvestOpen] = useState(false);
+
+  function scrollToInvestments() {
+    setInvestOpen(true);
+    setTimeout(() => {
+      investmentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  }
+
   return (
-    <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 4rem" }}>
+    <div style={{ maxWidth: "480px", margin: "0 auto", padding: "0.5rem 1rem 4rem" }}>
       <div
         style={{
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          marginBottom: "1rem",
+          marginBottom: "0.6rem",
         }}
       >
-        <div>
-          <h2
-            style={{
-              fontSize: "1.2rem",
-              fontWeight: 700,
-              display: "flex",
-              alignItems: "center",
-              gap: "0.4rem",
-            }}
-          >
-            {crop.emoji} {crop.name} Farm
-          </h2>
-          <p
-            style={{
-              fontSize: "0.72rem",
-              color: "var(--muted)",
-              marginTop: "0.15rem",
-            }}
-          >
-            {farm.unlockedPlots} plot{farm.unlockedPlots !== 1 ? "s" : ""} ·{" "}
-            {farmWorkers.length} worker{farmWorkers.length !== 1 ? "s" : ""}
-            {prestigeReady && (
-              <span style={{ marginLeft: "0.5rem", color: "#4ade80", fontWeight: 600 }}>
-                · Season ready ✓
-              </span>
-            )}
-          </p>
-        </div>
- 
+        <p style={{ fontSize: "0.72rem", color: "var(--muted)" }}>
+          {crop.emoji} {farm.unlockedPlots} plot{farm.unlockedPlots !== 1 ? "s" : ""} · {farmWorkers.length} worker{farmWorkers.length !== 1 ? "s" : ""}{prestigeReady && <span style={{ marginLeft: "0.4rem", color: "#4ade80", fontWeight: 600 }}>· Season ready ✓</span>}
+        </p>
         <div
           style={{
             fontSize: "0.7rem",
             fontWeight: 600,
-            padding: "0.25rem 0.65rem",
+            padding: "0.2rem 0.55rem",
             borderRadius: "999px",
             background: prestigeReady ? automatedBg : manualBg,
             border: `1px solid ${prestigeReady ? automatedBorder : manualBorder}`,
@@ -315,6 +299,26 @@ export default function FarmZone({
             );
           })()}
         </div>
+
+        {/* Farm Investments shortcut */}
+        <button
+          onClick={scrollToInvestments}
+          style={{
+            width: "100%",
+            marginTop: "0.4rem",
+            fontSize: "0.72rem",
+            padding: "0.3rem 0.5rem",
+            borderRadius: "8px",
+            cursor: "pointer",
+            background: "var(--bg)",
+            color: "var(--muted)",
+            border: "1px solid var(--border)",
+            fontWeight: 500,
+            transition: "all 0.15s",
+          }}
+        >
+          💰 Farm Investments
+        </button>
       </div>
  
       {tendMode && (
@@ -380,7 +384,8 @@ export default function FarmZone({
         </div>
       </Section>
  
-      <Section title="💰 Farm Investments" defaultOpen={false}>
+      <div ref={investmentRef}>
+      <Section title="💰 Farm Investments" defaultOpen={investOpen} key={investOpen ? "open" : "closed"}>
         <div style={{ paddingTop: "0.5rem" }}>
           <FarmInvestmentPanel
             farm={farm}
@@ -391,6 +396,7 @@ export default function FarmZone({
           />
         </div>
       </Section>
+      </div>
     </div>
   );
 }

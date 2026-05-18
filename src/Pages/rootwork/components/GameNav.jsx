@@ -1,85 +1,206 @@
-import React from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { CROPS, SEASON_FARMS, SEASONAL_QUESTS } from "../gameConstants";
 import { isFarmAutomated, isFarmPrestigeReady, getAvailableWorkerSlots, getCompletedQuestIds } from "../gameEngine";
  
 export const MAIN_TABS = ["farms", "market", "kitchen", "town", "world", "view"];
- 
+
+const CROP_ORDER = ["wheat", "berries", "tomatoes"];
+
 export function FarmSubTabs({ game, activeFarmIndex, onFarmChange }) {
-  const farms =
+  const [openCrop, setOpenCrop] = useState(null);
+  const dropdownRef = useRef(null);
+
+  const visibleFarms =
     game.season >= 4
       ? game.farms
       : game.farms.filter((f) =>
           (SEASON_FARMS[game.season] ?? ["wheat"]).includes(f.crop)
         );
- 
-  if (farms.length <= 1) return null;
- 
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    if (!openCrop) return;
+    function handleClick(e) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setOpenCrop(null);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [openCrop]);
+
+  if (visibleFarms.length <= 1) return null;
+
+  // Group farms by crop type
+  const cropTypes = CROP_ORDER.filter((cropId) =>
+    visibleFarms.some((f) => f.crop === cropId)
+  );
+
+  // Find which crop type the active farm belongs to
+  const activeFarm = visibleFarms[activeFarmIndex];
+  const activeCropType = activeFarm?.crop ?? null;
+
   return (
     <div
+      ref={dropdownRef}
       style={{
         background: "var(--bg-elev)",
         borderBottom: "1px solid var(--border)",
+        padding: "0.4rem 0.75rem",
         display: "flex",
-        overflowX: "auto",
-        scrollbarWidth: "none",
+        gap: "0.4rem",
+        flexWrap: "wrap",
+        position: "relative",
+        zIndex: 20,
       }}
     >
-      {farms.map((farm, idx) => {
-        const crop = CROPS[farm.crop];
-        const prestigeReady = isFarmPrestigeReady(farm, game.workers, game);
-        const automated = isFarmAutomated(farm, game.workers);
-        const isActive = activeFarmIndex === idx;
- 
-        const hasWorkers = (game.workers ?? []).some((w) => w.farmId === farm.id);
-        const hasReady = (farm.plots ?? []).some((p) => p.state === "ready");
-        const needsAttention = !hasWorkers && hasReady;
+      {cropTypes.map((cropId) => {
+        const crop = CROPS[cropId];
+        const farmsOfType = visibleFarms.filter((f) => f.crop === cropId);
+        const isActiveCrop = activeCropType === cropId;
+        const isOpen = openCrop === cropId;
+
+        const anyNeedsAttention = farmsOfType.some((farm) => {
+          const hasWorkers = (game.workers ?? []).some((w) => w.farmId === farm.id);
+          const hasReady = (farm.plots ?? []).some((p) => p.state === "ready");
+          return !hasWorkers && hasReady;
+        });
+        const anyPrestigeReady = farmsOfType.some((farm) =>
+          isFarmPrestigeReady(farm, game.workers, game)
+        );
 
         return (
-          <button
-            key={farm.id}
-            onClick={() => onFarmChange(idx)}
-            style={{
-              position: "relative",
-              flex: "0 0 auto",
-              display: "flex",
-              alignItems: "center",
-              gap: "0.35rem",
-              padding: "0.5rem 1rem",
-              background: "none",
-              border: "none",
-              borderBottom: isActive
-                ? "2px solid var(--accent)"
-                : "2px solid transparent",
-              cursor: "pointer",
-              color: isActive ? "var(--accent)" : "var(--muted)",
-              fontWeight: isActive ? 600 : 400,
-              fontSize: "0.78rem",
-              whiteSpace: "nowrap",
-            }}
-          >
-            <span>{crop.emoji}</span>
-            <span>{crop.name}</span>
-            {prestigeReady && (
-              <span
+          <div key={cropId} style={{ position: "relative" }}>
+            <button
+              onClick={() => {
+                if (farmsOfType.length === 1) {
+                  const idx = visibleFarms.indexOf(farmsOfType[0]);
+                  onFarmChange(idx);
+                  setOpenCrop(null);
+                } else {
+                  setOpenCrop(isOpen ? null : cropId);
+                }
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.3rem",
+                padding: "0.28rem 0.65rem",
+                borderRadius: "999px",
+                border: `1px solid ${isActiveCrop ? "var(--accent)" : "var(--border)"}`,
+                background: isActiveCrop
+                  ? "rgba(99,102,241,0.15)"
+                  : "var(--bg)",
+                color: isActiveCrop ? "var(--accent)" : "var(--muted)",
+                fontWeight: isActiveCrop ? 600 : 400,
+                fontSize: "0.75rem",
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              <span>{crop.emoji}</span>
+              <span>{crop.name}</span>
+              {farmsOfType.length > 1 && (
+                <span
+                  style={{
+                    fontSize: "0.65rem",
+                    background: isActiveCrop
+                      ? "rgba(99,102,241,0.25)"
+                      : "rgba(255,255,255,0.08)",
+                    borderRadius: "999px",
+                    padding: "0 0.3rem",
+                    fontWeight: 700,
+                    color: isActiveCrop ? "var(--accent)" : "var(--muted)",
+                  }}
+                >
+                  {farmsOfType.length}
+                </span>
+              )}
+              {anyPrestigeReady && (
+                <span style={{ fontSize: "0.6rem", color: "#4ade80", fontWeight: 700 }}>\u2713</span>
+              )}
+              {anyNeedsAttention && (
+                <span style={{
+                  fontSize: "0.55rem", fontWeight: 700,
+                  background: "#ef4444", color: "#fff",
+                  borderRadius: "999px", padding: "1px 4px",
+                }}>!</span>
+              )}
+              {farmsOfType.length > 1 && (
+                <span style={{ fontSize: "0.6rem", color: "var(--muted)", marginLeft: "1px" }}>
+                  {isOpen ? "\u25b2" : "\u25bc"}
+                </span>
+              )}
+            </button>
+
+            {isOpen && (
+              <div
                 style={{
-                  fontSize: "0.6rem",
-                  color: "#4ade80",
-                  fontWeight: 700,
+                  position: "absolute",
+                  top: "calc(100% + 4px)",
+                  left: 0,
+                  background: "var(--bg-elev)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "10px",
+                  boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
+                  minWidth: "150px",
+                  zIndex: 100,
+                  overflow: "hidden",
                 }}
               >
-                ✓
-              </span>
+                {farmsOfType.map((farm, i) => {
+                  const globalIdx = visibleFarms.indexOf(farm);
+                  const isSelected = activeFarmIndex === globalIdx;
+                  const hasWorkers = (game.workers ?? []).some((w) => w.farmId === farm.id);
+                  const hasReady = (farm.plots ?? []).some((p) => p.state === "ready");
+                  const needsAttention = !hasWorkers && hasReady;
+                  const prestigeReady = isFarmPrestigeReady(farm, game.workers, game);
+
+                  return (
+                    <button
+                      key={farm.id}
+                      onClick={() => {
+                        onFarmChange(globalIdx);
+                        setOpenCrop(null);
+                      }}
+                      style={{
+                        width: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.4rem",
+                        padding: "0.5rem 0.75rem",
+                        background: isSelected ? "rgba(99,102,241,0.15)" : "none",
+                        border: "none",
+                        borderBottom: i < farmsOfType.length - 1
+                          ? "1px solid var(--border)"
+                          : "none",
+                        cursor: "pointer",
+                        color: isSelected ? "var(--accent)" : "var(--text)",
+                        fontSize: "0.78rem",
+                        fontWeight: isSelected ? 600 : 400,
+                        textAlign: "left",
+                      }}
+                    >
+                      <span>{crop.emoji}</span>
+                      <span style={{ flex: 1 }}>
+                        {crop.name} Farm {i + 1}
+                      </span>
+                      {prestigeReady && (
+                        <span style={{ fontSize: "0.6rem", color: "#4ade80", fontWeight: 700 }}>\u2713</span>
+                      )}
+                      {needsAttention && (
+                        <span style={{
+                          fontSize: "0.55rem", fontWeight: 700,
+                          background: "#ef4444", color: "#fff",
+                          borderRadius: "999px", padding: "1px 4px",
+                        }}>!</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             )}
-            {needsAttention && (
-              <span style={{
-                position: "absolute", top: "4px", right: "6px",
-                background: "#ef4444", color: "#fff",
-                fontSize: "0.5rem", fontWeight: 700,
-                borderRadius: "999px", padding: "1px 3px",
-                lineHeight: 1.4, minWidth: "12px", textAlign: "center",
-              }}>!</span>
-            )}
-          </button>
+          </div>
         );
       })}
     </div>
