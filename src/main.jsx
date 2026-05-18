@@ -80,6 +80,8 @@ import ClearAndCalm from "./Pages/ClearAndCalm";
 import About from "./Pages/About";
 
 import PwaManifest from "@/components/PwaManifest";
+
+import FireflyGame from "./Pages/Firefly/index";
  
 import { HelmetProvider } from "react-helmet-async";
 import "./index.css";
@@ -193,6 +195,8 @@ function Root() {
 
                 <Route path="/clear-and-calm" element={<RequireAuth><ClearAndCalm /></RequireAuth>} />
                 <Route path="/about" element={<About />} />
+
+                <Route path="/firefly" element={<RequireAuth><FireflyGame /></RequireAuth>} />
 
                 
  
