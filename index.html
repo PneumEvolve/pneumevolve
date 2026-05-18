@@ -3,24 +3,25 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="manifest" href="/manifest-clearandcalm.json" />
 
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     
     <title>PneumEvolve – An Experiment in Thinking More Clearly</title>
 
-<meta
-  name="description"
-  content="PneumEvolve is a small collection of experiments—pages designed to explore decisions, patterns, and ideas without pressure or promises."
-/>
+    <meta
+      name="description"
+      content="PneumEvolve is a small collection of experiments—pages designed to explore decisions, patterns, and ideas without pressure or promises."
+    />
 
-<meta property="og:title" content="PneumEvolve" />
+    <meta property="og:title" content="PneumEvolve" />
 
-<meta
-  property="og:description"
-  content="An evolving set of experiments in thinking, decision-making, and curiosity. Nothing to fix. Just things you might find interesting."
-/>
+    <meta
+      property="og:description"
+      content="An evolving set of experiments in thinking, decision-making, and curiosity. Nothing to fix. Just things you might find interesting."
+    />
 
-<meta property="og:image" content="https://pneumevolve.com/logo.png" />
+    <meta property="og:image" content="https://pneumevolve.com/logo.png" />
 
     <!-- Theme pre-load script: runs before app mount -->
     <script>
@@ -37,16 +38,25 @@
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
 
-   <script>
-  (function () {
-    const on = new URLSearchParams(location.search).has('debug');
-    if (!on) return;
-    var s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/eruda';
-    s.onload = function(){ eruda.init(); };
-    document.body.appendChild(s);
-  })();
-</script> 
+    <!-- PWA service worker registration -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch(() => {});
+        });
+      }
+    </script>
+
+    <script>
+      (function () {
+        const on = new URLSearchParams(location.search).has('debug');
+        if (!on) return;
+        var s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/eruda';
+        s.onload = function(){ eruda.init(); };
+        document.body.appendChild(s);
+      })();
+    </script> 
 
   </body>
 </html>

@@ -1,0 +1,14 @@
+{
+  "name": "Clear & Calm",
+  "short_name": "Clear & Calm",
+  "description": "Track cravings, breathe through them, build your stillness practice.",
+  "start_url": "/clear-and-calm",
+  "display": "standalone",
+  "background_color": "#0e9aa7",
+  "theme_color": "#0e9aa7",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/icons/cc-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/cc-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

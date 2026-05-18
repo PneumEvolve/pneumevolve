@@ -78,6 +78,8 @@ import Thoughts from "./Pages/Thoughts";
 
 import ClearAndCalm from "./Pages/ClearAndCalm";
 import About from "./Pages/About";
+
+import PwaManifest from "@/components/PwaManifest";
  
 import { HelmetProvider } from "react-helmet-async";
 import "./index.css";
@@ -190,6 +192,8 @@ function Root() {
 
                 <Route path="/clear-and-calm" element={<RequireAuth><ClearAndCalm /></RequireAuth>} />
                 <Route path="/about" element={<About />} />
+
+                <PwaManifest />
  
                 <Route path="/privacy" element={<PrivacyPolicy />} />
                 <Route path="/terms" element={<Terms />} />
