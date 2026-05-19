@@ -10,21 +10,135 @@ const COLLECT_R       = 18;
 const ZOMBIE_HIT_R    = 28;
 const PLAYER_R        = 10;
 const GAME_DURATION   = 180;
-const ZOMBIE_SPAWN    = 150;
+const ZOMBIE_SPAWN    = 90;    // halfway through
 const FIREFLY_LIGHT   = 72;
 const MOVE_THROTTLE   = 50;
 const MAX_HP          = 3;
-const INVINCIBLE_SECS = 1.5;   // invincibility window after trap/mushroom hit
-const MUSHROOM_SECS   = 4;     // how long controls stay reversed
-const HOLE_ZOMBIE_R   = 150;   // zombie falls in if within this radius of hole
-const ZOMBIE_RESPAWN  = 15;    // seconds before zombie respawns after falling in hole
+const INVINCIBLE_SECS = 1.5;
+const MUSHROOM_SECS   = 4;
+const ZOMBIE_RESPAWN  = 15;
 const SPIKE_PENALTY   = 1;
-const ZOMBIE_PENALTY  = 3;     // instakill
 
-// Simple seeded rand for teleport (doesn't need to match map seed)
 function makeRand(seed) {
   let s = seed;
   return () => { s = (s * 1664525 + 1013904223) & 0xffffffff; return (s >>> 0) / 0xffffffff; };
+}
+
+// ── Sound engine (Web Audio, no files needed) ─────────────────────────────────
+function createSoundEngine() {
+  let ctx = null;
+
+  function getCtx() {
+    if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (ctx.state === "suspended") ctx.resume();
+    return ctx;
+  }
+
+  // Pre-warm the AudioContext on first user gesture so growl works immediately
+  function unlock() {
+    try { getCtx(); } catch {}
+  }
+
+  function playCollect() {
+    try {
+      const ac = getCtx();
+      const osc = ac.createOscillator(), gain = ac.createGain();
+      osc.connect(gain); gain.connect(ac.destination);
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(880, ac.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(1320, ac.currentTime + 0.08);
+      gain.gain.setValueAtTime(0.18, ac.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.4);
+      osc.start(ac.currentTime); osc.stop(ac.currentTime + 0.4);
+    } catch {}
+  }
+
+  function playPing() {
+    try {
+      const ac = getCtx();
+      const osc = ac.createOscillator(), gain = ac.createGain();
+      osc.connect(gain); gain.connect(ac.destination);
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(660, ac.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(440, ac.currentTime + 0.15);
+      gain.gain.setValueAtTime(0.14, ac.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.5);
+      osc.start(ac.currentTime); osc.stop(ac.currentTime + 0.5);
+    } catch {}
+  }
+
+  function playHit() {
+    try {
+      const ac = getCtx();
+      const osc = ac.createOscillator(), gain = ac.createGain();
+      osc.connect(gain); gain.connect(ac.destination);
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(120, ac.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(40, ac.currentTime + 0.3);
+      gain.gain.setValueAtTime(0.22, ac.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.3);
+      osc.start(ac.currentTime); osc.stop(ac.currentTime + 0.3);
+    } catch {}
+  }
+
+  let growlNodes = null;
+  function updateGrowl(proximity) {
+    try {
+      const ac = getCtx();
+      if (!growlNodes) {
+        const osc1 = ac.createOscillator(), osc2 = ac.createOscillator();
+        const gain = ac.createGain(), lfo = ac.createOscillator(), lfoGain = ac.createGain();
+        // Softer: sine + triangle instead of sawtooth + square, lower frequencies
+        osc1.type = "sine";     osc1.frequency.value = 42;
+        osc2.type = "triangle"; osc2.frequency.value = 44;
+        // Slower, gentler LFO — more "distant rumble" than "buzz"
+        lfo.type  = "sine";     lfo.frequency.value  = 1.2;
+        lfoGain.gain.value = 4;
+        lfo.connect(lfoGain); lfoGain.connect(osc1.frequency);
+        osc1.connect(gain); osc2.connect(gain); gain.connect(ac.destination);
+        gain.gain.value = 0;
+        osc1.start(); osc2.start(); lfo.start();
+        growlNodes = { osc1, osc2, gain, lfo };
+      }
+      // Max volume 0.18 with slower attack (0.6s time constant)
+      growlNodes.gain.gain.setTargetAtTime(proximity * 0.18, getCtx().currentTime, 0.6);
+    } catch {}
+  }
+
+  function stopGrowl() {
+    try {
+      if (growlNodes) {
+        growlNodes.osc1.stop(); growlNodes.osc2.stop(); growlNodes.lfo.stop();
+        growlNodes = null;
+      }
+    } catch {}
+  }
+
+  return { playCollect, playPing, playHit, updateGrowl, stopGrowl, unlock,
+    playZombieKill() {
+      try {
+        const ac = getCtx();
+        // Descending zap — high to low, short and punchy
+        const osc  = ac.createOscillator(), gain = ac.createGain();
+        const osc2 = ac.createOscillator(), gain2 = ac.createGain();
+        osc.connect(gain);   gain.connect(ac.destination);
+        osc2.connect(gain2); gain2.connect(ac.destination);
+        osc.type  = "sawtooth";
+        osc.frequency.setValueAtTime(480, ac.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(60, ac.currentTime + 0.35);
+        gain.gain.setValueAtTime(0.18, ac.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.35);
+        osc.start(ac.currentTime); osc.stop(ac.currentTime + 0.35);
+        // Layered shimmer
+        osc2.type = "sine";
+        osc2.frequency.setValueAtTime(900, ac.currentTime);
+        osc2.frequency.exponentialRampToValueAtTime(200, ac.currentTime + 0.25);
+        gain2.gain.setValueAtTime(0.10, ac.currentTime);
+        gain2.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.25);
+        osc2.start(ac.currentTime); osc2.stop(ac.currentTime + 0.25);
+      } catch {}
+    },
+  };
 }
 
 export default function PlayerOneView({ room, onGameOver }) {
@@ -37,17 +151,27 @@ export default function PlayerOneView({ room, onGameOver }) {
   const lastZombieRef      = useRef(0);
   const lastFireflySyncRef = useRef(0);
   const lightCanvasRef     = useRef(null);
+  const soundRef           = useRef(null);
 
   // ── Realtime handlers ─────────────────────────────────────────────────────
   const handlers = useCallback({
     onPing: ({ x, y }) => {
       if (!stateRef.current) return;
       stateRef.current.pings.push({ x, y, expiresAt: Date.now() + 3000 });
+      soundRef.current?.playPing();
     },
     onChat: ({ text, from }) => {
       if (!stateRef.current) return;
       stateRef.current.chatMessages.unshift({ text, from, ts: Date.now() });
       if (stateRef.current.chatMessages.length > 20) stateRef.current.chatMessages.pop();
+    },
+    onZombieKill: () => {
+      if (!stateRef.current) return;
+      stateRef.current.zombie = null;
+      stateRef.current.zombieRespawnIn = ZOMBIE_RESPAWN;
+      stateRef.current.savedFlash = 1;
+      soundRef.current?.playZombieKill();
+      soundRef.current?.updateGrowl(0);
     },
   }, []);
 
@@ -58,28 +182,29 @@ export default function PlayerOneView({ room, onGameOver }) {
   function initState() {
     const map = generateMap(room.map_seed);
     return {
-      player:           { x: WORLD / 2, y: WORLD / 2 },
-      zombie:           null,
-      zombieRespawnIn:  0,    // countdown before zombie respawns
-      walls:            map.walls,
-      fireflies:        map.fireflies,
-      mushrooms:        map.mushrooms,
-      holes:            map.holes,
-      spikes:           map.spikes,
-      score:            0,
-      timeLeft:         GAME_DURATION,
-      lastTime:         performance.now(),
-      hp:               MAX_HP,
-      invincible:       0,    // seconds remaining of invincibility
-      mushroomEffect:   0,    // seconds remaining of reversed controls
-      hitFlash:         0,
-      mushroomFlash:    0,
-      holeFlash:        0,
-      zombieSpawned:    false,
-      pings:            [],
-      chatMessages:     [],
-      over:             false,
-      teleportRand:     makeRand(room.map_seed + 99),
+      player:          { x: WORLD / 2, y: WORLD / 2 },
+      zombie:          null,
+      zombieRespawnIn: 0,
+      walls:           map.walls,
+      fireflies:       map.fireflies,
+      mushrooms:       map.mushrooms,
+      holes:           map.holes,
+      spikes:          map.spikes,
+      score:           0,
+      timeLeft:        GAME_DURATION,
+      lastTime:        performance.now(),
+      hp:              MAX_HP,
+      invincible:      0,
+      mushroomEffect:  0,
+      hitFlash:        0,
+      mushroomFlash:   0,
+      holeFlash:       0,
+      zombieSpawned:   false,
+      pings:           [],
+      chatMessages:    [],
+      over:            false,
+      savedFlash:      0,   // brief "navigator saved you!" message
+      teleportRand:    makeRand(room.map_seed + 99),
     };
   }
 
@@ -89,7 +214,6 @@ export default function PlayerOneView({ room, onGameOver }) {
     lightCtx.fillRect(0, 0, W, H);
     lightCtx.globalCompositeOperation = "destination-out";
 
-    // Small player glow so dot always readable
     const pg = lightCtx.createRadialGradient(W/2, H/2, 0, W/2, H/2, 18);
     pg.addColorStop(0, "rgba(0,0,0,0.35)");
     pg.addColorStop(1, "rgba(0,0,0,0)");
@@ -122,7 +246,6 @@ export default function PlayerOneView({ room, onGameOver }) {
     ctx.fillStyle = "#080c14";
     ctx.fillRect(0, 0, W, H);
 
-    // Walls
     walls.forEach(w => {
       const sx = W/2 + (w.x - player.x);
       const sy = H/2 + (w.y - player.y);
@@ -133,21 +256,18 @@ export default function PlayerOneView({ room, onGameOver }) {
       ctx.strokeRect(sx, sy, w.w, w.h);
     });
 
-    // Spike traps — only visible in firefly light (drawn before darkness)
     spikes.forEach(s => {
       const sx = W/2 + (s.x - player.x);
       const sy = H/2 + (s.y - player.y);
       if (sx < -30 || sx > W+30 || sy < -30 || sy > H+30) return;
-      // Draw spike pattern
       ctx.save();
       ctx.globalAlpha = 0.7;
       ctx.translate(sx, sy);
-      const spk = 5;
       for (let i = 0; i < 8; i++) {
         const angle = (i / 8) * Math.PI * 2;
         ctx.beginPath();
         ctx.moveTo(0, 0);
-        ctx.lineTo(Math.cos(angle) * spk * 2.2, Math.sin(angle) * spk * 2.2);
+        ctx.lineTo(Math.cos(angle) * 11, Math.sin(angle) * 11);
         ctx.strokeStyle = "#cc4444"; ctx.lineWidth = 1.5; ctx.stroke();
       }
       ctx.beginPath(); ctx.arc(0, 0, 4, 0, Math.PI * 2);
@@ -155,7 +275,6 @@ export default function PlayerOneView({ room, onGameOver }) {
       ctx.restore();
     });
 
-    // Holes — visible in firefly light (drawn before darkness)
     holes.forEach(h => {
       const sx = W/2 + (h.x - player.x);
       const sy = H/2 + (h.y - player.y);
@@ -164,13 +283,11 @@ export default function PlayerOneView({ room, onGameOver }) {
       ctx.beginPath(); ctx.arc(sx, sy, h.radius, 0, Math.PI * 2);
       ctx.fillStyle = "#000000"; ctx.fill();
       ctx.strokeStyle = "#1a1a2e"; ctx.lineWidth = 2; ctx.stroke();
-      // Concentric rings for depth
       ctx.beginPath(); ctx.arc(sx, sy, h.radius * 0.6, 0, Math.PI * 2);
       ctx.strokeStyle = "rgba(0,0,0,0.8)"; ctx.lineWidth = 1; ctx.stroke();
       ctx.restore();
     });
 
-    // Fireflies
     fireflies.forEach(f => {
       if (f.collected) return;
       const sx = W/2 + (f.x - player.x);
@@ -189,7 +306,6 @@ export default function PlayerOneView({ room, onGameOver }) {
       ctx.restore();
     });
 
-    // Zombie
     if (zombie) {
       const sx = W/2 + (zombie.x - player.x);
       const sy = H/2 + (zombie.y - player.y);
@@ -204,11 +320,9 @@ export default function PlayerOneView({ room, onGameOver }) {
       }
     }
 
-    // ── Pings — punch own light + draw on top of darkness ─────────────────
     const now = Date.now();
     state.pings = pings.filter(p => p.expiresAt > now);
 
-    // Punch ping holes in light map
     state.pings.forEach(p => {
       const sx = W/2 + (p.x - player.x);
       const sy = H/2 + (p.y - player.y);
@@ -224,11 +338,9 @@ export default function PlayerOneView({ room, onGameOver }) {
       lightCtx.globalCompositeOperation = "source-over";
     });
 
-    // Stamp darkness
     buildLightMap(lightCtx, fireflies, player, t, W, H);
     ctx.drawImage(lightCtx.canvas, 0, 0);
 
-    // Draw pings on top of darkness
     state.pings.forEach(p => {
       const sx = W/2 + (p.x - player.x);
       const sy = H/2 + (p.y - player.y);
@@ -259,7 +371,6 @@ export default function PlayerOneView({ room, onGameOver }) {
       }
     });
 
-    // Player dot — always on top
     const cx2 = W/2, cy2 = H/2;
     if (hitFlash > 0) {
       ctx.save(); ctx.globalAlpha = hitFlash * 0.4;
@@ -271,7 +382,6 @@ export default function PlayerOneView({ room, onGameOver }) {
       ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
       ctx.restore();
     }
-    // Mushroom effect — purple tint on screen edges
     if (mushroomFlash > 0 || mushroomEffect > 0) {
       ctx.save();
       ctx.globalAlpha = Math.min(0.35, mushroomFlash * 0.5 + (mushroomEffect > 0 ? 0.15 : 0));
@@ -287,12 +397,10 @@ export default function PlayerOneView({ room, onGameOver }) {
     ctx.beginPath(); ctx.arc(cx2, cy2, 10 * pulse, 0, Math.PI*2);
     ctx.fillStyle = "rgba(255,255,255,0.12)"; ctx.fill();
     ctx.beginPath(); ctx.arc(cx2, cy2, 4, 0, Math.PI*2);
-    // Tint player dot purple when mushroom active
     ctx.fillStyle = mushroomEffect > 0 ? "rgba(200,100,255,0.95)" : "rgba(255,255,255,0.9)";
     ctx.fill();
     ctx.restore();
 
-    // HUD — score, timer, HP
     ctx.save();
     ctx.font = "500 22px sans-serif";
     ctx.fillStyle = "rgba(255,255,255,0.9)";
@@ -302,7 +410,6 @@ export default function PlayerOneView({ room, onGameOver }) {
     const m = Math.floor(state.timeLeft / 60);
     const s = Math.floor(state.timeLeft % 60);
     ctx.fillText(`${m}:${String(s).padStart(2,"0")}`, 18, 56);
-    // HP dots
     for (let i = 0; i < MAX_HP; i++) {
       ctx.beginPath(); ctx.arc(18 + i * 16, 72, 5, 0, Math.PI*2);
       ctx.fillStyle = i < hp ? "rgba(100,220,255,0.9)" : "rgba(255,255,255,0.15)";
@@ -310,7 +417,6 @@ export default function PlayerOneView({ room, onGameOver }) {
     }
     ctx.restore();
 
-    // Mushroom countdown
     if (mushroomEffect > 0) {
       ctx.save();
       ctx.font = "12px sans-serif";
@@ -320,7 +426,6 @@ export default function PlayerOneView({ room, onGameOver }) {
       ctx.restore();
     }
 
-    // Zombie respawn countdown
     if (state.zombieRespawnIn > 0) {
       ctx.save();
       ctx.font = "12px sans-serif";
@@ -330,7 +435,6 @@ export default function PlayerOneView({ room, onGameOver }) {
       ctx.restore();
     }
 
-    // Zombie warning
     if (zombie) {
       const dx = zombie.x - player.x, dy = zombie.y - player.y;
       const dist = Math.sqrt(dx*dx + dy*dy);
@@ -344,7 +448,6 @@ export default function PlayerOneView({ room, onGameOver }) {
       }
     }
 
-    // Chat
     if (state.chatMessages.length > 0) {
       const msg = state.chatMessages[0];
       const age = (Date.now() - msg.ts) / 1000;
@@ -357,6 +460,16 @@ export default function PlayerOneView({ room, onGameOver }) {
         ctx.fillText(`${msg.from}: ${msg.text}`, W/2, H - 30);
         ctx.restore();
       }
+    }
+
+    if (state.savedFlash > 0) {
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, state.savedFlash * 1.5);
+      ctx.font = "bold 14px sans-serif";
+      ctx.fillStyle = "rgba(255,120,120,0.95)";
+      ctx.textAlign = "center";
+      ctx.fillText("navigator killed the zombie ✦", W/2, H/2 - 40);
+      ctx.restore();
     }
   }
 
@@ -382,14 +495,13 @@ export default function PlayerOneView({ room, onGameOver }) {
     state.lastTime = ts;
     state.timeLeft = Math.max(0, state.timeLeft - dt);
 
-    // Tick timers
-    if (state.hitFlash > 0)      state.hitFlash      = Math.max(0, state.hitFlash - dt * 3);
-    if (state.mushroomFlash > 0) state.mushroomFlash = Math.max(0, state.mushroomFlash - dt * 3);
-    if (state.holeFlash > 0)     state.holeFlash     = Math.max(0, state.holeFlash - dt * 4);
-    if (state.invincible > 0)    state.invincible    = Math.max(0, state.invincible - dt);
+    if (state.hitFlash > 0)       state.hitFlash      = Math.max(0, state.hitFlash - dt * 3);
+    if (state.mushroomFlash > 0)  state.mushroomFlash = Math.max(0, state.mushroomFlash - dt * 3);
+    if (state.holeFlash > 0)      state.holeFlash     = Math.max(0, state.holeFlash - dt * 4);
+    if (state.invincible > 0)     state.invincible    = Math.max(0, state.invincible - dt);
     if (state.mushroomEffect > 0) state.mushroomEffect = Math.max(0, state.mushroomEffect - dt);
+    if (state.savedFlash > 0)     state.savedFlash    = Math.max(0, state.savedFlash - dt * 0.4);
 
-    // Zombie respawn
     if (state.zombieRespawnIn > 0) {
       state.zombieRespawnIn = Math.max(0, state.zombieRespawnIn - dt);
       if (state.zombieRespawnIn === 0) {
@@ -400,7 +512,6 @@ export default function PlayerOneView({ room, onGameOver }) {
       }
     }
 
-    // Spawn zombie
     if (!state.zombieSpawned && state.timeLeft <= ZOMBIE_SPAWN) {
       state.zombieSpawned = true;
       state.zombie = {
@@ -411,6 +522,7 @@ export default function PlayerOneView({ room, onGameOver }) {
 
     if (state.timeLeft <= 0) {
       state.over = true;
+      soundRef.current?.stopGrowl();
       onGameOver(state.score);
       return;
     }
@@ -424,8 +536,6 @@ export default function PlayerOneView({ room, onGameOver }) {
     if (keys["ArrowUp"]    || keys["w"] || keys["W"]) vy -= 1;
     if (keys["ArrowDown"]  || keys["s"] || keys["S"]) vy += 1;
     if (joy.active) { vx += joy.vec.x; vy += joy.vec.y; }
-
-    // Reverse controls if mushroom active
     if (state.mushroomEffect > 0) { vx = -vx; vy = -vy; }
 
     const len = Math.sqrt(vx*vx + vy*vy);
@@ -434,7 +544,6 @@ export default function PlayerOneView({ room, onGameOver }) {
       state.player = moveWithSlide(state.player.x, state.player.y, vx, vy, dt, PLAYER_SPEED, PLAYER_R, state.walls);
     }
 
-    // Broadcast position
     if (ts - lastMoveRef.current > MOVE_THROTTLE) {
       sendPlayerMove(state.player.x, state.player.y);
       lastMoveRef.current = ts;
@@ -444,7 +553,10 @@ export default function PlayerOneView({ room, onGameOver }) {
     const prevScore = state.score;
     updateFireflies(state.fireflies, state.player, dt, COLLECT_R);
     state.score = state.fireflies.filter(f => f.collected).length;
-    if (state.score !== prevScore) sendScoreUpdate(state.score, state.score - prevScore);
+    if (state.score !== prevScore) {
+      soundRef.current?.playCollect();
+      sendScoreUpdate(state.score, state.score - prevScore);
+    }
     if (ts - lastFireflySyncRef.current > 100) {
       sendFireflySync(state.fireflies.map(f => ({ id: f.id, x: f.x, y: f.y, pulse: f.pulse, size: f.size, collected: f.collected })));
       lastFireflySyncRef.current = ts;
@@ -455,64 +567,97 @@ export default function PlayerOneView({ room, onGameOver }) {
       const dx = state.player.x - state.zombie.x;
       const dy = state.player.y - state.zombie.y;
       const dist = Math.sqrt(dx*dx + dy*dy);
+
       if (dist > 0) {
-        state.zombie.x += (dx/dist) * ZOMBIE_SPEED * dt;
-        state.zombie.y += (dy/dist) * ZOMBIE_SPEED * dt;
+        state.zombie.x += (dx / dist) * ZOMBIE_SPEED * dt;
+        state.zombie.y += (dy / dist) * ZOMBIE_SPEED * dt;
       }
+
       if (ts - lastZombieRef.current > MOVE_THROTTLE) {
         sendZombieUpdate(state.zombie.x, state.zombie.y);
         lastZombieRef.current = ts;
       }
 
-      // Zombie hits player — instakill (full ZOMBIE_PENALTY = MAX_HP)
+      // Proximity growl — 0 at 600px, full at 80px
+      const proximity = Math.max(0, Math.min(1, (600 - dist) / 520));
+      soundRef.current?.updateGrowl(proximity);
+
+      // Zombie hits player
       if (dist < ZOMBIE_HIT_R && state.invincible === 0) {
-        state.hitFlash    = 1;
-        state.invincible  = INVINCIBLE_SECS;
-        state.hp          = 0;
+        state.hitFlash   = 1;
+        state.invincible = INVINCIBLE_SECS;
+        state.hp         = 0;
+        soundRef.current?.playHit();
       }
 
-      // Zombie falls in hole
-      state.holes.forEach(h => {
+      // ── Zombie falls in hole ────────────────────────────────────────────
+      // Use for...of + break so we stop the moment zombie is nulled.
+      // A forEach would keep iterating and crash reading .x on null.
+      for (const h of state.holes) {
+        if (!state.zombie) break;                          // ← guard: already fell in
         if (circleOverlap(state.zombie.x, state.zombie.y, 8, h.x, h.y, h.radius)) {
           state.zombie = null;
           state.zombieRespawnIn = ZOMBIE_RESPAWN;
+          soundRef.current?.updateGrowl(0);
+          break;                                           // ← stop iterating immediately
         }
-      });
+      }
+    } else {
+      soundRef.current?.updateGrowl(0);
     }
 
-    // ── Mushrooms (P2-visible only, invisible to P1) ──────────────────────
+    // ── Mushrooms ────────────────────────────────────────────────────────
     if (state.invincible === 0) {
       state.mushrooms.forEach(m => {
         if (circleOverlap(state.player.x, state.player.y, PLAYER_R, m.x, m.y, m.radius)) {
           state.mushroomEffect = MUSHROOM_SECS;
           state.mushroomFlash  = 1;
           state.invincible     = INVINCIBLE_SECS;
+          soundRef.current?.playHit();
         }
       });
     }
 
-    // ── Holes ────────────────────────────────────────────────────────────
+    // ── Holes (player) ───────────────────────────────────────────────────
     if (state.invincible === 0) {
-      state.holes.forEach(h => {
+      for (const h of state.holes) {
         if (circleOverlap(state.player.x, state.player.y, PLAYER_R * 0.6, h.x, h.y, h.radius * 0.7)) {
-          // Teleport to random open spot
           const pos = randomOpenPos(state.walls, state.teleportRand);
-          state.player    = pos;
-          state.holeFlash = 1;
+          state.player     = pos;
+          state.holeFlash  = 1;
+          state.hp         = Math.max(0, state.hp - 1);
           state.invincible = INVINCIBLE_SECS;
+          soundRef.current?.playHit();
+          break;
         }
-      });
+      }
     }
 
     // ── Spike traps ──────────────────────────────────────────────────────
     if (state.invincible === 0) {
-      state.spikes.forEach(s => {
+      for (const s of state.spikes) {
         if (circleOverlap(state.player.x, state.player.y, PLAYER_R, s.x, s.y, s.radius)) {
           state.hp         = Math.max(0, state.hp - SPIKE_PENALTY);
           state.hitFlash   = 1;
           state.invincible = INVINCIBLE_SECS;
+          soundRef.current?.playHit();
+          break;
         }
-      });
+      }
+    }
+
+    // ── Zombie hits spikes ────────────────────────────────────────────────
+    if (state.zombie) {
+      for (const s of state.spikes) {
+        if (!state.zombie) break;
+        if (circleOverlap(state.zombie.x, state.zombie.y, 10, s.x, s.y, s.radius)) {
+          state.zombie = null;
+          state.zombieRespawnIn = ZOMBIE_RESPAWN;
+          soundRef.current?.playZombieKill();
+          soundRef.current?.updateGrowl(0);
+          break;
+        }
+      }
     }
 
     // ── HP = 0 ───────────────────────────────────────────────────────────
@@ -522,7 +667,6 @@ export default function PlayerOneView({ room, onGameOver }) {
       state.invincible = INVINCIBLE_SECS;
       state.score      = Math.max(0, state.score - 3);
       sendScoreUpdate(state.score, -3);
-      // Restore 3 collected fireflies
       let toRestore = 3;
       for (let i = state.fireflies.length - 1; i >= 0 && toRestore > 0; i--) {
         if (state.fireflies[i].collected) { state.fireflies[i].collected = false; toRestore--; }
@@ -545,6 +689,8 @@ export default function PlayerOneView({ room, onGameOver }) {
     const canvas = canvasRef.current;
     if (!canvas || !room) return;
 
+    soundRef.current = createSoundEngine();
+
     function resize() {
       canvas.width  = canvas.offsetWidth;
       canvas.height = canvas.offsetHeight;
@@ -561,6 +707,7 @@ export default function PlayerOneView({ room, onGameOver }) {
 
     function onKeyDown(e) {
       keysRef.current[e.key] = true;
+      soundRef.current?.unlock();
       if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key)) e.preventDefault();
     }
     function onKeyUp(e) { keysRef.current[e.key] = false; }
@@ -569,17 +716,19 @@ export default function PlayerOneView({ room, onGameOver }) {
 
     return () => {
       cancelAnimationFrame(rafRef.current);
+      soundRef.current?.stopGrowl();
       window.removeEventListener("resize", resize);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
   }, [room]);
 
-  // ── Touch joystick ─────────────────────────────────────────────────────────
+  // ── Touch joystick ────────────────────────────────────────────────────────
   function onTouchStart(e) {
     const touch = e.touches[0];
     const canvas = canvasRef.current;
     if (!canvas) return;
+    soundRef.current?.unlock();
     if (touch.clientX > canvas.offsetWidth / 2 || touch.clientY < canvas.offsetHeight / 2) return;
     e.preventDefault();
     joystickRef.current = { active: true, origin: { x: touch.clientX, y: touch.clientY }, vec: { x: 0, y: 0 } };
@@ -591,7 +740,10 @@ export default function PlayerOneView({ room, onGameOver }) {
     const origin = joystickRef.current.origin;
     const dx = touch.clientX - origin.x, dy = touch.clientY - origin.y;
     const dist = Math.sqrt(dx*dx + dy*dy), maxR = 40, angle = Math.atan2(dy, dx);
-    joystickRef.current.vec = { x: Math.cos(angle) * Math.min(dist,maxR)/maxR, y: Math.sin(angle) * Math.min(dist,maxR)/maxR };
+    joystickRef.current.vec = {
+      x: Math.cos(angle) * Math.min(dist, maxR) / maxR,
+      y: Math.sin(angle) * Math.min(dist, maxR) / maxR,
+    };
   }
   function onTouchEnd(e) {
     e.preventDefault();

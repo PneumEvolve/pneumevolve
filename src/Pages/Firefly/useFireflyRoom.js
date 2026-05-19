@@ -3,10 +3,10 @@ import { useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
 export function useFireflyRoom(roomId, handlers) {
-  const channelRef         = useRef(null);
-  const handlersRef        = useRef(handlers);
-  const subscribedRef      = useRef(false);
-  const pendingSendRef     = useRef(null);
+  const channelRef     = useRef(null);
+  const handlersRef    = useRef(handlers);
+  const subscribedRef  = useRef(false);
+  const pendingSendRef = useRef(null);
 
   useEffect(() => {
     handlersRef.current = handlers;
@@ -30,7 +30,9 @@ export function useFireflyRoom(roomId, handlers) {
       .on("broadcast", { event: "zombie_update" },  ({ payload }) => handlersRef.current.onZombieUpdate?.(payload))
       .on("broadcast", { event: "score_update" },   ({ payload }) => handlersRef.current.onScoreUpdate?.(payload))
       .on("broadcast", { event: "game_over" },      ({ payload }) => handlersRef.current.onGameOver?.(payload))
-      .on("broadcast", { event: "player_ready" },   ({ payload }) => handlersRef.current.onPlayerReady?.(payload));
+      .on("broadcast", { event: "player_ready" },   ({ payload }) => handlersRef.current.onPlayerReady?.(payload))
+      .on("broadcast", { event: "restart" },        ({ payload }) => handlersRef.current.onRestart?.(payload))
+      .on("broadcast", { event: "zombie_kill" },    ({ payload }) => handlersRef.current.onZombieKill?.(payload));
 
     channel.subscribe((status) => {
       if (status === "SUBSCRIBED") {
@@ -61,18 +63,21 @@ export function useFireflyRoom(roomId, handlers) {
     }
   }, []);
 
-  const sendPlayerReady  = useCallback(() =>              send("player_ready",  { ready: true }),  [send]);
-  const sendPlayerMove   = useCallback((x, y) =>          send("player_move",   { x, y }),         [send]);
-  const sendFireflySync  = useCallback((fireflies) =>     send("firefly_sync",  { fireflies }),    [send]);
-  const sendPing         = useCallback((x, y) =>          send("ping",          { x, y }),         [send]);
-  const sendChat         = useCallback((text, from) =>    send("chat",          { text, from }),   [send]);
-  const sendZombieUpdate = useCallback((x, y) =>          send("zombie_update", { x, y }),         [send]);
-  const sendScoreUpdate  = useCallback((score, delta) =>  send("score_update",  { score, delta }), [send]);
-  const sendGameOver     = useCallback((final_score) =>   send("game_over",     { final_score }),  [send]);
+  const sendPlayerReady  = useCallback(() =>               send("player_ready",  { ready: true }),        [send]);
+  const sendPlayerMove   = useCallback((x, y) =>           send("player_move",   { x, y }),               [send]);
+  const sendFireflySync  = useCallback((fireflies) =>      send("firefly_sync",  { fireflies }),          [send]);
+  const sendPing         = useCallback((x, y) =>           send("ping",          { x, y }),               [send]);
+  const sendChat         = useCallback((text, from) =>     send("chat",          { text, from }),         [send]);
+  const sendZombieUpdate = useCallback((x, y) =>           send("zombie_update", { x, y }),               [send]);
+  const sendScoreUpdate  = useCallback((score, delta) =>   send("score_update",  { score, delta }),       [send]);
+  const sendGameOver     = useCallback((final_score) =>    send("game_over",     { final_score }),        [send]);
+  // seed: integer map seed for the new game; swap: bool — true means roles flip
+  const sendRestart      = useCallback((seed, swap) =>     send("restart",       { seed, swap }),         [send]);
+  const sendZombieKill   = useCallback(() =>               send("zombie_kill",   {}),                     [send]);
 
   return {
     sendPlayerReady,
     sendPlayerMove, sendFireflySync, sendPing, sendChat,
-    sendZombieUpdate, sendScoreUpdate, sendGameOver,
+    sendZombieUpdate, sendScoreUpdate, sendGameOver, sendRestart, sendZombieKill,
   };
 }

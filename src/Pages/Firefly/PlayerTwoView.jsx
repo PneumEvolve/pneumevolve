@@ -5,35 +5,59 @@ import { generateMap, updateFireflies } from "./gameEngine";
 
 const WORLD         = 2400;
 const PING_DURATION = 3000;
+const PING_COOLDOWN = 5000;
 const CHAT_MAX      = 20;
+
+// How fast things lerp — higher = snappier, lower = smoother/laggier
+// At 60fps, a factor of 12 means ~80% of the gap closes per second
+const CAM_LERP    = 12;   // camera follow speed
+const PLAYER_LERP = 18;   // player dot (slightly snappier than camera)
+const ZOMBIE_LERP = 10;   // zombie (a bit lazier feels more menacing)
+
+function lerp(a, b, t) { return a + (b - a) * t; }
 
 export default function PlayerTwoView({ room, onGameOver }) {
   const canvasRef = useRef(null);
 
   const stateRef = useRef({
-    playerPos:  { x: WORLD / 2, y: WORLD / 2 },
-    zombiePos:  null,
-    fireflies:  [],
-    mushrooms:  [],
-    holes:      [],
-    score:      0,
-    timeLeft:   180,
-    pings:      [],
+    // Rendered positions — updated every frame via lerp
+    playerPos:   { x: WORLD / 2, y: WORLD / 2 },
+    zombiePos:   null,
+    cam:         { x: WORLD / 2 - 400, y: WORLD / 2 - 300 },
+
+    // Target positions — updated instantly when a packet arrives
+    playerTarget: { x: WORLD / 2, y: WORLD / 2 },
+    zombieTarget: null,
+    camTarget:    { x: WORLD / 2 - 400, y: WORLD / 2 - 300 },
+
+    fireflies:    [],
+    mushrooms:    [],
+    holes:        [],
+    spikes:       [],
+    score:        0,
+    timeLeft:     180,
+    pings:        [],
     chatMessages: [],
-    cam:        { x: WORLD / 2 - 400, y: WORLD / 2 - 300 },
-    dragging:   false,
-    dragStart:  { mx: 0, my: 0, cx: 0, cy: 0 },
-    following:  true,
+    dragging:     false,
+    dragStart:    { mx: 0, my: 0, cx: 0, cy: 0 },
+    following:    true,
+    lastPingAt:   0,
+    pingsSent:    0,
+    messagesSent: 0,
+    zombieKillBurst: null, // { x, y, startedAt } — short-lived visual after kill
   });
 
-  const rafRef       = useRef(null);
-  const lastTimeRef  = useRef(performance.now());
-  const mapRef       = useRef(null);
+  const rafRef      = useRef(null);
+  const lastTimeRef = useRef(performance.now());
+  const mapRef      = useRef(null);
 
-  const [chatInput, setChatInput] = useState("");
-  const [chatLog,   setChatLog]   = useState([]);
-  const [score,     setScore]     = useState(0);
-  const [timeLeft,  setTimeLeft]  = useState(180);
+  const [chatInput,    setChatInput]    = useState("");
+  const [chatLog,      setChatLog]      = useState([]);
+  const [score,        setScore]        = useState(0);
+  const [timeLeft,     setTimeLeft]     = useState(180);
+  const [pingCooldown, setPingCooldown] = useState(0);
+  const [pingsSent,    setPingsSent]    = useState(0);
+  const [messagesSent, setMessagesSent] = useState(0);
 
   // ── Camera helpers ─────────────────────────────────────────────────────────
   function worldToCanvas(wx, wy) {
@@ -46,35 +70,52 @@ export default function PlayerTwoView({ room, onGameOver }) {
     return { wx: cx + cam.x, wy: cy + cam.y };
   }
 
-  function centerOn(wx, wy) {
+  // Sets the camera TARGET — the rendered cam lerps toward this each frame
+  function setCamTarget(wx, wy) {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    stateRef.current.cam = {
+    stateRef.current.camTarget = {
       x: wx - canvas.width  / 2,
       y: wy - canvas.height / 2,
     };
   }
 
+  // Hard-snap camera (used on first load only)
+  function snapCamTo(wx, wy) {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const pos = { x: wx - canvas.width / 2, y: wy - canvas.height / 2 };
+    stateRef.current.cam       = { ...pos };
+    stateRef.current.camTarget = { ...pos };
+  }
+
   // ── Realtime handlers ──────────────────────────────────────────────────────
   const handlers = useRef({
     onPlayerMove: ({ x, y }) => {
-      stateRef.current.playerPos = { x, y };
-      if (stateRef.current.following) centerOn(x, y);
+      // Only update the TARGET — the rendered position lerps toward it
+      stateRef.current.playerTarget = { x, y };
+      if (stateRef.current.following) setCamTarget(x, y);
     },
     onFireflySync: ({ fireflies }) => {
-      // Gently correct local positions rather than snapping — keeps motion smooth
       const local = stateRef.current.fireflies;
       fireflies.forEach(incoming => {
         const f = local.find(l => l.id === incoming.id);
         if (!f) return;
         f.collected = incoming.collected;
-        // Lerp toward the authoritative position (0.3 = soft correction)
+        // Soft lerp — already smooth since fireflies are simulated locally
         f.x = f.x + (incoming.x - f.x) * 0.3;
         f.y = f.y + (incoming.y - f.y) * 0.3;
       });
     },
     onZombieUpdate: ({ x, y }) => {
-      stateRef.current.zombiePos = { x, y };
+      // Update target; rendered position lerps each frame
+      if (!stateRef.current.zombieTarget) {
+        // First packet — snap immediately so zombie doesn't slide in from 0,0
+        stateRef.current.zombiePos    = { x, y };
+        stateRef.current.zombieTarget = { x, y };
+      } else {
+        stateRef.current.zombieTarget = { x, y };
+      }
     },
     onScoreUpdate: ({ score }) => {
       stateRef.current.score = score;
@@ -91,7 +132,7 @@ export default function PlayerTwoView({ room, onGameOver }) {
     },
   }).current;
 
-  const { sendPing, sendChat } = useFireflyRoom(room?.id ?? null, handlers);
+  const { sendPing, sendChat, sendZombieKill } = useFireflyRoom(room?.id ?? null, handlers);
 
   // ── Drawing ────────────────────────────────────────────────────────────────
   function draw(ctx, W, H, t) {
@@ -114,7 +155,7 @@ export default function PlayerTwoView({ room, onGameOver }) {
       ctx.strokeRect(cx, cy, w.w, w.h);
     });
 
-    // Holes — dark circles, clearly visible to P2
+    // Holes
     (state.holes || []).forEach(h => {
       const { cx, cy } = worldToCanvas(h.x, h.y);
       if (cx < -40 || cx > W+40 || cy < -40 || cy > H+40) return;
@@ -127,18 +168,16 @@ export default function PlayerTwoView({ room, onGameOver }) {
       ctx.restore();
     });
 
-    // Mushrooms — glowing purple, P2 only
+    // Mushrooms
     (state.mushrooms || []).forEach(m => {
       const { cx, cy } = worldToCanvas(m.x, m.y);
       if (cx < -30 || cx > W+30 || cy < -30 || cy > H+30) return;
       const pulsed = 0.6 + 0.4 * Math.sin(t * 1.8 + (m.pulse ?? 0));
       const cap = m.capSize ?? 10;
       ctx.save();
-      // Glow
       ctx.globalAlpha = 0.18 * pulsed;
       ctx.beginPath(); ctx.arc(cx, cy, cap * 2.5, 0, Math.PI*2);
       ctx.fillStyle = "rgba(160,0,255,1)"; ctx.fill();
-      // Stem
       ctx.globalAlpha = 0.7 * pulsed;
       ctx.beginPath();
       ctx.moveTo(cx - 2, cy + cap * 0.4);
@@ -147,17 +186,41 @@ export default function PlayerTwoView({ room, onGameOver }) {
       ctx.lineTo(cx - 2, cy + cap);
       ctx.closePath();
       ctx.fillStyle = "rgba(200,160,255,0.8)"; ctx.fill();
-      // Cap
       ctx.globalAlpha = 0.9 * pulsed;
       ctx.beginPath();
       ctx.ellipse(cx, cy, cap, cap * 0.65, 0, Math.PI, 0);
       ctx.fillStyle = `rgba(160,0,255,${0.85 * pulsed})`; ctx.fill();
-      // Spots
       ctx.globalAlpha = 0.8 * pulsed;
       ctx.fillStyle = "rgba(220,180,255,0.9)";
       [[-cap*0.35, -cap*0.2], [cap*0.3, -cap*0.3], [0, -cap*0.45]].forEach(([ox, oy]) => {
         ctx.beginPath(); ctx.arc(cx + ox, cy + oy, 1.5, 0, Math.PI*2); ctx.fill();
       });
+      ctx.restore();
+    });
+
+    // Spike traps
+    (state.spikes || []).forEach(s => {
+      const { cx, cy } = worldToCanvas(s.x, s.y);
+      if (cx < -30 || cx > W+30 || cy < -30 || cy > H+30) return;
+      const pulse = 0.6 + 0.4 * Math.sin(t * 2.2 + s.id);
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.globalAlpha = 0.12 * pulse;
+      ctx.beginPath(); ctx.arc(0, 0, s.radius * 1.8, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(220,60,60,1)"; ctx.fill();
+      ctx.globalAlpha = 0.75 * pulse;
+      ctx.strokeStyle = "#cc4444";
+      ctx.lineWidth = 1.5;
+      for (let i = 0; i < 8; i++) {
+        const angle = (i / 8) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(Math.cos(angle) * s.radius * 1.1, Math.sin(angle) * s.radius * 1.1);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 0.9 * pulse;
+      ctx.beginPath(); ctx.arc(0, 0, 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = "#ff5555"; ctx.fill();
       ctx.restore();
     });
 
@@ -179,7 +242,7 @@ export default function PlayerTwoView({ room, onGameOver }) {
       ctx.restore();
     });
 
-    // Zombie
+    // Zombie — draw from lerped zombiePos
     if (state.zombiePos) {
       const { cx, cy } = worldToCanvas(state.zombiePos.x, state.zombiePos.y);
       if (cx > -20 && cx < W + 20 && cy > -20 && cy < H + 20) {
@@ -189,6 +252,43 @@ export default function PlayerTwoView({ room, onGameOver }) {
         ctx.fillStyle = "rgba(255,60,60,0.2)"; ctx.fill();
         ctx.beginPath(); ctx.arc(cx, cy, 6, 0, Math.PI * 2);
         ctx.fillStyle = "#ff4444"; ctx.fill();
+        // Tap-to-kill hint ring — subtle glow to indicate it's tappable
+        ctx.beginPath(); ctx.arc(cx, cy, 20, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(255,120,120,0.25)"; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    // Zombie kill burst animation
+    if (state.zombieKillBurst) {
+      const age = (Date.now() - state.zombieKillBurst.startedAt) / 500; // 0→1 over 500ms
+      if (age >= 1) {
+        state.zombieKillBurst = null;
+      } else {
+        const { cx, cy } = worldToCanvas(state.zombieKillBurst.x, state.zombieKillBurst.y);
+        const eased = 1 - Math.pow(1 - age, 2); // ease-out
+        ctx.save();
+        // Expanding ring
+        ctx.globalAlpha = (1 - age) * 0.9;
+        ctx.beginPath(); ctx.arc(cx, cy, 8 + eased * 40, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(255,80,80,1)"; ctx.lineWidth = 2.5; ctx.stroke();
+        // Second ring, slightly delayed
+        if (age > 0.1) {
+          const age2 = (age - 0.1) / 0.9;
+          ctx.globalAlpha = (1 - age2) * 0.6;
+          ctx.beginPath(); ctx.arc(cx, cy, 6 + age2 * 55, 0, Math.PI * 2);
+          ctx.strokeStyle = "rgba(255,160,80,1)"; ctx.lineWidth = 1.5; ctx.stroke();
+        }
+        // Spokes
+        ctx.globalAlpha = (1 - age) * 0.8;
+        for (let i = 0; i < 8; i++) {
+          const angle = (i / 8) * Math.PI * 2;
+          const r1 = eased * 18, r2 = eased * 34;
+          ctx.beginPath();
+          ctx.moveTo(cx + Math.cos(angle) * r1, cy + Math.sin(angle) * r1);
+          ctx.lineTo(cx + Math.cos(angle) * r2, cy + Math.sin(angle) * r2);
+          ctx.strokeStyle = "rgba(255,100,60,0.9)"; ctx.lineWidth = 1.5; ctx.stroke();
+        }
         ctx.restore();
       }
     }
@@ -209,7 +309,7 @@ export default function PlayerTwoView({ room, onGameOver }) {
       ctx.restore();
     });
 
-    // Player 1 dot — white, always on top
+    // Player 1 dot — drawn from lerped playerPos
     const { cx: px, cy: py } = worldToCanvas(state.playerPos.x, state.playerPos.y);
     const ppulse = 0.8 + 0.2 * Math.sin(t * 3);
     ctx.save();
@@ -236,15 +336,41 @@ export default function PlayerTwoView({ room, onGameOver }) {
     const dt = Math.min((ts - lastTimeRef.current) / 1000, 0.05);
     lastTimeRef.current = ts;
 
-    // Run firefly simulation locally — same logic as P1, keeps motion smooth
-    // Sync packets from P1 gently correct any drift
-    if (stateRef.current.fireflies.length > 0) {
-      updateFireflies(stateRef.current.fireflies, { x: -9999, y: -9999 }, dt, 0);
-      // pass unreachable player pos so nothing gets collected on P2's side
+    const state = stateRef.current;
+
+    // ── Lerp camera toward target (skip lerp while dragging) ──────────────
+    if (!state.dragging && state.following) {
+      const alpha = 1 - Math.pow(1 - Math.min(CAM_LERP * dt, 1), 1);
+      state.cam.x = lerp(state.cam.x, state.camTarget.x, alpha);
+      state.cam.y = lerp(state.cam.y, state.camTarget.y, alpha);
+    } else if (state.dragging) {
+      // While dragging, camera is already being set directly — keep target in sync
+      state.camTarget.x = state.cam.x;
+      state.camTarget.y = state.cam.y;
     }
 
-    stateRef.current.timeLeft = Math.max(0, stateRef.current.timeLeft - dt);
-    setTimeLeft(Math.ceil(stateRef.current.timeLeft));
+    // ── Lerp player dot toward target ─────────────────────────────────────
+    const pa = 1 - Math.pow(1 - Math.min(PLAYER_LERP * dt, 1), 1);
+    state.playerPos.x = lerp(state.playerPos.x, state.playerTarget.x, pa);
+    state.playerPos.y = lerp(state.playerPos.y, state.playerTarget.y, pa);
+
+    // ── Lerp zombie toward target ─────────────────────────────────────────
+    if (state.zombieTarget && state.zombiePos) {
+      const za = 1 - Math.pow(1 - Math.min(ZOMBIE_LERP * dt, 1), 1);
+      state.zombiePos.x = lerp(state.zombiePos.x, state.zombieTarget.x, za);
+      state.zombiePos.y = lerp(state.zombiePos.y, state.zombieTarget.y, za);
+    }
+
+    // ── Fireflies simulated locally (same as P1) ─────────────────────────
+    if (state.fireflies.length > 0) {
+      updateFireflies(state.fireflies, { x: -9999, y: -9999 }, dt, 0);
+    }
+
+    state.timeLeft = Math.max(0, state.timeLeft - dt);
+    setTimeLeft(Math.ceil(state.timeLeft));
+
+    const cooldownRemaining = Math.max(0, state.lastPingAt + PING_COOLDOWN - Date.now());
+    setPingCooldown(Math.ceil(cooldownRemaining / 1000));
 
     draw(ctx, W, H, ts / 1000);
     rafRef.current = requestAnimationFrame(loop);
@@ -255,19 +381,19 @@ export default function PlayerTwoView({ room, onGameOver }) {
     const canvas = canvasRef.current;
     if (!canvas || !room?.map_seed) return;
 
-    // Generate map here so it's ready before the first frame
     const map = generateMap(room.map_seed);
     mapRef.current = map;
-    stateRef.current.fireflies  = map.fireflies.map(f => ({ ...f }));
-    stateRef.current.mushrooms  = map.mushrooms;
-    stateRef.current.holes      = map.holes;
+    stateRef.current.fireflies = map.fireflies.map(f => ({ ...f }));
+    stateRef.current.mushrooms = map.mushrooms;
+    stateRef.current.holes     = map.holes;
+    stateRef.current.spikes    = map.spikes;
 
     function resize() {
       canvas.width  = canvas.offsetWidth;
       canvas.height = canvas.offsetHeight;
     }
     resize();
-    centerOn(WORLD / 2, WORLD / 2);
+    snapCamTo(WORLD / 2, WORLD / 2);
     window.addEventListener("resize", resize);
     rafRef.current = requestAnimationFrame(loop);
 
@@ -277,15 +403,48 @@ export default function PlayerTwoView({ room, onGameOver }) {
     };
   }, []);
 
-  // ── Click to ping ──────────────────────────────────────────────────────────
+  // ── Tap: zombie kill takes priority over ping ──────────────────────────────
+  const ZOMBIE_TAP_RADIUS = 28; // generous tap target in canvas pixels
+
+  function tryZombieKill(canvasX, canvasY) {
+    const state = stateRef.current;
+    if (!state.zombiePos) return false;
+    const { cx, cy } = worldToCanvas(state.zombiePos.x, state.zombiePos.y);
+    const dist = Math.sqrt((canvasX - cx) ** 2 + (canvasY - cy) ** 2);
+    if (dist > ZOMBIE_TAP_RADIUS) return false;
+    // Check cooldown (shared with ping)
+    const now = Date.now();
+    if (now - state.lastPingAt < PING_COOLDOWN) return false;
+    // Kill it
+    sendZombieKill();
+    state.zombieKillBurst = { x: state.zombiePos.x, y: state.zombiePos.y, startedAt: now };
+    state.zombiePos   = null;
+    state.zombieTarget = null;
+    state.lastPingAt  = now; // share cooldown
+    return true;
+  }
+
+  // ── Ping with cooldown ─────────────────────────────────────────────────────
+  function firePing(wx, wy) {
+    const now = Date.now();
+    if (now - stateRef.current.lastPingAt < PING_COOLDOWN) return;
+    sendPing(wx, wy);
+    stateRef.current.pings.push({ x: wx, y: wy, expiresAt: now + PING_DURATION });
+    stateRef.current.lastPingAt = now;
+    stateRef.current.pingsSent += 1;
+    setPingsSent(s => s + 1);
+  }
+
+  // ── Click to ping (or kill zombie) ────────────────────────────────────────
   function handleCanvasClick(e) {
-    if (stateRef.current.didDrag) return; // don't ping at end of a drag
+    if (stateRef.current.didDrag) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
-    const { wx, wy } = canvasToWorld(e.clientX - rect.left, e.clientY - rect.top);
-    sendPing(wx, wy);
-    stateRef.current.pings.push({ x: wx, y: wy, expiresAt: Date.now() + PING_DURATION });
+    const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+    if (tryZombieKill(cx, cy)) return;
+    const { wx, wy } = canvasToWorld(cx, cy);
+    firePing(wx, wy);
   }
 
   // ── Drag to scroll ─────────────────────────────────────────────────────────
@@ -293,7 +452,10 @@ export default function PlayerTwoView({ room, onGameOver }) {
     stateRef.current.dragging  = true;
     stateRef.current.didDrag   = false;
     stateRef.current.following = false;
-    stateRef.current.dragStart = { mx: e.clientX, my: e.clientY, cx: stateRef.current.cam.x, cy: stateRef.current.cam.y };
+    stateRef.current.dragStart = {
+      mx: e.clientX, my: e.clientY,
+      cx: stateRef.current.cam.x, cy: stateRef.current.cam.y,
+    };
   }
   function handleMouseMove(e) {
     const s = stateRef.current;
@@ -313,7 +475,10 @@ export default function PlayerTwoView({ room, onGameOver }) {
     stateRef.current.dragging  = true;
     stateRef.current.didDrag   = false;
     stateRef.current.following = false;
-    stateRef.current.dragStart = { mx: e.touches[0].clientX, my: e.touches[0].clientY, cx: stateRef.current.cam.x, cy: stateRef.current.cam.y };
+    stateRef.current.dragStart = {
+      mx: e.touches[0].clientX, my: e.touches[0].clientY,
+      cx: stateRef.current.cam.x, cy: stateRef.current.cam.y,
+    };
   }
   function handleTouchMove(e) {
     e.preventDefault();
@@ -330,18 +495,17 @@ export default function PlayerTwoView({ room, onGameOver }) {
       const canvas = canvasRef.current;
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
-      const { wx, wy } = canvasToWorld(
-        e.changedTouches[0].clientX - rect.left,
-        e.changedTouches[0].clientY - rect.top,
-      );
-      sendPing(wx, wy);
-      stateRef.current.pings.push({ x: wx, y: wy, expiresAt: Date.now() + PING_DURATION });
+      const cx = e.changedTouches[0].clientX - rect.left;
+      const cy = e.changedTouches[0].clientY - rect.top;
+      if (tryZombieKill(cx, cy)) return;
+      const { wx, wy } = canvasToWorld(cx, cy);
+      firePing(wx, wy);
     }
   }
 
   function handleRecenter() {
     stateRef.current.following = true;
-    centerOn(stateRef.current.playerPos.x, stateRef.current.playerPos.y);
+    setCamTarget(stateRef.current.playerTarget.x, stateRef.current.playerTarget.y);
   }
 
   // ── Chat ──────────────────────────────────────────────────────────────────
@@ -351,7 +515,9 @@ export default function PlayerTwoView({ room, onGameOver }) {
     sendChat(text, "P2");
     const msg = { text, from: "P2", ts: Date.now() };
     stateRef.current.chatMessages.unshift(msg);
+    stateRef.current.messagesSent += 1;
     setChatLog(prev => [msg, ...prev].slice(0, CHAT_MAX));
+    setMessagesSent(n => n + 1);
     setChatInput("");
   }
 
@@ -359,11 +525,13 @@ export default function PlayerTwoView({ room, onGameOver }) {
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
   }
 
+  const onCooldown = pingCooldown > 0;
+
   return (
     <div style={{ width: "100%", height: "100svh", background: "#080c14", position: "relative", overflow: "hidden" }}>
       <canvas
         ref={canvasRef}
-        style={{ width: "100%", height: "100%", display: "block", cursor: "crosshair" }}
+        style={{ width: "100%", height: "100%", display: "block", cursor: onCooldown ? "not-allowed" : "crosshair" }}
         onClick={handleCanvasClick}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
@@ -374,18 +542,34 @@ export default function PlayerTwoView({ room, onGameOver }) {
         onTouchEnd={handleTouchEnd}
       />
 
-      {/* HUD */}
+      {/* Score + timer */}
       <div style={{ position: "absolute", top: 14, left: 18, pointerEvents: "none", fontFamily: "sans-serif" }}>
         <div style={{ fontSize: 22, fontWeight: 500, color: "rgba(255,255,255,0.9)" }}>{score} ✦</div>
         <div style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", marginTop: 2 }}>{fmt(timeLeft)}</div>
       </div>
 
+      {/* Navigator label */}
       <div style={{
         position: "absolute", top: 14, right: 18, fontSize: 11,
         letterSpacing: "0.1em", textTransform: "uppercase",
         color: "rgba(255,255,255,0.2)", pointerEvents: "none",
       }}>
         navigator
+      </div>
+
+      {/* Stats */}
+      <div style={{
+        position: "absolute", top: 14, left: "50%", transform: "translateX(-50%)",
+        display: "flex", gap: 20, pointerEvents: "none", fontFamily: "sans-serif",
+      }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 16, fontWeight: 500, color: "rgba(255,220,80,0.85)" }}>{pingsSent}</div>
+          <div style={{ fontSize: 10, letterSpacing: "0.1em", color: "rgba(255,255,255,0.2)", marginTop: 1 }}>PINGS</div>
+        </div>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 16, fontWeight: 500, color: "rgba(200,255,150,0.75)" }}>{messagesSent}</div>
+          <div style={{ fontSize: 10, letterSpacing: "0.1em", color: "rgba(255,255,255,0.2)", marginTop: 1 }}>MSGS</div>
+        </div>
       </div>
 
       {/* Re-center */}
@@ -404,7 +588,7 @@ export default function PlayerTwoView({ room, onGameOver }) {
         fontSize: 11, color: "rgba(255,255,255,0.15)", pointerEvents: "none",
         letterSpacing: "0.06em", whiteSpace: "nowrap",
       }}>
-        click to ping · drag to explore
+        {onCooldown ? `ping cooldown — ${pingCooldown}s` : "tap zombie to kill · click to ping · drag to explore"}
       </div>
 
       {/* Chat */}
