@@ -472,8 +472,31 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
     return () => cancelAnimationFrame(animRef.current);
   }, [isP1, isP2, isMultiplayer, mkState, sendGameState, sendGameOver, sendRestart, sendP2Input, roomData]);
 
+  // ── Responsive scaling ────────────────────────────────────────────────────
+  // The canvas stays at its logical 480×700 size; we CSS-scale the wrapper
+  // to fill whatever viewport is available, leaving room for touch buttons.
+  const BTN_AREA = 100; // px reserved at the bottom for touch controls
+  const [scale, setScale] = useState(1);
+
+  useEffect(() => {
+    const recalc = () => {
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const availH = vh - BTN_AREA;
+      const scaleW = vw / CANVAS_W;
+      const scaleH = availH / CANVAS_H;
+      setScale(Math.min(scaleW, scaleH, 1)); // never upscale past 1× on desktop
+    };
+    recalc();
+    window.addEventListener("resize", recalc);
+    window.addEventListener("orientationchange", recalc);
+    return () => {
+      window.removeEventListener("resize", recalc);
+      window.removeEventListener("orientationchange", recalc);
+    };
+  }, []);
+
   // ── Mobile touch handlers ──────────────────────────────────────────────────
-  // Wire touch buttons into keysRef so they work identically to keyboard
   const handleTouchStart = useCallback((key) => (e) => {
     e.preventDefault();
     keysRef.current[key] = true;
@@ -483,20 +506,19 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
     keysRef.current[key] = false;
   }, []);
 
-  // Which keys this player uses
   const leftKey  = isP2 ? "ArrowLeft"  : "a";
   const rightKey = isP2 ? "ArrowRight" : "d";
 
   const btnStyle = (side) => ({
-    width: 90,
-    height: 64,
-    borderRadius: 14,
+    width: 110,
+    height: 68,
+    borderRadius: 16,
     border: "1px solid rgba(255,255,255,0.15)",
     background: side === "left"
       ? "rgba(100,180,255,0.12)"
       : "rgba(255,80,100,0.12)",
     color: "rgba(255,255,255,0.7)",
-    fontSize: 26,
+    fontSize: 28,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -504,35 +526,73 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
     userSelect: "none",
     WebkitUserSelect: "none",
     touchAction: "none",
+    flexShrink: 0,
   });
 
   return (
     <div style={{
-      display:"flex", flexDirection:"column", alignItems:"center",
-      justifyContent:"center", minHeight:"100vh", background:"#060610", userSelect:"none",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "flex-start",
+      width: "100vw",
+      height: "100vh",
+      background: "#060610",
+      userSelect: "none",
+      overflow: "hidden",
     }}>
-      {isMultiplayer && (
-        <div style={{ color:"#ffffff33", fontSize:10, letterSpacing:3, marginBottom:8, fontFamily:"monospace" }}>
-          ROOM {roomData?.join_code} — {isP1 ? "PLAYER 1" : "PLAYER 2"}
-          {isP1 && !p2Ready && (
-            <span style={{ color:"#ffdd4466", marginLeft:12 }}>waiting for P2…</span>
-          )}
-        </div>
-      )}
-      {!isMultiplayer && (
-        <div style={{ color:"#ffffff33", fontSize:11, letterSpacing:3, marginBottom:10, fontFamily:"monospace" }}>
-          FREESKATE SLALOM
-        </div>
-      )}
-      <canvas ref={canvasRef} width={CANVAS_W} height={CANVAS_H}
-        style={{ border:"1px solid #ffffff10", borderRadius:4, display:"block" }} />
-
-      {/* Mobile touch controls */}
+      {/* Header label — tiny, outside the scaled canvas */}
       <div style={{
+        color: "#ffffff22",
+        fontSize: 9,
+        letterSpacing: 3,
+        fontFamily: "monospace",
+        paddingTop: 6,
+        paddingBottom: 4,
+        flexShrink: 0,
+      }}>
+        {isMultiplayer
+          ? `ROOM ${roomData?.join_code} — ${isP1 ? "PLAYER 1" : "PLAYER 2"}`
+          : "FREESKATE SLALOM"}
+        {isMultiplayer && isP1 && !p2Ready && (
+          <span style={{ color: "#ffdd4466", marginLeft: 10 }}>waiting for P2…</span>
+        )}
+      </div>
+
+      {/* Scaled canvas wrapper — fills available space above the buttons */}
+      <div style={{
+        flex: 1,
         display: "flex",
-        gap: 32,
-        marginTop: 20,
-        // Hide on desktop if keyboard is available — still show, just subtle
+        alignItems: "center",
+        justifyContent: "center",
+        overflow: "hidden",
+        width: "100%",
+      }}>
+        <div style={{
+          width: CANVAS_W,
+          height: CANVAS_H,
+          transform: `scale(${scale})`,
+          transformOrigin: "center center",
+          flexShrink: 0,
+        }}>
+          <canvas
+            ref={canvasRef}
+            width={CANVAS_W}
+            height={CANVAS_H}
+            style={{ border: "1px solid #ffffff10", borderRadius: 4, display: "block" }}
+          />
+        </div>
+      </div>
+
+      {/* Touch controls — always visible at the bottom */}
+      <div style={{
+        flexShrink: 0,
+        height: BTN_AREA,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 40,
+        paddingBottom: "env(safe-area-inset-bottom, 8px)",
       }}>
         <button
           style={btnStyle("left")}
@@ -542,9 +602,10 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
           onMouseUp={handleTouchEnd(leftKey)}
           onMouseLeave={handleTouchEnd(leftKey)}
           aria-label="steer left"
-        >
-          ◀
-        </button>
+        >◀</button>
+        <div style={{ color:"#ffffff18", fontSize:8, fontFamily:"monospace", letterSpacing:2, textAlign:"center", lineHeight:1.6 }}>
+          {isP2 ? "P2" : isMultiplayer ? "P1" : "P1/P2"}<br/>steer
+        </div>
         <button
           style={btnStyle("right")}
           onTouchStart={handleTouchStart(rightKey)}
@@ -553,12 +614,7 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
           onMouseUp={handleTouchEnd(rightKey)}
           onMouseLeave={handleTouchEnd(rightKey)}
           aria-label="steer right"
-        >
-          ▶
-        </button>
-      </div>
-      <div style={{ color:"#ffffff22", fontSize:9, fontFamily:"monospace", marginTop:8, letterSpacing:2 }}>
-        {isP2 ? "P2 — ←/→" : isMultiplayer ? "P1 — A/D" : "P1: A/D   P2: ←/→"}
+        >▶</button>
       </div>
     </div>
   );
