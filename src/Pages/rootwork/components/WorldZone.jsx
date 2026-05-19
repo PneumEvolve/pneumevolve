@@ -1142,8 +1142,12 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
   const xpNeeded = getXpNeeded(adventurer.level ?? 1);
   const xpPct = ((adventurer.xp ?? 0) / xpNeeded) * 100;
   const maxHp = adventurer.maxHp ?? getAdventurerMaxHp(adventurer);
+  const isInDungeon = (game?.dungeonRun?.heroIds ?? []).includes(adventurer.id);
+  // adventurer.hp is the pre-dungeon value and is never updated mid-run.
+  // Heroes can only enter a dungeon with hp > 0 (gameEngine filters them),
+  // so isInDungeon=true means they're alive — never show as dead from stale hp.
   const hp = adventurer.hp ?? maxHp;
-  const dead = isDead(adventurer);
+  const dead = isInDungeon ? false : isDead(adventurer);
   const _skillMap = (() => { const s = adventurer.skills ?? {}; return Array.isArray(s) ? Object.fromEntries(s.map((id) => [id, 1])) : s; })();
   const hasAutoBattle = !!(_skillMap["fighter_t1"] || _skillMap["mage_t1"] || _skillMap["scavenger_t1"]);
   const availableZones = zones.filter((z) => isZoneUnlocked(z, adventurer, game.worldZoneClears));
@@ -1156,7 +1160,6 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
   const firstBeltFood = ARTISAN_FOOD_LIST.find((id) => (foodBelt[id] ?? 0) > 0) ?? null;
 
   const isOnExpedition = isHeroOnExpedition(game, adventurer.id);
-  const isInDungeon = (game?.dungeonRun?.heroIds ?? []).includes(adventurer.id);
   const isResting = !!adventurer.tavernResting;
   const tavernBuilt = game.town?.buildings?.tavern?.built === true;
   const isBusy = isOnMission || isOnExpedition || isInDungeon || isResting || dead;
@@ -1321,69 +1324,8 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
             </div>
           )}
 
-          {/* Zone list */}
-          <div style={{ fontSize: "0.6rem", color: "var(--muted)", fontWeight: 600, letterSpacing: "0.05em", marginBottom: "0.3rem" }}>ZONES</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", marginBottom: "0.5rem" }}>
-            {availableZones.map((zone) => {
-              const clears = game.worldZoneClears?.[zone.id] ?? 0;
-              const cleared = clears >= zone.clearsNeeded;
-              const dur = getMissionDuration(adventurer, zone);
-              const isSelected = selectedZoneId === zone.id;
-              const isDetail = detailZoneId === zone.id;
-              return (
-                <div key={zone.id}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.4rem 0.55rem", background: isSelected ? "rgba(99,102,241,0.1)" : "rgba(255,255,255,0.03)", border: `1px solid ${isSelected ? "rgba(99,102,241,0.45)" : "var(--border)"}`, borderRadius: "8px" }}>
-                    <span style={{ fontSize: "1rem", flexShrink: 0 }}>{zone.emoji}</span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
-                        <span style={{ fontSize: "0.72rem", fontWeight: 600 }}>{zone.name}</span>
-                        {cleared && <span style={{ fontSize: "0.52rem", color: "#4ade80", fontWeight: 700 }}>✓</span>}
-                        <span style={{ fontSize: "0.55rem", color: "#a78bfa", fontWeight: 600 }}>{dur}s</span>
-                      </div>
-                      <div style={{ fontSize: "0.55rem", color: "var(--muted)" }}>{cleared ? "Cleared" : `${clears}/${zone.clearsNeeded}`}{zone.enemyName ? ` · ${zone.enemyName}` : ""}</div>
-                    </div>
-                    <div style={{ display: "flex", gap: "0.3rem", flexShrink: 0 }}>
-                      <button onClick={() => setDetailZoneId(isDetail ? null : zone.id)}
-                        style={{ fontSize: "0.55rem", padding: "2px 7px", borderRadius: "5px", background: isDetail ? "rgba(99,102,241,0.2)" : "rgba(255,255,255,0.06)", border: `1px solid ${isDetail ? "rgba(99,102,241,0.4)" : "var(--border)"}`, color: isDetail ? "var(--accent)" : "var(--muted)", cursor: "pointer", fontWeight: 600 }}>
-                        Info
-                      </button>
-                      <button onClick={() => { setSelectedZoneId(isSelected ? null : zone.id); setDetailZoneId(null); }}
-                        style={{ fontSize: "0.55rem", padding: "2px 7px", borderRadius: "5px", background: isSelected ? "rgba(99,102,241,0.25)" : "rgba(255,255,255,0.06)", border: `1px solid ${isSelected ? "rgba(99,102,241,0.55)" : "var(--border)"}`, color: isSelected ? "var(--accent)" : "var(--muted)", cursor: "pointer", fontWeight: 700 }}>
-                        {isSelected ? "✓" : "Select"}
-                      </button>
-                    </div>
-                  </div>
-                  {isDetail && (
-                    <ZoneDetailsPopover
-                      zone={zone} adventurer={adventurer} game={game}
-                      isSelected={isSelected}
-                      onSelect={(id) => setSelectedZoneId(id)}
-                      onClose={() => setDetailZoneId(null)}
-                    />
-                  )}
-                </div>
-              );
-            })}
-            {lockedZones.map((zone) => {
-              const heroLevel = adventurer?.level ?? 1;
-              const levelLocked = zone.heroLevelRequired && heroLevel < zone.heroLevelRequired;
-              const prereqZone = WORLD_ZONES[zone.unlockRequiresZone];
-              const prereqClears = game.worldZoneClears?.[zone.unlockRequiresZone] ?? 0;
-              const lockLabel = levelLocked ? `Level ${zone.heroLevelRequired} required` : prereqZone ? `${prereqZone.name}: ${prereqClears}/${zone.unlockAfterClears}` : "Locked";
-              return (
-                <div key={zone.id} style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.4rem 0.55rem", background: "rgba(255,255,255,0.01)", border: "1px dashed rgba(255,255,255,0.09)", borderRadius: "8px", opacity: 0.5 }}>
-                  <span style={{ fontSize: "1rem", filter: "grayscale(1)", flexShrink: 0 }}>{zone.emoji}</span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: "0.68rem", fontWeight: 600, color: "var(--muted)" }}>{zone.name}</div>
-                    <div style={{ fontSize: "0.55rem", color: "var(--muted)" }}>🔒 {lockLabel}</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Food fill + Go row */}
-          <div style={{ display: "flex", gap: "0.4rem", marginBottom: "0.3rem" }}>
+          {/* Heal / Fill / Go row — above zones */}
+          <div style={{ display: "flex", gap: "0.4rem", marginBottom: "0.45rem" }}>
             {/* Heal button */}
             {(() => {
               const hasBeltFood = firstBeltFood !== null;
@@ -1421,6 +1363,64 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
               onClose={() => setShowFoodFill(false)}
             />
           )}
+
+          {/* Zone list */}
+          <div style={{ fontSize: "0.6rem", color: "var(--muted)", fontWeight: 600, letterSpacing: "0.05em", marginBottom: "0.3rem" }}>ZONES</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", marginBottom: "0.5rem" }}>
+            {availableZones.map((zone) => {
+              const clears = game.worldZoneClears?.[zone.id] ?? 0;
+              const cleared = clears >= zone.clearsNeeded;
+              const dur = getMissionDuration(adventurer, zone);
+              const isSelected = selectedZoneId === zone.id;
+              const isDetail = detailZoneId === zone.id;
+              return (
+                <div key={zone.id}>
+                  <div
+                    onClick={() => { setSelectedZoneId(isSelected ? null : zone.id); setDetailZoneId(null); }}
+                    style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.4rem 0.55rem", background: isSelected ? "rgba(99,102,241,0.1)" : "rgba(255,255,255,0.03)", border: `1px solid ${isSelected ? "rgba(99,102,241,0.45)" : "var(--border)"}`, borderRadius: "8px", cursor: "pointer" }}>
+                    <span style={{ fontSize: "1rem", flexShrink: 0 }}>{zone.emoji}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                        <span style={{ fontSize: "0.72rem", fontWeight: 600 }}>{zone.name}</span>
+                        {cleared && <span style={{ fontSize: "0.52rem", color: "#4ade80", fontWeight: 700 }}>✓</span>}
+                        <span style={{ fontSize: "0.55rem", color: "#a78bfa", fontWeight: 600 }}>{dur}s</span>
+                      </div>
+                      <div style={{ fontSize: "0.55rem", color: "var(--muted)" }}>{cleared ? "Cleared" : `${clears}/${zone.clearsNeeded}`}{zone.enemyName ? ` · ${zone.enemyName}` : ""}</div>
+                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setDetailZoneId(isDetail ? null : zone.id); }}
+                      style={{ fontSize: "0.55rem", padding: "2px 7px", borderRadius: "5px", background: isDetail ? "rgba(99,102,241,0.2)" : "rgba(255,255,255,0.06)", border: `1px solid ${isDetail ? "rgba(99,102,241,0.4)" : "var(--border)"}`, color: isDetail ? "var(--accent)" : "var(--muted)", cursor: "pointer", fontWeight: 600, flexShrink: 0 }}>
+                      Info
+                    </button>
+                  </div>
+                  {isDetail && (
+                    <ZoneDetailsPopover
+                      zone={zone} adventurer={adventurer} game={game}
+                      isSelected={isSelected}
+                      onSelect={(id) => setSelectedZoneId(id)}
+                      onClose={() => setDetailZoneId(null)}
+                    />
+                  )}
+                </div>
+              );
+            })}
+            {lockedZones.map((zone) => {
+              const heroLevel = adventurer?.level ?? 1;
+              const levelLocked = zone.heroLevelRequired && heroLevel < zone.heroLevelRequired;
+              const prereqZone = WORLD_ZONES[zone.unlockRequiresZone];
+              const prereqClears = game.worldZoneClears?.[zone.unlockRequiresZone] ?? 0;
+              const lockLabel = levelLocked ? `Level ${zone.heroLevelRequired} required` : prereqZone ? `${prereqZone.name}: ${prereqClears}/${zone.unlockAfterClears}` : "Locked";
+              return (
+                <div key={zone.id} style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.4rem 0.55rem", background: "rgba(255,255,255,0.01)", border: "1px dashed rgba(255,255,255,0.09)", borderRadius: "8px", opacity: 0.5 }}>
+                  <span style={{ fontSize: "1rem", filter: "grayscale(1)", flexShrink: 0 }}>{zone.emoji}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: "0.68rem", fontWeight: 600, color: "var(--muted)" }}>{zone.name}</div>
+                    <div style={{ fontSize: "0.55rem", color: "var(--muted)" }}>🔒 {lockLabel}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
 
           {/* Tavern button (idle only) */}
           {tavernBuilt && !isResting && (
