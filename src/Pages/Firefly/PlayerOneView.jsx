@@ -145,7 +145,7 @@ export default function PlayerOneView({ room, onGameOver }) {
   const canvasRef          = useRef(null);
   const stateRef           = useRef(null);
   const keysRef            = useRef({});
-  const joystickRef        = useRef({ active: false, vec: { x: 0, y: 0 }, origin: { x: 0, y: 0 } });
+  const joystickRef        = useRef({ active: false, vec: { x: 0, y: 0 }, origin: { x: 0, y: 0 }, current: { x: 0, y: 0 } });
   const rafRef             = useRef(null);
   const lastMoveRef        = useRef(0);
   const lastZombieRef      = useRef(0);
@@ -471,6 +471,8 @@ export default function PlayerOneView({ room, onGameOver }) {
       ctx.fillText("navigator killed the zombie ✦", W/2, H/2 - 40);
       ctx.restore();
     }
+
+    drawJoystick(ctx);
   }
 
   // ── Game loop ─────────────────────────────────────────────────────────────
@@ -725,13 +727,15 @@ export default function PlayerOneView({ room, onGameOver }) {
 
   // ── Touch joystick ────────────────────────────────────────────────────────
   function onTouchStart(e) {
-    const touch = e.touches[0];
-    const canvas = canvasRef.current;
-    if (!canvas) return;
     soundRef.current?.unlock();
-    if (touch.clientX > canvas.offsetWidth / 2 || touch.clientY < canvas.offsetHeight / 2) return;
     e.preventDefault();
-    joystickRef.current = { active: true, origin: { x: touch.clientX, y: touch.clientY }, vec: { x: 0, y: 0 } };
+    const touch = e.touches[0];
+    joystickRef.current = {
+      active: true,
+      origin: { x: touch.clientX, y: touch.clientY },
+      current: { x: touch.clientX, y: touch.clientY },
+      vec: { x: 0, y: 0 },
+    };
   }
   function onTouchMove(e) {
     if (!joystickRef.current.active) return;
@@ -739,7 +743,8 @@ export default function PlayerOneView({ room, onGameOver }) {
     const touch  = e.touches[0];
     const origin = joystickRef.current.origin;
     const dx = touch.clientX - origin.x, dy = touch.clientY - origin.y;
-    const dist = Math.sqrt(dx*dx + dy*dy), maxR = 40, angle = Math.atan2(dy, dx);
+    const dist = Math.sqrt(dx*dx + dy*dy), maxR = 48, angle = Math.atan2(dy, dx);
+    joystickRef.current.current = { x: touch.clientX, y: touch.clientY };
     joystickRef.current.vec = {
       x: Math.cos(angle) * Math.min(dist, maxR) / maxR,
       y: Math.sin(angle) * Math.min(dist, maxR) / maxR,
@@ -747,7 +752,32 @@ export default function PlayerOneView({ room, onGameOver }) {
   }
   function onTouchEnd(e) {
     e.preventDefault();
-    joystickRef.current = { active: false, vec: { x: 0, y: 0 }, origin: { x: 0, y: 0 } };
+    joystickRef.current = { active: false, vec: { x: 0, y: 0 }, origin: { x: 0, y: 0 }, current: { x: 0, y: 0 } };
+  }
+
+  // ── Draw joystick overlay ─────────────────────────────────────────────────
+  function drawJoystick(ctx) {
+    const joy = joystickRef.current;
+    if (!joy.active) return;
+    const ox = joy.origin.x, oy = joy.origin.y;
+    const maxR = 48;
+    const dx = joy.current.x - ox, dy = joy.current.y - oy;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    const angle = Math.atan2(dy, dx);
+    const knobR = Math.min(dist, maxR);
+    const kx = ox + Math.cos(angle) * knobR;
+    const ky = oy + Math.sin(angle) * knobR;
+
+    ctx.save();
+    // Base ring
+    ctx.beginPath(); ctx.arc(ox, oy, maxR, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(255,255,255,0.18)"; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle   = "rgba(255,255,255,0.04)";  ctx.fill();
+    // Knob
+    ctx.beginPath(); ctx.arc(kx, ky, 20, 0, Math.PI * 2);
+    ctx.fillStyle   = "rgba(255,255,255,0.22)";  ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.restore();
   }
 
   return (

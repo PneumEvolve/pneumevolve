@@ -44,7 +44,8 @@ export default function PlayerTwoView({ room, onGameOver }) {
     lastPingAt:   0,
     pingsSent:    0,
     messagesSent: 0,
-    zombieKillBurst: null, // { x, y, startedAt } — short-lived visual after kill
+    zombieKillBurst: null,
+    zombieKilled: false, // true after P2 taps kill — ignore zombie_update until respawn
   });
 
   const rafRef      = useRef(null);
@@ -108,9 +109,14 @@ export default function PlayerTwoView({ room, onGameOver }) {
       });
     },
     onZombieUpdate: ({ x, y }) => {
-      // Update target; rendered position lerps each frame
+      if (stateRef.current.zombieKilled) {
+        // This packet means the zombie has respawned — snap it in and resume
+        stateRef.current.zombieKilled = false;
+        stateRef.current.zombiePos    = { x, y };
+        stateRef.current.zombieTarget = { x, y };
+        return;
+      }
       if (!stateRef.current.zombieTarget) {
-        // First packet — snap immediately so zombie doesn't slide in from 0,0
         stateRef.current.zombiePos    = { x, y };
         stateRef.current.zombieTarget = { x, y };
       } else {
@@ -418,9 +424,10 @@ export default function PlayerTwoView({ room, onGameOver }) {
     // Kill it
     sendZombieKill();
     state.zombieKillBurst = { x: state.zombiePos.x, y: state.zombiePos.y, startedAt: now };
-    state.zombiePos   = null;
+    state.zombiePos    = null;
     state.zombieTarget = null;
-    state.lastPingAt  = now; // share cooldown
+    state.zombieKilled = true;
+    state.lastPingAt   = now; // share cooldown
     return true;
   }
 
