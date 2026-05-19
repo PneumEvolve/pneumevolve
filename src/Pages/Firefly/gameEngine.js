@@ -107,7 +107,7 @@ export function generateMap(seed) {
 
   // ── Large scattered chunks (target: 45) ───────────────────────────────────
   // Retry each one a few times if it lands on occupied space so we hit count
-  for (let i = 0; i < 45; i++) {
+  for (let i = 0; i < 20; i++) {
     for (let attempt = 0; attempt < 6; attempt++) {
       const x = 80 + rand() * (WORLD - 240);
       const y = 80 + rand() * (WORLD - 240);
@@ -127,7 +127,7 @@ export function generateMap(seed) {
     { x: 1600, y: 1600 },
   ];
   corridorCenters.forEach(c => {
-    const count = 4 + Math.floor(rand() * 5);
+    const count = 2 + Math.floor(rand() * 3);
     for (let i = 0; i < count; i++) {
       for (let attempt = 0; attempt < 5; attempt++) {
         const ox = (rand() - 0.5) * 350;
@@ -146,7 +146,7 @@ export function generateMap(seed) {
     for (let c = 1; c < GRID_COLS - 1; c++) {
       if (occupied[gridIdx(c, r)]) continue;
       // Only fill about 30% of remaining free cells to keep it navigable
-      if (rand() > 0.30) continue;
+      if (rand() > 0.10) continue;
       const x = c * CELL_SIZE + rand() * (CELL_SIZE * 0.4);
       const y = r * CELL_SIZE + rand() * (CELL_SIZE * 0.4);
       const w = 30 + rand() * 70;

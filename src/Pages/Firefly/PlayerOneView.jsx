@@ -5,7 +5,7 @@ import { generateMap, updateFireflies, moveWithSlide, circleOverlap, randomOpenP
 
 const WORLD           = 2400;
 const PLAYER_SPEED    = 135;
-const ZOMBIE_SPEED    = 72;
+const ZOMBIE_SPEED    = 90;
 const COLLECT_R       = 18;
 const ZOMBIE_HIT_R    = 28;
 const PLAYER_R        = 10;
