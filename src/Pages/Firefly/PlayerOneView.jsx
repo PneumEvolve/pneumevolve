@@ -588,7 +588,7 @@ export default function PlayerOneView({ room, onGameOver }) {
       if (dist < ZOMBIE_HIT_R && state.invincible === 0) {
         state.hitFlash   = 1;
         state.invincible = INVINCIBLE_SECS;
-        state.hp         = 0;
+        state.hp         = Math.max(0, state.hp - 1);
         soundRef.current?.playHit();
       }
 
@@ -715,6 +715,9 @@ export default function PlayerOneView({ room, onGameOver }) {
     function onKeyUp(e) { keysRef.current[e.key] = false; }
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
+    canvas.addEventListener("touchstart", onTouchStart, { passive: false });
+    canvas.addEventListener("touchmove",  onTouchMove,  { passive: false });
+    canvas.addEventListener("touchend",   onTouchEnd,   { passive: false });
 
     return () => {
       cancelAnimationFrame(rafRef.current);
@@ -722,6 +725,9 @@ export default function PlayerOneView({ room, onGameOver }) {
       window.removeEventListener("resize", resize);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
+      canvas.removeEventListener("touchstart", onTouchStart);
+      canvas.removeEventListener("touchmove",  onTouchMove);
+      canvas.removeEventListener("touchend",   onTouchEnd);
     };
   }, [room]);
 
@@ -785,9 +791,6 @@ export default function PlayerOneView({ room, onGameOver }) {
       <canvas
         ref={canvasRef}
         style={{ width: "100%", height: "100%", display: "block" }}
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
       />
     </div>
   );

@@ -401,11 +401,17 @@ export default function PlayerTwoView({ room, onGameOver }) {
     resize();
     snapCamTo(WORLD / 2, WORLD / 2);
     window.addEventListener("resize", resize);
+    canvas.addEventListener("touchstart", handleTouchStart, { passive: false });
+    canvas.addEventListener("touchmove",  handleTouchMove,  { passive: false });
+    canvas.addEventListener("touchend",   handleTouchEnd,   { passive: false });
     rafRef.current = requestAnimationFrame(loop);
 
     return () => {
       cancelAnimationFrame(rafRef.current);
       window.removeEventListener("resize", resize);
+      canvas.removeEventListener("touchstart", handleTouchStart);
+      canvas.removeEventListener("touchmove",  handleTouchMove);
+      canvas.removeEventListener("touchend",   handleTouchEnd);
     };
   }, []);
 
@@ -544,9 +550,6 @@ export default function PlayerTwoView({ room, onGameOver }) {
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
       />
 
       {/* Score + timer */}
