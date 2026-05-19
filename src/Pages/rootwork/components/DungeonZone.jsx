@@ -1174,6 +1174,7 @@ function Lobby({ game, lastRun, pendingReward, onStart, onClaim, selectedHeroIds
     if ((a.hp ?? a.maxHp ?? 40) <= 0) return false;
     if (a.mission) return false;
     if (a.tavernResting) return false;
+    if (a.bossAssigned) return false;
     if (expeditionHeroIds.has(a.id)) return false;
     if (dungeonHeroIds.has(a.id)) return false;
     return true;
@@ -1417,6 +1418,7 @@ function getDungeonPartyLocal(game) {
     if ((a.hp ?? a.maxHp ?? 40) <= 0) return false;
     if (a.mission) return false;
     if (a.tavernResting) return false;
+    if (a.bossAssigned) return false;
     if (expeditionHeroIds.has(a.id)) return false;
     if (dungeonHeroIds.has(a.id)) return false;
     return true;

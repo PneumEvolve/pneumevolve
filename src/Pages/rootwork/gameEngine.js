@@ -6759,6 +6759,8 @@ export function assignHeroToBoss(state, heroId) {
   if (!hero || hero.mission || hero.bossAssigned) return state;
   if ((hero.hp ?? hero.maxHp ?? 40) <= 0) return state; // dead hero can't join
   if ((bossFight.assignedHeroIds ?? []).includes(heroId)) return state;
+  if ((state.dungeonRun?.heroIds ?? []).includes(heroId)) return state; // in dungeon
+  if (isHeroOnExpedition(state, heroId)) return state; // on expedition
 
   const updatedAdv = { ...hero, bossAssigned: true, tavernResting: false, tavernBuff: null };
   return {
@@ -7858,6 +7860,7 @@ export function getDungeonParty(state) {
     if ((a.hp ?? a.maxHp ?? 40) <= 0) return false;
     if (a.mission) return false;
     if (a.tavernResting) return false;
+    if (a.bossAssigned) return false;
     if (isHeroOnExpedition(state, a.id)) return false;
     if ((state.dungeonRun?.heroIds ?? []).includes(a.id)) return false;
     return true;
@@ -7866,6 +7869,13 @@ export function getDungeonParty(state) {
 
 // Start a dungeon run -- lock heroes in game state
 export function startDungeonRun(state, heroIds) {
+  // Reject if any hero is busy (boss fight, expedition, mission, tavern)
+  for (const heroId of heroIds) {
+    const hero = (state.adventurers ?? []).find(a => a.id === heroId);
+    if (!hero) return state;
+    if (hero.mission || hero.tavernResting || hero.bossAssigned) return state;
+    if (isHeroOnExpedition(state, heroId)) return state;
+  }
   return { ...state, dungeonRun: { heroIds, mode: 'explore', active: true } };
 }
 
