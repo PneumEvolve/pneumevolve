@@ -84,6 +84,8 @@ import PwaManifest from "@/components/PwaManifest";
 import FireflyGame from "./Pages/Firefly/index";
 
 import SlalomPage from "@/Pages/Slalom";
+
+import StrongholdGame from "@/Pages/Stronghold"
  
 import { HelmetProvider } from "react-helmet-async";
 import "./index.css";
@@ -201,6 +203,8 @@ function Root() {
                 <Route path="/firefly" element={<RequireAuth><FireflyGame /></RequireAuth>} />
 
                 <Route path="/slalom" element={<SlalomPage />} />
+
+                <Route path="/stronghold" element={<StrongholdGame />} />
 
                 
  
