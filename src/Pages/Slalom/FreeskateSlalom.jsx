@@ -122,13 +122,18 @@ function drawSpreadBar(ctx, spread) {
 
 function rand(min, max) { return min + Math.random()*(max-min); }
 
-function generateChunk(startDist, count) {
+function generateChunk(startDist, count, prevCx = null) {
   const items = [];
   let d = startDist;
+  let lastCx = prevCx ?? (CANVAS_W / 2);
+  const MAX_GATE_DRIFT = 150; // max horizontal jump between consecutive gates
   for (let i = 0; i < count; i++) {
     const spacing = rand(240, 340);  // slightly more spacing (was 220-320)
     d += spacing;
-    const cx = rand(GATE_WIDTH/2+40, CANVAS_W-GATE_WIDTH/2-40);
+    const minCx = Math.max(GATE_WIDTH/2+40, lastCx - MAX_GATE_DRIFT);
+    const maxCx = Math.min(CANVAS_W-GATE_WIDTH/2-40, lastCx + MAX_GATE_DRIFT);
+    const cx = rand(minCx, maxCx);
+    lastCx = cx;
     items.push({ type:"gate", worldDist:d, cx, passed:false, missed:false, id:Math.random() });
     const gemCount = Math.floor(rand(0,3));
     for (let g = 0; g < gemCount; g++) {
@@ -157,9 +162,28 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
   // P2 client-side prediction: store last received server state + timestamp
   const p2LastServerRef = useRef(null); // { state, receivedAt }
 
-  const [gems, setGems]     = useState(0);
-  const [misses, setMisses] = useState(0);
-  const [p2Ready, setP2Ready] = useState(false);
+  const [gems, setGems]         = useState(0);
+  const [misses, setMisses]     = useState(0);
+  const [gatesPassed, setGatesPassed] = useState(0);
+  const [p2Ready, setP2Ready]   = useState(false);
+  const [bothReady, setBothReady] = useState(!roomId); // solo starts immediately; multiplayer waits
+
+  // Hi-score persists via localStorage across sessions.
+  // { gates, gems } — gates is primary sort key, gems is tiebreaker.
+  const hiScoreRef = useRef(null);
+  // Load from localStorage once on mount (useRef init runs only once)
+  if (hiScoreRef.current === null) {
+    try {
+      const saved = localStorage.getItem("slalom_hiscore");
+      if (saved) hiScoreRef.current = JSON.parse(saved);
+    } catch {}
+  }
+  const newBestRef = useRef(false);  // true on the game-over screen when a new best was just set
+
+  // Tracks how many gem milestones (multiples of 10) have been cashed in this run.
+  // Each milestone removes 1 miss and triggers a brief flash.
+  const gemMilestoneRef = useRef(0);
+  const missEraseFlashRef = useRef(0); // countdown frames for the "miss erased" flash
 
   const isMultiplayer = !!roomId;
   const isP1 = !isMultiplayer || role === "p1";
@@ -175,7 +199,7 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
     topTrail: [], botTrail: [],
     dist: 0, speed: BASE_SPEED,
     items: generateChunk(200, 40),
-    gems: 0, misses: 0,
+    gems: 0, misses: 0, gatesPassed: 0,
     wipeout: false, wipeoutTimer: 0,
     gameOver: false,
   }), [PLAYER_CX_BASE, PLAYER_CY]);
@@ -216,6 +240,7 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
         s.gameOver  = state.gameOver;
         s.topTrail  = state.topTrail  || [];
         s.botTrail  = state.botTrail  || [];
+        s.gatesPassed = state.gatesPassed ?? s.gatesPassed;
         // Snap positions to server (prediction will smooth from here)
         s.topSkate  = { ...state.topSkate };
         s.botSkate  = { ...state.botSkate };
@@ -233,11 +258,14 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
       onRestart: () => {
         sRef.current = mkState();
         p2LastServerRef.current = null;
-        setGems(0); setMisses(0);
+        gemMilestoneRef.current = 0;
+        missEraseFlashRef.current = 0;
+        setGems(0); setMisses(0); setGatesPassed(0);
       },
 
       onPlayerReady: () => {
         setP2Ready(true);
+        setBothReady(true); // P1 can now start the loop
       },
     }
   );
@@ -301,7 +329,7 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
       }
 
       // ── P1 / solo: own the game loop ────────────────────────────────────
-      if (isP1 && !s.wipeout && !s.gameOver) {
+      if (isP1 && !s.wipeout && !s.gameOver && bothReady) {
         // Speed ramp: slower start, gentler curve
         const speed = BASE_SPEED + Math.min(s.dist / 6000, 2.5);
         s.speed = speed;
@@ -344,6 +372,16 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
 
         if (Math.abs(s.topSkate.x - s.botSkate.x) > MAX_SPREAD) {
           s.wipeout = true; s.wipeoutTimer = 90;
+          // Reset angles immediately so recovery isn't a chain wipeout
+          s.topSkate.angle = 0; s.botSkate.angle = 0;
+          s.topSkate.vx = 0;   s.botSkate.vx = 0;
+          // Snap cx to the next upcoming gate so they're lined up on recovery
+          const nextGate = s.items.find(i => i.type === "gate" && !i.passed && !i.missed && i.worldDist > s.dist);
+          const snapX = nextGate ? nextGate.cx : s.cx;
+          s.cx = snapX;
+          s.topSkate.x = snapX + 10; s.botSkate.x = snapX + 10;
+          s.topTrail = []; s.botTrail = [];
+          p2AngleRef.current = 0;
         }
 
         const half = GATE_WIDTH / 2;
@@ -356,12 +394,26 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
               // FORGIVING: pass if EITHER skate hits the gate
               if (topIn || botIn) {
                 item.passed = true;
+                s.gatesPassed += 1;
+                setGatesPassed(s.gatesPassed);
               } else {
                 item.missed = true;
                 s.misses += 1;
                 setMisses(s.misses);
                 if (s.misses >= 3) {
                   s.gameOver = true;
+                  // Update session hi-score
+                  const prev = hiScoreRef.current;
+                  const isNewBest = !prev
+                    || s.gatesPassed > prev.gates
+                    || (s.gatesPassed === prev.gates && s.gems > prev.gems);
+                  if (isNewBest) {
+                    hiScoreRef.current = { gates: s.gatesPassed, gems: s.gems };
+                    newBestRef.current = true;
+                    try { localStorage.setItem("slalom_hiscore", JSON.stringify(hiScoreRef.current)); } catch {}
+                  } else {
+                    newBestRef.current = false;
+                  }
                   if (isMultiplayer) {
                     sendGameOver(s.gems);
                     api.patch(`/slalom/rooms/${roomData.id}`, { final_gems: s.gems }).catch(()=>{});
@@ -375,13 +427,26 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
             const botDist = Math.hypot(s.botSkate.x - item.x, (s.cy+SKATE_SPREAD) - screenY);
             if (topDist < 22 || botDist < 22) {
               item.collected = true; s.gems += 1; setGems(s.gems);
+              // Every 10 gems: erase a miss (if any)
+              const milestone = Math.floor(s.gems / 10);
+              if (milestone > gemMilestoneRef.current && s.misses > 0) {
+                gemMilestoneRef.current = milestone;
+                s.misses -= 1;
+                setMisses(s.misses);
+                missEraseFlashRef.current = 60; // flash for 60 frames (~1s)
+              } else if (milestone > gemMilestoneRef.current) {
+                // Hit milestone but no miss to erase — still advance so next miss-erase is at next +10
+                gemMilestoneRef.current = milestone;
+              }
             }
           }
         }
 
         const maxW = Math.max(...s.items.map(i => i.worldDist));
-        if (maxW - s.dist < CANVAS_H*2)
-          s.items.push(...generateChunk(maxW+100, 20));
+        if (maxW - s.dist < CANVAS_H*2) {
+          const lastGate = [...s.items].reverse().find(i => i.type === "gate");
+          s.items.push(...generateChunk(maxW+100, 20, lastGate?.cx ?? null));
+        }
         s.items = s.items.filter(i => s.dist - i.worldDist < 500);
 
         if (isMultiplayer && frameRef.current % BROADCAST_EVERY === 0) {
@@ -391,6 +456,7 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
             dist: s.dist, speed: s.speed, cx: s.cx,
             wipeout: s.wipeout, gameOver: s.gameOver,
             topTrail: s.topTrail, botTrail: s.botTrail,
+            gatesPassed: s.gatesPassed,
           });
         }
 
@@ -398,18 +464,22 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
         s.wipeoutTimer--;
         if (s.wipeoutTimer <= 0) {
           s.wipeout = false;
-          s.topSkate.x = s.cx+10; s.botSkate.x = s.cx+10;
-          s.topSkate.angle = 0; s.botSkate.angle = 0;
-          s.topSkate.vx = 0; s.botSkate.vx = 0;
-          s.topTrail = []; s.botTrail = [];
-          p2AngleRef.current = 0;
+          // Angles/positions already zeroed at wipeout trigger; just snap to
+          // next upcoming gate in case more were skipped during the freeze
+          const nextGate = s.items.find(i => i.type === "gate" && !i.passed && !i.missed && i.worldDist > s.dist);
+          const snapX = nextGate ? nextGate.cx : s.cx;
+          s.cx = snapX;
+          s.topSkate.x = snapX + 10; s.botSkate.x = snapX + 10;
         }
       }
 
       if (s.gameOver && (k[" "] || k["Enter"])) {
         sRef.current = mkState();
         p2LastServerRef.current = null;
-        setGems(0); setMisses(0);
+        newBestRef.current = false;
+        gemMilestoneRef.current = 0;
+        missEraseFlashRef.current = 0;
+        setGems(0); setMisses(0); setGatesPassed(0);
         if (isMultiplayer) sendRestart();
       }
 
@@ -418,6 +488,19 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
       ctx.strokeStyle="#ffffff04"; ctx.lineWidth=1;
       for (let x=60; x<CANVAS_W; x+=80) {
         ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,CANVAS_H); ctx.stroke();
+      }
+
+      // Waiting-for-P2 overlay (shown before both players are ready)
+      if (isMultiplayer && !bothReady && isP1) {
+        ctx.fillStyle="rgba(100,180,255,0.08)"; ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
+        ctx.fillStyle="rgba(100,180,255,0.9)"; ctx.font="bold 22px monospace"; ctx.textAlign="center";
+        ctx.fillText("ROOM " + (roomData?.join_code ?? ""), CANVAS_W/2, CANVAS_H/2 - 40);
+        ctx.fillStyle="rgba(255,255,255,0.35)"; ctx.font="13px monospace";
+        ctx.fillText("waiting for player 2…", CANVAS_W/2, CANVAS_H/2);
+        ctx.fillStyle="rgba(255,255,255,0.15)"; ctx.font="11px monospace";
+        ctx.fillText("game starts when they join", CANVAS_W/2, CANVAS_H/2 + 24);
+        animRef.current = requestAnimationFrame(loop);
+        return;
       }
 
       const s2 = sRef.current;
@@ -436,7 +519,29 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
 
         ctx.fillStyle="#44eeffcc"; ctx.font="bold 20px monospace"; ctx.textAlign="left";
         ctx.fillText(`💎 ${s2.gems}`, 16, 30);
+        // Show progress toward next miss-erase milestone
+        const msLeft = 10 - (s2.gems % 10);
+        if (s2.misses > 0 && msLeft < 10) {
+          ctx.fillStyle="#44eeff55"; ctx.font="9px monospace"; ctx.textAlign="left";
+          ctx.fillText(`${msLeft} to erase miss`, 16, 44);
+        }
+        // Gate counter
+        ctx.fillStyle="#ffffff55"; ctx.font="bold 14px monospace"; ctx.textAlign="left";
+        ctx.fillText(`🚩 ${s2.gatesPassed}`, 16, 58);
         drawMisses(ctx, s2.misses);
+
+        // Miss-erase flash overlay
+        if (missEraseFlashRef.current > 0) {
+          missEraseFlashRef.current--;
+          const t = missEraseFlashRef.current / 60;
+          if (Math.floor(missEraseFlashRef.current / 8) % 2 === 0) {
+            ctx.fillStyle = `rgba(68,255,136,${t * 0.18})`;
+            ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+          }
+          ctx.fillStyle = `rgba(68,255,136,${Math.min(t * 2, 1) * 0.9})`;
+          ctx.font = "bold 18px monospace"; ctx.textAlign = "center";
+          ctx.fillText("✦ MISS ERASED ✦", CANVAS_W / 2, 60);
+        }
 
         if (isMultiplayer) {
           ctx.fillStyle = isP1 ? "rgba(100,180,255,0.5)" : "rgba(255,80,100,0.5)";
@@ -455,14 +560,33 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
         }
 
       } else {
+        const hi = hiScoreRef.current;
+        const isNewBest = newBestRef.current;
+
         ctx.fillStyle="#ffffff"; ctx.font="bold 38px monospace"; ctx.textAlign="center";
-        ctx.fillText("GAME OVER", CANVAS_W/2, CANVAS_H/2-50);
-        ctx.fillStyle="#44eeffcc"; ctx.font="bold 28px monospace";
-        ctx.fillText(`💎 ${s2.gems} gems`, CANVAS_W/2, CANVAS_H/2+2);
-        ctx.fillStyle="#ff3333aa"; ctx.font="16px monospace";
-        ctx.fillText("3 gates missed", CANVAS_W/2, CANVAS_H/2+36);
+        ctx.fillText("GAME OVER", CANVAS_W/2, CANVAS_H/2-80);
+
+        // NEW BEST flash (alternates every 20 frames)
+        if (isNewBest && Math.floor(Date.now()/400)%2===0) {
+          ctx.fillStyle="#ffdd44"; ctx.font="bold 15px monospace";
+          ctx.fillText("✦ NEW BEST ✦", CANVAS_W/2, CANVAS_H/2-52);
+        }
+
+        // This run
+        ctx.fillStyle="#44eeffcc"; ctx.font="bold 22px monospace";
+        ctx.fillText(`💎 ${s2.gems}  🚩 ${s2.gatesPassed}`, CANVAS_W/2, CANVAS_H/2-18);
+
+        // Hi-score line — always shown once a best exists
+        if (hi) {
+          ctx.fillStyle = isNewBest ? "#ffdd44bb" : "#ffffff33";
+          ctx.font="12px monospace";
+          ctx.fillText(`best  🚩 ${hi.gates}  💎 ${hi.gems}`, CANVAS_W/2, CANVAS_H/2+12);
+        }
+
+        ctx.fillStyle="#ff3333aa"; ctx.font="14px monospace";
+        ctx.fillText("3 gates missed", CANVAS_W/2, CANVAS_H/2+40);
         ctx.fillStyle="#ffffff44"; ctx.font="13px monospace";
-        ctx.fillText("SPACE or ENTER to go again", CANVAS_W/2, CANVAS_H/2+70);
+        ctx.fillText("SPACE or ENTER to go again", CANVAS_W/2, CANVAS_H/2+68);
       }
 
       animRef.current = requestAnimationFrame(loop);
@@ -470,7 +594,7 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
 
     animRef.current = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animRef.current);
-  }, [isP1, isP2, isMultiplayer, mkState, sendGameState, sendGameOver, sendRestart, sendP2Input, roomData]);
+  }, [isP1, isP2, isMultiplayer, bothReady, mkState, sendGameState, sendGameOver, sendRestart, sendP2Input, roomData]);
 
   // ── Responsive scaling ────────────────────────────────────────────────────
   // The canvas stays at its logical 480×700 size; we CSS-scale the wrapper

@@ -20,13 +20,16 @@ import {
   updateEnemyAttackUnits,
   getSlowZones, calculateScore, calcWaveEndGold,
   calcTownspeople, clampWorkers,
-  lerp, dist,
+  lerp, dist, wasWaveFlawless, scoutWave,
 } from "./strongholdEngine";
 
 const PLAYER_SPEED   = 160;
 const MOVE_THROTTLE  = 50;
 const SYNC_THROTTLE  = 80;
 const COUNTDOWN_SECS = 5;
+const DASH_SPEED     = 520;
+const DASH_DURATION  = 0.18;
+const DASH_COOLDOWN  = 4.0;
 
 export default function ProtectorView({ room, onGameOver }) {
   const canvasRef   = useRef(null);
@@ -43,6 +46,10 @@ export default function ProtectorView({ room, onGameOver }) {
   const [p2Ready,    setP2Ready]    = useState(false);
   const p1ReadyRef = useRef(false);
   const p2ReadyRef = useRef(false);
+  const [pings,      setPings]      = useState([]);
+  const [waveSummary, setWaveSummary] = useState(null);
+  const [dashReady,   setDashReady]  = useState(true); // tracks cooldown for mobile button
+  const pingsRef     = useRef([]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   const handlers = useRef({
@@ -122,13 +129,22 @@ export default function ProtectorView({ room, onGameOver }) {
         s.playerHp = Math.floor(PROTECTOR_MAX_HP * 0.4); // revive at 40% hp
       }
     },
+    onPing: ({ x, y, from }) => {
+      const now = Date.now();
+      pingsRef.current = [...pingsRef.current, { x, y, from, ts: now }].filter(p => now - p.ts < 4000);
+      setPings([...pingsRef.current]);
+    },
+    onWaveSummary: (data) => {
+      setWaveSummary(data);
+      setTimeout(() => setWaveSummary(null), 6000);
+    },
   }).current;
 
   const {
     sendP1Move, sendEnemyUpdate, sendBuildingHealth,
     sendUnitUpdate, sendPhaseChange,
     sendCountdown, sendGameOver, sendChat, sendGoldUpdate, sendPlayerReady, sendWorkerAssign,
-    sendRevive,
+    sendRevive, sendPing, sendWaveSummary,
   } = useStrongholdRoom(room?.id ?? null, handlers);
 
   // ── Spawn soldiers ────────────────────────────────────────────────────────
@@ -176,6 +192,22 @@ export default function ProtectorView({ room, onGameOver }) {
       chatMessages:    [],
       floaters:        [],
       lockedWorkers:   0,
+      // Dash
+      dashCooldown:    0,
+      isDashing:       false,
+      dashTimer:       0,
+      dashVx:          0,
+      dashVy:          0,
+      // Flawless tracking
+      flawlessWaves:   0,
+      waveDowns:       0,
+      waveBuildingDmgStart: 0,
+      totalDowns:      0,
+      // Scout — stores per-side enemy counts once protector reaches border
+      scoutData:       null, // { perSide:[n,n,n,n], demolishersPerSide:[...], total, demolisherCount }
+      scoutPulse:      0,
+      // Pings
+      activePings:     [],
       cam:             { x: WORLD / 2 - 400, y: WORLD / 2 - 300 },
     };
   }
@@ -276,10 +308,23 @@ export default function ProtectorView({ room, onGameOver }) {
       ctx.save();
       ctx.globalAlpha = 0.9;
       ctx.beginPath(); ctx.arc(cx, cy, e.radius, 0, Math.PI * 2);
-      ctx.fillStyle = e.chasingBuilder ? "#ff44aa" : "#cc2222"; ctx.fill();
+      // Demolisher = dark purple, brute = red, raider = orange-red
+      const fill = e.type === "demolisher"
+        ? (e.chasingBuilder ? "#cc44ff" : "#7722cc")
+        : e.chasingBuilder ? "#ff44aa" : "#cc2222";
+      ctx.fillStyle = fill; ctx.fill();
+      // Demolisher gets an X mark
+      if (e.type === "demolisher") {
+        ctx.globalAlpha = 0.7;
+        ctx.strokeStyle = "rgba(255,255,255,0.6)"; ctx.lineWidth = 1.5; ctx.lineCap = "round";
+        const r = e.radius * 0.45;
+        ctx.beginPath(); ctx.moveTo(cx - r, cy - r); ctx.lineTo(cx + r, cy + r); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(cx + r, cy - r); ctx.lineTo(cx - r, cy + r); ctx.stroke();
+      }
+      ctx.globalAlpha = 0.9;
       ctx.fillStyle = "rgba(0,0,0,0.5)";
       ctx.fillRect(cx - 8, cy - e.radius - 6, 16, 3);
-      ctx.fillStyle = e.chasingBuilder ? "#ff88cc" : "#ff4444";
+      ctx.fillStyle = e.type === "demolisher" ? "#cc88ff" : e.chasingBuilder ? "#ff88cc" : "#ff4444";
       ctx.fillRect(cx - 8, cy - e.radius - 6, 16 * hpPct, 3);
       ctx.restore();
     });
@@ -287,10 +332,22 @@ export default function ProtectorView({ room, onGameOver }) {
     // Builder dot
     const { cx: bpx, cy: bpy } = worldToCanvas(builderPos.x, builderPos.y, cam);
     ctx.save();
+    // Revive ring — pulse when builder is down
+    if (state.builderHp <= 0 && phase === "wave") {
+      const pulse = 0.5 + 0.3 * Math.sin(t * 5);
+      ctx.globalAlpha = pulse * 0.5;
+      ctx.beginPath(); ctx.arc(bpx, bpy, REVIVE_RADIUS, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(120,200,255,0.9)"; ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 4]); ctx.stroke(); ctx.setLineDash([]);
+      ctx.globalAlpha = pulse * 0.12;
+      ctx.beginPath(); ctx.arc(bpx, bpy, REVIVE_RADIUS, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(120,200,255,1)"; ctx.fill();
+    }
+    ctx.globalAlpha = 1;
     ctx.beginPath(); ctx.arc(bpx, bpy, 10 + 2 * Math.sin(t * 3), 0, Math.PI * 2);
     ctx.fillStyle = "rgba(120,200,255,0.12)"; ctx.fill();
     ctx.beginPath(); ctx.arc(bpx, bpy, 5, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(120,200,255,0.9)"; ctx.fill();
+    ctx.fillStyle = state.builderHp <= 0 ? "rgba(120,200,255,0.35)" : "rgba(120,200,255,0.9)"; ctx.fill();
     ctx.restore();
 
     // Protector dot
@@ -303,6 +360,77 @@ export default function ProtectorView({ room, onGameOver }) {
     ctx.restore();
 
     drawHUD(ctx, state, t, W, H);
+
+    // ── Minimap ────────────────────────────────────────────────────────────
+    drawMinimap(ctx, state, t, W, H);
+
+    // ── Threat arrows — off-screen enemies attacking buildings ──────────
+    if (phase === "wave") drawThreatArrows(ctx, state, W, H);
+
+    // ── Scout ring (build phase only) ────────────────────────────────────
+    if (phase === "build" && state.waveNumber === 0) {
+      const { cx: pcx, cy: pcy } = worldToCanvas(WORLD / 2, WORLD / 2, cam);
+      // Subtle world border patrol hint
+      if (!state.scoutData) {
+        ctx.save();
+        ctx.globalAlpha = 0.04 + 0.02 * Math.sin(t * 1.2);
+        ctx.strokeStyle = "rgba(255,210,80,0.5)"; ctx.lineWidth = 1;
+        ctx.setLineDash([8, 8]); ctx.strokeRect(pcx - WORLD / 2, pcy - WORLD / 2, WORLD, WORLD);
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 0.28;
+        ctx.font = "11px sans-serif"; ctx.fillStyle = "rgba(255,210,80,0.7)"; ctx.textAlign = "center";
+        ctx.fillText("walk to the border to scout incoming enemies", W / 2, H - 56);
+        ctx.restore();
+      } else {
+        // Show per-side counts
+        const sd = state.scoutData;
+        const sideLabels = ["▲ top", "▶ right", "▼ bottom", "◀ left"];
+        const sidePositions = [
+          [W / 2, 54],           // top
+          [W - 14, H / 2],       // right
+          [W / 2, H - 56],       // bottom
+          [14, H / 2],           // left
+        ];
+        const sideAligns = ["center", "right", "center", "left"];
+        ctx.save();
+        sd.perSide.forEach((n, i) => {
+          if (n === 0) return;
+          const [sx, sy] = sidePositions[i];
+          const dem = sd.demolishersPerSide[i];
+          ctx.textAlign = sideAligns[i];
+          ctx.globalAlpha = 0.85;
+          ctx.font = "12px sans-serif";
+          ctx.fillStyle = "rgba(255,180,60,0.9)";
+          ctx.fillText(`${sideLabels[i]}: ${n}${dem > 0 ? ` (+${dem} ✕)` : ""}`, sx, sy);
+        });
+        ctx.globalAlpha = 0.4;
+        ctx.font = "10px sans-serif"; ctx.fillStyle = "rgba(255,255,255,0.4)"; ctx.textAlign = "center";
+        ctx.fillText(`${sd.total} total — ${sd.demolisherCount} demolisher${sd.demolisherCount !== 1 ? "s" : ""}`, W / 2, H - 40);
+        ctx.restore();
+      }
+    }
+
+    // ── Ping markers on canvas ────────────────────────────────────────────
+    if (state.activePings) {
+      state.activePings.forEach(p => {
+        const age = (Date.now() - p.ts) / 1000;
+        if (age > 3) return;
+        const { cx: px, cy: py } = worldToCanvas(p.x, p.y, cam);
+        const alpha = Math.max(0, 1 - age / 3);
+        const ring  = 12 + age * 18;
+        ctx.save();
+        ctx.globalAlpha = alpha * 0.7;
+        ctx.beginPath(); ctx.arc(px, py, ring, 0, Math.PI * 2);
+        ctx.strokeStyle = p.from === "p1" ? "rgba(255,100,60,0.9)" : "rgba(120,200,255,0.9)";
+        ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.globalAlpha = alpha;
+        ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI * 2);
+        ctx.fillStyle = p.from === "p1" ? "rgba(255,100,60,0.9)" : "rgba(120,200,255,0.9)"; ctx.fill();
+        ctx.restore();
+      });
+      // Clean old pings
+      state.activePings = state.activePings.filter(p => Date.now() - p.ts < 3000);
+    }
 
     // Joystick overlay — drawn last so it's always on top
     drawJoystick(ctx, joystickRef.current);
@@ -358,6 +486,17 @@ export default function ProtectorView({ room, onGameOver }) {
       ctx.arc(cx, cy, def.radius + 6, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * hpPct);
       ctx.strokeStyle = hpPct > 0.5 ? "rgba(100,255,100,0.7)" : hpPct > 0.25 ? "rgba(255,200,60,0.8)" : "rgba(255,60,60,0.9)";
       ctx.lineWidth = 2.5; ctx.stroke();
+      ctx.restore();
+    }
+
+    // Overheal gold arc — visible to protector too
+    if (b.hp > 0 && b.hp > b.maxHp) {
+      const overhealFrac = Math.min((b.hp - b.maxHp) / (b.maxHp * 0.15), 1);
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, def.radius + 9, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * overhealFrac);
+      ctx.strokeStyle = `rgba(255,215,0,${0.6 + 0.2 * Math.sin(t * 3)})`;
+      ctx.lineWidth = 2; ctx.stroke();
       ctx.restore();
     }
 
@@ -461,6 +600,20 @@ export default function ProtectorView({ room, onGameOver }) {
       }
     }
 
+    // Dash cooldown bar (only if dash upgrade owned)
+    if ((state.upgrades ?? []).includes("dash")) {
+      const coolFrac = state.dashCooldown > 0 ? 1 - (state.dashCooldown / DASH_COOLDOWN) : 1;
+      const barW = 60, barH = 4;
+      const bx = 14, by = H - 48;
+      ctx.fillStyle = "rgba(255,255,255,0.06)";
+      ctx.roundRect(bx, by, barW, barH, 2); ctx.fill();
+      ctx.fillStyle = coolFrac >= 1 ? "rgba(255,200,60,0.8)" : "rgba(255,200,60,0.35)";
+      ctx.roundRect(bx, by, barW * coolFrac, barH, 2); ctx.fill();
+      ctx.font = "9px sans-serif"; ctx.textAlign = "left";
+      ctx.fillStyle = coolFrac >= 1 ? "rgba(255,200,60,0.7)" : "rgba(255,255,255,0.2)";
+      ctx.fillText(coolFrac >= 1 ? "dash ready" : "dash…", bx, by - 3);
+    }
+
     // Protector label
     ctx.save();
     ctx.font = "11px sans-serif"; ctx.fillStyle = "rgba(255,100,60,0.25)";
@@ -482,6 +635,106 @@ export default function ProtectorView({ room, onGameOver }) {
     }
 
     ctx.restore();
+  }
+
+  // ── Minimap ───────────────────────────────────────────────────────────────
+  function drawMinimap(ctx, state, t, W, H) {
+    const MM = 90, pad = 10;
+    const mx = W - MM - pad, my = pad;
+    const scale = MM / WORLD;
+
+    ctx.save();
+    // Background
+    ctx.globalAlpha = 0.65;
+    ctx.fillStyle = "#0a0d0f";
+    ctx.roundRect(mx, my, MM, MM, 6); ctx.fill();
+    ctx.globalAlpha = 0.2;
+    ctx.strokeStyle = "rgba(255,255,255,0.3)"; ctx.lineWidth = 0.5;
+    ctx.roundRect(mx, my, MM, MM, 6); ctx.stroke();
+
+    // Buildings
+    ctx.globalAlpha = 0.7;
+    state.buildings.forEach(b => {
+      if (b.hp <= 0) return;
+      const def = BUILDING_TYPES[b.type];
+      const bx = mx + b.x * scale;
+      const by = my + b.y * scale;
+      ctx.beginPath(); ctx.arc(bx, by, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = def.color; ctx.fill();
+    });
+
+    // Pings on minimap
+    if (state.activePings) {
+      state.activePings.forEach(p => {
+        const age = (Date.now() - p.ts) / 1000;
+        if (age > 3) return;
+        const px = mx + p.x * scale;
+        const py = my + p.y * scale;
+        ctx.globalAlpha = Math.max(0, 1 - age / 3) * 0.9;
+        ctx.beginPath(); ctx.arc(px, py, 3 + age * 2, 0, Math.PI * 2);
+        ctx.strokeStyle = p.from === "p1" ? "rgba(255,100,60,1)" : "rgba(120,200,255,1)";
+        ctx.lineWidth = 1; ctx.stroke();
+      });
+    }
+
+    // Enemies (red dots)
+    ctx.globalAlpha = 0.55;
+    state.enemies.forEach(e => {
+      if (e.dead) return;
+      const ex = mx + e.x * scale;
+      const ey = my + e.y * scale;
+      ctx.beginPath(); ctx.arc(ex, ey, e.type === "demolisher" ? 2 : 1.5, 0, Math.PI * 2);
+      ctx.fillStyle = e.type === "demolisher" ? "#cc44ff" : "#cc2222"; ctx.fill();
+    });
+
+    // Builder (blue)
+    ctx.globalAlpha = 0.9;
+    ctx.beginPath(); ctx.arc(mx + state.builderPos.x * scale, my + state.builderPos.y * scale, 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(120,200,255,0.9)"; ctx.fill();
+
+    // Protector (orange)
+    ctx.beginPath(); ctx.arc(mx + state.player.x * scale, my + state.player.y * scale, 3, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255,100,60,1)"; ctx.fill();
+
+    // Tap-to-ping hint
+    ctx.globalAlpha = 0.18;
+    ctx.font = "8px sans-serif"; ctx.fillStyle = "#fff"; ctx.textAlign = "center";
+    ctx.fillText("tap to ping", mx + MM / 2, my + MM + 9);
+
+    ctx.restore();
+  }
+
+  // ── Threat arrows — arrows pointing at off-screen enemies near buildings ──
+  function drawThreatArrows(ctx, state, W, H) {
+    const { cam, buildings, enemies } = state;
+    // Find enemies actively hitting buildings (not chasing players)
+    const threatening = enemies.filter(e => !e.dead && !e.chasingProtector && !e.chasingBuilder);
+    threatening.forEach(e => {
+      // Is this enemy near any building?
+      const nearBuilding = buildings.some(b => b.hp > 0 && dist(e.x, e.y, b.x, b.y) < 80);
+      if (!nearBuilding) return;
+      const { cx, cy } = { cx: e.x - cam.x, cy: e.y - cam.y };
+      // Only draw if off-screen
+      if (cx >= 0 && cx <= W && cy >= 0 && cy <= H) return;
+      // Angle from screen center to enemy
+      const angle = Math.atan2(cy - H / 2, cx - W / 2);
+      const edgeX = W / 2 + Math.cos(angle) * (W / 2 - 22);
+      const edgeY = H / 2 + Math.sin(angle) * (H / 2 - 22);
+      const clampedX = Math.max(22, Math.min(W - 22, edgeX));
+      const clampedY = Math.max(22, Math.min(H - 22, edgeY));
+      ctx.save();
+      ctx.globalAlpha = 0.55 + 0.2 * Math.sin(Date.now() / 200);
+      ctx.translate(clampedX, clampedY);
+      ctx.rotate(angle);
+      ctx.beginPath();
+      ctx.moveTo(10, 0);
+      ctx.lineTo(-6, -6);
+      ctx.lineTo(-6, 6);
+      ctx.closePath();
+      ctx.fillStyle = e.type === "demolisher" ? "rgba(180,60,255,0.9)" : "rgba(255,60,60,0.9)";
+      ctx.fill();
+      ctx.restore();
+    });
   }
 
   // ── Game loop ─────────────────────────────────────────────────────────────
@@ -508,7 +761,33 @@ export default function ProtectorView({ room, onGameOver }) {
       if (keys["ArrowDown"]  || keys["s"] || keys["S"]) vy += 1;
       if (joy.active) { vx += joy.vec.x; vy += joy.vec.y; }
     }
-    state.player = movePlayer(state.player.x, state.player.y, vx, vy, dt, PLAYER_SPEED);
+
+    // ── Dash ──────────────────────────────────────────────────────────────
+    const hasDash = (state.upgrades ?? []).includes("dash");
+    const prevCooldown = state.dashCooldown ?? 0;
+    state.dashCooldown = Math.max(0, prevCooldown - dt);
+    // Update mobile button when cooldown expires
+    if (prevCooldown > 0 && state.dashCooldown === 0) setDashReady(true);
+    if (state.isDashing) {
+      state.dashTimer -= dt;
+      if (state.dashTimer <= 0) {
+        state.isDashing = false;
+      } else {
+        state.player = movePlayer(state.player.x, state.player.y, state.dashVx, state.dashVy, dt, DASH_SPEED);
+      }
+    } else {
+      state.player = movePlayer(state.player.x, state.player.y, vx, vy, dt, PLAYER_SPEED);
+    }
+
+    // ── Scout mechanic (build phase wave 0) ───────────────────────────────
+    if (state.phase === "build" && state.waveNumber === 0 && state.scoutData === null) {
+      const margin = 180;
+      const px = state.player.x, py = state.player.y;
+      const atEdge = px < margin || px > WORLD - margin || py < margin || py > WORLD - margin;
+      if (atEdge) {
+        state.scoutData = scoutWave(1, room.map_seed);
+      }
+    }
 
     if (!protectorAlreadyDown && ts - lastMoveRef.current > MOVE_THROTTLE) {
       sendP1Move(state.player.x, state.player.y);
@@ -633,6 +912,16 @@ export default function ProtectorView({ room, onGameOver }) {
         });
       }
 
+      // Flawless tracking — record damage taken this wave
+      const totalBuildingHp = state.buildings.reduce((s, b) => s + b.hp, 0);
+      if (state._waveBuildingHpStart === undefined) state._waveBuildingHpStart = totalBuildingHp;
+      const prevProtectorDown = state._wasProtectorDown ?? false;
+      const prevBuilderDown   = state._wasBuilderDown   ?? false;
+      if (protectorDown && !prevProtectorDown) state.waveDowns = (state.waveDowns ?? 0) + 1;
+      if (builderDown   && !prevBuilderDown)   state.waveDowns = (state.waveDowns ?? 0) + 1;
+      state._wasProtectorDown = protectorDown;
+      state._wasBuilderDown   = builderDown;
+
       if (ts - lastSyncRef.current > SYNC_THROTTLE) {
         sendEnemyUpdate(state.enemies.filter(e => !e.dead).map(e => ({ id: e.id, x: e.x, y: e.y, hp: e.hp, maxHp: e.maxHp, chasingBuilder: e.chasingBuilder, type: e.type })));
         sendBuildingHealth(state.buildings.map(b => ({ id: b.id, hp: b.hp, workers: b.workers })), state.builderHp, state.playerHp, state.lockedWorkers ?? 0);
@@ -667,6 +956,10 @@ export default function ProtectorView({ room, onGameOver }) {
     state.waveNumber += 1;
     state.phase = "wave";
     state.enemies = spawnWave(state.waveNumber, room.map_seed);
+    state.waveDowns = 0;
+    state._waveBuildingHpStart = undefined;
+    state._wasProtectorDown = false;
+    state._wasBuilderDown   = false;
     setMood("tense");
     sfxWaveStart();
     sendPhaseChange("wave", { waveNumber: state.waveNumber });
@@ -684,18 +977,53 @@ export default function ProtectorView({ room, onGameOver }) {
     state.units.forEach(u => { u.hp = u.maxHp; });
     // Unlock all locked workers at the breather
     state.lockedWorkers = 0;
+
+    // Flawless check
+    const totalBuildingHp = state.buildings.reduce((s, b) => s + b.hp, 0);
+    const buildingDmgTaken = (state._waveBuildingHpStart ?? totalBuildingHp) - totalBuildingHp;
+    const flawless = wasWaveFlawless(Math.max(0, buildingDmgTaken), state.waveDowns ?? 0);
+    if (flawless) {
+      state.flawlessWaves = (state.flawlessWaves ?? 0) + 1;
+      const flawlessGold = 75;
+      state.gold += flawlessGold;
+      if (!state.floaters) state.floaters = [];
+      state.floaters.push({
+        text: `✦ flawless wave! +${flawlessGold} g`,
+        age: 0, ttl: 3.2,
+        color: "rgba(255,230,80,1)",
+        size: 17,
+      });
+    }
+    state.totalDowns = (state.totalDowns ?? 0) + (state.waveDowns ?? 0);
+
     state.phase = "breather";
     state.breatherLeft = getBreatherDuration(state.waveNumber);
     setMood("cozy");
     sfxWaveClear();
+
+    // Wave summary — sent to both players
+    const summary = {
+      waveNumber: state.waveNumber,
+      enemiesKilled: state.enemies.filter(e => e.dead).length,
+      totalEnemies: state.enemies.length,
+      bonusGold: bonus,
+      flawless,
+      flawlessBonus: flawless ? 75 : 0,
+      downs: state.waveDowns ?? 0,
+      buildingsStanding: state.buildings.filter(b => b.hp > 0).length,
+      totalBuildings: state.buildings.length,
+    };
+    setWaveSummary(summary);
+    sendWaveSummary(summary);
+    setTimeout(() => setWaveSummary(null), 6000);
 
     // Show wave-clear gold bonus as a floating label in screen-space
     if (!state.floaters) state.floaters = [];
     if (bonus > 0) {
       state.floaters.push({
         text: `+${bonus} g  wave bonus`,
-        screenX: null, // null = centred
-        screenY: null, // null = upper-middle
+        screenX: null,
+        screenY: null,
         age: 0, ttl: 2.8,
         color: "rgba(255,215,0,0.95)",
         size: 16,
@@ -708,7 +1036,7 @@ export default function ProtectorView({ room, onGameOver }) {
   function endGame(state, won) {
     state.phase = "gameover";
     setMood(null);
-    const score = { ...calculateScore(state.buildings, state.enemiesKilled, state.waveNumber), won, enemiesKilled: state.enemiesKilled };
+    const score = { ...calculateScore(state.buildings, state.enemiesKilled, state.waveNumber, state.flawlessWaves ?? 0, state.totalDowns ?? 0), won, enemiesKilled: state.enemiesKilled };
     sendPhaseChange("gameover", { won });
     onGameOver(score);
   }
@@ -729,7 +1057,7 @@ export default function ProtectorView({ room, onGameOver }) {
     setShopTick(n => n + 1);
   }
 
-  // ── Canvas click (right half only for shop tap on mobile) ─────────────────
+  // ── Canvas click ──────────────────────────────────────────────────────────
   function handleCanvasClick(e) {
     const s = stateRef.current;
     if (!s) return;
@@ -737,8 +1065,19 @@ export default function ProtectorView({ room, onGameOver }) {
     const rect = canvas.getBoundingClientRect();
     const cx = e.clientX - rect.left;
     const cy = e.clientY - rect.top;
+    const W  = canvas.width, H = canvas.height;
 
-    // Upgrade shop tap — only trigger if click is in right half of screen on mobile
+    // Minimap tap → ping at that world position
+    const MM = 90, pad = 10;
+    const mx = W - MM - pad, my = pad;
+    if (cx >= mx && cx <= mx + MM && cy >= my && cy <= my + MM) {
+      const worldX = ((cx - mx) / MM) * WORLD;
+      const worldY = ((cy - my) / MM) * WORLD;
+      doPing(s, worldX, worldY);
+      return;
+    }
+
+    // Upgrade shop tap
     if (s.phase === "build" || s.phase === "breather") {
       const shop = s.buildings.find(b => b.type === "upgrade_shop" && b.hp > 0);
       if (shop) {
@@ -746,6 +1085,21 @@ export default function ProtectorView({ room, onGameOver }) {
         if (inRange) { setShowShop(true); return; }
       }
     }
+
+    // World tap → ping at that world position
+    const worldX = cx + s.cam.x;
+    const worldY = cy + s.cam.y;
+    doPing(s, worldX, worldY);
+  }
+
+  function doPing(s, worldX, worldY) {
+    if (!s.activePings) s.activePings = [];
+    // Debounce: don't allow another ping within 1s
+    const now = Date.now();
+    const recentPing = s.activePings.find(p => p.from === "p1" && now - p.ts < 1000);
+    if (recentPing) return;
+    s.activePings.push({ x: worldX, y: worldY, from: "p1", ts: now });
+    sendPing(worldX, worldY, "p1");
   }
 
   // Track which touch IDs were claimed by the joystick (started in bottom half)
@@ -795,6 +1149,26 @@ export default function ProtectorView({ room, onGameOver }) {
     function onKeyDown(e) {
       keysRef.current[e.key] = true;
       if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key)) e.preventDefault();
+      // Dash on spacebar
+      if (e.key === " ") {
+        const s = stateRef.current;
+        if (!s) return;
+        const hasDash = (s.upgrades ?? []).includes("dash");
+        if (!hasDash || s.dashCooldown > 0 || s.isDashing || (s.playerHp ?? PROTECTOR_MAX_HP) <= 0) return;
+        const keys = keysRef.current;
+        let dvx = 0, dvy = 0;
+        if (keys["ArrowLeft"]  || keys["a"] || keys["A"]) dvx -= 1;
+        if (keys["ArrowRight"] || keys["d"] || keys["D"]) dvx += 1;
+        if (keys["ArrowUp"]    || keys["w"] || keys["W"]) dvy -= 1;
+        if (keys["ArrowDown"]  || keys["s"] || keys["S"]) dvy += 1;
+        const len = Math.sqrt(dvx * dvx + dvy * dvy);
+        if (len === 0) { dvx = 1; dvy = 0; } // default dash right if no direction
+        s.isDashing   = true;
+        s.dashTimer   = DASH_DURATION;
+        s.dashCooldown = DASH_COOLDOWN;
+        s.dashVx      = len > 0 ? dvx / len : dvx;
+        s.dashVy      = len > 0 ? dvy / len : dvy;
+      }
     }
     function onKeyUp(e) { keysRef.current[e.key] = false; }
     window.addEventListener("keydown", onKeyDown);
@@ -819,9 +1193,9 @@ export default function ProtectorView({ room, onGameOver }) {
   const UpgradeShop = () => {
     const s = stateRef.current;
     if (!s) return null;
-    const trees = ["personal", "army", "town"];
-    const treeLabels = { personal: "personal", army: "army", town: "town" };
-    const treeColors = { personal: "rgba(255,100,60,0.8)", army: "rgba(255,150,80,0.8)", town: "rgba(200,140,255,0.8)" };
+    const trees = ["personal", "army", "town", "workshop"];
+    const treeLabels = { personal: "personal", army: "army", town: "town", workshop: "workshop (builder)" };
+    const treeColors = { personal: "rgba(255,100,60,0.8)", army: "rgba(255,150,80,0.8)", town: "rgba(200,140,255,0.8)", workshop: "rgba(120,200,255,0.8)" };
 
     return (
       <div style={{
@@ -890,12 +1264,78 @@ export default function ProtectorView({ room, onGameOver }) {
       />
       {showShop && <UpgradeShop />}
 
+      {/* Mobile dash button — only when dash upgrade owned */}
+      {!showShop && stateRef.current?.upgrades?.includes("dash") && (
+        <button
+          onTouchStart={e => {
+            e.preventDefault();
+            const s = stateRef.current;
+            if (!s || s.dashCooldown > 0 || s.isDashing || (s.playerHp ?? PROTECTOR_MAX_HP) <= 0) return;
+            const joy = joystickRef.current;
+            const dvx = joy.active ? joy.vec.x : 0;
+            const dvy = joy.active ? joy.vec.y : 0;
+            const len = Math.sqrt(dvx * dvx + dvy * dvy);
+            s.isDashing    = true;
+            s.dashTimer    = DASH_DURATION;
+            s.dashCooldown = DASH_COOLDOWN;
+            s.dashVx       = len > 0.1 ? dvx / len : 1;
+            s.dashVy       = len > 0.1 ? dvy / len : 0;
+            setDashReady(false);
+          }}
+          style={{
+            position: "absolute",
+            bottom: 36,
+            right: 24,
+            width: 58, height: 58,
+            borderRadius: "50%",
+            background: dashReady ? "rgba(255,200,60,0.14)" : "rgba(255,200,60,0.04)",
+            border: `1.5px solid ${dashReady ? "rgba(255,200,60,0.5)" : "rgba(255,200,60,0.15)"}`,
+            color: dashReady ? "rgba(255,200,60,0.9)" : "rgba(255,200,60,0.25)",
+            fontSize: 22,
+            cursor: dashReady ? "pointer" : "not-allowed",
+            touchAction: "none",
+            userSelect: "none",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            transition: "all 0.2s",
+          }}
+        >
+          ⚡
+        </button>
+      )}
+
+      {/* Wave summary card */}
+      {waveSummary && !showShop && (
+        <div style={{
+          position: "absolute", top: 60, left: "50%", transform: "translateX(-50%)",
+          background: "rgba(10,13,15,0.92)", border: "0.5px solid rgba(255,255,255,0.1)",
+          borderRadius: 16, padding: "14px 20px", minWidth: 230, zIndex: 15,
+          backdropFilter: "blur(4px)",
+        }}>
+          <div style={{ fontSize: 11, letterSpacing: "0.1em", color: waveSummary.flawless ? "rgba(255,220,60,0.9)" : "rgba(255,255,255,0.35)", textTransform: "uppercase", marginBottom: 10 }}>
+            {waveSummary.flawless ? "✦ flawless wave!" : `wave ${waveSummary.waveNumber} clear`}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            {[
+              ["enemies killed", `${waveSummary.enemiesKilled} / ${waveSummary.totalEnemies}`],
+              ["buildings standing", `${waveSummary.buildingsStanding} / ${waveSummary.totalBuildings}`],
+              ["downs", `${waveSummary.downs}`],
+              ["wave bonus", `+${waveSummary.bonusGold} g`],
+              ...(waveSummary.flawless ? [["flawless bonus", "+75 g"]] : []),
+            ].map(([label, val]) => (
+              <div key={label} style={{ display: "flex", justifyContent: "space-between", gap: 20 }}>
+                <span style={{ fontSize: 12, color: "rgba(255,255,255,0.35)" }}>{label}</span>
+                <span style={{ fontSize: 12, color: label === "downs" && waveSummary.downs > 0 ? "rgba(255,100,80,0.8)" : "rgba(255,255,255,0.7)", fontWeight: 500 }}>{val}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Ready-up button — only before wave 1 */}
       {!showShop && stateRef.current?.phase === "build" && stateRef.current?.waveNumber === 0 && (
         <div style={{
           position: "absolute", bottom: 24, left: "50%", transform: "translateX(-50%)",
           display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
-          // Sits in right half so it doesn't overlap the joystick zone
         }}>
           {p2Ready && !p1Ready && (
             <div style={{ fontSize: 11, color: "rgba(120,200,255,0.55)" }}>builder is ready</div>
@@ -918,7 +1358,6 @@ export default function ProtectorView({ room, onGameOver }) {
               cursor: p1Ready ? "default" : "pointer",
               letterSpacing: "0.05em",
               transition: "all 0.2s",
-              // Ensure good tap target
               minHeight: 48,
               minWidth: 140,
             }}

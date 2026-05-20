@@ -5,7 +5,6 @@ import { useEffect, useState } from "react";
 import Analytics from "./Analytics";
 import { api } from "@/lib/api";
 import ThemeToggle from "./ThemeToggle";
-import EnvBadge from "@/components/EnvBadge";
 import CookieConsent from "@/components/CookieConsent";
 import Footer from "@/components/Footer";
  
@@ -180,7 +179,6 @@ export default function Layout() {
       </main>
       <Footer />
  
-      {!isChromeless && <EnvBadge />}
       <CookieConsent />
     </div>
   );

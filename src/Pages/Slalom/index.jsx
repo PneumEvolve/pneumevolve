@@ -58,16 +58,32 @@ function WaitingRoom({ room, onP2Joined }) {
 export default function SlalomPage() {
   const [room, setRoom]   = useState(null);
   const [role, setRole]   = useState(null);
+  const [mode, setMode]   = useState("solo"); // "practice" | "solo" | "multiplayer"
   const [phase, setPhase] = useState("lobby"); // "lobby" | "waiting" | "game"
 
   function handleRoomReady(roomData, playerRole) {
     setRoom(roomData);
     setRole(playerRole);
+    setMode("multiplayer");
     // P1 waits for P2; P2 goes straight into the game
     setPhase(playerRole === "p1" ? "waiting" : "game");
   }
 
-  if (phase === "lobby")   return <SlalomLobby onRoomReady={handleRoomReady} />;
+  function handleSolo(selectedMode) {
+    setMode(selectedMode);
+    setRoom(null);
+    setRole(null);
+    setPhase("game");
+  }
+
+  if (phase === "lobby")   return <SlalomLobby onRoomReady={handleRoomReady} onSolo={handleSolo} />;
   if (phase === "waiting") return <WaitingRoom room={room} onP2Joined={() => setPhase("game")} />;
-  return <FreeskateSlalom roomId={room.id} role={role} roomData={room} />;
+  return (
+    <FreeskateSlalom
+      roomId={room?.id ?? null}
+      role={role}
+      roomData={room}
+      mode={mode}
+    />
+  );
 }

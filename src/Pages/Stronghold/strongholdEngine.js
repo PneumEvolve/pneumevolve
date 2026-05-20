@@ -30,6 +30,7 @@ export const PROTECTOR_ATTACK_RATE   = 1.4; // attacks/sec base
 // ─── Builder shield ───────────────────────────────────────────────────────────
 
 export const BUILDER_SHIELD_MAX  = 50;   // shield hp on top of base 100 hp
+export const BUILDER_SHIELD_MAX_UPGRADED = 80; // with builder_shield_up upgrade
 export const BUILDER_SHIELD_REGEN = 8;  // hp/sec out of combat (no enemy chasing)
 // Shield absorbs hits first; base hp is only damaged when shield is depleted.
 
@@ -141,6 +142,7 @@ export const UPGRADES = [
   { id: "atk_range",   label: "Longer reach",     desc: "+20 attack range",           cost: 60,  tree: "personal", tier: 1 },
   { id: "lifesteal",   label: "Warrior's blood",  desc: "Heal 3 hp per kill",         cost: 80,  tree: "personal", tier: 2 },
   { id: "atk_damage",  label: "Heavy strikes",    desc: "+10 attack damage",          cost: 100, tree: "personal", tier: 2 },
+  { id: "dash",        label: "Hero's dash",      desc: "Unlock dash ability (space/double-tap)", cost: 80, tree: "personal", tier: 2 },
   // Army
   { id: "soldier_hp",  label: "Toughen up",       desc: "+20 soldier hp",             cost: 60,  tree: "army",     tier: 1, needs: "barracks" },
   { id: "soldier_cnt", label: "Draft more",       desc: "+1 soldier per barracks",    cost: 80,  tree: "army",     tier: 1, needs: "barracks" },
@@ -149,6 +151,12 @@ export const UPGRADES = [
   { id: "tc_heal",     label: "Warm hearth",      desc: "Town center heals builder too", cost: 80, tree: "town",  tier: 1 },
   { id: "garden_size", label: "Wild growth",      desc: "+30 garden slow radius",     cost: 70,  tree: "town",     tier: 1, needs: "garden" },
   { id: "shop_auto",   label: "Steady hands",     desc: "Repair shop works at 40% without builder", cost: 100, tree: "town", tier: 2, needs: "repair_shop" },
+  // Workshop (builder-exclusive)
+  { id: "builder_aura",  label: "Master crafts",   desc: "Direct repair can overheal buildings to 115% HP (gold bar)", cost: 70,  tree: "workshop", tier: 1 },
+  { id: "repair_speed",  label: "Quick hands",     desc: "+50% direct repair speed",   cost: 80,  tree: "workshop", tier: 1 },
+  { id: "place_range",   label: "Long reach",      desc: "+30 building placement range", cost: 70, tree: "workshop", tier: 1 },
+  { id: "sell_refund",   label: "Salvage expert",  desc: "Sell buildings for 75% (was 50%)", cost: 60, tree: "workshop", tier: 2 },
+  { id: "builder_shield_up", label: "Reinforced vest", desc: "+30 builder shield max", cost: 100, tree: "workshop", tier: 2 },
 ];
 
 // ─── Map / world setup ────────────────────────────────────────────────────────
@@ -297,7 +305,12 @@ export function updateBuilderHealth(builderX, builderY, enemies, builderHp, dt) 
 // ─── Builder shield regen ─────────────────────────────────────────────────────
 // Shield is the top 50 hp (101–150 total). It regens out of combat.
 // builderHp goes 0–150: 0–100 is base, 100–150 is shield.
-export const BUILDER_TOTAL_MAX_HP = PROTECTOR_MAX_HP + BUILDER_SHIELD_MAX; // 150
+export const BUILDER_TOTAL_MAX_HP = PROTECTOR_MAX_HP + BUILDER_SHIELD_MAX; // 150 base
+
+export function getBuilderTotalMaxHp(upgrades = []) {
+  const shieldMax = upgrades.includes("builder_shield_up") ? BUILDER_SHIELD_MAX_UPGRADED : BUILDER_SHIELD_MAX;
+  return PROTECTOR_MAX_HP + shieldMax;
+}
 
 export function updateBuilderShield(state, dt) {
   if (state.phase !== "wave") return;
@@ -325,8 +338,13 @@ export function spawnWave(waveNumber, seed) {
     : base + 12 + Math.floor((waveNumber - 4) * 3);       // 22, 25, 28 ... (slower ramp)
   const enemies = [];
 
+  // Demolishers appear from wave 3 onward — 1 per 2 waves, max 3
+  const demolisherCount = waveNumber >= 3 ? Math.min(Math.floor((waveNumber - 2) / 2), 3) : 0;
+
   for (let i = 0; i < count; i++) {
-    const isRaider = rand() > 0.4;
+    // First N enemies are demolishers
+    const isDemolisher = i < demolisherCount;
+    const isRaider     = !isDemolisher && rand() > 0.4;
     const edge = Math.floor(rand() * 4);
     let x, y;
     if (edge === 0)      { x = rand() * WORLD; y = -20; }
@@ -334,18 +352,36 @@ export function spawnWave(waveNumber, seed) {
     else if (edge === 2) { x = rand() * WORLD; y = WORLD + 20; }
     else                 { x = -20;            y = rand() * WORLD; }
 
-    enemies.push({
-      id:     i,
-      x, y,
-      hp:     isRaider ? 24 + waveNumber * 8 : 70 + waveNumber * 18,
-      maxHp:  isRaider ? 24 + waveNumber * 8 : 70 + waveNumber * 18,
-      speed:  isRaider ? 58 + waveNumber * 8 + rand() * 16 : 32 + waveNumber * 7,
-      radius: isRaider ? 6 : 10,
-      type:   isRaider ? "raider" : "brute",
-      dead:   false,
-      chasingBuilder: false,
-      attackCooldown: 0,
-    });
+    if (isDemolisher) {
+      enemies.push({
+        id:     i,
+        x, y,
+        hp:     120 + waveNumber * 25,
+        maxHp:  120 + waveNumber * 25,
+        speed:  22 + waveNumber * 3,
+        radius: 13,
+        type:   "demolisher",
+        dead:   false,
+        chasingBuilder: false,
+        chasingProtector: false,
+        attackCooldown: 0,
+        // demolishers never chase players — flag to prevent it
+        ignoresPlayers: true,
+      });
+    } else {
+      enemies.push({
+        id:     i,
+        x, y,
+        hp:     isRaider ? 24 + waveNumber * 8 : 70 + waveNumber * 18,
+        maxHp:  isRaider ? 24 + waveNumber * 8 : 70 + waveNumber * 18,
+        speed:  isRaider ? 58 + waveNumber * 8 + rand() * 16 : 32 + waveNumber * 7,
+        radius: isRaider ? 6 : 10,
+        type:   isRaider ? "raider" : "brute",
+        dead:   false,
+        chasingBuilder: false,
+        attackCooldown: 0,
+      });
+    }
   }
   return enemies;
 }
@@ -362,6 +398,27 @@ export function updateEnemies(enemies, buildings, builderX, builderY, dt, slowZo
 
   enemies.forEach(e => {
     if (e.dead) return;
+
+    // Demolishers ignore players entirely — straight to buildings
+    if (e.ignoresPlayers) {
+      let target = null, bestDist = Infinity;
+      buildings.forEach(b => {
+        if (b.hp <= 0) return;
+        const d = dist(e.x, e.y, b.x, b.y);
+        if (d < bestDist) { bestDist = d; target = b; }
+      });
+      if (!target) return;
+      let speedMult = 1;
+      slowZones.forEach(z => {
+        if (dist(e.x, e.y, z.x, z.y) < z.radius) speedMult = Math.min(speedMult, z.factor);
+      });
+      const dx = target.x - e.x, dy = target.y - e.y;
+      const d  = Math.sqrt(dx * dx + dy * dy);
+      if (d < 2) return;
+      e.x += (dx / d) * e.speed * speedMult * dt;
+      e.y += (dy / d) * e.speed * speedMult * dt;
+      return;
+    }
 
     // If protector just died, release any chasing enemies
     if (!protectorAlive && e.chasingProtector) e.chasingProtector = false;
@@ -453,6 +510,8 @@ export function updateUnitCombat(units, enemies, dt, upgrades = []) {
 const ENEMY_ATTACK_RANGE  = 18;
 const ENEMY_ATTACK_DAMAGE = 5;
 const ENEMY_ATTACK_RATE   = 1.4;
+const DEMOLISHER_ATTACK_DAMAGE = 18; // ~3.6× brute — punishing
+const DEMOLISHER_ATTACK_RATE   = 0.6; // slower swing but huge hits
 
 // Returns the new protector hp (caller must write it back to state)
 export function updateEnemyAttacks(enemies, buildings, dt, protectorX, protectorY, protectorHp) {
@@ -474,12 +533,16 @@ export function updateEnemyAttacks(enemies, buildings, dt, protectorX, protector
 
     if (e.chasingBuilder) return; // builder damage handled separately
 
+    // Demolishers deal heavy damage to buildings
+    const dmg  = e.type === "demolisher" ? DEMOLISHER_ATTACK_DAMAGE : ENEMY_ATTACK_DAMAGE;
+    const rate = e.type === "demolisher" ? DEMOLISHER_ATTACK_RATE   : ENEMY_ATTACK_RATE;
+
     buildings.forEach(b => {
       if (b.hp <= 0) return;
       const bDef = BUILDING_TYPES[b.type];
       if (dist(e.x, e.y, b.x, b.y) < ENEMY_ATTACK_RANGE + bDef.radius) {
-        b.hp = Math.max(0, b.hp - ENEMY_ATTACK_DAMAGE);
-        e.attackCooldown = 1 / ENEMY_ATTACK_RATE;
+        b.hp = Math.max(0, b.hp - dmg);
+        e.attackCooldown = 1 / rate;
         // Kill workers in a building that falls
         if (b.hp <= 0 && b.workers > 0) {
           b.deadWorkers = b.workers;
@@ -575,18 +638,23 @@ export function updateUnitMovement(units, heroX, heroY, dt, enemies = [], rallyX
 
 export const BUILDER_DIRECT_REPAIR_RADIUS = 30; // how close builder must be to directly repair
 export const BUILDER_DIRECT_REPAIR_RATE   = 8;  // hp/sec for direct repair
+export const BUILDER_PLACE_RANGE_BONUS    = 30; // added to PLACE_RANGE with place_range upgrade
 
 export function updateBuilderRepair(builderX, builderY, buildings, dt, upgrades = []) {
-  const autoRepair = upgrades.includes("shop_auto");
+  const autoRepair  = upgrades.includes("shop_auto");
+  const repairBonus = upgrades.includes("repair_speed") ? 1.5 : 1.0;
+  const canOverheal = upgrades.includes("builder_aura");
 
   // Clear all repair flags first; re-set below.
   buildings.forEach(b => { b._beingRepaired = false; });
 
   // ── Direct repair (no shop needed) ───────────────────────────────────────
   // Builder heals the single CLOSEST damaged building in melee range.
+  // With builder_aura upgrade, can overheal up to 115% maxHp.
+  const overhealCap = canOverheal ? BUILDER_OVERHEAL_CAP : 1.0;
   let directTarget = null, closestDist = Infinity;
   buildings.forEach(target => {
-    if (target.hp <= 0 || target.hp >= target.maxHp) return;
+    if (target.hp <= 0 || target.hp >= target.maxHp * overhealCap) return;
     const def = BUILDING_TYPES[target.type];
     const d = dist(builderX, builderY, target.x, target.y);
     if (d < def.radius + BUILDER_DIRECT_REPAIR_RADIUS && d < closestDist) {
@@ -594,7 +662,7 @@ export function updateBuilderRepair(builderX, builderY, buildings, dt, upgrades 
     }
   });
   if (directTarget) {
-    directTarget.hp = Math.min(directTarget.maxHp, directTarget.hp + BUILDER_DIRECT_REPAIR_RATE * dt);
+    directTarget.hp = Math.min(directTarget.maxHp * overhealCap, directTarget.hp + BUILDER_DIRECT_REPAIR_RATE * repairBonus * dt);
     directTarget._beingRepaired = true;
   }
 
@@ -666,13 +734,62 @@ export function clampWorkers(buildings, totalPeople) {
   });
 }
 
+// ─── Scout helper ─────────────────────────────────────────────────────────────
+// Returns how many enemies will spawn from each edge for a given wave.
+// edge 0=top, 1=right, 2=bottom, 3=left — matches spawnWave logic.
+export function scoutWave(waveNumber, seed) {
+  const rand  = seededRand(seed + waveNumber * 1000);
+  const base  = 7;
+  const count = waveNumber <= 4
+    ? base + (waveNumber - 1) * 4
+    : base + 12 + Math.floor((waveNumber - 4) * 3);
+  const demolisherCount = waveNumber >= 3 ? Math.min(Math.floor((waveNumber - 2) / 2), 3) : 0;
+
+  const perSide = [0, 0, 0, 0];
+  const demolishersPerSide = [0, 0, 0, 0];
+  for (let i = 0; i < count; i++) {
+    const isDemolisher = i < demolisherCount;
+    const isRaider = !isDemolisher && rand() > 0.4; // consume same rng
+    const edge = Math.floor(rand() * 4);
+    perSide[edge]++;
+    if (isDemolisher) demolishersPerSide[edge]++;
+  }
+  return { perSide, demolishersPerSide, total: count, demolisherCount };
+}
+// With builder_aura upgrade, direct repair can push building hp up to 115% maxHp.
+// Overhealed hp is shown as a gold bar above the normal hp arc.
+export const BUILDER_OVERHEAL_CAP = 1.15; // 115% of maxHp
+
+// No longer used as a placement bonus — upgrade now boosts direct repair to overheal
+export function applyConstructionAura() {} // no-op kept for import compat
+
+// ─── Sell building ────────────────────────────────────────────────────────────
+export function sellBuilding(buildingId, buildings, gold, upgrades = []) {
+  const idx = buildings.findIndex(b => b.id === buildingId);
+  if (idx === -1) return { buildings, gold };
+  const b = buildings[idx];
+  if (b.type === "town_center") return { buildings, gold }; // can't sell TC
+  const refundRate = upgrades.includes("sell_refund") ? 0.75 : 0.5;
+  const refund = Math.floor((b.maxHp > 0 ? b.hp / b.maxHp : 0) * (b.maxHp > 0 ? 1 : 0) * 0 +
+    ((BUILDING_TYPES[b.type]?.cost ?? 0) * refundRate));
+  const newBuildings = buildings.filter((_, i) => i !== idx);
+  return { buildings: newBuildings, gold: gold + refund, refund };
+}
+
 // ─── Scoring ──────────────────────────────────────────────────────────────────
 
-// Score = waves survived. Building/kill pts removed in favour of a clean "best wave" metric.
-export function calculateScore(buildings, enemiesKilled, waveNumber) {
+// Score includes wave number, flawless wave bonuses, and a "no downs" streak bonus.
+export function calculateScore(buildings, enemiesKilled, waveNumber, flawlessWaves = 0, totalDowns = 0) {
   const standing = buildings.filter(b => b.hp > 0).length;
   const total    = buildings.length;
-  return { waveReached: waveNumber, standing, total, score: waveNumber };
+  const flawlessBonus = flawlessWaves * 50;
+  return { waveReached: waveNumber, standing, total, score: waveNumber, flawlessWaves, flawlessBonus, totalDowns, enemiesKilled };
+}
+
+// Call at end of each wave to determine if it was flawless
+// Flawless = no building lost HP AND neither player went down during the wave
+export function wasWaveFlawless(buildingDamageThisWave, downsThisWave) {
+  return buildingDamageThisWave === 0 && downsThisWave === 0;
 }
 
 // ─── Lerp helper ─────────────────────────────────────────────────────────────

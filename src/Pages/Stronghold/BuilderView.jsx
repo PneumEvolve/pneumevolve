@@ -10,11 +10,13 @@ import {
   WORLD, BUILDING_TYPES, PLACEABLE_BUILDINGS,
   STARTING_GOLD, TOWNSPEOPLE_START, PROTECTOR_MAX_HP,
   BUILDER_DIRECT_REPAIR_RADIUS, BUILDER_TOTAL_MAX_HP, REVIVE_RADIUS,
+  BUILDER_PLACE_RANGE_BONUS,
   createInitialMap, lerp, dist, calcTownspeople, clampWorkers,
+  applyConstructionAura, sellBuilding,
 } from "./strongholdEngine";
 
 const BUILDER_SPEED  = 150;
-const PLACE_RANGE    = 80;
+const BASE_PLACE_RANGE = 80;
 const MOVE_THROTTLE  = 50;
 
 export default function BuilderView({ room, onGameOver }) {
@@ -37,6 +39,8 @@ export default function BuilderView({ room, onGameOver }) {
   const [townspeople,   setTownspeople]   = useState(TOWNSPEOPLE_START);
   const [assignPanel,   setAssignPanel]   = useState(null);
   const [ready,         setReady]         = useState(false);
+  const [waveSummary,   setWaveSummary]   = useState(null);
+  const [upgrades,      setUpgrades]      = useState([]); // mirror for re-render
   const [, forceUpdate]                   = useState(0);
 
   const handlers = useRef({
@@ -89,6 +93,16 @@ export default function BuilderView({ room, onGameOver }) {
         s.builderHp = Math.floor(BUILDER_TOTAL_MAX_HP * 0.4);
       }
     },
+    onPing: ({ x, y, from }) => {
+      const s = stateRef.current;
+      if (!s) return;
+      if (!s.activePings) s.activePings = [];
+      s.activePings.push({ x, y, from, ts: Date.now() });
+    },
+    onWaveSummary: (data) => {
+      setWaveSummary(data);
+      setTimeout(() => setWaveSummary(null), 6000);
+    },
     onRestart: ({ seed, swap }) => {
       // Protector triggered a restart — tell parent so index.jsx can remount
       // with the correct new role and seed
@@ -104,7 +118,7 @@ export default function BuilderView({ room, onGameOver }) {
     },
   }).current;
 
-  const { sendP2Move, sendBuildingPlace, sendChat, sendWorkerAssign, sendPlayerReady, sendGoldUpdate, sendRevive } =
+  const { sendP2Move, sendBuildingPlace, sendChat, sendWorkerAssign, sendPlayerReady, sendGoldUpdate, sendRevive, sendPing } =
     useStrongholdRoom(room?.id ?? null, handlers);
 
   // ── State init ────────────────────────────────────────────────────────────
@@ -134,6 +148,8 @@ export default function BuilderView({ room, onGameOver }) {
       protectorHp: PROTECTOR_MAX_HP,
       lockedWorkers: 0,
       workerWander,
+      activePings: [],
+      upgrades: [],
     };
   }
 
@@ -147,10 +163,25 @@ export default function BuilderView({ room, onGameOver }) {
   }
 
   // ── Shared placement / tap logic ──────────────────────────────────────────
-  // Called both from mouse click and from joystick tap result so logic lives once.
   function handleTap(screenX, screenY) {
     const state = stateRef.current;
     if (!state) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const W = canvas.width;
+
+    // Minimap tap → ping
+    const MM = 90, pad = 10;
+    const mx = W - MM - pad, my = pad;
+    if (screenX >= mx && screenX <= mx + MM && screenY >= my && screenY <= my + MM) {
+      const worldX = ((screenX - mx) / MM) * WORLD;
+      const worldY = ((screenY - my) / MM) * WORLD;
+      if (!state.activePings) state.activePings = [];
+      state.activePings.push({ x: worldX, y: worldY, from: "p2", ts: Date.now() });
+      sendPing(worldX, worldY, "p2");
+      return;
+    }
+
     const { wx, wy } = canvasToWorld(screenX, screenY);
 
     // Check building tap for worker assignment (any phase)
@@ -166,8 +197,19 @@ export default function BuilderView({ room, onGameOver }) {
     setAssignPanel(null);
 
     // Place building
-    if ((state.phase !== "build" && state.phase !== "breather") || !selectedTypeRef.current) return;
-    if (dist(state.builder.x, state.builder.y, wx, wy) > PLACE_RANGE) return;
+    if ((state.phase !== "build" && state.phase !== "breather") || !selectedTypeRef.current) {
+      // World tap with no building selected → ping
+      if (!selectedTypeRef.current) {
+        doPing(state, wx, wy);
+      }
+      return;
+    }
+    const placeRange = BASE_PLACE_RANGE + ((state.upgrades ?? []).includes("place_range") ? BUILDER_PLACE_RANGE_BONUS : 0);
+    if (dist(state.builder.x, state.builder.y, wx, wy) > placeRange) {
+      // Out of range tap → ping
+      doPing(state, wx, wy);
+      return;
+    }
 
     const def  = BUILDING_TYPES[selectedTypeRef.current];
     const cost = def.cost ?? 0;
@@ -180,6 +222,7 @@ export default function BuilderView({ room, onGameOver }) {
       hp: def.maxHp, maxHp: def.maxHp,
       workers: 0,
     };
+    // (applyConstructionAura no-op — overheal happens via direct repair now)
     state.buildings.push(building);
     state.gold -= cost;
     sendBuildingPlace(building);
@@ -213,8 +256,30 @@ export default function BuilderView({ room, onGameOver }) {
     forceUpdate(n => n + 1);
   }
 
-  // Track which touch IDs were claimed by the joystick (started in bottom half)
-  const joystickTouchIds = useRef(new Set());
+  // ── Sell building ──────────────────────────────────────────────────────────
+  function handleSell(buildingId) {
+    const s = stateRef.current;
+    if (!s) return;
+    const b = s.buildings.find(b => b.id === buildingId);
+    if (!b || b.type === "town_center") return;
+    const { buildings: newBuildings, gold: newGold, refund } = sellBuilding(buildingId, s.buildings, s.gold, s.upgrades ?? []);
+    s.buildings = newBuildings;
+    s.gold = newGold;
+    sendGoldUpdate({ gold: s.gold, from: "builder" });
+    setGold(s.gold);
+    setAssignPanel(null);
+    forceUpdate(n => n + 1);
+  }
+
+  // ── Ping helper ────────────────────────────────────────────────────────────
+  function doPing(state, worldX, worldY) {
+    if (!state.activePings) state.activePings = [];
+    const now = Date.now();
+    const recent = state.activePings.find(p => p.from === "p2" && now - p.ts < 1000);
+    if (recent) return;
+    state.activePings.push({ x: worldX, y: worldY, from: "p2", ts: now });
+    sendPing(worldX, worldY, "p2");
+  }
 
   // ── Touch handlers — joystick owns bottom 50%, top 50% scrolls freely ───
   function onTouchStart(e) {
@@ -267,9 +332,10 @@ export default function BuilderView({ room, onGameOver }) {
     // Placement preview ring
     if ((state.phase === "build" || state.phase === "breather") && selectedTypeRef.current) {
       const { cx, cy } = worldToCanvas(builder.x, builder.y);
+      const placeRange = BASE_PLACE_RANGE + ((state.upgrades ?? []).includes("place_range") ? BUILDER_PLACE_RANGE_BONUS : 0);
       ctx.save();
       ctx.globalAlpha = 0.12;
-      ctx.beginPath(); ctx.arc(cx, cy, PLACE_RANGE, 0, Math.PI * 2);
+      ctx.beginPath(); ctx.arc(cx, cy, placeRange, 0, Math.PI * 2);
       ctx.strokeStyle = "rgba(120,200,255,0.5)"; ctx.lineWidth = 1;
       ctx.setLineDash([4, 4]); ctx.stroke(); ctx.setLineDash([]);
       ctx.restore();
@@ -331,8 +397,18 @@ export default function BuilderView({ room, onGameOver }) {
       const { cx, cy } = worldToCanvas(e.x, e.y);
       if (cx < -20 || cx > W + 20 || cy < -20 || cy > H + 20) return;
       ctx.save();
-      ctx.beginPath(); ctx.arc(cx, cy, 7, 0, Math.PI * 2);
-      ctx.fillStyle = e.chasingBuilder ? "#ff44aa" : "#cc2222"; ctx.fill();
+      ctx.beginPath(); ctx.arc(cx, cy, e.radius ?? 7, 0, Math.PI * 2);
+      const fill = e.type === "demolisher"
+        ? (e.chasingBuilder ? "#cc44ff" : "#7722cc")
+        : e.chasingBuilder ? "#ff44aa" : "#cc2222";
+      ctx.fillStyle = fill; ctx.fill();
+      if (e.type === "demolisher") {
+        ctx.globalAlpha = 0.7;
+        ctx.strokeStyle = "rgba(255,255,255,0.6)"; ctx.lineWidth = 1.5; ctx.lineCap = "round";
+        const r = (e.radius ?? 13) * 0.4;
+        ctx.beginPath(); ctx.moveTo(cx - r, cy - r); ctx.lineTo(cx + r, cy + r); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(cx + r, cy - r); ctx.lineTo(cx - r, cy + r); ctx.stroke();
+      }
       ctx.restore();
     });
 
@@ -360,13 +436,24 @@ export default function BuilderView({ room, onGameOver }) {
       }
     }
 
-    // Protector dot
+    // Protector dot — with revive ring when downed
     const { cx: ppx, cy: ppy } = worldToCanvas(protectorPos.x, protectorPos.y);
     ctx.save();
+    if ((state.protectorHp ?? PROTECTOR_MAX_HP) <= 0 && state.phase === "wave") {
+      const pulse = 0.5 + 0.3 * Math.sin(t * 5);
+      ctx.globalAlpha = pulse * 0.5;
+      ctx.beginPath(); ctx.arc(ppx, ppy, REVIVE_RADIUS, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(255,100,60,0.9)"; ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 4]); ctx.stroke(); ctx.setLineDash([]);
+      ctx.globalAlpha = pulse * 0.1;
+      ctx.beginPath(); ctx.arc(ppx, ppy, REVIVE_RADIUS, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255,100,60,1)"; ctx.fill();
+    }
+    ctx.globalAlpha = 1;
     ctx.beginPath(); ctx.arc(ppx, ppy, 11 + 2 * Math.sin(t * 3), 0, Math.PI * 2);
     ctx.fillStyle = "rgba(255,100,60,0.1)"; ctx.fill();
     ctx.beginPath(); ctx.arc(ppx, ppy, 6, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(255,100,60,0.9)"; ctx.fill();
+    ctx.fillStyle = (state.protectorHp ?? PROTECTOR_MAX_HP) <= 0 ? "rgba(255,100,60,0.3)" : "rgba(255,100,60,0.9)"; ctx.fill();
     ctx.restore();
 
     // Builder dot
@@ -383,8 +470,76 @@ export default function BuilderView({ room, onGameOver }) {
     ctx.fillStyle = "rgba(120,200,255,0.95)"; ctx.fill();
     ctx.restore();
 
+    // Ping markers
+    if (state.activePings) {
+      state.activePings = state.activePings.filter(p => Date.now() - p.ts < 3000);
+      state.activePings.forEach(p => {
+        const age = (Date.now() - p.ts) / 1000;
+        const { cx: px, cy: py } = worldToCanvas(p.x, p.y);
+        const alpha = Math.max(0, 1 - age / 3);
+        const ring  = 12 + age * 18;
+        ctx.save();
+        ctx.globalAlpha = alpha * 0.7;
+        ctx.beginPath(); ctx.arc(px, py, ring, 0, Math.PI * 2);
+        ctx.strokeStyle = p.from === "p1" ? "rgba(255,100,60,0.9)" : "rgba(120,200,255,0.9)";
+        ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.globalAlpha = alpha;
+        ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI * 2);
+        ctx.fillStyle = p.from === "p1" ? "rgba(255,100,60,0.9)" : "rgba(120,200,255,0.9)"; ctx.fill();
+        ctx.restore();
+      });
+    }
+
     drawHUD(ctx, state, t, W, H);
+    drawMinimap(ctx, state, t, W, H);
     drawJoystick(ctx, joystickRef.current);
+  }
+
+  // ── Builder minimap ────────────────────────────────────────────────────────
+  function drawMinimap(ctx, state, t, W, H) {
+    const MM = 90, pad = 10;
+    const mx = W - MM - pad, my = pad;
+    const scale = MM / WORLD;
+    ctx.save();
+    ctx.globalAlpha = 0.65;
+    ctx.fillStyle = "#0a0d0f";
+    ctx.roundRect(mx, my, MM, MM, 6); ctx.fill();
+    ctx.globalAlpha = 0.2;
+    ctx.strokeStyle = "rgba(255,255,255,0.3)"; ctx.lineWidth = 0.5;
+    ctx.roundRect(mx, my, MM, MM, 6); ctx.stroke();
+    ctx.globalAlpha = 0.7;
+    state.buildings.forEach(b => {
+      if (b.hp <= 0) return;
+      const def = BUILDING_TYPES[b.type];
+      ctx.beginPath(); ctx.arc(mx + b.x * scale, my + b.y * scale, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = def.color; ctx.fill();
+    });
+    // Pings
+    if (state.activePings) {
+      state.activePings.forEach(p => {
+        const age = (Date.now() - p.ts) / 1000;
+        if (age > 3) return;
+        ctx.globalAlpha = Math.max(0, 1 - age / 3) * 0.9;
+        ctx.beginPath(); ctx.arc(mx + p.x * scale, my + p.y * scale, 3 + age * 2, 0, Math.PI * 2);
+        ctx.strokeStyle = p.from === "p1" ? "rgba(255,100,60,1)" : "rgba(120,200,255,1)";
+        ctx.lineWidth = 1; ctx.stroke();
+      });
+    }
+    ctx.globalAlpha = 0.55;
+    state.enemies.forEach(e => {
+      if (e.dead) return;
+      ctx.beginPath(); ctx.arc(mx + e.x * scale, my + e.y * scale, e.type === "demolisher" ? 2 : 1.5, 0, Math.PI * 2);
+      ctx.fillStyle = e.type === "demolisher" ? "#cc44ff" : "#cc2222"; ctx.fill();
+    });
+    ctx.globalAlpha = 0.9;
+    ctx.beginPath(); ctx.arc(mx + state.protectorPos.x * scale, my + state.protectorPos.y * scale, 3, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255,100,60,1)"; ctx.fill();
+    ctx.beginPath(); ctx.arc(mx + state.builder.x * scale, my + state.builder.y * scale, 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(120,200,255,0.9)"; ctx.fill();
+    ctx.globalAlpha = 0.18;
+    ctx.font = "8px sans-serif"; ctx.fillStyle = "#fff"; ctx.textAlign = "center";
+    ctx.fillText("tap to ping", mx + MM / 2, my + MM + 9);
+    ctx.restore();
   }
 
   function drawBuilding(ctx, b, t, W, H) {
@@ -413,6 +568,17 @@ export default function BuilderView({ room, onGameOver }) {
       ctx.arc(cx, cy, def.radius + 6, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * hpPct);
       ctx.strokeStyle = hpPct > 0.5 ? "rgba(100,255,100,0.7)" : hpPct > 0.25 ? "rgba(255,200,60,0.8)" : "rgba(255,60,60,0.9)";
       ctx.lineWidth = 2.5; ctx.stroke();
+      ctx.restore();
+    }
+
+    // Overheal arc — gold ring segment beyond the normal hp arc
+    if (b.hp > 0 && b.hp > b.maxHp) {
+      const overhealFrac = Math.min((b.hp - b.maxHp) / (b.maxHp * 0.15), 1); // 0..1 representing 100%→115%
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, def.radius + 9, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * overhealFrac);
+      ctx.strokeStyle = `rgba(255,215,0,${0.6 + 0.2 * Math.sin(t * 3)})`;
+      ctx.lineWidth = 2; ctx.stroke();
       ctx.restore();
     }
 
@@ -761,7 +927,45 @@ export default function BuilderView({ room, onGameOver }) {
                 {lockedWorkers} grieving — available at breather
               </div>
             )}
+            {/* Sell button — only in build/breather phase, not for town center */}
+            {inBuildPhase && panelBuilding.type !== "town_center" && (
+              <button onClick={() => handleSell(panelBuilding.id)} style={{
+                marginTop: 12, width: "100%", padding: "8px", borderRadius: 8,
+                background: "rgba(255,60,60,0.06)", border: "0.5px solid rgba(255,60,60,0.2)",
+                color: "rgba(255,100,80,0.7)", fontSize: 11, cursor: "pointer", letterSpacing: "0.04em",
+              }}>
+                sell ({Math.floor((stateRef.current?.upgrades ?? []).includes("sell_refund") ? 75 : 50)}% refund)
+              </button>
+            )}
             <div onClick={() => setAssignPanel(null)} style={{ position: "absolute", top: 8, right: 10, fontSize: 20, color: "rgba(255,255,255,0.2)", cursor: "pointer", padding: "4px 6px", lineHeight: 1 }}>×</div>
+          </div>
+        </div>
+      )}
+
+      {/* Wave summary card */}
+      {waveSummary && (
+        <div style={{
+          position: "absolute", top: 60, left: "50%", transform: "translateX(-50%)",
+          background: "rgba(10,13,15,0.92)", border: "0.5px solid rgba(255,255,255,0.1)",
+          borderRadius: 16, padding: "14px 20px", minWidth: 230, zIndex: 15,
+          backdropFilter: "blur(4px)",
+        }}>
+          <div style={{ fontSize: 11, letterSpacing: "0.1em", color: waveSummary.flawless ? "rgba(255,220,60,0.9)" : "rgba(255,255,255,0.35)", textTransform: "uppercase", marginBottom: 10 }}>
+            {waveSummary.flawless ? "✦ flawless wave!" : `wave ${waveSummary.waveNumber} clear`}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            {[
+              ["enemies killed", `${waveSummary.enemiesKilled} / ${waveSummary.totalEnemies}`],
+              ["buildings standing", `${waveSummary.buildingsStanding} / ${waveSummary.totalBuildings}`],
+              ["downs", `${waveSummary.downs}`],
+              ["wave bonus", `+${waveSummary.bonusGold} g`],
+              ...(waveSummary.flawless ? [["flawless bonus", "+75 g"]] : []),
+            ].map(([label, val]) => (
+              <div key={label} style={{ display: "flex", justifyContent: "space-between", gap: 20 }}>
+                <span style={{ fontSize: 12, color: "rgba(255,255,255,0.35)" }}>{label}</span>
+                <span style={{ fontSize: 12, color: label === "downs" && waveSummary.downs > 0 ? "rgba(255,100,80,0.8)" : "rgba(255,255,255,0.7)", fontWeight: 500 }}>{val}</span>
+              </div>
+            ))}
           </div>
         </div>
       )}

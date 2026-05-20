@@ -34,7 +34,9 @@ export function useStrongholdRoom(roomId, handlers) {
       .on("broadcast", { event: "game_over" },        ({ payload }) => handlersRef.current.onGameOver?.(payload))
       .on("broadcast", { event: "restart" },          ({ payload }) => handlersRef.current.onRestart?.(payload))
       .on("broadcast", { event: "chat" },             ({ payload }) => handlersRef.current.onChat?.(payload))
-      .on("broadcast", { event: "revive" },           ({ payload }) => handlersRef.current.onRevive?.(payload));
+      .on("broadcast", { event: "revive" },           ({ payload }) => handlersRef.current.onRevive?.(payload))
+      .on("broadcast", { event: "ping" },             ({ payload }) => handlersRef.current.onPing?.(payload))
+      .on("broadcast", { event: "wave_summary" },     ({ payload }) => handlersRef.current.onWaveSummary?.(payload));
 
     channel.subscribe(status => {
       if (status === "SUBSCRIBED") {
@@ -82,12 +84,14 @@ export function useStrongholdRoom(roomId, handlers) {
   const sendRestart        = useCallback((seed, swap)  => send("restart",         { seed, swap }),      [send]);
   const sendChat           = useCallback((text, from)  => send("chat",            { text, from }),      [send]);
   const sendRevive         = useCallback((target)      => send("revive",          { target }),          [send]);
+  const sendPing           = useCallback((x, y, from)  => send("ping",            { x, y, from }),      [send]);
+  const sendWaveSummary    = useCallback((data)         => send("wave_summary",    data),                [send]);
 
   return {
     sendP1Move, sendP2Move,
     sendBuildingPlace, sendBuildingRepair, sendWorkerAssign,
     sendEnemyUpdate, sendBuildingHealth, sendUnitUpdate, sendGoldUpdate,
     sendPhaseChange, sendPlayerReady, sendCountdown,
-    sendGameOver, sendRestart, sendChat, sendRevive,
+    sendGameOver, sendRestart, sendChat, sendRevive, sendPing, sendWaveSummary,
   };
 }
