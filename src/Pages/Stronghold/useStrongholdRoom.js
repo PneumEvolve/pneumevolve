@@ -33,7 +33,8 @@ export function useStrongholdRoom(roomId, handlers) {
       .on("broadcast", { event: "countdown" },        ({ payload }) => handlersRef.current.onCountdown?.(payload))
       .on("broadcast", { event: "game_over" },        ({ payload }) => handlersRef.current.onGameOver?.(payload))
       .on("broadcast", { event: "restart" },          ({ payload }) => handlersRef.current.onRestart?.(payload))
-      .on("broadcast", { event: "chat" },             ({ payload }) => handlersRef.current.onChat?.(payload));
+      .on("broadcast", { event: "chat" },             ({ payload }) => handlersRef.current.onChat?.(payload))
+      .on("broadcast", { event: "revive" },           ({ payload }) => handlersRef.current.onRevive?.(payload));
 
     channel.subscribe(status => {
       if (status === "SUBSCRIBED") {
@@ -80,12 +81,13 @@ export function useStrongholdRoom(roomId, handlers) {
   const sendGameOver       = useCallback((score)       => send("game_over",       { score }),           [send]);
   const sendRestart        = useCallback((seed, swap)  => send("restart",         { seed, swap }),      [send]);
   const sendChat           = useCallback((text, from)  => send("chat",            { text, from }),      [send]);
+  const sendRevive         = useCallback((target)      => send("revive",          { target }),          [send]);
 
   return {
     sendP1Move, sendP2Move,
     sendBuildingPlace, sendBuildingRepair, sendWorkerAssign,
     sendEnemyUpdate, sendBuildingHealth, sendUnitUpdate, sendGoldUpdate,
     sendPhaseChange, sendPlayerReady, sendCountdown,
-    sendGameOver, sendRestart, sendChat,
+    sendGameOver, sendRestart, sendChat, sendRevive,
   };
 }

@@ -16,6 +16,7 @@ import {
   updateUnitMovement, updateBuilderRepair,
   updateProtectorAttack, updateProtectorHeal,
   updateProjectiles, updateBuilderDanger, updateBuilderHealth,
+  updateBuilderShield, BUILDER_TOTAL_MAX_HP, REVIVE_RADIUS,
   updateEnemyAttackUnits,
   getSlowZones, calculateScore, calcWaveEndGold,
   calcTownspeople, clampWorkers,
@@ -72,7 +73,7 @@ export default function ProtectorView({ room, onGameOver }) {
         if (workers > prevWorkers) {
           // Added workers — spawn one soldier per new worker
           const toAdd = workers - prevWorkers;
-          const hp = 28 + ((s.upgrades ?? []).includes("soldier_hp") ? 20 : 0);
+          const hp = 50 + ((s.upgrades ?? []).includes("soldier_hp") ? 20 : 0);
           for (let i = 0; i < toAdd; i++) {
             s.units.push({
               id:         Date.now() + Math.random(),
@@ -113,12 +114,21 @@ export default function ProtectorView({ room, onGameOver }) {
         }
       }
     },
+    onRevive: ({ target }) => {
+      // Builder revived the protector
+      const s = stateRef.current;
+      if (!s || target !== "protector") return;
+      if ((s.playerHp ?? PROTECTOR_MAX_HP) <= 0) {
+        s.playerHp = Math.floor(PROTECTOR_MAX_HP * 0.4); // revive at 40% hp
+      }
+    },
   }).current;
 
   const {
     sendP1Move, sendEnemyUpdate, sendBuildingHealth,
     sendUnitUpdate, sendPhaseChange,
     sendCountdown, sendGameOver, sendChat, sendGoldUpdate, sendPlayerReady, sendWorkerAssign,
+    sendRevive,
   } = useStrongholdRoom(room?.id ?? null, handlers);
 
   // ── Spawn soldiers ────────────────────────────────────────────────────────
@@ -126,7 +136,7 @@ export default function ProtectorView({ room, onGameOver }) {
     const extra   = (s.upgrades ?? []).includes("soldier_cnt") ? 1 : 0;
     const workers = building.workers ?? 0;
     const count   = 1 + workers + extra; // 1 base + 1 per worker + upgrade bonus
-    const hp      = 28 + ((s.upgrades ?? []).includes("soldier_hp") ? 20 : 0);
+    const hp      = 50 + ((s.upgrades ?? []).includes("soldier_hp") ? 20 : 0);
     for (let i = 0; i < count; i++) {
       s.units.push({
         id:         Date.now() + Math.random(),
@@ -148,7 +158,7 @@ export default function ProtectorView({ room, onGameOver }) {
       builderPos:      { x: WORLD / 2 - 200, y: WORLD / 2 - 200 },
       builderTarget:   { x: WORLD / 2 - 200, y: WORLD / 2 - 200 },
       playerHp:        PROTECTOR_MAX_HP,
-      builderHp:       PROTECTOR_MAX_HP,
+      builderHp:       BUILDER_TOTAL_MAX_HP,
       buildings:       map.buildings,
       units:           [],
       enemies:         [],
@@ -422,7 +432,7 @@ export default function ProtectorView({ room, onGameOver }) {
       ctx.textAlign = "right";
       ctx.fillStyle = "rgba(120,200,255,0.6)";
       ctx.font = "10px sans-serif";
-      ctx.fillText("builder down", W - 14, H - 50);
+      ctx.fillText("builder down — walk near to revive", W - 14, H - 50);
     }
 
     // Gold
@@ -583,6 +593,17 @@ export default function ProtectorView({ room, onGameOver }) {
         updateBuilderRepair(state.builderPos.x, state.builderPos.y, state.buildings, dt, state.upgrades);
         updateBuilderDanger(state.builderPos.x, state.builderPos.y, state.enemies, dt);
         state.builderHp = updateBuilderHealth(state.builderPos.x, state.builderPos.y, state.enemies, state.builderHp, dt);
+        // Shield regen when not being chased
+        updateBuilderShield(state, dt);
+      }
+
+      // Protector revives downed builder by walking near them
+      if (builderDown && !protectorDown) {
+        const dToBuilder = dist(state.player.x, state.player.y, state.builderPos.x, state.builderPos.y);
+        if (dToBuilder < REVIVE_RADIUS) {
+          state.builderHp = Math.floor(BUILDER_TOTAL_MAX_HP * 0.4); // revive at 40%
+          sendRevive("builder");
+        }
       }
 
       // Protector attacks only while alive
@@ -601,7 +622,7 @@ export default function ProtectorView({ room, onGameOver }) {
         state.enemies.forEach(e => {
           if (!e.dead || e._floaterSpawned) return;
           e._floaterSpawned = true;
-          const goldAmt = 8 + Math.floor(Math.random() * 7);
+          const goldAmt = 20 + Math.floor(Math.random() * 11);
           state.floaters.push({
             text: `+${goldAmt} g`,
             worldX: e.x, worldY: e.y, // world-space, converted in draw
@@ -657,7 +678,7 @@ export default function ProtectorView({ room, onGameOver }) {
     const newTotal = calcTownspeople(state.buildings);
     state.townspeople = newTotal;
     clampWorkers(state.buildings, newTotal);
-    state.builderHp  = PROTECTOR_MAX_HP;
+    state.builderHp  = BUILDER_TOTAL_MAX_HP;
     state.playerHp   = PROTECTOR_MAX_HP;
     // Restore all surviving soldiers to full hp between waves
     state.units.forEach(u => { u.hp = u.maxHp; });

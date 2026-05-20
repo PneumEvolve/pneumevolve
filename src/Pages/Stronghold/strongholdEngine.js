@@ -27,6 +27,16 @@ export const PROTECTOR_ATTACK_RANGE  = 80;
 export const PROTECTOR_ATTACK_DAMAGE = 18;
 export const PROTECTOR_ATTACK_RATE   = 1.4; // attacks/sec base
 
+// ─── Builder shield ───────────────────────────────────────────────────────────
+
+export const BUILDER_SHIELD_MAX  = 50;   // shield hp on top of base 100 hp
+export const BUILDER_SHIELD_REGEN = 8;  // hp/sec out of combat (no enemy chasing)
+// Shield absorbs hits first; base hp is only damaged when shield is depleted.
+
+// ─── Revive ───────────────────────────────────────────────────────────────────
+
+export const REVIVE_RADIUS = 70; // how close a hero must be to revive their partner
+
 // ─── Inter-wave timers ────────────────────────────────────────────────────────
 
 // Infinite waves: 45s breather after wave 1 & 2, 30s from wave 3 onward (pressure ramps)
@@ -223,8 +233,8 @@ export function updateProtectorAttack(state, dt) {
 
   if (target.hp <= 0) {
     target.dead = true;
-    // Gold drop — 8-14 per kill
-    state.gold = (state.gold ?? 0) + 8 + Math.floor(Math.random() * 7);
+    // Gold drop — 20-30 per kill
+    state.gold = (state.gold ?? 0) + 20 + Math.floor(Math.random() * 11);
     if (lifesteal) state.playerHp = Math.min(PROTECTOR_MAX_HP, (state.playerHp ?? PROTECTOR_MAX_HP) + 3);
   }
 }
@@ -284,15 +294,35 @@ export function updateBuilderHealth(builderX, builderY, enemies, builderHp, dt) 
   return hp;
 }
 
+// ─── Builder shield regen ─────────────────────────────────────────────────────
+// Shield is the top 50 hp (101–150 total). It regens out of combat.
+// builderHp goes 0–150: 0–100 is base, 100–150 is shield.
+export const BUILDER_TOTAL_MAX_HP = PROTECTOR_MAX_HP + BUILDER_SHIELD_MAX; // 150
+
+export function updateBuilderShield(state, dt) {
+  if (state.phase !== "wave") return;
+  const builderDown = (state.builderHp ?? BUILDER_TOTAL_MAX_HP) <= 0;
+  if (builderDown) return;
+
+  const inCombat = state.enemies.some(e => !e.dead && e.chasingBuilder);
+  if (inCombat) return; // shield doesn't regen while enemies are chasing
+
+  // Regen only the shield portion (above base 100 hp)
+  const current = state.builderHp ?? BUILDER_TOTAL_MAX_HP;
+  if (current < BUILDER_TOTAL_MAX_HP) {
+    state.builderHp = Math.min(BUILDER_TOTAL_MAX_HP, current + BUILDER_SHIELD_REGEN * dt);
+  }
+}
+
 // ─── Enemy spawning ───────────────────────────────────────────────────────────
 
 export function spawnWave(waveNumber, seed) {
   const rand  = seededRand(seed + waveNumber * 1000);
-  // Infinite scaling: base 10, +6 per wave, soft cap growth after wave 5
-  const base  = 10;
+  // Easier early waves: base 7, +4 per wave, slow ramp after wave 5
+  const base  = 7;
   const count = waveNumber <= 4
-    ? base + (waveNumber - 1) * 6                          // 10, 16, 22, 28
-    : base + 18 + Math.floor((waveNumber - 4) * 4);       // 32, 36, 40 ... (slower ramp)
+    ? base + (waveNumber - 1) * 4                          // 7, 11, 15, 19
+    : base + 12 + Math.floor((waveNumber - 4) * 3);       // 22, 25, 28 ... (slower ramp)
   const enemies = [];
 
   for (let i = 0; i < count; i++) {
@@ -385,7 +415,7 @@ export function updateEnemies(enemies, buildings, builderX, builderY, dt, slowZo
 // ─── Combat: units attack enemies ─────────────────────────────────────────────
 
 export function updateUnitCombat(units, enemies, dt, upgrades = []) {
-  const baseDamage = 12 + (upgrades.includes("soldier_dmg") ? 6 : 0);
+  const baseDamage = 18 + (upgrades.includes("soldier_dmg") ? 6 : 0);
   const RATE = 1.2;
   const RANGE = 55;
 
@@ -465,7 +495,7 @@ export function updateEnemyAttacks(enemies, buildings, dt, protectorX, protector
 // ─── Combat: enemies attack units (soldiers) ──────────────────────────────────
 
 const ENEMY_UNIT_ATTACK_RANGE  = 14; // slightly tighter than building attack
-const ENEMY_UNIT_ATTACK_DAMAGE = 14; // ~2 hits kills a base soldier (28 hp)
+const ENEMY_UNIT_ATTACK_DAMAGE = 10; // soldiers are beefier now (50 hp base)
 const ENEMY_UNIT_ATTACK_RATE   = 1.0; // a bit slower than building attacks so soldiers can kite
 
 // Returns { survivors, casualties }

@@ -9,7 +9,7 @@ import {
 import {
   WORLD, BUILDING_TYPES, PLACEABLE_BUILDINGS,
   STARTING_GOLD, TOWNSPEOPLE_START, PROTECTOR_MAX_HP,
-  BUILDER_DIRECT_REPAIR_RADIUS,
+  BUILDER_DIRECT_REPAIR_RADIUS, BUILDER_TOTAL_MAX_HP, REVIVE_RADIUS,
   createInitialMap, lerp, dist, calcTownspeople, clampWorkers,
 } from "./strongholdEngine";
 
@@ -81,6 +81,14 @@ export default function BuilderView({ room, onGameOver }) {
       if (!stateRef.current) return;
       stateRef.current.chatMessages?.unshift({ text, from, ts: Date.now() });
     },
+    onRevive: ({ target }) => {
+      // Protector revived the builder
+      const s = stateRef.current;
+      if (!s || target !== "builder") return;
+      if ((s.builderHp ?? BUILDER_TOTAL_MAX_HP) <= 0) {
+        s.builderHp = Math.floor(BUILDER_TOTAL_MAX_HP * 0.4);
+      }
+    },
     onRestart: ({ seed, swap }) => {
       // Protector triggered a restart — tell parent so index.jsx can remount
       // with the correct new role and seed
@@ -96,7 +104,7 @@ export default function BuilderView({ room, onGameOver }) {
     },
   }).current;
 
-  const { sendP2Move, sendBuildingPlace, sendChat, sendWorkerAssign, sendPlayerReady, sendGoldUpdate } =
+  const { sendP2Move, sendBuildingPlace, sendChat, sendWorkerAssign, sendPlayerReady, sendGoldUpdate, sendRevive } =
     useStrongholdRoom(room?.id ?? null, handlers);
 
   // ── State init ────────────────────────────────────────────────────────────
@@ -122,7 +130,7 @@ export default function BuilderView({ room, onGameOver }) {
       cam: { x: WORLD / 2 - 400, y: WORLD / 2 - 300 },
       chatMessages: [], nextBuildingId: 1,
       gold: STARTING_GOLD, townspeople: TOWNSPEOPLE_START,
-      builderHp: PROTECTOR_MAX_HP,
+      builderHp: BUILDER_TOTAL_MAX_HP,
       protectorHp: PROTECTOR_MAX_HP,
       lockedWorkers: 0,
       workerWander,
@@ -455,18 +463,29 @@ export default function BuilderView({ room, onGameOver }) {
     ctx.fillStyle = "rgba(180,220,255,0.4)"; ctx.font = "11px sans-serif";
     ctx.fillText(`${free} free${locked > 0 ? ` / ${locked} grieving` : ""} / ${state.townspeople} people`, W - 14, H - 36);
 
-    const hpFrac = Math.max(0, builderHp) / PROTECTOR_MAX_HP;
+    const hpFrac    = Math.max(0, Math.min(builderHp, PROTECTOR_MAX_HP)) / PROTECTOR_MAX_HP;
+    const shieldFrac = Math.max(0, (builderHp - PROTECTOR_MAX_HP)) / (BUILDER_TOTAL_MAX_HP - PROTECTOR_MAX_HP);
+    const barW = 80;
     ctx.fillStyle = "rgba(255,255,255,0.06)";
-    ctx.roundRect(14, H - 28, 80, 5, 3); ctx.fill();
+    ctx.roundRect(14, H - 28, barW, 5, 3); ctx.fill();
+    // Base HP (blue)
     ctx.fillStyle = hpFrac > 0.5 ? "rgba(120,200,255,0.7)" : "rgba(255,100,100,0.8)";
-    ctx.roundRect(14, H - 28, 80 * hpFrac, 5, 3); ctx.fill();
+    ctx.roundRect(14, H - 28, barW * hpFrac, 5, 3); ctx.fill();
+    // Shield on top (bright cyan, separate bar above)
+    if (shieldFrac > 0) {
+      ctx.fillStyle = "rgba(255,255,255,0.07)";
+      ctx.roundRect(14, H - 36, barW, 3, 2); ctx.fill();
+      ctx.fillStyle = "rgba(160,240,255,0.85)";
+      ctx.roundRect(14, H - 36, barW * shieldFrac, 3, 2); ctx.fill();
+    }
     ctx.textAlign = "left";
     if (builderHp <= 0 && phase === "wave") {
       ctx.fillStyle = "rgba(255,80,80,0.7)"; ctx.font = "10px sans-serif";
-      ctx.fillText("DOWN — next wave", 14, H - 32);
+      ctx.fillText("DOWN — walk to revive", 14, H - 40);
     } else {
       ctx.fillStyle = "rgba(255,255,255,0.25)"; ctx.font = "10px sans-serif";
-      ctx.fillText(`${Math.ceil(builderHp)} hp`, 14, H - 32);
+      const shieldHp = Math.max(0, builderHp - PROTECTOR_MAX_HP);
+      ctx.fillText(`${Math.ceil(Math.min(builderHp, PROTECTOR_MAX_HP))} hp${shieldHp > 0 ? ` + ${Math.ceil(shieldHp)} shield` : ""}`, 14, H - 40);
     }
 
     ctx.fillStyle = "rgba(120,200,255,0.25)"; ctx.font = "11px sans-serif";
@@ -478,7 +497,7 @@ export default function BuilderView({ room, onGameOver }) {
       ctx.textAlign = "right";
       ctx.fillStyle = "rgba(255,100,60,0.6)";
       ctx.font = "10px sans-serif";
-      ctx.fillText("protector down", W - 14, H - 50);
+      ctx.fillText("protector down — walk near to revive", W - 14, H - 50);
     }
 
     ctx.restore();
@@ -539,6 +558,18 @@ export default function BuilderView({ room, onGameOver }) {
     const nowInDanger = !builderDown && state.enemies.some(e => e.chasingBuilder);
     if (nowInDanger && !state._wasDangerous) sfxBuilderDanger();
     state._wasDangerous = nowInDanger;
+
+    // Builder revives downed protector by walking near them during a wave
+    if (state.phase === "wave") {
+      const protectorDown = (state.protectorHp ?? PROTECTOR_MAX_HP) <= 0;
+      if (protectorDown && !builderDown) {
+        const dToProtector = dist(state.builder.x, state.builder.y, state.protectorPos.x, state.protectorPos.y);
+        if (dToProtector < REVIVE_RADIUS) {
+          state.protectorHp = Math.floor(PROTECTOR_MAX_HP * 0.4);
+          sendRevive("protector");
+        }
+      }
+    }
 
     draw(ctx, state, ts / 1000, W, H);
     rafRef.current = requestAnimationFrame(loop);
