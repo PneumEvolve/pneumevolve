@@ -1,12 +1,28 @@
 // src/Pages/Stronghold/audio.js
 // Web Audio API sound engine — cozy build phase, tense wave phase.
-// No files needed — everything is synthesized.
+// Background loops use AudioBufferSourceNode for gapless looping.
+// One-shot SFX are synthesized.
 
 let ctx = null;
 let masterGain = null;
-let ambienceNodes = null;
 let currentMood = null; // "cozy" | "tense"
 let initialized = false;
+
+// ── Buffers & active loop nodes ───────────────────────────────────────────────
+
+const buffers = { cozy: null, tense: null };
+const loopNodes = { cozy: null, tense: null };   // { source, gain }
+const loadPromises = {};
+
+const TRACKS = {
+  cozy:  "/audio/build_phase.mp3",
+  tense: "/audio/combat_phase.mp3",
+};
+
+const FADE_DURATION = 2; // seconds
+const TARGET_VOLUME = 0.5;
+
+// ── Web Audio context ─────────────────────────────────────────────────────────
 
 function getCtx() {
   if (!ctx) {
@@ -18,7 +34,99 @@ function getCtx() {
   return ctx;
 }
 
-// ── Low-level synth helpers ───────────────────────────────────────────────────
+// ── Buffer loading ────────────────────────────────────────────────────────────
+
+function loadTrack(key) {
+  if (loadPromises[key]) return loadPromises[key];
+  loadPromises[key] = fetch(TRACKS[key])
+    .then(r => r.arrayBuffer())
+    .then(ab => getCtx().decodeAudioData(ab))
+    .then(buf => { buffers[key] = buf; return buf; })
+    .catch(e => console.warn(`Stronghold audio: failed to load ${key}`, e));
+  return loadPromises[key];
+}
+
+// ── Loop playback ─────────────────────────────────────────────────────────────
+
+function startLoop(key, fadeIn = true) {
+  const c = getCtx();
+  const buf = buffers[key];
+  if (!buf) return;
+
+  // Stop any existing node for this key immediately
+  stopLoop(key, 0);
+
+  const source = c.createBufferSource();
+  const gainNode = c.createGain();
+
+  source.buffer = buf;
+  source.loop = true;                    // ← gapless loop handled by Web Audio
+  source.connect(gainNode);
+  gainNode.connect(masterGain);
+
+  if (fadeIn) {
+    gainNode.gain.setValueAtTime(0, c.currentTime);
+    gainNode.gain.linearRampToValueAtTime(TARGET_VOLUME, c.currentTime + FADE_DURATION);
+  } else {
+    gainNode.gain.setValueAtTime(TARGET_VOLUME, c.currentTime);
+  }
+
+  source.start(0);
+  loopNodes[key] = { source, gain: gainNode };
+}
+
+function stopLoop(key, fadeDuration = FADE_DURATION) {
+  const node = loopNodes[key];
+  if (!node) return;
+  const c = getCtx();
+  try {
+    if (fadeDuration > 0) {
+      node.gain.gain.setValueAtTime(node.gain.gain.value, c.currentTime);
+      node.gain.gain.linearRampToValueAtTime(0, c.currentTime + fadeDuration);
+      node.source.stop(c.currentTime + fadeDuration + 0.05);
+    } else {
+      node.source.stop();
+    }
+  } catch {}
+  loopNodes[key] = null;
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
+export function initAudio() {
+  if (initialized) return;
+  initialized = true;
+  getCtx();
+  // Pre-fetch and decode both tracks in the background
+  loadTrack("cozy");
+  loadTrack("tense");
+}
+
+export async function setMood(mood) {
+  if (mood === currentMood) return;
+  const prev = currentMood;
+  currentMood = mood;
+
+  // Fade out whichever track was playing
+  if (prev) stopLoop(prev, FADE_DURATION);
+
+  if (!mood) return;
+
+  // If buffer isn't ready yet, wait for it then play
+  if (!buffers[mood]) {
+    await loadTrack(mood);
+  }
+  // Only start if mood hasn't changed while we were waiting
+  if (currentMood === mood) startLoop(mood, true);
+}
+
+export function stopAllAudio() {
+  stopLoop("cozy",  FADE_DURATION);
+  stopLoop("tense", FADE_DURATION);
+  currentMood = null;
+}
+
+// ── Low-level synth helpers (SFX) ─────────────────────────────────────────────
 
 function osc(freq, type = "sine", gainVal = 0.3, duration = null) {
   const c = getCtx();
@@ -36,121 +144,9 @@ function osc(freq, type = "sine", gainVal = 0.3, duration = null) {
   return { osc: o, gain: g };
 }
 
-function stopNode(node, fadeTime = 1.5) {
-  if (!node) return;
-  try {
-    const c = getCtx();
-    node.gain.gain.setTargetAtTime(0, c.currentTime, fadeTime * 0.3);
-    node.osc.stop(c.currentTime + fadeTime);
-  } catch {}
-}
-
-// ── Cozy ambience — warm pad, gentle and pleasant ────────────────────────────
-
-function buildCozyAmbience() {
-  const c = getCtx();
-  const nodes = [];
-
-  // Root pad — soft sine at a comfortable mid register (not sub-bass)
-  const root = osc(220, "sine", 0.10);
-  nodes.push(root);
-
-  // Perfect fifth above root — always consonant, never beating annoyingly
-  const fifth = osc(330, "sine", 0.07);
-  nodes.push(fifth);
-
-  // Octave — very soft, adds body
-  const octave = osc(440, "sine", 0.04);
-  nodes.push(octave);
-
-  // Very slow volume swell on root (0.12 Hz = ~8 sec cycle) — barely perceptible
-  const lfo = c.createOscillator();
-  const lfoGain = c.createGain();
-  lfo.type = "sine";
-  lfo.frequency.value = 0.12;
-  lfoGain.gain.value = 0.03;
-  lfo.connect(lfoGain);
-  lfoGain.connect(root.gain);
-  lfo.start();
-  nodes.push({ osc: lfo, gain: lfoGain });
-
-  // Soft high shimmer — very quiet, adds air
-  const shimmer = osc(880, "sine", 0.008);
-  nodes.push(shimmer);
-
-  return nodes;
-}
-
-// ── Tense ambience — rumble + dissonant upper tone ────────────────────────────
-
-function buildTenseAmbience() {
-  const c = getCtx();
-  const nodes = [];
-
-  // Low rumble — slightly detuned unison
-  const r1 = osc(40, "sawtooth", 0.08);
-  const r2 = osc(41.2, "sawtooth", 0.07);
-  nodes.push(r1, r2);
-
-  // Dissonant mid — tritone above root
-  const mid = osc(56.6, "triangle", 0.05); // tritone (40 * 2^(6/12))
-  nodes.push(mid);
-
-  // Fast tremolo on mid — urgency
-  const lfo = c.createOscillator();
-  const lfoGain = c.createGain();
-  lfo.frequency.value = 6;
-  lfoGain.gain.value = 0.03;
-  lfo.connect(lfoGain);
-  lfoGain.connect(mid.gain);
-  lfo.start();
-  nodes.push({ osc: lfo, gain: lfoGain });
-
-  // High nervous shimmer
-  const shimmer = osc(880, "sine", 0.008);
-  const shimmerLfo = c.createOscillator();
-  const shimmerLfoGain = c.createGain();
-  shimmerLfo.frequency.value = 3.5;
-  shimmerLfoGain.gain.value = 0.006;
-  shimmerLfo.connect(shimmerLfoGain);
-  shimmerLfoGain.connect(shimmer.gain);
-  shimmerLfo.start();
-  nodes.push(shimmer, { osc: shimmerLfo, gain: shimmerLfoGain });
-
-  return nodes;
-}
-
-function stopAmbience() {
-  if (!ambienceNodes) return;
-  ambienceNodes.forEach(n => stopNode(n, 1.2));
-  ambienceNodes = null;
-}
-
-// ── Public API ────────────────────────────────────────────────────────────────
-
-export function initAudio() {
-  if (initialized) return;
-  initialized = true;
-  getCtx();
-}
-
-export function setMood(mood) {
-  if (mood === currentMood) return;
-  currentMood = mood;
-  stopAmbience();
-  if (mood === "cozy")  ambienceNodes = buildCozyAmbience();
-  if (mood === "tense") ambienceNodes = buildTenseAmbience();
-}
-
-export function stopAllAudio() {
-  stopAmbience();
-  currentMood = null;
-}
-
 // ── One-shot SFX ──────────────────────────────────────────────────────────────
 
 export function sfxKill() {
-  // Short percussive thud
   const c = getCtx();
   const n = osc(120, "square", 0.25, 0.12);
   n.osc.frequency.setTargetAtTime(40, c.currentTime, 0.04);
@@ -163,7 +159,6 @@ export function sfxBuildingHit() {
 }
 
 export function sfxBuildingFall() {
-  // Rumbling crash — low noise burst
   const c = getCtx();
   [60, 80, 100, 55].forEach((freq, i) => {
     setTimeout(() => {
@@ -174,47 +169,38 @@ export function sfxBuildingFall() {
 }
 
 export function sfxPlaceBuilding() {
-  // Warm thunk + short high chime
-  const c = getCtx();
   osc(180, "triangle", 0.2, 0.15);
   setTimeout(() => osc(660, "sine", 0.08, 0.3), 60);
 }
 
 export function sfxPurchaseUpgrade() {
-  // Ascending two-tone
-  const c = getCtx();
   osc(330, "sine", 0.12, 0.2);
   setTimeout(() => osc(440, "sine", 0.1, 0.25), 100);
   setTimeout(() => osc(550, "sine", 0.08, 0.3), 200);
 }
 
 export function sfxWaveStart() {
-  // Harsh descending horn
   const c = getCtx();
   const n = osc(220, "sawtooth", 0.3, 0.6);
   n.osc.frequency.setTargetAtTime(110, c.currentTime + 0.1, 0.2);
 }
 
 export function sfxWaveClear() {
-  // Soft ascending bells
   [330, 440, 550, 660].forEach((freq, i) => {
     setTimeout(() => osc(freq, "sine", 0.1, 0.4), i * 80);
   });
 }
 
 export function sfxWorkerDeath() {
-  // Soft hollow pop
   osc(280, "sine", 0.15, 0.2);
 }
 
 export function sfxBuilderDanger() {
-  // Sharp alarm ping
   const c = getCtx();
   const n = osc(880, "square", 0.1, 0.1);
   n.osc.frequency.setTargetAtTime(440, c.currentTime + 0.05, 0.04);
 }
 
 export function sfxHeal() {
-  // Gentle ascending sine
   osc(440, "sine", 0.05, 0.25);
 }

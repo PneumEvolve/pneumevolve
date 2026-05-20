@@ -69,9 +69,11 @@ export function useStrongholdRoom(roomId, handlers) {
   const sendBuildingRepair = useCallback((id, hp)      => send("building_repair", { id, hp }),          [send]);
   const sendWorkerAssign   = useCallback((buildingId, workers) => send("worker_assign", { buildingId, workers }), [send]);
   const sendEnemyUpdate    = useCallback((enemies)     => send("enemy_update",    { enemies }),         [send]);
-  const sendBuildingHealth = useCallback((buildings)   => send("building_health", { buildings }),       [send]);
+  const sendBuildingHealth = useCallback((buildings, builderHp, protectorHp, lockedWorkers)   => send("building_health", { buildings, builderHp, protectorHp, lockedWorkers }),       [send]);
   const sendUnitUpdate     = useCallback((units)       => send("unit_update",     { units }),           [send]);
-  const sendGoldUpdate     = useCallback((gold)        => send("gold_update",     { gold }),            [send]);
+  const sendGoldUpdate = useCallback((payload) =>
+  send("gold_update", typeof payload === "number" ? { gold: payload, from: "protector" } : payload),
+[send]);
   const sendPhaseChange    = useCallback((phase, data) => send("phase_change",    { phase, ...data }),  [send]);
   const sendPlayerReady    = useCallback((role)        => send("player_ready",    { role }),            [send]);
   const sendCountdown      = useCallback((seconds)     => send("countdown",       { seconds }),         [send]);

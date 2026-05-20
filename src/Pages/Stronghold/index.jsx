@@ -50,7 +50,7 @@ function WaitingForBuilder({ room, onBuilderJoined }) {
 // ── Game over screen ──────────────────────────────────────────────────────────
 function GameOver({ score, role, onRestart }) {
   const isP1 = role === "p1";
-  const total = (score?.buildingPts ?? 0) + (score?.killPts ?? 0);
+  const waveReached = score?.waveReached ?? 0;
 
   return (
     <main className="min-h-screen bg-[#0a0d0f] text-white flex flex-col items-center justify-center gap-6 px-4">
@@ -60,14 +60,14 @@ function GameOver({ score, role, onRestart }) {
 
       <div className="text-center space-y-1">
         <div className="text-6xl font-light" style={{ color: score?.won ? "rgba(255,210,80,0.9)" : "rgba(255,100,100,0.7)" }}>
-          {total}
+          {waveReached}
         </div>
-        <div className="text-xs tracking-widest" style={{ color: "rgba(255,255,255,0.3)" }}>total score</div>
+        <div className="text-xs tracking-widest" style={{ color: "rgba(255,255,255,0.3)" }}>waves survived</div>
       </div>
 
       <div className="text-center space-y-1 text-xs" style={{ color: "rgba(255,255,255,0.35)" }}>
-        <div>{score?.standing ?? 0} / {score?.total ?? 0} buildings standing — {score?.buildingPts ?? 0} pts</div>
-        <div>{score?.enemiesKilled ?? 0} enemies defeated — {score?.killPts ?? 0} pts</div>
+        <div>{score?.standing ?? 0} / {score?.total ?? 0} buildings standing</div>
+        <div>{score?.enemiesKilled ?? 0} enemies defeated</div>
       </div>
 
       {isP1 ? (
@@ -147,7 +147,7 @@ export default function StrongholdGame() {
     setFinalScore(score);
     setPhase("gameover");
     sendGameOver(score);
-    try { await api.patch(`/stronghold/rooms/${room.id}`, { final_score: score.buildingPts + score.killPts }); } catch {}
+    try { await api.patch(`/stronghold/rooms/${room.id}`, { final_score: score.waveReached ?? 0 }); } catch {}
   }
 
   function handleP2GameOver(score) {

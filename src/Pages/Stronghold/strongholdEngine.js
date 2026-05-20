@@ -29,7 +29,11 @@ export const PROTECTOR_ATTACK_RATE   = 1.4; // attacks/sec base
 
 // ─── Inter-wave timers ────────────────────────────────────────────────────────
 
-export const BREATHER_DURATION = { 1: 45, 2: 45 }; // seconds after wave N clears
+// Infinite waves: 45s breather after wave 1 & 2, 30s from wave 3 onward (pressure ramps)
+export const BREATHER_DURATION = { 1: 45, 2: 45 };
+export function getBreatherDuration(waveNumber) {
+  return BREATHER_DURATION[waveNumber] ?? 30;
+}
 
 // ─── Townspeople ──────────────────────────────────────────────────────────────
 
@@ -65,7 +69,7 @@ export const BUILDING_TYPES = {
     color:       "#ff6644",
     radius:      22,
     maxHp:       80,
-    description: "Spawns soldiers. Workers here speed up training.",
+    description: "Spawns 1 soldier + 1 per worker assigned. Remove a worker and that soldier is dismissed.",
     placeable:   true,
     cost:        150,
     spawnUnit:   true,
@@ -88,7 +92,7 @@ export const BUILDING_TYPES = {
     color:       "#66bbff",
     radius:      20,
     maxHp:       70,
-    description: "Builder repairs buildings here. Workers extend its reach.",
+    description: "Triages the most-damaged building in range at 2× repair speed. Workers extend reach. Builder must be inside.",
     placeable:   true,
     cost:        120,
     repairRadius: 110,
@@ -254,6 +258,7 @@ const BUILDER_NOTICE_RADIUS = 90;
 const BUILDER_CHASE_SPEED_MULT = 0.7; // enemies that peel off are slightly slower
 
 export function updateBuilderDanger(builderX, builderY, enemies, dt) {
+  if (builderX === null || builderY === null) return;
   let chasingCount = 0;
   enemies.forEach(e => {
     if (e.dead) return;
@@ -283,12 +288,15 @@ export function updateBuilderHealth(builderX, builderY, enemies, builderHp, dt) 
 
 export function spawnWave(waveNumber, seed) {
   const rand  = seededRand(seed + waveNumber * 1000);
-  // Gentler scaling: wave 1: 6 enemies, wave 2: 10, wave 3: 15
-  const count = [0, 6, 10, 15][waveNumber] ?? 6;
+  // Infinite scaling: base 10, +6 per wave, soft cap growth after wave 5
+  const base  = 10;
+  const count = waveNumber <= 4
+    ? base + (waveNumber - 1) * 6                          // 10, 16, 22, 28
+    : base + 18 + Math.floor((waveNumber - 4) * 4);       // 32, 36, 40 ... (slower ramp)
   const enemies = [];
 
   for (let i = 0; i < count; i++) {
-    const isRaider = rand() > 0.35;
+    const isRaider = rand() > 0.4;
     const edge = Math.floor(rand() * 4);
     let x, y;
     if (edge === 0)      { x = rand() * WORLD; y = -20; }
@@ -299,9 +307,9 @@ export function spawnWave(waveNumber, seed) {
     enemies.push({
       id:     i,
       x, y,
-      hp:     isRaider ? 18 + waveNumber * 4 : 50 + waveNumber * 12,
-      maxHp:  isRaider ? 18 + waveNumber * 4 : 50 + waveNumber * 12,
-      speed:  isRaider ? 48 + waveNumber * 6 + rand() * 12 : 26 + waveNumber * 4,
+      hp:     isRaider ? 24 + waveNumber * 8 : 70 + waveNumber * 18,
+      maxHp:  isRaider ? 24 + waveNumber * 8 : 70 + waveNumber * 18,
+      speed:  isRaider ? 58 + waveNumber * 8 + rand() * 16 : 32 + waveNumber * 7,
       radius: isRaider ? 6 : 10,
       type:   isRaider ? "raider" : "brute",
       dead:   false,
@@ -314,13 +322,42 @@ export function spawnWave(waveNumber, seed) {
 
 // ─── Enemy AI ─────────────────────────────────────────────────────────────────
 
-export function updateEnemies(enemies, buildings, builderX, builderY, dt, slowZones) {
+const PROTECTOR_NOTICE_RADIUS = 120; // enemies peel off to chase protector within this range
+const PROTECTOR_LEASH_RADIUS  = 250; // if protector runs further than this, enemy reverts to buildings
+const PROTECTOR_CHASE_SPEED_MULT = 1.0; // protector chasers move at full speed
+
+export function updateEnemies(enemies, buildings, builderX, builderY, dt, slowZones, protectorX, protectorY) {
+  const protectorAlive = protectorX !== null && protectorX !== undefined;
+  const builderAlive   = builderX   !== null && builderX   !== undefined;
+
   enemies.forEach(e => {
     if (e.dead) return;
 
-    let tx, ty;
-    if (e.chasingBuilder) {
+    // If protector just died, release any chasing enemies
+    if (!protectorAlive && e.chasingProtector) e.chasingProtector = false;
+    // If builder just died, release any chasing enemies
+    if (!builderAlive   && e.chasingBuilder)   e.chasingBuilder   = false;
+
+    // Priority 1: protector, if within notice range (or already chasing and within leash)
+    const dProtector = protectorAlive
+      ? dist(e.x, e.y, protectorX, protectorY) : Infinity;
+
+    if (e.chasingProtector) {
+      if (dProtector > PROTECTOR_LEASH_RADIUS) {
+        e.chasingProtector = false; // leash broken — fall through to building/builder targeting
+      }
+    } else if (protectorAlive && dProtector < PROTECTOR_NOTICE_RADIUS) {
+      e.chasingProtector = true;
+    }
+
+    let tx, ty, speedMult;
+
+    if (e.chasingProtector && protectorAlive) {
+      tx = protectorX; ty = protectorY;
+      speedMult = PROTECTOR_CHASE_SPEED_MULT;
+    } else if (e.chasingBuilder && builderAlive) {
       tx = builderX; ty = builderY;
+      speedMult = BUILDER_CHASE_SPEED_MULT;
     } else {
       let target = null, bestDist = Infinity;
       buildings.forEach(b => {
@@ -330,9 +367,9 @@ export function updateEnemies(enemies, buildings, builderX, builderY, dt, slowZo
       });
       if (!target) return;
       tx = target.x; ty = target.y;
+      speedMult = 1;
     }
 
-    let speedMult = e.chasingBuilder ? BUILDER_CHASE_SPEED_MULT : 1;
     slowZones.forEach(z => {
       if (dist(e.x, e.y, z.x, z.y) < z.radius) speedMult = Math.min(speedMult, z.factor);
     });
@@ -348,7 +385,7 @@ export function updateEnemies(enemies, buildings, builderX, builderY, dt, slowZo
 // ─── Combat: units attack enemies ─────────────────────────────────────────────
 
 export function updateUnitCombat(units, enemies, dt, upgrades = []) {
-  const baseDamage = 8 + (upgrades.includes("soldier_dmg") ? 5 : 0);
+  const baseDamage = 12 + (upgrades.includes("soldier_dmg") ? 6 : 0);
   const RATE = 1.2;
   const RANGE = 55;
 
@@ -384,14 +421,28 @@ export function updateUnitCombat(units, enemies, dt, upgrades = []) {
 // ─── Combat: enemies attack buildings ─────────────────────────────────────────
 
 const ENEMY_ATTACK_RANGE  = 18;
-const ENEMY_ATTACK_DAMAGE = 3;
-const ENEMY_ATTACK_RATE   = 1;
+const ENEMY_ATTACK_DAMAGE = 5;
+const ENEMY_ATTACK_RATE   = 1.4;
 
-export function updateEnemyAttacks(enemies, buildings, dt) {
+// Returns the new protector hp (caller must write it back to state)
+export function updateEnemyAttacks(enemies, buildings, dt, protectorX, protectorY, protectorHp) {
+  let newProtectorHp = protectorHp ?? PROTECTOR_MAX_HP;
+
   enemies.forEach(e => {
-    if (e.dead || e.chasingBuilder) return;
+    if (e.dead) return;
     e.attackCooldown = Math.max(0, (e.attackCooldown ?? 0) - dt);
     if (e.attackCooldown > 0) return;
+
+    // Melee protector if chasing them
+    if (e.chasingProtector && protectorX !== undefined) {
+      if (dist(e.x, e.y, protectorX, protectorY) < ENEMY_ATTACK_RANGE + 8) {
+        newProtectorHp = Math.max(0, newProtectorHp - ENEMY_ATTACK_DAMAGE * 1.5);
+        e.attackCooldown = 1 / ENEMY_ATTACK_RATE;
+      }
+      return; // protector chasers don't also hit buildings
+    }
+
+    if (e.chasingBuilder) return; // builder damage handled separately
 
     buildings.forEach(b => {
       if (b.hp <= 0) return;
@@ -407,18 +458,80 @@ export function updateEnemyAttacks(enemies, buildings, dt) {
       }
     });
   });
+
+  return newProtectorHp;
+}
+
+// ─── Combat: enemies attack units (soldiers) ──────────────────────────────────
+
+const ENEMY_UNIT_ATTACK_RANGE  = 14; // slightly tighter than building attack
+const ENEMY_UNIT_ATTACK_DAMAGE = 14; // ~2 hits kills a base soldier (28 hp)
+const ENEMY_UNIT_ATTACK_RATE   = 1.0; // a bit slower than building attacks so soldiers can kite
+
+// Returns { survivors, casualties }
+// casualties: array of { barracksId } for each soldier that just died this tick.
+export function updateEnemyAttackUnits(enemies, units, dt) {
+  enemies.forEach(e => {
+    if (e.dead) return;
+    // Only attack units if not already locked onto protector/builder/building this tick
+    // Use a separate cooldown slot so unit attacks don't block building attacks
+    e.unitAttackCooldown = Math.max(0, (e.unitAttackCooldown ?? 0) - dt);
+    if (e.unitAttackCooldown > 0) return;
+
+    let target = null, bestDist = Infinity;
+    units.forEach(u => {
+      if (u.hp <= 0) return;
+      const d = dist(e.x, e.y, u.x, u.y);
+      if (d < ENEMY_UNIT_ATTACK_RANGE + (u.radius ?? 6) && d < bestDist) {
+        bestDist = d; target = u;
+      }
+    });
+    if (!target) return;
+
+    target.hp = Math.max(0, target.hp - ENEMY_UNIT_ATTACK_DAMAGE);
+    e.unitAttackCooldown = 1 / ENEMY_UNIT_ATTACK_RATE;
+  });
+
+  const casualties = units
+    .filter(u => u.hp <= 0)
+    .map(u => ({ barracksId: u.barracksId }));
+
+  return { survivors: units.filter(u => u.hp > 0), casualties };
 }
 
 // ─── Units follow hero ────────────────────────────────────────────────────────
 
-const UNIT_SPEED         = 120;
-const UNIT_FOLLOW_RADIUS = 60;
+const UNIT_SPEED          = 140;
+const UNIT_FOLLOW_RADIUS  = 55;
+const UNIT_ENGAGE_RADIUS  = 100; // soldiers break formation to attack enemies within this range
 
-export function updateUnitMovement(units, heroX, heroY, dt) {
+export function updateUnitMovement(units, heroX, heroY, dt, enemies = [], rallyX, rallyY) {
+  // If heroX/heroY are null (protector dead), units rally to rallyX/rallyY (town center)
+  const protectorAlive = heroX !== null && heroY !== null;
+  const anchorX = protectorAlive ? heroX : (rallyX ?? heroX);
+  const anchorY = protectorAlive ? heroY : (rallyY ?? heroY);
+
   units.forEach((u, i) => {
-    const angle   = (i / Math.max(units.length, 1)) * Math.PI * 2;
-    const targetX = heroX + Math.cos(angle) * UNIT_FOLLOW_RADIUS;
-    const targetY = heroY + Math.sin(angle) * UNIT_FOLLOW_RADIUS;
+    // Find nearest living enemy within engage range
+    let nearestEnemy = null, nearestDist = Infinity;
+    enemies.forEach(e => {
+      if (e.dead) return;
+      const d = dist(u.x, u.y, e.x, e.y);
+      if (d < UNIT_ENGAGE_RADIUS && d < nearestDist) { nearestDist = d; nearestEnemy = e; }
+    });
+
+    let targetX, targetY;
+    if (nearestEnemy) {
+      // Charge the enemy
+      targetX = nearestEnemy.x;
+      targetY = nearestEnemy.y;
+    } else {
+      // Fan out slightly around anchor point
+      const angle  = (i / Math.max(units.length, 1)) * Math.PI * 2 + Math.PI / 6;
+      targetX = anchorX + Math.cos(angle) * UNIT_FOLLOW_RADIUS;
+      targetY = anchorY + Math.sin(angle) * UNIT_FOLLOW_RADIUS;
+    }
+
     const dx = targetX - u.x, dy = targetY - u.y;
     const d  = Math.sqrt(dx * dx + dy * dy);
     if (d < 4) return;
@@ -430,24 +543,57 @@ export function updateUnitMovement(units, heroX, heroY, dt) {
 
 // ─── Builder repair ───────────────────────────────────────────────────────────
 
+export const BUILDER_DIRECT_REPAIR_RADIUS = 30; // how close builder must be to directly repair
+export const BUILDER_DIRECT_REPAIR_RATE   = 8;  // hp/sec for direct repair
+
 export function updateBuilderRepair(builderX, builderY, buildings, dt, upgrades = []) {
   const autoRepair = upgrades.includes("shop_auto");
-  buildings.forEach(b => {
-    if (b.type !== "repair_shop" || b.hp <= 0) return;
-    const def = BUILDING_TYPES.repair_shop;
-    const workers = b.workers ?? 0;
-    const builderIn = dist(builderX, builderY, b.x, b.y) < def.radius + 20;
+
+  // Clear all repair flags first; re-set below.
+  buildings.forEach(b => { b._beingRepaired = false; });
+
+  // ── Direct repair (no shop needed) ───────────────────────────────────────
+  // Builder heals the single CLOSEST damaged building in melee range.
+  let directTarget = null, closestDist = Infinity;
+  buildings.forEach(target => {
+    if (target.hp <= 0 || target.hp >= target.maxHp) return;
+    const def = BUILDING_TYPES[target.type];
+    const d = dist(builderX, builderY, target.x, target.y);
+    if (d < def.radius + BUILDER_DIRECT_REPAIR_RADIUS && d < closestDist) {
+      closestDist = d; directTarget = target;
+    }
+  });
+  if (directTarget) {
+    directTarget.hp = Math.min(directTarget.maxHp, directTarget.hp + BUILDER_DIRECT_REPAIR_RATE * dt);
+    directTarget._beingRepaired = true;
+  }
+
+  // ── Repair shop ───────────────────────────────────────────────────────────
+  // When the builder is inside a repair shop (or shop_auto is active), the shop
+  // triages the single LOWEST-HP building in range and heals it at 2× base rate.
+  // Focused and faster than direct repair, but still one building at a time.
+  buildings.forEach(shop => {
+    if (shop.type !== "repair_shop" || shop.hp <= 0) return;
+    const def     = BUILDING_TYPES.repair_shop;
+    const workers = shop.workers ?? 0;
+    const builderIn = dist(builderX, builderY, shop.x, shop.y) < def.radius + 20;
     if (!builderIn && !autoRepair) return;
 
-    const rate = builderIn ? def.repairRate + workers * 3 : def.repairRate * 0.4;
+    const rate   = (builderIn ? def.repairRate * 2 : def.repairRate * 0.6) + workers * 4;
     const radius = def.repairRadius + workers * 20;
 
+    // Triage: pick the single most-damaged building in range
+    let shopTarget = null, lowestHpPct = Infinity;
     buildings.forEach(target => {
       if (target.hp <= 0 || target.hp >= target.maxHp) return;
-      if (dist(b.x, b.y, target.x, target.y) < radius) {
-        target.hp = Math.min(target.maxHp, target.hp + rate * dt);
-      }
+      if (dist(shop.x, shop.y, target.x, target.y) >= radius) return;
+      const pct = target.hp / target.maxHp;
+      if (pct < lowestHpPct) { lowestHpPct = pct; shopTarget = target; }
     });
+    if (shopTarget) {
+      shopTarget.hp = Math.min(shopTarget.maxHp, shopTarget.hp + rate * dt);
+      shopTarget._beingRepaired = true;
+    }
   });
 }
 
@@ -492,12 +638,11 @@ export function clampWorkers(buildings, totalPeople) {
 
 // ─── Scoring ──────────────────────────────────────────────────────────────────
 
-export function calculateScore(buildings, enemiesKilled, totalWaves) {
-  const standing    = buildings.filter(b => b.hp > 0).length;
-  const total       = buildings.length;
-  const buildingPts = standing * 100;
-  const killPts     = enemiesKilled * 10;
-  return { buildingPts, killPts, standing, total, score: buildingPts + killPts };
+// Score = waves survived. Building/kill pts removed in favour of a clean "best wave" metric.
+export function calculateScore(buildings, enemiesKilled, waveNumber) {
+  const standing = buildings.filter(b => b.hp > 0).length;
+  const total    = buildings.length;
+  return { waveReached: waveNumber, standing, total, score: waveNumber };
 }
 
 // ─── Lerp helper ─────────────────────────────────────────────────────────────

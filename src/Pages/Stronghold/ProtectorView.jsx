@@ -4,15 +4,19 @@ import { initAudio, setMood, sfxKill, sfxBuildingHit, sfxBuildingFall, sfxWaveSt
 import React, { useEffect, useRef, useCallback, useState } from "react";
 import { useStrongholdRoom } from "./useStrongholdRoom";
 import {
+  createJoystick, joystickTouchStart, joystickTouchMove, joystickTouchEnd, drawJoystick,
+} from "./mobileControls";
+import {
   WORLD, BUILDING_TYPES, UPGRADES,
   PROTECTOR_MAX_HP, PROTECTOR_HEAL_RATE,
-  STARTING_GOLD, BREATHER_DURATION,
+  STARTING_GOLD, BREATHER_DURATION, getBreatherDuration,
   TOWNSPEOPLE_START,
   createInitialMap, spawnWave, movePlayer,
   updateEnemies, updateEnemyAttacks, updateUnitCombat,
   updateUnitMovement, updateBuilderRepair,
   updateProtectorAttack, updateProtectorHeal,
-  updateProjectiles, updateBuilderDanger,
+  updateProjectiles, updateBuilderDanger, updateBuilderHealth,
+  updateEnemyAttackUnits,
   getSlowZones, calculateScore, calcWaveEndGold,
   calcTownspeople, clampWorkers,
   lerp, dist,
@@ -21,20 +25,23 @@ import {
 const PLAYER_SPEED   = 160;
 const MOVE_THROTTLE  = 50;
 const SYNC_THROTTLE  = 80;
-const TOTAL_WAVES    = 3;
 const COUNTDOWN_SECS = 5;
 
 export default function ProtectorView({ room, onGameOver }) {
   const canvasRef   = useRef(null);
   const stateRef    = useRef(null);
   const keysRef     = useRef({});
-  const joystickRef = useRef({ active: false, vec: { x: 0, y: 0 }, origin: { x: 0, y: 0 }, current: { x: 0, y: 0 } });
+  const joystickRef = useRef(createJoystick());
   const rafRef      = useRef(null);
   const lastMoveRef = useRef(0);
   const lastSyncRef = useRef(0);
 
   const [showShop,   setShowShop]   = useState(false);
   const [shopTick,   setShopTick]   = useState(0);
+  const [p1Ready,    setP1Ready]    = useState(false);
+  const [p2Ready,    setP2Ready]    = useState(false);
+  const p1ReadyRef = useRef(false);
+  const p2ReadyRef = useRef(false);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   const handlers = useRef({
@@ -52,31 +59,80 @@ export default function ProtectorView({ room, onGameOver }) {
       const s = stateRef.current;
       if (!s) return;
       const b = s.buildings.find(b => b.id === buildingId);
-      if (b) b.workers = workers;
+      if (!b) return;
+      const prevWorkers = b.workers ?? 0;
+      b.workers = workers;
+
+      // Barracks: worker count directly controls extra soldiers
+      if (b.type === "barracks" && b.hp > 0) {
+        const extra = (s.upgrades ?? []).includes("soldier_cnt") ? 1 : 0;
+        const targetCount = 1 + workers + extra;
+        const currentCount = s.units.filter(u => u.barracksId === buildingId).length;
+
+        if (workers > prevWorkers) {
+          // Added workers — spawn one soldier per new worker
+          const toAdd = workers - prevWorkers;
+          const hp = 28 + ((s.upgrades ?? []).includes("soldier_hp") ? 20 : 0);
+          for (let i = 0; i < toAdd; i++) {
+            s.units.push({
+              id:         Date.now() + Math.random(),
+              barracksId: buildingId,
+              x:          b.x + 30 + (currentCount + i) * 14,
+              y:          b.y,
+              hp, maxHp: hp, radius: 6,
+              attackCooldown: 0,
+              projectiles: [],
+            });
+          }
+        } else if (workers < prevWorkers) {
+          // Removed workers — dismiss one soldier per removed worker (prefer healthy ones last)
+          const toRemove = prevWorkers - workers;
+          const owned = s.units.filter(u => u.barracksId === buildingId);
+          // Sort: remove lowest-hp soldiers first (dismiss the weakest)
+          owned.sort((a, b) => a.hp - b.hp);
+          const toKill = new Set(owned.slice(0, toRemove).map(u => u.id));
+          s.units = s.units.filter(u => !toKill.has(u.id));
+        }
+      }
+    },
+    onGoldUpdate: ({ gold, from }) => {
+      if (from === "protector") return; // ignore own echoes
+      if (stateRef.current) stateRef.current.gold = gold;
     },
     onChat: ({ text, from }) => {
       if (!stateRef.current) return;
       stateRef.current.chatMessages.unshift({ text, from, ts: Date.now() });
       if (stateRef.current.chatMessages.length > 20) stateRef.current.chatMessages.pop();
     },
+    onPlayerReady: ({ role }) => {
+      if (role === "p2") {
+        p2ReadyRef.current = true;
+        setP2Ready(true);
+        if (p1ReadyRef.current && stateRef.current?.phase === "build" && stateRef.current?.waveNumber === 0) {
+          startWave(stateRef.current);
+        }
+      }
+    },
   }).current;
 
   const {
     sendP1Move, sendEnemyUpdate, sendBuildingHealth,
     sendUnitUpdate, sendPhaseChange,
-    sendCountdown, sendGameOver, sendChat, sendGoldUpdate,
+    sendCountdown, sendGameOver, sendChat, sendGoldUpdate, sendPlayerReady, sendWorkerAssign,
   } = useStrongholdRoom(room?.id ?? null, handlers);
 
-  // ── Spawn soldiers from a barracks ───────────────────────────────────────
+  // ── Spawn soldiers ────────────────────────────────────────────────────────
   function spawnSoldiers(s, building) {
-    const extra = (s.upgrades ?? []).includes("soldier_cnt") ? 1 : 0;
-    const count = 1 + extra;
-    const hp    = 40 + ((s.upgrades ?? []).includes("soldier_hp") ? 20 : 0);
+    const extra   = (s.upgrades ?? []).includes("soldier_cnt") ? 1 : 0;
+    const workers = building.workers ?? 0;
+    const count   = 1 + workers + extra; // 1 base + 1 per worker + upgrade bonus
+    const hp      = 28 + ((s.upgrades ?? []).includes("soldier_hp") ? 20 : 0);
     for (let i = 0; i < count; i++) {
       s.units.push({
-        id:    s.units.length,
-        x:     building.x + 30 + i * 14,
-        y:     building.y,
+        id:         Date.now() + Math.random(),
+        barracksId: building.id,           // track which barracks owns this soldier
+        x:          building.x + 30 + i * 14,
+        y:          building.y,
         hp, maxHp: hp, radius: 6,
         attackCooldown: 0,
         projectiles: [],
@@ -108,6 +164,8 @@ export default function ProtectorView({ room, onGameOver }) {
       attackCooldown:  0,
       lastTime:        performance.now(),
       chatMessages:    [],
+      floaters:        [],
+      lockedWorkers:   0,
       cam:             { x: WORLD / 2 - 400, y: WORLD / 2 - 300 },
     };
   }
@@ -123,7 +181,7 @@ export default function ProtectorView({ room, onGameOver }) {
     ctx.fillStyle = "#0a0d0f";
     ctx.fillRect(0, 0, W, H);
 
-    // World border — red pulse during wave
+    // World border
     const { cx: bx, cy: by } = worldToCanvas(0, 0, cam);
     if (phase === "wave") {
       const pulse = 0.04 + 0.04 * Math.sin(t * 3);
@@ -147,9 +205,7 @@ export default function ProtectorView({ room, onGameOver }) {
     });
 
     // Buildings
-    buildings.forEach(b => {
-      drawBuilding(ctx, b, cam, t, W, H);
-    });
+    buildings.forEach(b => drawBuilding(ctx, b, cam, t, W, H));
 
     // Projectiles — protector
     if (projectiles) projectiles.forEach(p => {
@@ -169,12 +225,22 @@ export default function ProtectorView({ room, onGameOver }) {
     units.forEach(u => {
       const { cx, cy } = worldToCanvas(u.x, u.y, cam);
       if (cx < -20 || cx > W + 20 || cy < -20 || cy > H + 20) return;
+      const hpFrac = Math.max(0, u.hp / u.maxHp);
       ctx.save();
       ctx.globalAlpha = 0.75;
       ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI * 2);
-      ctx.fillStyle = "#ff9966"; ctx.fill();
+      ctx.fillStyle = hpFrac > 0.5 ? "#ff9966" : "#ff4444"; ctx.fill();
       ctx.restore();
-      // unit projectiles
+      // Tiny HP bar above soldier — only show when damaged
+      if (hpFrac < 1) {
+        ctx.save();
+        ctx.globalAlpha = 0.7;
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.fillRect(cx - 7, cy - 9, 14, 2.5);
+        ctx.fillStyle = hpFrac > 0.5 ? "#88ff88" : "#ff5555";
+        ctx.fillRect(cx - 7, cy - 9, 14 * hpFrac, 2.5);
+        ctx.restore();
+      }
       (u.projectiles ?? []).forEach(p => {
         const progress = p.age / p.ttl;
         const { cx: sx, cy: sy } = worldToCanvas(p.x, p.y, cam);
@@ -199,7 +265,6 @@ export default function ProtectorView({ room, onGameOver }) {
       ctx.globalAlpha = 0.9;
       ctx.beginPath(); ctx.arc(cx, cy, e.radius, 0, Math.PI * 2);
       ctx.fillStyle = e.chasingBuilder ? "#ff44aa" : "#cc2222"; ctx.fill();
-      // hp bar
       ctx.fillStyle = "rgba(0,0,0,0.5)";
       ctx.fillRect(cx - 8, cy - e.radius - 6, 16, 3);
       ctx.fillStyle = e.chasingBuilder ? "#ff88cc" : "#ff4444";
@@ -207,7 +272,7 @@ export default function ProtectorView({ room, onGameOver }) {
       ctx.restore();
     });
 
-    // Builder
+    // Builder dot
     const { cx: bpx, cy: bpy } = worldToCanvas(builderPos.x, builderPos.y, cam);
     ctx.save();
     ctx.beginPath(); ctx.arc(bpx, bpy, 10 + 2 * Math.sin(t * 3), 0, Math.PI * 2);
@@ -216,14 +281,13 @@ export default function ProtectorView({ room, onGameOver }) {
     ctx.fillStyle = "rgba(120,200,255,0.9)"; ctx.fill();
     ctx.restore();
 
-    // Protector
+    // Protector dot
     const { cx: ppx, cy: ppy } = worldToCanvas(player.x, player.y, cam);
     ctx.save();
     ctx.beginPath(); ctx.arc(ppx, ppy, 13 + 2 * Math.sin(t * 3), 0, Math.PI * 2);
     ctx.fillStyle = "rgba(255,100,60,0.12)"; ctx.fill();
     ctx.beginPath(); ctx.arc(ppx, ppy, 7, 0, Math.PI * 2);
     ctx.fillStyle = "rgba(255,100,60,0.95)"; ctx.fill();
-    // Attack range ring (faint, build phase only)
     if (phase === "build") {
       ctx.globalAlpha = 0.06;
       ctx.beginPath(); ctx.arc(ppx, ppy, 80, 0, Math.PI * 2);
@@ -231,9 +295,42 @@ export default function ProtectorView({ room, onGameOver }) {
     }
     ctx.restore();
 
-    // ── HUD ──────────────────────────────────────────────────────────────
     drawHUD(ctx, state, t, W, H);
-    drawJoystick(ctx);
+
+    // Joystick overlay — drawn last so it's always on top
+    drawJoystick(ctx, joystickRef.current);
+
+    // Gold floaters
+    if (state.floaters && state.floaters.length > 0) {
+      ctx.save();
+      state.floaters.forEach(f => {
+        const progress = f.age / f.ttl;
+        const alpha = progress < 0.2 ? progress / 0.2 : 1 - (progress - 0.2) / 0.8;
+
+        let sx, sy;
+        if (f.worldX !== undefined) {
+          // World-space floater (per-kill): rises upward from enemy position
+          const { cx, cy } = worldToCanvas(f.worldX, f.worldY, cam);
+          sx = cx;
+          sy = cy - progress * 38;
+        } else {
+          // Screen-space floater (wave bonus): centred near top
+          sx = W / 2;
+          sy = 80 + progress * -22;
+        }
+
+        ctx.globalAlpha = Math.max(0, alpha);
+        ctx.font = `${f.size}px sans-serif`;
+        ctx.textAlign = "center";
+        ctx.fillStyle = f.color;
+        // subtle dark shadow for legibility
+        ctx.shadowColor = "rgba(0,0,0,0.7)";
+        ctx.shadowBlur = 4;
+        ctx.fillText(f.text, sx, sy);
+        ctx.shadowBlur = 0;
+      });
+      ctx.restore();
+    }
   }
 
   function drawBuilding(ctx, b, cam, t, W, H) {
@@ -242,15 +339,12 @@ export default function ProtectorView({ room, onGameOver }) {
     if (cx < -60 || cx > W + 60 || cy < -60 || cy > H + 60) return;
     const hpPct = b.hp / b.maxHp;
     const wasAlive = (b._prevHp ?? b.maxHp) > 0;
-    // Detect building just fell — fire sfx once
     if (wasAlive && b.hp <= 0) { sfxBuildingFall(); b._prevHp = 0; }
     else if (b.hp > 0 && b._prevHp !== undefined && b.hp < b._prevHp - 8) sfxBuildingHit();
     b._prevHp = b.hp;
 
-    // Illustrated building art
     drawBuildingIllustrated(ctx, b, cx, cy, t);
 
-    // HP ring overlay (outside the illustration)
     if (b.hp > 0 && hpPct < 1) {
       ctx.save();
       ctx.beginPath();
@@ -260,7 +354,6 @@ export default function ProtectorView({ room, onGameOver }) {
       ctx.restore();
     }
 
-    // Worker dots orbiting building
     if (b.hp > 0) {
       const workers = b.workers ?? 0;
       for (let i = 0; i < workers; i++) {
@@ -275,7 +368,6 @@ export default function ProtectorView({ room, onGameOver }) {
         ctx.strokeStyle = "rgba(120,180,255,0.4)"; ctx.lineWidth = 0.5; ctx.stroke();
         ctx.restore();
       }
-      // Label
       ctx.save();
       ctx.globalAlpha = 0.45;
       ctx.font = "10px sans-serif"; ctx.fillStyle = "#fff"; ctx.textAlign = "center";
@@ -287,45 +379,54 @@ export default function ProtectorView({ room, onGameOver }) {
   function drawHUD(ctx, state, t, W, H) {
     const { phase, waveNumber, countdownLeft, breatherLeft, playerHp, gold, upgrades, townspeople } = state;
 
-    // Phase label
     ctx.save();
     ctx.font = "13px sans-serif"; ctx.fillStyle = "rgba(255,255,255,0.4)"; ctx.textAlign = "center";
     let phaseLabel = "";
-    if (phase === "build")     phaseLabel = waveNumber === 0 ? "plan your stronghold" : "build phase";
-    else if (phase === "wave") phaseLabel = `wave ${waveNumber} / ${TOTAL_WAVES}`;
+    if (phase === "build")         phaseLabel = waveNumber === 0 ? "plan your stronghold" : "build phase";
+    else if (phase === "wave")     phaseLabel = `wave ${waveNumber}`;
     else if (phase === "breather") phaseLabel = `next wave in ${Math.ceil(breatherLeft)}s`;
     ctx.fillText(phaseLabel, W / 2, 28);
 
-    // Breather countdown — big and prominent
+    // Survive-as-long-as-you-can counter
+    if (waveNumber > 0) {
+      ctx.font = "10px sans-serif";
+      ctx.fillStyle = phase === "wave" ? "rgba(255,100,60,0.45)" : "rgba(255,210,80,0.32)";
+      ctx.textAlign = "center";
+      ctx.fillText(phase === "wave" ? "survive as long as you can" : `${waveNumber} survived`, W / 2, 44);
+    }
+
     if (phase === "breather") {
-      const frac = breatherLeft / (BREATHER_DURATION[waveNumber] ?? 45);
+      const frac = breatherLeft / getBreatherDuration(waveNumber);
       ctx.globalAlpha = 0.18;
       ctx.fillStyle = "#ff4444";
       ctx.fillRect(0, 0, W * (1 - frac), 3);
       ctx.globalAlpha = 1;
     }
 
-    // Wave dots
-    for (let i = 0; i < TOTAL_WAVES; i++) {
-      ctx.beginPath(); ctx.arc(W / 2 - (TOTAL_WAVES - 1) * 10 + i * 20, 44, 4, 0, Math.PI * 2);
-      const done = i < waveNumber;
-      const active = i === waveNumber - 1 && phase === "wave";
-      ctx.fillStyle = done ? "rgba(255,210,80,0.9)" : active ? "rgba(255,100,60,0.9)" : "rgba(255,255,255,0.12)";
-      ctx.fill();
-    }
-
-    // Protector HP bar
+    // HP bar
     const hpBarW = 90, hpBarH = 5;
     const hpBarX = 14, hpBarY = H - 28;
     ctx.fillStyle = "rgba(255,255,255,0.06)";
-    ctx.roundRect(hpBarX, hpBarY, hpBarW, hpBarH, 3);
-    ctx.fill();
+    ctx.roundRect(hpBarX, hpBarY, hpBarW, hpBarH, 3); ctx.fill();
     const hpFrac = Math.max(0, playerHp) / PROTECTOR_MAX_HP;
     ctx.fillStyle = hpFrac > 0.5 ? "rgba(255,100,60,0.8)" : hpFrac > 0.25 ? "rgba(255,200,60,0.8)" : "rgba(255,60,60,0.9)";
-    ctx.roundRect(hpBarX, hpBarY, hpBarW * hpFrac, hpBarH, 3);
-    ctx.fill();
-    ctx.font = "10px sans-serif"; ctx.fillStyle = "rgba(255,255,255,0.3)"; ctx.textAlign = "left";
-    ctx.fillText(`${Math.ceil(playerHp)} hp`, hpBarX, hpBarY - 4);
+    ctx.roundRect(hpBarX, hpBarY, hpBarW * hpFrac, hpBarH, 3); ctx.fill();
+    ctx.font = "10px sans-serif"; ctx.textAlign = "left";
+    if (playerHp <= 0 && phase === "wave") {
+      ctx.fillStyle = "rgba(255,80,80,0.7)";
+      ctx.fillText("DOWN — next wave", hpBarX, hpBarY - 4);
+    } else {
+      ctx.fillStyle = "rgba(255,255,255,0.3)";
+      ctx.fillText(`${Math.ceil(playerHp)} hp`, hpBarX, hpBarY - 4);
+    }
+
+    // Builder down indicator (bottom-right area, near gold)
+    if (state.builderHp <= 0 && phase === "wave") {
+      ctx.textAlign = "right";
+      ctx.fillStyle = "rgba(120,200,255,0.6)";
+      ctx.font = "10px sans-serif";
+      ctx.fillText("builder down", W - 14, H - 50);
+    }
 
     // Gold
     ctx.textAlign = "right";
@@ -333,18 +434,17 @@ export default function ProtectorView({ room, onGameOver }) {
     ctx.font = "13px sans-serif";
     ctx.fillText(`${Math.floor(gold)} g`, W - 14, H - 18);
 
-    // Townspeople count
+    // Townspeople
     ctx.fillStyle = "rgba(180,220,255,0.5)";
     ctx.font = "11px sans-serif";
     ctx.fillText(`${townspeople} people`, W - 14, H - 36);
 
-    // Upgrade shop hint (build phase, shop exists, no modal open)
+    // Upgrade shop hint
     if (phase === "build" || phase === "breather") {
       const hasShop = state.buildings.some(b => b.type === "upgrade_shop" && b.hp > 0);
       if (hasShop) {
-        const inRange = dist(state.player.x, state.player.y,
-          state.buildings.find(b => b.type === "upgrade_shop").x,
-          state.buildings.find(b => b.type === "upgrade_shop").y) < 80;
+        const shop = state.buildings.find(b => b.type === "upgrade_shop");
+        const inRange = dist(state.player.x, state.player.y, shop.x, shop.y) < 80;
         if (inRange) {
           ctx.textAlign = "center";
           ctx.fillStyle = "rgba(200,140,255,0.6)";
@@ -357,7 +457,7 @@ export default function ProtectorView({ room, onGameOver }) {
     // Protector label
     ctx.save();
     ctx.font = "11px sans-serif"; ctx.fillStyle = "rgba(255,100,60,0.25)";
-    ctx.textAlign = "right"; ctx.letterSpacing = "0.1em";
+    ctx.textAlign = "right";
     ctx.fillText("PROTECTOR", W - 14, 20);
     ctx.restore();
 
@@ -377,14 +477,6 @@ export default function ProtectorView({ room, onGameOver }) {
     ctx.restore();
   }
 
-  function roundRect(ctx, x, y, w, h, r) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.arcTo(x + w, y, x + w, y + r, r);
-    ctx.lineTo(x + w, y + h - r); ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
-    ctx.lineTo(x + r, y + h); ctx.arcTo(x, y + h, x, y + h - r, r);
-    ctx.lineTo(x, y + r); ctx.arcTo(x, y, x + r, y, r); ctx.closePath();
-  }
-
   // ── Game loop ─────────────────────────────────────────────────────────────
   function loop(ts) {
     if (!stateRef.current || !canvasRef.current) return;
@@ -398,18 +490,20 @@ export default function ProtectorView({ room, onGameOver }) {
     state.lastTime = ts;
     const t = ts / 1000;
 
-    // Movement
     const keys = keysRef.current;
     const joy  = joystickRef.current;
+    const protectorAlreadyDown = (state.playerHp ?? PROTECTOR_MAX_HP) <= 0;
     let vx = 0, vy = 0;
-    if (keys["ArrowLeft"]  || keys["a"] || keys["A"]) vx -= 1;
-    if (keys["ArrowRight"] || keys["d"] || keys["D"]) vx += 1;
-    if (keys["ArrowUp"]    || keys["w"] || keys["W"]) vy -= 1;
-    if (keys["ArrowDown"]  || keys["s"] || keys["S"]) vy += 1;
-    if (joy.active) { vx += joy.vec.x; vy += joy.vec.y; }
+    if (!protectorAlreadyDown) {
+      if (keys["ArrowLeft"]  || keys["a"] || keys["A"]) vx -= 1;
+      if (keys["ArrowRight"] || keys["d"] || keys["D"]) vx += 1;
+      if (keys["ArrowUp"]    || keys["w"] || keys["W"]) vy -= 1;
+      if (keys["ArrowDown"]  || keys["s"] || keys["S"]) vy += 1;
+      if (joy.active) { vx += joy.vec.x; vy += joy.vec.y; }
+    }
     state.player = movePlayer(state.player.x, state.player.y, vx, vy, dt, PLAYER_SPEED);
 
-    if (ts - lastMoveRef.current > MOVE_THROTTLE) {
+    if (!protectorAlreadyDown && ts - lastMoveRef.current > MOVE_THROTTLE) {
       sendP1Move(state.player.x, state.player.y);
       lastMoveRef.current = ts;
     }
@@ -417,51 +511,122 @@ export default function ProtectorView({ room, onGameOver }) {
     state.builderPos.x = lerp(state.builderPos.x, state.builderTarget.x, 0.18);
     state.builderPos.y = lerp(state.builderPos.y, state.builderTarget.y, 0.18);
 
-    // Heal at town center (build + breather phases too)
-    updateProtectorHeal(state, dt);
+    if (state.phase === "build" || state.phase === "breather") {
+  updateProtectorHeal(state, dt);
+}
 
-    // Breather timer — auto-starts next wave when it runs out
     if (state.phase === "breather") {
       state.breatherLeft -= dt;
       sendCountdown(state.breatherLeft);
       if (state.breatherLeft <= 0) {
-        if (state.waveNumber >= TOTAL_WAVES) endGame(state, true);
-        else startWave(state);
+        // Infinite waves — always start the next wave, never end on breather
+        startWave(state);
       }
     }
 
-    // Wave logic
     if (state.phase === "wave") {
+      const protectorDown = (state.playerHp ?? PROTECTOR_MAX_HP) <= 0;
+      const builderDown   = (state.builderHp ?? PROTECTOR_MAX_HP) <= 0;
+
+      // Town center — used as unit rally point when protector is dead
+      const tc = state.buildings.find(b => b.type === "town_center");
+
       const slowZones = getSlowZones(state.buildings, state.upgrades);
-      updateEnemies(state.enemies, state.buildings, state.builderPos.x, state.builderPos.y, dt, slowZones);
-      updateEnemyAttacks(state.enemies, state.buildings, dt);
+
+      // Enemies track protector only while alive; builder only while alive
+      updateEnemies(
+        state.enemies, state.buildings,
+        builderDown   ? null : state.builderPos.x,
+        builderDown   ? null : state.builderPos.y,
+        dt, slowZones,
+        protectorDown ? null : state.player.x,
+        protectorDown ? null : state.player.y,
+      );
+
+      // Enemies always attack buildings; also attack protector if alive
+      state.playerHp = updateEnemyAttacks(
+        state.enemies, state.buildings, dt,
+        protectorDown ? undefined : state.player.x,
+        protectorDown ? undefined : state.player.y,
+        state.playerHp,
+      );
+
       updateUnitCombat(state.units, state.enemies, dt, state.upgrades);
-      updateUnitMovement(state.units, state.player.x, state.player.y, dt);
-      updateBuilderRepair(state.builderPos.x, state.builderPos.y, state.buildings, dt, state.upgrades);
-      updateBuilderDanger(state.builderPos.x, state.builderPos.y, state.enemies, dt);
-      updateProtectorAttack(state, dt);
+
+      // Enemies also attack soldiers — soldiers can die
+      const { survivors, casualties } = updateEnemyAttackUnits(state.enemies, state.units, dt);
+      state.units = survivors;
+
+      // For each dead soldier: pull their worker out of the barracks and lock them
+      if (casualties.length > 0) {
+        if (!state.lockedWorkers) state.lockedWorkers = 0;
+        casualties.forEach(({ barracksId }) => {
+          const barracks = state.buildings.find(b => b.id === barracksId && b.hp > 0);
+          if (barracks && (barracks.workers ?? 0) > 0) {
+            barracks.workers = Math.max(0, barracks.workers - 1);
+            state.lockedWorkers += 1;
+            sendWorkerAssign(barracksId, barracks.workers);
+          }
+        });
+      }
+
+      // Units follow protector; if protector is down they guard the town center
+      const rallyX = tc?.x ?? state.player.x;
+      const rallyY = tc?.y ?? state.player.y;
+      updateUnitMovement(
+        state.units,
+        protectorDown ? null : state.player.x,
+        protectorDown ? null : state.player.y,
+        dt, state.enemies,
+        rallyX, rallyY,
+      );
+
+      // Builder repairs only while alive
+      if (!builderDown) {
+        updateBuilderRepair(state.builderPos.x, state.builderPos.y, state.buildings, dt, state.upgrades);
+        updateBuilderDanger(state.builderPos.x, state.builderPos.y, state.enemies, dt);
+        state.builderHp = updateBuilderHealth(state.builderPos.x, state.builderPos.y, state.enemies, state.builderHp, dt);
+      }
+
+      // Protector attacks only while alive
+      if (!protectorDown) {
+        updateProtectorAttack(state, dt);
+      }
+
       updateProjectiles(state, dt);
 
       const prevKilled = state.enemiesKilled;
       state.enemiesKilled = state.enemies.filter(e => e.dead).length;
-      if (state.enemiesKilled > prevKilled) sfxKill();
+      if (state.enemiesKilled > prevKilled) {
+        sfxKill();
+        // Spawn a small gold floater over each newly-killed enemy
+        if (!state.floaters) state.floaters = [];
+        state.enemies.forEach(e => {
+          if (!e.dead || e._floaterSpawned) return;
+          e._floaterSpawned = true;
+          const goldAmt = 8 + Math.floor(Math.random() * 7);
+          state.floaters.push({
+            text: `+${goldAmt} g`,
+            worldX: e.x, worldY: e.y, // world-space, converted in draw
+            age: 0, ttl: 1.4,
+            color: "rgba(255,215,0,0.9)",
+            size: 13,
+          });
+        });
+      }
 
       if (ts - lastSyncRef.current > SYNC_THROTTLE) {
         sendEnemyUpdate(state.enemies.filter(e => !e.dead).map(e => ({ id: e.id, x: e.x, y: e.y, hp: e.hp, maxHp: e.maxHp, chasingBuilder: e.chasingBuilder, type: e.type })));
-        sendBuildingHealth(state.buildings.map(b => ({ id: b.id, hp: b.hp, workers: b.workers })));
+        sendBuildingHealth(state.buildings.map(b => ({ id: b.id, hp: b.hp, workers: b.workers })), state.builderHp, state.playerHp, state.lockedWorkers ?? 0);
         sendUnitUpdate(state.units.map(u => ({ id: u.id, x: u.x, y: u.y })));
-        sendGoldUpdate(state.gold);
+        sendGoldUpdate({ gold: state.gold, from: "protector" });
         lastSyncRef.current = ts;
       }
 
-      const tc = state.buildings.find(b => b.type === "town_center");
       if (tc && tc.hp <= 0) { endGame(state, false); return; }
-      if (state.playerHp <= 0) { endGame(state, false); return; }
 
       const allDead = state.enemies.every(e => e.dead);
-      if (allDead && state.enemies.length > 0) {
-        enterBreather(state);
-      }
+      if (allDead && state.enemies.length > 0) enterBreather(state);
     }
 
     // Camera
@@ -469,6 +634,12 @@ export default function ProtectorView({ room, onGameOver }) {
     const camTargetY = state.player.y - H / 2;
     state.cam.x = lerp(state.cam.x, camTargetX, 0.08);
     state.cam.y = lerp(state.cam.y, camTargetY, 0.08);
+
+    // Tick floaters
+    if (state.floaters) {
+      state.floaters.forEach(f => { f.age += dt; });
+      state.floaters = state.floaters.filter(f => f.age < f.ttl);
+    }
 
     draw(ctx, state, t, W, H);
     rafRef.current = requestAnimationFrame(loop);
@@ -486,21 +657,40 @@ export default function ProtectorView({ room, onGameOver }) {
   function enterBreather(state) {
     const bonus = calcWaveEndGold(state.buildings);
     state.gold += bonus;
-    // Recalculate townspeople from standing homes, then clamp assigned workers
     const newTotal = calcTownspeople(state.buildings);
     state.townspeople = newTotal;
     clampWorkers(state.buildings, newTotal);
+    state.builderHp  = PROTECTOR_MAX_HP;
+    state.playerHp   = PROTECTOR_MAX_HP;
+    // Restore all surviving soldiers to full hp between waves
+    state.units.forEach(u => { u.hp = u.maxHp; });
+    // Unlock all locked workers at the breather
+    state.lockedWorkers = 0;
     state.phase = "breather";
-    state.breatherLeft = BREATHER_DURATION[state.waveNumber] ?? 45;
+    state.breatherLeft = getBreatherDuration(state.waveNumber);
     setMood("cozy");
     sfxWaveClear();
-    sendPhaseChange("breather", { waveNumber: state.waveNumber, gold: state.gold, townspeople: state.townspeople, bonusGold: bonus });
+
+    // Show wave-clear gold bonus as a floating label in screen-space
+    if (!state.floaters) state.floaters = [];
+    if (bonus > 0) {
+      state.floaters.push({
+        text: `+${bonus} g  wave bonus`,
+        screenX: null, // null = centred
+        screenY: null, // null = upper-middle
+        age: 0, ttl: 2.8,
+        color: "rgba(255,215,0,0.95)",
+        size: 16,
+      });
+    }
+
+    sendPhaseChange("breather", { waveNumber: state.waveNumber, gold: state.gold, townspeople: state.townspeople, bonusGold: bonus, builderHp: PROTECTOR_MAX_HP, lockedWorkers: 0 });
   }
 
   function endGame(state, won) {
     state.phase = "gameover";
     setMood(null);
-    const score = { ...calculateScore(state.buildings, state.enemiesKilled, TOTAL_WAVES), won, enemiesKilled: state.enemiesKilled };
+    const score = { ...calculateScore(state.buildings, state.enemiesKilled, state.waveNumber), won, enemiesKilled: state.enemiesKilled };
     sendPhaseChange("gameover", { won });
     onGameOver(score);
   }
@@ -517,11 +707,11 @@ export default function ProtectorView({ room, onGameOver }) {
     s.gold -= upg.cost;
     s.upgrades.push(upgradeId);
     sfxPurchaseUpgrade();
-    sendGoldUpdate(s.gold);
+    sendGoldUpdate({ gold: s.gold, from: "protector" });
     setShopTick(n => n + 1);
   }
 
-  // ── Canvas click ──────────────────────────────────────────────────────────
+  // ── Canvas click (right half only for shop tap on mobile) ─────────────────
   function handleCanvasClick(e) {
     const s = stateRef.current;
     if (!s) return;
@@ -529,9 +719,8 @@ export default function ProtectorView({ room, onGameOver }) {
     const rect = canvas.getBoundingClientRect();
     const cx = e.clientX - rect.left;
     const cy = e.clientY - rect.top;
-    const W = canvas.width, H = canvas.height;
 
-    // Upgrade shop tap (build or breather phase)
+    // Upgrade shop tap — only trigger if click is in right half of screen on mobile
     if (s.phase === "build" || s.phase === "breather") {
       const shop = s.buildings.find(b => b.type === "upgrade_shop" && b.hp > 0);
       if (shop) {
@@ -539,6 +728,26 @@ export default function ProtectorView({ room, onGameOver }) {
         if (inRange) { setShowShop(true); return; }
       }
     }
+  }
+
+  // ── Touch handlers — drag = joystick, tap = canvas click ────────────────
+  function onTouchStart(e) {
+    for (const touch of e.changedTouches) joystickTouchStart(joystickRef.current, touch);
+    // passive:true on touchstart — don't block yet
+  }
+
+  function onTouchMove(e) {
+    let isDrag = false;
+    for (const touch of e.changedTouches) {
+      if (joystickTouchMove(joystickRef.current, touch) === "drag") isDrag = true;
+    }
+    if (isDrag) e.preventDefault(); // only block scroll once confirmed drag
+  }
+
+  function onTouchEnd(e) {
+    // Protector has no placement, but we still forward taps to canvas click
+    // (e.g. upgrade shop tap) by letting the browser fire the click event naturally.
+    for (const touch of e.changedTouches) joystickTouchEnd(joystickRef.current, touch);
   }
 
   // ── Setup ─────────────────────────────────────────────────────────────────
@@ -559,9 +768,10 @@ export default function ProtectorView({ room, onGameOver }) {
     function onKeyUp(e) { keysRef.current[e.key] = false; }
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup",   onKeyUp);
-    canvas.addEventListener("touchstart", onTouchStart, { passive: false });
-    canvas.addEventListener("touchmove",  onTouchMove,  { passive: false });
-    canvas.addEventListener("touchend",   onTouchEnd,   { passive: false });
+    canvas.addEventListener("touchstart",  onTouchStart, { passive: true  });
+    canvas.addEventListener("touchmove",   onTouchMove,  { passive: false }); // may block scroll
+    canvas.addEventListener("touchend",    onTouchEnd,   { passive: true  });
+    canvas.addEventListener("touchcancel", onTouchEnd,   { passive: true  });
     return () => {
       cancelAnimationFrame(rafRef.current);
       window.removeEventListener("resize", resize);
@@ -570,47 +780,9 @@ export default function ProtectorView({ room, onGameOver }) {
       canvas.removeEventListener("touchstart", onTouchStart);
       canvas.removeEventListener("touchmove",  onTouchMove);
       canvas.removeEventListener("touchend",   onTouchEnd);
+      canvas.removeEventListener("touchcancel",onTouchEnd);
     };
   }, [room]);
-
-  function onTouchStart(e) {
-    e.preventDefault();
-    const touch = e.touches[0];
-    joystickRef.current = { active: true, origin: { x: touch.clientX, y: touch.clientY }, current: { x: touch.clientX, y: touch.clientY }, vec: { x: 0, y: 0 } };
-  }
-  function onTouchMove(e) {
-    if (!joystickRef.current.active) return;
-    e.preventDefault();
-    const touch = e.touches[0];
-    const origin = joystickRef.current.origin;
-    const dx = touch.clientX - origin.x, dy = touch.clientY - origin.y;
-    const d = Math.sqrt(dx*dx+dy*dy), maxR = 48, angle = Math.atan2(dy, dx);
-    joystickRef.current.current = { x: touch.clientX, y: touch.clientY };
-    joystickRef.current.vec = { x: Math.cos(angle)*Math.min(d,maxR)/maxR, y: Math.sin(angle)*Math.min(d,maxR)/maxR };
-  }
-  function onTouchEnd(e) {
-    e.preventDefault();
-    joystickRef.current = { active: false, vec: { x: 0, y: 0 }, origin: { x: 0, y: 0 }, current: { x: 0, y: 0 } };
-  }
-
-  function drawJoystick(ctx) {
-    const joy = joystickRef.current;
-    if (!joy.active) return;
-    const ox = joy.origin.x, oy = joy.origin.y;
-    const maxR = 48;
-    const dx = joy.current.x - ox, dy = joy.current.y - oy;
-    const d = Math.sqrt(dx*dx+dy*dy), angle = Math.atan2(dy, dx);
-    const knobR = Math.min(d, maxR);
-    const kx = ox + Math.cos(angle)*knobR, ky = oy + Math.sin(angle)*knobR;
-    ctx.save();
-    ctx.beginPath(); ctx.arc(ox, oy, maxR, 0, Math.PI*2);
-    ctx.strokeStyle = "rgba(255,255,255,0.15)"; ctx.lineWidth = 1.5; ctx.stroke();
-    ctx.fillStyle = "rgba(255,255,255,0.03)"; ctx.fill();
-    ctx.beginPath(); ctx.arc(kx, ky, 18, 0, Math.PI*2);
-    ctx.fillStyle = "rgba(255,255,255,0.18)"; ctx.fill();
-    ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.lineWidth = 1; ctx.stroke();
-    ctx.restore();
-  }
 
   // ── Upgrade shop modal ────────────────────────────────────────────────────
   const UpgradeShop = () => {
@@ -638,9 +810,9 @@ export default function ProtectorView({ room, onGameOver }) {
             <div key={tree} style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 10, letterSpacing: "0.08em", color: treeColors[tree], textTransform: "uppercase", marginBottom: 8 }}>{treeLabels[tree]}</div>
               {UPGRADES.filter(u => u.tree === tree).map(upg => {
-                const owned    = s.upgrades.includes(upg.id);
-                const canBuy   = !owned && s.gold >= upg.cost;
-                const locked   = upg.needs && !s.buildings.some(b => b.type === upg.needs && b.hp > 0);
+                const owned  = s.upgrades.includes(upg.id);
+                const canBuy = !owned && s.gold >= upg.cost;
+                const locked = upg.needs && !s.buildings.some(b => b.type === upg.needs && b.hp > 0);
                 return (
                   <div key={upg.id} onClick={() => !locked && !owned && handleBuyUpgrade(upg.id)} style={{
                     display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -649,6 +821,8 @@ export default function ProtectorView({ room, onGameOver }) {
                     border: `0.5px solid ${owned ? "rgba(255,255,255,0.08)" : canBuy ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.05)"}`,
                     opacity: locked ? 0.35 : 1,
                     cursor: owned || locked ? "default" : canBuy ? "pointer" : "not-allowed",
+                    // Bigger tap target on mobile
+                    minHeight: 52,
                   }}>
                     <div>
                       <div style={{ fontSize: 13, color: owned ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.8)", marginBottom: 2 }}>
@@ -667,7 +841,7 @@ export default function ProtectorView({ room, onGameOver }) {
             </div>
           ))}
           <button onClick={() => setShowShop(false)} style={{
-            width: "100%", padding: "10px", borderRadius: 10, marginTop: 4,
+            width: "100%", padding: "14px", borderRadius: 10, marginTop: 4,
             background: "rgba(255,255,255,0.04)", border: "0.5px solid rgba(255,255,255,0.1)",
             color: "rgba(255,255,255,0.4)", fontSize: 13, cursor: "pointer",
           }}>close</button>
@@ -678,8 +852,50 @@ export default function ProtectorView({ room, onGameOver }) {
 
   return (
     <div style={{ width: "100%", height: "100svh", background: "#0a0d0f", position: "relative", overflow: "hidden" }}>
-      <canvas ref={canvasRef} style={{ width: "100%", height: "100%", display: "block" }} onClick={handleCanvasClick} />
+      <canvas
+        ref={canvasRef}
+        style={{ width: "100%", height: "100%", display: "block", touchAction: "none" }}
+        onClick={handleCanvasClick}
+      />
       {showShop && <UpgradeShop />}
+
+      {/* Ready-up button — only before wave 1 */}
+      {!showShop && stateRef.current?.phase === "build" && stateRef.current?.waveNumber === 0 && (
+        <div style={{
+          position: "absolute", bottom: 24, left: "50%", transform: "translateX(-50%)",
+          display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
+          // Sits in right half so it doesn't overlap the joystick zone
+        }}>
+          {p2Ready && !p1Ready && (
+            <div style={{ fontSize: 11, color: "rgba(120,200,255,0.55)" }}>builder is ready</div>
+          )}
+          <button
+            onClick={() => {
+              if (p1Ready) return;
+              p1ReadyRef.current = true;
+              setP1Ready(true);
+              sendPlayerReady("p1");
+              if (p2ReadyRef.current && stateRef.current?.phase === "build" && stateRef.current?.waveNumber === 0) {
+                startWave(stateRef.current);
+              }
+            }}
+            style={{
+              padding: "12px 32px", borderRadius: 14, fontSize: 13,
+              background: p1Ready ? "rgba(120,255,120,0.08)" : "rgba(255,210,80,0.08)",
+              border: `1px solid ${p1Ready ? "rgba(120,255,120,0.3)" : "rgba(255,210,80,0.3)"}`,
+              color: p1Ready ? "rgba(120,255,120,0.7)" : "rgba(255,210,80,0.85)",
+              cursor: p1Ready ? "default" : "pointer",
+              letterSpacing: "0.05em",
+              transition: "all 0.2s",
+              // Ensure good tap target
+              minHeight: 48,
+              minWidth: 140,
+            }}
+          >
+            {p1Ready ? "ready ✓" : "ready up"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
