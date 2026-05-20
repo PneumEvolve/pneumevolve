@@ -183,6 +183,7 @@ export default function ProtectorView({ room, onGameOver }) {
 
     // World border
     const { cx: bx, cy: by } = worldToCanvas(0, 0, cam);
+    ctx.save();
     if (phase === "wave") {
       const pulse = 0.04 + 0.04 * Math.sin(t * 3);
       ctx.strokeStyle = `rgba(200,40,40,${pulse})`;
@@ -192,6 +193,7 @@ export default function ProtectorView({ room, onGameOver }) {
       ctx.lineWidth = 1;
     }
     ctx.strokeRect(bx, by, WORLD, WORLD);
+    ctx.restore();
 
     // Garden slow zones
     buildings.forEach(b => {
@@ -288,11 +290,6 @@ export default function ProtectorView({ room, onGameOver }) {
     ctx.fillStyle = "rgba(255,100,60,0.12)"; ctx.fill();
     ctx.beginPath(); ctx.arc(ppx, ppy, 7, 0, Math.PI * 2);
     ctx.fillStyle = "rgba(255,100,60,0.95)"; ctx.fill();
-    if (phase === "build") {
-      ctx.globalAlpha = 0.06;
-      ctx.beginPath(); ctx.arc(ppx, ppy, 80, 0, Math.PI * 2);
-      ctx.strokeStyle = "rgba(255,160,60,0.5)"; ctx.lineWidth = 1; ctx.stroke();
-    }
     ctx.restore();
 
     drawHUD(ctx, state, t, W, H);
@@ -732,7 +729,13 @@ export default function ProtectorView({ room, onGameOver }) {
 
   // ── Touch handlers — drag = joystick, tap = canvas click ────────────────
   function onTouchStart(e) {
-    for (const touch of e.changedTouches) joystickTouchStart(joystickRef.current, touch);
+    const canvas = canvasRef.current;
+    for (const touch of e.changedTouches) {
+      // Only claim touches in the bottom half of the canvas for the joystick
+      // so the top half remains scrollable for page navigation
+      if (canvas && touch.clientY < canvas.getBoundingClientRect().top + canvas.offsetHeight / 2) continue;
+      joystickTouchStart(joystickRef.current, touch);
+    }
     // passive:true on touchstart — don't block yet
   }
 

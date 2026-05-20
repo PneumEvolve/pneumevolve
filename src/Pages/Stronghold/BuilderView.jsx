@@ -81,6 +81,19 @@ export default function BuilderView({ room, onGameOver }) {
       if (!stateRef.current) return;
       stateRef.current.chatMessages?.unshift({ text, from, ts: Date.now() });
     },
+    onRestart: ({ seed, swap }) => {
+      // Protector triggered a restart — tell parent so index.jsx can remount
+      // with the correct new role and seed
+      if (!stateRef.current) return;
+      const currentWave = stateRef.current?.waveNumber ?? 0;
+      const standing    = stateRef.current?.buildings?.filter(b => b.hp > 0).length ?? 0;
+      const total       = stateRef.current?.buildings?.length ?? 0;
+      onGameOver({
+        waveReached: currentWave, standing, total,
+        enemiesKilled: stateRef.current?.enemies?.filter(e => e.dead).length ?? 0,
+        _restart: true, _seed: seed, _swap: swap,
+      });
+    },
   }).current;
 
   const { sendP2Move, sendBuildingPlace, sendChat, sendWorkerAssign, sendPlayerReady, sendGoldUpdate } =
@@ -194,7 +207,11 @@ export default function BuilderView({ room, onGameOver }) {
 
   // ── Touch handlers ────────────────────────────────────────────────────────
   function onTouchStart(e) {
+    const canvas = canvasRef.current;
     for (const touch of e.changedTouches) {
+      // Only claim touches in the bottom half of the canvas for the joystick
+      // so the top half remains scrollable for page navigation
+      if (canvas && touch.clientY < canvas.getBoundingClientRect().top + canvas.offsetHeight / 2) continue;
       joystickTouchStart(joystickRef.current, touch);
     }
     // Don't preventDefault here — wait until we know it's a drag

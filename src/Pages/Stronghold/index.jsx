@@ -151,6 +151,15 @@ export default function StrongholdGame() {
   }
 
   function handleP2GameOver(score) {
+    if (score?._restart) {
+      // Protector sent a restart broadcast — apply it directly
+      const newRole = score._swap ? "p1" : "p2";
+      setRoom(prev => prev ? { ...prev, map_seed: score._seed } : prev);
+      setRole(newRole);
+      setFinalScore(null);
+      setPhase("playing");
+      return;
+    }
     setFinalScore(score);
     setPhase("gameover");
   }
