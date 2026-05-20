@@ -727,30 +727,37 @@ export default function ProtectorView({ room, onGameOver }) {
     }
   }
 
-  // ── Touch handlers — drag = joystick, tap = canvas click ────────────────
+  // Track which touch IDs were claimed by the joystick (started in bottom half)
+  const joystickTouchIds = useRef(new Set());
+
+  // ── Touch handlers — joystick owns bottom 50%, top 50% scrolls freely ───
   function onTouchStart(e) {
     const canvas = canvasRef.current;
     for (const touch of e.changedTouches) {
-      // Only claim touches in the bottom half of the canvas for the joystick
-      // so the top half remains scrollable for page navigation
-      if (canvas && touch.clientY < canvas.getBoundingClientRect().top + canvas.offsetHeight / 2) continue;
-      joystickTouchStart(joystickRef.current, touch);
+      const rect = canvas?.getBoundingClientRect();
+      const inBottomHalf = rect && touch.clientY >= rect.top + rect.height / 2;
+      if (inBottomHalf) {
+        joystickTouchIds.current.add(touch.identifier);
+        joystickTouchStart(joystickRef.current, touch);
+      }
+      // top-half touches are left alone — browser scrolls naturally
     }
-    // passive:true on touchstart — don't block yet
   }
 
   function onTouchMove(e) {
     let isDrag = false;
     for (const touch of e.changedTouches) {
+      if (!joystickTouchIds.current.has(touch.identifier)) continue;
       if (joystickTouchMove(joystickRef.current, touch) === "drag") isDrag = true;
     }
-    if (isDrag) e.preventDefault(); // only block scroll once confirmed drag
+    if (isDrag) e.preventDefault(); // only block scroll for joystick drags
   }
 
   function onTouchEnd(e) {
-    // Protector has no placement, but we still forward taps to canvas click
-    // (e.g. upgrade shop tap) by letting the browser fire the click event naturally.
-    for (const touch of e.changedTouches) joystickTouchEnd(joystickRef.current, touch);
+    for (const touch of e.changedTouches) {
+      joystickTouchIds.current.delete(touch.identifier);
+      joystickTouchEnd(joystickRef.current, touch);
+    }
   }
 
   // ── Setup ─────────────────────────────────────────────────────────────────
@@ -854,10 +861,10 @@ export default function ProtectorView({ room, onGameOver }) {
   };
 
   return (
-    <div style={{ width: "100%", height: "100svh", background: "#0a0d0f", position: "relative", overflow: "hidden" }}>
+    <div style={{ width: "100%", height: "100svh", background: "#0a0d0f", position: "relative", overflow: "hidden", touchAction: "pan-y" }}>
       <canvas
         ref={canvasRef}
-        style={{ width: "100%", height: "100%", display: "block", touchAction: "none" }}
+        style={{ width: "100%", height: "100%", display: "block", touchAction: "pan-y" }}
         onClick={handleCanvasClick}
       />
       {showShop && <UpgradeShop />}

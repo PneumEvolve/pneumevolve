@@ -205,35 +205,39 @@ export default function BuilderView({ room, onGameOver }) {
     forceUpdate(n => n + 1);
   }
 
-  // ── Touch handlers ────────────────────────────────────────────────────────
+  // Track which touch IDs were claimed by the joystick (started in bottom half)
+  const joystickTouchIds = useRef(new Set());
+
+  // ── Touch handlers — joystick owns bottom 50%, top 50% scrolls freely ───
   function onTouchStart(e) {
     const canvas = canvasRef.current;
     for (const touch of e.changedTouches) {
-      // Only claim touches in the bottom half of the canvas for the joystick
-      // so the top half remains scrollable for page navigation
-      if (canvas && touch.clientY < canvas.getBoundingClientRect().top + canvas.offsetHeight / 2) continue;
-      joystickTouchStart(joystickRef.current, touch);
+      const rect = canvas?.getBoundingClientRect();
+      const inBottomHalf = rect && touch.clientY >= rect.top + rect.height / 2;
+      if (inBottomHalf) {
+        joystickTouchIds.current.add(touch.identifier);
+        joystickTouchStart(joystickRef.current, touch);
+      }
+      // top-half touches are left alone — browser scrolls naturally
     }
-    // Don't preventDefault here — wait until we know it's a drag
   }
 
   function onTouchMove(e) {
     let isDrag = false;
     for (const touch of e.changedTouches) {
-      const result = joystickTouchMove(joystickRef.current, touch);
-      if (result === "drag") isDrag = true;
+      if (!joystickTouchIds.current.has(touch.identifier)) continue;
+      if (joystickTouchMove(joystickRef.current, touch) === "drag") isDrag = true;
     }
-    // Only block scroll once confirmed as a joystick drag
-    if (isDrag) e.preventDefault();
+    if (isDrag) e.preventDefault(); // only block scroll for joystick drags
   }
 
   function onTouchEnd(e) {
     const canvas = canvasRef.current;
     const rect   = canvas?.getBoundingClientRect();
     for (const touch of e.changedTouches) {
+      joystickTouchIds.current.delete(touch.identifier);
       const result = joystickTouchEnd(joystickRef.current, touch);
       if (result && result.wasTap && rect) {
-        // Convert client coords → canvas coords and treat as a tap
         handleTap(result.x - rect.left, result.y - rect.top);
       }
     }
@@ -589,10 +593,10 @@ export default function BuilderView({ room, onGameOver }) {
   const canAddToBarracks = (panelBuilding?.type === "barracks") ? lockedWorkers === 0 : true;
 
   return (
-    <div style={{ width: "100%", height: "100svh", background: "#0a0d0f", position: "relative", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+    <div style={{ width: "100%", height: "100svh", background: "#0a0d0f", position: "relative", overflow: "hidden", display: "flex", flexDirection: "column", touchAction: "pan-y" }}>
       <canvas
         ref={canvasRef}
-        style={{ flex: 1, width: "100%", display: "block", touchAction: "none", cursor: canPlace ? "crosshair" : "pointer" }}
+        style={{ flex: 1, width: "100%", display: "block", touchAction: "pan-y", cursor: canPlace ? "crosshair" : "pointer" }}
         onClick={handleCanvasClick}
       />
 
