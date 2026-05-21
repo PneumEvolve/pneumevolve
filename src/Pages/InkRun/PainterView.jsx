@@ -6,7 +6,6 @@ import { WORLD_H, CHUNK_W, GROUND_Y, RUNNER_R, WALL_GRACE_S, generateChunk, upda
 const MAX_INK      = 1200;
 const CHUNKS_AHEAD = 6;
 const ENEMY_R      = 14;
-const RUNNER_R     = 14;
 
 function maxChunkIndex(chunks) {
   let m = 0;
