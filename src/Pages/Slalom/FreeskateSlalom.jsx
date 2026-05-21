@@ -167,7 +167,10 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
   const [gatesPassed, setGatesPassed] = useState(0);
   const [gameOver, setGameOver] = useState(false);
   const [p2Ready, setP2Ready]   = useState(false);
-  const [bothReady, setBothReady] = useState(!roomId); // solo starts immediately; multiplayer waits
+  // solo: both skates ready immediately
+  // P1 multiplayer: waits for onPlayerReady (P2 joining)
+  // P2 multiplayer: ready immediately — P2 is by definition present
+  const [bothReady, setBothReady] = useState(!roomId || role === "p2");
 
   // Hi-score persists via localStorage across sessions.
   // { gates, gems } — gates is primary sort key, gems is tiebreaker.
