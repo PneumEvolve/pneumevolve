@@ -100,6 +100,15 @@ export default function PainterView({ room, onGameOver }) {
   const { sendStrokeAdded, sendStrokeReclaimed, sendEnemyKilled, sendPing } =
     useInkRunRoom(room?.id ?? null, handlers, ":game");
 
+  // Send player_ready on the bare channel (no suffix) — that's what WaitingForPlayer2
+  // on the runner's screen subscribes to. The root hook has activeRoomId=null by the
+  // time p2 reaches "playing" phase, so it can never send this itself.
+  const bareHandlers = useRef({}).current;
+  const { sendPlayerReady } = useInkRunRoom(room?.id ?? null, bareHandlers);
+  useEffect(() => {
+    sendPlayerReady();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   function initState() {
     const chunks = [];
     for (let i = 0; i < CHUNKS_AHEAD; i++) chunks.push(generateChunk(i, room.map_seed));

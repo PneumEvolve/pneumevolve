@@ -227,10 +227,9 @@ export default function InkRunGame() {
   useEffect(() => { roleRef.current  = role;  }, [role]);
   useEffect(() => { roomRef.current  = room;  }, [room]);
 
-  // Don't subscribe at root level during "waiting" — WaitingForPlayer2 owns that
-  // channel exclusively so its onPlayerReady handler isn't stomped by a competing
-  // subscription on the same channel name.
-  const activeRoomId = (phase === "waiting" || phase === "playing") ? null : room?.id ?? null;
+  // Only subscribe at index level when not playing — game events during playing
+  // are handled by RunnerView/PainterView's own :game channel subscriptions.
+  const activeRoomId = phase === "playing" ? null : room?.id ?? null;
 
   const handlers = useRef({
     onPlayerReady: () => {
@@ -261,12 +260,8 @@ export default function InkRunGame() {
     },
   }).current;
 
-  const { sendPlayerReady, sendGameOver, sendRestart } =
+  const { sendGameOver, sendRestart } =
     useInkRunRoom(activeRoomId, handlers);
-
-  useEffect(() => {
-    if (role === "p2" && room?.id) sendPlayerReady();
-  }, [role, room?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleRoomReady(roomData, assignedRole) {
     setRoom(roomData);
