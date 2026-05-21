@@ -32,7 +32,8 @@ export function useInkRunRoom(roomId, handlers, channelSuffix = "") {
       .on("broadcast", { event: "restart"         }, ({ payload }) => handlersRef.current.onRestart?.(payload))
       .on("broadcast", { event: "chat"            }, ({ payload }) => handlersRef.current.onChat?.(payload))
       .on("broadcast", { event: "ping"            }, ({ payload }) => handlersRef.current.onPing?.(payload))
-      .on("broadcast", { event: "wall_time"       }, ({ payload }) => handlersRef.current.onWallTime?.(payload));
+      .on("broadcast", { event: "wall_time"       }, ({ payload }) => handlersRef.current.onWallTime?.(payload))
+      .on("broadcast", { event: "ink_refill"      }, ({ payload }) => handlersRef.current.onInkRefill?.(payload));
 
     channel.subscribe((status) => {
       if (status === "SUBSCRIBED") {
@@ -76,6 +77,7 @@ export function useInkRunRoom(roomId, handlers, channelSuffix = "") {
   const sendPing          = useCallback((wx, wy, from) =>           send("ping",            { wx, wy, from }),          [send]);
   // wall_time: runner broadcasts authoritative game-start timestamp so painter syncs grace timer
   const sendWallTime      = useCallback((startedAt) =>              send("wall_time",       { startedAt }),             [send]);
+  const sendInkRefill     = useCallback((tokenId, amount) =>        send("ink_refill",      { tokenId, amount }),       [send]);
 
   return {
     sendPlayerReady,
@@ -88,5 +90,6 @@ export function useInkRunRoom(roomId, handlers, channelSuffix = "") {
     sendChat,
     sendPing,
     sendWallTime,
+    sendInkRefill,
   };
 }

@@ -7,10 +7,11 @@ export const GROUND_Y     = WORLD_H - 80; // y of the ground line
 export const RUNNER_R     = 14;
 export const WALL_GRACE_S = 10;    // seconds before the death wall starts moving
 // Max jump height: v²/2g = 420²/(2*900) ≈ 98px. Walls taller than this are unjumpable.
-export const WALL_H       = 260;   // terrain wall height (well above jump arc)
+export const INK_TOKEN_R  = 12;  // collision/render radius for ink refill tokens
 export const STROKE_COLORS = {
-  black: { fill: "rgba(220,230,255,0.92)", kill: false, platform: true  },
-  red:   { fill: "rgba(255,80,80,0.92)",   kill: true,  platform: false },
+  black:  { fill: "rgba(220,230,255,0.92)", kill: false, platform: true,  speed: false, bounce: false },
+  speed:  { fill: "rgba(80,220,255,0.92)",  kill: false, platform: true,  speed: true,  bounce: false },
+  bounce: { fill: "rgba(80,255,160,0.92)",  kill: false, platform: true,  speed: false, bounce: true  },
 };
 
 // ─── Seeded RNG ───────────────────────────────────────────────────────────────
@@ -36,6 +37,7 @@ export function generateChunk(chunkIndex, seed) {
   const enemies    = [];
   const spikes     = [];
   const walls      = [];
+  const inkTokens  = [];
 
   // ── Ground gaps ───────────────────────────────────────────────────────────
   // Chunk 0: no gaps — give players time to orient.
@@ -162,14 +164,33 @@ export function generateChunk(chunkIndex, seed) {
     }
   }
 
-  return { chunkIndex, offsetX, platforms, gaps, enemies, spikes, walls };
+  // ── Ink refill tokens ─────────────────────────────────────────────────────
+  // Appear every ~2 chunks. Placed at a random height so the painter must
+  // draw a ramp to let the runner collect them.
+  if (chunkIndex > 0 && rand() > 0.45) {
+    const tx = offsetX + 200 + rand() * (CHUNK_W - 400);
+    const ty = GROUND_Y - 90 - rand() * 180; // 90–270px above ground
+    // Don't place over a gap
+    const overGap = gaps.some(g => tx > g.x - 20 && tx < g.x + g.w + 20);
+    if (!overGap) {
+      inkTokens.push({
+        id: `chunk${chunkIndex}_ink0`,
+        x: tx,
+        y: ty,
+        collected: false,
+      });
+    }
+  }
+
+  return { chunkIndex, offsetX, platforms, gaps, enemies, spikes, walls, inkTokens };
 }
 
 // ─── Physics helpers ──────────────────────────────────────────────────────────
 
 // Returns true if the x position is over a gap
+// Use center-based check so runner doesn't fall before visually reaching the edge
 export function isOverGap(x, gaps) {
-  return gaps.some(g => x + RUNNER_R > g.x && x - RUNNER_R < g.x + g.w);
+  return gaps.some(g => x > g.x && x < g.x + g.w);
 }
 
 // Returns the y of the surface under a point (ground or platform top)

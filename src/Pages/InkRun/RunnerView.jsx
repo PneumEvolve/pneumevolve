@@ -2,8 +2,8 @@
 import React, { useEffect, useRef } from "react";
 import { useInkRunRoom } from "./useInkRunRoom";
 import {
-  WORLD_H, CHUNK_W, GROUND_Y, RUNNER_R, WALL_GRACE_S,
-  generateChunk, surfaceUnder, touchesRedStroke, updateEnemies,
+  WORLD_H, CHUNK_W, GROUND_Y, RUNNER_R, WALL_GRACE_S, INK_TOKEN_R,
+  generateChunk, surfaceUnder, strokeYatX, touchesRedStroke, updateEnemies,
 } from "./gameEngine";
 
 const GRAVITY        = 900;
@@ -132,7 +132,7 @@ export default function RunnerView({ room, onGameOver }) {
     },
   }).current;
 
-  const { sendRunnerMove, sendGameOver, sendPing, sendWallTime } = useInkRunRoom(room?.id ?? null, handlers, ":game");
+  const { sendRunnerMove, sendGameOver, sendPing, sendWallTime, sendInkRefill } = useInkRunRoom(room?.id ?? null, handlers, ":game");
 
   // ── state init ──────────────────────────────────────────────────────────────
   function initState() {
@@ -156,6 +156,7 @@ export default function RunnerView({ room, onGameOver }) {
       nextChunk: CHUNKS_AHEAD,
       distance: 0,
       kills: 0,
+      speedBoost: 0,      // seconds remaining of speed boost
       over: false,
       coyoteTime: 0,
       lastTime: performance.now(),
@@ -283,7 +284,8 @@ export default function RunnerView({ room, onGameOver }) {
       let moveX = 0;
       if (keysRef.current["ArrowLeft"]  || keysRef.current["a"] || keysRef.current["A"]) moveX -= 1;
       if (keysRef.current["ArrowRight"] || keysRef.current["d"] || keysRef.current["D"]) moveX += 1;
-      state.rx += moveX * MOVE_SPEED * dt;
+      const speedMult = state.speedBoost > 0 ? 1.5 : 1;
+      state.rx += moveX * MOVE_SPEED * speedMult * dt;
       state.rx = Math.max(state.wallX + RUNNER_R + 2, state.rx);
 
       // Gravity + collision
@@ -328,6 +330,39 @@ export default function RunnerView({ room, onGameOver }) {
         }
         state.onGround = false;
         state.coyoteTime = Math.max(0, (state.coyoteTime ?? 0) - dt);
+      }
+
+      // Speed boost timer
+      state.speedBoost = Math.max(0, (state.speedBoost ?? 0) - dt);
+
+      // Detect speed/bounce strokes underfoot when on ground
+      if (state.onGround) {
+        let onSpeed = false;
+        for (const stroke of strokes) {
+          const sy = strokeYatX(stroke, state.rx);
+          if (sy !== null && Math.abs((state.ry + RUNNER_R) - sy) < 8) {
+            if (stroke.color === "speed")  onSpeed = true;
+            if (stroke.color === "bounce" && !state.wasOnGround) {
+              // Just landed on a bounce stroke — launch at 1.5× jump height
+              state.vy = JUMP_VY * 1.5;
+              state.onGround = false;
+              soundRef.current?.jump();
+            }
+          }
+        }
+        if (onSpeed) state.speedBoost = Math.max(state.speedBoost, 3);
+      }
+
+      // Ink token collection
+      for (const chunk of state.chunks) {
+        for (const token of (chunk.inkTokens || [])) {
+          if (token.collected) continue;
+          if (Math.hypot(state.rx - token.x, state.ry - token.y) < RUNNER_R + INK_TOKEN_R) {
+            token.collected = true;
+            const refillAmount = 400; // ~22% of MAX_INK
+            sendInkRefill(token.id, refillAmount);
+          }
+        }
       }
 
       // Slope push — if standing on a steep-ish stroke, nudge runner uphill along it
@@ -581,11 +616,43 @@ export default function RunnerView({ room, onGameOver }) {
           const p = stroke.points[i], sx = p.x - camX;
           i === 0 ? ctx.moveTo(sx, p.y) : ctx.lineTo(sx, p.y);
         }
-        ctx.strokeStyle = stroke.color === "red" ? "rgba(255,80,80,0.18)" : "rgba(180,160,255,0.18)";
+        const glowColor = stroke.color === "speed"  ? "rgba(80,220,255,0.22)"
+                        : stroke.color === "bounce" ? "rgba(80,255,160,0.22)"
+                        : "rgba(180,160,255,0.18)";
+        const lineColor = stroke.color === "speed"  ? "rgba(80,220,255,0.95)"
+                        : stroke.color === "bounce" ? "rgba(80,255,160,0.95)"
+                        : "rgba(220,230,255,0.88)";
+        ctx.strokeStyle = glowColor;
         ctx.lineWidth = 14; ctx.stroke();
-        ctx.strokeStyle = stroke.color === "red" ? "rgba(255,80,80,0.9)" : "rgba(220,230,255,0.88)";
+        ctx.strokeStyle = lineColor;
         ctx.lineWidth = 5; ctx.stroke();
         ctx.restore();
+      }
+
+      // Ink tokens
+      for (const chunk of state.chunks) {
+        for (const token of (chunk.inkTokens || [])) {
+          if (token.collected) continue;
+          const tx = token.x - camX, ty = token.y;
+          if (tx < -40 || tx > WW + 40) continue;
+          const pulse = 0.7 + 0.3 * Math.sin(t * 3 + token.x);
+          ctx.save();
+          ctx.globalAlpha = pulse;
+          ctx.beginPath();
+          ctx.arc(tx, ty, INK_TOKEN_R, 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(180,140,255,0.25)";
+          ctx.fill();
+          ctx.strokeStyle = "rgba(180,140,255,0.9)";
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          // ink drop icon
+          ctx.fillStyle = "rgba(220,200,255,0.9)";
+          ctx.font = "bold 11px monospace";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText("ink", tx, ty);
+          ctx.restore();
+        }
       }
 
       // Pings — world-space markers sent by painter
@@ -657,6 +724,13 @@ export default function RunnerView({ room, onGameOver }) {
       ctx.font = "12px monospace";
       ctx.fillStyle = "rgba(255,100,100,0.7)";
       ctx.fillText(`${state.kills} kills`, 18, 74);
+      // Speed boost indicator
+      if (state.speedBoost > 0) {
+        ctx.font = "bold 12px monospace";
+        ctx.fillStyle = "rgba(80,220,255,0.9)";
+        ctx.textAlign = "left";
+        ctx.fillText(`⚡ ${state.speedBoost.toFixed(1)}s`, 18, 90);
+      }
       // Grace period countdown
       if (state.wallGrace > 0) {
         const secs = Math.ceil(state.wallGrace);

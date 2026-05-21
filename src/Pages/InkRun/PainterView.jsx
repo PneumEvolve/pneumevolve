@@ -1,7 +1,7 @@
 // src/Pages/InkRun/PainterView.jsx
 import React, { useEffect, useRef, useState } from "react";
 import { useInkRunRoom } from "./useInkRunRoom";
-import { WORLD_H, CHUNK_W, GROUND_Y, RUNNER_R, WALL_GRACE_S, generateChunk, updateEnemies } from "./gameEngine";
+import { WORLD_H, CHUNK_W, GROUND_Y, RUNNER_R, WALL_GRACE_S, INK_TOKEN_R, generateChunk, updateEnemies } from "./gameEngine";
 
 const MAX_INK      = 1800;
 const CHUNKS_AHEAD = 6;
@@ -70,18 +70,19 @@ export default function PainterView({ room, onGameOver }) {
 
   const [color,    setColor]    = useState("black");
   const [inkUsed,  setInkUsed]  = useState(0);
+  const [inkBonus, setInkBonus] = useState(0); // extra ink from tokens
 
+  const inkBonusRef = useRef(0); // mirrors inkBonus state for use inside canvas tick
   const totalInk = () => strokesRef.current.reduce((s, st) => s + strokeLen(st), 0);
+  const inkCap   = () => MAX_INK + inkBonusRef.current;
 
   const handlers = useRef({
     onRunnerMove: ({ x, y, vy, state: rs, wallX }) => {
       runnerTargetRef.current = { x, y, vy, state: rs };
-      // Mirror the runner's authoritative wall position directly — no local simulation
       if (wallX !== undefined && stateRef.current) {
         stateRef.current.wallX = wallX;
       }
     },
-    // Runner broadcasts exact timestamp when grace expires — sync wall timer to it
     onWallTime: ({ startedAt }) => {
       if (!stateRef.current) return;
       stateRef.current.wallGrace    = 0;
@@ -94,6 +95,16 @@ export default function PainterView({ room, onGameOver }) {
     },
     onPing: ({ wx, wy, from }) => {
       pingsRef.current = [...pingsRef.current, { wx, wy, from, born: performance.now() }];
+    },
+    onInkRefill: ({ tokenId, amount }) => {
+      if (stateRef.current) {
+        for (const chunk of stateRef.current.chunks) {
+          const token = (chunk.inkTokens || []).find(t => t.id === tokenId);
+          if (token) { token.collected = true; break; }
+        }
+      }
+      inkBonusRef.current += amount;
+      setInkBonus(prev => prev + amount);
     },
   }).current;
 
@@ -158,7 +169,7 @@ export default function PainterView({ room, onGameOver }) {
     const cy = clientY - rect.top;
     if (cy < 44) return; // HUD guard
     // Eraser doesn't consume ink, so skip the ink check for it
-    if (colorRef.current !== "eraser" && totalInk() >= MAX_INK) return;
+    if (colorRef.current !== "eraser" && totalInk() >= inkCap()) return;
     const { wx, wy } = canvasToWorld(clientX - rect.left, cy);
     const id = `s${++strokeIdRef.current}_${Date.now()}`;
     stateRef.current.drawing = true;
@@ -179,7 +190,7 @@ export default function PainterView({ room, onGameOver }) {
     if (colorRef.current !== "eraser") {
       const tentLen  = strokeLen({ points: [...pts, { x: wx, y: wy }] });
       const otherInk = strokesRef.current.reduce((s, st) => s + strokeLen(st), 0);
-      if (otherInk + tentLen > MAX_INK) return;
+      if (otherInk + tentLen > inkCap()) return;
     }
     pts.push({ x: wx, y: wy });
     state.didDrag = true;
@@ -279,6 +290,9 @@ export default function PainterView({ room, onGameOver }) {
     stateRef.current   = initState();
     strokesRef.current = [];
     strokeHistoryRef.current = [];
+    inkBonusRef.current = 0;
+    setInkBonus(0);
+    setInkUsed(0);
     gameOverFiredRef.current = false;
 
     canvas.addEventListener("touchstart", onTouchStart, { passive: false });
@@ -439,9 +453,15 @@ export default function PainterView({ room, onGameOver }) {
           const p = stroke.points[i], sx = p.x - camX;
           i === 0 ? ctx.moveTo(sx, p.y) : ctx.lineTo(sx, p.y);
         }
-        ctx.strokeStyle = "rgba(180,160,255,0.18)";
+        const glowColor = stroke.color === "speed"  ? "rgba(80,220,255,0.22)"
+                        : stroke.color === "bounce" ? "rgba(80,255,160,0.22)"
+                        : "rgba(180,160,255,0.18)";
+        const lineColor = stroke.color === "speed"  ? "rgba(80,220,255,0.95)"
+                        : stroke.color === "bounce" ? "rgba(80,255,160,0.95)"
+                        : "rgba(220,230,255,0.88)";
+        ctx.strokeStyle = glowColor;
         ctx.lineWidth = 14; ctx.stroke();
-        ctx.strokeStyle = "rgba(220,230,255,0.88)";
+        ctx.strokeStyle = lineColor;
         ctx.lineWidth = 5; ctx.stroke();
         ctx.restore();
       }
@@ -463,7 +483,10 @@ export default function PainterView({ room, onGameOver }) {
           ctx.restore();
         } else if (s.points.length > 1) {
           ctx.save(); ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.setLineDash([8, 4]);
-          ctx.strokeStyle = "rgba(220,230,255,0.6)";
+          const previewColor = s.color === "speed"  ? "rgba(80,220,255,0.7)"
+                             : s.color === "bounce" ? "rgba(80,255,160,0.7)"
+                             : "rgba(220,230,255,0.6)";
+          ctx.strokeStyle = previewColor;
           ctx.lineWidth = 5;
           ctx.beginPath();
           for (let i = 0; i < s.points.length; i++) {
@@ -471,6 +494,31 @@ export default function PainterView({ room, onGameOver }) {
             i === 0 ? ctx.moveTo(sx, p.y) : ctx.lineTo(sx, p.y);
           }
           ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+        }
+      }
+
+      // Ink tokens
+      for (const chunk of state.chunks) {
+        for (const token of (chunk.inkTokens || [])) {
+          if (token.collected) continue;
+          const tx = token.x - camX, ty = token.y;
+          if (tx < -40 || tx > WW + 40) continue;
+          const pulse = 0.7 + 0.3 * Math.sin(t * 3 + token.x);
+          ctx.save();
+          ctx.globalAlpha = pulse;
+          ctx.beginPath();
+          ctx.arc(tx, ty, INK_TOKEN_R, 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(180,140,255,0.25)";
+          ctx.fill();
+          ctx.strokeStyle = "rgba(180,140,255,0.9)";
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          ctx.fillStyle = "rgba(220,200,255,0.9)";
+          ctx.font = "bold 11px monospace";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText("ink", tx, ty);
+          ctx.restore();
         }
       }
 
@@ -523,7 +571,7 @@ export default function PainterView({ room, onGameOver }) {
       ctx.restore(); // end world scale
 
       // HUD — ink bar
-      const inkPct = Math.min(1, totalInk() / MAX_INK);
+      const inkPct = Math.min(1, totalInk() / inkCap());
       const inkRemaining = 1 - inkPct;
       const barW = W - 36;
       ctx.fillStyle = "rgba(255,255,255,0.06)";
@@ -557,7 +605,7 @@ export default function PainterView({ room, onGameOver }) {
     };
   }, [room]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const inkPct   = Math.min(1, inkUsed / MAX_INK);
+  const inkPct   = Math.min(1, inkUsed / (MAX_INK + inkBonus));
   const inkLeft  = Math.floor((1 - inkPct) * 100);
   const outOfInk = inkLeft === 0;
 
@@ -577,11 +625,29 @@ export default function PainterView({ room, onGameOver }) {
           background: "rgba(255,255,255,0.05)", border: "0.5px solid rgba(255,255,255,0.15)",
           borderRadius: 8, color: "rgba(255,255,255,0.5)", fontSize: 11, padding: "5px 10px", cursor: "pointer",
         }}>re-center</button>
+        {/* Black — bridge/platform */}
         <button onClick={() => { setColor("black"); colorRef.current = "black"; }} style={{
           width: 36, height: 36, borderRadius: "50%", border: "none", cursor: "pointer", transition: "all 0.15s",
           background: color === "black" ? "rgba(220,230,255,0.9)" : "rgba(220,230,255,0.25)",
           boxShadow: color === "black" ? "0 0 0 2px rgba(180,140,255,0.7)" : "none",
-        }} />
+        }} title="Bridge (platform)" />
+        {/* Cyan — speed boost */}
+        <button onClick={() => { setColor("speed"); colorRef.current = "speed"; }} style={{
+          width: 36, height: 36, borderRadius: "50%", border: "none", cursor: "pointer", transition: "all 0.15s",
+          background: color === "speed" ? "rgba(80,220,255,0.9)" : "rgba(80,220,255,0.25)",
+          boxShadow: color === "speed" ? "0 0 0 2px rgba(80,220,255,0.8)" : "none",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 14,
+        }} title="Speed boost">⚡</button>
+        {/* Green — bounce */}
+        <button onClick={() => { setColor("bounce"); colorRef.current = "bounce"; }} style={{
+          width: 36, height: 36, borderRadius: "50%", border: "none", cursor: "pointer", transition: "all 0.15s",
+          background: color === "bounce" ? "rgba(80,255,160,0.9)" : "rgba(80,255,160,0.25)",
+          boxShadow: color === "bounce" ? "0 0 0 2px rgba(80,255,160,0.8)" : "none",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 14,
+        }} title="Bounce">↑</button>
+        {/* Eraser */}
         <button
           onClick={() => { setColor("eraser"); colorRef.current = "eraser"; }}
           style={{
@@ -591,6 +657,7 @@ export default function PainterView({ room, onGameOver }) {
             display: "flex", alignItems: "center", justifyContent: "center",
             fontSize: 16, color: color === "eraser" ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.4)",
           }}
+          title="Eraser"
         >✕</button>
       </div>
 
@@ -599,7 +666,7 @@ export default function PainterView({ room, onGameOver }) {
         fontSize: 10, color: "rgba(255,255,255,0.15)", pointerEvents: "none",
         letterSpacing: "0.06em", whiteSpace: "nowrap",
       }}>
-        {outOfInk && color !== "eraser" ? "out of ink — erase old lines to free space" : "draw to help · tap to ping · 2-finger drag to scroll · ✕ to erase"}
+        {outOfInk && color !== "eraser" ? "out of ink — erase old lines or collect ink tokens" : "⬜ bridge · ⚡ speed · ↑ bounce · ✕ erase · tap = ping"}
       </div>
     </div>
   );
