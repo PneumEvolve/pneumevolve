@@ -213,6 +213,7 @@ export default function InkRunGame() {
   const [role,          setRole]          = useState(null);
   const [finalStats,    setFinalStats]    = useState(null);
   const [strokeHistory, setStrokeHistory] = useState([]);
+  const [restartCount,  setRestartCount]  = useState(0);
 
   const phaseRef = useRef(phase);
   const roleRef  = useRef(role);
@@ -244,6 +245,7 @@ export default function InkRunGame() {
       setRole(newRole);
       setFinalStats(null);
       setStrokeHistory([]);
+      setRestartCount(c => c + 1);
       setPhase("playing");
     },
   }).current;
@@ -286,11 +288,15 @@ export default function InkRunGame() {
 
   function handleRestart(swap) {
     const newSeed = Date.now() & 0x7fffffff;
-    const newRole = swap ? "p2" : "p1";
+    const currentRole = role;
+    const newRole = swap
+      ? (currentRole === "p1" ? "p2" : "p1")
+      : currentRole;
     setRoom(prev => prev ? { ...prev, map_seed: newSeed } : prev);
     setRole(newRole);
     setFinalStats(null);
     setStrokeHistory([]);
+    setRestartCount(c => c + 1);
     setPhase("playing");
     sendRestart(newSeed, swap);
   }
@@ -313,14 +319,14 @@ export default function InkRunGame() {
   if (phase === "playing") {
     if (role === "p1") return (
       <RunnerView
-        key={room?.map_seed}
+        key={`${restartCount}-${room?.map_seed}`}
         room={room}
         onGameOver={handleP1GameOver}
       />
     );
     return (
       <PainterView
-        key={room?.map_seed}
+        key={`${restartCount}-${room?.map_seed}`}
         room={room}
         onGameOver={handleP2GameOver}
       />

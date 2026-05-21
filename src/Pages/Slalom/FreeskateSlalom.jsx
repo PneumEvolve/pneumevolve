@@ -277,12 +277,35 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
 
       onPlayerReady: () => {
         setP2Ready(true);
-        setBothReady(true); // P1 can now start the loop
+        setBothReady(true); // P1 fast path: realtime beat the poll
       },
     }
   );
 
   useEffect(() => { sRef.current = mkState(); }, [mkState]);
+
+  // P1: poll room status as a guaranteed fallback for when the realtime
+  // player_ready message is lost (fires before both sides are subscribed).
+  const bothReadyRef = useRef(!roomId || role === "p2");
+  useEffect(() => {
+    if (!isP1 || !roomId || !isMultiplayer) return;
+    const interval = setInterval(async () => {
+      if (bothReadyRef.current) { clearInterval(interval); return; }
+      try {
+        const { data } = await api.get(`/slalom/rooms/${roomId}`);
+        if (data.status === "active") {
+          bothReadyRef.current = true;
+          setP2Ready(true);
+          setBothReady(true);
+          clearInterval(interval);
+        }
+      } catch {}
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isP1, roomId, isMultiplayer]);
+
+  // Keep bothReadyRef in sync with state (for the realtime fast path)
+  useEffect(() => { bothReadyRef.current = bothReady; }, [bothReady]);
 
   useEffect(() => {
     if (isP2) sendPlayerReady();

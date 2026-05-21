@@ -143,6 +143,7 @@ export default function RunnerView({ room, onGameOver }) {
       distance: 0,
       kills: 0,
       over: false,
+      coyoteTime: 0,
       lastTime: performance.now(),
     };
   }
@@ -166,9 +167,10 @@ export default function RunnerView({ room, onGameOver }) {
       keysRef.current[e.key] = true;
       soundRef.current?.unlock();
       if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key)) e.preventDefault();
-      if ((e.key === "ArrowUp" || e.key === "w" || e.key === "W" || e.key === " ") && stateRef.current?.onGround) {
+      if ((e.key === "ArrowUp" || e.key === "w" || e.key === "W" || e.key === " ") && (stateRef.current?.onGround || stateRef.current?.coyoteTime > 0)) {
         stateRef.current.vy = JUMP_VY;
         stateRef.current.onGround = false;
+        stateRef.current.coyoteTime = 0;
         soundRef.current?.jump();
       }
     };
@@ -177,24 +179,37 @@ export default function RunnerView({ room, onGameOver }) {
     const onTouchStart = (e) => {
       soundRef.current?.unlock();
       e.preventDefault();
-      const touch = e.touches[0];
-      const halfW = canvas.offsetWidth / 2;
-      if (touch.clientX < halfW * 0.4) {
-        keysRef.current["ArrowLeft"] = true;
-      } else if (touch.clientX > halfW * 1.6) {
-        keysRef.current["ArrowRight"] = true;
-      } else {
-        if (stateRef.current?.onGround) {
-          stateRef.current.vy = JUMP_VY;
-          stateRef.current.onGround = false;
-          soundRef.current?.jump();
+      // Process each new touch — supports simultaneous move + jump
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const touch = e.changedTouches[i];
+        const halfW = canvas.offsetWidth / 2;
+        if (touch.clientX < halfW * 0.35) {
+          keysRef.current["ArrowLeft"] = true;
+        } else if (touch.clientX > halfW * 1.65) {
+          keysRef.current["ArrowRight"] = true;
+        } else {
+          // Middle zone or any second touch = jump
+          const st = stateRef.current;
+          if (st && (st.onGround || st.coyoteTime > 0)) {
+            st.vy = JUMP_VY;
+            st.onGround = false;
+            st.coyoteTime = 0;
+            soundRef.current?.jump();
+          }
         }
       }
     };
     const onTouchEnd = (e) => {
       e.preventDefault();
-      delete keysRef.current["ArrowLeft"];
-      delete keysRef.current["ArrowRight"];
+      // Only clear direction keys if no active touches remain in that zone
+      let hasLeft = false, hasRight = false;
+      for (let i = 0; i < e.touches.length; i++) {
+        const halfW = canvas.offsetWidth / 2;
+        if (e.touches[i].clientX < halfW * 0.35) hasLeft = true;
+        if (e.touches[i].clientX > halfW * 1.65) hasRight = true;
+      }
+      if (!hasLeft)  delete keysRef.current["ArrowLeft"];
+      if (!hasRight) delete keysRef.current["ArrowRight"];
     };
 
     window.addEventListener("keydown", onKeyDown);
@@ -270,9 +285,43 @@ export default function RunnerView({ room, onGameOver }) {
         state.ry      = surface - RUNNER_R;
         state.vy      = 0;
         state.onGround = true;
+        state.coyoteTime = 0.1; // 100ms grace window after leaving ground
         if (!state.wasOnGround) soundRef.current?.land();
       } else {
+        if (state.onGround) {
+          // Just left the ground — start coyote timer
+          state.coyoteTime = state.coyoteTime ?? 0;
+        }
         state.onGround = false;
+        state.coyoteTime = Math.max(0, (state.coyoteTime ?? 0) - dt);
+      }
+
+      // Slope push — if standing on a steep-ish stroke, nudge runner uphill along it
+      if (state.onGround) {
+        for (const stroke of strokes) {
+          if (stroke.color !== "black") continue;
+          const pts = stroke.points;
+          for (let i = 0; i < pts.length - 1; i++) {
+            const a = pts[i], b = pts[i + 1];
+            const minX = Math.min(a.x, b.x), maxX = Math.max(a.x, b.x);
+            if (state.rx >= minX - 4 && state.rx <= maxX + 4) {
+              const dx = b.x - a.x, dy = b.y - a.y;
+              const slope = Math.abs(dy) / (Math.max(1, Math.abs(dx)));
+              // For slopes between 0.2 and 1.5 (walkable ramps), push runner forward
+              if (slope > 0.15 && slope < 1.5 && Math.abs(dx) > 1) {
+                // Push is proportional to slope — steeper = more help
+                const dir = dx > 0 ? 1 : -1;
+                const pushStrength = Math.min(slope * 60, 80);
+                // Only push if runner is moving in stroke direction
+                const moveX2 = (keysRef.current["ArrowRight"] || keysRef.current["d"] || keysRef.current["D"]) ? 1 :
+                               (keysRef.current["ArrowLeft"]  || keysRef.current["a"] || keysRef.current["A"]) ? -1 : 0;
+                if (moveX2 * dir > 0) {
+                  state.rx += dir * pushStrength * dt;
+                }
+              }
+            }
+          }
+        }
       }
 
       // Void respawn
@@ -356,8 +405,13 @@ export default function RunnerView({ room, onGameOver }) {
       }
       state.chunks = state.chunks.filter(c => (c.chunkIndex + 1) * CHUNK_W > state.camX - 200);
 
-      // Cull old strokes
-      strokesRef.current = strokesRef.current.filter(s => maxPointX(s.points) > state.wallX - 20);
+      // Trim / cull strokes eaten by wall (trim points gradually as wall advances)
+      strokesRef.current = strokesRef.current.flatMap(s => {
+        const live = s.points.filter(p => p.x >= state.wallX - 8);
+        if (live.length === 0) return [];
+        if (live.length < s.points.length) return [{ ...s, points: live }];
+        return [s];
+      });
 
       // Broadcast — include wallX so the painter mirrors the exact same wall position
       if (ts - lastMoveRef.current > MOVE_THROTTLE) {

@@ -209,19 +209,26 @@ export function surfaceUnder(x, y, gaps, platforms, strokes) {
 export function strokeYatX(stroke, wx) {
   const pts = stroke.points;
   if (!pts || pts.length < 2) return null;
+  let bestY = null;
   for (let i = 0; i < pts.length - 1; i++) {
     const a = pts[i], b = pts[i + 1];
     const minX = Math.min(a.x, b.x), maxX = Math.max(a.x, b.x);
-    if (wx >= minX - 4 && wx <= maxX + 4) {
-      if (Math.abs(b.x - a.x) < 1) return (a.y + b.y) / 2;
+    if (wx >= minX - 6 && wx <= maxX + 6) {
+      if (Math.abs(b.x - a.x) < 1) {
+        const midY = (a.y + b.y) / 2;
+        if (bestY === null || midY < bestY) bestY = midY;
+        continue;
+      }
       const t  = (wx - a.x) / (b.x - a.x);
       const sy = a.y + t * (b.y - a.y);
-      // Only act as platform if relatively horizontal (within 40px vertical per 100px horizontal)
+      // Accept slopes up to 1.5 (about 56°) — makes ramps climbable
       const slope = Math.abs(b.y - a.y) / (Math.max(1, Math.abs(b.x - a.x)));
-      if (slope < 0.7) return sy;
+      if (slope < 1.5) {
+        if (bestY === null || sy < bestY) bestY = sy;
+      }
     }
   }
-  return null;
+  return bestY;
 }
 
 // Check if a point (wx, wy) is close enough to a red stroke to be killed

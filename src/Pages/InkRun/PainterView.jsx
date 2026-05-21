@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useInkRunRoom } from "./useInkRunRoom";
 import { WORLD_H, CHUNK_W, GROUND_Y, RUNNER_R, WALL_GRACE_S, generateChunk, updateEnemies } from "./gameEngine";
 
-const MAX_INK      = 1200;
+const MAX_INK      = 1800;
 const CHUNKS_AHEAD = 6;
 const ENEMY_R      = 14;
 
@@ -112,31 +112,47 @@ export default function PainterView({ room, onGameOver }) {
   function onPointerDown(e) {
     if (e.pointerType === "touch") return; // handled by touchstart
     e.preventDefault();
+    beginStroke(e.clientX, e.clientY);
+  }
+
+  function onPointerMove(e) {
+    if (e.pointerType === "touch") return;
+    e.preventDefault();
+    continueStroke(e.clientX, e.clientY);
+  }
+
+  function onPointerUp(e) {
+    if (e.pointerType === "touch") return;
+    e.preventDefault();
+    finishStroke();
+  }
+
+  const touchCountRef = useRef(0);
+
+  // Shared draw-start logic used by both pointer and touch paths
+  function beginStroke(clientX, clientY) {
     const canvas = canvasRef.current;
     if (!canvas || !stateRef.current) return;
     const rect = canvas.getBoundingClientRect();
-    const cy = e.clientY - rect.top;
-    if (cy < 44) return; // HUD guard — clears ink bar on all screen sizes
+    const cy = clientY - rect.top;
+    if (cy < 44) return; // HUD guard
     if (totalInk() >= MAX_INK) return;
-    const { wx, wy } = canvasToWorld(e.clientX - rect.left, cy);
+    const { wx, wy } = canvasToWorld(clientX - rect.left, cy);
     const id = `s${++strokeIdRef.current}_${Date.now()}`;
     stateRef.current.drawing = true;
     stateRef.current.didDrag = false;
     stateRef.current.currentStroke = { id, color: colorRef.current, points: [{ x: wx, y: wy }] };
   }
 
-  function onPointerMove(e) {
-    if (e.pointerType === "touch") return;
-    e.preventDefault();
+  function continueStroke(clientX, clientY) {
     const state = stateRef.current;
     if (!state?.drawing || !state.currentStroke) return;
     const canvas = canvasRef.current;
     const rect   = canvas.getBoundingClientRect();
-    const { wx, wy } = canvasToWorld(e.clientX - rect.left, e.clientY - rect.top);
+    const { wx, wy } = canvasToWorld(clientX - rect.left, clientY - rect.top);
     const pts  = state.currentStroke.points;
     const last = pts[pts.length - 1];
     if (Math.hypot(wx - last.x, wy - last.y) < 4) return;
-    // ink budget
     const tentLen  = strokeLen({ points: [...pts, { x: wx, y: wy }] });
     const otherInk = strokesRef.current.reduce((s, st) => s + strokeLen(st), 0);
     if (otherInk + tentLen > MAX_INK) return;
@@ -144,9 +160,7 @@ export default function PainterView({ room, onGameOver }) {
     state.didDrag = true;
   }
 
-  function onPointerUp(e) {
-    if (e.pointerType === "touch") return;
-    e.preventDefault();
+  function finishStroke() {
     const state = stateRef.current;
     if (!state?.drawing || !state.currentStroke) return;
     state.drawing = false;
@@ -158,17 +172,19 @@ export default function PainterView({ room, onGameOver }) {
     sendStrokeAdded(stroke);
   }
 
-  const touchCountRef = useRef(0);
   function onTouchStart(e) {
     touchCountRef.current = e.touches.length;
     if (e.touches.length >= 2) {
       e.preventDefault();
       const state = stateRef.current; if (!state) return;
-      state.drawing = false; state.dragging = true; state.following = false;
+      // Cancel any in-progress stroke before switching to drag
+      if (state.drawing) { state.drawing = false; state.currentStroke = null; }
+      state.dragging = true; state.following = false;
       state.dragStartMX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
       state.dragStartCX = state.camX;
     } else {
-      onPointerDown(e.touches[0]);
+      e.preventDefault();
+      beginStroke(e.touches[0].clientX, e.touches[0].clientY);
     }
   }
   function onTouchMove(e) {
@@ -178,14 +194,14 @@ export default function PainterView({ room, onGameOver }) {
       const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
       state.camX = state.dragStartCX - (mx - state.dragStartMX);
     } else {
-      onPointerMove(e.touches[0]);
+      continueStroke(e.touches[0].clientX, e.touches[0].clientY);
     }
   }
   function onTouchEnd(e) {
     e.preventDefault();
     touchCountRef.current = e.touches.length;
     if (stateRef.current?.dragging) { stateRef.current.dragging = false; }
-    else { onPointerUp(e.changedTouches[0]); }
+    else { finishStroke(); }
   }
 
   function handleRecenter() {
@@ -234,13 +250,22 @@ export default function PainterView({ room, onGameOver }) {
       }
       // (Once wallX arrives via onRunnerMove, stateRef.wallX is set there directly)
 
-      // Reclaim strokes eaten by wall
-      const before = strokesRef.current.length;
-      strokesRef.current = strokesRef.current.filter(s => {
-        if (maxPointX(s.points) < state.wallX - 20) { sendStrokeReclaimed(s.id); return false; }
-        return true;
+      // Reclaim / trim strokes eaten by wall
+      const beforeCount = strokesRef.current.length;
+      const beforeInk   = totalInk();
+      strokesRef.current = strokesRef.current.flatMap(s => {
+        // Trim all points behind the wall
+        const live = s.points.filter(p => p.x >= state.wallX - 8);
+        if (live.length === 0) { sendStrokeReclaimed(s.id); return []; }
+        if (live.length < s.points.length) {
+          return [{ ...s, points: live }];
+        }
+        return [s];
       });
-      if (strokesRef.current.length !== before) setInkUsed(totalInk());
+      // Update ink bar whenever strokes change (either removed or trimmed)
+      if (strokesRef.current.length !== beforeCount || Math.abs(totalInk() - beforeInk) > 5) {
+        setInkUsed(totalInk());
+      }
 
       // Interpolate displayed runner position toward broadcast target (fixes jitter)
       const target = runnerTargetRef.current;
