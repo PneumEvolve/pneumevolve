@@ -12,7 +12,9 @@ import {
   BUILDER_DIRECT_REPAIR_RADIUS, BUILDER_TOTAL_MAX_HP, REVIVE_RADIUS,
   BUILDER_PLACE_RANGE_BONUS,
   createInitialMap, lerp, dist, calcTownspeople, clampWorkers,
-  applyConstructionAura, sellBuilding, updateBuilderRepair,
+  applyConstructionAura, sellBuilding, updateBuilderRepair, getBreatherDuration,
+  upgradeCount, repeatableCost, getMovementSpeed, BUILDER_SPEED_BASE,
+  segmentCrossesWall,
 } from "./strongholdEngine";
 
 const BUILDER_SPEED  = 150;
@@ -24,11 +26,18 @@ export default function BuilderView({ room, onGameOver }) {
   const stateRef    = useRef(null);
   const keysRef     = useRef({});
   const joystickRef = useRef(createJoystick());
+  const cursorRef   = useRef({ wx: 0, wy: 0 }); // world-space cursor for wall ghost
   const rafRef      = useRef(null);
   const lastMoveRef = useRef(0);
   const lastTimeRef = useRef(performance.now());
 
-  const selectedTypeRef = useRef(null);
+  const selectedTypeRef  = useRef(null);
+  // Wall rotation: 8 snapped angles covering 0–157.5° (0–180° is sufficient for a rect)
+  const wallAngleIndexRef = useRef(0);
+  const WALL_ANGLE_COUNT  = 8; // 0°, 22.5°, 45°, 67.5°, 90°, 112.5°, 135°, 157.5°
+  const [wallAngleIndex, setWallAngleIndexState] = useState(0);
+  const setWallAngleIndex = (v) => { wallAngleIndexRef.current = v; setWallAngleIndexState(v); };
+  const getWallAngle = () => wallAngleIndexRef.current * (Math.PI / WALL_ANGLE_COUNT);
 
   const [phase,         setPhase]         = useState("build");
   const [waveNumber,    setWaveNumber]     = useState(0);
@@ -98,7 +107,7 @@ export default function BuilderView({ room, onGameOver }) {
       if (builderHp !== undefined) stateRef.current.builderHp = builderHp;
       if (phase === "breather") {
         stateRef.current.lockedWorkers = 0;
-        stateRef.current.breatherLeft = waveNumber !== undefined ? (waveNumber <= 2 ? 45 : 30) : 30;
+        stateRef.current.breatherLeft = waveNumber !== undefined ? getBreatherDuration(waveNumber) : 30;
         setSelectedType(null); setMood("cozy");
       }
       if (phase === "wave")     { setAssignPanel(null);  setMood("tense"); }
@@ -247,7 +256,13 @@ export default function BuilderView({ room, onGameOver }) {
     if (state.gold < cost) return;
 
     const MIN_BUILDING_SEPARATION = 90;
-    const tooClose = state.buildings.some(b => b.hp > 0 && dist(wx, wy, b.x, b.y) < MIN_BUILDING_SEPARATION);
+    const isPlacingWall = selectedTypeRef.current === "wall";
+    const tooClose = state.buildings.some(b => {
+      if (b.hp <= 0) return false;
+      // Walls can be placed adjacent to other walls — skip wall-vs-wall check
+      if (isPlacingWall && b.isWall) return false;
+      return dist(wx, wy, b.x, b.y) < MIN_BUILDING_SEPARATION;
+    });
     if (tooClose) return;
 
     const building = {
@@ -256,6 +271,7 @@ export default function BuilderView({ room, onGameOver }) {
       x: wx, y: wy,
       hp: def.maxHp, maxHp: def.maxHp,
       workers: 0,
+      ...(isPlacingWall ? { angle: getWallAngle(), isWall: true, halfW: def.halfW, halfH: def.halfH } : {}),
     };
     // (applyConstructionAura no-op — overheal happens via direct repair now)
     state.buildings.push(building);
@@ -279,6 +295,13 @@ export default function BuilderView({ room, onGameOver }) {
     const canvas = canvasRef.current;
     const rect   = canvas.getBoundingClientRect();
     handleTap(e.clientX - rect.left, e.clientY - rect.top);
+  }
+
+  function handleCanvasMouseMove(e) {
+    const canvas = canvasRef.current;
+    const rect   = canvas.getBoundingClientRect();
+    const { wx, wy } = canvasToWorld(e.clientX - rect.left, e.clientY - rect.top);
+    cursorRef.current = { wx, wy };
   }
 
   // ── Worker assignment ─────────────────────────────────────────────────────
@@ -420,8 +443,9 @@ export default function BuilderView({ room, onGameOver }) {
       // Step 4: re-darken exclusion zones around existing buildings (too-close areas)
       buildings.forEach(b => {
         if (b.hp <= 0) return; // destroyed buildings no longer block placement
+        // If placing a wall, don't show red exclusion around other walls
+        if (selectedTypeRef.current === "wall" && b.isWall) return;
         const { cx: bx, cy: by } = worldToCanvas(b.x, b.y);
-        const bDef = BUILDING_TYPES[b.type];
         ctx.save();
         ctx.globalAlpha = 0.7;
         ctx.beginPath(); ctx.arc(bx, by, MIN_SEP, 0, Math.PI * 2);
@@ -441,6 +465,37 @@ export default function BuilderView({ room, onGameOver }) {
       ctx.beginPath(); ctx.arc(cx, cy, placeRange, 0, Math.PI * 2);
       ctx.strokeStyle = "rgba(80,255,150,0.7)"; ctx.lineWidth = 1.5;
       ctx.setLineDash([5, 5]); ctx.stroke(); ctx.setLineDash([]);
+      ctx.restore();
+    }
+
+    // Wall placement ghost — shows rotated rect at cursor position
+    if (selectedTypeRef.current === "wall" && cursorRef.current) {
+      const wallDef   = BUILDING_TYPES.wall;
+      const wallAngle = getWallAngle();
+      const { wx: gwx, wy: gwy } = cursorRef.current;
+      const { cx: gcx, cy: gcy } = worldToCanvas(gwx, gwy);
+      const ghostPlaceRange = BASE_PLACE_RANGE + ((state.upgrades ?? []).includes("place_range") ? BUILDER_PLACE_RANGE_BONUS : 0);
+      const inRange  = dist(builder.x, builder.y, gwx, gwy) <= ghostPlaceRange;
+      const tooClose = state.buildings.some(b => b.hp > 0 && !b.isWall && dist(gwx, gwy, b.x, b.y) < 90);
+      const valid    = inRange && !tooClose;
+      ctx.save();
+      ctx.translate(gcx, gcy);
+      ctx.rotate(wallAngle);
+      ctx.globalAlpha = 0.55;
+      ctx.fillStyle   = valid ? "rgba(136,153,170,0.35)" : "rgba(255,60,60,0.25)";
+      ctx.fillRect(-wallDef.halfW, -wallDef.halfH, wallDef.halfW * 2, wallDef.halfH * 2);
+      ctx.globalAlpha = valid ? 0.85 : 0.6;
+      ctx.strokeStyle = valid ? "rgba(136,200,255,0.9)" : "rgba(255,60,60,0.8)";
+      ctx.lineWidth   = 1.5;
+      ctx.strokeRect(-wallDef.halfW, -wallDef.halfH, wallDef.halfW * 2, wallDef.halfH * 2);
+      // Battlements preview
+      ctx.globalAlpha = valid ? 0.5 : 0.3;
+      const merlonW = 9, merlonH = 7, gap = 13;
+      const totalM = Math.floor((wallDef.halfW * 2) / (merlonW + gap));
+      const mStart = -((totalM * (merlonW + gap) - gap) / 2);
+      for (let i = 0; i < totalM; i++) {
+        ctx.strokeRect(mStart + i * (merlonW + gap), -wallDef.halfH - merlonH, merlonW, merlonH);
+      }
       ctx.restore();
     }
 
@@ -671,6 +726,23 @@ export default function BuilderView({ room, onGameOver }) {
 
     drawBuildingIllustrated(ctx, b, cx, cy, t);
 
+    // Walls: slim rotated HP bar along the top edge
+    if (def.isWall) {
+      if (b.hp > 0 && hpPct < 1) {
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(b.angle ?? 0);
+        const barW = def.halfW * 2;
+        const barY = -(def.halfH + 8);
+        ctx.fillStyle = "rgba(0,0,0,0.4)";
+        ctx.fillRect(-def.halfW, barY, barW, 3);
+        ctx.fillStyle = hpPct > 0.5 ? "rgba(100,255,100,0.8)" : hpPct > 0.25 ? "rgba(255,200,60,0.9)" : "rgba(255,60,60,1)";
+        ctx.fillRect(-def.halfW, barY, barW * hpPct, 3);
+        ctx.restore();
+      }
+      return; // no workers, no repair ring, no label on walls
+    }
+
     if (b._beingRepaired && b.hp > 0 && b.hp < b.maxHp) {
       ctx.save();
       const pulse = 0.4 + 0.3 * Math.sin(t * 6);
@@ -728,20 +800,30 @@ export default function BuilderView({ room, onGameOver }) {
 
     if (b.hp > 0) {
       const workers = b.workers ?? 0;
-      for (let i = 0; i < workers; i++) {
-        const angle = (i / Math.max(workers, 1)) * Math.PI * 2 - Math.PI / 2 + t * 0.4;
-        const wx = cx + Math.cos(angle) * (def.radius + 11);
-        const wy = cy + Math.sin(angle) * (def.radius + 11);
-        ctx.save(); ctx.globalAlpha = 0.85;
-        ctx.beginPath(); ctx.arc(wx, wy, 4, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(180,220,255,0.8)"; ctx.fill();
-        ctx.beginPath(); ctx.arc(wx, wy, 4, 0, Math.PI * 2);
-        ctx.strokeStyle = "rgba(120,180,255,0.4)"; ctx.lineWidth = 0.5; ctx.stroke();
-        ctx.restore();
+      if (!def.noWorkers) {
+        for (let i = 0; i < workers; i++) {
+          const angle = (i / Math.max(workers, 1)) * Math.PI * 2 - Math.PI / 2 + t * 0.4;
+          const wx = cx + Math.cos(angle) * (def.radius + 11);
+          const wy = cy + Math.sin(angle) * (def.radius + 11);
+          ctx.save(); ctx.globalAlpha = 0.85;
+          ctx.beginPath(); ctx.arc(wx, wy, 4, 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(180,220,255,0.8)"; ctx.fill();
+          ctx.beginPath(); ctx.arc(wx, wy, 4, 0, Math.PI * 2);
+          ctx.strokeStyle = "rgba(120,180,255,0.4)"; ctx.lineWidth = 0.5; ctx.stroke();
+          ctx.restore();
+        }
       }
       ctx.save(); ctx.globalAlpha = 0.45;
       ctx.font = "10px sans-serif"; ctx.fillStyle = "#fff"; ctx.textAlign = "center";
       ctx.fillText(def.label, cx, cy + def.radius + 16);
+      // Market: show income rate
+      if (b.type === "market" && (stateRef.current?.waveNumber ?? 0) >= 1) {
+        const rate = (def.goldPerSec ?? 1.5) + Math.min(workers, 3) * 0.5;
+        ctx.globalAlpha = 0.55;
+        ctx.fillStyle = "rgba(255,215,0,0.8)";
+        ctx.font = "9px sans-serif";
+        ctx.fillText(`+${rate.toFixed(1)}g/s`, cx, cy + def.radius + 27);
+      }
       ctx.restore();
     }
   }
@@ -759,7 +841,7 @@ export default function BuilderView({ room, onGameOver }) {
 
     if (phase === "breather") {
       ctx.globalAlpha = 0.15; ctx.fillStyle = "#ff4444";
-      const secsLeft = state.breatherLeft ?? 0; const totalSecs = state.waveNumber <= 2 ? 45 : 30; ctx.fillRect(0, 0, W * (1 - secsLeft / totalSecs), 3);
+      const secsLeft = state.breatherLeft ?? 0; const totalSecs = getBreatherDuration(state.waveNumber); ctx.fillRect(0, 0, W * (1 - secsLeft / totalSecs), 3);
       ctx.globalAlpha = 1;
     }
 
@@ -837,8 +919,9 @@ export default function BuilderView({ room, onGameOver }) {
     }
     const len = Math.sqrt(vx * vx + vy * vy);
     if (len > 0) {
-      state.builder.x = Math.max(20, Math.min(WORLD - 20, state.builder.x + (vx / len) * BUILDER_SPEED * dt));
-      state.builder.y = Math.max(20, Math.min(WORLD - 20, state.builder.y + (vy / len) * BUILDER_SPEED * dt));
+      const builderSpeed = getMovementSpeed(state.upgrades ?? [], "builder_move_speed", BUILDER_SPEED_BASE);
+      state.builder.x = Math.max(20, Math.min(WORLD - 20, state.builder.x + (vx / len) * builderSpeed * dt));
+      state.builder.y = Math.max(20, Math.min(WORLD - 20, state.builder.y + (vy / len) * builderSpeed * dt));
     }
 
     if (!builderDown && ts - lastMoveRef.current > MOVE_THROTTLE) {
@@ -874,8 +957,8 @@ export default function BuilderView({ room, onGameOver }) {
       updateBuilderRepair(state.builder.x, state.builder.y, state.buildings, dt, state.upgrades ?? []);
     }
 
-    // Builder revives downed protector by walking near them during a wave
-    if (state.phase === "wave") {
+    // Builder revives downed protector by walking near them (wave or breather)
+    if (state.phase === "wave" || state.phase === "breather") {
       const protectorDown = (state.protectorHp ?? PROTECTOR_MAX_HP) <= 0;
       if (protectorDown && !builderDown) {
         const dToProtector = dist(state.builder.x, state.builder.y, state.protectorPos.x, state.protectorPos.y);
@@ -905,6 +988,13 @@ export default function BuilderView({ room, onGameOver }) {
     function onKeyDown(e) {
       keysRef.current[e.key] = true;
       if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key)) e.preventDefault();
+      // R / Shift+R: rotate wall
+      if ((e.key === "r" || e.key === "R") && selectedTypeRef.current === "wall") {
+        const dir = e.shiftKey ? -1 : 1;
+        const next = ((wallAngleIndexRef.current + dir) + WALL_ANGLE_COUNT) % WALL_ANGLE_COUNT;
+        setWallAngleIndex(next);
+        e.preventDefault();
+      }
     }
     function onKeyUp(e) { keysRef.current[e.key] = false; }
     window.addEventListener("keydown", onKeyDown);
@@ -945,6 +1035,7 @@ export default function BuilderView({ room, onGameOver }) {
         ref={canvasRef}
         style={{ flex: 1, width: "100%", display: "block", touchAction: "pan-y", cursor: canPlace ? "crosshair" : "pointer" }}
         onClick={handleCanvasClick}
+        onMouseMove={handleCanvasMouseMove}
       />
 
       {/* Building description tooltip — floats above the bar, never pushes layout */}
@@ -970,6 +1061,27 @@ export default function BuilderView({ room, onGameOver }) {
         }}>
           <span style={{ color: selectedDef.color, fontWeight: 500 }}>{selectedDef.label}</span>
           {" — "}{selectedDef.description}
+          {selectedType === "wall" && (
+            <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 6 }}>
+              <button
+                onClick={() => setWallAngleIndex(((wallAngleIndexRef.current - 1) + WALL_ANGLE_COUNT) % WALL_ANGLE_COUNT)}
+                style={{ background: "rgba(136,153,170,0.15)", border: "1px solid rgba(136,153,170,0.3)", borderRadius: 6, color: "#8899aa", fontSize: 14, width: 28, height: 28, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                ↺
+              </button>
+              <span style={{
+                display: "inline-block",
+                transform: `rotate(${wallAngleIndex * (180 / WALL_ANGLE_COUNT)}deg)`,
+                fontSize: 18, color: "#8899aa", transition: "transform 0.15s",
+                width: 28, textAlign: "center", lineHeight: 1,
+              }}>—</span>
+              <button
+                onClick={() => setWallAngleIndex((wallAngleIndexRef.current + 1) % WALL_ANGLE_COUNT)}
+                style={{ background: "rgba(136,153,170,0.15)", border: "1px solid rgba(136,153,170,0.3)", borderRadius: 6, color: "#8899aa", fontSize: 14, width: 28, height: 28, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                ↻
+              </button>
+              <span style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", marginLeft: 2 }}>R to rotate</span>
+            </span>
+          )}
           {canPlace && (
             <span style={{ color: "rgba(120,200,255,0.5)", display: "block", fontSize: 10, marginTop: 2 }}>
               tap within range to place
@@ -993,6 +1105,7 @@ export default function BuilderView({ room, onGameOver }) {
             {PLACEABLE_BUILDINGS.map(b => {
               const affordable = gold >= (b.cost ?? 0);
               const isSelected = selectedType === b.id;
+              const isWall     = b.id === "wall";
               return (
                 <button key={b.id} onClick={() => setSelectedType(isSelected ? null : b.id)} style={{
                   flexShrink: 0,
@@ -1005,6 +1118,9 @@ export default function BuilderView({ room, onGameOver }) {
                   whiteSpace: "nowrap", transition: "all 0.12s",
                   display: "flex", flexDirection: "column", alignItems: "center", gap: 1,
                 }}>
+                  {isWall ? (
+                    <span style={{ display: "inline-block", transform: `rotate(${wallAngleIndex * (180 / WALL_ANGLE_COUNT)}deg)`, fontSize: 14, lineHeight: 1, transition: "transform 0.15s" }}>—</span>
+                  ) : null}
                   <span>{b.label}</span>
                   <span style={{ opacity: 0.55, fontSize: 9 }}>{b.cost}g</span>
                 </button>
@@ -1056,22 +1172,33 @@ export default function BuilderView({ room, onGameOver }) {
                 <div key={`e${i}`} style={{ width: 9, height: 9, borderRadius: "50%", background: "rgba(255,255,255,0.06)", border: "0.5px solid rgba(255,255,255,0.1)" }} />
               ))}
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <button onClick={() => adjustWorkers(panelBuilding.id, -1)} style={{
-                width: 36, height: 36, borderRadius: 10, border: "0.5px solid rgba(255,255,255,0.1)",
-                background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.6)", fontSize: 20,
-                cursor: "pointer", opacity: (panelBuilding.workers ?? 0) > 0 ? 1 : 0.3,
-              }}>−</button>
-              <span style={{ fontSize: 18, fontWeight: 500, color: "rgba(255,255,255,0.8)", minWidth: 20, textAlign: "center" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 4, marginBottom: 4 }}>
+              {[-4, -2, -1].map(delta => {
+                const canDo = (panelBuilding.workers ?? 0) >= Math.abs(delta);
+                return (
+                  <button key={delta} onClick={() => adjustWorkers(panelBuilding.id, delta)} style={{
+                    flex: 1, height: 32, borderRadius: 8, border: "0.5px solid rgba(255,255,255,0.1)",
+                    background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.6)", fontSize: 12,
+                    cursor: canDo ? "pointer" : "default", opacity: canDo ? 1 : 0.25, fontVariantNumeric: "tabular-nums",
+                  }}>{delta}</button>
+                );
+              })}
+              <span style={{ fontSize: 18, fontWeight: 500, color: "rgba(255,255,255,0.85)", minWidth: 26, textAlign: "center" }}>
                 {panelBuilding.workers ?? 0}
               </span>
-              <button onClick={() => adjustWorkers(panelBuilding.id, 1)} style={{
-                width: 36, height: 36, borderRadius: 10, border: "0.5px solid rgba(255,255,255,0.1)",
-                background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.6)", fontSize: 20,
-                cursor: "pointer", opacity: (freeWorkers > 0 && canAddToBarracks) ? 1 : 0.3,
-              }}>+</button>
-              <span style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", marginLeft: 2 }}>{freeWorkers} free</span>
+              {[1, 2, 4].map(delta => {
+
+                const canDo = freeWorkers >= delta && canAddToBarracks;
+                return (
+                  <button key={delta} onClick={() => adjustWorkers(panelBuilding.id, delta)} style={{
+                    flex: 1, height: 32, borderRadius: 8, border: "0.5px solid rgba(255,255,255,0.1)",
+                    background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.6)", fontSize: 12,
+                    cursor: canDo ? "pointer" : "default", opacity: canDo ? 1 : 0.25, fontVariantNumeric: "tabular-nums",
+                  }}>+{delta}</button>
+                );
+              })}
             </div>
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", marginBottom: 8 }}>{freeWorkers} free</div>
             {lockedWorkers > 0 && panelBuilding.type === "barracks" && (
               <div style={{ fontSize: 10, color: "rgba(255,100,100,0.55)", marginTop: 8, lineHeight: 1.4 }}>
                 {lockedWorkers} grieving — available at breather

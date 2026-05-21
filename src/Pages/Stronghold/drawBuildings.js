@@ -402,8 +402,15 @@ export function drawRubble(ctx, cx, cy, scale) {
 // Master dispatcher — call this instead of drawing circles
 export function drawBuilding(ctx, b, cx, cy, t) {
   const def = BUILDING_TYPES_RADII[b.type] ?? { radius: 20 };
-  const scale = def.radius / 22; // normalize to design size
   const hpPct = b.hp / b.maxHp;
+
+  // Walls are drawn as rotated rectangles — entirely separate path
+  if (def.isWall) {
+    drawWall(ctx, b, cx, cy, t, hpPct);
+    return;
+  }
+
+  const scale = def.radius / 22; // normalize to design size
 
   if (b.hp <= 0) { drawRubble(ctx, cx, cy, scale); return; }
 
@@ -417,6 +424,7 @@ export function drawBuilding(ctx, b, cx, cy, t) {
     case "upgrade_shop":  drawUpgradeShop(ctx, cx, cy, scale, t, hpPct); break;
     case "home":          drawHome(ctx, cx, cy, scale, t, hpPct); break;
     case "turret":        drawTurret(ctx, cx, cy, scale, t, hpPct); break;
+    case "market":        drawMarket(ctx, cx, cy, scale, t, hpPct); break;
     default: break;
   }
 
@@ -439,6 +447,8 @@ const BUILDING_TYPES_RADII = {
   upgrade_shop: { radius: 22 },
   home:         { radius: 18 },
   turret:       { radius: 16 },
+  wall:         { radius: 46, isWall: true, halfW: 44, halfH: 9 },
+  market:       { radius: 20 },
 };
 
 function drawTurret(ctx, cx, cy, scale, t, hpPct) {
@@ -509,6 +519,165 @@ function drawTurret(ctx, cx, cy, scale, t, hpPct) {
   ctx.beginPath();
   ctx.arc(0, 0, 8 * s, 0, Math.PI * 2);
   ctx.fillStyle = "#ff4488"; ctx.fill();
+
+  ctx.restore();
+}
+
+// ─── Wall ─────────────────────────────────────────────────────────────────────
+function drawWall(ctx, b, cx, cy, t, hpPct) {
+  const halfW = 44, halfH = 9;
+  const angle = b.angle ?? 0;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(angle);
+
+  if (b.hp <= 0) {
+    // Destroyed — scattered rubble along the wall axis
+    ctx.globalAlpha = 0.25;
+    for (let i = -3; i <= 3; i++) {
+      const rx = i * 12 + (Math.sin(i * 7.3) * 4);
+      const ry = (Math.cos(i * 5.1) * 5);
+      ctx.beginPath();
+      ctx.roundRect(rx - 4, ry - 2, 7 + Math.abs(i % 3) * 2, 4, 1);
+      ctx.fillStyle = "#444"; ctx.fill();
+    }
+    ctx.restore();
+    return;
+  }
+
+  // Shadow
+  ctx.globalAlpha = 0.18;
+  ctx.beginPath();
+  ctx.ellipse(0, halfH + 4, halfW * 0.9, 4, 0, 0, Math.PI * 2);
+  ctx.fillStyle = "#000"; ctx.fill();
+
+  // Stone body
+  ctx.globalAlpha = 0.92;
+  // Alternating stone block colours
+  const blockW = 22;
+  for (let i = 0; i < Math.ceil((halfW * 2) / blockW); i++) {
+    const bx = -halfW + i * blockW;
+    const bw = Math.min(blockW, halfW - bx) ; // clamp last block
+    const shade = i % 2 === 0 ? "#1e2830" : "#1a2228";
+    ctx.fillStyle = shade;
+    ctx.beginPath();
+    ctx.rect(bx, -halfH, Math.min(blockW, halfW * 2 - i * blockW), halfH * 2);
+    ctx.fill();
+  }
+
+  // Top edge highlight + mortar lines
+  ctx.globalAlpha = 0.85;
+  ctx.strokeStyle = `rgba(136,153,170,${0.5 + 0.1 * Math.sin(t * 1.5)})`;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(-halfW, -halfH, halfW * 2, halfH * 2);
+
+  // Vertical mortar lines
+  ctx.globalAlpha = 0.25;
+  ctx.strokeStyle = "#0a0d0f";
+  ctx.lineWidth = 0.8;
+  for (let i = 1; i < Math.ceil((halfW * 2) / blockW); i++) {
+    const mx = -halfW + i * blockW;
+    ctx.beginPath(); ctx.moveTo(mx, -halfH); ctx.lineTo(mx, halfH); ctx.stroke();
+  }
+
+  // Battlements on top — crenellations every 16px
+  ctx.globalAlpha = 0.9;
+  const merlonW = 9, merlonH = 7, gap = 13;
+  const totalMerlons = Math.floor((halfW * 2) / (merlonW + gap));
+  const merlonStart = -((totalMerlons * (merlonW + gap) - gap) / 2);
+  for (let i = 0; i < totalMerlons; i++) {
+    const mx = merlonStart + i * (merlonW + gap);
+    ctx.fillStyle = i % 2 === 0 ? "#1e2830" : "#1a2228";
+    ctx.beginPath();
+    ctx.rect(mx, -halfH - merlonH, merlonW, merlonH);
+    ctx.fill();
+    ctx.strokeStyle = `rgba(136,153,170,0.4)`; ctx.lineWidth = 0.8;
+    ctx.strokeRect(mx, -halfH - merlonH, merlonW, merlonH);
+  }
+
+  // HP damage tint
+  if (hpPct < 0.3) {
+    ctx.globalAlpha = (0.3 - hpPct) / 0.3 * 0.22;
+    ctx.fillStyle = "#ff2200";
+    ctx.fillRect(-halfW, -halfH - merlonH, halfW * 2, halfH * 2 + merlonH);
+  }
+
+  ctx.restore();
+}
+
+// ─── Market ───────────────────────────────────────────────────────────────────
+function drawMarket(ctx, cx, cy, scale, t, hpPct) {
+  const s = scale;
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  // Shadow
+  ctx.globalAlpha = 0.1;
+  ctx.beginPath(); ctx.ellipse(0, 14 * s, 22 * s, 5 * s, 0, 0, Math.PI * 2);
+  ctx.fillStyle = "#000"; ctx.fill();
+
+  // Main stall body
+  ctx.globalAlpha = 0.9;
+  ctx.beginPath();
+  ctx.roundRect(-16 * s, 0 * s, 32 * s, 16 * s, 2 * s);
+  ctx.fillStyle = "#1a1506"; ctx.fill();
+  ctx.strokeStyle = "rgba(255,204,68,0.3)"; ctx.lineWidth = 0.8 * s; ctx.stroke();
+
+  // Awning — colourful stripes
+  const stripeColors = ["rgba(255,180,40,0.85)", "rgba(255,100,60,0.7)", "rgba(255,220,60,0.8)"];
+  ctx.beginPath();
+  ctx.moveTo(-19 * s, -2 * s);
+  ctx.lineTo(-19 * s, -10 * s);
+  ctx.lineTo(19 * s, -10 * s);
+  ctx.lineTo(19 * s, -2 * s);
+  ctx.closePath();
+  ctx.fillStyle = "#1a1506"; ctx.fill();
+  for (let i = 0; i < 3; i++) {
+    const x = -19 * s + i * 13 * s;
+    ctx.beginPath();
+    ctx.rect(x, -10 * s, 12 * s, 8 * s);
+    ctx.fillStyle = stripeColors[i]; ctx.fill();
+  }
+  // Awning fringe
+  ctx.globalAlpha = 0.7;
+  for (let i = 0; i < 7; i++) {
+    const fx = -18 * s + i * 6 * s;
+    ctx.beginPath();
+    ctx.moveTo(fx, -2 * s);
+    ctx.lineTo(fx + 2 * s, 3 * s);
+    ctx.strokeStyle = "rgba(255,200,60,0.6)"; ctx.lineWidth = 1.2 * s; ctx.stroke();
+  }
+
+  // Awning border
+  ctx.globalAlpha = 0.6;
+  ctx.strokeStyle = "rgba(255,204,68,0.5)"; ctx.lineWidth = 0.8 * s;
+  ctx.beginPath();
+  ctx.moveTo(-19 * s, -10 * s); ctx.lineTo(19 * s, -10 * s); ctx.stroke();
+
+  // Counter/shelf
+  ctx.globalAlpha = 0.85;
+  ctx.beginPath();
+  ctx.roundRect(-14 * s, 3 * s, 28 * s, 5 * s, 1 * s);
+  ctx.fillStyle = "#2a1e08"; ctx.fill();
+  ctx.strokeStyle = "rgba(255,180,60,0.2)"; ctx.lineWidth = 0.5 * s; ctx.stroke();
+
+  // Gold coins on counter — 3 little glowing circles
+  const coinPulse = 0.6 + 0.3 * Math.sin(t * 2.5);
+  [[-7, 5], [0, 5], [7, 5]].forEach(([gx, gy]) => {
+    ctx.globalAlpha = coinPulse;
+    ctx.beginPath(); ctx.arc(gx * s, gy * s, 2.5 * s, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffd700"; ctx.fill();
+    ctx.globalAlpha = coinPulse * 0.3;
+    ctx.beginPath(); ctx.arc(gx * s, gy * s, 4 * s, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffd700"; ctx.fill();
+  });
+
+  // Open front
+  ctx.globalAlpha = 0.9;
+  ctx.beginPath();
+  ctx.roundRect(-8 * s, 8 * s, 16 * s, 8 * s, [0, 0, 2 * s, 2 * s]);
+  ctx.fillStyle = "#0a0d0f"; ctx.fill();
 
   ctx.restore();
 }

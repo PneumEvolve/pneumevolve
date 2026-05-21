@@ -1,7 +1,7 @@
 // src/Pages/Stronghold/strongholdEngine.js
 // Pure functions — no React, no side effects.
 
-export const WORLD = 2400;
+export const WORLD = 3000;
 export const TOWN_CENTER_ID = 0;
 
 // ─── Economy ──────────────────────────────────────────────────────────────────
@@ -40,10 +40,10 @@ export const REVIVE_RADIUS = 70; // how close a hero must be to revive their par
 
 // ─── Inter-wave timers ────────────────────────────────────────────────────────
 
-// Infinite waves: 45s breather after wave 1 & 2, 30s from wave 3 onward (pressure ramps)
-export const BREATHER_DURATION = { 1: 45, 2: 45 };
+// Breather grows with wave number: base 30s + 4s per wave, capped at 60s.
+// Early waves get a head-start so players have breathing room to get set up.
 export function getBreatherDuration(waveNumber) {
-  return BREATHER_DURATION[waveNumber] ?? 30;
+  return Math.min(60, 30 + waveNumber * 4);
 }
 
 // ─── Townspeople ──────────────────────────────────────────────────────────────
@@ -139,37 +139,89 @@ export const BUILDING_TYPES = {
     description: "Automated tower that fires at the nearest enemy. Assign workers to boost damage (+4), range (+20), and fire rate (+0.3/s) each.",
     placeable:   true,
     cost:        60,
-    attackRange: 120,
+    attackRange: 150,       // 1.25× buff from original 120
     attackDamage: 8,
     attackRate:  1.5,
+  },
+  wall: {
+    id:          "wall",
+    label:       "Wall",
+    color:       "#8899aa",
+    radius:      46,         // bounding circle for rough checks (sqrt(44²+9²))
+    halfW:       44,         // half-length along the wall's axis
+    halfH:       9,          // half-thickness
+    maxHp:       150,
+    cost:        35,
+    placeable:   true,
+    isWall:      true,
+    noWorkers:   true,
+    description: "Redirects enemies — they break through if they can't go around. Rotate before placing. Walls can be placed adjacent to each other.",
+  },
+  market: {
+    id:          "market",
+    label:       "Market",
+    color:       "#ffcc44",
+    radius:      20,
+    maxHp:       65,
+    cost:        180,
+    placeable:   true,
+    goldPerSec:  1.5,        // base income per standing market once wave 1 begins
+    description: "Generates passive gold once the first wave begins. Workers increase yield (+0.5g/s each, max 3). Destroyed markets lose their income permanently.",
   },
 };
 
 export const PLACEABLE_BUILDINGS = Object.values(BUILDING_TYPES).filter(b => b.placeable);
 
-// ─── Upgrades ─────────────────────────────────────────────────────────────────
+// ─── Enemy speed caps ─────────────────────────────────────────────────────────
+
+export const ENEMY_SPEED_CAP = { raider: 95, brute: 72, demolisher: Infinity };
+
+// ─── Upgrade tier helpers ─────────────────────────────────────────────────────
+// Repeatable upgrades are stored as "atk_damage", "atk_damage_2", "atk_damage_3"...
+// This counts how many times a repeatable upgrade has been purchased.
+export function upgradeCount(upgrades, id) {
+  return upgrades.filter(u => u === id || u.startsWith(id + "_")).length;
+}
+// Cost for the Nth purchase of a repeatable upgrade (1-indexed).
+export function repeatableCost(baseCost, tier) {
+  return Math.round(baseCost * Math.pow(1.6, tier - 1));
+}
+
+// ─── Movement speed ───────────────────────────────────────────────────────────
+// 3-tier tree: +15%, +15%, +20% = max +50% of base speed.
+export const MOVE_SPEED_BONUSES = [0.15, 0.15, 0.20];
+export const PROTECTOR_SPEED_BASE = 160;
+export const BUILDER_SPEED_BASE   = 150;
+
+export function getMovementSpeed(upgrades, upgradeId, base) {
+  const tiers = Math.min(upgradeCount(upgrades, upgradeId), MOVE_SPEED_BONUSES.length);
+  const bonus = MOVE_SPEED_BONUSES.slice(0, tiers).reduce((a, b) => a + b, 0);
+  return base * (1 + bonus);
+}
 
 export const UPGRADES = [
-  // Personal
-  { id: "atk_speed",   label: "Sharper blade",    desc: "+25% attack speed",         cost: 60,  tree: "personal", tier: 1 },
-  { id: "atk_range",   label: "Longer reach",     desc: "+20 attack range",           cost: 60,  tree: "personal", tier: 1 },
-  { id: "lifesteal",   label: "Warrior's blood",  desc: "Heal 3 hp per kill",         cost: 80,  tree: "personal", tier: 2 },
-  { id: "atk_damage",  label: "Heavy strikes",    desc: "+10 attack damage",          cost: 100, tree: "personal", tier: 2 },
-  { id: "dash",        label: "Hero's dash",      desc: "Unlock dash ability (space/double-tap)", cost: 80, tree: "personal", tier: 2 },
+  // Personal (protector)
+  { id: "atk_range",   label: "Longer reach",     desc: "+20 attack range",                      cost: 60,  tree: "personal", tier: 1 },
+  { id: "lifesteal",   label: "Warrior's blood",  desc: "Heal 3 hp per kill",                    cost: 80,  tree: "personal", tier: 2 },
+  { id: "dash",        label: "Hero's dash",      desc: "Unlock dash ability (space/double-tap)", cost: 80,  tree: "personal", tier: 2 },
+  { id: "atk_speed",   label: "Sharper blade",    desc: "+0.3 attacks/sec per tier",             cost: 60,  tree: "personal", tier: 1, repeatable: true },
+  { id: "atk_damage",  label: "Heavy strikes",    desc: "+10 attack damage per tier",            cost: 100, tree: "personal", tier: 2, repeatable: true },
+  { id: "move_speed",  label: "Swift feet",       desc: "+15/15/20% protector move speed (max +50%)", cost: 70, tree: "personal", tier: 1, repeatable: true, maxTier: 3 },
   // Army
-  { id: "soldier_hp",  label: "Toughen up",       desc: "+20 soldier hp",             cost: 60,  tree: "army",     tier: 1, needs: "barracks" },
-  { id: "soldier_cnt", label: "Draft more",       desc: "+1 soldier per barracks",    cost: 80,  tree: "army",     tier: 1, needs: "barracks" },
-  { id: "soldier_dmg", label: "Battle-hardened",  desc: "+5 soldier damage",          cost: 100, tree: "army",     tier: 2, needs: "barracks" },
+  { id: "soldier_hp",  label: "Toughen up",       desc: "+20 soldier hp",                        cost: 60,  tree: "army",     tier: 1, needs: "barracks" },
+  { id: "soldier_cnt", label: "Draft more",       desc: "+1 soldier per barracks",               cost: 80,  tree: "army",     tier: 1, needs: "barracks" },
+  { id: "soldier_dmg", label: "Battle-hardened",  desc: "+5 soldier damage",                     cost: 100, tree: "army",     tier: 2, needs: "barracks" },
   // Town
-  { id: "tc_heal",     label: "Warm hearth",      desc: "Town center heals builder too", cost: 80, tree: "town",  tier: 1 },
-  { id: "garden_size", label: "Wild growth",      desc: "+30 garden slow radius",     cost: 70,  tree: "town",     tier: 1, needs: "garden" },
+  { id: "tc_heal",     label: "Warm hearth",      desc: "Town center heals builder too",         cost: 80,  tree: "town",     tier: 1 },
+  { id: "garden_size", label: "Wild growth",      desc: "+30 garden slow radius",                cost: 70,  tree: "town",     tier: 1, needs: "garden" },
   { id: "shop_auto",   label: "Steady hands",     desc: "Repair shop works at 40% without builder", cost: 100, tree: "town", tier: 2, needs: "repair_shop" },
-  // Workshop (builder-exclusive)
-  { id: "builder_aura",  label: "Master crafts",   desc: "Direct repair can overheal buildings to 115% HP (gold bar)", cost: 70,  tree: "workshop", tier: 1 },
-  { id: "repair_speed",  label: "Quick hands",     desc: "+50% direct repair speed",   cost: 80,  tree: "workshop", tier: 1 },
-  { id: "place_range",   label: "Long reach",      desc: "+30 building placement range", cost: 70, tree: "workshop", tier: 1 },
-  { id: "sell_refund",   label: "Salvage expert",  desc: "Sell buildings for 75% (was 50%)", cost: 60, tree: "workshop", tier: 2 },
-  { id: "builder_shield_up", label: "Reinforced vest", desc: "+30 builder shield max", cost: 100, tree: "workshop", tier: 2 },
+  // Workshop (builder)
+  { id: "builder_aura",      label: "Master crafts",    desc: "Direct repair can overheal buildings to 115% HP", cost: 70,  tree: "workshop", tier: 1 },
+  { id: "repair_speed",      label: "Quick hands",      desc: "+50% direct repair speed",        cost: 80,  tree: "workshop", tier: 1 },
+  { id: "place_range",       label: "Long reach",       desc: "+30 building placement range",    cost: 70,  tree: "workshop", tier: 1 },
+  { id: "sell_refund",       label: "Salvage expert",   desc: "Sell buildings for 75% (was 50%)", cost: 60, tree: "workshop", tier: 2 },
+  { id: "builder_shield_up", label: "Reinforced vest",  desc: "+30 builder shield max",          cost: 100, tree: "workshop", tier: 2 },
+  { id: "builder_move_speed", label: "Quick boots",     desc: "+15/15/20% builder move speed (max +50%)", cost: 70, tree: "workshop", tier: 1, repeatable: true, maxTier: 3 },
 ];
 
 // ─── Map / world setup ────────────────────────────────────────────────────────
@@ -203,6 +255,62 @@ export function circlesOverlap(ax, ay, ar, bx, by, br) {
   return dist(ax, ay, bx, by) < ar + br;
 }
 
+// ─── Wall geometry helpers ────────────────────────────────────────────────────
+
+// Shortest distance from point (ex,ey) to the surface of a rotated wall rect.
+export function distToWall(ex, ey, wall) {
+  const cos = Math.cos(-(wall.angle ?? 0));
+  const sin = Math.sin(-(wall.angle ?? 0));
+  const dx  = ex - wall.x, dy = ey - wall.y;
+  const lx  = cos * dx - sin * dy;
+  const ly  = sin * dx + cos * dy;
+  const cx  = Math.max(-wall.halfW, Math.min(wall.halfW, lx));
+  const cy  = Math.max(-wall.halfH, Math.min(wall.halfH, ly));
+  return Math.sqrt((lx - cx) ** 2 + (ly - cy) ** 2);
+}
+
+// Does the segment (ax,ay)→(bx,by) intersect a living rotated wall rect?
+// Uses Liang–Barsky clipping in wall-local space.
+export function segmentCrossesWall(ax, ay, bx, by, wall) {
+  if (wall.hp <= 0) return false;
+  const angle = wall.angle ?? 0;
+  const cos = Math.cos(-angle), sin = Math.sin(-angle);
+  const toLocal = (px, py) => {
+    const ddx = px - wall.x, ddy = py - wall.y;
+    return { x: cos * ddx - sin * ddy, y: sin * ddx + cos * ddy };
+  };
+  const a = toLocal(ax, ay), b = toLocal(bx, by);
+  const minX = -wall.halfW, maxX = wall.halfW;
+  const minY = -wall.halfH, maxY = wall.halfH;
+  if (Math.min(a.x, b.x) > maxX || Math.max(a.x, b.x) < minX) return false;
+  if (Math.min(a.y, b.y) > maxY || Math.max(a.y, b.y) < minY) return false;
+  const dx = b.x - a.x, dy = b.y - a.y;
+  let t0 = 0, t1 = 1;
+  for (const [p, q] of [[-dx, a.x - minX], [dx, maxX - a.x], [-dy, a.y - minY], [dy, maxY - a.y]]) {
+    if (p === 0) { if (q < 0) return false; continue; }
+    const t = q / p;
+    if (p < 0) { if (t > t0) t0 = t; } else { if (t < t1) t1 = t; }
+    if (t0 > t1) return false;
+  }
+  return true;
+}
+
+// ─── Market income ────────────────────────────────────────────────────────────
+
+// Call every tick from the protector (gold owner). Returns gold to add.
+// Income starts only after wave 1 begins (waveNumber >= 1).
+export function updateMarketIncome(buildings, dt, waveNumber) {
+  if ((waveNumber ?? 0) < 1) return 0;
+  let income = 0;
+  buildings.forEach(b => {
+    if (b.type !== "market" || b.hp <= 0) return;
+    const workers = Math.min(b.workers ?? 0, 3); // cap at 3 workers
+    const rate = BUILDING_TYPES.market.goldPerSec + workers * 0.5;
+    income += rate * dt;
+  });
+  return income;
+}
+
 // ─── Player movement ──────────────────────────────────────────────────────────
 
 export function movePlayer(ox, oy, vx, vy, dt, speed) {
@@ -223,9 +331,9 @@ export function updateProtectorAttack(state, dt) {
   if (state.attackCooldown > 0) return;
 
   const upgrades = state.upgrades ?? [];
-  const range  = PROTECTOR_ATTACK_RANGE + (upgrades.includes("atk_range")  ? 20 : 0);
-  const damage = PROTECTOR_ATTACK_DAMAGE + (upgrades.includes("atk_damage") ? 10 : 0);
-  const rate   = PROTECTOR_ATTACK_RATE  * (upgrades.includes("atk_speed")   ? 1.25 : 1);
+  const range    = PROTECTOR_ATTACK_RANGE + (upgrades.includes("atk_range") ? 20 : 0);
+  const damage   = PROTECTOR_ATTACK_DAMAGE + upgradeCount(upgrades, "atk_damage") * 10;
+  const rate     = PROTECTOR_ATTACK_RATE + upgradeCount(upgrades, "atk_speed") * 0.3;
   const lifesteal = upgrades.includes("lifesteal");
 
   let target = null, bestDist = Infinity;
@@ -374,7 +482,7 @@ export function spawnWave(waveNumber, seed) {
         x, y,
         hp:     120 + waveNumber * 25,
         maxHp:  120 + waveNumber * 25,
-        speed:  22 + waveNumber * 3,
+        speed:  Math.min(ENEMY_SPEED_CAP.demolisher, 22 + waveNumber * 3),
         radius: 13,
         type:   "demolisher",
         dead:   false,
@@ -390,7 +498,9 @@ export function spawnWave(waveNumber, seed) {
         x, y,
         hp:     isRaider ? 24 + waveNumber * 8 : 70 + waveNumber * 18,
         maxHp:  isRaider ? 24 + waveNumber * 8 : 70 + waveNumber * 18,
-        speed:  isRaider ? 58 + waveNumber * 8 + rand() * 16 : 32 + waveNumber * 7,
+        speed:  isRaider
+          ? Math.min(ENEMY_SPEED_CAP.raider, 58 + waveNumber * 8 + rand() * 16)
+          : Math.min(ENEMY_SPEED_CAP.brute,  32 + waveNumber * 7),
         radius: isRaider ? 6 : 10,
         type:   isRaider ? "raider" : "brute",
         dead:   false,
@@ -416,19 +526,27 @@ export function updateEnemies(enemies, buildings, builderX, builderY, dt, slowZo
     if (e.dead) return;
 
     // Demolishers ignore players entirely — straight to buildings
+    // Demolishers prioritise walls (they're building destroyers)
     if (e.ignoresPlayers) {
+      const livingWalls = buildings.filter(b => b.isWall && b.hp > 0);
       let target = null, bestDist = Infinity;
+      // Demolishers prefer walls if any block their path to the TC, otherwise nearest building
       buildings.forEach(b => {
         if (b.hp <= 0) return;
         const d = dist(e.x, e.y, b.x, b.y);
-        if (d < bestDist) { bestDist = d; target = b; }
+        // Prefer walls: give them a 0.6× weight so they beat equivalent non-wall buildings
+        const weighted = (b.isWall ? 0.6 : 1.0) * d;
+        if (weighted < bestDist) { bestDist = weighted; target = b; }
       });
       if (!target) return;
+      // If path to target crosses a wall that isn't our target, attack the wall first
+      const blockingWall = livingWalls.find(w => w !== target && segmentCrossesWall(e.x, e.y, target.x, target.y, w));
+      const actualTarget = blockingWall ?? target;
       let speedMult = 1;
       slowZones.forEach(z => {
         if (dist(e.x, e.y, z.x, z.y) < z.radius) speedMult = Math.min(speedMult, z.factor);
       });
-      const dx = target.x - e.x, dy = target.y - e.y;
+      const dx = actualTarget.x - e.x, dy = actualTarget.y - e.y;
       const d  = Math.sqrt(dx * dx + dy * dy);
       if (d < 2) return;
       e.x += (dx / d) * e.speed * speedMult * dt;
@@ -477,12 +595,85 @@ export function updateEnemies(enemies, buildings, builderX, builderY, dt, slowZo
       if (dist(e.x, e.y, z.x, z.y) < z.radius) speedMult = Math.min(speedMult, z.factor);
     });
 
+    // ── Wall blocking ─────────────────────────────────────────────────────
+    // If the straight path to the target crosses a living wall, decide: go around or smash.
+    const livingWalls = buildings.filter(b => b.isWall && b.hp > 0);
+    if (livingWalls.length > 0 && !e.chasingProtector && !e.chasingBuilder) {
+      const blockingWall = livingWalls.find(w => segmentCrossesWall(e.x, e.y, tx, ty, w));
+      if (blockingWall) {
+        // Raiders try to skirt around one of the wall's ends (+12px clearance)
+        if (e.type === "raider") {
+          const angle = blockingWall.angle ?? 0;
+          const cos = Math.cos(angle), sin = Math.sin(angle);
+          let wentAround = false;
+          for (const side of [1, -1]) {
+            const endX = blockingWall.x + cos * (blockingWall.halfW + 14) * side;
+            const endY = blockingWall.y + sin * (blockingWall.halfW + 14) * side;
+            // Only go around if that path is also clear
+            const pathClear = !livingWalls.some(w => w !== blockingWall && segmentCrossesWall(e.x, e.y, endX, endY, w));
+            if (pathClear) {
+              e._wallAroundX = endX; e._wallAroundY = endY;
+              tx = endX; ty = endY;
+              wentAround = true;
+              break;
+            }
+          }
+          if (!wentAround) {
+            // Trapped — smash through
+            e._wallAroundX = undefined;
+            tx = blockingWall.x; ty = blockingWall.y;
+          }
+        } else {
+          // Brutes and others: always attack through
+          e._wallAroundX = undefined;
+          tx = blockingWall.x; ty = blockingWall.y;
+        }
+      } else {
+        // Clear path — if we were skirting around a wall, check if we've passed it
+        if (e._wallAroundX !== undefined) {
+          const dWaypoint = dist(e.x, e.y, e._wallAroundX, e._wallAroundY);
+          if (dWaypoint < 12) e._wallAroundX = undefined; // reached waypoint, resume normal targeting
+          else { tx = e._wallAroundX; ty = e._wallAroundY; } // keep going to waypoint
+        }
+      }
+    } else {
+      e._wallAroundX = undefined;
+    }
+
     const dx = tx - e.x, dy = ty - e.y;
     const d  = Math.sqrt(dx * dx + dy * dy);
     if (d < 2) return;
     e.x += (dx / d) * e.speed * speedMult * dt;
     e.y += (dy / d) * e.speed * speedMult * dt;
   });
+
+  // ── Enemy separation — prevent blob stacking ──────────────────────────────
+  // After all movement, push overlapping enemies apart so they never stack.
+  // Run a few iterations per frame so the separation converges quickly even
+  // when many enemies pile up on the same target.
+  const living = enemies.filter(e => !e.dead);
+  const SEPARATION_ITERS = 3;
+  for (let iter = 0; iter < SEPARATION_ITERS; iter++) {
+    for (let i = 0; i < living.length; i++) {
+      const a = living[i];
+      for (let j = i + 1; j < living.length; j++) {
+        const b = living[j];
+        const ex = a.x - b.x;
+        const ey = a.y - b.y;
+        const d2 = ex * ex + ey * ey;
+        const minDist = (a.radius ?? 6) + (b.radius ?? 6);
+        if (d2 < minDist * minDist && d2 > 0.0001) {
+          const d   = Math.sqrt(d2);
+          const overlap = (minDist - d) * 0.5;
+          const nx  = ex / d, ny = ey / d;
+          a.x += nx * overlap;
+          a.y += ny * overlap;
+          b.x -= nx * overlap;
+          b.y -= ny * overlap;
+        }
+      }
+    }
+  }
 }
 
 // ─── Combat: units attack enemies ─────────────────────────────────────────────
@@ -608,7 +799,11 @@ export function updateEnemyAttacks(enemies, buildings, dt, protectorX, protector
     buildings.forEach(b => {
       if (b.hp <= 0) return;
       const bDef = BUILDING_TYPES[b.type];
-      if (dist(e.x, e.y, b.x, b.y) < ENEMY_ATTACK_RANGE + bDef.radius) {
+      // Walls use rotated-rect distance; all others use circle distance
+      const inRange = bDef.isWall
+        ? distToWall(e.x, e.y, b) < ENEMY_ATTACK_RANGE
+        : dist(e.x, e.y, b.x, b.y) < ENEMY_ATTACK_RANGE + bDef.radius;
+      if (inRange) {
         b.hp = Math.max(0, b.hp - dmg);
         e.attackCooldown = 1 / rate;
         // Kill workers in a building that falls

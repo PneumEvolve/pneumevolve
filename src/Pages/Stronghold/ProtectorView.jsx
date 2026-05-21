@@ -9,7 +9,7 @@ import {
 import {
   WORLD, BUILDING_TYPES, UPGRADES,
   PROTECTOR_MAX_HP, PROTECTOR_HEAL_RATE,
-  STARTING_GOLD, BREATHER_DURATION, getBreatherDuration,
+  STARTING_GOLD, getBreatherDuration,
   TOWNSPEOPLE_START,
   createInitialMap, spawnWave, movePlayer,
   updateEnemies, updateEnemyAttacks, updateUnitCombat,
@@ -21,7 +21,9 @@ import {
   getSlowZones, calculateScore, calcWaveEndGold,
   calcTownspeople, clampWorkers,
   lerp, dist, wasWaveFlawless, scoutWave,
-  updateTurrets,
+  updateTurrets, updateMarketIncome,
+  upgradeCount, repeatableCost, getMovementSpeed, PROTECTOR_SPEED_BASE,
+  segmentCrossesWall,
 } from "./strongholdEngine";
 
 const PLAYER_SPEED   = 160;
@@ -511,6 +513,24 @@ export default function ProtectorView({ room, onGameOver }) {
 
     drawBuildingIllustrated(ctx, b, cx, cy, t);
 
+    // Walls: draw a slim HP bar along the top edge instead of an arc
+    if (def.isWall) {
+      if (b.hp > 0 && hpPct < 1) {
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(b.angle ?? 0);
+        const barW = def.halfW * 2;
+        const barH = 3;
+        const barY = -(def.halfH + 8);
+        ctx.fillStyle = "rgba(0,0,0,0.4)";
+        ctx.fillRect(-def.halfW, barY, barW, barH);
+        ctx.fillStyle = hpPct > 0.5 ? "rgba(100,255,100,0.8)" : hpPct > 0.25 ? "rgba(255,200,60,0.9)" : "rgba(255,60,60,1)";
+        ctx.fillRect(-def.halfW, barY, barW * hpPct, barH);
+        ctx.restore();
+      }
+      return; // no workers, no label on walls
+    }
+
     if (b.hp > 0 && hpPct < 1) {
       ctx.save();
       ctx.beginPath();
@@ -556,22 +576,32 @@ export default function ProtectorView({ room, onGameOver }) {
 
     if (b.hp > 0) {
       const workers = b.workers ?? 0;
-      for (let i = 0; i < workers; i++) {
-        const angle = (i / Math.max(workers, 1)) * Math.PI * 2 - Math.PI / 2 + t * 0.4;
-        const wx = cx + Math.cos(angle) * (def.radius + 11);
-        const wy = cy + Math.sin(angle) * (def.radius + 11);
-        ctx.save();
-        ctx.globalAlpha = 0.85;
-        ctx.beginPath(); ctx.arc(wx, wy, 4, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(180,220,255,0.8)"; ctx.fill();
-        ctx.beginPath(); ctx.arc(wx, wy, 4, 0, Math.PI * 2);
-        ctx.strokeStyle = "rgba(120,180,255,0.4)"; ctx.lineWidth = 0.5; ctx.stroke();
-        ctx.restore();
+      if (!def.noWorkers) {
+        for (let i = 0; i < workers; i++) {
+          const angle = (i / Math.max(workers, 1)) * Math.PI * 2 - Math.PI / 2 + t * 0.4;
+          const wx = cx + Math.cos(angle) * (def.radius + 11);
+          const wy = cy + Math.sin(angle) * (def.radius + 11);
+          ctx.save();
+          ctx.globalAlpha = 0.85;
+          ctx.beginPath(); ctx.arc(wx, wy, 4, 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(180,220,255,0.8)"; ctx.fill();
+          ctx.beginPath(); ctx.arc(wx, wy, 4, 0, Math.PI * 2);
+          ctx.strokeStyle = "rgba(120,180,255,0.4)"; ctx.lineWidth = 0.5; ctx.stroke();
+          ctx.restore();
+        }
       }
       ctx.save();
       ctx.globalAlpha = 0.45;
       ctx.font = "10px sans-serif"; ctx.fillStyle = "#fff"; ctx.textAlign = "center";
       ctx.fillText(def.label, cx, cy + def.radius + 16);
+      // Market: show income rate when active
+      if (b.type === "market" && (stateRef.current?.waveNumber ?? 0) >= 1) {
+        const rate = (def.goldPerSec ?? 1.5) + Math.min(workers, 3) * 0.5;
+        ctx.globalAlpha = 0.55;
+        ctx.fillStyle = "rgba(255,215,0,0.8)";
+        ctx.font = "9px sans-serif";
+        ctx.fillText(`+${rate.toFixed(1)}g/s`, cx, cy + def.radius + 27);
+      }
       ctx.restore();
     }
   }
@@ -854,7 +884,7 @@ export default function ProtectorView({ room, onGameOver }) {
       }
     } else {
       state.dashHitSet = null; // clear hit set when not dashing
-      state.player = movePlayer(state.player.x, state.player.y, vx, vy, dt, PLAYER_SPEED);
+      state.player = movePlayer(state.player.x, state.player.y, vx, vy, dt, getMovementSpeed(state.upgrades ?? [], "move_speed", PROTECTOR_SPEED_BASE));
     }
 
     // ── Scout mechanic (build phase wave 0) ───────────────────────────────
@@ -885,8 +915,29 @@ export default function ProtectorView({ room, onGameOver }) {
       // Run builder repair on the authoritative (protector) side so HP changes persist and sync correctly
       updateBuilderRepair(state.builderPos.x, state.builderPos.y, state.buildings, dt, state.upgrades ?? []);
 
+      // Either player can revive the other during the breather
+      const protectorDown = (state.playerHp ?? PROTECTOR_MAX_HP) <= 0;
+      const builderDown   = (state.builderHp ?? BUILDER_TOTAL_MAX_HP) <= 0;
+      if (builderDown && !protectorDown) {
+        const dToBuilder = dist(state.player.x, state.player.y, state.builderPos.x, state.builderPos.y);
+        if (dToBuilder < REVIVE_RADIUS) {
+          state.builderHp = Math.floor(BUILDER_TOTAL_MAX_HP * 0.4);
+          sendRevive("builder");
+        }
+      }
+      if (protectorDown && !builderDown) {
+        const dToProtector = dist(state.player.x, state.player.y, state.builderPos.x, state.builderPos.y);
+        if (dToProtector < REVIVE_RADIUS) {
+          state.playerHp = Math.floor(PROTECTOR_MAX_HP * 0.4);
+          sendRevive("protector");
+        }
+      }
+
       state.breatherLeft -= dt;
       sendCountdown(state.breatherLeft);
+      // Market income ticks during breather too (wave 1+ only)
+      const breatherMarketIncome = updateMarketIncome(state.buildings, dt, state.waveNumber);
+      if (breatherMarketIncome > 0) state.gold = (state.gold ?? 0) + breatherMarketIncome;
       // Sync building HP during breather so both players see repairs
       if (ts - lastSyncRef.current > SYNC_THROTTLE) {
         sendBuildingHealth(state.buildings.map(b => ({ id: b.id, hp: b.hp, workers: b.workers })), state.builderHp, state.playerHp, state.lockedWorkers ?? 0);
@@ -930,6 +981,10 @@ export default function ProtectorView({ room, onGameOver }) {
       // Turrets auto-attack
       updateTurrets(state.buildings, state.enemies, dt);
 
+      // Market passive income (starts from wave 1 onward)
+      const marketIncome = updateMarketIncome(state.buildings, dt, state.waveNumber);
+      if (marketIncome > 0) state.gold = (state.gold ?? 0) + marketIncome;
+
       // Enemies also attack soldiers — soldiers can die
       const { survivors, casualties } = updateEnemyAttackUnits(state.enemies, state.units, dt);
       state.units = survivors;
@@ -969,7 +1024,7 @@ export default function ProtectorView({ room, onGameOver }) {
         updateBuilderShield(state, dt);
       }
 
-      // Protector revives downed builder by walking near them
+      // Protector revives downed builder by walking near them (wave or breather)
       if (builderDown && !protectorDown) {
         const dToBuilder = dist(state.player.x, state.player.y, state.builderPos.x, state.builderPos.y);
         if (dToBuilder < REVIVE_RADIUS) {
@@ -1148,11 +1203,23 @@ export default function ProtectorView({ room, onGameOver }) {
     if (!s) return;
     const upg = UPGRADES.find(u => u.id === upgradeId);
     if (!upg) return;
-    if (s.gold < upg.cost) return;
-    if (s.upgrades.includes(upgradeId)) return;
     if (upg.needs && !s.buildings.some(b => b.type === upg.needs && b.hp > 0)) return;
-    s.gold -= upg.cost;
-    s.upgrades.push(upgradeId);
+
+    if (upg.repeatable) {
+      const owned = upgradeCount(s.upgrades, upgradeId);
+      if (upg.maxTier && owned >= upg.maxTier) return;
+      const cost = repeatableCost(upg.cost, owned + 1);
+      if (s.gold < cost) return;
+      s.gold -= cost;
+      // First purchase stored as bare id, subsequent as "id_2", "id_3"...
+      s.upgrades.push(owned === 0 ? upgradeId : `${upgradeId}_${owned + 1}`);
+    } else {
+      if (s.upgrades.includes(upgradeId)) return;
+      if (s.gold < upg.cost) return;
+      s.gold -= upg.cost;
+      s.upgrades.push(upgradeId);
+    }
+
     sfxPurchaseUpgrade();
     sendGoldUpdate({ gold: s.gold, from: "protector" });
     setShopTick(n => n + 1);
@@ -1293,6 +1360,9 @@ export default function ProtectorView({ room, onGameOver }) {
   }, [room]);
 
   // ── Upgrade shop modal ────────────────────────────────────────────────────
+  const shopScrollRef = useRef(0);
+  const shopScrollElRef = useRef(null);
+
   const UpgradeShop = () => {
     const s = stateRef.current;
     if (!s) return null;
@@ -1300,13 +1370,22 @@ export default function ProtectorView({ room, onGameOver }) {
     const treeLabels = { personal: "personal", army: "army", town: "town", workshop: "workshop (builder)" };
     const treeColors = { personal: "rgba(255,100,60,0.8)", army: "rgba(255,150,80,0.8)", town: "rgba(200,140,255,0.8)", workshop: "rgba(120,200,255,0.8)" };
 
+    // Deduplicate: show each unique upgrade id once per tree
+    const seen = new Set();
+
     return (
       <div style={{
         position: "absolute", inset: 0, background: "rgba(0,0,0,0.6)",
         display: "flex", alignItems: "center", justifyContent: "center",
         zIndex: 20,
       }} onClick={() => setShowShop(false)}>
-        <div onClick={e => e.stopPropagation()} style={{
+        <div onClick={e => e.stopPropagation()} ref={el => {
+          if (el && shopScrollElRef.current !== el) {
+            shopScrollElRef.current = el;
+            el.scrollTop = shopScrollRef.current;
+          }
+        }} onScroll={e => { shopScrollRef.current = e.currentTarget.scrollTop; }}
+        style={{
           background: "#0f1316", border: "0.5px solid rgba(255,255,255,0.1)",
           borderRadius: 18, padding: "20px 22px", width: "min(360px, 92vw)", maxHeight: "80vh", overflowY: "auto",
         }}>
@@ -1317,20 +1396,59 @@ export default function ProtectorView({ room, onGameOver }) {
           {trees.map(tree => (
             <div key={tree} style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 10, letterSpacing: "0.08em", color: treeColors[tree], textTransform: "uppercase", marginBottom: 8 }}>{treeLabels[tree]}</div>
-              {UPGRADES.filter(u => u.tree === tree).map(upg => {
-                const owned  = s.upgrades.includes(upg.id);
-                const canBuy = !owned && s.gold >= upg.cost;
+              {UPGRADES.filter(u => {
+                if (u.tree !== tree) return false;
+                if (seen.has(u.id)) return false;
+                seen.add(u.id);
+                return true;
+              }).map(upg => {
                 const locked = upg.needs && !s.buildings.some(b => b.type === upg.needs && b.hp > 0);
+
+                if (upg.repeatable) {
+                  const owned = upgradeCount(s.upgrades, upg.id);
+                  const maxed = upg.maxTier && owned >= upg.maxTier;
+                  const nextCost = maxed ? null : repeatableCost(upg.cost, owned + 1);
+                  const canBuy = !maxed && !locked && nextCost !== null && s.gold >= nextCost;
+                  return (
+                    <div key={upg.id} onClick={() => !locked && !maxed && handleBuyUpgrade(upg.id)} style={{
+                      display: "flex", alignItems: "center", justifyContent: "space-between",
+                      padding: "9px 12px", borderRadius: 10, marginBottom: 6, minHeight: 52,
+                      background: owned > 0 ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.03)",
+                      border: `0.5px solid ${canBuy ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.06)"}`,
+                      opacity: locked ? 0.35 : 1,
+                      cursor: maxed || locked ? "default" : canBuy ? "pointer" : "not-allowed",
+                    }}>
+                      <div>
+                        <div style={{ fontSize: 13, color: "rgba(255,255,255,0.8)", marginBottom: 2 }}>
+                          {upg.label}
+                          {owned > 0 && <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginLeft: 6 }}>
+                            tier {owned}{upg.maxTier ? `/${upg.maxTier}` : ""}
+                          </span>}
+                        </div>
+                        <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>{upg.desc}</div>
+                        {locked && <div style={{ fontSize: 10, color: "rgba(255,100,100,0.5)", marginTop: 2 }}>needs {upg.needs?.replace("_", " ")}</div>}
+                      </div>
+                      <div style={{
+                        fontSize: 12, minWidth: 44, textAlign: "right", fontWeight: 500,
+                        color: maxed ? "rgba(255,255,255,0.2)" : canBuy ? "rgba(255,215,0,0.8)" : "rgba(255,215,0,0.3)",
+                      }}>
+                        {maxed ? "max" : `${nextCost}g`}
+                      </div>
+                    </div>
+                  );
+                }
+
+                // One-time upgrade
+                const owned  = s.upgrades.includes(upg.id);
+                const canBuy = !owned && !locked && s.gold >= upg.cost;
                 return (
                   <div key={upg.id} onClick={() => !locked && !owned && handleBuyUpgrade(upg.id)} style={{
                     display: "flex", alignItems: "center", justifyContent: "space-between",
-                    padding: "9px 12px", borderRadius: 10, marginBottom: 6,
+                    padding: "9px 12px", borderRadius: 10, marginBottom: 6, minHeight: 52,
                     background: owned ? "rgba(255,255,255,0.04)" : locked ? "rgba(255,255,255,0.01)" : "rgba(255,255,255,0.03)",
                     border: `0.5px solid ${owned ? "rgba(255,255,255,0.08)" : canBuy ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.05)"}`,
                     opacity: locked ? 0.35 : 1,
                     cursor: owned || locked ? "default" : canBuy ? "pointer" : "not-allowed",
-                    // Bigger tap target on mobile
-                    minHeight: 52,
                   }}>
                     <div>
                       <div style={{ fontSize: 13, color: owned ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.8)", marginBottom: 2 }}>
