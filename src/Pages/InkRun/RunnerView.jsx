@@ -423,7 +423,9 @@ export default function RunnerView({ room, onGameOver }) {
 
       if (state.hp <= 0) {
         state.over = true;
-        onGameOver({ distance: Math.floor(state.distance), kills: state.kills, strokes: strokeHistoryRef.current.length }, strokeHistoryRef.current);
+        const finalStats = { distance: Math.floor(state.distance), kills: state.kills, strokes: strokeHistoryRef.current.length };
+        sendGameOver(finalStats);
+        onGameOver(finalStats, strokeHistoryRef.current);
         return;
       }
 

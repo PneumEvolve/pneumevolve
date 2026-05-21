@@ -260,7 +260,7 @@ export default function InkRunGame() {
     },
   }).current;
 
-  const { sendGameOver, sendRestart } =
+  const { sendRestart } =
     useInkRunRoom(activeRoomId, handlers);
 
   function handleRoomReady(roomData, assignedRole) {
@@ -279,7 +279,6 @@ export default function InkRunGame() {
     setFinalStats(stats);
     setStrokeHistory(strokes);
     setPhase("gameover");
-    sendGameOver(stats);
     try {
       await api.patch(`/inkrun/rooms/${room.id}`, { final_score: stats.distance });
     } catch { /* non-critical */ }
