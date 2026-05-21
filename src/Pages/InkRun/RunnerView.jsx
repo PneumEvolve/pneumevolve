@@ -368,7 +368,7 @@ export default function RunnerView({ room, onGameOver }) {
       // Slope push — if standing on a steep-ish stroke, nudge runner uphill along it
       if (state.onGround) {
         for (const stroke of strokes) {
-          if (stroke.color !== "black") continue;
+          if (stroke.color === "red") continue;
           const pts = stroke.points;
           for (let i = 0; i < pts.length - 1; i++) {
             const a = pts[i], b = pts[i + 1];

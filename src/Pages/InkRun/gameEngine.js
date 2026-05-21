@@ -201,7 +201,7 @@ export function surfaceUnder(x, y, gaps, platforms, strokes) {
 
   // Painted black strokes as platforms — find highest one below the runner
   for (const stroke of strokes) {
-    if (stroke.color !== "black") continue;
+  if (stroke.color === "red") continue;
     const sy = strokeYatX(stroke, x);
     if (sy !== null && sy >= y - 2 && (best === null || sy < best)) {
       best = sy;
