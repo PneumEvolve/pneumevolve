@@ -156,6 +156,8 @@ export function generateChunk(chunkIndex, seed) {
         y:  GROUND_Y - 18,
         w:  16 + rand() * 20,
         h:  18,
+        // Collision box only covers the top 8px (spike tips) — not the full base
+        hitH: 8,
       });
     }
   }

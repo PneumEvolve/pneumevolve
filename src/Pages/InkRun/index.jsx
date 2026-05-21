@@ -16,19 +16,11 @@ function WaitingForPlayer2({ room, onPlayer2Joined }) {
     setTimeout(() => setCopied(false), 2000);
   }
 
-  useEffect(() => {
-    if (!room?.id) return;
-    const interval = setInterval(async () => {
-      try {
-        const { data } = await api.get(`/inkrun/rooms/${room.id}`);
-        if (data.status === "active") {
-          clearInterval(interval);
-          onPlayer2Joined(data);
-        }
-      } catch { /* wait */ }
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [room?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Listen for player_ready via realtime instead of polling REST every 2s
+  const handlers = useRef({
+    onPlayerReady: () => { onPlayer2Joined(room); },
+  }).current;
+  useInkRunRoom(room?.id ?? null, handlers);
 
   return (
     <main className="min-h-screen bg-[#0a0a0f] text-white flex flex-col items-center justify-center gap-6 px-4">
@@ -74,10 +66,14 @@ function GameOver({ stats, role, strokeHistory, onRestart }) {
     const totalFrames = allPoints.length;
     if (totalFrames === 0) return;
 
-    // Find bounding box of all strokes to fit them in the canvas
-    const xs = allPoints.map(p => p.x), ys = allPoints.map(p => p.y);
-    const minX = Math.min(...xs), maxX = Math.max(...xs);
-    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    // Find bounding box of all strokes to fit them in the canvas (loop to avoid spread stack overflow)
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const p of allPoints) {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
     const rangeX = Math.max(1, maxX - minX), rangeY = Math.max(1, maxY - minY);
     const scale  = Math.min((W - 40) / rangeX, (H - 40) / rangeY) * 0.85;
     const offX   = W / 2 - (minX + rangeX / 2) * scale;
@@ -89,6 +85,15 @@ function GameOver({ stats, role, strokeHistory, onRestart }) {
 
     ctx.fillStyle = "#0a0a0f";
     ctx.fillRect(0, 0, W, H);
+
+    // Draw a faint ground reference line so strokes have spatial context
+    const { cy: groundCY } = toCanvas(0, 640); // GROUND_Y ≈ 640 in world coords
+    ctx.strokeStyle = "rgba(74,74,122,0.4)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, groundCY);
+    ctx.lineTo(W, groundCY);
+    ctx.stroke();
 
     // Draw POINTS_PER_FRAME points per animation frame for smooth but quick playback
     const POINTS_PER_FRAME = Math.max(1, Math.ceil(totalFrames / 120));
@@ -231,8 +236,12 @@ export default function InkRunGame() {
         setPhase("playing");
       }
     },
+    // game_over is broadcast by p1 (runner) and received here only by p2 (painter).
+    // p1 transitions via handleP1GameOver directly without a broadcast round-trip.
+    // The PainterView also has its own guarded handler — this root handler is the
+    // fallback for when PainterView has already unmounted or not yet subscribed.
     onGameOver: (stats) => {
-      if (phaseRef.current !== "gameover") {
+      if (phaseRef.current === "playing" && roleRef.current === "p2") {
         setFinalStats(stats);
         setPhase("gameover");
       }

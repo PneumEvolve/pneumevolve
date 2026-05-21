@@ -52,11 +52,6 @@ function maxChunkIndex(chunks) {
   for (let i = 0; i < chunks.length; i++) if (chunks[i].chunkIndex > m) m = chunks[i].chunkIndex;
   return m;
 }
-function maxPointX(pts) {
-  let m = -Infinity;
-  for (let i = 0; i < pts.length; i++) if (pts[i].x > m) m = pts[i].x;
-  return m;
-}
 
 // ─── ground rendering (fixed) ─────────────────────────────────────────────────
 // gaps are in world-space; camX converts them to screen-space.
@@ -113,13 +108,31 @@ export default function RunnerView({ room, onGameOver }) {
   const soundRef    = useRef(null);
   const lastMoveRef = useRef(0);
   const strokesRef  = useRef([]);
+  const strokeHistoryRef = useRef([]); // append-only — never trimmed; used for end-of-game timelapse
+  const pingsRef    = useRef([]);         // { wx, wy, from, born } world-space markers
+  const lastTapRef  = useRef(0);          // for double-tap ping detection
 
   const handlers = useRef({
-    onStrokeAdded:    ({ stroke })   => { strokesRef.current = [...strokesRef.current, stroke]; },
+    onStrokeAdded:    ({ stroke })   => {
+      strokesRef.current = [...strokesRef.current, stroke];
+      // Record full original stroke in history (never trimmed)
+      strokeHistoryRef.current = [...strokeHistoryRef.current, { ...stroke, points: [...stroke.points] }];
+    },
     onStrokeReclaimed:({ strokeId }) => { strokesRef.current = strokesRef.current.filter(s => s.id !== strokeId); },
+    // Sync enemy kills that the painter triggers via red strokes
+    onEnemyKilled: ({ enemyId }) => {
+      if (!stateRef.current) return;
+      for (const chunk of stateRef.current.chunks) {
+        const e = chunk.enemies.find(en => en.id === enemyId);
+        if (e) { e.alive = false; break; }
+      }
+    },
+    onPing: ({ wx, wy, from }) => {
+      pingsRef.current = [...pingsRef.current, { wx, wy, from, born: performance.now() }];
+    },
   }).current;
 
-  const { sendRunnerMove, sendGameOver } = useInkRunRoom(room?.id ?? null, handlers, ":game");
+  const { sendRunnerMove, sendGameOver, sendPing, sendWallTime } = useInkRunRoom(room?.id ?? null, handlers, ":game");
 
   // ── state init ──────────────────────────────────────────────────────────────
   function initState() {
@@ -137,6 +150,7 @@ export default function RunnerView({ room, onGameOver }) {
       wallX: -80,
       wallVx: WALL_START_VX,
       wallGrace: WALL_GRACE_S,   // seconds remaining before wall starts
+      wallStartedAt: null,       // performance.now() when grace expires — broadcast to painter
       camX: 0,
       chunks,
       nextChunk: CHUNKS_AHEAD,
@@ -161,6 +175,7 @@ export default function RunnerView({ room, onGameOver }) {
 
     stateRef.current = initState();
     strokesRef.current = [];
+    strokeHistoryRef.current = [];
 
     // ── input ────────────────────────────────────────────────────────────────
     const onKeyDown = (e) => {
@@ -173,22 +188,36 @@ export default function RunnerView({ room, onGameOver }) {
         stateRef.current.coyoteTime = 0;
         soundRef.current?.jump();
       }
+      // P = ping current position to painter
+      if (e.key === "p" || e.key === "P") {
+        const st = stateRef.current;
+        if (st) sendPing(Math.round(st.rx), Math.round(st.ry), "runner");
+      }
     };
     const onKeyUp = (e) => { delete keysRef.current[e.key]; };
 
     const onTouchStart = (e) => {
       soundRef.current?.unlock();
       e.preventDefault();
-      // Process each new touch — supports simultaneous move + jump
+      const W = canvas.offsetWidth;
+      // Zones: left 25% = move left, right 25% = move right, middle 50% = jump
+      // Double-tap middle = send ping at runner position
       for (let i = 0; i < e.changedTouches.length; i++) {
         const touch = e.changedTouches[i];
-        const halfW = canvas.offsetWidth / 2;
-        if (touch.clientX < halfW * 0.35) {
+        const xPct  = touch.clientX / W;
+        if (xPct < 0.25) {
           keysRef.current["ArrowLeft"] = true;
-        } else if (touch.clientX > halfW * 1.65) {
+        } else if (xPct > 0.75) {
           keysRef.current["ArrowRight"] = true;
         } else {
-          // Middle zone or any second touch = jump
+          // Middle zone = jump; double-tap = ping
+          const now = Date.now();
+          if (now - lastTapRef.current < 300) {
+            // Double-tap: send ping at runner's current world position
+            const st = stateRef.current;
+            if (st) sendPing(Math.round(st.rx), Math.round(st.ry), "runner");
+          }
+          lastTapRef.current = now;
           const st = stateRef.current;
           if (st && (st.onGround || st.coyoteTime > 0)) {
             st.vy = JUMP_VY;
@@ -201,12 +230,12 @@ export default function RunnerView({ room, onGameOver }) {
     };
     const onTouchEnd = (e) => {
       e.preventDefault();
-      // Only clear direction keys if no active touches remain in that zone
+      const W = canvas.offsetWidth;
       let hasLeft = false, hasRight = false;
       for (let i = 0; i < e.touches.length; i++) {
-        const halfW = canvas.offsetWidth / 2;
-        if (e.touches[i].clientX < halfW * 0.35) hasLeft = true;
-        if (e.touches[i].clientX > halfW * 1.65) hasRight = true;
+        const xPct = e.touches[i].clientX / W;
+        if (xPct < 0.25)  hasLeft  = true;
+        if (xPct > 0.75)  hasRight = true;
       }
       if (!hasLeft)  delete keysRef.current["ArrowLeft"];
       if (!hasRight) delete keysRef.current["ArrowRight"];
@@ -239,6 +268,11 @@ export default function RunnerView({ room, onGameOver }) {
       // Wall — frozen for WALL_GRACE_S seconds at start
       if (state.wallGrace > 0) {
         state.wallGrace = Math.max(0, state.wallGrace - dt);
+        // On the frame grace expires, broadcast the authoritative timestamp to the painter
+        if (state.wallGrace === 0 && !state.wallStartedAt) {
+          state.wallStartedAt = ts;
+          sendWallTime(ts);
+        }
       } else {
         state.wallVx += WALL_ACCEL * dt;
         state.wallX  += state.wallVx * dt;
@@ -358,8 +392,29 @@ export default function RunnerView({ room, onGameOver }) {
       }
       if (state.invincible === 0) {
         for (const s of allSpikes) {
+          // Only collide with the top portion (spike tips), not the full base
+          const hitTop = s.y + (s.h - (s.hitH ?? s.h));
           if (state.rx + RUNNER_R > s.x && state.rx - RUNNER_R < s.x + s.w &&
-              state.ry + RUNNER_R > s.y && state.ry - RUNNER_R < s.y + s.h) { dmg("spike"); break; }
+              state.ry + RUNNER_R > hitTop && state.ry - RUNNER_R < s.y + s.h) { dmg("spike"); break; }
+        }
+      }
+
+      // Stomp — runner falling onto an enemy kills it
+      if (state.vy > 80) {
+        for (const chunk of state.chunks) {
+          for (const e of chunk.enemies) {
+            if (!e.alive) continue;
+            const dx = state.rx - e.x;
+            const dy = state.ry - e.y;
+            // Must be coming from above (runner bottom overlapping enemy top half)
+            if (Math.abs(dx) < RUNNER_R + 10 && dy < 0 && dy > -(RUNNER_R + 18)) {
+              e.alive = false;
+              state.kills++;
+              state.vy = JUMP_VY * 0.55; // bounce
+              soundRef.current?.jump();
+              break;
+            }
+          }
         }
       }
 
@@ -368,7 +423,7 @@ export default function RunnerView({ room, onGameOver }) {
 
       if (state.hp <= 0) {
         state.over = true;
-        onGameOver({ distance: Math.floor(state.distance), kills: state.kills, strokes: strokesRef.current.length }, strokesRef.current);
+        onGameOver({ distance: Math.floor(state.distance), kills: state.kills, strokes: strokeHistoryRef.current.length }, strokeHistoryRef.current);
         return;
       }
 
@@ -510,6 +565,9 @@ export default function RunnerView({ room, onGameOver }) {
         });
       });
 
+      // Expire old pings (3s lifetime)
+      pingsRef.current = pingsRef.current.filter(p => ts - p.born < 3000);
+
       // Painted strokes
       for (const stroke of strokes) {
         if (!stroke.points || stroke.points.length < 2) continue;
@@ -527,8 +585,31 @@ export default function RunnerView({ room, onGameOver }) {
         ctx.restore();
       }
 
+      // Pings — world-space markers sent by painter
+      for (const ping of pingsRef.current) {
+        const age   = (ts - ping.born) / 3000;
+        const alpha = 1 - age;
+        const px    = ping.wx - camX;
+        const py    = ping.wy;
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.beginPath();
+        ctx.arc(px, py, 16 + Math.sin(t * 6) * 3, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(255,220,80,0.9)";
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(px, py, 4, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(255,220,80,0.9)";
+        ctx.fill();
+        ctx.font = "bold 10px monospace";
+        ctx.fillStyle = "rgba(255,220,80,0.9)";
+        ctx.textAlign = "center";
+        ctx.fillText("painter", px, py - 24);
+        ctx.restore();
+      }
+
       // Wall
-      const wallSX = state.wallX - camX;
       const grad   = ctx.createLinearGradient(wallSX - 40, 0, wallSX, 0);
       grad.addColorStop(0, "rgba(120,60,200,0)");
       grad.addColorStop(1, "rgba(120,60,200,0.85)");
@@ -620,7 +701,7 @@ export default function RunnerView({ room, onGameOver }) {
         fontSize: 10, color: "rgba(255,255,255,0.15)", pointerEvents: "none",
         letterSpacing: "0.06em", whiteSpace: "nowrap",
       }}>
-        ← left · tap middle to jump · right →
+        ◀ left · tap middle to jump (double-tap = ping) · right ▶  ·  [P] to ping
       </div>
     </div>
   );

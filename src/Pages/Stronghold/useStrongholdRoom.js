@@ -6,7 +6,7 @@ export function useStrongholdRoom(roomId, handlers) {
   const channelRef    = useRef(null);
   const handlersRef   = useRef(handlers);
   const subscribedRef = useRef(false);
-  const pendingRef    = useRef(null);
+  const pendingRef    = useRef([]);
 
   useEffect(() => { handlersRef.current = handlers; }, [handlers]);
 
@@ -43,9 +43,9 @@ export function useStrongholdRoom(roomId, handlers) {
       if (status === "SUBSCRIBED") {
         subscribedRef.current = true;
         channelRef.current    = channel;
-        if (pendingRef.current) {
-          channel.send(pendingRef.current);
-          pendingRef.current = null;
+        if (pendingRef.current.length > 0) {
+          pendingRef.current.forEach(msg => channel.send(msg));
+          pendingRef.current = [];
         }
       }
     });
@@ -63,7 +63,7 @@ export function useStrongholdRoom(roomId, handlers) {
     if (subscribedRef.current && channelRef.current) {
       channelRef.current.send(msg);
     } else {
-      pendingRef.current = msg;
+      pendingRef.current.push(msg);
     }
   }, []);
 

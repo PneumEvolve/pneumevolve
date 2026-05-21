@@ -30,7 +30,9 @@ export function useInkRunRoom(roomId, handlers, channelSuffix = "") {
       .on("broadcast", { event: "game_over"       }, ({ payload }) => handlersRef.current.onGameOver?.(payload))
       .on("broadcast", { event: "player_ready"    }, ({ payload }) => handlersRef.current.onPlayerReady?.(payload))
       .on("broadcast", { event: "restart"         }, ({ payload }) => handlersRef.current.onRestart?.(payload))
-      .on("broadcast", { event: "chat"            }, ({ payload }) => handlersRef.current.onChat?.(payload));
+      .on("broadcast", { event: "chat"            }, ({ payload }) => handlersRef.current.onChat?.(payload))
+      .on("broadcast", { event: "ping"            }, ({ payload }) => handlersRef.current.onPing?.(payload))
+      .on("broadcast", { event: "wall_time"       }, ({ payload }) => handlersRef.current.onWallTime?.(payload));
 
     channel.subscribe((status) => {
       if (status === "SUBSCRIBED") {
@@ -61,15 +63,19 @@ export function useInkRunRoom(roomId, handlers, channelSuffix = "") {
     }
   }, []);
 
-  const sendPlayerReady   = useCallback(() =>                    send("player_ready",   { ready: true }),           [send]);
-  const sendRunnerMove    = useCallback((x, y, vy, state, wallX) => send("runner_move", { x, y, vy, state, wallX }), [send]);
+  const sendPlayerReady   = useCallback(() =>                       send("player_ready",   { ready: true }),              [send]);
+  const sendRunnerMove    = useCallback((x, y, vy, state, wallX) => send("runner_move",    { x, y, vy, state, wallX }), [send]);
   // stroke: { id, color, points: [{x,y},...] }
-  const sendStrokeAdded   = useCallback((stroke) =>              send("stroke_added",   { stroke }),                [send]);
-  const sendStrokeReclaimed = useCallback((strokeId) =>          send("stroke_reclaimed",{ strokeId }),             [send]);
-  const sendEnemyKilled   = useCallback((enemyId) =>             send("enemy_killed",   { enemyId }),               [send]);
-  const sendGameOver      = useCallback((stats) =>               send("game_over",       stats),                    [send]);
-  const sendRestart       = useCallback((seed, swap) =>          send("restart",        { seed, swap }),            [send]);
-  const sendChat          = useCallback((text, from) =>          send("chat",           { text, from }),            [send]);
+  const sendStrokeAdded   = useCallback((stroke) =>                 send("stroke_added",   { stroke }),                 [send]);
+  const sendStrokeReclaimed = useCallback((strokeId) =>             send("stroke_reclaimed",{ strokeId }),              [send]);
+  const sendEnemyKilled   = useCallback((enemyId) =>                send("enemy_killed",   { enemyId }),                [send]);
+  const sendGameOver      = useCallback((stats) =>                  send("game_over",        stats),                    [send]);
+  const sendRestart       = useCallback((seed, swap) =>             send("restart",         { seed, swap }),            [send]);
+  const sendChat          = useCallback((text, from) =>             send("chat",            { text, from }),            [send]);
+  // ping: world-space marker so painter can see where runner needs help
+  const sendPing          = useCallback((wx, wy, from) =>           send("ping",            { wx, wy, from }),          [send]);
+  // wall_time: runner broadcasts authoritative game-start timestamp so painter syncs grace timer
+  const sendWallTime      = useCallback((startedAt) =>              send("wall_time",       { startedAt }),             [send]);
 
   return {
     sendPlayerReady,
@@ -80,5 +86,7 @@ export function useInkRunRoom(roomId, handlers, channelSuffix = "") {
     sendGameOver,
     sendRestart,
     sendChat,
+    sendPing,
+    sendWallTime,
   };
 }

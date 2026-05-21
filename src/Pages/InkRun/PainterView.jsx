@@ -12,11 +12,6 @@ function maxChunkIndex(chunks) {
   for (let i = 0; i < chunks.length; i++) if (chunks[i].chunkIndex > m) m = chunks[i].chunkIndex;
   return m;
 }
-function maxPointX(pts) {
-  let m = -Infinity;
-  for (let i = 0; i < pts.length; i++) if (pts[i].x > m) m = pts[i].x;
-  return m;
-}
 function strokeLen(stroke) {
   let len = 0;
   for (let i = 1; i < stroke.points.length; i++) {
@@ -63,8 +58,11 @@ export default function PainterView({ room, onGameOver }) {
   const stateRef   = useRef(null);
   const rafRef     = useRef(null);
   const strokesRef = useRef([]);
+  const strokeHistoryRef = useRef([]); // append-only — never trimmed; used for end-of-game timelapse
   const strokeIdRef = useRef(0);
   const colorRef   = useRef("black");
+  const pingsRef   = useRef([]);         // { wx, wy, from, born }
+  const gameOverFiredRef = useRef(false); // guard against double-fire
   // runnerTargetRef: last received broadcast position (raw, may be snappy)
   // runnerDispRef:   smoothly interpolated display position
   const runnerTargetRef = useRef({ x: 160, y: GROUND_Y - RUNNER_R, vy: 0, state: "ground" });
@@ -83,10 +81,23 @@ export default function PainterView({ room, onGameOver }) {
         stateRef.current.wallX = wallX;
       }
     },
-    onGameOver:   (stats) => { onGameOver(stats, strokesRef.current); },
+    // Runner broadcasts exact timestamp when grace expires — sync wall timer to it
+    onWallTime: ({ startedAt }) => {
+      if (!stateRef.current) return;
+      stateRef.current.wallGrace    = 0;
+      stateRef.current.wallStartedAt = startedAt;
+    },
+    onGameOver: (stats) => {
+      if (gameOverFiredRef.current) return;
+      gameOverFiredRef.current = true;
+      onGameOver(stats, strokeHistoryRef.current);
+    },
+    onPing: ({ wx, wy, from }) => {
+      pingsRef.current = [...pingsRef.current, { wx, wy, from, born: performance.now() }];
+    },
   }).current;
 
-  const { sendStrokeAdded, sendStrokeReclaimed, sendEnemyKilled } =
+  const { sendStrokeAdded, sendStrokeReclaimed, sendEnemyKilled, sendPing } =
     useInkRunRoom(room?.id ?? null, handlers, ":game");
 
   function initState() {
@@ -98,6 +109,7 @@ export default function PainterView({ room, onGameOver }) {
       chunks, nextChunk: CHUNKS_AHEAD,
       drawing: false, currentStroke: null, didDrag: false,
       wallX: -80, wallVx: 60, wallGrace: WALL_GRACE_S,
+      wallStartedAt: null,  // set when runner broadcasts wall_time
       lastTime: performance.now(),
     };
   }
@@ -166,8 +178,17 @@ export default function PainterView({ room, onGameOver }) {
     state.drawing = false;
     const stroke = state.currentStroke;
     state.currentStroke = null;
-    if (!state.didDrag || stroke.points.length < 2) return;
+    if (!state.didDrag || stroke.points.length < 2) {
+      // Single tap with no drag = ping at that location
+      if (stroke.points.length >= 1) {
+        const { x: wx, y: wy } = stroke.points[0];
+        pingsRef.current = [...pingsRef.current, { wx, wy, from: "painter", born: performance.now() }];
+        sendPing(Math.round(wx), Math.round(wy), "painter");
+      }
+      return;
+    }
     strokesRef.current = [...strokesRef.current, stroke];
+    strokeHistoryRef.current = [...strokeHistoryRef.current, { ...stroke, points: [...stroke.points] }];
     setInkUsed(totalInk());
     sendStrokeAdded(stroke);
   }
@@ -222,6 +243,8 @@ export default function PainterView({ room, onGameOver }) {
 
     stateRef.current   = initState();
     strokesRef.current = [];
+    strokeHistoryRef.current = [];
+    gameOverFiredRef.current = false;
 
     canvas.addEventListener("touchstart", onTouchStart, { passive: false });
     canvas.addEventListener("touchmove",  onTouchMove,  { passive: false });
@@ -240,15 +263,17 @@ export default function PainterView({ room, onGameOver }) {
       const t = ts / 1000;
 
       // Wall position is authoritative from the runner via onRunnerMove broadcast.
-      // We only need local simulation during the brief window before first broadcast arrives.
+      // Grace is authoritative via onWallTime. Only use local simulation before first sync arrives.
       if (state.wallGrace > 0) {
         state.wallGrace = Math.max(0, state.wallGrace - dt);
-      } else if (runnerTargetRef.current.wallX === undefined) {
-        // Fallback: runner hasn't broadcast yet, simulate locally so the wall isn't frozen
+        // Note: if wallGrace hits 0 here locally, we wait for runner's onWallTime
+        // to actually set wallStartedAt before advancing wall locally.
+      } else if (!state.wallStartedAt && runnerTargetRef.current.wallX === undefined) {
+        // Fallback: runner hasn't broadcast yet at all, simulate locally
         state.wallVx += 2.5 * dt;
         state.wallX  += state.wallVx * dt;
       }
-      // (Once wallX arrives via onRunnerMove, stateRef.wallX is set there directly)
+      // Once wallX arrives via onRunnerMove, stateRef.wallX is set there directly
 
       // Reclaim / trim strokes eaten by wall
       const beforeCount = strokesRef.current.length;
@@ -264,6 +289,38 @@ export default function PainterView({ room, onGameOver }) {
       });
       // Update ink bar whenever strokes change (either removed or trimmed)
       if (strokesRef.current.length !== beforeCount || Math.abs(totalInk() - beforeInk) > 5) {
+        setInkUsed(totalInk());
+      }
+
+      // Ink regenerates slowly over time (15 units/s) — encourages strategic redrawing
+      // We implement this by slightly shortening the oldest strokes from their start
+      const INK_REGEN_RATE = 15; // world-units per second
+      const regenAmount = INK_REGEN_RATE * dt;
+      let toRegen = regenAmount;
+      if (toRegen > 0 && strokesRef.current.length > 0) {
+        strokesRef.current = strokesRef.current.flatMap(s => {
+          if (toRegen <= 0) return [s];
+          // Trim from the beginning of the oldest stroke
+          const pts = s.points;
+          let trimmed = [...pts];
+          while (trimmed.length >= 2 && toRegen > 0) {
+            const segLen = Math.hypot(trimmed[1].x - trimmed[0].x, trimmed[1].y - trimmed[0].y);
+            if (segLen <= toRegen) {
+              toRegen -= segLen;
+              trimmed = trimmed.slice(1);
+            } else {
+              // Partial trim — move start point along the segment
+              const ratio = toRegen / segLen;
+              trimmed[0] = {
+                x: trimmed[0].x + (trimmed[1].x - trimmed[0].x) * ratio,
+                y: trimmed[0].y + (trimmed[1].y - trimmed[0].y) * ratio,
+              };
+              toRegen = 0;
+            }
+          }
+          if (trimmed.length < 2) return [];
+          return [{ ...s, points: trimmed }];
+        });
         setInkUsed(totalInk());
       }
 
@@ -416,8 +473,34 @@ export default function PainterView({ room, onGameOver }) {
         ctx.stroke(); ctx.setLineDash([]); ctx.restore();
       }
 
+      // Expire old pings (3s lifetime)
+      pingsRef.current = pingsRef.current.filter(p => ts - p.born < 3000);
+
+      // Pings — world-space markers sent by runner (yellow) or painter (cyan)
+      for (const ping of pingsRef.current) {
+        const age   = (ts - ping.born) / 3000;
+        const alpha = 1 - age;
+        const px    = ping.wx - camX;
+        const py    = ping.wy;
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.beginPath();
+        ctx.arc(px, py, 16 + Math.sin(t * 6) * 3, 0, Math.PI * 2);
+        ctx.strokeStyle = ping.from === "runner" ? "rgba(255,220,80,0.9)" : "rgba(80,220,255,0.9)";
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(px, py, 4, 0, Math.PI * 2);
+        ctx.fillStyle = ping.from === "runner" ? "rgba(255,220,80,0.9)" : "rgba(80,220,255,0.9)";
+        ctx.fill();
+        ctx.font = "bold 10px monospace";
+        ctx.fillStyle = ping.from === "runner" ? "rgba(255,220,80,0.9)" : "rgba(80,220,255,0.9)";
+        ctx.textAlign = "center";
+        ctx.fillText(ping.from === "runner" ? "runner" : "here!", px, py - 24);
+        ctx.restore();
+      }
+
       // Wall
-      const wallSX = state.wallX - camX;
       const grad   = ctx.createLinearGradient(wallSX-40, 0, wallSX, 0);
       grad.addColorStop(0, "rgba(120,60,200,0)");
       grad.addColorStop(1, "rgba(120,60,200,0.7)");
@@ -509,7 +592,7 @@ export default function PainterView({ room, onGameOver }) {
         fontSize: 10, color: "rgba(255,255,255,0.15)", pointerEvents: "none",
         letterSpacing: "0.06em", whiteSpace: "nowrap",
       }}>
-        {outOfInk ? "out of ink — wall will reclaim soon" : "draw to help · 2-finger drag to scroll"}
+        {outOfInk ? "out of ink — wall will reclaim soon" : "draw to help · tap to ping · 2-finger drag to scroll"}
       </div>
     </div>
   );

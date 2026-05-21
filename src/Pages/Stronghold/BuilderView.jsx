@@ -142,13 +142,12 @@ export default function BuilderView({ room, onGameOver }) {
     },
     onRestart: ({ seed, swap }) => {
       // Protector triggered a restart — tell parent so index.jsx can remount
-      // with the correct new role and seed
-      if (!stateRef.current) return;
-      const currentWave = stateRef.current?.waveNumber ?? 0;
-      const standing    = stateRef.current?.buildings?.filter(b => b.hp > 0).length ?? 0;
-      const total       = stateRef.current?.buildings?.length ?? 0;
+      // with the correct new role and seed. Do not guard on stateRef.current
+      // — if the component is already unmounting we still need to call onGameOver.
       onGameOver({
-        waveReached: currentWave, standing, total,
+        waveReached:   stateRef.current?.waveNumber ?? 0,
+        standing:      stateRef.current?.buildings?.filter(b => b.hp > 0).length ?? 0,
+        total:         stateRef.current?.buildings?.length ?? 0,
         enemiesKilled: stateRef.current?.enemies?.filter(e => e.dead).length ?? 0,
         _restart: true, _seed: seed, _swap: swap,
       });
