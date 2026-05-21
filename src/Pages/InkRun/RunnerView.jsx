@@ -476,6 +476,7 @@ export default function RunnerView({ room, onGameOver }) {
 
       // ── DRAW ────────────────────────────────────────────────────────────────
       const camX = state.camX;
+      const wallSX = state.wallX - camX;
 
       ctx.fillStyle = "#0a0a0f";
       ctx.fillRect(0, 0, W, H);

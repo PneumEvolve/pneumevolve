@@ -97,7 +97,7 @@ export default function PainterView({ room, onGameOver }) {
     },
   }).current;
 
-  const { sendStrokeAdded, sendStrokeReclaimed, sendEnemyKilled, sendPing } =
+  const { sendStrokeAdded, sendStrokeReclaimed, sendPing } =
     useInkRunRoom(room?.id ?? null, handlers, ":game");
 
   // Send player_ready on the bare channel (no suffix) — that's what WaitingForPlayer2
@@ -157,7 +157,8 @@ export default function PainterView({ room, onGameOver }) {
     const rect = canvas.getBoundingClientRect();
     const cy = clientY - rect.top;
     if (cy < 44) return; // HUD guard
-    if (totalInk() >= MAX_INK) return;
+    // Eraser doesn't consume ink, so skip the ink check for it
+    if (colorRef.current !== "eraser" && totalInk() >= MAX_INK) return;
     const { wx, wy } = canvasToWorld(clientX - rect.left, cy);
     const id = `s${++strokeIdRef.current}_${Date.now()}`;
     stateRef.current.drawing = true;
@@ -174,9 +175,12 @@ export default function PainterView({ room, onGameOver }) {
     const pts  = state.currentStroke.points;
     const last = pts[pts.length - 1];
     if (Math.hypot(wx - last.x, wy - last.y) < 4) return;
-    const tentLen  = strokeLen({ points: [...pts, { x: wx, y: wy }] });
-    const otherInk = strokesRef.current.reduce((s, st) => s + strokeLen(st), 0);
-    if (otherInk + tentLen > MAX_INK) return;
+    // Eraser doesn't consume ink — skip the ink cap check
+    if (colorRef.current !== "eraser") {
+      const tentLen  = strokeLen({ points: [...pts, { x: wx, y: wy }] });
+      const otherInk = strokesRef.current.reduce((s, st) => s + strokeLen(st), 0);
+      if (otherInk + tentLen > MAX_INK) return;
+    }
     pts.push({ x: wx, y: wy });
     state.didDrag = true;
   }
@@ -196,6 +200,28 @@ export default function PainterView({ room, onGameOver }) {
       }
       return;
     }
+
+    if (colorRef.current === "eraser") {
+      // Erase: remove points from existing strokes that are close to the eraser path
+      const ERASE_R = 18;
+      const eraserPts = stroke.points;
+      strokesRef.current = strokesRef.current.flatMap(s => {
+        const kept = s.points.filter(p => {
+          for (let i = 0; i < eraserPts.length - 1; i++) {
+            const a = eraserPts[i], b = eraserPts[i + 1];
+            const dx = b.x - a.x, dy = b.y - a.y, len2 = dx*dx + dy*dy || 1;
+            const t2 = Math.max(0, Math.min(1, ((p.x-a.x)*dx + (p.y-a.y)*dy) / len2));
+            if (Math.hypot(p.x - (a.x + t2*dx), p.y - (a.y + t2*dy)) < ERASE_R) return false;
+          }
+          return true;
+        });
+        if (kept.length < 2) { sendStrokeReclaimed(s.id); return []; }
+        return [{ ...s, points: kept }];
+      });
+      setInkUsed(totalInk());
+      return;
+    }
+
     strokesRef.current = [...strokesRef.current, stroke];
     strokeHistoryRef.current = [...strokeHistoryRef.current, { ...stroke, points: [...stroke.points] }];
     setInkUsed(totalInk());
@@ -301,38 +327,6 @@ export default function PainterView({ room, onGameOver }) {
         setInkUsed(totalInk());
       }
 
-      // Ink regenerates slowly over time (15 units/s) — encourages strategic redrawing
-      // We implement this by slightly shortening the oldest strokes from their start
-      const INK_REGEN_RATE = 15; // world-units per second
-      const regenAmount = INK_REGEN_RATE * dt;
-      let toRegen = regenAmount;
-      if (toRegen > 0 && strokesRef.current.length > 0) {
-        strokesRef.current = strokesRef.current.flatMap(s => {
-          if (toRegen <= 0) return [s];
-          // Trim from the beginning of the oldest stroke
-          const pts = s.points;
-          let trimmed = [...pts];
-          while (trimmed.length >= 2 && toRegen > 0) {
-            const segLen = Math.hypot(trimmed[1].x - trimmed[0].x, trimmed[1].y - trimmed[0].y);
-            if (segLen <= toRegen) {
-              toRegen -= segLen;
-              trimmed = trimmed.slice(1);
-            } else {
-              // Partial trim — move start point along the segment
-              const ratio = toRegen / segLen;
-              trimmed[0] = {
-                x: trimmed[0].x + (trimmed[1].x - trimmed[0].x) * ratio,
-                y: trimmed[0].y + (trimmed[1].y - trimmed[0].y) * ratio,
-              };
-              toRegen = 0;
-            }
-          }
-          if (trimmed.length < 2) return [];
-          return [{ ...s, points: trimmed }];
-        });
-        setInkUsed(totalInk());
-      }
-
       // Interpolate displayed runner position toward broadcast target (fixes jitter)
       const target = runnerTargetRef.current;
       const disp   = runnerDispRef.current;
@@ -357,24 +351,8 @@ export default function PainterView({ room, onGameOver }) {
       }
       state.chunks = state.chunks.filter(c => (c.chunkIndex + 1) * CHUNK_W > state.camX - 200);
 
-      // Enemy AI + red-stroke kills
+      // Enemy AI update
       state.chunks.forEach(chunk => updateEnemies(chunk.enemies, dt, t));
-      state.chunks.forEach(chunk => {
-        chunk.enemies.forEach(e => {
-          if (!e.alive) return;
-          for (const stroke of strokesRef.current) {
-            if (stroke.color !== "red") continue;
-            for (let i = 0; i < stroke.points.length - 1; i++) {
-              const a = stroke.points[i], b = stroke.points[i+1];
-              const dx = b.x-a.x, dy = b.y-a.y, len2 = dx*dx+dy*dy||1;
-              const t2  = Math.max(0, Math.min(1, ((e.x-a.x)*dx+(e.y-a.y)*dy)/len2));
-              if (Math.hypot(e.x-(a.x+t2*dx), e.y-(a.y+t2*dy)) < ENEMY_R+6) {
-                e.alive = false; sendEnemyKilled(e.id);
-              }
-            }
-          }
-        });
-      });
 
       // ── DRAW ────────────────────────────────────────────────────────────────
       const camX   = state.camX;
@@ -461,25 +439,39 @@ export default function PainterView({ room, onGameOver }) {
           const p = stroke.points[i], sx = p.x - camX;
           i === 0 ? ctx.moveTo(sx, p.y) : ctx.lineTo(sx, p.y);
         }
-        ctx.strokeStyle = stroke.color === "red" ? "rgba(255,80,80,0.18)" : "rgba(180,160,255,0.18)";
+        ctx.strokeStyle = "rgba(180,160,255,0.18)";
         ctx.lineWidth = 14; ctx.stroke();
-        ctx.strokeStyle = stroke.color === "red" ? "rgba(255,80,80,0.9)" : "rgba(220,230,255,0.88)";
+        ctx.strokeStyle = "rgba(220,230,255,0.88)";
         ctx.lineWidth = 5; ctx.stroke();
         ctx.restore();
       }
 
       // Live stroke preview
-      if (state.currentStroke?.points?.length > 1) {
+      if (state.currentStroke?.points?.length >= 1) {
         const s = state.currentStroke;
-        ctx.save(); ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.setLineDash([8, 4]);
-        ctx.strokeStyle = s.color === "red" ? "rgba(255,80,80,0.6)" : "rgba(220,230,255,0.6)";
-        ctx.lineWidth = 5;
-        ctx.beginPath();
-        for (let i = 0; i < s.points.length; i++) {
-          const p = s.points[i], sx = p.x - camX;
-          i === 0 ? ctx.moveTo(sx, p.y) : ctx.lineTo(sx, p.y);
+        const last = s.points[s.points.length - 1];
+        if (s.color === "eraser") {
+          // Show eraser as a dashed circle cursor
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(last.x - camX, last.y, 18, 0, Math.PI * 2);
+          ctx.strokeStyle = "rgba(255,255,255,0.4)";
+          ctx.lineWidth = 2;
+          ctx.setLineDash([4, 3]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.restore();
+        } else if (s.points.length > 1) {
+          ctx.save(); ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.setLineDash([8, 4]);
+          ctx.strokeStyle = "rgba(220,230,255,0.6)";
+          ctx.lineWidth = 5;
+          ctx.beginPath();
+          for (let i = 0; i < s.points.length; i++) {
+            const p = s.points[i], sx = p.x - camX;
+            i === 0 ? ctx.moveTo(sx, p.y) : ctx.lineTo(sx, p.y);
+          }
+          ctx.stroke(); ctx.setLineDash([]); ctx.restore();
         }
-        ctx.stroke(); ctx.setLineDash([]); ctx.restore();
       }
 
       // Expire old pings (3s lifetime)
@@ -573,13 +565,13 @@ export default function PainterView({ room, onGameOver }) {
     <div style={{ width: "100%", height: "100svh", background: "#0a0a0f", position: "relative", overflow: "hidden", userSelect: "none" }}>
       <canvas
         ref={canvasRef}
-        style={{ width: "100%", height: "100%", display: "block", touchAction: "none", cursor: outOfInk ? "not-allowed" : "crosshair" }}
+        style={{ width: "100%", height: "100%", display: "block", touchAction: "none", cursor: color === "eraser" ? "none" : outOfInk ? "not-allowed" : "crosshair" }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
       />
 
-      {/* Color buttons */}
+      {/* Tool buttons */}
       <div style={{ position: "absolute", bottom: 24, right: 14, display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
         <button onClick={handleRecenter} style={{
           background: "rgba(255,255,255,0.05)", border: "0.5px solid rgba(255,255,255,0.15)",
@@ -590,11 +582,16 @@ export default function PainterView({ room, onGameOver }) {
           background: color === "black" ? "rgba(220,230,255,0.9)" : "rgba(220,230,255,0.25)",
           boxShadow: color === "black" ? "0 0 0 2px rgba(180,140,255,0.7)" : "none",
         }} />
-        <button onClick={() => { setColor("red"); colorRef.current = "red"; }} style={{
-          width: 36, height: 36, borderRadius: "50%", border: "none", cursor: "pointer", transition: "all 0.15s",
-          background: color === "red" ? "rgba(255,80,80,0.9)" : "rgba(255,80,80,0.25)",
-          boxShadow: color === "red" ? "0 0 0 2px rgba(255,80,80,0.7)" : "none",
-        }} />
+        <button
+          onClick={() => { setColor("eraser"); colorRef.current = "eraser"; }}
+          style={{
+            width: 36, height: 36, borderRadius: "50%", border: "none", cursor: "pointer", transition: "all 0.15s",
+            background: color === "eraser" ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.06)",
+            boxShadow: color === "eraser" ? "0 0 0 2px rgba(255,255,255,0.5)" : "0 0 0 1px rgba(255,255,255,0.15)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 16, color: color === "eraser" ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.4)",
+          }}
+        >✕</button>
       </div>
 
       <div style={{
@@ -602,7 +599,7 @@ export default function PainterView({ room, onGameOver }) {
         fontSize: 10, color: "rgba(255,255,255,0.15)", pointerEvents: "none",
         letterSpacing: "0.06em", whiteSpace: "nowrap",
       }}>
-        {outOfInk ? "out of ink — wall will reclaim soon" : "draw to help · tap to ping · 2-finger drag to scroll"}
+        {outOfInk && color !== "eraser" ? "out of ink — erase old lines to free space" : "draw to help · tap to ping · 2-finger drag to scroll · ✕ to erase"}
       </div>
     </div>
   );
