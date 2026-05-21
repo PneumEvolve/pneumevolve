@@ -227,8 +227,10 @@ export default function InkRunGame() {
   useEffect(() => { roleRef.current  = role;  }, [role]);
   useEffect(() => { roomRef.current  = room;  }, [room]);
 
-  // Only subscribe at index level when not playing (same pattern as Firefly)
-  const activeRoomId = phase === "playing" ? null : room?.id ?? null;
+  // Don't subscribe at root level during "waiting" — WaitingForPlayer2 owns that
+  // channel exclusively so its onPlayerReady handler isn't stomped by a competing
+  // subscription on the same channel name.
+  const activeRoomId = (phase === "waiting" || phase === "playing") ? null : room?.id ?? null;
 
   const handlers = useRef({
     onPlayerReady: () => {
