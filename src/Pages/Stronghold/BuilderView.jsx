@@ -1,6 +1,6 @@
 // src/Pages/Stronghold/BuilderView.jsx
 import { drawBuilding as drawBuildingIllustrated } from "./drawBuildings";
-import { initAudio, setMood, sfxPlaceBuilding, sfxWorkerDeath, sfxBuilderDanger } from "./audio";
+import { initAudio, setMood, sfxPlaceBuilding, sfxWorkerDeath, sfxBuilderDanger, sfxPing } from "./audio";
 import React, { useEffect, useRef, useState } from "react";
 import { useStrongholdRoom } from "./useStrongholdRoom";
 import {
@@ -12,7 +12,7 @@ import {
   BUILDER_DIRECT_REPAIR_RADIUS, BUILDER_TOTAL_MAX_HP, REVIVE_RADIUS,
   BUILDER_PLACE_RANGE_BONUS,
   createInitialMap, lerp, dist, calcTownspeople, clampWorkers,
-  applyConstructionAura, sellBuilding,
+  applyConstructionAura, sellBuilding, updateBuilderRepair,
 } from "./strongholdEngine";
 
 const BUILDER_SPEED  = 150;
@@ -50,16 +50,36 @@ export default function BuilderView({ room, onGameOver }) {
     },
     onBuildingHealth: ({ buildings, builderHp, protectorHp, lockedWorkers }) => {
       if (!stateRef.current) return;
-      buildings.forEach(({ id, hp, workers }) => {
+      buildings.forEach(({ id, hp, workers, turretProjectiles }) => {
         const b = stateRef.current.buildings.find(b => b.id === id);
-        if (b) { b.hp = hp; if (workers !== undefined) b.workers = workers; }
+        if (b) {
+          b.hp = hp;
+          if (workers !== undefined) b.workers = workers;
+          if (turretProjectiles !== undefined) b.turretProjectiles = turretProjectiles;
+        }
       });
       if (builderHp !== undefined) stateRef.current.builderHp = builderHp;
       if (protectorHp !== undefined) stateRef.current.protectorHp = protectorHp;
       if (lockedWorkers !== undefined) stateRef.current.lockedWorkers = lockedWorkers;
     },
     onEnemyUpdate:  ({ enemies }) => { if (stateRef.current) stateRef.current.enemies = enemies; },
-    onUnitUpdate:   ({ units })   => { if (stateRef.current) stateRef.current.units   = units;   },
+    onUnitUpdate:   ({ units })   => {
+      if (!stateRef.current) return;
+      // Merge hp/maxHp onto existing units, add new ones, remove dead ones
+      const existingMap = new Map(stateRef.current.units.map(u => [u.id, u]));
+      units.forEach(({ id, x, y, hp, maxHp }) => {
+        const u = existingMap.get(id);
+        if (u) {
+          u.x = x; u.y = y;
+          if (hp !== undefined) u.hp = hp;
+          if (maxHp !== undefined) u.maxHp = maxHp;
+        } else {
+          stateRef.current.units.push({ id, x, y, hp, maxHp });
+        }
+      });
+      const liveIds = new Set(units.map(u => u.id));
+      stateRef.current.units = stateRef.current.units.filter(u => liveIds.has(u.id));
+    },
     onGoldUpdate: ({ gold, from }) => {
   if (from === "builder") return;   // ← ignore own echoes
   if (stateRef.current) { stateRef.current.gold = gold; setGold(gold); }
@@ -76,11 +96,18 @@ export default function BuilderView({ room, onGameOver }) {
         setTownspeople(tp);
       }
       if (builderHp !== undefined) stateRef.current.builderHp = builderHp;
-      if (phase === "breather") { stateRef.current.lockedWorkers = 0; setSelectedType(null); setMood("cozy"); }
+      if (phase === "breather") {
+        stateRef.current.lockedWorkers = 0;
+        stateRef.current.breatherLeft = waveNumber !== undefined ? (waveNumber <= 2 ? 45 : 30) : 30;
+        setSelectedType(null); setMood("cozy");
+      }
       if (phase === "wave")     { setAssignPanel(null);  setMood("tense"); }
       if (phase === "gameover") { setMood(null); onGameOver({ won, waveReached: waveNumber ?? stateRef.current?.waveNumber ?? 0, standing: stateRef.current?.buildings?.filter(b => b.hp > 0).length ?? 0, total: stateRef.current?.buildings?.length ?? 0, enemiesKilled: stateRef.current?.enemies?.filter(e => e.dead).length ?? 0 }); }
     },
-    onCountdown: ({ seconds }) => setCountdown(Math.ceil(seconds)),
+    onCountdown: ({ seconds }) => {
+      if (stateRef.current) stateRef.current.breatherLeft = seconds;
+      setCountdown(Math.ceil(seconds));
+    },
     onChat: ({ text, from }) => {
       if (!stateRef.current) return;
       stateRef.current.chatMessages?.unshift({ text, from, ts: Date.now() });
@@ -98,6 +125,7 @@ export default function BuilderView({ room, onGameOver }) {
       if (!s) return;
       if (!s.activePings) s.activePings = [];
       s.activePings.push({ x, y, from, ts: Date.now() });
+      sfxPing();
     },
     onWaveSummary: (data) => {
       setWaveSummary(data);
@@ -118,7 +146,7 @@ export default function BuilderView({ room, onGameOver }) {
     },
   }).current;
 
-  const { sendP2Move, sendBuildingPlace, sendChat, sendWorkerAssign, sendPlayerReady, sendGoldUpdate, sendRevive, sendPing } =
+  const { sendP2Move, sendBuildingPlace, sendChat, sendWorkerAssign, sendPlayerReady, sendGoldUpdate, sendRevive, sendPing, sendAllegianceChange } =
     useStrongholdRoom(room?.id ?? null, handlers);
 
   // ── State init ────────────────────────────────────────────────────────────
@@ -184,20 +212,23 @@ export default function BuilderView({ room, onGameOver }) {
 
     const { wx, wy } = canvasToWorld(screenX, screenY);
 
-    // Check building tap for worker assignment (any phase)
-    for (const b of state.buildings) {
-      if (b.hp <= 0) continue;
-      const def = BUILDING_TYPES[b.type];
-      if (dist(wx, wy, b.x, b.y) < def.radius + 12) {
-        setAssignPanel({ buildingId: b.id, screenX, screenY });
-        return;
+    // Check building tap for worker assignment — only when NOT in placement mode.
+    // This prevents the panel from auto-opening right after you place a building.
+    if (!selectedTypeRef.current) {
+      for (const b of state.buildings) {
+        if (b.hp <= 0) continue;
+        const def = BUILDING_TYPES[b.type];
+        if (dist(wx, wy, b.x, b.y) < def.radius + 12) {
+          setAssignPanel({ buildingId: b.id, screenX, screenY });
+          return;
+        }
       }
     }
 
     setAssignPanel(null);
 
     // Place building
-    if ((state.phase !== "build" && state.phase !== "breather") || !selectedTypeRef.current) {
+    if ((state.phase !== "build" && state.phase !== "breather" && state.phase !== "wave") || !selectedTypeRef.current) {
       // World tap with no building selected → ping
       if (!selectedTypeRef.current) {
         doPing(state, wx, wy);
@@ -215,6 +246,10 @@ export default function BuilderView({ room, onGameOver }) {
     const cost = def.cost ?? 0;
     if (state.gold < cost) return;
 
+    const MIN_BUILDING_SEPARATION = 90;
+    const tooClose = state.buildings.some(b => b.hp > 0 && dist(wx, wy, b.x, b.y) < MIN_BUILDING_SEPARATION);
+    if (tooClose) return;
+
     const building = {
       id: state.nextBuildingId++,
       type: selectedTypeRef.current,
@@ -225,6 +260,14 @@ export default function BuilderView({ room, onGameOver }) {
     // (applyConstructionAura no-op — overheal happens via direct repair now)
     state.buildings.push(building);
     state.gold -= cost;
+
+    // Homes grant +2 population immediately on placement
+    if (building.type === "home") {
+      const bonus = BUILDING_TYPES.home.workersGranted ?? 2;
+      state.townspeople = (state.townspeople ?? TOWNSPEOPLE_START) + bonus;
+      setTownspeople(state.townspeople);
+    }
+
     sendBuildingPlace(building);
     sendGoldUpdate({ gold: state.gold, from: "builder" });
     sfxPlaceBuilding();
@@ -256,6 +299,20 @@ export default function BuilderView({ room, onGameOver }) {
     forceUpdate(n => n + 1);
   }
 
+  // ── Barracks allegiance toggle ────────────────────────────────────────────
+  function toggleAllegiance(buildingId) {
+    const s = stateRef.current;
+    if (!s) return;
+    const b = s.buildings.find(b => b.id === buildingId);
+    if (!b || b.type !== "barracks") return;
+    const next = (b.allegiance ?? "protector") === "protector" ? "builder" : "protector";
+    b.allegiance = next;
+    // Update existing soldiers from this barracks
+    s.units.forEach(u => { if (u.barracksId === buildingId) u.follows = next; });
+    sendAllegianceChange(buildingId, next);
+    forceUpdate(n => n + 1);
+  }
+
   // ── Sell building ──────────────────────────────────────────────────────────
   function handleSell(buildingId) {
     const s = stateRef.current;
@@ -279,6 +336,7 @@ export default function BuilderView({ room, onGameOver }) {
     if (recent) return;
     state.activePings.push({ x: worldX, y: worldY, from: "p2", ts: now });
     sendPing(worldX, worldY, "p2");
+    sfxPing();
   }
 
   // ── Touch handlers — joystick owns bottom 50%, top 50% scrolls freely ───
@@ -286,7 +344,7 @@ export default function BuilderView({ room, onGameOver }) {
     const canvas = canvasRef.current;
     for (const touch of e.changedTouches) {
       const rect = canvas?.getBoundingClientRect();
-      const inBottomHalf = rect && touch.clientY >= rect.top + rect.height / 2;
+      const inBottomHalf = rect && touch.clientY >= rect.top + rect.height * 0.6;
       if (inBottomHalf) {
         joystickTouchIds.current.add(touch.identifier);
         joystickTouchStart(joystickRef.current, touch);
@@ -329,15 +387,60 @@ export default function BuilderView({ room, onGameOver }) {
     ctx.lineWidth = state.phase === "wave" ? 8 : 1;
     ctx.strokeRect(-cam.x, -cam.y, WORLD, WORLD);
 
-    // Placement preview ring
-    if ((state.phase === "build" || state.phase === "breather") && selectedTypeRef.current) {
+    // Placement valid-zone overlay
+    if ((state.phase === "build" || state.phase === "breather" || state.phase === "wave") && selectedTypeRef.current) {
       const { cx, cy } = worldToCanvas(builder.x, builder.y);
       const placeRange = BASE_PLACE_RANGE + ((state.upgrades ?? []).includes("place_range") ? BUILDER_PLACE_RANGE_BONUS : 0);
+      const MIN_SEP = 90;
+
+      // Step 1: dark overlay over the entire canvas
       ctx.save();
-      ctx.globalAlpha = 0.12;
+      ctx.globalAlpha = 0.55;
+      ctx.fillStyle = "rgba(0,0,0,1)";
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+
+      // Step 2: punch a green-tinted valid zone (place range circle) into the overlay
+      ctx.save();
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.globalAlpha = 0.85;
       ctx.beginPath(); ctx.arc(cx, cy, placeRange, 0, Math.PI * 2);
-      ctx.strokeStyle = "rgba(120,200,255,0.5)"; ctx.lineWidth = 1;
-      ctx.setLineDash([4, 4]); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = "rgba(0,0,0,1)";
+      ctx.fill();
+      ctx.restore();
+
+      // Step 3: green tint wash over the now-revealed area
+      ctx.save();
+      ctx.globalAlpha = 0.18;
+      ctx.beginPath(); ctx.arc(cx, cy, placeRange, 0, Math.PI * 2);
+      ctx.fillStyle = "#44ff88";
+      ctx.fill();
+      ctx.restore();
+
+      // Step 4: re-darken exclusion zones around existing buildings (too-close areas)
+      buildings.forEach(b => {
+        if (b.hp <= 0) return; // destroyed buildings no longer block placement
+        const { cx: bx, cy: by } = worldToCanvas(b.x, b.y);
+        const bDef = BUILDING_TYPES[b.type];
+        ctx.save();
+        ctx.globalAlpha = 0.7;
+        ctx.beginPath(); ctx.arc(bx, by, MIN_SEP, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(0,0,0,1)";
+        ctx.fill();
+        // soft red tint so player knows why it's blocked
+        ctx.globalAlpha = 0.25;
+        ctx.beginPath(); ctx.arc(bx, by, MIN_SEP, 0, Math.PI * 2);
+        ctx.fillStyle = "#ff4444";
+        ctx.fill();
+        ctx.restore();
+      });
+
+      // Step 5: crisp dashed border of the place range
+      ctx.save();
+      ctx.globalAlpha = 0.5;
+      ctx.beginPath(); ctx.arc(cx, cy, placeRange, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(80,255,150,0.7)"; ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 5]); ctx.stroke(); ctx.setLineDash([]);
       ctx.restore();
     }
 
@@ -380,9 +483,13 @@ export default function BuilderView({ room, onGameOver }) {
     units.forEach(u => {
       const { cx, cy } = worldToCanvas(u.x, u.y);
       const hpFrac = Math.max(0, (u.hp ?? 1) / (u.maxHp ?? 1));
+      const isBuilderUnit = u.follows === "builder";
       ctx.save(); ctx.globalAlpha = 0.7;
       ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI * 2);
-      ctx.fillStyle = hpFrac > 0.5 ? "#ff9966" : "#ff4444"; ctx.fill(); ctx.restore();
+      ctx.fillStyle = isBuilderUnit
+        ? (hpFrac > 0.5 ? "#ffdd44" : "#ffaa00")
+        : (hpFrac > 0.5 ? "#ff9966" : "#ff4444");
+      ctx.fill(); ctx.restore();
       if (hpFrac < 1) {
         ctx.save(); ctx.globalAlpha = 0.7;
         ctx.fillStyle = "rgba(0,0,0,0.5)";
@@ -396,8 +503,9 @@ export default function BuilderView({ room, onGameOver }) {
     enemies.forEach(e => {
       const { cx, cy } = worldToCanvas(e.x, e.y);
       if (cx < -20 || cx > W + 20 || cy < -20 || cy > H + 20) return;
+      const eRadius = e.radius ?? 7;
       ctx.save();
-      ctx.beginPath(); ctx.arc(cx, cy, e.radius ?? 7, 0, Math.PI * 2);
+      ctx.beginPath(); ctx.arc(cx, cy, eRadius, 0, Math.PI * 2);
       const fill = e.type === "demolisher"
         ? (e.chasingBuilder ? "#cc44ff" : "#7722cc")
         : e.chasingBuilder ? "#ff44aa" : "#cc2222";
@@ -405,9 +513,22 @@ export default function BuilderView({ room, onGameOver }) {
       if (e.type === "demolisher") {
         ctx.globalAlpha = 0.7;
         ctx.strokeStyle = "rgba(255,255,255,0.6)"; ctx.lineWidth = 1.5; ctx.lineCap = "round";
-        const r = (e.radius ?? 13) * 0.4;
+        const r = eRadius * 0.4;
         ctx.beginPath(); ctx.moveTo(cx - r, cy - r); ctx.lineTo(cx + r, cy + r); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(cx + r, cy - r); ctx.lineTo(cx - r, cy + r); ctx.stroke();
+      }
+      // HP bar
+      if (e.hp !== undefined && e.maxHp !== undefined && e.hp < e.maxHp) {
+        const hpFrac = Math.max(0, e.hp / e.maxHp);
+        const barW = eRadius * 2 + 4;
+        const barH = 2.5;
+        const barX = cx - barW / 2;
+        const barY = cy - eRadius - 5;
+        ctx.globalAlpha = 0.85;
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.fillRect(barX, barY, barW, barH);
+        ctx.fillStyle = hpFrac > 0.5 ? "#ff5555" : "#ff2222";
+        ctx.fillRect(barX, barY, barW * hpFrac, barH);
       }
       ctx.restore();
     });
@@ -582,6 +703,29 @@ export default function BuilderView({ room, onGameOver }) {
       ctx.restore();
     }
 
+    // Turret: range ring + projectiles
+    if (b.type === "turret" && b.hp > 0) {
+      const ringRange = b._effectiveRange ?? def.attackRange;
+      ctx.save();
+      ctx.globalAlpha = 0.1;
+      ctx.beginPath(); ctx.arc(cx, cy, ringRange, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(255,68,136,0.8)"; ctx.lineWidth = 1;
+      ctx.setLineDash([3, 4]); ctx.stroke(); ctx.setLineDash([]);
+      ctx.restore();
+      (b.turretProjectiles ?? []).forEach(p => {
+        const progress = p.age / p.ttl;
+        const { cx: sx, cy: sy } = worldToCanvas(p.x, p.y);
+        const { cx: ex, cy: ey } = worldToCanvas(p.tx, p.ty);
+        const ppx = sx + (ex - sx) * progress;
+        const ppy = sy + (ey - sy) * progress;
+        ctx.save();
+        ctx.globalAlpha = 0.85 * (1 - progress);
+        ctx.beginPath(); ctx.arc(ppx, ppy, 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(255,68,136,0.9)"; ctx.fill();
+        ctx.restore();
+      });
+    }
+
     if (b.hp > 0) {
       const workers = b.workers ?? 0;
       for (let i = 0; i < workers; i++) {
@@ -610,12 +754,12 @@ export default function BuilderView({ room, onGameOver }) {
     if (phase === "build")      label = waveNumber === 0 ? "plan your stronghold" : "build phase";
     else if (phase === "countdown") label = `wave ${waveNumber + 1} incoming…`;
     else if (phase === "wave")  label = `wave ${waveNumber}`;
-    else if (phase === "breather") label = `next wave in ${countdown}s`;
+    else if (phase === "breather") { const secsLeft = state.breatherLeft ?? 0; label = `next wave in ${Math.ceil(secsLeft)}s`; }
     ctx.fillText(label, W / 2, 28);
 
     if (phase === "breather") {
       ctx.globalAlpha = 0.15; ctx.fillStyle = "#ff4444";
-      ctx.fillRect(0, 0, W * (1 - countdown / 45), 3);
+      const secsLeft = state.breatherLeft ?? 0; const totalSecs = state.waveNumber <= 2 ? 45 : 30; ctx.fillRect(0, 0, W * (1 - secsLeft / totalSecs), 3);
       ctx.globalAlpha = 1;
     }
 
@@ -725,6 +869,11 @@ export default function BuilderView({ room, onGameOver }) {
     if (nowInDanger && !state._wasDangerous) sfxBuilderDanger();
     state._wasDangerous = nowInDanger;
 
+    // Builder repairs buildings in all phases (wave, breather, build)
+    if (!builderDown) {
+      updateBuilderRepair(state.builder.x, state.builder.y, state.buildings, dt, state.upgrades ?? []);
+    }
+
     // Builder revives downed protector by walking near them during a wave
     if (state.phase === "wave") {
       const protectorDown = (state.protectorHp ?? PROTECTOR_MAX_HP) <= 0;
@@ -778,8 +927,9 @@ export default function BuilderView({ room, onGameOver }) {
     };
   }, [room]);
 
-  const inBuildPhase = phase === "build" || phase === "breather";
-  const canPlace     = inBuildPhase && !!selectedType;
+  const inBuildPhase    = phase === "build" || phase === "breather";
+  const canBuildOrRepair = phase === "build" || phase === "breather" || phase === "wave";
+  const canPlace     = canBuildOrRepair && !!selectedType;
   const selectedDef  = selectedType ? BUILDING_TYPES[selectedType] : null;
   const showReadyUp  = phase === "build" && waveNumber === 0;
 
@@ -798,10 +948,10 @@ export default function BuilderView({ room, onGameOver }) {
       />
 
       {/* Building description tooltip — floats above the bar, never pushes layout */}
-      {inBuildPhase && selectedDef && (
+      {canBuildOrRepair && selectedDef && (
         <div style={{
           position: "absolute",
-          bottom: "calc(env(safe-area-inset-bottom, 0px) + 78px)",
+          bottom: "calc(env(safe-area-inset-bottom, 0px) + 62px)",
           left: "50%",
           transform: "translateX(-50%)",
           maxWidth: "min(340px, 90vw)",
@@ -829,16 +979,16 @@ export default function BuilderView({ room, onGameOver }) {
       )}
 
       {/* Building selector — outside canvas, scrolls freely */}
-      {inBuildPhase && (
+      {canBuildOrRepair && (
         <div style={{
           background: "rgba(10,13,15,0.95)",
           borderTop:  "0.5px solid rgba(255,255,255,0.06)",
-          padding:    "10px 0 env(safe-area-inset-bottom, 10px)",
+          padding:    "8px 0 env(safe-area-inset-bottom, 8px)",
           flexShrink: 0,
         }}>
           <div style={{
-            display: "flex", gap: 8, overflowX: "auto", padding: "0 12px",
-            scrollbarWidth: "none", WebkitOverflowScrolling: "touch", touchAction: "pan-x",
+            display: "flex", flexWrap: "wrap", gap: 5, padding: "0 8px",
+            justifyContent: "center",
           }}>
             {PLACEABLE_BUILDINGS.map(b => {
               const affordable = gold >= (b.cost ?? 0);
@@ -848,30 +998,30 @@ export default function BuilderView({ room, onGameOver }) {
                   flexShrink: 0,
                   background:   isSelected ? `rgba(${hexToRgb(b.color)},0.15)` : "rgba(255,255,255,0.03)",
                   border:       `1px solid ${isSelected ? b.color : "rgba(255,255,255,0.1)"}`,
-                  borderRadius: 12,
+                  borderRadius: 10,
                   color:        isSelected ? b.color : affordable ? "rgba(255,255,255,0.55)" : "rgba(255,255,255,0.22)",
-                  fontSize: 12, padding: "10px 14px", minHeight: 48, minWidth: 80,
+                  fontSize: 10, padding: "6px 8px", minHeight: 40, minWidth: 58,
                   cursor: affordable ? "pointer" : "not-allowed",
                   whiteSpace: "nowrap", transition: "all 0.12s",
-                  display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
+                  display: "flex", flexDirection: "column", alignItems: "center", gap: 1,
                 }}>
                   <span>{b.label}</span>
-                  <span style={{ opacity: 0.55, fontSize: 10 }}>{b.cost}g</span>
+                  <span style={{ opacity: 0.55, fontSize: 9 }}>{b.cost}g</span>
                 </button>
               );
             })}
 
             {showReadyUp && (
               <button onClick={() => { if (!ready) { setReady(true); sendPlayerReady("p2"); } }} style={{
-                flexShrink: 0, padding: "10px 18px", borderRadius: 12,
-                minHeight: 48, minWidth: 90, fontSize: 12,
+                flexShrink: 0, padding: "6px 12px", borderRadius: 10,
+                minHeight: 40, minWidth: 64, fontSize: 10,
                 background: ready ? "rgba(120,255,120,0.08)" : "rgba(120,200,255,0.08)",
                 border: `1px solid ${ready ? "rgba(120,255,120,0.3)" : "rgba(120,200,255,0.25)"}`,
                 color:  ready ? "rgba(120,255,120,0.7)" : "rgba(120,200,255,0.9)",
                 cursor: ready ? "default" : "pointer", letterSpacing: "0.04em", transition: "all 0.2s",
                 display: "flex", alignItems: "center", justifyContent: "center",
               }}>
-                {ready ? "ready ✓" : "ready up"}
+                {ready ? "✓ ready" : "ready up"}
               </button>
             )}
           </div>
@@ -925,6 +1075,31 @@ export default function BuilderView({ room, onGameOver }) {
             {lockedWorkers > 0 && panelBuilding.type === "barracks" && (
               <div style={{ fontSize: 10, color: "rgba(255,100,100,0.55)", marginTop: 8, lineHeight: 1.4 }}>
                 {lockedWorkers} grieving — available at breather
+              </div>
+            )}
+            {/* Allegiance toggle — barracks only */}
+            {panelBuilding.type === "barracks" && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", marginBottom: 6 }}>soldiers follow</div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {["protector", "builder"].map(side => {
+                    const current = panelBuilding.allegiance ?? "protector";
+                    const isActive = current === side;
+                    const color = side === "protector" ? "#88ccff" : "#ffcc44";
+                    return (
+                      <button key={side} onClick={() => toggleAllegiance(panelBuilding.id)} disabled={isActive} style={{
+                        flex: 1, padding: "6px 4px", borderRadius: 8, fontSize: 10,
+                        border: `0.5px solid ${isActive ? color : "rgba(255,255,255,0.1)"}`,
+                        background: isActive ? `rgba(${side === "protector" ? "120,180,255" : "255,200,60"},0.1)` : "rgba(255,255,255,0.03)",
+                        color: isActive ? color : "rgba(255,255,255,0.3)",
+                        cursor: isActive ? "default" : "pointer",
+                        letterSpacing: "0.04em", transition: "all 0.15s",
+                      }}>
+                        {side === "protector" ? "⚔ protector" : "🔨 builder"}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             )}
             {/* Sell button — only in build/breather phase, not for town center */}

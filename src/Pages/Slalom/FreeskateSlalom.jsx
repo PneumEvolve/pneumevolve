@@ -165,6 +165,7 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
   const [gems, setGems]         = useState(0);
   const [misses, setMisses]     = useState(0);
   const [gatesPassed, setGatesPassed] = useState(0);
+  const [gameOver, setGameOver] = useState(false);
   const [p2Ready, setP2Ready]   = useState(false);
   const [bothReady, setBothReady] = useState(!roomId); // solo starts immediately; multiplayer waits
 
@@ -212,39 +213,47 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
         p2AngleRef.current = angle;
       },
 
-      // P2 receives full game state — store it with timestamp for prediction
+      // P2 receives game state — lerp skate positions for smooth motion
       onGameState: (state) => {
         if (!isP2) return;
         const s = sRef.current;
         if (!s) return;
 
-        // Compute velocity from previous server state for prediction
+        // Compute velocity from delta between consecutive server packets (for prediction)
         const prev = p2LastServerRef.current;
         const now = performance.now();
-        if (prev) {
-          state.topSkate.vx = (state.topSkate.x - prev.state.topSkate.x);
-          state.botSkate.vx = (state.botSkate.x - prev.state.botSkate.x);
-        } else {
-          state.topSkate.vx = 0;
-          state.botSkate.vx = 0;
-        }
+        const dt = prev ? Math.max(1, now - prev.receivedAt) : 33;
+        const topVx = prev ? (state.topSkate.x - prev.state.topSkate.x) / (dt / 16.67) : 0;
+        const botVx = prev ? (state.botSkate.x - prev.state.botSkate.x) / (dt / 16.67) : 0;
         p2LastServerRef.current = { state, receivedAt: now };
 
-        // Apply authoritative values for non-position fields
-        s.items     = state.items;
+        // Items: only overwrite when P1 sends a diff (on mutations)
+        if (state.items !== undefined) s.items = state.items;
+
+        // Scalar authoritative fields
         s.gems      = state.gems;
         s.misses    = state.misses;
-        s.dist      = state.dist;
         s.speed     = state.speed;
         s.wipeout   = state.wipeout;
         s.gameOver  = state.gameOver;
-        s.topTrail  = state.topTrail  || [];
-        s.botTrail  = state.botTrail  || [];
         s.gatesPassed = state.gatesPassed ?? s.gatesPassed;
-        // Snap positions to server (prediction will smooth from here)
-        s.topSkate  = { ...state.topSkate };
-        s.botSkate  = { ...state.botSkate };
-        s.cx        = state.cx;
+
+        // Smooth dist: only snap if we've drifted more than 0.5s of speed
+        const distDelta = state.dist - s.dist;
+        if (Math.abs(distDelta) > s.speed * 30) {
+          s.dist = state.dist; // large drift — hard snap
+        } else {
+          s.dist += distDelta * 0.2; // gentle correction
+        }
+
+        // Store target positions; prediction loop will lerp toward them
+        s._topTarget = { x: state.topSkate.x, angle: state.topSkate.angle, vx: topVx };
+        s._botTarget = { x: state.botSkate.x, angle: state.botSkate.angle, vx: botVx };
+        // Ensure current positions exist if this is first packet
+        if (!s.topSkate.vx) s.topSkate = { ...s._topTarget };
+        if (!s.botSkate.vx) s.botSkate = { ...s._botTarget };
+
+        s.cx = state.cx;
         setGems(state.gems);
         setMisses(state.misses);
       },
@@ -304,27 +313,47 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
         let angle = p2AngleRef.current;
         if (k["ArrowLeft"])  angle = Math.max(angle - 0.04, -MAX_ANGLE);
         if (k["ArrowRight"]) angle = Math.min(angle + 0.04,  MAX_ANGLE);
-        p2AngleRef.current = angle;
-        if (isMultiplayer) sendP2Input(angle);
+        // Only send when angle changed or every 2 frames (avoid flooding)
+        if (angle !== p2AngleRef.current || frameRef.current % 2 === 0) {
+          p2AngleRef.current = angle;
+          if (isMultiplayer) sendP2Input(angle);
+        } else {
+          p2AngleRef.current = angle;
+        }
 
-        // Client-side prediction: extrapolate skate positions using last known vx
-        // This fills the gap between 30fps server updates with smooth 60fps motion
         if (!s.wipeout && !s.gameOver) {
-          const PRED_DECAY = 0.92; // dampen velocity each frame so it doesn't drift
-          if (s.topSkate.vx !== undefined) {
-            s.topSkate.x = Math.max(30, Math.min(CANVAS_W-30, s.topSkate.x + s.topSkate.vx * PRED_DECAY));
-            s.botSkate.x = Math.max(30, Math.min(CANVAS_W-30, s.botSkate.x + s.botSkate.vx * PRED_DECAY));
-            s.topSkate.vx *= PRED_DECAY;
-            s.botSkate.vx *= PRED_DECAY;
-          }
-          // Advance dist too so gates scroll smoothly
+          // Advance dist locally so scroll is smooth
           if (s.speed) s.dist += s.speed;
+
+          // Lerp skate positions toward latest server target (smooth, no snapping)
+          // Falls back to velocity extrapolation when no target yet
+          const LERP = 0.35; // how aggressively to pull toward server position each frame
+          if (s._topTarget) {
+            s.topSkate.x += (s._topTarget.x - s.topSkate.x) * LERP;
+            s.topSkate.angle += (s._topTarget.angle - s.topSkate.angle) * LERP;
+          } else if (s.topSkate.vx) {
+            s.topSkate.x = Math.max(30, Math.min(CANVAS_W-30, s.topSkate.x + s.topSkate.vx));
+          }
+          if (s._botTarget) {
+            s.botSkate.x += (s._botTarget.x - s.botSkate.x) * LERP;
+            s.botSkate.angle += (s._botTarget.angle - s.botSkate.angle) * LERP;
+          } else if (s.botSkate.vx) {
+            s.botSkate.x = Math.max(30, Math.min(CANVAS_W-30, s.botSkate.x + s.botSkate.vx));
+          }
+
           s.cx = (s.topSkate.x + s.botSkate.x) / 2 - 10;
-          // Scroll trails
+
+          // P2 builds its own trails locally — never received from P1
+          s.topTrail = s.topTrail || [];
+          s.botTrail = s.botTrail || [];
           for (const pt of s.topTrail) pt.y += s.speed || BASE_SPEED;
           for (const pt of s.botTrail) pt.y += s.speed || BASE_SPEED;
-          s.topTrail = s.topTrail.filter(pt => pt.y < CANVAS_H+20);
-          s.botTrail = s.botTrail.filter(pt => pt.y < CANVAS_H+20);
+          s.topTrail.push({ x: s.topSkate.x, y: s.cy - SKATE_SPREAD });
+          s.botTrail.push({ x: s.botSkate.x, y: s.cy + SKATE_SPREAD });
+          s.topTrail = s.topTrail.filter(pt => pt.y < CANVAS_H + 20);
+          s.botTrail = s.botTrail.filter(pt => pt.y < CANVAS_H + 20);
+          if (s.topTrail.length > 80) s.topTrail.shift();
+          if (s.botTrail.length > 80) s.botTrail.shift();
         }
       }
 
@@ -371,18 +400,42 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
         if (s.botTrail.length > 80) s.botTrail.shift();
 
         if (Math.abs(s.topSkate.x - s.botSkate.x) > MAX_SPREAD) {
-          s.wipeout = true; s.wipeoutTimer = 90;
-          // Reset angles immediately so recovery isn't a chain wipeout
-          s.topSkate.angle = 0; s.botSkate.angle = 0;
-          s.topSkate.vx = 0;   s.botSkate.vx = 0;
-          // Snap cx to the next upcoming gate so they're lined up on recovery
-          const nextGate = s.items.find(i => i.type === "gate" && !i.passed && !i.missed && i.worldDist > s.dist);
-          const snapX = nextGate ? nextGate.cx : s.cx;
-          s.cx = snapX;
-          s.topSkate.x = snapX + 10; s.botSkate.x = snapX + 10;
-          s.topTrail = []; s.botTrail = [];
-          p2AngleRef.current = 0;
-        }
+  s.wipeout = true; s.wipeoutTimer = 90;
+
+  // ── NEW: wipeout counts as a miss ──
+  s.misses += 1;
+  setMisses(s.misses);
+  if (s.misses >= 3) {
+    s.gameOver = true;
+    setGameOver(true);
+    const prev = hiScoreRef.current;
+    const isNewBest = !prev
+      || s.gatesPassed > prev.gates
+      || (s.gatesPassed === prev.gates && s.gems > prev.gems);
+    if (isNewBest) {
+      hiScoreRef.current = { gates: s.gatesPassed, gems: s.gems };
+      newBestRef.current = true;
+      try { localStorage.setItem("slalom_hiscore", JSON.stringify(hiScoreRef.current)); } catch {}
+    } else {
+      newBestRef.current = false;
+    }
+    if (isMultiplayer) {
+      sendGameOver(s.gems);
+      api.patch(`/slalom/rooms/${roomData.id}`, { final_gems: s.gems }).catch(()=>{});
+    }
+  }
+  // ── END NEW ──
+
+  // Reset angles immediately so recovery isn't a chain wipeout
+  s.topSkate.angle = 0; s.botSkate.angle = 0;
+  s.topSkate.vx = 0;   s.botSkate.vx = 0;
+  const nextGate = s.items.find(i => i.type === "gate" && !i.passed && !i.missed && i.worldDist > s.dist);
+  const snapX = nextGate ? nextGate.cx : s.cx;
+  s.cx = snapX;
+  s.topSkate.x = snapX + 10; s.botSkate.x = snapX + 10;
+  s.topTrail = []; s.botTrail = [];
+  p2AngleRef.current = 0;
+}
 
         const half = GATE_WIDTH / 2;
         for (const item of s.items) {
@@ -395,13 +448,16 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
               if (topIn || botIn) {
                 item.passed = true;
                 s.gatesPassed += 1;
+                s._itemDirty = true;
                 setGatesPassed(s.gatesPassed);
               } else {
                 item.missed = true;
                 s.misses += 1;
+                s._itemDirty = true;
                 setMisses(s.misses);
                 if (s.misses >= 3) {
                   s.gameOver = true;
+                  setGameOver(true);
                   // Update session hi-score
                   const prev = hiScoreRef.current;
                   const isNewBest = !prev
@@ -426,7 +482,7 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
             const topDist = Math.hypot(s.topSkate.x - item.x, (s.cy-SKATE_SPREAD) - screenY);
             const botDist = Math.hypot(s.botSkate.x - item.x, (s.cy+SKATE_SPREAD) - screenY);
             if (topDist < 22 || botDist < 22) {
-              item.collected = true; s.gems += 1; setGems(s.gems);
+              item.collected = true; s.gems += 1; s._itemDirty = true; setGems(s.gems);
               // Every 10 gems: erase a miss (if any)
               const milestone = Math.floor(s.gems / 10);
               if (milestone > gemMilestoneRef.current && s.misses > 0) {
@@ -446,17 +502,28 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
         if (maxW - s.dist < CANVAS_H*2) {
           const lastGate = [...s.items].reverse().find(i => i.type === "gate");
           s.items.push(...generateChunk(maxW+100, 20, lastGate?.cx ?? null));
+          s._itemDirty = true;
         }
+        const prevLen = s.items.length;
         s.items = s.items.filter(i => s.dist - i.worldDist < 500);
+        if (s.items.length !== prevLen) s._itemDirty = true;
 
         if (isMultiplayer && frameRef.current % BROADCAST_EVERY === 0) {
+          // Only send what P2 can't compute itself:
+          // - skate positions/angles (authoritative)
+          // - scalar game state (dist, speed, misses, gems, flags)
+          // - item mutations since last broadcast (diff, not full array)
+          // Trails are intentionally excluded — P2 builds its own locally.
+          const itemDiff = s._itemDirty ? s.items : undefined;
+          s._itemDirty = false;
           sendGameState({
-            topSkate: s.topSkate, botSkate: s.botSkate,
-            items: s.items, gems: s.gems, misses: s.misses,
+            topSkate: { x: s.topSkate.x, angle: s.topSkate.angle, vx: s.topSkate.vx },
+            botSkate: { x: s.botSkate.x, angle: s.botSkate.angle, vx: s.botSkate.vx },
+            gems: s.gems, misses: s.misses,
             dist: s.dist, speed: s.speed, cx: s.cx,
             wipeout: s.wipeout, gameOver: s.gameOver,
-            topTrail: s.topTrail, botTrail: s.botTrail,
             gatesPassed: s.gatesPassed,
+            ...(itemDiff !== undefined && { items: itemDiff }),
           });
         }
 
@@ -475,11 +542,12 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
 
       if (s.gameOver && (k[" "] || k["Enter"])) {
         sRef.current = mkState();
+        keysRef.current = {};
         p2LastServerRef.current = null;
         newBestRef.current = false;
         gemMilestoneRef.current = 0;
         missEraseFlashRef.current = 0;
-        setGems(0); setMisses(0); setGatesPassed(0);
+        setGems(0); setMisses(0); setGatesPassed(0); setGameOver(false);
         if (isMultiplayer) sendRestart();
       }
 
@@ -599,7 +667,8 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
   // ── Responsive scaling ────────────────────────────────────────────────────
   // The canvas stays at its logical 480×700 size; we CSS-scale the wrapper
   // to fill whatever viewport is available, leaving room for touch buttons.
-  const BTN_AREA = 100; // px reserved at the bottom for touch controls
+  // Solo needs two pairs of buttons (one per skate); multiplayer only one pair.
+  const BTN_AREA = 120;
   const [scale, setScale] = useState(1);
 
   useEffect(() => {
@@ -609,7 +678,7 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
       const availH = vh - BTN_AREA;
       const scaleW = vw / CANVAS_W;
       const scaleH = availH / CANVAS_H;
-      setScale(Math.min(scaleW, scaleH, 1)); // never upscale past 1× on desktop
+      setScale(Math.min(scaleW, scaleH, 1));
     };
     recalc();
     window.addEventListener("resize", recalc);
@@ -630,28 +699,86 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
     keysRef.current[key] = false;
   }, []);
 
-  const leftKey  = isP2 ? "ArrowLeft"  : "a";
-  const rightKey = isP2 ? "ArrowRight" : "d";
+  const doRestart = useCallback(() => {
+    sRef.current = mkState();
+    keysRef.current = {};
+    p2LastServerRef.current = null;
+    newBestRef.current = false;
+    gemMilestoneRef.current = 0;
+    missEraseFlashRef.current = 0;
+    setGems(0); setMisses(0); setGatesPassed(0); setGameOver(false);
+    if (isMultiplayer) sendRestart();
+  }, [mkState, isMultiplayer, sendRestart]);
 
-  const btnStyle = (side) => ({
-    width: 110,
-    height: 68,
-    borderRadius: 16,
-    border: "1px solid rgba(255,255,255,0.15)",
-    background: side === "left"
-      ? "rgba(100,180,255,0.12)"
-      : "rgba(255,80,100,0.12)",
-    color: "rgba(255,255,255,0.7)",
-    fontSize: 28,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    cursor: "pointer",
-    userSelect: "none",
-    WebkitUserSelect: "none",
-    touchAction: "none",
-    flexShrink: 0,
-  });
+  // Button factory — color varies by which skate it controls
+  const mkBtn = (key, label, skate, direction) => {
+    const isTop = skate === "top";
+    const bg = direction === "left"
+      ? (isTop ? "rgba(100,180,255,0.15)" : "rgba(255,80,100,0.15)")
+      : (isTop ? "rgba(100,180,255,0.15)" : "rgba(255,80,100,0.15)");
+    const border = isTop
+      ? "1px solid rgba(100,180,255,0.25)"
+      : "1px solid rgba(255,80,100,0.25)";
+    return (
+      <button
+        key={key}
+        style={{
+          width: 88,
+          height: 64,
+          borderRadius: 14,
+          border,
+          background: bg,
+          color: "rgba(255,255,255,0.75)",
+          fontSize: 24,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          cursor: "pointer",
+          userSelect: "none",
+          WebkitUserSelect: "none",
+          touchAction: "none",
+          flexShrink: 0,
+        }}
+        onTouchStart={handleTouchStart(key)}
+        onTouchEnd={handleTouchEnd(key)}
+        onMouseDown={handleTouchStart(key)}
+        onMouseUp={handleTouchEnd(key)}
+        onMouseLeave={handleTouchEnd(key)}
+        aria-label={`${skate} skate steer ${direction}`}
+      >
+        {direction === "left" ? "◀" : "▶"}
+      </button>
+    );
+  };
+
+  // Which button groups to render
+  // Solo: both groups. Multiplayer P1: top only. Multiplayer P2: bottom only.
+  const showTopBtns = !isMultiplayer || isP1;
+  const showBotBtns = !isMultiplayer || isP2;
+
+  const groupLabel = (label, color) => (
+    <div style={{
+      color,
+      fontSize: 8,
+      fontFamily: "monospace",
+      letterSpacing: 2,
+      textAlign: "center",
+      lineHeight: 1.5,
+      marginBottom: 2,
+    }}>
+      {label}
+    </div>
+  );
+
+  const btnGroup = (skate, leftKey, rightKey, label, color) => (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+      {groupLabel(label, color)}
+      <div style={{ display: "flex", gap: 8 }}>
+        {mkBtn(leftKey,  "◀", skate, "left")}
+        {mkBtn(rightKey, "▶", skate, "right")}
+      </div>
+    </div>
+  );
 
   return (
     <div style={{
@@ -665,7 +792,7 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
       userSelect: "none",
       overflow: "hidden",
     }}>
-      {/* Header label — tiny, outside the scaled canvas */}
+      {/* Header label */}
       <div style={{
         color: "#ffffff22",
         fontSize: 9,
@@ -683,7 +810,7 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
         )}
       </div>
 
-      {/* Scaled canvas wrapper — fills available space above the buttons */}
+      {/* Scaled canvas wrapper */}
       <div style={{
         flex: 1,
         display: "flex",
@@ -708,37 +835,49 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
         </div>
       </div>
 
-      {/* Touch controls — always visible at the bottom */}
+      {/* Touch controls */}
       <div style={{
         flexShrink: 0,
         height: BTN_AREA,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        gap: 40,
+        gap: isMultiplayer ? 40 : 24,
         paddingBottom: "env(safe-area-inset-bottom, 8px)",
+        width: "100%",
+        paddingLeft: 12,
+        paddingRight: 12,
       }}>
-        <button
-          style={btnStyle("left")}
-          onTouchStart={handleTouchStart(leftKey)}
-          onTouchEnd={handleTouchEnd(leftKey)}
-          onMouseDown={handleTouchStart(leftKey)}
-          onMouseUp={handleTouchEnd(leftKey)}
-          onMouseLeave={handleTouchEnd(leftKey)}
-          aria-label="steer left"
-        >◀</button>
-        <div style={{ color:"#ffffff18", fontSize:8, fontFamily:"monospace", letterSpacing:2, textAlign:"center", lineHeight:1.6 }}>
-          {isP2 ? "P2" : isMultiplayer ? "P1" : "P1/P2"}<br/>steer
-        </div>
-        <button
-          style={btnStyle("right")}
-          onTouchStart={handleTouchStart(rightKey)}
-          onTouchEnd={handleTouchEnd(rightKey)}
-          onMouseDown={handleTouchStart(rightKey)}
-          onMouseUp={handleTouchEnd(rightKey)}
-          onMouseLeave={handleTouchEnd(rightKey)}
-          aria-label="steer right"
-        >▶</button>
+        {gameOver ? (
+          <button
+            onTouchStart={(e) => { e.preventDefault(); doRestart(); }}
+            onClick={doRestart}
+            style={{
+              padding: "16px 48px",
+              borderRadius: 16,
+              border: "1px solid rgba(255,255,255,0.2)",
+              background: "rgba(255,255,255,0.07)",
+              color: "rgba(255,255,255,0.85)",
+              fontSize: 16,
+              fontFamily: "monospace",
+              letterSpacing: 3,
+              cursor: "pointer",
+              touchAction: "none",
+            }}
+          >
+            GO AGAIN
+          </button>
+        ) : (
+          <>
+            {showTopBtns && btnGroup("top", "a", "d", "TOP SKATE", "rgba(100,180,255,0.45)")}
+            {!isMultiplayer && (
+              <div style={{ color: "#ffffff10", fontSize: 7, fontFamily: "monospace", letterSpacing: 1 }}>
+                vs
+              </div>
+            )}
+            {showBotBtns && btnGroup("bot", "ArrowLeft", "ArrowRight", "BOT SKATE", "rgba(255,80,100,0.45)")}
+          </>
+        )}
       </div>
     </div>
   );

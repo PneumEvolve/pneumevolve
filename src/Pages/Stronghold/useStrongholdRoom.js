@@ -36,7 +36,8 @@ export function useStrongholdRoom(roomId, handlers) {
       .on("broadcast", { event: "chat" },             ({ payload }) => handlersRef.current.onChat?.(payload))
       .on("broadcast", { event: "revive" },           ({ payload }) => handlersRef.current.onRevive?.(payload))
       .on("broadcast", { event: "ping" },             ({ payload }) => handlersRef.current.onPing?.(payload))
-      .on("broadcast", { event: "wave_summary" },     ({ payload }) => handlersRef.current.onWaveSummary?.(payload));
+      .on("broadcast", { event: "wave_summary" },     ({ payload }) => handlersRef.current.onWaveSummary?.(payload))
+      .on("broadcast", { event: "allegiance_change" }, ({ payload }) => handlersRef.current.onAllegianceChange?.(payload));
 
     channel.subscribe(status => {
       if (status === "SUBSCRIBED") {
@@ -86,6 +87,7 @@ export function useStrongholdRoom(roomId, handlers) {
   const sendRevive         = useCallback((target)      => send("revive",          { target }),          [send]);
   const sendPing           = useCallback((x, y, from)  => send("ping",            { x, y, from }),      [send]);
   const sendWaveSummary    = useCallback((data)         => send("wave_summary",    data),                [send]);
+  const sendAllegianceChange = useCallback((buildingId, allegiance) => send("allegiance_change", { buildingId, allegiance }), [send]);
 
   return {
     sendP1Move, sendP2Move,
@@ -93,5 +95,6 @@ export function useStrongholdRoom(roomId, handlers) {
     sendEnemyUpdate, sendBuildingHealth, sendUnitUpdate, sendGoldUpdate,
     sendPhaseChange, sendPlayerReady, sendCountdown,
     sendGameOver, sendRestart, sendChat, sendRevive, sendPing, sendWaveSummary,
+    sendAllegianceChange,
   };
 }

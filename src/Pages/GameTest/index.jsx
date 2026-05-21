@@ -1,0 +1,331 @@
+// src/Pages/GameTest/index.jsx
+import React, { useState, useRef, useEffect } from "react";
+import { api } from "@/lib/api";
+import GameTestLobby from "./GameTestLobby";
+import PlayerOneView from "./PlayerOneView";
+import PlayerTwoView from "./PlayerTwoView";
+import { useGameTestRoom } from "./useGameTestRoom";
+
+// ── Waiting screen ─────────────────────────────────────────────────────────────
+function WaitingForPlayer2({ room, onPlayer2Joined }) {
+  const [copied, setCopied] = useState(false);
+
+  function copy() {
+    navigator.clipboard.writeText(room.join_code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  useEffect(() => {
+    if (!room?.id) return;
+    const interval = setInterval(async () => {
+      try {
+        const { data } = await api.get(`/game-test/rooms/${room.id}`);
+        if (data.status === "active") {
+          clearInterval(interval);
+          onPlayer2Joined(data);
+        }
+      } catch { /* wait */ }
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [room?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <main className="min-h-screen bg-[#0a0a0f] text-white flex flex-col items-center justify-center gap-6 px-4">
+      <p className="text-xs tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.3)" }}>
+        waiting for player two
+      </p>
+      <div className="text-center">
+        <p className="text-xs mb-3" style={{ color: "rgba(255,255,255,0.3)" }}>share this code</p>
+        <div className="text-5xl font-mono font-light tracking-widest"
+          style={{ color: "rgba(180,140,255,0.9)" }}>
+          {room.join_code}
+        </div>
+      </div>
+      <button onClick={copy}
+        className="text-xs px-4 py-2 rounded-lg border transition-all"
+        style={{ borderColor: "rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.4)" }}>
+        {copied ? "copied ✓" : "copy code"}
+      </button>
+      <p className="text-xs" style={{ color: "rgba(255,255,255,0.15)" }}>
+        both players need to be on this page
+      </p>
+    </main>
+  );
+}
+
+// ── Game over screen — shows stats + timelapse hint ───────────────────────────
+function GameOver({ stats, role, strokeHistory, onRestart }) {
+  const isP1 = role === "p1";
+  const canvasRef = useRef(null);
+
+  // Timelapse playback of painter strokes
+  useEffect(() => {
+    if (!strokeHistory?.length) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const W = canvas.width, H = canvas.height;
+
+    let frameIndex = 0;
+    const allPoints = strokeHistory.flatMap(s =>
+      s.points.map(p => ({ ...p, color: s.color, strokeId: s.id }))
+    );
+    const totalFrames = allPoints.length;
+    if (totalFrames === 0) return;
+
+    // Find bounding box of all strokes to fit them in the canvas
+    const xs = allPoints.map(p => p.x), ys = allPoints.map(p => p.y);
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const rangeX = Math.max(1, maxX - minX), rangeY = Math.max(1, maxY - minY);
+    const scale  = Math.min((W - 40) / rangeX, (H - 40) / rangeY) * 0.85;
+    const offX   = W / 2 - (minX + rangeX / 2) * scale;
+    const offY   = H / 2 - (minY + rangeY / 2) * scale;
+
+    function toCanvas(x, y) {
+      return { cx: x * scale + offX, cy: y * scale + offY };
+    }
+
+    ctx.fillStyle = "#0a0a0f";
+    ctx.fillRect(0, 0, W, H);
+
+    // Draw POINTS_PER_FRAME points per animation frame for smooth but quick playback
+    const POINTS_PER_FRAME = Math.max(1, Math.ceil(totalFrames / 120));
+    let lastStrokeId = null;
+
+    function tick() {
+      for (let i = 0; i < POINTS_PER_FRAME && frameIndex < totalFrames; i++, frameIndex++) {
+        const pt   = allPoints[frameIndex];
+        const { cx, cy } = toCanvas(pt.x, pt.y);
+        ctx.strokeStyle = pt.color === "red" ? "rgba(255,80,80,0.85)" : "rgba(220,230,255,0.75)";
+        ctx.lineWidth   = 3;
+        ctx.lineCap     = "round";
+        ctx.lineJoin    = "round";
+        if (pt.strokeId !== lastStrokeId) {
+          ctx.beginPath();
+          ctx.moveTo(cx, cy);
+          lastStrokeId = pt.strokeId;
+        } else {
+          ctx.lineTo(cx, cy);
+          ctx.stroke();
+        }
+      }
+      if (frameIndex < totalFrames) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }, [strokeHistory]);
+
+  return (
+    <main className="min-h-screen bg-[#0a0a0f] text-white flex flex-col items-center justify-center gap-5 px-4">
+      <p className="text-xs tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.3)" }}>
+        run over
+      </p>
+
+      {/* Stats */}
+      <div className="flex gap-8 text-center">
+        <div>
+          <div className="text-4xl font-light" style={{ color: "rgba(180,140,255,0.9)" }}>
+            {stats?.distance ?? 0}
+          </div>
+          <div className="text-xs mt-1 tracking-widest" style={{ color: "rgba(255,255,255,0.25)" }}>
+            metres
+          </div>
+        </div>
+        <div>
+          <div className="text-4xl font-light" style={{ color: "rgba(255,100,100,0.9)" }}>
+            {stats?.kills ?? 0}
+          </div>
+          <div className="text-xs mt-1 tracking-widest" style={{ color: "rgba(255,255,255,0.25)" }}>
+            kills
+          </div>
+        </div>
+        <div>
+          <div className="text-4xl font-light" style={{ color: "rgba(220,230,255,0.7)" }}>
+            {stats?.strokes ?? 0}
+          </div>
+          <div className="text-xs mt-1 tracking-widest" style={{ color: "rgba(255,255,255,0.25)" }}>
+            strokes
+          </div>
+        </div>
+      </div>
+
+      {/* Timelapse canvas */}
+      {strokeHistory?.length > 0 && (
+        <div style={{ position: "relative" }}>
+          <canvas
+            ref={canvasRef}
+            width={320}
+            height={160}
+            style={{
+              borderRadius: 12,
+              border: "0.5px solid rgba(255,255,255,0.08)",
+              display: "block",
+            }}
+          />
+          <p className="text-xs text-center mt-2" style={{ color: "rgba(255,255,255,0.2)" }}>
+            your run, painted
+          </p>
+        </div>
+      )}
+
+      {isP1 ? (
+        <div className="flex flex-col items-center gap-3 w-full max-w-xs">
+          <p className="text-xs" style={{ color: "rgba(255,255,255,0.2)", letterSpacing: "0.05em" }}>
+            play again?
+          </p>
+          <button
+            onClick={() => onRestart(false)}
+            className="w-full py-3 rounded-xl text-sm transition-all"
+            style={{
+              background: "rgba(180,140,255,0.08)",
+              border: "1px solid rgba(180,140,255,0.2)",
+              color: "rgba(180,140,255,0.85)",
+            }}
+          >
+            same roles
+          </button>
+          <button
+            onClick={() => onRestart(true)}
+            className="w-full py-3 rounded-xl text-sm transition-all"
+            style={{
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.12)",
+              color: "rgba(255,255,255,0.5)",
+            }}
+          >
+            swap roles
+          </button>
+        </div>
+      ) : (
+        <p className="text-xs" style={{ color: "rgba(255,255,255,0.2)", letterSpacing: "0.05em" }}>
+          waiting for runner to restart…
+        </p>
+      )}
+    </main>
+  );
+}
+
+// ── Root ───────────────────────────────────────────────────────────────────────
+export default function GameTestGame() {
+  const [phase,         setPhase]         = useState("lobby");
+  const [room,          setRoom]          = useState(null);
+  const [role,          setRole]          = useState(null);
+  const [finalStats,    setFinalStats]    = useState(null);
+  const [strokeHistory, setStrokeHistory] = useState([]);
+
+  const phaseRef = useRef(phase);
+  const roleRef  = useRef(role);
+  const roomRef  = useRef(room);
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
+  useEffect(() => { roleRef.current  = role;  }, [role]);
+  useEffect(() => { roomRef.current  = room;  }, [room]);
+
+  // Only subscribe at index level when not playing (same pattern as Firefly)
+  const activeRoomId = phase === "playing" ? null : room?.id ?? null;
+
+  const handlers = useRef({
+    onPlayerReady: () => {
+      if (phaseRef.current === "waiting" && roleRef.current === "p1") {
+        setPhase("playing");
+      }
+    },
+    onGameOver: (stats) => {
+      if (phaseRef.current !== "gameover") {
+        setFinalStats(stats);
+        setPhase("gameover");
+      }
+    },
+    onRestart: ({ seed, swap }) => {
+      const newRole = swap
+        ? (roleRef.current === "p1" ? "p2" : "p1")
+        : roleRef.current;
+      setRoom(prev => prev ? { ...prev, map_seed: seed } : prev);
+      setRole(newRole);
+      setFinalStats(null);
+      setStrokeHistory([]);
+      setPhase("playing");
+    },
+  }).current;
+
+  const { sendPlayerReady, sendGameOver, sendRestart } =
+    useGameTestRoom(activeRoomId, handlers);
+
+  useEffect(() => {
+    if (role === "p2" && room?.id) sendPlayerReady();
+  }, [role, room?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleRoomReady(roomData, assignedRole) {
+    setRoom(roomData);
+    setRole(assignedRole);
+    setPhase(assignedRole === "p1" ? "waiting" : "playing");
+  }
+
+  function handlePlayer2Joined(updatedRoom) {
+    setRoom(updatedRoom);
+    setPhase("playing");
+  }
+
+  // P1 (runner) owns game-over
+  async function handleP1GameOver(stats, strokes) {
+    setFinalStats(stats);
+    setStrokeHistory(strokes);
+    setPhase("gameover");
+    sendGameOver(stats);
+    try {
+      await api.patch(`/inkrun/rooms/${room.id}`, { final_score: stats.distance });
+    } catch { /* non-critical */ }
+  }
+
+  // P2 (painter) just transitions — runner's broadcast triggers P2's gameover
+  function handleP2GameOver(stats, strokes) {
+    setFinalStats(stats);
+    setStrokeHistory(strokes);
+    setPhase("gameover");
+  }
+
+  function handleRestart(swap) {
+    const newSeed = Date.now() & 0x7fffffff;
+    const newRole = swap ? "p2" : "p1";
+    setRoom(prev => prev ? { ...prev, map_seed: newSeed } : prev);
+    setRole(newRole);
+    setFinalStats(null);
+    setStrokeHistory([]);
+    setPhase("playing");
+    sendRestart(newSeed, swap);
+  }
+
+  if (phase === "lobby") return <GameTestLobby onRoomReady={handleRoomReady} />;
+
+  if (phase === "waiting") return (
+    <WaitingForPlayer2 room={room} onPlayer2Joined={handlePlayer2Joined} />
+  );
+
+  if (phase === "gameover") return (
+    <GameOver
+      stats={finalStats}
+      role={role}
+      strokeHistory={strokeHistory}
+      onRestart={handleRestart}
+    />
+  );
+
+  if (phase === "playing") {
+    if (role === "p1") return (
+      <PlayerOneView
+        key={room?.map_seed}
+        room={room}
+        onGameOver={handleP1GameOver}
+      />
+    );
+    return (
+      <PlayerTwoView
+        key={room?.map_seed}
+        room={room}
+        onGameOver={handleP2GameOver}
+      />
+    );
+  }
+
+  return null;
+}

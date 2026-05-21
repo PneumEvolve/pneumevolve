@@ -13,7 +13,7 @@
 
 export const JOYSTICK_MAX_RADIUS = 52;
 export const JOYSTICK_DEAD_ZONE  = 6;   // px — below this, vec stays (0,0)
-export const DRAG_THRESHOLD      = 10;  // px movement before a touch becomes a joystick
+export const DRAG_THRESHOLD      = 16;  // px movement before a touch becomes a joystick
 
 /**
  * Creates the joystick state object.

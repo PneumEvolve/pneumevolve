@@ -416,6 +416,7 @@ export function drawBuilding(ctx, b, cx, cy, t) {
     case "repair_shop":   drawRepairShop(ctx, cx, cy, scale, t, hpPct); break;
     case "upgrade_shop":  drawUpgradeShop(ctx, cx, cy, scale, t, hpPct); break;
     case "home":          drawHome(ctx, cx, cy, scale, t, hpPct); break;
+    case "turret":        drawTurret(ctx, cx, cy, scale, t, hpPct); break;
     default: break;
   }
 
@@ -437,4 +438,77 @@ const BUILDING_TYPES_RADII = {
   repair_shop:  { radius: 20 },
   upgrade_shop: { radius: 22 },
   home:         { radius: 18 },
+  turret:       { radius: 16 },
 };
+
+function drawTurret(ctx, cx, cy, scale, t, hpPct) {
+  const s = scale;
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  // Base — octagonal stone platform
+  ctx.globalAlpha = 0.15;
+  ctx.beginPath();
+  ctx.ellipse(0, 14 * s, 18 * s, 5 * s, 0, 0, Math.PI * 2);
+  ctx.fillStyle = "#000"; ctx.fill();
+
+  // Stone base ring
+  ctx.globalAlpha = 0.9;
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const na = ((i + 1) / 8) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.arc(0, 0, 16 * s, a, na);
+    ctx.closePath();
+    ctx.fillStyle = i % 2 === 0 ? "#1a1218" : "#14100e";
+    ctx.fill();
+  }
+  ctx.beginPath();
+  ctx.arc(0, 0, 16 * s, 0, Math.PI * 2);
+  ctx.strokeStyle = `rgba(255,68,136,${0.25 + 0.08 * Math.sin(t * 2)})`;
+  ctx.lineWidth = 1 * s; ctx.stroke();
+
+  // Rotating barrel — points toward last shot or spins slowly
+  const barrelAngle = t * 0.8;
+  ctx.save();
+  ctx.rotate(barrelAngle);
+  // Barrel housing
+  ctx.globalAlpha = 0.95;
+  ctx.beginPath();
+  ctx.arc(0, 0, 9 * s, 0, Math.PI * 2);
+  ctx.fillStyle = "#1e0d14"; ctx.fill();
+  ctx.strokeStyle = "rgba(255,68,136,0.4)"; ctx.lineWidth = 1 * s; ctx.stroke();
+  // Gun barrel
+  ctx.fillStyle = "#ff4488";
+  ctx.globalAlpha = 0.8;
+  ctx.beginPath();
+  ctx.roundRect(0, -2.5 * s, 13 * s, 5 * s, 1 * s);
+  ctx.fill();
+  // Muzzle flash dot
+  ctx.globalAlpha = 0.5 + 0.3 * Math.sin(t * 8);
+  ctx.beginPath();
+  ctx.arc(14 * s, 0, 2.5 * s, 0, Math.PI * 2);
+  ctx.fillStyle = "#ffaacc"; ctx.fill();
+  ctx.restore();
+
+  // Battlements — 4 crenels around base
+  ctx.globalAlpha = 0.85;
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 8;
+    const bx = Math.cos(a) * 14 * s;
+    const by = Math.sin(a) * 14 * s;
+    ctx.beginPath();
+    ctx.arc(bx, by, 3.5 * s, 0, Math.PI * 2);
+    ctx.fillStyle = "#1a0f14"; ctx.fill();
+    ctx.strokeStyle = "rgba(255,68,136,0.3)"; ctx.lineWidth = 0.6 * s; ctx.stroke();
+  }
+
+  // Energy core glow
+  ctx.globalAlpha = 0.15 + 0.08 * Math.sin(t * 3);
+  ctx.beginPath();
+  ctx.arc(0, 0, 8 * s, 0, Math.PI * 2);
+  ctx.fillStyle = "#ff4488"; ctx.fill();
+
+  ctx.restore();
+}

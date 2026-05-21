@@ -204,3 +204,13 @@ export function sfxBuilderDanger() {
 export function sfxHeal() {
   osc(440, "sine", 0.05, 0.25);
 }
+
+export function sfxPing() {
+  const c = getCtx();
+  // Two-tone sonar blip
+  osc(880, "sine", 0.12, 0.08);
+  setTimeout(() => {
+    const n = osc(1320, "sine", 0.07, 0.18);
+    n.osc.frequency.setTargetAtTime(660, c.currentTime + 0.05, 0.06);
+  }, 55);
+}

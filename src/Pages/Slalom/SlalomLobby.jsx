@@ -105,7 +105,7 @@ export default function SlalomLobby({ onRoomReady, onSolo }) {
               >
                 <div className="font-semibold">Solo</div>
                 <div className="text-xs mt-0.5" style={{ color: "rgba(100,180,255,0.4)" }}>
-                  3 misses and it's over · beat your best
+                  3 misses or wipeouts and it's over · beat your best
                 </div>
               </button>
 
@@ -133,7 +133,7 @@ export default function SlalomLobby({ onRoomReady, onSolo }) {
               <p>
                 <span style={{ color: "rgba(100,180,255,0.8)" }}>Player 1</span> controls the top skate (A / D).{" "}
                 <span style={{ color: "rgba(255,80,100,0.8)" }}>Player 2</span> controls the bottom skate (← / →).
-                Miss 3 gates together and the run ends.
+                Miss 3 gates or wipeout 3 times (combined) and the run ends.
               </p>
             </div>
 

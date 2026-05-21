@@ -1,7 +1,7 @@
 // src/Pages/Stronghold/strongholdEngine.js
 // Pure functions — no React, no side effects.
 
-export const WORLD = 3000;
+export const WORLD = 2400;
 export const TOWN_CENTER_ID = 0;
 
 // ─── Economy ──────────────────────────────────────────────────────────────────
@@ -125,10 +125,23 @@ export const BUILDING_TYPES = {
     color:       "#ffaa44",
     radius:      18,
     maxHp:       60,
-    description: "Houses townspeople. Each home grants +2 workers at the start of the next wave. Losing a home permanently removes those workers.",
+    description: "Houses townspeople. Each home grants +2 workers immediately when built. Losing a home permanently removes those workers.",
     placeable:   true,
     cost:        80,
     workersGranted: 2,
+  },
+  turret: {
+    id:          "turret",
+    label:       "Turret",
+    color:       "#ff4488",
+    radius:      16,
+    maxHp:       50,
+    description: "Automated tower that fires at the nearest enemy. Assign workers to boost damage (+4), range (+20), and fire rate (+0.3/s) each.",
+    placeable:   true,
+    cost:        60,
+    attackRange: 120,
+    attackDamage: 8,
+    attackRate:  1.5,
   },
 };
 
@@ -241,8 +254,11 @@ export function updateProtectorAttack(state, dt) {
 
   if (target.hp <= 0) {
     target.dead = true;
-    // Gold drop — 20-30 per kill
-    state.gold = (state.gold ?? 0) + 20 + Math.floor(Math.random() * 11);
+    // Gold drop — 20-30 per kill; store on enemy so floater shows exact amount
+    const goldDrop = 20 + Math.floor(Math.random() * 11);
+    target._goldDrop = goldDrop;
+    target._goldAwardedByProtector = true; // flag: gold already added, don't double-award
+    state.gold = (state.gold ?? 0) + goldDrop;
     if (lifesteal) state.playerHp = Math.min(PROTECTOR_MAX_HP, (state.playerHp ?? PROTECTOR_MAX_HP) + 3);
   }
 }
@@ -495,7 +511,11 @@ export function updateUnitCombat(units, enemies, dt, upgrades = []) {
     if (!u.projectiles) u.projectiles = [];
     u.projectiles.push({ id: Date.now() + Math.random(), x: u.x, y: u.y, tx: target.x, ty: target.y, age: 0, ttl: 0.14, color: "rgba(255,140,80,0.7)" });
 
-    if (target.hp <= 0) target.dead = true;
+    if (target.hp <= 0 && !target.dead) {
+      target.dead = true;
+      // Store gold drop on enemy so ProtectorView can award it and show the floater
+      target._goldDrop = 10 + Math.floor(Math.random() * 6);
+    }
   });
 
   units.forEach(u => {
@@ -505,7 +525,55 @@ export function updateUnitCombat(units, enemies, dt, upgrades = []) {
   });
 }
 
-// ─── Combat: enemies attack buildings ─────────────────────────────────────────
+// ─── Turret combat ────────────────────────────────────────────────────────────
+
+export function updateTurrets(buildings, enemies, dt) {
+  buildings.forEach(b => {
+    if (b.type !== "turret" || b.hp <= 0) return;
+    const def = BUILDING_TYPES.turret;
+    const workers = b.workers ?? 0;
+    // Each worker boosts: +4 damage, +20 range, +0.3 fire rate
+    const attackDamage = def.attackDamage + workers * 4;
+    const attackRange  = def.attackRange  + workers * 20;
+    const attackRate   = def.attackRate   + workers * 0.3;
+    b.turretCooldown = Math.max(0, (b.turretCooldown ?? 0) - dt);
+    if (b.turretCooldown > 0) return;
+
+    // Find nearest living enemy in range
+    let target = null, bestDist = Infinity;
+    enemies.forEach(e => {
+      if (e.dead) return;
+      const d = dist(b.x, b.y, e.x, e.y);
+      if (d < attackRange && d < bestDist) { bestDist = d; target = e; }
+    });
+    if (!target) return;
+
+    target.hp -= attackDamage;
+    b.turretCooldown = 1 / attackRate;
+    // Store effective range on building so draw loop can show correct ring
+    b._effectiveRange = attackRange;
+
+    if (!b.turretProjectiles) b.turretProjectiles = [];
+    b.turretProjectiles.push({
+      id: Date.now() + Math.random(),
+      x: b.x, y: b.y,
+      tx: target.x, ty: target.y,
+      age: 0, ttl: 0.12,
+    });
+
+    if (target.hp <= 0 && !target.dead) {
+      target.dead = true;
+      target._goldDrop = 10 + Math.floor(Math.random() * 6);
+    }
+  });
+
+  // Tick projectile animations
+  buildings.forEach(b => {
+    if (!b.turretProjectiles) return;
+    b.turretProjectiles.forEach(p => { p.age += dt; });
+    b.turretProjectiles = b.turretProjectiles.filter(p => p.age < p.ttl);
+  });
+}
 
 const ENEMY_ATTACK_RANGE  = 18;
 const ENEMY_ATTACK_DAMAGE = 5;
@@ -598,13 +666,33 @@ const UNIT_SPEED          = 140;
 const UNIT_FOLLOW_RADIUS  = 55;
 const UNIT_ENGAGE_RADIUS  = 100; // soldiers break formation to attack enemies within this range
 
-export function updateUnitMovement(units, heroX, heroY, dt, enemies = [], rallyX, rallyY) {
-  // If heroX/heroY are null (protector dead), units rally to rallyX/rallyY (town center)
+// heroX/heroY = protector position; builderX/builderY = builder position (may be null)
+export function updateUnitMovement(units, heroX, heroY, dt, enemies = [], rallyX, rallyY, builderX, builderY) {
+  // If heroX/heroY are null (protector dead), protector-following units rally to town center
   const protectorAlive = heroX !== null && heroY !== null;
+  const builderAlive   = builderX !== null && builderX !== undefined;
+
   const anchorX = protectorAlive ? heroX : (rallyX ?? heroX);
   const anchorY = protectorAlive ? heroY : (rallyY ?? heroY);
 
-  units.forEach((u, i) => {
+  // Separate index counters so fan-out angles look right per group
+  let protIdx = 0, builderIdx = 0;
+  const protUnits    = units.filter(u => (u.follows ?? "protector") === "protector");
+  const builderUnits = units.filter(u => u.follows === "builder");
+
+  units.forEach(u => {
+    const isBuilderUnit = u.follows === "builder";
+    const groupLen   = isBuilderUnit ? builderUnits.length : protUnits.length;
+    const groupIdx   = isBuilderUnit ? builderIdx++ : protIdx++;
+
+    // Anchor for this soldier
+    const ax = isBuilderUnit
+      ? (builderAlive ? builderX : (rallyX ?? heroX))
+      : anchorX;
+    const ay = isBuilderUnit
+      ? (builderAlive ? builderY : (rallyY ?? heroY))
+      : anchorY;
+
     // Find nearest living enemy within engage range
     let nearestEnemy = null, nearestDist = Infinity;
     enemies.forEach(e => {
@@ -615,14 +703,12 @@ export function updateUnitMovement(units, heroX, heroY, dt, enemies = [], rallyX
 
     let targetX, targetY;
     if (nearestEnemy) {
-      // Charge the enemy
       targetX = nearestEnemy.x;
       targetY = nearestEnemy.y;
     } else {
-      // Fan out slightly around anchor point
-      const angle  = (i / Math.max(units.length, 1)) * Math.PI * 2 + Math.PI / 6;
-      targetX = anchorX + Math.cos(angle) * UNIT_FOLLOW_RADIUS;
-      targetY = anchorY + Math.sin(angle) * UNIT_FOLLOW_RADIUS;
+      const angle = (groupIdx / Math.max(groupLen, 1)) * Math.PI * 2 + Math.PI / 6;
+      targetX = ax + Math.cos(angle) * UNIT_FOLLOW_RADIUS;
+      targetY = ay + Math.sin(angle) * UNIT_FOLLOW_RADIUS;
     }
 
     const dx = targetX - u.x, dy = targetY - u.y;

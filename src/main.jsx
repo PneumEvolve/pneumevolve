@@ -86,6 +86,10 @@ import FireflyGame from "./Pages/Firefly/index";
 import SlalomPage from "@/Pages/Slalom";
 
 import StrongholdGame from "@/Pages/Stronghold"
+
+import InkRunGame from "@/Pages/InkRun"
+
+import GameTestGame from "@/Pages/GameTest"
  
 import { HelmetProvider } from "react-helmet-async";
 import "./index.css";
@@ -205,6 +209,10 @@ function Root() {
                 <Route path="/slalom" element={<SlalomPage />} />
 
                 <Route path="/stronghold" element={<StrongholdGame />} />
+
+                <Route path="/inked" element={<InkRunGame />} />
+
+                <Route path="/game-test" element={<GameTestGame />} />
 
                 
  
