@@ -501,6 +501,7 @@ export default function PainterView({ room, onGameOver }) {
       }
 
       // Wall
+      const wallSX = state.wallX - camX;
       const grad   = ctx.createLinearGradient(wallSX-40, 0, wallSX, 0);
       grad.addColorStop(0, "rgba(120,60,200,0)");
       grad.addColorStop(1, "rgba(120,60,200,0.7)");
