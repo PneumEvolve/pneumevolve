@@ -43,6 +43,7 @@ export function useStrongholdRoom(roomId, handlers) {
       if (status === "SUBSCRIBED") {
         subscribedRef.current = true;
         channelRef.current    = channel;
+        // Flush any messages that were queued while the channel was connecting
         if (pendingRef.current.length > 0) {
           pendingRef.current.forEach(msg => channel.send(msg));
           pendingRef.current = [];
@@ -53,6 +54,7 @@ export function useStrongholdRoom(roomId, handlers) {
     channelRef.current = channel;
     return () => {
       subscribedRef.current = false;
+      pendingRef.current    = [];
       supabase.removeChannel(channel);
       channelRef.current = null;
     };

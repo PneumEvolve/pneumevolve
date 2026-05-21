@@ -196,11 +196,12 @@ export default function ProtectorView({ room, onGameOver }) {
 
   // ── State init ────────────────────────────────────────────────────────────
   function initState() {
-    // Reset ready-up refs so a same-seed restart doesn't immediately skip ready phase
+    // Reset ready-up flags so a same-seed restart doesn't skip the ready-up gate
     p1ReadyRef.current = false;
     p2ReadyRef.current = false;
     setP1Ready(false);
     setP2Ready(false);
+
     const map = createInitialMap();
     return {
       player:          { x: WORLD / 2 + 200, y: WORLD / 2 + 200 },
