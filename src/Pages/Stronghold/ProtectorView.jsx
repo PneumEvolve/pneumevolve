@@ -44,7 +44,9 @@ export default function ProtectorView({ room, onGameOver }) {
   const rafRef      = useRef(null);
   const lastMoveRef = useRef(0);
   const lastSyncRef = useRef(0);
-  const roomRef     = useRef(room);
+  // roomRef lets the game-loop closure always read the latest room prop without
+  // needing room in the useEffect dep array (which would restart the loop mid-game).
+  const roomRef = useRef(room);
   useEffect(() => { roomRef.current = room; }, [room]);
 
   const [showShop,   setShowShop]   = useState(false);
@@ -1416,7 +1418,7 @@ export default function ProtectorView({ room, onGameOver }) {
       canvas.removeEventListener("touchend",   onTouchEnd);
       canvas.removeEventListener("touchcancel",onTouchEnd);
     };
-  }, [room]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Upgrade shop modal ────────────────────────────────────────────────────
   const shopScrollRef = useRef(0);
