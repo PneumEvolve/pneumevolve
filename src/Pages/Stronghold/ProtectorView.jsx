@@ -1091,6 +1091,9 @@ export default function ProtectorView({ room, onGameOver }) {
         updateBurnAura(state, dt);
       }
 
+      // Advance protector projectile animations
+      updateProjectiles(state, dt);
+
       // Burn aura kills award gold via _goldAwardedByBurnAura flag (like protector kills)
 
 
@@ -1327,21 +1330,21 @@ export default function ProtectorView({ room, onGameOver }) {
     sfxPing();
   }
 
-  // Track which touch IDs were claimed by the joystick (started in bottom half)
+  // Track which touch IDs were claimed by the joystick (bottom half only)
   const joystickTouchIds = useRef(new Set());
 
-  // ── Touch handlers — joystick owns bottom 50%, top 50% scrolls freely ───
+  // ── Touch handlers — bottom half = joystick, top half = browser pan-y ────
   function onTouchStart(e) {
     const canvas = canvasRef.current;
     for (const touch of e.changedTouches) {
       const rect = canvas?.getBoundingClientRect();
       const inBottomHalf = rect && touch.clientY >= rect.top + rect.height / 2;
       if (inBottomHalf) {
-        e.preventDefault();
+        e.preventDefault(); // block browser scroll only for bottom-half joystick touches
         joystickTouchIds.current.add(touch.identifier);
         joystickTouchStart(joystickRef.current, touch);
       }
-      // top-half touches are left alone — browser scrolls naturally
+      // top-half touches: no preventDefault → outer div's pan-y handles browser scroll
     }
   }
 
@@ -1540,7 +1543,7 @@ export default function ProtectorView({ room, onGameOver }) {
     <div style={{ width: "100%", height: "100svh", background: "#0a0d0f", position: "relative", overflow: "hidden", touchAction: "pan-y" }}>
       <canvas
         ref={canvasRef}
-        style={{ width: "100%", height: "100%", display: "block", touchAction: "none" }}
+        style={{ width: "100%", height: "100%", display: "block", touchAction: "pan-y" }}
         onClick={handleCanvasClick}
       />
       {showShop && <UpgradeShop />}
