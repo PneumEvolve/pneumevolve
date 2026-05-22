@@ -436,6 +436,19 @@ export function drawBuilding(ctx, b, cx, cy, t) {
     ctx.fillStyle = "#ff2200"; ctx.fill();
   }
 
+  // Upgrade tier — roman numerals below building
+  const tier = b.upgradeTier ?? 0;
+  if (tier > 0) {
+    const numerals = ["I","II","III","IV","V","VI","VII","VIII","IX","X"];
+    const label = numerals[Math.min(tier, numerals.length) - 1] ?? `${tier}`;
+    ctx.globalAlpha = 0.75;
+    ctx.font = `bold ${Math.round(9 * scale)}px serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillStyle = "rgba(255,215,80,0.9)";
+    ctx.fillText(label, cx, cy + def.radius + 3);
+  }
+
   ctx.restore();
 }
 
