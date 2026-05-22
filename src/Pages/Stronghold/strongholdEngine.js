@@ -192,19 +192,90 @@ export const BUILDING_TYPES = {
 export const PLACEABLE_BUILDINGS = Object.values(BUILDING_TYPES).filter(b => b.placeable);
 
 // ─── Building upgrade costs ───────────────────────────────────────────────────
-// Turret upgrades: infinite tiers via repeatableCost(TURRET_UPGRADE_BASE_COST, tier).
+// All upgradeable buildings (except home) accept both townspeople workers AND
+// per-building cash tiers. Effective tier = workers + upgradeTier (they stack).
+// Home only accepts cash upgrades (noWorkers: true).
+
+// Turret: infinite tiers via repeatableCost(TURRET_UPGRADE_BASE_COST, tier).
 export const TURRET_UPGRADE_BASE_COST = 80; // base cost; scales ×1.6 per tier
-// Per tier: +12 damage, +30 range, +0.5 fire rate, +30 HP
+// Per effective tier: +12 damage, +30 range, +0.5 fire rate, +30 HP
 export const TURRET_TIER_DAMAGE   = 12;
 export const TURRET_TIER_RANGE    = 30;
 export const TURRET_TIER_RATE     = 0.5;
 export const TURRET_TIER_HP       = 30;
 
-// Home upgrades: infinite tiers via repeatableCost(HOME_UPGRADE_BASE_COST, tier).
+// Home upgrades: cash only (noWorkers). Per tier: +1 townsperson, +20 HP
 export const HOME_UPGRADE_BASE_COST = 60; // base cost; scales ×1.6 per tier
-// Per tier: +1 townsperson immediately, +20 max HP
 export const HOME_TIER_WORKERS    = 1;
 export const HOME_TIER_HP         = 20;
+
+// Barracks: per effective tier: +1 soldier (on top of workers), +25 HP
+export const BARRACKS_UPGRADE_BASE_COST = 90;
+export const BARRACKS_TIER_HP           = 25;
+
+// Garden: per effective tier: +15 slow radius, −0.03 slow factor, +20 HP
+export const GARDEN_UPGRADE_BASE_COST = 70;
+export const GARDEN_TIER_RADIUS       = 15;
+export const GARDEN_TIER_SLOW         = 0.03;
+export const GARDEN_TIER_HP           = 20;
+
+// Repair Shop: per effective tier: +15 repair radius, +3 repair rate, +20 HP
+export const REPAIR_SHOP_UPGRADE_BASE_COST = 80;
+export const REPAIR_SHOP_TIER_RADIUS       = 15;
+export const REPAIR_SHOP_TIER_RATE         = 3;
+export const REPAIR_SHOP_TIER_HP           = 20;
+
+// Upgrade Shop: per cash tier: +30 HP (passive quality-of-life building)
+export const UPGRADE_SHOP_UPGRADE_BASE_COST = 100;
+export const UPGRADE_SHOP_TIER_HP           = 30;
+
+// Market: per effective tier: +0.4g/s income, +20 HP
+export const MARKET_UPGRADE_BASE_COST = 75;
+export const MARKET_TIER_GOLD         = 0.4;
+export const MARKET_TIER_HP           = 20;
+
+// Fire Trap: per effective tier: +8 damage, +12 range, +20 HP
+export const FIRE_TRAP_UPGRADE_BASE_COST = 70;
+export const FIRE_TRAP_TIER_DAMAGE       = 8;
+export const FIRE_TRAP_TIER_RANGE        = 12;
+export const FIRE_TRAP_TIER_HP           = 20;
+
+// Wall: cash-only (noWorkers). Per cash tier: +40 HP
+export const WALL_UPGRADE_BASE_COST = 45;
+export const WALL_TIER_HP           = 40;
+
+// ─── Effective tier helper ────────────────────────────────────────────────────
+// For all non-home buildings: effective tier = workers assigned + cash upgrades.
+// Workers and cash tiers are interchangeable and stack freely.
+export function effectiveTier(building) {
+  return (building.workers ?? 0) + (building.upgradeTier ?? 0);
+}
+
+// Per-building upgrade base cost lookup
+export const BUILDING_UPGRADE_BASE_COST = {
+  turret:       TURRET_UPGRADE_BASE_COST,
+  home:         HOME_UPGRADE_BASE_COST,
+  barracks:     BARRACKS_UPGRADE_BASE_COST,
+  garden:       GARDEN_UPGRADE_BASE_COST,
+  repair_shop:  REPAIR_SHOP_UPGRADE_BASE_COST,
+  upgrade_shop: UPGRADE_SHOP_UPGRADE_BASE_COST,
+  market:       MARKET_UPGRADE_BASE_COST,
+  fire_trap:    FIRE_TRAP_UPGRADE_BASE_COST,
+  wall:         WALL_UPGRADE_BASE_COST,
+};
+
+// HP gained per cash upgrade tier, by building type
+export const BUILDING_TIER_HP = {
+  turret:       TURRET_TIER_HP,
+  home:         HOME_TIER_HP,
+  barracks:     BARRACKS_TIER_HP,
+  garden:       GARDEN_TIER_HP,
+  repair_shop:  REPAIR_SHOP_TIER_HP,
+  upgrade_shop: UPGRADE_SHOP_TIER_HP,
+  market:       MARKET_TIER_HP,
+  fire_trap:    FIRE_TRAP_TIER_HP,
+  wall:         WALL_TIER_HP,
+};
 
 // ─── Enemy speed caps ─────────────────────────────────────────────────────────
 
@@ -345,8 +416,8 @@ export function updateMarketIncome(buildings, dt, waveNumber) {
   let income = 0;
   buildings.forEach(b => {
     if (b.type !== "market" || b.hp <= 0) return;
-    const workers = Math.min(b.workers ?? 0, 3); // cap at 3 workers
-    const rate = BUILDING_TYPES.market.goldPerSec + workers * 0.5;
+    const tier = effectiveTier(b);
+    const rate = BUILDING_TYPES.market.goldPerSec + tier * MARKET_TIER_GOLD;
     income += rate * dt;
   });
   return income;
@@ -762,11 +833,11 @@ export function updateTurrets(buildings, enemies, dt) {
   buildings.forEach(b => {
     if (b.type !== "turret" || b.hp <= 0) return;
     const def = BUILDING_TYPES.turret;
-    const workers = b.workers ?? 0;
-    // Each worker boosts: +4 damage, +20 range, +0.3 fire rate
-    const attackDamage = def.attackDamage + workers * 4;
-    const attackRange  = def.attackRange  + workers * 20;
-    const attackRate   = def.attackRate   + workers * 0.3;
+    // Effective tier stacks workers + cash upgrades — both contribute equally
+    const tier = effectiveTier(b);
+    const attackDamage = def.attackDamage + tier * TURRET_TIER_DAMAGE;
+    const attackRange  = def.attackRange  + tier * TURRET_TIER_RANGE;
+    const attackRate   = def.attackRate   + tier * TURRET_TIER_RATE;
     b.turretCooldown = Math.max(0, (b.turretCooldown ?? 0) - dt);
     if (b.turretCooldown > 0) return;
 
@@ -815,9 +886,9 @@ export function updateFireTraps(buildings, enemies, dt) {
   buildings.forEach(b => {
     if (b.type !== "fire_trap" || b.hp <= 0) return;
     const def = BUILDING_TYPES.fire_trap;
-    const workers = b.workers ?? 0;
-    const aoeRange   = def.aoeRange  + workers * 15;
-    const aoeDamage  = def.aoeDamage + workers * 6;
+    const tier = effectiveTier(b);
+    const aoeRange   = def.aoeRange  + tier * FIRE_TRAP_TIER_RANGE;
+    const aoeDamage  = def.aoeDamage + tier * FIRE_TRAP_TIER_DAMAGE;
     const aoeRate    = def.aoeRate;
 
     b.fireCooldown = Math.max(0, (b.fireCooldown ?? 0) - dt);
@@ -1075,12 +1146,12 @@ export function updateBuilderRepair(builderX, builderY, buildings, dt, upgrades 
   buildings.forEach(shop => {
     if (shop.type !== "repair_shop" || shop.hp <= 0) return;
     const def     = BUILDING_TYPES.repair_shop;
-    const workers = shop.workers ?? 0;
+    const tier    = effectiveTier(shop);
     const builderIn = dist(builderX, builderY, shop.x, shop.y) < def.radius + 20;
     if (!builderIn && !autoRepair) return;
 
-    const rate   = (builderIn ? def.repairRate * 2 : def.repairRate * 0.6) + workers * 4;
-    const radius = def.repairRadius + workers * 20;
+    const rate   = (builderIn ? def.repairRate * 2 : def.repairRate * 0.6) + tier * REPAIR_SHOP_TIER_RATE;
+    const radius = def.repairRadius + tier * REPAIR_SHOP_TIER_RADIUS;
 
     // Triage: pick the single most-damaged building in range
     let shopTarget = null, lowestHpPct = Infinity;
@@ -1100,15 +1171,18 @@ export function updateBuilderRepair(builderX, builderY, buildings, dt, upgrades 
 // ─── Garden slow zones ────────────────────────────────────────────────────────
 
 export function getSlowZones(buildings, upgrades = []) {
-  const bonus = upgradeCount(upgrades, "garden_size") * 30;
+  const globalBonus = upgradeCount(upgrades, "garden_size") * 30;
   return buildings
     .filter(b => b.type === "garden" && b.hp > 0)
-    .map(b => ({
-      x:      b.x,
-      y:      b.y,
-      radius: BUILDING_TYPES.garden.slowRadius + bonus + (b.workers ?? 0) * 10,
-      factor: Math.max(0.25, BUILDING_TYPES.garden.slowFactor - (b.workers ?? 0) * 0.05),
-    }));
+    .map(b => {
+      const tier = effectiveTier(b);
+      return {
+        x:      b.x,
+        y:      b.y,
+        radius: BUILDING_TYPES.garden.slowRadius + globalBonus + tier * GARDEN_TIER_RADIUS,
+        factor: Math.max(0.25, BUILDING_TYPES.garden.slowFactor - tier * GARDEN_TIER_SLOW),
+      };
+    });
 }
 
 // ─── Wave end: calculate gold bonus ──────────────────────────────────────────

@@ -26,6 +26,8 @@ import {
   segmentCrossesWall,
   getProtectorMaxHp, getBuilderTotalMaxHp,
   updateBurnAura, getBurnAuraStats,
+  effectiveTier, MARKET_TIER_GOLD,
+  FIRE_TRAP_TIER_RANGE, GARDEN_TIER_RADIUS,
 } from "./strongholdEngine";
 
 const PLAYER_SPEED   = 160;
@@ -179,8 +181,9 @@ export default function ProtectorView({ room, onGameOver }) {
   function spawnSoldiers(s, building) {
     const upgrades = s.upgrades ?? [];
     const extra    = upgradeCount(upgrades, "soldier_cnt");
-    const workers  = building.workers ?? 0;
-    const count    = 1 + workers + extra;
+    // effectiveTier counts workers + cash upgrades on the barracks building
+    const tier     = effectiveTier(building);
+    const count    = 1 + tier + extra;
     const hp       = 50 + upgradeCount(upgrades, "soldier_hp") * 20;
     for (let i = 0; i < count; i++) {
       s.units.push({
@@ -279,7 +282,7 @@ export default function ProtectorView({ room, onGameOver }) {
       const { cx, cy } = worldToCanvas(b.x, b.y, cam);
       ctx.save();
       ctx.globalAlpha = 0.07;
-      ctx.beginPath(); ctx.arc(cx, cy, BUILDING_TYPES.garden.slowRadius + (b.workers ?? 0) * 10, 0, Math.PI * 2);
+      ctx.beginPath(); ctx.arc(cx, cy, BUILDING_TYPES.garden.slowRadius + effectiveTier(b) * GARDEN_TIER_RADIUS, 0, Math.PI * 2);
       ctx.fillStyle = "#66dd88"; ctx.fill();
       ctx.restore();
     });
@@ -288,8 +291,7 @@ export default function ProtectorView({ room, onGameOver }) {
     buildings.forEach(b => {
       if (b.type !== "fire_trap" || b.hp <= 0) return;
       const { cx, cy } = worldToCanvas(b.x, b.y, cam);
-      const workers = b.workers ?? 0;
-      const aoeRange = BUILDING_TYPES.fire_trap.aoeRange + workers * 15;
+      const aoeRange = BUILDING_TYPES.fire_trap.aoeRange + effectiveTier(b) * FIRE_TRAP_TIER_RANGE;
       const flash = b._fireFlash ?? 0;
       ctx.save();
       ctx.globalAlpha = flash > 0 ? 0.2 + flash * 0.35 : 0.05;
@@ -638,7 +640,7 @@ export default function ProtectorView({ room, onGameOver }) {
       ctx.fillText(def.label, cx, cy + def.radius + 16);
       // Market: show income rate when active
       if (b.type === "market" && (stateRef.current?.waveNumber ?? 0) >= 1) {
-        const rate = (def.goldPerSec ?? 1.5) + Math.min(workers, 3) * 0.5;
+        const rate = BUILDING_TYPES.market.goldPerSec + effectiveTier(b) * MARKET_TIER_GOLD;
         ctx.globalAlpha = 0.55;
         ctx.fillStyle = "rgba(255,215,0,0.8)";
         ctx.font = "9px sans-serif";

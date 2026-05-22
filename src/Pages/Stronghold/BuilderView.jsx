@@ -14,6 +14,8 @@ import {
   TURRET_UPGRADE_BASE_COST,
   TURRET_TIER_DAMAGE, TURRET_TIER_RANGE, TURRET_TIER_RATE, TURRET_TIER_HP,
   HOME_UPGRADE_BASE_COST, HOME_TIER_WORKERS, HOME_TIER_HP,
+  BUILDING_UPGRADE_BASE_COST, BUILDING_TIER_HP,
+  effectiveTier, MARKET_TIER_GOLD,
   createInitialMap, lerp, dist, calcTownspeople, clampWorkers,
   applyConstructionAura, sellBuilding, updateBuilderRepair, getBreatherDuration,
   upgradeCount, repeatableCost, getMovementSpeed, BUILDER_SPEED_BASE,
@@ -364,38 +366,39 @@ canvas.getContext("2d").setTransform(dpr, 0, 0, dpr, 0, 0);
     forceUpdate(n => n + 1);
   }
 
-  // ── Upgrade a specific building (turret or home) ───────────────────────────
+  // ── Upgrade a specific building (all types except town_center) ───────────────
+  // Home: cash-only upgrade (noWorkers). All others: cash tiers stack with workers.
   function handleUpgradeBuilding(buildingId) {
     const s = stateRef.current;
     if (!s) return;
     const b = s.buildings.find(b => b.id === buildingId);
     if (!b || b.hp <= 0) return;
+    if (b.type === "town_center") return;
 
-    if (b.type === "turret") {
-      const tier = b.upgradeTier ?? 0;
-      const cost = repeatableCost(TURRET_UPGRADE_BASE_COST, tier + 1);
-      if (s.gold < cost) return;
-      b.upgradeTier = tier + 1;
-      b.maxHp  += TURRET_TIER_HP;
-      b.hp     = Math.min(b.hp + TURRET_TIER_HP, b.maxHp);
-      s.gold   -= cost;
-      sendGoldUpdate({ gold: s.gold, from: "builder" });
-      setGold(s.gold);
-      forceUpdate(n => n + 1);
-    } else if (b.type === "home") {
-      const tier = b.upgradeTier ?? 0;
-      const cost = repeatableCost(HOME_UPGRADE_BASE_COST, tier + 1);
-      if (s.gold < cost) return;
-      b.upgradeTier = tier + 1;
-      b.maxHp += HOME_TIER_HP;
-      b.hp     = Math.min(b.hp + HOME_TIER_HP, b.maxHp);
+    const baseCost = BUILDING_UPGRADE_BASE_COST[b.type];
+    if (!baseCost) return; // unknown type
+    const tier = b.upgradeTier ?? 0;
+    const cost = repeatableCost(baseCost, tier + 1);
+    if (s.gold < cost) return;
+
+    // Apply cash upgrade tier
+    b.upgradeTier = tier + 1;
+
+    // Increase maxHp and heal by that amount
+    const hpGain = BUILDING_TIER_HP[b.type] ?? 20;
+    b.maxHp += hpGain;
+    b.hp = Math.min(b.hp + hpGain, b.maxHp);
+
+    // Home: also grant a townsperson
+    if (b.type === "home") {
       s.townspeople = (s.townspeople ?? TOWNSPEOPLE_START) + HOME_TIER_WORKERS;
       setTownspeople(s.townspeople);
-      s.gold  -= cost;
-      sendGoldUpdate({ gold: s.gold, from: "builder" });
-      setGold(s.gold);
-      forceUpdate(n => n + 1);
     }
+
+    s.gold -= cost;
+    sendGoldUpdate({ gold: s.gold, from: "builder" });
+    setGold(s.gold);
+    forceUpdate(n => n + 1);
   }
 
   // ── Ping helper ────────────────────────────────────────────────────────────
@@ -886,7 +889,7 @@ canvas.getContext("2d").setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.fillText(def.label, cx, cy + def.radius + 16);
       // Market: show income rate
       if (b.type === "market" && (stateRef.current?.waveNumber ?? 0) >= 1) {
-        const rate = (def.goldPerSec ?? 1.5) + Math.min(workers, 3) * 0.5;
+        const rate = BUILDING_TYPES.market.goldPerSec + effectiveTier(b) * MARKET_TIER_GOLD;
         ctx.globalAlpha = 0.55;
         ctx.fillStyle = "rgba(255,215,0,0.8)";
         ctx.font = "9px sans-serif";
@@ -1303,26 +1306,42 @@ canvas.getContext("2d").setTransform(dpr, 0, 0, dpr, 0, 0);
                 </div>
               </div>
             )}
-            {/* Upgrade button — turrets and homes only */}
-            {inBuildPhase && (panelBuilding.type === "turret" || panelBuilding.type === "home") && (() => {
-              const tier    = panelBuilding.upgradeTier ?? 0;
-              const baseCost = panelBuilding.type === "turret" ? TURRET_UPGRADE_BASE_COST : HOME_UPGRADE_BASE_COST;
-              const cost    = repeatableCost(baseCost, tier + 1);
+            {/* Upgrade button — all buildings except town_center */}
+            {inBuildPhase && panelBuilding.type !== "town_center" && BUILDING_UPGRADE_BASE_COST[panelBuilding.type] && (() => {
+              const tier     = panelBuilding.upgradeTier ?? 0;
+              const workers  = panelBuilding.workers ?? 0;
+              const baseCost = BUILDING_UPGRADE_BASE_COST[panelBuilding.type];
+              const cost     = repeatableCost(baseCost, tier + 1);
               const canAfford = gold >= cost;
+              const isHome   = panelBuilding.type === "home";
+              const isWorkerOnly = isHome; // only home has no worker stacking
+              const effectTier = workers + tier;
               return (
-                <button
-                  onClick={() => canAfford && handleUpgradeBuilding(panelBuilding.id)}
-                  style={{
-                    marginTop: 8, width: "100%", padding: "8px", borderRadius: 8,
-                    background: canAfford ? "rgba(255,200,60,0.08)" : "rgba(255,255,255,0.03)",
-                    border: `0.5px solid ${canAfford ? "rgba(255,200,60,0.35)" : "rgba(255,255,255,0.1)"}`,
-                    color: canAfford ? "rgba(255,200,60,0.9)" : "rgba(255,255,255,0.25)",
-                    fontSize: 11, cursor: canAfford ? "pointer" : "default", letterSpacing: "0.04em",
-                  }}>
-                  {tier > 0
-                    ? `upgrade tier ${tier + 1} — ${cost}g (×${tier} owned)`
-                    : `upgrade — ${cost}g`}
-                </button>
+                <div style={{ marginTop: 8 }}>
+                  {!isHome && tier > 0 && (
+                    <div style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", marginBottom: 4, lineHeight: 1.4 }}>
+                      {workers > 0
+                        ? `${workers} workers + ${tier} cash = tier ${effectTier} effective`
+                        : `${tier} cash tier${tier !== 1 ? "s" : ""} — tier ${effectTier} effective`}
+                    </div>
+                  )}
+                  <button
+                    onClick={() => canAfford && handleUpgradeBuilding(panelBuilding.id)}
+                    style={{
+                      width: "100%", padding: "8px", borderRadius: 8,
+                      background: canAfford ? "rgba(255,200,60,0.08)" : "rgba(255,255,255,0.03)",
+                      border: `0.5px solid ${canAfford ? "rgba(255,200,60,0.35)" : "rgba(255,255,255,0.1)"}`,
+                      color: canAfford ? "rgba(255,200,60,0.9)" : "rgba(255,255,255,0.25)",
+                      fontSize: 11, cursor: canAfford ? "pointer" : "default", letterSpacing: "0.04em",
+                    }}>
+                    {tier > 0
+                      ? `upgrade tier ${tier + 1} — ${cost}g`
+                      : `upgrade — ${cost}g`}
+                    <span style={{ marginLeft: 6, opacity: 0.6, fontSize: 10 }}>
+                      +{BUILDING_TIER_HP[panelBuilding.type] ?? 20} HP
+                    </span>
+                  </button>
+                </div>
               );
             })()}
             {/* Sell button — only in build/breather phase, not for town center */}
