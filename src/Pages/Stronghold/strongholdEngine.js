@@ -887,7 +887,7 @@ export function updateBurnAura(state, dt) {
   });
 }
 
-
+const ENEMY_ATTACK_RANGE  = 14;
 const ENEMY_ATTACK_DAMAGE = 5;
 const ENEMY_ATTACK_RATE   = 1.4;
 const DEMOLISHER_ATTACK_DAMAGE = 18; // ~3.6× brute — punishing
