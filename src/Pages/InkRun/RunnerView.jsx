@@ -159,6 +159,8 @@ export default function RunnerView({ room, onGameOver }) {
       speedBoost: 0,      // seconds remaining of speed boost
       over: false,
       coyoteTime: 0,
+      lastSafeX: RUNNER_START_X, // last x where runner was on solid ground, well ahead of wall
+      lastSafeY: GROUND_Y - RUNNER_R,
       lastTime: performance.now(),
     };
   }
@@ -323,6 +325,11 @@ export default function RunnerView({ room, onGameOver }) {
         state.onGround = true;
         state.coyoteTime = 0.1; // 100ms grace window after leaving ground
         if (!state.wasOnGround) soundRef.current?.land();
+        // Track last safe ground position — only when comfortably ahead of wall
+        if (state.rx > state.wallX + 120) {
+          state.lastSafeX = state.rx;
+          state.lastSafeY = state.ry;
+        }
       } else {
         if (state.onGround) {
           // Just left the ground — start coyote timer
@@ -397,12 +404,40 @@ export default function RunnerView({ room, onGameOver }) {
       if (state.ry > WORLD_H + 80) {
         state.hp = Math.max(0, state.hp - 1);
         soundRef.current?.hit();
-        state.rx = state.wallX + RUNNER_R + 80;
+
+        // Pick a respawn X: prefer lastSafeX, but wall takes priority if it's caught up
+        const WALL_MARGIN = 150; // if wall is within this, just spawn on wall edge
+        let spawnX = state.lastSafeX;
+        if (spawnX < state.wallX + WALL_MARGIN) {
+          spawnX = state.wallX + RUNNER_R + 60;
+        }
+
+        // Scan forward from spawnX (up to 300px) to find solid ground — avoids re-falling
+        // into the same gap that just killed us. Step 8px at a time.
+        let foundX = null;
+        for (let probe = spawnX; probe <= spawnX + 300; probe += 8) {
+          const s = surfaceUnder(probe, GROUND_Y - RUNNER_R, allGaps, allPlatforms, strokesRef.current);
+          if (s !== null) { foundX = probe; break; }
+        }
+        // If nothing found scanning forward, try scanning backward toward wall
+        if (foundX === null) {
+          for (let probe = spawnX; probe >= state.wallX + RUNNER_R + 8; probe -= 8) {
+            const s = surfaceUnder(probe, GROUND_Y - RUNNER_R, allGaps, allPlatforms, strokesRef.current);
+            if (s !== null) { foundX = probe; break; }
+          }
+        }
+        // Last resort: just land on wall edge
+        if (foundX === null) foundX = state.wallX + RUNNER_R + 60;
+
+        state.rx = foundX;
         state.ry = GROUND_Y - RUNNER_R;
         state.vy = 0;
         state.onGround   = true;
         state.invincible = INVINCIBLE_S;
         state.hitFlash   = 1;
+        // Update safe point to where we just landed
+        state.lastSafeX  = foundX;
+        state.lastSafeY  = GROUND_Y - RUNNER_R;
       }
 
       // Damage sources
@@ -458,7 +493,15 @@ export default function RunnerView({ room, onGameOver }) {
 
       if (state.hp <= 0) {
         state.over = true;
-        const finalStats = { distance: Math.floor(state.distance), kills: state.kills, strokes: strokeHistoryRef.current.length };
+        const dist = Math.floor(state.distance);
+        // Save hi-score and compute isNewHiScore here so painter gets it via broadcast
+        let hiScore = 0, isNewHiScore = false;
+        try {
+          const prev = parseInt(localStorage.getItem("inkrun_hiscore") ?? "0", 10) || 0;
+          if (dist > prev) { localStorage.setItem("inkrun_hiscore", String(dist)); isNewHiScore = true; }
+          hiScore = Math.max(prev, dist);
+        } catch {}
+        const finalStats = { distance: dist, kills: state.kills, strokes: strokeHistoryRef.current.length, hiScore, isNewHiScore };
         sendGameOver(finalStats);
         onGameOver(finalStats, strokeHistoryRef.current);
         return;

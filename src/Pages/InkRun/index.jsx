@@ -176,7 +176,7 @@ function GameOver({ stats, role, strokeHistory, onRestart, isNewHiScore }) {
           </p>
         ) : (
           <p className="text-xs" style={{ color: "rgba(255,255,255,0.18)" }}>
-            best: {loadHiScore()}m
+            best: {stats?.hiScore ?? 0}m
           </p>
         )}
       </div>
@@ -270,6 +270,7 @@ export default function InkRunGame() {
     // fallback for when PainterView has already unmounted or not yet subscribed.
     onGameOver: (stats) => {
       if (phaseRef.current === "playing" && roleRef.current === "p2") {
+        setIsNewHiScore(stats?.isNewHiScore ?? false);
         setFinalStats(stats);
         setPhase("gameover");
       }
@@ -303,8 +304,8 @@ export default function InkRunGame() {
 
   // P1 (runner) owns game-over
   async function handleP1GameOver(stats, strokes) {
-    const newBest = saveHiScore(stats?.distance ?? 0);
-    setIsNewHiScore(newBest);
+    // hi-score already saved in RunnerView tick — just use what's in stats
+    setIsNewHiScore(stats?.isNewHiScore ?? false);
     setFinalStats(stats);
     setStrokeHistory(strokes);
     setPhase("gameover");
@@ -315,6 +316,7 @@ export default function InkRunGame() {
 
   // P2 (painter) just transitions — runner's broadcast triggers P2's gameover
   function handleP2GameOver(stats, strokes) {
+    setIsNewHiScore(stats?.isNewHiScore ?? false);
     setFinalStats(stats);
     setStrokeHistory(strokes);
     setPhase("gameover");
