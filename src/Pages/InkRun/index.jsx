@@ -47,7 +47,20 @@ function WaitingForPlayer2({ room, onPlayer2Joined }) {
 }
 
 // ── Game over screen — shows stats + timelapse hint ───────────────────────────
-function GameOver({ stats, role, strokeHistory, onRestart }) {
+const HI_SCORE_KEY = "inkrun_hiscore";
+function loadHiScore() {
+  try { return parseInt(localStorage.getItem(HI_SCORE_KEY) ?? "0", 10) || 0; }
+  catch { return 0; }
+}
+function saveHiScore(dist) {
+  try {
+    const prev = loadHiScore();
+    if (dist > prev) { localStorage.setItem(HI_SCORE_KEY, String(dist)); return true; }
+  } catch {}
+  return false;
+}
+
+function GameOver({ stats, role, strokeHistory, onRestart, isNewHiScore }) {
   const isP1 = role === "p1";
   const canvasRef = useRef(null);
 
@@ -155,6 +168,19 @@ function GameOver({ stats, role, strokeHistory, onRestart }) {
         </div>
       </div>
 
+      {/* Hi-score */}
+      <div className="text-center" style={{ minHeight: 28 }}>
+        {isNewHiScore ? (
+          <p className="text-xs tracking-widest uppercase" style={{ color: "rgba(255,220,80,0.9)" }}>
+            ★ new best: {stats?.distance ?? 0}m
+          </p>
+        ) : (
+          <p className="text-xs" style={{ color: "rgba(255,255,255,0.18)" }}>
+            best: {loadHiScore()}m
+          </p>
+        )}
+      </div>
+
       {/* Timelapse canvas */}
       {strokeHistory?.length > 0 && (
         <div style={{ position: "relative" }}>
@@ -219,6 +245,7 @@ export default function InkRunGame() {
   const [finalStats,    setFinalStats]    = useState(null);
   const [strokeHistory, setStrokeHistory] = useState([]);
   const [restartCount,  setRestartCount]  = useState(0);
+  const [isNewHiScore,  setIsNewHiScore]  = useState(false);
 
   const phaseRef = useRef(phase);
   const roleRef  = useRef(role);
@@ -276,6 +303,8 @@ export default function InkRunGame() {
 
   // P1 (runner) owns game-over
   async function handleP1GameOver(stats, strokes) {
+    const newBest = saveHiScore(stats?.distance ?? 0);
+    setIsNewHiScore(newBest);
     setFinalStats(stats);
     setStrokeHistory(strokes);
     setPhase("gameover");
@@ -305,6 +334,7 @@ export default function InkRunGame() {
     setRole(newRole);
     setFinalStats(null);
     setStrokeHistory([]);
+    setIsNewHiScore(false);
     setRestartCount(c => c + 1);
     setPhase("playing");
   }
@@ -321,6 +351,7 @@ export default function InkRunGame() {
       role={role}
       strokeHistory={strokeHistory}
       onRestart={handleRestart}
+      isNewHiScore={isNewHiScore}
     />
   );
 

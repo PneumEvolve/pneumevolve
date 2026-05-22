@@ -72,8 +72,18 @@ export default function PainterView({ room, onGameOver }) {
   const [inkUsed,  setInkUsed]  = useState(0);
   const [inkBonus, setInkBonus] = useState(0); // extra ink from tokens
 
-  const inkBonusRef = useRef(0); // mirrors inkBonus state for use inside canvas tick
-  const totalInk = () => strokesRef.current.reduce((s, st) => s + strokeLen(st), 0);
+  const inkBonusRef    = useRef(0); // mirrors inkBonus state for use inside canvas tick
+  const lastWallXRef   = useRef(-Infinity); // tracks last wallX we trimmed at — skip frame if unchanged
+  const inkUsedRef     = useRef(0);         // authoritative ink value inside the tick (avoids reduce spam)
+  const inkDirtyRef    = useRef(false);     // set true when inkUsedRef changes; flushed to state ≤4/s
+  const lastInkFlushRef = useRef(0);        // timestamp of last setInkUsed call
+
+  // Recompute ink from scratch — only call this when strokes actually changed
+  function recomputeInk() {
+    inkUsedRef.current = strokesRef.current.reduce((s, st) => s + strokeLen(st), 0);
+    inkDirtyRef.current = true;
+  }
+  const totalInk = () => inkUsedRef.current;
   const inkCap   = () => MAX_INK + inkBonusRef.current;
 
   const handlers = useRef({
@@ -160,6 +170,7 @@ export default function PainterView({ room, onGameOver }) {
   }
 
   const touchCountRef = useRef(0);
+  const keysRef       = useRef({});  // WASD camera pan
 
   // Shared draw-start logic used by both pointer and touch paths
   function beginStroke(clientX, clientY) {
@@ -229,13 +240,15 @@ export default function PainterView({ room, onGameOver }) {
         if (kept.length < 2) { sendStrokeReclaimed(s.id); return []; }
         return [{ ...s, points: kept }];
       });
-      setInkUsed(totalInk());
+      recomputeInk();
+      setInkUsed(inkUsedRef.current);
       return;
     }
 
     strokesRef.current = [...strokesRef.current, stroke];
     strokeHistoryRef.current = [...strokeHistoryRef.current, { ...stroke, points: [...stroke.points] }];
-    setInkUsed(totalInk());
+    recomputeInk();
+    setInkUsed(inkUsedRef.current);
     sendStrokeAdded(stroke);
   }
 
@@ -290,10 +303,19 @@ export default function PainterView({ room, onGameOver }) {
     stateRef.current   = initState();
     strokesRef.current = [];
     strokeHistoryRef.current = [];
-    inkBonusRef.current = 0;
+    inkBonusRef.current  = 0;
+    inkUsedRef.current   = 0;
+    inkDirtyRef.current  = false;
+    lastWallXRef.current = -Infinity;
+    lastInkFlushRef.current = 0;
     setInkBonus(0);
     setInkUsed(0);
     gameOverFiredRef.current = false;
+
+    const onKeyDown = (e) => { keysRef.current[e.key] = true; };
+    const onKeyUp   = (e) => { delete keysRef.current[e.key]; };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup",   onKeyUp);
 
     canvas.addEventListener("touchstart", onTouchStart, { passive: false });
     canvas.addEventListener("touchmove",  onTouchMove,  { passive: false });
@@ -324,21 +346,32 @@ export default function PainterView({ room, onGameOver }) {
       }
       // Once wallX arrives via onRunnerMove, stateRef.wallX is set there directly
 
-      // Reclaim / trim strokes eaten by wall
-      const beforeCount = strokesRef.current.length;
-      const beforeInk   = totalInk();
-      strokesRef.current = strokesRef.current.flatMap(s => {
-        // Trim all points behind the wall
-        const live = s.points.filter(p => p.x >= state.wallX - 8);
-        if (live.length === 0) { sendStrokeReclaimed(s.id); return []; }
-        if (live.length < s.points.length) {
-          return [{ ...s, points: live }];
+      // Reclaim / trim strokes eaten by wall — only do work when wall has moved meaningfully
+      const wallX = state.wallX;
+      if (wallX > lastWallXRef.current + 1) {
+        lastWallXRef.current = wallX;
+        let changed = false;
+        const next = [];
+        for (const s of strokesRef.current) {
+          // Fast path: all points are ahead of the wall
+          if (s.points[0].x >= wallX - 8) { next.push(s); continue; }
+          // Trim points behind the wall
+          const live = s.points.filter(p => p.x >= wallX - 8);
+          if (live.length === 0) { sendStrokeReclaimed(s.id); changed = true; continue; }
+          if (live.length < s.points.length) { next.push({ ...s, points: live }); changed = true; continue; }
+          next.push(s);
         }
-        return [s];
-      });
-      // Update ink bar whenever strokes change (either removed or trimmed)
-      if (strokesRef.current.length !== beforeCount || Math.abs(totalInk() - beforeInk) > 5) {
-        setInkUsed(totalInk());
+        if (changed) {
+          strokesRef.current = next;
+          recomputeInk();
+        }
+      }
+
+      // Flush ink bar to React state at most 4× per second (avoids re-render spam)
+      if (inkDirtyRef.current && ts - lastInkFlushRef.current > 250) {
+        setInkUsed(inkUsedRef.current);
+        inkDirtyRef.current   = false;
+        lastInkFlushRef.current = ts;
       }
 
       // Interpolate displayed runner position toward broadcast target (fixes jitter)
@@ -347,6 +380,16 @@ export default function PainterView({ room, onGameOver }) {
       const lerpK  = Math.min(1, 12 * dt); // ~12 Hz smoothing — fast enough to feel live
       disp.x += (target.x - disp.x) * lerpK;
       disp.y += (target.y - disp.y) * lerpK;
+
+      // WASD camera panning (disables auto-follow while a key is held)
+      const PAN_SPEED = 400; // world-units per second
+      let panDX = 0;
+      if (keysRef.current["a"] || keysRef.current["A"] || keysRef.current["ArrowLeft"])  panDX -= 1;
+      if (keysRef.current["d"] || keysRef.current["D"] || keysRef.current["ArrowRight"]) panDX += 1;
+      if (panDX !== 0) {
+        state.camTargetX += panDX * PAN_SPEED * dt;
+        state.following   = false;
+      }
 
       // Camera follow runner
       if (state.following) state.camTargetX = target.x - WW * 0.32;
@@ -599,6 +642,8 @@ export default function PainterView({ room, onGameOver }) {
     return () => {
       cancelAnimationFrame(rafRef.current);
       window.removeEventListener("resize", resize);
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup",   onKeyUp);
       canvas.removeEventListener("touchstart", onTouchStart);
       canvas.removeEventListener("touchmove",  onTouchMove);
       canvas.removeEventListener("touchend",   onTouchEnd);
