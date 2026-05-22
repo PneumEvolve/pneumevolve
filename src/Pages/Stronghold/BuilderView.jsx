@@ -216,9 +216,8 @@ export default function BuilderView({ room, onGameOver }) {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const dpr = window.devicePixelRatio || 1;
-const W = canvas.width / dpr;
-const H = canvas.height / dpr;
-canvas.getContext("2d").setTransform(dpr, 0, 0, dpr, 0, 0);
+    const W = canvas.width / dpr;
+    const H = canvas.height / dpr;
 
     // Minimap tap → ping
     const MM = 90, pad = 10;
@@ -971,7 +970,8 @@ canvas.getContext("2d").setTransform(dpr, 0, 0, dpr, 0, 0);
     const canvas = canvasRef.current;
     if (!canvas || !stateRef.current) return;
     const ctx   = canvas.getContext("2d");
-    const W     = canvas.width, H = canvas.height;
+    const dpr   = window.devicePixelRatio || 1;
+    const W     = canvas.width / dpr, H = canvas.height / dpr;
     const state = stateRef.current;
     const dt    = Math.min((ts - lastTimeRef.current) / 1000, 0.05);
     lastTimeRef.current = ts;
@@ -1040,6 +1040,7 @@ canvas.getContext("2d").setTransform(dpr, 0, 0, dpr, 0, 0);
       }
     }
 
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     draw(ctx, state, ts / 1000, W, H);
     rafRef.current = requestAnimationFrame(loop);
   }
