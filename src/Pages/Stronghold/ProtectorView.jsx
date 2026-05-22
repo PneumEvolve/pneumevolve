@@ -1333,6 +1333,7 @@ export default function ProtectorView({ room, onGameOver }) {
       const rect = canvas?.getBoundingClientRect();
       const inBottomHalf = rect && touch.clientY >= rect.top + rect.height / 2;
       if (inBottomHalf) {
+        e.preventDefault();
         joystickTouchIds.current.add(touch.identifier);
         joystickTouchStart(joystickRef.current, touch);
       }
@@ -1399,7 +1400,7 @@ export default function ProtectorView({ room, onGameOver }) {
     function onKeyUp(e) { keysRef.current[e.key] = false; }
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup",   onKeyUp);
-    canvas.addEventListener("touchstart",  onTouchStart, { passive: true  });
+    canvas.addEventListener("touchstart",  onTouchStart, { passive: false });
     canvas.addEventListener("touchmove",   onTouchMove,  { passive: false }); // may block scroll
     canvas.addEventListener("touchend",    onTouchEnd,   { passive: true  });
     canvas.addEventListener("touchcancel", onTouchEnd,   { passive: true  });
@@ -1535,7 +1536,7 @@ export default function ProtectorView({ room, onGameOver }) {
     <div style={{ width: "100%", height: "100svh", background: "#0a0d0f", position: "relative", overflow: "hidden", touchAction: "pan-y" }}>
       <canvas
         ref={canvasRef}
-        style={{ width: "100%", height: "100%", display: "block", touchAction: "pan-y" }}
+        style={{ width: "100%", height: "100%", display: "block", touchAction: "none" }}
         onClick={handleCanvasClick}
       />
       {showShop && <UpgradeShop />}

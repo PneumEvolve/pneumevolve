@@ -29,8 +29,9 @@ export default function BuilderView({ room, onGameOver }) {
   const canvasRef   = useRef(null);
   const stateRef    = useRef(null);
   const keysRef     = useRef({});
-  const joystickRef = useRef(createJoystick());
-  const cursorRef   = useRef({ wx: 0, wy: 0 }); // world-space cursor for wall ghost
+  const joystickRef      = useRef(createJoystick());
+  const joystickTouchIds = useRef(new Set());
+  const cursorRef        = useRef({ wx: 0, wy: 0 }); // world-space cursor for wall ghost
   const rafRef      = useRef(null);
   const lastMoveRef = useRef(0);
   const lastTimeRef = useRef(performance.now());
