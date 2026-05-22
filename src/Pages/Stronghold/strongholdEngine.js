@@ -407,6 +407,34 @@ export function segmentCrossesWall(ax, ay, bx, by, wall) {
   return true;
 }
 
+// Push an enemy (circle, radius r) out of a living rotated wall rectangle.
+// Modifies e.x / e.y in-place. No-op if enemy is already outside.
+export function pushEnemyOutOfWall(e, wall) {
+  if (wall.hp <= 0) return;
+  const r   = e.radius ?? 6;
+  const cos = Math.cos(-(wall.angle ?? 0));
+  const sin = Math.sin(-(wall.angle ?? 0));
+  const dx  = e.x - wall.x, dy = e.y - wall.y;
+  const lx  = cos * dx - sin * dy;
+  const ly  = sin * dx + cos * dy;
+  // Expand wall by enemy radius for circle-vs-AABB test
+  const hw  = wall.halfW + r, hh = wall.halfH + r;
+  if (Math.abs(lx) >= hw || Math.abs(ly) >= hh) return; // outside — nothing to do
+  // Penetration depth along each axis
+  const ox = hw - Math.abs(lx); // overlap on local x
+  const oy = hh - Math.abs(ly); // overlap on local y
+  let pushLx = 0, pushLy = 0;
+  if (ox < oy) {
+    pushLx = lx < 0 ? -ox : ox;
+  } else {
+    pushLy = ly < 0 ? -oy : oy;
+  }
+  // Rotate push vector back to world space
+  const cosFwd = Math.cos(wall.angle ?? 0), sinFwd = Math.sin(wall.angle ?? 0);
+  e.x += cosFwd * pushLx - sinFwd * pushLy;
+  e.y += sinFwd * pushLx + cosFwd * pushLy;
+}
+
 // ─── Market income ────────────────────────────────────────────────────────────
 
 // Call every tick from the protector (gold owner). Returns gold to add.
@@ -711,11 +739,12 @@ export function updateEnemies(enemies, buildings, builderX, builderY, dt, slowZo
     });
 
     // ── Wall blocking ─────────────────────────────────────────────────────
-    // If the straight path to the target crosses a living wall, decide: go around or smash.
-    if (livingWalls.length > 0 && !e.chasingProtector && !e.chasingBuilder) {
+    // Walls block ALL enemies regardless of chase target (protector, builder, or building).
+    // Raiders try to skirt around; brutes smash through. Chasing enemies still get redirected.
+    if (livingWalls.length > 0) {
       const blockingWall = livingWalls.find(w => segmentCrossesWall(e.x, e.y, tx, ty, w));
       if (blockingWall) {
-        // Raiders try to skirt around one of the wall's ends (+12px clearance)
+        // Raiders try to skirt around one of the wall's ends (+14px clearance)
         if (e.type === "raider") {
           const angle = blockingWall.angle ?? 0;
           const cos = Math.cos(angle), sin = Math.sin(angle);
@@ -738,7 +767,7 @@ export function updateEnemies(enemies, buildings, builderX, builderY, dt, slowZo
             tx = blockingWall.x; ty = blockingWall.y;
           }
         } else {
-          // Brutes and others: always attack through
+          // Brutes, demolisher-lite and others: always attack through
           e._wallAroundX = undefined;
           tx = blockingWall.x; ty = blockingWall.y;
         }
@@ -784,6 +813,14 @@ export function updateEnemies(enemies, buildings, builderX, builderY, dt, slowZo
         }
       }
     }
+  }
+
+  // ── Wall depenetration — push any enemy that clipped inside a wall back out ──
+  // Runs after movement AND separation so enemies can't tunnel through on fast frames.
+  if (livingWalls.length > 0) {
+    living.forEach(e => {
+      livingWalls.forEach(w => pushEnemyOutOfWall(e, w));
+    });
   }
 }
 
