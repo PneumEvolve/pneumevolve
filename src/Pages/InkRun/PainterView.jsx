@@ -6,6 +6,8 @@ import { WORLD_H, CHUNK_W, GROUND_Y, RUNNER_R, WALL_GRACE_S, INK_TOKEN_R, genera
 const MAX_INK      = 1800;
 const CHUNKS_AHEAD = 6;
 const ENEMY_R      = 14;
+// Speed and bounce strokes cost 1.5× ink — they're more powerful than plain bridges.
+const INK_COST_MULT = { black: 1, speed: 1.5, bounce: 1.5, eraser: 0 };
 
 function maxChunkIndex(chunks) {
   let m = 0;
@@ -18,6 +20,10 @@ function strokeLen(stroke) {
     len += Math.hypot(stroke.points[i].x - stroke.points[i-1].x, stroke.points[i].y - stroke.points[i-1].y);
   }
   return len;
+}
+// Ink cost accounts for the stroke type — speed/bounce are 1.5× more expensive.
+function weightedStrokeLen(stroke) {
+  return strokeLen(stroke) * (INK_COST_MULT[stroke.color] ?? 1);
 }
 
 // ─── ground rendering (same fixed helper as RunnerView) ───────────────────────
@@ -80,7 +86,7 @@ export default function PainterView({ room, onGameOver }) {
 
   // Recompute ink from scratch — only call this when strokes actually changed
   function recomputeInk() {
-    inkUsedRef.current = strokesRef.current.reduce((s, st) => s + strokeLen(st), 0);
+    inkUsedRef.current = strokesRef.current.reduce((s, st) => s + weightedStrokeLen(st), 0);
     inkDirtyRef.current = true;
   }
   const totalInk = () => inkUsedRef.current;
@@ -199,8 +205,9 @@ export default function PainterView({ room, onGameOver }) {
     if (Math.hypot(wx - last.x, wy - last.y) < 4) return;
     // Eraser doesn't consume ink — skip the ink cap check
     if (colorRef.current !== "eraser") {
-      const tentLen  = strokeLen({ points: [...pts, { x: wx, y: wy }] });
-      const otherInk = strokesRef.current.reduce((s, st) => s + strokeLen(st), 0);
+      const mult     = INK_COST_MULT[colorRef.current] ?? 1;
+      const tentLen  = strokeLen({ points: [...pts, { x: wx, y: wy }] }) * mult;
+      const otherInk = strokesRef.current.reduce((s, st) => s + weightedStrokeLen(st), 0);
       if (otherInk + tentLen > inkCap()) return;
     }
     pts.push({ x: wx, y: wy });

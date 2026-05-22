@@ -470,6 +470,7 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
   s.topSkate.x = snapX; s.botSkate.x = snapX;
   s.topTrail = []; s.botTrail = [];
   p2AngleRef.current = 0;
+  keysRef.current = {};  // drop any held keys so input lock isn't immediately bypassed
   inputLockRef.current = 40; // ignore input for ~0.7s after wipeout clears
 }
 
@@ -571,6 +572,7 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
           s.topSkate.angle = 0; s.botSkate.angle = 0;
           s.topSkate.vx = 0;   s.botSkate.vx = 0;
           p2AngleRef.current = 0;
+          keysRef.current = {};  // drop held keys so they don't fire the instant lock expires
           inputLockRef.current = 40;
           const nextGate = s.items.find(i => i.type === "gate" && !i.passed && !i.missed && i.worldDist > s.dist);
           const snapX = nextGate ? nextGate.cx : s.cx;

@@ -52,7 +52,9 @@ export default function InkRunLobby({ onRoomReady }) {
           </p>
           <p>
             <span style={{ color: "rgba(255,255,255,0.65)" }}>Painter</span> draws platforms and
-            bridges with limited ink. <span style={{ color: "rgba(220,230,255,0.6)" }}>Black</span> builds.{" "}
+            bridges with limited ink. <span style={{ color: "rgba(220,230,255,0.6)" }}>White</span> builds bridges.{" "}
+            <span style={{ color: "rgba(80,220,255,0.8)" }}>Speed</span> and{" "}
+            <span style={{ color: "rgba(80,255,160,0.8)" }}>bounce</span> strokes cost 1.5× ink — powerful but pricey.{" "}
             <span style={{ color: "rgba(255,100,100,0.7)" }}>Red</span> kills enemies — but also
             kills the runner on contact.
           </p>
