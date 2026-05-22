@@ -989,7 +989,7 @@ export default function ProtectorView({ room, onGameOver }) {
       if (breatherMarketIncome > 0) state.gold = (state.gold ?? 0) + breatherMarketIncome;
       // Sync building HP during breather so both players see repairs
       if (ts - lastSyncRef.current > SYNC_THROTTLE) {
-        sendBuildingHealth(state.buildings.map(b => ({ id: b.id, hp: b.hp, workers: b.workers, upgradeTier: b.upgradeTier, _fireFlash: b._fireFlash, _aoeRange: b._aoeRange })), state.builderHp, state.playerHp, state.lockedWorkers ?? 0);
+        sendBuildingHealth(state.buildings.map(b => ({ id: b.id, hp: b.hp, maxHp: b.maxHp, workers: b.workers, upgradeTier: b.upgradeTier, _fireFlash: b._fireFlash, _aoeRange: b._aoeRange })), state.builderHp, state.playerHp, state.lockedWorkers ?? 0);
         lastSyncRef.current = ts;
       }
       if (state.breatherLeft <= 0) {
@@ -1136,7 +1136,7 @@ export default function ProtectorView({ room, onGameOver }) {
 
       if (ts - lastSyncRef.current > SYNC_THROTTLE) {
         sendEnemyUpdate(state.enemies.filter(e => !e.dead).map(e => ({ id: e.id, x: e.x, y: e.y, hp: e.hp, maxHp: e.maxHp, chasingBuilder: e.chasingBuilder, type: e.type })));
-        sendBuildingHealth(state.buildings.map(b => ({ id: b.id, hp: b.hp, workers: b.workers, turretProjectiles: b.turretProjectiles ?? [] })), state.builderHp, state.playerHp, state.lockedWorkers ?? 0);
+        sendBuildingHealth(state.buildings.map(b => ({ id: b.id, hp: b.hp, maxHp: b.maxHp, workers: b.workers, turretProjectiles: b.turretProjectiles ?? [] })), state.builderHp, state.playerHp, state.lockedWorkers ?? 0);
         sendUnitUpdate(state.units.map(u => ({ id: u.id, x: u.x, y: u.y, hp: u.hp, maxHp: u.maxHp })));
         sendGoldUpdate({ gold: state.gold, from: "protector" });
         lastSyncRef.current = ts;

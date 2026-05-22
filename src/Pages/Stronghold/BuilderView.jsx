@@ -64,10 +64,12 @@ export default function BuilderView({ room, onGameOver }) {
     },
     onBuildingHealth: ({ buildings, builderHp, protectorHp, lockedWorkers }) => {
       if (!stateRef.current) return;
-      buildings.forEach(({ id, hp, workers, turretProjectiles }) => {
+      buildings.forEach(({ id, hp, maxHp, workers, upgradeTier, turretProjectiles }) => {
         const b = stateRef.current.buildings.find(b => b.id === id);
         if (b) {
           b.hp = hp;
+          if (maxHp !== undefined) b.maxHp = maxHp;
+          if (upgradeTier !== undefined) b.upgradeTier = upgradeTier;
           if (workers !== undefined) b.workers = workers;
           if (turretProjectiles !== undefined) b.turretProjectiles = turretProjectiles;
         }
