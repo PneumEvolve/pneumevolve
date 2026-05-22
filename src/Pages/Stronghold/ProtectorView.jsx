@@ -44,6 +44,8 @@ export default function ProtectorView({ room, onGameOver }) {
   const rafRef      = useRef(null);
   const lastMoveRef = useRef(0);
   const lastSyncRef = useRef(0);
+  const roomRef     = useRef(room);
+  useEffect(() => { roomRef.current = room; }, [room]);
 
   const [showShop,   setShowShop]   = useState(false);
   const [shopTick,   setShopTick]   = useState(0);
@@ -940,7 +942,7 @@ export default function ProtectorView({ room, onGameOver }) {
       const px = state.player.x, py = state.player.y;
       const atEdge = px < margin || px > WORLD - margin || py < margin || py > WORLD - margin;
       if (atEdge) {
-        state.scoutData = scoutWave(state.waveNumber + 1, room.map_seed);
+        state.scoutData = scoutWave(state.waveNumber + 1, roomRef.current.map_seed);
       }
     }
 
@@ -1164,7 +1166,7 @@ export default function ProtectorView({ room, onGameOver }) {
   function startWave(state) {
     state.waveNumber += 1;
     state.phase = "wave";
-    state.enemies = spawnWave(state.waveNumber, room.map_seed);
+    state.enemies = spawnWave(state.waveNumber, roomRef.current.map_seed);
     state.waveDowns = 0;
     state._waveBuildingHpStart = undefined;
     state._wasProtectorDown = false;
