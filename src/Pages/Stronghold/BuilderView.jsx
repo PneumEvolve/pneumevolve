@@ -210,7 +210,10 @@ export default function BuilderView({ room, onGameOver }) {
     if (!state) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const W = canvas.width;
+    const dpr = window.devicePixelRatio || 1;
+const W = canvas.width / dpr;
+const H = canvas.height / dpr;
+canvas.getContext("2d").setTransform(dpr, 0, 0, dpr, 0, 0);
 
     // Minimap tap → ping
     const MM = 90, pad = 10;
@@ -1039,7 +1042,11 @@ export default function BuilderView({ room, onGameOver }) {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !room) return;
-    function resize() { canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight; }
+    function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width  = canvas.offsetWidth  * dpr;
+  canvas.height = canvas.offsetHeight * dpr;
+}
     resize();
     window.addEventListener("resize", resize);
     stateRef.current = initState();

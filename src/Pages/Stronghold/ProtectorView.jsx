@@ -862,13 +862,17 @@ export default function ProtectorView({ room, onGameOver }) {
 
   // ── Game loop ─────────────────────────────────────────────────────────────
   function loop(ts) {
-    if (!stateRef.current || !canvasRef.current) return;
+    try {
+    if (!stateRef.current || !canvasRef.current) { rafRef.current = requestAnimationFrame(loop); return; }
     const state = stateRef.current;
     if (state.phase === "gameover") return;
 
     const canvas = canvasRef.current;
     const ctx    = canvas.getContext("2d");
-    const W = canvas.width, H = canvas.height;
+    const dpr = window.devicePixelRatio || 1;
+    const W = canvas.width / dpr;
+    const H = canvas.height / dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const dt = Math.min((ts - state.lastTime) / 1000, 0.05);
     state.lastTime = ts;
     const t = ts / 1000;
@@ -1151,6 +1155,10 @@ export default function ProtectorView({ room, onGameOver }) {
 
     draw(ctx, state, t, W, H);
     rafRef.current = requestAnimationFrame(loop);
+    } catch (err) {
+      console.error("[ProtectorView loop error]", err);
+      rafRef.current = requestAnimationFrame(loop);
+    }
   }
 
   function startWave(state) {
@@ -1352,7 +1360,11 @@ export default function ProtectorView({ room, onGameOver }) {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !room) return;
-    function resize() { canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight; }
+    function resize() {
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width  = canvas.offsetWidth  * dpr;
+      canvas.height = canvas.offsetHeight * dpr;
+    }
     resize();
     window.addEventListener("resize", resize);
     stateRef.current = initState();
