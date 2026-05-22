@@ -11,6 +11,7 @@ const JUMP_VY        = -420;
 const MOVE_SPEED     = 220;
 const WALL_START_VX  = 60;
 const WALL_ACCEL     = 2.5;
+const WALL_MAX_VX    = 190;
 const MOVE_THROTTLE  = 40;
 const CHUNKS_AHEAD   = 5;
 const RUNNER_START_X = 160;
@@ -277,9 +278,9 @@ export default function RunnerView({ room, onGameOver }) {
           sendWallTime(ts);
         }
       } else {
-        state.wallVx += WALL_ACCEL * dt;
-        state.wallX  += state.wallVx * dt;
-      }
+  state.wallVx = Math.min(state.wallVx + WALL_ACCEL * dt, WALL_MAX_VX);
+  state.wallX  += state.wallVx * dt;
+}
       if (state.rx - RUNNER_R < state.wallX) state.rx = state.wallX + RUNNER_R + 2;
 
       // Movement
