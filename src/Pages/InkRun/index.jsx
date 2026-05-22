@@ -297,13 +297,16 @@ export default function InkRunGame() {
     const newRole = swap
       ? (currentRole === "p1" ? "p2" : "p1")
       : currentRole;
+    // Send BEFORE setState — setting phase to "playing" sets activeRoomId to null,
+    // which tears down this channel on the next render. The broadcast must go out
+    // while the channel is still subscribed.
+    sendRestart(newSeed, swap);
     setRoom(prev => prev ? { ...prev, map_seed: newSeed } : prev);
     setRole(newRole);
     setFinalStats(null);
     setStrokeHistory([]);
     setRestartCount(c => c + 1);
     setPhase("playing");
-    sendRestart(newSeed, swap);
   }
 
   if (phase === "lobby") return <InkRunLobby onRoomReady={handleRoomReady} />;

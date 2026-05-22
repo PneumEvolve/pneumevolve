@@ -188,6 +188,7 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
   // Each milestone removes 1 miss and triggers a brief flash.
   const gemMilestoneRef = useRef(0);
   const missEraseFlashRef = useRef(0); // countdown frames for the "miss erased" flash
+  const inputLockRef = useRef(0);      // countdown frames during which skate input is ignored (post-wipeout / restart)
 
   const isMultiplayer = !!roomId;
   const isP1 = !isMultiplayer || role === "p1";
@@ -198,8 +199,8 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
 
   const mkState = useCallback(() => ({
     cx: PLAYER_CX_BASE, cy: PLAYER_CY,
-    topSkate: { x: PLAYER_CX_BASE+10, angle:0, vx:0 },
-    botSkate: { x: PLAYER_CX_BASE+10, angle:0, vx:0 },
+    topSkate: { x: PLAYER_CX_BASE, angle:0, vx:0 },
+    botSkate: { x: PLAYER_CX_BASE, angle:0, vx:0 },
     topTrail: [], botTrail: [],
     dist: 0, speed: BASE_SPEED,
     items: generateChunk(200, 40),
@@ -389,14 +390,22 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
         const speed = BASE_SPEED + Math.min(s.dist / 6000, 2.5);
         s.speed = speed;
 
-        if (k["a"]||k["A"]) s.topSkate.angle = Math.max(s.topSkate.angle - 0.04, -MAX_ANGLE);
-        if (k["d"]||k["D"]) s.topSkate.angle = Math.min(s.topSkate.angle + 0.04,  MAX_ANGLE);
+        // Tick down input lock (set after wipeout recovery and restart)
+        if (inputLockRef.current > 0) inputLockRef.current--;
+        const inputLocked = inputLockRef.current > 0;
+
+        if (!inputLocked) {
+          if (k["a"]||k["A"]) s.topSkate.angle = Math.max(s.topSkate.angle - 0.04, -MAX_ANGLE);
+          if (k["d"]||k["D"]) s.topSkate.angle = Math.min(s.topSkate.angle + 0.04,  MAX_ANGLE);
+        }
 
         const botAngle = isMultiplayer
           ? p2AngleRef.current
           : (() => {
-              if (k["ArrowLeft"])  s.botSkate.angle = Math.max(s.botSkate.angle - 0.04, -MAX_ANGLE);
-              if (k["ArrowRight"]) s.botSkate.angle = Math.min(s.botSkate.angle + 0.04,  MAX_ANGLE);
+              if (!inputLocked) {
+                if (k["ArrowLeft"])  s.botSkate.angle = Math.max(s.botSkate.angle - 0.04, -MAX_ANGLE);
+                if (k["ArrowRight"]) s.botSkate.angle = Math.min(s.botSkate.angle + 0.04,  MAX_ANGLE);
+              }
               return s.botSkate.angle;
             })();
         s.botSkate.angle = botAngle;
@@ -458,9 +467,10 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
   const nextGate = s.items.find(i => i.type === "gate" && !i.passed && !i.missed && i.worldDist > s.dist);
   const snapX = nextGate ? nextGate.cx : s.cx;
   s.cx = snapX;
-  s.topSkate.x = snapX + 10; s.botSkate.x = snapX + 10;
+  s.topSkate.x = snapX; s.botSkate.x = snapX;
   s.topTrail = []; s.botTrail = [];
   p2AngleRef.current = 0;
+  inputLockRef.current = 40; // ignore input for ~0.7s after wipeout clears
 }
 
         const half = GATE_WIDTH / 2;
@@ -557,22 +567,27 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
         s.wipeoutTimer--;
         if (s.wipeoutTimer <= 0) {
           s.wipeout = false;
-          // Angles/positions already zeroed at wipeout trigger; just snap to
-          // next upcoming gate in case more were skipped during the freeze
+          // Re-zero angles and lock input so held keys don't immediately re-wipeout
+          s.topSkate.angle = 0; s.botSkate.angle = 0;
+          s.topSkate.vx = 0;   s.botSkate.vx = 0;
+          p2AngleRef.current = 0;
+          inputLockRef.current = 40;
           const nextGate = s.items.find(i => i.type === "gate" && !i.passed && !i.missed && i.worldDist > s.dist);
           const snapX = nextGate ? nextGate.cx : s.cx;
           s.cx = snapX;
-          s.topSkate.x = snapX + 10; s.botSkate.x = snapX + 10;
+          s.topSkate.x = snapX; s.botSkate.x = snapX;
         }
       }
 
       if (s.gameOver && (k[" "] || k["Enter"])) {
         sRef.current = mkState();
         keysRef.current = {};
+        p2AngleRef.current = 0;
         p2LastServerRef.current = null;
         newBestRef.current = false;
         gemMilestoneRef.current = 0;
         missEraseFlashRef.current = 0;
+        inputLockRef.current = 40; // brief lock so held keys don't immediately steer
         setGems(0); setMisses(0); setGatesPassed(0); setGameOver(false);
         if (isMultiplayer) sendRestart();
       }
@@ -728,10 +743,12 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
   const doRestart = useCallback(() => {
     sRef.current = mkState();
     keysRef.current = {};
+    p2AngleRef.current = 0;
     p2LastServerRef.current = null;
     newBestRef.current = false;
     gemMilestoneRef.current = 0;
     missEraseFlashRef.current = 0;
+    inputLockRef.current = 40;
     setGems(0); setMisses(0); setGatesPassed(0); setGameOver(false);
     if (isMultiplayer) sendRestart();
   }, [mkState, isMultiplayer, sendRestart]);
