@@ -6,6 +6,19 @@ import ProtectorView     from "./ProtectorView";
 import BuilderView       from "./BuilderView";
 import { useStrongholdRoom } from "./useStrongholdRoom";
 
+// ── High-score helpers ────────────────────────────────────────────────────────
+const HS_KEY = "stronghold_high_score";
+function getHighScore() {
+  try { return parseInt(localStorage.getItem(HS_KEY) ?? "0", 10) || 0; } catch { return 0; }
+}
+function maybeUpdateHighScore(waves) {
+  try {
+    const prev = getHighScore();
+    if (waves > prev) { localStorage.setItem(HS_KEY, String(waves)); return waves; }
+    return prev;
+  } catch { return waves; }
+}
+
 // ── Waiting screen ────────────────────────────────────────────────────────────
 function WaitingForBuilder({ room, onBuilderJoined }) {
   const [copied, setCopied] = useState(false);
@@ -48,9 +61,10 @@ function WaitingForBuilder({ room, onBuilderJoined }) {
 }
 
 // ── Game over screen ──────────────────────────────────────────────────────────
-function GameOver({ score, role, onRestart }) {
+function GameOver({ score, role, highScore, onRestart }) {
   const isP1 = role === "p1";
   const waveReached = score?.waveReached ?? 0;
+  const isNewBest = waveReached > 0 && waveReached >= highScore;
 
   return (
     <main className="min-h-screen bg-[#0a0d0f] text-white flex flex-col items-center justify-center gap-6 px-4">
@@ -63,6 +77,11 @@ function GameOver({ score, role, onRestart }) {
           {waveReached}
         </div>
         <div className="text-xs tracking-widest" style={{ color: "rgba(255,255,255,0.3)" }}>waves survived</div>
+        {isNewBest ? (
+          <div className="text-xs tracking-widest" style={{ color: "rgba(255,210,80,0.6)" }}>✦ new best ✦</div>
+        ) : highScore > 0 ? (
+          <div className="text-xs" style={{ color: "rgba(255,255,255,0.18)" }}>best: {highScore}</div>
+        ) : null}
       </div>
 
       <div className="text-center space-y-1 text-xs" style={{ color: "rgba(255,255,255,0.35)" }}>
@@ -99,6 +118,7 @@ export default function StrongholdGame() {
   const [room,       setRoom]       = useState(null);
   const [role,       setRole]       = useState(null);
   const [finalScore, setFinalScore] = useState(null);
+  const [highScore,  setHighScore]  = useState(getHighScore);
 
   const phaseRef = useRef(phase);
   const roleRef  = useRef(role);
@@ -143,7 +163,13 @@ export default function StrongholdGame() {
     setPhase("playing");
   }
 
+  function recordScore(waves) {
+    const best = maybeUpdateHighScore(waves);
+    setHighScore(best);
+  }
+
   async function handleP1GameOver(score) {
+    recordScore(score?.waveReached ?? 0);
     setFinalScore(score);
     setPhase("gameover");
     sendGameOver(score);
@@ -160,6 +186,7 @@ export default function StrongholdGame() {
       setPhase("playing");
       return;
     }
+    recordScore(score?.waveReached ?? 0);
     setFinalScore(score);
     setPhase("gameover");
   }
@@ -167,16 +194,22 @@ export default function StrongholdGame() {
   function handleRestart(swap) {
     const newSeed = Date.now() & 0x7fffffff;
     const newRole = swap ? "p2" : "p1";
+
+    // ── FIX: broadcast BEFORE changing phase ─────────────────────────────────
+    // activeRoomId is non-null while phase === "gameover", so the channel is
+    // still subscribed here. Switching phase to "playing" first tears it down
+    // before the message can go out, leaving the Builder stuck on game over.
+    sendRestart(newSeed, swap);
+
     setRoom(prev => prev ? { ...prev, map_seed: newSeed } : prev);
     setRole(newRole);
     setFinalScore(null);
     setPhase("playing");
-    sendRestart(newSeed, swap);
   }
 
   if (phase === "lobby")   return <StrongholdLobby onRoomReady={handleRoomReady} />;
   if (phase === "waiting") return <WaitingForBuilder room={room} onBuilderJoined={handleBuilderJoined} />;
-  if (phase === "gameover") return <GameOver score={finalScore} role={role} onRestart={handleRestart} />;
+  if (phase === "gameover") return <GameOver score={finalScore} role={role} highScore={highScore} onRestart={handleRestart} />;
 
   if (phase === "playing") {
     if (role === "p1") return <ProtectorView key={room?.map_seed} room={room} onGameOver={handleP1GameOver} />;
