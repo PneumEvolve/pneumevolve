@@ -7,6 +7,7 @@ export const GROUND_Y     = WORLD_H - 80; // y of the ground line
 export const RUNNER_R     = 14;
 export const WALL_GRACE_S = 10;    // seconds before the death wall starts moving
 // Max jump height: v²/2g = 420²/(2*900) ≈ 98px. Walls taller than this are unjumpable.
+export const WALL_H       = 120;   // terrain wall height — deliberately > max jump height
 export const INK_TOKEN_R  = 12;  // collision/render radius for ink refill tokens
 export const STROKE_COLORS = {
   black:  { fill: "rgba(220,230,255,0.92)", kill: false, platform: true,  speed: false, bounce: false },
