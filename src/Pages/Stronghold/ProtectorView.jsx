@@ -24,6 +24,8 @@ import {
   updateTurrets, updateMarketIncome, updateFireTraps,
   upgradeCount, repeatableCost, getMovementSpeed, PROTECTOR_SPEED_BASE,
   segmentCrossesWall,
+  getProtectorMaxHp, getBuilderTotalMaxHp,
+  updateBurnAura, getBurnAuraStats,
 } from "./strongholdEngine";
 
 const PLAYER_SPEED   = 160;
@@ -79,16 +81,14 @@ export default function ProtectorView({ room, onGameOver }) {
       const prevWorkers = b.workers ?? 0;
       b.workers = workers;
 
-      // Barracks: worker count directly controls extra soldiers
       if (b.type === "barracks" && b.hp > 0) {
-        const extra = (s.upgrades ?? []).includes("soldier_cnt") ? 1 : 0;
-        const targetCount = 1 + workers + extra;
+        const upgrades    = s.upgrades ?? [];
+        const extra       = upgradeCount(upgrades, "soldier_cnt");
         const currentCount = s.units.filter(u => u.barracksId === buildingId).length;
 
         if (workers > prevWorkers) {
-          // Added workers — spawn one soldier per new worker
           const toAdd = workers - prevWorkers;
-          const hp = 50 + ((s.upgrades ?? []).includes("soldier_hp") ? 20 : 0);
+          const hp = 50 + upgradeCount(upgrades, "soldier_hp") * 20;
           for (let i = 0; i < toAdd; i++) {
             s.units.push({
               id:         Date.now() + Math.random(),
@@ -102,10 +102,8 @@ export default function ProtectorView({ room, onGameOver }) {
             });
           }
         } else if (workers < prevWorkers) {
-          // Removed workers — dismiss one soldier per removed worker (prefer healthy ones last)
           const toRemove = prevWorkers - workers;
           const owned = s.units.filter(u => u.barracksId === buildingId);
-          // Sort: remove lowest-hp soldiers first (dismiss the weakest)
           owned.sort((a, b) => a.hp - b.hp);
           const toKill = new Set(owned.slice(0, toRemove).map(u => u.id));
           s.units = s.units.filter(u => !toKill.has(u.id));
@@ -113,7 +111,7 @@ export default function ProtectorView({ room, onGameOver }) {
       }
     },
     onGoldUpdate: ({ gold, from }) => {
-      if (from === "protector") return; // ignore own echoes
+      if (from === "protector") return;
       if (stateRef.current) stateRef.current.gold = gold;
     },
     onChat: ({ text, from }) => {
@@ -131,11 +129,10 @@ export default function ProtectorView({ room, onGameOver }) {
       }
     },
     onRevive: ({ target }) => {
-      // Builder revived the protector
       const s = stateRef.current;
       if (!s || target !== "protector") return;
       if ((s.playerHp ?? PROTECTOR_MAX_HP) <= 0) {
-        s.playerHp = Math.floor(PROTECTOR_MAX_HP * 0.4); // revive at 40% hp
+        s.playerHp = Math.floor(getProtectorMaxHp(s.upgrades ?? []) * 0.4);
       }
     },
     onPing: ({ x, y, from }) => {
@@ -176,14 +173,15 @@ export default function ProtectorView({ room, onGameOver }) {
 
   // ── Spawn soldiers ────────────────────────────────────────────────────────
   function spawnSoldiers(s, building) {
-    const extra   = (s.upgrades ?? []).includes("soldier_cnt") ? 1 : 0;
-    const workers = building.workers ?? 0;
-    const count   = 1 + workers + extra; // 1 base + 1 per worker + upgrade bonus
-    const hp      = 50 + ((s.upgrades ?? []).includes("soldier_hp") ? 20 : 0);
+    const upgrades = s.upgrades ?? [];
+    const extra    = upgradeCount(upgrades, "soldier_cnt");
+    const workers  = building.workers ?? 0;
+    const count    = 1 + workers + extra;
+    const hp       = 50 + upgradeCount(upgrades, "soldier_hp") * 20;
     for (let i = 0; i < count; i++) {
       s.units.push({
         id:         Date.now() + Math.random(),
-        barracksId: building.id,           // track which barracks owns this soldier
+        barracksId: building.id,
         follows:    building.allegiance ?? "protector",
         x:          building.x + 30 + i * 14,
         y:          building.y,
@@ -411,6 +409,21 @@ export default function ProtectorView({ room, onGameOver }) {
     // Protector dot
     const { cx: ppx, cy: ppy } = worldToCanvas(player.x, player.y, cam);
     ctx.save();
+
+    // Burn aura ring — drawn behind the player dot
+    const burnStats = getBurnAuraStats(state.upgrades ?? []);
+    if (burnStats && phase === "wave") {
+      const pulse = 0.5 + 0.5 * Math.sin(t * 4);
+      ctx.globalAlpha = 0.18 + pulse * 0.12;
+      ctx.beginPath(); ctx.arc(ppx, ppy, burnStats.radius, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255,90,20,1)"; ctx.fill();
+      ctx.globalAlpha = 0.55 + pulse * 0.2;
+      ctx.beginPath(); ctx.arc(ppx, ppy, burnStats.radius, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255,${140 + Math.floor(pulse * 60)},20,0.9)`;
+      ctx.lineWidth = 1.5 + pulse; ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
     ctx.beginPath(); ctx.arc(ppx, ppy, 13 + 2 * Math.sin(t * 3), 0, Math.PI * 2);
     ctx.fillStyle = "rgba(255,100,60,0.12)"; ctx.fill();
     ctx.beginPath(); ctx.arc(ppx, ppy, 7, 0, Math.PI * 2);
@@ -659,20 +672,21 @@ export default function ProtectorView({ room, onGameOver }) {
     }
 
     // HP bar
+    const maxHp  = getProtectorMaxHp(upgrades ?? []);
     const hpBarW = 90, hpBarH = 5;
     const hpBarX = 14, hpBarY = H - 28;
     ctx.fillStyle = "rgba(255,255,255,0.06)";
     ctx.roundRect(hpBarX, hpBarY, hpBarW, hpBarH, 3); ctx.fill();
-    const hpFrac = Math.max(0, playerHp) / PROTECTOR_MAX_HP;
+    const hpFrac = Math.max(0, playerHp) / maxHp;
     ctx.fillStyle = hpFrac > 0.5 ? "rgba(255,100,60,0.8)" : hpFrac > 0.25 ? "rgba(255,200,60,0.8)" : "rgba(255,60,60,0.9)";
-    ctx.roundRect(hpBarX, hpBarY, hpBarW * hpFrac, hpBarH, 3); ctx.fill();
+    ctx.roundRect(hpBarX, hpBarY, hpBarW * Math.min(1, hpFrac), hpBarH, 3); ctx.fill();
     ctx.font = "10px sans-serif"; ctx.textAlign = "left";
     if (playerHp <= 0 && phase === "wave") {
       ctx.fillStyle = "rgba(255,80,80,0.7)";
       ctx.fillText("DOWN — next wave", hpBarX, hpBarY - 4);
     } else {
       ctx.fillStyle = "rgba(255,255,255,0.3)";
-      ctx.fillText(`${Math.ceil(playerHp)} hp`, hpBarX, hpBarY - 4);
+      ctx.fillText(`${Math.ceil(playerHp)} / ${maxHp} hp`, hpBarX, hpBarY - 4);
     }
 
     // Builder down indicator (bottom-right area, near gold)
@@ -887,7 +901,9 @@ export default function ProtectorView({ room, onGameOver }) {
         const DASH_DAMAGE = 25;
         const DASH_HIT_RADIUS = 22;
         const upgrades = state.upgrades ?? [];
-        const dashDmg = DASH_DAMAGE + (upgrades.includes("atk_damage") ? 10 : 0);
+        const dashDmg = DASH_DAMAGE + upgradeCount(upgrades, "atk_damage") * 10;
+        const maxHp   = getProtectorMaxHp(upgrades);
+        const lifestealHp = upgradeCount(upgrades, "lifesteal") * 3;
         if (!state.dashHitSet) state.dashHitSet = new Set();
         state.enemies.forEach(e => {
           if (e.dead || state.dashHitSet.has(e.id)) return;
@@ -900,8 +916,8 @@ export default function ProtectorView({ room, onGameOver }) {
               e._goldDrop = goldDrop;
               e._goldAwardedByProtector = true;
               state.gold = (state.gold ?? 0) + goldDrop;
-              if (upgrades.includes("lifesteal")) {
-                state.playerHp = Math.min(PROTECTOR_MAX_HP, (state.playerHp ?? PROTECTOR_MAX_HP) + 3);
+              if (lifestealHp > 0) {
+                state.playerHp = Math.min(maxHp, (state.playerHp ?? maxHp) + lifestealHp);
               }
             }
           }
@@ -946,14 +962,14 @@ export default function ProtectorView({ room, onGameOver }) {
       if (builderDown && !protectorDown) {
         const dToBuilder = dist(state.player.x, state.player.y, state.builderPos.x, state.builderPos.y);
         if (dToBuilder < REVIVE_RADIUS) {
-          state.builderHp = Math.floor(BUILDER_TOTAL_MAX_HP * 0.4);
+          state.builderHp = Math.floor(getBuilderTotalMaxHp(state.upgrades ?? []) * 0.4);
           sendRevive("builder");
         }
       }
       if (protectorDown && !builderDown) {
         const dToProtector = dist(state.player.x, state.player.y, state.builderPos.x, state.builderPos.y);
         if (dToProtector < REVIVE_RADIUS) {
-          state.playerHp = Math.floor(PROTECTOR_MAX_HP * 0.4);
+          state.playerHp = Math.floor(getProtectorMaxHp(state.upgrades ?? []) * 0.4);
           sendRevive("protector");
         }
       }
@@ -976,7 +992,7 @@ export default function ProtectorView({ room, onGameOver }) {
 
     if (state.phase === "wave") {
       const protectorDown = (state.playerHp ?? PROTECTOR_MAX_HP) <= 0;
-      const builderDown   = (state.builderHp ?? PROTECTOR_MAX_HP) <= 0;
+      const builderDown   = (state.builderHp ?? BUILDER_TOTAL_MAX_HP) <= 0;
 
       // Town center — used as unit rally point when protector is dead
       const tc = state.buildings.find(b => b.type === "town_center");
@@ -1056,7 +1072,7 @@ export default function ProtectorView({ room, onGameOver }) {
       if (builderDown && !protectorDown) {
         const dToBuilder = dist(state.player.x, state.player.y, state.builderPos.x, state.builderPos.y);
         if (dToBuilder < REVIVE_RADIUS) {
-          state.builderHp = Math.floor(BUILDER_TOTAL_MAX_HP * 0.4); // revive at 40%
+          state.builderHp = Math.floor(getBuilderTotalMaxHp(state.upgrades ?? []) * 0.4);
           sendRevive("builder");
         }
       }
@@ -1064,9 +1080,11 @@ export default function ProtectorView({ room, onGameOver }) {
       // Protector attacks only while alive
       if (!protectorDown) {
         updateProtectorAttack(state, dt);
+        updateBurnAura(state, dt);
       }
 
-      updateProjectiles(state, dt);
+      // Burn aura kills award gold via _goldAwardedByBurnAura flag (like protector kills)
+
 
       const prevKilled = state.enemiesKilled;
       state.enemiesKilled = state.enemies.filter(e => e.dead).length;
@@ -1081,7 +1099,7 @@ export default function ProtectorView({ room, onGameOver }) {
           // Award gold from soldier/turret kills (protector kills already added in updateProtectorAttack)
           // _goldDrop is set by all kill sources; protector kills also add to state.gold directly,
           // so only add here if protector didn't already award it (i.e. _goldDrop set but not from protector)
-          if (e._goldDrop !== undefined && !e._goldAwardedByProtector) {
+          if (e._goldDrop !== undefined && !e._goldAwardedByProtector && !e._goldAwardedByBurnAura) {
             state.gold = (state.gold ?? 0) + e._goldDrop;
           }
           const goldAmt = e._goldDrop ?? (20 + Math.floor(Math.random() * 11));
@@ -1235,11 +1253,9 @@ export default function ProtectorView({ room, onGameOver }) {
 
     if (upg.repeatable) {
       const owned = upgradeCount(s.upgrades, upgradeId);
-      if (upg.maxTier && owned >= upg.maxTier) return;
       const cost = repeatableCost(upg.cost, owned + 1);
       if (s.gold < cost) return;
       s.gold -= cost;
-      // First purchase stored as bare id, subsequent as "id_2", "id_3"...
       s.upgrades.push(owned === 0 ? upgradeId : `${upgradeId}_${owned + 1}`);
     } else {
       if (s.upgrades.includes(upgradeId)) return;
@@ -1433,24 +1449,23 @@ export default function ProtectorView({ room, onGameOver }) {
                 const locked = upg.needs && !s.buildings.some(b => b.type === upg.needs && b.hp > 0);
 
                 if (upg.repeatable) {
-                  const owned = upgradeCount(s.upgrades, upg.id);
-                  const maxed = upg.maxTier && owned >= upg.maxTier;
-                  const nextCost = maxed ? null : repeatableCost(upg.cost, owned + 1);
-                  const canBuy = !maxed && !locked && nextCost !== null && s.gold >= nextCost;
+                  const owned    = upgradeCount(s.upgrades, upg.id);
+                  const nextCost = repeatableCost(upg.cost, owned + 1);
+                  const canBuy   = !locked && s.gold >= nextCost;
                   return (
-                    <div key={upg.id} onClick={() => !locked && !maxed && handleBuyUpgrade(upg.id)} style={{
+                    <div key={upg.id} onClick={() => !locked && handleBuyUpgrade(upg.id)} style={{
                       display: "flex", alignItems: "center", justifyContent: "space-between",
                       padding: "9px 12px", borderRadius: 10, marginBottom: 6, minHeight: 52,
                       background: owned > 0 ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.03)",
                       border: `0.5px solid ${canBuy ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.06)"}`,
                       opacity: locked ? 0.35 : 1,
-                      cursor: maxed || locked ? "default" : canBuy ? "pointer" : "not-allowed",
+                      cursor: locked ? "default" : canBuy ? "pointer" : "not-allowed",
                     }}>
                       <div>
                         <div style={{ fontSize: 13, color: "rgba(255,255,255,0.8)", marginBottom: 2 }}>
                           {upg.label}
-                          {owned > 0 && <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginLeft: 6 }}>
-                            tier {owned}{upg.maxTier ? `/${upg.maxTier}` : ""}
+                          {owned > 0 && <span style={{ fontSize: 11, color: "rgba(255,180,60,0.6)", marginLeft: 6 }}>
+                            ×{owned}
                           </span>}
                         </div>
                         <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>{upg.desc}</div>
@@ -1458,9 +1473,9 @@ export default function ProtectorView({ room, onGameOver }) {
                       </div>
                       <div style={{
                         fontSize: 12, minWidth: 44, textAlign: "right", fontWeight: 500,
-                        color: maxed ? "rgba(255,255,255,0.2)" : canBuy ? "rgba(255,215,0,0.8)" : "rgba(255,215,0,0.3)",
+                        color: canBuy ? "rgba(255,215,0,0.8)" : "rgba(255,215,0,0.3)",
                       }}>
-                        {maxed ? "max" : `${nextCost}g`}
+                        {nextCost}g
                       </div>
                     </div>
                   );

@@ -21,8 +21,13 @@ export const BUILDING_SURVIVAL_BONUS = 25; // gold per building at full hp after
 
 // ─── Protector stats ──────────────────────────────────────────────────────────
 
-export const PROTECTOR_MAX_HP    = 100;
+export const PROTECTOR_MAX_HP    = 100;  // base; use getProtectorMaxHp(upgrades) for scaled value
+export const PROTECTOR_HP_PER_TIER = 25; // +25 max hp per hp_up tier
 export const PROTECTOR_HEAL_RATE = 8;    // hp/sec when inside town center
+
+export function getProtectorMaxHp(upgrades = []) {
+  return PROTECTOR_MAX_HP + upgradeCount(upgrades, "hp_up") * PROTECTOR_HP_PER_TIER;
+}
 export const PROTECTOR_ATTACK_RANGE  = 80;
 export const PROTECTOR_ATTACK_DAMAGE = 18;
 export const PROTECTOR_ATTACK_RATE   = 1.4; // attacks/sec base
@@ -129,6 +134,7 @@ export const BUILDING_TYPES = {
     placeable:   true,
     cost:        80,
     workersGranted: 2,
+    noWorkers:   true,
   },
   turret: {
     id:          "turret",
@@ -186,18 +192,16 @@ export const BUILDING_TYPES = {
 export const PLACEABLE_BUILDINGS = Object.values(BUILDING_TYPES).filter(b => b.placeable);
 
 // ─── Building upgrade costs ───────────────────────────────────────────────────
-// Turret upgrades: each tier costs more. Stored as b.upgradeTier (0=base).
-export const TURRET_UPGRADE_COST  = [80, 140, 220]; // cost of tier 1, 2, 3
-export const TURRET_UPGRADE_MAX   = 3;
+// Turret upgrades: infinite tiers via repeatableCost(TURRET_UPGRADE_BASE_COST, tier).
+export const TURRET_UPGRADE_BASE_COST = 80; // base cost; scales ×1.6 per tier
 // Per tier: +12 damage, +30 range, +0.5 fire rate, +30 HP
 export const TURRET_TIER_DAMAGE   = 12;
 export const TURRET_TIER_RANGE    = 30;
 export const TURRET_TIER_RATE     = 0.5;
 export const TURRET_TIER_HP       = 30;
 
-// Home upgrades: each tier costs more. Stored as b.upgradeTier (0=base).
-export const HOME_UPGRADE_COST    = [60, 100, 160]; // cost of tier 1, 2, 3
-export const HOME_UPGRADE_MAX     = 3;
+// Home upgrades: infinite tiers via repeatableCost(HOME_UPGRADE_BASE_COST, tier).
+export const HOME_UPGRADE_BASE_COST = 60; // base cost; scales ×1.6 per tier
 // Per tier: +1 townsperson immediately, +20 max HP
 export const HOME_TIER_WORKERS    = 1;
 export const HOME_TIER_HP         = 20;
@@ -218,40 +222,41 @@ export function repeatableCost(baseCost, tier) {
 }
 
 // ─── Movement speed ───────────────────────────────────────────────────────────
-// 3-tier tree: +15%, +15%, +20% = max +50% of base speed.
-export const MOVE_SPEED_BONUSES = [0.15, 0.15, 0.20];
+// Infinite tiers: each tier adds +12% move speed (no cap).
+export const MOVE_SPEED_PER_TIER = 0.12;
 export const PROTECTOR_SPEED_BASE = 160;
 export const BUILDER_SPEED_BASE   = 150;
 
 export function getMovementSpeed(upgrades, upgradeId, base) {
-  const tiers = Math.min(upgradeCount(upgrades, upgradeId), MOVE_SPEED_BONUSES.length);
-  const bonus = MOVE_SPEED_BONUSES.slice(0, tiers).reduce((a, b) => a + b, 0);
-  return base * (1 + bonus);
+  const tiers = upgradeCount(upgrades, upgradeId);
+  return base * (1 + tiers * MOVE_SPEED_PER_TIER);
 }
 
 export const UPGRADES = [
-  // Personal (protector)
-  { id: "atk_range",   label: "Longer reach",     desc: "+20 attack range",                      cost: 60,  tree: "personal", tier: 1 },
-  { id: "lifesteal",   label: "Warrior's blood",  desc: "Heal 3 hp per kill",                    cost: 80,  tree: "personal", tier: 2 },
+  // ── Personal (protector) ── repeatables first ──────────────────────────────
+  { id: "atk_damage",  label: "Heavy strikes",    desc: "+10 attack damage per tier",             cost: 100, tree: "personal", tier: 1, repeatable: true },
+  { id: "atk_speed",   label: "Sharper blade",    desc: "+0.3 attacks/sec per tier",              cost: 60,  tree: "personal", tier: 1, repeatable: true },
+  { id: "move_speed",  label: "Swift feet",       desc: "+12% move speed per tier (infinite)",    cost: 70,  tree: "personal", tier: 1, repeatable: true },
+  { id: "hp_up",       label: "Iron will",        desc: "+25 max HP per tier (infinite)",         cost: 80,  tree: "personal", tier: 1, repeatable: true },
+  { id: "lifesteal",   label: "Warrior's blood",  desc: "+3 hp per kill per tier (infinite)",     cost: 80,  tree: "personal", tier: 2, repeatable: true },
+  { id: "burn_aura",   label: "Burn aura",        desc: "+8 aoe dmg/s +15 radius per tier — passive fire ring around you", cost: 180, tree: "personal", tier: 2, repeatable: true },
+  { id: "atk_range",   label: "Longer reach",     desc: "+20 attack range per tier (infinite)",   cost: 60,  tree: "personal", tier: 1, repeatable: true },
   { id: "dash",        label: "Hero's dash",      desc: "Unlock dash ability (space/double-tap)", cost: 80,  tree: "personal", tier: 2 },
-  { id: "atk_speed",   label: "Sharper blade",    desc: "+0.3 attacks/sec per tier",             cost: 60,  tree: "personal", tier: 1, repeatable: true },
-  { id: "atk_damage",  label: "Heavy strikes",    desc: "+10 attack damage per tier",            cost: 100, tree: "personal", tier: 2, repeatable: true },
-  { id: "move_speed",  label: "Swift feet",       desc: "+15/15/20% protector move speed (max +50%)", cost: 70, tree: "personal", tier: 1, repeatable: true, maxTier: 3 },
-  // Army
-  { id: "soldier_hp",  label: "Toughen up",       desc: "+20 soldier hp",                        cost: 60,  tree: "army",     tier: 1, needs: "barracks" },
-  { id: "soldier_cnt", label: "Draft more",       desc: "+1 soldier per barracks",               cost: 80,  tree: "army",     tier: 1, needs: "barracks" },
-  { id: "soldier_dmg", label: "Battle-hardened",  desc: "+5 soldier damage",                     cost: 100, tree: "army",     tier: 2, needs: "barracks" },
-  // Town
-  { id: "tc_heal",     label: "Warm hearth",      desc: "Town center heals builder too",         cost: 80,  tree: "town",     tier: 1 },
-  { id: "garden_size", label: "Wild growth",      desc: "+30 garden slow radius",                cost: 70,  tree: "town",     tier: 1, needs: "garden" },
-  { id: "shop_auto",   label: "Steady hands",     desc: "Repair shop works at 40% without builder", cost: 100, tree: "town", tier: 2, needs: "repair_shop" },
-  // Workshop (builder)
-  { id: "builder_aura",      label: "Master crafts",    desc: "Direct repair can overheal buildings to 115% HP", cost: 70,  tree: "workshop", tier: 1 },
-  { id: "repair_speed",      label: "Quick hands",      desc: "+50% direct repair speed",        cost: 80,  tree: "workshop", tier: 1 },
-  { id: "place_range",       label: "Long reach",       desc: "+30 building placement range",    cost: 70,  tree: "workshop", tier: 1 },
-  { id: "sell_refund",       label: "Salvage expert",   desc: "Sell buildings for 75% (was 50%)", cost: 60, tree: "workshop", tier: 2 },
-  { id: "builder_shield_up", label: "Reinforced vest",  desc: "+30 builder shield max",          cost: 100, tree: "workshop", tier: 2 },
-  { id: "builder_move_speed", label: "Quick boots",     desc: "+15/15/20% builder move speed (max +50%)", cost: 70, tree: "workshop", tier: 1, repeatable: true, maxTier: 3 },
+  // ── Army ── repeatables first ───────────────────────────────────────────────
+  { id: "soldier_hp",  label: "Toughen up",       desc: "+20 soldier max hp per tier (infinite)", cost: 60,  tree: "army",     tier: 1, needs: "barracks", repeatable: true },
+  { id: "soldier_dmg", label: "Battle-hardened",  desc: "+5 soldier damage per tier (infinite)",  cost: 80,  tree: "army",     tier: 1, needs: "barracks", repeatable: true },
+  { id: "soldier_cnt", label: "Draft more",       desc: "+1 soldier per barracks per tier",       cost: 100, tree: "army",     tier: 2, needs: "barracks", repeatable: true },
+  // ── Town ── repeatables first ───────────────────────────────────────────────
+  { id: "garden_size", label: "Wild growth",      desc: "+30 garden slow radius per tier",        cost: 70,  tree: "town",     tier: 1, needs: "garden", repeatable: true },
+  { id: "tc_heal",     label: "Warm hearth",      desc: "Town center heals builder too",          cost: 80,  tree: "town",     tier: 1 },
+  { id: "shop_auto",   label: "Steady hands",     desc: "Repair shop works at 40% without builder", cost: 100, tree: "town",  tier: 2, needs: "repair_shop" },
+  // ── Workshop (builder) ── repeatables first ─────────────────────────────────
+  { id: "builder_move_speed", label: "Quick boots",     desc: "+12% builder move speed per tier (infinite)", cost: 70, tree: "workshop", tier: 1, repeatable: true },
+  { id: "builder_shield_up",  label: "Reinforced vest", desc: "+30 builder shield max per tier (infinite)",  cost: 100, tree: "workshop", tier: 1, repeatable: true },
+  { id: "repair_speed",       label: "Quick hands",     desc: "+50% direct repair speed",                    cost: 80,  tree: "workshop", tier: 1 },
+  { id: "builder_aura",       label: "Master crafts",   desc: "Direct repair can overheal buildings to 115% HP", cost: 70,  tree: "workshop", tier: 1 },
+  { id: "place_range",        label: "Long reach",      desc: "+30 building placement range",                cost: 70,  tree: "workshop", tier: 1 },
+  { id: "sell_refund",        label: "Salvage expert",  desc: "Sell buildings for 75% (was 50%)",            cost: 60,  tree: "workshop", tier: 2 },
 ];
 
 // ─── Map / world setup ────────────────────────────────────────────────────────
@@ -366,11 +371,12 @@ export function updateProtectorAttack(state, dt) {
   state.attackCooldown = Math.max(0, (state.attackCooldown ?? 0) - dt);
   if (state.attackCooldown > 0) return;
 
-  const upgrades = state.upgrades ?? [];
-  const range    = PROTECTOR_ATTACK_RANGE + (upgrades.includes("atk_range") ? 20 : 0);
-  const damage   = PROTECTOR_ATTACK_DAMAGE + upgradeCount(upgrades, "atk_damage") * 10;
-  const rate     = PROTECTOR_ATTACK_RATE + upgradeCount(upgrades, "atk_speed") * 0.3;
-  const lifesteal = upgrades.includes("lifesteal");
+  const upgrades  = state.upgrades ?? [];
+  const maxHp     = getProtectorMaxHp(upgrades);
+  const range     = PROTECTOR_ATTACK_RANGE + upgradeCount(upgrades, "atk_range") * 20;
+  const damage    = PROTECTOR_ATTACK_DAMAGE + upgradeCount(upgrades, "atk_damage") * 10;
+  const rate      = PROTECTOR_ATTACK_RATE + upgradeCount(upgrades, "atk_speed") * 0.3;
+  const lifesteal = upgradeCount(upgrades, "lifesteal") * 3; // hp per kill per tier
 
   let target = null, bestDist = Infinity;
   state.enemies.forEach(e => {
@@ -398,12 +404,11 @@ export function updateProtectorAttack(state, dt) {
 
   if (target.hp <= 0) {
     target.dead = true;
-    // Gold drop — 20-30 per kill; store on enemy so floater shows exact amount
     const goldDrop = 20 + Math.floor(Math.random() * 11);
     target._goldDrop = goldDrop;
-    target._goldAwardedByProtector = true; // flag: gold already added, don't double-award
+    target._goldAwardedByProtector = true;
     state.gold = (state.gold ?? 0) + goldDrop;
-    if (lifesteal) state.playerHp = Math.min(PROTECTOR_MAX_HP, (state.playerHp ?? PROTECTOR_MAX_HP) + 3);
+    if (lifesteal > 0) state.playerHp = Math.min(maxHp, (state.playerHp ?? maxHp) + lifesteal);
   }
 }
 
@@ -422,11 +427,13 @@ export function updateProtectorHeal(state, dt) {
   if (!tc) return;
   const inRange = dist(state.player.x, state.player.y, tc.x, tc.y) < BUILDING_TYPES.town_center.radius + 24;
   if (!inRange) return;
-  state.playerHp = Math.min(PROTECTOR_MAX_HP, (state.playerHp ?? PROTECTOR_MAX_HP) + PROTECTOR_HEAL_RATE * dt);
+  const maxHp = getProtectorMaxHp(state.upgrades ?? []);
+  state.playerHp = Math.min(maxHp, (state.playerHp ?? maxHp) + PROTECTOR_HEAL_RATE * dt);
 
   // Also heal builder if tc_heal upgrade active
   if ((state.upgrades ?? []).includes("tc_heal") && state.builderHp !== undefined) {
-    state.builderHp = Math.min(PROTECTOR_MAX_HP, state.builderHp + PROTECTOR_HEAL_RATE * 0.5 * dt);
+    const builderMax = getBuilderTotalMaxHp(state.upgrades ?? []);
+    state.builderHp = Math.min(builderMax, state.builderHp + PROTECTOR_HEAL_RATE * 0.5 * dt);
   }
 }
 
@@ -468,22 +475,22 @@ export function updateBuilderHealth(builderX, builderY, enemies, builderHp, dt) 
 export const BUILDER_TOTAL_MAX_HP = PROTECTOR_MAX_HP + BUILDER_SHIELD_MAX; // 150 base
 
 export function getBuilderTotalMaxHp(upgrades = []) {
-  const shieldMax = upgrades.includes("builder_shield_up") ? BUILDER_SHIELD_MAX_UPGRADED : BUILDER_SHIELD_MAX;
-  return PROTECTOR_MAX_HP + shieldMax;
+  const shieldBonus = upgradeCount(upgrades, "builder_shield_up") * 30;
+  return PROTECTOR_MAX_HP + BUILDER_SHIELD_MAX + shieldBonus;
 }
 
 export function updateBuilderShield(state, dt) {
   if (state.phase !== "wave") return;
-  const builderDown = (state.builderHp ?? BUILDER_TOTAL_MAX_HP) <= 0;
+  const totalMax = getBuilderTotalMaxHp(state.upgrades ?? []);
+  const builderDown = (state.builderHp ?? totalMax) <= 0;
   if (builderDown) return;
 
   const inCombat = state.enemies.some(e => !e.dead && e.chasingBuilder);
-  if (inCombat) return; // shield doesn't regen while enemies are chasing
+  if (inCombat) return;
 
-  // Regen only the shield portion (above base 100 hp)
-  const current = state.builderHp ?? BUILDER_TOTAL_MAX_HP;
-  if (current < BUILDER_TOTAL_MAX_HP) {
-    state.builderHp = Math.min(BUILDER_TOTAL_MAX_HP, current + BUILDER_SHIELD_REGEN * dt);
+  const current = state.builderHp ?? totalMax;
+  if (current < totalMax) {
+    state.builderHp = Math.min(totalMax, current + BUILDER_SHIELD_REGEN * dt);
   }
 }
 
@@ -712,7 +719,7 @@ export function updateEnemies(enemies, buildings, builderX, builderY, dt, slowZo
 // ─── Combat: units attack enemies ─────────────────────────────────────────────
 
 export function updateUnitCombat(units, enemies, dt, upgrades = []) {
-  const baseDamage = 18 + (upgrades.includes("soldier_dmg") ? 6 : 0);
+  const baseDamage = 18 + upgradeCount(upgrades, "soldier_dmg") * 5;
   const RATE = 1.2;
   const RANGE = 55;
 
@@ -846,7 +853,41 @@ export function updateFireTraps(buildings, enemies, dt) {
   });
 }
 
-const ENEMY_ATTACK_RANGE  = 18;
+// ─── Burn Aura — passive AOE fire ring around the protector ──────────────────
+export const BURN_AURA_BASE_DAMAGE = 8;   // dmg/sec per tier
+export const BURN_AURA_BASE_RADIUS = 65;  // base radius (tier 1)
+export const BURN_AURA_RADIUS_PER_TIER = 15; // +15 radius per additional tier
+
+export function getBurnAuraStats(upgrades = []) {
+  const tiers = upgradeCount(upgrades, "burn_aura");
+  if (tiers === 0) return null;
+  return {
+    damage: BURN_AURA_BASE_DAMAGE * tiers,
+    radius: BURN_AURA_BASE_RADIUS + BURN_AURA_RADIUS_PER_TIER * (tiers - 1),
+    tiers,
+  };
+}
+
+export function updateBurnAura(state, dt) {
+  const aura = getBurnAuraStats(state.upgrades ?? []);
+  if (!aura) return;
+  const { damage, radius } = aura;
+  const px = state.player.x, py = state.player.y;
+  state.enemies.forEach(e => {
+    if (e.dead) return;
+    if (dist(px, py, e.x, e.y) < radius + e.radius) {
+      e.hp -= damage * dt;
+      if (e.hp <= 0 && !e.dead) {
+        e.dead = true;
+        e._goldDrop = 20 + Math.floor(Math.random() * 11);
+        e._goldAwardedByBurnAura = true;
+        state.gold = (state.gold ?? 0) + e._goldDrop;
+      }
+    }
+  });
+}
+
+
 const ENEMY_ATTACK_DAMAGE = 5;
 const ENEMY_ATTACK_RATE   = 1.4;
 const DEMOLISHER_ATTACK_DAMAGE = 18; // ~3.6× brute — punishing
@@ -1059,7 +1100,7 @@ export function updateBuilderRepair(builderX, builderY, buildings, dt, upgrades 
 // ─── Garden slow zones ────────────────────────────────────────────────────────
 
 export function getSlowZones(buildings, upgrades = []) {
-  const bonus = upgrades.includes("garden_size") ? 30 : 0;
+  const bonus = upgradeCount(upgrades, "garden_size") * 30;
   return buildings
     .filter(b => b.type === "garden" && b.hp > 0)
     .map(b => ({

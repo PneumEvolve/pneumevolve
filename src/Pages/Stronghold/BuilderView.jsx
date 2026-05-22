@@ -11,13 +11,14 @@ import {
   STARTING_GOLD, TOWNSPEOPLE_START, PROTECTOR_MAX_HP,
   BUILDER_DIRECT_REPAIR_RADIUS, BUILDER_TOTAL_MAX_HP, REVIVE_RADIUS,
   BUILDER_PLACE_RANGE_BONUS,
-  TURRET_UPGRADE_COST, TURRET_UPGRADE_MAX,
+  TURRET_UPGRADE_BASE_COST,
   TURRET_TIER_DAMAGE, TURRET_TIER_RANGE, TURRET_TIER_RATE, TURRET_TIER_HP,
-  HOME_UPGRADE_COST, HOME_UPGRADE_MAX, HOME_TIER_WORKERS, HOME_TIER_HP,
+  HOME_UPGRADE_BASE_COST, HOME_TIER_WORKERS, HOME_TIER_HP,
   createInitialMap, lerp, dist, calcTownspeople, clampWorkers,
   applyConstructionAura, sellBuilding, updateBuilderRepair, getBreatherDuration,
   upgradeCount, repeatableCost, getMovementSpeed, BUILDER_SPEED_BASE,
   segmentCrossesWall,
+  getProtectorMaxHp, getBuilderTotalMaxHp,
 } from "./strongholdEngine";
 
 const BUILDER_SPEED  = 150;
@@ -129,7 +130,7 @@ export default function BuilderView({ room, onGameOver }) {
       const s = stateRef.current;
       if (!s || target !== "builder") return;
       if ((s.builderHp ?? BUILDER_TOTAL_MAX_HP) <= 0) {
-        s.builderHp = Math.floor(BUILDER_TOTAL_MAX_HP * 0.4);
+        s.builderHp = Math.floor(getBuilderTotalMaxHp(s.upgrades ?? []) * 0.4);
       }
     },
     onPing: ({ x, y, from }) => {
@@ -366,11 +367,9 @@ export default function BuilderView({ room, onGameOver }) {
 
     if (b.type === "turret") {
       const tier = b.upgradeTier ?? 0;
-      if (tier >= TURRET_UPGRADE_MAX) return;
-      const cost = TURRET_UPGRADE_COST[tier];
+      const cost = repeatableCost(TURRET_UPGRADE_BASE_COST, tier + 1);
       if (s.gold < cost) return;
       b.upgradeTier = tier + 1;
-      // Buff the building's effective stats
       b.maxHp  += TURRET_TIER_HP;
       b.hp     = Math.min(b.hp + TURRET_TIER_HP, b.maxHp);
       s.gold   -= cost;
@@ -379,13 +378,11 @@ export default function BuilderView({ room, onGameOver }) {
       forceUpdate(n => n + 1);
     } else if (b.type === "home") {
       const tier = b.upgradeTier ?? 0;
-      if (tier >= HOME_UPGRADE_MAX) return;
-      const cost = HOME_UPGRADE_COST[tier];
+      const cost = repeatableCost(HOME_UPGRADE_BASE_COST, tier + 1);
       if (s.gold < cost) return;
       b.upgradeTier = tier + 1;
       b.maxHp += HOME_TIER_HP;
       b.hp     = Math.min(b.hp + HOME_TIER_HP, b.maxHp);
-      // Grant +1 townsperson immediately
       s.townspeople = (s.townspeople ?? TOWNSPEOPLE_START) + HOME_TIER_WORKERS;
       setTownspeople(s.townspeople);
       s.gold  -= cost;
@@ -1225,6 +1222,7 @@ export default function BuilderView({ room, onGameOver }) {
             <div style={{ fontSize: 11, color: "rgba(255,255,255,0.28)", marginBottom: 10, lineHeight: 1.5 }}>
               {BUILDING_TYPES[panelBuilding.type]?.description}
             </div>
+            {!BUILDING_TYPES[panelBuilding.type]?.noWorkers && (<>
             <div style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", marginBottom: 6 }}>workers assigned</div>
             <div style={{ display: "flex", gap: 4, marginBottom: 14, flexWrap: "wrap", minHeight: 14 }}>
               {Array.from({ length: panelBuilding.workers ?? 0 }).map((_, i) => (
@@ -1269,6 +1267,7 @@ export default function BuilderView({ room, onGameOver }) {
                 {lockedWorkers} grieving — available at breather
               </div>
             )}
+            </>)}
             {/* Allegiance toggle — barracks only */}
             {panelBuilding.type === "barracks" && (
               <div style={{ marginTop: 12 }}>
@@ -1296,24 +1295,23 @@ export default function BuilderView({ room, onGameOver }) {
             )}
             {/* Upgrade button — turrets and homes only */}
             {inBuildPhase && (panelBuilding.type === "turret" || panelBuilding.type === "home") && (() => {
-              const tier = panelBuilding.upgradeTier ?? 0;
-              const maxTier = panelBuilding.type === "turret" ? TURRET_UPGRADE_MAX : HOME_UPGRADE_MAX;
-              const costArr = panelBuilding.type === "turret" ? TURRET_UPGRADE_COST : HOME_UPGRADE_COST;
-              const cost = tier < maxTier ? costArr[tier] : null;
-              const canAfford = cost !== null && gold >= cost;
-              const maxed = tier >= maxTier;
+              const tier    = panelBuilding.upgradeTier ?? 0;
+              const baseCost = panelBuilding.type === "turret" ? TURRET_UPGRADE_BASE_COST : HOME_UPGRADE_BASE_COST;
+              const cost    = repeatableCost(baseCost, tier + 1);
+              const canAfford = gold >= cost;
               return (
                 <button
-                  onClick={() => !maxed && canAfford && handleUpgradeBuilding(panelBuilding.id)}
+                  onClick={() => canAfford && handleUpgradeBuilding(panelBuilding.id)}
                   style={{
                     marginTop: 8, width: "100%", padding: "8px", borderRadius: 8,
-                    background: maxed ? "rgba(255,255,255,0.03)" : canAfford ? "rgba(255,200,60,0.08)" : "rgba(255,255,255,0.03)",
-                    border: `0.5px solid ${maxed ? "rgba(255,255,255,0.08)" : canAfford ? "rgba(255,200,60,0.35)" : "rgba(255,255,255,0.1)"}`,
-                    color: maxed ? "rgba(255,255,255,0.2)" : canAfford ? "rgba(255,200,60,0.9)" : "rgba(255,255,255,0.25)",
-                    fontSize: 11, cursor: maxed || !canAfford ? "default" : "pointer", letterSpacing: "0.04em",
+                    background: canAfford ? "rgba(255,200,60,0.08)" : "rgba(255,255,255,0.03)",
+                    border: `0.5px solid ${canAfford ? "rgba(255,200,60,0.35)" : "rgba(255,255,255,0.1)"}`,
+                    color: canAfford ? "rgba(255,200,60,0.9)" : "rgba(255,255,255,0.25)",
+                    fontSize: 11, cursor: canAfford ? "pointer" : "default", letterSpacing: "0.04em",
                   }}>
-                  {maxed ? `✦ max tier (${maxTier}/${maxTier})` : `upgrade tier ${tier + 1} — ${cost}g`}
-                  {!maxed && ` (${tier}/${maxTier})`}
+                  {tier > 0
+                    ? `upgrade tier ${tier + 1} — ${cost}g (×${tier} owned)`
+                    : `upgrade — ${cost}g`}
                 </button>
               );
             })()}
