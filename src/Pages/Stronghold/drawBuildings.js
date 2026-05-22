@@ -425,6 +425,7 @@ export function drawBuilding(ctx, b, cx, cy, t) {
     case "home":          drawHome(ctx, cx, cy, scale, t, hpPct); break;
     case "turret":        drawTurret(ctx, cx, cy, scale, t, hpPct); break;
     case "market":        drawMarket(ctx, cx, cy, scale, t, hpPct); break;
+    case "fire_trap":     drawFireTrap(ctx, cx, cy, scale, t, hpPct, b); break;
     default: break;
   }
 
@@ -449,6 +450,7 @@ const BUILDING_TYPES_RADII = {
   turret:       { radius: 16 },
   wall:         { radius: 46, isWall: true, halfW: 44, halfH: 9 },
   market:       { radius: 20 },
+  fire_trap:    { radius: 18 },
 };
 
 function drawTurret(ctx, cx, cy, scale, t, hpPct) {
@@ -678,6 +680,85 @@ function drawMarket(ctx, cx, cy, scale, t, hpPct) {
   ctx.beginPath();
   ctx.roundRect(-8 * s, 8 * s, 16 * s, 8 * s, [0, 0, 2 * s, 2 * s]);
   ctx.fillStyle = "#0a0d0f"; ctx.fill();
+
+  ctx.restore();
+}
+// ─── Fire Trap ────────────────────────────────────────────────────────────────
+function drawFireTrap(ctx, cx, cy, scale, t, hpPct, b) {
+  const s = scale;
+  const flash = b?._fireFlash ?? 0;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  // Shadow
+  ctx.globalAlpha = 0.12;
+  ctx.beginPath();
+  ctx.ellipse(0, 14 * s, 20 * s, 5 * s, 0, 0, Math.PI * 2);
+  ctx.fillStyle = "#000"; ctx.fill();
+
+  // Stone base — dark charred octagon
+  ctx.globalAlpha = 0.9;
+  ctx.beginPath();
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 - Math.PI / 8;
+    const r = 16 * s;
+    i === 0 ? ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r) : ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+  }
+  ctx.closePath();
+  ctx.fillStyle = "#1a0a00"; ctx.fill();
+  ctx.strokeStyle = `rgba(255,100,0,${0.3 + 0.15 * Math.sin(t * 2)})`; ctx.lineWidth = 1 * s; ctx.stroke();
+
+  // Lava cracks
+  ctx.globalAlpha = 0.5 + 0.2 * Math.sin(t * 3);
+  const crackPts = [[-4, 2], [2, -5], [-1, 6], [5, 1], [-6, -3]];
+  crackPts.forEach(([rx, ry], i) => {
+    const len = 5 + (i % 3) * 2;
+    ctx.beginPath();
+    ctx.moveTo(rx * s, ry * s);
+    ctx.lineTo((rx + Math.cos(i * 1.3) * len) * s, (ry + Math.sin(i * 1.3) * len) * s);
+    ctx.strokeStyle = `rgba(255,${80 + i * 30},0,0.7)`; ctx.lineWidth = 0.8 * s; ctx.stroke();
+  });
+
+  // Center flame/brazier
+  const flicker = 0.7 + 0.3 * Math.sin(t * 7 + 1.2);
+  ctx.globalAlpha = 0.8 * flicker;
+  // Outer flame
+  ctx.beginPath();
+  ctx.ellipse(0, -2 * s, 6 * s, 9 * s, 0, Math.PI, 0);
+  ctx.fillStyle = `rgba(255,80,0,${0.6 * flicker})`; ctx.fill();
+  // Inner flame
+  ctx.globalAlpha = flicker;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 4 * s, 6 * s, 0, Math.PI, 0);
+  ctx.fillStyle = `rgba(255,200,40,${0.85 * flicker})`; ctx.fill();
+  // Core
+  ctx.globalAlpha = flicker;
+  ctx.beginPath();
+  ctx.arc(0, 0, 2.5 * s, 0, Math.PI * 2);
+  ctx.fillStyle = "#ffffff"; ctx.fill();
+
+  // AOE burst flash when firing
+  if (flash > 0) {
+    const flashAlpha = flash / 0.35;
+    ctx.globalAlpha = flashAlpha * 0.25;
+    ctx.beginPath();
+    const aoeRadius = (b?._aoeRange ?? 100);
+    // Draw in world units but we're already translated to cx,cy; aoeRadius is in world px
+    ctx.arc(0, 0, aoeRadius, 0, Math.PI * 2);
+    ctx.fillStyle = "#ff6600"; ctx.fill();
+    ctx.globalAlpha = flashAlpha * 0.6;
+    ctx.beginPath(); ctx.arc(0, 0, 20 * s, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffaa00"; ctx.fill();
+  }
+
+  // Upgrade tier glow — subtle orange ring per tier
+  const tier = b?.upgradeTier ?? 0;
+  if (tier > 0) {
+    ctx.globalAlpha = 0.2 + 0.08 * Math.sin(t * 2);
+    ctx.beginPath(); ctx.arc(0, 0, (16 + tier * 3) * s, 0, Math.PI * 2);
+    ctx.strokeStyle = "#ff6600"; ctx.lineWidth = 1.5 * tier * s; ctx.stroke();
+  }
 
   ctx.restore();
 }

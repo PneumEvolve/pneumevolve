@@ -11,6 +11,9 @@ import {
   STARTING_GOLD, TOWNSPEOPLE_START, PROTECTOR_MAX_HP,
   BUILDER_DIRECT_REPAIR_RADIUS, BUILDER_TOTAL_MAX_HP, REVIVE_RADIUS,
   BUILDER_PLACE_RANGE_BONUS,
+  TURRET_UPGRADE_COST, TURRET_UPGRADE_MAX,
+  TURRET_TIER_DAMAGE, TURRET_TIER_RANGE, TURRET_TIER_RATE, TURRET_TIER_HP,
+  HOME_UPGRADE_COST, HOME_UPGRADE_MAX, HOME_TIER_WORKERS, HOME_TIER_HP,
   createInitialMap, lerp, dist, calcTownspeople, clampWorkers,
   applyConstructionAura, sellBuilding, updateBuilderRepair, getBreatherDuration,
   upgradeCount, repeatableCost, getMovementSpeed, BUILDER_SPEED_BASE,
@@ -260,8 +263,10 @@ export default function BuilderView({ room, onGameOver }) {
     const isPlacingWall = selectedTypeRef.current === "wall";
     const tooClose = state.buildings.some(b => {
       if (b.hp <= 0) return false;
-      // Walls can be placed adjacent to other walls — skip wall-vs-wall check
-      if (isPlacingWall && b.isWall) return false;
+      // Walls have no minimum distance — they can be placed right next to anything
+      if (isPlacingWall) return false;
+      // Non-walls can't be placed too close to other non-wall buildings
+      if (b.isWall) return false; // walls don't block non-wall placement checks
       return dist(wx, wy, b.x, b.y) < MIN_BUILDING_SEPARATION;
     });
     if (tooClose) return;
@@ -350,6 +355,44 @@ export default function BuilderView({ room, onGameOver }) {
     setGold(s.gold);
     setAssignPanel(null);
     forceUpdate(n => n + 1);
+  }
+
+  // ── Upgrade a specific building (turret or home) ───────────────────────────
+  function handleUpgradeBuilding(buildingId) {
+    const s = stateRef.current;
+    if (!s) return;
+    const b = s.buildings.find(b => b.id === buildingId);
+    if (!b || b.hp <= 0) return;
+
+    if (b.type === "turret") {
+      const tier = b.upgradeTier ?? 0;
+      if (tier >= TURRET_UPGRADE_MAX) return;
+      const cost = TURRET_UPGRADE_COST[tier];
+      if (s.gold < cost) return;
+      b.upgradeTier = tier + 1;
+      // Buff the building's effective stats
+      b.maxHp  += TURRET_TIER_HP;
+      b.hp     = Math.min(b.hp + TURRET_TIER_HP, b.maxHp);
+      s.gold   -= cost;
+      sendGoldUpdate({ gold: s.gold, from: "builder" });
+      setGold(s.gold);
+      forceUpdate(n => n + 1);
+    } else if (b.type === "home") {
+      const tier = b.upgradeTier ?? 0;
+      if (tier >= HOME_UPGRADE_MAX) return;
+      const cost = HOME_UPGRADE_COST[tier];
+      if (s.gold < cost) return;
+      b.upgradeTier = tier + 1;
+      b.maxHp += HOME_TIER_HP;
+      b.hp     = Math.min(b.hp + HOME_TIER_HP, b.maxHp);
+      // Grant +1 townsperson immediately
+      s.townspeople = (s.townspeople ?? TOWNSPEOPLE_START) + HOME_TIER_WORKERS;
+      setTownspeople(s.townspeople);
+      s.gold  -= cost;
+      sendGoldUpdate({ gold: s.gold, from: "builder" });
+      setGold(s.gold);
+      forceUpdate(n => n + 1);
+    }
   }
 
   // ── Ping helper ────────────────────────────────────────────────────────────
@@ -442,23 +485,25 @@ export default function BuilderView({ room, onGameOver }) {
       ctx.restore();
 
       // Step 4: re-darken exclusion zones around existing buildings (too-close areas)
-      buildings.forEach(b => {
-        if (b.hp <= 0) return; // destroyed buildings no longer block placement
-        // If placing a wall, don't show red exclusion around other walls
-        if (selectedTypeRef.current === "wall" && b.isWall) return;
-        const { cx: bx, cy: by } = worldToCanvas(b.x, b.y);
-        ctx.save();
-        ctx.globalAlpha = 0.7;
-        ctx.beginPath(); ctx.arc(bx, by, MIN_SEP, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(0,0,0,1)";
-        ctx.fill();
-        // soft red tint so player knows why it's blocked
-        ctx.globalAlpha = 0.25;
-        ctx.beginPath(); ctx.arc(bx, by, MIN_SEP, 0, Math.PI * 2);
-        ctx.fillStyle = "#ff4444";
-        ctx.fill();
-        ctx.restore();
-      });
+      // Walls have no minimum distance, so skip exclusion zones entirely when placing a wall
+      if (selectedTypeRef.current !== "wall") {
+        buildings.forEach(b => {
+          if (b.hp <= 0) return; // destroyed buildings no longer block placement
+          if (b.isWall) return; // walls don't block other buildings
+          const { cx: bx, cy: by } = worldToCanvas(b.x, b.y);
+          ctx.save();
+          ctx.globalAlpha = 0.7;
+          ctx.beginPath(); ctx.arc(bx, by, MIN_SEP, 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(0,0,0,1)";
+          ctx.fill();
+          // soft red tint so player knows why it's blocked
+          ctx.globalAlpha = 0.25;
+          ctx.beginPath(); ctx.arc(bx, by, MIN_SEP, 0, Math.PI * 2);
+          ctx.fillStyle = "#ff4444";
+          ctx.fill();
+          ctx.restore();
+        });
+      }
 
       // Step 5: crisp dashed border of the place range
       ctx.save();
@@ -477,7 +522,7 @@ export default function BuilderView({ room, onGameOver }) {
       const { cx: gcx, cy: gcy } = worldToCanvas(gwx, gwy);
       const ghostPlaceRange = BASE_PLACE_RANGE + ((state.upgrades ?? []).includes("place_range") ? BUILDER_PLACE_RANGE_BONUS : 0);
       const inRange  = dist(builder.x, builder.y, gwx, gwy) <= ghostPlaceRange;
-      const tooClose = state.buildings.some(b => b.hp > 0 && !b.isWall && dist(gwx, gwy, b.x, b.y) < 90);
+      const tooClose = false; // walls have no minimum distance restriction
       const valid    = inRange && !tooClose;
       ctx.save();
       ctx.translate(gcx, gcy);
@@ -531,6 +576,25 @@ export default function BuilderView({ room, onGameOver }) {
         ctx.font = "9px sans-serif"; ctx.fillStyle = "#66bbff"; ctx.textAlign = "center";
         ctx.fillText("repair aoe active", cx, cy - def.radius - 10);
       }
+      ctx.restore();
+    });
+
+    // Fire trap AOE range rings
+    buildings.forEach(b => {
+      if (b.type !== "fire_trap" || b.hp <= 0) return;
+      const { cx, cy } = worldToCanvas(b.x, b.y);
+      const workers = b.workers ?? 0;
+      const aoeRange = BUILDING_TYPES.fire_trap.aoeRange + workers * 15;
+      const flash = b._fireFlash ?? 0;
+      ctx.save();
+      ctx.globalAlpha = flash > 0 ? 0.2 + flash * 0.35 : 0.05;
+      ctx.beginPath(); ctx.arc(cx, cy, aoeRange, 0, Math.PI * 2);
+      ctx.fillStyle = "#ff6600"; ctx.fill();
+      ctx.globalAlpha = flash > 0 ? 0.65 : 0.15;
+      ctx.beginPath(); ctx.arc(cx, cy, aoeRange, 0, Math.PI * 2);
+      ctx.strokeStyle = "#ff6600"; ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]); ctx.lineDashOffset = -t * 12; ctx.stroke();
+      ctx.setLineDash([]);
       ctx.restore();
     });
 
@@ -1230,6 +1294,29 @@ export default function BuilderView({ room, onGameOver }) {
                 </div>
               </div>
             )}
+            {/* Upgrade button — turrets and homes only */}
+            {inBuildPhase && (panelBuilding.type === "turret" || panelBuilding.type === "home") && (() => {
+              const tier = panelBuilding.upgradeTier ?? 0;
+              const maxTier = panelBuilding.type === "turret" ? TURRET_UPGRADE_MAX : HOME_UPGRADE_MAX;
+              const costArr = panelBuilding.type === "turret" ? TURRET_UPGRADE_COST : HOME_UPGRADE_COST;
+              const cost = tier < maxTier ? costArr[tier] : null;
+              const canAfford = cost !== null && gold >= cost;
+              const maxed = tier >= maxTier;
+              return (
+                <button
+                  onClick={() => !maxed && canAfford && handleUpgradeBuilding(panelBuilding.id)}
+                  style={{
+                    marginTop: 8, width: "100%", padding: "8px", borderRadius: 8,
+                    background: maxed ? "rgba(255,255,255,0.03)" : canAfford ? "rgba(255,200,60,0.08)" : "rgba(255,255,255,0.03)",
+                    border: `0.5px solid ${maxed ? "rgba(255,255,255,0.08)" : canAfford ? "rgba(255,200,60,0.35)" : "rgba(255,255,255,0.1)"}`,
+                    color: maxed ? "rgba(255,255,255,0.2)" : canAfford ? "rgba(255,200,60,0.9)" : "rgba(255,255,255,0.25)",
+                    fontSize: 11, cursor: maxed || !canAfford ? "default" : "pointer", letterSpacing: "0.04em",
+                  }}>
+                  {maxed ? `✦ max tier (${maxTier}/${maxTier})` : `upgrade tier ${tier + 1} — ${cost}g`}
+                  {!maxed && ` (${tier}/${maxTier})`}
+                </button>
+              );
+            })()}
             {/* Sell button — only in build/breather phase, not for town center */}
             {inBuildPhase && panelBuilding.type !== "town_center" && (
               <button onClick={() => handleSell(panelBuilding.id)} style={{

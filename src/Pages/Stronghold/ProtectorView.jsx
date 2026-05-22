@@ -21,7 +21,7 @@ import {
   getSlowZones, calculateScore, calcWaveEndGold,
   calcTownspeople, clampWorkers,
   lerp, dist, wasWaveFlawless, scoutWave,
-  updateTurrets, updateMarketIncome,
+  updateTurrets, updateMarketIncome, updateFireTraps,
   upgradeCount, repeatableCost, getMovementSpeed, PROTECTOR_SPEED_BASE,
   segmentCrossesWall,
 } from "./strongholdEngine";
@@ -279,6 +279,25 @@ export default function ProtectorView({ room, onGameOver }) {
       ctx.globalAlpha = 0.07;
       ctx.beginPath(); ctx.arc(cx, cy, BUILDING_TYPES.garden.slowRadius + (b.workers ?? 0) * 10, 0, Math.PI * 2);
       ctx.fillStyle = "#66dd88"; ctx.fill();
+      ctx.restore();
+    });
+
+    // Fire trap AOE range rings
+    buildings.forEach(b => {
+      if (b.type !== "fire_trap" || b.hp <= 0) return;
+      const { cx, cy } = worldToCanvas(b.x, b.y, cam);
+      const workers = b.workers ?? 0;
+      const aoeRange = BUILDING_TYPES.fire_trap.aoeRange + workers * 15;
+      const flash = b._fireFlash ?? 0;
+      ctx.save();
+      ctx.globalAlpha = flash > 0 ? 0.2 + flash * 0.35 : 0.05;
+      ctx.beginPath(); ctx.arc(cx, cy, aoeRange, 0, Math.PI * 2);
+      ctx.fillStyle = "#ff6600"; ctx.fill();
+      ctx.globalAlpha = flash > 0 ? 0.65 : 0.15;
+      ctx.beginPath(); ctx.arc(cx, cy, aoeRange, 0, Math.PI * 2);
+      ctx.strokeStyle = "#ff6600"; ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]); ctx.lineDashOffset = -t * 12; ctx.stroke();
+      ctx.setLineDash([]);
       ctx.restore();
     });
 
@@ -946,7 +965,7 @@ export default function ProtectorView({ room, onGameOver }) {
       if (breatherMarketIncome > 0) state.gold = (state.gold ?? 0) + breatherMarketIncome;
       // Sync building HP during breather so both players see repairs
       if (ts - lastSyncRef.current > SYNC_THROTTLE) {
-        sendBuildingHealth(state.buildings.map(b => ({ id: b.id, hp: b.hp, workers: b.workers })), state.builderHp, state.playerHp, state.lockedWorkers ?? 0);
+        sendBuildingHealth(state.buildings.map(b => ({ id: b.id, hp: b.hp, workers: b.workers, upgradeTier: b.upgradeTier, _fireFlash: b._fireFlash, _aoeRange: b._aoeRange })), state.builderHp, state.playerHp, state.lockedWorkers ?? 0);
         lastSyncRef.current = ts;
       }
       if (state.breatherLeft <= 0) {
@@ -986,6 +1005,9 @@ export default function ProtectorView({ room, onGameOver }) {
 
       // Turrets auto-attack
       updateTurrets(state.buildings, state.enemies, dt);
+
+      // Fire trap AOE bursts
+      updateFireTraps(state.buildings, state.enemies, dt);
 
       // Market passive income (starts from wave 1 onward)
       const marketIncome = updateMarketIncome(state.buildings, dt, state.waveNumber);

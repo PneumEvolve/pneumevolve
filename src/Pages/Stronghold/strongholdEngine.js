@@ -168,9 +168,39 @@ export const BUILDING_TYPES = {
     goldPerSec:  1.5,        // base income per standing market once wave 1 begins
     description: "Generates passive gold once the first wave begins. Workers increase yield (+0.5g/s each, max 3). Destroyed markets lose their income permanently.",
   },
+  fire_trap: {
+    id:          "fire_trap",
+    label:       "Fire Trap",
+    color:       "#ff6600",
+    radius:      18,
+    maxHp:       55,
+    cost:        90,
+    placeable:   true,
+    aoeRange:    100,        // radius of fire burst
+    aoeDamage:   18,         // damage per tick to all enemies in range
+    aoeRate:     0.8,        // bursts per second
+    description: "Erupts in flames periodically, dealing AOE damage to all enemies in range. Workers increase damage (+6) and range (+15) each.",
+  },
 };
 
 export const PLACEABLE_BUILDINGS = Object.values(BUILDING_TYPES).filter(b => b.placeable);
+
+// ─── Building upgrade costs ───────────────────────────────────────────────────
+// Turret upgrades: each tier costs more. Stored as b.upgradeTier (0=base).
+export const TURRET_UPGRADE_COST  = [80, 140, 220]; // cost of tier 1, 2, 3
+export const TURRET_UPGRADE_MAX   = 3;
+// Per tier: +12 damage, +30 range, +0.5 fire rate, +30 HP
+export const TURRET_TIER_DAMAGE   = 12;
+export const TURRET_TIER_RANGE    = 30;
+export const TURRET_TIER_RATE     = 0.5;
+export const TURRET_TIER_HP       = 30;
+
+// Home upgrades: each tier costs more. Stored as b.upgradeTier (0=base).
+export const HOME_UPGRADE_COST    = [60, 100, 160]; // cost of tier 1, 2, 3
+export const HOME_UPGRADE_MAX     = 3;
+// Per tier: +1 townsperson immediately, +20 max HP
+export const HOME_TIER_WORKERS    = 1;
+export const HOME_TIER_HP         = 20;
 
 // ─── Enemy speed caps ─────────────────────────────────────────────────────────
 
@@ -249,6 +279,12 @@ export function createInitialMap() {
 export function dist(ax, ay, bx, by) {
   const dx = ax - bx, dy = ay - by;
   return Math.sqrt(dx * dx + dy * dy);
+}
+
+// Squared distance — use when you only need to compare, saves a sqrt
+export function dist2(ax, ay, bx, by) {
+  const dx = ax - bx, dy = ay - by;
+  return dx * dx + dy * dy;
 }
 
 export function circlesOverlap(ax, ay, ar, bx, by, br) {
@@ -522,17 +558,19 @@ export function updateEnemies(enemies, buildings, builderX, builderY, dt, slowZo
   const protectorAlive = protectorX !== null && protectorX !== undefined;
   const builderAlive   = builderX   !== null && builderX   !== undefined;
 
+  // Pre-cache living buildings and walls once per tick (not inside per-enemy loop)
+  const livingBuildings = buildings.filter(b => b.hp > 0);
+  const livingWalls     = livingBuildings.filter(b => b.isWall);
+
   enemies.forEach(e => {
     if (e.dead) return;
 
     // Demolishers ignore players entirely — straight to buildings
     // Demolishers prioritise walls (they're building destroyers)
     if (e.ignoresPlayers) {
-      const livingWalls = buildings.filter(b => b.isWall && b.hp > 0);
       let target = null, bestDist = Infinity;
       // Demolishers prefer walls if any block their path to the TC, otherwise nearest building
-      buildings.forEach(b => {
-        if (b.hp <= 0) return;
+      livingBuildings.forEach(b => {
         const d = dist(e.x, e.y, b.x, b.y);
         // Prefer walls: give them a 0.6× weight so they beat equivalent non-wall buildings
         const weighted = (b.isWall ? 0.6 : 1.0) * d;
@@ -581,8 +619,7 @@ export function updateEnemies(enemies, buildings, builderX, builderY, dt, slowZo
       speedMult = BUILDER_CHASE_SPEED_MULT;
     } else {
       let target = null, bestDist = Infinity;
-      buildings.forEach(b => {
-        if (b.hp <= 0) return;
+      livingBuildings.forEach(b => {
         const d = dist(e.x, e.y, b.x, b.y);
         if (d < bestDist) { bestDist = d; target = b; }
       });
@@ -597,7 +634,6 @@ export function updateEnemies(enemies, buildings, builderX, builderY, dt, slowZo
 
     // ── Wall blocking ─────────────────────────────────────────────────────
     // If the straight path to the target crosses a living wall, decide: go around or smash.
-    const livingWalls = buildings.filter(b => b.isWall && b.hp > 0);
     if (livingWalls.length > 0 && !e.chasingProtector && !e.chasingBuilder) {
       const blockingWall = livingWalls.find(w => segmentCrossesWall(e.x, e.y, tx, ty, w));
       if (blockingWall) {
@@ -648,11 +684,8 @@ export function updateEnemies(enemies, buildings, builderX, builderY, dt, slowZo
   });
 
   // ── Enemy separation — prevent blob stacking ──────────────────────────────
-  // After all movement, push overlapping enemies apart so they never stack.
-  // Run a few iterations per frame so the separation converges quickly even
-  // when many enemies pile up on the same target.
   const living = enemies.filter(e => !e.dead);
-  const SEPARATION_ITERS = 3;
+  const SEPARATION_ITERS = 2; // reduced from 3 — still good separation
   for (let iter = 0; iter < SEPARATION_ITERS; iter++) {
     for (let i = 0; i < living.length; i++) {
       const a = living[i];
@@ -660,8 +693,8 @@ export function updateEnemies(enemies, buildings, builderX, builderY, dt, slowZo
         const b = living[j];
         const ex = a.x - b.x;
         const ey = a.y - b.y;
-        const d2 = ex * ex + ey * ey;
         const minDist = (a.radius ?? 6) + (b.radius ?? 6);
+        const d2 = ex * ex + ey * ey;
         if (d2 < minDist * minDist && d2 > 0.0001) {
           const d   = Math.sqrt(d2);
           const overlap = (minDist - d) * 0.5;
@@ -766,6 +799,53 @@ export function updateTurrets(buildings, enemies, dt) {
   });
 }
 
+// ─── Fire Trap AOE ────────────────────────────────────────────────────────────
+
+export function updateFireTraps(buildings, enemies, dt) {
+  const livingEnemies = enemies.filter(e => !e.dead);
+  if (livingEnemies.length === 0) return;
+
+  buildings.forEach(b => {
+    if (b.type !== "fire_trap" || b.hp <= 0) return;
+    const def = BUILDING_TYPES.fire_trap;
+    const workers = b.workers ?? 0;
+    const aoeRange   = def.aoeRange  + workers * 15;
+    const aoeDamage  = def.aoeDamage + workers * 6;
+    const aoeRate    = def.aoeRate;
+
+    b.fireCooldown = Math.max(0, (b.fireCooldown ?? 0) - dt);
+    if (b.fireCooldown > 0) return;
+
+    // Check if any enemy is in range before firing
+    let anyInRange = false;
+    for (const e of livingEnemies) {
+      if (dist(b.x, b.y, e.x, e.y) < aoeRange) { anyInRange = true; break; }
+    }
+    if (!anyInRange) return;
+
+    // AOE burst — damage ALL enemies in range
+    b.fireCooldown = 1 / aoeRate;
+    b._fireFlash = 0.35; // visual flash duration (seconds)
+    b._aoeRange = aoeRange;
+
+    livingEnemies.forEach(e => {
+      if (dist(b.x, b.y, e.x, e.y) < aoeRange) {
+        e.hp -= aoeDamage;
+        if (e.hp <= 0 && !e.dead) {
+          e.dead = true;
+          e._goldDrop = 10 + Math.floor(Math.random() * 6);
+        }
+      }
+    });
+  });
+
+  // Tick flash animation
+  buildings.forEach(b => {
+    if (b.type !== "fire_trap") return;
+    if ((b._fireFlash ?? 0) > 0) b._fireFlash = Math.max(0, b._fireFlash - dt);
+  });
+}
+
 const ENEMY_ATTACK_RANGE  = 18;
 const ENEMY_ATTACK_DAMAGE = 5;
 const ENEMY_ATTACK_RATE   = 1.4;
@@ -775,6 +855,7 @@ const DEMOLISHER_ATTACK_RATE   = 0.6; // slower swing but huge hits
 // Returns the new protector hp (caller must write it back to state)
 export function updateEnemyAttacks(enemies, buildings, dt, protectorX, protectorY, protectorHp) {
   let newProtectorHp = protectorHp ?? PROTECTOR_MAX_HP;
+  const livingBuildings = buildings.filter(b => b.hp > 0);
 
   enemies.forEach(e => {
     if (e.dead) return;
@@ -796,8 +877,7 @@ export function updateEnemyAttacks(enemies, buildings, dt, protectorX, protector
     const dmg  = e.type === "demolisher" ? DEMOLISHER_ATTACK_DAMAGE : ENEMY_ATTACK_DAMAGE;
     const rate = e.type === "demolisher" ? DEMOLISHER_ATTACK_RATE   : ENEMY_ATTACK_RATE;
 
-    buildings.forEach(b => {
-      if (b.hp <= 0) return;
+    livingBuildings.forEach(b => {
       const bDef = BUILDING_TYPES[b.type];
       // Walls use rotated-rect distance; all others use circle distance
       const inRange = bDef.isWall
