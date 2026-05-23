@@ -1,42 +1,56 @@
 // src/Pages/Homestead/RunLobby.jsx
 // 30-second window where partner can join before run starts solo.
-// If partner joins → co-op. If countdown expires → solo.
+// Supports: forest | mining | fruit | fishing
 
 import React, { useEffect, useRef, useState } from "react";
 import { useHearthroom } from "./useHearthroom";
 
 const COUNTDOWN_S = 30;
 
-export default function RunLobby({ room, role, onRunStart, onCancel, joining = false, joinSeed = null }) {
-  const [countdown,    setCountdown]    = useState(COUNTDOWN_S);
-  const [partnerJoined, setPartnerJoined] = useState(joining); // if we're joining, partner is "already there"
-  const [seed]         = useState(() => joining && joinSeed ? joinSeed : (Date.now() & 0x7fffffff));
-  const timerRef       = useRef(null);
-  const startedRef     = useRef(false);
+const RUN_INFO = {
+  forest:  { icon:"🌲", label:"Forest Run",       desc:"Fight wolves, chop trees, forage herbs.",        bg:"#0a120a", accent:"rgba(200,230,120,0.9)"  },
+  mining:  { icon:"⛏️", label:"Mining Run",        desc:"Explore caves, mine ore, battle bats.",          bg:"#0a0804", accent:"rgba(220,180,80,0.9)"   },
+  fruit:   { icon:"🍎", label:"Fruit Picking",     desc:"Peaceful orchard harvesting — no enemies!",     bg:"#0a1004", accent:"rgba(160,230,80,0.9)"    },
+  fishing: { icon:"🎣", label:"Fishing Trip",      desc:"Cast your line, time your pull, reel in fish.", bg:"#04101a", accent:"rgba(80,200,255,0.9)"    },
+};
+
+export default function RunLobby({ room, role, onRunStart, onCancel, joining = false, joinSeed = null, runType: propRunType = null }) {
+  const [countdown,     setCountdown]    = useState(COUNTDOWN_S);
+  const [partnerJoined, setPartnerJoined] = useState(joining);
+  const [seed]          = useState(() => joining && joinSeed ? joinSeed : (Date.now() & 0x7fffffff));
+  const [selectedType,  setSelectedType] = useState(propRunType ?? "forest");
+  const [confirmed,     setConfirmed]    = useState(joining || propRunType !== null);
+  const timerRef  = useRef(null);
+  const startedRef = useRef(false);
+
+  const info = RUN_INFO[selectedType] || RUN_INFO.forest;
 
   function startRun(coOp) {
     if (startedRef.current) return;
     startedRef.current = true;
     clearInterval(timerRef.current);
-    onRunStart({ seed, coOp });
+    onRunStart({ seed, coOp, runType: selectedType });
   }
 
+  const seedRef     = useRef(seed);
+  const typeRef     = useRef(selectedType);
+  useEffect(() => { typeRef.current = selectedType; }, [selectedType]);
+
   const handlers = useRef({
-    onRunJoined: ({ playerId }) => {
+    onRunJoined: () => {
       setPartnerJoined(true);
-      // Partner actively accepted the join prompt — start immediately
       if (!startedRef.current) {
         startedRef.current = true;
         clearInterval(timerRef.current);
-        onRunStart({ seed, coOp: true });
+        sendRunStartedRef.current?.(seedRef.current);
+        onRunStart({ seed: seedRef.current, coOp: true, runType: typeRef.current });
       }
     },
-    onRunStarted: ({ seed: remoteSeed }) => {
-      // Partner triggered the start (they were host) — join their seed
+    onRunStarted: ({ seed: remoteSeed, runType: remoteType }) => {
       if (!startedRef.current) {
         startedRef.current = true;
         clearInterval(timerRef.current);
-        onRunStart({ seed: remoteSeed, coOp: true });
+        onRunStart({ seed: remoteSeed, coOp: true, runType: remoteType ?? "forest" });
       }
     },
     onRunCancelled: () => {
@@ -48,16 +62,18 @@ export default function RunLobby({ room, role, onRunStart, onCancel, joining = f
   const { sendRunQueued, sendRunJoined, sendRunStarted, sendRunCancelled } =
     useHearthroom(room?.id ?? null, handlers);
 
+  const sendRunStartedRef = useRef(null);
+  useEffect(() => { sendRunStartedRef.current = sendRunStarted; }, [sendRunStarted]);
+
   useEffect(() => {
     if (joining) {
-      // We're the partner joining — announce ourselves and start immediately
       sendRunJoined("p2");
       startRun(true);
       return;
     }
-    // We're the host — broadcast the queue and start the countdown
-    sendRunQueued("forest", seed);
+    if (!confirmed) return; // Wait for type selection before countdown
 
+    sendRunQueued(selectedType, seed);
     timerRef.current = setInterval(() => {
       setCountdown(prev => {
         if (prev <= 1) {
@@ -68,20 +84,13 @@ export default function RunLobby({ room, role, onRunStart, onCancel, joining = f
         return prev - 1;
       });
     }, 1000);
-
     return () => clearInterval(timerRef.current);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  function handleJoinAsPartner() {
-    sendRunJoined("p2");
-    setPartnerJoined(true);
-  }
+  }, [confirmed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleStartNow() {
-    sendRunStarted(seed);
+    sendRunStarted(seed, selectedType);
     startRun(partnerJoined);
   }
-
   function handleCancel() {
     sendRunCancelled();
     clearInterval(timerRef.current);
@@ -90,123 +99,140 @@ export default function RunLobby({ room, role, onRunStart, onCancel, joining = f
 
   const pct = countdown / COUNTDOWN_S;
 
+  // ── Run type picker (before confirming) ────────────────────────────────────
+  if (!confirmed && !joining) {
+    return (
+      <main style={{
+        minHeight:"100svh", background:"#0a0e0a", color:"#f5e6c8",
+        display:"flex", flexDirection:"column", alignItems:"center",
+        justifyContent:"center", gap:24, fontFamily:"monospace", padding:"0 24px",
+      }}>
+        <div style={{ textAlign:"center" }}>
+          <p style={{ fontSize:11, letterSpacing:"0.18em", color:"rgba(200,230,160,0.5)", marginBottom:8, textTransform:"uppercase" }}>
+            choose your run
+          </p>
+          <h1 style={{ fontSize:26, fontWeight:400, color:"rgba(200,230,160,0.9)", letterSpacing:"0.06em" }}>
+            heading out...
+          </h1>
+        </div>
+
+        <div style={{ display:"flex", flexDirection:"column", gap:10, width:"100%", maxWidth:320 }}>
+          {Object.entries(RUN_INFO).map(([type, ri]) => (
+            <button
+              key={type}
+              onClick={() => setSelectedType(type)}
+              style={{
+                padding:"14px 16px", borderRadius:12, cursor:"pointer",
+                background: selectedType === type ? `rgba(${type==="forest"?"200,230,120":type==="mining"?"220,180,80":type==="fruit"?"160,230,80":"80,200,255"},0.1)` : "rgba(255,255,255,0.03)",
+                border: `1px solid ${selectedType === type ? ri.accent : "rgba(255,255,255,0.08)"}`,
+                color: selectedType === type ? ri.accent : "rgba(245,230,200,0.5)",
+                fontFamily:"monospace", textAlign:"left",
+                transition:"all 0.15s ease",
+              }}
+            >
+              <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                <span style={{ fontSize:24 }}>{ri.icon}</span>
+                <div>
+                  <div style={{ fontSize:13, marginBottom:3 }}>{ri.label}</div>
+                  <div style={{ fontSize:10, opacity:0.6 }}>{ri.desc}</div>
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display:"flex", flexDirection:"column", gap:10, width:"100%", maxWidth:320 }}>
+          <button
+            onClick={() => setConfirmed(true)}
+            style={{
+              padding:"15px", borderRadius:12, cursor:"pointer",
+              background: "rgba(200,230,120,0.08)",
+              border: "1px solid rgba(200,230,120,0.3)",
+              color: "rgba(200,230,120,0.9)", fontSize:13, fontFamily:"monospace",
+            }}
+          >
+            head out as {RUN_INFO[selectedType]?.icon} {RUN_INFO[selectedType]?.label} →
+          </button>
+          <button onClick={handleCancel} style={{
+            padding:"10px", borderRadius:10, cursor:"pointer",
+            background:"transparent", border:"1px solid rgba(255,255,255,0.08)",
+            color:"rgba(255,255,255,0.3)", fontSize:12, fontFamily:"monospace",
+          }}>← stay home</button>
+        </div>
+      </main>
+    );
+  }
+
+  // ── Countdown lobby ────────────────────────────────────────────────────────
   return (
     <main style={{
-      minHeight: "100svh",
-      background: "#0a120a",
-      color: "#f5e6c8",
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: 28,
-      fontFamily: "monospace",
-      padding: "0 24px",
+      minHeight:"100svh", background: info.bg,
+      color:"#f5e6c8", display:"flex", flexDirection:"column",
+      alignItems:"center", justifyContent:"center",
+      gap:28, fontFamily:"monospace", padding:"0 24px",
     }}>
-      {/* Title */}
-      <div style={{ textAlign: "center" }}>
-        <p style={{ fontSize: 11, letterSpacing: "0.18em", color: "rgba(200,230,160,0.5)", marginBottom: 8, textTransform: "uppercase" }}>
-          forest run
+      <div style={{ textAlign:"center" }}>
+        <p style={{ fontSize:11, letterSpacing:"0.18em", color:"rgba(200,230,160,0.5)", marginBottom:8, textTransform:"uppercase" }}>
+          {info.label}
         </p>
-        <h1 style={{ fontSize: 28, fontWeight: 400, color: "rgba(200,230,160,0.9)", letterSpacing: "0.06em" }}>
-          heading out...
+        <h1 style={{ fontSize:28, fontWeight:400, color:info.accent, letterSpacing:"0.06em" }}>
+          {info.icon} heading out...
         </h1>
       </div>
 
-      {/* Countdown ring */}
-      <div style={{ position: "relative", width: 120, height: 120 }}>
-        <svg width="120" height="120" style={{ position: "absolute", top: 0, left: 0, transform: "rotate(-90deg)" }}>
+      <div style={{ position:"relative", width:120, height:120 }}>
+        <svg width="120" height="120" style={{ position:"absolute", top:0, left:0, transform:"rotate(-90deg)" }}>
           <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="6"/>
           <circle
-            cx="60" cy="60" r="52"
-            fill="none"
-            stroke={partnerJoined ? "rgba(80,220,160,0.8)" : "rgba(200,230,120,0.8)"}
+            cx="60" cy="60" r="52" fill="none"
+            stroke={partnerJoined ? "rgba(80,220,160,0.8)" : info.accent}
             strokeWidth="6"
             strokeDasharray={`${2 * Math.PI * 52}`}
             strokeDashoffset={`${2 * Math.PI * 52 * (1 - pct)}`}
             strokeLinecap="round"
-            style={{ transition: "stroke-dashoffset 0.9s linear" }}
+            style={{ transition:"stroke-dashoffset 0.9s linear" }}
           />
         </svg>
-        <div style={{
-          position: "absolute", inset: 0,
-          display: "flex", flexDirection: "column",
-          alignItems: "center", justifyContent: "center",
-        }}>
-          <span style={{ fontSize: 34, fontWeight: 400, color: "rgba(245,230,200,0.9)" }}>{countdown}</span>
-          <span style={{ fontSize: 10, color: "rgba(245,230,200,0.35)", letterSpacing: "0.1em" }}>seconds</span>
+        <div style={{ position:"absolute", inset:0, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center" }}>
+          <span style={{ fontSize:34, fontWeight:400, color:"rgba(245,230,200,0.9)" }}>{countdown}</span>
+          <span style={{ fontSize:10, color:"rgba(245,230,200,0.35)", letterSpacing:"0.1em" }}>seconds</span>
         </div>
       </div>
 
-      {/* Partner status */}
       <div style={{
-        background: "rgba(255,255,255,0.04)",
-        border: `1px solid ${partnerJoined ? "rgba(80,220,160,0.3)" : "rgba(255,255,255,0.08)"}`,
-        borderRadius: 12,
-        padding: "14px 24px",
-        textAlign: "center",
-        minWidth: 220,
+        background:"rgba(255,255,255,0.04)",
+        border:`1px solid ${partnerJoined ? "rgba(80,220,160,0.3)" : "rgba(255,255,255,0.08)"}`,
+        borderRadius:12, padding:"14px 24px", textAlign:"center", minWidth:220,
       }}>
         {partnerJoined ? (
-          <p style={{ fontSize: 13, color: "rgba(80,220,160,0.9)" }}>✓ partner joined — co-op run!</p>
+          <p style={{ fontSize:13, color:"rgba(80,220,160,0.9)" }}>✓ partner joined — co-op run!</p>
         ) : (
           <>
-            <p style={{ fontSize: 12, color: "rgba(245,230,200,0.4)", marginBottom: 4 }}>
-              waiting for partner to join...
-            </p>
-            <p style={{ fontSize: 10, color: "rgba(245,230,200,0.2)" }}>
-              auto-starts solo in {countdown}s
-            </p>
+            <p style={{ fontSize:12, color:"rgba(245,230,200,0.4)", marginBottom:4 }}>waiting for partner to join...</p>
+            <p style={{ fontSize:10, color:"rgba(245,230,200,0.2)" }}>auto-starts solo in {countdown}s</p>
           </>
         )}
       </div>
 
-      {/* Tip */}
-      <div style={{
-        maxWidth: 300,
-        textAlign: "center",
-        fontSize: 11,
-        lineHeight: 1.7,
-        color: "rgba(245,230,200,0.28)",
-        borderTop: "1px solid rgba(255,255,255,0.06)",
-        paddingTop: 16,
-      }}>
-        <p>You start unarmed. Punch wolves to start. Collect sticks + stones to craft an axe back at the homestead.</p>
+      <div style={{ maxWidth:300, textAlign:"center", fontSize:11, lineHeight:1.7, color:"rgba(245,230,200,0.28)", borderTop:"1px solid rgba(255,255,255,0.06)", paddingTop:16 }}>
+        <p>{info.desc}</p>
       </div>
 
-      {/* Buttons */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%", maxWidth: 260 }}>
+      <div style={{ display:"flex", flexDirection:"column", gap:10, width:"100%", maxWidth:260 }}>
         <button
           onClick={handleStartNow}
           style={{
-            padding: "14px",
-            borderRadius: 10,
-            border: "1px solid rgba(200,230,120,0.3)",
-            background: "rgba(200,230,120,0.08)",
-            color: "rgba(200,230,120,0.9)",
-            fontSize: 13,
-            fontFamily: "monospace",
-            cursor: "pointer",
-            letterSpacing: "0.04em",
+            padding:"14px", borderRadius:10, border:`1px solid ${info.accent.replace("0.9","0.3")}`,
+            background:`rgba(${info.accent.match(/[\d.]+,[\d.]+,[\d.]+/)?.[0] ?? "200,230,120"},0.08)`,
+            color:info.accent, fontSize:13, fontFamily:"monospace", cursor:"pointer",
           }}
         >
           {partnerJoined ? "start co-op run →" : "go solo now →"}
         </button>
-        <button
-          onClick={handleCancel}
-          style={{
-            padding: "10px",
-            borderRadius: 10,
-            border: "1px solid rgba(255,255,255,0.08)",
-            background: "transparent",
-            color: "rgba(255,255,255,0.3)",
-            fontSize: 12,
-            fontFamily: "monospace",
-            cursor: "pointer",
-          }}
-        >
-          ← stay home
-        </button>
+        <button onClick={handleCancel} style={{
+          padding:"10px", borderRadius:10, border:"1px solid rgba(255,255,255,0.08)",
+          background:"transparent", color:"rgba(255,255,255,0.3)", fontSize:12, fontFamily:"monospace", cursor:"pointer",
+        }}>← stay home</button>
       </div>
     </main>
   );

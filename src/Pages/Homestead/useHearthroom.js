@@ -41,6 +41,8 @@ export function useHearthroom(roomId, handlers, channelSuffix = "") {
       .on("broadcast", { event: "enemy_killed"    }, ({ payload }) => handlersRef.current.onEnemyKilled?.(payload))
       .on("broadcast", { event: "pickup_collected"}, ({ payload }) => handlersRef.current.onPickupCollected?.(payload))
       .on("broadcast", { event: "loot_dropped"    }, ({ payload }) => handlersRef.current.onLootDropped?.(payload))
+      .on("broadcast", { event: "run_state_request"},({ payload }) => handlersRef.current.onRunStateRequest?.(payload))
+      .on("broadcast", { event: "run_state_sync"  }, ({ payload }) => handlersRef.current.onRunStateSync?.(payload))
       // ── Run end ───────────────────────────────────────────────────────
       .on("broadcast", { event: "run_complete"    }, ({ payload }) => handlersRef.current.onRunComplete?.(payload))
       // ── Homestead sync ────────────────────────────────────────────────
@@ -48,8 +50,9 @@ export function useHearthroom(roomId, handlers, channelSuffix = "") {
       .on("broadcast", { event: "object_placed"   }, ({ payload }) => handlersRef.current.onObjectPlaced?.(payload))
       .on("broadcast", { event: "object_removed"  }, ({ payload }) => handlersRef.current.onObjectRemoved?.(payload))
       // ── Misc ──────────────────────────────────────────────────────────
-      .on("broadcast", { event: "ping"            }, ({ payload }) => handlersRef.current.onPing?.(payload))
-      .on("broadcast", { event: "chat"            }, ({ payload }) => handlersRef.current.onChat?.(payload));
+      .on("broadcast", { event: "ping"              }, ({ payload }) => handlersRef.current.onPing?.(payload))
+      .on("broadcast", { event: "chat"              }, ({ payload }) => handlersRef.current.onChat?.(payload))
+      .on("broadcast", { event: "player_appearance" }, ({ payload }) => handlersRef.current.onPlayerAppearance?.(payload));
 
     channel.subscribe((status) => {
       if (status === "SUBSCRIBED") {
@@ -97,6 +100,8 @@ export function useHearthroom(roomId, handlers, channelSuffix = "") {
   const sendEnemyKilled    = useCallback((id, loot) =>            send("enemy_killed",   { id, loot }),            [send]);
   const sendPickupCollected= useCallback((id) =>                  send("pickup_collected",{ id }),                 [send]);
   const sendLootDropped    = useCallback((drops) =>               send("loot_dropped",   { drops }),               [send]);
+  const sendRunStateRequest= useCallback(() =>                    send("run_state_request", {}),                   [send]);
+  const sendRunStateSync   = useCallback((state) =>               send("run_state_sync", state),                   [send]);
 
   // ── Run end ──────────────────────────────────────────────────────────────────
   const sendRunComplete    = useCallback((loot) =>                send("run_complete",   { loot }),                [send]);
@@ -107,8 +112,9 @@ export function useHearthroom(roomId, handlers, channelSuffix = "") {
   const sendObjectRemoved  = useCallback((id) =>                  send("object_removed", { id }),                  [send]);
 
   // ── Misc ─────────────────────────────────────────────────────────────────────
-  const sendPing           = useCallback((wx, wy) =>              send("ping",           { wx, wy }),              [send]);
-  const sendChat           = useCallback((text, from) =>          send("chat",           { text, from }),          [send]);
+  const sendPing             = useCallback((wx, wy) =>              send("ping",              { wx, wy }),              [send]);
+  const sendChat             = useCallback((text, from) =>          send("chat",              { text, from }),          [send]);
+  const sendPlayerAppearance = useCallback((character, equipment, hotbar) => send("player_appearance", { character, equipment, hotbar }), [send]);
 
   return {
     sendPlayerReady,
@@ -123,11 +129,14 @@ export function useHearthroom(roomId, handlers, channelSuffix = "") {
     sendEnemyKilled,
     sendPickupCollected,
     sendLootDropped,
+    sendRunStateRequest,
+    sendRunStateSync,
     sendRunComplete,
     sendChestUpdated,
     sendObjectPlaced,
     sendObjectRemoved,
     sendPing,
     sendChat,
+    sendPlayerAppearance,
   };
 }

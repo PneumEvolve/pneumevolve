@@ -14,13 +14,20 @@ import {
   TURRET_UPGRADE_BASE_COST,
   TURRET_TIER_DAMAGE, TURRET_TIER_RANGE, TURRET_TIER_RATE, TURRET_TIER_HP,
   HOME_UPGRADE_BASE_COST, HOME_TIER_WORKERS, HOME_TIER_HP,
+  BARRACKS_TIER_HP,
+  GARDEN_TIER_RADIUS, GARDEN_TIER_SLOW, GARDEN_TIER_HP,
+  REPAIR_SHOP_TIER_RADIUS, REPAIR_SHOP_TIER_RATE, REPAIR_SHOP_TIER_HP,
+  UPGRADE_SHOP_TIER_HP,
+  MARKET_TIER_GOLD, MARKET_TIER_HP,
+  FIRE_TRAP_TIER_DAMAGE, FIRE_TRAP_TIER_RANGE, FIRE_TRAP_TIER_HP,
+  WALL_TIER_HP,
   BUILDING_UPGRADE_BASE_COST, BUILDING_TIER_HP,
-  effectiveTier, MARKET_TIER_GOLD,
+  effectiveTier,
   createInitialMap, lerp, dist, calcTownspeople, clampWorkers,
   applyConstructionAura, sellBuilding, updateBuilderRepair, getBreatherDuration,
   upgradeCount, repeatableCost, getMovementSpeed, BUILDER_SPEED_BASE,
   segmentCrossesWall,
-  getProtectorMaxHp, getBuilderTotalMaxHp,
+  getProtectorMaxHp, getBuilderTotalMaxHp, getBuilderOverhealCap,
 } from "./strongholdEngine";
 
 const BUILDER_SPEED  = 150;
@@ -110,7 +117,7 @@ export default function BuilderView({ room, onGameOver, resumeState }) {
   if (from === "builder") return;   // ← ignore own echoes
   if (stateRef.current) { stateRef.current.gold = gold; setGold(gold); }
 },
-    onPhaseChange: ({ phase, waveNumber, won, gold, townspeople: tp, bonusGold, builderHp, resumeBuildings, resumeUpgrades, difficulty: rxDiff }) => {
+    onPhaseChange: ({ phase, waveNumber, won, gold, townspeople: tp, bonusGold, builderHp, resumeBuildings, resumeUpgrades, difficulty: rxDiff, buildingWorkers }) => {
       if (!stateRef.current) return;
       if (rxDiff !== undefined) { difficultyRef.current = rxDiff; setDifficulty(rxDiff); }
       stateRef.current.phase = phase;
@@ -119,7 +126,21 @@ export default function BuilderView({ room, onGameOver, resumeState }) {
       if (gold      !== undefined) { stateRef.current.gold = gold; setGold(gold); }
       if (tp        !== undefined) {
         stateRef.current.townspeople = tp;
-        clampWorkers(stateRef.current.buildings, tp);
+        if (buildingWorkers && buildingWorkers.length > 0) {
+          // Apply the authoritative post-clamp worker counts from the Protector.
+          // This prevents the Builder from re-clamping independently (which can
+          // silently remove workers from fire traps, turrets, etc. depending on
+          // building array order).
+          buildingWorkers.forEach(({ id, workers }) => {
+            const b = stateRef.current.buildings.find(b => b.id === id);
+            if (b) b.workers = workers;
+          });
+          // Still zero out any destroyed buildings just in case.
+          stateRef.current.buildings.forEach(b => { if (b.hp <= 0) b.workers = 0; });
+        } else {
+          // Fallback: no authoritative data, clamp locally (old behaviour).
+          clampWorkers(stateRef.current.buildings, tp);
+        }
         setTownspeople(tp);
       }
       if (builderHp !== undefined) stateRef.current.builderHp = builderHp;
@@ -148,7 +169,7 @@ export default function BuilderView({ room, onGameOver, resumeState }) {
         setWaveReady(false);
       }
       if (phase === "wave") {
-        setAssignPanel(null); setMood("tense");
+        setMood("tense");
         waveReadyRef.current = false;
         setWaveReady(false);
       }
@@ -203,7 +224,7 @@ export default function BuilderView({ room, onGameOver, resumeState }) {
     },
   }).current;
 
-  const { sendP2Move, sendBuildingPlace, sendChat, sendWorkerAssign, sendPlayerReady, sendGoldUpdate, sendRevive, sendPing, sendAllegianceChange } =
+  const { sendP2Move, sendBuildingPlace, sendChat, sendWorkerAssign, sendPlayerReady, sendGoldUpdate, sendRevive, sendPing, sendAllegianceChange, sendBuildingHealth } =
     useStrongholdRoom(room?.id ?? null, handlers);
 
   // ── State init ────────────────────────────────────────────────────────────
@@ -411,7 +432,12 @@ export default function BuilderView({ room, onGameOver, resumeState }) {
     if (delta > 0 && b.type === "barracks" && lockedWorkers > 0) return;
     if (delta > 0 && free <= 0) return;
     if (delta < 0 && (b.workers ?? 0) <= 0) return;
+    // Enforce per-building worker caps (e.g. fire trap max 8)
+    const def = BUILDING_TYPES[b.type];
+    if (delta > 0 && def.maxWorkers !== undefined && (b.workers ?? 0) >= def.maxWorkers) return;
     b.workers = Math.max(0, (b.workers ?? 0) + delta);
+    // Clamp to cap in case delta > 1 pushed over the limit
+    if (def.maxWorkers !== undefined) b.workers = Math.min(b.workers, def.maxWorkers);
     sendWorkerAssign(buildingId, b.workers);
     forceUpdate(n => n + 1);
   }
@@ -476,6 +502,12 @@ export default function BuilderView({ room, onGameOver, resumeState }) {
 
     s.gold -= cost;
     sendGoldUpdate({ gold: s.gold, from: "builder" });
+    // Sync the upgraded building so Protector's copy has the new upgradeTier and maxHp
+    // (needed for repair shop range, turret stats, etc. to take effect on the Protector side)
+    sendBuildingHealth(
+      s.buildings.map(b => ({ id: b.id, hp: b.hp, maxHp: b.maxHp, workers: b.workers, upgradeTier: b.upgradeTier })),
+      s.builderHp, s.protectorHp, s.lockedWorkers ?? 0,
+    );
     setGold(s.gold);
     forceUpdate(n => n + 1);
   }
@@ -668,8 +700,7 @@ export default function BuilderView({ room, onGameOver, resumeState }) {
     buildings.forEach(b => {
       if (b.type !== "fire_trap" || b.hp <= 0) return;
       const { cx, cy } = worldToCanvas(b.x, b.y);
-      const workers = b.workers ?? 0;
-      const aoeRange = BUILDING_TYPES.fire_trap.aoeRange + workers * 15;
+      const aoeRange = BUILDING_TYPES.fire_trap.aoeRange + effectiveTier(b) * FIRE_TRAP_TIER_RANGE;
       const flash = b._fireFlash ?? 0;
       ctx.save();
       ctx.globalAlpha = flash > 0 ? 0.2 + flash * 0.35 : 0.05;
@@ -916,7 +947,8 @@ export default function BuilderView({ room, onGameOver, resumeState }) {
 
     // Overheal arc — gold ring segment beyond the normal hp arc
     if (b.hp > 0 && b.hp > b.maxHp) {
-      const overhealFrac = Math.min((b.hp - b.maxHp) / (b.maxHp * 0.15), 1); // 0..1 representing 100%→115%
+      const _overhealMax = getBuilderOverhealCap(state.upgrades ?? []) - 1.0; // e.g. 0.25/0.5/0.75/1.0
+      const overhealFrac = _overhealMax > 0 ? Math.min((b.hp - b.maxHp) / (b.maxHp * _overhealMax), 1) : 0; // 0..1 across overheal range
       ctx.save();
       ctx.beginPath();
       ctx.arc(cx, cy, def.radius + 9, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * overhealFrac);
@@ -1407,15 +1439,29 @@ export default function BuilderView({ room, onGameOver, resumeState }) {
               </div>
             )}
             {/* Upgrade button — all buildings except town_center */}
-            {inBuildPhase && panelBuilding.type !== "town_center" && BUILDING_UPGRADE_BASE_COST[panelBuilding.type] && (() => {
+            {panelBuilding.type !== "town_center" && BUILDING_UPGRADE_BASE_COST[panelBuilding.type] && (() => {
               const tier     = panelBuilding.upgradeTier ?? 0;
               const workers  = panelBuilding.workers ?? 0;
               const baseCost = BUILDING_UPGRADE_BASE_COST[panelBuilding.type];
               const cost     = repeatableCost(baseCost, tier + 1);
               const canAfford = gold >= cost;
               const isHome   = panelBuilding.type === "home";
-              const isWorkerOnly = isHome; // only home has no worker stacking
               const effectTier = workers + tier;
+
+              // Build a human-readable list of what each cash upgrade adds
+              const statLines = {
+                turret:       [`+${TURRET_TIER_DAMAGE} dmg`, `+${TURRET_TIER_RANGE} range`, `+${TURRET_TIER_RATE.toFixed(1)}/s rate`, `+${TURRET_TIER_HP} HP`],
+                home:         [`+${HOME_TIER_WORKERS} person`, `+${HOME_TIER_HP} HP`],
+                barracks:     [`+1 soldier`, `+${BARRACKS_TIER_HP} HP`],
+                garden:       [`+${GARDEN_TIER_RADIUS} slow radius`, `-${(GARDEN_TIER_SLOW * 100).toFixed(0)}% slow`, `+${GARDEN_TIER_HP} HP`],
+                repair_shop:  [`+${REPAIR_SHOP_TIER_RADIUS} reach`, `+${REPAIR_SHOP_TIER_RATE} repair/s`, `+${REPAIR_SHOP_TIER_HP} HP`],
+                upgrade_shop: [`+${UPGRADE_SHOP_TIER_HP} HP`],
+                market:       [`+${MARKET_TIER_GOLD.toFixed(1)}g/s`, `+${MARKET_TIER_HP} HP`],
+                fire_trap:    [`+${FIRE_TRAP_TIER_DAMAGE} dmg`, `+${FIRE_TRAP_TIER_RANGE} range`, `+${FIRE_TRAP_TIER_HP} HP`],
+                wall:         [`+${WALL_TIER_HP} HP`],
+              };
+              const stats = statLines[panelBuilding.type] ?? [`+${BUILDING_TIER_HP[panelBuilding.type] ?? 20} HP`];
+
               return (
                 <div style={{ marginTop: 8 }}>
                   {!isHome && tier > 0 && (
@@ -1433,19 +1479,18 @@ export default function BuilderView({ room, onGameOver, resumeState }) {
                       border: `0.5px solid ${canAfford ? "rgba(255,200,60,0.35)" : "rgba(255,255,255,0.1)"}`,
                       color: canAfford ? "rgba(255,200,60,0.9)" : "rgba(255,255,255,0.25)",
                       fontSize: 11, cursor: canAfford ? "pointer" : "default", letterSpacing: "0.04em",
+                      textAlign: "left", lineHeight: 1.5,
                     }}>
-                    {tier > 0
-                      ? `upgrade tier ${tier + 1} — ${cost}g`
-                      : `upgrade — ${cost}g`}
-                    <span style={{ marginLeft: 6, opacity: 0.6, fontSize: 10 }}>
-                      +{BUILDING_TIER_HP[panelBuilding.type] ?? 20} HP
-                    </span>
+                    <div>{tier > 0 ? `upgrade tier ${tier + 1} — ${cost}g` : `upgrade — ${cost}g`}</div>
+                    <div style={{ opacity: 0.6, fontSize: 10, marginTop: 2 }}>
+                      {stats.join("  ·  ")}
+                    </div>
                   </button>
                 </div>
               );
             })()}
-            {/* Sell button — only in build/breather phase, not for town center */}
-            {inBuildPhase && panelBuilding.type !== "town_center" && (
+            {/* Sell button — not for town center */}
+            {panelBuilding.type !== "town_center" && (
               <button onClick={() => handleSell(panelBuilding.id)} style={{
                 marginTop: 12, width: "100%", padding: "8px", borderRadius: 8,
                 background: "rgba(255,60,60,0.06)", border: "0.5px solid rgba(255,60,60,0.2)",

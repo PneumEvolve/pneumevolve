@@ -13,16 +13,47 @@ const ITEM_ICONS = {
   leather: "🦴",
   meat:    "🥩",
   silk:    "🕸",
+  // Mining
+  coal:    "⚫",
+  gems:    "💎",
+  crystal: "🔷",
+  // Fruit / fishing
+  apples:   "🍎",
+  berries:  "🫐",
+  mushrooms:"🍄",
+  fish:     "🐟",
+  big_fish: "🐠",
+  rare_fish:"🐡",
 };
 
 const ITEM_LABELS = {
-  wood:    "wood",
-  stone:   "stone",
-  sticks:  "sticks",
-  herbs:   "herbs",
-  leather: "leather",
-  meat:    "meat",
-  silk:    "silk",
+  // Resources
+  wood:     "wood",
+  stone:    "stone",
+  sticks:   "sticks",
+  herbs:    "herbs",
+  leather:  "leather",
+  meat:     "meat",
+  silk:     "silk",
+  // Mining
+  coal:     "coal",
+  gems:     "gems",
+  crystal:  "crystal",
+  // Fruit / fishing
+  apples:   "apples",
+  berries:  "berries",
+  mushrooms:"mushrooms",
+  fish:     "fish",
+  big_fish: "big fish",
+  rare_fish:"rare fish",
+  // Gear
+  axe:             "axe",
+  pickaxe:         "pickaxe",
+  fishing_rod:     "fishing rod",
+  crafting_station:"crafting station",
+  leather_armor:   "leather armor",
+  cooked_meat:     "cooked meat",
+  potion_table:    "potion table",
 };
 
 function LootRow({ item, qty, delay }) {

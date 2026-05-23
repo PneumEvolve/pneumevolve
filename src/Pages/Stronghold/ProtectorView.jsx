@@ -30,6 +30,10 @@ import {
   FIRE_TRAP_TIER_RANGE, GARDEN_TIER_RADIUS,
   barracksSoldierTarget,
   DIFFICULTIES, DIFFICULTY_LABELS, DIFFICULTY_DESC,
+  activateTaunt, updateTaunt, TAUNT_COOLDOWN, TAUNT_DURATION,
+  activateShieldWall, updateShieldWall, SHIELD_WALL_COOLDOWN, SHIELD_WALL_DURATION,
+  activateRallyFlag, updateRallyFlag, RALLY_DURATION,
+  getBuilderOverhealCap,
 } from "./strongholdEngine";
 
 const PLAYER_SPEED   = 160;
@@ -67,6 +71,10 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
   const [pings,      setPings]      = useState([]);
   const [waveSummary, setWaveSummary] = useState(null);
   const [dashReady,   setDashReady]  = useState(true);
+  const [tauntReady,  setTauntReady]  = useState(true);
+  const [shieldReady, setShieldReady] = useState(true);
+  const [rallyMode,   setRallyMode]   = useState(false); // true = next canvas click plants flag
+  const rallyModeRef = useRef(false);
   const [saveNotice,  setSaveNotice] = useState(null); // "saving" | "saved" | null
   const pingsRef     = useRef([]);
   // Difficulty — passed in from room prop (room.difficulty) or defaulting to "normal"
@@ -321,6 +329,12 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
         dashTimer:       0,
         dashVx:          0,
         dashVy:          0,
+        // Abilities
+        tauntCooldown:   0,
+        tauntActive:     0,
+        shieldWallCooldown: 0,
+        shieldWallActive:   0,
+        rallyFlag:       null,
         // Flawless tracking (reset — fresh start from this point)
         flawlessWaves:   0,
         waveDowns:       0,
@@ -364,6 +378,12 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
       dashTimer:       0,
       dashVx:          0,
       dashVy:          0,
+      // Abilities
+      tauntCooldown:   0,
+      tauntActive:     0,
+      shieldWallCooldown: 0,
+      shieldWallActive:   0,
+      rallyFlag:       null,
       // Flawless tracking
       flawlessWaves:   0,
       waveDowns:       0,
@@ -561,7 +581,59 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
     ctx.fillStyle = "rgba(255,100,60,0.12)"; ctx.fill();
     ctx.beginPath(); ctx.arc(ppx, ppy, 7, 0, Math.PI * 2);
     ctx.fillStyle = "rgba(255,100,60,0.95)"; ctx.fill();
+
+    // Shield wall active — bright ring
+    if ((state.shieldWallActive ?? 0) > 0) {
+      const swPulse = 0.7 + 0.3 * Math.sin(t * 8);
+      ctx.globalAlpha = swPulse * 0.7;
+      ctx.beginPath(); ctx.arc(ppx, ppy, 18, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(180,220,255,1)"; ctx.lineWidth = 3; ctx.stroke();
+      ctx.globalAlpha = swPulse * 0.18;
+      ctx.beginPath(); ctx.arc(ppx, ppy, 18, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(180,220,255,1)"; ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // Taunt active — screen-edge red pulse (wave phase only)
+    if (phase === "wave" && (state.tauntActive ?? 0) > 0) {
+      const tFrac = state.tauntActive / TAUNT_DURATION; // 1→0 as taunt expires
+      const tPulse = 0.5 + 0.5 * Math.sin(t * 8);
+      const alpha = tPulse * 0.28 * Math.min(1, tFrac * 3); // fades as taunt ends
+      const grad = ctx.createRadialGradient(W / 2, H / 2, H * 0.3, W / 2, H / 2, H * 0.8);
+      grad.addColorStop(0, "rgba(255,40,40,0)");
+      grad.addColorStop(1, `rgba(255,40,40,${alpha.toFixed(3)})`);
+      ctx.save();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+    }
+
     ctx.restore();
+
+    // Rally flag — drawn in world space (small flag icon, no filled ring)
+    if (state.rallyFlag) {
+      const { cx: rfx, cy: rfy } = worldToCanvas(state.rallyFlag.x, state.rallyFlag.y, cam);
+      const flagPulse = 0.7 + 0.3 * Math.sin(t * 4);
+      ctx.save();
+      ctx.globalAlpha = flagPulse;
+      // Flag pole
+      ctx.beginPath(); ctx.moveTo(rfx, rfy + 8); ctx.lineTo(rfx, rfy - 8);
+      ctx.strokeStyle = "rgba(255,210,80,0.95)"; ctx.lineWidth = 1.5; ctx.stroke();
+      // Flag pennant (small triangle off the top of the pole)
+      ctx.beginPath(); ctx.moveTo(rfx, rfy - 8); ctx.lineTo(rfx + 7, rfy - 4); ctx.lineTo(rfx, rfy - 1); ctx.closePath();
+      ctx.fillStyle = "rgba(255,210,80,0.95)"; ctx.fill();
+      ctx.restore();
+    }
+
+    // Rally mode cursor hint
+    if (rallyMode && (phase === "wave" || phase === "breather")) {
+      ctx.save();
+      ctx.globalAlpha = 0.7 + 0.3 * Math.sin(t * 6);
+      ctx.font = "12px sans-serif"; ctx.fillStyle = "rgba(255,210,80,0.9)"; ctx.textAlign = "center";
+      ctx.fillText("click to place rally flag (F or X to cancel)", W / 2, H / 2 - 20);
+      ctx.restore();
+    }
 
     drawHUD(ctx, state, t, W, H);
 
@@ -713,7 +785,8 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
 
     // Overheal gold arc — visible to protector too
     if (b.hp > 0 && b.hp > b.maxHp) {
-      const overhealFrac = Math.min((b.hp - b.maxHp) / (b.maxHp * 0.15), 1);
+      const _overhealMax = getBuilderOverhealCap(state.upgrades ?? []) - 1.0;
+      const overhealFrac = _overhealMax > 0 ? Math.min((b.hp - b.maxHp) / (b.maxHp * _overhealMax), 1) : 0;
       ctx.save();
       ctx.beginPath();
       ctx.arc(cx, cy, def.radius + 9, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * overhealFrac);
@@ -881,6 +954,48 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
       ctx.font = "9px sans-serif"; ctx.textAlign = "left";
       ctx.fillStyle = coolFrac >= 1 ? "rgba(255,200,60,0.7)" : "rgba(255,255,255,0.2)";
       ctx.fillText(coolFrac >= 1 ? "dash ready" : "dash…", bx, by - 3);
+    }
+
+    // Ability cooldown bars — taunt/shield wave only, rally flag in wave+breather
+    if (phase === "wave" || phase === "breather") {
+      const abilityBarW = 55, abilityBarH = 3;
+      const abx = 14;
+      let aby = H - 62;
+      if (phase === "wave") {
+        // Taunt
+        {
+          const frac = state.tauntCooldown > 0 ? 1 - state.tauntCooldown / TAUNT_COOLDOWN : 1;
+          const isActive = (state.tauntActive ?? 0) > 0;
+          ctx.fillStyle = "rgba(255,255,255,0.05)";
+          ctx.roundRect(abx, aby, abilityBarW, abilityBarH, 2); ctx.fill();
+          ctx.fillStyle = isActive ? "rgba(255,80,80,0.95)" : frac >= 1 ? "rgba(255,80,80,0.65)" : "rgba(255,80,80,0.3)";
+          ctx.roundRect(abx, aby, abilityBarW * (isActive ? (state.tauntActive / TAUNT_DURATION) : frac), abilityBarH, 2); ctx.fill();
+          ctx.font = "9px sans-serif"; ctx.textAlign = "left";
+          ctx.fillStyle = isActive ? "rgba(255,100,100,0.9)" : frac >= 1 ? "rgba(255,80,80,0.65)" : "rgba(255,255,255,0.18)";
+          ctx.fillText(isActive ? "taunt!" : frac >= 1 ? "Q taunt" : "Q…", abx, aby - 2);
+          aby -= 16;
+        }
+        // Shield Wall
+        {
+          const frac = state.shieldWallCooldown > 0 ? 1 - state.shieldWallCooldown / SHIELD_WALL_COOLDOWN : 1;
+          const isActive = (state.shieldWallActive ?? 0) > 0;
+          ctx.fillStyle = "rgba(255,255,255,0.05)";
+          ctx.roundRect(abx, aby, abilityBarW, abilityBarH, 2); ctx.fill();
+          ctx.fillStyle = isActive ? "rgba(160,220,255,0.95)" : frac >= 1 ? "rgba(160,220,255,0.65)" : "rgba(160,220,255,0.3)";
+          ctx.roundRect(abx, aby, abilityBarW * (isActive ? (state.shieldWallActive / SHIELD_WALL_DURATION) : frac), abilityBarH, 2); ctx.fill();
+          ctx.font = "9px sans-serif"; ctx.textAlign = "left";
+          ctx.fillStyle = isActive ? "rgba(160,220,255,0.9)" : frac >= 1 ? "rgba(160,220,255,0.65)" : "rgba(255,255,255,0.18)";
+          ctx.fillText(isActive ? "shielded!" : frac >= 1 ? "E shield" : "E…", abx, aby - 2);
+          aby -= 16;
+        }
+      }
+      // Rally flag — available in wave and breather
+      {
+        const hasFlag = !!state.rallyFlag;
+        ctx.font = "9px sans-serif"; ctx.textAlign = "left";
+        ctx.fillStyle = hasFlag ? "rgba(255,210,80,0.8)" : "rgba(255,255,255,0.2)";
+        ctx.fillText(hasFlag ? "F rally (X clear)" : "F rally flag", abx, aby - 2);
+      }
     }
 
     // Protector label
@@ -1098,7 +1213,7 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
     state.builderPos.x = lerp(state.builderPos.x, state.builderTarget.x, 0.18);
     state.builderPos.y = lerp(state.builderPos.y, state.builderTarget.y, 0.18);
 
-    if (state.phase === "build" || state.phase === "breather") {
+    if (state.phase === "build" || state.phase === "breather" || state.phase === "wave") {
       updateProtectorHeal(state, dt);
     }
 
@@ -1195,6 +1310,7 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
         dt, slowZones,
         protectorDown ? null : state.player.x,
         protectorDown ? null : state.player.y,
+        (state.tauntActive ?? 0) > 0,
       );
 
       // Enemies always attack buildings; also attack protector if alive
@@ -1203,6 +1319,8 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
         protectorDown ? undefined : state.player.x,
         protectorDown ? undefined : state.player.y,
         state.playerHp,
+        state,
+        state.waveNumber ?? 1,
       );
 
       updateUnitCombat(state.units, state.enemies, dt, state.upgrades);
@@ -1221,17 +1339,14 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
       const { survivors, casualties } = updateEnemyAttackUnits(state.enemies, state.units, dt);
       state.units = survivors;
 
-      // For each dead soldier: pull their worker out of the barracks and lock them
+      // For each dead soldier: lock them globally (prevents new assignments) but DON'T
+      // permanently remove the worker from barracks — reconcileSoldiers will respawn
+      // that soldier from the same worker slot at the next breather.
+      // Townspeople are only lost when a Home is destroyed.
       if (casualties.length > 0) {
         if (!state.lockedWorkers) state.lockedWorkers = 0;
-        casualties.forEach(({ barracksId }) => {
-          const barracks = state.buildings.find(b => b.id === barracksId && b.hp > 0);
-          if (barracks && (barracks.workers ?? 0) > 0) {
-            barracks.workers = Math.max(0, barracks.workers - 1);
-            state.lockedWorkers += 1;
-            sendWorkerAssign(barracksId, barracks.workers);
-          }
-        });
+        state.lockedWorkers += casualties.length;
+        // lockedWorkers is broadcast to Builder on the next sendBuildingHealth sync tick
       }
 
       // Zero out workers on any building that just fell this tick — Builder side
@@ -1243,13 +1358,31 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
         }
       });
 
-      // Units follow protector; if protector is down they guard the town center
-      const rallyX = tc?.x ?? state.player.x;
-      const rallyY = tc?.y ?? state.player.y;
+      // Tick protector abilities
+      if (!protectorDown) {
+        updateTaunt(state, dt);
+        updateShieldWall(state, dt);
+        updateRallyFlag(state, dt);
+        // Sync cooldown UI
+        const prevTauntCd = state._prevTauntCd ?? 0;
+        if (prevTauntCd > 0 && state.tauntCooldown === 0) setTauntReady(true);
+        state._prevTauntCd = state.tauntCooldown;
+        const prevShieldCd = state._prevShieldCd ?? 0;
+        if (prevShieldCd > 0 && state.shieldWallCooldown === 0) setShieldReady(true);
+        state._prevShieldCd = state.shieldWallCooldown;
+      }
+
+      // Units follow protector (or rally flag if set); if protector is down they guard the town center
+      const rallyFlagPos = state.rallyFlag;
+      const rallyX = rallyFlagPos ? rallyFlagPos.x : (tc?.x ?? state.player.x);
+      const rallyY = rallyFlagPos ? rallyFlagPos.y : (tc?.y ?? state.player.y);
+      // When a rally flag is active, protector-following units go to flag instead of player
+      const unitAnchorX = rallyFlagPos ? null : (protectorDown ? null : state.player.x);
+      const unitAnchorY = rallyFlagPos ? null : (protectorDown ? null : state.player.y);
       updateUnitMovement(
         state.units,
-        protectorDown ? null : state.player.x,
-        protectorDown ? null : state.player.y,
+        unitAnchorX,
+        unitAnchorY,
         dt, state.enemies,
         rallyX, rallyY,
         builderDown ? null : state.builderPos.x,
@@ -1313,9 +1446,9 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
         });
       }
 
-      // Flawless tracking — record damage taken this wave
-      const totalBuildingHp = state.buildings.reduce((s, b) => s + b.hp, 0);
-      if (state._waveBuildingHpStart === undefined) state._waveBuildingHpStart = totalBuildingHp;
+      // Flawless tracking — accumulate IDs of any building alive at any point this wave
+      if (!state._waveBuildingIds) state._waveBuildingIds = new Set();
+      state.buildings.forEach(b => { if (b.hp > 0) state._waveBuildingIds.add(b.id); });
       const prevProtectorDown = state._wasProtectorDown ?? false;
       const prevBuilderDown   = state._wasBuilderDown   ?? false;
       if (protectorDown && !prevProtectorDown) state.waveDowns = (state.waveDowns ?? 0) + 1;
@@ -1362,7 +1495,7 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
     state.phase = "wave";
     state.enemies = spawnWave(state.waveNumber, roomRef.current.map_seed);
     state.waveDowns = 0;
-    state._waveBuildingHpStart = undefined;
+    state._waveBuildingIds = undefined;
     state._wasProtectorDown = false;
     state._wasBuilderDown   = false;
     setMood("tense");    sfxWaveStart();
@@ -1376,6 +1509,11 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
     const newTotal = calcTownspeople(state.buildings);
     state.townspeople = newTotal;
     clampWorkers(state.buildings, newTotal);
+    // Clear fire trap flash so they don't stay lit during the breather
+    state.buildings.forEach(b => { if (b.type === "fire_trap") b._fireFlash = 0; });
+    // Clear ability active states so their visuals don't bleed into the breather
+    state.tauntActive = 0;
+    state.shieldWallActive = 0;
     // Restore all surviving soldiers to full hp between waves
     state.units.forEach(u => { u.hp = u.maxHp; });
     // Reconcile soldier counts on all standing barracks (handles died soldiers, upgradeTier changes, etc.)
@@ -1384,11 +1522,13 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
     });
     // Unlock all locked workers at the breather
     state.lockedWorkers = 0;
+    // Sync unit HP to builder immediately so both views agree on soldier health
+    sendUnitUpdate(state.units.map(u => ({ id: u.id, x: u.x, y: u.y, hp: u.hp, maxHp: u.maxHp })));
 
-    // Flawless check
-    const totalBuildingHp = state.buildings.reduce((s, b) => s + b.hp, 0);
-    const buildingDmgTaken = (state._waveBuildingHpStart ?? totalBuildingHp) - totalBuildingHp;
-    const flawless = wasWaveFlawless(Math.max(0, buildingDmgTaken), state.waveDowns ?? 0);
+    // Flawless check — fails if any building that was alive this wave is now destroyed, or a player went down
+    const seenIds = state._waveBuildingIds ?? new Set();
+    const buildingsDestroyed = state.buildings.filter(b => seenIds.has(b.id) && b.hp <= 0).length;
+    const flawless = wasWaveFlawless(buildingsDestroyed, state.waveDowns ?? 0);
     if (flawless) {
       state.flawlessWaves = (state.flawlessWaves ?? 0) + 1;
       const flawlessGold = 75;
@@ -1425,7 +1565,14 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
       sendWaveSummary(summary);
       setTimeout(() => setWaveSummary(null), 6000);
       sendEnemyUpdate([]);
-      sendPhaseChange("breather", { waveNumber: state.waveNumber, gold: state.gold, townspeople: state.townspeople, bonusGold: bonus, builderHp: PROTECTOR_MAX_HP, lockedWorkers: 0, difficulty: roomRef.current?.difficulty ?? "normal" });
+      sendPhaseChange("breather", {
+        waveNumber: state.waveNumber, gold: state.gold, townspeople: state.townspeople,
+        bonusGold: bonus, builderHp: PROTECTOR_MAX_HP, lockedWorkers: 0,
+        difficulty: roomRef.current?.difficulty ?? "normal",
+        // Send authoritative post-clamp worker counts so the Builder doesn't
+        // re-clamp independently (which can produce different results).
+        buildingWorkers: state.buildings.map(b => ({ id: b.id, workers: b.workers ?? 0 })),
+      });
       // Start next wave after a brief pause (800ms) so clients can see the wave summary
       setTimeout(() => { if (stateRef.current?.phase === "breather") startWave(stateRef.current); }, 800);
       return;
@@ -1476,7 +1623,14 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
 
     // Flush empty enemy list immediately so builder's screen clears
     sendEnemyUpdate([]);
-    sendPhaseChange("breather", { waveNumber: state.waveNumber, gold: state.gold, townspeople: state.townspeople, bonusGold: bonus, builderHp: PROTECTOR_MAX_HP, lockedWorkers: 0, difficulty: roomRef.current?.difficulty ?? "normal" });
+    sendPhaseChange("breather", {
+      waveNumber: state.waveNumber, gold: state.gold, townspeople: state.townspeople,
+      bonusGold: bonus, builderHp: PROTECTOR_MAX_HP, lockedWorkers: 0,
+      difficulty: roomRef.current?.difficulty ?? "normal",
+      // Send authoritative post-clamp worker counts so the Builder doesn't
+      // re-clamp independently (which can produce different results).
+      buildingWorkers: state.buildings.map(b => ({ id: b.id, workers: b.workers ?? 0 })),
+    });
   }
 
   function endGame(state, won) {
@@ -1497,6 +1651,7 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
 
     if (upg.repeatable) {
       const owned = upgradeCount(s.upgrades, upgradeId);
+      if (upg.maxTier && owned >= upg.maxTier) return; // capped repeatable
       const cost = repeatableCost(upg.cost, owned + 1);
       if (s.gold < cost) return;
       s.gold -= cost;
@@ -1533,6 +1688,17 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
       return;
     }
 
+    const worldX = cx + s.cam.x;
+    const worldY = cy + s.cam.y;
+
+    // Rally flag mode — plant flag at click position (wave or breather)
+    if (rallyModeRef.current && (s.phase === "wave" || s.phase === "breather")) {
+      activateRallyFlag(s, worldX, worldY);
+      rallyModeRef.current = false;
+      setRallyMode(false);
+      return;
+    }
+
     // Upgrade shop tap — available in any phase
     {
       const shop = s.buildings.find(b => b.type === "upgrade_shop" && b.hp > 0);
@@ -1543,8 +1709,6 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
     }
 
     // World tap → ping at that world position
-    const worldX = cx + s.cam.x;
-    const worldY = cy + s.cam.y;
     doPing(s, worldX, worldY);
   }
 
@@ -1624,13 +1788,48 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
         if (keys["ArrowUp"]    || keys["w"] || keys["W"]) dvy -= 1;
         if (keys["ArrowDown"]  || keys["s"] || keys["S"]) dvy += 1;
         const len = Math.sqrt(dvx * dvx + dvy * dvy);
-        if (len === 0) { dvx = 1; dvy = 0; } // default dash right if no direction
+        if (len === 0) { dvx = 1; dvy = 0; }
         s.isDashing   = true;
         s.dashTimer   = DASH_DURATION;
         s.dashCooldown = DASH_COOLDOWN;
         s.dashVx      = len > 0 ? dvx / len : dvx;
         s.dashVy      = len > 0 ? dvy / len : dvy;
         s.dashHitSet  = new Set();
+      }
+      // Q — Taunt
+      if (e.key === "q" || e.key === "Q") {
+        const s = stateRef.current;
+        if (s && s.phase === "wave") {
+          if (activateTaunt(s)) setTauntReady(false);
+        }
+      }
+      // E — Shield Wall
+      if (e.key === "e" || e.key === "E") {
+        const s = stateRef.current;
+        if (s && s.phase === "wave") {
+          if (activateShieldWall(s)) setShieldReady(false);
+        }
+      }
+      // F — Rally Flag (toggle mode; next click plants flag) — works in wave and breather
+      if (e.key === "f" || e.key === "F") {
+        const s = stateRef.current;
+        if (s && (s.phase === "wave" || s.phase === "breather")) {
+          if (rallyModeRef.current) {
+            // Cancel rally mode
+            rallyModeRef.current = false;
+            setRallyMode(false);
+          } else {
+            rallyModeRef.current = true;
+            setRallyMode(true);
+          }
+        }
+      }
+      // X — Cancel rally flag
+      if (e.key === "x" || e.key === "X") {
+        const s = stateRef.current;
+        if (s) { s.rallyFlag = null; }
+        rallyModeRef.current = false;
+        setRallyMode(false);
       }
     }
     function onKeyUp(e) { keysRef.current[e.key] = false; }
@@ -1699,22 +1898,23 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
 
                 if (upg.repeatable) {
                   const owned    = upgradeCount(s.upgrades, upg.id);
+                  const maxed    = upg.maxTier != null && owned >= upg.maxTier;
                   const nextCost = repeatableCost(upg.cost, owned + 1);
-                  const canBuy   = !locked && s.gold >= nextCost;
+                  const canBuy   = !locked && !maxed && s.gold >= nextCost;
                   return (
-                    <div key={upg.id} onClick={() => !locked && handleBuyUpgrade(upg.id)} style={{
+                    <div key={upg.id} onClick={() => !locked && !maxed && handleBuyUpgrade(upg.id)} style={{
                       display: "flex", alignItems: "center", justifyContent: "space-between",
                       padding: "9px 12px", borderRadius: 10, marginBottom: 6, minHeight: 52,
                       background: owned > 0 ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.03)",
-                      border: `0.5px solid ${canBuy ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.06)"}`,
+                      border: `0.5px solid ${maxed ? "rgba(255,215,0,0.2)" : canBuy ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.06)"}`,
                       opacity: locked ? 0.35 : 1,
-                      cursor: locked ? "default" : canBuy ? "pointer" : "not-allowed",
+                      cursor: locked ? "default" : maxed ? "default" : canBuy ? "pointer" : "not-allowed",
                     }}>
                       <div>
                         <div style={{ fontSize: 13, color: "rgba(255,255,255,0.8)", marginBottom: 2 }}>
                           {upg.label}
-                          {owned > 0 && <span style={{ fontSize: 11, color: "rgba(255,180,60,0.6)", marginLeft: 6 }}>
-                            ×{owned}
+                          {owned > 0 && <span style={{ fontSize: 11, color: maxed ? "rgba(255,215,0,0.7)" : "rgba(255,180,60,0.6)", marginLeft: 6 }}>
+                            {maxed ? "MAXED" : `×${owned}`}
                           </span>}
                         </div>
                         <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>{upg.desc}</div>
@@ -1722,9 +1922,9 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
                       </div>
                       <div style={{
                         fontSize: 12, minWidth: 44, textAlign: "right", fontWeight: 500,
-                        color: canBuy ? "rgba(255,215,0,0.8)" : "rgba(255,215,0,0.3)",
+                        color: maxed ? "rgba(255,215,0,0.5)" : canBuy ? "rgba(255,215,0,0.8)" : "rgba(255,215,0,0.3)",
                       }}>
-                        {nextCost}g
+                        {maxed ? "—" : `${nextCost}g`}
                       </div>
                     </div>
                   );
@@ -1814,6 +2014,85 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
         >
           ⚡
         </button>
+      )}
+
+      {/* Mobile ability buttons */}
+      {!showShop && (stateRef.current?.phase === "wave" || stateRef.current?.phase === "breather") && (
+        <div style={{
+          position: "absolute", bottom: 36, right: stateRef.current?.upgrades?.includes("dash") ? 96 : 24,
+          display: "flex", flexDirection: "column", gap: 8, alignItems: "center",
+        }}>
+          {/* Taunt — Q (wave only) */}
+          {stateRef.current?.phase === "wave" && <button
+            onTouchStart={e => {
+              e.preventDefault();
+              const s = stateRef.current;
+              if (!s) return;
+              if (activateTaunt(s)) setTauntReady(false);
+            }}
+            style={{
+              width: 52, height: 52, borderRadius: "50%",
+              background: tauntReady ? "rgba(255,60,60,0.14)" : "rgba(255,60,60,0.04)",
+              border: `1.5px solid ${tauntReady ? "rgba(255,60,60,0.5)" : "rgba(255,60,60,0.15)"}`,
+              color: tauntReady ? "rgba(255,80,80,0.95)" : "rgba(255,80,80,0.25)",
+              fontSize: 20, touchAction: "none", userSelect: "none",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              transition: "all 0.2s", cursor: tauntReady ? "pointer" : "not-allowed",
+              flexDirection: "column", gap: 1,
+            }}
+          >
+            <span>📣</span>
+            <span style={{ fontSize: 8, opacity: 0.7 }}>Q</span>
+          </button>}
+          {/* Shield Wall — E (wave only) */}
+          {stateRef.current?.phase === "wave" && <button
+            onTouchStart={e => {
+              e.preventDefault();
+              const s = stateRef.current;
+              if (!s) return;
+              if (activateShieldWall(s)) setShieldReady(false);
+            }}
+            style={{
+              width: 52, height: 52, borderRadius: "50%",
+              background: shieldReady ? "rgba(120,200,255,0.14)" : "rgba(120,200,255,0.04)",
+              border: `1.5px solid ${shieldReady ? "rgba(120,200,255,0.5)" : "rgba(120,200,255,0.15)"}`,
+              color: shieldReady ? "rgba(160,220,255,0.95)" : "rgba(160,220,255,0.25)",
+              fontSize: 20, touchAction: "none", userSelect: "none",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              transition: "all 0.2s", cursor: shieldReady ? "pointer" : "not-allowed",
+              flexDirection: "column", gap: 1,
+            }}
+          >
+            <span>🛡</span>
+            <span style={{ fontSize: 8, opacity: 0.7 }}>E</span>
+          </button>}
+          {/* Rally Flag — F (wave and breather) */}
+          <button
+            onTouchStart={e => {
+              e.preventDefault();
+              const s = stateRef.current;
+              if (!s) return;
+              if (rallyModeRef.current) {
+                rallyModeRef.current = false; setRallyMode(false);
+              } else {
+                rallyModeRef.current = true; setRallyMode(true);
+              }
+            }}
+            style={{
+              width: 52, height: 52, borderRadius: "50%",
+              background: rallyMode ? "rgba(255,210,80,0.22)" : stateRef.current?.rallyFlag ? "rgba(255,210,80,0.1)" : "rgba(255,210,80,0.04)",
+              border: `1.5px solid ${rallyMode ? "rgba(255,210,80,0.8)" : "rgba(255,210,80,0.25)"}`,
+              color: rallyMode ? "rgba(255,220,100,1)" : "rgba(255,210,80,0.5)",
+              fontSize: 20, touchAction: "none", userSelect: "none",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              transition: "all 0.2s", cursor: "pointer",
+              flexDirection: "column", gap: 1,
+            }}
+          >
+            <span>🚩</span>
+            <span style={{ fontSize: 8, opacity: 0.7 }}>F</span>
+          </button>
+        </div>
       )}
 
       {/* Wave summary card */}

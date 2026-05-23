@@ -1,12 +1,13 @@
 // src/Pages/Homestead/ForestRun.jsx
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useHearthroom } from "./useHearthroom";
 import {
   FOREST_W, FOREST_H,
   WOLF_R, ENEMY_ATTACK_RANGE, ENEMY_ATTACK_CD, ENEMY_DAMAGE,
   generateForestRun, updateForestEnemies,
   playerAttack, rollLoot, LOOT_TABLE,
-  seededRand, addToInventory, emptyInventory,
+  seededRand, addToInventory, fullEmptyInventory, getEquipStats,
+  HOTBAR_ITEMS,
 } from "./gameEngine";
 
 const PLAYER_SPEED   = 130;
@@ -206,29 +207,41 @@ function drawEnemy(ctx, e, camX, t) {
   ctx.restore();
 }
 
-function drawPlayer(ctx, px, py, facing, step, invincible, attackFlash, t) {
+function drawPlayer(ctx, px, py, facing, step, invincible, attackFlash, t, character, weapon) {
   const blink = invincible > 0 && Math.floor(t * 8) % 2 === 0;
   if (blink) return;
 
   const bobY  = (step === 1 || step === 3) ? -1 : 0;
   const legSw = (step === 1 || step === 3) ?  3 : 0;
 
+  // Character colors
+  const { skin = 'light', outfit = 'blue', hair = 'short', hat = 'none' } = character || {};
+  const SKINS   = { light:'#f5c5a3', medium:'#d4956a', tan:'#c07840', brown:'#8b5a2b', dark:'#5a3018' };
+  const OUTFITS = { blue:['#5b8dd9','#3a6abf'], green:['#5a9a4a','#3a7a2a'], red:['#c05040','#8a2820'],
+                    purple:['#7a5ab0','#5a3a8a'], orange:['#d07830','#a05010'], teal:['#4a9a8a','#2a7a6a'] };
+  const HAIRS   = { short:'#7a4f2a', long:'#3a2010', curly:'#c88040', braid:'#884020' };
+  const HATS_C  = { cap:'#5a3a8a', straw:'#d4a855', beanie:'#c05040' };
+
+  const skinCol  = SKINS[skin]  || '#f5c5a3';
+  const [bodyCol, legCol] = OUTFITS[outfit] || ['#5b8dd9','#3a6abf'];
+  const hairCol  = HAIRS[hair]  || '#7a4f2a';
+
   // Shadow
   ctx.fillStyle = "rgba(0,0,0,0.22)";
   ctx.beginPath(); ctx.ellipse(px, py + 12, 8, 3, 0, 0, Math.PI * 2); ctx.fill();
 
   // Legs
-  ctx.fillStyle = "#3a6abf";
+  ctx.fillStyle = legCol;
   ctx.fillRect(px - 6, py + 2, 5, 9 + legSw);
   ctx.fillRect(px + 1, py + 2, 5, 9 - legSw);
 
   // Body
-  ctx.fillStyle = attackFlash > 0 ? "#88ccff" : "#5b8dd9";
+  ctx.fillStyle = attackFlash > 0 ? "#88ccff" : bodyCol;
   ctx.fillRect(px - 7, py - 10 + bobY, 14, 13);
 
   // Arms (swing on attack)
   const armSw = attackFlash > 0 ? 6 : (step === 1 || step === 3) ? 2 : 0;
-  ctx.fillStyle = "#5b8dd9";
+  ctx.fillStyle = attackFlash > 0 ? "#88ccff" : bodyCol;
   if (facing === "right") {
     ctx.fillRect(px + 7,  py - 14 + bobY + armSw, 10, 4); // extended right
     ctx.fillRect(px - 10, py - 9  + bobY - armSw, 3, 8);
@@ -241,8 +254,17 @@ function drawPlayer(ctx, px, py, facing, step, invincible, attackFlash, t) {
   }
 
   // Head
-  ctx.fillStyle = "#f5c5a3"; ctx.fillRect(px - 7, py - 22 + bobY, 14, 12);
-  ctx.fillStyle = "#7a4f2a"; ctx.fillRect(px - 7, py - 22 + bobY, 14, 5);
+  ctx.fillStyle = skinCol; ctx.fillRect(px - 7, py - 22 + bobY, 14, 12);
+  ctx.fillStyle = hairCol; ctx.fillRect(px - 7, py - 22 + bobY, 14, 5);
+
+  // Hat
+  if (hat !== 'none' && HATS_C[hat]) {
+    ctx.fillStyle = HATS_C[hat];
+    if (hat === 'cap')    { ctx.fillRect(px - 8, py - 27 + bobY, 16, 6); ctx.fillRect(px - 10, py - 28 + bobY, 20, 3); }
+    if (hat === 'straw')  { ctx.beginPath(); ctx.ellipse(px, py - 27 + bobY, 12, 4, 0, 0, Math.PI*2); ctx.fill(); ctx.fillRect(px-6, py-35+bobY, 12, 10); }
+    if (hat === 'beanie') { ctx.beginPath(); ctx.arc(px, py - 24 + bobY, 8, Math.PI, 0); ctx.fill(); }
+  }
+
   if (facing === "down") {
     ctx.fillStyle = "#2a1a0a";
     ctx.fillRect(px - 4, py - 16 + bobY, 3, 3);
@@ -253,11 +275,19 @@ function drawPlayer(ctx, px, py, facing, step, invincible, attackFlash, t) {
     ctx.fillStyle = "#2a1a0a"; ctx.fillRect(px + 2, py - 16 + bobY, 3, 3);
   }
 
-  // Fist weapon hint
-  if (attackFlash > 0) {
+  // ── Held weapon ────────────────────────────────────────────────────────────
+  const WEAPON_ICONS = { axe:"🪓", pickaxe:"⛏️", fishing_rod:"🎣" };
+  if (weapon && WEAPON_ICONS[weapon]) {
+    const handX = facing === "left" ? px - 16 : px + 16;
+    const handY = py - 8 + bobY + (attackFlash > 0 ? -4 : 0);
+    ctx.font = "14px serif";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(WEAPON_ICONS[weapon], handX, handY);
+  } else if (attackFlash > 0) {
+    // Fist weapon hint
     const fx = facing === "right" ? px + 18 : facing === "left" ? px - 18 : px;
     const fy = py - 12 + bobY;
-    ctx.fillStyle = "#f5c5a3";
+    ctx.fillStyle = skinCol;
     ctx.beginPath(); ctx.arc(fx, fy, 5, 0, Math.PI * 2); ctx.fill();
   }
 }
@@ -315,8 +345,74 @@ function drawHUD(ctx, W, H, state, inventory, t) {
   }
 }
 
+// ─── Hotbar overlay for runs ──────────────────────────────────────────────────
+const RUN_WEAPON_ICONS = { axe:"🪓", pickaxe:"⛏️", fishing_rod:"🎣" };
+const HOTBAR_DISPLAY_ICONS = {
+  axe:"🪓", pickaxe:"⛏️", fishing_rod:"🎣",
+  leather_armor:"🛡️", cooked_meat:"🍖", potion_table:"🧪",
+};
+
+function ForestHotbar({ hotbar, selectedSlot, onSelectSlot, onUseItem, equipment }) {
+  return (
+    <div style={{
+      position: "absolute", bottom: 36, left: "50%", transform: "translateX(-50%)",
+      display: "flex", gap: 4, padding: "6px 8px",
+      background: "rgba(10,18,6,0.88)", borderRadius: 12,
+      border: "1px solid rgba(200,230,120,0.2)",
+      zIndex: 5, pointerEvents: "auto",
+    }}>
+      {(hotbar.length ? hotbar : Array(6).fill(null)).map((slot, idx) => {
+        const isSelected = idx === selectedSlot;
+        const isWeapon = slot && RUN_WEAPON_ICONS[slot.item];
+        const isEquipped = isWeapon && equipment?.weapon === slot.item;
+        return (
+          <div key={idx}
+            onClick={() => { onSelectSlot(idx); if (idx === selectedSlot && slot) onUseItem(); }}
+            style={{
+              width: 44, height: 44, borderRadius: 8, cursor: "pointer",
+              background: isSelected ? "rgba(200,230,120,0.15)" : "rgba(255,255,255,0.03)",
+              border: `2px solid ${isSelected ? "rgba(200,230,120,0.8)" : isEquipped ? "rgba(100,200,255,0.5)" : "rgba(255,255,255,0.1)"}`,
+              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+              position: "relative", transition: "border-color 0.1s",
+            }}
+          >
+            {slot ? (
+              <>
+                <span style={{ fontSize: 20 }}>{HOTBAR_DISPLAY_ICONS[slot.item] ?? "📦"}</span>
+                {slot.qty != null && (
+                  <span style={{ fontSize: 9, color: "rgba(200,230,120,0.8)", lineHeight: 1, position: "absolute", bottom: 2, right: 4 }}>
+                    {slot.qty}
+                  </span>
+                )}
+                {isEquipped && (
+                  <div style={{
+                    position: "absolute", top: 2, right: 2, width: 6, height: 6,
+                    borderRadius: "50%", background: "rgba(100,200,255,0.9)",
+                  }} />
+                )}
+              </>
+            ) : (
+              <span style={{ fontSize: 11, color: "rgba(255,255,255,0.15)" }}>{idx + 1}</span>
+            )}
+            {isSelected && slot && HOTBAR_ITEMS[slot.item] && (
+              <div style={{
+                position: "absolute", top: -22, left: "50%", transform: "translateX(-50%)",
+                background: "rgba(10,18,6,0.9)", borderRadius: 5, padding: "2px 6px",
+                fontSize: 9, color: "rgba(200,230,120,0.8)", whiteSpace: "nowrap",
+                border: "1px solid rgba(200,230,120,0.2)",
+              }}>
+                [E] use
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
-export default function ForestRun({ room, seed, onRunComplete }) {
+export default function ForestRun({ room, seed, coOp = false, onRunComplete, character, equipment, hotbar, onHotbarChange }) {
   const canvasRef      = useRef(null);
   const rafRef         = useRef(null);
   const keysRef        = useRef({});
@@ -325,31 +421,118 @@ export default function ForestRun({ room, seed, onRunComplete }) {
   const lastMoveRef    = useRef(0);
   const randRef        = useRef(seededRand(seed ?? Date.now()));
   const lootFloatsRef  = useRef([]); // { text, x, y, born }
+  const equipmentRef   = useRef(equipment ?? {});
+  const characterRef   = useRef(character ?? {});
+  const hotbarRef      = useRef(hotbar ?? []);
+  const partnerAppearanceRef = useRef({ character: null, equipment: null });
+  useEffect(() => { equipmentRef.current = equipment ?? {}; }, [equipment]);
+  useEffect(() => { characterRef.current = character ?? {}; }, [character]);
+  useEffect(() => { hotbarRef.current = hotbar ?? []; }, [hotbar]);
+
+  // Hotbar selection (0-indexed)
+  const [selectedHotbarSlot, setSelectedHotbarSlot] = React.useState(0);
+  const selectedSlotRef = useRef(0);
+  useEffect(() => { selectedSlotRef.current = selectedHotbarSlot; }, [selectedHotbarSlot]);
+
+  // Use the selected hotbar slot item
+  const useHotbarItem = useCallback(() => {
+    const state = stateRef.current;
+    if (!state || state.over) return;
+    const hb = hotbarRef.current;
+    const slot = selectedSlotRef.current;
+    const entry = hb?.[slot];
+    if (!entry) return;
+    const info = HOTBAR_ITEMS[entry.item];
+    if (!info) return;
+
+    // Consumable: heal
+    if (info.useEffect?.heal) {
+      const maxHp = PLAYER_HP + (getEquipStats(equipmentRef.current).maxHpBonus ?? 0);
+      if (state.hp >= maxHp) return; // already full
+      state.hp = Math.min(maxHp, state.hp + info.useEffect.heal);
+      // Consume one
+      const newHb = [...hb];
+      const newQty = (entry.qty ?? 1) - 1;
+      newHb[slot] = newQty > 0 ? { ...entry, qty: newQty } : null;
+      hotbarRef.current = newHb;
+      onHotbarChange?.(newHb);
+      soundRef.current?.pickup();
+      lootFloatsRef.current.push({
+        text: `+${info.useEffect.heal} HP`,
+        worldX: state.px, worldY: state.py - 20,
+        born: performance.now(),
+      });
+    }
+  }, [onHotbarChange]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Supabase: sync co-op partner if present ───────────────────────────────
   const handlers = useRef({
-    onRunMove:      ({ x, y, facing }) => {
+    onRunMove: ({ x, y, facing }) => {
       if (stateRef.current) {
-        stateRef.current.partnerX      = x;
-        stateRef.current.partnerY      = y;
-        stateRef.current.partnerFacing = facing;
+        stateRef.current.partnerX       = x;
+        stateRef.current.partnerY       = y;
+        stateRef.current.partnerFacing  = facing;
         stateRef.current.partnerVisible = true;
       }
+    },
+    onPlayerAppearance: ({ character: ch, equipment: eq }) => {
+      partnerAppearanceRef.current = { character: ch, equipment: eq };
     },
     onEnemyKilled: ({ id }) => {
       if (!stateRef.current) return;
       const e = stateRef.current.enemies.find(en => en.id === id);
-      if (e) e.alive = false;
+      if (e) { e.alive = false; e.hp = 0; }
     },
     onPickupCollected: ({ id }) => {
       if (!stateRef.current) return;
       const p = stateRef.current.pickups.find(pk => pk.id === id);
       if (p) p.collected = true;
     },
+    // Full-state sync: partner just joined and we're the host — send them current world state
+    onRunStateRequest: () => {
+      if (!stateRef.current) return;
+      const collectedIds  = stateRef.current.pickups.filter(p => p.collected).map(p => p.id);
+      const deadEnemyIds  = stateRef.current.enemies.filter(e => !e.alive).map(e => e.id);
+      const deadTreeIds   = stateRef.current.trees.filter(t => !t.alive).map(t => t.id);
+      sendRunStateSyncRef.current?.({ collectedIds, deadEnemyIds, deadTreeIds });
+    },
+    onRunStateSync: ({ collectedIds, deadEnemyIds, deadTreeIds }) => {
+      if (!stateRef.current) return;
+      collectedIds?.forEach(id => {
+        const p = stateRef.current.pickups.find(pk => pk.id === id);
+        if (p) p.collected = true;
+      });
+      deadEnemyIds?.forEach(id => {
+        const e = stateRef.current.enemies.find(en => en.id === id);
+        if (e) { e.alive = false; e.hp = 0; }
+      });
+      deadTreeIds?.forEach(id => {
+        const t = stateRef.current.trees.find(tr => tr.id === id);
+        if (t) { t.alive = false; t.hp = 0; }
+      });
+    },
   }).current;
 
-  const { sendRunMove, sendEnemyKilled, sendPickupCollected, sendRunComplete } =
+  const { sendRunMove, sendEnemyKilled, sendPickupCollected, sendRunComplete,
+          sendRunStateRequest, sendRunStateSync, sendPlayerAppearance } =
     useHearthroom(room?.id ?? null, handlers, ":run");
+
+  // Stable refs so handlers above can call send fns after mount
+  const sendRunStateSyncRef = useRef(null);
+  useEffect(() => { sendRunStateSyncRef.current = sendRunStateSync; }, [sendRunStateSync]);
+
+  // Broadcast appearance when character or equipment changes
+  useEffect(() => {
+    sendPlayerAppearance(character, equipment, hotbar);
+  }, [character, equipment, hotbar]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // If we're the joining player, request current world state from the host
+  // after a short delay to allow the channel to subscribe
+  useEffect(() => {
+    if (!coOp) return;
+    const t = setTimeout(() => sendRunStateRequest(), 900);
+    return () => clearTimeout(t);
+  }, [coOp]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Init ───────────────────────────────────────────────────────────────────
   function initState() {
@@ -364,8 +547,9 @@ export default function ForestRun({ room, seed, onRunComplete }) {
       elapsed: 0,
       kills: 0,
       over: false,
+      noAxeFlash: 0,
       enemies, pickups, trees,
-      inventory: emptyInventory(),
+      inventory: fullEmptyInventory(),
       partnerX: 0, partnerY: 0, partnerFacing: "right", partnerVisible: false,
       lastTime: performance.now(),
     };
@@ -395,6 +579,16 @@ export default function ForestRun({ room, seed, onRunComplete }) {
       soundRef.current?.unlock();
       if (e.key === "Escape") finishRun(stateRef.current);
       if (e.key === " ") doAttack();
+      // Number keys 1-6 select hotbar slot
+      if (e.key >= "1" && e.key <= "6") {
+        const idx = parseInt(e.key) - 1;
+        setSelectedHotbarSlot(idx);
+        selectedSlotRef.current = idx;
+      }
+      // F or E = use selected hotbar item
+      if (e.key === "f" || e.key === "F" || e.key === "e" || e.key === "E") {
+        useHotbarItem();
+      }
     };
     const onKeyUp   = (e) => { delete keysRef.current[e.key]; };
     const onClick   = (e) => { soundRef.current?.unlock(); doAttack(); };
@@ -405,11 +599,17 @@ export default function ForestRun({ room, seed, onRunComplete }) {
       state.attackFlash    = 0.35;
       state.attackCooldown = 0.5;
       soundRef.current?.swing();
-      const { hitEnemies, hitTrees, lootDrops } = playerAttack(
+      const equipStats = getEquipStats(equipmentRef.current);
+      const { hitEnemies, hitTrees, lootDrops, blockedTree } = playerAttack(
         state.px, state.py, state.facing,
         state.enemies, state.trees,
-        randRef.current
+        randRef.current,
+        equipStats
       );
+      if (blockedTree) {
+        // Flash "need axe" hint
+        state.noAxeFlash = 1.5;
+      }
       hitEnemies.forEach(id => {
         const e = state.enemies.find(en => en.id === id);
         if (e && !e.alive) {
@@ -469,6 +669,7 @@ export default function ForestRun({ room, seed, onRunComplete }) {
       if (state.hitFlash    > 0) state.hitFlash    = Math.max(0, state.hitFlash    - dt * 3);
       if (state.attackFlash > 0) state.attackFlash = Math.max(0, state.attackFlash - dt * 4);
       if (state.attackCooldown > 0) state.attackCooldown = Math.max(0, state.attackCooldown - dt);
+      if (state.noAxeFlash  > 0) state.noAxeFlash  = Math.max(0, state.noAxeFlash  - dt * 1.2);
 
       // ── Enemy update ───────────────────────────────────────────────────
       updateForestEnemies(state.enemies, state.px, state.py, dt, t);
@@ -554,15 +755,16 @@ export default function ForestRun({ room, seed, onRunComplete }) {
 
       // Player
       drawables.push({ sortY: state.py, draw: () =>
-        drawPlayer(ctx, state.px - camX, state.py, state.facing, state.step, state.invincible, state.attackFlash, t)
+        drawPlayer(ctx, state.px - camX, state.py, state.facing, state.step, state.invincible, state.attackFlash, t, characterRef.current, equipmentRef.current?.weapon ?? null)
       });
 
       // Partner ghost
       if (state.partnerVisible) {
         const gpx = state.partnerX - camX, gpy = state.partnerY;
+        const pa = partnerAppearanceRef.current;
         drawables.push({ sortY: gpy, draw: () => {
           ctx.save(); ctx.globalAlpha = 0.5;
-          drawPlayer(ctx, gpx, gpy, state.partnerFacing, 0, 0, 0, t);
+          drawPlayer(ctx, gpx, gpy, state.partnerFacing, 0, 0, 0, t, pa.character, pa.equipment?.weapon ?? null);
           ctx.restore();
           ctx.fillStyle = "rgba(140,200,255,0.8)"; ctx.font = "9px monospace";
           ctx.textAlign = "center"; ctx.textBaseline = "bottom";
@@ -596,6 +798,19 @@ export default function ForestRun({ room, seed, onRunComplete }) {
       }
 
       drawHUD(ctx, W, H, state, state.inventory, t);
+
+      // "Need axe" toast
+      if (state.noAxeFlash > 0) {
+        const alpha = Math.min(1, state.noAxeFlash);
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = "rgba(10,8,4,0.85)";
+        ctx.beginPath(); ctx.roundRect(W / 2 - 72, H / 2 - 20, 144, 30, 6); ctx.fill();
+        ctx.fillStyle = "#f5c060"; ctx.font = "bold 12px monospace";
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText("🪓 need an axe to chop", W / 2, H / 2 - 5);
+        ctx.restore();
+      }
     };
 
     rafRef.current = requestAnimationFrame(tick);
@@ -614,6 +829,14 @@ export default function ForestRun({ room, seed, onRunComplete }) {
       <canvas
         ref={canvasRef}
         style={{ width:"100%", height:"100%", display:"block", imageRendering:"pixelated" }}
+      />
+      {/* Hotbar DOM overlay */}
+      <ForestHotbar
+        hotbar={hotbar ?? []}
+        selectedSlot={selectedHotbarSlot}
+        onSelectSlot={idx => { setSelectedHotbarSlot(idx); selectedSlotRef.current = idx; }}
+        onUseItem={useHotbarItem}
+        equipment={equipment}
       />
     </div>
   );

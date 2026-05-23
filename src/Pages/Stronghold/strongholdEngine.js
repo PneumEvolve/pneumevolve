@@ -202,7 +202,8 @@ export const BUILDING_TYPES = {
     aoeRange:    100,        // radius of fire burst
     aoeDamage:   18,         // damage per tick to all enemies in range
     aoeRate:     0.8,        // bursts per second
-    description: "Erupts in flames periodically, dealing AOE damage to all enemies in range. Workers increase damage (+6) and range (+15) each.",
+    maxWorkers:  8,          // worker cap to prevent infinite stacking
+    description: "Erupts in flames periodically, dealing AOE damage to all enemies in range. Workers increase damage (+6) and range (+15) each. Max 8 workers.",
   },
 };
 
@@ -342,7 +343,7 @@ export const UPGRADES = [
   { id: "builder_move_speed", label: "Quick boots",     desc: "+12% builder move speed per tier (infinite)", cost: 70, tree: "workshop", tier: 1, repeatable: true },
   { id: "builder_shield_up",  label: "Reinforced vest", desc: "+30 builder shield max per tier (infinite)",  cost: 100, tree: "workshop", tier: 1, repeatable: true },
   { id: "repair_speed",       label: "Quick hands",     desc: "+50% direct repair speed",                    cost: 80,  tree: "workshop", tier: 1 },
-  { id: "builder_aura",       label: "Master crafts",   desc: "Direct repair can overheal buildings to 115% HP", cost: 70,  tree: "workshop", tier: 1 },
+  { id: "builder_aura",       label: "Master crafts",   desc: "Overheal buildings: 125%/150%/175%/200% HP (4 tiers)", cost: 70,  tree: "workshop", tier: 1, repeatable: true, maxTier: 4 },
   { id: "place_range",        label: "Long reach",      desc: "+30 building placement range",                cost: 70,  tree: "workshop", tier: 1 },
   { id: "sell_refund",        label: "Salvage expert",  desc: "Sell buildings for 75% (was 50%)",            cost: 60,  tree: "workshop", tier: 2 },
 ];
@@ -677,7 +678,7 @@ const PROTECTOR_NOTICE_RADIUS = 120; // enemies peel off to chase protector with
 const PROTECTOR_LEASH_RADIUS  = 250; // if protector runs further than this, enemy reverts to buildings
 const PROTECTOR_CHASE_SPEED_MULT = 1.0; // protector chasers move at full speed
 
-export function updateEnemies(enemies, buildings, builderX, builderY, dt, slowZones, protectorX, protectorY) {
+export function updateEnemies(enemies, buildings, builderX, builderY, dt, slowZones, protectorX, protectorY, tauntActive = false) {
   const protectorAlive = protectorX !== null && protectorX !== undefined;
   const builderAlive   = builderX   !== null && builderX   !== undefined;
 
@@ -724,7 +725,10 @@ export function updateEnemies(enemies, buildings, builderX, builderY, dt, slowZo
     const dProtector = protectorAlive
       ? dist(e.x, e.y, protectorX, protectorY) : Infinity;
 
-    if (e.chasingProtector) {
+    if (tauntActive && protectorAlive && !e.ignoresPlayers) {
+      // Taunt overrides leash — all enemies forced to chase protector regardless of distance
+      e.chasingProtector = true;
+    } else if (e.chasingProtector) {
       if (dProtector > PROTECTOR_LEASH_RADIUS) {
         e.chasingProtector = false; // leash broken — fall through to building/builder targeting
       }
@@ -1012,16 +1016,92 @@ export function updateBurnAura(state, dt) {
   });
 }
 
+// ─── Protector abilities ──────────────────────────────────────────────────────
+
+// Taunt: forces ALL enemies on the map to chase the protector for a duration
+export const TAUNT_DURATION = 5.0;   // seconds enemies are forced to chase protector
+export const TAUNT_COOLDOWN = 10.0;  // seconds before taunt can be used again
+
+// Shield Wall: brief damage reduction for the protector
+export const SHIELD_WALL_DURATION    = 3.5;  // seconds of protection
+export const SHIELD_WALL_COOLDOWN    = 18.0; // seconds before reuse
+export const SHIELD_WALL_REDUCTION   = 0.25; // incoming damage multiplier (75% reduction)
+
+// Rally Flag: protector clicks to plant a flag; soldiers rush to hold that position
+// Soldiers still break formation to attack nearby enemies as normal
+export const RALLY_DURATION = 20.0; // seconds flag persists before auto-expiring
+
+export function updateTaunt(state, dt) {
+  // Tick taunt cooldown
+  state.tauntCooldown = Math.max(0, (state.tauntCooldown ?? 0) - dt);
+
+  // Tick active duration
+  if ((state.tauntActive ?? 0) > 0) {
+    state.tauntActive -= dt;
+    // Enemy chasing is enforced each tick by updateEnemies via the tauntActive param
+  }
+}
+
+export function activateTaunt(state) {
+  if ((state.tauntCooldown ?? 0) > 0) return false;
+  if ((state.playerHp ?? 0) <= 0) return false;
+  // Force ALL enemies on the map to chase the protector
+  state.enemies.forEach(e => {
+    if (e.dead || e.ignoresPlayers) return;
+    e.chasingProtector = true;
+  });
+  state.tauntActive   = TAUNT_DURATION;
+  state.tauntCooldown = TAUNT_COOLDOWN;
+  return true;
+}
+
+export function updateShieldWall(state, dt) {
+  state.shieldWallCooldown = Math.max(0, (state.shieldWallCooldown ?? 0) - dt);
+  if ((state.shieldWallActive ?? 0) > 0) {
+    state.shieldWallActive -= dt;
+  }
+}
+
+export function activateShieldWall(state) {
+  if ((state.shieldWallCooldown ?? 0) > 0) return false;
+  if ((state.playerHp ?? 0) <= 0) return false;
+  state.shieldWallActive   = SHIELD_WALL_DURATION;
+  state.shieldWallCooldown = SHIELD_WALL_COOLDOWN;
+  return true;
+}
+
+// Rally flag: stored as state.rallyFlag = { x, y, timeLeft } | null
+export function activateRallyFlag(state, worldX, worldY) {
+  state.rallyFlag = { x: worldX, y: worldY, timeLeft: RALLY_DURATION };
+}
+
+export function updateRallyFlag(state, dt) {
+  if (!state.rallyFlag) return;
+  state.rallyFlag.timeLeft -= dt;
+  if (state.rallyFlag.timeLeft <= 0) state.rallyFlag = null;
+}
+
 const ENEMY_ATTACK_RANGE  = 14;
-const ENEMY_ATTACK_DAMAGE = 5;
+const ENEMY_ATTACK_DAMAGE = 5;   // base; scales with wave (see getEnemyAttackDamage)
 const ENEMY_ATTACK_RATE   = 1.4;
 const DEMOLISHER_ATTACK_DAMAGE = 18; // ~3.6× brute — punishing
 const DEMOLISHER_ATTACK_RATE   = 0.6; // slower swing but huge hits
 
+// Enemy attack scales gently with wave: +0.5 dmg/wave for regular enemies,
+// +1.0/wave for demolishers. Caps at wave 20 to avoid runaway numbers.
+export function getEnemyAttackDamage(waveNumber = 1) {
+  return ENEMY_ATTACK_DAMAGE + waveNumber * 0.5;
+}
+export function getDemolisherAttackDamage(waveNumber = 1) {
+  return DEMOLISHER_ATTACK_DAMAGE + waveNumber * 1.0;
+}
+
 // Returns the new protector hp (caller must write it back to state)
-export function updateEnemyAttacks(enemies, buildings, dt, protectorX, protectorY, protectorHp) {
+export function updateEnemyAttacks(enemies, buildings, dt, protectorX, protectorY, protectorHp, state = null, waveNumber = 1) {
   let newProtectorHp = protectorHp ?? PROTECTOR_MAX_HP;
   const livingBuildings = buildings.filter(b => b.hp > 0);
+  const scaledDmg       = getEnemyAttackDamage(waveNumber);
+  const scaledDemoDmg   = getDemolisherAttackDamage(waveNumber);
 
   enemies.forEach(e => {
     if (e.dead) return;
@@ -1031,7 +1111,8 @@ export function updateEnemyAttacks(enemies, buildings, dt, protectorX, protector
     // Melee protector if chasing them
     if (e.chasingProtector && protectorX !== undefined) {
       if (dist(e.x, e.y, protectorX, protectorY) < ENEMY_ATTACK_RANGE + 8) {
-        newProtectorHp = Math.max(0, newProtectorHp - ENEMY_ATTACK_DAMAGE * 1.5);
+        const shieldMult = (state?.shieldWallActive ?? 0) > 0 ? SHIELD_WALL_REDUCTION : 1;
+        newProtectorHp = Math.max(0, newProtectorHp - scaledDmg * 1.5 * shieldMult);
         e.attackCooldown = 1 / ENEMY_ATTACK_RATE;
       }
       return; // protector chasers don't also hit buildings
@@ -1040,7 +1121,7 @@ export function updateEnemyAttacks(enemies, buildings, dt, protectorX, protector
     if (e.chasingBuilder) return; // builder damage handled separately
 
     // Demolishers deal heavy damage to buildings
-    const dmg  = e.type === "demolisher" ? DEMOLISHER_ATTACK_DAMAGE : ENEMY_ATTACK_DAMAGE;
+    const dmg  = e.type === "demolisher" ? scaledDemoDmg : scaledDmg;
     const rate = e.type === "demolisher" ? DEMOLISHER_ATTACK_RATE   : ENEMY_ATTACK_RATE;
 
     livingBuildings.forEach(b => {
@@ -1055,6 +1136,13 @@ export function updateEnemyAttacks(enemies, buildings, dt, protectorX, protector
         // Kill workers in a building that falls
         if (b.hp <= 0 && b.workers > 0) {
           b.deadWorkers = b.workers;
+          // Homes are counted by calcTownspeople (standing-home census), so
+          // only subtract from state.townspeople for non-home buildings.
+          // This keeps the pool accurate so clampWorkers at breather-time
+          // doesn't over-clamp workers on surviving buildings.
+          if (state && b.type !== "home") {
+            state.townspeople = Math.max(0, (state.townspeople ?? 0) - b.workers);
+          }
           b.workers = 0;
         }
       }
@@ -1170,15 +1258,13 @@ export const BUILDER_PLACE_RANGE_BONUS    = 30; // added to PLACE_RANGE with pla
 export function updateBuilderRepair(builderX, builderY, buildings, dt, upgrades = []) {
   const autoRepair  = upgrades.includes("shop_auto");
   const repairBonus = upgrades.includes("repair_speed") ? 1.5 : 1.0;
-  const canOverheal = upgrades.includes("builder_aura");
-
   // Clear all repair flags first; re-set below.
   buildings.forEach(b => { b._beingRepaired = false; });
 
   // ── Direct repair (no shop needed) ───────────────────────────────────────
   // Builder heals the single CLOSEST damaged building in melee range.
-  // With builder_aura upgrade, can overheal up to 115% maxHp.
-  const overhealCap = canOverheal ? BUILDER_OVERHEAL_CAP : 1.0;
+  // With builder_aura upgrades, can overheal: 125%/150%/175%/200% of maxHp.
+  const overhealCap = getBuilderOverhealCap(upgrades);
   let directTarget = null, closestDist = Infinity;
   buildings.forEach(target => {
     if (target.hp <= 0 || target.hp >= target.maxHp * overhealCap) return;
@@ -1249,8 +1335,17 @@ export function calcWaveEndGold(buildings) {
 // Call this at the start of each build/breather phase.
 
 export function calcTownspeople(buildings) {
-  const standingHomes = buildings.filter(b => b.type === "home" && b.hp > 0).length;
-  return TOWNSPEOPLE_START + standingHomes * (BUILDING_TYPES.home.workersGranted);
+  // Each standing home grants workersGranted base pop + HOME_TIER_WORKERS per cash upgrade tier.
+  // The upgradeTier (cash upgrades) must be included here or enterBreather will strip
+  // those extra people every wave-clear.
+  const homePop = buildings
+    .filter(b => b.type === "home" && b.hp > 0)
+    .reduce((sum, b) => {
+      const base  = BUILDING_TYPES.home.workersGranted ?? 2;
+      const extra = (b.upgradeTier ?? 0) * HOME_TIER_WORKERS;
+      return sum + base + extra;
+    }, 0);
+  return TOWNSPEOPLE_START + homePop;
 }
 
 // Workers assigned to destroyed buildings must be clamped after recalc.
@@ -1294,9 +1389,15 @@ export function scoutWave(waveNumber, seed) {
   }
   return { perSide, demolishersPerSide, total: count, demolisherCount };
 }
-// With builder_aura upgrade, direct repair can push building hp up to 115% maxHp.
+// With builder_aura upgrade, direct repair can push buildings above their maxHp.
+// 4 purchasable tiers: 125% / 150% / 175% / 200% — fully upgraded doubles a building's HP.
 // Overhealed hp is shown as a gold bar above the normal hp arc.
-export const BUILDER_OVERHEAL_CAP = 1.15; // 115% of maxHp
+export const BUILDER_OVERHEAL_CAP = 1.15; // legacy — use getBuilderOverhealCap(upgrades) instead
+export function getBuilderOverhealCap(upgrades = []) {
+  const tiers = Math.min(upgradeCount(upgrades, "builder_aura"), 4);
+  if (tiers === 0) return 1.0;
+  return 1.0 + tiers * 0.25; // 1.25 / 1.50 / 1.75 / 2.00
+}
 
 // No longer used as a placement bonus — upgrade now boosts direct repair to overheal
 export function applyConstructionAura() {} // no-op kept for import compat

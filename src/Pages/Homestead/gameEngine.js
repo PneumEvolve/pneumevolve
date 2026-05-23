@@ -351,20 +351,26 @@ export function updateForestEnemies(enemies, playerX, playerY, dt, t) {
 }
 
 // ─── Player attack (melee) ────────────────────────────────────────────────────
-// Returns { hitEnemies, hitTrees, lootDrops }
+// Returns { hitEnemies, hitTrees, lootDrops, blockedTree }
+//   equipStats — result of getEquipStats(equipment), or null for bare-hands
+//   Trees require an axe equipped (equipStats.attackBonus > 0 from the axe).
+//   Pass null/undefined equipStats to use bare-hand defaults.
 export const ATTACK_REACH  = 38;
 export const ATTACK_ARC    = Math.PI * 0.75; // ~135° swing
 
-export function playerAttack(playerX, playerY, facing, enemies, trees, rand) {
+export function playerAttack(playerX, playerY, facing, enemies, trees, rand, equipStats) {
   const faceAngle = { right:0, left:Math.PI, down:Math.PI/2, up:-Math.PI/2 }[facing] ?? 0;
+  const reach     = ATTACK_REACH + (equipStats?.attackRange ?? 0);
+  const hasAxe    = (equipStats?.attackBonus ?? 0) > 0; // axe gives attackBonus
   const lootDrops = [];
   const hitEnemies = [], hitTrees = [];
+  let blockedTree = false; // true when player hit a tree but had no axe
 
   for (const e of enemies) {
     if (!e.alive) continue;
     const dx = e.x - playerX, dy = e.y - playerY;
     const dist = Math.hypot(dx, dy);
-    if (dist > ATTACK_REACH + WOLF_R) continue;
+    if (dist > reach + WOLF_R) continue;
     const angle = Math.atan2(dy, dx);
     let diff = angle - faceAngle;
     while (diff >  Math.PI) diff -= Math.PI * 2;
@@ -383,7 +389,8 @@ export function playerAttack(playerX, playerY, facing, enemies, trees, rand) {
   for (const tree of trees) {
     if (!tree.alive) continue;
     const dx = tree.x - playerX, dy = tree.y - playerY;
-    if (Math.hypot(dx, dy) > ATTACK_REACH + 20) continue;
+    if (Math.hypot(dx, dy) > reach + 20) continue;
+    if (!hasAxe) { blockedTree = true; continue; } // need axe to chop
     tree.hp--;
     tree.hitFlash = 1;
     if (tree.hp <= 0) {
@@ -394,13 +401,13 @@ export function playerAttack(playerX, playerY, facing, enemies, trees, rand) {
     hitTrees.push(tree.id);
   }
 
-  return { hitEnemies, hitTrees, lootDrops };
+  return { hitEnemies, hitTrees, lootDrops, blockedTree };
 }
 
 // ─── Inventory helpers ────────────────────────────────────────────────────────
-export function emptyInventory() {
-  return { wood:0, stone:0, sticks:0, herbs:0, leather:0, meat:0, silk:0 };
-}
+// fullEmptyInventory is the single canonical empty inventory — covers all run types.
+// emptyInventory is kept as an alias for backwards-compat with any callers we missed.
+export function emptyInventory() { return fullEmptyInventory(); }
 
 export function addToInventory(inv, item, qty) {
   if (item in inv) inv[item] = (inv[item] ?? 0) + qty;
@@ -415,15 +422,58 @@ export function mergeInventory(base, extra) {
   return out;
 }
 
+// ─── Equipment system ─────────────────────────────────────────────────────────
+// Slots: weapon | armor | accessory
+// Each crafted item that is equippable has an entry here.
+export const EQUIPPABLE = {
+  axe:           { slot: "weapon",    icon: "🪓", label: "Axe",           stats: { attackBonus: 2, attackRange: 12 } },
+  pickaxe:       { slot: "weapon",    icon: "⛏️", label: "Pickaxe",       stats: { attackBonus: 1, stoneYield: 2 } },
+  fishing_rod:   { slot: "weapon",    icon: "🎣", label: "Fishing Rod",   stats: { canFish: true } },
+  leather_armor: { slot: "armor",     icon: "🛡️", label: "Leather Armor", stats: { defense: 1, maxHpBonus: 2 } },
+  potion_table:  { slot: "accessory", icon: "🧪", label: "Potion Table",  stats: { herbBonus: 2 } },
+};
+
+export function emptyEquipment() {
+  return { weapon: null, armor: null, accessory: null };
+}
+
+// ─── Hotbar ───────────────────────────────────────────────────────────────────
+// Items that can be placed in the action hotbar (consumed on use)
+export const HOTBAR_ITEMS = {
+  cooked_meat: { icon: "🍖", label: "Cooked Meat", useEffect: { heal: 2 }, stackable: true },
+};
+
+export const HOTBAR_SIZE = 6; // number of slots
+
+export function emptyHotbar() {
+  return Array(HOTBAR_SIZE).fill(null); // each slot: null | { item, qty }
+}
+
+// Returns merged stat bonuses from equipped items
+export function getEquipStats(equipment) {
+  const stats = { attackBonus: 0, attackRange: 0, defense: 0, maxHpBonus: 0, herbBonus: 0, stoneYield: 0, canFish: false };
+  for (const slot of ["weapon", "armor", "accessory"]) {
+    const item = equipment?.[slot];
+    if (!item || !EQUIPPABLE[item]) continue;
+    const s = EQUIPPABLE[item].stats;
+    for (const [k, v] of Object.entries(s)) {
+      if (typeof v === "boolean") stats[k] = stats[k] || v;
+      else stats[k] = (stats[k] ?? 0) + v;
+    }
+  }
+  return stats;
+}
+
 // ─── Crafting recipes ─────────────────────────────────────────────────────────
+// Items that are equippable go to the player's equipment, not the chest.
 export const RECIPES = {
-  axe:            { sticks:2, stone:3 },
-  pickaxe:        { sticks:2, stone:4 },
-  fishing_rod:    { sticks:3, silk:2  },
-  crafting_station:{ wood:8, stone:4  },
-  leather_armor:  { leather:6         },
-  cooked_meat:    { meat:1            }, // requires cooking fire
-  potion_table:   { wood:6, herbs:4, stone:2 },
+  axe:              { sticks:2, stone:3 },
+  pickaxe:          { sticks:2, stone:4 },
+  fishing_rod:      { sticks:3, silk:2  },
+  crafting_station: { wood:8,   stone:4 },
+  leather_armor:    { leather:6         },
+  cooked_meat:      { meat:1            },
+  potion_table:     { wood:6, herbs:4, stone:2 },
 };
 
 export function canCraft(recipe, inv) {
@@ -438,7 +488,207 @@ export function craftItem(recipeName, inv) {
   if (!recipe || !canCraft(recipe, inv)) return null;
   const newInv = { ...inv };
   for (const [item, qty] of Object.entries(recipe)) {
-    newInv[item] -= qty;
+    newInv[item] = (newInv[item] ?? 0) - qty;
+  }
+  // If the crafted item is equippable gear, add 1 to inventory
+  if (EQUIPPABLE[recipeName]) {
+    newInv[recipeName] = (newInv[recipeName] ?? 0) + 1;
   }
   return newInv;
+}
+// ─── Character customization ──────────────────────────────────────────────────
+export const HAIR_STYLES = [
+  { id: 'short',    label: 'Short',    color: '#7a4f2a' },
+  { id: 'long',     label: 'Long',     color: '#3a2010' },
+  { id: 'curly',    label: 'Curly',    color: '#c88040' },
+  { id: 'braid',    label: 'Braid',    color: '#884020' },
+];
+
+export const SKIN_TONES = [
+  { id: 'light',    label: 'Light',    color: '#f5c5a3' },
+  { id: 'medium',   label: 'Medium',   color: '#d4956a' },
+  { id: 'tan',      label: 'Tan',      color: '#c07840' },
+  { id: 'brown',    label: 'Brown',    color: '#8b5a2b' },
+  { id: 'dark',     label: 'Dark',     color: '#5a3018' },
+];
+
+export const OUTFIT_COLORS = [
+  { id: 'blue',     label: 'Blue',     body: '#5b8dd9', legs: '#3a6abf' },
+  { id: 'green',    label: 'Green',    body: '#5a9a4a', legs: '#3a7a2a' },
+  { id: 'red',      label: 'Red',      body: '#c05040', legs: '#8a2820' },
+  { id: 'purple',   label: 'Purple',   body: '#7a5ab0', legs: '#5a3a8a' },
+  { id: 'orange',   label: 'Orange',   body: '#d07830', legs: '#a05010' },
+  { id: 'teal',     label: 'Teal',     body: '#4a9a8a', legs: '#2a7a6a' },
+];
+
+export const HAT_STYLES = [
+  { id: 'none',     label: 'None'  },
+  { id: 'cap',      label: 'Cap',      color: '#5a3a8a' },
+  { id: 'straw',    label: 'Straw',    color: '#d4a855' },
+  { id: 'beanie',   label: 'Beanie',   color: '#c05040' },
+];
+
+export function defaultCharacter() {
+  return { hair: 'short', skin: 'light', outfit: 'blue', hat: 'none' };
+}
+
+// ─── Placeable decoration catalog ────────────────────────────────────────────
+export const PLACEABLES = {
+  bench:        { icon:'🪑', label:'Bench',        cost:{ wood:4 },              w:2, h:1, solid:true  },
+  flower_bed:   { icon:'🌸', label:'Flower Bed',   cost:{ sticks:2, herbs:3 },   w:2, h:1, solid:false },
+  lantern:      { icon:'🏮', label:'Lantern',      cost:{ stone:2, wood:1 },     w:1, h:1, solid:false },
+  mushroom_ring:{ icon:'🍄', label:'Mushroom Ring',cost:{ herbs:2, wood:1 },     w:2, h:2, solid:false },
+  watering_can: { icon:'🪣', label:'Watering Can', cost:{ stone:3 },             w:1, h:1, solid:false },
+  wheat_field:  { icon:'🌾', label:'Wheat Field',  cost:{ sticks:4, herbs:2 },   w:3, h:2, solid:false },
+  pet_bed:      { icon:'🐾', label:'Pet Bed',      cost:{ leather:3, wood:2 },   w:1, h:1, solid:false },
+  garden_gate:  { icon:'🚪', label:'Garden Gate',  cost:{ wood:5 },              w:1, h:2, solid:true  },
+  herb_garden:  { icon:'🌿', label:'Herb Garden',  cost:{ herbs:4, stone:2 },    w:2, h:2, solid:false },
+  potted_plant: { icon:'🪴', label:'Potted Plant', cost:{ herbs:1, stone:1 },    w:1, h:1, solid:false },
+  tool_shed:    { icon:'🛖', label:'Tool Shed',    cost:{ wood:10, stone:5 },    w:2, h:2, solid:true  },
+  fountain:     { icon:'⛲', label:'Fountain',     cost:{ stone:8 },             w:2, h:2, solid:true  },
+  cozy_fire:    { icon:'🔥', label:'Cozy Fire',    cost:{ wood:3, stone:4 },     w:1, h:1, solid:false },
+  scarecrow:    { icon:'🕺', label:'Scarecrow',    cost:{ sticks:5, leather:2 }, w:1, h:2, solid:false },
+  beehive:      { icon:'🐝', label:'Beehive',      cost:{ wood:4, herbs:3 },     w:1, h:1, solid:false },
+  windmill:     { icon:'🌀', label:'Windmill',     cost:{ wood:8, stone:6 },     w:2, h:3, solid:true  },
+};
+
+// ─── Mining Run ───────────────────────────────────────────────────────────────
+export const MINE_W     = 3200;
+export const MINE_H     = 640;
+export const BAT_R      = 10;
+export const BAT_SPEED  = 60;
+
+export const MINE_LOOT_TABLE = {
+  rock:   [{ item:'stone',  min:2, max:4 }, { item:'coal', min:0, max:2 }],
+  gem:    [{ item:'gems',   min:1, max:2 }],
+  crystal:[{ item:'crystal',min:1, max:1 }, { item:'stone', min:1, max:2 }],
+  bat:    [{ item:'leather',min:0, max:1 }],
+};
+
+export function generateMiningRun(seed) {
+  const rand = seededRand(seed);
+  const rocks = [], gems = [], enemies = [];
+
+  for (let i = 0; i < 30; i++) {
+    rocks.push({
+      id: `rock_${i}`,
+      x: 200 + rand() * (MINE_W - 400),
+      y: 80  + rand() * (MINE_H - 160),
+      hp: 4, maxHp: 4, alive: true, hitFlash: 0,
+      type: 'rock',
+    });
+  }
+  for (let i = 0; i < 10; i++) {
+    const isGem = rand() > 0.5;
+    gems.push({
+      id: `gem_${i}`,
+      x: 300 + rand() * (MINE_W - 600),
+      y: 80  + rand() * (MINE_H - 160),
+      hp: 3, maxHp: 3, alive: true, hitFlash: 0,
+      type: isGem ? 'gem' : 'crystal',
+    });
+  }
+  for (let i = 0; i < 14; i++) {
+    enemies.push({
+      id: `bat_${i}`,
+      type: 'bat',
+      x: 400 + rand() * (MINE_W - 600),
+      y: 80  + rand() * (MINE_H - 160),
+      hp: 2, maxHp: 2,
+      alive: true, hitFlash: 0, attackCooldown: 0,
+      dir: rand() > 0.5 ? 1 : -1, dirY: rand() > 0.5 ? 1 : -1,
+      speed: BAT_SPEED + rand() * 30,
+      state: 'patrol',
+    });
+  }
+  return { rocks, gems, enemies };
+}
+
+// ─── Fruit Picking Run ────────────────────────────────────────────────────────
+export const ORCHARD_W   = 2800;
+export const ORCHARD_H   = 640;
+
+export const FRUIT_LOOT_TABLE = {
+  apple_tree: [{ item:'apples', min:2, max:5 }],
+  berry_bush: [{ item:'berries', min:2, max:4 }],
+  mushroom:   [{ item:'mushrooms', min:1, max:3 }],
+  flower_patch:[{ item:'herbs', min:2, max:4 }],
+};
+
+export function generateFruitRun(seed) {
+  const rand = seededRand(seed);
+  const trees = [], bushes = [], flowers = [];
+
+  for (let i = 0; i < 18; i++) {
+    trees.push({
+      id: `ftree_${i}`,
+      x: 200 + rand() * (ORCHARD_W - 400),
+      y: 80  + rand() * (ORCHARD_H - 160),
+      hp: 1, maxHp: 1, alive: true, hitFlash: 0,
+      type: 'apple_tree',
+      shakeTime: 0,
+    });
+  }
+  for (let i = 0; i < 22; i++) {
+    bushes.push({
+      id: `bush_${i}`,
+      x: 200 + rand() * (ORCHARD_W - 400),
+      y: 80  + rand() * (ORCHARD_H - 160),
+      hp: 1, maxHp: 1, alive: true, hitFlash: 0,
+      type: rand() > 0.5 ? 'berry_bush' : 'mushroom',
+      shakeTime: 0,
+    });
+  }
+  for (let i = 0; i < 16; i++) {
+    flowers.push({
+      id: `flower_${i}`,
+      x: 200 + rand() * (ORCHARD_W - 400),
+      y: 80  + rand() * (ORCHARD_H - 160),
+      alive: true, type: 'flower_patch',
+    });
+  }
+  return { trees, bushes, flowers };
+}
+
+// ─── Fishing Run ─────────────────────────────────────────────────────────────
+export const LAKE_W   = 2400;
+export const LAKE_H   = 640;
+
+export const FISH_TABLE = [
+  { id:'fish_common',   label:'Fish',          icon:'🐟', rarity:0.5,  item:'fish',        min:1, max:2 },
+  { id:'fish_big',      label:'Big Fish',      icon:'🐠', rarity:0.25, item:'big_fish',    min:1, max:1 },
+  { id:'fish_rare',     label:'Rare Fish',     icon:'🐡', rarity:0.15, item:'rare_fish',   min:1, max:1 },
+  { id:'treasure',      label:'Treasure',      icon:'💎', rarity:0.05, item:'gems',        min:1, max:2 },
+  { id:'boot',          label:'Old Boot',      icon:'👢', rarity:0.05, item:'sticks',      min:1, max:2 },
+];
+
+export const FISHING_SPOTS = 12;
+
+export function generateFishingRun(seed) {
+  const rand = seededRand(seed);
+  const spots = [];
+  for (let i = 0; i < FISHING_SPOTS; i++) {
+    spots.push({
+      id: `spot_${i}`,
+      x: 200 + rand() * (LAKE_W - 400),
+      y: 80  + rand() * (LAKE_H - 160),
+      active: true,
+      bobbing: 0,
+    });
+  }
+  return { spots };
+}
+
+// Add new items to emptyInventory
+export function fullEmptyInventory() {
+  return {
+    // Resources
+    wood:0, stone:0, sticks:0, herbs:0, leather:0, meat:0, silk:0,
+    // Mining
+    coal:0, gems:0, crystal:0,
+    // Fruit/fishing
+    apples:0, berries:0, mushrooms:0, fish:0, big_fish:0, rare_fish:0,
+    // Crafted gear
+    axe:0, pickaxe:0, fishing_rod:0, crafting_station:0, leather_armor:0, cooked_meat:0, potion_table:0,
+  };
 }
