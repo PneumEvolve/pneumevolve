@@ -43,11 +43,28 @@ export const BUILDER_SHIELD_REGEN = 8;  // hp/sec out of combat (no enemy chasin
 
 export const REVIVE_RADIUS = 70; // how close a hero must be to revive their partner
 
+// ─── Difficulty ───────────────────────────────────────────────────────────────
+
+// easy   — infinite time between waves; both players must ready-up to start each wave
+// normal — timed breather (the original behavior)
+// hard   — no breather; next wave begins immediately after the previous clears
+export const DIFFICULTIES = ["easy", "normal", "hard"];
+export const DIFFICULTY_LABELS = { easy: "Easy", normal: "Normal", hard: "Hard" };
+export const DIFFICULTY_DESC = {
+  easy:   "Infinite time between waves — both players ready up to start.",
+  normal: "Timed breather between waves.",
+  hard:   "No rest — waves follow immediately.",
+};
+
 // ─── Inter-wave timers ────────────────────────────────────────────────────────
 
 // Breather grows with wave number: base 30s + 4s per wave, capped at 60s.
 // Early waves get a head-start so players have breathing room to get set up.
-export function getBreatherDuration(waveNumber) {
+// Hard difficulty: returns 0 (no breather).
+// Easy difficulty: returns Infinity (gate is ready-up, not a timer).
+export function getBreatherDuration(waveNumber, difficulty = "normal") {
+  if (difficulty === "hard") return 0;
+  if (difficulty === "easy") return Infinity;
   return Math.min(60, 30 + waveNumber * 4);
 }
 
@@ -1245,6 +1262,14 @@ export function clampWorkers(buildings, totalPeople) {
     b.workers = Math.min(b.workers ?? 0, max);
     assigned += b.workers;
   });
+}
+
+// ─── Barracks: canonical soldier count ───────────────────────────────────────
+// Total soldiers a barracks should field = 1 (base) + workers + upgradeTier + soldier_cnt upgrades.
+// This single function is the source of truth; both spawnSoldiers and onWorkerAssign use it.
+export function barracksSoldierTarget(building, upgrades = []) {
+  const extra = upgradeCount(upgrades, "soldier_cnt");
+  return 1 + (building.workers ?? 0) + (building.upgradeTier ?? 0) + extra;
 }
 
 // ─── Scout helper ─────────────────────────────────────────────────────────────

@@ -605,6 +605,7 @@ function StatsSection({ cravings, meditations, soberStart, smoked }) {
   const allEvents = [
     ...cravings.map(c => ({ ...c, type: "craving" })),
     ...smoked.map(s => ({ ...s, type: "smoked" })),
+    ...meditations.map(m => ({ ...m, type: "meditation" })),
   ].sort((a, b) => b.ts - a.ts);
 
   return (
@@ -718,7 +719,7 @@ function StatsSection({ cravings, meditations, soberStart, smoked }) {
                     <span>{e.reduction >= 0 ? "💪" : "🌱"}</span>
                   </div>
                 </div>
-              ) : (
+              ) : e.type === "smoked" ? (
                 <div key={i} className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-xs opacity-70">
                   <span className="text-[var(--muted)]">
                     {new Date(e.ts).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
@@ -726,6 +727,18 @@ function StatsSection({ cravings, meditations, soberStart, smoked }) {
                   <div className="flex items-center gap-2">
                     <span className="text-rose-400 font-medium">gave in</span>
                     <span>🌀</span>
+                  </div>
+                </div>
+              ) : (
+                <div key={i} className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-xs">
+                  <span className="text-[var(--muted)]">
+                    {new Date(e.ts).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-emerald-500 font-medium">
+                      {e.secs >= 60 ? `${Math.round(e.secs / 60)}m` : `${e.secs}s`} meditation
+                    </span>
+                    <span>🌿</span>
                   </div>
                 </div>
               )

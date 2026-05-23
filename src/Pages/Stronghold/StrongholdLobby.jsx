@@ -3,16 +3,32 @@ import React, { useState } from "react";
 import { api } from "@/lib/api";
 import { Link } from "react-router-dom";
 
-export default function StrongholdLobby({ onRoomReady }) {
-  const [joinCode, setJoinCode] = useState("");
-  const [loading,  setLoading]  = useState(false);
-  const [error,    setError]    = useState(null);
+const DIFF_OPTIONS = [
+  { id: "easy",   label: "Easy",   desc: "Infinite time — both ready up between waves." },
+  { id: "normal", label: "Normal", desc: "Timed breather between waves." },
+  { id: "hard",   label: "Hard",   desc: "No rest — waves follow immediately." },
+];
+
+function formatSaveAge(savedAt) {
+  const mins = Math.floor((Date.now() - savedAt) / 60000);
+  if (mins < 1)  return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24)  return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+export default function StrongholdLobby({ onRoomReady, savedGames = [], onResume, onDeleteSave }) {
+  const [joinCode,    setJoinCode]    = useState("");
+  const [loading,     setLoading]     = useState(false);
+  const [error,       setError]       = useState(null);
+  const [difficulty,  setDifficulty]  = useState("normal");
 
   async function handleCreate() {
     setLoading(true); setError(null);
     try {
-      const { data } = await api.post("/stronghold/rooms");
-      onRoomReady(data, "p1");
+      const { data } = await api.post("/stronghold/rooms", { difficulty });
+      onRoomReady({ ...data, difficulty }, "p1");
     } catch (e) {
       setError(e?.response?.data?.detail || "Couldn't create room.");
     } finally { setLoading(false); }
@@ -24,6 +40,7 @@ export default function StrongholdLobby({ onRoomReady }) {
     setLoading(true); setError(null);
     try {
       const { data } = await api.post("/stronghold/rooms/join", { join_code: code });
+      // Carry over difficulty from room if it was set by creator; fall back to normal
       onRoomReady(data, "p2");
     } catch (e) {
       setError(e?.response?.data?.detail || "Room not found or already started.");
@@ -57,6 +74,67 @@ export default function StrongholdLobby({ onRoomReady }) {
           </p>
           <p style={{ color: "rgba(255,255,255,0.2)" }}>
             If the Town Center falls, you both lose.
+          </p>
+        </div>
+
+        {/* Saved games */}
+        {savedGames.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.2)" }}>saved games</p>
+            {savedGames.map(save => (
+              <div key={save.roomId} className="rounded-xl p-3 flex items-center justify-between gap-3"
+                style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                <div>
+                  <div className="text-xs" style={{ color: "rgba(255,210,80,0.8)" }}>
+                    after wave {save.waveNumber} · {save.difficulty ?? "normal"}
+                  </div>
+                  <div className="text-xs" style={{ color: "rgba(255,255,255,0.25)", marginTop: 2 }}>
+                    {formatSaveAge(save.savedAt)}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => onResume(save)}
+                    disabled={loading}
+                    className="px-3 py-2 rounded-lg text-xs font-medium transition-all disabled:opacity-40"
+                    style={{ background: "rgba(255,210,80,0.1)", border: "1px solid rgba(255,210,80,0.25)", color: "rgba(255,210,80,0.85)" }}
+                  >
+                    resume
+                  </button>
+                  <button
+                    onClick={() => onDeleteSave(save.roomId)}
+                    className="px-3 py-2 rounded-lg text-xs transition-all"
+                    style={{ background: "rgba(255,60,60,0.06)", border: "1px solid rgba(255,60,60,0.15)", color: "rgba(255,80,80,0.5)" }}
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Difficulty picker */}
+        <div className="space-y-2">
+          <p className="text-xs tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.2)" }}>difficulty</p>
+          <div className="flex gap-2">
+            {DIFF_OPTIONS.map(d => (
+              <button
+                key={d.id}
+                onClick={() => setDifficulty(d.id)}
+                className="flex-1 py-3 rounded-xl text-xs font-medium tracking-wide transition-all"
+                style={{
+                  background:  difficulty === d.id ? "rgba(255,210,80,0.1)" : "rgba(255,255,255,0.03)",
+                  border:      `1px solid ${difficulty === d.id ? "rgba(255,210,80,0.35)" : "rgba(255,255,255,0.08)"}`,
+                  color:       difficulty === d.id ? "rgba(255,210,80,0.9)" : "rgba(255,255,255,0.35)",
+                }}
+              >
+                {d.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs" style={{ color: "rgba(255,255,255,0.25)" }}>
+            {DIFF_OPTIONS.find(d => d.id === difficulty)?.desc}
           </p>
         </div>
 

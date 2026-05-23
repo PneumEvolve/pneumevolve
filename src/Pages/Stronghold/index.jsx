@@ -19,6 +19,29 @@ function maybeUpdateHighScore(waves) {
   } catch { return waves; }
 }
 
+// ── Save state helpers ────────────────────────────────────────────────────────
+const SAVE_KEY_PREFIX = "stronghold_save_";
+
+function getSavedGames() {
+  const saves = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith(SAVE_KEY_PREFIX)) continue;
+      try {
+        const s = JSON.parse(localStorage.getItem(key));
+        if (s?.roomId && s?.joinCode && s?.waveNumber !== undefined) saves.push(s);
+      } catch {}
+    }
+    saves.sort((a, b) => b.savedAt - a.savedAt);
+  } catch {}
+  return saves;
+}
+
+function deleteSave(roomId) {
+  try { localStorage.removeItem(`${SAVE_KEY_PREFIX}${roomId}`); } catch {}
+}
+
 // ── Waiting screen ────────────────────────────────────────────────────────────
 function WaitingForBuilder({ room, onBuilderJoined }) {
   const [copied, setCopied] = useState(false);
@@ -43,10 +66,12 @@ function WaitingForBuilder({ room, onBuilderJoined }) {
   return (
     <main className="min-h-screen bg-[#0a0d0f] text-white flex flex-col items-center justify-center gap-6 px-4">
       <p className="text-xs tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.3)" }}>
-        waiting for the builder
+        {room?._resumeWave ? `resuming from wave ${room._resumeWave}` : "waiting for the builder"}
       </p>
       <div className="text-center">
-        <p className="text-xs mb-3" style={{ color: "rgba(255,255,255,0.3)" }}>share this code</p>
+        <p className="text-xs mb-3" style={{ color: "rgba(255,255,255,0.3)" }}>
+          {room?._resumeWave ? "share this code to resume together" : "share this code"}
+        </p>
         <div className="text-5xl font-mono font-light tracking-widest" style={{ color: "rgba(255,210,80,0.9)" }}>
           {room.join_code}
         </div>
@@ -119,6 +144,9 @@ export default function StrongholdGame() {
   const [role,       setRole]       = useState(null);
   const [finalScore, setFinalScore] = useState(null);
   const [highScore,  setHighScore]  = useState(getHighScore);
+  // Saved state to resume — passed into ProtectorView/BuilderView
+  const [resumeState, setResumeState] = useState(null);
+  const [savedGames,  setSavedGames]  = useState(() => getSavedGames());
 
   const phaseRef = useRef(phase);
   const roleRef  = useRef(role);
@@ -141,7 +169,13 @@ export default function StrongholdGame() {
       setRoom(prev => prev ? { ...prev, map_seed: seed } : prev);
       setRole(newRole);
       setFinalScore(null);
+      setResumeState(null);
       setPhase("playing");
+    },
+    // Builder receives save_state broadcast from protector so it can show a notice
+    onSaveState: ({ state }) => {
+      // Builder side: just show confirmation (they don't need to store it — protector's
+      // localStorage is the source of truth for resume)
     },
   }).current;
 
@@ -155,11 +189,28 @@ export default function StrongholdGame() {
   function handleRoomReady(roomData, assignedRole) {
     setRoom(roomData);
     setRole(assignedRole);
+    setResumeState(null);
     setPhase(assignedRole === "p1" ? "waiting" : "playing");
   }
 
+  async function handleResume(save) {
+    try {
+      const { data } = await api.post("/stronghold/rooms", { difficulty: save.difficulty ?? "normal" });
+      const roomWithResume = { ...data, difficulty: save.difficulty ?? "normal", _resumeWave: save.waveNumber };
+      setRoom(roomWithResume);
+      setRole("p1");
+      setResumeState(save);
+      setPhase("waiting");
+    } catch (e) { console.error("Resume failed:", e); }
+  }
+
+  function handleDeleteSave(roomId) {
+    deleteSave(roomId);
+    setSavedGames(getSavedGames());
+  }
+
   function handleBuilderJoined(updatedRoom) {
-    setRoom(updatedRoom);
+    setRoom(prev => ({ ...prev, ...updatedRoom }));
     setPhase("playing");
   }
 
@@ -173,16 +224,17 @@ export default function StrongholdGame() {
     setFinalScore(score);
     setPhase("gameover");
     sendGameOver(score);
+    if (room?.id) { deleteSave(room.id); setSavedGames(getSavedGames()); }
     try { await api.patch(`/stronghold/rooms/${room.id}`, { final_score: score.waveReached ?? 0 }); } catch {}
   }
 
   function handleP2GameOver(score) {
     if (score?._restart) {
-      // Protector sent a restart broadcast — apply it directly
       const newRole = score._swap ? "p1" : "p2";
       setRoom(prev => prev ? { ...prev, map_seed: score._seed } : prev);
       setRole(newRole);
       setFinalScore(null);
+      setResumeState(null);
       setPhase("playing");
       return;
     }
@@ -194,26 +246,33 @@ export default function StrongholdGame() {
   function handleRestart(swap) {
     const newSeed = Date.now() & 0x7fffffff;
     const newRole = swap ? "p2" : "p1";
-
-    // ── FIX: broadcast BEFORE changing phase ─────────────────────────────────
-    // activeRoomId is non-null while phase === "gameover", so the channel is
-    // still subscribed here. Switching phase to "playing" first tears it down
-    // before the message can go out, leaving the Builder stuck on game over.
     sendRestart(newSeed, swap);
-
     setRoom(prev => prev ? { ...prev, map_seed: newSeed } : prev);
     setRole(newRole);
     setFinalScore(null);
+    setResumeState(null);
     setPhase("playing");
   }
 
-  if (phase === "lobby")   return <StrongholdLobby onRoomReady={handleRoomReady} />;
+  // Refresh saved games list when returning to lobby
+  useEffect(() => {
+    if (phase === "lobby") setSavedGames(getSavedGames());
+  }, [phase]);
+
+  if (phase === "lobby") return (
+    <StrongholdLobby
+      onRoomReady={handleRoomReady}
+      savedGames={savedGames}
+      onResume={handleResume}
+      onDeleteSave={handleDeleteSave}
+    />
+  );
   if (phase === "waiting") return <WaitingForBuilder room={room} onBuilderJoined={handleBuilderJoined} />;
   if (phase === "gameover") return <GameOver score={finalScore} role={role} highScore={highScore} onRestart={handleRestart} />;
 
   if (phase === "playing") {
-    if (role === "p1") return <ProtectorView key={room?.map_seed} room={room} onGameOver={handleP1GameOver} />;
-    return <BuilderView key={room?.map_seed} room={room} onGameOver={handleP2GameOver} />;
+    if (role === "p1") return <ProtectorView key={room?.map_seed ?? room?.id} room={room} resumeState={resumeState} onGameOver={handleP1GameOver} />;
+    return <BuilderView key={room?.map_seed ?? room?.id} room={room} resumeState={resumeState} onGameOver={handleP2GameOver} />;
   }
 
   return null;

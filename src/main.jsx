@@ -89,6 +89,8 @@ import StrongholdGame from "@/Pages/Stronghold"
 
 import InkRunGame from "@/Pages/InkRun"
 
+import HomesteadGame from "@/Pages/Homestead"
+
 import GameTestGame from "@/Pages/GameTest"
  
 import { HelmetProvider } from "react-helmet-async";
@@ -211,6 +213,8 @@ function Root() {
                 <Route path="/stronghold" element={<StrongholdGame />} />
 
                 <Route path="/inked" element={<InkRunGame />} />
+
+                <Route path="/homestead" element={<HomesteadGame />} />
 
                 <Route path="/game-test" element={<GameTestGame />} />
 

@@ -37,6 +37,7 @@ export function useStrongholdRoom(roomId, handlers) {
       .on("broadcast", { event: "revive" },           ({ payload }) => handlersRef.current.onRevive?.(payload))
       .on("broadcast", { event: "ping" },             ({ payload }) => handlersRef.current.onPing?.(payload))
       .on("broadcast", { event: "wave_summary" },     ({ payload }) => handlersRef.current.onWaveSummary?.(payload))
+      .on("broadcast", { event: "save_state" },       ({ payload }) => handlersRef.current.onSaveState?.(payload))
       .on("broadcast", { event: "allegiance_change" }, ({ payload }) => handlersRef.current.onAllegianceChange?.(payload));
 
     channel.subscribe(status => {
@@ -81,7 +82,7 @@ export function useStrongholdRoom(roomId, handlers) {
   send("gold_update", typeof payload === "number" ? { gold: payload, from: "protector" } : payload),
 [send]);
   const sendPhaseChange    = useCallback((phase, data) => send("phase_change",    { phase, ...data }),  [send]);
-  const sendPlayerReady    = useCallback((role)        => send("player_ready",    { role }),            [send]);
+  const sendPlayerReady    = useCallback((role, context) => send("player_ready", { role, context }),            [send]);
   const sendCountdown      = useCallback((seconds)     => send("countdown",       { seconds }),         [send]);
   const sendGameOver       = useCallback((score)       => send("game_over",       { score }),           [send]);
   const sendRestart        = useCallback((seed, swap)  => send("restart",         { seed, swap }),      [send]);
@@ -89,6 +90,7 @@ export function useStrongholdRoom(roomId, handlers) {
   const sendRevive         = useCallback((target)      => send("revive",          { target }),          [send]);
   const sendPing           = useCallback((x, y, from)  => send("ping",            { x, y, from }),      [send]);
   const sendWaveSummary    = useCallback((data)         => send("wave_summary",    data),                [send]);
+  const sendSaveState        = useCallback((state)        => send("save_state",       { state }),            [send]);
   const sendAllegianceChange = useCallback((buildingId, allegiance) => send("allegiance_change", { buildingId, allegiance }), [send]);
 
   return {
@@ -97,6 +99,6 @@ export function useStrongholdRoom(roomId, handlers) {
     sendEnemyUpdate, sendBuildingHealth, sendUnitUpdate, sendGoldUpdate,
     sendPhaseChange, sendPlayerReady, sendCountdown,
     sendGameOver, sendRestart, sendChat, sendRevive, sendPing, sendWaveSummary,
-    sendAllegianceChange,
+    sendAllegianceChange, sendSaveState,
   };
 }

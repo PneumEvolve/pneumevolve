@@ -28,6 +28,8 @@ import {
   updateBurnAura, getBurnAuraStats,
   effectiveTier, MARKET_TIER_GOLD,
   FIRE_TRAP_TIER_RANGE, GARDEN_TIER_RADIUS,
+  barracksSoldierTarget,
+  DIFFICULTIES, DIFFICULTY_LABELS, DIFFICULTY_DESC,
 } from "./strongholdEngine";
 
 const PLAYER_SPEED   = 160;
@@ -38,7 +40,7 @@ const DASH_SPEED     = 520;
 const DASH_DURATION  = 0.18;
 const DASH_COOLDOWN  = 4.0;
 
-export default function ProtectorView({ room, onGameOver }) {
+export default function ProtectorView({ room, onGameOver, resumeState }) {
   const canvasRef   = useRef(null);
   const stateRef    = useRef(null);
   const keysRef     = useRef({});
@@ -57,16 +59,26 @@ export default function ProtectorView({ room, onGameOver }) {
   const [p2Ready,    setP2Ready]    = useState(false);
   const p1ReadyRef = useRef(false);
   const p2ReadyRef = useRef(false);
+  // Inter-wave ready-up (easy mode) — reused for each breather
+  const [waveP1Ready, setWaveP1Ready] = useState(false);
+  const [waveP2Ready, setWaveP2Ready] = useState(false);
+  const waveP1ReadyRef = useRef(false);
+  const waveP2ReadyRef = useRef(false);
   const [pings,      setPings]      = useState([]);
   const [waveSummary, setWaveSummary] = useState(null);
-  const [dashReady,   setDashReady]  = useState(true); // tracks cooldown for mobile button
+  const [dashReady,   setDashReady]  = useState(true);
+  const [saveNotice,  setSaveNotice] = useState(null); // "saving" | "saved" | null
   const pingsRef     = useRef([]);
+  // Difficulty — passed in from room prop (room.difficulty) or defaulting to "normal"
+  const difficulty = room?.difficulty ?? "normal";
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   const handlers = useRef({
     onP2Move: ({ x, y }) => {
       if (!stateRef.current) return;
       stateRef.current.builderTarget = { x, y };
+      // Builder has connected — stop the resume sync retry loop
+      if (stateRef.current._isResume) stateRef.current._resumeSynced = true;
     },
     onBuildingPlace: ({ building }) => {
       const s = stateRef.current;
@@ -84,36 +96,10 @@ export default function ProtectorView({ room, onGameOver }) {
       if (!s) return;
       const b = s.buildings.find(b => b.id === buildingId);
       if (!b) return;
-      const prevWorkers = b.workers ?? 0;
       b.workers = workers;
 
       if (b.type === "barracks" && b.hp > 0) {
-        const upgrades    = s.upgrades ?? [];
-        const extra       = upgradeCount(upgrades, "soldier_cnt");
-        const currentCount = s.units.filter(u => u.barracksId === buildingId).length;
-
-        if (workers > prevWorkers) {
-          const toAdd = workers - prevWorkers;
-          const hp = 50 + upgradeCount(upgrades, "soldier_hp") * 20;
-          for (let i = 0; i < toAdd; i++) {
-            s.units.push({
-              id:         Date.now() + Math.random(),
-              barracksId: buildingId,
-              follows:    b.allegiance ?? "protector",
-              x:          b.x + 30 + (currentCount + i) * 14,
-              y:          b.y,
-              hp, maxHp: hp, radius: 6,
-              attackCooldown: 0,
-              projectiles: [],
-            });
-          }
-        } else if (workers < prevWorkers) {
-          const toRemove = prevWorkers - workers;
-          const owned = s.units.filter(u => u.barracksId === buildingId);
-          owned.sort((a, b) => a.hp - b.hp);
-          const toKill = new Set(owned.slice(0, toRemove).map(u => u.id));
-          s.units = s.units.filter(u => !toKill.has(u.id));
-        }
+        reconcileSoldiers(s, b);
       }
     },
     onGoldUpdate: ({ gold, from }) => {
@@ -125,7 +111,28 @@ export default function ProtectorView({ room, onGameOver }) {
       stateRef.current.chatMessages.unshift({ text, from, ts: Date.now() });
       if (stateRef.current.chatMessages.length > 20) stateRef.current.chatMessages.pop();
     },
-    onPlayerReady: ({ role }) => {
+    onPlayerReady: ({ role, context }) => {
+      // context === "wave" means inter-wave ready-up (easy mode)
+      if (context === "wave") {
+        if (role === "p2") {
+          waveP2ReadyRef.current = true;
+          setWaveP2Ready(true);
+          if (waveP1ReadyRef.current && stateRef.current?.phase === "breather") {
+            waveP1ReadyRef.current = false; waveP2ReadyRef.current = false;
+            setWaveP1Ready(false); setWaveP2Ready(false);
+            startWave(stateRef.current);
+          }
+        } else if (role === "p1") {
+          waveP1ReadyRef.current = true;
+          setWaveP1Ready(true);
+          if (waveP2ReadyRef.current && stateRef.current?.phase === "breather") {
+            waveP1ReadyRef.current = false; waveP2ReadyRef.current = false;
+            setWaveP1Ready(false); setWaveP2Ready(false);
+            startWave(stateRef.current);
+          }
+        }
+        return;
+      }
       if (role === "p2") {
         p2ReadyRef.current = true;
         setP2Ready(true);
@@ -174,29 +181,85 @@ export default function ProtectorView({ room, onGameOver }) {
     sendP1Move, sendEnemyUpdate, sendBuildingHealth,
     sendUnitUpdate, sendPhaseChange,
     sendCountdown, sendGameOver, sendChat, sendGoldUpdate, sendPlayerReady, sendWorkerAssign,
-    sendRevive, sendPing, sendWaveSummary, sendAllegianceChange,
+    sendRevive, sendPing, sendWaveSummary, sendAllegianceChange, sendSaveState,
   } = useStrongholdRoom(room?.id ?? null, handlers);
 
+  // ── Save / Resume ────────────────────────────────────────────────────────
+  // Serializes the current game state to localStorage (keyed by room.id) and
+  // broadcasts it to the Builder so both players see the confirmation.
+  // Only available during breather or build phase (not mid-wave).
+  function handleSaveGame() {
+    const s = stateRef.current;
+    if (!s || !room?.id) return;
+    if (s.phase === "wave") return; // don't save mid-wave
+
+    setSaveNotice("saving");
+
+    const snapshot = {
+      savedAt:     Date.now(),
+      waveNumber:  s.waveNumber,
+      phase:       s.phase === "wave" ? "breather" : s.phase, // normalise
+      gold:        s.gold,
+      townspeople: s.townspeople,
+      upgrades:    [...(s.upgrades ?? [])],
+      buildings:   s.buildings.map(b => ({ ...b })),
+      units:       s.units.map(u => ({
+        id: u.id, barracksId: u.barracksId, follows: u.follows,
+        x: u.x, y: u.y, hp: u.hp, maxHp: u.maxHp, radius: u.radius,
+        attackCooldown: 0, projectiles: [],
+      })),
+      playerHp:    s.playerHp,
+      builderHp:   s.builderHp,
+      lockedWorkers: 0,
+      difficulty:  room?.difficulty ?? "normal",
+      roomId:      room.id,
+      joinCode:    room.join_code,
+    };
+
+    try {
+      localStorage.setItem(`stronghold_save_${room.id}`, JSON.stringify(snapshot));
+    } catch {}
+
+    sendSaveState(snapshot);
+    setSaveNotice("saved");
+    setTimeout(() => setSaveNotice(null), 3000);
+  }
+
   // ── Spawn soldiers ────────────────────────────────────────────────────────
-  function spawnSoldiers(s, building) {
+  // Spawns exactly the right number of soldiers for a barracks based on its
+  // current workers, upgradeTier, and soldier_cnt upgrades.
+  // Removes excess soldiers first (if any), then adds new ones to reach target.
+  function reconcileSoldiers(s, building) {
     const upgrades = s.upgrades ?? [];
-    const extra    = upgradeCount(upgrades, "soldier_cnt");
-    // effectiveTier counts workers + cash upgrades on the barracks building
-    const tier     = effectiveTier(building);
-    const count    = 1 + tier + extra;
+    const target   = barracksSoldierTarget(building, upgrades);
     const hp       = 50 + upgradeCount(upgrades, "soldier_hp") * 20;
-    for (let i = 0; i < count; i++) {
-      s.units.push({
-        id:         Date.now() + Math.random(),
-        barracksId: building.id,
-        follows:    building.allegiance ?? "protector",
-        x:          building.x + 30 + i * 14,
-        y:          building.y,
-        hp, maxHp: hp, radius: 6,
-        attackCooldown: 0,
-        projectiles: [],
-      });
+    const owned    = s.units.filter(u => u.barracksId === building.id);
+
+    if (owned.length > target) {
+      // Remove the weakest (lowest hp) excess soldiers
+      const excess = owned.length - target;
+      owned.sort((a, b) => a.hp - b.hp);
+      const toKill = new Set(owned.slice(0, excess).map(u => u.id));
+      s.units = s.units.filter(u => !toKill.has(u.id));
+    } else if (owned.length < target) {
+      const toAdd = target - owned.length;
+      for (let i = 0; i < toAdd; i++) {
+        s.units.push({
+          id:         Date.now() + Math.random(),
+          barracksId: building.id,
+          follows:    building.allegiance ?? "protector",
+          x:          building.x + 30 + (owned.length + i) * 14,
+          y:          building.y,
+          hp, maxHp: hp, radius: 6,
+          attackCooldown: 0,
+          projectiles: [],
+        });
+      }
     }
+  }
+
+  function spawnSoldiers(s, building) {
+    reconcileSoldiers(s, building);
   }
 
   // ── State init ────────────────────────────────────────────────────────────
@@ -206,6 +269,70 @@ export default function ProtectorView({ room, onGameOver }) {
     p2ReadyRef.current = false;
     setP1Ready(false);
     setP2Ready(false);
+    waveP1ReadyRef.current = false;
+    waveP2ReadyRef.current = false;
+    setWaveP1Ready(false);
+    setWaveP2Ready(false);
+
+    // ── Resume from saved snapshot ────────────────────────────────────────
+    if (resumeState) {
+      const snap = resumeState;
+      // Ensure each building has all required runtime fields
+      const buildings = (snap.buildings ?? []).map(b => ({
+        ...b,
+        turretProjectiles: b.turretProjectiles ?? [],
+        _fireFlash: 0,
+        _aoeRange: b._aoeRange ?? 0,
+      }));
+      // Ensure units have runtime fields
+      const units = (snap.units ?? []).map(u => ({
+        ...u,
+        attackCooldown: 0,
+        projectiles: [],
+      }));
+      const cx = WORLD / 2, cy = WORLD / 2;
+      return {
+        player:          { x: cx + 200, y: cy + 200 },
+        builderPos:      { x: cx - 200, y: cy - 200 },
+        builderTarget:   { x: cx - 200, y: cy - 200 },
+        playerHp:        snap.playerHp  ?? PROTECTOR_MAX_HP,
+        builderHp:       snap.builderHp ?? BUILDER_TOTAL_MAX_HP,
+        buildings,
+        units,
+        enemies:         [],
+        projectiles:     [],
+        // Resumed games land in breather so players can prep before the next wave
+        phase:           "breather",
+        waveNumber:      snap.waveNumber ?? 0,
+        countdownLeft:   0,
+        breatherLeft:    getBreatherDuration(snap.waveNumber ?? 0, room?.difficulty ?? "normal"),
+        enemiesKilled:   0,
+        gold:            snap.gold         ?? STARTING_GOLD,
+        upgrades:        snap.upgrades     ?? [],
+        townspeople:     snap.townspeople  ?? TOWNSPEOPLE_START,
+        attackCooldown:  0,
+        lastTime:        performance.now(),
+        chatMessages:    [],
+        floaters:        [{ text: `resumed from wave ${snap.waveNumber}`, age: 0, ttl: 3, color: "rgba(120,200,255,0.9)", size: 14 }],
+        lockedWorkers:   0,
+        // Dash
+        dashCooldown:    0,
+        isDashing:       false,
+        dashTimer:       0,
+        dashVx:          0,
+        dashVy:          0,
+        // Flawless tracking (reset — fresh start from this point)
+        flawlessWaves:   0,
+        waveDowns:       0,
+        waveBuildingDmgStart: 0,
+        totalDowns:      0,
+        scoutData:       null,
+        scoutPulse:      0,
+        activePings:     [],
+        cam:             { x: WORLD / 2 - 400, y: WORLD / 2 - 300 },
+        _isResume:       true,   // flag so the loop knows to do an initial sync burst
+      };
+    }
 
     const map = createInitialMap();
     return {
@@ -243,7 +370,7 @@ export default function ProtectorView({ room, onGameOver }) {
       waveBuildingDmgStart: 0,
       totalDowns:      0,
       // Scout — stores per-side enemy counts once protector reaches border
-      scoutData:       null, // { perSide:[n,n,n,n], demolishersPerSide:[...], total, demolisherCount }
+      scoutData:       null,
       scoutPulse:      0,
       // Pings
       activePings:     [],
@@ -638,13 +765,23 @@ export default function ProtectorView({ room, onGameOver }) {
       ctx.globalAlpha = 0.45;
       ctx.font = "10px sans-serif"; ctx.fillStyle = "#fff"; ctx.textAlign = "center";
       ctx.fillText(def.label, cx, cy + def.radius + 16);
+      // Upgrade tier — show Roman numerals if tier > 0
+      const tier = effectiveTier(b);
+      if (tier > 0) {
+        const ROMAN = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
+        const tierLabel = tier < ROMAN.length ? ROMAN[tier] : `${tier}`;
+        ctx.globalAlpha = 0.75;
+        ctx.font = "bold 9px sans-serif";
+        ctx.fillStyle = "rgba(255,200,60,0.9)";
+        ctx.fillText(tierLabel, cx, cy + def.radius + 27);
+      }
       // Market: show income rate when active
       if (b.type === "market" && (stateRef.current?.waveNumber ?? 0) >= 1) {
         const rate = BUILDING_TYPES.market.goldPerSec + effectiveTier(b) * MARKET_TIER_GOLD;
         ctx.globalAlpha = 0.55;
         ctx.fillStyle = "rgba(255,215,0,0.8)";
         ctx.font = "9px sans-serif";
-        ctx.fillText(`+${rate.toFixed(1)}g/s`, cx, cy + def.radius + 27);
+        ctx.fillText(`+${rate.toFixed(1)}g/s`, cx, cy + def.radius + (tier > 0 ? 37 : 27));
       }
       ctx.restore();
     }
@@ -658,7 +795,7 @@ export default function ProtectorView({ room, onGameOver }) {
     let phaseLabel = "";
     if (phase === "build")         phaseLabel = waveNumber === 0 ? "plan your stronghold" : "build phase";
     else if (phase === "wave")     phaseLabel = `wave ${waveNumber}`;
-    else if (phase === "breather") phaseLabel = `next wave in ${Math.ceil(breatherLeft)}s`;
+    else if (phase === "breather") { const _diff = roomRef.current?.difficulty ?? "normal"; phaseLabel = _diff === "easy" ? "both ready up to start next wave" : _diff === "hard" ? "next wave incoming…" : `next wave in ${Math.ceil(breatherLeft)}s`; }
     ctx.fillText(phaseLabel, W / 2, 28);
 
     // Survive-as-long-as-you-can counter
@@ -670,11 +807,14 @@ export default function ProtectorView({ room, onGameOver }) {
     }
 
     if (phase === "breather") {
-      const frac = breatherLeft / getBreatherDuration(waveNumber);
-      ctx.globalAlpha = 0.18;
-      ctx.fillStyle = "#ff4444";
-      ctx.fillRect(0, 0, W * (1 - frac), 3);
-      ctx.globalAlpha = 1;
+      const _breatherTotal = getBreatherDuration(waveNumber, roomRef.current?.difficulty ?? "normal");
+      if (_breatherTotal > 0 && _breatherTotal !== Infinity) {
+        const frac = breatherLeft / _breatherTotal;
+        ctx.globalAlpha = 0.18;
+        ctx.fillStyle = "#ff4444";
+        ctx.fillRect(0, 0, W * (1 - frac), 3);
+        ctx.globalAlpha = 1;
+      }
     }
 
     // HP bar
@@ -714,8 +854,8 @@ export default function ProtectorView({ room, onGameOver }) {
     ctx.font = "11px sans-serif";
     ctx.fillText(`${townspeople} people`, W - 14, H - 36);
 
-    // Upgrade shop hint
-    if (phase === "build" || phase === "breather") {
+    // Upgrade shop hint — available in any phase
+    {
       const hasShop = state.buildings.some(b => b.type === "upgrade_shop" && b.hp > 0);
       if (hasShop) {
         const shop = state.buildings.find(b => b.type === "upgrade_shop");
@@ -963,6 +1103,7 @@ export default function ProtectorView({ room, onGameOver }) {
     }
 
     if (state.phase === "breather") {
+      const diff = roomRef.current?.difficulty ?? "normal";
       // Run builder repair on the authoritative (protector) side so HP changes persist and sync correctly
       updateBuilderRepair(state.builderPos.x, state.builderPos.y, state.buildings, dt, state.upgrades ?? []);
 
@@ -984,19 +1125,56 @@ export default function ProtectorView({ room, onGameOver }) {
         }
       }
 
-      state.breatherLeft -= dt;
-      sendCountdown(state.breatherLeft);
-      // Market income ticks during breather too (wave 1+ only)
-      const breatherMarketIncome = updateMarketIncome(state.buildings, dt, state.waveNumber);
-      if (breatherMarketIncome > 0) state.gold = (state.gold ?? 0) + breatherMarketIncome;
-      // Sync building HP during breather so both players see repairs
-      if (ts - lastSyncRef.current > SYNC_THROTTLE) {
-        sendBuildingHealth(state.buildings.map(b => ({ id: b.id, hp: b.hp, maxHp: b.maxHp, workers: b.workers, upgradeTier: b.upgradeTier, _fireFlash: b._fireFlash, _aoeRange: b._aoeRange })), state.builderHp, state.playerHp, state.lockedWorkers ?? 0);
-        lastSyncRef.current = ts;
+      // Only tick the breather timer in normal mode
+      if (diff === "normal") {
+        state.breatherLeft -= dt;
+        sendCountdown(state.breatherLeft);
+        // Market income ticks during breather too (wave 1+ only)
+        const breatherMarketIncome = updateMarketIncome(state.buildings, dt, state.waveNumber);
+        if (breatherMarketIncome > 0) state.gold = (state.gold ?? 0) + breatherMarketIncome;
+        // Sync building HP during breather so both players see repairs
+        if (ts - lastSyncRef.current > SYNC_THROTTLE) {
+          sendBuildingHealth(state.buildings.map(b => ({ id: b.id, hp: b.hp, maxHp: b.maxHp, workers: b.workers, upgradeTier: b.upgradeTier, _fireFlash: b._fireFlash, _aoeRange: b._aoeRange })), state.builderHp, state.playerHp, state.lockedWorkers ?? 0);
+          lastSyncRef.current = ts;
+        }
+        if (state.breatherLeft <= 0) {
+          startWave(state);
+        }
+      } else {
+        // Easy: sync building HP so both players see repairs (no countdown)
+        if (ts - lastSyncRef.current > SYNC_THROTTLE) {
+          sendBuildingHealth(state.buildings.map(b => ({ id: b.id, hp: b.hp, maxHp: b.maxHp, workers: b.workers, upgradeTier: b.upgradeTier, _fireFlash: b._fireFlash, _aoeRange: b._aoeRange })), state.builderHp, state.playerHp, state.lockedWorkers ?? 0);
+          lastSyncRef.current = ts;
+        }
       }
-      if (state.breatherLeft <= 0) {
-        // Infinite waves — always start the next wave, never end on breather
-        startWave(state);
+
+      // ── Resume sync burst ────────────────────────────────────────────────
+      // After a resume, repeatedly broadcast full state every 600ms for up to
+      // 8 seconds so a Builder who joins late still receives the snapshot.
+      // _resumeSynced is set true when the Builder's first p2_move arrives,
+      // which marks the channel as live and the snapshot as received.
+      if (state._isResume && !state._resumeSynced) {
+        const now = Date.now();
+        if (!state._resumeStart) state._resumeStart = now;
+        const elapsed = now - state._resumeStart;
+        if (elapsed < 8000 && (!state._resumeLastSent || now - state._resumeLastSent > 600)) {
+          state._resumeLastSent = now;
+          sendGoldUpdate({ gold: state.gold, from: "protector" });
+          sendUnitUpdate(state.units.map(u => ({ id: u.id, x: u.x, y: u.y, hp: u.hp, maxHp: u.maxHp })));
+          sendEnemyUpdate([]);
+          sendPhaseChange("breather", {
+            waveNumber:      state.waveNumber,
+            gold:            state.gold,
+            townspeople:     state.townspeople,
+            bonusGold:       0,
+            builderHp:       state.builderHp,
+            lockedWorkers:   0,
+            resumeBuildings: state.buildings.map(b => ({ ...b })),
+            resumeUpgrades:  [...(state.upgrades ?? [])],
+            difficulty:      roomRef.current?.difficulty ?? "normal",
+          });
+        }
+        if (elapsed >= 8000) state._isResume = false; // give up after 8s
       }
     }
 
@@ -1055,6 +1233,15 @@ export default function ProtectorView({ room, onGameOver }) {
           }
         });
       }
+
+      // Zero out workers on any building that just fell this tick — Builder side
+      // won't know to clamp them until breather otherwise, causing stale ghost workers.
+      state.buildings.forEach(b => {
+        if (b.hp <= 0 && (b.workers ?? 0) > 0) {
+          b.workers = 0;
+          sendWorkerAssign(b.id, 0);
+        }
+      });
 
       // Units follow protector; if protector is down they guard the town center
       const rallyX = tc?.x ?? state.player.x;
@@ -1138,7 +1325,7 @@ export default function ProtectorView({ room, onGameOver }) {
 
       if (ts - lastSyncRef.current > SYNC_THROTTLE) {
         sendEnemyUpdate(state.enemies.filter(e => !e.dead).map(e => ({ id: e.id, x: e.x, y: e.y, hp: e.hp, maxHp: e.maxHp, chasingBuilder: e.chasingBuilder, type: e.type })));
-        sendBuildingHealth(state.buildings.map(b => ({ id: b.id, hp: b.hp, maxHp: b.maxHp, workers: b.workers, turretProjectiles: b.turretProjectiles ?? [] })), state.builderHp, state.playerHp, state.lockedWorkers ?? 0);
+        sendBuildingHealth(state.buildings.map(b => ({ id: b.id, hp: b.hp, maxHp: b.maxHp, workers: b.workers, upgradeTier: b.upgradeTier, turretProjectiles: b.turretProjectiles ?? [] })), state.builderHp, state.playerHp, state.lockedWorkers ?? 0);
         sendUnitUpdate(state.units.map(u => ({ id: u.id, x: u.x, y: u.y, hp: u.hp, maxHp: u.maxHp })));
         sendGoldUpdate({ gold: state.gold, from: "protector" });
         lastSyncRef.current = ts;
@@ -1178,12 +1365,12 @@ export default function ProtectorView({ room, onGameOver }) {
     state._waveBuildingHpStart = undefined;
     state._wasProtectorDown = false;
     state._wasBuilderDown   = false;
-    setMood("tense");
-    sfxWaveStart();
+    setMood("tense");    sfxWaveStart();
     sendPhaseChange("wave", { waveNumber: state.waveNumber });
   }
 
   function enterBreather(state) {
+    const diff = roomRef.current?.difficulty ?? "normal";
     const bonus = calcWaveEndGold(state.buildings);
     state.gold += bonus;
     const newTotal = calcTownspeople(state.buildings);
@@ -1191,6 +1378,10 @@ export default function ProtectorView({ room, onGameOver }) {
     clampWorkers(state.buildings, newTotal);
     // Restore all surviving soldiers to full hp between waves
     state.units.forEach(u => { u.hp = u.maxHp; });
+    // Reconcile soldier counts on all standing barracks (handles died soldiers, upgradeTier changes, etc.)
+    state.buildings.forEach(b => {
+      if (b.type === "barracks" && b.hp > 0) reconcileSoldiers(state, b);
+    });
     // Unlock all locked workers at the breather
     state.lockedWorkers = 0;
 
@@ -1212,11 +1403,47 @@ export default function ProtectorView({ room, onGameOver }) {
     }
     state.totalDowns = (state.totalDowns ?? 0) + (state.waveDowns ?? 0);
 
+    // Hard mode — skip breather entirely; set phase to breather briefly then immediately queue next wave
+    if (diff === "hard") {
+      state.phase = "breather";
+      state.breatherLeft = 0;
+      state.scoutData = null;
+      setMood("cozy");
+      sfxWaveClear();
+      const summary = {
+        waveNumber: state.waveNumber,
+        enemiesKilled: state.enemies.filter(e => e.dead).length,
+        totalEnemies: state.enemies.length,
+        bonusGold: bonus,
+        flawless,
+        flawlessBonus: flawless ? 75 : 0,
+        downs: state.waveDowns ?? 0,
+        buildingsStanding: state.buildings.filter(b => b.hp > 0).length,
+        totalBuildings: state.buildings.length,
+      };
+      setWaveSummary(summary);
+      sendWaveSummary(summary);
+      setTimeout(() => setWaveSummary(null), 6000);
+      sendEnemyUpdate([]);
+      sendPhaseChange("breather", { waveNumber: state.waveNumber, gold: state.gold, townspeople: state.townspeople, bonusGold: bonus, builderHp: PROTECTOR_MAX_HP, lockedWorkers: 0, difficulty: roomRef.current?.difficulty ?? "normal" });
+      // Start next wave after a brief pause (800ms) so clients can see the wave summary
+      setTimeout(() => { if (stateRef.current?.phase === "breather") startWave(stateRef.current); }, 800);
+      return;
+    }
+
     state.phase = "breather";
-    state.breatherLeft = getBreatherDuration(state.waveNumber);
-    state.scoutData = null; // reset so protector can scout the next wave
+    state.breatherLeft = getBreatherDuration(state.waveNumber, diff);
+    state.scoutData = null;
     setMood("cozy");
     sfxWaveClear();
+
+    // Easy mode — reset inter-wave ready-up flags
+    if (diff === "easy") {
+      waveP1ReadyRef.current = false;
+      waveP2ReadyRef.current = false;
+      setWaveP1Ready(false);
+      setWaveP2Ready(false);
+    }
 
     // Wave summary — sent to both players
     const summary = {
@@ -1247,9 +1474,9 @@ export default function ProtectorView({ room, onGameOver }) {
       });
     }
 
-    // Flush empty enemy list immediately so builder's screen clears — don't wait for next throttled sync
+    // Flush empty enemy list immediately so builder's screen clears
     sendEnemyUpdate([]);
-    sendPhaseChange("breather", { waveNumber: state.waveNumber, gold: state.gold, townspeople: state.townspeople, bonusGold: bonus, builderHp: PROTECTOR_MAX_HP, lockedWorkers: 0 });
+    sendPhaseChange("breather", { waveNumber: state.waveNumber, gold: state.gold, townspeople: state.townspeople, bonusGold: bonus, builderHp: PROTECTOR_MAX_HP, lockedWorkers: 0, difficulty: roomRef.current?.difficulty ?? "normal" });
   }
 
   function endGame(state, won) {
@@ -1306,8 +1533,8 @@ export default function ProtectorView({ room, onGameOver }) {
       return;
     }
 
-    // Upgrade shop tap
-    if (s.phase === "build" || s.phase === "breather") {
+    // Upgrade shop tap — available in any phase
+    {
       const shop = s.buildings.find(b => b.type === "upgrade_shop" && b.hp > 0);
       if (shop) {
         const inRange = dist(s.player.x, s.player.y, shop.x, shop.y) < 80;
@@ -1614,6 +1841,59 @@ export default function ProtectorView({ room, onGameOver }) {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Save game button — breather/build phase only */}
+      {!showShop && (stateRef.current?.phase === "breather" || stateRef.current?.phase === "build") && (
+        <button
+          onClick={handleSaveGame}
+          style={{
+            position: "absolute", top: 12, left: 12,
+            padding: "6px 16px", borderRadius: 10, fontSize: 11,
+            background: saveNotice === "saved" ? "rgba(120,255,120,0.08)" : "rgba(255,255,255,0.04)",
+            border: `0.5px solid ${saveNotice === "saved" ? "rgba(120,255,120,0.3)" : "rgba(255,255,255,0.1)"}`,
+            color: saveNotice === "saved" ? "rgba(120,255,120,0.8)" : "rgba(255,255,255,0.35)",
+            cursor: "pointer", letterSpacing: "0.04em", transition: "all 0.25s",
+          }}
+        >
+          {saveNotice === "saving" ? "saving…" : saveNotice === "saved" ? "✓ game saved" : "save & pause"}
+        </button>
+      )}
+
+      {/* Inter-wave ready-up — easy mode only, shown during breather */}
+      {!showShop && difficulty === "easy" && stateRef.current?.phase === "breather" && (
+        <div style={{
+          position: "absolute", bottom: 80, left: "50%", transform: "translateX(-50%)",
+          display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
+        }}>
+          {waveP2Ready && !waveP1Ready && (
+            <div style={{ fontSize: 11, color: "rgba(120,200,255,0.55)" }}>builder is ready</div>
+          )}
+          <button
+            onClick={() => {
+              if (waveP1ReadyRef.current) return;
+              waveP1ReadyRef.current = true;
+              setWaveP1Ready(true);
+              sendPlayerReady("p1", "wave");
+              if (waveP2ReadyRef.current && stateRef.current?.phase === "breather") {
+                waveP1ReadyRef.current = false; waveP2ReadyRef.current = false;
+                setWaveP1Ready(false); setWaveP2Ready(false);
+                startWave(stateRef.current);
+              }
+            }}
+            style={{
+              padding: "12px 32px", borderRadius: 14, fontSize: 13,
+              background: waveP1Ready ? "rgba(120,255,120,0.08)" : "rgba(255,210,80,0.08)",
+              border: `1px solid ${waveP1Ready ? "rgba(120,255,120,0.3)" : "rgba(255,210,80,0.3)"}`,
+              color: waveP1Ready ? "rgba(120,255,120,0.7)" : "rgba(255,210,80,0.85)",
+              cursor: waveP1Ready ? "default" : "pointer",
+              letterSpacing: "0.05em", transition: "all 0.2s",
+              minHeight: 48, minWidth: 180,
+            }}
+          >
+            {waveP1Ready ? "ready ✓" : `start wave ${(stateRef.current?.waveNumber ?? 0) + 1}`}
+          </button>
         </div>
       )}
 
