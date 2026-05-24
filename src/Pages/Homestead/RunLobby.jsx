@@ -5,6 +5,25 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useHearthroom } from "./useHearthroom";
 
+// Prevent the browser from scrolling while the run-lobby menu is mounted.
+function useBlockBrowserScroll(ref) {
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const block = (e) => e.preventDefault();
+    el.addEventListener("wheel", block, { passive: false });
+    // Also block spacebar scroll on the document while this screen is open
+    const blockSpace = (e) => {
+      if (e.key === " " || e.code === "Space") e.preventDefault();
+    };
+    window.addEventListener("keydown", blockSpace);
+    return () => {
+      el.removeEventListener("wheel", block);
+      window.removeEventListener("keydown", blockSpace);
+    };
+  }, [ref]);
+}
+
 const COUNTDOWN_S = 30;
 
 const RUN_INFO = {
@@ -14,14 +33,16 @@ const RUN_INFO = {
   fishing: { icon:"🎣", label:"Fishing Trip",      desc:"Cast your line, time your pull, reel in fish.", bg:"#04101a", accent:"rgba(80,200,255,0.9)"    },
 };
 
-export default function RunLobby({ room, role, onRunStart, onCancel, joining = false, joinSeed = null, runType: propRunType = null }) {
+export default function RunLobby({ room, role, onRunStart, onCancel, joining = false, joinSeed = null, runType: propRunType = null, equipment = null }) {
   const [countdown,     setCountdown]    = useState(COUNTDOWN_S);
   const [partnerJoined, setPartnerJoined] = useState(joining);
   const [seed]          = useState(() => joining && joinSeed ? joinSeed : (Date.now() & 0x7fffffff));
   const [selectedType,  setSelectedType] = useState(propRunType ?? "forest");
   const [confirmed,     setConfirmed]    = useState(joining || propRunType !== null);
-  const timerRef  = useRef(null);
+  const timerRef   = useRef(null);
   const startedRef = useRef(false);
+  const containerRef = useRef(null);
+  useBlockBrowserScroll(containerRef);
 
   const info = RUN_INFO[selectedType] || RUN_INFO.forest;
 
@@ -32,8 +53,8 @@ export default function RunLobby({ room, role, onRunStart, onCancel, joining = f
     onRunStart({ seed, coOp, runType: selectedType });
   }
 
-  const seedRef     = useRef(seed);
-  const typeRef     = useRef(selectedType);
+  const seedRef = useRef(seed);
+  const typeRef = useRef(selectedType);
   useEffect(() => { typeRef.current = selectedType; }, [selectedType]);
 
   const handlers = useRef({
@@ -42,7 +63,7 @@ export default function RunLobby({ room, role, onRunStart, onCancel, joining = f
       if (!startedRef.current) {
         startedRef.current = true;
         clearInterval(timerRef.current);
-        sendRunStartedRef.current?.(seedRef.current);
+        sendRunStartedRef.current?.(seedRef.current, typeRef.current);
         onRunStart({ seed: seedRef.current, coOp: true, runType: typeRef.current });
       }
     },
@@ -102,7 +123,7 @@ export default function RunLobby({ room, role, onRunStart, onCancel, joining = f
   // ── Run type picker (before confirming) ────────────────────────────────────
   if (!confirmed && !joining) {
     return (
-      <main style={{
+      <main ref={containerRef} style={{
         minHeight:"100svh", background:"#0a0e0a", color:"#f5e6c8",
         display:"flex", flexDirection:"column", alignItems:"center",
         justifyContent:"center", gap:24, fontFamily:"monospace", padding:"0 24px",
@@ -142,6 +163,15 @@ export default function RunLobby({ room, role, onRunStart, onCancel, joining = f
         </div>
 
         <div style={{ display:"flex", flexDirection:"column", gap:10, width:"100%", maxWidth:320 }}>
+          {selectedType === "fishing" && equipment?.weapon !== "fishing_rod" && (
+            <div style={{
+              padding:"10px 14px", borderRadius:10,
+              background:"rgba(255,150,40,0.08)", border:"1px solid rgba(255,150,40,0.3)",
+              color:"rgba(255,180,80,0.85)", fontSize:11, fontFamily:"monospace", textAlign:"center",
+            }}>
+              🎣 you'll need a fishing rod equipped — you can still go but won't be able to fish
+            </div>
+          )}
           <button
             onClick={() => setConfirmed(true)}
             style={{
@@ -165,7 +195,7 @@ export default function RunLobby({ room, role, onRunStart, onCancel, joining = f
 
   // ── Countdown lobby ────────────────────────────────────────────────────────
   return (
-    <main style={{
+    <main ref={containerRef} style={{
       minHeight:"100svh", background: info.bg,
       color:"#f5e6c8", display:"flex", flexDirection:"column",
       alignItems:"center", justifyContent:"center",

@@ -67,8 +67,8 @@ function LootRow({ item, qty, delay }) {
     <div style={{
       display: "flex",
       alignItems: "center",
-      gap: 12,
-      padding: "10px 16px",
+      gap: 10,
+      padding: "7px 14px",
       borderRadius: 8,
       background: "rgba(255,255,255,0.04)",
       border: "1px solid rgba(255,255,255,0.07)",
@@ -117,16 +117,19 @@ export default function LootSummary({ room, runLoot, kills, chestInventory, onRe
 
   return (
     <main style={{
-      minHeight: "100svh",
+      height: "100svh",
+      maxHeight: "100svh",
       background: "#0a120a",
       color: "#f5e6c8",
       display: "flex",
       flexDirection: "column",
       alignItems: "center",
       justifyContent: "center",
-      gap: 24,
+      gap: 20,
       fontFamily: "monospace",
-      padding: "24px",
+      padding: "20px 24px",
+      boxSizing: "border-box",
+      overflow: "hidden",
     }}>
       {/* Header */}
       <div style={{ textAlign: "center" }}>
@@ -144,7 +147,7 @@ export default function LootSummary({ room, runLoot, kills, chestInventory, onRe
       </div>
 
       {/* Loot list */}
-      <div style={{ width: "100%", maxWidth: 320, display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ width: "100%", maxWidth: 320, display: "flex", flexDirection: "column", gap: 6, maxHeight: "38vh", overflowY: "auto", paddingRight: 4 }}>
         {lootEntries.length === 0 ? (
           <p style={{ textAlign: "center", fontSize: 12, color: "rgba(245,230,200,0.25)" }}>
             nothing collected this run

@@ -17,7 +17,17 @@ export const BUILDING_COSTS = {
   home:          80,
 };
 
-export const BUILDING_SURVIVAL_BONUS = 25; // gold per building at full hp after wave
+export const BUILDING_SURVIVAL_BONUS = 25; // gold per building at full hp after wave (base, scales with wave)
+
+// ─── Kill gold scaling ────────────────────────────────────────────────────────
+// Protector / burn-aura kills: base 20–30g + wave scaling
+// Unit / turret / fire-trap kills: base 10–15g + wave scaling
+// Demolishers pay a premium bounty on top of the normal scaling.
+export const KILL_GOLD_WAVE_SCALE_PROTECTOR = 1.5; // extra gold per wave for protector kills
+export const KILL_GOLD_WAVE_SCALE_UNIT      = 1.0; // extra gold per wave for unit/turret/trap kills
+export const KILL_GOLD_DEMOLISHER_BONUS     = 15;  // flat extra gold on top of scaled amount for demolisher kills
+// Survival bonus scales with wave: base 25 + 3 per wave
+export const BUILDING_SURVIVAL_BONUS_WAVE_SCALE = 3; // extra gold per building per wave
 
 // ─── Protector stats ──────────────────────────────────────────────────────────
 
@@ -521,7 +531,10 @@ export function updateProtectorAttack(state, dt) {
 
   if (target.hp <= 0) {
     target.dead = true;
-    const goldDrop = 20 + Math.floor(Math.random() * 11);
+    const waveNumber = state.waveNumber ?? 1;
+    const waveBonus  = Math.floor(waveNumber * KILL_GOLD_WAVE_SCALE_PROTECTOR);
+    const demoBonus  = target.type === "demolisher" ? KILL_GOLD_DEMOLISHER_BONUS : 0;
+    const goldDrop = 20 + waveBonus + demoBonus + Math.floor(Math.random() * 11);
     target._goldDrop = goldDrop;
     target._goldAwardedByProtector = true;
     state.gold = (state.gold ?? 0) + goldDrop;
@@ -622,8 +635,12 @@ export function spawnWave(waveNumber, seed) {
     : base + 12 + Math.floor((waveNumber - 4) * 3);       // 22, 25, 28 ... (slower ramp)
   const enemies = [];
 
-  // Demolishers appear from wave 3 onward — 1 per 2 waves, max 3
-  const demolisherCount = waveNumber >= 3 ? Math.min(Math.floor((waveNumber - 2) / 2), 3) : 0;
+  // Demolishers: linear ramp early, then accelerates quadratically after wave 10.
+  // No cap — by wave 50+ they're the majority; wave 60 is ~70% demolishers.
+  const demolisherCount = waveNumber >= 3
+    ? Math.min(count, Math.floor((waveNumber - 2) / 2) +
+        (waveNumber >= 10 ? Math.floor(Math.pow((waveNumber - 10) / 5, 2)) : 0))
+    : 0;
 
   for (let i = 0; i < count; i++) {
     // First N enemies are demolishers
@@ -674,7 +691,7 @@ export function spawnWave(waveNumber, seed) {
 
 // ─── Enemy AI ─────────────────────────────────────────────────────────────────
 
-const PROTECTOR_NOTICE_RADIUS = 120; // enemies peel off to chase protector within this range
+const PROTECTOR_NOTICE_RADIUS = 80;  // reduced — enemies stay on buildings longer, protector must actively engage
 const PROTECTOR_LEASH_RADIUS  = 250; // if protector runs further than this, enemy reverts to buildings
 const PROTECTOR_CHASE_SPEED_MULT = 1.0; // protector chasers move at full speed
 
@@ -691,7 +708,8 @@ export function updateEnemies(enemies, buildings, builderX, builderY, dt, slowZo
 
     // Demolishers ignore players entirely — straight to buildings
     // Demolishers prioritise walls (they're building destroyers)
-    if (e.ignoresPlayers) {
+    // Exception: taunt overrides even demolishers — they temporarily chase the protector.
+    if (e.ignoresPlayers && !(tauntActive && protectorAlive)) {
       let target = null, bestDist = Infinity;
       // Demolishers prefer walls if any block their path to the TC, otherwise nearest building
       livingBuildings.forEach(b => {
@@ -725,8 +743,8 @@ export function updateEnemies(enemies, buildings, builderX, builderY, dt, slowZo
     const dProtector = protectorAlive
       ? dist(e.x, e.y, protectorX, protectorY) : Infinity;
 
-    if (tauntActive && protectorAlive && !e.ignoresPlayers) {
-      // Taunt overrides leash — all enemies forced to chase protector regardless of distance
+    if (tauntActive && protectorAlive) {
+      // Taunt overrides leash — all enemies (including destroyers) forced to chase protector
       e.chasingProtector = true;
     } else if (e.chasingProtector) {
       if (dProtector > PROTECTOR_LEASH_RADIUS) {
@@ -847,7 +865,7 @@ export function updateEnemies(enemies, buildings, builderX, builderY, dt, slowZo
 
 // ─── Combat: units attack enemies ─────────────────────────────────────────────
 
-export function updateUnitCombat(units, enemies, dt, upgrades = []) {
+export function updateUnitCombat(units, enemies, dt, upgrades = [], waveNumber = 1) {
   const baseDamage = 18 + upgradeCount(upgrades, "soldier_dmg") * 5;
   const RATE = 1.2;
   const RANGE = 55;
@@ -874,7 +892,9 @@ export function updateUnitCombat(units, enemies, dt, upgrades = []) {
     if (target.hp <= 0 && !target.dead) {
       target.dead = true;
       // Store gold drop on enemy so ProtectorView can award it and show the floater
-      target._goldDrop = 10 + Math.floor(Math.random() * 6);
+      const waveBonus = Math.floor(waveNumber * KILL_GOLD_WAVE_SCALE_UNIT);
+      const demoBonus = target.type === "demolisher" ? KILL_GOLD_DEMOLISHER_BONUS : 0;
+      target._goldDrop = 10 + waveBonus + demoBonus + Math.floor(Math.random() * 6);
     }
   });
 
@@ -887,7 +907,7 @@ export function updateUnitCombat(units, enemies, dt, upgrades = []) {
 
 // ─── Turret combat ────────────────────────────────────────────────────────────
 
-export function updateTurrets(buildings, enemies, dt) {
+export function updateTurrets(buildings, enemies, dt, waveNumber = 1) {
   buildings.forEach(b => {
     if (b.type !== "turret" || b.hp <= 0) return;
     const def = BUILDING_TYPES.turret;
@@ -923,7 +943,9 @@ export function updateTurrets(buildings, enemies, dt) {
 
     if (target.hp <= 0 && !target.dead) {
       target.dead = true;
-      target._goldDrop = 10 + Math.floor(Math.random() * 6);
+      const waveBonus = Math.floor(waveNumber * KILL_GOLD_WAVE_SCALE_UNIT);
+      const demoBonus = target.type === "demolisher" ? KILL_GOLD_DEMOLISHER_BONUS : 0;
+      target._goldDrop = 10 + waveBonus + demoBonus + Math.floor(Math.random() * 6);
     }
   });
 
@@ -937,7 +959,7 @@ export function updateTurrets(buildings, enemies, dt) {
 
 // ─── Fire Trap AOE ────────────────────────────────────────────────────────────
 
-export function updateFireTraps(buildings, enemies, dt) {
+export function updateFireTraps(buildings, enemies, dt, waveNumber = 1) {
   const livingEnemies = enemies.filter(e => !e.dead);
   if (livingEnemies.length === 0) return;
 
@@ -969,7 +991,9 @@ export function updateFireTraps(buildings, enemies, dt) {
         e.hp -= aoeDamage;
         if (e.hp <= 0 && !e.dead) {
           e.dead = true;
-          e._goldDrop = 10 + Math.floor(Math.random() * 6);
+          const waveBonus = Math.floor(waveNumber * KILL_GOLD_WAVE_SCALE_UNIT);
+          const demoBonus = e.type === "demolisher" ? KILL_GOLD_DEMOLISHER_BONUS : 0;
+          e._goldDrop = 10 + waveBonus + demoBonus + Math.floor(Math.random() * 6);
         }
       }
     });
@@ -1008,7 +1032,10 @@ export function updateBurnAura(state, dt) {
       e.hp -= damage * dt;
       if (e.hp <= 0 && !e.dead) {
         e.dead = true;
-        e._goldDrop = 20 + Math.floor(Math.random() * 11);
+        const waveNumber = state.waveNumber ?? 1;
+        const waveBonus  = Math.floor(waveNumber * KILL_GOLD_WAVE_SCALE_PROTECTOR);
+        const demoBonus  = e.type === "demolisher" ? KILL_GOLD_DEMOLISHER_BONUS : 0;
+        e._goldDrop = 20 + waveBonus + demoBonus + Math.floor(Math.random() * 11);
         e._goldAwardedByBurnAura = true;
         state.gold = (state.gold ?? 0) + e._goldDrop;
       }
@@ -1072,28 +1099,27 @@ export function activateShieldWall(state) {
 
 // Rally flag: stored as state.rallyFlag = { x, y, timeLeft } | null
 export function activateRallyFlag(state, worldX, worldY) {
-  state.rallyFlag = { x: worldX, y: worldY, timeLeft: RALLY_DURATION };
+  // Flag persists indefinitely — must be removed by clicking near it in rally mode
+  state.rallyFlag = { x: worldX, y: worldY };
 }
 
 export function updateRallyFlag(state, dt) {
-  if (!state.rallyFlag) return;
-  state.rallyFlag.timeLeft -= dt;
-  if (state.rallyFlag.timeLeft <= 0) state.rallyFlag = null;
+  // No-op: flag is permanent until explicitly removed by the player
 }
 
 const ENEMY_ATTACK_RANGE  = 14;
-const ENEMY_ATTACK_DAMAGE = 5;   // base; scales with wave (see getEnemyAttackDamage)
-const ENEMY_ATTACK_RATE   = 1.4;
-const DEMOLISHER_ATTACK_DAMAGE = 18; // ~3.6× brute — punishing
-const DEMOLISHER_ATTACK_RATE   = 0.6; // slower swing but huge hits
+const ENEMY_ATTACK_DAMAGE = 9;   // base; scales with wave (see getEnemyAttackDamage)
+const ENEMY_ATTACK_RATE   = 2.0; // brutes hit frequently — builder cannot out-repair solo
+const DEMOLISHER_ATTACK_DAMAGE = 40; // massive — shreds buildings in seconds if uncontested
+const DEMOLISHER_ATTACK_RATE   = 0.875; // ~35 DPS base, kills a barracks in ~2s
 
-// Enemy attack scales gently with wave: +0.5 dmg/wave for regular enemies,
-// +1.0/wave for demolishers. Caps at wave 20 to avoid runaway numbers.
+// Enemy attack scales aggressively with wave: +1.0 dmg/wave for regular enemies,
+// +2.0/wave for demolishers — no cap, late waves are supposed to be brutal.
 export function getEnemyAttackDamage(waveNumber = 1) {
-  return ENEMY_ATTACK_DAMAGE + waveNumber * 0.5;
+  return ENEMY_ATTACK_DAMAGE + waveNumber * 1.0;
 }
 export function getDemolisherAttackDamage(waveNumber = 1) {
-  return DEMOLISHER_ATTACK_DAMAGE + waveNumber * 1.0;
+  return DEMOLISHER_ATTACK_DAMAGE + waveNumber * 2.0;
 }
 
 // Returns the new protector hp (caller must write it back to state)
@@ -1252,7 +1278,7 @@ export function updateUnitMovement(units, heroX, heroY, dt, enemies = [], rallyX
 // ─── Builder repair ───────────────────────────────────────────────────────────
 
 export const BUILDER_DIRECT_REPAIR_RADIUS = 30; // how close builder must be to directly repair
-export const BUILDER_DIRECT_REPAIR_RATE   = 8;  // hp/sec for direct repair
+export const BUILDER_DIRECT_REPAIR_RATE   = 6;  // hp/sec for direct repair — intentionally can't out-rep heavy enemy pressure
 export const BUILDER_PLACE_RANGE_BONUS    = 30; // added to PLACE_RANGE with place_range upgrade
 
 export function updateBuilderRepair(builderX, builderY, buildings, dt, upgrades = []) {
@@ -1327,8 +1353,9 @@ export function getSlowZones(buildings, upgrades = []) {
 
 // ─── Wave end: calculate gold bonus ──────────────────────────────────────────
 
-export function calcWaveEndGold(buildings) {
-  return buildings.filter(b => b.hp >= b.maxHp && b.type !== "town_center").length * BUILDING_SURVIVAL_BONUS;
+export function calcWaveEndGold(buildings, waveNumber = 1) {
+  const bonusPerBuilding = BUILDING_SURVIVAL_BONUS + BUILDING_SURVIVAL_BONUS_WAVE_SCALE * waveNumber;
+  return buildings.filter(b => b.hp >= b.maxHp && b.type !== "town_center").length * Math.round(bonusPerBuilding);
 }
 
 // ─── Townspeople: recalculate from standing homes ─────────────────────────────
@@ -1376,7 +1403,10 @@ export function scoutWave(waveNumber, seed) {
   const count = waveNumber <= 4
     ? base + (waveNumber - 1) * 4
     : base + 12 + Math.floor((waveNumber - 4) * 3);
-  const demolisherCount = waveNumber >= 3 ? Math.min(Math.floor((waveNumber - 2) / 2), 3) : 0;
+  const demolisherCount = waveNumber >= 3
+    ? Math.min(count, Math.floor((waveNumber - 2) / 2) +
+        (waveNumber >= 10 ? Math.floor(Math.pow((waveNumber - 10) / 5, 2)) : 0))
+    : 0;
 
   const perSide = [0, 0, 0, 0];
   const demolishersPerSide = [0, 0, 0, 0];
@@ -1409,8 +1439,8 @@ export function sellBuilding(buildingId, buildings, gold, upgrades = []) {
   const b = buildings[idx];
   if (b.type === "town_center") return { buildings, gold }; // can't sell TC
   const refundRate = upgrades.includes("sell_refund") ? 0.75 : 0.5;
-  const refund = Math.floor((b.maxHp > 0 ? b.hp / b.maxHp : 0) * (b.maxHp > 0 ? 1 : 0) * 0 +
-    ((BUILDING_TYPES[b.type]?.cost ?? 0) * refundRate));
+  const hpFrac = b.maxHp > 0 ? Math.max(0, b.hp / b.maxHp) : 0;
+  const refund = Math.floor((BUILDING_TYPES[b.type]?.cost ?? 0) * refundRate * hpFrac);
   const newBuildings = buildings.filter((_, i) => i !== idx);
   return { buildings: newBuildings, gold: gold + refund, refund };
 }

@@ -246,14 +246,37 @@ function drawObject(ctx, obj, sx, sy, isTarget) {
 function drawPlaceable(ctx, sx, sy, obj, info) {
   const cx = sx + (obj.w * TILE) / 2;
   const cy = sy + (obj.h * TILE) / 2;
-  // Drop shadow
-  ctx.fillStyle = "rgba(0,0,0,0.18)";
-  ctx.beginPath(); ctx.ellipse(cx + 2, cy + (obj.h * TILE) * 0.4, obj.w * TILE * 0.4, obj.h * TILE * 0.15, 0, 0, Math.PI * 2); ctx.fill();
-  // Emoji icon
-  const fontSize = Math.max(obj.w, obj.h) * TILE * 0.65;
+  const tileW = obj.w * TILE;
+  const tileH = obj.h * TILE;
+
+  // Solid dirt-toned backing so decoration stands out against grass
+  ctx.fillStyle = "rgba(180,155,100,0.55)";
+  ctx.beginPath();
+  ctx.roundRect(sx + 2, sy + 2, tileW - 4, tileH - 4, 6);
+  ctx.fill();
+
+  // Visible border
+  ctx.strokeStyle = "rgba(220,195,130,0.75)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.roundRect(sx + 2, sy + 2, tileW - 4, tileH - 4, 6);
+  ctx.stroke();
+
+  // Drop shadow under emoji
+  ctx.fillStyle = "rgba(0,0,0,0.3)";
+  ctx.beginPath();
+  ctx.ellipse(cx + 2, sy + tileH - 5, tileW * 0.36, tileH * 0.11, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Emoji — full opacity, large and centered
+  const fontSize = Math.max(obj.w, obj.h) * TILE * 0.78;
+  ctx.save();
+  ctx.globalAlpha = 1.0;
   ctx.font = `${fontSize}px serif`;
-  ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.fillText(info.icon, cx, cy - 4);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(info.icon, cx, cy - 3);
+  ctx.restore();
 }
 
 // ─── Player drawing ───────────────────────────────────────────────────────────
@@ -345,16 +368,16 @@ function drawHUD(ctx, W, H, inventory, interactTarget, t) {
   ctx.textAlign = "right"; ctx.fillStyle = "#d8eaa0"; ctx.font = "11px monospace";
   const inv = inventory;
   ctx.fillText(
-    `🪵${inv.wood ?? 0}  🪨${inv.stone ?? 0}  🌿${inv.herbs ?? 0}  🦴${inv.leather ?? 0}`,
+    `🪵wood:${inv.wood ?? 0}  🪨stone:${inv.stone ?? 0}  🌿herbs:${inv.herbs ?? 0}  🦴leathr:${inv.leather ?? 0}`,
     W - 14, 15
   );
 
-  // Interact prompt
+  // Interact prompt — positioned above hotbar (hotbar is ~80px tall from bottom)
   if (interactTarget) {
     const msg   = interactTarget.label ?? "[E] Interact";
     ctx.font    = "bold 11px monospace";
     const mw    = ctx.measureText(msg).width + 28;
-    const bx    = W / 2 - mw / 2, by = H - 58;
+    const bx    = W / 2 - mw / 2, by = H - 110;
     ctx.fillStyle = "rgba(18,10,4,0.88)"; ctx.fillRect(bx, by, mw, 24);
     ctx.strokeStyle = "rgba(255,220,80,0.75)"; ctx.lineWidth = 1; ctx.strokeRect(bx, by, mw, 24);
     ctx.fillStyle = "#f5e6b0"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
@@ -533,7 +556,15 @@ function ChestOverlay({ inventory, onClose }) {
 }
 
 // ─── Run Join Prompt overlay ─────────────────────────────────────────────────
+const RUN_TYPE_INFO = {
+  forest:  { icon: "🌲", label: "Forest Run" },
+  mining:  { icon: "⛏️", label: "Mining Run" },
+  fruit:   { icon: "🍎", label: "Fruit Picking" },
+  fishing: { icon: "🎣", label: "Fishing Trip" },
+};
+
 function RunJoinPrompt({ runType, onJoin, onDecline }) {
+  const info = RUN_TYPE_INFO[runType] ?? RUN_TYPE_INFO.forest;
   return (
     <div style={{
       position: "absolute", inset: 0,
@@ -560,10 +591,10 @@ function RunJoinPrompt({ runType, onJoin, onDecline }) {
             partner is heading out
           </p>
           <h2 style={{ fontSize: 22, fontWeight: 400, color: "rgba(200,230,120,0.9)" }}>
-            🌲 Forest Run
+            {info.icon} {info.label}
           </h2>
           <p style={{ fontSize: 12, color: "rgba(245,230,200,0.45)", marginTop: 8, lineHeight: 1.6 }}>
-            Your partner just queued a forest run. Join them for a co-op run?
+            Your partner just queued a {info.label.toLowerCase()}. Join them for a co-op run?
           </p>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -1152,6 +1183,7 @@ function PlaceablesOverlay({ inventory, onPlace, onClose }) {
   }
 
   const ITEM_IC = { wood:"🪵", stone:"🪨", sticks:"🪹", herbs:"🌿", leather:"🦴" };
+  const ITEM_SHORT = { wood:"wood", stone:"stone", sticks:"sticks", herbs:"herbs", leather:"leathr" };
 
   return (
     <div style={{ position:"absolute", inset:0, background:"rgba(4,10,4,0.87)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:17 }} onClick={onClose}>
@@ -1193,7 +1225,7 @@ function PlaceablesOverlay({ inventory, onPlace, onClose }) {
                     const have = (inventory?.[item] ?? 0);
                     return (
                       <span key={item} style={{ color: have >= qty ? "rgba(200,230,120,0.6)" : "rgba(255,120,100,0.6)" }}>
-                        {ITEM_IC[item]??""}{have}/{qty}
+                        {ITEM_IC[item] ?? ""}{ITEM_SHORT[item] ?? item}:{have}/{qty}
                       </span>
                     );
                   })}
@@ -1219,6 +1251,14 @@ function PlaceablesOverlay({ inventory, onPlace, onClose }) {
 const ITEM_ICONS_HOTBAR = {
   axe: "🪓", pickaxe: "⛏️", fishing_rod: "🎣",
   leather_armor: "🛡️", cooked_meat: "🍖", potion_table: "🧪",
+  fish: "🐟", big_fish: "🐠", rare_fish: "🐡",
+  apples: "🍎", berries: "🫐", mushrooms: "🍄", herbs: "🌿",
+};
+const ITEM_SHORT_LABELS_HOTBAR = {
+  axe:"axe", pickaxe:"pick", fishing_rod:"rod",
+  leather_armor:"armor", cooked_meat:"meat", potion_table:"pot",
+  fish:"fish", big_fish:"bfish", rare_fish:"rfish",
+  apples:"apple", berries:"berry", mushrooms:"mush", herbs:"herb",
 };
 
 function HotbarBar({ hotbar, equipment, onOpenMenu, onUseSlot }) {
@@ -1236,16 +1276,19 @@ function HotbarBar({ hotbar, equipment, onOpenMenu, onUseSlot }) {
             onClick={() => slot ? onUseSlot?.(idx) : onOpenMenu("inventory")}
             title={slot ? `${slot.item}${slot.qty != null ? ` ×${slot.qty}` : ""}` : `Slot ${idx + 1} — open inventory to assign`}
             style={{
-              width: 44, height: 44, borderRadius: 8, cursor: "pointer",
+              width: 44, height: 52, borderRadius: 8, cursor: "pointer",
               background: slot ? "rgba(10,18,6,0.92)" : "rgba(10,18,6,0.55)",
               border: `2px solid ${isEquipped ? "rgba(100,200,255,0.6)" : slot ? "rgba(200,230,120,0.35)" : "rgba(255,255,255,0.1)"}`,
               display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-              position: "relative", transition: "border-color 0.15s",
+              position: "relative", transition: "border-color 0.15s", gap: 1,
             }}
           >
             {slot ? (
               <>
-                <span style={{ fontSize: 22, lineHeight: 1 }}>{ITEM_ICONS_HOTBAR[slot.item] ?? "📦"}</span>
+                <span style={{ fontSize: 18, lineHeight: 1 }}>{ITEM_ICONS_HOTBAR[slot.item] ?? "📦"}</span>
+                <span style={{ fontSize: 8, color: "rgba(200,230,120,0.65)", lineHeight: 1, fontFamily: "monospace", maxWidth: 40, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {ITEM_SHORT_LABELS_HOTBAR[slot.item] ?? slot.item}
+                </span>
                 {slot.qty != null && (
                   <span style={{ fontSize: 9, color: "rgba(200,230,120,0.8)", lineHeight: 1, marginTop: 1 }}>{slot.qty}</span>
                 )}
@@ -1316,12 +1359,20 @@ function TabMenu({
   inventory, equipment, onEquipItem,
   hotbar, onHotbarChange,
   onCraft, character, onCharacterUpdate,
-  onPlace,
+  onPlace, onStartGhostPlace,
 }) {
   const [craftMsg, setCraftMsg] = React.useState(null);
   const [placeMsg, setPlaceMsg] = React.useState(null);
   const [ch, setCh] = React.useState({ ...character });
   const [dragOverSlot, setDragOverSlot] = React.useState(null);
+  const [invSubTab, setInvSubTab] = React.useState("consumables");
+
+  // Prevent spacebar from scrolling the browser while this menu is open
+  React.useEffect(() => {
+    const block = (e) => { if (e.key === " " || e.code === "Space") e.preventDefault(); };
+    window.addEventListener("keydown", block);
+    return () => window.removeEventListener("keydown", block);
+  }, []);
 
   function assignToHotbarSlot(itemName, slotIdx) {
     const isConsumable = !!HOTBAR_ITEMS[itemName];
@@ -1343,94 +1394,135 @@ function TabMenu({
     onHotbarChange?.(newHotbar);
   }
 
-  // ── Tab: Inventory ──────────────────────────────────────────────────────────
-  function InventoryTab() {
-    const items = Object.entries(inventory ?? {}).filter(([, v]) => v > 0);
-    const resources = items.filter(([k]) => !EQUIPPABLE[k] && !HOTBAR_ITEMS[k]);
-    const consumables = items.filter(([k]) => !!HOTBAR_ITEMS[k]);
-    const gear = items.filter(([k]) => !!EQUIPPABLE[k]);
-
-    function handleDragStart(e, itemName) {
-      e.dataTransfer.setData("hotbar_item", itemName);
-      e.dataTransfer.effectAllowed = "copy";
-    }
-
+  // ── Hotbar drop zone (sticky, rendered outside the scroll pane) ─────────────
+  function HotbarDropZone() {
     function handleSlotDrop(e, idx) {
       e.preventDefault();
       const itemName = e.dataTransfer.getData("hotbar_item");
       if (itemName) assignToHotbarSlot(itemName, idx);
       setDragOverSlot(null);
     }
-
     function handleSlotDragOver(e, idx) {
       e.preventDefault();
       e.dataTransfer.dropEffect = "copy";
       setDragOverSlot(idx);
     }
-
     function handleSlotClear(idx) {
       const next = [...hotbar]; next[idx] = null; onHotbarChange?.(next);
     }
+    return (
+      <div style={{
+        padding: "10px 20px 10px",
+        borderBottom: "1px solid rgba(255,255,255,0.07)",
+        background: "#0f1709",
+      }}>
+        <p style={{ fontSize:9, color:"rgba(245,230,200,0.22)", letterSpacing:"0.14em", textTransform:"uppercase", marginBottom:7 }}>
+          hotbar — drag any item onto a slot
+        </p>
+        <div style={{ display: "flex", gap: 5 }}>
+          {hotbar.map((slot, idx) => {
+            const isOver = dragOverSlot === idx;
+            const isEq = slot && equipment?.[EQUIPPABLE[slot?.item]?.slot] === slot?.item;
+            return (
+              <div
+                key={idx}
+                onDrop={e => handleSlotDrop(e, idx)}
+                onDragOver={e => handleSlotDragOver(e, idx)}
+                onDragLeave={() => setDragOverSlot(null)}
+                style={{
+                  width: 50, height: 54, borderRadius: 9,
+                  background: isOver ? "rgba(200,230,120,0.18)" : slot ? "rgba(10,18,6,0.7)" : "rgba(255,255,255,0.03)",
+                  border: `2px solid ${isOver ? "rgba(200,230,120,0.9)" : isEq ? "rgba(100,200,255,0.5)" : slot ? "rgba(200,230,120,0.3)" : "rgba(255,255,255,0.1)"}`,
+                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                  gap: 2, position: "relative", transition: "all 0.1s",
+                  boxShadow: isOver ? "0 0 0 3px rgba(200,230,120,0.25)" : "none",
+                }}
+              >
+                {slot ? (
+                  <>
+                    <span style={{ fontSize: 18 }}>{ITEM_ICONS_HOTBAR[slot.item] ?? "📦"}</span>
+                    <span style={{ fontSize: 8, color: "rgba(200,230,120,0.6)", lineHeight: 1, fontFamily: "monospace", maxWidth: 46, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {ITEM_SHORT_LABELS_HOTBAR[slot.item] ?? slot.item}
+                    </span>
+                    {slot.qty != null && <span style={{ fontSize: 9, color: "rgba(200,230,120,0.7)" }}>{slot.qty}</span>}
+                    {isEq && <div style={{ position: "absolute", top: 3, right: 3, width: 6, height: 6, borderRadius: "50%", background: "rgba(100,200,255,0.9)" }} />}
+                    <button onClick={() => handleSlotClear(idx)} style={{
+                      position: "absolute", top: -5, right: -5, width: 15, height: 15,
+                      borderRadius: "50%", background: "rgba(255,80,80,0.8)", border: "none",
+                      color: "#fff", fontSize: 9, cursor: "pointer", lineHeight: 1,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}>×</button>
+                  </>
+                ) : (
+                  <span style={{ fontSize: isOver ? 18 : 11, color: isOver ? "rgba(200,230,120,0.7)" : "rgba(255,255,255,0.12)", fontFamily: "monospace", transition: "all 0.1s" }}>
+                    {isOver ? "+" : idx + 1}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Tab: Inventory ──────────────────────────────────────────────────────────
+  function InventoryTab() {
+    const items = Object.entries(inventory ?? {}).filter(([, v]) => v > 0);
+    const resources  = items.filter(([k]) => !EQUIPPABLE[k] && !HOTBAR_ITEMS[k] && !PLACEABLES[k]);
+    const consumables = items.filter(([k]) => !!HOTBAR_ITEMS[k]);
+    const gear        = items.filter(([k]) => !!EQUIPPABLE[k]);
+    const placeables  = items.filter(([k]) => !!PLACEABLES[k]);
+
+    function handleDragStart(e, itemName) {
+      e.dataTransfer.setData("hotbar_item", itemName);
+      e.dataTransfer.effectAllowed = "copy";
+    }
+
+    const INV_SUB_TABS = [
+      { id: "consumables", label: "Consumables", count: consumables.length },
+      { id: "gear",        label: "Gear",        count: gear.length },
+      { id: "placeables",  label: "Placeables",  count: placeables.length },
+      { id: "resources",   label: "Resources",   count: resources.length },
+    ];
 
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-
-        {/* ── Hotbar drop zone ── */}
-        <div>
-          <p style={sectionLabel}>hotbar — drag items below onto a slot</p>
-          <div style={{ display: "flex", gap: 5 }}>
-            {hotbar.map((slot, idx) => {
-              const isOver = dragOverSlot === idx;
-              const isEq = slot && equipment?.[EQUIPPABLE[slot?.item]?.slot] === slot?.item;
-              return (
-                <div
-                  key={idx}
-                  onDrop={e => handleSlotDrop(e, idx)}
-                  onDragOver={e => handleSlotDragOver(e, idx)}
-                  onDragLeave={() => setDragOverSlot(null)}
-                  style={{
-                    width: 52, height: 58, borderRadius: 10,
-                    background: isOver ? "rgba(200,230,120,0.18)" : slot ? "rgba(10,18,6,0.7)" : "rgba(255,255,255,0.03)",
-                    border: `2px solid ${isOver ? "rgba(200,230,120,0.9)" : isEq ? "rgba(100,200,255,0.5)" : slot ? "rgba(200,230,120,0.3)" : "rgba(255,255,255,0.1)"}`,
-                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                    gap: 2, position: "relative", transition: "all 0.1s",
-                    boxShadow: isOver ? "0 0 0 3px rgba(200,230,120,0.25)" : "none",
-                  }}
-                >
-                  {slot ? (
-                    <>
-                      <span style={{ fontSize: 22 }}>{ITEM_ICONS_HOTBAR[slot.item] ?? "📦"}</span>
-                      {slot.qty != null && <span style={{ fontSize: 9, color: "rgba(200,230,120,0.7)" }}>{slot.qty}</span>}
-                      {isEq && <div style={{ position: "absolute", top: 3, right: 3, width: 6, height: 6, borderRadius: "50%", background: "rgba(100,200,255,0.9)" }} />}
-                      <button onClick={() => handleSlotClear(idx)} style={{
-                        position: "absolute", top: -5, right: -5, width: 15, height: 15,
-                        borderRadius: "50%", background: "rgba(255,80,80,0.8)", border: "none",
-                        color: "#fff", fontSize: 9, cursor: "pointer", lineHeight: 1,
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                      }}>×</button>
-                    </>
-                  ) : (
-                    <span style={{ fontSize: isOver ? 18 : 11, color: isOver ? "rgba(200,230,120,0.7)" : "rgba(255,255,255,0.12)", fontFamily: "monospace", transition: "all 0.1s" }}>
-                      {isOver ? "+" : idx + 1}
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        {/* Sub-tab bar */}
+        <div style={{ display:"flex", gap:2, borderBottom:"1px solid rgba(255,255,255,0.06)", paddingBottom:0, marginBottom:2 }}>
+          {INV_SUB_TABS.map(st => {
+            const active = invSubTab === st.id;
+            return (
+              <button key={st.id} onClick={() => setInvSubTab(st.id)} style={{
+                padding:"7px 11px", background:"transparent", border:"none",
+                borderBottom:`2px solid ${active ? "rgba(200,230,120,0.7)" : "transparent"}`,
+                color: active ? "rgba(200,230,120,0.9)" : "rgba(245,230,200,0.32)",
+                fontSize:10, fontFamily:"monospace", cursor:"pointer", whiteSpace:"nowrap",
+                letterSpacing:"0.05em", transition:"color 0.1s",
+              }}>
+                {st.label}{st.count > 0 ? ` (${st.count})` : ""}
+              </button>
+            );
+          })}
         </div>
 
-        {/* Consumables — draggable */}
-        {consumables.length > 0 && (
-          <div>
-            <p style={sectionLabel}>consumables — drag to hotbar</p>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {consumables.map(([item, qty]) => (
-                <div
-                  key={item}
-                  draggable
-                  onDragStart={e => handleDragStart(e, item)}
-                  onClick={() => assignToHotbar(item, qty)}
+        {/* Consumables sub-tab — draggable to hotbar */}
+        {invSubTab === "consumables" && (
+          <>
+            {consumables.length > 0 ? (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {consumables.map(([item, qty]) => (
+                  <div
+                    key={item}
+                    draggable
+                    onDragStart={e => handleDragStart(e, item)}
+                    onClick={() => {
+                      const emptyIdx = hotbar.findIndex(s => !s);
+                      const slotIdx = emptyIdx >= 0 ? emptyIdx : 0;
+                      const newHotbar = [...hotbar];
+                      newHotbar[slotIdx] = { item, qty };
+                      onHotbarChange?.(newHotbar);
+                    }}
                   title="Drag to a hotbar slot, or click to assign to first empty slot"
                   style={{
                     display: "flex", alignItems: "center", gap: 8,
@@ -1448,68 +1540,124 @@ function TabMenu({
                 </div>
               ))}
             </div>
-          </div>
+            ) : (
+              <p style={{ fontSize: 11, color: "rgba(255,255,255,0.2)", padding: "16px 0" }}>
+                no consumables yet — go on a run to find food and herbs
+              </p>
+            )}
+          </>
         )}
 
-        {/* Gear — draggable to hotbar or click to equip */}
-        {gear.length > 0 && (
-          <div>
-            <p style={sectionLabel}>gear — drag to hotbar or click to equip</p>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {gear.map(([item, qty]) => {
-                const info = EQUIPPABLE[item];
-                const isEq = equipment?.[info?.slot] === item;
-                return (
-                  <div
-                    key={item}
-                    draggable
-                    onDragStart={e => handleDragStart(e, item)}
-                    onClick={() => onEquipItem?.(item)}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 8,
-                      padding: "8px 12px", borderRadius: 10, cursor: "grab",
-                      background: isEq ? "rgba(100,200,255,0.08)" : "rgba(200,230,120,0.05)",
-                      border: `1px solid ${isEq ? "rgba(100,200,255,0.35)" : "rgba(200,230,120,0.2)"}`,
-                      userSelect: "none",
-                    }}
-                  >
-                    <span style={{ fontSize: 22 }}>{ALL_ITEM_ICONS[item] ?? "📦"}</span>
-                    <div>
-                      <div style={{ fontSize: 12, color: isEq ? "rgba(100,200,255,0.9)" : "rgba(200,230,120,0.85)" }}>
-                        {item.replace(/_/g, " ")}
-                      </div>
-                      <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>
-                        {isEq ? "✓ equipped" : "click to equip  ·  drag → hotbar"}  {qty > 1 ? `·  ×${qty}` : ""}
+        {/* Gear sub-tab */}
+        {invSubTab === "gear" && (
+          <>
+            {gear.length > 0 ? (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {gear.map(([item, qty]) => {
+                  const info = EQUIPPABLE[item];
+                  const isEq = equipment?.[info?.slot] === item;
+                  return (
+                    <div
+                      key={item}
+                      draggable
+                      onDragStart={e => handleDragStart(e, item)}
+                      onClick={() => onEquipItem?.(item)}
+                      title="Drag to hotbar or click to equip"
+                      style={{
+                        display: "flex", alignItems: "center", gap: 8,
+                        padding: "8px 12px", borderRadius: 10, cursor: "grab",
+                        background: isEq ? "rgba(100,200,255,0.08)" : "rgba(200,230,120,0.05)",
+                        border: `1px solid ${isEq ? "rgba(100,200,255,0.35)" : "rgba(200,230,120,0.2)"}`,
+                        userSelect: "none",
+                      }}
+                    >
+                      <span style={{ fontSize: 22 }}>{ALL_ITEM_ICONS[item] ?? "📦"}</span>
+                      <div>
+                        <div style={{ fontSize: 12, color: isEq ? "rgba(100,200,255,0.9)" : "rgba(200,230,120,0.85)" }}>
+                          {item.replace(/_/g, " ")}
+                        </div>
+                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>
+                          {isEq ? "✓ equipped" : "click to equip  ·  drag → hotbar"}{qty > 1 ? `  ·  ×${qty}` : ""}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p style={{ fontSize: 11, color: "rgba(255,255,255,0.2)", padding: "16px 0" }}>
+                no gear yet — craft some in the Crafting tab
+              </p>
+            )}
+          </>
         )}
 
-        {/* Resources */}
-        {resources.length > 0 && (
-          <div>
-            <p style={sectionLabel}>resources</p>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 6 }}>
-              {resources.map(([item, qty]) => (
-                <div key={item} style={{
-                  display: "flex", alignItems: "center", gap: 8,
-                  padding: "7px 10px", borderRadius: 8,
-                  background: "rgba(255,255,255,0.03)",
-                  border: "1px solid rgba(255,255,255,0.07)",
-                }}>
-                  <span style={{ fontSize: 18 }}>{ALL_ITEM_ICONS[item] ?? "📦"}</span>
-                  <div>
-                    <div style={{ fontSize: 9, color: "rgba(245,230,200,0.4)" }}>{item.replace(/_/g, " ")}</div>
-                    <div style={{ fontSize: 15, color: "rgba(200,230,120,0.9)" }}>{qty}</div>
+        {/* Placeables sub-tab */}
+        {invSubTab === "placeables" && (
+          <>
+            {placeables.length > 0 ? (
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:7 }}>
+                {placeables.map(([id, qty]) => {
+                  const info = PLACEABLES[id];
+                  if (!info) return null;
+                  return (
+                    <div key={id} style={{
+                      padding:"10px 12px", borderRadius:10, display:"flex", flexDirection:"column", gap:5,
+                      background:"rgba(200,230,120,0.05)",
+                      border:"1px solid rgba(200,230,120,0.18)",
+                    }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                        <span style={{ fontSize:22 }}>{info.icon}</span>
+                        <div>
+                          <div style={{ fontSize:12, color:"rgba(200,230,120,0.9)" }}>{info.label}</div>
+                          <div style={{ fontSize:10, color:"rgba(245,230,200,0.3)" }}>×{qty} in chest</div>
+                        </div>
+                      </div>
+                      <button onClick={() => onStartGhostPlace?.(id, info)} style={{
+                        padding:"5px 8px", borderRadius:6, fontSize:10, fontFamily:"monospace",
+                        cursor:"pointer",
+                        border:"1px solid rgba(200,230,120,0.25)",
+                        background:"rgba(200,230,120,0.08)",
+                        color:"rgba(200,230,120,0.9)",
+                      }}>place →</button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p style={{ fontSize: 11, color: "rgba(255,255,255,0.2)", padding: "16px 0" }}>
+                no placeables yet — craft a Crafting Station or other items first
+              </p>
+            )}
+          </>
+        )}
+
+        {/* Resources sub-tab */}
+        {invSubTab === "resources" && (
+          <>
+            {resources.length > 0 ? (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 6 }}>
+                {resources.map(([item, qty]) => (
+                  <div key={item} style={{
+                    display: "flex", alignItems: "center", gap: 8,
+                    padding: "7px 10px", borderRadius: 8,
+                    background: "rgba(255,255,255,0.03)",
+                    border: "1px solid rgba(255,255,255,0.07)",
+                  }}>
+                    <span style={{ fontSize: 18 }}>{ALL_ITEM_ICONS[item] ?? "📦"}</span>
+                    <div>
+                      <div style={{ fontSize: 9, color: "rgba(245,230,200,0.4)" }}>{item.replace(/_/g, " ")}</div>
+                      <div style={{ fontSize: 15, color: "rgba(200,230,120,0.9)" }}>{qty}</div>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          </div>
+                ))}
+              </div>
+            ) : (
+              <p style={{ fontSize: 11, color: "rgba(255,255,255,0.2)", padding: "16px 0" }}>
+                no resources yet — go on a run first
+              </p>
+            )}
+          </>
         )}
 
         {items.length === 0 && (
@@ -1569,7 +1717,7 @@ function TabMenu({
                     const have = (inventory ?? {})[item] ?? 0;
                     return (
                       <span key={item} style={{ color: have >= qty ? "rgba(200,230,120,0.6)" : "rgba(255,100,80,0.7)" }}>
-                        {ALL_ITEM_ICONS[item]??""} {have}/{qty}
+                        {ALL_ITEM_ICONS[item]??""} {item.replace(/_/g," ")} {have}/{qty}
                       </span>
                     );
                   })}
@@ -1582,6 +1730,16 @@ function TabMenu({
                 color: craftable ? "rgba(200,230,120,0.9)" : "rgba(255,255,255,0.2)",
                 fontSize:11, fontFamily:"monospace",
               }}>craft</button>
+              {/* If this recipe produces a placeable and you have one in inventory, show place button */}
+              {PLACEABLES[name] && (inventory?.[name] ?? 0) > 0 && (
+                <button onClick={() => onStartGhostPlace?.(name, PLACEABLES[name])} style={{
+                  padding:"8px 12px", borderRadius:8, cursor:"pointer",
+                  border:"1px solid rgba(180,230,255,0.3)",
+                  background:"rgba(180,230,255,0.07)",
+                  color:"rgba(180,230,255,0.9)",
+                  fontSize:11, fontFamily:"monospace", marginLeft:4,
+                }}>place →</button>
+              )}
             </div>
           );
         })}
@@ -1711,9 +1869,8 @@ function TabMenu({
       for (const [item, qty] of Object.entries(info.cost)) {
         if ((inventory?.[item] ?? 0) < qty) return;
       }
-      onPlace?.(id, info);
-      setPlaceMsg(`Placed ${info.label}!`);
-      setTimeout(() => setPlaceMsg(null), 2000);
+      // Close menu and enter ghost placement mode
+      onStartGhostPlace?.(id, info);
     }
     function canAfford(cost) {
       for (const [item, qty] of Object.entries(cost)) {
@@ -1723,12 +1880,7 @@ function TabMenu({
     }
     return (
       <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-        {placeMsg && (
-          <div style={{ textAlign:"center", fontSize:12, padding:"8px 14px", borderRadius:8,
-            background:"rgba(200,230,120,0.1)", border:"1px solid rgba(200,230,120,0.3)",
-            color:"rgba(200,230,120,0.9)" }}>✓ {placeMsg}</div>
-        )}
-        <p style={sectionLabel}>decorations (placed at your feet)</p>
+        <p style={sectionLabel}>decorations — tap place → to position before confirming</p>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:7 }}>
           {Object.entries(PLACEABLES).map(([id, info]) => {
             const affordable = canAfford(info.cost);
@@ -1759,7 +1911,7 @@ function TabMenu({
                   border:`1px solid ${affordable ? "rgba(200,230,120,0.25)" : "rgba(255,255,255,0.05)"}`,
                   background: affordable ? "rgba(200,230,120,0.08)" : "transparent",
                   color: affordable ? "rgba(200,230,120,0.9)" : "rgba(255,255,255,0.2)",
-                }}>place</button>
+                }}>place →</button>
               </div>
             );
           })}
@@ -1869,8 +2021,49 @@ function TabMenu({
     character: <CharacterTab />,
   };
 
+  // Prevent wheel events from ever escaping to the browser, but still
+  // allow scrolling inside the content pane.
+  //
+  // Strategy:
+  //   • overlay gets a non-passive preventDefault listener (catches anything that bubbles up)
+  //   • content div gets a listener that calls stopPropagation() only when it can
+  //     still scroll in that direction — so the overlay's block never fires mid-scroll.
+  //   • When content hits its boundary the event bubbles to the overlay, which
+  //     swallows it before the browser sees it.
+  const overlayRef = React.useRef(null);
+  const contentRef = React.useRef(null);
+  React.useEffect(() => {
+    const overlay = overlayRef.current;
+    const content = contentRef.current;
+    if (!overlay || !content) return;
+
+    // Block everything at the overlay level
+    const blockOverlay = (e) => e.preventDefault();
+    overlay.addEventListener("wheel", blockOverlay, { passive: false });
+
+    // Let the content scroll, but stop propagation only while scrollable
+    const handleContent = (e) => {
+      const atTop    = content.scrollTop <= 0;
+      const atBottom = content.scrollTop + content.clientHeight >= content.scrollHeight - 1;
+      const scrollingUp   = e.deltaY < 0;
+      const scrollingDown = e.deltaY > 0;
+      if ((scrollingUp && !atTop) || (scrollingDown && !atBottom)) {
+        // Content can scroll — stop the event from reaching the overlay blocker
+        e.stopPropagation();
+      }
+      // At boundary: event bubbles to overlay, which calls preventDefault → no browser scroll
+    };
+    content.addEventListener("wheel", handleContent, { passive: true });
+
+    return () => {
+      overlay.removeEventListener("wheel", blockOverlay);
+      content.removeEventListener("wheel", handleContent);
+    };
+  }, []);
+
   return (
     <div
+      ref={overlayRef}
       style={{
         position:"absolute", inset:0,
         background:"rgba(4,12,4,0.86)",
@@ -1942,8 +2135,11 @@ function TabMenu({
           })}
         </div>
 
+        {/* Sticky hotbar — shown on inventory tab so you can always drop items */}
+        {activeTab === "inventory" && <HotbarDropZone />}
+
         {/* Content */}
-        <div style={{
+        <div ref={contentRef} style={{
           flex:1, overflowY:"auto", padding:"18px 20px",
           scrollbarWidth:"thin",
           scrollbarColor:"rgba(200,230,120,0.15) transparent",
@@ -1983,6 +2179,9 @@ export default function HomesteadView({ room, chestInventory, chestOpen, onStart
   const [runJoinPrompt, setRunJoinPrompt] = useState(null); // { runType, seed } | null
   const [tabMenuOpen,    setTabMenuOpen]    = useState(false);
   const [activeTab,      setActiveTab]      = useState("inventory");
+  // Ghost placement mode — { id, info, rotation } | null
+  const [ghostPlacement, setGhostPlacement] = useState(null);
+  const ghostRef = useRef(null); // mirrors ghostPlacement for canvas loop
   // Partner appearance (character + equipment) received via broadcast
   const partnerAppearanceRef = useRef({ character: null, equipment: null });
 
@@ -2005,6 +2204,7 @@ export default function HomesteadView({ room, chestInventory, chestOpen, onStart
   useEffect(() => { equipmentRef.current = equipment; }, [equipment]);
   useEffect(() => { hotbarRef.current = hotbar; }, [hotbar]);
   useEffect(() => { chestOpenRef.current = chestOpen; }, [chestOpen]);
+  useEffect(() => { ghostRef.current = ghostPlacement; }, [ghostPlacement]);
 
   // ── Supabase handlers ──────────────────────────────────────────────────────
   const handlers = useRef({
@@ -2067,6 +2267,7 @@ export default function HomesteadView({ room, chestInventory, chestOpen, onStart
       if (!target) return;
       if (target.type === OBJ.CHEST)  { setActiveTab("inventory"); setTabMenuOpen(true); }
       if (target.type === OBJ.BOARD)  onStartRun?.();
+      if (target.type === "crafting_station") { setActiveTab("crafting"); setTabMenuOpen(true); }
     }
     if (e.key === "Tab") { e.preventDefault(); setTabMenuOpen(v => !v); }
     if (e.key === "c" || e.key === "C") setTabMenuOpen(v => !v);
@@ -2087,6 +2288,8 @@ export default function HomesteadView({ room, chestInventory, chestOpen, onStart
     window.addEventListener("resize", resize);
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup",   onKeyUp);
+    const onWheel = (e) => e.preventDefault();
+    canvas.addEventListener("wheel", onWheel, { passive: false });
 
     stateRef.current = initState();
 
@@ -2200,6 +2403,48 @@ export default function HomesteadView({ room, chestInventory, chestOpen, onStart
       drawables.sort((a, b) => a.sortY - b.sortY);
       drawables.forEach(d => d.draw());
 
+      // ── Ghost placement preview ───────────────────────────────────────
+      const ghost = ghostRef.current;
+      if (ghost) {
+        const info = ghost.info;
+        // Place ghost 2 tiles in front of player (or directly adjacent)
+        const PLACE_DIST = 2;
+        const facingMap = { down:[0,1], up:[0,-1], left:[-1,0], right:[1,0] };
+        const [fdx, fdy] = facingMap[state.facing] ?? [0,1];
+        const gtx = Math.floor(state.px / TILE) + fdx * PLACE_DIST + (ghost.rotation % 2 === 1 ? -Math.floor(info.h / 2) : -Math.floor(info.w / 2));
+        const gty = Math.floor(state.py / TILE) + fdy * PLACE_DIST + (ghost.rotation % 2 === 1 ? -Math.floor(info.w / 2) : -Math.floor(info.h / 2));
+        const gsx = gtx * TILE - camX;
+        const gsy = gty * TILE - camY;
+        // Determine effective w/h with rotation
+        const gw = ghost.rotation % 2 === 0 ? info.w : info.h;
+        const gh = ghost.rotation % 2 === 0 ? info.h : info.w;
+        // Ghost tile highlight
+        ctx.fillStyle = "rgba(200,230,120,0.18)";
+        ctx.fillRect(gsx, gsy, gw * TILE, gh * TILE);
+        ctx.strokeStyle = "rgba(200,230,120,0.7)";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 4]);
+        ctx.strokeRect(gsx + 1, gsy + 1, gw * TILE - 2, gh * TILE - 2);
+        ctx.setLineDash([]);
+        // Ghost emoji
+        ctx.save();
+        ctx.globalAlpha = 0.72;
+        const gcx = gsx + (gw * TILE) / 2;
+        const gcy = gsy + (gh * TILE) / 2;
+        if (ghost.rotation !== 0) {
+          ctx.translate(gcx, gcy);
+          ctx.rotate((ghost.rotation * Math.PI) / 2);
+          ctx.translate(-gcx, -gcy);
+        }
+        const fontSize = Math.max(gw, gh) * TILE * 0.65;
+        ctx.font = `${fontSize}px serif`;
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText(info.icon, gcx, gcy - 4);
+        ctx.restore();
+        // Store ghost tile pos for confirm handler
+        ghostRef.current = { ...ghost, gtx, gty, gw, gh };
+      }
+
       drawHUD(ctx, W, H, inventoryRef.current, state.interactTarget, t);
     };
 
@@ -2210,6 +2455,7 @@ export default function HomesteadView({ room, chestInventory, chestOpen, onStart
       window.removeEventListener("resize", resize);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup",   onKeyUp);
+      canvas.removeEventListener("wheel",   onWheel);
     };
   }, [room, onKeyDown, onKeyUp, sendPlayerMove]);
 
@@ -2257,7 +2503,7 @@ export default function HomesteadView({ room, chestInventory, chestOpen, onStart
               type: id,
               tx, ty,
               w: info.w, h: info.h,
-              solid: info.solid,
+              solid: false,
               interact: false,
               label: info.label,
               isPlaceable: true,
@@ -2266,7 +2512,87 @@ export default function HomesteadView({ room, chestInventory, chestOpen, onStart
             objectsRef.current = newObjects;
             onObjectsUpdate?.(newObjects);
           }}
+          onStartGhostPlace={(id, info) => {
+            setTabMenuOpen(false);
+            const ghost = { id, info, rotation: 0, gtx: 12, gty: 12, gw: info.w, gh: info.h };
+            setGhostPlacement(ghost);
+            ghostRef.current = ghost;
+          }}
         />
+      )}
+      {/* Ghost placement overlay */}
+      {ghostPlacement && (
+        <div style={{
+          position:"absolute", bottom:80, left:"50%", transform:"translateX(-50%)",
+          display:"flex", alignItems:"center", gap:10, zIndex:20,
+          background:"rgba(10,18,6,0.88)", border:"1px solid rgba(200,230,120,0.4)",
+          borderRadius:14, padding:"10px 16px", fontFamily:"monospace",
+          boxShadow:"0 4px 24px rgba(0,0,0,0.5)",
+        }}>
+          <span style={{ fontSize:20 }}>{ghostPlacement.info.icon}</span>
+          <span style={{ fontSize:12, color:"rgba(200,230,120,0.8)" }}>{ghostPlacement.info.label}</span>
+          <span style={{ fontSize:10, color:"rgba(245,230,200,0.3)", marginLeft:2 }}>move to position</span>
+          <button
+            onClick={() => {
+              setGhostPlacement(g => {
+                const next = { ...g, rotation: (g.rotation + 1) % 4 };
+                ghostRef.current = next;
+                return next;
+              });
+            }}
+            style={{
+              background:"rgba(200,230,120,0.08)", border:"1px solid rgba(200,230,120,0.25)",
+              borderRadius:8, color:"rgba(200,230,120,0.9)", fontSize:14, fontFamily:"monospace",
+              cursor:"pointer", padding:"4px 10px",
+            }}
+            title="rotate"
+          >↻</button>
+          <button
+            onClick={() => {
+              // Consume materials and place
+              const g = ghostRef.current;
+              if (!g) return;
+              const newInv = { ...chestInventory };
+              // If the item itself is in inventory (pre-crafted), consume it instead of raw materials
+              if ((newInv[g.id] ?? 0) > 0) {
+                newInv[g.id] = newInv[g.id] - 1;
+              } else {
+                for (const [item, qty] of Object.entries(g.info.cost)) {
+                  newInv[item] = (newInv[item] ?? 0) - qty;
+                }
+              }
+              onChestUpdate?.(newInv);
+              const newObj = {
+                id: `${g.id}_${Date.now()}`,
+                type: g.id,
+                tx: g.gtx, ty: g.gty,
+                w: g.gw, h: g.gh,
+                solid: g.info.solid ?? false,
+                interact: g.info.interact ?? false,
+                label: g.info.interact ? (g.info.interactLabel ?? `[E] ${g.info.label}`) : g.info.label,
+                isPlaceable: true,
+              };
+              const newObjects = [...objectsRef.current, newObj];
+              objectsRef.current = newObjects;
+              onObjectsUpdate?.(newObjects);
+              ghostRef.current = null;
+              setGhostPlacement(null);
+            }}
+            style={{
+              background:"rgba(200,230,120,0.14)", border:"1px solid rgba(200,230,120,0.5)",
+              borderRadius:8, color:"rgba(200,230,120,1)", fontSize:12, fontFamily:"monospace",
+              cursor:"pointer", padding:"5px 14px", fontWeight:"bold",
+            }}
+          >okay ✓</button>
+          <button
+            onClick={() => { ghostRef.current = null; setGhostPlacement(null); }}
+            style={{
+              background:"transparent", border:"1px solid rgba(255,255,255,0.12)",
+              borderRadius:8, color:"rgba(255,255,255,0.35)", fontSize:11, fontFamily:"monospace",
+              cursor:"pointer", padding:"4px 8px",
+            }}
+          >✕</button>
+        </div>
       )}
       <HotbarBar
         hotbar={hotbar ?? []}

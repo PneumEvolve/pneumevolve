@@ -376,7 +376,9 @@ export function playerAttack(playerX, playerY, facing, enemies, trees, rand, equ
     while (diff >  Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
     if (Math.abs(diff) > ATTACK_ARC / 2) continue;
-    e.hp--;
+    // Base damage 1 + bonus from weapon (axe gives +2, pickaxe gives +1)
+    const dmg = 1 + Math.floor((equipStats?.attackBonus ?? 0) / 2);
+    e.hp -= dmg;
     e.hitFlash = 1;
     if (e.hp <= 0) {
       e.alive = false;
@@ -440,7 +442,14 @@ export function emptyEquipment() {
 // ─── Hotbar ───────────────────────────────────────────────────────────────────
 // Items that can be placed in the action hotbar (consumed on use)
 export const HOTBAR_ITEMS = {
-  cooked_meat: { icon: "🍖", label: "Cooked Meat", useEffect: { heal: 2 }, stackable: true },
+  cooked_meat:  { icon: "🍖", label: "Cooked Meat",  useEffect: { heal: 3 }, stackable: true },
+  fish:         { icon: "🐟", label: "Fish",          useEffect: { heal: 1 }, stackable: true },
+  big_fish:     { icon: "🐠", label: "Big Fish",      useEffect: { heal: 2 }, stackable: true },
+  rare_fish:    { icon: "🐡", label: "Rare Fish",     useEffect: { heal: 3 }, stackable: true },
+  apples:       { icon: "🍎", label: "Apples",        useEffect: { heal: 1 }, stackable: true },
+  berries:      { icon: "🫐", label: "Berries",       useEffect: { heal: 1 }, stackable: true },
+  mushrooms:    { icon: "🍄", label: "Mushrooms",     useEffect: { heal: 1 }, stackable: true },
+  herbs:        { icon: "🌿", label: "Herbs",         useEffect: { heal: 1 }, stackable: true },
 };
 
 export const HOTBAR_SIZE = 6; // number of slots
@@ -487,13 +496,12 @@ export function craftItem(recipeName, inv) {
   const recipe = RECIPES[recipeName];
   if (!recipe || !canCraft(recipe, inv)) return null;
   const newInv = { ...inv };
+  // Deduct ingredients
   for (const [item, qty] of Object.entries(recipe)) {
     newInv[item] = (newInv[item] ?? 0) - qty;
   }
-  // If the crafted item is equippable gear, add 1 to inventory
-  if (EQUIPPABLE[recipeName]) {
-    newInv[recipeName] = (newInv[recipeName] ?? 0) + 1;
-  }
+  // Always add the crafted item to inventory
+  newInv[recipeName] = (newInv[recipeName] ?? 0) + 1;
   return newInv;
 }
 // ─── Character customization ──────────────────────────────────────────────────
@@ -534,6 +542,7 @@ export function defaultCharacter() {
 
 // ─── Placeable decoration catalog ────────────────────────────────────────────
 export const PLACEABLES = {
+  crafting_station: { icon:'🔨', label:'Crafting Station', cost:{ wood:8, stone:4 }, w:2, h:2, solid:true, interact:true, interactLabel:'[E] Craft' },
   bench:        { icon:'🪑', label:'Bench',        cost:{ wood:4 },              w:2, h:1, solid:true  },
   flower_bed:   { icon:'🌸', label:'Flower Bed',   cost:{ sticks:2, herbs:3 },   w:2, h:1, solid:false },
   lantern:      { icon:'🏮', label:'Lantern',      cost:{ stone:2, wood:1 },     w:1, h:1, solid:false },
@@ -607,6 +616,7 @@ export function generateMiningRun(seed) {
 // ─── Fruit Picking Run ────────────────────────────────────────────────────────
 export const ORCHARD_W   = 2800;
 export const ORCHARD_H   = 640;
+export const ORCHARD_GROUND_Y = Math.floor(ORCHARD_H * 0.44); // top of ground region
 
 export const FRUIT_LOOT_TABLE = {
   apple_tree: [{ item:'apples', min:2, max:5 }],
@@ -619,11 +629,16 @@ export function generateFruitRun(seed) {
   const rand = seededRand(seed);
   const trees = [], bushes = [], flowers = [];
 
+  // Spawn range: keep objects on the ground strip (not in sky)
+  const minY = ORCHARD_GROUND_Y + 20;
+  const maxY = ORCHARD_H - 60;
+  const spawnY = () => minY + rand() * (maxY - minY);
+
   for (let i = 0; i < 18; i++) {
     trees.push({
       id: `ftree_${i}`,
       x: 200 + rand() * (ORCHARD_W - 400),
-      y: 80  + rand() * (ORCHARD_H - 160),
+      y: spawnY(),
       hp: 1, maxHp: 1, alive: true, hitFlash: 0,
       type: 'apple_tree',
       shakeTime: 0,
@@ -633,7 +648,7 @@ export function generateFruitRun(seed) {
     bushes.push({
       id: `bush_${i}`,
       x: 200 + rand() * (ORCHARD_W - 400),
-      y: 80  + rand() * (ORCHARD_H - 160),
+      y: spawnY(),
       hp: 1, maxHp: 1, alive: true, hitFlash: 0,
       type: rand() > 0.5 ? 'berry_bush' : 'mushroom',
       shakeTime: 0,
@@ -643,7 +658,7 @@ export function generateFruitRun(seed) {
     flowers.push({
       id: `flower_${i}`,
       x: 200 + rand() * (ORCHARD_W - 400),
-      y: 80  + rand() * (ORCHARD_H - 160),
+      y: spawnY(),
       alive: true, type: 'flower_patch',
     });
   }

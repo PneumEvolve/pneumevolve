@@ -34,7 +34,7 @@ const BUILDER_SPEED  = 150;
 const BASE_PLACE_RANGE = 80;
 const MOVE_THROTTLE  = 50;
 
-export default function BuilderView({ room, onGameOver, resumeState }) {
+export default function BuilderView({ room, onGameOver, resumeState, saveNotice }) {
   const canvasRef   = useRef(null);
   const stateRef    = useRef(null);
   const keysRef     = useRef({});
@@ -70,11 +70,19 @@ export default function BuilderView({ room, onGameOver, resumeState }) {
   const waveReadyRef = useRef(false);
   const [difficulty,    setDifficulty]    = useState(room?.difficulty ?? "normal");
   const difficultyRef = useRef(room?.difficulty ?? "normal");
+  // Accumulate kill count from wave summaries (builder doesn't have the full dead enemy list)
+  const totalEnemiesKilledRef = useRef(0);
+
+  const [protectorConnected, setProtectorConnected] = useState(true);
+  const lastProtectorHeartbeatRef = useRef(Date.now());
 
   const handlers = useRef({
     onP1Move: ({ x, y }) => {
       if (!stateRef.current) return;
       stateRef.current.protectorTarget = { x, y };
+      // Reset heartbeat
+      lastProtectorHeartbeatRef.current = Date.now();
+      setProtectorConnected(true);
     },
     onBuildingHealth: ({ buildings, builderHp, protectorHp, lockedWorkers }) => {
       if (!stateRef.current) return;
@@ -83,7 +91,11 @@ export default function BuilderView({ room, onGameOver, resumeState }) {
         if (b) {
           b.hp = hp;
           if (maxHp !== undefined) b.maxHp = maxHp;
-          if (upgradeTier !== undefined) b.upgradeTier = upgradeTier;
+          // Only apply the Protector's upgradeTier if it is at least as high as what
+          // the Builder already has locally. This prevents a stale sync (sent before the
+          // Protector processed the Builder's sendBuildingUpgrade) from clobbering the
+          // optimistic local increment and making the upgrade appear to silently fail.
+          if (upgradeTier !== undefined && upgradeTier >= (b.upgradeTier ?? 0)) b.upgradeTier = upgradeTier;
           // Defensively zero workers on destroyed buildings regardless of what the sync says,
           // so the Builder never shows ghost workers on a dead building.
           if (hp <= 0) { b.workers = 0; }
@@ -95,19 +107,36 @@ export default function BuilderView({ room, onGameOver, resumeState }) {
       if (protectorHp !== undefined) stateRef.current.protectorHp = protectorHp;
       if (lockedWorkers !== undefined) stateRef.current.lockedWorkers = lockedWorkers;
     },
-    onEnemyUpdate:  ({ enemies }) => { if (stateRef.current) stateRef.current.enemies = enemies; },
+    onEnemyUpdate:  ({ enemies }) => {
+      if (!stateRef.current) return;
+      // Lerp-friendly merge: preserve _rx/_ry render positions when updating existing enemies,
+      // so the draw loop can smoothly interpolate instead of jumping on each network tick.
+      const existingMap = new Map((stateRef.current.enemies ?? []).map(e => [e.id, e]));
+      const merged = enemies.map(e => {
+        const prev = existingMap.get(e.id);
+        if (prev) {
+          // Preserve lerped render position; update the authoritative network target
+          return { ...prev, ...e, _rx: prev._rx ?? prev.x, _ry: prev._ry ?? prev.y };
+        }
+        return { ...e, _rx: e.x, _ry: e.y };
+      });
+      stateRef.current.enemies = merged;
+    },
     onUnitUpdate:   ({ units })   => {
       if (!stateRef.current) return;
-      // Merge hp/maxHp onto existing units, add new ones, remove dead ones
+      // Merge hp/maxHp/follows onto existing units, add new ones, remove dead ones.
+      // Store network positions as tx/ty (lerp targets); _rx/_ry are the smoothed render positions.
       const existingMap = new Map(stateRef.current.units.map(u => [u.id, u]));
-      units.forEach(({ id, x, y, hp, maxHp }) => {
+      units.forEach(({ id, x, y, hp, maxHp, follows }) => {
         const u = existingMap.get(id);
         if (u) {
-          u.x = x; u.y = y;
-          if (hp !== undefined) u.hp = hp;
-          if (maxHp !== undefined) u.maxHp = maxHp;
+          u.tx = x; u.ty = y; // authoritative target
+          if (hp      !== undefined) u.hp      = hp;
+          if (maxHp   !== undefined) u.maxHp   = maxHp;
+          if (follows !== undefined) u.follows  = follows;
         } else {
-          stateRef.current.units.push({ id, x, y, hp, maxHp });
+          // New unit: snap render position to avoid lerping from 0,0
+          stateRef.current.units.push({ id, tx: x, ty: y, _rx: x, _ry: y, hp, maxHp, follows });
         }
       });
       const liveIds = new Set(units.map(u => u.id));
@@ -173,7 +202,7 @@ export default function BuilderView({ room, onGameOver, resumeState }) {
         waveReadyRef.current = false;
         setWaveReady(false);
       }
-      if (phase === "gameover") { setMood(null); onGameOver({ won, waveReached: waveNumber ?? stateRef.current?.waveNumber ?? 0, standing: stateRef.current?.buildings?.filter(b => b.hp > 0).length ?? 0, total: stateRef.current?.buildings?.length ?? 0, enemiesKilled: stateRef.current?.enemies?.filter(e => e.dead).length ?? 0 }); }
+      if (phase === "gameover") { setMood(null); onGameOver({ won, waveReached: waveNumber ?? stateRef.current?.waveNumber ?? 0, standing: stateRef.current?.buildings?.filter(b => b.hp > 0).length ?? 0, total: stateRef.current?.buildings?.length ?? 0, enemiesKilled: totalEnemiesKilledRef.current }); }
     },
     onCountdown: ({ seconds }) => {
       if (stateRef.current) stateRef.current.breatherLeft = seconds;
@@ -200,6 +229,8 @@ export default function BuilderView({ room, onGameOver, resumeState }) {
     },
     onWaveSummary: (data) => {
       setWaveSummary(data);
+      // Accumulate authoritative kill count from the Protector's wave summary
+      totalEnemiesKilledRef.current += (data.enemiesKilled ?? 0);
       setTimeout(() => setWaveSummary(null), 6000);
     },
     onPlayerReady: ({ role, context }) => {
@@ -224,7 +255,7 @@ export default function BuilderView({ room, onGameOver, resumeState }) {
     },
   }).current;
 
-  const { sendP2Move, sendBuildingPlace, sendChat, sendWorkerAssign, sendPlayerReady, sendGoldUpdate, sendRevive, sendPing, sendAllegianceChange, sendBuildingHealth } =
+  const { sendP2Move, sendBuildingPlace, sendChat, sendWorkerAssign, sendPlayerReady, sendGoldUpdate, sendRevive, sendPing, sendAllegianceChange, sendBuildingHealth, sendBuildingUpgrade, sendBuildingSell } =
     useStrongholdRoom(room?.id ?? null, handlers);
 
   // ── State init ────────────────────────────────────────────────────────────
@@ -466,6 +497,7 @@ export default function BuilderView({ room, onGameOver, resumeState }) {
     s.buildings = newBuildings;
     s.gold = newGold;
     sendGoldUpdate({ gold: s.gold, from: "builder" });
+    sendBuildingSell(buildingId);
     setGold(s.gold);
     setAssignPanel(null);
     forceUpdate(n => n + 1);
@@ -502,12 +534,10 @@ export default function BuilderView({ room, onGameOver, resumeState }) {
 
     s.gold -= cost;
     sendGoldUpdate({ gold: s.gold, from: "builder" });
-    // Sync the upgraded building so Protector's copy has the new upgradeTier and maxHp
-    // (needed for repair shop range, turret stats, etc. to take effect on the Protector side)
-    sendBuildingHealth(
-      s.buildings.map(b => ({ id: b.id, hp: b.hp, maxHp: b.maxHp, workers: b.workers, upgradeTier: b.upgradeTier })),
-      s.builderHp, s.protectorHp, s.lockedWorkers ?? 0,
-    );
+    // Notify Protector (authoritative engine) about the upgrade so its game logic
+    // (repair shop range, turret stats, soldier counts, calcTownspeople) uses the
+    // correct upgradeTier. sendBuildingHealth goes Protector→Builder only.
+    sendBuildingUpgrade(b.id, b.upgradeTier, b.maxHp, b.hp);
     setGold(s.gold);
     forceUpdate(n => n + 1);
   }
@@ -676,8 +706,8 @@ export default function BuilderView({ room, onGameOver, resumeState }) {
       if (b.type !== "repair_shop" || b.hp <= 0) return;
       const { cx, cy } = worldToCanvas(b.x, b.y);
       const def     = BUILDING_TYPES.repair_shop;
-      const workers = b.workers ?? 0;
-      const radius  = def.repairRadius + workers * 20;
+      const tier    = effectiveTier(b); // workers + upgradeTier (matches engine's radius formula)
+      const radius  = def.repairRadius + tier * REPAIR_SHOP_TIER_RADIUS;
       const builderIn = dist(builder.x, builder.y, b.x, b.y) < def.radius + 20;
       ctx.save();
       ctx.globalAlpha = builderIn ? 0.07 : 0.04;
@@ -717,7 +747,7 @@ export default function BuilderView({ room, onGameOver, resumeState }) {
     buildings.forEach(b => drawBuilding(ctx, b, t, W, H));
 
     units.forEach(u => {
-      const { cx, cy } = worldToCanvas(u.x, u.y);
+      const { cx, cy } = worldToCanvas(u._rx ?? u.tx ?? 0, u._ry ?? u.ty ?? 0);
       const hpFrac = Math.max(0, (u.hp ?? 1) / (u.maxHp ?? 1));
       const isBuilderUnit = u.follows === "builder";
       ctx.save(); ctx.globalAlpha = 0.7;
@@ -737,7 +767,7 @@ export default function BuilderView({ room, onGameOver, resumeState }) {
     });
 
     enemies.forEach(e => {
-      const { cx, cy } = worldToCanvas(e.x, e.y);
+      const { cx, cy } = worldToCanvas(e._rx ?? e.x, e._ry ?? e.y);
       if (cx < -20 || cx > W + 20 || cy < -20 || cy > H + 20) return;
       const eRadius = e.radius ?? 7;
       ctx.save();
@@ -885,7 +915,7 @@ export default function BuilderView({ room, onGameOver, resumeState }) {
     ctx.globalAlpha = 0.55;
     state.enemies.forEach(e => {
       if (e.dead) return;
-      ctx.beginPath(); ctx.arc(mx + e.x * scale, my + e.y * scale, e.type === "demolisher" ? 2 : 1.5, 0, Math.PI * 2);
+      ctx.beginPath(); ctx.arc(mx + (e._rx ?? e.x) * scale, my + (e._ry ?? e.y) * scale, e.type === "demolisher" ? 2 : 1.5, 0, Math.PI * 2);
       ctx.fillStyle = e.type === "demolisher" ? "#cc44ff" : "#cc2222"; ctx.fill();
     });
     ctx.globalAlpha = 0.9;
@@ -1088,6 +1118,15 @@ export default function BuilderView({ room, onGameOver, resumeState }) {
     const dt    = Math.min((ts - lastTimeRef.current) / 1000, 0.05);
     lastTimeRef.current = ts;
 
+    // ── Protector disconnect detection ─────────────────────────────────────
+    {
+      const secsSinceHB = (Date.now() - lastProtectorHeartbeatRef.current) / 1000;
+      const activePhase = state.phase === "wave" || state.phase === "breather" || state.phase === "build";
+      if (activePhase && secsSinceHB > 8) {
+        setProtectorConnected(false);
+      }
+    }
+
     const builderDown = (state.builderHp ?? PROTECTOR_MAX_HP) <= 0;
 
     const keys = keysRef.current;
@@ -1135,6 +1174,22 @@ export default function BuilderView({ room, onGameOver, resumeState }) {
     if (nowInDanger && !state._wasDangerous) sfxBuilderDanger();
     state._wasDangerous = nowInDanger;
 
+    // Smoothly lerp enemy render positions toward their latest network positions.
+    // With SYNC_THROTTLE at 200ms the positions arrive ~5/sec; lerping at ~0.25/frame
+    // at 60fps closes the gap in ~6 frames (~100ms), giving fluid motion without lag.
+    state.enemies.forEach(e => {
+      if (e._rx === undefined) { e._rx = e.x; e._ry = e.y; return; }
+      e._rx = lerp(e._rx, e.x, 0.25);
+      e._ry = lerp(e._ry, e.y, 0.25);
+    });
+
+    // Smoothly lerp soldier render positions toward their network targets.
+    state.units.forEach(u => {
+      if (u._rx === undefined) { u._rx = u.tx ?? u.x ?? 0; u._ry = u.ty ?? u.y ?? 0; return; }
+      u._rx = lerp(u._rx, u.tx ?? u._rx, 0.25);
+      u._ry = lerp(u._ry, u.ty ?? u._ry, 0.25);
+    });
+
     // Builder repairs buildings in all phases (wave, breather, build)
     if (!builderDown) {
       updateBuilderRepair(state.builder.x, state.builder.y, state.buildings, dt, state.upgrades ?? []);
@@ -1169,6 +1224,8 @@ export default function BuilderView({ room, onGameOver, resumeState }) {
     resize();
     window.addEventListener("resize", resize);
     stateRef.current = initState();
+    lastProtectorHeartbeatRef.current = Date.now();
+    setProtectorConnected(true);
     rafRef.current   = requestAnimationFrame(loop);
     initAudio();
     setMood("cozy");
@@ -1225,6 +1282,32 @@ export default function BuilderView({ room, onGameOver, resumeState }) {
         onClick={handleCanvasClick}
         onMouseMove={handleCanvasMouseMove}
       />
+
+      {/* Protector disconnected warning */}
+      {!protectorConnected && (
+        <div style={{
+          position: "absolute", top: 48, left: "50%", transform: "translateX(-50%)",
+          background: "rgba(10,13,15,0.92)", border: "0.5px solid rgba(255,100,60,0.3)",
+          borderRadius: 12, padding: "10px 18px", zIndex: 18,
+          fontSize: 12, color: "rgba(255,120,80,0.85)", textAlign: "center",
+          backdropFilter: "blur(4px)", letterSpacing: "0.03em",
+        }}>
+          ⚠ protector may have disconnected
+        </div>
+      )}
+
+      {/* Save notice — Protector saved the game */}
+      {saveNotice && (
+        <div style={{
+          position: "absolute", top: protectorConnected ? 48 : 86, left: "50%", transform: "translateX(-50%)",
+          background: "rgba(10,13,15,0.92)", border: "0.5px solid rgba(120,255,120,0.3)",
+          borderRadius: 12, padding: "10px 18px", zIndex: 18,
+          fontSize: 12, color: "rgba(120,255,120,0.85)", textAlign: "center",
+          backdropFilter: "blur(4px)", letterSpacing: "0.03em",
+        }}>
+          ✓ game saved by protector
+        </div>
+      )}
 
       {/* Building description tooltip — floats above the bar, never pushes layout */}
       {canBuildOrRepair && selectedDef && (
@@ -1512,6 +1595,7 @@ export default function BuilderView({ room, onGameOver, resumeState }) {
           borderRadius: 16, padding: "14px 20px", minWidth: 230, zIndex: 15,
           backdropFilter: "blur(4px)",
         }}>
+          <div onClick={() => setWaveSummary(null)} style={{ position: "absolute", top: 8, right: 10, fontSize: 16, color: "rgba(255,255,255,0.2)", cursor: "pointer", padding: "2px 6px", lineHeight: 1 }}>×</div>
           <div style={{ fontSize: 11, letterSpacing: "0.1em", color: waveSummary.flawless ? "rgba(255,220,60,0.9)" : "rgba(255,255,255,0.35)", textTransform: "uppercase", marginBottom: 10 }}>
             {waveSummary.flawless ? "✦ flawless wave!" : `wave ${waveSummary.waveNumber} clear`}
           </div>

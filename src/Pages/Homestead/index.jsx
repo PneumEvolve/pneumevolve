@@ -450,6 +450,7 @@ export default function HomesteadGame() {
     <RunLobby
       room={room} role={role}
       joining={isJoiningRun} joinSeed={joinRunSeed} runType={joinRunType}
+      equipment={equipment}
       onRunStart={handleRunStart} onCancel={handleLobbyCancel}
     />
   );

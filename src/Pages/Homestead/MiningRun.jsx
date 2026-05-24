@@ -1,10 +1,11 @@
 // src/Pages/Homestead/MiningRun.jsx
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useHearthroom } from "./useHearthroom";
 import {
   MINE_W, MINE_H, BAT_R, ENEMY_ATTACK_RANGE, ENEMY_ATTACK_CD, ENEMY_DAMAGE,
   generateMiningRun, MINE_LOOT_TABLE, rollLoot,
   seededRand, addToInventory, fullEmptyInventory, getEquipStats,
+  HOTBAR_ITEMS, HOTBAR_SIZE,
 } from "./gameEngine";
 
 const PLAYER_SPEED   = 120;
@@ -257,16 +258,78 @@ function drawMineHUD(ctx, W, H, state, inventory, t) {
 
   // Loot
   ctx.textAlign = "right"; ctx.font = "11px monospace"; ctx.fillStyle = "#e0d8a0";
-  ctx.fillText(`🪨${inventory.stone??0}  💎${inventory.gems??0}  🔷${inventory.crystal??0}  ⚫${inventory.coal??0}`, W - 14, 16);
+  ctx.fillText(`🪨stone:${inventory.stone??0}  💎gems:${inventory.gems??0}  🔷crystl:${inventory.crystal??0}  coal:${inventory.coal??0}`, W - 14, 16);
 
   // Bottom
   ctx.fillStyle = "rgba(10,8,4,0.75)"; ctx.fillRect(0, H - 26, W, 26);
   ctx.fillStyle = "rgba(230,210,160,0.4)"; ctx.font = "9px monospace";
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.fillText("WASD to move  ·  click / space to mine & attack  ·  [Esc] return home", W / 2, H - 13);
+  ctx.fillText("WASD to move  ·  click / space to mine & attack  ·  1-6 select hotbar  ·  [E/F] use item  ·  [Esc] home", W / 2, H - 13);
 }
 
-export default function MiningRun({ room, seed, coOp = false, onRunComplete, character, equipment }) {
+// ─── Hotbar overlay ───────────────────────────────────────────────────────────
+const HOTBAR_DISPLAY_ICONS = {
+  axe:"🪓", pickaxe:"⛏️", fishing_rod:"🎣",
+  leather_armor:"🛡️", cooked_meat:"🍖", potion_table:"🧪",
+  fish:"🐟", big_fish:"🐠", rare_fish:"🐡",
+  apples:"🍎", berries:"🫐", mushrooms:"🍄", herbs:"🌿",
+};
+const HOTBAR_SHORT_LABELS = {
+  axe:"axe", pickaxe:"pick", fishing_rod:"rod",
+  leather_armor:"armor", cooked_meat:"meat", potion_table:"pot",
+  fish:"fish", big_fish:"bfish", rare_fish:"rfish",
+  apples:"apple", berries:"berry", mushrooms:"mush", herbs:"herb",
+};
+
+function MineHotbar({ hotbar, selectedSlot, onSelectSlot, onUseItem, equipment }) {
+  return (
+    <div style={{
+      position: "absolute", bottom: 36, left: "50%", transform: "translateX(-50%)",
+      display: "flex", gap: 4, padding: "6px 8px",
+      background: "rgba(10,8,4,0.88)", borderRadius: 12,
+      border: "1px solid rgba(220,180,80,0.2)",
+      zIndex: 5, pointerEvents: "auto",
+    }}>
+      {(hotbar.length ? hotbar : Array(HOTBAR_SIZE).fill(null)).map((slot, idx) => {
+        const isSelected = idx === selectedSlot;
+        const isEquipped = slot?.item === "pickaxe" && equipment?.weapon === "pickaxe";
+        return (
+          <div key={idx}
+            onClick={() => { onSelectSlot(idx); if (idx === selectedSlot && slot) onUseItem(); }}
+            style={{
+              width: 44, height: 52, borderRadius: 8, cursor: "pointer",
+              background: isSelected ? "rgba(220,180,80,0.15)" : "rgba(255,255,255,0.03)",
+              border: `2px solid ${isSelected ? "rgba(220,180,80,0.8)" : isEquipped ? "rgba(100,200,255,0.5)" : "rgba(255,255,255,0.1)"}`,
+              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+              position: "relative", transition: "border-color 0.1s", gap: 1,
+            }}
+          >
+            {slot ? (
+              <>
+                <span style={{ fontSize: 18, lineHeight: 1 }}>{HOTBAR_DISPLAY_ICONS[slot.item] ?? "📦"}</span>
+                <span style={{ fontSize: 8, color: "rgba(220,180,80,0.65)", lineHeight: 1, fontFamily: "monospace", maxWidth: 40, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {HOTBAR_SHORT_LABELS[slot.item] ?? slot.item}
+                </span>
+                {slot.qty != null && (
+                  <span style={{ fontSize: 9, color: "rgba(220,180,80,0.8)", lineHeight: 1, position: "absolute", bottom: 2, right: 4 }}>
+                    {slot.qty}
+                  </span>
+                )}
+                {isEquipped && (
+                  <div style={{ position: "absolute", top: 2, right: 2, width: 6, height: 6, borderRadius: "50%", background: "rgba(100,200,255,0.9)" }} />
+                )}
+              </>
+            ) : (
+              <span style={{ fontSize: 11, color: "rgba(255,255,255,0.15)" }}>{idx + 1}</span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export default function MiningRun({ room, seed, coOp = false, onRunComplete, character, equipment, hotbar, onHotbarChange }) {
   const canvasRef     = useRef(null);
   const rafRef        = useRef(null);
   const keysRef       = useRef({});
@@ -275,7 +338,39 @@ export default function MiningRun({ room, seed, coOp = false, onRunComplete, cha
   const randRef       = useRef(seededRand(seed ?? Date.now()));
   const lootFloatsRef = useRef([]);
   const equipmentRef  = useRef(equipment ?? {});
+  const hotbarRef     = useRef(hotbar ?? []);
   useEffect(() => { equipmentRef.current = equipment ?? {}; }, [equipment]);
+  useEffect(() => { hotbarRef.current = hotbar ?? []; }, [hotbar]);
+
+  const [selectedHotbarSlot, setSelectedHotbarSlot] = useState(0);
+  const selectedSlotRef = useRef(0);
+  useEffect(() => { selectedSlotRef.current = selectedHotbarSlot; }, [selectedHotbarSlot]);
+
+  const useHotbarItem = useCallback(() => {
+    const state = stateRef.current;
+    if (!state || state.over) return;
+    const hb = hotbarRef.current;
+    const slot = selectedSlotRef.current;
+    const entry = hb?.[slot];
+    if (!entry) return;
+    const info = HOTBAR_ITEMS[entry.item];
+    if (!info) return;
+    if (info.useEffect?.heal) {
+      if (state.hp >= PLAYER_HP) return;
+      state.hp = Math.min(PLAYER_HP, state.hp + info.useEffect.heal);
+      const newHb = [...hb];
+      const newQty = (entry.qty ?? 1) - 1;
+      newHb[slot] = newQty > 0 ? { ...entry, qty: newQty } : null;
+      hotbarRef.current = newHb;
+      onHotbarChange?.(newHb);
+      soundRef.current?.pickup();
+      lootFloatsRef.current.push({
+        text: `+${info.useEffect.heal} HP`,
+        worldX: state.px, worldY: state.py - 20,
+        born: performance.now(),
+      });
+    }
+  }, [onHotbarChange]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handlers = useRef({}).current;
   const { sendRunMove } = useHearthroom(room?.id ?? null, handlers, ":run");
@@ -373,14 +468,26 @@ export default function MiningRun({ room, seed, coOp = false, onRunComplete, cha
       keysRef.current[e.key] = true;
       soundRef.current?.unlock();
       if (e.key === "Escape") finishRun(stateRef.current);
-      if (e.key === " ") doAttack();
+      if (e.key === " ") { e.preventDefault(); doAttack(); }
+      // Number keys 1-6 select hotbar slot
+      if (e.key >= "1" && e.key <= "6") {
+        const idx = parseInt(e.key) - 1;
+        setSelectedHotbarSlot(idx);
+        selectedSlotRef.current = idx;
+      }
+      // E or F = use selected hotbar item
+      if (e.key === "e" || e.key === "E" || e.key === "f" || e.key === "F") {
+        useHotbarItem();
+      }
     };
     const onKeyUp   = (e) => { delete keysRef.current[e.key]; };
     const onClick   = () => { soundRef.current?.unlock(); doAttack(); };
+    const onWheel   = (e) => e.preventDefault();
 
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup",   onKeyUp);
     canvas.addEventListener("click",   onClick);
+    canvas.addEventListener("wheel",   onWheel, { passive: false });
 
     const tick = (ts) => {
       rafRef.current = requestAnimationFrame(tick);
@@ -511,7 +618,7 @@ export default function MiningRun({ room, seed, coOp = false, onRunComplete, cha
         ctx.beginPath(); ctx.roundRect(W / 2 - 84, H / 2 - 20, 168, 30, 6); ctx.fill();
         ctx.fillStyle = "#f5c060"; ctx.font = "bold 12px monospace";
         ctx.textAlign = "center"; ctx.textBaseline = "middle";
-        ctx.fillText("⛏️ need a pickaxe to mine", W / 2, H / 2 - 5);
+        ctx.fillText("[pickaxe] need a pickaxe to mine", W / 2, H / 2 - 5);
         ctx.restore();
       }
     };
@@ -523,12 +630,20 @@ export default function MiningRun({ room, seed, coOp = false, onRunComplete, cha
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup",   onKeyUp);
       canvas.removeEventListener("click",   onClick);
+      canvas.removeEventListener("wheel",   onWheel);
     };
   }, [seed]);
 
   return (
     <div style={{ width:"100%", height:"100svh", background:"#0a0804", position:"relative", userSelect:"none" }}>
       <canvas ref={canvasRef} style={{ width:"100%", height:"100%", display:"block", imageRendering:"pixelated" }} />
+      <MineHotbar
+        hotbar={hotbar ?? []}
+        selectedSlot={selectedHotbarSlot}
+        onSelectSlot={idx => { setSelectedHotbarSlot(idx); selectedSlotRef.current = idx; }}
+        onUseItem={useHotbarItem}
+        equipment={equipment}
+      />
     </div>
   );
 }

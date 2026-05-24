@@ -38,7 +38,9 @@ export function useStrongholdRoom(roomId, handlers) {
       .on("broadcast", { event: "ping" },             ({ payload }) => handlersRef.current.onPing?.(payload))
       .on("broadcast", { event: "wave_summary" },     ({ payload }) => handlersRef.current.onWaveSummary?.(payload))
       .on("broadcast", { event: "save_state" },       ({ payload }) => handlersRef.current.onSaveState?.(payload))
-      .on("broadcast", { event: "allegiance_change" }, ({ payload }) => handlersRef.current.onAllegianceChange?.(payload));
+      .on("broadcast", { event: "allegiance_change" }, ({ payload }) => handlersRef.current.onAllegianceChange?.(payload))
+      .on("broadcast", { event: "building_upgrade" },  ({ payload }) => handlersRef.current.onBuildingUpgrade?.(payload))
+      .on("broadcast", { event: "building_sell" },     ({ payload }) => handlersRef.current.onBuildingSell?.(payload));
 
     channel.subscribe(status => {
       if (status === "SUBSCRIBED") {
@@ -92,6 +94,8 @@ export function useStrongholdRoom(roomId, handlers) {
   const sendWaveSummary    = useCallback((data)         => send("wave_summary",    data),                [send]);
   const sendSaveState        = useCallback((state)        => send("save_state",       { state }),            [send]);
   const sendAllegianceChange = useCallback((buildingId, allegiance) => send("allegiance_change", { buildingId, allegiance }), [send]);
+  const sendBuildingUpgrade  = useCallback((buildingId, upgradeTier, maxHp, hp) => send("building_upgrade", { buildingId, upgradeTier, maxHp, hp }), [send]);
+  const sendBuildingSell     = useCallback((buildingId) => send("building_sell", { buildingId }), [send]);
 
   return {
     sendP1Move, sendP2Move,
@@ -99,6 +103,6 @@ export function useStrongholdRoom(roomId, handlers) {
     sendEnemyUpdate, sendBuildingHealth, sendUnitUpdate, sendGoldUpdate,
     sendPhaseChange, sendPlayerReady, sendCountdown,
     sendGameOver, sendRestart, sendChat, sendRevive, sendPing, sendWaveSummary,
-    sendAllegianceChange, sendSaveState,
+    sendAllegianceChange, sendSaveState, sendBuildingUpgrade, sendBuildingSell,
   };
 }

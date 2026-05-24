@@ -147,6 +147,8 @@ export default function StrongholdGame() {
   // Saved state to resume — passed into ProtectorView/BuilderView
   const [resumeState, setResumeState] = useState(null);
   const [savedGames,  setSavedGames]  = useState(() => getSavedGames());
+  // Builder sees a brief "game saved" notice when the Protector saves
+  const [builderSaveNotice, setBuilderSaveNotice] = useState(false);
 
   const phaseRef = useRef(phase);
   const roleRef  = useRef(role);
@@ -174,8 +176,9 @@ export default function StrongholdGame() {
     },
     // Builder receives save_state broadcast from protector so it can show a notice
     onSaveState: ({ state }) => {
-      // Builder side: just show confirmation (they don't need to store it — protector's
-      // localStorage is the source of truth for resume)
+      // Show a brief confirmation banner on the Builder's screen
+      setBuilderSaveNotice(true);
+      setTimeout(() => setBuilderSaveNotice(false), 3000);
     },
   }).current;
 
@@ -272,7 +275,7 @@ export default function StrongholdGame() {
 
   if (phase === "playing") {
     if (role === "p1") return <ProtectorView key={room?.map_seed ?? room?.id} room={room} resumeState={resumeState} onGameOver={handleP1GameOver} />;
-    return <BuilderView key={room?.map_seed ?? room?.id} room={room} resumeState={resumeState} onGameOver={handleP2GameOver} />;
+    return <BuilderView key={room?.map_seed ?? room?.id} room={room} resumeState={resumeState} onGameOver={handleP2GameOver} saveNotice={builderSaveNotice} />;
   }
 
   return null;

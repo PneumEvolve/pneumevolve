@@ -3,7 +3,7 @@
 import React, { useEffect, useRef } from "react";
 import { useHearthroom } from "./useHearthroom";
 import {
-  ORCHARD_W, ORCHARD_H,
+  ORCHARD_W, ORCHARD_H, ORCHARD_GROUND_Y,
   generateFruitRun, FRUIT_LOOT_TABLE, rollLoot,
   seededRand, addToInventory, fullEmptyInventory,
 } from "./gameEngine";
@@ -233,7 +233,7 @@ function drawOrchardHUD(ctx, W, H, state, inventory, t) {
   ctx.fillText(`${mins}:${String(secs).padStart(2,"0")}`, W / 2, 16);
 
   ctx.textAlign = "right"; ctx.font = "11px monospace"; ctx.fillStyle = "#d8f0a0";
-  ctx.fillText(`🍎${inventory.apples??0}  🫐${inventory.berries??0}  🍄${inventory.mushrooms??0}  🌿${inventory.herbs??0}`, W - 14, 16);
+  ctx.fillText(`🍎apples:${inventory.apples??0}  🫐berries:${inventory.berries??0}  🍄mush:${inventory.mushrooms??0}  🌿herbs:${inventory.herbs??0}`, W - 14, 16);
 
   ctx.textAlign = "left"; ctx.fillStyle = "rgba(160,230,80,0.7)"; ctx.font = "11px monospace";
   const harvested = Object.values(state.harvested || {}).reduce((a,b) => a+b, 0);
@@ -260,7 +260,7 @@ export default function FruitRun({ room, seed, coOp = false, onRunComplete, char
   function initState() {
     const { trees, bushes, flowers } = generateFruitRun(seed ?? Date.now());
     return {
-      px: 80, py: ORCHARD_H / 2, facing: "right",
+      px: 80, py: ORCHARD_H * 0.65, facing: "right",
       step: 0, stepTimer: 0,
       camX: 0, elapsed: 0, over: false,
       trees, bushes, flowers,
@@ -291,12 +291,15 @@ export default function FruitRun({ room, seed, coOp = false, onRunComplete, char
     const onKeyDown = (e) => {
       keysRef.current[e.key] = true;
       soundRef.current?.unlock();
+      if (e.key === " ") e.preventDefault();
       if (e.key === "Escape") finishRun(stateRef.current);
     };
     const onKeyUp = (e) => { delete keysRef.current[e.key]; };
 
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup",   onKeyUp);
+    const onWheel = (e) => e.preventDefault();
+    canvas.addEventListener("wheel", onWheel, { passive: false });
 
     const tick = (ts) => {
       rafRef.current = requestAnimationFrame(tick);
@@ -320,7 +323,7 @@ export default function FruitRun({ room, seed, coOp = false, onRunComplete, char
       if (dx !== 0 && dy !== 0) { dx *= 0.707; dy *= 0.707; }
 
       state.px = Math.max(20, Math.min(ORCHARD_W - 20, state.px + dx * PLAYER_SPEED * dt));
-      state.py = Math.max(30, Math.min(ORCHARD_H - 30, state.py + dy * PLAYER_SPEED * dt));
+      state.py = Math.max(ORCHARD_GROUND_Y + 10, Math.min(ORCHARD_H - 30, state.py + dy * PLAYER_SPEED * dt));
 
       if (dx !== 0 || dy !== 0) {
         state.stepTimer += dt;
@@ -443,6 +446,7 @@ export default function FruitRun({ room, seed, coOp = false, onRunComplete, char
       window.removeEventListener("resize", resize);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup",   onKeyUp);
+      canvas.removeEventListener("wheel", onWheel);
     };
   }, [seed]);
 

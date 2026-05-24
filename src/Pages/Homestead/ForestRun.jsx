@@ -297,7 +297,8 @@ function drawHUD(ctx, W, H, state, inventory, t) {
   ctx.fillStyle = "rgba(10,18,6,0.92)"; ctx.fillRect(0, 0, W, 32);
 
   // HP pips
-  for (let i = 0; i < PLAYER_HP; i++) {
+  const maxHp = state.maxHp ?? PLAYER_HP;
+  for (let i = 0; i < maxHp; i++) {
     ctx.beginPath(); ctx.arc(16 + i * 22, 16, 8, 0, Math.PI * 2);
     ctx.fillStyle = i < state.hp ? "rgba(220,80,80,0.9)" : "rgba(255,255,255,0.12)";
     ctx.fill();
@@ -313,7 +314,7 @@ function drawHUD(ctx, W, H, state, inventory, t) {
   // Loot preview (top right)
   ctx.textAlign = "right"; ctx.font = "11px monospace"; ctx.fillStyle = "#d8eaa0";
   const inv = inventory;
-  ctx.fillText(`🪵${inv.wood ?? 0}  🪨${inv.stone ?? 0}  🌿${inv.herbs ?? 0}  🦴${inv.leather ?? 0}`, W - 14, 16);
+  ctx.fillText(`🪵wood:${inv.wood ?? 0}  🪨stone:${inv.stone ?? 0}  🌿herbs:${inv.herbs ?? 0}  🦴leathr:${inv.leather ?? 0}`, W - 14, 16);
 
   // Kill counter
   ctx.textAlign = "left"; ctx.fillStyle = "rgba(255,180,80,0.8)"; ctx.font = "11px monospace";
@@ -321,7 +322,7 @@ function drawHUD(ctx, W, H, state, inventory, t) {
 
   // Sticks/silk (smaller items this run)
   ctx.textAlign = "right"; ctx.fillStyle = "rgba(200,230,160,0.6)"; ctx.font = "10px monospace";
-  ctx.fillText(`🪹${inv.sticks ?? 0}  🕸${inv.silk ?? 0}`, W - 14, H - 14);
+  ctx.fillText(`🪹sticks:${inv.sticks ?? 0}  🕸silk:${inv.silk ?? 0}`, W - 14, H - 14);
 
   // Leave hint
   ctx.fillStyle = "rgba(18,10,4,0.7)"; ctx.fillRect(0, H - 26, W, 26);
@@ -351,6 +352,12 @@ const HOTBAR_DISPLAY_ICONS = {
   axe:"🪓", pickaxe:"⛏️", fishing_rod:"🎣",
   leather_armor:"🛡️", cooked_meat:"🍖", potion_table:"🧪",
 };
+const HOTBAR_SHORT_LABELS = {
+  axe:"axe", pickaxe:"pick", fishing_rod:"rod",
+  leather_armor:"armor", cooked_meat:"meat", potion_table:"pot",
+  fish:"fish", big_fish:"bfish", rare_fish:"rfish",
+  apples:"apple", berries:"berry", mushrooms:"mush", herbs:"herb",
+};
 
 function ForestHotbar({ hotbar, selectedSlot, onSelectSlot, onUseItem, equipment }) {
   return (
@@ -369,16 +376,19 @@ function ForestHotbar({ hotbar, selectedSlot, onSelectSlot, onUseItem, equipment
           <div key={idx}
             onClick={() => { onSelectSlot(idx); if (idx === selectedSlot && slot) onUseItem(); }}
             style={{
-              width: 44, height: 44, borderRadius: 8, cursor: "pointer",
+              width: 44, height: 52, borderRadius: 8, cursor: "pointer",
               background: isSelected ? "rgba(200,230,120,0.15)" : "rgba(255,255,255,0.03)",
               border: `2px solid ${isSelected ? "rgba(200,230,120,0.8)" : isEquipped ? "rgba(100,200,255,0.5)" : "rgba(255,255,255,0.1)"}`,
               display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-              position: "relative", transition: "border-color 0.1s",
+              position: "relative", transition: "border-color 0.1s", gap: 1,
             }}
           >
             {slot ? (
               <>
-                <span style={{ fontSize: 20 }}>{HOTBAR_DISPLAY_ICONS[slot.item] ?? "📦"}</span>
+                <span style={{ fontSize: 18, lineHeight: 1 }}>{HOTBAR_DISPLAY_ICONS[slot.item] ?? "📦"}</span>
+                <span style={{ fontSize: 8, color: "rgba(200,230,120,0.65)", lineHeight: 1, fontFamily: "monospace", maxWidth: 40, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {HOTBAR_SHORT_LABELS[slot.item] ?? slot.item}
+                </span>
                 {slot.qty != null && (
                   <span style={{ fontSize: 9, color: "rgba(200,230,120,0.8)", lineHeight: 1, position: "absolute", bottom: 2, right: 4 }}>
                     {slot.qty}
@@ -537,11 +547,13 @@ export default function ForestRun({ room, seed, coOp = false, onRunComplete, cha
   // ── Init ───────────────────────────────────────────────────────────────────
   function initState() {
     const { enemies, pickups, trees } = generateForestRun(seed ?? Date.now());
+    const equipStats = getEquipStats(equipmentRef.current);
+    const maxHp = PLAYER_HP + (equipStats.maxHpBonus ?? 0);
     return {
       px: 80, py: FOREST_H / 2,
       facing: "right",
       step: 0, stepTimer: 0,
-      hp: PLAYER_HP, invincible: 0, hitFlash: 0,
+      hp: maxHp, maxHp, invincible: 0, hitFlash: 0,
       attackFlash: 0, attackCooldown: 0,
       camX: 0,
       elapsed: 0,
@@ -578,7 +590,7 @@ export default function ForestRun({ room, seed, coOp = false, onRunComplete, cha
       keysRef.current[e.key] = true;
       soundRef.current?.unlock();
       if (e.key === "Escape") finishRun(stateRef.current);
-      if (e.key === " ") doAttack();
+      if (e.key === " ") { e.preventDefault(); doAttack(); }
       // Number keys 1-6 select hotbar slot
       if (e.key >= "1" && e.key <= "6") {
         const idx = parseInt(e.key) - 1;
@@ -632,6 +644,8 @@ export default function ForestRun({ room, seed, coOp = false, onRunComplete, cha
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup",   onKeyUp);
     canvas.addEventListener("click",   onClick);
+    const onWheel = (e) => e.preventDefault();
+    canvas.addEventListener("wheel", onWheel, { passive: false });
 
     const tick = (ts) => {
       rafRef.current = requestAnimationFrame(tick);
@@ -808,7 +822,7 @@ export default function ForestRun({ room, seed, coOp = false, onRunComplete, cha
         ctx.beginPath(); ctx.roundRect(W / 2 - 72, H / 2 - 20, 144, 30, 6); ctx.fill();
         ctx.fillStyle = "#f5c060"; ctx.font = "bold 12px monospace";
         ctx.textAlign = "center"; ctx.textBaseline = "middle";
-        ctx.fillText("🪓 need an axe to chop", W / 2, H / 2 - 5);
+        ctx.fillText("[axe] need an axe to chop", W / 2, H / 2 - 5);
         ctx.restore();
       }
     };
@@ -821,6 +835,7 @@ export default function ForestRun({ room, seed, coOp = false, onRunComplete, cha
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup",   onKeyUp);
       canvas.removeEventListener("click",   onClick);
+      canvas.removeEventListener("wheel",   onWheel);
     };
   }, [seed]); // eslint-disable-line react-hooks/exhaustive-deps
 
