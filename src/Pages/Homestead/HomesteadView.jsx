@@ -1183,6 +1183,7 @@ function TabMenu({
       furnace:      { icon:"⚙️", label:"Furnace" },
       anvil:        { icon:"⚒", label:"Anvil" },
       potion_stand: { icon:"⚗️", label:"Potion Stand" },
+      builders_table: { icon:"📐", label:"Builder's Table" },
     };
 
     const categories = isSpecificStation
@@ -1191,8 +1192,8 @@ function TabMenu({
           { key:"tools_t1",  label:"⚒ Tier 1 Tools",      filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="tool" && !ITEMS[resolveRecipeKey(id)]?.craftStation },
           { key:"gear",      label:"🛡 Armor & Gear",       filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="gear" && !ITEMS[resolveRecipeKey(id)]?.craftStation },
           { key:"upgrades",  label:"🎒 Bag Upgrades",       filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="upgrade" && !ITEMS[resolveRecipeKey(id)]?.craftStation },
-          { key:"stations",  label:"🏗 Stations",           filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="placeable" && ["fire_pit","furnace","anvil","potion_stand"].includes(resolveRecipeKey(id)) },
-          { key:"decor",     label:"🌸 Decor & Structures", filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="placeable" && !["fire_pit","furnace","anvil","potion_stand","crafting_station"].includes(resolveRecipeKey(id)) },
+          { key:"stations",  label:"🏗 Stations",           filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="placeable" && ["fire_pit","furnace","anvil","potion_stand","builders_table"].includes(resolveRecipeKey(id)) },
+          { key:"decor",     label:"🌸 Decor & Structures", filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="placeable" && !["fire_pit","furnace","anvil","potion_stand","crafting_station","builders_table"].includes(resolveRecipeKey(id)) && ITEMS[resolveRecipeKey(id)]?.craftStation !== "builders_table" },
         ];
     const allStationEntries = expandedStationRecipes();
 
@@ -1645,6 +1646,8 @@ export default function HomesteadView({
       const result = hitOreNode(target, equipStats, flatInv);
       if (result) {
         onPlayerInventoryUpdate?.({ ...playerInvRef.current, items: result.inventory });
+        // Sync node depletion state to partner
+        sendFarmUpdatedRef.current?.(farmPlots.current, nodeState.current);
         return;
       }
     }
@@ -1669,6 +1672,11 @@ export default function HomesteadView({
       });
       if (result) {
         onPlayerInventoryUpdate?.({ ...playerInvRef.current, items: result.inventory });
+        // If fully chopped, tell partner to remove the tree object
+        const updatedTree = objectsRef.current.find(o => o.id === target.id);
+        if (updatedTree?.chopped) {
+          sendObjectRemovedRef.current?.(target.id);
+        }
         return;
       }
     }
@@ -1738,17 +1746,39 @@ export default function HomesteadView({
   useEffect(() => { onHotbarChangeRef.current = onHotbarChange; }, [onHotbarChange]);
 
   const handlers = useRef({
-    onPlayerMove: ({ x, y, facing }) => {
-      if (stateRef.current) { stateRef.current.partnerX=x; stateRef.current.partnerY=y; stateRef.current.partnerFacing=facing; stateRef.current.partnerVisible=true; }
+    onPlayerMove: ({ x, y, facing, jumpVY }) => {
+      const s = stateRef.current;
+      if (s) {
+        // Begin a new lerp from current render position to the newly received target
+        s.partnerFromX   = s.partnerVisible ? s.partnerRenderX : x;
+        s.partnerFromY   = s.partnerVisible ? s.partnerRenderY : y;
+        s.partnerToX     = x;
+        s.partnerToY     = y;
+        s.partnerLerpT   = 0;
+        s.partnerLerpDur = 0.12; // slightly longer than broadcast interval to absorb jitter
+        s.partnerX       = x;   // raw target, used for step detection
+        s.partnerY       = y;
+        s.partnerFacing  = facing;
+        s.partnerVisible = true;
+        if (jumpVY) s.partnerJumpVY = jumpVY;
+      }
+    },
+    onPartnerConnected: () => {
+      // A partner just joined — push our current farm and node state so they're
+      // immediately in sync rather than seeing a stale/empty world.
+      sendFarmUpdatedRef.current?.(farmPlots.current, nodeState.current);
     },
     onPlayerReady: () => setPartnerOnline(true),
-    onPlayerAppearance: ({ character:ch, equipment:eq }) => { partnerAppearanceRef.current = { character:ch, equipment:eq }; },
+    onPlayerAppearance: ({ character:ch, equipment:eq }) => { partnerAppearanceRef.current = { ...partnerAppearanceRef.current, character:ch, equipment:eq }; },
     onChestUpdated: ({ inventory:inv }) => {
       chestRef.current = inv;
       onChestUpdateRef.current?.(inv);
     },
     onObjectPlaced: ({ obj }) => {
-      const next = [...objectsRef.current, obj];
+      const existing = objectsRef.current.findIndex(o => o.id === obj.id);
+      const next = existing !== -1
+        ? objectsRef.current.map(o => o.id === obj.id ? obj : o)
+        : [...objectsRef.current, obj];
       objectsRef.current = next;
       onObjectsUpdateRef.current?.(next);
     },
@@ -1757,41 +1787,59 @@ export default function HomesteadView({
       objectsRef.current = next;
       onObjectsUpdateRef.current?.(next);
     },
-    onFarmUpdated: ({ plots }) => {
-      // Merge remote farm state into local tileMap
+    onFarmUpdated: ({ plots, nodeState: remoteNodeState }) => {
+      // Apply remote farm plots to our tileMap.
+      // First pass: reset every tile that WAS tilled/planted back to grass so
+      // harvested/removed plots don't linger on the receiver's map.
       const tm = tileMapRef.current;
+      const localPlots = farmPlots.current;
+      for (const key of Object.keys(localPlots)) {
+        const [col, row] = key.split(",").map(Number);
+        if (tm[row] && !plots[key]) tm[row][col] = T.GRASS;
+      }
+      // Second pass: stamp the authoritative remote state
       for (const [key, plot] of Object.entries(plots)) {
         const [col, row] = key.split(",").map(Number);
         if (!tm[row]) continue;
         tm[row][col] = plot.seedId ? T.PLANTED : T.TILLED;
       }
-      // Persist the partner's farm state locally so our game loop can tick crops
+      // Persist and update the ref so crop ticking works locally
       try { localStorage.setItem("hearthroot_farm", JSON.stringify(plots)); } catch {}
       farmPlots.current = plots;
+
+      // Apply remote node state (ore depletion, tree chop) if included
+      if (remoteNodeState) {
+        try { localStorage.setItem("hearthroot_nodes", JSON.stringify(remoteNodeState)); } catch {}
+        nodeState.current = remoteNodeState;
+      }
     },
-    onPlayerStateSync: ({ equipment: eq }) => {
-      // Only update partner's visual equipment (for rendering their equipped tool above head)
+    onPlayerStateSync: ({ equipment: eq, heldItem: hi }) => {
+      // Only update partner's visual equipment and held item (for rendering above head)
       // Do NOT overwrite local inventory/hotbar — those belong to this player
       if (eq) partnerAppearanceRef.current = { ...partnerAppearanceRef.current, equipment: eq };
+      if (hi !== undefined) partnerAppearanceRef.current = { ...partnerAppearanceRef.current, heldItem: hi };
     },
     onRunQueued: ({ runType, seed }) => setRunJoinPrompt({ runType, seed }),
     onRunCancelled: () => setRunJoinPrompt(null),
   }).current;
 
-  const { sendPlayerMove, sendPlayerReady, sendPlayerAppearance, sendObjectPlaced, sendFarmUpdated, sendPlayerStateSync } = useHearthroom(room?.id??null, handlers);
+  const { sendPlayerMove, sendPlayerReady, sendPlayerAppearance, sendObjectPlaced, sendObjectRemoved, sendFarmUpdated, sendPlayerStateSync } = useHearthroom(room?.id??null, handlers);
   const sendObjectPlacedRef  = useRef(sendObjectPlaced);
+  const sendObjectRemovedRef = useRef(sendObjectRemoved);
   const sendFarmUpdatedRef   = useRef(sendFarmUpdated);
   const sendPlayerStateSyncRef = useRef(sendPlayerStateSync);
   useEffect(() => { sendObjectPlacedRef.current  = sendObjectPlaced;   }, [sendObjectPlaced]);
+  useEffect(() => { sendObjectRemovedRef.current = sendObjectRemoved;  }, [sendObjectRemoved]);
   useEffect(() => { sendFarmUpdatedRef.current   = sendFarmUpdated;    }, [sendFarmUpdated]);
   useEffect(() => { sendPlayerStateSyncRef.current = sendPlayerStateSync; }, [sendPlayerStateSync]);
   useEffect(() => { sendPlayerReady(); }, []); // eslint-disable-line
   useEffect(() => { sendPlayerAppearance(character, equipment, hotbar); }, [character, equipment, hotbar]); // eslint-disable-line
 
-  // Broadcast equipment changes to partner so they see which tool this player has equipped
+  // Broadcast equipment + current held item together so partner state is always consistent
   useEffect(() => {
-    sendPlayerStateSync({ equipment });
-  }, [equipment]); // eslint-disable-line
+    const slot = (hotbar ?? [])[selectedHotbarIdx];
+    sendPlayerStateSync({ equipment, heldItem: slot?.item ?? null });
+  }, [equipment, selectedHotbarIdx, hotbar]); // eslint-disable-line
 
   // ── Key handlers ────────────────────────────────────────────────────────────
   // Keep the latest handler in a ref so the game-loop effect never needs to
@@ -1818,11 +1866,17 @@ export default function HomesteadView({
     const visSlots = Math.min(hotbarSlotsRef.current, HOTBAR_SIZE);
     if (e.key==="q"||e.key==="Q") setSelectedHotbarIdx(i=>{const n=(i-1+visSlots)%visSlots;selectedHotbarIdxRef.current=n;return n;});
     if (e.key==="e"||e.key==="E") {
-      // E opens interact OR cycles hotbar depending on context
-      if (!tabMenuOpenRef.current) handleInteractRef.current();
+      // E cycles hotbar only
       setSelectedHotbarIdx(i=>{const n=(i+1)%visSlots;selectedHotbarIdxRef.current=n;return n;});
     }
-    if (e.key===" " && stateRef.current && stateRef.current.jumpZ === 0) stateRef.current.jumpVY = -220;
+    if (e.key===" " && stateRef.current && stateRef.current.jumpZ === 0) {
+      stateRef.current.jumpVY = -220;
+      // Broadcast the jump immediately — do not wait for the 80ms throttle.
+      // jumpVY goes positive via gravity within ~300ms, so the throttled path
+      // would send jumpVY=0 and the partner would never see the jump.
+      sendPlayerMove(stateRef.current.px, stateRef.current.py, stateRef.current.facing, -220);
+      stateRef.current.lastBroadcast = performance.now();
+    }
   }, []); // stable — reads latest values via refs
 
   const onKeyDownRef = useRef(onKeyDownImpl);
@@ -1838,7 +1892,14 @@ export default function HomesteadView({
         step:0, stepTimer:0, interactTarget:null,
         camX:0, camY:0, lastTime:performance.now(), lastBroadcast:0,
         partnerX:0, partnerY:0, partnerFacing:"down", partnerVisible:false,
+        partnerStep:0, partnerStepTimer:0, partnerPrevX:0, partnerPrevY:0,
+        // Interpolation: smoothly glide between received network snapshots
+        partnerFromX:0, partnerFromY:0,
+        partnerToX:0,   partnerToY:0,
+        partnerLerpT:1, partnerLerpDur:0.1,
+        partnerRenderX:0, partnerRenderY:0,
         jumpZ:0, jumpVY:0,
+        partnerJumpZ:0, partnerJumpVY:0,
       };
     }
   }, []); // eslint-disable-line
@@ -1885,6 +1946,13 @@ export default function HomesteadView({
         if (state.jumpZ >= 0) { state.jumpZ=0; state.jumpVY=0; }
       }
 
+      // Partner jump physics
+      if (state.partnerJumpZ !== 0 || state.partnerJumpVY !== 0) {
+        state.partnerJumpVY += 600*dt;
+        state.partnerJumpZ  += state.partnerJumpVY*dt;
+        if (state.partnerJumpZ >= 0) { state.partnerJumpZ=0; state.partnerJumpVY=0; }
+      }
+
       const cam = { x: state.camX, y: state.camY };
       updateCamera(cam, state.px, state.py, W, H);
       state.camX = cam.x; state.camY = cam.y;
@@ -1895,8 +1963,14 @@ export default function HomesteadView({
       tickCrops(nowMs);
       const nodeStateNow = tickNodes(objectsRef.current, nowMs);
       tickTreeRespawns(objectsRef.current, nowMs, (newObjs) => {
+        // Find which trees were just restored and tell the partner
+        const prev = objectsRef.current;
+        const restored = newObjs.filter(o => o.choppable && !o.chopped && prev.find(p => p.id === o.id && p.chopped));
         objectsRef.current = newObjs;
         onObjectsUpdateRef.current?.(newObjs);
+        for (const tree of restored) {
+          sendObjectPlacedRef.current?.(tree);
+        }
       });
 
       // ── Tick NPCs ──────────────────────────────────────────────────────────
@@ -1934,8 +2008,8 @@ export default function HomesteadView({
 
       // Broadcast movement
       state.lastBroadcast = (state.lastBroadcast||0);
-      if (nowMs - state.lastBroadcast > 80 && (dx!==0||dy!==0)) {
-        sendPlayerMove(state.px, state.py, state.facing);
+      if (nowMs - state.lastBroadcast > 80 && (dx!==0||dy!==0||state.jumpVY!==0)) {
+        sendPlayerMove(state.px, state.py, state.facing, state.jumpVY < 0 ? state.jumpVY : 0);
         state.lastBroadcast = nowMs;
       }
 
@@ -1960,9 +2034,34 @@ export default function HomesteadView({
         drawCrop(ctx,plot,c*TILE-camX,r*TILE-camY,TILE,t);
       }
       // Draw partner
-      if (state.partnerVisible&&partnerAppearanceRef.current?.character) {
-        const pscr={x:state.partnerX-camX,y:state.partnerY-camY};
-        drawPlayer(ctx,pscr.x,pscr.y,state.partnerFacing,0,partnerAppearanceRef.current.character,t,state.jumpZ,true);
+      if (state.partnerVisible) {
+  const partnerChar = partnerAppearanceRef.current?.character ?? defaultCharacter();
+
+  // Advance lerp — smoothly glide from last known position to new network snapshot
+  if (state.partnerLerpT < 1) {
+    state.partnerLerpT = Math.min(1, state.partnerLerpT + dt / Math.max(state.partnerLerpDur, 0.001));
+    // Ease-out: feels more natural and masks late packets
+    const ease = 1 - Math.pow(1 - state.partnerLerpT, 2);
+    state.partnerRenderX = state.partnerFromX + (state.partnerToX - state.partnerFromX) * ease;
+    state.partnerRenderY = state.partnerFromY + (state.partnerToY - state.partnerFromY) * ease;
+  }
+
+  // Walk animation: based on how fast the render position is moving
+  const pdx = state.partnerRenderX - state.partnerPrevX;
+  const pdy = state.partnerRenderY - state.partnerPrevY;
+  const partnerMoving = Math.abs(pdx) > 0.3 || Math.abs(pdy) > 0.3;
+  if (partnerMoving) {
+    state.partnerStepTimer += dt;
+    if (state.partnerStepTimer > 0.18) { state.partnerStep = (state.partnerStep + 1) % 4; state.partnerStepTimer = 0; }
+  } else {
+    state.partnerStep = 0; state.partnerStepTimer = 0;
+  }
+  state.partnerPrevX = state.partnerRenderX;
+  state.partnerPrevY = state.partnerRenderY;
+
+  const pscr = { x: state.partnerRenderX - camX, y: state.partnerRenderY - camY };
+  const partnerHeldItem = partnerAppearanceRef.current?.heldItem ?? null;
+  drawPlayer(ctx, pscr.x, pscr.y, state.partnerFacing, state.partnerStep, partnerChar, t, state.partnerJumpZ, true, partnerHeldItem);
       }
       // Draw NPCs
       if (npcs?.length) {
@@ -1988,7 +2087,8 @@ export default function HomesteadView({
         }
       }
       // Draw player
-      drawPlayer(ctx,state.px-camX,state.py-camY,state.facing,state.step,characterRef.current,t,state.jumpZ,false);
+      const localHeldItem = (hotbarRef.current ?? [])[selectedHotbarIdxRef.current]?.item ?? null;
+      drawPlayer(ctx,state.px-camX,state.py-camY,state.facing,state.step,characterRef.current,t,state.jumpZ,false,localHeldItem);
       // Ghost placement
       const ghost=ghostRef.current;
       if (ghost) {

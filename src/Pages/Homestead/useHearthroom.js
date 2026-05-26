@@ -2,7 +2,7 @@
 // WebSocket version — drop-in replacement for the Supabase broadcast version.
 // Same exported function names, same handler names. Nothing else in your app changes.
 //
-// Connect: wss://yourserver/homestead/ws/{roomId}?token={jwt}
+// Connect: wss://yourserver/homestead/ws/{roomId}?token={jwt}&channel={channel}
 
 import { useEffect, useRef, useCallback } from "react";
 
@@ -12,7 +12,7 @@ export function useHearthroom(roomId, handlers, channelSuffix = "") {
   const wsRef          = useRef(null);
   const handlersRef    = useRef(handlers);
   const connectedRef   = useRef(false);
-  const pendingSendRef = useRef(null);
+  const pendingSendRef = useRef([]); // array queue — never lose a message sent before open
   const reconnectTimer = useRef(null);
 
   // Always use latest handlers without re-subscribing
@@ -23,10 +23,12 @@ export function useHearthroom(roomId, handlers, channelSuffix = "") {
   useEffect(() => {
     if (!roomId) return;
 
-    // channelSuffix was used in Supabase to separate run sessions from lobby.
-    // We encode it into the room key so the server keeps them as separate rooms.
-    // e.g. roomId=42, suffix=":run" → room key "42:run" on the server
-    const roomKey = channelSuffix ? `${roomId}${channelSuffix}` : String(roomId);
+    // channelSuffix separates in-run sockets from lobby/homestead sockets.
+    // We pass it as a query param (?channel=run) rather than embedding it in
+    // the path (42:run) so the server's route pattern /homestead/ws/{room_id}
+    // still matches and the server can use ?channel to bucket messages.
+    const roomKey    = String(roomId);
+    const channelTag = channelSuffix ? channelSuffix.replace(/^:/, "") : "";
 
     let ws;
     let dead = false;
@@ -34,19 +36,22 @@ export function useHearthroom(roomId, handlers, channelSuffix = "") {
     function connect() {
       if (dead) return;
 
-      const token = localStorage.getItem("access_token")
-      const url   = `${WS_BASE}/homestead/ws/${roomKey}?token=${token}`;
+      const token = localStorage.getItem("access_token");
+      const channelParam = channelTag ? `&channel=${encodeURIComponent(channelTag)}` : "";
+      const url   = `${WS_BASE}/homestead/ws/${roomKey}?token=${token}${channelParam}`;
 
       ws = new WebSocket(url);
       wsRef.current = ws;
 
       ws.onopen = () => {
         connectedRef.current = true;
-        // Flush any message that was sent before we were ready
-        if (pendingSendRef.current) {
-          ws.send(JSON.stringify(pendingSendRef.current));
-          pendingSendRef.current = null;
+        // Flush all messages that were queued before the socket opened
+        for (const queued of pendingSendRef.current) {
+          ws.send(JSON.stringify(queued));
         }
+        pendingSendRef.current = [];
+        // Notify handlers so callers can re-broadcast ephemeral state (appearance, etc.)
+        handlersRef.current.onConnected?.({ event: "connected" });
       };
 
       ws.onmessage = ({ data }) => {
@@ -76,6 +81,10 @@ export function useHearthroom(roomId, handlers, channelSuffix = "") {
           case "run_attack":          h.onRunAttack?.(msg);              break;
           case "enemy_hit":           h.onEnemyHit?.(msg);              break;
           case "enemy_killed":        h.onEnemyKilled?.(msg);           break;
+          case "tree_hit":            h.onTreeHit?.(msg);               break;
+          case "tree_killed":         h.onTreeKilled?.(msg);            break;
+          case "deposit_hit":         h.onDepositHit?.(msg);            break;
+          case "deposit_killed":      h.onDepositKilled?.(msg);         break;
           case "pickup_collected":    h.onPickupCollected?.(msg);        break;
           case "loot_dropped":        h.onLootDropped?.(msg);           break;
           case "run_state_request":   h.onRunStateRequest?.(msg);        break;
@@ -133,14 +142,14 @@ export function useHearthroom(roomId, handlers, channelSuffix = "") {
     if (connectedRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(msg));
     } else {
-      // Queue it — will flush on connect
-      pendingSendRef.current = msg;
+      // Queue it — will flush on connect (array so nothing is lost)
+      pendingSendRef.current.push(msg);
     }
   }, []);
 
   // ── Lobby ─────────────────────────────────────────────────────────────────
   const sendPlayerReady     = useCallback(() =>                         send("player_ready",    { ready: true }),           [send]);
-  const sendPlayerMove      = useCallback((x, y, facing) =>             send("player_move",     { x, y, facing }),          [send]);
+  const sendPlayerMove      = useCallback((x, y, facing, jumpVY) =>     send("player_move",     { x, y, facing, jumpVY }),  [send]);
 
   // ── Run queue ─────────────────────────────────────────────────────────────
   const sendRunQueued       = useCallback((runType, seed) =>            send("run_queued",      { runType, seed }),          [send]);
@@ -153,6 +162,10 @@ export function useHearthroom(roomId, handlers, channelSuffix = "") {
   const sendRunAttack       = useCallback((x, y, facing) =>             send("run_attack",      { x, y, facing }),          [send]);
   const sendEnemyHit        = useCallback((id, hp) =>                   send("enemy_hit",       { id, hp }),                [send]);
   const sendEnemyKilled     = useCallback((id, loot) =>                 send("enemy_killed",    { id, loot }),              [send]);
+  const sendTreeHit         = useCallback((id, hp) =>                   send("tree_hit",        { id, hp }),                [send]);
+  const sendTreeKilled      = useCallback((id) =>                       send("tree_killed",     { id }),                    [send]);
+  const sendDepositHit      = useCallback((id, hp) =>                   send("deposit_hit",     { id, hp }),                [send]);
+  const sendDepositKilled   = useCallback((id) =>                       send("deposit_killed",  { id }),                    [send]);
   const sendPickupCollected = useCallback((id) =>                       send("pickup_collected",{ id }),                    [send]);
   const sendLootDropped     = useCallback((drops) =>                    send("loot_dropped",    { drops }),                  [send]);
   const sendRunStateRequest = useCallback(() =>                         send("run_state_request",{}),                        [send]);
@@ -165,7 +178,7 @@ export function useHearthroom(roomId, handlers, channelSuffix = "") {
   const sendChestUpdated    = useCallback((inventory) =>                send("chest_updated",   { inventory }),             [send]);
   const sendObjectPlaced    = useCallback((obj) =>                      send("object_placed",   { obj }),                   [send]);
   const sendObjectRemoved   = useCallback((id) =>                       send("object_removed",  { id }),                    [send]);
-  const sendFarmUpdated     = useCallback((plots) =>                    send("farm_updated",    { plots }),                  [send]);
+  const sendFarmUpdated     = useCallback((plots, nodeState) =>          send("farm_updated",    { plots, nodeState }),      [send]);
   const sendPlayerStateSync = useCallback((state) =>                    send("player_state_sync", state),                   [send]);
 
   // ── Misc ──────────────────────────────────────────────────────────────────
@@ -185,6 +198,10 @@ export function useHearthroom(roomId, handlers, channelSuffix = "") {
     sendRunAttack,
     sendEnemyHit,
     sendEnemyKilled,
+    sendTreeHit,
+    sendTreeKilled,
+    sendDepositHit,
+    sendDepositKilled,
     sendPickupCollected,
     sendLootDropped,
     sendRunStateRequest,

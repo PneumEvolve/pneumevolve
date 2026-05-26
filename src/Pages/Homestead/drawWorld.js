@@ -479,10 +479,10 @@ export function drawObject(ctx, obj, sx, sy, a, b, c, d) {
 }
 
 // ─── Player drawing ───────────────────────────────────────────────────────────
-// New signature: drawPlayer(ctx, px, py, facing, step, character, t, jumpZ, isPartner)
+// New signature: drawPlayer(ctx, px, py, facing, step, character, t, jumpZ, isPartner, heldItem)
 // Old signature: drawPlayer(ctx, px, py, facing, step, invincible, t, character, weapon)
-export function drawPlayer(ctx, px, py, facing, step, a, b, c, d) {
-  let character, t, invincible, weapon, jumpZ, isPartner;
+export function drawPlayer(ctx, px, py, facing, step, a, b, c, d, e) {
+  let character, t, invincible, weapon, jumpZ, isPartner, heldItem;
   // Disambiguate: in new form, arg `a` is the character object; in old, arg `a` is `invincible` (number).
   if (a && typeof a === "object" && !Array.isArray(a)) {
     // New form
@@ -490,6 +490,7 @@ export function drawPlayer(ctx, px, py, facing, step, a, b, c, d) {
     t         = b ?? 0;
     jumpZ     = c ?? 0;
     isPartner = !!d;
+    heldItem  = e ?? null;  // item id of whatever is in the active hotbar slot
     invincible = 0;
     weapon = null;
   } else {
@@ -500,6 +501,7 @@ export function drawPlayer(ctx, px, py, facing, step, a, b, c, d) {
     weapon     = d ?? null;
     jumpZ      = 0;
     isPartner  = false;
+    heldItem   = null;
   }
 
   // Apply jump offset visually (jumpZ is negative when airborne in this engine's convention)
@@ -556,13 +558,17 @@ export function drawPlayer(ctx, px, py, facing, step, a, b, c, d) {
     }
   }
 
-  if (weapon) {
+  // Held item: either legacy weapon arg or the active hotbar item (any category)
+  const displayItem = weapon || heldItem;
+  if (displayItem) {
     const handX = facing==="left" ? px-14 : px+14;
     const handY = pyJ-8+bobY;
+    ctx.save();
     ctx.font = "13px serif";
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    const icon = ITEM_ICONS[weapon] ?? EQUIPPABLE[weapon]?.icon ?? "🗡️";
+    const icon = ITEM_ICONS[displayItem] ?? EQUIPPABLE[displayItem]?.icon ?? "📦";
     ctx.fillText(icon, handX, handY);
+    ctx.restore();
   }
 
   if (isPartner) ctx.globalAlpha = 1;

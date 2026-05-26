@@ -307,12 +307,13 @@ function drawEnemy(ctx, e, camX, t) {
   ctx.restore();
 }
 
-function drawPlayer(ctx, px, py, facing, step, invincible, attackFlash, t, character, weapon) {
+function drawPlayer(ctx, px, py, facing, step, invincible, attackFlash, t, character, weapon, jumpZ = 0) {
   const blink = invincible > 0 && Math.floor(t * 8) % 2 === 0;
   if (blink) return;
 
   const bobY  = (step === 1 || step === 3) ? -1 : 0;
   const legSw = (step === 1 || step === 3) ?  3 : 0;
+  const jy    = jumpZ; // negative = up in screen space
 
   const { skin = 'light', outfit = 'blue', hair = 'short', hat = 'none' } = character || {};
   const SKINS   = { light:'#f5c5a3', medium:'#d4956a', tan:'#c07840', brown:'#8b5a2b', dark:'#5a3018' };
@@ -325,59 +326,61 @@ function drawPlayer(ctx, px, py, facing, step, invincible, attackFlash, t, chara
   const [bodyCol, legCol] = OUTFITS[outfit] || ['#5b8dd9','#3a6abf'];
   const hairCol  = HAIRS[hair]  || '#7a4f2a';
 
+  // Shadow stays on the ground and shrinks as player rises
+  const shadowScale = Math.max(0.3, 1 - Math.abs(jy) / 80);
   ctx.fillStyle = "rgba(0,0,0,0.22)";
-  ctx.beginPath(); ctx.ellipse(px, py + 12, 8, 3, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(px, py + 12, 8 * shadowScale, 3 * shadowScale, 0, 0, Math.PI * 2); ctx.fill();
 
   ctx.fillStyle = legCol;
-  ctx.fillRect(px - 6, py + 2, 5, 9 + legSw);
-  ctx.fillRect(px + 1, py + 2, 5, 9 - legSw);
+  ctx.fillRect(px - 6, py + 2 + jy, 5, 9 + legSw);
+  ctx.fillRect(px + 1, py + 2 + jy, 5, 9 - legSw);
 
   ctx.fillStyle = attackFlash > 0 ? "#88ccff" : bodyCol;
-  ctx.fillRect(px - 7, py - 10 + bobY, 14, 13);
+  ctx.fillRect(px - 7, py - 10 + bobY + jy, 14, 13);
 
   const armSw = attackFlash > 0 ? 6 : (step === 1 || step === 3) ? 2 : 0;
   ctx.fillStyle = attackFlash > 0 ? "#88ccff" : bodyCol;
   if (facing === "right") {
-    ctx.fillRect(px + 7,  py - 14 + bobY + armSw, 10, 4);
-    ctx.fillRect(px - 10, py - 9  + bobY - armSw, 3, 8);
+    ctx.fillRect(px + 7,  py - 14 + bobY + armSw + jy, 10, 4);
+    ctx.fillRect(px - 10, py - 9  + bobY - armSw + jy, 3, 8);
   } else if (facing === "left") {
-    ctx.fillRect(px - 17, py - 14 + bobY + armSw, 10, 4);
-    ctx.fillRect(px + 7,  py - 9  + bobY - armSw, 3, 8);
+    ctx.fillRect(px - 17, py - 14 + bobY + armSw + jy, 10, 4);
+    ctx.fillRect(px + 7,  py - 9  + bobY - armSw + jy, 3, 8);
   } else {
-    ctx.fillRect(px - 10, py - 9  + bobY + armSw, 3, 8);
-    ctx.fillRect(px + 7,  py - 9  + bobY - armSw, 3, 8);
+    ctx.fillRect(px - 10, py - 9  + bobY + armSw + jy, 3, 8);
+    ctx.fillRect(px + 7,  py - 9  + bobY - armSw + jy, 3, 8);
   }
 
-  ctx.fillStyle = skinCol; ctx.fillRect(px - 7, py - 22 + bobY, 14, 12);
-  ctx.fillStyle = hairCol; ctx.fillRect(px - 7, py - 22 + bobY, 14, 5);
+  ctx.fillStyle = skinCol; ctx.fillRect(px - 7, py - 22 + bobY + jy, 14, 12);
+  ctx.fillStyle = hairCol; ctx.fillRect(px - 7, py - 22 + bobY + jy, 14, 5);
 
   if (hat !== 'none' && HATS_C[hat]) {
     ctx.fillStyle = HATS_C[hat];
-    if (hat === 'cap')    { ctx.fillRect(px - 8, py - 27 + bobY, 16, 6); ctx.fillRect(px - 10, py - 28 + bobY, 20, 3); }
-    if (hat === 'straw')  { ctx.beginPath(); ctx.ellipse(px, py - 27 + bobY, 12, 4, 0, 0, Math.PI*2); ctx.fill(); ctx.fillRect(px-6, py-35+bobY, 12, 10); }
-    if (hat === 'beanie') { ctx.beginPath(); ctx.arc(px, py - 24 + bobY, 8, Math.PI, 0); ctx.fill(); }
+    if (hat === 'cap')    { ctx.fillRect(px - 8, py - 27 + bobY + jy, 16, 6); ctx.fillRect(px - 10, py - 28 + bobY + jy, 20, 3); }
+    if (hat === 'straw')  { ctx.beginPath(); ctx.ellipse(px, py - 27 + bobY + jy, 12, 4, 0, 0, Math.PI*2); ctx.fill(); ctx.fillRect(px-6, py-35+bobY+jy, 12, 10); }
+    if (hat === 'beanie') { ctx.beginPath(); ctx.arc(px, py - 24 + bobY + jy, 8, Math.PI, 0); ctx.fill(); }
   }
 
   if (facing === "down") {
     ctx.fillStyle = "#2a1a0a";
-    ctx.fillRect(px - 4, py - 16 + bobY, 3, 3);
-    ctx.fillRect(px + 1,  py - 16 + bobY, 3, 3);
+    ctx.fillRect(px - 4, py - 16 + bobY + jy, 3, 3);
+    ctx.fillRect(px + 1,  py - 16 + bobY + jy, 3, 3);
   } else if (facing === "left") {
-    ctx.fillStyle = "#2a1a0a"; ctx.fillRect(px - 5, py - 16 + bobY, 3, 3);
+    ctx.fillStyle = "#2a1a0a"; ctx.fillRect(px - 5, py - 16 + bobY + jy, 3, 3);
   } else if (facing === "right") {
-    ctx.fillStyle = "#2a1a0a"; ctx.fillRect(px + 2, py - 16 + bobY, 3, 3);
+    ctx.fillStyle = "#2a1a0a"; ctx.fillRect(px + 2, py - 16 + bobY + jy, 3, 3);
   }
 
   const WEAPON_ICONS = { axe:"🪓", pickaxe:"⛏️", fishing_rod:"🎣" };
   if (weapon && WEAPON_ICONS[weapon]) {
     const handX = facing === "left" ? px - 16 : px + 16;
-    const handY = py - 8 + bobY + (attackFlash > 0 ? -4 : 0);
+    const handY = py - 8 + bobY + jy + (attackFlash > 0 ? -4 : 0);
     ctx.font = "14px serif";
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
     ctx.fillText(WEAPON_ICONS[weapon], handX, handY);
   } else if (attackFlash > 0) {
     const fx = facing === "right" ? px + 18 : facing === "left" ? px - 18 : px;
-    const fy = py - 12 + bobY;
+    const fy = py - 12 + bobY + jy;
     ctx.fillStyle = skinCol;
     ctx.beginPath(); ctx.arc(fx, fy, 5, 0, Math.PI * 2); ctx.fill();
   }
@@ -1125,22 +1128,69 @@ export default function ForestRun({
   }, [onPlayerInventoryUpdate, onHotbarChange, pushToast, pushLootFloat]);
 
   // ── Supabase: sync co-op partner if present ───────────────────────────────
+  const sendPlayerAppearanceRef = useRef(null);
+
   const handlers = useRef({
-    onRunMove: ({ x, y, facing }) => {
-      if (stateRef.current) {
-        stateRef.current.partnerX       = x;
-        stateRef.current.partnerY       = y;
-        stateRef.current.partnerFacing  = facing;
-        stateRef.current.partnerVisible = true;
+    onConnected: () => {
+      // Re-broadcast appearance every time the socket (re)connects so the partner
+      // always has our character/equipment even if they joined after us or reconnected.
+      setTimeout(() => {
+        sendPlayerAppearanceRef.current?.(
+          characterRef.current,
+          equipmentRef.current,
+          hotbarRef.current,
+        );
+      }, 80);
+    },
+    onRunMove: ({ x, y, facing, jumpVY }) => {
+      const s = stateRef.current;
+      if (s) {
+        // Begin a new lerp from current render position to the newly received target
+        s.partnerFromX   = s.partnerVisible ? s.partnerRenderX : x;
+        s.partnerFromY   = s.partnerVisible ? s.partnerRenderY : y;
+        s.partnerToX     = x;
+        s.partnerToY     = y;
+        s.partnerLerpT   = 0;
+        s.partnerLerpDur = 0.12;
+        s.partnerX       = x;
+        s.partnerY       = y;
+        s.partnerFacing  = facing;
+        s.partnerVisible = true;
+        if (jumpVY) s.partnerJumpVY = jumpVY;
       }
     },
     onPlayerAppearance: ({ character: ch, equipment: eq }) => {
       partnerAppearanceRef.current = { character: ch, equipment: eq };
     },
+    onEnemyHit: ({ id, hp }) => {
+      if (!stateRef.current) return;
+      const e = stateRef.current.enemies.find(en => en.id === id);
+      if (e) { e.hp = hp; e.hitFlash = 1; }
+    },
     onEnemyKilled: ({ id }) => {
       if (!stateRef.current) return;
       const e = stateRef.current.enemies.find(en => en.id === id);
       if (e) { e.alive = false; e.hp = 0; }
+    },
+    onTreeHit: ({ id, hp }) => {
+      if (!stateRef.current) return;
+      const t = stateRef.current.trees.find(tr => tr.id === id);
+      if (t) { t.hp = hp; t.hitFlash = 1; }
+    },
+    onTreeKilled: ({ id }) => {
+      if (!stateRef.current) return;
+      const t = stateRef.current.trees.find(tr => tr.id === id);
+      if (t) { t.alive = false; t.hp = 0; t.hitFlash = 0; }
+    },
+    onDepositHit: ({ id, hp }) => {
+      if (!stateRef.current) return;
+      const d = (stateRef.current.stoneDeposits ?? []).find(dep => dep.id === id);
+      if (d) { d.hp = hp; d.hitFlash = 1; }
+    },
+    onDepositKilled: ({ id }) => {
+      if (!stateRef.current) return;
+      const d = (stateRef.current.stoneDeposits ?? []).find(dep => dep.id === id);
+      if (d) { d.alive = false; d.hp = 0; d.hitFlash = 0; }
     },
     onPickupCollected: ({ id }) => {
       if (!stateRef.current) return;
@@ -1149,12 +1199,13 @@ export default function ForestRun({
     },
     onRunStateRequest: () => {
       if (!stateRef.current) return;
-      const collectedIds  = stateRef.current.pickups.filter(p => p.collected).map(p => p.id);
-      const deadEnemyIds  = stateRef.current.enemies.filter(e => !e.alive).map(e => e.id);
-      const deadTreeIds   = stateRef.current.trees.filter(t => !t.alive).map(t => t.id);
-      sendRunStateSyncRef.current?.({ collectedIds, deadEnemyIds, deadTreeIds });
+      const collectedIds    = stateRef.current.pickups.filter(p => p.collected).map(p => p.id);
+      const deadEnemyIds    = stateRef.current.enemies.filter(e => !e.alive).map(e => e.id);
+      const deadTreeIds     = stateRef.current.trees.filter(t => !t.alive).map(t => t.id);
+      const deadDepositIds  = (stateRef.current.stoneDeposits ?? []).filter(d => !d.alive).map(d => d.id);
+      sendRunStateSyncRef.current?.({ collectedIds, deadEnemyIds, deadTreeIds, deadDepositIds });
     },
-    onRunStateSync: ({ collectedIds, deadEnemyIds, deadTreeIds }) => {
+    onRunStateSync: ({ collectedIds, deadEnemyIds, deadTreeIds, deadDepositIds }) => {
       if (!stateRef.current) return;
       collectedIds?.forEach(id => {
         const p = stateRef.current.pickups.find(pk => pk.id === id);
@@ -1168,24 +1219,55 @@ export default function ForestRun({
         const t = stateRef.current.trees.find(tr => tr.id === id);
         if (t) { t.alive = false; t.hp = 0; }
       });
+      deadDepositIds?.forEach(id => {
+        const d = (stateRef.current.stoneDeposits ?? []).find(dep => dep.id === id);
+        if (d) { d.alive = false; d.hp = 0; }
+      });
     },
   }).current;
 
-  const { sendRunMove, sendEnemyKilled, sendPickupCollected, sendRunComplete,
+  const { sendRunMove, sendEnemyHit, sendEnemyKilled,
+          sendTreeHit, sendTreeKilled, sendDepositHit, sendDepositKilled,
+          sendPickupCollected, sendRunComplete,
           sendRunStateRequest, sendRunStateSync, sendPlayerAppearance } =
     useHearthroom(room?.id ?? null, handlers, ":run");
 
-  const sendRunStateSyncRef = useRef(null);
-  useEffect(() => { sendRunStateSyncRef.current = sendRunStateSync; }, [sendRunStateSync]);
+  const sendRunStateSyncRef  = useRef(null);
+  const sendTreeHitRef       = useRef(null);
+  const sendTreeKilledRef    = useRef(null);
+  const sendDepositHitRef    = useRef(null);
+  const sendDepositKilledRef = useRef(null);
+  const sendEnemyHitRef      = useRef(null);
+  const sendEnemyKilledRef   = useRef(null);
+  useEffect(() => { sendRunStateSyncRef.current  = sendRunStateSync;  }, [sendRunStateSync]);
+  useEffect(() => { sendTreeHitRef.current       = sendTreeHit;       }, [sendTreeHit]);
+  useEffect(() => { sendTreeKilledRef.current    = sendTreeKilled;    }, [sendTreeKilled]);
+  useEffect(() => { sendDepositHitRef.current    = sendDepositHit;    }, [sendDepositHit]);
+  useEffect(() => { sendDepositKilledRef.current = sendDepositKilled; }, [sendDepositKilled]);
+  useEffect(() => { sendEnemyHitRef.current      = sendEnemyHit;      }, [sendEnemyHit]);
+  useEffect(() => { sendEnemyKilledRef.current   = sendEnemyKilled;   }, [sendEnemyKilled]);
+  useEffect(() => { sendPlayerAppearanceRef.current = sendPlayerAppearance; }, [sendPlayerAppearance]);
 
+  // Send appearance immediately and whenever it changes
   useEffect(() => {
     sendPlayerAppearance(character, equipment, hotbar);
   }, [character, equipment, hotbar]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // In co-op, request the current world state from our partner with retries.
+  // We keep asking until partnerVisible flips (meaning we received at least one
+  // run_move or run_state_sync from them), up to 6 attempts spaced 1.5 s apart.
   useEffect(() => {
     if (!coOp) return;
-    const t = setTimeout(() => sendRunStateRequest(), 900);
-    return () => clearTimeout(t);
+    let attempts = 0;
+    let timer;
+    function tryRequest() {
+      if (stateRef.current?.partnerVisible || attempts >= 6) return;
+      sendRunStateRequest();
+      attempts++;
+      timer = setTimeout(tryRequest, 1500);
+    }
+    timer = setTimeout(tryRequest, 900);
+    return () => clearTimeout(timer);
   }, [coOp]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Init ───────────────────────────────────────────────────────────────────
@@ -1207,6 +1289,13 @@ export default function ForestRun({
       noPickaxeFlash: 0,
       enemies, pickups, trees, stoneDeposits,
       partnerX: 0, partnerY: 0, partnerFacing: "right", partnerVisible: false,
+      partnerStep: 0, partnerStepTimer: 0, partnerPrevX: 0, partnerPrevY: 0,
+      partnerFromX: 0, partnerFromY: 0,
+      partnerToX: 0,   partnerToY: 0,
+      partnerLerpT: 1, partnerLerpDur: 0.1,
+      partnerRenderX: 0, partnerRenderY: 0,
+      jumpZ: 0, jumpVY: 0,
+      partnerJumpZ: 0, partnerJumpVY: 0,
       lastTime: performance.now(),
     };
   }
@@ -1279,10 +1368,35 @@ export default function ForestRun({
 
       hitEnemies.forEach(id => {
         const e = state.enemies.find(en => en.id === id);
-        if (e && !e.alive) {
+        if (!e) return;
+        if (!e.alive) {
           state.kills++;
-          sendEnemyKilled(id, []);
+          sendEnemyKilledRef.current?.(id, []);
           soundRef.current?.hit();
+        } else {
+          // Intermediate hit — partner needs to see the HP bar update
+          if (coOp) sendEnemyHitRef.current?.(id, e.hp);
+          soundRef.current?.hit();
+        }
+      });
+
+      hitTrees.forEach(id => {
+        const tree = state.trees.find(tr => tr.id === id);
+        if (!tree) return;
+        if (!tree.alive) {
+          if (coOp) sendTreeKilledRef.current?.(id);
+        } else {
+          if (coOp) sendTreeHitRef.current?.(id, tree.hp);
+        }
+      });
+
+      (hitDeposits ?? []).forEach(id => {
+        const dep = (state.stoneDeposits ?? []).find(d => d.id === id);
+        if (!dep) return;
+        if (!dep.alive) {
+          if (coOp) sendDepositKilledRef.current?.(id);
+        } else {
+          if (coOp) sendDepositHitRef.current?.(id, dep.hp);
         }
       });
 
@@ -1327,7 +1441,16 @@ export default function ForestRun({
         return;
       }
       if (tabMenuOpenRef.current) return; // swallow gameplay keys while menu open
-      if (e.key === " ") { e.preventDefault(); doAttack(); }
+      if (e.key === " ") {
+        e.preventDefault();
+        if (stateRef.current && stateRef.current.jumpZ === 0 && stateRef.current.jumpVY === 0) {
+          stateRef.current.jumpVY = -220;
+          // Broadcast jump immediately — don't wait for the throttled move broadcast
+          sendRunMove(Math.round(stateRef.current.px), Math.round(stateRef.current.py), stateRef.current.facing, -220);
+          lastMoveRef.current = performance.now();
+        }
+        return;
+      }
       if (e.key >= "1" && e.key <= "9") selectHotbarSlot(parseInt(e.key) - 1);
       if (e.key === "f" || e.key === "F") useHotbarItem();
       const visSlots = Math.min(hotbarSlotsRef.current, HOTBAR_SIZE);
@@ -1387,6 +1510,20 @@ export default function ForestRun({
           state.stepTimer += dt;
           if (state.stepTimer > 0.2) { state.stepTimer = 0; state.step = (state.step + 1) % 4; }
         } else { state.step = 0; state.stepTimer = 0; }
+
+        // Jump physics
+        if (state.jumpZ !== 0 || state.jumpVY !== 0) {
+          state.jumpVY += 600 * dt;
+          state.jumpZ  += state.jumpVY * dt;
+          if (state.jumpZ >= 0) { state.jumpZ = 0; state.jumpVY = 0; }
+        }
+
+        // Partner jump physics
+        if (state.partnerJumpZ !== 0 || state.partnerJumpVY !== 0) {
+          state.partnerJumpVY += 600 * dt;
+          state.partnerJumpZ  += state.partnerJumpVY * dt;
+          if (state.partnerJumpZ >= 0) { state.partnerJumpZ = 0; state.partnerJumpVY = 0; }
+        }
 
         // Timers
         if (state.invincible  > 0) state.invincible  = Math.max(0, state.invincible  - dt);
@@ -1482,9 +1619,9 @@ export default function ForestRun({
         const targetCamX = Math.max(0, Math.min(FOREST_W - W, state.px - W / 2));
         state.camX += (targetCamX - state.camX) * Math.min(1, 8 * dt);
 
-        // Broadcast position
-        if (ts - lastMoveRef.current > MOVE_THROTTLE) {
-          sendRunMove(Math.round(state.px), Math.round(state.py), state.facing);
+        // Broadcast position (only in co-op — no point sending if solo)
+        if (coOp && ts - lastMoveRef.current > MOVE_THROTTLE && (dx !== 0 || dy !== 0 || state.jumpVY !== 0)) {
+          sendRunMove(Math.round(state.px), Math.round(state.py), state.facing, state.jumpVY < 0 ? state.jumpVY : 0);
           lastMoveRef.current = ts;
         }
       }
@@ -1533,19 +1670,37 @@ export default function ForestRun({
       });
 
       drawables.push({ sortY: state.py, draw: () =>
-        drawPlayer(ctx, state.px - camX, state.py, state.facing, state.step, state.invincible, state.attackFlash, t, characterRef.current, equipmentRef.current?.weapon ?? null)
+        drawPlayer(ctx, state.px - camX, state.py, state.facing, state.step, state.invincible, state.attackFlash, t, characterRef.current, equipmentRef.current?.weapon ?? null, state.jumpZ)
       });
 
       if (state.partnerVisible) {
-        const gpx = state.partnerX - camX, gpy = state.partnerY;
-        const pa = partnerAppearanceRef.current;
+        const partnerChar = partnerAppearanceRef.current?.character ?? { hair:"short", skin:"medium", outfit:"blue", hat:"none" };
+
+        // Advance lerp — smoothly glide from last known position to new network snapshot
+        if (state.partnerLerpT < 1) {
+          state.partnerLerpT = Math.min(1, state.partnerLerpT + dt / Math.max(state.partnerLerpDur, 0.001));
+          const ease = 1 - Math.pow(1 - state.partnerLerpT, 2);
+          state.partnerRenderX = state.partnerFromX + (state.partnerToX - state.partnerFromX) * ease;
+          state.partnerRenderY = state.partnerFromY + (state.partnerToY - state.partnerFromY) * ease;
+        }
+
+        // Walk animation: based on how fast the render position is moving
+        const pdx = state.partnerRenderX - state.partnerPrevX;
+        const pdy = state.partnerRenderY - state.partnerPrevY;
+        const partnerMoving = Math.abs(pdx) > 0.3 || Math.abs(pdy) > 0.3;
+        if (partnerMoving) {
+          state.partnerStepTimer += dt;
+          if (state.partnerStepTimer > 0.18) { state.partnerStep = (state.partnerStep + 1) % 4; state.partnerStepTimer = 0; }
+        } else {
+          state.partnerStep = 0; state.partnerStepTimer = 0;
+        }
+        state.partnerPrevX = state.partnerRenderX;
+        state.partnerPrevY = state.partnerRenderY;
+
+        const gpx = state.partnerRenderX - camX;
+        const gpy = state.partnerRenderY;
         drawables.push({ sortY: gpy, draw: () => {
-          ctx.save(); ctx.globalAlpha = 0.5;
-          drawPlayer(ctx, gpx, gpy, state.partnerFacing, 0, 0, 0, t, pa.character, pa.equipment?.weapon ?? null);
-          ctx.restore();
-          ctx.fillStyle = "rgba(140,200,255,0.8)"; ctx.font = "9px monospace";
-          ctx.textAlign = "center"; ctx.textBaseline = "bottom";
-          ctx.fillText("P2", gpx, gpy - 26);
+          drawPlayer(ctx, gpx, gpy, state.partnerFacing, state.partnerStep, 0, 0, t, partnerChar, partnerAppearanceRef.current?.equipment?.weapon ?? null, state.partnerJumpZ);
         }});
       }
 
