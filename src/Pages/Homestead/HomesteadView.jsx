@@ -1823,15 +1823,23 @@ export default function HomesteadView({
     onRunCancelled: () => setRunJoinPrompt(null),
   }).current;
 
-  const { sendPlayerMove, sendPlayerReady, sendPlayerAppearance, sendObjectPlaced, sendObjectRemoved, sendFarmUpdated, sendPlayerStateSync } = useHearthroom(room?.id??null, handlers);
+  const { sendPlayerMove, sendPlayerReady, sendPlayerAppearance, sendObjectPlaced, sendObjectRemoved, sendFarmUpdated, sendPlayerStateSync, sendChestUpdated } = useHearthroom(room?.id??null, handlers);
   const sendObjectPlacedRef  = useRef(sendObjectPlaced);
   const sendObjectRemovedRef = useRef(sendObjectRemoved);
   const sendFarmUpdatedRef   = useRef(sendFarmUpdated);
   const sendPlayerStateSyncRef = useRef(sendPlayerStateSync);
+  const sendChestUpdatedRef  = useRef(sendChestUpdated);
   useEffect(() => { sendObjectPlacedRef.current  = sendObjectPlaced;   }, [sendObjectPlaced]);
   useEffect(() => { sendObjectRemovedRef.current = sendObjectRemoved;  }, [sendObjectRemoved]);
   useEffect(() => { sendFarmUpdatedRef.current   = sendFarmUpdated;    }, [sendFarmUpdated]);
   useEffect(() => { sendPlayerStateSyncRef.current = sendPlayerStateSync; }, [sendPlayerStateSync]);
+  useEffect(() => { sendChestUpdatedRef.current  = sendChestUpdated;   }, [sendChestUpdated]);
+
+  // Wraps onChestUpdate so every local chest mutation also broadcasts to the partner.
+  const broadcastChestUpdate = useCallback((newChest) => {
+    onChestUpdate?.(newChest);
+    sendChestUpdatedRef.current?.(newChest);
+  }, [onChestUpdate]);
   useEffect(() => { sendPlayerReady(); }, []); // eslint-disable-line
   useEffect(() => { sendPlayerAppearance(character, equipment, hotbar); }, [character, equipment, hotbar]); // eslint-disable-line
 
@@ -2139,7 +2147,7 @@ export default function HomesteadView({
           onBuyToChest={(id, price) => {
             if (gold < price) return;
             saveGold(gold - price);
-            onChestUpdate?.(mergeIntoChest(normalizeChest(chestRef.current), { [id]: 1 }));
+            broadcastChestUpdate(mergeIntoChest(normalizeChest(chestRef.current), { [id]: 1 }));
           }}
           onSellFromInventory={(id, price) => {
             const items = { ...(playerInvRef.current?.items ?? {}) };
@@ -2153,7 +2161,7 @@ export default function HomesteadView({
             const newChest = spendFromChest(normalizeChest(chestRef.current), { [id]: 1 });
             if (!newChest) return;
             saveGold(gold + price);
-            onChestUpdate?.(newChest);
+            broadcastChestUpdate(newChest);
           }}
           onClose={()=>setTownOpen(false)}
         />
@@ -2188,7 +2196,7 @@ export default function HomesteadView({
           hotbarSlots={hotbarSlots ?? HOTBAR_BASE_SLOTS}
           onHotbarSlotsUpdate={onHotbarSlotsUpdate}
           chest={chest}
-          onChestUpdate={onChestUpdate}
+          onChestUpdate={broadcastChestUpdate}
           equipment={equipment}
           onEquipItem={onEquipItem}
           hotbar={hotbar??[]}
