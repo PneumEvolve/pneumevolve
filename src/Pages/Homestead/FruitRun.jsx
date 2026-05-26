@@ -1,12 +1,13 @@
 // src/Pages/Homestead/FruitRun.jsx
 // Peaceful fruit-picking run — no enemies, just gather!
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useCallback } from "react";
 import { useHearthroom } from "./useHearthroom";
 import {
   ORCHARD_W, ORCHARD_H, ORCHARD_GROUND_Y,
   generateFruitRun, FRUIT_LOOT_TABLE, rollLoot,
-  seededRand, addToInventory, fullEmptyInventory,
+  seededRand,
 } from "./gameEngine";
+import { addToPlayerInventory, INVENTORY_BASE_SLOTS } from "./Items";
 
 const PLAYER_SPEED  = 140;
 const RUN_DURATION  = 150;
@@ -245,7 +246,11 @@ function drawOrchardHUD(ctx, W, H, state, inventory, t) {
   ctx.fillText("WASD to move  ·  walk near plants to harvest  ·  [Esc] return home", W / 2, H - 13);
 }
 
-export default function FruitRun({ room, seed, coOp = false, onRunComplete, character }) {
+export default function FruitRun({
+  room, seed, coOp = false, onRunComplete,
+  character,
+  playerInventory, onPlayerInventoryUpdate,
+}) {
   const canvasRef     = useRef(null);
   const rafRef        = useRef(null);
   const keysRef       = useRef({});
@@ -254,8 +259,28 @@ export default function FruitRun({ room, seed, coOp = false, onRunComplete, char
   const randRef       = useRef(seededRand(seed ?? Date.now()));
   const lootFloatsRef = useRef([]);
 
+  // Live inventory refs — mirrors ForestRun pattern
+  const playerInvRef  = useRef(playerInventory ?? { items: {}, slots: INVENTORY_BASE_SLOTS });
+  const startInvRef   = useRef({});
+  const runDeltaRef   = useRef({});
+  useEffect(() => { playerInvRef.current = playerInventory ?? { items: {}, slots: INVENTORY_BASE_SLOTS }; }, [playerInventory]);
+
   const handlers = useRef({}).current;
   const { sendRunMove } = useHearthroom(room?.id ?? null, handlers, ":run");
+
+  // Add (item, qty) to the real player inventory live, tracking the delta for the summary
+  const tryGainItem = useCallback((itemId, qty) => {
+    const inv = playerInvRef.current ?? { items: {}, slots: INVENTORY_BASE_SLOTS };
+    const { next, overflow } = addToPlayerInventory(inv, itemId, qty);
+    const overflowQty = overflow?.[itemId] ?? 0;
+    const gained = qty - overflowQty;
+    if (gained > 0) {
+      runDeltaRef.current[itemId] = (runDeltaRef.current[itemId] ?? 0) + gained;
+      onPlayerInventoryUpdate?.(next);
+      playerInvRef.current = next; // optimistic update so back-to-back picks see fresh state
+    }
+    return gained;
+  }, [onPlayerInventoryUpdate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function initState() {
     const { trees, bushes, flowers } = generateFruitRun(seed ?? Date.now());
@@ -264,7 +289,6 @@ export default function FruitRun({ room, seed, coOp = false, onRunComplete, char
       step: 0, stepTimer: 0,
       camX: 0, elapsed: 0, over: false,
       trees, bushes, flowers,
-      inventory: { ...fullEmptyInventory() },
       harvested: {},
       lastTime: performance.now(),
     };
@@ -273,7 +297,16 @@ export default function FruitRun({ room, seed, coOp = false, onRunComplete, char
   function finishRun(state) {
     if (state.over) return;
     state.over = true;
-    onRunComplete?.({ ...state.inventory, kills: 0 });
+    // Diff current bag against start snapshot — only show items actually kept
+    const currentItems = playerInvRef.current?.items ?? {};
+    const startItems   = startInvRef.current ?? {};
+    const delta = {};
+    const allKeys = new Set([...Object.keys(currentItems), ...Object.keys(startItems)]);
+    for (const key of allKeys) {
+      const gained = (currentItems[key] ?? 0) - (startItems[key] ?? 0);
+      if (gained > 0) delta[key] = gained;
+    }
+    onRunComplete?.({ _alreadyApplied: true, _delta: delta, kills: 0 });
   }
 
   useEffect(() => {
@@ -286,6 +319,9 @@ export default function FruitRun({ room, seed, coOp = false, onRunComplete, char
     window.addEventListener("resize", resize);
     stateRef.current = initState();
     lootFloatsRef.current = [];
+    runDeltaRef.current = {};
+    // Snapshot what the player had before the run so we can diff at end
+    startInvRef.current = { ...(playerInvRef.current?.items ?? {}) };
     const lastMoveRef = { current: 0 };
 
     const onKeyDown = (e) => {
@@ -344,7 +380,7 @@ export default function FruitRun({ room, seed, coOp = false, onRunComplete, char
           soundRef.current?.pluck();
           const drops = rollLoot(FRUIT_LOOT_TABLE.apple_tree, randRef.current);
           drops.forEach((d, i) => {
-            addToInventory(state.inventory, d.item, d.qty);
+            tryGainItem(d.item, d.qty);
             state.harvested[d.item] = (state.harvested[d.item] ?? 0) + d.qty;
             lootFloatsRef.current.push({
               text: `+${d.qty} ${d.item}`, worldX: tree.x + (i%2===0?-14:14),
@@ -362,7 +398,7 @@ export default function FruitRun({ room, seed, coOp = false, onRunComplete, char
           soundRef.current?.collect();
           const drops = rollLoot(FRUIT_LOOT_TABLE[bush.type], randRef.current);
           drops.forEach((d, i) => {
-            addToInventory(state.inventory, d.item, d.qty);
+            tryGainItem(d.item, d.qty);
             state.harvested[d.item] = (state.harvested[d.item] ?? 0) + d.qty;
             lootFloatsRef.current.push({
               text: `+${d.qty} ${d.item}`, worldX: bush.x + (i%2===0?-14:14),
@@ -379,7 +415,7 @@ export default function FruitRun({ room, seed, coOp = false, onRunComplete, char
           soundRef.current?.collect();
           const drops = rollLoot(FRUIT_LOOT_TABLE.flower_patch, randRef.current);
           drops.forEach((d, i) => {
-            addToInventory(state.inventory, d.item, d.qty);
+            tryGainItem(d.item, d.qty);
             state.harvested[d.item] = (state.harvested[d.item] ?? 0) + d.qty;
             lootFloatsRef.current.push({
               text: `+${d.qty} ${d.item}`, worldX: fl.x, worldY: fl.y - i * 14, born: performance.now(),
@@ -437,7 +473,7 @@ export default function FruitRun({ room, seed, coOp = false, onRunComplete, char
         ctx.restore();
       }
 
-      drawOrchardHUD(ctx, W, H, state, state.inventory, t);
+      drawOrchardHUD(ctx, W, H, state, playerInvRef.current?.items ?? {}, t);
     };
 
     rafRef.current = requestAnimationFrame(tick);
@@ -448,7 +484,7 @@ export default function FruitRun({ room, seed, coOp = false, onRunComplete, char
       window.removeEventListener("keyup",   onKeyUp);
       canvas.removeEventListener("wheel", onWheel);
     };
-  }, [seed]);
+  }, [seed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div style={{ width:"100%", height:"100svh", background:"#5a9632", position:"relative", userSelect:"none" }}>

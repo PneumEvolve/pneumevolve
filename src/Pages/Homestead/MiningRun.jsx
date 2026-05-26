@@ -7,6 +7,7 @@ import {
   seededRand, addToInventory, fullEmptyInventory, getEquipStats,
   HOTBAR_ITEMS, HOTBAR_SIZE,
 } from "./gameEngine";
+import { ITEMS, getWeaponDurability, drainWeaponDurability } from "./Items";
 
 const PLAYER_SPEED   = 120;
 const PLAYER_HP      = 5;
@@ -239,7 +240,7 @@ function drawMinePlayer(ctx, px, py, facing, step, invincible, attackFlash, t, c
   }
 }
 
-function drawMineHUD(ctx, W, H, state, inventory, t) {
+function drawMineHUD(ctx, W, H, state, inventory, t, weaponDurability) {
   ctx.fillStyle = "rgba(10,8,4,0.92)"; ctx.fillRect(0, 0, W, 32);
 
   // HP
@@ -258,7 +259,22 @@ function drawMineHUD(ctx, W, H, state, inventory, t) {
 
   // Loot
   ctx.textAlign = "right"; ctx.font = "11px monospace"; ctx.fillStyle = "#e0d8a0";
-  ctx.fillText(`🪨stone:${inventory.stone??0}  💎gems:${inventory.gems??0}  🔷crystl:${inventory.crystal??0}  coal:${inventory.coal??0}`, W - 14, 16);
+  ctx.fillText(`🪨${inventory.stone??0}  💎${inventory.gems??0}  🔮${inventory.crystal??0}  🖤${inventory.coal??0}  🟫ore:${inventory.iron_ore??0}`, W - 14, 16);
+
+  // Weapon durability bar (bottom-left)
+  if (weaponDurability) {
+    const [cur, max] = weaponDurability;
+    const pct = cur / max;
+    const bw = 60, bh = 5, bx = 16, by = H - 44;
+    ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(bx, by, bw, bh);
+    const barCol = pct > 0.5 ? "#80d860" : pct > 0.25 ? "#e8c840" : "#e04840";
+    ctx.fillStyle = barCol; ctx.fillRect(bx, by, Math.round(bw * pct), bh);
+    ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1;
+    ctx.strokeRect(bx, by, bw, bh);
+    ctx.textAlign = "left"; ctx.fillStyle = "rgba(200,210,160,0.55)";
+    ctx.font = "8px monospace"; ctx.textBaseline = "middle";
+    ctx.fillText(`⚒ ${cur}/${max}`, bx + bw + 5, by + 2);
+  }
 
   // Bottom
   ctx.fillStyle = "rgba(10,8,4,0.75)"; ctx.fillRect(0, H - 26, W, 26);
@@ -281,7 +297,8 @@ const HOTBAR_SHORT_LABELS = {
   apples:"apple", berries:"berry", mushrooms:"mush", herbs:"herb",
 };
 
-function MineHotbar({ hotbar, selectedSlot, onSelectSlot, onUseItem, equipment }) {
+function MineHotbar({ hotbar, selectedSlot, onSelectSlot, onUseItem, onAttack, equipment }) {
+  const RUN_WEAPONS = { axe: true, pickaxe: true };
   return (
     <div style={{
       position: "absolute", bottom: 36, left: "50%", transform: "translateX(-50%)",
@@ -295,7 +312,14 @@ function MineHotbar({ hotbar, selectedSlot, onSelectSlot, onUseItem, equipment }
         const isEquipped = slot?.item === "pickaxe" && equipment?.weapon === "pickaxe";
         return (
           <div key={idx}
-            onClick={() => { onSelectSlot(idx); if (idx === selectedSlot && slot) onUseItem(); }}
+            onClick={() => {
+              if (idx === selectedSlot && slot && RUN_WEAPONS[slot.item]) {
+                onAttack?.();
+              } else {
+                onSelectSlot(idx);
+                if (idx === selectedSlot && slot && !RUN_WEAPONS[slot.item]) onUseItem();
+              }
+            }}
             style={{
               width: 44, height: 52, borderRadius: 8, cursor: "pointer",
               background: isSelected ? "rgba(220,180,80,0.15)" : "rgba(255,255,255,0.03)",
@@ -329,7 +353,7 @@ function MineHotbar({ hotbar, selectedSlot, onSelectSlot, onUseItem, equipment }
   );
 }
 
-export default function MiningRun({ room, seed, coOp = false, onRunComplete, character, equipment, hotbar, onHotbarChange }) {
+export default function MiningRun({ room, seed, coOp = false, onRunComplete, character, equipment, onEquipmentUpdate, hotbar, onHotbarChange }) {
   const canvasRef     = useRef(null);
   const rafRef        = useRef(null);
   const keysRef       = useRef({});
@@ -338,13 +362,27 @@ export default function MiningRun({ room, seed, coOp = false, onRunComplete, cha
   const randRef       = useRef(seededRand(seed ?? Date.now()));
   const lootFloatsRef = useRef([]);
   const equipmentRef  = useRef(equipment ?? {});
+  const onEquipmentUpdateRef = useRef(onEquipmentUpdate);
   const hotbarRef     = useRef(hotbar ?? []);
   useEffect(() => { equipmentRef.current = equipment ?? {}; }, [equipment]);
+  useEffect(() => { onEquipmentUpdateRef.current = onEquipmentUpdate; }, [onEquipmentUpdate]);
   useEffect(() => { hotbarRef.current = hotbar ?? []; }, [hotbar]);
 
   const [selectedHotbarSlot, setSelectedHotbarSlot] = useState(0);
   const selectedSlotRef = useRef(0);
   useEffect(() => { selectedSlotRef.current = selectedHotbarSlot; }, [selectedHotbarSlot]);
+
+  const doAttackRef = useRef(null);
+
+  const RUN_WEAPONS = { axe: true, pickaxe: true };
+  const selectHotbarSlot = useCallback((idx) => {
+    setSelectedHotbarSlot(idx);
+    selectedSlotRef.current = idx;
+    const entry = hotbarRef.current?.[idx];
+    if (entry && RUN_WEAPONS[entry.item]) {
+      equipmentRef.current = { ...equipmentRef.current, weapon: entry.item };
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const useHotbarItem = useCallback(() => {
     const state = stateRef.current;
@@ -353,6 +391,12 @@ export default function MiningRun({ room, seed, coOp = false, onRunComplete, cha
     const slot = selectedSlotRef.current;
     const entry = hb?.[slot];
     if (!entry) return;
+
+    if (RUN_WEAPONS[entry.item]) {
+      doAttackRef.current?.();
+      return;
+    }
+
     const info = HOTBAR_ITEMS[entry.item];
     if (!info) return;
     if (info.useEffect?.heal) {
@@ -419,12 +463,14 @@ export default function MiningRun({ room, seed, coOp = false, onRunComplete, cha
       const hasPickaxe  = equipStats.stoneYield > 0; // pickaxe gives stoneYield bonus
 
       const allNodes = [...state.rocks, ...state.gems];
+      let hitAnyNode = false;
       for (const node of allNodes) {
         if (!node.alive) continue;
         const dist = Math.hypot(state.px - node.x, state.py - node.y);
         if (dist > ATTACK_REACH + 18) continue;
         if (!hasPickaxe) { state.noPickaxeFlash = 1.5; continue; } // need pickaxe
         node.hp--; node.hitFlash = 1;
+        hitAnyNode = true;
         soundRef.current?.chip();
         if (node.hp <= 0) {
           node.alive = false;
@@ -443,11 +489,13 @@ export default function MiningRun({ room, seed, coOp = false, onRunComplete, cha
         }
       }
 
+      let hitAnyEnemy = false;
       for (const e of state.enemies) {
         if (!e.alive) continue;
         const dist = Math.hypot(state.px - e.x, state.py - e.y);
         if (dist > ATTACK_REACH + BAT_R) continue;
         e.hp--; e.hitFlash = 1;
+        hitAnyEnemy = true;
         if (e.hp <= 0) {
           e.alive = false;
           state.kills++;
@@ -462,20 +510,33 @@ export default function MiningRun({ room, seed, coOp = false, onRunComplete, cha
           });
         }
       }
+
+      // Drain 1 durability per successful hit
+      if (hitAnyNode || hitAnyEnemy) {
+        const newEq = drainWeaponDurability(equipmentRef.current, (brokenId) => {
+          // Tool broke — show a loot float near the player
+          lootFloatsRef.current.push({
+            text: `💔 ${ITEMS[brokenId]?.label ?? brokenId} broke!`,
+            worldX: state.px, worldY: state.py - 28,
+            born: performance.now(),
+          });
+        });
+        if (newEq !== equipmentRef.current) {
+          equipmentRef.current = newEq;
+          onEquipmentUpdateRef.current?.(newEq);
+        }
+      }
     }
+    doAttackRef.current = doAttack;
 
     const onKeyDown = (e) => {
       keysRef.current[e.key] = true;
       soundRef.current?.unlock();
       if (e.key === "Escape") finishRun(stateRef.current);
       if (e.key === " ") { e.preventDefault(); doAttack(); }
-      // Number keys 1-6 select hotbar slot
       if (e.key >= "1" && e.key <= "6") {
-        const idx = parseInt(e.key) - 1;
-        setSelectedHotbarSlot(idx);
-        selectedSlotRef.current = idx;
+        selectHotbarSlot(parseInt(e.key) - 1);
       }
-      // E or F = use selected hotbar item
       if (e.key === "e" || e.key === "E" || e.key === "f" || e.key === "F") {
         useHotbarItem();
       }
@@ -607,7 +668,8 @@ export default function MiningRun({ room, seed, coOp = false, onRunComplete, cha
         ctx.restore();
       }
 
-      drawMineHUD(ctx, W, H, state, state.inventory, t);
+      const weaponDur = getWeaponDurability(equipmentRef.current);
+      drawMineHUD(ctx, W, H, state, state.inventory, t, weaponDur);
 
       // "Need pickaxe" toast
       if (state.noPickaxeFlash > 0) {
@@ -640,9 +702,10 @@ export default function MiningRun({ room, seed, coOp = false, onRunComplete, cha
       <MineHotbar
         hotbar={hotbar ?? []}
         selectedSlot={selectedHotbarSlot}
-        onSelectSlot={idx => { setSelectedHotbarSlot(idx); selectedSlotRef.current = idx; }}
+        onSelectSlot={selectHotbarSlot}
         onUseItem={useHotbarItem}
-        equipment={equipment}
+        onAttack={() => doAttackRef.current?.()}
+        equipment={equipmentRef.current}
       />
     </div>
   );

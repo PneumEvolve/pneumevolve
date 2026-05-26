@@ -1,12 +1,19 @@
 // src/Pages/InkRun/useInkRunRoom.js
+// WebSocket version — drop-in replacement for the Supabase broadcast version.
+// Same exported function names, same handler names. Nothing else in your app changes.
+//
+// Connect: wss://yourserver/inkrun/ws/{roomId}?token={jwt}
+
 import { useEffect, useRef, useCallback } from "react";
-import { supabase } from "@/lib/supabaseClient";
+
+const WS_BASE = import.meta.env.VITE_WS_URL || "wss://your-render-app.onrender.com";
 
 export function useInkRunRoom(roomId, handlers, channelSuffix = "") {
-  const channelRef    = useRef(null);
-  const handlersRef   = useRef(handlers);
-  const subscribedRef = useRef(false);
+  const wsRef          = useRef(null);
+  const handlersRef    = useRef(handlers);
+  const connectedRef   = useRef(false);
   const pendingSendRef = useRef(null);
+  const reconnectTimer = useRef(null);
 
   useEffect(() => {
     handlersRef.current = handlers;
@@ -15,70 +22,96 @@ export function useInkRunRoom(roomId, handlers, channelSuffix = "") {
   useEffect(() => {
     if (!roomId) return;
 
-    subscribedRef.current = false;
-    const channelName = `inkrun:${roomId}${channelSuffix}`;
+    const roomKey = channelSuffix ? `${roomId}${channelSuffix}` : String(roomId);
 
-    const channel = supabase.channel(channelName, {
-      config: { broadcast: { self: false } },
-    });
+    let ws;
+    let dead = false;
 
-    channel
-      .on("broadcast", { event: "runner_move"      }, ({ payload }) => handlersRef.current.onRunnerMove?.(payload))
-      .on("broadcast", { event: "stroke_added"     }, ({ payload }) => handlersRef.current.onStrokeAdded?.(payload))
-      .on("broadcast", { event: "stroke_reclaimed" }, ({ payload }) => handlersRef.current.onStrokeReclaimed?.(payload))
-      .on("broadcast", { event: "enemy_killed"     }, ({ payload }) => handlersRef.current.onEnemyKilled?.(payload))
-      .on("broadcast", { event: "game_over"        }, ({ payload }) => handlersRef.current.onGameOver?.(payload))
-      .on("broadcast", { event: "player_ready"     }, ({ payload }) => handlersRef.current.onPlayerReady?.(payload))
-      .on("broadcast", { event: "restart"          }, ({ payload }) => handlersRef.current.onRestart?.(payload))
-      .on("broadcast", { event: "chat"             }, ({ payload }) => handlersRef.current.onChat?.(payload))
-      .on("broadcast", { event: "ping"             }, ({ payload }) => handlersRef.current.onPing?.(payload))
-      .on("broadcast", { event: "wall_time"        }, ({ payload }) => handlersRef.current.onWallTime?.(payload))
-      .on("broadcast", { event: "ink_refill"       }, ({ payload }) => handlersRef.current.onInkRefill?.(payload))
-      // ink_eater_pos: painter broadcasts ink eater world position so runner can render it
-      .on("broadcast", { event: "ink_eater_pos"    }, ({ payload }) => handlersRef.current.onInkEaterMove?.(payload));
+    function connect() {
+      if (dead) return;
 
-    channel.subscribe((status) => {
-      if (status === "SUBSCRIBED") {
-        subscribedRef.current = true;
-        channelRef.current    = channel;
+      const token = localStorage.getItem("access_token");
+      const url   = `${WS_BASE}/inkrun/ws/${roomKey}?token=${token}`;
+
+      ws = new WebSocket(url);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        connectedRef.current = true;
         if (pendingSendRef.current) {
-          channel.send(pendingSendRef.current);
+          ws.send(JSON.stringify(pendingSendRef.current));
           pendingSendRef.current = null;
         }
-      }
-    });
+      };
 
-    channelRef.current = channel;
+      ws.onmessage = ({ data }) => {
+        let msg;
+        try { msg = JSON.parse(data); } catch { return; }
+
+        const h = handlersRef.current;
+        switch (msg.event) {
+          case "connected":            h.onConnected?.(msg);           break;
+          case "partner_connected":    h.onPartnerConnected?.(msg);    break;
+          case "partner_disconnected": h.onPartnerDisconnected?.(msg); break;
+          case "runner_move":          h.onRunnerMove?.(msg);          break;
+          case "stroke_added":         h.onStrokeAdded?.(msg);         break;
+          case "stroke_reclaimed":     h.onStrokeReclaimed?.(msg);     break;
+          case "enemy_killed":         h.onEnemyKilled?.(msg);         break;
+          case "game_over":            h.onGameOver?.(msg);            break;
+          case "player_ready":         h.onPlayerReady?.(msg);         break;
+          case "restart":              h.onRestart?.(msg);             break;
+          case "chat":                 h.onChat?.(msg);                break;
+          case "ping":                 h.onPing?.(msg);                break;
+          case "wall_time":            h.onWallTime?.(msg);            break;
+          case "ink_refill":           h.onInkRefill?.(msg);           break;
+          case "ink_eater_pos":        h.onInkEaterMove?.(msg);        break;
+          default: break;
+        }
+      };
+
+      ws.onclose = (e) => {
+        connectedRef.current = false;
+        if (dead) return;
+        if (e.code !== 4001) {
+          reconnectTimer.current = setTimeout(connect, 2000);
+        }
+      };
+
+      ws.onerror = () => {};
+    }
+
+    connect();
 
     return () => {
-      subscribedRef.current = false;
-      supabase.removeChannel(channel);
-      channelRef.current = null;
+      dead = true;
+      connectedRef.current = false;
+      clearTimeout(reconnectTimer.current);
+      if (ws) ws.close();
+      wsRef.current = null;
     };
-  }, [roomId]);
+  }, [roomId, channelSuffix]);
 
-  const send = useCallback((event, payload) => {
-    const msg = { type: "broadcast", event, payload };
-    if (subscribedRef.current && channelRef.current) {
-      channelRef.current.send(msg);
+  const send = useCallback((event, payload = {}) => {
+    const msg = { event, ...payload };
+    if (connectedRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(msg));
     } else {
       pendingSendRef.current = msg;
     }
   }, []);
 
-  const sendPlayerReady     = useCallback(() =>                       send("player_ready",   { ready: true }),              [send]);
-  const sendRunnerMove      = useCallback((x, y, vy, state, wallX) => send("runner_move",    { x, y, vy, state, wallX }), [send]);
-  const sendStrokeAdded     = useCallback((stroke) =>                 send("stroke_added",   { stroke }),                  [send]);
-  const sendStrokeReclaimed = useCallback((strokeId) =>               send("stroke_reclaimed",{ strokeId }),               [send]);
-  const sendEnemyKilled     = useCallback((enemyId) =>                send("enemy_killed",   { enemyId }),                 [send]);
-  const sendGameOver        = useCallback((stats) =>                  send("game_over",        stats),                     [send]);
-  const sendRestart         = useCallback((seed, swap) =>             send("restart",         { seed, swap }),             [send]);
-  const sendChat            = useCallback((text, from) =>             send("chat",            { text, from }),             [send]);
-  const sendPing            = useCallback((wx, wy, from) =>           send("ping",            { wx, wy, from }),           [send]);
-  const sendWallTime        = useCallback((startedAt) =>              send("wall_time",       { startedAt }),              [send]);
-  const sendInkRefill       = useCallback((tokenId, amount) =>        send("ink_refill",      { tokenId, amount }),        [send]);
-  // Painter → Runner: ink eater world position (so runner can render/stomp it)
-  const sendInkEaterPos     = useCallback((x, y) =>                   send("ink_eater_pos",  { x, y }),                   [send]);
+  const sendPlayerReady     = useCallback(() =>                          send("player_ready",    { ready: true }),             [send]);
+  const sendRunnerMove      = useCallback((x, y, vy, state, wallX) =>   send("runner_move",     { x, y, vy, state, wallX }), [send]);
+  const sendStrokeAdded     = useCallback((stroke) =>                    send("stroke_added",    { stroke }),                  [send]);
+  const sendStrokeReclaimed = useCallback((strokeId) =>                  send("stroke_reclaimed",{ strokeId }),               [send]);
+  const sendEnemyKilled     = useCallback((enemyId) =>                   send("enemy_killed",    { enemyId }),                 [send]);
+  const sendGameOver        = useCallback((stats) =>                     send("game_over",        stats),                     [send]);
+  const sendRestart         = useCallback((seed, swap) =>                send("restart",         { seed, swap }),             [send]);
+  const sendChat            = useCallback((text, from) =>                send("chat",            { text, from }),             [send]);
+  const sendPing            = useCallback((wx, wy, from) =>              send("ping",            { wx, wy, from }),           [send]);
+  const sendWallTime        = useCallback((startedAt) =>                 send("wall_time",       { startedAt }),              [send]);
+  const sendInkRefill       = useCallback((tokenId, amount) =>           send("ink_refill",      { tokenId, amount }),        [send]);
+  const sendInkEaterPos     = useCallback((x, y) =>                      send("ink_eater_pos",   { x, y }),                   [send]);
 
   return {
     sendPlayerReady,

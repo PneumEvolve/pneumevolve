@@ -88,9 +88,16 @@ export default function RunLobby({ room, role, onRunStart, onCancel, joining = f
 
   useEffect(() => {
     if (joining) {
+      // Tell the queuer we've joined, then wait for their run_started broadcast.
+      // Don't self-start here — onRunStarted will fire with the canonical seed
+      // once the queuer confirms, ensuring both players use the identical seed.
       sendRunJoined("p2");
-      startRun(true);
-      return;
+      // Safety fallback: if we haven't received run_started within 15 seconds,
+      // start with our own seed so the joiner isn't stuck forever.
+      const fallback = setTimeout(() => {
+        if (!startedRef.current) startRun(true);
+      }, 15000);
+      return () => clearTimeout(fallback);
     }
     if (!confirmed) return; // Wait for type selection before countdown
 
@@ -189,6 +196,37 @@ export default function RunLobby({ room, role, onRunStart, onCancel, joining = f
             color:"rgba(255,255,255,0.3)", fontSize:12, fontFamily:"monospace",
           }}>← stay home</button>
         </div>
+      </main>
+    );
+  }
+
+  // ── Joining UI (waiting for queuer to broadcast run_started) ──────────────
+  if (joining && !startedRef.current) {
+    return (
+      <main ref={containerRef} style={{
+        minHeight:"100svh", background: info.bg,
+        color:"#f5e6c8", display:"flex", flexDirection:"column",
+        alignItems:"center", justifyContent:"center",
+        gap:28, fontFamily:"monospace", padding:"0 24px",
+      }}>
+        <div style={{ textAlign:"center" }}>
+          <p style={{ fontSize:11, letterSpacing:"0.18em", color:"rgba(200,230,160,0.5)", marginBottom:8, textTransform:"uppercase" }}>joining run</p>
+          <h1 style={{ fontSize:28, fontWeight:400, color:info.accent, letterSpacing:"0.06em" }}>{info.icon} {info.label}</h1>
+          <p style={{ fontSize:13, color:"rgba(245,230,200,0.5)", marginTop:14, lineHeight:1.7 }}>
+            Waiting for your partner to confirm the run…
+          </p>
+        </div>
+        {/* Spinner */}
+        <svg width="64" height="64" style={{ animation:"spin 1.2s linear infinite" }}>
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+          <circle cx="32" cy="32" r="26" fill="none" stroke="rgba(200,230,120,0.15)" strokeWidth="5"/>
+          <path d="M32 6 A26 26 0 0 1 58 32" fill="none" stroke={info.accent} strokeWidth="5" strokeLinecap="round"/>
+        </svg>
+        <button onClick={handleCancel} style={{
+          padding:"10px 20px", borderRadius:10, cursor:"pointer",
+          background:"transparent", border:"1px solid rgba(255,255,255,0.08)",
+          color:"rgba(255,255,255,0.3)", fontSize:12, fontFamily:"monospace",
+        }}>← stay home</button>
       </main>
     );
   }

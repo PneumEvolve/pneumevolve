@@ -52,6 +52,7 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
   const rafRef      = useRef(null);
   const lastMoveRef = useRef(0);
   const lastSyncRef = useRef(0);
+  const loopErrorRef = useRef(0); // throttles loop-error logging to ~1/sec
   // roomRef lets the game-loop closure always read the latest room prop without
   // needing room in the useEffect dep array (which would restart the loop mid-game).
   const roomRef = useRef(room);
@@ -484,7 +485,7 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
     });
 
     // Buildings
-    buildings.forEach(b => drawBuilding(ctx, b, cam, t, W, H));
+    buildings.forEach(b => drawBuilding(ctx, b, cam, t, W, H, state));
 
     // Projectiles — protector
     if (projectiles) projectiles.forEach(p => {
@@ -775,7 +776,7 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
     }
   }
 
-  function drawBuilding(ctx, b, cam, t, W, H) {
+  function drawBuilding(ctx, b, cam, t, W, H, state) {
     const def = BUILDING_TYPES[b.type];
     const { cx, cy } = worldToCanvas(b.x, b.y, cam);
     if (cx < -60 || cx > W + 60 || cy < -60 || cy > H + 60) return;
@@ -816,7 +817,7 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
 
     // Overheal gold arc — visible to protector too
     if (b.hp > 0 && b.hp > b.maxHp) {
-      const _overhealMax = getBuilderOverhealCap(state.upgrades ?? []) - 1.0;
+      const _overhealMax = getBuilderOverhealCap(state?.upgrades ?? []) - 1.0;
       const overhealFrac = _overhealMax > 0 ? Math.min((b.hp - b.maxHp) / (b.maxHp * _overhealMax), 1) : 0;
       ctx.save();
       ctx.beginPath();
@@ -1563,7 +1564,12 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
     draw(ctx, state, t, W, H);
     rafRef.current = requestAnimationFrame(loop);
     } catch (err) {
-      console.error("[ProtectorView loop error]", err);
+      // Throttle logging so a persistent error doesn't flood the console at 60fps.
+      const now = Date.now();
+      if (!loopErrorRef.current || now - loopErrorRef.current > 1000) {
+        loopErrorRef.current = now;
+        console.error("[ProtectorView loop error]", err);
+      }
       rafRef.current = requestAnimationFrame(loop);
     }
   }
@@ -1576,8 +1582,9 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
     state._waveBuildingIds = undefined;
     state._wasProtectorDown = false;
     state._wasBuilderDown   = false;
+    setShowShop(false); // always close shop when wave starts so it doesn't cover the canvas
     setMood("tense");    sfxWaveStart();
-    sendPhaseChange("wave", { waveNumber: state.waveNumber });
+    sendPhaseChange("wave", { waveNumber: state.waveNumber, resumeUpgrades: [...(state.upgrades ?? [])] });
   }
 
   function enterBreather(state) {

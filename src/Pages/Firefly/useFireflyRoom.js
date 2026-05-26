@@ -1,12 +1,19 @@
 // src/Pages/Firefly/useFireflyRoom.js
+// WebSocket version — drop-in replacement for the Supabase broadcast version.
+// Same exported function names, same handler names. Nothing else in your app changes.
+//
+// Connect: wss://yourserver/firefly/ws/{roomId}?token={jwt}
+
 import { useEffect, useRef, useCallback } from "react";
-import { supabase } from "@/lib/supabaseClient";
+
+const WS_BASE = import.meta.env.VITE_WS_URL || "wss://your-render-app.onrender.com";
 
 export function useFireflyRoom(roomId, handlers) {
-  const channelRef     = useRef(null);
+  const wsRef          = useRef(null);
   const handlersRef    = useRef(handlers);
-  const subscribedRef  = useRef(false);
+  const connectedRef   = useRef(false);
   const pendingSendRef = useRef(null);
+  const reconnectTimer = useRef(null);
 
   useEffect(() => {
     handlersRef.current = handlers;
@@ -15,65 +22,90 @@ export function useFireflyRoom(roomId, handlers) {
   useEffect(() => {
     if (!roomId) return;
 
-    subscribedRef.current = false;
-    const channelName = `game:${roomId}`;
+    let ws;
+    let dead = false;
 
-    const channel = supabase.channel(channelName, {
-      config: { broadcast: { self: false } },
-    });
+    function connect() {
+      if (dead) return;
 
-    channel
-      .on("broadcast", { event: "player_move" },   ({ payload }) => handlersRef.current.onPlayerMove?.(payload))
-      .on("broadcast", { event: "firefly_sync" },  ({ payload }) => handlersRef.current.onFireflySync?.(payload))
-      .on("broadcast", { event: "ping" },           ({ payload }) => handlersRef.current.onPing?.(payload))
-      .on("broadcast", { event: "chat" },           ({ payload }) => handlersRef.current.onChat?.(payload))
-      .on("broadcast", { event: "zombie_update" },  ({ payload }) => handlersRef.current.onZombieUpdate?.(payload))
-      .on("broadcast", { event: "score_update" },   ({ payload }) => handlersRef.current.onScoreUpdate?.(payload))
-      .on("broadcast", { event: "game_over" },      ({ payload }) => handlersRef.current.onGameOver?.(payload))
-      .on("broadcast", { event: "player_ready" },   ({ payload }) => handlersRef.current.onPlayerReady?.(payload))
-      .on("broadcast", { event: "restart" },        ({ payload }) => handlersRef.current.onRestart?.(payload))
-      .on("broadcast", { event: "zombie_kill" },    ({ payload }) => handlersRef.current.onZombieKill?.(payload));
+      const token = localStorage.getItem("access_token");
+      const url   = `${WS_BASE}/firefly/ws/${roomId}?token=${token}`;
 
-    channel.subscribe((status) => {
-      if (status === "SUBSCRIBED") {
-        subscribedRef.current = true;
-        channelRef.current = channel;
+      ws = new WebSocket(url);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        connectedRef.current = true;
         if (pendingSendRef.current) {
-          channel.send(pendingSendRef.current);
+          ws.send(JSON.stringify(pendingSendRef.current));
           pendingSendRef.current = null;
         }
-      }
-    });
+      };
 
-    channelRef.current = channel;
+      ws.onmessage = ({ data }) => {
+        let msg;
+        try { msg = JSON.parse(data); } catch { return; }
+
+        const h = handlersRef.current;
+        switch (msg.event) {
+          case "connected":            h.onConnected?.(msg);           break;
+          case "partner_connected":    h.onPartnerConnected?.(msg);    break;
+          case "partner_disconnected": h.onPartnerDisconnected?.(msg); break;
+          case "player_move":          h.onPlayerMove?.(msg);          break;
+          case "firefly_sync":         h.onFireflySync?.(msg);         break;
+          case "ping":                 h.onPing?.(msg);                break;
+          case "chat":                 h.onChat?.(msg);                break;
+          case "zombie_update":        h.onZombieUpdate?.(msg);        break;
+          case "score_update":         h.onScoreUpdate?.(msg);         break;
+          case "game_over":            h.onGameOver?.(msg);            break;
+          case "player_ready":         h.onPlayerReady?.(msg);         break;
+          case "restart":              h.onRestart?.(msg);             break;
+          case "zombie_kill":          h.onZombieKill?.(msg);          break;
+          default: break;
+        }
+      };
+
+      ws.onclose = (e) => {
+        connectedRef.current = false;
+        if (dead) return;
+        if (e.code !== 4001) {
+          reconnectTimer.current = setTimeout(connect, 2000);
+        }
+      };
+
+      ws.onerror = () => {};
+    }
+
+    connect();
 
     return () => {
-      subscribedRef.current = false;
-      supabase.removeChannel(channel);
-      channelRef.current = null;
+      dead = true;
+      connectedRef.current = false;
+      clearTimeout(reconnectTimer.current);
+      if (ws) ws.close();
+      wsRef.current = null;
     };
   }, [roomId]);
 
-  const send = useCallback((event, payload) => {
-    const msg = { type: "broadcast", event, payload };
-    if (subscribedRef.current && channelRef.current) {
-      channelRef.current.send(msg);
+  const send = useCallback((event, payload = {}) => {
+    const msg = { event, ...payload };
+    if (connectedRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(msg));
     } else {
       pendingSendRef.current = msg;
     }
   }, []);
 
-  const sendPlayerReady  = useCallback(() =>               send("player_ready",  { ready: true }),        [send]);
-  const sendPlayerMove   = useCallback((x, y) =>           send("player_move",   { x, y }),               [send]);
-  const sendFireflySync  = useCallback((fireflies) =>      send("firefly_sync",  { fireflies }),          [send]);
-  const sendPing         = useCallback((x, y) =>           send("ping",          { x, y }),               [send]);
-  const sendChat         = useCallback((text, from) =>     send("chat",          { text, from }),         [send]);
-  const sendZombieUpdate = useCallback((x, y) =>           send("zombie_update", { x, y }),               [send]);
-  const sendScoreUpdate  = useCallback((score, delta) =>   send("score_update",  { score, delta }),       [send]);
-  const sendGameOver     = useCallback((final_score) =>    send("game_over",     { final_score }),        [send]);
-  // seed: integer map seed for the new game; swap: bool — true means roles flip
-  const sendRestart      = useCallback((seed, swap) =>     send("restart",       { seed, swap }),         [send]);
-  const sendZombieKill   = useCallback(() =>               send("zombie_kill",   {}),                     [send]);
+  const sendPlayerReady  = useCallback(() =>                send("player_ready",  { ready: true }),    [send]);
+  const sendPlayerMove   = useCallback((x, y) =>            send("player_move",   { x, y }),           [send]);
+  const sendFireflySync  = useCallback((fireflies) =>       send("firefly_sync",  { fireflies }),      [send]);
+  const sendPing         = useCallback((x, y) =>            send("ping",          { x, y }),           [send]);
+  const sendChat         = useCallback((text, from) =>      send("chat",          { text, from }),     [send]);
+  const sendZombieUpdate = useCallback((x, y) =>            send("zombie_update", { x, y }),           [send]);
+  const sendScoreUpdate  = useCallback((score, delta) =>    send("score_update",  { score, delta }),   [send]);
+  const sendGameOver     = useCallback((final_score) =>     send("game_over",     { final_score }),    [send]);
+  const sendRestart      = useCallback((seed, swap) =>      send("restart",       { seed, swap }),     [send]);
+  const sendZombieKill   = useCallback(() =>                send("zombie_kill",   {}),                 [send]);
 
   return {
     sendPlayerReady,

@@ -44,6 +44,7 @@ export default function BuilderView({ room, onGameOver, resumeState, saveNotice 
   const rafRef      = useRef(null);
   const lastMoveRef = useRef(0);
   const lastTimeRef = useRef(performance.now());
+  const loopErrorRef = useRef(0); // throttles loop-error logging to ~1/sec
 
   const selectedTypeRef  = useRef(null);
   // Wall rotation: 8 snapped angles covering 0–157.5° (0–180° is sufficient for a rect)
@@ -744,7 +745,7 @@ export default function BuilderView({ room, onGameOver, resumeState, saveNotice 
       ctx.restore();
     });
 
-    buildings.forEach(b => drawBuilding(ctx, b, t, W, H));
+    buildings.forEach(b => drawBuilding(ctx, b, t, W, H, state));
 
     units.forEach(u => {
       const { cx, cy } = worldToCanvas(u._rx ?? u.tx ?? 0, u._ry ?? u.ty ?? 0);
@@ -929,7 +930,7 @@ export default function BuilderView({ room, onGameOver, resumeState, saveNotice 
     ctx.restore();
   }
 
-  function drawBuilding(ctx, b, t, W, H) {
+  function drawBuilding(ctx, b, t, W, H, state) {
     const def = BUILDING_TYPES[b.type];
     const { cx, cy } = worldToCanvas(b.x, b.y);
     if (cx < -60 || cx > W + 60 || cy < -60 || cy > H + 60) return;
@@ -977,7 +978,7 @@ export default function BuilderView({ room, onGameOver, resumeState, saveNotice 
 
     // Overheal arc — gold ring segment beyond the normal hp arc
     if (b.hp > 0 && b.hp > b.maxHp) {
-      const _overhealMax = getBuilderOverhealCap(state.upgrades ?? []) - 1.0; // e.g. 0.25/0.5/0.75/1.0
+      const _overhealMax = getBuilderOverhealCap(state?.upgrades ?? []) - 1.0; // e.g. 0.25/0.5/0.75/1.0
       const overhealFrac = _overhealMax > 0 ? Math.min((b.hp - b.maxHp) / (b.maxHp * _overhealMax), 1) : 0; // 0..1 across overheal range
       ctx.save();
       ctx.beginPath();
@@ -1110,7 +1111,9 @@ export default function BuilderView({ room, onGameOver, resumeState, saveNotice 
   // ── Game loop ─────────────────────────────────────────────────────────────
   function loop(ts) {
     const canvas = canvasRef.current;
+    // Teardown path: canvas/state gone — stop the loop without rescheduling.
     if (!canvas || !stateRef.current) return;
+    try {
     const ctx   = canvas.getContext("2d");
     const dpr   = window.devicePixelRatio || 1;
     const W     = canvas.width / dpr, H = canvas.height / dpr;
@@ -1209,7 +1212,18 @@ export default function BuilderView({ room, onGameOver, resumeState, saveNotice 
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     draw(ctx, state, ts / 1000, W, H);
-    rafRef.current = requestAnimationFrame(loop);
+    } catch (err) {
+      // A render/update error should not permanently kill the loop. Log at most
+      // once per second so a persistent error doesn't flood the console at 60fps.
+      const now = Date.now();
+      if (!loopErrorRef.current || now - loopErrorRef.current > 1000) {
+        loopErrorRef.current = now;
+        console.error("[BuilderView loop error]", err);
+      }
+    } finally {
+      // Always reschedule (unless torn down above) so one bad frame is recoverable.
+      rafRef.current = requestAnimationFrame(loop);
+    }
   }
 
   // ── Setup ─────────────────────────────────────────────────────────────────
