@@ -436,8 +436,8 @@ export function generateForestRun(seed) {
   const enemies = [], pickups = [], trees = [], stoneDeposits = [];
   for (let i = 0; i < 28; i++) pickups.push({ id:`pickup_${i}`, x:200+rand()*(FOREST_W-400), y:80+rand()*(FOREST_H-160), lootType:'ground', collected:false });
   for (let i = 0; i < 18; i++) trees.push({ id:`tree_${i}`, x:300+rand()*(FOREST_W-600), y:60+rand()*(FOREST_H-120), hp:3, maxHp:3, alive:true, hitFlash:0 });
-  for (let i = 0; i < 10; i++) enemies.push({ id:`wolf_${i}`, type:'wolf', x:400+rand()*(FOREST_W-600), y:80+rand()*(FOREST_H-160), hp:3, maxHp:3, alive:true, dir:rand()>0.5?1:-1, state:'patrol', hitFlash:0, attackCooldown:0, speed:WOLF_SPEED+rand()*20 });
-  for (let i = 0; i < 6;  i++) enemies.push({ id:`spider_${i}`, type:'spider', x:1600+rand()*(FOREST_W-1800), y:80+rand()*(FOREST_H-160), hp:5, maxHp:5, alive:true, dir:rand()>0.5?1:-1, state:'patrol', hitFlash:0, attackCooldown:0, speed:35+rand()*15 });
+  for (let i = 0; i < 10; i++) enemies.push({ id:`wolf_${i}`, type:'wolf', x:400+rand()*(FOREST_W-600), y:80+rand()*(FOREST_H-160), hp:3, maxHp:3, alive:true, dir:rand()>0.5?1:-1, state:'patrol', hitFlash:0, attackCooldown:0, speed:WOLF_SPEED+rand()*20, phase:rand()*Math.PI*2 });
+  for (let i = 0; i < 6;  i++) enemies.push({ id:`spider_${i}`, type:'spider', x:1600+rand()*(FOREST_W-1800), y:80+rand()*(FOREST_H-160), hp:5, maxHp:5, alive:true, dir:rand()>0.5?1:-1, state:'patrol', hitFlash:0, attackCooldown:0, speed:35+rand()*15, phase:rand()*Math.PI*2 });
   // Stone deposits — scattered throughout, require a pickaxe to mine
   for (let i = 0; i < 8; i++) stoneDeposits.push({ id:`sdep_${i}`, x:300+rand()*(FOREST_W-600), y:60+rand()*(FOREST_H-120), hp:3, maxHp:3, alive:true, hitFlash:0 });
   return { enemies, pickups, trees, stoneDeposits };
@@ -462,7 +462,7 @@ export function generateMiningRun(seed) {
   const rocks = [], gems = [], enemies = [];
   for (let i = 0; i < 30; i++) rocks.push({ id:`rock_${i}`, x:200+rand()*(MINE_W-400), y:80+rand()*(MINE_H-160), hp:4, maxHp:4, alive:true, hitFlash:0, type:'rock' });
   for (let i = 0; i < 10; i++) gems.push({ id:`gem_${i}`, x:300+rand()*(MINE_W-600), y:80+rand()*(MINE_H-160), hp:3, maxHp:3, alive:true, hitFlash:0, type:rand()>0.5?'gem':'crystal' });
-  for (let i = 0; i < 14; i++) enemies.push({ id:`bat_${i}`, type:'bat', x:400+rand()*(MINE_W-600), y:80+rand()*(MINE_H-160), hp:2, maxHp:2, alive:true, hitFlash:0, attackCooldown:0, dir:rand()>0.5?1:-1, dirY:rand()>0.5?1:-1, speed:BAT_SPEED+rand()*30, state:'patrol' });
+  for (let i = 0; i < 14; i++) enemies.push({ id:`bat_${i}`, type:'bat', x:400+rand()*(MINE_W-600), y:80+rand()*(MINE_H-160), hp:2, maxHp:2, alive:true, hitFlash:0, attackCooldown:0, dir:rand()>0.5?1:-1, dirY:rand()>0.5?1:-1, speed:BAT_SPEED+rand()*30, state:'patrol', phase:rand()*Math.PI*2 });
   return { rocks, gems, enemies };
 }
 
@@ -531,7 +531,9 @@ export function updateForestEnemies(enemies, playerX, playerY, dt, t) {
       e.x += e.dir * e.speed * 0.4 * dt;
       if (e.x < 80) { e.x = 80; e.dir = 1; }
       if (e.x > FOREST_W - 80) { e.x = FOREST_W - 80; e.dir = -1; }
-      if (e.type === 'spider') e.y += Math.sin(t * 1.2 + e.x * 0.01) * 18 * dt;
+      // Use stable per-enemy phase (set at spawn) instead of drifting e.x so
+      // both co-op clients stay in sync — the oscillation is purely time-driven.
+      if (e.type === 'spider') e.y += Math.sin(t * 1.2 + (e.phase ?? 0)) * 18 * dt;
     }
     e.y = Math.max(40, Math.min(FOREST_H - 40, e.y));
   }

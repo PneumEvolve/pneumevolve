@@ -1103,7 +1103,7 @@ export default function MiningRun({
           bat.y += ((state.py - bat.y) / dist) * spd;
         } else {
           bat.x += bat.dir * bat.speed * 0.4 * dt;
-          bat.y += Math.sin(t * 2.4 + bat.x * 0.008) * 30 * dt;
+          bat.y += Math.sin(t * 2.4 + (bat.phase ?? 0)) * 30 * dt;
           if (bat.x < 60)          { bat.x = 60;          bat.dir =  1; }
           if (bat.x > MINE_W - 60) { bat.x = MINE_W - 60; bat.dir = -1; }
         }
