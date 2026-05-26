@@ -1819,11 +1819,23 @@ export default function HomesteadView({
       if (eq) partnerAppearanceRef.current = { ...partnerAppearanceRef.current, equipment: eq };
       if (hi !== undefined) partnerAppearanceRef.current = { ...partnerAppearanceRef.current, heldItem: hi };
     },
+    onTownStateUpdated: ({ town_state }) => {
+      // Partner's client spawned a new NPC (or other town mutation) — apply it locally.
+      // We do NOT re-save or re-broadcast from here to avoid loops.
+      town?.applyRemoteTownState?.(town_state);
+    },
     onRunQueued: ({ runType, seed }) => setRunJoinPrompt({ runType, seed }),
     onRunCancelled: () => setRunJoinPrompt(null),
   }).current;
 
-  const { sendPlayerMove, sendPlayerReady, sendPlayerAppearance, sendObjectPlaced, sendObjectRemoved, sendFarmUpdated, sendPlayerStateSync, sendChestUpdated } = useHearthroom(room?.id??null, handlers);
+  const { sendPlayerMove, sendPlayerReady, sendPlayerAppearance, sendObjectPlaced, sendObjectRemoved, sendFarmUpdated, sendPlayerStateSync, sendChestUpdated, sendTownStateUpdated } = useHearthroom(room?.id??null, handlers);
+
+  // Wire sendTownStateUpdated into the town hook so checkArrivals can broadcast.
+  // We do this via a ref setter so it survives across re-renders without needing
+  // town to be recreated.
+  useEffect(() => {
+    town?.setSendBroadcast?.(sendTownStateUpdated);
+  }, [sendTownStateUpdated]); // eslint-disable-line react-hooks/exhaustive-deps
   const sendObjectPlacedRef  = useRef(sendObjectPlaced);
   const sendObjectRemovedRef = useRef(sendObjectRemoved);
   const sendFarmUpdatedRef   = useRef(sendFarmUpdated);

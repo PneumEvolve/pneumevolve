@@ -95,10 +95,16 @@ function npcAlreadyPresent(npcId, npcs) {
  * @param {object|null} room           — the Supabase room object (has room.id)
  * @param {Array}       placedObjects  — current world objects array (react state from index.jsx)
  */
-export function useTownState(room, placedObjects) {
+export function useTownState(room, placedObjects, sendTownStateUpdated) {
   // ── Core state ─────────────────────────────────────────────────────────────
   const [townState, setTownState] = useState(() => emptyTownState());
   const townRef = useRef(townState);
+
+  // Allow late-wiring of the broadcast function (set by HomesteadView after
+  // useHearthroom resolves, since both hooks live in different components).
+  const sendBroadcastRef = useRef(sendTownStateUpdated ?? null);
+  useEffect(() => { sendBroadcastRef.current = sendTownStateUpdated ?? null; }, [sendTownStateUpdated]);
+  const setSendBroadcast = useCallback((fn) => { sendBroadcastRef.current = fn; }, []);
 
   // Keep ref in sync so game loop can read without stale closure
   useEffect(() => { townRef.current = townState; }, [townState]);
@@ -148,7 +154,8 @@ export function useTownState(room, placedObjects) {
 
   // ── Internal mutator ──────────────────────────────────────────────────────
   // All mutations go through here so ref + state + persistence stay in sync.
-  const applyUpdate = useCallback((updater, immediate = false) => {
+  // Pass broadcastTown=true to push the new state to the partner over WebSocket.
+  const applyUpdate = useCallback((updater, immediate = false, broadcastTown = false) => {
     let next;
     setTownState(prev => {
       next = typeof updater === "function" ? updater(prev) : updater;
@@ -160,6 +167,7 @@ export function useTownState(room, placedObjects) {
       if (next) {
         if (immediate) saveNow(next);
         else scheduleSave(next);
+        if (broadcastTown) sendBroadcastRef.current?.(next);
       }
     }, 0);
   }, [saveNow, scheduleSave]);
@@ -307,7 +315,7 @@ export function useTownState(room, placedObjects) {
     }
 
     if (changed) {
-      applyUpdate(next, true); // immediate save — NPC arrived
+      applyUpdate(next, true, true); // immediate save + broadcast to partner
     }
   }, [placedObjects, applyUpdate]);
 
@@ -449,6 +457,19 @@ export function useTownState(room, placedObjects) {
   /** Whether the Mayor slot is filled */
   const { mayorAssigned, buildingsUnlocked } = townState;
 
+  // ── Remote town state sync (called when partner broadcasts town_state_updated) ─
+
+  /**
+   * Apply a town state received from the partner over WebSocket.
+   * Merges with the empty shape so missing fields get defaults.
+   * Does NOT save or re-broadcast — the sender already persisted it.
+   */
+  const applyRemoteTownState = useCallback((incoming) => {
+    const merged = { ...emptyTownState(), ...incoming };
+    setTownState(merged);
+    townRef.current = merged;
+  }, []);
+
   // ── Cleanup on unmount ────────────────────────────────────────────────────
   useEffect(() => {
     return () => {
@@ -480,6 +501,8 @@ export function useTownState(room, placedObjects) {
     renameNPC,
     deliverQuestItem,
     syncNPCPositions,
+    applyRemoteTownState,
+    setSendBroadcast,
 
     // Day counter
     incrementDay,

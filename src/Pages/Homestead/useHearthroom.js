@@ -99,6 +99,7 @@ export function useHearthroom(roomId, handlers, channelSuffix = "") {
           case "object_removed":      h.onObjectRemoved?.(msg);          break;
           case "farm_updated":        h.onFarmUpdated?.(msg);            break;
           case "player_state_sync":   h.onPlayerStateSync?.(msg);        break;
+          case "town_state_updated":  h.onTownStateUpdated?.(msg);       break;
 
           // ── Misc ──────────────────────────────────────────────────────────
           case "ping":                h.onPing?.(msg);                   break;
@@ -180,6 +181,7 @@ export function useHearthroom(roomId, handlers, channelSuffix = "") {
   const sendObjectRemoved   = useCallback((id) =>                       send("object_removed",  { id }),                    [send]);
   const sendFarmUpdated     = useCallback((plots, nodeState) =>          send("farm_updated",    { plots, nodeState }),      [send]);
   const sendPlayerStateSync = useCallback((state) =>                    send("player_state_sync", state),                   [send]);
+  const sendTownStateUpdated = useCallback((townState) =>               send("town_state_updated", { town_state: townState }), [send]);
 
   // ── Misc ──────────────────────────────────────────────────────────────────
   const sendPing              = useCallback((wx, wy) =>                 send("ping",              { wx, wy }),              [send]);
@@ -212,6 +214,7 @@ export function useHearthroom(roomId, handlers, channelSuffix = "") {
     sendObjectRemoved,
     sendFarmUpdated,
     sendPlayerStateSync,
+    sendTownStateUpdated,
     sendPing,
     sendChat,
     sendPlayerAppearance,
