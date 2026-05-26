@@ -115,6 +115,8 @@ export const ITEMS = {
     icon: "🔩", label: "Iron Ingot", category: "resource", stackable: true,
     description: "Smelted iron. Used to forge Tier 2 tools.",
     sellPrice: 8,
+    stationRecipe: { iron_ore: 2, coal: 1 },
+    craftStation: "furnace",
   },
 
   // ── Food / foraged ────────────────────────────────────────────────────────────
