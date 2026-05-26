@@ -344,7 +344,7 @@ export function useTownState(room, placedObjects, sendTownStateUpdated) {
         mayorAssigned:    true,
         buildingsUnlocked: true,
       };
-    }, true); // immediate — important milestone
+    }, true, true); // immediate + broadcast — important milestone
   }, [placedObjects, applyUpdate]);
 
   // ── General NPC assignment ─────────────────────────────────────────────────
@@ -362,7 +362,7 @@ export function useTownState(room, placedObjects, sendTownStateUpdated) {
           ? { ...n, assignment: buildingType }
           : n
       ),
-    }), true);
+    }), true, true); // immediate + broadcast
   }, [applyUpdate]);
 
   // ── NPC rename ─────────────────────────────────────────────────────────────
@@ -381,7 +381,7 @@ export function useTownState(room, placedObjects, sendTownStateUpdated) {
           ? { ...n, name: newName.trim() }
           : n
       ),
-    }), true);
+    }), true, true); // immediate + broadcast
   }, [applyUpdate]);
 
   // ── Quest progress ─────────────────────────────────────────────────────────
@@ -417,7 +417,7 @@ export function useTownState(room, placedObjects, sendTownStateUpdated) {
             : n
         ),
       };
-    }, true);
+    }, true, true); // immediate + broadcast
     return result;
   }, [applyUpdate]);
 
