@@ -87,6 +87,10 @@ export default function RunLobby({ room, role, onRunStart, onCancel, joining = f
   useEffect(() => { sendRunStartedRef.current = sendRunStarted; }, [sendRunStarted]);
 
   useEffect(() => {
+    // Gated out (already ran today) — don't signal the host or start anything.
+    // The lock screen below will render instead.
+    if (!canStartRun) return;
+
     if (joining) {
       // Tell the queuer we've joined, then wait for their run_started broadcast.
       // Don't self-start here — onRunStarted will fire with the canonical seed
@@ -113,7 +117,7 @@ export default function RunLobby({ room, role, onRunStart, onCancel, joining = f
       });
     }, 1000);
     return () => clearInterval(timerRef.current);
-  }, [confirmed]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [confirmed, canStartRun]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleStartNow() {
     sendRunStarted(seed, selectedType);
@@ -128,7 +132,9 @@ export default function RunLobby({ room, role, onRunStart, onCancel, joining = f
   const pct = countdown / COUNTDOWN_S;
 
   // ── Locked: already ran today ──────────────────────────────────────────────
-  if (!canStartRun && !joining) {
+  // Applies to BOTH solo starters and co-op joiners — one run per day total,
+  // whether solo or co-op.
+  if (!canStartRun) {
     return (
       <main ref={containerRef} style={{
         minHeight:"100svh", background:"#0a0e0a", color:"#f5e6c8",

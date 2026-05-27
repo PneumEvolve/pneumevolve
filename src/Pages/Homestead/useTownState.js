@@ -50,7 +50,7 @@ function emptyTownState() {
     treasuryFoodSince: null,  // timestamp (ms) when food was first placed — triggers arrival
     mayorAssigned:    false,  // true once first resident is assigned to town_hall
     buildingsUnlocked: false, // true once Mayor is assigned (gates market_stall etc.)
-    inGameDay:        0,      // increments each time the player returns from a run (future use)
+    inGameDay:        0,      // shared day counter; advances on sleep. Gates the daily run.
     questRewards:     [],     // array of reward IDs that have been permanently unlocked
   };
 }
@@ -552,7 +552,9 @@ export function useTownState(room, placedObjects, sendTownStateUpdated) {
   // ── Increment in-game day (call when player returns from a run) ───────────
 
   const incrementDay = useCallback(() => {
-    applyUpdate(prev => ({ ...prev, inGameDay: (prev.inGameDay ?? 0) + 1 }));
+    // Immediate save (not debounced): the in-game day gates the daily run, so a
+    // reload right after sleeping must not lose the advance and re-lock the player.
+    applyUpdate(prev => ({ ...prev, inGameDay: (prev.inGameDay ?? 0) + 1 }), true);
   }, [applyUpdate]);
 
   // ── Derived read-only values ───────────────────────────────────────────────

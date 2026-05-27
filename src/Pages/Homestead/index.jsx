@@ -40,6 +40,7 @@ function readPlayerCache(roomId) {
     const hbs  = localStorage.getItem(playerCacheKey(roomId, "hotbar_slots"));
     const eq   = localStorage.getItem(playerCacheKey(roomId, "equipment"));
     const char = localStorage.getItem(playerCacheKey(roomId, "character"));
+    const lrd  = localStorage.getItem(playerCacheKey(roomId, "last_run_day"));
     if (!inv && !hb && !eq && !char) return null; // nothing cached for this room
     return {
       inventory:   inv  ? JSON.parse(inv)  : emptyPlayerInventory(),
@@ -47,6 +48,7 @@ function readPlayerCache(roomId) {
       hotbarSlots: hbs  ? JSON.parse(hbs)  : HOTBAR_BASE_SLOTS,
       equipment:   eq   ? JSON.parse(eq)   : { weapon: null, armor: null, accessory: null },
       character:   char ? JSON.parse(char) : defaultCharacter(),
+      lastRunDay:  lrd  ? JSON.parse(lrd)  : -1,
     };
   } catch { return null; }
 }
@@ -559,10 +561,14 @@ export default function HomesteadGame() {
   const [joinRunType,  setJoinRunType]  = useState(null);
 
   // Per-player run gate: one run per in-game day (day advances on sleep, not on run).
-  // Intentionally NOT persisted to localStorage — resets on page load so the player
-  // always gets their run on the current day. The gate only blocks a second run
-  // within the same session (before sleeping).
+  // PERSISTED to per-player server state so it survives reloads and syncs across
+  // devices. -1 means "has not run yet". The gate is open when lastRunDay is
+  // strictly less than the shared inGameDay (i.e. you haven't burned today's run).
+  // A run is burned when it STARTS (solo start, co-op start, or co-op join) — not
+  // on completion — so quitting and retrying can't farm extra runs.
   const [lastRunDay, setLastRunDay] = useState(-1);
+  const lastRunDayRef = useRef(-1);
+  useEffect(() => { lastRunDayRef.current = lastRunDay; }, [lastRunDay]);
 
   const [placedObjects, setPlacedObjects] = useState(() => defaultObjects());
   const [chestOpen,     setChestOpen]     = useState(false);
@@ -617,6 +623,10 @@ export default function HomesteadGame() {
       setEquipment(cached.equipment);
       setCharacter(cached.character);
       playerInvRef.current = cached.inventory;
+      if (cached.lastRunDay != null) {
+        setLastRunDay(cached.lastRunDay);
+        lastRunDayRef.current = cached.lastRunDay;
+      }
     }
 
     // Then fetch the authoritative server state
@@ -641,6 +651,7 @@ export default function HomesteadGame() {
             hotbar_slots: legacy.hotbarSlots,
             equipment:    legacy.equipment,
             character:    legacy.character,
+            last_run_day: -1,
             farm_plots:   {},
             node_state:   {},
           });
@@ -655,6 +666,7 @@ export default function HomesteadGame() {
         hotbarSlots: ps.hotbar_slots ?? HOTBAR_BASE_SLOTS,
         equipment:   ps.equipment   ?? { weapon: null, armor: null, accessory: null },
         character:   ps.character   ?? defaultCharacter(),
+        lastRunDay:  ps.last_run_day ?? -1,
       };
       applyPlayerState(state, roomId);
     } catch (e) {
@@ -670,6 +682,9 @@ export default function HomesteadGame() {
     setEquipment(state.equipment);
     setCharacter(state.character);
     playerInvRef.current = state.inventory;
+    const lrd = state.lastRunDay ?? -1;
+    setLastRunDay(lrd);
+    lastRunDayRef.current = lrd;
     // Warm the local cache with the server state
     if (roomId) {
       writePlayerCache(roomId, "inventory",    state.inventory);
@@ -677,6 +692,7 @@ export default function HomesteadGame() {
       writePlayerCache(roomId, "hotbar_slots", state.hotbarSlots);
       writePlayerCache(roomId, "equipment",    state.equipment);
       writePlayerCache(roomId, "character",    state.character);
+      writePlayerCache(roomId, "last_run_day", lrd);
     }
   }
 
@@ -709,6 +725,7 @@ export default function HomesteadGame() {
       hotbar_slots: hotbarSlotRef.current,
       equipment:    equipmentRef.current,
       character:    characterRef.current,
+      last_run_day: lastRunDayRef.current,
       farm_plots:   {},
       node_state:   {},
     });
@@ -724,6 +741,7 @@ export default function HomesteadGame() {
       hotbar_slots: hotbarSlotRef.current,
       equipment:    equipmentRef.current,
       character:    characterRef.current,
+      last_run_day: lastRunDayRef.current,
       farm_plots:   {},
       node_state:   {},
     });
@@ -739,6 +757,7 @@ export default function HomesteadGame() {
       hotbar_slots: n,
       equipment:    equipmentRef.current,
       character:    characterRef.current,
+      last_run_day: lastRunDayRef.current,
       farm_plots:   {},
       node_state:   {},
     });
@@ -755,6 +774,7 @@ export default function HomesteadGame() {
         hotbar_slots: hotbarSlotRef.current,
         equipment:    next,
         character:    characterRef.current,
+        last_run_day: lastRunDayRef.current,
         farm_plots:   {},
         node_state:   {},
       });
@@ -777,6 +797,28 @@ export default function HomesteadGame() {
       hotbar_slots: hotbarSlotRef.current,
       equipment:    equipmentRef.current,
       character:    ch,
+      last_run_day: lastRunDayRef.current,
+      farm_plots:   {},
+      node_state:   {},
+    });
+  }, [scheduleCloudSave]);
+
+  // Burn the current in-game day as "run used" for this player and persist it.
+  // Idempotent: re-burning the same day is a no-op so it's safe to call from
+  // multiple code paths (solo start, co-op start, co-op join) without double work.
+  const saveLastRunDay = useCallback((day) => {
+    if (day == null || day < 0) return;
+    if (lastRunDayRef.current === day) return; // already burned today
+    lastRunDayRef.current = day;
+    setLastRunDay(day);
+    if (roomRef.current?.id) writePlayerCache(roomRef.current.id, "last_run_day", day);
+    scheduleCloudSave({
+      inventory:    playerInvRef.current,
+      hotbar:       hotbarRef.current,
+      hotbar_slots: hotbarSlotRef.current,
+      equipment:    equipmentRef.current,
+      character:    characterRef.current,
+      last_run_day: day,
       farm_plots:   {},
       node_state:   {},
     });
@@ -853,11 +895,10 @@ export default function HomesteadGame() {
       setPlacedObjects(normalized);
     }
 
-    // Load player state from server (async, non-blocking)
+    // Load player state from server (async, non-blocking).
+    // This restores the persisted run gate (last_run_day) — do NOT reset it here,
+    // or reloading/re-entering a room would hand the player a free extra run.
     initPlayerState(roomData.id, assignedRole);
-
-    // Reset run gate — player gets one fresh run when entering a room
-    setLastRunDay(-1);
 
     setPhase("homestead");
   }
@@ -869,21 +910,26 @@ export default function HomesteadGame() {
   }, []);
 
   const handleJoinRun = useCallback((seed, rtype) => {
+    // Joining a partner's co-op run counts as this player's one run for the day.
+    // If they've already used it, route them into the lobby anyway so they see the
+    // "already ran today" lock screen (RunLobby renders it for joiners too).
     setIsJoiningRun(true); setJoinRunSeed(seed ?? null); setJoinRunType(rtype ?? "forest");
     setPhase("run_lobby");
   }, []);
 
   const handleRunStart = useCallback(({ seed, coOp = false, runType: rt = "forest" }) => {
+    // Burn this player's daily run the moment any run starts — solo, co-op host,
+    // or co-op join all funnel through here. Burning on START (not completion)
+    // means quitting and retrying can't farm extra runs. The day is the shared
+    // in-game day; sleeping advances it and re-opens the gate.
+    saveLastRunDay(town?.townState?.inGameDay ?? 0);
     setRunSeed(seed); setRunCoOp(coOp); setRunType(rt);
     setPhase("run");
-  }, []);
+  }, [saveLastRunDay, town]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleRunComplete = useCallback((loot) => {
-    // Mark this player as having used their run for the current in-game day.
-    // Day only increments on sleep, not on run completion.
-    const usedDay = town?.townState?.inGameDay ?? 0;
-    setLastRunDay(usedDay);
-
+    // Note: the daily run is burned on START (see handleRunStart), not here —
+    // so quitting partway can't recover the run. This handler only applies loot.
     if (loot?._alreadyApplied) {
       setRunLoot(loot._delta ?? {});
       setRunKills(loot.kills ?? 0);
