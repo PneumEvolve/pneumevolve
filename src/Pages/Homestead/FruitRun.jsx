@@ -19,6 +19,7 @@ import {
   INVENTORY_BASE_SLOTS,
   HOTBAR_BASE_SLOTS,
   canCraft, craftItem,
+  expandedHandRecipes, canCraftByKey, craftItemByKey, resolveHandRecipeKey,
   addToPlayerInventory,
   normalizeChest,
   getWeaponDurability,
@@ -533,33 +534,35 @@ function RunTabMenu({
   }
 
   function CraftingTab() {
-    function handleCraft(name) {
-      const newInv = craftItem(name, playerInventory);
+    function handleCraft(key) {
+      const newInv = craftItemByKey(key, playerInventory);
       if (newInv) {
         onPlayerInventoryUpdate?.(newInv);
-        setCraftMsg(`Crafted ${ITEMS[name]?.label??name}!`);
+        const outputId = resolveHandRecipeKey(key);
+        setCraftMsg(`Crafted ${ITEMS[outputId]?.label??outputId}!`);
         setTimeout(()=>setCraftMsg(null),2200);
       }
     }
-    const handCraftables = Object.entries(RECIPES);
+    const handCraftables = expandedHandRecipes();
     return (
       <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
         {craftMsg && <div style={{ textAlign:"center",fontSize:12,padding:"8px 14px",borderRadius:8,background:"rgba(200,230,120,0.1)",border:"1px solid rgba(200,230,120,0.3)",color:"rgba(200,230,120,0.9)" }}>✓ {craftMsg}</div>}
         <div style={{ padding:"14px",borderRadius:12,background:"rgba(200,230,120,0.04)",border:"1px solid rgba(200,230,120,0.15)" }}>
           <p style={{ fontSize:10,color:"rgba(200,230,120,0.5)",letterSpacing:"0.14em",textTransform:"uppercase",marginBottom:12 }}>⚒ craft by hand</p>
           {handCraftables.length === 0 && <p style={{ fontSize:11, color:"rgba(255,255,255,0.3)", textAlign:"center" }}>nothing to hand-craft</p>}
-          {handCraftables.map(([name, recipe]) => {
-            const craftable = canCraft(name, playerInventory); const it = ITEMS[name];
+          {handCraftables.map(([key, recipe]) => {
+            const outputId = resolveHandRecipeKey(key);
+            const craftable = canCraftByKey(key, playerInventory); const it = ITEMS[outputId];
             return (
-              <div key={name} style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:10,background:craftable?"rgba(200,230,120,0.06)":"rgba(255,255,255,0.02)",border:`1px solid ${craftable?"rgba(200,230,120,0.2)":"rgba(255,255,255,0.06)"}`,opacity:craftable?1:0.5,marginTop:8 }}>
-                <ItemIcon id={name} size={26} />
+              <div key={key} style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:10,background:craftable?"rgba(200,230,120,0.06)":"rgba(255,255,255,0.02)",border:`1px solid ${craftable?"rgba(200,230,120,0.2)":"rgba(255,255,255,0.06)"}`,opacity:craftable?1:0.5,marginTop:8 }}>
+                <ItemIcon id={outputId} size={26} />
                 <div style={{ flex:1 }}>
-                  <div style={{ fontSize:13,color:"rgba(200,230,120,0.85)" }}>{it?.label??name}</div>
+                  <div style={{ fontSize:13,color:"rgba(200,230,120,0.85)" }}>{it?.label??outputId}</div>
                   <div style={{ fontSize:10,color:"rgba(245,230,200,0.4)" }}>
                     {Object.entries(recipe).map(([ing,qty])=>{const have=playerItems[ing]??0;return <span key={ing} style={{ marginRight:8,color:have>=qty?"rgba(200,230,120,0.7)":"rgba(255,100,80,0.7)" }}>{ITEM_ICONS[ing]??""} {have}/{qty} {ITEMS[ing]?.label??ing}</span>;})}
                   </div>
                 </div>
-                <button disabled={!craftable} onClick={()=>handleCraft(name)} style={{ padding:"8px 14px",borderRadius:8,border:`1px solid ${craftable?"rgba(200,230,120,0.35)":"rgba(255,255,255,0.06)"}`,background:craftable?"rgba(200,230,120,0.1)":"transparent",color:craftable?"rgba(200,230,120,0.9)":"rgba(255,255,255,0.2)",fontSize:11,fontFamily:"monospace",cursor:craftable?"pointer":"default" }}>craft</button>
+                <button disabled={!craftable} onClick={()=>handleCraft(key)} style={{ padding:"8px 14px",borderRadius:8,border:`1px solid ${craftable?"rgba(200,230,120,0.35)":"rgba(255,255,255,0.06)"}`,background:craftable?"rgba(200,230,120,0.1)":"transparent",color:craftable?"rgba(200,230,120,0.9)":"rgba(255,255,255,0.2)",fontSize:11,fontFamily:"monospace",cursor:craftable?"pointer":"default" }}>craft</button>
               </div>
             );
           })}
@@ -825,7 +828,13 @@ export default function FruitRun({
       if (gained > 0) delta[key] = gained;
     }
     sendRunComplete({ ...delta, kills: 0 });
-    onRunComplete?.({ _alreadyApplied: true, _delta: delta, kills: 0 });
+    // Pass final equipment state so the parent can persist durability changes.
+    onRunComplete?.({
+      _alreadyApplied: true,
+      _delta: delta,
+      kills: 0,
+      _finalEquipment: equipmentRef.current,
+    });
   }
 
   useEffect(() => {

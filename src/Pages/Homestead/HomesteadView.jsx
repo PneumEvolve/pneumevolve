@@ -26,6 +26,8 @@ import {
 import {
   ITEMS, ITEM_ICONS, ITEM_LABELS,
   EQUIPPABLE, HOTBAR_ITEMS, RECIPES, STATION_RECIPES, PLACEABLES, SEEDS, UPGRADES,
+  expandedHandRecipes, canCraftByKey, craftItemByKey, resolveHandRecipeKey,
+  canCraftByKeyFromChest, craftItemByKeyFromChest,
   emptyEquipment, getEquipStats, getWeaponDurability,
   HOTBAR_SIZE, emptyHotbar,
   INVENTORY_BASE_SLOTS, INVENTORY_MAX_SLOTS, HOTBAR_BASE_SLOTS, HOTBAR_MAX_SLOTS,
@@ -35,6 +37,7 @@ import {
   expandedStationRecipes, resolveRecipeKey,
   canCraftAtStationByKey, craftItemAtStationByKey,
   canCraftAtStationByKeyFromChest, craftItemAtStationByKeyFromChest,
+  canCraftCombined, craftItemCombined,
   usedSlots, canFitItem, spendFromPlayerInventory, applyUpgrade,
   mergeIntoChest, spendFromChest, normalizeChest, chestToMap,
   CHEST_COLS, CHEST_ROWS, CHEST_SLOTS, canFitInChest,
@@ -916,6 +919,13 @@ function HotbarBar({ hotbar, hotbarSlots, equipment, selectedIdx, onSelectIdx, o
         const isSelected = idx === selectedIdx;
         const icon = slot ? (ITEM_ICONS[slot.item] ?? "📦") : null;
         const category = slot ? ITEMS[slot.item]?.category : null;
+        // Show a durability bar for tools (any tool with maxDurability, equipped or not).
+        // For the equipped tool we have the live count; for an unequipped one
+        // we fall back to the persisted entry on `equipment.durability` (matches max if absent).
+        const maxDur = slot ? (ITEMS[slot.item]?.maxDurability ?? null) : null;
+        const curDur = (slot && maxDur != null)
+          ? (equipment?.durability?.[slot.item] ?? maxDur)
+          : null;
         let borderColor = "rgba(255,255,255,0.1)";
         if (isSelected)  borderColor = "rgba(255,220,60,0.85)";
         else if (isEquipped) borderColor = "rgba(100,200,255,0.6)";
@@ -941,7 +951,16 @@ function HotbarBar({ hotbar, hotbarSlots, equipment, selectedIdx, onSelectIdx, o
                 <span style={{ fontSize:8, color:"rgba(200,230,120,0.65)", lineHeight:1, fontFamily:"monospace", maxWidth:40, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
                   {ITEMS[slot.item]?.label?.toLowerCase().slice(0,6) ?? slot.item}
                 </span>
-                {slot.qty != null && <span style={{ fontSize:9, color:"rgba(200,230,120,0.8)", lineHeight:1, marginTop:1 }}>{slot.qty}</span>}
+                {slot.qty != null && maxDur == null && <span style={{ fontSize:9, color:"rgba(200,230,120,0.8)", lineHeight:1, marginTop:1 }}>{slot.qty}</span>}
+                {curDur != null && (
+                  <div style={{ position:"absolute", bottom:2, left:3, right:3, height:3, background:"rgba(0,0,0,0.45)", borderRadius:2, overflow:"hidden" }}>
+                    <div style={{
+                      width: `${(curDur / maxDur) * 100}%`,
+                      height: "100%",
+                      background: (curDur / maxDur) > 0.5 ? "#80d860" : (curDur / maxDur) > 0.25 ? "#e8c840" : "#e04840",
+                    }} />
+                  </div>
+                )}
                 {isEquipped && <div style={{ position:"absolute", top:2, right:2, width:6, height:6, borderRadius:"50%", background:"rgba(100,200,255,0.95)" }} />}
               </>
             ) : (
@@ -1132,7 +1151,12 @@ function TabMenu({
             <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
               {consumables.map(([id, qty]) => (
                 <div key={id} draggable onDragStart={e=>{e.dataTransfer.setData("hotbar_item",id);e.dataTransfer.effectAllowed="copy";}}
-                  onClick={()=>{const ei=hotbar?.findIndex(s=>!s)??-1;const si=ei>=0?ei:0;if(si<hotbarSlots){const nh=[...(hotbar??[])];nh[si]={item:id,qty};onHotbarChange?.(nh);}}}
+                  onClick={()=>{
+                    // Find first empty hotbar slot, fall back to slot 0; always go through
+                    // assignToHotbarSlot so the item is moved (not duplicated).
+                    const si = (hotbar ?? []).findIndex(s => !s);
+                    assignToHotbarSlot(id, si >= 0 ? si : 0);
+                  }}
                   style={{ ...itemStyle, background:"rgba(255,200,80,0.07)", border:"1px solid rgba(255,200,80,0.25)" }}>
                   <ItemIcon id={id} size={26} />
                   <div style={{ flex:1 }}>
@@ -1148,22 +1172,42 @@ function TabMenu({
 
         {gear.filter(([id])=>EQUIPPABLE[id]?.slot==="weapon").length > 0 && (
           <div>
-            <p style={{ fontSize:10, color:"rgba(245,230,200,0.3)", letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:8 }}>Tools &amp; Weapons — drag to hotbar, then select to equip</p>
+            <p style={{ fontSize:10, color:"rgba(245,230,200,0.3)", letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:8 }}>Tools &amp; Weapons — click to add to hotbar (or drag)</p>
             <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
               {gear.filter(([id])=>EQUIPPABLE[id]?.slot==="weapon").map(([id]) => {
                 const isEq = equipment?.weapon===id;
                 const inHotbar = (hotbar??[]).some(s=>s?.item===id);
+                // Show this tool's durability if it's the equipped weapon
+                const maxDur = ITEMS[id]?.maxDurability ?? null;
+                const curDur = isEq && maxDur != null
+                  ? (equipment?.durability?.[id] ?? maxDur)
+                  : null;
                 return (
                   <div key={id}
                     draggable
                     onDragStart={e=>{e.dataTransfer.setData("hotbar_item",id);e.dataTransfer.effectAllowed="copy";}}
-                    style={{ ...itemStyle, cursor:"grab", background:"rgba(200,230,120,0.05)", border:`1px solid ${isEq?"rgba(100,200,255,0.45)":"rgba(200,230,120,0.2)"}` }}>
+                    onClick={() => {
+                      // If already on the hotbar, do nothing (avoid duplicating).
+                      // Otherwise move it into the first empty hotbar slot, fall back to slot 0.
+                      if (inHotbar) return;
+                      const si = (hotbar ?? []).findIndex(s => !s);
+                      assignToHotbarSlot(id, si >= 0 ? si : 0);
+                    }}
+                    style={{ ...itemStyle, cursor:"pointer", background:"rgba(200,230,120,0.05)", border:`1px solid ${isEq?"rgba(100,200,255,0.45)":"rgba(200,230,120,0.2)"}` }}>
                     <ItemIcon id={id} size={26} />
                     <div style={{ flex:1 }}>
                       <div style={{ fontSize:12, color:"rgba(200,230,120,0.85)" }}>{ITEMS[id]?.label??id}</div>
                       <div style={{ fontSize:10, color:isEq?"rgba(100,200,255,0.7)":inHotbar?"rgba(200,230,120,0.55)":"rgba(255,255,255,0.3)" }}>
-                        {isEq?"✓ equipped":inHotbar?"in hotbar · select to equip":"drag → hotbar"}
+                        {isEq?"✓ equipped":inHotbar?"in hotbar · select to equip":"click → hotbar"}
                       </div>
+                      {curDur != null && (
+                        <div style={{ marginTop:4, display:"flex", alignItems:"center", gap:6 }}>
+                          <div style={{ width:60, height:4, background:"rgba(0,0,0,0.4)", borderRadius:2, overflow:"hidden" }}>
+                            <div style={{ width:`${(curDur/maxDur)*100}%`, height:"100%", background: (curDur/maxDur) > 0.5 ? "#80d860" : (curDur/maxDur) > 0.25 ? "#e8c840" : "#e04840" }} />
+                          </div>
+                          <span style={{ fontSize:8, color:"rgba(200,230,160,0.5)", fontFamily:"monospace" }}>{curDur}/{maxDur}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -1199,9 +1243,17 @@ function TabMenu({
               const it = ITEMS[id]; const eff = UPGRADES[id];
               return (
                 <div key={id} onClick={() => {
-                  const { inv: newInv, hotbarSlots: newHbs } = applyUpgrade(playerInventory, hotbarSlots, id);
+                  // Use the props directly — playerInvRef/hotbarSlotsRef live on
+                  // the HomesteadView parent and aren't in TabMenu's scope.
+                  const { inv: newInv, hotbarSlots: newHbs } = applyUpgrade(
+                    playerInventory,
+                    hotbarSlots ?? HOTBAR_BASE_SLOTS,
+                    id
+                  );
                   onPlayerInventoryUpdate?.(newInv);
                   onHotbarSlotsUpdate?.(newHbs);
+                  setCraftMsg(`✓ ${it?.label ?? id} applied!`);
+                  setTimeout(()=>setCraftMsg(null), 2200);
                 }} style={{ ...itemStyle, cursor:"pointer", background:"rgba(120,80,200,0.08)", border:"1px solid rgba(120,80,200,0.25)" }}>
                   <span style={{ fontSize:22 }}>{it?.icon??"📦"}</span>
                   <div style={{ flex:1 }}>
@@ -1217,17 +1269,23 @@ function TabMenu({
 
         {placeables.length > 0 && (
           <div>
-            <p style={{ fontSize:10, color:"rgba(245,230,200,0.3)", letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:8 }}>Placeables — drag to hotbar, then use to place</p>
+            <p style={{ fontSize:10, color:"rgba(245,230,200,0.3)", letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:8 }}>Placeables — click to add to hotbar, then use to place</p>
             <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
               {placeables.map(([id, qty]) => {
                 const it = ITEMS[id];
+                const inHotbar = (hotbar??[]).some(s=>s?.item===id);
                 return (
                   <div key={id} draggable onDragStart={e=>{e.dataTransfer.setData("hotbar_item",id);e.dataTransfer.effectAllowed="copy";}}
-                    style={{ ...itemStyle, background:"rgba(100,180,200,0.06)", border:"1px solid rgba(100,180,200,0.2)" }}>
+                    onClick={() => {
+                      if (inHotbar) return;
+                      const si = (hotbar ?? []).findIndex(s => !s);
+                      assignToHotbarSlot(id, si >= 0 ? si : 0);
+                    }}
+                    style={{ ...itemStyle, cursor:"pointer", background:"rgba(100,180,200,0.06)", border:"1px solid rgba(100,180,200,0.2)" }}>
                     <ItemIcon id={id} size={26} />
                     <div style={{ flex:1 }}>
                       <div style={{ fontSize:12, color:"rgba(150,220,230,0.9)" }}>{it?.label??id}</div>
-                      <div style={{ fontSize:10, color:"rgba(255,255,255,0.3)" }}>×{qty} · drag → hotbar</div>
+                      <div style={{ fontSize:10, color:"rgba(255,255,255,0.3)" }}>×{qty} · {inHotbar?"in hotbar":"click → hotbar"}</div>
                     </div>
                     <button title="Deposit to chest" onClick={e=>{e.stopPropagation();depositToChest(id,qty);}} style={{ fontSize:10, background:"rgba(180,200,100,0.1)", border:"1px solid rgba(180,200,100,0.2)", borderRadius:5, color:"rgba(180,200,100,0.8)", cursor:"pointer", padding:"2px 5px" }}>📦</button>
                   </div>
@@ -1264,12 +1322,33 @@ function TabMenu({
         : (invEntries[srcIdx] ? { item: invEntries[srcIdx][0], qty: invEntries[srcIdx][1] } : null);
       if (!srcCell) return;
 
-      const safeQty = Math.min(qty, srcCell.qty);
+      let safeQty = Math.min(qty, srcCell.qty);
       let cg = chestGrid.slice();
       let ii = { ...playerItems };
 
       if (srcZone === "chest") {
         // chest → inventory
+        // Non-stackable items (tools/gear): each unit needs its own slot, and
+        // if a copy is already in the bag we refuse (avoids ×2 tool stacks
+        // that share one durability bar).
+        const itemDef = ITEMS[srcCell.item];
+        if (itemDef && itemDef.stackable === false) {
+          const already = (ii[srcCell.item] ?? 0) > 0;
+          if (already) {
+            // can't take another copy
+            return;
+          }
+          // can only take 1, and only if we have a free slot
+          const usedNow = Object.values(ii).filter(v => v > 0).length;
+          if (usedNow >= totalSlots) return;
+          safeQty = 1;
+        } else {
+          // For stackable items also respect the bag's slot cap when adding
+          // a brand new item type.
+          const isNewType = !(ii[srcCell.item] > 0);
+          const usedNow = Object.values(ii).filter(v => v > 0).length;
+          if (isNewType && usedNow >= totalSlots) return;
+        }
         const remaining = srcCell.qty - safeQty;
         cg[srcIdx] = remaining > 0 ? { item: srcCell.item, qty: remaining } : null;
         ii[srcCell.item] = (ii[srcCell.item] ?? 0) + safeQty;
@@ -1305,11 +1384,22 @@ function TabMenu({
 
       if (!srcData) return;
 
+      // Block dragging a non-stackable tool into the bag when a copy already
+      // lives in the bag (would create a fake ×2 stack sharing one durability).
+      const movingNonStackable = ITEMS[srcData.item]?.stackable === false;
+      if (movingNonStackable && dst.zone === "inv" && src.zone === "chest") {
+        if ((playerItems[srcData.item] ?? 0) > 0 && dstData?.item !== srcData.item) {
+          return;
+        }
+      }
+
       let cg = chestGrid.slice();
       let ii = { ...playerItems };
 
       if (dstData && dstData.item === srcData.item) {
         // ── Stack same item type ──────────────────────────────────────────────
+        // Don't stack non-stackable tools — silently bail.
+        if (movingNonStackable) return;
         const total = srcData.qty + dstData.qty;
         // Clear source
         if (src.zone === "chest") cg[src.idx] = null;
@@ -1511,7 +1601,25 @@ function TabMenu({
         <div style={{ padding:"12px 14px", borderRadius:12, background:"rgba(30,50,20,0.5)", border:"1px solid rgba(200,230,120,0.12)" }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
             <p style={{ fontSize:10, color:"rgba(200,230,120,0.5)", letterSpacing:"0.12em", textTransform:"uppercase" }}>🎒 your bag</p>
-            <span style={{ fontSize:10, color: invEntries.length >= totalSlots ? "rgba(255,120,80,0.8)" : "rgba(200,230,120,0.4)", fontFamily:"monospace" }}>{invEntries.length}/{totalSlots} slots</span>
+            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+              <button
+                title="Move all bag items into the chest"
+                onClick={() => {
+                  const allInvItems = Object.entries(playerItems).filter(([,v]) => v > 0);
+                  if (allInvItems.length === 0) return;
+                  let newChest = chestGrid.slice();
+                  const newItems = { ...(playerItems) };
+                  for (const [id, qty] of allInvItems) {
+                    newChest = mergeIntoChest(newChest, { [id]: qty });
+                    delete newItems[id];
+                  }
+                  onPlayerInventoryUpdate?.({ ...playerInventory, items: newItems });
+                  onChestUpdate?.(newChest);
+                }}
+                style={{ fontSize:10, padding:"3px 9px", borderRadius:6, border:"1px solid rgba(180,200,100,0.3)", background:"rgba(180,200,100,0.08)", color:"rgba(180,200,100,0.85)", fontFamily:"monospace", cursor:"pointer", whiteSpace:"nowrap" }}
+              >deposit all 📦</button>
+              <span style={{ fontSize:10, color: invEntries.length >= totalSlots ? "rgba(255,120,80,0.8)" : "rgba(200,230,120,0.4)", fontFamily:"monospace" }}>{invEntries.length}/{totalSlots} slots</span>
+            </div>
           </div>
           {renderGrid(invGrid, "inv", CHEST_COLS)}
           {invEntries.length === 0 && <p style={{ textAlign:"center", fontSize:11, color:"rgba(255,255,255,0.2)", marginTop:8 }}>bag is empty</p>}
@@ -1530,39 +1638,75 @@ function TabMenu({
     const [craftableOnly, setCraftableOnly] = useState(false);
 
     // Crafting reads from player inventory (not chest)
-    function handleCraft(name) {
-      const newInv = craftItem(name, playerInventory);
+    function handleCraft(key) {
+      const newInv = craftItemByKey(key, playerInventory);
+      const outputId = resolveHandRecipeKey(key);
       if (newInv) {
         onCraftWithInventory?.(newInv);
-        setCraftMsg(`Crafted ${ITEMS[name]?.label??name}!`);
+        setCraftMsg(`Crafted ${ITEMS[outputId]?.label??outputId}!`);
+        setTimeout(()=>setCraftMsg(null),2200);
+      } else if (canCraftByKey(key, playerInventory ?? {})) {
+        // Had materials but craft returned null — bag full
+        setCraftMsg(`Bag full! Can't carry another ${ITEMS[outputId]?.label??outputId}.`);
         setTimeout(()=>setCraftMsg(null),2200);
       }
     }
     function handleCraftAtStation(name) {
+      if (!atCraftingStation) return; // must be standing at a station
       const newInv = craftItemAtStationByKey(name, playerInventory);
       const outputId = resolveRecipeKey(name);
       if (newInv) {
         onCraftWithInventory?.(newInv);
         setCraftMsg(`Crafted ${ITEMS[outputId]?.label??outputId}!`);
         setTimeout(()=>setCraftMsg(null),2200);
+      } else if (canCraftAtStationByKey(name, playerInventory ?? {})) {
+        // Had materials but craft returned null — bag must be full
+        setCraftMsg(`Bag full! Can't carry another ${ITEMS[outputId]?.label??outputId}.`);
+        setTimeout(()=>setCraftMsg(null),2200);
       }
     }
-    function handleCraftFromChest(name) {
-      const result = craftItemFromChest(name, normalizeChest(chest), playerInventory);
+    function handleCraftFromChest(key) {
+      const outputId = resolveHandRecipeKey(key);
+      const result = craftItemByKeyFromChest(key, normalizeChest(chest), playerInventory);
       if (result) {
         onChestUpdate?.(result.newChest);
         onCraftWithInventory?.(result.newInv);
-        setCraftMsg(`Crafted ${ITEMS[name]?.label??name} (from chest)!`);
+        setCraftMsg(`Crafted ${ITEMS[outputId]?.label??outputId} (from chest)!`);
+        setTimeout(()=>setCraftMsg(null),2200);
+      } else if (canCraftByKeyFromChest(key, normalizeChest(chest))) {
+        setCraftMsg(`Bag full! Can't carry another ${ITEMS[outputId]?.label??outputId}.`);
         setTimeout(()=>setCraftMsg(null),2200);
       }
     }
     function handleCraftAtStationFromChest(name) {
+      if (!atCraftingStation) return; // must be standing at a station
       const outputId = resolveRecipeKey(name);
       const result = craftItemAtStationByKeyFromChest(name, normalizeChest(chest), playerInventory);
       if (result) {
         onChestUpdate?.(result.newChest);
         onCraftWithInventory?.(result.newInv);
         setCraftMsg(`Crafted ${ITEMS[outputId]?.label??outputId} (from chest)!`);
+        setTimeout(()=>setCraftMsg(null),2200);
+      } else if (canCraftAtStationByKeyFromChest(name, normalizeChest(chest))) {
+        setCraftMsg(`Bag full! Can't carry another ${ITEMS[outputId]?.label??outputId}.`);
+        setTimeout(()=>setCraftMsg(null),2200);
+      }
+    }
+
+    // Combined crafting: draw materials from both inventory and chest.
+    // Used when neither source alone has enough but together they do.
+    function handleCraftCombined(name) {
+      const outputId = resolveRecipeKey(name);
+      const isStation = !!STATION_RECIPES[outputId];
+      if (isStation && !atCraftingStation) return; // station recipes still need a station
+      const result = craftItemCombined(name, playerInventory, normalizeChest(chest));
+      if (result) {
+        onChestUpdate?.(result.newChest);
+        onCraftWithInventory?.(result.newInv);
+        setCraftMsg(`Crafted ${ITEMS[outputId]?.label??outputId} (bag + chest)!`);
+        setTimeout(()=>setCraftMsg(null),2200);
+      } else if (canCraftCombined(name, playerInventory, normalizeChest(chest))) {
+        setCraftMsg(`Bag full! Can't carry another ${ITEMS[outputId]?.label??outputId}.`);
         setTimeout(()=>setCraftMsg(null),2200);
       }
     }
@@ -1587,6 +1731,72 @@ function TabMenu({
         return hbSlotsUsed >= eff.hotbarSlots;
       }
       return false;
+    }
+
+    // ── Smart "craft" button ────────────────────────────────────────────────
+    // ONE button that picks the right source automatically:
+    //   • inventory has everything    → "craft"           (uses bag only)
+    //   • together has everything     → "craft 🎒+📦"      (uses both)
+    //   • only chest has everything   → "craft from 📦"   (uses chest only)
+    //   • otherwise                   → button is hidden
+    // mode = "hand" | "station"  — picks the right craft helpers.
+    function SmartCraftButton({ name, mode }) {
+      const outputId   = mode === "hand" ? resolveHandRecipeKey(name) : resolveRecipeKey(name);
+      const alreadyApplied = upgradeAlreadyApplied(outputId);
+      if (alreadyApplied) return null;
+
+      const inv     = playerInventory ?? {};
+      const chestG  = normalizeChest(chest);
+
+      // Source availability
+      let canBag, canChestOnly, canCombo;
+      if (mode === "station") {
+        canBag       = canCraftAtStationByKey(name, inv);
+        canChestOnly = canCraftAtStationByKeyFromChest(name, chestG);
+        canCombo     = canCraftCombined(name, inv, chestG);
+      } else {
+        canBag       = canCraftByKey(name, inv);
+        canChestOnly = canCraftByKeyFromChest(name, chestG);
+        canCombo     = canCraftCombined(name, inv, chestG);
+      }
+
+      // Pick the best path; prefer bag → combo → chest
+      let label, action, color;
+      if (canBag) {
+        label  = "craft";
+        color  = "rgba(200,230,120";
+        action = mode === "station" ? () => handleCraftAtStation(name) : () => handleCraft(name);
+      } else if (canCombo) {
+        label  = "craft 🎒+📦";
+        color  = "rgba(160,210,140";
+        action = () => handleCraftCombined(name);
+      } else if (canChestOnly) {
+        label  = "craft from 📦";
+        color  = "rgba(180,200,100";
+        action = mode === "station"
+          ? () => handleCraftAtStationFromChest(name)
+          : () => handleCraftFromChest(name);
+      } else {
+        // Nothing works — hide the button entirely (fixes the dead-button bug)
+        return null;
+      }
+
+      return (
+        <button
+          onClick={action}
+          style={{
+            padding:"8px 14px",
+            borderRadius:8,
+            border:`1px solid ${color},0.35)`,
+            background:`${color},0.1)`,
+            color:`${color},0.9)`,
+            fontSize:11,
+            fontFamily:"monospace",
+            cursor:"pointer",
+            whiteSpace:"nowrap",
+          }}
+        >{label}</button>
+      );
     }
 
     if (!atCraftingStation) {
@@ -1669,30 +1879,44 @@ function TabMenu({
             />
           </div>
 
-          {/* Hand-craft: crafting station only — always shown */}
+          {/* Hand-craft: all craftRecipe items (tools, trail snacks, crafting station) */}
           <div style={{ padding:"14px",borderRadius:12,background:"rgba(200,230,120,0.04)",border:"1px solid rgba(200,230,120,0.15)" }}>
             <p style={{ fontSize:10,color:"rgba(200,230,120,0.5)",letterSpacing:"0.14em",textTransform:"uppercase",marginBottom:12 }}>⚒ craft by hand</p>
             {(() => {
-              const name = "crafting_station";
-              const recipe = RECIPES[name];
-              const it = ITEMS[name];
-              const chestCraftable = canCraftFromChest(name, normalizeChest(chest));
-              const active = stationCraftable || chestCraftable;
-              if (craftableOnly && !active) return <div style={{ fontSize:11,color:"rgba(255,255,255,0.2)",fontFamily:"monospace" }}>Nothing hand-craftable yet.</div>;
-              return (
-                <div style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:10,background:active?"rgba(200,230,120,0.06)":"rgba(255,255,255,0.02)",border:`1px solid ${active?"rgba(200,230,120,0.2)":"rgba(255,255,255,0.06)"}`,opacity:active?1:0.5 }}>
-                  <span style={{ fontSize:22,minWidth:30 }}>{it?.icon??"📦"}</span>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontSize:13,color:"rgba(200,230,120,0.85)" }}>{it?.label??name}</div>
-                    <div style={{ fontSize:10,color:"rgba(245,230,200,0.4)" }}>
-                      {Object.entries(recipe).map(([ing,qty])=>{const have=playerItems[ing]??0;const chestMap=chestToMap(normalizeChest(chest));const inChest=chestMap[ing]??0;return<span key={ing} style={{ marginRight:8,color:have>=qty?"rgba(200,230,120,0.7)":inChest>=qty?"rgba(180,200,100,0.6)":"rgba(255,100,80,0.7)" }}>{ITEM_ICONS[ing]??""} {have}/{qty}{inChest>0&&have<qty?<span style={{ color:"rgba(180,200,100,0.5)",fontSize:9 }}> (📦{inChest})</span>:null} {ITEMS[ing]?.label??ing}</span>;}) }
+              const allHandEntries = expandedHandRecipes();
+              const visibleEntries = craftableOnly
+                ? allHandEntries.filter(([key]) => {
+                    const inv = playerInventory ?? {};
+                    const chestG = normalizeChest(chest);
+                    return canCraftByKey(key, inv) ||
+                           canCraftByKeyFromChest(key, chestG) ||
+                           canCraftCombined(resolveHandRecipeKey(key), inv, chestG);
+                  })
+                : allHandEntries;
+              if (visibleEntries.length === 0) return <div style={{ fontSize:11,color:"rgba(255,255,255,0.2)",fontFamily:"monospace" }}>Nothing hand-craftable yet.</div>;
+              return visibleEntries.map(([key, recipe]) => {
+                const outputId = resolveHandRecipeKey(key);
+                const it = ITEMS[outputId];
+                const inv = playerInventory ?? {};
+                const chestG = normalizeChest(chest);
+                const bagCraftable = canCraftByKey(key, inv);
+                const chestCraftable = canCraftByKeyFromChest(key, chestG);
+                const combinedCraftable = canCraftCombined(outputId, inv, chestG);
+                const active = bagCraftable || chestCraftable || combinedCraftable;
+                return (
+                  <div key={key} style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:10,background:active?"rgba(200,230,120,0.06)":"rgba(255,255,255,0.02)",border:`1px solid ${active?"rgba(200,230,120,0.2)":"rgba(255,255,255,0.06)"}`,opacity:active?1:0.5,marginTop:8 }}>
+                    <ItemIcon id={outputId} size={26} />
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:13,color:"rgba(200,230,120,0.85)" }}>{it?.label??outputId}</div>
+                      <div style={{ fontSize:10,color:"rgba(245,230,200,0.4)" }}>
+                        {Object.entries(recipe).map(([ing,qty])=>{const have=playerItems[ing]??0;const chestMap=chestToMap(normalizeChest(chest));const inChest=chestMap[ing]??0;return<span key={ing} style={{ marginRight:8,color:have>=qty?"rgba(200,230,120,0.7)":inChest>=qty?"rgba(180,200,100,0.6)":"rgba(255,100,80,0.7)" }}>{ITEM_ICONS[ing]??""} {have}/{qty}{inChest>0&&have<qty?<span style={{ color:"rgba(180,200,100,0.5)",fontSize:9 }}> (📦{inChest})</span>:null} {ITEMS[ing]?.label??ing}</span>;}) }
+                      </div>
+                      <div style={{ fontSize:9,color:"rgba(245,230,200,0.3)",marginTop:4 }}>{it?.description}</div>
                     </div>
-                    <div style={{ fontSize:9,color:"rgba(245,230,200,0.3)",marginTop:4 }}>{it?.description}</div>
+                    <SmartCraftButton name={key} mode="hand" />
                   </div>
-                  <button disabled={!stationCraftable} onClick={()=>handleCraft(name)} style={{ padding:"8px 14px",borderRadius:8,border:`1px solid ${stationCraftable?"rgba(200,230,120,0.35)":"rgba(255,255,255,0.06)"}`,background:stationCraftable?"rgba(200,230,120,0.1)":"transparent",color:stationCraftable?"rgba(200,230,120,0.9)":"rgba(255,255,255,0.2)",fontSize:11,fontFamily:"monospace",cursor:stationCraftable?"pointer":"default" }}>craft</button>
-                  <button disabled={!chestCraftable} onClick={()=>handleCraftFromChest(name)} title="Craft using materials from chest" style={{ padding:"8px 14px",borderRadius:8,border:`1px solid ${chestCraftable?"rgba(180,200,100,0.35)":"rgba(255,255,255,0.06)"}`,background:chestCraftable?"rgba(180,200,100,0.1)":"transparent",color:chestCraftable?"rgba(180,200,100,0.9)":"rgba(255,255,255,0.2)",fontSize:11,fontFamily:"monospace",cursor:chestCraftable?"pointer":"default",whiteSpace:"nowrap" }}>📦 chest</button>
-                </div>
-              );
+                );
+              });
             })()}
           </div>
 
@@ -1703,7 +1927,9 @@ function TabMenu({
               entries = entries.filter(([name]) => {
                 const alreadyApplied = upgradeAlreadyApplied(resolveRecipeKey(name));
                 if (alreadyApplied) return false;
-                return canCraftAtStationByKey(name, playerInventory ?? {}) || canCraftAtStationByKeyFromChest(name, normalizeChest(chest));
+                return canCraftAtStationByKey(name, playerInventory ?? {}) ||
+                  canCraftAtStationByKeyFromChest(name, normalizeChest(chest)) ||
+                  canCraftCombined(name, playerInventory ?? {}, normalizeChest(chest));
               });
             }
             if (entries.length === 0) return null;
@@ -1717,7 +1943,9 @@ function TabMenu({
                     const alreadyApplied = upgradeAlreadyApplied(outputId);
                     const craftable = !alreadyApplied && canCraftAtStationByKey(name, playerInventory ?? {});
                     const chestCraftable = !alreadyApplied && canCraftAtStationByKeyFromChest(name, normalizeChest(chest));
-                    const active = craftable || chestCraftable;
+                    const combinedCraftable = !alreadyApplied && !craftable && !chestCraftable &&
+                      canCraftCombined(name, playerInventory ?? {}, normalizeChest(chest));
+                    const active = craftable || chestCraftable || combinedCraftable;
                     const needsStation = !!it?.craftStation;
                     return (
                       <div key={name} style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:10,background:active?"rgba(200,230,120,0.06)":alreadyApplied?"rgba(255,180,60,0.04)":"rgba(255,255,255,0.02)",border:`1px solid ${active?"rgba(200,230,120,0.2)":alreadyApplied?"rgba(255,180,60,0.2)":"rgba(255,255,255,0.06)"}`,opacity:active?1:alreadyApplied?0.75:0.45 }}>
@@ -1735,10 +1963,7 @@ function TabMenu({
                         ) : needsStation ? (
                           <span style={{ fontSize:9,color:"rgba(255,180,80,0.4)",fontFamily:"monospace",whiteSpace:"nowrap",textAlign:"center",lineHeight:1.3 }}>needs<br/>station</span>
                         ) : (
-                          <>
-                            <button disabled={!craftable} onClick={()=>handleCraftAtStation(name)} style={{ padding:"8px 14px",borderRadius:8,border:`1px solid ${craftable?"rgba(200,230,120,0.35)":"rgba(255,255,255,0.06)"}`,background:craftable?"rgba(200,230,120,0.1)":"transparent",color:craftable?"rgba(200,230,120,0.9)":"rgba(255,255,255,0.2)",fontSize:11,fontFamily:"monospace",cursor:craftable?"pointer":"default" }}>craft</button>
-                            {(()=>{const cc=canCraftAtStationByKeyFromChest(name,normalizeChest(chest))&&!alreadyApplied;return<button disabled={!cc} onClick={()=>handleCraftAtStationFromChest(name)} title="Craft using materials from chest" style={{ padding:"8px 14px",borderRadius:8,border:`1px solid ${cc?"rgba(180,200,100,0.35)":"rgba(255,255,255,0.06)"}`,background:cc?"rgba(180,200,100,0.1)":"transparent",color:cc?"rgba(180,200,100,0.9)":"rgba(255,255,255,0.2)",fontSize:11,fontFamily:"monospace",cursor:cc?"pointer":"default",whiteSpace:"nowrap" }}>📦 chest</button>;})()}
-                          </>
+                          <SmartCraftButton name={name} mode="station" />
                         )}
                       </div>
                     );
@@ -1901,7 +2126,9 @@ function TabMenu({
                   const alreadyApplied = upgradeAlreadyApplied(outputId);
                   const craftable = !alreadyApplied && canCraftAtStationByKey(name, playerInventory ?? {});
                   const chestCraftable = !alreadyApplied && canCraftAtStationByKeyFromChest(name, normalizeChest(chest));
-                  const active = craftable || chestCraftable;
+                  const combinedCraftable = !alreadyApplied && !craftable && !chestCraftable &&
+                    canCraftCombined(name, playerInventory ?? {}, normalizeChest(chest));
+                  const active = craftable || chestCraftable || combinedCraftable;
                   return (
                     <div key={name} style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:10,background:active?"rgba(200,230,120,0.06)":alreadyApplied?"rgba(255,180,60,0.04)":"rgba(255,255,255,0.02)",border:`1px solid ${active?"rgba(200,230,120,0.2)":alreadyApplied?"rgba(255,180,60,0.2)":"rgba(255,255,255,0.06)"}`,opacity:active?1:alreadyApplied?0.75:0.5 }}>
                       <ItemIcon id={outputId} size={26} />
@@ -1923,10 +2150,7 @@ function TabMenu({
                       {alreadyApplied ? (
                         <span style={{ fontSize:10,color:"rgba(255,180,60,0.6)",fontFamily:"monospace",whiteSpace:"nowrap" }}>✓ used</span>
                       ) : (
-                        <>
-                          <button disabled={!craftable} onClick={()=>handleCraftAtStation(name)} style={{ padding:"8px 14px",borderRadius:8,border:`1px solid ${craftable?"rgba(200,230,120,0.35)":"rgba(255,255,255,0.06)"}`,background:craftable?"rgba(200,230,120,0.1)":"transparent",color:craftable?"rgba(200,230,120,0.9)":"rgba(255,255,255,0.2)",fontSize:11,fontFamily:"monospace",cursor:craftable?"pointer":"default" }}>craft</button>
-                          {(()=>{const cc=canCraftAtStationByKeyFromChest(name,normalizeChest(chest))&&!alreadyApplied;return<button disabled={!cc} onClick={()=>handleCraftAtStationFromChest(name)} title="Craft using materials from chest" style={{ padding:"8px 14px",borderRadius:8,border:`1px solid ${cc?"rgba(180,200,100,0.35)":"rgba(255,255,255,0.06)"}`,background:cc?"rgba(180,200,100,0.1)":"transparent",color:cc?"rgba(180,200,100,0.9)":"rgba(255,255,255,0.2)",fontSize:11,fontFamily:"monospace",cursor:cc?"pointer":"default",whiteSpace:"nowrap" }}>📦 chest</button>;})()}
-                        </>
+                        <SmartCraftButton name={name} mode="station" />
                       )}
                     </div>
                   );
@@ -1960,7 +2184,10 @@ function TabMenu({
           const item=equipment?.[slot]; const info=item?EQUIPPABLE[item]:null;
           return(
             <div key={slot} style={{ display:"flex",alignItems:"center",gap:12,padding:"12px 14px",borderRadius:10,background:item?"rgba(200,230,120,0.04)":"rgba(255,255,255,0.02)",border:`1px solid ${item?"rgba(200,230,120,0.18)":"rgba(255,255,255,0.06)"}` }}>
-              <span style={{ fontSize:22,minWidth:30 }}>{info?.icon??"○"}</span>
+              {item
+                ? <ItemIcon id={item} size={28} style={{ minWidth:30 }} />
+                : <span style={{ fontSize:22, minWidth:30, color:"rgba(255,255,255,0.2)", display:"inline-block" }}>○</span>
+              }
               <div style={{ flex:1 }}>
                 <div style={{ fontSize:10,color:"rgba(245,230,200,0.3)",letterSpacing:"0.1em",textTransform:"uppercase" }}>{slot}</div>
                 <div style={{ fontSize:13,color:item?"rgba(200,230,120,0.85)":"rgba(255,255,255,0.18)" }}>{info?.label??"empty"}</div>
@@ -2156,9 +2383,35 @@ function TabMenu({
           );})}
         </div>
         {activeTab==="inventory"&&<HotbarDropZone/>}
-        <div ref={contentRef} style={{ flex:1,minHeight:0,overflowY:"auto",padding:"18px 20px",scrollbarWidth:"thin",scrollbarColor:"rgba(200,230,120,0.15) transparent" }}>
+        <div ref={contentRef} style={{ flex:1,minHeight:0,overflowY:"auto",padding:"18px 20px",scrollbarWidth:"thin",scrollbarColor:"rgba(200,230,120,0.15) transparent",position:"relative" }}>
           {tabContent[activeTab]}
         </div>
+        {craftMsg && (
+          <div style={{
+            position:"absolute",
+            left:"50%",
+            bottom:48,
+            transform:"translateX(-50%)",
+            padding:"10px 18px",
+            borderRadius:10,
+            background: craftMsg.toLowerCase().includes("bag full") || craftMsg.toLowerCase().includes("can't")
+              ? "rgba(255,90,80,0.18)"
+              : "rgba(200,230,120,0.16)",
+            border: `1px solid ${craftMsg.toLowerCase().includes("bag full") || craftMsg.toLowerCase().includes("can't")
+              ? "rgba(255,90,80,0.55)"
+              : "rgba(200,230,120,0.5)"}`,
+            color: craftMsg.toLowerCase().includes("bag full") || craftMsg.toLowerCase().includes("can't")
+              ? "rgba(255,180,160,0.95)"
+              : "rgba(220,240,140,0.95)",
+            fontSize: 12,
+            fontFamily: "monospace",
+            pointerEvents: "none",
+            zIndex: 30,
+            whiteSpace: "nowrap",
+            maxWidth: "92%",
+            boxShadow: "0 6px 18px rgba(0,0,0,0.45)",
+          }}>{craftMsg}</div>
+        )}
         <div style={{ padding:"8px 18px",borderTop:"1px solid rgba(255,255,255,0.05)",fontSize:9,color:"rgba(245,230,200,0.2)",textAlign:"center",letterSpacing:"0.08em" }}>
           Tab / Esc to close  ·  bag = yours  ·  chest = shared
         </div>
@@ -2523,8 +2776,7 @@ export default function HomesteadView({
   const sendSleepRequestedRef = useRef(null);
 
   const executeSleep = useCallback((broadcast = false) => {
-    town?.incrementDay?.();
-    town?.checkArrivals?.();
+    town?.incrementDay?.(); // advances day + runs arrivals atomically
     setSleepPhase(null);
     if (broadcast) sendSleepConfirmedRef.current?.();
   }, [town]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -2653,8 +2905,7 @@ export default function HomesteadView({
     onSleepRequested: () => {
       if (sleepPhaseRef.current === 'waiting_partner') {
         // We were already waiting — both ready, execute immediately and broadcast confirm
-        town?.incrementDay?.();
-        town?.checkArrivals?.();
+        town?.incrementDay?.(); // advances day + runs arrivals atomically
         setSleepPhase(null);
         // We fire sleep_confirmed so the partner's onSleepConfirmed triggers their side
         sendSleepConfirmedRef.current?.();
@@ -2668,8 +2919,7 @@ export default function HomesteadView({
     },
     // Both confirmed — execute the sleep on this client too
     onSleepConfirmed: () => {
-      town?.incrementDay?.();
-      town?.checkArrivals?.();
+      town?.incrementDay?.(); // advances day + runs arrivals atomically
       setSleepPhase(null);
     },
   }).current;
@@ -3000,7 +3250,10 @@ export default function HomesteadView({
       const hudTarget = (state.interactTarget?.type === "board" && !canStartRunRef.current)
         ? { ...state.interactTarget, label: "Already ran today — sleep to reset" }
         : state.interactTarget;
-      drawHUD(ctx,W,H,inv?.items??{},hudTarget,t,gold);
+      // Read the day from townRef (kept in sync on every town-state change) rather
+      // than the `town` closure, which is frozen at effect-mount and otherwise only
+      // refreshes on a run/remount — that's why the HUD day used to lag until a run.
+      drawHUD(ctx,W,H,inv?.items??{},hudTarget,t,gold,townRef?.current?.inGameDay??0);
     };
 
     rafRef.current = requestAnimationFrame(tick);

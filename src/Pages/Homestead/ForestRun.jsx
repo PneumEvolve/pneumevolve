@@ -24,6 +24,7 @@ import {
   INVENTORY_BASE_SLOTS,
   HOTBAR_BASE_SLOTS,
   canCraft, craftItem,
+  expandedHandRecipes, canCraftByKey, craftItemByKey, resolveHandRecipeKey,
   addToPlayerInventory, spendFromPlayerInventory,
   applyUpgrade,
   normalizeChest, chestToMap,
@@ -372,13 +373,23 @@ function drawPlayer(ctx, px, py, facing, step, invincible, attackFlash, t, chara
     ctx.fillStyle = "#2a1a0a"; ctx.fillRect(px + 2, py - 16 + bobY + jy, 3, 3);
   }
 
-  const WEAPON_ICONS = { axe:"🪓", pickaxe:"⛏️", fishing_rod:"🎣" };
-  if (weapon && WEAPON_ICONS[weapon]) {
-    const handX = facing === "left" ? px - 16 : px + 16;
+  // Held weapon — use the pixel-art draw function defined on the ITEM
+  // (matches Homestead's drawPlayer). Falls back to nothing if the item
+  // has no draw function (avoids emoji "in hand" look).
+  const heldItemData = weapon ? ITEMS[weapon] : null;
+  if (heldItemData?.draw) {
+    const handX = facing === "left" ? px - 14 : px + 14;
     const handY = py - 8 + bobY + jy + (attackFlash > 0 ? -4 : 0);
-    ctx.font = "14px serif";
-    ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText(WEAPON_ICONS[weapon], handX, handY);
+    const facingRight = facing === "right";
+    const size = 14;
+    ctx.save();
+    if (facingRight) {
+      ctx.translate(handX, handY);
+      ctx.scale(-1, 1);
+      ctx.translate(-handX, -handY);
+    }
+    heldItemData.draw(ctx, handX - size / 2, handY - size / 2, size);
+    ctx.restore();
   } else if (attackFlash > 0) {
     const fx = facing === "right" ? px + 18 : facing === "left" ? px - 18 : px;
     const fy = py - 12 + bobY + jy;
@@ -461,6 +472,11 @@ function HotbarBar({ hotbar, hotbarSlots, equipment, selectedIdx, onSelectIdx, o
         const isSelected = idx === selectedIdx;
         const icon = slot ? (ITEM_ICONS[slot.item] ?? "📦") : null;
         const category = slot ? ITEMS[slot.item]?.category : null;
+        // Durability for tools (shared with HomesteadView's HotbarBar)
+        const maxDur = slot ? (ITEMS[slot.item]?.maxDurability ?? null) : null;
+        const curDur = (slot && maxDur != null)
+          ? (equipment?.durability?.[slot.item] ?? maxDur)
+          : null;
         let borderColor = "rgba(255,255,255,0.1)";
         if (isSelected)  borderColor = "rgba(255,220,60,0.85)";
         else if (isEquipped) borderColor = "rgba(100,200,255,0.6)";
@@ -486,7 +502,16 @@ function HotbarBar({ hotbar, hotbarSlots, equipment, selectedIdx, onSelectIdx, o
                 <span style={{ fontSize:8, color:"rgba(200,230,120,0.65)", lineHeight:1, fontFamily:"monospace", maxWidth:40, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
                   {ITEMS[slot.item]?.label?.toLowerCase().slice(0,6) ?? slot.item}
                 </span>
-                {slot.qty != null && <span style={{ fontSize:9, color:"rgba(200,230,120,0.8)", lineHeight:1, marginTop:1 }}>{slot.qty}</span>}
+                {slot.qty != null && maxDur == null && <span style={{ fontSize:9, color:"rgba(200,230,120,0.8)", lineHeight:1, marginTop:1 }}>{slot.qty}</span>}
+                {curDur != null && (
+                  <div style={{ position:"absolute", bottom:2, left:3, right:3, height:3, background:"rgba(0,0,0,0.45)", borderRadius:2, overflow:"hidden" }}>
+                    <div style={{
+                      width: `${(curDur / maxDur) * 100}%`,
+                      height: "100%",
+                      background: (curDur / maxDur) > 0.5 ? "#80d860" : (curDur / maxDur) > 0.25 ? "#e8c840" : "#e04840",
+                    }} />
+                  </div>
+                )}
                 {isEquipped && <div style={{ position:"absolute", top:2, right:2, width:6, height:6, borderRadius:"50%", background:"rgba(100,200,255,0.95)" }} />}
               </>
             ) : (
@@ -822,15 +847,16 @@ function RunTabMenu({
 
   // ── Tab: Crafting (hand-craft only, no station in the forest) ───────────────
   function CraftingTab() {
-    function handleCraft(name) {
-      const newInv = craftItem(name, playerInventory);
+    function handleCraft(key) {
+      const newInv = craftItemByKey(key, playerInventory);
       if (newInv) {
         onPlayerInventoryUpdate?.(newInv);
-        setCraftMsg(`Crafted ${ITEMS[name]?.label??name}!`);
+        const outputId = resolveHandRecipeKey(key);
+        setCraftMsg(`Crafted ${ITEMS[outputId]?.label??outputId}!`);
         setTimeout(()=>setCraftMsg(null),2200);
       }
     }
-    const handCraftables = Object.entries(RECIPES);
+    const handCraftables = expandedHandRecipes();
     return (
       <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
         {craftMsg && <div style={{ textAlign:"center",fontSize:12,padding:"8px 14px",borderRadius:8,background:"rgba(200,230,120,0.1)",border:"1px solid rgba(200,230,120,0.3)",color:"rgba(200,230,120,0.9)" }}>✓ {craftMsg}</div>}
@@ -844,19 +870,20 @@ function RunTabMenu({
         <div style={{ padding:"14px",borderRadius:12,background:"rgba(200,230,120,0.04)",border:"1px solid rgba(200,230,120,0.15)" }}>
           <p style={{ fontSize:10,color:"rgba(200,230,120,0.5)",letterSpacing:"0.14em",textTransform:"uppercase",marginBottom:12 }}>⚒ craft by hand</p>
           {handCraftables.length === 0 && <p style={{ fontSize:11, color:"rgba(255,255,255,0.3)", textAlign:"center" }}>nothing to hand-craft</p>}
-          {handCraftables.map(([name, recipe]) => {
-            const craftable = canCraft(name, playerInventory);
-            const it = ITEMS[name];
+          {handCraftables.map(([key, recipe]) => {
+            const outputId = resolveHandRecipeKey(key);
+            const craftable = canCraftByKey(key, playerInventory);
+            const it = ITEMS[outputId];
             return (
-              <div key={name} style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:10,background:craftable?"rgba(200,230,120,0.06)":"rgba(255,255,255,0.02)",border:`1px solid ${craftable?"rgba(200,230,120,0.2)":"rgba(255,255,255,0.06)"}`,opacity:craftable?1:0.5,marginTop:8 }}>
-                <ItemIcon id={name} size={26} />
+              <div key={key} style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:10,background:craftable?"rgba(200,230,120,0.06)":"rgba(255,255,255,0.02)",border:`1px solid ${craftable?"rgba(200,230,120,0.2)":"rgba(255,255,255,0.06)"}`,opacity:craftable?1:0.5,marginTop:8 }}>
+                <ItemIcon id={outputId} size={26} />
                 <div style={{ flex:1 }}>
-                  <div style={{ fontSize:13,color:"rgba(200,230,120,0.85)" }}>{it?.label??name}</div>
+                  <div style={{ fontSize:13,color:"rgba(200,230,120,0.85)" }}>{it?.label??outputId}</div>
                   <div style={{ fontSize:10,color:"rgba(245,230,200,0.4)" }}>
                     {Object.entries(recipe).map(([ing,qty])=>{const have=playerItems[ing]??0;return <span key={ing} style={{ marginRight:8,color:have>=qty?"rgba(200,230,120,0.7)":"rgba(255,100,80,0.7)" }}>{ITEM_ICONS[ing]??""} {have}/{qty} {ITEMS[ing]?.label??ing}</span>;})}
                   </div>
                 </div>
-                <button disabled={!craftable} onClick={()=>handleCraft(name)} style={{ padding:"8px 14px",borderRadius:8,border:`1px solid ${craftable?"rgba(200,230,120,0.35)":"rgba(255,255,255,0.06)"}`,background:craftable?"rgba(200,230,120,0.1)":"transparent",color:craftable?"rgba(200,230,120,0.9)":"rgba(255,255,255,0.2)",fontSize:11,fontFamily:"monospace",cursor:craftable?"pointer":"default" }}>craft</button>
+                <button disabled={!craftable} onClick={()=>handleCraft(key)} style={{ padding:"8px 14px",borderRadius:8,border:`1px solid ${craftable?"rgba(200,230,120,0.35)":"rgba(255,255,255,0.06)"}`,background:craftable?"rgba(200,230,120,0.1)":"transparent",color:craftable?"rgba(200,230,120,0.9)":"rgba(255,255,255,0.2)",fontSize:11,fontFamily:"monospace",cursor:craftable?"pointer":"default" }}>craft</button>
               </div>
             );
           })}
@@ -1052,6 +1079,19 @@ export default function ForestRun({
   // Try to add (item, qty) to player inventory. Returns the amount that fit
   // (0 if the bag is full and the item is a new type).
   const tryGainItem = useCallback((itemId, qty) => {
+    // If the item is already on the hotbar, stack onto it there rather than
+    // treating it as a new slot in the inventory (which could hit the slot cap).
+    const hotbarIdx = (hotbarRef.current ?? []).findIndex(s => s?.item === itemId);
+    if (hotbarIdx >= 0) {
+      const newHotbar = (hotbarRef.current ?? []).map((s, i) =>
+        i === hotbarIdx ? { ...s, qty: (s.qty ?? 0) + qty } : s
+      );
+      hotbarRef.current = newHotbar;
+      onHotbarChange?.(newHotbar);
+      runDeltaRef.current[itemId] = (runDeltaRef.current[itemId] ?? 0) + qty;
+      return { gained: qty, overflowQty: 0 };
+    }
+
     const inv = playerInvRef.current ?? { items:{}, slots: INVENTORY_BASE_SLOTS };
     const { next, overflow } = addToPlayerInventory(inv, itemId, qty);
     const overflowQty = overflow?.[itemId] ?? 0;
@@ -1065,7 +1105,7 @@ export default function ForestRun({
       playerInvRef.current = next;
     }
     return { gained, overflowQty };
-  }, [onPlayerInventoryUpdate]);
+  }, [onPlayerInventoryUpdate, onHotbarChange]);
 
   // Drop `qty` of itemId from the player's bag onto the ground at the player's feet
   const dropItemAtPlayer = useCallback((itemId, qty) => {
@@ -1162,6 +1202,17 @@ export default function ForestRun({
           hotbarRef.current,
         );
       }, 80);
+    },
+    // When the partner leaves the room/run (closes tab, returns home, etc.)
+    // the server emits partner_disconnected. Hide their sprite immediately
+    // so they no longer appear as a stuck ghost on our screen.
+    onPartnerDisconnected: () => {
+      const s = stateRef.current;
+      if (s) {
+        s.partnerVisible = false;
+        s.partnerLerpT = 1;
+      }
+      partnerAppearanceRef.current = null;
     },
     onRunMove: ({ x, y, facing, jumpVY }) => {
       const s = stateRef.current;
@@ -1263,6 +1314,8 @@ export default function ForestRun({
       if (!stateRef.current || !synced) return;
       // Only the follower applies incoming enemy state; host ignores its own broadcast
       if (isHost) return;
+      // Mark that we received a sync — used to detect when host goes silent
+      lastEnemySyncReceivedRef.current = performance.now();
       for (const snap of synced) {
         const e = stateRef.current.enemies.find(en => en.id === snap.id);
         if (!e) continue;
@@ -1292,7 +1345,8 @@ export default function ForestRun({
   const sendEnemyHitRef      = useRef(null);
   const sendEnemyKilledRef   = useRef(null);
   const sendEnemySyncRef     = useRef(null);
-  const lastEnemySyncRef     = useRef(0); // timestamp of last enemy_sync broadcast
+  const lastEnemySyncRef         = useRef(0);                  // ts of last enemy_sync SENT (host)
+  const lastEnemySyncReceivedRef = useRef(performance.now()); // ts of last enemy_sync RECEIVED (follower)
   useEffect(() => { sendRunStateSyncRef.current  = sendRunStateSync;  }, [sendRunStateSync]);
   useEffect(() => { sendTreeHitRef.current       = sendTreeHit;       }, [sendTreeHit]);
   useEffect(() => { sendTreeKilledRef.current    = sendTreeKilled;    }, [sendTreeKilled]);
@@ -1370,7 +1424,13 @@ export default function ForestRun({
       if (gained > 0) delta[key] = gained;
     }
     sendRunComplete({ ...delta, kills: state.kills });
-    onRunComplete?.({ _alreadyApplied: true, _delta: delta, kills: state.kills });
+    // Pass final equipment state so the parent can persist durability changes.
+    onRunComplete?.({
+      _alreadyApplied: true,
+      _delta: delta,
+      kills: state.kills,
+      _finalEquipment: equipmentRef.current,
+    });
   }
 
   useEffect(() => {
@@ -1599,15 +1659,19 @@ export default function ForestRun({
           state.enemies.forEach(e => { if (e.hitFlash > 0) e.hitFlash = Math.max(0, e.hitFlash - dt * 4); });
         }
 
-        // Enemies — host runs authoritative AI; follower uses positions pushed via onEnemySync
-        if (!coOp || isHost) {
+        // Enemies — host runs authoritative AI; follower uses positions pushed via onEnemySync.
+        // If the follower hasn't received a sync for >600ms (host died or disconnected),
+        // fall back to running enemy AI locally so enemies don't freeze.
+        const followerSyncStale = coOp && !isHost &&
+          (performance.now() - lastEnemySyncReceivedRef.current > 600);
+        if (!coOp || isHost || followerSyncStale) {
           // Pass partner position so enemies chase the nearest of the two players
           const p2x = (coOp && stateRef.current.partnerVisible) ? stateRef.current.partnerX : null;
           const p2y = (coOp && stateRef.current.partnerVisible) ? stateRef.current.partnerY : null;
           updateForestEnemies(state.enemies, state.px, state.py, dt, t, p2x, p2y);
 
-          // Broadcast compact enemy state to follower at ~10 Hz
-          if (coOp && ts - lastEnemySyncRef.current > 100) {
+          // Broadcast compact enemy state to follower at ~10 Hz (host only)
+          if (coOp && isHost && ts - lastEnemySyncRef.current > 100) {
             lastEnemySyncRef.current = ts;
             const snap = state.enemies.map(e => ({
               id: e.id,
@@ -1622,7 +1686,6 @@ export default function ForestRun({
             sendEnemySyncRef.current?.(snap);
           }
         }
-        // (Follower: enemy positions are updated in onEnemySync handler — no AI needed here)
 
         // Enemy attacks player
         if (state.invincible === 0) {

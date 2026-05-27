@@ -93,6 +93,88 @@ function npcAlreadyPresent(npcId, npcs) {
   return npcs.some(n => n.npcId === npcId);
 }
 
+/**
+ * Pure arrival computation. Given a town state and the current placed objects,
+ * returns { next, changed } where `next` is the state with any eligible NPCs
+ * moved in. Does NOT mutate `state`. Shared by checkArrivals() and incrementDay()
+ * so the day-advance + arrival pass happen as a single atomic update (avoids the
+ * stale-ref clobber that previously reverted the day increment).
+ */
+function computeArrivals(state, placedObjects) {
+  const now  = Date.now();
+  const objs = placedObjects;
+
+  let changed = false;
+  const next = { ...state, npcs: [...state.npcs] };
+
+  // ── Generic resident ────────────────────────────────────────────────────
+  const genericPresent = next.npcs.some(n => n.npcId === "generic");
+  const hasTreasury    = objs.some(o => o.type === OBJ.TREASURY_CHEST);
+  const hasFood        = next.treasuryFoodSince !== null &&
+                         (now - next.treasuryFoodSince) >= TREASURY_FOOD_WAIT_MS;
+  const freeHome       = findFreeHome(objs, next.npcs);
+
+  if (!genericPresent && hasTreasury && hasFood && freeHome) {
+    const { x, y } = objectCentre(freeHome);
+    const npc = createNPC("generic", x, y, {
+      id:           "npc_generic_0",
+      homeObjectId: freeHome.id,
+      mood:         "neutral",
+    });
+    next.npcs.push(npc);
+    changed = true;
+  }
+
+  // ── Named NPCs ──────────────────────────────────────────────────────────
+  if (next.buildingsUnlocked || next.npcs.some(n => n.npcId === "generic")) {
+    for (const npcId of Object.keys(NPC_ROSTER)) {
+      if (npcId === "generic") continue;
+
+      const roster = NPC_ROSTER[npcId];
+      const alreadyPresent = npcAlreadyPresent(npcId, next.npcs);
+      if (alreadyPresent) continue;
+
+      // Bex has no trigger building — but still requires day >= 3 before arriving
+      const bexDayMet = !!roster.triggerBuilding || (next.inGameDay ?? 0) >= 3;
+      const triggerMet = bexDayMet && (!roster.triggerBuilding ||
+        (next.buildingsUnlocked && hasTriggerBuilding(npcId, objs)));
+      if (!triggerMet) continue;
+
+      const freeHomeForNPC = findFreeHome(objs, next.npcs);
+      if (!freeHomeForNPC) {
+        const alreadyWaiting = next.npcs.some(
+          n => n.npcId === npcId && n.waitingAtBorder
+        );
+        if (!alreadyWaiting && hasTriggerBuilding(npcId, objs) && next.buildingsUnlocked) {
+          const waitingNPC = createNPC(npcId, NPC_BORDER_X, NPC_BORDER_Y, {
+            id:              `npc_${npcId}`,
+            waitingAtBorder: true,
+            mood:            "neutral",
+          });
+          next.npcs.push(waitingNPC);
+          changed = true;
+        }
+        continue;
+      }
+
+      const { x, y } = objectCentre(freeHomeForNPC);
+      const npc = createNPC(npcId, x, y, {
+        id:              `npc_${npcId}`,
+        homeObjectId:    freeHomeForNPC.id,
+        waitingAtBorder: false,
+        mood:            "happy",
+      });
+      next.npcs = next.npcs.filter(
+        n => !(n.npcId === npcId && n.waitingAtBorder)
+      );
+      next.npcs.push(npc);
+      changed = true;
+    }
+  }
+
+  return { next, changed };
+}
+
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 /**
@@ -245,82 +327,7 @@ export function useTownState(room, placedObjects, sendTownStateUpdated) {
    *   4. They're not already present
    */
   const checkArrivals = useCallback(() => {
-    const state = townRef.current;
-    const now   = Date.now();
-    const objs  = placedObjects; // current snapshot from parent
-
-    let changed = false;
-    let next = { ...state, npcs: [...state.npcs] };
-
-    // ── Generic resident ────────────────────────────────────────────────────
-    const genericPresent = next.npcs.some(n => n.npcId === "generic");
-    const hasTreasury    = objs.some(o => o.type === OBJ.TREASURY_CHEST);
-    const hasFood        = next.treasuryFoodSince !== null &&
-                           (now - next.treasuryFoodSince) >= TREASURY_FOOD_WAIT_MS;
-    const freeHome       = findFreeHome(objs, next.npcs);
-
-    if (!genericPresent && hasTreasury && hasFood && freeHome) {
-      const { x, y } = objectCentre(freeHome);
-      const npc = createNPC("generic", x, y, {
-        id:           "npc_generic_0",
-        homeObjectId: freeHome.id,
-        mood:         "neutral",
-      });
-      next.npcs.push(npc);
-      changed = true;
-    }
-
-    // ── Named NPCs ──────────────────────────────────────────────────────────
-    // Only check if Mayor is assigned OR the NPC has no triggerBuilding (bex)
-    if (next.buildingsUnlocked || next.npcs.some(n => n.npcId === "generic")) {
-      for (const npcId of Object.keys(NPC_ROSTER)) {
-        if (npcId === "generic") continue;
-
-        const roster = NPC_ROSTER[npcId];
-        const alreadyPresent = npcAlreadyPresent(npcId, next.npcs);
-        if (alreadyPresent) continue;
-
-        // Bex has no trigger building — but still requires day >= 3 before arriving
-        const bexDayMet = !!roster.triggerBuilding || (next.inGameDay ?? 0) >= 3;
-        const triggerMet = bexDayMet && (!roster.triggerBuilding ||
-          (next.buildingsUnlocked && hasTriggerBuilding(npcId, objs)));
-        if (!triggerMet) continue;
-
-        const freeHomeForNPC = findFreeHome(objs, next.npcs);
-        if (!freeHomeForNPC) {
-          // Trigger building exists but no home — NPC waits at border
-          const alreadyWaiting = next.npcs.some(
-            n => n.npcId === npcId && n.waitingAtBorder
-          );
-          if (!alreadyWaiting && hasTriggerBuilding(npcId, objs) && next.buildingsUnlocked) {
-            const waitingNPC = createNPC(npcId, NPC_BORDER_X, NPC_BORDER_Y, {
-              id:              `npc_${npcId}`,
-              waitingAtBorder: true,
-              mood:            "neutral",
-            });
-            next.npcs.push(waitingNPC);
-            changed = true;
-          }
-          continue;
-        }
-
-        // Home available — move in
-        const { x, y } = objectCentre(freeHomeForNPC);
-        const npc = createNPC(npcId, x, y, {
-          id:              `npc_${npcId}`,
-          homeObjectId:    freeHomeForNPC.id,
-          waitingAtBorder: false,
-          mood:            "happy",
-        });
-        // If they were waiting at the border, remove the waiting version
-        next.npcs = next.npcs.filter(
-          n => !(n.npcId === npcId && n.waitingAtBorder)
-        );
-        next.npcs.push(npc);
-        changed = true;
-      }
-    }
-
+    const { next, changed } = computeArrivals(townRef.current, placedObjects);
     if (changed) {
       applyUpdate(next, true, true); // immediate save + broadcast to partner
     }
@@ -554,8 +561,18 @@ export function useTownState(room, placedObjects, sendTownStateUpdated) {
   const incrementDay = useCallback(() => {
     // Immediate save (not debounced): the in-game day gates the daily run, so a
     // reload right after sleeping must not lose the advance and re-lock the player.
-    applyUpdate(prev => ({ ...prev, inGameDay: (prev.inGameDay ?? 0) + 1 }), true);
-  }, [applyUpdate]);
+    //
+    // The day-advance and arrival check happen in a SINGLE functional update so
+    // they can't clobber each other. Previously incrementDay() then a separate
+    // checkArrivals() raced: checkArrivals read the pre-increment townRef snapshot
+    // and wrote it back, silently reverting the day. Folding them together also
+    // means arrivals see the freshly-advanced day (e.g. Bex's day>=3 gate).
+    applyUpdate(prev => {
+      const advanced = { ...prev, inGameDay: (prev.inGameDay ?? 0) + 1 };
+      const { next } = computeArrivals(advanced, placedObjects);
+      return next;
+    }, true, true); // immediate save + broadcast (day + any arrivals)
+  }, [applyUpdate, placedObjects]);
 
   // ── Derived read-only values ───────────────────────────────────────────────
 

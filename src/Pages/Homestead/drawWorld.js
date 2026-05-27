@@ -640,7 +640,7 @@ export function drawPlayer(ctx, px, py, facing, step, a, b, c, d, e) {
         ctx.scale(-1, 1);
         ctx.translate(-handX, -handY);
       }
-      ctx.font = "13px serif";
+      ctx.font = "16px sans-serif";
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
       const icon = ITEM_ICONS[displayItem] ?? EQUIPPABLE[displayItem]?.icon ?? "📦";
       ctx.fillText(icon, handX, handY);
@@ -652,7 +652,7 @@ export function drawPlayer(ctx, px, py, facing, step, a, b, c, d, e) {
 }
 
 // ─── HUD ─────────────────────────────────────────────────────────────────────
-export function drawHUD(ctx, W, H, inventory, interactTarget, t, gold = 0) {
+export function drawHUD(ctx, W, H, inventory, interactTarget, t, gold = 0, inGameDay = 0) {
   ctx.fillStyle = "rgba(18,10,4,0.9)"; ctx.fillRect(0, 0, W, 30);
   ctx.fillStyle = "#c8e890"; ctx.font = "bold 13px monospace";
   ctx.textAlign = "left"; ctx.textBaseline = "middle";
@@ -660,7 +660,7 @@ export function drawHUD(ctx, W, H, inventory, interactTarget, t, gold = 0) {
 
   ctx.fillStyle = "#f5e6c8"; ctx.font = "12px monospace";
   ctx.textAlign = "center";
-  ctx.fillText("Day 1  ·  Morning  ·  ☀️", W/2, 15);
+  ctx.fillText(`Day ${(inGameDay ?? 0) + 1}  ·  ☀️`, W/2, 15);
 
   ctx.textAlign = "right"; ctx.fillStyle = "#d8eaa0"; ctx.font = "11px monospace";
   const inv = inventory ?? {};

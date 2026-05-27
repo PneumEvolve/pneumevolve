@@ -676,18 +676,24 @@ export default function HomesteadGame() {
   }
 
   function applyPlayerState(state, roomId) {
-    setPlayerInventory(state.inventory);
+    // Normalise: old saves (pre-slot system) lack a `slots` field; supply the base.
+    const inv = state.inventory ?? emptyPlayerInventory();
+    const normInv = (typeof inv.slots === "number" && !isNaN(inv.slots))
+      ? inv
+      : { ...inv, slots: INVENTORY_BASE_SLOTS };
+    const normState = { ...state, inventory: normInv };
+    setPlayerInventory(normState.inventory);
     setHotbar(state.hotbar);
     setHotbarSlots(state.hotbarSlots);
     setEquipment(state.equipment);
     setCharacter(state.character);
-    playerInvRef.current = state.inventory;
+    playerInvRef.current = normState.inventory;
     const lrd = state.lastRunDay ?? -1;
     setLastRunDay(lrd);
     lastRunDayRef.current = lrd;
     // Warm the local cache with the server state
     if (roomId) {
-      writePlayerCache(roomId, "inventory",    state.inventory);
+      writePlayerCache(roomId, "inventory",    normState.inventory);
       writePlayerCache(roomId, "hotbar",       state.hotbar);
       writePlayerCache(roomId, "hotbar_slots", state.hotbarSlots);
       writePlayerCache(roomId, "equipment",    state.equipment);
@@ -931,19 +937,23 @@ export default function HomesteadGame() {
     // Note: the daily run is burned on START (see handleRunStart), not here —
     // so quitting partway can't recover the run. This handler only applies loot.
     if (loot?._alreadyApplied) {
+      // Persist final equipment state (durability may have changed during the run).
+      if (loot._finalEquipment) saveEquipment(loot._finalEquipment);
       setRunLoot(loot._delta ?? {});
       setRunKills(loot.kills ?? 0);
       setRunOverflow({});
       setPhase("loot");
       return;
     }
+    // Persist final equipment state for the non-pre-applied path too.
+    if (loot?._finalEquipment) saveEquipment(loot._finalEquipment);
     const { next, overflow } = mergeLootIntoPlayerInventory(playerInvRef.current, loot);
     saveInventory(next);
     setRunLoot(loot);
     setRunKills(loot.kills ?? 0);
     setRunOverflow(overflow);
     setPhase("loot");
-  }, [saveInventory]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [saveInventory, saveEquipment]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Loot / chest / objects ─────────────────────────────────────────────────
   const handlePlayerInventoryUpdate = useCallback((inv) => {

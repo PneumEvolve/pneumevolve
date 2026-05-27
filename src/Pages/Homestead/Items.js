@@ -14,7 +14,7 @@
 //   description  — short flavour text shown in UI
 //
 //   // Crafting
-//   craftRecipe   — { [ingredientId]: qty }  →  craftable BY HAND (only crafting_station uses this)
+//   craftRecipe   — { [ingredientId]: qty }  →  craftable BY HAND anywhere (no station needed)
 //   stationRecipe — { [ingredientId]: qty }  →  craftable at the Crafting Station
 //   craftStation  — "fire_pit"|"furnace"|"anvil"|"potion_stand"  →  requires specific station
 //
@@ -160,7 +160,7 @@ export const ITEMS = {
     stationRecipe: { meat: 1 },
     craftStation: "fire_pit",
   },
-  // ── Foraged Food Goods (crafted at fire_pit from FruitRun pickups) ───────────
+  // ── Foraged Food Goods (hand-craftable from FruitRun pickups) ────────────────
   //
   // Simple tier — any 2 of the same foraged ingredient → "Trail Snack"
   // They all craft into the SAME item so they stack together in inventory.
@@ -169,17 +169,16 @@ export const ITEMS = {
   //   2× apples     → trail_snack (+3 hp)
   //   2× herbs      → trail_snack (+3 hp)
   //
-  // Note: because multiple recipes resolve to one item ID the craftStation UI
-  // will show whichever recipe is found first that the player can afford.
-  // The fire_pit station checks STATION_RECIPES so all four are registered.
+  // Hand-craftable anywhere — no station required.
+  // The primary recipe (mushrooms) lives in craftRecipe; the three alternates
+  // live in MULTI_HAND_RECIPES so they all show up in the hand-craft UI.
 
   trail_snack: {
     icon: "🍡", label: "Trail Snack", category: "food", stackable: true,
     description: "A quick bite made from whatever the forest offers. Restores a bit of health.",
     useEffect: { heal: 3 }, sellPrice: 5,
-    // Primary recipe shown in UI — 2 mushrooms
-    stationRecipe: { mushrooms: 2 },
-    craftStation: "fire_pit",
+    // Primary recipe shown in UI — 2 mushrooms (hand-craftable, no station needed)
+    craftRecipe: { mushrooms: 2 },
   },
 
   // ── Mixed food goods — 2-ingredient combos (+4 hp) ────────────────────────────
@@ -329,7 +328,7 @@ export const ITEMS = {
   hoe: {
     icon: "⚒️", label: "Hoe", category: "tool", stackable: false,
     description: "Tills grass into farm soil. Essential for growing crops.",
-    stationRecipe: { sticks: 2, stone: 2 },
+    craftRecipe: { sticks: 2, stone: 2 },
     equipSlot: "weapon",
     equipStats: { canHoe: true },
     maxDurability: 50,
@@ -338,7 +337,7 @@ export const ITEMS = {
   axe: {
     icon: "🪓", label: "Axe", category: "tool", stackable: false,
     description: "Chops trees for wood. Also effective in a fight.",
-    stationRecipe: { sticks: 2, stone: 3 },
+    craftRecipe: { sticks: 2, stone: 3 },
     equipSlot: "weapon",
     equipStats: { attackBonus: 2, attackRange: 12, canChop: true },
     maxDurability: 50,
@@ -347,7 +346,7 @@ export const ITEMS = {
   pickaxe: {
     icon: "⛏️", label: "Pickaxe", category: "tool", stackable: false,
     description: "Mines ore nodes.",
-    stationRecipe: { sticks: 2, stone: 4 },
+    craftRecipe: { sticks: 2, stone: 4 },
     equipSlot: "weapon",
     equipStats: { attackBonus: 1, stoneYield: 2, canMine: true },
     maxDurability: 50,
@@ -838,19 +837,117 @@ export const STATION_RECIPES = Object.fromEntries(
 );
 
 /**
- * Alternate recipes that produce the same output item.
+ * Alternate hand-craft recipes that produce the same output item.
  * Format: { outputItemId: [ recipe, recipe, … ] }
- * The first recipe in ITEMS.stationRecipe is already in STATION_RECIPES;
- * these are additional ways to craft the same item so they all stack together.
+ * The first recipe in ITEMS.craftRecipe is already in RECIPES;
+ * these are additional ways to craft the same item by hand.
  */
-export const MULTI_STATION_RECIPES = {
+export const MULTI_HAND_RECIPES = {
   trail_snack: [
-    { berries:   2 },
-    { apples:    2 },
-    { herbs:     2 },
-    // mushrooms: 2  is already the canonical recipe in STATION_RECIPES
+    { berries: 2 },
+    { apples:  2 },
+    { herbs:   2 },
+    // mushrooms: 2  is already the canonical recipe in RECIPES
   ],
 };
+
+/**
+ * Returns an expanded list of [recipeKey, recipe] pairs for hand-craft UI display.
+ * Items with alternate recipes get one entry per recipe; the recipeKey uses the
+ * format "itemId__halt0", "itemId__halt1" etc. so handlers can strip the suffix
+ * to recover the output item ID.
+ */
+export function expandedHandRecipes() {
+  const entries = Object.entries(RECIPES);
+  const result = [];
+  for (const [id, recipe] of entries) {
+    result.push([id, recipe]);
+    const alts = MULTI_HAND_RECIPES[id];
+    if (alts) {
+      alts.forEach((altRecipe, i) => result.push([`${id}__halt${i}`, altRecipe]));
+    }
+  }
+  return result;
+}
+
+/** Strip the __haltN suffix to get the real output item ID (hand-craft alts). */
+export function resolveHandRecipeKey(key) {
+  return key.includes("__halt") ? key.split("__halt")[0] : key;
+}
+
+/** Check if a hand-craft recipe (including alts) can be made from player inventory */
+export function canCraftByKey(key, inv) {
+  const itemId = resolveHandRecipeKey(key);
+  const altIndex = key.includes("__halt") ? parseInt(key.split("__halt")[1]) : -1;
+  if (altIndex >= 0) {
+    const recipe = MULTI_HAND_RECIPES[itemId]?.[altIndex];
+    if (!recipe) return false;
+    const items = inv?.items ?? inv ?? {};
+    return Object.entries(recipe).every(([item, qty]) => (items[item] ?? 0) >= qty);
+  }
+  return canCraft(key, inv);
+}
+
+/** Craft a hand-craft recipe by key (including alts) from player inventory */
+export function craftItemByKey(key, inv) {
+  const itemId = resolveHandRecipeKey(key);
+  const altIndex = key.includes("__halt") ? parseInt(key.split("__halt")[1]) : -1;
+  if (altIndex >= 0) {
+    const recipe = MULTI_HAND_RECIPES[itemId]?.[altIndex];
+    if (!recipe) return null;
+    if (!canCraftByKey(key, inv)) return null;
+    if (inv?.items !== undefined) {
+      const spent = spendFromPlayerInventory(inv, recipe);
+      if (!spent) return null;
+      const { next, overflow } = addToPlayerInventory(spent, itemId, 1);
+      if (overflow[itemId]) return null; // bag full
+      return next;
+    }
+    const next = { ...inv };
+    for (const [item, qty] of Object.entries(recipe)) next[item] = (next[item] ?? 0) - qty;
+    next[itemId] = (next[itemId] ?? 0) + 1;
+    return next;
+  }
+  return craftItem(key, inv);
+}
+
+/** Check if a hand-craft recipe (including alts) can be satisfied from the chest */
+export function canCraftByKeyFromChest(key, chest) {
+  const itemId = resolveHandRecipeKey(key);
+  const altIndex = key.includes("__halt") ? parseInt(key.split("__halt")[1]) : -1;
+  if (altIndex >= 0) {
+    const recipe = MULTI_HAND_RECIPES[itemId]?.[altIndex];
+    if (!recipe) return false;
+    const map = chestToMap(normalizeChest(chest));
+    return Object.entries(recipe).every(([item, qty]) => (map[item] ?? 0) >= qty);
+  }
+  return canCraftFromChest(key, chest);
+}
+
+/** Craft a hand-craft recipe by key (including alts) using chest materials */
+export function craftItemByKeyFromChest(key, chest, inv) {
+  const itemId = resolveHandRecipeKey(key);
+  const altIndex = key.includes("__halt") ? parseInt(key.split("__halt")[1]) : -1;
+  if (altIndex >= 0) {
+    const recipe = MULTI_HAND_RECIPES[itemId]?.[altIndex];
+    if (!recipe) return null;
+    if (!canCraftByKeyFromChest(key, chest)) return null;
+    const newChest = spendFromChest(chest, recipe);
+    if (!newChest) return null;
+    const { next: newInv, overflow } = addToPlayerInventory(inv, itemId, 1);
+    if (overflow[itemId]) return null; // bag full
+    return { newChest, newInv };
+  }
+  return craftItemFromChest(key, chest, inv);
+}
+
+/**
+ * Alternate station recipes that produce the same output item.
+ * Format: { outputItemId: [ recipe, recipe, … ] }
+ * The first recipe in ITEMS.stationRecipe is already in STATION_RECIPES;
+ * these are additional ways to craft the same item at a station.
+ */
+export const MULTI_STATION_RECIPES = {};
 
 /**
  * Returns an expanded list of [recipeKey, recipe] pairs for station UI display.
@@ -901,7 +998,8 @@ export function craftItemAtStationByKey(key, inv) {
     if (inv?.items !== undefined) {
       const spent = spendFromPlayerInventory(inv, recipe);
       if (!spent) return null;
-      const { next } = addToPlayerInventory(spent, itemId, 1);
+      const { next, overflow } = addToPlayerInventory(spent, itemId, 1);
+      if (overflow[itemId]) return null; // bag full
       return next;
     }
     const next = { ...inv };
@@ -935,7 +1033,8 @@ export function craftItemAtStationByKeyFromChest(key, chest, inv) {
     if (!canCraftAtStationByKeyFromChest(key, chest)) return null;
     const newChest = spendFromChest(chest, recipe);
     if (!newChest) return null;
-    const { next: newInv } = addToPlayerInventory(inv, itemId, 1);
+    const { next: newInv, overflow } = addToPlayerInventory(inv, itemId, 1);
+    if (overflow[itemId]) return null; // bag full
     return { newChest, newInv };
   }
   return craftItemAtStationFromChest(key, chest, inv);
@@ -1014,6 +1113,12 @@ export function canFitItem(inv, itemId) {
  */
 export function addToPlayerInventory(inv, itemId, qty) {
   const already = (inv.items?.[itemId] ?? 0) > 0;
+  // Non-stackable items (tools/equipment): refuse to stack a second copy.
+  // Each unit must occupy its own slot; if one is already present, overflow.
+  const item = ITEMS[itemId];
+  if (item && item.stackable === false && already) {
+    return { next: inv, overflow: { [itemId]: qty } };
+  }
   if (!already && usedSlots(inv) >= (inv.slots ?? INVENTORY_BASE_SLOTS)) {
     // No room for a new stack
     return { next: inv, overflow: { [itemId]: qty } };
@@ -1072,8 +1177,11 @@ export function applyUpgrade(inv, hotbarSlots, upgradeId) {
   let newHotbarSlots = hotbarSlots;
 
   if (effect.inventorySlots) {
-    newInv = { ...newInv, slots: Math.min(INVENTORY_MAX_SLOTS, newInv.slots + effect.inventorySlots) };
-  }
+    const currentSlots = (typeof newInv.slots === "number" && !isNaN(newInv.slots))
+      ? newInv.slots
+      : INVENTORY_BASE_SLOTS;
+    newInv = { ...newInv, slots: Math.min(INVENTORY_MAX_SLOTS, currentSlots + effect.inventorySlots) };
+}
   if (effect.hotbarSlots) {
     newHotbarSlots = Math.min(HOTBAR_MAX_SLOTS, hotbarSlots + effect.hotbarSlots);
   }
@@ -1286,7 +1394,8 @@ export function craftItem(recipeId, inv) {
   if (inv?.items !== undefined) {
     const spent = spendFromPlayerInventory(inv, recipe);
     if (!spent) return null;
-    const { next } = addToPlayerInventory(spent, recipeId, 1);
+    const { next, overflow } = addToPlayerInventory(spent, recipeId, 1);
+    if (overflow[recipeId]) return null; // bag full — refuse to silently lose the item
     return next;
   }
   const next = { ...inv };
@@ -1309,7 +1418,8 @@ export function craftItemAtStation(recipeId, inv) {
   if (inv?.items !== undefined) {
     const spent = spendFromPlayerInventory(inv, recipe);
     if (!spent) return null;
-    const { next } = addToPlayerInventory(spent, recipeId, 1);
+    const { next, overflow } = addToPlayerInventory(spent, recipeId, 1);
+    if (overflow[recipeId]) return null; // bag full — refuse to silently lose the item
     return next;
   }
   const next = { ...inv };
@@ -1338,7 +1448,8 @@ export function craftItemFromChest(recipeId, chest, inv) {
   const recipe = RECIPES[recipeId];
   const newChest = spendFromChest(chest, recipe);
   if (!newChest) return null;
-  const { next: newInv } = addToPlayerInventory(inv, recipeId, 1);
+  const { next: newInv, overflow } = addToPlayerInventory(inv, recipeId, 1);
+  if (overflow[recipeId]) return null; // bag full
   return { newChest, newInv };
 }
 
@@ -1359,11 +1470,58 @@ export function craftItemAtStationFromChest(recipeId, chest, inv) {
   const recipe = STATION_RECIPES[recipeId];
   const newChest = spendFromChest(chest, recipe);
   if (!newChest) return null;
-  const { next: newInv } = addToPlayerInventory(inv, recipeId, 1);
+  const { next: newInv, overflow } = addToPlayerInventory(inv, recipeId, 1);
+  if (overflow[recipeId]) return null; // bag full
   return { newChest, newInv };
 }
 
-// ─── Quest reward definitions ──────────────────────────────────────────────────
+// ─── Combined inventory+chest crafting helpers ─────────────────────────────────
+// Used when materials are split between the player bag and the shared chest.
+
+/** Check if a recipe can be satisfied by combining inventory + chest */
+export function canCraftCombined(recipeId, inv, chest) {
+  const recipe = RECIPES[recipeId] ?? STATION_RECIPES[recipeId];
+  if (!recipe) return false;
+  const invItems  = inv?.items ?? {};
+  const chestMap  = chestToMap(normalizeChest(chest));
+  return Object.entries(recipe).every(
+    ([item, qty]) => (invItems[item] ?? 0) + (chestMap[item] ?? 0) >= qty
+  );
+}
+
+/**
+ * Craft a recipe drawing from inventory first, then chest for any shortfall.
+ * Covers both RECIPES (hand-craft) and STATION_RECIPES.
+ * Returns { newInv, newChest } or null if insufficient materials or bag full.
+ */
+export function craftItemCombined(recipeId, inv, chest) {
+  const recipe = RECIPES[recipeId] ?? STATION_RECIPES[recipeId];
+  if (!recipe || !canCraftCombined(recipeId, inv, chest)) return null;
+
+  let newItems   = { ...(inv?.items ?? {}) };
+  const chestSpend = {};
+
+  for (const [item, qty] of Object.entries(recipe)) {
+    const fromInv   = Math.min(qty, newItems[item] ?? 0);
+    const fromChest = qty - fromInv;
+    if (fromInv > 0) {
+      newItems[item] = (newItems[item] ?? 0) - fromInv;
+      if (newItems[item] <= 0) delete newItems[item];
+    }
+    if (fromChest > 0) chestSpend[item] = fromChest;
+  }
+
+  const updatedChest = Object.keys(chestSpend).length > 0
+    ? spendFromChest(normalizeChest(chest), chestSpend)
+    : normalizeChest(chest);
+  if (!updatedChest) return null; // shouldn't happen given canCraftCombined check
+
+  const tempInv = { ...(inv ?? {}), items: newItems };
+  const outputId = resolveRecipeKey(recipeId);
+  const { next: newInv, overflow } = addToPlayerInventory(tempInv, outputId, 1);
+  if (overflow[outputId]) return null; // bag full
+  return { newInv, newChest: updatedChest };
+}
 //
 // Every questReward string from NPC_ROSTER maps to one entry here.
 // `effect` is a plain descriptor consumed by helpers below — nothing mutates ITEMS.
