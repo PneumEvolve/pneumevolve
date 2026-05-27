@@ -6,6 +6,7 @@ import {
   seededRand, addToInventory, fullEmptyInventory, getEquipStats,
   HOTBAR_ITEMS, HOTBAR_SIZE,
 } from "./gameEngine";
+import { ItemIcon } from "./ItemIcon";
 
 const PLAYER_SPEED   = 110;
 const RUN_DURATION   = 180; // 3 minutes
@@ -251,12 +252,12 @@ function drawFishHUD(ctx, W, H, state, inventory, t) {
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
 
   const hint =
-    state.fishState === "idle"    ? "WASD to move  ·  walk to a glowing spot & press Space to cast  ·  [Esc] return home" :
+    state.fishState === "idle"    ? "WASD to move  ·  walk to a glowing spot & press Space to cast  ·  [Esc] pause" :
     state.fishState === "casting" ? "casting..." :
     state.fishState === "waiting" ? "waiting for a bite..." :
     state.fishState === "biting"  ? "!! BITE !! — hold Space to reel!" :
     state.fishState === "reeling" ? "reeling in... keep holding!" :
-    "WASD to move  ·  Space to cast  ·  [Esc] return home";
+    "WASD to move  ·  Space to cast  ·  [Esc] pause";
 
   ctx.fillText(hint, W / 2, H - 13);
 }
@@ -309,7 +310,7 @@ function FishHotbar({ hotbar, selectedSlot, onSelectSlot, equipment }) {
           >
             {slot ? (
               <>
-                <span style={{ fontSize: 20 }}>{HOTBAR_DISPLAY_ICONS[slot.item] ?? "📦"}</span>
+                <ItemIcon id={slot.item} size={22} />
                 {slot.qty != null && (
                   <span style={{ fontSize: 9, color: "rgba(80,200,255,0.8)", lineHeight: 1, position: "absolute", bottom: 2, right: 4 }}>
                     {slot.qty}
@@ -353,6 +354,11 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
   const selectedSlotRef = useRef(0);
   useEffect(() => { selectedSlotRef.current = selectedHotbarSlot; }, [selectedHotbarSlot]);
 
+  // Pause / abandon overlay (shown when player presses Escape mid-run)
+  const [pauseOpen, setPauseOpen] = useState(false);
+  const pauseOpenRef = useRef(false);
+  useEffect(() => { pauseOpenRef.current = pauseOpen; }, [pauseOpen]);
+
   const useHotbarItem = useCallback(() => {
     const state = stateRef.current;
     if (!state || state.over) return;
@@ -362,7 +368,6 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
     if (!entry) return;
     const info = HOTBAR_ITEMS[entry.item];
     if (!info?.useEffect?.heal) return;
-    // Fish have no HP, but allow healing for co-op/future use
     lootFloatsRef.current.push({
       text: `used ${entry.item}`,
       worldX: state.px, worldY: state.py - 20,
@@ -454,7 +459,6 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
       const equipStats = getEquipStats(equipmentRef.current);
 
       if (!equipStats.canFish) {
-        // Show "need fishing rod" toast and bail
         state.noRodFlash = 1.8;
         return;
       }
@@ -470,11 +474,9 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
       state.lureY = state.py - 20;
       soundRef.current?.splash();
 
-      // Snap lure near the spot
       state.lureX = spot.x + (randRef.current() - 0.5) * 40;
       state.lureY = spot.y + (randRef.current() - 0.5) * 20;
 
-      // Cast animation delay then go to waiting
       setTimeout(() => {
         if (!stateRef.current || stateRef.current.over) return;
         stateRef.current.fishState = "waiting";
@@ -487,7 +489,13 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
     const onKeyDown = (e) => {
       keysRef.current[e.key] = true;
       soundRef.current?.unlock();
-      if (e.key === "Escape") finishRun(stateRef.current);
+
+      if (e.key === "Escape") {
+        setPauseOpen(v => { pauseOpenRef.current = !v; return !v; });
+        return;
+      }
+
+      if (pauseOpenRef.current) return; // swallow gameplay keys while paused
 
       if (e.key >= "1" && e.key <= "6") {
         const idx = parseInt(e.key) - 1;
@@ -513,6 +521,7 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
     };
     const onClick = () => {
       soundRef.current?.unlock();
+      if (pauseOpenRef.current) return;
       const state = stateRef.current;
       if (!state) return;
       if (state.fishState === "idle") doCast();
@@ -526,6 +535,9 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
       rafRef.current = requestAnimationFrame(tick);
       const state = stateRef.current;
       if (!canvas || !state || state.over) return;
+
+      // Pause world updates while pause overlay is open
+      if (pauseOpenRef.current) { state.lastTime = ts; return; }
 
       const ctx  = canvas.getContext("2d");
       const W    = canvas.width, H = canvas.height;
@@ -580,11 +592,9 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
       if (state.fishState === "biting") {
         state.biteTimer -= dt;
         if (spaceHeldRef.current) {
-          // Start reeling
           state.fishState = "reeling";
           state.reelProgress = 0;
         } else if (state.biteTimer <= 0) {
-          // Fish escaped
           state.fishState = "idle";
           state.nearSpotId = null;
           soundRef.current?.miss();
@@ -600,7 +610,6 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
         if (spaceHeldRef.current) {
           state.reelProgress += dt / FISH_REEL_TIME;
           if (state.reelProgress >= 1) {
-            // Caught!
             state.fishState = "idle";
             state.catches++;
             soundRef.current?.catch_();
@@ -612,7 +621,6 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
               worldX: state.lureX, worldY: state.lureY - 10,
               born: performance.now(),
             });
-            // Deactivate the spot temporarily
             const spot = state.spots.find(s => s.id === state.nearSpotId);
             if (spot) {
               spot.active = false;
@@ -622,7 +630,6 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
             state.nearSpotId = null;
           }
         } else {
-          // Let go — fish pulling back
           state.reelProgress -= dt * 0.8;
           if (state.reelProgress <= 0) {
             state.fishState = "idle";
@@ -651,12 +658,10 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
       const camX = state.camX;
       drawLakeBackground(ctx, camX, W, H, t);
 
-      // Fishing spots
       for (const spot of state.spots) {
         drawFishingSpot(ctx, spot, camX, t);
       }
 
-      // Highlight nearest spot
       if (state.nearSpotId && state.fishState === "idle") {
         const spot = state.spots.find(s => s.id === state.nearSpotId);
         if (spot) {
@@ -673,13 +678,9 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
         }
       }
 
-      // Lure / line
       drawLure(ctx, state.lureX, state.lureY, camX, t, state.fishState);
-
-      // Player
       drawFishPlayer(ctx, state.px - camX, state.py, state.facing, state.step, t, characterRef.current);
 
-      // Partner ghost
       if (state.partnerVisible) {
         const gpx = state.partnerX - camX, gpy = state.partnerY;
         const pa = partnerAppearanceRef.current;
@@ -691,12 +692,10 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
         ctx.fillText("P2", gpx, gpy - 26);
       }
 
-      // Reel progress bar
       if (state.fishState === "reeling") {
         drawReelBar(ctx, W, H, state.reelProgress);
       }
 
-      // Bite flash indicator
       if (state.fishState === "biting") {
         const alpha = 0.6 + 0.4 * Math.sin(t * 12);
         ctx.save(); ctx.globalAlpha = alpha;
@@ -704,7 +703,6 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
         ctx.textAlign = "center"; ctx.textBaseline = "middle";
         ctx.fillText("!! BITE !!", W / 2, H / 2 - 20);
         ctx.restore();
-        // Bite window bar
         const bw = 160, bh = 6;
         const bx = W / 2 - bw / 2, by = H / 2 - 4;
         ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(bx, by, bw, bh);
@@ -712,8 +710,6 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
         ctx.fillRect(bx, by, bw * (state.biteTimer / FISH_BITE_WINDOW), bh);
       }
 
-      // Hit flash (no HP, but keep it for visual feedback)
-      // Floating loot text
       const now = performance.now();
       lootFloatsRef.current = lootFloatsRef.current.filter(lf => now - lf.born < LOOT_FLOAT_DUR * 1000);
       for (const lf of lootFloatsRef.current) {
@@ -730,7 +726,6 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
 
       drawFishHUD(ctx, W, H, state, state.inventory, t);
 
-      // "Need fishing rod" toast
       if (state.noRodFlash > 0) {
         const alpha = Math.min(1, state.noRodFlash);
         ctx.save(); ctx.globalAlpha = alpha;
@@ -760,6 +755,17 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
         ref={canvasRef}
         style={{ width: "100%", height: "100%", display: "block", imageRendering: "pixelated" }}
       />
+      {/* Pause / abandon overlay */}
+      {pauseOpen && (
+        <div style={{ position:"absolute", inset:0, background:"rgba(4,10,20,0.82)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:30 }}>
+          <div style={{ background:"#0a1420", border:"1px solid rgba(80,200,255,0.25)", borderRadius:16, padding:"28px 32px", maxWidth:300, width:"90%", fontFamily:"monospace", color:"#f5e6c8", textAlign:"center", display:"flex", flexDirection:"column", gap:14 }}>
+            <p style={{ fontSize:10, letterSpacing:"0.18em", color:"rgba(80,200,255,0.4)", textTransform:"uppercase" }}>paused</p>
+            <h2 style={{ fontSize:20, fontWeight:400, color:"rgba(80,200,255,0.9)" }}>🎣 Fishing Trip</h2>
+            <button onClick={() => { setPauseOpen(false); pauseOpenRef.current = false; }} style={{ padding:"13px", borderRadius:10, border:"1px solid rgba(80,200,255,0.35)", background:"rgba(80,200,255,0.1)", color:"rgba(80,200,255,0.95)", fontSize:13, fontFamily:"monospace", cursor:"pointer" }}>▶ Resume</button>
+            <button onClick={() => { setPauseOpen(false); pauseOpenRef.current = false; finishRun(stateRef.current); }} style={{ padding:"10px", borderRadius:10, border:"1px solid rgba(255,150,100,0.3)", background:"rgba(255,100,60,0.07)", color:"rgba(255,160,120,0.85)", fontSize:12, fontFamily:"monospace", cursor:"pointer" }}>Abandon run (keep loot so far)</button>
+          </div>
+        </div>
+      )}
       <FishHotbar
         hotbar={hotbar ?? []}
         selectedSlot={selectedHotbarSlot}

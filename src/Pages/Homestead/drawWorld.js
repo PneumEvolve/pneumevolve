@@ -4,7 +4,7 @@
 // Imported by HomesteadView; never imports React.
 
 import { TILE, T, OBJ, tileNoise, PLAYER_W, PLAYER_H } from "./gameEngine";
-import { PLACEABLES, ITEM_ICONS, EQUIPPABLE, SEEDS } from "./Items";
+import { PLACEABLES, ITEM_ICONS, EQUIPPABLE, SEEDS, ITEMS } from "./Items";
 
 // ─── Palette ──────────────────────────────────────────────────────────────────
 export const PAL = {
@@ -34,6 +34,52 @@ export const PAL = {
   oreVein:   "#c4a870",
   fishSpot:  "#5aaad0",
 };
+
+// ─── Watering constants (kept in sync with useHomesteadState) ─────────────────
+const WATER_BOOST_SECONDS = 120;
+
+// ─── Water-drop overlay ───────────────────────────────────────────────────────
+// Draws a small blue water-drop badge at the top-right corner of a tile.
+// Called from the game loop for every watered plot (tilled or planted).
+export function drawWaterDrop(ctx, sx, sy, tileSize, nowMs, wateredAt) {
+  if (!wateredAt) return;
+  const elapsedSec = (nowMs - wateredAt) / 1000;
+  if (elapsedSec >= WATER_BOOST_SECONDS) return; // boost expired
+
+  // Fade out gracefully in the last 20 s of the boost window
+  const fadeStart = WATER_BOOST_SECONDS - 20;
+  const alpha = elapsedSec > fadeStart
+    ? Math.max(0, 1 - (elapsedSec - fadeStart) / 20)
+    : 1;
+
+  const ts = tileSize ?? TILE;
+  const bx = sx + ts - 7;
+  const by = sy + 3;
+
+  ctx.save();
+  ctx.globalAlpha = alpha * 0.92;
+
+  // Drop body (teardrop shape)
+  ctx.fillStyle = "#4ab0e8";
+  ctx.beginPath();
+  ctx.arc(bx, by + 4, 3.5, 0, Math.PI * 2);
+  ctx.fill();
+  // pointed top
+  ctx.beginPath();
+  ctx.moveTo(bx, by);
+  ctx.bezierCurveTo(bx - 2.5, by + 2, bx - 3.5, by + 3.5, bx, by + 4);
+  ctx.bezierCurveTo(bx + 3.5, by + 3.5, bx + 2.5, by + 2, bx, by);
+  ctx.fillStyle = "#6acaf0";
+  ctx.fill();
+
+  // Tiny shine
+  ctx.fillStyle = "rgba(255,255,255,0.6)";
+  ctx.beginPath();
+  ctx.ellipse(bx - 0.8, by + 2.2, 1, 1.5, -0.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
 
 // ─── Tile drawing ─────────────────────────────────────────────────────────────
 // New signature: drawTile(ctx, tileValue, sx, sy, tileSize, noiseFn, r, c, t)
@@ -236,7 +282,7 @@ function drawWell(ctx, sx, sy) {
   ctx.fillRect(sx+2, sy+2, s-4, 6);
 }
 
-function drawTree(ctx, sx, sy, obj, chopped) {
+function drawTree(ctx, sx, sy, obj, chopped, isTarget) {
   if (chopped) {
     // Stump
     const s = TILE;
@@ -263,6 +309,7 @@ function drawTree(ctx, sx, sy, obj, chopped) {
       ctx.fillRect(sx + s*0.3 + i*8, sy + s*0.55, 3, 8);
     }
   }
+  if (isTarget) { ctx.strokeStyle = "rgba(255,220,80,0.85)"; ctx.lineWidth = 2; ctx.strokeRect(sx-2, sy-2, s+4, s+4); }
 }
 
 function drawFlowers(ctx, sx, sy, obj) {
@@ -277,7 +324,7 @@ function drawFlowers(ctx, sx, sy, obj) {
   }
 }
 
-function drawSign(ctx, sx, sy, obj) {
+function drawSign(ctx, sx, sy, obj, isTarget) {
   const s = TILE;
   ctx.fillStyle = PAL.boardPost; ctx.fillRect(sx+s/2-2, sy+s*0.3, 4, s*0.7);
   ctx.fillStyle = PAL.sign;      ctx.fillRect(sx, sy+s*0.05, s, s*0.4);
@@ -288,6 +335,7 @@ function drawSign(ctx, sx, sy, obj) {
     const words = obj.label.replace("[F] ","").split(" ");
     words.forEach((w, i) => ctx.fillText(w, sx+s/2, sy+s*0.17+i*8));
   }
+  if (isTarget) { ctx.strokeStyle = "rgba(255,220,80,0.85)"; ctx.lineWidth = 2; ctx.strokeRect(sx-2, sy-2, s+4, s+4); }
 }
 
 function drawFenceH(ctx, sx, sy, obj) {
@@ -358,9 +406,19 @@ function drawFishSpot(ctx, sx, sy, isTarget, t) {
   if (isTarget) { ctx.strokeStyle = "rgba(100,200,255,0.9)"; ctx.lineWidth = 2; ctx.strokeRect(sx-2, sy-2, s+4, s+4); }
 }
 
-function drawPlaceable(ctx, sx, sy, obj, info) {
+function drawPlaceable(ctx, sx, sy, obj, info, isTarget) {
   const tileW = obj.w * TILE, tileH = obj.h * TILE;
   const cx = sx + tileW/2, cy = sy + tileH/2;
+  const item = ITEMS[obj.type];
+
+  if (item?.draw) {
+    const size = Math.min(tileW, tileH) * 0.92;
+    item.draw(ctx, cx - size/2, cy - size/2, size);
+    if (isTarget) { ctx.strokeStyle = "rgba(255,220,80,0.85)"; ctx.lineWidth = 2; ctx.strokeRect(sx-2, sy-2, tileW+4, tileH+4); }
+    return;
+  }
+
+  // Wooden tile background + shadow only for emoji-rendered placeables
   ctx.fillStyle = "rgba(180,155,100,0.55)";
   ctx.beginPath(); ctx.roundRect(sx+2, sy+2, tileW-4, tileH-4, 6); ctx.fill();
   ctx.strokeStyle = "rgba(220,195,130,0.75)"; ctx.lineWidth = 1.5;
@@ -373,6 +431,7 @@ function drawPlaceable(ctx, sx, sy, obj, info) {
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.fillText(info.icon, cx, cy - 3);
   ctx.restore();
+  if (isTarget) { ctx.strokeStyle = "rgba(255,220,80,0.85)"; ctx.lineWidth = 2; ctx.strokeRect(sx-2, sy-2, tileW+4, tileH+4); }
 }
 
 // ─── Town buildings (drawn at east edge) ─────────────────────────────────────
@@ -458,9 +517,9 @@ export function drawObject(ctx, obj, sx, sy, a, b, c, d) {
   if (obj.type === OBJ.CHEST)      drawChest(ctx, sx, sy, isTarget);
   if (obj.type === OBJ.BOARD)      drawBoard(ctx, sx, sy, isTarget);
   if (obj.type === OBJ.WELL)       drawWell(ctx, sx, sy);
-  if (obj.type === OBJ.TREE)       drawTree(ctx, sx, sy, obj, chopped);
+  if (obj.type === OBJ.TREE)       drawTree(ctx, sx, sy, obj, chopped, isTarget && !chopped);
   if (obj.type === OBJ.FLOWERS)    drawFlowers(ctx, sx, sy, obj);
-  if (obj.type === OBJ.SIGN)       drawSign(ctx, sx, sy, obj);
+  if (obj.type === OBJ.SIGN)       drawSign(ctx, sx, sy, obj, isTarget);
   if (obj.type === OBJ.FENCE_H)    drawFenceH(ctx, sx, sy, obj);
   if (obj.type === OBJ.FENCE_V)    drawFenceV(ctx, sx, sy, obj);
   if (obj.type === OBJ.ORE_NODE)   drawOreNode(ctx, sx, sy, obj, isTarget && !depleted, depleted);
@@ -474,7 +533,7 @@ export function drawObject(ctx, obj, sx, sy, a, b, c, d) {
   }
   if (obj.isPlaceable) {
     const info = PLACEABLES[obj.type];
-    if (info) drawPlaceable(ctx, sx, sy, obj, info);
+    if (info) drawPlaceable(ctx, sx, sy, obj, info, isTarget);
   }
 }
 
@@ -563,11 +622,29 @@ export function drawPlayer(ctx, px, py, facing, step, a, b, c, d, e) {
   if (displayItem) {
     const handX = facing==="left" ? px-14 : px+14;
     const handY = pyJ-8+bobY;
+    const heldItemData = ITEMS[displayItem];
+    const facingRight = facing === "right";
     ctx.save();
-    ctx.font = "13px serif";
-    ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    const icon = ITEM_ICONS[displayItem] ?? EQUIPPABLE[displayItem]?.icon ?? "📦";
-    ctx.fillText(icon, handX, handY);
+    if (heldItemData?.draw) {
+      const size = 14;
+      if (facingRight) {
+        // Mirror horizontally around the hand centre
+        ctx.translate(handX, handY);
+        ctx.scale(-1, 1);
+        ctx.translate(-handX, -handY);
+      }
+      heldItemData.draw(ctx, handX - size/2, handY - size/2, size);
+    } else {
+      if (facingRight) {
+        ctx.translate(handX, handY);
+        ctx.scale(-1, 1);
+        ctx.translate(-handX, -handY);
+      }
+      ctx.font = "13px serif";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      const icon = ITEM_ICONS[displayItem] ?? EQUIPPABLE[displayItem]?.icon ?? "📦";
+      ctx.fillText(icon, handX, handY);
+    }
     ctx.restore();
   }
 
@@ -628,10 +705,18 @@ export function drawGhostPlacement(ctx, ghost, facing, playerTx, playerTy, camX,
   ctx.save(); ctx.globalAlpha = 0.72;
   const gcx = gsx+(gw*TILE)/2, gcy = gsy+(gh*TILE)/2;
   if (ghost.rotation !== 0) { ctx.translate(gcx,gcy); ctx.rotate(ghost.rotation*Math.PI/2); ctx.translate(-gcx,-gcy); }
-  const fontSize = Math.max(gw,gh)*TILE*0.65;
-  ctx.font = `${fontSize}px serif`;
-  ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.fillText(info.icon, gcx, gcy-4);
+
+  const item = ITEMS[ghost.id ?? ghost.type];
+  const size = Math.min(gw, gh) * TILE * 0.85;
+  if (item?.draw) {
+    item.draw(ctx, gcx - size/2, gcy - size/2, size);
+  } else {
+    const fontSize = Math.max(gw, gh) * TILE * 0.65;
+    ctx.font = `${fontSize}px serif`;
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(info.icon, gcx, gcy - 4);
+  }
+
   ctx.restore();
 
   return { gtx, gty, gw, gh };

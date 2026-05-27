@@ -19,6 +19,9 @@ import {
   HAIR_STYLES, SKIN_TONES, OUTFIT_COLORS, HAT_STYLES,
   defaultCharacter,
   updateNPCs, findNearbyNPC, NPC_ROSTER,
+  REL_THRESHOLDS, REL_TIER_LABEL, NPC_LIKED_GIFTS,
+  getBonusDialogLines, getQuestBonusItem,
+  REL_GIFT_COOLDOWN_MS, REL_GAIN_QUEST_DELIVER,
 } from "./gameEngine";
 import {
   ITEMS, ITEM_ICONS, ITEM_LABELS,
@@ -35,14 +38,17 @@ import {
   usedSlots, canFitItem, spendFromPlayerInventory, applyUpgrade,
   mergeIntoChest, spendFromChest, normalizeChest, chestToMap,
   CHEST_COLS, CHEST_ROWS, CHEST_SLOTS, canFitInChest,
+  QUEST_REWARD_DEFS, getPriceWithRewards, getMarenDiscountActive,
+  getUnlockedItemIds,
 } from "./Items";
 import {
   drawTile, drawObject, drawCrop,
   drawPlayer, drawHUD, drawGhostPlacement,
-  drawTownArea,
+  drawTownArea, drawWaterDrop,
 } from "./drawWorld";
 import { useHomesteadState } from "./useHomesteadState";
 import { useHearthroom } from "./useHearthroom";
+import { ItemIcon } from "./ItemIcon";
 
 // ─── Partner widget ───────────────────────────────────────────────────────────
 function PartnerWidget({ joinCode, partnerOnline }) {
@@ -57,6 +63,79 @@ function PartnerWidget({ joinCode, partnerOnline }) {
       <button onClick={copy} style={{ background:"rgba(10,18,6,0.82)", border:"1px solid rgba(200,180,100,0.2)", borderRadius:7, padding:"4px 10px", cursor:"pointer", color:"rgba(200,230,120,0.75)", fontSize:12, fontFamily:"monospace", letterSpacing:"0.14em", lineHeight:1 }}>
         {copied?"copied ✓":joinCode}
       </button>
+    </div>
+  );
+}
+
+// ─── Sell Toast Stack ────────────────────────────────────────────────────────
+const SELL_TOAST_STYLE = `
+@keyframes sellToastIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.95); }
+  to   { opacity: 1; transform: translateY(0)   scale(1);    }
+}
+@keyframes sellToastOut {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+`;
+let _sellToastStyleInjected = false;
+function injectSellToastStyle() {
+  if (_sellToastStyleInjected) return;
+  _sellToastStyleInjected = true;
+  const el = document.createElement("style");
+  el.textContent = SELL_TOAST_STYLE;
+  document.head.appendChild(el);
+}
+
+const TOAST_DURATION_MS = 2000;
+const TOAST_FADE_MS     = 400;
+
+function SellToastStack({ toasts }) {
+  return (
+    <div style={{
+      position: "fixed",
+      bottom: 90,
+      right: 16,
+      zIndex: 999,
+      display: "flex",
+      flexDirection: "column-reverse",
+      gap: 6,
+      pointerEvents: "none",
+      alignItems: "flex-end",
+    }}>
+      {toasts.map(t => {
+        const elapsed = Date.now() - t.addedAt;
+        const fading  = elapsed > TOAST_DURATION_MS - TOAST_FADE_MS;
+        return (
+          <div key={t.id} style={{
+            background: "rgba(10,20,8,0.92)",
+            border: "1px solid rgba(200,230,120,0.35)",
+            borderRadius: 10,
+            padding: "8px 14px",
+            fontFamily: "monospace",
+            fontSize: 12,
+            color: "rgba(200,230,120,0.95)",
+            boxShadow: "0 4px 18px rgba(0,0,0,0.55)",
+            whiteSpace: "nowrap",
+            animation: fading
+              ? `sellToastOut ${TOAST_FADE_MS}ms ease forwards`
+              : `sellToastIn 200ms ease`,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}>
+            <span style={{ fontSize: 15 }}>{t.icon}</span>
+            <span>
+              Sold{" "}
+              <span style={{ color: "rgba(255,220,100,0.95)" }}>
+                {t.qty > 1 ? `${t.qty}× ` : ""}{t.label}
+              </span>
+              {" for "}
+              <span style={{ color: "rgba(100,230,160,0.95)" }}>+{t.gold}g</span>
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -87,13 +166,163 @@ function RunJoinPrompt({ runType, onJoin, onDecline }) {
   );
 }
 
+
+// ─── Sleep Modal ─────────────────────────────────────────────────────────────
+// sleepPhase values:
+//   'confirm'            — local player pressed [F] on house; waiting for their confirm
+//   'waiting_partner'    — local confirmed; waiting for partner to also confirm
+//   'partner_requesting' — partner pressed [F]; local player must confirm to proceed
+//   'both_ready'         — both players ready; host executes sleep then broadcasts
+function SleepModal({ phase, partnerOnline, onConfirm, onCancel }) {
+  if (!phase) return null;
+
+  const overlay = {
+    position:"absolute", inset:0, background:"rgba(4,10,20,0.82)",
+    display:"flex", alignItems:"center", justifyContent:"center", zIndex:30,
+  };
+  const box = {
+    background:"#0d1320", border:"1px solid rgba(120,160,220,0.3)", borderRadius:18,
+    padding:"28px 32px", maxWidth:300, width:"90%", fontFamily:"monospace",
+    color:"#f5e6c8", textAlign:"center", display:"flex", flexDirection:"column", gap:16,
+    boxShadow:"0 24px 80px rgba(0,0,0,0.7)",
+  };
+  const btn = (accent) => ({
+    padding:"12px", borderRadius:10, cursor:"pointer", fontFamily:"monospace",
+    fontSize:13, border:`1px solid ${accent}`, background:`${accent}22`, color:accent,
+  });
+
+  if (phase === 'confirm') {
+    return (
+      <div style={overlay}>
+        <div style={box}>
+          <div>
+            <p style={{ fontSize:10, letterSpacing:"0.18em", color:"rgba(160,200,255,0.45)", textTransform:"uppercase", marginBottom:8 }}>end the day</p>
+            <h2 style={{ fontSize:22, fontWeight:400, color:"rgba(180,210,255,0.9)" }}>🌙 Go to sleep?</h2>
+            <p style={{ fontSize:12, color:"rgba(245,230,200,0.45)", marginTop:8, lineHeight:1.6 }}>
+              {partnerOnline ? "Both players must be ready. Your partner will be prompted too." : "You'll sleep through to the next day."}
+            </p>
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            <button style={btn("rgba(180,210,255,0.9)")} onClick={onConfirm}>sleep →</button>
+            <button style={{ ...btn("rgba(255,255,255,0.25)"), fontSize:12 }} onClick={onCancel}>stay up</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === 'waiting_partner') {
+    return (
+      <div style={overlay}>
+        <div style={box}>
+          <p style={{ fontSize:10, letterSpacing:"0.18em", color:"rgba(160,200,255,0.45)", textTransform:"uppercase" }}>waiting for partner</p>
+          <h2 style={{ fontSize:20, fontWeight:400, color:"rgba(180,210,255,0.9)" }}>🌙 Waiting for your partner…</h2>
+          <svg width="48" height="48" style={{ margin:"0 auto", animation:"spin 1.4s linear infinite" }}>
+            <style>{"@keyframes spin { to { transform: rotate(360deg); } }"}</style>
+            <circle cx="24" cy="24" r="20" fill="none" stroke="rgba(120,160,220,0.15)" strokeWidth="4"/>
+            <path d="M24 4 A20 20 0 0 1 44 24" fill="none" stroke="rgba(180,210,255,0.85)" strokeWidth="4" strokeLinecap="round"/>
+          </svg>
+          <button style={{ ...btn("rgba(255,255,255,0.25)"), fontSize:12 }} onClick={onCancel}>cancel</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === 'partner_requesting') {
+    return (
+      <div style={overlay}>
+        <div style={box}>
+          <p style={{ fontSize:10, letterSpacing:"0.18em", color:"rgba(160,200,255,0.45)", textTransform:"uppercase" }}>your partner wants to sleep</p>
+          <h2 style={{ fontSize:20, fontWeight:400, color:"rgba(180,210,255,0.9)" }}>🌙 End the day?</h2>
+          <p style={{ fontSize:12, color:"rgba(245,230,200,0.45)", lineHeight:1.6 }}>Your partner is ready to sleep. Join them?</p>
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            <button style={btn("rgba(180,210,255,0.9)")} onClick={onConfirm}>sleep together →</button>
+            <button style={{ ...btn("rgba(255,255,255,0.25)"), fontSize:12 }} onClick={onCancel}>not yet</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // both_ready — show a brief "sleeping…" flash (executes quickly)
+  return (
+    <div style={overlay}>
+      <div style={box}>
+        <h2 style={{ fontSize:22, fontWeight:400, color:"rgba(180,210,255,0.9)" }}>🌙 Sleeping…</h2>
+      </div>
+    </div>
+  );
+}
+
+// ─── Run Locked Modal ─────────────────────────────────────────────────────────
+function RunLockedModal({ onClose }) {
+  return (
+    <div style={{
+      position:"absolute", inset:0, background:"rgba(4,8,4,0.80)",
+      display:"flex", alignItems:"center", justifyContent:"center", zIndex:30,
+    }}>
+      <div style={{
+        background:"#0d1a10", border:"1px solid rgba(200,230,120,0.18)", borderRadius:18,
+        padding:"28px 32px", maxWidth:300, width:"90%", fontFamily:"monospace",
+        color:"#f5e6c8", textAlign:"center", display:"flex", flexDirection:"column", gap:16,
+        boxShadow:"0 24px 80px rgba(0,0,0,0.7)",
+      }}>
+        <div>
+          <p style={{ fontSize:10, letterSpacing:"0.18em", color:"rgba(200,230,160,0.4)", textTransform:"uppercase", marginBottom:8 }}>run used</p>
+          <h2 style={{ fontSize:22, fontWeight:400, color:"rgba(200,230,120,0.85)", marginBottom:0 }}>🌙 Already ran today</h2>
+          <p style={{ fontSize:12, color:"rgba(245,230,200,0.45)", marginTop:10, lineHeight:1.7 }}>
+            You've used your run for the day. Head to the house and sleep to reset.
+          </p>
+        </div>
+        {/* Visual sleep hint */}
+        <div style={{
+          display:"flex", alignItems:"center", gap:10, justifyContent:"center",
+          background:"rgba(120,160,255,0.06)", border:"1px solid rgba(120,160,255,0.15)",
+          borderRadius:10, padding:"10px 14px",
+        }}>
+          <span style={{ fontSize:20 }}>🏠</span>
+          <span style={{ fontSize:11, color:"rgba(180,210,255,0.6)", lineHeight:1.5, textAlign:"left" }}>
+            Press <span style={{ color:"rgba(180,210,255,0.9)", fontWeight:700 }}>[F]</span> at the house<br/>to go to sleep
+          </span>
+        </div>
+        <button
+          onClick={onClose}
+          style={{
+            padding:"11px", borderRadius:10, cursor:"pointer", fontFamily:"monospace",
+            fontSize:12, border:"1px solid rgba(255,255,255,0.1)",
+            background:"transparent", color:"rgba(255,255,255,0.3)",
+          }}
+        >
+          ok
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Town Panel ───────────────────────────────────────────────────────────────
-function TownPanel({ playerInventory, chest, gold, onBuyToInventory, onBuyToChest, onSellFromInventory, onSellFromChest, onClose }) {
+function TownPanel({ playerInventory, chest, gold, activeRewards, marenDiscountActive, unlockedItemIds, onBuyToInventory, onBuyToChest, onSellFromInventory, onSellFromChest, onSellToast, onClose }) {
   const [msg, setMsg] = useState(null);
   const flash = (m) => { setMsg(m); setTimeout(() => setMsg(null), 2000); };
   const [sellFrom, setSellFrom] = useState("inventory"); // "inventory" | "chest"
 
-  const buyable = Object.entries(ITEMS).filter(([, it]) => it.buyPrice != null);
+  const rewards = activeRewards ?? [];
+  const hasPriceReward = rewards.some(r => QUEST_REWARD_DEFS[r]?.effect?.type === "price_multiplier");
+
+  /**
+   * Apply Maren's market-stall 10% discount on top of any quest-reward prices.
+   * Sell price +10%, buy price −10% (minimum 1g).
+   */
+  const applyMarenDiscount = (price, priceType) => {
+    if (!marenDiscountActive) return price;
+    if (priceType === "sell") return Math.round(price * 1.10);
+    return Math.max(1, Math.round(price * 0.90));
+  };
+
+  // Only show items that are unlocked by arrived NPCs (items without unlockedByNpc are always shown)
+  const buyable = Object.entries(ITEMS).filter(([id, it]) =>
+    it.buyPrice != null && (!unlockedItemIds || unlockedItemIds.has(id))
+  );
   const playerItems = Object.entries(playerInventory?.items ?? {}).filter(([id, qty]) => qty > 0 && ITEMS[id]?.sellPrice != null);
   const chestItems  = Object.entries(chestToMap(normalizeChest(chest))).filter(([id, qty]) => qty > 0 && ITEMS[id]?.sellPrice != null);
   const sellable = sellFrom === "inventory" ? playerItems : chestItems;
@@ -104,7 +333,7 @@ function TownPanel({ playerInventory, chest, gold, onBuyToInventory, onBuyToChes
         <div style={{ padding:"16px 20px 12px", borderBottom:"1px solid rgba(255,255,255,0.07)", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
           <div>
             <p style={{ fontSize:10, letterSpacing:"0.18em", color:"rgba(200,230,160,0.4)", textTransform:"uppercase", marginBottom:2 }}>Millhaven Market</p>
-            <h2 style={{ fontSize:18, fontWeight:400, color:"rgba(200,230,120,0.9)" }}>🛒 Market</h2>
+            <h2 style={{ fontSize:18, fontWeight:400, color:"rgba(200,230,120,0.9)" }}>🛒 Market {hasPriceReward && <span style={{ fontSize:10, color:"rgba(100,220,160,0.8)", marginLeft:6 }}>📈 Better Prices</span>}{marenDiscountActive && <span style={{ fontSize:10, color:"rgba(160,230,180,0.85)", marginLeft:6 }}>🏪 Maren's discount</span>}</h2>
           </div>
           <div style={{ display:"flex", alignItems:"center", gap:14 }}>
             <span style={{ fontSize:15, color:"rgba(255,215,0,0.9)", fontFamily:"monospace" }}>🪙 {gold ?? 0}g</span>
@@ -116,8 +345,11 @@ function TownPanel({ playerInventory, chest, gold, onBuyToInventory, onBuyToChes
             <p style={{ fontSize:10, color:"rgba(245,230,200,0.3)", letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:10 }}>for sale</p>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:7 }}>
               {buyable.map(([id, it]) => {
-                const canAfford = (gold ?? 0) >= it.buyPrice;
+                const rewardBuy = getPriceWithRewards(id, "buy", rewards) ?? it.buyPrice;
+                const effectiveBuy = applyMarenDiscount(rewardBuy, "buy");
+                const canAfford = (gold ?? 0) >= effectiveBuy;
                 const invFull = !canFitItem(playerInventory ?? { items:{}, slots: INVENTORY_BASE_SLOTS }, id);
+                const discounted = effectiveBuy < it.buyPrice;
                 return (
                   <div key={id} style={{ padding:"10px 12px", borderRadius:10, display:"flex", alignItems:"center", gap:10, background:canAfford?"rgba(200,230,120,0.05)":"rgba(255,255,255,0.02)", border:`1px solid ${canAfford?"rgba(200,230,120,0.18)":"rgba(255,255,255,0.06)"}`, opacity:canAfford?1:0.5 }}>
                     <span style={{ fontSize:22 }}>{it.icon}</span>
@@ -126,11 +358,11 @@ function TownPanel({ playerInventory, chest, gold, onBuyToInventory, onBuyToChes
                       <div style={{ fontSize:10, color:"rgba(245,230,200,0.35)" }}>{it.description}</div>
                     </div>
                     <div style={{ display:"flex", flexDirection:"column", gap:3, alignItems:"flex-end" }}>
-                      <button disabled={!canAfford || invFull} onClick={() => { onBuyToInventory?.(id, it.buyPrice); flash(`Bought ${it.label}!`); }} style={{ padding:"4px 8px", borderRadius:5, fontSize:9, fontFamily:"monospace", cursor:canAfford&&!invFull?"pointer":"default", border:`1px solid ${canAfford&&!invFull?"rgba(200,230,120,0.3)":"rgba(255,255,255,0.05)"}`, background:canAfford&&!invFull?"rgba(200,230,120,0.1)":"transparent", color:canAfford&&!invFull?"rgba(200,230,120,0.9)":"rgba(255,255,255,0.2)" }}>
-                        🎒 {it.buyPrice}g
+                      <button disabled={!canAfford || invFull} onClick={() => { onBuyToInventory?.(id, effectiveBuy); flash(`Bought ${it.label}!`); }} style={{ padding:"4px 8px", borderRadius:5, fontSize:9, fontFamily:"monospace", cursor:canAfford&&!invFull?"pointer":"default", border:`1px solid ${canAfford&&!invFull?"rgba(200,230,120,0.3)":"rgba(255,255,255,0.05)"}`, background:canAfford&&!invFull?"rgba(200,230,120,0.1)":"transparent", color:canAfford&&!invFull?"rgba(200,230,120,0.9)":"rgba(255,255,255,0.2)" }}>
+                        🎒 {discounted && <span style={{ textDecoration:"line-through", opacity:0.45, marginRight:2 }}>{it.buyPrice}</span>}{effectiveBuy}g
                       </button>
-                      <button disabled={!canAfford} onClick={() => { onBuyToChest?.(id, it.buyPrice); flash(`Bought ${it.label} → chest!`); }} style={{ padding:"4px 8px", borderRadius:5, fontSize:9, fontFamily:"monospace", cursor:canAfford?"pointer":"default", border:`1px solid ${canAfford?"rgba(180,200,100,0.2)":"rgba(255,255,255,0.05)"}`, background:canAfford?"rgba(180,200,100,0.06)":"transparent", color:canAfford?"rgba(180,200,100,0.7)":"rgba(255,255,255,0.2)" }}>
-                        📦 {it.buyPrice}g
+                      <button disabled={!canAfford} onClick={() => { onBuyToChest?.(id, effectiveBuy); flash(`Bought ${it.label} → chest!`); }} style={{ padding:"4px 8px", borderRadius:5, fontSize:9, fontFamily:"monospace", cursor:canAfford?"pointer":"default", border:`1px solid ${canAfford?"rgba(180,200,100,0.2)":"rgba(255,255,255,0.05)"}`, background:canAfford?"rgba(180,200,100,0.06)":"transparent", color:canAfford?"rgba(180,200,100,0.7)":"rgba(255,255,255,0.2)" }}>
+                        📦 {discounted && <span style={{ textDecoration:"line-through", opacity:0.45, marginRight:2 }}>{it.buyPrice}</span>}{effectiveBuy}g
                       </button>
                     </div>
                   </div>
@@ -153,6 +385,9 @@ function TownPanel({ playerInventory, chest, gold, onBuyToInventory, onBuyToChes
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:7 }}>
                 {sellable.map(([id, qty]) => {
                   const it = ITEMS[id];
+                  const rewardSell = getPriceWithRewards(id, "sell", rewards) ?? it.sellPrice;
+                  const effectiveSell = applyMarenDiscount(rewardSell, "sell");
+                  const boosted = effectiveSell > it.sellPrice;
                   return (
                     <div key={id} style={{ padding:"10px 12px", borderRadius:10, display:"flex", alignItems:"center", gap:10, background:"rgba(255,200,80,0.04)", border:"1px solid rgba(255,200,80,0.15)" }}>
                       <span style={{ fontSize:22 }}>{it.icon}</span>
@@ -160,8 +395,8 @@ function TownPanel({ playerInventory, chest, gold, onBuyToInventory, onBuyToChes
                         <div style={{ fontSize:12, color:"rgba(255,210,100,0.85)" }}>{it.label}</div>
                         <div style={{ fontSize:10, color:"rgba(245,230,200,0.3)" }}>×{qty}</div>
                       </div>
-                      <button onClick={() => { (sellFrom === "inventory" ? onSellFromInventory : onSellFromChest)?.(id, it.sellPrice); flash(`Sold ${it.label} for ${it.sellPrice}g!`); }} style={{ padding:"5px 10px", borderRadius:6, fontSize:10, fontFamily:"monospace", cursor:"pointer", border:"1px solid rgba(255,200,80,0.3)", background:"rgba(255,200,80,0.08)", color:"rgba(255,210,100,0.9)" }}>
-                        +{it.sellPrice}g
+                      <button onClick={() => { (sellFrom === "inventory" ? onSellFromInventory : onSellFromChest)?.(id, effectiveSell); onSellToast?.({ icon: it.icon, label: it.label, qty: 1, gold: effectiveSell }); }} style={{ padding:"5px 10px", borderRadius:6, fontSize:10, fontFamily:"monospace", cursor:"pointer", border:"1px solid rgba(255,200,80,0.3)", background:"rgba(255,200,80,0.08)", color:boosted?"rgba(100,230,160,0.95)":"rgba(255,210,100,0.9)" }}>
+                        +{effectiveSell}g{boosted && <span style={{ fontSize:8, marginLeft:2, opacity:0.7 }}>↑</span>}
                       </button>
                     </div>
                   );
@@ -170,8 +405,16 @@ function TownPanel({ playerInventory, chest, gold, onBuyToInventory, onBuyToChes
             </div>
           )}
         </div>
-        <div style={{ padding:"8px 18px", borderTop:"1px solid rgba(255,255,255,0.05)", fontSize:9, color:"rgba(245,230,200,0.2)", textAlign:"center" }}>
-          🎒 buy to inventory · 📦 buy to chest · [F] or click outside to close
+        <div style={{ padding:"8px 18px", borderTop:"1px solid rgba(255,255,255,0.05)", display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
+          {marenDiscountActive && (
+            <div style={{ fontSize:9, color:"rgba(160,230,180,0.75)", letterSpacing:"0.10em", display:"flex", alignItems:"center", gap:5 }}>
+              <span>🏪</span>
+              <span>Maren's discount active · sell +10% · buy −10%</span>
+            </div>
+          )}
+          <div style={{ fontSize:9, color:"rgba(245,230,200,0.2)", textAlign:"center" }}>
+            🎒 buy to inventory · 📦 buy to chest · [F] or click outside to close
+          </div>
         </div>
       </div>
     </div>
@@ -240,7 +483,7 @@ function TreasuryPanel({ town, playerInventory, onPlayerInventoryUpdate, onClose
               <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
                 {Object.entries(treasury).filter(([,q])=>q>0).map(([id, qty]) => (
                   <div key={id} style={{ padding:"6px 12px", borderRadius:8, background:"rgba(200,230,120,0.07)", border:"1px solid rgba(200,230,120,0.2)", display:"flex", alignItems:"center", gap:6 }}>
-                    <span>{ITEMS[id]?.icon ?? "🍽️"}</span>
+                    <ItemIcon id={id} size={20} />
                     <span style={{ fontSize:12, color:"rgba(200,230,120,0.85)" }}>{ITEMS[id]?.label ?? id}</span>
                     <span style={{ fontSize:11, color:"rgba(245,230,200,0.5)" }}>×{qty}</span>
                   </div>
@@ -258,7 +501,7 @@ function TreasuryPanel({ town, playerInventory, onPlayerInventoryUpdate, onClose
               <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
                 {foodItems.map(([id, qty]) => (
                   <div key={id} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 12px", borderRadius:9, background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.07)" }}>
-                    <span style={{ fontSize:18 }}>{ITEMS[id]?.icon ?? "🍽️"}</span>
+                    <ItemIcon id={id} size={22} />
                     <span style={{ flex:1, fontSize:12, color:"rgba(245,230,200,0.8)" }}>{ITEMS[id]?.label ?? id} ×{qty}</span>
                     <button onClick={() => depositOne(id, qty)} style={{ fontSize:9, fontFamily:"monospace", padding:"3px 8px", borderRadius:5, cursor:"pointer", background:"rgba(200,230,120,0.08)", border:"1px solid rgba(200,230,120,0.2)", color:"rgba(200,230,120,0.8)" }}>deposit</button>
                   </div>
@@ -281,8 +524,8 @@ function TreasuryPanel({ town, playerInventory, onPlayerInventoryUpdate, onClose
 }
 
 // ─── NPC Dialog Panel ─────────────────────────────────────────────────────────
-function NPCDialogPanel({ npc, town, playerInventory, onPlayerInventoryUpdate, onClose }) {
-  const [page, setPage] = useState("talk");    // "talk" | "rename" | "assign" | "quest"
+function NPCDialogPanel({ npc, town, placedObjects, playerInventory, onPlayerInventoryUpdate, gold, onGoldUpdate, onClose }) {
+  const [page, setPage] = useState("talk");    // "talk" | "rename" | "assign" | "quest" | "gift"
   const [nameInput, setNameInput] = useState(npc?.name ?? "");
   const [msg, setMsg] = useState(null);
   const flash = (m) => { setMsg(m); setTimeout(() => setMsg(null), 2500); };
@@ -295,8 +538,30 @@ function NPCDialogPanel({ npc, town, playerInventory, onPlayerInventoryUpdate, o
   const questDone = npc.questComplete;
   const playerHasQuestItem = questItem ? ((playerInventory?.items?.[questItem] ?? 0) > 0) : false;
 
-  // Dialogue lines per NPC — fallback to generic
-  const DIALOGUE = {
+  // Relationship
+  const relationship  = npc.relationship ?? 0;
+  const tierLabel     = REL_TIER_LABEL(relationship);
+  const likedGifts    = NPC_LIKED_GIFTS[npc.npcId] ?? NPC_LIKED_GIFTS.generic;
+  const now           = Date.now();
+  const lastGift      = npc.lastGiftTime ?? 0;
+  const giftOnCooldown = (lastGift + REL_GIFT_COOLDOWN_MS) > now;
+  const cooldownHrsLeft = giftOnCooldown
+    ? Math.ceil(((lastGift + REL_GIFT_COOLDOWN_MS) - now) / (1000 * 60 * 60))
+    : 0;
+
+  // Relationship hearts display (0–5 filled)
+  const heartsFilled = Math.round((relationship / 100) * 5);
+  const heartsRow = Array.from({ length: 5 }, (_, i) =>
+    <span key={i} style={{ fontSize:11, color: i < heartsFilled ? "rgba(255,100,100,0.9)" : "rgba(255,255,255,0.15)" }}>♥</span>
+  );
+
+  // Completed reward info
+  const completedRewardDef = questDone && roster.questReward
+    ? (QUEST_REWARD_DEFS[roster.questReward] ?? null)
+    : null;
+
+  // Dialog lines — base + bonus dialog gated behind relationship
+  const BASE_DIALOGUE = {
     generic:  ["Nice place you've got here.", "I'm still settling in, but it already feels like home.", "Let me know if there's anything I can do to help."],
     maren:    ["These goods won't sell themselves.", "I've been in worse markets. This one has potential.", "Bring me something rare and I'll make it worth your while."],
     finn:     ["...", "The water's calm today.", "Something big is out there. I can feel it."],
@@ -308,11 +573,21 @@ function NPCDialogPanel({ npc, town, playerInventory, onPlayerInventoryUpdate, o
     bex:      ["Don't worry about where I came from.", "I'm good at a lot of things. Put me to work.", "...nice try."],
     haas:     ["The bees are happy today. Good sign.", "Slow down a little. That's my only advice.", "Honey takes time. Everything worth having does."],
   };
-  const lines = DIALOGUE[npc.npcId] ?? DIALOGUE.generic;
-  const line  = lines[Math.floor(Date.now() / 8000) % lines.length];
+  const baseLines  = BASE_DIALOGUE[npc.npcId] ?? BASE_DIALOGUE.generic;
+  const bonusLines = getBonusDialogLines(npc.npcId, relationship);
+  const allLines   = [...baseLines, ...bonusLines];
+  const line       = allLines[Math.floor(Date.now() / 8000) % allLines.length];
+
+  // Giftable items — any item in player inventory (gifts: all items are valid, liked = more ♥)
+  const giftableItems = Object.entries(playerInventory?.items ?? {}).filter(([, qty]) => qty > 0);
 
   const panelStyle = { position:"absolute", inset:0, background:"rgba(4,10,4,0.82)", display:"flex", alignItems:"flex-end", justifyContent:"center", zIndex:25, paddingBottom:90 };
   const boxStyle   = { background:"#111a0b", border:"1px solid rgba(200,180,80,0.25)", borderRadius:16, width:420, maxWidth:"96vw", fontFamily:"monospace", color:"#f5e6c8", boxShadow:"0 24px 80px rgba(0,0,0,0.7)" };
+
+  const tierColor = relationship >= REL_THRESHOLDS.CLOSE      ? "rgba(255,160,100,0.9)"
+                  : relationship >= REL_THRESHOLDS.FRIENDLY   ? "rgba(100,230,160,0.85)"
+                  : relationship >= REL_THRESHOLDS.ACQUAINTED ? "rgba(160,210,255,0.8)"
+                  : "rgba(245,230,200,0.3)";
 
   return (
     <div style={panelStyle} onClick={onClose}>
@@ -322,20 +597,27 @@ function NPCDialogPanel({ npc, town, playerInventory, onPlayerInventoryUpdate, o
           <span style={{ fontSize:28 }}>{roster.icon ?? "🧑"}</span>
           <div style={{ flex:1 }}>
             <p style={{ fontSize:16, color:"rgba(200,230,120,0.95)", fontWeight:400 }}>{npc.name}</p>
-            <p style={{ fontSize:10, color:"rgba(245,230,200,0.35)", letterSpacing:"0.1em" }}>
-              {npc.assignment ? `working · ${npc.assignment.replace(/_/g," ")}` : "unassigned"}
-              {" · "}
-              {npc.mood === "happy" ? "😊" : npc.mood === "unhappy" ? "😟" : "😐"}
-            </p>
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:2 }}>
+              <p style={{ fontSize:10, color:"rgba(245,230,200,0.35)", letterSpacing:"0.1em" }}>
+                {npc.assignment ? `working · ${npc.assignment.replace(/_/g," ")}` : "unassigned"}
+                {" · "}
+                {npc.mood === "happy" ? "😊" : npc.mood === "unhappy" ? "😟" : "😐"}
+              </p>
+              <span style={{ fontSize:9, color:tierColor, letterSpacing:"0.08em" }}>{tierLabel}</span>
+            </div>
+            <div style={{ display:"flex", alignItems:"center", gap:2, marginTop:3 }}>
+              {heartsRow}
+              <span style={{ fontSize:9, color:"rgba(245,230,200,0.25)", marginLeft:4 }}>{relationship}/100</span>
+            </div>
           </div>
           <button onClick={onClose} style={{ background:"transparent", border:"1px solid rgba(255,255,255,0.1)", borderRadius:7, color:"rgba(255,255,255,0.3)", fontSize:12, fontFamily:"monospace", cursor:"pointer", padding:"3px 9px" }}>✕</button>
         </div>
 
         {/* Nav */}
         <div style={{ display:"flex", borderBottom:"1px solid rgba(255,255,255,0.06)" }}>
-          {["talk","rename","assign", ...(questItem && !questDone ? ["quest"] : [])].map(p => (
+          {["talk","rename","assign","gift", ...(questItem ? ["quest"] : [])].map(p => (
             <button key={p} onClick={() => setPage(p)} style={{ flex:1, padding:"8px 4px", background:page===p?"rgba(200,230,120,0.08)":"transparent", border:"none", borderBottom:page===p?"2px solid rgba(200,230,120,0.5)":"2px solid transparent", color:page===p?"rgba(200,230,120,0.9)":"rgba(245,230,200,0.35)", fontSize:10, fontFamily:"monospace", cursor:"pointer", letterSpacing:"0.1em", textTransform:"uppercase" }}>
-              {p}
+              {p}{p === "quest" && questDone ? " ✓" : ""}
             </button>
           ))}
         </div>
@@ -343,7 +625,48 @@ function NPCDialogPanel({ npc, town, playerInventory, onPlayerInventoryUpdate, o
         <div style={{ padding:"16px 18px 18px", minHeight:120 }}>
           {/* Talk */}
           {page === "talk" && (
-            <p style={{ fontSize:13, color:"rgba(245,230,200,0.75)", lineHeight:1.8, fontStyle:"italic" }}>"{line}"</p>
+            <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+              <p style={{ fontSize:13, color:"rgba(245,230,200,0.75)", lineHeight:1.8, fontStyle:"italic" }}>"{line}"</p>
+              {/* Relationship tier unlock notice */}
+              {bonusLines.length > 0 && (
+                <p style={{ fontSize:9, color:tierColor, opacity:0.7 }}>
+                  {tierLabel === "Close" ? "💞" : tierLabel === "Friendly" ? "🤝" : "✨"} {tierLabel} — new things to say unlocked.
+                </p>
+              )}
+              {/* Preferred-job nudge */}
+              {(() => {
+                const preferred = roster.preferredJob;
+                if (!preferred) return null;
+                const alreadyAssigned = npc.assignment === preferred;
+                if (alreadyAssigned) return null;
+                const buildingExists = Array.isArray(placedObjects)
+                  ? placedObjects.some(o => o.type === preferred)
+                  : false;
+                const buildingLabel = preferred.replace(/_/g, " ");
+                return (
+                  <div style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:10, background:"rgba(200,180,60,0.07)", border:"1px solid rgba(200,180,60,0.22)" }}>
+                    <span style={{ fontSize:18 }}>💼</span>
+                    <div style={{ flex:1 }}>
+                      <p style={{ fontSize:12, color:"rgba(220,200,100,0.9)", lineHeight:1.5 }}>
+                        {npc.name} would like to work the {buildingLabel}.
+                      </p>
+                      {!buildingExists && (
+                        <p style={{ fontSize:10, color:"rgba(245,230,200,0.35)", marginTop:2 }}>
+                          (build a {buildingLabel} first)
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      disabled={!buildingExists || npc.assignment === preferred}
+                      onClick={() => { town?.assignNPC(npc.id, preferred); flash(`${npc.name} assigned to ${buildingLabel}!`); }}
+                      style={{ padding:"6px 12px", borderRadius:7, fontSize:10, fontFamily:"monospace", cursor:buildingExists?"pointer":"default", background:buildingExists?"rgba(200,230,120,0.12)":"rgba(255,255,255,0.04)", border:`1px solid ${buildingExists?"rgba(200,230,120,0.35)":"rgba(255,255,255,0.1)"}`, color:buildingExists?"rgba(200,230,120,0.9)":"rgba(245,230,200,0.25)", whiteSpace:"nowrap" }}>
+                      assign →
+                    </button>
+                  </div>
+                );
+              })()}
+              {msg && <p style={{ fontSize:11, color:"rgba(180,230,120,0.9)" }}>{msg}</p>}
+            </div>
           )}
 
           {/* Rename */}
@@ -371,7 +694,6 @@ function NPCDialogPanel({ npc, town, playerInventory, onPlayerInventoryUpdate, o
               {roster.preferredJob && (
                 <p style={{ fontSize:10, color:"rgba(200,180,80,0.6)" }}>Prefers: {roster.preferredJob.replace(/_/g," ")}</p>
               )}
-              {/* Town Hall assignment — only shows if unassigned Mayor slot */}
               {!town?.townState?.mayorAssigned && (
                 <button onClick={() => { town?.assignMayor(npc.id); flash("Mayor assigned! Town buildings unlocked."); setPage("talk"); }}
                   style={{ padding:"9px 14px", borderRadius:8, background:"rgba(255,215,0,0.08)", border:"1px solid rgba(255,215,0,0.3)", color:"rgba(255,215,0,0.9)", fontSize:12, fontFamily:"monospace", cursor:"pointer", textAlign:"left" }}>
@@ -385,30 +707,192 @@ function NPCDialogPanel({ npc, town, playerInventory, onPlayerInventoryUpdate, o
             </div>
           )}
 
-          {/* Quest */}
-          {page === "quest" && questItem && !questDone && (
+          {/* Gift */}
+          {page === "gift" && (
             <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-              <p style={{ fontSize:11, color:"rgba(245,230,200,0.5)", lineHeight:1.7 }}>
-                {npc.name} is looking for <strong style={{ color:"rgba(200,230,120,0.9)" }}>{ITEMS[questItem]?.label ?? questItem}</strong>.
-              </p>
-              <div style={{ height:6, borderRadius:3, background:"rgba(255,255,255,0.08)", overflow:"hidden" }}>
-                <div style={{ height:"100%", width:`${(questProgress/questQty)*100}%`, background:"rgba(200,230,120,0.6)", borderRadius:3, transition:"width 0.3s" }} />
+              {/* Relationship bar */}
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <div style={{ flex:1, height:6, borderRadius:3, background:"rgba(255,255,255,0.08)", overflow:"hidden" }}>
+                  <div style={{ height:"100%", width:`${relationship}%`, background: relationship >= REL_THRESHOLDS.CLOSE ? "rgba(255,140,80,0.7)" : relationship >= REL_THRESHOLDS.FRIENDLY ? "rgba(100,230,160,0.65)" : relationship >= REL_THRESHOLDS.ACQUAINTED ? "rgba(140,180,255,0.65)" : "rgba(200,230,120,0.45)", borderRadius:3, transition:"width 0.4s" }} />
+                </div>
+                <span style={{ fontSize:10, color:tierColor, minWidth:72 }}>{tierLabel} · {relationship}/100</span>
               </div>
-              <p style={{ fontSize:10, color:"rgba(245,230,200,0.35)" }}>{questProgress} / {questQty} delivered</p>
-              {playerHasQuestItem && (
-                <button onClick={() => {
-                  const qty = Math.min(playerInventory?.items?.[questItem] ?? 0, questQty - questProgress);
-                  if (qty <= 0) return;
-                  const result = town?.deliverQuestItem(npc.id, qty);
-                  const newItems = { ...(playerInventory?.items ?? {}) };
-                  newItems[questItem] = (newItems[questItem] ?? 0) - qty;
-                  if (newItems[questItem] <= 0) delete newItems[questItem];
-                  onPlayerInventoryUpdate?.({ ...playerInventory, items: newItems });
-                  if (result?.questComplete) flash("Quest complete! 🎉");
-                  else flash(`Delivered ${qty}!`);
-                }} style={{ padding:"9px", borderRadius:8, background:"rgba(200,230,120,0.1)", border:"1px solid rgba(200,230,120,0.3)", color:"rgba(200,230,120,0.9)", fontSize:12, fontFamily:"monospace", cursor:"pointer" }}>
-                  hand over {ITEMS[questItem]?.icon} {ITEMS[questItem]?.label}
-                </button>
+
+              {/* Next tier hint */}
+              {relationship < 100 && (() => {
+                const nextThreshold = relationship < REL_THRESHOLDS.ACQUAINTED ? REL_THRESHOLDS.ACQUAINTED
+                  : relationship < REL_THRESHOLDS.FRIENDLY ? REL_THRESHOLDS.FRIENDLY
+                  : relationship < REL_THRESHOLDS.CLOSE ? REL_THRESHOLDS.CLOSE : null;
+                const nextLabel = nextThreshold === REL_THRESHOLDS.ACQUAINTED ? "Acquainted"
+                  : nextThreshold === REL_THRESHOLDS.FRIENDLY ? "Friendly"
+                  : nextThreshold === REL_THRESHOLDS.CLOSE ? "Close" : null;
+                if (!nextLabel) return null;
+                return (
+                  <p style={{ fontSize:9, color:"rgba(245,230,200,0.3)", lineHeight:1.5 }}>
+                    {nextThreshold - relationship} more ♥ to reach <span style={{ color:"rgba(200,230,120,0.6)" }}>{nextLabel}</span>
+                    {nextThreshold >= REL_THRESHOLDS.FRIENDLY && (
+                      <span style={{ color:"rgba(200,180,60,0.55)" }}> — unlocks bonus dialog {nextThreshold >= REL_THRESHOLDS.FRIENDLY ? "& items" : ""}</span>
+                    )}
+                  </p>
+                );
+              })()}
+
+              {/* Cooldown notice */}
+              {giftOnCooldown && (
+                <div style={{ padding:"8px 12px", borderRadius:8, background:"rgba(255,180,60,0.06)", border:"1px solid rgba(255,180,60,0.2)" }}>
+                  <p style={{ fontSize:11, color:"rgba(255,190,80,0.8)" }}>
+                    Already gave a gift today. Come back in ~{cooldownHrsLeft}h.
+                  </p>
+                </div>
+              )}
+
+              {/* Liked items hint */}
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap", alignItems:"center" }}>
+                <span style={{ fontSize:9, color:"rgba(245,230,200,0.3)" }}>likes:</span>
+                {likedGifts.map(id => (
+                  <span key={id} style={{ fontSize:11, padding:"2px 7px", borderRadius:5, background:"rgba(255,100,100,0.08)", border:"1px solid rgba(255,100,100,0.2)", color:"rgba(255,160,160,0.8)" }}>
+                    {ITEMS[id]?.icon ?? "?"} {ITEMS[id]?.label ?? id}
+                  </span>
+                ))}
+              </div>
+
+              {/* Gift items from inventory */}
+              {giftableItems.length === 0 ? (
+                <p style={{ fontSize:12, color:"rgba(245,230,200,0.3)", textAlign:"center", padding:"10px 0" }}>Nothing in your inventory to give.</p>
+              ) : (
+                <div style={{ display:"flex", flexDirection:"column", gap:5, maxHeight:180, overflowY:"auto" }}>
+                  {giftableItems.map(([id, qty]) => {
+                    const it = ITEMS[id];
+                    if (!it) return null;
+                    const isLiked = likedGifts.includes(id);
+                    return (
+                      <div key={id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", borderRadius:8, background: isLiked ? "rgba(255,100,100,0.06)" : "rgba(255,255,255,0.03)", border:`1px solid ${isLiked ? "rgba(255,100,100,0.22)" : "rgba(255,255,255,0.07)"}` }}>
+                        <span style={{ fontSize:18 }}>{it.icon}</span>
+                        <div style={{ flex:1 }}>
+                          <span style={{ fontSize:12, color: isLiked ? "rgba(255,180,180,0.9)" : "rgba(245,230,200,0.7)" }}>{it.label}</span>
+                          {isLiked && <span style={{ fontSize:9, color:"rgba(255,120,120,0.7)", marginLeft:6 }}>loved ♥+{REL_GAIN_GIFT_LIKED}</span>}
+                          {!isLiked && <span style={{ fontSize:9, color:"rgba(200,230,120,0.4)", marginLeft:6 }}>♥+{REL_GAIN_GIFT_NEUTRAL}</span>}
+                        </div>
+                        <span style={{ fontSize:10, color:"rgba(245,230,200,0.3)" }}>×{qty}</span>
+                        <button
+                          disabled={giftOnCooldown}
+                          onClick={() => {
+                            if (giftOnCooldown) return;
+                            const result = town?.giftNPC(npc.id, id);
+                            if (!result) return;
+                            if (!result.accepted) {
+                              flash(`${npc.name} can't receive another gift just yet.`);
+                              return;
+                            }
+                            // Deduct 1 from inventory
+                            const newItems = { ...(playerInventory?.items ?? {}) };
+                            newItems[id] = (newItems[id] ?? 0) - 1;
+                            if (newItems[id] <= 0) delete newItems[id];
+                            onPlayerInventoryUpdate?.({ ...playerInventory, items: newItems });
+                            flash(result.isLiked
+                              ? `${npc.name} loves it! ♥ +${result.relGain}`
+                              : `${npc.name} accepts your gift. ♥ +${result.relGain}`
+                            );
+                          }}
+                          style={{ padding:"5px 10px", borderRadius:7, fontSize:10, fontFamily:"monospace", cursor:giftOnCooldown?"default":"pointer", background:giftOnCooldown?"rgba(255,255,255,0.04)":isLiked?"rgba(255,100,100,0.12)":"rgba(200,230,120,0.1)", border:`1px solid ${giftOnCooldown?"rgba(255,255,255,0.08)":isLiked?"rgba(255,100,100,0.3)":"rgba(200,230,120,0.25)"}`, color:giftOnCooldown?"rgba(255,255,255,0.2)":isLiked?"rgba(255,180,180,0.9)":"rgba(200,230,120,0.9)", opacity:giftOnCooldown?0.5:1 }}>
+                          give
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {msg && <p style={{ fontSize:12, color:"rgba(180,230,120,0.9)", marginTop:4 }}>{msg}</p>}
+            </div>
+          )}
+
+          {/* Quest */}
+          {page === "quest" && questItem && (
+            <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+              {questDone ? (
+                <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                  <div style={{ padding:"12px 14px", borderRadius:10, background:"rgba(100,220,160,0.07)", border:"1px solid rgba(100,220,160,0.25)", display:"flex", flexDirection:"column", gap:6 }}>
+                    <p style={{ fontSize:12, color:"rgba(100,220,160,0.95)", fontWeight:"bold" }}>
+                      {completedRewardDef?.icon ?? "✅"} Quest complete!
+                    </p>
+                    {completedRewardDef && (
+                      <p style={{ fontSize:11, color:"rgba(200,240,200,0.85)", lineHeight:1.6 }}>
+                        <strong style={{ color:"rgba(150,240,200,0.95)" }}>{completedRewardDef.label}</strong> — {completedRewardDef.description}
+                      </p>
+                    )}
+                  </div>
+                  <p style={{ fontSize:10, color:"rgba(245,230,200,0.35)" }}>{questProgress} / {questQty} delivered</p>
+                </div>
+              ) : (
+                <>
+                  {roster.questReward && QUEST_REWARD_DEFS[roster.questReward] && (
+                    <div style={{ padding:"8px 12px", borderRadius:8, background:"rgba(200,180,60,0.06)", border:"1px solid rgba(200,180,60,0.18)" }}>
+                      <p style={{ fontSize:10, color:"rgba(200,180,60,0.7)", lineHeight:1.5 }}>
+                        <strong>{QUEST_REWARD_DEFS[roster.questReward].icon} Reward: </strong>
+                        {QUEST_REWARD_DEFS[roster.questReward].description}
+                      </p>
+                    </div>
+                  )}
+                  {/* Bonus item hint based on relationship */}
+                  {(() => {
+                    const bonusItemId = getQuestBonusItem(npc.npcId, relationship);
+                    if (!bonusItemId) {
+                      const friendlyBonus = getQuestBonusItem(npc.npcId, REL_THRESHOLDS.FRIENDLY);
+                      if (!friendlyBonus) return null;
+                      return (
+                        <p style={{ fontSize:9, color:"rgba(200,180,60,0.45)", lineHeight:1.5 }}>
+                          Become <span style={{ color:"rgba(100,230,160,0.7)" }}>Friendly</span> with {npc.name} to earn a bonus item on completion.
+                        </p>
+                      );
+                    }
+                    const bonusItem = ITEMS[bonusItemId];
+                    return (
+                      <div style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 10px", borderRadius:7, background:"rgba(255,160,80,0.06)", border:"1px solid rgba(255,160,80,0.2)" }}>
+                        <span style={{ fontSize:14 }}>{bonusItem?.icon ?? "🎁"}</span>
+                        <p style={{ fontSize:10, color:"rgba(255,180,100,0.85)" }}>
+                          {tierLabel} bonus: you'll receive <strong>{bonusItem?.label ?? bonusItemId}</strong> on completion!
+                        </p>
+                      </div>
+                    );
+                  })()}
+                  <p style={{ fontSize:11, color:"rgba(245,230,200,0.5)", lineHeight:1.7 }}>
+                    {npc.name} is looking for <strong style={{ color:"rgba(200,230,120,0.9)" }}>{ITEMS[questItem]?.label ?? questItem}</strong>.
+                  </p>
+                  <div style={{ height:6, borderRadius:3, background:"rgba(255,255,255,0.08)", overflow:"hidden" }}>
+                    <div style={{ height:"100%", width:`${(questProgress/questQty)*100}%`, background:"rgba(200,230,120,0.6)", borderRadius:3, transition:"width 0.3s" }} />
+                  </div>
+                  <p style={{ fontSize:10, color:"rgba(245,230,200,0.35)" }}>{questProgress} / {questQty} delivered · ♥ +{REL_GAIN_QUEST_DELIVER} per item</p>
+                  {playerHasQuestItem && (
+                    <button onClick={() => {
+                      const qty = Math.min(playerInventory?.items?.[questItem] ?? 0, questQty - questProgress);
+                      if (qty <= 0) return;
+                      const result = town?.deliverQuestItem(npc.id, qty);
+                      const newItems = { ...(playerInventory?.items ?? {}) };
+                      newItems[questItem] = (newItems[questItem] ?? 0) - qty;
+                      if (newItems[questItem] <= 0) delete newItems[questItem];
+                      onPlayerInventoryUpdate?.({ ...playerInventory, items: newItems });
+                      if (result?.questComplete) {
+                        const rewardDef = result.rewardId ? QUEST_REWARD_DEFS[result.rewardId] : null;
+                        const goldBonus = rewardDef?.goldBonus ?? 0;
+                        if (goldBonus > 0 && onGoldUpdate) onGoldUpdate((gold ?? 0) + goldBonus);
+                        // Bonus item for high-relationship players
+                        const bonusItemId = getQuestBonusItem(npc.npcId, relationship);
+                        if (bonusItemId) {
+                          const newItemsWithBonus = { ...newItems };
+                          newItemsWithBonus[bonusItemId] = (newItemsWithBonus[bonusItemId] ?? 0) + 1;
+                          onPlayerInventoryUpdate?.({ ...playerInventory, items: newItemsWithBonus });
+                        }
+                        const rewardLabel = rewardDef ? `${rewardDef.icon} ${rewardDef.label} unlocked!` : "Quest complete!";
+                        const bonusLabel  = bonusItemId ? ` + ${ITEMS[bonusItemId]?.icon ?? "🎁"} ${ITEMS[bonusItemId]?.label ?? bonusItemId}` : "";
+                        flash(`🎉 ${rewardLabel}${goldBonus > 0 ? ` +${goldBonus}g` : ""}${bonusLabel}`);
+                      } else {
+                        flash(`Delivered ${qty}! ♥ +${Math.min(qty, questQty - (questProgress)) * REL_GAIN_QUEST_DELIVER}`);
+                      }
+                    }} style={{ padding:"9px", borderRadius:8, background:"rgba(200,230,120,0.1)", border:"1px solid rgba(200,230,120,0.3)", color:"rgba(200,230,120,0.9)", fontSize:12, fontFamily:"monospace", cursor:"pointer" }}>
+                      hand over {ITEMS[questItem]?.icon} {ITEMS[questItem]?.label}
+                    </button>
+                  )}
+                </>
               )}
               {msg && <p style={{ fontSize:12, color:"rgba(180,230,120,0.9)" }}>{msg}</p>}
             </div>
@@ -453,7 +937,7 @@ function HotbarBar({ hotbar, hotbarSlots, equipment, selectedIdx, onSelectIdx, o
             )}
             {slot ? (
               <>
-                <span style={{ fontSize:18, lineHeight:1 }}>{icon}</span>
+                <ItemIcon id={slot.item} size={22} />
                 <span style={{ fontSize:8, color:"rgba(200,230,120,0.65)", lineHeight:1, fontFamily:"monospace", maxWidth:40, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
                   {ITEMS[slot.item]?.label?.toLowerCase().slice(0,6) ?? slot.item}
                 </span>
@@ -502,6 +986,7 @@ function TabMenu({
   onStartGhostPlace,
   farmPlots,
   atCraftingStation,
+  unlockedItemIds,
 }) {
   const [craftMsg, setCraftMsg]  = useState(null);
   const [ch, setCh]              = useState({ ...character });
@@ -569,7 +1054,7 @@ function TabMenu({
                 style={{ width:50, height:54, borderRadius:9, background:isOver?"rgba(200,230,120,0.18)":slot?"rgba(10,18,6,0.7)":"rgba(255,255,255,0.03)", border:`2px solid ${isOver?"rgba(200,230,120,0.9)":isEq?"rgba(100,200,255,0.5)":slot?"rgba(200,230,120,0.3)":"rgba(255,255,255,0.1)"}`, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2, position:"relative", transition:"all 0.1s" }}>
                 {slot ? (
                   <>
-                    <span style={{ fontSize:18 }}>{ITEM_ICONS[slot.item]??"📦"}</span>
+                    <ItemIcon id={slot.item} size={22} />
                     <span style={{ fontSize:8, color:"rgba(200,230,120,0.6)", lineHeight:1, fontFamily:"monospace", maxWidth:46, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{ITEMS[slot.item]?.label?.toLowerCase()?.slice(0,6)??slot.item}</span>
                     {slot.qty!=null&&<span style={{ fontSize:9, color:"rgba(200,230,120,0.7)" }}>{slot.qty}</span>}
                     {isEq&&<div style={{ position:"absolute", top:3, right:3, width:6, height:6, borderRadius:"50%", background:"rgba(100,200,255,0.9)" }}/>}
@@ -629,7 +1114,7 @@ function TabMenu({
               {resources.map(([id, qty]) => (
                 <div key={id} draggable onDragStart={e=>{e.dataTransfer.setData("hotbar_item",id);e.dataTransfer.effectAllowed="copy";}}
                   style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 10px", borderRadius:8, background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.07)", cursor:"grab" }}>
-                  <span style={{ fontSize:18 }}>{ITEM_ICONS[id]??"📦"}</span>
+                  <ItemIcon id={id} size={26} />
                   <div style={{ flex:1 }}>
                     <div style={{ fontSize:9, color:"rgba(245,230,200,0.4)" }}>{ITEMS[id]?.label??id}</div>
                     <div style={{ fontSize:15, color:"rgba(200,230,120,0.9)" }}>{qty}</div>
@@ -649,7 +1134,7 @@ function TabMenu({
                 <div key={id} draggable onDragStart={e=>{e.dataTransfer.setData("hotbar_item",id);e.dataTransfer.effectAllowed="copy";}}
                   onClick={()=>{const ei=hotbar?.findIndex(s=>!s)??-1;const si=ei>=0?ei:0;if(si<hotbarSlots){const nh=[...(hotbar??[])];nh[si]={item:id,qty};onHotbarChange?.(nh);}}}
                   style={{ ...itemStyle, background:"rgba(255,200,80,0.07)", border:"1px solid rgba(255,200,80,0.25)" }}>
-                  <span style={{ fontSize:22 }}>{ITEM_ICONS[id]??"📦"}</span>
+                  <ItemIcon id={id} size={26} />
                   <div style={{ flex:1 }}>
                     <div style={{ fontSize:12, color:"rgba(200,230,120,0.85)" }}>{ITEMS[id]?.label??id}</div>
                     <div style={{ fontSize:10, color:"rgba(255,255,255,0.3)" }}>×{qty} · drag → hotbar</div>
@@ -673,7 +1158,7 @@ function TabMenu({
                     draggable
                     onDragStart={e=>{e.dataTransfer.setData("hotbar_item",id);e.dataTransfer.effectAllowed="copy";}}
                     style={{ ...itemStyle, cursor:"grab", background:"rgba(200,230,120,0.05)", border:`1px solid ${isEq?"rgba(100,200,255,0.45)":"rgba(200,230,120,0.2)"}` }}>
-                    <span style={{ fontSize:22 }}>{ITEM_ICONS[id]??"📦"}</span>
+                    <ItemIcon id={id} size={26} />
                     <div style={{ flex:1 }}>
                       <div style={{ fontSize:12, color:"rgba(200,230,120,0.85)" }}>{ITEMS[id]?.label??id}</div>
                       <div style={{ fontSize:10, color:isEq?"rgba(100,200,255,0.7)":inHotbar?"rgba(200,230,120,0.55)":"rgba(255,255,255,0.3)" }}>
@@ -695,7 +1180,7 @@ function TabMenu({
                 const eq = EQUIPPABLE[id]; const isEq = equipment?.[eq?.slot]===id;
                 return (
                   <div key={id} onClick={()=>onEquipItem?.(id)} style={{ ...itemStyle, cursor:"pointer", background:"rgba(200,230,120,0.05)", border:"1px solid rgba(200,230,120,0.2)" }}>
-                    <span style={{ fontSize:22 }}>{ITEM_ICONS[id]??"📦"}</span>
+                    <ItemIcon id={id} size={26} />
                     <div style={{ flex:1 }}>
                       <div style={{ fontSize:12, color:"rgba(200,230,120,0.85)" }}>{ITEMS[id]?.label??id}</div>
                       <div style={{ fontSize:10, color:isEq?"rgba(100,200,255,0.7)":"rgba(255,255,255,0.3)" }}>{isEq?"✓ equipped":"click to equip"}</div>
@@ -739,7 +1224,7 @@ function TabMenu({
                 return (
                   <div key={id} draggable onDragStart={e=>{e.dataTransfer.setData("hotbar_item",id);e.dataTransfer.effectAllowed="copy";}}
                     style={{ ...itemStyle, background:"rgba(100,180,200,0.06)", border:"1px solid rgba(100,180,200,0.2)" }}>
-                    <span style={{ fontSize:22 }}>{ITEM_ICONS[id]??"📦"}</span>
+                    <ItemIcon id={id} size={26} />
                     <div style={{ flex:1 }}>
                       <div style={{ fontSize:12, color:"rgba(150,220,230,0.9)" }}>{it?.label??id}</div>
                       <div style={{ fontSize:10, color:"rgba(255,255,255,0.3)" }}>×{qty} · drag → hotbar</div>
@@ -916,7 +1401,7 @@ function TabMenu({
                   boxShadow: isSelected ? "0 0 0 2px rgba(200,230,120,0.25)" : "none",
                 }}>
                 {cell && <>
-                  <span style={{ fontSize: 20, lineHeight: 1 }}>{it?.icon ?? "📦"}</span>
+                  <ItemIcon id={cell.item} size={28} />
                   <span style={{ fontSize: 9, color: "rgba(200,230,120,0.85)", fontFamily: "monospace", lineHeight: 1, marginTop: 1 }}>{cell.qty}</span>
                 </>}
               </div>
@@ -1041,6 +1526,9 @@ function TabMenu({
 
   // ── Tab: Crafting ───────────────────────────────────────────────────────────
   function CraftingTab() {
+    const [showAll, setShowAll]           = useState(false);
+    const [craftableOnly, setCraftableOnly] = useState(false);
+
     // Crafting reads from player inventory (not chest)
     function handleCraft(name) {
       const newInv = craftItem(name, playerInventory);
@@ -1081,7 +1569,78 @@ function TabMenu({
 
     const stationCraftable = canCraft("crafting_station", playerInventory ?? {});
 
+    // ── Detect if a one-use upgrade has already been applied ────────────────
+    // traveler_pouch / explorer_pack → adds inventorySlots → slots > base means already applied
+    // belt_pouch / tool_belt → adds hotbarSlots → hotbarSlots > base means already applied
+    const invSlotsUsed  = (playerInventory?.slots ?? INVENTORY_BASE_SLOTS) - INVENTORY_BASE_SLOTS;
+    const hbSlotsUsed   = (hotbarSlots ?? HOTBAR_BASE_SLOTS) - HOTBAR_BASE_SLOTS;
+
+    // Per-item: has this specific upgrade already maxed out its contribution?
+    function upgradeAlreadyApplied(id) {
+      const eff = ITEMS[id]?.upgradeEffect;
+      if (!eff) return false;
+      if (eff.inventorySlots) {
+        // Once inventory slots > base, a pouch-type upgrade has been used
+        return invSlotsUsed >= eff.inventorySlots;
+      }
+      if (eff.hotbarSlots) {
+        return hbSlotsUsed >= eff.hotbarSlots;
+      }
+      return false;
+    }
+
     if (!atCraftingStation) {
+      // When Show All is on, render the full recipe browser (read-only — buttons stay disabled for station-locked recipes)
+      const noStationAllEntries = expandedStationRecipes().filter(
+        ([id]) => !unlockedItemIds || unlockedItemIds.has(resolveRecipeKey(id))
+      );
+      const noStationAllCategories = [
+        { key:"tools_t1",  label:"⚒ Tier 1 Tools",      filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="tool" && !ITEMS[resolveRecipeKey(id)]?.craftStation },
+        { key:"gear",      label:"🛡 Armor & Gear",       filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="gear" && !ITEMS[resolveRecipeKey(id)]?.craftStation },
+        { key:"upgrades",  label:"🎒 Bag Upgrades",       filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="upgrade" && !ITEMS[resolveRecipeKey(id)]?.craftStation },
+        { key:"stations",  label:"🏗 Stations",           filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="placeable" && ["fire_pit","furnace","anvil","potion_stand","builders_table"].includes(resolveRecipeKey(id)) },
+        { key:"decor",     label:"🌸 Decor & Structures", filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="placeable" && !["fire_pit","furnace","anvil","potion_stand","crafting_station","builders_table"].includes(resolveRecipeKey(id)) && ITEMS[resolveRecipeKey(id)]?.craftStation !== "builders_table" },
+        { key:"fire_pit",     label:"🔥 Fire Pit Recipes",    filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.craftStation === "fire_pit" },
+        { key:"furnace",      label:"⚙️ Furnace Recipes",     filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.craftStation === "furnace" },
+        { key:"anvil",        label:"⚒ Anvil Recipes",        filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.craftStation === "anvil" },
+        { key:"potion_stand", label:"⚗️ Potion Stand Recipes", filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.craftStation === "potion_stand" },
+        { key:"builders_table_recipes", label:"📐 Builder's Table Recipes", filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.craftStation === "builders_table" },
+      ];
+
+      // ── Toggle pill (defined here for the no-station branch) ───────────────
+      function NoStationTogglePill({ label, active, onChange, title }) {
+        return (
+          <button
+            title={title}
+            onClick={() => onChange(!active)}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "5px 11px", borderRadius: 20,
+              border: `1px solid ${active ? "rgba(200,230,120,0.5)" : "rgba(255,255,255,0.12)"}`,
+              background: active ? "rgba(200,230,120,0.14)" : "rgba(255,255,255,0.03)",
+              color: active ? "rgba(200,230,120,0.95)" : "rgba(255,255,255,0.35)",
+              fontSize: 11, fontFamily: "monospace", cursor: "pointer",
+              transition: "all 0.15s",
+            }}
+          >
+            <span style={{
+              width: 26, height: 14, borderRadius: 7,
+              background: active ? "rgba(200,230,120,0.75)" : "rgba(255,255,255,0.12)",
+              position: "relative", display: "inline-block", flexShrink: 0,
+              transition: "background 0.15s",
+            }}>
+              <span style={{
+                position: "absolute", top: 2, left: active ? 13 : 2,
+                width: 10, height: 10, borderRadius: "50%",
+                background: active ? "#0a1206" : "rgba(255,255,255,0.4)",
+                transition: "left 0.15s",
+              }} />
+            </span>
+            {label}
+          </button>
+        );
+      }
+
       return (
         <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
 
@@ -1094,7 +1653,23 @@ function TabMenu({
             ))}
           </div>
 
-          {/* Hand-craft: crafting station only */}
+          {/* ── Filter toggles ──────────────────────────────────────────────── */}
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+            <NoStationTogglePill
+              label="Show All"
+              active={showAll}
+              onChange={setShowAll}
+              title="Browse all recipes from every station"
+            />
+            <NoStationTogglePill
+              label="Craftable"
+              active={craftableOnly}
+              onChange={setCraftableOnly}
+              title="Only show recipes you have enough materials to craft right now"
+            />
+          </div>
+
+          {/* Hand-craft: crafting station only — always shown */}
           <div style={{ padding:"14px",borderRadius:12,background:"rgba(200,230,120,0.04)",border:"1px solid rgba(200,230,120,0.15)" }}>
             <p style={{ fontSize:10,color:"rgba(200,230,120,0.5)",letterSpacing:"0.14em",textTransform:"uppercase",marginBottom:12 }}>⚒ craft by hand</p>
             {(() => {
@@ -1103,6 +1678,7 @@ function TabMenu({
               const it = ITEMS[name];
               const chestCraftable = canCraftFromChest(name, normalizeChest(chest));
               const active = stationCraftable || chestCraftable;
+              if (craftableOnly && !active) return <div style={{ fontSize:11,color:"rgba(255,255,255,0.2)",fontFamily:"monospace" }}>Nothing hand-craftable yet.</div>;
               return (
                 <div style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:10,background:active?"rgba(200,230,120,0.06)":"rgba(255,255,255,0.02)",border:`1px solid ${active?"rgba(200,230,120,0.2)":"rgba(255,255,255,0.06)"}`,opacity:active?1:0.5 }}>
                   <span style={{ fontSize:22,minWidth:30 }}>{it?.icon??"📦"}</span>
@@ -1120,10 +1696,65 @@ function TabMenu({
             })()}
           </div>
 
-          <div style={{ padding:"14px",borderRadius:12,background:"rgba(255,255,255,0.02)",border:"1px dashed rgba(255,255,255,0.1)",textAlign:"center" }}>
-            <div style={{ fontSize:20,marginBottom:8 }}>🔒</div>
-            <div style={{ fontSize:12,color:"rgba(245,230,200,0.35)",lineHeight:1.6 }}>All other recipes require a <span style={{ color:"rgba(200,230,120,0.7)" }}>Crafting Station</span>.<br/>Build one and walk up to it, then press <span style={{ color:"rgba(200,230,120,0.7)" }}>[F]</span> to access all recipes.</div>
-          </div>
+          {/* Show All: full recipe browser (station-locked items show as greyed out) */}
+          {showAll && noStationAllCategories.map(cat => {
+            let entries = noStationAllEntries.filter(cat.filter);
+            if (craftableOnly) {
+              entries = entries.filter(([name]) => {
+                const alreadyApplied = upgradeAlreadyApplied(resolveRecipeKey(name));
+                if (alreadyApplied) return false;
+                return canCraftAtStationByKey(name, playerInventory ?? {}) || canCraftAtStationByKeyFromChest(name, normalizeChest(chest));
+              });
+            }
+            if (entries.length === 0) return null;
+            return (
+              <div key={cat.key}>
+                <p style={{ fontSize:10,color:"rgba(245,230,200,0.3)",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:8 }}>{cat.label}</p>
+                <div style={{ display:"flex",flexDirection:"column",gap:7 }}>
+                  {entries.map(([name, recipe]) => {
+                    const outputId = resolveRecipeKey(name);
+                    const it = ITEMS[outputId];
+                    const alreadyApplied = upgradeAlreadyApplied(outputId);
+                    const craftable = !alreadyApplied && canCraftAtStationByKey(name, playerInventory ?? {});
+                    const chestCraftable = !alreadyApplied && canCraftAtStationByKeyFromChest(name, normalizeChest(chest));
+                    const active = craftable || chestCraftable;
+                    const needsStation = !!it?.craftStation;
+                    return (
+                      <div key={name} style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:10,background:active?"rgba(200,230,120,0.06)":alreadyApplied?"rgba(255,180,60,0.04)":"rgba(255,255,255,0.02)",border:`1px solid ${active?"rgba(200,230,120,0.2)":alreadyApplied?"rgba(255,180,60,0.2)":"rgba(255,255,255,0.06)"}`,opacity:active?1:alreadyApplied?0.75:0.45 }}>
+                        <ItemIcon id={outputId} size={26} />
+                        <div style={{ flex:1 }}>
+                          <div style={{ fontSize:13,color:"rgba(200,230,120,0.85)" }}>{it?.label??outputId}</div>
+                          <div style={{ fontSize:10,color:"rgba(245,230,200,0.4)",display:"flex",flexWrap:"wrap",gap:6 }}>
+                            {Object.entries(recipe).map(([ing,qty])=>{const have=playerItems[ing]??0;const chestMap=chestToMap(normalizeChest(chest));const inChest=chestMap[ing]??0;return<span key={ing} style={{ color:have>=qty?"rgba(200,230,120,0.7)":inChest>=qty?"rgba(180,200,100,0.6)":"rgba(255,100,80,0.7)" }}>{ITEM_ICONS[ing]??""} {have}/{qty}{inChest>0&&have<qty?<span style={{ color:"rgba(180,200,100,0.5)",fontSize:9 }}> (📦{inChest})</span>:null} {ITEMS[ing]?.label??ing}</span>;})}
+                          </div>
+                          {needsStation && <div style={{ fontSize:9,color:"rgba(255,180,80,0.5)",marginTop:2 }}>requires {ITEMS[it.craftStation]?.label??it.craftStation}</div>}
+                          {alreadyApplied && <div style={{ fontSize:9,color:"rgba(255,180,60,0.8)",marginTop:3 }}>⚠ already applied — you can only use this once</div>}
+                        </div>
+                        {alreadyApplied ? (
+                          <span style={{ fontSize:10,color:"rgba(255,180,60,0.6)",fontFamily:"monospace",whiteSpace:"nowrap" }}>✓ used</span>
+                        ) : needsStation ? (
+                          <span style={{ fontSize:9,color:"rgba(255,180,80,0.4)",fontFamily:"monospace",whiteSpace:"nowrap",textAlign:"center",lineHeight:1.3 }}>needs<br/>station</span>
+                        ) : (
+                          <>
+                            <button disabled={!craftable} onClick={()=>handleCraftAtStation(name)} style={{ padding:"8px 14px",borderRadius:8,border:`1px solid ${craftable?"rgba(200,230,120,0.35)":"rgba(255,255,255,0.06)"}`,background:craftable?"rgba(200,230,120,0.1)":"transparent",color:craftable?"rgba(200,230,120,0.9)":"rgba(255,255,255,0.2)",fontSize:11,fontFamily:"monospace",cursor:craftable?"pointer":"default" }}>craft</button>
+                            {(()=>{const cc=canCraftAtStationByKeyFromChest(name,normalizeChest(chest))&&!alreadyApplied;return<button disabled={!cc} onClick={()=>handleCraftAtStationFromChest(name)} title="Craft using materials from chest" style={{ padding:"8px 14px",borderRadius:8,border:`1px solid ${cc?"rgba(180,200,100,0.35)":"rgba(255,255,255,0.06)"}`,background:cc?"rgba(180,200,100,0.1)":"transparent",color:cc?"rgba(180,200,100,0.9)":"rgba(255,255,255,0.2)",fontSize:11,fontFamily:"monospace",cursor:cc?"pointer":"default",whiteSpace:"nowrap" }}>📦 chest</button>;})()}
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Default locked notice when Show All is off */}
+          {!showAll && (
+            <div style={{ padding:"14px",borderRadius:12,background:"rgba(255,255,255,0.02)",border:"1px dashed rgba(255,255,255,0.1)",textAlign:"center" }}>
+              <div style={{ fontSize:20,marginBottom:8 }}>🔒</div>
+              <div style={{ fontSize:12,color:"rgba(245,230,200,0.35)",lineHeight:1.6 }}>All other recipes require a <span style={{ color:"rgba(200,230,120,0.7)" }}>Crafting Station</span>.<br/>Build one and walk up to it, then press <span style={{ color:"rgba(200,230,120,0.7)" }}>[F]</span> to access all recipes.</div>
+            </div>
+          )}
         </div>
       );
     }
@@ -1154,25 +1785,7 @@ function TabMenu({
       return parts.join(" · ");
     }
 
-    // ── Detect if a one-use upgrade has already been applied ────────────────
-    // traveler_pouch / explorer_pack → adds inventorySlots → slots > base means already applied
-    // belt_pouch / tool_belt → adds hotbarSlots → hotbarSlots > base means already applied
-    const invSlotsUsed  = (playerInventory?.slots ?? INVENTORY_BASE_SLOTS) - INVENTORY_BASE_SLOTS;
-    const hbSlotsUsed   = (hotbarSlots ?? HOTBAR_BASE_SLOTS) - HOTBAR_BASE_SLOTS;
-
-    // Per-item: has this specific upgrade already maxed out its contribution?
-    function upgradeAlreadyApplied(id) {
-      const eff = ITEMS[id]?.upgradeEffect;
-      if (!eff) return false;
-      if (eff.inventorySlots) {
-        // Once inventory slots > base, a pouch-type upgrade has been used
-        return invSlotsUsed >= eff.inventorySlots;
-      }
-      if (eff.hotbarSlots) {
-        return hbSlotsUsed >= eff.hotbarSlots;
-      }
-      return false;
-    }
+    
 
     // Station-specific menus: only show items whose craftStation matches the current station.
     // The main crafting_station shows tools, gear, upgrades, stations, decor (items with no specific craftStation).
@@ -1186,16 +1799,60 @@ function TabMenu({
       builders_table: { icon:"📐", label:"Builder's Table" },
     };
 
-    const categories = isSpecificStation
-      ? [{ key: atCraftingStation, label: `${STATION_LABELS[atCraftingStation]?.icon ?? "🔨"} ${STATION_LABELS[atCraftingStation]?.label ?? atCraftingStation} Recipes`, filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.craftStation === atCraftingStation }]
-      : [
-          { key:"tools_t1",  label:"⚒ Tier 1 Tools",      filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="tool" && !ITEMS[resolveRecipeKey(id)]?.craftStation },
-          { key:"gear",      label:"🛡 Armor & Gear",       filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="gear" && !ITEMS[resolveRecipeKey(id)]?.craftStation },
-          { key:"upgrades",  label:"🎒 Bag Upgrades",       filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="upgrade" && !ITEMS[resolveRecipeKey(id)]?.craftStation },
-          { key:"stations",  label:"🏗 Stations",           filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="placeable" && ["fire_pit","furnace","anvil","potion_stand","builders_table"].includes(resolveRecipeKey(id)) },
-          { key:"decor",     label:"🌸 Decor & Structures", filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="placeable" && !["fire_pit","furnace","anvil","potion_stand","crafting_station","builders_table"].includes(resolveRecipeKey(id)) && ITEMS[resolveRecipeKey(id)]?.craftStation !== "builders_table" },
-        ];
-    const allStationEntries = expandedStationRecipes();
+    const allCategories = [
+      { key:"tools_t1",  label:"⚒ Tier 1 Tools",      filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="tool" && !ITEMS[resolveRecipeKey(id)]?.craftStation },
+      { key:"gear",      label:"🛡 Armor & Gear",       filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="gear" && !ITEMS[resolveRecipeKey(id)]?.craftStation },
+      { key:"upgrades",  label:"🎒 Bag Upgrades",       filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="upgrade" && !ITEMS[resolveRecipeKey(id)]?.craftStation },
+      { key:"stations",  label:"🏗 Stations",           filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="placeable" && ["fire_pit","furnace","anvil","potion_stand","builders_table"].includes(resolveRecipeKey(id)) },
+      { key:"decor",     label:"🌸 Decor & Structures", filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="placeable" && !["fire_pit","furnace","anvil","potion_stand","crafting_station","builders_table"].includes(resolveRecipeKey(id)) && ITEMS[resolveRecipeKey(id)]?.craftStation !== "builders_table" },
+      { key:"fire_pit",     label:"🔥 Fire Pit Recipes",    filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.craftStation === "fire_pit" },
+      { key:"furnace",      label:"⚙️ Furnace Recipes",     filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.craftStation === "furnace" },
+      { key:"anvil",        label:"⚒ Anvil Recipes",        filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.craftStation === "anvil" },
+      { key:"potion_stand", label:"⚗️ Potion Stand Recipes", filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.craftStation === "potion_stand" },
+      { key:"builders_table_recipes", label:"📐 Builder's Table Recipes", filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.craftStation === "builders_table" },
+    ];
+    const categories = showAll
+      ? allCategories
+      : isSpecificStation
+        ? [{ key: atCraftingStation, label: `${STATION_LABELS[atCraftingStation]?.icon ?? "🔨"} ${STATION_LABELS[atCraftingStation]?.label ?? atCraftingStation} Recipes`, filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.craftStation === atCraftingStation }]
+        : allCategories.slice(0, 5);
+    const allStationEntries = expandedStationRecipes().filter(
+      ([id]) => !unlockedItemIds || unlockedItemIds.has(resolveRecipeKey(id))
+    );
+
+    // ── Toggle pill style helper ────────────────────────────────────────────
+    function TogglePill({ label, active, onChange, title }) {
+      return (
+        <button
+          title={title}
+          onClick={() => onChange(!active)}
+          style={{
+            display: "flex", alignItems: "center", gap: 6,
+            padding: "5px 11px", borderRadius: 20,
+            border: `1px solid ${active ? "rgba(200,230,120,0.5)" : "rgba(255,255,255,0.12)"}`,
+            background: active ? "rgba(200,230,120,0.14)" : "rgba(255,255,255,0.03)",
+            color: active ? "rgba(200,230,120,0.95)" : "rgba(255,255,255,0.35)",
+            fontSize: 11, fontFamily: "monospace", cursor: "pointer",
+            transition: "all 0.15s",
+          }}
+        >
+          <span style={{
+            width: 26, height: 14, borderRadius: 7,
+            background: active ? "rgba(200,230,120,0.75)" : "rgba(255,255,255,0.12)",
+            position: "relative", display: "inline-block", flexShrink: 0,
+            transition: "background 0.15s",
+          }}>
+            <span style={{
+              position: "absolute", top: 2, left: active ? 13 : 2,
+              width: 10, height: 10, borderRadius: "50%",
+              background: active ? "#0a1206" : "rgba(255,255,255,0.4)",
+              transition: "left 0.15s",
+            }} />
+          </span>
+          {label}
+        </button>
+      );
+    }
 
     return (
       <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
@@ -1206,8 +1863,32 @@ function TabMenu({
             </span>
           ))}
         </div>
+
+        {/* ── Filter toggles ──────────────────────────────────────────────── */}
+        <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+          <TogglePill
+            label="Show All"
+            active={showAll}
+            onChange={setShowAll}
+            title="Show all recipes from every station, even if you're not there"
+          />
+          <TogglePill
+            label="Craftable"
+            active={craftableOnly}
+            onChange={setCraftableOnly}
+            title="Only show recipes you have enough materials to craft right now"
+          />
+        </div>
+
         {categories.map(cat => {
-          const entries = allStationEntries.filter(cat.filter);
+          let entries = allStationEntries.filter(cat.filter);
+          if (craftableOnly) {
+            entries = entries.filter(([name]) => {
+              const alreadyApplied = upgradeAlreadyApplied(resolveRecipeKey(name));
+              if (alreadyApplied) return false;
+              return canCraftAtStationByKey(name, playerInventory ?? {}) || canCraftAtStationByKeyFromChest(name, normalizeChest(chest));
+            });
+          }
           if (entries.length === 0) return null;
           return (
             <div key={cat.key}>
@@ -1223,7 +1904,7 @@ function TabMenu({
                   const active = craftable || chestCraftable;
                   return (
                     <div key={name} style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:10,background:active?"rgba(200,230,120,0.06)":alreadyApplied?"rgba(255,180,60,0.04)":"rgba(255,255,255,0.02)",border:`1px solid ${active?"rgba(200,230,120,0.2)":alreadyApplied?"rgba(255,180,60,0.2)":"rgba(255,255,255,0.06)"}`,opacity:active?1:alreadyApplied?0.75:0.5 }}>
-                      <span style={{ fontSize:22,minWidth:30 }}>{it?.icon??"📦"}</span>
+                      <ItemIcon id={outputId} size={26} />
                       <div style={{ flex:1 }}>
                         <div style={{ fontSize:13,color:"rgba(200,230,120,0.85)" }}>{it?.label??outputId}</div>
                         {statLine && (
@@ -1254,11 +1935,22 @@ function TabMenu({
             </div>
           );
         })}
+        {craftableOnly && categories.every(cat => {
+          let entries = allStationEntries.filter(cat.filter);
+          entries = entries.filter(([name]) => {
+            const alreadyApplied = upgradeAlreadyApplied(resolveRecipeKey(name));
+            if (alreadyApplied) return false;
+            return canCraftAtStationByKey(name, playerInventory ?? {}) || canCraftAtStationByKeyFromChest(name, normalizeChest(chest));
+          });
+          return entries.length === 0;
+        }) && (
+          <div style={{ textAlign:"center", padding:"20px 0", color:"rgba(255,255,255,0.25)", fontSize:12, fontFamily:"monospace" }}>
+            No craftable recipes right now — gather more materials.
+          </div>
+        )}
       </div>
     );
   }
-
-  // ── Tab: Equipment ──────────────────────────────────────────────────────────
   function EquipmentTab() {
     const stats = getEquipStats(equipment);
     const equippableInBag = Object.entries(playerItems).filter(([k,v])=>v>0&&EQUIPPABLE[k]).map(([k])=>k);
@@ -1377,13 +2069,13 @@ function TabMenu({
           <div>
             <p style={{ fontSize:10,color:"rgba(245,230,200,0.3)",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:8 }}>growing now ({planted.length})</p>
             <div style={{ display:"flex",flexDirection:"column",gap:6 }}>
-              {planted.map(([key,plot])=>{const def=SEEDS[plot.seedId];const elapsed=(Date.now()-plot.plantedAt)/1000;const progress=Math.min(1,elapsed/(def?.growthTime*(def?.growthStages??3)));return(
-                <div key={key} style={{ display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:9,background:plot.ready?"rgba(80,200,80,0.1)":"rgba(60,120,40,0.08)",border:`1px solid ${plot.ready?"rgba(80,200,80,0.3)":"rgba(80,160,40,0.15)"}` }}>
+              {planted.map(([key,plot])=>{const def=SEEDS[plot.seedId];const nowTs=Date.now();const elapsed=(nowTs-plot.plantedAt)/1000;const isWatered=plot.wateredAt&&(nowTs-plot.wateredAt)/1000<WATER_BOOST_SECONDS;const effectiveElapsed=isWatered?elapsed*1.5:elapsed;const progress=Math.min(1,effectiveElapsed/(def?.growthTime*(def?.growthStages??3)));return(
+                <div key={key} style={{ display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:9,background:plot.ready?"rgba(80,200,80,0.1)":isWatered?"rgba(60,140,200,0.08)":"rgba(60,120,40,0.08)",border:`1px solid ${plot.ready?"rgba(80,200,80,0.3)":isWatered?"rgba(80,160,220,0.3)":"rgba(80,160,40,0.15)"}` }}>
                   <span style={{ fontSize:18 }}>{ITEMS[plot.seedId]?.icon??"🌱"}</span>
                   <div style={{ flex:1 }}>
-                    <div style={{ fontSize:12,color:plot.ready?"rgba(120,220,80,0.9)":"rgba(180,230,120,0.7)" }}>{def?.label?.replace(" Seeds","")??plot.seedId} {plot.ready?"— ✓ ready!":""}</div>
+                    <div style={{ fontSize:12,color:plot.ready?"rgba(120,220,80,0.9)":"rgba(180,230,120,0.7)",display:"flex",alignItems:"center",gap:5 }}>{def?.label?.replace(" Seeds","")??plot.seedId} {plot.ready?"— ✓ ready!":""}{isWatered&&!plot.ready&&<span style={{ fontSize:9,color:"rgba(100,180,240,0.9)",background:"rgba(60,140,200,0.18)",border:"1px solid rgba(80,160,220,0.3)",borderRadius:4,padding:"1px 5px" }}>💧 ×1.5</span>}</div>
                     <div style={{ height:4,borderRadius:2,background:"rgba(255,255,255,0.08)",marginTop:4,overflow:"hidden" }}>
-                      <div style={{ height:"100%",width:`${progress*100}%`,background:plot.ready?"rgba(80,220,80,0.7)":"rgba(120,200,60,0.6)",transition:"width 1s" }}/>
+                      <div style={{ height:"100%",width:`${progress*100}%`,background:plot.ready?"rgba(80,220,80,0.7)":isWatered?"rgba(80,160,220,0.6)":"rgba(120,200,60,0.6)",transition:"width 1s" }}/>
                     </div>
                   </div>
                   <div style={{ fontSize:10,color:"rgba(200,200,200,0.4)",fontFamily:"monospace" }}>{Math.round(progress*100)}%</div>
@@ -1456,10 +2148,10 @@ function TabMenu({
           <div style={{ fontSize:11,color:"rgba(200,230,120,0.5)",letterSpacing:"0.2em",textTransform:"uppercase",paddingBottom:14 }}>🌿 hearthroot — menu</div>
           <button onClick={onClose} style={{ background:"transparent",border:"1px solid rgba(255,255,255,0.1)",borderRadius:7,color:"rgba(255,255,255,0.3)",fontSize:12,fontFamily:"monospace",cursor:"pointer",padding:"3px 9px",marginBottom:14 }}>✕  esc</button>
         </div>
-        <div style={{ display:"flex",overflowX:"auto",borderBottom:"1px solid rgba(255,255,255,0.07)",padding:"0 6px",scrollbarWidth:"none" }}>
+        <div style={{ display:"flex",flexWrap:"wrap",borderBottom:"1px solid rgba(255,255,255,0.07)",padding:"0 2px" }}>
           {TABS.map(tab=>{const active=activeTab===tab.id;return(
-            <button key={tab.id} onClick={()=>onTabChange(tab.id)} style={{ flex:"0 0 auto",padding:"10px 14px",background:"transparent",border:"none",borderBottom:`2px solid ${active?"rgba(200,230,120,0.8)":"transparent"}`,color:active?"rgba(200,230,120,0.95)":"rgba(245,230,200,0.4)",fontSize:12,fontFamily:"monospace",cursor:"pointer",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap" }}>
-              <span style={{ fontSize:14 }}>{tab.icon}</span>{tab.label}
+            <button key={tab.id} onClick={()=>onTabChange(tab.id)} style={{ flex:"1 1 auto",minWidth:"30%",padding:"8px 10px",background:active?"rgba(200,230,120,0.07)":"transparent",border:"none",borderBottom:`2px solid ${active?"rgba(200,230,120,0.8)":"transparent"}`,color:active?"rgba(200,230,120,0.95)":"rgba(245,230,200,0.4)",fontSize:11,fontFamily:"monospace",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:5,whiteSpace:"nowrap" }}>
+              <span style={{ fontSize:13 }}>{tab.icon}</span>{tab.label}
             </button>
           );})}
         </div>
@@ -1497,6 +2189,7 @@ export default function HomesteadView({
   town,
   // Navigation
   onStartRun, onJoinRun,
+  canStartRun = true,
 }) {
   const canvasRef  = useRef(null);
   const rafRef     = useRef(null);
@@ -1505,9 +2198,9 @@ export default function HomesteadView({
   // ── Farming / world state ──────────────────────────────────────────────────
   // Declare early so we can replay farmPlots into tileMap during init
   const {
-    farmPlots, tickCrops, tillTile, plantSeed, harvestCrop,
+    farmPlots, tickCrops, tillTile, untillTile, plantSeed, harvestCrop, waterPlot, WATER_BOOST_SECONDS,
     nodeState, tickNodes, getNodeState, hitOreNode, hitTree, tickTreeRespawns, fishAtSpot,
-  } = useHomesteadState();
+  } = useHomesteadState(room?.id);
 
   // Build tileMap with persisted farmPlots already applied so tilled/planted tiles
   // survive a reload without a flash-of-grass on first frame.
@@ -1541,6 +2234,8 @@ export default function HomesteadView({
 
   const [gold, setGold] = useState(() => { try { return JSON.parse(localStorage.getItem("hearthroot_gold")??"0"); } catch { return 0; } });
   const [partnerOnline,    setPartnerOnline]    = useState(false);
+  const partnerOnlineRef = useRef(false);
+  useEffect(() => { partnerOnlineRef.current = partnerOnline; }, [partnerOnline]);
   const [runJoinPrompt,    setRunJoinPrompt]    = useState(null);
   const [tabMenuOpen,      setTabMenuOpen]      = useState(false);
   const [activeTab,        setActiveTab]        = useState("inventory");
@@ -1551,17 +2246,63 @@ export default function HomesteadView({
   const selectedHotbarIdxRef = useRef(0);
   const ghostRef = useRef(null);
   const partnerAppearanceRef = useRef({ character:null, equipment:null });
+  const canStartRunRef = useRef(canStartRun);
+  useEffect(() => { canStartRunRef.current = canStartRun; }, [canStartRun]);
 
   // ── Town / NPC UI state ────────────────────────────────────────────────────
   const [treasuryOpen,   setTreasuryOpen]   = useState(false);
   const [talkingNPC,     setTalkingNPC]     = useState(null);  // NPC object | null
+
+  // Sleep / day-cycle UI
+  // sleepPhase: null | 'confirm' | 'waiting_partner' | 'partner_requesting' | 'both_ready'
+  const [sleepPhase, setSleepPhase] = useState(null);
+  const sleepPhaseRef = useRef(null);
+  useEffect(() => { sleepPhaseRef.current = sleepPhase; }, [sleepPhase]);
+
+  // Run-locked modal: shown when player tries to use the run board but has already run today
+  const [showRunLocked, setShowRunLocked] = useState(false);
   const townRef = town?.townRef;  // ref to NPC array for game loop reads
   // NPC position sync timer — flush NPC positions back to town state every 500ms
   const npcSyncTimerRef = useRef(0);
-  const treasuryOpenRef = useRef(false);
-  const talkingNPCRef   = useRef(null);
-  useEffect(() => { treasuryOpenRef.current = treasuryOpen; }, [treasuryOpen]);
-  useEffect(() => { talkingNPCRef.current   = talkingNPC;   }, [talkingNPC]);
+  const treasuryOpenRef      = useRef(false);
+  const talkingNPCRef        = useRef(null);
+  const townOpenRef          = useRef(false);
+  const atCraftingStationRef = useRef(false);
+  useEffect(() => { treasuryOpenRef.current      = treasuryOpen;        }, [treasuryOpen]);
+  useEffect(() => { talkingNPCRef.current        = talkingNPC;          }, [talkingNPC]);
+  useEffect(() => { townOpenRef.current          = townOpen;            }, [townOpen]);
+  useEffect(() => { atCraftingStationRef.current = atCraftingStation;   }, [atCraftingStation]);
+
+  // ── Sell toast queue ───────────────────────────────────────────────────────
+  const [sellToasts, setSellToasts] = useState([]);
+  const sellToastTimersRef = useRef({});
+
+  const pushSellToast = useCallback(({ icon, label, qty, gold: goldEarned }) => {
+    injectSellToastStyle();
+    const id = `${label}_${Date.now()}_${Math.random()}`;
+    const toast = { id, icon, label, qty, gold: goldEarned, addedAt: Date.now() };
+    setSellToasts(prev => [...prev, toast]);
+
+    // Schedule fade start (re-render to pick up fading class) then removal
+    const fadeTimer = setTimeout(() => {
+      setSellToasts(prev => prev.map(t => t.id === id ? { ...t, addedAt: Date.now() - (TOAST_DURATION_MS - TOAST_FADE_MS) } : t));
+    }, TOAST_DURATION_MS - TOAST_FADE_MS);
+
+    const removeTimer = setTimeout(() => {
+      setSellToasts(prev => prev.filter(t => t.id !== id));
+      delete sellToastTimersRef.current[id];
+    }, TOAST_DURATION_MS + 50);
+
+    sellToastTimersRef.current[id] = { fadeTimer, removeTimer };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      Object.values(sellToastTimersRef.current).forEach(({ fadeTimer, removeTimer }) => {
+        clearTimeout(fadeTimer); clearTimeout(removeTimer);
+      });
+    };
+  }, []);
 
   useEffect(() => { if (placedObjectsProp?.length > 0) objectsRef.current = placedObjectsProp; }, [placedObjectsProp]);
   useEffect(() => { ghostRef.current = ghostPlacement; }, [ghostPlacement]);
@@ -1603,6 +2344,14 @@ export default function HomesteadView({
       }
     }
 
+    // Hoe on empty tilled soil → revert to grass
+    if (equipStats.canHoe && target?.type === "tilled_plot") {
+      if (untillTile(target.tx, target.ty, tileMapRef.current)) {
+        sendFarmUpdatedRef.current?.(farmPlots.current);
+        return;
+      }
+    }
+
     if (!target) return;
 
     // Seed planting — seeds must be in player inventory
@@ -1625,6 +2374,14 @@ export default function HomesteadView({
           }
           return;
         }
+      }
+    }
+
+    // Watering can — water a tilled or planted plot
+    if (equipStats.canWater && (target.type === "tilled_plot" || target.type === "planted_crop" || target.type === "ready_crop")) {
+      if (waterPlot(target.tx, target.ty)) {
+        sendFarmUpdatedRef.current?.(farmPlots.current);
+        return;
       }
     }
 
@@ -1681,10 +2438,32 @@ export default function HomesteadView({
       }
     }
 
+    // Hammer — demolish any placed building, return it to player inventory
+    if (equipStats.canDemolish && target.isPlaceable) {
+      const itemId = target.type; // placed object type == item id
+      const newObjects = objectsRef.current.filter(o => o.id !== target.id);
+      objectsRef.current = newObjects;
+      onObjectsUpdate?.(newObjects);
+      sendObjectRemovedRef.current?.(target.id);
+      // Return the item to player inventory
+      const flatInv = { ...(playerInvRef.current?.items ?? {}) };
+      flatInv[itemId] = (flatInv[itemId] ?? 0) + 1;
+      onPlayerInventoryUpdate?.({ ...playerInvRef.current, items: flatInv });
+      return;
+    }
+
     // Standard interactables
     if (target.type === OBJ.CHEST)  { setActiveTab("chest"); setTabMenuOpen(true); }
     if (target.type === "storage_chest") { setActiveTab("chest"); setTabMenuOpen(true); }
-    if (target.type === OBJ.BOARD)  onStartRun?.();
+    if (target.type === OBJ.HOUSE)  {
+      // Open the sleep confirm dialog — partner must also confirm to advance the day
+      setSleepPhase("confirm");
+    }
+    if (target.type === OBJ.BOARD)  {
+      if (!canStartRun) { setShowRunLocked(true); return; }
+      try { localStorage.setItem("hearthroot_player_pos", JSON.stringify({ px: state.px, py: state.py, facing: state.facing })); } catch {}
+      onStartRun?.();
+    }
     if (target.type === "crafting_station") { setAtCraftingStation("crafting_station"); setActiveTab("crafting"); setTabMenuOpen(true); }
     if (["fire_pit", "furnace", "anvil", "potion_stand"].includes(target.type)) {
       setAtCraftingStation(target.type); setActiveTab("crafting"); setTabMenuOpen(true);
@@ -1709,7 +2488,7 @@ export default function HomesteadView({
     if (target.type === OBJ.NPC) {
       setTalkingNPC(target._npcData ?? null);
     }
-  }, [tillTile, plantSeed, harvestCrop, hitOreNode, hitTree, fishAtSpot, onPlayerInventoryUpdate, onStartRun, onObjectsUpdate]);
+  }, [tillTile, untillTile, plantSeed, harvestCrop, waterPlot, hitOreNode, hitTree, fishAtSpot, onPlayerInventoryUpdate, onStartRun, onObjectsUpdate, canStartRun]);
 
   // ── Active hotbar slot use ─────────────────────────────────────────────────
   const handleUseActiveSlot = useCallback(() => {
@@ -1736,6 +2515,42 @@ export default function HomesteadView({
       onHotbarChange?.(newHotbar);
     }
   }, [handleInteract, onPlayerInventoryUpdate, onHotbarChange]);
+
+  // ── Sleep / day-cycle logic ───────────────────────────────────────────────────
+  // Ref-stable wrappers so executeSleep/handleSleepConfirm never go stale.
+  const sendSleepConfirmedRef = useRef(null);
+  const sendSleepCancelledRef = useRef(null);
+  const sendSleepRequestedRef = useRef(null);
+
+  const executeSleep = useCallback((broadcast = false) => {
+    town?.incrementDay?.();
+    town?.checkArrivals?.();
+    setSleepPhase(null);
+    if (broadcast) sendSleepConfirmedRef.current?.();
+  }, [town]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Called when the local player clicks "sleep" on the modal
+  const handleSleepConfirm = useCallback(() => {
+    const current = sleepPhaseRef.current;
+    if (current === 'confirm') {
+      if (!partnerOnlineRef.current) {
+        // Solo — just sleep immediately
+        executeSleep(false);
+      } else {
+        // Co-op — broadcast our request and wait
+        setSleepPhase('waiting_partner');
+        sendSleepRequestedRef.current?.();
+      }
+    } else if (current === 'partner_requesting') {
+      // Partner was waiting — we confirmed, execute and broadcast confirm
+      executeSleep(true);
+    }
+  }, [executeSleep]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleSleepCancel = useCallback(() => {
+    setSleepPhase(null);
+    sendSleepCancelledRef.current?.();
+  }, []);
 
   // ── Realtime handlers ──────────────────────────────────────────────────────
   const onChestUpdateRef = useRef(onChestUpdate);
@@ -1804,12 +2619,18 @@ export default function HomesteadView({
         tm[row][col] = plot.seedId ? T.PLANTED : T.TILLED;
       }
       // Persist and update the ref so crop ticking works locally
-      try { localStorage.setItem("hearthroot_farm", JSON.stringify(plots)); } catch {}
+      // Use room-scoped keys to match useHomesteadState
+      const roomId = room?.id;
+      if (roomId) {
+        try { localStorage.setItem(`hearthroot_farm_${roomId}`, JSON.stringify(plots)); } catch {}
+      }
       farmPlots.current = plots;
 
       // Apply remote node state (ore depletion, tree chop) if included
       if (remoteNodeState) {
-        try { localStorage.setItem("hearthroot_nodes", JSON.stringify(remoteNodeState)); } catch {}
+        if (roomId) {
+          try { localStorage.setItem(`hearthroot_nodes_${roomId}`, JSON.stringify(remoteNodeState)); } catch {}
+        }
         nodeState.current = remoteNodeState;
       }
     },
@@ -1826,9 +2647,34 @@ export default function HomesteadView({
     },
     onRunQueued: ({ runType, seed }) => setRunJoinPrompt({ runType, seed }),
     onRunCancelled: () => setRunJoinPrompt(null),
+
+    // ── Sleep / day cycle ───────────────────────────────────────────────────
+    // Partner pressed [F] on the house and confirmed sleep — are we also ready?
+    onSleepRequested: () => {
+      if (sleepPhaseRef.current === 'waiting_partner') {
+        // We were already waiting — both ready, execute immediately and broadcast confirm
+        town?.incrementDay?.();
+        town?.checkArrivals?.();
+        setSleepPhase(null);
+        // We fire sleep_confirmed so the partner's onSleepConfirmed triggers their side
+        sendSleepConfirmedRef.current?.();
+      } else {
+        setSleepPhase('partner_requesting');
+      }
+    },
+    // Partner cancelled their sleep request
+    onSleepCancelled: () => {
+      setSleepPhase(p => (p === 'partner_requesting' || p === 'both_ready') ? null : p);
+    },
+    // Both confirmed — execute the sleep on this client too
+    onSleepConfirmed: () => {
+      town?.incrementDay?.();
+      town?.checkArrivals?.();
+      setSleepPhase(null);
+    },
   }).current;
 
-  const { sendPlayerMove, sendPlayerReady, sendPlayerAppearance, sendObjectPlaced, sendObjectRemoved, sendFarmUpdated, sendPlayerStateSync, sendChestUpdated, sendTownStateUpdated } = useHearthroom(room?.id??null, handlers);
+  const { sendPlayerMove, sendPlayerReady, sendPlayerAppearance, sendObjectPlaced, sendObjectRemoved, sendFarmUpdated, sendPlayerStateSync, sendChestUpdated, sendTownStateUpdated, sendSleepRequested, sendSleepCancelled, sendSleepConfirmed } = useHearthroom(room?.id??null, handlers);
 
   // Wire sendTownStateUpdated into the town hook so checkArrivals can broadcast.
   // We do this via a ref setter so it survives across re-renders without needing
@@ -1838,6 +2684,10 @@ export default function HomesteadView({
   }, [sendTownStateUpdated]); // eslint-disable-line react-hooks/exhaustive-deps
   const sendObjectPlacedRef  = useRef(sendObjectPlaced);
   const sendObjectRemovedRef = useRef(sendObjectRemoved);
+  // Wire sleep send refs (defined after useHearthroom)
+  useEffect(() => { sendSleepConfirmedRef.current = sendSleepConfirmed; }, [sendSleepConfirmed]);
+  useEffect(() => { sendSleepCancelledRef.current = sendSleepCancelled; }, [sendSleepCancelled]);
+  useEffect(() => { sendSleepRequestedRef.current = sendSleepRequested; }, [sendSleepRequested]);
   const sendFarmUpdatedRef   = useRef(sendFarmUpdated);
   const sendPlayerStateSyncRef = useRef(sendPlayerStateSync);
   const sendChestUpdatedRef  = useRef(sendChestUpdated);
@@ -1874,7 +2724,15 @@ export default function HomesteadView({
   const onKeyDownImpl = useCallback((e) => {
     keysRef.current[e.key] = true;
     if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key)) e.preventDefault();
-    if (e.key==="f"||e.key==="F") handleInteractRef.current();
+    if (e.key==="f"||e.key==="F") {
+      // Close any open panel first; only interact if nothing was open
+      if (treasuryOpenRef.current)      { setTreasuryOpen(false); return; }
+      if (talkingNPCRef.current)        { setTalkingNPC(null);    return; }
+      if (townOpenRef.current)          { setTownOpen(false);     return; }
+      if (atCraftingStationRef.current) { setAtCraftingStation(false); setTabMenuOpen(false); return; }
+      if (tabMenuOpenRef.current)       { setTabMenuOpen(false);  setAtCraftingStation(false); return; }
+      handleInteractRef.current();
+    }
     if (e.key==="Tab")   { e.preventDefault(); if (tabMenuOpenRef.current) setAtCraftingStation(false); setTabMenuOpen(v=>!v); }
     if (e.key==="c"||e.key==="C") { if (tabMenuOpenRef.current) setAtCraftingStation(false); setTabMenuOpen(v=>!v); }
     if (e.key==="Escape") {
@@ -1907,8 +2765,13 @@ export default function HomesteadView({
   // ── One-time player state init (must not re-run or it resets position) ──────
   useEffect(() => {
     if (!stateRef.current) {
+      let savedPx = 8*TILE, savedPy = 9*TILE, savedFacing = "down";
+      try {
+        const saved = JSON.parse(localStorage.getItem("hearthroot_player_pos") ?? "null");
+        if (saved?.px != null) { savedPx = saved.px; savedPy = saved.py; savedFacing = saved.facing ?? "down"; }
+      } catch {}
       stateRef.current = {
-        px:8*TILE, py:9*TILE, facing:"down",
+        px:savedPx, py:savedPy, facing:savedFacing,
         step:0, stepTimer:0, interactTarget:null,
         camX:0, camY:0, lastTime:performance.now(), lastBroadcast:0,
         partnerX:0, partnerY:0, partnerFacing:"down", partnerVisible:false,
@@ -2033,6 +2896,13 @@ export default function HomesteadView({
         state.lastBroadcast = nowMs;
       }
 
+      // Persist position every ~3s so returning from a run restores it
+      state.lastPosSave = (state.lastPosSave||0);
+      if (nowMs - state.lastPosSave > 3000) {
+        try { localStorage.setItem("hearthroot_player_pos", JSON.stringify({ px: state.px, py: state.py, facing: state.facing })); } catch {}
+        state.lastPosSave = nowMs;
+      }
+
       // Draw
       ctx.clearRect(0,0,W,H);
       for (let r=0;r<WORLD_ROWS;r++) for (let c=0;c<WORLD_COLS;c++) {
@@ -2047,11 +2917,14 @@ export default function HomesteadView({
         const px2=obj.tx*TILE-camX, py2=obj.ty*TILE-camY;
         if (px2>-TILE*4&&px2<W+TILE*4&&py2>-TILE*4&&py2<H+TILE*4) drawObject(ctx,obj,px2,py2,TILE,t,st,targetId);
       }
-      // Draw crops
+      // Draw crops + water-drop overlays
       if (farmPlots.current) for (const [key,plot] of Object.entries(farmPlots.current)) {
-        if (!plot.seedId) continue;
         const [c,r]=key.split(",").map(Number);
-        drawCrop(ctx,plot,c*TILE-camX,r*TILE-camY,TILE,t);
+        const sx=c*TILE-camX, sy=r*TILE-camY;
+        if (sx<-TILE||sx>W+TILE||sy<-TILE||sy>H+TILE) continue;
+        if (plot.seedId) drawCrop(ctx,plot,sx,sy,TILE,t);
+        // Water-drop badge on any watered plot (tilled or planted)
+        if (plot.wateredAt) drawWaterDrop(ctx,sx,sy,TILE,nowMs,plot.wateredAt);
       }
       // Draw partner
       if (state.partnerVisible) {
@@ -2089,6 +2962,12 @@ export default function HomesteadView({
           if (npc.waitingAtBorder) continue;
           const nx = npc.x - camX, ny = npc.y - camY;
           if (nx < -TILE*2 || nx > W+TILE*2 || ny < -TILE*2 || ny > H+TILE*2) continue;
+          // Highlight ring when this NPC is the interact target
+          const isNPCTarget = state.interactTarget?.type === "npc" && state.interactTarget?.id === npc.id;
+          if (isNPCTarget) {
+            ctx.strokeStyle = "rgba(255,220,80,0.85)"; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.ellipse(nx, ny + 10, 12, 5, 0, 0, Math.PI*2); ctx.stroke();
+          }
           // Draw NPC as a slightly tinted player sprite with a name tag above
           const roster = NPC_ROSTER[npc.npcId] ?? NPC_ROSTER.generic;
           // Use a fixed neutral character appearance for NPCs
@@ -2117,7 +2996,11 @@ export default function HomesteadView({
       }
       // HUD — show player bag used/total
       const inv = playerInvRef.current;
-      drawHUD(ctx,W,H,inv?.items??{},state.interactTarget,t,gold);
+      // Override board label when player has already run today
+      const hudTarget = (state.interactTarget?.type === "board" && !canStartRunRef.current)
+        ? { ...state.interactTarget, label: "Already ran today — sleep to reset" }
+        : state.interactTarget;
+      drawHUD(ctx,W,H,inv?.items??{},hudTarget,t,gold);
     };
 
     rafRef.current = requestAnimationFrame(tick);
@@ -2137,6 +3020,21 @@ export default function HomesteadView({
       />
       <PartnerWidget joinCode={room?.join_code??""} partnerOnline={partnerOnline}/>
 
+      <SellToastStack toasts={sellToasts} />
+
+      {sleepPhase && (
+        <SleepModal
+          phase={sleepPhase}
+          partnerOnline={partnerOnline}
+          onConfirm={handleSleepConfirm}
+          onCancel={handleSleepCancel}
+        />
+      )}
+
+      {showRunLocked && (
+        <RunLockedModal onClose={() => setShowRunLocked(false)} />
+      )}
+
       {runJoinPrompt && !tabMenuOpen && (
         <RunJoinPrompt runType={runJoinPrompt.runType}
           onJoin={()=>{ setRunJoinPrompt(null); onJoinRun?.(runJoinPrompt.seed,runJoinPrompt.runType); }}
@@ -2149,6 +3047,9 @@ export default function HomesteadView({
           playerInventory={playerInventory}
           chest={chest}
           gold={gold}
+          activeRewards={town?.questRewards ?? []}
+          marenDiscountActive={getMarenDiscountActive(town?.townState)}
+          unlockedItemIds={getUnlockedItemIds(town?.townState?.npcs)}
           onBuyToInventory={(id, price) => {
             if (gold < price) return;
             if (!canFitItem(playerInventory ?? { items:{}, slots: INVENTORY_BASE_SLOTS }, id)) return;
@@ -2175,6 +3076,7 @@ export default function HomesteadView({
             saveGold(gold + price);
             broadcastChestUpdate(newChest);
           }}
+          onSellToast={pushSellToast}
           onClose={()=>setTownOpen(false)}
         />
       )}
@@ -2192,8 +3094,11 @@ export default function HomesteadView({
         <NPCDialogPanel
           npc={talkingNPC}
           town={town}
+          placedObjects={placedObjectsProp ?? objectsRef.current}
           playerInventory={playerInventory}
           onPlayerInventoryUpdate={onPlayerInventoryUpdate}
+          gold={gold}
+          onGoldUpdate={saveGold}
           onClose={() => setTalkingNPC(null)}
         />
       )}
@@ -2218,6 +3123,7 @@ export default function HomesteadView({
           onCharacterUpdate={onCharacterUpdate}
           farmPlots={farmPlots.current}
           atCraftingStation={atCraftingStation}
+          unlockedItemIds={getUnlockedItemIds(town?.townState?.npcs)}
           onStartGhostPlace={(id,info)=>{
             setTabMenuOpen(false); setAtCraftingStation(false);
             const ghost={ id, info, rotation:0, gtx:12, gty:12, gw:info.w, gh:info.h };
@@ -2264,6 +3170,8 @@ export default function HomesteadView({
             objectsRef.current=newObjects;
             onObjectsUpdate?.(newObjects);
             sendObjectPlacedRef.current?.(newObj);
+            // Auto-assign any NPC whose preferredJob matches this building type
+            town?.autoAssignPreferredJobs?.(g.id);
             // Clear the hotbar slot if it held this item and qty is now 0 (inv path only; hotbar path clears above)
             if (hasItemInInv) {
               const remaining = (newInv?.items?.[g.id] ?? 0);

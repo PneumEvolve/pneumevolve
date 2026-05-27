@@ -5,6 +5,7 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useHearthroom } from "./useHearthroom";
 import { ITEM_ICONS, ITEM_LABELS, mergeIntoChest, normalizeChest } from "./Items";
+import { ItemIcon } from "./ItemIcon";
 
 // ─── Loot row (animated entry) ────────────────────────────────────────────────
 function LootRow({ item, qty, delay, selected, onToggle, overflow }) {
@@ -39,7 +40,7 @@ function LootRow({ item, qty, delay, selected, onToggle, overflow }) {
         cursor: overflow ? "default" : "pointer",
       }}
     >
-      <span style={{ fontSize: 22 }}>{ITEM_ICONS[item] ?? "📦"}</span>
+      <ItemIcon id={item} size={26} />
       <span style={{ flex: 1, fontSize: 13, color: overflow ? "rgba(255,140,120,0.7)" : "rgba(245,230,200,0.7)", fontFamily: "monospace" }}>
         {ITEM_LABELS[item] ?? item}
         {overflow && <span style={{ fontSize: 10, color: "rgba(255,120,100,0.6)", marginLeft: 6 }}>· didn't fit</span>}

@@ -13,7 +13,10 @@ import { SEEDS, ITEMS, rollLoot, addToInventory } from "./Items";
 import { seededRand } from "./gameEngine";
 
 // ─── Farming constants ────────────────────────────────────────────────────────
-// How many tilled patches the player starts with (they create more with the hoe)
+// How long (seconds) a watered plot enjoys the growth-rate bonus.
+const WATER_BOOST_SECONDS = 120; // 2 minutes of boosted growth
+const WATER_GROWTH_MULT   = 1.5;
+
 const FISH_LOOT_TABLE = [
   { item: "fish",      min:1, max:2, chance:0.50 },
   { item: "big_fish",  min:1, max:1, chance:0.25 },
@@ -33,13 +36,21 @@ const TREE_LOOT_TABLE = [
 ];
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
-export function useHomesteadState() {
+// roomId scopes all localStorage keys so different rooms never share farm/node state.
+export function useHomesteadState(roomId) {
+  // Derive stable storage keys from the room.  When roomId is absent (shouldn't
+  // happen in normal flow) we fall back to empty state rather than a global key,
+  // so stale data from a previous room can never bleed in.
+  const farmKey  = roomId ? `hearthroot_farm_${roomId}`  : null;
+  const nodesKey = roomId ? `hearthroot_nodes_${roomId}` : null;
+
   // ── Tilled soil & crops ──────────────────────────────────────────────────
   // Map key: `${col},${row}`  →  { seedId, plantedAt, stage, ready }
   // stage is computed from elapsed time each frame (no interval needed)
   const [farmPlots, setFarmPlots] = useState(() => {
+    if (!farmKey) return {};
     try {
-      const s = localStorage.getItem("hearthroot_farm");
+      const s = localStorage.getItem(farmKey);
       return s ? JSON.parse(s) : {};
     } catch { return {}; }
   });
@@ -49,8 +60,10 @@ export function useHomesteadState() {
   const saveFarm = useCallback((plots) => {
     farmPlotsRef.current = plots;
     setFarmPlots(plots);
-    try { localStorage.setItem("hearthroot_farm", JSON.stringify(plots)); } catch {}
-  }, []);
+    if (farmKey) {
+      try { localStorage.setItem(farmKey, JSON.stringify(plots)); } catch {}
+    }
+  }, [farmKey]);
 
   // Tick crops — called by the game loop each frame; updates stage on plots
   // Returns a new map only if anything changed (avoids re-renders)
@@ -62,7 +75,15 @@ export function useHomesteadState() {
       if (!plot.seedId || plot.ready) continue;
       const def = SEEDS[plot.seedId];
       if (!def) continue;
-      const elapsed = (nowMs - plot.plantedAt) / 1000;
+
+      // If watered within WATER_BOOST_SECONDS, effective elapsed grows faster.
+      // We model this by computing a virtual "effective elapsed" time:
+      //   effectiveElapsed = baseElapsed × multiplier (for the watered window)
+      // Simple approximation: stretch elapsed by WATER_GROWTH_MULT while watered.
+      const baseElapsed = (nowMs - plot.plantedAt) / 1000;
+      const isWatered = plot.wateredAt && (nowMs - plot.wateredAt) / 1000 < WATER_BOOST_SECONDS;
+      const elapsed = isWatered ? baseElapsed * WATER_GROWTH_MULT : baseElapsed;
+
       const totalTime = def.growthTime * def.growthStages;
       const newStage = Math.min(def.growthStages - 1, Math.floor(elapsed / def.growthTime));
       const newReady = elapsed >= totalTime;
@@ -80,7 +101,20 @@ export function useHomesteadState() {
     if (tileMap[row]?.[col] !== T.GRASS) return false;
     tileMap[row][col] = T.TILLED;
     const key = `${col},${row}`;
-    const plots = { ...farmPlotsRef.current, [key]: { seedId: null, plantedAt: null, stage: 0, ready: false } };
+    const plots = { ...farmPlotsRef.current, [key]: { seedId: null, plantedAt: null, stage: 0, ready: false, wateredAt: null } };
+    saveFarm(plots);
+    return true;
+  }, [saveFarm]);
+
+  // Untill a tilled tile (hoe on empty tilled soil → revert to grass)
+  const untillTile = useCallback((col, row, tileMap) => {
+    if (tileMap[row]?.[col] !== T.TILLED) return false;
+    const key = `${col},${row}`;
+    const plot = farmPlotsRef.current[key];
+    if (plot?.seedId) return false; // don't revert if a crop is planted
+    tileMap[row][col] = T.GRASS;
+    const plots = { ...farmPlotsRef.current };
+    delete plots[key];
     saveFarm(plots);
     return true;
   }, [saveFarm]);
@@ -92,7 +126,7 @@ export function useHomesteadState() {
     if (!plot || plot.seedId) return null; // not tilled, or already planted
     if ((inventory?.[seedId] ?? 0) < 1) return null;
     tileMap[row][col] = T.PLANTED;
-    const newPlot = { seedId, plantedAt: Date.now(), stage: 0, ready: false };
+    const newPlot = { seedId, plantedAt: Date.now(), stage: 0, ready: false, wateredAt: null };
     saveFarm({ ...farmPlotsRef.current, [key]: newPlot });
     const newInv = { ...inventory, [seedId]: inventory[seedId] - 1 };
     return newInv;
@@ -114,16 +148,28 @@ export function useHomesteadState() {
     }
     // Reset tile to tilled (ready to plant again)
     tileMap[row][col] = T.TILLED;
-    saveFarm({ ...farmPlotsRef.current, [key]: { seedId: null, plantedAt: null, stage: 0, ready: false } });
+    saveFarm({ ...farmPlotsRef.current, [key]: { seedId: null, plantedAt: null, stage: 0, ready: false, wateredAt: null } });
     return { inventory: newInv, yields: def.harvestYields };
+  }, [saveFarm]);
+
+  // Water a tilled or planted plot (watering can required)
+  // Sets wateredAt = Date.now() so tickCrops can apply the growth bonus.
+  // Returns true if the plot exists and was watered, false otherwise.
+  const waterPlot = useCallback((col, row) => {
+    const key = `${col},${row}`;
+    const plot = farmPlotsRef.current[key];
+    if (!plot) return false; // not a tilled/planted tile we track
+    saveFarm({ ...farmPlotsRef.current, [key]: { ...plot, wateredAt: Date.now() } });
+    return true;
   }, [saveFarm]);
 
   // ── Resource nodes ────────────────────────────────────────────────────────
   // Stored as a map: nodeId → { depleted, depletedAt, hp }
   // The base definitions live in defaultObjects(); this tracks runtime state.
   const [nodeState, setNodeState] = useState(() => {
+    if (!nodesKey) return {};
     try {
-      const s = localStorage.getItem("hearthroot_nodes");
+      const s = localStorage.getItem(nodesKey);
       return s ? JSON.parse(s) : {};
     } catch { return {}; }
   });
@@ -132,8 +178,10 @@ export function useHomesteadState() {
   const saveNodes = useCallback((ns) => {
     nodeStateRef.current = ns;
     setNodeState(ns);
-    try { localStorage.setItem("hearthroot_nodes", JSON.stringify(ns)); } catch {}
-  }, []);
+    if (nodesKey) {
+      try { localStorage.setItem(nodesKey, JSON.stringify(ns)); } catch {}
+    }
+  }, [nodesKey]);
 
   // Tick node respawns — called by game loop
   const tickNodes = useCallback((objects, nowMs) => {
@@ -250,8 +298,11 @@ export function useHomesteadState() {
     farmPlots: farmPlotsRef,
     tickCrops,
     tillTile,
+    untillTile,
     plantSeed,
     harvestCrop,
+    waterPlot,
+    WATER_BOOST_SECONDS,
     // Nodes
     nodeState: nodeStateRef,
     tickNodes,

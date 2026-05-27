@@ -23,6 +23,7 @@ import {
   normalizeChest,
   getWeaponDurability, drainWeaponDurability,
 } from "./Items";
+import { ItemIcon } from "./ItemIcon";
 
 const PLAYER_SPEED   = 120;
 const PLAYER_HP      = 5;
@@ -288,7 +289,7 @@ function HotbarBar({ hotbar, hotbarSlots, equipment, selectedIdx, onSelectIdx, o
             )}
             {slot ? (
               <>
-                <span style={{ fontSize:18, lineHeight:1 }}>{icon}</span>
+                <ItemIcon id={slot.item} size={22} />
                 <span style={{ fontSize:8, color:"rgba(200,230,120,0.65)", lineHeight:1, fontFamily:"monospace", maxWidth:40, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
                   {ITEMS[slot.item]?.label?.toLowerCase().slice(0,6) ?? slot.item}
                 </span>
@@ -396,7 +397,7 @@ function RunTabMenu({
                 style={{ width:50, height:54, borderRadius:9, background:isOver?"rgba(200,230,120,0.18)":slot?"rgba(10,18,6,0.7)":"rgba(255,255,255,0.03)", border:`2px solid ${isOver?"rgba(200,230,120,0.9)":isEq?"rgba(100,200,255,0.5)":slot?"rgba(200,230,120,0.3)":"rgba(255,255,255,0.1)"}`, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2, position:"relative", transition:"all 0.1s" }}>
                 {slot ? (
                   <>
-                    <span style={{ fontSize:18 }}>{ITEM_ICONS[slot.item]??"📦"}</span>
+                    <ItemIcon id={slot.item} size={22} />
                     <span style={{ fontSize:8, color:"rgba(200,230,120,0.6)", lineHeight:1, fontFamily:"monospace", maxWidth:46, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{ITEMS[slot.item]?.label?.toLowerCase()?.slice(0,6)??slot.item}</span>
                     {slot.qty!=null&&<span style={{ fontSize:9, color:"rgba(200,230,120,0.7)" }}>{slot.qty}</span>}
                     {isEq&&<div style={{ position:"absolute", top:3, right:3, width:6, height:6, borderRadius:"50%", background:"rgba(100,200,255,0.9)" }}/>}
@@ -463,7 +464,7 @@ function RunTabMenu({
               {resources.map(([id, qty]) => (
                 <div key={id} draggable onDragStart={e=>{e.dataTransfer.setData("hotbar_item",id);e.dataTransfer.effectAllowed="copy";}}
                   style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 10px", borderRadius:8, background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.07)", cursor:"grab" }}>
-                  <span style={{ fontSize:18 }}>{ITEM_ICONS[id]??"📦"}</span>
+                  <ItemIcon id={id} size={22} />
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontSize:9, color:"rgba(245,230,200,0.4)" }}>{ITEMS[id]?.label??id}</div>
                     <div style={{ fontSize:15, color:"rgba(200,230,120,0.9)" }}>{qty}</div>
@@ -482,7 +483,7 @@ function RunTabMenu({
                 <div key={id} draggable onDragStart={e=>{e.dataTransfer.setData("hotbar_item",id);e.dataTransfer.effectAllowed="copy";}}
                   onClick={()=>{const ei=hotbar?.findIndex(s=>!s)??-1;const si=ei>=0?ei:0;if(si<(hotbarSlots??HOTBAR_BASE_SLOTS)){const nh=[...(hotbar??[])];nh[si]={item:id,qty};onHotbarChange?.(nh);}}}
                   style={{ ...itemStyle, background:"rgba(255,200,80,0.07)", border:"1px solid rgba(255,200,80,0.25)" }}>
-                  <span style={{ fontSize:22 }}>{ITEM_ICONS[id]??"📦"}</span>
+                  <ItemIcon id={id} size={26} />
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontSize:12, color:"rgba(200,230,120,0.85)" }}>{ITEMS[id]?.label??id}</div>
                     <div style={{ fontSize:10, color:"rgba(255,255,255,0.3)" }}>×{qty} · drag → hotbar</div>
@@ -500,7 +501,7 @@ function RunTabMenu({
               const info = EQUIPPABLE[id]; const isEq = equipment?.[info?.slot] === id;
               return (
                 <div key={id} onClick={()=>onEquipItem?.(id)} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 14px", borderRadius:10, cursor:"pointer", background:isEq?"rgba(200,230,120,0.06)":"rgba(255,255,255,0.02)", border:`1px solid ${isEq?"rgba(200,230,120,0.2)":"rgba(255,255,255,0.06)"}`, marginBottom:6 }}>
-                  <span style={{ fontSize:20 }}>{info?.icon??"📦"}</span>
+                  <ItemIcon id={id} size={26} />
                   <div style={{ flex:1 }}>
                     <div style={{ fontSize:13, color:"rgba(200,230,120,0.85)" }}>{info?.label??id}</div>
                     <div style={{ fontSize:10, color:"rgba(200,230,160,0.4)" }}>{info?.slot} slot</div>
@@ -540,7 +541,7 @@ function RunTabMenu({
             </div>
             {(subTabs.find(s => s.id === chestTab)?.list ?? []).map(([id, qty]) => (
               <div key={id} style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 12px", borderRadius:10, background:"rgba(180,200,100,0.04)", border:"1px solid rgba(180,200,100,0.12)" }}>
-                <span style={{ fontSize:22 }}>{ITEM_ICONS[id]??"📦"}</span>
+                <ItemIcon id={id} size={26} />
                 <div style={{ flex:1 }}>
                   <div style={{ fontSize:12, color:"rgba(180,200,100,0.85)" }}>{ITEMS[id]?.label??id}</div>
                   <div style={{ fontSize:10, color:"rgba(245,230,200,0.35)" }}>×{qty} at home</div>
@@ -573,7 +574,7 @@ function RunTabMenu({
             const craftable = canCraft(name, playerInventory); const it = ITEMS[name];
             return (
               <div key={name} style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:10,background:craftable?"rgba(200,230,120,0.06)":"rgba(255,255,255,0.02)",border:`1px solid ${craftable?"rgba(200,230,120,0.2)":"rgba(255,255,255,0.06)"}`,opacity:craftable?1:0.5,marginTop:8 }}>
-                <span style={{ fontSize:22,minWidth:30 }}>{it?.icon??"📦"}</span>
+                <ItemIcon id={name} size={26} />
                 <div style={{ flex:1 }}>
                   <div style={{ fontSize:13,color:"rgba(200,230,120,0.85)" }}>{it?.label??name}</div>
                   <div style={{ fontSize:10,color:"rgba(245,230,200,0.4)" }}>
@@ -601,7 +602,7 @@ function RunTabMenu({
           const item=equipment?.[slot]; const info=item?EQUIPPABLE[item]:null;
           return(
             <div key={slot} style={{ display:"flex",alignItems:"center",gap:12,padding:"12px 14px",borderRadius:10,background:item?"rgba(200,230,120,0.04)":"rgba(255,255,255,0.02)",border:`1px solid ${item?"rgba(200,230,120,0.18)":"rgba(255,255,255,0.06)"}` }}>
-              <span style={{ fontSize:22,minWidth:30 }}>{info?.icon??"○"}</span>
+              <ItemIcon id={item} size={26} />
               <div style={{ flex:1 }}>
                 <div style={{ fontSize:10,color:"rgba(245,230,200,0.3)",letterSpacing:"0.1em",textTransform:"uppercase" }}>{slot}</div>
                 <div style={{ fontSize:13,color:item?"rgba(200,230,120,0.85)":"rgba(255,255,255,0.18)" }}>{info?.label??"empty"}</div>
@@ -642,7 +643,7 @@ function RunTabMenu({
             <p style={{ fontSize:10,color:"rgba(245,230,200,0.3)",letterSpacing:"0.12em",textTransform:"uppercase" }}>in bag — click to equip</p>
             {equippableInBag.map(name=>{const info=EQUIPPABLE[name];const isEq=equipment?.[info?.slot]===name;return(
               <div key={name} onClick={()=>onEquipItem?.(name)} style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:10,cursor:"pointer",background:isEq?"rgba(200,230,120,0.06)":"rgba(255,255,255,0.02)",border:`1px solid ${isEq?"rgba(200,230,120,0.2)":"rgba(255,255,255,0.06)"}` }}>
-                <span style={{ fontSize:20,minWidth:30 }}>{info.icon}</span>
+                <ItemIcon id={name} size={26} />
                 <div style={{ flex:1 }}>
                   <div style={{ fontSize:13,color:"rgba(200,230,120,0.85)" }}>{info.label}</div>
                   <div style={{ fontSize:10,color:"rgba(200,230,160,0.4)" }}>{info.slot} slot</div>
@@ -670,7 +671,7 @@ function RunTabMenu({
         <div style={{ display:"flex",overflowX:"auto",borderBottom:"1px solid rgba(255,255,255,0.07)",padding:"0 6px",scrollbarWidth:"none" }}>
           {RUN_TABS.map(tab=>{const active=activeTab===tab.id;return(
             <button key={tab.id} onClick={()=>onTabChange(tab.id)} style={{ flex:"0 0 auto",padding:"10px 14px",background:"transparent",border:"none",borderBottom:`2px solid ${active?"rgba(200,230,120,0.8)":"transparent"}`,color:active?"rgba(200,230,120,0.95)":"rgba(245,230,200,0.4)",fontSize:12,fontFamily:"monospace",cursor:"pointer",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap" }}>
-              <span style={{ fontSize:14 }}>{tab.icon}</span>{tab.label}
+              {tab.icon}
             </button>
           );})}
         </div>
@@ -735,6 +736,11 @@ export default function MiningRun({
   const [activeTab,   setActiveTab]   = useState("inventory");
   const tabMenuOpenRef = useRef(false);
   useEffect(() => { tabMenuOpenRef.current = tabMenuOpen; }, [tabMenuOpen]);
+
+  // Pause / abandon overlay (shown when player presses Escape mid-run)
+  const [pauseOpen, setPauseOpen] = useState(false);
+  const pauseOpenRef = useRef(false);
+  useEffect(() => { pauseOpenRef.current = pauseOpen; }, [pauseOpen]);
 
   const runDeltaRef  = useRef({});
   const startInvRef  = useRef({});
@@ -1039,7 +1045,7 @@ export default function MiningRun({
       soundRef.current?.unlock();
       if (e.key === "Escape") {
         if (tabMenuOpenRef.current) { setTabMenuOpen(false); return; }
-        finishRun(stateRef.current);
+        setPauseOpen(v => { pauseOpenRef.current = !v; return !v; });
       }
       if (e.key === "Tab") { e.preventDefault(); setTabMenuOpen(v => !v); setActiveTab("inventory"); }
       if (e.key === " ") { e.preventDefault(); doAttack(); }
@@ -1059,7 +1065,7 @@ export default function MiningRun({
       rafRef.current = requestAnimationFrame(tick);
       const state = stateRef.current;
       if (!canvas || !state || state.over) return;
-      if (tabMenuOpenRef.current) { state.lastTime = ts; return; }
+      if (tabMenuOpenRef.current || pauseOpenRef.current) { state.lastTime = ts; return; }
 
       const ctx = canvas.getContext("2d");
       const W = canvas.width, H = canvas.height;
@@ -1278,6 +1284,17 @@ export default function MiningRun({
         ref={canvasRef}
         style={{ width:"100%", height:"100%", display:"block", imageRendering:"pixelated" }}
       />
+      {/* Pause / abandon overlay */}
+      {pauseOpen && (
+        <div style={{ position:"absolute", inset:0, background:"rgba(4,4,10,0.82)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:30 }}>
+          <div style={{ background:"#0e0e18", border:"1px solid rgba(160,180,230,0.25)", borderRadius:16, padding:"28px 32px", maxWidth:300, width:"90%", fontFamily:"monospace", color:"#f5e6c8", textAlign:"center", display:"flex", flexDirection:"column", gap:14 }}>
+            <p style={{ fontSize:10, letterSpacing:"0.18em", color:"rgba(160,180,230,0.4)", textTransform:"uppercase" }}>paused</p>
+            <h2 style={{ fontSize:20, fontWeight:400, color:"rgba(180,210,255,0.9)" }}>⛏️ Mining Run</h2>
+            <button onClick={() => { setPauseOpen(false); pauseOpenRef.current = false; }} style={{ padding:"13px", borderRadius:10, border:"1px solid rgba(160,180,230,0.35)", background:"rgba(160,180,230,0.1)", color:"rgba(180,210,255,0.95)", fontSize:13, fontFamily:"monospace", cursor:"pointer" }}>▶ Resume</button>
+            <button onClick={() => { setPauseOpen(false); pauseOpenRef.current = false; finishRun(stateRef.current); }} style={{ padding:"10px", borderRadius:10, border:"1px solid rgba(255,150,100,0.3)", background:"rgba(255,100,60,0.07)", color:"rgba(255,160,120,0.85)", fontSize:12, fontFamily:"monospace", cursor:"pointer" }}>Abandon run (keep loot so far)</button>
+          </div>
+        </div>
+      )}
       <HotbarBar
         hotbar={hotbar ?? []}
         hotbarSlots={hotbarSlots ?? HOTBAR_BASE_SLOTS}

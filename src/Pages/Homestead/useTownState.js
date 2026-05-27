@@ -22,8 +22,13 @@ import {
   NPC_BORDER_Y,
   TILE,
   createNPC,
+  REL_GAIN_QUEST_DELIVER,
+  REL_GAIN_GIFT_LIKED,
+  REL_GAIN_GIFT_NEUTRAL,
+  REL_GIFT_COOLDOWN_MS,
+  NPC_LIKED_GIFTS,
 } from "./gameEngine";
-import { ITEMS } from "./Items";
+import { ITEMS, QUEST_REWARD_DEFS } from "./Items";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -46,6 +51,7 @@ function emptyTownState() {
     mayorAssigned:    false,  // true once first resident is assigned to town_hall
     buildingsUnlocked: false, // true once Mayor is assigned (gates market_stall etc.)
     inGameDay:        0,      // increments each time the player returns from a run (future use)
+    questRewards:     [],     // array of reward IDs that have been permanently unlocked
   };
 }
 
@@ -274,9 +280,10 @@ export function useTownState(room, placedObjects, sendTownStateUpdated) {
         const alreadyPresent = npcAlreadyPresent(npcId, next.npcs);
         if (alreadyPresent) continue;
 
-        // Bex has no trigger building — just needs a free home
-        const triggerMet = !roster.triggerBuilding ||
-          (next.buildingsUnlocked && hasTriggerBuilding(npcId, objs));
+        // Bex has no trigger building — but still requires day >= 3 before arriving
+        const bexDayMet = !!roster.triggerBuilding || (next.inGameDay ?? 0) >= 3;
+        const triggerMet = bexDayMet && (!roster.triggerBuilding ||
+          (next.buildingsUnlocked && hasTriggerBuilding(npcId, objs)));
         if (!triggerMet) continue;
 
         const freeHomeForNPC = findFreeHome(objs, next.npcs);
@@ -365,6 +372,39 @@ export function useTownState(room, placedObjects, sendTownStateUpdated) {
     }), true, true); // immediate + broadcast
   }, [applyUpdate]);
 
+  // ── Auto-assign on building placement ─────────────────────────────────────
+
+  /**
+   * After a building is placed, check if any resident NPC has preferredJob
+   * matching that building type AND has no current assignment. Auto-assign them.
+   *
+   * @param {string} buildingType — OBJ type string of the newly placed building
+   * @returns {string|null} the name of the NPC who was auto-assigned, or null
+   */
+  const autoAssignPreferredJobs = useCallback((buildingType) => {
+    if (!buildingType) return null;
+    let assignedName = null;
+    applyUpdate(prev => {
+      // Find the first unassigned NPC whose preferredJob matches this building
+      const candidate = prev.npcs.find(n =>
+        !n.waitingAtBorder &&
+        n.assignment === null &&
+        NPC_ROSTER[n.npcId]?.preferredJob === buildingType
+      );
+      if (!candidate) return prev; // nothing to do
+      assignedName = candidate.name;
+      return {
+        ...prev,
+        npcs: prev.npcs.map(n =>
+          n.id === candidate.id
+            ? { ...n, assignment: buildingType, mood: "happy" }
+            : n
+        ),
+      };
+    }, true, true); // immediate save + broadcast
+    return assignedName;
+  }, [applyUpdate]);
+
   // ── NPC rename ─────────────────────────────────────────────────────────────
 
   /**
@@ -391,7 +431,7 @@ export function useTownState(room, placedObjects, sendTownStateUpdated) {
    * Called when the player talks to an NPC and chooses "give item".
    * @param {string} npcInstanceId
    * @param {number} qty  — how many quest items are being delivered
-   * @returns {{ questComplete: boolean, newProgress: number } | null}
+   * @returns {{ questComplete: boolean, newProgress: number, rewardId: string|null } | null}
    */
   const deliverQuestItem = useCallback((npcInstanceId, qty = 1) => {
     let result = null;
@@ -407,18 +447,91 @@ export function useTownState(room, placedObjects, sendTownStateUpdated) {
         roster.questQty
       );
       const questComplete = newProgress >= roster.questQty;
-      result = { questComplete, newProgress };
+      const rewardId = questComplete ? (roster.questReward ?? null) : null;
+      result = { questComplete, newProgress, rewardId };
+
+      // Apply the reward to town state immediately on first completion
+      let nextRewards = prev.questRewards ?? [];
+      if (rewardId && !nextRewards.includes(rewardId)) {
+        nextRewards = [...nextRewards, rewardId];
+      }
+
+      // Increment relationship for each item delivered (capped at max)
+      const relGain = Math.min(qty, roster.questQty - (npc.questProgress ?? 0)) * REL_GAIN_QUEST_DELIVER;
+      const newRelationship = Math.min(100, (npc.relationship ?? 0) + relGain);
 
       return {
         ...prev,
+        questRewards: nextRewards,
         npcs: prev.npcs.map(n =>
           n.id === npcInstanceId
-            ? { ...n, questProgress: newProgress, questComplete, mood: questComplete ? "happy" : n.mood }
+            ? { ...n, questProgress: newProgress, questComplete, relationship: newRelationship, mood: questComplete ? "happy" : n.mood }
             : n
         ),
       };
     }, true, true); // immediate + broadcast
     return result;
+  }, [applyUpdate]);
+
+  // ── Gift an item to an NPC ─────────────────────────────────────────────────
+
+  /**
+   * Give a gift item to an NPC. Grants relationship points if the cooldown
+   * (REL_GIFT_COOLDOWN_MS, ~24 h) has elapsed since the last gift.
+   *
+   * @param {string} npcInstanceId
+   * @param {string} itemId   — item being gifted (caller must deduct from player inventory)
+   * @returns {{ accepted: boolean, relGain: number, newRelationship: number,
+   *             cooldownRemaining: number, isLiked?: boolean } | null}
+   */
+  const giftNPC = useCallback((npcInstanceId, itemId) => {
+    let result = null;
+    applyUpdate(prev => {
+      const npc = prev.npcs.find(n => n.id === npcInstanceId);
+      if (!npc) return prev;
+
+      const now = Date.now();
+      const lastGift = npc.lastGiftTime ?? 0;
+      const cooldownRemaining = Math.max(0, lastGift + REL_GIFT_COOLDOWN_MS - now);
+
+      if (cooldownRemaining > 0) {
+        result = { accepted: false, relGain: 0, newRelationship: npc.relationship ?? 0, cooldownRemaining };
+        return prev; // no mutation — don't accept a gift on cooldown
+      }
+
+      const likedList = NPC_LIKED_GIFTS[npc.npcId] ?? NPC_LIKED_GIFTS.generic;
+      const isLiked   = likedList.includes(itemId);
+      const relGain   = isLiked ? REL_GAIN_GIFT_LIKED : REL_GAIN_GIFT_NEUTRAL;
+      const newRelationship = Math.min(100, (npc.relationship ?? 0) + relGain);
+
+      result = { accepted: true, relGain, newRelationship, cooldownRemaining: 0, isLiked };
+
+      return {
+        ...prev,
+        npcs: prev.npcs.map(n =>
+          n.id === npcInstanceId
+            ? { ...n, relationship: newRelationship, lastGiftTime: now, mood: "happy" }
+            : n
+        ),
+      };
+    }, true, true); // immediate + broadcast
+    return result;
+  }, [applyUpdate]);
+
+  // ── Manual reward application (idempotent — safe to call again) ────────────
+
+  /**
+   * Explicitly unlock a quest reward by ID.
+   * Idempotent: calling with an already-active reward is a no-op.
+   * @param {string} rewardId — key from QUEST_REWARD_DEFS
+   */
+  const applyQuestReward = useCallback((rewardId) => {
+    if (!rewardId || !QUEST_REWARD_DEFS[rewardId]) return;
+    applyUpdate(prev => {
+      const current = prev.questRewards ?? [];
+      if (current.includes(rewardId)) return prev; // already applied
+      return { ...prev, questRewards: [...current, rewardId] };
+    }, true, true);
   }, [applyUpdate]);
 
   // ── NPC position update (called by game loop) ──────────────────────────────
@@ -498,11 +611,17 @@ export function useTownState(room, placedObjects, sendTownStateUpdated) {
     checkArrivals,
     assignMayor,
     assignNPC,
+    autoAssignPreferredJobs,
     renameNPC,
     deliverQuestItem,
+    giftNPC,
     syncNPCPositions,
     applyRemoteTownState,
     setSendBroadcast,
+
+    // Quest rewards
+    applyQuestReward,
+    questRewards: townState.questRewards ?? [],
 
     // Day counter
     incrementDay,

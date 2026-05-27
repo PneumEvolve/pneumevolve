@@ -46,6 +46,9 @@
 //   placeLabel   — "[F] ..." interact string
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { drawCraftingStation, drawFirePit, drawFurnace, drawHoe, drawAxe, drawPickaxe, drawFishingRod, drawWateringCan,
+  drawIronHoe, drawIronAxe, drawIronPickaxe, drawIronSword, drawHammer, } from "./drawArt";
+
 export const ITEMS = {
 
   // ── Currency ─────────────────────────────────────────────────────────────────
@@ -186,6 +189,7 @@ export const ITEMS = {
     useEffect: { heal: 4 }, sellPrice: 8,
     stationRecipe: { apples: 2, berries: 2 },
     craftStation: "fire_pit",
+    unlockedByNpc: "haas",   // Haas teaches these comforting mixed recipes
   },
   herb_tea: {
     icon: "🍵", label: "Herb Tea", category: "food", stackable: true,
@@ -193,6 +197,7 @@ export const ITEMS = {
     useEffect: { heal: 4 }, sellPrice: 8,
     stationRecipe: { herbs: 2, mushrooms: 2 },
     craftStation: "fire_pit",
+    unlockedByNpc: "haas",
   },
   mushroom_skewer: {
     icon: "🍢", label: "Mushroom Skewer", category: "food", stackable: true,
@@ -200,6 +205,7 @@ export const ITEMS = {
     useEffect: { heal: 4 }, sellPrice: 8,
     stationRecipe: { mushrooms: 2, meat: 1 },
     craftStation: "fire_pit",
+    unlockedByNpc: "haas",
   },
   berry_jam: {
     icon: "🫙", label: "Berry Jam", category: "food", stackable: true,
@@ -207,6 +213,7 @@ export const ITEMS = {
     useEffect: { heal: 4 }, sellPrice: 8,
     stationRecipe: { berries: 3, apples: 1 },
     craftStation: "fire_pit",
+    unlockedByNpc: "haas",
   },
   herb_roast: {
     icon: "🌿", label: "Herb Roast", category: "food", stackable: true,
@@ -214,6 +221,7 @@ export const ITEMS = {
     useEffect: { heal: 4 }, sellPrice: 9,
     stationRecipe: { meat: 1, herbs: 2 },
     craftStation: "fire_pit",
+    unlockedByNpc: "haas",
   },
 
   // ── Mixed food goods — 3-ingredient combos (+7 hp) ────────────────────────────
@@ -223,6 +231,7 @@ export const ITEMS = {
     useEffect: { heal: 7 }, sellPrice: 18,
     stationRecipe: { mushrooms: 2, berries: 2, meat: 2 },
     craftStation: "fire_pit",
+    unlockedByNpc: "clem",   // Clem teaches the hearty 3-ingredient meals
   },
   wild_broth: {
     icon: "🥣", label: "Wild Broth", category: "food", stackable: true,
@@ -230,6 +239,7 @@ export const ITEMS = {
     useEffect: { heal: 7 }, sellPrice: 18,
     stationRecipe: { apples: 2, herbs: 3, mushrooms: 2 },
     craftStation: "fire_pit",
+    unlockedByNpc: "clem",
   },
   hunters_feast: {
     icon: "🍗", label: "Hunter's Feast", category: "food", stackable: true,
@@ -237,6 +247,7 @@ export const ITEMS = {
     useEffect: { heal: 7 }, sellPrice: 20,
     stationRecipe: { meat: 3, berries: 2, herbs: 2 },
     craftStation: "fire_pit",
+    unlockedByNpc: "clem",
   },
   orchard_medley: {
     icon: "🧺", label: "Orchard Medley", category: "food", stackable: true,
@@ -252,13 +263,15 @@ export const ITEMS = {
     useEffect: { heal: 5 }, sellPrice: 14,
     stationRecipe: { herbs: 3, cooked_meat: 1 },
     craftStation: "potion_stand",
+    unlockedByNpc: "elda",   // Elda teaches potion brewing once she arrives
   },
   strength_potion: {
     icon: "⚗️", label: "Strength Potion", category: "food", stackable: true,
     description: "Brewed from rare herbs and crystals. Boosts attack.",
-    useEffect: { heal: 2 }, sellPrice: 20,
+    useEffect: { heal: 2, strengthDuration: 15 }, sellPrice: 20,
     stationRecipe: { herbs: 4, crystal: 1 },
     craftStation: "potion_stand",
+    unlockedByNpc: "elda",
   },
 
   // ── Crops (grown from seeds) ──────────────────────────────────────────────────
@@ -285,6 +298,7 @@ export const ITEMS = {
     buyPrice: 10,
     growthTime: 60, growthStages: 3,
     harvestYields: [{ item: "carrot", min: 2, max: 4 }],
+    // Always available — no NPC required
   },
   potato_seed: {
     icon: "🫘", label: "Potato Seeds", category: "seed", stackable: true,
@@ -292,6 +306,7 @@ export const ITEMS = {
     buyPrice: 12,
     growthTime: 90, growthStages: 3,
     harvestYields: [{ item: "potato", min: 2, max: 5 }],
+    // Always available — no NPC required
   },
   herb_seed: {
     icon: "🌱", label: "Herb Seeds", category: "seed", stackable: true,
@@ -299,6 +314,7 @@ export const ITEMS = {
     buyPrice: 8,
     growthTime: 45, growthStages: 3,
     harvestYields: [{ item: "herbs", min: 2, max: 4 }],
+    unlockedByNpc: "elda",   // Elda stocks herb seeds once she arrives
   },
   pumpkin_seed: {
     icon: "🌱", label: "Pumpkin Seeds", category: "seed", stackable: true,
@@ -306,6 +322,7 @@ export const ITEMS = {
     buyPrice: 20,
     growthTime: 120, growthStages: 4,
     harvestYields: [{ item: "pumpkin", min: 1, max: 2 }],
+    unlockedByNpc: "sable",  // Sable brings pumpkin seeds once she arrives
   },
 
   // ── Tier 1 Tools / Weapons (stone) ───────────────────────────────────────────
@@ -316,6 +333,7 @@ export const ITEMS = {
     equipSlot: "weapon",
     equipStats: { canHoe: true },
     maxDurability: 50,
+    draw: drawHoe
   },
   axe: {
     icon: "🪓", label: "Axe", category: "tool", stackable: false,
@@ -324,6 +342,7 @@ export const ITEMS = {
     equipSlot: "weapon",
     equipStats: { attackBonus: 2, attackRange: 12, canChop: true },
     maxDurability: 50,
+    draw: drawAxe
   },
   pickaxe: {
     icon: "⛏️", label: "Pickaxe", category: "tool", stackable: false,
@@ -332,6 +351,7 @@ export const ITEMS = {
     equipSlot: "weapon",
     equipStats: { attackBonus: 1, stoneYield: 2, canMine: true },
     maxDurability: 50,
+    draw: drawPickaxe
   },
   fishing_rod: {
     icon: "🎣", label: "Fishing Rod", category: "tool", stackable: false,
@@ -340,6 +360,8 @@ export const ITEMS = {
     equipSlot: "weapon",
     equipStats: { canFish: true },
     maxDurability: 50,
+    draw: drawFishingRod,
+    unlockedByNpc: "finn",   // Finn teaches rod-making once he arrives
   },
   watering_can: {
     icon: "🪣", label: "Watering Can", category: "tool", stackable: false,
@@ -348,6 +370,8 @@ export const ITEMS = {
     equipSlot: "weapon",
     equipStats: { canWater: true },
     maxDurability: 50,
+    draw: drawWateringCan,
+    unlockedByNpc: "maren",   // Maren stocks the watering can at her market stall
   },
 
   // ── Tier 2 Tools / Weapons (iron) ────────────────────────────────────────────
@@ -359,6 +383,8 @@ export const ITEMS = {
     equipSlot: "weapon",
     equipStats: { canHoe: true, attackBonus: 1 },
     maxDurability: 100,
+    draw: drawIronHoe,
+    unlockedByNpc: "petra",   // Petra unlocks iron forging at the anvil
   },
   iron_axe: {
     icon: "🪓", label: "Iron Axe", category: "tool", stackable: false,
@@ -368,6 +394,8 @@ export const ITEMS = {
     equipSlot: "weapon",
     equipStats: { attackBonus: 4, attackRange: 14, canChop: true, woodYield: 2 },
     maxDurability: 100,
+    draw: drawIronAxe,
+    unlockedByNpc: "petra",
   },
   iron_pickaxe: {
     icon: "⛏️", label: "Iron Pickaxe", category: "tool", stackable: false,
@@ -377,6 +405,8 @@ export const ITEMS = {
     equipSlot: "weapon",
     equipStats: { attackBonus: 3, stoneYield: 4, canMine: true },
     maxDurability: 100,
+    draw: drawIronPickaxe,
+    unlockedByNpc: "petra",
   },
   iron_sword: {
     icon: "⚔️", label: "Iron Sword", category: "tool", stackable: false,
@@ -386,6 +416,8 @@ export const ITEMS = {
     equipSlot: "weapon",
     equipStats: { attackBonus: 6, attackRange: 16 },
     maxDurability: 100,
+    draw: drawIronSword,
+    unlockedByNpc: "petra",
   },
 
   // ── Armor / Accessories ───────────────────────────────────────────────────────
@@ -395,6 +427,7 @@ export const ITEMS = {
     stationRecipe: { leather: 6 },
     equipSlot: "armor",
     equipStats: { defense: 1, maxHpBonus: 2 },
+    unlockedByNpc: "bex",    // Bex brings crafting know-how for armor and accessories
   },
   potion_satchel: {
     icon: "🧳", label: "Potion Satchel", category: "gear", stackable: false,
@@ -402,6 +435,7 @@ export const ITEMS = {
     stationRecipe: { wood: 6, herbs: 4, stone: 2 },
     equipSlot: "accessory",
     equipStats: { herbBonus: 2 },
+    unlockedByNpc: "bex",
   },
 
   // ── Inventory & Hotbar Upgrades ───────────────────────────────────────────────
@@ -418,6 +452,7 @@ export const ITEMS = {
     description: "+8 inventory slots. A proper adventurer's backpack.",
     stationRecipe: { leather: 8, silk: 2, wood: 3 },
     upgradeEffect: { inventorySlots: 8 },
+    unlockedByNpc: "rowan",   // Rowan's knowledge reveals advanced packing techniques
   },
   belt_pouch: {
     icon: "🪢", label: "Belt Pouch", category: "upgrade", stackable: false,
@@ -430,6 +465,7 @@ export const ITEMS = {
     description: "+2 hotbar slots. A proper craftsperson's tool belt.",
     stationRecipe: { leather: 5, iron_ingot: 1 },
     upgradeEffect: { hotbarSlots: 2 },
+    unlockedByNpc: "rowan",
   },
 
   // ── Crafting Stations ─────────────────────────────────────────────────────────
@@ -439,6 +475,7 @@ export const ITEMS = {
     // Hand-craftable — only requires what you can pick up before any tools exist
     craftRecipe: { sticks: 4, stone: 2 },
     placeSize: [2, 2], placeSolid: true, placeInteract: true, placeLabel: "[F] Craft",
+    draw: drawCraftingStation,
   },
   fire_pit: {
     icon: "🔥", label: "Fire Pit", category: "placeable", stackable: true,
@@ -446,6 +483,7 @@ export const ITEMS = {
     stationRecipe: { stone: 6, wood: 3 },
     craftStation: "crafting_station",
     placeSize: [2, 2], placeSolid: false, placeInteract: true, placeLabel: "[F] Cook",
+    draw: drawFirePit,
   },
   furnace: {
     icon: "🏭", label: "Furnace", category: "placeable", stackable: true,
@@ -453,6 +491,7 @@ export const ITEMS = {
     stationRecipe: { stone: 12, coal: 4 },
     craftStation: "crafting_station",
     placeSize: [2, 2], placeSolid: true, placeInteract: true, placeLabel: "[F] Smelt",
+    draw: drawFurnace,
   },
   anvil: {
     icon: "⚙️", label: "Anvil", category: "placeable", stackable: true,
@@ -684,6 +723,18 @@ export const ITEMS = {
     description: "A landmark for your homestead.",
     stationRecipe: { wood: 8, stone: 6 },
     placeSize: [2, 3], placeSolid: true,
+  },
+
+  // ── Demolition Tool ───────────────────────────────────────────────────────────
+  hammer: {
+    icon: "🔨", label: "Hammer", category: "tool", stackable: false,
+    description: "Demolishes any crafted building. The full item is returned to your inventory.",
+    stationRecipe: { sticks: 3, stone: 4 },
+    craftStation: "crafting_station",
+    equipSlot: "weapon",
+    equipStats: { canDemolish: true },
+    maxDurability: 75,
+    draw: drawHammer
   },
 };
 
@@ -1179,7 +1230,7 @@ export function getEquipStats(equipment) {
     attackBonus: 0, attackRange: 0,
     defense: 0, maxHpBonus: 0,
     herbBonus: 0, stoneYield: 0, woodYield: 0,
-    canFish: false, canHoe: false, canChop: false, canMine: false, canWater: false,
+    canFish: false, canHoe: false, canChop: false, canMine: false, canWater: false, canDemolish: false,
   };
   for (const slot of ["weapon", "armor", "accessory"]) {
     const id = equipment?.[slot];
@@ -1310,6 +1361,249 @@ export function craftItemAtStationFromChest(recipeId, chest, inv) {
   if (!newChest) return null;
   const { next: newInv } = addToPlayerInventory(inv, recipeId, 1);
   return { newChest, newInv };
+}
+
+// ─── Quest reward definitions ──────────────────────────────────────────────────
+//
+// Every questReward string from NPC_ROSTER maps to one entry here.
+// `effect` is a plain descriptor consumed by helpers below — nothing mutates ITEMS.
+//
+// Effect types:
+//   { type: "price_multiplier",  sellMult, buyMult }   — market sell/buy rate change
+//   { type: "fish_loot_boost",   table }                — replaces homestead fish loot table
+//   { type: "weapon_tier" }                             — unlocks iron weapon recipes (UI hint)
+//   { type: "potion_boost",      healBonus }            — bonus heal on potions
+//   { type: "crop_speed",        growthMult }           — multiplies growth time (< 1 = faster)
+//   { type: "new_recipes",       recipes }              — array of recipe IDs now available
+//   { type: "honey_crafting" }                          — unlocks honey items (UI hint)
+//   { type: "lore_and_map" }                            — lore / map reveal (UI hint)
+//   { type: "gold_bonus",        amount }               — one-time gold reward on complete
+
+export const QUEST_REWARD_DEFS = {
+  // Maren — gems × 5 → better_prices
+  better_prices: {
+    label:       "Better Prices",
+    npcName:     "Maren",
+    icon:        "📈",
+    description: "Maren puts in a good word. Sell prices +20%, buy prices −15%.",
+    effect:      { type: "price_multiplier", sellMult: 1.20, buyMult: 0.85 },
+    goldBonus:   50, // one-time gold on completion
+  },
+
+  // Finn — rare_fish × 5 → better_fish_loot
+  better_fish_loot: {
+    label:       "Expert Fishing",
+    npcName:     "Finn",
+    icon:        "🎣",
+    description: "Finn shares his secrets. Rare fish & gem catch rates roughly doubled.",
+    effect: {
+      type:  "fish_loot_boost",
+      table: [
+        { item: "fish",      min: 1, max: 2, chance: 0.35 },
+        { item: "big_fish",  min: 1, max: 2, chance: 0.30 },
+        { item: "rare_fish", min: 1, max: 1, chance: 0.25 },
+        { item: "gems",      min: 1, max: 3, chance: 0.10 },
+      ],
+    },
+    goldBonus: 30,
+  },
+
+  // Petra — iron_ingot × 10 → weapon_upgrades
+  weapon_upgrades: {
+    label:       "Weapon Upgrades",
+    npcName:     "Petra",
+    icon:        "⚔️",
+    description: "Petra unlocks Tier 2 weapon blueprints at the Blacksmith.",
+    effect:      { type: "weapon_tier" },
+    goldBonus:   40,
+  },
+
+  // Elda — herbs × 15 → better_potions
+  better_potions: {
+    label:       "Potent Brews",
+    npcName:     "Elda",
+    icon:        "🧪",
+    description: "Elda's knowledge improves all potions. +2 heal on every potion consumed.",
+    effect:      { type: "potion_boost", healBonus: 2 },
+    goldBonus:   35,
+  },
+
+  // Sable — carrot × 10 → faster_crops
+  faster_crops: {
+    label:       "Green Thumb",
+    npcName:     "Sable",
+    icon:        "🌱",
+    description: "Sable shares farming tricks. All crops grow 30% faster.",
+    effect:      { type: "crop_speed", growthMult: 0.70 },
+    goldBonus:   25,
+  },
+
+  // Clem — mushrooms × 12 → new_recipes
+  new_recipes: {
+    label:       "New Recipes",
+    npcName:     "Clem",
+    icon:        "🍳",
+    description: "Clem teaches two hearty new fire-pit recipes.",
+    effect: {
+      type:    "new_recipes",
+      recipes: ["forest_stew", "hunters_feast"],
+    },
+    goldBonus: 30,
+  },
+
+  // Rowan — crystal × 3 → lore_and_map
+  lore_and_map: {
+    label:       "Ancient Knowledge",
+    npcName:     "Rowan",
+    icon:        "📚",
+    description: "Rowan reveals hidden lore and marks rare resource nodes on the map.",
+    effect:      { type: "lore_and_map" },
+    goldBonus:   60,
+  },
+
+  // Haas — herbs × 8 → honey_crafting
+  honey_crafting: {
+    label:       "Honey Crafting",
+    npcName:     "Old Haas",
+    icon:        "🍯",
+    description: "Haas teaches honey recipes. Honey items are now craftable at the Fire Pit.",
+    effect:      { type: "honey_crafting" },
+    goldBonus:   20,
+  },
+};
+
+/**
+ * Return the effective sell or buy price for an item, after applying any active
+ * quest rewards.
+ *
+ * @param {string}   itemId        — item ID
+ * @param {"sell"|"buy"} priceType
+ * @param {string[]} activeRewards — array of reward IDs that have been unlocked
+ * @returns {number|null}          — price in gold, or null if item has no such price
+ */
+export function getPriceWithRewards(itemId, priceType, activeRewards = []) {
+  const item = ITEMS[itemId];
+  if (!item) return null;
+  const base = priceType === "sell" ? item.sellPrice : item.buyPrice;
+  if (base == null) return null;
+
+  let price = base;
+  for (const rewardId of activeRewards) {
+    const def = QUEST_REWARD_DEFS[rewardId];
+    if (def?.effect?.type !== "price_multiplier") continue;
+    if (priceType === "sell") price = Math.round(price * def.effect.sellMult);
+    else                      price = Math.max(1, Math.round(price * def.effect.buyMult));
+  }
+  return price;
+}
+
+/**
+ * Returns true when Maren's market-stall discount should be active:
+ *   • An NPC whose npcId is "maren" is assigned to "market_stall"
+ *   • AND that NPC has completed her quest (questComplete === true)
+ *
+ * The 10% discount this enables is applied on top of any quest-reward
+ * price multipliers (better_prices etc.) already in effect.
+ *
+ * @param {{ npcs?: Array<{ npcId: string, assignment: string|null, questComplete?: boolean }> }} townState
+ * @returns {boolean}
+ */
+export function getMarenDiscountActive(townState) {
+  const npcs = townState?.npcs ?? [];
+  return npcs.some(
+    n => n.npcId === "maren" && n.assignment === "market_stall" && n.questComplete === true
+  );
+}
+
+/**
+ * Return the effective growth time (seconds per stage) for a seed, after
+ * applying any active quest rewards.
+ *
+ * @param {string}   seedId
+ * @param {string[]} activeRewards
+ * @returns {number}
+ */
+export function getSeedGrowthTimeWithRewards(seedId, activeRewards = []) {
+  const base = ITEMS[seedId]?.growthTime ?? 60;
+  let mult = 1;
+  for (const rewardId of activeRewards) {
+    const def = QUEST_REWARD_DEFS[rewardId];
+    if (def?.effect?.type === "crop_speed") mult *= def.effect.growthMult;
+  }
+  return base * mult;
+}
+
+/**
+ * Return the boosted fish loot table if `better_fish_loot` is active,
+ * otherwise return the default table passed in.
+ *
+ * @param {Array}    defaultTable
+ * @param {string[]} activeRewards
+ * @returns {Array}
+ */
+export function getFishLootTable(defaultTable, activeRewards = []) {
+  for (const rewardId of activeRewards) {
+    const def = QUEST_REWARD_DEFS[rewardId];
+    if (def?.effect?.type === "fish_loot_boost") return def.effect.table;
+  }
+  return defaultTable;
+}
+
+/**
+ * Return effective heal for a consumable, after applying any active rewards.
+ * @param {string}   itemId
+ * @param {string[]} activeRewards
+ * @returns {number}
+ */
+export function getHealWithRewards(itemId, activeRewards = []) {
+  const base = ITEMS[itemId]?.useEffect?.heal ?? 0;
+  if (base === 0) return 0;
+  const isPotion = ["healing_potion", "strength_potion"].includes(itemId);
+  if (!isPotion) return base;
+  let bonus = 0;
+  for (const rewardId of activeRewards) {
+    const def = QUEST_REWARD_DEFS[rewardId];
+    if (def?.effect?.type === "potion_boost") bonus += def.effect.healBonus;
+  }
+  return base + bonus;
+}
+
+// ─── NPC unlock helpers ───────────────────────────────────────────────────────
+
+/**
+ * Return the set of npcIds that have fully arrived in town
+ * (not waiting at border).  Pass the npcs array from townState.
+ * @param {Array} npcs
+ * @returns {Set<string>}
+ */
+export function getArrivedNpcIds(npcs) {
+  const ids = new Set();
+  for (const npc of (npcs ?? [])) {
+    if (!npc.waitingAtBorder) ids.add(npc.npcId);
+  }
+  return ids;
+}
+
+/**
+ * Return the set of item IDs that are currently unlocked based on which
+ * NPCs have arrived.  Items with no unlockedByNpc are always unlocked.
+ *
+ * Usage:
+ *   const unlocked = getUnlockedItemIds(townState?.npcs);
+ *   const visibleRecipes = allRecipes.filter(([id]) => unlocked.has(id));
+ *
+ * @param {Array} npcs
+ * @returns {Set<string>}
+ */
+export function getUnlockedItemIds(npcs) {
+  const arrived = getArrivedNpcIds(npcs);
+  const unlocked = new Set();
+  for (const [id, item] of Object.entries(ITEMS)) {
+    if (!item.unlockedByNpc || arrived.has(item.unlockedByNpc)) {
+      unlocked.add(id);
+    }
+  }
+  return unlocked;
 }
 
 // ─── Loot roll (shared by run generation and world nodes) ─────────────────────

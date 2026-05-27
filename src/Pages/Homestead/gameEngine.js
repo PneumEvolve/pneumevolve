@@ -67,24 +67,19 @@ export const OBJ = {
 export function defaultObjects() {
   return [
     // House — upper-left
-    { id:'house_0',     type:OBJ.HOUSE,      tx:3,  ty:4,  w:4, h:3, solid:true,  interact:false },
+    { id:'house_0',     type:OBJ.HOUSE,      tx:3,  ty:4,  w:4, h:3, solid:true,  interact:true,  label:'[F] Sleep' },
     // Shared chest — beside house
     { id:'chest_0',     type:OBJ.CHEST,      tx:8,  ty:6,  w:1, h:1, solid:true,  interact:true,  label:'[F] Open chest' },
     // Run notice board — mid-path
     { id:'board_0',     type:OBJ.BOARD,      tx:25, ty:14, w:1, h:1, solid:true,  interact:true,  label:'[F] Start a run' },
     // Well
     { id:'well_0',      type:OBJ.WELL,       tx:9,  ty:4,  w:1, h:1, solid:false, interact:false },
-    // ── TEST RESOURCES — right next to spawn (player spawns at ~tx:8, ty:9) ──
-    // Choppable tree: equip axe + press F
-    { id:'tree_test',  type:OBJ.TREE,     tx:11, ty:7,  w:1, h:1, solid:true,  interact:false, choppable:true, hp:3, maxHp:3, label:'[F] Chop tree' },
-    // Iron ore node: equip pickaxe + press F
-    { id:'ore_test',   type:OBJ.ORE_NODE, tx:13, ty:7,  w:1, h:1, solid:true,  interact:true,  label:'[F] Mine ore',  hp:3, maxHp:3, respawnTime:60, depleted:false, depletedAt:null },
     // Decorative trees — left grove
-    { id:'tree_0',      type:OBJ.TREE,       tx:2,  ty:18, w:1, h:1, solid:true,  interact:false },
-    { id:'tree_1',      type:OBJ.TREE,       tx:3,  ty:19, w:1, h:1, solid:true,  interact:false },
-    { id:'tree_2',      type:OBJ.TREE,       tx:4,  ty:18, w:1, h:1, solid:true,  interact:false },
-    { id:'tree_3',      type:OBJ.TREE,       tx:2,  ty:21, w:1, h:1, solid:true,  interact:false },
-    { id:'tree_4',      type:OBJ.TREE,       tx:4,  ty:22, w:1, h:1, solid:true,  interact:false },
+    { id:'tree_0',      type:OBJ.TREE,       tx:2,  ty:18, w:1, h:1, solid:true,  interact:false, choppable:true, hp:3, maxHp:3 },
+    { id:'tree_1',      type:OBJ.TREE,       tx:3,  ty:19, w:1, h:1, solid:true,  interact:false, choppable:true, hp:3, maxHp:3 },
+    { id:'tree_2',      type:OBJ.TREE,       tx:4,  ty:18, w:1, h:1, solid:true,  interact:false, choppable:true, hp:3, maxHp:3 },
+    { id:'tree_3',      type:OBJ.TREE,       tx:2,  ty:21, w:1, h:1, solid:true,  interact:false, choppable:true, hp:3, maxHp:3 },
+    { id:'tree_4',      type:OBJ.TREE,       tx:4,  ty:22, w:1, h:1, solid:true,  interact:false, choppable:true, hp:3, maxHp:3 },
     // South forest — large choppable grove (no enemies yet)
     { id:'tree_f0',     type:OBJ.TREE,       tx:8,  ty:40, w:1, h:1, solid:true,  interact:false, choppable:true, hp:3, maxHp:3 },
     { id:'tree_f1',     type:OBJ.TREE,       tx:11, ty:42, w:1, h:1, solid:true,  interact:false, choppable:true, hp:3, maxHp:3 },
@@ -173,14 +168,6 @@ export function buildTileMap() {
     if (map[r][c] === T.GRASS) map[r][c] = T.STONE;
   });
 
-  // Rocky ore area — northeast corner
-  const oreArea = [
-    [4,53],[4,54],[5,53],[5,54],[5,55],[6,54],[6,55],[6,56],[6,57],
-    [7,55],[7,56],[7,57],[7,58],[8,56],[8,57],[8,58],[8,59],
-    [4,58],[4,59],[5,58],[5,59],[5,60],[3,57],[3,58],
-  ];
-  oreArea.forEach(([r,c]) => { if (map[r][c] === T.GRASS) map[r][c] = T.STONE; });
-
   // South forest — tall grass border
   const tgPatches = [
     [36,5],[36,6],[37,5],[37,6],[37,7],[37,8],
@@ -190,14 +177,6 @@ export function buildTileMap() {
     [38,35],[38,36],[39,35],[39,36],
   ];
   tgPatches.forEach(([r,c]) => { if (map[r][c] === T.GRASS) map[r][c] = T.TALL_GRASS; });
-
-  // Stone patches (early game surface gathering)
-  const stonePatches = [
-    [8,14],[8,15],[9,14],[15,10],[15,11],[20,24],[21,24],
-    // Under/around the test ore node at tx:13, ty:7
-    [7,12],[7,13],[7,14],[8,12],[8,13],
-  ];
-  stonePatches.forEach(([r,c]) => { if (map[r][c] === T.GRASS) map[r][c] = T.STONE; });
 
   return map;
 }
@@ -518,12 +497,19 @@ export const ENEMY_ATTACK_RANGE = 28;
 export const ENEMY_ATTACK_CD    = 1.2;
 export const ENEMY_DAMAGE       = 1;
 
-export function updateForestEnemies(enemies, playerX, playerY, dt, t) {
+export function updateForestEnemies(enemies, playerX, playerY, dt, t, p2X, p2Y) {
   for (const e of enemies) {
     if (!e.alive) continue;
     if (e.hitFlash > 0) e.hitFlash = Math.max(0, e.hitFlash - dt * 4);
     if (e.attackCooldown > 0) e.attackCooldown = Math.max(0, e.attackCooldown - dt);
-    const dx = playerX - e.x, dy = playerY - e.y;
+    // In co-op, chase whichever player is closer
+    let tx = playerX, ty = playerY;
+    if (p2X != null && p2Y != null) {
+      const d1 = Math.hypot(playerX - e.x, playerY - e.y);
+      const d2 = Math.hypot(p2X - e.x, p2Y - e.y);
+      if (d2 < d1) { tx = p2X; ty = p2Y; }
+    }
+    const dx = tx - e.x, dy = ty - e.y;
     const dist = Math.hypot(dx, dy);
     e.state = dist < ENEMY_ATTACK_RANGE ? 'attack' : dist < ENEMY_CHASE_RANGE ? 'chase' : 'patrol';
     if (e.state === 'chase') { const spd = e.speed * dt; e.x += (dx/dist)*spd; e.y += (dy/dist)*spd; e.dir = dx>0?1:-1; }
@@ -543,7 +529,7 @@ export function updateForestEnemies(enemies, playerX, playerY, dt, t) {
 export const ATTACK_REACH = 38;
 export const ATTACK_ARC   = Math.PI * 0.75;
 
-export function playerAttack(playerX, playerY, facing, enemies, trees, rand, equipStats, stoneDeposits) {
+export function playerAttack(playerX, playerY, facing, enemies, trees, rand, equipStats, stoneDeposits, damageMultiplier = 1) {
   const faceAngle = { right:0, left:Math.PI, down:Math.PI/2, up:-Math.PI/2 }[facing] ?? 0;
   const reach     = ATTACK_REACH + (equipStats?.attackRange ?? 0);
   const hasAxe     = equipStats?.canChop ?? false;
@@ -561,7 +547,7 @@ export function playerAttack(playerX, playerY, facing, enemies, trees, rand, equ
     while (diff >  Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
     if (Math.abs(diff) > ATTACK_ARC / 2) continue;
-    const dmg = 1 + Math.floor((equipStats?.attackBonus ?? 0) / 2);
+    const dmg = Math.ceil((1 + Math.floor((equipStats?.attackBonus ?? 0) / 2)) * damageMultiplier);
     e.hp -= dmg; e.hitFlash = 1;
     if (e.hp <= 0) {
       e.alive = false;
@@ -607,19 +593,21 @@ export function playerAttack(playerX, playerY, facing, enemies, trees, rand, equ
 // This file owns the pure logic (movement, AI); React state owns the data.
 //
 // {
-//   id:           string          — unique e.g. "npc_generic_0", "npc_maren"
-//   npcId:        string          — matches NPC_ROSTER key: "generic" | "maren" | "finn" | ...
-//   name:         string          — display name (player can rename generic NPCs)
-//   x:            number          — world-pixel X
-//   y:            number          — world-pixel Y
-//   facing:       "up"|"down"|"left"|"right"
-//   assignment:   string | null   — OBJ type of assigned building, e.g. "town_hall" | null
-//   homeObjectId: string | null   — id of the resident_home object they live in
-//   mood:         "happy"|"neutral"|"unhappy"
-//   waitingAtBorder: boolean      — true = NPC exists but can't move in (no free home)
-//   step:         number          — walk animation frame counter
-//   wanderTarget: {x,y} | null   — current wander destination
-//   wanderTimer:  number          — seconds until next wander target is chosen
+//   id:              string          — unique e.g. "npc_generic_0", "npc_maren"
+//   npcId:           string          — matches NPC_ROSTER key: "generic" | "maren" | "finn" | ...
+//   name:            string          — display name (player can rename generic NPCs)
+//   x:               number          — world-pixel X
+//   y:               number          — world-pixel Y
+//   facing:          "up"|"down"|"left"|"right"
+//   assignment:      string | null   — OBJ type of assigned building, e.g. "town_hall" | null
+//   homeObjectId:    string | null   — id of the resident_home object they live in
+//   mood:            "happy"|"neutral"|"unhappy"
+//   waitingAtBorder: boolean         — true = NPC exists but can't move in (no free home)
+//   step:            number          — walk animation frame counter
+//   wanderTarget:    {x,y} | null   — current wander destination
+//   wanderTimer:     number          — seconds until next wander target is chosen
+//   relationship:    number          — 0-100, friendship score; gates dialog & bonus items
+//   lastGiftTime:    number | null   — Date.now() of last accepted gift (one gift per day)
 // }
 
 // Where named NPCs appear when waiting (just outside the map's right border grass area)
@@ -630,6 +618,157 @@ export const NPC_SPEED       = 52;   // pixels/sec while wandering
 export const NPC_WANDER_RADIUS = TILE * 6;   // max tiles from home to wander
 export const NPC_WANDER_PAUSE  = 3.5;        // seconds to idle before picking new target
 export const NPC_INTERACT_REACH = TILE * 1.6; // how close player must be to talk
+
+// ── Relationship system ───────────────────────────────────────────────────────
+//
+// relationship is a 0–100 integer on each NPC.
+//
+// Thresholds unlock extra content:
+//   0  Stranger   — default dialog only
+//   20 Acquainted — unlocks tier-1 bonus dialog lines
+//   50 Friendly   — unlocks tier-2 dialog + bonus item drops on quest complete
+//   80 Close      — unlocks tier-3 dialog + improved bonus items
+//
+// Sources of relationship gain:
+//   +5   per quest item delivered (capped at questQty worth of gains per quest)
+//   +8   gifting a liked item  (once per real-world day, ~24 h)
+//   +4   gifting a neutral item (once per real-world day)
+//
+// Gift cooldown: 24 h wall-clock (stored as lastGiftTime on the NPC).
+
+export const REL_THRESHOLDS = {
+  ACQUAINTED: 20,
+  FRIENDLY:   50,
+  CLOSE:      80,
+};
+
+export const REL_TIER_LABEL = (rel) => {
+  if (rel >= REL_THRESHOLDS.CLOSE)      return "Close";
+  if (rel >= REL_THRESHOLDS.FRIENDLY)   return "Friendly";
+  if (rel >= REL_THRESHOLDS.ACQUAINTED) return "Acquainted";
+  return "Stranger";
+};
+
+// How many relationship points each gift source grants
+export const REL_GAIN_GIFT_LIKED    = 8;
+export const REL_GAIN_GIFT_NEUTRAL  = 4;
+export const REL_GAIN_QUEST_DELIVER = 5;
+export const REL_GIFT_COOLDOWN_MS   = 24 * 60 * 60 * 1000; // 24 h
+
+// Items each NPC particularly likes as gifts.
+// Any item the player owns can be gifted; liked items grant more relationship.
+export const NPC_LIKED_GIFTS = {
+  generic: ["mushrooms", "berries", "carrot"],
+  maren:   ["gems", "crystal", "gold"],
+  finn:    ["rare_fish", "fish", "gems"],
+  petra:   ["iron_ingot", "iron_ore", "coal"],
+  elda:    ["herbs", "mushrooms", "crystal"],
+  sable:   ["carrot", "pumpkin", "herbs"],
+  clem:    ["mushrooms", "berries", "honey"],
+  rowan:   ["crystal", "lore_and_map", "herbs"],
+  bex:     ["gems", "iron_ingot", "rare_fish"],
+  haas:    ["herbs", "honey", "berries"],
+};
+
+// Extra dialog lines unlocked at each relationship tier.
+// Keys match NPC_ROSTER keys.
+export const NPC_BONUS_DIALOG = {
+  generic: {
+    acquainted: ["You know, I didn't expect to enjoy it here so much.", "Thanks for keeping the place in good shape."],
+    friendly:   ["I'd do anything for this town — and for you.", "We've built something real here. That matters."],
+    close:      ["You're like family now. Don't tell the others I said that.", "Whatever comes next, we face it together."],
+  },
+  maren: {
+    acquainted: ["You've got a good eye for value. I respect that.", "I don't say this often — you're a fair trader."],
+    friendly:   ["I've been in this business thirty years. You're one of the good ones.", "Between us? I'm giving you my best prices."],
+    close:      ["If I ever leave this market, I'd want you to run it.", "You remind me of my daughter. Don't repeat that."],
+  },
+  finn: {
+    acquainted: ["You're patient. That's rare.", "The lake's been good to me lately. Feels like a good sign."],
+    friendly:   ["I don't usually talk this much. Must be something about this place.", "There's a spot on the north shore nobody knows about. I'll take you sometime."],
+    close:      ["I've never shown anyone the place I fish in the deep hours. Maybe you.", "Whatever's out there in the water — I think it's watching over this town."],
+  },
+  petra: {
+    acquainted: ["Not bad. You actually know what good iron looks like.", "I'll tell you what, you keep bringing ore and I'll keep making things."],
+    friendly:   ["I made something for you. Don't make it weird.", "You're the only one here who doesn't flinch when I talk about metalwork."],
+    close:      ["I carved your name into the base of the anvil. Tradition.", "My best work has always been for people worth making it for."],
+  },
+  elda: {
+    acquainted: ["You notice things others miss. Good.", "The land trusts you. I can tell."],
+    friendly:   ["There are things I haven't told anyone. You'll understand eventually.", "Some of these herbs only grow where people have kept faith with the land."],
+    close:      ["I came here because of you, you know. Not the town — you.", "When I'm gone, you'll know what to do. You always did."],
+  },
+  sable: {
+    acquainted: ["Okay, I have to admit — you know more about this place than I gave you credit for.", "My gran would've loved it here."],
+    friendly:   ["I stayed up planning a whole rotation schedule for the east field. Want to see?", "Farming alone is hard. Farming together? That's something else."],
+    close:      ["Honest truth? This is the best farm I've ever worked. And it's because of you.", "I'm not going anywhere. This is home."],
+  },
+  clem: {
+    acquainted: ["You clean your plate. I like you.", "I've been trying a new recipe with your stuff. Hope that's okay."],
+    friendly:   ["I made you something. It's in the kitchen. Don't let anyone else eat it.", "You're always welcome at my table. Always."],
+    close:      ["I've cooked for kings and I've cooked for thieves. This is the best kitchen I've ever had.", "Whatever you need — food, a warm corner, a word — you know where I am."],
+  },
+  rowan: {
+    acquainted: ["You ask good questions. Most people don't.", "I found a reference to this valley in a document from three centuries back."],
+    friendly:   ["I've been mapping the old paths. Some of them lead somewhere. I'll show you.", "The history here isn't just old. It's alive. You can feel it if you stand still long enough."],
+    close:      ["Everything I've found — I want you to have a copy. In case something happens to me.", "I think I understand now why I was drawn here. It was always going to lead to this."],
+  },
+  bex: {
+    acquainted: ["Hmm. You're still here.", "Okay. You're alright."],
+    friendly:   ["I don't trust easily. You should know that. And yet.", "There are things about where I came from. Maybe someday."],
+    close:      ["I told you not to ask. But if you did — I'd tell you now.", "You're the reason I stayed. Don't let it go to your head."],
+  },
+  haas: {
+    acquainted: ["The bees are calmer when you're around. That means something.", "I don't say much. But I notice things."],
+    friendly:   ["You've got the patience this work needs. That's not common.", "I made an extra jar. Thought of you."],
+    close:      ["I've had a long life. This place — this is the good part.", "Some people spend their whole lives waiting for something like what we have here."],
+  },
+};
+
+// Bonus items given when completing a quest at certain relationship tiers.
+// { friendly: itemId, close: itemId } — only if the NPC has one defined.
+export const NPC_BONUS_ITEMS = {
+  maren:  { friendly: "gems",       close: "crystal" },
+  finn:   { friendly: "rare_fish",  close: "gems" },
+  petra:  { friendly: "iron_ingot", close: "iron_ingot" },
+  elda:   { friendly: "herbs",      close: "crystal" },
+  sable:  { friendly: "carrot",     close: "pumpkin" },
+  clem:   { friendly: "mushrooms",  close: "honey" },
+  rowan:  { friendly: "herbs",      close: "crystal" },
+  bex:    { friendly: "gems",       close: "rare_fish" },
+  haas:   { friendly: "honey",      close: "honey" },
+};
+
+/**
+ * Return the bonus item (if any) an NPC gives on quest completion,
+ * based on their current relationship level.
+ * @param {string} npcId
+ * @param {number} relationship
+ * @returns {string|null} item id or null
+ */
+export function getQuestBonusItem(npcId, relationship) {
+  const bonuses = NPC_BONUS_ITEMS[npcId];
+  if (!bonuses) return null;
+  if (relationship >= REL_THRESHOLDS.CLOSE    && bonuses.close)    return bonuses.close;
+  if (relationship >= REL_THRESHOLDS.FRIENDLY && bonuses.friendly) return bonuses.friendly;
+  return null;
+}
+
+/**
+ * Return the extra dialog lines available at the current relationship level.
+ * Appended to the base dialog pool in NPCDialogPanel.
+ * @param {string} npcId
+ * @param {number} relationship
+ * @returns {string[]}
+ */
+export function getBonusDialogLines(npcId, relationship) {
+  const bonus = NPC_BONUS_DIALOG[npcId] ?? NPC_BONUS_DIALOG.generic;
+  const lines = [];
+  if (relationship >= REL_THRESHOLDS.ACQUAINTED) lines.push(...(bonus.acquainted ?? []));
+  if (relationship >= REL_THRESHOLDS.FRIENDLY)   lines.push(...(bonus.friendly ?? []));
+  if (relationship >= REL_THRESHOLDS.CLOSE)      lines.push(...(bonus.close ?? []));
+  return lines;
+}
 
 // ── NPC Roster ────────────────────────────────────────────────────────────────
 // All named NPCs and their metadata. "generic" is the unnamed first resident.
@@ -648,6 +787,9 @@ export const NPC_ROSTER = {
     questItem:       null,
     questQty:        0,
     questReward:     null,
+    // Items (seeds / recipes) unlocked when this NPC has arrived in town.
+    // Seeds become buyable at the market; station recipes become visible in crafting.
+    unlocksRecipes:  [],
   },
   maren: {
     defaultName:     "Maren",
@@ -658,6 +800,8 @@ export const NPC_ROSTER = {
     questItem:       "gems",
     questQty:        5,
     questReward:     "better_prices",  // unlocks improved buy/sell rates
+    // Maren stocks the market — her arrival makes the watering can available to buy
+    unlocksRecipes:  ["watering_can"],
   },
   finn: {
     defaultName:     "Finn",
@@ -668,6 +812,8 @@ export const NPC_ROSTER = {
     questItem:       "rare_fish",
     questQty:        5,
     questReward:     "better_fish_loot",
+    // Finn teaches fishing-rod crafting
+    unlocksRecipes:  ["fishing_rod"],
   },
   petra: {
     defaultName:     "Petra",
@@ -678,6 +824,8 @@ export const NPC_ROSTER = {
     questItem:       "iron_ingot",
     questQty:        10,
     questReward:     "weapon_upgrades",
+    // Petra unlocks all Tier 2 iron tools and weapons at the anvil
+    unlocksRecipes:  ["iron_hoe", "iron_axe", "iron_pickaxe", "iron_sword"],
   },
   elda: {
     defaultName:     "Elda",
@@ -688,6 +836,8 @@ export const NPC_ROSTER = {
     questItem:       "herbs",
     questQty:        15,
     questReward:     "better_potions",
+    // Elda unlocks herb seeds at the market and potion-stand recipes
+    unlocksRecipes:  ["herb_seed", "healing_potion", "strength_potion"],
   },
   sable: {
     defaultName:     "Sable",
@@ -698,6 +848,8 @@ export const NPC_ROSTER = {
     questItem:       "carrot",
     questQty:        10,
     questReward:     "faster_crops",
+    // Sable unlocks pumpkin seeds (high-value crop) at the market
+    unlocksRecipes:  ["pumpkin_seed"],
   },
   clem: {
     defaultName:     "Clem",
@@ -708,6 +860,8 @@ export const NPC_ROSTER = {
     questItem:       "mushrooms",
     questQty:        12,
     questReward:     "new_recipes",
+    // Clem unlocks the advanced 3-ingredient fire-pit meals
+    unlocksRecipes:  ["forest_stew", "wild_broth", "hunters_feast", "orchard_medley"],
   },
   rowan: {
     defaultName:     "Rowan",
@@ -718,6 +872,8 @@ export const NPC_ROSTER = {
     questItem:       "crystal",
     questQty:        3,
     questReward:     "lore_and_map",
+    // Rowan's research unlocks the explorer's pack and tool belt upgrades
+    unlocksRecipes:  ["explorer_pack", "tool_belt"],
   },
   bex: {
     defaultName:     "Bex",
@@ -728,6 +884,8 @@ export const NPC_ROSTER = {
     questItem:       null,
     questQty:        0,
     questReward:     null,
+    // Bex is a generalist — she unlocks flexible upgrades and the leather armor
+    unlocksRecipes:  ["leather_armor", "potion_satchel"],
   },
   haas: {
     defaultName:     "Old Haas",
@@ -738,6 +896,8 @@ export const NPC_ROSTER = {
     questItem:       "herbs",   // brings herbs for the hives slowly over time
     questQty:        8,
     questReward:     "honey_crafting",
+    // Haas unlocks honey-themed cooking and the beehive decoration
+    unlocksRecipes:  ["fruit_salad", "herb_tea", "mushroom_skewer", "berry_jam", "herb_roast"],
   },
 };
 
@@ -768,6 +928,8 @@ export function createNPC(npcId, x, y, overrides = {}) {
     wanderTimer:     NPC_WANDER_PAUSE,
     questProgress:   0,          // how many quest items have been delivered
     questComplete:   false,
+    relationship:    0,           // 0–100 friendship score
+    lastGiftTime:    null,        // timestamp of last accepted gift
     ...overrides,
   };
 }

@@ -33,7 +33,7 @@ const RUN_INFO = {
   fishing: { icon:"🎣", label:"Fishing Trip",      desc:"Cast your line, time your pull, reel in fish.", bg:"#04101a", accent:"rgba(80,200,255,0.9)"    },
 };
 
-export default function RunLobby({ room, role, onRunStart, onCancel, joining = false, joinSeed = null, runType: propRunType = null, equipment = null }) {
+export default function RunLobby({ room, role, onRunStart, onCancel, joining = false, joinSeed = null, runType: propRunType = null, equipment = null, canStartRun = true }) {
   const [countdown,     setCountdown]    = useState(COUNTDOWN_S);
   const [partnerJoined, setPartnerJoined] = useState(joining);
   const [seed]          = useState(() => joining && joinSeed ? joinSeed : (Date.now() & 0x7fffffff));
@@ -126,6 +126,52 @@ export default function RunLobby({ room, role, onRunStart, onCancel, joining = f
   }
 
   const pct = countdown / COUNTDOWN_S;
+
+  // ── Locked: already ran today ──────────────────────────────────────────────
+  if (!canStartRun && !joining) {
+    return (
+      <main ref={containerRef} style={{
+        minHeight:"100svh", background:"#0a0e0a", color:"#f5e6c8",
+        display:"flex", flexDirection:"column", alignItems:"center",
+        justifyContent:"center", gap:24, fontFamily:"monospace", padding:"0 24px",
+      }}>
+        <div style={{ textAlign:"center", display:"flex", flexDirection:"column", alignItems:"center", gap:16 }}>
+          <p style={{ fontSize:11, letterSpacing:"0.18em", color:"rgba(200,230,160,0.4)", textTransform:"uppercase", marginBottom:0 }}>
+            run used
+          </p>
+          <h1 style={{ fontSize:26, fontWeight:400, color:"rgba(200,230,120,0.85)", letterSpacing:"0.05em", margin:0 }}>
+            🌙 Already ran today
+          </h1>
+          <p style={{ fontSize:13, color:"rgba(245,230,200,0.45)", lineHeight:1.7, maxWidth:280 }}>
+            You've used your run for today. Rest up and you'll be ready to head out again tomorrow.
+          </p>
+        </div>
+
+        {/* Sleep hint card */}
+        <div style={{
+          display:"flex", alignItems:"center", gap:14,
+          background:"rgba(120,160,255,0.05)", border:"1px solid rgba(120,160,255,0.18)",
+          borderRadius:14, padding:"16px 22px", maxWidth:280, width:"100%",
+        }}>
+          <span style={{ fontSize:28, flexShrink:0 }}>🏠</span>
+          <div>
+            <div style={{ fontSize:12, color:"rgba(180,210,255,0.8)", marginBottom:4 }}>
+              Go to sleep to reset
+            </div>
+            <div style={{ fontSize:11, color:"rgba(180,210,255,0.45)", lineHeight:1.5 }}>
+              Press <span style={{ color:"rgba(180,210,255,0.85)", fontWeight:700 }}>[F]</span> at your house to end the day
+            </div>
+          </div>
+        </div>
+
+        <button onClick={onCancel} style={{
+          padding:"12px 24px", borderRadius:10, cursor:"pointer",
+          background:"transparent", border:"1px solid rgba(255,255,255,0.08)",
+          color:"rgba(255,255,255,0.35)", fontSize:13, fontFamily:"monospace",
+        }}>← back home</button>
+      </main>
+    );
+  }
 
   // ── Run type picker (before confirming) ────────────────────────────────────
   if (!confirmed && !joining) {

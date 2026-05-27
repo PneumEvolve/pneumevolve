@@ -89,6 +89,7 @@ export function useHearthroom(roomId, handlers, channelSuffix = "") {
           case "loot_dropped":        h.onLootDropped?.(msg);           break;
           case "run_state_request":   h.onRunStateRequest?.(msg);        break;
           case "run_state_sync":      h.onRunStateSync?.(msg);          break;
+          case "enemy_sync":          h.onEnemySync?.(msg);             break;
 
           // ── Run end ───────────────────────────────────────────────────────
           case "run_complete":        h.onRunComplete?.(msg);            break;
@@ -100,6 +101,11 @@ export function useHearthroom(roomId, handlers, channelSuffix = "") {
           case "farm_updated":        h.onFarmUpdated?.(msg);            break;
           case "player_state_sync":   h.onPlayerStateSync?.(msg);        break;
           case "town_state_updated":  h.onTownStateUpdated?.(msg);       break;
+
+          // ── Sleep / day cycle ─────────────────────────────────────────────────────────
+          case "sleep_requested":    h.onSleepRequested?.(msg);         break;
+          case "sleep_cancelled":    h.onSleepCancelled?.(msg);         break;
+          case "sleep_confirmed":    h.onSleepConfirmed?.(msg);         break;
 
           // ── Misc ──────────────────────────────────────────────────────────
           case "ping":                h.onPing?.(msg);                   break;
@@ -171,6 +177,7 @@ export function useHearthroom(roomId, handlers, channelSuffix = "") {
   const sendLootDropped     = useCallback((drops) =>                    send("loot_dropped",    { drops }),                  [send]);
   const sendRunStateRequest = useCallback(() =>                         send("run_state_request",{}),                        [send]);
   const sendRunStateSync    = useCallback((state) =>                    send("run_state_sync",  state),                     [send]);
+  const sendEnemySync       = useCallback((enemies) =>                  send("enemy_sync",      { enemies }),               [send]);
 
   // ── Run end ───────────────────────────────────────────────────────────────
   const sendRunComplete     = useCallback((loot) =>                     send("run_complete",    { loot }),                  [send]);
@@ -181,6 +188,11 @@ export function useHearthroom(roomId, handlers, channelSuffix = "") {
   const sendObjectRemoved   = useCallback((id) =>                       send("object_removed",  { id }),                    [send]);
   const sendFarmUpdated     = useCallback((plots, nodeState) =>          send("farm_updated",    { plots, nodeState }),      [send]);
   const sendPlayerStateSync = useCallback((state) =>                    send("player_state_sync", state),                   [send]);
+  // ── Sleep / day cycle ─────────────────────────────────────────────────────────
+  const sendSleepRequested  = useCallback(() =>                         send("sleep_requested", {}),                          [send]);
+  const sendSleepCancelled  = useCallback(() =>                         send("sleep_cancelled", {}),                          [send]);
+  const sendSleepConfirmed  = useCallback(() =>                         send("sleep_confirmed", {}),                          [send]);
+
   const sendTownStateUpdated = useCallback((townState) =>               send("town_state_updated", { town_state: townState }), [send]);
 
   // ── Misc ──────────────────────────────────────────────────────────────────
@@ -208,6 +220,7 @@ export function useHearthroom(roomId, handlers, channelSuffix = "") {
     sendLootDropped,
     sendRunStateRequest,
     sendRunStateSync,
+    sendEnemySync,
     sendRunComplete,
     sendChestUpdated,
     sendObjectPlaced,
@@ -215,6 +228,9 @@ export function useHearthroom(roomId, handlers, channelSuffix = "") {
     sendFarmUpdated,
     sendPlayerStateSync,
     sendTownStateUpdated,
+    sendSleepRequested,
+    sendSleepCancelled,
+    sendSleepConfirmed,
     sendPing,
     sendChat,
     sendPlayerAppearance,

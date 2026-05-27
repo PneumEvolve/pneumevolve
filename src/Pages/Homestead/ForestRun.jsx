@@ -29,6 +29,7 @@ import {
   normalizeChest, chestToMap,
   getWeaponDurability, drainWeaponDurability, TOOL_MAX_DURABILITY,
 } from "./Items";
+import { ItemIcon } from "./ItemIcon";
 
 const PLAYER_SPEED   = 130;
 const PLAYER_HP      = 5;
@@ -481,7 +482,7 @@ function HotbarBar({ hotbar, hotbarSlots, equipment, selectedIdx, onSelectIdx, o
             )}
             {slot ? (
               <>
-                <span style={{ fontSize:18, lineHeight:1 }}>{icon}</span>
+                <ItemIcon id={slot.item} size={22} />
                 <span style={{ fontSize:8, color:"rgba(200,230,120,0.65)", lineHeight:1, fontFamily:"monospace", maxWidth:40, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
                   {ITEMS[slot.item]?.label?.toLowerCase().slice(0,6) ?? slot.item}
                 </span>
@@ -601,7 +602,7 @@ function RunTabMenu({
                 style={{ width:50, height:54, borderRadius:9, background:isOver?"rgba(200,230,120,0.18)":slot?"rgba(10,18,6,0.7)":"rgba(255,255,255,0.03)", border:`2px solid ${isOver?"rgba(200,230,120,0.9)":isEq?"rgba(100,200,255,0.5)":slot?"rgba(200,230,120,0.3)":"rgba(255,255,255,0.1)"}`, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2, position:"relative", transition:"all 0.1s" }}>
                 {slot ? (
                   <>
-                    <span style={{ fontSize:18 }}>{ITEM_ICONS[slot.item]??"📦"}</span>
+                    <ItemIcon id={slot.item} size={22} />
                     <span style={{ fontSize:8, color:"rgba(200,230,120,0.6)", lineHeight:1, fontFamily:"monospace", maxWidth:46, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{ITEMS[slot.item]?.label?.toLowerCase()?.slice(0,6)??slot.item}</span>
                     {slot.qty!=null&&<span style={{ fontSize:9, color:"rgba(200,230,120,0.7)" }}>{slot.qty}</span>}
                     {isEq&&<div style={{ position:"absolute", top:3, right:3, width:6, height:6, borderRadius:"50%", background:"rgba(100,200,255,0.9)" }}/>}
@@ -689,7 +690,7 @@ function RunTabMenu({
               {resources.map(([id, qty]) => (
                 <div key={id} draggable onDragStart={e=>{e.dataTransfer.setData("hotbar_item",id);e.dataTransfer.effectAllowed="copy";}}
                   style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 10px", borderRadius:8, background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.07)", cursor:"grab" }}>
-                  <span style={{ fontSize:18 }}>{ITEM_ICONS[id]??"📦"}</span>
+                  <ItemIcon id={id} size={22} />
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontSize:9, color:"rgba(245,230,200,0.4)" }}>{ITEMS[id]?.label??id}</div>
                     <div style={{ fontSize:15, color:"rgba(200,230,120,0.9)" }}>{qty}</div>
@@ -709,7 +710,7 @@ function RunTabMenu({
                 <div key={id} draggable onDragStart={e=>{e.dataTransfer.setData("hotbar_item",id);e.dataTransfer.effectAllowed="copy";}}
                   onClick={()=>{const ei=hotbar?.findIndex(s=>!s)??-1;const si=ei>=0?ei:0;if(si<(hotbarSlots??HOTBAR_BASE_SLOTS)){const nh=[...(hotbar??[])];nh[si]={item:id,qty};onHotbarChange?.(nh);}}}
                   style={{ ...itemStyle, background:"rgba(255,200,80,0.07)", border:"1px solid rgba(255,200,80,0.25)" }}>
-                  <span style={{ fontSize:22 }}>{ITEM_ICONS[id]??"📦"}</span>
+                  <ItemIcon id={id} size={26} />
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontSize:12, color:"rgba(200,230,120,0.85)" }}>{ITEMS[id]?.label??id}</div>
                     <div style={{ fontSize:10, color:"rgba(255,255,255,0.3)" }}>×{qty} · drag → hotbar</div>
@@ -729,7 +730,7 @@ function RunTabMenu({
                 const eq = EQUIPPABLE[id]; const isEq = equipment?.[eq?.slot]===id;
                 return (
                   <div key={id} onClick={()=>onEquipItem?.(id)} style={{ ...itemStyle, cursor:"pointer", background:"rgba(200,230,120,0.05)", border:"1px solid rgba(200,230,120,0.2)" }}>
-                    <span style={{ fontSize:22 }}>{ITEM_ICONS[id]??"📦"}</span>
+                    <ItemIcon id={id} size={26} />
                     <div style={{ flex:1, minWidth:0 }}>
                       <div style={{ fontSize:12, color:"rgba(200,230,120,0.85)" }}>{ITEMS[id]?.label??id}</div>
                       <div style={{ fontSize:10, color:isEq?"rgba(100,200,255,0.7)":"rgba(255,255,255,0.3)" }}>{isEq?"✓ equipped":"click to equip"}</div>
@@ -753,7 +754,7 @@ function RunTabMenu({
                   onPlayerInventoryUpdate?.(newInv);
                   onHotbarSlotsUpdate?.(newHbs);
                 }} style={{ ...itemStyle, cursor:"pointer", background:"rgba(120,80,200,0.08)", border:"1px solid rgba(120,80,200,0.25)" }}>
-                  <span style={{ fontSize:22 }}>{it?.icon??"📦"}</span>
+                  <ItemIcon id={id} size={26} />
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontSize:12, color:"rgba(180,150,230,0.9)" }}>{it?.label??id}</div>
                     <div style={{ fontSize:10, color:"rgba(255,255,255,0.3)" }}>{it?.description}</div>
@@ -805,7 +806,7 @@ function RunTabMenu({
               const it = ITEMS[id];
               return (
                 <div key={id} style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 12px", borderRadius:10, background:"rgba(180,200,100,0.04)", border:"1px solid rgba(180,200,100,0.12)" }}>
-                  <span style={{ fontSize:22 }}>{ITEM_ICONS[id]??"📦"}</span>
+                  <ItemIcon id={id} size={26} />
                   <div style={{ flex:1 }}>
                     <div style={{ fontSize:12, color:"rgba(180,200,100,0.85)" }}>{it?.label??id}</div>
                     <div style={{ fontSize:10, color:"rgba(245,230,200,0.35)" }}>×{qty} at home</div>
@@ -848,7 +849,7 @@ function RunTabMenu({
             const it = ITEMS[name];
             return (
               <div key={name} style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:10,background:craftable?"rgba(200,230,120,0.06)":"rgba(255,255,255,0.02)",border:`1px solid ${craftable?"rgba(200,230,120,0.2)":"rgba(255,255,255,0.06)"}`,opacity:craftable?1:0.5,marginTop:8 }}>
-                <span style={{ fontSize:22,minWidth:30 }}>{it?.icon??"📦"}</span>
+                <ItemIcon id={name} size={26} />
                 <div style={{ flex:1 }}>
                   <div style={{ fontSize:13,color:"rgba(200,230,120,0.85)" }}>{it?.label??name}</div>
                   <div style={{ fontSize:10,color:"rgba(245,230,200,0.4)" }}>
@@ -877,7 +878,7 @@ function RunTabMenu({
           const item=equipment?.[slot]; const info=item?EQUIPPABLE[item]:null;
           return(
             <div key={slot} style={{ display:"flex",alignItems:"center",gap:12,padding:"12px 14px",borderRadius:10,background:item?"rgba(200,230,120,0.04)":"rgba(255,255,255,0.02)",border:`1px solid ${item?"rgba(200,230,120,0.18)":"rgba(255,255,255,0.06)"}` }}>
-              <span style={{ fontSize:22,minWidth:30 }}>{info?.icon??"○"}</span>
+              <ItemIcon id={item} size={26} />
               <div style={{ flex:1 }}>
                 <div style={{ fontSize:10,color:"rgba(245,230,200,0.3)",letterSpacing:"0.1em",textTransform:"uppercase" }}>{slot}</div>
                 <div style={{ fontSize:13,color:item?"rgba(200,230,120,0.85)":"rgba(255,255,255,0.18)" }}>{info?.label??"empty"}</div>
@@ -921,7 +922,7 @@ function RunTabMenu({
             <p style={{ fontSize:10,color:"rgba(245,230,200,0.3)",letterSpacing:"0.12em",textTransform:"uppercase" }}>in bag — click to equip</p>
             {equippableInBag.map(name=>{const info=EQUIPPABLE[name];const isEq=equipment?.[info?.slot]===name;return(
               <div key={name} onClick={()=>onEquipItem?.(name)} style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:10,cursor:"pointer",background:isEq?"rgba(200,230,120,0.06)":"rgba(255,255,255,0.02)",border:`1px solid ${isEq?"rgba(200,230,120,0.2)":"rgba(255,255,255,0.06)"}` }}>
-                <span style={{ fontSize:20,minWidth:30 }}>{info.icon}</span>
+                <ItemIcon id={name} size={26} />
                 <div style={{ flex:1 }}>
                   <div style={{ fontSize:13,color:"rgba(200,230,120,0.85)" }}>{info.label}</div>
                   <div style={{ fontSize:10,color:"rgba(200,230,160,0.4)" }}>{info.slot} slot</div>
@@ -954,7 +955,7 @@ function RunTabMenu({
         <div style={{ display:"flex",overflowX:"auto",borderBottom:"1px solid rgba(255,255,255,0.07)",padding:"0 6px",scrollbarWidth:"none" }}>
           {RUN_TABS.map(tab=>{const active=activeTab===tab.id;return(
             <button key={tab.id} onClick={()=>onTabChange(tab.id)} style={{ flex:"0 0 auto",padding:"10px 14px",background:"transparent",border:"none",borderBottom:`2px solid ${active?"rgba(200,230,120,0.8)":"transparent"}`,color:active?"rgba(200,230,120,0.95)":"rgba(245,230,200,0.4)",fontSize:12,fontFamily:"monospace",cursor:"pointer",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap" }}>
-              <span style={{ fontSize:14 }}>{tab.icon}</span>{tab.label}
+              {tab.icon}
             </button>
           );})}
         </div>
@@ -972,7 +973,7 @@ function RunTabMenu({
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function ForestRun({
-  room, seed, coOp = false, onRunComplete,
+  room, seed, coOp = false, isHost = true, onRunComplete,
   character, equipment, onEquipItem,
   onEquipmentUpdate,
   hotbar, onHotbarChange,
@@ -1021,6 +1022,11 @@ export default function ForestRun({
   const tabMenuOpenRef = useRef(false);
   useEffect(() => { tabMenuOpenRef.current = tabMenuOpen; }, [tabMenuOpen]);
 
+  // Pause / abandon overlay (shown when player presses Escape mid-run)
+  const [pauseOpen, setPauseOpen] = useState(false);
+  const pauseOpenRef = useRef(false);
+  useEffect(() => { pauseOpenRef.current = pauseOpen; }, [pauseOpen]);
+
   // Track delta gained during the run for the loot summary screen.
   // We snapshot inventory at run-start and diff at run-end so only items
   // that are *actually in the bag* when you leave are shown — drops are excluded.
@@ -1029,6 +1035,8 @@ export default function ForestRun({
 
   // Ref so inner useEffect closures can always call the latest doAttack
   const doAttackRef = useRef(null);
+  // Remaining seconds of active strength-potion buff (0 = inactive)
+  const strengthActiveRef = useRef(0);
 
   // ── Helpers that talk to the parent player inventory ──────────────────────
   const RUN_WEAPONS = { axe: true, pickaxe: true };
@@ -1125,6 +1133,19 @@ export default function ForestRun({
       soundRef.current?.pickup();
       pushLootFloat(`+${info.useEffect.heal} HP`, state.px, state.py - 20, "#80f080");
     }
+    // Strength buff (may stack with heal, e.g. strength potion gives both)
+    if (info.useEffect?.strengthDuration) {
+      strengthActiveRef.current = info.useEffect.strengthDuration;
+      if (!info.useEffect?.heal) {
+        // Consume from hotbar only if heal didn't already do it
+        const newHb = [...hb];
+        const newQty = (entry.qty ?? 1) - 1;
+        newHb[slot] = newQty > 0 ? { ...entry, qty: newQty } : null;
+        onHotbarChange?.(newHb);
+        soundRef.current?.pickup();
+      }
+      pushToast(`⚔️ Strength x1.5 for ${info.useEffect.strengthDuration}s`, "#ff9944");
+    }
   }, [onPlayerInventoryUpdate, onHotbarChange, pushToast, pushLootFloat]);
 
   // ── Supabase: sync co-op partner if present ───────────────────────────────
@@ -1203,9 +1224,15 @@ export default function ForestRun({
       const deadEnemyIds    = stateRef.current.enemies.filter(e => !e.alive).map(e => e.id);
       const deadTreeIds     = stateRef.current.trees.filter(t => !t.alive).map(t => t.id);
       const deadDepositIds  = (stateRef.current.stoneDeposits ?? []).filter(d => !d.alive).map(d => d.id);
-      sendRunStateSyncRef.current?.({ collectedIds, deadEnemyIds, deadTreeIds, deadDepositIds });
+      // Also include current enemy positions so follower can snap to them immediately
+      const enemySnapshots  = stateRef.current.enemies.map(e => ({
+        id: e.id, x: Math.round(e.x), y: Math.round(e.y),
+        hp: e.hp, alive: e.alive, state: e.state, dir: e.dir,
+        attackCooldown: Math.round(e.attackCooldown * 100) / 100,
+      }));
+      sendRunStateSyncRef.current?.({ collectedIds, deadEnemyIds, deadTreeIds, deadDepositIds, enemySnapshots });
     },
-    onRunStateSync: ({ collectedIds, deadEnemyIds, deadTreeIds, deadDepositIds }) => {
+    onRunStateSync: ({ collectedIds, deadEnemyIds, deadTreeIds, deadDepositIds, enemySnapshots }) => {
       if (!stateRef.current) return;
       collectedIds?.forEach(id => {
         const p = stateRef.current.pickups.find(pk => pk.id === id);
@@ -1223,13 +1250,38 @@ export default function ForestRun({
         const d = (stateRef.current.stoneDeposits ?? []).find(dep => dep.id === id);
         if (d) { d.alive = false; d.hp = 0; }
       });
+      // Snap enemy positions immediately so follower starts in sync
+      enemySnapshots?.forEach(snap => {
+        const e = stateRef.current.enemies.find(en => en.id === snap.id);
+        if (!e) return;
+        e.x = snap.x; e.y = snap.y; e.hp = snap.hp; e.alive = snap.alive;
+        e.state = snap.state; e.dir = snap.dir; e.attackCooldown = snap.attackCooldown;
+      });
+    },
+    // ── Host → Follower: real-time enemy positions ─────────────────────────
+    onEnemySync: ({ enemies: synced }) => {
+      if (!stateRef.current || !synced) return;
+      // Only the follower applies incoming enemy state; host ignores its own broadcast
+      if (isHost) return;
+      for (const snap of synced) {
+        const e = stateRef.current.enemies.find(en => en.id === snap.id);
+        if (!e) continue;
+        e.x             = snap.x;
+        e.y             = snap.y;
+        e.hp            = snap.hp;
+        e.alive         = snap.alive;
+        e.state         = snap.state;
+        e.dir           = snap.dir;
+        e.attackCooldown = snap.attackCooldown;
+        // Preserve local hitFlash (set by our own attack hits) — don't reset it
+      }
     },
   }).current;
 
   const { sendRunMove, sendEnemyHit, sendEnemyKilled,
           sendTreeHit, sendTreeKilled, sendDepositHit, sendDepositKilled,
           sendPickupCollected, sendRunComplete,
-          sendRunStateRequest, sendRunStateSync, sendPlayerAppearance } =
+          sendRunStateRequest, sendRunStateSync, sendEnemySync, sendPlayerAppearance } =
     useHearthroom(room?.id ?? null, handlers, ":run");
 
   const sendRunStateSyncRef  = useRef(null);
@@ -1239,6 +1291,8 @@ export default function ForestRun({
   const sendDepositKilledRef = useRef(null);
   const sendEnemyHitRef      = useRef(null);
   const sendEnemyKilledRef   = useRef(null);
+  const sendEnemySyncRef     = useRef(null);
+  const lastEnemySyncRef     = useRef(0); // timestamp of last enemy_sync broadcast
   useEffect(() => { sendRunStateSyncRef.current  = sendRunStateSync;  }, [sendRunStateSync]);
   useEffect(() => { sendTreeHitRef.current       = sendTreeHit;       }, [sendTreeHit]);
   useEffect(() => { sendTreeKilledRef.current    = sendTreeKilled;    }, [sendTreeKilled]);
@@ -1246,6 +1300,7 @@ export default function ForestRun({
   useEffect(() => { sendDepositKilledRef.current = sendDepositKilled; }, [sendDepositKilled]);
   useEffect(() => { sendEnemyHitRef.current      = sendEnemyHit;      }, [sendEnemyHit]);
   useEffect(() => { sendEnemyKilledRef.current   = sendEnemyKilled;   }, [sendEnemyKilled]);
+  useEffect(() => { sendEnemySyncRef.current     = sendEnemySync;     }, [sendEnemySync]);
   useEffect(() => { sendPlayerAppearanceRef.current = sendPlayerAppearance; }, [sendPlayerAppearance]);
 
   // Send appearance immediately and whenever it changes
@@ -1343,12 +1398,14 @@ export default function ForestRun({
       state.attackCooldown = 0.5;
       soundRef.current?.swing();
       const equipStats = getEquipStats(equipmentRef.current);
+      const damageMultiplier = strengthActiveRef.current > 0 ? 1.5 : 1;
       const { hitEnemies, hitTrees, hitDeposits, lootDrops, blockedTree, blockedDeposit } = playerAttack(
         state.px, state.py, state.facing,
         state.enemies, state.trees,
         randRef.current,
         equipStats,
-        state.stoneDeposits
+        state.stoneDeposits,
+        damageMultiplier
       );
       if (blockedTree) state.noAxeFlash = 1.5;
       if (blockedDeposit) state.noPickaxeFlash = 1.5;
@@ -1437,7 +1494,7 @@ export default function ForestRun({
       }
       if (e.key === "Escape") {
         if (tabMenuOpenRef.current) { setTabMenuOpen(false); return; }
-        finishRun(stateRef.current);
+        setPauseOpen(v => { pauseOpenRef.current = !v; return !v; });
         return;
       }
       if (tabMenuOpenRef.current) return; // swallow gameplay keys while menu open
@@ -1487,8 +1544,8 @@ export default function ForestRun({
       state.lastTime = ts;
       const t = ts / 1000;
 
-      // Pause world updates while the tab menu is open (still redraw the static scene)
-      const paused = tabMenuOpenRef.current;
+      // Pause world updates while the tab menu or pause overlay is open (still redraw the static scene)
+      const paused = tabMenuOpenRef.current || pauseOpenRef.current;
 
       if (!paused) {
         state.elapsed += dt;
@@ -1532,12 +1589,40 @@ export default function ForestRun({
         if (state.attackCooldown > 0) state.attackCooldown = Math.max(0, state.attackCooldown - dt);
         if (state.noAxeFlash  > 0) state.noAxeFlash  = Math.max(0, state.noAxeFlash  - dt * 1.2);
         if (state.noPickaxeFlash > 0) state.noPickaxeFlash = Math.max(0, state.noPickaxeFlash - dt * 1.2);
+        if (strengthActiveRef.current > 0) strengthActiveRef.current = Math.max(0, strengthActiveRef.current - dt);
         // Decay hitFlash on trees and stone deposits
         state.trees.forEach(tree => { if (tree.hitFlash > 0) tree.hitFlash = Math.max(0, tree.hitFlash - dt * 5); });
         (state.stoneDeposits ?? []).forEach(dep => { if (dep.hitFlash > 0) dep.hitFlash = Math.max(0, dep.hitFlash - dt * 5); });
+        // Decay hitFlash on enemies (always — host handles it via updateForestEnemies,
+        // but follower needs it too since hitFlash is set locally when we land hits)
+        if (coOp && !isHost) {
+          state.enemies.forEach(e => { if (e.hitFlash > 0) e.hitFlash = Math.max(0, e.hitFlash - dt * 4); });
+        }
 
-        // Enemies
-        updateForestEnemies(state.enemies, state.px, state.py, dt, t);
+        // Enemies — host runs authoritative AI; follower uses positions pushed via onEnemySync
+        if (!coOp || isHost) {
+          // Pass partner position so enemies chase the nearest of the two players
+          const p2x = (coOp && stateRef.current.partnerVisible) ? stateRef.current.partnerX : null;
+          const p2y = (coOp && stateRef.current.partnerVisible) ? stateRef.current.partnerY : null;
+          updateForestEnemies(state.enemies, state.px, state.py, dt, t, p2x, p2y);
+
+          // Broadcast compact enemy state to follower at ~10 Hz
+          if (coOp && ts - lastEnemySyncRef.current > 100) {
+            lastEnemySyncRef.current = ts;
+            const snap = state.enemies.map(e => ({
+              id: e.id,
+              x:  Math.round(e.x),
+              y:  Math.round(e.y),
+              hp: e.hp,
+              alive: e.alive,
+              state: e.state,
+              dir:   e.dir,
+              attackCooldown: Math.round(e.attackCooldown * 100) / 100,
+            }));
+            sendEnemySyncRef.current?.(snap);
+          }
+        }
+        // (Follower: enemy positions are updated in onEnemySync handler — no AI needed here)
 
         // Enemy attacks player
         if (state.invincible === 0) {
@@ -1823,6 +1908,17 @@ export default function ForestRun({
         ref={canvasRef}
         style={{ width:"100%", height:"100%", display:"block", imageRendering:"pixelated" }}
       />
+      {/* Pause / abandon overlay */}
+      {pauseOpen && (
+        <div style={{ position:"absolute", inset:0, background:"rgba(4,10,4,0.82)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:30 }}>
+          <div style={{ background:"#111a0b", border:"1px solid rgba(200,230,120,0.25)", borderRadius:16, padding:"28px 32px", maxWidth:300, width:"90%", fontFamily:"monospace", color:"#f5e6c8", textAlign:"center", display:"flex", flexDirection:"column", gap:14 }}>
+            <p style={{ fontSize:10, letterSpacing:"0.18em", color:"rgba(200,230,160,0.4)", textTransform:"uppercase" }}>paused</p>
+            <h2 style={{ fontSize:20, fontWeight:400, color:"rgba(200,230,120,0.9)" }}>🌲 Forest Run</h2>
+            <button onClick={() => { setPauseOpen(false); pauseOpenRef.current = false; }} style={{ padding:"13px", borderRadius:10, border:"1px solid rgba(200,230,120,0.35)", background:"rgba(200,230,120,0.1)", color:"rgba(200,230,120,0.95)", fontSize:13, fontFamily:"monospace", cursor:"pointer" }}>▶ Resume</button>
+            <button onClick={() => { setPauseOpen(false); pauseOpenRef.current = false; finishRun(stateRef.current); }} style={{ padding:"10px", borderRadius:10, border:"1px solid rgba(255,150,100,0.3)", background:"rgba(255,100,60,0.07)", color:"rgba(255,160,120,0.85)", fontSize:12, fontFamily:"monospace", cursor:"pointer" }}>Abandon run (keep loot so far)</button>
+          </div>
+        </div>
+      )}
       {/* Hotbar at the bottom — mirrors HomesteadView */}
       <HotbarBar
         hotbar={hotbar ?? []}
