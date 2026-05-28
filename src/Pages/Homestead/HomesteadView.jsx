@@ -38,17 +38,19 @@ import {
   canCraftAtStationByKey, craftItemAtStationByKey,
   canCraftAtStationByKeyFromChest, craftItemAtStationByKeyFromChest,
   canCraftCombined, craftItemCombined,
-  usedSlots, canFitItem, spendFromPlayerInventory, applyUpgrade,
+  hotbarToMap, canCraftByKeyFromHotbar, craftItemByKeyFromHotbar,
+  canCraftByKeyCombinedWithHotbar, craftItemByKeyCombinedWithHotbar,
+  usedSlots, canFitItem, spendFromPlayerInventory, applyUpgrade, addCraftOutputToHotbarOrInventory,
   mergeIntoChest, spendFromChest, normalizeChest, chestToMap,
   CHEST_COLS, CHEST_ROWS, CHEST_SLOTS, canFitInChest,
   QUEST_REWARD_DEFS, getPriceWithRewards, getMarenDiscountActive,
   getUnlockedItemIds,
 } from "./Items";
 import {
-  drawTile, drawObject, drawCrop,
-  drawPlayer, drawHUD, drawGhostPlacement,
+  drawTile, drawObject, drawCrop, drawHUD, drawGhostPlacement,
   drawTownArea, drawWaterDrop,
 } from "./drawWorld";
+import { drawPlayerLegacyHome as drawPlayer } from "./drawing_drawPlayer";
 import { useHomesteadState } from "./useHomesteadState";
 import { useHearthroom } from "./useHearthroom";
 import { ItemIcon } from "./ItemIcon";
@@ -909,89 +911,15 @@ function NPCDialogPanel({ npc, town, placedObjects, playerInventory, onPlayerInv
 // ─── Hotbar Bar ───────────────────────────────────────────────────────────────
 // Shows only `visibleSlots` cells. The rest of the hotbar array still exists
 // (so saved data isn't lost on upgrade) but is hidden.
-function HotbarBar({ hotbar, hotbarSlots, equipment, selectedIdx, onSelectIdx, onOpenMenu, onUseSlot }) {
-  const visible = Math.min(hotbarSlots, HOTBAR_SIZE);
-  return (
-    <div style={{ position:"absolute", bottom:26, left:"50%", transform:"translateX(-50%)", display:"flex", alignItems:"center", gap:3, zIndex:5, pointerEvents:"auto" }}>
-      {Array.from({ length: visible }).map((_, idx) => {
-        const slot = (hotbar ?? [])[idx];
-        const isEquipped = slot && equipment?.[EQUIPPABLE[slot?.item]?.slot] === slot?.item;
-        const isSelected = idx === selectedIdx;
-        const icon = slot ? (ITEM_ICONS[slot.item] ?? "📦") : null;
-        const category = slot ? ITEMS[slot.item]?.category : null;
-        // Show a durability bar for tools (any tool with maxDurability, equipped or not).
-        // For the equipped tool we have the live count; for an unequipped one
-        // we fall back to the persisted entry on `equipment.durability` (matches max if absent).
-        const maxDur = slot ? (ITEMS[slot.item]?.maxDurability ?? null) : null;
-        const curDur = (slot && maxDur != null)
-          ? (equipment?.durability?.[slot.item] ?? maxDur)
-          : null;
-        let borderColor = "rgba(255,255,255,0.1)";
-        if (isSelected)  borderColor = "rgba(255,220,60,0.85)";
-        else if (isEquipped) borderColor = "rgba(100,200,255,0.6)";
-        else if (slot)   borderColor = "rgba(200,230,120,0.35)";
-        return (
-          <div key={idx} onClick={() => slot ? onUseSlot?.(idx) : onOpenMenu("inventory")}
-            style={{ width:44, height:52, borderRadius:8, cursor:"pointer",
-              background: slot ? "rgba(10,18,6,0.92)" : "rgba(10,18,6,0.55)",
-              border: `2px solid ${borderColor}`,
-              boxShadow: isSelected ? "0 0 10px rgba(255,210,40,0.35), inset 0 0 6px rgba(255,210,40,0.08)" : "none",
-              display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", position:"relative", gap:1,
-              transform: isSelected ? "translateY(-3px)" : "none",
-              transition: "transform 0.1s, box-shadow 0.1s, border-color 0.1s",
-            }}>
-            {isSelected && slot && (
-              <div style={{ position:"absolute", top:-16, left:"50%", transform:"translateX(-50%)", fontSize:8, color:"rgba(255,220,60,0.8)", whiteSpace:"nowrap", fontFamily:"monospace", letterSpacing:"0.06em", pointerEvents:"none" }}>
-                {category==="food"?"🍴 eat":category==="placeable"?"🏗 place":EQUIPPABLE[slot.item]?"⚔ equip":category==="tool"?"⚡ use":""}
-              </div>
-            )}
-            {slot ? (
-              <>
-                <ItemIcon id={slot.item} size={22} />
-                <span style={{ fontSize:8, color:"rgba(200,230,120,0.65)", lineHeight:1, fontFamily:"monospace", maxWidth:40, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                  {ITEMS[slot.item]?.label?.toLowerCase().slice(0,6) ?? slot.item}
-                </span>
-                {slot.qty != null && maxDur == null && <span style={{ fontSize:9, color:"rgba(200,230,120,0.8)", lineHeight:1, marginTop:1 }}>{slot.qty}</span>}
-                {curDur != null && (
-                  <div style={{ position:"absolute", bottom:2, left:3, right:3, height:3, background:"rgba(0,0,0,0.45)", borderRadius:2, overflow:"hidden" }}>
-                    <div style={{
-                      width: `${(curDur / maxDur) * 100}%`,
-                      height: "100%",
-                      background: (curDur / maxDur) > 0.5 ? "#80d860" : (curDur / maxDur) > 0.25 ? "#e8c840" : "#e04840",
-                    }} />
-                  </div>
-                )}
-                {isEquipped && <div style={{ position:"absolute", top:2, right:2, width:6, height:6, borderRadius:"50%", background:"rgba(100,200,255,0.95)" }} />}
-              </>
-            ) : (
-              <span style={{ fontSize:11, color:"rgba(255,255,255,0.12)", fontFamily:"monospace" }}>{idx+1}</span>
-            )}
-          </div>
-        );
-      })}
-      <div onClick={() => onOpenMenu("inventory")} style={{ marginLeft:8, width:36, height:36, borderRadius:8, cursor:"pointer", background:"rgba(10,18,6,0.7)", border:"1px solid rgba(200,230,120,0.2)", display:"flex", alignItems:"center", justifyContent:"center", color:"rgba(200,230,120,0.5)", fontSize:10, fontFamily:"monospace" }} title="Open menu (Tab)">⊞</div>
-    </div>
-  );
-}
+// HotbarBar (now <Hotbar/>) is shared from ./player/Hotbar.jsx — imported below.
 
 // ─── Unified Tab Menu ─────────────────────────────────────────────────────────
-const TABS = [
-  { id:"inventory",  label:"My Bag",    icon:"🎒" },
-  { id:"chest",      label:"Chest",     icon:"📦" },
-  { id:"crafting",   label:"Crafting",  icon:"🔨" },
-  { id:"equipment",  label:"Equipment", icon:"⚔️"  },
-  { id:"farming",    label:"Farming",   icon:"🌱" },
-  { id:"character",  label:"Character", icon:"🧑"  },
-];
-
-function StatPill({ label, value, color }) {
-  return (
-    <div style={{ display:"flex", alignItems:"center", gap:4, padding:"4px 9px", borderRadius:6, background:"rgba(200,230,120,0.06)", border:"1px solid rgba(200,230,120,0.15)" }}>
-      <span style={{ fontSize:9, color:"rgba(200,230,160,0.45)", letterSpacing:"0.1em" }}>{label}</span>
-      <span style={{ fontSize:12, color:color??"rgba(200,230,120,0.9)" }}>{value}</span>
-    </div>
-  );
-}
+// TABS and StatPill are now shared with the run files via ./player/.
+import { pickTabs, HOMESTEAD_TAB_IDS } from "./player_tabs";
+import { StatPill } from "./player_StatPill";
+import { Hotbar as HotbarBar } from "./player_Hotbar";
+const __HB_THEME = "homestead";
+const TABS = pickTabs(HOMESTEAD_TAB_IDS);
 
 function TabMenu({
   activeTab, onTabChange, onClose,
@@ -1006,6 +934,7 @@ function TabMenu({
   farmPlots,
   atCraftingStation,
   unlockedItemIds,
+  buildingsUnlocked,
 }) {
   const [craftMsg, setCraftMsg]  = useState(null);
   const [ch, setCh]              = useState({ ...character });
@@ -1040,17 +969,25 @@ function TabMenu({
   }, []);
 
   function assignToHotbarSlot(itemId, slotIdx) {
-    const qty = (playerItems[itemId] ?? 0) > 0 ? playerItems[itemId] : undefined;
+    const invQty = (playerItems[itemId] ?? 0) > 0 ? playerItems[itemId] : undefined;
     const newHotbar = [...(hotbar ?? [])];
     const displaced = newHotbar[slotIdx]; // item previously in this slot
-    newHotbar[slotIdx] = qty != null ? { item:itemId, qty } : { item:itemId };
-    // Move item out of inventory
     const newItems = { ...(playerInventory?.items ?? {}) };
-    if (newItems[itemId] > 0) delete newItems[itemId];
-    // Return displaced item to inventory (if it was a different item)
-    if (displaced?.item && displaced.item !== itemId) {
-      newItems[displaced.item] = (newItems[displaced.item] ?? 0) + (displaced.qty ?? 1);
+
+    if (displaced?.item === itemId) {
+      // \u2500\u2500 Stacking: same item already in this hotbar slot \u2014 merge quantities \u2500\u2500
+      const mergedQty = (displaced.qty ?? 0) + (invQty ?? 0);
+      newHotbar[slotIdx] = { item: itemId, qty: mergedQty };
+      if (newItems[itemId] > 0) delete newItems[itemId];
+    } else {
+      // \u2500\u2500 Normal assign: place item into slot, displace whatever was there \u2500\u2500
+      newHotbar[slotIdx] = invQty != null ? { item: itemId, qty: invQty } : { item: itemId };
+      if (newItems[itemId] > 0) delete newItems[itemId];
+      if (displaced?.item && displaced.item !== itemId) {
+        newItems[displaced.item] = (newItems[displaced.item] ?? 0) + (displaced.qty ?? 1);
+      }
     }
+
     onPlayerInventoryUpdate?.({ ...playerInventory, items: newItems });
     onHotbarChange?.(newHotbar);
   }
@@ -1637,77 +1574,118 @@ function TabMenu({
     const [showAll, setShowAll]           = useState(false);
     const [craftableOnly, setCraftableOnly] = useState(false);
 
-    // Crafting reads from player inventory (not chest)
+    // Crafting reads from player inventory (not chest).
+    // Shared helper: route crafted output to hotbar first, inventory second.
+    function applyOutput(postSpendInv, postSpendHotbar, outputId, label) {
+      const out = addCraftOutputToHotbarOrInventory(postSpendInv, postSpendHotbar ?? hotbar ?? [], outputId, 1);
+      if (!out) return false; // bag + hotbar full
+      onCraftWithInventory?.(out.newInv);
+      if (out.newHotbar) onHotbarChange?.(out.newHotbar);
+      setCraftMsg(`Crafted ${label}!`);
+      setTimeout(()=>setCraftMsg(null),2200);
+      return true;
+    }
+
     function handleCraft(key) {
-      const newInv = craftItemByKey(key, playerInventory);
       const outputId = resolveHandRecipeKey(key);
-      if (newInv) {
-        onCraftWithInventory?.(newInv);
-        setCraftMsg(`Crafted ${ITEMS[outputId]?.label??outputId}!`);
-        setTimeout(()=>setCraftMsg(null),2200);
-      } else if (canCraftByKey(key, playerInventory ?? {})) {
-        // Had materials but craft returned null — bag full
-        setCraftMsg(`Bag full! Can't carry another ${ITEMS[outputId]?.label??outputId}.`);
-        setTimeout(()=>setCraftMsg(null),2200);
+      const label = ITEMS[outputId]?.label ?? outputId;
+      if (!canCraftByKey(key, playerInventory ?? {})) return;
+      const spent = craftItemByKey(key, playerInventory);
+      if (!spent) { setCraftMsg(`Bag full! Can't carry another ${label}.`); setTimeout(()=>setCraftMsg(null),2200); return; }
+      if (!applyOutput(spent, null, outputId, label)) {
+        setCraftMsg(`Bag full! Can't carry another ${label}.`); setTimeout(()=>setCraftMsg(null),2200);
       }
     }
     function handleCraftAtStation(name) {
-      if (!atCraftingStation) return; // must be standing at a station
-      const newInv = craftItemAtStationByKey(name, playerInventory);
+      if (!atCraftingStation) return;
       const outputId = resolveRecipeKey(name);
-      if (newInv) {
-        onCraftWithInventory?.(newInv);
-        setCraftMsg(`Crafted ${ITEMS[outputId]?.label??outputId}!`);
-        setTimeout(()=>setCraftMsg(null),2200);
-      } else if (canCraftAtStationByKey(name, playerInventory ?? {})) {
-        // Had materials but craft returned null — bag must be full
-        setCraftMsg(`Bag full! Can't carry another ${ITEMS[outputId]?.label??outputId}.`);
-        setTimeout(()=>setCraftMsg(null),2200);
+      const label = ITEMS[outputId]?.label ?? outputId;
+      if (!canCraftAtStationByKey(name, playerInventory ?? {})) return;
+      const spent = craftItemAtStationByKey(name, playerInventory);
+      if (!spent) { setCraftMsg(`Bag full! Can't carry another ${label}.`); setTimeout(()=>setCraftMsg(null),2200); return; }
+      if (!applyOutput(spent, null, outputId, label)) {
+        setCraftMsg(`Bag full! Can't carry another ${label}.`); setTimeout(()=>setCraftMsg(null),2200);
       }
     }
     function handleCraftFromChest(key) {
       const outputId = resolveHandRecipeKey(key);
+      const label = ITEMS[outputId]?.label ?? outputId;
       const result = craftItemByKeyFromChest(key, normalizeChest(chest), playerInventory);
-      if (result) {
-        onChestUpdate?.(result.newChest);
-        onCraftWithInventory?.(result.newInv);
-        setCraftMsg(`Crafted ${ITEMS[outputId]?.label??outputId} (from chest)!`);
-        setTimeout(()=>setCraftMsg(null),2200);
-      } else if (canCraftByKeyFromChest(key, normalizeChest(chest))) {
-        setCraftMsg(`Bag full! Can't carry another ${ITEMS[outputId]?.label??outputId}.`);
-        setTimeout(()=>setCraftMsg(null),2200);
+      if (!result) {
+        if (canCraftByKeyFromChest(key, normalizeChest(chest))) {
+          setCraftMsg(`Bag full! Can't carry another ${label}.`); setTimeout(()=>setCraftMsg(null),2200);
+        }
+        return;
+      }
+      onChestUpdate?.(result.newChest);
+      if (!applyOutput(result.newInv, null, outputId, `${label} (from chest)`)) {
+        setCraftMsg(`Bag full! Can't carry another ${label}.`); setTimeout(()=>setCraftMsg(null),2200);
       }
     }
     function handleCraftAtStationFromChest(name) {
-      if (!atCraftingStation) return; // must be standing at a station
+      if (!atCraftingStation) return;
       const outputId = resolveRecipeKey(name);
+      const label = ITEMS[outputId]?.label ?? outputId;
       const result = craftItemAtStationByKeyFromChest(name, normalizeChest(chest), playerInventory);
-      if (result) {
-        onChestUpdate?.(result.newChest);
-        onCraftWithInventory?.(result.newInv);
-        setCraftMsg(`Crafted ${ITEMS[outputId]?.label??outputId} (from chest)!`);
-        setTimeout(()=>setCraftMsg(null),2200);
-      } else if (canCraftAtStationByKeyFromChest(name, normalizeChest(chest))) {
-        setCraftMsg(`Bag full! Can't carry another ${ITEMS[outputId]?.label??outputId}.`);
-        setTimeout(()=>setCraftMsg(null),2200);
+      if (!result) {
+        if (canCraftAtStationByKeyFromChest(name, normalizeChest(chest))) {
+          setCraftMsg(`Bag full! Can't carry another ${label}.`); setTimeout(()=>setCraftMsg(null),2200);
+        }
+        return;
+      }
+      onChestUpdate?.(result.newChest);
+      if (!applyOutput(result.newInv, null, outputId, `${label} (from chest)`)) {
+        setCraftMsg(`Bag full! Can't carry another ${label}.`); setTimeout(()=>setCraftMsg(null),2200);
+      }
+    }
+
+    function handleCraftFromHotbar(key) {
+      const outputId = resolveHandRecipeKey(key);
+      const label = ITEMS[outputId]?.label ?? outputId;
+      const result = craftItemByKeyFromHotbar(key, hotbar ?? [], playerInventory);
+      if (!result) {
+        if (canCraftByKeyFromHotbar(key, hotbar ?? [])) {
+          setCraftMsg(`Bag full! Can't carry another ${label}.`); setTimeout(()=>setCraftMsg(null),2200);
+        }
+        return;
+      }
+      // result.newHotbar already had ingredients deducted; pass it as the post-spend hotbar
+      // so applyOutput stacks onto the correct remaining state.
+      if (!applyOutput(result.newInv, result.newHotbar, outputId, `${label} (from hotbar)`)) {
+        setCraftMsg(`Bag full! Can't carry another ${label}.`); setTimeout(()=>setCraftMsg(null),2200);
+      }
+    }
+    function handleCraftCombinedWithHotbar(key) {
+      const outputId = resolveHandRecipeKey(key);
+      const label = ITEMS[outputId]?.label ?? outputId;
+      const result = craftItemByKeyCombinedWithHotbar(key, playerInventory, hotbar ?? []);
+      if (!result) {
+        if (canCraftByKeyCombinedWithHotbar(key, playerInventory, hotbar ?? [])) {
+          setCraftMsg(`Bag full! Can't carry another ${label}.`); setTimeout(()=>setCraftMsg(null),2200);
+        }
+        return;
+      }
+      if (!applyOutput(result.newInv, result.newHotbar, outputId, `${label} (🎒+hotbar)`)) {
+        setCraftMsg(`Bag full! Can't carry another ${label}.`); setTimeout(()=>setCraftMsg(null),2200);
       }
     }
 
     // Combined crafting: draw materials from both inventory and chest.
-    // Used when neither source alone has enough but together they do.
     function handleCraftCombined(name) {
       const outputId = resolveRecipeKey(name);
+      const label = ITEMS[outputId]?.label ?? outputId;
       const isStation = !!STATION_RECIPES[outputId];
-      if (isStation && !atCraftingStation) return; // station recipes still need a station
+      if (isStation && !atCraftingStation) return;
       const result = craftItemCombined(name, playerInventory, normalizeChest(chest));
-      if (result) {
-        onChestUpdate?.(result.newChest);
-        onCraftWithInventory?.(result.newInv);
-        setCraftMsg(`Crafted ${ITEMS[outputId]?.label??outputId} (bag + chest)!`);
-        setTimeout(()=>setCraftMsg(null),2200);
-      } else if (canCraftCombined(name, playerInventory, normalizeChest(chest))) {
-        setCraftMsg(`Bag full! Can't carry another ${ITEMS[outputId]?.label??outputId}.`);
-        setTimeout(()=>setCraftMsg(null),2200);
+      if (!result) {
+        if (canCraftCombined(name, playerInventory, normalizeChest(chest))) {
+          setCraftMsg(`Bag full! Can't carry another ${label}.`); setTimeout(()=>setCraftMsg(null),2200);
+        }
+        return;
+      }
+      onChestUpdate?.(result.newChest);
+      if (!applyOutput(result.newInv, null, outputId, `${label} (bag + chest)`)) {
+        setCraftMsg(`Bag full! Can't carry another ${label}.`); setTimeout(()=>setCraftMsg(null),2200);
       }
     }
 
@@ -1747,9 +1725,14 @@ function TabMenu({
 
       const inv     = playerInventory ?? {};
       const chestG  = normalizeChest(chest);
+      const hb      = hotbar ?? [];
 
       // Source availability
       let canBag, canChestOnly, canCombo;
+      // Hotbar sources (hand-craft only — station recipes don't pull from hotbar)
+      const canHotbarOnly   = mode === "hand" ? canCraftByKeyFromHotbar(name, hb) : false;
+      const canBagPlusHotbar = mode === "hand" ? canCraftByKeyCombinedWithHotbar(name, inv, hb) : false;
+
       if (mode === "station") {
         canBag       = canCraftAtStationByKey(name, inv);
         canChestOnly = canCraftAtStationByKeyFromChest(name, chestG);
@@ -1760,12 +1743,20 @@ function TabMenu({
         canCombo     = canCraftCombined(name, inv, chestG);
       }
 
-      // Pick the best path; prefer bag → combo → chest
+      // Pick the best path; prefer bag → hotbar-only → bag+hotbar → combo → chest
       let label, action, color;
       if (canBag) {
         label  = "craft";
         color  = "rgba(200,230,120";
         action = mode === "station" ? () => handleCraftAtStation(name) : () => handleCraft(name);
+      } else if (canHotbarOnly) {
+        label  = "craft 🔥";
+        color  = "rgba(200,230,120";
+        action = () => handleCraftFromHotbar(name);
+      } else if (canBagPlusHotbar) {
+        label  = "craft 🎒+🔥";
+        color  = "rgba(160,210,140";
+        action = () => handleCraftCombinedWithHotbar(name);
       } else if (canCombo) {
         label  = "craft 🎒+📦";
         color  = "rgba(160,210,140";
@@ -1800,14 +1791,26 @@ function TabMenu({
     }
 
     if (!atCraftingStation) {
-      // When Show All is on, render the full recipe browser (read-only — buttons stay disabled for station-locked recipes)
-      const noStationAllEntries = expandedStationRecipes().filter(
-        ([id]) => !unlockedItemIds || unlockedItemIds.has(resolveRecipeKey(id))
-      );
+      // Build a reverse map: itemId → npcId that unlocks it (for locked-item hints)
+      const itemToUnlockNpc = {};
+      for (const [npcId, roster] of Object.entries(NPC_ROSTER)) {
+        for (const itemId of (roster.unlocksRecipes ?? [])) {
+          itemToUnlockNpc[itemId] = npcId;
+        }
+      }
+      // Also cover items with unlockedByNpc set directly on the item definition
+      for (const [itemId, item] of Object.entries(ITEMS)) {
+        if (item.unlockedByNpc && !itemToUnlockNpc[itemId]) {
+          itemToUnlockNpc[itemId] = item.unlockedByNpc;
+        }
+      }
+
+      // When Show All is on, render ALL recipes including NPC-locked ones
+      const noStationAllEntries = expandedStationRecipes(); // no unlockedItemIds filter
       const noStationAllCategories = [
         { key:"tools_t1",  label:"⚒ Tier 1 Tools",      filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="tool" && !ITEMS[resolveRecipeKey(id)]?.craftStation },
         { key:"gear",      label:"🛡 Armor & Gear",       filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="gear" && !ITEMS[resolveRecipeKey(id)]?.craftStation },
-        { key:"upgrades",  label:"🎒 Bag Upgrades",       filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="upgrade" && !ITEMS[resolveRecipeKey(id)]?.craftStation },
+        { key:"upgrades", label:"🎒 Bag Upgrades", filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="upgrade" && (!ITEMS[resolveRecipeKey(id)]?.craftStation || ITEMS[resolveRecipeKey(id)]?.craftStation === "crafting_station") },
         { key:"stations",  label:"🏗 Stations",           filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="placeable" && ["fire_pit","furnace","anvil","potion_stand","builders_table"].includes(resolveRecipeKey(id)) },
         { key:"decor",     label:"🌸 Decor & Structures", filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="placeable" && !["fire_pit","furnace","anvil","potion_stand","crafting_station","builders_table"].includes(resolveRecipeKey(id)) && ITEMS[resolveRecipeKey(id)]?.craftStation !== "builders_table" },
         { key:"fire_pit",     label:"🔥 Fire Pit Recipes",    filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.craftStation === "fire_pit" },
@@ -1888,7 +1891,10 @@ function TabMenu({
                 ? allHandEntries.filter(([key]) => {
                     const inv = playerInventory ?? {};
                     const chestG = normalizeChest(chest);
+                    const hb = hotbar ?? [];
                     return canCraftByKey(key, inv) ||
+                           canCraftByKeyFromHotbar(key, hb) ||
+                           canCraftByKeyCombinedWithHotbar(key, inv, hb) ||
                            canCraftByKeyFromChest(key, chestG) ||
                            canCraftCombined(resolveHandRecipeKey(key), inv, chestG);
                   })
@@ -1899,17 +1905,21 @@ function TabMenu({
                 const it = ITEMS[outputId];
                 const inv = playerInventory ?? {};
                 const chestG = normalizeChest(chest);
+                const hb = hotbar ?? [];
+                const hbMap = hotbarToMap(hb);
                 const bagCraftable = canCraftByKey(key, inv);
+                const hbCraftable  = canCraftByKeyFromHotbar(key, hb);
+                const hbComboCraftable = canCraftByKeyCombinedWithHotbar(key, inv, hb);
                 const chestCraftable = canCraftByKeyFromChest(key, chestG);
                 const combinedCraftable = canCraftCombined(outputId, inv, chestG);
-                const active = bagCraftable || chestCraftable || combinedCraftable;
+                const active = bagCraftable || hbCraftable || hbComboCraftable || chestCraftable || combinedCraftable;
                 return (
                   <div key={key} style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:10,background:active?"rgba(200,230,120,0.06)":"rgba(255,255,255,0.02)",border:`1px solid ${active?"rgba(200,230,120,0.2)":"rgba(255,255,255,0.06)"}`,opacity:active?1:0.5,marginTop:8 }}>
                     <ItemIcon id={outputId} size={26} />
                     <div style={{ flex:1 }}>
                       <div style={{ fontSize:13,color:"rgba(200,230,120,0.85)" }}>{it?.label??outputId}</div>
                       <div style={{ fontSize:10,color:"rgba(245,230,200,0.4)" }}>
-                        {Object.entries(recipe).map(([ing,qty])=>{const have=playerItems[ing]??0;const chestMap=chestToMap(normalizeChest(chest));const inChest=chestMap[ing]??0;return<span key={ing} style={{ marginRight:8,color:have>=qty?"rgba(200,230,120,0.7)":inChest>=qty?"rgba(180,200,100,0.6)":"rgba(255,100,80,0.7)" }}>{ITEM_ICONS[ing]??""} {have}/{qty}{inChest>0&&have<qty?<span style={{ color:"rgba(180,200,100,0.5)",fontSize:9 }}> (📦{inChest})</span>:null} {ITEMS[ing]?.label??ing}</span>;}) }
+                        {Object.entries(recipe).map(([ing,qty])=>{const have=playerItems[ing]??0;const inHb=hbMap[ing]??0;const chestMap=chestToMap(normalizeChest(chest));const inChest=chestMap[ing]??0;const total=have+inHb;return<span key={ing} style={{ marginRight:8,color:have>=qty?"rgba(200,230,120,0.7)":total>=qty?"rgba(200,220,100,0.75)":inChest+total>=qty?"rgba(180,200,100,0.6)":"rgba(255,100,80,0.7)" }}>{ITEM_ICONS[ing]??""} {have}/{qty}{inHb>0?<span style={{ color:"rgba(200,220,80,0.55)",fontSize:9 }}> (🔥{inHb})</span>:null}{inChest>0&&have<qty?<span style={{ color:"rgba(180,200,100,0.5)",fontSize:9 }}> (📦{inChest})</span>:null} {ITEMS[ing]?.label??ing}</span>;}) }
                       </div>
                       <div style={{ fontSize:9,color:"rgba(245,230,200,0.3)",marginTop:4 }}>{it?.description}</div>
                     </div>
@@ -1920,45 +1930,93 @@ function TabMenu({
             })()}
           </div>
 
-          {/* Show All: full recipe browser (station-locked items show as greyed out) */}
+          {/* Show All: full recipe browser (station-locked + NPC-locked items shown with hints) */}
           {showAll && noStationAllCategories.map(cat => {
             let entries = noStationAllEntries.filter(cat.filter);
+
+            // ── Mayor gate: filter requiresMayor buildings out of Builder's Table recipes ──
+            const isBuildersTableCat = cat.key === "builders_table_recipes";
+            const mayorGateActive = isBuildersTableCat && !buildingsUnlocked;
+            if (mayorGateActive) {
+              entries = entries.filter(([name]) => !ITEMS[resolveRecipeKey(name)]?.requiresMayor);
+            }
+
             if (craftableOnly) {
+              // When Craftable is on, keep unlocked-craftable items; always keep NPC-locked items as previews
               entries = entries.filter(([name]) => {
-                const alreadyApplied = upgradeAlreadyApplied(resolveRecipeKey(name));
+                const outputId = resolveRecipeKey(name);
+                const npcLocked = !!(unlockedItemIds && !unlockedItemIds.has(outputId));
+                if (npcLocked) return true; // always show NPC-locked as teaser
+                const alreadyApplied = upgradeAlreadyApplied(outputId);
                 if (alreadyApplied) return false;
                 return canCraftAtStationByKey(name, playerInventory ?? {}) ||
                   canCraftAtStationByKeyFromChest(name, normalizeChest(chest)) ||
                   canCraftCombined(name, playerInventory ?? {}, normalizeChest(chest));
               });
             }
-            if (entries.length === 0) return null;
+            if (entries.length === 0 && !mayorGateActive) return null;
             return (
               <div key={cat.key}>
                 <p style={{ fontSize:10,color:"rgba(245,230,200,0.3)",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:8 }}>{cat.label}</p>
+                {/* Mayor gate notice */}
+                {mayorGateActive && (
+                  <div style={{
+                    display:"flex", alignItems:"flex-start", gap:10,
+                    padding:"12px 14px", borderRadius:10, marginBottom:8,
+                    background:"rgba(255,180,40,0.07)", border:"1px solid rgba(255,180,40,0.25)",
+                  }}>
+                    <span style={{ fontSize:18, flexShrink:0 }}>🏰</span>
+                    <div>
+                      <div style={{ fontSize:12, color:"rgba(255,200,80,0.9)", marginBottom:3 }}>Town buildings locked</div>
+                      <div style={{ fontSize:10, color:"rgba(245,220,160,0.55)", lineHeight:1.6 }}>
+                        Build a <span style={{ color:"rgba(255,210,100,0.85)" }}>Town Hall</span> and assign your first resident as <span style={{ color:"rgba(255,210,100,0.85)" }}>Mayor</span> to unlock market stalls, specialist workshops, and all other town buildings.
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <div style={{ display:"flex",flexDirection:"column",gap:7 }}>
                   {entries.map(([name, recipe]) => {
                     const outputId = resolveRecipeKey(name);
                     const it = ITEMS[outputId];
                     const alreadyApplied = upgradeAlreadyApplied(outputId);
-                    const craftable = !alreadyApplied && canCraftAtStationByKey(name, playerInventory ?? {});
-                    const chestCraftable = !alreadyApplied && canCraftAtStationByKeyFromChest(name, normalizeChest(chest));
-                    const combinedCraftable = !alreadyApplied && !craftable && !chestCraftable &&
+                    const npcLocked = !!(unlockedItemIds && !unlockedItemIds.has(outputId));
+                    const unlockNpcId = npcLocked ? (itemToUnlockNpc[outputId] ?? null) : null;
+                    const unlockRoster = unlockNpcId ? NPC_ROSTER[unlockNpcId] : null;
+                    const craftable = !alreadyApplied && !npcLocked && canCraftAtStationByKey(name, playerInventory ?? {});
+                    const chestCraftable = !alreadyApplied && !npcLocked && canCraftAtStationByKeyFromChest(name, normalizeChest(chest));
+                    const combinedCraftable = !alreadyApplied && !npcLocked && !craftable && !chestCraftable &&
                       canCraftCombined(name, playerInventory ?? {}, normalizeChest(chest));
                     const active = craftable || chestCraftable || combinedCraftable;
                     const needsStation = !!it?.craftStation;
                     return (
-                      <div key={name} style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:10,background:active?"rgba(200,230,120,0.06)":alreadyApplied?"rgba(255,180,60,0.04)":"rgba(255,255,255,0.02)",border:`1px solid ${active?"rgba(200,230,120,0.2)":alreadyApplied?"rgba(255,180,60,0.2)":"rgba(255,255,255,0.06)"}`,opacity:active?1:alreadyApplied?0.75:0.45 }}>
-                        <ItemIcon id={outputId} size={26} />
-                        <div style={{ flex:1 }}>
-                          <div style={{ fontSize:13,color:"rgba(200,230,120,0.85)" }}>{it?.label??outputId}</div>
-                          <div style={{ fontSize:10,color:"rgba(245,230,200,0.4)",display:"flex",flexWrap:"wrap",gap:6 }}>
-                            {Object.entries(recipe).map(([ing,qty])=>{const have=playerItems[ing]??0;const chestMap=chestToMap(normalizeChest(chest));const inChest=chestMap[ing]??0;return<span key={ing} style={{ color:have>=qty?"rgba(200,230,120,0.7)":inChest>=qty?"rgba(180,200,100,0.6)":"rgba(255,100,80,0.7)" }}>{ITEM_ICONS[ing]??""} {have}/{qty}{inChest>0&&have<qty?<span style={{ color:"rgba(180,200,100,0.5)",fontSize:9 }}> (📦{inChest})</span>:null} {ITEMS[ing]?.label??ing}</span>;})}
-                          </div>
-                          {needsStation && <div style={{ fontSize:9,color:"rgba(255,180,80,0.5)",marginTop:2 }}>requires {ITEMS[it.craftStation]?.label??it.craftStation}</div>}
-                          {alreadyApplied && <div style={{ fontSize:9,color:"rgba(255,180,60,0.8)",marginTop:3 }}>⚠ already applied — you can only use this once</div>}
+                      <div key={name} style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:10,background:npcLocked?"rgba(120,80,200,0.04)":active?"rgba(200,230,120,0.06)":alreadyApplied?"rgba(255,180,60,0.04)":"rgba(255,255,255,0.02)",border:`1px solid ${npcLocked?"rgba(140,100,220,0.2)":active?"rgba(200,230,120,0.2)":alreadyApplied?"rgba(255,180,60,0.2)":"rgba(255,255,255,0.06)"}`,opacity:npcLocked?0.6:active?1:alreadyApplied?0.75:0.45 }}>
+                        <div style={{ position:"relative", flexShrink:0 }}>
+                          <ItemIcon id={outputId} size={26} />
+                          {npcLocked && <span style={{ position:"absolute",top:-4,right:-4,fontSize:10 }}>🔒</span>}
                         </div>
-                        {alreadyApplied ? (
+                        <div style={{ flex:1 }}>
+                          <div style={{ fontSize:13,color:npcLocked?"rgba(180,160,220,0.8)":"rgba(200,230,120,0.85)" }}>{it?.label??outputId}</div>
+                          {npcLocked ? (
+                            <div style={{ fontSize:10,color:"rgba(160,130,210,0.7)",marginTop:2,lineHeight:1.5 }}>
+                              🔒 {unlockRoster
+                                ? <>Unlocked by <span style={{ color:"rgba(200,180,255,0.9)" }}>{unlockRoster.icon} {unlockRoster.defaultName}</span>
+                                    {unlockRoster.triggerBuilding
+                                      ? <> — build a <span style={{ color:"rgba(200,180,255,0.9)" }}>{unlockRoster.triggerBuilding.replace(/_/g," ")}</span> to attract them</>
+                                      : <> — invite them to your town</>}
+                                  </>
+                                : "Locked — invite a new villager to unlock"}
+                            </div>
+                          ) : (
+                            <>
+                              <div style={{ fontSize:10,color:"rgba(245,230,200,0.4)",display:"flex",flexWrap:"wrap",gap:6 }}>
+                                {Object.entries(recipe).map(([ing,qty])=>{const have=playerItems[ing]??0;const chestMap=chestToMap(normalizeChest(chest));const inChest=chestMap[ing]??0;return<span key={ing} style={{ color:have>=qty?"rgba(200,230,120,0.7)":inChest>=qty?"rgba(180,200,100,0.6)":"rgba(255,100,80,0.7)" }}>{ITEM_ICONS[ing]??""} {have}/{qty}{inChest>0&&have<qty?<span style={{ color:"rgba(180,200,100,0.5)",fontSize:9 }}> (📦{inChest})</span>:null} {ITEMS[ing]?.label??ing}</span>;})}
+                              </div>
+                              {needsStation && <div style={{ fontSize:9,color:"rgba(255,180,80,0.5)",marginTop:2 }}>requires {ITEMS[it.craftStation]?.label??it.craftStation}</div>}
+                              {alreadyApplied && <div style={{ fontSize:9,color:"rgba(255,180,60,0.8)",marginTop:3 }}>⚠ already applied — you can only use this once</div>}
+                            </>
+                          )}
+                        </div>
+                        {npcLocked ? null : alreadyApplied ? (
                           <span style={{ fontSize:10,color:"rgba(255,180,60,0.6)",fontFamily:"monospace",whiteSpace:"nowrap" }}>✓ used</span>
                         ) : needsStation ? (
                           <span style={{ fontSize:9,color:"rgba(255,180,80,0.4)",fontFamily:"monospace",whiteSpace:"nowrap",textAlign:"center",lineHeight:1.3 }}>needs<br/>station</span>
@@ -2027,7 +2085,7 @@ function TabMenu({
     const allCategories = [
       { key:"tools_t1",  label:"⚒ Tier 1 Tools",      filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="tool" && !ITEMS[resolveRecipeKey(id)]?.craftStation },
       { key:"gear",      label:"🛡 Armor & Gear",       filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="gear" && !ITEMS[resolveRecipeKey(id)]?.craftStation },
-      { key:"upgrades",  label:"🎒 Bag Upgrades",       filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="upgrade" && !ITEMS[resolveRecipeKey(id)]?.craftStation },
+      { key:"upgrades", label:"🎒 Bag Upgrades", filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="upgrade" && (!ITEMS[resolveRecipeKey(id)]?.craftStation || ITEMS[resolveRecipeKey(id)]?.craftStation === "crafting_station") },
       { key:"stations",  label:"🏗 Stations",           filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="placeable" && ["fire_pit","furnace","anvil","potion_stand","builders_table"].includes(resolveRecipeKey(id)) },
       { key:"decor",     label:"🌸 Decor & Structures", filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.category==="placeable" && !["fire_pit","furnace","anvil","potion_stand","crafting_station","builders_table"].includes(resolveRecipeKey(id)) && ITEMS[resolveRecipeKey(id)]?.craftStation !== "builders_table" },
       { key:"fire_pit",     label:"🔥 Fire Pit Recipes",    filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.craftStation === "fire_pit" },
@@ -2041,9 +2099,24 @@ function TabMenu({
       : isSpecificStation
         ? [{ key: atCraftingStation, label: `${STATION_LABELS[atCraftingStation]?.icon ?? "🔨"} ${STATION_LABELS[atCraftingStation]?.label ?? atCraftingStation} Recipes`, filter: ([id]) => ITEMS[resolveRecipeKey(id)]?.craftStation === atCraftingStation }]
         : allCategories.slice(0, 5);
-    const allStationEntries = expandedStationRecipes().filter(
-      ([id]) => !unlockedItemIds || unlockedItemIds.has(resolveRecipeKey(id))
-    );
+    // Build a reverse map: itemId → npcId that unlocks it (for locked-item hints)
+    const stationItemToUnlockNpc = {};
+    for (const [npcId, roster] of Object.entries(NPC_ROSTER)) {
+      for (const itemId of (roster.unlocksRecipes ?? [])) {
+        stationItemToUnlockNpc[itemId] = npcId;
+      }
+    }
+    for (const [itemId, item] of Object.entries(ITEMS)) {
+      if (item.unlockedByNpc && !stationItemToUnlockNpc[itemId]) {
+        stationItemToUnlockNpc[itemId] = item.unlockedByNpc;
+      }
+    }
+    // Show All includes NPC-locked items; normal view respects the unlock filter
+    const allStationEntries = showAll
+      ? expandedStationRecipes()
+      : expandedStationRecipes().filter(
+          ([id]) => !unlockedItemIds || unlockedItemIds.has(resolveRecipeKey(id))
+        );
 
     // ── Toggle pill style helper ────────────────────────────────────────────
     function TogglePill({ label, active, onChange, title }) {
@@ -2105,50 +2178,157 @@ function TabMenu({
           />
         </div>
 
+        {/* Show All: hand-craft recipes shown as a bonus section at the station */}
+        {showAll && (() => {
+          const allHandEntries = expandedHandRecipes();
+          const handEntries = craftableOnly
+            ? allHandEntries.filter(([key]) => {
+                const inv = playerInventory ?? {};
+                const chestG = normalizeChest(chest);
+                const hb = hotbar ?? [];
+                return canCraftByKey(key, inv) ||
+                       canCraftByKeyFromHotbar(key, hb) ||
+                       canCraftByKeyCombinedWithHotbar(key, inv, hb) ||
+                       canCraftByKeyFromChest(key, chestG) ||
+                       canCraftCombined(resolveHandRecipeKey(key), inv, chestG);
+              })
+            : allHandEntries;
+          if (handEntries.length === 0) return null;
+          return (
+            <div>
+              <p style={{ fontSize:10,color:"rgba(200,230,120,0.4)",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:8 }}>✋ Hand Craft (no station needed)</p>
+              <div style={{ display:"flex",flexDirection:"column",gap:7 }}>
+                {handEntries.map(([key, recipe]) => {
+                  const outputId = resolveHandRecipeKey(key);
+                  const it = ITEMS[outputId];
+                  const inv = playerInventory ?? {};
+                  const chestG = normalizeChest(chest);
+                  const hb = hotbar ?? [];
+                  const hbMap = hotbarToMap(hb);
+                  const bagCraftable = canCraftByKey(key, inv);
+                  const hbCraftable  = canCraftByKeyFromHotbar(key, hb);
+                  const hbComboCraftable = canCraftByKeyCombinedWithHotbar(key, inv, hb);
+                  const chestCraftable = canCraftByKeyFromChest(key, chestG);
+                  const combinedCraftable = canCraftCombined(outputId, inv, chestG);
+                  const active = bagCraftable || hbCraftable || hbComboCraftable || chestCraftable || combinedCraftable;
+                  return (
+                    <div key={key} style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:10,background:active?"rgba(200,230,120,0.06)":"rgba(255,255,255,0.02)",border:`1px solid ${active?"rgba(200,230,120,0.2)":"rgba(255,255,255,0.06)"}`,opacity:active?1:0.5 }}>
+                      <ItemIcon id={outputId} size={26} />
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontSize:13,color:"rgba(200,230,120,0.85)" }}>{it?.label??outputId}</div>
+                        <div style={{ fontSize:10,color:"rgba(245,230,200,0.4)" }}>
+                          {Object.entries(recipe).map(([ing,qty])=>{const have=playerItems[ing]??0;const inHb=hbMap[ing]??0;const chestMap=chestToMap(normalizeChest(chest));const inChest=chestMap[ing]??0;const total=have+inHb;return<span key={ing} style={{ marginRight:8,color:have>=qty?"rgba(200,230,120,0.7)":total>=qty?"rgba(200,220,100,0.75)":inChest+total>=qty?"rgba(180,200,100,0.6)":"rgba(255,100,80,0.7)" }}>{ITEM_ICONS[ing]??""} {have}/{qty}{inHb>0?<span style={{ color:"rgba(200,220,80,0.55)",fontSize:9 }}> (🔥{inHb})</span>:null}{inChest>0&&have<qty?<span style={{ color:"rgba(180,200,100,0.5)",fontSize:9 }}> (📦{inChest})</span>:null} {ITEMS[ing]?.label??ing}</span>;}) }
+                        </div>
+                        <div style={{ fontSize:9,color:"rgba(245,230,200,0.3)",marginTop:4 }}>{it?.description}</div>
+                      </div>
+                      <SmartCraftButton name={key} mode="hand" />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
+
         {categories.map(cat => {
           let entries = allStationEntries.filter(cat.filter);
+
+          // ── Mayor gate: filter requiresMayor buildings out of Builder's Table recipes ──
+          // TOWN_HALL and RESIDENT_HOME are exempt (they have townBuilding but NOT requiresMayor)
+          const isBuildersTableCat = cat.key === "builders_table_recipes";
+          const mayorGateActive = isBuildersTableCat && !buildingsUnlocked;
+          if (mayorGateActive) {
+            entries = entries.filter(([name]) => !ITEMS[resolveRecipeKey(name)]?.requiresMayor);
+          }
+
           if (craftableOnly) {
             entries = entries.filter(([name]) => {
-              const alreadyApplied = upgradeAlreadyApplied(resolveRecipeKey(name));
+              const outputId = resolveRecipeKey(name);
+              const npcLocked = !!(unlockedItemIds && !unlockedItemIds.has(outputId));
+              if (npcLocked) return true; // keep as teaser
+              const alreadyApplied = upgradeAlreadyApplied(outputId);
               if (alreadyApplied) return false;
+              const it = ITEMS[outputId];
+              if (isSpecificStation && it?.craftStation && it.craftStation !== atCraftingStation) return false;
               return canCraftAtStationByKey(name, playerInventory ?? {}) || canCraftAtStationByKeyFromChest(name, normalizeChest(chest));
             });
           }
-          if (entries.length === 0) return null;
+          if (entries.length === 0 && !mayorGateActive) return null;
           return (
             <div key={cat.key}>
               <p style={{ fontSize:10,color:"rgba(245,230,200,0.3)",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:8 }}>{cat.label}</p>
+              {/* Mayor gate notice — shown when buildingsUnlocked is false for Builder's Table */}
+              {mayorGateActive && (
+                <div style={{
+                  display:"flex", alignItems:"flex-start", gap:10,
+                  padding:"12px 14px", borderRadius:10, marginBottom:8,
+                  background:"rgba(255,180,40,0.07)", border:"1px solid rgba(255,180,40,0.25)",
+                }}>
+                  <span style={{ fontSize:18, flexShrink:0 }}>🏰</span>
+                  <div>
+                    <div style={{ fontSize:12, color:"rgba(255,200,80,0.9)", marginBottom:3 }}>Town buildings locked</div>
+                    <div style={{ fontSize:10, color:"rgba(245,220,160,0.55)", lineHeight:1.6 }}>
+                      Build a <span style={{ color:"rgba(255,210,100,0.85)" }}>Town Hall</span> and assign your first resident as <span style={{ color:"rgba(255,210,100,0.85)" }}>Mayor</span> to unlock market stalls, specialist workshops, and all other town buildings.
+                    </div>
+                  </div>
+                </div>
+              )}
               <div style={{ display:"flex",flexDirection:"column",gap:7 }}>
                 {entries.map(([name, recipe]) => {
                   const outputId = resolveRecipeKey(name);
                   const it = ITEMS[outputId];
                   const statLine = getItemStatLine(outputId);
                   const alreadyApplied = upgradeAlreadyApplied(outputId);
-                  const craftable = !alreadyApplied && canCraftAtStationByKey(name, playerInventory ?? {});
-                  const chestCraftable = !alreadyApplied && canCraftAtStationByKeyFromChest(name, normalizeChest(chest));
-                  const combinedCraftable = !alreadyApplied && !craftable && !chestCraftable &&
+                  const npcLocked = !!(unlockedItemIds && !unlockedItemIds.has(outputId));
+                  const unlockNpcId = npcLocked ? (stationItemToUnlockNpc[outputId] ?? null) : null;
+                  const unlockRoster = unlockNpcId ? NPC_ROSTER[unlockNpcId] : null;
+                  // wrongStation: item requires a specific station that isn't the one we're standing at
+                  const wrongStation = !npcLocked && isSpecificStation && it?.craftStation && it.craftStation !== atCraftingStation;
+                  const craftable = !alreadyApplied && !wrongStation && !npcLocked && canCraftAtStationByKey(name, playerInventory ?? {});
+                  const chestCraftable = !alreadyApplied && !wrongStation && !npcLocked && canCraftAtStationByKeyFromChest(name, normalizeChest(chest));
+                  const combinedCraftable = !alreadyApplied && !wrongStation && !npcLocked && !craftable && !chestCraftable &&
                     canCraftCombined(name, playerInventory ?? {}, normalizeChest(chest));
                   const active = craftable || chestCraftable || combinedCraftable;
                   return (
-                    <div key={name} style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:10,background:active?"rgba(200,230,120,0.06)":alreadyApplied?"rgba(255,180,60,0.04)":"rgba(255,255,255,0.02)",border:`1px solid ${active?"rgba(200,230,120,0.2)":alreadyApplied?"rgba(255,180,60,0.2)":"rgba(255,255,255,0.06)"}`,opacity:active?1:alreadyApplied?0.75:0.5 }}>
-                      <ItemIcon id={outputId} size={26} />
+                    <div key={name} style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:10,background:npcLocked?"rgba(120,80,200,0.04)":active?"rgba(200,230,120,0.06)":alreadyApplied?"rgba(255,180,60,0.04)":"rgba(255,255,255,0.02)",border:`1px solid ${npcLocked?"rgba(140,100,220,0.2)":active?"rgba(200,230,120,0.2)":alreadyApplied?"rgba(255,180,60,0.2)":"rgba(255,255,255,0.06)"}`,opacity:npcLocked?0.6:active?1:alreadyApplied?0.75:wrongStation?0.4:0.5 }}>
+                      <div style={{ position:"relative", flexShrink:0 }}>
+                        <ItemIcon id={outputId} size={26} />
+                        {npcLocked && <span style={{ position:"absolute",top:-4,right:-4,fontSize:10 }}>🔒</span>}
+                      </div>
                       <div style={{ flex:1 }}>
-                        <div style={{ fontSize:13,color:"rgba(200,230,120,0.85)" }}>{it?.label??outputId}</div>
-                        {statLine && (
-                          <div style={{ fontSize:10,color:"rgba(150,210,255,0.65)",marginBottom:3,fontStyle:"italic" }}>{statLine}</div>
-                        )}
-                        <div style={{ fontSize:10,color:"rgba(245,230,200,0.4)",display:"flex",flexWrap:"wrap",gap:6 }}>
-                          {Object.entries(recipe).map(([ing,qty])=>{const have=playerItems[ing]??0;const chestMap=chestToMap(normalizeChest(chest));const inChest=chestMap[ing]??0;return<span key={ing} style={{ color:have>=qty?"rgba(200,230,120,0.7)":inChest>=qty?"rgba(180,200,100,0.6)":"rgba(255,100,80,0.7)" }}>{ITEM_ICONS[ing]??""} {have}/{qty}{inChest>0&&have<qty?<span style={{ color:"rgba(180,200,100,0.5)",fontSize:9 }}> (📦{inChest})</span>:null} {ITEMS[ing]?.label??ing}</span>;})}
-                        </div>
-                        {it?.craftStation&&it.craftStation!=="crafting_station"&&!isSpecificStation&&<div style={{ fontSize:9,color:"rgba(255,180,80,0.5)",marginTop:2 }}>requires {ITEMS[it.craftStation]?.label??it.craftStation}</div>}
-                        {alreadyApplied && (
-                          <div style={{ fontSize:9,color:"rgba(255,180,60,0.8)",marginTop:3,display:"flex",alignItems:"center",gap:4 }}>
-                            ⚠ already applied — you can only use this once
+                        <div style={{ fontSize:13,color:npcLocked?"rgba(180,160,220,0.8)":"rgba(200,230,120,0.85)" }}>{it?.label??outputId}</div>
+                        {npcLocked ? (
+                          <div style={{ fontSize:10,color:"rgba(160,130,210,0.7)",marginTop:2,lineHeight:1.5 }}>
+                            🔒 {unlockRoster
+                              ? <>Unlocked by <span style={{ color:"rgba(200,180,255,0.9)" }}>{unlockRoster.icon} {unlockRoster.defaultName}</span>
+                                  {unlockRoster.triggerBuilding
+                                    ? <> — build a <span style={{ color:"rgba(200,180,255,0.9)" }}>{unlockRoster.triggerBuilding.replace(/_/g," ")}</span> to attract them</>
+                                    : <> — invite them to your town</>}
+                                </>
+                              : "Locked — invite a new villager to unlock"}
                           </div>
+                        ) : (
+                          <>
+                            {statLine && (
+                              <div style={{ fontSize:10,color:"rgba(150,210,255,0.65)",marginBottom:3,fontStyle:"italic" }}>{statLine}</div>
+                            )}
+                            <div style={{ fontSize:10,color:"rgba(245,230,200,0.4)",display:"flex",flexWrap:"wrap",gap:6 }}>
+                              {Object.entries(recipe).map(([ing,qty])=>{const have=playerItems[ing]??0;const chestMap=chestToMap(normalizeChest(chest));const inChest=chestMap[ing]??0;return<span key={ing} style={{ color:have>=qty?"rgba(200,230,120,0.7)":inChest>=qty?"rgba(180,200,100,0.6)":"rgba(255,100,80,0.7)" }}>{ITEM_ICONS[ing]??""} {have}/{qty}{inChest>0&&have<qty?<span style={{ color:"rgba(180,200,100,0.5)",fontSize:9 }}> (📦{inChest})</span>:null} {ITEMS[ing]?.label??ing}</span>;})}
+                            </div>
+                            {it?.craftStation&&it.craftStation!=="crafting_station"&&!isSpecificStation&&<div style={{ fontSize:9,color:"rgba(255,180,80,0.5)",marginTop:2 }}>requires {ITEMS[it.craftStation]?.label??it.craftStation}</div>}
+                            {wrongStation && <div style={{ fontSize:9,color:"rgba(255,180,80,0.5)",marginTop:2 }}>needs {ITEMS[it.craftStation]?.label??it.craftStation}</div>}
+                            {alreadyApplied && (
+                              <div style={{ fontSize:9,color:"rgba(255,180,60,0.8)",marginTop:3,display:"flex",alignItems:"center",gap:4 }}>
+                                ⚠ already applied — you can only use this once
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
-                      {alreadyApplied ? (
+                      {npcLocked ? null : alreadyApplied ? (
                         <span style={{ fontSize:10,color:"rgba(255,180,60,0.6)",fontFamily:"monospace",whiteSpace:"nowrap" }}>✓ used</span>
+                      ) : wrongStation ? (
+                        <span style={{ fontSize:9,color:"rgba(255,180,80,0.4)",fontFamily:"monospace",whiteSpace:"nowrap",textAlign:"center",lineHeight:1.3 }}>needs<br/>diff. station</span>
                       ) : (
                         <SmartCraftButton name={name} mode="station" />
                       )}
@@ -2774,6 +2954,7 @@ export default function HomesteadView({
   const sendSleepConfirmedRef = useRef(null);
   const sendSleepCancelledRef = useRef(null);
   const sendSleepRequestedRef = useRef(null);
+  const sendPlayerReadyRef    = useRef(null);
 
   const executeSleep = useCallback((broadcast = false) => {
     town?.incrementDay?.(); // advances day + runs arrivals atomically
@@ -2834,6 +3015,11 @@ export default function HomesteadView({
       // A partner just joined — push our current farm and node state so they're
       // immediately in sync rather than seeing a stale/empty world.
       sendFarmUpdatedRef.current?.(farmPlots.current, nodeState.current);
+      // Re-broadcast player_ready so the joining partner knows we're online.
+      // Without this, P2 never sees P1's initial player_ready (sent before P2
+      // connected) and treats itself as solo — meaning P2 sleeps without
+      // prompting P1.
+      sendPlayerReadyRef.current?.();
     },
     onPlayerReady: () => setPartnerOnline(true),
     onPlayerAppearance: ({ character:ch, equipment:eq }) => { partnerAppearanceRef.current = { ...partnerAppearanceRef.current, character:ch, equipment:eq }; },
@@ -2938,6 +3124,7 @@ export default function HomesteadView({
   useEffect(() => { sendSleepConfirmedRef.current = sendSleepConfirmed; }, [sendSleepConfirmed]);
   useEffect(() => { sendSleepCancelledRef.current = sendSleepCancelled; }, [sendSleepCancelled]);
   useEffect(() => { sendSleepRequestedRef.current = sendSleepRequested; }, [sendSleepRequested]);
+  useEffect(() => { sendPlayerReadyRef.current    = sendPlayerReady;    }, [sendPlayerReady]);
   const sendFarmUpdatedRef   = useRef(sendFarmUpdated);
   const sendPlayerStateSyncRef = useRef(sendPlayerStateSync);
   const sendChestUpdatedRef  = useRef(sendChestUpdated);
@@ -3377,6 +3564,7 @@ export default function HomesteadView({
           farmPlots={farmPlots.current}
           atCraftingStation={atCraftingStation}
           unlockedItemIds={getUnlockedItemIds(town?.townState?.npcs)}
+          buildingsUnlocked={town?.townState?.buildingsUnlocked ?? false}
           onStartGhostPlace={(id,info)=>{
             setTabMenuOpen(false); setAtCraftingStation(false);
             const ghost={ id, info, rotation:0, gtx:12, gty:12, gw:info.w, gh:info.h };
@@ -3441,7 +3629,7 @@ export default function HomesteadView({
         </div>
       )}
 
-      <HotbarBar
+      <HotbarBar theme={__HB_THEME}
         hotbar={hotbar??[]}
         hotbarSlots={hotbarSlots ?? HOTBAR_BASE_SLOTS}
         equipment={equipment}

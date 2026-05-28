@@ -25,6 +25,9 @@ import {
   getWeaponDurability,
 } from "./Items";
 import { ItemIcon } from "./ItemIcon";
+import { makeSounds } from "./audio_sounds";
+import { RunTabMenu } from "./player_RunTabMenu";
+import { drawPlayerLegacyRun as drawPlayer } from "./drawing_drawPlayer";
 
 const PLAYER_SPEED  = 140;
 const RUN_DURATION  = 150;
@@ -35,34 +38,8 @@ const MOVE_THROTTLE  = 50;
 
 // ─── Sound engine ─────────────────────────────────────────────────────────────
 
-function makeSounds() {
-  let ctx = null;
-  const getCtx = () => {
-    if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
-    if (ctx.state === "suspended") ctx.resume();
-    return ctx;
-  };
-  const beep = (type, f0, f1, dur, vol) => {
-    try {
-      const ac = getCtx(), osc = ac.createOscillator(), g = ac.createGain();
-      osc.connect(g); g.connect(ac.destination);
-      osc.type = type;
-      osc.frequency.setValueAtTime(f0, ac.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(f1, ac.currentTime + dur);
-      g.gain.setValueAtTime(vol, ac.currentTime);
-      g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + dur);
-      osc.start(); osc.stop(ac.currentTime + dur);
-    } catch {}
-  };
-  return {
-    unlock:  () => { try { getCtx(); } catch {} },
-    pluck:   () => beep("sine",    880, 660, 0.15, 0.12),
-    collect: () => beep("sine",    660, 880, 0.10, 0.10),
-    pickup:  () => beep("sine",    600, 900, 0.10, 0.08),
-    deny:    () => beep("square",  220, 180, 0.10, 0.06),
-    drop:    () => beep("sine",    300, 180, 0.10, 0.07),
-  };
-}
+// makeSounds now lives in ./audio/sounds.js and takes a palette name.
+// The palette for this run is "fruit".
 
 // ─── Drawing helpers ──────────────────────────────────────────────────────────
 
@@ -177,43 +154,7 @@ function drawFlowerPatch(ctx, flower, camX, t) {
   }
 }
 
-function drawPlayer(ctx, px, py, facing, step, invincible, attackFlash, t, character, weapon) {
-  const blink = invincible > 0 && Math.floor(t * 8) % 2 === 0;
-  if (blink) return;
-  const bobY  = (step === 1 || step === 3) ? -1 : 0;
-  const legSw = (step === 1 || step === 3) ?  3 : 0;
-  const { skin = 'light', outfit = 'blue', hair = 'short', hat = 'none' } = character || {};
-  const SKINS   = { light:'#f5c5a3', medium:'#d4956a', tan:'#c07840', brown:'#8b5a2b', dark:'#5a3018' };
-  const OUTFITS = { blue:['#5b8dd9','#3a6abf'], green:['#5a9a4a','#3a7a2a'], red:['#c05040','#8a2820'],
-                    purple:['#7a5ab0','#5a3a8a'], orange:['#d07830','#a05010'], teal:['#4a9a8a','#2a7a6a'] };
-  const HAIRS   = { short:'#7a4f2a', long:'#3a2010', curly:'#c88040', braid:'#884020' };
-  const HATS_C  = { cap:'#5a3a8a', straw:'#d4a855', beanie:'#c05040' };
-  const skinCol  = SKINS[skin]  || '#f5c5a3';
-  const [bodyCol, legCol] = OUTFITS[outfit] || ['#5b8dd9','#3a6abf'];
-  const hairCol  = HAIRS[hair]  || '#7a4f2a';
-  ctx.fillStyle = "rgba(0,0,0,0.18)";
-  ctx.beginPath(); ctx.ellipse(px, py + 12, 8, 3, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = legCol;
-  ctx.fillRect(px - 6, py + 2, 5, 9 + legSw);
-  ctx.fillRect(px + 1, py + 2, 5, 9 - legSw);
-  ctx.fillStyle = bodyCol; ctx.fillRect(px - 7, py - 10 + bobY, 14, 13);
-  // Basket hint on the side
-  ctx.fillStyle = "#c8a050";
-  ctx.fillRect(px + 7, py - 6 + bobY, 12, 10);
-  ctx.strokeStyle = "#8a6020"; ctx.lineWidth = 1;
-  ctx.strokeRect(px + 7, py - 6 + bobY, 12, 10);
-  const armSw = (step === 1 || step === 3) ? 2 : 0;
-  ctx.fillStyle = bodyCol;
-  ctx.fillRect(px - 10, py - 9 + bobY + armSw, 3, 8);
-  ctx.fillStyle = skinCol; ctx.fillRect(px - 7, py - 22 + bobY, 14, 12);
-  ctx.fillStyle = hairCol; ctx.fillRect(px - 7, py - 22 + bobY, 14, 5);
-  if (hat !== 'none' && HATS_C[hat]) {
-    ctx.fillStyle = HATS_C[hat];
-    if (hat === 'cap')    { ctx.fillRect(px - 8, py - 27 + bobY, 16, 6); ctx.fillRect(px - 10, py - 28 + bobY, 20, 3); }
-    if (hat === 'straw')  { ctx.beginPath(); ctx.ellipse(px, py - 27 + bobY, 12, 4, 0, 0, Math.PI*2); ctx.fill(); ctx.fillRect(px-6, py-35+bobY, 12, 10); }
-    if (hat === 'beanie') { ctx.beginPath(); ctx.arc(px, py - 24 + bobY, 8, Math.PI, 0); ctx.fill(); }
-  }
-}
+// drawPlayer is now shared in ./drawing/drawPlayer.js (imported below).
 
 function drawHUD(ctx, W, H, state, items, t, slotsUsed, slotsTotal) {
   ctx.fillStyle = "rgba(12,8,4,0.88)"; ctx.fillRect(0, 0, W, 32);
@@ -236,424 +177,16 @@ function drawHUD(ctx, W, H, state, items, t, slotsUsed, slotsTotal) {
 
 // ─── HotbarBar (same visual as ForestRun) ─────────────────────────────────────
 
-function HotbarBar({ hotbar, hotbarSlots, equipment, selectedIdx, onSelectIdx, onOpenMenu, onUseSlot }) {
-  const visible = Math.min(hotbarSlots ?? HOTBAR_BASE_SLOTS, HOTBAR_SIZE);
-  return (
-    <div style={{ position:"absolute", bottom:36, left:"50%", transform:"translateX(-50%)", display:"flex", alignItems:"center", gap:3, zIndex:5, pointerEvents:"auto" }}>
-      {Array.from({ length: visible }).map((_, idx) => {
-        const slot = (hotbar ?? [])[idx];
-        const isEquipped = slot && equipment?.[EQUIPPABLE[slot?.item]?.slot] === slot?.item;
-        const isSelected = idx === selectedIdx;
-        const icon = slot ? (ITEM_ICONS[slot.item] ?? "📦") : null;
-        const category = slot ? ITEMS[slot.item]?.category : null;
-        let borderColor = "rgba(255,255,255,0.1)";
-        if (isSelected)  borderColor = "rgba(255,220,60,0.85)";
-        else if (isEquipped) borderColor = "rgba(100,200,255,0.6)";
-        else if (slot)   borderColor = "rgba(200,230,120,0.35)";
-        return (
-          <div key={idx} onClick={() => { if (slot) { onSelectIdx?.(idx); onUseSlot?.(idx); } else onOpenMenu?.("inventory"); }}
-            style={{ width:44, height:52, borderRadius:8, cursor:"pointer",
-              background: slot ? "rgba(10,18,6,0.92)" : "rgba(10,18,6,0.55)",
-              border: `2px solid ${borderColor}`,
-              boxShadow: isSelected ? "0 0 10px rgba(255,210,40,0.35), inset 0 0 6px rgba(255,210,40,0.08)" : "none",
-              display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", position:"relative", gap:1,
-              transform: isSelected ? "translateY(-3px)" : "none",
-              transition: "transform 0.1s, box-shadow 0.1s, border-color 0.1s",
-            }}>
-            {isSelected && slot && (
-              <div style={{ position:"absolute", top:-16, left:"50%", transform:"translateX(-50%)", fontSize:8, color:"rgba(255,220,60,0.8)", whiteSpace:"nowrap", fontFamily:"monospace", letterSpacing:"0.06em", pointerEvents:"none" }}>
-                {category==="food"?"🍴 eat":category==="tool"||EQUIPPABLE[slot.item]?"⚡ use":category==="placeable"?"🏗 place":""}
-              </div>
-            )}
-            {slot ? (
-              <>
-                <ItemIcon id={slot.item} size={26} />
-                <span style={{ fontSize:8, color:"rgba(200,230,120,0.65)", lineHeight:1, fontFamily:"monospace", maxWidth:40, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                  {ITEMS[slot.item]?.label?.toLowerCase().slice(0,6) ?? slot.item}
-                </span>
-                {slot.qty != null && <span style={{ fontSize:9, color:"rgba(200,230,120,0.8)", lineHeight:1, marginTop:1 }}>{slot.qty}</span>}
-                {isEquipped && <div style={{ position:"absolute", top:2, right:2, width:6, height:6, borderRadius:"50%", background:"rgba(100,200,255,0.95)" }} />}
-              </>
-            ) : (
-              <span style={{ fontSize:11, color:"rgba(255,255,255,0.12)", fontFamily:"monospace" }}>{idx+1}</span>
-            )}
-          </div>
-        );
-      })}
-      <div onClick={() => onOpenMenu?.("inventory")} style={{ marginLeft:8, width:36, height:36, borderRadius:8, cursor:"pointer", background:"rgba(10,18,6,0.7)", border:"1px solid rgba(200,230,120,0.2)", display:"flex", alignItems:"center", justifyContent:"center", color:"rgba(200,230,120,0.5)", fontSize:10, fontFamily:"monospace" }} title="Open menu (Tab)">⊞</div>
-    </div>
-  );
-}
+// HotbarBar (now <Hotbar/>) is shared from ./player/Hotbar.jsx — imported below.
 
 // ─── Run Tab Menu ─────────────────────────────────────────────────────────────
 
-const RUN_TABS = [
-  { id:"inventory", label:"My Bag",    icon:"🎒" },
-  { id:"chest",     label:"Chest",     icon:"📦" },
-  { id:"crafting",  label:"Crafting",  icon:"🔨" },
-  { id:"equipment", label:"Equipment", icon:"⚔️" },
-];
+// RUN_TABS and StatPill are now shared with the other runs (and HomesteadView).
+import { Hotbar as HotbarBar } from "./player_Hotbar";
+import { PauseOverlay } from "./runs_PauseOverlay";
+const __HB_THEME = "fruit";
 
-function StatPill({ label, value, color }) {
-  return (
-    <div style={{ display:"flex", alignItems:"center", gap:4, padding:"4px 9px", borderRadius:6, background:"rgba(200,230,120,0.06)", border:"1px solid rgba(200,230,120,0.15)" }}>
-      <span style={{ fontSize:9, color:"rgba(200,230,160,0.45)", letterSpacing:"0.1em" }}>{label}</span>
-      <span style={{ fontSize:12, color:color??"rgba(200,230,120,0.9)" }}>{value}</span>
-    </div>
-  );
-}
-
-function RunTabMenu({
-  activeTab, onTabChange, onClose,
-  playerInventory, onPlayerInventoryUpdate,
-  hotbarSlots, onHotbarSlotsUpdate,
-  chest,
-  equipment, onEquipItem,
-  hotbar, onHotbarChange,
-  onDropItem,
-}) {
-  const [craftMsg, setCraftMsg]     = useState(null);
-  const [dragOverSlot, setDragOver] = useState(null);
-  const [chestTab, setChestTab]     = useState("resources");
-  const overlayRef = useRef(null);
-  const contentRef = useRef(null);
-
-  const playerItems = playerInventory?.items ?? {};
-  const hotbarItemIds = new Set((hotbar ?? []).filter(Boolean).map(s => s.item));
-  const usedSlotsCount = Object.entries(playerItems).filter(([k, v]) => v > 0 && !hotbarItemIds.has(k)).length;
-  const totalSlots = playerInventory?.slots ?? INVENTORY_BASE_SLOTS;
-
-  useEffect(() => {
-    const block = (e) => { if (e.key===" "||e.code==="Space") e.preventDefault(); };
-    window.addEventListener("keydown", block);
-    return () => window.removeEventListener("keydown", block);
-  }, []);
-
-  useEffect(() => {
-    const overlay = overlayRef.current, content = contentRef.current;
-    if (!overlay || !content) return;
-    const blockOverlay = (e) => e.preventDefault();
-    overlay.addEventListener("wheel", blockOverlay, { passive:false });
-    const handleContent = (e) => {
-      const atTop = content.scrollTop <= 0;
-      const atBottom = content.scrollTop+content.clientHeight >= content.scrollHeight-1;
-      if ((e.deltaY < 0 && !atTop)||(e.deltaY > 0 && !atBottom)) e.stopPropagation();
-    };
-    content.addEventListener("wheel", handleContent, { passive:true });
-    return () => { overlay.removeEventListener("wheel", blockOverlay); content.removeEventListener("wheel", handleContent); };
-  }, []);
-
-  function assignToHotbarSlot(itemId, slotIdx) {
-    const qty = (playerItems[itemId] ?? 0) > 0 ? playerItems[itemId] : undefined;
-    const newHotbar = [...(hotbar ?? [])];
-    const displaced = newHotbar[slotIdx];
-    newHotbar[slotIdx] = qty != null ? { item:itemId, qty } : { item:itemId };
-    const newItems = { ...(playerInventory?.items ?? {}) };
-    if (newItems[itemId] > 0) delete newItems[itemId];
-    if (displaced?.item && displaced.item !== itemId) {
-      newItems[displaced.item] = (newItems[displaced.item] ?? 0) + (displaced.qty ?? 1);
-    }
-    onPlayerInventoryUpdate?.({ ...playerInventory, items: newItems });
-    onHotbarChange?.(newHotbar);
-  }
-
-  function HotbarDropZone() {
-    const visible = Math.min(hotbarSlots ?? HOTBAR_BASE_SLOTS, HOTBAR_SIZE);
-    return (
-      <div style={{ padding:"10px 20px", borderBottom:"1px solid rgba(255,255,255,0.07)", background:"#0f1709" }}>
-        <p style={{ fontSize:9, color:"rgba(245,230,200,0.22)", letterSpacing:"0.14em", textTransform:"uppercase", marginBottom:7 }}>hotbar — drag any item onto a slot</p>
-        <div style={{ display:"flex", gap:5 }}>
-          {Array.from({ length: visible }).map((_, idx) => {
-            const slot = (hotbar ?? [])[idx];
-            const isOver = dragOverSlot===idx;
-            const isEq = slot && equipment?.[EQUIPPABLE[slot?.item]?.slot]===slot?.item;
-            return (
-              <div key={idx}
-                onDrop={e=>{e.preventDefault();const n=e.dataTransfer.getData("hotbar_item");if(n)assignToHotbarSlot(n,idx);setDragOver(null);}}
-                onDragOver={e=>{e.preventDefault();e.dataTransfer.dropEffect="copy";setDragOver(idx);}}
-                onDragLeave={()=>setDragOver(null)}
-                style={{ width:50, height:54, borderRadius:9, background:isOver?"rgba(200,230,120,0.18)":slot?"rgba(10,18,6,0.7)":"rgba(255,255,255,0.03)", border:`2px solid ${isOver?"rgba(200,230,120,0.9)":isEq?"rgba(100,200,255,0.5)":slot?"rgba(200,230,120,0.3)":"rgba(255,255,255,0.1)"}`, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2, position:"relative", transition:"all 0.1s" }}>
-                {slot ? (
-                  <>
-                    <ItemIcon id={slot.item} size={22} />
-                    <span style={{ fontSize:8, color:"rgba(200,230,120,0.6)", lineHeight:1, fontFamily:"monospace", maxWidth:46, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{ITEMS[slot.item]?.label?.toLowerCase()?.slice(0,6)??slot.item}</span>
-                    {slot.qty!=null&&<span style={{ fontSize:9, color:"rgba(200,230,120,0.7)" }}>{slot.qty}</span>}
-                    {isEq&&<div style={{ position:"absolute", top:3, right:3, width:6, height:6, borderRadius:"50%", background:"rgba(100,200,255,0.9)" }}/>}
-                    <button onClick={()=>{const n=[...(hotbar??[])];const s=n[idx];n[idx]=null;onHotbarChange?.(n);if(s?.item){const ni={...(playerInventory?.items??{}),[s.item]:(playerInventory?.items?.[s.item]??0)+(s.qty??1)};onPlayerInventoryUpdate?.({...playerInventory,items:ni})}}} style={{ position:"absolute", top:-5, right:-5, width:15, height:15, borderRadius:"50%", background:"rgba(255,80,80,0.8)", border:"none", color:"#fff", fontSize:9, cursor:"pointer", lineHeight:1, display:"flex", alignItems:"center", justifyContent:"center" }}>×</button>
-                  </>
-                ) : (
-                  <span style={{ fontSize:isOver?18:11, color:isOver?"rgba(200,230,120,0.7)":"rgba(255,255,255,0.12)", fontFamily:"monospace" }}>{isOver?"+":idx+1}</span>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  }
-
-  function removeFromBag(itemId, qty) {
-    const items = { ...(playerInventory?.items ?? {}) };
-    const have = items[itemId] ?? 0;
-    const removed = Math.min(have, qty);
-    if (removed <= 0) return null;
-    items[itemId] = have - removed;
-    if (items[itemId] <= 0) delete items[itemId];
-    onPlayerInventoryUpdate?.({ ...playerInventory, items });
-    return removed;
-  }
-
-  function dropFromBag(itemId, qty) {
-    const removed = removeFromBag(itemId, qty);
-    if (removed > 0) onDropItem?.(itemId, removed);
-  }
-
-  function InventoryTab() {
-    const allItems = Object.entries(playerItems).filter(([,v])=>v>0);
-    const resources   = allItems.filter(([k])=>!EQUIPPABLE[k]&&!HOTBAR_ITEMS[k]&&!PLACEABLES[k]&&!UPGRADES[k]);
-    const consumables = allItems.filter(([k])=>!!HOTBAR_ITEMS[k]);
-    const gear        = allItems.filter(([k])=>!!EQUIPPABLE[k]);
-    const upgrades    = allItems.filter(([k])=>!!UPGRADES[k]);
-    const itemStyle = { display:"flex", alignItems:"center", gap:8, padding:"8px 12px", borderRadius:10, cursor:"grab", background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.08)", userSelect:"none" };
-    function DropButtons({ id, qty }) {
-      return (
-        <div style={{ display:"flex", alignItems:"center", gap:0, borderRadius:6, overflow:"hidden", border:"1px solid rgba(255,100,80,0.22)", flexShrink:0 }}>
-          <button title="Drop 1" onClick={(e)=>{e.stopPropagation();dropFromBag(id,1);}} style={{ fontSize:10, padding:"3px 8px", cursor:"pointer", background:"rgba(255,100,80,0.06)", border:"none", borderRight: qty > 1 ? "1px solid rgba(255,100,80,0.18)" : "none", color:"rgba(255,150,130,0.85)", fontFamily:"monospace", lineHeight:1.4 }}>drop</button>
-          {qty > 1 && <button title={`Drop all (${qty})`} onClick={(e)=>{e.stopPropagation();dropFromBag(id,qty);}} style={{ fontSize:10, padding:"3px 6px", cursor:"pointer", background:"rgba(255,100,80,0.10)", border:"none", color:"rgba(255,160,140,0.8)", fontFamily:"monospace", lineHeight:1.4 }}>all</button>}
-        </div>
-      );
-    }
-    return (
-      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-        <div style={{ padding:"10px 14px", borderRadius:10, background:"rgba(200,230,120,0.04)", border:"1px solid rgba(200,230,120,0.12)" }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
-            <span style={{ fontSize:10, color:"rgba(200,230,120,0.5)", letterSpacing:"0.1em", textTransform:"uppercase" }}>inventory</span>
-            <span style={{ fontSize:11, color: usedSlotsCount >= totalSlots ? "rgba(255,120,80,0.9)" : "rgba(200,230,120,0.7)", fontFamily:"monospace" }}>{usedSlotsCount}/{totalSlots} slots</span>
-          </div>
-          <div style={{ height:4, borderRadius:2, background:"rgba(255,255,255,0.08)", overflow:"hidden" }}>
-            <div style={{ height:"100%", width:`${(usedSlotsCount/totalSlots)*100}%`, background: usedSlotsCount >= totalSlots ? "rgba(255,120,80,0.7)" : "rgba(200,230,120,0.6)", transition:"width 0.3s" }} />
-          </div>
-          {usedSlotsCount >= totalSlots && <p style={{ fontSize:10, color:"rgba(255,120,80,0.7)", marginTop:6 }}>Bag full — drop items below to free up space.</p>}
-        </div>
-        {allItems.length === 0 && <p style={{ textAlign:"center", fontSize:12, color:"rgba(255,255,255,0.2)", padding:"24px 0" }}>bag is empty</p>}
-        {resources.length > 0 && (
-          <div>
-            <p style={{ fontSize:10, color:"rgba(245,230,200,0.3)", letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:8 }}>Resources</p>
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))", gap:6 }}>
-              {resources.map(([id, qty]) => (
-                <div key={id} draggable onDragStart={e=>{e.dataTransfer.setData("hotbar_item",id);e.dataTransfer.effectAllowed="copy";}}
-                  style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 10px", borderRadius:8, background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.07)", cursor:"grab" }}>
-                  <ItemIcon id={id} size={22} />
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:9, color:"rgba(245,230,200,0.4)" }}>{ITEMS[id]?.label??id}</div>
-                    <div style={{ fontSize:15, color:"rgba(200,230,120,0.9)" }}>{qty}</div>
-                  </div>
-                  <DropButtons id={id} qty={qty} />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-        {consumables.length > 0 && (
-          <div>
-            <p style={{ fontSize:10, color:"rgba(245,230,200,0.3)", letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:8 }}>Consumables — drag to hotbar to use mid-run</p>
-            <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
-              {consumables.map(([id, qty]) => (
-                <div key={id} draggable onDragStart={e=>{e.dataTransfer.setData("hotbar_item",id);e.dataTransfer.effectAllowed="copy";}}
-                  onClick={()=>{const ei=hotbar?.findIndex(s=>!s)??-1;const si=ei>=0?ei:0;if(si<(hotbarSlots??HOTBAR_BASE_SLOTS)){const nh=[...(hotbar??[])];nh[si]={item:id,qty};onHotbarChange?.(nh);}}}
-                  style={{ ...itemStyle, background:"rgba(255,200,80,0.07)", border:"1px solid rgba(255,200,80,0.25)" }}>
-                  <ItemIcon id={id} size={26} />
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:12, color:"rgba(200,230,120,0.85)" }}>{ITEMS[id]?.label??id}</div>
-                    <div style={{ fontSize:10, color:"rgba(255,255,255,0.3)" }}>×{qty} · drag → hotbar</div>
-                  </div>
-                  <DropButtons id={id} qty={qty} />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-        {gear.length > 0 && (
-          <div>
-            <p style={{ fontSize:10, color:"rgba(245,230,200,0.3)", letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:8 }}>Gear</p>
-            {gear.map(([id, qty]) => {
-              const info = EQUIPPABLE[id]; const isEq = equipment?.[info?.slot] === id;
-              return (
-                <div key={id} onClick={()=>onEquipItem?.(id)} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 14px", borderRadius:10, cursor:"pointer", background:isEq?"rgba(200,230,120,0.06)":"rgba(255,255,255,0.02)", border:`1px solid ${isEq?"rgba(200,230,120,0.2)":"rgba(255,255,255,0.06)"}`, marginBottom:6 }}>
-                  <ItemIcon id={id} size={26} />
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontSize:13, color:"rgba(200,230,120,0.85)" }}>{info?.label??id}</div>
-                    <div style={{ fontSize:10, color:"rgba(200,230,160,0.4)" }}>{info?.slot} slot</div>
-                  </div>
-                  <button style={{ padding:"7px 12px", borderRadius:8, border:`1px solid ${isEq?"rgba(255,100,100,0.25)":"rgba(200,230,120,0.3)"}`, background:isEq?"rgba(255,100,100,0.06)":"rgba(200,230,120,0.08)", color:isEq?"rgba(255,140,120,0.8)":"rgba(200,230,120,0.9)", fontSize:11, fontFamily:"monospace", cursor:"pointer" }}>{isEq?"unequip":"equip"}</button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  function ChestTab() {
-    const chestMap = normalizeChest(chest)?.items ?? {};
-    const allItems = Object.entries(chestMap).filter(([,v])=>v>0);
-    const subTabs = [
-      { id:"resources",   label:"Resources",   list: allItems.filter(([k])=>!EQUIPPABLE[k]&&!HOTBAR_ITEMS[k]) },
-      { id:"consumables", label:"Consumables", list: allItems.filter(([k])=>!!HOTBAR_ITEMS[k]) },
-      { id:"gear",        label:"Gear",        list: allItems.filter(([k])=>!!EQUIPPABLE[k]) },
-    ].filter(s => s.list.length > 0);
-    return (
-      <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-        <div style={{ padding:"10px 14px", borderRadius:10, background:"rgba(180,200,100,0.04)", border:"1px solid rgba(180,200,100,0.1)", fontSize:11, color:"rgba(245,230,200,0.35)", lineHeight:1.6 }}>
-          📦 Your shared chest is back at the homestead. You can see what's in it, but you can't deposit or withdraw from out here in the orchard.
-        </div>
-        {allItems.length === 0 && <p style={{ textAlign:"center", fontSize:12, color:"rgba(255,255,255,0.2)", padding:"24px 0" }}>chest is empty</p>}
-        {subTabs.length > 0 && (
-          <>
-            <div style={{ display:"flex", gap:2, borderBottom:"1px solid rgba(255,255,255,0.06)" }}>
-              {subTabs.map(st => (
-                <button key={st.id} onClick={() => setChestTab(st.id)} style={{ padding:"7px 11px", background:"transparent", border:"none", borderBottom:`2px solid ${chestTab===st.id?"rgba(180,200,100,0.7)":"transparent"}`, color:chestTab===st.id?"rgba(180,200,100,0.9)":"rgba(245,230,200,0.32)", fontSize:10, fontFamily:"monospace", cursor:"pointer", whiteSpace:"nowrap" }}>
-                  {st.label} ({st.list.length})
-                </button>
-              ))}
-            </div>
-            {(subTabs.find(s => s.id === chestTab)?.list ?? []).map(([id, qty]) => (
-              <div key={id} style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 12px", borderRadius:10, background:"rgba(180,200,100,0.04)", border:"1px solid rgba(180,200,100,0.12)" }}>
-                <ItemIcon id={id} size={26} />
-                <div style={{ flex:1 }}>
-                  <div style={{ fontSize:12, color:"rgba(180,200,100,0.85)" }}>{ITEMS[id]?.label??id}</div>
-                  <div style={{ fontSize:10, color:"rgba(245,230,200,0.35)" }}>×{qty} at home</div>
-                </div>
-              </div>
-            ))}
-          </>
-        )}
-      </div>
-    );
-  }
-
-  function CraftingTab() {
-    function handleCraft(key) {
-      const newInv = craftItemByKey(key, playerInventory);
-      if (newInv) {
-        onPlayerInventoryUpdate?.(newInv);
-        const outputId = resolveHandRecipeKey(key);
-        setCraftMsg(`Crafted ${ITEMS[outputId]?.label??outputId}!`);
-        setTimeout(()=>setCraftMsg(null),2200);
-      }
-    }
-    const handCraftables = expandedHandRecipes();
-    return (
-      <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
-        {craftMsg && <div style={{ textAlign:"center",fontSize:12,padding:"8px 14px",borderRadius:8,background:"rgba(200,230,120,0.1)",border:"1px solid rgba(200,230,120,0.3)",color:"rgba(200,230,120,0.9)" }}>✓ {craftMsg}</div>}
-        <div style={{ padding:"14px",borderRadius:12,background:"rgba(200,230,120,0.04)",border:"1px solid rgba(200,230,120,0.15)" }}>
-          <p style={{ fontSize:10,color:"rgba(200,230,120,0.5)",letterSpacing:"0.14em",textTransform:"uppercase",marginBottom:12 }}>⚒ craft by hand</p>
-          {handCraftables.length === 0 && <p style={{ fontSize:11, color:"rgba(255,255,255,0.3)", textAlign:"center" }}>nothing to hand-craft</p>}
-          {handCraftables.map(([key, recipe]) => {
-            const outputId = resolveHandRecipeKey(key);
-            const craftable = canCraftByKey(key, playerInventory); const it = ITEMS[outputId];
-            return (
-              <div key={key} style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:10,background:craftable?"rgba(200,230,120,0.06)":"rgba(255,255,255,0.02)",border:`1px solid ${craftable?"rgba(200,230,120,0.2)":"rgba(255,255,255,0.06)"}`,opacity:craftable?1:0.5,marginTop:8 }}>
-                <ItemIcon id={outputId} size={26} />
-                <div style={{ flex:1 }}>
-                  <div style={{ fontSize:13,color:"rgba(200,230,120,0.85)" }}>{it?.label??outputId}</div>
-                  <div style={{ fontSize:10,color:"rgba(245,230,200,0.4)" }}>
-                    {Object.entries(recipe).map(([ing,qty])=>{const have=playerItems[ing]??0;return <span key={ing} style={{ marginRight:8,color:have>=qty?"rgba(200,230,120,0.7)":"rgba(255,100,80,0.7)" }}>{ITEM_ICONS[ing]??""} {have}/{qty} {ITEMS[ing]?.label??ing}</span>;})}
-                  </div>
-                </div>
-                <button disabled={!craftable} onClick={()=>handleCraft(key)} style={{ padding:"8px 14px",borderRadius:8,border:`1px solid ${craftable?"rgba(200,230,120,0.35)":"rgba(255,255,255,0.06)"}`,background:craftable?"rgba(200,230,120,0.1)":"transparent",color:craftable?"rgba(200,230,120,0.9)":"rgba(255,255,255,0.2)",fontSize:11,fontFamily:"monospace",cursor:craftable?"pointer":"default" }}>craft</button>
-              </div>
-            );
-          })}
-        </div>
-        <div style={{ padding:"12px",borderRadius:10,background:"rgba(255,255,255,0.02)",border:"1px dashed rgba(255,255,255,0.1)",textAlign:"center",fontSize:11,color:"rgba(245,230,200,0.35)" }}>
-          🔒 Station recipes are only available at the homestead.
-        </div>
-      </div>
-    );
-  }
-
-  function EquipmentTab() {
-    const stats = getEquipStats(equipment);
-    const equippableInBag = Object.entries(playerItems).filter(([k,v])=>v>0&&EQUIPPABLE[k]).map(([k])=>k);
-    return (
-      <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
-        {["weapon","armor","accessory"].map(slot=>{
-          const item=equipment?.[slot]; const info=item?EQUIPPABLE[item]:null;
-          return(
-            <div key={slot} style={{ display:"flex",alignItems:"center",gap:12,padding:"12px 14px",borderRadius:10,background:item?"rgba(200,230,120,0.04)":"rgba(255,255,255,0.02)",border:`1px solid ${item?"rgba(200,230,120,0.18)":"rgba(255,255,255,0.06)"}` }}>
-              <ItemIcon id={item} size={26} />
-              <div style={{ flex:1 }}>
-                <div style={{ fontSize:10,color:"rgba(245,230,200,0.3)",letterSpacing:"0.1em",textTransform:"uppercase" }}>{slot}</div>
-                <div style={{ fontSize:13,color:item?"rgba(200,230,120,0.85)":"rgba(255,255,255,0.18)" }}>{info?.label??"empty"}</div>
-                {info&&<div style={{ fontSize:10,color:"rgba(200,230,160,0.4)" }}>{Object.entries(info.stats??{}).map(([k,v])=>`${k}:${v}`).join("  ")}</div>}
-              </div>
-              {item&&<button onClick={()=>onEquipItem?.(item)} style={{ padding:"6px 10px",borderRadius:7,border:"1px solid rgba(255,100,100,0.25)",background:"rgba(255,100,100,0.06)",color:"rgba(255,140,120,0.8)",fontSize:11,fontFamily:"monospace",cursor:"pointer" }}>unequip</button>}
-            </div>
-          );
-        })}
-        <div style={{ padding:"12px 14px",borderRadius:10,background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.05)" }}>
-          <p style={{ fontSize:10,color:"rgba(245,230,200,0.3)",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:8 }}>active bonuses</p>
-          {Object.entries(stats).filter(([,v])=>v&&v!==0&&v!==false).length===0
-            ?<p style={{ fontSize:11,color:"rgba(255,255,255,0.18)" }}>no bonuses active</p>
-            :<div style={{ display:"flex",flexWrap:"wrap",gap:6 }}>
-              {stats.attackBonus>0&&<StatPill label="ATK" value={`+${stats.attackBonus}`}/>}
-              {stats.defense>0&&<StatPill label="DEF" value={`+${stats.defense}`}/>}
-              {stats.maxHpBonus>0&&<StatPill label="HP" value={`+${stats.maxHpBonus}`}/>}
-              {stats.canChop&&<StatPill label="CHOP" value="✓" color="rgba(120,200,60,0.8)"/>}
-              {stats.canFish&&<StatPill label="FISH" value="✓" color="rgba(80,200,255,0.8)"/>}
-            </div>
-          }
-        </div>
-        {equippableInBag.length>0&&(
-          <div style={{ display:"flex",flexDirection:"column",gap:7 }}>
-            <p style={{ fontSize:10,color:"rgba(245,230,200,0.3)",letterSpacing:"0.12em",textTransform:"uppercase" }}>in bag — click to equip</p>
-            {equippableInBag.map(name=>{const info=EQUIPPABLE[name];const isEq=equipment?.[info?.slot]===name;return(
-              <div key={name} onClick={()=>onEquipItem?.(name)} style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:10,cursor:"pointer",background:isEq?"rgba(200,230,120,0.06)":"rgba(255,255,255,0.02)",border:`1px solid ${isEq?"rgba(200,230,120,0.2)":"rgba(255,255,255,0.06)"}` }}>
-                <ItemIcon id={id} size={26} />
-                <div style={{ flex:1 }}>
-                  <div style={{ fontSize:13,color:"rgba(200,230,120,0.85)" }}>{info.label}</div>
-                  <div style={{ fontSize:10,color:"rgba(200,230,160,0.4)" }}>{info.slot} slot</div>
-                </div>
-                <button style={{ padding:"7px 12px",borderRadius:8,border:`1px solid ${isEq?"rgba(255,100,100,0.25)":"rgba(200,230,120,0.3)"}`,background:isEq?"rgba(255,100,100,0.06)":"rgba(200,230,120,0.08)",color:isEq?"rgba(255,140,120,0.8)":"rgba(200,230,120,0.9)",fontSize:11,fontFamily:"monospace",cursor:"pointer" }}>
-                  {isEq?"unequip":"equip"}
-                </button>
-              </div>
-            );})}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  const tabContent = { inventory:<InventoryTab/>, chest:<ChestTab/>, crafting:<CraftingTab/>, equipment:<EquipmentTab/> };
-
-  return (
-    <div ref={overlayRef} style={{ position:"absolute",inset:0,background:"rgba(4,12,4,0.86)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:20,backdropFilter:"blur(2px)" }} onClick={onClose}>
-      <div style={{ background:"#111a0b",border:"1px solid rgba(180,220,100,0.22)",borderRadius:18,width:540,maxWidth:"97vw",maxHeight:"88vh",display:"flex",flexDirection:"column",fontFamily:"monospace",color:"#f5e6c8",overflow:"hidden",boxShadow:"0 24px 80px rgba(0,0,0,0.7)" }} onClick={e=>e.stopPropagation()}>
-        <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 18px 0",borderBottom:"1px solid rgba(255,255,255,0.06)",paddingBottom:0 }}>
-          <div style={{ fontSize:11,color:"rgba(200,230,120,0.5)",letterSpacing:"0.2em",textTransform:"uppercase",paddingBottom:14 }}>🍎 orchard — menu</div>
-          <button onClick={onClose} style={{ background:"transparent",border:"1px solid rgba(255,255,255,0.1)",borderRadius:7,color:"rgba(255,255,255,0.3)",fontSize:12,fontFamily:"monospace",cursor:"pointer",padding:"3px 9px",marginBottom:14 }}>✕  esc</button>
-        </div>
-        <div style={{ display:"flex",overflowX:"auto",borderBottom:"1px solid rgba(255,255,255,0.07)",padding:"0 6px",scrollbarWidth:"none" }}>
-          {RUN_TABS.map(tab=>{const active=activeTab===tab.id;return(
-            <button key={tab.id} onClick={()=>onTabChange(tab.id)} style={{ flex:"0 0 auto",padding:"10px 14px",background:"transparent",border:"none",borderBottom:`2px solid ${active?"rgba(200,230,120,0.8)":"transparent"}`,color:active?"rgba(200,230,120,0.95)":"rgba(245,230,200,0.4)",fontSize:12,fontFamily:"monospace",cursor:"pointer",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap" }}>
-              {tab.icon}
-            </button>
-          );})}
-        </div>
-        {activeTab==="inventory" && <HotbarDropZone/>}
-        <div ref={contentRef} style={{ flex:1,overflowY:"auto",padding:"18px 20px",scrollbarWidth:"thin",scrollbarColor:"rgba(200,230,120,0.15) transparent" }}>
-          {tabContent[activeTab]}
-        </div>
-        <div style={{ padding:"8px 18px",borderTop:"1px solid rgba(255,255,255,0.05)",fontSize:9,color:"rgba(245,230,200,0.2)",textAlign:"center",letterSpacing:"0.08em" }}>
-          Tab / Esc to close  ·  drop items to free up bag slots
-        </div>
-      </div>
-    </div>
-  );
-}
+// RunTabMenu is now shared from ./player/RunTabMenu.jsx — imported above.
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -801,7 +334,7 @@ export default function FruitRun({
   }, [character, equipment, hotbar]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function initState() {
-    const { trees, bushes, flowers } = generateFruitRun(seed ?? Date.now());
+    const { trees, bushes, flowers } = generateFruitRun(seed ?? Date.now(), coOp);
     return {
       px: 80, py: ORCHARD_H / 2,
       facing: "right",
@@ -840,7 +373,7 @@ export default function FruitRun({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    soundRef.current = makeSounds();
+    soundRef.current = makeSounds("fruit");
 
     const resize = () => { canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight; };
     resize();
@@ -1088,17 +621,14 @@ export default function FruitRun({
         style={{ width:"100%", height:"100%", display:"block", imageRendering:"pixelated" }}
       />
       {/* Pause / abandon overlay */}
-      {pauseOpen && (
-        <div style={{ position:"absolute", inset:0, background:"rgba(4,12,4,0.82)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:30 }}>
-          <div style={{ background:"#0e1a0a", border:"1px solid rgba(180,230,120,0.25)", borderRadius:16, padding:"28px 32px", maxWidth:300, width:"90%", fontFamily:"monospace", color:"#f5e6c8", textAlign:"center", display:"flex", flexDirection:"column", gap:14 }}>
-            <p style={{ fontSize:10, letterSpacing:"0.18em", color:"rgba(180,230,120,0.4)", textTransform:"uppercase" }}>paused</p>
-            <h2 style={{ fontSize:20, fontWeight:400, color:"rgba(180,230,120,0.9)" }}>🍎 Fruit Run</h2>
-            <button onClick={() => { setPauseOpen(false); pauseOpenRef.current = false; }} style={{ padding:"13px", borderRadius:10, border:"1px solid rgba(180,230,120,0.35)", background:"rgba(180,230,120,0.1)", color:"rgba(180,230,120,0.95)", fontSize:13, fontFamily:"monospace", cursor:"pointer" }}>▶ Resume</button>
-            <button onClick={() => { setPauseOpen(false); pauseOpenRef.current = false; finishRun(stateRef.current); }} style={{ padding:"10px", borderRadius:10, border:"1px solid rgba(255,150,100,0.3)", background:"rgba(255,100,60,0.07)", color:"rgba(255,160,120,0.85)", fontSize:12, fontFamily:"monospace", cursor:"pointer" }}>Abandon run (keep loot so far)</button>
-          </div>
-        </div>
-      )}
-      <HotbarBar
+      <PauseOverlay
+        open={pauseOpen}
+        theme="fruit"
+        runLabel="🍎 Fruit Run"
+        onResume={() => { setPauseOpen(false); pauseOpenRef.current = false; }}
+        onAbandon={() => { setPauseOpen(false); pauseOpenRef.current = false; finishRun(stateRef.current); }}
+      />
+      <HotbarBar theme={__HB_THEME}
         hotbar={hotbar ?? []}
         hotbarSlots={hotbarSlots ?? HOTBAR_BASE_SLOTS}
         equipment={equipment ?? {}}

@@ -410,15 +410,16 @@ export const FOREST_LOOT = {
 // keep legacy name for run files that import it
 export const LOOT_TABLE = FOREST_LOOT;
 
-export function generateForestRun(seed) {
+export function generateForestRun(seed, coOp = false) {
   const rand = seededRand(seed);
+  const mul = coOp ? 2 : 1;
   const enemies = [], pickups = [], trees = [], stoneDeposits = [];
-  for (let i = 0; i < 28; i++) pickups.push({ id:`pickup_${i}`, x:200+rand()*(FOREST_W-400), y:80+rand()*(FOREST_H-160), lootType:'ground', collected:false });
-  for (let i = 0; i < 18; i++) trees.push({ id:`tree_${i}`, x:300+rand()*(FOREST_W-600), y:60+rand()*(FOREST_H-120), hp:3, maxHp:3, alive:true, hitFlash:0 });
-  for (let i = 0; i < 10; i++) enemies.push({ id:`wolf_${i}`, type:'wolf', x:400+rand()*(FOREST_W-600), y:80+rand()*(FOREST_H-160), hp:3, maxHp:3, alive:true, dir:rand()>0.5?1:-1, state:'patrol', hitFlash:0, attackCooldown:0, speed:WOLF_SPEED+rand()*20, phase:rand()*Math.PI*2 });
-  for (let i = 0; i < 6;  i++) enemies.push({ id:`spider_${i}`, type:'spider', x:1600+rand()*(FOREST_W-1800), y:80+rand()*(FOREST_H-160), hp:5, maxHp:5, alive:true, dir:rand()>0.5?1:-1, state:'patrol', hitFlash:0, attackCooldown:0, speed:35+rand()*15, phase:rand()*Math.PI*2 });
+  for (let i = 0; i < 28 * mul; i++) pickups.push({ id:`pickup_${i}`, x:200+rand()*(FOREST_W-400), y:80+rand()*(FOREST_H-160), lootType:'ground', collected:false });
+  for (let i = 0; i < 18 * mul; i++) trees.push({ id:`tree_${i}`, x:300+rand()*(FOREST_W-600), y:60+rand()*(FOREST_H-120), hp:3, maxHp:3, alive:true, hitFlash:0 });
+  for (let i = 0; i < 10 * mul; i++) enemies.push({ id:`wolf_${i}`, type:'wolf', x:400+rand()*(FOREST_W-600), y:80+rand()*(FOREST_H-160), hp:3, maxHp:3, alive:true, dir:rand()>0.5?1:-1, state:'patrol', hitFlash:0, attackCooldown:0, speed:WOLF_SPEED+rand()*20, phase:rand()*Math.PI*2 });
+  for (let i = 0; i < 6 * mul;  i++) enemies.push({ id:`spider_${i}`, type:'spider', x:1600+rand()*(FOREST_W-1800), y:80+rand()*(FOREST_H-160), hp:5, maxHp:5, alive:true, dir:rand()>0.5?1:-1, state:'patrol', hitFlash:0, attackCooldown:0, speed:35+rand()*15, phase:rand()*Math.PI*2 });
   // Stone deposits — scattered throughout, require a pickaxe to mine
-  for (let i = 0; i < 8; i++) stoneDeposits.push({ id:`sdep_${i}`, x:300+rand()*(FOREST_W-600), y:60+rand()*(FOREST_H-120), hp:3, maxHp:3, alive:true, hitFlash:0 });
+  for (let i = 0; i < 8 * mul; i++) stoneDeposits.push({ id:`sdep_${i}`, x:300+rand()*(FOREST_W-600), y:60+rand()*(FOREST_H-120), hp:3, maxHp:3, alive:true, hitFlash:0 });
   return { enemies, pickups, trees, stoneDeposits };
 }
 
@@ -429,19 +430,20 @@ export const BAT_R     = 10;
 export const BAT_SPEED = 60;
 
 export const MINE_LOOT = {
-  rock:    [{ item:'stone',    min:2, max:4 }, { item:'coal',    min:0, max:2 }, { item:'iron_ore', min:0, max:2, chance:0.45 }],
+  rock:    [{ item:'stone',    min:2, max:4 }, { item:'coal',    min:0, max:2 }, { item:'iron_ore', min:0, max:2, chance:0.60 }],
   gem:     [{ item:'gems',    min:1, max:2 }],
   crystal: [{ item:'crystal', min:1, max:1 }, { item:'stone',   min:1, max:2 }],
   bat:     [{ item:'leather', min:0, max:1 }],
 };
 export const MINE_LOOT_TABLE = MINE_LOOT;
 
-export function generateMiningRun(seed) {
+export function generateMiningRun(seed, coOp = false) {
   const rand = seededRand(seed);
+  const mul = coOp ? 2 : 1;
   const rocks = [], gems = [], enemies = [];
-  for (let i = 0; i < 30; i++) rocks.push({ id:`rock_${i}`, x:200+rand()*(MINE_W-400), y:80+rand()*(MINE_H-160), hp:4, maxHp:4, alive:true, hitFlash:0, type:'rock' });
-  for (let i = 0; i < 10; i++) gems.push({ id:`gem_${i}`, x:300+rand()*(MINE_W-600), y:80+rand()*(MINE_H-160), hp:3, maxHp:3, alive:true, hitFlash:0, type:rand()>0.5?'gem':'crystal' });
-  for (let i = 0; i < 14; i++) enemies.push({ id:`bat_${i}`, type:'bat', x:400+rand()*(MINE_W-600), y:80+rand()*(MINE_H-160), hp:2, maxHp:2, alive:true, hitFlash:0, attackCooldown:0, dir:rand()>0.5?1:-1, dirY:rand()>0.5?1:-1, speed:BAT_SPEED+rand()*30, state:'patrol', phase:rand()*Math.PI*2 });
+  for (let i = 0; i < 30 * mul; i++) rocks.push({ id:`rock_${i}`, x:200+rand()*(MINE_W-400), y:80+rand()*(MINE_H-160), hp:4, maxHp:4, alive:true, hitFlash:0, type:'rock' });
+  for (let i = 0; i < 10 * mul; i++) gems.push({ id:`gem_${i}`, x:300+rand()*(MINE_W-600), y:80+rand()*(MINE_H-160), hp:3, maxHp:3, alive:true, hitFlash:0, type:rand()>0.5?'gem':'crystal' });
+  for (let i = 0; i < 14 * mul; i++) enemies.push({ id:`bat_${i}`, type:'bat', x:400+rand()*(MINE_W-600), y:80+rand()*(MINE_H-160), hp:2, maxHp:2, alive:true, hitFlash:0, attackCooldown:0, dir:rand()>0.5?1:-1, dirY:rand()>0.5?1:-1, speed:BAT_SPEED+rand()*30, state:'patrol', phase:rand()*Math.PI*2 });
   return { rocks, gems, enemies };
 }
 
@@ -458,14 +460,15 @@ export const FRUIT_LOOT = {
 };
 export const FRUIT_LOOT_TABLE = FRUIT_LOOT;
 
-export function generateFruitRun(seed) {
+export function generateFruitRun(seed, coOp = false) {
   const rand = seededRand(seed);
+  const mul = coOp ? 2 : 1;
   const minY = ORCHARD_GROUND_Y + 20, maxY = ORCHARD_H - 60;
   const spawnY = () => minY + rand() * (maxY - minY);
   const trees = [], bushes = [], flowers = [];
-  for (let i = 0; i < 18; i++) trees.push({ id:`ftree_${i}`, x:200+rand()*(ORCHARD_W-400), y:spawnY(), hp:1, maxHp:1, alive:true, hitFlash:0, type:'apple_tree', shakeTime:0 });
-  for (let i = 0; i < 22; i++) bushes.push({ id:`bush_${i}`, x:200+rand()*(ORCHARD_W-400), y:spawnY(), hp:1, maxHp:1, alive:true, hitFlash:0, type:rand()>0.5?'berry_bush':'mushroom', shakeTime:0 });
-  for (let i = 0; i < 16; i++) flowers.push({ id:`flower_${i}`, x:200+rand()*(ORCHARD_W-400), y:spawnY(), alive:true, type:'flower_patch' });
+  for (let i = 0; i < 18 * mul; i++) trees.push({ id:`ftree_${i}`, x:200+rand()*(ORCHARD_W-400), y:spawnY(), hp:1, maxHp:1, alive:true, hitFlash:0, type:'apple_tree', shakeTime:0 });
+  for (let i = 0; i < 22 * mul; i++) bushes.push({ id:`bush_${i}`, x:200+rand()*(ORCHARD_W-400), y:spawnY(), hp:1, maxHp:1, alive:true, hitFlash:0, type:rand()>0.5?'berry_bush':'mushroom', shakeTime:0 });
+  for (let i = 0; i < 16 * mul; i++) flowers.push({ id:`flower_${i}`, x:200+rand()*(ORCHARD_W-400), y:spawnY(), alive:true, type:'flower_patch' });
   return { trees, bushes, flowers };
 }
 
@@ -482,10 +485,11 @@ export const FISH_TABLE = [
 ];
 export const FISHING_SPOTS = 12;
 
-export function generateFishingRun(seed) {
+export function generateFishingRun(seed, coOp = false) {
   const rand = seededRand(seed);
+  const mul = coOp ? 2 : 1;
   const spots = [];
-  for (let i = 0; i < FISHING_SPOTS; i++) {
+  for (let i = 0; i < FISHING_SPOTS * mul; i++) {
     spots.push({ id:`spot_${i}`, x:200+rand()*(LAKE_W-400), y:80+rand()*(LAKE_H-160), active:true, bobbing:0 });
   }
   return { spots };

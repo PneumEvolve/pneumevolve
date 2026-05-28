@@ -161,7 +161,7 @@ export function useHearthroom(roomId, handlers, channelSuffix = "") {
   // ── Run queue ─────────────────────────────────────────────────────────────
   const sendRunQueued       = useCallback((runType, seed) =>            send("run_queued",      { runType, seed }),          [send]);
   const sendRunJoined       = useCallback((playerId) =>                 send("run_joined",      { playerId }),               [send]);
-  const sendRunStarted      = useCallback((seed, runType) =>            send("run_started",     { seed, runType }),          [send]);
+  const sendRunStarted      = useCallback((seed, runType, coOp = false) => send("run_started",  { seed, runType, coOp }),    [send]);
   const sendRunCancelled    = useCallback(() =>                         send("run_cancelled",   {}),                         [send]);
 
   // ── In-run ────────────────────────────────────────────────────────────────

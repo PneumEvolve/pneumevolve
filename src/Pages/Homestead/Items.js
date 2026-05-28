@@ -419,6 +419,15 @@ export const ITEMS = {
     unlockedByNpc: "petra",
   },
 
+  // ── Boss Loot ─────────────────────────────────────────────────────────────────
+  goblin_crown: {
+    icon: "👑", label: "Goblin Crown", category: "gear", stackable: false,
+    description: "Stolen from the Goblin King himself. A trophy of your victory.",
+    sellPrice: 80,
+    equipSlot: "accessory",
+    equipStats: {},  // cosmetic only — no stats
+  },
+
   // ── Armor / Accessories ───────────────────────────────────────────────────────
   leather_armor: {
     icon: "🛡️", label: "Leather Armor", category: "gear", stackable: false,
@@ -443,13 +452,15 @@ export const ITEMS = {
   traveler_pouch: {
     icon: "👜", label: "Traveler's Pouch", category: "upgrade", stackable: false,
     description: "+4 inventory slots. Craft one to carry more home from runs.",
-    stationRecipe: { leather: 3, sticks: 2 },
     upgradeEffect: { inventorySlots: 4 },
+    stationRecipe: { leather: 3, sticks: 2 },
+    craftStation: "crafting_station",
   },
   explorer_pack: {
     icon: "🎒", label: "Explorer's Pack", category: "upgrade", stackable: false,
     description: "+8 inventory slots. A proper adventurer's backpack.",
     stationRecipe: { leather: 8, silk: 2, wood: 3 },
+    craftStation: "crafting_station",
     upgradeEffect: { inventorySlots: 8 },
     unlockedByNpc: "rowan",   // Rowan's knowledge reveals advanced packing techniques
   },
@@ -457,12 +468,14 @@ export const ITEMS = {
     icon: "🪢", label: "Belt Pouch", category: "upgrade", stackable: false,
     description: "+1 hotbar slot. Hang it on your belt for quick access.",
     stationRecipe: { leather: 2, sticks: 1 },
+    craftStation: "crafting_station",
     upgradeEffect: { hotbarSlots: 1 },
   },
   tool_belt: {
     icon: "🔧", label: "Tool Belt", category: "upgrade", stackable: false,
     description: "+2 hotbar slots. A proper craftsperson's tool belt.",
     stationRecipe: { leather: 5, iron_ingot: 1 },
+    craftStation: "crafting_station",   
     upgradeEffect: { hotbarSlots: 2 },
     unlockedByNpc: "rowan",
   },
@@ -648,80 +661,93 @@ export const ITEMS = {
   bench: {
     icon: "🪑", label: "Bench", category: "placeable", stackable: true,
     description: "A nice place to rest.",
-    stationRecipe: { wood: 4 },
     placeSize: [2, 1], placeSolid: true,
+    stationRecipe: { wood: 4 },
+    craftStation: "crafting_station",
   },
   lantern: {
     icon: "🏮", label: "Lantern", category: "placeable", stackable: true,
     description: "Warm light for your homestead.",
-    stationRecipe: { stone: 2, wood: 1 },
     placeSize: [1, 1], placeSolid: false,
+    stationRecipe: { stone: 2, wood: 1 },
+    craftStation: "crafting_station",
   },
   flower_bed: {
     icon: "🌸", label: "Flower Bed", category: "placeable", stackable: true,
     description: "A burst of colour.",
-    stationRecipe: { sticks: 2, herbs: 3 },
     placeSize: [2, 1], placeSolid: false,
+    stationRecipe: { sticks: 2, herbs: 3 },
+    craftStation: "crafting_station",
   },
   mushroom_ring: {
     icon: "🍄", label: "Mushroom Ring", category: "placeable", stackable: true,
     description: "Mysteriously cosy.",
-    stationRecipe: { herbs: 2, wood: 1 },
     placeSize: [2, 2], placeSolid: false,
+    stationRecipe: { herbs: 2, wood: 1 },
+    craftStation: "crafting_station",
   },
   garden_gate: {
     icon: "🚪", label: "Garden Gate", category: "placeable", stackable: true,
     description: "Marks your garden entrance.",
-    stationRecipe: { wood: 5 },
     placeSize: [1, 2], placeSolid: true,
+    stationRecipe: { wood: 5 },
+    craftStation: "crafting_station",
   },
   herb_garden: {
     icon: "🌿", label: "Herb Garden", category: "placeable", stackable: true,
     description: "A decorative herb patch.",
-    stationRecipe: { herbs: 4, stone: 2 },
     placeSize: [2, 2], placeSolid: false,
+    stationRecipe: { herbs: 4, stone: 2 },
+    craftStation: "crafting_station",
   },
   potted_plant: {
     icon: "🪴", label: "Potted Plant", category: "placeable", stackable: true,
     description: "Brings life to any corner.",
-    stationRecipe: { herbs: 1, stone: 1 },
     placeSize: [1, 1], placeSolid: false,
+    stationRecipe: { herbs: 1, stone: 1 },
+    craftStation: "crafting_station",
   },
   tool_shed: {
     icon: "🛖", label: "Tool Shed", category: "placeable", stackable: true,
     description: "Extra storage for tools.",
-    stationRecipe: { wood: 10, stone: 5 },
     placeSize: [2, 2], placeSolid: true,
+    stationRecipe: { wood: 10, stone: 5 },
+    craftStation: "crafting_station",
   },
   fountain: {
     icon: "⛲", label: "Fountain", category: "placeable", stackable: true,
     description: "A beautiful stone fountain.",
-    stationRecipe: { stone: 8 },
     placeSize: [2, 2], placeSolid: true,
+    stationRecipe: { stone: 8 },
+    craftStation: "crafting_station",
   },
   cozy_fire: {
     icon: "🕯️", label: "Cozy Fire", category: "placeable", stackable: true,
     description: "Warm and welcoming.",
-    stationRecipe: { wood: 3, stone: 4 },
     placeSize: [1, 1], placeSolid: false,
+    stationRecipe: { wood: 3, stone: 4 },
+    craftStation: "crafting_station",
   },
   scarecrow: {
     icon: "🕺", label: "Scarecrow", category: "placeable", stackable: true,
     description: "Guards the crops.",
-    stationRecipe: { sticks: 5, leather: 2 },
     placeSize: [1, 2], placeSolid: false,
+    stationRecipe: { sticks: 5, leather: 2 },
+    craftStation: "crafting_station",
   },
   beehive: {
     icon: "🐝", label: "Beehive", category: "placeable", stackable: true,
     description: "Buzzing with life.",
-    stationRecipe: { wood: 4, herbs: 3 },
     placeSize: [1, 1], placeSolid: false,
+    stationRecipe: { wood: 4, herbs: 3 },
+    craftStation: "crafting_station",
   },
   windmill: {
     icon: "🌀", label: "Windmill", category: "placeable", stackable: true,
     description: "A landmark for your homestead.",
-    stationRecipe: { wood: 8, stone: 6 },
     placeSize: [2, 3], placeSolid: true,
+    stationRecipe: { wood: 8, stone: 6 },
+    craftStation: "crafting_station",
   },
 
   // ── Demolition Tool ───────────────────────────────────────────────────────────
@@ -1522,6 +1548,131 @@ export function craftItemCombined(recipeId, inv, chest) {
   if (overflow[outputId]) return null; // bag full
   return { newInv, newChest: updatedChest };
 }
+
+// ─── Hotbar-as-crafting-source helpers ────────────────────────────────────────
+// Hotbar slots hold { item: string, qty: number } | null.
+// These helpers let crafting treat the hotbar as a third material source
+// (alongside inventory bag and shared chest).
+
+/** Convert hotbar array → { [itemId]: totalQty } map */
+export function hotbarToMap(hotbar) {
+  const map = {};
+  for (const slot of (hotbar ?? [])) {
+    if (!slot) continue;
+    map[slot.item] = (map[slot.item] ?? 0) + (slot.qty ?? 1);
+  }
+  return map;
+}
+
+/**
+ * Deduct a recipe's cost from the hotbar.
+ * Returns a new hotbar array or null if insufficient.
+ */
+export function spendFromHotbar(hotbar, recipe) {
+  const slots = (hotbar ?? []).map(s => s ? { ...s } : null);
+  for (const [itemId, needed] of Object.entries(recipe)) {
+    let remaining = needed;
+    for (let i = 0; i < slots.length && remaining > 0; i++) {
+      const slot = slots[i];
+      if (!slot || slot.item !== itemId) continue;
+      const take = Math.min(remaining, slot.qty ?? 1);
+      remaining -= take;
+      const newQty = (slot.qty ?? 1) - take;
+      slots[i] = newQty > 0 ? { ...slot, qty: newQty } : null;
+    }
+    if (remaining > 0) return null; // insufficient
+  }
+  return slots;
+}
+
+/**
+ * Check if a recipe (by key, including alt recipes) can be fully satisfied
+ * from the hotbar alone.
+ */
+export function canCraftByKeyFromHotbar(key, hotbar) {
+  const itemId   = resolveHandRecipeKey(key);
+  const altIndex = key.includes("__halt") ? parseInt(key.split("__halt")[1]) : -1;
+  const recipe   = altIndex >= 0
+    ? MULTI_HAND_RECIPES[itemId]?.[altIndex]
+    : RECIPES[itemId];
+  if (!recipe) return false;
+  const map = hotbarToMap(hotbar);
+  return Object.entries(recipe).every(([item, qty]) => (map[item] ?? 0) >= qty);
+}
+
+/**
+ * Craft using hotbar materials only.
+ * Returns { newHotbar, newInv } or null if insufficient / bag full.
+ */
+export function craftItemByKeyFromHotbar(key, hotbar, inv) {
+  const itemId   = resolveHandRecipeKey(key);
+  const altIndex = key.includes("__halt") ? parseInt(key.split("__halt")[1]) : -1;
+  const recipe   = altIndex >= 0
+    ? MULTI_HAND_RECIPES[itemId]?.[altIndex]
+    : RECIPES[itemId];
+  if (!recipe || !canCraftByKeyFromHotbar(key, hotbar)) return null;
+  const newHotbar = spendFromHotbar(hotbar, recipe);
+  if (!newHotbar) return null;
+  const { next: newInv, overflow } = addToPlayerInventory(inv, itemId, 1);
+  if (overflow[itemId]) return null; // bag full
+  return { newHotbar, newInv };
+}
+
+/**
+ * Check if a recipe can be satisfied by combining inventory bag + hotbar
+ * (used when neither alone is enough).
+ */
+export function canCraftByKeyCombinedWithHotbar(key, inv, hotbar) {
+  const itemId   = resolveHandRecipeKey(key);
+  const altIndex = key.includes("__halt") ? parseInt(key.split("__halt")[1]) : -1;
+  const recipe   = altIndex >= 0
+    ? MULTI_HAND_RECIPES[itemId]?.[altIndex]
+    : RECIPES[itemId];
+  if (!recipe) return false;
+  const invItems = inv?.items ?? {};
+  const hbMap    = hotbarToMap(hotbar);
+  return Object.entries(recipe).every(
+    ([item, qty]) => (invItems[item] ?? 0) + (hbMap[item] ?? 0) >= qty
+  );
+}
+
+/**
+ * Craft a recipe drawing from inventory first, then hotbar for any shortfall.
+ * Returns { newInv, newHotbar } or null if insufficient / bag full.
+ */
+export function craftItemByKeyCombinedWithHotbar(key, inv, hotbar) {
+  if (!canCraftByKeyCombinedWithHotbar(key, inv, hotbar)) return null;
+  const itemId   = resolveHandRecipeKey(key);
+  const altIndex = key.includes("__halt") ? parseInt(key.split("__halt")[1]) : -1;
+  const recipe   = altIndex >= 0
+    ? MULTI_HAND_RECIPES[itemId]?.[altIndex]
+    : RECIPES[itemId];
+  if (!recipe) return null;
+
+  let newItems  = { ...(inv?.items ?? {}) };
+  const hbSpend = {};
+
+  for (const [item, qty] of Object.entries(recipe)) {
+    const fromInv = Math.min(qty, newItems[item] ?? 0);
+    const fromHb  = qty - fromInv;
+    if (fromInv > 0) {
+      newItems[item] = (newItems[item] ?? 0) - fromInv;
+      if (newItems[item] <= 0) delete newItems[item];
+    }
+    if (fromHb > 0) hbSpend[item] = fromHb;
+  }
+
+  const newHotbar = Object.keys(hbSpend).length > 0
+    ? spendFromHotbar(hotbar, hbSpend)
+    : [...(hotbar ?? [])];
+  if (!newHotbar) return null;
+
+  const tempInv = { ...(inv ?? {}), items: newItems };
+  const { next: newInv, overflow } = addToPlayerInventory(tempInv, itemId, 1);
+  if (overflow[itemId]) return null; // bag full
+  return { newInv, newHotbar };
+}
+
 //
 // Every questReward string from NPC_ROSTER maps to one entry here.
 // `effect` is a plain descriptor consumed by helpers below — nothing mutates ITEMS.
@@ -1762,6 +1913,51 @@ export function getUnlockedItemIds(npcs) {
     }
   }
   return unlocked;
+}
+
+// ─── Goblin King run gate ─────────────────────────────────────────────────────
+
+/**
+ * Returns true if the player has a sword (wood or iron) in their inventory
+ * or currently equipped — gate for unlocking the Goblin King run.
+ */
+export function hasAnySword(playerInventory, equipment) {
+  const SWORD_IDS = ["iron_sword"];
+  // Check equipped weapon
+  if (SWORD_IDS.includes(equipment?.weapon)) return true;
+  // Check inventory
+  const items = playerInventory?.items ?? {};
+  return SWORD_IDS.some(id => (items[id] ?? 0) > 0);
+}
+
+// ─── Craft output routing ─────────────────────────────────────────────────────
+
+/**
+ * After spending ingredients for a craft, route the output item to the hotbar
+ * first (if the item is already there), then to the inventory bag.
+ *
+ * @param {PlayerInventory} postSpendInv   - inventory after ingredients were spent
+ * @param {Array}           postSpendHotbar - hotbar array after ingredients were spent
+ * @param {string}          itemId          - the crafted item id
+ * @param {number}          qty             - quantity crafted (usually 1)
+ * @returns {{ newInv, newHotbar }} or null if neither hotbar nor bag can fit it
+ */
+export function addCraftOutputToHotbarOrInventory(postSpendInv, postSpendHotbar, itemId, qty) {
+  const hotbar = postSpendHotbar ?? [];
+
+  // Try to stack onto an existing hotbar slot first
+  const existingSlotIdx = hotbar.findIndex(s => s?.item === itemId);
+  if (existingSlotIdx >= 0) {
+    const newHotbar = hotbar.map((s, i) =>
+      i === existingSlotIdx ? { ...s, qty: (s.qty ?? 1) + qty } : s
+    );
+    return { newInv: postSpendInv, newHotbar };
+  }
+
+  // Otherwise land in the inventory bag
+  const { next: newInv, overflow } = addToPlayerInventory(postSpendInv, itemId, qty);
+  if (overflow[itemId]) return null; // bag full, nowhere to put it
+  return { newInv, newHotbar: hotbar };
 }
 
 // ─── Loot roll (shared by run generation and world nodes) ─────────────────────

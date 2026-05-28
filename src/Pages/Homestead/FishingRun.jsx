@@ -7,6 +7,8 @@ import {
   HOTBAR_ITEMS, HOTBAR_SIZE,
 } from "./gameEngine";
 import { ItemIcon } from "./ItemIcon";
+import { makeSounds } from "./audio_sounds";
+import { PauseOverlay } from "./runs_PauseOverlay";
 
 const PLAYER_SPEED   = 110;
 const RUN_DURATION   = 180; // 3 minutes
@@ -21,34 +23,8 @@ const FISH_WAIT_MAX   = 7.0;
 const FISH_BITE_WINDOW = 1.8;    // seconds to reel before fish escapes
 const FISH_REEL_TIME  = 1.2;     // hold space to reel it in
 
-function makeSounds() {
-  let ctx = null;
-  const getCtx = () => {
-    if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
-    if (ctx.state === "suspended") ctx.resume();
-    return ctx;
-  };
-  const beep = (type, f0, f1, dur, vol) => {
-    try {
-      const ac = getCtx(), osc = ac.createOscillator(), g = ac.createGain();
-      osc.connect(g); g.connect(ac.destination);
-      osc.type = type;
-      osc.frequency.setValueAtTime(f0, ac.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(f1, ac.currentTime + dur);
-      g.gain.setValueAtTime(vol, ac.currentTime);
-      g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + dur);
-      osc.start(); osc.stop(ac.currentTime + dur);
-    } catch {}
-  };
-  return {
-    unlock:  () => { try { getCtx(); } catch {} },
-    splash:  () => beep("sine",    600, 200, 0.18, 0.15),
-    nibble:  () => beep("sine",    900, 600, 0.12, 0.12),
-    catch_:  () => beep("triangle",440, 880, 0.35, 0.18),
-    miss:    () => beep("sawtooth",300, 80,  0.22, 0.12),
-    pickup:  () => beep("sine",    660, 900, 0.10, 0.10),
-  };
-}
+// makeSounds now lives in ./audio/sounds.js and takes a palette name.
+// The palette for this run is "fishing".
 
 // ─── Drawing helpers ──────────────────────────────────────────────────────────
 
@@ -444,7 +420,7 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    soundRef.current = makeSounds();
+    soundRef.current = makeSounds("fishing");
 
     const resize = () => { canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight; };
     resize();
@@ -756,16 +732,13 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
         style={{ width: "100%", height: "100%", display: "block", imageRendering: "pixelated" }}
       />
       {/* Pause / abandon overlay */}
-      {pauseOpen && (
-        <div style={{ position:"absolute", inset:0, background:"rgba(4,10,20,0.82)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:30 }}>
-          <div style={{ background:"#0a1420", border:"1px solid rgba(80,200,255,0.25)", borderRadius:16, padding:"28px 32px", maxWidth:300, width:"90%", fontFamily:"monospace", color:"#f5e6c8", textAlign:"center", display:"flex", flexDirection:"column", gap:14 }}>
-            <p style={{ fontSize:10, letterSpacing:"0.18em", color:"rgba(80,200,255,0.4)", textTransform:"uppercase" }}>paused</p>
-            <h2 style={{ fontSize:20, fontWeight:400, color:"rgba(80,200,255,0.9)" }}>🎣 Fishing Trip</h2>
-            <button onClick={() => { setPauseOpen(false); pauseOpenRef.current = false; }} style={{ padding:"13px", borderRadius:10, border:"1px solid rgba(80,200,255,0.35)", background:"rgba(80,200,255,0.1)", color:"rgba(80,200,255,0.95)", fontSize:13, fontFamily:"monospace", cursor:"pointer" }}>▶ Resume</button>
-            <button onClick={() => { setPauseOpen(false); pauseOpenRef.current = false; finishRun(stateRef.current); }} style={{ padding:"10px", borderRadius:10, border:"1px solid rgba(255,150,100,0.3)", background:"rgba(255,100,60,0.07)", color:"rgba(255,160,120,0.85)", fontSize:12, fontFamily:"monospace", cursor:"pointer" }}>Abandon run (keep loot so far)</button>
-          </div>
-        </div>
-      )}
+      <PauseOverlay
+        open={pauseOpen}
+        theme="fishing"
+        runLabel="🎣 Fishing Trip"
+        onResume={() => { setPauseOpen(false); pauseOpenRef.current = false; }}
+        onAbandon={() => { setPauseOpen(false); pauseOpenRef.current = false; finishRun(stateRef.current); }}
+      />
       <FishHotbar
         hotbar={hotbar ?? []}
         selectedSlot={selectedHotbarSlot}

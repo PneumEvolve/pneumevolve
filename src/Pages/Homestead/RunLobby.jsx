@@ -27,13 +27,14 @@ function useBlockBrowserScroll(ref) {
 const COUNTDOWN_S = 30;
 
 const RUN_INFO = {
-  forest:  { icon:"🌲", label:"Forest Run",       desc:"Fight wolves, chop trees, forage herbs.",        bg:"#0a120a", accent:"rgba(200,230,120,0.9)"  },
-  mining:  { icon:"⛏️", label:"Mining Run",        desc:"Explore caves, mine ore, battle bats.",          bg:"#0a0804", accent:"rgba(220,180,80,0.9)"   },
-  fruit:   { icon:"🍎", label:"Fruit Picking",     desc:"Peaceful orchard harvesting — no enemies!",     bg:"#0a1004", accent:"rgba(160,230,80,0.9)"    },
-  fishing: { icon:"🎣", label:"Fishing Trip",      desc:"Cast your line, time your pull, reel in fish.", bg:"#04101a", accent:"rgba(80,200,255,0.9)"    },
+  forest:  { icon:"🌲", label:"Forest Run",           desc:"Fight wolves, chop trees, forage herbs.",        bg:"#0a120a", accent:"rgba(200,230,120,0.9)"  },
+  mining:  { icon:"⛏️", label:"Mining Run",            desc:"Explore caves, mine ore, battle bats.",          bg:"#0a0804", accent:"rgba(220,180,80,0.9)"   },
+  fruit:   { icon:"🍎", label:"Fruit Picking",         desc:"Peaceful orchard harvesting — no enemies!",     bg:"#0a1004", accent:"rgba(160,230,80,0.9)"    },
+  fishing: { icon:"🎣", label:"Fishing Trip",          desc:"Cast your line, time your pull, reel in fish.", bg:"#04101a", accent:"rgba(80,200,255,0.9)"    },
+  goblin:  { icon:"👑", label:"Goblin King's Throne",  desc:"Turn-based boss battle. Bring a sword.",        bg:"#0d0808", accent:"rgba(255,160,80,0.9)"    },
 };
 
-export default function RunLobby({ room, role, onRunStart, onCancel, joining = false, joinSeed = null, runType: propRunType = null, equipment = null, canStartRun = true }) {
+export default function RunLobby({ room, role, onRunStart, onCancel, joining = false, joinSeed = null, runType: propRunType = null, equipment = null, canStartRun = true, hasSword = false }) {
   const [countdown,     setCountdown]    = useState(COUNTDOWN_S);
   const [partnerJoined, setPartnerJoined] = useState(joining);
   const [seed]          = useState(() => joining && joinSeed ? joinSeed : (Date.now() & 0x7fffffff));
@@ -63,15 +64,19 @@ export default function RunLobby({ room, role, onRunStart, onCancel, joining = f
       if (!startedRef.current) {
         startedRef.current = true;
         clearInterval(timerRef.current);
-        sendRunStartedRef.current?.(seedRef.current, typeRef.current);
+        // Broadcast run_started with coOp:true so the joiner's world is also doubled.
+        sendRunStartedRef.current?.(seedRef.current, typeRef.current, true);
         onRunStart({ seed: seedRef.current, coOp: true, runType: typeRef.current });
       }
     },
-    onRunStarted: ({ seed: remoteSeed, runType: remoteType }) => {
+    onRunStarted: ({ seed: remoteSeed, runType: remoteType, coOp: remoteCoOp }) => {
       if (!startedRef.current) {
         startedRef.current = true;
         clearInterval(timerRef.current);
-        onRunStart({ seed: remoteSeed, coOp: true, runType: remoteType ?? "forest" });
+        // Use the coOp flag broadcast by the host. If the host went solo
+        // (P1 hit "go solo now" before we joined), remoteCoOp will be false
+        // and we start our own solo-sized run rather than hanging forever.
+        onRunStart({ seed: remoteSeed, coOp: remoteCoOp ?? true, runType: remoteType ?? "forest" });
       }
     },
     onRunCancelled: () => {
@@ -98,8 +103,11 @@ export default function RunLobby({ room, role, onRunStart, onCancel, joining = f
       sendRunJoined("p2");
       // Safety fallback: if we haven't received run_started within 15 seconds,
       // start with our own seed so the joiner isn't stuck forever.
+      // Safety fallback: if we haven't received run_started within 15 seconds
+      // (e.g. P1 dismissed the lobby or lost connection), start solo so the
+      // joiner isn't stuck on the spinner forever.
       const fallback = setTimeout(() => {
-        if (!startedRef.current) startRun(true);
+        if (!startedRef.current) startRun(false);
       }, 15000);
       return () => clearTimeout(fallback);
     }
@@ -120,7 +128,10 @@ export default function RunLobby({ room, role, onRunStart, onCancel, joining = f
   }, [confirmed, canStartRun]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleStartNow() {
-    sendRunStarted(seed, selectedType);
+    // Broadcast coOp status so P2's pending onRunStarted resolves correctly.
+    // If partner already joined, coOp:true → doubled world for both.
+    // If going solo, coOp:false → P2 gets a solo-sized run instead of hanging.
+    sendRunStarted(seed, selectedType, partnerJoined);
     startRun(partnerJoined);
   }
   function handleCancel() {
@@ -231,13 +242,24 @@ export default function RunLobby({ room, role, onRunStart, onCancel, joining = f
               🎣 you'll need a fishing rod equipped — you can still go but won't be able to fish
             </div>
           )}
+          {selectedType === "goblin" && !hasSword && (
+            <div style={{
+              padding:"10px 14px", borderRadius:10,
+              background:"rgba(200,60,60,0.08)", border:"1px solid rgba(200,60,60,0.3)",
+              color:"rgba(255,120,100,0.85)", fontSize:11, fontFamily:"monospace", textAlign:"center",
+            }}>
+              ⚔️ craft an iron sword first — the Goblin King won't respect you without one
+            </div>
+          )}
           <button
             onClick={() => setConfirmed(true)}
+            disabled={selectedType === "goblin" && !hasSword}
             style={{
-              padding:"15px", borderRadius:12, cursor:"pointer",
+              padding:"15px", borderRadius:12, cursor: (selectedType === "goblin" && !hasSword) ? "not-allowed" : "pointer",
               background: "rgba(200,230,120,0.08)",
               border: "1px solid rgba(200,230,120,0.3)",
-              color: "rgba(200,230,120,0.9)", fontSize:13, fontFamily:"monospace",
+              color: (selectedType === "goblin" && !hasSword) ? "rgba(245,230,200,0.25)" : "rgba(200,230,120,0.9)", fontSize:13, fontFamily:"monospace",
+              opacity: (selectedType === "goblin" && !hasSword) ? 0.5 : 1,
             }}
           >
             head out as {RUN_INFO[selectedType]?.icon} {RUN_INFO[selectedType]?.label} →
