@@ -56,6 +56,7 @@ import { drawPlayerLegacyHome as drawPlayer } from "./drawing_drawPlayer";
 import { useHomesteadState } from "./useHomesteadState";
 import { useHearthroom } from "./useHearthroom";
 import { ItemIcon } from "./ItemIcon";
+import { MobileControls } from "./MobileControls";
 
 // ─── Partner widget ───────────────────────────────────────────────────────────
 function PartnerWidget({ joinCode, partnerOnline }) {
@@ -3464,6 +3465,81 @@ export default function HomesteadView({
   const onKeyDown = useCallback((e) => onKeyDownRef.current(e), []);
   const onKeyUp   = useCallback((e) => { delete keysRef.current[e.key]; }, []);
 
+  // ── Mobile callbacks ─────────────────────────────────────────────────────────
+  // These mirror the keyboard handlers exactly, but are called by MobileControls
+  // touch buttons instead of physical keys.
+
+  // "Use" button — same priority chain as the F key
+  const mobileInteract = useCallback(() => {
+    if (treasuryOpenRef.current)      { setTreasuryOpen(false); return; }
+    if (talkingNPCRef.current)        { setTalkingNPC(null);    return; }
+    if (townOpenRef.current)          { setTownOpen(false);     return; }
+    if (atCraftingStationRef.current) { setAtCraftingStation(false); setTabMenuOpen(false); return; }
+    if (tabMenuOpenRef.current)       { setTabMenuOpen(false);  setAtCraftingStation(false); return; }
+    handleInteractRef.current();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Jump button — identical to the spacebar handler
+  const mobileJump = useCallback(() => {
+    const s = stateRef.current;
+    if (s && s.jumpZ === 0 && s.jumpVY === 0) {
+      s.jumpVY = -220;
+      sendPlayerMove(s.px, s.py, s.facing, -220);
+      s.lastBroadcast = performance.now();
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Ghost placement confirm — extracted from the inline "okay ✓" onClick so both
+  // the button and the mobile Place button call exactly the same logic.
+  const handleGhostConfirm = useCallback(() => {
+    const g = ghostRef.current;
+    if (!g) return;
+    const inv = playerInvRef.current;
+    const hasItemInInv    = (inv?.items?.[g.id] ?? 0) > 0;
+    const hotbarSlotIdx   = (hotbarRef.current ?? []).findIndex(s => s?.item === g.id);
+    const hasItemInHotbar = hotbarSlotIdx >= 0;
+    let newInv;
+    if (hasItemInInv) {
+      newInv = spendFromPlayerInventory(inv, { [g.id]: 1 });
+    } else if (hasItemInHotbar) {
+      newInv = inv;
+      const newHotbar = [...(hotbarRef.current ?? [])];
+      const hotbarSlot = newHotbar[hotbarSlotIdx];
+      const newQty = (hotbarSlot.qty ?? 1) - 1;
+      newHotbar[hotbarSlotIdx] = newQty > 0 ? { ...hotbarSlot, qty: newQty } : null;
+      onHotbarChange?.(newHotbar);
+    } else {
+      const cost = { ...(g.info.cost ?? {}) };
+      newInv = spendFromPlayerInventory(inv, cost);
+    }
+    if (!newInv) return;
+    onPlayerInventoryUpdate?.(newInv);
+    const newObj = {
+      id: `${g.id}_${Date.now()}`, type: g.id,
+      tx: g.gtx, ty: g.gty, w: g.gw, h: g.gh,
+      solid: g.info.solid ?? false,
+      interact: g.info.interact ?? false,
+      label: g.info.interact ? (g.info.interactLabel ?? `[F] ${g.info.label}`) : g.info.label,
+      isPlaceable: true,
+    };
+    const newObjects = [...objectsRef.current, newObj];
+    objectsRef.current = newObjects;
+    onObjectsUpdate?.(newObjects);
+    sendObjectPlacedRef.current?.(newObj);
+    town?.autoAssignPreferredJobs?.(g.id);
+    if (hasItemInInv) {
+      const remaining = (newInv?.items?.[g.id] ?? 0);
+      const newHotbar = [...(hotbarRef.current ?? [])];
+      let changed = false;
+      for (let i = 0; i < newHotbar.length; i++) {
+        if (newHotbar[i]?.item === g.id && remaining <= 0) { newHotbar[i] = null; changed = true; break; }
+      }
+      if (changed) onHotbarChange?.(newHotbar);
+    }
+    ghostRef.current = null;
+    setGhostPlacement(null);
+  }, [onPlayerInventoryUpdate, onObjectsUpdate, onHotbarChange, hotbar, town]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── One-time player state init (must not re-run or it resets position) ──────
   useEffect(() => {
     if (!stateRef.current) {
@@ -3847,52 +3923,7 @@ export default function HomesteadView({
           <span style={{ fontSize:12, color:"rgba(200,230,120,0.8)" }}>{ghostPlacement.info.label}</span>
           <span style={{ fontSize:10, color:"rgba(245,230,200,0.3)", marginLeft:2 }}>move to position</span>
           <button onClick={()=>setGhostPlacement(g=>{const n={...g,rotation:(g.rotation+1)%4};ghostRef.current=n;return n;})} style={{ background:"rgba(200,230,120,0.08)",border:"1px solid rgba(200,230,120,0.25)",borderRadius:8,color:"rgba(200,230,120,0.9)",fontSize:14,fontFamily:"monospace",cursor:"pointer",padding:"4px 10px" }}>↻</button>
-          <button onClick={()=>{
-            const g=ghostRef.current; if(!g) return;
-            // If the player already has this placeable in their inventory, consume 1 of it.
-            // Otherwise fall back to spending the raw recipe cost (e.g. placing directly from crafting panel).
-            const inv = playerInvRef.current;
-            const hasItemInInv = (inv?.items?.[g.id] ?? 0) > 0;
-            // Also check hotbar — item may have been moved there from inventory
-            const hotbarSlotIdx = (hotbarRef.current ?? []).findIndex(s => s?.item === g.id);
-            const hasItemInHotbar = hotbarSlotIdx >= 0;
-            const hasItem = hasItemInInv || hasItemInHotbar;
-            let newInv;
-            if (hasItemInInv) {
-              newInv = spendFromPlayerInventory(inv, { [g.id]: 1 });
-            } else if (hasItemInHotbar) {
-              // Item is on hotbar — consume from hotbar slot
-              newInv = inv; // inventory unchanged
-              const newHotbar = [...(hotbarRef.current ?? [])];
-              const hotbarSlot = newHotbar[hotbarSlotIdx];
-              const newQty = (hotbarSlot.qty ?? 1) - 1;
-              newHotbar[hotbarSlotIdx] = newQty > 0 ? { ...hotbarSlot, qty: newQty } : null;
-              onHotbarChange?.(newHotbar);
-            } else {
-              const cost = { ...(g.info.cost ?? {}) };
-              newInv = spendFromPlayerInventory(inv, cost);
-            }
-            if (!newInv) return; // can't afford
-            onPlayerInventoryUpdate?.(newInv);
-            const newObj={ id:`${g.id}_${Date.now()}`, type:g.id, tx:g.gtx, ty:g.gty, w:g.gw, h:g.gh, solid:g.info.solid??false, interact:g.info.interact??false, label:g.info.interact?(g.info.interactLabel??`[F] ${g.info.label}`):g.info.label, isPlaceable:true };
-            const newObjects=[...objectsRef.current, newObj];
-            objectsRef.current=newObjects;
-            onObjectsUpdate?.(newObjects);
-            sendObjectPlacedRef.current?.(newObj);
-            // Auto-assign any NPC whose preferredJob matches this building type
-            town?.autoAssignPreferredJobs?.(g.id);
-            // Clear the hotbar slot if it held this item and qty is now 0 (inv path only; hotbar path clears above)
-            if (hasItemInInv) {
-              const remaining = (newInv?.items?.[g.id] ?? 0);
-              const newHotbar = [...(hotbar ?? [])];
-              let changed = false;
-              for (let i = 0; i < newHotbar.length; i++) {
-                if (newHotbar[i]?.item === g.id && remaining <= 0) { newHotbar[i] = null; changed = true; break; }
-              }
-              if (changed) onHotbarChange?.(newHotbar);
-            }
-            ghostRef.current=null; setGhostPlacement(null);
-          }} style={{ background:"rgba(200,230,120,0.14)",border:"1px solid rgba(200,230,120,0.5)",borderRadius:8,color:"rgba(200,230,120,1)",fontSize:12,fontFamily:"monospace",cursor:"pointer",padding:"5px 14px",fontWeight:"bold" }}>okay ✓</button>
+          <button onClick={handleGhostConfirm} style={{ background:"rgba(200,230,120,0.14)",border:"1px solid rgba(200,230,120,0.5)",borderRadius:8,color:"rgba(200,230,120,1)",fontSize:12,fontFamily:"monospace",cursor:"pointer",padding:"5px 14px",fontWeight:"bold" }}>okay ✓</button>
           <button onClick={()=>{ghostRef.current=null;setGhostPlacement(null);}} style={{ background:"transparent",border:"1px solid rgba(255,255,255,0.12)",borderRadius:8,color:"rgba(255,255,255,0.35)",fontSize:11,fontFamily:"monospace",cursor:"pointer",padding:"4px 8px" }}>✕</button>
         </div>
       )}
@@ -3922,6 +3953,15 @@ export default function HomesteadView({
             onHotbarChange?.(newHotbar);
           }
         }}
+      />
+      <MobileControls
+        keysRef={keysRef}
+        onUse={mobileInteract}
+        onJump={mobileJump}
+        onPause={() => { setTabMenuOpen(v => !v); }}
+        ghostMode={!!ghostPlacement}
+        onGhostConfirm={handleGhostConfirm}
+        onGhostCancel={() => { ghostRef.current = null; setGhostPlacement(null); }}
       />
     </div>
   );
