@@ -545,31 +545,25 @@ export default function MiningRun({
       // Weapon durability
       const anyHit = hitAnyNode || hitAnyEnemy;
       if (anyHit) {
-        const newEq = drainWeaponDurability(equipmentRef.current, (brokenId) => {
-          pushToast(`💔 ${ITEMS[brokenId]?.label ?? brokenId} broke!`, "#ff6060");
-
-          // Remove 1 copy from player inventory
-          const inv = playerInvRef.current ?? { items: {}, slots: INVENTORY_BASE_SLOTS };
-          const nextItems = { ...inv.items };
-          if ((nextItems[brokenId] ?? 0) > 1) {
-            nextItems[brokenId] -= 1;
-          } else {
-            delete nextItems[brokenId];
+        const drained = drainWeaponDurability(
+          equipmentRef.current,
+          playerInvRef.current ?? { items: {}, slots: INVENTORY_BASE_SLOTS },
+          hotbarRef.current ?? [],
+          (brokenId) => {
+            pushToast(`💔 ${ITEMS[brokenId]?.label ?? brokenId} broke!`, "#ff6060");
           }
-          const nextInv = { ...inv, items: nextItems };
-          playerInvRef.current = nextInv;
-          onPlayerInventoryUpdate?.(nextInv);
-
-          // Clear the tool from any hotbar slot
-          const newHotbar = (hotbarRef.current ?? []).map(s =>
-            s?.item === brokenId ? null : s
-          );
-          hotbarRef.current = newHotbar;
-          onHotbarChange?.(newHotbar);
-        });
-        if (newEq !== equipmentRef.current) {
-          equipmentRef.current = newEq;
-          onEquipmentUpdateRef.current?.(newEq);
+        );
+        if (drained.inventory !== playerInvRef.current) {
+          playerInvRef.current = drained.inventory;
+          onPlayerInventoryUpdate?.(drained.inventory);
+        }
+        if (drained.hotbar !== hotbarRef.current) {
+          hotbarRef.current = drained.hotbar;
+          onHotbarChange?.(drained.hotbar);
+        }
+        if (drained.equipment !== equipmentRef.current) {
+          equipmentRef.current = drained.equipment;
+          onEquipmentUpdateRef.current?.(drained.equipment);
         }
       }
     }
@@ -769,7 +763,7 @@ export default function MiningRun({
       const items = playerInvRef.current?.items ?? {};
       const slotsUsed  = Object.values(items).filter(v => v > 0).length;
       const slotsTotal = playerInvRef.current?.slots ?? INVENTORY_BASE_SLOTS;
-      const weaponDur  = getWeaponDurability(equipmentRef.current);
+      const weaponDur  = getWeaponDurability(equipmentRef.current, playerInvRef.current, hotbarRef.current);
       drawHUD(ctx, W, H, state, items, t, slotsUsed, slotsTotal, weaponDur);
 
       // "Need pickaxe" toast overlay
@@ -848,6 +842,7 @@ export default function MiningRun({
           chest={chest}
           equipment={equipment}
           onEquipItem={onEquipItem}
+          onEquipmentUpdate={onEquipmentUpdate}
           hotbar={hotbar}
           onHotbarChange={onHotbarChange}
           onDropItem={dropItemAtPlayer}

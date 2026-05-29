@@ -649,6 +649,7 @@ export default function FruitRun({
           chest={chest}
           equipment={equipment}
           onEquipItem={onEquipItem}
+          onEquipmentUpdate={onEquipmentUpdate}
           hotbar={hotbar}
           onHotbarChange={onHotbarChange}
           onDropItem={dropItemAtPlayer}

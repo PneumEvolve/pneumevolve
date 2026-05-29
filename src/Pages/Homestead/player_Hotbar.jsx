@@ -98,8 +98,11 @@ export function Hotbar({
         const isEquipped = slot && equipment?.[EQUIPPABLE[slot?.item]?.slot] === slot?.item;
         const isSelected = idx === selectedIdx;
         const maxDur = slot ? (ITEMS[slot.item]?.maxDurability ?? null) : null;
-        const curDur = (slot && maxDur != null)
-          ? (equipment?.durability?.[slot.item] ?? maxDur)
+        // Tool instances now carry their durability directly on the hotbar slot
+        // as `slot.dur`. No more parallel arrays on equipment.durability —
+        // those are gone in the instance model.
+        const curDur = slot && maxDur != null
+          ? (slot.dur ?? maxDur)
           : null;
 
         let borderColor = "rgba(255,255,255,0.1)";

@@ -111,15 +111,23 @@ export default function LootSummary({
       const have = nextPlayerItems[itemId] ?? 0;
       const remove = Math.min(qty, have);
       if (remove > 0) {
-        nextPlayerItems[itemId] = have - remove;
-        if (nextPlayerItems[itemId] <= 0) delete nextPlayerItems[itemId];
-        newChest = mergeIntoChest(newChest, { [itemId]: remove });
+        const { grid, overflow } = mergeIntoChest(newChest, { [itemId]: remove });
+        newChest = grid;
+        // Only deduct from the bag what the chest actually accepted — anything
+        // that didn't fit stays with the player rather than vanishing.
+        const deposited = remove - (overflow[itemId] ?? 0);
+        if (deposited > 0) {
+          nextPlayerItems[itemId] = have - deposited;
+          if (nextPlayerItems[itemId] <= 0) delete nextPlayerItems[itemId];
+        }
       }
     }
 
-    // Overflow goes straight to chest
+    // Overflow goes straight to chest (it was never carried, so it can only go
+    // here — if the chest is also full there's nowhere left for it).
     for (const [itemId, qty] of overflowEntries) {
-      newChest = mergeIntoChest(newChest, { [itemId]: qty });
+      const { grid } = mergeIntoChest(newChest, { [itemId]: qty });
+      newChest = grid;
     }
 
     const nextPlayerInv = { ...playerInventory, items: nextPlayerItems };

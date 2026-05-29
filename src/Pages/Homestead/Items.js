@@ -791,51 +791,418 @@ export const TOOL_MAX_DURABILITY = Object.fromEntries(
     .map(([id, it]) => [id, it.maxDurability])
 );
 
+// ─── Per-instance tool identity & durability ─────────────────────────────────
+//
+// PROBLEM THIS SOLVES:
+//   Tools are non-stackable, but the inventory only stored a COUNT
+//   (items.axe = 3). Three axes were indistinguishable, so "equip this axe"
+//   and "keep two axes separate in the hotbar" were impossible — there was no
+//   stable identity to point at. The old approach kept a parallel durability
+//   ARRAY and addressed instances by index, which drifted out of sync.
+//
+// THE MODEL NOW:
+//   inventory.toolInstances[itemId] = [ { iid, dur }, ... ]
+//     • iid  — unique, stable id for ONE physical tool ("axe#k3f9a2")
+//     • dur  — that tool's own durability
+//   inventory.items[itemId]         — still a COUNT, kept === toolInstances
+//                                     length, so all existing slot / craft /
+//                                     chest / sell code keeps working unchanged.
+//   equipment.weapon   — STILL a plain item-id string (combat / rendering /
+//                        gates never need to know about instances).
+//   equipment.activeIid — the iid of the instance currently equipped/swung.
+//   (equipment.durability is GONE — durability lives on the instance.)
+//
+//   A hotbar slot for a tool is { item, iid }.  Two axes => two different iids
+//   => they can never collapse into one stacked slot. Stacking is impossible
+//   by construction, not by special-case code.
+
+let __iidCounter = 0;
+/** Generate a unique tool instance id. Stable for the life of the tool. */
+export function newToolIid(itemId) {
+  __iidCounter = (__iidCounter + 1) % 1e6;
+  return `${itemId}#${Date.now().toString(36)}${__iidCounter.toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
+}
+
+/** True if this item is a tool tracked as individual instances. */
+export function isInstancedTool(itemId) {
+  return getToolMaxDurability(itemId) != null;
+}
+
+/** Read the instance array for a tool from an inventory (never null). */
+export function getToolInstances(inv, itemId) {
+  return inv?.toolInstances?.[itemId] ?? [];
+}
+
+/** Find one instance (and its index) by iid across all tool types. */
+export function findToolInstance(inv, iid) {
+  const all = inv?.toolInstances ?? {};
+  for (const [itemId, arr] of Object.entries(all)) {
+    const idx = arr.findIndex(t => t.iid === iid);
+    if (idx >= 0) return { itemId, idx, instance: arr[idx] };
+  }
+  return null;
+}
+
 /**
- * Returns the max durability for a tool, or null if the item has no durability.
- * Gear with no maxDurability (armor, accessories) returns null.
+ * Ensure inventory.toolInstances is consistent with inventory.items for every
+ * instanced tool: exactly one instance per counted copy. Missing instances are
+ * created at full durability; surplus instances (count shrank) are trimmed from
+ * the end. Non-tool items are ignored. Returns a NEW inventory if anything
+ * changed, otherwise the same object.
+ *
+ * This is the single reconciliation point — call it after any code path that
+ * changes a tool's count via the plain items map (loot merge, craft, migration)
+ * so identity is always backfilled without that code needing to know about iids.
  */
+export function reconcileToolInstances(inv) {
+  if (!inv) return inv;
+  const items = inv.items ?? {};
+  const prev = inv.toolInstances ?? {};
+  const next = {};
+  let changed = false;
+
+  for (const [itemId, qty] of Object.entries(items)) {
+    if (!isInstancedTool(itemId) || !qty || qty <= 0) continue;
+    const max = getToolMaxDurability(itemId);
+    const existing = prev[itemId] ?? [];
+    let arr = existing.slice(0, qty);                 // trim surplus
+    while (arr.length < qty) {                         // backfill missing
+      arr = [...arr, { iid: newToolIid(itemId), dur: max }];
+    }
+    next[itemId] = arr;
+    if (arr.length !== existing.length || arr.some((t, i) => t !== existing[i])) {
+      changed = true;
+    }
+  }
+
+  // Drop instance arrays for tools no longer owned.
+  for (const itemId of Object.keys(prev)) {
+    if (!next[itemId]) changed = true;
+  }
+
+  if (!changed) return inv;
+  return { ...inv, toolInstances: next };
+}
+
+/** Max durability for a tool, or null for non-durability gear. */
 export function getToolMaxDurability(itemId) {
   return TOOL_MAX_DURABILITY[itemId] ?? null;
 }
 
 /**
- * Get the current durability for an equipped weapon from the equipment object.
- * Returns [current, max] or null if the weapon has no durability system.
+ * Durability of the currently-equipped weapon, resolved through its active
+ * instance. Returns [current, max] or null if the weapon has no durability.
+ *
+ * The active instance can live in either the player's hotbar slot or the
+ * inventory.toolInstances registry, so both are checked.
  */
-export function getWeaponDurability(equipment) {
+export function getWeaponDurability(equipment, inv, hotbar) {
   const weaponId = equipment?.weapon;
   if (!weaponId) return null;
   const max = getToolMaxDurability(weaponId);
   if (max == null) return null;
-  const cur = equipment?.durability?.[weaponId] ?? max;
-  return [cur, max];
+  const iid = equipment?.activeIid;
+  if (iid) {
+    const hbSlot = (hotbar ?? []).find(s => s?.item === weaponId && s?.iid === iid);
+    if (hbSlot) return [hbSlot.dur ?? max, max];
+    const inst = getToolInstances(inv, weaponId).find(t => t.iid === iid);
+    if (inst) return [inst.dur ?? max, max];
+  }
+  // Fallback: no active iid resolved — read the first existing instance.
+  const hbAny = (hotbar ?? []).find(s => s?.item === weaponId && s?.iid);
+  if (hbAny) return [hbAny.dur ?? max, max];
+  const invAny = getToolInstances(inv, weaponId)[0];
+  if (invAny) return [invAny.dur ?? max, max];
+  return [max, max];
 }
 
 /**
- * Drain 1 durability from the equipped weapon.
- * Returns the new equipment object, or the same object if no change.
- * If durability reaches 0, the weapon slot is cleared and the durability entry removed.
- * Pass onBreak(weaponId) to be called when the tool breaks.
+ * Equip a SPECIFIC tool instance by iid: set equipment.weapon to its item id
+ * and equipment.activeIid to the chosen iid. For non-instanced weapons (no
+ * durability) iid may be null and we just set the weapon slot.
+ * Returns updated equipment (or the same object if nothing changed).
  */
-export function drainWeaponDurability(equipment, onBreak) {
+export function equipToolInstance(equipment, itemId, iid) {
+  const slot = EQUIPPABLE[itemId]?.slot;
+  if (slot !== "weapon") return equipment;
+  if (equipment?.weapon === itemId && equipment?.activeIid === iid) return equipment;
+  return { ...equipment, weapon: itemId, activeIid: iid ?? null };
+}
+
+/**
+ * Drain 1 durability from the equipped weapon's active instance.
+ *
+ * Active instances live in ONE of two places:
+ *   • a hotbar slot ({ item, iid, dur }) — if the player put the tool on the hotbar
+ *   • inventory.toolInstances[itemId]    — if the tool is sitting in the bag
+ *
+ * We locate the iid in whichever holder owns it and drain there. If durability
+ * hits zero the instance is destroyed, onBreak fires, and we either promote a
+ * spare (from the OTHER instances of the same tool type, prefer-hotbar order)
+ * or clear the weapon slot.
+ *
+ * Returns { equipment, inventory, hotbar } — new objects only if something
+ * changed.
+ */
+export function drainWeaponDurability(equipment, inv, hotbar, onBreak) {
   const weaponId = equipment?.weapon;
-  if (!weaponId) return equipment;
+  if (!weaponId) return { equipment, inventory: inv, hotbar };
   const max = getToolMaxDurability(weaponId);
-  if (max == null) return equipment; // no durability system for this item
-  const cur = equipment?.durability?.[weaponId] ?? max;
-  const next = cur - 1;
-  if (next <= 0) {
-    // Tool breaks — remove from weapon slot, clear its durability entry
-    const newDur = { ...(equipment.durability ?? {}) };
-    delete newDur[weaponId];
-    onBreak?.(weaponId);
-    return { ...equipment, weapon: null, durability: newDur };
+  if (max == null) return { equipment, inventory: inv, hotbar }; // no durability
+
+  const activeIid = equipment?.activeIid;
+  if (!activeIid) return { equipment, inventory: inv, hotbar };
+
+  // Locate the instance. Check hotbar first (most common — equipped weapon
+  // typically lives there during play), then inventory.
+  const hbIdx = (hotbar ?? []).findIndex(s => s?.item === weaponId && s?.iid === activeIid);
+  const invArr = getToolInstances(inv, weaponId);
+  const invIdx = invArr.findIndex(t => t.iid === activeIid);
+
+  const inHotbar = hbIdx >= 0;
+  const inInv    = !inHotbar && invIdx >= 0;
+  if (!inHotbar && !inInv) {
+    // Stale activeIid — try to recover by picking a fresh same-type instance.
+    const fallback = (hotbar ?? []).find(s => s?.item === weaponId)?.iid
+                  ?? invArr[0]?.iid ?? null;
+    if (!fallback) return { equipment, inventory: inv, hotbar };
+    return drainWeaponDurability(
+      { ...equipment, activeIid: fallback }, inv, hotbar, onBreak
+    );
   }
+
+  const curDur = inHotbar ? (hotbar[hbIdx].dur ?? max) : (invArr[invIdx].dur ?? max);
+  const nextDur = curDur - 1;
+
+  // ─── Normal drain (no break) ────────────────────────────────────────────
+  if (nextDur > 0) {
+    if (inHotbar) {
+      const newHotbar = hotbar.map((s, i) =>
+        i === hbIdx ? { ...s, dur: nextDur } : s
+      );
+      return { equipment, inventory: inv, hotbar: newHotbar };
+    }
+    const newArr = invArr.map((t, i) => (i === invIdx ? { ...t, dur: nextDur } : t));
+    const newInv = {
+      ...inv,
+      toolInstances: { ...(inv.toolInstances ?? {}), [weaponId]: newArr },
+    };
+    return { equipment, inventory: newInv, hotbar };
+  }
+
+  // ─── This instance breaks ───────────────────────────────────────────────
+  onBreak?.(weaponId);
+
+  // Remove the broken instance from whichever holder had it.
+  let newHotbar = hotbar;
+  let newInv    = inv;
+  if (inHotbar) {
+    newHotbar = hotbar.map((s, i) => (i === hbIdx ? null : s));
+  } else {
+    const newArr = invArr.filter((_, i) => i !== invIdx);
+    const newToolInstances = { ...(inv.toolInstances ?? {}) };
+    const newItems = { ...(inv.items ?? {}) };
+    if (newArr.length === 0) {
+      delete newToolInstances[weaponId];
+      delete newItems[weaponId];
+    } else {
+      newToolInstances[weaponId] = newArr;
+      newItems[weaponId] = newArr.length;
+    }
+    newInv = { ...inv, toolInstances: newToolInstances, items: newItems };
+  }
+
+  // Look for a spare instance of the same tool type to auto-promote: prefer
+  // another hotbar slot (still "on the belt"), else fall back to inventory.
+  const hotbarSpare = (newHotbar ?? []).find(s => s?.item === weaponId && s?.iid);
+  const invSpare    = !hotbarSpare ? getToolInstances(newInv, weaponId)[0] : null;
+  const spareIid    = hotbarSpare?.iid ?? invSpare?.iid ?? null;
+
+  const newEq = spareIid
+    ? { ...equipment, weapon: weaponId, activeIid: spareIid }
+    : { ...equipment, weapon: null, activeIid: null };
+
+  return { equipment: newEq, inventory: newInv, hotbar: newHotbar };
+}
+
+/**
+ * Remove ONE instance of a tool from inventory by iid (used when selling /
+ * dropping a specific copy). Keeps items count in sync and clears the weapon
+ * slot if the removed instance was the equipped one and no spares remain.
+ * Returns { inventory, equipment }.
+ */
+export function removeToolInstance(inv, equipment, itemId, iid) {
+  const arr = getToolInstances(inv, itemId);
+  if (arr.length === 0) return { inventory: inv, equipment };
+  const remaining = iid != null ? arr.filter(t => t.iid !== iid) : arr.slice(1);
+  const newToolInstances = { ...(inv.toolInstances ?? {}) };
+  const newItems = { ...(inv.items ?? {}) };
+  if (remaining.length === 0) {
+    delete newToolInstances[itemId];
+    delete newItems[itemId];
+  } else {
+    newToolInstances[itemId] = remaining;
+    newItems[itemId] = remaining.length;
+  }
+  const newInv = { ...inv, toolInstances: newToolInstances, items: newItems };
+
+  let newEq = equipment;
+  if (equipment?.weapon === itemId) {
+    const stillThere = remaining.some(t => t.iid === equipment?.activeIid);
+    if (!stillThere) {
+      newEq = remaining.length > 0
+        ? { ...equipment, weapon: itemId, activeIid: remaining[0].iid }
+        : { ...equipment, weapon: null, activeIid: null };
+    }
+  }
+  return { inventory: newInv, equipment: newEq };
+}
+
+/**
+ * Add ONE freshly-crafted tool instance to inventory (full durability) and
+ * keep the items count in sync. Returns a new inventory (or same if not a
+ * durability tool — caller's normal addToPlayerInventory handles the count).
+ */
+export function addToolInstanceToInventory(inv, itemId) {
+  if (!isInstancedTool(itemId)) return inv;
+  const max = getToolMaxDurability(itemId);
+  const arr = getToolInstances(inv, itemId);
+  const newArr = [...arr, { iid: newToolIid(itemId), dur: max }];
   return {
-    ...equipment,
-    durability: { ...(equipment.durability ?? {}), [weaponId]: next },
+    ...inv,
+    toolInstances: { ...(inv.toolInstances ?? {}), [itemId]: newArr },
   };
+}
+
+/**
+ * MIGRATION: convert a legacy inventory/equipment pair to the instance model.
+ *   • Legacy durability lived on equipment.durability[itemId] as a scalar OR an
+ *     array (the previous "fix"). We map those values onto fresh instances so
+ *     existing wear is preserved; any shortfall is padded to full durability.
+ *   • equipment.weapon stays a string; we add equipment.activeIid (index-0
+ *     instance) and strip equipment.durability.
+ *   • Hotbar tool slots gain an `iid` referencing the matching instance.
+ * Idempotent: running it on already-migrated data is a no-op.
+ *
+ * Returns { inventory, equipment, hotbar }.
+ */
+export function migrateToToolInstances(inv, equipment, hotbar) {
+  const safeInv = inv ?? { items: {}, slots: INVENTORY_BASE_SLOTS };
+  const legacyDur = equipment?.durability ?? {};
+  const startingItems = safeInv.items ?? {};
+  const existingInstances = safeInv.toolInstances ?? {};
+  const safeHotbar = hotbar ?? [];
+
+  // Fast path: already migrated. The marker is "no equipment.durability AND
+  // every owned tool type has an instance count == items count AND every
+  // hotbar tool slot already has an iid". When that's true, nothing to do.
+  const looksMigrated = (() => {
+    if (equipment?.durability) return false;
+    for (const [itemId, qty] of Object.entries(startingItems)) {
+      if (!isInstancedTool(itemId)) continue;
+      if (!qty || qty <= 0) continue;
+      const arr = existingInstances[itemId];
+      if (!Array.isArray(arr) || arr.length !== qty) return false;
+      if (arr.some(t => !t?.iid)) return false;
+    }
+    for (const slot of safeHotbar) {
+      if (slot && isInstancedTool(slot.item) && !slot.iid) return false;
+      if (slot && isInstancedTool(slot.item) && slot.qty != null) return false;
+    }
+    return true;
+  })();
+  if (looksMigrated) {
+    // Still normalize the equipment shape (ensure activeIid exists).
+    let eq = equipment ?? { weapon: null, armor: null, accessory: null };
+    if (eq.activeIid === undefined) eq = { ...eq, activeIid: null };
+    return { inventory: safeInv, equipment: eq, hotbar: safeHotbar };
+  }
+
+  // Step 1 — synthesize a complete instance set for every tool the player owns,
+  // pulling durability values from the legacy scalar/array map where present.
+  // Build a temporary "pool" per tool type that we'll then split between the
+  // inventory and the hotbar.
+  const pool = {};
+  for (const [itemId, qty] of Object.entries(startingItems)) {
+    if (!isInstancedTool(itemId) || !qty || qty <= 0) continue;
+    const max = getToolMaxDurability(itemId);
+    const existing = existingInstances[itemId] ?? [];
+    const raw = legacyDur[itemId];
+    const legacyDurVals = Array.isArray(raw)
+      ? raw.slice()
+      : (typeof raw === "number" && raw > 0 ? [raw] : []);
+    const arr = [];
+    for (let i = 0; i < qty; i++) {
+      if (existing[i]?.iid) {
+        arr.push({ iid: existing[i].iid, dur: existing[i].dur ?? legacyDurVals[i] ?? max });
+      } else {
+        const dur = legacyDurVals[i] != null ? legacyDurVals[i] : max;
+        arr.push({ iid: newToolIid(itemId), dur });
+      }
+    }
+    pool[itemId] = arr;
+  }
+
+  // Step 2 — for each hotbar slot that holds a tool:
+  //   • If the slot already owns a real instance (has iid + dur, no qty), leave
+  //     it alone — its instance is NOT part of inventory.toolInstances anyway.
+  //   • Otherwise (legacy stacked slot, or slot with iid but no dur), pull ONE
+  //     instance from the pool into the slot.
+  const newHotbar = safeHotbar.map(slot => {
+    if (!slot || !isInstancedTool(slot.item)) return slot;
+    // Slot already owns a real instance — keep it as-is.
+    if (slot.iid && typeof slot.dur === "number" && slot.qty == null) {
+      return slot;
+    }
+    const arr = pool[slot.item] ?? [];
+    if (arr.length === 0) return null; // referenced tool no longer in bag
+    let takeIdx = 0;
+    if (slot.iid) {
+      const matched = arr.findIndex(t => t.iid === slot.iid);
+      if (matched >= 0) takeIdx = matched;
+    }
+    const [taken] = arr.splice(takeIdx, 1);
+    const { qty: _qty, ...rest } = slot;
+    return { ...rest, item: slot.item, iid: taken.iid, dur: taken.dur };
+  });
+
+  // Step 3 — whatever remains in the pool stays in inventory.toolInstances,
+  // and inventory.items[itemId] is rewritten to match (so the bag count never
+  // double-counts copies that now live on the hotbar).
+  const newToolInstances = {};
+  const newItems = { ...startingItems };
+  for (const [itemId, arr] of Object.entries(pool)) {
+    if (arr.length === 0) {
+      delete newItems[itemId];
+    } else {
+      newToolInstances[itemId] = arr;
+      newItems[itemId] = arr.length;
+    }
+  }
+
+  const newInv = { ...safeInv, items: newItems, toolInstances: newToolInstances };
+
+  // Step 4 — equipment: keep weapon string, derive activeIid by looking in both
+  // the hotbar and the inventory pool, drop the legacy durability map.
+  let newEq = { ...(equipment ?? { weapon: null, armor: null, accessory: null }) };
+  if (newEq.durability) delete newEq.durability;
+  if (newEq.weapon && isInstancedTool(newEq.weapon)) {
+    const fromHotbar = newHotbar.find(s => s?.item === newEq.weapon)?.iid;
+    const fromInv    = newToolInstances[newEq.weapon]?.[0]?.iid;
+    const wantedIid  = newEq.activeIid;
+    const stillExists = wantedIid && (
+      newHotbar.some(s => s?.iid === wantedIid) ||
+      Object.values(newToolInstances).some(arr => arr.some(t => t.iid === wantedIid))
+    );
+    if (!stillExists) {
+      newEq.activeIid = fromHotbar ?? fromInv ?? null;
+      if (newEq.activeIid == null) newEq.weapon = null;
+    }
+  } else if (newEq.activeIid === undefined) {
+    newEq.activeIid = null;
+  }
+
+  return { inventory: newInv, equipment: newEq, hotbar: newHotbar };
 }
 
 /** Items usable from the hotbar (have useEffect) */
@@ -1120,13 +1487,33 @@ export function emptyPlayerInventory() {
   return { items: {}, slots: INVENTORY_BASE_SLOTS };
 }
 
-/** Count how many distinct stacks are currently occupied */
+/**
+ * Count how many inventory slots are currently occupied.
+ * Stackable items count as 1 slot regardless of quantity.
+ * Non-stackable items (tools/gear) count as qty slots — each instance is separate.
+ */
 export function usedSlots(inv) {
-  return Object.values(inv.items ?? {}).filter(v => v > 0).length;
+  let total = 0;
+  for (const [itemId, qty] of Object.entries(inv.items ?? {})) {
+    if (!qty || qty <= 0) continue;
+    const item = ITEMS[itemId];
+    if (item && item.stackable === false) {
+      total += qty; // each instance takes its own slot
+    } else {
+      total += 1;   // all stackable qty shares one slot
+    }
+  }
+  return total;
 }
 
-/** Check whether a new item type can fit (already have it, or have a free slot) */
+/** Check whether a new item can fit in the inventory. */
 export function canFitItem(inv, itemId) {
+  const item = ITEMS[itemId];
+  if (item && item.stackable === false) {
+    // Each non-stackable instance costs one slot; check if there's room
+    return usedSlots(inv) < (inv.slots ?? INVENTORY_BASE_SLOTS);
+  }
+  // Stackable: already-present type costs nothing extra; new type needs one slot
   const already = (inv.items?.[itemId] ?? 0) > 0;
   if (already) return true;
   return usedSlots(inv) < (inv.slots ?? INVENTORY_BASE_SLOTS);
@@ -1138,15 +1525,39 @@ export function canFitItem(inv, itemId) {
  * where overflow contains whatever couldn't fit.
  */
 export function addToPlayerInventory(inv, itemId, qty) {
-  const already = (inv.items?.[itemId] ?? 0) > 0;
-  // Non-stackable items (tools/equipment): refuse to stack a second copy.
-  // Each unit must occupy its own slot; if one is already present, overflow.
   const item = ITEMS[itemId];
-  if (item && item.stackable === false && already) {
-    return { next: inv, overflow: { [itemId]: qty } };
+  const isNonStackable = item && item.stackable === false;
+  const isInstanced = isInstancedTool(itemId);
+
+  if (isNonStackable) {
+    // Each non-stackable instance occupies one slot (usedSlots counts them by qty).
+    // Add unit-by-unit, stopping if slots fill up. For durability tools we also
+    // mint a fresh tool instance (iid + full dur) so identity exists from the
+    // moment the tool enters the inventory.
+    let current = inv;
+    let dropped = 0;
+    for (let i = 0; i < qty; i++) {
+      if (usedSlots(current) >= (current.slots ?? INVENTORY_BASE_SLOTS)) {
+        dropped += qty - i;
+        break;
+      }
+      const currentCount = current.items?.[itemId] ?? 0;
+      current = {
+        ...current,
+        items: { ...current.items, [itemId]: currentCount + 1 },
+      };
+      if (isInstanced) {
+        current = addToolInstanceToInventory(current, itemId);
+      }
+    }
+    return dropped > 0
+      ? { next: current, overflow: { [itemId]: dropped } }
+      : { next: current, overflow: {} };
   }
+
+  // Stackable items: all qty shares one slot
+  const already = (inv.items?.[itemId] ?? 0) > 0;
   if (!already && usedSlots(inv) >= (inv.slots ?? INVENTORY_BASE_SLOTS)) {
-    // No room for a new stack
     return { next: inv, overflow: { [itemId]: qty } };
   }
   const next = {
@@ -1239,21 +1650,70 @@ export function emptyChest() {
  */
 export function normalizeChest(chest) {
   if (!chest) return emptyChest();
+  let grid;
   // Already an array → ensure correct length
   if (Array.isArray(chest)) {
-    if (chest.length === CHEST_SLOTS) return chest;
-    const padded = [...chest];
-    while (padded.length < CHEST_SLOTS) padded.push(null);
-    return padded.slice(0, CHEST_SLOTS);
+    grid = chest.slice();
+    while (grid.length < CHEST_SLOTS) grid.push(null);
+    if (grid.length > CHEST_SLOTS) grid = grid.slice(0, CHEST_SLOTS);
+  } else {
+    // Old object format → migrate
+    grid = Array(CHEST_SLOTS).fill(null);
+    let idx = 0;
+    for (const [itemId, qty] of Object.entries(chest)) {
+      if (!qty || qty <= 0 || idx >= CHEST_SLOTS) continue;
+      grid[idx++] = { item: itemId, qty };
+    }
   }
-  // Old object format → migrate
-  const grid = Array(CHEST_SLOTS).fill(null);
-  let idx = 0;
-  for (const [itemId, qty] of Object.entries(chest)) {
-    if (!qty || qty <= 0 || idx >= CHEST_SLOTS) continue;
-    grid[idx++] = { item: itemId, qty };
+  return splitNonStackableCells(grid);
+}
+
+/**
+ * Enforce the invariant that every non-stackable item (tools/gear) occupies its
+ * OWN cell with qty 1, and that instanced tools carry an { iid, dur }.
+ *
+ * Legacy chests stored two axes as a single stacked cell ({ axe, qty: 2 }) and
+ * never carried per-instance durability. This repacks any such cell into one
+ * cell per instance, minting full-durability instances where they're missing,
+ * so "single instances in the chest" holds no matter how the data got there.
+ *
+ * Stackable cells and already-singular cells are left exactly where they are;
+ * extra instances spill into the first free cells (dropped only if the chest is
+ * physically full, which is the same loss the old stacked form risked anyway).
+ */
+function splitNonStackableCells(grid) {
+  let needsWork = false;
+  for (const c of grid) {
+    if (!c) continue;
+    if (ITEMS[c.item]?.stackable !== false) continue;
+    if ((c.qty ?? 1) > 1) { needsWork = true; break; }
+    if (isInstancedTool(c.item) && (c.iid == null || c.dur == null)) { needsWork = true; break; }
   }
-  return grid;
+  if (!needsWork) return grid;
+
+  const out = Array(grid.length).fill(null);
+  const extras = []; // instances that need a fresh cell
+  for (let i = 0; i < grid.length; i++) {
+    const c = grid[i];
+    if (!c) continue;
+    if (ITEMS[c.item]?.stackable !== false) { out[i] = c; continue; }
+
+    const count = Math.max(1, c.qty ?? 1);
+    const instanced = isInstancedTool(c.item);
+    const max = instanced ? getToolMaxDurability(c.item) : null;
+    const makeCell = (iid, dur) =>
+      instanced ? { item: c.item, qty: 1, iid: iid ?? newToolIid(c.item), dur: dur ?? max }
+                : { item: c.item, qty: 1 };
+
+    out[i] = makeCell(c.iid, c.dur);            // first instance keeps its slot
+    for (let n = 1; n < count; n++) extras.push(makeCell(null, null));
+  }
+  for (const cell of extras) {
+    const free = out.findIndex(c => c === null);
+    if (free < 0) break;
+    out[free] = cell;
+  }
+  return out;
 }
 
 /** Convert grid chest to { [itemId]: totalQty } for crafting / selling checks */
@@ -1273,13 +1733,27 @@ export function chestToMap(chest) {
  */
 export function addToChest(chest, itemId, qty) {
   const grid = normalizeChest(chest).slice();
-  // Try to stack onto existing cell
+
+  // Non-stackable items NEVER stack — one cell per instance.
+  if (ITEMS[itemId]?.stackable === false) {
+    const instanced = isInstancedTool(itemId);
+    const max = instanced ? getToolMaxDurability(itemId) : null;
+    for (let n = 0; n < qty; n++) {
+      const emptyIdx = grid.findIndex(c => c === null);
+      if (emptyIdx < 0) break;
+      grid[emptyIdx] = instanced
+        ? { item: itemId, qty: 1, iid: newToolIid(itemId), dur: max }
+        : { item: itemId, qty: 1 };
+    }
+    return grid;
+  }
+
+  // Stackable: stack onto an existing cell, else first empty.
   const existIdx = grid.findIndex(c => c?.item === itemId);
   if (existIdx >= 0) {
     grid[existIdx] = { item: itemId, qty: grid[existIdx].qty + qty };
     return grid;
   }
-  // Find first empty slot
   const emptyIdx = grid.findIndex(c => c === null);
   if (emptyIdx >= 0) {
     grid[emptyIdx] = { item: itemId, qty };
@@ -1290,30 +1764,79 @@ export function addToChest(chest, itemId, qty) {
 
 /**
  * Check if there is room for itemId in the chest.
+ * Non-stackable items need a genuinely empty cell (they can't stack onto a peer).
  */
 export function canFitInChest(chest, itemId) {
   const grid = normalizeChest(chest);
+  if (ITEMS[itemId]?.stackable === false) return grid.some(c => c === null);
   return grid.some(c => c === null || c?.item === itemId);
 }
 
 /**
  * Merge a { [itemId]: qty } bag into the chest grid.
- * Items that don't fit are returned as overflow { [itemId]: qty }.
+ *
+ * Returns { grid, overflow } where:
+ *   • grid     — the new chest grid with whatever fit
+ *   • overflow — { [itemId]: qty } for anything that did NOT fit
+ *
+ * Callers MUST inspect overflow and decide what to do with the remainder
+ * (keep it in the bag, refuse the action, etc.) — silently dropping it is how
+ * items used to get destroyed when depositing into a full chest.
+ *
+ * Stackable items stack onto an existing same-item cell (unlimited per cell)
+ * or take the first empty cell. Non-stackable items (tools/gear) NEVER stack —
+ * each instance takes its own empty cell, matching moveItem's drag behaviour
+ * so the two deposit paths can't disagree about chest layout.
+ *
+ * INSTANCE DATA:
+ *   Pass opts.instances = { [itemId]: [{ iid, dur }, ...] } to deposit specific
+ *   tool instances (so durability travels into the chest instead of resetting).
+ *   Instances are consumed front-to-back; if fewer are supplied than deposited,
+ *   the remainder are minted at full durability (correct for fresh/bought tools).
+ *
+ *   The return value gains `consumed` = { [itemId]: [{ iid, dur }, ...] } listing
+ *   exactly which instances were placed, so callers can remove those — and only
+ *   those — from their own toolInstances registry.
  */
-export function mergeIntoChest(chest, items) {
+export function mergeIntoChest(chest, items, opts = {}) {
   let grid = normalizeChest(chest).slice();
   const overflow = {};
+  const consumed = {};
+  const instancePool = opts.instances ?? {};
+
   for (const [itemId, qty] of Object.entries(items)) {
     if (!qty || qty <= 0) continue;
+    const nonStackable = ITEMS[itemId]?.stackable === false;
+
+    if (nonStackable) {
+      const instanced = isInstancedTool(itemId);
+      const max = instanced ? getToolMaxDurability(itemId) : null;
+      const pool = (instancePool[itemId] ?? []).slice();
+      let placed = 0;
+      for (let n = 0; n < qty; n++) {
+        const emptyIdx = grid.findIndex(c => c === null);
+        if (emptyIdx < 0) break;
+        if (instanced) {
+          const inst = pool.shift() ?? { iid: newToolIid(itemId), dur: max };
+          const dur = inst.dur ?? max;
+          grid[emptyIdx] = { item: itemId, qty: 1, iid: inst.iid, dur };
+          (consumed[itemId] ??= []).push({ iid: inst.iid, dur });
+        } else {
+          grid[emptyIdx] = { item: itemId, qty: 1 };
+        }
+        placed++;
+      }
+      if (placed < qty) overflow[itemId] = qty - placed;
+      continue;
+    }
+
+    // Stackable — stack onto existing cell, else first empty cell.
     let remaining = qty;
-    // Stack onto existing
     const existIdx = grid.findIndex(c => c?.item === itemId);
     if (existIdx >= 0) {
       grid[existIdx] = { item: itemId, qty: grid[existIdx].qty + remaining };
       remaining = 0;
-    }
-    if (remaining > 0) {
-      // New slot
+    } else {
       const emptyIdx = grid.findIndex(c => c === null);
       if (emptyIdx >= 0) {
         grid[emptyIdx] = { item: itemId, qty: remaining };
@@ -1322,7 +1845,7 @@ export function mergeIntoChest(chest, items) {
     }
     if (remaining > 0) overflow[itemId] = remaining;
   }
-  return grid;
+  return { grid, overflow, consumed };
 }
 
 /**
@@ -1504,9 +2027,29 @@ export function craftItemAtStationFromChest(recipeId, chest, inv) {
 // ─── Combined inventory+chest crafting helpers ─────────────────────────────────
 // Used when materials are split between the player bag and the shared chest.
 
+/**
+ * Resolve any recipe key — plain id, "__altN" (station) or "__haltN" (hand) —
+ * to its recipe object. The plain-id family of helpers each did this resolution
+ * inline; the combined helpers below skipped it, which silently broke bag+chest
+ * crafting for every alternate recipe (e.g. the berries/apples/herbs → trail_snack
+ * variants). Centralising it here keeps all sources in agreement.
+ */
+function recipeForCombinedKey(key) {
+  const itemId = resolveRecipeKey(key);
+  if (key.includes("__halt")) {
+    const i = parseInt(key.split("__halt")[1]);
+    return MULTI_HAND_RECIPES[itemId]?.[i] ?? null;
+  }
+  if (key.includes("__alt")) {
+    const i = parseInt(key.split("__alt")[1]);
+    return MULTI_STATION_RECIPES[itemId]?.[i] ?? null;
+  }
+  return RECIPES[itemId] ?? STATION_RECIPES[itemId] ?? null;
+}
+
 /** Check if a recipe can be satisfied by combining inventory + chest */
 export function canCraftCombined(recipeId, inv, chest) {
-  const recipe = RECIPES[recipeId] ?? STATION_RECIPES[recipeId];
+  const recipe = recipeForCombinedKey(recipeId);
   if (!recipe) return false;
   const invItems  = inv?.items ?? {};
   const chestMap  = chestToMap(normalizeChest(chest));
@@ -1517,11 +2060,12 @@ export function canCraftCombined(recipeId, inv, chest) {
 
 /**
  * Craft a recipe drawing from inventory first, then chest for any shortfall.
- * Covers both RECIPES (hand-craft) and STATION_RECIPES.
+ * Covers both RECIPES (hand-craft) and STATION_RECIPES, including their
+ * "__halt" / "__alt" alternates.
  * Returns { newInv, newChest } or null if insufficient materials or bag full.
  */
 export function craftItemCombined(recipeId, inv, chest) {
-  const recipe = RECIPES[recipeId] ?? STATION_RECIPES[recipeId];
+  const recipe = recipeForCombinedKey(recipeId);
   if (!recipe || !canCraftCombined(recipeId, inv, chest)) return null;
 
   let newItems   = { ...(inv?.items ?? {}) };
@@ -1944,14 +2488,19 @@ export function hasAnySword(playerInventory, equipment) {
  */
 export function addCraftOutputToHotbarOrInventory(postSpendInv, postSpendHotbar, itemId, qty) {
   const hotbar = postSpendHotbar ?? [];
+  const item = ITEMS[itemId];
+  const isNonStackable = item && item.stackable === false;
 
-  // Try to stack onto an existing hotbar slot first
-  const existingSlotIdx = hotbar.findIndex(s => s?.item === itemId);
-  if (existingSlotIdx >= 0) {
-    const newHotbar = hotbar.map((s, i) =>
-      i === existingSlotIdx ? { ...s, qty: (s.qty ?? 1) + qty } : s
-    );
-    return { newInv: postSpendInv, newHotbar };
+  // Non-stackable tools never stack on the hotbar — they always go to inventory.
+  if (!isNonStackable) {
+    // Try to stack onto an existing hotbar slot first
+    const existingSlotIdx = hotbar.findIndex(s => s?.item === itemId);
+    if (existingSlotIdx >= 0) {
+      const newHotbar = hotbar.map((s, i) =>
+        i === existingSlotIdx ? { ...s, qty: (s.qty ?? 1) + qty } : s
+      );
+      return { newInv: postSpendInv, newHotbar };
+    }
   }
 
   // Otherwise land in the inventory bag

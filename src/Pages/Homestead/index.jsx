@@ -212,6 +212,7 @@ export default function HomesteadGame() {
       onChestUpdate={handleChestUpdate}
       equipment={equipment}
       onEquipItem={handleForceEquip}
+      onEquipmentUpdate={saveEquipment}
       character={character}
       onCharacterUpdate={saveCharacter}
       hotbar={hotbar}

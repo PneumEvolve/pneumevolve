@@ -92,6 +92,8 @@ import InkRunGame from "@/Pages/InkRun"
 import HomesteadGame from "@/Pages/Homestead"
 
 import GameTestGame from "@/Pages/GameTest"
+
+import Learning from "@/Pages/Learning/Learning"
  
 import { HelmetProvider } from "react-helmet-async";
 import "./index.css";
@@ -217,6 +219,8 @@ function Root() {
                 <Route path="/homestead" element={<HomesteadGame />} />
 
                 <Route path="/game-test" element={<GameTestGame />} />
+
+                <Route path="/learning" element={<Learning />} />
 
                 
  

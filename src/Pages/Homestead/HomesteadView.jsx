@@ -41,6 +41,8 @@ import {
   hotbarToMap, canCraftByKeyFromHotbar, craftItemByKeyFromHotbar,
   canCraftByKeyCombinedWithHotbar, craftItemByKeyCombinedWithHotbar,
   usedSlots, canFitItem, spendFromPlayerInventory, applyUpgrade, addCraftOutputToHotbarOrInventory,
+  getToolMaxDurability, isInstancedTool, newToolIid,
+  getToolInstances, equipToolInstance, findToolInstance,
   mergeIntoChest, spendFromChest, normalizeChest, chestToMap,
   CHEST_COLS, CHEST_ROWS, CHEST_SLOTS, canFitInChest,
   QUEST_REWARD_DEFS, getPriceWithRewards, getMarenDiscountActive,
@@ -926,7 +928,7 @@ function TabMenu({
   playerInventory, onPlayerInventoryUpdate,
   hotbarSlots, onHotbarSlotsUpdate,
   chest, onChestUpdate,
-  equipment, onEquipItem,
+  equipment, onEquipItem, onEquipmentUpdate,
   hotbar, onHotbarChange,
   onCraftWithInventory,
   character, onCharacterUpdate,
@@ -943,9 +945,21 @@ function TabMenu({
   const contentRef = useRef(null);
 
   const playerItems = playerInventory?.items ?? {};
-  // Items in the hotbar are stored separately — don't count them as inventory slots
+  // Items in the hotbar are stored separately — don't count them as inventory slots.
+  // Non-stackable tools (axes, pickaxes etc.) count each instance as one slot.
   const hotbarItemIds = new Set((hotbar ?? []).filter(Boolean).map(s => s.item));
-  const usedSlotsCount = Object.entries(playerItems).filter(([k, v]) => v > 0 && !hotbarItemIds.has(k)).length;
+  const usedSlotsCount = Object.entries(playerItems)
+    .filter(([, v]) => v > 0)
+    .reduce((sum, [k, v]) => {
+      const item = ITEMS[k];
+      if (item && item.stackable === false) {
+        // Non-stackable: bag qty is tracked separately from the hotbar copy,
+        // so the remaining qty here is exactly what is still in the bag.
+        return sum + v;
+      }
+      // Stackable: the whole stack moves to the hotbar when assigned.
+      return sum + (hotbarItemIds.has(k) ? 0 : 1);
+    }, 0);
   const totalSlots = playerInventory?.slots ?? INVENTORY_BASE_SLOTS;
 
   // Block spacebar scroll while menu open
@@ -968,27 +982,102 @@ function TabMenu({
     return () => { overlay.removeEventListener("wheel", blockOverlay); content.removeEventListener("wheel", handleContent); };
   }, []);
 
-  function assignToHotbarSlot(itemId, slotIdx) {
+  function assignToHotbarSlot(itemId, slotIdx, iid = null) {
     const invQty = (playerItems[itemId] ?? 0) > 0 ? playerItems[itemId] : undefined;
+    const isStackable = ITEMS[itemId]?.stackable !== false;
+    const isInstanced = isInstancedTool(itemId);
     const newHotbar = [...(hotbar ?? [])];
     const displaced = newHotbar[slotIdx]; // item previously in this slot
-    const newItems = { ...(playerInventory?.items ?? {}) };
+    let newInv = playerInventory ?? { items: {}, slots: INVENTORY_BASE_SLOTS };
+    const newItems = { ...(newInv.items ?? {}) };
+    const newToolInstances = { ...(newInv.toolInstances ?? {}) };
 
-    if (displaced?.item === itemId) {
-      // \u2500\u2500 Stacking: same item already in this hotbar slot \u2014 merge quantities \u2500\u2500
-      const mergedQty = (displaced.qty ?? 0) + (invQty ?? 0);
-      newHotbar[slotIdx] = { item: itemId, qty: mergedQty };
-      if (newItems[itemId] > 0) delete newItems[itemId];
-    } else {
-      // \u2500\u2500 Normal assign: place item into slot, displace whatever was there \u2500\u2500
-      newHotbar[slotIdx] = invQty != null ? { item: itemId, qty: invQty } : { item: itemId };
-      if (newItems[itemId] > 0) delete newItems[itemId];
-      if (displaced?.item && displaced.item !== itemId) {
-        newItems[displaced.item] = (newItems[displaced.item] ?? 0) + (displaced.qty ?? 1);
+    // Helper: return a hotbar tool slot's instance back to inventory.
+    const returnHotbarSlotToInventory = (slot) => {
+      if (!slot) return;
+      if (isInstancedTool(slot.item) && slot.iid) {
+        const arr = newToolInstances[slot.item] ?? [];
+        newToolInstances[slot.item] = [...arr, { iid: slot.iid, dur: slot.dur ?? getToolMaxDurability(slot.item) }];
+        newItems[slot.item] = (newItems[slot.item] ?? 0) + 1;
+      } else {
+        // Stackable or non-instanced — bump count.
+        newItems[slot.item] = (newItems[slot.item] ?? 0) + (slot.qty ?? 1);
       }
+    };
+
+    // ── INSTANCED TOOLS ─────────────────────────────────────────────────────
+    // Each tool has its own iid; two of the same type can NEVER collapse into
+    // one slot. The instance MOVES from inventory.toolInstances into the hotbar
+    // slot itself, carrying its own iid + dur.
+    if (isInstanced) {
+      const invInstances = newToolInstances[itemId] ?? [];
+      // Resolve the iid: prefer the requested one; fall back to first owned.
+      let pickIdx = iid ? invInstances.findIndex(t => t.iid === iid) : 0;
+      if (pickIdx < 0) pickIdx = 0;
+      const picked = invInstances[pickIdx];
+      if (!picked) return; // nothing in the bag to move; bail
+
+      // If we're moving into a slot that already holds the SAME iid, no-op.
+      if (displaced?.item === itemId && displaced?.iid === picked.iid) {
+        if (onEquipmentUpdate) {
+          const patched = equipToolInstance(equipment, itemId, picked.iid);
+          if (patched !== equipment) onEquipmentUpdate(patched);
+        }
+        return;
+      }
+
+      // Return whatever was previously in this slot to inventory.
+      returnHotbarSlotToInventory(displaced);
+
+      // Remove the picked instance from inventory and stash it in the slot.
+      const remaining = invInstances.filter((_, i) => i !== pickIdx);
+      if (remaining.length === 0) delete newToolInstances[itemId];
+      else newToolInstances[itemId] = remaining;
+      const bagCount = (newItems[itemId] ?? 0) - 1;
+      if (bagCount > 0) newItems[itemId] = bagCount;
+      else delete newItems[itemId];
+
+      newHotbar[slotIdx] = { item: itemId, iid: picked.iid, dur: picked.dur };
+
+      // Equip the picked instance.
+      if (onEquipmentUpdate) {
+        const patched = equipToolInstance(equipment, itemId, picked.iid);
+        if (patched !== equipment) onEquipmentUpdate(patched);
+      }
+
+      onPlayerInventoryUpdate?.({ ...newInv, items: newItems, toolInstances: newToolInstances });
+      onHotbarChange?.(newHotbar);
+      return;
     }
 
-    onPlayerInventoryUpdate?.({ ...playerInventory, items: newItems });
+    // ── STACKABLE ITEMS (food, resources, seeds) ────────────────────────────
+    if (isStackable) {
+      const moveQty = invQty ?? 1;
+      if (displaced?.item === itemId) {
+        const mergedQty = (displaced.qty ?? 0) + moveQty;
+        newHotbar[slotIdx] = { item: itemId, qty: mergedQty };
+        const remaining = (invQty ?? 0) - moveQty;
+        if (remaining > 0) newItems[itemId] = remaining;
+        else delete newItems[itemId];
+      } else {
+        newHotbar[slotIdx] = { item: itemId, qty: moveQty };
+        const remaining = (invQty ?? 0) - moveQty;
+        if (remaining > 0) newItems[itemId] = remaining;
+        else if (newItems[itemId] > 0) delete newItems[itemId];
+        if (displaced?.item && displaced.item !== itemId) returnHotbarSlotToInventory(displaced);
+      }
+      onPlayerInventoryUpdate?.({ ...newInv, items: newItems, toolInstances: newToolInstances });
+      onHotbarChange?.(newHotbar);
+      return;
+    }
+
+    // ── NON-INSTANCED NON-STACKABLE (defensive fallback) ────────────────────
+    newHotbar[slotIdx] = { item: itemId, qty: 1 };
+    const remaining = (invQty ?? 0) - 1;
+    if (remaining > 0) newItems[itemId] = remaining;
+    else delete newItems[itemId];
+    if (displaced?.item && displaced.item !== itemId) returnHotbarSlotToInventory(displaced);
+    onPlayerInventoryUpdate?.({ ...newInv, items: newItems, toolInstances: newToolInstances });
     onHotbarChange?.(newHotbar);
   }
 
@@ -1004,7 +1093,7 @@ function TabMenu({
             const isOver = dragOverSlot===idx, isEq = slot && equipment?.[EQUIPPABLE[slot?.item]?.slot]===slot?.item;
             return (
               <div key={idx}
-                onDrop={e=>{e.preventDefault();const raw=e.dataTransfer.getData("chest_drag");if(raw){try{const cd=JSON.parse(raw);if(cd.zone==="chest"){setDragOver(null);return;}}catch{}};const n=e.dataTransfer.getData("hotbar_item");if(n)assignToHotbarSlot(n,idx);setDragOver(null);}}
+                onDrop={e=>{e.preventDefault();const raw=e.dataTransfer.getData("chest_drag");if(raw){try{const cd=JSON.parse(raw);if(cd.zone==="chest"){setDragOver(null);return;}}catch{}};const n=e.dataTransfer.getData("hotbar_item");const iid=e.dataTransfer.getData("hotbar_iid")||null;if(n)assignToHotbarSlot(n,idx,iid);setDragOver(null);}}
                 onDragOver={e=>{e.preventDefault();e.dataTransfer.dropEffect="copy";setDragOver(idx);}}
                 onDragLeave={()=>setDragOver(null)}
                 style={{ width:50, height:54, borderRadius:9, background:isOver?"rgba(200,230,120,0.18)":slot?"rgba(10,18,6,0.7)":"rgba(255,255,255,0.03)", border:`2px solid ${isOver?"rgba(200,230,120,0.9)":isEq?"rgba(100,200,255,0.5)":slot?"rgba(200,230,120,0.3)":"rgba(255,255,255,0.1)"}`, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2, position:"relative", transition:"all 0.1s" }}>
@@ -1014,7 +1103,28 @@ function TabMenu({
                     <span style={{ fontSize:8, color:"rgba(200,230,120,0.6)", lineHeight:1, fontFamily:"monospace", maxWidth:46, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{ITEMS[slot.item]?.label?.toLowerCase()?.slice(0,6)??slot.item}</span>
                     {slot.qty!=null&&<span style={{ fontSize:9, color:"rgba(200,230,120,0.7)" }}>{slot.qty}</span>}
                     {isEq&&<div style={{ position:"absolute", top:3, right:3, width:6, height:6, borderRadius:"50%", background:"rgba(100,200,255,0.9)" }}/>}
-                    <button onClick={()=>{const n=[...(hotbar??[])];const s=n[idx];n[idx]=null;onHotbarChange?.(n);if(s?.item){const ni={...(playerInventory?.items??{}),[s.item]:(playerInventory?.items?.[s.item]??0)+(s.qty??1)};onPlayerInventoryUpdate?.({...playerInventory,items:ni})}}} style={{ position:"absolute", top:-5, right:-5, width:15, height:15, borderRadius:"50%", background:"rgba(255,80,80,0.8)", border:"none", color:"#fff", fontSize:9, cursor:"pointer", lineHeight:1, display:"flex", alignItems:"center", justifyContent:"center" }}>×</button>
+                    <button onClick={()=>{
+                      const n=[...(hotbar??[])];
+                      const s=n[idx];
+                      n[idx]=null;
+                      onHotbarChange?.(n);
+                      if (s?.item) {
+                        const inv = playerInventory ?? { items: {}, slots: INVENTORY_BASE_SLOTS };
+                        const newItems = { ...(inv.items ?? {}) };
+                        const newToolInstances = { ...(inv.toolInstances ?? {}) };
+                        if (isInstancedTool(s.item) && s.iid) {
+                          // Return the instance (iid + dur) to inventory.toolInstances
+                          const arr = newToolInstances[s.item] ?? [];
+                          newToolInstances[s.item] = [...arr, { iid: s.iid, dur: s.dur ?? getToolMaxDurability(s.item) }];
+                          newItems[s.item] = (newItems[s.item] ?? 0) + 1;
+                          // If this was the equipped weapon, keep it equipped — the
+                          // instance still exists, just in the bag now.
+                        } else {
+                          newItems[s.item] = (newItems[s.item] ?? 0) + (s.qty ?? 1);
+                        }
+                        onPlayerInventoryUpdate?.({ ...inv, items: newItems, toolInstances: newToolInstances });
+                      }
+                    }} style={{ position:"absolute", top:-5, right:-5, width:15, height:15, borderRadius:"50%", background:"rgba(255,80,80,0.8)", border:"none", color:"#fff", fontSize:9, cursor:"pointer", lineHeight:1, display:"flex", alignItems:"center", justifyContent:"center" }}>×</button>
                   </>
                 ) : (
                   <span style={{ fontSize:isOver?18:11, color:isOver?"rgba(200,230,120,0.7)":"rgba(255,255,255,0.12)", fontFamily:"monospace" }}>{isOver?"+":idx+1}</span>
@@ -1039,10 +1149,33 @@ function TabMenu({
     const itemStyle = { display:"flex", alignItems:"center", gap:8, padding:"8px 12px", borderRadius:10, cursor:"grab", background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.08)", userSelect:"none" };
 
     function depositToChest(itemId, qty) {
-      const newItems = { ...playerItems, [itemId]: (playerItems[itemId] ?? 0) - qty };
+      const inv = playerInventory ?? { items: {}, slots: INVENTORY_BASE_SLOTS };
+      const instanced = isInstancedTool(itemId);
+
+      // Hand the tool's actual instances to the chest so durability travels with
+      // it (rather than resetting to full on the round trip).
+      const opts = instanced ? { instances: { [itemId]: (inv.toolInstances?.[itemId] ?? []) } } : {};
+      const { grid, overflow, consumed } = mergeIntoChest(normalizeChest(chest), { [itemId]: qty }, opts);
+      const notPlaced = overflow[itemId] ?? 0;
+      const deposited = qty - notPlaced;
+      if (deposited <= 0) return; // chest full — leave everything in the bag
+
+      const newItems = { ...playerItems, [itemId]: (playerItems[itemId] ?? 0) - deposited };
       if (newItems[itemId] <= 0) delete newItems[itemId];
-      onPlayerInventoryUpdate?.({ ...playerInventory, items: newItems });
-      onChestUpdate?.(mergeIntoChest(normalizeChest(chest), { [itemId]: qty }));
+
+      // Remove exactly the instances that landed in the chest (by iid), not just
+      // "the last N" — keeps the registry in lockstep with the cells.
+      let newToolInstances = inv.toolInstances;
+      if (instanced && newToolInstances?.[itemId]?.length) {
+        const consumedIids = new Set((consumed[itemId] ?? []).map(c => c.iid));
+        const kept = newToolInstances[itemId].filter(t => !consumedIids.has(t.iid));
+        newToolInstances = { ...newToolInstances };
+        if (kept.length === 0) delete newToolInstances[itemId];
+        else newToolInstances[itemId] = kept;
+      }
+
+      onPlayerInventoryUpdate?.({ ...inv, items: newItems, toolInstances: newToolInstances });
+      onChestUpdate?.(grid);
     }
 
     return (
@@ -1111,43 +1244,56 @@ function TabMenu({
           <div>
             <p style={{ fontSize:10, color:"rgba(245,230,200,0.3)", letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:8 }}>Tools &amp; Weapons — click to add to hotbar (or drag)</p>
             <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
-              {gear.filter(([id])=>EQUIPPABLE[id]?.slot==="weapon").map(([id]) => {
-                const isEq = equipment?.weapon===id;
-                const inHotbar = (hotbar??[]).some(s=>s?.item===id);
-                // Show this tool's durability if it's the equipped weapon
+              {gear.filter(([id])=>EQUIPPABLE[id]?.slot==="weapon").flatMap(([id]) => {
+                // One card per REAL instance in the bag. Each instance has its
+                // own stable iid and its own durability — no more parallel-array
+                // index juggling. Tools already moved to the hotbar do not
+                // appear here (they live on the hotbar bar now).
                 const maxDur = ITEMS[id]?.maxDurability ?? null;
-                const curDur = isEq && maxDur != null
-                  ? (equipment?.durability?.[id] ?? maxDur)
-                  : null;
-                return (
-                  <div key={id}
-                    draggable
-                    onDragStart={e=>{e.dataTransfer.setData("hotbar_item",id);e.dataTransfer.effectAllowed="copy";}}
-                    onClick={() => {
-                      // If already on the hotbar, do nothing (avoid duplicating).
-                      // Otherwise move it into the first empty hotbar slot, fall back to slot 0.
-                      if (inHotbar) return;
-                      const si = (hotbar ?? []).findIndex(s => !s);
-                      assignToHotbarSlot(id, si >= 0 ? si : 0);
-                    }}
-                    style={{ ...itemStyle, cursor:"pointer", background:"rgba(200,230,120,0.05)", border:`1px solid ${isEq?"rgba(100,200,255,0.45)":"rgba(200,230,120,0.2)"}` }}>
-                    <ItemIcon id={id} size={26} />
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontSize:12, color:"rgba(200,230,120,0.85)" }}>{ITEMS[id]?.label??id}</div>
-                      <div style={{ fontSize:10, color:isEq?"rgba(100,200,255,0.7)":inHotbar?"rgba(200,230,120,0.55)":"rgba(255,255,255,0.3)" }}>
-                        {isEq?"✓ equipped":inHotbar?"in hotbar · select to equip":"click → hotbar"}
-                      </div>
-                      {curDur != null && (
-                        <div style={{ marginTop:4, display:"flex", alignItems:"center", gap:6 }}>
-                          <div style={{ width:60, height:4, background:"rgba(0,0,0,0.4)", borderRadius:2, overflow:"hidden" }}>
-                            <div style={{ width:`${(curDur/maxDur)*100}%`, height:"100%", background: (curDur/maxDur) > 0.5 ? "#80d860" : (curDur/maxDur) > 0.25 ? "#e8c840" : "#e04840" }} />
-                          </div>
-                          <span style={{ fontSize:8, color:"rgba(200,230,160,0.5)", fontFamily:"monospace" }}>{curDur}/{maxDur}</span>
+                const instances = getToolInstances(playerInventory, id);
+                if (instances.length === 0) return [];
+                const cardCount = instances.length;
+                return instances.map((inst, idx) => {
+                  const isActive = equipment?.weapon === id && equipment?.activeIid === inst.iid;
+                  const curDur   = inst.dur ?? maxDur;
+                  const label    = cardCount > 1
+                    ? `${ITEMS[id]?.label ?? id} #${idx + 1}`
+                    : (ITEMS[id]?.label ?? id);
+                  return (
+                    <div key={inst.iid}
+                      draggable
+                      onDragStart={e=>{
+                        e.dataTransfer.setData("hotbar_item", id);
+                        e.dataTransfer.setData("hotbar_iid", inst.iid);
+                        e.dataTransfer.effectAllowed = "copy";
+                      }}
+                      onClick={() => {
+                        // Place this exact instance on the first empty hotbar
+                        // slot; if every slot is full, drop into slot 0 (which
+                        // will displace whatever was there back to the bag).
+                        const empty = (hotbar ?? []).findIndex(s => !s);
+                        const target = empty >= 0 ? empty : 0;
+                        assignToHotbarSlot(id, target, inst.iid);
+                      }}
+                      style={{ ...itemStyle, cursor: "pointer", background:"rgba(200,230,120,0.05)", border:`1px solid ${isActive?"rgba(100,200,255,0.45)":"rgba(200,230,120,0.2)"}` }}>
+                      <ItemIcon id={id} size={26} />
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontSize:12, color:"rgba(200,230,120,0.85)" }}>{label}</div>
+                        <div style={{ fontSize:10, color: isActive?"rgba(100,200,255,0.7)":"rgba(255,255,255,0.3)" }}>
+                          {isActive ? "✓ equipped" : "click / drag → equip this one"}
                         </div>
-                      )}
+                        {curDur != null && maxDur != null && (
+                          <div style={{ marginTop:4, display:"flex", alignItems:"center", gap:6 }}>
+                            <div style={{ width:60, height:4, background:"rgba(0,0,0,0.4)", borderRadius:2, overflow:"hidden" }}>
+                              <div style={{ width:`${(curDur/maxDur)*100}%`, height:"100%", background: (curDur/maxDur) > 0.5 ? "#80d860" : (curDur/maxDur) > 0.25 ? "#e8c840" : "#e04840" }} />
+                            </div>
+                            <span style={{ fontSize:8, color:"rgba(200,230,160,0.5)", fontFamily:"monospace" }}>{curDur}/{maxDur}</span>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
+                  );
+                });
               })}
             </div>
           </div>
@@ -1245,127 +1391,180 @@ function TabMenu({
     // Build player inventory as a flat grid (slots × 1 cell each, filled from items)
     const totalSlots = playerInventory?.slots ?? INVENTORY_BASE_SLOTS;
     const playerItems = playerInventory?.items ?? {};
-    // Expand items into grid slots: one slot per unique item stack
-    const invEntries = Object.entries(playerItems).filter(([,v])=>v>0);
-    const invGrid = Array(totalSlots).fill(null).map((_, i) =>
-      invEntries[i] ? { item: invEntries[i][0], qty: invEntries[i][1] } : null
-    );
+    const toolInstances = playerInventory?.toolInstances ?? {};
+
+    // Expand the bag into one display cell per OCCUPIED slot, matching usedSlots():
+    //   • stackable item → a single cell carrying the whole qty
+    //   • non-stackable  → one cell per instance (qty 1 each)
+    //   • instanced tool → each cell also carries its own { iid, dur }
+    // Cells are self-describing, so the transfer handlers read them directly
+    // instead of mapping a grid index back through Object.entries — that mapping
+    // collapsed two axes into one slot (the "2 axes show as 1/4" bug) and let the
+    // drag path drop a { axe, qty: 2 } stack into a single chest cell.
+    const invCells = [];
+    for (const [itemId, count] of Object.entries(playerItems)) {
+      if (!count || count <= 0) continue;
+      if (ITEMS[itemId]?.stackable !== false) {
+        invCells.push({ item: itemId, qty: count });
+        continue;
+      }
+      const instanced = isInstancedTool(itemId);
+      const insts = toolInstances[itemId] ?? [];
+      for (let n = 0; n < count; n++) {
+        invCells.push(instanced
+          ? { item: itemId, qty: 1, iid: insts[n]?.iid, dur: insts[n]?.dur ?? getToolMaxDurability(itemId) }
+          : { item: itemId, qty: 1 });
+      }
+    }
+    const invGrid = Array(totalSlots).fill(null).map((_, i) => invCells[i] ?? null);
+    const bagUsed = invCells.length;
 
     // Transfer qty units from srcZone → opposite zone
     function transferQty(srcZone, srcIdx, qty) {
       if (qty <= 0) return;
-      const srcCell = srcZone === "chest"
-        ? chestGrid[srcIdx]
-        : (invEntries[srcIdx] ? { item: invEntries[srcIdx][0], qty: invEntries[srcIdx][1] } : null);
+      const srcCell = srcZone === "chest" ? chestGrid[srcIdx] : invGrid[srcIdx];
       if (!srcCell) return;
 
-      let safeQty = Math.min(qty, srcCell.qty);
+      const nonStackable = ITEMS[srcCell.item]?.stackable === false;
+      const instanced = isInstancedTool(srcCell.item);
+
       let cg = chestGrid.slice();
       let ii = { ...playerItems };
+      let ti = { ...toolInstances };
 
       if (srcZone === "chest") {
-        // chest → inventory
-        // Non-stackable items (tools/gear): each unit needs its own slot, and
-        // if a copy is already in the bag we refuse (avoids ×2 tool stacks
-        // that share one durability bar).
-        const itemDef = ITEMS[srcCell.item];
-        if (itemDef && itemDef.stackable === false) {
-          const already = (ii[srcCell.item] ?? 0) > 0;
-          if (already) {
-            // can't take another copy
-            return;
+        // ── chest → bag ──
+        if (nonStackable) {
+          if (usedSlots({ items: ii, slots: totalSlots }) >= totalSlots) return; // bag full
+          cg[srcIdx] = null;
+          ii[srcCell.item] = (ii[srcCell.item] ?? 0) + 1;
+          if (instanced) {
+            ti[srcCell.item] = [
+              ...(ti[srcCell.item] ?? []),
+              { iid: srcCell.iid ?? newToolIid(srcCell.item), dur: srcCell.dur ?? getToolMaxDurability(srcCell.item) },
+            ];
           }
-          // can only take 1, and only if we have a free slot
-          const usedNow = Object.values(ii).filter(v => v > 0).length;
-          if (usedNow >= totalSlots) return;
-          safeQty = 1;
         } else {
-          // For stackable items also respect the bag's slot cap when adding
-          // a brand new item type.
+          const safeQty = Math.min(qty, srcCell.qty);
           const isNewType = !(ii[srcCell.item] > 0);
-          const usedNow = Object.values(ii).filter(v => v > 0).length;
-          if (isNewType && usedNow >= totalSlots) return;
+          if (isNewType && usedSlots({ items: ii, slots: totalSlots }) >= totalSlots) return;
+          const remaining = srcCell.qty - safeQty;
+          cg[srcIdx] = remaining > 0 ? { item: srcCell.item, qty: remaining } : null;
+          ii[srcCell.item] = (ii[srcCell.item] ?? 0) + safeQty;
         }
-        const remaining = srcCell.qty - safeQty;
-        cg[srcIdx] = remaining > 0 ? { item: srcCell.item, qty: remaining } : null;
-        ii[srcCell.item] = (ii[srcCell.item] ?? 0) + safeQty;
       } else {
-        // inventory → chest
-        const remaining = srcCell.qty - safeQty;
-        if (remaining > 0) ii[srcCell.item] = remaining;
-        else delete ii[srcCell.item];
-        // Find existing chest slot with same item or first empty slot
-        const existingIdx = cg.findIndex(c => c?.item === srcCell.item);
-        if (existingIdx >= 0) {
-          cg[existingIdx] = { item: srcCell.item, qty: cg[existingIdx].qty + safeQty };
+        // ── bag → chest ──
+        if (nonStackable) {
+          const opts = instanced && srcCell.iid != null
+            ? { instances: { [srcCell.item]: [{ iid: srcCell.iid, dur: srcCell.dur }] } }
+            : {};
+          const { grid, overflow } = mergeIntoChest(cg, { [srcCell.item]: 1 }, opts);
+          if ((overflow[srcCell.item] ?? 0) > 0) return; // chest full
+          cg = grid;
+          ii[srcCell.item] = (ii[srcCell.item] ?? 0) - 1;
+          if (ii[srcCell.item] <= 0) delete ii[srcCell.item];
+          if (instanced && ti[srcCell.item]) {
+            const kept = ti[srcCell.item].filter(t => t.iid !== srcCell.iid);
+            if (kept.length === 0) delete ti[srcCell.item];
+            else ti[srcCell.item] = kept;
+          }
         } else {
-          const emptyIdx = cg.findIndex(c => !c);
-          if (emptyIdx >= 0) cg[emptyIdx] = { item: srcCell.item, qty: safeQty };
+          const safeQty = Math.min(qty, srcCell.qty);
+          const { grid, overflow } = mergeIntoChest(cg, { [srcCell.item]: safeQty });
+          cg = grid;
+          const moved = safeQty - (overflow[srcCell.item] ?? 0);
+          if (moved <= 0) return; // chest full — leave the bag alone
+          const remaining = srcCell.qty - moved;
+          if (remaining > 0) ii[srcCell.item] = remaining;
+          else delete ii[srcCell.item];
         }
       }
 
       onChestUpdate?.(cg);
-      onPlayerInventoryUpdate?.({ ...playerInventory, items: ii });
+      onPlayerInventoryUpdate?.({ ...playerInventory, items: ii, toolInstances: ti });
     }
 
     function moveItem(src, dst) {
       if (src.zone === dst.zone && src.idx === dst.idx) return;
 
-      // Read source and destination cells
-      const srcData = src.zone === "chest"
-        ? chestGrid[src.idx]
-        : (invEntries[src.idx] ? { item: invEntries[src.idx][0], qty: invEntries[src.idx][1] } : null);
-      const dstData = dst.zone === "chest"
-        ? chestGrid[dst.idx]
-        : (invEntries[dst.idx] ? { item: invEntries[dst.idx][0], qty: invEntries[dst.idx][1] } : null);
+      const srcCell = src.zone === "chest" ? chestGrid[src.idx] : invGrid[src.idx];
+      const dstCell = dst.zone === "chest" ? chestGrid[dst.idx] : invGrid[dst.idx];
+      if (!srcCell) return;
 
-      if (!srcData) return;
-
-      // Block dragging a non-stackable tool into the bag when a copy already
-      // lives in the bag (would create a fake ×2 stack sharing one durability).
-      const movingNonStackable = ITEMS[srcData.item]?.stackable === false;
-      if (movingNonStackable && dst.zone === "inv" && src.zone === "chest") {
-        if ((playerItems[srcData.item] ?? 0) > 0 && dstData?.item !== srcData.item) {
-          return;
-        }
-      }
+      const nonStackable = ITEMS[srcCell.item]?.stackable === false;
+      const instanced = isInstancedTool(srcCell.item);
 
       let cg = chestGrid.slice();
       let ii = { ...playerItems };
+      let ti = { ...toolInstances };
 
-      if (dstData && dstData.item === srcData.item) {
-        // ── Stack same item type ──────────────────────────────────────────────
-        // Don't stack non-stackable tools — silently bail.
-        if (movingNonStackable) return;
-        const total = srcData.qty + dstData.qty;
-        // Clear source
-        if (src.zone === "chest") cg[src.idx] = null;
-        else delete ii[srcData.item];
-        // Accumulate at destination
-        if (dst.zone === "chest") cg[dst.idx] = { item: dstData.item, qty: total };
-        else ii[dstData.item] = total;
-      } else {
-        // ── Swap ──────────────────────────────────────────────────────────────
-        // Place srcData at dst
-        if (dst.zone === "chest") {
-          cg[dst.idx] = srcData;
-        } else {
-          // dst is inv: add srcData item, remove dstData item if present
-          ii[srcData.item] = srcData.qty;
-          if (dstData) delete ii[dstData.item];
-        }
-        // Place dstData at src (or clear if dstData was null)
-        if (src.zone === "chest") {
-          cg[src.idx] = dstData; // null clears the slot
-        } else {
-          // src is inv: remove srcData, add dstData if present
-          delete ii[srcData.item];
-          if (dstData) ii[dstData.item] = dstData.qty;
-        }
+      // ── chest → chest : pure rearrange (swap the two cells) ──
+      if (src.zone === "chest" && dst.zone === "chest") {
+        cg[dst.idx] = srcCell;
+        cg[src.idx] = dstCell ?? null;
+        onChestUpdate?.(cg);
+        return;
       }
 
-      onChestUpdate?.(cg);
-      onPlayerInventoryUpdate?.({ ...playerInventory, items: ii });
+      // ── bag → bag : the bag layout is derived from items, nothing to persist ──
+      if (src.zone === "inv" && dst.zone === "inv") return;
+
+      // ── bag → chest : deposit one logical cell ──
+      if (src.zone === "inv" && dst.zone === "chest") {
+        if (dstCell) {
+          // Only stack onto a matching stackable cell; never clobber an occupant.
+          if (!nonStackable && dstCell.item === srcCell.item) {
+            cg[dst.idx] = { item: dstCell.item, qty: dstCell.qty + srcCell.qty };
+            delete ii[srcCell.item];
+          } else {
+            return;
+          }
+        } else if (nonStackable) {
+          cg[dst.idx] = instanced
+            ? { item: srcCell.item, qty: 1, iid: srcCell.iid ?? newToolIid(srcCell.item), dur: srcCell.dur ?? getToolMaxDurability(srcCell.item) }
+            : { item: srcCell.item, qty: 1 };
+        } else {
+          cg[dst.idx] = { item: srcCell.item, qty: srcCell.qty };
+          delete ii[srcCell.item];
+        }
+
+        if (nonStackable) {
+          ii[srcCell.item] = (ii[srcCell.item] ?? 0) - 1;
+          if (ii[srcCell.item] <= 0) delete ii[srcCell.item];
+          if (instanced && ti[srcCell.item]) {
+            const kept = ti[srcCell.item].filter(t => t.iid !== srcCell.iid);
+            if (kept.length === 0) delete ti[srcCell.item];
+            else ti[srcCell.item] = kept;
+          }
+        }
+        onChestUpdate?.(cg);
+        onPlayerInventoryUpdate?.({ ...playerInventory, items: ii, toolInstances: ti });
+        return;
+      }
+
+      // ── chest → bag : withdraw one logical cell (target index ignored; the bag
+      //    grid is derived, so the item just rejoins the bag) ──
+      if (src.zone === "chest" && dst.zone === "inv") {
+        if (nonStackable) {
+          if (usedSlots({ items: ii, slots: totalSlots }) >= totalSlots) return;
+          cg[src.idx] = null;
+          ii[srcCell.item] = (ii[srcCell.item] ?? 0) + 1;
+          if (instanced) {
+            ti[srcCell.item] = [
+              ...(ti[srcCell.item] ?? []),
+              { iid: srcCell.iid ?? newToolIid(srcCell.item), dur: srcCell.dur ?? getToolMaxDurability(srcCell.item) },
+            ];
+          }
+        } else {
+          const isNewType = !(ii[srcCell.item] > 0);
+          if (isNewType && usedSlots({ items: ii, slots: totalSlots }) >= totalSlots) return;
+          cg[src.idx] = null;
+          ii[srcCell.item] = (ii[srcCell.item] ?? 0) + srcCell.qty;
+        }
+        onChestUpdate?.(cg);
+        onPlayerInventoryUpdate?.({ ...playerInventory, items: ii, toolInstances: ti });
+        return;
+      }
     }
 
     function handleDrop(e, dstZone, dstIdx) {
@@ -1403,6 +1602,13 @@ function TabMenu({
                 onClick={e => {
                   if (!cell) return;
                   e.stopPropagation();
+                  // Non-stackable items (tools/gear) move as a single instance —
+                  // skip the quantity picker entirely.
+                  if (ITEMS[cell.item]?.stackable === false) {
+                    transferQty(zone, idx, 1);
+                    setQtyPicker(null);
+                    return;
+                  }
                   if (isSelected) { setQtyPicker(null); return; }
                   const rect = e.currentTarget.getBoundingClientRect();
                   setQtyPicker({ zone, idx, cell, rect });
@@ -1429,7 +1635,17 @@ function TabMenu({
                 }}>
                 {cell && <>
                   <ItemIcon id={cell.item} size={28} />
-                  <span style={{ fontSize: 9, color: "rgba(200,230,120,0.85)", fontFamily: "monospace", lineHeight: 1, marginTop: 1 }}>{cell.qty}</span>
+                  {ITEMS[cell.item]?.stackable === false ? (
+                    // Non-stackable: no qty number (always 1). Show a durability
+                    // micro-bar for instanced tools so worn tools read at a glance.
+                    cell.dur != null && getToolMaxDurability(cell.item) ? (
+                      <div style={{ width: 26, height: 3, borderRadius: 2, background: "rgba(255,255,255,0.12)", marginTop: 3, overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${Math.max(0, Math.min(1, cell.dur / getToolMaxDurability(cell.item))) * 100}%`, background: "rgba(200,230,120,0.7)" }} />
+                      </div>
+                    ) : null
+                  ) : (
+                    <span style={{ fontSize: 9, color: "rgba(200,230,120,0.85)", fontFamily: "monospace", lineHeight: 1, marginTop: 1 }}>{cell.qty}</span>
+                  )}
                 </>}
               </div>
             );
@@ -1544,22 +1760,36 @@ function TabMenu({
                 onClick={() => {
                   const allInvItems = Object.entries(playerItems).filter(([,v]) => v > 0);
                   if (allInvItems.length === 0) return;
-                  let newChest = chestGrid.slice();
+                  const inv = playerInventory ?? { items:{}, slots: INVENTORY_BASE_SLOTS };
+                  let grid = chestGrid.slice();
                   const newItems = { ...(playerItems) };
+                  let newToolInstances = { ...(inv.toolInstances ?? {}) };
                   for (const [id, qty] of allInvItems) {
-                    newChest = mergeIntoChest(newChest, { [id]: qty });
-                    delete newItems[id];
+                    const instanced = isInstancedTool(id);
+                    const opts = instanced ? { instances: { [id]: (newToolInstances[id] ?? []) } } : {};
+                    const res = mergeIntoChest(grid, { [id]: qty }, opts);
+                    grid = res.grid;
+                    const deposited = qty - (res.overflow[id] ?? 0);
+                    if (deposited <= 0) continue; // nothing fit; leave it in the bag
+                    newItems[id] = qty - deposited;
+                    if (newItems[id] <= 0) delete newItems[id];
+                    if (instanced && newToolInstances[id]?.length) {
+                      const consumedIids = new Set((res.consumed[id] ?? []).map(c => c.iid));
+                      const kept = newToolInstances[id].filter(t => !consumedIids.has(t.iid));
+                      if (kept.length === 0) delete newToolInstances[id];
+                      else newToolInstances[id] = kept;
+                    }
                   }
-                  onPlayerInventoryUpdate?.({ ...playerInventory, items: newItems });
-                  onChestUpdate?.(newChest);
+                  onPlayerInventoryUpdate?.({ ...inv, items: newItems, toolInstances: newToolInstances });
+                  onChestUpdate?.(grid);
                 }}
                 style={{ fontSize:10, padding:"3px 9px", borderRadius:6, border:"1px solid rgba(180,200,100,0.3)", background:"rgba(180,200,100,0.08)", color:"rgba(180,200,100,0.85)", fontFamily:"monospace", cursor:"pointer", whiteSpace:"nowrap" }}
               >deposit all 📦</button>
-              <span style={{ fontSize:10, color: invEntries.length >= totalSlots ? "rgba(255,120,80,0.8)" : "rgba(200,230,120,0.4)", fontFamily:"monospace" }}>{invEntries.length}/{totalSlots} slots</span>
+              <span style={{ fontSize:10, color: bagUsed >= totalSlots ? "rgba(255,120,80,0.8)" : "rgba(200,230,120,0.4)", fontFamily:"monospace" }}>{bagUsed}/{totalSlots} slots</span>
             </div>
           </div>
           {renderGrid(invGrid, "inv", CHEST_COLS)}
-          {invEntries.length === 0 && <p style={{ textAlign:"center", fontSize:11, color:"rgba(255,255,255,0.2)", marginTop:8 }}>bag is empty</p>}
+          {bagUsed === 0 && <p style={{ textAlign:"center", fontSize:11, color:"rgba(255,255,255,0.2)", marginTop:8 }}>bag is empty</p>}
         </div>
 
         <p style={{ fontSize:9, color:"rgba(245,230,200,0.2)", textAlign:"center", fontFamily:"monospace" }}>
@@ -1574,13 +1804,48 @@ function TabMenu({
     const [showAll, setShowAll]           = useState(false);
     const [craftableOnly, setCraftableOnly] = useState(false);
 
-    // Crafting reads from player inventory (not chest).
-    // Shared helper: route crafted output to hotbar first, inventory second.
-    function applyOutput(postSpendInv, postSpendHotbar, outputId, label) {
-      const out = addCraftOutputToHotbarOrInventory(postSpendInv, postSpendHotbar ?? hotbar ?? [], outputId, 1);
-      if (!out) return false; // bag + hotbar full
-      onCraftWithInventory?.(out.newInv);
-      if (out.newHotbar) onHotbarChange?.(out.newHotbar);
+    // Commit a freshly crafted result to player/hotbar state.
+    //
+    // IMPORTANT: every craft* helper (craftItemByKey, craftItemAtStationByKey,
+    // the chest/hotbar/combined variants) has ALREADY placed the crafted item
+    // into the bag — and for durability tools it has already minted the tool
+    // instance. This function must NOT add the output again; doing so was the
+    // double-craft bug (most visible on non-stackable tools, where the second
+    // add minted a whole second instance).
+    //
+    // What this still does:
+    //   • commits the post-craft inventory the helper produced
+    //   • if a hotbar was passed in (hotbar-source crafts), commits that too
+    //   • hotbar-first convenience: if the output is stackable and already has
+    //     a hotbar slot, move the single just-crafted unit from bag → that slot
+    //     (a move, not a duplicate — bag total drops by one as the slot gains one)
+    function applyOutput(craftedInv, postSpendHotbar, outputId, label) {
+      if (!craftedInv) return false;
+      const item = ITEMS[outputId];
+      const isStackable = !(item && item.stackable === false);
+      const hotbarProvided = postSpendHotbar != null;
+
+      let newInv = craftedInv;
+      let newHotbar = postSpendHotbar ?? hotbar ?? [];
+      let hotbarChanged = hotbarProvided;
+
+      if (isStackable) {
+        const slotIdx = newHotbar.findIndex(s => s?.item === outputId);
+        if (slotIdx >= 0) {
+          const bagQty = newInv.items?.[outputId] ?? 0;
+          const nextItems = { ...newInv.items };
+          if (bagQty > 1) nextItems[outputId] = bagQty - 1;
+          else delete nextItems[outputId];
+          newInv = { ...newInv, items: nextItems };
+          newHotbar = newHotbar.map((s, i) =>
+            i === slotIdx ? { ...s, qty: (s.qty ?? 1) + 1 } : s
+          );
+          hotbarChanged = true;
+        }
+      }
+
+      onCraftWithInventory?.(newInv);
+      if (hotbarChanged) onHotbarChange?.(newHotbar);
       setCraftMsg(`Crafted ${label}!`);
       setTimeout(()=>setCraftMsg(null),2200);
       return true;
@@ -2373,7 +2638,7 @@ function TabMenu({
                 <div style={{ fontSize:13,color:item?"rgba(200,230,120,0.85)":"rgba(255,255,255,0.18)" }}>{info?.label??"empty"}</div>
                 {info&&<div style={{ fontSize:10,color:"rgba(200,230,160,0.4)" }}>{Object.entries(info.stats??{}).map(([k,v])=>`${k}:${v}`).join("  ")}</div>}
 {item && slot === "weapon" && (() => {
-  const dur = getWeaponDurability(equipment);
+  const dur = getWeaponDurability(equipment, playerInventory, hotbar);
   if (!dur) return null;
   const [cur, max] = dur;
   const pct = cur / max;
@@ -2612,7 +2877,7 @@ export default function HomesteadView({
   chest, chestOpen,
   onOpenChest, onCloseChest, onChestUpdate,
   // Equipment & character
-  equipment, onEquipItem,
+  equipment, onEquipItem, onEquipmentUpdate,
   character, onCharacterUpdate,
   // Hotbar
   hotbar, onHotbarChange,
@@ -3499,8 +3764,10 @@ export default function HomesteadView({
           }}
           onBuyToChest={(id, price) => {
             if (gold < price) return;
+            const { grid, overflow } = mergeIntoChest(normalizeChest(chestRef.current), { [id]: 1 });
+            if (overflow[id]) return; // chest full — don't charge for a lost item
             saveGold(gold - price);
-            broadcastChestUpdate(mergeIntoChest(normalizeChest(chestRef.current), { [id]: 1 }));
+            broadcastChestUpdate(grid);
           }}
           onSellFromInventory={(id, price) => {
             const items = { ...(playerInvRef.current?.items ?? {}) };
@@ -3556,6 +3823,7 @@ export default function HomesteadView({
           onChestUpdate={broadcastChestUpdate}
           equipment={equipment}
           onEquipItem={onEquipItem}
+          onEquipmentUpdate={onEquipmentUpdate}
           hotbar={hotbar??[]}
           onHotbarChange={onHotbarChange}
           onCraftWithInventory={onPlayerInventoryUpdate}

@@ -19,6 +19,7 @@ import { api } from "@/lib/api";
 import {
   emptyPlayerInventory, emptyHotbar,
   HOTBAR_BASE_SLOTS, INVENTORY_BASE_SLOTS,
+  migrateToToolInstances, reconcileToolInstances,
 } from "./Items";
 import { defaultCharacter } from "./gameEngine";
 import {
@@ -112,8 +113,17 @@ export function usePlayerState(room) {
 
   // ── Save wrappers (same external API as before) ───────────────────────────
   const saveInventory = useCallback((inv) => {
-    setPlayerInventory(inv); playerInvRef.current = inv;
-    persist("inventory", inv, { inventory: inv });
+    // Reconcile the per-instance tool registry against the plain items count on
+    // every write. Most callers already keep these in sync (crafting mints
+    // instances via addToPlayerInventory; assignToHotbarSlot moves them by hand),
+    // but the chest-transfer and market-buy paths bump items[tool] directly
+    // through the raw items map. Without this, a tool withdrawn from the chest
+    // had a count but no instance — durability couldn't resolve and the tool
+    // became effectively unbreakable. Reconciling here is a no-op when already
+    // consistent and backfills/trims instances otherwise.
+    const reconciled = reconcileToolInstances(inv) ?? inv;
+    setPlayerInventory(reconciled); playerInvRef.current = reconciled;
+    persist("inventory", reconciled, { inventory: reconciled });
   }, [persist]);
 
   const saveHotbar = useCallback((hb) => {
@@ -186,16 +196,37 @@ export function usePlayerState(room) {
   const applyPlayerState = useCallback((state, roomId) => {
     // Normalise: old saves (pre-slot system) lack a `slots` field.
     const inv = state.inventory ?? emptyPlayerInventory();
-    const normInv = (typeof inv.slots === "number" && !isNaN(inv.slots))
+    const normInv0 = (typeof inv.slots === "number" && !isNaN(inv.slots))
       ? inv
       : { ...inv, slots: INVENTORY_BASE_SLOTS };
 
+    // Migrate to the tool-instance model. This:
+    //   • Builds inventory.toolInstances[itemId] = [{ iid, dur }, ...] for every
+    //     non-stackable durability tool the player owns, preserving any legacy
+    //     durability values from the old equipment.durability map.
+    //   • Strips the now-obsolete equipment.durability map.
+    //   • Sets equipment.activeIid to the equipped instance's iid.
+    //   • Attaches an iid to every hotbar tool slot and MOVES that instance
+    //     out of inventory.toolInstances so the hotbar slot owns it
+    //     (preventing double-counting).
+    //   • Splits any legacy stacked tool hotbar slots (qty > 1) — only one
+    //     instance stays in the slot; the rest go back to inventory.
+    //   • Idempotent: running it on already-migrated data is a no-op.
+    const rawEq = state.equipment ?? { ...EMPTY_EQUIPMENT };
+    const rawHotbar = state.hotbar ?? [];
+    const migrated = migrateToToolInstances(normInv0, rawEq, rawHotbar);
+    const normInv = migrated.inventory;
+    const normEq  = migrated.equipment;
+    const normHb  = migrated.hotbar;
+
     setPlayerInventory(normInv);
-    setHotbar(state.hotbar);
+    setHotbar(normHb);
     setHotbarSlots(state.hotbarSlots);
-    setEquipment(state.equipment);
+    setEquipment(normEq);
     setCharacter(state.character);
     playerInvRef.current = normInv;
+    hotbarRef.current    = normHb;
+    equipmentRef.current = normEq;
 
     const lrd = state.lastRunDay ?? -1;
     setLastRunDay(lrd);
@@ -204,9 +235,9 @@ export function usePlayerState(room) {
     // Warm the local cache with the server state
     if (roomId) {
       writePlayerCache(roomId, "inventory",    normInv);
-      writePlayerCache(roomId, "hotbar",       state.hotbar);
+      writePlayerCache(roomId, "hotbar",       normHb);
       writePlayerCache(roomId, "hotbar_slots", state.hotbarSlots);
-      writePlayerCache(roomId, "equipment",    state.equipment);
+      writePlayerCache(roomId, "equipment",    normEq);
       writePlayerCache(roomId, "character",    state.character);
       writePlayerCache(roomId, "last_run_day", lrd);
     }
@@ -217,12 +248,22 @@ export function usePlayerState(room) {
     // 1. Optimistic: apply localStorage cache immediately
     const cached = readPlayerCache(roomId);
     if (cached) {
-      setPlayerInventory(cached.inventory);
-      setHotbar(cached.hotbar);
+      // Run the tool-instance migration on cached data too — legacy caches may
+      // still hold the pre-instance shape (no toolInstances, scalar/array
+      // durability on equipment).
+      const cachedMigrated = migrateToToolInstances(
+        cached.inventory ?? emptyPlayerInventory(),
+        cached.equipment ?? { ...EMPTY_EQUIPMENT },
+        cached.hotbar ?? emptyHotbar(),
+      );
+      setPlayerInventory(cachedMigrated.inventory);
+      setHotbar(cachedMigrated.hotbar);
       setHotbarSlots(cached.hotbarSlots);
-      setEquipment(cached.equipment);
+      setEquipment(cachedMigrated.equipment);
       setCharacter(cached.character);
-      playerInvRef.current = cached.inventory;
+      playerInvRef.current = cachedMigrated.inventory;
+      hotbarRef.current    = cachedMigrated.hotbar;
+      equipmentRef.current = cachedMigrated.equipment;
       if (cached.lastRunDay != null) {
         setLastRunDay(cached.lastRunDay);
         lastRunDayRef.current = cached.lastRunDay;

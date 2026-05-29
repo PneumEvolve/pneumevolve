@@ -838,31 +838,25 @@ export default function ForestRun({
     // Drain 1 durability for any successful hit (enemy, tree, or deposit)
     const anyHit = hitEnemies.length > 0 || hitTrees.length > 0 || (hitDeposits?.length ?? 0) > 0;
     if (anyHit) {
-      const newEq = drainWeaponDurability(equipmentRef.current, (brokenId) => {
-        pushToast(`💔 ${ITEMS[brokenId]?.label ?? brokenId} broke!`, "#ff6060");
-
-        // Remove 1 copy from player inventory
-        const inv = playerInvRef.current ?? { items: {}, slots: INVENTORY_BASE_SLOTS };
-        const nextItems = { ...inv.items };
-        if ((nextItems[brokenId] ?? 0) > 1) {
-          nextItems[brokenId] -= 1;
-        } else {
-          delete nextItems[brokenId];
+      const drained = drainWeaponDurability(
+        equipmentRef.current,
+        playerInvRef.current ?? { items: {}, slots: INVENTORY_BASE_SLOTS },
+        hotbarRef.current ?? [],
+        (brokenId) => {
+          pushToast(`💔 ${ITEMS[brokenId]?.label ?? brokenId} broke!`, "#ff6060");
         }
-        const nextInv = { ...inv, items: nextItems };
-        playerInvRef.current = nextInv;
-        onPlayerInventoryUpdate?.(nextInv);
-
-        // Clear the tool from any hotbar slot
-        const newHotbar = (hotbarRef.current ?? []).map(s =>
-          s?.item === brokenId ? null : s
-        );
-        hotbarRef.current = newHotbar;
-        onHotbarChange?.(newHotbar);
-      });
-      if (newEq !== equipmentRef.current) {
-        equipmentRef.current = newEq;
-        onEquipmentUpdateRef.current?.(newEq);
+      );
+      if (drained.inventory !== playerInvRef.current) {
+        playerInvRef.current = drained.inventory;
+        onPlayerInventoryUpdate?.(drained.inventory);
+      }
+      if (drained.hotbar !== hotbarRef.current) {
+        hotbarRef.current = drained.hotbar;
+        onHotbarChange?.(drained.hotbar);
+      }
+      if (drained.equipment !== equipmentRef.current) {
+        equipmentRef.current = drained.equipment;
+        onEquipmentUpdateRef.current?.(drained.equipment);
       }
     }
 
@@ -1209,7 +1203,7 @@ export default function ForestRun({
     const items = playerInvRef.current?.items ?? {};
     const slotsUsed  = Object.values(items).filter(v => v > 0).length;
     const slotsTotal = playerInvRef.current?.slots ?? INVENTORY_BASE_SLOTS;
-    const weaponDur = getWeaponDurability(equipmentRef.current);
+    const weaponDur = getWeaponDurability(equipmentRef.current, playerInvRef.current, hotbarRef.current);
     drawHUD(ctx, W, H, state, items, t, slotsUsed, slotsTotal, weaponDur);
 
     // Toasts (centered top under the HUD bar)
@@ -1389,6 +1383,7 @@ export default function ForestRun({
           chest={chest}
           equipment={equipment}
           onEquipItem={onEquipItem}
+          onEquipmentUpdate={onEquipmentUpdate}
           hotbar={hotbar}
           onHotbarChange={onHotbarChange}
           onDropItem={dropItemAtPlayer}
