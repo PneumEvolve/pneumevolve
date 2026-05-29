@@ -28,6 +28,7 @@ import { ItemIcon } from "./ItemIcon";
 import { makeSounds } from "./audio_sounds";
 import { RunTabMenu } from "./player_RunTabMenu";
 import { drawPlayerLegacyRun as drawPlayer } from "./drawing_drawPlayer";
+import { MobileControls } from "./MobileControls";
 
 const PLAYER_SPEED   = 120;
 const PLAYER_HP      = 5;
@@ -848,6 +849,11 @@ export default function MiningRun({
           onDropItem={dropItemAtPlayer}
         />
       )}
+      <MobileControls
+  keysRef={keysRef}
+  onUse={() => { soundRef.current?.unlock(); doAttackRef.current?.(); }}
+  onPause={() => { setPauseOpen(v => { pauseOpenRef.current = !v; return !v; }); }}
+/>
     </div>
   );
 }

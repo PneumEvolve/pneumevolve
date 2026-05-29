@@ -33,6 +33,8 @@ import {
 import { ItemIcon } from "./ItemIcon";
 import { RunTabMenu } from "./player_RunTabMenu";
 import { drawPlayerLegacyRun as drawPlayer } from "./drawing_drawPlayer";
+import { MobileControls } from "./MobileControls";
+
 
 const PLAYER_SPEED   = 130;
 const PLAYER_HP      = 5;
@@ -917,6 +919,16 @@ export default function ForestRun({
   }
   doAttackRef.current = doAttack;
 
+  // Mobile jump — same logic as the space-bar handler
+const mobileJump = useCallback(() => {
+  soundRef.current?.unlock();
+  if (stateRef.current && stateRef.current.jumpZ === 0 && stateRef.current.jumpVY === 0) {
+    stateRef.current.jumpVY = -220;
+    sendRunMove(Math.round(stateRef.current.px), Math.round(stateRef.current.py), stateRef.current.facing, -220);
+    lastMoveRef.current = performance.now();
+  }
+}, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── tick (called every frame by useRunLoop) ───────────────────────────
   // `state` is the run state, `ctx` the 2D canvas context, `helpers`
   // exposes pause/keys/sound. `keysRef` / `soundRef` from useRunLoop are
@@ -1389,6 +1401,12 @@ export default function ForestRun({
           onDropItem={dropItemAtPlayer}
         />
       )}
+      <MobileControls
+  keysRef={keysRef}
+  onUse={() => { soundRef.current?.unlock(); doAttackRef.current?.(); }}
+  onJump={mobileJump}
+  onPause={() => { setPauseOpen(v => { pauseOpenRef.current = !v; return !v; }); }}
+/>
     </div>
   );
 }

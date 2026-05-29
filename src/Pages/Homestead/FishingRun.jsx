@@ -9,6 +9,7 @@ import {
 import { ItemIcon } from "./ItemIcon";
 import { makeSounds } from "./audio_sounds";
 import { PauseOverlay } from "./runs_PauseOverlay";
+import { MobileControls } from "./MobileControls";
 
 const PLAYER_SPEED   = 110;
 const RUN_DURATION   = 180; // 3 minutes
@@ -17,22 +18,17 @@ const LOOT_FLOAT_DUR = 1.4;
 
 // ─── Fishing state machine ────────────────────────────────────────────────────
 // idle → casting → waiting → biting → reeling → caught/missed
-const FISH_CAST_DIST  = 180;     // how far the lure lands in front of player
-const FISH_WAIT_MIN   = 2.5;     // min seconds before a bite
-const FISH_WAIT_MAX   = 7.0;
-const FISH_BITE_WINDOW = 1.8;    // seconds to reel before fish escapes
-const FISH_REEL_TIME  = 1.2;     // hold space to reel it in
-
-// makeSounds now lives in ./audio/sounds.js and takes a palette name.
-// The palette for this run is "fishing".
+const FISH_CAST_DIST   = 180;
+const FISH_WAIT_MIN    = 2.5;
+const FISH_WAIT_MAX    = 7.0;
+const FISH_BITE_WINDOW = 1.8;
+const FISH_REEL_TIME   = 1.2;
 
 // ─── Drawing helpers ──────────────────────────────────────────────────────────
 
 function drawLakeBackground(ctx, camX, W, H, t) {
-  // Sky
   ctx.fillStyle = "#2a4a7a"; ctx.fillRect(0, 0, W, H);
 
-  // Stars
   for (let i = 0; i < 60; i++) {
     const sx = ((i * 317 + 42) & 0x7fff) / 0x7fff * W;
     const sy = ((i * 173 + 13) & 0x7fff) / 0x7fff * (H * 0.45);
@@ -41,17 +37,14 @@ function drawLakeBackground(ctx, camX, W, H, t) {
     ctx.fillRect(sx, sy, 1.5, 1.5);
   }
 
-  // Moon
   ctx.fillStyle = "#f5ead0";
   ctx.beginPath(); ctx.arc(W * 0.8, 40, 28, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = "#2a4a7a";
   ctx.beginPath(); ctx.arc(W * 0.8 + 10, 35, 24, 0, Math.PI * 2); ctx.fill();
 
-  // Water
   const waterY = H * 0.42;
   ctx.fillStyle = "#1a2d4a"; ctx.fillRect(0, waterY, W, H - waterY);
 
-  // Water shimmer rows
   for (let row = 0; row < 8; row++) {
     const wy = waterY + row * 32;
     for (let col = 0; col < Math.ceil(W / 48) + 2; col++) {
@@ -66,7 +59,6 @@ function drawLakeBackground(ctx, camX, W, H, t) {
     }
   }
 
-  // Water reflection of moon
   const reflY = waterY + 20;
   for (let i = 0; i < 6; i++) {
     const alpha = (0.08 - i * 0.01) * (0.6 + 0.4 * Math.sin(t * 1.8 + i));
@@ -74,9 +66,7 @@ function drawLakeBackground(ctx, camX, W, H, t) {
     ctx.fillRect(W * 0.78 - i * 8, reflY + i * 18, 18 + i * 14, 4);
   }
 
-  // Shore (top of water)
   ctx.fillStyle = "#3a5a28"; ctx.fillRect(0, waterY - 18, W, 22);
-  // Shore grass tufts
   for (let i = 0; i < Math.ceil(W / 30) + 2; i++) {
     const gx = i * 30 - (camX % 30);
     const n  = ((i * 137) & 0x7fff) / 0x7fff;
@@ -86,7 +76,6 @@ function drawLakeBackground(ctx, camX, W, H, t) {
     }
   }
 
-  // Dark vignette edges
   const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.25, W / 2, H / 2, H * 0.85);
   vg.addColorStop(0, "rgba(0,0,0,0)");
   vg.addColorStop(1, "rgba(0,0,10,0.5)");
@@ -114,14 +103,12 @@ function drawLure(ctx, lx, ly, camX, t, fishState) {
     ? Math.sin(t * 2.8) * 3
     : 0;
 
-  // Line from somewhere offscreen top (player) to lure
   ctx.strokeStyle = "rgba(200,200,160,0.6)";
   ctx.lineWidth = 1;
   ctx.setLineDash([3, 3]);
   ctx.beginPath(); ctx.moveTo(sx, ly + bob - 40); ctx.lineTo(sx, ly + bob); ctx.stroke();
   ctx.setLineDash([]);
 
-  // Lure float
   const lureCol = fishState === "biting" ? "#ff6040" : "#f0c840";
   ctx.fillStyle = "rgba(0,0,0,0.3)";
   ctx.beginPath(); ctx.ellipse(sx + 2, ly + bob + 4, 7, 3, 0, 0, Math.PI * 2); ctx.fill();
@@ -131,7 +118,6 @@ function drawLure(ctx, lx, ly, camX, t, fishState) {
   ctx.beginPath(); ctx.ellipse(sx - 2, ly + bob - 3, 2, 4, -0.4, 0, Math.PI * 2); ctx.fill();
 
   if (fishState === "biting") {
-    // Dramatic ripples
     ctx.strokeStyle = "rgba(255,100,40,0.6)";
     ctx.lineWidth = 1.5;
     for (let r = 0; r < 3; r++) {
@@ -157,20 +143,16 @@ function drawFishPlayer(ctx, px, py, facing, step, t, character) {
   const [bodyCol, legCol] = OUTFITS[outfit] || ["#5b8dd9","#3a6abf"];
   const hairCol = HAIRS[hair] || "#7a4f2a";
 
-  // Shadow
   ctx.fillStyle = "rgba(0,0,0,0.2)";
   ctx.beginPath(); ctx.ellipse(px, py + 12, 8, 3, 0, 0, Math.PI * 2); ctx.fill();
 
-  // Legs
   ctx.fillStyle = legCol;
   ctx.fillRect(px - 6, py + 2, 5, 9);
   ctx.fillRect(px + 1, py + 2, 5, 9);
 
-  // Body
   ctx.fillStyle = bodyCol;
   ctx.fillRect(px - 7, py - 10 + bobY, 14, 13);
 
-  // Arms — casting pose (both arms extend toward facing)
   ctx.fillStyle = bodyCol;
   if (facing === "right") {
     ctx.fillRect(px + 7, py - 14 + bobY, 12, 4);
@@ -180,11 +162,9 @@ function drawFishPlayer(ctx, px, py, facing, step, t, character) {
     ctx.fillRect(px + 7, py - 9 + bobY, 3, 8);
   }
 
-  // Head
   ctx.fillStyle = skinCol; ctx.fillRect(px - 7, py - 22 + bobY, 14, 12);
   ctx.fillStyle = hairCol; ctx.fillRect(px - 7, py - 22 + bobY, 14, 5);
 
-  // Hat
   if (hat !== "none" && HATS_C[hat]) {
     ctx.fillStyle = HATS_C[hat];
     if (hat === "cap")    { ctx.fillRect(px - 8, py - 27 + bobY, 16, 6); ctx.fillRect(px - 10, py - 28 + bobY, 20, 3); }
@@ -192,7 +172,6 @@ function drawFishPlayer(ctx, px, py, facing, step, t, character) {
     if (hat === "beanie") { ctx.beginPath(); ctx.arc(px, py - 24 + bobY, 8, Math.PI, 0); ctx.fill(); }
   }
 
-  // Fishing rod held up
   const rodX = facing === "right" ? px + 16 : px - 16;
   ctx.strokeStyle = "#8b6020"; ctx.lineWidth = 2; ctx.lineCap = "round";
   ctx.beginPath();
@@ -204,36 +183,32 @@ function drawFishPlayer(ctx, px, py, facing, step, t, character) {
 function drawFishHUD(ctx, W, H, state, inventory, t) {
   ctx.fillStyle = "rgba(10,20,36,0.92)"; ctx.fillRect(0, 0, W, 32);
 
-  // Timer
   const timeLeft = Math.max(0, Math.ceil(RUN_DURATION - state.elapsed));
   const mins = Math.floor(timeLeft / 60), secs = timeLeft % 60;
   ctx.fillStyle = timeLeft < 30 ? "#ff8080" : "#80d0ff";
   ctx.font = "bold 13px monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.fillText(`${mins}:${String(secs).padStart(2, "0")}`, W / 2, 16);
 
-  // Catch counts
   ctx.textAlign = "right"; ctx.font = "11px monospace"; ctx.fillStyle = "#a8d8f0";
   ctx.fillText(
     `🐟${inventory.fish ?? 0}  🐠${inventory.big_fish ?? 0}  🐡${inventory.rare_fish ?? 0}  💎${inventory.gems ?? 0}`,
     W - 14, 16
   );
 
-  // Cast counter (left)
   ctx.textAlign = "left"; ctx.fillStyle = "rgba(200,220,255,0.5)"; ctx.font = "10px monospace";
   ctx.fillText(`${state.catches} caught`, 14, 16);
 
-  // Bottom tip bar
   ctx.fillStyle = "rgba(10,20,36,0.75)"; ctx.fillRect(0, H - 26, W, 26);
   ctx.fillStyle = "rgba(180,210,255,0.4)"; ctx.font = "9px monospace";
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
 
   const hint =
-    state.fishState === "idle"    ? "WASD to move  ·  walk to a glowing spot & press Space to cast  ·  [Esc] pause" :
+    state.fishState === "idle"    ? "WASD to move  ·  walk to a glowing spot & press Space / Use to cast  ·  [Esc] pause" :
     state.fishState === "casting" ? "casting..." :
     state.fishState === "waiting" ? "waiting for a bite..." :
-    state.fishState === "biting"  ? "!! BITE !! — hold Space to reel!" :
+    state.fishState === "biting"  ? "!! BITE !! — hold Space / Use to reel!" :
     state.fishState === "reeling" ? "reeling in... keep holding!" :
-    "WASD to move  ·  Space to cast  ·  [Esc] pause";
+    "WASD to move  ·  Space / Use to cast  ·  [Esc] pause";
 
   ctx.fillText(hint, W / 2, H - 13);
 }
@@ -254,13 +229,6 @@ function drawReelBar(ctx, W, H, reelProgress) {
 }
 
 // ─── Hotbar overlay ───────────────────────────────────────────────────────────
-const HOTBAR_DISPLAY_ICONS = {
-  axe:"🪓", pickaxe:"⛏️", fishing_rod:"🎣",
-  leather_armor:"🛡️", cooked_meat:"🍖", potion_table:"🧪",
-  fish:"🐟", big_fish:"🐠", rare_fish:"🐡", apples:"🍎",
-  berries:"🫐", mushrooms:"🍄", herbs:"🌿",
-};
-
 function FishHotbar({ hotbar, selectedSlot, onSelectSlot, equipment }) {
   return (
     <div style={{
@@ -320,6 +288,10 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
   const characterRef   = useRef(character ?? {});
   const hotbarRef      = useRef(hotbar ?? []);
   const spaceHeldRef   = useRef(false);
+  // Mobile: mirrors spaceHeldRef so holding the Use button drives reeling
+  const mobileActionHeldRef = useRef(false);
+  // Stable ref to doCast so MobileControls can call it from outside the useEffect
+  const doCastRef      = useRef(null);
   const partnerAppearanceRef = useRef({ character: null, equipment: null });
 
   useEffect(() => { equipmentRef.current = equipment ?? {}; }, [equipment]);
@@ -330,7 +302,6 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
   const selectedSlotRef = useRef(0);
   useEffect(() => { selectedSlotRef.current = selectedHotbarSlot; }, [selectedHotbarSlot]);
 
-  // Pause / abandon overlay (shown when player presses Escape mid-run)
   const [pauseOpen, setPauseOpen] = useState(false);
   const pauseOpenRef = useRef(false);
   useEffect(() => { pauseOpenRef.current = pauseOpen; }, [pauseOpen]);
@@ -357,7 +328,6 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
     soundRef.current?.pickup();
   }, [onHotbarChange]);
 
-  // Supabase sync
   const handlers = useRef({
     onRunMove: ({ x, y, facing }) => {
       if (stateRef.current) {
@@ -396,13 +366,12 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
       step: 0, stepTimer: 0,
       camX: 0, elapsed: 0,
       catches: 0, over: false,
-      // Fishing state machine
-      fishState: "idle",    // idle|casting|waiting|biting|reeling
+      fishState: "idle",
       lureX: 0, lureY: 0,
-      fishWaitTimer: 0,     // countdown to bite
+      fishWaitTimer: 0,
       fishWaitMax: 4,
-      biteTimer: 0,         // countdown until fish escapes
-      reelProgress: 0,      // 0..1
+      biteTimer: 0,
+      reelProgress: 0,
       nearSpotId: null,
       spots,
       inventory: { ...fullEmptyInventory() },
@@ -429,6 +398,7 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
     stateRef.current = initState();
     lootFloatsRef.current = [];
 
+    // ── doCast ──────────────────────────────────────────────────────────────
     function doCast() {
       const state = stateRef.current;
       if (!state || state.over) return;
@@ -462,6 +432,10 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
       }, 400);
     }
 
+    // Register on the ref so MobileControls can call it from outside this effect
+    doCastRef.current = doCast;
+
+    // ── Input handlers ───────────────────────────────────────────────────────
     const onKeyDown = (e) => {
       keysRef.current[e.key] = true;
       soundRef.current?.unlock();
@@ -471,7 +445,7 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
         return;
       }
 
-      if (pauseOpenRef.current) return; // swallow gameplay keys while paused
+      if (pauseOpenRef.current) return;
 
       if (e.key >= "1" && e.key <= "6") {
         const idx = parseInt(e.key) - 1;
@@ -487,8 +461,7 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
         spaceHeldRef.current = true;
         const state = stateRef.current;
         if (!state) return;
-        if (state.fishState === "idle")   doCast();
-        if (state.fishState === "biting") { /* handled in tick */ }
+        if (state.fishState === "idle") doCast();
       }
     };
     const onKeyUp = (e) => {
@@ -507,12 +480,12 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
     window.addEventListener("keyup",   onKeyUp);
     canvas.addEventListener("click",   onClick);
 
+    // ── Game loop ────────────────────────────────────────────────────────────
     const tick = (ts) => {
       rafRef.current = requestAnimationFrame(tick);
       const state = stateRef.current;
       if (!canvas || !state || state.over) return;
 
-      // Pause world updates while pause overlay is open
       if (pauseOpenRef.current) { state.lastTime = ts; return; }
 
       const ctx  = canvas.getContext("2d");
@@ -524,7 +497,7 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
       state.elapsed += dt;
       if (state.elapsed >= RUN_DURATION) { finishRun(state); return; }
 
-      // ── Movement (only when idle / not actively reeling) ──────────────
+      // Movement (only when idle)
       let dx = 0, dy = 0;
       const canMove = state.fishState === "idle";
       if (canMove) {
@@ -544,7 +517,7 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
 
       if (state.noRodFlash > 0) state.noRodFlash = Math.max(0, state.noRodFlash - dt * 1.0);
 
-      // ── Detect nearest fishing spot ───────────────────────────────────
+      // Nearest fishing spot
       if (state.fishState === "idle") {
         let nearId = null, nearDist = 80;
         for (const spot of state.spots) {
@@ -555,7 +528,10 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
         state.nearSpotId = nearId;
       }
 
-      // ── Fishing state machine ─────────────────────────────────────────
+      // ── Fishing state machine ────────────────────────────────────────────
+      // "held" is true when keyboard space OR the mobile Use button is held down
+      const held = spaceHeldRef.current || mobileActionHeldRef.current;
+
       if (state.fishState === "waiting") {
         state.fishWaitTimer -= dt;
         if (state.fishWaitTimer <= 0) {
@@ -567,7 +543,7 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
 
       if (state.fishState === "biting") {
         state.biteTimer -= dt;
-        if (spaceHeldRef.current) {
+        if (held) {
           state.fishState = "reeling";
           state.reelProgress = 0;
         } else if (state.biteTimer <= 0) {
@@ -583,7 +559,7 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
       }
 
       if (state.fishState === "reeling") {
-        if (spaceHeldRef.current) {
+        if (held) {
           state.reelProgress += dt / FISH_REEL_TIME;
           if (state.reelProgress >= 1) {
             state.fishState = "idle";
@@ -620,7 +596,7 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
         }
       }
 
-      // ── Camera ────────────────────────────────────────────────────────
+      // Camera
       const targetCamX = Math.max(0, Math.min(LAKE_W - W, state.px - W / 2));
       state.camX += (targetCamX - state.camX) * Math.min(1, 8 * dt);
 
@@ -630,7 +606,7 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
         lastMoveRef.current = ts;
       }
 
-      // ── DRAW ──────────────────────────────────────────────────────────
+      // ── Draw ─────────────────────────────────────────────────────────────
       const camX = state.camX;
       drawLakeBackground(ctx, camX, W, H, t);
 
@@ -722,6 +698,9 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup",   onKeyUp);
       canvas.removeEventListener("click",   onClick);
+      // Clear mobile held state on unmount
+      mobileActionHeldRef.current = false;
+      doCastRef.current = null;
     };
   }, [seed]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -731,7 +710,6 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
         ref={canvasRef}
         style={{ width: "100%", height: "100%", display: "block", imageRendering: "pixelated" }}
       />
-      {/* Pause / abandon overlay */}
       <PauseOverlay
         open={pauseOpen}
         theme="fishing"
@@ -744,6 +722,24 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
         selectedSlot={selectedHotbarSlot}
         onSelectSlot={idx => { setSelectedHotbarSlot(idx); selectedSlotRef.current = idx; }}
         equipment={equipment}
+      />
+      <MobileControls
+        keysRef={keysRef}
+        onUseStart={() => {
+          soundRef.current?.unlock();
+          const state = stateRef.current;
+          if (!state) return;
+          // If idle and near a spot, cast. Otherwise set held flag for biting/reeling.
+          if (state.fishState === "idle") {
+            doCastRef.current?.();
+          } else {
+            mobileActionHeldRef.current = true;
+          }
+        }}
+        onUseEnd={() => {
+          mobileActionHeldRef.current = false;
+        }}
+        onPause={() => { setPauseOpen(v => { pauseOpenRef.current = !v; return !v; }); }}
       />
     </div>
   );

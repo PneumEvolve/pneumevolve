@@ -28,6 +28,7 @@ import { ItemIcon } from "./ItemIcon";
 import { makeSounds } from "./audio_sounds";
 import { RunTabMenu } from "./player_RunTabMenu";
 import { drawPlayerLegacyRun as drawPlayer } from "./drawing_drawPlayer";
+import { MobileControls } from "./MobileControls";
 
 const PLAYER_SPEED  = 140;
 const RUN_DURATION  = 150;
@@ -655,6 +656,11 @@ export default function FruitRun({
           onDropItem={dropItemAtPlayer}
         />
       )}
+      <MobileControls
+  keysRef={keysRef}
+  onUse={() => { soundRef.current?.unlock(); useHotbarItem(); }}
+  onPause={() => { setPauseOpen(v => { pauseOpenRef.current = !v; return !v; }); }}
+/>
     </div>
   );
 }
