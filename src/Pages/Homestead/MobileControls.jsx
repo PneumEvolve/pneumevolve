@@ -10,7 +10,10 @@
 //   onUseEnd     — called on button release      (needed for hold mechanics)
 //   onUse        — convenience single-fire alias → maps to onUseStart only
 //   onJump       — optional; Jump button only rendered when provided
-//   onPause      — opens the pause overlay / tab menu (top-left ≡ button)
+//   onPause      — opens the pause overlay (top-left ≡ button)
+//   onMenu       — optional; opens the tab/inventory menu (top-right 🎒 button)
+//                  when provided a bag button appears in the top-right corner,
+//                  used by runs so players can access their inventory on mobile
 //
 //   // Ghost placement mode (HomesteadView building placement)
 //   ghostMode    — boolean; when true, Use becomes "Place" and a Cancel button appears
@@ -19,8 +22,9 @@
 //
 // Layout:
 //
-//   [ ≡ ]                              [ Jump ]
+//   [ ≡ ]                              [ 🎒 ] (if onMenu provided)
 //   [ Joystick ]          [ Cancel ] [ Use / Place ]
+//                                    [ Jump ] (if onJump provided)
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
 
@@ -243,8 +247,8 @@ function ActionBtn({ label, size = 52, fontSize = 11, onPressStart, onPressEnd, 
   );
 }
 
-// ── Pause / menu button ───────────────────────────────────────────────────────
-function PauseBtn({ onPress }) {
+// ── Small icon button (pause / menu) ─────────────────────────────────────────
+function IconBtn({ onPress, label = "≡" }) {
   const ref = useRef(null);
   const [pressed, setPressed] = useState(false);
   const handleTouchStart = useCallback((e) => { e.preventDefault(); setPressed(true);  onPress?.(); }, [onPress]);
@@ -267,7 +271,7 @@ function PauseBtn({ onPress }) {
       background: pressed ? C.pause : "transparent",
       border: `1px solid ${C.pauseBorder}`,
       color: "rgba(245,230,200,0.45)",
-    }}>≡</div>
+    }}>{label}</div>
   );
 }
 
@@ -280,8 +284,11 @@ export function MobileControls({
   onUseEnd,
   // Optional jump button (ForestRun, HomesteadView)
   onJump,
-  // Top-left menu/pause button
+  // Top-left pause button
   onPause,
+  // Top-right bag/menu button — optional; shown in runs so players can open
+  // the tab menu without a keyboard. Pass: onMenu={() => setTabMenuOpen(true)}
+  onMenu,
   // Ghost placement mode (HomesteadView building placement)
   ghostMode = false,
   onGhostConfirm,
@@ -294,10 +301,17 @@ export function MobileControls({
 
   return (
     <>
-      {/* Top-left: pause / menu */}
+      {/* Top-left: pause */}
       <div style={{ position:"absolute", top:12, left:12, zIndex:30 }}>
-        <PauseBtn onPress={onPause} />
+        <IconBtn onPress={onPause} label="≡" />
       </div>
+
+      {/* Top-right: bag / tab menu (runs only) */}
+      {onMenu && (
+        <div style={{ position:"absolute", top:12, right:12, zIndex:30 }}>
+          <IconBtn onPress={onMenu} label="🎒" />
+        </div>
+      )}
 
       {/* Bottom row */}
       <div style={{

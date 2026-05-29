@@ -1582,7 +1582,7 @@ function TabMenu({
 
     function renderGrid(cells, zone, cols) {
       return (
-        <div style={{ display:"grid", gridTemplateColumns:`repeat(${cols}, ${CELL_SIZE}px)`, gap:GAP }}>
+        <div style={{ display:"grid", gridTemplateColumns:`repeat(${cols}, 1fr)`, gap:GAP }}>
           {cells.map((cell, idx) => {
             const isOver = dragOver?.zone === zone && dragOver?.idx === idx;
             const isSelected = qtyPicker?.zone === zone && qtyPicker?.idx === idx;
@@ -1616,7 +1616,7 @@ function TabMenu({
                 }}
                 title={it ? `${it.label} ×${cell.qty}` : "Empty slot"}
                 style={{
-                  width: CELL_SIZE, height: CELL_SIZE,
+                  width: "100%", aspectRatio: "1", minWidth: 0,
                   borderRadius: 7,
                   background: isSelected
                     ? "rgba(200,230,120,0.18)"

@@ -853,6 +853,7 @@ export default function MiningRun({
   keysRef={keysRef}
   onUse={() => { soundRef.current?.unlock(); doAttackRef.current?.(); }}
   onPause={() => { setPauseOpen(v => { pauseOpenRef.current = !v; return !v; }); }}
+  onMenu={() => { setActiveTab("inventory"); setTabMenuOpen(true); }}
 />
     </div>
   );

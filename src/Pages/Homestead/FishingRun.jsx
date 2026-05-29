@@ -740,6 +740,7 @@ export default function FishingRun({ room, seed, coOp = false, onRunComplete, ch
           mobileActionHeldRef.current = false;
         }}
         onPause={() => { setPauseOpen(v => { pauseOpenRef.current = !v; return !v; }); }}
+        onMenu={() => { setActiveTab("inventory"); setTabMenuOpen(true); }}
       />
     </div>
   );

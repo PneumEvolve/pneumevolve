@@ -1406,6 +1406,7 @@ const mobileJump = useCallback(() => {
   onUse={() => { soundRef.current?.unlock(); doAttackRef.current?.(); }}
   onJump={mobileJump}
   onPause={() => { setPauseOpen(v => { pauseOpenRef.current = !v; return !v; }); }}
+  onMenu={() => { setActiveTab("inventory"); setTabMenuOpen(true); }}
 />
     </div>
   );
