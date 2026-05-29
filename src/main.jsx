@@ -93,7 +93,7 @@ import HomesteadGame from "@/Pages/Homestead"
 
 import GameTestGame from "@/Pages/GameTest"
 
-import Learning from "@/Pages/Learning/Learning"
+import Learning from "@/Pages/Learning/learning"
  
 import { HelmetProvider } from "react-helmet-async";
 import "./index.css";
