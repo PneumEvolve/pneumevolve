@@ -714,12 +714,28 @@ export function movePlayer(player, dx, dy, dt, buildings) {
 
 export function driveVehicle(vehicle, dx, dy, dt, buildings) {
   const len = Math.sqrt(dx * dx + dy * dy);
-  if (len === 0) return;
-  const nx = dx / len, ny = dy / len;
-  vehicle.x = Math.max(VEHICLE_RADIUS, Math.min(WORLD_W - VEHICLE_RADIUS, vehicle.x + nx * vehicle.speed * dt));
-  vehicle.y = Math.max(VEHICLE_RADIUS, Math.min(WORLD_H - VEHICLE_RADIUS, vehicle.y + ny * vehicle.speed * dt));
-  vehicle.facing = Math.atan2(ny, nx);
-  vehicle.fuel = Math.max(0, vehicle.fuel - 0.4 * dt);
+  if (len > 0) {
+    const nx = dx / len, ny = dy / len;
+    vehicle.x += nx * vehicle.speed * dt;
+    vehicle.y += ny * vehicle.speed * dt;
+    vehicle.facing = Math.atan2(ny, nx);
+    vehicle.fuel = Math.max(0, vehicle.fuel - 0.4 * dt);
+  }
+
+  // Apply and decay bounce impulse from zombie collisions
+  if (vehicle.bounceVx || vehicle.bounceVy) {
+    vehicle.x += (vehicle.bounceVx ?? 0) * dt;
+    vehicle.y += (vehicle.bounceVy ?? 0) * dt;
+    const decay = Math.max(0, 1 - 8 * dt); // decays to zero in ~0.3s
+    vehicle.bounceVx = (vehicle.bounceVx ?? 0) * decay;
+    vehicle.bounceVy = (vehicle.bounceVy ?? 0) * decay;
+    if (Math.abs(vehicle.bounceVx) < 1 && Math.abs(vehicle.bounceVy) < 1) {
+      vehicle.bounceVx = 0; vehicle.bounceVy = 0;
+    }
+  }
+
+  vehicle.x = Math.max(VEHICLE_RADIUS, Math.min(WORLD_W - VEHICLE_RADIUS, vehicle.x));
+  vehicle.y = Math.max(VEHICLE_RADIUS, Math.min(WORLD_H - VEHICLE_RADIUS, vehicle.y));
   if (buildings) {
     for (const b of buildings) resolveWallCollision(vehicle, b);
   }
@@ -1068,16 +1084,47 @@ export function applyZombieDamage(zombies, player, vehicle, buildings, player2 =
 
 export function updateVehicleCollisions(vehicle, zombies, dt, buildings) {
   if (!vehicle.occupied) return;
+
+  // Decay per-zombie hit cooldowns
+  zombies.forEach(z => {
+    if (z._vhitCooldown > 0) z._vhitCooldown -= dt;
+  });
+
+  let totalBounceX = 0, totalBounceY = 0, hitCount = 0;
+
   zombies.forEach(z => {
     if (z.dead) return;
     const d = dist(vehicle.x, vehicle.y, z.x, z.y);
     if (d < VEHICLE_RADIUS + z.radius) {
       if (buildings && areWallSeparated(vehicle.x, vehicle.y, z.x, z.y, buildings)) return;
-      z.hp -= 40; if (z.hp <= 0) z.dead = true;
       const ang = Math.atan2(z.y - vehicle.y, z.x - vehicle.x);
+
+      // Only deal damage once per 0.4s per zombie (prevents multi-hit in same frame)
+      if ((z._vhitCooldown ?? 0) <= 0) {
+        z.hp -= 15; // 2 hits to kill (zombie has 30 hp)
+        if (z.hp <= 0) z.dead = true;
+        z._vhitCooldown = 0.4;
+      }
+
+      // Push zombie away
       z.x += Math.cos(ang) * 30; z.y += Math.sin(ang) * 30;
+
+      // Accumulate bounce direction (opposite of zombie direction)
+      totalBounceX += -Math.cos(ang);
+      totalBounceY += -Math.sin(ang);
+      hitCount++;
     }
   });
+
+  // Apply bounce impulse to vehicle
+  if (hitCount > 0) {
+    const blen = Math.sqrt(totalBounceX * totalBounceX + totalBounceY * totalBounceY);
+    if (blen > 0) {
+      const BOUNCE_SPEED = 220;
+      vehicle.bounceVx = (vehicle.bounceVx ?? 0) + (totalBounceX / blen) * BOUNCE_SPEED;
+      vehicle.bounceVy = (vehicle.bounceVy ?? 0) + (totalBounceY / blen) * BOUNCE_SPEED;
+    }
+  }
 }
 
 // ─── Player attack ────────────────────────────────────────────────────────────

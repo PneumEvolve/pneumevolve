@@ -2966,6 +2966,8 @@ export default function HomesteadView({
   const townRef = town?.townRef;  // ref to NPC array for game loop reads
   // NPC position sync timer — flush NPC positions back to town state every 500ms
   const npcSyncTimerRef = useRef(0);
+  // Arrival check timer — re-evaluate NPC arrivals every 10s (so buildings trigger NPCs without requiring sleep)
+  const arrivalCheckTimerRef = useRef(0);
   const treasuryOpenRef      = useRef(false);
   const talkingNPCRef        = useRef(null);
   const townOpenRef          = useRef(false);
@@ -3671,6 +3673,13 @@ const damageEquippedHoe = useCallback(() => {
           npcSyncTimerRef.current = 0;
           town?.syncNPCPositions(npcs);
         }
+      }
+      // Periodically re-check NPC arrivals so buildings trigger new residents
+      // without requiring the player to sleep (every 10 real seconds)
+      arrivalCheckTimerRef.current = (arrivalCheckTimerRef.current ?? 0) + dt;
+      if (arrivalCheckTimerRef.current >= 10) {
+        arrivalCheckTimerRef.current = 0;
+        town?.checkArrivals?.();
       }
 
       // Interact target

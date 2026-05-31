@@ -349,7 +349,7 @@ export function useTownState(room, placedObjects, sendTownStateUpdated) {
 
       const updatedNPCs = prev.npcs.map(n =>
         n.id === npcInstanceId
-          ? { ...n, assignment: OBJ.TOWN_HALL }
+          ? { ...n, assignment: OBJ.TOWN_HALL, workPhase: "home", commuteTimer: 5 + Math.random() * 10, wanderTarget: null }
           : n
       );
       return {
@@ -373,7 +373,14 @@ export function useTownState(room, placedObjects, sendTownStateUpdated) {
       ...prev,
       npcs: prev.npcs.map(n =>
         n.id === npcInstanceId
-          ? { ...n, assignment: buildingType }
+          ? {
+              ...n,
+              assignment:   buildingType,
+              // Reset commute state so the NPC heads to the new building soon
+              workPhase:    "home",
+              commuteTimer: 5 + Math.random() * 10, // depart within ~5-15s
+              wanderTarget: null,
+            }
           : n
       ),
     }), true, true); // immediate + broadcast
@@ -404,7 +411,7 @@ export function useTownState(room, placedObjects, sendTownStateUpdated) {
         ...prev,
         npcs: prev.npcs.map(n =>
           n.id === candidate.id
-            ? { ...n, assignment: buildingType, mood: "happy" }
+            ? { ...n, assignment: buildingType, mood: "happy", workPhase: "home", commuteTimer: 5 + Math.random() * 10, wanderTarget: null }
             : n
         ),
       };

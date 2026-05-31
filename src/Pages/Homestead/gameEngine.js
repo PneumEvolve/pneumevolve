@@ -618,10 +618,15 @@ export function playerAttack(playerX, playerY, facing, enemies, trees, rand, equ
 export const NPC_BORDER_X = (WORLD_COLS - 3) * TILE;
 export const NPC_BORDER_Y = 22 * TILE;
 
-export const NPC_SPEED       = 52;   // pixels/sec while wandering
+export const NPC_SPEED         = 52;   // pixels/sec while wandering
 export const NPC_WANDER_RADIUS = TILE * 6;   // max tiles from home to wander
 export const NPC_WANDER_PAUSE  = 3.5;        // seconds to idle before picking new target
 export const NPC_INTERACT_REACH = TILE * 1.6; // how close player must be to talk
+
+// Commute timing: NPCs walk to their assigned building, linger, then return home
+export const NPC_COMMUTE_INTERVAL = 30;   // seconds at home before heading to work
+export const NPC_WORK_LINGER      = 20;   // seconds spent near the assigned building
+// workPhase values: "home" | "commuting_to_work" | "working" | "commuting_home"
 
 // ── Relationship system ───────────────────────────────────────────────────────
 //
@@ -952,43 +957,111 @@ export function updateNPCs(npcs, objects, tileMap, dt) {
   for (const npc of npcs) {
     if (npc.waitingAtBorder) continue;  // waiting NPCs don't wander
 
-    npc.wanderTimer -= dt;
+    // ── Ensure phase fields exist (migration for old saves) ─────────────────
+    if (!npc.workPhase) npc.workPhase = "home";
+    if (npc.commuteTimer == null) npc.commuteTimer = NPC_COMMUTE_INTERVAL * (0.5 + Math.random() * 0.5);
 
-    // ── Pick a new wander target ─────────────────────────────────────────────
-    if (!npc.wanderTarget || npc.wanderTimer <= 0) {
-      npc.wanderTimer = NPC_WANDER_PAUSE + Math.random() * 2;
+    // ── Resolve home and work positions ─────────────────────────────────────
+    let homeX = npc.x, homeY = npc.y;
+    if (npc.homeObjectId) {
+      const home = objects.find(o => o.id === npc.homeObjectId);
+      if (home) {
+        homeX = (home.tx + (home.w ?? 1) * 0.5) * TILE;
+        homeY = (home.ty + (home.h ?? 1) * 0.5) * TILE;
+      }
+    }
 
-      // Anchor wander around their home building if assigned; else current pos
-      let anchorX = npc.x;
-      let anchorY = npc.y;
-      if (npc.homeObjectId) {
-        const home = objects.find(o => o.id === npc.homeObjectId);
-        if (home) {
-          anchorX = (home.tx + (home.w ?? 1) * 0.5) * TILE;
-          anchorY = (home.ty + (home.h ?? 1) * 0.5) * TILE;
+    let workX = null, workY = null;
+    if (npc.assignment) {
+      const workBuilding = objects.find(o => o.type === npc.assignment);
+      if (workBuilding) {
+        workX = (workBuilding.tx + (workBuilding.w ?? 1) * 0.5) * TILE;
+        workY = (workBuilding.ty + (workBuilding.h ?? 1) * 0.5) * TILE;
+      }
+    }
+
+    // ── Phase state machine ──────────────────────────────────────────────────
+    npc.commuteTimer -= dt;
+
+    if (npc.workPhase === "home") {
+      // Wander near home; when timer fires, head to work (if assigned)
+      npc.wanderTimer = (npc.wanderTimer ?? 0) - dt;
+      if (!npc.wanderTarget || npc.wanderTimer <= 0) {
+        npc.wanderTimer = NPC_WANDER_PAUSE + Math.random() * 2;
+        const angle = Math.random() * Math.PI * 2;
+        const dist  = Math.random() * NPC_WANDER_RADIUS;
+        npc.wanderTarget = {
+          x: Math.max(TILE, Math.min(WORLD_PX_W - TILE, homeX + Math.cos(angle) * dist)),
+          y: Math.max(TILE, Math.min(WORLD_PX_H - TILE, homeY + Math.sin(angle) * dist)),
+        };
+      }
+      // Time to commute to work
+      if (npc.commuteTimer <= 0 && workX != null) {
+        npc.workPhase    = "commuting_to_work";
+        npc.wanderTarget = null;
+        npc.commuteTimer = NPC_WORK_LINGER + Math.random() * 10;
+      } else if (npc.commuteTimer <= 0) {
+        // No assignment — reset timer
+        npc.commuteTimer = NPC_COMMUTE_INTERVAL + Math.random() * 10;
+      }
+
+    } else if (npc.workPhase === "commuting_to_work") {
+      // Walk directly to the work building
+      if (workX == null) {
+        // Building removed — go home
+        npc.workPhase = "commuting_home";
+        npc.wanderTarget = null;
+      } else {
+        npc.wanderTarget = { x: workX, y: workY };
+        const dx = workX - npc.x, dy = workY - npc.y;
+        if (Math.hypot(dx, dy) < TILE * 1.5) {
+          // Arrived at work
+          npc.workPhase    = "working";
+          npc.wanderTarget = null;
+          npc.wanderTimer  = NPC_WANDER_PAUSE;
+          // commuteTimer already set to work-linger duration above
         }
       }
 
-      const angle = Math.random() * Math.PI * 2;
-      const dist  = Math.random() * NPC_WANDER_RADIUS;
-      const tx    = anchorX + Math.cos(angle) * dist;
-      const ty    = anchorY + Math.sin(angle) * dist;
+    } else if (npc.workPhase === "working") {
+      // Wander near the work building; when timer fires, head home
+      npc.wanderTimer = (npc.wanderTimer ?? 0) - dt;
+      if (!npc.wanderTarget || npc.wanderTimer <= 0) {
+        npc.wanderTimer = NPC_WANDER_PAUSE + Math.random() * 2;
+        const wx = workX ?? npc.x, wy = workY ?? npc.y;
+        const angle = Math.random() * Math.PI * 2;
+        const dist  = Math.random() * (TILE * 3);
+        npc.wanderTarget = {
+          x: Math.max(TILE, Math.min(WORLD_PX_W - TILE, wx + Math.cos(angle) * dist)),
+          y: Math.max(TILE, Math.min(WORLD_PX_H - TILE, wy + Math.sin(angle) * dist)),
+        };
+      }
+      if (npc.commuteTimer <= 0) {
+        // Done working — head home
+        npc.workPhase    = "commuting_home";
+        npc.wanderTarget = null;
+      }
 
-      // Clamp to world bounds
-      npc.wanderTarget = {
-        x: Math.max(TILE, Math.min(WORLD_PX_W - TILE, tx)),
-        y: Math.max(TILE, Math.min(WORLD_PX_H - TILE, ty)),
-      };
+    } else if (npc.workPhase === "commuting_home") {
+      // Walk directly back to home
+      npc.wanderTarget = { x: homeX, y: homeY };
+      const dx = homeX - npc.x, dy = homeY - npc.y;
+      if (Math.hypot(dx, dy) < TILE * 1.5) {
+        // Arrived home
+        npc.workPhase    = "home";
+        npc.wanderTarget = null;
+        npc.wanderTimer  = NPC_WANDER_PAUSE;
+        npc.commuteTimer = NPC_COMMUTE_INTERVAL + Math.random() * 15;
+      }
     }
 
-    // ── Move toward target ───────────────────────────────────────────────────
+    // ── Move toward current wanderTarget ────────────────────────────────────
     if (npc.wanderTarget) {
       const dx  = npc.wanderTarget.x - npc.x;
       const dy  = npc.wanderTarget.y - npc.y;
       const d   = Math.hypot(dx, dy);
 
       if (d < 4) {
-        // Arrived — clear target and idle until timer fires
         npc.wanderTarget = null;
         npc.step = 0;
       } else {
@@ -996,7 +1069,6 @@ export function updateNPCs(npcs, objects, tileMap, dt) {
         const nx  = npc.x + (dx / d) * spd;
         const ny  = npc.y + (dy / d) * spd;
 
-        // Simple tile collision — NPCs stop rather than slide
         const hw = PLAYER_W / 2;
         const fy = PLAYER_H * PLAYER_FOOT_Y;
         const solidX = isTileSolid(nx - hw, npc.y + fy, tileMap) || isTileSolid(nx + hw, npc.y + fy, tileMap);
@@ -1005,14 +1077,13 @@ export function updateNPCs(npcs, objects, tileMap, dt) {
         if (!solidX) npc.x = nx;
         if (!solidY) npc.y = ny;
 
-        // Update facing
         if (Math.abs(dx) > Math.abs(dy)) {
           npc.facing = dx > 0 ? "right" : "left";
         } else {
           npc.facing = dy > 0 ? "down" : "up";
         }
 
-        npc.step += dt * 8;  // walk cycle
+        npc.step += dt * 8;
       }
     }
   }
