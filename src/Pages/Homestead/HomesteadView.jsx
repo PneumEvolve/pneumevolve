@@ -938,6 +938,7 @@ function TabMenu({
   atCraftingStation,
   unlockedItemIds,
   buildingsUnlocked,
+  onTeleportHome,
 }) {
   const [craftMsg, setCraftMsg]        = useState(null);
   const [ch, setCh]                    = useState({ ...character });
@@ -2801,6 +2802,7 @@ function TabMenu({
             {HAT_STYLES.map(h=><button key={h.id} onClick={()=>setCh(c=>({...c,hat:h.id}))} style={{ padding:"6px 10px",borderRadius:8,cursor:"pointer",background:ch.hat===h.id?"rgba(200,230,120,0.1)":"rgba(255,255,255,0.03)",border:`1px solid ${ch.hat===h.id?"rgba(200,230,120,0.4)":"rgba(255,255,255,0.08)"}`,color:ch.hat===h.id?"rgba(200,230,120,0.9)":"rgba(245,230,200,0.5)",fontFamily:"monospace",fontSize:11 }}>{h.label}</button>)}
           </div>
         </div>
+        <button onClick={()=>{onTeleportHome?.();onClose();}} style={{ width:"100%",padding:"10px",borderRadius:10,cursor:"pointer",background:"rgba(255,120,80,0.08)",border:"1px solid rgba(255,120,80,0.3)",color:"rgba(255,160,120,0.9)",fontSize:12,fontFamily:"monospace" }}>🏠 unstuck — teleport home</button>
         <button onClick={()=>{onCharacterUpdate?.(ch);onClose();}} style={{ width:"100%",padding:"14px",borderRadius:10,cursor:"pointer",background:"rgba(200,230,120,0.1)",border:"1px solid rgba(200,230,120,0.3)",color:"rgba(200,230,120,0.9)",fontSize:13,fontFamily:"monospace" }}>save look →</button>
       </div>
     );
@@ -3934,6 +3936,14 @@ const damageEquippedHoe = useCallback(() => {
           atCraftingStation={atCraftingStation}
           unlockedItemIds={getUnlockedItemIds(town?.townState?.npcs)}
           buildingsUnlocked={town?.townState?.buildingsUnlocked ?? false}
+          onTeleportHome={() => {
+            const s = stateRef.current;
+            if (!s) return;
+            s.px = 8 * TILE;
+            s.py = 9 * TILE;
+            s.facing = "down";
+            try { localStorage.setItem("hearthroot_player_pos", JSON.stringify({ px: s.px, py: s.py, facing: "down" })); } catch {}
+          }}
           onStartGhostPlace={(id,info)=>{
             setTabMenuOpen(false); setAtCraftingStation(false);
             const ghost={ id, info, rotation:0, gtx:12, gty:12, gw:info.w, gh:info.h };
