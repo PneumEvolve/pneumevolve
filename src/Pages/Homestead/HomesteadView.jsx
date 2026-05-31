@@ -939,9 +939,11 @@ function TabMenu({
   unlockedItemIds,
   buildingsUnlocked,
 }) {
-  const [craftMsg, setCraftMsg]  = useState(null);
-  const [ch, setCh]              = useState({ ...character });
-  const [dragOverSlot, setDragOver] = useState(null);
+  const [craftMsg, setCraftMsg]        = useState(null);
+  const [ch, setCh]                    = useState({ ...character });
+  const [dragOverSlot, setDragOver]    = useState(null);
+  const [showAll, setShowAll]          = useState(false);
+  const [craftableOnly, setCraftableOnly] = useState(false);
   const overlayRef = useRef(null);
   const contentRef = useRef(null);
 
@@ -1801,9 +1803,8 @@ function TabMenu({
   }
 
   // ── Tab: Crafting ───────────────────────────────────────────────────────────
+  // showAll / craftableOnly live at TabMenu scope so crafting a item doesn't reset them.
   function CraftingTab() {
-    const [showAll, setShowAll]           = useState(false);
-    const [craftableOnly, setCraftableOnly] = useState(false);
 
     // Commit a freshly crafted result to player/hotbar state.
     //
@@ -2708,7 +2709,7 @@ function TabMenu({
         <div style={{ padding:"12px 14px",borderRadius:10,background:"rgba(139,96,64,0.12)",border:"1px solid rgba(180,140,80,0.2)" }}>
           <p style={{ fontSize:10,color:"rgba(200,180,120,0.6)",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:6 }}>how to farm</p>
           <p style={{ fontSize:11,color:"rgba(245,230,200,0.55)",lineHeight:1.7 }}>
-            Equip the <strong style={{ color:"rgba(200,230,120,0.8)" }}>Hoe</strong>, press <strong style={{ color:"rgba(200,230,120,0.8)" }}>E</strong> on grass to till it. Equip a seed in your hotbar, press <strong style={{ color:"rgba(200,230,120,0.8)" }}>E</strong> on tilled soil to plant. Press <strong style={{ color:"rgba(200,230,120,0.8)" }}>E</strong> on ready crops to harvest into your bag.
+            Equip the <strong style={{ color:"rgba(200,230,120,0.8)" }}>Hoe</strong>, press <strong style={{ color:"rgba(200,230,120,0.8)" }}>F</strong> on grass to till it. Equip a seed in your hotbar, press <strong style={{ color:"rgba(200,230,120,0.8)" }}>F</strong> on tilled soil to plant. Sleep to advance the day. Press <strong style={{ color:"rgba(200,230,120,0.8)" }}>F</strong> on ready crops to harvest into your bag.
           </p>
         </div>
         {seedsInBag.length>0&&(
@@ -2742,16 +2743,16 @@ function TabMenu({
           <div>
             <p style={{ fontSize:10,color:"rgba(245,230,200,0.3)",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:8 }}>growing now ({planted.length})</p>
             <div style={{ display:"flex",flexDirection:"column",gap:6 }}>
-              {planted.map(([key,plot])=>{const def=SEEDS[plot.seedId];const nowTs=Date.now();const elapsed=(nowTs-plot.plantedAt)/1000;const isWatered=plot.wateredAt&&(nowTs-plot.wateredAt)/1000<WATER_BOOST_SECONDS;const effectiveElapsed=isWatered?elapsed*1.5:elapsed;const progress=Math.min(1,effectiveElapsed/(def?.growthTime*(def?.growthStages??3)));return(
-                <div key={key} style={{ display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:9,background:plot.ready?"rgba(80,200,80,0.1)":isWatered?"rgba(60,140,200,0.08)":"rgba(60,120,40,0.08)",border:`1px solid ${plot.ready?"rgba(80,200,80,0.3)":isWatered?"rgba(80,160,220,0.3)":"rgba(80,160,40,0.15)"}` }}>
+              {planted.map(([key,plot])=>{const def=SEEDS[plot.seedId];const daysGrown=plot.daysGrown??0;const totalDays=def?.growthDays??2;const progress=Math.min(1,daysGrown/totalDays);const daysLeft=Math.max(0,totalDays-daysGrown);return(
+                <div key={key} style={{ display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:9,background:plot.ready?"rgba(80,200,80,0.1)":"rgba(60,120,40,0.08)",border:`1px solid ${plot.ready?"rgba(80,200,80,0.3)":"rgba(80,160,40,0.15)"}` }}>
                   <span style={{ fontSize:18 }}>{ITEMS[plot.seedId]?.icon??"🌱"}</span>
                   <div style={{ flex:1 }}>
-                    <div style={{ fontSize:12,color:plot.ready?"rgba(120,220,80,0.9)":"rgba(180,230,120,0.7)",display:"flex",alignItems:"center",gap:5 }}>{def?.label?.replace(" Seeds","")??plot.seedId} {plot.ready?"— ✓ ready!":""}{isWatered&&!plot.ready&&<span style={{ fontSize:9,color:"rgba(100,180,240,0.9)",background:"rgba(60,140,200,0.18)",border:"1px solid rgba(80,160,220,0.3)",borderRadius:4,padding:"1px 5px" }}>💧 ×1.5</span>}</div>
+                    <div style={{ fontSize:12,color:plot.ready?"rgba(120,220,80,0.9)":"rgba(180,230,120,0.7)",display:"flex",alignItems:"center",gap:5 }}>{def?.label?.replace(" Seeds","")??plot.seedId} {plot.ready?"— ✓ ready!":""}</div>
                     <div style={{ height:4,borderRadius:2,background:"rgba(255,255,255,0.08)",marginTop:4,overflow:"hidden" }}>
-                      <div style={{ height:"100%",width:`${progress*100}%`,background:plot.ready?"rgba(80,220,80,0.7)":isWatered?"rgba(80,160,220,0.6)":"rgba(120,200,60,0.6)",transition:"width 1s" }}/>
+                      <div style={{ height:"100%",width:`${progress*100}%`,background:plot.ready?"rgba(80,220,80,0.7)":"rgba(120,200,60,0.6)",transition:"width 0.3s" }}/>
                     </div>
                   </div>
-                  <div style={{ fontSize:10,color:"rgba(200,200,200,0.4)",fontFamily:"monospace" }}>{Math.round(progress*100)}%</div>
+                  <div style={{ fontSize:10,color:"rgba(200,200,200,0.4)",fontFamily:"monospace" }}>{plot.ready?"harvest!":daysLeft===1?"1 day left":`${daysLeft} days left`}</div>
                 </div>
               );})}
             </div>
@@ -2878,7 +2879,7 @@ export default function HomesteadView({
   chest, chestOpen,
   onOpenChest, onCloseChest, onChestUpdate,
   // Equipment & character
-  equipment, onEquipItem, onEquipmentUpdate,
+  equipment, onEquipItem, onUnequipWeapon, onEquipmentUpdate,
   character, onCharacterUpdate,
   // Hotbar
   hotbar, onHotbarChange,
@@ -2897,7 +2898,7 @@ export default function HomesteadView({
   // ── Farming / world state ──────────────────────────────────────────────────
   // Declare early so we can replay farmPlots into tileMap during init
   const {
-    farmPlots, tickCrops, tillTile, untillTile, plantSeed, harvestCrop, waterPlot, WATER_BOOST_SECONDS,
+    farmPlots, tickCrops, advanceCropsOneDay, tillTile, untillTile, plantSeed, harvestCrop, waterPlot, WATER_BOOST_SECONDS,
     nodeState, tickNodes, getNodeState, hitOreNode, hitTree, tickTreeRespawns, fishAtSpot,
   } = useHomesteadState(room?.id);
 
@@ -3012,16 +3013,39 @@ export default function HomesteadView({
   const onObjectsUpdateRef = useRef(onObjectsUpdate);
   useEffect(() => { onObjectsUpdateRef.current = onObjectsUpdate; }, [onObjectsUpdate]);
 
-  // Auto-equip tools when hotbar selection changes
+  // Auto-equip tools when hotbar selection changes.
+  // If the newly-selected slot is NOT an equippable (e.g. seeds, food, empty),
+  // unconditionally clear the weapon slot so the hoe/axe doesn't stay active.
   useEffect(() => {
     const slot = (hotbarRef.current ?? [])[selectedHotbarIdx];
-    if (slot && EQUIPPABLE[slot.item]) onEquipItemRef.current?.(slot.item);
-  }, [selectedHotbarIdx]);
+    if (slot && EQUIPPABLE[slot.item]) {
+      onEquipItemRef.current?.(slot.item);
+    } else {
+      onUnequipWeapon?.();
+    }
+  }, [selectedHotbarIdx]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const saveGold = useCallback((g) => {
     setGold(g);
     try { localStorage.setItem("hearthroot_gold", JSON.stringify(g)); } catch {}
   }, []);
+
+  // Reduce the equipped hoe's durability by 1 use.
+const damageEquippedHoe = useCallback(() => {
+  const currentHotbar = hotbarRef.current ?? [];
+  const idx = currentHotbar.findIndex(
+    s => s && getToolMaxDurability(s.item) != null && getEquipStats(equipmentRef.current).canHoe
+      && (equipmentRef.current?.activeIid ? s.iid === equipmentRef.current.activeIid : true)
+  );
+  if (idx < 0) return;
+  const slot = currentHotbar[idx];
+  const maxDur = getToolMaxDurability(slot.item);
+  if (maxDur == null) return;
+  const newDur = Math.max(0, (slot.dur ?? maxDur) - 1);
+  const newHotbar = [...currentHotbar];
+  newHotbar[idx] = { ...slot, dur: newDur };
+  onHotbarChange?.(newHotbar);
+}, [onHotbarChange]);
 
   // ── Interact handler (harvest → player inventory) ──────────────────────────
   const handleInteract = useCallback(() => {
@@ -3039,6 +3063,7 @@ export default function HomesteadView({
       const tr = Math.floor(state.py/TILE) + fdy;
       if (tillTile(tc, tr, tileMapRef.current)) {
         sendFarmUpdatedRef.current?.(farmPlots.current);
+        damageEquippedHoe();
         return;
       }
     }
@@ -3047,32 +3072,31 @@ export default function HomesteadView({
     if (equipStats.canHoe && target?.type === "tilled_plot") {
       if (untillTile(target.tx, target.ty, tileMapRef.current)) {
         sendFarmUpdatedRef.current?.(farmPlots.current);
+        damageEquippedHoe();
         return;
       }
     }
 
     if (!target) return;
 
-    // Seed planting — seeds must be in player inventory
+    // Seed planting — seeds live on the hotbar (not in the bag)
     if (target.type === "tilled_plot") {
-      const seedInHotbar = (hotbarRef.current??[]).find(s=>s&&SEEDS[s.item]);
-      if (seedInHotbar) {
-        // plantSeed normally expects a plain { [id]: qty } inv — we adapt
-        const flatInv = { ...(playerInvRef.current?.items ?? {}) };
-        const newFlatInv = plantSeed(target.tx, target.ty, seedInHotbar.item, tileMapRef.current, flatInv);
-        if (newFlatInv) {
-          onPlayerInventoryUpdate?.({ ...playerInvRef.current, items: newFlatInv });
+      const currentHotbar = hotbarRef.current ?? [];
+      const slotIdx = currentHotbar.findIndex(s => s && SEEDS[s.item]);
+      const seedSlot = currentHotbar[slotIdx];
+      if (seedSlot && (seedSlot.qty ?? 1) >= 1) {
+        // Pass a synthetic inventory of exactly 1 seed so plantSeed's qty check passes,
+        // then discard the returned inventory (we manage qty via the hotbar, not the bag)
+        const syntheticInv = { [seedSlot.item]: 1 };
+        const planted = plantSeed(target.tx, target.ty, seedSlot.item, tileMapRef.current, syntheticInv);
+        if (planted) {
           sendFarmUpdatedRef.current?.(farmPlots.current);
-          // Update the hotbar slot to reflect the new qty (clear it if 0)
-          const remaining = newFlatInv[seedInHotbar.item] ?? 0;
-          const newHotbar = [...(hotbarRef.current ?? [])];
-          const slotIdx = newHotbar.findIndex(s => s?.item === seedInHotbar.item);
-          if (slotIdx !== -1) {
-            newHotbar[slotIdx] = remaining > 0 ? { ...newHotbar[slotIdx], qty: remaining } : null;
-            onHotbarChange?.(newHotbar);
-          }
-          return;
+          const newQty = (seedSlot.qty ?? 1) - 1;
+          const newHotbar = [...currentHotbar];
+          newHotbar[slotIdx] = newQty > 0 ? { ...seedSlot, qty: newQty } : null;
+          onHotbarChange?.(newHotbar);
         }
+        return;
       }
     }
 
@@ -3224,9 +3248,10 @@ export default function HomesteadView({
 
   const executeSleep = useCallback((broadcast = false) => {
     town?.incrementDay?.(); // advances day + runs arrivals atomically
+    advanceCropsOneDay();   // tick all growing crops forward by one day
     setSleepPhase(null);
     if (broadcast) sendSleepConfirmedRef.current?.();
-  }, [town]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [town, advanceCropsOneDay]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Called when the local player clicks "sleep" on the modal
   const handleSleepConfirm = useCallback(() => {

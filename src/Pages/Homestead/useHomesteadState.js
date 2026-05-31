@@ -65,9 +65,11 @@ export function useHomesteadState(roomId) {
     }
   }, [farmKey]);
 
-  // Tick crops — called by the game loop each frame; updates stage on plots
-  // Returns a new map only if anything changed (avoids re-renders)
-  const tickCrops = useCallback((nowMs) => {
+  // Advance all growing crops by one in-game day.
+  // Called by HomesteadView when the player sleeps (incrementDay fires).
+  // Each plot tracks daysGrown; a crop is ready when daysGrown >= def.growthDays.
+  // Legacy plots that still have plantedAt (old saves) are migrated on the fly.
+  const advanceCropsOneDay = useCallback(() => {
     const plots = farmPlotsRef.current;
     let changed = false;
     const next = { ...plots };
@@ -76,25 +78,22 @@ export function useHomesteadState(roomId) {
       const def = SEEDS[plot.seedId];
       if (!def) continue;
 
-      // If watered within WATER_BOOST_SECONDS, effective elapsed grows faster.
-      // We model this by computing a virtual "effective elapsed" time:
-      //   effectiveElapsed = baseElapsed × multiplier (for the watered window)
-      // Simple approximation: stretch elapsed by WATER_GROWTH_MULT while watered.
-      const baseElapsed = (nowMs - plot.plantedAt) / 1000;
-      const isWatered = plot.wateredAt && (nowMs - plot.wateredAt) / 1000 < WATER_BOOST_SECONDS;
-      const elapsed = isWatered ? baseElapsed * WATER_GROWTH_MULT : baseElapsed;
-
-      const totalTime = def.growthTime * def.growthStages;
-      const newStage = Math.min(def.growthStages - 1, Math.floor(elapsed / def.growthTime));
-      const newReady = elapsed >= totalTime;
-      if (newStage !== plot.stage || newReady !== plot.ready) {
-        next[key] = { ...plot, stage: newStage, ready: newReady };
-        changed = true;
-      }
+      // Migrate legacy time-based plots: treat them as 0 days grown so far.
+      const daysGrown = (plot.daysGrown ?? 0) + 1;
+      const totalDays = def.growthDays ?? 2;
+      const newStage  = Math.min(def.growthStages - 1, Math.floor((daysGrown / totalDays) * def.growthStages));
+      const newReady  = daysGrown >= totalDays;
+      next[key] = { ...plot, daysGrown, stage: newStage, ready: newReady, plantedAt: plot.plantedAt ?? null };
+      changed = true;
     }
     if (changed) saveFarm(next);
-    return farmPlotsRef.current;
   }, [saveFarm]);
+
+  // Tick crops — legacy stub kept so the game loop call in HomesteadView doesn't break.
+  // Growth now advances via advanceCropsOneDay() on sleep, not via real-time ticks.
+  const tickCrops = useCallback((_nowMs) => {
+    return farmPlotsRef.current;
+  }, []);
 
   // Till a tile (player uses hoe on a grass tile)
   const tillTile = useCallback((col, row, tileMap) => {
@@ -126,7 +125,7 @@ export function useHomesteadState(roomId) {
     if (!plot || plot.seedId) return null; // not tilled, or already planted
     if ((inventory?.[seedId] ?? 0) < 1) return null;
     tileMap[row][col] = T.PLANTED;
-    const newPlot = { seedId, plantedAt: Date.now(), stage: 0, ready: false, wateredAt: null };
+    const newPlot = { seedId, plantedAt: Date.now(), daysGrown: 0, stage: 0, ready: false, wateredAt: null };
     saveFarm({ ...farmPlotsRef.current, [key]: newPlot });
     const newInv = { ...inventory, [seedId]: inventory[seedId] - 1 };
     return newInv;
@@ -297,6 +296,7 @@ export function useHomesteadState(roomId) {
     // Farming
     farmPlots: farmPlotsRef,
     tickCrops,
+    advanceCropsOneDay,
     tillTile,
     untillTile,
     plantSeed,

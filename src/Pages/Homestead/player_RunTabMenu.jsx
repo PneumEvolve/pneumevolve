@@ -327,7 +327,7 @@ export function RunTabMenu({
             <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
               {consumables.map(([id, qty]) => (
                 <div key={id} draggable onDragStart={e=>{e.dataTransfer.setData("hotbar_item",id);e.dataTransfer.effectAllowed="copy";}}
-                  onClick={()=>{const ei=hotbar?.findIndex(s=>!s)??-1;const si=ei>=0?ei:0;if(si<(hotbarSlots??HOTBAR_BASE_SLOTS)){const nh=[...(hotbar??[])];nh[si]={item:id,qty};onHotbarChange?.(nh);}}}
+                  onClick={()=>{const ei=(hotbar??[]).findIndex(s=>!s);const si=ei>=0?ei:0;assignToHotbarSlot(id,si);}}
                   style={{ ...itemStyle, background:"rgba(255,200,80,0.07)", border:"1px solid rgba(255,200,80,0.25)" }}>
                   <ItemIcon id={id} size={26} />
                   <div style={{ flex:1, minWidth:0 }}>
@@ -511,7 +511,6 @@ export function RunTabMenu({
     const handCraftables = expandedHandRecipes();
     return (
       <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
-        {craftMsg && <div style={{ textAlign:"center",fontSize:12,padding:"8px 14px",borderRadius:8,background:"rgba(200,230,120,0.1)",border:"1px solid rgba(200,230,120,0.3)",color:"rgba(200,230,120,0.9)" }}>✓ {craftMsg}</div>}
         <div style={{ display:"flex",flexWrap:"wrap",gap:6 }}>
           {Object.entries(playerItems).filter(([,v])=>v>0).map(([id,qty])=>(
             <span key={id} style={{ fontSize:10,padding:"3px 7px",borderRadius:5,background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.09)",color:"rgba(245,230,200,0.6)" }}>
@@ -625,7 +624,7 @@ export function RunTabMenu({
   };
 
   return (
-    <div ref={overlayRef} style={{ position:"absolute",inset:0,background:"rgba(4,12,4,0.86)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:20,backdropFilter:"blur(2px)" }} onClick={onClose}>
+    <div ref={overlayRef} style={{ position:"absolute",inset:0,background:"rgba(4,12,4,0.86)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:20,backdropFilter:"blur(2px)",overflow:"hidden" }} onClick={onClose}>
       <div style={{ background:"#111a0b",border:"1px solid rgba(180,220,100,0.22)",borderRadius:18,width:540,maxWidth:"97vw",maxHeight:"88vh",display:"flex",flexDirection:"column",fontFamily:"monospace",color:"#f5e6c8",overflow:"hidden",boxShadow:"0 24px 80px rgba(0,0,0,0.7)" }} onClick={e=>e.stopPropagation()}>
         <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 18px 0",borderBottom:"1px solid rgba(255,255,255,0.06)",paddingBottom:0 }}>
           <div style={{ fontSize:11,color:"rgba(200,230,120,0.5)",letterSpacing:"0.2em",textTransform:"uppercase",paddingBottom:14 }}>🌲 forest — menu</div>
@@ -646,6 +645,18 @@ export function RunTabMenu({
           Tab / Esc to close  ·  drop items to free up bag slots
         </div>
       </div>
+      {craftMsg && (
+        <div style={{
+          position:"absolute", bottom:24, left:"50%", transform:"translateX(-50%)",
+          zIndex:30, pointerEvents:"none",
+          background:"rgba(10,20,8,0.92)", border:"1px solid rgba(200,230,120,0.35)",
+          borderRadius:10, padding:"8px 18px",
+          fontFamily:"monospace", fontSize:13, color:"rgba(200,230,120,0.95)",
+          boxShadow:"0 4px 18px rgba(0,0,0,0.55)", whiteSpace:"nowrap",
+        }}>
+          ✓ {craftMsg}
+        </div>
+      )}
     </div>
   );
 }

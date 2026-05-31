@@ -91,6 +91,8 @@ import InkRunGame from "@/Pages/InkRun"
 
 import HomesteadGame from "@/Pages/Homestead"
 
+import DeadMilesGame from "@/Pages/Dead Miles"
+
 import GameTestGame from "@/Pages/GameTest"
 
 import Learning from "@/Pages/Learning/learning"
@@ -217,6 +219,8 @@ function Root() {
                 <Route path="/inked" element={<InkRunGame />} />
 
                 <Route path="/homestead" element={<HomesteadGame />} />
+
+                <Route path="/dead-miles" element={<DeadMilesGame />} />
 
                 <Route path="/game-test" element={<GameTestGame />} />
 

@@ -35,8 +35,8 @@
 //   sellPrice    — gold earned when sold
 //
 //   // Farming seeds
-//   growthTime   — seconds per growth stage
-//   growthStages — stages before harvestable
+//   growthDays   — in-game days to fully grow (advances on sleep)
+//   growthStages — visual stages to show while growing
 //   harvestYields— [{ item, min, max }]
 //
 //   // Placeable decoration
@@ -295,7 +295,7 @@ export const ITEMS = {
     icon: "🫘", label: "Carrot Seeds", category: "seed", stackable: true,
     description: "Plant in tilled soil. Grows quickly.",
     buyPrice: 10,
-    growthTime: 60, growthStages: 3,
+    growthDays: 2, growthStages: 3,
     harvestYields: [{ item: "carrot", min: 2, max: 4 }],
     // Always available — no NPC required
   },
@@ -303,7 +303,7 @@ export const ITEMS = {
     icon: "🫘", label: "Potato Seeds", category: "seed", stackable: true,
     description: "Hearty underground crop.",
     buyPrice: 12,
-    growthTime: 90, growthStages: 3,
+    growthDays: 3, growthStages: 3,
     harvestYields: [{ item: "potato", min: 2, max: 5 }],
     // Always available — no NPC required
   },
@@ -311,7 +311,7 @@ export const ITEMS = {
     icon: "🌱", label: "Herb Seeds", category: "seed", stackable: true,
     description: "Grows wild herbs. Useful in potions.",
     buyPrice: 8,
-    growthTime: 45, growthStages: 3,
+    growthDays: 2, growthStages: 3,
     harvestYields: [{ item: "herbs", min: 2, max: 4 }],
     unlockedByNpc: "elda",   // Elda stocks herb seeds once she arrives
   },
@@ -319,7 +319,7 @@ export const ITEMS = {
     icon: "🌱", label: "Pumpkin Seeds", category: "seed", stackable: true,
     description: "A big slow-growing crop. Sells well.",
     buyPrice: 20,
-    growthTime: 120, growthStages: 4,
+    growthDays: 4, growthStages: 4,
     harvestYields: [{ item: "pumpkin", min: 1, max: 2 }],
     unlockedByNpc: "sable",  // Sable brings pumpkin seeds once she arrives
   },
@@ -2376,14 +2376,21 @@ export function getMarenDiscountActive(townState) {
  * @param {string[]} activeRewards
  * @returns {number}
  */
-export function getSeedGrowthTimeWithRewards(seedId, activeRewards = []) {
-  const base = ITEMS[seedId]?.growthTime ?? 60;
+/**
+ * Return the effective growthDays for a seed after applying any active
+ * quest rewards (e.g. faster_crops multiplier).
+ * @param {string}   seedId
+ * @param {string[]} activeRewards
+ * @returns {number}
+ */
+export function getSeedGrowthDaysWithRewards(seedId, activeRewards = []) {
+  const base = ITEMS[seedId]?.growthDays ?? 2;
   let mult = 1;
   for (const rewardId of activeRewards) {
     const def = QUEST_REWARD_DEFS[rewardId];
     if (def?.effect?.type === "crop_speed") mult *= def.effect.growthMult;
   }
-  return base * mult;
+  return Math.max(1, Math.round(base * mult));
 }
 
 /**

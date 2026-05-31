@@ -178,6 +178,15 @@ export function usePlayerState(room) {
     });
   }, [saveEquipment]);
 
+  // Unconditionally clear the weapon slot (used when player switches to a
+  // non-equippable hotbar slot so the hoe/axe doesn't stay "equipped").
+  const handleUnequipWeapon = useCallback(() => {
+    saveEquipment(prev => {
+      if (!prev.weapon) return prev;
+      return { ...prev, weapon: null, activeIid: null };
+    });
+  }, [saveEquipment]);
+
   // ── Lifecycle helpers used when entering / leaving a room ─────────────────
   const resetToEmpty = useCallback(() => {
     const emptyInv = emptyPlayerInventory();
@@ -324,7 +333,7 @@ export function usePlayerState(room) {
     saveInventory, saveHotbar, saveHotbarSlots, saveEquipment, saveCharacter, saveLastRunDay,
 
     // Equipment helpers
-    handleEquipItem, handleForceEquip,
+    handleEquipItem, handleForceEquip, handleUnequipWeapon,
 
     // Lifecycle
     initPlayerState, applyPlayerState, resetToEmpty,

@@ -46,7 +46,7 @@ export default function HomesteadGame() {
     playerInventory, hotbar, hotbarSlots, equipment, character, lastRunDay,
     playerInvRef,
     saveInventory, saveHotbar, saveHotbarSlots, saveEquipment, saveCharacter, saveLastRunDay,
-    handleForceEquip,
+    handleForceEquip, handleUnequipWeapon,
     initPlayerState, resetToEmpty, flushPlayerStateToCloud,
   } = ps;
 
@@ -212,6 +212,7 @@ export default function HomesteadGame() {
       onChestUpdate={handleChestUpdate}
       equipment={equipment}
       onEquipItem={handleForceEquip}
+      onUnequipWeapon={handleUnequipWeapon}
       onEquipmentUpdate={saveEquipment}
       character={character}
       onCharacterUpdate={saveCharacter}
