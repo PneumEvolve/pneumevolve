@@ -326,12 +326,13 @@ export function useTownState(room, placedObjects, sendTownStateUpdated) {
    *   3. At least one free home exists
    *   4. They're not already present
    */
-  const checkArrivals = useCallback(() => {
-    const { next, changed } = computeArrivals(townRef.current, placedObjects);
-    if (changed) {
-      applyUpdate(next, true, true); // immediate save + broadcast to partner
-    }
-  }, [placedObjects, applyUpdate]);
+  const checkArrivals = useCallback((overrideObjects) => {
+  const objs = overrideObjects ?? placedObjects;
+  const { next, changed } = computeArrivals(townRef.current, objs);
+  if (changed) {
+    applyUpdate(next, true, true);
+  }
+}, [placedObjects, applyUpdate]);
 
   // ── Mayor assignment ───────────────────────────────────────────────────────
 

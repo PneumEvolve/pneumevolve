@@ -176,7 +176,7 @@ export default function HomesteadGame() {
 
   const handleObjectsUpdate = useCallback(async (newObjects) => {
     setPlacedObjects(newObjects);
-    setTimeout(() => town.checkArrivals(), 0);
+    town.checkArrivals(newObjects);
     try { await api.patch(`/homestead/rooms/${roomRef.current?.id}/objects`, { placed_objects: newObjects }); }
     catch (e) { console.warn("[Hearthroot] Failed to save objects:", e); }
   }, [town.checkArrivals]); // eslint-disable-line react-hooks/exhaustive-deps
