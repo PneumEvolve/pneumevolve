@@ -5,7 +5,9 @@
 import React, { useState, useRef, useEffect } from "react";
 import { api } from "@/lib/api";
 import GameView from "./GameView";
+import BaseView from "./BaseView";
 import { useDeadMilesRoom } from "./useDeadMilesRoom";
+import { applyOfflineBaseTick, pushActivity } from "./deadMilesEngine";
 
 // ─── Lobby ────────────────────────────────────────────────────────────────────
 
@@ -53,9 +55,9 @@ function Lobby({ onSolo, onRoomReady }) {
         {/* How to play */}
         <div className="rounded-xl border p-4 space-y-2 text-xs leading-relaxed"
           style={{ borderColor: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.4)" }}>
-          <p>Explore the hamlet. Find food, water, tools.</p>
-          <p>Find the <span style={{ color: "rgba(255,220,80,0.8)" }}>map fragment</span> — then drive north to the highway.</p>
-          <p>The further you go, the harder it gets.</p>
+          <p>You start in a small settlement. The world is huge — and overrun.</p>
+          <p>Follow the <span style={{ color: "rgba(255,220,80,0.8)" }}>compass</span> to find other settlements, collect map fragments, and rescue survivors.</p>
+          <p>Between settlements is the zombie sea. Drive fast.</p>
           <p style={{ color: "rgba(255,255,255,0.2)" }}>
             A second player can join mid-session as your co-driver.
           </p>
@@ -183,9 +185,8 @@ function WaitingForP2({ room, onP2Joined }) {
 
 // ─── Game over screen ─────────────────────────────────────────────────────────
 
-function GameOver({ score, level, onRestart, onNextLevel, onMenu }) {
-  const isVictory = score?.survived && score?.nextLevel;
-  const isDeath   = !score?.survived;
+function GameOver({ score, level, onRestart, onMenu }) {
+  const isVictory = score?.survived;
   const [visible, setVisible] = useState(false);
   useEffect(() => { const t = setTimeout(() => setVisible(true), 60); return () => clearTimeout(t); }, []);
 
@@ -193,58 +194,51 @@ function GameOver({ score, level, onRestart, onNextLevel, onMenu }) {
     <main className="min-h-screen bg-[#0a0d0f] text-white flex flex-col items-center justify-center gap-6 px-4"
       style={{ opacity: visible ? 1 : 0, transition: "opacity 0.6s ease" }}>
 
-      {/* Status line */}
-      <p className="text-xs tracking-widest uppercase" style={{ color: isVictory ? "rgba(120,255,150,0.7)" : isDeath ? "rgba(255,80,80,0.7)" : "rgba(255,255,255,0.3)" }}>
-        {isVictory ? "highway reached" : isDeath ? "didn't make it" : "you made it through"}
+      <p className="text-xs tracking-widest uppercase" style={{ color: isVictory ? "rgba(120,255,150,0.7)" : "rgba(255,80,80,0.7)" }}>
+        {isVictory ? "region mapped" : "didn't make it"}
       </p>
 
-      {/* Big score number */}
       <div className="text-center space-y-1">
         <div className="text-6xl font-light" style={{
-          color: isVictory ? "rgba(120,255,150,0.9)" : isDeath ? "rgba(255,80,80,0.7)" : "rgba(255,200,80,0.9)"
+          color: isVictory ? "rgba(120,255,150,0.9)" : "rgba(255,80,80,0.7)"
         }}>
           {score?.dayssurvived ?? 0}
         </div>
         <div className="text-xs tracking-widest" style={{ color: "rgba(255,255,255,0.3)" }}>
-          days survived · level {level}
+          days survived
         </div>
       </div>
 
-      {/* Stats */}
+      {/* Death Recap Message - NEW */}
+      {score?.deathRecap && !isVictory && (
+        <div className="text-center text-xs px-4 py-3 rounded-xl max-w-sm"
+          style={{ background: "rgba(255,80,80,0.08)", border: "1px solid rgba(255,80,80,0.2)", color: "rgba(255,150,150,0.85)" }}>
+          {score.deathRecap}
+        </div>
+      )}
+
       {score && (
         <div className="text-center text-xs space-y-1" style={{ color: "rgba(255,255,255,0.35)" }}>
+          {(score.settlementsCleared ?? 0) > 0 && <div>{score.settlementsCleared} settlements explored</div>}
           {(score.zombiesKilled ?? 0) > 0 && <div>{score.zombiesKilled} zombies killed</div>}
           {(score.buildingsSearched ?? 0) > 0 && <div>{score.buildingsSearched} buildings searched</div>}
           {(score.survivorsFound ?? 0) > 0 && <div>{score.survivorsFound} survivors found</div>}
         </div>
       )}
 
-      {/* Victory message */}
       {isVictory && (
         <div className="text-center text-xs px-6 py-3 rounded-xl"
           style={{ background: "rgba(120,255,150,0.07)", border: "1px solid rgba(120,255,150,0.2)", color: "rgba(120,255,150,0.85)", maxWidth: 280 }}>
-          You found the highway. The road ahead is darker — and longer.
+          You explored the whole region. Everyone you found made it out.
         </div>
       )}
 
-      {/* Buttons */}
       <div className="flex flex-col items-center gap-3 w-full max-w-xs">
-
-        {/* Continue to next level — only on victory */}
-        {isVictory && (
-          <button onClick={onNextLevel}
-            className="w-full py-3 rounded-xl text-sm font-medium"
-            style={{ background: "rgba(120,255,150,0.1)", border: "1px solid rgba(120,255,150,0.3)", color: "rgba(120,255,150,0.9)" }}>
-            continue → Level {level + 1}
-          </button>
-        )}
-
         <button onClick={onRestart}
-          className="w-full py-3 rounded-xl text-sm"
+          className="w-full py-3 rounded-xl text-sm font-medium"
           style={{ background: "rgba(255,200,80,0.08)", border: "1px solid rgba(255,200,80,0.2)", color: "rgba(255,200,80,0.85)" }}>
-          {isVictory ? "replay this level" : "try again"}
+          {isVictory ? "play again" : "try again"}
         </button>
-
         <button onClick={onMenu}
           className="w-full py-3 rounded-xl text-sm"
           style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.5)" }}>
@@ -264,6 +258,13 @@ export default function DeadMilesGame() {
   const [finalScore, setFinalScore] = useState(null);
   const [level,      setLevel]      = useState(1);
 
+  // Phase 2: base screen
+  const [screen,       setScreen]      = useState("play");  // "play" | "base"
+  const stateSnapshotRef               = useRef(null);      // live stateRef.current from GameView
+  const activityLogRef                 = useRef([]);         // shared mutable activity log
+  const baseOpenedAtRef                = useRef(null);       // timestamp when base was opened
+  const [awaySummary, setAwaySummary]  = useState(null);    // "while you were away" modal data
+
   const phaseRef = useRef(phase);
   const roleRef  = useRef(role);
   const levelRef = useRef(level);
@@ -281,9 +282,15 @@ export default function DeadMilesGame() {
         setPhase("gameover");
       }
     },
+    // P1 broadcasts a new seed when restarting or advancing a level.
+    // P2 receives this and updates its room so the next GameView mount uses the same world.
+    onRoomSeedUpdate: ({ seed, level: newLevel }) => {
+      setRoom(prev => prev ? { ...prev, map_seed: seed } : null);
+      if (newLevel != null) setLevel(newLevel);
+    },
   }).current;
 
-  useDeadMilesRoom(activeRoomId, handlers);
+  const { sendRoomSeedUpdate } = useDeadMilesRoom(activeRoomId, handlers);
 
   // ── Entry points ───────────────────────────────────────────────────────────
 
@@ -316,6 +323,8 @@ export default function DeadMilesGame() {
   function handleRestart() {
     const newSeed = Date.now() & 0x7fffffff;
     setRoom(prev => prev ? { ...prev, map_seed: newSeed } : null);
+    // Tell P2 to use the same seed before they remount GameView
+    if (room?.id) sendRoomSeedUpdate(newSeed, levelRef.current);
     setFinalScore(null);
     setPhase("playing");
   }
@@ -325,6 +334,8 @@ export default function DeadMilesGame() {
     const newSeed  = Date.now() & 0x7fffffff;
     setLevel(newLevel);
     setRoom(prev => prev ? { ...prev, map_seed: newSeed } : null);
+    // Tell P2 to use the same seed and level before they remount GameView
+    if (room?.id) sendRoomSeedUpdate(newSeed, newLevel);
     setFinalScore(null);
     setPhase("playing");
   }
@@ -346,7 +357,6 @@ export default function DeadMilesGame() {
       score={finalScore}
       level={level}
       onRestart={handleRestart}
-      onNextLevel={handleNextLevel}
       onMenu={handleMenu}
     />
   );
@@ -354,13 +364,73 @@ export default function DeadMilesGame() {
   if (phase === "playing") {
     return (
       <div style={{ position: "fixed", inset: 0, overflow: "hidden" }}>
-        <GameView
-          key={`${level}-${room?.map_seed ?? "solo"}`}
-          room={room}
-          role={role}
-          level={level}
-          onGameOver={handleGameOver}
-        />
+        {/* GameView always mounted — canvas loop keeps running in background */}
+        <div style={{ display: screen === "play" ? "block" : "none", position: "absolute", inset: 0 }}>
+          <GameView
+            key={`${room?.map_seed ?? "solo"}`}
+            room={room}
+            role={role}
+            level={level}
+            onGameOver={handleGameOver}
+            onStateSnapshot={snap => { stateSnapshotRef.current = snap; }}
+            onOpenBase={() => {
+              baseOpenedAtRef.current = Date.now();
+              setScreen("base");
+            }}
+            activityLog={activityLogRef.current}
+          />
+        </div>
+
+        {screen === "base" && (
+          <BaseView
+            stateSnapshot={stateSnapshotRef.current}
+            activityLog={activityLogRef.current}
+            awaySummary={awaySummary}
+            onDismissAway={() => setAwaySummary(null)}
+            onHarvest={action => {
+              const s = stateSnapshotRef.current;
+              if (!s) return;
+              if (action.type === "harvest") {
+                const crop = s.crops?.find(c => c.id === action.cropId);
+                if (crop) {
+                  crop.stage = "harvested";
+                  s.player.inventory = s.player.inventory ?? {};
+                  s.player.inventory.food = (s.player.inventory.food ?? 0) + (crop.type === "potato" ? 4 : 3);
+                  pushActivity(activityLogRef.current, `You harvested a ${crop.type}`);
+                }
+              }
+              if (action.type === "reassign") {
+                const sv = s.survivors?.find(sv2 => sv2.id === action.survivorId);
+                if (sv) {
+                  sv.command = action.command;
+                  sv.state = "idle";
+                  sv._castTimer = 0; sv._castType = null;
+                  if (action.command !== "assign") { sv.assignedTo = null; sv.barricaded = false; }
+                }
+              }
+            }}
+            onClose={() => {
+              const s = stateSnapshotRef.current;
+              const openedFor = baseOpenedAtRef.current
+                ? (Date.now() - baseOpenedAtRef.current) / 1000
+                : 0;
+
+              let summary = null;
+              if (openedFor > 5 && s) {
+                const { harvested, damaged } = applyOfflineBaseTick(s, activityLogRef.current);
+                if (harvested.length > 0 || damaged.length > 0) {
+                  summary = { harvested, damaged, netResources: {} };
+                  if (harvested.length > 0)
+                    summary.netResources.food = harvested.reduce((acc, h) => acc + h.amount, 0);
+                }
+              }
+
+              setAwaySummary(summary);
+              baseOpenedAtRef.current = null;
+              setScreen("play");
+            }}
+          />
+        )}
       </div>
     );
   }

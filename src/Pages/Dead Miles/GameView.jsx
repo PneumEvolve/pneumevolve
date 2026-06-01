@@ -17,11 +17,40 @@ import {
   addFloater, updateFloaters,
   worldToCanvas, getDoorCenter, getBuildingWallSegments,
   isInsideBuilding, getProximityActions,
-  checkLevelExit,
+  checkLevelExit, updateCastAction,
+  collectMapFragment, checkEndgame, FRAGMENT_PULSE_RANGE,
   WORLD_W, WORLD_H, PLAYER_RADIUS, ZOMBIE_RADIUS,
   NEEDS_TUNE, LOOT_RANGE, DOOR_MAX_HP, REPAIR_RANGE, REPAIR_HP_GAIN,
-  EXIT_TARGET_X, EXIT_TARGET_Y,
-  lerp, shouldInterruptFastSleep, createZombie,
+  BARRICADE_COST_WOOD, BARRICADE_COST_NAILS,
+  dist, lerp, shouldInterruptFastSleep, createZombie,
+  BOSS_HP, BOSS_RADIUS,
+  // Sound system
+  createSoundEvent, updateSoundEvents,
+  VEHICLE_ENGINE_RANGE, COMBAT_SOUND_RANGE,
+  // Turrets & placement
+  tryPlaceTurret, updateTurrets, tryRepairTurret, applyTurretDamage,
+  tryPlaceCropPlot,
+  TURRET_COST, TURRET_HP, TURRET_RANGE, TURRET_REPAIR_RANGE, TURRET_REPAIR_COST_SCRAP, TURRET_REPAIR_HP,
+  // Survivor AI
+  updateSurvivors, tryAssignSurvivor,
+  SURVIVOR_INTERACT_RANGE, SURVIVOR_REPAIR_CAST, SURVIVOR_HARVEST_CAST,
+  // Convoy AI
+  updateConvoyVehicles,
+  assignSurvivorToConvoy,
+  CONVOY_GAP_FAR, CONVOY_GAP_NEAR,
+  // Vehicle types
+  VEHICLE_TYPES,
+  // Opening horror
+  activateAwakeningRing,
+  // Phase 2: base screen
+  pushActivity,
+  WEATHER_TYPES,
+  getCurrentWeather,
+  updateWeather,
+  CROP_TYPES,
+  getSeasonalBonus,
+  getInventoryCount,
+
 } from "./deadMilesEngine";
 import {
   createJoystick, joystickTouchStart, joystickTouchMove,
@@ -39,7 +68,45 @@ const COL = {
   zombieChase: "#ff4444",
 };
 
-export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
+function drawPathToTarget(ctx, player, target, cam, W, H, s) {
+  if (!target || !target.x || !target.y) return;
+  
+  const playerX = player.inVehicle ? s.vehicle.x : player.x;
+  const playerY = player.inVehicle ? s.vehicle.y : player.y;
+  const distToTarget = Math.hypot(target.x - playerX, target.y - playerY);
+  
+  if (distToTarget < 500) return;
+  
+  const start = worldToCanvas(playerX, playerY, cam);
+  const end = worldToCanvas(target.x, target.y, cam);
+  
+  if (start.cx < -100 || start.cx > W + 100 || start.cy < -100 || start.cy > H + 100) return;
+  if (end.cx < -100 || end.cx > W + 100 || end.cy < -100 || end.cy > H + 100) return;
+  
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(start.cx, start.cy);
+  ctx.lineTo(end.cx, end.cy);
+  ctx.strokeStyle = "rgba(255,220,80,0.35)";
+  ctx.lineWidth = 2.5;
+  ctx.setLineDash([8, 12]);
+  ctx.stroke();
+  
+  const angle = Math.atan2(end.cy - start.cy, end.cx - start.cx);
+  const arrowSize = 10;
+  const arrowX = end.cx;
+  const arrowY = end.cy;
+  ctx.beginPath();
+  ctx.moveTo(arrowX, arrowY);
+  ctx.lineTo(arrowX - arrowSize * Math.cos(angle - Math.PI / 6), arrowY - arrowSize * Math.sin(angle - Math.PI / 6));
+  ctx.lineTo(arrowX - arrowSize * Math.cos(angle + Math.PI / 6), arrowY - arrowSize * Math.sin(angle + Math.PI / 6));
+  ctx.fillStyle = "rgba(255,220,80,0.5)";
+  ctx.fill();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+export default function GameView({ room, role = "p1", onGameOver, level = 1, onStateSnapshot, onOpenBase, activityLog }) {
   const canvasRef   = useRef(null);
   const stateRef    = useRef(null);
   const keysRef     = useRef({});
@@ -49,25 +116,55 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
   const zHoldActiveRef  = useRef(false);
   const flashRef        = useRef(0);
   const gameOverFiredRef = useRef(false);
+  // Opening horror refs
+  const powerMomentRef  = useRef(0);   // countdown timer for the vehicle power-surge effect (seconds)
+  const powerZoomRef    = useRef(1);   // current zoom scale (1 = normal, >1 = zoomed out)
+
+  const [quickSlotItems, setQuickSlotItems] = useState(["food", "water", null, null, null]);
+
+  // ── Cast system ───────────────────────────────────────────────────────────
+  // castActionRef: { type, duration, elapsed, onComplete, label, icon } | null
+  const castActionRef = useRef(null);
+  const [castBar, setCastBar] = useState(null); // { label, icon, pct } for rendering
 
   const lastMoveRef  = useRef(0);
   const lastSyncRef  = useRef(0);
   const lastNeedsRef = useRef(0);
+  const fuelWarnedRef = useRef(false); // tracks whether low-fuel warning already fired this tank
+
+  const [sleepVoteModal, setSleepVoteModal] = useState(null); // { requestingPlayer: "p1" or "p2", timer: number }
+  const sleepVoteTimerRef = useRef(null);
+  const fastSleepVoteRequestedRef = useRef(false);
 
   const [hud, setHud]                   = useState({ food: 100, water: 100, sleep: 100, hp: 100, dayNumber: 1, isNight: false });
   const [sleepFlash, setSleepFlash]      = useState(false);
+  const [awakeningFlash, setAwakeningFlash] = useState(false);
   const [notification, setNote]         = useState(null);
   const [inventory, setInv]             = useState({});
   const [p2Connected, setP2]            = useState(false);
   const [contextActions, setCtxActions] = useState([]);
   const [showControls, setShowControls] = useState(false);
   const [showInventory, setShowInv]     = useState(false);
+  const [buildMenu, setBuildMenu]       = useState(false);
+  const [placingMode, setPlacingMode]   = useState(null); // null | "turret" | "crop_plot"
+  const placingModeRef                  = useRef(null);
+  const placingHintRef                  = useRef(null);
+  const [placingHint, setPlacingHint]   = useState(null); // { x, y } canvas coords
+
+  // ── Survivor command UI ───────────────────────────────────────────────────
+  const [survivorMenu, setSurvivorMenu] = useState(null); // { survivor } | null
+  const [assigningMode, setAssigningMode] = useState(null); // { survivor } | null
+  const assigningRef = useRef(null);
 
   const isP1 = role === "p1";
   const roleRef = useRef(role);
   useEffect(() => { roleRef.current = role; }, [role]);
 
-  // ── Websocket handlers ─────────────────────────────────────────────────────
+  // ── Host/authority tracking ──────────────────────────────────────────────
+  // The "host" is the authoritative simulation runner — defaults to P1 but
+  // transfers to P2 if P1 disconnects, so either player can host.
+  const isHostRef = useRef(isP1); // starts true for p1, false for p2
+  const [isHost, setIsHost] = useState(isP1);
   const handlers = useRef({
     onP1Move: ({ x, y, facing, inVehicle }) => {
       if (roleRef.current === "p1") return;
@@ -79,8 +176,64 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
       if (roleRef.current !== "p1") return;
       const s = stateRef.current; if (!s) return;
       if (!s.player2) s.player2 = { x, y, facing: facing ?? 0, inVehicle: !!inVehicle, radius: 7 };
+      // ── If P2 moves first, trigger the awakening ring on the host ────────
+      if (!s.zombiesAwakened) {
+        s.zombiesAwakened = true;
+        activateAwakeningRing(s.zombies, x, y);
+      }
       s.p2Target = { x, y, facing: facing ?? 0, inVehicle: !!inVehicle };
     },
+    onSleepRequest: ({ from }) => {
+  if (roleRef.current === from) return; // Ignore own request
+  if (sleepVoteModal) return; // Already have a pending vote
+  
+  setSleepVoteModal({ requestingPlayer: from, timer: 10 });
+  
+  // Auto-decline after 10 seconds
+  sleepVoteTimerRef.current = setTimeout(() => {
+    if (sleepVoteModal) {
+      setSleepVoteModal(null);
+      notify(`${from === "p1" ? "Player 1" : "Player 2"} didn't respond - fast sleep cancelled`, "rgba(255,100,100,0.95)");
+      // Send decline response
+      if (room) sendSleepResponse(false);
+    }
+  }, 10000);
+},
+onSleepResponse: ({ agree }) => {
+  if (!fastSleepVoteRequestedRef.current) return;
+  
+  if (agree) {
+    // Partner agreed - start fast sleep
+    const s = stateRef.current;
+    if (s) {
+      s.isFastSleeping = true;
+      s.player.isSleeping = true;
+      fastSleepVoteRequestedRef.current = false;
+      notify("Both players sleeping - fast-sleeping! (any movement cancels)", "rgba(120,220,80,0.95)");
+      
+      // Tell the other player to start fast sleep too
+      if (room) sendFastSleepStart();
+    }
+  } else {
+    // Partner declined
+    fastSleepVoteRequestedRef.current = false;
+    notify("Partner declined fast sleep", "rgba(255,100,100,0.95)");
+  }
+  
+  if (sleepVoteTimerRef.current) {
+    clearTimeout(sleepVoteTimerRef.current);
+    sleepVoteTimerRef.current = null;
+  }
+},
+onFastSleepStart: () => {
+  // Partner started fast sleep - sync to this client
+  const s = stateRef.current;
+  if (s && !s.isFastSleeping) {
+    s.isFastSleeping = true;
+    s.player.isSleeping = true;
+    notify("Partner started fast sleep", "rgba(120,220,80,0.95)");
+  }
+},
     onVehicleUpdate: ({ x, y, facing, hp, fuel, driver, passenger }) => {
       const s = stateRef.current; if (!s) return;
       s.vehicleTarget = { x, y, facing, hp, fuel };
@@ -88,9 +241,18 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
       if (s.vehicle.passenger !== roleRef.current) s.vehicle.passenger = passenger ?? null;
       s.vehicle.occupied = s.vehicle.driver !== null;
     },
+    onConvoyVehicleUpdate: ({ vehicles: cvUpdates }) => {
+      // P2 receives convoy positions from P1 and interpolates them
+      const s = stateRef.current; if (!s) return;
+      if (!s.convoyVehicleTargets) s.convoyVehicleTargets = new Map();
+      for (const upd of (cvUpdates ?? [])) {
+        s.convoyVehicleTargets.set(upd.id, upd);
+      }
+    },
     onZombieUpdate: ({ zombies }) => {
       const s = stateRef.current; if (!s) return;
-      if (roleRef.current === "p1") {
+      if (isHostRef.current) {
+        // Host receives P2's zombie hits — apply damage/deaths from partner's attacks
         zombies.forEach(incoming => {
           const z = s.zombies.find(z2 => z2.id === incoming.id);
           if (!z) return;
@@ -104,10 +266,14 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
       zombies.forEach(z => {
         s.zombieTargets.set(z.id, z);
         if (!existingIds.has(z.id) && !z.dead) {
+          // Use type-correct stats so brutes/bosses look and collide correctly on P2
+          const zType   = z.zombieType ?? "walker";
+          const zRadius = z.radius ?? (zType === "boss" ? 22 : zType === "brute" ? 9 : 9);
+          const zMaxHp  = z.maxHp  ?? (zType === "boss" ? 500 : zType === "brute" ? 60 : 30);
           s.zombies.push({
-            id: z.id, x: z.x, y: z.y, hp: z.hp, maxHp: z.hp ?? 30,
-            state: z.state, dead: false,
-            radius: 9, speed: 38, attackCooldown: 0,
+            id: z.id, x: z.x, y: z.y, hp: z.hp, maxHp: zMaxHp,
+            type: zType, state: z.state, dead: false,
+            radius: zRadius, speed: 38, attackCooldown: 0,
             targetX: z.x, targetY: z.y, wanderTimer: 2,
             alertTimer: 0, giveUpTimer: 0, _p2AttackCd: 0,
           });
@@ -139,18 +305,37 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
       const b = s.buildings.find(b => b.id === buildingId);
       if (b) b.barricadeHp = hp;
     },
-    onNeedsUpdate: ({ food, water, sleep, hp }) => {
+    onNeedsUpdate: ({ food, water, sleep, hp, isDowned }) => {
       const s = stateRef.current; if (!s) return;
-      if (s.player2) Object.assign(s.player2, { food, water, sleep, hp });
+      if (s.player2) Object.assign(s.player2, { food, water, sleep, hp, isDowned: !!isDowned });
+      // If the remote player sent isDowned=false and we are downed locally, it means
+      // our partner just revived us — wake up.
+      if (isDowned === false && s.player?.isDowned) {
+        s.player.isDowned = false;
+        s.player.isSleeping = false;
+        s.player.hp = Math.max(s.player.hp, 15);
+        // addFloater needs the state, use a deferred notify
+        setTimeout(() => {
+          const s2 = stateRef.current;
+          if (s2) addFloater(s2, "🫀 Revived by partner!", s2.player.x, s2.player.y - 25, "rgba(120,255,180,0.95)", 14);
+        }, 50);
+      }
     },
     onSurvivorFound: ({ survivor }) => {
       const s = stateRef.current; if (!s) return;
-      if (!s.survivors.some(sv => sv.id === survivor.id)) s.survivors.push(survivor);
+      if (!s.survivors.some(sv => sv.id === survivor.id)) {
+        // Survivor was discovered by the remote player — follow them
+        survivor.followLeader = s.player2 ?? s.player;
+        s.survivors.push(survivor);
+      }
     },
     onCropPlant:    ({ crop })   => { const s = stateRef.current; if (s && !s.crops.some(c => c.id === crop.id)) s.crops.push(crop); },
-    onCropHarvest:  ({ cropId }) => { const s = stateRef.current; if (s) s.crops = s.crops.filter(c => c.id !== cropId); },
+    onGardenPlotPlace: ({ plot }) => {
+      const s = stateRef.current; if (!s) return;
+      if (!s.gardenPlots.some(p => p.id === plot.id)) s.gardenPlots.push(plot);
+    },    onCropHarvest:  ({ cropId }) => { const s = stateRef.current; if (s) s.crops = s.crops.filter(c => c.id !== cropId); },
     onPhaseChange:  ({ phase, dayNumber }) => {
-      if (roleRef.current === "p1") return;
+      if (isHostRef.current) return; // host drives the sim, ignore own echo
       const s = stateRef.current; if (!s) return;
       s.isNight = phase === "night"; s.dayNumber = dayNumber;
     },
@@ -162,11 +347,73 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
       const s = stateRef.current; if (!s) return;
       s.vehicle.hp = hp;
     },
+    onInventoryUpdate: ({ inventory }) => {
+      // Partner's inventory changed — update the shared world view (e.g. shared fuel)
+      // We intentionally do NOT overwrite our own inventory; this is the remote player's.
+      const s = stateRef.current; if (!s) return;
+      if (s.player2) s.player2.inventory = inventory;
+    },
+    onLootPickup: ({ buildingId, gained, fuelGained }) => {
+      // Partner looted a building — apply fuel to the vehicle if it was auto-fueled
+      const s = stateRef.current; if (!s) return;
+      if (fuelGained > 0) {
+        s.vehicle.fuel = Math.min(s.vehicle.maxFuel ?? 80, (s.vehicle.fuel ?? 0) + fuelGained);
+      }
+      // Mark building as searched on this client too (belt-and-suspenders alongside building_search)
+      const b = s.buildings.find(b2 => b2.id === buildingId);
+      if (b) b.searched = true;
+    },
+    onSurvivorPositions: ({ survivors }) => {
+      // Host broadcasts survivor positions so non-host client can render them
+      if (isHostRef.current) return; // we are the host, ignore our own echo
+      const s = stateRef.current; if (!s) return;
+      for (const upd of survivors) {
+        const sv = s.survivors.find(sv2 => sv2.id === upd.id);
+        if (sv) {
+          sv.x = upd.x; sv.y = upd.y;
+          sv.hp = upd.hp; sv.state = upd.state;
+        }
+      }
+    },
+    onTurretStates: ({ turrets }) => {
+      // Host broadcasts full turret HP/destroyed snapshot each sync tick
+      if (isHostRef.current) return;
+      const s = stateRef.current; if (!s) return;
+      for (const upd of turrets) {
+        const t = s.turrets?.find(t2 => t2.id === upd.id);
+        if (t) { t.hp = upd.hp; t.destroyed = upd.destroyed; }
+      }
+    },
+    onTurretPlace: ({ turret }) => {
+      const s = stateRef.current; if (!s) return;
+      if (!s.turrets) s.turrets = [];
+      if (!s.turrets.some(t => t.id === turret.id)) s.turrets.push(turret);
+    },
+    onTurretDamage: ({ turretId, hp }) => {
+      const s = stateRef.current; if (!s) return;
+      const t = s.turrets?.find(t => t.id === turretId);
+      if (t) t.hp = hp;
+    },
+    onTurretRepair: ({ turretId, hp }) => {
+      const s = stateRef.current; if (!s) return;
+      const t = s.turrets?.find(t => t.id === turretId);
+      if (t) { t.hp = hp; t.destroyed = false; }
+    },
+    onTurretDestroy: ({ turretId }) => {
+      const s = stateRef.current; if (!s) return;
+      const t = s.turrets?.find(t => t.id === turretId);
+      if (t) t.destroyed = true;
+    },
     onPartnerConnected: () => {
       setP2(true);
       const s = stateRef.current;
       if (s && !s.player2) {
         s.player2 = { x: s.player.x, y: s.player.y, facing: 0, inVehicle: false, radius: 7 };
+      }
+      // If we're P2 and just got a partner (P1), cede host authority back to P1
+      if (roleRef.current === "p2") {
+        isHostRef.current = false;
+        setIsHost(false);
       }
     },
     onPartnerDisconnected: () => {
@@ -183,6 +430,11 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
           s.vehicle.passenger = null;
         }
       }
+      // Promote this client to host if partner disconnected — keeps simulation running
+      if (!isHostRef.current) {
+        isHostRef.current = true;
+        setIsHost(true);
+      }
     },
   }).current;
 
@@ -191,8 +443,19 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
     sendBuildingSearch, sendBarricadePlace, sendDoorUpdate, sendNeedsUpdate,
     sendSurvivorFound, sendCropPlant, sendCropHarvest, sendPhaseChange,
     sendMapFragment, sendVehicleRepair,
+    sendTurretPlace, sendTurretDamage, sendTurretRepair, sendTurretDestroy,
+    sendConvoyUpdate, sendRoomSeedUpdate, sendGardenPlotPlace,
+    sendSleepRequest, sendSleepResponse, sendFastSleepStart,
+    sendInventoryUpdate, sendLootPickup,
+    sendSurvivorPositions, sendTurretStates,
   } = useDeadMilesRoom(room?.id ?? null, handlers);
   const sendMyMove = isP1 ? sendP1Move : sendP2Move;
+
+  // ── Inventory sync helper — call instead of bare setInv ─────────────────
+  function syncInv(inventory) {
+    setInv({ ...inventory });
+    if (room) sendInventoryUpdate(inventory);
+  }
 
   function getMovementVec() {
     const keys = keysRef.current, joy = joystickRef.current;
@@ -213,21 +476,53 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
   }
 
   function triggerGameOver(s, extra = {}) {
-    if (gameOverFiredRef.current) return;
-    gameOverFiredRef.current = true;
-    const score = {
-      survived: false,
-      dayssurvived: s.dayNumber,
-      zombiesKilled: s.zombiesKilled ?? 0,
-      buildingsSearched: s.buildingsSearched ?? 0,
-      survivorsFound: s.survivorsFound ?? 0,
-      ...extra,
-    };
-    onGameOver(score);
-  }
+  if (gameOverFiredRef.current) return;
+  gameOverFiredRef.current = true;
+  
+  const recap = s.player.deathRecap?.getRecap() || "";
+  const score = {
+    survived: false,
+    dayssurvived: s.dayNumber,
+    zombiesKilled: s.zombiesKilled ?? 0,
+    buildingsSearched: s.buildingsSearched ?? 0,
+    survivorsFound: s.survivorsFound ?? 0,
+    deathRecap: recap,
+    ...extra,
+  };
+  onGameOver(score);
+}
 
   // ── Unified F key handler ──────────────────────────────────────────────────
   function handleF(s) {
+    // ── Co-op revive: press F near a downed partner ──────────────────────
+    if (room && s.player2?.isDowned) {
+      const d = dist(s.player.x, s.player.y, s.player2.x, s.player2.y);
+      if (d < 60) {
+        startCast({
+          type: "revive",
+          duration: 3.0,
+          label: "Reviving partner",
+          icon: "🫀",
+          onComplete: () => {
+            // Revive the remote player's representation locally
+            if (s.player2) {
+              s.player2.isDowned = false;
+              s.player2.hp = Math.max(s.player2.hp, 15);
+            }
+            // Tell the partner they've been revived via a needs_update with isDowned=false
+            sendNeedsUpdate(
+              s.player2?.food ?? 50,
+              s.player2?.water ?? 50,
+              s.player2?.sleep ?? 50,
+              Math.max(s.player2?.hp ?? 15, 15),
+              false
+            );
+            notify("🫀 Partner revived!", "rgba(120,255,180,0.95)");
+          },
+        });
+        return;
+      }
+    }
     if (s.player.inVehicle) {
       exitVehicle(s.player, s.vehicle, roleRef.current);
       notify("Got out of vehicle");
@@ -238,6 +533,82 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
       );
       return;
     }
+
+    // Find nearest vehicle from the fleet
+    const vehicles = s.vehicles ?? [s.vehicle];
+    let nearestVehicle = null;
+    let nearestDist = Infinity;
+    for (const v of vehicles) {
+      const d = dist(s.player.x, s.player.y, v.x, v.y);
+      if (d < nearestDist) { nearestDist = d; nearestVehicle = v; }
+    }
+    if (!nearestVehicle || nearestDist > 70) {
+      // Fall through to door/loot interaction below
+      const doorResult = tryToggleDoor(s.player, s.buildings);
+      if (doorResult) {
+        notify(doorResult.door.open ? `Opened door` : `Closed door`);
+        if (room) {
+          const d = doorResult.door;
+          sendDoorUpdate(doorResult.building.id, d.id, d.open, d.hp ?? DOOR_MAX_HP, !!d.broken);
+        }
+        return;
+      }
+      const lootResult = tryCollectLoot(s.player, s.lootPiles, s.vehicle);
+      if (lootResult) {
+        s.buildingsSearched = (s.buildingsSearched ?? 0) + 1;
+        const fuelMsg = lootResult.fuelGained > 0 ? ` (+${lootResult.fuelGained} fuel ⛽)` : "";
+        const nonFuelItems = lootResult.gained.filter(i => !i.autoFueled);
+        const itemMsg = nonFuelItems.length > 0
+          ? `Picked up: ${nonFuelItems.map(i => `${i.qty}× ${i.type}`).join(", ")}${fuelMsg}`
+          : `Fueled up!${fuelMsg}`;
+        notify(itemMsg, "rgba(120,255,150,0.95)");
+        syncInv(s.player.inventory);
+        const hadFragment = lootResult.gained.some(i => i.type === "map_fragment");
+        if (hadFragment) {
+          const fragmentItem = lootResult.gained.find(i => i.type === "map_fragment");
+          const result = collectMapFragment(s, fragmentItem);
+          if (!s.mapFragmentCollected) {
+            s.mapFragmentCollected = true;
+          }
+          if (result?.isEndgame) {
+            addFloater(s, "🗺️ all fragments found!", s.player.x, s.player.y - 30, "rgba(120,255,150,0.95)", 15);
+            notify("🗺️ All settlements found! You've mapped the region — you survived!", "rgba(120,255,150,0.95)");
+          } else if (result?.bossSpawned) {
+            addFloater(s, "☠ A boss zombie has appeared!", s.player.x, s.player.y - 30, "rgba(255,80,80,0.95)", 16);
+            notify("☠ Final fragment! A massive boss zombie has spawned — kill it to win!", "rgba(255,80,80,0.95)");
+          } else if (result?.nextSettlement) {
+            const ns = result.nextSettlement;
+            addFloater(s, `🗺️ fragment! head to ${ns.name}`, s.player.x, s.player.y - 30, "rgba(255,220,80,0.95)", 14);
+            notify(`🗺️ Map fragment! Next: ${ns.name}`, "rgba(255,220,80,0.95)");
+          } else {
+            addFloater(s, "🗺️ map fragment!", s.player.x, s.player.y - 30, "rgba(255,220,80,0.95)", 14);
+            notify("🗺️ Map fragment collected!", "rgba(255,220,80,0.95)");
+          }
+          if (room && sendMapFragment) sendMapFragment();
+        }
+        const surv = tryDiscoverSurvivor(s.player, s.buildings, s.survivors, s.lootPiles);
+        if (surv) {
+          // New survivor follows whoever triggered the loot
+          surv.survivor.followLeader = s.player;
+          s.survivors.push(surv.survivor);
+          s.survivorsFound = (s.survivorsFound ?? 0) + 1;
+          notify(`${surv.survivor.name} (${surv.survivor.role}) was hiding here!`, "rgba(120,255,180,0.95)");
+          if (room) sendSurvivorFound(surv.survivor);
+        }
+        // Broadcast both the building ID (so partner marks it searched) AND the items
+        // gained so partner can apply them to their shared world state if needed.
+        if (room) {
+          sendBuildingSearch(lootResult.pile.buildingId);
+          sendLootPickup(lootResult.pile.buildingId, lootResult.gained, lootResult.fuelGained ?? 0);
+        }
+        return;
+      }
+      handleFCrops(s);
+      return;
+    }
+
+    // Switch active vehicle reference to the nearest one
+    s.vehicle = nearestVehicle;
 
     const myRole = roleRef.current;
     const alreadyInVehicle = s.vehicle.driver === myRole || s.vehicle.passenger === myRole;
@@ -250,8 +621,17 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
 
     const enteredAs = tryEnterVehicle(s.player, s.vehicle, myRole);
     if (enteredAs) {
-      const msg = enteredAs === "driver" ? "Driving — F to exit" : "Riding shotgun — F to exit";
+      const cfg = VEHICLE_TYPES[s.vehicle.vehicleType] ?? VEHICLE_TYPES.car;
+      const msg = enteredAs === "driver" ? `Driving ${cfg.label} — F to exit` : `Riding shotgun — F to exit`;
       notify(msg);
+      // ── Power moment: first time player enters any vehicle ──────────────────
+      if (!s.firstVehicleEntered && enteredAs === "driver") {
+        s.firstVehicleEntered = true;
+        powerMomentRef.current = 2.2;   // 2.2 seconds of zoom-out effect
+        powerZoomRef.current = 1.0;
+        flashRef.current = 0.4;         // screen flash
+        notify("⚡ FLOOR IT — zombies everywhere!", "rgba(255,80,40,0.98)");
+      }
       if (room) sendVehicleUpdate(
         s.vehicle.x, s.vehicle.y, s.vehicle.facing,
         s.vehicle.hp, s.vehicle.fuel,
@@ -259,68 +639,94 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
       );
       return;
     }
+  }
 
-    const doorResult = tryToggleDoor(s.player, s.buildings);
-    if (doorResult) {
-      notify(doorResult.door.open ? `Opened door` : `Closed door`);
-      if (room) {
-        const d = doorResult.door;
-        sendDoorUpdate(doorResult.building.id, d.id, d.open, d.hp ?? DOOR_MAX_HP, !!d.broken);
+  // ── F key fallback: crops/planting when no vehicle nearby ─────────────────
+  function handleFCrops(s) {
+    // Check for ready harvest near player — start cast
+    const nearReadyCrop = s.crops.find(c => {
+      if (c.stage !== "ready") return false;
+      const plot = s.gardenPlots.find(p => p.id === c.plotId);
+      return plot && dist(s.player.x, s.player.y, plot.x + plot.w / 2, plot.y + plot.h / 2) < 60;
+    });
+    if (nearReadyCrop) {
+      if (castActionRef.current?.type === "harvest") return;
+      startCast({
+        type: "harvest",
+        duration: 2.0,
+        label: "Harvesting crops",
+        icon: "🌾",
+        onComplete: () => {
+          const result = tryHarvestCrop(s.player, s.gardenPlots, s.crops, s.dayNumber);
+          if (result) {
+            notify(`Harvested ${result.qty}× ${result.type}!`, "rgba(120,220,80,0.95)");
+            if (room) sendCropHarvest(result.id);
+            syncInv(s.player.inventory);
+          }
+        },
+      });
+      return;
+    }
+
+    // Check for empty plot near player — start cast
+    const nearEmptyPlot = s.gardenPlots.find(p =>
+      !s.crops.some(c => c.plotId === p.id) &&
+      dist(s.player.x, s.player.y, p.x + p.w / 2, p.y + p.h / 2) < 60
+    );
+    if (nearEmptyPlot) {
+      if (castActionRef.current?.type === "plant") return;
+      if ((s.player.inventory.seeds ?? 0) < 1) {
+        notify("Need seeds first!", "rgba(255,100,100,0.95)");
+        return;
       }
+      startCast({
+        type: "plant",
+        duration: 2.5,
+        label: "Planting potatoes",
+        icon: "🌱",
+        onComplete: () => {
+          const result = tryPlantCrop(s.player, s.gardenPlots, s.crops, "potato");
+          if (result?.success) {
+            notify("Planted potatoes", "rgba(120,220,80,0.95)");
+            if (room) sendCropPlant(result.crop);
+            syncInv(s.player.inventory);
+          } else if (result?.fail === "no_seeds") {
+            notify("No seeds left!", "rgba(255,100,100,0.95)");
+          }
+        },
+      });
       return;
     }
-
-    const lootResult = tryCollectLoot(s.player, s.lootPiles, s.vehicle);
-    if (lootResult) {
-      // Count buildings searched
-      s.buildingsSearched = (s.buildingsSearched ?? 0) + 1;
-
-      const fuelMsg = lootResult.fuelGained > 0 ? ` (+${lootResult.fuelGained} fuel ⛽)` : "";
-      const nonFuelItems = lootResult.gained.filter(i => !i.autoFueled);
-      const itemMsg = nonFuelItems.length > 0
-        ? `Picked up: ${nonFuelItems.map(i => `${i.qty}× ${i.type}`).join(", ")}${fuelMsg}`
-        : `Fueled up!${fuelMsg}`;
-      notify(itemMsg, "rgba(120,255,150,0.95)");
-      setInv({ ...s.player.inventory });
-
-      // Check for map fragment in loot
-      const hadFragment = lootResult.gained.some(i => i.type === "map_fragment");
-      if (hadFragment && !s.mapFragmentCollected) {
-        s.mapFragmentCollected = true;
-        addFloater(s, "🗺️ map fragment! head north!", s.player.x, s.player.y - 30, "rgba(255,220,80,0.95)", 14);
-        notify("🗺️ Map fragment found! Drive north to escape!", "rgba(255,220,80,0.95)");
-        if (room && sendMapFragment) sendMapFragment();
-      }
-
-      const surv = tryDiscoverSurvivor(s.player, s.buildings, s.survivors, s.lootPiles);
-      if (surv) {
-        s.survivors.push(surv.survivor);
-        s.survivorsFound = (s.survivorsFound ?? 0) + 1;
-        notify(`${surv.survivor.name} (${surv.survivor.role}) was hiding here!`, "rgba(120,255,180,0.95)");
-        if (room) sendSurvivorFound(surv.survivor);
-      }
-      if (room) sendBuildingSearch(lootResult.pile.buildingId);
-      return;
-    }
-
-    const harvestResult = tryHarvestCrop(s.player, s.gardenPlots, s.crops);
-    if (harvestResult) {
-      notify(`Harvested ${harvestResult.qty}× ${harvestResult.type}!`, "rgba(120,220,80,0.95)");
-      if (room) sendCropHarvest(harvestResult.id);
-      setInv({ ...s.player.inventory });
-      return;
-    }
-
-    const plantResult = tryPlantCrop(s.player, s.gardenPlots, s.crops, "potato");
-    if (plantResult && plantResult.success) {
-      notify("Planted potatoes", "rgba(120,220,80,0.95)");
-      if (room) sendCropPlant(plantResult.crop);
-      setInv({ ...s.player.inventory });
-      return;
-    }
-    if (plantResult?.fail === "no_seeds") { notify("Need seeds first!", "rgba(255,100,100,0.95)"); return; }
 
     notify("Nothing to interact with here", "rgba(180,180,180,0.6)");
+  }
+
+  // ── Cast system helpers ────────────────────────────────────────────────────
+  function startCast({ type, duration, label, icon, onComplete }) {
+    castActionRef.current = { type, duration, elapsed: 0, label, icon, onComplete };
+    setCastBar({ label, icon, pct: 0 });
+  }
+
+  function cancelCast(reason = "") {
+    if (!castActionRef.current) return;
+    castActionRef.current = null;
+    setCastBar(null);
+    if (reason) notify(`Interrupted! ${reason}`, "rgba(255,100,100,0.95)");
+  }
+
+  function tickCast(dt, wasHit) {
+    const ca = castActionRef.current;
+    if (!ca) return;
+    if (wasHit) { cancelCast(""); notify("Cast interrupted!", "rgba(255,100,100,0.95)"); return; }
+    ca.elapsed += dt;
+    const pct = Math.min(1, ca.elapsed / ca.duration);
+    setCastBar({ label: ca.label, icon: ca.icon, pct });
+    if (ca.elapsed >= ca.duration) {
+      const cb = ca.onComplete;
+      castActionRef.current = null;
+      setCastBar(null);
+      cb();
+    }
   }
 
   function handleKeyAction(key, s) {
@@ -333,70 +739,306 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
       if (result.fail === "full_hp") { notify("Vehicle is already at full health!", "rgba(180,180,180,0.6)"); return; }
       notify(`Vehicle repaired +${REPAIR_HP_GAIN} HP 🔧`, "rgba(120,255,150,0.95)");
       if (room && sendVehicleRepair) sendVehicleRepair(s.vehicle.hp);
-      setInv({ ...s.player.inventory });
+      syncInv(s.player.inventory);
       return;
     }
 
     if (key === "b" || key === "B") {
-      const r = tryBarricade(s.player, s.buildings);
-      if (!r) { notify("No barricadeable building nearby", "rgba(180,180,180,0.6)"); return; }
-      if (r.fail) { notify(`Need ${r.need.wood} wood + ${r.need.nails} nails`, "rgba(255,100,100,0.95)"); return; }
-      notify(`${r.building.label} barricaded!`, "rgba(180,230,120,0.95)");
-      if (room) sendBarricadePlace(r.building.id, r.building.barricadeHp);
-      setInv({ ...s.player.inventory });
+      if (castActionRef.current?.type === "barricade") return;
+      const nearBuilding = s.buildings.find(b => {
+        if (!b.barricadeable || b.barricadeHp > 0) return false;
+        const nearDoor = (b.doors || []).some(d => {
+          const c = getDoorCenter(b, d);
+          return dist(s.player.x, s.player.y, c.x, c.y) < 60;
+        });
+        return nearDoor || isInsideBuilding(s.player, b);
+      });
+      if (!nearBuilding) { notify("No barricadeable building nearby", "rgba(180,180,180,0.6)"); return; }
+      const actualDoors = nearBuilding.barricadeDoors ?? 1;
+      const costW = BARRICADE_COST_WOOD  * actualDoors;
+      const costN = BARRICADE_COST_NAILS * actualDoors;
+      if ((s.player.inventory.wood ?? 0) < costW || (s.player.inventory.nails ?? 0) < costN) {
+        notify(`Need ${costW} wood + ${costN} nails`, "rgba(255,100,100,0.95)");
+        return;
+      }
+      startCast({
+        type: "barricade",
+        duration: 3.0,
+        label: `Barricading ${nearBuilding.label}`,
+        icon: "🪵",
+        onComplete: () => {
+          const r = tryBarricade(s.player, s.buildings);
+          if (!r) { notify("No barricadeable building nearby", "rgba(180,180,180,0.6)"); return; }
+          if (r.fail) { notify(`Need ${r.need.wood} wood + ${r.need.nails} nails`, "rgba(255,100,100,0.95)"); return; }
+          notify(`${r.building.label} barricaded!`, "rgba(180,230,120,0.95)");
+          if (room) sendBarricadePlace(r.building.id, r.building.barricadeHp);
+          syncInv(s.player.inventory);
+        },
+      });
       return;
     }
 
     if (key === "q" || key === "Q") {
-      if (eatFood(s.player)) { notify("Ate food (+25 🍞)"); setInv({ ...s.player.inventory }); }
-      else notify("No food in inventory!", "rgba(255,100,100,0.95)");
+      if (castActionRef.current?.type === "eat") return;
+      if ((s.player.inventory.food ?? 0) < 1) { notify("No food in inventory!", "rgba(255,100,100,0.95)"); return; }
+      startCast({
+        type: "eat",
+        duration: 1.5,
+        label: "Eating food",
+        icon: "🍞",
+        onComplete: () => {
+          if (eatFood(s.player)) {
+            notify("Ate food (+25 🍞)");
+            syncInv(s.player.inventory);
+            // Revive from downed state
+            if (s.player.isDowned) {
+              s.player.isDowned = false;
+              s.player.isSleeping = false;
+              s.player.hp = Math.max(s.player.hp, 15);
+              notify("🫀 Revived!", "rgba(120,255,180,0.95)");
+              if (room) sendNeedsUpdate(s.player.food, s.player.water, s.player.sleep, s.player.hp, false);
+            }
+          } else {
+            notify("No food left!", "rgba(255,100,100,0.95)");
+          }
+        },
+      });
       return;
     }
 
     if (key === "r" || key === "R") {
-      const ok = drinkWater(s.player, s.buildings, s.wells);
-      if (ok) { notify(ok.source === "well" ? "Drank from well (+30 💧)" : "Drank water (+30 💧)"); setInv({ ...s.player.inventory }); }
-      else notify("No water nearby!", "rgba(255,100,100,0.95)");
+      if (castActionRef.current?.type === "drink") return;
+      const nearWell = s.wells?.some(w => dist(s.player.x, s.player.y, w.x, w.y) < 60);
+      const nearBuildingWell = s.buildings.some(b => b.hasWell &&
+        dist(s.player.x, s.player.y, b.x + b.w / 2, b.y + b.h / 2) < 80);
+      const hasWater = (s.player.inventory.water ?? 0) > 0;
+      if (!nearWell && !nearBuildingWell && !hasWater) {
+        notify("No water nearby!", "rgba(255,100,100,0.95)");
+        return;
+      }
+      startCast({
+        type: "drink",
+        duration: 1.5,
+        label: "Drinking water",
+        icon: "💧",
+        onComplete: () => {
+          const ok = drinkWater(s.player, s.buildings, s.wells);
+          if (ok) {
+            notify(ok.source === "well" ? "Drank from well (+30 💧)" : "Drank water (+30 💧)");
+            syncInv(s.player.inventory);
+            // Revive from downed state
+            if (s.player.isDowned) {
+              s.player.isDowned = false;
+              s.player.isSleeping = false;
+              s.player.hp = Math.max(s.player.hp, 15);
+              notify("🫀 Revived!", "rgba(120,255,180,0.95)");
+              if (room) sendNeedsUpdate(s.player.food, s.player.water, s.player.sleep, s.player.hp, false);
+            }
+          } else {
+            notify("No water nearby!", "rgba(255,100,100,0.95)");
+          }
+        },
+      });
       return;
     }
 
     if (key === "z" || key === "Z") {
-      if (s.isFastSleeping) {
-        s.isFastSleeping = false;
-        s.player.isSleeping = false;
-        holdZRef.current = 0;
-        zHoldActiveRef.current = false;
-        notify("Woke up");
+  if (s.player.isSleeping) {
+    // If already sleeping, Z does nothing (use movement to wake)
+    if (!s.isFastSleeping && !zHoldActiveRef.current) {
+      notify("Move to wake up", "rgba(180,180,180,0.6)");
+    }
+    return;
+  }
+  // Not sleeping - start sleeping
+  s.player.isSleeping = true;
+  s.player.sleepLocation = getSleepLocation(s.player, s.vehicle, s.buildings);
+  holdZRef.current = 0;
+  zHoldActiveRef.current = false;
+  notify("Sleeping — move to wake up", "rgba(255,220,80,0.9)");
+  return;
+}
+
+    if (key === "i" || key === "I") { setShowInv(v => !v); return; }
+
+    if (key === "h" || key === "H") {
+      if (s.player.inVehicle) return;
+      if (!s.turrets?.length) { notify("No turrets nearby", "rgba(180,180,180,0.5)"); return; }
+      // Check if near a damaged turret
+      const nearDamagedTurret = s.turrets.find(t =>
+        !t.destroyed && t.hp < t.maxHp &&
+        Math.sqrt((s.player.x - t.x)**2 + (s.player.y - t.y)**2) < TURRET_REPAIR_RANGE
+      );
+      if (!nearDamagedTurret) { notify("No damaged turret nearby", "rgba(180,180,180,0.5)"); return; }
+      if (castActionRef.current?.type === "repair_turret") return; // already casting
+      const scrap = (s.player.inventory.scrap ?? 0);
+      if (scrap < TURRET_REPAIR_COST_SCRAP) {
+        notify(`Need ${TURRET_REPAIR_COST_SCRAP} scrap to repair!`, "rgba(255,100,100,0.95)");
         return;
       }
-      if (s.player.isSleeping && zHoldActiveRef.current) {
-        s.player.isSleeping = false;
-        holdZRef.current = 0;
-        zHoldActiveRef.current = false;
-        notify("Woke up");
-        return;
-      }
-      if (s.player.isSleeping) {
-        zHoldActiveRef.current = true;
-        holdZRef.current = 0;
-        return;
-      }
-      s.player.isSleeping = true;
-      s.player.sleepLocation = getSleepLocation(s.player, s.vehicle, s.buildings);
-      holdZRef.current = 0;
-      zHoldActiveRef.current = false;
-      notify("Sleeping — press & hold Z to fast-sleep ⏩");
+      startCast({
+        type: "repair_turret",
+        duration: 2.5,
+        label: `Repairing turret (+${TURRET_REPAIR_HP} HP)`,
+        icon: "🔧",
+        onComplete: () => {
+          const result = tryRepairTurret(s.player, s.turrets ?? []);
+          if (result?.success) {
+            notify(`🔧 Turret repaired (+${TURRET_REPAIR_HP} HP)`, "rgba(120,255,150,0.95)");
+            addFloater(s, `+${TURRET_REPAIR_HP} HP`, result.turret.x, result.turret.y - 20, "rgba(120,255,150,0.9)");
+            syncInv(s.player.inventory);
+            if (room && sendTurretRepair) sendTurretRepair(result.turret.id, result.turret.hp);
+          } else if (result?.fail === "no_scrap") {
+            notify("Out of scrap!", "rgba(255,100,100,0.95)");
+          } else if (result?.fail === "full_hp") {
+            notify("Turret is already at full HP", "rgba(180,180,180,0.6)");
+          }
+        },
+      });
       return;
     }
 
-    if (key === "i" || key === "I") { setShowInv(v => !v); return; }
+    if (key === "g" || key === "G") {
+      if (placingModeRef.current) {
+        placingModeRef.current = null;
+        placingHintRef.current = null;
+        setPlacingMode(null);
+        setPlacingHint(null);
+        notify("Placement cancelled");
+      } else {
+        setBuildMenu(v => !v);
+      }
+      return;
+    }
+
+    if (key === "t" || key === "T") {
+      if (assigningRef.current) {
+        // In assigning mode — check if near a turret or crop plot
+        const sv = assigningRef.current.survivor;
+        const nearTurret = (s.turrets ?? []).find(t =>
+          !t.destroyed && dist(s.player.x, s.player.y, t.x, t.y) < 60
+        );
+        if (nearTurret) {
+          tryAssignSurvivor(sv, nearTurret.id, "turret");
+          assigningRef.current = null;
+          setAssigningMode(null);
+          notify(`${sv.name} assigned to turret`, "rgba(120,220,255,0.95)");
+          return;
+        }
+        const nearPlot = (s.gardenPlots ?? []).find(p =>
+          dist(s.player.x, s.player.y, p.x + p.w / 2, p.y + p.h / 2) < 80
+        );
+        if (nearPlot) {
+          tryAssignSurvivor(sv, nearPlot.id, "crop");
+          assigningRef.current = null;
+          setAssigningMode(null);
+          notify(`${sv.name} assigned to crop plot`, "rgba(120,220,80,0.95)");
+          return;
+        }
+        notify("No turret or crop plot nearby to assign to", "rgba(180,180,180,0.6)");
+        return;
+      }
+      // Open survivor command menu if near a survivor
+      const nearbySv = (s.survivors ?? []).find(sv2 =>
+        sv2.hp > 0 && dist(s.player.x, s.player.y, sv2.x, sv2.y) < SURVIVOR_INTERACT_RANGE
+      );
+      if (nearbySv) {
+        setSurvivorMenu({ survivor: nearbySv });
+      } else {
+        notify("No survivor nearby", "rgba(180,180,180,0.6)");
+      }
+      return;
+    }
+
+    if (key === "Escape") {
+      setShowInv(false); setShowControls(false);
+      setSurvivorMenu(null);
+      if (assigningRef.current) {
+        assigningRef.current = null;
+        setAssigningMode(null);
+        notify("Assignment cancelled");
+      } else if (placingModeRef.current) {
+        placingModeRef.current = null;
+        placingHintRef.current = null;
+        setPlacingMode(null);
+        setPlacingHint(null);
+        setBuildMenu(false);
+        notify("Placement cancelled");
+      } else {
+        setBuildMenu(false);
+      }
+      return;
+    }
+
+    if (key >= "1" && key <= "5") {
+  const slotIdx = parseInt(key) - 1;
+  const itemType = quickSlotItems[slotIdx];
+  if (!itemType) {
+    notify(`Quick slot ${key} is empty! Press I to assign items`, "rgba(180,180,180,0.6)");
+    return;
+  }
+  
+  const qty = getInventoryCount(s.player.inventory, itemType);
+  if (qty < 1) {
+    notify(`No ${itemType} in quick slot ${key}!`, "rgba(255,100,100,0.95)");
+    return;
+  }
+  
+  if (itemType === "food") {
+    if (castActionRef.current?.type === "eat") return;
+    startCast({
+      type: "eat",
+      duration: 1.5,
+      label: "Eating food",
+      icon: "🍞",
+      onComplete: () => {
+        if (eatFood(s.player)) {
+          notify("Ate food (+25 🍞)");
+          syncInv(s.player.inventory);
+        }
+      },
+    });
+  } else if (itemType === "water") {
+    if (castActionRef.current?.type === "drink") return;
+    startCast({
+      type: "drink",
+      duration: 1.5,
+      label: "Drinking water",
+      icon: "💧",
+      onComplete: () => {
+        const ok = drinkWater(s.player, s.buildings, s.wells);
+        if (ok) {
+          notify(ok.source === "well" ? "Drank from well (+30 💧)" : "Drank water (+30 💧)");
+          syncInv(s.player.inventory);
+        }
+      },
+    });
+  }
+  return;
+}
+
     if (key === " ") {
       if (!s.player.weapon) { notify("No weapon — find one first!", "rgba(255,100,100,0.95)"); return; }
       if (s.player.inVehicle) return;
       playerAttack(s.player, s.zombies, 0);
     }
-    if (key === "Escape") { setShowInv(false); setShowControls(false); }
   }
+
+  // Timer countdown for sleep vote
+useEffect(() => {
+  if (!sleepVoteModal) return;
+  
+  const interval = setInterval(() => {
+    setSleepVoteModal(prev => {
+      if (!prev) return null;
+      const newTimer = prev.timer - 0.1;
+      if (newTimer <= 0) return null;
+      return { ...prev, timer: newTimer };
+    });
+  }, 100);
+  
+  return () => clearInterval(interval);
+}, [sleepVoteModal]);
 
   // ── Game loop setup ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -418,11 +1060,72 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
     function onKeyDown(e) {
       keysRef.current[e.key] = true;
       if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key)) e.preventDefault();
+      // Tab → open base screen
+      if (e.key === "Tab") {
+        e.preventDefault();
+        if (onStateSnapshot) onStateSnapshot(stateRef.current);
+        if (onOpenBase) onOpenBase();
+        return;
+      }
       if (e.repeat) return;
       const s = stateRef.current;
       if (s) handleKeyAction(e.key, s);
     }
     function onKeyUp(e) { keysRef.current[e.key] = false; }
+
+    function onCanvasClick(e) {
+      const mode = placingModeRef.current;
+      if (!mode) return;
+      const s = stateRef.current; if (!s) return;
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const cx = (e.clientX - rect.left);
+      const cy = (e.clientY - rect.top);
+      // Convert to world coords
+      const wx = cx + s.cam.x;
+      const wy = cy + s.cam.y;
+
+      if (mode === "turret") {
+        if (!s.turrets) s.turrets = [];
+        const result = tryPlaceTurret(s.player, wx, wy, s.turrets, s.buildings);
+        if (!result) { notify("Can't place here", "rgba(255,100,100,0.95)"); return; }
+        if (result.fail === "no_scrap") { notify(`Need ${TURRET_COST.scrap} scrap metal!`, "rgba(255,100,100,0.95)"); return; }
+        if (result.fail === "no_nails") { notify(`Need ${TURRET_COST.nails} nails!`, "rgba(255,100,100,0.95)"); return; }
+        if (result.fail === "inside_building") { notify("Can't place inside a building", "rgba(255,100,100,0.95)"); return; }
+        if (result.fail === "overlap") { notify("Too close to another turret", "rgba(255,100,100,0.95)"); return; }
+        notify("🗼 Turret placed!", "rgba(120,255,150,0.95)");
+        syncInv(s.player.inventory);
+        if (room && sendTurretPlace) sendTurretPlace(result.turret);
+        placingModeRef.current = null;
+        placingHintRef.current = null;
+        setPlacingMode(null);
+        setPlacingHint(null);
+        setBuildMenu(false);
+      } else if (mode === "crop_plot") {
+        const result = tryPlaceCropPlot(s.player, wx, wy, s.gardenPlots, s.buildings);
+        if (!result) { notify("Can't place here", "rgba(255,100,100,0.95)"); return; }
+        if (result.fail === "inside_building") { notify("Too close to a building — needs clearance", "rgba(255,100,100,0.95)"); return; }
+        if (result.fail === "overlap") { notify("Too close to another plot", "rgba(255,100,100,0.95)"); return; }
+        notify("🌱 Garden plot placed!", "rgba(120,220,80,0.95)");
+        if (room && sendGardenPlotPlace) sendGardenPlotPlace(result.plot);
+        placingModeRef.current = null;
+        placingHintRef.current = null;
+        setPlacingMode(null);
+        setPlacingHint(null);
+        setBuildMenu(false);
+      }
+    }
+
+    function onMouseMove(e) {
+      if (!placingModeRef.current) return;
+      const rect = canvas.getBoundingClientRect();
+      const hint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      placingHintRef.current = hint;
+      setPlacingHint(hint);
+    }
+
+    canvas.addEventListener("click", onCanvasClick);
+    canvas.addEventListener("mousemove", onMouseMove);
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
     rafRef.current = requestAnimationFrame(loop);
@@ -431,6 +1134,8 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
       window.removeEventListener("resize", resize);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
+      canvas.removeEventListener("click", onCanvasClick);
+      canvas.removeEventListener("mousemove", onMouseMove);
       cancelAnimationFrame(rafRef.current);
     };
   }, []); // eslint-disable-line
@@ -448,20 +1153,31 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
     s.lastTime = now; s.tick++;
     const t = now / 1000;
 
-    if (!s.isFastSleeping) s.isFastSleeping = false;
-    if (s.player.isSleeping && !s.isFastSleeping && zHoldActiveRef.current) {
-      if (keysRef.current["z"] || keysRef.current["Z"]) {
-        holdZRef.current += dtActual;
-        if (holdZRef.current >= 1.0) {
-          s.isFastSleeping = true;
-          holdZRef.current = 0;
-          zHoldActiveRef.current = false;
-        }
+// Fast sleep request voting system
+if (s.player.isSleeping && !s.isFastSleeping && !fastSleepVoteRequestedRef.current && !sleepVoteModal) {
+  if (keysRef.current["z"] || keysRef.current["Z"]) {
+    holdZRef.current += dtActual;
+    if (holdZRef.current >= 1.0 && !fastSleepVoteRequestedRef.current && !sleepVoteModal) {
+      holdZRef.current = 0;
+      
+      if (room && sendSleepRequest) {  // Check if sendSleepRequest exists
+        fastSleepVoteRequestedRef.current = true;
+        notify("Waiting for partner to agree to fast sleep...", "rgba(255,220,80,0.95)");
+        sendSleepRequest();
+      } else if (room && !sendSleepRequest) {
+        // This shouldn't happen if imported correctly, but helpful for debugging
+        console.warn("sendSleepRequest not available");
+        notify("Sleep request failed - check connection", "rgba(255,100,100,0.95)");
       } else {
-        holdZRef.current = 0;
-        zHoldActiveRef.current = false;
+        // Solo play - just start fast sleep
+        s.isFastSleeping = true;
+        notify("Fast-sleeping! (any movement cancels)", "rgba(120,220,80,0.95)");
       }
     }
+  } else {
+    holdZRef.current = 0;
+  }
+}
 
     if (flashRef.current > 0) flashRef.current -= dtActual;
 
@@ -480,14 +1196,45 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
     const moving = dx !== 0 || dy !== 0;
 
     if (!s.player.isSleeping) {
-      if (s.player.inVehicle) {
-        const isDriver = s.vehicle.driver === roleRef.current;
-        if (moving && isDriver) driveVehicle(s.vehicle, dx, dy, dt, s.buildings);
-        syncPlayerToVehicle(s.player, s.vehicle);
-      } else {
-        if (moving) movePlayer(s.player, dx, dy, dt, s.buildings);
+  if (s.player.inVehicle) {
+    const isDriver = s.vehicle.driver === roleRef.current;
+    if (moving && isDriver) driveVehicle(s.vehicle, dx, dy, dt, s.buildings);
+    syncPlayerToVehicle(s.player, s.vehicle);
+  } else {
+    if (moving) {
+      movePlayer(s.player, dx, dy, dt, s.buildings);
+      // ── Awakening: first movement by either player triggers the horde ────
+      if (!s.zombiesAwakened) {
+        s.zombiesAwakened = true;
+        // Only host runs activateAwakeningRing (authoritative zombie state);
+        // P2 client's awakening is triggered via onP2Move on the host side.
+        if (isHostRef.current) {
+          activateAwakeningRing(s.zombies, s.player.x, s.player.y);
+        }
+        setAwakeningFlash(true);
+        setTimeout(() => setAwakeningFlash(false), 600);
       }
     }
+  }
+} else {
+  // Player is sleeping - check for movement to wake up
+  if (moving) {
+    s.player.isSleeping = false;
+    s.isFastSleeping = false;
+    holdZRef.current = 0;
+    zHoldActiveRef.current = false;
+    fastSleepVoteRequestedRef.current = false;
+    if (sleepVoteTimerRef.current) clearTimeout(sleepVoteTimerRef.current);
+    setSleepVoteModal(null);
+    notify("Woke up");
+    addFloater(s, "Woke up!", s.player.x, s.player.y - 20, "rgba(255,220,80,0.9)", 12);
+    
+    // If in co-op and were fast sleeping, notify partner
+    if (room && s.isFastSleeping) {
+      sendFastSleepCancel?.(); // You'd need to add this WebSocket event
+    }
+  }
+}
 
     if (s.player2 && s.p2Target) {
       const lf = Math.min(1, 12 * dtActual);
@@ -507,7 +1254,7 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
       s.vehicle.fuel   = s.vehicleTarget.fuel;
     }
 
-    if (!isP1 && s.zombieTargets) {
+    if (!isHostRef.current && s.zombieTargets) {
       const lf = Math.min(1, 10 * dtActual);
       s.zombies.forEach(z => {
         const t = s.zombieTargets.get(z.id);
@@ -521,7 +1268,33 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
       });
     }
 
-    if (!isP1 && room) {
+    // ── P2: interpolate convoy vehicle positions from network targets ─────
+    if (!isHostRef.current && s.convoyVehicleTargets) {
+      if (!s.convoyVehicles) s.convoyVehicles = [];
+      for (const [id, upd] of s.convoyVehicleTargets) {
+        let entry = s.convoyVehicles.find(e => e.vehicle._id === id);
+        if (!entry) {
+          // Create a ghost vehicle for rendering
+          const { createVehicle: _cv, ..._ } = {}; // no-op; just build manually
+          const ghostV = {
+            _id: id, x: upd.x, y: upd.y, facing: upd.facing,
+            hp: upd.hp, maxHp: upd.maxHp ?? 300,
+            vehicleType: upd.vehicleType ?? "car", radius: 22,
+            speed: 260, fuel: 80, maxFuel: 80, occupied: true,
+            seats: 2, noise: 0.9, zombieKill: false,
+          };
+          entry = { vehicle: ghostV, survivor: { name: upd.survivorName ?? "?" } };
+          s.convoyVehicles.push(entry);
+        }
+        const lf = Math.min(1, 10 * dtActual);
+        entry.vehicle.x      = lerp(entry.vehicle.x,      upd.x,      lf);
+        entry.vehicle.y      = lerp(entry.vehicle.y,      upd.y,      lf);
+        entry.vehicle.facing = lerp(entry.vehicle.facing, upd.facing,  lf);
+        entry.vehicle.hp     = upd.hp;
+      }
+    }
+
+    if (!isHostRef.current && room) {
       const ZOMBIE_DMG_RATE = 0.8;
       const attackR = 7 + 9 + 4;
       s.zombies.forEach(z => {
@@ -540,10 +1313,18 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
     }
 
     const collapsed = updateNeeds(s.player, dt, s.player.isSleeping, s.player.sleepLocation);
-    if (collapsed && s.player.hp > 0) {
+    if (collapsed && s.player.hp > 0 && !s.player.isDowned) {
       addFloater(s, "💀 collapsed!", s.player.x, s.player.y - 20, "rgba(255,80,80,0.95)", 15);
+      s.player.isDowned = true;
       s.player.isSleeping = true;
       s.player.sleepLocation = getSleepLocation(s.player, s.vehicle, s.buildings);
+      if (room) sendNeedsUpdate(s.player.food, s.player.water, s.player.sleep, s.player.hp, true);
+    }
+
+    // ── Boss compass tracking — keep compassTarget synced to boss position ──
+    if (s.bossZombie && !s.bossZombie.dead && s.compassTarget?.isBoss) {
+      s.compassTarget.x = s.bossZombie.x;
+      s.compassTarget.y = s.bossZombie.y;
     }
 
     // ── Death check ────────────────────────────────────────────────────────
@@ -552,22 +1333,52 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
       return;
     }
 
-    // ── Level exit check ───────────────────────────────────────────────────
-    if (isP1 && checkLevelExit(s) && !gameOverFiredRef.current) {
-      addFloater(s, "🛣️ You found the highway…", s.player.x, s.player.y - 40, "rgba(255,220,80,0.95)", 16);
+    // ── Endgame check (boss zombie dead) ─────────────────────────────────────
+    if (isHostRef.current && checkEndgame(s) && !gameOverFiredRef.current) {
+      addFloater(s, "☠ Boss defeated! You win!", s.player.x, s.player.y - 40, "rgba(255,80,80,0.95)", 18);
       triggerGameOver(s, {
         survived: true,
-        nextLevel: true,
+        nextLevel: false,
         dayssurvived: s.dayNumber,
         zombiesKilled: s.zombiesKilled ?? 0,
         buildingsSearched: s.buildingsSearched ?? 0,
         survivorsFound: s.survivorsFound ?? 0,
+        settlementsCleared: s.fragmentsCollected?.length ?? 0,
       });
       return;
     }
 
-    if (isP1) {
-      updateZombies(s.zombies, s.player, s.vehicle, dt, s.isNight, s.buildings, s.player2);
+    if (isHostRef.current) {
+        updateWeather(dt, s.dayNumber, s);
+      // ── Sound events ─────────────────────────────────────────────────────
+      // Emit continuous engine sound if vehicle is occupied and moving
+      if (!s.soundEvents) s.soundEvents = [];
+      if (s.vehicle.occupied && moving) {
+        // Engine sound: recreated each frame, pulled out by updateSoundEvents ttl=0 trick.
+        // Instead we just add one each frame — updateSoundEvents clears old ones immediately.
+        // Use a persistent engine source updated in place for efficiency.
+        const existing = s.soundEvents.find(e => e.type === "engine");
+        if (existing) {
+          existing.x = s.vehicle.x;
+          existing.y = s.vehicle.y;
+          existing.strength = s.vehicle.noise ?? 0.9;
+          existing.age = 0; // reset so it never expires while driving
+        } else {
+          s.soundEvents.push(createSoundEvent("engine", s.vehicle.x, s.vehicle.y, VEHICLE_ENGINE_RANGE, s.vehicle.noise ?? 0.9));
+        }
+      } else {
+        // Remove engine sound when vehicle stops
+        const idx = s.soundEvents.findIndex(e => e.type === "engine");
+        if (idx !== -1) s.soundEvents.splice(idx, 1);
+      }
+
+      updateSoundEvents(s.soundEvents, dtActual);
+
+      updateZombies(
+        s.zombies, s.player, s.vehicle, dt, s.isNight, s.buildings, s.player2,
+        s.soundEvents, s.hamletCx ?? WORLD_W / 2, s.hamletCy ?? WORLD_H / 2, s.level ?? 1,
+        s.turrets ?? [],
+      );
 
       // Track zombie kills before applying damage (count newly-dead)
       const prevDeadCount = s.zombies.filter(z => z.dead).length;
@@ -598,30 +1409,160 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
         }
       });
       updateNightSpawns(s, dt);
+
+      // Update turrets — shoot zombies, emit sound
+      if (s.turrets?.length) {
+        updateTurrets(s.turrets, s.zombies, dt, s.soundEvents);
+
+        // Turret kill floaters
+        s.zombies.forEach(z => {
+          if (z.dead && z._killedByTurret) {
+            const t = s.turrets.find(t2 => t2.id === z._killedByTurret);
+            if (t) addFloater(s, "💀", z.x, z.y - 10, "rgba(180,255,120,0.8)", 11);
+            z._killedByTurret = null;
+          }
+        });
+
+        // Zombies damage turrets
+        const turretDmgEvents = applyTurretDamage(s.turrets, s.zombies, dt);
+        turretDmgEvents.forEach(ev => {
+          if (ev.destroyed) {
+            const t = s.turrets.find(t2 => t2.id === ev.turretId);
+            if (t) {
+              addFloater(s, "🗼 destroyed!", t.x, t.y - 20, "rgba(255,80,60,0.95)", 13);
+              notify("Turret destroyed!", "rgba(255,80,60,0.95)");
+            }
+            if (room && sendTurretDestroy) sendTurretDestroy(ev.turretId);
+          } else {
+            if (room && sendTurretDamage) sendTurretDamage(ev.turretId, ev.hp);
+          }
+        });
+      }
+
+      // Update survivors AI
+      if (s.survivors?.length) {
+        updateSurvivors(
+          s.survivors, s.player, s.vehicle, s.zombies,
+          s.turrets ?? [], s.gardenPlots, s.crops, s.buildings, dt
+        );
+        // Clean harvested crops flagged by survivor AI
+        for (let i = s.crops.length - 1; i >= 0; i--) {
+          if (s.crops[i].dead) {
+            addFloater(s, "🌿 harvested!", s.crops[i].x, s.crops[i].y - 10, "rgba(120,220,80,0.9)");
+            s.crops.splice(i, 1);
+          }
+        }
+      }
+
+      // ── Convoy vehicle AI (P1 only) ─────────────────────────────────────
+      if (!s.convoyVehicles) s.convoyVehicles = [];
+      if (s.convoyVehicles.length > 0) {
+        // Zombie collisions for each convoy vehicle
+        for (const entry of s.convoyVehicles) {
+          if (!entry._ejected && entry.vehicle.occupied) {
+            updateVehicleCollisions(entry.vehicle, s.zombies, dt, s.buildings);
+          }
+        }
+        const ejected = updateConvoyVehicles(s.convoyVehicles, s.vehicle, s.survivors, dt, s.buildings);
+        // Floaters for ejected survivors
+        ejected.forEach(sv => {
+          addFloater(s, `${sv.name} on foot!`, sv.x, sv.y - 20, "rgba(255,160,60,0.95)", 13);
+        });
+        // Remove ejected convoy entries
+        for (let i = s.convoyVehicles.length - 1; i >= 0; i--) {
+          if (s.convoyVehicles[i]._ejected) s.convoyVehicles.splice(i, 1);
+        }
+      }
+
+      // Tick the cast bar — interrupt if player took damage this frame
+      tickCast(dt, playerDmg > 0);
+
+      // Cancel turret repair cast if player walked out of range
+      if (castActionRef.current?.type === "repair_turret" && s.turrets?.length) {
+        const stillNear = s.turrets.some(t =>
+          !t.destroyed && Math.sqrt((s.player.x - t.x)**2 + (s.player.y - t.y)**2) < TURRET_REPAIR_RANGE
+        );
+        if (!stillNear) cancelCast("Moved too far from turret");
+      }
+
+      // Cancel harvest cast if player walked away from plot
+      if (castActionRef.current?.type === "harvest") {
+        const stillNear = s.crops.some(c => {
+          if (c.stage !== "ready") return false;
+          const plot = s.gardenPlots.find(p => p.id === c.plotId);
+          return plot && dist(s.player.x, s.player.y, plot.x + plot.w / 2, plot.y + plot.h / 2) < 80;
+        });
+        if (!stillNear) cancelCast("Moved away from crop");
+      }
+
+      // Cancel plant cast if player walked away from plot
+      if (castActionRef.current?.type === "plant") {
+        const stillNear = s.gardenPlots.some(p =>
+          !s.crops.some(c => c.plotId === p.id) &&
+          dist(s.player.x, s.player.y, p.x + p.w / 2, p.y + p.h / 2) < 80
+        );
+        if (!stillNear) cancelCast("Moved away from plot");
+      }
+
+      // Cancel barricade cast if player walked away from building
+      if (castActionRef.current?.type === "barricade") {
+        const stillNear = s.buildings.some(b => {
+          if (!b.barricadeable || b.barricadeHp > 0) return false;
+          const nearDoor = (b.doors || []).some(d => {
+            const c = getDoorCenter(b, d);
+            return dist(s.player.x, s.player.y, c.x, c.y) < 80;
+          });
+          return nearDoor || isInsideBuilding(s.player, b);
+        });
+        if (!stillNear) cancelCast("Moved away from building");
+      }
     }
 
-    if (s.player.inVehicle) updateVehicleCollisions(s.vehicle, s.zombies, dt, s.buildings);
+    // Vehicle collision — runs for whoever is driving (not P1-only)
+    // Each client runs collision for vehicles they are driving to keep physics responsive.
+    // Results propagate to the partner via vehicle_update on the sync tick.
+    if (s.player.inVehicle) {
+      (s.vehicles ?? [s.vehicle]).forEach(v => {
+        if (v.occupied && v.driver === roleRef.current) {
+          updateVehicleCollisions(v, s.zombies, dt, s.buildings);
+        }
+      });
+    }
 
     if (keysRef.current[" "]) {
       const prevDeadForAttack = s.zombies.filter(z => z.dead).length;
       const hits = playerAttack(s.player, s.zombies, dt);
-      if (isP1) {
+      if (isHostRef.current) {
         const newDeadForAttack = s.zombies.filter(z => z.dead).length;
         s.zombiesKilled = (s.zombiesKilled ?? 0) + (newDeadForAttack - prevDeadForAttack);
+        // Combat sound attracts nearby zombies
+        if (hits.length > 0) {
+          if (!s.soundEvents) s.soundEvents = [];
+          s.soundEvents.push(createSoundEvent("combat", s.player.x, s.player.y, COMBAT_SOUND_RANGE, 0.75));
+        }
       }
       hits.forEach(() =>
         addFloater(s, "hit!", s.player.x + (Math.random()-0.5)*20, s.player.y-15, "rgba(255,200,80,0.85)")
       );
-      if (!isP1 && room && hits.length > 0) {
+      if (!isHostRef.current && room && hits.length > 0) {
         hits.forEach(id => {
           const z = s.zombies.find(z2 => z2.id === id);
-          if (z) z._p2HitThisFrame = true;
+          if (!z) return;
+          z._p2HitThisFrame = true;
+          // Immediately kill locally so the zombie disappears on non-host without waiting for the next host sync
+          if (z.hp <= 0) z.dead = true;
         });
-        sendZombieUpdate(s.zombies.filter(z => !z.dead));
+        // Send the full update including any newly-dead zombies (dead:true) so host applies the HP/death
+        const zombiesForAttack = s.zombies.filter(z => {
+          if (!z.dead) return true;
+          if (!z._deathBroadcastSent) { z._deathBroadcastSent = true; return true; }
+          return false;
+        });
+        sendZombieUpdate(zombiesForAttack);
       }
     }
 
-    if (isP1) {
+    if (isHostRef.current) {
       updateCrops(s.crops, dt).forEach(() =>
         addFloater(s, "Crop ready! (F to harvest)", s.player.x, s.player.y - 30, "rgba(120,220,80,0.95)", 14)
       );
@@ -636,6 +1577,32 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
     updateFloaters(s.floaters, dt);
     updateCamera(s.cam, s.player, s.vehicle, W, H);
 
+    // ── Power moment zoom-out effect (fires on first vehicle entry) ──────────
+    if (powerMomentRef.current > 0) {
+      powerMomentRef.current -= dtActual;
+      const t = Math.max(0, powerMomentRef.current / 2.2); // 1 → 0 as effect plays
+      // Ease: zoom out then snap back — peak zoom at midpoint
+      const phase = 1 - t;
+      const zoomPeak = phase < 0.4
+        ? 1 + (phase / 0.4) * 0.22          // ease out to 1.22× (wider view)
+        : 1 + (1 - (phase - 0.4) / 0.6) * 0.22; // ease back to 1×
+      powerZoomRef.current = zoomPeak;
+    } else {
+      powerZoomRef.current = 1;
+    }
+
+    // ── Low-fuel warning (fires once per tank fill, regardless of whether player is in the vehicle)
+    {
+      const fuelPct = s.vehicle.fuel / (s.vehicle.maxFuel ?? 80);
+      if (fuelPct <= 0.15 && !fuelWarnedRef.current) {
+        fuelWarnedRef.current = true;
+        notify("⛽ Low fuel! Find a fuel can.", "rgba(255,160,40,0.95)");
+        addFloater(s, "⛽ low fuel!", s.vehicle.x, s.vehicle.y - 24, "rgba(255,160,40,0.9)", 13);
+      }
+      // Reset warning flag once tank is refuelled above 30% so the next drain triggers again
+      if (fuelPct > 0.30) fuelWarnedRef.current = false;
+    }
+
     if (room) {
       if (now - lastMoveRef.current > MOVE_THROTTLE) {
         lastMoveRef.current = now;
@@ -645,14 +1612,44 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
         lastSyncRef.current = now;
         if (s.player.inVehicle && s.vehicle.driver === roleRef.current) {
           sendVehicleUpdate(s.vehicle.x, s.vehicle.y, s.vehicle.facing, s.vehicle.hp, s.vehicle.fuel, s.vehicle.driver, s.vehicle.passenger);
-        } else if (s.player.inVehicle && s.vehicle.passenger === roleRef.current) {
-          sendVehicleUpdate(s.vehicle.x, s.vehicle.y, s.vehicle.facing, s.vehicle.hp, s.vehicle.fuel, s.vehicle.driver, s.vehicle.passenger);
         }
-        if (isP1) sendZombieUpdate(s.zombies.filter(z => !z.dead));
+        if (isHostRef.current) {
+          // Include zombies that just died this frame so partner receives dead:true at least once,
+          // then mark them as broadcast-complete so they drop out of future payloads.
+          const zombiesForSync = s.zombies.filter(z => {
+            if (!z.dead) return true;
+            if (!z._deathBroadcastSent) { z._deathBroadcastSent = true; return true; }
+            return false;
+          });
+          sendZombieUpdate(zombiesForSync);
+
+          // Fix 5: Sync turret states every tick (not just on events)
+          if (s.turrets?.length) {
+            sendTurretStates(s.turrets);
+          }
+
+          // Fix 6: Sync survivor positions every tick
+          if (s.survivors?.length) {
+            sendSurvivorPositions(s.survivors);
+          }
+        }
+        // Broadcast convoy vehicle positions so partner can interpolate
+        if (isHostRef.current && s.convoyVehicles?.length && room) {
+          const cvPayload = s.convoyVehicles
+            .filter(e => !e._ejected && e.vehicle)
+            .map(e => ({
+              id: e.vehicle._id ?? e.vehicle.id ?? `cv_${e.survivor?.id ?? Math.random()}`,
+              x: e.vehicle.x, y: e.vehicle.y, facing: e.vehicle.facing,
+              hp: e.vehicle.hp, maxHp: e.vehicle.maxHp,
+              vehicleType: e.vehicle.vehicleType ?? "car",
+              survivorName: e.survivor?.name ?? "?",
+            }));
+          if (cvPayload.length > 0) sendConvoyUpdate(cvPayload);
+        }
       }
       if (now - lastNeedsRef.current > NEEDS_THROTTLE) {
         lastNeedsRef.current = now;
-        sendNeedsUpdate(s.player.food, s.player.water, s.player.sleep, s.player.hp);
+        sendNeedsUpdate(s.player.food, s.player.water, s.player.sleep, s.player.hp, !!s.player.isDowned);
       }
     }
 
@@ -673,27 +1670,52 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
         vehicleDriver: s.vehicle.driver,
         vehiclePassenger: s.vehicle.passenger,
         mapFragmentCollected: s.mapFragmentCollected,
+        compassTarget: s.compassTarget,
+        fragmentsCollected: s.fragmentsCollected?.length ?? 0,
+        totalFragments: s.totalFragments ?? 0,
+        nextSettlementName: s.settlements?.find(st => st.id === s.compassTarget?.settlementId)?.name,
         vehicleHp: s.vehicle.hp,
         vehicleMaxHp: s.vehicle.maxHp,
+        vehicleType: s.vehicle.vehicleType ?? "car",
+        bossSpawned: !!s.bossZombie,
+        bossHp: s.bossZombie?.hp ?? 0,
+        bossMaxHp: s.bossZombie?.maxHp ?? BOSS_HP,
+        bossDead: s.bossZombie?.dead ?? false,
+        isDowned: !!s.player.isDowned,
+        p2IsDowned: !!(s.player2?.isDowned),
+        p2Near: !!(s.player2 && dist(s.player.x, s.player.y, s.player2.x, s.player2.y) < 60),
       });
       setCtxActions(getProximityActions(
-        s.player, s.buildings, s.vehicle, s.gardenPlots, s.crops, s.lootPiles, s.wells
+        s.player, s.buildings, s.vehicle, s.gardenPlots, s.crops, s.lootPiles, s.wells, s.turrets ?? []
       ));
+      // Push snapshot to base screen (every 6 frames ≈ 100ms)
+      if (onStateSnapshot) onStateSnapshot(s);
     }
 
     const ctx = canvas.getContext("2d");
     ctx.save(); ctx.scale(dpr, dpr);
-    draw(ctx, s, t, W, H);
+    // Sync placement ghost state
+    s._placingMode = placingModeRef.current;
+    s._placingHint = placingHintRef.current;
+    draw(ctx, s, t, W, H, powerZoomRef.current);
     ctx.restore();
   }
 
   // ── Draw ──────────────────────────────────────────────────────────────────
-  function draw(ctx, s, t, W, H) {
+  function draw(ctx, s, t, W, H, zoom = 1) {
     const { cam, player, player2, vehicle, buildings, zombies, floaters,
             gardenPlots, crops, lootPiles, wells, isNight } = s;
 
     ctx.fillStyle = isNight ? "#040609" : "#08090c";
     ctx.fillRect(0, 0, W, H);
+
+    // ── Power zoom: scale around screen centre ────────────────────────────────
+    if (zoom !== 1) {
+      ctx.save();
+      ctx.translate(W / 2, H / 2);
+      ctx.scale(zoom, zoom);
+      ctx.translate(-W / 2, -H / 2);
+    }
 
     const { cx: wox, cy: woy } = worldToCanvas(0, 0, cam);
     ctx.fillStyle = isNight ? "#0d100b" : "#111510";
@@ -759,8 +1781,37 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
       });
     }
 
+    // Settlement aura rings (visible from distance as orientation landmarks)
+    if (s.settlements) {
+      s.settlements.forEach(st => {
+        const { cx: scx, cy: scy } = worldToCanvas(st.cx, st.cy, cam);
+        if (scx < -600 || scx > W + 600 || scy < -600 || scy > H + 600) return;
+        const cleared = s.fragmentsCollected?.includes(st.id);
+        ctx.save();
+        ctx.globalAlpha = 0.06;
+        ctx.beginPath(); ctx.arc(scx, scy, 500, 0, Math.PI * 2);
+        ctx.fillStyle = cleared ? "rgba(120,255,150,1)" : "rgba(255,220,80,1)";
+        ctx.fill();
+        ctx.globalAlpha = 0.18;
+        ctx.beginPath(); ctx.arc(scx, scy, 500, 0, Math.PI * 2);
+        ctx.strokeStyle = cleared ? "rgba(120,255,150,0.7)" : "rgba(255,220,80,0.5)";
+        ctx.lineWidth = 1.5; ctx.setLineDash([6, 10]); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 0.55;
+        ctx.fillStyle = cleared ? "rgba(120,255,150,0.85)" : "rgba(255,220,80,0.75)";
+        ctx.font = "bold 11px sans-serif"; ctx.textAlign = "center";
+        ctx.fillText((cleared ? "✓ " : "") + st.name, scx, scy - 520);
+        ctx.restore();
+      });
+    }
+
     // Buildings
     buildings.forEach(b => { drawBuilding(ctx, b, cam, isNight, player); });
+
+    // Turrets
+    if (s.turrets) {
+      s.turrets.forEach(t => drawTurret(ctx, t, cam, t.x, t.y, isNight, s, t));
+    }
 
     // Loot piles (glow)
     lootPiles.forEach(pile => {
@@ -777,45 +1828,86 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
       ctx.restore();
     });
 
-    // Vehicle
-    {
-      const { cx, cy } = worldToCanvas(vehicle.x, vehicle.y, cam);
-      ctx.save(); ctx.translate(cx, cy); ctx.rotate(vehicle.facing + Math.PI / 2);
-      ctx.fillStyle = vehicle.hp < vehicle.maxHp * 0.3 ? "rgba(255,120,40,0.85)" : "rgba(200,200,180,0.9)";
-      ctx.fillRect(-12, -22, 24, 44);
-      ctx.fillStyle = "rgba(120,180,255,0.3)"; ctx.fillRect(-9, -18, 18, 12);
-      if (vehicle.hp < vehicle.maxHp) {
-        ctx.rotate(-(vehicle.facing + Math.PI / 2));
-        ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(-14, -30, 28, 3);
-        ctx.fillStyle = vehicle.hp / vehicle.maxHp > 0.5 ? "#88ff88" : "#ff5555";
-        ctx.fillRect(-14, -30, 28 * (vehicle.hp / vehicle.maxHp), 3);
+    // Vehicles (all — player fleet + convoy)
+    const allVehicles = s.vehicles ?? [vehicle];
+    // Build a combined list: fleet vehicles + convoy vehicles (with isConvoy flag)
+    const convoyCfg = (s.convoyVehicles ?? []).map(e => ({ v: e.vehicle, isConvoy: true, svName: e.survivor?.name ?? "?" }));
+    const fleetCfg  = allVehicles.map(v => ({ v, isConvoy: false, svName: null }));
+    const allVehicleCfg = [...fleetCfg, ...convoyCfg];
+
+    allVehicleCfg.forEach(({ v, isConvoy, svName }) => {
+      const { cx: vcx, cy: vcy } = worldToCanvas(v.x, v.y, cam);
+      const cfg = VEHICLE_TYPES[v.vehicleType] ?? VEHICLE_TYPES.car;
+      const hw = cfg.width  / 2;
+      const hh = cfg.height / 2;
+      ctx.save(); ctx.translate(vcx, vcy); ctx.rotate(v.facing + Math.PI / 2);
+
+      // Body colour — dimmer when not the active vehicle
+      const isActive = v === vehicle;
+      const bodyColor = v.hp < v.maxHp * 0.3 ? cfg.damageColor : cfg.color;
+      ctx.globalAlpha = isActive ? 1 : isConvoy ? 0.82 : 0.75;
+      ctx.fillStyle = bodyColor;
+      ctx.fillRect(-hw, -hh, cfg.width, cfg.height);
+
+      // Convoy vehicles: teal tint overlay to distinguish from player fleet
+      if (isConvoy) {
+        ctx.fillStyle = "rgba(80,220,200,0.18)";
+        ctx.fillRect(-hw, -hh, cfg.width, cfg.height);
+      }
+
+      // Windscreen tint
+      if (v.vehicleType !== "bike") {
+        ctx.fillStyle = "rgba(120,180,255,0.3)";
+        ctx.fillRect(-hw + 3, -hh + 4, cfg.width - 6, cfg.height * 0.28);
+      }
+
+      // Monster truck: big wheels hint
+      if (v.vehicleType === "monster_truck") {
+        ctx.fillStyle = "rgba(80,50,30,0.7)";
+        ctx.fillRect(-hw - 5, -hh + 4, 5, 14);
+        ctx.fillRect(hw,      -hh + 4, 5, 14);
+        ctx.fillRect(-hw - 5,  hh - 18, 5, 14);
+        ctx.fillRect(hw,       hh - 18, 5, 14);
+      }
+
+      if (v.hp < v.maxHp) {
+        ctx.rotate(-(v.facing + Math.PI / 2));
+        ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(-hw - 2, -hh - 10, (hw + 2) * 2, 3);
+        ctx.fillStyle = v.hp / v.maxHp > 0.5 ? "#88ff88" : "#ff5555";
+        ctx.fillRect(-hw - 2, -hh - 10, (hw + 2) * 2 * (v.hp / v.maxHp), 3);
       }
       ctx.restore();
 
-      if (!player.inVehicle) {
-        const d = Math.sqrt((player.x - vehicle.x)**2 + (player.y - vehicle.y)**2);
+      if (isConvoy) {
+        // Convoy badge: teal label with survivor name
+        ctx.save();
+        ctx.font = "bold 9px sans-serif"; ctx.textAlign = "center";
+        ctx.fillStyle = "rgba(80,220,200,0.9)";
+        ctx.fillText(`🚗 ${svName}`, vcx, vcy - hh - 10);
+        ctx.restore();
+      } else if (!player.inVehicle) {
+        const d = Math.sqrt((player.x - v.x)**2 + (player.y - v.y)**2);
         if (d < 70) {
-          const driverFree    = vehicle.driver === null;
-          const passengerFree = vehicle.passenger === null;
+          const driverFree    = v.driver === null;
+          const passengerFree = v.passenger === null;
           const bothFull      = !driverFree && !passengerFree;
           ctx.save();
           ctx.font = "bold 11px sans-serif"; ctx.textAlign = "center";
           if (bothFull) {
             ctx.fillStyle = "rgba(255,100,100,0.75)";
-            ctx.fillText("full", cx, cy - 34);
+            ctx.fillText("full", vcx, vcy - hh - 12);
           } else {
             ctx.fillStyle = "rgba(255,220,80,0.85)";
-            ctx.fillText(driverFree ? "[F] drive" : "[F] ride shotgun", cx, cy - 34);
+            ctx.fillText(driverFree ? `[F] ${cfg.label}` : "[F] ride shotgun", vcx, vcy - hh - 12);
           }
-          // Show repair prompt if nearby
-          if (d < REPAIR_RANGE && vehicle.hp < vehicle.maxHp) {
+          if (d < REPAIR_RANGE && v.hp < v.maxHp) {
             ctx.fillStyle = "rgba(120,255,150,0.75)";
-            ctx.fillText("[E] repair", cx, cy - 46);
+            ctx.fillText("[E] repair", vcx, vcy - hh - 24);
           }
           ctx.restore();
         }
       }
-    }
+    });
 
     // Zombies
     zombies.forEach(z => {
@@ -823,9 +1915,56 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
       const { cx, cy } = worldToCanvas(z.x, z.y, cam);
       if (cx < -20 || cx > W + 20 || cy < -20 || cy > H + 20) return;
       ctx.save(); ctx.globalAlpha = 0.88;
+
+      // ── Dormant zombies: crouched, dark, only a faint red eye glow ────────
+      if (z.state === "dormant") {
+        const eyePulse = 0.3 + 0.25 * Math.sin(t * 1.8 + z.id * 0.7);
+        ctx.globalAlpha = 0.38 + 0.12 * eyePulse;
+        ctx.beginPath(); ctx.arc(cx, cy, z.radius * 0.8, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(60,10,10,0.95)"; ctx.fill();
+        // Red pinprick eyes
+        ctx.globalAlpha = 0.55 + 0.4 * eyePulse;
+        ctx.beginPath(); ctx.arc(cx - 2.5, cy - 1, 1.5, 0, Math.PI * 2);
+        ctx.arc(cx + 2.5, cy - 1, 1.5, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255,30,0,${0.7 + 0.3 * eyePulse})`; ctx.fill();
+        ctx.restore();
+        return;
+      }
+
+      const isBoss = z.type === "boss";
       const isBashing = z.state === "bash_door";
       const offX = isBashing ? (Math.random() - 0.5) * 3 : 0;
       const offY = isBashing ? (Math.random() - 0.5) * 3 : 0;
+
+      if (isBoss) {
+        // Boss: pulsing red with thick ring and skull
+        const pulse = 0.7 + 0.3 * Math.sin(t * 6);
+        ctx.globalAlpha = pulse;
+        // Outer glow ring
+        ctx.beginPath(); ctx.arc(cx, cy, z.radius + 8, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(255,30,30,0.5)"; ctx.lineWidth = 3; ctx.stroke();
+        // Body
+        ctx.beginPath(); ctx.arc(cx, cy, z.radius, 0, Math.PI * 2);
+        ctx.fillStyle = z.state === "chase" || z.state === "attack"
+          ? "rgba(255,30,30,0.98)" : "rgba(200,20,20,0.9)";
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255,80,80,0.9)"; ctx.lineWidth = 2.5; ctx.stroke();
+        ctx.globalAlpha = 0.95;
+        ctx.fillStyle = "rgba(255,255,255,0.9)";
+        ctx.font = "bold 14px sans-serif"; ctx.textAlign = "center";
+        ctx.fillText("☠", cx, cy + 5);
+        // HP bar — wider for boss
+        const hpFrac = z.hp / z.maxHp;
+        ctx.globalAlpha = 0.85;
+        ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(cx - 22, cy - z.radius - 8, 44, 4);
+        ctx.fillStyle = hpFrac > 0.5 ? "#ff4444" : hpFrac > 0.25 ? "#ff8800" : "#ffcc00";
+        ctx.fillRect(cx - 22, cy - z.radius - 8, 44 * hpFrac, 4);
+        ctx.fillStyle = "rgba(255,80,80,0.9)"; ctx.font = "bold 9px sans-serif"; ctx.textAlign = "center";
+        ctx.fillText("BOSS", cx, cy - z.radius - 10);
+        ctx.restore();
+        return;
+      }
+
       ctx.beginPath(); ctx.arc(cx + offX, cy + offY, z.radius, 0, Math.PI * 2);
       ctx.fillStyle = isBashing ? "rgba(255,80,0,0.95)"
         : z.state === "chase" || z.state === "attack" ? COL.zombieChase : COL.zombie;
@@ -850,6 +1989,61 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
       }
       ctx.restore();
     });
+
+    // Survivors
+    if (s.survivors) {
+      s.survivors.forEach(sv => {
+        if (sv.hp <= 0) return;
+        const { cx, cy } = worldToCanvas(sv.x, sv.y, cam);
+        if (cx < -30 || cx > W + 30 || cy < -30 || cy > H + 30) return;
+        // Colour by command/state
+        const col = sv.barricaded ? "rgba(255,100,100,0.95)"
+          : sv.command === "assign" && sv.assignedTo?.structureType === "turret" ? "rgba(80,220,255,0.95)"
+          : sv.command === "assign" && sv.assignedTo?.structureType === "crop"   ? "rgba(120,220,80,0.95)"
+          : "rgba(255,200,60,0.95)"; // follow / unassigned = gold
+        ctx.save();
+        // Glow ring
+        ctx.beginPath(); ctx.arc(cx, cy, 12 + 1.5 * Math.sin(t * 2.5), 0, Math.PI * 2);
+        ctx.fillStyle = col.replace("0.95", "0.08"); ctx.fill();
+        // Body
+        ctx.beginPath(); ctx.arc(cx, cy, 7, 0, Math.PI * 2);
+        ctx.fillStyle = col; ctx.fill();
+        // HP bar
+        if (sv.hp < sv.maxHp) {
+          ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(cx - 10, cy - 14, 20, 2.5);
+          ctx.fillStyle = sv.hp / sv.maxHp > 0.5 ? "#88ff88" : "#ff5555";
+          ctx.fillRect(cx - 10, cy - 14, 20 * (sv.hp / sv.maxHp), 2.5);
+        }
+        // Name label
+        ctx.fillStyle = "rgba(255,255,255,0.7)"; ctx.font = "bold 9px sans-serif"; ctx.textAlign = "center";
+        ctx.fillText(sv.name, cx, cy - 17);
+        // State icon
+        const stateIcon = sv.barricaded ? "🔒"
+          : sv._castType === "repair" ? "🔧"
+          : sv._castType === "harvest" ? "🌿"
+          : sv.state === "fleeing" ? "💨"
+          : "";
+        if (stateIcon) {
+          ctx.font = "10px sans-serif";
+          ctx.fillText(stateIcon, cx + 10, cy - 6);
+        }
+        // Cast bar for survivor working
+        if (sv._castType && sv._castTimer > 0) {
+          const castDur = sv._castType === "repair" ? SURVIVOR_REPAIR_CAST : SURVIVOR_HARVEST_CAST;
+          const pct = Math.min(1, sv._castTimer / castDur);
+          ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillRect(cx - 14, cy + 10, 28, 3);
+          ctx.fillStyle = sv._castType === "repair" ? "rgba(120,200,255,0.85)" : "rgba(120,220,80,0.85)";
+          ctx.fillRect(cx - 14, cy + 10, 28 * pct, 3);
+        }
+        // Interaction prompt
+        const dToPlayer = dist(sv.x, sv.y, player.x, player.y);
+        if (dToPlayer < SURVIVOR_INTERACT_RANGE) {
+          ctx.fillStyle = "rgba(255,220,80,0.85)"; ctx.font = "bold 10px sans-serif";
+          ctx.fillText("[T] command", cx, cy - 28);
+        }
+        ctx.restore();
+      });
+    }
 
     // P2
     if (player2 && !player2.inVehicle) {
@@ -880,10 +2074,8 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
       ctx.restore();
     }
 
-    // ── Map fragment compass arrow ─────────────────────────────────────────
-    if (s.mapFragmentCollected) {
-      drawCompassArrow(ctx, s, t, W, H);
-    }
+    // ── Settlement compass arrow ───────────────────────────────────────────
+    drawCompassArrow(ctx, s, t, W, H);
 
     // Floaters
     floaters.forEach(f => {
@@ -894,6 +2086,33 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
       ctx.fillText(f.text, cx, cy - f.age * 24); ctx.restore();
     });
 
+    // Placement ghost (drawn in screen-space via placingHint — updated each React render)
+    // We pass placingHintRef so we can read it from inside the draw call
+    if (s._placingHint && s._placingMode) {
+      const { x: gx, y: gy } = s._placingHint;
+      ctx.save();
+      if (s._placingMode === "turret") {
+        ctx.globalAlpha = 0.55;
+        ctx.beginPath(); ctx.arc(gx, gy, TURRET_RANGE, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(180,255,120,0.25)"; ctx.lineWidth = 1; ctx.stroke();
+        ctx.beginPath(); ctx.arc(gx, gy, 14, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(100,180,60,0.7)"; ctx.fill();
+        ctx.fillStyle = "rgba(180,255,120,0.9)"; ctx.font = "bold 11px sans-serif"; ctx.textAlign = "center";
+        ctx.fillText("🗼", gx, gy - 18);
+      } else if (s._placingMode === "crop_plot") {
+        ctx.globalAlpha = 0.5;
+        ctx.fillStyle = "rgba(80,180,40,0.3)";
+        ctx.strokeStyle = "rgba(100,210,60,0.7)";
+        ctx.lineWidth = 1.5; ctx.setLineDash([5, 5]);
+        ctx.fillRect(gx - 40, gy - 35, 80, 70);
+        ctx.strokeRect(gx - 40, gy - 35, 80, 70);
+        ctx.setLineDash([]);
+        ctx.fillStyle = "rgba(180,255,120,0.9)"; ctx.font = "bold 10px sans-serif"; ctx.textAlign = "center";
+        ctx.fillText("🌱", gx, gy + 4);
+      }
+      ctx.restore();
+    }
+
     // Night vignette
     if (isNight) {
       const grad = ctx.createRadialGradient(W/2, H/2, H*0.14, W/2, H/2, H*0.78);
@@ -902,66 +2121,172 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
       ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
     }
 
+    // ── Close power zoom transform ─────────────────────────────────────────
+    if (zoom !== 1) ctx.restore();
+
+    // ── Beacon vehicle golden pulse (draws in screen-space, outside zoom) ──
+    if (!s.firstVehicleEntered) {
+      const allV = s.vehicles ?? [vehicle];
+      allV.forEach(v => {
+        if (!v.isBeacon) return;
+        const { cx: bvx, cy: bvy } = worldToCanvas(v.x, v.y, cam);
+        const pulse = 0.5 + 0.5 * Math.sin(t * 4.5);
+        ctx.save();
+        ctx.globalAlpha = 0.15 + 0.25 * pulse;
+        ctx.beginPath(); ctx.arc(bvx, bvy, 36 + 18 * pulse, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(255,220,60,1)"; ctx.fill();
+        ctx.globalAlpha = 0.5 + 0.45 * pulse;
+        ctx.beginPath(); ctx.arc(bvx, bvy, 6, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(255,220,60,1)"; ctx.fill();
+        ctx.globalAlpha = 0.9;
+        ctx.fillStyle = "rgba(255,220,60,0.95)"; ctx.font = "bold 11px sans-serif"; ctx.textAlign = "center";
+        ctx.fillText("GET IN (F)", bvx, bvy - 30);
+        ctx.restore();
+      });
+    }
+
     drawMinimap(ctx, s, W, H);
+    drawPathToTarget(ctx, s.player, s.compassTarget, cam, W, H, s);
+
+    const weather = getCurrentWeather(stateRef.current);
+if (weather.colorTint && s.isNight === false) {
+  ctx.fillStyle = weather.colorTint;
+  ctx.fillRect(0, 0, W, H);
+}
+
     drawJoystick(ctx, joystickRef.current, W, H);
   }
 
-  // ── Compass arrow toward north exit ───────────────────────────────────────
+  // ── Compass arrow toward next settlement fragment / boss ──────────────────
   function drawCompassArrow(ctx, s, t, W, H) {
+    if (!s.mapFragmentCollected) return; // hidden until first fragment picked up
+    const target = s.compassTarget;
+    if (!target) return; // no target (shouldn't happen with boss endgame)
+
+    const isBoss = !!target.isBoss;
+
     const playerX = s.player.inVehicle ? s.vehicle.x : s.player.x;
     const playerY = s.player.inVehicle ? s.vehicle.y : s.player.y;
 
-    // Direction from player to exit target
-    const dx = EXIT_TARGET_X - playerX;
-    const dy = EXIT_TARGET_Y - playerY;
+    const dx = target.x - playerX;
+    const dy = target.y - playerY;
     const angle = Math.atan2(dy, dx);
-    const distToExit = Math.sqrt(dx * dx + dy * dy);
+    const distToTarget = Math.sqrt(dx * dx + dy * dy);
 
-    // Pulse when close
-    const alpha = distToExit < 800
-      ? 0.7 + 0.3 * Math.sin(t * 6)
-      : 0.7 + 0.15 * Math.sin(t * 2);
+    // Pulse when close to target
+    const nearPulse = distToTarget < FRAGMENT_PULSE_RANGE;
+    const alpha = nearPulse
+      ? 0.7 + 0.3 * Math.sin(t * 8)
+      : isBoss
+        ? 0.75 + 0.25 * Math.sin(t * 5) // boss pulses faster always
+        : 0.7 + 0.15 * Math.sin(t * 2);
 
-    // Arrow position — top-center area
-    const arrowX = W / 2;
-    const arrowY = 60;
-    const arrowLen = 28;
+    const arrowX = W - 54;
+    const arrowY = 54;
+    const arrowLen = 26;
 
+    // Color scheme: red for boss, gold for fragments
+    const ringColor   = isBoss ? "rgba(255,60,60,0.5)"    : nearPulse ? "rgba(120,255,150,0.5)"  : "rgba(255,220,80,0.25)";
+    const bgColor     = isBoss ? "rgba(60,0,0,0.55)"      : nearPulse ? "rgba(120,255,150,0.15)" : "rgba(0,0,0,0.45)";
+    const strokeColor = isBoss ? "rgba(255,60,60,0.95)"   : nearPulse ? "rgba(120,255,150,0.95)" : "rgba(255,220,80,0.95)";
+    const fillColor   = isBoss ? "rgba(255,60,60,0.85)"   : nearPulse ? "rgba(120,255,150,0.85)" : "rgba(255,220,80,0.85)";
+    const labelColor  = isBoss ? "rgba(255,80,80,0.95)"   : nearPulse ? "rgba(120,255,150,0.9)"  : "rgba(255,220,80,0.9)";
+
+    // Background circle
     ctx.save();
+    ctx.globalAlpha = alpha * 0.8;
+    ctx.beginPath(); ctx.arc(arrowX, arrowY, 22, 0, Math.PI * 2);
+    ctx.fillStyle = bgColor; ctx.fill();
+    ctx.strokeStyle = ringColor;
+    ctx.lineWidth = isBoss ? 2.5 : 1.5; ctx.stroke();
+
     ctx.globalAlpha = alpha;
     ctx.translate(arrowX, arrowY);
-    ctx.rotate(angle + Math.PI / 2); // +90° because our arrow points up by default
+    ctx.rotate(angle + Math.PI / 2);
 
-    // Draw chevron arrow
-    ctx.strokeStyle = "rgba(255,220,80,0.95)";
-    ctx.fillStyle   = "rgba(255,220,80,0.85)";
-    ctx.lineWidth   = 2.5;
-    ctx.lineCap     = "round";
-    ctx.lineJoin    = "round";
+    ctx.strokeStyle = strokeColor;
+    ctx.fillStyle   = fillColor;
+    ctx.lineWidth   = 2.5; ctx.lineCap = "round"; ctx.lineJoin = "round";
 
     ctx.beginPath();
     ctx.moveTo(0, -arrowLen / 2);
-    ctx.lineTo(10, arrowLen / 2 - 4);
+    ctx.lineTo(9, arrowLen / 2 - 4);
     ctx.lineTo(0, arrowLen / 2 - 12);
-    ctx.lineTo(-10, arrowLen / 2 - 4);
+    ctx.lineTo(-9, arrowLen / 2 - 4);
     ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
+    ctx.fill(); ctx.stroke();
     ctx.restore();
 
-    // Label below the arrow
+    // Label + distance below compass circle
+    const fragCollected = s.fragmentsCollected?.length ?? 0;
+    const totalFrag = s.totalFragments ?? 1;
+    const nextSettlement = s.settlements?.find(st => st.id === target.settlementId);
+    const label = isBoss ? "☠ BOSS" : (nextSettlement ? nextSettlement.name : "?");
+
     ctx.save();
     ctx.globalAlpha = alpha * 0.9;
-    ctx.fillStyle = "rgba(255,220,80,0.9)";
-    ctx.font = "bold 11px sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText("find the highway →", arrowX, arrowY + 28);
-    if (distToExit < 1500) {
-      ctx.globalAlpha = alpha * 0.65;
-      ctx.fillStyle = "rgba(255,255,255,0.7)";
-      ctx.font = "10px sans-serif";
-      ctx.fillText(`${Math.round(distToExit / 10)}m away`, arrowX, arrowY + 42);
+    ctx.fillStyle = labelColor;
+    ctx.font = isBoss ? "bold 10px sans-serif" : "bold 9px sans-serif";
+    ctx.fillText(label, arrowX, arrowY + 32);
+
+    if (!isBoss) {
+      ctx.fillStyle = "rgba(255,255,255,0.35)";
+      ctx.font = "8px sans-serif";
+      ctx.fillText(`${fragCollected}/${totalFrag}`, arrowX, arrowY + 42);
+    }
+    if (distToTarget < 3000) {
+      ctx.fillStyle = isBoss ? "rgba(255,120,120,0.55)" : "rgba(255,255,255,0.45)";
+      ctx.font = "8px sans-serif";
+      ctx.fillText(`${Math.round(distToTarget / 10)}m`, arrowX, arrowY + (isBoss ? 42 : 52));
+    }
+    ctx.restore();
+  }
+
+  function drawTurret(ctx, t, cam) {
+    const { cx, cy } = worldToCanvas(t.x, t.y, cam);
+
+    if (t.destroyed) {
+      // Rubble
+      ctx.save();
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = "rgba(120,80,40,0.7)";
+      ctx.beginPath(); ctx.arc(cx, cy, 10, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "rgba(180,80,40,0.8)"; ctx.font = "11px sans-serif"; ctx.textAlign = "center";
+      ctx.fillText("💀", cx, cy + 4);
+      ctx.globalAlpha = 0.4;
+      ctx.fillStyle = "rgba(255,100,60,0.7)"; ctx.font = "bold 8px sans-serif";
+      ctx.fillText("DESTROYED", cx, cy + 18);
+      ctx.restore();
+      return;
+    }
+
+    const hpFrac = t.hp / t.maxHp;
+    ctx.save();
+    // Range circle (faint)
+    ctx.beginPath(); ctx.arc(cx, cy, t.range, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(180,255,120,0.06)"; ctx.lineWidth = 1.5; ctx.stroke();
+    // Base platform
+    ctx.fillStyle = hpFrac > 0.5 ? "rgba(80,100,60,0.95)" : hpFrac > 0.25 ? "rgba(150,90,30,0.95)" : "rgba(180,40,30,0.95)";
+    ctx.beginPath(); ctx.arc(cx, cy, 14, 0, Math.PI * 2); ctx.fill();
+    // Tower
+    ctx.fillStyle = hpFrac > 0.5 ? "rgba(100,140,70,0.95)" : "rgba(180,100,30,0.9)";
+    ctx.fillRect(cx - 5, cy - 8, 10, 16);
+    // Barrel
+    ctx.strokeStyle = "rgba(200,200,150,0.9)"; ctx.lineWidth = 3; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(cx, cy - 4); ctx.lineTo(cx, cy - 20); ctx.stroke();
+    // HP bar
+    ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillRect(cx - 12, cy + 17, 24, 3);
+    ctx.fillStyle = hpFrac > 0.5 ? "#88ff44" : hpFrac > 0.25 ? "#ffaa22" : "#ff3333";
+    ctx.fillRect(cx - 12, cy + 17, 24 * hpFrac, 3);
+    // Label
+    ctx.fillStyle = "rgba(180,255,120,0.65)"; ctx.font = "bold 9px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText("🗼", cx, cy - 22);
+    // Under-attack indicator — flash red when low HP
+    if (hpFrac < 0.35) {
+      ctx.globalAlpha = 0.3 + 0.3 * Math.sin(Date.now() / 150);
+      ctx.strokeStyle = "rgba(255,50,50,0.9)"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(cx, cy, 17, 0, Math.PI * 2); ctx.stroke();
     }
     ctx.restore();
   }
@@ -1042,45 +2367,102 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
   }
 
   function drawMinimap(ctx, s, W, H) {
-    const MM = 90, pad = 12;
-    const mx = W - MM - pad, my = pad;
+    const MM = 100, pad = 12;
+    const mx = pad, my = pad + 36; // top-left, below day counter
     const sx = MM / WORLD_W, sy = MM / WORLD_H;
     ctx.save();
-    ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(mx, my, MM, MM);
+    ctx.fillStyle = "rgba(0,0,0,0.65)"; ctx.fillRect(mx, my, MM, MM);
     ctx.strokeStyle = "rgba(255,255,255,0.1)"; ctx.lineWidth = 1; ctx.strokeRect(mx, my, MM, MM);
+
+    // Settlement regions as faint circles
+    if (s.settlements) {
+      s.settlements.forEach(st => {
+        const cleared = s.fragmentsCollected?.includes(st.id);
+        const scx = mx + st.cx * sx;
+        const scy = my + st.cy * sy;
+        ctx.beginPath(); ctx.arc(scx, scy, 6, 0, Math.PI * 2);
+        ctx.fillStyle = cleared ? "rgba(120,255,150,0.25)" : "rgba(255,220,80,0.12)";
+        ctx.fill();
+        ctx.strokeStyle = cleared ? "rgba(120,255,150,0.6)" : "rgba(255,220,80,0.35)";
+        ctx.lineWidth = 1; ctx.stroke();
+        // Cleared checkmark
+        if (cleared) {
+          ctx.fillStyle = "rgba(120,255,150,0.85)";
+          ctx.font = "bold 6px sans-serif"; ctx.textAlign = "center";
+          ctx.fillText("✓", scx, scy + 2);
+        }
+      });
+    }
+
+    // Inter-settlement roads
+    ctx.strokeStyle = "rgba(255,255,255,0.08)"; ctx.lineWidth = 1;
+    s.roads.forEach(r => {
+      ctx.beginPath();
+      ctx.moveTo(mx + r.x1 * sx, my + r.y1 * sy);
+      ctx.lineTo(mx + r.x2 * sx, my + r.y2 * sy);
+      ctx.stroke();
+    });
+
+    // Buildings (show loot piles)
     s.buildings.forEach(b => {
       const hasLoot = s.lootPiles.some(p => p.buildingId === b.id && !p.collected);
-      ctx.fillStyle = hasLoot ? "rgba(255,220,80,0.4)" : "rgba(255,255,255,0.15)";
-      ctx.fillRect(mx + b.x*sx, my + b.y*sy, Math.max(3, b.w*sx), Math.max(3, b.h*sy));
+      ctx.fillStyle = hasLoot ? "rgba(255,220,80,0.45)" : "rgba(255,255,255,0.1)";
+      ctx.fillRect(mx + b.x*sx, my + b.y*sy, Math.max(2, b.w*sx), Math.max(2, b.h*sy));
     });
-    ctx.fillStyle = "#cc2222";
-    s.zombies.filter(z => !z.dead).forEach(z => {
-      ctx.beginPath(); ctx.arc(mx + z.x*sx, my + z.y*sy, 1.5, 0, Math.PI*2); ctx.fill();
-    });
-    ctx.fillStyle = "rgba(200,200,180,0.8)";
-    ctx.beginPath(); ctx.arc(mx + s.vehicle.x*sx, my + s.vehicle.y*sy, 2.5, 0, Math.PI*2); ctx.fill();
+
+    // Zombie dots (throttle to avoid perf issues — sample every 3rd)
+    ctx.fillStyle = "rgba(200,40,40,0.7)";
+    for (let i = 0; i < s.zombies.length; i += 3) {
+      const z = s.zombies[i];
+      if (z.dead) continue;
+      ctx.beginPath(); ctx.arc(mx + z.x*sx, my + z.y*sy, 0.8, 0, Math.PI*2); ctx.fill();
+    }
+
+    // Wells
     if (s.wells) {
       ctx.fillStyle = "rgba(80,160,255,0.7)";
       s.wells.forEach(w => {
-        ctx.beginPath(); ctx.arc(mx + w.x*sx, my + w.y*sy, 2.5, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(mx + w.x*sx, my + w.y*sy, 2, 0, Math.PI*2); ctx.fill();
       });
     }
-    // Draw exit marker on minimap when fragment collected
-    if (s.mapFragmentCollected) {
-      ctx.fillStyle = "rgba(255,220,80,0.9)";
-      ctx.beginPath();
-      ctx.arc(mx + EXIT_TARGET_X * sx, my + EXIT_TARGET_Y * sy, 3.5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "rgba(255,220,80,0.6)";
-      ctx.font = "bold 7px sans-serif"; ctx.textAlign = "center";
-      ctx.fillText("EXIT", mx + EXIT_TARGET_X * sx, my + EXIT_TARGET_Y * sy + 10);
+
+    // Compass target marker (next fragment or boss)
+    if (s.mapFragmentCollected && s.compassTarget) {
+      const ct = s.compassTarget;
+      const isBoss = !!ct.isBoss;
+      const pulse = 5 + 2 * Math.sin(Date.now() / (isBoss ? 200 : 400));
+      ctx.beginPath(); ctx.arc(mx + ct.x*sx, my + ct.y*sy, isBoss ? 4 : 3, 0, Math.PI*2);
+      ctx.fillStyle = isBoss ? "rgba(255,60,60,0.95)" : "rgba(255,220,80,0.9)"; ctx.fill();
+      // Pulsing ring
+      ctx.beginPath(); ctx.arc(mx + ct.x*sx, my + ct.y*sy, pulse, 0, Math.PI*2);
+      ctx.strokeStyle = isBoss ? "rgba(255,60,60,0.6)" : "rgba(255,220,80,0.5)";
+      ctx.lineWidth = 1; ctx.stroke();
+      if (isBoss) {
+        ctx.fillStyle = "rgba(255,60,60,0.9)";
+        ctx.font = "7px sans-serif"; ctx.textAlign = "center";
+        ctx.fillText("☠", mx + ct.x*sx, my + ct.y*sy - 5);
+      }
     }
-    ctx.fillStyle = COL.player;
-    ctx.beginPath(); ctx.arc(mx + s.player.x*sx, my + s.player.y*sy, 3, 0, Math.PI*2); ctx.fill();
+
+    // Vehicles
+    ctx.fillStyle = "rgba(200,200,180,0.85)";
+    (s.vehicles ?? [s.vehicle]).forEach(v => {
+      ctx.beginPath(); ctx.arc(mx + v.x*sx, my + v.y*sy, 2, 0, Math.PI*2); ctx.fill();
+    });
+
+    // P2
     if (s.player2) {
       ctx.fillStyle = COL.player2;
-      ctx.beginPath(); ctx.arc(mx + s.player2.x*sx, my + s.player2.y*sy, 3, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(mx + s.player2.x*sx, my + s.player2.y*sy, 2.5, 0, Math.PI*2); ctx.fill();
     }
+
+    // Player dot (last so always on top)
+    ctx.fillStyle = COL.player;
+    ctx.beginPath(); ctx.arc(mx + s.player.x*sx, my + s.player.y*sy, 3, 0, Math.PI*2); ctx.fill();
+
+    // "N" north indicator
+    ctx.fillStyle = "rgba(255,255,255,0.25)"; ctx.font = "bold 7px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText("N", mx + MM/2, my + 7);
     ctx.restore();
   }
 
@@ -1118,6 +2500,18 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
       <canvas ref={canvasRef} style={{ display: "block", width: "100%", height: "100%" }}
         onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} />
 
+      {/* Awakening flash — red pulse when the horde wakes up */}
+      {awakeningFlash && (
+        <div className="absolute inset-0 pointer-events-none"
+          style={{ background: "rgba(180,0,0,0.35)", animation: "none", transition: "opacity 0.6s", opacity: awakeningFlash ? 1 : 0 }} />
+      )}
+
+      {/* Sleep interrupt flash */}
+      {sleepFlash && (
+        <div className="absolute inset-0 pointer-events-none"
+          style={{ background: "rgba(255,80,0,0.22)" }} />
+      )}
+
       {/* Day/night */}
       <div className="absolute top-3 left-1/2 -translate-x-1/2 flex flex-col items-center pointer-events-none">
         <div className="text-xs tracking-widest px-3 py-1 rounded-full"
@@ -1127,6 +2521,81 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
         <div className="mt-1 rounded-full overflow-hidden" style={{ width: 80, height: 3, background: "rgba(255,255,255,0.08)" }}>
           <div style={{ height:"100%", width:`${Math.max(0,(hud.dayTimer??0)/300*100)}%`, background: hud.isNight ? "rgba(140,170,255,0.7)" : "rgba(255,200,80,0.7)", transition:"width 0.3s linear" }} />
         </div>
+      </div>
+
+      {/* Top-right HUD: weather + action buttons */}
+      <div className="absolute top-3 right-3 flex flex-col items-end gap-2">
+        {/* Weather indicator */}
+        <div className="text-xs px-2 py-1 rounded-full pointer-events-none"
+          style={{ background: "rgba(0,0,0,0.5)", color: "rgba(255,255,255,0.6)" }}>
+          {getCurrentWeather(stateRef.current).icon} {getCurrentWeather(stateRef.current).name}
+        </div>
+
+        {/* P2 connection badge */}
+        {room && (
+          <div className="text-xs pointer-events-none"
+            style={{ color: p2Connected ? "rgba(120,200,255,0.7)" : "rgba(255,255,255,0.2)" }}>
+            {p2Connected ? "● P2" : "○ P2 away"}
+          </div>
+        )}
+
+        {/* Action buttons row */}
+        <div className="flex gap-2">
+          <button onClick={() => setShowControls(v => !v)}
+            className="text-xs px-2 py-1 rounded-lg"
+            style={{ background:"rgba(0,0,0,0.6)", border:"1px solid rgba(255,255,255,0.12)", color:"rgba(255,255,255,0.45)" }}>
+            {showControls ? "✕" : "?"} controls
+          </button>
+          <button onClick={() => setShowInv(v => !v)}
+            className="text-xs px-2 py-1 rounded-lg"
+            style={{ background:"rgba(0,0,0,0.6)", border:"1px solid rgba(255,255,255,0.12)", color:"rgba(255,220,80,0.7)" }}>
+            [I] inventory
+          </button>
+          <button onClick={() => { const s = stateRef.current; if (s) handleKeyAction("g", s); }}
+            className="text-xs px-2 py-1 rounded-lg"
+            style={{ background: buildMenu || placingMode ? "rgba(100,180,60,0.25)" : "rgba(0,0,0,0.6)", border:`1px solid ${buildMenu || placingMode ? "rgba(180,255,120,0.45)" : "rgba(255,255,255,0.12)"}`, color: buildMenu || placingMode ? "rgba(180,255,120,0.9)" : "rgba(180,255,120,0.55)" }}>
+            [G] build
+          </button>
+          <button onClick={() => { if (onStateSnapshot) onStateSnapshot(stateRef.current); if (onOpenBase) onOpenBase(); }}
+            className="text-xs px-2 py-1 rounded-lg"
+            style={{ background:"rgba(0,0,0,0.6)", border:"1px solid rgba(255,200,80,0.2)", color:"rgba(255,200,80,0.55)" }}>
+            [Tab] base
+          </button>
+        </div>
+
+        {/* Controls panel — drops down from top-right */}
+        {showControls && (
+          <div className="rounded-xl p-3 text-xs z-20"
+            style={{ background:"rgba(8,9,12,0.95)", border:"1px solid rgba(255,255,255,0.1)", minWidth: 220, maxWidth: 240 }}>
+            <div className="text-xs tracking-widest mb-2 font-medium" style={{ color:"rgba(255,200,80,0.7)" }}>CONTROLS</div>
+            {[
+              ["WASD / ↑↓←→", "Move / steer (driver only)"],
+              ["F", "Interact (doors, loot, vehicle, crops)"],
+              ["T", "Command nearby survivor"],
+              ["E", "Repair vehicle (needs car parts)"],
+              ["B", "Barricade building"],
+              ["G", "Build menu (turret / crop plot / homebase)"],
+              ["H", "Repair nearby turret (hold 2.5s)"],
+              ["Q", "Eat food"],
+              ["R", "Drink water"],
+              ["Z", "Sleep / wake"],
+              ["I", "Inventory"],
+              ["Tab", "Base screen (crops, survivors, turrets)"],
+              ["Space", "Attack"],
+            ].map(([key, desc]) => (
+              <div key={key} className="flex items-start gap-2 mb-1.5">
+                <span className="font-mono font-bold shrink-0 px-1.5 py-0.5 rounded"
+                  style={{ background:"rgba(255,220,80,0.1)", color:"rgba(255,220,80,0.85)", border:"1px solid rgba(255,220,80,0.2)", minWidth:64, textAlign:"center" }}>
+                  {key}
+                </span>
+                <span style={{ color:"rgba(255,255,255,0.5)", lineHeight:1.5 }}>{desc}</span>
+              </div>
+            ))}
+            <div className="mt-2 pt-2 text-xs" style={{ borderTop:"1px solid rgba(255,255,255,0.07)", color:"rgba(255,255,255,0.22)" }}>
+              Find a map fragment to reveal the highway exit. Drive north to escape!
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Needs */}
@@ -1144,7 +2613,7 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
         <div className="absolute bottom-44 left-4 pointer-events-none">
           <div className="text-xs px-2 py-1 rounded"
             style={{ background: "rgba(0,0,0,0.55)", color: hud.isDriver ? "rgba(255,220,80,0.9)" : "rgba(120,200,255,0.9)", border: `1px solid ${hud.isDriver ? "rgba(255,220,80,0.2)" : "rgba(120,200,255,0.2)"}` }}>
-            {hud.isDriver ? "🚗 driver" : "🪑 passenger"}
+            {hud.isDriver ? "🚗" : "🪑"} {VEHICLE_TYPES[hud.vehicleType]?.label ?? "Car"} · {hud.isDriver ? "driver" : "passenger"}
           </div>
         </div>
       )}
@@ -1160,20 +2629,220 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
 
       {/* Weapon */}
       {hud.weapon && (
-        <div className="absolute bottom-4 right-4 text-xs px-2 py-1 rounded pointer-events-none"
+        <div className="absolute bottom-28 right-4 text-xs px-2 py-1 rounded pointer-events-none"
           style={{ background:"rgba(0,0,0,0.55)", color:"rgba(255,220,80,0.9)", border:"1px solid rgba(255,220,80,0.18)" }}>
           🪓 {hud.weapon} · Space to swing
         </div>
       )}
 
-      {/* Map fragment banner */}
-      {hud.mapFragmentCollected && (
+      {/* Boss spawned banner */}
+      {hud.bossSpawned && !hud.bossDead && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 pointer-events-none">
+          <div className="text-xs px-3 py-1.5 rounded-full flex items-center gap-2"
+            style={{ background:"rgba(40,0,0,0.85)", border:"1px solid rgba(255,60,60,0.5)", color:"rgba(255,80,80,0.95)" }}>
+            ☠ <span>Kill the <strong>boss zombie</strong> to win! — HP: {hud.bossHp}/{hud.bossMaxHp}</span>
+          </div>
+          {/* Boss HP bar */}
+          <div className="mt-1 mx-auto rounded-full overflow-hidden" style={{ width: 200, height: 6, background:"rgba(80,0,0,0.7)", border:"1px solid rgba(255,60,60,0.3)" }}>
+            <div style={{ height:"100%", width:`${(hud.bossHp / hud.bossMaxHp) * 100}%`, background:"rgba(255,60,60,0.9)", transition:"width 0.1s linear" }} />
+          </div>
+        </div>
+      )}
+
+      {/* Settlement progress banner */}
+      {hud.mapFragmentCollected && hud.compassTarget && !hud.bossSpawned && (
         <div className="absolute top-16 left-1/2 -translate-x-1/2 pointer-events-none">
           <div className="text-xs px-3 py-1.5 rounded-full flex items-center gap-2"
             style={{ background:"rgba(0,0,0,0.7)", border:"1px solid rgba(255,220,80,0.35)", color:"rgba(255,220,80,0.9)" }}>
-            🗺️ <span>Drive north to the highway exit</span>
+            🗺️ <span>Find <strong>{hud.nextSettlementName ?? "the next settlement"}</strong> — {hud.fragmentsCollected ?? 0}/{hud.totalFragments ?? "?"} fragments</span>
           </div>
         </div>
+      )}
+
+      {/* Placement mode overlay */}
+      {placingMode && (
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 pointer-events-none z-20"
+          style={{ marginTop: -80 }}>
+          <div className="text-xs px-4 py-2 rounded-lg text-center"
+            style={{ background:"rgba(0,0,0,0.78)", border:"1px solid rgba(180,255,120,0.35)", color:"rgba(180,255,120,0.9)" }}>
+            {placingMode === "turret" ? "🗼 Click to place turret" : "🌱 Click to place garden plot"}
+            <span className="ml-3" style={{ color:"rgba(255,255,255,0.3)" }}>G / Esc to cancel</span>
+          </div>
+        </div>
+      )}
+
+      {/* Cast bar */}
+      {castBar && (
+        <div className="absolute left-1/2 -translate-x-1/2 pointer-events-none z-20 flex flex-col items-center gap-1.5"
+          style={{ bottom: 160 }}>
+          <div className="text-xs px-2 py-0.5 rounded"
+            style={{ background:"rgba(0,0,0,0.7)", color:"rgba(255,220,80,0.9)", border:"1px solid rgba(255,220,80,0.2)" }}>
+            {castBar.icon} {castBar.label}
+          </div>
+          <div className="rounded-full overflow-hidden" style={{ width: 160, height: 5, background:"rgba(255,255,255,0.1)" }}>
+            <div style={{ height:"100%", width:`${castBar.pct * 100}%`, background:"rgba(255,220,80,0.85)", transition:"width 0.05s linear" }} />
+          </div>
+          <div className="text-xs" style={{ color:"rgba(255,255,255,0.3)" }}>
+            Move away or take a hit to interrupt
+          </div>
+        </div>
+      )}
+
+      {/* Survivor command menu */}
+      {survivorMenu && (
+        <SurvivorCommandMenu
+          survivor={survivorMenu.survivor}
+          onClose={() => setSurvivorMenu(null)}
+          onCommand={(cmd) => {
+            const sv = survivorMenu.survivor;
+            sv.command = cmd;
+            sv.state = "idle";
+            sv._castTimer = 0; sv._castType = null;
+            // Track who issued the follow so the survivor follows that player
+            if (cmd === "follow") {
+              const s = stateRef.current;
+              sv.followLeader = s?.player ?? null;
+            }
+            if (cmd !== "assign") {
+              sv.assignedTo = null;
+              sv.barricaded = false;
+              sv.barricadeBuilding = null;
+            }
+            setSurvivorMenu(null);
+            if (cmd === "assign") {
+              assigningRef.current = { survivor: sv };
+              setAssigningMode({ survivor: sv });
+              notify(`Walk to a turret or crop plot and press T to assign ${sv.name}`, "rgba(255,220,80,0.9)");
+            } else if (cmd === "convoy") {
+              // Assign survivor to a free fleet vehicle as convoy driver
+              const s = stateRef.current;
+              if (s) {
+                if (!s.convoyVehicles) s.convoyVehicles = [];
+                // Don't double-assign the same survivor
+                if (!s.convoyVehicles.some(e => e.survivor?.id === sv.id)) {
+                  const entry = assignSurvivorToConvoy(sv, s.convoyVehicles, s.vehicles ?? [s.vehicle]);
+                  if (entry) {
+                    notify(`${sv.name} is now driving convoy! 🚗`, "rgba(80,220,200,0.9)");
+                  } else {
+                    sv.command = "follow"; // revert if no free vehicle
+                    notify("No free vehicle available for convoy!", "rgba(255,100,100,0.95)");
+                  }
+                } else {
+                  notify(`${sv.name} is already in the convoy`, "rgba(255,220,80,0.6)");
+                }
+              }
+            } else {
+              // Remove from convoy if they were previously driving
+              const s = stateRef.current;
+              if (s?.convoyVehicles) {
+                const idx = s.convoyVehicles.findIndex(e => e.survivor?.id === sv.id);
+                if (idx !== -1) {
+                  const cv = s.convoyVehicles[idx].vehicle;
+                  cv.occupied = false; cv.driver = null;
+                  s.convoyVehicles.splice(idx, 1);
+                }
+              }
+              notify(`${sv.name}: ${cmd.replace("_", " ")}`, "rgba(255,220,80,0.9)");
+            }
+          }}
+          onTogglePriority={() => {
+            const sv = survivorMenu.survivor;
+            sv.priority = sv.priority === "safety_first" ? "harvest_first" : "safety_first";
+            setSurvivorMenu({ survivor: sv }); // re-render
+          }}
+        />
+      )}
+      {/* Sleep vote modal */}
+{sleepVoteModal && (
+  <div className="absolute inset-0 flex items-center justify-center z-30"
+    style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+    onClick={e => e.stopPropagation()}>
+    <div className="rounded-2xl overflow-hidden" style={{ width: 300, background: "#0e1214", border: "1px solid rgba(255,200,80,0.3)" }}>
+      <div className="px-5 py-4 text-center" style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+        <span className="text-sm font-medium" style={{ color: "rgba(255,200,80,0.9)" }}>💤 Fast Sleep Request</span>
+      </div>
+      <div className="px-5 py-4 text-center">
+        <p className="text-sm mb-4" style={{ color: "rgba(255,255,255,0.7)" }}>
+          {sleepVoteModal.requestingPlayer === "p1" ? "Player 1" : "Player 2"} wants to fast-sleep.
+        </p>
+        <p className="text-xs mb-4" style={{ color: "rgba(255,255,255,0.35)" }}>
+          Time remaining: {Math.ceil(sleepVoteModal.timer)}s
+        </p>
+        <div className="flex gap-3">
+          <button
+            onClick={() => {
+              if (room) sendSleepResponse(true);
+              if (sleepVoteTimerRef.current) clearTimeout(sleepVoteTimerRef.current);
+              setSleepVoteModal(null);
+            }}
+            className="flex-1 py-2 rounded-lg text-sm font-medium"
+            style={{ background: "rgba(120,220,80,0.15)", border: "1px solid rgba(120,220,80,0.3)", color: "rgba(120,220,80,0.9)" }}>
+            Accept
+          </button>
+          <button
+            onClick={() => {
+              if (room) sendSleepResponse(false);
+              if (sleepVoteTimerRef.current) clearTimeout(sleepVoteTimerRef.current);
+              setSleepVoteModal(null);
+              notify("Fast sleep request declined", "rgba(255,100,100,0.95)");
+            }}
+            className="flex-1 py-2 rounded-lg text-sm font-medium"
+            style={{ background: "rgba(255,100,100,0.15)", border: "1px solid rgba(255,100,100,0.3)", color: "rgba(255,100,100,0.9)" }}>
+            Decline
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
+
+      {/* Assigning mode overlay */}
+      {assigningMode && (
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 pointer-events-none z-20"
+          style={{ marginTop: -80 }}>
+          <div className="text-xs px-4 py-2 rounded-lg text-center"
+            style={{ background:"rgba(0,0,0,0.78)", border:"1px solid rgba(255,220,80,0.35)", color:"rgba(255,220,80,0.9)" }}>
+            Assigning <strong>{assigningMode.survivor.name}</strong> — walk to a turret or crop plot and press T
+            <span className="ml-3" style={{ color:"rgba(255,255,255,0.3)" }}>Esc to cancel</span>
+          </div>
+        </div>
+      )}
+
+      {/* Build menu */}
+      {buildMenu && !placingMode && (
+        <BuildMenu
+          inventory={stateRef.current?.player?.inventory ?? {}}
+          onClose={() => setBuildMenu(false)}
+          onSelectTurret={() => {
+            placingModeRef.current = "turret";
+            setPlacingMode("turret");
+            setBuildMenu(false);
+            notify("Click anywhere to place turret (G to cancel)", "rgba(180,255,120,0.9)");
+          }}
+          onSelectCropPlot={() => {
+            placingModeRef.current = "crop_plot";
+            setPlacingMode("crop_plot");
+            setBuildMenu(false);
+            notify("Click anywhere to place a garden plot (G to cancel)", "rgba(180,255,120,0.9)");
+          }}
+          nearSettlement={(() => {
+            const s = stateRef.current;
+            if (!s?.settlements) return null;
+            const near = s.settlements.find(st => dist(s.player.x, s.player.y, st.cx, st.cy) < 500);
+            if (!near) return null;
+            return { ...near, isHome: s.homesettlementId === near.id };
+          })()}
+          onSetHomebase={() => {
+            const s = stateRef.current;
+            if (!s?.settlements) return;
+            const near = s.settlements.find(st => dist(s.player.x, s.player.y, st.cx, st.cy) < 500);
+            if (!near) return;
+            s.homesettlementId = near.id;
+            pushActivity(activityLog ?? [], `🏠 ${near.name ?? "Settlement"} set as homebase`);
+            notify(`🏠 ${near.name} is now your homebase`, "rgba(255,200,80,0.95)");
+            setBuildMenu(false);
+          }}
+        />
       )}
 
       {/* Notification */}
@@ -1184,19 +2853,39 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
         </div>
       )}
 
-      {/* Danger flash */}
-      {sleepFlash && (
-        <div className="absolute inset-0 pointer-events-none z-50"
-          style={{ background: "rgba(255,30,30,0.35)", animation: "none" }} />
+      {/* Fast-sleep badge */}
+      {/* Downed overlay */}
+      {hud.isDowned && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-30"
+          style={{ background: "rgba(180,20,20,0.22)" }}>
+          <div className="text-2xl font-bold mb-2" style={{ color: "rgba(255,80,80,0.95)", textShadow: "0 2px 12px #000" }}>
+            💀 DOWNED
+          </div>
+          <div className="text-sm px-4 py-2 rounded-lg text-center"
+            style={{ background: "rgba(0,0,0,0.75)", color: "rgba(255,180,180,0.9)", border: "1px solid rgba(255,80,80,0.3)" }}>
+            Eat (Q) or drink (R) to revive yourself
+            {hud.p2Near ? " — or wait for your partner (F)" : ""}
+          </div>
+        </div>
       )}
 
-      {/* Fast-sleep badge */}
+      {/* Partner revive hint */}
+      {!hud.isDowned && hud.p2IsDowned && hud.p2Near && (
+        <div className="absolute left-1/2 -translate-x-1/2 pointer-events-none z-20"
+          style={{ bottom: 200 }}>
+          <div className="text-xs px-3 py-1.5 rounded-lg"
+            style={{ background: "rgba(0,0,0,0.78)", color: "rgba(120,255,180,0.95)", border: "1px solid rgba(120,255,180,0.3)" }}>
+            🫀 [F] Revive partner (hold 3s)
+          </div>
+        </div>
+      )}
+
       {hud.isFastSleeping && (
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none flex flex-col items-center gap-2 z-20">
           <div className="text-2xl">⏩</div>
           <div className="text-xs px-3 py-1.5 rounded-full font-medium"
             style={{ background: "rgba(0,0,0,0.75)", color: "rgba(160,140,255,0.95)", border: "1px solid rgba(140,120,255,0.3)" }}>
-            fast-sleeping — press Z to wake
+            fast-sleeping — move to wake
           </div>
         </div>
       )}
@@ -1212,65 +2901,47 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
         </div>
       )}
 
-      {/* Context actions */}
-      {contextActions.length > 0 && !showInventory && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1.5 pointer-events-none" style={{ minWidth: 220 }}>
-          {contextActions.slice(0, 4).map((a, i) => (
-            <div key={i} className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs w-full"
-              style={{ background:"rgba(0,0,0,0.72)", border:"1px solid rgba(255,255,255,0.1)" }}>
-              <span className="font-mono font-bold px-1.5 py-0.5 rounded text-xs shrink-0"
-                style={{ background:"rgba(255,220,80,0.12)", color:"rgba(255,220,80,0.95)", border:"1px solid rgba(255,220,80,0.28)", minWidth: 52, textAlign:"center" }}>
-                {a.key}
-              </span>
-              <span style={{ color:"rgba(255,255,255,0.72)" }}>{a.label}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Top-left HUD buttons */}
-      <div className="absolute top-3 left-3 flex gap-2">
-        <button onClick={() => setShowControls(v => !v)}
-          className="text-xs px-2 py-1 rounded-lg"
-          style={{ background:"rgba(0,0,0,0.6)", border:"1px solid rgba(255,255,255,0.12)", color:"rgba(255,255,255,0.45)" }}>
-          {showControls ? "✕" : "?"} controls
-        </button>
-        <button onClick={() => setShowInv(v => !v)}
-          className="text-xs px-2 py-1 rounded-lg"
-          style={{ background:"rgba(0,0,0,0.6)", border:"1px solid rgba(255,255,255,0.12)", color:"rgba(255,220,80,0.7)" }}>
-          [I] inventory
-        </button>
-      </div>
-
-      {/* Controls panel */}
-      {showControls && (
-        <div className="absolute top-12 left-3 rounded-xl p-3 text-xs z-20"
-          style={{ background:"rgba(8,9,12,0.95)", border:"1px solid rgba(255,255,255,0.1)", minWidth: 220, maxWidth: 240 }}>
-          <div className="text-xs tracking-widest mb-2 font-medium" style={{ color:"rgba(255,200,80,0.7)" }}>CONTROLS</div>
-          {[
-            ["WASD / ↑↓←→", "Move / steer (driver only)"],
-            ["F", "Interact (doors, loot, vehicle, crops)"],
-            ["E", "Repair vehicle (needs car parts)"],
-            ["B", "Barricade building"],
-            ["Q", "Eat food"],
-            ["R", "Drink water"],
-            ["Z", "Sleep / wake"],
-            ["I", "Inventory"],
-            ["Space", "Attack"],
-          ].map(([key, desc]) => (
-            <div key={key} className="flex items-start gap-2 mb-1.5">
-              <span className="font-mono font-bold shrink-0 px-1.5 py-0.5 rounded"
-                style={{ background:"rgba(255,220,80,0.1)", color:"rgba(255,220,80,0.85)", border:"1px solid rgba(255,220,80,0.2)", minWidth:64, textAlign:"center" }}>
-                {key}
-              </span>
-              <span style={{ color:"rgba(255,255,255,0.5)", lineHeight:1.5 }}>{desc}</span>
-            </div>
-          ))}
-          <div className="mt-2 pt-2 text-xs" style={{ borderTop:"1px solid rgba(255,255,255,0.07)", color:"rgba(255,255,255,0.22)" }}>
-            Find a map fragment to reveal the highway exit. Drive north to escape!
+{/* Bottom-center column: hotbar stacked above context actions, both anchored to bottom */}
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 pointer-events-none" style={{ minWidth: 220, maxWidth: 340 }}>
+        {/* Context actions — shown above hotbar */}
+        {contextActions.length > 0 && !showInventory && (
+          <div className="flex flex-col items-center gap-1.5 w-full">
+            {contextActions.slice(0, 4).map((a, i) => (
+              <div key={i} className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs w-full"
+                style={{ background:"rgba(0,0,0,0.72)", border:"1px solid rgba(255,255,255,0.1)" }}>
+                <span className="font-mono font-bold px-1.5 py-0.5 rounded text-xs shrink-0"
+                  style={{ background:"rgba(255,220,80,0.12)", color:"rgba(255,220,80,0.95)", border:"1px solid rgba(255,220,80,0.28)", minWidth: 52, textAlign:"center" }}>
+                  {a.key}
+                </span>
+                <span style={{ color:"rgba(255,255,255,0.72)" }}>{a.label}</span>
+              </div>
+            ))}
           </div>
+        )}
+
+        {/* Quick-slot hotbar — sits below context actions */}
+        <div className="flex gap-2">
+          {quickSlotItems.map((item, idx) => {
+            const qty = item ? getInventoryCount(stateRef.current?.player?.inventory || {}, item) : 0;
+            const meta = { food: { icon: "🍞" }, water: { icon: "💧" } }[item] || { icon: "❓" };
+            return (
+              <div key={idx} className="flex flex-col items-center gap-1">
+                <div className="w-10 h-10 rounded-lg flex items-center justify-center text-lg"
+                  style={{
+                    background: qty > 0 ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.3)",
+                    border: `1px solid ${qty > 0 ? "rgba(255,200,80,0.4)" : "rgba(255,255,255,0.1)"}`,
+                  }}>
+                  {item ? meta.icon : "⌨️"}
+                </div>
+                <div className="text-xs" style={{ color: qty > 0 ? "rgba(255,200,80,0.7)" : "rgba(255,255,255,0.2)" }}>
+                  {idx + 1}
+                </div>
+                {qty > 0 && <div className="text-[10px] -mt-1" style={{ color: "rgba(255,255,255,0.4)" }}>×{qty}</div>}
+              </div>
+            );
+          })}
         </div>
-      )}
+      </div>{/* end bottom-center column */}
 
       {/* Inventory panel */}
       {showInventory && (
@@ -1280,25 +2951,19 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1 }) {
           onClose={() => setShowInv(false)}
           onEat={() => {
             const s = stateRef.current; if (!s) return;
-            if (eatFood(s.player)) { notify("Ate food (+25 🍞)"); setInv({ ...s.player.inventory }); }
+            if (eatFood(s.player)) { notify("Ate food (+25 🍞)"); syncInv(s.player.inventory); }
             else notify("No food!", "rgba(255,100,100,0.95)");
           }}
           onDrink={() => {
             const s = stateRef.current; if (!s) return;
             const ok = drinkWater(s.player, s.buildings, s.wells);
-            if (ok) { notify(ok.source === "well" ? "Drank from well" : "Drank water"); setInv({ ...s.player.inventory }); }
+            if (ok) { notify(ok.source === "well" ? "Drank from well" : "Drank water"); syncInv(s.player.inventory); }
             else notify("No water!", "rgba(255,100,100,0.95)");
           }}
         />
       )}
 
-      {/* P2 badge */}
-      {room && (
-        <div className="absolute top-3 right-28 text-xs pointer-events-none"
-          style={{ color: p2Connected ? "rgba(120,200,255,0.7)" : "rgba(255,255,255,0.2)" }}>
-          {p2Connected ? "● P2" : "○ P2 away"}
-        </div>
-      )}
+
     </div>
   );
 }
@@ -1318,13 +2983,116 @@ function NeedsBar({ label, value, max, color, warn = 35, crit = 15 }) {
   );
 }
 
-// ─── Inventory panel ──────────────────────────────────────────────────────────
+// ─── Build menu ───────────────────────────────────────────────────────────────
+
+function BuildMenu({ inventory, onClose, onSelectTurret, onSelectCropPlot, onSetHomebase, nearSettlement }) {
+  const scrap = inventory.scrap ?? 0;
+  const nails = inventory.nails ?? 0;
+  const canTurret = scrap >= TURRET_COST.scrap && nails >= TURRET_COST.nails;
+
+  return (
+    <div className="absolute inset-0 flex items-center justify-center z-30"
+      style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(2px)" }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="rounded-2xl overflow-hidden" style={{ width: 340, background:"rgba(8,9,12,0.97)", border:"1px solid rgba(255,255,255,0.1)" }}>
+        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom:"1px solid rgba(255,255,255,0.07)" }}>
+          <span className="text-sm font-medium tracking-widest uppercase" style={{ color:"rgba(180,255,120,0.85)" }}>🏗️ Build</span>
+          <button onClick={onClose} className="text-xs px-2 py-1 rounded" style={{ color:"rgba(255,255,255,0.35)", background:"rgba(255,255,255,0.05)" }}>
+            G / Esc
+          </button>
+        </div>
+
+        <div className="px-4 py-2 text-xs" style={{ color:"rgba(255,255,255,0.35)", borderBottom:"1px solid rgba(255,255,255,0.07)" }}>
+          Resources: <span style={{ color:"rgba(255,200,80,0.8)" }}>🔩 {scrap} scrap</span>
+          {" · "}<span style={{ color:"rgba(255,200,80,0.8)" }}>📌 {nails} nails</span>
+        </div>
+
+        <div className="px-4 py-4 flex flex-col gap-3">
+          {/* Turret */}
+          <button
+            onClick={canTurret ? onSelectTurret : undefined}
+            className="flex items-start gap-3 p-3 rounded-xl text-left w-full"
+            style={{
+              background: canTurret ? "rgba(100,180,60,0.1)" : "rgba(255,255,255,0.03)",
+              border: `1px solid ${canTurret ? "rgba(180,255,120,0.35)" : "rgba(255,255,255,0.07)"}`,
+              cursor: canTurret ? "pointer" : "not-allowed",
+              opacity: canTurret ? 1 : 0.5,
+            }}>
+            <span className="text-2xl mt-0.5">🗼</span>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium" style={{ color: canTurret ? "rgba(180,255,120,0.9)" : "rgba(255,255,255,0.4)" }}>
+                Auto-Turret
+              </div>
+              <div className="text-xs mt-1" style={{ color:"rgba(255,255,255,0.35)" }}>
+                Shoots nearby zombies automatically. Attracts more from range. Needs manual repair.
+              </div>
+              <div className="text-xs mt-1.5 flex gap-3">
+                <span style={{ color: scrap >= TURRET_COST.scrap ? "rgba(180,255,120,0.7)" : "rgba(255,100,100,0.8)" }}>
+                  🔩 {TURRET_COST.scrap} scrap ({scrap} have)
+                </span>
+                <span style={{ color: nails >= TURRET_COST.nails ? "rgba(180,255,120,0.7)" : "rgba(255,100,100,0.8)" }}>
+                  📌 {TURRET_COST.nails} nails ({nails} have)
+                </span>
+              </div>
+            </div>
+          </button>
+
+          {/* Crop plot */}
+          <button
+            onClick={onSelectCropPlot}
+            className="flex items-start gap-3 p-3 rounded-xl text-left w-full"
+            style={{
+              background: "rgba(60,120,30,0.1)",
+              border: "1px solid rgba(100,180,60,0.35)",
+              cursor: "pointer",
+            }}>
+            <span className="text-2xl mt-0.5">🌱</span>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium" style={{ color:"rgba(120,210,80,0.9)" }}>
+                Garden Plot
+              </div>
+              <div className="text-xs mt-1" style={{ color:"rgba(255,255,255,0.35)" }}>
+                Place a new plot anywhere on open ground. Needs seeds to plant (F near plot).
+              </div>
+              <div className="text-xs mt-1.5" style={{ color:"rgba(120,210,80,0.55)" }}>
+                Free to place
+              </div>
+            </div>
+          </button>
+
+          {/* Set as Homebase — only shown when near a settlement */}
+          {nearSettlement && (
+            <button
+              onClick={onSetHomebase}
+              className="flex items-start gap-3 p-3 rounded-xl text-left w-full"
+              style={{
+                background: nearSettlement.isHome ? "rgba(255,200,80,0.08)" : "rgba(255,255,255,0.03)",
+                border: `1px solid ${nearSettlement.isHome ? "rgba(255,200,80,0.3)" : "rgba(255,255,255,0.1)"}`,
+                cursor: nearSettlement.isHome ? "default" : "pointer",
+              }}>
+              <span className="text-2xl mt-0.5">🏠</span>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium" style={{ color: nearSettlement.isHome ? "rgba(255,200,80,0.7)" : "rgba(255,255,255,0.7)" }}>
+                  {nearSettlement.isHome ? `✓ ${nearSettlement.name} is your homebase` : `Set ${nearSettlement.name} as Homebase`}
+                </div>
+                <div className="text-xs mt-1" style={{ color:"rgba(255,255,255,0.3)" }}>
+                  {nearSettlement.isHome ? "Base screen shows crops & survivors here." : "Designates this settlement as your base of operations."}
+                </div>
+              </div>
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const ITEM_META = {
   food:         { icon: "🍞", name: "Food",        desc: "Press Q to eat (+25 food)" },
   water:        { icon: "💧", name: "Water",       desc: "Press R to drink (+30 water)" },
-  wood:         { icon: "🪵", name: "Wood",        desc: "Used for barricading" },
-  nails:        { icon: "📌", name: "Nails",       desc: "Used for barricading" },
+  wood:         { icon: "🪵", name: "Wood",        desc: "Used for barricading & building" },
+  nails:        { icon: "📌", name: "Nails",       desc: "Used for barricading & building" },
+  scrap:        { icon: "🔩", name: "Scrap Metal", desc: "Used to build and repair turrets" },
   tools:        { icon: "🔧", name: "Tools",       desc: "Useful for repairs" },
   bat:          { icon: "🪓", name: "Baseball Bat",desc: "Melee weapon — auto-equipped" },
   seeds:        { icon: "🌱", name: "Seeds",       desc: "Plant in a garden (F near plot)" },
@@ -1410,6 +3178,70 @@ function InventoryPanel({ inventory, player, onClose, onEat, onDrink }) {
               <span className="text-xs font-medium" style={{ color:"rgba(255,220,80,0.9)" }}>{player.weapon}</span>
               <span className="ml-auto text-xs" style={{ color:"rgba(255,255,255,0.3)" }}>Space to swing</span>
             </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Survivor command menu ────────────────────────────────────────────────────
+
+function SurvivorCommandMenu({ survivor, onClose, onCommand, onTogglePriority }) {
+  const commands = [
+    { cmd: "follow",    label: "Follow me",      icon: "🟡", desc: "Walks near you, fights if needed" },
+    { cmd: "stay_here", label: "Stay here",      icon: "🟤", desc: "Holds position, defends area" },
+    { cmd: "stay_safe", label: "Stay safe",      icon: "🟢", desc: "Retreats from zombies, wanders nearby" },
+    { cmd: "fight",     label: "Fight",          icon: "🔴", desc: "Actively hunts nearby zombies" },
+    { cmd: "assign",    label: "Assign to…",     icon: "🔵", desc: "Walk to a turret or crop plot to assign" },
+    { cmd: "convoy",    label: "Drive convoy",   icon: "🚗", desc: "Takes a free vehicle and follows your trail" },
+  ];
+  const colMap = { follow:"rgba(255,200,60,0.9)", stay_here:"rgba(200,150,80,0.9)", stay_safe:"rgba(120,220,80,0.9)", fight:"rgba(255,100,100,0.9)", assign:"rgba(80,200,255,0.9)", convoy:"rgba(80,220,200,0.9)" };
+
+  return (
+    <div className="absolute inset-0 flex items-center justify-center z-30"
+      style={{ background:"rgba(0,0,0,0.5)", backdropFilter:"blur(2px)" }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="rounded-2xl overflow-hidden" style={{ width: 320, background:"rgba(8,9,12,0.97)", border:"1px solid rgba(255,255,255,0.1)" }}>
+        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom:"1px solid rgba(255,255,255,0.07)" }}>
+          <div>
+            <span className="text-sm font-medium" style={{ color:"rgba(255,220,80,0.9)" }}>👤 {survivor.name}</span>
+            <span className="ml-2 text-xs" style={{ color:"rgba(255,255,255,0.3)" }}>HP {survivor.hp}/{survivor.maxHp}</span>
+          </div>
+          <button onClick={onClose} className="text-xs px-2 py-1 rounded" style={{ color:"rgba(255,255,255,0.35)", background:"rgba(255,255,255,0.05)" }}>Esc</button>
+        </div>
+
+        <div className="px-4 py-3 flex flex-col gap-2">
+          {commands.map(({ cmd, label, icon, desc }) => (
+            <button key={cmd}
+              onClick={() => onCommand(cmd)}
+              className="flex items-start gap-3 p-3 rounded-xl text-left w-full"
+              style={{
+                background: survivor.command === cmd ? `${(colMap[cmd] ?? "rgba(255,255,255,0.9)").replace("0.9","0.1")}` : "rgba(255,255,255,0.03)",
+                border: `1px solid ${survivor.command === cmd ? (colMap[cmd] ?? "rgba(255,255,255,0.3)").replace("0.9","0.35") : "rgba(255,255,255,0.07)"}`,
+                cursor: "pointer",
+              }}>
+              <span className="text-sm mt-0.5">{icon}</span>
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-medium" style={{ color: survivor.command === cmd ? (colMap[cmd] ?? "rgba(255,255,255,0.9)") : "rgba(255,255,255,0.7)" }}>
+                  {label} {survivor.command === cmd ? "✓" : ""}
+                </div>
+                <div className="text-xs mt-0.5" style={{ color:"rgba(255,255,255,0.3)" }}>{desc}</div>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        {/* Priority toggle (only relevant for crop-assigned survivors) */}
+        {survivor.command === "assign" && survivor.assignedTo?.structureType === "crop" && (
+          <div className="px-4 pb-4">
+            <button onClick={onTogglePriority}
+              className="w-full py-2 rounded-lg text-xs"
+              style={{ background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", color:"rgba(255,255,255,0.5)" }}>
+              Priority: <span style={{ color:"rgba(255,220,80,0.85)" }}>
+                {survivor.priority === "safety_first" ? "⚠️ Safety first (flee zombies)" : "🌿 Harvest first (ignore zombies)"}
+              </span> — tap to toggle
+            </button>
           </div>
         )}
       </div>

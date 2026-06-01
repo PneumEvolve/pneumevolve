@@ -68,8 +68,24 @@ export function useDeadMilesRoom(roomId, handlers) {
           case "barricade_damage":     h.onBarricadeDamage?.(msg);     break;
           case "door_update":          h.onDoorUpdate?.(msg);          break;
 
+          // Inventory sync (full snapshot on every mutation)
+          case "inventory_update":     h.onInventoryUpdate?.(msg);     break;
+
+          // Loot pickups — items + fuel, not just building id
+          case "loot_pickup":          h.onLootPickup?.(msg);          break;
+
+          // Survivor position sync (every tick from host)
+          case "survivor_positions":   h.onSurvivorPositions?.(msg);   break;
+
+          // Turret state full snapshot
+          case "turret_states":        h.onTurretStates?.(msg);        break;
+
           // Needs sync
           case "needs_update":         h.onNeedsUpdate?.(msg);         break;
+
+          case "sleep_request":       h.onSleepRequest?.(msg);       break;
+          case "sleep_response":      h.onSleepResponse?.(msg);      break;
+          case "fast_sleep_start":    h.onFastSleepStart?.(msg);     break;
 
           // Survivors
           case "survivor_found":       h.onSurvivorFound?.(msg);       break;
@@ -86,9 +102,18 @@ export function useDeadMilesRoom(roomId, handlers) {
           // Map fragment — broadcast so P2 sees the compass arrow too
           case "map_fragment":         h.onMapFragment?.(msg);         break;  // NEW
 
+          // Turrets
+          case "turret_place":         h.onTurretPlace?.(msg);         break;
+          case "turret_damage":        h.onTurretDamage?.(msg);        break;
+          case "turret_repair":        h.onTurretRepair?.(msg);        break;
+          case "turret_destroy":       h.onTurretDestroy?.(msg);       break;
+
+          // Convoy vehicles (P1 → P2 position sync)
+          case "convoy_vehicle_update": h.onConvoyVehicleUpdate?.(msg); break;
+
           // Meta
-          case "player_ready":         h.onPlayerReady?.(msg);         break;
-          case "game_over":            h.onGameOver?.(msg);            break;
+          case "garden_plot_place":  h.onGardenPlotPlace?.(msg);  break;
+          case "room_seed_update":   h.onRoomSeedUpdate?.(msg);   break;          case "game_over":            h.onGameOver?.(msg);            break;
           case "chat":                 h.onChat?.(msg);                break;
           case "ping":                 h.onPing?.(msg);                break;
 
@@ -149,7 +174,31 @@ export function useDeadMilesRoom(roomId, handlers) {
 
   const sendZombieUpdate = useCallback((zombies) =>
     send("zombie_update", { zombies: zombies.map(z => ({
-      id: z.id, x: z.x, y: z.y, hp: z.hp, state: z.state, dead: z.dead,
+      id: z.id, x: z.x, y: z.y, hp: z.hp, maxHp: z.maxHp, state: z.state, dead: z.dead,
+      zombieType: z.type, radius: z.radius,
+    })) }), [send]);
+
+  // Broadcast new map seed when P1 restarts/advances level so P2 builds the same world
+  const sendRoomSeedUpdate = useCallback((seed, level) =>
+    send("room_seed_update", { seed, level }), [send]);
+
+  const sendGardenPlotPlace = useCallback((plot) =>
+    send("garden_plot_place", { plot }), [send]);
+
+  const sendInventoryUpdate = useCallback((inventory) =>
+    send("inventory_update", { inventory }), [send]);
+
+  const sendLootPickup = useCallback((buildingId, gained, fuelGained) =>
+    send("loot_pickup", { buildingId, gained, fuelGained }), [send]);
+
+  const sendSurvivorPositions = useCallback((survivors) =>
+    send("survivor_positions", { survivors: survivors.map(sv => ({
+      id: sv.id, x: sv.x, y: sv.y, hp: sv.hp, state: sv.state,
+    })) }), [send]);
+
+  const sendTurretStates = useCallback((turrets) =>
+    send("turret_states", { turrets: turrets.map(t => ({
+      id: t.id, hp: t.hp, destroyed: t.destroyed,
     })) }), [send]);
 
   const sendItemPickup = useCallback((itemId) =>
@@ -167,8 +216,8 @@ export function useDeadMilesRoom(roomId, handlers) {
   const sendDoorUpdate = useCallback((buildingId, doorId, open, hp, broken) =>
     send("door_update", { buildingId, doorId, open, hp, broken }), [send]);
 
-  const sendNeedsUpdate = useCallback((food, water, sleep, hp) =>
-    send("needs_update", { food, water, sleep, hp }), [send]);
+  const sendNeedsUpdate = useCallback((food, water, sleep, hp, isDowned = false) =>
+    send("needs_update", { food, water, sleep, hp, isDowned }), [send]);
 
   const sendSurvivorFound  = useCallback((survivor) =>
     send("survivor_found", { survivor }), [send]);
@@ -187,22 +236,42 @@ export function useDeadMilesRoom(roomId, handlers) {
   const sendMapFragment = useCallback(() =>
     send("map_fragment", {}), [send]);
 
+  // Turrets
+  const sendTurretPlace   = useCallback((turret) =>      send("turret_place",   { turret }),             [send]);
+  const sendTurretDamage  = useCallback((turretId, hp) => send("turret_damage",  { turretId, hp }),       [send]);
+  const sendTurretRepair  = useCallback((turretId, hp) => send("turret_repair",  { turretId, hp }),       [send]);
+  const sendTurretDestroy = useCallback((turretId) =>     send("turret_destroy", { turretId }),           [send]);
+
+  // Convoy vehicles — P1 broadcasts positions each sync tick so P2 can interpolate
+  const sendConvoyUpdate = useCallback((vehicles) =>
+    send("convoy_vehicle_update", { vehicles }), [send]);
+
   const sendPlayerReady = useCallback((role) =>   send("player_ready", { role }),    [send]);
   const sendGameOver    = useCallback((score) =>  send("game_over",    { score }),   [send]);
   const sendChat        = useCallback((text, from) => send("chat",     { text, from }), [send]);
   const sendPing        = useCallback((x, y, from) =>  send("ping",    { x, y, from }), [send]);
 
+
+
   return {
     sendP1Move, sendP2Move,
     sendVehicleUpdate, sendVehicleDamage, sendVehicleRepair,
     sendZombieUpdate,
+    sendInventoryUpdate, sendLootPickup,
     sendItemPickup, sendBuildingSearch,
     sendBarricadePlace, sendBarricadeDamage, sendDoorUpdate,
     sendNeedsUpdate,
-    sendSurvivorFound, sendSurvivorAssign,
+    sendSurvivorFound, sendSurvivorAssign, sendSurvivorPositions,
     sendCropPlant, sendCropReady, sendCropHarvest,
     sendPhaseChange,
     sendMapFragment,
+    sendTurretPlace, sendTurretDamage, sendTurretRepair, sendTurretDestroy, sendTurretStates,
+    sendConvoyUpdate,
+    sendRoomSeedUpdate,
+    sendGardenPlotPlace,
     sendPlayerReady, sendGameOver, sendChat, sendPing,
+    sendSleepRequest: useCallback(() => send("sleep_request", {}), [send]),
+    sendSleepResponse: useCallback((agree) => send("sleep_response", { agree }), [send]),
+    sendFastSleepStart: useCallback(() => send("fast_sleep_start", {}), [send]),
   };
 }
