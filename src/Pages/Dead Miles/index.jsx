@@ -288,9 +288,17 @@ export default function DeadMilesGame() {
       setRoom(prev => prev ? { ...prev, map_seed: seed } : null);
       if (newLevel != null) setLevel(newLevel);
     },
+    // Either player can request a restart — execute it locally when received from partner.
+    onRestartRequest: ({ seed, level: newLevel }) => {
+      if (phaseRef.current !== "gameover") return;
+      setRoom(prev => prev ? { ...prev, map_seed: seed } : null);
+      if (newLevel != null) setLevel(newLevel);
+      setFinalScore(null);
+      setPhase("playing");
+    },
   }).current;
 
-  const { sendRoomSeedUpdate } = useDeadMilesRoom(activeRoomId, handlers);
+  const { sendRoomSeedUpdate, sendRestartRequest } = useDeadMilesRoom(activeRoomId, handlers);
 
   // ── Entry points ───────────────────────────────────────────────────────────
 
@@ -323,8 +331,8 @@ export default function DeadMilesGame() {
   function handleRestart() {
     const newSeed = Date.now() & 0x7fffffff;
     setRoom(prev => prev ? { ...prev, map_seed: newSeed } : null);
-    // Tell P2 to use the same seed before they remount GameView
-    if (room?.id) sendRoomSeedUpdate(newSeed, levelRef.current);
+    // Broadcast to partner so they restart with the same seed
+    if (room?.id) sendRestartRequest(newSeed, levelRef.current);
     setFinalScore(null);
     setPhase("playing");
   }

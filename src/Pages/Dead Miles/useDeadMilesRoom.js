@@ -113,7 +113,9 @@ export function useDeadMilesRoom(roomId, handlers) {
 
           // Meta
           case "garden_plot_place":  h.onGardenPlotPlace?.(msg);  break;
-          case "room_seed_update":   h.onRoomSeedUpdate?.(msg);   break;          case "game_over":            h.onGameOver?.(msg);            break;
+          case "room_seed_update":   h.onRoomSeedUpdate?.(msg);   break;
+          case "restart_request":    h.onRestartRequest?.(msg);   break;
+          case "game_over":            h.onGameOver?.(msg);            break;
           case "chat":                 h.onChat?.(msg);                break;
           case "ping":                 h.onPing?.(msg);                break;
 
@@ -162,15 +164,15 @@ export function useDeadMilesRoom(roomId, handlers) {
   const sendP2Move    = useCallback((x, y, facing, inVehicle) =>
     send("p2_move", { x, y, facing, inVehicle }), [send]);
 
-  const sendVehicleUpdate = useCallback((x, y, facing, hp, fuel, driver = null, passenger = null) =>
-    send("vehicle_update", { x, y, facing, hp, fuel, driver, passenger }), [send]);
+  const sendVehicleUpdate = useCallback((vehicleId, x, y, facing, hp, fuel, driver = null, passenger = null) =>
+    send("vehicle_update", { vehicleId, x, y, facing, hp, fuel, driver, passenger }), [send]);
 
   const sendVehicleDamage = useCallback((hp) =>
     send("vehicle_damage", { hp }), [send]);
 
   // NEW: Vehicle repair — broadcast new HP so partner sees the change
-  const sendVehicleRepair = useCallback((hp) =>
-    send("vehicle_repair", { hp }), [send]);
+  const sendVehicleRepair = useCallback((vehicleId, hp) =>
+    send("vehicle_repair", { vehicleId, hp }), [send]);
 
   const sendZombieUpdate = useCallback((zombies) =>
     send("zombie_update", { zombies: zombies.map(z => ({
@@ -273,5 +275,6 @@ export function useDeadMilesRoom(roomId, handlers) {
     sendSleepRequest: useCallback(() => send("sleep_request", {}), [send]),
     sendSleepResponse: useCallback((agree) => send("sleep_response", { agree }), [send]),
     sendFastSleepStart: useCallback(() => send("fast_sleep_start", {}), [send]),
+    sendRestartRequest: useCallback((seed, level) => send("restart_request", { seed, level }), [send]),
   };
 }

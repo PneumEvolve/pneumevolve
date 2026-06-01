@@ -1123,9 +1123,11 @@ export function createPlayer(x, y) {
   };
 }
 
+let _vehicleIdCounter = 1;
 export function createVehicle(x, y, type = "car") {
   const cfg = VEHICLE_TYPES[type] ?? VEHICLE_TYPES.car;
   return {
+    id: `v_${_vehicleIdCounter++}`,
     x, y,
     hp: cfg.hp, maxHp: cfg.hp,
     fuel: cfg.fuel, maxFuel: cfg.fuel,
@@ -1356,6 +1358,7 @@ export function movePlayer(player, dx, dy, dt, buildings) {
 }
 
 export function driveVehicle(vehicle, dx, dy, dt, buildings) {
+  if (vehicle.hp <= 0) return; // destroyed — can't drive
   const len = Math.sqrt(dx * dx + dy * dy);
   if (len > 0) {
     const nx = dx / len, ny = dy / len;

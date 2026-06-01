@@ -234,12 +234,23 @@ onFastSleepStart: () => {
     notify("Partner started fast sleep", "rgba(120,220,80,0.95)");
   }
 },
-    onVehicleUpdate: ({ x, y, facing, hp, fuel, driver, passenger }) => {
+    onVehicleUpdate: ({ vehicleId, x, y, facing, hp, fuel, driver, passenger }) => {
       const s = stateRef.current; if (!s) return;
-      s.vehicleTarget = { x, y, facing, hp, fuel };
-      if (s.vehicle.driver !== roleRef.current) s.vehicle.driver = driver ?? null;
-      if (s.vehicle.passenger !== roleRef.current) s.vehicle.passenger = passenger ?? null;
-      s.vehicle.occupied = s.vehicle.driver !== null;
+      // Find the specific vehicle this update belongs to
+      const vehicles = s.vehicles ?? [s.vehicle];
+      const targetVehicle = vehicleId
+        ? vehicles.find(v => v.id === vehicleId)
+        : s.vehicle; // fallback for old messages without id
+      if (!targetVehicle) return;
+
+      // Store per-vehicle interpolation target
+      if (!s.vehicleTargets) s.vehicleTargets = new Map();
+      s.vehicleTargets.set(targetVehicle.id, { x, y, facing, hp, fuel });
+
+      // Update driver/passenger only if we're not the one in that seat
+      if (targetVehicle.driver !== roleRef.current) targetVehicle.driver = driver ?? null;
+      if (targetVehicle.passenger !== roleRef.current) targetVehicle.passenger = passenger ?? null;
+      targetVehicle.occupied = targetVehicle.driver !== null || targetVehicle.passenger !== null;
     },
     onConvoyVehicleUpdate: ({ vehicles: cvUpdates }) => {
       // P2 receives convoy positions from P1 and interpolates them
@@ -343,9 +354,11 @@ onFastSleepStart: () => {
       const s = stateRef.current; if (!s) return;
       s.mapFragmentCollected = true;
     },
-    onVehicleRepair: ({ hp }) => {
+    onVehicleRepair: ({ vehicleId, hp }) => {
       const s = stateRef.current; if (!s) return;
-      s.vehicle.hp = hp;
+      const vehicles = s.vehicles ?? [s.vehicle];
+      const v = vehicleId ? vehicles.find(v => v.id === vehicleId) : s.vehicle;
+      if (v) v.hp = hp;
     },
     onInventoryUpdate: ({ inventory }) => {
       // Partner's inventory changed — update the shared world view (e.g. shared fuel)
@@ -527,6 +540,7 @@ onFastSleepStart: () => {
       exitVehicle(s.player, s.vehicle, roleRef.current);
       notify("Got out of vehicle");
       if (room) sendVehicleUpdate(
+        s.vehicle.id,
         s.vehicle.x, s.vehicle.y, s.vehicle.facing,
         s.vehicle.hp, s.vehicle.fuel,
         s.vehicle.driver, s.vehicle.passenger
@@ -633,6 +647,7 @@ onFastSleepStart: () => {
         notify("⚡ FLOOR IT — zombies everywhere!", "rgba(255,80,40,0.98)");
       }
       if (room) sendVehicleUpdate(
+        s.vehicle.id,
         s.vehicle.x, s.vehicle.y, s.vehicle.facing,
         s.vehicle.hp, s.vehicle.fuel,
         s.vehicle.driver, s.vehicle.passenger
@@ -733,12 +748,21 @@ onFastSleepStart: () => {
     if (key === "f" || key === "F") { handleF(s); return; }
 
     if (key === "e" || key === "E") {
-      const result = tryRepairVehicle(s.player, s.vehicle);
+      // Find the nearest vehicle to avoid stale s.vehicle pointer
+      const repairVehicles = s.vehicles ?? [s.vehicle];
+      let repairTarget = null;
+      let repairDist = Infinity;
+      for (const v of repairVehicles) {
+        const d = dist(s.player.x, s.player.y, v.x, v.y);
+        if (d < repairDist) { repairDist = d; repairTarget = v; }
+      }
+      if (!repairTarget || repairDist > REPAIR_RANGE) { return; }
+      const result = tryRepairVehicle(s.player, repairTarget);
       if (!result) { return; }
       if (result.fail === "no_parts") { notify("Need car parts!", "rgba(255,100,100,0.95)"); return; }
       if (result.fail === "full_hp") { notify("Vehicle is already at full health!", "rgba(180,180,180,0.6)"); return; }
       notify(`Vehicle repaired +${REPAIR_HP_GAIN} HP 🔧`, "rgba(120,255,150,0.95)");
-      if (room && sendVehicleRepair) sendVehicleRepair(s.vehicle.hp);
+      if (room && sendVehicleRepair) sendVehicleRepair(repairTarget.id, repairTarget.hp);
       syncInv(s.player.inventory);
       return;
     }
@@ -790,11 +814,13 @@ onFastSleepStart: () => {
           if (eatFood(s.player)) {
             notify("Ate food (+25 🍞)");
             syncInv(s.player.inventory);
-            // Revive from downed state
             if (s.player.isDowned) {
               s.player.isDowned = false;
               s.player.isSleeping = false;
               s.player.hp = Math.max(s.player.hp, 15);
+              s.player.food  = Math.max(s.player.food,  NEEDS_TUNE.food.critAt  + 5);
+              s.player.water = Math.max(s.player.water, NEEDS_TUNE.water.critAt + 5);
+              s.player.sleep = Math.max(s.player.sleep, NEEDS_TUNE.sleep.critAt + 5);
               notify("🫀 Revived!", "rgba(120,255,180,0.95)");
               if (room) sendNeedsUpdate(s.player.food, s.player.water, s.player.sleep, s.player.hp, false);
             }
@@ -826,11 +852,13 @@ onFastSleepStart: () => {
           if (ok) {
             notify(ok.source === "well" ? "Drank from well (+30 💧)" : "Drank water (+30 💧)");
             syncInv(s.player.inventory);
-            // Revive from downed state
             if (s.player.isDowned) {
               s.player.isDowned = false;
               s.player.isSleeping = false;
               s.player.hp = Math.max(s.player.hp, 15);
+              s.player.food  = Math.max(s.player.food,  NEEDS_TUNE.food.critAt  + 5);
+              s.player.water = Math.max(s.player.water, NEEDS_TUNE.water.critAt + 5);
+              s.player.sleep = Math.max(s.player.sleep, NEEDS_TUNE.sleep.critAt + 5);
               notify("🫀 Revived!", "rgba(120,255,180,0.95)");
               if (room) sendNeedsUpdate(s.player.food, s.player.water, s.player.sleep, s.player.hp, false);
             }
@@ -1218,7 +1246,8 @@ if (s.player.isSleeping && !s.isFastSleeping && !fastSleepVoteRequestedRef.curre
   }
 } else {
   // Player is sleeping - check for movement to wake up
-  if (moving) {
+  // Don't wake from movement if downed — needs eat/drink to revive
+  if (moving && !s.player.isDowned) {
     s.player.isSleeping = false;
     s.isFastSleeping = false;
     holdZRef.current = 0;
@@ -1244,14 +1273,21 @@ if (s.player.isSleeping && !s.isFastSleeping && !fastSleepVoteRequestedRef.curre
       s.player2.inVehicle = s.p2Target.inVehicle;
     }
 
-    const remoteRole = isP1 ? "p2" : "p1";
-    if (s.vehicleTarget && s.vehicle.driver === remoteRole) {
-      const lf = Math.min(1, 10 * dtActual);
-      s.vehicle.x      = lerp(s.vehicle.x,      s.vehicleTarget.x,      lf);
-      s.vehicle.y      = lerp(s.vehicle.y,      s.vehicleTarget.y,      lf);
-      s.vehicle.facing = lerp(s.vehicle.facing, s.vehicleTarget.facing,  lf);
-      s.vehicle.hp     = s.vehicleTarget.hp;
-      s.vehicle.fuel   = s.vehicleTarget.fuel;
+    // Per-vehicle interpolation: apply network targets for vehicles not driven by this client
+    if (s.vehicleTargets?.size) {
+      const allVehicles = s.vehicles ?? [s.vehicle];
+      for (const v of allVehicles) {
+        const tgt = s.vehicleTargets.get(v.id);
+        if (!tgt) continue;
+        // Only interpolate vehicles we are NOT driving
+        if (v.driver === roleRef.current) continue;
+        const lf = Math.min(1, 10 * dtActual);
+        v.x      = lerp(v.x,      tgt.x,      lf);
+        v.y      = lerp(v.y,      tgt.y,      lf);
+        v.facing = lerp(v.facing, tgt.facing,  lf);
+        v.hp     = tgt.hp;
+        v.fuel   = tgt.fuel;
+      }
     }
 
     if (!isHostRef.current && s.zombieTargets) {
@@ -1611,7 +1647,7 @@ if (s.player.isSleeping && !s.isFastSleeping && !fastSleepVoteRequestedRef.curre
       if (now - lastSyncRef.current > SYNC_THROTTLE) {
         lastSyncRef.current = now;
         if (s.player.inVehicle && s.vehicle.driver === roleRef.current) {
-          sendVehicleUpdate(s.vehicle.x, s.vehicle.y, s.vehicle.facing, s.vehicle.hp, s.vehicle.fuel, s.vehicle.driver, s.vehicle.passenger);
+          sendVehicleUpdate(s.vehicle.id, s.vehicle.x, s.vehicle.y, s.vehicle.facing, s.vehicle.hp, s.vehicle.fuel, s.vehicle.driver, s.vehicle.passenger);
         }
         if (isHostRef.current) {
           // Include zombies that just died this frame so partner receives dead:true at least once,
