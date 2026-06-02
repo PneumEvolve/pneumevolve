@@ -34,6 +34,14 @@ export function useDeadMilesRoom(roomId, handlers) {
 
       ws.onopen = () => {
         connectedRef.current = true;
+
+        // Keep-alive: send a ping every 20s to prevent proxy/load-balancer timeouts
+        ws._pingInterval = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ event: "ping" }));
+          }
+        }, 20000);
+
         if (pendingRef.current.length > 0) {
           pendingRef.current.forEach(msg => ws.send(JSON.stringify(msg)));
           pendingRef.current = [];
@@ -137,6 +145,7 @@ export function useDeadMilesRoom(roomId, handlers) {
 
       ws.onclose = (e) => {
         connectedRef.current = false;
+        clearInterval(ws._pingInterval);
         if (dead) return;
         if (e.code !== 4001) {
           reconnectTimer.current = setTimeout(connect, 2000);
@@ -153,6 +162,7 @@ export function useDeadMilesRoom(roomId, handlers) {
       connectedRef.current = false;
       pendingRef.current = [];
       clearTimeout(reconnectTimer.current);
+      clearInterval(ws?._pingInterval);
       if (ws) ws.close();
       wsRef.current = null;
     };
