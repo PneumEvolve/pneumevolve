@@ -362,6 +362,23 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1, onS
       const s = stateRef.current; if (!s) return;
       markPartnerActive();
       if (s.player2) Object.assign(s.player2, { food, water, sleep, hp, isDowned: !!isDowned });
+      // Co-op both-downed check on the non-host side.
+      // The host detects this in the game loop; P2 (non-host) detects it here when
+      // the host broadcasts its own isDowned=true and P2 is already downed locally.
+      if (isDowned === true && s.player?.isDowned && !isHostRef.current && !gameOverFiredRef.current) {
+        // Let the host fire the authoritative game_over broadcast; P2 just waits
+        // — it will receive the game_over event and transition via onGameOver.
+        // But as a fallback (e.g. host tab is throttled), P2 also fires after a
+        // short delay if no game_over has arrived.
+        setTimeout(() => {
+          if (!gameOverFiredRef.current) {
+            const s2 = stateRef.current;
+            if (s2?.player?.isDowned && s2?.player2?.isDowned) {
+              triggerGameOver(s2, { survived: false, coopBothDowned: true });
+            }
+          }
+        }, 1500);
+      }
       // If the remote player sent isDowned=false and we are downed locally, it means
       // our partner just revived us — wake up.
       // _reviveHandled is a one-shot gate: prevents the floater from re-firing every
@@ -628,6 +645,7 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1, onS
     sendInventoryUpdate, sendLootPickup,
     sendSurvivorPositions, sendSurvivorCommand, sendTurretStates,
     sendGameOver,
+    sendReadyUp,
     // FIX 3/4: base storage co-op senders
     sendBaseStorageUpdate, sendBaseStorageDeposit, sendBaseStorageWithdraw,
   } = useDeadMilesRoom(room?.id ?? null, handlers);
@@ -1639,6 +1657,14 @@ if (s.player.isSleeping && !s.isFastSleeping && !fastSleepVoteRequestedRef.curre
         triggerGameOver(s, { survived: false });
         return;
       }
+    }
+
+    // ── Co-op both-downed → game over ─────────────────────────────────────
+    // Only the host checks this (to avoid double-firing). If both players are
+    // downed at the same time, neither can revive the other — trigger game over.
+    if (room && isHostRef.current && s.player.isDowned && s.player2?.isDowned && !gameOverFiredRef.current) {
+      triggerGameOver(s, { survived: false, coopBothDowned: true });
+      return;
     }
 
     // ── Boss compass tracking — keep compassTarget synced to boss position ──

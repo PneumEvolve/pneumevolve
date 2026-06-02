@@ -119,6 +119,7 @@ export function useDeadMilesRoom(roomId, handlers) {
           case "room_seed_update":   h.onRoomSeedUpdate?.(msg);   break;
           case "restart_request":    h.onRestartRequest?.(msg);   break;
           case "game_over":            h.onGameOver?.(msg);            break;
+          case "ready_up":             h.onReadyUp?.(msg);             break;
           case "chat":                 h.onChat?.(msg);                break;
           case "ping":                 h.onPing?.(msg);                break;
 
@@ -266,6 +267,7 @@ export function useDeadMilesRoom(roomId, handlers) {
 
   const sendPlayerReady = useCallback((role) =>   send("player_ready", { role }),    [send]);
   const sendGameOver    = useCallback((score) =>  send("game_over",    { score }),   [send]);
+  const sendReadyUp     = useCallback((role) =>   send("ready_up",     { role }),    [send]);
   const sendChat        = useCallback((text, from) => send("chat",     { text, from }), [send]);
   const sendPing        = useCallback((x, y, from) =>  send("ping",    { x, y, from }), [send]);
 
@@ -300,7 +302,7 @@ export function useDeadMilesRoom(roomId, handlers) {
     sendConvoyUpdate,
     sendRoomSeedUpdate,
     sendGardenPlotPlace,
-    sendPlayerReady, sendGameOver, sendChat, sendPing,
+    sendPlayerReady, sendGameOver, sendReadyUp, sendChat, sendPing,
     sendBaseStorageUpdate, sendBaseStorageDeposit, sendBaseStorageWithdraw,
     sendSleepRequest: useCallback(() => send("sleep_request", {}), [send]),
     sendSleepResponse: useCallback((agree) => send("sleep_response", { agree }), [send]),

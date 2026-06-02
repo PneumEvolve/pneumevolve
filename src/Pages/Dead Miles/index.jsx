@@ -185,10 +185,21 @@ function WaitingForP2({ room, onP2Joined }) {
 
 // ─── Game over screen ─────────────────────────────────────────────────────────
 
-function GameOver({ score, level, onRestart, onMenu }) {
+function GameOver({ score, level, room, role, onRestart, onMenu, onReadyUp, partnerReady }) {
   const isVictory = score?.survived;
+  const isCoopDeath = !!(room && score?.coopBothDowned);
+  const [myReady, setMyReady] = useState(false);
   const [visible, setVisible] = useState(false);
   useEffect(() => { const t = setTimeout(() => setVisible(true), 60); return () => clearTimeout(t); }, []);
+
+  function handleReadyUp() {
+    setMyReady(true);
+    onReadyUp?.();
+  }
+
+  // Solo or victory: show the normal restart/menu buttons.
+  // Co-op death: show a "ready up" flow instead.
+  const showReadyUp = isCoopDeath && !isVictory;
 
   return (
     <main className="min-h-screen bg-[#0a0d0f] text-white flex flex-col items-center justify-center gap-6 px-4"
@@ -234,16 +245,49 @@ function GameOver({ score, level, onRestart, onMenu }) {
       )}
 
       <div className="flex flex-col items-center gap-3 w-full max-w-xs">
-        <button onClick={onRestart}
-          className="w-full py-3 rounded-xl text-sm font-medium"
-          style={{ background: "rgba(255,200,80,0.08)", border: "1px solid rgba(255,200,80,0.2)", color: "rgba(255,200,80,0.85)" }}>
-          {isVictory ? "play again" : "try again"}
-        </button>
-        <button onClick={onMenu}
-          className="w-full py-3 rounded-xl text-sm"
-          style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.5)" }}>
-          main menu
-        </button>
+        {showReadyUp ? (
+          <>
+            {/* Ready-up status */}
+            <div className="flex gap-4 text-xs mb-1" style={{ color: "rgba(255,255,255,0.4)" }}>
+              <span style={{ color: myReady ? "rgba(120,255,150,0.9)" : "rgba(255,80,80,0.6)" }}>
+                {myReady ? "✓ you" : "○ you"}
+              </span>
+              <span style={{ color: partnerReady ? "rgba(120,255,150,0.9)" : "rgba(255,255,255,0.3)" }}>
+                {partnerReady ? "✓ partner" : "○ partner"}
+              </span>
+            </div>
+            {!myReady ? (
+              <button onClick={handleReadyUp}
+                className="w-full py-3 rounded-xl text-sm font-medium"
+                style={{ background: "rgba(255,200,80,0.08)", border: "1px solid rgba(255,200,80,0.2)", color: "rgba(255,200,80,0.85)" }}>
+                ready up
+              </button>
+            ) : (
+              <div className="w-full py-3 rounded-xl text-sm text-center"
+                style={{ background: "rgba(120,255,150,0.06)", border: "1px solid rgba(120,255,150,0.2)", color: "rgba(120,255,150,0.6)" }}>
+                {partnerReady ? "starting…" : "waiting for partner…"}
+              </div>
+            )}
+            <button onClick={onMenu}
+              className="w-full py-3 rounded-xl text-sm"
+              style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.5)" }}>
+              main menu
+            </button>
+          </>
+        ) : (
+          <>
+            <button onClick={onRestart}
+              className="w-full py-3 rounded-xl text-sm font-medium"
+              style={{ background: "rgba(255,200,80,0.08)", border: "1px solid rgba(255,200,80,0.2)", color: "rgba(255,200,80,0.85)" }}>
+              {isVictory ? "play again" : "try again"}
+            </button>
+            <button onClick={onMenu}
+              className="w-full py-3 rounded-xl text-sm"
+              style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.5)" }}>
+              main menu
+            </button>
+          </>
+        )}
       </div>
     </main>
   );
@@ -257,6 +301,9 @@ export default function DeadMilesGame() {
   const [role,       setRole]       = useState("p1");
   const [finalScore, setFinalScore] = useState(null);
   const [level,      setLevel]      = useState(1);
+  // Co-op ready-up state (used on the game over screen)
+  const [myReadyUp,      setMyReadyUp]      = useState(false);
+  const [partnerReadyUp, setPartnerReadyUp] = useState(false);
 
   // Phase 2: base screen
   const [screen,       setScreen]      = useState("play");  // "play" | "base"
@@ -280,6 +327,8 @@ export default function DeadMilesGame() {
     onGameOver: ({ score }) => {
       if (phaseRef.current !== "gameover") {
         setFinalScore(score);
+        setMyReadyUp(false);
+        setPartnerReadyUp(false);
         setPhase("gameover");
       }
     },
@@ -295,11 +344,17 @@ export default function DeadMilesGame() {
       setRoom(prev => prev ? { ...prev, map_seed: seed } : null);
       if (newLevel != null) setLevel(newLevel);
       setFinalScore(null);
+      setMyReadyUp(false);
+      setPartnerReadyUp(false);
       setPhase("playing");
+    },
+    // Partner clicked "ready up" on the game over screen
+    onReadyUp: () => {
+      setPartnerReadyUp(true);
     },
   }).current;
 
-  const { sendRoomSeedUpdate, sendRestartRequest } = useDeadMilesRoom(activeRoomId, handlers);
+  const { sendRoomSeedUpdate, sendRestartRequest, sendReadyUp } = useDeadMilesRoom(activeRoomId, handlers);
 
   // ── Entry points ───────────────────────────────────────────────────────────
 
@@ -326,7 +381,14 @@ export default function DeadMilesGame() {
 
   function handleGameOver(score) {
     setFinalScore(score);
+    setMyReadyUp(false);
+    setPartnerReadyUp(false);
     setPhase("gameover");
+  }
+
+  function handleReadyUp() {
+    setMyReadyUp(true);
+    if (room?.id) sendReadyUp(role);
   }
 
   function handleRestart() {
@@ -335,8 +397,19 @@ export default function DeadMilesGame() {
     // Broadcast to partner so they restart with the same seed
     if (room?.id) sendRestartRequest(newSeed, levelRef.current);
     setFinalScore(null);
+    setMyReadyUp(false);
+    setPartnerReadyUp(false);
     setPhase("playing");
   }
+
+  // Co-op ready-up: when both players are ready, the host fires the restart
+  useEffect(() => {
+    if (phase !== "gameover") return;
+    if (!room?.id) return;
+    if (!myReadyUp || !partnerReadyUp) return;
+    // Only one side needs to call handleRestart (host wins the race)
+    if (role === "p1") handleRestart();
+  }, [myReadyUp, partnerReadyUp, phase, room?.id, role]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleNextLevel() {
     const newLevel = levelRef.current + 1;
@@ -365,8 +438,12 @@ export default function DeadMilesGame() {
     <GameOver
       score={finalScore}
       level={level}
+      room={room}
+      role={role}
       onRestart={handleRestart}
       onMenu={handleMenu}
+      onReadyUp={handleReadyUp}
+      partnerReady={partnerReadyUp}
     />
   );
 
