@@ -7,7 +7,7 @@ import { api } from "@/lib/api";
 import GameView from "./GameView";
 import BaseView from "./BaseView";
 import { useDeadMilesRoom } from "./useDeadMilesRoom";
-import { applyOfflineBaseTick, pushActivity } from "./deadMilesEngine";
+import { applyOfflineBaseTick, pushActivity, craftItem } from "./deadMilesEngine";
 
 // ─── Lobby ────────────────────────────────────────────────────────────────────
 
@@ -272,8 +272,9 @@ export default function DeadMilesGame() {
   useEffect(() => { roleRef.current  = role;    }, [role]);
   useEffect(() => { levelRef.current = level;   }, [level]);
 
-  // Websocket for meta-events (game_over) — only when not playing
-  const activeRoomId = phase === "playing" ? null : room?.id ?? null;
+  // Websocket for meta-events (game_over, restart_request) — keep active during all non-lobby phases
+  // so partner broadcasts (game_over, restart) are received even while playing.
+  const activeRoomId = (phase === "lobby" || phase === "waiting") ? null : room?.id ?? null;
 
   const handlers = useRef({
     onGameOver: ({ score }) => {
@@ -395,6 +396,8 @@ export default function DeadMilesGame() {
             activityLog={activityLogRef.current}
             awaySummary={awaySummary}
             onDismissAway={() => setAwaySummary(null)}
+            // FIX 4/5: pass baseStorage directly so BaseView reads from the
+            // right source and mutations propagate back through the snapshot ref
             onHarvest={action => {
               const s = stateSnapshotRef.current;
               if (!s) return;
@@ -416,6 +419,52 @@ export default function DeadMilesGame() {
                   if (action.command !== "assign") { sv.assignedTo = null; sv.barricaded = false; }
                 }
               }
+              if (action.type === "craft") {
+                const result = craftItem(s, action.recipeId, activityLogRef.current);
+                // state mutation is in-place via craftItem; snapshot ref stays live
+                if (result.success) {
+                  pushActivity(activityLogRef.current, `🔨 Crafted ${result.recipe.label}`);
+                }
+              }
+              if (action.type === "assignWorkstation") {
+                const sv = s.survivors?.find(sv2 => sv2.id === action.survivorId);
+                if (sv) {
+                  sv.workstation = action.workstation ?? null;
+                  const wsLabel = action.workstation
+                    ? action.workstation.replace("_", " ")
+                    : null;
+                  pushActivity(
+                    activityLogRef.current,
+                    wsLabel
+                      ? `${sv.name} assigned to ${wsLabel}`
+                      : `${sv.name} unassigned from workstation`
+                  );
+                }
+              }
+              if (action.type === "deposit") {
+                // Move items from player field inventory → baseStorage
+                const { key, amount } = action;
+                const have = Math.floor(s.player?.inventory?.[key] ?? 0);
+                const qty  = Math.min(amount, have);
+                if (qty > 0 && s.player?.inventory) {
+                  s.player.inventory[key] = Math.max(0, have - qty);
+                  if (!s.baseStorage) s.baseStorage = {};
+                  s.baseStorage[key] = (s.baseStorage[key] ?? 0) + qty;
+                  pushActivity(activityLogRef.current, `📦 Deposited ${qty} ${key} to base stockpile`);
+                }
+              }
+              if (action.type === "withdraw") {
+                // Move items from baseStorage → player field inventory
+                const { key, amount } = action;
+                const have = Math.floor(s.baseStorage?.[key] ?? 0);
+                const qty  = Math.min(amount, have);
+                if (qty > 0) {
+                  s.baseStorage[key] = Math.max(0, have - qty);
+                  if (!s.player.inventory) s.player.inventory = {};
+                  s.player.inventory[key] = (s.player.inventory[key] ?? 0) + qty;
+                  pushActivity(activityLogRef.current, `📤 Withdrew ${qty} ${key} from base stockpile`);
+                }
+              }
             }}
             onClose={() => {
               const s = stateSnapshotRef.current;
@@ -425,11 +474,17 @@ export default function DeadMilesGame() {
 
               let summary = null;
               if (openedFor > 5 && s) {
-                const { harvested, damaged } = applyOfflineBaseTick(s, activityLogRef.current);
-                if (harvested.length > 0 || damaged.length > 0) {
-                  summary = { harvested, damaged, netResources: {} };
+                // FIX 4: baseTick now returns { harvested, damaged, produced }
+                const { harvested, damaged, produced } = applyOfflineBaseTick(s, activityLogRef.current);
+                if (harvested.length > 0 || damaged.length > 0 || produced.length > 0) {
+                  summary = { harvested, damaged, produced, netResources: {} };
                   if (harvested.length > 0)
                     summary.netResources.food = harvested.reduce((acc, h) => acc + h.amount, 0);
+                  // Tally workstation output in netResources for the away modal
+                  for (const p of produced) {
+                    summary.netResources[p.resource] =
+                      (summary.netResources[p.resource] ?? 0) + p.amount;
+                  }
                 }
               }
 

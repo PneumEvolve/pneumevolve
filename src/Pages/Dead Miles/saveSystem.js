@@ -7,7 +7,7 @@ export function saveGame(state) {
   if (!state) return false;
   
   const saveData = {
-    version: 1,
+    version: 2,
     timestamp: Date.now(),
     seed: state.seed,
     dayNumber: state.dayNumber,
@@ -23,6 +23,8 @@ export function saveGame(state) {
       inventory: state.player.inventory,
       weapon: state.player.weapon,
     },
+    // ── FIX 5: baseStorage saved separately from player field inventory ──────
+    baseStorage: state.baseStorage ?? {},
     vehicle: {
       x: state.vehicle.x,
       y: state.vehicle.y,
@@ -41,15 +43,21 @@ export function saveGame(state) {
       upgrades: v.upgrades || [],
       isBeacon: v.isBeacon || false,
     })),
+    // ── FIX 1: persist full survivor state including assignments, XP, level ──
     survivors: state.survivors?.map(sv => ({
       id: sv.id,
       name: sv.name,
       role: sv.role,
       hp: sv.hp,
       command: sv.command,
-      assignedTo: sv.assignedTo,
+      assignedTo: sv.assignedTo ?? null,
       priority: sv.priority,
       barricaded: sv.barricaded,
+      // XP & leveling — new fields
+      xp: sv.xp ?? 0,
+      level: sv.level ?? 1,
+      // Workstation assignment (Phase 2)
+      workstation: sv.workstation ?? null,
     })),
     turrets: state.turrets?.filter(t => !t.destroyed).map(t => ({
       id: t.id,
@@ -71,6 +79,8 @@ export function saveGame(state) {
     buildingsSearched: state.buildingsSearched,
     survivorsFound: state.survivorsFound,
     homesettlementId: state.homesettlementId,
+    // Preserve base tick timestamp so offline tick is accurate on reload
+    lastBaseTick: state.lastBaseTick,
   };
   
   try {
@@ -86,7 +96,22 @@ export function loadGame() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
-    return JSON.parse(raw);
+    const data = JSON.parse(raw);
+    // Migrate v1 saves: synthesise missing fields so the rest of the code is safe
+    if (!data.version || data.version < 2) {
+      data.baseStorage = data.baseStorage ?? {};
+      if (data.survivors) {
+        data.survivors = data.survivors.map(sv => ({
+          xp: 0,
+          level: 1,
+          workstation: null,
+          ...sv,
+          // v1 saves stored assignedTo inconsistently — normalise
+          assignedTo: sv.assignedTo ?? null,
+        }));
+      }
+    }
+    return data;
   } catch (e) {
     console.error("Failed to load save:", e);
     return null;
@@ -108,6 +133,9 @@ export function reconstructState(saveData, freshWorld) {
   // Merge saved data into fresh world
   const state = { ...freshWorld, ...saveData };
   
+  // ── FIX 5: restore baseStorage onto state ─────────────────────────────────
+  state.baseStorage = saveData.baseStorage ?? {};
+
   // Restore player with saved stats
   state.player = {
     ...freshWorld.player,
@@ -136,16 +164,19 @@ export function reconstructState(saveData, freshWorld) {
     }
   }
   
-  // Restore survivors
+  // ── FIX 1: restore survivors with full assignment, XP, and level state ─────
   if (saveData.survivors) {
     for (const savedSv of saveData.survivors) {
       const existing = state.survivors?.find(sv => sv.id === savedSv.id);
       if (existing) {
-        existing.hp = savedSv.hp;
-        existing.command = savedSv.command;
-        existing.assignedTo = savedSv.assignedTo;
-        existing.priority = savedSv.priority;
-        existing.barricaded = savedSv.barricaded;
+        existing.hp          = savedSv.hp;
+        existing.command     = savedSv.command;
+        existing.assignedTo  = savedSv.assignedTo ?? null;
+        existing.priority    = savedSv.priority;
+        existing.barricaded  = savedSv.barricaded;
+        existing.xp          = savedSv.xp ?? 0;
+        existing.level       = savedSv.level ?? 1;
+        existing.workstation = savedSv.workstation ?? null;
       }
     }
   }
@@ -168,6 +199,11 @@ export function reconstructState(saveData, freshWorld) {
   if (saveData.gardenPlots) {
     state.gardenPlots = saveData.gardenPlots;
   }
-  
+
+  // Restore base tick timestamp
+  if (saveData.lastBaseTick) {
+    state.lastBaseTick = saveData.lastBaseTick;
+  }
+
   return state;
 }

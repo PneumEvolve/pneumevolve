@@ -59,6 +59,7 @@ export function useDeadMilesRoom(roomId, handlers) {
           case "vehicle_update":       h.onVehicleUpdate?.(msg);       break;
           case "vehicle_damage":       h.onVehicleDamage?.(msg);       break;
           case "vehicle_repair":       h.onVehicleRepair?.(msg);       break;  // NEW
+          case "p2_damage":            h.onP2Damage?.(msg);            break;  // host → P2: zombie damage to P2/their vehicle
 
           // World state sync
           case "zombie_update":        h.onZombieUpdate?.(msg);        break;
@@ -86,10 +87,12 @@ export function useDeadMilesRoom(roomId, handlers) {
           case "sleep_request":       h.onSleepRequest?.(msg);       break;
           case "sleep_response":      h.onSleepResponse?.(msg);      break;
           case "fast_sleep_start":    h.onFastSleepStart?.(msg);     break;
+          case "fast_sleep_cancel":   h.onFastSleepCancel?.(msg);    break;
 
           // Survivors
           case "survivor_found":       h.onSurvivorFound?.(msg);       break;
           case "survivor_assign":      h.onSurvivorAssign?.(msg);      break;
+          case "survivor_command":  h.onSurvivorCommand?.(msg); break;
 
           // Farming
           case "crop_plant":           h.onCropPlant?.(msg);           break;
@@ -118,6 +121,14 @@ export function useDeadMilesRoom(roomId, handlers) {
           case "game_over":            h.onGameOver?.(msg);            break;
           case "chat":                 h.onChat?.(msg);                break;
           case "ping":                 h.onPing?.(msg);                break;
+
+          // ── FIX 3: base storage sync — host broadcasts full baseStorage
+          // snapshot so P2's BaseView and offline tick use the same data.
+          case "base_storage_update":  h.onBaseStorageUpdate?.(msg);   break;
+          // Deposit/withdraw: either player can move items between field
+          // inventory and baseStorage; partner is notified so UI is consistent.
+          case "base_storage_deposit": h.onBaseStorageDeposit?.(msg);  break;
+          case "base_storage_withdraw":h.onBaseStorageWithdraw?.(msg); break;
 
           default: break;
         }
@@ -174,6 +185,11 @@ export function useDeadMilesRoom(roomId, handlers) {
   const sendVehicleRepair = useCallback((vehicleId, hp) =>
     send("vehicle_repair", { vehicleId, hp }), [send]);
 
+  // Host → P2: tell P2 it took zombie damage so P2 (authoritative over its own
+  // HP / vehicle HP) can apply it locally. isVehicle=true means damage the named vehicle.
+  const sendP2Damage = useCallback((amount, isVehicle = false, vehicleId = null) =>
+    send("p2_damage", { amount, isVehicle, vehicleId }), [send]);
+
   const sendZombieUpdate = useCallback((zombies) =>
     send("zombie_update", { zombies: zombies.map(z => ({
       id: z.id, x: z.x, y: z.y, hp: z.hp, maxHp: z.maxHp, state: z.state, dead: z.dead,
@@ -221,8 +237,8 @@ export function useDeadMilesRoom(roomId, handlers) {
   const sendNeedsUpdate = useCallback((food, water, sleep, hp, isDowned = false) =>
     send("needs_update", { food, water, sleep, hp, isDowned }), [send]);
 
-  const sendSurvivorFound  = useCallback((survivor) =>
-    send("survivor_found", { survivor }), [send]);
+  const sendSurvivorFound  = useCallback((survivor, foundBy) =>
+    send("survivor_found", { survivor, foundBy, }), [send]);
 
   const sendSurvivorAssign = useCallback((survivorId, to) =>
     send("survivor_assign", { survivorId, to }), [send]);
@@ -253,17 +269,30 @@ export function useDeadMilesRoom(roomId, handlers) {
   const sendChat        = useCallback((text, from) => send("chat",     { text, from }), [send]);
   const sendPing        = useCallback((x, y, from) =>  send("ping",    { x, y, from }), [send]);
 
+  // ── FIX 3: base storage typed senders ─────────────────────────────────────
+  // Full snapshot — host sends after any baseTick mutation so P2 stays in sync.
+  const sendBaseStorageUpdate = useCallback((storage) =>
+    send("base_storage_update", { storage }), [send]);
+  // Granular deposit/withdraw — either player triggers these from BaseView or
+  // GameView loot pickups. Recipient merges the delta into their local state.
+  const sendBaseStorageDeposit = useCallback((items) =>
+    send("base_storage_deposit", { items }), [send]);
+  const sendBaseStorageWithdraw = useCallback((items) =>
+    send("base_storage_withdraw", { items }), [send]);
+  const sendSurvivorCommand = useCallback((survivorId, command, assignedTo = null) =>
+  send("survivor_command", { survivorId, command, assignedTo }), [send]);
+
 
 
   return {
     sendP1Move, sendP2Move,
-    sendVehicleUpdate, sendVehicleDamage, sendVehicleRepair,
+    sendVehicleUpdate, sendVehicleDamage, sendVehicleRepair, sendP2Damage,
     sendZombieUpdate,
     sendInventoryUpdate, sendLootPickup,
     sendItemPickup, sendBuildingSearch,
     sendBarricadePlace, sendBarricadeDamage, sendDoorUpdate,
     sendNeedsUpdate,
-    sendSurvivorFound, sendSurvivorAssign, sendSurvivorPositions,
+    sendSurvivorFound, sendSurvivorAssign, sendSurvivorPositions, sendSurvivorCommand,
     sendCropPlant, sendCropReady, sendCropHarvest,
     sendPhaseChange,
     sendMapFragment,
@@ -272,9 +301,11 @@ export function useDeadMilesRoom(roomId, handlers) {
     sendRoomSeedUpdate,
     sendGardenPlotPlace,
     sendPlayerReady, sendGameOver, sendChat, sendPing,
+    sendBaseStorageUpdate, sendBaseStorageDeposit, sendBaseStorageWithdraw,
     sendSleepRequest: useCallback(() => send("sleep_request", {}), [send]),
     sendSleepResponse: useCallback((agree) => send("sleep_response", { agree }), [send]),
     sendFastSleepStart: useCallback(() => send("fast_sleep_start", {}), [send]),
+    sendFastSleepCancel: useCallback(() => send("fast_sleep_cancel", {}), [send]),
     sendRestartRequest: useCallback((seed, level) => send("restart_request", { seed, level }), [send]),
   };
 }

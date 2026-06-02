@@ -322,8 +322,11 @@ export function isValidVehiclePosition(x, y, buildings, radius = VEHICLE_RADIUS)
   return true;
 }
 
-export function findSafeVehiclePosition(baseX, baseY, buildings, radius = VEHICLE_RADIUS, maxAttempts = 30) {
-  const rand = seededRand(Math.random() * 999999);
+export function findSafeVehiclePosition(baseX, baseY, buildings, radius = VEHICLE_RADIUS, maxAttempts = 30, seed = null) {
+  // Use a deterministic seed so P1 and P2 produce identical vehicle positions
+  // when both call createInitialState with the same game seed.
+  const deterministicSeed = seed ?? (Math.floor(baseX * 7 + baseY * 13) & 0x7fffffff);
+  const rand = seededRand(deterministicSeed);
   
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     // Spiral outward from base position
@@ -406,15 +409,16 @@ function closestPointOnSeg(px, py, x1, y1, x2, y2) {
   return { x: x1 + t * dx, y: y1 + t * dy };
 }
 
-function resolveSegCollision(entity, seg, radius) {
+function resolveSegCollision(entity, seg, radius, pushStrength = 1.0) {
   const r = radius ?? PLAYER_RADIUS;
   const cp = closestPointOnSeg(entity.x, entity.y, seg.x1, seg.y1, seg.x2, seg.y2);
   let dx = entity.x - cp.x;
   let dy = entity.y - cp.y;
-  let d  = Math.sqrt(dx * dx + dy * dy);
+  let d = Math.sqrt(dx * dx + dy * dy);
   if (d < 0.001) { dx = 0; dy = -1; d = 0.001; }
   if (d < r) {
-    const push = r - d;
+    // Soft push - don't overshoot
+    const push = Math.min((r - d) * pushStrength, 8);
     entity.x += (dx / d) * push;
     entity.y += (dy / d) * push;
     return true;
@@ -422,16 +426,37 @@ function resolveSegCollision(entity, seg, radius) {
   return false;
 }
 
+
 export function resolveWallCollision(entity, building) {
   const r = entity.radius ?? PLAYER_RADIUS;
   const { x, y, w, h } = building;
-  if (entity.x + r < x - 4 || entity.x - r > x + w + 4) return;
-  if (entity.y + r < y - 4 || entity.y - r > y + h + 4) return;
+  
+  // Quick bounds check with a larger margin
+  if (entity.x + r < x - 8 || entity.x - r > x + w + 8) return false;
+  if (entity.y + r < y - 8 || entity.y - r > y + h + 8) return false;
 
   const segs = getBuildingWallSegments(building);
-  for (let pass = 0; pass < 3; pass++) {
-    for (const seg of segs) resolveSegCollision(entity, seg, r);
+  let anyCollision = false;
+  
+  // Multiple passes with diminishing returns
+  for (let pass = 0; pass < 4; pass++) {
+    let collided = false;
+    // Use diminishing push strength on later passes to prevent overshoot
+    const strength = pass === 0 ? 1.0 : 0.4;
+    for (const seg of segs) {
+      if (resolveSegCollision(entity, seg, r, strength)) {
+        collided = true;
+        anyCollision = true;
+      }
+    }
+    if (!collided) break;
   }
+  
+  // Apply world bounds after collision
+  entity.x = Math.max(r, Math.min(WORLD_W - r, entity.x));
+  entity.y = Math.max(r, Math.min(WORLD_H - r, entity.y));
+  
+  return anyCollision;
 }
 
 export function isInsideBuilding(entity, building) {
@@ -676,7 +701,7 @@ export function createLevel1Map() {
   });
 
   const barnB = buildings.find(b => b.id === "barn");
-const bikeSafePos = findSafeVehiclePosition(barnB.x + barnB.w / 2, barnB.y + barnB.h, buildings, VEHICLE_RADIUS, 15);
+const bikeSafePos = findSafeVehiclePosition(barnB.x + barnB.w / 2, barnB.y + barnB.h, buildings, VEHICLE_RADIUS, 15, 0x4444);
 const extraVehicles = [createVehicle(bikeSafePos.x, bikeSafePos.y, "bike")];
 
   return { buildings, roads, gardenPlots, lootPiles, wells, extraVehicles };
@@ -843,8 +868,8 @@ const vtype = vehicleTypes[Math.floor(rand() * vehicleTypes.length)];
 const vb = buildings[Math.floor(rand() * buildings.length)];
 const settlementCenter = { x: cx, y: cy };
 
-// Find a safe position for the vehicle
-const safePos = findSafeVehiclePosition(settlementCenter.x, settlementCenter.y, buildings, VEHICLE_RADIUS, 40);
+// Use a seed derived from settlement id and position so P1/P2 agree on placement.
+const safePos = findSafeVehiclePosition(settlementCenter.x, settlementCenter.y, buildings, VEHICLE_RADIUS, 40, sid * 12345 + 0x3333);
 
 const vehicle = createVehicle(
   Math.max(50, Math.min(WORLD_W - 50, safePos.x)),
@@ -1230,15 +1255,115 @@ export function createInitialState(seed = Date.now(), level = 1) {
   } = createOpenWorldMap(seed);
 
   const startSettlement = settlements[0];
-  const spawnX = startSettlement.cx;
-  const spawnY = startSettlement.cy + 180;
+// Find a safe spawn position outside any building
+let spawnX = startSettlement.cx;
+let spawnY = startSettlement.cy + 180;
+
+// Helper to check if a position is inside any building
+function isInsideAnyBuilding(x, y, buildings, radius = PLAYER_RADIUS) {
+  for (const b of buildings) {
+    // Check if player would be inside building bounds
+    if (x + radius > b.x && x - radius < b.x + b.w && 
+        y + radius > b.y && y - radius < b.y + b.h) {
+      // Also check if there's an open door nearby that could serve as exit
+      const hasOpenDoorNearby = (b.doors || []).some(door => {
+        if (!door.open && !door.broken) return false;
+        const dc = getDoorCenter(b, door);
+        return dist(x, y, dc.x, dc.y) < 60;
+      });
+      // If no open door, this is a trapped spawn
+      if (!hasOpenDoorNearby) return true;
+    }
+  }
+  return false;
+}
+
+// Try to find a safe spawn point near the settlement center
+let safeSpawnFound = false;
+const spawnAttempts = [
+  { dx: 0, dy: 180 },    // south
+  { dx: 180, dy: 0 },    // east
+  { dx: -180, dy: 0 },   // west
+  { dx: 0, dy: -180 },   // north
+  { dx: 120, dy: 120 },  // southeast
+  { dx: -120, dy: 120 }, // southwest
+  { dx: 120, dy: -120 }, // northeast
+  { dx: -120, dy: -120 },// northwest
+  { dx: 0, dy: 240 },    // further south
+  { dx: 240, dy: 0 },    // further east
+  { dx: -240, dy: 0 },   // further west
+  { dx: 300, dy: 300 },  // far corner
+  { dx: -300, dy: 300 },
+  { dx: 300, dy: -300 },
+  { dx: -300, dy: -300 },
+];
+
+for (const attempt of spawnAttempts) {
+  const testX = startSettlement.cx + attempt.dx;
+  const testY = startSettlement.cy + attempt.dy;
+  
+  // Bounds check
+  if (testX < 100 || testX > WORLD_W - 100 || testY < 100 || testY > WORLD_H - 100) {
+    continue;
+  }
+  
+  if (!isInsideAnyBuilding(testX, testY, buildings)) {
+    spawnX = testX;
+    spawnY = testY;
+    safeSpawnFound = true;
+    break;
+  }
+}
+
+// If still inside a building, try a radial spiral search
+if (!safeSpawnFound) {
+  for (let radius = 100; radius <= 600; radius += 50) {
+    let found = false;
+    for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 8) {
+      const testX = startSettlement.cx + Math.cos(angle) * radius;
+      const testY = startSettlement.cy + Math.sin(angle) * radius;
+      
+      if (testX < 50 || testX > WORLD_W - 50 || testY < 50 || testY > WORLD_H - 50) {
+        continue;
+      }
+      
+      if (!isInsideAnyBuilding(testX, testY, buildings)) {
+        spawnX = testX;
+        spawnY = testY;
+        safeSpawnFound = true;
+        found = true;
+        break;
+      }
+    }
+    if (found) break;
+  }
+}
+
+// Ultimate fallback: place player in the center of the first non-building area
+if (!safeSpawnFound) {
+  // Find the first building and place player near its exterior
+  const firstBuilding = buildings[0];
+  if (firstBuilding) {
+    // Place south of the building
+    spawnX = firstBuilding.x + firstBuilding.w / 2;
+    spawnY = firstBuilding.y + firstBuilding.h + 50;
+  }
+  // Clamp to world bounds
+  spawnX = Math.max(PLAYER_RADIUS + 10, Math.min(WORLD_W - PLAYER_RADIUS - 10, spawnX));
+  spawnY = Math.max(PLAYER_RADIUS + 10, Math.min(WORLD_H - PLAYER_RADIUS - 10, spawnY));
+
+  const player = createPlayer(spawnX, spawnY);
+}
 
 
-// Use safe vehicle placement for starting vehicles
-const mainSafePos = findSafeVehiclePosition(spawnX, spawnY, buildings, VEHICLE_RADIUS, 20);
+
+// Use safe vehicle placement for starting vehicles.
+// Pass deterministic seeds derived from the game seed so P1 and P2 land
+// vehicles at the same positions when both build state from the same seed.
+const mainSafePos = findSafeVehiclePosition(spawnX, spawnY, buildings, VEHICLE_RADIUS, 20, seed ^ 0x1111);
 const mainVehicle = createVehicle(mainSafePos.x, mainSafePos.y, "car");
 
-const beaconSafePos = findSafeVehiclePosition(spawnX, spawnY + 80, buildings, VEHICLE_RADIUS, 20);
+const beaconSafePos = findSafeVehiclePosition(spawnX, spawnY + 80, buildings, VEHICLE_RADIUS, 20, seed ^ 0x2222);
 const beaconVehicle = createVehicle(beaconSafePos.x, beaconSafePos.y, "car");
 beaconVehicle.id = "beacon_car";
 beaconVehicle.isBeacon = true;
@@ -1349,23 +1474,63 @@ export function movePlayer(player, dx, dy, dt, buildings) {
   const len = Math.sqrt(dx * dx + dy * dy);
   if (len === 0) return;
   const nx = dx / len, ny = dy / len;
-  player.x = Math.max(PLAYER_RADIUS, Math.min(WORLD_W - PLAYER_RADIUS, player.x + nx * speed * dt));
-  player.y = Math.max(PLAYER_RADIUS, Math.min(WORLD_H - PLAYER_RADIUS, player.y + ny * speed * dt));
-  player.facing = Math.atan2(ny, nx);
-  if (buildings) {
-    for (const b of buildings) resolveWallCollision(player, b);
+  
+  // Move in smaller steps to prevent tunneling
+  const stepCount = Math.max(1, Math.ceil(Math.abs(speed * dt) / 5));
+  const stepDt = dt / stepCount;
+  
+  for (let step = 0; step < stepCount; step++) {
+    const newX = player.x + nx * speed * stepDt;
+    const newY = player.y + ny * speed * stepDt;
+    
+    // Apply world bounds
+    player.x = Math.max(PLAYER_RADIUS, Math.min(WORLD_W - PLAYER_RADIUS, newX));
+    player.y = Math.max(PLAYER_RADIUS, Math.min(WORLD_H - PLAYER_RADIUS, newY));
+    player.facing = Math.atan2(ny, nx);
+    
+    if (buildings) {
+      for (const b of buildings) {
+        resolveWallCollision(player, b);
+      }
+    }
   }
+  
+  // No final validation - players should be able to be inside buildings
+  // (that's where loot and survivors are)
 }
 
 export function driveVehicle(vehicle, dx, dy, dt, buildings) {
-  if (vehicle.hp <= 0) return; // destroyed — can't drive
+  if (vehicle.hp <= 0) return;
+  
+  // Store original position for potential rollback
+  const origX = vehicle.x;
+  const origY = vehicle.y;
+  
   const len = Math.sqrt(dx * dx + dy * dy);
   if (len > 0) {
     const nx = dx / len, ny = dy / len;
-    vehicle.x += nx * vehicle.speed * dt;
-    vehicle.y += ny * vehicle.speed * dt;
-    vehicle.facing = Math.atan2(ny, nx);
-    vehicle.fuel = Math.max(0, vehicle.fuel - 0.4 * dt);
+    
+    // Move in smaller steps for vehicles too
+    const speed = vehicle.speed;
+    const stepCount = Math.max(1, Math.ceil(Math.abs(speed * dt) / 10));
+    const stepDt = dt / stepCount;
+    
+    for (let step = 0; step < stepCount; step++) {
+      const newX = vehicle.x + nx * speed * stepDt;
+      const newY = vehicle.y + ny * speed * stepDt;
+      
+      // Apply bounds
+      vehicle.x = Math.max(VEHICLE_RADIUS, Math.min(WORLD_W - VEHICLE_RADIUS, newX));
+      vehicle.y = Math.max(VEHICLE_RADIUS, Math.min(WORLD_H - VEHICLE_RADIUS, newY));
+      vehicle.facing = Math.atan2(ny, nx);
+      vehicle.fuel = Math.max(0, vehicle.fuel - 0.4 * stepDt);
+      
+      if (buildings) {
+        for (const b of buildings) {
+          resolveWallCollision(vehicle, b);
+        }
+      }
+    }
   }
 
   if (vehicle.bounceVx || vehicle.bounceVy) {
@@ -1377,14 +1542,66 @@ export function driveVehicle(vehicle, dx, dy, dt, buildings) {
     if (Math.abs(vehicle.bounceVx) < 1 && Math.abs(vehicle.bounceVy) < 1) {
       vehicle.bounceVx = 0; vehicle.bounceVy = 0;
     }
+    
+    // Re-apply collision after bounce
+    if (buildings) {
+      for (const b of buildings) resolveWallCollision(vehicle, b);
+    }
   }
 
+  // Final bounds and collision pass
   vehicle.x = Math.max(VEHICLE_RADIUS, Math.min(WORLD_W - VEHICLE_RADIUS, vehicle.x));
   vehicle.y = Math.max(VEHICLE_RADIUS, Math.min(WORLD_H - VEHICLE_RADIUS, vehicle.y));
   if (buildings) {
     for (const b of buildings) resolveWallCollision(vehicle, b);
   }
+  
+  // If the vehicle got stuck inside a building, try to unstuck it
+  if (buildings) {
+    let stuck = false;
+    for (const b of buildings) {
+      if (isInsideBuilding(vehicle, b)) {
+        stuck = true;
+        break;
+      }
+    }
+    
+    if (stuck) {
+      // Try to find a safe direction to exit
+      const directions = [
+        [VEHICLE_RADIUS + 10, 0], [-VEHICLE_RADIUS - 10, 0],
+        [0, VEHICLE_RADIUS + 10], [0, -VEHICLE_RADIUS - 10],
+        [VEHICLE_RADIUS + 20, VEHICLE_RADIUS + 20],
+        [-VEHICLE_RADIUS - 20, VEHICLE_RADIUS + 20],
+        [VEHICLE_RADIUS + 20, -VEHICLE_RADIUS - 20],
+        [-VEHICLE_RADIUS - 20, -VEHICLE_RADIUS - 20]
+      ];
+      
+      for (const [offX, offY] of directions) {
+        const testX = Math.max(VEHICLE_RADIUS, Math.min(WORLD_W - VEHICLE_RADIUS, origX + offX));
+        const testY = Math.max(VEHICLE_RADIUS, Math.min(WORLD_H - VEHICLE_RADIUS, origY + offY));
+        
+        let safe = true;
+        for (const b of buildings) {
+          if (isInsideBuilding({ x: testX, y: testY, radius: VEHICLE_RADIUS }, b)) {
+            safe = false;
+            break;
+          }
+        }
+        
+        if (safe) {
+          vehicle.x = testX;
+          vehicle.y = testY;
+          // Add a bounce effect to feel like you hit something
+          vehicle.bounceVx = (vehicle.bounceVx ?? 0) + (offX > 0 ? -150 : offX < 0 ? 150 : 0);
+          vehicle.bounceVy = (vehicle.bounceVy ?? 0) + (offY > 0 ? -150 : offY < 0 ? 150 : 0);
+          break;
+        }
+      }
+    }
+  }
 }
+
 
 export function syncPlayerToVehicle(player, vehicle) {
   player.x = vehicle.x; player.y = vehicle.y;
@@ -1504,18 +1721,28 @@ function canHearThroughDoor(zombie, player, buildings) {
 }
 
 function getNearestTarget(zombie, player, player2, vehicle) {
+  // player.x/y is authoritative. When a player drives, their position is synced to
+  // the vehicle (syncPlayerToVehicle) before being broadcast, so we never need to
+  // look up a separate vehicle object — doing so risks grabbing the WRONG vehicle
+  // (e.g. P1's car) and is the reason p2-in-vehicle targeting failed previously.
+  // For P1 (the local/host player) we can use the live vehicle position directly.
   const p1x = player.inVehicle ? vehicle.x : player.x;
   const p1y = player.inVehicle ? vehicle.y : player.y;
   const d1  = dist(zombie.x, zombie.y, p1x, p1y);
 
-  if (player2 && player2.hp > 0 && !player2.inVehicle) {
-    const d2 = dist(zombie.x, zombie.y, player2.x, player2.y);
+  // Consider player2 if present and alive. hp may be undefined before the first
+  // stats sync arrives, so treat a missing hp as "alive" rather than dead.
+  const p2Alive = player2 && (player2.hp == null || player2.hp > 0) && !player2.isDowned;
+  if (p2Alive) {
+    const p2x = player2.x;
+    const p2y = player2.y;
+    const d2 = dist(zombie.x, zombie.y, p2x, p2y);
     if (d2 < d1) {
-      return { targetX: player2.x, targetY: player2.y, targetPlayer: player2, inVehicle: false };
+      return { targetX: p2x, targetY: p2y, targetPlayer: player2, inVehicle: !!player2.inVehicle };
     }
   }
 
-  return { targetX: p1x, targetY: p1y, targetPlayer: player, inVehicle: player.inVehicle };
+  return { targetX: p1x, targetY: p1y, targetPlayer: player, inVehicle: !!player.inVehicle };
 }
 
 function doorWaypoint(building, door, zombie, offsetDir = 1) {
@@ -1570,9 +1797,11 @@ function getDoorRoutingWaypoint(zombie, targetX, targetY, buildings) {
   return null;
 }
 
-export function updateZombies(zombies, player, vehicle, dt, isNight, buildings, player2 = null, soundEvents = [], hamletCx = WORLD_W / 2, hamletCy = WORLD_H / 2, level = 1, turrets = []) {
+export function updateZombies(zombies, player, vehicle, dt, isNight, buildings, player2 = null, soundEvents = [], hamletCx = WORLD_W / 2, hamletCy = WORLD_H / 2, level = 1, turrets = [], vehicles = null) {
   const speed = isNight ? ZOMBIE_SPEED_NIGHT : ZOMBIE_SPEED_SLOW;
 
+  // Authoritative positions: a driving player's x/y is synced to their vehicle, so we
+  // use the player objects directly. (P1 may use the live vehicle position.)
   const px = player.inVehicle ? vehicle.x : player.x;
   const py = player.inVehicle ? vehicle.y : player.y;
   const p2x = player2 ? player2.x : px;
@@ -1762,12 +1991,31 @@ export function updateZombies(zombies, player, vehicle, dt, isNight, buildings, 
         if (z.attackCooldown <= 0) {
           z.attackCooldown = 1 / ZOMBIE_ATTACK_RATE;
           z._dealDamage = true;
-          z._damageTarget = targetPlayer === player2 ? "p2" : (targetInVehicle ? "vehicle" : "p1");
+          // p2 in vehicle → damage their vehicle; p2 on foot → damage p2; p1 in vehicle → vehicle; p1 on foot → p1
+          z._damageTarget = targetPlayer === player2
+            ? (targetInVehicle ? "p2_vehicle" : "p2")
+            : (targetInVehicle ? "vehicle" : "p1");
         }
         break;
       }
     }
   });
+
+  // Separate active (non-culled) zombies from each other so they don't stack.
+  // Filtering to the active subset avoids an O(n²) pass over the entire world
+  // population (thousands of zombies) every single frame.
+  const px2 = player.inVehicle ? vehicle.x : player.x;
+  const py2 = player.inVehicle ? vehicle.y : player.y;
+  const cullSq = ZOMBIE_CULL_DIST * ZOMBIE_CULL_DIST;
+  const activeZombies = zombies.filter(z => {
+    if (z.dead || z.state === "dormant") return false;
+    const dxA = z.x - px2, dyA = z.y - py2;
+    if (dxA * dxA + dyA * dyA <= cullSq) return true;
+    if (!player2) return false;
+    const dxB = z.x - player2.x, dyB = z.y - player2.y;
+    return dxB * dxB + dyB * dyB <= cullSq;
+  });
+  separateEntityLists(activeZombies, activeZombies);
 }
 
 function findBlockingDoor(zombie, targetX, targetY, buildings) {
@@ -1806,7 +2054,41 @@ function moveToward(entity, tx, ty, speed, dt) {
   entity.facing = Math.atan2(dy, dx);
 }
 
-function areWallSeparated(ax, ay, bx, by, buildings) {
+/**
+ * Resolve overlap between two lists of entities (or the same list against itself).
+ * Each entity needs { x, y, radius }. Pushes both apart so they don't overlap.
+ * Uses a cheap axis-aligned early-out and squared-distance check so Math.sqrt
+ * is only called for pairs that are actually overlapping.
+ */
+function separateEntityLists(listA, listB) {
+  const sameList = listA === listB;
+  for (let i = 0; i < listA.length; i++) {
+    const a = listA[i];
+    if (a.dead) continue;
+    const ra = a.radius ?? ZOMBIE_RADIUS;
+    const start = sameList ? i + 1 : 0;
+    for (let j = start; j < listB.length; j++) {
+      const b = listB[j];
+      if (b.dead) continue;
+      const minDist = ra + (b.radius ?? ZOMBIE_RADIUS);
+      let dx = a.x - b.x;
+      let dy = a.y - b.y;
+      // Cheap axis-aligned reject before doing any multiply
+      if (dx > minDist || dx < -minDist || dy > minDist || dy < -minDist) continue;
+      const distSq = dx * dx + dy * dy;
+      if (distSq >= minDist * minDist) continue;
+      let d = Math.sqrt(distSq);
+      if (d < 0.01) { dx = Math.random() - 0.5; dy = Math.random() - 0.5; d = 0.5; }
+      const push = (minDist - d) * 0.5;
+      const nx = (dx / d) * push;
+      const ny = (dy / d) * push;
+      a.x += nx; a.y += ny;
+      b.x -= nx; b.y -= ny;
+    }
+  }
+}
+
+export function areWallSeparated(ax, ay, bx, by, buildings) {
   if (!buildings) return false;
   for (const b of buildings) {
     const aInside = ax > b.x && ax < b.x + b.w && ay > b.y && ay < b.y + b.h;
@@ -1818,31 +2100,76 @@ function areWallSeparated(ax, ay, bx, by, buildings) {
   return false;
 }
 
-export function applyZombieDamage(zombies, player, vehicle, buildings, player2 = null) {
+export function applyZombieDamage(zombies, player, vehicle, buildings, player2 = null, vehicles = null) {
   let playerDmg = 0, vehicleDmg = 0, p2Dmg = 0;
+  const allVehicles = vehicles ?? [vehicle];
+
+  // The vehicle p2 is occupying (if any). May be null if occupancy hasn't synced —
+  // in that case p2-in-vehicle hits fall back to damaging p2 directly, NEVER P1's car.
+  const p2Vehicle = player2?.inVehicle
+    ? (allVehicles.find(v => v.driver === "p2" || v.passenger === "p2") ?? null)
+    : null;
+  const p2VehicleDmgMap = new Map();
+
   zombies.forEach(z => {
     if (!z._dealDamage || z.dead) return;
     z._dealDamage = false;
     const target = z._damageTarget ?? (player.inVehicle ? "vehicle" : "p1");
-    const tx = target === "p2" ? (player2?.x ?? player.x)
-             : target === "vehicle" ? vehicle.x : player.x;
-    const ty = target === "p2" ? (player2?.y ?? player.y)
-             : target === "vehicle" ? vehicle.y : player.y;
+
+    // Resolve the world position of the target for the wall-separation check.
+    // Use the player object's own coords (authoritative, synced to vehicle when driving).
+    let tx, ty;
+    if (target === "p2" || target === "p2_vehicle") {
+      tx = player2?.x ?? player.x; ty = player2?.y ?? player.y;
+    } else if (target === "vehicle") {
+      tx = vehicle.x; ty = vehicle.y;
+    } else {
+      tx = player.x; ty = player.y;
+    }
+
     if (buildings && areWallSeparated(z.x, z.y, tx, ty, buildings)) return;
     const dmg = z.type === "boss" ? BOSS_DAMAGE : ZOMBIE_ATTACK_DAMAGE;
-    if (target === "vehicle") vehicleDmg += vehicle.zombieKill ? 0 : dmg * 1.5;
-    else if (target === "p2") p2Dmg += dmg;
-    else playerDmg += dmg;
-    
+
+    if (target === "vehicle") {
+      vehicleDmg += vehicle.zombieKill ? 0 : dmg * 1.5;
+    } else if (target === "p2_vehicle") {
+      if (p2Vehicle) {
+        // Damage p2's actual vehicle (unless it's a zombie-killer like the monster truck).
+        if (!p2Vehicle.zombieKill) {
+          p2VehicleDmgMap.set(p2Vehicle.id, (p2VehicleDmgMap.get(p2Vehicle.id) ?? 0) + dmg * 1.5);
+        }
+      } else {
+        // No occupied vehicle resolved — fall back to damaging p2 directly.
+        p2Dmg += dmg;
+      }
+    } else if (target === "p2") {
+      p2Dmg += dmg;
+    } else {
+      playerDmg += dmg;
+    }
+
     // Record damage for death recap
     if (target === "p1" && dmg > 0) {
       player.deathRecap?.recordDamage(z.type === "boss" ? "Boss Zombie" : z.type === "brute" ? "Brute Zombie" : "Zombie", dmg, "melee", player.hp - playerDmg);
     }
   });
+
   player.hp  = Math.max(0, player.hp  - playerDmg);
   vehicle.hp = Math.max(0, vehicle.hp - vehicleDmg);
   if (player2 && p2Dmg > 0) player2.hp = Math.max(0, player2.hp - p2Dmg);
-  return { playerDmg, vehicleDmg, p2Dmg };
+
+  // Damage to the vehicle p2 was occupying. We apply it locally (host's mirror of
+  // p2's vehicle) AND report it separately so the caller can forward it to P2's
+  // client, which is authoritative over that vehicle's HP.
+  let p2VehicleDmg = 0, p2VehicleId = null;
+  for (const [vid, dmg] of p2VehicleDmgMap) {
+    const v = allVehicles.find(v2 => v2.id === vid);
+    if (v) v.hp = Math.max(0, v.hp - dmg);
+    p2VehicleDmg += dmg;
+    p2VehicleId = vid;
+  }
+
+  return { playerDmg, vehicleDmg, p2Dmg, p2VehicleDmg, p2VehicleId };
 }
 
 export function updateVehicleCollisions(vehicle, zombies, dt, buildings) {
@@ -1893,25 +2220,42 @@ export function updateVehicleCollisions(vehicle, zombies, dt, buildings) {
 
 // ─── Player attack ────────────────────────────────────────────────────────────
 
-export const MELEE_RANGE  = 36;
+export const MELEE_RANGE  = 40;
 export const MELEE_DAMAGE = 22;
-export const MELEE_RATE   = 1.2;
+export const MELEE_RATE   = 1.8;   // swings per second
+export const MELEE_ARC    = Math.PI * 0.72; // ±65° cone (total 130°)
 
 export function playerAttack(player, zombies, dt) {
   if (player.inVehicle || !player.weapon) return [];
   if (player.attackCooldown > 0) { player.attackCooldown -= dt; return []; }
+
+  // Always set cooldown on any swing attempt (no free spam when no zombie is near)
+  player.attackCooldown = 1 / MELEE_RATE;
+
+  // Kick off the visual arc sweep
+  player.swingAngle  = player.facing - MELEE_ARC / 2;
+  player.swingTarget = player.facing + MELEE_ARC / 2;
+  player.swingTimer  = 1 / MELEE_RATE; // lasts the full cooldown window
+
   const hits = [];
   zombies.forEach(z => {
     if (z.dead) return;
-    if (dist(player.x, player.y, z.x, z.y) < MELEE_RANGE + z.radius) {
-      z.hp -= MELEE_DAMAGE; if (z.hp <= 0) {
-        z.dead = true;
-        player.deathRecap?.recordKill();
-      }
-      hits.push(z.id);
-    }
+    const d = dist(player.x, player.y, z.x, z.y);
+    if (d >= MELEE_RANGE + z.radius) return;
+
+    // Cone check — is zombie within the swing arc?
+    const angleToZ = Math.atan2(z.y - player.y, z.x - player.x);
+    let diff = angleToZ - player.facing;
+    // Normalise to [-π, π]
+    while (diff >  Math.PI) diff -= 2 * Math.PI;
+    while (diff < -Math.PI) diff += 2 * Math.PI;
+    if (Math.abs(diff) > MELEE_ARC / 2) return;
+
+    z.hp -= MELEE_DAMAGE;
+    if (z.hp <= 0) { z.dead = true; player.deathRecap?.recordKill(); }
+    hits.push(z.id);
   });
-  if (hits.length > 0) player.attackCooldown = 1 / MELEE_RATE;
+
   return hits;
 }
 
@@ -2016,7 +2360,7 @@ export function getProximityActions(player, buildings, vehicle, gardenPlots, cro
     if (pile.collected) continue;
     if (dist(player.x, player.y, pile.x, pile.y) > LOOT_RANGE) continue;
     const names = pile.items.map(i => `${i.qty}× ${i.type}`).join(", ");
-    actions.push({ key: "F", label: `Loot (${names})` });
+    actions.push({ key: "F", label: "Loot" });
   }
 
   for (const b of buildings) {
@@ -2196,13 +2540,16 @@ export function updateCrops(crops, dt) {
   return ready;
 }
 
-export function tryHarvestCrop(player, gardenPlots, crops, dayNumber) {
+export function tryHarvestCrop(player, gardenPlots, crops, dayNumber, buildings = []) {
   for (let i = crops.length - 1; i >= 0; i--) {
     const c = crops[i];
     if (c.stage !== "ready") continue;
     const plot = gardenPlots.find(p => p.id === c.plotId);
     if (!plot) continue;
-    if (dist(player.x, player.y, plot.x + plot.w / 2, plot.y + plot.h / 2) > 60) continue;
+    const plotCx = plot.x + plot.w / 2, plotCy = plot.y + plot.h / 2;
+    if (dist(player.x, player.y, plotCx, plotCy) > 60) continue;
+    // Don't allow harvesting through a sealed wall
+    if (buildings.length && areWallSeparated(player.x, player.y, plotCx, plotCy, buildings)) continue;
     
     const cropDef = CROP_TYPES[c.type] ?? CROP_TYPES.potato;
     const seasonBonus = getSeasonalBonus(c.type, dayNumber);
@@ -2630,7 +2977,7 @@ export function updateConvoyVehicles(convoyVehicles, playerVehicle, survivors, d
 export const SURVIVOR_SPEED         = 130;
 export const SURVIVOR_FLEE_SPEED    = 155;
 export const SURVIVOR_FOLLOW_DIST   = 80;
-export const SURVIVOR_INTERACT_RANGE = 50;
+export const SURVIVOR_INTERACT_RANGE = 70; // wider so survivors are easier to select while walking
 export const SURVIVOR_FIGHT_RANGE   = 220;
 export const SURVIVOR_FLEE_TRIGGER  = 200;
 export const SURVIVOR_MELEE_RANGE   = 18;
@@ -2640,6 +2987,9 @@ export const SURVIVOR_REPAIR_CAST   = 2.5;
 export const SURVIVOR_HARVEST_CAST  = 2.0;
 export const SURVIVOR_TURRET_WANDER = 150;
 export const SURVIVOR_TURRET_REPAIR_HP_THRESHOLD = 0.6;
+// Passive HP regen: 2 HP/sec, but only kicks in 3 seconds after last hit
+export const SURVIVOR_HP_REGEN_RATE  = 2.0;  // HP per second
+export const SURVIVOR_REGEN_DELAY    = 3.0;  // seconds after last hit before regen resumes
 
 export function survivorNearestBuilding(entity, buildings) {
   let best = null, bestD = Infinity;
@@ -2655,14 +3005,76 @@ function survivorMoveTo(entity, tx, ty, speed, dt, buildings) {
   const dx = tx - entity.x, dy = ty - entity.y;
   const d = Math.sqrt(dx * dx + dy * dy);
   if (d < 4) return true;
-  const nx = dx / d, ny = dy / d;
+
+  // Obstacle-steering: sample candidate directions and pick the best one.
+  // Falls back to direct path when unobstructed; steers around walls otherwise.
+  const baseAngle    = Math.atan2(dy, dx);
+  const STEER_ANGLES = [0, -0.45, 0.45, -0.9, 0.9];
+  const PROBE_DIST   = speed * dt * 3;
+
+  let bestAngle = baseAngle;
+  let bestScore = -Infinity;
+
+  for (const offset of STEER_ANGLES) {
+    const a  = baseAngle + offset;
+    const px = entity.x + Math.cos(a) * PROBE_DIST;
+    const py = entity.y + Math.sin(a) * PROBE_DIST;
+    const remDx = tx - px, remDy = ty - py;
+    let score = -(remDx * remDx + remDy * remDy);
+    if (buildings) {
+      for (const b of buildings) {
+        if (px > b.x && px < b.x + b.w && py > b.y && py < b.y + b.h) {
+          score -= 999999;
+          break;
+        }
+      }
+    }
+    if (score > bestScore) { bestScore = score; bestAngle = a; }
+  }
+
+  const nx = Math.cos(bestAngle), ny = Math.sin(bestAngle);
   entity.x = Math.max(PLAYER_RADIUS, Math.min(WORLD_W - PLAYER_RADIUS, entity.x + nx * speed * dt));
   entity.y = Math.max(PLAYER_RADIUS, Math.min(WORLD_H - PLAYER_RADIUS, entity.y + ny * speed * dt));
-  entity.facing = Math.atan2(ny, nx);
+  entity.facing = bestAngle;
   if (buildings) {
     for (const b of buildings) resolveWallCollision(entity, b);
   }
   return false;
+}
+
+/**
+ * When a follow target is inside a building (and the survivor is outside it, or
+ * vice versa), return the center of the nearest open/broken door so the survivor
+ * routes through the doorway instead of straight into the wall.
+ * Returns null when no routing is needed (same side, or no doors available).
+ */
+function survivorDoorWaypoint(sv, targetX, targetY, buildings) {
+  if (!buildings) return null;
+  for (const b of buildings) {
+    const svInside = sv.x > b.x && sv.x < b.x + b.w && sv.y > b.y && sv.y < b.y + b.h;
+    const tgInside = targetX > b.x && targetX < b.x + b.w && targetY > b.y && targetY < b.y + b.h;
+    if (svInside === tgInside) continue; // same side — no routing needed
+    if (!b.doors || b.doors.length === 0) continue;
+    // Find the nearest open/broken door
+    let bestDoor = null, bestDist = Infinity;
+    for (const door of b.doors) {
+      if (!door.open && !door.broken) continue;
+      const dc = getDoorCenter(b, door);
+      const d = dist(sv.x, sv.y, dc.x, dc.y);
+      if (d < bestDist) { bestDist = d; bestDoor = door; }
+    }
+    if (!bestDoor) {
+      // All doors closed — find the nearest door anyway so the survivor at least
+      // lines up with it (they may open it or wait nearby rather than wall-hugging)
+      for (const door of b.doors) {
+        const dc = getDoorCenter(b, door);
+        const d = dist(sv.x, sv.y, dc.x, dc.y);
+        if (d < bestDist) { bestDist = d; bestDoor = door; }
+      }
+    }
+    if (bestDoor) return getDoorCenter(b, bestDoor);
+  }
+  return null;
 }
 
 function nearestZombieInRange(entity, zombies, range) {
@@ -2694,7 +3106,15 @@ export function tryAssignSurvivor(survivor, structureId, structureType) {
 
 export function assignSurvivorToConvoy(survivor, convoyVehicles, vehicles, vehicleType = "car") {
   const taken = new Set(convoyVehicles.map(e => e.vehicle));
-  const freeVehicle = vehicles.find(v => !taken.has(v) && !v.occupied);
+  // Sort by distance from the survivor so they always take the nearest free car,
+  // not whichever vehicle happened to be first in the spawn array.
+  const freeVehicle = [...vehicles]
+    .filter(v => !taken.has(v) && !v.occupied)
+    .sort((a, b) => {
+      const da = (a.x - survivor.x) ** 2 + (a.y - survivor.y) ** 2;
+      const db = (b.x - survivor.x) ** 2 + (b.y - survivor.y) ** 2;
+      return da - db;
+    })[0] ?? null;
   if (!freeVehicle) return null;
 
   freeVehicle.occupied = true;
@@ -2714,6 +3134,19 @@ export function updateSurvivors(survivors, player, vehicle, zombies, turrets, ga
 
     if (sv.barricaded) {
       survivorAttack(sv, zombies, dt);
+      // Still apply hit cooldown and passive regen even while barricaded
+      if (sv._hitCd > 0) sv._hitCd -= dt;
+      if (sv._regenDelay > 0) {
+        sv._regenDelay -= dt;
+      } else if (sv.hp < sv.maxHp) {
+        sv.hp = Math.min(sv.maxHp, sv.hp + SURVIVOR_HP_REGEN_RATE * dt);
+      }
+      // Unbarricade once HP recovers above flee threshold
+      if (sv.hp > sv.fleeHp) {
+        sv.barricaded = false;
+        sv.barricadeBuilding = null;
+        sv.state = "idle";
+      }
       continue;
     }
 
@@ -2729,9 +3162,97 @@ export function updateSurvivors(survivors, player, vehicle, zombies, turrets, ga
       case "follow": {
         // Follow whoever issued the "follow" command (sv.followLeader), fallback to player
         const leader = sv.followLeader ?? player;
-        const targetX = leader.x - Math.cos(leader.facing ?? 0) * SURVIVOR_FOLLOW_DIST;
-        const targetY = leader.y - Math.sin(leader.facing ?? 0) * SURVIVOR_FOLLOW_DIST;
-        const arrived = survivorMoveTo(sv, targetX, targetY, SURVIVOR_SPEED, dt, buildings);
+
+        // ── Vehicle boarding / riding ─────────────────────────────────────────
+        // Determine which vehicle the leader is driving (could be any vehicle in
+        // the fleet; we find whichever one claims the leader as driver/passenger).
+        const leaderInVehicle = leader.inVehicle;
+
+        if (sv.inVehicle) {
+          // Already riding — check if the leader has since left the vehicle
+          const ridingVehicle = sv._ridingVehicle;
+          if (!ridingVehicle || !leaderInVehicle) {
+            // Leader got out (or vehicle reference lost) — eject this survivor
+            sv.inVehicle = false;
+            if (ridingVehicle && ridingVehicle.survivorPassengers) {
+              ridingVehicle.survivorPassengers = ridingVehicle.survivorPassengers.filter(id => id !== sv.id);
+            }
+            // Scatter slightly so survivors don't stack on top of each other
+            sv.x = (ridingVehicle?.x ?? sv.x) + (Math.random() - 0.5) * 40;
+            sv.y = (ridingVehicle?.y ?? sv.y) + (Math.random() - 0.5) * 40;
+            sv._ridingVehicle = null;
+            sv.state = "following";
+          } else {
+            // Stay synced to vehicle position
+            sv.x = ridingVehicle.x;
+            sv.y = ridingVehicle.y;
+            sv.state = "riding";
+          }
+          break;
+        }
+
+        if (leaderInVehicle) {
+          // Leader just entered a vehicle — find it
+          // vehicle arg is the player's primary vehicle; check it first, then any others
+          const allVehicles = vehicle ? [vehicle] : [];
+          // If a vehicles array was threaded in via a _vehicles hint, use it
+          if (vehicle?._fleet) allVehicles.push(...vehicle._fleet);
+          const leaderVehicle = allVehicles.find(v =>
+            v.driver === (leader === player ? "p1" : "p2") ||
+            v.passenger === (leader === player ? "p1" : "p2")
+          ) ?? vehicle; // fallback to primary vehicle
+
+          if (leaderVehicle) {
+            const cfg = VEHICLE_TYPES[leaderVehicle.vehicleType] ?? VEHICLE_TYPES.car;
+            const totalSeats = cfg.seats ?? 2;
+            // Seats occupied by human players
+            const humanOccupants = (leaderVehicle.driver ? 1 : 0) + (leaderVehicle.passenger ? 1 : 0);
+            const survivorSeatsUsed = (leaderVehicle.survivorPassengers ?? []).length;
+            const freeSeats = totalSeats - humanOccupants - survivorSeatsUsed;
+
+            if (freeSeats > 0) {
+              // Move toward the vehicle to board
+              const dToVehicle = dist(sv.x, sv.y, leaderVehicle.x, leaderVehicle.y);
+              if (dToVehicle < 55) {
+                // Board!
+                if (!leaderVehicle.survivorPassengers) leaderVehicle.survivorPassengers = [];
+                leaderVehicle.survivorPassengers.push(sv.id);
+                sv.inVehicle = true;
+                sv._ridingVehicle = leaderVehicle;
+                sv.x = leaderVehicle.x;
+                sv.y = leaderVehicle.y;
+                sv.state = "riding";
+              } else {
+                // Rush toward vehicle
+                survivorMoveTo(sv, leaderVehicle.x, leaderVehicle.y, SURVIVOR_SPEED * 1.4, dt, buildings);
+                sv.state = "following";
+              }
+              break;
+            }
+            // No free seat — fall through to normal foot-follow below
+          }
+        }
+
+        // Normal on-foot following — offset to the side of the leader so the
+        // survivor doesn't park directly behind them (makes T-selecting nearly
+        // impossible because you'd have to walk into them to get in range).
+        const leaderFacing = leader.facing ?? 0;
+        // Each survivor gets a stable lateral slot based on their id so multiple
+        // survivors fan out rather than stacking.
+        const svSlot = (sv._followSlot = sv._followSlot ?? ((sv.id?.charCodeAt?.(sv.id.length - 1) ?? 0) % 3 - 1));
+        const lateralAngle = leaderFacing + Math.PI / 2;
+        const behindX  = leader.x - Math.cos(leaderFacing) * SURVIVOR_FOLLOW_DIST;
+        const behindY  = leader.y - Math.sin(leaderFacing) * SURVIVOR_FOLLOW_DIST;
+        const targetX  = behindX + Math.cos(lateralAngle) * (svSlot * 36);
+        const targetY  = behindY + Math.sin(lateralAngle) * (svSlot * 36);
+
+        // If the follow target is on the other side of a building wall, route
+        // through the nearest open door instead of walking straight into the wall.
+        const doorWP = survivorDoorWaypoint(sv, targetX, targetY, buildings);
+        const moveToX = doorWP ? doorWP.x : targetX;
+        const moveToY = doorWP ? doorWP.y : targetY;
+
+        const arrived = survivorMoveTo(sv, moveToX, moveToY, SURVIVOR_SPEED, dt, buildings);
         sv.state = arrived ? "idle" : "following";
         const nearby = nearestZombieInRange(sv, zombies, SURVIVOR_MELEE_RANGE);
         if (nearby) survivorAttack(sv, zombies, dt);
@@ -2928,11 +3449,23 @@ export function updateSurvivors(survivors, player, vehicle, zombies, turrets, ga
       if (!sv._hitCd || sv._hitCd <= 0) {
         sv.hp = Math.max(0, sv.hp - ZOMBIE_ATTACK_DAMAGE);
         sv._hitCd = ZOMBIE_ATTACK_RATE;
+        sv._regenDelay = SURVIVOR_REGEN_DELAY; // reset regen delay on hit
         sv._castTimer = 0; sv._castType = null;
       }
     }
     if (sv._hitCd > 0) sv._hitCd -= dt;
+
+    // ── Passive HP regen ───────────────────────────────────────────────────────
+    if (sv._regenDelay > 0) {
+      sv._regenDelay -= dt;
+    } else if (sv.hp < sv.maxHp) {
+      sv.hp = Math.min(sv.maxHp, sv.hp + SURVIVOR_HP_REGEN_RATE * dt);
+    }
   }
+
+  // Separate survivors from each other so they don't overlap
+  const aliveSurvivors = survivors.filter(sv => sv.hp > 0 && !sv.inVehicle);
+  separateEntityLists(aliveSurvivors, aliveSurvivors);
 }
 
 // ─── Activity log ────────────────────────────────────────────────────────────
@@ -2952,12 +3485,68 @@ export function setHomebase(state, settlementId) {
 
 // ─── Idle base tick ──────────────────────────────────────────────────────────
 
+// ─── Survivor XP & leveling ──────────────────────────────────────────────────
+// FIX 2: XP helpers used by workstation tick and combat resolution.
+// Each level grants a small stat bump; Phase 2 surfaces name/role/level in BaseView.
+
+export const SURVIVOR_XP_PER_KILL      = 8;
+export const SURVIVOR_XP_PER_HARVEST   = 3;
+export const SURVIVOR_XP_PER_CRAFT     = 5;
+export const SURVIVOR_XP_TABLE         = [0, 50, 120, 220, 360, 550, 800, 1100, 1500, 2000];
+
+export function survivorXpToLevel(xp) {
+  let level = 1;
+  for (let i = 1; i < SURVIVOR_XP_TABLE.length; i++) {
+    if (xp >= SURVIVOR_XP_TABLE[i]) level = i + 1;
+    else break;
+  }
+  return level;
+}
+
+/** Award XP to a survivor; returns true if they levelled up. */
+export function awardSurvivorXp(sv, amount) {
+  if (!sv) return false;
+  sv.xp = (sv.xp ?? 0) + amount;
+  const newLevel = survivorXpToLevel(sv.xp);
+  if (newLevel > (sv.level ?? 1)) {
+    sv.level = newLevel;
+    return true; // levelled up
+  }
+  sv.level = sv.level ?? 1;
+  return false;
+}
+
+// ─── Workstation passive generation rates ─────────────────────────────────────
+// FIX 2: Constants used by baseTick so the 4 workstations produce resources
+// passively every real-second tick. Rate is resources-per-second of real time.
+// Values intentionally small — they reward being at base, not idle-game grinding.
+
+export const WORKSTATION_OUTPUT = {
+  kitchen:    { food:  0.010 },  // ~36 food/hour
+  workshop:   { scrap: 0.006, nails: 0.004 },  // ~22 scrap/hour
+  farm:       { seeds: 0.004 },  // ~14 seeds/hour
+  guard_post: {},                // guard_post grants defence (handled in combat), not resources
+};
+
+/** Helper: add resource to baseStorage, initialising if absent. */
+function addToBaseStorage(state, key, amount) {
+  if (!state.baseStorage) state.baseStorage = {};
+  state.baseStorage[key] = (state.baseStorage[key] ?? 0) + amount;
+}
+
+// ─── Idle base tick ──────────────────────────────────────────────────────────
+// FIX 2: Expanded to handle workstation passive output in addition to crop
+// growth, survivor harvesting, and turret decay. Called both in real-time
+// (every few seconds while base is open) and offline (elapsed time on reload).
+
 export function baseTick(state, dtReal, activityLog = []) {
-  const harvested = [];
-  const damaged   = [];
+  const harvested  = [];
+  const damaged    = [];
+  const produced   = [];  // new: workstation output
 
-  if (dtReal <= 0) return { harvested, damaged };
+  if (dtReal <= 0) return { harvested, damaged, produced };
 
+  // ── Crop growth ────────────────────────────────────────────────────────────
   for (const crop of (state.crops ?? [])) {
     if (crop.stage !== "planted") continue;
     crop.growTimer = Math.min(crop.growTime, (crop.growTimer ?? 0) + dtReal);
@@ -2967,6 +3556,7 @@ export function baseTick(state, dtReal, activityLog = []) {
     }
   }
 
+  // ── Assigned-survivor crop harvesting ─────────────────────────────────────
   for (const sv of (state.survivors ?? [])) {
     if (sv.command !== "assign" || !sv.assignedTo) continue;
     if (sv.assignedTo.structureType !== "crop") continue;
@@ -2978,13 +3568,34 @@ export function baseTick(state, dtReal, activityLog = []) {
 
     crop.stage = "harvested";
     const yieldAmt = CROP_TYPES[crop.type]?.yield ?? 4;
-    if (!state.player.inventory) state.player.inventory = {};
-    state.player.inventory.food = (state.player.inventory.food ?? 0) + yieldAmt;
+    // FIX 5: Harvested food goes to baseStorage, not player field inventory,
+    // so it persists when the player is away from base.
+    addToBaseStorage(state, "food", yieldAmt);
 
-    harvested.push({ name: sv.name, type: crop.type, amount: yieldAmt });
-    pushActivity(activityLog, `${sv.name} harvested ${yieldAmt} ${crop.type}`);
+    const levelled = awardSurvivorXp(sv, SURVIVOR_XP_PER_HARVEST);
+    harvested.push({ name: sv.name, type: crop.type, amount: yieldAmt, levelled });
+    pushActivity(
+      activityLog,
+      `${sv.name} harvested ${yieldAmt} ${crop.type}${levelled ? " ⬆ levelled up!" : ""}`
+    );
   }
 
+  // ── Workstation passive generation (Phase 2 prerequisite) ─────────────────
+  // FIX 2: Each survivor assigned to a workstation trickles resources into
+  // baseStorage at the rate defined in WORKSTATION_OUTPUT.
+  for (const sv of (state.survivors ?? [])) {
+    if (sv.command !== "assign" || !sv.workstation) continue;
+    const rates = WORKSTATION_OUTPUT[sv.workstation];
+    if (!rates) continue;
+    for (const [resource, ratePerSec] of Object.entries(rates)) {
+      const amount = ratePerSec * dtReal;
+      if (amount <= 0) continue;
+      addToBaseStorage(state, resource, amount);
+      produced.push({ name: sv.name, workstation: sv.workstation, resource, amount });
+    }
+  }
+
+  // ── Turret decay ───────────────────────────────────────────────────────────
   const TURRET_DECAY_PER_SEC = 10 / 60;
   for (const t of (state.turrets ?? [])) {
     if (t.destroyed) continue;
@@ -2998,15 +3609,144 @@ export function baseTick(state, dtReal, activityLog = []) {
 
   state.lastBaseTick = Date.now();
 
-  return { harvested, damaged };
+  return { harvested, damaged, produced };
 }
+
+// ─── Crafting recipes ─────────────────────────────────────────────────────────
+// Phase 1: starter recipes. All inputs/outputs reference baseStorage keys.
+// Each recipe: { id, label, icon, inputs: {key: qty}, outputs: {key: qty}, seconds }
+
+export const CRAFTING_RECIPES = [
+  {
+    id:      "scrap_to_parts",
+    label:   "Car Parts",
+    icon:    "⚙️",
+    desc:    "Salvage scrap into usable car parts",
+    inputs:  { scrap: 6 },
+    outputs: { car_parts: 1 },
+    seconds: 8,
+  },
+  {
+    id:      "wood_barricade",
+    label:   "Barricade Kit",
+    icon:    "🪵",
+    desc:    "Pre-cut lumber and nails for fast barricading",
+    inputs:  { wood: 4, nails: 6 },
+    outputs: { barricade_kit: 1 },
+    seconds: 6,
+  },
+  {
+    id:      "wheat_bread",
+    label:   "Bread",
+    icon:    "🍞",
+    desc:    "Bake wheat into portable rations",
+    inputs:  { food: 3 },
+    outputs: { food: 5 },
+    seconds: 10,
+  },
+  {
+    id:      "turret_kit",
+    label:   "Turret Kit",
+    icon:    "🗼",
+    desc:    "Fabricate a deployable auto-turret",
+    inputs:  { scrap: 4, nails: 8 },
+    outputs: { turret_kit: 1 },
+    seconds: 15,
+  },
+  {
+    id:      "water_purify",
+    label:   "Purified Water",
+    icon:    "💧",
+    desc:    "Boil and purify water for storage",
+    inputs:  { water: 2 },
+    outputs: { water: 4 },
+    seconds: 8,
+  },
+];
+
+/**
+ * Attempt to craft a recipe from baseStorage.
+ * Returns { success, recipe, missing } where missing is {key: shortfall}.
+ * Mutates state.baseStorage on success and awards XP to any kitchen/workshop survivor.
+ */
+export function craftItem(state, recipeId, activityLog = []) {
+  const recipe = CRAFTING_RECIPES.find(r => r.id === recipeId);
+  if (!recipe) return { success: false, missing: {} };
+
+  if (!state.baseStorage) state.baseStorage = {};
+  const bs = state.baseStorage;
+
+  // Check inputs
+  const missing = {};
+  for (const [key, qty] of Object.entries(recipe.inputs)) {
+    const have = bs[key] ?? 0;
+    if (have < qty) missing[key] = qty - have;
+  }
+  if (Object.keys(missing).length > 0) return { success: false, missing, recipe };
+
+  // Deduct inputs
+  for (const [key, qty] of Object.entries(recipe.inputs)) {
+    bs[key] = (bs[key] ?? 0) - qty;
+  }
+
+  // Add outputs
+  for (const [key, qty] of Object.entries(recipe.outputs)) {
+    bs[key] = (bs[key] ?? 0) + qty;
+  }
+
+  // Award XP to a relevant workstation survivor
+  for (const sv of (state.survivors ?? [])) {
+    if (sv.command === "assign" && sv.workstation &&
+        (sv.workstation === "kitchen" || sv.workstation === "workshop")) {
+      awardSurvivorXp(sv, SURVIVOR_XP_PER_CRAFT);
+      break;
+    }
+  }
+
+  pushActivity(activityLog, `🔨 Crafted ${recipe.label}`);
+  return { success: true, recipe };
+}
+
+// ─── Workstation definitions ──────────────────────────────────────────────────
+// Used by BaseView to render the 4 workstation slots and their flavour text.
+
+export const WORKSTATION_DEFS = [
+  {
+    id:    "kitchen",
+    label: "Kitchen",
+    icon:  "🍳",
+    desc:  "Produces food passively. Enables cooking recipes.",
+    color: "rgba(255,160,60,0.9)",
+  },
+  {
+    id:    "workshop",
+    label: "Workshop",
+    icon:  "🔧",
+    desc:  "Produces scrap & nails. Enables fabrication recipes.",
+    color: "rgba(255,200,60,0.9)",
+  },
+  {
+    id:    "farm",
+    label: "Farm",
+    icon:  "🌾",
+    desc:  "Produces seeds passively for replanting.",
+    color: "rgba(120,210,80,0.9)",
+  },
+  {
+    id:    "guard_post",
+    label: "Guard Post",
+    icon:  "🛡️",
+    desc:  "Boosts base defence. Reduces turret decay.",
+    color: "rgba(255,100,80,0.9)",
+  },
+];
 
 export function applyOfflineBaseTick(state, activityLog) {
   if (!state.lastBaseTick) {
     state.lastBaseTick = Date.now();
-    return { harvested: [], damaged: [] };
+    return { harvested: [], damaged: [], produced: [] };
   }
   const elapsed = (Date.now() - state.lastBaseTick) / 1000;
-  if (elapsed < 2) return { harvested: [], damaged: [] };
+  if (elapsed < 2) return { harvested: [], damaged: [], produced: [] };
   return baseTick(state, elapsed, activityLog);
 }
