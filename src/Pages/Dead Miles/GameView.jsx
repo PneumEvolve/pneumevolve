@@ -52,12 +52,16 @@ import {
   getSeasonalBonus,
   getInventoryCount,
   addToInventory,
-
+  updateAutoPlayer,
+  AUTO_SLEEP_UNTIL,
 } from "./deadMilesEngine";
 import {
   createJoystick, joystickTouchStart, joystickTouchMove,
   joystickTouchEnd, drawJoystick,
 } from "../Stronghold/mobileControls";
+import SurvivorCommandMenu from "./SurvivorCommandMenu";
+import BuildMenu from "./BuildMenu";
+import InventoryPanel from "./InventoryPanel";
 
 const MOVE_THROTTLE  = 100;
 const SYNC_THROTTLE  = 200;
@@ -108,7 +112,7 @@ function drawPathToTarget(ctx, player, target, cam, W, H, s) {
   ctx.restore();
 }
 
-export default function GameView({ room, role = "p1", onGameOver, level = 1, onStateSnapshot, onOpenBase, activityLog }) {
+export default function GameView({ room, role = "p1", onGameOver, level = 1, missionType = "clear", deployInventory = null, onStateSnapshot, onOpenBase, activityLog, autoPlay = false, onDropIn }) {
   const canvasRef   = useRef(null);
   const stateRef    = useRef(null);
   const keysRef     = useRef({});
@@ -118,6 +122,11 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1, onS
   const zHoldActiveRef  = useRef(false);
   const flashRef        = useRef(0);
   const gameOverFiredRef = useRef(false);
+  const autoPlayRef     = useRef(autoPlay);
+  const autoAttackCooldownRef = useRef(0);
+  const autoNeedsCooldownRef  = useRef(0); // separate cooldown for eat/drink so combat doesn't block needs
+  // Keep the ref in sync whenever the prop changes (e.g. after Drop In)
+  useEffect(() => { autoPlayRef.current = autoPlay; }, [autoPlay]);
   // Opening horror refs
   const powerMomentRef  = useRef(0);   // countdown timer for the vehicle power-surge effect (seconds)
   const powerZoomRef    = useRef(1);   // current zoom scale (1 = normal, >1 = zoomed out)
@@ -172,6 +181,16 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1, onS
   const placingModeRef                  = useRef(null);
   const placingHintRef                  = useRef(null);
   const [placingHint, setPlacingHint]   = useState(null); // { x, y } canvas coords
+
+  // ── Secure-base phase (post-victory, before leaving) ─────────────────────
+  // Shown after boss death. Player can optionally place turret + garden plot
+  // before clicking "Leave" which fires onGameOver with the metadata.
+  const [securePhase, setSecurePhase]   = useState(null); // null | "active"
+  const securePhaseRef                  = useRef(null);    // mirrors securePhase for rAF loop
+  const securePlacedRef                 = useRef({ turret: false, garden: false });
+  const [securePlaced, setSecurePlaced] = useState({ turret: false, garden: false });
+  // Snapshot of game state at the moment boss died, used when player clicks Leave
+  const secureScoreRef                  = useRef(null);
 
   // ── Survivor command UI ───────────────────────────────────────────────────
   const [survivorMenu, setSurvivorMenu] = useState(null); // { survivor } | null
@@ -411,7 +430,7 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1, onS
     s.survivors.push(survivor);
   }
 },
-    onSurvivorCommand: ({ survivorId, command, assignedTo }) => {
+    onSurvivorCommand: ({ survivorId, command, assignedTo, issuedBy }) => {
   const s = stateRef.current;
   if (!s) return;
   
@@ -422,6 +441,8 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1, onS
   survivor.state = "idle";
   survivor._castTimer = 0;
   survivor._castType = null;
+  // Reset follow slot so it's recalculated for the new leader
+  survivor._followSlot = null;
   
   if (assignedTo) {
     survivor.assignedTo = assignedTo;
@@ -431,10 +452,16 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1, onS
     survivor.barricadeBuilding = null;
   }
   
-  // If command is "follow", set followLeader to whoever issued the command
+  // FIX 3: Use issuedBy to determine who the followLeader should be.
+  // issuedBy is the role string ("p1"/"p2") of the player who issued the command.
   if (command === "follow") {
-    // Determine which player issued the command (sender)
-    survivor.followLeader = s.player2 ?? s.player;
+    if (issuedBy === roleRef.current) {
+      // The command was issued by this client's player
+      survivor.followLeader = s.player;
+    } else {
+      // The command was issued by the remote player
+      survivor.followLeader = s.player2 ?? s.player;
+    }
   }
 },
     onCropPlant: ({ crop }) => {
@@ -464,9 +491,13 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1, onS
       const s = stateRef.current; if (!s) return;
       s.isNight = phase === "night"; s.dayNumber = dayNumber;
     },
-    onMapFragment: () => {
+    onMapFragment: ({ mapFragmentCollected, fragmentsCollected, compassTarget, totalFragments }) => {
       const s = stateRef.current; if (!s) return;
-      s.mapFragmentCollected = true;
+      // Sync all fragment state so P2 count, compass target, and arrow match P1
+      if (mapFragmentCollected != null) s.mapFragmentCollected = mapFragmentCollected;
+      if (Array.isArray(fragmentsCollected)) s.fragmentsCollected = fragmentsCollected;
+      if (compassTarget != null) s.compassTarget = compassTarget;
+      if (totalFragments != null) s.totalFragments = totalFragments;
     },
     onVehicleRepair: ({ vehicleId, hp }) => {
       const s = stateRef.current; if (!s) return;
@@ -616,6 +647,16 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1, onS
       setP2(false);
       const s = stateRef.current;
       if (s) {
+        // FIX 10: null followLeader on any survivor that was following player2 so
+        // they fall back to following s.player instead of a stale dead reference.
+        if (s.survivors?.length && s.player2) {
+          for (const sv of s.survivors) {
+            if (sv.followLeader === s.player2) {
+              sv.followLeader = null;
+              sv._followSlot = null;
+            }
+          }
+        }
         s.player2 = null;
         const disconnectedRole = roleRef.current === "p1" ? "p2" : "p1";
         if (s.vehicle.driver === disconnectedRole) {
@@ -651,6 +692,11 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1, onS
   } = useDeadMilesRoom(room?.id ?? null, handlers);
   const sendMyMove = isP1 ? sendP1Move : sendP2Move;
 
+  function getMyVehicle(s, role) {
+  const all = s.vehicles ?? [s.vehicle];
+  return all.find(v => v.driver === role || v.passenger === role) ?? s.vehicle;
+}
+
   // ── Inventory sync helper — call instead of bare setInv ─────────────────
   // FIX 4: All inventory mutations must go through syncInv so the partner's
   // UI stays consistent.  Never call setInv directly.
@@ -681,6 +727,13 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1, onS
     return { dx, dy };
   }
 
+  // Returns movement + optional action for this frame.
+  // In autoPlay mode, derives from the AI; otherwise from keyboard/joystick.
+  function getMovementAndAction(s, dt) {
+    if (!autoPlayRef.current) return { ...getMovementVec(), action: null };
+    return updateAutoPlayer(s.player, s, dt);
+  }
+
   function notify(text, color = "rgba(255,220,80,0.95)") {
     setNote({ text, color });
     setTimeout(() => setNote(null), 2800);
@@ -691,6 +744,17 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1, onS
     gameOverFiredRef.current = true;
 
     const recap = s.player.deathRecap?.getRecap() || "";
+
+    // Step 7: tally resources the player is carrying when they leave the level
+    const inv = s.player?.inventory ?? {};
+    const resourcesCollected = {
+      food:  Math.floor(inv.food  ?? 0),
+      scrap: Math.floor(inv.scrap ?? 0),
+    };
+
+    // Step 8: if this is a defend mission victory, mark it
+    const isDefendVictory = s._missionType === "defend" && extra.survived;
+
     const score = {
       survived: false,
       dayssurvived: s.dayNumber,
@@ -698,11 +762,43 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1, onS
       buildingsSearched: s.buildingsSearched ?? 0,
       survivorsFound: s.survivorsFound ?? 0,
       deathRecap: recap,
+      resourcesCollected,
+      missionType: s._missionType ?? "clear",
+      ...(isDefendVictory ? { defended: true, baseHpRestored: 50 } : {}),
       ...extra,
     };
     // Broadcast to partner so their screen transitions too
     if (room) sendGameOver(score);
     onGameOver(score);
+  }
+
+  // ── Secure-base: called instead of triggerGameOver on boss death ──────────
+  // Pauses the narrative flow, shows the "Secure This Base" overlay.
+  // triggerGameOver is called later when the player clicks "Leave".
+  function triggerSecurePhase(s) {
+    if (gameOverFiredRef.current) return;
+    // Capture the score snapshot now so it's ready for when Leave is clicked
+    secureScoreRef.current = {
+      survived: true,
+      dayssurvived: s.dayNumber,
+      zombiesKilled: s.zombiesKilled ?? 0,
+      buildingsSearched: s.buildingsSearched ?? 0,
+      survivorsFound: s.survivorsFound ?? 0,
+      settlementsCleared: s.fragmentsCollected?.length ?? 0,
+    };
+    securePhaseRef.current = "active";
+    setSecurePhase("active");
+  }
+
+  // Called from the "Leave" button in the secure-base overlay
+  function handleSecureLeave() {
+    const placed = securePlacedRef.current;
+    const baseScore = secureScoreRef.current ?? {};
+    triggerGameOver(stateRef.current, {
+      ...baseScore,
+      turretPlaced: placed.turret,
+      gardenPlots: placed.garden ? 1 : 0,
+    });
   }
 
   // ── Unified F key handler ──────────────────────────────────────────────────
@@ -738,16 +834,18 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1, onS
       }
     }
     if (s.player.inVehicle) {
-      exitVehicle(s.player, s.vehicle, roleRef.current);
-      notify("Got out of vehicle");
-      if (room) sendVehicleUpdate(
-        s.vehicle.id,
-        s.vehicle.x, s.vehicle.y, s.vehicle.facing,
-        s.vehicle.hp, s.vehicle.fuel,
-        s.vehicle.driver, s.vehicle.passenger
-      );
-      return;
-    }
+  const myVehicle = getMyVehicle(s, roleRef.current);  // ← find actual vehicle
+  exitVehicle(s.player, myVehicle, roleRef.current);
+  s.vehicle = myVehicle; // keep s.vehicle in sync
+  notify("Got out of vehicle");
+  if (room) sendVehicleUpdate(
+    myVehicle.id,
+    myVehicle.x, myVehicle.y, myVehicle.facing,
+    myVehicle.hp, myVehicle.fuel,
+    myVehicle.driver, myVehicle.passenger
+  );
+  return;
+}
 
     // Find nearest vehicle from the fleet
     const vehicles = s.vehicles ?? [s.vehicle];
@@ -799,7 +897,12 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1, onS
             addFloater(s, "🗺️ map fragment!", s.player.x, s.player.y - 30, "rgba(255,220,80,0.95)", 14);
             notify("🗺️ Map fragment collected!", "rgba(255,220,80,0.95)");
           }
-          if (room && sendMapFragment) sendMapFragment();
+          if (room && sendMapFragment) sendMapFragment({
+            mapFragmentCollected: s.mapFragmentCollected,
+            fragmentsCollected: s.fragmentsCollected ?? [],
+            compassTarget: s.compassTarget ?? null,
+            totalFragments: s.totalFragments ?? 0,
+          });
         }
         const surv = tryDiscoverSurvivor(s.player, s.buildings, s.survivors, s.lootPiles);
 if (surv) {
@@ -1171,7 +1274,7 @@ if (surv) {
           setAssigningMode(null);
           notify(`${sv.name} assigned to turret`, "rgba(120,220,255,0.95)");
           if (room && sendSurvivorCommand) {
-            sendSurvivorCommand(sv.id, "assign", { structureId: nearTurret.id, structureType: "turret" });
+            sendSurvivorCommand(sv.id, "assign", { structureId: nearTurret.id, structureType: "turret" }, roleRef.current);
           }
           return;
         }
@@ -1184,7 +1287,7 @@ if (surv) {
           setAssigningMode(null);
           notify(`${sv.name} assigned to crop plot`, "rgba(120,220,80,0.95)");
           if (room && sendSurvivorCommand) {
-            sendSurvivorCommand(sv.id, "assign", { structureId: nearPlot.id, structureType: "crop" });
+            sendSurvivorCommand(sv.id, "assign", { structureId: nearPlot.id, structureType: "crop" }, roleRef.current);
           }
           return;
         }
@@ -1275,11 +1378,20 @@ if (surv) {
     }
   }  // end handleKeyAction
 
-  // Timer countdown for sleep vote
+  // Timer countdown for sleep vote — interval runs while modal is open.
+  // Using a ref to track the "open" state avoids re-creating the interval
+  // on every 100ms tick update (which previously caused interval churn because
+  // sleepVoteModal was in the dependency array and changed every tick).
+  const sleepVoteOpenRef = useRef(false);
 useEffect(() => {
-  if (!sleepVoteModal) return;
-  
+  if (!sleepVoteModal) {
+    sleepVoteOpenRef.current = false;
+    return;
+  }
+  sleepVoteOpenRef.current = true;
+
   const interval = setInterval(() => {
+    if (!sleepVoteOpenRef.current) { clearInterval(interval); return; }
     setSleepVoteModal(prev => {
       if (!prev) return null;
       const newTimer = prev.timer - 0.1;
@@ -1287,9 +1399,12 @@ useEffect(() => {
       return { ...prev, timer: newTimer };
     });
   }, 100);
-  
-  return () => clearInterval(interval);
-}, [sleepVoteModal]);
+
+  return () => {
+    clearInterval(interval);
+    sleepVoteOpenRef.current = false;
+  };
+}, [sleepVoteModal?.requestingPlayer]); // only re-create when a NEW vote starts, not each tick
 
   // ── Game loop setup ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1309,6 +1424,41 @@ useEffect(() => {
     stateRef.current = createInitialState(room?.map_seed ?? Date.now(), level);
     // FIX 5: initialise baseStorage on the live state object if absent
     if (!stateRef.current.baseStorage) stateRef.current.baseStorage = {};
+    // Reset autoplay spawn-safety timer so every new level starts with a fresh grace window.
+    if (stateRef.current.player) delete stateRef.current.player._autoSpawnGrace;
+
+    // ── Step 7: merge carry inventory pre-stocked in handleDeploy ─────────
+    if (deployInventory) {
+      const inv = stateRef.current.player.inventory ?? {};
+      for (const [k, v] of Object.entries(deployInventory)) {
+        inv[k] = (inv[k] ?? 0) + v;
+      }
+      stateRef.current.player.inventory = inv;
+    }
+
+    // ── Step 8: defend mission — record mission type and spawn defend wave ─
+    stateRef.current._missionType = missionType;
+    if (missionType === "defend") {
+      // Spawn a reinforced wave immediately so the player has something to fight.
+      // createZombie is called here directly; the multiplier matches DEFEND_WAVE_MULTIPLIER=2.
+      const s = stateRef.current;
+      const cx = s.hamletCx ?? (s.player.x);
+      const cy = s.hamletCy ?? (s.player.y);
+      const waveCount = 20; // base defend wave size
+      for (let i = 0; i < waveCount; i++) {
+        const angle = (i / waveCount) * Math.PI * 2;
+        const spawnDist = 400 + Math.random() * 200;
+        const zx = cx + Math.cos(angle) * spawnDist;
+        const zy = cy + Math.sin(angle) * spawnDist;
+        s.zombies.push(createZombie(
+          Math.max(80, Math.min(WORLD_W - 80, zx)),
+          Math.max(80, Math.min(WORLD_H - 80, zy)),
+          true // alerted = immediately chase
+        ));
+      }
+      // Flag so the secure-phase overlay uses defend-win path
+      s._defendWaveSpawned = true;
+    };
 
     function onKeyDown(e) {
       keysRef.current[e.key] = true;
@@ -1367,6 +1517,11 @@ useEffect(() => {
         setPlacingMode(null);
         setPlacingHint(null);
         setBuildMenu(false);
+        // If this placement was part of the secure-base flow, tick off the checklist
+        if (securePhaseRef.current === "active") {
+          securePlacedRef.current = { ...securePlacedRef.current, turret: true };
+          setSecurePlaced(p => ({ ...p, turret: true }));
+        }
       } else if (mode === "crop_plot") {
         const result = tryPlaceCropPlot(s.player, wx, wy, s.gardenPlots, s.buildings);
         if (!result) { notify("Can't place here", "rgba(255,100,100,0.95)"); return; }
@@ -1379,6 +1534,11 @@ useEffect(() => {
         setPlacingMode(null);
         setPlacingHint(null);
         setBuildMenu(false);
+        // If this placement was part of the secure-base flow, tick off the checklist
+        if (securePhaseRef.current === "active") {
+          securePlacedRef.current = { ...securePlacedRef.current, garden: true };
+          setSecurePlaced(p => ({ ...p, garden: true }));
+        }
       }
     }
 
@@ -1464,6 +1624,7 @@ if (s.player.isSleeping && !s.isFastSleeping && !fastSleepVoteRequestedRef.curre
       if (shouldInterruptFastSleep(s.player, s.zombies, s.buildings)) {
         s.isFastSleeping = false;
         s.player.isSleeping = false;
+        s.player._autoSleeping = false;
         flashRef.current = 0.6;
         setSleepFlash(true);
         setTimeout(() => setSleepFlash(false), 700);
@@ -1473,14 +1634,156 @@ if (s.player.isSleeping && !s.isFastSleeping && !fastSleepVoteRequestedRef.curre
     }
 
     const dt = s.isFastSleeping ? dtActual * 15 : dtActual;
-    const { dx, dy } = getMovementVec();
+    const { dx, dy, action: autoAction } = getMovementAndAction(s, dtActual);
     const moving = dx !== 0 || dy !== 0;
+
+    // ── Autopilot action dispatch (loot, attack, vehicle entry) ───────────
+    if (autoPlayRef.current && autoAction) {
+      if (autoAction === "collect") {
+        const lootResult = tryCollectLoot(s.player, s.lootPiles, s.vehicle);
+        if (lootResult) {
+          s.buildingsSearched = (s.buildingsSearched ?? 0) + 1;
+          syncInv(s.player.inventory);
+          const hadFragment = lootResult.gained.some(i => i.type === "map_fragment");
+          if (hadFragment) {
+            const fragmentItem = lootResult.gained.find(i => i.type === "map_fragment");
+            const result = collectMapFragment(s, fragmentItem);
+            if (!s.mapFragmentCollected) s.mapFragmentCollected = true;
+            if (result?.bossSpawned) {
+              addFloater(s, "☠ A boss zombie has appeared!", s.player.x, s.player.y - 30, "rgba(255,80,80,0.95)", 16);
+              notify("☠ Final fragment! A massive boss zombie has spawned — kill it to win!", "rgba(255,80,80,0.95)");
+            } else if (result?.nextSettlement) {
+              const ns = result.nextSettlement;
+              notify(`🗺️ Map fragment! Next: ${ns.name}`, "rgba(255,220,80,0.95)");
+            }
+            if (room && sendMapFragment) sendMapFragment({
+              mapFragmentCollected: s.mapFragmentCollected,
+              fragmentsCollected: s.fragmentsCollected ?? [],
+              compassTarget: s.compassTarget ?? null,
+              totalFragments: s.totalFragments ?? 0,
+            });
+          }
+          const surv = tryDiscoverSurvivor(s.player, s.buildings, s.survivors, s.lootPiles);
+          if (surv) {
+            surv.survivor.followLeader = s.player;
+            s.survivors.push(surv.survivor);
+            s.survivorsFound = (s.survivorsFound ?? 0) + 1;
+            notify(`${surv.survivor.name} (${surv.survivor.role}) was hiding here!`, "rgba(120,255,180,0.95)");
+            if (room) sendSurvivorFound(surv.survivor, roleRef.current);
+          }
+          if (room) {
+            sendBuildingSearch(lootResult.pile.buildingId);
+            sendLootPickup(lootResult.pile.buildingId, lootResult.gained, lootResult.fuelGained ?? 0);
+          }
+        }
+      } else if (autoAction === "attack") {
+        // Auto-aim: always face the nearest alive zombie so the AI doesn't
+        // rely on the human player's mouse position when attacking on foot.
+        const aliveZ = s.zombies.filter(z => !z.dead);
+        if (aliveZ.length > 0) {
+          const nearest = aliveZ.reduce((best, z) => {
+            const d = Math.hypot(z.x - s.player.x, z.y - s.player.y);
+            return d < best.dist ? { z, dist: d } : best;
+          }, { z: null, dist: Infinity }).z;
+          if (nearest) {
+            s.player.facing = Math.atan2(nearest.y - s.player.y, nearest.x - s.player.x);
+          }
+        }
+        autoAttackCooldownRef.current -= dtActual;
+        if (autoAttackCooldownRef.current <= 0) {
+          playerAttack(s.player, s.zombies, s.buildings);
+          autoAttackCooldownRef.current = 0.55;
+        }
+      } else if (autoAction === "enter_vehicle" && !s.player.inVehicle) {
+        // Search the full fleet for the nearest available vehicle so the AI
+        // can enter a replacement car after the original is destroyed.
+        const allV = s.vehicles ?? (s.vehicle ? [s.vehicle] : []);
+        const nearestV = allV
+          .filter(v => v.hp > 0 && (!v.occupied || v.driver === roleRef.current || v.passenger === roleRef.current))
+          .sort((a, b) =>
+            dist(s.player.x, s.player.y, a.x, a.y) -
+            dist(s.player.x, s.player.y, b.x, b.y)
+          )[0];
+        if (nearestV) {
+          tryEnterVehicle(s.player, nearestV, roleRef.current);
+          // Keep s.vehicle in sync with whichever vehicle was entered
+          if (s.player.inVehicle) s.vehicle = nearestV;
+        }
+      } else if (autoAction === "open_door") {
+        // AI settlement-clearing: open the nearest closed door to flush building zombies
+        const doorResult = tryToggleDoor(s.player, s.buildings);
+        if (doorResult && room) {
+          const d = doorResult.door;
+          sendDoorUpdate(doorResult.building.id, d.id, d.open, d.hp ?? DOOR_MAX_HP, !!d.broken);
+        }
+      } else if (autoAction === "exit_vehicle_for_doors" || autoAction === "exit_vehicle_for_needs") {
+        // AI needs to get out of vehicle (to open doors or use needs)
+        if (s.player.inVehicle) {
+          const myV = getMyVehicle(s, roleRef.current);
+          exitVehicle(s.player, myV, roleRef.current, s.buildings);
+          s.vehicle = myV;
+          if (room) sendVehicleUpdate(myV.id, myV.x, myV.y, myV.facing, myV.hp, myV.fuel, myV.driver, myV.passenger);
+        }
+      } else if (autoAction === "auto_eat") {
+        // AI eat — dedicated needs cooldown so combat doesn't block eating
+        autoNeedsCooldownRef.current -= dtActual;
+        if (autoNeedsCooldownRef.current <= 0) {
+          autoNeedsCooldownRef.current = 1.6;
+          if (eatFood(s.player)) {
+            syncInv(s.player.inventory);
+            addFloater(s, "🍞 ate food", s.player.x, s.player.y - 20, "rgba(120,255,150,0.85)", 11);
+          } else {
+            s.player._autoEating = false; // ran out of food mid-loop; let engine re-evaluate
+          }
+        }
+      } else if (autoAction === "auto_drink") {
+        // AI drink — dedicated needs cooldown so combat doesn't block drinking
+        autoNeedsCooldownRef.current -= dtActual;
+        if (autoNeedsCooldownRef.current <= 0) {
+          autoNeedsCooldownRef.current = 1.6;
+          const ok = drinkWater(s.player, s.buildings, s.wells);
+          if (ok) {
+            syncInv(s.player.inventory);
+            addFloater(s, "💧 drank water", s.player.x, s.player.y - 20, "rgba(100,180,255,0.85)", 11);
+          } else {
+            s.player._autoDrinking = false; // ran out / no source; let engine re-evaluate
+          }
+        }
+      } else if (autoAction === "auto_sleep") {
+        // AI fast-sleep: set sleeping + fast-sleep so sleep recovers quickly
+        if (!s.player.isSleeping) {
+          s.player.isSleeping = true;
+          s.player._autoSleeping = true;
+          s.player.sleepLocation = getSleepLocation(s.player, s.vehicle, s.buildings);
+          s.isFastSleeping = true;
+          addFloater(s, "💤 sleeping...", s.player.x, s.player.y - 22, "rgba(180,180,255,0.85)", 11);
+        }
+        // Wake up once sleep has recovered enough
+        if (s.player.sleep >= AUTO_SLEEP_UNTIL) {
+          s.player.isSleeping = false;
+          s.player._autoSleeping = false;
+          s.isFastSleeping = false;
+          addFloater(s, "⚡ rested!", s.player.x, s.player.y - 22, "rgba(255,220,80,0.9)", 12);
+        }
+      }
+    }
 
     if (!s.player.isSleeping) {
   if (s.player.inVehicle) {
-    const isDriver = s.vehicle.driver === roleRef.current;
-    if (moving && isDriver) driveVehicle(s.vehicle, dx, dy, dt, s.buildings);
-    syncPlayerToVehicle(s.player, s.vehicle);
+  const myVehicle = getMyVehicle(s, roleRef.current); // ← find actual vehicle
+  s.vehicle = myVehicle; // keep reference current
+  const isDriver = myVehicle.driver === roleRef.current;
+  if (moving && isDriver) driveVehicle(myVehicle, dx, dy, dt, s.buildings);
+  syncPlayerToVehicle(s.player, myVehicle);
+  // ── Awakening: also trigger if player drives before walking ──────────
+  if (moving && !s.zombiesAwakened) {
+    s.zombiesAwakened = true;
+    if (isHostRef.current) {
+      activateAwakeningRing(s.zombies, myVehicle.x, myVehicle.y);
+    }
+    setAwakeningFlash(true);
+    setTimeout(() => setAwakeningFlash(false), 600);
+  }
   } else {
     if (moving) {
       movePlayer(s.player, dx, dy, dt, s.buildings);
@@ -1498,7 +1801,8 @@ if (s.player.isSleeping && !s.isFastSleeping && !fastSleepVoteRequestedRef.curre
     }
     // ── Mouse-aim: override player.facing with mouse direction when available ──
     // This decouples movement direction from swing direction on desktop.
-    if (mouseAngleRef.current !== null && !s.player.inVehicle) {
+    // Skip when autoplay is active — the AI sets its own facing via auto-aim.
+    if (mouseAngleRef.current !== null && !s.player.inVehicle && !autoPlayRef.current) {
       s.player.facing = mouseAngleRef.current;
     }
   }
@@ -1577,10 +1881,10 @@ if (s.player.isSleeping && !s.isFastSleeping && !fastSleepVoteRequestedRef.curre
       for (const [id, upd] of s.convoyVehicleTargets) {
         let entry = s.convoyVehicles.find(e => e.vehicle._id === id);
         if (!entry) {
-          // Create a ghost vehicle for rendering
-          const { createVehicle: _cv, ..._ } = {}; // no-op; just build manually
+          // FIX 6: set both .id and ._id to the same value so any code that looks up
+          // by either field (e.g. vehicleTargets Map keyed on .id) finds the ghost vehicle.
           const ghostV = {
-            _id: id, x: upd.x, y: upd.y, facing: upd.facing,
+            id: id, _id: id, x: upd.x, y: upd.y, facing: upd.facing,
             hp: upd.hp, maxHp: upd.maxHp ?? 300,
             vehicleType: upd.vehicleType ?? "car", radius: 22,
             speed: 260, fuel: 80, maxFuel: 80, occupied: true,
@@ -1674,18 +1978,25 @@ if (s.player.isSleeping && !s.isFastSleeping && !fastSleepVoteRequestedRef.curre
     }
 
     // ── Endgame check (boss zombie dead) ─────────────────────────────────────
-    if (isHostRef.current && checkEndgame(s) && !gameOverFiredRef.current) {
-      addFloater(s, "☠ Boss defeated! You win!", s.player.x, s.player.y - 40, "rgba(255,80,80,0.95)", 18);
-      triggerGameOver(s, {
-        survived: true,
-        nextLevel: false,
-        dayssurvived: s.dayNumber,
-        zombiesKilled: s.zombiesKilled ?? 0,
-        buildingsSearched: s.buildingsSearched ?? 0,
-        survivorsFound: s.survivorsFound ?? 0,
-        settlementsCleared: s.fragmentsCollected?.length ?? 0,
-      });
-      return;
+    if (isHostRef.current && checkEndgame(s) && !gameOverFiredRef.current && !securePhaseRef.current) {
+      addFloater(s, "☠ Boss defeated! Secure the area before you leave!", s.player.x, s.player.y - 40, "rgba(120,255,150,0.95)", 18);
+      triggerSecurePhase(s);
+      // Don't return — game loop keeps running so zombies/canvas stay live
+    }
+
+    // ── Step 8: defend mission win — all defend-wave zombies cleared ─────────
+    if (
+      isHostRef.current &&
+      s._missionType === "defend" &&
+      s._defendWaveSpawned &&
+      !gameOverFiredRef.current &&
+      !securePhaseRef.current
+    ) {
+      const aliveDefenders = s.zombies.filter(z => !z.dead);
+      if (aliveDefenders.length === 0) {
+        addFloater(s, "✅ Base defended! The horde was driven back.", s.player.x, s.player.y - 40, "rgba(120,255,150,0.95)", 18);
+        triggerSecurePhase(s);
+      }
     }
 
     if (isHostRef.current) {
@@ -1750,6 +2061,19 @@ if (s.player.isSleeping && !s.isFastSleeping && !fastSleepVoteRequestedRef.curre
         if (p2VehicleDmg > 0) sendP2Damage(p2VehicleDmg, true, p2VehicleId);
       }
 
+      // ── Vehicle-HP eject — force-exit when current vehicle is destroyed ────
+      // Only triggers on vehicle HP reaching 0; player HP is irrelevant here.
+      if (s.player.inVehicle) {
+        const drivingV = getMyVehicle(s, roleRef.current);
+        if (drivingV && drivingV.hp <= 0) {
+          exitVehicle(s.player, drivingV, roleRef.current, s.buildings);
+          s.vehicle = drivingV; // keep reference current even though HP=0
+          addFloater(s, '🚗 vehicle destroyed!', drivingV.x, drivingV.y - 24, 'rgba(255,80,60,0.95)', 13);
+          if (autoPlayRef.current) notify('Vehicle destroyed — finding another!', 'rgba(255,160,40,0.95)');
+          if (room) sendVehicleUpdate(drivingV.id, drivingV.x, drivingV.y, drivingV.facing, drivingV.hp, drivingV.fuel, drivingV.driver, drivingV.passenger);
+        }
+      }
+
       const newDeadCount = s.zombies.filter(z => z.dead).length;
       s.zombiesKilled = (s.zombiesKilled ?? 0) + (newDeadCount - prevDeadCount);
 
@@ -1805,7 +2129,9 @@ if (s.player.isSleeping && !s.isFastSleeping && !fastSleepVoteRequestedRef.curre
       if (s.survivors?.length) {
         updateSurvivors(
           s.survivors, s.player, s.vehicle, s.zombies,
-          s.turrets ?? [], s.gardenPlots, s.crops, s.buildings, dt
+          s.turrets ?? [], s.gardenPlots, s.crops, s.buildings, dt,
+          s.vehicles ?? [s.vehicle],   // FIX 1: pass full fleet so P2-following survivors find the right vehicle
+          s.player2                    // FIX 1: pass player2 so survivors know which leader is P2
         );
         // Clean harvested crops flagged by survivor AI
         for (let i = s.crops.length - 1; i >= 0; i--) {
@@ -1819,13 +2145,15 @@ if (s.player.isSleeping && !s.isFastSleeping && !fastSleepVoteRequestedRef.curre
       // ── Convoy vehicle AI (P1 only) ─────────────────────────────────────
       if (!s.convoyVehicles) s.convoyVehicles = [];
       if (s.convoyVehicles.length > 0) {
-        // Zombie collisions for each convoy vehicle
+        // FIX 9: don't run collision for already-dead convoy vehicles (hp=0)
         for (const entry of s.convoyVehicles) {
-          if (!entry._ejected && entry.vehicle.occupied) {
+          if (!entry._ejected && entry.vehicle.occupied && entry.vehicle.hp > 0) {
             updateVehicleCollisions(entry.vehicle, s.zombies, dt, s.buildings);
           }
         }
-        const ejected = updateConvoyVehicles(s.convoyVehicles, s.vehicle, s.survivors, dt, s.buildings);
+        // FIX 2: use the vehicle P1 is actually driving, not the stale s.vehicle reference
+        const convoyLeaderVehicle = getMyVehicle(s, roleRef.current);
+        const ejected = updateConvoyVehicles(s.convoyVehicles, convoyLeaderVehicle, s.survivors, dt, s.buildings);
         // Floaters for ejected survivors
         ejected.forEach(sv => {
           addFloater(s, `${sv.name} on foot!`, sv.x, sv.y - 20, "rgba(255,160,60,0.95)", 13);
@@ -2011,7 +2339,8 @@ if (s.player.isSleeping && !s.isFastSleeping && !fastSleepVoteRequestedRef.curre
       if (now - lastSyncRef.current > SYNC_THROTTLE) {
         lastSyncRef.current = now;
         if (s.player.inVehicle && s.vehicle.driver === roleRef.current) {
-          sendVehicleUpdate(s.vehicle.id, s.vehicle.x, s.vehicle.y, s.vehicle.facing, s.vehicle.hp, s.vehicle.fuel, s.vehicle.driver, s.vehicle.passenger);
+          const myVehicle = getMyVehicle(s, roleRef.current);
+sendVehicleUpdate(myVehicle.id, myVehicle.x, myVehicle.y, myVehicle.facing, myVehicle.hp, myVehicle.fuel, myVehicle.driver, myVehicle.passenger);
         }
         if (isHostRef.current) {
           // Include zombies that just died this frame so partner receives dead:true at least once,
@@ -2649,7 +2978,7 @@ if (weather.colorTint && s.isNight === false) {
         : 0.7 + 0.15 * Math.sin(t * 2);
 
     const arrowX = W - 54;
-    const arrowY = 54;
+    const arrowY = 130;
     const arrowLen = 26;
 
     // Color scheme: red for boss, gold for fragments
@@ -2722,7 +3051,7 @@ if (weather.colorTint && s.isNight === false) {
 
     // Position compass just to the left of the main compass (which is at W-54)
     const arrowX = W - 54 - 56; // 56px gap to the left
-    const arrowY = 54;
+    const arrowY = 130;
     const arrowLen = 26;
     const angle = Math.atan2(dy, dx);
 
@@ -3049,6 +3378,26 @@ if (weather.colorTint && s.isNight === false) {
 
       {/* Top-right HUD: weather + action buttons */}
       <div className="absolute top-3 right-3 flex flex-col items-end gap-2">
+
+        {/* Drop In button — visible during autopilot */}
+        {autoPlay && onDropIn && (
+          <button
+            onClick={onDropIn}
+            style={{
+              padding: "8px 14px",
+              borderRadius: 10,
+              background: "rgba(255,200,80,0.15)",
+              border: "1px solid rgba(255,200,80,0.45)",
+              color: "rgba(255,200,80,0.95)",
+              fontSize: 12,
+              letterSpacing: "0.07em",
+              cursor: "pointer",
+              backdropFilter: "blur(6px)",
+            }}
+          >
+            🎮 Drop In
+          </button>
+        )}
         {/* Weather indicator */}
         <div className="text-xs px-2 py-1 rounded-full pointer-events-none"
           style={{ background: "rgba(0,0,0,0.5)", color: "rgba(255,255,255,0.6)" }}>
@@ -3287,6 +3636,8 @@ if (weather.colorTint && s.isNight === false) {
     sv.state = "idle";
     sv._castTimer = 0;
     sv._castType = null;
+    // FIX 3 & 8: Reset follow slot so it's recalculated fresh for the new leader
+    sv._followSlot = null;
     
     // Track who issued the follow command
     if (cmd === "follow") {
@@ -3302,9 +3653,9 @@ if (weather.colorTint && s.isNight === false) {
     
     setSurvivorMenu(null);
     
-    // Broadcast to partner if in multiplayer
+    // FIX 3: Broadcast with issuedBy so partner knows which player issued this
     if (room && sendSurvivorCommand) {
-      sendSurvivorCommand(sv.id, cmd, sv.assignedTo);
+      sendSurvivorCommand(sv.id, cmd, sv.assignedTo, roleRef.current);
     }
     
     if (cmd === "assign") {
@@ -3347,7 +3698,7 @@ if (weather.colorTint && s.isNight === false) {
     setSurvivorMenu({ survivor: sv });
     // Broadcast priority change
     if (room && sendSurvivorCommand) {
-      sendSurvivorCommand(sv.id, sv.command, sv.assignedTo);
+      sendSurvivorCommand(sv.id, sv.command, sv.assignedTo, roleRef.current);
     }
   }}
 />
@@ -3566,6 +3917,134 @@ if (weather.colorTint && s.isNight === false) {
         </div>
       </div>{/* end bottom-center column */}
 
+      {/* ── Secure-base overlay ── shown after boss death before leaving ── */}
+      {securePhase === "active" && !placingMode && (
+        <div
+          className="absolute inset-0 flex items-end justify-center z-40 pointer-events-none"
+          style={{ paddingBottom: 28 }}
+        >
+          <div
+            className="pointer-events-auto rounded-2xl overflow-hidden"
+            style={{
+              width: 360,
+              background: "rgba(6,10,8,0.96)",
+              border: "1px solid rgba(80,220,120,0.35)",
+              boxShadow: "0 0 40px rgba(80,220,120,0.12)",
+            }}
+          >
+            {/* Header */}
+            <div className="px-5 py-3 flex items-center gap-3"
+              style={{ borderBottom: "1px solid rgba(255,255,255,0.07)", background: "rgba(80,220,120,0.07)" }}>
+              <span className="text-xl">🏴</span>
+              <div>
+                <div className="text-sm font-medium tracking-wide" style={{ color: "rgba(120,255,150,0.95)" }}>
+                  Area Cleared
+                </div>
+                <div className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.35)" }}>
+                  Secure it before you leave — or just go.
+                </div>
+              </div>
+            </div>
+
+            <div className="px-4 py-4 flex flex-col gap-3">
+              {/* Checklist */}
+              <div className="flex flex-col gap-2">
+                {/* Turret row */}
+                <div className="flex items-center gap-3 p-3 rounded-xl"
+                  style={{
+                    background: securePlaced.turret ? "rgba(80,220,120,0.08)" : "rgba(255,255,255,0.03)",
+                    border: `1px solid ${securePlaced.turret ? "rgba(80,220,120,0.3)" : "rgba(255,255,255,0.08)"}`,
+                  }}>
+                  <span className="text-lg w-7 text-center">{securePlaced.turret ? "✅" : "🗼"}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium" style={{ color: securePlaced.turret ? "rgba(120,255,150,0.8)" : "rgba(255,255,255,0.6)" }}>
+                      {securePlaced.turret ? "Turret placed" : "Place a turret"}
+                    </div>
+                    <div className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.25)" }}>
+                      Defends against zombie waves when you're away
+                    </div>
+                  </div>
+                  {!securePlaced.turret && (
+                    <button
+                      onClick={() => {
+                        placingModeRef.current = "turret";
+                        setPlacingMode("turret");
+                      }}
+                      className="text-xs px-3 py-1.5 rounded-lg shrink-0"
+                      style={{
+                        background: "rgba(180,255,120,0.1)",
+                        border: "1px solid rgba(180,255,120,0.3)",
+                        color: "rgba(180,255,120,0.9)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      Place
+                    </button>
+                  )}
+                </div>
+
+                {/* Garden plot row */}
+                <div className="flex items-center gap-3 p-3 rounded-xl"
+                  style={{
+                    background: securePlaced.garden ? "rgba(80,220,120,0.08)" : "rgba(255,255,255,0.03)",
+                    border: `1px solid ${securePlaced.garden ? "rgba(80,220,120,0.3)" : "rgba(255,255,255,0.08)"}`,
+                  }}>
+                  <span className="text-lg w-7 text-center">{securePlaced.garden ? "✅" : "🌱"}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium" style={{ color: securePlaced.garden ? "rgba(120,255,150,0.8)" : "rgba(255,255,255,0.6)" }}>
+                      {securePlaced.garden ? "Garden plot placed" : "Place a garden plot"}
+                    </div>
+                    <div className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.25)" }}>
+                      Generates food passively for your base
+                    </div>
+                  </div>
+                  {!securePlaced.garden && (
+                    <button
+                      onClick={() => {
+                        placingModeRef.current = "crop_plot";
+                        setPlacingMode("crop_plot");
+                      }}
+                      className="text-xs px-3 py-1.5 rounded-lg shrink-0"
+                      style={{
+                        background: "rgba(100,200,60,0.1)",
+                        border: "1px solid rgba(100,200,60,0.3)",
+                        color: "rgba(120,210,80,0.9)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      Place
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Leave button */}
+              <button
+                onClick={handleSecureLeave}
+                className="w-full py-3 rounded-xl text-sm font-medium mt-1"
+                style={{
+                  background: securePlaced.turret && securePlaced.garden
+                    ? "rgba(80,220,120,0.15)"
+                    : "rgba(255,200,80,0.08)",
+                  border: `1px solid ${securePlaced.turret && securePlaced.garden
+                    ? "rgba(80,220,120,0.4)"
+                    : "rgba(255,200,80,0.25)"}`,
+                  color: securePlaced.turret && securePlaced.garden
+                    ? "rgba(120,255,150,0.95)"
+                    : "rgba(255,200,80,0.8)",
+                  cursor: "pointer",
+                  letterSpacing: "0.06em",
+                }}
+              >
+                {securePlaced.turret && securePlaced.garden
+                  ? "✓ Leave — Base Secured"
+                  : "Leave Without Securing →"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Inventory panel */}
       {showInventory && (
         <InventoryPanel
@@ -3606,268 +4085,6 @@ function NeedsBar({ label, value, max, color, warn = 35, crit = 15 }) {
   );
 }
 
-// ─── Build menu ───────────────────────────────────────────────────────────────
 
-function BuildMenu({ inventory, onClose, onSelectTurret, onSelectCropPlot, onSetHomebase, nearSettlement }) {
-  const scrap = inventory.scrap ?? 0;
-  const nails = inventory.nails ?? 0;
-  const canTurret = scrap >= TURRET_COST.scrap && nails >= TURRET_COST.nails;
 
-  return (
-    <div className="absolute inset-0 flex items-center justify-center z-30"
-      style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(2px)" }}
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="rounded-2xl overflow-hidden" style={{ width: 340, background:"rgba(8,9,12,0.97)", border:"1px solid rgba(255,255,255,0.1)" }}>
-        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom:"1px solid rgba(255,255,255,0.07)" }}>
-          <span className="text-sm font-medium tracking-widest uppercase" style={{ color:"rgba(180,255,120,0.85)" }}>🏗️ Build</span>
-          <button onClick={onClose} className="text-xs px-2 py-1 rounded" style={{ color:"rgba(255,255,255,0.35)", background:"rgba(255,255,255,0.05)" }}>
-            G / Esc
-          </button>
-        </div>
-
-        <div className="px-4 py-2 text-xs" style={{ color:"rgba(255,255,255,0.35)", borderBottom:"1px solid rgba(255,255,255,0.07)" }}>
-          Resources: <span style={{ color:"rgba(255,200,80,0.8)" }}>🔩 {scrap} scrap</span>
-          {" · "}<span style={{ color:"rgba(255,200,80,0.8)" }}>📌 {nails} nails</span>
-        </div>
-
-        <div className="px-4 py-4 flex flex-col gap-3">
-          {/* Turret */}
-          <button
-            onClick={canTurret ? onSelectTurret : undefined}
-            className="flex items-start gap-3 p-3 rounded-xl text-left w-full"
-            style={{
-              background: canTurret ? "rgba(100,180,60,0.1)" : "rgba(255,255,255,0.03)",
-              border: `1px solid ${canTurret ? "rgba(180,255,120,0.35)" : "rgba(255,255,255,0.07)"}`,
-              cursor: canTurret ? "pointer" : "not-allowed",
-              opacity: canTurret ? 1 : 0.5,
-            }}>
-            <span className="text-2xl mt-0.5">🗼</span>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium" style={{ color: canTurret ? "rgba(180,255,120,0.9)" : "rgba(255,255,255,0.4)" }}>
-                Auto-Turret
-              </div>
-              <div className="text-xs mt-1" style={{ color:"rgba(255,255,255,0.35)" }}>
-                Shoots nearby zombies automatically. Attracts more from range. Needs manual repair.
-              </div>
-              <div className="text-xs mt-1.5 flex gap-3">
-                <span style={{ color: scrap >= TURRET_COST.scrap ? "rgba(180,255,120,0.7)" : "rgba(255,100,100,0.8)" }}>
-                  🔩 {TURRET_COST.scrap} scrap ({scrap} have)
-                </span>
-                <span style={{ color: nails >= TURRET_COST.nails ? "rgba(180,255,120,0.7)" : "rgba(255,100,100,0.8)" }}>
-                  📌 {TURRET_COST.nails} nails ({nails} have)
-                </span>
-              </div>
-            </div>
-          </button>
-
-          {/* Crop plot */}
-          <button
-            onClick={onSelectCropPlot}
-            className="flex items-start gap-3 p-3 rounded-xl text-left w-full"
-            style={{
-              background: "rgba(60,120,30,0.1)",
-              border: "1px solid rgba(100,180,60,0.35)",
-              cursor: "pointer",
-            }}>
-            <span className="text-2xl mt-0.5">🌱</span>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium" style={{ color:"rgba(120,210,80,0.9)" }}>
-                Garden Plot
-              </div>
-              <div className="text-xs mt-1" style={{ color:"rgba(255,255,255,0.35)" }}>
-                Place a new plot anywhere on open ground. Needs seeds to plant (F near plot).
-              </div>
-              <div className="text-xs mt-1.5" style={{ color:"rgba(120,210,80,0.55)" }}>
-                Free to place
-              </div>
-            </div>
-          </button>
-
-          {/* Set as Homebase — only shown when near a settlement */}
-          {nearSettlement && (
-            <button
-              onClick={onSetHomebase}
-              className="flex items-start gap-3 p-3 rounded-xl text-left w-full"
-              style={{
-                background: nearSettlement.isHome ? "rgba(255,200,80,0.08)" : "rgba(255,255,255,0.03)",
-                border: `1px solid ${nearSettlement.isHome ? "rgba(255,200,80,0.3)" : "rgba(255,255,255,0.1)"}`,
-                cursor: nearSettlement.isHome ? "default" : "pointer",
-              }}>
-              <span className="text-2xl mt-0.5">🏠</span>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium" style={{ color: nearSettlement.isHome ? "rgba(255,200,80,0.7)" : "rgba(255,255,255,0.7)" }}>
-                  {nearSettlement.isHome ? `✓ ${nearSettlement.name} is your homebase` : `Set ${nearSettlement.name} as Homebase`}
-                </div>
-                <div className="text-xs mt-1" style={{ color:"rgba(255,255,255,0.3)" }}>
-                  {nearSettlement.isHome ? "Base screen shows crops & survivors here." : "Designates this settlement as your base of operations."}
-                </div>
-              </div>
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-const ITEM_META = {
-  food:         { icon: "🍞", name: "Food",        desc: "Press Q to eat (+25 food)" },
-  water:        { icon: "💧", name: "Water",       desc: "Press R to drink (+30 water)" },
-  wood:         { icon: "🪵", name: "Wood",        desc: "Used for barricading & building" },
-  nails:        { icon: "📌", name: "Nails",       desc: "Used for barricading & building" },
-  scrap:        { icon: "🔩", name: "Scrap Metal", desc: "Used to build and repair turrets" },
-  tools:        { icon: "🔧", name: "Tools",       desc: "Useful for repairs" },
-  bat:          { icon: "🪓", name: "Baseball Bat",desc: "Melee weapon — auto-equipped" },
-  seeds:        { icon: "🌱", name: "Seeds",       desc: "Plant in a garden (F near plot)" },
-  car_parts:    { icon: "⚙️",  name: "Car Parts",  desc: "Press E near vehicle to repair (+40 HP)" },
-  fuel:         { icon: "⛽", name: "Fuel",        desc: "Auto-applied to vehicle tank" },
-  map_fragment: { icon: "🗺️", name: "Map Fragment",desc: "Shows the highway exit — drive north!" },
-};
-
-function InventoryPanel({ inventory, player, onClose, onEat, onDrink }) {
-  const items = Object.entries(inventory || {}).filter(([, qty]) => qty > 0);
-
-  return (
-    <div className="absolute inset-0 flex items-center justify-center z-30"
-      style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)" }}
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="rounded-2xl overflow-hidden" style={{ width: 380, maxHeight: "80vh", background:"rgba(8,9,12,0.97)", border:"1px solid rgba(255,255,255,0.1)" }}>
-        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom:"1px solid rgba(255,255,255,0.07)" }}>
-          <span className="text-sm font-medium tracking-widest uppercase" style={{ color:"rgba(255,200,80,0.85)" }}>Shared Inventory</span>
-          <button onClick={onClose} className="text-xs px-2 py-1 rounded" style={{ color:"rgba(255,255,255,0.35)", background:"rgba(255,255,255,0.05)" }}>
-            ESC / close
-          </button>
-        </div>
-        {player && (
-          <div className="px-5 py-3 grid grid-cols-2 gap-2" style={{ borderBottom:"1px solid rgba(255,255,255,0.07)" }}>
-            {[
-              { label:"Health", val: player.hp,    color:"#ff5555" },
-              { label:"Food",   val: player.food,  color:"#f0a030" },
-              { label:"Water",  val: player.water, color:"#44aaff" },
-              { label:"Sleep",  val: player.sleep, color:"#9966ff" },
-            ].map(n => (
-              <div key={n.label} className="flex items-center gap-2">
-                <span className="text-xs w-12" style={{ color:"rgba(255,255,255,0.4)" }}>{n.label}</span>
-                <div className="flex-1 rounded-full overflow-hidden" style={{ height:4, background:"rgba(255,255,255,0.08)" }}>
-                  <div style={{ height:"100%", width:`${Math.max(0,Math.min(100,n.val))}%`, background: n.val < 20 ? "#ff3333" : n.val < 40 ? "#ff9900" : n.color, transition:"width 0.3s" }} />
-                </div>
-                <span className="text-xs w-6 text-right" style={{ color:"rgba(255,255,255,0.3)" }}>{Math.floor(n.val)}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        <div className="px-5 py-3 flex gap-2" style={{ borderBottom:"1px solid rgba(255,255,255,0.07)" }}>
-          <button onClick={onEat}
-            className="flex-1 py-2 rounded-lg text-xs font-medium"
-            style={{ background:"rgba(240,160,48,0.12)", border:"1px solid rgba(240,160,48,0.25)", color:"rgba(240,160,48,0.9)" }}>
-            🍞 Eat food (Q)
-          </button>
-          <button onClick={onDrink}
-            className="flex-1 py-2 rounded-lg text-xs font-medium"
-            style={{ background:"rgba(68,170,255,0.12)", border:"1px solid rgba(68,170,255,0.25)", color:"rgba(68,170,255,0.9)" }}>
-            💧 Drink water (R)
-          </button>
-        </div>
-        <div className="overflow-y-auto px-3 py-3" style={{ maxHeight: 320 }}>
-          {items.length === 0 ? (
-            <div className="text-center py-8 text-xs" style={{ color:"rgba(255,255,255,0.2)" }}>
-              No items. Explore buildings and press F near loot.
-            </div>
-          ) : (
-            items.map(([type, qty]) => {
-              const meta = ITEM_META[type] ?? { icon: "📦", name: type, desc: "" };
-              return (
-                <div key={type} className="flex items-center gap-3 px-2 py-2.5 rounded-lg mb-1"
-                  style={{ background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.05)" }}>
-                  <span className="text-xl w-8 text-center">{meta.icon}</span>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs font-medium" style={{ color:"rgba(255,255,255,0.75)" }}>{meta.name}</div>
-                    <div className="text-xs mt-0.5" style={{ color:"rgba(255,255,255,0.3)" }}>{meta.desc}</div>
-                  </div>
-                  <div className="text-sm font-mono font-bold" style={{ color:"rgba(255,220,80,0.85)", minWidth:28, textAlign:"right" }}>
-                    ×{qty}
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-        {player?.weapon && (
-          <div className="px-5 py-3" style={{ borderTop:"1px solid rgba(255,255,255,0.07)" }}>
-            <div className="text-xs mb-1" style={{ color:"rgba(255,255,255,0.3)" }}>equipped weapon</div>
-            <div className="flex items-center gap-2 px-3 py-2 rounded-lg"
-              style={{ background:"rgba(255,220,80,0.07)", border:"1px solid rgba(255,220,80,0.2)" }}>
-              <span className="text-base">🪓</span>
-              <span className="text-xs font-medium" style={{ color:"rgba(255,220,80,0.9)" }}>{player.weapon}</span>
-              <span className="ml-auto text-xs" style={{ color:"rgba(255,255,255,0.3)" }}>Space to swing</span>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── Survivor command menu ────────────────────────────────────────────────────
-
-function SurvivorCommandMenu({ survivor, onClose, onCommand, onTogglePriority }) {
-  const commands = [
-    { cmd: "follow",    label: "Follow me",      icon: "🟡", desc: "Walks near you, fights if needed" },
-    { cmd: "stay_here", label: "Stay here",      icon: "🟤", desc: "Holds position, defends area" },
-    { cmd: "stay_safe", label: "Stay safe",      icon: "🟢", desc: "Retreats from zombies, wanders nearby" },
-    { cmd: "fight",     label: "Fight",          icon: "🔴", desc: "Actively hunts nearby zombies" },
-    { cmd: "assign",    label: "Assign to…",     icon: "🔵", desc: "Walk to a turret or crop plot to assign" },
-    { cmd: "convoy",    label: "Drive convoy",   icon: "🚗", desc: "Takes a free vehicle and follows your trail" },
-  ];
-  const colMap = { follow:"rgba(255,200,60,0.9)", stay_here:"rgba(200,150,80,0.9)", stay_safe:"rgba(120,220,80,0.9)", fight:"rgba(255,100,100,0.9)", assign:"rgba(80,200,255,0.9)", convoy:"rgba(80,220,200,0.9)" };
-
-  return (
-    <div className="absolute inset-0 flex items-center justify-center z-30"
-      style={{ background:"rgba(0,0,0,0.5)", backdropFilter:"blur(2px)" }}
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="rounded-2xl overflow-hidden" style={{ width: 320, background:"rgba(8,9,12,0.97)", border:"1px solid rgba(255,255,255,0.1)" }}>
-        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom:"1px solid rgba(255,255,255,0.07)" }}>
-          <div>
-            <span className="text-sm font-medium" style={{ color:"rgba(255,220,80,0.9)" }}>👤 {survivor.name}</span>
-            <span className="ml-2 text-xs" style={{ color:"rgba(255,255,255,0.3)" }}>HP {survivor.hp}/{survivor.maxHp}</span>
-          </div>
-          <button onClick={onClose} className="text-xs px-2 py-1 rounded" style={{ color:"rgba(255,255,255,0.35)", background:"rgba(255,255,255,0.05)" }}>Esc</button>
-        </div>
-
-        <div className="px-4 py-3 flex flex-col gap-2">
-          {commands.map(({ cmd, label, icon, desc }) => (
-            <button key={cmd}
-              onClick={() => onCommand(cmd)}
-              className="flex items-start gap-3 p-3 rounded-xl text-left w-full"
-              style={{
-                background: survivor.command === cmd ? `${(colMap[cmd] ?? "rgba(255,255,255,0.9)").replace("0.9","0.1")}` : "rgba(255,255,255,0.03)",
-                border: `1px solid ${survivor.command === cmd ? (colMap[cmd] ?? "rgba(255,255,255,0.3)").replace("0.9","0.35") : "rgba(255,255,255,0.07)"}`,
-                cursor: "pointer",
-              }}>
-              <span className="text-sm mt-0.5">{icon}</span>
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-medium" style={{ color: survivor.command === cmd ? (colMap[cmd] ?? "rgba(255,255,255,0.9)") : "rgba(255,255,255,0.7)" }}>
-                  {label} {survivor.command === cmd ? "✓" : ""}
-                </div>
-                <div className="text-xs mt-0.5" style={{ color:"rgba(255,255,255,0.3)" }}>{desc}</div>
-              </div>
-            </button>
-          ))}
-        </div>
-
-        {/* Priority toggle (only relevant for crop-assigned survivors) */}
-        {survivor.command === "assign" && survivor.assignedTo?.structureType === "crop" && (
-          <div className="px-4 pb-4">
-            <button onClick={onTogglePriority}
-              className="w-full py-2 rounded-lg text-xs"
-              style={{ background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", color:"rgba(255,255,255,0.5)" }}>
-              Priority: <span style={{ color:"rgba(255,220,80,0.85)" }}>
-                {survivor.priority === "safety_first" ? "⚠️ Safety first (flee zombies)" : "🌿 Harvest first (ignore zombies)"}
-              </span> — tap to toggle
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
+// InventoryPanel, BuildMenu, SurvivorCommandMenu → see their own .jsx files

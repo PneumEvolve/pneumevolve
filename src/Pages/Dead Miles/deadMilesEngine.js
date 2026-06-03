@@ -1676,7 +1676,7 @@ export function tryEnterVehicle(player, vehicle, role) {
 
 // ─── Door open/close ──────────────────────────────────────────────────────────
 
-const DOOR_INTERACT_RANGE = 38;
+const DOOR_INTERACT_RANGE = 50;
 
 export function tryToggleDoor(player, buildings) {
   if (player.inVehicle) return null;
@@ -1766,7 +1766,17 @@ function getDoorRoutingWaypoint(zombie, targetX, targetY, buildings) {
 
   if (zombieBuilding && zombieBuilding !== targetBuilding) {
     const openDoors = (zombieBuilding.doors || []).filter(d => d.open || d.broken);
-    if (openDoors.length === 0) return null;
+    if (openDoors.length === 0) {
+      // All doors closed — pick the nearest door and aim for it so the zombie
+      // approaches it for bashing rather than charging into the wall.
+      let bestDoor = null, bestDist = Infinity;
+      for (const door of (zombieBuilding.doors || [])) {
+        const dc = getDoorCenter(zombieBuilding, door);
+        const d = dist(zombie.x, zombie.y, dc.x, dc.y);
+        if (d < bestDist) { bestDist = d; bestDoor = door; }
+      }
+      return bestDoor ? doorWaypoint(zombieBuilding, bestDoor, zombie, 1) : null;
+    }
     let best = null, bestScore = Infinity;
     for (const door of openDoors) {
       const dc = getDoorCenter(zombieBuilding, door);
@@ -1953,12 +1963,16 @@ export function updateZombies(zombies, player, vehicle, dt, isNight, buildings, 
       }
       case "bash_door": {
         const attackDistBash = z.radius + (targetInVehicle ? VEHICLE_RADIUS : PLAYER_RADIUS) + 4;
-        if (!wallOccluded && dToPlayer < attackDistBash * 2.0) {
-          z.state = "attack"; z._bashDoorId = null; z._bashBuildingId = null; break;
-        }
+        // Check if the door was broken/opened first — if so, resume chasing.
         const doorStillBlocking = buildings && isDoorStillBlocking(z, buildings);
         if (!doorStillBlocking) {
           z.state = "chase"; z._bashDoorId = null; z._bashBuildingId = null; break;
+        }
+        // Only allow switching to attack when the wall is no longer occluding
+        // AND the door is already gone (checked above). If wall still blocks,
+        // keep bashing even if the zombie somehow got line-of-sight.
+        if (!wallOccluded && dToPlayer < attackDistBash * 2.0) {
+          z.state = "attack"; z._bashDoorId = null; z._bashBuildingId = null; break;
         }
         if (!wallOccluded && (canSee || canHear)) {
           z.state = "chase"; z._bashDoorId = null; z._bashBuildingId = null; break;
@@ -1978,7 +1992,10 @@ export function updateZombies(zombies, player, vehicle, dt, isNight, buildings, 
             const dc = getDoorCenter(b, door);
             const dToDoor = dist(z.x, z.y, dc.x, dc.y);
             if (dToDoor > DOOR_BASH_RANGE) {
-              moveToward(z, dc.x, dc.y, z.speed, dt);
+              // Approach from the exterior face of the door so wall-collision
+              // geometry doesn't push the zombie back every frame (stuck loop).
+              const wp = doorWaypoint(b, door, z, 1);
+              moveToward(z, wp.x, wp.y, z.speed, dt);
               for (const bld of buildings) resolveWallCollision(z, bld);
             }
           }
@@ -2019,8 +2036,14 @@ export function updateZombies(zombies, player, vehicle, dt, isNight, buildings, 
 }
 
 function findBlockingDoor(zombie, targetX, targetY, buildings) {
+  // Only consider doors that block the zombie's path FROM OUTSIDE.
+  // If the zombie is already inside the building that owns the door, that
+  // door isn't blocking its exit — it should use getDoorRoutingWaypoint instead.
+  const zombieBuilding = buildings.find(b => isInsideBuilding(zombie, b));
   for (const b of buildings) {
     if (!b.doors) continue;
+    // Skip doors on the building the zombie is currently inside.
+    if (zombieBuilding && zombieBuilding.id === b.id) continue;
     for (const door of b.doors) {
       if (door.open || door.broken) continue;
       if (b.barricadeHp > 0) continue;
@@ -2030,6 +2053,7 @@ function findBlockingDoor(zombie, targetX, targetY, buildings) {
       const toTarget = { x: targetX - zombie.x, y: targetY - zombie.y };
       const toDoor   = { x: dc.x - zombie.x,    y: dc.y - zombie.y };
       const dot = toTarget.x * toDoor.x + toTarget.y * toDoor.y;
+      // Require the door to be clearly in the direction of the target (dot > 0)
       if (dot <= 0) continue;
       return { building: b, door };
     }
@@ -2867,6 +2891,10 @@ export function collectMapFragment(state, fragmentItem) {
     ? { x: nextFragBuilding.x + nextFragBuilding.w / 2, y: nextFragBuilding.y + nextFragBuilding.h / 2, settlementId: nextSid }
     : { x: nextSettlement.cx, y: nextSettlement.cy, settlementId: nextSid };
 
+  // Remember that the AI still needs to finish looting the settlement where
+  // the fragment was just found before heading to the next one.
+  state.pendingLootSettlementId = curSid;
+
   return { isEndgame: false, nextSettlement };
 }
 
@@ -2918,7 +2946,10 @@ export function updateConvoyVehicles(convoyVehicles, playerVehicle, survivors, d
     const { vehicle: cv, survivor: sv } = entry;
     if (!sv || sv.hp <= 0 || cv.hp <= 0) continue;
 
-    if (sv._crumbIdx === undefined) sv._crumbIdx = 0;
+    // FIX 5: initialise _crumbIdx to the most recent crumb (end of trail) so newly
+    // assigned convoy vehicles start chasing near the player's current position
+    // rather than teleporting all the way back to the oldest crumb.
+    if (sv._crumbIdx === undefined) sv._crumbIdx = Math.max(0, crumbs.length - 1);
 
     const crumbs = playerVehicle._crumbs;
     if (!crumbs || crumbs.length === 0) continue;
@@ -3128,7 +3159,7 @@ export function assignSurvivorToConvoy(survivor, convoyVehicles, vehicles, vehic
   return entry;
 }
 
-export function updateSurvivors(survivors, player, vehicle, zombies, turrets, gardenPlots, crops, buildings, dt) {
+export function updateSurvivors(survivors, player, vehicle, zombies, turrets, gardenPlots, crops, buildings, dt, vehicles = null, player2 = null) {
   for (const sv of survivors) {
     if (sv.hp <= 0) continue;
 
@@ -3192,15 +3223,19 @@ export function updateSurvivors(survivors, player, vehicle, zombies, turrets, ga
         }
 
         if (leaderInVehicle) {
-          // Leader just entered a vehicle — find it
-          // vehicle arg is the player's primary vehicle; check it first, then any others
-          const allVehicles = vehicle ? [vehicle] : [];
-          // If a vehicles array was threaded in via a _vehicles hint, use it
-          if (vehicle?._fleet) allVehicles.push(...vehicle._fleet);
-          const leaderVehicle = allVehicles.find(v =>
-            v.driver === (leader === player ? "p1" : "p2") ||
-            v.passenger === (leader === player ? "p1" : "p2")
-          ) ?? vehicle; // fallback to primary vehicle
+          // Leader just entered a vehicle — search the full fleet for whichever
+          // vehicle claims the leader as driver or passenger.
+          // FIX 1: use the vehicles array passed from the caller instead of _fleet hack.
+          const allVehicles = vehicles ? [...vehicles] : vehicle ? [vehicle] : [];
+
+          // Determine the role string for this leader
+          const leaderRole = (leader === player) ? "p1"
+                           : (player2 && leader === player2) ? "p2"
+                           : null;
+
+          const leaderVehicle = leaderRole
+            ? (allVehicles.find(v => v.driver === leaderRole || v.passenger === leaderRole) ?? vehicle)
+            : vehicle;
 
           if (leaderVehicle) {
             const cfg = VEHICLE_TYPES[leaderVehicle.vehicleType] ?? VEHICLE_TYPES.car;
@@ -3237,14 +3272,31 @@ export function updateSurvivors(survivors, player, vehicle, zombies, turrets, ga
         // survivor doesn't park directly behind them (makes T-selecting nearly
         // impossible because you'd have to walk into them to get in range).
         const leaderFacing = leader.facing ?? 0;
-        // Each survivor gets a stable lateral slot based on their id so multiple
-        // survivors fan out rather than stacking.
-        const svSlot = (sv._followSlot = sv._followSlot ?? ((sv.id?.charCodeAt?.(sv.id.length - 1) ?? 0) % 3 - 1));
+        // FIX 4: Assign a stable lateral slot based on this survivor's index among
+        // all living followers of the same leader, rather than % 3 which causes
+        // stacking whenever there are more than 3 followers.
+        // We cache _followSlot on the survivor; if it's missing or null we assign it
+        // based on how many survivors already have a slot (so new recruits get the
+        // next free slot rather than colliding with existing ones).
+        if (sv._followSlot == null) {
+          const usedSlots = survivors
+            .filter(s2 => s2 !== sv && s2.hp > 0 && s2.command === "follow" && s2._followSlot != null)
+            .map(s2 => s2._followSlot);
+          // Find the first slot index not already taken
+          let slotIdx = 0;
+          while (usedSlots.includes(slotIdx)) slotIdx++;
+          sv._followSlot = slotIdx;
+        }
+        // Convert slot index → signed lateral offset:
+        // slot 0 → 0, slot 1 → +1, slot 2 → −1, slot 3 → +2, slot 4 → −2, …
+        const svSlot = sv._followSlot;
+        const svLateralSign = svSlot === 0 ? 0 : svSlot % 2 === 1 ? 1 : -1;
+        const svLateralMag  = Math.ceil(svSlot / 2);
         const lateralAngle = leaderFacing + Math.PI / 2;
         const behindX  = leader.x - Math.cos(leaderFacing) * SURVIVOR_FOLLOW_DIST;
         const behindY  = leader.y - Math.sin(leaderFacing) * SURVIVOR_FOLLOW_DIST;
-        const targetX  = behindX + Math.cos(lateralAngle) * (svSlot * 36);
-        const targetY  = behindY + Math.sin(lateralAngle) * (svSlot * 36);
+        const targetX  = behindX + Math.cos(lateralAngle) * (svLateralSign * svLateralMag * 36);
+        const targetY  = behindY + Math.sin(lateralAngle) * (svLateralSign * svLateralMag * 36);
 
         // If the follow target is on the other side of a building wall, route
         // through the nearest open door instead of walking straight into the wall.
@@ -3750,3 +3802,1201 @@ export function applyOfflineBaseTick(state, activityLog) {
   if (elapsed < 2) return { harvested: [], damaged: [], produced: [] };
   return baseTick(state, elapsed, activityLog);
 }
+// ─── Autopilot player AI ──────────────────────────────────────────────────────
+// Pure function — no React, no side effects.
+// Returns a synthetic { dx, dy, action } each frame for GameView to apply.
+//
+// Behavior tree (priority order):
+//   0. spawn_safety  — first AUTO_SPAWN_GRACE seconds: beeline to nearest vehicle,
+//                      flee away from zombie centroid, ignore all fight logic.
+//                      Prevents instant death from the awakening ring.
+//   1. vehicle_seek  — on foot and 2+ threats nearby: find any available vehicle
+//                      in the full fleet and head for it. Handles destroyed-vehicle
+//                      recovery — if current vehicle is gone, target a different one.
+//   2. flee_threat   — on foot, overwhelmed (3+ threats very close), no vehicle
+//                      reachable quickly: back away from closest threat centroid.
+//   3. fight         — exactly 1 zombie nearby AND player has a melee weapon:
+//                      close in and swing. Never charges a mob unarmed.
+//   4. fight_vehicle — in vehicle and threats nearby: drive them down.
+//   5. collect_loot  — nearby uncollected loot, not too many zombies around it.
+//   6. enter_vehicle — vehicle is close and unoccupied: enter it.
+//   7. boss_fight    — boss alive and fragment collected: close on boss.
+//   8. exiting       — boss dead: drive/walk toward level exit (north edge).
+//   9. fragment_hunt — navigate toward compassTarget building.
+//  10. idle          — nothing to do.
+
+export const AUTO_MELEE_RANGE    = MELEE_RANGE  ?? 32;
+export const AUTO_LOOT_RANGE     = LOOT_RANGE;
+export const AUTO_FLEE_RANGE     = 55;
+export const AUTO_VEHICLE_RANGE  = 60;
+export const AUTO_THREAT_RANGE   = 100;
+// How many seconds after spawn the AI is in "safety first" mode.
+export const AUTO_SPAWN_GRACE    = 4.0;
+// How many zombies near a loot pile make it not worth grabbing on foot.
+export const AUTO_LOOT_DANGER_THRESHOLD = 3;
+// Radius checked around a loot pile before deciding it's too hot.
+export const AUTO_LOOT_DANGER_RANGE     = AUTO_THREAT_RANGE * 0.8;
+// Search radius for "any available vehicle in the fleet" fallback.
+export const AUTO_FLEET_SEEK_RANGE  = 900;
+
+// Needs thresholds — AI pauses everything to eat/drink/sleep at these levels.
+export const AUTO_EAT_AT   = 25;   // food ≤ this → eat if possible
+export const AUTO_DRINK_AT = 25;   // water ≤ this → drink if possible
+export const AUTO_SLEEP_AT = 25;   // sleep ≤ this → find safe spot and sleep
+export const AUTO_SLEEP_UNTIL = 100; // sleep until this level before waking
+
+export function updateAutoPlayer(player, state, dt) {
+  const { zombies = [], lootPiles = [], buildings = [], compassTarget, bossZombie } = state;
+  const inVehicle = player.inVehicle;
+
+  // ── Resolve current vehicle position ─────────────────────────────────────
+  // Use the vehicle the player is actually occupying (driver or passenger),
+  // not the potentially-stale state.vehicle singleton.
+  const allVehicles = state.vehicles ?? (state.vehicle ? [state.vehicle] : []);
+  const myVehicle   = inVehicle
+    ? (allVehicles.find(v => v.driver === "p1" || v.passenger === "p1") ?? state.vehicle)
+    : null;
+
+  const px = (inVehicle && myVehicle) ? myVehicle.x : player.x;
+  const py = (inVehicle && myVehicle) ? myVehicle.y : player.y;
+
+  // ── Helper: normalised direction toward target ────────────────────────────
+  function toward(tx, ty) {
+    const dx = tx - px, dy = ty - py;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 1) return { dx: 0, dy: 0 };
+    return { dx: dx / len, dy: dy / len };
+  }
+
+  // ── Wall-stuck detector ───────────────────────────────────────────────────
+  // Tracks position every STUCK_SAMPLE_INTERVAL seconds. If the player has
+  // moved less than STUCK_MIN_DIST in that window while trying to move, they
+  // are stuck on a wall. We rotate the intended direction by STUCK_ROTATE_DEG
+  // and accumulate the rotation each consecutive stuck interval so the AI
+  // spirals around corners rather than oscillating in one spot.
+  //
+  // Vehicles move ~2× faster than foot, so we use a proportionally larger
+  // minimum-distance threshold — otherwise the detector fires too slowly
+  // and the vehicle spends multiple intervals grinding against a wall.
+  //
+  // The rotation is stored on the player object so it persists across frames.
+  // It resets automatically once the player is moving freely again.
+  const STUCK_SAMPLE_INTERVAL = 0.35;  // seconds between position snapshots
+  const STUCK_MIN_DIST        = inVehicle ? 28 : 12; // px — larger for fast vehicles
+  const STUCK_ROTATE_DEG      = inVehicle ? 45 : 55; // vehicles need shallower arc to stay on road
+
+  if (!player._stuckTimer)    player._stuckTimer    = 0;
+  if (!player._stuckSampleX)  player._stuckSampleX  = px;
+  if (!player._stuckSampleY)  player._stuckSampleY  = py;
+  if (!player._stuckRotation) player._stuckRotation = 0;
+
+  player._stuckTimer += dt;
+  if (player._stuckTimer >= STUCK_SAMPLE_INTERVAL) {
+    const moved = dist(px, py, player._stuckSampleX, player._stuckSampleY);
+    if (moved < STUCK_MIN_DIST) {
+      // Still stuck — accumulate more rotation, capped at ~150° so the AI
+      // never points backward and oscillates in a permanent loop.
+      const MAX_STUCK_ROT = 150 * (Math.PI / 180);
+      player._stuckRotation = Math.min(
+        player._stuckRotation + STUCK_ROTATE_DEG * (Math.PI / 180),
+        MAX_STUCK_ROT
+      );
+    } else {
+      // Moving freely — decay rotation back toward 0
+      player._stuckRotation *= 0.3;
+      if (Math.abs(player._stuckRotation) < 0.05) player._stuckRotation = 0;
+    }
+    player._stuckTimer   = 0;
+    player._stuckSampleX = px;
+    player._stuckSampleY = py;
+  }
+
+  // Apply rotation to a direction vector when the player is stuck.
+  // Returns the original direction if not stuck.
+  function unstuck(dirObj) {
+    const rot = player._stuckRotation;
+    if (!rot) return dirObj;
+    const cos = Math.cos(rot), sin = Math.sin(rot);
+    return {
+      dx: dirObj.dx * cos - dirObj.dy * sin,
+      dy: dirObj.dx * sin + dirObj.dy * cos,
+    };
+  }
+
+  // ── Helper: door-aware waypoint toward a loot pile ───────────────────────
+  // Returns the point the AI should walk toward to reach the pile:
+  //   • Pile is outside (or in an open building): the pile itself.
+  //   • Pile is inside a building and player is OUTSIDE: interior face of the
+  //     best open/broken door (32px inside the wall so the AI clears the
+  //     threshold and wall-collision doesn't block forward progress).
+  //   • Pile is inside a building and player is ALREADY INSIDE: the pile itself.
+  // If all doors are closed/intact the pile is effectively inaccessible right
+  // now — returns null so the caller can skip it.
+  // Does the straight segment a→b pass through building b's footprint?
+  // Cheap probe-point sampler; used to avoid routing the AI's door approach
+  // straight through the building when the chosen door is on the far side.
+  function segCrossesBuilding(ax, ay, bx, by, bld) {
+    for (let t = 0.08; t < 1; t += 0.08) {
+      const sx = ax + (bx - ax) * t;
+      const sy = ay + (by - ay) * t;
+      if (sx > bld.x && sx < bld.x + bld.w && sy > bld.y && sy < bld.y + bld.h) return true;
+    }
+    return false;
+  }
+
+  function getLootWaypoint(pile) {
+    const pileBuilding = buildings.find(b =>
+      pile.x > b.x && pile.x < b.x + b.w &&
+      pile.y > b.y && pile.y < b.y + b.h
+    );
+    if (!pileBuilding) return { x: pile.x, y: pile.y }; // pile is outside
+
+    // Already inside the pile's building — walk straight to the pile.
+    // This is the ONLY condition that switches us from "thread the doorway" to
+    // "go to the pile". The old code used a 90px distance shortcut that fired
+    // while the AI was still OUTSIDE the wall (the interior point is 52px in,
+    // reached from ~36px out = 88px < 90px), sending the AI diagonally into the
+    // wall beside the door. Gating on isInsideBuilding eliminates that.
+    if (isInsideBuilding({ x: px, y: py }, pileBuilding)) return { x: pile.x, y: pile.y };
+
+    // Player is outside — need an open/broken door to get in.
+    const openDoors = (pileBuilding.doors ?? []).filter(d => d.open || d.broken);
+    if (openDoors.length === 0) return null; // no way in yet
+
+    const OUT = 36, IN = 52;
+    const exteriorOf = (door) => {
+      const dc = getDoorCenter(pileBuilding, door);
+      return {
+        north: { x: dc.x,       y: dc.y - OUT },
+        south: { x: dc.x,       y: dc.y + OUT },
+        west:  { x: dc.x - OUT, y: dc.y       },
+        east:  { x: dc.x + OUT, y: dc.y       },
+      }[door.side] ?? { x: dc.x, y: dc.y - OUT };
+    };
+    const interiorOf = (door) => {
+      const dc = getDoorCenter(pileBuilding, door);
+      return {
+        north: { x: dc.x,      y: dc.y + IN },
+        south: { x: dc.x,      y: dc.y - IN },
+        west:  { x: dc.x + IN, y: dc.y       },
+        east:  { x: dc.x - IN, y: dc.y       },
+      }[door.side] ?? { x: dc.x, y: dc.y + IN };
+    };
+
+    // Pick the best door: (player→door) + (door→pile), but heavily penalise any
+    // door whose exterior approach point can't be reached without walking
+    // through the building (i.e. the door faces away from us). For a building
+    // with a near-side door this guarantees we use it.
+    let bestDoor = null, bestScore = Infinity;
+    for (const door of openDoors) {
+      const dc  = getDoorCenter(pileBuilding, door);
+      const ext = exteriorOf(door);
+      let score = dist(px, py, dc.x, dc.y) * 0.5 + dist(dc.x, dc.y, pile.x, pile.y) * 0.5;
+      if (segCrossesBuilding(px, py, ext.x, ext.y, pileBuilding)) score += 100000;
+      if (score < bestScore) { bestScore = score; bestDoor = door; }
+    }
+
+    const exterior = exteriorOf(bestDoor);
+    const interior = interiorOf(bestDoor);
+    const dc2      = getDoorCenter(pileBuilding, bestDoor);
+
+    // Threading decision is based on LATERAL alignment with the door gap, NOT on
+    // distance/depth. Depth-based switching yo-yos when the AI sits near the
+    // stage boundary; lateral switching is stable because both the exterior and
+    // interior targets lie on the door's centreline:
+    //   • Off to the side of the gap → aim at the exterior point to line up.
+    //   • Laterally within the gap     → aim at the interior point and walk
+    //     straight through; isInsideBuilding() then flips us to the pile.
+    // (For the rare building whose only open door faces away, the door-score
+    //  penalty above already prefers any reachable door; a genuinely far-side
+    //  single door is rounded by the engine's wall-slide + unstuck rotation.)
+    const horiz   = (bestDoor.side === "north" || bestDoor.side === "south");
+    const lateral = horiz ? Math.abs(px - dc2.x) : Math.abs(py - dc2.y);
+    const halfGap = (bestDoor.width ?? 28) / 2;
+    if (lateral <= halfGap) return interior;
+    return exterior;
+  }
+
+  // ── Helper: exit waypoint when player is trapped inside a building ────────
+  // Returns the exterior face of the nearest open/broken door, or null if
+  // the player is not inside any building.
+  // Also returns an open_door action if the nearest exit door is still closed,
+  // so the AI can let itself out rather than standing at a sealed wall.
+  function getBuildingExitWaypoint() {
+    const playerBuilding = buildings.find(b => isInsideBuilding({ x: px, y: py }, b));
+    if (!playerBuilding) return null;
+    const openDoors = (playerBuilding.doors ?? []).filter(d => d.open || d.broken);
+    const doorsToUse = openDoors.length > 0 ? openDoors : (playerBuilding.doors ?? []);
+    let best = null, bestDist = Infinity, bestDoor = null;
+    for (const door of doorsToUse) {
+      const dc = getDoorCenter(playerBuilding, door);
+      const exterior = {
+        north: { x: dc.x,      y: dc.y - 32 },
+        south: { x: dc.x,      y: dc.y + 32 },
+        west:  { x: dc.x - 32, y: dc.y      },
+        east:  { x: dc.x + 32, y: dc.y      },
+      }[door.side] ?? { x: dc.x, y: dc.y - 32 };
+      const d = dist(px, py, exterior.x, exterior.y);
+      if (d < bestDist) { bestDist = d; best = exterior; bestDoor = door; }
+    }
+    if (!best) return null;
+    // If the best available door is still closed, open it first (fires once we're
+    // close enough to the door centre) so the AI doesn't deadlock at a sealed wall.
+    if (bestDoor && !bestDoor.open && !bestDoor.broken) {
+      const dc = getDoorCenter(playerBuilding, bestDoor);
+      if (dist(px, py, dc.x, dc.y) < 50) {
+        return { x: best.x, y: best.y, openDoorFirst: true };
+      }
+    }
+    return best;
+  }
+
+  // ── Helper: universal on-foot exit-building guard ─────────────
+  // Call before any on-foot toward() that aims at a target that may be outside
+  // the player's current building. Returns an exit move object if the player
+  // is trapped inside a building whose walls lie between them and the target,
+  // or null if the player is already outside (or target is in the same building).
+  function exitBuildingIfNeeded(targetX, targetY, behavior = "exit_building") {
+    if (inVehicle) return null;
+    const playerBuilding = buildings.find(b => isInsideBuilding({ x: px, y: py }, b));
+    if (!playerBuilding) return null;
+    const targetInSame = (
+      targetX > playerBuilding.x && targetX < playerBuilding.x + playerBuilding.w &&
+      targetY > playerBuilding.y && targetY < playerBuilding.y + playerBuilding.h
+    );
+    if (targetInSame) return null;
+    const openDoors = (playerBuilding.doors ?? []).filter(d => d.open || d.broken);
+    const doorsToUse = openDoors.length > 0 ? openDoors : (playerBuilding.doors ?? []);
+    let best = null, bestDist = Infinity;
+    for (const door of doorsToUse) {
+      const dc = getDoorCenter(playerBuilding, door);
+      const exterior = {
+        north: { x: dc.x,      y: dc.y - 32 },
+        south: { x: dc.x,      y: dc.y + 32 },
+        west:  { x: dc.x - 32, y: dc.y      },
+        east:  { x: dc.x + 32, y: dc.y      },
+      }[door.side] ?? { x: dc.x, y: dc.y - 32 };
+      const d = dist(px, py, exterior.x, exterior.y);
+      if (d < bestDist) { bestDist = d; best = exterior; }
+    }
+    if (!best) return null;
+    return { ...unstuck(toward(best.x, best.y)), action: null, autoBehavior: behavior };
+  }
+
+  // ── Helper: building-aware on-foot navigation ─────────────────────────────
+  // Returns a normalised { dx, dy } toward (tx,ty) that does NOT beeline through
+  // buildings. This replaces the old "exitBuildingIfNeeded + toward()" pattern,
+  // which exited a building then walked straight back into it (the in/out
+  // oscillation). Behaviour:
+  //   • Inside a building, target elsewhere → leave via the door that best heads
+  //     toward the target (not just the nearest door).
+  //   • A building lies on the straight path → route around it, stepping only to
+  //     corners reachable WITHOUT crossing that building (forces near-corner-first
+  //     routing so we don't cut back through a doorway). Among reachable corners
+  //     pick the one nearest the target; if boxed against a wall, slide to the
+  //     nearest corner to escape. A small per-player memory damps corner flicker.
+  //   • Clear path → straight toward the target.
+  // `allowBldg` (optional): a building the caller is intentionally approaching
+  //   (e.g. the door we're walking to) so it isn't treated as an obstacle.
+  function segCrossesBuildingPad(ax, ay, bx, by, bld, pad) {
+    const x0 = bld.x - pad, y0 = bld.y - pad, x1 = bld.x + bld.w + pad, y1 = bld.y + bld.h + pad;
+    const N = 20;
+    for (let i = 1; i < N; i++) {
+      const t = i / N;
+      const sx = ax + (bx - ax) * t, sy = ay + (by - ay) * t;
+      if (sx > x0 && sx < x1 && sy > y0 && sy < y1) return true;
+    }
+    return false;
+  }
+
+  function footNavTo(tx, ty, allowBldg = null) {
+    const myB = buildings.find(b => isInsideBuilding({ x: px, y: py }, b));
+    const targetBldg = buildings.find(b =>
+      tx > b.x && tx < b.x + b.w && ty > b.y && ty < b.y + b.h
+    );
+
+    // 1) Inside a building, target elsewhere → exit via the door toward the target.
+    if (myB && myB !== targetBldg) {
+      const doors = myB.doors ?? [];
+      const open  = doors.filter(d => d.open || d.broken);
+      const use   = open.length ? open : doors;
+      let best = null, bestCost = Infinity;
+      for (const d of use) {
+        const dc = getDoorCenter(myB, d);
+        const ext = {
+          north: { x: dc.x,      y: dc.y - 32 },
+          south: { x: dc.x,      y: dc.y + 32 },
+          west:  { x: dc.x - 32, y: dc.y      },
+          east:  { x: dc.x + 32, y: dc.y      },
+        }[d.side] ?? { x: dc.x, y: dc.y - 32 };
+        const cost = dist(px, py, dc.x, dc.y) + dist(ext.x, ext.y, tx, ty);
+        if (cost < bestCost) { bestCost = cost; best = ext; }
+      }
+      if (best) return toward(best.x, best.y);
+    }
+
+    // 2) A building blocks the straight path → route around its corner.
+    const PAD = PLAYER_RADIUS + 6;
+    let blocker = null, blockerD = Infinity;
+    for (const b of buildings) {
+      if (b === targetBldg || b === myB) continue;
+      if (allowBldg && b.id === allowBldg.id) continue;
+      if (!segCrossesBuildingPad(px, py, tx, ty, b, PAD)) continue;
+      const d = dist(px, py, b.x + b.w / 2, b.y + b.h / 2);
+      if (d < blockerD) { blockerD = d; blocker = b; }
+    }
+    if (blocker) {
+      const M = PLAYER_RADIUS + 24; // wider clearance — old 16 let the AI clip corner geometry
+      const corners = [
+        { x: blocker.x - M,               y: blocker.y - M },
+        { x: blocker.x + blocker.w + M,   y: blocker.y - M },
+        { x: blocker.x - M,               y: blocker.y + blocker.h + M },
+        { x: blocker.x + blocker.w + M,   y: blocker.y + blocker.h + M },
+      ];
+      const reachable = corners.filter(c => !segCrossesBuildingPad(px, py, c.x, c.y, blocker, PLAYER_RADIUS + 2));
+      let best;
+      if (reachable.length) {
+        // Progress: the reachable corner nearest the final target.
+        best = reachable[0]; let bc = Infinity;
+        for (const c of reachable) { const cost = dist(c.x, c.y, tx, ty); if (cost < bc) { bc = cost; best = c; } }
+      } else {
+        // Boxed against a wall: slide to the nearest corner to escape the pad band.
+        best = corners[0]; let bc = Infinity;
+        for (const c of corners) { const cost = dist(px, py, c.x, c.y); if (cost < bc) { bc = cost; best = c; } }
+      }
+      // Flicker damping: keep the previously chosen corner on this blocker while
+      // still en route to it and it remains reachable.
+      // Release threshold is M + 8 (fully past the corner waypoint's pad band)
+      // rather than the old 18 px, which fired before the AI had cleared the
+      // corner — causing it to immediately re-evaluate and snap to a wrong corner.
+      const CORNER_RELEASE = M + 8; // must be > M so we're truly past it
+      const mem = player._navCorner;
+      if (mem && mem.bId === blocker.id && dist(px, py, mem.x, mem.y) > CORNER_RELEASE &&
+          !segCrossesBuildingPad(px, py, mem.x, mem.y, blocker, PLAYER_RADIUS + 2)) {
+        best = { x: mem.x, y: mem.y };
+      }
+      player._navCorner = { x: best.x, y: best.y, bId: blocker.id };
+      return toward(best.x, best.y);
+    }
+
+    // 3) Clear path.
+    player._navCorner = null;
+    return toward(tx, ty);
+  }
+
+  // ── Helper: find the best available vehicle in the full fleet ─────────────
+  // "Available" = not destroyed (hp > 0), not occupied by someone else,
+  //   within AUTO_FLEET_SEEK_RANGE.  Returns null if none found.
+  function findNearestAvailableVehicle() {
+    let best = null, bestD = Infinity;
+    for (const v of allVehicles) {
+      if (v.hp <= 0) continue;                            // destroyed
+      if (v.occupied && v.driver !== "p1" && v.passenger !== "p1") continue; // occupied by others
+      const d = dist(px, py, v.x, v.y);
+      if (d < bestD && d < AUTO_FLEET_SEEK_RANGE) { best = v; bestD = d; }
+    }
+    return best;
+  }
+
+  // ── Count nearby active zombies (outside buildings only) ────────────────
+  // Zombies inside buildings can't be hit by the vehicle and can't be reached
+  // on foot without opening the door first — exclude them from ALL threat
+  // calculations so the AI never drives into a wall chasing them.
+  const nearbyThreats = zombies.filter(z => {
+    if (z.dead) return false;
+    if (dist(px, py, z.x, z.y) >= AUTO_THREAT_RANGE) return false;
+    // Exclude zombies that are inside any building
+    if (buildings.some(b => isInsideBuilding(z, b))) return false;
+    return true;
+  });
+  const closestThreat = nearbyThreats.length > 0
+    ? nearbyThreats.reduce((a, b) => dist(px, py, a.x, a.y) < dist(px, py, b.x, b.y) ? a : b)
+    : null;
+
+  // ── Spawn grace timer ─────────────────────────────────────────────────────
+  // Initialised on first call; counts down in real seconds via dt.
+  if (player._autoSpawnGrace === undefined) player._autoSpawnGrace = AUTO_SPAWN_GRACE;
+  if (player._autoSpawnGrace > 0) {
+    player._autoSpawnGrace = Math.max(0, player._autoSpawnGrace - dt);
+  }
+  const inSpawnGrace = player._autoSpawnGrace > 0;
+
+  // ── 0. SPAWN SAFETY — beeline for nearest vehicle, flee zombie centroid ───
+  if (inSpawnGrace && !inVehicle) {
+    const safeVehicle = findNearestAvailableVehicle();
+
+    if (safeVehicle) {
+      const dToVehicle = dist(px, py, safeVehicle.x, safeVehicle.y);
+
+      // Close enough — enter it
+      if (dToVehicle < AUTO_VEHICLE_RANGE) {
+        return { dx: 0, dy: 0, action: "enter_vehicle", autoBehavior: "spawn_enter_vehicle" };
+      }
+
+      // Zombies directly between us and the car — arc around them slightly
+      if (nearbyThreats.length > 0 && closestThreat) {
+        const dToThreat = dist(px, py, closestThreat.x, closestThreat.y);
+        if (dToThreat < AUTO_FLEE_RANGE) {
+          // Blend: 70% toward vehicle, 30% away from closest threat
+          const toV   = toward(safeVehicle.x, safeVehicle.y);
+          const fromZ = toward(closestThreat.x, closestThreat.y);
+          const bx    = toV.dx * 0.7 - fromZ.dx * 0.3;
+          const by    = toV.dy * 0.7 - fromZ.dy * 0.3;
+          const bLen  = Math.sqrt(bx * bx + by * by) || 1;
+          return { dx: bx / bLen, dy: by / bLen, action: null, autoBehavior: "spawn_arc_to_vehicle" };
+        }
+      }
+
+      // Clear path — just go to the vehicle
+      return { ...unstuck(toward(safeVehicle.x, safeVehicle.y)), action: null, autoBehavior: "spawn_to_vehicle" };
+    }
+
+    // No vehicle found at all — flee away from zombie centroid if threatened
+    if (nearbyThreats.length > 0) {
+      const cx = nearbyThreats.reduce((s2, z) => s2 + z.x, 0) / nearbyThreats.length;
+      const cy = nearbyThreats.reduce((s2, z) => s2 + z.y, 0) / nearbyThreats.length;
+      const { dx, dy } = toward(cx, cy);
+      return { dx: -dx, dy: -dy, action: null, autoBehavior: "spawn_flee_no_vehicle" };
+    }
+
+    return { dx: 0, dy: 0, action: null, autoBehavior: "spawn_idle" };
+  }
+
+  // ── 0b. NEEDS — eat, drink, sleep when critical ───────────────────────────
+  // Skip if the player is already sleeping (let sleep finish) or downed.
+  // This fires before flee/fight so the AI doesn't starve mid-combat, but only
+  // triggers when it's *possible* to act (not during the spawn grace period).
+
+  // If the AI is currently auto-sleeping, keep returning auto_sleep so the
+  // GameView handler can monitor sleep level and wake at AUTO_SLEEP_UNTIL.
+  if (!inSpawnGrace && player.isSleeping && !player.isDowned && player._autoSleeping) {
+    return { dx: 0, dy: 0, action: "auto_sleep", autoBehavior: "needs_sleeping" };
+  }
+
+  if (!inSpawnGrace && !player.isSleeping && !player.isDowned) {
+
+    // ── EAT ────────────────────────────────────────────────────────────────
+    // Trigger at AUTO_EAT_AT; keep eating until food reaches 100.
+    if (player._autoEating || (player.food <= AUTO_EAT_AT && getInventoryCount(player.inventory, "food") > 0)) {
+      if (player.food < 95 && getInventoryCount(player.inventory, "food") > 0) {
+        player._autoEating = true;
+        if (inVehicle) {
+          return { dx: 0, dy: 0, action: "exit_vehicle_for_needs", autoBehavior: "needs_exit_for_eat" };
+        }
+        return { dx: 0, dy: 0, action: "auto_eat", autoBehavior: "needs_eat" };
+      }
+      player._autoEating = false; // reached 100 or ran out of food
+    }
+
+    // ── DRINK ─────────────────────────────────────────────────────────────
+    // Trigger at AUTO_DRINK_AT; keep drinking until water reaches 100.
+    if (player._autoDrinking || (player.water <= AUTO_DRINK_AT && getInventoryCount(player.inventory, "water") > 0)) {
+      if (player.water < 95 && getInventoryCount(player.inventory, "water") > 0) {
+        player._autoDrinking = true;
+        if (inVehicle) {
+          return { dx: 0, dy: 0, action: "exit_vehicle_for_needs", autoBehavior: "needs_exit_for_drink" };
+        }
+        return { dx: 0, dy: 0, action: "auto_drink", autoBehavior: "needs_drink" };
+      }
+      player._autoDrinking = false; // reached 100 or ran out of water
+    }
+
+    // ── SLEEP ─────────────────────────────────────────────────────────────
+    // Only trigger sleep when no nearby threats (don't sleep in combat).
+    if (player.sleep <= AUTO_SLEEP_AT && nearbyThreats.length === 0) {
+      // Find a nearby indoor building with no zombies inside as a safe sleep spot.
+      const safeSleepBuilding = buildings.find(b => {
+        const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+        if (dist(px, py, cx, cy) > 800) return false;
+        return !zombies.some(z => !z.dead && isInsideBuilding(z, b));
+      });
+
+      if (inVehicle) {
+        // Sleep in vehicle if no safe building nearby or already in vehicle
+        return { dx: 0, dy: 0, action: "auto_sleep", autoBehavior: "needs_sleep_in_vehicle" };
+      }
+
+      if (safeSleepBuilding) {
+        const alreadyInside = isInsideBuilding({ x: px, y: py }, safeSleepBuilding);
+        if (alreadyInside) {
+          return { dx: 0, dy: 0, action: "auto_sleep", autoBehavior: "needs_sleep_indoor" };
+        }
+        const bCx = safeSleepBuilding.x + safeSleepBuilding.w / 2;
+        const bCy = safeSleepBuilding.y + safeSleepBuilding.h / 2;
+        return { ...unstuck(footNavTo(bCx, bCy)), action: null, autoBehavior: "needs_seek_sleep_spot" };
+      }
+
+      // No safe building nearby — sleep exposed rather than collapsing
+      return { dx: 0, dy: 0, action: "auto_sleep", autoBehavior: "needs_sleep_exposed" };
+    }
+  }
+
+  // ── 1. VEHICLE SEEK — on foot with 2+ threats: go get a car ──────────────
+  // Also fires when current vehicle was just destroyed (inVehicle became false
+  // due to hp=0 eject).  Covers the "vehicle destroyed → find another" case.
+  if (!inVehicle && nearbyThreats.length >= 2) {
+    const safeVehicle = findNearestAvailableVehicle();
+    if (safeVehicle) {
+      const dToVehicle = dist(px, py, safeVehicle.x, safeVehicle.y);
+      if (dToVehicle < AUTO_VEHICLE_RANGE) {
+        return { dx: 0, dy: 0, action: "enter_vehicle", autoBehavior: "mob_enter_vehicle" };
+      }
+      // While running to the vehicle, flee-blend if a zombie is immediately on us
+      if (closestThreat && dist(px, py, closestThreat.x, closestThreat.y) < AUTO_FLEE_RANGE) {
+        const toV   = toward(safeVehicle.x, safeVehicle.y);
+        const fromZ = toward(closestThreat.x, closestThreat.y);
+        const bx    = toV.dx * 0.65 - fromZ.dx * 0.35;
+        const by    = toV.dy * 0.65 - fromZ.dy * 0.35;
+        const bLen  = Math.sqrt(bx * bx + by * by) || 1;
+        return { dx: bx / bLen, dy: by / bLen, action: null, autoBehavior: "mob_arc_to_vehicle" };
+      }
+      return { ...unstuck(toward(safeVehicle.x, safeVehicle.y)), action: null, autoBehavior: "mob_vehicle_seek" };
+    }
+    // No vehicle anywhere — fall through to flee logic below
+  }
+
+  // ── 2. FLEE — on foot, overwhelmed, no vehicle reachable quickly ──────────
+  if (!inVehicle && closestThreat && dist(px, py, closestThreat.x, closestThreat.y) < AUTO_FLEE_RANGE && nearbyThreats.length >= 3) {
+    const cx = nearbyThreats.reduce((s2, z) => s2 + z.x, 0) / nearbyThreats.length;
+    const cy = nearbyThreats.reduce((s2, z) => s2 + z.y, 0) / nearbyThreats.length;
+    const { dx, dy } = toward(cx, cy);
+    return { dx: -dx, dy: -dy, action: null, autoBehavior: "flee" };
+  }
+
+  // ── 3. FIGHT on foot — exactly 1 threat AND player has a melee weapon ─────
+  if (!inVehicle && closestThreat && nearbyThreats.length === 1 && player.weapon) {
+    const dToThreat = dist(px, py, closestThreat.x, closestThreat.y);
+    if (dToThreat < AUTO_MELEE_RANGE + 12) {
+      return { dx: 0, dy: 0, action: "attack", autoBehavior: "fight" };
+    }
+    if (dToThreat < AUTO_THREAT_RANGE * 0.6) {
+      return { ...toward(closestThreat.x, closestThreat.y), action: null, autoBehavior: "fight_approach" };
+    }
+  }
+
+  // ── 4. FIGHT in vehicle — drive into threats ──────────────────────────────
+  // Use unstuck() so rotation kicks in when the vehicle is pinned against a
+  // building wall between it and the target zombie.  Also add a lightweight
+  // corner-bypass: if the straight-line path passes through a building, aim
+  // for the nearest corner of that building instead of driving into the wall.
+  if (inVehicle && closestThreat) {
+    const raw = toward(closestThreat.x, closestThreat.y);
+
+    // Check if any building lies between vehicle and target zombie.
+    // We test whether the target position is inside a building the vehicle
+    // is NOT already inside (building-interior zombies are already filtered
+    // out of nearbyThreats, but a building wall can still block the path).
+    const blockingBuilding = buildings.find(b => {
+      // Skip buildings the vehicle is currently overlapping
+      if (px > b.x && px < b.x + b.w && py > b.y && py < b.y + b.h) return false;
+      // Rough segment-vs-AABB overlap: cast a few probe points along the line
+      for (let t = 0.15; t < 0.9; t += 0.15) {
+        const sx = px + raw.dx * t * dist(px, py, closestThreat.x, closestThreat.y);
+        const sy = py + raw.dy * t * dist(px, py, closestThreat.x, closestThreat.y);
+        if (sx > b.x && sx < b.x + b.w && sy > b.y && sy < b.y + b.h) return true;
+      }
+      return false;
+    });
+
+    if (blockingBuilding) {
+      // Aim for the nearest corner of the blocking building, offset outward
+      // by VEHICLE_RADIUS so the vehicle doesn't clip the corner geometry.
+      const VR = VEHICLE_RADIUS + 8;
+      const corners = [
+        { x: blockingBuilding.x - VR,                          y: blockingBuilding.y - VR },
+        { x: blockingBuilding.x + blockingBuilding.w + VR,     y: blockingBuilding.y - VR },
+        { x: blockingBuilding.x - VR,                          y: blockingBuilding.y + blockingBuilding.h + VR },
+        { x: blockingBuilding.x + blockingBuilding.w + VR,     y: blockingBuilding.y + blockingBuilding.h + VR },
+      ];
+      const bestCorner = corners.reduce((a, b2) =>
+        dist(px, py, a.x, a.y) < dist(px, py, b2.x, b2.y) ? a : b2
+      );
+      return { ...unstuck(toward(bestCorner.x, bestCorner.y)), action: null, autoBehavior: "fight_vehicle_bypass" };
+    }
+
+    return { ...unstuck(raw), action: null, autoBehavior: "fight_vehicle" };
+  }
+
+  // ── Settlement-clearing helpers ──────────────────────────────────────────
+  // Determine which settlement the AI is currently working in.
+  // If pendingLootSettlementId is set it means a fragment was just collected
+  // and compassTarget already points at the NEXT settlement — but we must
+  // finish looting the settlement we're standing in first. Use the pending ID
+  // so all loot/clear logic below targets the correct (current) settlement.
+  const settlements = state.settlements ?? [];
+  const curSid      = state.pendingLootSettlementId ?? compassTarget?.settlementId ?? 0;
+  const curSettlement = settlements.find(s2 => s2.id === curSid) ?? null;
+
+  // All buildings belonging to the current settlement.
+  const settlementBuildings = curSettlement
+    ? buildings.filter(b => b.settlementId === curSid)
+    : [];
+
+  // Is a zombie/coordinate inside any settlement building?
+  function inSettlementBldg(x, y) {
+    return settlementBuildings.some(b =>
+      x > b.x && x < b.x + b.w && y > b.y && y < b.y + b.h
+    );
+  }
+
+  // Zombies alive INSIDE a settlement building.
+  const zombiesInsideBuildings = zombies.filter(z => {
+    if (z.dead) return false;
+    return settlementBuildings.some(b => isInsideBuilding(z, b));
+  });
+
+  // Zombies alive OUTSIDE any building (anywhere in the world).
+  const zombiesOutside = zombies.filter(z => {
+    if (z.dead) return false;
+    return !buildings.some(b => isInsideBuilding(z, b));
+  });
+
+  // Settlement-specific loot piles.
+  const settlementBuildingIds = new Set(settlementBuildings.map(b => b.id));
+
+  // Settlement centre for proximity checks.
+  const AUTO_SETTLEMENT_RADIUS = 700;
+  const settlementCx = curSettlement?.cx ?? (compassTarget?.x ?? px);
+  const settlementCy = curSettlement?.cy ?? (compassTarget?.y ?? py);
+
+  // Collect loot by building ID first, then add any orphaned piles that are
+  // physically inside the settlement radius but whose buildingId didn't resolve
+  // to a tagged settlement building (e.g. a building placed at the edge whose
+  // settlementId got mismatched). This prevents the AI from halting because a
+  // stray loot pile is invisible to the ID-based filter.
+  const settlementLoot = lootPiles.filter(p => {
+    if (p.collected) return false;
+    if (settlementBuildingIds.has(p.buildingId)) return true;
+    // Proximity fallback — treat any uncollected pile near the settlement centre
+    // as belonging to this settlement so it doesn't get silently skipped.
+    const pileBuilding = buildings.find(b => b.id === p.buildingId);
+    const checkX = pileBuilding ? pileBuilding.x + pileBuilding.w / 2 : p.x;
+    const checkY = pileBuilding ? pileBuilding.y + pileBuilding.h / 2 : p.y;
+    return dist(checkX, checkY, settlementCx, settlementCy) < AUTO_SETTLEMENT_RADIUS;
+  });
+
+  // Outside zombies still within settlement perimeter.
+  const outsideZombiesNearSettlement = zombiesOutside.filter(z =>
+    dist(z.x, z.y, settlementCx, settlementCy) < AUTO_SETTLEMENT_RADIUS
+  );
+
+  // Buildings that have zombies trapped inside AND still have a closed door.
+  const buildingsNeedingDoors = settlementBuildings.filter(b => {
+    const hasZombies = zombies.some(z => !z.dead && isInsideBuilding(z, b));
+    if (!hasZombies) return false;
+    return (b.doors ?? []).some(d => !d.open && !d.broken);
+  });
+
+  const outsideCleared         = outsideZombiesNearSettlement.length === 0;
+  // Treat dormant building zombies as cleared — a single zombie inside a building
+  // that is not chasing the player should not block loot collection.
+  // Active states (chase, alert, attack, bash_door) still gate the loot phase.
+  const activeZombieStates = new Set(["chase", "alert", "attack", "bash_door"]);
+  const buildingZombiesCleared = zombiesInsideBuildings.every(
+    z => !activeZombieStates.has(z.state)
+  );
+  const settlementLootDone     = settlementLoot.length === 0;
+
+  // If the pending settlement is fully cleared and looted, clear the flag so
+  // that curSid reverts to compassTarget.settlementId next frame and the AI
+  // can depart toward the next fragment without being held back.
+  if (state.pendingLootSettlementId != null && settlementLootDone && outsideCleared && buildingZombiesCleared) {
+    state.pendingLootSettlementId = null;
+  }
+
+  // ── 5. HUNT outside zombies ───────────────────────────────────────────────
+  // While live zombies exist outside settlement buildings, deal with them first.
+  // In vehicle: drive them down directly.
+  // On foot with a vehicle available: re-enter it before hunting so the AI
+  // never wanders into the door-opening or looting phase while zombies are still
+  // outside (which could leave it exposed and stuck between two goals).
+  // On foot without a vehicle: steps 2-3 (flee/fight) handle personal safety;
+  // we fall through so we don't deadlock waiting for a vehicle that isn't there.
+  if (!outsideCleared) {
+    if (inVehicle) {
+      const targetZ = outsideZombiesNearSettlement.reduce((a, b2) =>
+        dist(px, py, a.x, a.y) < dist(px, py, b2.x, b2.y) ? a : b2
+      );
+      return { ...unstuck(toward(targetZ.x, targetZ.y)), action: null, autoBehavior: "hunt_outside_zombies" };
+    }
+    // On foot — get back into a vehicle first so we can hunt efficiently, BUT
+    // only once there are no more doors to open. If doors still need opening we
+    // fall through to step 6 and keep flushing on foot: running to the car after
+    // every single door (a fresh zombie steps out → outsideCleared flips false)
+    // is what caused the open-door / run-to-car oscillation. Immediate danger
+    // while flushing is still handled by steps 1-3 above.
+    if (buildingsNeedingDoors.length === 0) {
+      const huntV = findNearestAvailableVehicle();
+      if (huntV) {
+        const dHuntV = dist(px, py, huntV.x, huntV.y);
+        if (dHuntV < AUTO_VEHICLE_RANGE) {
+          return { dx: 0, dy: 0, action: "enter_vehicle", autoBehavior: "reenter_for_hunt" };
+        }
+        return { ...unstuck(footNavTo(huntV.x, huntV.y)), action: null, autoBehavior: "approach_vehicle_for_hunt" };
+      }
+    }
+    // else: fall through to step 6 (open doors) on foot.
+  }
+
+  // ── 6. OPEN DOORS to flush building zombies ───────────────────────────────
+  // All outside zombies are cleared. Open any closed doors on buildings that
+  // still have live zombies inside so they stream out to be driven over.
+  if (outsideCleared && buildingsNeedingDoors.length > 0) {
+    // Must be on foot to use the door — exit first if in vehicle.
+    if (inVehicle) {
+      return { dx: 0, dy: 0, action: "exit_vehicle_for_doors", autoBehavior: "exit_for_doors" };
+    }
+
+    // If the player ended up inside a settlement building, leave it first.
+    // footNavTo picks the door toward open space and won't re-enter.
+    const playerBuilding = settlementBuildings.find(b => isInsideBuilding({ x: px, y: py }, b));
+    if (playerBuilding) {
+      const exitDoors = (playerBuilding.doors ?? []).filter(d => d.open || d.broken);
+      const anyDoor   = exitDoors.length > 0 ? exitDoors : (playerBuilding.doors ?? []);
+      if (anyDoor.length > 0) {
+        // Aim at the settlement centre so footNavTo exits via the door facing it.
+        return { ...unstuck(footNavTo(settlementCx, settlementCy)), action: null, autoBehavior: "exit_building" };
+      }
+    }
+
+    // Find the nearest closed door across all buildings that need opening.
+    // Navigate to the EXTERIOR face of the door (offset 36px outward from wall)
+    // so the AI stops comfortably clear of wall-collision pushback.
+    // The open_door trigger is checked against door centre at 50px — wider than
+    // DOOR_INTERACT_RANGE (38px) so it fires before wall collision can bounce
+    // the player back out of range, eliminating the approach jitter loop.
+    let nearestDoor = null, nearestApproach = null, nearestDoorDist = Infinity, nearestDoorBldg = null;
+    for (const b of buildingsNeedingDoors) {
+      for (const door of (b.doors ?? [])) {
+        if (door.open || door.broken) continue;
+        const c = getDoorCenter(b, door);
+        // Exterior approach point — 36px outside the wall face
+        const approach = {
+          north: { x: c.x,      y: c.y - 36 },
+          south: { x: c.x,      y: c.y + 36 },
+          west:  { x: c.x - 36, y: c.y      },
+          east:  { x: c.x + 36, y: c.y      },
+        }[door.side] ?? { x: c.x, y: c.y - 36 };
+        const d = dist(px, py, approach.x, approach.y);
+        if (d < nearestDoorDist) {
+          nearestDoorDist  = d;
+          nearestDoor      = door;
+          nearestApproach  = approach;
+          nearestDoorBldg  = b;
+        }
+      }
+    }
+
+    if (nearestDoor && nearestDoorBldg) {
+      // Fire open_door at 50px from door centre — wider than DOOR_INTERACT_RANGE
+      // so the action triggers before wall collision pushes the player back out.
+      const dc = getDoorCenter(nearestDoorBldg, nearestDoor);
+      if (dist(px, py, dc.x, dc.y) < 50) {
+        return { dx: 0, dy: 0, action: "open_door", autoBehavior: "open_door" };
+      }
+      const exitForDoor = footNavTo(nearestApproach.x, nearestApproach.y, nearestDoorBldg);
+      return { ...unstuck(exitForDoor), action: null, autoBehavior: "approach_door" };
+    }
+  }
+
+  // ── 7. CLEAR escaped building zombies (re-enter vehicle) ─────────────────
+  // Doors are now open/broken; zombies are exiting. Hunt them down in vehicle.
+  if (outsideCleared && !buildingZombiesCleared && buildingsNeedingDoors.length === 0) {
+    const escapedZombies = zombiesOutside.filter(z =>
+      dist(z.x, z.y, settlementCx, settlementCy) < AUTO_SETTLEMENT_RADIUS
+    );
+    if (escapedZombies.length > 0) {
+      if (!inVehicle) {
+        const safeV = findNearestAvailableVehicle();
+        if (safeV) {
+          const dV = dist(px, py, safeV.x, safeV.y);
+          if (dV < AUTO_VEHICLE_RANGE) return { dx: 0, dy: 0, action: "enter_vehicle", autoBehavior: "reenter_vehicle" };
+          return { ...unstuck(footNavTo(safeV.x, safeV.y)), action: null, autoBehavior: "reenter_vehicle_approach" };
+        }
+      }
+      const targetZ = escapedZombies.reduce((a, b2) =>
+        dist(px, py, a.x, a.y) < dist(px, py, b2.x, b2.y) ? a : b2
+      );
+      return { ...toward(targetZ.x, targetZ.y), action: null, autoBehavior: "hunt_escaped_zombies" };
+    }
+  }
+
+  // ── 8. LOOT the settlement ────────────────────────────────────────────────
+  // All zombies cleared (inside and outside). Collect all loot in this settlement.
+  // Uses door-aware pathfinding: navigate to an open door first when the pile is
+  // inside a building, walk to the pile, then exit back through the door afterward.
+  if (outsideCleared && buildingZombiesCleared && !settlementLootDone) {
+    if (inVehicle) {
+      return { dx: 0, dy: 0, action: "exit_vehicle_for_doors", autoBehavior: "exit_for_loot" };
+    }
+
+    // If we're inside a building with no uncollected pile in it, exit first.
+    const playerBuildingLoot = buildings.find(b => isInsideBuilding({ x: px, y: py }, b));
+    if (playerBuildingLoot) {
+      const pileInMyBuilding = settlementLoot.find(p => p.buildingId === playerBuildingLoot.id);
+      if (!pileInMyBuilding) {
+        const exitWp = getBuildingExitWaypoint();
+        if (exitWp) {
+          if (exitWp.openDoorFirst) {
+            return { dx: 0, dy: 0, action: "open_door", autoBehavior: "open_door_to_exit_after_loot" };
+          }
+          return { ...unstuck(toward(exitWp.x, exitWp.y)), action: null, autoBehavior: "exit_building_after_loot" };
+        }
+      }
+    }
+
+    // Pick the nearest reachable pile (has an open door, or pile is outside).
+    let bestPile = null, bestWaypoint = null, bestDist = Infinity;
+    for (const pile of settlementLoot) {
+      const wp = getLootWaypoint(pile);
+      if (!wp) continue; // building door still closed — skip for now
+      const d = dist(px, py, wp.x, wp.y);
+      if (d < bestDist) { bestDist = d; bestPile = pile; bestWaypoint = wp; }
+    }
+
+    if (!bestPile) {
+      // All remaining piles are behind closed doors. This can happen when a building
+      // had no zombie guards (so step 6 never opened its door). Find the nearest
+      // locked door on a loot building and open it, then loot will become reachable.
+      let lockedDoor = null, lockedDoorApproach = null, lockedDoorBldg = null, lockedDoorDist = Infinity;
+      for (const b of settlementBuildings) {
+        if (!settlementLoot.some(p => p.buildingId === b.id)) continue; // no loot here
+        for (const door of (b.doors ?? [])) {
+          if (door.open || door.broken) continue;
+          const dc = getDoorCenter(b, door);
+          const approach = {
+            north: { x: dc.x,      y: dc.y - 36 },
+            south: { x: dc.x,      y: dc.y + 36 },
+            west:  { x: dc.x - 36, y: dc.y      },
+            east:  { x: dc.x + 36, y: dc.y      },
+          }[door.side] ?? { x: dc.x, y: dc.y - 36 };
+          const d = dist(px, py, approach.x, approach.y);
+          if (d < lockedDoorDist) {
+            lockedDoorDist  = d;
+            lockedDoor      = door;
+            lockedDoorApproach = approach;
+            lockedDoorBldg  = b;
+          }
+        }
+      }
+      if (lockedDoor && lockedDoorBldg) {
+        const dc = getDoorCenter(lockedDoorBldg, lockedDoor);
+        if (dist(px, py, dc.x, dc.y) < 50) {
+          return { dx: 0, dy: 0, action: "open_door", autoBehavior: "open_door_for_loot" };
+        }
+        const exitForLootDoor = exitBuildingIfNeeded(lockedDoorApproach.x, lockedDoorApproach.y, "exit_building_for_loot_door");
+        if (exitForLootDoor) return exitForLootDoor;
+        return { ...unstuck(toward(lockedDoorApproach.x, lockedDoorApproach.y)), action: null, autoBehavior: "approach_door_for_loot" };
+      }
+      // Truly no loot reachable via ID-tagged buildings — do a final proximity
+      // sweep for any uncollected pile near the settlement centre whose building
+      // may have been placed just outside the tagged set (e.g. edge-of-radius
+      // buildings at settlement 2+). Without this the AI idles permanently.
+      const nearbyOrphanPile = lootPiles
+        .filter(p => {
+          if (p.collected) return false;
+          const pb = buildings.find(b => b.id === p.buildingId);
+          const cx2 = pb ? pb.x + pb.w / 2 : p.x;
+          const cy2 = pb ? pb.y + pb.h / 2 : p.y;
+          return dist(cx2, cy2, settlementCx, settlementCy) < AUTO_SETTLEMENT_RADIUS * 1.3;
+        })
+        .sort((a, b2) => dist(px, py, a.x, a.y) - dist(px, py, b2.x, b2.y))[0];
+      if (nearbyOrphanPile) {
+        const orphanBldg = buildings.find(b => b.id === nearbyOrphanPile.buildingId);
+        const wp = getLootWaypoint(nearbyOrphanPile);
+        if (wp) {
+          if (dist(px, py, nearbyOrphanPile.x, nearbyOrphanPile.y) < AUTO_LOOT_RANGE) {
+            return { dx: 0, dy: 0, action: "collect", autoBehavior: "loot_orphan" };
+          }
+          return { ...unstuck(toward(wp.x, wp.y)), action: null, autoBehavior: "loot_orphan_approach" };
+        }
+        // Pile is in a building with all doors closed — open the nearest one.
+        if (orphanBldg) {
+          for (const door of (orphanBldg.doors ?? [])) {
+            if (door.open || door.broken) continue;
+            const dc = getDoorCenter(orphanBldg, door);
+            if (dist(px, py, dc.x, dc.y) < 50) {
+              return { dx: 0, dy: 0, action: "open_door", autoBehavior: "open_door_orphan" };
+            }
+            const ap = {
+              north: { x: dc.x, y: dc.y - 36 }, south: { x: dc.x, y: dc.y + 36 },
+              west:  { x: dc.x - 36, y: dc.y  }, east:  { x: dc.x + 36, y: dc.y  },
+            }[door.side] ?? { x: dc.x, y: dc.y - 36 };
+            return { ...unstuck(toward(ap.x, ap.y)), action: null, autoBehavior: "approach_door_orphan" };
+          }
+        }
+      }
+      // Nothing left near the settlement — fall through to navigation.
+    }
+
+    // Close enough to collect
+    if (dist(px, py, bestPile.x, bestPile.y) < AUTO_LOOT_RANGE) {
+      return { dx: 0, dy: 0, action: "collect", autoBehavior: "loot_settlement" };
+    }
+
+    // Walk toward door-aware waypoint (interior entry point or the pile directly)
+    return { ...unstuck(toward(bestWaypoint.x, bestWaypoint.y)), action: null, autoBehavior: "loot_settlement_approach" };
+  }
+
+  // ── 9. OPPORTUNISTIC LOOT — uncollected pile nearby while travelling ──────
+  // Uses door-aware waypoints so the AI enters through open doors
+  // rather than walking into walls to reach piles inside buildings.
+  const reachableLoot = lootPiles.filter(p => {
+    if (p.collected) return false;
+    const wp = getLootWaypoint(p);
+    if (!wp) return false; // building door still closed
+    if (dist(px, py, wp.x, wp.y) > AUTO_LOOT_RANGE * 1.5) return false;
+    if (!inVehicle) {
+      // Only count zombies that are OUTSIDE buildings — a zombie locked inside a
+      // building can't reach the player, so it shouldn't block loot collection.
+      const zombiesNearPile = zombies.filter(z => {
+        if (z.dead) return false;
+        if (dist(p.x, p.y, z.x, z.y) >= AUTO_LOOT_DANGER_RANGE) return false;
+        return !buildings.some(b => isInsideBuilding(z, b));
+      }).length;
+      if (zombiesNearPile >= AUTO_LOOT_DANGER_THRESHOLD) return false;
+    }
+    return true;
+  });
+  if (reachableLoot.length > 0) {
+    const pile = reachableLoot.reduce((a, b) => dist(px, py, a.x, a.y) < dist(px, py, b.x, b.y) ? a : b);
+    if (dist(px, py, pile.x, pile.y) < AUTO_LOOT_RANGE) {
+      return { dx: 0, dy: 0, action: "collect", autoBehavior: "loot" };
+    }
+    const wp = getLootWaypoint(pile);
+    if (wp) return { ...unstuck(toward(wp.x, wp.y)), action: null, autoBehavior: "loot_approach" };
+  }
+
+  // ── 10. ENTER vehicle if nearby and not in one ───────────────────────────
+  if (!inVehicle) {
+    const safeVehicle = findNearestAvailableVehicle();
+    if (safeVehicle) {
+      const dToVehicle = dist(px, py, safeVehicle.x, safeVehicle.y);
+      if (dToVehicle < AUTO_VEHICLE_RANGE) {
+        return { dx: 0, dy: 0, action: "enter_vehicle", autoBehavior: "enter_vehicle" };
+      }
+      // Expand the approach range: always walk back to the vehicle after on-foot
+      // looting regardless of how far into the settlement buildings the player walked.
+      if (dToVehicle < AUTO_FLEET_SEEK_RANGE) {
+        return { ...unstuck(footNavTo(safeVehicle.x, safeVehicle.y)), action: null, autoBehavior: "vehicle_approach" };
+      }
+    }
+  }
+
+  // ── 11. BOSS FIGHT — boss alive and fragment collected ────────────────────
+  if (bossZombie && !bossZombie.dead && state.mapFragmentCollected) {
+    const dToBoss = dist(px, py, bossZombie.x, bossZombie.y);
+    if (inVehicle && dToBoss < 80) {
+      return { ...toward(bossZombie.x, bossZombie.y), action: null, autoBehavior: "boss_fight_vehicle" };
+    }
+    const exitForBoss = footNavTo(bossZombie.x, bossZombie.y);
+    return { ...unstuck(exitForBoss), action: null, autoBehavior: "boss_approach" };
+  }
+
+  // ── 12. EXITING — boss dead; drive/walk north ────────────────────────────
+  const bossDefeated = bossZombie?.dead === true;
+  if (bossDefeated) {
+    const exitX = WORLD_W / 2;
+    const exitY = 80;
+    return { ...unstuck(footNavTo(exitX, exitY)), action: null, autoBehavior: "exiting" };
+  }
+
+  // ── 13. NAVIGATE to next settlement's fragment building ──────────────────
+  // Only head out once current settlement is fully cleared AND looted.
+  // buildingZombiesCleared ensures all indoor zombies are dead before moving on.
+  //
+  // Note: pendingLootSettlementId (set by collectMapFragment when a fragment is
+  // picked up) is now handled in the settlement-clearing helpers above — curSid
+  // uses it as the active settlement so steps 5-8 loot the current settlement
+  // even after compassTarget has been updated to the next one. The flag is
+  // cleared there once all clearing + looting conditions are met.
+
+  if (compassTarget && outsideCleared && buildingZombiesCleared && settlementLootDone) {
+    // Re-enter the vehicle first if available — never walk cross-map on foot.
+    if (!inVehicle) {
+      const safeVehicle = findNearestAvailableVehicle();
+      if (safeVehicle) {
+        const dToVehicle = dist(px, py, safeVehicle.x, safeVehicle.y);
+        if (dToVehicle < AUTO_VEHICLE_RANGE) {
+          return { dx: 0, dy: 0, action: "enter_vehicle", autoBehavior: "enter_vehicle_for_travel" };
+        }
+        if (dToVehicle < AUTO_FLEET_SEEK_RANGE) {
+          return { ...unstuck(footNavTo(safeVehicle.x, safeVehicle.y)), action: null, autoBehavior: "vehicle_approach_for_travel" };
+        }
+      }
+    }
+    return { ...unstuck(footNavTo(compassTarget.x, compassTarget.y)), action: null, autoBehavior: "fragment_hunt" };
+  }
+
+  // Still working in current settlement but nothing urgent — orbit centre.
+  if (compassTarget) {
+    return { ...unstuck(footNavTo(compassTarget.x, compassTarget.y)), action: null, autoBehavior: "fragment_hunt" };
+  }
+
+  // ── 14. IDLE ─────────────────────────────────────────────────────────────
+  return { dx: 0, dy: 0, action: null, autoBehavior: "idle" };
+}
+// ─── Step 4: Base attack simulation ──────────────────────────────────────────
+// Pure function — call from a setInterval in index.jsx (not from the game loop).
+// Returns a new worldState object; does not mutate the input.
+//
+// Rules:
+//   • Only "secured" levels can be attacked.
+//   • Levels being actively played (currentLevelId) are skipped — the player
+//     is already there defending them.
+//   • Each call represents one tick (call every ~30 s real-time).
+//   • Attack chance per tick per secured base: ATTACK_CHANCE_PER_TICK
+//   • Turret: reduces damage by TURRET_DAMAGE_REDUCTION (percent, 0–1).
+//   • Garden plot: heals GARDEN_HEAL_PER_TICK HP each tick (passive regen).
+//   • If baseHp reaches 0: status → "under_attack" (alert the player).
+//   • Level already "under_attack" continues taking damage each tick until
+//     the player drops in.
+//
+// Returns { worldState: <new>, attackedLevelIds: [id,...] }
+
+const ATTACK_CHANCE_PER_TICK  = 0.25;   // 25% chance a secured base is attacked this tick
+const ATTACK_BASE_DAMAGE      = 15;     // HP lost per attack event (no turret)
+const TURRET_DAMAGE_REDUCTION = 0.60;   // Turret blocks 60% of damage
+const GARDEN_HEAL_PER_TICK    = 3;      // HP healed per garden plot per tick
+
+export function tickBaseAttacks(worldState, currentLevelId = null) {
+  let attackedLevelIds = [];
+
+  const levels = worldState.levels.map(level => {
+    // Only secured or already under_attack levels are eligible
+    if (level.status !== "secured" && level.status !== "under_attack") return level;
+    // Don't simulate the level the player is currently playing
+    if (level.id === currentLevelId) return level;
+
+    let { baseHp = 100, turretPlaced = false, gardenPlots = 0 } = level;
+
+    // Passive garden healing (applies every tick regardless of attack)
+    if (gardenPlots > 0) {
+      baseHp = Math.min(100, baseHp + gardenPlots * GARDEN_HEAL_PER_TICK);
+    }
+
+    // Random attack roll
+    const attacked = Math.random() < ATTACK_CHANCE_PER_TICK;
+    if (attacked) {
+      const dmg = turretPlaced
+        ? Math.round(ATTACK_BASE_DAMAGE * (1 - TURRET_DAMAGE_REDUCTION))
+        : ATTACK_BASE_DAMAGE;
+      baseHp = Math.max(0, baseHp - dmg);
+      attackedLevelIds.push(level.id);
+    }
+
+    // Determine new status
+    let status = level.status;
+    if (baseHp <= 0) {
+      status = "under_attack";
+      baseHp = 0;
+    } else if (level.status === "under_attack" && baseHp > 0) {
+      // Once HP regenerates above 0 naturally (garden healing), clear the alert
+      status = "secured";
+    }
+
+    return { ...level, baseHp, status };
+  });
+
+  return {
+    worldState: { ...worldState, levels },
+    attackedLevelIds,
+  };
+}
+
+// ─── Step 6: Passive resource generation ──────────────────────────────────────
+// Pure function — call from index.jsx on a slower interval (~60 s real-time).
+// Each secured base generates food from garden plots and scrap if a turret is
+// present (representing a salvage crew). Resources cap per-level and are also
+// aggregated into worldState.totalResources.
+//
+// Returns a new worldState object; does not mutate the input.
+
+const FOOD_PER_PLOT_PER_TICK  = 5;   // food generated per garden plot per tick
+const SCRAP_PER_TICK          = 3;   // scrap generated per secured base with a turret per tick
+const FOOD_CAP_PER_LEVEL      = 200; // maximum food stockpile per level
+const SCRAP_CAP_PER_LEVEL     = 100; // maximum scrap stockpile per level
+
+export function tickBaseResources(worldState) {
+  const levels = worldState.levels.map(level => {
+    // Only secured levels generate resources (under_attack pauses generation)
+    if (level.status !== "secured") return level;
+
+    const { gardenPlots = 0, turretPlaced = false } = level;
+    const resources = { ...(level.resources ?? { food: 0, scrap: 0 }) };
+
+    // Food: each garden plot contributes FOOD_PER_PLOT_PER_TICK per tick
+    if (gardenPlots > 0) {
+      resources.food = Math.min(FOOD_CAP_PER_LEVEL, resources.food + gardenPlots * FOOD_PER_PLOT_PER_TICK);
+    }
+
+    // Scrap: requires a turret (salvage crew is co-located with defences)
+    if (turretPlaced) {
+      resources.scrap = Math.min(SCRAP_CAP_PER_LEVEL, resources.scrap + SCRAP_PER_TICK);
+    }
+
+    return { ...level, resources };
+  });
+
+  // Recompute global totals by summing all level stockpiles
+  const totalResources = levels.reduce(
+    (acc, l) => ({
+      food:  acc.food  + (l.resources?.food  ?? 0),
+      scrap: acc.scrap + (l.resources?.scrap ?? 0),
+    }),
+    { food: 0, scrap: 0 }
+  );
+
+  return { ...worldState, levels, totalResources };
+}
+// ─── Step 7: Resource carry between levels ────────────────────────────────────
+// Maximum food/scrap a player can carry from the world stockpile when deploying.
+export const CARRY_CAP = { food: 30, scrap: 20 };
+
+/**
+ * Pre-stock the player's inventory from worldState.totalResources when
+ * deploying to a level. Called in handleDeploy (index.jsx) before GameView
+ * mounts so the fresh state already has the items.
+ *
+ * Returns { inventory, worldResources } — pass worldResources back to
+ * setWorldState so the carried amount is deducted from the global pool.
+ */
+export function applyDeployCarry(inventory, totalResources) {
+  const inv  = { ...(inventory ?? {}) };
+  const pool = { food: totalResources?.food ?? 0, scrap: totalResources?.scrap ?? 0 };
+
+  const foodCarry  = Math.min(CARRY_CAP.food,  Math.floor(pool.food));
+  const scrapCarry = Math.min(CARRY_CAP.scrap, Math.floor(pool.scrap));
+
+  if (foodCarry  > 0) inv.food  = (inv.food  ?? 0) + foodCarry;
+  if (scrapCarry > 0) inv.scrap = (inv.scrap ?? 0) + scrapCarry;
+
+  return {
+    inventory: inv,
+    worldResources: {
+      food:  Math.max(0, pool.food  - foodCarry),
+      scrap: Math.max(0, pool.scrap - scrapCarry),
+    },
+  };
+}
+
+/**
+ * Merge resourcesCollected from a completed level back into the world
+ * totalResources pool. Called inside markLevelSecured (index.jsx).
+ * Returns the updated totalResources object.
+ */
+export function mergeCollectedResources(totalResources, resourcesCollected) {
+  return {
+    food:  (totalResources?.food  ?? 0) + (resourcesCollected?.food  ?? 0),
+    scrap: (totalResources?.scrap ?? 0) + (resourcesCollected?.scrap ?? 0),
+  };
+}
+
+// ─── Step 8: Defend base mission type ─────────────────────────────────────────
+// missionType: "clear" | "defend"
+// "defend" is set when the deployed level has status "under_attack".
+// Win  → onGameOver({ survived: true, defended: true, baseHpRestored: DEFEND_BASE_HP_RESTORE })
+// Lose → onGameOver({ survived: false })
+
+export const DEFEND_WAVE_SIZE      = 20;  // zombies spawned in the defend ring
+export const DEFEND_BASE_HP_RESTORE = 50; // base HP restored on successful defence

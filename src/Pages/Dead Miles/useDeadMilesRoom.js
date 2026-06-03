@@ -262,8 +262,8 @@ export function useDeadMilesRoom(roomId, handlers) {
     send("phase_change", { phase, dayNumber }), [send]);
 
   // NEW: Map fragment — broadcast so P2 gets the compass arrow too
-  const sendMapFragment = useCallback(() =>
-    send("map_fragment", {}), [send]);
+  const sendMapFragment = useCallback((fragmentState) =>
+    send("map_fragment", fragmentState ?? {}), [send]);
 
   // Turrets
   const sendTurretPlace   = useCallback((turret) =>      send("turret_place",   { turret }),             [send]);
@@ -291,8 +291,8 @@ export function useDeadMilesRoom(roomId, handlers) {
     send("base_storage_deposit", { items }), [send]);
   const sendBaseStorageWithdraw = useCallback((items) =>
     send("base_storage_withdraw", { items }), [send]);
-  const sendSurvivorCommand = useCallback((survivorId, command, assignedTo = null) =>
-  send("survivor_command", { survivorId, command, assignedTo }), [send]);
+  const sendSurvivorCommand = useCallback((survivorId, command, assignedTo = null, issuedBy = null) =>
+  send("survivor_command", { survivorId, command, assignedTo, issuedBy }), [send]);
 
 
 

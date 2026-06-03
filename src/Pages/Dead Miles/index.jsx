@@ -1,13 +1,24 @@
 // src/Pages/DeadMiles/index.jsx
-// Main orchestrator — lobby → waiting → playing → gameover
+// Main orchestrator — lobby → waiting → worldmap → playing → gameover
 // Supports level progression: Level 1 (hamlet) → Level 2+ (procedural highway)
 
 import React, { useState, useRef, useEffect } from "react";
 import { api } from "@/lib/api";
 import GameView from "./GameView";
 import BaseView from "./BaseView";
+import WorldMap from "./WorldMap";
 import { useDeadMilesRoom } from "./useDeadMilesRoom";
-import { applyOfflineBaseTick, pushActivity, craftItem } from "./deadMilesEngine";
+import {
+  applyOfflineBaseTick,
+  pushActivity,
+  craftItem,
+  tickBaseAttacks,
+  tickBaseResources,
+  applyDeployCarry,
+  mergeCollectedResources,
+  DEFEND_BASE_HP_RESTORE,
+} from "./deadMilesEngine";
+import { saveWorldState, loadWorldState, deleteWorldStateSave } from "./saveSystem";
 
 // ─── Lobby ────────────────────────────────────────────────────────────────────
 
@@ -186,8 +197,9 @@ function WaitingForP2({ room, onP2Joined }) {
 // ─── Game over screen ─────────────────────────────────────────────────────────
 
 function GameOver({ score, level, room, role, onRestart, onMenu, onReadyUp, partnerReady }) {
-  const isVictory = score?.survived;
-  const isCoopDeath = !!(room && score?.coopBothDowned);
+  const isVictory    = score?.survived;
+  const isDefend     = score?.missionType === "defend";
+  const isCoopDeath  = !!(room && score?.coopBothDowned);
   const [myReady, setMyReady] = useState(false);
   const [visible, setVisible] = useState(false);
   useEffect(() => { const t = setTimeout(() => setVisible(true), 60); return () => clearTimeout(t); }, []);
@@ -197,16 +209,17 @@ function GameOver({ score, level, room, role, onRestart, onMenu, onReadyUp, part
     onReadyUp?.();
   }
 
-  // Solo or victory: show the normal restart/menu buttons.
-  // Co-op death: show a "ready up" flow instead.
   const showReadyUp = isCoopDeath && !isVictory;
+
+  // Victory label varies by mission type
+  const victoryLabel = isDefend ? "base defended" : "region mapped";
 
   return (
     <main className="min-h-screen bg-[#0a0d0f] text-white flex flex-col items-center justify-center gap-6 px-4"
       style={{ opacity: visible ? 1 : 0, transition: "opacity 0.6s ease" }}>
 
       <p className="text-xs tracking-widest uppercase" style={{ color: isVictory ? "rgba(120,255,150,0.7)" : "rgba(255,80,80,0.7)" }}>
-        {isVictory ? "region mapped" : "didn't make it"}
+        {isVictory ? victoryLabel : "didn't make it"}
       </p>
 
       <div className="text-center space-y-1">
@@ -220,7 +233,7 @@ function GameOver({ score, level, room, role, onRestart, onMenu, onReadyUp, part
         </div>
       </div>
 
-      {/* Death Recap Message - NEW */}
+      {/* Death recap */}
       {score?.deathRecap && !isVictory && (
         <div className="text-center text-xs px-4 py-3 rounded-xl max-w-sm"
           style={{ background: "rgba(255,80,80,0.08)", border: "1px solid rgba(255,80,80,0.2)", color: "rgba(255,150,150,0.85)" }}>
@@ -231,23 +244,31 @@ function GameOver({ score, level, room, role, onRestart, onMenu, onReadyUp, part
       {score && (
         <div className="text-center text-xs space-y-1" style={{ color: "rgba(255,255,255,0.35)" }}>
           {(score.settlementsCleared ?? 0) > 0 && <div>{score.settlementsCleared} settlements explored</div>}
-          {(score.zombiesKilled ?? 0) > 0 && <div>{score.zombiesKilled} zombies killed</div>}
-          {(score.buildingsSearched ?? 0) > 0 && <div>{score.buildingsSearched} buildings searched</div>}
-          {(score.survivorsFound ?? 0) > 0 && <div>{score.survivorsFound} survivors found</div>}
+          {(score.zombiesKilled      ?? 0) > 0 && <div>{score.zombiesKilled} zombies killed</div>}
+          {(score.buildingsSearched  ?? 0) > 0 && <div>{score.buildingsSearched} buildings searched</div>}
+          {(score.survivorsFound     ?? 0) > 0 && <div>{score.survivorsFound} survivors found</div>}
+          {/* Step 7: show resources carried back */}
+          {((score.resourcesCollected?.food ?? 0) > 0 || (score.resourcesCollected?.scrap ?? 0) > 0) && (
+            <div style={{ color: "rgba(120,210,80,0.7)" }}>
+              hauled back: 🍖 {score.resourcesCollected.food ?? 0} food
+              {" · "}🔩 {score.resourcesCollected.scrap ?? 0} scrap
+            </div>
+          )}
         </div>
       )}
 
       {isVictory && (
         <div className="text-center text-xs px-6 py-3 rounded-xl"
           style={{ background: "rgba(120,255,150,0.07)", border: "1px solid rgba(120,255,150,0.2)", color: "rgba(120,255,150,0.85)", maxWidth: 280 }}>
-          You explored the whole region. Everyone you found made it out.
+          {isDefend
+            ? `Base HP restored by ${DEFEND_BASE_HP_RESTORE}. The horde was driven back.`
+            : "You explored the whole region. Everyone you found made it out."}
         </div>
       )}
 
       <div className="flex flex-col items-center gap-3 w-full max-w-xs">
         {showReadyUp ? (
           <>
-            {/* Ready-up status */}
             <div className="flex gap-4 text-xs mb-1" style={{ color: "rgba(255,255,255,0.4)" }}>
               <span style={{ color: myReady ? "rgba(120,255,150,0.9)" : "rgba(255,80,80,0.6)" }}>
                 {myReady ? "✓ you" : "○ you"}
@@ -293,34 +314,82 @@ function GameOver({ score, level, room, role, onRestart, onMenu, onReadyUp, part
   );
 }
 
+// ─── Default world state ──────────────────────────────────────────────────────
+
+function makeDefaultWorldState() {
+  return {
+    levels: [
+      { id: 1, status: "active",     seed: null, baseHp: 100, turretPlaced: false, gardenPlots: 0, resources: { food: 0, scrap: 0 }, lastAttack: null },
+      { id: 2, status: "unexplored", seed: null, baseHp: 100, turretPlaced: false, gardenPlots: 0, resources: { food: 0, scrap: 0 }, lastAttack: null },
+      { id: 3, status: "unexplored", seed: null, baseHp: 100, turretPlaced: false, gardenPlots: 0, resources: { food: 0, scrap: 0 }, lastAttack: null },
+      { id: 4, status: "unexplored", seed: null, baseHp: 100, turretPlaced: false, gardenPlots: 0, resources: { food: 0, scrap: 0 }, lastAttack: null },
+      { id: 5, status: "unexplored", seed: null, baseHp: 100, turretPlaced: false, gardenPlots: 0, resources: { food: 0, scrap: 0 }, lastAttack: null },
+      { id: 6, status: "unexplored", seed: null, baseHp: 100, turretPlaced: false, gardenPlots: 0, resources: { food: 0, scrap: 0 }, lastAttack: null },
+      { id: 7, status: "unexplored", seed: null, baseHp: 100, turretPlaced: false, gardenPlots: 0, resources: { food: 0, scrap: 0 }, lastAttack: null },
+    ],
+    totalResources: { food: 0, scrap: 0 },
+  };
+}
+
 // ─── Main orchestrator ────────────────────────────────────────────────────────
 
 export default function DeadMilesGame() {
-  const [phase,      setPhase]      = useState("lobby");   // lobby | waiting | playing | gameover
+  const [phase,      setPhase]      = useState("lobby");
   const [room,       setRoom]       = useState(null);
   const [role,       setRole]       = useState("p1");
   const [finalScore, setFinalScore] = useState(null);
   const [level,      setLevel]      = useState(1);
-  // Co-op ready-up state (used on the game over screen)
+  const [autoPlay,   setAutoPlay]   = useState(false);
   const [myReadyUp,      setMyReadyUp]      = useState(false);
   const [partnerReadyUp, setPartnerReadyUp] = useState(false);
 
+  const [worldState, setWorldState] = useState(() => loadWorldState() ?? makeDefaultWorldState());
+
+  // ── Step 7: carry resources — pre-stock inventory built just before deploy ─
+  // Stored as a ref so it's available synchronously in handleDeploy without a
+  // render cycle.  GameView reads it via the `deployInventory` prop.
+  const deployInventoryRef = useRef(null);
+
   // Phase 2: base screen
-  const [screen,       setScreen]      = useState("play");  // "play" | "base"
-  const stateSnapshotRef               = useRef(null);      // live stateRef.current from GameView
-  const activityLogRef                 = useRef([]);         // shared mutable activity log
-  const baseOpenedAtRef                = useRef(null);       // timestamp when base was opened
-  const [awaySummary, setAwaySummary]  = useState(null);    // "while you were away" modal data
+  const [screen,       setScreen]      = useState("play");
+  const stateSnapshotRef               = useRef(null);
+  const activityLogRef                 = useRef([]);
+  const baseOpenedAtRef                = useRef(null);
+  const [awaySummary, setAwaySummary]  = useState(null);
 
   const phaseRef = useRef(phase);
   const roleRef  = useRef(role);
   const levelRef = useRef(level);
-  useEffect(() => { phaseRef.current = phase;   }, [phase]);
-  useEffect(() => { roleRef.current  = role;    }, [role]);
-  useEffect(() => { levelRef.current = level;   }, [level]);
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
+  useEffect(() => { roleRef.current  = role;  }, [role]);
+  useEffect(() => { levelRef.current = level; }, [level]);
 
-  // Websocket for meta-events (game_over, restart_request) — keep active during all non-lobby phases
-  // so partner broadcasts (game_over, restart) are received even while playing.
+  // ── Auto-save worldState whenever it changes ───────────────────────────────
+  useEffect(() => {
+    saveWorldState(worldState);
+  }, [worldState]);
+
+  // ── Base attack interval (Step 4) ─────────────────────────────────────────
+  useEffect(() => {
+    if (phase === "lobby" || phase === "waiting" || phase === "gameover") return;
+    const id = setInterval(() => {
+      setWorldState(prev => {
+        const { worldState: next } = tickBaseAttacks(prev, levelRef.current);
+        return next;
+      });
+    }, 30_000);
+    return () => clearInterval(id);
+  }, [phase]);
+
+  // ── Passive resource generation interval (Step 6) ─────────────────────────
+  useEffect(() => {
+    if (phase === "lobby" || phase === "waiting" || phase === "gameover") return;
+    const id = setInterval(() => {
+      setWorldState(prev => tickBaseResources(prev));
+    }, 60_000);
+    return () => clearInterval(id);
+  }, [phase]);
+
   const activeRoomId = (phase === "lobby" || phase === "waiting") ? null : room?.id ?? null;
 
   const handlers = useRef({
@@ -329,16 +398,17 @@ export default function DeadMilesGame() {
         setFinalScore(score);
         setMyReadyUp(false);
         setPartnerReadyUp(false);
-        setPhase("gameover");
+        if (score?.survived) {
+          setPhase("worldmap");
+        } else {
+          setPhase("gameover");
+        }
       }
     },
-    // P1 broadcasts a new seed when restarting or advancing a level.
-    // P2 receives this and updates its room so the next GameView mount uses the same world.
     onRoomSeedUpdate: ({ seed, level: newLevel }) => {
       setRoom(prev => prev ? { ...prev, map_seed: seed } : null);
       if (newLevel != null) setLevel(newLevel);
     },
-    // Either player can request a restart — execute it locally when received from partner.
     onRestartRequest: ({ seed, level: newLevel }) => {
       if (phaseRef.current !== "gameover") return;
       setRoom(prev => prev ? { ...prev, map_seed: seed } : null);
@@ -348,13 +418,69 @@ export default function DeadMilesGame() {
       setPartnerReadyUp(false);
       setPhase("playing");
     },
-    // Partner clicked "ready up" on the game over screen
     onReadyUp: () => {
       setPartnerReadyUp(true);
     },
   }).current;
 
   const { sendRoomSeedUpdate, sendRestartRequest, sendReadyUp } = useDeadMilesRoom(activeRoomId, handlers);
+
+  // ── World state helpers ────────────────────────────────────────────────────
+
+  function markLevelActive(levelId) {
+    setWorldState(prev => {
+      const levels = prev.levels.map(l =>
+        l.id === levelId && l.status === "unexplored"
+          ? { ...l, status: "active" }
+          : l
+      );
+      return { ...prev, levels };
+    });
+  }
+
+  // After a level is completed, mark it secured and merge collected resources
+  // back into the world pool (Step 7).
+  // For defend missions, restore baseHp (Step 8).
+  function markLevelSecured(levelId, score) {
+    setWorldState(prev => {
+      const levels = prev.levels.map(l => {
+        if (l.id !== levelId) return l;
+
+        // Step 8: restore base HP on successful defence
+        const baseHpAfter = score?.defended
+          ? Math.min(100, (l.baseHp ?? 0) + (score.baseHpRestored ?? DEFEND_BASE_HP_RESTORE))
+          : (l.baseHp ?? 100);
+
+        return {
+          ...l,
+          status:       "secured",
+          turretPlaced: score?.turretPlaced ?? false,
+          gardenPlots:  score?.gardenPlots  ?? 0,
+          baseHp:       baseHpAfter,
+          resources: {
+            food:  l.resources?.food  ?? 0,
+            scrap: l.resources?.scrap ?? 0,
+          },
+        };
+      });
+
+      // Unlock next level
+      const unlocked = levels.map(l =>
+        l.id === levelId + 1 && l.status === "unexplored"
+          ? { ...l, status: "unexplored" }
+          : l
+      );
+
+      // Step 7: merge collected resources back into total pool
+      const updatedTotal = mergeCollectedResources(
+        prev.totalResources,
+        score?.resourcesCollected,
+        unlocked
+      );
+
+      return { ...prev, levels: unlocked, totalResources: updatedTotal };
+    });
+  }
 
   // ── Entry points ───────────────────────────────────────────────────────────
 
@@ -363,7 +489,10 @@ export default function DeadMilesGame() {
     setRole("p1");
     setFinalScore(null);
     setLevel(1);
-    setPhase("playing");
+    const fresh = makeDefaultWorldState();
+    setWorldState(fresh);
+    saveWorldState(fresh);
+    setPhase("worldmap");
   }
 
   function handleRoomReady(roomData, assignedRole) {
@@ -371,19 +500,62 @@ export default function DeadMilesGame() {
     setRole(assignedRole);
     setFinalScore(null);
     setLevel(1);
+    const fresh = makeDefaultWorldState();
+    setWorldState(fresh);
+    saveWorldState(fresh);
     setPhase(assignedRole === "p1" ? "waiting" : "playing");
   }
 
   function handleP2Joined(updatedRoom) {
     if (updatedRoom) setRoom(prev => ({ ...prev, ...updatedRoom }));
+    setPhase("worldmap");
+  }
+
+  // Called by GameView when level ends (death or victory)
+  function handleGameOver(score) {
+    setFinalScore(score);
+    setAutoPlay(false);
+    setMyReadyUp(false);
+    setPartnerReadyUp(false);
+    if (score?.survived) {
+      markLevelSecured(levelRef.current, score);
+      setPhase("worldmap");
+    } else {
+      setPhase("gameover");
+    }
+  }
+
+  // Called from WorldMap "Deploy" or "Send on Run" buttons
+  // Step 7: compute carry inventory from world pool before mounting GameView
+  // Step 8: derive missionType from level status
+  function handleDeploy(levelId, auto = false) {
+    const newSeed = Date.now() & 0x7fffffff;
+
+    // Step 7 — pre-stock carry inventory
+    setWorldState(prev => {
+      const { inventory: carryInv, worldResources } = applyDeployCarry(
+        {},
+        prev.totalResources
+      );
+      deployInventoryRef.current = carryInv;
+
+      // Deduct carry from totalResources; recompute per-level totals remain intact
+      return { ...prev, totalResources: worldResources };
+    });
+
+    setLevel(levelId);
+    setAutoPlay(auto);
+    setRoom(prev => prev ? { ...prev, map_seed: newSeed } : null);
+    if (room?.id) sendRoomSeedUpdate(newSeed, levelId);
+    setFinalScore(null);
+    markLevelActive(levelId);
     setPhase("playing");
   }
 
-  function handleGameOver(score) {
-    setFinalScore(score);
-    setMyReadyUp(false);
-    setPartnerReadyUp(false);
-    setPhase("gameover");
+  // Derive the mission type for the level being deployed to
+  function getMissionType(levelId) {
+    const lvl = worldState.levels.find(l => l.id === levelId);
+    return lvl?.status === "under_attack" ? "defend" : "clear";
   }
 
   function handleReadyUp() {
@@ -394,9 +566,9 @@ export default function DeadMilesGame() {
   function handleRestart() {
     const newSeed = Date.now() & 0x7fffffff;
     setRoom(prev => prev ? { ...prev, map_seed: newSeed } : null);
-    // Broadcast to partner so they restart with the same seed
     if (room?.id) sendRestartRequest(newSeed, levelRef.current);
     setFinalScore(null);
+    setAutoPlay(false);
     setMyReadyUp(false);
     setPartnerReadyUp(false);
     setPhase("playing");
@@ -407,26 +579,15 @@ export default function DeadMilesGame() {
     if (phase !== "gameover") return;
     if (!room?.id) return;
     if (!myReadyUp || !partnerReadyUp) return;
-    // Only one side needs to call handleRestart (host wins the race)
     if (role === "p1") handleRestart();
   }, [myReadyUp, partnerReadyUp, phase, room?.id, role]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  function handleNextLevel() {
-    const newLevel = levelRef.current + 1;
-    const newSeed  = Date.now() & 0x7fffffff;
-    setLevel(newLevel);
-    setRoom(prev => prev ? { ...prev, map_seed: newSeed } : null);
-    // Tell P2 to use the same seed and level before they remount GameView
-    if (room?.id) sendRoomSeedUpdate(newSeed, newLevel);
-    setFinalScore(null);
-    setPhase("playing");
-  }
 
   function handleMenu() {
     setRoom(null);
     setRole("p1");
     setFinalScore(null);
     setLevel(1);
+    deleteWorldStateSave();
     setPhase("lobby");
   }
 
@@ -447,16 +608,31 @@ export default function DeadMilesGame() {
     />
   );
 
+  if (phase === "worldmap") return (
+    <WorldMap
+      worldState={worldState}
+      currentLevel={level}
+      isPlaying={false}
+      onDeploy={handleDeploy}
+      onMenu={handleMenu}
+    />
+  );
+
   if (phase === "playing") {
+    // Step 8: mission type drives defend wave in GameView
+    const missionType = getMissionType(level);
+
     return (
       <div style={{ position: "fixed", inset: 0, overflow: "hidden" }}>
         {/* GameView always mounted — canvas loop keeps running in background */}
         <div style={{ display: screen === "play" ? "block" : "none", position: "absolute", inset: 0 }}>
           <GameView
-            key={`${room?.map_seed ?? "solo"}`}
+            key={`${room?.map_seed ?? "solo"}-${level}`}
             room={room}
             role={role}
             level={level}
+            missionType={missionType}
+            deployInventory={deployInventoryRef.current}
             onGameOver={handleGameOver}
             onStateSnapshot={snap => { stateSnapshotRef.current = snap; }}
             onOpenBase={() => {
@@ -464,6 +640,8 @@ export default function DeadMilesGame() {
               setScreen("base");
             }}
             activityLog={activityLogRef.current}
+            autoPlay={autoPlay}
+            onDropIn={() => setAutoPlay(false)}
           />
         </div>
 
@@ -473,8 +651,6 @@ export default function DeadMilesGame() {
             activityLog={activityLogRef.current}
             awaySummary={awaySummary}
             onDismissAway={() => setAwaySummary(null)}
-            // FIX 4/5: pass baseStorage directly so BaseView reads from the
-            // right source and mutations propagate back through the snapshot ref
             onHarvest={action => {
               const s = stateSnapshotRef.current;
               if (!s) return;
@@ -491,14 +667,13 @@ export default function DeadMilesGame() {
                 const sv = s.survivors?.find(sv2 => sv2.id === action.survivorId);
                 if (sv) {
                   sv.command = action.command;
-                  sv.state = "idle";
+                  sv.state   = "idle";
                   sv._castTimer = 0; sv._castType = null;
                   if (action.command !== "assign") { sv.assignedTo = null; sv.barricaded = false; }
                 }
               }
               if (action.type === "craft") {
                 const result = craftItem(s, action.recipeId, activityLogRef.current);
-                // state mutation is in-place via craftItem; snapshot ref stays live
                 if (result.success) {
                   pushActivity(activityLogRef.current, `🔨 Crafted ${result.recipe.label}`);
                 }
@@ -507,9 +682,7 @@ export default function DeadMilesGame() {
                 const sv = s.survivors?.find(sv2 => sv2.id === action.survivorId);
                 if (sv) {
                   sv.workstation = action.workstation ?? null;
-                  const wsLabel = action.workstation
-                    ? action.workstation.replace("_", " ")
-                    : null;
+                  const wsLabel = action.workstation ? action.workstation.replace("_", " ") : null;
                   pushActivity(
                     activityLogRef.current,
                     wsLabel
@@ -519,7 +692,6 @@ export default function DeadMilesGame() {
                 }
               }
               if (action.type === "deposit") {
-                // Move items from player field inventory → baseStorage
                 const { key, amount } = action;
                 const have = Math.floor(s.player?.inventory?.[key] ?? 0);
                 const qty  = Math.min(amount, have);
@@ -531,7 +703,6 @@ export default function DeadMilesGame() {
                 }
               }
               if (action.type === "withdraw") {
-                // Move items from baseStorage → player field inventory
                 const { key, amount } = action;
                 const have = Math.floor(s.baseStorage?.[key] ?? 0);
                 const qty  = Math.min(amount, have);
@@ -551,13 +722,11 @@ export default function DeadMilesGame() {
 
               let summary = null;
               if (openedFor > 5 && s) {
-                // FIX 4: baseTick now returns { harvested, damaged, produced }
                 const { harvested, damaged, produced } = applyOfflineBaseTick(s, activityLogRef.current);
                 if (harvested.length > 0 || damaged.length > 0 || produced.length > 0) {
                   summary = { harvested, damaged, produced, netResources: {} };
                   if (harvested.length > 0)
                     summary.netResources.food = harvested.reduce((acc, h) => acc + h.amount, 0);
-                  // Tally workstation output in netResources for the away modal
                   for (const p of produced) {
                     summary.netResources[p.resource] =
                       (summary.netResources[p.resource] ?? 0) + p.amount;

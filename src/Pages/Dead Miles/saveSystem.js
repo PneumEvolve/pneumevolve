@@ -207,3 +207,63 @@ export function reconstructState(saveData, freshWorld) {
 
   return state;
 }
+// ─── Step 5: World state persistence ─────────────────────────────────────────
+
+const WORLD_STATE_KEY = "dead_miles_world";
+
+/**
+ * Persist the world map state (level statuses, base HP, resources, etc.)
+ * independently of the active level's game state.
+ */
+export function saveWorldState(worldState) {
+  if (!worldState) return false;
+  try {
+    const payload = {
+      version: 1,
+      timestamp: Date.now(),
+      levels: worldState.levels,
+      totalResources: worldState.totalResources ?? { food: 0, scrap: 0 },
+    };
+    localStorage.setItem(WORLD_STATE_KEY, JSON.stringify(payload));
+    return true;
+  } catch (e) {
+    console.error("Failed to save world state:", e);
+    return false;
+  }
+}
+
+/**
+ * Load the world map state. Returns null if no save exists or parsing fails.
+ */
+export function loadWorldState() {
+  try {
+    const raw = localStorage.getItem(WORLD_STATE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data?.levels) return null;
+    // v1 migration: ensure every level has all required fields
+    const levels = data.levels.map(l => ({
+      baseHp:        100,
+      turretPlaced:  false,
+      gardenPlots:   0,
+      resources:     { food: 0, scrap: 0 },
+      lastAttack:    null,
+      ...l,
+    }));
+    return {
+      levels,
+      totalResources: data.totalResources ?? { food: 0, scrap: 0 },
+    };
+  } catch (e) {
+    console.error("Failed to load world state:", e);
+    return null;
+  }
+}
+
+export function hasWorldStateSave() {
+  return !!localStorage.getItem(WORLD_STATE_KEY);
+}
+
+export function deleteWorldStateSave() {
+  localStorage.removeItem(WORLD_STATE_KEY);
+}
