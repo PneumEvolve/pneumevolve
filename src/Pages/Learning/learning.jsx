@@ -15,7 +15,8 @@ When it is located at the top of a script, the whole script works the “modern�
 */
 
 /*
-let declares a variable and = declares what the variable is. The name must contain only letters, digits, or the symbols $ and _.
+let declares a variable and = declares what the variable is. The name must contain only letters, 
+digits, or the symbols $ and _.
 The first character must not be a digit.Example:
 
 let message = 'Hello World!';
@@ -179,9 +180,12 @@ Using both unary and binary + in the latest code. Looks funny, doesn’t it?
 
 Comparison operators return a boolean value.
 Strings are compared letter-by-letter in the “dictionary” order.
-When values of different types are compared, they get converted to numbers (with the exclusion of a strict equality check).
-The values null and undefined are equal == to themselves and each other, but do not equal any other value.
-Be careful when using comparisons like > or < with variables that can occasionally be null/undefined. Checking for null/undefined separately is a good idea.
+When values of different types are compared, they get converted to numbers
+ (with the exclusion of a strict equality check).
+The values null and undefined are equal == to themselves and each other, 
+but do not equal any other value.
+Be careful when using comparisons like > or < with variables that can occasionally be null/undefined.
+ Checking for null/undefined separately is a good idea.
 What will be the result for these expressions?
 
 1. 5 > 4                   my answer: true - correct
@@ -284,6 +288,8 @@ export function runExercises(log) {
 
 Logical Operators:
 || = OR -returns first truthy value or last       && = AND - returns first falsy value or last
+Most of the time, OR || is used in an if statement to test if any of the given conditions is true.
+AND operator has higher precedence than OR operator. ! has highest precedence of all.
 What is the code below going to output?
 alert( null || 2 || undefined );
 my answer: 2 - correct
@@ -327,16 +333,49 @@ Now the result is the first truthy value: 3.
 
 Write an if condition to check that age is between 14 and 90 inclusively.
 “Inclusively” means that age can reach the edges 14 or 90.
-
+My failed attempt:
+export function runExercises(log){
+    prompt(Age [18])
+    if (age = <90 || >14){
+        alert("Age is between 14 and 90")
+    } else {
+        alert("Age is not between 14 and 90")
+    }
+}
+    Answer:
+    if (age >= 14 && age <= 90)
 
 Write an if condition to check that age is NOT between 14 and 90 inclusively.
 Create two variants: the first one using NOT !, the second one – without it.
-
+my answer:
+if (age !>=14 && !<=90)
+if (age >=14 || <=90)
+Answers:
+if (!(age >= 14 && age <= 90))
+if (age < 14 || age > 90)
 
 Which of these alerts are going to execute?
 What will the results of the expressions be inside if(...)?
 if (-1 || 0) alert( 'first' );
 if (-1 && 0) alert( 'second' );
+if (null || -1 && 1) alert( 'third' );
+
+The answer: the first and the third will execute.
+
+Details:
+
+// Runs.
+// The result of -1 || 0 = -1, truthy
+if (-1 || 0) alert( 'first' );
+
+// Doesn't run
+// -1 && 0 = 0, falsy
+if (-1 && 0) alert( 'second' );
+
+// Executes
+// Operator && has a higher precedence than ||
+// so -1 && 1 executes first, giving us the chain:
+// null || -1 && 1  ->  null || 1  ->  1
 if (null || -1 && 1) alert( 'third' );
 
 
@@ -351,6 +390,29 @@ Please use nested if blocks. Mind the overall readability of the code.
 Hint: passing an empty input to a prompt returns an empty string ''. Pressing ESC during a prompt returns null
 
 */
+
+export function runExercises(log){
+
+    let login = prompt( 'Login Info', ['username'])
+    if ( login == "" || "Esc"){
+        alert("Cancelled")
+    }
+    if ( login !== "Admin" || "" || "Esc" ){
+        alert("I don't know you!")
+    }
+    if ( login == "Admin") {
+
+    let password = prompt('Login', ["password"])
+    if (password == ("" && "Esc"))
+    alert("Canceled")
+     else if ( password == "TheMaster" ) {
+        alert("Welcome!")
+     } else if ( password == "" || "Esc" || "TheMaster" )
+        alert("I don't know you")
+     }
+    }
+
+
 // ============================================================
 // Page shell — you don't need to touch anything below this line
 // until Phase 2 when you'll understand exactly what it's doing.

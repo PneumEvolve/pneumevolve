@@ -15,14 +15,34 @@ import {
   tickBaseAttacks,
   tickBaseResources,
   applyDeployCarry,
-  mergeCollectedResources,
   DEFEND_BASE_HP_RESTORE,
+  tickThreatTiers,
+  tickSupplyRoutes,
+  pushWorldEvent,
+  maybeGenerateCrisis,
+  DEPLOY_FUEL_PER_VEHICLE,
+  DEPLOY_FOOD_PER_SURVIVOR,
 } from "./deadMilesEngine";
 import { saveWorldState, loadWorldState, deleteWorldStateSave } from "./saveSystem";
+import {
+  getDeployableRoster,
+  markPartyDeployed,
+  hydrateDeployParty,
+  mergeSurvivorsToRoster,
+} from "./survivorRoster";
+import {
+  makeDefaultHomeBase,
+  homeBaseToSnapshot,
+  applyHomeBaseAction,
+  applyOfflineHomeBaseTick,
+  homeRoster,
+  mergeRunIntoHomeBase,
+} from "./engine_homebase";
+import { BASE_UPGRADE_TREE } from "./engine_constants"
 
 // ─── Lobby ────────────────────────────────────────────────────────────────────
 
-function Lobby({ onSolo, onRoomReady }) {
+function Lobby({ onSolo, onResume, onRoomReady, hasSave }) {
   const [joinCode, setJoinCode] = useState("");
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState(null);
@@ -74,16 +94,30 @@ function Lobby({ onSolo, onRoomReady }) {
           </p>
         </div>
 
-        {/* Solo */}
+        {/* Resume saved game */}
+        {hasSave && (
+          <button
+            onClick={onResume}
+            className="w-full py-3 rounded-xl text-sm font-medium"
+            style={{
+              background: "rgba(255,200,80,0.15)",
+              border: "1px solid rgba(255,200,80,0.4)",
+              color: "rgba(255,200,80,0.95)",
+            }}>
+            ▶ resume game
+          </button>
+        )}
+
+        {/* Solo / New Game */}
         <button
           onClick={onSolo}
           className="w-full py-3 rounded-xl text-sm font-medium"
           style={{
-            background: "rgba(255,200,80,0.1)",
-            border: "1px solid rgba(255,200,80,0.25)",
-            color: "rgba(255,200,80,0.9)",
+            background: hasSave ? "rgba(255,255,255,0.03)" : "rgba(255,200,80,0.1)",
+            border: hasSave ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(255,200,80,0.25)",
+            color: hasSave ? "rgba(255,255,255,0.4)" : "rgba(255,200,80,0.9)",
           }}>
-          play solo
+          {hasSave ? "new game" : "play solo"}
         </button>
 
         {/* Divider */}
@@ -314,20 +348,262 @@ function GameOver({ score, level, room, role, onRestart, onMenu, onReadyUp, part
   );
 }
 
+// ─── Mission Return Card ──────────────────────────────────────────────────────
+// Full debrief overlay shown when the player returns from a run.
+// Shows: what loot landed in storage, vehicles extracted, survivor changes,
+// then prompts player to manage the base.
+
+function MissionReturnCard({ summary, onDismiss }) {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setVisible(true), 80); return () => clearTimeout(t); }, []);
+
+  if (!summary) return null;
+  const { updated = [], died = [], recruited = [], missionWon, loot, vehicles, garageCount } = summary;
+  const hasAnything = updated.length > 0 || died.length > 0 || recruited.length > 0 || loot || (vehicles ?? []).length > 0;
+  if (!hasAnything) return null;
+
+  const accent = missionWon ? "rgba(80,220,120," : "rgba(255,200,80,";
+
+  return (
+    <div
+      style={{
+        position: "fixed", inset: 0, zIndex: 50,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        padding: 16,
+        background: "rgba(0,0,0,0.7)",
+        opacity: visible ? 1 : 0,
+        transition: "opacity 0.4s ease",
+        pointerEvents: visible ? "auto" : "none",
+      }}
+      onClick={onDismiss}
+    >
+      <div
+        style={{
+          width: "100%", maxWidth: 380,
+          background: "#0d1215",
+          border: `1px solid ${accent}0.25)`,
+          borderRadius: 18,
+          padding: "24px 22px 20px",
+          display: "flex",
+          flexDirection: "column",
+          gap: 16,
+          maxHeight: "88vh",
+          overflowY: "auto",
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div>
+          <div style={{
+            fontSize: 10, letterSpacing: "0.16em", textTransform: "uppercase",
+            color: `${accent}0.65)`, marginBottom: 4,
+          }}>
+            {missionWon ? "Run Complete" : "Crew Returned"}
+          </div>
+          <div style={{ fontSize: 20, color: "rgba(255,255,255,0.9)", fontWeight: 300, letterSpacing: "0.02em" }}>
+            Back at Home Base
+          </div>
+        </div>
+
+        {/* Loot hauled */}
+        {loot && Object.values(loot).some(v => v > 0) && (
+          <div>
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>
+              📦 Added to Storage
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {Object.entries(loot).filter(([,v]) => v > 0).map(([k, v]) => {
+                const icons = { food:"🌽", scrap:"⚙️", medicine:"💊", fuel:"⛽", ammo:"🔫", nails:"📌", wood:"🪵", seeds:"🌱", water:"💧", car_parts:"🔩" };
+                return (
+                  <div key={k} style={{
+                    padding: "5px 10px", borderRadius: 7,
+                    background: `${accent}0.07)`,
+                    border: `1px solid ${accent}0.2)`,
+                    fontSize: 12, color: `${accent}0.9)`,
+                  }}>
+                    {icons[k] ?? "●"} +{Math.floor(v)} {k.replace("_", " ")}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Vehicles extracted */}
+        {(vehicles ?? []).length > 0 && (
+          <div>
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>
+              🚗 Garage (+{vehicles.length} vehicle{vehicles.length !== 1 ? "s" : ""})
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {vehicles.map((v, i) => {
+                const icons = { car: "🚗", bike: "🚲", minivan: "🚐", monster_truck: "🚛" };
+                const hpPct = Math.round((v.hp / (v.maxHp || v.hp)) * 100);
+                return (
+                  <div key={v.id ?? i} style={{
+                    padding: "5px 10px", borderRadius: 7,
+                    background: "rgba(120,200,255,0.07)",
+                    border: "1px solid rgba(120,200,255,0.2)",
+                    fontSize: 12, color: "rgba(120,200,255,0.85)",
+                  }}>
+                    {icons[v.vehicleType] ?? "🚗"} {(v.vehicleType ?? "vehicle").replace("_", " ")} {hpPct}% HP
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* New survivors */}
+        {recruited.length > 0 && (
+          <SummarySection label="Recruited" names={recruited} color="rgba(120,200,255,0.85)" icon="➕" />
+        )}
+
+        {/* Returning crew */}
+        {updated.length > 0 && (
+          <SummarySection
+            label={missionWon ? "Back safe" : "Returned wounded"}
+            names={updated}
+            color={missionWon ? `${accent}0.8)` : "rgba(255,200,80,0.8)"}
+            icon={missionWon ? "✓" : "↩"}
+          />
+        )}
+
+        {died.length > 0 && (
+          <SummarySection label="Killed in action" names={died} color="rgba(255,80,80,0.85)" icon="✗" />
+        )}
+
+        {/* CTA */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", textAlign: "center", lineHeight: 1.5 }}>
+            {recruited.length > 0
+              ? `${recruited.length} new survivor${recruited.length !== 1 ? "s" : ""} need assignments. Head to the base.`
+              : "Assign survivors to workstations to put your loot to work."}
+          </div>
+          <button
+            onClick={onDismiss}
+            style={{
+              padding: "11px 0",
+              borderRadius: 11,
+              background: `${accent}0.12)`,
+              border: `1px solid ${accent}0.3)`,
+              color: `${accent}0.95)`,
+              fontSize: 13,
+              cursor: "pointer",
+              letterSpacing: "0.06em",
+            }}>
+            Manage Base →
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SummarySection({ label, names, color, icon }) {
+  return (
+    <div>
+      <div style={{
+        fontSize: 10, color: "rgba(255,255,255,0.25)",
+        letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6,
+      }}>
+        {icon} {label}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {names.map(name => (
+          <span key={name} style={{
+            padding: "3px 9px",
+            borderRadius: 5,
+            background: `${color.replace("0.8", "0.1").replace("0.85", "0.1")}`,
+            border: `1px solid ${color.replace("0.8", "0.25").replace("0.85", "0.25")}`,
+            fontSize: 12,
+            color,
+          }}>
+            {name}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Home base hub (base-first reframe) ───────────────────────────────────────
+// Renders BaseView from a snapshot synthesized off persistent worldState.homeBase
+// + roster (see engine_homebase.homeBaseToSnapshot). BaseView is unchanged — it
+// just receives home state instead of a live run snapshot. A floating toolbar
+// adds the "send a team out" launch step and a menu exit.
+
+function HomeBaseScreen({
+  snapshot, activityLog, onAction,
+  mode = "hub",            // "hub" = home (send a team out) | "peek" = mid-run glance home
+  onGoRun, onMenu, onBack,
+  crisisEvents, onResolveCrisis, awaySummary, onDismissAway,
+  worldState, worldEvents, onDeploy, onAddRoute, onRemoveRoute,
+  defaultTab,
+}) {
+  return (
+    <div style={{ position: "fixed", inset: 0 }}>
+      <BaseView
+        stateSnapshot={snapshot}
+        activityLog={activityLog}
+        onHarvest={onAction}
+        onClose={mode === "peek" ? onBack : (onBack ?? onGoRun)}
+        onEnterHome={onBack}
+        defaultTab={defaultTab}
+        crisisEvents={crisisEvents}
+        onResolveCrisis={onResolveCrisis}
+        awaySummary={awaySummary}
+        onDismissAway={onDismissAway}
+        worldState={mode === "hub" ? worldState : undefined}
+        worldEvents={mode === "hub" ? worldEvents : undefined}
+        onDeploy={mode === "hub" ? onDeploy : undefined}
+        onAddRoute={mode === "hub" ? onAddRoute : undefined}
+        onRemoveRoute={mode === "hub" ? onRemoveRoute : undefined}
+      />
+      <div style={{
+        position: "fixed", left: 0, right: 0, bottom: 0,
+        display: "flex", gap: 10, justifyContent: "center",
+        padding: 14, pointerEvents: "none", zIndex: 60,
+      }}>
+        {mode === "peek" ? (
+          <button onClick={onBack} style={{
+            pointerEvents: "auto", padding: "12px 22px", borderRadius: 12,
+            background: "rgba(120,200,255,0.12)", border: "1px solid rgba(120,200,255,0.3)",
+            color: "rgba(160,210,255,0.95)", fontSize: 13, letterSpacing: "0.05em", cursor: "pointer",
+          }}>← Back to the run</button>
+        ) : (
+          <>
+            <button onClick={onMenu} style={{
+              pointerEvents: "auto", padding: "12px 18px", borderRadius: 12,
+              background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)",
+              color: "rgba(255,255,255,0.5)", fontSize: 13, cursor: "pointer",
+            }}>⏻ Menu</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Default world state ──────────────────────────────────────────────────────
 
 function makeDefaultWorldState() {
   return {
     levels: [
-      { id: 1, status: "active",     seed: null, baseHp: 100, turretPlaced: false, gardenPlots: 0, resources: { food: 0, scrap: 0 }, lastAttack: null },
-      { id: 2, status: "unexplored", seed: null, baseHp: 100, turretPlaced: false, gardenPlots: 0, resources: { food: 0, scrap: 0 }, lastAttack: null },
-      { id: 3, status: "unexplored", seed: null, baseHp: 100, turretPlaced: false, gardenPlots: 0, resources: { food: 0, scrap: 0 }, lastAttack: null },
-      { id: 4, status: "unexplored", seed: null, baseHp: 100, turretPlaced: false, gardenPlots: 0, resources: { food: 0, scrap: 0 }, lastAttack: null },
-      { id: 5, status: "unexplored", seed: null, baseHp: 100, turretPlaced: false, gardenPlots: 0, resources: { food: 0, scrap: 0 }, lastAttack: null },
-      { id: 6, status: "unexplored", seed: null, baseHp: 100, turretPlaced: false, gardenPlots: 0, resources: { food: 0, scrap: 0 }, lastAttack: null },
-      { id: 7, status: "unexplored", seed: null, baseHp: 100, turretPlaced: false, gardenPlots: 0, resources: { food: 0, scrap: 0 }, lastAttack: null },
+      { id: 0, status: "secured",    seed: null, baseHp: 100, threatTier: 0, isHomeBase: true },
+      { id: 1, status: "unexplored", seed: null, threatTier: 1 },
+      { id: 2, status: "unexplored", seed: null, threatTier: 2 },
+      { id: 3, status: "unexplored", seed: null, threatTier: 2 },
+      { id: 4, status: "unexplored", seed: null, threatTier: 3 },
+      { id: 5, status: "unexplored", seed: null, threatTier: 3 },
+      { id: 6, status: "unexplored", seed: null, threatTier: 3 },
+      { id: 7, status: "unexplored", seed: null, threatTier: 4 },
     ],
-    totalResources: { food: 0, scrap: 0 },
+    totalResources: { food: 0, scrap: 0, medicine: 0, fuel: 0, ammo: 0 },
+    supplyRoutes: [],  // kept for save compatibility, unused
+    roster: [],
+    _survivorSeq: 0,
+    homeBase: makeDefaultHomeBase(),
   };
 }
 
@@ -338,17 +614,35 @@ export default function DeadMilesGame() {
   const [room,       setRoom]       = useState(null);
   const [role,       setRole]       = useState("p1");
   const [finalScore, setFinalScore] = useState(null);
-  const [level,      setLevel]      = useState(1);
+  const [level,      setLevel]      = useState(0);
   const [autoPlay,   setAutoPlay]   = useState(false);
   const [myReadyUp,      setMyReadyUp]      = useState(false);
   const [partnerReadyUp, setPartnerReadyUp] = useState(false);
 
-  const [worldState, setWorldState] = useState(() => loadWorldState() ?? makeDefaultWorldState());
+  const [worldState, setWorldState] = useState(() => {
+    const loaded = loadWorldState();
+    if (loaded) {
+      // Older saves predate the home base — seed a default so the hub always exists.
+      if (!loaded.homeBase) loaded.homeBase = makeDefaultHomeBase();
+      return loaded;
+    }
+    return makeDefaultWorldState();
+  });
+
+  // ── World events ticker (WorldMap sidebar) ─────────────────────────────────
+  const [worldEvents, setWorldEvents] = useState([]);
+  const worldEventsRef = useRef([]);
+  // Keep ref in sync so interval callbacks can read latest without closure issues
+  useEffect(() => { worldEventsRef.current = worldEvents; }, [worldEvents]);
+
+  // ── Crisis events (BaseView notification panel) ────────────────────────────
+  const [crisisEvents, setCrisisEvents] = useState([]);
 
   // ── Step 7: carry resources — pre-stock inventory built just before deploy ─
   // Stored as a ref so it's available synchronously in handleDeploy without a
   // render cycle.  GameView reads it via the `deployInventory` prop.
   const deployInventoryRef = useRef(null);
+  const deployPartyRef     = useRef(null);   // Phase 0.3 — hydrated roster survivors for this mission
 
   // Phase 2: base screen
   const [screen,       setScreen]      = useState("play");
@@ -356,28 +650,176 @@ export default function DeadMilesGame() {
   const activityLogRef                 = useRef([]);
   const baseOpenedAtRef                = useRef(null);
   const [awaySummary, setAwaySummary]  = useState(null);
+  const [homeAwaySummary, setHomeAwaySummary] = useState(null); // home production while you were out
+  const [missionSummary, setMissionSummary] = useState(null); // Phase 4 return card
 
-  const phaseRef = useRef(phase);
-  const roleRef  = useRef(role);
-  const levelRef = useRef(level);
-  useEffect(() => { phaseRef.current = phase; }, [phase]);
-  useEffect(() => { roleRef.current  = role;  }, [role]);
-  useEffect(() => { levelRef.current = level; }, [level]);
+  // Task 2.2: ref to GameView's live stateRef — forwarded via onGetStateRef prop.
+  // Used by the heartbeat interval to tick the run while the player is in base.
+  const gameStateRefRef = useRef(null); // gameStateRefRef.current = stateRef (a ref of a ref)
+
+  // ── Task 2.2: Heartbeat simulation ──────────────────────────────────────────
+  // While the player is browsing base mid-run (screen === "base"), tick the run
+  // in the background at a coarse 3-second interval so the autoplay doesn't freeze.
+  // We write directly into GameView's stateRef (forwarded via onGetStateRef) so the
+  // canvas loop picks up the updated state the instant the player drops back in.
+  // Only active during non-homebase runs — the homebase map already lives in GameView.
+  useEffect(() => {
+    if (screen !== "base" || phase !== "playing" || level === 0) return;
+    const HEARTBEAT_MS = 3000;
+    const DT_SEC = HEARTBEAT_MS / 1000;
+
+    const id = setInterval(() => {
+      const stateRef = gameStateRefRef.current;
+      const s = stateRef?.current;
+      if (!s || !s.player || s.player.isDowned) return;
+
+      // Move player toward compass target (simplified, no collision)
+      const target = s.compassTarget ?? s._goHomeNow ? { x: s.hamletCx ?? s.player.x, y: 100 } : null;
+      if (target) {
+        const dx = target.x - s.player.x;
+        const dy = target.y - s.player.y;
+        const d  = Math.hypot(dx, dy);
+        if (d > 50) {
+          const spd = s.player.inVehicle ? 300 : 160;
+          const move = Math.min(spd * DT_SEC, d - 50);
+          s.player.x += (dx / d) * move;
+          s.player.y += (dy / d) * move;
+          // Move vehicle with player if driving
+          if (s.player.inVehicle && s.vehicle) {
+            s.vehicle.x = s.player.x;
+            s.vehicle.y = s.player.y;
+          }
+        }
+      }
+
+      // Simplified zombie attrition — zombies close to player deal damage, some die
+      const playerX = s.player.inVehicle ? (s.vehicle?.x ?? s.player.x) : s.player.x;
+      const playerY = s.player.inVehicle ? (s.vehicle?.y ?? s.player.y) : s.player.y;
+      for (const z of s.zombies ?? []) {
+        if (z.dead) continue;
+        const dz = Math.hypot(z.x - playerX, z.y - playerY);
+        if (dz < 30 && !s.player.inVehicle) {
+          // Zombie lands a hit — light damage per heartbeat
+          s.player.hp = Math.max(0, (s.player.hp ?? 100) - 5);
+          if (s.player.hp <= 0) {
+            s.player.isDowned = true;
+            clearInterval(id);
+          }
+        }
+        // Zombies drift toward player slowly
+        if (dz < 600) {
+          const angle = Math.atan2(playerY - z.y, playerX - z.x);
+          z.x += Math.cos(angle) * 32 * DT_SEC;
+          z.y += Math.sin(angle) * 32 * DT_SEC;
+        }
+      }
+    }, HEARTBEAT_MS);
+
+    return () => clearInterval(id);
+  }, [screen, phase, level]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const phaseRef  = useRef(phase);
+  const roleRef   = useRef(role);
+  const levelRef  = useRef(level);
+  const rosterRef = useRef(worldState.roster);
+  useEffect(() => { phaseRef.current  = phase;  }, [phase]);
+  useEffect(() => { roleRef.current   = role;   }, [role]);
+  useEffect(() => { levelRef.current  = level;  }, [level]);
+  useEffect(() => { rosterRef.current = worldState.roster; }, [worldState.roster]);
 
   // ── Auto-save worldState whenever it changes ───────────────────────────────
   useEffect(() => {
     saveWorldState(worldState);
   }, [worldState]);
 
-  // ── Base attack interval (Step 4) ─────────────────────────────────────────
+  // ── Base-first: accrue home production for time spent away, on return home ──
+  useEffect(() => {
+    if (phase !== "home") return;
+    const hb = worldState.homeBase ?? makeDefaultHomeBase();
+    const res = applyOfflineHomeBaseTick(hb, worldState.roster, activityLogRef.current);
+    const produced  = res.produced  ?? [];
+    const harvested = res.harvested ?? [];
+    const needs     = res.needs ?? { hungry: [], lowMorale: [] };
+    if (produced.length || harvested.length || needs.hungry.length) {
+      const net = {};
+      for (const p of produced) net[p.resource] = (net[p.resource] ?? 0) + p.amount;
+      if (harvested.length) net.food = (net.food ?? 0) + harvested.reduce((a, h) => a + h.amount, 0);
+      setHomeAwaySummary({ produced, harvested, netResources: net, hungry: needs.hungry, lowMorale: needs.lowMorale });
+    }
+    // Bump ref so the adapter re-reads the mutated home state.
+    setWorldState(prev => ({ ...prev, homeBase: { ...(prev.homeBase ?? hb) } }));
+  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Base attack interval (threat-tier-aware) ──────────────────────────────
+  useEffect(() => {
+    if (phase === "lobby" || phase === "waiting" || phase === "gameover") return;
+    const id = setInterval(() => {
+      let raid = null;
+      setWorldState(prev => {
+        // Step 3: home is raidable while you're away (not while present in the hub).
+        const homeVulnerable = phaseRef.current !== "home";
+        const { worldState: next, homeRaid } = tickBaseAttacks(prev, levelRef.current, worldEventsRef, homeVulnerable);
+        raid = homeRaid;
+        return next;
+      });
+      if (raid) {
+        const bits = [];
+        if (raid.woundedName) bits.push(`${raid.woundedName} was hurt`);
+        if (raid.turretHit)   bits.push(`a turret took damage`);
+        const detail = bits.length ? ` (${bits.join(", ")})` : "";
+        pushActivity(activityLogRef.current, `⚔ Home base raided — ${raid.damage} damage${detail}`);
+        if (raid.fell) {
+          worldEventsRef.current = pushWorldEvent(
+            worldEventsRef.current, "generic",
+            { text: `🚨 Home base overrun — defenses are down, get back there` }
+          );
+          pushActivity(activityLogRef.current, `🚨 Home base overrun — raiders took supplies`);
+        }
+      }
+      // Flush world events ref → state (done outside setWorldState to avoid batching issues)
+      setWorldEvents([...worldEventsRef.current]);
+    }, 30_000);
+    return () => clearInterval(id);
+  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Step 1: live home heartbeat - base ages in real time, everywhere.
+  // Food depletes and survivors get hungry whether you're in the hub, on the
+  // map, or out on a run.
   useEffect(() => {
     if (phase === "lobby" || phase === "waiting" || phase === "gameover") return;
     const id = setInterval(() => {
       setWorldState(prev => {
-        const { worldState: next } = tickBaseAttacks(prev, levelRef.current);
-        return next;
+        const hb = prev.homeBase ?? makeDefaultHomeBase();
+        const res = applyOfflineHomeBaseTick(hb, prev.roster, activityLogRef.current);
+        const hungry = res?.needs?.hungry ?? [];
+        if (hungry.length) {
+          worldEventsRef.current = pushWorldEvent(
+            worldEventsRef.current, "generic",
+            { text: `🍽 ${hungry.length} at home went hungry — stores are short` }
+          );
+        }
+        return { ...prev, homeBase: { ...hb }, roster: prev.roster ? [...prev.roster] : [] };
       });
-    }, 30_000);
+      setWorldEvents([...worldEventsRef.current]);
+    }, 15_000);
+    return () => clearInterval(id);
+  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Threat tier escalation interval (every 60s) ────────────────────────────
+  useEffect(() => {
+    if (phase === "lobby" || phase === "waiting" || phase === "gameover") return;
+    const id = setInterval(() => {
+      setWorldState(prev => tickThreatTiers(prev));
+    }, 60_000);
+    return () => clearInterval(id);
+  }, [phase]);
+
+  // ── Supply route tick (every 60s alongside resource gen) ──────────────────
+  useEffect(() => {
+    if (phase === "lobby" || phase === "waiting" || phase === "gameover") return;
+    const id = setInterval(() => {
+      setWorldState(prev => tickSupplyRoutes(prev));
+    }, 60_000);
     return () => clearInterval(id);
   }, [phase]);
 
@@ -386,9 +828,18 @@ export default function DeadMilesGame() {
     if (phase === "lobby" || phase === "waiting" || phase === "gameover") return;
     const id = setInterval(() => {
       setWorldState(prev => tickBaseResources(prev));
+
+      // Step 2: crises fire on the persistent home roster (living, at base).
+      const home = homeRoster(rosterRef.current ?? []).filter(r => (r.hp ?? 0) > 0);
+      if (home.length) {
+        const crisis = maybeGenerateCrisis(null, home);
+        if (crisis) {
+          setCrisisEvents(prev => [crisis, ...prev].slice(0, 5)); // max 5 pending at once
+        }
+      }
     }, 60_000);
     return () => clearInterval(id);
-  }, [phase]);
+  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const activeRoomId = (phase === "lobby" || phase === "waiting") ? null : room?.id ?? null;
 
@@ -399,7 +850,7 @@ export default function DeadMilesGame() {
         setMyReadyUp(false);
         setPartnerReadyUp(false);
         if (score?.survived) {
-          setPhase("worldmap");
+          setPhase("home");
         } else {
           setPhase("gameover");
         }
@@ -438,77 +889,200 @@ export default function DeadMilesGame() {
     });
   }
 
-  // After a level is completed, mark it secured and merge collected resources
-  // back into the world pool (Step 7).
-  // For defend missions, restore baseHp (Step 8).
-  function markLevelSecured(levelId, score) {
+  // After a run is completed, mark it cleared. Resources the player brought
+  // back are already in homeBase.baseStorage via handleGameOver — no per-node pool.
+  function markLevelCleared(levelId, score) {
     setWorldState(prev => {
       const levels = prev.levels.map(l => {
         if (l.id !== levelId) return l;
-
-        // Step 8: restore base HP on successful defence
-        const baseHpAfter = score?.defended
-          ? Math.min(100, (l.baseHp ?? 0) + (score.baseHpRestored ?? DEFEND_BASE_HP_RESTORE))
-          : (l.baseHp ?? 100);
-
-        return {
-          ...l,
-          status:       "secured",
-          turretPlaced: score?.turretPlaced ?? false,
-          gardenPlots:  score?.gardenPlots  ?? 0,
-          baseHp:       baseHpAfter,
-          resources: {
-            food:  l.resources?.food  ?? 0,
-            scrap: l.resources?.scrap ?? 0,
-          },
-        };
+        if (l.id === 0) {
+          // Home base: restore HP on successful defence
+          const baseHpAfter = score?.defended
+            ? Math.min(100, (l.baseHp ?? 0) + (score.baseHpRestored ?? DEFEND_BASE_HP_RESTORE))
+            : (l.baseHp ?? 100);
+          return { ...l, status: "secured", baseHp: baseHpAfter };
+        }
+        // Regular run destination — just mark cleared
+        return { ...l, status: "cleared" };
       });
 
-      // Unlock next level
+      // Unlock the next node in the chain
       const unlocked = levels.map(l =>
         l.id === levelId + 1 && l.status === "unexplored"
           ? { ...l, status: "unexplored" }
           : l
       );
 
-      // Step 7: merge collected resources back into total pool
-      const updatedTotal = mergeCollectedResources(
-        prev.totalResources,
-        score?.resourcesCollected,
-        unlocked
-      );
-
-      return { ...prev, levels: unlocked, totalResources: updatedTotal };
+      return { ...prev, levels: unlocked };
     });
   }
 
+  // Keep markLevelSecured as an alias so any remaining call sites still work
+  function markLevelSecured(levelId, score) {
+    markLevelCleared(levelId, score);
+  }
+
+  // Supply routes removed — stubs kept so WorldMap prop references don't crash
+  function handleAddRoute() {}
+  function handleRemoveRoute() {}
+
+  // ── Crisis event resolution ────────────────────────────────────────────────
+
+  function handleResolveCrisis(crisisId, optionId) {
+    // Step 2: resolve against the persistent roster + home stockpile (not a run snapshot).
+    const crisis = crisisEvents.find(c => c.id === crisisId);
+    const opt = crisis ? (crisis.options ?? []).find(o => o.id === optionId) : null;
+
+    if (crisis && opt) {
+      let canAfford = true;
+      setWorldState(prev => {
+        const hb = prev.homeBase ?? makeDefaultHomeBase();
+        if (!hb.baseStorage) hb.baseStorage = { food: 0, scrap: 0, medicine: 0, fuel: 0, ammo: 0 };
+
+        // ── Step 4a: Affordability gate — leave crisis pending if can't pay ──
+        const affordable = Object.entries(opt.cost ?? {}).every(
+          ([key, qty]) => (hb.baseStorage[key] ?? 0) >= qty
+        );
+        if (!affordable) { canAfford = false; return prev; }
+
+        const roster = prev.roster ? [...prev.roster] : [];
+        const rec = crisis.survivorId ? roster.find(r => r.id === crisis.survivorId) : null;
+
+        // Pay the option's cost from the home stockpile.
+        if (opt.cost) {
+          for (const [key, qty] of Object.entries(opt.cost)) {
+            hb.baseStorage[key] = Math.max(0, (hb.baseStorage[key] ?? 0) - qty);
+          }
+        }
+
+        switch (opt.effect) {
+          case "reassign":
+            if (rec) {
+              rec.morale = Math.min(100, (rec.morale ?? 50) + 25);
+              pushActivity(activityLogRef.current, `${rec.name} reassigned — morale boosted`);
+            }
+            break;
+          case "cure":
+            if (rec) {
+              rec.hp = Math.min(rec.maxHp ?? 80, (rec.hp ?? 0) + 30);
+              rec.morale = Math.min(100, (rec.morale ?? 50) + 15);
+              pushActivity(activityLogRef.current, `${rec.name} treated and recovering`);
+            }
+            break;
+          case "penalty":
+            if (rec) {
+              rec.morale = Math.max(0, (rec.morale ?? 50) - 10);
+              pushActivity(activityLogRef.current, `${rec.name}'s illness ran its course — morale suffered`);
+            }
+            break;
+          case "dismiss":
+            if (rec) {
+              pushActivity(activityLogRef.current, `${rec.name} left the group`);
+              const i = roster.findIndex(r => r.id === rec.id);
+              if (i !== -1) roster.splice(i, 1);
+            }
+            break;
+          case "investigate":
+            for (const r of roster) {
+              if (r.rosterStatus !== "dead") r.morale = Math.max(0, (r.morale ?? 50) - 5);
+            }
+            pushActivity(activityLogRef.current, `Investigation rattled the group — morale dipped`);
+            break;
+          case "absorb":
+            pushActivity(activityLogRef.current, `Wrote off the missing supplies`);
+            break;
+          default:
+            break;
+        }
+
+        return { ...prev, homeBase: { ...hb }, roster };
+      });
+
+      // Only mark resolved if we could afford it (canAfford set inside updater).
+      // We use a timeout so the state update runs first.
+      if (canAfford) {
+        setCrisisEvents(prev => prev.map(c => (c.id === crisisId ? { ...c, resolved: true } : c)));
+      }
+    }
+  }
+
   // ── Entry points ───────────────────────────────────────────────────────────
+
+  // Home base away-production summary (surfaced on return home)
+  // and the action handler that routes BaseView mutations to persistent state.
+  // In index.jsx, inside handleHomeAction:
+function handleHomeAction(action) {
+  setWorldState(prev => {
+    const hb = prev.homeBase ?? makeDefaultHomeBase();
+    if (action?.type === "upgrade") {
+      const upgrade = BASE_UPGRADE_TREE[action.upgradeId];
+      if (!upgrade) return prev;
+      // Check if already built
+      if (hb.upgrades?.includes(action.upgradeId)) return prev;
+      // Check prerequisite
+      if (upgrade.requires && !hb.upgrades?.includes(upgrade.requires)) return prev;
+      // Check cost
+      for (const [res, qty] of Object.entries(upgrade.cost)) {
+        if ((hb.baseStorage[res] ?? 0) < qty) return prev;
+      }
+      // Deduct cost
+      for (const [res, qty] of Object.entries(upgrade.cost)) {
+        hb.baseStorage[res] = Math.max(0, (hb.baseStorage[res] ?? 0) - qty);
+      }
+      // Add upgrade
+      if (!hb.upgrades) hb.upgrades = [];
+      hb.upgrades.push(action.upgradeId);
+      pushActivity(activityLogRef.current, `🏛️ Built ${upgrade.label}`);
+      return { ...prev, homeBase: { ...hb } };
+    }
+    // complete_blueprint: the player/builder just finished building a ghost.
+    // applyHomeBaseAction handles upgrading builtStructures, turrets, gardenPlots.
+    const result = applyHomeBaseAction(hb, prev.roster, action, activityLogRef.current);
+    return { ...prev, homeBase: { ...hb }, roster: prev.roster ? [...prev.roster] : [] };
+  });
+}
+
+  function handleResume() {
+    // worldState is already loaded from localStorage at init — just go to home base
+    setRoom(null);
+    setRole("p1");
+    setFinalScore(null);
+    setWorldEvents([]);
+    setCrisisEvents([]);
+    setAutoPlay(false);
+    setPhase("home");
+  }
 
   function handleSolo() {
     setRoom(null);
     setRole("p1");
     setFinalScore(null);
-    setLevel(1);
+    setLevel(0);
     const fresh = makeDefaultWorldState();
     setWorldState(fresh);
     saveWorldState(fresh);
-    setPhase("worldmap");
+    setWorldEvents([]);
+    setCrisisEvents([]);
+    // Land on home hub — player organizes, then deploys their first run
+    setPhase("home");
   }
 
   function handleRoomReady(roomData, assignedRole) {
     setRoom(roomData);
     setRole(assignedRole);
     setFinalScore(null);
-    setLevel(1);
+    setLevel(0);
     const fresh = makeDefaultWorldState();
     setWorldState(fresh);
     saveWorldState(fresh);
+    setWorldEvents([]);
+    setCrisisEvents([]);
     setPhase(assignedRole === "p1" ? "waiting" : "playing");
   }
 
   function handleP2Joined(updatedRoom) {
     if (updatedRoom) setRoom(prev => ({ ...prev, ...updatedRoom }));
-    setPhase("worldmap");
+    setPhase("worldmap");  // CHANGED: P2 joins directly to world map
   }
 
   // Called by GameView when level ends (death or victory)
@@ -517,43 +1091,248 @@ export default function DeadMilesGame() {
     setAutoPlay(false);
     setMyReadyUp(false);
     setPartnerReadyUp(false);
+
+    // Phase 0.3 (d) — write survivors back to the roster on BOTH win and loss
+    const snap = stateSnapshotRef.current;
+
+    // Build the updated roster synchronously so we can hydrate deployPartyRef
+    // for the homebase return before setPhase fires.
+    let updatedWorldState = null;
+
+    if (snap?.survivors?.length) {
+      setWorldState(prev => {
+        // Clone roster array so React detects the change; mergeSurvivorsToRoster
+        // mutates the records inside, which is fine — they're plain objects.
+        const next = { ...prev, roster: prev.roster ? [...prev.roster] : [] };
+        const summary = mergeSurvivorsToRoster(
+          next,
+          snap.survivors,
+          { missionWon: !!score?.survived, homeBaseId: levelRef.current }
+        );
+        // Build the full return-card payload: survivor changes + loot + vehicles
+        const lootHauled = score?.resourcesCollected
+          ? { ...score.resourcesCollected }
+          : null;
+        // Vehicles that were just added to the garage
+        const allV = snap?.vehicles ?? (snap?.vehicle ? [snap.vehicle] : []);
+        const extractedV = allV.filter(v => v && v.hp > 0 && (
+          v.driver === "p1" || v.passenger === "p1" || v.occupied
+        ));
+        setMissionSummary({
+          ...summary,
+          missionWon: !!score?.survived,
+          loot: lootHauled,
+          vehicles: extractedV,
+        });
+        console.log("[roster] mission return:", summary);
+        updatedWorldState = next;  // capture for use below
+        return next;
+      });
+    }
+
+    // Task 1.5 — extract vehicles from the run and add to garage.
+    // Only surviving, occupied vehicles are extracted (player's + survivors').
+    // Vehicles with hp ≤ 0 (destroyed) are discarded.
+    if (snap && score?.survived) {
+      const allV = snap.vehicles ?? (snap.vehicle ? [snap.vehicle] : []);
+      const extractedVehicles = allV.filter(v => {
+        if (!v || v.hp <= 0) return false;
+        // The player's vehicle
+        if (v.driver === "p1" || v.passenger === "p1") return true;
+        // A survivor's vehicle — any occupied vehicle qualifies
+        if (v.occupied) return true;
+        return false;
+      });
+      if (extractedVehicles.length > 0) {
+        setWorldState(prev => {
+          const hb = prev.homeBase ?? {};
+          const existing = hb.garage ?? [];
+          // Deduplicate by vehicle id — prefer the freshest data (run-end state)
+          const existingIds = new Set(existing.map(v => v.id));
+          const toAdd = extractedVehicles
+            .filter(v => !existingIds.has(v.id))
+            .map(v => ({
+              id: v.id,
+              vehicleType: v.vehicleType ?? "car",
+              hp: Math.round(v.hp),
+              maxHp: v.maxHp ?? v.hp,
+              fuel: Math.round(v.fuel ?? 0),
+              maxFuel: v.maxFuel ?? v.fuel ?? 100,
+              upgrades: v.upgrades ?? [],
+            }));
+          // For vehicles already in garage, update hp/fuel from run-end state
+          const updated = existing.map(gv => {
+            const runV = extractedVehicles.find(v => v.id === gv.id);
+            if (!runV) return gv;
+            return { ...gv, hp: Math.round(runV.hp), fuel: Math.round(runV.fuel ?? gv.fuel) };
+          });
+          const newGarage = [...updated, ...toAdd];
+          console.log(`[garage] +${toAdd.length} new vehicles, ${updated.length} updated`);
+          return { ...prev, homeBase: { ...hb, garage: newGarage } };
+        });
+      }
+    }
+
+    // Task 2.3: for homebase runs (level 0), merge built structures (blueprints, turrets, plots) back.
+    if (snap && levelRef.current === 0 && score?.survived) {
+      setWorldState(prev => {
+        const merged = mergeRunIntoHomeBase(prev.homeBase ?? makeDefaultHomeBase(), snap);
+        return { ...prev, homeBase: merged };
+      });
+    }
+
+    // For non-homebase runs: merge collected loot directly into homeBase.baseStorage.
+    // Previously this went into totalResources (a global pool) — now everything lives in homeBase.
+    if (snap && levelRef.current !== 0 && score?.survived && score?.resourcesCollected) {
+      setWorldState(prev => {
+        const hb = { ...(prev.homeBase ?? makeDefaultHomeBase()) };
+        const bs = { ...(hb.baseStorage ?? {}) };
+        const loot = score.resourcesCollected;
+        for (const [key, qty] of Object.entries(loot)) {
+          if (qty > 0) bs[key] = (bs[key] ?? 0) + qty;
+        }
+        // Also merge anything in the player's field inventory (carried items)
+        if (snap.player?.inventory) {
+          for (const [key, qty] of Object.entries(snap.player.inventory)) {
+            if (qty > 0) bs[key] = (bs[key] ?? 0) + qty;
+          }
+        }
+        hb.baseStorage = bs;
+        pushActivity(activityLogRef.current, `📦 Run loot stored — check your stockpile`);
+        return { ...prev, homeBase: hb };
+      });
+    }
+
     if (score?.survived) {
       markLevelSecured(levelRef.current, score);
-      setPhase("worldmap");
+      setWorldEvents(evts => pushWorldEvent(evts, "base_secured", { levelId: levelRef.current }));
+      // Land player on the home hub where they can see the MissionReturnCard,
+      // manage their base, assign survivors, and plan the next run.
+      setLevel(0);
+      setPhase("home");
     } else {
       setPhase("gameover");
     }
   }
 
+  // ── Task 2.1/2.3: deploy vehicles and blueprints refs ────────────────────
+  const deployVehiclesRef    = useRef(null);  // { "player"|survivorId → garageVehicle }
+  const deployBlueprintsRef  = useRef(null);  // blueprint[] from homeBase
+
   // Called from WorldMap "Deploy" or "Send on Run" buttons
   // Step 7: compute carry inventory from world pool before mounting GameView
   // Step 8: derive missionType from level status
-  function handleDeploy(levelId, auto = false) {
+  // Task 2.1: vehicleAssignments = { "player"|survivorId → vehicleId }, stashTransfer = { food, water, ... }
+  function handleDeploy(levelId, auto = false, selectedIds = null, vehicleAssignments = null, stashTransfer = null) {
     const newSeed = Date.now() & 0x7fffffff;
+    const isHomeBase = levelId === 0;
+    // Homebase always starts in manager (autoplay) mode — player is the director.
+    // They can drop in any time via the Drop In button.
+    const effectiveAuto = isHomeBase ? true : auto;
 
-    // Step 7 — pre-stock carry inventory
-    setWorldState(prev => {
-      const { inventory: carryInv, worldResources } = applyDeployCarry(
-        {},
-        prev.totalResources
-      );
-      deployInventoryRef.current = carryInv;
+    // Step 7 — pre-stock carry inventory + Phase 0.3 — seed deploy party
+    // Skip carry for homebase (player is already home)
+    if (!isHomeBase) {
+      setWorldState(prev => {
+        const { inventory: carryInv, worldResources } = applyDeployCarry(
+          {},
+          prev.totalResources
+        );
+        // Task 2.1: merge stashTransfer into carry inventory and deduct from world pool
+        let finalWorldResources = { ...worldResources };
+        let finalCarryInv = { ...carryInv };
+        if (stashTransfer) {
+          for (const [k, qty] of Object.entries(stashTransfer)) {
+            if (qty > 0) {
+              finalCarryInv[k] = (finalCarryInv[k] ?? 0) + qty;
+              finalWorldResources[k] = Math.max(0, (finalWorldResources[k] ?? 0) - qty);
+            }
+          }
+        }
+        deployInventoryRef.current = finalCarryInv;
 
-      // Deduct carry from totalResources; recompute per-level totals remain intact
-      return { ...prev, totalResources: worldResources };
-    });
+        // Phase 0.3 (b) — build the deploy party from the roster for this base
+        // If selectedIds provided (manual deploy via planning screen), filter to those only.
+        let party = getDeployableRoster(prev, levelId);
+        if (selectedIds && selectedIds.length > 0) {
+          const idSet = new Set(selectedIds);
+          party = party.filter(r => idSet.has(r.id));
+        }
+        if (party.length > 0) {
+          markPartyDeployed(prev, party.map(r => r.id));
+          deployPartyRef.current = hydrateDeployParty(party, 0, 0);
+        } else {
+          deployPartyRef.current = null;
+        }
+
+        // Task 2.1: resolve vehicle assignments from garage
+        if (vehicleAssignments && Object.keys(vehicleAssignments).length > 0) {
+          const garage = prev.homeBase?.garage ?? [];
+          const resolved = {};
+          for (const [assigneeId, vehicleId] of Object.entries(vehicleAssignments)) {
+            if (!vehicleId) continue;
+            const garageV = garage.find(v => v.id === vehicleId);
+            if (garageV) resolved[assigneeId] = garageV;
+          }
+          deployVehiclesRef.current = Object.keys(resolved).length > 0 ? resolved : null;
+        } else {
+          deployVehiclesRef.current = null;
+        }
+
+        // Deduct carry from totalResources; recompute per-level totals remain intact
+        // ── Step 4c: Deduct provisioning costs (fuel per vehicle, food per survivor) ──
+        const partySize    = party.length;
+        // Only count vehicles not being deployed via vehicleAssignments
+        const assignedVehicleIds = new Set(Object.values(vehicleAssignments ?? {}));
+        const garageVehicles = (prev.homeBase?.garage ?? []).filter(v => !v.destroyed && !assignedVehicleIds.has(v.id));
+        const vehicleCount = Math.min(garageVehicles.length, Math.ceil(partySize / 2));
+        const fuelCost     = vehicleCount * DEPLOY_FUEL_PER_VEHICLE;
+        const foodCost     = partySize * DEPLOY_FOOD_PER_SURVIVOR;
+        const provisionedResources = {
+          ...finalWorldResources,
+          fuel: Math.max(0, (finalWorldResources.fuel ?? 0) - fuelCost),
+          food: Math.max(0, (finalWorldResources.food ?? 0) - foodCost),
+        };
+        if (fuelCost > 0 || foodCost > 0) {
+          const parts = [];
+          if (foodCost > 0) parts.push(`${foodCost} food`);
+          if (fuelCost > 0) parts.push(`${fuelCost} fuel`);
+          worldEventsRef.current = pushWorldEvent(
+            worldEventsRef.current, "generic",
+            { text: `🎒 Deploy provisioned: ${parts.join(", ")} deducted` }
+          );
+        }
+        return { ...prev, totalResources: provisionedResources };
+      });
+    } else {
+      deployInventoryRef.current = null;
+      // Hydrate AT_BASE roster members so they wander around home base as live survivors.
+      // deployPartyRef is consumed by GameView on mount to populate stateRef.current.survivors.
+      const atBase = getDeployableRoster(worldState, 0);
+      if (atBase.length > 0) {
+        // Spawn positions are re-anchored to actual player position inside GameView,
+        // so (0,0) here is just a placeholder that gets overwritten on mount.
+        deployPartyRef.current = hydrateDeployParty(atBase, 0, 0);
+      } else {
+        deployPartyRef.current = null;
+      }
+      deployVehiclesRef.current = null;
+      // Task 2.3: pass blueprints into the homebase run so they appear in-game
+      deployBlueprintsRef.current = worldState.homeBase?.blueprints ?? [];
+    }
 
     setLevel(levelId);
-    setAutoPlay(auto);
+    setAutoPlay(effectiveAuto);
     setRoom(prev => prev ? { ...prev, map_seed: newSeed } : null);
     if (room?.id) sendRoomSeedUpdate(newSeed, levelId);
     setFinalScore(null);
-    markLevelActive(levelId);
+    if (!isHomeBase) markLevelActive(levelId);
     setPhase("playing");
   }
 
   // Derive the mission type for the level being deployed to
   function getMissionType(levelId) {
+    if (levelId === 0) return "homebase";
     const lvl = worldState.levels.find(l => l.id === levelId);
     return lvl?.status === "under_attack" ? "defend" : "clear";
   }
@@ -587,13 +1366,14 @@ export default function DeadMilesGame() {
     setRole("p1");
     setFinalScore(null);
     setLevel(1);
-    deleteWorldStateSave();
+    setWorldEvents([]);
+    setCrisisEvents([]);
     setPhase("lobby");
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
-  if (phase === "lobby")    return <Lobby onSolo={handleSolo} onRoomReady={handleRoomReady} />;
+  if (phase === "lobby")    return <Lobby onSolo={handleSolo} onResume={handleResume} onRoomReady={handleRoomReady} hasSave={!!loadWorldState()} />;
   if (phase === "waiting")  return <WaitingForP2 room={room} onP2Joined={handleP2Joined} />;
   if (phase === "gameover") return (
     <GameOver
@@ -608,136 +1388,142 @@ export default function DeadMilesGame() {
     />
   );
 
-  if (phase === "worldmap") return (
-    <WorldMap
-      worldState={worldState}
-      currentLevel={level}
-      isPlaying={false}
-      onDeploy={handleDeploy}
-      onMenu={handleMenu}
-    />
-  );
+  if (phase === "home") {
+    const homeSnap = homeBaseToSnapshot(worldState.homeBase, worldState.roster);
+    return (
+      <>
+        <HomeBaseScreen
+          snapshot={homeSnap}
+          mode="hub"
+          activityLog={activityLogRef.current}
+          onAction={handleHomeAction}
+          onBack={() => handleDeploy(0)}
+          onGoRun={() => setPhase("worldmap")}
+          onMenu={handleMenu}
+          crisisEvents={crisisEvents}
+          onResolveCrisis={handleResolveCrisis}
+          awaySummary={homeAwaySummary}
+          onDismissAway={() => setHomeAwaySummary(null)}
+          worldState={worldState}
+          worldEvents={worldEvents}
+          onDeploy={handleDeploy}
+          onAddRoute={handleAddRoute}
+          onRemoveRoute={handleRemoveRoute}
+        />
+        <MissionReturnCard
+          summary={missionSummary}
+          onDismiss={() => setMissionSummary(null)}
+        />
+      </>
+    );
+  }
+
+  if (phase === "worldmap") {
+    // WorldMap is now only accessible via the Deploy tab in BaseView.
+    // Show home base BaseView with the Deploy tab pre-selected.
+    const homeSnap = homeBaseToSnapshot(worldState.homeBase, worldState.roster);
+    return (
+      <>
+        <HomeBaseScreen
+          snapshot={homeSnap}
+          mode="hub"
+          activityLog={activityLogRef.current}
+          onAction={handleHomeAction}
+          onBack={() => handleDeploy(0)}
+          onGoRun={null}
+          onMenu={handleMenu}
+          crisisEvents={crisisEvents}
+          onResolveCrisis={handleResolveCrisis}
+          awaySummary={homeAwaySummary}
+          onDismissAway={() => setHomeAwaySummary(null)}
+          worldState={worldState}
+          worldEvents={worldEvents}
+          onDeploy={handleDeploy}
+          onAddRoute={handleAddRoute}
+          onRemoveRoute={handleRemoveRoute}
+          defaultTab="map"
+        />
+        <MissionReturnCard
+          summary={missionSummary}
+          onDismiss={() => setMissionSummary(null)}
+        />
+      </>
+    );
+  }
 
   if (phase === "playing") {
-    // Step 8: mission type drives defend wave in GameView
-    const missionType = getMissionType(level);
+  const missionType = getMissionType(level);
+  const isHomeBaseMission = level === 0;
 
-    return (
-      <div style={{ position: "fixed", inset: 0, overflow: "hidden" }}>
-        {/* GameView always mounted — canvas loop keeps running in background */}
-        <div style={{ display: screen === "play" ? "block" : "none", position: "absolute", inset: 0 }}>
-          <GameView
-            key={`${room?.map_seed ?? "solo"}-${level}`}
-            room={room}
-            role={role}
-            level={level}
-            missionType={missionType}
-            deployInventory={deployInventoryRef.current}
-            onGameOver={handleGameOver}
-            onStateSnapshot={snap => { stateSnapshotRef.current = snap; }}
-            onOpenBase={() => {
-              baseOpenedAtRef.current = Date.now();
-              setScreen("base");
-            }}
-            activityLog={activityLogRef.current}
-            autoPlay={autoPlay}
-            onDropIn={() => setAutoPlay(false)}
-          />
-        </div>
+  return (
+    <div style={{ position: "fixed", inset: 0, overflow: "hidden" }}>
+      <div style={{ display: screen === "play" ? "block" : "none", position: "absolute", inset: 0 }}>
+        <GameView
+          key={`${room?.map_seed ?? "solo"}-${level}`}
+          room={room}
+          role={role}
+          level={level}
+          missionType={missionType}
+          deployInventory={deployInventoryRef.current}
+          deploySurvivors={deployPartyRef.current}
+          deployVehicles={deployVehiclesRef.current}
+          deployBlueprints={deployBlueprintsRef.current}
+          onGetStateRef={ref => { gameStateRefRef.current = ref; }}
+          onGameOver={handleGameOver}
+          onStateSnapshot={snap => { stateSnapshotRef.current = snap; }}
+          onOpenBase={() => {
+            baseOpenedAtRef.current = Date.now();
+            setScreen("base");
+          }}
+          activityLog={activityLogRef.current}
+          autoPlay={autoPlay}
+          onDropIn={() => setAutoPlay(false)}
+           onAutoplay={() => setAutoPlay(true)}
+          onUpgradeBase={isHomeBaseMission ? (upgradeId) => {
+            // Apply upgrade directly to homeBase
+            setWorldState(prev => {
+              const hb = prev.homeBase ?? makeDefaultHomeBase();
+              const upgrade = BASE_UPGRADE_TREE[upgradeId];
+              if (!upgrade) return prev;
+              if (hb.upgrades?.includes(upgradeId)) return prev;
+              if (upgrade.requires && !hb.upgrades?.includes(upgrade.requires)) return prev;
+              // Check cost
+              for (const [res, qty] of Object.entries(upgrade.cost)) {
+                if ((hb.baseStorage[res] ?? 0) < qty) return prev;
+              }
+              // Deduct cost
+              for (const [res, qty] of Object.entries(upgrade.cost)) {
+                hb.baseStorage[res] = Math.max(0, (hb.baseStorage[res] ?? 0) - qty);
+              }
+              // Add upgrade
+              if (!hb.upgrades) hb.upgrades = [];
+              hb.upgrades.push(upgradeId);
+              pushActivity(activityLogRef.current, `🏛️ Built ${upgrade.label}`);
+              return { ...prev, homeBase: hb };
+            });
+          } : undefined}
+        />
+      </div>
 
+        {/* One base = home. Mid-run, [Tab] peeks home (run stays alive behind).
+            At level 0 (homebase), show hub mode so the Deploy tab is available. */}
         {screen === "base" && (
-          <BaseView
-            stateSnapshot={stateSnapshotRef.current}
+          <HomeBaseScreen
+            mode={isHomeBaseMission ? "hub" : "peek"}
+            snapshot={homeBaseToSnapshot(worldState.homeBase, worldState.roster)}
             activityLog={activityLogRef.current}
-            awaySummary={awaySummary}
-            onDismissAway={() => setAwaySummary(null)}
-            onHarvest={action => {
-              const s = stateSnapshotRef.current;
-              if (!s) return;
-              if (action.type === "harvest") {
-                const crop = s.crops?.find(c => c.id === action.cropId);
-                if (crop) {
-                  crop.stage = "harvested";
-                  s.player.inventory = s.player.inventory ?? {};
-                  s.player.inventory.food = (s.player.inventory.food ?? 0) + (crop.type === "potato" ? 4 : 3);
-                  pushActivity(activityLogRef.current, `You harvested a ${crop.type}`);
-                }
-              }
-              if (action.type === "reassign") {
-                const sv = s.survivors?.find(sv2 => sv2.id === action.survivorId);
-                if (sv) {
-                  sv.command = action.command;
-                  sv.state   = "idle";
-                  sv._castTimer = 0; sv._castType = null;
-                  if (action.command !== "assign") { sv.assignedTo = null; sv.barricaded = false; }
-                }
-              }
-              if (action.type === "craft") {
-                const result = craftItem(s, action.recipeId, activityLogRef.current);
-                if (result.success) {
-                  pushActivity(activityLogRef.current, `🔨 Crafted ${result.recipe.label}`);
-                }
-              }
-              if (action.type === "assignWorkstation") {
-                const sv = s.survivors?.find(sv2 => sv2.id === action.survivorId);
-                if (sv) {
-                  sv.workstation = action.workstation ?? null;
-                  const wsLabel = action.workstation ? action.workstation.replace("_", " ") : null;
-                  pushActivity(
-                    activityLogRef.current,
-                    wsLabel
-                      ? `${sv.name} assigned to ${wsLabel}`
-                      : `${sv.name} unassigned from workstation`
-                  );
-                }
-              }
-              if (action.type === "deposit") {
-                const { key, amount } = action;
-                const have = Math.floor(s.player?.inventory?.[key] ?? 0);
-                const qty  = Math.min(amount, have);
-                if (qty > 0 && s.player?.inventory) {
-                  s.player.inventory[key] = Math.max(0, have - qty);
-                  if (!s.baseStorage) s.baseStorage = {};
-                  s.baseStorage[key] = (s.baseStorage[key] ?? 0) + qty;
-                  pushActivity(activityLogRef.current, `📦 Deposited ${qty} ${key} to base stockpile`);
-                }
-              }
-              if (action.type === "withdraw") {
-                const { key, amount } = action;
-                const have = Math.floor(s.baseStorage?.[key] ?? 0);
-                const qty  = Math.min(amount, have);
-                if (qty > 0) {
-                  s.baseStorage[key] = Math.max(0, have - qty);
-                  if (!s.player.inventory) s.player.inventory = {};
-                  s.player.inventory[key] = (s.player.inventory[key] ?? 0) + qty;
-                  pushActivity(activityLogRef.current, `📤 Withdrew ${qty} ${key} from base stockpile`);
-                }
-              }
-            }}
-            onClose={() => {
-              const s = stateSnapshotRef.current;
-              const openedFor = baseOpenedAtRef.current
-                ? (Date.now() - baseOpenedAtRef.current) / 1000
-                : 0;
-
-              let summary = null;
-              if (openedFor > 5 && s) {
-                const { harvested, damaged, produced } = applyOfflineBaseTick(s, activityLogRef.current);
-                if (harvested.length > 0 || damaged.length > 0 || produced.length > 0) {
-                  summary = { harvested, damaged, produced, netResources: {} };
-                  if (harvested.length > 0)
-                    summary.netResources.food = harvested.reduce((acc, h) => acc + h.amount, 0);
-                  for (const p of produced) {
-                    summary.netResources[p.resource] =
-                      (summary.netResources[p.resource] ?? 0) + p.amount;
-                  }
-                }
-              }
-
-              setAwaySummary(summary);
-              baseOpenedAtRef.current = null;
-              setScreen("play");
-            }}
+            onAction={handleHomeAction}
+            onBack={() => { baseOpenedAtRef.current = null; setScreen("play"); }}
+            onMenu={isHomeBaseMission ? handleMenu : undefined}
+            crisisEvents={[]}
+            onResolveCrisis={handleResolveCrisis}
+            awaySummary={null}
+            onDismissAway={() => {}}
+            worldState={isHomeBaseMission ? worldState : undefined}
+            worldEvents={isHomeBaseMission ? worldEvents : undefined}
+            onDeploy={isHomeBaseMission ? handleDeploy : undefined}
+            onAddRoute={isHomeBaseMission ? handleAddRoute : undefined}
+            onRemoveRoute={isHomeBaseMission ? handleRemoveRoute : undefined}
           />
         )}
       </div>

@@ -4,7 +4,8 @@
 // No canvas — pure React UI.
 
 import React, { useState, useEffect, useRef } from "react";
-import { CRAFTING_RECIPES, WORKSTATION_DEFS } from "./deadMilesEngine";
+import { CRAFTING_RECIPES, WORKSTATION_DEFS, SURVIVOR_TRAITS, getBlockedCommands, SURVIVOR_MORALE_LOW_THRESHOLD, SURVIVOR_MORALE_CRIT_THRESHOLD, WORKSHOP_BLUEPRINT_COSTS } from "./deadMilesEngine";
+import WorldMap from "./WorldMap";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -100,7 +101,8 @@ function CropCard({ crop, onHarvest }) {
   );
 }
 
-function SurvivorCard({ survivor, onReassign }) {
+function SurvivorCard({ survivor, onReassign, onHeal, medicine }) {
+  const [expanded, setExpanded] = useState(false);
   const roleColor = ROLE_COLOR[survivor.role] ?? "rgba(255,255,255,0.6)";
   const taskLabel = survivor.workstation
     ? `🏭 ${survivor.workstation.replace("_", " ")}`
@@ -113,19 +115,35 @@ function SurvivorCard({ survivor, onReassign }) {
 
   const level  = survivor.level ?? 1;
   const xp     = survivor.xp   ?? 0;
-  const xpNext = level * 100;           // same formula as awardSurvivorXp
+  const xpNext = level * 100;
   const xpPct  = Math.min(1, xp / xpNext);
+
+  const morale      = survivor.morale ?? 100;
+  const moraleLow   = morale < SURVIVOR_MORALE_LOW_THRESHOLD;
+  const moraleCrit  = morale < SURVIVOR_MORALE_CRIT_THRESHOLD;
+  const moraleColor = moraleCrit
+    ? "rgba(255,60,60,0.85)"
+    : moraleLow
+    ? "rgba(255,160,40,0.85)"
+    : "rgba(120,210,80,0.7)";
+
+  const hunger      = survivor.hunger ?? 0;
+  const isHungry    = hunger > 0;
+
+  const traits = (survivor.traits ?? []).map(tid => SURVIVOR_TRAITS[tid]).filter(Boolean);
 
   return (
     <div style={{
-      background: "rgba(255,255,255,0.03)",
-      border: "1px solid rgba(255,255,255,0.07)",
+      background: moraleCrit ? "rgba(255,40,40,0.04)" : "rgba(255,255,255,0.03)",
+      border: `1px solid ${moraleCrit ? "rgba(255,60,60,0.25)" : moraleLow ? "rgba(255,160,40,0.18)" : "rgba(255,255,255,0.07)"}`,
       borderRadius: 12,
       padding: "12px 14px",
       display: "flex",
       flexDirection: "column",
       gap: 8,
+      transition: "border-color 0.3s",
     }}>
+      {/* Header row */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -142,6 +160,9 @@ function SurvivorCard({ survivor, onReassign }) {
                 Lv{level}
               </span>
             )}
+            {isHungry && (
+              <span style={{ fontSize: 10, color: "rgba(255,140,40,0.9)" }} title="Hungry — consuming from base food">🍽</span>
+            )}
           </div>
           <div style={{ fontSize: 11, color: roleColor, textTransform: "capitalize", marginTop: 1 }}>
             {survivor.role}
@@ -155,6 +176,26 @@ function SurvivorCard({ survivor, onReassign }) {
         </div>
       </div>
 
+      {/* Traits */}
+      {traits.length > 0 && (
+        <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+          {traits.map(trait => (
+            <span key={trait.id} title={trait.desc} style={{
+              fontSize: 10,
+              padding: "2px 7px",
+              borderRadius: 5,
+              background: "rgba(255,255,255,0.04)",
+              border: `1px solid ${trait.color}44`,
+              color: trait.color,
+              cursor: "help",
+              letterSpacing: "0.03em",
+            }}>
+              {trait.emoji} {trait.label}
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* HP bar */}
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", width: 18 }}>HP</span>
@@ -167,7 +208,24 @@ function SurvivorCard({ survivor, onReassign }) {
           }} />
         </div>
         <span style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", fontVariantNumeric: "tabular-nums", width: 28, textAlign: "right" }}>
-          {survivor.hp}/{survivor.maxHp}
+          {Math.floor(survivor.hp)}/{survivor.maxHp}
+        </span>
+      </div>
+
+      {/* Morale bar */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", width: 18 }}>😊</span>
+        <div style={{ flex: 1, height: 3, background: "rgba(255,255,255,0.07)", borderRadius: 2, overflow: "hidden" }}>
+          <div style={{
+            width: `${Math.max(0, Math.min(100, morale))}%`,
+            height: "100%",
+            background: moraleColor,
+            borderRadius: 2,
+            transition: "width 0.5s ease, background 0.3s",
+          }} />
+        </div>
+        <span style={{ fontSize: 10, color: moraleCrit ? "rgba(255,60,60,0.9)" : "rgba(255,255,255,0.25)", fontVariantNumeric: "tabular-nums", width: 28, textAlign: "right" }}>
+          {Math.floor(morale)}
         </span>
       </div>
 
@@ -188,26 +246,108 @@ function SurvivorCard({ survivor, onReassign }) {
         </span>
       </div>
 
-      <button
-        onClick={() => onReassign(survivor)}
-        style={{
-          padding: "5px 0",
-          background: "rgba(255,255,255,0.04)",
-          border: "1px solid rgba(255,255,255,0.1)",
-          borderRadius: 8,
-          color: "rgba(255,255,255,0.4)",
+      {/* Morale warning */}
+      {moraleCrit && (
+        <div style={{
           fontSize: 11,
-          cursor: "pointer",
-          letterSpacing: "0.04em",
+          color: "rgba(255,80,60,0.9)",
+          background: "rgba(255,60,60,0.07)",
+          border: "1px solid rgba(255,60,60,0.2)",
+          borderRadius: 6,
+          padding: "4px 8px",
         }}>
-        Reassign…
-      </button>
+          ⚠ Rock bottom — may leave soon
+        </div>
+      )}
+
+      {/* Action row */}
+      <div style={{ display: "flex", gap: 6 }}>
+        <button
+          onClick={() => onReassign(survivor)}
+          style={{
+            flex: 1,
+            padding: "5px 0",
+            background: "rgba(255,255,255,0.04)",
+            border: "1px solid rgba(255,255,255,0.1)",
+            borderRadius: 8,
+            color: "rgba(255,255,255,0.4)",
+            fontSize: 11,
+            cursor: "pointer",
+            letterSpacing: "0.04em",
+          }}>
+          Reassign…
+        </button>
+        {/* Step 4b: Heal button — visible when wounded */}
+        {survivor.hp < survivor.maxHp && (
+          <button
+            onClick={() => onHeal?.(survivor.id)}
+            disabled={!onHeal || (medicine ?? 0) < 2}
+            title={`Spend 2 medicine to restore 40 HP (have ${medicine ?? 0})`}
+            style={{
+              padding: "5px 10px",
+              background: (medicine ?? 0) >= 2 ? "rgba(80,220,160,0.1)" : "rgba(255,255,255,0.03)",
+              border: `1px solid ${(medicine ?? 0) >= 2 ? "rgba(80,220,160,0.3)" : "rgba(255,255,255,0.07)"}`,
+              borderRadius: 8,
+              color: (medicine ?? 0) >= 2 ? "rgba(80,220,160,0.85)" : "rgba(255,255,255,0.2)",
+              fontSize: 11,
+              cursor: (medicine ?? 0) >= 2 ? "pointer" : "default",
+              letterSpacing: "0.03em",
+              whiteSpace: "nowrap",
+            }}>
+            💊 Heal
+          </button>
+        )}
+        <button
+          onClick={() => setExpanded(e => !e)}
+          style={{
+            padding: "5px 10px",
+            background: expanded ? "rgba(255,200,80,0.08)" : "rgba(255,255,255,0.03)",
+            border: `1px solid ${expanded ? "rgba(255,200,80,0.25)" : "rgba(255,255,255,0.08)"}`,
+            borderRadius: 8,
+            color: expanded ? "rgba(255,200,80,0.8)" : "rgba(255,255,255,0.3)",
+            fontSize: 11,
+            cursor: "pointer",
+          }}>
+          {expanded ? "▲" : "▼"}
+        </button>
+      </div>
+
+      {/* Expanded: backstory + story log */}
+      {expanded && (
+        <div style={{
+          borderTop: "1px solid rgba(255,255,255,0.06)",
+          paddingTop: 10,
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+        }}>
+          {survivor.backstory && (
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", lineHeight: 1.6, fontStyle: "italic" }}>
+              "{survivor.backstory}"
+            </div>
+          )}
+          {(survivor.storyLog ?? []).length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.15)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 2 }}>
+                Story
+              </div>
+              {(survivor.storyLog ?? []).slice(0, 5).map((entry, i) => (
+                <div key={i} style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", display: "flex", gap: 6 }}>
+                  <span style={{ color: "rgba(255,255,255,0.15)", flexShrink: 0 }}>›</span>
+                  <span>{entry.text}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-function TurretCard({ turret }) {
+function TurretCard({ turret, onRepair, scrap }) {
   const pct = turret.hp / (turret.maxHp ?? 150);
+  const isDamaged = turret.hp < (turret.maxHp ?? 150);
   return (
     <div style={{
       background: "rgba(255,255,255,0.03)",
@@ -232,6 +372,26 @@ function TurretCard({ turret }) {
           borderRadius: 2,
         }} />
       </div>
+      {/* Step 4d: Repair button */}
+      {isDamaged && (
+        <button
+          onClick={() => onRepair?.(turret.id)}
+          disabled={!onRepair || (scrap ?? 0) < 2}
+          title={`Spend 2 scrap to repair +40 HP (have ${scrap ?? 0} scrap)`}
+          style={{
+            marginTop: 2,
+            padding: "5px 0",
+            background: (scrap ?? 0) >= 2 ? "rgba(255,200,60,0.08)" : "rgba(255,255,255,0.02)",
+            border: `1px solid ${(scrap ?? 0) >= 2 ? "rgba(255,200,60,0.3)" : "rgba(255,255,255,0.06)"}`,
+            borderRadius: 7,
+            color: (scrap ?? 0) >= 2 ? "rgba(255,200,60,0.85)" : "rgba(255,255,255,0.2)",
+            fontSize: 11,
+            cursor: (scrap ?? 0) >= 2 ? "pointer" : "default",
+            letterSpacing: "0.03em",
+          }}>
+          🔧 Repair (2 scrap)
+        </button>
+      )}
     </div>
   );
 }
@@ -534,8 +694,10 @@ function CraftingTab({ baseStorage, onCraft }) {
 
 // ─── WorkstationPicker ────────────────────────────────────────────────────────
 
-function WorkstationPicker({ survivor, onAssign, onClose }) {
+function WorkstationPicker({ survivor, builtStructures, onAssign, onClose }) {
   const assigned = survivor?.workstation ?? null;
+  // Derive which workstation types are physically built at home
+  const builtTypes = new Set((builtStructures ?? []).map(s => s.type));
 
   return (
     <div style={{
@@ -561,17 +723,67 @@ function WorkstationPicker({ survivor, onAssign, onClose }) {
         </div>
 
         {WORKSTATION_DEFS.map(ws => {
-          const isActive = assigned === ws.id;
+          const isActive  = assigned === ws.id;
+          const isBuilt   = builtTypes.has(ws.id);
+          const isDisabled = !isBuilt && !isActive;
+
           return (
             <button
               key={ws.id}
-              onClick={() => onAssign(ws.id)}
+              onClick={() => isBuilt && onAssign(ws.id)}
+              disabled={isDisabled}
               style={{
                 padding: "10px 14px",
-                background: isActive ? "rgba(255,200,60,0.08)" : "rgba(255,255,255,0.04)",
-                border: `1px solid ${isActive ? "rgba(255,200,60,0.3)" : "rgba(255,255,255,0.08)"}`,
+                background: isActive
+                  ? "rgba(255,200,60,0.08)"
+                  : isBuilt
+                  ? "rgba(255,255,255,0.04)"
+                  : "rgba(255,255,255,0.015)",
+                border: `1px solid ${isActive ? "rgba(255,200,60,0.3)" : isBuilt ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.04)"}`,
                 borderRadius: 10,
-                color: isActive ? "rgba(255,200,60,0.9)" : "rgba(255,255,255,0.65)",
+                color: isActive
+                  ? "rgba(255,200,60,0.9)"
+                  : isBuilt
+                  ? "rgba(255,255,255,0.65)"
+                  : "rgba(255,255,255,0.2)",
+                fontSize: 13,
+                cursor: isBuilt ? "pointer" : "not-allowed",
+                textAlign: "left",
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 10,
+                opacity: isDisabled ? 0.5 : 1,
+              }}>
+              <span style={{ fontSize: 18 }}>{ws.icon}</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 500, marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}>
+                  {ws.label} {isActive ? "✓" : ""}
+                  {!isBuilt && (
+                    <span style={{ fontSize: 9, letterSpacing: "0.1em", color: "rgba(255,120,60,0.7)", background: "rgba(255,120,60,0.1)", border: "1px solid rgba(255,120,60,0.2)", borderRadius: 4, padding: "1px 5px" }}>
+                      NOT BUILT
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>
+                  {isBuilt ? ws.desc : "Build this structure first — queue a blueprint from the Build tab"}
+                </div>
+              </div>
+            </button>
+          );
+        })}
+
+        {/* Builder workstation — always available, no building needed */}
+        {(() => {
+          const isActive = assigned === "builder";
+          return (
+            <button
+              onClick={() => onAssign("builder")}
+              style={{
+                padding: "10px 14px",
+                background: isActive ? "rgba(120,200,80,0.08)" : "rgba(255,255,255,0.04)",
+                border: `1px solid ${isActive ? "rgba(120,200,80,0.3)" : "rgba(255,255,255,0.08)"}`,
+                borderRadius: 10,
+                color: isActive ? "rgba(180,255,120,0.9)" : "rgba(255,255,255,0.65)",
                 fontSize: 13,
                 cursor: "pointer",
                 textAlign: "left",
@@ -579,16 +791,14 @@ function WorkstationPicker({ survivor, onAssign, onClose }) {
                 alignItems: "flex-start",
                 gap: 10,
               }}>
-              <span style={{ fontSize: 18 }}>{ws.icon}</span>
+              <span style={{ fontSize: 18 }}>🔨</span>
               <div>
-                <div style={{ fontWeight: 500, marginBottom: 2 }}>
-                  {ws.label} {isActive ? "✓" : ""}
-                </div>
-                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>{ws.desc}</div>
+                <div style={{ fontWeight: 500, marginBottom: 2 }}>Builder {isActive ? "✓" : ""}</div>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>Walks to queued blueprints and constructs them automatically</div>
               </div>
             </button>
           );
-        })}
+        })()}
 
         {assigned && (
           <button
@@ -623,11 +833,102 @@ function WorkstationPicker({ survivor, onAssign, onClose }) {
   );
 }
 
+// ─── Crisis Events Panel ──────────────────────────────────────────────────────
+
+function CrisisPanel({ crisisEvents, onResolveCrisis, baseStorage }) {
+  const pending = (crisisEvents ?? []).filter(e => !e.resolved);
+  if (pending.length === 0) return null;
+
+  function canAfford(cost) {
+    if (!cost) return true;
+    return Object.entries(cost).every(([k, qty]) => (baseStorage?.[k] ?? 0) >= qty);
+  }
+
+  return (
+    <div style={{
+      position: "absolute",
+      top: 0,
+      right: 0,
+      width: 320,
+      maxHeight: "100%",
+      overflowY: "auto",
+      padding: "14px 14px",
+      display: "flex",
+      flexDirection: "column",
+      gap: 10,
+      zIndex: 20,
+      pointerEvents: "none",
+    }}>
+      {pending.map(crisis => (
+        <div key={crisis.id} style={{
+          background: "#0e1214",
+          border: "1px solid rgba(255,160,40,0.35)",
+          borderRadius: 14,
+          padding: "14px 16px",
+          display: "flex",
+          flexDirection: "column",
+          gap: 10,
+          boxShadow: "0 4px 24px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,160,40,0.15)",
+          pointerEvents: "all",
+          animation: "crisisSlideIn 0.25s ease",
+        }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+            <span style={{ fontSize: 20, lineHeight: 1 }}>⚠</span>
+            <div>
+              <div style={{ fontSize: 13, color: "rgba(255,200,80,0.95)", fontWeight: 600, marginBottom: 3 }}>
+                {crisis.title}
+              </div>
+              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", lineHeight: 1.55 }}>
+                {crisis.body}
+              </div>
+            </div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {(crisis.options ?? []).map(opt => {
+              const hasCost    = opt.cost && Object.keys(opt.cost).length > 0;
+              const affordable = canAfford(opt.cost);
+              return (
+                <button
+                  key={opt.id}
+                  onClick={() => onResolveCrisis?.(crisis.id, opt.id)}
+                  disabled={!affordable}
+                  title={!affordable ? "Not enough resources" : undefined}
+                  style={{
+                    padding: "8px 12px",
+                    background: affordable ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.01)",
+                    border: `1px solid ${affordable ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.05)"}`,
+                    borderRadius: 8,
+                    color: affordable ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.25)",
+                    fontSize: 12,
+                    cursor: affordable ? "pointer" : "not-allowed",
+                    textAlign: "left",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    letterSpacing: "0.03em",
+                  }}>
+                  <span>{opt.label}</span>
+                  {hasCost && (
+                    <span style={{ fontSize: 10, color: affordable ? "rgba(255,160,40,0.8)" : "rgba(255,80,60,0.7)" }}>
+                      {Object.entries(opt.cost).map(([k, v]) => `${v} ${k}`).join(", ")}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+      <style>{`@keyframes crisisSlideIn { from { opacity:0; transform:translateY(-10px) } to { opacity:1; transform:translateY(0) } }`}</style>
+    </div>
+  );
+}
+
 // ─── BaseView ─────────────────────────────────────────────────────────────────
 
-export default function BaseView({ stateSnapshot, activityLog, onHarvest, onClose, awaySummary, onDismissAway }) {
+export default function BaseView({ stateSnapshot, activityLog, onHarvest, onClose, awaySummary, onDismissAway, crisisEvents, onResolveCrisis, worldState, worldEvents, onDeploy, onAddRoute, onRemoveRoute, onEnterHome, defaultTab }) {
   // FIX 4/5: "storage" tab shows baseStorage separately from player field inventory
-  const [tab, setTab] = useState("crops"); // "crops" | "survivors" | "turrets" | "storage" | "crafting" | "activity"
+  const [tab, setTab] = useState(defaultTab ?? "build"); // "build" | "survivors" | "turrets" | "crops" | "storage" | "crafting" | "activity"
   const [reassignTarget, setReassignTarget] = useState(null);
   const [workstationTarget, setWorkstationTarget] = useState(null); // survivor being assigned to a workstation
 
@@ -673,12 +974,15 @@ export default function BaseView({ stateSnapshot, activityLog, onHarvest, onClos
   const storageTotalItems = Object.values(baseStorage).filter(v => v > 0).length;
 
   const TABS = [
-    { id: "crops",     label: `Crops${readyCrops > 0 ? ` (${readyCrops}✓)` : ""}` },
+    { id: "build",     label: "🏗 Build" },
     { id: "survivors", label: `Survivors (${survivors.length})` },
-    { id: "turrets",   label: `Turrets (${turrets.length})` },
+    { id: "turrets",   label: `Defense (${turrets.length})` },
+    { id: "crops",     label: `Crops${readyCrops > 0 ? ` (${readyCrops}✓)` : ""}` },
     { id: "storage",   label: `Storage${storageTotalItems > 0 ? ` (${storageTotalItems})` : ""}` },
+    { id: "garage",    label: `Garage (${(worldState?.homeBase?.garage ?? s.garage ?? []).length})` },
     { id: "crafting",  label: "Crafting" },
     { id: "activity",  label: "Activity" },
+    ...(worldState ? [{ id: "map", label: "🗺️ Deploy" }] : []),
   ];
 
   return (
@@ -771,6 +1075,196 @@ export default function BaseView({ stateSnapshot, activityLog, onHarvest, onClos
         flexDirection: "column",
         gap: 10,
       }}>
+        {tab === "build" && (() => {
+          const builtStructures = s.builtStructures ?? [];
+          const pendingBlueprints = (s.blueprints ?? []).filter(bp => bp.category === "workshop" || WORKSHOP_BLUEPRINT_COSTS[bp.type]);
+          const bs = baseStorage;
+
+          // Workshop structure defs with their build cost
+          const BUILDABLE_STRUCTURES = WORKSTATION_DEFS.filter(ws => ws.buildable);
+          const turretCost = { scrap: 4, nails: 8 };
+          const plotCost   = { seeds: 1 };
+
+          function canAffordCost(cost) {
+            return Object.entries(cost).every(([k, v]) => (bs[k] ?? 0) >= v);
+          }
+
+          function costLabel(cost) {
+            return Object.entries(cost).map(([k, v]) => `${v} ${k}`).join(" + ");
+          }
+
+          return (
+            <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+              {/* Built structures status */}
+              {builtStructures.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>
+                    ✅ Built Structures
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8 }}>
+                    {builtStructures.map(st => {
+                      const def = WORKSTATION_DEFS.find(w => w.id === st.type);
+                      return (
+                        <div key={st.id} style={{
+                          padding: "10px 12px",
+                          background: "rgba(80,220,120,0.06)",
+                          border: "1px solid rgba(80,220,120,0.2)",
+                          borderRadius: 10,
+                          display: "flex", alignItems: "center", gap: 8,
+                        }}>
+                          <span style={{ fontSize: 18 }}>{def?.icon ?? "🏗"}</span>
+                          <div>
+                            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.8)" }}>{def?.label ?? st.type}</div>
+                            <div style={{ fontSize: 10, color: "rgba(80,220,120,0.7)" }}>Built · staffable</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Blueprints waiting to be built */}
+              {pendingBlueprints.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>
+                    📐 Queued — Head to Home Base to Build
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {pendingBlueprints.map(bp => {
+                      const def = WORKSTATION_DEFS.find(w => w.id === bp.type);
+                      return (
+                        <div key={bp.id} style={{
+                          display: "flex", alignItems: "center", gap: 10,
+                          padding: "9px 12px", borderRadius: 8,
+                          background: "rgba(255,200,80,0.06)", border: "1px solid rgba(255,200,80,0.2)",
+                        }}>
+                          <span style={{ fontSize: 16 }}>{def?.icon ?? "🏗"}</span>
+                          <span style={{ flex: 1, fontSize: 12, color: "rgba(255,255,255,0.7)" }}>
+                            {def?.label ?? bp.type} — walk up and press [F] to build
+                          </span>
+                          <button
+                            onClick={() => onHarvest?.({ type: "cancel_blueprint", blueprintId: bp.id })}
+                            style={{
+                              padding: "2px 8px", borderRadius: 5, fontSize: 10, cursor: "pointer",
+                              background: "rgba(255,80,80,0.1)", border: "1px solid rgba(255,80,80,0.25)",
+                              color: "rgba(255,120,120,0.8)",
+                            }}>
+                            Cancel
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Buildable workshop structures */}
+              <div>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>
+                  🏭 Workshops — unlocks workstation slots
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {BUILDABLE_STRUCTURES.map(ws => {
+                    const cost    = WORKSHOP_BLUEPRINT_COSTS[ws.id];
+                    const isBuilt = builtStructures.some(st => st.type === ws.id);
+                    const isPending = pendingBlueprints.some(bp => bp.type === ws.id);
+                    const canBuild = !isBuilt && !isPending && canAffordCost(cost);
+
+                    return (
+                      <div key={ws.id} style={{
+                        padding: "12px 14px",
+                        background: isBuilt ? "rgba(80,220,120,0.04)" : isPending ? "rgba(255,200,80,0.04)" : "rgba(255,255,255,0.03)",
+                        border: `1px solid ${isBuilt ? "rgba(80,220,120,0.2)" : isPending ? "rgba(255,200,80,0.2)" : "rgba(255,255,255,0.07)"}`,
+                        borderRadius: 12,
+                        display: "flex", alignItems: "center", gap: 12,
+                        opacity: isBuilt ? 0.7 : 1,
+                      }}>
+                        <span style={{ fontSize: 22 }}>{ws.icon}</span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, color: "rgba(255,255,255,0.85)", marginBottom: 3, display: "flex", alignItems: "center", gap: 6 }}>
+                            {ws.label}
+                            {isBuilt && <span style={{ fontSize: 10, color: "rgba(80,220,120,0.8)", background: "rgba(80,220,120,0.1)", border: "1px solid rgba(80,220,120,0.25)", borderRadius: 4, padding: "1px 5px" }}>BUILT</span>}
+                            {isPending && <span style={{ fontSize: 10, color: "rgba(255,200,80,0.8)", background: "rgba(255,200,80,0.1)", border: "1px solid rgba(255,200,80,0.25)", borderRadius: 4, padding: "1px 5px" }}>QUEUED</span>}
+                          </div>
+                          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>{ws.desc}</div>
+                          {!isBuilt && (
+                            <div style={{ fontSize: 10, color: canBuild ? "rgba(255,200,60,0.6)" : "rgba(255,80,60,0.5)", marginTop: 3 }}>
+                              Cost: {costLabel(cost)}
+                            </div>
+                          )}
+                        </div>
+                        {!isBuilt && !isPending && (
+                          <button
+                            onClick={() => canBuild && onHarvest?.({ type: "queue_blueprint", blueprintType: ws.id })}
+                            disabled={!canBuild}
+                            style={{
+                              padding: "7px 14px", borderRadius: 8, fontSize: 12,
+                              background: canBuild ? "rgba(255,200,60,0.1)" : "rgba(255,255,255,0.03)",
+                              border: `1px solid ${canBuild ? "rgba(255,200,60,0.3)" : "rgba(255,255,255,0.07)"}`,
+                              color: canBuild ? "rgba(255,200,60,0.9)" : "rgba(255,255,255,0.2)",
+                              cursor: canBuild ? "pointer" : "default",
+                              flexShrink: 0,
+                            }}>
+                            Queue
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Turret and garden plot */}
+              <div>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>
+                  🛡 Defenses &amp; Farming
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {[
+                    { type: "turret",    icon: "🗼", label: "Auto Turret",  cost: turretCost },
+                    { type: "crop_plot", icon: "🌱", label: "Garden Plot",  cost: plotCost },
+                  ].map(item => {
+                    const canBuild = canAffordCost(item.cost);
+                    const isPending = (s.blueprints ?? []).some(bp => bp.type === item.type);
+                    return (
+                      <div key={item.type} style={{
+                        flex: 1, padding: "10px 12px", borderRadius: 10,
+                        background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)",
+                        display: "flex", flexDirection: "column", gap: 6,
+                      }}>
+                        <div style={{ fontSize: 20 }}>{item.icon}</div>
+                        <div style={{ fontSize: 12, color: "rgba(255,255,255,0.7)" }}>{item.label}</div>
+                        <div style={{ fontSize: 10, color: canBuild ? "rgba(255,200,60,0.6)" : "rgba(255,80,60,0.5)" }}>
+                          {costLabel(item.cost)}
+                        </div>
+                        <button
+                          onClick={() => canBuild && !isPending && onHarvest?.({ type: "queue_blueprint", blueprintType: item.type })}
+                          disabled={!canBuild || isPending}
+                          style={{
+                            padding: "6px 0", borderRadius: 7, fontSize: 11,
+                            background: canBuild && !isPending ? "rgba(255,200,60,0.1)" : "rgba(255,255,255,0.02)",
+                            border: `1px solid ${canBuild && !isPending ? "rgba(255,200,60,0.3)" : "rgba(255,255,255,0.06)"}`,
+                            color: canBuild && !isPending ? "rgba(255,200,60,0.9)" : "rgba(255,255,255,0.18)",
+                            cursor: canBuild && !isPending ? "pointer" : "default",
+                          }}>
+                          {isPending ? "Queued ✓" : "Queue"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.15)", lineHeight: 1.6 }}>
+                Queued blueprints appear as ghosts on the home base map. Walk up and press [F] to build,
+                or assign a survivor to the <em>Builder</em> workstation for auto-construction.
+              </div>
+            </div>
+          );
+        })()}
+
         {tab === "crops" && (
           <>
             {crops.length === 0 ? (
@@ -806,7 +1300,13 @@ export default function BaseView({ stateSnapshot, activityLog, onHarvest, onClos
             ) : (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
                 {survivors.map(sv => (
-                  <SurvivorCard key={sv.id} survivor={sv} onReassign={handleReassign} />
+                  <SurvivorCard
+                    key={sv.id}
+                    survivor={sv}
+                    onReassign={handleReassign}
+                    onHeal={s.isHome ? (survivorId => onHarvest?.({ type: "heal", survivorId })) : null}
+                    medicine={s.isHome ? (baseStorage.medicine ?? 0) : 0}
+                  />
                 ))}
               </div>
             )}
@@ -815,16 +1315,26 @@ export default function BaseView({ stateSnapshot, activityLog, onHarvest, onClos
 
         {tab === "turrets" && (
           <>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>
+              Placed Turrets
+            </div>
             {turrets.length === 0 ? (
-              <div style={{ padding: "40px 0", textAlign: "center", color: "rgba(255,255,255,0.2)", fontSize: 13 }}>
-                No turrets placed.<br />
+              <div style={{ padding: "20px 0", textAlign: "center", color: "rgba(255,255,255,0.2)", fontSize: 13 }}>
+                No turrets built yet.
                 <span style={{ fontSize: 11, marginTop: 6, display: "block", color: "rgba(255,255,255,0.12)" }}>
-                  Press G → place turret (costs 4 scrap + 8 nails).
+                  Queue a turret blueprint from the Build tab, then head to the base map.
                 </span>
               </div>
             ) : (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10 }}>
-                {turrets.map((t, i) => <TurretCard key={t.id ?? i} turret={t} />)}
+                {turrets.map((t, i) => (
+                  <TurretCard
+                    key={t.id ?? i}
+                    turret={t}
+                    onRepair={s.isHome ? (turretId => onHarvest?.({ type: "repair_turret", turretId })) : null}
+                    scrap={s.isHome ? (baseStorage.scrap ?? 0) : 0}
+                  />
+                ))}
               </div>
             )}
           </>
@@ -979,6 +1489,111 @@ export default function BaseView({ stateSnapshot, activityLog, onHarvest, onClos
           </div>
         )}
 
+        {tab === "garage" && (() => {
+          const garage = worldState?.homeBase?.garage ?? [];
+          const VEHICLE_ICONS = {
+            monster_truck: "🚛",
+            minivan:       "🚐",
+            car:           "🚗",
+            bike:          "🏍️",
+          };
+          const VEHICLE_LABELS = {
+            monster_truck: "Monster Truck",
+            minivan:       "Minivan",
+            car:           "Car",
+            bike:          "Bike",
+          };
+          if (garage.length === 0) {
+            return (
+              <div style={{ padding: "40px 0", textAlign: "center", color: "rgba(255,255,255,0.2)", fontSize: 13 }}>
+                Garage is empty.<br />
+                <span style={{ fontSize: 11, marginTop: 6, display: "block", color: "rgba(255,255,255,0.12)" }}>
+                  Vehicles you drive out of runs are automatically recovered here.
+                </span>
+              </div>
+            );
+          }
+          return (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {garage.map((v, i) => {
+                const icon     = VEHICLE_ICONS[v.vehicleType]  ?? "🚗";
+                const label    = VEHICLE_LABELS[v.vehicleType] ?? v.vehicleType ?? "Vehicle";
+                const hpPct    = Math.round((v.hp  / (v.maxHp  || v.hp  || 1)) * 100);
+                const fuelPct  = Math.round((v.fuel / (v.maxFuel || v.fuel || 1)) * 100);
+                const hpColor  = hpPct >= 70 ? "rgba(80,220,120,0.85)"
+                               : hpPct >= 35 ? "rgba(255,200,60,0.85)"
+                               : "rgba(255,80,80,0.85)";
+                const fuelColor = fuelPct >= 40 ? "rgba(100,180,255,0.85)"
+                                : fuelPct >= 15 ? "rgba(255,200,60,0.85)"
+                                : "rgba(255,80,80,0.85)";
+                return (
+                  <div key={v.id ?? i} style={{
+                    padding: "14px 16px",
+                    background: "rgba(255,255,255,0.02)",
+                    border: "1px solid rgba(255,255,255,0.07)",
+                    borderRadius: 12,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 14,
+                  }}>
+                    {/* Icon */}
+                    <span style={{ fontSize: 32, flexShrink: 0 }}>{icon}</span>
+
+                    {/* Info */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, color: "rgba(255,255,255,0.85)", marginBottom: 8 }}>
+                        {label}
+                        <span style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", marginLeft: 8 }}>
+                          #{(v.id ?? "").slice(-4) || i + 1}
+                        </span>
+                      </div>
+                      {/* HP bar */}
+                      <div style={{ marginBottom: 5 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.06em" }}>HP</span>
+                          <span style={{ fontSize: 10, color: hpColor, fontVariantNumeric: "tabular-nums" }}>
+                            {v.hp} / {v.maxHp ?? v.hp}
+                          </span>
+                        </div>
+                        <div style={{ height: 5, background: "rgba(255,255,255,0.07)", borderRadius: 3, overflow: "hidden" }}>
+                          <div style={{ width: `${hpPct}%`, height: "100%", background: hpColor, borderRadius: 3, transition: "width 0.3s" }} />
+                        </div>
+                      </div>
+                      {/* Fuel bar */}
+                      <div>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.06em" }}>FUEL</span>
+                          <span style={{ fontSize: 10, color: fuelColor, fontVariantNumeric: "tabular-nums" }}>
+                            {v.fuel} / {v.maxFuel ?? v.fuel}
+                          </span>
+                        </div>
+                        <div style={{ height: 5, background: "rgba(255,255,255,0.07)", borderRadius: 3, overflow: "hidden" }}>
+                          <div style={{ width: `${fuelPct}%`, height: "100%", background: fuelColor, borderRadius: 3, transition: "width 0.3s" }} />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Upgrades badge */}
+                    {(v.upgrades ?? []).length > 0 && (
+                      <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+                        {v.upgrades.map(u => (
+                          <span key={u} style={{
+                            fontSize: 10, padding: "2px 7px",
+                            background: "rgba(255,200,60,0.1)",
+                            border: "1px solid rgba(255,200,60,0.3)",
+                            borderRadius: 6, color: "rgba(255,200,60,0.8)",
+                            textTransform: "capitalize",
+                          }}>{u}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
+
         {tab === "activity" && (
           <ActivityFeed events={activityLog} />
         )}
@@ -989,7 +1604,27 @@ export default function BaseView({ stateSnapshot, activityLog, onHarvest, onClos
             onCraft={action => onHarvest?.(action)}
           />
         )}
+
+        {tab === "map" && worldState && (
+          <div style={{ margin: "-20px", position: "relative" }}>
+            <WorldMap
+              worldState={worldState}
+              currentLevel={null}
+              isPlaying={false}
+              onDeploy={onDeploy}
+              onMenu={onClose}
+              worldEvents={worldEvents ?? []}
+              onAddRoute={onAddRoute}
+              onRemoveRoute={onRemoveRoute}
+              onEnterHome={onEnterHome ?? onClose}
+              embeddedMode={true}
+            />
+          </div>
+        )}
       </div>
+
+      {/* ── Crisis events panel ── */}
+      <CrisisPanel crisisEvents={crisisEvents} onResolveCrisis={onResolveCrisis} baseStorage={baseStorage} />
 
       {/* ── Reassign modal ── */}
       {reassignTarget && (
@@ -1013,29 +1648,68 @@ export default function BaseView({ stateSnapshot, activityLog, onHarvest, onClos
             <div style={{ fontSize: 13, color: "rgba(255,255,255,0.6)", marginBottom: 4 }}>
               Reassign <strong style={{ color: "rgba(255,255,255,0.85)" }}>{reassignTarget.name}</strong>
             </div>
-            {[
-              { cmd: "follow",    label: "Follow me" },
-              { cmd: "stay_safe", label: "Stay & shelter" },
-              { cmd: "fight",     label: "Guard this area" },
-              { cmd: "assign",    label: "Work (crop/turret)" },
-            ].map(({ cmd, label }) => (
-              <button
-                key={cmd}
-                onClick={() => handleAssignCommand(cmd)}
-                style={{
-                  padding: "10px 14px",
-                  background: "rgba(255,255,255,0.04)",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  borderRadius: 10,
-                  color: "rgba(255,255,255,0.6)",
-                  fontSize: 13,
-                  cursor: "pointer",
-                  textAlign: "left",
-                  letterSpacing: "0.03em",
-                }}>
-                {label}
-              </button>
-            ))}
+            {/* Trait reminder */}
+            {(reassignTarget.traits ?? []).length > 0 && (
+              <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 2 }}>
+                {(reassignTarget.traits ?? []).map(tid => {
+                  const t = SURVIVOR_TRAITS[tid];
+                  if (!t) return null;
+                  return (
+                    <span key={tid} title={t.desc} style={{
+                      fontSize: 10, padding: "2px 7px", borderRadius: 5,
+                      background: "rgba(255,255,255,0.04)", border: `1px solid ${t.color}44`,
+                      color: t.color, cursor: "help",
+                    }}>
+                      {t.emoji} {t.label}
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+            {(() => {
+              const blocked = getBlockedCommands(reassignTarget);
+              return [
+                { cmd: "follow",    label: "Follow me" },
+                { cmd: "stay_safe", label: "Stay & shelter" },
+                { cmd: "fight",     label: "Guard this area" },
+                { cmd: "assign",    label: "Work (crop/turret)" },
+              ].map(({ cmd, label }) => {
+                const isBlocked = blocked.includes(cmd);
+                const blockTrait = isBlocked
+                  ? (reassignTarget.traits ?? [])
+                      .map(tid => SURVIVOR_TRAITS[tid])
+                      .find(t => t && getBlockedCommands({ traits: [t.id] }).includes(cmd))
+                  : null;
+                return (
+                  <button
+                    key={cmd}
+                    disabled={isBlocked}
+                    onClick={() => !isBlocked && handleAssignCommand(cmd)}
+                    title={isBlocked && blockTrait ? `Blocked by trait: ${blockTrait.label} — ${blockTrait.desc}` : undefined}
+                    style={{
+                      padding: "10px 14px",
+                      background: isBlocked ? "rgba(255,255,255,0.02)" : "rgba(255,255,255,0.04)",
+                      border: `1px solid ${isBlocked ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.08)"}`,
+                      borderRadius: 10,
+                      color: isBlocked ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.6)",
+                      fontSize: 13,
+                      cursor: isBlocked ? "not-allowed" : "pointer",
+                      textAlign: "left",
+                      letterSpacing: "0.03em",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                    }}>
+                    <span>{label}</span>
+                    {isBlocked && blockTrait && (
+                      <span style={{ fontSize: 10, color: blockTrait.color, opacity: 0.85 }}>
+                        {blockTrait.emoji} Blocked
+                      </span>
+                    )}
+                  </button>
+                );
+              });
+            })()}
             <button
               onClick={() => {
                 setWorkstationTarget(reassignTarget);
@@ -1080,6 +1754,7 @@ export default function BaseView({ stateSnapshot, activityLog, onHarvest, onClos
       {workstationTarget && (
         <WorkstationPicker
           survivor={workstationTarget}
+          builtStructures={s.builtStructures ?? []}
           onAssign={wsId => {
             onHarvest?.({ type: "assignWorkstation", survivorId: workstationTarget.id, workstation: wsId });
             setWorkstationTarget(null);

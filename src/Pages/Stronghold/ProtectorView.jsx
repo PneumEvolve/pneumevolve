@@ -49,6 +49,7 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
   const stateRef    = useRef(null);
   const keysRef     = useRef({});
   const joystickRef = useRef(createJoystick());
+  const lastTouchRef = useRef(0); // ts of last canvas touch — suppresses the trailing synthetic click
   const rafRef      = useRef(null);
   const lastMoveRef = useRef(0);
   const lastSyncRef = useRef(0);
@@ -1754,13 +1755,14 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
   }
 
   // ── Canvas click ──────────────────────────────────────────────────────────
-  function handleCanvasClick(e) {
+  // Handles a tap at canvas-local CSS-pixel coordinates (cx, cy). Shared by the
+  // desktop mouse click path and the mobile touchend path.
+  function handleTapAt(cx, cy) {
     const s = stateRef.current;
     if (!s) return;
     const canvas = canvasRef.current;
+    if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
-    const cx = e.clientX - rect.left;
-    const cy = e.clientY - rect.top;
     // Use CSS pixel dimensions (rect.width/height) — NOT canvas.width/height which are
     // DPI-scaled physical pixels and won't match the CSS-pixel mouse coords.
     const W = rect.width, H = rect.height;
@@ -1806,6 +1808,17 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
     doPing(s, worldX, worldY);
   }
 
+  // Mouse click on desktop. On touch devices the browser fires a synthetic
+  // click after touchend; that tap is already handled in onTouchEnd, so ignore
+  // any click landing within 700ms of a canvas touch.
+  function handleCanvasClick(e) {
+    if (Date.now() - lastTouchRef.current < 700) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    handleTapAt(e.clientX - rect.left, e.clientY - rect.top);
+  }
+
   function doPing(s, worldX, worldY) {
     if (!s.activePings) s.activePings = [];
     // Debounce: don't allow another ping within 1s
@@ -1820,18 +1833,16 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
   // Track which touch IDs were claimed by the joystick (bottom half only)
   const joystickTouchIds = useRef(new Set());
 
-  // ── Touch handlers — bottom half = joystick, top half = browser pan-y ────
+  // ── Touch handlers — the whole canvas is the control surface ──────────────
+  // Every canvas touch is tracked by the joystick helper, which decides tap vs
+  // drag on touchend: a short touch fires handleTapAt (ping / open shop / plant
+  // rally flag), a longer drag drives movement. Ability buttons live in their
+  // own DOM elements above the canvas, so their touches never reach here.
   function onTouchStart(e) {
-    const canvas = canvasRef.current;
+    lastTouchRef.current = Date.now();
     for (const touch of e.changedTouches) {
-      const rect = canvas?.getBoundingClientRect();
-      const inBottomHalf = rect && touch.clientY >= rect.top + rect.height / 2;
-      if (inBottomHalf) {
-        e.preventDefault(); // block browser scroll only for bottom-half joystick touches
-        joystickTouchIds.current.add(touch.identifier);
-        joystickTouchStart(joystickRef.current, touch);
-      }
-      // top-half touches: no preventDefault → outer div's pan-y handles browser scroll
+      joystickTouchIds.current.add(touch.identifier);
+      joystickTouchStart(joystickRef.current, touch);
     }
   }
 
@@ -1845,9 +1856,14 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
   }
 
   function onTouchEnd(e) {
+    const canvas = canvasRef.current;
+    const rect   = canvas?.getBoundingClientRect();
     for (const touch of e.changedTouches) {
       joystickTouchIds.current.delete(touch.identifier);
-      joystickTouchEnd(joystickRef.current, touch);
+      const result = joystickTouchEnd(joystickRef.current, touch);
+      if (result && result.wasTap && rect) {
+        handleTapAt(result.x - rect.left, result.y - rect.top);
+      }
     }
   }
 
@@ -2068,7 +2084,7 @@ export default function ProtectorView({ room, onGameOver, resumeState }) {
     <div style={{ width: "100%", height: "100svh", background: "#0a0d0f", position: "relative", overflow: "hidden", touchAction: "pan-y" }}>
       <canvas
         ref={canvasRef}
-        style={{ width: "100%", height: "100%", display: "block", touchAction: "pan-y" }}
+        style={{ width: "100%", height: "100%", display: "block", touchAction: "none" }}
         onClick={handleCanvasClick}
       />
       {showShop && <UpgradeShop />}

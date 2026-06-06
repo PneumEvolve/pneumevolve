@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useDeadMilesRoom } from "./useDeadMilesRoom";
 import {
   createInitialState,
+  createHomeBaseState,
   movePlayer, driveVehicle, syncPlayerToVehicle,
   tryEnterVehicle, exitVehicle,
   updateNeeds, updateZombies, applyZombieDamage,
@@ -12,6 +13,7 @@ import {
   tryBarricade, updateBarricades, updateDoorBashing, getSleepLocation,
   tryPlantCrop, updateCrops, tryHarvestCrop,
   tryRepairVehicle,
+  refuelVehicle,
   eatFood, drinkWater,
   updateDayNight, updateCamera, updateNightSpawns,
   addFloater, updateFloaters,
@@ -54,7 +56,9 @@ import {
   addToInventory,
   updateAutoPlayer,
   AUTO_SLEEP_UNTIL,
+  BASE_UPGRADE_TREE,
 } from "./deadMilesEngine";
+import { BLUEPRINT_BUILD_TIME, BLUEPRINT_INTERACT_RANGE, BLUEPRINT_COSTS } from "./engine_homebase";
 import {
   createJoystick, joystickTouchStart, joystickTouchMove,
   joystickTouchEnd, drawJoystick,
@@ -62,59 +66,21 @@ import {
 import SurvivorCommandMenu from "./SurvivorCommandMenu";
 import BuildMenu from "./BuildMenu";
 import InventoryPanel from "./InventoryPanel";
+import { draw } from "./gameview_render";
+import UpgradeMenu from "./UpgradeMenu";
 
 const MOVE_THROTTLE  = 100;
 const SYNC_THROTTLE  = 200;
 const NEEDS_THROTTLE = 500;
 
-const COL = {
-  player:      "rgba(255,180,60,0.95)",
-  player2:     "rgba(120,200,255,0.95)",
-  zombie:      "#cc2222",
-  zombieChase: "#ff4444",
-};
-
-function drawPathToTarget(ctx, player, target, cam, W, H, s) {
-  if (!target || !target.x || !target.y) return;
-  
-  const playerX = player.inVehicle ? s.vehicle.x : player.x;
-  const playerY = player.inVehicle ? s.vehicle.y : player.y;
-  const distToTarget = Math.hypot(target.x - playerX, target.y - playerY);
-  
-  if (distToTarget < 500) return;
-  
-  const start = worldToCanvas(playerX, playerY, cam);
-  const end = worldToCanvas(target.x, target.y, cam);
-  
-  if (start.cx < -100 || start.cx > W + 100 || start.cy < -100 || start.cy > H + 100) return;
-  if (end.cx < -100 || end.cx > W + 100 || end.cy < -100 || end.cy > H + 100) return;
-  
-  ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(start.cx, start.cy);
-  ctx.lineTo(end.cx, end.cy);
-  ctx.strokeStyle = "rgba(255,220,80,0.35)";
-  ctx.lineWidth = 2.5;
-  ctx.setLineDash([8, 12]);
-  ctx.stroke();
-  
-  const angle = Math.atan2(end.cy - start.cy, end.cx - start.cx);
-  const arrowSize = 10;
-  const arrowX = end.cx;
-  const arrowY = end.cy;
-  ctx.beginPath();
-  ctx.moveTo(arrowX, arrowY);
-  ctx.lineTo(arrowX - arrowSize * Math.cos(angle - Math.PI / 6), arrowY - arrowSize * Math.sin(angle - Math.PI / 6));
-  ctx.lineTo(arrowX - arrowSize * Math.cos(angle + Math.PI / 6), arrowY - arrowSize * Math.sin(angle + Math.PI / 6));
-  ctx.fillStyle = "rgba(255,220,80,0.5)";
-  ctx.fill();
-  ctx.setLineDash([]);
-  ctx.restore();
-}
-
-export default function GameView({ room, role = "p1", onGameOver, level = 1, missionType = "clear", deployInventory = null, onStateSnapshot, onOpenBase, activityLog, autoPlay = false, onDropIn }) {
+export default function GameView({ room, role = "p1", onGameOver, level = 1, missionType = "clear", deployInventory = null, deploySurvivors = null, deployVehicles = null, deployBlueprints = null, onStateSnapshot, onOpenBase, activityLog, autoPlay = false, onDropIn, onAutoplay, onUpgradeBase, onGetStateRef }) {
   const canvasRef   = useRef(null);
   const stateRef    = useRef(null);
+
+  // ── Forward stateRef to parent (for heartbeat simulation) ────────────────
+  useEffect(() => {
+    if (onGetStateRef) onGetStateRef(stateRef);
+  }, [onGetStateRef]); // eslint-disable-line react-hooks/exhaustive-deps
   const keysRef     = useRef({});
   const joystickRef = useRef(createJoystick());
   const rafRef      = useRef(null);
@@ -127,6 +93,18 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1, mis
   const autoNeedsCooldownRef  = useRef(0); // separate cooldown for eat/drink so combat doesn't block needs
   // Keep the ref in sync whenever the prop changes (e.g. after Drop In)
   useEffect(() => { autoPlayRef.current = autoPlay; }, [autoPlay]);
+
+  // ── Manager HUD state ─────────────────────────────────────────────────────
+  // aiStance: player-controlled toggle that shifts autoplayer priorities
+  // goHomeNow: mid-run escape flag — routes AI to exit immediately
+  const [aiStance, setAiStance] = useState("loot"); // "loot" | "fight" | "flee"
+  const aiStanceRef = useRef("loot");
+  const [goHomeNow, setGoHomeNow] = useState(false);
+  const goHomeNowRef = useRef(false);
+  useEffect(() => { aiStanceRef.current = aiStance; }, [aiStance]);
+  useEffect(() => { goHomeNowRef.current = goHomeNow; }, [goHomeNow]);
+
+  const isHomeBase = missionType === "homebase";
   // Opening horror refs
   const powerMomentRef  = useRef(0);   // countdown timer for the vehicle power-surge effect (seconds)
   const powerZoomRef    = useRef(1);   // current zoom scale (1 = normal, >1 = zoomed out)
@@ -174,9 +152,19 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1, mis
     if (!p2ConnectedRef.current) { p2ConnectedRef.current = true; setP2(true); }
   }).current;
   const [contextActions, setCtxActions] = useState([]);
+  // Touch-device flag: drives tappable context-action buttons on mobile.
+  // (Joystick + attack button already work on touch; this fills the last gap.)
+  const [isTouch, setIsTouch] = useState(false);
+  useEffect(() => {
+    setIsTouch(
+      typeof window !== "undefined" &&
+      (("ontouchstart" in window) || (navigator.maxTouchPoints ?? 0) > 0)
+    );
+  }, []);
   const [showControls, setShowControls] = useState(false);
   const [showInventory, setShowInv]     = useState(false);
   const [buildMenu, setBuildMenu]       = useState(false);
+  const [upgradeMenuOpen, setUpgradeMenuOpen] = useState(false);
   const [placingMode, setPlacingMode]   = useState(null); // null | "turret" | "crop_plot"
   const placingModeRef                  = useRef(null);
   const placingHintRef                  = useRef(null);
@@ -731,6 +719,9 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1, mis
   // In autoPlay mode, derives from the AI; otherwise from keyboard/joystick.
   function getMovementAndAction(s, dt) {
     if (!autoPlayRef.current) return { ...getMovementVec(), action: null };
+    // Sync manager controls into game state so autoplayer can read them
+    s.aiStance   = aiStanceRef.current;
+    s._goHomeNow = goHomeNowRef.current;
     return updateAutoPlayer(s.player, s, dt);
   }
 
@@ -755,8 +746,11 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1, mis
     // Step 8: if this is a defend mission victory, mark it
     const isDefendVictory = s._missionType === "defend" && extra.survived;
 
+    // Homebase: dying or leaving always returns to worldmap (no gameover screen)
+    const isHomeBase = s._missionType === "homebase";
+
     const score = {
-      survived: false,
+      survived: isHomeBase ? true : false,
       dayssurvived: s.dayNumber,
       zombiesKilled: s.zombiesKilled ?? 0,
       buildingsSearched: s.buildingsSearched ?? 0,
@@ -921,6 +915,29 @@ if (surv) {
         return;
       }
       handleFCrops(s);
+
+      // Well drink — check if near a well
+      const nearWell = s.wells?.some(w => dist(s.player.x, s.player.y, w.x, w.y) < 60);
+      const nearBuildingWell = s.buildings.some(b => b.hasWell &&
+        dist(s.player.x, s.player.y, b.x + b.w / 2, b.y + b.h / 2) < 80);
+      if (nearWell || nearBuildingWell) {
+        if (castActionRef.current?.type === "drink") return;
+        startCast({
+          type: "drink",
+          duration: 1.5,
+          label: "Drinking from well",
+          icon: "💧",
+          onComplete: () => {
+            const ok = drinkWater(s.player, s.buildings, s.wells);
+            if (ok) {
+              notify("Drank from well (+30 💧)");
+              syncInv(s.player.inventory);
+            }
+          },
+        });
+        return;
+      }
+
       return;
     }
 
@@ -1016,6 +1033,63 @@ if (surv) {
       return;
     }
 
+    // ── Blueprint build prompt (homebase only) ────────────────────────────
+    // If the player is near a queued blueprint, pressing F starts the build cast.
+    if (isHomeBase && s.blueprints?.length > 0) {
+      const nearBlueprint = s.blueprints.find(bp =>
+        dist(s.player.x, s.player.y, bp.x, bp.y) < BLUEPRINT_INTERACT_RANGE
+      );
+      if (nearBlueprint) {
+        if (castActionRef.current?.type === "build_blueprint") return;
+        const bpId = nearBlueprint.id;
+        const bpType = nearBlueprint.type;
+        const label = bpType === "turret" ? "Building Turret" : "Building Garden Plot";
+        const icon  = bpType === "turret" ? "🗼" : "🌱";
+        startCast({
+          type: "build_blueprint",
+          duration: BLUEPRINT_BUILD_TIME,
+          label,
+          icon,
+          onComplete: () => {
+            // Find the blueprint again (state may have mutated)
+            const idx = s.blueprints?.findIndex(bp => bp.id === bpId) ?? -1;
+            if (idx === -1) return; // already built
+            const bp = s.blueprints[idx];
+            if (bpType === "turret") {
+              if (!s.turrets) s.turrets = [];
+              // Directly construct the turret object (mirrors engine_entities.createTurret)
+              s.turrets.push({
+                id: `turret_${Date.now()}_${Math.floor(Math.random() * 9999)}`,
+                x: bp.x, y: bp.y,
+                hp: TURRET_HP, maxHp: TURRET_HP,
+                range: TURRET_RANGE,
+                damage: 25,
+                fireRate: 1.5,
+                shootCooldown: 0,
+                attractRadius: 450,
+                radius: 14,
+              });
+              notify("🗼 Turret built!", "rgba(120,255,150,0.95)");
+            } else if (bpType === "crop_plot") {
+              const plotW = 80, plotH = 70;
+              const plot = {
+                id: `plot_${Date.now()}_${Math.floor(Math.random() * 9999)}`,
+                x: bp.x - plotW / 2, y: bp.y - plotH / 2,
+                w: plotW, h: plotH,
+                crop: null, growTimer: 0,
+              };
+              if (!s.gardenPlots) s.gardenPlots = [];
+              s.gardenPlots.push(plot);
+              notify("🌱 Garden plot built!", "rgba(120,220,80,0.95)");
+            }
+            // Remove the blueprint
+            s.blueprints.splice(idx, 1);
+          },
+        });
+        return;
+      }
+    }
+
     notify("Nothing to interact with here", "rgba(180,180,180,0.6)");
   }
 
@@ -1053,6 +1127,37 @@ if (surv) {
     if (s.player.isDowned && s.player.downedReason === "hp" && room) return;
 
     if (key === "e" || key === "E") {
+      // ── Deposit chest — merge carry inventory into base storage ─────────
+      const chest = s.depositChest;
+      if (chest) {
+        const playerDist = dist(s.player.x, s.player.y, chest.x, chest.y);
+        if (playerDist < chest.radius + 40) {
+          const inv = s.player.inventory ?? {};
+          const bs  = s.baseStorage ?? {};
+          const DEPOSIT_KEYS = ["food","water","scrap","nails","wood","seeds","tools","fuel","medicine","ammo","car_parts","bat"];
+          let deposited = false;
+          for (const k of DEPOSIT_KEYS) {
+            const qty = Math.floor(inv[k] ?? 0);
+            if (qty > 0) {
+              bs[k] = (bs[k] ?? 0) + qty;
+              inv[k] = 0;
+              deposited = true;
+            }
+          }
+          if (deposited) {
+            s.baseStorage = bs;
+            s.player.inventory = inv;
+            syncInv(inv);
+            syncBaseStorage(bs);
+            notify("📦 Supplies deposited to base storage", "rgba(120,220,150,0.95)");
+            addFloater(s, "Deposited!", chest.x, chest.y - 20, "rgba(120,220,150,0.95)", 13);
+          } else {
+            notify("Nothing to deposit", "rgba(180,180,180,0.6)");
+          }
+          return;
+        }
+      }
+
       // Find the nearest vehicle to avoid stale s.vehicle pointer
       const repairVehicles = s.vehicles ?? [s.vehicle];
       let repairTarget = null;
@@ -1107,89 +1212,39 @@ if (surv) {
       return;
     }
 
-    if (key === "q" || key === "Q") {
-      if (castActionRef.current?.type === "eat") return;
-      if ((s.player.inventory.food ?? 0) < 1) { notify("No food in inventory!", "rgba(255,100,100,0.95)"); return; }
-      startCast({
-        type: "eat",
-        duration: 1.5,
-        label: "Eating food",
-        icon: "🍞",
-        onComplete: () => {
-          if (eatFood(s.player)) {
-            notify("Ate food (+25 🍞)");
-            syncInv(s.player.inventory);
-            if (s.player.isDowned) {
-              // HP-downed in co-op can only be revived by the partner (F key), not by eating
-              if (s.player.downedReason === "hp" && room) {
-                notify("You need your partner to revive you!", "rgba(255,100,100,0.95)");
-              } else {
-                // Needs-collapse: eating (food/sleep cause) revives
-                s.player.isDowned = false;
-                s.player.downedReason = null;
-                s.player.isSleeping = false;
-                s.isFastSleeping = false; // stop fast-sleep so needs don't drain 15x immediately
-                holdZRef.current = 0;
-                s.player.hp = Math.max(s.player.hp, 15);
-                s.player.food  = Math.max(s.player.food,  NEEDS_TUNE.food.critAt  + 5);
-                s.player.water = Math.max(s.player.water, NEEDS_TUNE.water.critAt + 5);
-                s.player.sleep = Math.max(s.player.sleep, NEEDS_TUNE.sleep.critAt + 5);
-                notify("🫀 Revived!", "rgba(120,255,180,0.95)");
-                if (room) sendNeedsUpdate(s.player.food, s.player.water, s.player.sleep, s.player.hp, false);
-              }
-            }
-          } else {
-            notify("No food left!", "rgba(255,100,100,0.95)");
-          }
-        },
-      });
-      return;
-    }
-
     if (key === "r" || key === "R") {
-      if (castActionRef.current?.type === "drink") return;
-      const nearWell = s.wells?.some(w => dist(s.player.x, s.player.y, w.x, w.y) < 60);
-      const nearBuildingWell = s.buildings.some(b => b.hasWell &&
-        dist(s.player.x, s.player.y, b.x + b.w / 2, b.y + b.h / 2) < 80);
-      const hasWater = (s.player.inventory.water ?? 0) > 0;
-      if (!nearWell && !nearBuildingWell && !hasWater) {
-        notify("No water nearby!", "rgba(255,100,100,0.95)");
+      // Refuel vehicle with fuel cans
+      if (castActionRef.current?.type === "refuel") return;
+      const refuelVehicles = s.vehicles ?? [s.vehicle];
+      let refuelTarget = null;
+      let refuelDist = Infinity;
+      for (const v of refuelVehicles) {
+        const d = dist(s.player.x, s.player.y, v.x, v.y);
+        if (d < refuelDist) { refuelDist = d; refuelTarget = v; }
+      }
+      if (refuelTarget && refuelDist <= REPAIR_RANGE) {
+        const fuelCount = refuelTarget.fuel ?? 0;
+        if ((s.player.inventory.fuel ?? 0) < 1) { notify("No fuel cans!", "rgba(255,100,100,0.95)"); return; }
+        if (refuelTarget.fuel >= refuelTarget.maxFuel) { notify("Tank is full!", "rgba(180,180,180,0.6)"); return; }
+        startCast({
+          type: "refuel",
+          duration: 2.0,
+          label: "Refueling vehicle",
+          icon: "⛽",
+          onComplete: () => {
+            const result = refuelVehicle(s.player, refuelTarget);
+            if (result?.success) {
+              notify(`⛽ +30 fuel (${Math.round(refuelTarget.fuel)}/${refuelTarget.maxFuel})`, "rgba(120,220,255,0.95)");
+              syncInv(s.player.inventory);
+            } else if (result?.fail === "no_fuel") {
+              notify("No fuel cans left!", "rgba(255,100,100,0.95)");
+            } else if (result?.fail === "full_tank") {
+              notify("Tank is already full!", "rgba(180,180,180,0.6)");
+            }
+          },
+        });
         return;
       }
-      startCast({
-        type: "drink",
-        duration: 1.5,
-        label: "Drinking water",
-        icon: "💧",
-        onComplete: () => {
-          const ok = drinkWater(s.player, s.buildings, s.wells);
-          if (ok) {
-            notify(ok.source === "well" ? "Drank from well (+30 💧)" : "Drank water (+30 💧)");
-            syncInv(s.player.inventory);
-            if (s.player.isDowned) {
-              // HP-downed in co-op can only be revived by the partner (F key), not by drinking
-              if (s.player.downedReason === "hp" && room) {
-                notify("You need your partner to revive you!", "rgba(255,100,100,0.95)");
-              } else {
-                // Needs-collapse: drinking (water/sleep cause) revives
-                s.player.isDowned = false;
-                s.player.downedReason = null;
-                s.player.isSleeping = false;
-                s.isFastSleeping = false; // stop fast-sleep so needs don't drain 15x immediately
-                holdZRef.current = 0;
-                s.player.hp = Math.max(s.player.hp, 15);
-                s.player.food  = Math.max(s.player.food,  NEEDS_TUNE.food.critAt  + 5);
-                s.player.water = Math.max(s.player.water, NEEDS_TUNE.water.critAt + 5);
-                s.player.sleep = Math.max(s.player.sleep, NEEDS_TUNE.sleep.critAt + 5);
-                notify("🫀 Revived!", "rgba(120,255,180,0.95)");
-                if (room) sendNeedsUpdate(s.player.food, s.player.water, s.player.sleep, s.player.hp, false);
-              }
-            }
-          } else {
-            notify("No water nearby!", "rgba(255,100,100,0.95)");
-          }
-        },
-      });
       return;
     }
 
@@ -1421,7 +1476,9 @@ useEffect(() => {
     const resizeTimer = setTimeout(resize, 0);
     window.addEventListener("resize", resize);
 
-    stateRef.current = createInitialState(room?.map_seed ?? Date.now(), level);
+    stateRef.current = level === 0
+      ? createHomeBaseState()
+      : createInitialState(room?.map_seed ?? Date.now(), level);
     // FIX 5: initialise baseStorage on the live state object if absent
     if (!stateRef.current.baseStorage) stateRef.current.baseStorage = {};
     // Reset autoplay spawn-safety timer so every new level starts with a fresh grace window.
@@ -1436,8 +1493,67 @@ useEffect(() => {
       stateRef.current.player.inventory = inv;
     }
 
+    // ── Phase 0.3 (c): replace generated survivors with the deployed roster party ─
+    if (deploySurvivors?.length) {
+      // Re-anchor spawn positions to the player's actual start location
+      const px = stateRef.current.player.x;
+      const py = stateRef.current.player.y;
+      const spread = 60;
+      stateRef.current.survivors = deploySurvivors.map((sv, i) => {
+        const angle = (i / Math.max(1, deploySurvivors.length)) * Math.PI * 2;
+        return { ...sv, x: px + Math.cos(angle) * spread, y: py + Math.sin(angle) * spread };
+      });
+    }
+
     // ── Step 8: defend mission — record mission type and spawn defend wave ─
     stateRef.current._missionType = missionType;
+
+    // ── Task 2.1: seed garage vehicles into the homebase run ─────────────────
+    // deployVehicles is a map of { "player" | survivorId → garageVehicle }
+    // For now we inject them into the vehicles array so the in-run fleet is real.
+    if (deployVehicles && Object.keys(deployVehicles).length > 0) {
+      const s = stateRef.current;
+      // Place each assigned vehicle near the player spawn
+      const px = s.player.x;
+      const py = s.player.y;
+      let vi = 0;
+      for (const [assigneeId, garageV] of Object.entries(deployVehicles)) {
+        const angle = (vi / Math.max(1, Object.keys(deployVehicles).length)) * Math.PI * 2;
+        const spawnR = 100 + vi * 30;
+        const vx = px + Math.cos(angle) * spawnR;
+        const vy = py + Math.sin(angle) * spawnR;
+        const VT = VEHICLE_TYPES;
+        const cfg = VT[garageV.vehicleType] ?? VT.car;
+        const runVehicle = {
+          id: garageV.id,
+          vehicleType: garageV.vehicleType,
+          x: vx, y: vy,
+          hp: garageV.hp, maxHp: garageV.maxHp ?? cfg.hp ?? 300,
+          fuel: garageV.fuel ?? cfg.fuel ?? 80, maxFuel: garageV.maxFuel ?? cfg.fuel ?? 80,
+          facing: 0, speed: cfg.speed ?? 300, noise: cfg.noise ?? 0.9,
+          zombieKill: cfg.zombieKill ?? false, seats: cfg.seats ?? 2,
+          driver: null, passenger: null, occupied: false,
+          upgrades: garageV.upgrades ?? [],
+          isBeacon: vi === 0,
+        };
+        // Avoid duplication: don't add if already present
+        const exists = (s.vehicles ?? []).some(v => v.id === runVehicle.id);
+        if (!exists) {
+          if (!s.vehicles) s.vehicles = [];
+          s.vehicles.push(runVehicle);
+          if (vi === 0) s.vehicle = runVehicle;
+        }
+        vi++;
+      }
+    }
+
+    // ── Task 2.3: seed blueprints from persistent homeBase into the run ───────
+    if (missionType === "homebase" && deployBlueprints?.length > 0) {
+      stateRef.current.blueprints = [...deployBlueprints];
+    } else if (!stateRef.current.blueprints) {
+      stateRef.current.blueprints = [];
+    }
+
     if (missionType === "defend") {
       // Spawn a reinforced wave immediately so the player has something to fight.
       // createZombie is called here directly; the multiplier matches DEFEND_WAVE_MULTIPLIER=2.
@@ -1725,10 +1841,20 @@ if (s.player.isSleeping && !s.isFastSleeping && !fastSleepVoteRequestedRef.curre
           if (room) sendVehicleUpdate(myV.id, myV.x, myV.y, myV.facing, myV.hp, myV.fuel, myV.driver, myV.passenger);
         }
       } else if (autoAction === "auto_eat") {
-        // AI eat — dedicated needs cooldown so combat doesn't block eating
+        // AI eat — dedicated needs cooldown so combat doesn't block eating.
+        // At homebase, pull food from baseStorage if player inventory is empty.
         autoNeedsCooldownRef.current -= dtActual;
         if (autoNeedsCooldownRef.current <= 0) {
           autoNeedsCooldownRef.current = 1.6;
+          // At homebase: top up player inventory from base storage so AI can eat
+          if (s._missionType === "homebase" && (s.player.inventory.food ?? 0) < 1) {
+            const bs = s.baseStorage ?? {};
+            if ((bs.food ?? 0) >= 1) {
+              bs.food = (bs.food ?? 0) - 1;
+              s.player.inventory.food = (s.player.inventory.food ?? 0) + 1;
+              s.baseStorage = bs;
+            }
+          }
           if (eatFood(s.player)) {
             syncInv(s.player.inventory);
             addFloater(s, "🍞 ate food", s.player.x, s.player.y - 20, "rgba(120,255,150,0.85)", 11);
@@ -1737,10 +1863,20 @@ if (s.player.isSleeping && !s.isFastSleeping && !fastSleepVoteRequestedRef.curre
           }
         }
       } else if (autoAction === "auto_drink") {
-        // AI drink — dedicated needs cooldown so combat doesn't block drinking
+        // AI drink — dedicated needs cooldown so combat doesn't block drinking.
+        // At homebase, pull water from baseStorage if player inventory is empty.
         autoNeedsCooldownRef.current -= dtActual;
         if (autoNeedsCooldownRef.current <= 0) {
           autoNeedsCooldownRef.current = 1.6;
+          // At homebase: top up player inventory from base storage so AI can drink
+          if (s._missionType === "homebase" && (s.player.inventory.water ?? 0) < 1) {
+            const bs = s.baseStorage ?? {};
+            if ((bs.water ?? 0) >= 1) {
+              bs.water = (bs.water ?? 0) - 1;
+              s.player.inventory.water = (s.player.inventory.water ?? 0) + 1;
+              s.baseStorage = bs;
+            }
+          }
           const ok = drinkWater(s.player, s.buildings, s.wells);
           if (ok) {
             syncInv(s.player.inventory);
@@ -1758,12 +1894,60 @@ if (s.player.isSleeping && !s.isFastSleeping && !fastSleepVoteRequestedRef.curre
           s.isFastSleeping = true;
           addFloater(s, "💤 sleeping...", s.player.x, s.player.y - 22, "rgba(180,180,255,0.85)", 11);
         }
+        // Wake immediately if a zombie is actively targeting this player nearby.
+        const SLEEP_WAKE_RADIUS = 300;
+        const activeAttackStates = new Set(["chase", "attack", "bash_door"]);
+        const zombieTargetingMe = s.zombies.some(z =>
+          !z.dead &&
+          activeAttackStates.has(z.state) &&
+          dist(z.x, z.y, s.player.x, s.player.y) < SLEEP_WAKE_RADIUS
+        );
+        if (zombieTargetingMe) {
+          s.player.isSleeping = false;
+          s.player._autoSleeping = false;
+          s.isFastSleeping = false;
+          addFloater(s, "⚠️ danger!", s.player.x, s.player.y - 22, "rgba(255,80,80,0.9)", 13);
+        }
         // Wake up once sleep has recovered enough
         if (s.player.sleep >= AUTO_SLEEP_UNTIL) {
           s.player.isSleeping = false;
           s.player._autoSleeping = false;
           s.isFastSleeping = false;
           addFloater(s, "⚡ rested!", s.player.x, s.player.y - 22, "rgba(255,220,80,0.9)", 12);
+        }
+      } else if (autoAction === "exit_vehicle_for_repair") {
+        // AI needs to exit vehicle before repairing it
+        if (s.player.inVehicle) {
+          const myV = getMyVehicle(s, roleRef.current);
+          exitVehicle(s.player, myV, roleRef.current, s.buildings);
+          s.vehicle = myV;
+          if (room) sendVehicleUpdate(myV.id, myV.x, myV.y, myV.facing, myV.hp, myV.fuel, myV.driver, myV.passenger);
+        }
+      } else if (autoAction === "auto_repair_vehicle") {
+        // AI repair — 3-second cast, consumes 1 car_part, heals REPAIR_HP_GAIN
+        autoNeedsCooldownRef.current -= dtActual;
+        if (autoNeedsCooldownRef.current <= 0) {
+          autoNeedsCooldownRef.current = 3.0;
+          // Find best nearby damaged vehicle to repair
+          const allV = s.vehicles ?? (s.vehicle ? [s.vehicle] : []);
+          let repairTarget = null, bestScore = -Infinity;
+          for (const v of allV) {
+            if (v.hp <= 0) continue;
+            const d = dist(s.player.x, s.player.y, v.x, v.y);
+            if (d > REPAIR_RANGE) continue;
+            const hpFrac = v.hp / (v.maxHp ?? v.hp ?? 1);
+            if (hpFrac >= 1) continue;
+            const s2 = (1 - hpFrac) * 300 - d;
+            if (s2 > bestScore) { bestScore = s2; repairTarget = v; }
+          }
+          if (repairTarget) {
+            const result = tryRepairVehicle(s.player, repairTarget);
+            if (result && !result.fail) {
+              addFloater(s, `🔧 +${REPAIR_HP_GAIN} HP`, s.player.x, s.player.y - 22, "rgba(120,255,150,0.85)", 11);
+              syncInv(s.player.inventory);
+              if (room && sendVehicleRepair) sendVehicleRepair(repairTarget.id, repairTarget.hp);
+            }
+          }
         }
       }
     }
@@ -2142,7 +2326,62 @@ if (s.player.isSleeping && !s.isFastSleeping && !fastSleepVoteRequestedRef.curre
         }
       }
 
-      // ── Convoy vehicle AI (P1 only) ─────────────────────────────────────
+      // ── Task 2.3: Survivor auto-build blueprints ────────────────────────────
+      // Any survivor assigned workstation="builder" will wander to nearby blueprints
+      // and build them automatically (simpler than full cast — just time-based).
+      if (isHomeBase && s.blueprints?.length > 0 && s.survivors?.length > 0) {
+        const BUILDER_RANGE = 80;
+        const BUILDER_SPEED = 3.0; // seconds to build per blueprint
+        for (const sv of s.survivors) {
+          if (sv.hp <= 0) continue;
+          if (sv.workstation !== "builder") continue;
+          // Find nearest unassigned blueprint
+          let nearestBp = null, nearestBpDist = Infinity;
+          for (const bp of s.blueprints) {
+            if (bp._builderSvId && bp._builderSvId !== sv.id) continue; // taken by another builder
+            const d = dist(sv.x, sv.y, bp.x, bp.y);
+            if (d < nearestBpDist) { nearestBpDist = d; nearestBp = bp; }
+          }
+          if (!nearestBp) continue;
+          // Walk toward blueprint
+          if (nearestBpDist > BUILDER_RANGE) {
+            const angle = Math.atan2(nearestBp.y - sv.y, nearestBp.x - sv.x);
+            sv.x += Math.cos(angle) * 130 * dt;
+            sv.y += Math.sin(angle) * 130 * dt;
+            nearestBp._builderSvId = sv.id;
+          } else {
+            // Build progress
+            nearestBp._builderSvId = sv.id;
+            nearestBp._buildProgress = (nearestBp._buildProgress ?? 0) + dt;
+            if (nearestBp._buildProgress >= BUILDER_SPEED) {
+              const bp = nearestBp;
+              const idx = s.blueprints.indexOf(bp);
+              if (idx !== -1) {
+                if (bp.type === "turret") {
+                  if (!s.turrets) s.turrets = [];
+                  s.turrets.push({
+                    id: `turret_${Date.now()}_${Math.floor(Math.random() * 9999)}`,
+                    x: bp.x, y: bp.y,
+                    hp: TURRET_HP, maxHp: TURRET_HP,
+                    range: TURRET_RANGE, damage: 25, fireRate: 1.5,
+                    shootCooldown: 0, attractRadius: 450, radius: 14,
+                  });
+                } else if (bp.type === "crop_plot") {
+                  const plotW = 80, plotH = 70;
+                  if (!s.gardenPlots) s.gardenPlots = [];
+                  s.gardenPlots.push({
+                    id: `plot_${Date.now()}_${Math.floor(Math.random() * 9999)}`,
+                    x: bp.x - plotW / 2, y: bp.y - plotH / 2,
+                    w: plotW, h: plotH, crop: null, growTimer: 0,
+                  });
+                }
+                s.blueprints.splice(idx, 1);
+                addFloater(s, `${sv.name} built ${bp.type === "turret" ? "🗼 turret" : "🌱 plot"}!`, sv.x, sv.y - 20, "rgba(120,255,150,0.95)");
+              }
+            }
+          }
+        }
+      }
       if (!s.convoyVehicles) s.convoyVehicles = [];
       if (s.convoyVehicles.length > 0) {
         // FIX 9: don't run collision for already-dead convoy vehicles (hp=0)
@@ -2180,6 +2419,17 @@ if (s.player.isSleeping && !s.isFastSleeping && !fastSleepVoteRequestedRef.curre
         !t.destroyed && Math.sqrt((s.player.x - t.x)**2 + (s.player.y - t.y)**2) < TURRET_REPAIR_RANGE
       );
       if (!stillNear) cancelCast("Moved too far from turret");
+    }
+
+    // Cancel blueprint build cast if player walked away
+    if (castActionRef.current?.type === "build_blueprint" && s.blueprints?.length > 0) {
+      const castBpId = castActionRef.current._blueprintId;
+      const bp = castBpId
+        ? s.blueprints.find(b => b.id === castBpId)
+        : s.blueprints.find(b => dist(s.player.x, s.player.y, b.x, b.y) < BLUEPRINT_INTERACT_RANGE * 1.5);
+      if (!bp || dist(s.player.x, s.player.y, bp.x, bp.y) > BLUEPRINT_INTERACT_RANGE * 1.5) {
+        cancelCast("Moved away from blueprint");
+      }
     }
 
     // Cancel harvest cast if player walked away from plot
@@ -2423,9 +2673,20 @@ sendVehicleUpdate(myVehicle.id, myVehicle.x, myVehicle.y, myVehicle.facing, myVe
           ? { label: castActionRef.current.label, icon: castActionRef.current.icon, pct: Math.min(1, castActionRef.current.elapsed / castActionRef.current.duration) }
           : null,
       });
-      setCtxActions(getProximityActions(
+      const baseCtxActions = getProximityActions(
         s.player, s.buildings, s.vehicle, s.gardenPlots, s.crops, s.lootPiles, s.wells, s.turrets ?? []
-      ));
+      );
+      // Append blueprint build action if near one (homebase only)
+      if (isHomeBase && s.blueprints?.length > 0) {
+        const nearBp = s.blueprints.find(bp =>
+          dist(s.player.x, s.player.y, bp.x, bp.y) < BLUEPRINT_INTERACT_RANGE
+        );
+        if (nearBp) {
+          const bpLabel = nearBp.type === "turret" ? "Build Turret (5s)" : "Build Garden Plot (5s)";
+          baseCtxActions.unshift({ key: "F", label: `📐 ${bpLabel}` });
+        }
+      }
+      setCtxActions(baseCtxActions);
       // Push snapshot to base screen (every 6 frames ≈ 100ms)
       if (onStateSnapshot) onStateSnapshot(s);
     }
@@ -2435,889 +2696,10 @@ sendVehicleUpdate(myVehicle.id, myVehicle.x, myVehicle.y, myVehicle.facing, myVe
     // Sync placement ghost state
     s._placingMode = placingModeRef.current;
     s._placingHint = placingHintRef.current;
-    draw(ctx, s, t, W, H, powerZoomRef.current);
+    draw(ctx, s, t, W, H, powerZoomRef.current, { stateRef, joystickRef });
     ctx.restore();
   }
 
-  // ── Draw ──────────────────────────────────────────────────────────────────
-  function draw(ctx, s, t, W, H, zoom = 1) {
-    const { cam, player, player2, vehicle, buildings, zombies, floaters,
-            gardenPlots, crops, lootPiles, wells, isNight } = s;
-
-    ctx.fillStyle = isNight ? "#040609" : "#08090c";
-    ctx.fillRect(0, 0, W, H);
-
-    // ── Power zoom: scale around screen centre ────────────────────────────────
-    if (zoom !== 1) {
-      ctx.save();
-      ctx.translate(W / 2, H / 2);
-      ctx.scale(zoom, zoom);
-      ctx.translate(-W / 2, -H / 2);
-    }
-
-    const { cx: wox, cy: woy } = worldToCanvas(0, 0, cam);
-    ctx.fillStyle = isNight ? "#0d100b" : "#111510";
-    ctx.fillRect(wox, woy, WORLD_W, WORLD_H);
-
-    // Roads
-    ctx.save();
-    ctx.strokeStyle = isNight ? "#181c18" : "#1e2220";
-    ctx.lineWidth = 42; ctx.lineCap = "round";
-    s.roads.forEach(r => {
-      const a = worldToCanvas(r.x1, r.y1, cam), b2 = worldToCanvas(r.x2, r.y2, cam);
-      ctx.beginPath(); ctx.moveTo(a.cx, a.cy); ctx.lineTo(b2.cx, b2.cy); ctx.stroke();
-    });
-    ctx.strokeStyle = "rgba(255,255,255,0.03)"; ctx.lineWidth = 1.5;
-    ctx.setLineDash([14, 18]);
-    s.roads.forEach(r => {
-      const a = worldToCanvas(r.x1, r.y1, cam), b2 = worldToCanvas(r.x2, r.y2, cam);
-      ctx.beginPath(); ctx.moveTo(a.cx, a.cy); ctx.lineTo(b2.cx, b2.cy); ctx.stroke();
-    });
-    ctx.setLineDash([]); ctx.restore();
-
-    // Garden plots
-    gardenPlots.forEach(plot => {
-      const { cx, cy } = worldToCanvas(plot.x, plot.y, cam);
-      const crop = crops.find(c => c.plotId === plot.id);
-      ctx.save();
-      ctx.fillStyle = crop?.stage === "ready" ? "rgba(80,180,40,0.22)" : "rgba(40,90,20,0.22)";
-      ctx.strokeStyle = crop?.stage === "ready" ? "rgba(100,210,60,0.6)" : "rgba(60,120,30,0.4)";
-      ctx.lineWidth = 1.5; ctx.setLineDash([5, 5]);
-      ctx.fillRect(cx, cy, plot.w, plot.h);
-      ctx.strokeRect(cx, cy, plot.w, plot.h);
-      ctx.setLineDash([]);
-      ctx.fillStyle = "rgba(255,255,255,0.5)"; ctx.font = "10px sans-serif"; ctx.textAlign = "center";
-      if (crop) {
-        const pct = Math.min(1, crop.growTimer / crop.growTime);
-        ctx.fillText(crop.stage === "ready" ? "🌿 F to harvest" : `${Math.floor(pct*100)}% grown`, cx + plot.w/2, cy + plot.h/2 + 4);
-      } else {
-        ctx.fillText("garden plot · F to plant", cx + plot.w/2, cy + plot.h/2 + 4);
-      }
-      ctx.restore();
-    });
-
-    // Wells
-    if (wells) {
-      wells.forEach(well => {
-        const { cx: wx, cy: wy } = worldToCanvas(well.x, well.y, cam);
-        ctx.save();
-        ctx.beginPath(); ctx.arc(wx, wy, 12, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(160,145,120,0.92)"; ctx.fill();
-        ctx.beginPath(); ctx.arc(wx, wy, 8, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(30,60,100,0.85)"; ctx.fill();
-        ctx.beginPath(); ctx.arc(wx - 2, wy - 2, 4 + 1.5 * Math.sin(t * 2.2), 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(80,160,255,0.35)"; ctx.fill();
-        ctx.beginPath(); ctx.arc(wx, wy, 12, 0, Math.PI * 2);
-        ctx.strokeStyle = "rgba(200,185,155,0.7)"; ctx.lineWidth = 2; ctx.stroke();
-        ctx.strokeStyle = "rgba(140,100,55,0.85)"; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(wx - 13, wy - 10); ctx.lineTo(wx - 13, wy + 2); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(wx + 13, wy - 10); ctx.lineTo(wx + 13, wy + 2); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(wx - 13, wy - 10); ctx.lineTo(wx + 13, wy - 10); ctx.stroke();
-        ctx.fillStyle = "rgba(180,230,255,0.7)"; ctx.font = "bold 9px sans-serif"; ctx.textAlign = "center";
-        ctx.fillText("💧 well", wx, wy + 22);
-        ctx.restore();
-      });
-    }
-
-    // Settlement aura rings (visible from distance as orientation landmarks)
-    if (s.settlements) {
-      s.settlements.forEach(st => {
-        const { cx: scx, cy: scy } = worldToCanvas(st.cx, st.cy, cam);
-        if (scx < -600 || scx > W + 600 || scy < -600 || scy > H + 600) return;
-        const cleared = s.fragmentsCollected?.includes(st.id);
-        ctx.save();
-        ctx.globalAlpha = 0.06;
-        ctx.beginPath(); ctx.arc(scx, scy, 500, 0, Math.PI * 2);
-        ctx.fillStyle = cleared ? "rgba(120,255,150,1)" : "rgba(255,220,80,1)";
-        ctx.fill();
-        ctx.globalAlpha = 0.18;
-        ctx.beginPath(); ctx.arc(scx, scy, 500, 0, Math.PI * 2);
-        ctx.strokeStyle = cleared ? "rgba(120,255,150,0.7)" : "rgba(255,220,80,0.5)";
-        ctx.lineWidth = 1.5; ctx.setLineDash([6, 10]); ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.globalAlpha = 0.55;
-        ctx.fillStyle = cleared ? "rgba(120,255,150,0.85)" : "rgba(255,220,80,0.75)";
-        ctx.font = "bold 11px sans-serif"; ctx.textAlign = "center";
-        ctx.fillText((cleared ? "✓ " : "") + st.name, scx, scy - 520);
-        ctx.restore();
-      });
-    }
-
-    // Buildings
-    buildings.forEach(b => { drawBuilding(ctx, b, cam, isNight, player); });
-
-    // Turrets
-    if (s.turrets) {
-      s.turrets.forEach(t => drawTurret(ctx, t, cam, t.x, t.y, isNight, s, t));
-    }
-
-    // Loot piles (glow)
-    lootPiles.forEach(pile => {
-      if (pile.collected) return;
-      const { cx, cy } = worldToCanvas(pile.x, pile.y, cam);
-      const pulse = 0.6 + 0.4 * Math.sin(t * 3.5);
-      ctx.save();
-      ctx.beginPath(); ctx.arc(cx, cy, 14 * pulse, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255,220,60,${0.08 * pulse})`; ctx.fill();
-      ctx.beginPath(); ctx.arc(cx, cy, 7, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255,220,60,${0.8 * pulse})`; ctx.fill();
-      ctx.beginPath(); ctx.arc(cx - 2, cy - 2, 3, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(255,255,200,0.6)"; ctx.fill();
-      ctx.restore();
-    });
-
-    // Vehicles (all — player fleet + convoy)
-    const allVehicles = s.vehicles ?? [vehicle];
-    // Build a combined list: fleet vehicles + convoy vehicles (with isConvoy flag)
-    const convoyCfg = (s.convoyVehicles ?? []).map(e => ({ v: e.vehicle, isConvoy: true, svName: e.survivor?.name ?? "?" }));
-    const fleetCfg  = allVehicles.map(v => ({ v, isConvoy: false, svName: null }));
-    const allVehicleCfg = [...fleetCfg, ...convoyCfg];
-
-    allVehicleCfg.forEach(({ v, isConvoy, svName }) => {
-      const { cx: vcx, cy: vcy } = worldToCanvas(v.x, v.y, cam);
-      const cfg = VEHICLE_TYPES[v.vehicleType] ?? VEHICLE_TYPES.car;
-      const hw = cfg.width  / 2;
-      const hh = cfg.height / 2;
-      ctx.save(); ctx.translate(vcx, vcy); ctx.rotate(v.facing + Math.PI / 2);
-
-      // Body colour — dimmer when not the active vehicle
-      const isActive = v === vehicle;
-      const bodyColor = v.hp < v.maxHp * 0.3 ? cfg.damageColor : cfg.color;
-      ctx.globalAlpha = isActive ? 1 : isConvoy ? 0.82 : 0.75;
-      ctx.fillStyle = bodyColor;
-      ctx.fillRect(-hw, -hh, cfg.width, cfg.height);
-
-      // Convoy vehicles: teal tint overlay to distinguish from player fleet
-      if (isConvoy) {
-        ctx.fillStyle = "rgba(80,220,200,0.18)";
-        ctx.fillRect(-hw, -hh, cfg.width, cfg.height);
-      }
-
-      // Windscreen tint
-      if (v.vehicleType !== "bike") {
-        ctx.fillStyle = "rgba(120,180,255,0.3)";
-        ctx.fillRect(-hw + 3, -hh + 4, cfg.width - 6, cfg.height * 0.28);
-      }
-
-      // Monster truck: big wheels hint
-      if (v.vehicleType === "monster_truck") {
-        ctx.fillStyle = "rgba(80,50,30,0.7)";
-        ctx.fillRect(-hw - 5, -hh + 4, 5, 14);
-        ctx.fillRect(hw,      -hh + 4, 5, 14);
-        ctx.fillRect(-hw - 5,  hh - 18, 5, 14);
-        ctx.fillRect(hw,       hh - 18, 5, 14);
-      }
-
-      if (v.hp < v.maxHp) {
-        ctx.rotate(-(v.facing + Math.PI / 2));
-        ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(-hw - 2, -hh - 10, (hw + 2) * 2, 3);
-        ctx.fillStyle = v.hp / v.maxHp > 0.5 ? "#88ff88" : "#ff5555";
-        ctx.fillRect(-hw - 2, -hh - 10, (hw + 2) * 2 * (v.hp / v.maxHp), 3);
-      }
-      ctx.restore();
-
-      if (isConvoy) {
-        // Convoy badge: teal label with survivor name
-        ctx.save();
-        ctx.font = "bold 9px sans-serif"; ctx.textAlign = "center";
-        ctx.fillStyle = "rgba(80,220,200,0.9)";
-        ctx.fillText(`🚗 ${svName}`, vcx, vcy - hh - 10);
-        ctx.restore();
-      } else {
-        // Survivor passenger badge
-        const svPassengers = v.survivorPassengers?.length ?? 0;
-        if (svPassengers > 0) {
-          ctx.save();
-          ctx.font = "bold 9px sans-serif"; ctx.textAlign = "center";
-          ctx.fillStyle = "rgba(255,200,60,0.9)";
-          ctx.fillText(`👥 ${svPassengers}`, vcx + hh + 8, vcy);
-          ctx.restore();
-        }
-      }
-      if (!player.inVehicle) {
-        const d = Math.sqrt((player.x - v.x)**2 + (player.y - v.y)**2);
-        if (d < 70) {
-          const driverFree    = v.driver === null;
-          const passengerFree = v.passenger === null;
-          const bothFull      = !driverFree && !passengerFree;
-          ctx.save();
-          ctx.font = "bold 11px sans-serif"; ctx.textAlign = "center";
-          if (bothFull) {
-            ctx.fillStyle = "rgba(255,100,100,0.75)";
-            ctx.fillText("full", vcx, vcy - hh - 12);
-          } else {
-            ctx.fillStyle = "rgba(255,220,80,0.85)";
-            ctx.fillText(driverFree ? `[F] ${cfg.label}` : "[F] ride shotgun", vcx, vcy - hh - 12);
-          }
-          if (d < REPAIR_RANGE && v.hp < v.maxHp) {
-            ctx.fillStyle = "rgba(120,255,150,0.75)";
-            ctx.fillText("[E] repair", vcx, vcy - hh - 24);
-          }
-          ctx.restore();
-        }
-      }
-    });
-
-    // Zombies
-    zombies.forEach(z => {
-      if (z.dead) return;
-      const { cx, cy } = worldToCanvas(z.x, z.y, cam);
-      if (cx < -20 || cx > W + 20 || cy < -20 || cy > H + 20) return;
-      ctx.save(); ctx.globalAlpha = 0.88;
-
-      // ── Dormant zombies: crouched, dark, only a faint red eye glow ────────
-      if (z.state === "dormant") {
-        const eyePulse = 0.3 + 0.25 * Math.sin(t * 1.8 + z.id * 0.7);
-        ctx.globalAlpha = 0.38 + 0.12 * eyePulse;
-        ctx.beginPath(); ctx.arc(cx, cy, z.radius * 0.8, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(60,10,10,0.95)"; ctx.fill();
-        // Red pinprick eyes
-        ctx.globalAlpha = 0.55 + 0.4 * eyePulse;
-        ctx.beginPath(); ctx.arc(cx - 2.5, cy - 1, 1.5, 0, Math.PI * 2);
-        ctx.arc(cx + 2.5, cy - 1, 1.5, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255,30,0,${0.7 + 0.3 * eyePulse})`; ctx.fill();
-        ctx.restore();
-        return;
-      }
-
-      const isBoss = z.type === "boss";
-      const isBashing = z.state === "bash_door";
-      const offX = isBashing ? (Math.random() - 0.5) * 3 : 0;
-      const offY = isBashing ? (Math.random() - 0.5) * 3 : 0;
-
-      if (isBoss) {
-        // Boss: pulsing red with thick ring and skull
-        const pulse = 0.7 + 0.3 * Math.sin(t * 6);
-        ctx.globalAlpha = pulse;
-        // Outer glow ring
-        ctx.beginPath(); ctx.arc(cx, cy, z.radius + 8, 0, Math.PI * 2);
-        ctx.strokeStyle = "rgba(255,30,30,0.5)"; ctx.lineWidth = 3; ctx.stroke();
-        // Body
-        ctx.beginPath(); ctx.arc(cx, cy, z.radius, 0, Math.PI * 2);
-        ctx.fillStyle = z.state === "chase" || z.state === "attack"
-          ? "rgba(255,30,30,0.98)" : "rgba(200,20,20,0.9)";
-        ctx.fill();
-        ctx.strokeStyle = "rgba(255,80,80,0.9)"; ctx.lineWidth = 2.5; ctx.stroke();
-        ctx.globalAlpha = 0.95;
-        ctx.fillStyle = "rgba(255,255,255,0.9)";
-        ctx.font = "bold 14px sans-serif"; ctx.textAlign = "center";
-        ctx.fillText("☠", cx, cy + 5);
-        // HP bar — wider for boss
-        const hpFrac = z.hp / z.maxHp;
-        ctx.globalAlpha = 0.85;
-        ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(cx - 22, cy - z.radius - 8, 44, 4);
-        ctx.fillStyle = hpFrac > 0.5 ? "#ff4444" : hpFrac > 0.25 ? "#ff8800" : "#ffcc00";
-        ctx.fillRect(cx - 22, cy - z.radius - 8, 44 * hpFrac, 4);
-        ctx.fillStyle = "rgba(255,80,80,0.9)"; ctx.font = "bold 9px sans-serif"; ctx.textAlign = "center";
-        ctx.fillText("BOSS", cx, cy - z.radius - 10);
-        ctx.restore();
-        return;
-      }
-
-      ctx.beginPath(); ctx.arc(cx + offX, cy + offY, z.radius, 0, Math.PI * 2);
-      ctx.fillStyle = isBashing ? "rgba(255,80,0,0.95)"
-        : z.state === "chase" || z.state === "attack" ? COL.zombieChase : COL.zombie;
-      ctx.fill();
-      if (isBashing) {
-        ctx.globalAlpha = 0.4 + 0.3 * Math.sin(t * 12);
-        ctx.strokeStyle = "rgba(255,140,0,0.9)"; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.arc(cx + offX, cy + offY, z.radius + 4, 0, Math.PI * 2); ctx.stroke();
-        ctx.globalAlpha = 0.88;
-        ctx.fillStyle = "rgba(255,180,0,0.9)"; ctx.font = "bold 11px sans-serif"; ctx.textAlign = "center";
-        ctx.fillText("💥", cx, cy - z.radius - 3);
-      } else if (z.state === "alert") {
-        ctx.globalAlpha = 0.9; ctx.fillStyle = "rgba(255,220,40,0.9)";
-        ctx.font = "bold 11px sans-serif"; ctx.textAlign = "center";
-        ctx.fillText("!", cx, cy - z.radius - 3);
-      }
-      const hpFrac = z.hp / z.maxHp;
-      if (hpFrac < 1) {
-        ctx.globalAlpha = 0.75;
-        ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(cx - 8, cy - z.radius - 5, 16, 2.5);
-        ctx.fillStyle = "#ff4444"; ctx.fillRect(cx - 8, cy - z.radius - 5, 16 * hpFrac, 2.5);
-      }
-      ctx.restore();
-    });
-
-    // Survivors
-    if (s.survivors) {
-      s.survivors.forEach(sv => {
-        if (sv.hp <= 0) return;
-        // Survivors riding in a vehicle are rendered on the vehicle, not separately
-        if (sv.inVehicle && sv._ridingVehicle) return;
-        const { cx, cy } = worldToCanvas(sv.x, sv.y, cam);
-        if (cx < -30 || cx > W + 30 || cy < -30 || cy > H + 30) return;
-        // Colour by command/state
-        const col = sv.barricaded ? "rgba(255,100,100,0.95)"
-          : sv.command === "assign" && sv.assignedTo?.structureType === "turret" ? "rgba(80,220,255,0.95)"
-          : sv.command === "assign" && sv.assignedTo?.structureType === "crop"   ? "rgba(120,220,80,0.95)"
-          : "rgba(255,200,60,0.95)"; // follow / unassigned = gold
-        ctx.save();
-        // Glow ring
-        ctx.beginPath(); ctx.arc(cx, cy, 12 + 1.5 * Math.sin(t * 2.5), 0, Math.PI * 2);
-        ctx.fillStyle = col.replace("0.95", "0.08"); ctx.fill();
-        // Body
-        ctx.beginPath(); ctx.arc(cx, cy, 7, 0, Math.PI * 2);
-        ctx.fillStyle = col; ctx.fill();
-        // HP bar
-        if (sv.hp < sv.maxHp) {
-          ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(cx - 10, cy - 14, 20, 2.5);
-          ctx.fillStyle = sv.hp / sv.maxHp > 0.5 ? "#88ff88" : "#ff5555";
-          ctx.fillRect(cx - 10, cy - 14, 20 * (sv.hp / sv.maxHp), 2.5);
-        }
-        // Name label
-        ctx.fillStyle = "rgba(255,255,255,0.7)"; ctx.font = "bold 9px sans-serif"; ctx.textAlign = "center";
-        ctx.fillText(sv.name, cx, cy - 17);
-        // State icon
-        const stateIcon = sv.barricaded ? "🔒"
-          : sv._castType === "repair" ? "🔧"
-          : sv._castType === "harvest" ? "🌿"
-          : sv.state === "fleeing" ? "💨"
-          : "";
-        if (stateIcon) {
-          ctx.font = "10px sans-serif";
-          ctx.fillText(stateIcon, cx + 10, cy - 6);
-        }
-        // Cast bar for survivor working
-        if (sv._castType && sv._castTimer > 0) {
-          const castDur = sv._castType === "repair" ? SURVIVOR_REPAIR_CAST : SURVIVOR_HARVEST_CAST;
-          const pct = Math.min(1, sv._castTimer / castDur);
-          ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillRect(cx - 14, cy + 10, 28, 3);
-          ctx.fillStyle = sv._castType === "repair" ? "rgba(120,200,255,0.85)" : "rgba(120,220,80,0.85)";
-          ctx.fillRect(cx - 14, cy + 10, 28 * pct, 3);
-        }
-        // Interaction prompt
-        const dToPlayer = dist(sv.x, sv.y, player.x, player.y);
-        if (dToPlayer < SURVIVOR_INTERACT_RANGE) {
-          ctx.fillStyle = "rgba(255,220,80,0.85)"; ctx.font = "bold 10px sans-serif";
-          ctx.fillText("[T] command", cx, cy - 28);
-        }
-        ctx.restore();
-      });
-    }
-
-    // P2
-    if (player2 && !player2.inVehicle) {
-      const { cx, cy } = worldToCanvas(player2.x, player2.y, cam);
-      ctx.save();
-      ctx.beginPath(); ctx.arc(cx, cy, 11 + 1.5*Math.sin(t*3), 0, Math.PI*2);
-      ctx.fillStyle = "rgba(120,200,255,0.1)"; ctx.fill();
-      ctx.beginPath(); ctx.arc(cx, cy, 6, 0, Math.PI*2);
-      ctx.fillStyle = COL.player2; ctx.fill();
-      ctx.restore();
-    }
-
-    // Player
-    if (!player.inVehicle) {
-      const { cx, cy } = worldToCanvas(player.x, player.y, cam);
-      ctx.save();
-      ctx.beginPath(); ctx.arc(cx, cy, 13 + 2*Math.sin(t*3), 0, Math.PI*2);
-      ctx.fillStyle = "rgba(255,180,60,0.08)"; ctx.fill();
-      ctx.beginPath(); ctx.arc(cx, cy, 7, 0, Math.PI*2);
-      ctx.fillStyle = player.hp <= 0 ? "rgba(255,80,80,0.5)" : COL.player; ctx.fill();
-
-      // ── Bat swing arc animation ──────────────────────────────────────────
-      if (player.weapon && player.swingTimer > 0) {
-        const SWING_DUR = 1 / 1.8; // must match MELEE_RATE
-        const progress  = Math.min(1, 1 - player.swingTimer / SWING_DUR);
-        const arcStart  = player.swingAngle  ?? (player.facing - MELEE_ARC / 2);
-        const arcEnd    = player.swingTarget ?? (player.facing + MELEE_ARC / 2);
-        const sweepNow  = arcStart + progress * (arcEnd - arcStart);
-        const alpha     = Math.max(0, 1 - progress * 1.5);
-
-        // Filled wedge (swing zone)
-        ctx.globalAlpha = alpha * 0.20;
-        ctx.beginPath();
-        ctx.moveTo(cx, cy);
-        ctx.arc(cx, cy, MELEE_RANGE * 0.9, arcStart, sweepNow);
-        ctx.closePath();
-        ctx.fillStyle = "rgba(255,220,80,1)";
-        ctx.fill();
-
-        // Bat stick — sweeps with the arc
-        ctx.globalAlpha = alpha * 0.9;
-        ctx.strokeStyle = "rgba(255,210,60,0.95)";
-        ctx.lineWidth = 3.5;
-        ctx.lineCap = "round";
-        ctx.beginPath();
-        ctx.moveTo(cx, cy);
-        ctx.lineTo(cx + Math.cos(sweepNow) * MELEE_RANGE * 0.86, cy + Math.sin(sweepNow) * MELEE_RANGE * 0.86);
-        ctx.stroke();
-
-        // Tip glow
-        ctx.globalAlpha = alpha * 0.75;
-        ctx.beginPath();
-        ctx.arc(cx + Math.cos(sweepNow) * MELEE_RANGE * 0.86, cy + Math.sin(sweepNow) * MELEE_RANGE * 0.86, 4.5, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(255,240,120,0.95)";
-        ctx.fill();
-      } else if (player.weapon) {
-        // Idle: faint aim indicator
-        ctx.globalAlpha = 0.20;
-        ctx.strokeStyle = "rgba(255,220,80,0.9)";
-        ctx.lineWidth = 2;
-        ctx.lineCap = "round";
-        ctx.beginPath();
-        ctx.moveTo(cx + Math.cos(player.facing) * 9, cy + Math.sin(player.facing) * 9);
-        ctx.lineTo(cx + Math.cos(player.facing) * 22, cy + Math.sin(player.facing) * 22);
-        ctx.stroke();
-      }
-
-      ctx.restore();
-    }
-
-    // ── Settlement compass arrow ───────────────────────────────────────────
-    drawCompassArrow(ctx, s, t, W, H);
-
-    // ── Downed partner arrow (P1 sees this when P2 is down, and vice versa) ─
-    if (s.player2?.isDowned) {
-      drawDownedPartnerArrow(ctx, s, t, W, H);
-    }
-
-    // Floaters
-    floaters.forEach(f => {
-      const { cx, cy } = worldToCanvas(f.x, f.y, cam);
-      ctx.save(); ctx.globalAlpha = 1 - f.age / f.ttl;
-      ctx.fillStyle = f.color ?? "rgba(255,220,80,0.95)";
-      ctx.font = `${f.size ?? 12}px sans-serif`; ctx.textAlign = "center";
-      ctx.fillText(f.text, cx, cy - f.age * 24); ctx.restore();
-    });
-
-    // Placement ghost (drawn in screen-space via placingHint — updated each React render)
-    // We pass placingHintRef so we can read it from inside the draw call
-    if (s._placingHint && s._placingMode) {
-      const { x: gx, y: gy } = s._placingHint;
-      ctx.save();
-      if (s._placingMode === "turret") {
-        ctx.globalAlpha = 0.55;
-        ctx.beginPath(); ctx.arc(gx, gy, TURRET_RANGE, 0, Math.PI * 2);
-        ctx.strokeStyle = "rgba(180,255,120,0.25)"; ctx.lineWidth = 1; ctx.stroke();
-        ctx.beginPath(); ctx.arc(gx, gy, 14, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(100,180,60,0.7)"; ctx.fill();
-        ctx.fillStyle = "rgba(180,255,120,0.9)"; ctx.font = "bold 11px sans-serif"; ctx.textAlign = "center";
-        ctx.fillText("🗼", gx, gy - 18);
-      } else if (s._placingMode === "crop_plot") {
-        ctx.globalAlpha = 0.5;
-        ctx.fillStyle = "rgba(80,180,40,0.3)";
-        ctx.strokeStyle = "rgba(100,210,60,0.7)";
-        ctx.lineWidth = 1.5; ctx.setLineDash([5, 5]);
-        ctx.fillRect(gx - 40, gy - 35, 80, 70);
-        ctx.strokeRect(gx - 40, gy - 35, 80, 70);
-        ctx.setLineDash([]);
-        ctx.fillStyle = "rgba(180,255,120,0.9)"; ctx.font = "bold 10px sans-serif"; ctx.textAlign = "center";
-        ctx.fillText("🌱", gx, gy + 4);
-      }
-      ctx.restore();
-    }
-
-    // Night vignette
-    if (isNight) {
-      const grad = ctx.createRadialGradient(W/2, H/2, H*0.14, W/2, H/2, H*0.78);
-      grad.addColorStop(0, "rgba(0,0,0,0)");
-      grad.addColorStop(1, "rgba(0,0,12,0.76)");
-      ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
-    }
-
-    // ── Close power zoom transform ─────────────────────────────────────────
-    if (zoom !== 1) ctx.restore();
-
-    // ── Beacon vehicle golden pulse (draws in screen-space, outside zoom) ──
-    if (!s.firstVehicleEntered) {
-      const allV = s.vehicles ?? [vehicle];
-      allV.forEach(v => {
-        if (!v.isBeacon) return;
-        const { cx: bvx, cy: bvy } = worldToCanvas(v.x, v.y, cam);
-        const pulse = 0.5 + 0.5 * Math.sin(t * 4.5);
-        ctx.save();
-        ctx.globalAlpha = 0.15 + 0.25 * pulse;
-        ctx.beginPath(); ctx.arc(bvx, bvy, 36 + 18 * pulse, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(255,220,60,1)"; ctx.fill();
-        ctx.globalAlpha = 0.5 + 0.45 * pulse;
-        ctx.beginPath(); ctx.arc(bvx, bvy, 6, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(255,220,60,1)"; ctx.fill();
-        ctx.globalAlpha = 0.9;
-        ctx.fillStyle = "rgba(255,220,60,0.95)"; ctx.font = "bold 11px sans-serif"; ctx.textAlign = "center";
-        ctx.fillText("GET IN (F)", bvx, bvy - 30);
-        ctx.restore();
-      });
-    }
-
-    drawMinimap(ctx, s, W, H);
-    drawPathToTarget(ctx, s.player, s.compassTarget, cam, W, H, s);
-
-    const weather = getCurrentWeather(stateRef.current);
-if (weather.colorTint && s.isNight === false) {
-  ctx.fillStyle = weather.colorTint;
-  ctx.fillRect(0, 0, W, H);
-}
-
-    drawJoystick(ctx, joystickRef.current, W, H);
-  }
-
-  // ── Compass arrow toward next settlement fragment / boss ──────────────────
-  function drawCompassArrow(ctx, s, t, W, H) {
-    if (!s.mapFragmentCollected) return; // hidden until first fragment picked up
-    const target = s.compassTarget;
-    if (!target) return; // no target (shouldn't happen with boss endgame)
-
-    const isBoss = !!target.isBoss;
-
-    const playerX = s.player.inVehicle ? s.vehicle.x : s.player.x;
-    const playerY = s.player.inVehicle ? s.vehicle.y : s.player.y;
-
-    const dx = target.x - playerX;
-    const dy = target.y - playerY;
-    const angle = Math.atan2(dy, dx);
-    const distToTarget = Math.sqrt(dx * dx + dy * dy);
-
-    // Pulse when close to target
-    const nearPulse = distToTarget < FRAGMENT_PULSE_RANGE;
-    const alpha = nearPulse
-      ? 0.7 + 0.3 * Math.sin(t * 8)
-      : isBoss
-        ? 0.75 + 0.25 * Math.sin(t * 5) // boss pulses faster always
-        : 0.7 + 0.15 * Math.sin(t * 2);
-
-    const arrowX = W - 54;
-    const arrowY = 130;
-    const arrowLen = 26;
-
-    // Color scheme: red for boss, gold for fragments
-    const ringColor   = isBoss ? "rgba(255,60,60,0.5)"    : nearPulse ? "rgba(120,255,150,0.5)"  : "rgba(255,220,80,0.25)";
-    const bgColor     = isBoss ? "rgba(60,0,0,0.55)"      : nearPulse ? "rgba(120,255,150,0.15)" : "rgba(0,0,0,0.45)";
-    const strokeColor = isBoss ? "rgba(255,60,60,0.95)"   : nearPulse ? "rgba(120,255,150,0.95)" : "rgba(255,220,80,0.95)";
-    const fillColor   = isBoss ? "rgba(255,60,60,0.85)"   : nearPulse ? "rgba(120,255,150,0.85)" : "rgba(255,220,80,0.85)";
-    const labelColor  = isBoss ? "rgba(255,80,80,0.95)"   : nearPulse ? "rgba(120,255,150,0.9)"  : "rgba(255,220,80,0.9)";
-
-    // Background circle
-    ctx.save();
-    ctx.globalAlpha = alpha * 0.8;
-    ctx.beginPath(); ctx.arc(arrowX, arrowY, 22, 0, Math.PI * 2);
-    ctx.fillStyle = bgColor; ctx.fill();
-    ctx.strokeStyle = ringColor;
-    ctx.lineWidth = isBoss ? 2.5 : 1.5; ctx.stroke();
-
-    ctx.globalAlpha = alpha;
-    ctx.translate(arrowX, arrowY);
-    ctx.rotate(angle + Math.PI / 2);
-
-    ctx.strokeStyle = strokeColor;
-    ctx.fillStyle   = fillColor;
-    ctx.lineWidth   = 2.5; ctx.lineCap = "round"; ctx.lineJoin = "round";
-
-    ctx.beginPath();
-    ctx.moveTo(0, -arrowLen / 2);
-    ctx.lineTo(9, arrowLen / 2 - 4);
-    ctx.lineTo(0, arrowLen / 2 - 12);
-    ctx.lineTo(-9, arrowLen / 2 - 4);
-    ctx.closePath();
-    ctx.fill(); ctx.stroke();
-    ctx.restore();
-
-    // Label + distance below compass circle
-    const fragCollected = s.fragmentsCollected?.length ?? 0;
-    const totalFrag = s.totalFragments ?? 1;
-    const nextSettlement = s.settlements?.find(st => st.id === target.settlementId);
-    const label = isBoss ? "☠ BOSS" : (nextSettlement ? nextSettlement.name : "?");
-
-    ctx.save();
-    ctx.globalAlpha = alpha * 0.9;
-    ctx.textAlign = "center";
-    ctx.fillStyle = labelColor;
-    ctx.font = isBoss ? "bold 10px sans-serif" : "bold 9px sans-serif";
-    ctx.fillText(label, arrowX, arrowY + 32);
-
-    if (!isBoss) {
-      ctx.fillStyle = "rgba(255,255,255,0.35)";
-      ctx.font = "8px sans-serif";
-      ctx.fillText(`${fragCollected}/${totalFrag}`, arrowX, arrowY + 42);
-    }
-    if (distToTarget < 3000) {
-      ctx.fillStyle = isBoss ? "rgba(255,120,120,0.55)" : "rgba(255,255,255,0.45)";
-      ctx.font = "8px sans-serif";
-      ctx.fillText(`${Math.round(distToTarget / 10)}m`, arrowX, arrowY + (isBoss ? 42 : 52));
-    }
-    ctx.restore();
-  }
-
-  // ── Downed partner directional arrow ─────────────────────────────────────
-  // Shown to the non-downed player so they know where to run to revive.
-  function drawDownedPartnerArrow(ctx, s, t, W, H) {
-    if (!s.player2?.isDowned) return;
-    const playerX = s.player.inVehicle ? s.vehicle.x : s.player.x;
-    const playerY = s.player.inVehicle ? s.vehicle.y : s.player.y;
-    const dx = s.player2.x - playerX;
-    const dy = s.player2.y - playerY;
-    const distToP2 = Math.sqrt(dx * dx + dy * dy);
-
-    // Position compass just to the left of the main compass (which is at W-54)
-    const arrowX = W - 54 - 56; // 56px gap to the left
-    const arrowY = 130;
-    const arrowLen = 26;
-    const angle = Math.atan2(dy, dx);
-
-    // Urgent pulsing
-    const pulse = 0.65 + 0.35 * Math.sin(t * 6);
-
-    // Red/orange partner-downed scheme
-    ctx.save();
-    ctx.globalAlpha = pulse * 0.85;
-    ctx.beginPath(); ctx.arc(arrowX, arrowY, 22, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(60,0,0,0.65)"; ctx.fill();
-    ctx.strokeStyle = "rgba(255,60,60,0.7)";
-    ctx.lineWidth = 2; ctx.stroke();
-
-    ctx.globalAlpha = pulse;
-    ctx.translate(arrowX, arrowY);
-    ctx.rotate(angle + Math.PI / 2);
-    ctx.strokeStyle = "rgba(255,80,80,0.95)";
-    ctx.fillStyle   = "rgba(255,80,80,0.85)";
-    ctx.lineWidth = 2.5; ctx.lineCap = "round"; ctx.lineJoin = "round";
-    ctx.beginPath();
-    ctx.moveTo(0, -arrowLen / 2);
-    ctx.lineTo(9, arrowLen / 2 - 4);
-    ctx.lineTo(0, arrowLen / 2 - 12);
-    ctx.lineTo(-9, arrowLen / 2 - 4);
-    ctx.closePath();
-    ctx.fill(); ctx.stroke();
-    ctx.restore();
-
-    // Label
-    ctx.save();
-    ctx.globalAlpha = pulse * 0.95;
-    ctx.textAlign = "center";
-    ctx.fillStyle = "rgba(255,100,100,0.95)";
-    ctx.font = "bold 9px sans-serif";
-    ctx.fillText("💀 P2", arrowX, arrowY + 32);
-    if (distToP2 < 3000) {
-      ctx.fillStyle = "rgba(255,160,160,0.55)";
-      ctx.font = "8px sans-serif";
-      ctx.fillText(`${Math.round(distToP2 / 10)}m`, arrowX, arrowY + 42);
-    }
-    ctx.restore();
-  }
-
-  function drawTurret(ctx, t, cam) {
-    const { cx, cy } = worldToCanvas(t.x, t.y, cam);
-
-    if (t.destroyed) {
-      // Rubble
-      ctx.save();
-      ctx.globalAlpha = 0.5;
-      ctx.fillStyle = "rgba(120,80,40,0.7)";
-      ctx.beginPath(); ctx.arc(cx, cy, 10, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = "rgba(180,80,40,0.8)"; ctx.font = "11px sans-serif"; ctx.textAlign = "center";
-      ctx.fillText("💀", cx, cy + 4);
-      ctx.globalAlpha = 0.4;
-      ctx.fillStyle = "rgba(255,100,60,0.7)"; ctx.font = "bold 8px sans-serif";
-      ctx.fillText("DESTROYED", cx, cy + 18);
-      ctx.restore();
-      return;
-    }
-
-    const hpFrac = t.hp / t.maxHp;
-    ctx.save();
-    // Range circle (faint)
-    ctx.beginPath(); ctx.arc(cx, cy, t.range, 0, Math.PI * 2);
-    ctx.strokeStyle = "rgba(180,255,120,0.06)"; ctx.lineWidth = 1.5; ctx.stroke();
-    // Base platform
-    ctx.fillStyle = hpFrac > 0.5 ? "rgba(80,100,60,0.95)" : hpFrac > 0.25 ? "rgba(150,90,30,0.95)" : "rgba(180,40,30,0.95)";
-    ctx.beginPath(); ctx.arc(cx, cy, 14, 0, Math.PI * 2); ctx.fill();
-    // Tower
-    ctx.fillStyle = hpFrac > 0.5 ? "rgba(100,140,70,0.95)" : "rgba(180,100,30,0.9)";
-    ctx.fillRect(cx - 5, cy - 8, 10, 16);
-    // Barrel
-    ctx.strokeStyle = "rgba(200,200,150,0.9)"; ctx.lineWidth = 3; ctx.lineCap = "round";
-    ctx.beginPath(); ctx.moveTo(cx, cy - 4); ctx.lineTo(cx, cy - 20); ctx.stroke();
-    // HP bar
-    ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillRect(cx - 12, cy + 17, 24, 3);
-    ctx.fillStyle = hpFrac > 0.5 ? "#88ff44" : hpFrac > 0.25 ? "#ffaa22" : "#ff3333";
-    ctx.fillRect(cx - 12, cy + 17, 24 * hpFrac, 3);
-    // Label
-    ctx.fillStyle = "rgba(180,255,120,0.65)"; ctx.font = "bold 9px sans-serif"; ctx.textAlign = "center";
-    ctx.fillText("🗼", cx, cy - 22);
-    // Under-attack indicator — flash red when low HP
-    if (hpFrac < 0.35) {
-      ctx.globalAlpha = 0.3 + 0.3 * Math.sin(Date.now() / 150);
-      ctx.strokeStyle = "rgba(255,50,50,0.9)"; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(cx, cy, 17, 0, Math.PI * 2); ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  function drawBuilding(ctx, b, cam, isNight, player) {
-    const { cx: bx, cy: by } = worldToCanvas(b.x, b.y, cam);
-    ctx.save();
-    const insidePlayer = isInsideBuilding(player, b);
-    ctx.fillStyle = insidePlayer ? "rgba(255,255,240,0.07)" : "rgba(255,255,240,0.03)";
-    ctx.fillRect(bx, by, b.w, b.h);
-
-    if (b.barricadeHp > 0) {
-      const frac = b.barricadeHp / (120 * (b.barricadeDoors ?? 1));
-      ctx.fillStyle = "rgba(100,70,10,0.5)"; ctx.fillRect(bx + 2, by + b.h - 5, b.w - 4, 4);
-      ctx.fillStyle = frac > 0.5 ? "#a07820" : "#cc4422"; ctx.fillRect(bx + 2, by + b.h - 5, (b.w-4)*frac, 4);
-    }
-
-    const WALL_W = 6;
-    const wallColor = b.barricadeHp > 0
-      ? "rgba(160,120,40,0.95)"
-      : isNight ? "rgba(200,190,160,0.75)" : "rgba(210,200,175,0.92)";
-    ctx.strokeStyle = wallColor; ctx.lineWidth = WALL_W; ctx.lineCap = "square";
-
-    const segs = getBuildingWallSegments(b);
-    segs.forEach(seg => {
-      const a = worldToCanvas(seg.x1, seg.y1, cam);
-      const bpt = worldToCanvas(seg.x2, seg.y2, cam);
-      ctx.beginPath(); ctx.moveTo(a.cx, a.cy); ctx.lineTo(bpt.cx, bpt.cy); ctx.stroke();
-    });
-
-    if (b.doors) {
-      b.doors.forEach(door => {
-        const dc = getDoorCenter(b, door);
-        const { cx: dcx, cy: dcy } = worldToCanvas(dc.x, dc.y, cam);
-        const hw = door.width / 2;
-        ctx.lineWidth = WALL_W; ctx.lineCap = "round";
-        if (door.open) {
-          ctx.strokeStyle = "rgba(120,80,30,0.85)";
-          const perp = (door.side === "north" || door.side === "south") ? { dx: 0, dy: 1 } : { dx: 1, dy: 0 };
-          const spt = worldToCanvas(
-            dc.x + perp.dx * (door.side === "west" || door.side === "north" ? -door.width : door.width),
-            dc.y + perp.dy * (door.side === "west" || door.side === "north" ? -door.width : door.width),
-            cam
-          );
-          ctx.beginPath(); ctx.moveTo(dcx, dcy); ctx.lineTo(spt.cx, spt.cy); ctx.stroke();
-          if (door.broken) {
-            ctx.strokeStyle = "rgba(180,40,40,0.7)"; ctx.lineWidth = 3;
-            ctx.beginPath(); ctx.moveTo(dcx, dcy); ctx.lineTo(spt.cx, spt.cy); ctx.stroke();
-          }
-        } else {
-          const hpFrac = (door.hp ?? DOOR_MAX_HP) / DOOR_MAX_HP;
-          ctx.strokeStyle = hpFrac > 0.6 ? "rgba(100,65,30,0.95)"
-            : hpFrac > 0.3 ? "rgba(180,90,20,0.95)" : "rgba(220,40,20,0.95)";
-          ctx.lineWidth = 4;
-          const isHoriz = door.side === "north" || door.side === "south";
-          const a2 = worldToCanvas(isHoriz ? dc.x - hw : dc.x, isHoriz ? dc.y : dc.y - hw, cam);
-          const b2 = worldToCanvas(isHoriz ? dc.x + hw : dc.x, isHoriz ? dc.y : dc.y + hw, cam);
-          ctx.beginPath(); ctx.moveTo(a2.cx, a2.cy); ctx.lineTo(b2.cx, b2.cy); ctx.stroke();
-          if (hpFrac < 1) {
-            const barW = door.width - 4, barH = 3;
-            const barX = dcx - barW / 2, barY = dcy - 9;
-            ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillRect(barX, barY, barW, barH);
-            ctx.fillStyle = hpFrac > 0.5 ? "#cc8833" : "#dd3322";
-            ctx.fillRect(barX, barY, barW * hpFrac, barH);
-          }
-        }
-      });
-    }
-
-    ctx.fillStyle = "rgba(255,245,220,0.5)";
-    ctx.font = "bold 11px sans-serif"; ctx.textAlign = "center";
-    ctx.fillText(b.label, bx + b.w / 2, by + b.h / 2);
-    if (b.zombieGuards) {
-      ctx.fillStyle = "rgba(220,60,60,0.85)"; ctx.font = "bold 12px sans-serif";
-      ctx.fillText("⚠", bx + b.w - 10, by + 14);
-    }
-    ctx.restore();
-  }
-
-  function drawMinimap(ctx, s, W, H) {
-    const MM = 100, pad = 12;
-    const mx = pad, my = pad + 36; // top-left, below day counter
-    const sx = MM / WORLD_W, sy = MM / WORLD_H;
-    ctx.save();
-    ctx.fillStyle = "rgba(0,0,0,0.65)"; ctx.fillRect(mx, my, MM, MM);
-    ctx.strokeStyle = "rgba(255,255,255,0.1)"; ctx.lineWidth = 1; ctx.strokeRect(mx, my, MM, MM);
-
-    // Settlement regions as faint circles
-    if (s.settlements) {
-      s.settlements.forEach(st => {
-        const cleared = s.fragmentsCollected?.includes(st.id);
-        const scx = mx + st.cx * sx;
-        const scy = my + st.cy * sy;
-        ctx.beginPath(); ctx.arc(scx, scy, 6, 0, Math.PI * 2);
-        ctx.fillStyle = cleared ? "rgba(120,255,150,0.25)" : "rgba(255,220,80,0.12)";
-        ctx.fill();
-        ctx.strokeStyle = cleared ? "rgba(120,255,150,0.6)" : "rgba(255,220,80,0.35)";
-        ctx.lineWidth = 1; ctx.stroke();
-        // Cleared checkmark
-        if (cleared) {
-          ctx.fillStyle = "rgba(120,255,150,0.85)";
-          ctx.font = "bold 6px sans-serif"; ctx.textAlign = "center";
-          ctx.fillText("✓", scx, scy + 2);
-        }
-      });
-    }
-
-    // Inter-settlement roads
-    ctx.strokeStyle = "rgba(255,255,255,0.08)"; ctx.lineWidth = 1;
-    s.roads.forEach(r => {
-      ctx.beginPath();
-      ctx.moveTo(mx + r.x1 * sx, my + r.y1 * sy);
-      ctx.lineTo(mx + r.x2 * sx, my + r.y2 * sy);
-      ctx.stroke();
-    });
-
-    // Buildings (show loot piles)
-    s.buildings.forEach(b => {
-      const hasLoot = s.lootPiles.some(p => p.buildingId === b.id && !p.collected);
-      ctx.fillStyle = hasLoot ? "rgba(255,220,80,0.45)" : "rgba(255,255,255,0.1)";
-      ctx.fillRect(mx + b.x*sx, my + b.y*sy, Math.max(2, b.w*sx), Math.max(2, b.h*sy));
-    });
-
-    // Zombie dots (throttle to avoid perf issues — sample every 3rd)
-    ctx.fillStyle = "rgba(200,40,40,0.7)";
-    for (let i = 0; i < s.zombies.length; i += 3) {
-      const z = s.zombies[i];
-      if (z.dead) continue;
-      ctx.beginPath(); ctx.arc(mx + z.x*sx, my + z.y*sy, 0.8, 0, Math.PI*2); ctx.fill();
-    }
-
-    // Wells
-    if (s.wells) {
-      ctx.fillStyle = "rgba(80,160,255,0.7)";
-      s.wells.forEach(w => {
-        ctx.beginPath(); ctx.arc(mx + w.x*sx, my + w.y*sy, 2, 0, Math.PI*2); ctx.fill();
-      });
-    }
-
-    // Compass target marker (next fragment or boss)
-    if (s.mapFragmentCollected && s.compassTarget) {
-      const ct = s.compassTarget;
-      const isBoss = !!ct.isBoss;
-      const pulse = 5 + 2 * Math.sin(Date.now() / (isBoss ? 200 : 400));
-      ctx.beginPath(); ctx.arc(mx + ct.x*sx, my + ct.y*sy, isBoss ? 4 : 3, 0, Math.PI*2);
-      ctx.fillStyle = isBoss ? "rgba(255,60,60,0.95)" : "rgba(255,220,80,0.9)"; ctx.fill();
-      // Pulsing ring
-      ctx.beginPath(); ctx.arc(mx + ct.x*sx, my + ct.y*sy, pulse, 0, Math.PI*2);
-      ctx.strokeStyle = isBoss ? "rgba(255,60,60,0.6)" : "rgba(255,220,80,0.5)";
-      ctx.lineWidth = 1; ctx.stroke();
-      if (isBoss) {
-        ctx.fillStyle = "rgba(255,60,60,0.9)";
-        ctx.font = "7px sans-serif"; ctx.textAlign = "center";
-        ctx.fillText("☠", mx + ct.x*sx, my + ct.y*sy - 5);
-      }
-    }
-
-    // Vehicles
-    ctx.fillStyle = "rgba(200,200,180,0.85)";
-    (s.vehicles ?? [s.vehicle]).forEach(v => {
-      ctx.beginPath(); ctx.arc(mx + v.x*sx, my + v.y*sy, 2, 0, Math.PI*2); ctx.fill();
-    });
-
-    // P2
-    if (s.player2) {
-      ctx.fillStyle = COL.player2;
-      ctx.beginPath(); ctx.arc(mx + s.player2.x*sx, my + s.player2.y*sy, 2.5, 0, Math.PI*2); ctx.fill();
-    }
-
-    // Player dot (last so always on top)
-    ctx.fillStyle = COL.player;
-    ctx.beginPath(); ctx.arc(mx + s.player.x*sx, my + s.player.y*sy, 3, 0, Math.PI*2); ctx.fill();
-
-    // "N" north indicator
-    ctx.fillStyle = "rgba(255,255,255,0.25)"; ctx.font = "bold 7px sans-serif"; ctx.textAlign = "center";
-    ctx.fillText("N", mx + MM/2, my + 7);
-    ctx.restore();
-  }
 
   // Touch
   const joystickTouchIds = useRef(new Set());
@@ -3379,25 +2761,160 @@ if (weather.colorTint && s.isNight === false) {
       {/* Top-right HUD: weather + action buttons */}
       <div className="absolute top-3 right-3 flex flex-col items-end gap-2">
 
-        {/* Drop In button — visible during autopilot */}
-        {autoPlay && onDropIn && (
-          <button
-            onClick={onDropIn}
-            style={{
-              padding: "8px 14px",
-              borderRadius: 10,
-              background: "rgba(255,200,80,0.15)",
-              border: "1px solid rgba(255,200,80,0.45)",
-              color: "rgba(255,200,80,0.95)",
-              fontSize: 12,
-              letterSpacing: "0.07em",
-              cursor: "pointer",
-              backdropFilter: "blur(6px)",
-            }}
-          >
-            🎮 Drop In
-          </button>
-        )}
+      {/* ── Manager HUD — visible when autoplay is active ── */}
+{autoPlay && (
+  <div style={{
+    position: "absolute",
+    top: 70,
+    right: 12,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-end",
+    gap: 6,
+    pointerEvents: "none",
+    zIndex: 15,
+  }}>
+    {/* Behavior pill — click to cycle stance */}
+    <button
+      onClick={() => {
+        if (!goHomeNow && !isHomeBase) {
+          const order = ["loot", "fight", "flee"];
+          setAiStance(s => order[(order.indexOf(s) + 1) % order.length]);
+        }
+      }}
+      style={{
+        padding: "4px 10px",
+        borderRadius: 20,
+        background: "rgba(0,0,0,0.6)",
+        border: `1px solid ${
+          goHomeNow ? "rgba(230,90,60,0.5)"
+          : aiStance === "fight" ? "rgba(230,90,60,0.4)"
+          : aiStance === "flee"  ? "rgba(90,180,245,0.4)"
+          : "rgba(120,220,150,0.35)"
+        }`,
+        color: goHomeNow ? "rgba(230,130,100,0.95)"
+          : aiStance === "fight" ? "rgba(230,110,90,0.9)"
+          : aiStance === "flee"  ? "rgba(90,180,245,0.9)"
+          : "rgba(120,220,150,0.9)",
+        fontSize: 11,
+        letterSpacing: "0.04em",
+        pointerEvents: "all",
+        cursor: goHomeNow || isHomeBase ? "default" : "pointer",
+      }}
+    >
+      {goHomeNow ? "⬅ heading home…"
+        : aiStance === "fight" ? "⚔ fighting"
+        : aiStance === "flee"  ? "↗ fleeing"
+        : "↺ looting"}
+    </button>
+
+    {/* Drop In button */}
+    {onDropIn && (
+      <button
+        onClick={onDropIn}
+        style={{
+          padding: "6px 12px",
+          borderRadius: 8,
+          background: "rgba(255,200,80,0.12)",
+          border: "1px solid rgba(255,200,80,0.4)",
+          color: "rgba(255,200,80,0.95)",
+          fontSize: 11,
+          letterSpacing: "0.06em",
+          cursor: "pointer",
+          pointerEvents: "all",
+        }}
+      >
+        ▶ Drop In
+      </button>
+    )}
+  </div>
+)}
+
+{/* ── Autoplay Toggle — shown when NOT in autoplay mode ── */}
+{!autoPlay && (
+  <div style={{
+    position: "absolute",
+    top: 70,
+    right: 12,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-end",
+    gap: 6,
+    zIndex: 15,
+  }}>
+    <button
+      onClick={() => {
+        if (onAutoplay) {
+          onAutoplay();
+        } else {
+          // Fallback: try to toggle via ref (won't work without parent update)
+          console.warn("onAutoplay prop not provided");
+        }
+      }}
+      style={{
+        padding: "6px 12px",
+        borderRadius: 8,
+        background: "rgba(120,200,255,0.1)",
+        border: "1px solid rgba(120,200,255,0.35)",
+        color: "rgba(120,200,255,0.9)",
+        fontSize: 11,
+        letterSpacing: "0.06em",
+        cursor: "pointer",
+      }}
+    >
+      🤖 Autoplay
+    </button>
+  </div>
+)}
+
+
+
+      {/* ── Go Home Now button — mid-run escape ── */}
+      {autoPlay && !isHomeBase && !goHomeNow && (
+        <button
+          onClick={() => {
+            setGoHomeNow(true);
+            if (stateRef.current) stateRef.current._goHomeNow = true;
+          }}
+          style={{
+            position: "absolute",
+            bottom: 68,
+            right: 12,
+            padding: "7px 14px",
+            borderRadius: 8,
+            background: "rgba(230,90,60,0.12)",
+            border: "1px solid rgba(230,90,60,0.4)",
+            color: "rgba(230,130,100,0.95)",
+            fontSize: 11,
+            letterSpacing: "0.05em",
+            cursor: "pointer",
+          }}
+        >
+          ⬅ Go Home Now
+        </button>
+      )}
+
+      {/* ── Homebase idle prompt — no base storage ── */}
+      {autoPlay && isHomeBase && (
+        <div style={{
+          position: "absolute",
+          bottom: 68,
+          left: "50%",
+          transform: "translateX(-50%)",
+          background: "rgba(0,0,0,0.72)",
+          border: "1px solid rgba(255,255,255,0.12)",
+          borderRadius: 10,
+          padding: "10px 18px",
+          textAlign: "center",
+          maxWidth: 240,
+          pointerEvents: "none",
+        }}>
+          <div style={{ fontSize: 12, color: "rgba(255,255,255,0.65)", lineHeight: 1.5 }}>
+            <span style={{ color: "rgba(255,255,255,0.9)", fontWeight: 500 }}>Manager mode</span><br />
+            Go on a run to bring back supplies.
+          </div>
+        </div>
+      )}
         {/* Weather indicator */}
         <div className="text-xs px-2 py-1 rounded-full pointer-events-none"
           style={{ background: "rgba(0,0,0,0.5)", color: "rgba(255,255,255,0.6)" }}>
@@ -3445,16 +2962,15 @@ if (weather.colorTint && s.isNight === false) {
               ["WASD / ↑↓←→", "Move / steer (driver only)"],
               ["Mouse", "Aim attack direction"],
               ["Space", "Swing bat (cone attack)"],
-              ["F", "Interact (doors, loot, vehicle, crops)"],
+              ["F", "Interact (doors, loot, vehicle, crops, well)"],
               ["T", "Command nearby survivor"],
               ["E", "Repair vehicle (needs car parts)"],
+              ["R", "Refuel vehicle (needs fuel cans, 2s cast)"],
               ["B", "Barricade building"],
               ["G", "Build menu (turret / crop plot / homebase)"],
               ["H", "Repair nearby turret (hold 2.5s)"],
-              ["Q", "Eat food"],
-              ["R", "Drink water"],
               ["Z", "Sleep / wake"],
-              ["I", "Inventory"],
+              ["I", "Inventory (eat/drink from here)"],
               ["Tab", "Base screen (crops, survivors, turrets)"],
             ].map(([key, desc]) => (
               <div key={key} className="flex items-start gap-2 mb-1.5">
@@ -3763,40 +3279,91 @@ if (weather.colorTint && s.isNight === false) {
 
       {/* Build menu */}
       {buildMenu && !placingMode && (
-        <BuildMenu
-          inventory={stateRef.current?.player?.inventory ?? {}}
-          onClose={() => setBuildMenu(false)}
-          onSelectTurret={() => {
-            placingModeRef.current = "turret";
-            setPlacingMode("turret");
-            setBuildMenu(false);
-            notify("Click anywhere to place turret (G to cancel)", "rgba(180,255,120,0.9)");
-          }}
-          onSelectCropPlot={() => {
-            placingModeRef.current = "crop_plot";
-            setPlacingMode("crop_plot");
-            setBuildMenu(false);
-            notify("Click anywhere to place a garden plot (G to cancel)", "rgba(180,255,120,0.9)");
-          }}
-          nearSettlement={(() => {
-            const s = stateRef.current;
-            if (!s?.settlements) return null;
-            const near = s.settlements.find(st => dist(s.player.x, s.player.y, st.cx, st.cy) < 500);
-            if (!near) return null;
-            return { ...near, isHome: s.homesettlementId === near.id };
-          })()}
-          onSetHomebase={() => {
-            const s = stateRef.current;
-            if (!s?.settlements) return;
-            const near = s.settlements.find(st => dist(s.player.x, s.player.y, st.cx, st.cy) < 500);
-            if (!near) return;
-            s.homesettlementId = near.id;
-            pushActivity(activityLog ?? [], `🏠 ${near.name ?? "Settlement"} set as homebase`);
-            notify(`🏠 ${near.name} is now your homebase`, "rgba(255,200,80,0.95)");
-            setBuildMenu(false);
-          }}
-        />
-      )}
+  <BuildMenu
+  inventory={stateRef.current?.player?.inventory ?? {}}
+  homeBase={level === 0
+    ? {
+        upgrades:       stateRef.current?.homeBase?.upgrades       ?? [],
+        baseStorage:    stateRef.current?.baseStorage              ?? stateRef.current?.homeBase?.baseStorage ?? {},
+        builtStructures: stateRef.current?.homeBase?.builtStructures ?? [],
+        blueprints:     stateRef.current?.homeBase?.blueprints     ?? [],
+      }
+    : stateRef.current?.homeBase
+  }
+  isHomeBase={level === 0}
+    onClose={() => setBuildMenu(false)}
+    onSelectTurret={() => {
+      placingModeRef.current = "turret";
+      setPlacingMode("turret");
+      setBuildMenu(false);
+      notify("Click anywhere to place turret (G to cancel)", "rgba(180,255,120,0.9)");
+    }}
+    onSelectCropPlot={() => {
+      placingModeRef.current = "crop_plot";
+      setPlacingMode("crop_plot");
+      setBuildMenu(false);
+      notify("Click anywhere to place a garden plot (G to cancel)", "rgba(180,255,120,0.9)");
+    }}
+    nearSettlement={(() => {
+      const s = stateRef.current;
+      if (!s?.settlements) return null;
+      const near = s.settlements.find(st => dist(s.player.x, s.player.y, st.cx, st.cy) < 500);
+      if (!near) return null;
+      return { ...near, isHome: s.homesettlementId === near.id };
+    })()}
+    onSetHomebase={() => {
+      const s = stateRef.current;
+      if (!s?.settlements) return;
+      const near = s.settlements.find(st => dist(s.player.x, s.player.y, st.cx, st.cy) < 500);
+      if (!near) return;
+      s.homesettlementId = near.id;
+      pushActivity(activityLog ?? [], `🏠 ${near.name ?? "Settlement"} set as homebase`);
+      notify(`🏠 ${near.name} is now your homebase`, "rgba(255,200,80,0.95)");
+      setBuildMenu(false);
+    }}
+    onQueueBlueprint={(blueprintType) => {
+      const s = stateRef.current;
+      if (!s) return;
+      onHarvest?.({ type: "queue_blueprint", blueprintType });
+      notify(`📐 ${blueprintType} blueprint queued — go build it!`, "rgba(255,200,60,0.95)");
+    }}
+    onUpgradeBase={(upgradeId) => {
+  // Deduct from the in-game state's own baseStorage too
+  const s = stateRef.current;
+  if (s && onUpgradeBase) {
+    const upgrade = BASE_UPGRADE_TREE[upgradeId];
+    if (upgrade) {
+      for (const [res, qty] of Object.entries(upgrade.cost)) {
+        if (s.baseStorage) {
+          s.baseStorage[res] = Math.max(0, (s.baseStorage[res] ?? 0) - qty);
+        }
+      }
+      if (!s.homeBase) s.homeBase = {};
+      if (!s.homeBase.upgrades) s.homeBase.upgrades = [];
+      s.homeBase.upgrades.push(upgradeId);
+    }
+    onUpgradeBase(upgradeId);
+  }
+  setBuildMenu(false);
+}}
+  />
+)}
+
+// Add UpgradeMenu render:
+{upgradeMenuOpen && (
+  <UpgradeMenu
+    homeBase={stateRef.current?.homeBase}
+    totalResources={stateRef.current?.totalResources}
+    onSelect={(upgradeId) => {
+      const s = stateRef.current;
+      if (s) {
+        onHarvest?.({ type: "upgrade", upgradeId });
+      }
+      setUpgradeMenuOpen(false);
+    }}
+    onClose={() => setUpgradeMenuOpen(false)}
+  />
+)}
 
       {/* Notification */}
       {notification && (
@@ -3875,8 +3442,8 @@ if (weather.colorTint && s.isNight === false) {
         </div>
       )}
 
-{/* Left-middle: context action hints */}
-      {contextActions.length > 0 && !showInventory && (
+{/* Left-middle: context action hints (desktop — keyboard) */}
+      {contextActions.length > 0 && !showInventory && !isTouch && (
         <div className="absolute left-3 top-1/2 -translate-y-1/2 flex flex-col gap-1.5 pointer-events-none" style={{ zIndex: 20 }}>
           {contextActions.slice(0, 4).map((a, i) => (
             <div key={i} className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs"
@@ -3888,6 +3455,57 @@ if (weather.colorTint && s.isNight === false) {
               <span style={{ color:"rgba(255,255,255,0.72)" }}>{a.label}</span>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Context actions — tappable buttons (mobile/touch).
+          Thumb-reachable stack on the right, sitting above the attack button.
+          "Space" (attack) is excluded here since the dedicated 🪓 button covers it. */}
+      {contextActions.length > 0 && !showInventory && isTouch && (
+        <div
+          className="absolute flex flex-col items-end gap-2"
+          style={{
+            right: 18,
+            bottom: (hud.weapon && !hud.inVehicle) ? 200 : 120,
+            zIndex: 30,
+            maxWidth: "70vw",
+          }}
+        >
+          {contextActions
+            .filter(a => a.key !== "Space")
+            .slice(0, 5)
+            .map((a, i) => (
+              <button
+                key={i}
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  const s = stateRef.current;
+                  if (!s) return;
+                  handleKeyAction(a.key === "Space" ? " " : a.key, s);
+                }}
+                className="flex items-center rounded-full"
+                style={{
+                  padding: "11px 18px",
+                  background: "rgba(8,12,10,0.9)",
+                  border: "1px solid rgba(255,220,80,0.45)",
+                  color: "rgba(255,255,255,0.94)",
+                  fontSize: 14,
+                  fontWeight: 500,
+                  maxWidth: "100%",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  touchAction: "none",
+                  userSelect: "none",
+                  WebkitUserSelect: "none",
+                  WebkitTapHighlightColor: "transparent",
+                  boxShadow: "0 2px 12px rgba(0,0,0,0.45)",
+                  cursor: "pointer",
+                }}
+              >
+                {a.label}
+              </button>
+            ))}
         </div>
       )}
 

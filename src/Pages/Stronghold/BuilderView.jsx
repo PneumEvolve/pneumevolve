@@ -40,6 +40,7 @@ export default function BuilderView({ room, onGameOver, resumeState, saveNotice 
   const keysRef     = useRef({});
   const joystickRef      = useRef(createJoystick());
   const joystickTouchIds = useRef(new Set());
+  const lastTouchRef     = useRef(0); // ts of last canvas touch — suppresses the trailing synthetic click
   const cursorRef        = useRef({ wx: 0, wy: 0 }); // world-space cursor for wall ghost
   const rafRef      = useRef(null);
   const lastMoveRef = useRef(0);
@@ -437,8 +438,11 @@ export default function BuilderView({ room, onGameOver, resumeState, saveNotice 
     setGold(state.gold);
   }
 
-  // Mouse click on desktop
+  // Mouse click on desktop. On touch devices the browser fires a synthetic
+  // click ~after touchend; we already handled that tap in onTouchEnd, so ignore
+  // any click that lands within 700ms of a canvas touch.
   function handleCanvasClick(e) {
+    if (Date.now() - lastTouchRef.current < 700) return;
     const canvas = canvasRef.current;
     const rect   = canvas.getBoundingClientRect();
     handleTap(e.clientX - rect.left, e.clientY - rect.top);
@@ -554,17 +558,18 @@ export default function BuilderView({ room, onGameOver, resumeState, saveNotice 
     sfxPing();
   }
 
-  // ── Touch handlers — joystick owns bottom 50%, top 50% scrolls freely ───
+  // ── Touch handlers — the whole canvas is the control surface ──────────────
+  // Every canvas touch is tracked by the joystick helper, which decides tap vs
+  // drag on touchend: a short touch fires handleTap (place / upgrade / ping),
+  // a longer drag drives movement. The game is fullscreen (no page scroll), so
+  // there is no reason to reserve any zone for the browser. handleTap is fired
+  // exclusively from touchend here; the trailing synthetic click is ignored via
+  // lastTouchRef so taps never double-fire.
   function onTouchStart(e) {
-    const canvas = canvasRef.current;
+    lastTouchRef.current = Date.now();
     for (const touch of e.changedTouches) {
-      const rect = canvas?.getBoundingClientRect();
-      const inBottomHalf = rect && touch.clientY >= rect.top + rect.height * 0.6;
-      if (inBottomHalf) {
-        joystickTouchIds.current.add(touch.identifier);
-        joystickTouchStart(joystickRef.current, touch);
-      }
-      // top-half touches are left alone — browser scrolls naturally
+      joystickTouchIds.current.add(touch.identifier);
+      joystickTouchStart(joystickRef.current, touch);
     }
   }
 
@@ -1292,7 +1297,7 @@ export default function BuilderView({ room, onGameOver, resumeState, saveNotice 
     <div style={{ width: "100%", height: "100svh", background: "#0a0d0f", position: "relative", overflow: "hidden", display: "flex", flexDirection: "column", touchAction: "pan-y" }}>
       <canvas
         ref={canvasRef}
-        style={{ flex: 1, width: "100%", display: "block", touchAction: "pan-y", cursor: canPlace ? "crosshair" : "pointer" }}
+        style={{ flex: 1, width: "100%", display: "block", touchAction: "none", cursor: canPlace ? "crosshair" : "pointer" }}
         onClick={handleCanvasClick}
         onMouseMove={handleCanvasMouseMove}
       />

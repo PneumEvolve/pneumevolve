@@ -219,10 +219,16 @@ export function saveWorldState(worldState) {
   if (!worldState) return false;
   try {
     const payload = {
-      version: 1,
+      version: 2,
       timestamp: Date.now(),
       levels: worldState.levels,
-      totalResources: worldState.totalResources ?? { food: 0, scrap: 0 },
+      totalResources: worldState.totalResources ?? { food: 0, scrap: 0, medicine: 0, fuel: 0, ammo: 0 },
+      // ── Phase 0.1/0.2: persist the things v1 silently dropped ──────────────
+      roster:        worldState.roster ?? [],        // persistent named survivors
+      supplyRoutes:  worldState.supplyRoutes ?? [],   // were lost on every reload
+      _survivorSeq:  worldState._survivorSeq ?? 0,    // stable id counter
+      // ── Base-first reframe: persistent home base (stockpile, crops, garage) ──
+      homeBase:      worldState.homeBase ?? null,
     };
     localStorage.setItem(WORLD_STATE_KEY, JSON.stringify(payload));
     return true;
@@ -241,18 +247,28 @@ export function loadWorldState() {
     if (!raw) return null;
     const data = JSON.parse(raw);
     if (!data?.levels) return null;
-    // v1 migration: ensure every level has all required fields
+    // Migration: ensure every level has all required fields. `...l` preserves
+    // actual saved values (threatTier, full resource set) — the defaults below
+    // only fill gaps for older saves.
     const levels = data.levels.map(l => ({
       baseHp:        100,
       turretPlaced:  false,
       gardenPlots:   0,
-      resources:     { food: 0, scrap: 0 },
+      resources:     { food: 0, scrap: 0, medicine: 0, fuel: 0, ammo: 0 },
       lastAttack:    null,
+      threatTier:    1,
+      baseUpgrades:  [],   // Phase 1.2 — default for saves predating upgrade tree
       ...l,
     }));
     return {
       levels,
-      totalResources: data.totalResources ?? { food: 0, scrap: 0 },
+      totalResources: data.totalResources ?? { food: 0, scrap: 0, medicine: 0, fuel: 0, ammo: 0 },
+      // ── Phase 0.1/0.2: restore persistent roster + routes (default empty) ──
+      roster:        data.roster ?? [],
+      supplyRoutes:  data.supplyRoutes ?? [],
+      _survivorSeq:  data._survivorSeq ?? 0,
+      // ── Base-first reframe: restore home base; null → caller seeds a default ──
+      homeBase:      data.homeBase ?? null,
     };
   } catch (e) {
     console.error("Failed to load world state:", e);
