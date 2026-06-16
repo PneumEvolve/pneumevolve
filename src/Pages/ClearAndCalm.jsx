@@ -9,7 +9,7 @@ import { api } from "@/lib/api";
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function dayKey(ts) {
   const d = new Date(ts);
-  return `${d.getMonth() + 1}/${d.getDate()}`;
+  return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
 }
 function soberDays(startIso) {
   if (!startIso) return 0;
