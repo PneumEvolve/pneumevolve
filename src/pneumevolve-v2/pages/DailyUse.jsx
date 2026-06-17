@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api"
+import { API_URL } from "@/lib/env";
 import { useNavigate } from "react-router-dom";
 
 export default function DailyUse() {
@@ -81,7 +82,7 @@ export default function DailyUse() {
           </div>
 
           <div>
-            <a className="btn btn-secondary" href={`${import.meta.env.VITE_API_URL}/seed/ledger.csv`} target="_blank" rel="noopener noreferrer">
+            <a className="btn btn-secondary" href={`${API_URL}/seed/ledger.csv`} target="_blank" rel="noopener noreferrer">
               Download your ledger (CSV)
             </a>
           </div>

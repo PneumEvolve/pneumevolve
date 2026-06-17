@@ -11,7 +11,6 @@ export default function MessageModal({
 }) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
-  const API = import.meta.env.VITE_API_URL;
 
   // Clear text when closing
   useEffect(() => {
@@ -43,7 +42,7 @@ export default function MessageModal({
     if (!content) return;
     setSending(true);
     try {
-      await axios.post(`${API}/conversations/dm/send`, {
+      await api.post(`/conversations/dm/send`, {
         sender_email: senderEmail,
         recipient_email: recipientEmail,
         content,

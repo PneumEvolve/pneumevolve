@@ -7,6 +7,7 @@ export default [
   { ignores: ['dist'] },
   {
     files: ['**/*.{js,jsx}'],
+    ignores: ['vite.config.js', 'tailwind.config.js'],
     languageOptions: {
       ecmaVersion: 2020,
       globals: globals.browser,
@@ -28,6 +29,17 @@ export default [
         'warn',
         { allowConstantExport: true },
       ],
+    },
+  },
+  {
+    files: ['vite.config.js', 'tailwind.config.js'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      globals: globals.node,
+      sourceType: 'module',
+    },
+    rules: {
+      ...js.configs.recommended.rules,
     },
   },
 ]

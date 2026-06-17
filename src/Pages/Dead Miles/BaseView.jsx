@@ -6,7 +6,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { SURVIVOR_TRAITS, WORKSTATION_DEFS, getBlockedCommands } from "./deadMilesEngine";
 
-import ResourceBar    from "./ResourceBar";
+import ResourceBar    from "./Resourcebar";
 import BaseNav        from "./BaseNav";
 import BaseWorkshop   from "./BaseWorkshop";
 import BaseKitchen    from "./BaseKitchen";

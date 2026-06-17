@@ -4,8 +4,6 @@ import { v4 as uuidv4 } from "uuid";
 import { useAuth } from "@/context/AuthContext";
 import { useNavigate, useLocation } from "react-router-dom";
 
-const API = import.meta.env.VITE_API_URL;
-
 export default function Problems() {
   const { userEmail } = useAuth();
   const navigate = useNavigate();

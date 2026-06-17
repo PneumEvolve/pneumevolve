@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { API_URL } from "@/lib/env";
 import { useAuth } from "@/context/AuthContext";
 import { Link } from "react-router-dom";
-
-const API = import.meta.env.VITE_API_URL;
 
 export default function TokenLedger() {
   const { userEmail } = useAuth();
@@ -26,14 +25,14 @@ export default function TokenLedger() {
           return;
         }
         const [b, l] = await Promise.all([
-          axios.get(`${API}/seed/balance`, { headers }),
-          axios.get(`${API}/seed/ledger`, { headers, params: { limit: 500 } }),
+          api.get(`/seed/balance`, { headers }),
+          api.get(`/seed/ledger`, { headers, params: { limit: 500 } }),
         ]);
         setBalance(b.data?.balance || 0);
         setRows(Array.isArray(l.data) ? l.data : []);
       } else {
         // global: no balance; rows include identity (masked by backend)
-        const l = await axios.get(`${API}/seed/ledger/global`, { params: { limit: 500 } });
+        const l = await api.get(`/seed/ledger/global`, { params: { limit: 500 } });
         setBalance(0);
         setRows(Array.isArray(l.data) ? l.data : []);
       }
@@ -49,7 +48,7 @@ export default function TokenLedger() {
 
   const downloadMineCSV = async () => {
     try {
-      const res = await axios.get(`${API}/seed/ledger.csv`, { headers, responseType: "blob" });
+      const res = await api.get(`/seed/ledger.csv`, { headers, responseType: "blob" });
       const url = URL.createObjectURL(new Blob([res.data]));
       const a = document.createElement("a");
       a.href = url; a.download = "seed_ledger.csv"; document.body.appendChild(a); a.click(); a.remove();
@@ -58,7 +57,7 @@ export default function TokenLedger() {
   };
   const downloadMineJSON = async () => {
     try {
-      const res = await axios.get(`${API}/seed/ledger.json`, { headers, responseType: "blob" });
+      const res = await api.get(`/seed/ledger.json`, { headers, responseType: "blob" });
       const url = URL.createObjectURL(new Blob([res.data]));
       const a = document.createElement("a");
       a.href = url; a.download = "seed_ledger.json"; document.body.appendChild(a); a.click(); a.remove();
@@ -67,8 +66,8 @@ export default function TokenLedger() {
   };
 
   // Global downloads can use plain links (no header needed)
-  const globalCsvHref = `${API}/seed/ledger.global.csv`;
-  const globalJsonHref = `${API}/seed/ledger.global.json`;
+  const globalCsvHref = `${API_URL}/seed/ledger.global.csv`;
+  const globalJsonHref = `${API_URL}/seed/ledger.global.json`;
 
   return (
     <div className="main space-y-4">
