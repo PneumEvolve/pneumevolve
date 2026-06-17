@@ -94,6 +94,8 @@ export function createRosterRecord(worldState, { name, role, homeBaseId = null }
     hunger: 0,
     homeBaseId,
     rosterStatus: ROSTER_STATUS.AT_BASE,
+    // ── Phase 2 ──────────────────────────────────────────────────────────────
+    specialization: null,   // set permanently at XP level 3 via setSpecialization()
   };
 }
 
@@ -121,6 +123,8 @@ export function createRosterRecordFromSurvivor(worldState, liveSurvivor, homeBas
     homeBaseId,
     rosterStatus: ROSTER_STATUS.DEPLOYED, // discovered in the field → currently out
     _liveId: liveSurvivor.id,             // remember the in-mission id for merge-back
+    // ── Phase 2 ──────────────────────────────────────────────────────────────
+    specialization: liveSurvivor.specialization ?? null,
   };
 }
 
@@ -174,6 +178,8 @@ export function extractRosterFields(liveSurvivor, fate) {
     morale,
     hunger: liveSurvivor.hunger ?? 0,
     rosterStatus: fate?.rosterStatus ?? ROSTER_STATUS.AT_BASE,
+    // ── Phase 2: preserve specialization across missions ─────────────────────
+    specialization: liveSurvivor.specialization ?? null,
   };
 }
 

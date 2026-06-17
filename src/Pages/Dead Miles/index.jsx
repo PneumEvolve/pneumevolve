@@ -540,9 +540,10 @@ function HomeBaseScreen({
   crisisEvents, onResolveCrisis, awaySummary, onDismissAway,
   worldState, worldEvents, onDeploy, onAddRoute, onRemoveRoute,
   defaultTab,
+  spectatorCam, onSpectatorCamChange, gameStateRef,
 }) {
   return (
-    <div style={{ position: "fixed", inset: 0 }}>
+    <div style={{ position: "fixed", inset: 0, pointerEvents: "none" }}>
       <BaseView
         stateSnapshot={snapshot}
         activityLog={activityLog}
@@ -559,6 +560,9 @@ function HomeBaseScreen({
         onDeploy={mode === "hub" ? onDeploy : undefined}
         onAddRoute={mode === "hub" ? onAddRoute : undefined}
         onRemoveRoute={mode === "hub" ? onRemoveRoute : undefined}
+        spectatorCam={spectatorCam}
+        onSpectatorCamChange={onSpectatorCamChange}
+        gameStateRef={gameStateRef}
       />
       <div style={{
         position: "fixed", left: 0, right: 0, bottom: 0,
@@ -646,6 +650,7 @@ export default function DeadMilesGame() {
 
   // Phase 2: base screen
   const [screen,       setScreen]      = useState("play");
+  const [spectatorCam, setSpectatorCam] = useState(null); // null = follow player; {x,y} = director free-cam
   const stateSnapshotRef               = useRef(null);
   const activityLogRef                 = useRef([]);
   const baseOpenedAtRef                = useRef(null);
@@ -1035,8 +1040,42 @@ function handleHomeAction(action) {
       pushActivity(activityLogRef.current, `🏛️ Built ${upgrade.label}`);
       return { ...prev, homeBase: { ...hb } };
     }
-    // complete_blueprint: the player/builder just finished building a ghost.
-    // applyHomeBaseAction handles upgrading builtStructures, turrets, gardenPlots.
+    // place_blueprint: GameView already placed the ghost and deducted cost from
+    // live stateRef.baseStorage — we just sync the blueprint record to worldState
+    // so it survives a reload or base-screen open.
+    if (action?.type === "place_blueprint" && action.blueprint) {
+      if (!hb.blueprints) hb.blueprints = [];
+      // Avoid duplicates if this fires more than once
+      if (!hb.blueprints.some(b => b.id === action.blueprint.id)) {
+        hb.blueprints.push(action.blueprint);
+      }
+      // Also sync the baseStorage deduction — GameView already mutated stateRef,
+      // so snapshot the live baseStorage back into worldState.
+      const liveStorage = gameStateRefRef.current?.current?.baseStorage;
+      if (liveStorage) hb.baseStorage = { ...liveStorage };
+      return { ...prev, homeBase: { ...hb } };
+    }
+    // complete_blueprint: called when player finishes [F] building a workshop structure.
+    // GameView passes the full builtStructure in the action to avoid a React batching race
+    // where hb.blueprints may not yet contain the entry from place_blueprint.
+    if (action?.type === "complete_blueprint") {
+      // Remove the ghost blueprint from worldState (best-effort — may already be absent)
+      if (hb.blueprints && action.blueprintId) {
+        const idx = hb.blueprints.findIndex(bp => bp.id === action.blueprintId);
+        if (idx !== -1) hb.blueprints.splice(idx, 1);
+      }
+      // Register the built structure directly from payload — no dependency on hb.blueprints
+      if (action.builtStructure) {
+        if (!hb.builtStructures) hb.builtStructures = [];
+        const alreadyThere = hb.builtStructures.some(s => s.id === action.builtStructure.id);
+        if (!alreadyThere) {
+          hb.builtStructures.push(action.builtStructure);
+          pushActivity(activityLogRef.current, `🏗 ${action.builtStructure.type} built! Assign a survivor to staff it.`);
+        }
+      }
+      return { ...prev, homeBase: { ...hb }, roster: prev.roster ? [...prev.roster] : [] };
+    }
+    // All other actions — route through applyHomeBaseAction.
     const result = applyHomeBaseAction(hb, prev.roster, action, activityLogRef.current);
     return { ...prev, homeBase: { ...hb }, roster: prev.roster ? [...prev.roster] : [] };
   });
@@ -1063,8 +1102,15 @@ function handleHomeAction(action) {
     saveWorldState(fresh);
     setWorldEvents([]);
     setCrisisEvents([]);
-    // Land on home hub — player organizes, then deploys their first run
-    setPhase("home");
+    // Skip the hub tab menu — go straight into the homebase run with autoplayer.
+    // Use fresh directly (worldState hasn't updated yet in this render cycle).
+    deployInventoryRef.current = null;
+    deployPartyRef.current = null;
+    deployVehiclesRef.current = null;
+    deployBlueprintsRef.current = fresh.homeBase?.blueprints ?? [];
+    setAutoPlay(true);
+    setFinalScore(null);
+    setPhase("playing");
   }
 
   function handleRoomReady(roomData, assignedRole) {
@@ -1092,62 +1138,65 @@ function handleHomeAction(action) {
     setMyReadyUp(false);
     setPartnerReadyUp(false);
 
-    // Phase 0.3 (d) — write survivors back to the roster on BOTH win and loss
+    // Phase 0.3 (d) — write survivors back to the roster on BOTH win and loss.
+    // All worldState mutations are done in ONE atomic setWorldState call so that
+    // no updater reads stale state from a sibling updater that hasn't flushed yet.
     const snap = stateSnapshotRef.current;
 
-    // Build the updated roster synchronously so we can hydrate deployPartyRef
-    // for the homebase return before setPhase fires.
-    let updatedWorldState = null;
+    setWorldState(prev => {
+      // ── 1. Clone roster for mutation ────────────────────────────────────────
+      const next = { ...prev, roster: prev.roster ? [...prev.roster] : [] };
 
-    if (snap?.survivors?.length) {
-      setWorldState(prev => {
-        // Clone roster array so React detects the change; mergeSurvivorsToRoster
-        // mutates the records inside, which is fine — they're plain objects.
-        const next = { ...prev, roster: prev.roster ? [...prev.roster] : [] };
-        const summary = mergeSurvivorsToRoster(
-          next,
-          snap.survivors,
-          { missionWon: !!score?.survived, homeBaseId: levelRef.current }
-        );
-        // Build the full return-card payload: survivor changes + loot + vehicles
-        const lootHauled = score?.resourcesCollected
-          ? { ...score.resourcesCollected }
-          : null;
-        // Vehicles that were just added to the garage
-        const allV = snap?.vehicles ?? (snap?.vehicle ? [snap.vehicle] : []);
-        const extractedV = allV.filter(v => v && v.hp > 0 && (
-          v.driver === "p1" || v.passenger === "p1" || v.occupied
-        ));
-        setMissionSummary({
-          ...summary,
-          missionWon: !!score?.survived,
-          loot: lootHauled,
-          vehicles: extractedV,
+      // ── 2. Merge live survivors back into persistent roster ──────────────────
+      // Always run this, even if snap.survivors is empty — it's a no-op then and
+      // ensures newly-found survivors (rosterStatus: DEPLOYED) get set to AT_BASE.
+      const liveSurvivors = snap?.survivors ?? [];
+      const summary = mergeSurvivorsToRoster(
+        next,
+        liveSurvivors,
+        { missionWon: !!score?.survived, homeBaseId: levelRef.current }
+      );
+
+      // Also ensure any AT_BASE roster members that weren't in snap.survivors
+      // (e.g. they wandered off screen on a homebase run) are reset to AT_BASE.
+      if (levelRef.current === 0) {
+        for (const r of next.roster) {
+          if (r.rosterStatus === "deployed") r.rosterStatus = "at_base";
+        }
+      }
+
+      // ── 3. Merge homeBase changes ────────────────────────────────────────────
+      let hb = { ...(next.homeBase ?? makeDefaultHomeBase()) };
+
+      if (snap && score?.survived) {
+        if (levelRef.current === 0) {
+          // Homebase run: fold structures, crops, turrets back in.
+          // mergeRunIntoHomeBase now merges (rather than replaces) baseStorage.
+          hb = mergeRunIntoHomeBase(hb, snap);
+        } else {
+          // Non-homebase run: add collected loot to baseStorage.
+          const bs = { ...(hb.baseStorage ?? {}) };
+          // score.resourcesCollected only has food+scrap; pick up everything else
+          // from the full player inventory snapshot.
+          const fullLoot = { ...(snap.player?.inventory ?? {}), ...(score?.resourcesCollected ?? {}) };
+          for (const [key, qty] of Object.entries(fullLoot)) {
+            const n = typeof qty === "number" ? qty : 0;
+            if (n > 0) bs[key] = (bs[key] ?? 0) + n;
+          }
+          hb.baseStorage = bs;
+          pushActivity(activityLogRef.current, `📦 Run loot stored — check your stockpile`);
+        }
+      }
+
+      // ── 4. Extract vehicles from the run into the garage ────────────────────
+      if (snap && score?.survived) {
+        const allV = snap.vehicles ?? (snap.vehicle ? [snap.vehicle] : []);
+        const extractedVehicles = allV.filter(v => {
+          if (!v || v.hp <= 0) return false;
+          return v.driver === "p1" || v.passenger === "p1" || v.occupied;
         });
-        console.log("[roster] mission return:", summary);
-        updatedWorldState = next;  // capture for use below
-        return next;
-      });
-    }
-
-    // Task 1.5 — extract vehicles from the run and add to garage.
-    // Only surviving, occupied vehicles are extracted (player's + survivors').
-    // Vehicles with hp ≤ 0 (destroyed) are discarded.
-    if (snap && score?.survived) {
-      const allV = snap.vehicles ?? (snap.vehicle ? [snap.vehicle] : []);
-      const extractedVehicles = allV.filter(v => {
-        if (!v || v.hp <= 0) return false;
-        // The player's vehicle
-        if (v.driver === "p1" || v.passenger === "p1") return true;
-        // A survivor's vehicle — any occupied vehicle qualifies
-        if (v.occupied) return true;
-        return false;
-      });
-      if (extractedVehicles.length > 0) {
-        setWorldState(prev => {
-          const hb = prev.homeBase ?? {};
+        if (extractedVehicles.length > 0) {
           const existing = hb.garage ?? [];
-          // Deduplicate by vehicle id — prefer the freshest data (run-end state)
           const existingIds = new Set(existing.map(v => v.id));
           const toAdd = extractedVehicles
             .filter(v => !existingIds.has(v.id))
@@ -1160,48 +1209,34 @@ function handleHomeAction(action) {
               maxFuel: v.maxFuel ?? v.fuel ?? 100,
               upgrades: v.upgrades ?? [],
             }));
-          // For vehicles already in garage, update hp/fuel from run-end state
           const updated = existing.map(gv => {
             const runV = extractedVehicles.find(v => v.id === gv.id);
             if (!runV) return gv;
             return { ...gv, hp: Math.round(runV.hp), fuel: Math.round(runV.fuel ?? gv.fuel) };
           });
-          const newGarage = [...updated, ...toAdd];
+          hb.garage = [...updated, ...toAdd];
           console.log(`[garage] +${toAdd.length} new vehicles, ${updated.length} updated`);
-          return { ...prev, homeBase: { ...hb, garage: newGarage } };
-        });
+        }
       }
-    }
 
-    // Task 2.3: for homebase runs (level 0), merge built structures (blueprints, turrets, plots) back.
-    if (snap && levelRef.current === 0 && score?.survived) {
-      setWorldState(prev => {
-        const merged = mergeRunIntoHomeBase(prev.homeBase ?? makeDefaultHomeBase(), snap);
-        return { ...prev, homeBase: merged };
-      });
-    }
+      next.homeBase = hb;
 
-    // For non-homebase runs: merge collected loot directly into homeBase.baseStorage.
-    // Previously this went into totalResources (a global pool) — now everything lives in homeBase.
-    if (snap && levelRef.current !== 0 && score?.survived && score?.resourcesCollected) {
-      setWorldState(prev => {
-        const hb = { ...(prev.homeBase ?? makeDefaultHomeBase()) };
-        const bs = { ...(hb.baseStorage ?? {}) };
-        const loot = score.resourcesCollected;
-        for (const [key, qty] of Object.entries(loot)) {
-          if (qty > 0) bs[key] = (bs[key] ?? 0) + qty;
-        }
-        // Also merge anything in the player's field inventory (carried items)
-        if (snap.player?.inventory) {
-          for (const [key, qty] of Object.entries(snap.player.inventory)) {
-            if (qty > 0) bs[key] = (bs[key] ?? 0) + qty;
-          }
-        }
-        hb.baseStorage = bs;
-        pushActivity(activityLogRef.current, `📦 Run loot stored — check your stockpile`);
-        return { ...prev, homeBase: hb };
+      // ── 5. Build mission-return card payload ─────────────────────────────────
+      const allV = snap?.vehicles ?? (snap?.vehicle ? [snap.vehicle] : []);
+      const extractedV = allV.filter(v => v && v.hp > 0 && (
+        v.driver === "p1" || v.passenger === "p1" || v.occupied
+      ));
+      const lootHauled = score?.resourcesCollected ? { ...score.resourcesCollected } : null;
+      setMissionSummary({
+        ...summary,
+        missionWon: !!score?.survived,
+        loot: lootHauled,
+        vehicles: extractedV,
       });
-    }
+      console.log("[roster] mission return:", summary);
+
+      return next;
+    });
 
     if (score?.survived) {
       markLevelSecured(levelRef.current, score);
@@ -1308,7 +1343,10 @@ function handleHomeAction(action) {
       deployInventoryRef.current = null;
       // Hydrate AT_BASE roster members so they wander around home base as live survivors.
       // deployPartyRef is consumed by GameView on mount to populate stateRef.current.survivors.
-      const atBase = getDeployableRoster(worldState, 0);
+      // Use rosterRef.current instead of worldState.roster — handleDeploy captures worldState
+      // as a closure value and may run before setWorldState (from handleGameOver) has flushed.
+      const freshRoster = rosterRef.current ?? worldState.roster ?? [];
+      const atBase = freshRoster.filter(r => r.rosterStatus === "at_base");
       if (atBase.length > 0) {
         // Spawn positions are re-anchored to actual player position inside GameView,
         // so (0,0) here is just a placeholder that gets overwritten on mount.
@@ -1457,7 +1495,14 @@ function handleHomeAction(action) {
 
   return (
     <div style={{ position: "fixed", inset: 0, overflow: "hidden" }}>
-      <div style={{ display: screen === "play" ? "block" : "none", position: "absolute", inset: 0 }}>
+      {/* GameView always rendered — hidden behind BaseView when base is open,
+          but stays alive so the sim keeps ticking and spectator cam works. */}
+      <div style={{
+        position: "absolute", inset: 0,
+        // Dim slightly when base panel is open so the overlay reads better
+        filter: screen === "base" ? "brightness(0.45)" : "none",
+        transition: "filter 0.2s",
+      }}>
         <GameView
           key={`${room?.map_seed ?? "solo"}-${level}`}
           room={room}
@@ -1468,6 +1513,7 @@ function handleHomeAction(action) {
           deploySurvivors={deployPartyRef.current}
           deployVehicles={deployVehiclesRef.current}
           deployBlueprints={deployBlueprintsRef.current}
+          deployHomeBase={level === 0 ? worldState.homeBase : null}
           onGetStateRef={ref => { gameStateRefRef.current = ref; }}
           onGameOver={handleGameOver}
           onStateSnapshot={snap => { stateSnapshotRef.current = snap; }}
@@ -1479,6 +1525,7 @@ function handleHomeAction(action) {
           autoPlay={autoPlay}
           onDropIn={() => setAutoPlay(false)}
            onAutoplay={() => setAutoPlay(true)}
+          spectatorCam={spectatorCam}
           onUpgradeBase={isHomeBaseMission ? (upgradeId) => {
             // Apply upgrade directly to homeBase
             setWorldState(prev => {
@@ -1502,6 +1549,9 @@ function handleHomeAction(action) {
               return { ...prev, homeBase: hb };
             });
           } : undefined}
+          onHomeAction={isHomeBaseMission ? (action) => {
+            handleHomeAction(action);
+          } : undefined}
         />
       </div>
 
@@ -1513,7 +1563,11 @@ function handleHomeAction(action) {
             snapshot={homeBaseToSnapshot(worldState.homeBase, worldState.roster)}
             activityLog={activityLogRef.current}
             onAction={handleHomeAction}
-            onBack={() => { baseOpenedAtRef.current = null; setScreen("play"); }}
+            onBack={() => {
+              baseOpenedAtRef.current = null;
+              setSpectatorCam(null); // reset cam when returning to play
+              setScreen("play");
+            }}
             onMenu={isHomeBaseMission ? handleMenu : undefined}
             crisisEvents={[]}
             onResolveCrisis={handleResolveCrisis}
@@ -1524,6 +1578,9 @@ function handleHomeAction(action) {
             onDeploy={isHomeBaseMission ? handleDeploy : undefined}
             onAddRoute={isHomeBaseMission ? handleAddRoute : undefined}
             onRemoveRoute={isHomeBaseMission ? handleRemoveRoute : undefined}
+            spectatorCam={spectatorCam}
+            onSpectatorCamChange={setSpectatorCam}
+            gameStateRef={gameStateRefRef}
           />
         )}
       </div>

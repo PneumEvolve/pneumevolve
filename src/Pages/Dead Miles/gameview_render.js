@@ -225,6 +225,27 @@ export function draw(ctx, s, t, W, H, zoom = 1, deps = {}) {
           ctx.setLineDash([]);
           ctx.fillStyle = "rgba(180,255,120,0.9)"; ctx.font = "12px sans-serif"; ctx.textAlign = "center";
           ctx.fillText("🌱", bx, by + 5);
+        } else {
+          // Workshop structure ghost (kitchen, workshop, farm, guard_post)
+          const WORKSHOP_ICONS = { kitchen: "🍳", workshop: "🔧", farm: "🌾", guard_post: "🛡️" };
+          const WORKSHOP_COLORS = {
+            kitchen:    "rgba(255,160,60,0.55)",
+            workshop:   "rgba(255,200,60,0.55)",
+            farm:       "rgba(120,210,80,0.55)",
+            guard_post: "rgba(255,100,80,0.55)",
+          };
+          const col = WORKSHOP_COLORS[bp.type] ?? "rgba(180,180,255,0.55)";
+          const icon = WORKSHOP_ICONS[bp.type] ?? "🏗";
+          const hw = 36, hh = 36;
+          ctx.fillStyle = col.replace("0.55", "0.10");
+          ctx.strokeStyle = col;
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([5, 5]);
+          ctx.fillRect(bx - hw, by - hh, hw * 2, hh * 2);
+          ctx.strokeRect(bx - hw, by - hh, hw * 2, hh * 2);
+          ctx.setLineDash([]);
+          ctx.font = "18px sans-serif"; ctx.textAlign = "center";
+          ctx.fillText(icon, bx, by + 6);
         }
         // Build-progress bar if being built by a survivor
         if (bp._buildProgress > 0) {
@@ -245,6 +266,44 @@ export function draw(ctx, s, t, W, H, zoom = 1, deps = {}) {
           ctx.fillStyle = "rgba(255,220,80,0.95)"; ctx.font = "10px sans-serif"; ctx.textAlign = "center";
           ctx.fillText("[F] Build", bx, by - 31);
         }
+        ctx.restore();
+      });
+    }
+
+    // Built workshop structures (kitchen, workshop, farm, guard_post) — solid icons.
+    // These live in s.homeBase.builtStructures once a blueprint is completed. Without
+    // this pass the icon vanishes the instant the ghost is removed from s.blueprints.
+    const builtStructs = s.homeBase?.builtStructures ?? [];
+    if (builtStructs.length > 0) {
+      const STRUCT_ICONS = { kitchen: "🍳", workshop: "🔧", farm: "🌾", guard_post: "🛡️" };
+      const STRUCT_COLORS = {
+        kitchen:    "rgba(255,160,60,1)",
+        workshop:   "rgba(255,200,60,1)",
+        farm:       "rgba(120,210,80,1)",
+        guard_post: "rgba(255,100,80,1)",
+      };
+      builtStructs.forEach(st => {
+        if (st.x == null || st.y == null) return;
+        const { cx: bx, cy: by } = worldToCanvas(st.x, st.y, cam);
+        const col = STRUCT_COLORS[st.type] ?? "rgba(180,180,255,1)";
+        const icon = STRUCT_ICONS[st.type] ?? "🏗";
+        const hw = 36, hh = 36;
+        ctx.save();
+        // Solid filled footprint with a bright border to read as "built".
+        ctx.fillStyle = col.replace(",1)", ",0.16)");
+        ctx.strokeStyle = col.replace(",1)", ",0.85)");
+        ctx.lineWidth = 2;
+        ctx.fillRect(bx - hw, by - hh, hw * 2, hh * 2);
+        ctx.strokeRect(bx - hw, by - hh, hw * 2, hh * 2);
+        // Corner accents so it clearly differs from a dashed ghost.
+        ctx.fillStyle = col.replace(",1)", ",0.85)");
+        const a = 8;
+        ctx.fillRect(bx - hw, by - hh, a, 2); ctx.fillRect(bx - hw, by - hh, 2, a);
+        ctx.fillRect(bx + hw - a, by - hh, a, 2); ctx.fillRect(bx + hw - 2, by - hh, 2, a);
+        ctx.fillRect(bx - hw, by + hh - 2, a, 2); ctx.fillRect(bx - hw, by + hh - a, 2, a);
+        ctx.fillRect(bx + hw - a, by + hh - 2, a, 2); ctx.fillRect(bx + hw - 2, by + hh - a, 2, a);
+        ctx.font = "22px sans-serif"; ctx.textAlign = "center";
+        ctx.fillText(icon, bx, by + 8);
         ctx.restore();
       });
     }
@@ -510,7 +569,6 @@ export function draw(ctx, s, t, W, H, zoom = 1, deps = {}) {
       ctx.restore();
     }
 
-    // Player
     if (!player.inVehicle) {
       const { cx, cy } = worldToCanvas(player.x, player.y, cam);
       ctx.save();
@@ -608,6 +666,28 @@ export function draw(ctx, s, t, W, H, zoom = 1, deps = {}) {
         ctx.setLineDash([]);
         ctx.fillStyle = "rgba(180,255,120,0.9)"; ctx.font = "bold 10px sans-serif"; ctx.textAlign = "center";
         ctx.fillText("🌱", gx, gy + 4);
+      } else {
+        // Workshop structure ghost (kitchen, workshop, farm, guard_post, etc.)
+        const WORKSHOP_PLACE_ICONS   = { kitchen: "🍳", workshop: "🔧", farm: "🌾", guard_post: "🛡️" };
+        const WORKSHOP_PLACE_COLORS  = {
+          kitchen:    "rgba(255,160,60,0.55)",
+          workshop:   "rgba(255,200,60,0.55)",
+          farm:       "rgba(120,210,80,0.55)",
+          guard_post: "rgba(255,100,80,0.55)",
+        };
+        const col  = WORKSHOP_PLACE_COLORS[s._placingMode] ?? "rgba(180,180,255,0.55)";
+        const icon = WORKSHOP_PLACE_ICONS[s._placingMode] ?? "🏗";
+        const hw = 36, hh = 36;
+        ctx.globalAlpha = 0.55;
+        ctx.fillStyle = col.replace("0.55", "0.15");
+        ctx.strokeStyle = col;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        ctx.fillRect(gx - hw, gy - hh, hw * 2, hh * 2);
+        ctx.strokeRect(gx - hw, gy - hh, hw * 2, hh * 2);
+        ctx.setLineDash([]);
+        ctx.font = "22px sans-serif"; ctx.textAlign = "center";
+        ctx.fillText(icon, gx, gy + 7);
       }
       ctx.restore();
     }

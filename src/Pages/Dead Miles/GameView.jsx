@@ -59,6 +59,7 @@ import {
   BASE_UPGRADE_TREE,
 } from "./deadMilesEngine";
 import { BLUEPRINT_BUILD_TIME, BLUEPRINT_INTERACT_RANGE, BLUEPRINT_COSTS } from "./engine_homebase";
+import { WORKSTATION_DEFS, WORKSHOP_BLUEPRINT_COSTS, BLUEPRINT_LABELS } from "./engine_constants";
 import {
   createJoystick, joystickTouchStart, joystickTouchMove,
   joystickTouchEnd, drawJoystick,
@@ -68,12 +69,19 @@ import BuildMenu from "./BuildMenu";
 import InventoryPanel from "./InventoryPanel";
 import { draw } from "./gameview_render";
 import UpgradeMenu from "./UpgradeMenu";
+import SlidePanel from "./SlidePanel";
+import BaseWorkshop from "./BaseWorkshop";
+import BaseKitchen from "./BaseKitchen";
+import BaseMedical from "./BaseMedical";
+import BaseGarden from "./BaseGarden";
+import BaseGarage from "./BaseGarage";
+import BaseCommand from "./BaseCommand";
 
 const MOVE_THROTTLE  = 100;
 const SYNC_THROTTLE  = 200;
 const NEEDS_THROTTLE = 500;
 
-export default function GameView({ room, role = "p1", onGameOver, level = 1, missionType = "clear", deployInventory = null, deploySurvivors = null, deployVehicles = null, deployBlueprints = null, onStateSnapshot, onOpenBase, activityLog, autoPlay = false, onDropIn, onAutoplay, onUpgradeBase, onGetStateRef }) {
+export default function GameView({ room, role = "p1", onGameOver, level = 1, missionType = "clear", deployInventory = null, deploySurvivors = null, deployVehicles = null, deployBlueprints = null, deployHomeBase = null, onStateSnapshot, onOpenBase, activityLog, autoPlay = false, onDropIn, onAutoplay, onUpgradeBase, onHomeAction, onGetStateRef, spectatorCam = null }) {
   const canvasRef   = useRef(null);
   const stateRef    = useRef(null);
 
@@ -92,7 +100,14 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1, mis
   const autoAttackCooldownRef = useRef(0);
   const autoNeedsCooldownRef  = useRef(0); // separate cooldown for eat/drink so combat doesn't block needs
   // Keep the ref in sync whenever the prop changes (e.g. after Drop In)
-  useEffect(() => { autoPlayRef.current = autoPlay; }, [autoPlay]);
+  useEffect(() => {
+    autoPlayRef.current = autoPlay;
+    // When player drops in, reset homebase free-cam so camera snaps back to tracking them
+    if (!autoPlay) {
+      homebaseCamFreeRef.current = false;
+      setHomebaseCamFree(false);
+    }
+  }, [autoPlay]);
 
   // ── Manager HUD state ─────────────────────────────────────────────────────
   // aiStance: player-controlled toggle that shifts autoplayer priorities
@@ -130,6 +145,10 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1, mis
   const lastNeedsRef = useRef(0);
   const fuelWarnedRef = useRef(false); // tracks whether low-fuel warning already fired this tank
   const mouseAngleRef = useRef(null);  // world-space angle from player to mouse cursor (null = no mouse)
+  // Homebase free-cam: when player drops in, WASD pans the camera instead of
+  // auto-tracking the player.  Clicking "⊕ Center" resets to player-tracking.
+  const homebaseCamFreeRef = useRef(false); // true = free-pan, false = follow player
+  const [homebaseCamFree, setHomebaseCamFree] = useState(false); // mirrors ref for React render
 
   const [sleepVoteModal, setSleepVoteModal] = useState(null); // { requestingPlayer: "p1" or "p2", timer: number }
   const sleepVoteTimerRef = useRef(null);
@@ -184,6 +203,11 @@ export default function GameView({ room, role = "p1", onGameOver, level = 1, mis
   const [survivorMenu, setSurvivorMenu] = useState(null); // { survivor } | null
   const [assigningMode, setAssigningMode] = useState(null); // { survivor } | null
   const assigningRef = useRef(null);
+  // Director mode: tap-to-select a survivor or building on homebase
+  const [selectedEntity, setSelectedEntity] = useState(null); // { type: "survivor"|"building", data } | null
+  // Slide-out panel system (homebase director mode)
+  // panelRoute: null | "workshop" | "kitchen" | "medical" | "garden" | "garage" | "command"
+  const [panelRoute, setPanelRoute] = useState(null);
 
   const isP1 = role === "p1";
   const roleRef = useRef(role);
@@ -1043,8 +1067,9 @@ if (surv) {
         if (castActionRef.current?.type === "build_blueprint") return;
         const bpId = nearBlueprint.id;
         const bpType = nearBlueprint.type;
-        const label = bpType === "turret" ? "Building Turret" : "Building Garden Plot";
-        const icon  = bpType === "turret" ? "🗼" : "🌱";
+        const wsInfo = WORKSTATION_DEFS.find(w => w.id === bpType);
+        const label = wsInfo ? `Building ${wsInfo.label}` : bpType === "turret" ? "Building Turret" : "Building Garden Plot";
+        const icon  = wsInfo ? wsInfo.icon : bpType === "turret" ? "🗼" : "🌱";
         startCast({
           type: "build_blueprint",
           duration: BLUEPRINT_BUILD_TIME,
@@ -1081,8 +1106,27 @@ if (surv) {
               if (!s.gardenPlots) s.gardenPlots = [];
               s.gardenPlots.push(plot);
               notify("🌱 Garden plot built!", "rgba(120,220,80,0.95)");
+            } else if (WORKSTATION_DEFS.find(w => w.id === bpType)) {
+              // Workshop structure — register in persistent worldState via callback
+              const wsLabel = BLUEPRINT_LABELS[bpType] ?? bpType;
+              addFloater(s, `🏗 ${wsLabel} built!`, s.player.x, s.player.y - 30, "rgba(120,255,150,0.95)");
+              notify(`🏗 ${wsLabel} built! Assign a survivor to staff it.`, "rgba(120,255,150,0.95)");
+              // Also update live stateRef so BuildMenu / render see it immediately
+              if (!s.homeBase) s.homeBase = {};
+              if (!s.homeBase.builtStructures) s.homeBase.builtStructures = [];
+              const newStruct = {
+                id: `struct_${bpType}_${Date.now()}`,
+                type: bpType,
+                x: bp.x,
+                y: bp.y,
+                builtAt: Date.now(),
+              };
+              s.homeBase.builtStructures.push(newStruct);
+              // Pass the full blueprint + built struct so handleHomeAction doesn't
+              // race on hb.blueprints not yet containing the place_blueprint entry.
+              onHomeAction?.({ type: "complete_blueprint", blueprintId: bpId, blueprint: bp, builtStructure: newStruct });
             }
-            // Remove the blueprint
+            // Remove the blueprint from live state
             s.blueprints.splice(idx, 1);
           },
         });
@@ -1249,6 +1293,8 @@ if (surv) {
     }
 
     if (key === "z" || key === "Z") {
+  // Director mode: no sleeping on homebase (survivors sleep, not the director)
+  if (isHomeBase) return;
   if (s.player.isSleeping) {
     // If already sleeping, Z does nothing (use movement to wake)
     if (!s.isFastSleeping && !zHoldActiveRef.current) {
@@ -1479,13 +1525,44 @@ useEffect(() => {
     stateRef.current = level === 0
       ? createHomeBaseState()
       : createInitialState(room?.map_seed ?? Date.now(), level);
+    // Merge persistent homeBase into the fresh homebase run state so builtStructures,
+    // upgrades, and baseStorage from previous sessions carry over correctly.
+    if (level === 0 && deployHomeBase) {
+      const s = stateRef.current;
+      if (!s.homeBase) s.homeBase = {};
+      // Carry over built structures so BuildMenu and in-game render see them
+      s.homeBase.builtStructures = deployHomeBase.builtStructures ?? [];
+      // Carry over upgrades
+      s.homeBase.upgrades = deployHomeBase.upgrades ?? [];
+      // Carry over baseStorage from worldState (already written by prior sessions)
+      // but only if createHomeBaseState didn't already give us a richer starter kit.
+      // Merge: take the max of each resource so we don't lose either source.
+      const deployBS = deployHomeBase.baseStorage ?? {};
+      const freshBS  = s.baseStorage ?? {};
+      s.baseStorage = {};
+      const allKeys = new Set([...Object.keys(deployBS), ...Object.keys(freshBS)]);
+      for (const k of allKeys) {
+        s.baseStorage[k] = Math.max(deployBS[k] ?? 0, freshBS[k] ?? 0);
+      }
+      s.homeBase.baseStorage = s.baseStorage;
+      // Carry over turrets and garage from persistent state
+      if (deployHomeBase.turrets?.length) s.turrets = [...(s.turrets ?? []), ...deployHomeBase.turrets.filter(t => !s.turrets?.some(et => et.id === t.id))];
+      if (deployHomeBase.garage) s.homeBase.garage = deployHomeBase.garage;
+    }
     // FIX 5: initialise baseStorage on the live state object if absent
     if (!stateRef.current.baseStorage) stateRef.current.baseStorage = {};
     // Reset autoplay spawn-safety timer so every new level starts with a fresh grace window.
     if (stateRef.current.player) delete stateRef.current.player._autoSpawnGrace;
 
-    // ── Step 7: merge carry inventory pre-stocked in handleDeploy ─────────
-    if (deployInventory) {
+    // ── Step 7: merge carry inventory / alias to baseStorage ──────────────
+    // On homebase runs there is no separate "carry" — everything lives in
+    // baseStorage (which was already seeded from deployHomeBase above).
+    // Alias player.inventory → baseStorage so eat/drink/build/turret all
+    // read and write the same pile, eliminating the starvation-at-home bug.
+    if (level === 0) {
+      stateRef.current.player.inventory = stateRef.current.baseStorage;
+    } else if (deployInventory) {
+      // Away-run: carry snapshot populates player.inventory as before
       const inv = stateRef.current.player.inventory ?? {};
       for (const [k, v] of Object.entries(deployInventory)) {
         inv[k] = (inv[k] ?? 0) + v;
@@ -1594,15 +1671,30 @@ useEffect(() => {
 
     function onCanvasClick(e) {
       const mode = placingModeRef.current;
-      if (!mode) return;
       const s = stateRef.current; if (!s) return;
       const rect = canvas.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
       const cx = (e.clientX - rect.left);
       const cy = (e.clientY - rect.top);
       // Convert to world coords
       const wx = cx + s.cam.x;
       const wy = cy + s.cam.y;
+
+      // ── Director tap-to-select (homebase, no placing mode) ────────────────
+      if (s._isHomeBase && !mode) {
+        // Try survivors first (16px hit radius)
+        const tappedSurvivor = (s.survivors ?? []).find(sv =>
+          sv.hp > 0 && Math.hypot(sv.x - wx, sv.y - wy) < 22
+        );
+        if (tappedSurvivor) {
+          setSurvivorMenu({ survivor: tappedSurvivor });
+          return;
+        }
+        // Tap on empty space — deselect
+        setSelectedEntity(null);
+        return;
+      }
+
+      if (!mode) return;
 
       if (mode === "turret") {
         if (!s.turrets) s.turrets = [];
@@ -1655,6 +1747,42 @@ useEffect(() => {
           securePlacedRef.current = { ...securePlacedRef.current, garden: true };
           setSecurePlaced(p => ({ ...p, garden: true }));
         }
+      } else if (WORKSHOP_BLUEPRINT_COSTS[mode]) {
+        // Workshop structure blueprint — deduct cost from baseStorage, place ghost
+        const cost = WORKSHOP_BLUEPRINT_COSTS[mode];
+        const bs = s.baseStorage ?? (s.baseStorage = {});
+        for (const [res, qty] of Object.entries(cost)) {
+          if ((bs[res] ?? 0) < qty) {
+            notify(`Need ${qty} ${res} to place ${BLUEPRINT_LABELS[mode] ?? mode}`, "rgba(255,100,100,0.95)");
+            return;
+          }
+        }
+        for (const [res, qty] of Object.entries(cost)) {
+          bs[res] = Math.max(0, (bs[res] ?? 0) - qty);
+        }
+        if (!s.homeBase) s.homeBase = {};
+        if (!s.homeBase.blueprints) s.homeBase.blueprints = [];
+        const bp = {
+          id: `bp_${mode}_${Date.now()}_${Math.floor(Math.random() * 9999)}`,
+          type: mode,
+          x: wx,
+          y: wy,
+          placedAt: Date.now(),
+          category: "workshop",
+        };
+        s.homeBase.blueprints.push(bp);
+        // Also update the live stateRef blueprints array so the ghost renders immediately
+        if (!s.blueprints) s.blueprints = [];
+        s.blueprints.push(bp);
+        // Sync back to persistent worldState
+        onHomeAction?.({ type: "place_blueprint", blueprint: bp });
+        const label = BLUEPRINT_LABELS[mode] ?? mode;
+        notify(`📐 ${label} placed — walk up and press [F] to build`, "rgba(255,200,60,0.95)");
+        placingModeRef.current = null;
+        placingHintRef.current = null;
+        setPlacingMode(null);
+        setPlacingHint(null);
+        setBuildMenu(false);
       }
     }
 
@@ -1842,19 +1970,9 @@ if (s.player.isSleeping && !s.isFastSleeping && !fastSleepVoteRequestedRef.curre
         }
       } else if (autoAction === "auto_eat") {
         // AI eat — dedicated needs cooldown so combat doesn't block eating.
-        // At homebase, pull food from baseStorage if player inventory is empty.
         autoNeedsCooldownRef.current -= dtActual;
         if (autoNeedsCooldownRef.current <= 0) {
           autoNeedsCooldownRef.current = 1.6;
-          // At homebase: top up player inventory from base storage so AI can eat
-          if (s._missionType === "homebase" && (s.player.inventory.food ?? 0) < 1) {
-            const bs = s.baseStorage ?? {};
-            if ((bs.food ?? 0) >= 1) {
-              bs.food = (bs.food ?? 0) - 1;
-              s.player.inventory.food = (s.player.inventory.food ?? 0) + 1;
-              s.baseStorage = bs;
-            }
-          }
           if (eatFood(s.player)) {
             syncInv(s.player.inventory);
             addFloater(s, "🍞 ate food", s.player.x, s.player.y - 20, "rgba(120,255,150,0.85)", 11);
@@ -1864,19 +1982,9 @@ if (s.player.isSleeping && !s.isFastSleeping && !fastSleepVoteRequestedRef.curre
         }
       } else if (autoAction === "auto_drink") {
         // AI drink — dedicated needs cooldown so combat doesn't block drinking.
-        // At homebase, pull water from baseStorage if player inventory is empty.
         autoNeedsCooldownRef.current -= dtActual;
         if (autoNeedsCooldownRef.current <= 0) {
           autoNeedsCooldownRef.current = 1.6;
-          // At homebase: top up player inventory from base storage so AI can drink
-          if (s._missionType === "homebase" && (s.player.inventory.water ?? 0) < 1) {
-            const bs = s.baseStorage ?? {};
-            if ((bs.water ?? 0) >= 1) {
-              bs.water = (bs.water ?? 0) - 1;
-              s.player.inventory.water = (s.player.inventory.water ?? 0) + 1;
-              s.baseStorage = bs;
-            }
-          }
           const ok = drinkWater(s.player, s.buildings, s.wells);
           if (ok) {
             syncInv(s.player.inventory);
@@ -2504,7 +2612,7 @@ if (s.player.isSleeping && !s.isFastSleeping && !fastSleepVoteRequestedRef.curre
       });
     }
 
-    if (keysRef.current[" "]) {
+    if (keysRef.current[" "] && !isHomeBase) {
       const prevDeadForAttack = s.zombies.filter(z => z.dead).length;
       const hits = playerAttack(s.player, s.zombies, dt);
       if (isHostRef.current) {
@@ -2553,7 +2661,33 @@ if (s.player.isSleeping && !s.isFastSleeping && !fastSleepVoteRequestedRef.curre
     }
 
     updateFloaters(s.floaters, dt);
-    updateCamera(s.cam, s.player, s.vehicle, W, H);
+    // When spectatorCam is set (base Director mode), skip normal player-tracking
+    // and use the externally-driven camera position instead.
+    if (spectatorCam) {
+      s.cam.x = spectatorCam.x;
+      s.cam.y = spectatorCam.y;
+    } else if (isHomeBase && autoPlayRef.current) {
+      // ── Homebase manager mode: WASD pans the camera; "Center" button resets to follow ──
+      const k = keysRef.current;
+      const CAM_SPEED = 480;
+      let camMoved = false;
+      if (k["ArrowLeft"]  || k["a"] || k["A"]) { s.cam.x -= CAM_SPEED * dtActual; camMoved = true; }
+      if (k["ArrowRight"] || k["d"] || k["D"]) { s.cam.x += CAM_SPEED * dtActual; camMoved = true; }
+      if (k["ArrowUp"]    || k["w"] || k["W"]) { s.cam.y -= CAM_SPEED * dtActual; camMoved = true; }
+      if (k["ArrowDown"]  || k["s"] || k["S"]) { s.cam.y += CAM_SPEED * dtActual; camMoved = true; }
+      if (camMoved) {
+        if (!homebaseCamFreeRef.current) {
+          homebaseCamFreeRef.current = true;
+          setHomebaseCamFree(true);
+        }
+      }
+      // If not free, keep tracking the player
+      if (!homebaseCamFreeRef.current) {
+        updateCamera(s.cam, s.player, s.vehicle, W, H);
+      }
+    } else {
+      updateCamera(s.cam, s.player, s.vehicle, W, H);
+    }
 
     // ── Power moment zoom-out effect (fires on first vehicle entry) ──────────
     if (powerMomentRef.current > 0) {
@@ -2827,6 +2961,30 @@ sendVehicleUpdate(myVehicle.id, myVehicle.x, myVehicle.y, myVehicle.facing, myVe
         ▶ Drop In
       </button>
     )}
+    {/* Center-on-player button — only shown on homebase when camera has drifted */}
+    {isHomeBase && homebaseCamFree && (
+      <button
+        onClick={() => {
+          homebaseCamFreeRef.current = false;
+          setHomebaseCamFree(false);
+          const s = stateRef.current;
+          if (s) updateCamera(s.cam, s.player, s.vehicle, window.innerWidth, window.innerHeight);
+        }}
+        style={{
+          padding: "6px 12px",
+          borderRadius: 8,
+          background: "rgba(80,200,255,0.12)",
+          border: "1px solid rgba(80,200,255,0.4)",
+          color: "rgba(80,200,255,0.9)",
+          fontSize: 11,
+          letterSpacing: "0.06em",
+          cursor: "pointer",
+          pointerEvents: "all",
+        }}
+      >
+        ⊕ Center
+      </button>
+    )}
   </div>
 )}
 
@@ -2946,11 +3104,38 @@ sendVehicleUpdate(myVehicle.id, myVehicle.x, myVehicle.y, myVehicle.facing, myVe
             style={{ background: buildMenu || placingMode ? "rgba(100,180,60,0.25)" : "rgba(0,0,0,0.6)", border:`1px solid ${buildMenu || placingMode ? "rgba(180,255,120,0.45)" : "rgba(255,255,255,0.12)"}`, color: buildMenu || placingMode ? "rgba(180,255,120,0.9)" : "rgba(180,255,120,0.55)" }}>
             [G] build
           </button>
+          {isHomeBase ? (
+            // Director mode: zone shortcut buttons replace the Tab/base button
+            <div className="flex gap-1 flex-wrap justify-end">
+              {[
+                { id: "command",  icon: "👥", label: "Crew" },
+                { id: "workshop", icon: "🔧", label: "Workshop" },
+                { id: "kitchen",  icon: "🍳", label: "Kitchen" },
+                { id: "medical",  icon: "💊", label: "Medical" },
+                { id: "garden",   icon: "🌱", label: "Garden" },
+                { id: "garage",   icon: "🚗", label: "Garage" },
+              ].map(z => (
+                <button
+                  key={z.id}
+                  onClick={() => setPanelRoute(r => r === z.id ? null : z.id)}
+                  className="text-xs px-2 py-1 rounded-lg"
+                  style={{
+                    background: panelRoute === z.id ? "rgba(255,200,80,0.15)" : "rgba(0,0,0,0.6)",
+                    border: `1px solid ${panelRoute === z.id ? "rgba(255,200,80,0.45)" : "rgba(255,255,255,0.12)"}`,
+                    color: panelRoute === z.id ? "rgba(255,200,80,0.95)" : "rgba(255,255,255,0.55)",
+                  }}
+                >
+                  {z.icon} {z.label}
+                </button>
+              ))}
+            </div>
+          ) : (
           <button onClick={() => { if (onStateSnapshot) onStateSnapshot(stateRef.current); if (onOpenBase) onOpenBase(); }}
             className="text-xs px-2 py-1 rounded-lg"
             style={{ background:"rgba(0,0,0,0.6)", border:"1px solid rgba(255,200,80,0.2)", color:"rgba(255,200,80,0.55)" }}>
             [Tab] base
           </button>
+          )}
         </div>
 
         {/* Controls panel — drops down from top-right */}
@@ -3118,7 +3303,12 @@ sendVehicleUpdate(myVehicle.id, myVehicle.x, myVehicle.y, myVehicle.facing, myVe
           style={{ marginTop: -80 }}>
           <div className="text-xs px-4 py-2 rounded-lg text-center"
             style={{ background:"rgba(0,0,0,0.78)", border:"1px solid rgba(180,255,120,0.35)", color:"rgba(180,255,120,0.9)" }}>
-            {placingMode === "turret" ? "🗼 Click to place turret" : "🌱 Click to place garden plot"}
+            {(() => {
+              if (placingMode === "turret") return "🗼 Click to place turret";
+              if (placingMode === "crop_plot") return "🌱 Click to place garden plot";
+              const ws = WORKSTATION_DEFS.find(w => w.id === placingMode);
+              return ws ? `${ws.icon} Click to place ${ws.label} blueprint` : `Click to place ${placingMode}`;
+            })()}
             <span className="ml-3" style={{ color:"rgba(255,255,255,0.3)" }}>G / Esc to cancel</span>
           </div>
         </div>
@@ -3292,6 +3482,14 @@ sendVehicleUpdate(myVehicle.id, myVehicle.x, myVehicle.y, myVehicle.facing, myVe
   }
   isHomeBase={level === 0}
     onClose={() => setBuildMenu(false)}
+    onSelectWorkshop={(wsId) => {
+      placingModeRef.current = wsId;
+      setPlacingMode(wsId);
+      setBuildMenu(false);
+      const wsInfo = WORKSTATION_DEFS.find(w => w.id === wsId);
+      const label = wsInfo ? wsInfo.label : wsId;
+      notify(`Click to place ${label} blueprint (G to cancel)`, "rgba(180,255,120,0.9)");
+    }}
     onSelectTurret={() => {
       placingModeRef.current = "turret";
       setPlacingMode("turret");
@@ -3324,7 +3522,13 @@ sendVehicleUpdate(myVehicle.id, myVehicle.x, myVehicle.y, myVehicle.facing, myVe
     onQueueBlueprint={(blueprintType) => {
       const s = stateRef.current;
       if (!s) return;
-      onHarvest?.({ type: "queue_blueprint", blueprintType });
+      if (!s.homeBase) s.homeBase = {};
+      if (!s.homeBase.blueprints) s.homeBase.blueprints = [];
+      s.homeBase.blueprints.push({
+        id: `bp_${blueprintType}_${Date.now()}_${Math.floor(Math.random()*9999)}`,
+        type: blueprintType,
+        placedAt: Date.now(),
+      });
       notify(`📐 ${blueprintType} blueprint queued — go build it!`, "rgba(255,200,60,0.95)");
     }}
     onUpgradeBase={(upgradeId) => {
@@ -3357,7 +3561,16 @@ sendVehicleUpdate(myVehicle.id, myVehicle.x, myVehicle.y, myVehicle.facing, myVe
     onSelect={(upgradeId) => {
       const s = stateRef.current;
       if (s) {
-        onHarvest?.({ type: "upgrade", upgradeId });
+        const upgrade = BASE_UPGRADE_TREE[upgradeId];
+        if (upgrade && onUpgradeBase) {
+          for (const [res, qty] of Object.entries(upgrade.cost)) {
+            if (s.baseStorage) s.baseStorage[res] = Math.max(0, (s.baseStorage[res] ?? 0) - qty);
+          }
+          if (!s.homeBase) s.homeBase = {};
+          if (!s.homeBase.upgrades) s.homeBase.upgrades = [];
+          s.homeBase.upgrades.push(upgradeId);
+          onUpgradeBase(upgradeId);
+        }
       }
       setUpgradeMenuOpen(false);
     }}
@@ -3683,6 +3896,91 @@ sendVehicleUpdate(myVehicle.id, myVehicle.x, myVehicle.y, myVehicle.facing, myVe
         />
       )}
 
+      {/* ── Director slide-out panels (homebase only) ─────────────────────── */}
+      {isHomeBase && (() => {
+        const snap = stateRef.current ? {
+          survivors: stateRef.current.survivors ?? [],
+          turrets:   stateRef.current.turrets ?? [],
+          gardenPlots: stateRef.current.gardenPlots ?? [],
+          crops:     stateRef.current.crops ?? [],
+          player:    stateRef.current.player,
+          isHome:    true,
+        } : null;
+        const bs = stateRef.current?.baseStorage ?? {};
+        const PANEL_DEFS = {
+          command:  { title: "Crew & Command", icon: "👥" },
+          workshop: { title: "Workshop",       icon: "🔧" },
+          kitchen:  { title: "Kitchen",        icon: "🍳" },
+          medical:  { title: "Medical",        icon: "💊" },
+          garden:   { title: "Garden",         icon: "🌱" },
+          garage:   { title: "Garage",         icon: "🚗" },
+        };
+        const def = PANEL_DEFS[panelRoute];
+        return (
+          <SlidePanel
+            open={!!panelRoute}
+            title={def?.title ?? ""}
+            icon={def?.icon}
+            onClose={() => setPanelRoute(null)}
+          >
+            {panelRoute === "command" && (
+              <BaseCommand
+                snapshot={snap}
+                baseStorage={bs}
+                activityLog={activityLog}
+                worldState={null}
+                worldEvents={null}
+                onHarvest={action => onHomeAction?.(action)}
+                onReassign={(survivorId, cmd) => {
+                  const sv = stateRef.current?.survivors?.find(s2 => s2.id === survivorId);
+                  if (sv) { sv.command = cmd; sv.state = "idle"; }
+                  onHomeAction?.({ type: "reassign", survivorId, command: cmd });
+                }}
+                onWorkstationAssign={(survivorId, workstation) =>
+                  onHomeAction?.({ type: "workstation_assign", survivorId, workstation })
+                }
+                onClose={() => setPanelRoute(null)}
+              />
+            )}
+            {panelRoute === "workshop" && (
+              <BaseWorkshop
+                snapshot={snap}
+                baseStorage={bs}
+                onHarvest={action => onHomeAction?.(action)}
+              />
+            )}
+            {panelRoute === "kitchen" && (
+              <BaseKitchen
+                snapshot={snap}
+                baseStorage={bs}
+                onHarvest={action => onHomeAction?.(action)}
+              />
+            )}
+            {panelRoute === "medical" && (
+              <BaseMedical
+                snapshot={snap}
+                baseStorage={bs}
+                onHarvest={action => onHomeAction?.(action)}
+              />
+            )}
+            {panelRoute === "garden" && (
+              <BaseGarden
+                snapshot={snap}
+                baseStorage={bs}
+                onHarvest={action => onHomeAction?.(action)}
+              />
+            )}
+            {panelRoute === "garage" && (
+              <BaseGarage
+                snapshot={snap}
+                baseStorage={bs}
+                garage={stateRef.current?.homeBase?.garage ?? []}
+                onHarvest={action => onHomeAction?.(action)}
+              />
+            )}
+          </SlidePanel>
+        );
+      })()}
 
     </div>
   );

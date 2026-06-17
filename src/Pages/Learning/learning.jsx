@@ -389,7 +389,18 @@ For an empty string or cancelled input, show “Canceled”
 Please use nested if blocks. Mind the overall readability of the code.
 Hint: passing an empty input to a prompt returns an empty string ''. Pressing ESC during a prompt returns null
 
-*/
+
+Nullish Coalescing Operator ??
+The nullish coalescing operator ?? provides a short way to choose the first “defined” value from a list.
+
+It’s used to assign default values to variables:
+
+// set height=100, if height is null or undefined
+height = height ?? 100;
+The operator ?? has a very low precedence, only a bit higher than ? and =, so consider adding
+parentheses when using it in an expression.
+
+It’s forbidden to use it with || or && without explicit parentheses.
 
 export function runExercises(log){
 
@@ -411,6 +422,91 @@ export function runExercises(log){
         alert("I don't know you")
      }
     }
+
+We covered 3 types of loops:
+
+while – The condition is checked before each iteration.
+do..while – The condition is checked after each iteration.
+for (;;) – The condition is checked before each iteration, additional settings available.
+To make an “infinite” loop, usually the while(true) construct is used. Such a loop, just like any other, 
+can be stopped with the break directive.
+
+If we don’t want to do anything in the current iteration and would like to forward to the next one, we 
+can use the continue directive.
+
+break/continue support labels before the loop. A label is the only way for break/continue to escape a 
+nested loop to go to an outer one.
+
+Use the for loop to output even numbers from 2 to 10.
+
+
+export function runExercises(log){
+  for (let i = 2; i <= 10; i++) {
+
+  // if true, skip the remaining part of the body
+  if (i % 2 == 0) continue;
+
+  alert(i); // 1, then 3, 5, 7, 9
+}
+}
+
+Write a loop which prompts for a number greater than 100. If the visitor enters another number – 
+ask them to input again.
+
+The loop must ask for a number until either the visitor enters a number greater than 100 or 
+cancels the input/enters an empty line.
+
+
+export function runExercises(log){
+  let answer;
+  do {
+    answer = prompt("Input Number", 0);
+
+  } while ( answer <= 100 );
+}
+
+The switch has one or more case blocks and an optional default.
+
+It looks like this:
+
+switch(x) {
+  case 'value1':  // if (x === 'value1')
+    ...
+    [break]
+
+  case 'value2':  // if (x === 'value2')
+    ...
+    [break]
+
+  default:
+    ...
+    [break]
+}
+The value of x is checked for a strict equality to the value from the first case (that is, value1) then to the second (value2) and so on.
+If the equality is found, switch starts to execute the code starting from the corresponding case, until the nearest break (or until the end of switch).
+If no case is matched then the default code is executed (if it exists).
+An example
+An example of switch (the executed code is highlighted):
+
+let a = 2 + 2;
+
+switch (a) {
+  case 3:
+    alert( 'Too small' );
+    break;
+  case 4:
+    alert( 'Exactly!' );
+    break;
+  case 5:
+    alert( 'Too big' );
+    break;
+  default:
+    alert( "I don't know such values" );
+}
+
+
+
+  */
 
 
 // ============================================================

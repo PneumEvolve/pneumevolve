@@ -20,7 +20,7 @@
 
 import { baseTick, craftItem, pushActivity } from "./engine_base";
 import { tickSurvivorNeeds } from "./engine_survivors";
-import { CROP_TYPES, SURVIVOR_MORALE_LOW_THRESHOLD, HEAL_MEDICINE_COST, HEAL_HP_RESTORE, TURRET_REPAIR_COST_SCRAP, TURRET_REPAIR_HP, WORKSHOP_BLUEPRINT_COSTS, BLUEPRINT_LABELS, BLUEPRINT_CATEGORY } from "./engine_constants";
+import { CROP_TYPES, SURVIVOR_MORALE_LOW_THRESHOLD, HEAL_MEDICINE_COST, HEAL_HP_RESTORE, TURRET_REPAIR_COST_SCRAP, TURRET_REPAIR_HP, WORKSHOP_BLUEPRINT_COSTS, BLUEPRINT_LABELS, BLUEPRINT_CATEGORY, WORKSTATION_CYCLE_SECS, WORKSTATION_GEAR_TIERS, SPECIALIZATIONS, SPECIALIZATION_MIN_LEVEL, BASE_RECIPES } from "./engine_constants";
 
 // Roster lifecycle strings (kept inline to avoid any import cycle with
 // survivorRoster, which imports from the engine barrel).
@@ -67,6 +67,22 @@ export function makeDefaultHomeBase() {
     homesettlementId: 0,                 // home is world level 0
     lastBaseTick:     Date.now(),        // for offline production accrual
     upgrades:         [],
+    // ── Phase 2: Workstation gear tiers (1 = default for all zones) ───────────
+    workstationGear: {
+      workshop: 1,
+      kitchen:  1,
+      medical:  1,
+      garden:   1,
+    },
+    // ── Phase 2: Per-zone crafting queues ─────────────────────────────────────
+    // Each zone has at most 1 active recipe + optional next queued.
+    // { recipeId, progress (0–1), workerId (survivor id), startedAt }
+    craftingQueues: {
+      workshop: null,
+      kitchen:  null,
+      medical:  null,
+      garden:   null,
+    },
   };
 }
 
@@ -122,7 +138,10 @@ export function homeBaseToSnapshot(homeBase, roster = []) {
     homesettlementId: hb.homesettlementId ?? 0,
     settlements:      { [hb.homesettlementId ?? 0]: { name: "Home Base" } },
     isHome:           true,
-    builtUpgrades: hb.upgrades ?? [],
+    builtUpgrades:    hb.upgrades ?? [],
+    // ── Phase 2 ──────────────────────────────────────────────────────────────
+    workstationGear:  hb.workstationGear ?? { workshop: 1, kitchen: 1, medical: 1, garden: 1 },
+    craftingQueues:   hb.craftingQueues  ?? { workshop: null, kitchen: null, medical: null, garden: null },
   };
 }
 
@@ -175,7 +194,11 @@ export function tickHomeBase(homeBase, roster = [], dtReal, activityLog = []) {
 
   hb.baseStorage  = shim.baseStorage;
   hb.lastBaseTick = shim.lastBaseTick;
-  return { ...result, needs };
+
+  // ── Phase 2: advance all active crafting queues ──────────────────────────
+  const craftCompletions = tickCraftingQueues(hb, roster, dtReal ?? 0);
+
+  return { ...result, needs, craftCompletions };
 }
 
 // ─── Step 1: survivor needs heartbeat ─────────────────────────────
@@ -229,6 +252,223 @@ export function applyOfflineHomeBaseTick(homeBase, roster = [], activityLog = []
   const elapsed = (Date.now() - hb.lastBaseTick) / 1000;
   if (elapsed < 2) return { harvested: [], damaged: [], produced: [] };
   return tickHomeBase(hb, roster, elapsed, activityLog);
+}
+
+// ─── Phase 2: Cycle helpers ───────────────────────────────────────────────────
+
+/**
+ * Resolve the effective cycle duration (seconds) for a zone given the current
+ * gear tier and the specialization of the stationed survivor (if any).
+ */
+export function getEffectiveCycleSecs(zone, gearTier = 1, specialization = null) {
+  const baseSecs = WORKSTATION_CYCLE_SECS[zone] ?? 30;
+  const gearDefs = WORKSTATION_GEAR_TIERS[zone] ?? [];
+  const gear = gearDefs.find(g => g.tier === gearTier) ?? gearDefs[0];
+  const gearMult = gear ? gear.cycleSpeedMult : 1.0;
+
+  let specMult = 1.0;
+  if (specialization) {
+    const spec = SPECIALIZATIONS[specialization];
+    // Only apply cycle-speed bonus when the survivor is in their native zone
+    if (spec && spec.zone === zone) specMult = spec.cycleSpeedMult ?? 1.0;
+  }
+  // Higher mult = faster; divide base secs so it's shorter
+  return baseSecs / (gearMult * specMult);
+}
+
+/**
+ * Resolve the effective yield multiplier for a zone given gear and spec.
+ */
+export function getEffectiveYieldMult(zone, gearTier = 1, specialization = null) {
+  const gearDefs = WORKSTATION_GEAR_TIERS[zone] ?? [];
+  const gear = gearDefs.find(g => g.tier === gearTier) ?? gearDefs[0];
+  const gearMult = gear ? gear.yieldMult : 1.0;
+
+  let specMult = 1.0;
+  if (specialization) {
+    const spec = SPECIALIZATIONS[specialization];
+    if (spec && spec.zone === zone) specMult = spec.yieldMult ?? 1.0;
+  }
+  return gearMult * specMult;
+}
+
+/**
+ * Advance all active crafting queues for dt seconds.
+ * When a recipe completes, deducts inputs (already deducted on assign), produces
+ * output scaled by yield mult, and clears the queue slot.
+ * Mutates homeBase in place; returns an array of completion events:
+ *   [{ zone, recipeId, output }]
+ */
+export function tickCraftingQueues(homeBase, roster = [], dt) {
+  if (!homeBase || dt <= 0) return [];
+  const hb = homeBase;
+  if (!hb.craftingQueues) hb.craftingQueues = {};
+  if (!hb.workstationGear) hb.workstationGear = { workshop: 1, kitchen: 1, medical: 1, garden: 1 };
+
+  const completions = [];
+
+  for (const zone of ["workshop", "kitchen", "medical", "garden"]) {
+    const entry = hb.craftingQueues[zone];
+    if (!entry) continue;
+
+    // Resolve the worker's specialization (if they're still stationed)
+    const worker = homeRoster(roster).find(r => r.id === entry.workerId && r.workstation === zone);
+    const spec = worker?.specialization ?? null;
+    const gearTier = hb.workstationGear[zone] ?? 1;
+    const cycleSecs = getEffectiveCycleSecs(zone, gearTier, spec);
+
+    entry.progress = Math.min(1, (entry.progress ?? 0) + dt / cycleSecs);
+    entry._cycleTimer = (entry._cycleTimer ?? 0) + dt;
+
+    if (entry.progress >= 1) {
+      // Cycle complete — produce output
+      const recipe = BASE_RECIPES.find(r => r.id === entry.recipeId);
+      if (recipe) {
+        const yieldMult = getEffectiveYieldMult(zone, gearTier, spec);
+        for (const [res, qty] of Object.entries(recipe.output)) {
+          const produced = Math.round(qty * yieldMult);
+          hb.baseStorage[res] = (hb.baseStorage[res] ?? 0) + produced;
+        }
+        completions.push({ zone, recipeId: entry.recipeId, output: recipe.output });
+      }
+      // Reset for next cycle (auto-repeating)
+      entry.progress = 0;
+      entry._cycleTimer = 0;
+      entry.startedAt = Date.now();
+    }
+  }
+
+  return completions;
+}
+
+// ─── Phase 2: Workstation gear upgrade ───────────────────────────────────────
+
+/**
+ * Attempt to upgrade a zone's workstation gear to the next tier.
+ * Pure function — mutates homeBase in place and returns { success, reason? }.
+ */
+export function upgradeWorkstationGear(homeBase, zone, activityLog = []) {
+  const hb = homeBase ?? makeDefaultHomeBase();
+  if (!hb.workstationGear) hb.workstationGear = { workshop: 1, kitchen: 1, medical: 1, garden: 1 };
+  const currentTier = hb.workstationGear[zone] ?? 1;
+  const gearDefs = WORKSTATION_GEAR_TIERS[zone];
+  if (!gearDefs) return { success: false, reason: "Unknown zone" };
+
+  const nextDef = gearDefs.find(g => g.tier === currentTier + 1);
+  if (!nextDef) return { success: false, reason: "Already at max tier" };
+
+  const cost = nextDef.cost;
+  if (!hb.baseStorage) hb.baseStorage = EMPTY_RESOURCES();
+
+  // Check resources
+  for (const [res, qty] of Object.entries(cost)) {
+    if ((hb.baseStorage[res] ?? 0) < qty) {
+      return { success: false, reason: `Need ${qty} ${res}` };
+    }
+  }
+  // Deduct
+  for (const [res, qty] of Object.entries(cost)) {
+    hb.baseStorage[res] = Math.max(0, (hb.baseStorage[res] ?? 0) - qty);
+  }
+  hb.workstationGear[zone] = currentTier + 1;
+  pushActivity(activityLog, `⬆️ ${zone} upgraded to ${nextDef.name}!`);
+  return { success: true, newTier: currentTier + 1, gear: nextDef };
+}
+
+// ─── Phase 2: Recipe queue management ────────────────────────────────────────
+
+/**
+ * Assign a recipe to a zone's crafting queue. Deducts inputs immediately.
+ * Only one recipe can be active per zone at a time.
+ * Returns { success, reason? }.
+ */
+export function assignRecipe(homeBase, roster = [], zone, recipeId, workerId, activityLog = []) {
+  const hb = homeBase ?? makeDefaultHomeBase();
+  if (!hb.craftingQueues) hb.craftingQueues = {};
+  if (!hb.workstationGear) hb.workstationGear = { workshop: 1, kitchen: 1, medical: 1, garden: 1 };
+  if (!hb.baseStorage) hb.baseStorage = EMPTY_RESOURCES();
+
+  if (hb.craftingQueues[zone]) {
+    return { success: false, reason: "A recipe is already running. Cancel it first." };
+  }
+
+  const recipe = BASE_RECIPES.find(r => r.id === recipeId && r.zone === zone);
+  if (!recipe) return { success: false, reason: "Recipe not found" };
+
+  const gearTier = hb.workstationGear[zone] ?? 1;
+  if (gearTier < recipe.requiresGearTier) {
+    const gearDef = (WORKSTATION_GEAR_TIERS[zone] ?? []).find(g => g.tier === recipe.requiresGearTier);
+    return { success: false, reason: `Requires ${gearDef?.name ?? `Tier ${recipe.requiresGearTier}`}` };
+  }
+
+  // Check + deduct inputs
+  for (const [res, qty] of Object.entries(recipe.inputs)) {
+    if ((hb.baseStorage[res] ?? 0) < qty) {
+      return { success: false, reason: `Need ${qty} ${res}` };
+    }
+  }
+  for (const [res, qty] of Object.entries(recipe.inputs)) {
+    hb.baseStorage[res] = Math.max(0, (hb.baseStorage[res] ?? 0) - qty);
+  }
+
+  hb.craftingQueues[zone] = {
+    recipeId,
+    progress:   0,
+    _cycleTimer:0,
+    workerId:   workerId ?? null,
+    startedAt:  Date.now(),
+  };
+
+  pushActivity(activityLog, `🔨 ${zone}: started crafting ${recipe.label}`);
+  return { success: true };
+}
+
+/**
+ * Cancel the active recipe in a zone. Refunds inputs (minus waste).
+ * Returns { success, reason? }.
+ */
+export function cancelRecipe(homeBase, zone, activityLog = []) {
+  const hb = homeBase ?? makeDefaultHomeBase();
+  if (!hb.craftingQueues) hb.craftingQueues = {};
+  const entry = hb.craftingQueues[zone];
+  if (!entry) return { success: false, reason: "No active recipe" };
+
+  const recipe = BASE_RECIPES.find(r => r.id === entry.recipeId);
+  // Partial refund: if progress < 20% refund 100%, otherwise 50%
+  const refundFrac = (entry.progress ?? 0) < 0.2 ? 1.0 : 0.5;
+  if (recipe) {
+    for (const [res, qty] of Object.entries(recipe.inputs)) {
+      const refund = Math.floor(qty * refundFrac);
+      if (refund > 0) hb.baseStorage[res] = (hb.baseStorage[res] ?? 0) + refund;
+    }
+  }
+  hb.craftingQueues[zone] = null;
+  pushActivity(activityLog, `✖️ ${zone}: recipe cancelled`);
+  return { success: true };
+}
+
+// ─── Phase 2: Specialization ──────────────────────────────────────────────────
+
+/**
+ * Set a survivor's specialization. Permanent — only callable once when XP level >= 3.
+ * Mutates the roster record in place. Returns { success, reason? }.
+ */
+export function setSpecialization(roster = [], survivorId, specId, activityLog = []) {
+  const rec = roster.find(r => r.id === survivorId);
+  if (!rec) return { success: false, reason: "Survivor not found" };
+  if ((rec.level ?? 1) < SPECIALIZATION_MIN_LEVEL) {
+    return { success: false, reason: `Survivor must be level ${SPECIALIZATION_MIN_LEVEL} or higher` };
+  }
+  if (rec.specialization) {
+    return { success: false, reason: "Specialization is permanent and already set" };
+  }
+  if (!SPECIALIZATIONS[specId]) {
+    return { success: false, reason: "Unknown specialization" };
+  }
+  rec.specialization = specId;
+  const spec = SPECIALIZATIONS[specId];
+  pushActivity(activityLog, `🏅 ${rec.name} became a ${spec.label} — ${spec.baseBonus}`);
+  return { success: true, specialization: spec };
 }
 
 // ─── Actions (mirrors index.jsx's onHarvest handler, targeting home state) ────
@@ -409,6 +649,26 @@ export function applyHomeBaseAction(homeBase, roster = [], action, activityLog =
       return { success: true };
     }
 
+    // ── Phase 2: Upgrade a workstation's gear tier ───────────────────────────
+    case "upgrade_gear": {
+      return upgradeWorkstationGear(hb, action.zone, activityLog);
+    }
+
+    // ── Phase 2: Assign a recipe to a zone's crafting queue ─────────────────
+    case "assign_recipe": {
+      return assignRecipe(hb, roster, action.zone, action.recipeId, action.workerId, activityLog);
+    }
+
+    // ── Phase 2: Cancel the active recipe in a zone ──────────────────────────
+    case "cancel_recipe": {
+      return cancelRecipe(hb, action.zone, activityLog);
+    }
+
+    // ── Phase 2: Set a survivor's permanent specialization ───────────────────
+    case "set_specialization": {
+      return setSpecialization(roster, action.survivorId, action.specId, activityLog);
+    }
+
     default:
       return { success: false };
   }
@@ -421,8 +681,17 @@ export function mergeRunIntoHomeBase(homeBase, snapshot) {
   if (!snapshot) return homeBase ?? makeDefaultHomeBase();
   const hb = homeBase ?? makeDefaultHomeBase();
 
+  // Merge baseStorage: take the max of each key so accumulated loot from
+  // previous sessions is never clobbered by a fresh homebase run's state.
   if (snapshot.baseStorage) {
-    hb.baseStorage = { ...EMPTY_RESOURCES(), ...snapshot.baseStorage };
+    const existing = hb.baseStorage ?? EMPTY_RESOURCES();
+    const runBS    = snapshot.baseStorage;
+    const allKeys  = new Set([...Object.keys(existing), ...Object.keys(runBS)]);
+    const merged   = {};
+    for (const k of allKeys) {
+      merged[k] = Math.max(existing[k] ?? 0, runBS[k] ?? 0);
+    }
+    hb.baseStorage = merged;
   }
   if (Array.isArray(snapshot.crops))   hb.crops   = snapshot.crops;
   if (Array.isArray(snapshot.turrets)) hb.turrets = snapshot.turrets.filter(t => !t.destroyed);

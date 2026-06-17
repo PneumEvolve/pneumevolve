@@ -58,6 +58,8 @@ export function saveGame(state) {
       level: sv.level ?? 1,
       // Workstation assignment (Phase 2)
       workstation: sv.workstation ?? null,
+      // Phase 2: permanent specialization
+      specialization: sv.specialization ?? null,
     })),
     turrets: state.turrets?.filter(t => !t.destroyed).map(t => ({
       id: t.id,
@@ -177,6 +179,7 @@ export function reconstructState(saveData, freshWorld) {
         existing.xp          = savedSv.xp ?? 0;
         existing.level       = savedSv.level ?? 1;
         existing.workstation = savedSv.workstation ?? null;
+        existing.specialization = savedSv.specialization ?? null;
       }
     }
   }
@@ -219,7 +222,7 @@ export function saveWorldState(worldState) {
   if (!worldState) return false;
   try {
     const payload = {
-      version: 2,
+      version: 3,   // Phase 2: workstationGear, craftingQueues, specialization
       timestamp: Date.now(),
       levels: worldState.levels,
       totalResources: worldState.totalResources ?? { food: 0, scrap: 0, medicine: 0, fuel: 0, ammo: 0 },
@@ -236,6 +239,25 @@ export function saveWorldState(worldState) {
     console.error("Failed to save world state:", e);
     return false;
   }
+}
+
+// ── Phase 2: migrate older homeBase objects to include new fields ──────────────
+function migrateHomeBase(homeBase) {
+  if (!homeBase) return null;
+  // workstationGear added in v3 — default all zones to tier 1
+  if (!homeBase.workstationGear) {
+    homeBase.workstationGear = { workshop: 1, kitchen: 1, medical: 1, garden: 1 };
+  }
+  // craftingQueues added in v3 — null means no active recipe
+  if (!homeBase.craftingQueues) {
+    homeBase.craftingQueues = { workshop: null, kitchen: null, medical: null, garden: null };
+  }
+  // Ensure all four zones exist in each map in case of partial saves
+  for (const zone of ["workshop", "kitchen", "medical", "garden"]) {
+    homeBase.workstationGear[zone] ??= 1;
+    homeBase.craftingQueues[zone]  ??= null;
+  }
+  return homeBase;
 }
 
 /**
@@ -260,15 +282,20 @@ export function loadWorldState() {
       baseUpgrades:  [],   // Phase 1.2 — default for saves predating upgrade tree
       ...l,
     }));
+    // ── Phase 2 migration: ensure all roster records have specialization field ─
+    const roster = (data.roster ?? []).map(r => ({
+      specialization: null,
+      ...r,
+    }));
     return {
       levels,
       totalResources: data.totalResources ?? { food: 0, scrap: 0, medicine: 0, fuel: 0, ammo: 0 },
       // ── Phase 0.1/0.2: restore persistent roster + routes (default empty) ──
-      roster:        data.roster ?? [],
+      roster,
       supplyRoutes:  data.supplyRoutes ?? [],
       _survivorSeq:  data._survivorSeq ?? 0,
       // ── Base-first reframe: restore home base; null → caller seeds a default ──
-      homeBase:      data.homeBase ?? null,
+      homeBase:      migrateHomeBase(data.homeBase),
     };
   } catch (e) {
     console.error("Failed to load world state:", e);

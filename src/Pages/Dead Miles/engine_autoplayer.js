@@ -19,7 +19,7 @@ import {
   AUTO_LOOT_DANGER_RANGE, AUTO_LOOT_DANGER_THRESHOLD, AUTO_LOOT_RANGE,
   AUTO_MELEE_RANGE, AUTO_SLEEP_AT, AUTO_SLEEP_SEEK_AT, AUTO_SPAWN_GRACE,
   AUTO_THREAT_RANGE, AUTO_VEHICLE_RANGE, DOOR_INTERACT_RANGE, PLAYER_RADIUS,
-  VEHICLE_RADIUS, WORLD_W,
+  REPAIR_RANGE, VEHICLE_RADIUS, WORLD_W,
 } from "./engine_constants";
 import { dist, getDoorCenter, isInsideBuilding } from "./engine_geometry";
 import { getInventoryCount } from "./engine_player";
@@ -263,15 +263,33 @@ function decide(player, state, dt) {
   }
 
   // ── vehicle helpers ─────────────────────────────────────────────────────────
+  // Scores by effective HP (hpRatio × maxHp) so a healthier or higher-class
+  // vehicle wins over a marginal closer one. Distance is a light tie-breaker.
   function bestVehicle() {
-    let best = null, bd = Infinity;
+    let best = null, bestScore = -Infinity;
     for (const v of allV) {
       if (v.hp <= 0) continue;
       if (v.occupied && v.driver !== "p1" && v.passenger !== "p1") continue;
       const d = dist(px, py, v.x, v.y);
-      if (d < bd && d < AUTO_FLEET_SEEK_RANGE) { bd = d; best = v; }
+      if (d >= AUTO_FLEET_SEEK_RANGE) continue;
+      const hpRatio = v.hp / (v.maxHp ?? v.hp ?? 1);
+      const score = hpRatio * (v.maxHp ?? 100) - d * 0.1;
+      if (score > bestScore) { bestScore = score; best = v; }
     }
     return best;
+  }
+
+  // Returns true if any other accessible vehicle is clearly better (≥1.5× effectiveHP) than `than`.
+  function hasBetterVehicle(than) {
+    const refEffHp = (than.hp / (than.maxHp ?? than.hp ?? 1)) * (than.maxHp ?? 100);
+    return allV.some(v => {
+      if (v === than || v.hp <= 0) return false;
+      if (v.occupied && v.driver !== "p1" && v.passenger !== "p1") return false;
+      const d = dist(px, py, v.x, v.y);
+      if (d >= AUTO_FLEET_SEEK_RANGE) return false;
+      const vEffHp = (v.hp / (v.maxHp ?? v.hp ?? 1)) * (v.maxHp ?? 100);
+      return vEffHp > refEffHp * 1.5;
+    });
   }
 
   // ── threats (alive zombies, outside buildings, within range) ─────────────────
@@ -393,9 +411,13 @@ function decide(player, state, dt) {
   }
 
   // 5. REPAIR a damaged vehicle when safe and carrying parts.
+  //    Skip if a clearly better vehicle is reachable — prefer switching to repairing.
   if (threats.length === 0 && getInventoryCount(player.inventory, "car_parts") > 0) {
     let target = null;
-    if (inVehicle && myVehicle && myVehicle.hp / (myVehicle.maxHp ?? myVehicle.hp) < 0.5) target = myVehicle;
+    if (inVehicle && myVehicle && myVehicle.hp / (myVehicle.maxHp ?? myVehicle.hp) < 0.5) {
+      // Only exit to repair if there's no significantly better vehicle nearby.
+      if (!hasBetterVehicle(myVehicle)) target = myVehicle;
+    }
     if (!target) {
       let bd = Infinity;
       for (const v of allV) {
@@ -405,10 +427,13 @@ function decide(player, state, dt) {
         const d = dist(px, py, v.x, v.y);
         if (d < bd && d < AUTO_FLEET_SEEK_RANGE) { bd = d; target = v; }
       }
+      // On foot: skip repair if a clearly better vehicle is within reach.
+      if (target && hasBetterVehicle(target)) target = null;
     }
     if (target) {
       if (inVehicle) return { dx: 0, dy: 0, action: "exit_vehicle_for_repair", autoBehavior: "needs_exit_for_repair" };
-      if (dist(px, py, target.x, target.y) < 55) return { dx: 0, dy: 0, action: "auto_repair_vehicle", autoBehavior: "repairing_vehicle" };
+      // Use REPAIR_RANGE - 2 so we're guaranteed within range when the cast fires.
+      if (dist(px, py, target.x, target.y) < REPAIR_RANGE - 2) return { dx: 0, dy: 0, action: "auto_repair_vehicle", autoBehavior: "repairing_vehicle" };
       return { ...navTo(target.x, target.y), action: null, autoBehavior: "approach_vehicle_repair" };
     }
   }

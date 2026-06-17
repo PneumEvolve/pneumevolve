@@ -11,6 +11,7 @@ export default function BuildMenu({
   onClose,
   onSelectTurret,
   onSelectCropPlot,
+  onSelectWorkshop,
   onSetHomebase,
   nearSettlement,
   onUpgradeBase,
@@ -142,7 +143,7 @@ export default function BuildMenu({
                   return (
                     <button
                       key={ws.id}
-                      onClick={affordable ? () => { onQueueBlueprint?.(ws.id); onClose(); } : undefined}
+                      onClick={affordable ? () => { onSelectWorkshop?.(ws.id); onClose(); } : undefined}
                       className="flex items-start gap-3 p-3 rounded-xl text-left w-full"
                       style={{
                         background: isBuilt

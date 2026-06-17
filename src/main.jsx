@@ -93,6 +93,8 @@ import HomesteadGame from "@/Pages/Homestead"
 
 import DeadMilesGame from "@/Pages/Dead Miles"
 
+import ZomBase from "@/Pages/ZomBase"
+
 import GameTestGame from "@/Pages/GameTest"
 
 import Learning from "@/Pages/Learning/learning"
@@ -221,6 +223,8 @@ function Root() {
                 <Route path="/homestead" element={<HomesteadGame />} />
 
                 <Route path="/dead-miles" element={<DeadMilesGame />} />
+
+                <Route path="/zombase" element={<ZomBase />} />
 
                 <Route path="/game-test" element={<GameTestGame />} />
 

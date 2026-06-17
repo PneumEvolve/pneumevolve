@@ -1,631 +1,328 @@
-Dead Miles: Vision & Roadmap Document
-Table of Contents
-The Vision
-
-Current State Assessment
-
-Core Gameplay Loops
-
-Technical Architecture
-
-Phase 0: Foundation Fixes
-
-Phase 1: Core UX & Autoplayer
-
-Phase 2: The Director's Hub
-
-Phase 3: Concurrent Simulation (The Dream)
-
-Phase 4: Expansion
-
-Timeline Estimates
-
-Risk Assessment
-
-The Vision
-Dead Miles is a top-down 2D survival zombie sim where you play as a Director, not just a survivor. You manage a growing home base, send teams on autonomous runs, and intervene directly when needed.
-
-The game loops:
-
-text
-Home Base (Director Mode) ←→ World Map (Strategy) ←→ Runs (Action/Autoplay)
-Core Pillars:
-
-Autoplay First: Every character can be AI-controlled. The player drops in/out as they choose.
-
-Base Persistence: Your home base lives between runs. Crops grow, survivors work, turrets defend.
-
-Risk/Reward Extraction: What you bring back (vehicles, survivors, loot) is what you extract with.
-
-Emergent Survivors: Traits determine run behavior (no manual assignment needed).
-
-Co-op Ready: Two players can share the director role or run together.
-
-Current State Assessment
-What Works Well ✅
-Area	Status	Notes
-World Generation	Stable	Procedural settlements, buildings, loot
-BaseView	Functional	Full management UI for crops, survivors, turrets
-GameView Rendering	Solid	Canvas rendering, camera, animations
-Co-op Networking	Stable	WebSocket sync, interpolation, host authority
-Autoplayer Core	Functional	Needs, combat, loot, navigation, settlement clearing
-Persistence (World)	Working	Saves levels, resources, roster, homeBase
-Traits System	Present	Assigned on spawn, affects commands
-Workstations	Working	Kitchen, workshop, farm, guard_post produce resources
-What Needs Work ⚠️
-Area	Issue	Priority
-Autoplayer	Oscillation bugs (door, loot, exit loops)	Critical
-Save/Load	No "Resume" button, mid-run saves missing	Critical
-Run → Home Transition	Runs freeze on Tab, no background simulation	High
-Vehicle Persistence	Vehicles lost at run end	High
-Prepare Stage	No inventory/equipment management before runs	High
-Crafting	Director places instantly, no survivor interaction	Medium
-Survivor Run AI	Traits don't affect run behavior	Medium
-UI Polish	Q/R keys, refuel UX, send on run feedback	Medium
-Core Gameplay Loops
-Loop 1: Director Mode (Home Base)
-text
-Enter Home Base
-    ↓
-View BaseView (crops, survivors, turrets, storage)
-    ↓
-Assign survivors to workstations (passive production)
-    ↓
-Craft items (uses base storage, casting time)
-    ↓
-Place blueprints (turrets, garden plots)
-    ↓
-Send team on run (World Map → Planning Screen)
-Loop 2: Run Mode (Action/Autoplay)
-text
-Deploy team (player + selected survivors + vehicles)
-    ↓
-Run plays in real-time (or heartbeat when away)
-    ↓
-Player can drop in (disable Autoplay) or stay director
-    ↓
-Extraction: Get everyone + vehicles to exit
-    ↓
-Run ends → Merge to roster, garage, base storage
-Loop 3: World Map (Strategy)
-text
-View secured/unexplored nodes
-    ↓
-Check threat tiers, supply routes, base status
-    ↓
-Deploy to new node (clear) or defend existing (under attack)
-    ↓
-Establish supply routes between secured nodes
-    ↓
-Return to home base or launch new run
-Technical Architecture
-Current State Structure
-javascript
-worldState = {
-  levels: [],           // World map nodes
-  totalResources: {},   // Global stockpile
-  roster: [],           // Persistent survivors
-  homeBase: {           // Durable home state
-    baseStorage: {},
-    crops: [],
-    turrets: [],
-    garage: [],
-    upgrades: []
-  },
-  supplyRoutes: []
-}
-Target Architecture (Phase 3)
-javascript
-// HomeBase runs in main thread (UI always responsive)
-// ActiveRun runs in heartbeat or separate thread
-
-activeRun = {
-  id: string,
-  levelId: number,
-  state: GameState,     // Full engine state
-  lastTick: number,
-  heartbeatMode: boolean,
-  heartbeatInterval: number, // 5-10 seconds
-  autoplayEnabled: boolean
-}
-
-// Director can:
-// - Pause run (freeze simulation)
-// - Resume run (continue heartbeat)
-// - Drop in (disable autoplay, take control)
-// - Issue commands from home (macro)
-Heartbeat Simulation (Cheat for Phase 2)
-When player Tabs to home during a run:
+# Dead Miles — Base Layer Rebuild Roadmap
+## Goal: Merge RootWork's idle/sim depth into Dead Miles's management layer (Direction A — Base Enables Runs)
 
-javascript
-function heartbeatTick(run) {
-  // Simplified simulation - not frame-by-frame
-  const decisions = updateAutoPlayer(run.player, run.state, 5); // 5-second chunk
-  applySimplifiedMovement(decisions);
-  applySimplifiedCombat();
-  if (distanceToTarget < threshold) run.heartbeatInterval = 2; // Faster when close
-}
-This keeps the run "alive" without heavy CPU cost.
+---
 
-Phase 0: Foundation Fixes
-Goal: Stabilize existing systems, fix critical bugs, enable resume.
+## Master Loop
 
-**STATUS: ✅ COMPLETE**
+```
+Run loot (raw materials)
+  → Base processing (crafted goods)
+    → Deploy loadout (run bonuses + better gear)
+      → Better loot → repeat
+```
 
-Task 0.1: Resume Button & Save/Load ✅
-Add "Resume" button to lobby
+Runs produce raw materials. The base converts them into run-enabling goods.
+The base does not have its own economy — it amplifies the action layer.
 
-Load worldState, set phase to "home"
+---
 
-Add "New Game" button (fresh world)
+## Design Decisions (Locked)
 
-Save worldState on every mutation (auto-save)
+- **Survivor specializations**: permanent once set (unlocks at XP level 3)
+- **Processing chains**: 3 tiers per zone — Tier 1 exists now (passive tick), Tiers 2–3 require workstation upgrades
+- **Worker cycles**: visible progress bars per survivor, not magic ticking
+- **Run integration**: crafted goods appear in deploy loadout; specialization bonuses apply in GameView
 
-Stretch: Save active run state (for Phase 3)
+---
 
-Task 0.2: Fix Autoplayer Oscillations ✅
-Bug 1: exit_building ↔ approach_door
+## Production Chains Reference
 
-Add _exitCooldown timer (1.5 seconds) to survivor AI — blocks approach_door transitions during cooldown
+| Zone | Raw (Tier 1) | Processed (Tier 2) | Premium (Tier 3) |
+|---|---|---|---|
+| **Workshop** | Scrap | Nails · Car Parts | Ammo · Vehicle Mods |
+| **Kitchen** | Food | Field Rations | Stim Shots · Antidotes |
+| **Medical** | Herbs | Medicine | Med Kits · Adrenaline |
+| **Garden** | Seeds | Crops | Preserved Food |
 
-Bug 2: Vehicle_approach ↔ loot_approach
+---
 
-Add _committedGoal to autoplayer state — commit to vehicle until reached or HP < 30% OR 5+ zombies
+## Survivor Specializations Reference
 
-Bug 3: Exit_building_after_loot ↔ loot_settlement_approach
+| Specialization | Base Bonus | Run Bonus |
+|---|---|---|
+| **Mechanic** | Workshop +25% cycle speed | Vehicle repairs cost less scrap on runs |
+| **Medic** | Medical +25% yield | Start runs with 1 free med kit |
+| **Cook** | Kitchen +25% yield | Survivor needs drain 20% slower on runs |
+| **Builder** | Blueprints build 50% faster | Barricades on runs have +30% HP |
+| **Guard** | Guard post covers more area | +1 turret slot on runs |
+| **Scavenger** | +15% loot from base salvage | Find rare loot more often on runs |
+
+---
+
+## Zone Navigation Structure
+
+BaseView splits into 6 tab zones with a bottom nav bar.
+
+```
+[ Workshop ] [ Kitchen ] [ Medical ] [ Garden ] [ Garage ] [ Command ]
+```
 
-Add _lootedBuildingIds Set per player — marks building as looted on exit, filters from reachable loot
-
-Task 0.3: Remove Q/R Eat/Drink ✅
-Removed Q (eat) and R (drink) key handlers in GameView.jsx
-
-Kept inventory panel eat/drink buttons
-
-Removed Q/R from controls HUD legend
-
-Autoplayer auto_eat/auto_drink unaffected
-
-Task 0.4: Vehicle Refuel with 'R' ✅
-Added refuelVehicle function in engine_geometry.js
-
-R key handler in GameView: 2s cast, consumes 1 fuel can, adds +30 fuel to vehicle
-
-Proximity action: "[R] Refuel vehicle (+30 ⛽) [N cans]" when near vehicle with fuel in inventory
-
-Well drinking moved from R to F key (contextual)
-
-Phase 1: Core UX & Autoplayer
-Goal: Make runs feel good, fix vehicle persistence, add well drinking.
-
-**STATUS: ✅ COMPLETE** (Tasks 1.1–1.6)
-
-Task 1.1: Vehicle Prioritization (Autoplayer) ✅
-Replace findNearestAvailableVehicle with scoring system:
-
-javascript
-function scoreVehicle(v, playerX, playerY) {
-  let score = 0;
-  // Type priority
-  if (v.vehicleType === "monster_truck") score += 1000;
-  else if (v.vehicleType === "minivan") score += 800;
-  else if (v.vehicleType === "car") score += 600;
-  else if (v.vehicleType === "bike") score += 400;
-  // HP % (0-300)
-  score += (v.hp / v.maxHp) * 200;
-  // Fuel % (0-100)
-  score += (v.fuel / v.maxFuel) * 100;
-  // Distance (closer = better, max -300 penalty)
-  const d = dist(playerX, playerY, v.x, v.y);
-  score -= Math.min(300, d / 2);
-  return score;
-}
-Task 1.2: Autoplayer Repair Vehicles ✅
-Add decision step before FIGHT/LOOT (on foot, no threats)
-
-Find best damaged vehicle (HP < 50%, using scoring above)
-
-If has car_parts, path to vehicle
-
-Start cast action (3 seconds) when in range
-
-On complete: consume 1 part, heal +40 HP
-
-Task 1.3: Autoplayer Drink from Well ✅
-Extend auto_drink action
-
-First check: nearby well (distance < 100, no zombies near well)
-
-If well found: path to well, drink (instant, no cast)
-
-Fallback: drink from inventory
-
-Task 1.4: Smarter Base Patrol ✅
-Modify base_patrol behavior in Autoplayer
-
-Interleave needs checks (eat/drink/sleep still fire)
-
-Add flee reaction: if zombie within 150px, flee then resume patrol
-
-Patrol waypoints: use actual base buildings, not random points
-
-Task 1.5: Vehicle Persistence (Core Loop) ✅
-Add garage array to homeBase
-
-On run end: collect ALL vehicles survivors are inside
-
-Merge to garage (deduplicate by ID, preserve HP/fuel)
-
-Destroyed vehicles (HP = 0) are removed
-
-Add garage UI to BaseView (Storage tab or new tab)
-
-Data structure:
-
-javascript
-garage: [
-  { id: "v_car_1", vehicleType: "car", hp: 280, fuel: 45, upgrades: [] },
-  { id: "v_monster_1", vehicleType: "monster_truck", hp: 600, fuel: 120, upgrades: ["plow"] }
-]
-Task 1.6: Send on Run UX Flow
-Click "Send on Run" on World Map
-
-Show loading/transition state (not instant)
-
-Brief animation/message: "Preparing run..."
-
-Then launch GameView
-
-Phase 2: The Director's Hub
-Goal: Full director experience from home base, including preparing runs and blueprint crafting.
-
-**STATUS: ✅ COMPLETE** (Tasks 2.1–2.3)
-
-Task 2.1: Prepare Stage with Inventory & Equipment ✅
-Screen Layout:
-
-text
-┌─────────────────────────────────────────────────────────┐
-│  DEPLOY PLANNING: Highway Mile 1                        │
-├─────────────────────────────┬───────────────────────────┤
-│  PARTY (3/5)                │  HOME STOCKPILE           │
-│  ┌─────────────────────┐    │  ┌─────────────────────┐  │
-│  │ 👤 Maya (scavenger) │    │  │ 🍞 Food: 45         │  │
-│  │ HP: 80/80  🪓: ✓    │    │  │ 💧 Water: 32        │  │
-│  │ 🚗 Car (280 HP)     │    │  │ ⚙️ Scrap: 18         │  │
-│  │ [Remove] [Equip]    │    │  │ 💊 Medicine: 6       │  │
-│  └─────────────────────┘    │  │ ⛽ Fuel: 12          │  │
-│  ┌─────────────────────┐    │  │ 🔩 Car Parts: 3      │  │
-│  │ 👤 Rico (medic)     │    │  └─────────────────────┘  │
-│  │ HP: 65/80  🪓: ✗    │    │                           │
-│  │ 🚗 None             │    │  PARTY STASH              │
-│  │ [Remove] [Equip]    │    │  ┌─────────────────────┐  │
-│  └─────────────────────┘    │  │ 🍞 Food: 12         │  │
-│  [+ Add Survivor]            │  │ ⚙️ Scrap: 5         │  │
-│                              │  └─────────────────────┘  │
-│  GARAGE (available)          │  [Transfer →] [← Transfer]│
-│  ┌─────────────────────┐    │                           │
-│  │ 🚗 Monster Truck     │    │  ┌─────────────────────┐  │
-│  │ HP: 520/600, Fuel:80│    │  │ 🚗 Selected Vehicle  │  │
-│  │ [Assign to Maya]    │    │  │    Car (Maya)        │  │
-│  └─────────────────────┘    │  │    HP: 280, Fuel:45  │  │
-│                             │  └─────────────────────┘  │
-├─────────────────────────────┴───────────────────────────┤
-│  [Cancel]                              [DEPLOY →]       │
-└─────────────────────────────────────────────────────────┘
-Implementation:
-
-New component: DeployPlanningScreen.jsx
-
-Pass to WorldMap as modal when planningNode is set
-
-Party roster: show survivors, HP, bat equipped status
-
-Party stash: shared inventory for the run
-
-Transfer items between home stockpile ↔ party stash
-
-Garage selection: assign vehicles to each party member
-
-Validation: can't deploy with empty party (player always included)
-
-On confirm: build deployInventory (party stash) + deployParty (survivors) + deployVehicles (assigned)
-
-Task 2.2: Heartbeat Simulation (First Pass) ✅
-Goal: Run continues when player Tabs to home, using simplified ticks.
-
-Implementation:
-
-javascript
-// In index.jsx, GameView mounting
-const [activeRun, setActiveRun] = useState(null);
-
-function startRun(levelId, deployData) {
-  const runId = Date.now();
-  const runState = createInitialState(seed, levelId);
-  // Apply deployData (inventory, survivors, vehicles)
-  
-  setActiveRun({
-    id: runId,
-    levelId,
-    state: runState,
-    lastTick: Date.now(),
-    heartbeatInterval: 5000, // 5 seconds
-    autoplayEnabled: true,
-    isPaused: false
-  });
-  
-  setPhase("playing");
-}
-
-// When Tab to home
-function pauseRunForDirector() {
-  setActiveRun(prev => ({ ...prev, isPaused: true }));
-  setScreen("base");
-}
-
-// Heartbeat loop (runs in background)
-useEffect(() => {
-  if (!activeRun || activeRun.isPaused) return;
-  
-  const interval = setInterval(() => {
-    const now = Date.now();
-    const dt = Math.min(10, (now - activeRun.lastTick) / 1000);
-    
-    // Simplified tick
-    const newState = heartbeatTick(activeRun.state, dt);
-    
-    setActiveRun(prev => ({
-      ...prev,
-      state: newState,
-      lastTick: now
-    }));
-    
-    // Check for run completion (exit reached)
-    if (checkLevelExit(newState)) {
-      endRun(newState, true);
-    }
-  }, activeRun.heartbeatInterval);
-  
-  return () => clearInterval(interval);
-}, [activeRun]);
-Heartbeat Tick Function:
-
-javascript
-function heartbeatTick(state, dtSec) {
-  // Simplified: move toward compass target
-  const { player, compassTarget } = state;
-  const dx = compassTarget.x - player.x;
-  const dy = compassTarget.y - player.y;
-  const dist = Math.hypot(dx, dy);
-  
-  if (dist < 100) {
-    // Close to target, faster ticks
-    return state;
-  }
-  
-  // Move in straight line (no collision)
-  const speed = player.inVehicle ? 300 : 160;
-  const move = Math.min(speed * dtSec, dist - 50);
-  const angle = Math.atan2(dy, dx);
-  
-  player.x += Math.cos(angle) * move;
-  player.y += Math.sin(angle) * move;
-  
-  // Simplified combat: one zombie hit per tick
-  const nearestZombie = getNearestZombie(player, state.zombies);
-  if (nearestZombie && distTo(nearestZombie) < 50) {
-    player.hp -= 10;
-    if (player.hp <= 0) endRun(state, false);
-  }
-  
-  return state;
-}
-Task 2.3: Blueprint Crafting ✅
-Goal: Director places blueprint, player/survivor builds it on level.
-
-Blueprint Data:
-
-javascript
-blueprints: [
-  {
-    id: "bp_turret_1",
-    type: "turret",
-    x: 500, y: 600,
-    placedBy: "director",
-    buildProgress: 0,
-    buildTime: 5.0  // seconds
-  }
-]
-Implementation:
-
-Add blueprints array to homeBase
-
-Director places blueprint (cost deducted immediately)
-
-Blueprint appears as ghost in BaseView
-
-When player OR survivor is on homebase level and near blueprint, prompt "[F] Build"
-
-Start cast timer (duration = buildTime)
-
-On complete: remove blueprint, spawn turret/plot
-
-Survivors can be assigned to "builder" workstation to auto-build nearby blueprints
-
-Phase 3: Concurrent Simulation (The Dream)
-Goal: Full real-time simulation of run while player is in homebase.
-
-Option: Web Worker Architecture
-javascript
-// runWorker.js
-import { updateAutoPlayer, updateZombies, ... } from "./deadMilesEngine";
-
-let runState = null;
-let lastTimestamp = 0;
-
-self.onmessage = (e) => {
-  if (e.data.type === "START") {
-    runState = e.data.state;
-    lastTimestamp = performance.now();
-    requestAnimationFrame(tick);
-  }
-  
-  if (e.data.type === "COMMAND") {
-    // Handle director commands from home
-    applyCommand(runState, e.data.command);
-  }
-  
-  if (e.data.type === "DROP_IN") {
-    self.postMessage({ type: "STATE_SNAPSHOT", state: runState });
-  }
-};
-
-function tick(now) {
-  const dt = Math.min(0.05, (now - lastTimestamp) / 1000);
-  lastTimestamp = now;
-  
-  // Full engine update
-  updateAutoPlayer(runState.player, runState, dt);
-  updateZombies(runState.zombies, ...);
-  updateSurvivors(...);
-  
-  self.postMessage({ type: "STATE_UPDATE", state: runState });
-  requestAnimationFrame(tick);
-}
-Pros:
-
-True real-time simulation
-
-UI never lags
-
-Director can watch run progress
-
-Cons:
-
-Complex serialization (functions don't transfer)
-
-Double memory usage
-
-Debugging across threads is hard
-
-Phase 3 Tasks (Post-Launch)
-Refactor engine to be serializable (remove closures, use plain objects)
-
-Implement Web Worker wrapper
-
-Add director commands (macro orders from home)
-
-Live "CCTV" view of run in BaseView
-
-Optimize state transfer (only send diffs)
-
-Phase 4: Expansion
-Task 4.1: Survivor Run Behavior (Emergent Traits)
-Map existing traits to run behaviors:
-
-Trait	Run Behavior
-efficient	+20% loot speed, +20% workstation output on runs
-resilient	+25% HP, takes reduced damage
-green_thumb	Automatically harvests/plants crops near run path
-scavenger	Prioritizes loot over combat, finds extra items
-medic	Heals nearby survivors slowly (+2 HP/sec when out of combat)
-cowardly	Flees from ANY zombie, never fights, hides in buildings
-night_owl	+20% speed/damage at night, -10% during day
-paranoid	Frequently stops to "check surroundings" (adds time)
-loud	Attracts extra zombies (higher sound radius)
-stoic	Never flees, fights to the death
-Implementation:
-
-Modify updateAutoPlayer to read survivor traits
-
-Add behavior modifiers based on trait map
-
-Medic aura: tick healing to nearby survivors
-
-Scavenger: bonus loot chance on building search
-
-Task 4.2: Armor & Accessories
-Add equipment slots to survivors (head, chest, weapon)
-
-Lootable armor (reduces damage)
-
-Accessories (night vision, medkit pouch, etc.)
-
-Equipment persists across runs (stored on roster record)
-
-Task 4.3: Advanced Vehicle Upgrades
-Garage UI for upgrading vehicles (spend scrap/parts)
-
-Upgrade tree (armor, engine, weapons, storage)
-
-Visual upgrades on vehicle sprites
-
-Timeline Estimates
-Phase	Tasks	Estimated Time	Priority
-Phase 0	Resume button, oscillation fixes, remove Q/R, refuel	3-5 days	Critical
-Phase 1	Vehicle priority, repair, well drinking, patrol, persistence, send UX	5-7 days	High
-Phase 2.1	Prepare stage (inventory + equipment)	5-7 days	High
-Phase 2.2	Heartbeat simulation	3-4 days	Medium
-Phase 2.3	Blueprint crafting	2-3 days	Medium
-Phase 3	Full concurrent simulation (Web Worker)	10-15 days	Low (stretch)
-Phase 4	Trait behaviors, armor, vehicle upgrades	7-10 days	Low (post-launch)
-Total to MVP (Phase 0 + 1 + 2.1): ~15-20 days
-
-Risk Assessment
-Risk	Likelihood	Mitigation
-Heartbeat simulation feels "fake"	Medium	Keep heartbeat interval short (2-5s), add visual feedback ("Run continuing...")
-Vehicle persistence causes balance issues	Medium	Add fuel/repair costs to maintain vehicles, limit garage size
-Prepare stage becomes too complex	Low	Start with Medium scope, iterate based on feedback
-Web Worker concurrency bugs	High	Defer to Phase 3, thoroughly test with simple runs first
-Oscillation fixes don't solve all cases	Medium	Add debug logging to identify new patterns, iterate
-Appendix: Key Data Structures
-Deploy Data (Passed to GameView)
-javascript
-deployData = {
-  inventory: { food: 10, water: 5, scrap: 8, car_parts: 2 }, // party stash
-  survivors: [
-    { id: "sv_1", name: "Maya", traits: ["scavenger"], hasBat: true },
-    { id: "sv_2", name: "Rico", traits: ["medic"], hasBat: false }
-  ],
-  vehicles: [
-    { survivorId: "sv_1", vehicleId: "garage_car_1" },
-    { survivorId: "player", vehicleId: "garage_monster_1" }
-  ]
-}
-Run End Merge
-javascript
-function endRun(runState, survived) {
-  // Merge survivors (existing mergeSurvivorsToRoster)
-  const survivorSummary = mergeSurvivorsToRoster(worldState, runState.survivors, { missionWon: survived });
-  
-  // Merge vehicles (only those with survivors inside)
-  const extractedVehicles = [];
-  for (const survivor of runState.survivors) {
-    if (survivor.inVehicle && survivor._ridingVehicle) {
-      extractedVehicles.push(survivor._ridingVehicle);
-    }
-  }
-  // Also check player's vehicle
-  if (runState.player.inVehicle && runState.vehicle) {
-    extractedVehicles.push(runState.vehicle);
-  }
-  
-  // Add to garage
-  for (const v of extractedVehicles) {
-    if (v.hp > 0) {
-      worldState.homeBase.garage.push({
-        id: v.id,
-        vehicleType: v.vehicleType,
-        hp: v.hp,
-        fuel: v.fuel,
-        upgrades: v.upgrades || []
-      });
-    }
-  }
-  
-  // Merge loot (everything in player inventory + party stash)
-  // (Already handled by resourcesCollected in score)
-}
-This document represents the agreed path forward. Start with Phase 0 tasks (Resume button, oscillation fixes) and work your way up. The heartbeat simulation approach lets you deliver the "director" dream without the complexity of full concurrency.
-
-Good luck, and happy coding.
+Each is a self-contained zone component (modeled after RootWork's FarmZone / MarketZone pattern).
+
+---
+
+## Bottom Nav Badge System
+
+| Badge | Meaning |
+|---|---|
+| `!` red | Idle survivor at workstation with no recipe assigned |
+| `▲` yellow | Crafting queue finished — goods waiting to collect |
+| `⚠` orange | Resource at cap and being wasted |
+| `💀` red | Survivor needs medical attention |
+| `●` green | Zone fully staffed and producing |
+
+---
+
+## ResourceBar (Always Visible, Top of Screen)
+
+Shows per-resource:
+- Current amount + cap
+- Cap warning highlight when within 10% of ceiling
+- Run readiness indicator: green pill when a full deploy loadout is staged
+
+Resources tracked: Food · Scrap · Nails · Car Parts · Medicine · Ammo · Herbs · Seeds
+
+---
+
+## Phase 1 — Zone Architecture + HUD ✅ COMPLETE
+**Goal: Clean foundation. No engine logic changes. Pure UI restructure.**
+
+### 1.1 — Audit BaseView.jsx ✅
+- Catalogued all sections: build, survivors, turrets, crops, storage, garage, crafting, activity, map
+- Mapped each to destination zone (see mapping below)
+- Noted all callbacks: onHarvest (action bus), onDeploy, onAddRoute/RemoveRoute, etc.
+
+**Tab → Zone mapping:**
+- `build` + `crafting` → `BaseWorkshop.jsx`
+- `crops` → `BaseGarden.jsx`
+- `turrets` → `BaseMedical.jsx` (defence section)
+- `garage` → `BaseGarage.jsx`
+- `survivors` + `storage` + `activity` + `map` → `BaseCommand.jsx`
+- Kitchen/Medical workstation content → `BaseKitchen.jsx` / `BaseMedical.jsx` (Phase 2 fills these out)
+
+### 1.2 — CSS Custom Properties ✅
+- CSS vars defined on root BaseView div: `--bg`, `--bg-elev`, `--border`, `--accent`, `--text`, `--muted`, `--green`, `--red`, `--blue`
+
+### 1.3 — Zone Components ✅
+All created as pure UI components receiving game state + callbacks as props:
+- [x] `BaseWorkshop.jsx` — structures, blueprint queue, crafting
+- [x] `BaseKitchen.jsx` — placeholder + kitchen worker status
+- [x] `BaseMedical.jsx` — turrets + survivor healing + medical bay placeholder
+- [x] `BaseGarden.jsx` — crop plots (ready / growing sections)
+- [x] `BaseGarage.jsx` — vehicle fleet cards
+- [x] `BaseCommand.jsx` — survivors + storage transfer + activity feed + deploy map (sub-tabs)
+
+### 1.4 — BaseNav ✅
+- `BaseNav.jsx` created — fixed bottom bar, 6 tabs, badge system
+- Badge logic: `💀` survivor HP < 30% → Medical; `▲` ready crops → Garden; `⚠` low fuel → Garage; `!` idle survivors → Command
+
+### 1.5 — ResourceBar ✅
+- `ResourceBar.jsx` created — always visible fixed top bar
+- Shows: Food · Scrap · Nails · Car Parts · Medicine · Ammo · Fuel · Seeds
+- Cap warning highlight at ≥90% cap; run readiness pill prop (wired in Phase 4)
+
+### 1.6 — BaseView.jsx Refactor ✅
+- Replaced monolithic tab content with `<ResourceBar>` + `<ActiveZone>` + `<BaseNav>`
+- `activeZone` state controls which zone component renders
+- All existing callbacks preserved (onHarvest, onDeploy, onAddRoute, etc.)
+- Modals (ReassignModal, WorkstationPicker, CrisisPanel, AwayModal) remain in BaseView
+- Legacy `defaultTab` values map to new zone IDs via `resolveDefaultZone()`
+- Heartbeat stateRef forwarding unchanged (BaseView is still a pure consumer of stateSnapshot)
+
+### 1.7 — Section Component ✅
+- `Section.jsx` created — shared collapsible section wrapper
+- Used throughout all zone components
+
+### Files Created (Phase 1)
+```
+Section.jsx          ✅
+ResourceBar.jsx      ✅
+BaseNav.jsx          ✅
+BaseWorkshop.jsx     ✅
+BaseKitchen.jsx      ✅
+BaseMedical.jsx      ✅
+BaseGarden.jsx       ✅
+BaseGarage.jsx       ✅
+BaseCommand.jsx      ✅
+```
+
+### Files Modified (Phase 1)
+```
+BaseView.jsx         ✅ refactored to zone components + nav
+```
+
+---
+
+## Phase 2 — Worker Cycles + Workstation Gear + Specializations ✅ COMPLETE
+**Goal: Survivors feel like workers, not assignments.**
+
+### 2.1 — Visible Worker Cycles (Engine) ✅
+- [x] Added `_cycleProgress` (0–1), `_cycleTimer`, and `progress` to crafting queue entries in engine_homebase.js
+- [x] `tickCraftingQueues()` advances `progress` each tick using `getEffectiveCycleSecs()`
+- [x] On cycle complete: produce output (yield-mult scaled), reset `progress` to 0 (auto-repeating)
+- [x] Cycle duration constants per workstation exported from engine_constants.js as `WORKSTATION_CYCLE_SECS`
+
+### 2.2 — Worker Cycle UI
+- [ ] Each survivor card in zone components shows a progress bar (`_cycleProgress`)
+- [ ] Progress bar color reflects specialization (if set) or neutral gray
+- [ ] Tooltip on hover: "Produces X in ~Ns"
+
+### 2.3 — Workstation Gear Upgrades (Engine) ✅
+- [x] Added `workstationGear` to homeBase state: `{ workshop: 1, kitchen: 1, medical: 1, garden: 1 }`
+- [x] Defined `WORKSTATION_GEAR_TIERS` in engine_constants.js (3 tiers each):
+  - Workshop: Hand Tools → Power Tools → Fabrication Bench
+  - Kitchen: Camp Stove → Gas Range → Industrial Kitchen
+  - Medical: First Aid Kit → Medical Cabinet → Field Hospital
+  - Garden: Hand Trowel → Rototiller → Hydroponic Bay
+- [x] Each tier: cost (scrap + materials), `cycleSpeedMult`, `yieldMult`
+- [x] `upgradeWorkstationGear(homeBase, zone)` pure function in engine_homebase.js
+- [x] `"upgrade_gear"` action wired into `applyHomeBaseAction`
+
+### 2.4 — Workstation Gear UI
+- [ ] Each zone shows current gear tier + upgrade button in `<UpgradePanel>`
+- [ ] Locked tiers show cost and material requirements
+- [ ] Gear icon + name displayed next to zone header
+
+### 2.5 — Specializations (Engine) ✅
+- [x] Added `specialization: null` to roster records in survivorRoster.js schema
+- [x] `setSpecialization(roster, survivorId, specId)` pure function in engine_homebase.js
+  - Only callable if survivor level >= 3 AND specialization is currently null
+  - Returns updated roster (permanent, no reversal)
+- [x] Specialization effect multipliers resolved in `getEffectiveCycleSecs()` and `getEffectiveYieldMult()`
+- [x] `SPECIALIZATIONS` constants in engine_constants.js (matching design table)
+- [x] `"set_specialization"` action wired into `applyHomeBaseAction`
+- [x] Specialization preserved across missions via `extractRosterFields`
+
+### 2.6 — Specialization UI
+- [ ] Survivor cards show current specialization badge (emoji + name) if set
+- [ ] If level >= 3 and no specialization: show "Choose Specialization" button
+- [ ] Specialization picker modal: 6 options, shows base bonus + run bonus, confirm = permanent
+- [ ] Warning copy: "This cannot be changed. Choose carefully."
+
+### Files Modified (Phase 2)
+```
+engine_constants.js  ✅ added WORKSTATION_CYCLE_SECS, WORKSTATION_GEAR_TIERS, SPECIALIZATIONS, SPECIALIZATION_MIN_LEVEL, BASE_RECIPES
+engine_homebase.js   ✅ added cycle tick, gear upgrade, recipe queue, setSpecialization; Phase 2 state in makeDefaultHomeBase + homeBaseToSnapshot
+survivorRoster.js    ✅ added specialization field to all record shapes
+saveSystem.js        ✅ version → 3, migrateHomeBase(), roster migration, specialization field
+```
+
+---
+
+## Phase 3 — Processing Chains
+**Goal: Raw loot becomes a production input, not just a counter.**
+
+### 3.1 — Recipe System (Engine) ✅ (partial — recipes defined, queue wired)
+- [x] `BASE_RECIPES` defined in engine_constants.js (all Tier 2 and Tier 3 recipes)
+  - Workshop: Scrap→Nails, Scrap→Car Parts, Nails+Scrap→Ammo, Car Parts+Scrap→Vehicle Mod
+  - Kitchen: Food→Field Rations, Field Rations+Herbs→Stim Shot, Food+Herbs→Antidote
+  - Medical: Herbs→Medicine, Medicine+Scrap→Med Kit, Medicine→Adrenaline
+  - Garden: Seeds→Crops, Food→Preserved Food (Field Rations)
+- [x] Each recipe: `{ id, zone, inputs, output, seconds, requiresGearTier }`
+- [x] `craftingQueue` per zone on homeBase state (single active slot, auto-repeating)
+- [x] `assignRecipe(homeBase, roster, zone, recipeId, workerId)` pure function in engine_homebase.js
+- [x] `cancelRecipe(homeBase, zone)` pure function (partial refund if >20% progress)
+- [x] Tick advances queue `progress`; on completion deducts inputs (on-assign), adds output
+- [ ] Queue shows next recipe if auto-queued (Phase 4 stretch)
+
+### 3.2 — Recipe UI (per zone)
+- [ ] `<RecipePanel>` in each zone shows available recipes for that zone
+- [ ] Locked recipes show gear tier requirement
+- [ ] Active recipe shows progress bar + cancel button
+- [ ] Queue shows next recipe if auto-queued (Phase 4 stretch)
+
+### 3.3 — Resource Cap Tuning
+- [ ] Review all resource caps now that processing chains create new sinks
+- [ ] Ammo, Med Kits, Field Rations, Stim Shots need caps sized for run loadouts
+- [ ] Add new resources to ResourceBar
+
+---
+
+## Phase 4 — Run Integration
+**Goal: Close the loop. Base output directly changes what you can do on runs.**
+
+### 4.1 — Deploy Loadout Builder
+- [ ] Update deploy planning screen (index.jsx) to show crafted goods as loadout slots:
+  - Field Rations → carried food equivalent
+  - Med Kits → starting medicine (better than base medicine item)
+  - Stim Shots → speed/damage boost consumable on run
+  - Ammo → starting ammo count
+  - Vehicle Mods → pre-equipped to selected vehicle
+- [ ] Each loadout item shows current stock and lets player choose how many to bring
+- [ ] `applyDeployCarry` updated to deduct chosen crafted goods from homeBase stock
+
+### 4.2 — Specialization Run Bonuses (Engine)
+- [ ] Read survivor specializations from deployed party in createInitialState
+- [ ] Apply bonuses to GameView initial state:
+  - Medic in party → `startingMedicine += 1`
+  - Cook in party → `needsDrainMultiplier = 0.8`
+  - Mechanic in party → `vehicleRepairCostMultiplier = 0.75`
+  - Builder in party → `barricadeHPMultiplier = 1.3`
+  - Guard in party → `turretSlots += 1`
+  - Scavenger in party → `rareDropChanceBonus = 0.15`
+- [ ] Surface active bonuses in GameView HUD (small badge row at top of screen)
+
+### 4.3 — Loot → Base Input Routing
+- [ ] On run completion (mergeRunIntoHomeBase), raw loot is added to homeBase resource pool
+- [ ] Herbs, Car Parts, Scrap tagged as "workstation inputs" — zone components highlight when they arrive
+- [ ] Post-run summary screen shows: "Brought back X scrap → workshop can now craft Y ammo"
+
+### 4.4 — Run Readiness Indicator
+- [ ] `getRunReadiness(homeBase)` pure function — returns readiness score 0–100
+- [ ] Factors: food stocked, ammo stocked, med kits stocked, vehicles fueled, survivors healthy
+- [ ] Wire `runReady` prop into `<ResourceBar>` (pill already rendered, just needs a value)
+- [ ] WorldMap deploy button disabled (with tooltip) if readiness < 25
+
+---
+
+## Key Architecture Rules (Carry Forward)
+
+- `engine_homebase.js` remains pure functions — no React dependencies
+- All new engine functions follow `tryPlace*` / `update*` / `apply*` naming conventions
+- New state fields added to `makeDefaultHomeBase()` with safe defaults
+- Save system (saveSystem.js v2) must be updated for any new state fields
+- CSS vars defined on BaseView root div — zone components inherit them
+- Zone components receive all state as props — no internal engine calls
+- Validate all engine changes with Babel parse before delivery
+- Read relevant files fully before writing any code
+
+---
+
+## Files Created So Far
+
+```
+Section.jsx          ← shared collapsible section wrapper
+ResourceBar.jsx      ← base layer top bar (always visible)
+BaseNav.jsx          ← bottom nav, 6 tabs, badge system
+BaseWorkshop.jsx     ← structures + blueprint queue + crafting
+BaseKitchen.jsx      ← kitchen zone (placeholder for Phase 2)
+BaseMedical.jsx      ← turrets + survivor healing + medical bay placeholder
+BaseGarden.jsx       ← crop plots
+BaseGarage.jsx       ← vehicle fleet
+BaseCommand.jsx      ← survivors + storage + activity + deploy map
+```
+
+## Files Modified So Far
+
+```
+BaseView.jsx         ← refactored to use zone components + ResourceBar + BaseNav
+engine_constants.js  ← Phase 2: WORKSTATION_CYCLE_SECS, WORKSTATION_GEAR_TIERS,
+                         SPECIALIZATIONS, SPECIALIZATION_MIN_LEVEL, BASE_RECIPES
+engine_homebase.js   ← Phase 2: cycle tick, gear upgrade, recipe queue, setSpecialization;
+                         makeDefaultHomeBase() + homeBaseToSnapshot() extended
+survivorRoster.js    ← Phase 2: specialization field on all record shapes
+saveSystem.js        ← Phase 2: version → 3, migrateHomeBase(), roster migration
+```
+
+## Files Pending (Phase 2 UI + Phase 3+)
+
+```
+BaseWorkshop.jsx     ← Phase 2.4: gear upgrade panel + recipe panel + cycle progress bars
+BaseKitchen.jsx      ← Phase 2.4 + 2.6: gear panel + recipe panel + specialization picker
+BaseMedical.jsx      ← Phase 2.4 + 2.6: gear panel + recipe panel + specialization picker
+BaseGarden.jsx       ← Phase 2.4 + 2.6: gear panel + recipe panel + specialization picker
+BaseCommand.jsx      ← Phase 2.6: specialization badge on survivor cards
+index.jsx            ← Phase 4: update deploy screen loadout builder
+GameView.jsx         ← Phase 4: apply specialization run bonuses to initial state
+```

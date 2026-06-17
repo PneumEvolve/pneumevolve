@@ -555,3 +555,351 @@ export const HEAL_HP_RESTORE    = 40;  // HP restored per heal action
 // ─── Step 4c: Deploy provisioning ────────────────────────────────────────────
 export const DEPLOY_FUEL_PER_VEHICLE  = 5;  // fuel cost per vehicle in the deploy party
 export const DEPLOY_FOOD_PER_SURVIVOR = 3;  // food cost per survivor in the deploy party
+
+// ─── Phase 2: Workstation Cycle Durations (seconds per production cycle) ─────
+// Base durations — modified by gear tier and survivor specialization at runtime.
+export const WORKSTATION_CYCLE_SECS = {
+  workshop: 30,   // 30s base cycle to produce scrap/nails
+  kitchen:  25,   // 25s base cycle to produce food
+  medical:  35,   // 35s base cycle to produce herbs/medicine
+  garden:   60,   // 60s base grow cycle for seeds
+};
+
+// ─── Phase 2: Workstation Gear Tiers ─────────────────────────────────────────
+// Each zone has 3 tiers. Tier 1 is the default. Upgrading costs materials and
+// applies a cycle speed + yield multiplier to every survivor stationed there.
+// requiresGearTier is the CURRENT tier (you upgrade FROM this tier).
+export const WORKSTATION_GEAR_TIERS = {
+  workshop: [
+    {
+      tier:          1,
+      name:          "Hand Tools",
+      icon:          "🔨",
+      cycleSpeedMult:1.0,
+      yieldMult:     1.0,
+      cost:          null,   // always available
+    },
+    {
+      tier:          2,
+      name:          "Power Tools",
+      icon:          "⚡",
+      cycleSpeedMult:1.4,
+      yieldMult:     1.25,
+      cost:          { scrap: 15, nails: 8 },
+    },
+    {
+      tier:          3,
+      name:          "Fabrication Bench",
+      icon:          "🏭",
+      cycleSpeedMult:2.0,
+      yieldMult:     1.6,
+      cost:          { scrap: 30, car_parts: 3 },
+    },
+  ],
+  kitchen: [
+    {
+      tier:          1,
+      name:          "Camp Stove",
+      icon:          "🔥",
+      cycleSpeedMult:1.0,
+      yieldMult:     1.0,
+      cost:          null,
+    },
+    {
+      tier:          2,
+      name:          "Gas Range",
+      icon:          "🍳",
+      cycleSpeedMult:1.35,
+      yieldMult:     1.3,
+      cost:          { scrap: 12, food: 5 },
+    },
+    {
+      tier:          3,
+      name:          "Industrial Kitchen",
+      icon:          "🧑‍🍳",
+      cycleSpeedMult:1.9,
+      yieldMult:     1.7,
+      cost:          { scrap: 25, nails: 10, food: 10 },
+    },
+  ],
+  medical: [
+    {
+      tier:          1,
+      name:          "First Aid Kit",
+      icon:          "🩹",
+      cycleSpeedMult:1.0,
+      yieldMult:     1.0,
+      cost:          null,
+    },
+    {
+      tier:          2,
+      name:          "Medical Cabinet",
+      icon:          "💊",
+      cycleSpeedMult:1.3,
+      yieldMult:     1.35,
+      cost:          { scrap: 10, medicine: 3 },
+    },
+    {
+      tier:          3,
+      name:          "Field Hospital",
+      icon:          "🏥",
+      cycleSpeedMult:1.85,
+      yieldMult:     1.8,
+      cost:          { scrap: 22, medicine: 8, nails: 8 },
+    },
+  ],
+  garden: [
+    {
+      tier:          1,
+      name:          "Hand Trowel",
+      icon:          "🌱",
+      cycleSpeedMult:1.0,
+      yieldMult:     1.0,
+      cost:          null,
+    },
+    {
+      tier:          2,
+      name:          "Rototiller",
+      icon:          "🚜",
+      cycleSpeedMult:1.4,
+      yieldMult:     1.25,
+      cost:          { scrap: 10, car_parts: 1 },
+    },
+    {
+      tier:          3,
+      name:          "Hydroponic Bay",
+      icon:          "🌿",
+      cycleSpeedMult:2.1,
+      yieldMult:     2.0,
+      cost:          { scrap: 28, nails: 12, seeds: 5 },
+    },
+  ],
+};
+
+// ─── Phase 2: Survivor Specializations ───────────────────────────────────────
+// Permanent once set (requires XP level >= 3). Each has a base-layer bonus
+// and a run bonus applied when the survivor is in the deploy party.
+export const SPECIALIZATIONS = {
+  mechanic: {
+    id:         "mechanic",
+    label:      "Mechanic",
+    emoji:      "🔧",
+    color:      "rgba(255,200,60,0.9)",
+    zone:       "workshop",
+    baseBonus:  "Workshop +25% cycle speed",
+    runBonus:   "Vehicle repairs cost less scrap on runs",
+    // Engine multipliers
+    cycleSpeedMult: 1.25,   // applied to workshop workstation cycles
+    yieldMult:      1.0,
+    runRepairCostMult: 0.75,
+  },
+  medic: {
+    id:         "medic",
+    label:      "Medic",
+    emoji:      "💉",
+    color:      "rgba(80,220,160,0.9)",
+    zone:       "medical",
+    baseBonus:  "Medical +25% yield",
+    runBonus:   "Start runs with 1 free med kit",
+    cycleSpeedMult: 1.0,
+    yieldMult:      1.25,
+    runFreeMedKit:  1,
+  },
+  cook: {
+    id:         "cook",
+    label:      "Cook",
+    emoji:      "🍳",
+    color:      "rgba(255,140,40,0.9)",
+    zone:       "kitchen",
+    baseBonus:  "Kitchen +25% yield",
+    runBonus:   "Survivor needs drain 20% slower on runs",
+    cycleSpeedMult: 1.0,
+    yieldMult:      1.25,
+    runNeedsDrainMult: 0.8,
+  },
+  builder: {
+    id:         "builder",
+    label:      "Builder",
+    emoji:      "🏗️",
+    color:      "rgba(200,160,80,0.9)",
+    zone:       null,   // benefit applies to all zones equally (blueprint speed)
+    baseBonus:  "Blueprints build 50% faster",
+    runBonus:   "Barricades on runs have +30% HP",
+    cycleSpeedMult: 1.0,
+    yieldMult:      1.0,
+    runBarricadeHPMult: 1.3,
+    baseBlueprintSpeedMult: 0.5,  // cast time multiplier (lower = faster)
+  },
+  guard: {
+    id:         "guard",
+    label:      "Guard",
+    emoji:      "🛡️",
+    color:      "rgba(255,100,80,0.9)",
+    zone:       "guard_post",
+    baseBonus:  "Guard post covers more area",
+    runBonus:   "+1 turret slot on runs",
+    cycleSpeedMult: 1.0,
+    yieldMult:      1.0,
+    runBonusTurretSlots: 1,
+    baseGuardRangeBonus: 0.25,  // +25% guard post coverage
+  },
+  scavenger: {
+    id:         "scavenger",
+    label:      "Scavenger",
+    emoji:      "🔍",
+    color:      "rgba(160,200,120,0.9)",
+    zone:       null,
+    baseBonus:  "+15% loot from base salvage",
+    runBonus:   "Find rare loot more often on runs",
+    cycleSpeedMult: 1.0,
+    yieldMult:      1.15,
+    runRareDropBonus: 0.15,
+    baseSalvageBonus: 0.15,
+  },
+};
+
+// Minimum XP level required to choose a specialization (permanent choice).
+export const SPECIALIZATION_MIN_LEVEL = 3;
+
+// ─── Phase 3: Base Production Recipes ────────────────────────────────────────
+// Tier 2 and Tier 3 recipes unlocked by workstation assignment + gear upgrades.
+// requiresGearTier: minimum gear tier needed to see and craft this recipe.
+// seconds: base crafting duration (modified by gear and specialization at runtime).
+export const BASE_RECIPES = [
+  // ── Workshop recipes ───────────────────────────────────────────────────────
+  {
+    id:              "scrap_to_nails",
+    zone:            "workshop",
+    label:           "Nails",
+    icon:            "📌",
+    desc:            "Flatten scrap into nails",
+    inputs:          { scrap: 4 },
+    output:          { nails: 6 },
+    seconds:         20,
+    requiresGearTier:1,
+  },
+  {
+    id:              "scrap_to_car_parts",
+    zone:            "workshop",
+    label:           "Car Parts",
+    icon:            "⚙️",
+    desc:            "Salvage scrap into usable car parts",
+    inputs:          { scrap: 8 },
+    output:          { car_parts: 1 },
+    seconds:         30,
+    requiresGearTier:2,
+  },
+  {
+    id:              "workshop_ammo",
+    zone:            "workshop",
+    label:           "Ammo",
+    icon:            "🔫",
+    desc:            "Reload spent casings into usable ammo",
+    inputs:          { scrap: 6, nails: 4 },
+    output:          { ammo: 10 },
+    seconds:         40,
+    requiresGearTier:2,
+  },
+  {
+    id:              "vehicle_mod",
+    zone:            "workshop",
+    label:           "Vehicle Mod",
+    icon:            "🚗",
+    desc:            "Fabricate a vehicle upgrade component",
+    inputs:          { car_parts: 2, scrap: 10 },
+    output:          { vehicle_mod: 1 },
+    seconds:         60,
+    requiresGearTier:3,
+  },
+  // ── Kitchen recipes ────────────────────────────────────────────────────────
+  {
+    id:              "food_to_rations",
+    zone:            "kitchen",
+    label:           "Field Rations",
+    icon:            "🥫",
+    desc:            "Package food into portable field rations",
+    inputs:          { food: 6 },
+    output:          { field_rations: 2 },
+    seconds:         25,
+    requiresGearTier:1,
+  },
+  {
+    id:              "stim_shot",
+    zone:            "kitchen",
+    label:           "Stim Shot",
+    icon:            "💉",
+    desc:            "Mix a stimulant that boosts speed and damage",
+    inputs:          { field_rations: 1, herbs: 3 },
+    output:          { stim_shot: 1 },
+    seconds:         45,
+    requiresGearTier:2,
+  },
+  {
+    id:              "antidote",
+    zone:            "kitchen",
+    label:           "Antidote",
+    icon:            "🧪",
+    desc:            "Brew a basic antidote from food stock",
+    inputs:          { food: 4, herbs: 2 },
+    output:          { antidote: 1 },
+    seconds:         35,
+    requiresGearTier:2,
+  },
+  // ── Medical recipes ────────────────────────────────────────────────────────
+  {
+    id:              "herbs_to_medicine",
+    zone:            "medical",
+    label:           "Medicine",
+    icon:            "💊",
+    desc:            "Process herbs into usable medicine",
+    inputs:          { herbs: 4 },
+    output:          { medicine: 2 },
+    seconds:         30,
+    requiresGearTier:1,
+  },
+  {
+    id:              "med_kit",
+    zone:            "medical",
+    label:           "Med Kit",
+    icon:            "🩺",
+    desc:            "Assemble a field-ready med kit",
+    inputs:          { medicine: 3, scrap: 2 },
+    output:          { med_kit: 1 },
+    seconds:         50,
+    requiresGearTier:2,
+  },
+  {
+    id:              "adrenaline",
+    zone:            "medical",
+    label:           "Adrenaline",
+    icon:            "⚡",
+    desc:            "Synthesise an adrenaline shot from medicine",
+    inputs:          { medicine: 4 },
+    output:          { adrenaline: 1 },
+    seconds:         55,
+    requiresGearTier:3,
+  },
+  // ── Garden recipes ─────────────────────────────────────────────────────────
+  {
+    id:              "seeds_to_crops",
+    zone:            "garden",
+    label:           "Crops",
+    icon:            "🌽",
+    desc:            "Cultivate seeds into harvestable crops",
+    inputs:          { seeds: 2 },
+    output:          { food: 8 },
+    seconds:         60,
+    requiresGearTier:1,
+  },
+  {
+    id:              "preserved_food",
+    zone:            "garden",
+    label:           "Preserved Food",
+    icon:            "🥫",
+    desc:            "Preserve crops for long-term storage",
+    inputs:          { food: 10 },
+    output:          { field_rations: 4 },
+    seconds:         80,
+    requiresGearTier:2,
+  },
+];
