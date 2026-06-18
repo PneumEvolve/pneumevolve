@@ -71,8 +71,8 @@ const SURVIVOR_FLEE_HP_FRAC  = 0.30; // flee to shelter below 30% HP
 const SURVIVOR_COMBAT_RANGE  = 160;  // engage zombies within this range
 
 // Work cast times (seconds)
-const GARDEN_CAST_TIME  = 8;
-const KITCHEN_CAST_TIME = 10;
+const GARDEN_CAST_TIME  = 9;   // slightly slower — food should require attention
+const KITCHEN_CAST_TIME = 16;  // cooking is a real investment; T2/T3 upgrades pay off
 const CRAFT_CAST_TIME   = 3;
 
 // Resources produced per cycle
@@ -98,6 +98,10 @@ const GUARD_POST_FIRE_RATE = 1.2;
 // Carpenter behavior
 const CARPENTER_REPAIR_RATE = 8; // HP/sec when actively repairing (faster than passive)
 
+// Research Lab
+const LAB_CAST_TIME         = 20;  // seconds per 1% research tick
+const RESEARCH_SAMPLE_CHANCE = 0.18; // probability a successful run yields +1% research sample
+
 // Bat / Gun
 const BAT_RANGE     = 44;
 const BAT_RATE      = 1.4;
@@ -121,17 +125,17 @@ const FLAME_FLASH_DUR = 0.14;
 // All needs are 0–100. They drain over time. At 0 = critical.
 const NEEDS_MAX       = 100;
 const RUN_NEEDS_MIN   = NEEDS_MAX * 0.5; // every need must be above this to be sent on a run
-const HUNGER_DRAIN    = 0.6;   // per second
-const THIRST_DRAIN    = 0.9;   // per second (faster)
-const SLEEP_DRAIN     = 0.35;  // per second
+const HUNGER_DRAIN    = 0.38;  // per second — full bar lasts ~4 day cycles; needs attention but not panic
+const THIRST_DRAIN    = 0.50;  // per second — still drains faster, condenser matters
+const SLEEP_DRAIN     = 0.18;  // per second (was 0.35)
 const HUNGER_CRIT     = 20;
 const THIRST_CRIT     = 20;
 const SLEEP_CRIT      = 15;
-const MEAL_RESTORE    = 35;    // hunger restored by 1 meal
-const CROP_RESTORE    = 15;    // hunger restored by eating a raw crop (less than a cooked meal)
-const WATER_RESTORE   = 40;    // thirst restored by 1 water unit
+const MEAL_RESTORE    = 55;    // hunger restored by 1 meal (was 35)
+const CROP_RESTORE    = 22;    // hunger restored by eating a raw crop (was 15)
+const WATER_RESTORE   = 55;    // thirst restored by 1 water unit (was 40)
 const SLEEP_RATE      = 8;     // per second while sleeping
-const SLEEP_TRIGGER   = 30;    // survivors auto-seek sleep below this
+const SLEEP_TRIGGER   = RUN_NEEDS_MIN; // survivors auto-seek sleep at/below this (keeps them run-ready)
 const WATER_PER_DRINK = 1;     // units of water consumed per drink
 
 // ─── Building definitions ─────────────────────────────────────────────────────
@@ -182,6 +186,12 @@ const BUILDING_TYPES = {
     description: "Survivors with Body Armour garrison here and shoot zombies. You can also occupy it.",
     cost: { wood: 10, scrap: 8 },
   },
+  research_lab: {
+    id: "research_lab", label: "Research Lab", color: "#44bbdd",
+    radius: 22, buildTime: BUILD_TIME, icon: "🧪",
+    description: "Work here to advance the cure. Researcher (Lab Coat) works it automatically. Reach 100% to win.",
+    cost: { scrap: 20, wood: 15 },
+  },
   wall: {
     id: "wall", label: "Wall Section", color: "#887755",
     radius: 16, buildTime: 2, icon: "🧱",
@@ -197,12 +207,65 @@ const PLACEABLE_BUILDINGS = [
   BUILDING_TYPES.garden,
   BUILDING_TYPES.kitchen,
   BUILDING_TYPES.condenser,
+  BUILDING_TYPES.research_lab,
 ];
 
 const DEFENSE_BUILDINGS = [
   BUILDING_TYPES.guard_post,
   BUILDING_TYPES.wall,
 ];
+
+// ─── Building upgrade tiers ───────────────────────────────────────────────────
+// Tier 1 = base built state. Tiers 2-3 are purchasable upgrades from the building modal.
+const BUILDING_TIERS = {
+  garden: [
+    { tier: 2, label: "Greenhouse",         cost: { wood: 10, seeds: 6 },              maxHp: 120, castTime: 7, yield: 3,
+      description: "Reinforced. 3 crops per harvest, slightly faster." },
+    { tier: 3, label: "Mega Farm",           cost: { wood: 18, seeds: 10, scrap: 6 },   maxHp: 160, castTime: 6, yield: 5,
+      description: "Full cultivation. 5 crops per harvest." },
+  ],
+  kitchen: [
+    { tier: 2, label: "Field Kitchen",       cost: { scrap: 8, fuel: 4, wood: 6 },      maxHp: 120, yield: 2,
+      description: "Better equipment. Cooks 2 meals per batch." },
+    { tier: 3, label: "Mess Hall",           cost: { scrap: 16, fuel: 8, wood: 10 },    maxHp: 160, yield: 3,
+      description: "Industrial kitchen. 3 meals per batch." },
+  ],
+  condenser: [
+    { tier: 2, label: "Water Tower",         cost: { scrap: 14, fuel: 5 },              maxHp: 120, rateMult: 2.5,
+      description: "2.5x water output. Keeps up with a larger group." },
+    { tier: 3, label: "Purification Plant",  cost: { scrap: 24, fuel: 10 },             maxHp: 160, rateMult: 5,
+      description: "5x water output. Near-infinite supply." },
+  ],
+  guard_post: [
+    { tier: 2, label: "Reinforced Post",     cost: { wood: 12, scrap: 10 },             maxHp: 120, range: 360, damage: 32, fireRate: 1.5,
+      description: "Bigger range, more damage, faster fire rate." },
+    { tier: 3, label: "Tower Emplacement",   cost: { wood: 20, scrap: 18, fuel: 6 },    maxHp: 160, range: 450, damage: 45, fireRate: 2.0,
+      description: "Long range. Fires twice as fast. Shreds hordes." },
+  ],
+  weaponsmith: [
+    { tier: 2, label: "Smithy",              cost: { scrap: 12, wood: 8, fuel: 4 },     maxHp: 120,
+      description: "Upgraded forge. (Unlocks advanced weapons — coming soon.)" },
+    { tier: 3, label: "Armory",              cost: { scrap: 22, wood: 14, fuel: 8 },    maxHp: 160,
+      description: "Full armory. (Unlocks elite weapons — coming soon.)" },
+  ],
+  gearmaker: [
+    { tier: 2, label: "Workshop",            cost: { wood: 12, scrap: 8 },              maxHp: 120,
+      description: "Expanded workshop. (Unlocks advanced gear — coming soon.)" },
+    { tier: 3, label: "Tech Lab",            cost: { wood: 20, scrap: 16, fuel: 6 },    maxHp: 160,
+      description: "High-tech crafting. (Unlocks elite gear — coming soon.)" },
+  ],
+};
+
+function getBuildingTier(b)  { return b.tier ?? 1; }
+function getNextTierData(b) {
+  const tiers = BUILDING_TIERS[b.type]; if (!tiers) return null;
+  return tiers.find(t => t.tier === getBuildingTier(b) + 1) ?? null;
+}
+function getBuildingStat(b, stat) {
+  const tier = getBuildingTier(b); if (tier <= 1) return null;
+  const tiers = BUILDING_TIERS[b.type]; if (!tiers) return null;
+  return tiers.find(t => t.tier === tier)?.[stat] ?? null;
+}
 
 // ─── Craftable items ──────────────────────────────────────────────────────────
 // Each crafted item goes into storage.inventory as a count.
@@ -244,6 +307,12 @@ const CRAFTABLES = {
     slot: "armor",
     description: "Survivor garrisons a Guard Post and shoots zombies from safety.",
   },
+  lab_coat: {
+    id: "lab_coat", label: "Lab Coat", icon: "🥼", color: "#44bbdd",
+    station: "gearmaker", cost: { scrap: 8, wood: 6 }, castTime: 10,
+    slot: "armor",
+    description: "Survivor works the Research Lab automatically, advancing the cure.",
+  },
   carpenters_gloves: {
     id: "carpenters_gloves", label: "Carpenter's Gloves", icon: "🪚", color: "#aa8855",
     station: "gearmaker", cost: { wood: 5, scrap: 3 }, castTime: 5,
@@ -275,6 +344,9 @@ Object.values(CRAFTABLES).forEach(c => {
 });
 
 // ─── Run definitions ──────────────────────────────────────────────────────────
+// Loot design: risk-adjusted value scales with duration × (1/successChance).
+// A 150s extreme run should feel like ~6-8× a 15s safe run when it pays off.
+// focusBonus scales with danger: safe=0.5, low=0.6, medium=0.75, high=0.9, extreme=1.1
 const RUN_LOOT_TYPES = [
   { id: "fuel",  icon: "⛽", label: "Fuel",   color: "#ffaa33" },
   { id: "seeds", icon: "🌾", label: "Seeds",  color: "#88dd55" },
@@ -282,12 +354,36 @@ const RUN_LOOT_TYPES = [
   { id: "wood",  icon: "🪵", label: "Wood",   color: "#cc8844" },
 ];
 
-// Gear bonuses to run success chance
+const RUNS = [
+  { id:1, name:"Block Sweep",    subtitle:"Close to home",   icon:"🏘️", danger:0, dangerLabel:"CLEAR",   dangerColor:"#44cc66", duration:15,  successChance:1.0,  unlockDay:1,
+    description:"A quick sweep of the block. Safe during daylight — good place to start.",
+    baseLoot:{fuel:[1,3],seeds:[3,6],scrap:[4,8],wood:[5,9]}, focusBonus:0.5 },
+  { id:2, name:"Strip Mall",     subtitle:"2 blocks east",   icon:"🏪", danger:1, dangerLabel:"LOW",     dangerColor:"#aadd44", duration:30,  successChance:0.9,  unlockDay:2,
+    description:"Pharmacy, dollar store, gas station. A few stragglers but manageable.",
+    baseLoot:{fuel:[4,8],seeds:[4,8],scrap:[9,16],wood:[8,14]}, focusBonus:0.6 },
+  { id:3, name:"High School",    subtitle:"North campus",    icon:"🏫", danger:2, dangerLabel:"MEDIUM",  dangerColor:"#ddaa22", duration:45,  successChance:0.75, unlockDay:3,
+    description:"Cafeteria, maintenance rooms. Lots of dark hallways and more zombies.",
+    baseLoot:{fuel:[4,9],seeds:[8,15],scrap:[12,20],wood:[10,18]}, focusBonus:0.75 },
+  { id:4, name:"Fire Station",   subtitle:"Downtown",        icon:"🚒", danger:2, dangerLabel:"MEDIUM",  dangerColor:"#ddaa22", duration:60,  successChance:0.7,  unlockDay:4,
+    description:"Heavy equipment. Fuel reserves. Worth the risk if you need to power up.",
+    baseLoot:{fuel:[16,28],seeds:[2,4],scrap:[14,24],wood:[6,12]}, focusBonus:0.75 },
+  { id:5, name:"Supermarket",    subtitle:"Greenfield Ave",  icon:"🛒", danger:3, dangerLabel:"HIGH",    dangerColor:"#ee6622", duration:90,  successChance:0.55, unlockDay:5,
+    description:"The big one. Overrun, but the stockroom is worth dying for.",
+    baseLoot:{fuel:[5,10],seeds:[20,35],scrap:[12,22],wood:[10,18]}, focusBonus:0.9 },
+  { id:6, name:"Police Armoury", subtitle:"Civic centre",    icon:"🔫", danger:4, dangerLabel:"EXTREME", dangerColor:"#cc2222", duration:120, successChance:0.4,  unlockDay:6,
+    description:"Fortified. Crawling with them. But if you get through, you're set for weapons.",
+    baseLoot:{fuel:[10,18],seeds:[4,8],scrap:[30,50],wood:[6,12]}, focusBonus:1.1 },
+  { id:7, name:"City Hospital",  subtitle:"Emergency wing",  icon:"🏥", danger:4, dangerLabel:"EXTREME", dangerColor:"#cc2222", duration:150, successChance:0.35, unlockDay:7,
+    description:"Nobody who went in week one came back. Basement supposedly still has power.",
+    baseLoot:{fuel:[14,24],seeds:[16,28],scrap:[22,38],wood:[10,18]}, focusBonus:1.1 },
+];
+
+// ─── Run bonus systems ────────────────────────────────────────────────────────
+// Gear bonus to success chance (per person in party, additive, capped)
 const RUN_GEAR_BONUSES = {
   weapon: { bat: 0.08, gun: 0.15, flamethrower: 0.20 },
-  armor:  { body_armour: 0.10 },
+  armor:  { body_armour: 0.10, lab_coat: 0.05 },
 };
-// Per-survivor gear bonus (additive, capped at +0.35 total)
 function calcRunGearBonus(gearList) {
   let bonus = 0;
   for (const gear of gearList) {
@@ -295,41 +391,53 @@ function calcRunGearBonus(gearList) {
     bonus += RUN_GEAR_BONUSES.weapon[gear.weapon] ?? 0;
     bonus += RUN_GEAR_BONUSES.armor[gear.armor]   ?? 0;
   }
-  return Math.min(0.35, bonus);
+  return Math.min(0.40, bonus);
 }
 
-// Building costs range from 8-18 resources total
-// Block Sweep (safe, fast): 3-6 each → ~4 avg per type → 1 focused type gives 6-9 (hits cheap buildings)
-// Strip Mall: 6-10 → 1 focused type gives 9-15 (hits most mid buildings)
-// Higher runs: ~12-20 → enables expensive structures
-const RUNS = [
-  { id:1, name:"Block Sweep",    subtitle:"Close to home",   icon:"🏘️", danger:0, dangerLabel:"CLEAR",   dangerColor:"#44cc66", duration:15,  successChance:1.0,  unlockDay:1,
-    description:"A quick sweep of the block. Safe during daylight — good place to start.",
-    baseLoot:{fuel:[1,3],seeds:[2,4],scrap:[3,6],wood:[4,7]}, focusBonus:0.6 },
-  { id:2, name:"Strip Mall",     subtitle:"2 blocks east",   icon:"🏪", danger:1, dangerLabel:"LOW",     dangerColor:"#aadd44", duration:30,  successChance:0.9,  unlockDay:2,
-    description:"Pharmacy, dollar store, gas station. A few stragglers but manageable.",
-    baseLoot:{fuel:[3,6],seeds:[2,4],scrap:[5,9],wood:[3,6]}, focusBonus:0.6 },
-  { id:3, name:"High School",    subtitle:"North campus",    icon:"🏫", danger:2, dangerLabel:"MEDIUM",  dangerColor:"#ddaa22", duration:45,  successChance:0.75, unlockDay:3,
-    description:"Cafeteria, maintenance rooms. Lots of dark hallways and more zombies.",
-    baseLoot:{fuel:[2,5],seeds:[5,9],scrap:[5,9],wood:[5,9]}, focusBonus:0.6 },
-  { id:4, name:"Fire Station",   subtitle:"Downtown",        icon:"🚒", danger:2, dangerLabel:"MEDIUM",  dangerColor:"#ddaa22", duration:60,  successChance:0.7,  unlockDay:4,
-    description:"Heavy equipment. Fuel reserves. Worth the risk if you need to power up.",
-    baseLoot:{fuel:[8,15],seeds:[1,2],scrap:[6,11],wood:[2,5]}, focusBonus:0.6 },
-  { id:5, name:"Supermarket",    subtitle:"Greenfield Ave",  icon:"🛒", danger:3, dangerLabel:"HIGH",    dangerColor:"#ee6622", duration:90,  successChance:0.55, unlockDay:5,
-    description:"The big one. Overrun, but the stockroom is worth dying for.",
-    baseLoot:{fuel:[2,4],seeds:[10,18],scrap:[5,9],wood:[4,8]}, focusBonus:0.6 },
-  { id:6, name:"Police Armoury", subtitle:"Civic centre",    icon:"🔫", danger:4, dangerLabel:"EXTREME", dangerColor:"#cc2222", duration:120, successChance:0.4,  unlockDay:6,
-    description:"Fortified. Crawling with them. But if you get through, you're set for weapons.",
-    baseLoot:{fuel:[4,8],seeds:[1,3],scrap:[14,22],wood:[2,5]}, focusBonus:0.6 },
-  { id:7, name:"City Hospital",  subtitle:"Emergency wing",  icon:"🏥", danger:4, dangerLabel:"EXTREME", dangerColor:"#cc2222", duration:150, successChance:0.35, unlockDay:7,
-    description:"Nobody who went in week one came back. Basement supposedly still has power.",
-    baseLoot:{fuel:[5,9],seeds:[7,13],scrap:[9,16],wood:[4,8]}, focusBonus:0.6 },
-];
+// Party size bonus to success chance: +10% per extra member, capped at +30%
+function calcPartySuccessBonus(partySize) {
+  return Math.min(0.30, Math.max(0, partySize - 1) * 0.10);
+}
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// Party loot multiplier: fully multiplicative — N people bring N× loot
+// This makes big parties strictly better than splitting
+function calcPartyLootMult(partySize) {
+  return Math.max(1, partySize);
+}
 function lerp(a, b, t) { return a + (b - a) * t; }
 function lerpColor(c1, c2, t) { return c1.map((v, i) => lerp(v, c2[i], t)); }
 function dist(ax, ay, bx, by) { return Math.sqrt((ax - bx) ** 2 + (ay - by) ** 2); }
+// Distance from point (px,py) to line segment (ax,ay)-(bx,by)
+function distToSegment(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay;
+  const lenSq = dx*dx + dy*dy;
+  if (lenSq === 0) return dist(px, py, ax, ay);
+  const t = Math.max(0, Math.min(1, ((px-ax)*dx + (py-ay)*dy) / lenSq));
+  return dist(px, py, ax + t*dx, ay + t*dy);
+}
+// Returns the closest built wall that intersects the line from (x1,y1) to (x2,y2),
+// or null if none. Uses point-to-segment distance on the zombie's movement vector.
+function wallBlockingPath(walls, x1, y1, x2, y2) {
+  const halfThick = WALL_THICKNESS / 2 + ZOMBIE_RADIUS;
+  let best = null, bestD = Infinity;
+  (walls || []).forEach(w => {
+    if (!w.built || (w.hp ?? WALL_HP) <= 0) return;
+    // Does the wall segment come within halfThick of the zombie's intended path segment?
+    // We sample several points along the zombie's path and check distance to wall.
+    const steps = 5;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const px = x1 + (x2 - x1) * t, py = y1 + (y2 - y1) * t;
+      const d = distToSegment(px, py, w.x1, w.y1, w.x2, w.y2);
+      if (d < halfThick) {
+        const wallMidDist = dist(x1, y1, (w.x1+w.x2)/2, (w.y1+w.y2)/2);
+        if (wallMidDist < bestD) { bestD = wallMidDist; best = w; }
+        break;
+      }
+    }
+  });
+  return best;
+}
 function hexToRgb(hex) {
   const h = hex.replace("#", "");
   return `${parseInt(h.slice(0,2),16)},${parseInt(h.slice(2,4),16)},${parseInt(h.slice(4,6),16)}`;
@@ -392,16 +500,21 @@ function getToolBehavior(sv) {
   if (tool === "chefs_knife")        return "kitchen";
   if (tool === "carpenters_gloves")  return "carpenter";
   if (armor === "body_armour")       return "guard";
+  if (armor === "lab_coat")          return "researcher";
   return "wander";
 }
 
 function nearestBuilding(s, type, excludeSurvivorId) {
-  // A workstation is "occupied" when another survivor is already inside it
+  // A workstation is "occupied" when another survivor is already inside it,
+  // OR when the player is actively casting there (not paused, not blocked)
   const occupiedIds = new Set(
     s.survivors
       .filter(sv => sv.insideBuilding && (!excludeSurvivorId || sv.id !== excludeSurvivorId))
       .map(sv => sv.insideBuilding)
   );
+  if (s.playerWorkCast && !s.playerWorkCast.paused && !s.playerWorkCast.blocked) {
+    occupiedIds.add(s.playerWorkCast.buildingId);
+  }
   return s.buildings
     .filter(b => b.built && (b.hp ?? BUILDING_MAX_HP) > 0 && b.type === type && !occupiedIds.has(b.id))
     .sort((a, b) => dist(0, 0, a.x, a.y) - dist(0, 0, b.x, b.y))[0] ?? null;
@@ -432,6 +545,7 @@ export default function ZomBase() {
   const cameraRef   = useRef({ x: WORLD_W / 2, y: WORLD_H / 2 });
   const wallPlacingRef = useRef(null);
   const mousePosRef = useRef({ x: 0, y: 0 });
+  const ghostPosRef = useRef({ x: WORLD_W / 2, y: WORLD_H / 2 }); // world-space ghost position in placement mode
 
   const weaponRef           = useRef(null);
   const playerGearRef       = useRef({ weapon: null, tool: null, armor: null });
@@ -479,6 +593,11 @@ export default function ZomBase() {
   const setSelectedBuilding = v => {
     selectedBuildingRef.current = v;
     setSelectedBuildingRaw(v);
+    if (v && v !== "wall") {
+      // Snap ghost to player's current world position when entering placement mode
+      const s = stateRef.current;
+      if (s) ghostPosRef.current = { x: s.player.x, y: s.player.y };
+    }
     if (!v) { setPendingPlacement(null); pendingPlacementRef.current = null; }
   };
   const setCraftingQueue    = v => { craftingQueueRef.current = v;    setCraftingQueueRaw(v); };
@@ -499,11 +618,13 @@ export default function ZomBase() {
       shelterHp:        SHELTER_MAX_HP,  shelterFlash: 0,
       shelterLevel:     1,
       gameOver:         false,
+      gameWon:          false,
       zombies:          [], nextZombieId:   1, zombiesSpawned: false,
       buildings:        [], nextBuildingId: 1,
       walls:            [], nextWallId:     1,
       survivors:        [], nextSurvivorId: 1,
       bullets:          [], nextBulletId:   1,
+      flameParticles:   [],
       attackCd:         0,
       batFlash:         null,
       unarmedFlash:     null,
@@ -513,6 +634,8 @@ export default function ZomBase() {
       inventory: Object.fromEntries(Object.keys(CRAFTABLES).map(k => [k, 0])),
       playerCraft:      null,
       condenserAccum:   0,
+      researchPct:      0,
+      zombiesKilled:    0,
     };
   }
 
@@ -525,17 +648,46 @@ export default function ZomBase() {
       s.phaseT = 0;
       if      (s.phase === "day")   s.phase = "dusk";
       else if (s.phase === "dusk")  { s.phase = "night"; s.nightZombiesSpawned = false; }
-      else if (s.phase === "night") { s.phase = "dawn";  s.zombies = s.zombies.filter(z=>z.dead); s.bullets = []; }
+      else if (s.phase === "night") { s.phase = "dawn";  const killed = s.zombies.filter(z=>z.dead).length; s.zombiesKilled = (s.zombiesKilled ?? 0) + killed; s.zombies = s.zombies.filter(z=>z.dead); s.bullets = []; }
       else if (s.phase === "dawn")  { s.phase = "day";   s.day++;  s.dayZombiesSpawned = false; s._pendingAutosave = true; }
     }
 
-    // Day zombies: 1 per day number, patrolling outside build zone
+    // Day zombies: soft curve with variant composition from day 5+
+    // Count: 2 + floor(day * 1.4), plateaus feel at ~day 14 (22 zombies), capped at 30
+    // Variants: fast (day 5+), tough (day 8+), brute (day 12+)
     const _buildRadius = getBuildRadius(s.shelterLevel);
     if (s.phase === "day" && !s.dayZombiesSpawned) {
       s.dayZombiesSpawned = true;
-      for (let i = 0; i < s.day; i++) {
+      const count = Math.min(30, Math.floor(2 + s.day * 1.4));
+      for (let i = 0; i < count; i++) {
         const z = spawnZombieEdge(s.nextZombieId++, SHELTER.x, SHELTER.y, _buildRadius);
         z.dayPatroller = true;
+        // Variant composition: weighted random by day
+        const roll = Math.random();
+        if (s.day >= 12 && roll < 0.12) {
+          // Brute: slow but very tough, high damage
+          z.variant = "brute";
+          z.hp = z.maxHp = 90;
+          z.speedMult = 0.65;
+          z.damageMult = 2.5;
+        } else if (s.day >= 8 && roll < 0.28) {
+          // Tough: extra HP, normal speed
+          z.variant = "tough";
+          z.hp = z.maxHp = 60;
+          z.speedMult = 0.9;
+          z.damageMult = 1.0;
+        } else if (s.day >= 5 && roll < 0.42) {
+          // Fast: low HP, high speed
+          z.variant = "fast";
+          z.hp = z.maxHp = 18;
+          z.speedMult = 1.7;
+          z.damageMult = 0.8;
+        } else {
+          // Standard
+          z.variant = "standard";
+          z.speedMult = 1.0;
+          z.damageMult = 1.0;
+        }
         s.zombies.push(z);
       }
     }
@@ -548,7 +700,12 @@ export default function ZomBase() {
     // ── Water condenser ───────────────────────────────────────────────────────
     const condensers = s.buildings.filter(b => b.built && (b.hp ?? BUILDING_MAX_HP) > 0 && b.type === "condenser");
     if (condensers.length > 0) {
-      s.condenserAccum = (s.condenserAccum ?? 0) + CONDENSER_RATE * condensers.length * dt;
+      // Each condenser contributes its own rate (tier bonuses stack per-unit)
+      const totalRate = condensers.reduce((sum, b) => {
+        const mult = getBuildingStat(b, "rateMult") ?? 1;
+        return sum + CONDENSER_RATE * mult;
+      }, 0);
+      s.condenserAccum = (s.condenserAccum ?? 0) + totalRate * dt;
       while (s.condenserAccum >= 1) {
         s.storage.water = (s.storage.water ?? 0) + 1;
         s.condenserAccum -= 1;
@@ -622,11 +779,18 @@ export default function ZomBase() {
       if (joy.active) { vx += joy.dx; vy += joy.dy; }
       const mlen = Math.sqrt(vx * vx + vy * vy);
       if (mlen > 0) {
-        s.player.x = Math.max(PLAYER_RADIUS, Math.min(WORLD_W - PLAYER_RADIUS,
-          s.player.x + (vx / mlen) * PLAYER_SPEED * dt));
-        s.player.y = Math.max(PLAYER_RADIUS, Math.min(WORLD_H - PLAYER_RADIUS,
-          s.player.y + (vy / mlen) * PLAYER_SPEED * dt));
-        s.player.facing = Math.atan2(vy, vx);
+        // In ghost placement mode, joystick/keys move the ghost instead of the player
+        if (selectedBuildingRef.current && selectedBuildingRef.current !== "wall") {
+          const gp = ghostPosRef.current;
+          gp.x = Math.max(0, Math.min(WORLD_W, gp.x + (vx / mlen) * PLAYER_SPEED * dt));
+          gp.y = Math.max(0, Math.min(WORLD_H, gp.y + (vy / mlen) * PLAYER_SPEED * dt));
+        } else {
+          s.player.x = Math.max(PLAYER_RADIUS, Math.min(WORLD_W - PLAYER_RADIUS,
+            s.player.x + (vx / mlen) * PLAYER_SPEED * dt));
+          s.player.y = Math.max(PLAYER_RADIUS, Math.min(WORLD_H - PLAYER_RADIUS,
+            s.player.y + (vy / mlen) * PLAYER_SPEED * dt));
+          s.player.facing = Math.atan2(vy, vx);
+        }
       }
     }
 
@@ -645,20 +809,46 @@ export default function ZomBase() {
       if (b.built) {
         // Guard post: fire when player or armoured survivor is garrisoned inside
         if (b.type === "guard_post" && b.hp > 0) {
-          const hasPlayer = s.playerInBuilding === b.id && !s.playerOnRun;
-          const guardSurv = s.survivors.find(sv => sv.insideBuilding === b.id && !sv.sleeping && !sv.onRun);
+          const hasPlayer = s.playerInBuilding === b.id && !s.playerOnRun && !!weaponRef.current;
+          const guardSurv = s.survivors.find(sv => sv.insideBuilding === b.id && !sv.sleeping && !sv.onRun
+            && sv.gear?.armor === "body_armour" && !!sv.gear?.weapon);
           if (hasPlayer || guardSurv) {
+            // Determine occupant weapon — player takes priority if both present
+            const occupantWeapon = hasPlayer ? weaponRef.current : (guardSurv?.gear?.weapon ?? null);
+            const usesFlame = occupantWeapon === "flamethrower";
+            const gpRange    = usesFlame ? FLAME_RANGE    : (getBuildingStat(b, "range")    ?? GUARD_POST_RANGE);
+            const gpFireRate = usesFlame ? FLAME_RATE     : (getBuildingStat(b, "fireRate") ?? GUARD_POST_FIRE_RATE);
+            const gpDamage   = usesFlame ? FLAME_DAMAGE   : (getBuildingStat(b, "damage")   ?? GUARD_POST_DAMAGE);
             b.fireCd = Math.max(0, (b.fireCd??0) - dt);
             if (b.fireCd <= 0) {
               const lz = s.zombies.filter(z=>!z.dead);
               let nearest=null, nearestD=Infinity;
-              lz.forEach(z => { const d=dist(b.x,b.y,z.x,z.y); if(d<GUARD_POST_RANGE&&d<nearestD){nearest=z;nearestD=d;} });
+              lz.forEach(z => { const d=dist(b.x,b.y,z.x,z.y); if(d<gpRange&&d<nearestD){nearest=z;nearestD=d;} });
               if (nearest) {
-                b.fireCd = 1/GUARD_POST_FIRE_RATE;
+                b.fireCd = 1/gpFireRate;
                 const angle=Math.atan2(nearest.y-b.y,nearest.x-b.x);
-                s.bullets.push({ id:s.nextBulletId++, x:b.x, y:b.y,
-                  vx:Math.cos(angle)*BULLET_SPEED, vy:Math.sin(angle)*BULLET_SPEED,
-                  life:GUARD_POST_RANGE/BULLET_SPEED, fromGuardPost:true });
+                if (usesFlame) {
+                  // Flame cone from guard post position
+                  for (let i = 0; i < 22; i++) {
+                    const spread = (Math.random() - 0.5) * FLAME_ARC;
+                    const a = angle + spread;
+                    const spd = 90 + Math.random() * 180;
+                    const life = (0.25 + Math.random() * 0.45) * (FLAME_RANGE / 130);
+                    const r = 4 + Math.random() * 7;
+                    s.flameParticles.push({ x: b.x, y: b.y, vx: Math.cos(a)*spd, vy: Math.sin(a)*spd, life, maxLife: life, r, hot: Math.random(), wobble: Math.random()*Math.PI*2 });
+                  }
+                  lz.forEach(z => {
+                    const za = Math.atan2(z.y - b.y, z.x - b.x);
+                    const da = Math.abs(((angle - za) + Math.PI * 3) % (Math.PI * 2) - Math.PI);
+                    if (da < FLAME_ARC / 2 && dist(b.x, b.y, z.x, z.y) <= FLAME_RANGE) {
+                      z.hp -= FLAME_DAMAGE; if (z.hp <= 0) z.dead = true;
+                    }
+                  });
+                } else {
+                  s.bullets.push({ id:s.nextBulletId++, x:b.x, y:b.y,
+                    vx:Math.cos(angle)*BULLET_SPEED, vy:Math.sin(angle)*BULLET_SPEED,
+                    life:gpRange/BULLET_SPEED, fromGuardPost:true, gpDamage });
+                }
               }
             }
           }
@@ -716,7 +906,7 @@ export default function ZomBase() {
     // ── Player crafting ───────────────────────────────────────────────────────
     const pq = craftingQueueRef.current;
     if (pq && !s.playerOnRun && !s.playerSleeping) {
-      const station = s.buildings.find(b => b.id === pq.stationId && b.built);
+      const station = s.buildings.find(b => b.id === pq.stationId && b.built && (b.hp ?? 0) > 0);
       const item    = CRAFTABLES[pq.itemId];
       if (station && item) {
         const near = dist(s.player.x, s.player.y, station.x, station.y) <= BUILD_RADIUS;
@@ -767,47 +957,82 @@ export default function ZomBase() {
       const hasGloves = playerTool === "gardening_gloves";
       const hasKnife  = playerTool === "chefs_knife";
       const gearBonus = (isGarden && hasGloves) || (!isGarden && hasKnife) ? 2 : 1;
-      const castTime = (isGarden ? GARDEN_CAST_TIME : KITCHEN_CAST_TIME) / gearBonus;
+      // Tier bonuses: castTime and yield from building tier, fall back to base constants
+      const baseCastTime = isGarden
+        ? (getBuildingStat(workTarget, "castTime") ?? GARDEN_CAST_TIME)
+        : KITCHEN_CAST_TIME;
+      const castTime = baseCastTime / gearBonus;
+      const hasMaterial = isGarden ? (s.storage.seeds ?? 0) >= 1 : (s.storage.crops ?? 0) >= KITCHEN_CROP_COST;
       if (!s.playerWorkCast || s.playerWorkCast.buildingId !== workTarget.id) {
         // Different building — check if this building has saved progress
         const savedProg = workTarget.playerWorkProgress ?? 0;
-        s.playerWorkCast = { buildingId: workTarget.id, progress: savedProg, castTime, isGarden, gearBonus, paused: false };
+        s.playerWorkCast = { buildingId: workTarget.id, progress: savedProg, castTime, isGarden, gearBonus, paused: false, blocked: false };
+        // Eject any survivor currently working here — one cast at a time per building
+        s.survivors.forEach(sv => {
+          if (sv.insideBuilding === workTarget.id) {
+            sv.insideBuilding = null;
+            sv.casting = false;
+            sv.castProgress = 0;
+          }
+        });
       } else {
         // Same building — resume
         s.playerWorkCast.castTime = castTime;
         s.playerWorkCast.gearBonus = gearBonus;
         s.playerWorkCast.paused = false;
       }
-      s.playerWorkCast.progress += dt;
-      // Keep progress synced on the building so survivors returning here can also benefit
-      workTarget.playerWorkProgress = s.playerWorkCast.progress;
-      if (s.playerWorkCast.progress >= s.playerWorkCast.castTime) {
-        workTarget.playerWorkProgress = 0;
-        s.playerWorkCast.progress = 0;
-        if (isGarden) {
-          if ((s.storage.seeds ?? 0) >= 1) {
+      if (!hasMaterial) {
+        // Out of seeds/crops — don't cast, just sit blocked until resources are available
+        s.playerWorkCast.blocked = true;
+      } else {
+        s.playerWorkCast.blocked = false;
+        s.playerWorkCast.progress += dt;
+        // Keep progress synced on the building so survivors returning here can also benefit
+        workTarget.playerWorkProgress = s.playerWorkCast.progress;
+        if (s.playerWorkCast.progress >= s.playerWorkCast.castTime) {
+          workTarget.playerWorkProgress = 0;
+          s.playerWorkCast.progress = 0;
+          if (isGarden) {
             s.storage.seeds -= 1;
-            s.storage.crops = (s.storage.crops ?? 0) + GARDEN_YIELD;
+            s.storage.crops = (s.storage.crops ?? 0) + (getBuildingStat(workTarget, "yield") ?? GARDEN_YIELD);
           } else {
-            // No seeds — flash building and do nothing
-            workTarget.flashTimer = 0.5;
-          }
-        } else {
-          if ((s.storage.crops ?? 0) >= KITCHEN_CROP_COST) {
             s.storage.crops -= KITCHEN_CROP_COST;
-            s.storage.meals  = (s.storage.meals ?? 0) + KITCHEN_YIELD;
-          } else {
-            // No crops — flash building and do nothing
-            workTarget.flashTimer = 0.5;
+            s.storage.meals  = (s.storage.meals ?? 0) + (getBuildingStat(workTarget, "yield") ?? KITCHEN_YIELD);
           }
+          forceUpdate(n => n + 1);
         }
-        forceUpdate(n => n + 1);
       }
     } else if (s.playerWorkCast && !s.playerWorkCast.paused) {
       // Player walked away — pause and save progress to building
       s.playerWorkCast.paused = true;
       const pausedBuilding = s.buildings.find(b => b.id === s.playerWorkCast.buildingId);
       if (pausedBuilding) pausedBuilding.playerWorkProgress = s.playerWorkCast.progress;
+    }
+
+    // ── Player Research Lab ───────────────────────────────────────────────────
+    {
+      const nearLab = !s.playerOnRun && !s.playerSleeping &&
+        s.buildings.find(b => b.built && (b.hp ?? 0) > 0 && b.type === "research_lab" && dist(s.player.x, s.player.y, b.x, b.y) <= BUILD_RADIUS);
+      if (nearLab) {
+        // Survivor researcher takes priority — player yields but keeps labProgress intact
+        const researcherInside = s.survivors.some(sv => sv.insideBuilding === nearLab.id);
+        if (!researcherInside) {
+          nearLab.labProgress = (nearLab.labProgress ?? 0) + dt;
+          nearLab.playerResearching = true;
+          if (nearLab.labProgress >= LAB_CAST_TIME) {
+            nearLab.labProgress = 0;
+            s.researchPct = Math.min(100, (s.researchPct ?? 0) + 1);
+            forceUpdate(n => n + 1);
+            if (s.researchPct >= 100) { s.gameWon = true; }
+          }
+        } else {
+          // Survivor is working it — player just stands by, progress continues via survivor tick
+          nearLab.playerResearching = false;
+        }
+      } else {
+        // Find any lab the player was researching and clear flag
+        s.buildings.forEach(b => { if (b.type === "research_lab") b.playerResearching = false; });
+      }
     }
 
     // ── Zombie AI ─────────────────────────────────────────────────────────────
@@ -825,8 +1050,8 @@ export default function ZomBase() {
         if (dToCenter > patrolRadius + 20) {
           const adx = SHELTER.x - z.x, ady = SHELTER.y - z.y;
           const ad = Math.sqrt(adx*adx + ady*ady);
-          z.x += (adx/ad)*ZOMBIE_SPEED*0.6*dt;
-          z.y += (ady/ad)*ZOMBIE_SPEED*0.6*dt;
+          z.x += (adx/ad)*ZOMBIE_SPEED*(z.speedMult??1.0)*0.6*dt;
+          z.y += (ady/ad)*ZOMBIE_SPEED*(z.speedMult??1.0)*0.6*dt;
         } else {
           if (!z.patrolAngle) z.patrolAngle = Math.atan2(z.y-SHELTER.y, z.x-SHELTER.x);
           z.patrolAngle += (z.id%2===0?1:-1)*0.4*dt;
@@ -851,32 +1076,46 @@ export default function ZomBase() {
           const d = dist(z.x, z.y, mx, my);
           if (d < bestD-20) { bestD = d; tx = mx; ty = my; targetWall = w; targetBuilding = null; }
         });
-      } else { tx = s.player.x; ty = s.player.y; }
+      } else {
+        // Chasing player — but check if a wall blocks the direct path
+        const blockingWall = wallBlockingPath(s.walls, z.x, z.y, s.player.x, s.player.y);
+        if (blockingWall) {
+          // Redirect to attack the blocking wall
+          tx = (blockingWall.x1 + blockingWall.x2) / 2;
+          ty = (blockingWall.y1 + blockingWall.y2) / 2;
+          targetWall = blockingWall;
+          z.chasing = false;
+        } else {
+          tx = s.player.x; ty = s.player.y;
+        }
+      }
 
       const dx = tx - z.x, dy = ty - z.y, d = Math.sqrt(dx*dx + dy*dy);
       const stopDist = z.chasing ? (PLAYER_RADIUS+ZOMBIE_RADIUS+2) : ZOMBIE_ATTACK_RANGE;
       if (d > stopDist) {
-        z.x += (dx/d)*ZOMBIE_SPEED*dt; z.y += (dy/d)*ZOMBIE_SPEED*dt;
+        const zSpd = ZOMBIE_SPEED * (z.speedMult ?? 1.0);
+        z.x += (dx/d)*zSpd*dt; z.y += (dy/d)*zSpd*dt;
       } else {
         z.attackCd = (z.attackCd??0) - dt;
         if (z.attackCd <= 0) {
           z.attackCd = 1/ZOMBIE_ATTACK_RATE;
+          const zDmgMult = z.damageMult ?? 1.0;
           if (z.chasing && playerVisible && s.playerFlash <= 0) {
-            s.playerHp = Math.max(0, s.playerHp - ZOMBIE_DAMAGE);
+            s.playerHp = Math.max(0, s.playerHp - ZOMBIE_DAMAGE * zDmgMult);
             s.playerFlash = PLAYER_IFRAMES;
             if (s.playerHp <= 0) s.gameOver = true;
           } else if (!z.chasing) {
             if (targetWall) {
-              targetWall.hp = Math.max(0, (targetWall.hp??WALL_HP) - BUILDING_DAMAGE*2);
+              targetWall.hp = Math.max(0, (targetWall.hp??WALL_HP) - BUILDING_DAMAGE*2*zDmgMult);
               targetWall.flashTimer = 0.2;
             } else if (targetBuilding) {
-              targetBuilding.hp = Math.max(0, (targetBuilding.hp??BUILDING_MAX_HP) - BUILDING_DAMAGE);
+              targetBuilding.hp = Math.max(0, (targetBuilding.hp??BUILDING_MAX_HP) - BUILDING_DAMAGE*zDmgMult);
               targetBuilding.flashTimer = 0.25;
               if (targetBuilding.hp <= 0) {
                 s.survivors.forEach(sv => { if (sv.insideBuilding===targetBuilding.id){sv.insideBuilding=null;sv.fleeing=true;} });
               }
             } else {
-              s.shelterHp = Math.max(0, s.shelterHp - ZOMBIE_DAMAGE);
+              s.shelterHp = Math.max(0, s.shelterHp - ZOMBIE_DAMAGE * zDmgMult);
               s.shelterFlash = 0.25;
               if (s.shelterHp <= 0) s.gameOver = true;
             }
@@ -910,6 +1149,13 @@ export default function ZomBase() {
           repairB.hp = Math.min(repairB.maxHp, repairB.hp + BUILDING_REPAIR_RATE * dt);
         }
       }
+      // Player also repairs nearby damaged walls
+      (s.walls||[]).forEach(w => {
+        if (!w.built || (w.hp ?? WALL_HP) >= WALL_HP) return;
+        if (distToSegment(s.player.x, s.player.y, w.x1, w.y1, w.x2, w.y2) <= BUILD_RADIUS) {
+          w.hp = Math.min(WALL_HP, (w.hp ?? WALL_HP) + BUILDING_REPAIR_RATE * dt);
+        }
+      });
     }
     // Survivors repair buildings they're inside (also counts toward shelter if sv uses it as home)
     s.survivors.forEach(sv => {
@@ -920,6 +1166,13 @@ export default function ZomBase() {
           repairB.hp = Math.min(repairB.maxHp, repairB.hp + BUILDING_REPAIR_RATE * dt);
         }
       }
+      // Survivors also repair nearby damaged walls passively
+      (s.walls||[]).forEach(w => {
+        if (!w.built || (w.hp ?? WALL_HP) >= WALL_HP) return;
+        if (distToSegment(sv.x, sv.y, w.x1, w.y1, w.x2, w.y2) <= BUILD_RADIUS) {
+          w.hp = Math.min(WALL_HP, (w.hp ?? WALL_HP) + BUILDING_REPAIR_RATE * dt);
+        }
+      });
     });
     s.attackCd = Math.max(0, s.attackCd - dt);
     const currentWeapon = weaponRef.current;
@@ -953,8 +1206,16 @@ export default function ZomBase() {
           s.player.facing = angle;
         } else if (currentWeapon === "flamethrower") {
           s.attackCd = 1 / FLAME_RATE;
-          s.flameFlash = { angle, timer: FLAME_FLASH_DUR };
           s.player.facing = angle;
+          // Spawn flame particles — cone of fire
+          for (let i = 0; i < 22; i++) {
+            const spread = (Math.random() - 0.5) * FLAME_ARC;
+            const a = angle + spread;
+            const spd = 90 + Math.random() * 180;
+            const life = (0.25 + Math.random() * 0.45) * (FLAME_RANGE / 130);
+            const r = 4 + Math.random() * 7;
+            s.flameParticles.push({ x: s.player.x, y: s.player.y, vx: Math.cos(a)*spd, vy: Math.sin(a)*spd, life, maxLife: life, r, hot: Math.random(), wobble: Math.random()*Math.PI*2 });
+          }
           liveZombies.forEach(z => {
             const za = Math.atan2(z.y - s.player.y, z.x - s.player.x);
             const da = Math.abs(((angle - za) + Math.PI * 3) % (Math.PI * 2) - Math.PI);
@@ -977,8 +1238,14 @@ export default function ZomBase() {
       }
     }
     if (s.batFlash)    { s.batFlash.timer    -= dt; if (s.batFlash.timer    <= 0) s.batFlash    = null; }
-    if (s.flameFlash)  { s.flameFlash.timer  -= dt; if (s.flameFlash.timer  <= 0) s.flameFlash  = null; }
     if (s.unarmedFlash){ s.unarmedFlash.timer -= dt; if (s.unarmedFlash.timer <= 0) s.unarmedFlash = null; }
+    // Flame particles
+    s.flameParticles = (s.flameParticles ?? []).filter(p => {
+      p.life -= dt;
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      p.vx *= 0.92; p.vy *= 0.92; // drag
+      return p.life > 0;
+    });
 
     // ── Bullets ───────────────────────────────────────────────────────────────
     s.bullets = s.bullets.filter(b => {
@@ -987,7 +1254,7 @@ export default function ZomBase() {
       for (const z of liveZombies) {
         if (z.dead) continue;
         if (dist(b.x, b.y, z.x, z.y) < ZOMBIE_RADIUS + BULLET_RADIUS) {
-          const dmg = b.fromGuardPost ? GUARD_POST_DAMAGE : GUN_DAMAGE;
+          const dmg = b.fromGuardPost ? (b.gpDamage ?? GUARD_POST_DAMAGE) : GUN_DAMAGE;
           z.hp -= dmg; if (z.hp <= 0) z.dead = true; return false;
         }
       }
@@ -1071,6 +1338,15 @@ export default function ZomBase() {
             } else if (weapon === "flamethrower") {
               sv.combatCd = 1 / FLAME_RATE;
               const angle = Math.atan2(nearbyZombie.y - sv.y, nearbyZombie.x - sv.x);
+              // Spawn flame particles from survivor
+              for (let i = 0; i < 16; i++) {
+                const spread = (Math.random() - 0.5) * FLAME_ARC;
+                const a = angle + spread;
+                const spd = 90 + Math.random() * 160;
+                const life = (0.2 + Math.random() * 0.4) * (FLAME_RANGE / 130);
+                const r = 3 + Math.random() * 6;
+                s.flameParticles.push({ x: sv.x, y: sv.y, vx: Math.cos(a)*spd, vy: Math.sin(a)*spd, life, maxLife: life, r, hot: Math.random(), wobble: Math.random()*Math.PI*2 });
+              }
               liveZombies.forEach(z => {
                 const za = Math.atan2(z.y - sv.y, z.x - sv.x);
                 const da = Math.abs(((angle - za) + Math.PI * 3) % (Math.PI * 2) - Math.PI);
@@ -1120,29 +1396,43 @@ export default function ZomBase() {
         return;
       }
 
-      // ── Critical needs: interrupt work immediately ────────────────────────────
-      const needsHunger = sn.hunger <= HUNGER_CRIT && (s.storage.meals ?? 0) > 0;
-      const needsThirst = sn.thirst <= THIRST_CRIT && (s.storage.water ?? 0) >= WATER_PER_DRINK;
+      // ── Low needs: walk to shelter and handle BOTH hunger + thirst in one trip ──
+      // Threshold: 60 (comfortable) so survivors top up before getting desperate.
+      // They only interrupt work when below threshold AND supply is available.
+      const COMFORT_THRESHOLD = 60;
+      const needsHunger = sn.hunger <= COMFORT_THRESHOLD && ((s.storage.meals ?? 0) > 0 || (s.storage.crops ?? 0) > 0);
+      const needsThirst = sn.thirst <= COMFORT_THRESHOLD && (s.storage.water ?? 0) >= WATER_PER_DRINK;
+      // Only interrupt current work if actually running low (below RUN_NEEDS_MIN)
+      const urgentHunger = sn.hunger <= RUN_NEEDS_MIN;
+      const urgentThirst = sn.thirst <= RUN_NEEDS_MIN;
+      const shouldInterruptWork = (needsHunger && urgentHunger) || (needsThirst && urgentThirst);
       if (needsHunger || needsThirst) {
-        // Eject from building if inside working — progress stays on the building
-        if (sv.insideBuilding) { sv.insideBuilding = null; sv.casting = false; sv.castProgress = 0; }
-        if (needsHunger) {
-          const dx = SHELTER.x - sv.x, dy = SHELTER.y - sv.y, d = Math.sqrt(dx*dx + dy*dy);
-          if (d > 20) { sv.x += (dx/d)*SURVIVOR_SPEED*1.2*dt; sv.y += (dy/d)*SURVIVOR_SPEED*1.2*dt; }
-          else if (s.storage.meals > 0) {
-            s.storage.meals = Math.max(0, s.storage.meals - 1);
-            sn.hunger = Math.min(NEEDS_MAX, sn.hunger + MEAL_RESTORE);
-            forceUpdate(n => n + 1);
-          }
-          return;
+        // Only eject from work if urgent — otherwise finish current cast then eat
+        if (shouldInterruptWork && sv.insideBuilding) {
+          sv.insideBuilding = null; sv.casting = false; sv.castProgress = 0;
         }
-        if (needsThirst) {
+        if (!sv.insideBuilding || shouldInterruptWork) {
           const dx = SHELTER.x - sv.x, dy = SHELTER.y - sv.y, d = Math.sqrt(dx*dx + dy*dy);
-          if (d > 20) { sv.x += (dx/d)*SURVIVOR_SPEED*1.2*dt; sv.y += (dy/d)*SURVIVOR_SPEED*1.2*dt; }
-          else if (s.storage.water >= WATER_PER_DRINK) {
-            s.storage.water = Math.max(0, s.storage.water - WATER_PER_DRINK);
-            sn.thirst = Math.min(NEEDS_MAX, sn.thirst + WATER_RESTORE);
-            forceUpdate(n => n + 1);
+          if (d > 20) {
+            sv.x += (dx/d)*SURVIVOR_SPEED*1.2*dt; sv.y += (dy/d)*SURVIVOR_SPEED*1.2*dt;
+          } else {
+            // At shelter — handle BOTH hunger and thirst in one visit
+            if (needsHunger) {
+              if (s.storage.meals > 0) {
+                s.storage.meals = Math.max(0, s.storage.meals - 1);
+                sn.hunger = Math.min(NEEDS_MAX, sn.hunger + MEAL_RESTORE);
+                forceUpdate(n => n + 1);
+              } else if (s.storage.crops > 0) {
+                s.storage.crops = Math.max(0, s.storage.crops - 1);
+                sn.hunger = Math.min(NEEDS_MAX, sn.hunger + CROP_RESTORE);
+                forceUpdate(n => n + 1);
+              }
+            }
+            if (needsThirst && (s.storage.water ?? 0) >= WATER_PER_DRINK) {
+              s.storage.water = Math.max(0, s.storage.water - WATER_PER_DRINK);
+              sn.thirst = Math.min(NEEDS_MAX, sn.thirst + WATER_RESTORE);
+              forceUpdate(n => n + 1);
+            }
           }
           return;
         }
@@ -1158,40 +1448,57 @@ export default function ZomBase() {
             sv.casting = false;
             return;
           }
-          if (behavior !== "wander" && behavior !== "guard" && behavior !== "carpenter" && b.type === (behavior === "garden" ? "garden" : "kitchen")) {
-            const castTime = behavior === "garden" ? GARDEN_CAST_TIME : KITCHEN_CAST_TIME;
-            // Gear speed bonus (gloves for garden, knife for kitchen)
-            const svTool = sv.gear?.tool;
-            const svGearBonus = (behavior === "garden" && svTool === "gardening_gloves") ||
-                                (behavior === "kitchen" && svTool === "chefs_knife") ? 2 : 1;
-            const effectiveCastTime = castTime / svGearBonus;
-            // Progress stored on building so any survivor (or player) can resume it
-            if (b.workCastTime === undefined) b.workCastTime = effectiveCastTime;
-            b.workProgress = (b.workProgress ?? 0) + dt;
-            // Mirror onto survivor for arc rendering
-            sv.casting = true; sv.castTotal = effectiveCastTime; sv.castProgress = b.workProgress;
-            if (b.workProgress >= effectiveCastTime) {
-              b.workProgress = 0;
-              sv.castProgress = 0;
-              if (behavior === "garden") {
-                if ((s.storage.seeds ?? 0) >= 1) {
-                  s.storage.seeds -= 1;
-                  s.storage.crops = (s.storage.crops ?? 0) + GARDEN_YIELD;
-                } else {
-                  b.flashTimer = 0.5;
-                }
+          if (behavior === "carpenter") {
+            // Carpenter must not stay inside — eject so the carpenter branch below re-evaluates each frame
+            sv.insideBuilding = null;
+            // no return — falls through to the carpenter branch below
+          } else if (behavior === "researcher") {
+            // Researcher logic is fully handled in the researcher branch below — eject so it runs each frame
+            sv.insideBuilding = null;
+            // no return — falls through to the researcher branch below
+          } else {
+            if (behavior !== "wander" && behavior !== "guard" && b.type === (behavior === "garden" ? "garden" : "kitchen")) {
+              // Concurrency lock — if the player is actively working this building, yield
+              if (s.playerWorkCast && s.playerWorkCast.buildingId === b.id && !s.playerWorkCast.paused && !s.playerWorkCast.blocked) {
+                sv.insideBuilding = null;
+                sv.casting = false;
+                sv.castProgress = 0;
+                return;
+              }
+              const baseCastTime = behavior === "garden"
+                ? (getBuildingStat(b, "castTime") ?? GARDEN_CAST_TIME)
+                : KITCHEN_CAST_TIME;
+              // Gear speed bonus (gloves for garden, knife for kitchen)
+              const svTool = sv.gear?.tool;
+              const svGearBonus = (behavior === "garden" && svTool === "gardening_gloves") ||
+                                  (behavior === "kitchen" && svTool === "chefs_knife") ? 2 : 1;
+              const effectiveCastTime = baseCastTime / svGearBonus;
+              const hasMaterial = behavior === "garden" ? (s.storage.seeds ?? 0) >= 1 : (s.storage.crops ?? 0) >= KITCHEN_CROP_COST;
+              // Progress stored on building so any survivor (or player) can resume it
+              if (b.workCastTime === undefined) b.workCastTime = effectiveCastTime;
+              if (!hasMaterial) {
+                // Out of seeds/crops — don't cast, just wait (render shows full red flash)
+                sv.casting = false;
               } else {
-                if ((s.storage.crops ?? 0) >= KITCHEN_CROP_COST) {
-                  s.storage.crops -= KITCHEN_CROP_COST;
-                  s.storage.meals  = (s.storage.meals ?? 0) + KITCHEN_YIELD;
-                } else {
-                  b.flashTimer = 0.5;
+                b.workProgress = (b.workProgress ?? 0) + dt;
+                // Mirror onto survivor for arc rendering
+                sv.casting = true; sv.castTotal = effectiveCastTime; sv.castProgress = b.workProgress;
+                if (b.workProgress >= effectiveCastTime) {
+                  b.workProgress = 0;
+                  sv.castProgress = 0;
+                  if (behavior === "garden") {
+                    s.storage.seeds -= 1;
+                    s.storage.crops = (s.storage.crops ?? 0) + (getBuildingStat(b, "yield") ?? GARDEN_YIELD);
+                  } else {
+                    s.storage.crops -= KITCHEN_CROP_COST;
+                    s.storage.meals  = (s.storage.meals ?? 0) + (getBuildingStat(b, "yield") ?? KITCHEN_YIELD);
+                  }
+                  forceUpdate(n => n + 1);
                 }
               }
-              forceUpdate(n => n + 1);
             }
+            return; // stay inside (garden / kitchen / guard / wander)
           }
-          return; // stay inside
         }
         sv.insideBuilding = null; // building gone
       }
@@ -1199,31 +1506,74 @@ export default function ZomBase() {
       // ── Normal work: wander or move to building and enter it ─────────────────
       const behavior = getToolBehavior(sv);
 
-      // ── CARPENTER: find most damaged building and repair it ───────────────────
+      // ── CARPENTER: lock onto most-damaged building or wall, repair to full, then re-pick ─
       if (behavior === "carpenter") {
         sv.casting = false; sv.castProgress = 0;
-        // Find most damaged building (or shelter — but we can't "enter" shelter, so just approach it)
-        let worstBuilding = null, worstHpFrac = 1;
-        s.buildings.forEach(b => {
-          if (!b.built || (b.hp ?? 0) <= 0) return;
-          const frac = (b.hp ?? b.maxHp) / (b.maxHp || BUILDING_MAX_HP);
-          if (frac < worstHpFrac) { worstHpFrac = frac; worstBuilding = b; }
-        });
-        if (worstBuilding && worstHpFrac < 1) {
-          const def = BUILDING_TYPES[worstBuilding.type];
-          const enterDist = def.radius + 2;
-          const dTarget = dist(sv.x, sv.y, worstBuilding.x, worstBuilding.y);
-          if (dTarget > enterDist) {
-            const dx = worstBuilding.x - sv.x, dy = worstBuilding.y - sv.y, d = Math.sqrt(dx*dx+dy*dy);
-            sv.x += (dx/d)*SURVIVOR_SPEED*dt; sv.y += (dy/d)*SURVIVOR_SPEED*dt;
-          } else {
-            // Inside — actively repair at boosted rate
-            sv.insideBuilding = worstBuilding.id;
-            sv.x = worstBuilding.x; sv.y = worstBuilding.y;
-            worstBuilding.hp = Math.min(worstBuilding.maxHp, (worstBuilding.hp??0) + CARPENTER_REPAIR_RATE * dt);
+        // Validate existing lock-on
+        if (sv.carpenterTarget) {
+          if (sv.carpenterTarget.type === "building") {
+            const t = s.buildings.find(b => b.id === sv.carpenterTarget.id);
+            if (!t || !t.built || (t.hp ?? 0) <= 0 || (t.hp ?? 0) >= (t.maxHp || BUILDING_MAX_HP)) {
+              sv.carpenterTarget = null;
+            }
+          } else if (sv.carpenterTarget.type === "wall") {
+            const t = (s.walls||[]).find(w => w.id === sv.carpenterTarget.id);
+            if (!t || !t.built || (t.hp ?? 0) <= 0 || (t.hp ?? WALL_HP) >= WALL_HP) {
+              sv.carpenterTarget = null;
+            }
+          }
+        }
+        // Only pick a new target when we don't have one (prevents thrash on HP ties)
+        if (!sv.carpenterTarget) {
+          let worstFrac = 1, worstTarget = null;
+          s.buildings.forEach(b => {
+            if (!b.built || (b.hp ?? 0) <= 0) return;
+            const frac = (b.hp ?? b.maxHp) / (b.maxHp || BUILDING_MAX_HP);
+            if (frac < worstFrac) { worstFrac = frac; worstTarget = { type: "building", id: b.id }; }
+          });
+          (s.walls||[]).forEach(w => {
+            if (!w.built || (w.hp ?? 0) <= 0) return;
+            const frac = (w.hp ?? WALL_HP) / WALL_HP;
+            if (frac < worstFrac) { worstFrac = frac; worstTarget = { type: "wall", id: w.id }; }
+          });
+          if (worstTarget && worstFrac < 1) sv.carpenterTarget = worstTarget;
+        }
+        if (sv.carpenterTarget) {
+          if (sv.carpenterTarget.type === "building") {
+            const target = s.buildings.find(b => b.id === sv.carpenterTarget.id);
+            if (target) {
+              const def = BUILDING_TYPES[target.type];
+              const enterDist = def.radius + 2;
+              const dTarget = dist(sv.x, sv.y, target.x, target.y);
+              if (dTarget > enterDist) {
+                const dx = target.x - sv.x, dy = target.y - sv.y, d = Math.sqrt(dx*dx+dy*dy);
+                sv.x += (dx/d)*SURVIVOR_SPEED*dt; sv.y += (dy/d)*SURVIVOR_SPEED*dt;
+              } else {
+                sv.insideBuilding = target.id;
+                sv.x = target.x; sv.y = target.y;
+                target.hp = Math.min(target.maxHp || BUILDING_MAX_HP, (target.hp ?? 0) + CARPENTER_REPAIR_RATE * dt);
+              }
+            }
+          } else if (sv.carpenterTarget.type === "wall") {
+            const target = (s.walls||[]).find(w => w.id === sv.carpenterTarget.id);
+            if (target) {
+              // Walk to wall midpoint
+              const mx = (target.x1+target.x2)/2, my = (target.y1+target.y2)/2;
+              const dTarget = dist(sv.x, sv.y, mx, my);
+              if (dTarget > BUILD_RADIUS) {
+                const dx = mx - sv.x, dy = my - sv.y, d = Math.sqrt(dx*dx+dy*dy);
+                sv.x += (dx/d)*SURVIVOR_SPEED*dt; sv.y += (dy/d)*SURVIVOR_SPEED*dt;
+              } else {
+                // Close enough — repair
+                sv.insideBuilding = null;
+                sv.x = lerp(sv.x, mx, Math.min(1, 3*dt));
+                sv.y = lerp(sv.y, my, Math.min(1, 3*dt));
+                target.hp = Math.min(WALL_HP, (target.hp ?? WALL_HP) + CARPENTER_REPAIR_RATE * dt);
+              }
+            }
           }
         } else {
-          // All healed — idle near shelter
+          // Nothing to repair — idle near shelter
           sv.insideBuilding = null;
           const dx = SHELTER.x - sv.x, dy = SHELTER.y - sv.y, d = Math.sqrt(dx*dx+dy*dy);
           if (d > 30) { sv.x += (dx/d)*SURVIVOR_SPEED*dt; sv.y += (dy/d)*SURVIVOR_SPEED*dt; }
@@ -1263,9 +1613,49 @@ export default function ZomBase() {
         return;
       }
 
+      // ── RESEARCHER: find a research lab, work it ─────────────────────────────
+      if (behavior === "researcher") {
+        // Only reset casting if we're NOT currently inside a lab — otherwise we'd zero it every frame
+        if (!sv.insideBuilding || !s.buildings.find(b => b.id === sv.insideBuilding && b.type === "research_lab")) {
+          sv.casting = false; sv.castProgress = 0;
+        }
+        const lab = s.buildings.find(b => b.built && (b.hp ?? 0) > 0 && b.type === "research_lab" &&
+          !s.survivors.some(other => other.id !== sv.id && other.insideBuilding === b.id));
+        if (lab) {
+          const enterDist = BUILDING_TYPES.research_lab.radius + 2;
+          const dLab = dist(sv.x, sv.y, lab.x, lab.y);
+          if (dLab > enterDist) {
+            sv.insideBuilding = null;
+            sv.casting = false; sv.castProgress = 0;
+            const dx = lab.x - sv.x, dy = lab.y - sv.y, d = Math.sqrt(dx*dx + dy*dy);
+            sv.x += (dx/d)*SURVIVOR_SPEED*dt; sv.y += (dy/d)*SURVIVOR_SPEED*dt;
+          } else {
+            sv.insideBuilding = lab.id;
+            sv.x = lab.x; sv.y = lab.y;
+            // Survivor takes over lab progress (preserves any existing labProgress — handoff from player)
+            lab.labProgress = (lab.labProgress ?? 0) + dt;
+            // Player can no longer advance this lab while a survivor is inside
+            lab.playerResearching = false;
+            sv.casting = true; sv.castTotal = LAB_CAST_TIME; sv.castProgress = lab.labProgress;
+            if (lab.labProgress >= LAB_CAST_TIME) {
+              lab.labProgress = 0;
+              sv.castProgress = 0;
+              s.researchPct = Math.min(100, (s.researchPct ?? 0) + 1);
+              forceUpdate(n => n + 1);
+              if (s.researchPct >= 100) { s.gameWon = true; }
+            }
+          }
+        } else {
+          // No free lab — idle near shelter
+          sv.insideBuilding = null;
+          sv.casting = false; sv.castProgress = 0;
+          const dx = SHELTER.x - sv.x, dy = SHELTER.y - sv.y, d = Math.sqrt(dx*dx + dy*dy);
+          if (d > 30) { sv.x += (dx/d)*SURVIVOR_SPEED*dt; sv.y += (dy/d)*SURVIVOR_SPEED*dt; }
+        }
+        return;
+      }
+
       if (behavior === "wander") {
-        sv.casting = false; sv.castProgress = 0;
-        sv.wanderT = (sv.wanderT ?? 0) - dt;
         if (sv.wanderT <= 0) {
           const home = s.buildings.find(b => b.id === sv.homeId);
           const hx = home ? home.x : W / 2, hy = home ? home.y : H / 2;
@@ -1492,13 +1882,19 @@ export default function ZomBase() {
         // Guard post: show range ring when garrisoned, pulsing fire crosshair
         if (b.type==="guard_post") {
           const garrisoned = totalInside > 0;
+          // Determine effective range based on occupant weapon
+          const gpOccupantWeapon = playerInside ? weaponRef.current
+            : s.survivors.find(sv => sv.insideBuilding === b.id && !sv.sleeping)?.gear?.weapon ?? null;
+          const gpVisualRange = gpOccupantWeapon === "flamethrower" ? FLAME_RANGE : GUARD_POST_RANGE;
+          const gpRingColor = gpOccupantWeapon === "flamethrower" ? "#ff6622" : "#dd7722";
+          const gpRingAccent = gpOccupantWeapon === "flamethrower" ? "#ff9944" : "#ff9944";
           if (garrisoned) {
             ctx.globalAlpha=0.07+0.03*Math.sin(t*2.5);
-            ctx.beginPath(); ctx.arc(b.x, b.y, GUARD_POST_RANGE, 0, Math.PI*2);
-            ctx.fillStyle="#dd7722"; ctx.fill();
+            ctx.beginPath(); ctx.arc(b.x, b.y, gpVisualRange, 0, Math.PI*2);
+            ctx.fillStyle=gpRingColor; ctx.fill();
             ctx.globalAlpha=0.3+0.1*Math.sin(t*3);
-            ctx.beginPath(); ctx.arc(b.x, b.y, GUARD_POST_RANGE, 0, Math.PI*2);
-            ctx.strokeStyle="#ff9944"; ctx.lineWidth=1.5;
+            ctx.beginPath(); ctx.arc(b.x, b.y, gpVisualRange, 0, Math.PI*2);
+            ctx.strokeStyle=gpRingAccent; ctx.lineWidth=1.5;
             ctx.setLineDash([6,5]); ctx.stroke(); ctx.setLineDash([]);
           } else {
             ctx.globalAlpha=0.12;
@@ -1523,21 +1919,41 @@ export default function ZomBase() {
           const prog=s.playerWorkCast.progress/s.playerWorkCast.castTime;
           const bonus=s.playerWorkCast.gearBonus>1;
           const isPaused=!!s.playerWorkCast.paused;
-          const noSeeds = b.type==="garden"  && (s.storage.seeds??0)<1;
-          const noCrops = b.type==="kitchen" && (s.storage.crops??0)<KITCHEN_CROP_COST;
-          const blocked = !isPaused && (noSeeds||noCrops);
-          // flash between red and dim when blocked
-          const flashOn = blocked && Math.floor(t*4)%2===0;
-          ctx.globalAlpha=isPaused?0.45:blocked?(flashOn?0.95:0.3):0.9;ctx.beginPath();
-          ctx.arc(b.x,b.y,def.radius+5,-Math.PI/2,-Math.PI/2+Math.PI*2*prog);
-          if(isPaused){ctx.setLineDash([4,4]);}
-          ctx.strokeStyle=isPaused?"#aaaaaa":blocked?'#ff3333':bonus?'#aaff88':def.color;ctx.lineWidth=3;ctx.stroke();
-          ctx.setLineDash([]);
-          ctx.globalAlpha=isPaused?0.4:blocked?(flashOn?0.85:0.25):0.55;ctx.font='9px monospace';
-          ctx.fillStyle=isPaused?"#aaaaaa":blocked?'#ff5555':bonus?'#aaff88':def.color;ctx.textAlign='center';
-          ctx.fillText(isPaused?`paused ${Math.round(prog*100)}%`:blocked?(noSeeds?'NO SEEDS':'NO CROPS'):bonus?'working ⚡2×':'working…',b.x,b.y+def.radius+25);}
-        const workingSv = s.survivors.find(sv => sv.insideBuilding === b.id && sv.casting && sv.castProgress > 0);
-        if (workingSv) {
+          const blocked = !isPaused && !!s.playerWorkCast.blocked;
+          if (blocked) {
+            // full red flashing circle — cast is held until resources are available
+            const flashOn = Math.floor(t*4)%2===0;
+            ctx.globalAlpha=flashOn?0.6:0.2;ctx.beginPath();
+            ctx.arc(b.x,b.y,def.radius+5,0,Math.PI*2);
+            ctx.fillStyle='#ff3333';ctx.fill();
+            ctx.globalAlpha=flashOn?0.9:0.35;ctx.font='9px monospace';
+            ctx.fillStyle='#ff5555';ctx.textAlign='center';
+            ctx.fillText(b.type==="garden"?'NO SEEDS':'NO CROPS',b.x,b.y+def.radius+25);
+          } else {
+            ctx.globalAlpha=isPaused?0.45:0.9;ctx.beginPath();
+            ctx.arc(b.x,b.y,def.radius+5,-Math.PI/2,-Math.PI/2+Math.PI*2*prog);
+            if(isPaused){ctx.setLineDash([4,4]);}
+            ctx.strokeStyle=isPaused?"#aaaaaa":bonus?'#aaff88':def.color;ctx.lineWidth=3;ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.globalAlpha=isPaused?0.4:0.55;ctx.font='9px monospace';
+            ctx.fillStyle=isPaused?"#aaaaaa":bonus?'#aaff88':def.color;ctx.textAlign='center';
+            ctx.fillText(isPaused?`paused ${Math.round(prog*100)}%`:bonus?'working ⚡2×':'working…',b.x,b.y+def.radius+25);
+          }
+        }
+        const svBlocked = (b.type==="garden"||b.type==="kitchen") &&
+          s.survivors.some(sv => sv.insideBuilding===b.id && !sv.sleeping &&
+            getToolBehavior(sv)===(b.type==="garden"?"garden":"kitchen")) &&
+          (b.type==="garden" ? (s.storage.seeds??0)<1 : (s.storage.crops??0)<KITCHEN_CROP_COST);
+        const workingSv = !svBlocked && s.survivors.find(sv => sv.insideBuilding === b.id && sv.casting && sv.castProgress > 0);
+        if (svBlocked) {
+          const flashOn = Math.floor(t*4)%2===0;
+          ctx.globalAlpha=flashOn?0.6:0.2;ctx.beginPath();
+          ctx.arc(b.x,b.y,def.radius+6,0,Math.PI*2);
+          ctx.fillStyle='#ff3333';ctx.fill();
+          ctx.globalAlpha=flashOn?0.9:0.35;ctx.font='9px monospace';
+          ctx.fillStyle='#ff5555';ctx.textAlign='center';
+          ctx.fillText(b.type==="garden"?'NO SEEDS':'NO CROPS',b.x,b.y+def.radius+25);
+        } else if (workingSv) {
           const effectiveCastTime = workingSv.castTotal || 1;
           const prog = Math.min(1, (b.workProgress ?? workingSv.castProgress) / effectiveCastTime);
           ctx.globalAlpha=0.8;ctx.beginPath();
@@ -1554,6 +1970,27 @@ export default function ZomBase() {
           ctx.setLineDash([3,4]);
           ctx.strokeStyle=b.type==="garden"?"#44aa55":"#cc6633";
           ctx.lineWidth=2;ctx.stroke();ctx.setLineDash([]);
+        }
+        // ── Research lab cast arc ─────────────────────────────────────────────
+        if (b.type === "research_lab" && (b.labProgress ?? 0) > 0) {
+          const prog = Math.min(1, b.labProgress / LAB_CAST_TIME);
+          const isPlayerRes = !!b.playerResearching;
+          const isSurvRes = s.survivors.some(sv => sv.insideBuilding === b.id && sv.casting);
+          if (isPlayerRes || isSurvRes) {
+            // Pulsing glow: scale alpha with a sine wave for a "working" feel
+            const pulse = 0.75 + 0.25 * Math.sin(t * 4);
+            ctx.globalAlpha = pulse;
+            ctx.beginPath();
+            ctx.arc(b.x, b.y, def.radius + 6, -Math.PI/2, -Math.PI/2 + Math.PI*2*prog);
+            ctx.strokeStyle = "#44bbdd";
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            ctx.globalAlpha = pulse * 0.7;
+            ctx.font = "9px monospace";
+            ctx.fillStyle = "#44bbdd";
+            ctx.textAlign = "center";
+            ctx.fillText(`🧪 ${Math.round(prog*100)}%`, b.x, b.y + def.radius + 25);
+          }
         }
         ctx.globalAlpha=1;
         ctx.beginPath();ctx.arc(b.x,b.y,def.radius,0,Math.PI*2);
@@ -1652,26 +2089,60 @@ export default function ZomBase() {
       ctx.save();
       const isPatroller = z.dayPatroller && s.phase === "day";
       const pulse = 0.08 + 0.06 * Math.sin(t*3.5 + z.id*1.7);
-      // Patrollers glow orange, night zombies glow red
+      const variant = z.variant ?? "standard";
+      // Variant sizing and colors
+      const zRadius = variant === "brute" ? ZOMBIE_RADIUS + 4
+                    : variant === "fast"  ? ZOMBIE_RADIUS - 2
+                    : ZOMBIE_RADIUS;
+      const glowColor  = isPatroller ? "#cc8800"
+                       : variant === "brute"  ? "#cc44ff"
+                       : variant === "tough"  ? "#4488ff"
+                       : variant === "fast"   ? "#ffee22"
+                       : z.chasing ? "#ff6622" : "#cc2222";
+      const bodyColor  = isPatroller ? "#664400"
+                       : variant === "brute"  ? "#441166"
+                       : variant === "tough"  ? "#112244"
+                       : variant === "fast"   ? "#554400"
+                       : z.chasing ? "#882200" : "#661111";
+      const strokeColor= isPatroller ? "#ffaa22"
+                       : variant === "brute"  ? "#aa44ff"
+                       : variant === "tough"  ? "#3366cc"
+                       : variant === "fast"   ? "#ffdd00"
+                       : z.chasing ? "#ff4400" : "#aa3333";
+      // Glow
       ctx.globalAlpha=isPatroller?pulse*1.5:z.chasing?pulse*2.5:pulse;
-      ctx.beginPath(); ctx.arc(z.x,z.y,ZOMBIE_RADIUS+6,0,Math.PI*2);
-      ctx.fillStyle=isPatroller?"#cc8800":z.chasing?"#ff6622":"#cc2222"; ctx.fill();
+      ctx.beginPath(); ctx.arc(z.x,z.y,zRadius+6,0,Math.PI*2);
+      ctx.fillStyle=glowColor; ctx.fill();
       ctx.globalAlpha=1;
-      ctx.beginPath(); ctx.arc(z.x,z.y,ZOMBIE_RADIUS,0,Math.PI*2);
-      ctx.fillStyle=isPatroller?"#664400":z.chasing?"#882200":"#661111"; ctx.fill();
-      ctx.strokeStyle=isPatroller?"#ffaa22":z.chasing?"#ff4400":"#aa3333"; ctx.lineWidth=1.5; ctx.stroke();
+      // Body
+      ctx.beginPath(); ctx.arc(z.x,z.y,zRadius,0,Math.PI*2);
+      ctx.fillStyle=bodyColor; ctx.fill();
+      ctx.strokeStyle=strokeColor; ctx.lineWidth=1.5; ctx.stroke();
+      // Eyes
       ctx.fillStyle="rgba(255,60,60,0.9)";
       ctx.beginPath(); ctx.arc(z.x-2.5,z.y-2,1.5,0,Math.PI*2); ctx.fill();
       ctx.beginPath(); ctx.arc(z.x+2.5,z.y-2,1.5,0,Math.PI*2); ctx.fill();
-      // Patroller indicator
+      // Labels
+      ctx.globalAlpha=0.7; ctx.textAlign="center";
       if (isPatroller) {
-        ctx.globalAlpha=0.6; ctx.font="7px monospace"; ctx.textAlign="center"; ctx.fillStyle="#ffaa44";
-        ctx.fillText("DAY", z.x, z.y-ZOMBIE_RADIUS-8);
+        ctx.font="7px monospace"; ctx.fillStyle="#ffaa44";
+        ctx.fillText("DAY", z.x, z.y-zRadius-8);
+      } else if (variant === "brute") {
+        ctx.font="bold 7px monospace"; ctx.fillStyle="#cc88ff";
+        ctx.fillText("BRUTE", z.x, z.y-zRadius-8);
+      } else if (variant === "tough") {
+        ctx.font="7px monospace"; ctx.fillStyle="#88aaff";
+        ctx.fillText("TOUGH", z.x, z.y-zRadius-8);
+      } else if (variant === "fast") {
+        ctx.font="7px monospace"; ctx.fillStyle="#ffee44";
+        ctx.fillText("FAST", z.x, z.y-zRadius-8);
       }
+      // HP bar
       if (z.hp<z.maxHp){
         const f=Math.max(0,z.hp/z.maxHp);
-        ctx.fillStyle="rgba(0,0,0,0.5)"; ctx.fillRect(z.x-8,z.y-ZOMBIE_RADIUS-7,16,2.5);
-        ctx.fillStyle=f>0.5?"#88dd44":"#dd4444"; ctx.fillRect(z.x-8,z.y-ZOMBIE_RADIUS-7,16*f,2.5);}
+        ctx.globalAlpha=1;
+        ctx.fillStyle="rgba(0,0,0,0.5)"; ctx.fillRect(z.x-8,z.y-zRadius-7,16,2.5);
+        ctx.fillStyle=f>0.5?"#88dd44":"#dd4444"; ctx.fillRect(z.x-8,z.y-zRadius-7,16*f,2.5);}
       ctx.restore();
     });
 
@@ -1690,24 +2161,30 @@ export default function ZomBase() {
       ctx.arc(s.player.x,s.player.y,UNARMED_RANGE,s.unarmedFlash.angle-UNARMED_ARC/2,s.unarmedFlash.angle+UNARMED_ARC/2);
       ctx.closePath(); ctx.fillStyle="#ffddbb"; ctx.fill(); ctx.restore();
     }
-    if (s.flameFlash) {
-      const prog = 1 - s.flameFlash.timer/FLAME_FLASH_DUR;
+    // ── Flame particles ───────────────────────────────────────────────────────
+    s.flameParticles.forEach(p => {
+      const frac = p.life / p.maxLife; // 1=fresh, 0=dead
+      const alpha = frac * frac;       // fade out
       ctx.save();
-      // Outer fire cone — orange
-      ctx.globalAlpha = 0.65*(1-prog*0.5);
-      ctx.beginPath(); ctx.moveTo(s.player.x,s.player.y);
-      ctx.arc(s.player.x,s.player.y,FLAME_RANGE,s.flameFlash.angle-FLAME_ARC/2,s.flameFlash.angle+FLAME_ARC/2);
-      ctx.closePath();
-      const grad = ctx.createRadialGradient(s.player.x,s.player.y,4,s.player.x,s.player.y,FLAME_RANGE);
-      grad.addColorStop(0,"#ffffff"); grad.addColorStop(0.15,"#ffee44"); grad.addColorStop(0.5,"#ff6622"); grad.addColorStop(1,"rgba(200,40,0,0)");
-      ctx.fillStyle=grad; ctx.fill();
-      // Inner heat shimmer
-      ctx.globalAlpha = 0.35*(1-prog);
-      ctx.beginPath(); ctx.moveTo(s.player.x,s.player.y);
-      ctx.arc(s.player.x,s.player.y,FLAME_RANGE*0.55,s.flameFlash.angle-FLAME_ARC*0.4,s.flameFlash.angle+FLAME_ARC*0.4);
-      ctx.closePath(); ctx.fillStyle="#ffffff"; ctx.fill();
+      ctx.globalAlpha = alpha * 0.9;
+      // Color: white-hot at birth, yellow mid, orange/red at end
+      const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * (1 + (1-frac)*0.8));
+      if (p.hot > 0.6) {
+        grad.addColorStop(0, "#ffffff");
+        grad.addColorStop(0.3, "#ffee55");
+        grad.addColorStop(0.7, "#ff6622");
+        grad.addColorStop(1, "rgba(200,30,0,0)");
+      } else {
+        grad.addColorStop(0, "#ffdd44");
+        grad.addColorStop(0.4, "#ff4400");
+        grad.addColorStop(1, "rgba(180,20,0,0)");
+      }
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r * (1 + (1-frac)*0.8), 0, Math.PI*2);
+      ctx.fillStyle = grad;
+      ctx.fill();
       ctx.restore();
-    }
+    });
 
     // ── Player ────────────────────────────────────────────────────────────────
     if (!s.playerOnRun) {
@@ -1736,8 +2213,8 @@ export default function ZomBase() {
       } else {
         // Weapon range indicator
         const hasWeapon = !!weaponRef.current;
-        const rangeColor = weaponRef.current==="bat"?"#ffcc44":weaponRef.current==="gun"?"#88aaff":"#ffddbb";
-        const rangeVal = weaponRef.current==="bat"?BAT_RANGE:weaponRef.current==="gun"?GUN_RANGE:UNARMED_RANGE;
+        const rangeColor = weaponRef.current==="bat"?"#ffcc44":weaponRef.current==="gun"?"#88aaff":weaponRef.current==="flamethrower"?"#ff6622":"#ffddbb";
+        const rangeVal = weaponRef.current==="bat"?BAT_RANGE:weaponRef.current==="gun"?GUN_RANGE:weaponRef.current==="flamethrower"?FLAME_RANGE:UNARMED_RANGE;
         ctx.globalAlpha=0.06; ctx.beginPath(); ctx.arc(px,py,rangeVal,0,Math.PI*2);
         ctx.strokeStyle=rangeColor; ctx.lineWidth=1; ctx.setLineDash([3,4]); ctx.stroke(); ctx.setLineDash([]);
         if (isHurt){ctx.globalAlpha=0.3+0.25*Math.sin(t*40);ctx.beginPath();ctx.arc(px,py,PLAYER_RADIUS+8,0,Math.PI*2);ctx.fillStyle="#ff3333";ctx.fill();}
@@ -1819,10 +2296,10 @@ export default function ZomBase() {
           ctx.restore();
         };
 
-        const mouse = mousePosRef.current;
+        const mouse = ghostPosRef.current;
         const cam2  = cameraRef.current;
-        const mwx   = mouse.x + cam2.x - W2/2;
-        const mwy   = mouse.y + cam2.y - H2/2;
+        const mwx   = mouse.x;
+        const mwy   = mouse.y;
 
         if (!pending) {
           drawGhost(mwx, mwy, false);
@@ -1926,15 +2403,32 @@ export default function ZomBase() {
     // ── HUD ───────────────────────────────────────────────────────────────────
     ctx.save();
     ctx.font="12px monospace"; ctx.textAlign="left";
-    ctx.fillStyle="rgba(180,220,180,0.55)"; ctx.fillText(`Day ${s.day}`,14,24);
+    // Row 0: Cure progress bar — always at the very top when lab exists
+    const hasLabHUD = (s.researchPct ?? 0) > 0 || s.buildings.some(b => b.built && b.type === "research_lab");
+    let hudTopY = 14; // tracks where next row starts (text baseline)
+    if (hasLabHUD) {
+      const rPct = s.researchPct ?? 0;
+      const rW = 110, rH = 7, rX = 14, rBarY = 8;
+      ctx.globalAlpha = 0.55; ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.roundRect(rX, rBarY, rW, rH, 3); ctx.fill();
+      ctx.globalAlpha = 0.9;
+      const rColor = rPct >= 90 ? "#88ffee" : rPct >= 50 ? "#44bbdd" : "#2277aa";
+      ctx.fillStyle = rColor; ctx.roundRect(rX, rBarY, rW * (rPct/100), rH, 3); ctx.fill();
+      ctx.globalAlpha = 0.8; ctx.font = "8px monospace"; ctx.textAlign = "left"; ctx.fillStyle = rColor;
+      ctx.fillText(`🧪 CURE ${rPct}%`, rX + rW + 5, rBarY + 6);
+      ctx.globalAlpha = 1;
+      hudTopY = 24; // push Day text down one row
+    }
+    // Day / phase
+    ctx.font="12px monospace";
+    ctx.fillStyle="rgba(180,220,180,0.55)"; ctx.textAlign="left"; ctx.fillText(`Day ${s.day}`,14,hudTopY);
     const phaseColor={day:"rgba(200,230,200,0.45)",dusk:"rgba(255,160,60,0.7)",
       night:"rgba(120,140,255,0.8)",dawn:"rgba(200,160,255,0.65)"}[s.phase];
     const timeLeft=Math.ceil(phaseDurs[s.phase]-s.phaseT);
     ctx.fillStyle=phaseColor;ctx.textAlign="right";
-    ctx.fillText(`${s.phase.toUpperCase()}  ${timeLeft}s`,W2-MM_W-16,24);
+    ctx.fillText(`${s.phase.toUpperCase()}  ${timeLeft}s`,W2-MM_W-16,hudTopY);
     // Row 1: raw materials
     ctx.fillStyle="rgba(180,220,180,0.5)";ctx.font="10px monospace";ctx.textAlign="left";
-    ctx.fillText(`🌽${s.storage.crops??0} 🍱${s.storage.meals??0} 💧${Math.floor(s.storage.water??0)} ⛽${s.storage.fuel??0} 🔩${s.storage.scrap??0} 🪵${s.storage.wood??0} 🌾${s.storage.seeds??0}`,14,42);
+    ctx.fillText(`🌽${s.storage.crops??0} 🍱${s.storage.meals??0} 💧${Math.floor(s.storage.water??0)} ⛽${s.storage.fuel??0} 🔩${s.storage.scrap??0} 🪵${s.storage.wood??0} 🌾${s.storage.seeds??0}`,14,hudTopY+14);
     // Row 2: crafted inventory (only show items with >0 stock or equipped)
     const inv = s.inventory ?? {};
     const invParts = Object.values(CRAFTABLES).map(c => {
@@ -1948,7 +2442,7 @@ export default function ZomBase() {
     }).filter(Boolean);
     if (invParts.length > 0) {
       ctx.fillStyle="rgba(180,180,140,0.4)";ctx.font="9px monospace";ctx.textAlign="left";
-      ctx.fillText(invParts.join(" "),14,57);
+      ctx.fillText(invParts.join(" "),14,hudTopY+27);
     }
     // ── Bottom-left HUD: survivors / HP / needs ─────────────────────────────
     // Layout (bottom up): needs bar row @ H2-14, HP bar @ H2-34, survivors text @ H2-54
@@ -2052,7 +2546,7 @@ export default function ZomBase() {
     lastRef.current = ts;
     const s=stateRef.current, canvas=canvasRef.current;
     if (!canvas||!s){rafRef.current=requestAnimationFrame(loop);return;}
-    if (!s.gameOver) tick(s, dt);
+    if (!s.gameOver && !s.gameWon) tick(s, dt);
     // Autosave at each new dawn
     if (s._pendingAutosave) {
   s._pendingAutosave = false;
@@ -2172,14 +2666,17 @@ export default function ZomBase() {
     }
 
     setActivePanel(null);
-    if (dist(wx, wy, SHELTER.x, SHELTER.y) > buildRadius) return;
-    if (dist(wx,wy,SHELTER.x,SHELTER.y)<MIN_BUILDING_SEP) return;
-    if (s.buildings.some(b=>dist(wx,wy,b.x,b.y)<MIN_BUILDING_SEP)) return;
+    // In ghost placement mode, the ghost position IS the target — tap just confirms/repositions it
+    const gp = ghostPosRef.current;
+    const pwx = gp.x, pwy = gp.y;
+    if (dist(pwx, pwy, SHELTER.x, SHELTER.y) > buildRadius) return;
+    if (dist(pwx,pwy,SHELTER.x,SHELTER.y)<MIN_BUILDING_SEP) return;
+    if (s.buildings.some(b=>dist(pwx,pwy,b.x,b.y)<MIN_BUILDING_SEP)) return;
     const def = BUILDING_TYPES[selectedBuildingRef.current];
     if (!canAfford(s.storage, def.cost)) return;
 
-    // Tap sets/moves the ghost preview — confirm button actually places it
-    const placement = { x: wx, y: wy, type: selectedBuildingRef.current };
+    // Tap confirms the current ghost position as a pending placement
+    const placement = { x: pwx, y: pwy, type: selectedBuildingRef.current };
     setPendingPlacement(placement);
     pendingPlacementRef.current = placement;
   }
@@ -2260,6 +2757,30 @@ export default function ZomBase() {
     setShelterOpen(false);
     forceUpdate(n => n + 1);
   }
+
+  function upgradeBuilding(buildingId) {
+    const s = stateRef.current; if (!s) return;
+    const b = s.buildings.find(b => b.id === buildingId); if (!b || !b.built) return;
+    const next = getNextTierData(b); if (!next) return;
+    if (!canAfford(s.storage, next.cost)) return;
+    spendResources(s.storage, next.cost);
+    b.tier  = next.tier;
+    b.maxHp = next.maxHp;
+    b.hp    = Math.min(b.hp ?? next.maxHp, next.maxHp); // heal to new max if under
+    // Reset work progress so cast times recalculate cleanly
+    b.workProgress = 0;
+    b.workCastTime = undefined;
+    forceUpdate(n => n + 1);
+  }
+  function repairBuilding(buildingId) {
+    const s = stateRef.current; if (!s) return;
+    const b = s.buildings.find(b => b.id === buildingId); if (!b || !b.built) return;
+    const def = BUILDING_TYPES[b.type]; if (!def) return;
+    if (!canAfford(s.storage, def.cost)) return;
+    spendResources(s.storage, def.cost);
+    b.hp = b.maxHp ?? BUILDING_MAX_HP;
+    forceUpdate(n => n + 1);
+  }
   function playerWake() {
     const s = stateRef.current; if (!s) return;
     s.playerSleeping = false;
@@ -2305,6 +2826,8 @@ export default function ZomBase() {
   function loadGame(slotKey) {
     const snap = saveSlots[slotKey]; if (!snap) return;
     const s = snap.state;
+    // Migration shims — add fields that didn't exist in older saves
+    s.flameParticles = s.flameParticles ?? [];
     _namePool = [...SURVIVOR_NAMES];
     lastRef.current = null;
     stateRef.current = s;
@@ -2349,34 +2872,42 @@ export default function ZomBase() {
 
         completed.forEach(ar => {
           const run = ar.run;
-          const effectiveChance = Math.min(0.98, run.successChance + (ar.gearBonus ?? 0));
+          const partySuccessBonus = calcPartySuccessBonus((ar.partyIds?.length ?? 0) + (ar.includesPlayer ? 1 : 0));
+          const effectiveChance = Math.min(0.98, run.successChance + (ar.gearBonus ?? 0) + partySuccessBonus);
           const success = Math.random() <= effectiveChance;
           const s = stateRef.current;
           if (success) {
+            const totalPartySize = (ar.partyIds?.length ?? 0) + (ar.includesPlayer ? 1 : 0);
+            const lootMult = calcPartyLootMult(totalPartySize);
             const loot = {};
             RUN_LOOT_TYPES.forEach(lt=>{
               const [min,max]=run.baseLoot[lt.id];
               let qty = Math.floor(Math.random()*(max-min+1))+min;
-              if (ar.focus.includes(lt.id)) qty = Math.round(qty*(1+run.focusBonus));
-              // Bonus loot for larger parties
-              if (ar.partyIds.length > 1) qty = Math.round(qty * (1 + (ar.partyIds.length - 1) * 0.3));
+              if (ar.focus.includes(lt.id)) qty = Math.round(qty*(1+(ar.focusBonus ?? run.focusBonus ?? 0.5)));
+              qty = Math.round(qty * lootMult);
               loot[lt.id]=qty;
             });
             if (s) {
               Object.entries(loot).forEach(([k,v])=>{ s.storage[k]=(s.storage[k]??0)+v; });
+              // Random research sample
+              if (Math.random() < RESEARCH_SAMPLE_CHANCE) {
+                loot.researchSample = 1;
+                s.researchPct = Math.min(100, (s.researchPct ?? 0) + 1);
+                if (s.researchPct >= 100) s.gameWon = true;
+              }
             }
             // Return party members
             if (s && ar.includesPlayer) { s.playerOnRun = false; playerOnRunRef.current = false; }
             if (s) ar.partyIds.forEach(id => { const sv = s.survivors.find(sv=>sv.id===id); if(sv) sv.onRun=false; });
             setRunResult(r => {
-              const next = { loot, run, success:true, partyIds: ar.partyIds, includesPlayer: ar.includesPlayer, gearBonus: ar.gearBonus };
+              const next = { loot, run, success:true, partyIds: ar.partyIds, includesPlayer: ar.includesPlayer, gearBonus: ar.gearBonus, partyBonus: partySuccessBonus };
               return r ? { ...r, queue: [...(r.queue??[]), next] } : next;
             });
           } else {
             if (s && ar.includesPlayer) { s.playerOnRun = false; playerOnRunRef.current = false; }
             if (s) ar.partyIds.forEach(id => { const sv = s.survivors.find(sv=>sv.id===id); if(sv) sv.onRun=false; });
             setRunResult(r => {
-              const next = { loot:null, run, success:false, partyIds: ar.partyIds, includesPlayer: ar.includesPlayer, gearBonus: ar.gearBonus };
+              const next = { loot:null, run, success:false, partyIds: ar.partyIds, includesPlayer: ar.includesPlayer, gearBonus: ar.gearBonus, partyBonus: partySuccessBonus };
               return r ? { ...r, queue: [...(r.queue??[]), next] } : next;
             });
           }
@@ -2508,7 +3039,15 @@ export default function ZomBase() {
     canvas.addEventListener("touchcancel",onTouchEnd,{passive:true});
     const onMouseMove = e => {
       const rect = canvas.getBoundingClientRect();
-      mousePosRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+      mousePosRef.current = { x: sx, y: sy };
+      // In ghost placement mode, mouse controls the ghost position (desktop)
+      if (selectedBuildingRef.current && selectedBuildingRef.current !== "wall") {
+        const W2 = canvas.width / (window.devicePixelRatio || 1);
+        const H2 = canvas.height / (window.devicePixelRatio || 1);
+        const cam = cameraRef.current;
+        ghostPosRef.current = { x: sx + cam.x - W2/2, y: sy + cam.y - H2/2 };
+      }
     };
     canvas.addEventListener("mousemove", onMouseMove);
     return()=>{cancelAnimationFrame(rafRef.current);ro.disconnect();window.removeEventListener("resize",resize);window.removeEventListener("keydown",onDown);window.removeEventListener("keyup",onUp);canvas.removeEventListener("touchstart",onTouchStart);canvas.removeEventListener("touchmove",onTouchMove);canvas.removeEventListener("touchend",onTouchEnd);canvas.removeEventListener("touchcancel",onTouchEnd);canvas.removeEventListener("mousemove",onMouseMove);};
@@ -2538,6 +3077,8 @@ export default function ZomBase() {
   function loadGameFromMenu(slotKey) {
     const snap = saveSlots[slotKey]; if (!snap) return;
     const s = snap.state;
+    // Migration shims — add fields that didn't exist in older saves
+    s.flameParticles = s.flameParticles ?? [];
     _namePool = [...SURVIVOR_NAMES];
     lastRef.current = null;
     stateRef.current = s;
@@ -2789,6 +3330,61 @@ export default function ZomBase() {
         onClick={handleCanvasClick}/>
 
       {/* ── Game Over Overlay ──────────────────────────────────────────────── */}
+      {s?.gameWon && (
+        <div style={{
+          position:"absolute", inset:0, zIndex:60,
+          background:"rgba(0,10,8,0.92)",
+          display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
+          fontFamily:"monospace",
+        }}>
+          <style>{`@keyframes winPulse { 0%,100%{opacity:0.7;transform:scale(1)} 50%{opacity:1;transform:scale(1.04)} }`}</style>
+          <div style={{fontSize:48,marginBottom:12,animation:"winPulse 2s ease-in-out infinite"}}>🧪</div>
+          <div style={{fontSize:11,letterSpacing:"0.35em",color:"rgba(68,220,200,0.55)",marginBottom:8,textTransform:"uppercase"}}>— the outbreak is over —</div>
+          <div style={{fontSize:26,fontWeight:900,color:"#44ffdd",letterSpacing:"0.04em",marginBottom:4,textShadow:"0 0 30px rgba(68,255,220,0.4)"}}>
+            THE CURE WAS FOUND
+          </div>
+          <div style={{fontSize:11,color:"rgba(255,255,255,0.3)",marginBottom:24}}>humanity has a chance</div>
+          <div style={{display:"flex",gap:16,marginBottom:28}}>
+            <div style={{textAlign:"center",padding:"12px 18px",borderRadius:12,background:"rgba(68,220,200,0.06)",border:"0.5px solid rgba(68,220,200,0.2)"}}>
+              <div style={{fontSize:22,fontWeight:700,color:"#44ffdd"}}>{s.day}</div>
+              <div style={{fontSize:9,color:"rgba(255,255,255,0.3)",marginTop:2}}>DAYS</div>
+            </div>
+            <div style={{textAlign:"center",padding:"12px 18px",borderRadius:12,background:"rgba(200,100,100,0.06)",border:"0.5px solid rgba(200,100,100,0.2)"}}>
+              <div style={{fontSize:22,fontWeight:700,color:"#ff8888"}}>{s.zombiesKilled ?? 0}</div>
+              <div style={{fontSize:9,color:"rgba(255,255,255,0.3)",marginTop:2}}>ZOMBIES KILLED</div>
+            </div>
+            <div style={{textAlign:"center",padding:"12px 18px",borderRadius:12,background:"rgba(100,180,100,0.06)",border:"0.5px solid rgba(100,180,100,0.2)"}}>
+              <div style={{fontSize:22,fontWeight:700,color:"#88ffaa"}}>{(s.survivors||[]).length + 1}</div>
+              <div style={{fontSize:9,color:"rgba(255,255,255,0.3)",marginTop:2}}>SURVIVORS</div>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:12}}>
+            <button onClick={handleRestart} style={{
+              padding:"12px 28px", borderRadius:10, fontSize:13, fontWeight:700,
+              letterSpacing:"0.07em", cursor:"pointer",
+              background:"linear-gradient(135deg,rgba(68,220,200,0.25),rgba(68,220,200,0.1))",
+              border:"1px solid rgba(68,220,200,0.5)", color:"#44ffdd",
+            }}>
+              ↺ PLAY AGAIN
+            </button>
+            <button onClick={()=>{
+              setSaveModal(false); setSelectedBuilding(null); setActivePanel(null);
+              setSurvivorPanel(null); setPlayerGearOpen(false); setShelterOpen(false);
+              setActiveRun(null); setRunResult(null); setRunModal(null);
+              stateRef.current = null;
+              setGameScreen("menu"); setMenuTab("main");
+            }} style={{
+              padding:"12px 28px", borderRadius:10, fontSize:13, fontWeight:700,
+              letterSpacing:"0.07em", cursor:"pointer",
+              background:"rgba(255,255,255,0.04)",
+              border:"1px solid rgba(255,255,255,0.18)", color:"rgba(255,255,255,0.55)",
+            }}>
+              ← MAIN MENU
+            </button>
+          </div>
+        </div>
+      )}
+
       {s?.gameOver && (
         <div style={{
           position:"absolute", inset:0, zIndex:50,
@@ -2847,12 +3443,15 @@ export default function ZomBase() {
 
           {bottomTabsVisible&&(<>
           <div style={{display:"flex",borderBottom:"0.5px solid rgba(255,255,255,0.06)"}}>
-            <button style={tabBtn(bottomTab==="build")} onClick={()=>{setBottomTab("build");setSurvivorPanel(null);}}>BUILDINGS</button>
+            <button style={tabBtn(bottomTab==="town")} onClick={()=>{setBottomTab("town");setSelectedBuilding(null);setActivePanel(null);setSurvivorPanel(null);}}>
+              TOWN
+            </button>
+            <button style={tabBtn(bottomTab==="build")} onClick={()=>{setBottomTab("build");setSurvivorPanel(null);}}>BUILD</button>
             <button style={tabBtn(bottomTab==="defenses")} onClick={()=>{setBottomTab("defenses");setSurvivorPanel(null);}}>
-              DEFENSES
+              DEFENSE
             </button>
             <button style={tabBtn(bottomTab==="survivors")} onClick={()=>{setBottomTab("survivors");setSelectedBuilding(null);setActivePanel(null);}}>
-              SURVIVORS ({survivors.filter(sv=>!sv.onRun).length})
+              PEOPLE ({survivors.filter(sv=>!sv.onRun).length})
             </button>
             <button style={tabBtn(bottomTab==="runs")} onClick={()=>{setBottomTab("runs");setSelectedBuilding(null);setActivePanel(null);setSurvivorPanel(null);}}>
               RUNS {activeRun&&<span style={{display:"inline-block",width:6,height:6,borderRadius:"50%",background:"#44cc66",marginLeft:4,verticalAlign:"middle"}}/>}
@@ -2861,6 +3460,188 @@ export default function ZomBase() {
               💾
             </button>
           </div>
+
+          {/* Town overview tab */}
+          {bottomTab==="town"&&(()=>{
+            const gs = stateRef.current;
+            if (!gs) return null;
+            // ── Per-day-cycle production / consumption rates ──────────────────
+            const cycleLen = DAY_DURATION + NIGHT_DURATION + DAWN_DURATION + DUSK_DURATION; // ~81s
+            const totalSurvivors = gs.survivors.length;
+            const atHomeSurvivors = gs.survivors.filter(sv => !sv.onRun);
+
+            // Food production: each garden worker + player working garden
+            const gardens = gs.buildings.filter(b => b.built && (b.hp??0)>0 && b.type==="garden");
+            const kitchens = gs.buildings.filter(b => b.built && (b.hp??0)>0 && b.type==="kitchen");
+            const gardenWorkers = gs.survivors.filter(sv => !sv.onRun && getToolBehavior(sv)==="garden").length;
+            const kitchenWorkers = gs.survivors.filter(sv => !sv.onRun && getToolBehavior(sv)==="kitchen").length;
+            const avgGardenCast = GARDEN_CAST_TIME; // simplified (gloves halve it but we estimate)
+            const gardenCyclesPerDay = gardenWorkers > 0 ? (cycleLen / avgGardenCast) * gardenWorkers : 0;
+            const cropsPer = gardenCyclesPerDay * GARDEN_YIELD;
+            const avgKitchenCast = KITCHEN_CAST_TIME;
+            const kitchenCyclesPerDay = kitchenWorkers > 0 ? (cycleLen / avgKitchenCast) * kitchenWorkers : 0;
+            const mealsPer = kitchenCyclesPerDay * KITCHEN_YIELD;
+            // Consumption: each survivor drains hunger at HUNGER_DRAIN/s, meal=55 hunger, crop=22
+            // Effective meals-equivalent per cycle per person
+            const hungerPerCycle = HUNGER_DRAIN * cycleLen; // ~30 hunger/cycle
+            const mealEquivPerSurvivorPerCycle = hungerPerCycle / MEAL_RESTORE; // ~0.55 meals
+            const foodConsumedPerCycle = mealEquivPerSurvivorPerCycle * atHomeSurvivors.length;
+            // Water production
+            const condensers = gs.buildings.filter(b => b.built && (b.hp??0)>0 && b.type==="condenser");
+            const waterPerCycle = condensers.reduce((sum,b) => {
+              const mult = getBuildingStat(b,"rateMult") ?? 1;
+              return sum + CONDENSER_RATE * mult * cycleLen;
+            }, 0);
+            const thirstPerCycle = THIRST_DRAIN * cycleLen; // ~40 thirst/cycle
+            const waterEquivPerSurvivorPerCycle = thirstPerCycle / WATER_RESTORE; // ~0.73 water units
+            const waterConsumedPerCycle = waterEquivPerSurvivorPerCycle * atHomeSurvivors.length;
+
+            // Survivor status summary
+            const statusGroups = {
+              working: gs.survivors.filter(sv => !sv.onRun && !sv.sleeping && sv.insideBuilding && getToolBehavior(sv)!=="wander"),
+              guarding: gs.survivors.filter(sv => !sv.onRun && !sv.sleeping && getToolBehavior(sv)==="guard"),
+              sleeping: gs.survivors.filter(sv => sv.sleeping && !sv.onRun),
+              onRun: gs.survivors.filter(sv => sv.onRun),
+              idle: gs.survivors.filter(sv => !sv.onRun && !sv.sleeping && getToolBehavior(sv)==="wander"),
+            };
+
+            // Warning flags
+            const foodDeficit = cropsPer > 0 && foodConsumedPerCycle > (mealsPer * 2.5 + cropsPer); // rough
+            const waterDeficit = waterConsumedPerCycle > waterPerCycle * 1.1;
+            const noFood = (gs.storage.meals??0) < 2 && (gs.storage.crops??0) < 4;
+            const noWater = (gs.storage.water??0) < 2;
+            const critSurvivors = gs.survivors.filter(sv => {
+              const sn = sv.needs??{};
+              return (sn.hunger??100) < HUNGER_CRIT || (sn.thirst??100) < THIRST_CRIT || (sn.sleep??100) < SLEEP_CRIT;
+            });
+
+            const statRow = (icon, label, value, ok, warn) => (
+              <div style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderBottom:"0.5px solid rgba(255,255,255,0.04)"}}>
+                <span style={{fontSize:13,width:18,textAlign:"center"}}>{icon}</span>
+                <span style={{fontSize:9,color:"rgba(255,255,255,0.35)",flex:1}}>{label}</span>
+                <span style={{fontSize:10,color:warn?"#cc4444":ok?"#44cc66":"#ddaa22",fontWeight:600}}>{value}</span>
+              </div>
+            );
+
+            return (
+            <div style={{padding:"8px 12px env(safe-area-inset-bottom,8px)",overflowX:"hidden"}}>
+              {/* Top: day + population */}
+              <div style={{display:"flex",gap:10,marginBottom:8}}>
+                <div style={{flex:1,padding:"8px 10px",borderRadius:10,background:"rgba(255,255,255,0.03)",border:"0.5px solid rgba(255,255,255,0.07)"}}>
+                  <div style={{fontSize:9,color:"rgba(255,255,255,0.2)",marginBottom:2,letterSpacing:"0.07em"}}>DAY</div>
+                  <div style={{fontSize:18,color:"rgba(255,220,100,0.85)",fontWeight:700,lineHeight:1}}>{gs.day}</div>
+                  <div style={{fontSize:8,color:"rgba(255,255,255,0.2)",marginTop:1}}>{gs.phase}</div>
+                </div>
+                <div style={{flex:1,padding:"8px 10px",borderRadius:10,background:"rgba(255,255,255,0.03)",border:"0.5px solid rgba(255,255,255,0.07)"}}>
+                  <div style={{fontSize:9,color:"rgba(255,255,255,0.2)",marginBottom:2,letterSpacing:"0.07em"}}>POPULATION</div>
+                  <div style={{fontSize:18,color:"rgba(100,200,255,0.85)",fontWeight:700,lineHeight:1}}>{totalSurvivors + 1}</div>
+                  <div style={{fontSize:8,color:"rgba(255,255,255,0.2)",marginTop:1}}>you + {totalSurvivors} survivor{totalSurvivors!==1?"s":""}</div>
+                </div>
+                <div style={{flex:1,padding:"8px 10px",borderRadius:10,background:"rgba(255,255,255,0.03)",border:"0.5px solid rgba(255,255,255,0.07)"}}>
+                  <div style={{fontSize:9,color:"rgba(255,255,255,0.2)",marginBottom:2,letterSpacing:"0.07em"}}>BUILDINGS</div>
+                  <div style={{fontSize:18,color:"rgba(150,220,150,0.85)",fontWeight:700,lineHeight:1}}>{gs.buildings.filter(b=>b.built).length}</div>
+                  <div style={{fontSize:8,color:"rgba(255,255,255,0.2)",marginTop:1}}>{gs.walls.filter(w=>w.built).length} wall sections</div>
+                </div>
+              </div>
+
+              {/* Warnings */}
+              {(critSurvivors.length > 0 || noFood || noWater) && (
+                <div style={{marginBottom:8,padding:"7px 10px",borderRadius:8,background:"rgba(200,60,60,0.1)",border:"0.5px solid rgba(200,60,60,0.3)"}}>
+                  <div style={{fontSize:9,color:"#ff7766",fontWeight:600,marginBottom:3,letterSpacing:"0.06em"}}>⚠ ALERTS</div>
+                  {critSurvivors.length>0&&<div style={{fontSize:9,color:"rgba(255,140,120,0.8)"}}>{critSurvivors.map(sv=>sv.name).join(", ")} critically needs attention</div>}
+                  {noFood&&<div style={{fontSize:9,color:"rgba(255,180,80,0.8)"}}>⚠ Food supply critically low — build more Gardens or Kitchens</div>}
+                  {noWater&&<div style={{fontSize:9,color:"rgba(80,180,255,0.8)"}}>⚠ Water supply critically low — build more Condensers</div>}
+                </div>
+              )}
+
+              {/* Research progress */}
+              {(() => {
+                const rPct = gs.researchPct ?? 0;
+                const labs = gs.buildings.filter(b => b.built && (b.hp??0)>0 && b.type==="research_lab");
+                const researchers = gs.survivors.filter(sv => !sv.onRun && getToolBehavior(sv)==="researcher");
+                if (labs.length === 0 && rPct === 0) return null;
+                return (
+                  <div style={{marginBottom:8,padding:"8px 10px",borderRadius:8,background:"rgba(68,187,221,0.06)",border:"0.5px solid rgba(68,187,221,0.2)"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+                      <span style={{fontSize:12}}>🧪</span>
+                      <span style={{fontSize:9,color:"rgba(68,187,221,0.8)",fontWeight:600,letterSpacing:"0.06em"}}>CURE RESEARCH</span>
+                      <span style={{marginLeft:"auto",fontSize:11,color:"#44bbdd",fontWeight:700}}>{rPct}%</span>
+                    </div>
+                    <div style={{background:"rgba(0,0,0,0.4)",borderRadius:4,height:8,marginBottom:4}}>
+                      <div style={{height:"100%",borderRadius:4,background:rPct>=90?"#88ffee":rPct>=50?"#44bbdd":"#2277aa",width:`${rPct}%`,transition:"width 0.5s"}}/>
+                    </div>
+                    <div style={{fontSize:8,color:"rgba(255,255,255,0.25)"}}>
+                      {labs.length === 0 ? "⚠ No Research Lab built" : researchers.length > 0 ? `${researchers.length} researcher${researchers.length!==1?"s":""} active` : "Stand near the lab to research, or equip a Lab Coat on a survivor"}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div style={{display:"flex",gap:8}}>
+                {/* Left: production */}
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:9,color:"rgba(255,255,255,0.18)",letterSpacing:"0.07em",marginBottom:4}}>PRODUCTION / CYCLE</div>
+                  <div style={{background:"rgba(255,255,255,0.02)",borderRadius:8,padding:"6px 10px"}}>
+                    {statRow("🌱", "Crops", `+${cropsPer.toFixed(1)}`, cropsPer > foodConsumedPerCycle * 0.5, cropsPer === 0 && atHomeSurvivors.length > 2)}
+                    {statRow("🍱", "Meals", `+${mealsPer.toFixed(1)}`, mealsPer > 0, false)}
+                    {statRow("💧", "Water", `+${waterPerCycle.toFixed(1)}`, waterPerCycle >= waterConsumedPerCycle, waterPerCycle === 0 && atHomeSurvivors.length > 1)}
+                    {statRow("🌾", "Seeds", `${gs.storage.seeds??0} stk`, (gs.storage.seeds??0) > 5, (gs.storage.seeds??0) === 0 && gardenWorkers > 0)}
+                  </div>
+                  <div style={{fontSize:9,color:"rgba(255,255,255,0.18)",letterSpacing:"0.07em",marginBottom:4,marginTop:8}}>CONSUMPTION / CYCLE</div>
+                  <div style={{background:"rgba(255,255,255,0.02)",borderRadius:8,padding:"6px 10px"}}>
+                    {statRow("🍽", "Food need", `≈${foodConsumedPerCycle.toFixed(1)} ml`, cropsPer+mealsPer*2>foodConsumedPerCycle, false)}
+                    {statRow("💦", "Water need", `≈${waterConsumedPerCycle.toFixed(1)} u`, waterPerCycle>waterConsumedPerCycle, false)}
+                  </div>
+                </div>
+
+                {/* Right: people status */}
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:9,color:"rgba(255,255,255,0.18)",letterSpacing:"0.07em",marginBottom:4}}>PEOPLE STATUS</div>
+                  <div style={{background:"rgba(255,255,255,0.02)",borderRadius:8,padding:"6px 8px",display:"flex",flexDirection:"column",gap:3}}>
+                    {/* Player */}
+                    {(()=>{
+                      const pn = gs.playerNeeds;
+                      const pCrit = pn.hunger<HUNGER_CRIT||pn.thirst<THIRST_CRIT||pn.sleep<SLEEP_CRIT;
+                      return(
+                        <div style={{display:"flex",alignItems:"center",gap:5,padding:"3px 0",borderBottom:"0.5px solid rgba(255,255,255,0.04)"}}>
+                          <span style={{fontSize:10,width:14,textAlign:"center"}}>{gs.playerOnRun?"🏃":"🧑"}</span>
+                          <span style={{fontSize:9,flex:1,color:pCrit?"#ff8866":"rgba(255,255,255,0.55)"}}>You</span>
+                          <div style={{display:"flex",gap:2}}>
+                            {[{v:pn.hunger,c:"#ddaa44"},{v:pn.thirst,c:"#44aacc"},{v:pn.sleep,c:"#9988dd"}].map((nb,i)=>(
+                              <div key={i} style={{width:4,height:14,background:"rgba(0,0,0,0.5)",borderRadius:2,overflow:"hidden",display:"flex",flexDirection:"column-reverse"}}>
+                                <div style={{height:`${nb.v}%`,background:nb.v>40?nb.c:"#cc3333",borderRadius:2,transition:"height 0.5s"}}/>
+                              </div>))}
+                          </div>
+                          <span style={{fontSize:8,color:"rgba(255,255,255,0.2)",width:40,textAlign:"right",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{gs.playerOnRun?"on run":gs.playerSleeping?"💤":""}</span>
+                        </div>
+                      );
+                    })()}
+                    {gs.survivors.map(sv => {
+                      const sn = sv.needs??{};
+                      const crit = (sn.hunger??100)<HUNGER_CRIT||(sn.thirst??100)<THIRST_CRIT||(sn.sleep??100)<SLEEP_CRIT;
+                      const behavior = getToolBehavior(sv);
+                      const statusLabel = sv.onRun?"run":sv.sleeping?"💤":behavior==="garden"?"🌱":behavior==="kitchen"?"🍳":behavior==="guard"?"🗼":behavior==="carpenter"?"🪚":behavior==="researcher"?"🧪":"idle";
+                      return(
+                        <div key={sv.id} style={{display:"flex",alignItems:"center",gap:5,padding:"3px 0",borderBottom:"0.5px solid rgba(255,255,255,0.04)"}}>
+                          <span style={{fontSize:10,width:14,textAlign:"center"}}>{sv.onRun?"🏃":sv.sleeping?"💤":"🧑"}</span>
+                          <span style={{fontSize:9,flex:1,color:crit?"#ff8866":"rgba(255,255,255,0.55)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sv.name}</span>
+                          {!sv.onRun&&(
+                            <div style={{display:"flex",gap:2}}>
+                              {[{v:sn.hunger??100,c:"#ddaa44"},{v:sn.thirst??100,c:"#44aacc"},{v:sn.sleep??100,c:"#9988dd"}].map((nb,i)=>(
+                                <div key={i} style={{width:4,height:14,background:"rgba(0,0,0,0.5)",borderRadius:2,overflow:"hidden",display:"flex",flexDirection:"column-reverse"}}>
+                                  <div style={{height:`${nb.v}%`,background:nb.v>40?nb.c:"#cc3333",borderRadius:2,transition:"height 0.5s"}}/>
+                                </div>))}
+                            </div>)}
+                          <span style={{fontSize:8,color:"rgba(255,255,255,0.2)",width:40,textAlign:"right",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{statusLabel}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+            );
+          })()}
 
           {/* Build tab */}
           {bottomTab==="build"&&(
@@ -3008,7 +3789,7 @@ export default function ZomBase() {
                   })}
                 </div>)}
               {/* Party selector */}
-              {survivors.filter(sv=>!sv.onRun).length>0&&(
+              {(!isOnRun||survivors.filter(sv=>!sv.onRun).length>0)&&(
                 <div style={{marginBottom:8,padding:"6px 10px",borderRadius:8,background:"rgba(255,255,255,0.02)",border:"0.5px solid rgba(255,255,255,0.07)"}}>
                   <div style={{fontSize:9,color:"rgba(255,255,255,0.25)",marginBottom:5,letterSpacing:"0.06em"}}>SELECT PARTY FOR NEXT RUN</div>
                   <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
@@ -3314,52 +4095,126 @@ export default function ZomBase() {
           </div>);})()} 
 
       {/* ── Station panel ─────────────────────────────────────────────────── */}
-      {activePanel!==null&&panelItems.length>0&&(()=>{
-        const def=BUILDING_TYPES[activePanel.type];
-        const inv = s?.inventory ?? {};
-        const stor = s?.storage ?? {};
+      {activePanel!==null&&(()=>{ const _bCheck=s?.buildings.find(b=>b.id===activePanel.id); return _bCheck&&((_bCheck.hp??BUILDING_MAX_HP)<=0||(panelItems.length>0||!!BUILDING_TIERS[activePanel?.type])); })()&&(()=>{
+        const def   = BUILDING_TYPES[activePanel.type];
+        const bInst = s?.buildings.find(b => b.id === activePanel.id);
+        const inv   = s?.inventory ?? {};
+        const stor  = s?.storage ?? {};
+        const curTier   = getBuildingTier(bInst ?? {});
+        const nextTier  = bInst ? getNextTierData(bInst) : null;
+        const tierLabel = curTier > 1
+          ? (BUILDING_TIERS[activePanel.type]?.find(t=>t.tier===curTier)?.label ?? def.label)
+          : def.label;
+        const upgradeAffordable = nextTier ? canAfford(stor, nextTier.cost) : false;
+        const isDestroyed = bInst && (bInst.hp ?? BUILDING_MAX_HP) <= 0;
+        const repairCost = def.cost;
+        const repairAffordable = isDestroyed ? canAfford(stor, repairCost) : false;
         return(
           <div onClick={()=>setActivePanel(null)} style={{position:"absolute",inset:0,zIndex:10}}>
-            <div onClick={e=>e.stopPropagation()} style={{position:"absolute",left:"50%",top:"50%",transform:"translate(-50%,-50%)",width:"min(300px,calc(100vw - 24px))",background:"#0f1610",border:`0.5px solid ${def.color}44`,borderRadius:16,padding:"18px 18px 16px",maxHeight:"85vh",overflowY:"auto"}}>
-              <div style={{fontSize:11,letterSpacing:"0.1em",textTransform:"uppercase",color:def.color,marginBottom:4}}>{def.icon} {def.label}</div>
+            <div onClick={e=>e.stopPropagation()} style={{position:"absolute",left:"50%",top:"50%",transform:"translate(-50%,-50%)",width:"min(300px,calc(100vw - 24px))",background:"#0f1610",border:`0.5px solid ${isDestroyed?"#cc3333":def.color}44`,borderRadius:16,padding:"18px 18px 16px",maxHeight:"85vh",overflowY:"auto"}}>
+              {/* Destroyed — repair only */}
+              {isDestroyed && (
+                <div>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                    <div style={{fontSize:11,letterSpacing:"0.1em",textTransform:"uppercase",color:"#cc4444",flex:1}}>{def.icon} {def.label} — DESTROYED</div>
+                  </div>
+                  <div style={{fontSize:10,color:"rgba(255,255,255,0.25)",marginBottom:16,lineHeight:1.5}}>This building has been destroyed and cannot be used until repaired.</div>
+                  <div style={{marginBottom:6,padding:"10px 12px",borderRadius:10,background:"rgba(204,51,51,0.07)",border:`0.5px solid ${repairAffordable?"rgba(204,80,80,0.5)":"rgba(255,255,255,0.08)"}`}}>
+                    <div style={{fontSize:10,color:repairAffordable?"#ff8888":"rgba(255,255,255,0.3)",fontWeight:600,marginBottom:6}}>🔧 Repair — {costLabel(repairCost)}</div>
+                    {!repairAffordable&&<div style={{fontSize:9,color:"#cc4444",marginBottom:8}}>Not enough resources to repair.</div>}
+                    <button onClick={()=>{ repairBuilding(activePanel.id); setActivePanel(null); }}
+                      disabled={!repairAffordable}
+                      style={{width:"100%",padding:"10px",borderRadius:8,fontSize:11,fontWeight:600,letterSpacing:"0.05em",
+                        cursor:repairAffordable?"pointer":"default",
+                        background:repairAffordable?"rgba(204,80,80,0.18)":"rgba(255,255,255,0.03)",
+                        border:`1px solid ${repairAffordable?"rgba(204,80,80,0.6)":"rgba(255,255,255,0.08)"}`,
+                        color:repairAffordable?"#ff8888":"rgba(255,255,255,0.2)"}}>
+                      {repairAffordable?"REPAIR BUILDING":"CAN'T AFFORD"}
+                    </button>
+                  </div>
+                  <div onClick={()=>setActivePanel(null)} style={{position:"absolute",top:10,right:12,fontSize:20,color:"rgba(255,255,255,0.2)",cursor:"pointer",lineHeight:1}}>×</div>
+                </div>
+              )}
+              {/* Normal building modal content */}
+              {!isDestroyed && <>
+              {/* Header */}
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                <div style={{fontSize:11,letterSpacing:"0.1em",textTransform:"uppercase",color:def.color,flex:1}}>{def.icon} {tierLabel}</div>
+                {curTier > 1 && <div style={{fontSize:8,padding:"2px 7px",borderRadius:6,background:`${def.color}22`,border:`0.5px solid ${def.color}55`,color:def.color,letterSpacing:"0.06em"}}>TIER {curTier}</div>}
+              </div>
               <div style={{fontSize:10,color:"rgba(255,255,255,0.25)",marginBottom:14,lineHeight:1.5}}>{def.description}</div>
-              <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                {panelItems.map(item=>{
-                  const isCrafting=craftingQueue?.itemId===item.id&&craftingQueue?.stationId===activePanel.id;
-                  const progress=isCrafting&&s?.playerCraft?.progress?s.playerCraft.progress/item.castTime:0;
-                  const affordable = canAfford(stor, item.cost);
-                  const inStock = inv[item.id] ?? 0;
-                  return(
-                    <button key={item.id}
-                      onClick={()=>{
-                        if (isCrafting) { setCraftingQueue(null); return; }
-                        if (!affordable) return;
-                        setCraftingQueue({stationId:activePanel.id,itemId:item.id});
-                      }}
-                      style={{width:"100%",padding:"10px 12px",borderRadius:10,textAlign:"left",
-                        cursor:isCrafting||affordable?"pointer":"default",
-                        background:isCrafting?`rgba(${hexToRgb(item.color)},0.12)`:affordable?"rgba(255,255,255,0.03)":"rgba(0,0,0,0.2)",
-                        border:`0.5px solid ${isCrafting?item.color:affordable?"rgba(255,255,255,0.1)":"rgba(255,255,255,0.04)"}`,
-                        color:isCrafting?item.color:affordable?"rgba(255,255,255,0.7)":"rgba(255,255,255,0.3)",
-                        position:"relative",overflow:"hidden"}}>
-                      {isCrafting&&<div style={{position:"absolute",inset:0,background:`rgba(${hexToRgb(item.color)},0.08)`,width:`${progress*100}%`,transition:"width 0.1s"}}/>}
-                      <div style={{position:"relative",display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
-                        <div style={{flex:1}}>
-                          <div style={{fontSize:12,fontWeight:500,marginBottom:2}}>
-                            {item.icon} {item.label}
-                            {inStock>0&&<span style={{fontSize:9,marginLeft:6,opacity:0.55,color:"#88ccaa"}}>in stock: {inStock}</span>}
-                            {isCrafting&&<span style={{fontSize:9,marginLeft:8,opacity:0.6}}>crafting… {Math.round(progress*100)}%</span>}
-                          </div>
-                          <div style={{fontSize:9,opacity:0.45,lineHeight:1.4,marginBottom:3}}>{item.description}</div>
-                          <div style={{fontSize:9,color:affordable?"rgba(255,255,255,0.35)":"#cc4444"}}>
-                            {isCrafting?"tap to cancel":costLabel(item.cost)+" · "+item.castTime+"s"}
-                            {!affordable&&!isCrafting&&<span style={{marginLeft:4,opacity:0.7}}> — can't afford</span>}
+
+              {/* ── Upgrade section ─────────────────────────────────────────── */}
+              {nextTier && (
+                <div style={{marginBottom:14,padding:"10px 12px",borderRadius:10,background:"rgba(255,220,80,0.04)",border:`0.5px solid ${upgradeAffordable?"rgba(255,200,60,0.4)":"rgba(255,255,255,0.08)"}`}}>
+                  <div style={{fontSize:10,color:upgradeAffordable?"#ffcc44":"rgba(255,255,255,0.3)",fontWeight:600,marginBottom:3}}>
+                    ⬆ Upgrade → {nextTier.label} <span style={{fontSize:8,fontWeight:400,opacity:0.6}}>(Tier {nextTier.tier})</span>
+                  </div>
+                  <div style={{fontSize:9,color:"rgba(255,255,255,0.35)",lineHeight:1.5,marginBottom:6}}>{nextTier.description}</div>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+                    <div style={{fontSize:9,color:upgradeAffordable?"rgba(255,200,60,0.7)":"#cc4444"}}>
+                      {costLabel(nextTier.cost)}
+                      {!upgradeAffordable&&<span style={{marginLeft:4,opacity:0.7}}> — can't afford</span>}
+                    </div>
+                    <button onClick={()=>{ upgradeBuilding(activePanel.id); }}
+                      disabled={!upgradeAffordable}
+                      style={{padding:"5px 14px",borderRadius:8,fontSize:10,fontWeight:600,letterSpacing:"0.05em",
+                        cursor:upgradeAffordable?"pointer":"default",
+                        background:upgradeAffordable?"rgba(255,200,60,0.18)":"rgba(255,255,255,0.03)",
+                        border:`1px solid ${upgradeAffordable?"rgba(255,200,60,0.6)":"rgba(255,255,255,0.08)"}`,
+                        color:upgradeAffordable?"#ffcc44":"rgba(255,255,255,0.2)",flexShrink:0}}>
+                      UPGRADE
+                    </button>
+                  </div>
+                </div>
+              )}
+              {!nextTier && curTier >= 3 && (
+                <div style={{marginBottom:14,padding:"8px 12px",borderRadius:10,background:"rgba(80,255,160,0.04)",border:"0.5px solid rgba(80,255,160,0.2)",fontSize:9,color:"rgba(80,255,160,0.5)",textAlign:"center"}}>
+                  ✦ MAX TIER — fully upgraded
+                </div>
+              )}
+
+              {/* ── Crafting items (stations only) ───────────────────────────── */}
+              {panelItems.length > 0 && (
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {panelItems.map(item=>{
+                    const isCrafting=craftingQueue?.itemId===item.id&&craftingQueue?.stationId===activePanel.id;
+                    const progress=isCrafting&&s?.playerCraft?.progress?s.playerCraft.progress/item.castTime:0;
+                    const affordable = canAfford(stor, item.cost);
+                    const inStock = inv[item.id] ?? 0;
+                    return(
+                      <button key={item.id}
+                        onClick={()=>{
+                          if (isCrafting) { setCraftingQueue(null); return; }
+                          if (!affordable) return;
+                          setCraftingQueue({stationId:activePanel.id,itemId:item.id});
+                        }}
+                        style={{width:"100%",padding:"10px 12px",borderRadius:10,textAlign:"left",
+                          cursor:isCrafting||affordable?"pointer":"default",
+                          background:isCrafting?`rgba(${hexToRgb(item.color)},0.12)`:affordable?"rgba(255,255,255,0.03)":"rgba(0,0,0,0.2)",
+                          border:`0.5px solid ${isCrafting?item.color:affordable?"rgba(255,255,255,0.1)":"rgba(255,255,255,0.04)"}`,
+                          color:isCrafting?item.color:affordable?"rgba(255,255,255,0.7)":"rgba(255,255,255,0.3)",
+                          position:"relative",overflow:"hidden"}}>
+                        {isCrafting&&<div style={{position:"absolute",inset:0,background:`rgba(${hexToRgb(item.color)},0.08)`,width:`${progress*100}%`,transition:"width 0.1s"}}/>}
+                        <div style={{position:"relative",display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
+                          <div style={{flex:1}}>
+                            <div style={{fontSize:12,fontWeight:500,marginBottom:2}}>
+                              {item.icon} {item.label}
+                              {inStock>0&&<span style={{fontSize:9,marginLeft:6,opacity:0.55,color:"#88ccaa"}}>in stock: {inStock}</span>}
+                              {isCrafting&&<span style={{fontSize:9,marginLeft:8,opacity:0.6}}>crafting… {Math.round(progress*100)}%</span>}
+                            </div>
+                            <div style={{fontSize:9,opacity:0.45,lineHeight:1.4,marginBottom:3}}>{item.description}</div>
+                            <div style={{fontSize:9,color:affordable?"rgba(255,255,255,0.35)":"#cc4444"}}>
+                              {isCrafting?"tap to cancel":costLabel(item.cost)+" · "+item.castTime+"s"}
+                              {!affordable&&!isCrafting&&<span style={{marginLeft:4,opacity:0.7}}> — can't afford</span>}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </button>);})}
-              </div>
+                      </button>);})}
+                </div>
+              )}
               <div onClick={()=>setActivePanel(null)} style={{position:"absolute",top:10,right:12,fontSize:20,color:"rgba(255,255,255,0.2)",cursor:"pointer",lineHeight:1}}>×</div>
+              </>}
             </div>
           </div>);})()} 
 
@@ -3488,7 +4343,6 @@ export default function ZomBase() {
         if (playerReady) gearList.push(playerGearRef.current);
         runParty.survivorIds.forEach(id=>{const sv=s?.survivors.find(sv=>sv.id===id);if(sv&&!sv.onRun&&needsReady(sv.needs))gearList.push(sv.gear);});
         const gearBonus = calcRunGearBonus(gearList);
-        const effectiveChance = Math.min(0.98, runModal.successChance + gearBonus);
         const partyNames = [];
         if (playerReady) partyNames.push("You");
         runParty.survivorIds.forEach(id=>{const sv=s?.survivors.find(sv=>sv.id===id);if(sv&&!sv.onRun&&needsReady(sv.needs))partyNames.push(sv.name);});
@@ -3497,6 +4351,9 @@ export default function ZomBase() {
         if (runParty.includesPlayer && !isOnRun && !needsReady(s?.playerNeeds)) blockedNames.push("You");
         runParty.survivorIds.forEach(id=>{const sv=s?.survivors.find(sv=>sv.id===id);if(sv&&!sv.onRun&&!needsReady(sv.needs))blockedNames.push(sv.name);});
         const partySize = partyNames.length;
+        const partySuccessBonus = calcPartySuccessBonus(partySize);
+        const effectiveChance = Math.min(0.98, runModal.successChance + gearBonus + partySuccessBonus);
+        const lootMult = calcPartyLootMult(partySize);
         return(
         <div onClick={()=>setRunModal(null)} style={{position:"absolute",inset:0,zIndex:20,background:"rgba(0,0,0,0.7)",display:"flex",alignItems:"center",justifyContent:"center"}}>
           <div onClick={e=>e.stopPropagation()} style={{width:"min(300px,calc(100vw - 24px))",background:"#0b1410",border:`0.5px solid ${runModal.dangerColor}33`,borderRadius:18,padding:"20px 18px 18px",position:"relative",maxHeight:"85vh",overflowY:"auto"}}>
@@ -3507,8 +4364,10 @@ export default function ZomBase() {
                 <div style={{fontSize:10,color:"rgba(255,255,255,0.3)",marginTop:2}}>{runModal.subtitle}</div>
                 <div style={{display:"flex",gap:6,marginTop:6,alignItems:"center",flexWrap:"wrap"}}>
                   <div style={{padding:"2px 7px",borderRadius:5,background:`${runModal.dangerColor}18`,border:`0.5px solid ${runModal.dangerColor}55`,fontSize:9,color:runModal.dangerColor,letterSpacing:"0.07em"}}>{runModal.dangerLabel}</div>
-                  <div style={{fontSize:9,color:gearBonus>0?"#ffcc66":"rgba(255,255,255,0.25)"}}>
-                    {runModal.duration}s · {Math.round(effectiveChance*100)}%{gearBonus>0?` (+${Math.round(gearBonus*100)}% gear)`:""}
+                  <div style={{fontSize:9,color:(gearBonus>0||partySuccessBonus>0)?"#ffcc66":"rgba(255,255,255,0.25)"}}>
+                    {runModal.duration}s · {Math.round(effectiveChance*100)}%
+                    {gearBonus>0&&<span style={{color:"#ffcc66"}}> +{Math.round(gearBonus*100)}% gear</span>}
+                    {partySuccessBonus>0&&<span style={{color:"#88ddff"}}> +{Math.round(partySuccessBonus*100)}% party</span>}
                   </div>
                 </div>
               </div>
@@ -3516,7 +4375,7 @@ export default function ZomBase() {
             {partySize > 0 && (
               <div style={{marginBottom:10,padding:"6px 10px",borderRadius:8,background:"rgba(68,136,204,0.08)",border:"0.5px solid rgba(68,136,204,0.2)",fontSize:9,color:"rgba(136,204,255,0.7)"}}>
                 👥 {partyNames.join(", ")}
-                {partySize > 1 && <span style={{color:"#ffcc66",marginLeft:6}}>+{Math.round((partySize-1)*30)}% loot</span>}
+                {partySize > 1 && <span style={{color:"#88ddff",marginLeft:6}}>{lootMult}× loot · +{Math.round(partySuccessBonus*100)}% success</span>}
               </div>)}
             {partySize === 0 && (
               <div style={{marginBottom:10,padding:"6px 10px",borderRadius:8,background:"rgba(255,80,80,0.06)",border:"0.5px solid rgba(255,80,80,0.2)",fontSize:9,color:"rgba(255,100,100,0.7)"}}>
@@ -3531,7 +4390,7 @@ export default function ZomBase() {
               ⚠ Party members leave the map. Shelter defends itself. Needs still drain — equip 🥫🧴 to auto-sustain.
             </div>
             <div style={{marginBottom:14}}>
-              <div style={{fontSize:10,color:"rgba(255,255,255,0.2)",marginBottom:8,letterSpacing:"0.06em"}}>FOCUS — pick up to 2 for +50% yield</div>
+              <div style={{fontSize:10,color:"rgba(255,255,255,0.2)",marginBottom:8,letterSpacing:"0.06em"}}>FOCUS — pick up to 2 for +{Math.round(runModal.focusBonus*100)}% yield</div>
               <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                 {RUN_LOOT_TYPES.map(lt=>{
                   const isFocused=runFocus.includes(lt.id);
@@ -3541,19 +4400,19 @@ export default function ZomBase() {
                         background:isFocused?`rgba(${hexToRgb(lt.color)},0.15)`:"rgba(255,255,255,0.03)",
                         border:`0.5px solid ${isFocused?lt.color:"rgba(255,255,255,0.1)"}`,
                         color:isFocused?lt.color:"rgba(255,255,255,0.45)"}}>
-                      {lt.icon} {lt.label}{isFocused&&<span style={{fontSize:8,marginLeft:4,opacity:0.6}}>+50%</span>}
+                      {lt.icon} {lt.label}{isFocused&&<span style={{fontSize:8,marginLeft:4,opacity:0.6}}>+{Math.round(runModal.focusBonus*100)}%</span>}
                     </button>);})}
               </div>
             </div>
             <div style={{marginBottom:16}}>
-              <div style={{fontSize:10,color:"rgba(255,255,255,0.2)",marginBottom:8,letterSpacing:"0.06em"}}>EXPECTED LOOT</div>
+              <div style={{fontSize:10,color:"rgba(255,255,255,0.2)",marginBottom:8,letterSpacing:"0.06em"}}>EXPECTED LOOT{lootMult>1?` · ${lootMult}× party`:""}</div>
               <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                 {RUN_LOOT_TYPES.map(lt=>{
                   const [min,max]=runModal.baseLoot[lt.id];
                   const focused=runFocus.includes(lt.id);
-                  let fmin=focused?Math.round(min*(1+runModal.focusBonus)):min;
-                  let fmax=focused?Math.round(max*(1+runModal.focusBonus)):max;
-                  if(partySize>1){fmin=Math.round(fmin*(1+(partySize-1)*0.3));fmax=Math.round(fmax*(1+(partySize-1)*0.3));}
+                  const focMult = focused ? (1+runModal.focusBonus) : 1;
+                  const fmin=Math.round(min*focMult*lootMult);
+                  const fmax=Math.round(max*focMult*lootMult);
                   return(
                     <div key={lt.id} style={{padding:"5px 9px",borderRadius:7,background:"rgba(255,255,255,0.03)",border:`0.5px solid ${focused?lt.color+"55":"rgba(255,255,255,0.07)"}`,fontSize:10,color:focused?lt.color:"rgba(255,255,255,0.4)"}}>
                       {lt.icon} {fmin}–{fmax}
@@ -3582,7 +4441,11 @@ export default function ZomBase() {
               {runResult.success?"BACK SAFE":"DIDN'T MAKE IT"}
             </div>
             <div style={{fontSize:10,color:"rgba(255,255,255,0.3)",marginBottom:4}}>{runResult.run.icon} {runResult.run.name}</div>
-            {runResult.gearBonus>0&&<div style={{fontSize:9,color:"#ffcc66",marginBottom:12}}>gear bonus: +{Math.round(runResult.gearBonus*100)}% success</div>}
+            {(runResult.gearBonus>0||runResult.partyBonus>0)&&<div style={{fontSize:9,color:"#ffcc66",marginBottom:12}}>
+              {runResult.gearBonus>0&&<span>gear +{Math.round(runResult.gearBonus*100)}%</span>}
+              {runResult.gearBonus>0&&runResult.partyBonus>0&&<span style={{opacity:0.4}}> · </span>}
+              {runResult.partyBonus>0&&<span style={{color:"#88ddff"}}>party +{Math.round(runResult.partyBonus*100)}% success</span>}
+            </div>}
             {runResult.success&&runResult.loot&&(
               <div>
                 <div style={{fontSize:10,color:"rgba(255,255,255,0.2)",marginBottom:10,letterSpacing:"0.06em"}}>LOOT COLLECTED</div>
@@ -3596,6 +4459,13 @@ export default function ZomBase() {
                         <div style={{fontSize:13,color:lt.color,fontWeight:600,marginTop:3}}>+{qty}</div>
                         <div style={{fontSize:8,color:"rgba(255,255,255,0.25)",marginTop:1}}>{lt.label}</div>
                       </div>);})}
+                  {runResult.loot.researchSample && (
+                    <div style={{padding:"8px 12px",borderRadius:10,background:"rgba(68,187,221,0.1)",border:"0.5px solid rgba(68,187,221,0.4)",textAlign:"center"}}>
+                      <div style={{fontSize:18,lineHeight:1}}>🧪</div>
+                      <div style={{fontSize:13,color:"#44bbdd",fontWeight:600,marginTop:3}}>+1%</div>
+                      <div style={{fontSize:8,color:"rgba(255,255,255,0.25)",marginTop:1}}>Research</div>
+                    </div>
+                  )}
                 </div>
               </div>)}
             {!runResult.success&&<div style={{fontSize:10,color:"rgba(255,255,255,0.25)",marginBottom:18}}>Nothing recovered. Gear up before going back.</div>}
