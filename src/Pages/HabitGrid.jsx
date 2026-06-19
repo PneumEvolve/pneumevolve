@@ -44,6 +44,21 @@ export default function HabitGrid() {
   const [selectedGoalId, setSelectedGoalId] = useState("all");
   const [newGoal, setNewGoal] = useState({ title: "", description: "", targetDate: "" });
   const containerRef = useRef(null);
+  const scrollWrapRef = useRef(null);
+
+  const todayDateKey = keyFor(today.getFullYear(), today.getMonth(), today.getDate());
+
+  useEffect(() => {
+    const wrap = scrollWrapRef.current;
+    if (!wrap) return;
+    const todayEl = wrap.querySelector(`[data-day-key="${todayDateKey}"]`);
+    if (!todayEl) return;
+    const wrapRect = wrap.getBoundingClientRect();
+    const elRect = todayEl.getBoundingClientRect();
+    const offset = elRect.left - wrapRect.left - wrapRect.width / 2 + elRect.width / 2;
+    wrap.scrollLeft += offset;
+  }, [anchorMonth, anchorYear, zoom, todayDateKey]);
+
 
   const months = useMemo(() => {
     const list = [];
@@ -344,7 +359,7 @@ export default function HabitGrid() {
       </div>
 
       {/* Grids */}
-      <div style={{ maxWidth: 920, margin: "0 auto", display: "flex", flexDirection: "column", gap: 32, overflowX: "auto" }}>
+      <div ref={scrollWrapRef} style={{ maxWidth: 920, margin: "0 auto", display: "flex", flexDirection: "column", gap: 32, overflowX: "auto" }}>
         {months.map(({ year, month }) => (
           <MonthGrid
             key={`${year}-${month}`}
@@ -420,21 +435,26 @@ function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCel
       <div style={{ display: "inline-block", minWidth: "100%" }}>
         {/* Day number header */}
         <div style={{ display: "flex", gap: 2, marginLeft: 150 }}>
-          {dayNums.map((d) => (
-            <div
-              key={d}
-              style={{
-                width: 26,
-                textAlign: "center",
-                fontFamily: FONT_MONO,
-                fontSize: 10,
-                color: MUTED,
-                flexShrink: 0,
-              }}
-            >
-              {d}
-            </div>
-          ))}
+          {dayNums.map((d) => {
+            const dateKey = keyFor(year, month, d);
+            return (
+              <div
+                key={d}
+                data-day-key={dateKey}
+                style={{
+                  width: 26,
+                  textAlign: "center",
+                  fontFamily: FONT_MONO,
+                  fontSize: 10,
+                  color: dateKey === todayKey ? INK : MUTED,
+                  fontWeight: dateKey === todayKey ? 600 : 400,
+                  flexShrink: 0,
+                }}
+              >
+                {d}
+              </div>
+            );
+          })}
         </div>
 
         {/* Habit rows */}
