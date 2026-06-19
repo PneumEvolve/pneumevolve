@@ -98,6 +98,8 @@ import ZomBase from "@/Pages/ZomBase"
 import GameTestGame from "@/Pages/GameTest"
 
 import Learning from "@/Pages/Learning/learning"
+
+import HabitGrid from "@/Pages/HabitGrid"
  
 import { HelmetProvider } from "react-helmet-async";
 import "./index.css";
@@ -229,6 +231,8 @@ function Root() {
                 <Route path="/game-test" element={<GameTestGame />} />
 
                 <Route path="/learning" element={<Learning />} />
+
+                <Route path="/habit-grid" element={<HabitGrid />} />
 
                 
  
