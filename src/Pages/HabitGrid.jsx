@@ -6,6 +6,7 @@ const INK = "#2B2925";
 const LINE = "#D9D3C4";
 const LINE_SOFT = "#EAE5D8";
 const MUTED = "#8C8676";
+const ACCENT = "#5C7A5C";
 
 const FONT_DISPLAY = "'Fraunces', Georgia, serif";
 const FONT_BODY = "'Inter', system-ui, sans-serif";
@@ -28,6 +29,30 @@ const daysInMonth = (y, m) => new Date(y, m + 1, 0).getDate();
 const monthLabel = (y, m) =>
   new Date(y, m, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
 
+// ---- Stage helpers ----
+// A goal can optionally have `stages`: an ordered list of
+// { id, label, criteria, startDate (YYYY-MM-DD, used only in 'auto' mode) }
+// and `advanceMode`: 'auto' | 'manual'. Goals with no stages behave exactly
+// as they did before (flat goal, just a filter + description).
+
+const getActiveStage = (goal, todayISO) => {
+  if (!goal || !goal.stages || goal.stages.length === 0) return null;
+  if (goal.advanceMode === "auto") {
+    // last stage whose startDate is <= today
+    const sorted = [...goal.stages].sort((a, b) => (a.startDate || "").localeCompare(b.startDate || ""));
+    let active = sorted[0];
+    for (const s of sorted) {
+      if (!s.startDate || s.startDate <= todayISO) active = s;
+    }
+    return active;
+  }
+  // manual mode: use currentStageId, defaulting to the first stage
+  const found = goal.stages.find((s) => s.id === goal.currentStageId);
+  return found || goal.stages[0];
+};
+
+const getStageIndex = (goal, stageId) => goal.stages.findIndex((s) => s.id === stageId);
+
 export default function HabitGrid() {
   const today = new Date();
   const [colors, setColors] = useState(DEFAULT_COLORS);
@@ -39,11 +64,13 @@ export default function HabitGrid() {
   const [pickerFor, setPickerFor] = useState(null); // {habitId, dateKey, x, y}
   const [editingLegend, setEditingLegend] = useState(false);
   const [newHabitName, setNewHabitName] = useState("");
-  const [goals, setGoals] = useState([]); // {id, title, description, targetDate}
+  const [goals, setGoals] = useState([]); // {id, title, description, targetDate, advanceMode, stages, currentStageId}
   const [habitGoals, setHabitGoals] = useState({}); // habitId -> Set of goalId
   const [selectedGoalId, setSelectedGoalId] = useState("all");
   const [newGoal, setNewGoal] = useState({ title: "", description: "", targetDate: "" });
   const [compact, setCompact] = useState(false);
+  const [expandedStageGoalId, setExpandedStageGoalId] = useState(null); // which goal's stage editor is open
+  const [newStageDrafts, setNewStageDrafts] = useState({}); // goalId -> {label, criteria, startDate}
   const containerRef = useRef(null);
   const scrollWrapRef = useRef(null);
 
@@ -64,6 +91,7 @@ export default function HabitGrid() {
   }, [activeGoals, selectedGoalId]);
 
   useEffect(() => {
+    if (compact) return; // overview mode shows the whole month — don't scroll it off-center
     const wrap = scrollWrapRef.current;
     if (!wrap) return;
     const todayEl = wrap.querySelector(`[data-day-key="${todayDateKey}"]`);
@@ -72,7 +100,30 @@ export default function HabitGrid() {
     const elRect = todayEl.getBoundingClientRect();
     const offset = elRect.left - wrapRect.left - wrapRect.width / 2 + elRect.width / 2;
     wrap.scrollLeft += offset;
-  }, [anchorMonth, anchorYear, zoom, todayDateKey]);
+  }, [anchorMonth, anchorYear, zoom, todayDateKey, compact]);
+
+  // In overview/compact mode, shrink cells to actually fit the screen width
+  // instead of clipping. Recomputed live as the viewport resizes.
+  const COMPACT_SIDEBAR = 56;
+  const COMPACT_GAP = 1;
+  const [compactCellSize, setCompactCellSize] = useState(9);
+
+  useEffect(() => {
+    if (!compact) return;
+    const wrap = scrollWrapRef.current;
+    if (!wrap) return;
+    const measure = () => {
+      const width = wrap.clientWidth;
+      const maxDays = 31; // worst case, so it fits every month at this zoom
+      const available = width - COMPACT_SIDEBAR - (maxDays - 1) * COMPACT_GAP;
+      const size = Math.max(3, Math.min(12, Math.floor(available / maxDays)));
+      setCompactCellSize(size);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(wrap);
+    return () => ro.disconnect();
+  }, [compact, zoom]);
 
 
   const months = useMemo(() => {
@@ -133,7 +184,17 @@ export default function HabitGrid() {
 
   const addGoal = () => {
     if (!newGoal.title.trim()) return;
-    setGoals((prev) => [...prev, { id: `g${Date.now()}`, ...newGoal, title: newGoal.title.trim() }]);
+    setGoals((prev) => [
+      ...prev,
+      {
+        id: `g${Date.now()}`,
+        ...newGoal,
+        title: newGoal.title.trim(),
+        advanceMode: "manual",
+        stages: [],
+        currentStageId: null,
+      },
+    ]);
     setNewGoal({ title: "", description: "", targetDate: "" });
   };
 
@@ -149,6 +210,7 @@ export default function HabitGrid() {
       return next;
     });
     if (selectedGoalId === id) setSelectedGoalId("all");
+    if (expandedStageGoalId === id) setExpandedStageGoalId(null);
   };
 
   const toggleHabitGoal = (habitId, goalId) => {
@@ -160,12 +222,102 @@ export default function HabitGrid() {
     });
   };
 
+  const setGoalAdvanceMode = (goalId, mode) => {
+    setGoals((prev) =>
+      prev.map((g) => (g.id === goalId ? { ...g, advanceMode: mode } : g))
+    );
+  };
+
+  const addStage = (goalId) => {
+    const draft = newStageDrafts[goalId] || { label: "", criteria: "", startDate: "" };
+    if (!draft.label.trim()) return;
+    setGoals((prev) =>
+      prev.map((g) => {
+        if (g.id !== goalId) return g;
+        const stage = {
+          id: `s${Date.now()}`,
+          label: draft.label.trim(),
+          criteria: draft.criteria.trim(),
+          startDate: draft.startDate || "",
+        };
+        const stages = [...g.stages, stage];
+        // if this is the first stage and goal is manual, point currentStageId at it
+        const currentStageId = g.currentStageId || (stages.length === 1 ? stage.id : g.currentStageId);
+        return { ...g, stages, currentStageId };
+      })
+    );
+    setNewStageDrafts((prev) => ({ ...prev, [goalId]: { label: "", criteria: "", startDate: "" } }));
+  };
+
+  const removeStage = (goalId, stageId) => {
+    setGoals((prev) =>
+      prev.map((g) => {
+        if (g.id !== goalId) return g;
+        const stages = g.stages.filter((s) => s.id !== stageId);
+        const currentStageId = g.currentStageId === stageId ? (stages[0]?.id || null) : g.currentStageId;
+        return { ...g, stages, currentStageId };
+      })
+    );
+  };
+
+  const updateStageField = (goalId, stageId, field, value) => {
+    setGoals((prev) =>
+      prev.map((g) => {
+        if (g.id !== goalId) return g;
+        return {
+          ...g,
+          stages: g.stages.map((s) => (s.id === stageId ? { ...s, [field]: value } : s)),
+        };
+      })
+    );
+  };
+
+  const advanceStage = (goalId) => {
+    setGoals((prev) =>
+      prev.map((g) => {
+        if (g.id !== goalId) return g;
+        const idx = getStageIndex(g, g.currentStageId);
+        const nextIdx = Math.min(idx + 1, g.stages.length - 1);
+        return { ...g, currentStageId: g.stages[nextIdx]?.id || g.currentStageId };
+      })
+    );
+  };
+
+  const regressStage = (goalId) => {
+    setGoals((prev) =>
+      prev.map((g) => {
+        if (g.id !== goalId) return g;
+        const idx = getStageIndex(g, g.currentStageId);
+        const prevIdx = Math.max(idx - 1, 0);
+        return { ...g, currentStageId: g.stages[prevIdx]?.id || g.currentStageId };
+      })
+    );
+  };
+
   const visibleHabits = useMemo(() => {
     if (selectedGoalId === "all") return habits;
     return habits.filter((h) => habitGoals[h.id]?.has(selectedGoalId));
   }, [habits, habitGoals, selectedGoalId]);
 
   const selectedGoal = goals.find((g) => g.id === selectedGoalId);
+  const selectedGoalStage = selectedGoal ? getActiveStage(selectedGoal, todayISO) : null;
+
+  // Precompute, per habit, the list of {goal, stage} for goals that have stages
+  // and that this habit is attached to — used to show the little subtitle under
+  // the habit name in the grid.
+  const habitStageInfo = useMemo(() => {
+    const map = {};
+    for (const h of habits) {
+      const linkedGoalIds = habitGoals[h.id] ? Array.from(habitGoals[h.id]) : [];
+      const entries = linkedGoalIds
+        .map((gid) => goals.find((g) => g.id === gid))
+        .filter((g) => g && g.stages && g.stages.length > 0)
+        .map((g) => ({ goal: g, stage: getActiveStage(g, todayISO) }))
+        .filter((entry) => entry.stage);
+      if (entries.length > 0) map[h.id] = entries;
+    }
+    return map;
+  }, [habits, habitGoals, goals, todayISO]);
 
   // close picker on outside click
   useEffect(() => {
@@ -204,6 +356,12 @@ export default function HabitGrid() {
           transition: background 0.15s;
         }
         .hg-btn:hover { background: ${LINE_SOFT}; }
+        .hg-btn-accent {
+          border-color: ${ACCENT};
+          color: white;
+          background: ${ACCENT};
+        }
+        .hg-btn-accent:hover { background: #4d6b4d; }
         .hg-cell {
           width: 26px; height: 26px;
           border: 1px solid ${LINE};
@@ -220,7 +378,7 @@ export default function HabitGrid() {
           flex-shrink: 0;
         }
         .hg-swatch:hover { border-color: ${INK}; }
-        input.hg-input {
+        input.hg-input, select.hg-input {
           font-family: ${FONT_BODY};
           border: 1px solid ${LINE};
           border-radius: 6px;
@@ -229,7 +387,30 @@ export default function HabitGrid() {
           background: white;
           color: ${INK};
         }
-        input.hg-input:focus { outline: none; border-color: ${MUTED}; }
+        input.hg-input:focus, select.hg-input:focus { outline: none; border-color: ${MUTED}; }
+        .hg-grids {
+          flex-direction: column;
+        }
+        .hg-month-block {
+          flex-shrink: 0;
+        }
+        @media (min-width: 860px) {
+          .hg-grids {
+            flex-direction: row;
+            align-items: flex-start;
+          }
+        }
+        .hg-stage-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 11.5px;
+          font-family: ${FONT_MONO};
+          color: ${ACCENT};
+          background: rgba(92,122,92,0.1);
+          border-radius: 4px;
+          padding: 1px 6px;
+        }
       `}</style>
 
       {/* Header */}
@@ -286,10 +467,36 @@ export default function HabitGrid() {
           ))}
         </select>
         {selectedGoal && (
-          <div style={{ fontSize: 12.5, color: MUTED, display: "flex", gap: 10, alignItems: "center" }}>
+          <div style={{ fontSize: 12.5, color: MUTED, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             {selectedGoal.description && <span>{selectedGoal.description}</span>}
             {selectedGoal.targetDate && (
               <span style={{ fontFamily: FONT_MONO }}>target: {selectedGoal.targetDate}</span>
+            )}
+            {selectedGoalStage && (
+              <span className="hg-stage-pill">
+                now: {selectedGoalStage.label}
+                {selectedGoalStage.criteria ? ` — ${selectedGoalStage.criteria}` : ""}
+              </span>
+            )}
+            {selectedGoal.advanceMode === "manual" && selectedGoal.stages.length > 1 && (
+              <div style={{ display: "flex", gap: 4 }}>
+                <button
+                  className="hg-btn"
+                  style={{ padding: "3px 8px", fontSize: 12 }}
+                  onClick={() => regressStage(selectedGoal.id)}
+                  disabled={getStageIndex(selectedGoal, selectedGoal.currentStageId) <= 0}
+                >
+                  ← back a stage
+                </button>
+                <button
+                  className="hg-btn hg-btn-accent"
+                  style={{ padding: "3px 8px", fontSize: 12 }}
+                  onClick={() => advanceStage(selectedGoal.id)}
+                  disabled={getStageIndex(selectedGoal, selectedGoal.currentStageId) >= selectedGoal.stages.length - 1}
+                >
+                  advance to next stage →
+                </button>
+              </div>
             )}
           </div>
         )}
@@ -299,18 +506,136 @@ export default function HabitGrid() {
       {editingLegend && (
         <div style={{ maxWidth: 920, margin: "0 auto 20px", border: `1px solid ${LINE}`, borderRadius: 8, padding: 14 }}>
           <h4 style={{ fontFamily: FONT_DISPLAY, fontWeight: 600, fontSize: 14, margin: "0 0 10px" }}>Goals</h4>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 12 }}>
             {goals.map((g) => {
               const expired = g.targetDate && g.targetDate < todayISO;
+              const isExpanded = expandedStageGoalId === g.id;
+              const draft = newStageDrafts[g.id] || { label: "", criteria: "", startDate: "" };
+              const activeStage = getActiveStage(g, todayISO);
               return (
-              <div key={g.id} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, opacity: expired ? 0.5 : 1 }}>
-                <span style={{ fontWeight: 500, minWidth: 120 }}>{g.title}</span>
-                <span style={{ color: MUTED, flex: 1 }}>{g.description}</span>
-                <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: MUTED }}>
-                  {g.targetDate}{expired ? " (past)" : ""}
-                </span>
-                <span onClick={() => removeGoal(g.id)} style={{ cursor: "pointer", color: MUTED }}>✕</span>
-              </div>
+                <div key={g.id} style={{ border: `1px solid ${LINE_SOFT}`, borderRadius: 8, padding: 10, opacity: expired ? 0.55 : 1 }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
+                    <span style={{ fontWeight: 500, minWidth: 120 }}>{g.title}</span>
+                    <span style={{ color: MUTED, flex: 1 }}>{g.description}</span>
+                    <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: MUTED }}>
+                      {g.targetDate}{expired ? " (past)" : ""}
+                    </span>
+                    {g.stages.length > 0 && (
+                      <span className="hg-stage-pill">{g.stages.length} stage{g.stages.length !== 1 ? "s" : ""}</span>
+                    )}
+                    <span
+                      onClick={() => setExpandedStageGoalId(isExpanded ? null : g.id)}
+                      style={{ cursor: "pointer", color: ACCENT, fontSize: 12.5, textDecoration: "underline" }}
+                    >
+                      {isExpanded ? "hide stages" : "stages"}
+                    </span>
+                    <span onClick={() => removeGoal(g.id)} style={{ cursor: "pointer", color: MUTED }}>✕</span>
+                  </div>
+
+                  {isExpanded && (
+                    <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px dashed ${LINE}` }}>
+                      {/* advance mode toggle */}
+                      <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 10, fontSize: 12.5 }}>
+                        <span style={{ color: MUTED }}>Progression:</span>
+                        <label style={{ display: "flex", gap: 4, alignItems: "center", cursor: "pointer" }}>
+                          <input
+                            type="radio"
+                            checked={g.advanceMode === "auto"}
+                            onChange={() => setGoalAdvanceMode(g.id, "auto")}
+                          />
+                          Auto-advance by date
+                        </label>
+                        <label style={{ display: "flex", gap: 4, alignItems: "center", cursor: "pointer" }}>
+                          <input
+                            type="radio"
+                            checked={g.advanceMode === "manual"}
+                            onChange={() => setGoalAdvanceMode(g.id, "manual")}
+                          />
+                          I'll advance it myself
+                        </label>
+                      </div>
+
+                      {/* stage list */}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+                        {g.stages.map((s, i) => {
+                          const isActive = activeStage && activeStage.id === s.id;
+                          return (
+                            <div
+                              key={s.id}
+                              style={{
+                                display: "flex",
+                                gap: 6,
+                                alignItems: "center",
+                                fontSize: 12.5,
+                                background: isActive ? "rgba(92,122,92,0.08)" : "transparent",
+                                borderRadius: 6,
+                                padding: "4px 6px",
+                              }}
+                            >
+                              <span style={{ fontFamily: FONT_MONO, color: MUTED, width: 16 }}>{i + 1}.</span>
+                              <input
+                                className="hg-input"
+                                style={{ width: 130 }}
+                                value={s.label}
+                                placeholder="Stage label"
+                                onChange={(e) => updateStageField(g.id, s.id, "label", e.target.value)}
+                              />
+                              <input
+                                className="hg-input"
+                                style={{ flex: 1, minWidth: 140 }}
+                                value={s.criteria}
+                                placeholder="What counts as done"
+                                onChange={(e) => updateStageField(g.id, s.id, "criteria", e.target.value)}
+                              />
+                              {g.advanceMode === "auto" && (
+                                <input
+                                  className="hg-input"
+                                  type="date"
+                                  style={{ width: 130 }}
+                                  value={s.startDate}
+                                  onChange={(e) => updateStageField(g.id, s.id, "startDate", e.target.value)}
+                                />
+                              )}
+                              {isActive && <span className="hg-stage-pill">active now</span>}
+                              <span onClick={() => removeStage(g.id, s.id)} style={{ cursor: "pointer", color: MUTED }}>✕</span>
+                            </div>
+                          );
+                        })}
+                        {g.stages.length === 0 && (
+                          <span style={{ fontSize: 12.5, color: MUTED }}>No stages yet — this goal is flat (no progression).</span>
+                        )}
+                      </div>
+
+                      {/* add stage */}
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        <input
+                          className="hg-input"
+                          placeholder="Stage label (e.g. 'Full cup')"
+                          value={draft.label}
+                          onChange={(e) => setNewStageDrafts((prev) => ({ ...prev, [g.id]: { ...draft, label: e.target.value } }))}
+                          style={{ width: 150 }}
+                        />
+                        <input
+                          className="hg-input"
+                          placeholder="Criteria (optional)"
+                          value={draft.criteria}
+                          onChange={(e) => setNewStageDrafts((prev) => ({ ...prev, [g.id]: { ...draft, criteria: e.target.value } }))}
+                          style={{ width: 200 }}
+                        />
+                        {g.advanceMode === "auto" && (
+                          <input
+                            className="hg-input"
+                            type="date"
+                            value={draft.startDate}
+                            onChange={(e) => setNewStageDrafts((prev) => ({ ...prev, [g.id]: { ...draft, startDate: e.target.value } }))}
+                            style={{ width: 140 }}
+                          />
+                        )}
+                        <button className="hg-btn" onClick={() => addStage(g.id)}>+ add stage</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               );
             })}
             {goals.length === 0 && <span style={{ fontSize: 13, color: MUTED }}>No goals yet.</span>}
@@ -388,34 +713,39 @@ export default function HabitGrid() {
       {/* Grids */}
       <div
         ref={scrollWrapRef}
+        className="hg-grids"
         style={{
-          maxWidth: compact ? "100%" : 920,
+          maxWidth: compact || zoom > 1 ? "100%" : 920,
           margin: "0 auto",
           display: "flex",
-          flexDirection: "column",
           gap: compact ? 18 : 32,
-          overflowX: compact ? "hidden" : "auto",
+          overflowX: "auto",
         }}
       >
         {months.map(({ year, month }) => (
-          <MonthGrid
-            key={`${year}-${month}`}
-            year={year}
-            month={month}
-            habits={visibleHabits}
-            marks={marks}
-            colorById={colorById}
-            editingLegend={editingLegend}
-            onRemoveHabit={removeHabit}
-            goals={goals}
-            habitGoals={habitGoals}
-            onToggleHabitGoal={toggleHabitGoal}
-            compact={compact}
-            onCellClick={(habitId, dateKey, e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              setPickerFor({ habitId, dateKey, x: rect.left, y: rect.bottom + 6 });
-            }}
-          />
+          <div className="hg-month-block" key={`${year}-${month}`}>
+            <MonthGrid
+              year={year}
+              month={month}
+              habits={visibleHabits}
+              marks={marks}
+              colorById={colorById}
+              editingLegend={editingLegend}
+              onRemoveHabit={removeHabit}
+              goals={goals}
+              habitGoals={habitGoals}
+              onToggleHabitGoal={toggleHabitGoal}
+              compact={compact}
+              compactCellSize={compactCellSize}
+              compactSidebarWidth={COMPACT_SIDEBAR}
+              compactGap={COMPACT_GAP}
+              habitStageInfo={habitStageInfo}
+              onCellClick={(habitId, dateKey, e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                setPickerFor({ habitId, dateKey, x: rect.left, y: rect.bottom + 6 });
+              }}
+            />
+          </div>
         ))}
       </div>
 
@@ -460,16 +790,16 @@ export default function HabitGrid() {
   );
 }
 
-function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCellClick, onRemoveHabit, goals, habitGoals, onToggleHabitGoal, compact }) {
+function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCellClick, onRemoveHabit, goals, habitGoals, onToggleHabitGoal, compact, compactCellSize, compactSidebarWidth, compactGap, habitStageInfo }) {
   const numDays = daysInMonth(year, month);
   const dayNums = Array.from({ length: numDays }, (_, i) => i + 1);
   const todayKey = keyFor(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
 
-  const cellSize = compact ? 9 : 26;
-  const cellGap = compact ? 1 : 2;
-  const sidebarWidth = compact ? 78 : 150;
-  const nameFontSize = compact ? 10.5 : 13;
-  const headerFontSize = compact ? 7 : 10;
+  const cellSize = compact ? (compactCellSize || 9) : 26;
+  const cellGap = compact ? (compactGap ?? 1) : 2;
+  const sidebarWidth = compact ? (compactSidebarWidth || 56) : 150;
+  const nameFontSize = compact ? 9.5 : 13;
+  const headerFontSize = compact ? Math.max(5, Math.min(8, cellSize - 2)) : 10;
 
   return (
     <div>
@@ -495,14 +825,16 @@ function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCel
                   flexShrink: 0,
                 }}
               >
-                {compact ? "" : d}
+                {d}
               </div>
             );
           })}
         </div>
 
         {/* Habit rows */}
-        {habits.map((h) => (
+        {habits.map((h) => {
+          const stageEntries = !compact ? habitStageInfo[h.id] : null;
+          return (
           <div key={h.id} style={{ marginBottom: editingLegend && goals.length > 0 ? 14 : (compact ? 1 : 4) }}>
             <div style={{ display: "flex", alignItems: "center" }}>
               <div
@@ -511,21 +843,35 @@ function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCel
                   fontSize: nameFontSize,
                   paddingRight: 10,
                   display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
+                  flexDirection: "column",
+                  justifyContent: "center",
                   flexShrink: 0,
                   position: "sticky",
                   left: 0,
                   background: PAGE,
                   zIndex: 2,
                   overflow: "hidden",
-                  whiteSpace: "nowrap",
-                  textOverflow: "ellipsis",
                 }}
               >
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{h.name}</span>
-                {editingLegend && (
-                  <span onClick={() => onRemoveHabit(h.id)} style={{ cursor: "pointer", color: MUTED, fontSize: 12, flexShrink: 0 }}>✕</span>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.name}</span>
+                  {editingLegend && (
+                    <span onClick={() => onRemoveHabit(h.id)} style={{ cursor: "pointer", color: MUTED, fontSize: 12, flexShrink: 0 }}>✕</span>
+                  )}
+                </div>
+                {stageEntries && stageEntries.length > 0 && (
+                  <span
+                    title={stageEntries.map((e) => `${e.goal.title}: ${e.stage.label}${e.stage.criteria ? " — " + e.stage.criteria : ""}`).join(" | ")}
+                    style={{
+                      fontSize: 10.5,
+                      color: ACCENT,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {stageEntries.map((e) => e.stage.label).join(" · ")}
+                  </span>
                 )}
               </div>
               <div style={{ display: "flex", gap: cellGap }}>
@@ -571,7 +917,8 @@ function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCel
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
