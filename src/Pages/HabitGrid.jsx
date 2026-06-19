@@ -43,10 +43,25 @@ export default function HabitGrid() {
   const [habitGoals, setHabitGoals] = useState({}); // habitId -> Set of goalId
   const [selectedGoalId, setSelectedGoalId] = useState("all");
   const [newGoal, setNewGoal] = useState({ title: "", description: "", targetDate: "" });
+  const [compact, setCompact] = useState(false);
   const containerRef = useRef(null);
   const scrollWrapRef = useRef(null);
 
   const todayDateKey = keyFor(today.getFullYear(), today.getMonth(), today.getDate());
+  const todayISO = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+
+  // Goals that haven't passed their target date yet (or have no target date)
+  const activeGoals = useMemo(
+    () => goals.filter((g) => !g.targetDate || g.targetDate >= todayISO),
+    [goals, todayISO]
+  );
+
+  // If the currently selected goal filter has expired, fall back to "all"
+  useEffect(() => {
+    if (selectedGoalId === "all") return;
+    const stillActive = activeGoals.some((g) => g.id === selectedGoalId);
+    if (!stillActive) setSelectedGoalId("all");
+  }, [activeGoals, selectedGoalId]);
 
   useEffect(() => {
     const wrap = scrollWrapRef.current;
@@ -266,7 +281,7 @@ export default function HabitGrid() {
           style={{ minWidth: 180 }}
         >
           <option value="all">All habits</option>
-          {goals.map((g) => (
+          {activeGoals.map((g) => (
             <option key={g.id} value={g.id}>{g.title}</option>
           ))}
         </select>
@@ -285,14 +300,19 @@ export default function HabitGrid() {
         <div style={{ maxWidth: 920, margin: "0 auto 20px", border: `1px solid ${LINE}`, borderRadius: 8, padding: 14 }}>
           <h4 style={{ fontFamily: FONT_DISPLAY, fontWeight: 600, fontSize: 14, margin: "0 0 10px" }}>Goals</h4>
           <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
-            {goals.map((g) => (
-              <div key={g.id} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
+            {goals.map((g) => {
+              const expired = g.targetDate && g.targetDate < todayISO;
+              return (
+              <div key={g.id} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, opacity: expired ? 0.5 : 1 }}>
                 <span style={{ fontWeight: 500, minWidth: 120 }}>{g.title}</span>
                 <span style={{ color: MUTED, flex: 1 }}>{g.description}</span>
-                <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: MUTED }}>{g.targetDate}</span>
+                <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: MUTED }}>
+                  {g.targetDate}{expired ? " (past)" : ""}
+                </span>
                 <span onClick={() => removeGoal(g.id)} style={{ cursor: "pointer", color: MUTED }}>✕</span>
               </div>
-            ))}
+              );
+            })}
             {goals.length === 0 && <span style={{ fontSize: 13, color: MUTED }}>No goals yet.</span>}
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -343,7 +363,14 @@ export default function HabitGrid() {
           <button className="hg-btn" onClick={() => shiftMonths(-1)}>← Prev</button>
           <button className="hg-btn" onClick={() => shiftMonths(1)}>Next →</button>
         </div>
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <button
+            className="hg-btn"
+            onClick={() => setCompact((v) => !v)}
+            style={{ background: compact ? LINE_SOFT : PAGE }}
+          >
+            {compact ? "Normal view" : "Overview (fit all)"}
+          </button>
           <span style={{ fontSize: 12, color: MUTED, alignSelf: "center", marginRight: 4 }}>Zoom</span>
           {[1, 2, 3].map((z) => (
             <button
@@ -359,7 +386,17 @@ export default function HabitGrid() {
       </div>
 
       {/* Grids */}
-      <div ref={scrollWrapRef} style={{ maxWidth: 920, margin: "0 auto", display: "flex", flexDirection: "column", gap: 32, overflowX: "auto" }}>
+      <div
+        ref={scrollWrapRef}
+        style={{
+          maxWidth: compact ? "100%" : 920,
+          margin: "0 auto",
+          display: "flex",
+          flexDirection: "column",
+          gap: compact ? 18 : 32,
+          overflowX: compact ? "hidden" : "auto",
+        }}
+      >
         {months.map(({ year, month }) => (
           <MonthGrid
             key={`${year}-${month}`}
@@ -373,6 +410,7 @@ export default function HabitGrid() {
             goals={goals}
             habitGoals={habitGoals}
             onToggleHabitGoal={toggleHabitGoal}
+            compact={compact}
             onCellClick={(habitId, dateKey, e) => {
               const rect = e.currentTarget.getBoundingClientRect();
               setPickerFor({ habitId, dateKey, x: rect.left, y: rect.bottom + 6 });
@@ -422,19 +460,25 @@ export default function HabitGrid() {
   );
 }
 
-function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCellClick, onRemoveHabit, goals, habitGoals, onToggleHabitGoal }) {
+function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCellClick, onRemoveHabit, goals, habitGoals, onToggleHabitGoal, compact }) {
   const numDays = daysInMonth(year, month);
   const dayNums = Array.from({ length: numDays }, (_, i) => i + 1);
   const todayKey = keyFor(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
 
+  const cellSize = compact ? 9 : 26;
+  const cellGap = compact ? 1 : 2;
+  const sidebarWidth = compact ? 78 : 150;
+  const nameFontSize = compact ? 10.5 : 13;
+  const headerFontSize = compact ? 7 : 10;
+
   return (
     <div>
-      <h3 style={{ fontFamily: FONT_DISPLAY, fontWeight: 600, fontSize: 16, margin: "0 0 10px", color: INK }}>
+      <h3 style={{ fontFamily: FONT_DISPLAY, fontWeight: 600, fontSize: compact ? 13 : 16, margin: "0 0 10px", color: INK }}>
         {monthLabel(year, month)}
       </h3>
       <div style={{ display: "inline-block", minWidth: "100%" }}>
         {/* Day number header */}
-        <div style={{ display: "flex", gap: 2, marginLeft: 150 }}>
+        <div style={{ display: "flex", gap: cellGap, marginLeft: sidebarWidth }}>
           {dayNums.map((d) => {
             const dateKey = keyFor(year, month, d);
             return (
@@ -442,16 +486,16 @@ function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCel
                 key={d}
                 data-day-key={dateKey}
                 style={{
-                  width: 26,
+                  width: cellSize,
                   textAlign: "center",
                   fontFamily: FONT_MONO,
-                  fontSize: 10,
+                  fontSize: headerFontSize,
                   color: dateKey === todayKey ? INK : MUTED,
                   fontWeight: dateKey === todayKey ? 600 : 400,
                   flexShrink: 0,
                 }}
               >
-                {d}
+                {compact ? "" : d}
               </div>
             );
           })}
@@ -459,25 +503,32 @@ function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCel
 
         {/* Habit rows */}
         {habits.map((h) => (
-          <div key={h.id} style={{ marginBottom: editingLegend && goals.length > 0 ? 14 : 4 }}>
+          <div key={h.id} style={{ marginBottom: editingLegend && goals.length > 0 ? 14 : (compact ? 1 : 4) }}>
             <div style={{ display: "flex", alignItems: "center" }}>
               <div
                 style={{
-                  width: 150,
-                  fontSize: 13,
+                  width: sidebarWidth,
+                  fontSize: nameFontSize,
                   paddingRight: 10,
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "center",
                   flexShrink: 0,
+                  position: "sticky",
+                  left: 0,
+                  background: PAGE,
+                  zIndex: 2,
+                  overflow: "hidden",
+                  whiteSpace: "nowrap",
+                  textOverflow: "ellipsis",
                 }}
               >
-                <span>{h.name}</span>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{h.name}</span>
                 {editingLegend && (
-                  <span onClick={() => onRemoveHabit(h.id)} style={{ cursor: "pointer", color: MUTED, fontSize: 12 }}>✕</span>
+                  <span onClick={() => onRemoveHabit(h.id)} style={{ cursor: "pointer", color: MUTED, fontSize: 12, flexShrink: 0 }}>✕</span>
                 )}
               </div>
-              <div style={{ display: "flex", gap: 2 }}>
+              <div style={{ display: "flex", gap: cellGap }}>
                 {dayNums.map((d) => {
                   const dateKey = keyFor(year, month, d);
                   const colorId = marks[`${h.id}__${dateKey}`];
@@ -491,7 +542,9 @@ function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCel
                         background: color ? color.hex : "white",
                         borderColor: isToday ? INK : LINE,
                         borderWidth: isToday ? 1.5 : 1,
-                        width: 26,
+                        width: cellSize,
+                        height: cellSize,
+                        borderRadius: compact ? 2 : 4,
                       }}
                       onClick={(e) => onCellClick(h.id, dateKey, e)}
                     />
@@ -500,7 +553,7 @@ function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCel
               </div>
             </div>
             {editingLegend && goals.length > 0 && (
-              <div style={{ marginLeft: 150, display: "flex", gap: 10, marginTop: 4, flexWrap: "wrap" }}>
+              <div style={{ marginLeft: sidebarWidth, display: "flex", gap: 10, marginTop: 4, flexWrap: "wrap" }}>
                 {goals.map((g) => {
                   const checked = habitGoals[h.id]?.has(g.id);
                   return (
