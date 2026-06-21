@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
+import { Reorder, useDragControls } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
 import GoalPage from "./GoalPage";
@@ -10,6 +11,11 @@ const LINE = "#D9D3C4";
 const LINE_SOFT = "#EAE5D8";
 const MUTED = "#8C8676";
 const ACCENT = "#5C7A5C";
+// Subtle alternating tint for zebra-striped habit rows — close enough to
+// PAGE that it doesn't fight with mark colors, but enough to let the eye
+// trace a row across the full width of the grid without needing to scroll
+// to a specific spot first.
+const ROW_ALT = "#F1ECDF";
 
 const FONT_DISPLAY = "'Fraunces', Georgia, serif";
 const FONT_BODY = "'Inter', system-ui, sans-serif";
@@ -115,6 +121,7 @@ export default function HabitGrid() {
   const [openGoalId, setOpenGoalId] = useState(null); // non-null = showing GoalPage instead of the grid
   const [newGoal, setNewGoal] = useState({ title: "", description: "", targetDate: "" });
   const [compact, setCompact] = useState(false);
+  const [reorderModalOpen, setReorderModalOpen] = useState(false);
   const [expandedStageGoalId, setExpandedStageGoalId] = useState(null); // which goal's stage editor is open
   const [newStageDrafts, setNewStageDrafts] = useState({}); // goalId -> {label, criteria, startDate}
   const [loading, setLoading] = useState(true);
@@ -344,24 +351,15 @@ export default function HabitGrid() {
     api.delete(`/habits/${id}`).catch((err) => console.error("Failed to delete habit:", err));
   };
 
-  const moveHabit = (id, direction) => {
-    // direction: -1 = move earlier (up), 1 = move later (down)
-    let reordered = null;
-    setHabits((prev) => {
-      const idx = prev.findIndex((h) => h.id === id);
-      const newIdx = idx + direction;
-      if (idx === -1 || newIdx < 0 || newIdx >= prev.length) return prev;
-      const next = [...prev];
-      [next[idx], next[newIdx]] = [next[newIdx], next[idx]];
-      reordered = next;
-      return next;
+  // Used by the drag-and-drop "Reorder habits" modal: the modal hands back
+  // the full habits array in its new order on every drop, so we just commit
+  // it to local state and re-sync order_index for everything server-side.
+  const reorderHabits = (newOrder) => {
+    setHabits(newOrder);
+    newOrder.forEach((h, i) => {
+      api.patch(`/habits/${h.id}`, { order_index: i })
+        .catch((err) => console.error("Failed to save habit order:", err));
     });
-    if (reordered) {
-      reordered.forEach((h, i) => {
-        api.patch(`/habits/${h.id}`, { order_index: i })
-          .catch((err) => console.error("Failed to save habit order:", err));
-      });
-    }
   };
 
   const renameHabit = (id, name) => {
@@ -622,21 +620,33 @@ export default function HabitGrid() {
     return habits.filter((h) => habitGoals[h.id]?.has(selectedGoalId));
   }, [habits, habitGoals, selectedGoalId]);
 
+  // True single-month, non-overview view: let the grid grow to fit every
+  // habit row and have the page itself handle scrolling, instead of
+  // capping height and scrolling internally (which is what was clipping
+  // habits behind a scrollbar once there were 10+ of them). The capped/
+  // internal-scroll behavior is still used for 2mo/3mo zoom and compact
+  // mode, where it's needed for the sticky month-title trick.
+  const singleMonthView = zoom === 1 && !compact;
+
   const selectedGoal = goals.find((g) => g.id === selectedGoalId);
   const selectedGoalStage = selectedGoal ? getActiveStage(selectedGoal, todayISO) : null;
 
-  // Precompute, per habit, the list of {goal, stage} for goals that have stages
-  // and that this habit is attached to — used to show the little subtitle under
-  // the habit name in the grid.
-  const habitStageInfo = useMemo(() => {
+  // Precompute, per habit, the list of {goal, stage} for every goal this
+  // habit is linked to — used to render small read-only goal tags under the
+  // habit name in the grid (`stage` is null for flat goals with no stages).
+  // Linking/unlinking itself now happens from the goal page's habit picker —
+  // this is a glance-only display, not an editing surface.
+  const habitGoalChips = useMemo(() => {
     const map = {};
     for (const h of habits) {
       const linkedGoalIds = habitGoals[h.id] ? Array.from(habitGoals[h.id]) : [];
       const entries = linkedGoalIds
         .map((gid) => goals.find((g) => g.id === gid))
-        .filter((g) => g && g.stages && g.stages.length > 0)
-        .map((g) => ({ goal: g, stage: getActiveStage(g, todayISO) }))
-        .filter((entry) => entry.stage);
+        .filter(Boolean)
+        .map((g) => ({
+          goal: g,
+          stage: g.stages && g.stages.length > 0 ? getActiveStage(g, todayISO) : null,
+        }));
       if (entries.length > 0) map[h.id] = entries;
     }
     return map;
@@ -667,6 +677,9 @@ export default function HabitGrid() {
       <GoalPage
         goal={openGoal}
         todayISO={todayISO}
+        habits={habits}
+        habitGoals={habitGoals}
+        onToggleHabitGoal={toggleHabitGoal}
         onBack={() => setOpenGoalId(null)}
         onUpdateGoal={(field, value, immediate) => updateGoalField(openGoalId, field, value, immediate)}
         onSetAdvanceMode={(mode) => setGoalAdvanceMode(openGoalId, mode)}
@@ -763,14 +776,24 @@ export default function HabitGrid() {
           border-radius: 4px;
           padding: 1px 6px;
         }
+        /* Row-tracking helpers: a hover highlight (mouse) plus zebra
+           striping + a divider line (always visible, including touch) so
+           a row stays traceable by eye from the sidebar label all the way
+           out to day 30+, at any scroll position — not just the far edge. */
+        .hg-habit-row { position: relative; }
+        .hg-habit-row:hover { background: rgba(92,122,92,0.08) !important; }
+        .hg-habit-row:hover .hg-row-name { background: rgba(92,122,92,0.14) !important; }
       `}</style>
 
       {/* Header */}
       <div style={{ maxWidth: 920, margin: "0 auto 22px", display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
         <h1 style={{ fontFamily: FONT_DISPLAY, fontWeight: 600, fontSize: 26, margin: 0 }}>Habit grid</h1>
-        <button className="hg-btn" onClick={() => setEditingLegend((v) => !v)}>
-          {editingLegend ? "Done editing" : "Edit colors & habits"}
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="hg-btn" onClick={() => setReorderModalOpen(true)}>Reorder</button>
+          <button className="hg-btn" onClick={() => setEditingLegend((v) => !v)}>
+            {editingLegend ? "Done editing" : "Edit colors & habits"}
+          </button>
+        </div>
       </div>
 
       {loadError && (
@@ -1116,8 +1139,8 @@ export default function HabitGrid() {
           display: "flex",
           gap: compact ? 18 : 32,
           overflowX: "auto",
-          overflowY: "auto",
-          maxHeight: "calc(100vh - 260px)",
+          overflowY: singleMonthView ? "visible" : "auto",
+          maxHeight: singleMonthView ? "none" : "calc(100vh - 260px)",
         }}
       >
         {months.map(({ year, month }) => (
@@ -1131,15 +1154,12 @@ export default function HabitGrid() {
               editingLegend={editingLegend}
               onRemoveHabit={removeHabit}
               onRenameHabit={renameHabit}
-              onMoveHabit={moveHabit}
-              goals={goals}
-              habitGoals={habitGoals}
-              onToggleHabitGoal={toggleHabitGoal}
               compact={compact}
               compactCellSize={compactCellSize}
               compactSidebarWidth={COMPACT_SIDEBAR}
               compactGap={COMPACT_GAP}
-              habitStageInfo={habitStageInfo}
+              habitGoalChips={habitGoalChips}
+              onOpenGoal={(goalId) => setOpenGoalId(goalId)}
               onCellClick={(habitId, dateKey, e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
                 setPickerFor({ habitId, dateKey, x: rect.left, y: rect.bottom + 6 });
@@ -1186,11 +1206,19 @@ export default function HabitGrid() {
           ))}
         </div>
       )}
+
+      {reorderModalOpen && (
+        <ReorderHabitsModal
+          habits={habits}
+          onClose={() => setReorderModalOpen(false)}
+          onReorder={reorderHabits}
+        />
+      )}
     </div>
   );
 }
 
-function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCellClick, onRemoveHabit, onRenameHabit, onMoveHabit, goals, habitGoals, onToggleHabitGoal, compact, compactCellSize, compactSidebarWidth, compactGap, habitStageInfo }) {
+function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCellClick, onRemoveHabit, onRenameHabit, compact, compactCellSize, compactSidebarWidth, compactGap, habitGoalChips, onOpenGoal }) {
   const numDays = daysInMonth(year, month);
   const dayNums = Array.from({ length: numDays }, (_, i) => i + 1);
   const todayKey = keyFor(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
@@ -1248,12 +1276,29 @@ function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCel
         </div>
 
         {/* Habit rows */}
-        {habits.map((h) => {
-          const stageEntries = !compact ? habitStageInfo[h.id] : null;
+        {habits.map((h, idx) => {
+          const goalChips = !compact ? habitGoalChips[h.id] : null;
+          const hasChips = goalChips && goalChips.length > 0;
+          // Zebra striping + a full-width divider line, plus the
+          // .hg-habit-row hover highlight defined above — together these
+          // let a row stay traceable by eye from the sidebar label all the
+          // way out to day 30+, at any scroll position, instead of relying
+          // on careful eyeballing across a wide gap.
+          const rowBg = idx % 2 === 1 ? ROW_ALT : PAGE;
           return (
-          <div key={h.id} style={{ marginBottom: editingLegend && goals.length > 0 ? 14 : (compact ? 1 : 4) }}>
+          <div
+            key={h.id}
+            className="hg-habit-row"
+            style={{
+              marginBottom: hasChips ? 10 : (compact ? 1 : 4),
+              paddingBottom: compact ? 0 : 4,
+              borderBottom: compact ? "none" : `1px solid ${LINE_SOFT}`,
+              background: rowBg,
+            }}
+          >
             <div style={{ display: "flex", alignItems: "center" }}>
               <div
+                className="hg-row-name"
                 style={{
                   width: sidebarWidth,
                   fontSize: nameFontSize,
@@ -1264,38 +1309,12 @@ function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCel
                   flexShrink: 0,
                   position: "sticky",
                   left: 0,
-                  background: PAGE,
+                  background: rowBg,
                   zIndex: 2,
                   overflow: "hidden",
                 }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  {editingLegend && (
-                    <span style={{ display: "flex", flexDirection: "column", marginRight: 4, flexShrink: 0 }}>
-                      <span
-                        onClick={() => habits.findIndex((x) => x.id === h.id) > 0 && onMoveHabit(h.id, -1)}
-                        title="Move up"
-                        style={{
-                          cursor: habits.findIndex((x) => x.id === h.id) > 0 ? "pointer" : "default",
-                          color: habits.findIndex((x) => x.id === h.id) > 0 ? ACCENT : LINE,
-                          fontSize: 10,
-                          lineHeight: 1,
-                          userSelect: "none",
-                        }}
-                      >▲</span>
-                      <span
-                        onClick={() => habits.findIndex((x) => x.id === h.id) < habits.length - 1 && onMoveHabit(h.id, 1)}
-                        title="Move down"
-                        style={{
-                          cursor: habits.findIndex((x) => x.id === h.id) < habits.length - 1 ? "pointer" : "default",
-                          color: habits.findIndex((x) => x.id === h.id) < habits.length - 1 ? ACCENT : LINE,
-                          fontSize: 10,
-                          lineHeight: 1,
-                          userSelect: "none",
-                        }}
-                      >▼</span>
-                    </span>
-                  )}
                   {editingLegend ? (
                     <input
                       className="hg-input"
@@ -1310,19 +1329,30 @@ function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCel
                     <span onClick={() => onRemoveHabit(h.id)} style={{ cursor: "pointer", color: MUTED, fontSize: 12, flexShrink: 0, marginLeft: 4 }}>✕</span>
                   )}
                 </div>
-                {stageEntries && stageEntries.length > 0 && (
-                  <span
-                    title={stageEntries.map((e) => `${e.goal.title}: ${e.stage.label}${e.stage.criteria ? " — " + e.stage.criteria : ""}`).join(" | ")}
-                    style={{
-                      fontSize: 10.5,
-                      color: ACCENT,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {stageEntries.map((e) => e.stage.label).join(" · ")}
-                  </span>
+                {hasChips && (
+                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 3 }}>
+                    {goalChips.map(({ goal, stage }) => (
+                      <span
+                        key={goal.id}
+                        onClick={() => onOpenGoal(goal.id)}
+                        title={stage ? `${goal.title}: ${stage.label}${stage.criteria ? " — " + stage.criteria : ""}` : goal.title}
+                        style={{
+                          fontSize: 10.5,
+                          color: ACCENT,
+                          background: "rgba(92,122,92,0.08)",
+                          borderRadius: 4,
+                          padding: "1px 5px",
+                          cursor: "pointer",
+                          whiteSpace: "nowrap",
+                          maxWidth: 120,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      >
+                        {goal.title}{stage ? ` · ${stage.label}` : ""}
+                      </span>
+                    ))}
+                  </div>
                 )}
               </div>
               <div style={{ display: "flex", gap: cellGap }}>
@@ -1349,28 +1379,154 @@ function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCel
                 })}
               </div>
             </div>
-            {editingLegend && goals.length > 0 && (
-              <div style={{ marginLeft: sidebarWidth, display: "flex", gap: 10, marginTop: 4, flexWrap: "wrap" }}>
-                {goals.map((g) => {
-                  const checked = habitGoals[h.id]?.has(g.id);
-                  return (
-                    <label key={g.id} style={{ fontSize: 11.5, color: MUTED, display: "flex", gap: 4, alignItems: "center", cursor: "pointer" }}>
-                      <input
-                        type="checkbox"
-                        checked={!!checked}
-                        onChange={() => onToggleHabitGoal(h.id, g.id)}
-                        style={{ cursor: "pointer" }}
-                      />
-                      {g.title}
-                    </label>
-                  );
-                })}
-              </div>
-            )}
           </div>
           );
         })}
       </div>
     </div>
+  );
+}
+
+// ---- Reorder modal (drag-and-drop, mobile-friendly) ----
+// Replaces the old tap-to-step ▲▼ buttons, whose hit targets were far below
+// the ~44px minimum comfortable touch size. Drag is initiated only from the
+// grip handle (not the whole row) so it doesn't fight with anything else;
+// each row gets its own drag handle via useDragControls so the handle —
+// not the full list item — is the pointer-down target.
+//
+// Reorder.Group's onReorder fires continuously while dragging — once for
+// every swap past another row, not just once on drop. `order` (this
+// component's own state) tracks that live so the drag still feels instant,
+// but `onReorder` (the parent's reorderHabits) is what actually lifts state
+// into HabitGrid and saves to the server, and that's far from free: it
+// re-renders the whole grid (every month, every habit, every day cell) and
+// fires one API call per habit. Calling that on every mid-drag swap is what
+// was causing the lag. So it's only called once a drag gesture actually
+// ends (onDragEnd, i.e. the user let go) — plus once more on close as a
+// safety net, in case a drag end ever doesn't fire for some reason.
+function ReorderHabitsModal({ habits, onClose, onReorder }) {
+  const [order, setOrder] = useState(habits);
+  const orderRef = useRef(habits);
+
+  useEffect(() => {
+    setOrder(habits);
+    orderRef.current = habits;
+  }, [habits]);
+
+  const handleReorder = (newOrder) => {
+    orderRef.current = newOrder;
+    setOrder(newOrder);
+  };
+
+  const commitOrder = () => {
+    onReorder(orderRef.current);
+  };
+
+  const handleClose = () => {
+    commitOrder();
+    onClose();
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(43,41,37,0.35)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 2000,
+        padding: 16,
+      }}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) handleClose();
+      }}
+    >
+      <div
+        style={{
+          background: PAGE,
+          borderRadius: 12,
+          padding: 18,
+          width: "100%",
+          maxWidth: 420,
+          maxHeight: "80vh",
+          overflowY: "auto",
+          boxShadow: "0 12px 40px rgba(0,0,0,0.2)",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+          <h3 style={{ fontFamily: FONT_DISPLAY, fontWeight: 600, fontSize: 17, margin: 0 }}>Reorder habits</h3>
+          <button className="hg-btn hg-btn-accent" onClick={handleClose}>Done</button>
+        </div>
+        <p style={{ fontSize: 12.5, color: MUTED, margin: "0 0 14px" }}>
+          Drag a habit by its handle to move it.
+        </p>
+        <Reorder.Group
+          axis="y"
+          values={order}
+          onReorder={handleReorder}
+          style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 8 }}
+        >
+          {order.map((h) => (
+            <ReorderHabitRow key={h.id} habit={h} onDragEnd={commitOrder} />
+          ))}
+        </Reorder.Group>
+      </div>
+    </div>
+  );
+}
+
+function ReorderHabitRow({ habit, onDragEnd }) {
+  const dragControls = useDragControls();
+  return (
+    <Reorder.Item
+      value={habit}
+      dragListener={false}
+      dragControls={dragControls}
+      onDragEnd={onDragEnd}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 4,
+        background: "white",
+        border: `1px solid ${LINE}`,
+        borderRadius: 8,
+        padding: "6px 10px",
+      }}
+    >
+      <span
+        onPointerDown={(e) => dragControls.start(e)}
+        aria-label={`Drag to reorder ${habit.name}`}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 44,
+          height: 44,
+          marginLeft: -10,
+          cursor: "grab",
+          touchAction: "none",
+          color: MUTED,
+          flexShrink: 0,
+        }}
+      >
+        <GripIcon />
+      </span>
+      <span style={{ fontSize: 14, color: INK }}>{habit.name}</span>
+    </Reorder.Item>
+  );
+}
+
+// Drawn manually (2x3 dot grid) so the drag handle doesn't need an icon
+// library dependency just for this one glyph.
+function GripIcon() {
+  const dot = { width: 4, height: 4, borderRadius: "50%", background: "currentColor" };
+  return (
+    <span style={{ display: "grid", gridTemplateColumns: "repeat(2, 4px)", gap: 3 }}>
+      {Array.from({ length: 6 }).map((_, i) => (
+        <span key={i} style={dot} />
+      ))}
+    </span>
   );
 }

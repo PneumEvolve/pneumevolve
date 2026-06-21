@@ -60,8 +60,13 @@ export default function GoalPage({
   onRegressStage,
   newStageDraft,
   onChangeNewStageDraft,
+  habits = [],
+  habitGoals = {},
+  onToggleHabitGoal,
 }) {
   const [editingHeader, setEditingHeader] = useState(false);
+  const [habitSearch, setHabitSearch] = useState("");
+  const [habitSuggestOpen, setHabitSuggestOpen] = useState(false);
 
   // ---- notes save status ("saved" / "unsaved" / "saving") ----
   // `goal.notes` only reflects what's in local state, which updates on every
@@ -76,6 +81,13 @@ export default function GoalPage({
   useEffect(() => {
     lastSavedNotesRef.current = goal?.notes || "";
     setNotesStatus("saved");
+  }, [goal?.id]);
+
+  // Same idea for the habit-picker search box — don't carry leftover search
+  // text from one goal into the next when navigating between goal pages.
+  useEffect(() => {
+    setHabitSearch("");
+    setHabitSuggestOpen(false);
   }, [goal?.id]);
 
   const handleNotesChange = (html) => {
@@ -112,6 +124,18 @@ export default function GoalPage({
   const activeStage = getActiveStage(goal, todayISO);
   const stageIdx = getStageIndex(goal, goal.currentStageId);
   const draft = newStageDraft || { label: "", criteria: "", startDate: "" };
+
+  // Habit chip picker: this goal owns its own habit list, so adding/removing
+  // happens from here rather than ticking checkboxes per-habit back on the
+  // grid (which got unreadable once there were more than a few goals).
+  const linkedHabits = habits.filter((h) => habitGoals[h.id]?.has(goal.id));
+  const linkedHabitIdSet = new Set(linkedHabits.map((h) => h.id));
+  const availableHabits = habits.filter((h) => !linkedHabitIdSet.has(h.id));
+  const query = habitSearch.trim().toLowerCase();
+  const habitSuggestions = (query
+    ? availableHabits.filter((h) => h.name.toLowerCase().includes(query))
+    : availableHabits
+  ).slice(0, 6);
 
   return (
     <div style={{ fontFamily: FONT_BODY, background: PAGE, color: INK, minHeight: "100vh", padding: "28px 24px 80px" }}>
@@ -192,6 +216,88 @@ export default function GoalPage({
             </div>
           )}
         </div>
+
+        {/* Habits tracked toward this goal — this is now the one place
+            habit ↔ goal links are edited. The grid still shows a small
+            read-only tag per habit for an at-a-glance view, but it's no
+            longer where you add/remove links — that stopped scaling once
+            there were more than a handful of goals. */}
+        <section style={{ marginBottom: 24, border: `1px solid ${LINE}`, borderRadius: 10, padding: 16 }}>
+          <h3 style={{ fontFamily: FONT_DISPLAY, fontWeight: 600, fontSize: 16, margin: "0 0 10px" }}>Habits in this goal</h3>
+
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: linkedHabits.length > 0 ? 12 : 8 }}>
+            {linkedHabits.map((h) => (
+              <span
+                key={h.id}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  fontSize: 12.5,
+                  color: ACCENT,
+                  background: "rgba(92,122,92,0.1)",
+                  borderRadius: 6,
+                  padding: "4px 6px 4px 10px",
+                }}
+              >
+                {h.name}
+                <span
+                  onClick={() => onToggleHabitGoal(h.id, goal.id)}
+                  title={`Remove ${h.name} from this goal`}
+                  style={{ cursor: "pointer", color: MUTED, fontSize: 12 }}
+                >✕</span>
+              </span>
+            ))}
+            {linkedHabits.length === 0 && (
+              <span style={{ fontSize: 13, color: MUTED }}>No habits linked yet — add one below.</span>
+            )}
+          </div>
+
+          {availableHabits.length > 0 ? (
+            <div style={{ position: "relative", maxWidth: 280 }}>
+              <input
+                className="hg-input"
+                style={{ width: "100%" }}
+                placeholder="Add a habit…"
+                value={habitSearch}
+                onChange={(e) => setHabitSearch(e.target.value)}
+                onFocus={() => setHabitSuggestOpen(true)}
+                onBlur={() => setTimeout(() => setHabitSuggestOpen(false), 150)}
+              />
+              {habitSuggestOpen && habitSuggestions.length > 0 && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: 38,
+                    left: 0,
+                    right: 0,
+                    background: "white",
+                    border: `1px solid ${LINE}`,
+                    borderRadius: 8,
+                    boxShadow: "0 4px 14px rgba(0,0,0,0.1)",
+                    zIndex: 10,
+                    overflow: "hidden",
+                  }}
+                >
+                  {habitSuggestions.map((h) => (
+                    <div
+                      key={h.id}
+                      onClick={() => {
+                        onToggleHabitGoal(h.id, goal.id);
+                        setHabitSearch("");
+                      }}
+                      style={{ fontSize: 13, padding: "8px 10px", cursor: "pointer" }}
+                    >
+                      {h.name}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <span style={{ fontSize: 12.5, color: MUTED }}>All habits are already linked to this goal.</span>
+          )}
+        </section>
 
         {/* Stage breakdown — useful for long-arc goals (e.g. a 5-year goal broken
             into yearly/phase steps), optional for short flat goals */}
