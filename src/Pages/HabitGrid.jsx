@@ -247,15 +247,22 @@ export default function HabitGrid() {
 
   useEffect(() => {
     if (compact) return; // overview mode shows the whole month — don't scroll it off-center
-    const wrap = scrollWrapRef.current;
-    if (!wrap) return;
-    const todayEl = wrap.querySelector(`[data-day-key="${todayDateKey}"]`);
-    if (!todayEl) return;
-    const wrapRect = wrap.getBoundingClientRect();
-    const elRect = todayEl.getBoundingClientRect();
-    const offset = elRect.left - wrapRect.left - wrapRect.width / 2 + elRect.width / 2;
-    wrap.scrollLeft += offset;
-  }, [anchorMonth, anchorYear, zoom, todayDateKey, compact]);
+    if (loading) return; // grid isn't in the DOM yet — nothing to scroll
+    // Wait a tick for the grid to actually paint — `loading` may have just
+    // flipped to false this render, so the cells might not be in the DOM
+    // yet at the exact moment this effect body runs.
+    const raf = requestAnimationFrame(() => {
+      const wrap = scrollWrapRef.current;
+      if (!wrap) return;
+      const todayEl = wrap.querySelector(`[data-day-key="${todayDateKey}"]`);
+      if (!todayEl) return;
+      const wrapRect = wrap.getBoundingClientRect();
+      const elRect = todayEl.getBoundingClientRect();
+      const offset = elRect.left - wrapRect.left - wrapRect.width / 2 + elRect.width / 2;
+      wrap.scrollLeft += offset;
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [anchorMonth, anchorYear, zoom, todayDateKey, compact, loading]);
 
   // In overview/compact mode, shrink cells to actually fit the screen width
   // instead of clipping. Recomputed live as the viewport resizes.
@@ -1086,6 +1093,20 @@ export default function HabitGrid() {
       </div>
 
       {/* Grids */}
+      {/* This wrapper is now the ACTUAL scrolling viewport for both axes
+          (bounded height + overflow auto on both), instead of letting the
+          page itself scroll vertically. That's required for the sticky
+          month title to work: position:sticky only "sticks" relative to the
+          nearest ancestor that's a real, actively-scrolling scroll
+          container. Previously this div scrolled horizontally but had no
+          height limit, so it never scrolled vertically — there was nothing
+          for `top: 0` to stick against, even though the div still counted
+          as the "nearest scrolling ancestor" and hijacked the sticky
+          reference frame away from the window. Giving it a real height +
+          overflowY: "auto" makes top/left stickiness behave exactly like a
+          frozen-pane spreadsheet (frozen header row, frozen name column,
+          frozen corner cell) — the same pattern the habit-name sidebar
+          already uses for left:0. */}
       <div
         ref={scrollWrapRef}
         className="hg-grids"
@@ -1095,6 +1116,8 @@ export default function HabitGrid() {
           display: "flex",
           gap: compact ? 18 : 32,
           overflowX: "auto",
+          overflowY: "auto",
+          maxHeight: "calc(100vh - 260px)",
         }}
       >
         {months.map(({ year, month }) => (
@@ -1180,7 +1203,23 @@ function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCel
 
   return (
     <div>
-      <h3 style={{ fontFamily: FONT_DISPLAY, fontWeight: 600, fontSize: compact ? 13 : 16, margin: "0 0 10px", color: INK }}>
+      <h3
+        style={{
+          fontFamily: FONT_DISPLAY,
+          fontWeight: 600,
+          fontSize: compact ? 13 : 16,
+          margin: "0 0 10px",
+          color: INK,
+          position: "sticky",
+          top: 0,
+          left: 0,
+          background: PAGE,
+          zIndex: 4,
+          paddingTop: 4,
+          paddingBottom: 4,
+          width: "fit-content",
+        }}
+      >
         {monthLabel(year, month)}
       </h3>
       <div style={{ display: "inline-block", minWidth: "100%" }}>
