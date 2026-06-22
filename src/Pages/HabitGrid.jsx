@@ -272,13 +272,16 @@ export default function HabitGrid() {
   }, [anchorMonth, anchorYear, zoom, todayDateKey, compact, loading]);
 
   // In overview/compact mode, shrink cells to actually fit the screen width
-  // instead of clipping. Recomputed live as the viewport resizes.
+  // instead of clipping. Recomputed live as the viewport resizes. The Year
+  // view (zoom === 12) always needs this same dense sizing too — 12 full-size
+  // months can't reasonably fit on screen — so it shares this effect/state
+  // rather than duplicating the math.
   const COMPACT_SIDEBAR = 56;
   const COMPACT_GAP = 1;
   const [compactCellSize, setCompactCellSize] = useState(9);
 
   useEffect(() => {
-    if (!compact) return;
+    if (!compact && zoom !== 12) return;
     const wrap = scrollWrapRef.current;
     if (!wrap) return;
     const measure = () => {
@@ -287,6 +290,32 @@ export default function HabitGrid() {
       const available = width - COMPACT_SIDEBAR - (maxDays - 1) * COMPACT_GAP;
       const size = Math.max(3, Math.min(12, Math.floor(available / maxDays)));
       setCompactCellSize(size);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(wrap);
+    return () => ro.disconnect();
+  }, [compact, zoom]);
+
+  // In normal single-month view (zoom 1, not Overview), auto-shrink the
+  // cells just enough that the one visible month always fits the available
+  // width with no horizontal scrolling — unlike compact mode this stays
+  // close to full size (16–26px) since there's only one month competing
+  // for the space.
+  const [singleMonthCellSize, setSingleMonthCellSize] = useState(26);
+
+  useEffect(() => {
+    if (compact || zoom !== 1) return;
+    const wrap = scrollWrapRef.current;
+    if (!wrap) return;
+    const measure = () => {
+      const width = wrap.clientWidth;
+      const sidebar = 150;
+      const gap = 2;
+      const days = 31; // worst case, keeps sizing stable when navigating months
+      const available = width - sidebar - (days - 1) * gap;
+      const size = Math.max(14, Math.min(26, Math.floor(available / days)));
+      setSingleMonthCellSize(size);
     };
     measure();
     const ro = new ResizeObserver(measure);
@@ -620,13 +649,30 @@ export default function HabitGrid() {
     return habits.filter((h) => habitGoals[h.id]?.has(selectedGoalId));
   }, [habits, habitGoals, selectedGoalId]);
 
-  // True single-month, non-overview view: let the grid grow to fit every
-  // habit row and have the page itself handle scrolling, instead of
+  // ---- View-mode resolution ----
+  // zoom 1 (normal): auto-fits the single month to the available width
+  // (singleMonthCellSize, above) so it never needs horizontal scrolling.
+  // zoom 2 and zoom 3: fixed-size cells, but wrapped instead of forcing a
+  // scrollbar — whichever month doesn't fit in the row drops to the next
+  // one (so 2mo behaves like 1 row of up to 2 months, dropping to its own
+  // row if even 2 don't fit; 3mo behaves the same with up to 3 per row).
+  // zoom 12 (Year, last 12 months): always uses the same dense cell sizing
+  // as the Overview toggle, also wrapped onto as many rows as it takes.
+  // The Overview toggle still independently switches any zoom level into
+  // that same dense style, for anyone who wants more habit rows visible at
+  // once without scrolling vertically.
+  const denseStyle = compact || zoom === 12;
+  const wrapMonths = zoom >= 2;
+  // Let the grid grow and have the page itself handle scrolling, instead of
   // capping height and scrolling internally (which is what was clipping
   // habits behind a scrollbar once there were 10+ of them). The capped/
-  // internal-scroll behavior is still used for 2mo/3mo zoom and compact
-  // mode, where it's needed for the sticky month-title trick.
-  const singleMonthView = zoom === 1 && !compact;
+  // internal-scroll behavior is still used for the 2mo and Overview cases,
+  // where it's needed for the sticky month-title trick.
+  const naturalFlow = !compact && (zoom === 1 || wrapMonths);
+
+  const viewCellSize = denseStyle ? compactCellSize : (zoom === 1 ? singleMonthCellSize : 26);
+  const viewSidebar = denseStyle ? COMPACT_SIDEBAR : 150;
+  const viewGap = denseStyle ? COMPACT_GAP : 2;
 
   const selectedGoal = goals.find((g) => g.id === selectedGoalId);
   const selectedGoalStage = selectedGoal ? getActiveStage(selectedGoal, todayISO) : null;
@@ -703,7 +749,7 @@ export default function HabitGrid() {
         background: PAGE,
         color: INK,
         minHeight: "100vh",
-        padding: "28px 24px 60px",
+        padding: "18px 10px 40px",
       }}
     >
       <style>{`
@@ -1102,45 +1148,41 @@ export default function HabitGrid() {
             {compact ? "Normal view" : "Overview (fit all)"}
           </button>
           <span style={{ fontSize: 12, color: MUTED, alignSelf: "center", marginRight: 4 }}>Zoom</span>
-          {[1, 2, 3].map((z) => (
+          {[1, 2, 3, 12].map((z) => (
             <button
               key={z}
               className="hg-btn"
               onClick={() => setZoom(z)}
               style={{ background: zoom === z ? LINE_SOFT : PAGE, fontFamily: FONT_MONO }}
             >
-              {z}mo
+              {z === 12 ? "Year" : `${z}mo`}
             </button>
           ))}
         </div>
       </div>
 
       {/* Grids */}
-      {/* This wrapper is now the ACTUAL scrolling viewport for both axes
-          (bounded height + overflow auto on both), instead of letting the
-          page itself scroll vertically. That's required for the sticky
-          month title to work: position:sticky only "sticks" relative to the
-          nearest ancestor that's a real, actively-scrolling scroll
-          container. Previously this div scrolled horizontally but had no
-          height limit, so it never scrolled vertically — there was nothing
-          for `top: 0` to stick against, even though the div still counted
-          as the "nearest scrolling ancestor" and hijacked the sticky
-          reference frame away from the window. Giving it a real height +
-          overflowY: "auto" makes top/left stickiness behave exactly like a
-          frozen-pane spreadsheet (frozen header row, frozen name column,
-          frozen corner cell) — the same pattern the habit-name sidebar
-          already uses for left:0. */}
+      {/* This wrapper scrolls/wraps differently depending on the view:
+          - zoom 1 and zoom >= 2 (2mo/3mo/Year): natural flow — no internal
+            height cap, the page scrolls, and months wrap onto new rows
+            instead of forcing a horizontal scrollbar (wrapMonths).
+          - Overview (compact, any zoom): unchanged — a bounded,
+            internally-scrolling box. That's required for the sticky month
+            title to work in that case: position:sticky only "sticks"
+            relative to the nearest ancestor that's a real,
+            actively-scrolling scroll container. */}
       <div
         ref={scrollWrapRef}
         className="hg-grids"
         style={{
-          maxWidth: compact || zoom > 1 ? "100%" : 920,
+          maxWidth: "100%",
           margin: "0 auto",
           display: "flex",
-          gap: compact ? 18 : 32,
-          overflowX: "auto",
-          overflowY: singleMonthView ? "visible" : "auto",
-          maxHeight: singleMonthView ? "none" : "calc(100vh - 260px)",
+          flexWrap: wrapMonths ? "wrap" : "nowrap",
+          gap: denseStyle ? 18 : 32,
+          overflowX: wrapMonths ? "visible" : "auto",
+          overflowY: naturalFlow ? "visible" : "auto",
+          maxHeight: naturalFlow ? "none" : "calc(100vh - 260px)",
         }}
       >
         {months.map(({ year, month }) => (
@@ -1154,10 +1196,10 @@ export default function HabitGrid() {
               editingLegend={editingLegend}
               onRemoveHabit={removeHabit}
               onRenameHabit={renameHabit}
-              compact={compact}
-              compactCellSize={compactCellSize}
-              compactSidebarWidth={COMPACT_SIDEBAR}
-              compactGap={COMPACT_GAP}
+              compact={denseStyle}
+              cellSize={viewCellSize}
+              sidebarWidth={viewSidebar}
+              cellGap={viewGap}
               habitGoalChips={habitGoalChips}
               onOpenGoal={(goalId) => setOpenGoalId(goalId)}
               onCellClick={(habitId, dateKey, e) => {
@@ -1218,16 +1260,22 @@ export default function HabitGrid() {
   );
 }
 
-function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCellClick, onRemoveHabit, onRenameHabit, compact, compactCellSize, compactSidebarWidth, compactGap, habitGoalChips, onOpenGoal }) {
+function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCellClick, onRemoveHabit, onRenameHabit, compact, cellSize, sidebarWidth, cellGap, habitGoalChips, onOpenGoal }) {
   const numDays = daysInMonth(year, month);
   const dayNums = Array.from({ length: numDays }, (_, i) => i + 1);
   const todayKey = keyFor(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
 
-  const cellSize = compact ? (compactCellSize || 9) : 26;
-  const cellGap = compact ? (compactGap ?? 1) : 2;
-  const sidebarWidth = compact ? (compactSidebarWidth || 56) : 150;
+  // cellSize/sidebarWidth/cellGap are resolved by the parent based on the
+  // current zoom level + Overview toggle (see HabitGrid's `denseStyle` /
+  // `wrapMonths` resolution above). `compact` here only controls the denser
+  // *visual* style (smaller fonts, tighter rows, hidden goal chips) — the
+  // fallbacks below just guard against this component being used without
+  // those resolved values passed in.
+  const resolvedCellSize = cellSize || (compact ? 9 : 26);
+  const resolvedGap = cellGap ?? (compact ? 1 : 2);
+  const resolvedSidebar = sidebarWidth || (compact ? 56 : 150);
   const nameFontSize = compact ? 9.5 : 13;
-  const headerFontSize = compact ? Math.max(5, Math.min(8, cellSize - 2)) : 10;
+  const headerFontSize = compact ? Math.max(5, Math.min(8, resolvedCellSize - 2)) : 10;
 
   return (
     <div>
@@ -1252,7 +1300,7 @@ function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCel
       </h3>
       <div style={{ display: "inline-block", minWidth: "100%" }}>
         {/* Day number header */}
-        <div style={{ display: "flex", gap: cellGap, marginLeft: sidebarWidth }}>
+        <div style={{ display: "flex", gap: resolvedGap, marginLeft: resolvedSidebar }}>
           {dayNums.map((d) => {
             const dateKey = keyFor(year, month, d);
             return (
@@ -1260,7 +1308,7 @@ function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCel
                 key={d}
                 data-day-key={dateKey}
                 style={{
-                  width: cellSize,
+                  width: resolvedCellSize,
                   textAlign: "center",
                   fontFamily: FONT_MONO,
                   fontSize: headerFontSize,
@@ -1300,7 +1348,7 @@ function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCel
               <div
                 className="hg-row-name"
                 style={{
-                  width: sidebarWidth,
+                  width: resolvedSidebar,
                   fontSize: nameFontSize,
                   paddingRight: 10,
                   display: "flex",
@@ -1355,7 +1403,7 @@ function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCel
                   </div>
                 )}
               </div>
-              <div style={{ display: "flex", gap: cellGap }}>
+              <div style={{ display: "flex", gap: resolvedGap }}>
                 {dayNums.map((d) => {
                   const dateKey = keyFor(year, month, d);
                   const colorId = marks[`${h.id}__${dateKey}`];
@@ -1369,8 +1417,8 @@ function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCel
                         background: color ? color.hex : "white",
                         borderColor: isToday ? INK : LINE,
                         borderWidth: isToday ? 1.5 : 1,
-                        width: cellSize,
-                        height: cellSize,
+                        width: resolvedCellSize,
+                        height: resolvedCellSize,
                         borderRadius: compact ? 2 : 4,
                       }}
                       onClick={(e) => onCellClick(h.id, dateKey, e)}
