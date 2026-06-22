@@ -698,6 +698,25 @@ export default function HabitGrid() {
     return map;
   }, [habits, habitGoals, goals, todayISO]);
 
+  // Precompute, per date, the {goal, stage} pairs whose step is set to
+  // start on that day under auto-advance — so the calendar itself can
+  // highlight when a step is due, not just the goal page. Respects the
+  // same goal filter as the rest of the grid ("all" surfaces every
+  // auto-advance goal's step dates at once).
+  const autoStageDatesByDay = useMemo(() => {
+    const map = {};
+    const relevantGoals = selectedGoalId === "all" ? goals : goals.filter((g) => g.id === selectedGoalId);
+    for (const g of relevantGoals) {
+      if (g.advanceMode !== "auto") continue;
+      for (const s of g.stages || []) {
+        if (!s.startDate) continue;
+        if (!map[s.startDate]) map[s.startDate] = [];
+        map[s.startDate].push({ goal: g, stage: s });
+      }
+    }
+    return map;
+  }, [goals, selectedGoalId]);
+
   // close picker on outside click
   useEffect(() => {
     const handler = (e) => {
@@ -1201,6 +1220,7 @@ export default function HabitGrid() {
               sidebarWidth={viewSidebar}
               cellGap={viewGap}
               habitGoalChips={habitGoalChips}
+              autoStageDatesByDay={autoStageDatesByDay}
               onOpenGoal={(goalId) => setOpenGoalId(goalId)}
               onCellClick={(habitId, dateKey, e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
@@ -1260,7 +1280,7 @@ export default function HabitGrid() {
   );
 }
 
-function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCellClick, onRemoveHabit, onRenameHabit, compact, cellSize, sidebarWidth, cellGap, habitGoalChips, onOpenGoal }) {
+function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCellClick, onRemoveHabit, onRenameHabit, compact, cellSize, sidebarWidth, cellGap, habitGoalChips, autoStageDatesByDay, onOpenGoal }) {
   const numDays = daysInMonth(year, month);
   const dayNums = Array.from({ length: numDays }, (_, i) => i + 1);
   const todayKey = keyFor(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
@@ -1303,18 +1323,23 @@ function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCel
         <div style={{ display: "flex", gap: resolvedGap, marginLeft: resolvedSidebar }}>
           {dayNums.map((d) => {
             const dateKey = keyFor(year, month, d);
+            const stageHits = autoStageDatesByDay?.[dateKey];
+            const hasStageHit = stageHits && stageHits.length > 0;
             return (
               <div
                 key={d}
                 data-day-key={dateKey}
+                title={hasStageHit ? stageHits.map(({ goal, stage }) => `${goal.title}: ${stage.label || "step"}`).join(", ") : undefined}
                 style={{
                   width: resolvedCellSize,
                   textAlign: "center",
                   fontFamily: FONT_MONO,
                   fontSize: headerFontSize,
-                  color: dateKey === todayKey ? INK : MUTED,
-                  fontWeight: dateKey === todayKey ? 600 : 400,
+                  color: dateKey === todayKey ? INK : (hasStageHit ? ACCENT : MUTED),
+                  fontWeight: dateKey === todayKey || hasStageHit ? 600 : 400,
                   flexShrink: 0,
+                  background: hasStageHit ? "rgba(92,122,92,0.18)" : "transparent",
+                  borderRadius: 4,
                 }}
               >
                 {d}
@@ -1409,14 +1434,15 @@ function MonthGrid({ year, month, habits, marks, colorById, editingLegend, onCel
                   const colorId = marks[`${h.id}__${dateKey}`];
                   const color = colorId ? colorById(colorId) : null;
                   const isToday = dateKey === todayKey;
+                  const hasStageHit = autoStageDatesByDay?.[dateKey]?.length > 0;
                   return (
                     <div
                       key={d}
                       className="hg-cell"
                       style={{
-                        background: color ? color.hex : "white",
-                        borderColor: isToday ? INK : LINE,
-                        borderWidth: isToday ? 1.5 : 1,
+                        background: color ? color.hex : (hasStageHit ? "rgba(92,122,92,0.08)" : "white"),
+                        borderColor: isToday ? INK : (hasStageHit ? ACCENT : LINE),
+                        borderWidth: isToday || hasStageHit ? 1.5 : 1,
                         width: resolvedCellSize,
                         height: resolvedCellSize,
                         borderRadius: compact ? 2 : 4,
