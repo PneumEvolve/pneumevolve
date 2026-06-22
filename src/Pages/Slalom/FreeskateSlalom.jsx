@@ -6,14 +6,43 @@
 //   Solo mode (no roomId) works identically to before — both skates on keyboard.
 //
 // Changes:
-//   - Gate: passes if EITHER skate is inside the gate (miss only if both are outside)
+//   - Gate: each skate is checked independently at the moment ITS OWN row crosses
+//     the gate line (top skate first, bottom skate later). Passes only if both
+//     clear it; fails as soon as either one doesn't.
 //   - Easier start: gates wider + slower speed ramp at the beginning
 //   - Mobile controls: touch L/R buttons wired into keysRef
 //   - P2 lag: client-side prediction extrapolates skate positions between server frames
+//   - Leaderboard: on game over, checks whether the run qualifies for the
+//     solo/coop leaderboard, then either auto-submits (already has a
+//     username), prompts once for a name, or nudges a logged-out player to
+//     log in. See the "Leaderboard" section below.
+//   - Bugfix: P2's React `gameOver` state never flipped to true before (only
+//     the ref-backed s.gameOver did), so P2 never saw a leaderboard check AND
+//     never got the "GO AGAIN" touch button. Fixed by calling setGameOver()
+//     from the onGameState/onGameOver handlers, and resetting it on restart.
+//   - Practice mode now actually has no lives: wipeouts and missed gates
+//     still happen (and still show visually) but no longer increment misses
+//     or trigger game over. The 3-dot miss indicator is hidden in practice
+//     since there's nothing for it to track.
+//   - Bugfix: clicking "log in" from the leaderboard nudge navigated away
+//     and unmounted this component, silently losing the qualifying score.
+//     Now it's stashed via savePendingScore() (src/lib/slalomLeaderboard.js)
+//     before navigating, and SlalomLobby resumes the submission once a
+//     token actually exists.
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useSlalomRoom } from "@/lib/useSlalomRoom";
 import { api } from "@/lib/api";
+import { Link } from "react-router-dom";
+import {
+  fetchLeaderboardEntries,
+  qualifiesForLeaderboard,
+  submitScoreToLeaderboard,
+  fetchMyUsername,
+  setMyUsername,
+  savePendingScore,
+  clearPendingScore,
+} from "@/lib/slalomLeaderboard";
 
 const CANVAS_W = 480;
 const CANVAS_H = 700;
@@ -134,7 +163,13 @@ function generateChunk(startDist, count, prevCx = null) {
     const maxCx = Math.min(CANVAS_W-GATE_WIDTH/2-40, lastCx + MAX_GATE_DRIFT);
     const cx = rand(minCx, maxCx);
     lastCx = cx;
-    items.push({ type:"gate", worldDist:d, cx, passed:false, missed:false, id:Math.random() });
+    items.push({
+      type:"gate", worldDist:d, cx, passed:false, missed:false, id:Math.random(),
+      // Each skate is checked independently, at the moment ITS row reaches the gate line
+      // (top skate's row arrives first, bottom skate's row arrives later).
+      topChecked:false, topOk:null,
+      botChecked:false, botOk:null,
+    });
     const gemCount = Math.floor(rand(0,3));
     for (let g = 0; g < gemCount; g++) {
       const colors = ["#44eeff","#ff44cc","#aaff44","#ffaa22","#aa88ff"];
@@ -151,7 +186,7 @@ function generateChunk(startDist, count, prevCx = null) {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function FreeskateSlalom({ roomId = null, role = null, roomData = null }) {
+export default function FreeskateSlalom({ roomId = null, role = null, roomData = null, mode = "solo" }) {
   const canvasRef   = useRef(null);
   const sRef        = useRef(null);
   const keysRef     = useRef({});
@@ -190,6 +225,17 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
   const missEraseFlashRef = useRef(0); // countdown frames for the "miss erased" flash
   const inputLockRef = useRef(0);      // countdown frames during which skate input is ignored (post-wipeout / restart)
 
+  // ── Leaderboard ──────────────────────────────────────────────────────────────
+  // idle | checking | none | needs_login | needs_name | submitted | error
+  const [lbStatus, setLbStatus] = useState("idle");
+  const lbStatusRef = useRef("idle");
+  useEffect(() => { lbStatusRef.current = lbStatus; }, [lbStatus]);
+  const [nameInput, setNameInput] = useState("");
+  const [nameError, setNameError] = useState(null);
+  const pendingSubmitRef = useRef(null);
+  const scoreCheckedRef = useRef(false);  // guards against re-checking every frame while gameOver stays true
+  const runStartRef = useRef(Date.now());
+
   const isMultiplayer = !!roomId;
   const isP1 = !isMultiplayer || role === "p1";
   const isP2 = isMultiplayer && role === "p2";
@@ -208,6 +254,83 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
     wipeout: false, wipeoutTimer: 0,
     gameOver: false,
   }), [PLAYER_CX_BASE, PLAYER_CY]);
+
+  // Submit a run to the leaderboard. Called either immediately (player
+  // already has a username) or after the one-time name prompt is filled in.
+  const submitScore = useCallback(async (lbMode, gatesPassedVal, gemsVal, durationMs) => {
+    try {
+      await submitScoreToLeaderboard({
+        lbMode, gates: gatesPassedVal, gems: gemsVal, durationMs,
+        roomId: roomData?.id ?? null,
+      });
+      clearPendingScore(); // in case a stale one from a previous session was sitting around
+      setLbStatus("submitted");
+    } catch {
+      setLbStatus("error");
+    }
+  }, [roomData]);
+
+  // Runs once per finished run (guarded by scoreCheckedRef). Decides whether
+  // this score is good enough to matter, then routes to auto-submit / name
+  // prompt / login nudge accordingly.
+  const checkLeaderboardQualification = useCallback(async () => {
+    if (scoreCheckedRef.current) return;
+    scoreCheckedRef.current = true;
+    if (mode === "practice") return; // practice runs never hit the leaderboard
+
+    const lbMode = isMultiplayer ? "coop" : "solo";
+    const s = sRef.current;
+    if (!s) return;
+    const gatesPassedVal = s.gatesPassed;
+    const gemsVal = s.gems;
+    const durationMs = Date.now() - runStartRef.current;
+
+    setLbStatus("checking");
+    try {
+      const entries = await fetchLeaderboardEntries(lbMode);
+      if (!qualifiesForLeaderboard(entries, gatesPassedVal, gemsVal)) { setLbStatus("none"); return; }
+
+      const token = localStorage.getItem("access_token");
+      if (!token) {
+        // Stash it — clicking "log in" below navigates to a different route
+        // and unmounts this whole component, so this score would otherwise
+        // just be lost. SlalomLobby picks it back up once a token exists.
+        savePendingScore({
+          lbMode, gates: gatesPassedVal, gems: gemsVal, durationMs,
+          roomId: roomData?.id ?? null,
+        });
+        setLbStatus("needs_login");
+        return;
+      }
+
+      const username = await fetchMyUsername();
+      if (username) {
+        await submitScore(lbMode, gatesPassedVal, gemsVal, durationMs);
+      } else {
+        // First-time-ever case: no username yet. Ask once, then submit.
+        pendingSubmitRef.current = { lbMode, gates: gatesPassedVal, gems: gemsVal, durationMs };
+        setNameInput("");
+        setNameError(null);
+        setLbStatus("needs_name");
+      }
+    } catch {
+      setLbStatus("error");
+    }
+  }, [mode, isMultiplayer, roomData, submitScore]);
+
+  const handleNameSubmit = useCallback(async () => {
+    const name = nameInput.trim();
+    if (!name) return;
+    try {
+      await setMyUsername(name);
+    } catch (e) {
+      setNameError(e?.response?.data?.detail || "That name didn't work — try another.");
+      return;
+    }
+    const p = pendingSubmitRef.current;
+    setLbStatus("idle");
+    if (p) await submitScore(p.lbMode, p.gates, p.gems, p.durationMs);
+  }, [nameInput, submitScore]);
 
   // ── Supabase room ──────────────────────────────────────────────────────────
   const { sendP2Input, sendGameState, sendGameOver, sendRestart, sendPlayerReady } = useSlalomRoom(
@@ -242,6 +365,11 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
         s.gameOver  = state.gameOver;
         s.gatesPassed = state.gatesPassed ?? s.gatesPassed;
 
+        // BUGFIX: mirror game-over into React state too, not just the ref.
+        // Without this, P2 never saw the GO AGAIN button and the new
+        // leaderboard check (which watches the `gameOver` state) never ran.
+        if (state.gameOver) setGameOver(true);
+
         // Smooth dist: only snap if we've drifted more than 0.5s of speed
         const distDelta = state.dist - s.dist;
         if (Math.abs(distDelta) > s.speed * 30) {
@@ -266,6 +394,7 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
         const s = sRef.current;
         if (s) { s.gameOver = true; s.gems = final_gems; }
         setGems(final_gems);
+        setGameOver(true); // BUGFIX: see note in onGameState above
       },
 
       onRestart: () => {
@@ -273,7 +402,12 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
         p2LastServerRef.current = null;
         gemMilestoneRef.current = 0;
         missEraseFlashRef.current = 0;
+        runStartRef.current = Date.now();
+        scoreCheckedRef.current = false;
+        setLbStatus("idle");
         setGems(0); setMisses(0); setGatesPassed(0);
+        setGameOver(false); // BUGFIX: this was missing, so once fixed-above
+                             // gameOver could flip true it would've stuck forever
       },
 
       onPlayerReady: () => {
@@ -283,7 +417,11 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
     }
   );
 
-  useEffect(() => { sRef.current = mkState(); }, [mkState]);
+  useEffect(() => {
+    sRef.current = mkState();
+    runStartRef.current = Date.now();
+    scoreCheckedRef.current = false;
+  }, [mkState]);
 
   // P1: poll room status as a guaranteed fallback for when the realtime
   // player_ready message is lost (fires before both sides are subscribed).
@@ -322,6 +460,13 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
     window.addEventListener("keyup", up);
     return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
   }, []);
+
+  // Trigger a leaderboard qualification check exactly once per run, right
+  // when gameOver flips true (works for P1 directly, and for P2 thanks to
+  // the setGameOver() bugfixes above).
+  useEffect(() => {
+    if (gameOver) checkLeaderboardQualification();
+  }, [gameOver, checkLeaderboardQualification]);
 
   // ── Game loop ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -437,29 +582,31 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
         if (Math.abs(s.topSkate.x - s.botSkate.x) > MAX_SPREAD) {
   s.wipeout = true; s.wipeoutTimer = 90;
 
-  // ── NEW: wipeout counts as a miss ──
-  s.misses += 1;
-  setMisses(s.misses);
-  if (s.misses >= 3) {
-    s.gameOver = true;
-    setGameOver(true);
-    const prev = hiScoreRef.current;
-    const isNewBest = !prev
-      || s.gatesPassed > prev.gates
-      || (s.gatesPassed === prev.gates && s.gems > prev.gems);
-    if (isNewBest) {
-      hiScoreRef.current = { gates: s.gatesPassed, gems: s.gems };
-      newBestRef.current = true;
-      try { localStorage.setItem("slalom_hiscore", JSON.stringify(hiScoreRef.current)); } catch {}
-    } else {
-      newBestRef.current = false;
-    }
-    if (isMultiplayer) {
-      sendGameOver(s.gems);
-      api.patch(`/slalom/rooms/${roomData.id}`, { final_gems: s.gems }).catch(()=>{});
+  // Practice mode: wipeouts still interrupt the run (you feel it), but
+  // they're free — no lives, no game over, ever.
+  if (mode !== "practice") {
+    s.misses += 1;
+    setMisses(s.misses);
+    if (s.misses >= 3) {
+      s.gameOver = true;
+      setGameOver(true);
+      const prev = hiScoreRef.current;
+      const isNewBest = !prev
+        || s.gatesPassed > prev.gates
+        || (s.gatesPassed === prev.gates && s.gems > prev.gems);
+      if (isNewBest) {
+        hiScoreRef.current = { gates: s.gatesPassed, gems: s.gems };
+        newBestRef.current = true;
+        try { localStorage.setItem("slalom_hiscore", JSON.stringify(hiScoreRef.current)); } catch {}
+      } else {
+        newBestRef.current = false;
+      }
+      if (isMultiplayer) {
+        sendGameOver(s.gems);
+        api.patch(`/slalom/rooms/${roomData.id}`, { final_gems: s.gems }).catch(()=>{});
+      }
     }
   }
-  // ── END NEW ──
 
   // Reset angles immediately so recovery isn't a chain wipeout
   s.topSkate.angle = 0; s.botSkate.angle = 0;
@@ -478,19 +625,33 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
         for (const item of s.items) {
           const screenY = s.cy - (item.worldDist - s.dist);
           if (item.type === "gate" && !item.passed && !item.missed) {
-            if (Math.abs(item.worldDist - s.dist) < 18) {
-              const topIn = s.topSkate.x >= item.cx - half && s.topSkate.x <= item.cx + half;
-              const botIn = s.botSkate.x >= item.cx - half && s.botSkate.x <= item.cx + half;
-              // FORGIVING: pass if EITHER skate hits the gate
-              if (topIn || botIn) {
-                item.passed = true;
-                s.gatesPassed += 1;
-                s._itemDirty = true;
-                setGatesPassed(s.gatesPassed);
-              } else {
-                item.missed = true;
+            // Each skate is evaluated independently, at the moment ITS OWN row
+            // reaches the gate line — not when the player's center does.
+            // Top skate's row reaches the gate first; bottom skate's row reaches it later.
+            const topTarget = item.worldDist - SKATE_SPREAD;
+            const botTarget = item.worldDist + SKATE_SPREAD;
+
+            if (!item.topChecked && Math.abs(topTarget - s.dist) < 18) {
+              item.topChecked = true;
+              item.topOk = s.topSkate.x >= item.cx - half && s.topSkate.x <= item.cx + half;
+            }
+            if (!item.botChecked && Math.abs(botTarget - s.dist) < 18) {
+              item.botChecked = true;
+              item.botOk = s.botSkate.x >= item.cx - half && s.botSkate.x <= item.cx + half;
+            }
+
+            // Fail as soon as either skate is known to have missed — no need to wait
+            // for the other skate's check. Pass only once BOTH have individually cleared.
+            const failed = (item.topChecked && !item.topOk) || (item.botChecked && !item.botOk);
+            const clearedBoth = item.topChecked && item.botChecked && item.topOk && item.botOk;
+
+            if (failed) {
+              item.missed = true;
+              s._itemDirty = true;
+              // Practice mode: still mark the gate as missed for visual
+              // feedback, but it's free — no lives, no game over.
+              if (mode !== "practice") {
                 s.misses += 1;
-                s._itemDirty = true;
                 setMisses(s.misses);
                 if (s.misses >= 3) {
                   s.gameOver = true;
@@ -513,6 +674,11 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
                   }
                 }
               }
+            } else if (clearedBoth) {
+              item.passed = true;
+              s.gatesPassed += 1;
+              s._itemDirty = true;
+              setGatesPassed(s.gatesPassed);
             }
           }
           if (item.type === "gem" && !item.collected) {
@@ -581,7 +747,10 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
         }
       }
 
-      if (s.gameOver && (k[" "] || k["Enter"])) {
+      // Don't let a held space/enter restart the run while the leaderboard
+      // name/login prompt is open — that input is for the form, not the game.
+      const lbBlocking = lbStatusRef.current === "needs_login" || lbStatusRef.current === "needs_name";
+      if (s.gameOver && !lbBlocking && (k[" "] || k["Enter"])) {
         sRef.current = mkState();
         keysRef.current = {};
         p2AngleRef.current = 0;
@@ -590,6 +759,9 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
         gemMilestoneRef.current = 0;
         missEraseFlashRef.current = 0;
         inputLockRef.current = 40; // brief lock so held keys don't immediately steer
+        runStartRef.current = Date.now();
+        scoreCheckedRef.current = false;
+        setLbStatus("idle");
         setGems(0); setMisses(0); setGatesPassed(0); setGameOver(false);
         if (isMultiplayer) sendRestart();
       }
@@ -639,7 +811,7 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
         // Gate counter
         ctx.fillStyle="#ffffff55"; ctx.font="bold 14px monospace"; ctx.textAlign="left";
         ctx.fillText(`🚩 ${s2.gatesPassed}`, 16, 58);
-        drawMisses(ctx, s2.misses);
+        if (mode !== "practice") drawMisses(ctx, s2.misses);
 
         // Miss-erase flash overlay
         if (missEraseFlashRef.current > 0) {
@@ -698,6 +870,22 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
         ctx.fillText("3 gates missed", CANVAS_W/2, CANVAS_H/2+40);
         ctx.fillStyle="#ffffff44"; ctx.font="13px monospace";
         ctx.fillText("SPACE or ENTER to go again", CANVAS_W/2, CANVAS_H/2+68);
+
+        // Leaderboard status line (needs_login / needs_name show a DOM overlay instead)
+        const lb = lbStatusRef.current;
+        if (lb === "submitted" || lb === "checking" || lb === "error") {
+          ctx.font = "11px monospace"; ctx.textAlign = "center";
+          if (lb === "submitted") {
+            ctx.fillStyle = "#44ff8899";
+            ctx.fillText("🏆 added to leaderboard", CANVAS_W/2, CANVAS_H/2+92);
+          } else if (lb === "checking") {
+            ctx.fillStyle = "#ffffff33";
+            ctx.fillText("checking leaderboard…", CANVAS_W/2, CANVAS_H/2+92);
+          } else {
+            ctx.fillStyle = "#ff666688";
+            ctx.fillText("couldn't reach the leaderboard", CANVAS_W/2, CANVAS_H/2+92);
+          }
+        }
       }
 
       animRef.current = requestAnimationFrame(loop);
@@ -705,7 +893,7 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
 
     animRef.current = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animRef.current);
-  }, [isP1, isP2, isMultiplayer, bothReady, mkState, sendGameState, sendGameOver, sendRestart, sendP2Input, roomData]);
+  }, [isP1, isP2, isMultiplayer, bothReady, mode, mkState, sendGameState, sendGameOver, sendRestart, sendP2Input, roomData]);
 
   // ── Responsive scaling ────────────────────────────────────────────────────
   // The canvas stays at its logical 480×700 size; we CSS-scale the wrapper
@@ -743,6 +931,8 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
   }, []);
 
   const doRestart = useCallback(() => {
+    // Don't let a tap on GO AGAIN blow past an open leaderboard name/login prompt.
+    if (lbStatusRef.current === "needs_login" || lbStatusRef.current === "needs_name") return;
     sRef.current = mkState();
     keysRef.current = {};
     p2AngleRef.current = 0;
@@ -751,6 +941,9 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
     gemMilestoneRef.current = 0;
     missEraseFlashRef.current = 0;
     inputLockRef.current = 40;
+    runStartRef.current = Date.now();
+    scoreCheckedRef.current = false;
+    setLbStatus("idle");
     setGems(0); setMisses(0); setGatesPassed(0); setGameOver(false);
     if (isMultiplayer) sendRestart();
   }, [mkState, isMultiplayer, sendRestart]);
@@ -863,6 +1056,7 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
         justifyContent: "center",
         overflow: "hidden",
         width: "100%",
+        position: "relative",
       }}>
         <div style={{
           width: CANVAS_W,
@@ -878,6 +1072,120 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
             style={{ border: "1px solid #ffffff10", borderRadius: 4, display: "block" }}
           />
         </div>
+
+        {/* Leaderboard name / login prompt — deliberately outside the canvas
+            scale transform above, so it stays a fixed, readable size no
+            matter how small the canvas has been scaled down for the viewport. */}
+        {(lbStatus === "needs_login" || lbStatus === "needs_name") && (
+          <div style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(6,6,16,0.55)",
+            padding: 24,
+          }}>
+            <div style={{
+              width: "100%",
+              maxWidth: 280,
+              background: "#0b0b18",
+              border: "1px solid rgba(255,255,255,0.1)",
+              borderRadius: 16,
+              padding: 20,
+              textAlign: "center",
+            }}>
+              <div style={{ color: "rgba(255,200,50,0.9)", fontSize: 14, fontFamily: "monospace", marginBottom: 6 }}>
+                Nice run!
+              </div>
+
+              {lbStatus === "needs_login" ? (
+                <>
+                  <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, marginBottom: 16, lineHeight: 1.5 }}>
+                    That score would make the leaderboard. Log in to save it.
+                  </div>
+                  <Link
+                    to="/login"
+                    style={{
+                      display: "block",
+                      padding: "10px 0",
+                      borderRadius: 10,
+                      background: "rgba(100,180,255,0.12)",
+                      border: "1px solid rgba(100,180,255,0.3)",
+                      color: "rgba(100,180,255,0.9)",
+                      fontSize: 13,
+                      marginBottom: 8,
+                      textDecoration: "none",
+                    }}
+                  >
+                    Log in
+                  </Link>
+                  <button
+                    onClick={() => { clearPendingScore(); setLbStatus("none"); }}
+                    style={{ background: "none", border: "none", color: "rgba(255,255,255,0.25)", fontSize: 11, padding: 6, cursor: "pointer" }}
+                  >
+                    skip
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, marginBottom: 12, lineHeight: 1.5 }}>
+                    Pick a name for the leaderboard. You can change it later in your account.
+                  </div>
+                  <input
+                    value={nameInput}
+                    onChange={(e) => setNameInput(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleNameSubmit()}
+                    maxLength={30}
+                    autoFocus
+                    placeholder="your name"
+                    style={{
+                      width: "100%",
+                      boxSizing: "border-box",
+                      padding: "10px 12px",
+                      borderRadius: 10,
+                      background: "rgba(255,255,255,0.05)",
+                      border: "1px solid rgba(255,255,255,0.12)",
+                      color: "rgba(255,255,255,0.85)",
+                      fontSize: 13,
+                      marginBottom: 8,
+                      textAlign: "center",
+                    }}
+                  />
+                  {nameError && (
+                    <div style={{ color: "rgba(255,100,100,0.8)", fontSize: 11, marginBottom: 8 }}>
+                      {nameError}
+                    </div>
+                  )}
+                  <button
+                    onClick={handleNameSubmit}
+                    disabled={!nameInput.trim()}
+                    style={{
+                      width: "100%",
+                      padding: "10px 0",
+                      borderRadius: 10,
+                      background: "rgba(100,180,255,0.12)",
+                      border: "1px solid rgba(100,180,255,0.3)",
+                      color: "rgba(100,180,255,0.9)",
+                      fontSize: 13,
+                      marginBottom: 8,
+                      cursor: "pointer",
+                      opacity: nameInput.trim() ? 1 : 0.4,
+                    }}
+                  >
+                    Save &amp; submit
+                  </button>
+                  <button
+                    onClick={() => setLbStatus("none")}
+                    style={{ background: "none", border: "none", color: "rgba(255,255,255,0.25)", fontSize: 11, padding: 6, cursor: "pointer" }}
+                  >
+                    skip
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Touch controls */}

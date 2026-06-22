@@ -91,7 +91,7 @@ export default function Layout() {
   }, []);
  
   const location = useLocation();
-  const noPaddingRoutes = ["/", "/aestheticlab", "/my-tree", "/aaron", "/dead-miles", "/zombase"];
+  const noPaddingRoutes = ["/", "/aestheticlab", "/my-tree", "/aaron", "/dead-miles", "/zombase", "/slalom"];
   const isFullScreen = noPaddingRoutes.includes(location.pathname);
   const noChromeRoutes = ["/aaron", "/dead-miles", "/zombase"];
   const isChromeless = noChromeRoutes.includes(location.pathname);

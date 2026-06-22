@@ -2,12 +2,13 @@
 import React, { useState } from "react";
 import SlalomLobby from "./SlalomLobby";
 import FreeskateSlalom from "./FreeskateSlalom";
+import SlalomLeaderboard from "./SlalomLeaderboard";
 
 export default function SlalomPage() {
   const [room, setRoom]   = useState(null);
   const [role, setRole]   = useState(null);
   const [mode, setMode]   = useState("solo"); // "practice" | "solo" | "multiplayer"
-  const [phase, setPhase] = useState("lobby"); // "lobby" | "game"
+  const [phase, setPhase] = useState("lobby"); // "lobby" | "game" | "leaderboard"
 
   function handleRoomReady(roomData, playerRole) {
     setRoom(roomData);
@@ -25,7 +26,20 @@ export default function SlalomPage() {
     setPhase("game");
   }
 
-  if (phase === "lobby") return <SlalomLobby onRoomReady={handleRoomReady} onSolo={handleSolo} />;
+  if (phase === "lobby") {
+    return (
+      <SlalomLobby
+        onRoomReady={handleRoomReady}
+        onSolo={handleSolo}
+        onLeaderboard={() => setPhase("leaderboard")}
+      />
+    );
+  }
+
+  if (phase === "leaderboard") {
+    return <SlalomLeaderboard onBack={() => setPhase("lobby")} />;
+  }
+
   return (
     <FreeskateSlalom
       roomId={room?.id ?? null}

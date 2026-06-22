@@ -1,8 +1,15 @@
 // src/Pages/Slalom/SlalomLobby.jsx
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { api } from "@/lib/api";
 import { Link } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
+import {
+  loadPendingScore,
+  clearPendingScore,
+  fetchMyUsername,
+  setMyUsername,
+  submitScoreToLeaderboard,
+} from "@/lib/slalomLeaderboard";
 
 async function ensureSession() {
   const { data: { session } } = await supabase.auth.getSession();
@@ -11,11 +18,63 @@ async function ensureSession() {
   }
 }
 
-export default function SlalomLobby({ onRoomReady, onSolo }) {
+export default function SlalomLobby({ onRoomReady, onSolo, onLeaderboard }) {
   const [joinCode, setJoinCode] = useState("");
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState(null);
   const [showMulti, setShowMulti] = useState(false);
+
+  // ── Resume a leaderboard submission that was stashed before sending the
+  // player off to /login (see savePendingScore in lib/slalomLeaderboard.js).
+  // idle | checking | needs_name | submitted | error
+  const [pendingStatus, setPendingStatus] = useState("idle");
+  const [pendingNameInput, setPendingNameInput] = useState("");
+  const [pendingNameError, setPendingNameError] = useState(null);
+  const pendingDataRef = useRef(null);
+
+  useEffect(() => {
+    const pending = loadPendingScore();
+    if (!pending) return;
+    const token = localStorage.getItem("access_token");
+    if (!token) return; // still not logged in — leave it stashed for next visit
+
+    pendingDataRef.current = pending;
+    setPendingStatus("checking");
+    (async () => {
+      try {
+        const username = await fetchMyUsername();
+        if (username) {
+          await submitScoreToLeaderboard(pending);
+          clearPendingScore();
+          setPendingStatus("submitted");
+        } else {
+          setPendingNameInput("");
+          setPendingNameError(null);
+          setPendingStatus("needs_name");
+        }
+      } catch {
+        setPendingStatus("error");
+      }
+    })();
+  }, []);
+
+  async function handlePendingNameSubmit() {
+    const name = pendingNameInput.trim();
+    if (!name) return;
+    try {
+      await setMyUsername(name);
+    } catch (e) {
+      setPendingNameError(e?.response?.data?.detail || "That name didn't work — try another.");
+      return;
+    }
+    try {
+      await submitScoreToLeaderboard(pendingDataRef.current);
+      clearPendingScore();
+      setPendingStatus("submitted");
+    } catch {
+      setPendingStatus("error");
+    }
+  }
 
   async function handleCreate() {
     setLoading(true);
@@ -60,6 +119,64 @@ export default function SlalomLobby({ onRoomReady, onSolo }) {
             two skates · one run
           </p>
         </div>
+
+        {/* Resume banner — only renders once a pending score from a previous
+            "log in to save it" nudge is actually being resolved. */}
+        {pendingStatus !== "idle" && (
+          <div
+            className="rounded-xl border p-4 text-xs leading-relaxed"
+            style={{
+              borderColor: "rgba(255,200,50,0.2)",
+              background: "rgba(255,200,50,0.05)",
+              color: "rgba(255,200,50,0.85)",
+            }}
+          >
+            {pendingStatus === "checking" && "Checking your last run…"}
+            {pendingStatus === "submitted" && "🏆 Your last run was added to the leaderboard!"}
+            {pendingStatus === "error" && "Couldn't save your last run's score — it'll try again next time you visit."}
+            {pendingStatus === "needs_name" && (
+              <div className="space-y-2 text-left">
+                <div>Nice run! Pick a name for the leaderboard:</div>
+                <input
+                  value={pendingNameInput}
+                  onChange={(e) => setPendingNameInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handlePendingNameSubmit()}
+                  maxLength={30}
+                  autoFocus
+                  placeholder="your name"
+                  className="w-full rounded-lg px-3 py-2 text-sm text-center outline-none"
+                  style={{
+                    background: "rgba(255,255,255,0.05)",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    color: "rgba(255,255,255,0.85)",
+                  }}
+                />
+                {pendingNameError && (
+                  <div style={{ color: "rgba(255,100,100,0.8)" }}>{pendingNameError}</div>
+                )}
+                <button
+                  onClick={handlePendingNameSubmit}
+                  disabled={!pendingNameInput.trim()}
+                  className="w-full rounded-lg py-2 text-sm disabled:opacity-40"
+                  style={{
+                    background: "rgba(100,180,255,0.12)",
+                    border: "1px solid rgba(100,180,255,0.3)",
+                    color: "rgba(100,180,255,0.9)",
+                  }}
+                >
+                  Save &amp; submit
+                </button>
+                <button
+                  onClick={() => { clearPendingScore(); setPendingStatus("idle"); }}
+                  className="w-full text-center"
+                  style={{ color: "rgba(255,255,255,0.25)" }}
+                >
+                  skip
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {!showMulti ? (
           <>
@@ -201,6 +318,14 @@ export default function SlalomLobby({ onRoomReady, onSolo }) {
             {error}
           </p>
         )}
+
+        <button
+          onClick={onLeaderboard}
+          className="w-full py-2 text-xs tracking-wide"
+          style={{ color: "rgba(255,200,50,0.5)" }}
+        >
+          🏆 Leaderboard
+        </button>
 
         <Link to="/" className="block text-center text-xs" style={{ color: "rgba(255,255,255,0.15)" }}>
           ← home
