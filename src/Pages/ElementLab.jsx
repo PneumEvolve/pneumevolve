@@ -68,6 +68,37 @@
 // Every new mechanic still follows the original design doc's rules: plain
 // normalized state shapes, pure functions for the math, ticked (not
 // instant) rewards wherever the whitepaper specifies a reward index.
+//
+// ── v2 ADDITIONS ────────────────────────────────────────────────────────
+//   - EVERYTHING THAT USED TO BE WALL-CLOCK IS NOW TURN-BASED. Planet
+//     accretion, fusion stage advancement, and the Period 1 bonus window
+//     all used to run on setTimeout/Date.now(). They now advance once per
+//     turn taken — by anyone, human or bot — via the tick* functions
+//     called from advanceTurn(). There is no more `now`/setInterval clock
+//     anywhere in this file. (BOT_TURN_DELAY_MS is the one exception: it's
+//     a pure UI pacing delay so a bot's move is readable before the next
+//     turn resolves — it doesn't gate any mechanic's completion, so it
+//     isn't part of "nothing on a timer.")
+//   - Deuterium staking: a FIXED-APR contract, deliberately the opposite
+//     of Genesis Alloy staking. Stake D, wait a fixed number of turns
+//     (one "epoch"), get exactly 10% back — guaranteed, whether or not
+//     anyone traded. Sits right next to Alloy staking so the contrast
+//     (guaranteed inflationary yield vs. real fee-based yield) is felt
+//     directly, the same way Lithium's buff already contrasts with it.
+//   - Two-sided liquidity farming: a genuinely new pair type — token/token,
+//     not token/USD. Depositing both sides of Lithium/Beryllium earns a
+//     reward token (Photon) every turn, proportional to your share of the
+//     pool — an emission, not a cut of swap fees. Toggle auto-compound and
+//     half of every reward buys back into the pool automatically (shares
+//     grow over time); leave it off and rewards just accumulate to cash
+//     out by hand. A second farm (Silicon/Iron, reward token Ash) unlocks
+//     post-supernova, so the same lesson lands twice in a different
+//     material context. v1 SIMPLIFICATION: reward tokens (Photon, Ash)
+//     aren't given their own swap market — claiming converts them to USD
+//     at a fixed rate (FARM_REWARD_USD_VALUE), and compounding mints new
+//     LP shares directly from the reward amount (FARM_COMPOUND_SHARE_RATE)
+//     rather than routing through a real two-step sell-then-deposit. Both
+//     are placeholders for when reward tokens get real pools of their own.
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
@@ -81,7 +112,10 @@ const STARTING_USD = 5; // everyone's buy-in — human and every bot, equal
 const GENESIS_COST = { hydrogen: 5, helium: 2 };
 const PROPOSAL_COST = 2; // beryllium required to submit a governance proposal
 
-const PERIOD1_BONUS_MS = 30000;
+// Turns, not seconds — long enough to feel like a real commitment (a
+// couple of full rounds), short enough that a single play session clears
+// it comfortably.
+const PERIOD1_BONUS_TURNS = 12;
 const PERIOD1_BONUS_MULT = 1.5;
 
 const HELIUM_CHANCE = 0.35;
@@ -97,9 +131,10 @@ const BOT_TURN_DELAY_MS = 950;   // pause so a bot's action is readable before a
 const FLUORINE_BURN_UNLOCK = 0.1;
 
 // Staking is the unlock for Planet, not an optional side activity: forming
-// one requires locking the fused materials for real time, same tradeoff a
-// real staking lockup has. Breaking the lock early returns only a fraction.
-const PLANET_LOCK_MS = 20000;
+// one requires locking the fused materials for a number of turns, same
+// tradeoff a real staking lockup has. Breaking the lock early returns only
+// a fraction. 8 turns is about two full rounds — noticeable, not tedious.
+const PLANET_LOCK_TURNS = 8;
 const PLANET_LOCK_BREAK_RETURN = 0.5;
 
 // Governance decides whether Life can be created at all. A stalled star
@@ -114,16 +149,54 @@ const MASS_TIERS = { sunLike: 15, supergiant: 40 }; // lifetime-mass thresholds
 const FUSION_STAGES = ["helium", "carbon", "oxygen", "neon", "magnesium", "silicon", "iron"];
 const STAGE_YIELD    = { helium: 4, carbon: 3, oxygen: 3, neon: 2, magnesium: 2, silicon: 2, iron: 1 };
 
+// turnsPerStage replaces the old wall-clock tickMs: bigger stars still
+// fuse faster (fewer turns per stage), it's just paced by turns taken —
+// by anyone — instead of a real-time interval.
 const CLASS_CONFIG = {
-  redDwarf:   { label: "Red Dwarf",  icon: "🔴", maxStageIndex: 2, tickMs: 5000 }, // stalls after Oxygen
-  sunLike:    { label: "Sun-like",   icon: "🟡", maxStageIndex: 4, tickMs: 4000, breakthroughChance: 0.25 }, // caps at Magnesium, chance to punch through to Iron
-  supergiant: { label: "Supergiant", icon: "🔵", maxStageIndex: 6, tickMs: 3000 }, // reaches Iron
+  redDwarf:   { label: "Red Dwarf",  icon: "🔴", maxStageIndex: 2, turnsPerStage: 5 }, // stalls after Oxygen
+  sunLike:    { label: "Sun-like",   icon: "🟡", maxStageIndex: 4, turnsPerStage: 4, breakthroughChance: 0.25 }, // caps at Magnesium, chance to punch through to Iron
+  supergiant: { label: "Supergiant", icon: "🔵", maxStageIndex: 6, turnsPerStage: 3 }, // reaches Iron
 };
 
 function classify(lifetimeMass) {
   if (lifetimeMass >= MASS_TIERS.supergiant) return "supergiant";
   if (lifetimeMass >= MASS_TIERS.sunLike) return "sunLike";
   return "redDwarf";
+}
+
+// ── Deuterium: fixed-APR staking ────────────────────────────────────────
+// The deliberate opposite of Genesis Alloy staking. Stake D, wait one full
+// epoch (a fixed number of turns), and get exactly 10% back — guaranteed,
+// whether the market moved at all. No trade volume required, no variance.
+const DEUTERIUM_APR = 0.10; // 10% of staked principal, per epoch
+const DEUTERIUM_EPOCH_TURNS = 8; // turns per epoch — matches the Planet lock's weight
+
+// ── Two-sided liquidity farming ─────────────────────────────────────────
+// A genuinely different pair type from the existing token/USD pools:
+// deposit BOTH sides of a market (like real LUNC/USTC farming) and earn a
+// third, distinct reward token every turn — an emission proportional to
+// your share, not a cut of swap fees. Auto-compound reinvests half of
+// every reward back into the pool automatically; leave it off and rewards
+// just pile up to cash out by hand. Two pairs exist: Lithium/Beryllium is
+// available from the start, Silicon/Iron unlocks after your first
+// supernova, so the same lesson lands twice in a different material
+// context.
+const PHOTON_PER_TURN_PER_SHARE = 0.002; // Li/Be farm emission rate
+const ASH_PER_TURN_PER_SHARE = 0.003;    // Si/Fe farm emission rate (rarer inputs, richer reward)
+const FARM_COMPOUND_SPLIT = 0.5;         // fraction of each reward that auto-compounds vs. cashes out
+const FARM_COMPOUND_SHARE_RATE = 10;     // v1 simplification: compounded reward → new LP shares, 1:10
+const FARM_REWARD_USD_VALUE = 0.5;       // v1 simplification: 1 reward token cashes out at a fixed $0.50
+
+const FARM_PAIRS = {
+  libe: { tokenA: "lithium", tokenB: "beryllium", rewardKey: "photon", label: "Lithium–Beryllium Farm", ratePerShare: PHOTON_PER_TURN_PER_SHARE, requiresSupernova: false },
+  siFe: { tokenA: "silicon", tokenB: "iron", rewardKey: "ash", label: "Silicon–Iron Farm", ratePerShare: ASH_PER_TURN_PER_SHARE, requiresSupernova: true },
+};
+
+function freshFarmPools() {
+  return {
+    libe: { reserveA: 20, reserveB: 12, totalShares: 1000 },
+    siFe: { reserveA: 10, reserveB: 6, totalShares: 1000 },
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -144,9 +217,12 @@ const RESOURCES = {
   nitrogen:  { label: "Nitrogen",   symbol: "N",  icon: "💨" },
   phosphorus:{ label: "Phosphorus", symbol: "P",  icon: "🌱" },
   sulfur:    { label: "Sulfur",     symbol: "S",  icon: "🌕" },
+  deuterium: { label: "Deuterium",  symbol: "D",  icon: "🧊", color: "#7dc9ff" },
+  photon:    { label: "Photon",     symbol: "γ",  icon: "💫" },
+  ash:       { label: "Stellar Ash",symbol: "Ash", icon: "🌫️" },
 };
-const POOL_KEYS = ["hydrogen", "helium", "lithium", "fluorine", "beryllium"];
-const ALL_ELEMENT_KEYS = [...POOL_KEYS, "carbon", "oxygen", "neon", "magnesium", "silicon", "iron", "nitrogen", "phosphorus", "sulfur"];
+const POOL_KEYS = ["hydrogen", "helium", "lithium", "fluorine", "beryllium", "deuterium"];
+const ALL_ELEMENT_KEYS = [...POOL_KEYS, "carbon", "oxygen", "neon", "magnesium", "silicon", "iron", "nitrogen", "phosphorus", "sulfur", "photon", "ash"];
 
 function freshElementBalances() {
   return Object.fromEntries(ALL_ELEMENT_KEYS.map(k => [k, 0]));
@@ -161,6 +237,7 @@ function freshPools() {
     lithium:   { usd: 20, token: 5,   priceHistory: [4],   lpTotalShares: 1000 },
     fluorine:  { usd: 24, token: 12,  priceHistory: [2],   lpTotalShares: 1000 },
     beryllium: { usd: 30, token: 2.5, priceHistory: [12],  lpTotalShares: 1000 },
+    deuterium: { usd: 26, token: 10,  priceHistory: [2.6], lpTotalShares: 1000 },
   };
 }
 
@@ -345,6 +422,9 @@ function decideBotAction(bot) {
       const tokenKey = held[randInt(0, held.length - 1)];
       return { type: "swap", tokenKey, direction: "sell", size: bot.elements[tokenKey] * 0.5 };
     }
+    // indices 0-4 = the original five pools; deuterium (index 5) is
+    // deliberately excluded from bot trading for now, same v1 scope cut
+    // as bots never touching Alloy staking or farming.
     if (bot.usd > 0.5 && Math.random() < 0.35) {
       return { type: "swap", tokenKey: POOL_KEYS[randInt(0, 4)], direction: "buy", size: Math.min(bot.usd, randInt(1, 2)) };
     }
@@ -465,17 +545,31 @@ export default function ElementGame() {
   const [proposalsSubmitted, setProposalsSubmitted] = useState(0);
   const [heliumProgress, setHeliumProgress] = useState(0);
   const [fluorineBurnedLifetime, setFluorineBurnedLifetime] = useState(0);
-  const [planetLock, setPlanetLock] = useState(null); // null | { readyAt, locked: {silicon,oxygen,magnesium,iron} }
+  const [planetLock, setPlanetLock] = useState(null); // null | { turnsRemaining, locked: {silicon,oxygen,magnesium,iron} }
   const [deadStars, setDeadStars] = useState(0);
   const [abiogenesisRatified, setAbiogenesisRatified] = useState(false);
 
   const [period1BonusActive, setPeriod1BonusActive] = useState(false);
-  const [period1BonusUntil, setPeriod1BonusUntil] = useState(0);
+  const [period1BonusTurnsRemaining, setPeriod1BonusTurnsRemaining] = useState(0);
   const [period1BonusArmed, setPeriod1BonusArmed] = useState(true);
 
-  // ── Fusion / Life race (human only) ─────────────────────────────────
-  const [fusion, setFusion] = useState({ active: false, class: null, stageIndex: -1, effectiveMax: 0, stalled: false, readyForSupernova: false, wentSupernova: false, breakthroughUsed: false });
+  // ── Fusion / Life race (human only). turnsInStage counts turns taken
+  // (by anyone) toward the current stage's turnsPerStage requirement —
+  // this is what replaced the old wall-clock setTimeout. ───────────────
+  const [fusion, setFusion] = useState({ active: false, class: null, stageIndex: -1, effectiveMax: 0, stalled: false, readyForSupernova: false, wentSupernova: false, breakthroughUsed: false, turnsInStage: 0 });
   const [starsIgnited, setStarsIgnited] = useState(0);
+
+  // ── Deuterium: fixed-APR staking ─────────────────────────────────────
+  const [deuteriumStaked, setDeuteriumStaked] = useState(0);
+  const [deuteriumEpochProgress, setDeuteriumEpochProgress] = useState(0); // turns elapsed toward next epoch
+  const [deuteriumPendingReward, setDeuteriumPendingReward] = useState(0);
+  const [deuteriumStakeInput, setDeuteriumStakeInput] = useState("");
+
+  // ── Two-sided liquidity farming ──────────────────────────────────────
+  const [farmPools, setFarmPools] = useState(freshFarmPools());
+  const [farmPositions, setFarmPositions] = useState({}); // { [pairKey]: { shares, autoCompound } }
+  const [farmPendingReward, setFarmPendingReward] = useState({}); // { [pairKey]: amount, in reward-token units }
+  const [farmDepositInput, setFarmDepositInput] = useState({});
 
   // ── Shared market ────────────────────────────────────────────────────
   const [pools, setPools] = useState(freshPools());
@@ -506,8 +600,6 @@ export default function ElementGame() {
   const [showProposalModal, setShowProposalModal] = useState(false);
   const [lastProposalResult, setLastProposalResult] = useState(null);
 
-  const [now, setNow] = useState(Date.now());
-
   // ── Tutorial mode ────────────────────────────────────────────────────
   const [tutorialActive, setTutorialActive] = useState(false);
   const [tutorialStep, setTutorialStep] = useState(0);
@@ -536,13 +628,6 @@ export default function ElementGame() {
     clearTimeout(flashTimeoutRef.current);
     flashTimeoutRef.current = setTimeout(() => setFlashCard(null), 450);
   }
-
-  // ── Ticking clock for countdown displays ────────────────────────────
-  useEffect(() => {
-    if (phase !== "playing") return;
-    const t = setInterval(() => setNow(Date.now()), 500);
-    return () => clearInterval(t);
-  }, [phase]);
 
   // ── Tutorial navigation ─────────────────────────────────────────────
   function nextTutorialStep() {
@@ -614,9 +699,18 @@ export default function ElementGame() {
     setDeadStars(0);
     setAbiogenesisRatified(false);
     setPeriod1BonusActive(false);
+    setPeriod1BonusTurnsRemaining(0);
     setPeriod1BonusArmed(true);
-    setFusion({ active: false, class: null, stageIndex: -1, effectiveMax: 0, stalled: false, readyForSupernova: false, wentSupernova: false, breakthroughUsed: false });
+    setFusion({ active: false, class: null, stageIndex: -1, effectiveMax: 0, stalled: false, readyForSupernova: false, wentSupernova: false, breakthroughUsed: false, turnsInStage: 0 });
     setStarsIgnited(0);
+    setDeuteriumStaked(0);
+    setDeuteriumEpochProgress(0);
+    setDeuteriumPendingReward(0);
+    setDeuteriumStakeInput("");
+    setFarmPools(freshFarmPools());
+    setFarmPositions({});
+    setFarmPendingReward({});
+    setFarmDepositInput({});
     setPools(freshPools());
     setLpPositions({});
     setFeeStats({ lp: 0, staker: 0, treasury: 0, burn: 0 });
@@ -635,9 +729,17 @@ export default function ElementGame() {
   }
 
   // ── Turn advancement ─────────────────────────────────────────────────
+  // Every mechanic in this game that used to run on a real-time clock now
+  // ticks exactly once here, per turn taken — by anyone, human or bot.
+  // That's the whole "turns, not timers" rule in one place.
   function advanceTurn() {
     setTurnNumber(t => t + 1);
     tickHeliumCondensation();
+    tickPeriod1BonusCountdown();
+    tickPlanetLock();
+    tickFusion();
+    tickDeuteriumStaking();
+    tickFarms();
     const next = currentIndex + 1;
     if (next >= roundOrder.length) {
       // Tutorial mode keeps the human first every round — nothing in the
@@ -669,6 +771,107 @@ export default function ElementGame() {
       return next;
     });
   }
+  // Counts down the Period 1 bonus window in turns instead of seconds.
+  function tickPeriod1BonusCountdown() {
+    if (!period1BonusActive) return;
+    setPeriod1BonusTurnsRemaining(t => {
+      if (t <= 1) { setPeriod1BonusActive(false); return 0; }
+      return t - 1;
+    });
+  }
+
+  // A Planet accretes over a fixed number of turns instead of a fixed
+  // number of seconds — same staking-lockup tradeoff, just paced by
+  // gameplay instead of a wall clock.
+  function tickPlanetLock() {
+    setPlanetLock(pl => {
+      if (!pl) return pl;
+      if (pl.turnsRemaining <= 1) {
+        setCrafted(c => ({ ...c, planet: c.planet + 1 }));
+        pushLog("The locked material finished accreting — a Planet has formed.");
+        return null;
+      }
+      return { ...pl, turnsRemaining: pl.turnsRemaining - 1 };
+    });
+  }
+
+  // The star's fusion clock — replaces the old setTimeout(tickMs) effect.
+  // Every turn taken (by anyone) counts toward the current stage's
+  // turnsPerStage requirement; once it's met, the star either advances,
+  // punches through (Sun-like breakthrough check), or stalls.
+  function tickFusion() {
+    setFusion(f => {
+      if (!f.active || f.stalled || f.readyForSupernova) return f;
+      const turnsNeeded = CLASS_CONFIG[f.class].turnsPerStage;
+      const turnsInStage = (f.turnsInStage || 0) + 1;
+      if (turnsInStage < turnsNeeded) return { ...f, turnsInStage };
+      const nextIndex = f.stageIndex + 1;
+      if (nextIndex > f.effectiveMax) {
+        if (f.class === "sunLike" && !f.breakthroughUsed) {
+          const success = Math.random() < CLASS_CONFIG.sunLike.breakthroughChance;
+          if (success) {
+            pushLog("Your Sun-like star punched through — fusion continues toward Iron.");
+            return { ...f, effectiveMax: 6, breakthroughUsed: true, turnsInStage: 0 };
+          }
+        }
+        pushLog(`Fusion stalled after ${FUSION_STAGES[f.stageIndex]}. The star became a white dwarf — but the attempt still counts toward a future governance vote.`);
+        setDeadStars(n => n + 1);
+        return { ...f, stalled: true };
+      }
+      const stageName = FUSION_STAGES[nextIndex];
+      const yieldAmt = STAGE_YIELD[stageName];
+      setElements(e => ({ ...e, [stageName]: e[stageName] + yieldAmt }));
+      pushLog(`Your star fused ${stageName === "helium" ? "Hydrogen" : FUSION_STAGES[nextIndex - 1] || "Hydrogen"} into ${stageName}. +${yieldAmt}`);
+      const readyForSupernova = nextIndex === 6;
+      if (readyForSupernova) pushLog("Iron reached. The core can no longer release energy by fusing — trigger the supernova when ready.");
+      return { ...f, stageIndex: nextIndex, readyForSupernova, turnsInStage: 0 };
+    });
+  }
+
+  // Deuterium staking: a fixed-APR contract. Every DEUTERIUM_EPOCH_TURNS
+  // turns (anyone's), a staked position pays out exactly 10% of principal
+  // — guaranteed, whether or not any trading happened at all. The direct
+  // opposite of Genesis Alloy staking, which pays nothing without real
+  // swap volume.
+  function tickDeuteriumStaking() {
+    if (deuteriumStaked <= 0) return;
+    setDeuteriumEpochProgress(p => {
+      const next = p + 1;
+      if (next >= DEUTERIUM_EPOCH_TURNS) {
+        const reward = deuteriumStaked * DEUTERIUM_APR;
+        setDeuteriumPendingReward(r => r + reward);
+        pushLog(`Deuterium epoch complete — +${reward.toFixed(3)} D, guaranteed, unaffected by market activity.`);
+        return 0;
+      }
+      return next;
+    });
+  }
+
+  // Two-sided liquidity farming: an emission per turn, proportional to
+  // your share of the pool — not a cut of swap fees. Auto-compound
+  // reinvests half of every reward straight back into new LP shares
+  // (v1 simplification: FARM_COMPOUND_SHARE_RATE stands in for a real
+  // sell-then-deposit); the rest always accumulates as claimable, cashed
+  // out at a fixed rate (FARM_REWARD_USD_VALUE) since reward tokens don't
+  // have their own market yet.
+  function tickFarms() {
+    Object.entries(FARM_PAIRS).forEach(([key, pair]) => {
+      const pos = farmPositions[key];
+      if (!pos || pos.shares <= 0) return;
+      const gross = pos.shares * pair.ratePerShare;
+      if (pos.autoCompound) {
+        const compoundAmt = gross * FARM_COMPOUND_SPLIT;
+        const cashAmt = gross - compoundAmt;
+        const sharesMinted = compoundAmt * FARM_COMPOUND_SHARE_RATE;
+        setFarmPools(prev => ({ ...prev, [key]: { ...prev[key], totalShares: prev[key].totalShares + sharesMinted } }));
+        setFarmPositions(prev => ({ ...prev, [key]: { ...prev[key], shares: prev[key].shares + sharesMinted } }));
+        setFarmPendingReward(prev => ({ ...prev, [key]: (prev[key] || 0) + cashAmt }));
+      } else {
+        setFarmPendingReward(prev => ({ ...prev, [key]: (prev[key] || 0) + gross }));
+      }
+    });
+  }
+
   function runAction(actionFn) {
     if (!isHumanTurn) return;
     const executed = actionFn();
@@ -739,69 +942,23 @@ export default function ElementGame() {
   // whole lesson, and it's felt rather than explained.
 
   // ── Period 1 completion detector: H + He + a staked Alloy, all at once ──
+  // Activation is still event-driven (fires the moment the condition is
+  // true); the countdown itself now ticks in turns via
+  // tickPeriod1BonusCountdown(), called from advanceTurn().
   useEffect(() => {
     if (stakedCompound <= 0) { setPeriod1BonusArmed(true); return; }
     if (period1BonusArmed && elements.hydrogen > 0 && elements.helium > 0) {
       setPeriod1BonusActive(true);
-      setPeriod1BonusUntil(Date.now() + PERIOD1_BONUS_MS);
+      setPeriod1BonusTurnsRemaining(PERIOD1_BONUS_TURNS);
       setPeriod1BonusArmed(false);
-      pushLog("Period 1 complete — H, He, and a staked Genesis Alloy, all at once. 1.5x mining boost for 30s.");
+      pushLog(`Period 1 complete — H, He, and a staked Genesis Alloy, all at once. 1.5x mining boost for ${PERIOD1_BONUS_TURNS} turns.`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [elements.hydrogen, elements.helium, stakedCompound, period1BonusArmed]);
-  useEffect(() => {
-    if (!period1BonusActive) return;
-    const remaining = period1BonusUntil - Date.now();
-    if (remaining <= 0) { setPeriod1BonusActive(false); return; }
-    const t = setTimeout(() => setPeriod1BonusActive(false), remaining);
-    return () => clearTimeout(t);
-  }, [period1BonusActive, period1BonusUntil]);
 
-  // ── Fusion tick — the star's own clock, independent of turns ────────
-  useEffect(() => {
-    if (phase !== "playing") return;
-    if (!fusion.active || fusion.stalled || fusion.readyForSupernova) return;
-    const cfg = CLASS_CONFIG[fusion.class];
-    const t = setTimeout(() => {
-      setFusion(f => {
-        if (!f.active || f.stalled || f.readyForSupernova) return f;
-        const nextIndex = f.stageIndex + 1;
-        if (nextIndex > f.effectiveMax) {
-          if (f.class === "sunLike" && !f.breakthroughUsed) {
-            const success = Math.random() < CLASS_CONFIG.sunLike.breakthroughChance;
-            if (success) {
-              pushLog("Your Sun-like star punched through — fusion continues toward Iron.");
-              return { ...f, effectiveMax: 6, breakthroughUsed: true };
-            }
-          }
-          pushLog(`Fusion stalled after ${FUSION_STAGES[f.stageIndex]}. The star became a white dwarf — but the attempt still counts toward a future governance vote.`);
-          setDeadStars(n => n + 1);
-          return { ...f, stalled: true };
-        }
-        const stageName = FUSION_STAGES[nextIndex];
-        const yieldAmt = STAGE_YIELD[stageName];
-        setElements(e => ({ ...e, [stageName]: e[stageName] + yieldAmt }));
-        pushLog(`Your star fused ${stageName === "helium" ? "Hydrogen" : FUSION_STAGES[nextIndex - 1] || "Hydrogen"} into ${stageName}. +${yieldAmt}`);
-        const readyForSupernova = nextIndex === 6;
-        if (readyForSupernova) pushLog("Iron reached. The core can no longer release energy by fusing — trigger the supernova when ready.");
-        return { ...f, stageIndex: nextIndex, readyForSupernova };
-      });
-    }, cfg.tickMs);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, fusion.active, fusion.stageIndex, fusion.stalled, fusion.readyForSupernova, fusion.class]);
-
-  // ── Planet accretion — completes on its own clock once locked. The
-  // existing 500ms clock tick (see `now`, above) is what re-checks this;
-  // no separate timer needed.
-  useEffect(() => {
-    if (phase !== "playing" || !planetLock) return;
-    if (now >= planetLock.readyAt) {
-      setCrafted(c => ({ ...c, planet: c.planet + 1 }));
-      pushLog("The locked material finished accreting — a Planet has formed.");
-      setPlanetLock(null);
-    }
-  }, [phase, planetLock, now]);
+  // Fusion stage advancement and Planet accretion no longer have their own
+  // wall-clock effects — see tickFusion() and tickPlanetLock(), both
+  // called once per turn from advanceTurn().
 
   // ── Human actions (all return true/false: executed?) ────────────────
   function extractHydrogen() {
@@ -865,6 +1022,88 @@ export default function ElementGame() {
     flash("wallet");
     return true;
   }
+
+  // ── Deuterium: mining + fixed-APR staking ────────────────────────────
+  function extractDeuterium() {
+    const yieldAmt = randInt(1, 2);
+    setElements(e => ({ ...e, deuterium: e.deuterium + yieldAmt }));
+    flash("deuterium");
+    pushLog(`Extracted ${yieldAmt} Deuterium from raw material.`);
+    return true;
+  }
+  function stakeDeuterium(amount) {
+    if (!amount || amount <= 0 || elements.deuterium < amount) return false;
+    setElements(e => ({ ...e, deuterium: e.deuterium - amount }));
+    setDeuteriumStaked(s => s + amount);
+    pushLog(`Staked ${amount.toFixed(2)} D in the containment field — guaranteed +10% back every ${DEUTERIUM_EPOCH_TURNS} turns, market or no market.`);
+    flash("deuterium");
+    return true;
+  }
+  function unstakeDeuterium() {
+    if (deuteriumStaked <= 0) return false;
+    setElements(e => ({ ...e, deuterium: e.deuterium + deuteriumStaked }));
+    pushLog(`Unstaked ${deuteriumStaked.toFixed(2)} D from the containment field.`);
+    setDeuteriumStaked(0);
+    setDeuteriumEpochProgress(0);
+    return true;
+  }
+  function claimDeuteriumReward() {
+    if (deuteriumPendingReward <= 0) return false;
+    const amt = deuteriumPendingReward;
+    setElements(e => ({ ...e, deuterium: e.deuterium + amt }));
+    setDeuteriumPendingReward(0);
+    pushLog(`Claimed ${amt.toFixed(3)} D in guaranteed staking rewards.`);
+    flash("deuterium");
+    return true;
+  }
+
+  // ── Two-sided liquidity farming ──────────────────────────────────────
+  // Deposits BOTH tokens of a pair, matched to the pair's current ratio —
+  // exactly the LUNC/USTC pattern: put up equal value of both sides,
+  // earn a third reward token as an emission, not a fee cut.
+  function addFarmLiquidity(pairKey, amountA) {
+    const pair = FARM_PAIRS[pairKey];
+    if (pair.requiresSupernova && !fusion.wentSupernova) return false;
+    const pool = farmPools[pairKey];
+    if (!amountA || amountA <= 0) return false;
+    const ratio = pool.reserveB / pool.reserveA;
+    const amountB = amountA * ratio;
+    if ((elements[pair.tokenA] || 0) < amountA || (elements[pair.tokenB] || 0) < amountB) {
+      pushLog(`Not enough ${RESOURCES[pair.tokenA].symbol}/${RESOURCES[pair.tokenB].symbol} to match that deposit.`);
+      return false;
+    }
+    const sharesMinted = pool.totalShares * (amountA / pool.reserveA);
+    setElements(e => ({ ...e, [pair.tokenA]: e[pair.tokenA] - amountA, [pair.tokenB]: e[pair.tokenB] - amountB }));
+    setFarmPools(prev => ({ ...prev, [pairKey]: { ...pool, reserveA: pool.reserveA + amountA, reserveB: pool.reserveB + amountB, totalShares: pool.totalShares + sharesMinted } }));
+    setFarmPositions(prev => {
+      const existing = prev[pairKey];
+      return { ...prev, [pairKey]: existing ? { ...existing, shares: existing.shares + sharesMinted } : { shares: sharesMinted, autoCompound: false } };
+    });
+    pushLog(`Farmed ${pair.label}: deposited ${amountA.toFixed(2)} ${RESOURCES[pair.tokenA].symbol} + ${amountB.toFixed(2)} ${RESOURCES[pair.tokenB].symbol}.`);
+    return true;
+  }
+  function toggleFarmAutoCompound(pairKey) {
+    const pos = farmPositions[pairKey];
+    if (!pos) return false;
+    const turningOn = !pos.autoCompound;
+    setFarmPositions(prev => ({ ...prev, [pairKey]: { ...prev[pairKey], autoCompound: turningOn } }));
+    pushLog(turningOn
+      ? `${FARM_PAIRS[pairKey].label}: auto-compound on — half of every reward now buys back into the pool automatically.`
+      : `${FARM_PAIRS[pairKey].label}: auto-compound off — rewards will just accumulate to claim.`);
+    return true;
+  }
+  function claimFarmReward(pairKey) {
+    const pending = farmPendingReward[pairKey] || 0;
+    if (pending <= 0) return false;
+    const usdValue = pending * FARM_REWARD_USD_VALUE;
+    setUsd(u => u + usdValue);
+    setLifetimeMass(m => m + usdValue);
+    setFarmPendingReward(prev => ({ ...prev, [pairKey]: 0 }));
+    pushLog(`Claimed ${pending.toFixed(3)} ${RESOURCES[FARM_PAIRS[pairKey].rewardKey].symbol} from ${FARM_PAIRS[pairKey].label} → $${usdValue.toFixed(3)}.`);
+    flash("wallet");
+    return true;
+  }
+
   function proposeAbiogenesis() {
     if (elements.beryllium < PROPOSAL_COST || abiogenesisRatified) return false;
     const playerWeight = elements.beryllium + deadStars * DEAD_STAR_VOTE_WEIGHT;
@@ -911,15 +1150,15 @@ export default function ElementGame() {
   }
 
   // Planet isn't instant. Locking the materials IS how a Planet forms —
-  // same tradeoff as any staking lockup: commit for real time, or break
-  // early and keep only a fraction back.
+  // same tradeoff as any staking lockup: commit for a number of turns, or
+  // break early and keep only a fraction back.
   function beginPlanetLock() {
     if (planetLock) return false;
     if (!fusion.wentSupernova || elements.silicon < 2 || elements.oxygen < 2 || elements.magnesium < 1 || elements.iron < 1) return false;
     const locked = { silicon: 2, oxygen: 2, magnesium: 1, iron: 1 };
     setElements(e => ({ ...e, silicon: e.silicon - 2, oxygen: e.oxygen - 2, magnesium: e.magnesium - 1, iron: e.iron - 1 }));
-    setPlanetLock({ readyAt: Date.now() + PLANET_LOCK_MS, locked });
-    pushLog(`Locked ${locked.silicon} Si, ${locked.oxygen} O, ${locked.magnesium} Mg, ${locked.iron} Fe to accrete — ready in ${PLANET_LOCK_MS / 1000}s.`);
+    setPlanetLock({ turnsRemaining: PLANET_LOCK_TURNS, locked });
+    pushLog(`Locked ${locked.silicon} Si, ${locked.oxygen} O, ${locked.magnesium} Mg, ${locked.iron} Fe to accrete — ready in ${PLANET_LOCK_TURNS} turns.`);
     return true;
   }
   function breakPlanetLock() {
@@ -1031,11 +1270,17 @@ export default function ElementGame() {
   }
 
   // ── Derived values ───────────────────────────────────────────────────
-  const humanNetWorth = usd + tokenNetWorth(elements, pools) + (compound + stakedCompound) * 2 + pendingAlloyReward;
+  // v1 simplification: Deuterium (staked + pending) is valued at the
+  // current market price, and farm LP shares at a flat $0.05/share —
+  // rough proxies, same spirit as the Genesis Alloy valuation just above.
+  const deuteriumPrice = pools.deuterium.usd / pools.deuterium.token;
+  const farmPositionsValue = Object.values(farmPositions).reduce((sum, pos) => sum + (pos.shares || 0) * 0.05, 0);
+  const humanNetWorth = usd + tokenNetWorth(elements, pools) + (compound + stakedCompound) * 2 + pendingAlloyReward
+    + (deuteriumStaked + deuteriumPendingReward) * deuteriumPrice + farmPositionsValue;
   const canCombine = elements.hydrogen >= GENESIS_COST.hydrogen && elements.helium >= GENESIS_COST.helium;
   const canPropose = elements.beryllium >= PROPOSAL_COST;
-  const period1RemainingSec = Math.max(0, Math.ceil((period1BonusUntil - now) / 1000));
-  const planetLockRemainingSec = planetLock ? Math.max(0, Math.ceil((planetLock.readyAt - now) / 1000)) : 0;
+  const period1RemainingTurns = period1BonusTurnsRemaining;
+  const planetLockRemainingTurns = planetLock ? planetLock.turnsRemaining : 0;
 
   const leaderboard = useMemo(() => {
     const rows = [
@@ -1160,7 +1405,7 @@ export default function ElementGame() {
           <Card glow>
             <div className="flex items-center justify-between">
               <p className="text-sm font-semibold" style={{ color: C.accent }}>Period 1 complete — 1.5x mining boost</p>
-              <p className="text-xl font-semibold tabular-nums" style={{ color: C.accent }}>{period1RemainingSec}s</p>
+              <p className="text-xl font-semibold tabular-nums" style={{ color: C.accent }}>{period1RemainingTurns} turns</p>
             </div>
           </Card>
         )}
@@ -1237,6 +1482,18 @@ export default function ElementGame() {
               </p>
             </Card>
             </div>
+            <div ref={registerRef("deuterium")}>
+            <Card glow={flashCard === "deuterium"}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold">{RESOURCES.deuterium.icon} Deuterium</p>
+                  <p className="text-xl font-semibold tabular-nums" style={{ color: RESOURCES.deuterium.color }}>{elements.deuterium.toFixed(2)}</p>
+                </div>
+                <Btn onClick={() => runAction(extractDeuterium)} disabled={!isHumanTurn} tone="accent">Extract</Btn>
+              </div>
+              <p className="text-[10px] mt-2" style={{ color: C.muted }}>Feeds the fixed-APR containment field below — guaranteed yield, no market required.</p>
+            </Card>
+            </div>
           </div>
         </div>
 
@@ -1244,7 +1501,7 @@ export default function ElementGame() {
         <div ref={registerRef("market")}>
           <SectionLabel>Market — shared pools, 0.3% fee</SectionLabel>
           <Card>
-            <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 mb-3">
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-3">
               {POOL_KEYS.map(k => {
                 const r = RESOURCES[k], p = pools[k], price = p.usd / p.token, active = swapTokenKey === k;
                 return (
@@ -1363,6 +1620,86 @@ export default function ElementGame() {
         </Card>
         </div>
 
+        {/* Deuterium containment field — fixed APR, the opposite of Genesis Alloy staking */}
+        <Card glow={flashCard === "deuterium"}>
+          <SectionLabel>Deuterium Containment Field — fixed 10% APR</SectionLabel>
+          <p className="text-xs mb-3" style={{ color: C.muted }}>
+            Guaranteed. Stake D, wait {DEUTERIUM_EPOCH_TURNS} turns, get back exactly 10% of what you staked —
+            whether the market moved at all. Unlike Genesis Alloy above, this never depends on anyone trading.
+          </p>
+          <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+            <p className="text-xs" style={{ color: C.muted }}>Available: <span style={{ color: C.text }} className="font-medium">{elements.deuterium.toFixed(2)} D</span></p>
+            <div className="flex items-center gap-2">
+              <input type="number" min="0" step="0.1" value={deuteriumStakeInput} onChange={e => setDeuteriumStakeInput(e.target.value)}
+                placeholder="D to stake" className="w-24 rounded-lg border px-2 py-1.5 text-xs outline-none" style={{ borderColor: C.border, background: C.bg, color: C.text }} />
+              <Btn onClick={() => runAction(() => stakeDeuterium(parseFloat(deuteriumStakeInput)) && (setDeuteriumStakeInput("") || true))} disabled={!isHumanTurn || !parseFloat(deuteriumStakeInput)} tone="accent" small>Stake</Btn>
+              <Btn onClick={() => runAction(unstakeDeuterium)} disabled={!isHumanTurn || deuteriumStaked <= 0} small>Unstake all</Btn>
+            </div>
+          </div>
+          <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+            <p className="text-xs" style={{ color: C.muted }}>Staked: <span style={{ color: C.accent }} className="font-semibold">{deuteriumStaked.toFixed(2)} D</span></p>
+            <p className="text-[10px]" style={{ color: C.muted }}>epoch: {deuteriumEpochProgress}/{DEUTERIUM_EPOCH_TURNS} turns</p>
+          </div>
+          <div className="h-1.5 rounded-full overflow-hidden mb-3" style={{ background: C.bg }}>
+            <div className="h-full rounded-full transition-all duration-300" style={{ width: `${(deuteriumEpochProgress / DEUTERIUM_EPOCH_TURNS) * 100}%`, background: RESOURCES.deuterium.color }} />
+          </div>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <p className="text-xs" style={{ color: C.muted }}>Pending: <span style={{ color: C.green }} className="font-semibold">{deuteriumPendingReward.toFixed(4)} D</span></p>
+            <Btn onClick={() => runAction(claimDeuteriumReward)} disabled={!isHumanTurn || deuteriumPendingReward <= 0} tone="accent" small>Claim</Btn>
+          </div>
+        </Card>
+
+        {/* Two-sided liquidity farming */}
+        <div>
+          <SectionLabel>Liquidity Farming — deposit both sides, earn a reward token</SectionLabel>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {Object.entries(FARM_PAIRS).map(([key, pair]) => {
+              const locked = pair.requiresSupernova && !fusion.wentSupernova;
+              const pool = farmPools[key];
+              const pos = farmPositions[key];
+              const pending = farmPendingReward[key] || 0;
+              const rewardResource = RESOURCES[pair.rewardKey];
+              const depositVal = farmDepositInput[key] || "";
+              return (
+                <Card key={key}>
+                  <p className="text-sm font-semibold mb-1">{RESOURCES[pair.tokenA].icon}{RESOURCES[pair.tokenB].icon} {pair.label}</p>
+                  {locked ? (
+                    <p className="text-[11px]" style={{ color: C.muted }}>Unlocks after your first supernova — the heavier elements need to exist first.</p>
+                  ) : (
+                    <>
+                      <p className="text-[10px] mb-2" style={{ color: C.muted }}>
+                        Deposit both sides, earn {rewardResource.symbol} every turn — an emission, not a fee cut. Have:{" "}
+                        {(elements[pair.tokenA] || 0).toFixed(2)} {RESOURCES[pair.tokenA].symbol}, {(elements[pair.tokenB] || 0).toFixed(2)} {RESOURCES[pair.tokenB].symbol}.
+                      </p>
+                      <div className="flex items-center gap-2 mb-2">
+                        <input type="number" min="0" step="0.1" value={depositVal}
+                          onChange={e => setFarmDepositInput(prev => ({ ...prev, [key]: e.target.value }))}
+                          placeholder={`${RESOURCES[pair.tokenA].symbol} to deposit`}
+                          className="flex-1 rounded-lg border px-2 py-1.5 text-xs outline-none" style={{ borderColor: C.border, background: C.bg, color: C.text }} />
+                        <Btn onClick={() => runAction(() => addFarmLiquidity(key, parseFloat(depositVal)) && (setFarmDepositInput(prev => ({ ...prev, [key]: "" })) || true))} disabled={!isHumanTurn || !parseFloat(depositVal)} tone="accent" small>Farm</Btn>
+                      </div>
+                      <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+                        <p className="text-[11px]" style={{ color: C.muted }}>Your shares: <span style={{ color: C.text }} className="font-medium">{(pos?.shares || 0).toFixed(2)}</span> / pool {pool.totalShares.toFixed(0)}</p>
+                        <Btn onClick={() => runAction(() => toggleFarmAutoCompound(key))} disabled={!isHumanTurn || !pos} tone={pos?.autoCompound ? "accent" : "default"} small>
+                          {pos?.autoCompound ? "Auto-compound on" : "Auto-compound off"}
+                        </Btn>
+                      </div>
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <p className="text-[11px]" style={{ color: C.muted }}>Pending: <span style={{ color: C.green }} className="font-semibold">{pending.toFixed(3)} {rewardResource.symbol}</span></p>
+                        <Btn onClick={() => runAction(() => claimFarmReward(key))} disabled={!isHumanTurn || pending <= 0} tone="accent" small>Claim</Btn>
+                      </div>
+                    </>
+                  )}
+                </Card>
+              );
+            })}
+          </div>
+          <p className="text-[10px] mt-2" style={{ color: C.muted }}>
+            Auto-compound sells half of every reward straight back into more liquidity — your share of the pool
+            grows on its own. Leave it off and rewards just pile up for you to cash out by hand.
+          </p>
+        </div>
+
         {/* Governance */}
         <div ref={registerRef("governance")}>
         <Card glow={abiogenesisRatified}>
@@ -1406,6 +1743,11 @@ export default function ElementGame() {
                 <div className="h-2 rounded-full overflow-hidden" style={{ background: C.bg }}>
                   <div className="h-full rounded-full transition-all duration-500" style={{ width: `${((fusion.stageIndex + 1) / 7) * 100}%`, background: C.orange }} />
                 </div>
+                {!fusion.readyForSupernova && (
+                  <p className="text-[10px]" style={{ color: C.muted }}>
+                    next stage in {CLASS_CONFIG[fusion.class].turnsPerStage - (fusion.turnsInStage || 0)} turns
+                  </p>
+                )}
                 {fusion.readyForSupernova && !fusion.wentSupernova && (
                   <Btn onClick={() => runAction(triggerSupernova)} disabled={!isHumanTurn} tone="accent">Trigger supernova</Btn>
                 )}
@@ -1433,7 +1775,7 @@ export default function ElementGame() {
 
               {planetLock ? (
                 <div className="flex items-center justify-between flex-wrap gap-2">
-                  <p className="text-xs" style={{ color: C.orange }}>Accreting a Planet — ready in {planetLockRemainingSec}s</p>
+                  <p className="text-xs" style={{ color: C.orange }}>Accreting a Planet — ready in {planetLockRemainingTurns} turns</p>
                   <Btn onClick={() => runAction(breakPlanetLock)} disabled={!isHumanTurn} small>Break lock early ({PLANET_LOCK_BREAK_RETURN * 100}% back)</Btn>
                 </div>
               ) : (

@@ -101,9 +101,10 @@ import Learning from "@/Pages/Learning/learning"
 
 import HabitGrid from "@/Pages/HabitGrid"
 
-import ElementGame from "./Pages/ElementLab";
 
-import ElementArena from "./Pages/ElementArena";
+import ElementArena from "@/Pages/ElementArena";
+
+import ElementGame from "@/games/element-lab/ElementLab.jsx";
  
 import { HelmetProvider } from "react-helmet-async";
 import "./index.css";
