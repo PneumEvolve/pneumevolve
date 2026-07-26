@@ -1,0 +1,3 @@
+[submodule "src/games/element-lab"]
+	path = src/games/element-lab
+	url = https://github.com/PneumEvolve/element-lab.git
