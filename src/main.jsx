@@ -100,6 +100,10 @@ import GameTestGame from "@/Pages/GameTest"
 import Learning from "@/Pages/Learning/learning"
 
 import HabitGrid from "@/Pages/HabitGrid"
+
+import ElementGame from "./Pages/ElementLab";
+
+import ElementArena from "./Pages/ElementArena";
  
 import { HelmetProvider } from "react-helmet-async";
 import "./index.css";
@@ -233,6 +237,10 @@ function Root() {
                 <Route path="/learning" element={<Learning />} />
 
                 <Route path="/habit-grid" element={<HabitGrid />} />
+
+                <Route path="/elements" element={<ElementGame />} />
+
+                <Route path="/element-arena" element={<ElementArena />} />
 
                 
  

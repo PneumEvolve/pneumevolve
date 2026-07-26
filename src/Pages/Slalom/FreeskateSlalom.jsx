@@ -29,16 +29,23 @@
 //     Now it's stashed via savePendingScore() (src/lib/slalomLeaderboard.js)
 //     before navigating, and SlalomLobby resumes the submission once a
 //     token actually exists.
+//   - Bugfix: "am I logged in" was being decided by checking raw
+//     localStorage["access_token"], which can disagree with AuthContext's
+//     isLoggedIn (e.g. a token silently re-minted by lib/api.ts's background
+//     401-refresh, without user_id/user_email ever being restored) — that's
+//     how a run got submitted under a real username while the header still
+//     said "Login". Now this reads isLoggedIn straight from useAuth(), same
+//     as the header does, so the two can't disagree.
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useSlalomRoom } from "@/lib/useSlalomRoom";
 import { api } from "@/lib/api";
 import { Link } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext";
 import {
   fetchLeaderboardEntries,
   qualifiesForLeaderboard,
   submitScoreToLeaderboard,
-  fetchMyUsername,
   setMyUsername,
   savePendingScore,
   clearPendingScore,
@@ -187,6 +194,12 @@ function generateChunk(startDist, count, prevCx = null) {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function FreeskateSlalom({ roomId = null, role = null, roomData = null, mode = "solo" }) {
+  // Same source of truth the header uses for "is this person logged in" —
+  // deliberately NOT a raw localStorage["access_token"] check, since that
+  // can be present (silently re-minted by lib/api.ts's background refresh)
+  // even while AuthContext still says logged out. See top-of-file note.
+  const { isLoggedIn, username: authUsername, loading: authLoading } = useAuth();
+
   const canvasRef   = useRef(null);
   const sRef        = useRef(null);
   const keysRef     = useRef({});
@@ -290,11 +303,10 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
       const entries = await fetchLeaderboardEntries(lbMode);
       if (!qualifiesForLeaderboard(entries, gatesPassedVal, gemsVal)) { setLbStatus("none"); return; }
 
-      const token = localStorage.getItem("access_token");
-      if (!token) {
+      if (!isLoggedIn) {
         // Stash it — clicking "log in" below navigates to a different route
         // and unmounts this whole component, so this score would otherwise
-        // just be lost. SlalomLobby picks it back up once a token exists.
+        // just be lost. SlalomLobby picks it back up once isLoggedIn is true.
         savePendingScore({
           lbMode, gates: gatesPassedVal, gems: gemsVal, durationMs,
           roomId: roomData?.id ?? null,
@@ -303,8 +315,7 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
         return;
       }
 
-      const username = await fetchMyUsername();
-      if (username) {
+      if (authUsername) {
         await submitScore(lbMode, gatesPassedVal, gemsVal, durationMs);
       } else {
         // First-time-ever case: no username yet. Ask once, then submit.
@@ -316,7 +327,7 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
     } catch {
       setLbStatus("error");
     }
-  }, [mode, isMultiplayer, roomData, submitScore]);
+  }, [mode, isMultiplayer, roomData, submitScore, isLoggedIn, authUsername]);
 
   const handleNameSubmit = useCallback(async () => {
     const name = nameInput.trim();
@@ -463,10 +474,12 @@ export default function FreeskateSlalom({ roomId = null, role = null, roomData =
 
   // Trigger a leaderboard qualification check exactly once per run, right
   // when gameOver flips true (works for P1 directly, and for P2 thanks to
-  // the setGameOver() bugfixes above).
+  // the setGameOver() bugfixes above). Waits for authLoading to clear so
+  // this can't fire before AuthContext has finished verifying isLoggedIn —
+  // it starts false on mount until that check resolves async.
   useEffect(() => {
-    if (gameOver) checkLeaderboardQualification();
-  }, [gameOver, checkLeaderboardQualification]);
+    if (gameOver && !authLoading) checkLeaderboardQualification();
+  }, [gameOver, authLoading, checkLeaderboardQualification]);
 
   // ── Game loop ──────────────────────────────────────────────────────────────
   useEffect(() => {

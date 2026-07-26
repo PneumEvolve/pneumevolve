@@ -3,10 +3,10 @@ import React, { useState, useEffect, useRef } from "react";
 import { api } from "@/lib/api";
 import { Link } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
+import { useAuth } from "@/context/AuthContext";
 import {
   loadPendingScore,
   clearPendingScore,
-  fetchMyUsername,
   setMyUsername,
   submitScoreToLeaderboard,
 } from "@/lib/slalomLeaderboard";
@@ -19,6 +19,11 @@ async function ensureSession() {
 }
 
 export default function SlalomLobby({ onRoomReady, onSolo, onLeaderboard }) {
+  // Same source of truth the header uses — not a raw localStorage["access_token"]
+  // check, which can be present without a real session behind it. See the
+  // note in FreeskateSlalom.jsx for how those two can end up disagreeing.
+  const { isLoggedIn, username: authUsername, loading: authLoading } = useAuth();
+
   const [joinCode, setJoinCode] = useState("");
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState(null);
@@ -33,17 +38,16 @@ export default function SlalomLobby({ onRoomReady, onSolo, onLeaderboard }) {
   const pendingDataRef = useRef(null);
 
   useEffect(() => {
+    if (authLoading) return; // don't guess while AuthContext is still verifying
     const pending = loadPendingScore();
     if (!pending) return;
-    const token = localStorage.getItem("access_token");
-    if (!token) return; // still not logged in — leave it stashed for next visit
+    if (!isLoggedIn) return; // still not really logged in — leave it stashed for next visit
 
     pendingDataRef.current = pending;
     setPendingStatus("checking");
     (async () => {
       try {
-        const username = await fetchMyUsername();
-        if (username) {
+        if (authUsername) {
           await submitScoreToLeaderboard(pending);
           clearPendingScore();
           setPendingStatus("submitted");
@@ -56,7 +60,7 @@ export default function SlalomLobby({ onRoomReady, onSolo, onLeaderboard }) {
         setPendingStatus("error");
       }
     })();
-  }, []);
+  }, [authLoading, isLoggedIn, authUsername]);
 
   async function handlePendingNameSubmit() {
     const name = pendingNameInput.trim();

@@ -247,6 +247,19 @@ const TOOLS = [
     updatedAtISO: "2026-05-01",
     requiresAuth: false,
   },
+  {
+  id: "element-lab",
+  title: "Element Lab",
+  desc: "Extract Hydrogen, condense Helium, and combine them into the Genesis Compound.",
+  to: "/elements",
+  tags: ["game", "chemistry"],
+  category: "life", // or add a new "play" category if you want it separate
+  isPublic: true,
+  isFeatured: false,
+  updatedAtISO: "2026-07-25",
+  requiresAuth: false,
+  isNew: true,
+},
 
   // Together
   {
