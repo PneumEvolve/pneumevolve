@@ -101,6 +101,8 @@ import Learning from "@/Pages/Learning/learning"
 
 import HabitGrid from "@/Pages/HabitGrid"
 
+import DoorSalesTracker from "@/Pages/DoorSalesTracker"
+
 
 import ElementArena from "@/Pages/ElementArena";
 
@@ -238,6 +240,8 @@ function Root() {
                 <Route path="/learning" element={<Learning />} />
 
                 <Route path="/habit-grid" element={<HabitGrid />} />
+
+                <Route path="/door-sales" element={<DoorSalesTracker />} />
 
                 <Route path="/elements" element={<ElementGame />} />
 
