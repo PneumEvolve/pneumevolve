@@ -1,7 +1,7 @@
 // src/Pages/rootwork/components/WorldZone.jsx
 import React, { useState, useEffect, useRef } from "react";
 import DungeonZone from "./DungeonZone";
-import { WORLD_ZONES, ADVENTURER_CLASSES, FORGE_RECIPES, ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST, ADVENTURER_BUFF_ITEMS, ADVENTURER_BUFF_LIST, WORLD_RESOURCES, HERO_SKILLS, HERO_SKILL_TREES, HERO_CLASS_META, HERO_PRESTIGE_COST_BASE, HERO_DIP_TREE_PRESTIGE_TIER1, HERO_DIP_TREE_PRESTIGE_TIER2, BOSS_DEFS, BOSS_ABILITIES, BOSS_UNLOCK_LEVEL, BOSS_TICK_INTERVAL, generateInfiniteBoss, EXPEDITION_TIER_ORDER, EXPEDITION_TIERS, TRADE_TOWN_ORDER, TRADE_TOWNS } from "../gameConstants";
+import { WORLD_ZONES, ADVENTURER_CLASSES, FORGE_RECIPES, ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST, ADVENTURER_BUFF_ITEMS, ADVENTURER_BUFF_LIST, WORLD_RESOURCES, HERO_SKILLS, HERO_SKILL_TREES, HERO_CLASS_META, HERO_PRESTIGE_COST_BASE, HERO_DIP_TREE_PRESTIGE_TIER1, HERO_DIP_TREE_PRESTIGE_TIER2, BOSS_DEFS, BOSS_ABILITIES, BOSS_UNLOCK_LEVEL, BOSS_TICK_INTERVAL, generateInfiniteBoss, EXPEDITION_TIER_ORDER, EXPEDITION_TIERS, TRADE_TOWN_ORDER, TRADE_TOWNS, ROAD_TIERS } from "../gameConstants";
 import { getAdventurerSlotCost, getMaxHeroes, setHeroFillFood, getHeroPrestigeDmgBonus, getHeroPrestigeDmgReduction, getHeroPrestigeXpBonus, getHeroPrestigeMinLootBonus, PRESTIGE_DMG_RED_FLOOR, getRoadLevel, isTownConnected, getExpeditionAvailable, isHeroBusyForExpedition, isHeroOnExpedition, getHeroExpeditionTierId, getThornwickGrowBonus, getCrestfallFishingBonus, getMillhavenMaterialBonus, getGlenhollowBarnBonus, getAshportCraftingTimeBonus, getHeroPrestigeDurationBonus, getHeroDurationMultiplier } from "../gameEngine";
 
 
@@ -1125,9 +1125,9 @@ function FoodFillPicker({ adventurer, game, beltCapacity, onFill, onClose }) {
 // ─── Adventurer Card ──────────────────────────────────────────────────────────
 function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero, onGiveArtisanFood, onUseArtisanFood, onGiveBuffItem, onRevive, onStartAutoBattle, onReturnAutoBattle, onRequestStop, onAssignTavern, onRemoveTavern, onSetFillFood, onRecallSingleHero }) {
   const [expanded, setExpanded] = useState(false);
-  const [selectedZoneId, setSelectedZoneId] = useState(null);
+  const [selectedZoneId, setSelectedZoneId] = useState(adventurer.lastZoneId ?? null);
   const [detailZoneId, setDetailZoneId] = useState(null); // zone details popover
-  const [autoBattleMode, setAutoBattleMode] = useState(false);
+  const [autoBattleMode, setAutoBattleMode] = useState(!!adventurer.lastAutoBattle);
   const [showFoodFill, setShowFoodFill] = useState(false);
 
   const heroClass = adventurer.heroClass ?? null;
@@ -1231,6 +1231,39 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
   );
 
   // ── Expanded Level 1 content ─────────────────────────────────────────────
+  // Quick action row on the collapsed card: one tap to Go (last zone) or Collect
+  const lastZone = adventurer.lastZoneId ? WORLD_ZONES[adventurer.lastZoneId] : null;
+  const lastZoneOk = !!lastZone && isZoneUnlocked(lastZone, adventurer, game.worldZoneClears);
+  const quickAuto = !!adventurer.lastAutoBattle && hasAutoBattle;
+  const quickNoFood = quickAuto && beltFoodTotal === 0;
+  const quickBtnStyle = (color, enabled = true) => ({
+    width: "100%", padding: "0.45rem 0.6rem", borderRadius: "9px", fontWeight: 800, fontSize: "0.78rem",
+    cursor: enabled ? "pointer" : "default",
+    background: enabled ? color + "22" : "rgba(255,255,255,0.04)",
+    border: "1px solid " + (enabled ? color + "88" : "var(--border)"),
+    color: enabled ? color : "var(--muted)",
+  });
+  let quickRow = null;
+  if (!isInDungeon) {
+    if (isOnMission && !mission?.autoBattle && done) {
+      quickRow = <button onClick={() => onReturn(adventurer.id)} style={quickBtnStyle("#4ade80")}>🎒 Collect Loot</button>;
+    } else if (!isOnMission && adventurer.pendingAutoCollect) {
+      quickRow = <button onClick={() => onReturnAutoBattle(adventurer.id)} style={quickBtnStyle("#ef4444")}>🎒 Collect Auto Loot</button>;
+    } else if (!isBusy && lastZoneOk) {
+      quickRow = (
+        <button
+          disabled={quickNoFood}
+          onClick={() => { if (quickNoFood) return; if (quickAuto) onStartAutoBattle(adventurer.id, lastZone.id); else onSend(adventurer.id, lastZone.id); }}
+          style={quickBtnStyle(quickAuto ? "#ef4444" : "#818cf8", !quickNoFood)}
+        >
+          {quickNoFood
+            ? "🍞 Belt empty: tap the card to Fill"
+            : (quickAuto ? "⚔️ Auto · " : "⚔️ Go · ") + lastZone.emoji + " " + lastZone.name + " · " + getMissionDuration(adventurer, lastZone) + "s"}
+        </button>
+      );
+    }
+  }
+
   const level1 = expanded && !isInDungeon && (
     <div style={{ borderTop: "1px solid var(--border)", padding: "0.6rem 0.75rem" }}>
       {/* Open hero detail button */}
@@ -1437,6 +1470,7 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
   return (
     <div style={{ background: "var(--bg-elev)", border: `1px solid ${dead ? "rgba(239,68,68,0.3)" : isInDungeon ? "rgba(99,102,241,0.3)" : "var(--border)"}`, borderRadius: "12px", overflow: "hidden", marginBottom: "0.6rem", opacity: isInDungeon ? 0.75 : 1 }}>
       {tinyCard}
+      {!expanded && quickRow && <div style={{ padding: "0 0.75rem 0.6rem" }}>{quickRow}</div>}
       {level1}
     </div>
   );
@@ -1927,6 +1961,7 @@ export default function WorldZone({
   onRecallExpedition,
   onRecallSingleHero,
   onToggleTownRoute,
+  onToggleRoad,
   expeditionClaimResult,
   onClaimExpedition,
   onDismissExpeditionClaim,
@@ -2094,6 +2129,26 @@ export default function WorldZone({
                   <div style={{ fontSize: "0.71rem", color: "#a78bfa", marginBottom: isRunning ? "0.5rem" : "0.4rem" }}>
                     {rewardStr} per hero · {tier.damagePerTick} dmg/tick hazard · rare loot every {tier.rareLootRollIntervalTicks}s
                   </div>
+                  {(() => {
+                    const rKey = "road_" + tier.roadLevel + "_enabled";
+                    const roadOn = game.roads?.[rKey] !== false;
+                    const roadPaused = roadOn && !!(game.roads?.unpaid?.[tier.roadLevel]);
+                    const rt = ROAD_TIERS[tier.roadLevel - 1];
+                    const upkeep = rt ? Object.entries(rt.upkeepPerTick).map(([k, v]) => v + " " + (k === "iron_ore" ? "iron" : k)).join(" + ") + "/s" : "";
+                    const color = !roadOn ? "var(--muted)" : roadPaused ? "#fbbf24" : "#4ade80";
+                    const label = !roadOn ? "OFF (sending heroes turns it on)" : roadPaused ? "PAUSED, not enough iron/lumber (resumes on its own)" : "ON · upkeep " + upkeep;
+                    return (
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", fontSize: "0.68rem", padding: "0.3rem 0.5rem", marginBottom: "0.45rem", background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)", borderRadius: "8px" }}>
+                        <span style={{ color }}>{(rt ? rt.emoji + " " + rt.name : "Road L" + tier.roadLevel) + ": " + label}</span>
+                        {onToggleRoad && (
+                          <button onClick={() => onToggleRoad(tier.roadLevel)}
+                            style={{ fontSize: "0.62rem", padding: "0.15rem 0.5rem", borderRadius: "6px", cursor: "pointer", fontWeight: 700, flexShrink: 0, background: roadOn ? "rgba(74,222,128,0.12)" : "rgba(255,255,255,0.05)", border: "1px solid " + (roadOn ? "rgba(74,222,128,0.35)" : "var(--border)"), color: roadOn ? "#4ade80" : "var(--muted)" }}>
+                            {roadOn ? "Turn off" : "Turn on"}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {/* Active expedition: show hero HP bars + recall button */}
                   {isRunning && (
@@ -2383,7 +2438,7 @@ export default function WorldZone({
                 )}
                 {!locked && disrupted && (
                   <div style={{ fontSize: "0.72rem", color: "#ef4444" }}>
-                    Road ran out of materials and shut off. Re-enable it in the Town tab to restore connection.
+                    Road is off or paused (not enough iron/lumber). Turn it on in Town or on its expedition card. Paused roads resume on their own.
                   </div>
                 )}
 
@@ -2494,3 +2549,5 @@ export default function WorldZone({
     </div>
   );
 }
+
+// PATCHED: roads+heroes v1

@@ -2240,6 +2240,8 @@ export function calculateOfflineProgress(state, nowMs) {
     next = tickAdventurerMissionsAt(next, simNow);
     next = tickBossFight(next, 1);
     next = tickExpeditions(next);
+    next = tickRoads(next);
+    next = tickTradeTowns(next);
   }
   next.lastSavedTime = nowMs;
   return { state: next, offlineSeconds: seconds };
@@ -5107,7 +5109,7 @@ function getAdventurerXpNeeded(level) {
   return Math.floor(10 * Math.pow(1.4, level - 1));
 }
 
-export function sendAdventurer(state, adventurerId, zoneId, autoBattle = false) {
+function _legacySendAdventurer(state, adventurerId, zoneId, autoBattle = false) {
   const zone = WORLD_ZONES[zoneId];
   if (!zone) return state;
   const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
@@ -7132,7 +7134,7 @@ export function canAffordRoad(state) {
   return true;
 }
 
-export function buildOrUpgradeRoad(state) {
+function _legacyBuildOrUpgradeRoad(state) {
   const next = getRoadNextTier(state);
   if (!next) return state;
   if (!canAffordRoad(state)) return state;
@@ -7155,7 +7157,7 @@ export function buildOrUpgradeRoad(state) {
   };
 }
 
-export function tickRoads(state) {
+function _legacyTickRoads(state) {
   const level = getRoadLevel(state);
   if (level === 0) return state;
   let next = { ...state, worldResources: { ...(state.worldResources ?? {}) } };
@@ -7213,7 +7215,7 @@ export function isRoadConnected(state) {
   return getRoadLevel(state) > 0 && !(state.roads?.disrupted);
 }
 
-export function isSpecificRoadConnected(state, roadLevel) {
+function _legacyIsSpecificRoadConnected(state, roadLevel) {
   return getRoadLevel(state) >= roadLevel && !(state.roads?.disrupted) && isRoadEnabled(state, roadLevel);
 }
 
@@ -7244,7 +7246,7 @@ function _deductStock(state, source, itemKey, amount) {
   return state;
 }
 
-export function isTownConnected(state, townId) {
+function _legacyIsTownConnected(state, townId) {
   const def = TRADE_TOWNS[townId];
   if (!def) return false;
   if (getRoadLevel(state) < def.roadLevel) return false;
@@ -7482,7 +7484,7 @@ export function isHeroBusyForExpedition(state, adventurer) {
   return false;
 }
 
-export function getExpeditionAvailable(state, tierId) {
+function _legacyGetExpeditionAvailable(state, tierId) {
   const tier = EXPEDITION_TIERS[tierId];
   if (!tier) return false;
   const ghLevel = state.town?.buildings?.guild_hall?.level ?? 0;
@@ -7493,7 +7495,7 @@ export function getExpeditionAvailable(state, tierId) {
   return state.roads?.[enabledKey] !== false;
 }
 
-export function sendExpedition(state, tierId, heroIds) {
+function _legacySendExpedition(state, tierId, heroIds) {
   const tier = EXPEDITION_TIERS[tierId];
   if (!tier) return state;
   if (!getExpeditionAvailable(state, tierId)) return state;
@@ -7905,3 +7907,109 @@ export function claimDungeonReward(state) {
   next.pendingDungeonReward = null;
   return next;
 }
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ROADS v2 — "on" is player intent, "paused" is unpaid. Roads never switch
+// themselves off any more: if upkeep can't be paid they pause, and resume on
+// their own once iron/lumber is back. Sending heroes on an expedition turns its
+// road on. Newly built roads start OFF.
+// ═════════════════════════════════════════════════════════════════════════════
+
+export function isRoadPaused(state, roadLevel) {
+  return !!(state.roads?.unpaid?.[roadLevel]);
+}
+
+export function isRoadActive(state, roadLevel) {
+  return getRoadLevel(state) >= roadLevel && isRoadEnabled(state, roadLevel) && !isRoadPaused(state, roadLevel);
+}
+
+export function tickRoads(state) {
+  const level = getRoadLevel(state);
+  if (level === 0) return state;
+  const wr = { ...(state.worldResources ?? {}) };
+  const unpaid = {};
+  for (let i = 0; i < level; i++) {
+    const rt = ROAD_TIERS[i];
+    if (!rt || !isRoadEnabled(state, rt.level)) continue;
+    const iron = rt.upkeepPerTick.iron_ore ?? 0;
+    const lumber = rt.upkeepPerTick.lumber ?? 0;
+    if ((wr.iron_ore ?? 0) >= iron && (wr.lumber ?? 0) >= lumber) {
+      wr.iron_ore = (wr.iron_ore ?? 0) - iron;
+      wr.lumber = (wr.lumber ?? 0) - lumber;
+    } else {
+      unpaid[rt.level] = true;
+    }
+  }
+  const disrupted = Object.keys(unpaid).length > 0;
+  return { ...state, worldResources: wr, roads: { ...(state.roads ?? {}), unpaid, disrupted } };
+}
+
+export function isTownConnected(state, townId) {
+  const def = TRADE_TOWNS[townId];
+  if (!def) return false;
+  return isRoadActive(state, def.roadLevel);
+}
+
+export function isSpecificRoadConnected(state, roadLevel) {
+  return isRoadActive(state, roadLevel);
+}
+
+export function buildOrUpgradeRoad(state) {
+  const built = _legacyBuildOrUpgradeRoad(state);
+  if (built === state) return state;
+  const newLevel = built.roads?.level ?? 0;
+  const roads = { ...(state.roads ?? {}), level: newLevel, unpaid: { ...(state.roads?.unpaid ?? {}) } };
+  roads["road_" + newLevel + "_enabled"] = false; // new road starts OFF
+  return { ...built, roads };
+}
+
+export function getExpeditionAvailable(state, tierId) {
+  const tier = EXPEDITION_TIERS[tierId];
+  if (!tier) return false;
+  const ghLevel = state.town?.buildings?.guild_hall?.level ?? 0;
+  return ghLevel >= tier.ghLevel && getRoadLevel(state) >= tier.roadLevel;
+}
+
+export function sendExpedition(state, tierId, heroIds) {
+  const tier = EXPEDITION_TIERS[tierId];
+  if (!tier) return state;
+  const roads = { ...(state.roads ?? {}) };
+  roads["road_" + tier.roadLevel + "_enabled"] = true; // sending heroes turns the road on
+  const withRoad = { ...state, roads };
+
+  const existing = (state.expeditions ?? {})[tierId];
+  if (existing) {
+    // Adding heroes to an expedition that's already running
+    const newIds = (heroIds ?? []).filter((id) => !(existing.heroIds ?? []).includes(id));
+    if (newIds.length === 0) return state;
+    if ((existing.heroIds ?? []).length + newIds.length > tier.maxHeroes) return state;
+    const heroes = newIds.map((id) => (state.adventurers ?? []).find((a) => a.id === id));
+    if (heroes.some((h) => !h || isHeroBusyForExpedition(state, h))) return state;
+    const added = Object.fromEntries(heroes.map((h) => [h.id, { hp: h.hp ?? h.maxHp ?? 40, foodBelt: { ...(h.foodBelt ?? {}) } }]));
+    return {
+      ...withRoad,
+      expeditions: {
+        ...(state.expeditions ?? {}),
+        [tierId]: { ...existing, heroIds: [...(existing.heroIds ?? []), ...newIds], heroStates: { ...(existing.heroStates ?? {}), ...added } },
+      },
+    };
+  }
+
+  const sent = _legacySendExpedition(withRoad, tierId, heroIds);
+  return sent === withRoad ? state : sent;
+}
+
+// ─── Heroes: remember last zone + mode so the collapsed card can one-tap Go ──
+export function sendAdventurer(state, adventurerId, zoneId, autoBattle = false) {
+  const sent = _legacySendAdventurer(state, adventurerId, zoneId, autoBattle);
+  if (sent === state) return state;
+  return {
+    ...sent,
+    adventurers: (sent.adventurers ?? []).map((a) =>
+      a.id === adventurerId ? { ...a, lastZoneId: zoneId, lastAutoBattle: !!autoBattle } : a
+    ),
+  };
+}
+
+// PATCHED: roads+heroes v1

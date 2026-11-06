@@ -579,19 +579,14 @@ export default function RootWork() {
         if (!prev) return prev;
         try {
           let next = tick(prev);
-          const wf = next.farms?.[0];
-if (wf) {
-  const before = prev.crops?.wheat ?? 0;
-  const after = next.crops?.wheat ?? 0;
-  if (after !== before) console.log('wheat delta:', after - before, '| workers on farm:', next.workers?.filter(w => w.farmId === wf.id).length);
-}
+          
           next = tickAdventurerRegen(next, 1);
           next = tickAdventurerMissions(next);
           next = tickBossFight(next, 1);
           next = checkBossUnlock(next);
+          next = tickExpeditions(next);
           next = tickRoads(next);
           next = tickTradeTowns(next);
-          next = tickExpeditions(next);
           // Surface any completed auto battle result
           if (next.pendingAutoBattleResult) {
             const result = next.pendingAutoBattleResult;
@@ -1130,6 +1125,7 @@ if (wf) {
           <WorldZone
             game={game}
             onSendAdventurer={handleSendAdventurer}
+            onToggleRoad={handleToggleRoad}
             onReturnAdventurer={handleReturnAdventurer}
             onEquipAdventurer={handleEquipAdventurer}
             onUnequipAdventurer={handleUnequipAdventurer}
@@ -1207,3 +1203,5 @@ if (wf) {
     </div>
   );
 }
+
+// PATCHED: roads+heroes v1

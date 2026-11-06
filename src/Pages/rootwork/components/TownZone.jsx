@@ -1101,7 +1101,7 @@ export default function TownZone({
                       </div>
                       {disrupted && (
                         <div style={{ marginTop: "0.25rem", fontSize: "0.68rem", color: "#ef4444" }}>
-                          ⚠️ Not enough iron ore or lumber — roads disrupted
+                          ⚠️ Not enough iron ore or lumber. Paused roads resume on their own once you have materials
                         </div>
                       )}
                     </div>
@@ -1110,6 +1110,7 @@ export default function TownZone({
                     <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", marginBottom: "0.6rem" }}>
                       {ROAD_TIERS.slice(0, roadLevel).map(rt => {
                         const enabled = isRoadEnabled(game, rt.level);
+                        const paused = enabled && !!(game.roads?.unpaid?.[rt.level]);
                         const drainStr = Object.entries(rt.upkeepPerTick).map(([k,v]) => `${v} ${k === 'iron_ore' ? 'iron' : k}/s`).join(' + ');
                         return (
                           <div key={rt.level} style={{
@@ -1133,10 +1134,10 @@ export default function TownZone({
                                 cursor: "pointer",
                                 background: enabled ? "rgba(74,222,128,0.12)" : "rgba(239,68,68,0.1)",
                                 border: `1px solid ${enabled ? "rgba(74,222,128,0.35)" : "rgba(239,68,68,0.3)"}`,
-                                color: enabled ? "#4ade80" : "#f87171",
+                                color: paused ? "#fbbf24" : enabled ? "#4ade80" : "#f87171",
                               }}
                             >
-                              {enabled ? "ON" : "OFF"}
+                              {!enabled ? "OFF" : paused ? "PAUSED" : "ON"}
                             </button>
                           </div>
                         );
@@ -1164,7 +1165,7 @@ export default function TownZone({
                       {roadLevel === 0 ? "Build Roads" : `Upgrade to ${nextTier.name}`} — ${fmt(nextTier.buildCost)}
                     </button>
                     <div style={{ fontSize: "0.7rem", color: "var(--muted)", marginTop: "0.35rem" }}>
-                      New upkeep: {Object.entries(nextTier.upkeepPerTick).map(([k,v]) => `${v} ${k}/s`).join(' + ')}
+                      New road starts OFF (sending heroes on its expedition turns it on). Upkeep: {Object.entries(nextTier.upkeepPerTick).map(([k,v]) => `${v} ${k}/s`).join(' + ')}
                     </div>
                   </>
                 ) : (
@@ -1199,3 +1200,5 @@ export default function TownZone({
     </div>
   );
 }
+
+// PATCHED: roads+heroes v1
