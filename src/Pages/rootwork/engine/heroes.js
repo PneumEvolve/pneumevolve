@@ -237,10 +237,7 @@ export function _legacySendAdventurer(state, adventurerId, zoneId, autoBattle = 
   const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
   if (advIdx === -1) return state;
   const adventurer = state.adventurers[advIdx];
-  if (adventurer.mission) return state;
- 
-  // Block dead heroes
-  if ((adventurer.hp ?? adventurer.maxHp) <= 0) return state;
+  if (isHeroBusy(state, adventurer)) return state;
  
   let duration = getAdventurerMissionDuration(adventurer, zone);
   // (omelette is now +25% XP via buffBelt, no run_time effect)
@@ -565,10 +562,8 @@ export function returnAdventurer(state, adventurerId) {
     // Rank 1: skip food if HP >= 70% (barely hurt)
     // Rank 2: skip food if HP >= 50% (moderately hurt)
     // Rank 3: skip food if HP >= 30% (pretty hurt, trust the belt)
-    const relentlessRank = getHeroSkillRank(adventurer, "fighter_t4");
-    const relentlessThresholds = [0, 0.70, 0.50, 0.30];
-    const relentlessThreshold = relentlessThresholds[Math.min(relentlessRank, 3)] ?? 0;
-    const relentlessSkipFood = relentlessRank > 0 && hpAfterDamage >= Math.floor(bonusMaxHp * relentlessThreshold);
+        const relentlessThreshold = getRelentlessThreshold(adventurer);
+        const relentlessSkipFood = relentlessThreshold !== null && hpAfterDamage >= Math.floor(bonusMaxHp * relentlessThreshold);
 
     // Relentless: skip food consumption and re-queue without eating
     if (relentlessSkipFood) {
@@ -769,7 +764,7 @@ export function prestigeAdventurer(state, adventurerId) {
 
   // Must not be dead or on a mission
   if ((adventurer.hp ?? adventurer.maxHp) <= 0) return state;
-  if (adventurer.mission) return state;
+  if (isHeroBusy(state, adventurer)) return state;
 
   // Must be level 15+ to prestige
   if ((adventurer.level ?? 1) < HERO_PRESTIGE_MIN_LEVEL) return state;
@@ -1422,6 +1417,62 @@ export function isHeroAwayFromTown(state, heroId) {
   return Object.values(state.expeditions ?? {}).some((exp) => (exp?.heroIds ?? []).includes(heroId));
 }
 
+// One source of truth for "is this hero doing something?"
+// Returns the activity, or null if free. Resting at the tavern counts as free.
+export function getHeroActivity(state, hero) {
+  if (!hero) return "missing";
+  if ((state.dungeonRun?.heroIds ?? []).includes(hero.id)) return "dungeon";
+  if (Object.values(state.expeditions ?? {}).some((exp) => (exp?.heroIds ?? []).includes(hero.id))) return "expedition";
+  if (hero.bossAssigned || (state.bossFight?.assignedHeroIds ?? []).includes(hero.id)) return "boss";
+  if (hero.mission) return hero.mission.autoBattle ? "auto" : "mission";
+  if (hero.pendingAutoCollect) return "collect";
+  if ((hero.hp ?? hero.maxHp ?? 1) <= 0) return "dead";
+  return null;
+}
+
+export function isHeroBusy(state, hero) {
+  return getHeroActivity(state, hero) !== null;
+}
+
+// ─── Relentless threshold (player-chosen) ─────────────────────────────────────
+// Rank 1 unlocks 70%, rank 2 adds 50%, rank 3 adds 30%. "off" = always eat.
+export const RELENTLESS_OPTIONS = [0.70, 0.50, 0.30];
+
+// Returns the HP fraction to skip food at, or null when Relentless is off / not owned.
+export function getRelentlessThreshold(adventurer) {
+  const rank = Math.min(getHeroSkillRank(adventurer, "fighter_t4"), 3);
+  if (rank <= 0) return null;
+  const pick = adventurer.relentlessThreshold;
+  if (pick === "off") return null;
+  const allowed = RELENTLESS_OPTIONS.slice(0, rank);
+  if (typeof pick === "number" && allowed.includes(pick)) return pick;
+  return allowed[allowed.length - 1]; // default: strongest unlocked (old behaviour)
+}
+
+export function setRelentlessThreshold(state, adventurerId, value) {
+  if (value !== "off" && !RELENTLESS_OPTIONS.includes(value)) return state;
+  return {
+    ...state,
+    adventurers: (state.adventurers ?? []).map((a) =>
+      a.id === adventurerId ? { ...a, relentlessThreshold: value } : a
+    ),
+  };
+}
+
+// ─── Expedition perks (tier 3b) ───────────────────────────────────────────────
+export function getHeroExpDmgReduction(adventurer) {
+  const r = Math.min(getHeroSkillRank(adventurer, "fighter_t3b"), 3);
+  return HERO_SKILL_DEFS.fighter_t3b?.expDmgReductionPerRank?.[r] ?? 0;
+}
+export function getHeroExpRollIntervalMult(adventurer) {
+  const r = Math.min(getHeroSkillRank(adventurer, "mage_t3b"), 3);
+  return HERO_SKILL_DEFS.mage_t3b?.expRollIntervalMultPerRank?.[r] ?? 1;
+}
+export function getHeroExpLootMult(adventurer) {
+  const r = Math.min(getHeroSkillRank(adventurer, "scavenger_t3b"), 3);
+  return 1 + (HERO_SKILL_DEFS.scavenger_t3b?.expLootBonusPerRank?.[r] ?? 0);
+}
+
 // Tick adventurer regen (call from main tick, not forge tick)
 export function tickAdventurerRegen(state, dtSeconds) {
   if (!(state.adventurers ?? []).length) return state;
@@ -1454,8 +1505,7 @@ export function assignHeroToTavern(state, heroId) {
   if (!tavernBuilt) return state;
   const adv = (state.adventurers ?? []).find((a) => a.id === heroId);
   if (!adv) return state;
-  if (adv.mission || adv.bossAssigned) return state; // busy
-  if (isHeroAwayFromTown(state, heroId)) return state; // expedition / dungeon
+  if (isHeroBusy(state, adv)) return state;
   if ((adv.hp ?? adv.maxHp) <= 0) return state;      // dead
   if (adv.tavernResting) return state;                // already there
   return {

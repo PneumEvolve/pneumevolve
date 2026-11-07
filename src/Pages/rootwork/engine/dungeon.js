@@ -94,7 +94,7 @@ FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, 
   ROAD_TIERS, TRADE_TOWNS, TRADE_TOWN_ORDER,
   EXPEDITION_TIERS, EXPEDITION_TIER_ORDER, EXPEDITION_CLASS_BONUSES,
 } from "../gameConstants";
-import { getAdventurerMaxHp, getAdventurerXpNeeded } from "./heroes.js";
+import { getAdventurerMaxHp, getAdventurerXpNeeded, isHeroBusy } from "./heroes.js";
 import { isHeroOnExpedition } from "./roads.js";
 
 // --- DUNGEON -----------------------------------------------------------------------
@@ -163,15 +163,7 @@ export function applyDungeonResult(state, result) {
 // --- DUNGEON STATE ---
 
 export function getDungeonParty(state) {
-  return (state.adventurers ?? []).filter(a => {
-    if ((a.hp ?? a.maxHp ?? 40) <= 0) return false;
-    if (a.mission) return false;
-    if (a.tavernResting) return false;
-    if (a.bossAssigned) return false;
-    if (isHeroOnExpedition(state, a.id)) return false;
-    if ((state.dungeonRun?.heroIds ?? []).includes(a.id)) return false;
-    return true;
-  }).slice(0, 3);
+  return (state.adventurers ?? []).filter(a => !isHeroBusy(state, a) && !a.tavernResting).slice(0, 3)
 }
 
 // Start a dungeon run -- lock heroes in game state
@@ -179,9 +171,7 @@ export function startDungeonRun(state, heroIds) {
   // Reject if any hero is busy (boss fight, expedition, mission, tavern)
   for (const heroId of heroIds) {
     const hero = (state.adventurers ?? []).find(a => a.id === heroId);
-    if (!hero) return state;
-    if (hero.mission || hero.tavernResting || hero.bossAssigned) return state;
-    if (isHeroOnExpedition(state, heroId)) return state;
+    if (!hero || isHeroBusy(state, hero) || hero.tavernResting) return state;
   }
   return { ...state, dungeonRun: { heroIds, mode: 'explore', active: true } };
 }

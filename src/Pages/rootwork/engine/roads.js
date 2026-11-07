@@ -95,7 +95,7 @@ FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, 
   EXPEDITION_TIERS, EXPEDITION_TIER_ORDER, EXPEDITION_CLASS_BONUSES,
 } from "../gameConstants";
 import { tick } from "./tick.js";
-import { getAdventurerMaxHp, getAdventurerXpNeeded, getHeroBonusMaxHp, getHeroMinLootBonus, getHeroPrestigeMinLootBonus, getHeroPrestigeXpBonus, getHeroXpMultiplier } from "./heroes.js";
+import { getAdventurerMaxHp, getAdventurerXpNeeded, getHeroBonusMaxHp, getHeroMinLootBonus, getHeroPrestigeMinLootBonus, getHeroPrestigeXpBonus, getHeroXpMultiplier, isHeroBusy, getHeroExpDmgReduction, getHeroExpRollIntervalMult, getHeroExpLootMult  } from "./heroes.js";
 import { getExpeditionAvailable, isTownConnected } from "./roadsV2.js";
 
 // =============================================================================
@@ -467,14 +467,7 @@ export function getHeroExpeditionTierId(state, heroId) {
 }
 
 export function isHeroBusyForExpedition(state, adventurer) {
-  // Busy if on a mission, in boss fight, on tavern rest, already on expedition, or in dungeon
-  if (isHeroOnExpedition(state, adventurer.id)) return true;
-  if (adventurer.missionZone) return true;
-  if (adventurer.autoMission) return true;
-  if ((state.bossFight?.assignedHeroIds ?? []).includes(adventurer.id)) return true;
-  if ((state.tavernRest ?? []).find(t => t.heroId === adventurer.id)) return true;
-  if ((state.dungeonRun?.heroIds ?? []).includes(adventurer.id)) return true;
-  return false;
+  return isHeroBusy(state, adventurer);
 }
 
 export function _legacyGetExpeditionAvailable(state, tierId) {
@@ -600,7 +593,7 @@ export function tickExpeditions(state) {
         const reduction = Math.min(cfg.maxDmgReduction, statPoints * cfg.dmgReductionPerStatPoint);
         effectiveDamage = tier.damagePerTick * (1 - reduction);
       }
-
+      effectiveDamage *= 1 - (hero ? getHeroExpDmgReduction(hero) : 0); // Pathwarden
       hs.hp = (hs.hp ?? 40) - effectiveDamage;
 
       if (hs.hp <= 0) {
@@ -682,9 +675,14 @@ export function tickExpeditions(state) {
       continue;
     }
 
-    // Resource reward per hero per tick
+        // Resource reward: each hero's share scales with Deep Pockets, all of it with Velmoor
+    const velmoorMult = 1 + getVelmoorExpeditionBonus(next);
+    const partyLootMult = heroIds.reduce((sum, id) => {
+      const h = (next.adventurers ?? []).find((a) => a.id === id);
+      return sum + (h ? getHeroExpLootMult(h) : 1);
+    }, 0) * velmoorMult;
     for (const [res, amount] of Object.entries(tier.rewardPerHeroPerTick ?? {})) {
-      accumulatedResources[res] = (accumulatedResources[res] ?? 0) + amount * heroIds.length;
+      accumulatedResources[res] = (accumulatedResources[res] ?? 0) + amount * partyLootMult;
     }
 
     // Flush whole-number resources to worldResources
@@ -698,50 +696,57 @@ export function tickExpeditions(state) {
     }
     next = { ...next, worldResources: wr };
 
-    // Rare loot roll every rareLootRollIntervalTicks
+        // Rare loot: each hero rolls on their own timer (Quickened Search shortens it).
+    // Deep Pockets and Velmoor's expedition bonus multiply what they find.
     let rareDropped = {};
-    if (ticksSinceLastRareRoll >= tier.rareLootRollIntervalTicks) {
-      ticksSinceLastRareRoll = 0;
-      const tierIndex = tierIndexMap[tierId] ?? 0;
-      for (const heroId of heroIds) {
-        const hero = (next.adventurers ?? []).find(a => a.id === heroId);
-        const gearTier = hero?.gear ?? 0;
-        const heroClass = hero?.heroClass ?? null;
+    const tierIndex = tierIndexMap[tierId] ?? 0;
+    for (const heroId of heroIds) {
+      const hero = (next.adventurers ?? []).find(a => a.id === heroId);
+      const heroState = heroStates[heroId];
+      const interval = Math.max(10, Math.round(tier.rareLootRollIntervalTicks * (hero ? getHeroExpRollIntervalMult(hero) : 1)));
+      const rareTicks = (heroState.rareTicks ?? 0) + 1;
+      if (rareTicks < interval) {
+        heroStates[heroId] = { ...heroState, rareTicks };
+        continue;
+      }
+      heroStates[heroId] = { ...heroState, rareTicks: 0 };
 
-        // Base rare loot chance from gear
-        let chance = Math.min(0.8, 0.20 + gearTier * 0.05);
+      const gearTier = hero?.gear ?? 0;
+      const heroClass = hero?.heroClass ?? null;
+      const lootMult = (hero ? getHeroExpLootMult(hero) : 1) * velmoorMult;
 
-        // Scavenger: +10% chance per expedition tier index (0=scout..3=legendary)
-        if (heroClass === "scavenger") {
-          const scavBonus = EXPEDITION_CLASS_BONUSES.scavenger.rareLootChancePerTierIndex * tierIndex;
-          chance = Math.min(0.9, chance + scavBonus);
-        }
+      // Base rare loot chance from gear
+      let chance = Math.min(0.8, 0.20 + gearTier * 0.05);
+      // Scavenger: +10% chance per expedition tier index (0=scout..3=legendary)
+      if (heroClass === "scavenger") {
+        const scavBonus = EXPEDITION_CLASS_BONUSES.scavenger.rareLootChancePerTierIndex * tierIndex;
+        chance = Math.min(0.9, chance + scavBonus);
+      }
 
-        if (Math.random() < chance) {
-          for (const [res, [min, max]] of Object.entries(tier.rareLoot ?? {})) {
-            let amount = Math.floor(min + Math.random() * (max - min + 1));
-            // Scavenger: add minLoot bonus to rare drop amounts
-            if (heroClass === "scavenger") {
-              amount += getHeroMinLootBonus(hero) + getHeroPrestigeMinLootBonus(hero);
-            }
-            rareDropped[res] = (rareDropped[res] ?? 0) + amount;
+      if (Math.random() < chance) {
+        for (const [res, [min, max]] of Object.entries(tier.rareLoot ?? {})) {
+          let amount = Math.floor(min + Math.random() * (max - min + 1));
+          if (heroClass === "scavenger") {
+            amount += getHeroMinLootBonus(hero) + getHeroPrestigeMinLootBonus(hero);
           }
-        }
-
-        // Mage: 5% chance per roll to find a mana_crystal (any tier)
-        if (heroClass === "mage") {
-          const mageCfg = EXPEDITION_CLASS_BONUSES.mage;
-          if (Math.random() < mageCfg.manaCrystalChancePerRoll) {
-            const [cMin, cMax] = mageCfg.manaCrystalAmount;
-            rareDropped.mana_crystal = (rareDropped.mana_crystal ?? 0) + Math.floor(cMin + Math.random() * (cMax - cMin + 1));
-          }
+          amount = Math.round(amount * lootMult);
+          rareDropped[res] = (rareDropped[res] ?? 0) + amount;
         }
       }
-      if (Object.keys(rareDropped).length > 0) {
-        const wr2 = { ...(next.worldResources ?? {}) };
-        for (const [res, amount] of Object.entries(rareDropped)) wr2[res] = (wr2[res] ?? 0) + amount;
-        next = { ...next, worldResources: wr2 };
+
+      // Mage: 5% chance per roll to find a mana_crystal (any tier)
+      if (heroClass === "mage") {
+        const mageCfg = EXPEDITION_CLASS_BONUSES.mage;
+        if (Math.random() < mageCfg.manaCrystalChancePerRoll) {
+          const [cMin, cMax] = mageCfg.manaCrystalAmount;
+          rareDropped.mana_crystal = (rareDropped.mana_crystal ?? 0) + Math.floor(cMin + Math.random() * (cMax - cMin + 1));
+        }
       }
+    }
+    if (Object.keys(rareDropped).length > 0) {
+      const wr2 = { ...(next.worldResources ?? {}) };
+      for (const [res, amount] of Object.entries(rareDropped)) wr2[res] = (wr2[res] ?? 0) + amount;
+      next = { ...next, worldResources: wr2 };
     }
 
     // Write hero HP and food belt back to adventurer state

@@ -47,6 +47,7 @@ import {
   assignHeroToBoss, unassignHeroFromBoss, useBossAbility,
   acknowledgeBossVictory, reviveHeroInBossFight,
   assignHeroToTavern, removeHeroFromTavern,
+  setRelentlessThreshold,
   // New town building actions
   buildFoodHall, upgradeFoodHall, setFoodMode,
   buildWarehouse, upgradeWarehouse,
@@ -888,6 +889,7 @@ export default function RootWork() {
   const handleRemoveArtisanFood = useCallback((adventurerId, foodId) => update((s) => removeArtisanFood(s, adventurerId, foodId)), [update]);
 
   const handleSetHeroFillFood = useCallback((adventurerId, foodId) => update((s) => setHeroFillFood(s, adventurerId, foodId)), [update]);
+    const handleSetRelentless = useCallback((adventurerId, value) => update((s) => setRelentlessThreshold(s, adventurerId, value)), [update]);
 
   const handleUseArtisanFood = useCallback((adventurerId, foodId) => {
     update((s) => { const n = useArtisanFood(s, adventurerId, foodId); if (n === s) notify("Already full or no food on belt."); return n; });
@@ -1153,6 +1155,7 @@ export default function RootWork() {
             onAssignHeroToTavern={handleAssignHeroToTavern}
             onRemoveHeroFromTavern={handleRemoveHeroFromTavern}
             onSetHeroFillFood={handleSetHeroFillFood}
+            onSetRelentless={handleSetRelentless}
             onSendExpedition={handleSendExpedition}
             onRecallExpedition={handleRecallExpedition}
             onRecallSingleHero={handleRecallSingleHero}

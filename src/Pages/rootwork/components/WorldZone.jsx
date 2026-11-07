@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import DungeonZone from "./DungeonZone";
 import { WORLD_ZONES, ADVENTURER_CLASSES, FORGE_RECIPES, ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST, ADVENTURER_BUFF_ITEMS, ADVENTURER_BUFF_LIST, WORLD_RESOURCES, HERO_SKILLS, HERO_SKILL_TREES, HERO_CLASS_META, HERO_PRESTIGE_COST_BASE, HERO_DIP_TREE_PRESTIGE_TIER1, HERO_DIP_TREE_PRESTIGE_TIER2, BOSS_DEFS, BOSS_ABILITIES, BOSS_UNLOCK_LEVEL, BOSS_TICK_INTERVAL, generateInfiniteBoss, EXPEDITION_TIER_ORDER, EXPEDITION_TIERS, TRADE_TOWN_ORDER, TRADE_TOWNS, ROAD_TIERS } from "../gameConstants";
-import { getAdventurerSlotCost, getMaxHeroes, setHeroFillFood, getHeroPrestigeDmgBonus, getHeroPrestigeDmgReduction, getHeroPrestigeXpBonus, getHeroPrestigeMinLootBonus, PRESTIGE_DMG_RED_FLOOR, getRoadLevel, isTownConnected, getExpeditionAvailable, isHeroBusyForExpedition, isHeroOnExpedition, getHeroExpeditionTierId, getThornwickGrowBonus, getCrestfallFishingBonus, getMillhavenMaterialBonus, getGlenhollowBarnBonus, getAshportCraftingTimeBonus, getHeroPrestigeDurationBonus, getHeroDurationMultiplier } from "../gameEngine";
+import { getAdventurerSlotCost, getMaxHeroes, setHeroFillFood, getHeroPrestigeDmgBonus, getHeroPrestigeDmgReduction, getHeroPrestigeXpBonus, getHeroPrestigeMinLootBonus, PRESTIGE_DMG_RED_FLOOR, getRoadLevel, isTownConnected, getExpeditionAvailable, isHeroBusyForExpedition, isHeroOnExpedition, getHeroExpeditionTierId, getThornwickGrowBonus, getCrestfallFishingBonus, getMillhavenMaterialBonus, getGlenhollowBarnBonus, getAshportCraftingTimeBonus, getHeroPrestigeDurationBonus, getHeroDurationMultiplier, isHeroBusy, getHeroSkillRank, getRelentlessThreshold, RELENTLESS_OPTIONS, getHeroExpDmgReduction, getHeroExpRollIntervalMult, getHeroExpLootMult } from "../gameEngine";
 
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -637,6 +637,7 @@ function SkillTree({ adventurer, game, onSpendSkillPoint, onPrestige, onShowPres
                           </span>
                         )}
                         {skillDef.crossSystemEffect && <span style={{ fontSize: "0.5rem", background: "rgba(74,222,128,0.2)", border: "1px solid rgba(74,222,128,0.4)", color: "#4ade80", borderRadius: "4px", padding: "1px 4px" }}>FARM</span>}
+                                                {skillDef.expeditionEffect && <span style={{ fontSize: "0.5rem", background: "rgba(167,139,250,0.2)", border: "1px solid rgba(167,139,250,0.4)", color: "#a78bfa", borderRadius: "4px", padding: "1px 4px" }}>EXPED</span>}
                         {skillDef.grantsAutoBattle && <span style={{ fontSize: "0.5rem", background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.3)", color: "#f87171", borderRadius: "4px", padding: "1px 4px" }}>AUTO</span>}
                       </div>
                       <div style={{ fontSize: "0.58rem", color: "var(--muted)", lineHeight: 1.3 }}>
@@ -969,8 +970,42 @@ function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onGiveArtisa
     </div>
   );
 }
+// ─── Relentless picker (Off / 70% / 50% / 30%, gated by rank) ────────────────
+function RelentlessPicker({ adventurer, onSet }) {
+  const rank = Math.min(getHeroSkillRank(adventurer, "fighter_t4"), 3);
+  if (rank <= 0 || !onSet) return null;
+  const current = getRelentlessThreshold(adventurer); // null = off
+  const options = ["off", ...RELENTLESS_OPTIONS.slice(0, rank)];
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", flexWrap: "wrap", marginBottom: "0.45rem" }}>
+      <span style={{ fontSize: "0.6rem", color: "var(--muted)", fontWeight: 600 }}>🔄 Relentless · skip food at HP ≥</span>
+      {options.map((opt) => {
+        const active = opt === "off" ? current === null : current === opt;
+        return (
+          <button key={opt} onClick={() => onSet(adventurer.id, opt)}
+            style={{ fontSize: "0.58rem", padding: "1px 7px", borderRadius: "999px", cursor: "pointer", fontWeight: 700, background: active ? "rgba(239,68,68,0.2)" : "rgba(255,255,255,0.05)", border: `1px solid ${active ? "rgba(239,68,68,0.5)" : "var(--border)"}`, color: active ? "#ef4444" : "var(--muted)" }}>
+            {opt === "off" ? "Off" : `${Math.round(opt * 100)}%`}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// Short label of a hero's active expedition perks, e.g. "🧭 −20% dmg · 👜 +30% loot"
+function getExpeditionPerkLabel(hero, tier) {
+  if (!hero) return null;
+  const parts = [];
+  const dr = getHeroExpDmgReduction(hero);
+  if (dr > 0) parts.push(`🧭 −${Math.round(dr * 100)}% dmg`);
+  const im = getHeroExpRollIntervalMult(hero);
+  if (im < 1) parts.push(`⏳ rare roll ${Math.round((tier?.rareLootRollIntervalTicks ?? 60) * im)}s`);
+  const lm = getHeroExpLootMult(hero);
+  if (lm > 1) parts.push(`👜 +${Math.round((lm - 1) * 100)}% loot`);
+  return parts.length ? parts.join(" · ") : null;
+}
 // ─── Auto Battle Panel (shown in AdventurerCard when skill unlocked) ──────────
-function AutoBattlePanel({ adventurer, game, onStartAutoBattle, onReturnAutoBattle, onRequestStop }) {
+function AutoBattlePanel({ adventurer, game, onStartAutoBattle, onReturnAutoBattle, onRequestStop, onSetRelentless }) {
   const isOnMission = !!adventurer.mission;
   const isAutoBattle = adventurer.mission?.autoBattle;
   const mission = adventurer.mission;
@@ -1011,6 +1046,7 @@ function AutoBattlePanel({ adventurer, game, onStartAutoBattle, onReturnAutoBatt
         <div style={{ height: "4px", background: "rgba(255,255,255,0.08)", borderRadius: "2px", overflow: "hidden", marginBottom: "0.4rem" }}>
           <div style={{ height: "100%", width: `${progress * 100}%`, background: "#ef4444", borderRadius: "2px", transition: "width 0.3s" }} />
         </div>
+        <RelentlessPicker adventurer={adventurer} onSet={onSetRelentless} />
         {done && (mission.autoBattleStopRequested || beltFoodTotal === 0) && (
           <button
             onClick={() => onReturnAutoBattle(adventurer.id)}
@@ -1123,7 +1159,7 @@ function FoodFillPicker({ adventurer, game, beltCapacity, onFill, onClose }) {
 }
 
 // ─── Adventurer Card ──────────────────────────────────────────────────────────
-function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero, onGiveArtisanFood, onUseArtisanFood, onGiveBuffItem, onRevive, onStartAutoBattle, onReturnAutoBattle, onRequestStop, onAssignTavern, onRemoveTavern, onSetFillFood, onRecallSingleHero }) {
+function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero, onGiveArtisanFood, onUseArtisanFood, onGiveBuffItem, onRevive, onStartAutoBattle, onReturnAutoBattle, onRequestStop, onAssignTavern, onRemoveTavern, onSetFillFood, onRecallSingleHero, onSetRelentless }) {
   const [expanded, setExpanded] = useState(false);
   const [selectedZoneId, setSelectedZoneId] = useState(adventurer.lastZoneId ?? null);
   const [detailZoneId, setDetailZoneId] = useState(null); // zone details popover
@@ -1159,11 +1195,10 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
   const beltFoodTotal = Object.values(foodBelt).reduce((s, v) => s + v, 0);
   const firstBeltFood = ARTISAN_FOOD_LIST.find((id) => (foodBelt[id] ?? 0) > 0) ?? null;
 
+  const isBusy = isHeroBusy(game, adventurer);
   const isOnExpedition = isHeroOnExpedition(game, adventurer.id);
   const isResting = !!adventurer.tavernResting && !isOnExpedition && !isInDungeon;
   const tavernBuilt = game.town?.buildings?.tavern?.built === true;
-  // Resting heroes stay usable: eat from the belt, fill, open details, or send them out (sending clears rest)
-  const isBusy = isOnMission || isOnExpedition || isInDungeon || dead;
 
   const canStartAutoBattle = hasAutoBattle && selectedZone && beltFoodTotal > 0 && !dead;
   const skillPoints = adventurer.skillPoints ?? 0;
@@ -1183,6 +1218,7 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
     if (isResting) return { label: "🍺 Resting", color: "#fbbf24", bg: "rgba(251,191,36,0.1)", border: "rgba(251,191,36,0.3)" };
     if (isOnMission && mission?.autoBattle) return { label: `⚔️ Auto · ${mission.zoneName}`, color: "#ef4444", bg: "rgba(239,68,68,0.08)", border: "rgba(239,68,68,0.25)" };
     if (isOnMission) return { label: done ? "✅ Done!" : `⚔️ ${mission.zoneName}`, color: done ? "#4ade80" : "#fbbf24", bg: done ? "rgba(74,222,128,0.1)" : "rgba(251,191,36,0.08)", border: done ? "rgba(74,222,128,0.3)" : "rgba(251,191,36,0.25)" };
+    if (adventurer.bossAssigned) return { label: "👹 Boss", color: "#ef4444", bg: "rgba(239,68,68,0.1)", border: "rgba(239,68,68,0.3)" };
     return { label: "Idle", color: "var(--muted)", bg: "rgba(255,255,255,0.04)", border: "rgba(255,255,255,0.1)" };
   }
   const status = getStatusBadge();
@@ -1294,7 +1330,7 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
       )}
 
       {isOnMission && mission?.autoBattle && (
-        <AutoBattlePanel adventurer={adventurer} game={game} onReturnAutoBattle={onReturnAutoBattle} onRequestStop={onRequestStop} />
+        <AutoBattlePanel adventurer={adventurer} game={game} onReturnAutoBattle={onReturnAutoBattle} onRequestStop={onRequestStop} onSetRelentless={onSetRelentless} />
       )}
 
       {!isOnMission && adventurer.pendingAutoCollect && (
@@ -1357,7 +1393,7 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
               </button>
             </div>
           )}
-
+          {hasAutoBattle && autoBattleMode && <RelentlessPicker adventurer={adventurer} onSet={onSetRelentless} />}
           {/* Heal / Fill / Go row — above zones */}
           <div style={{ display: "flex", gap: "0.4rem", marginBottom: "0.45rem" }}>
             {/* Heal button */}
@@ -1715,7 +1751,7 @@ function BossTab({ game, adventurers, bossFight, bossDef, onAssign, onUnassign, 
 
   const assignedIds = bossFight.assignedHeroIds ?? [];
   const assignedHeroes = adventurers.filter((a) => assignedIds.includes(a.id));
-  const availableHeroes = adventurers.filter((a) => !a.bossAssigned && !a.mission && (a.hp ?? a.maxHp ?? 40) > 0);
+  const availableHeroes = adventurers.filter((a) => !isHeroBusy(game, a));
   const deadUnassigned = adventurers.filter((a) => !a.bossAssigned && !a.mission && (a.hp ?? a.maxHp ?? 40) <= 0);
 
   const phase = bossFight.phase; // "idle" | "fighting" | "defeated"
@@ -1958,6 +1994,7 @@ export default function WorldZone({
   onAssignHeroToTavern,
   onRemoveHeroFromTavern,
   onSetHeroFillFood,
+  onSetRelentless,
   onSendExpedition,
   onRecallExpedition,
   onRecallSingleHero,
@@ -2173,6 +2210,7 @@ export default function WorldZone({
                             <div style={{ background: "rgba(255,255,255,0.08)", borderRadius: "4px", height: "5px", overflow: "hidden" }}>
                               <div style={{ height: "100%", width: `${hpPct}%`, background: hpColor, transition: "width 0.5s" }} />
                             </div>
+                            {(() => { const perk = getExpeditionPerkLabel(hero, tier); return perk ? <div style={{ fontSize: "0.58rem", color: "#a78bfa", marginTop: "0.15rem" }}>{perk}</div> : null; })()}
                           </div>
                         );
                       })}
@@ -2370,6 +2408,7 @@ export default function WorldZone({
               onRequestStop={onRequestAutoBattleStop}
               onSetFillFood={onSetHeroFillFood}
               onRecallSingleHero={onRecallSingleHero}
+              onSetRelentless={onSetRelentless}
             />
           ))}
 

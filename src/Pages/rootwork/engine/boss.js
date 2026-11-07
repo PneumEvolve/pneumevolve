@@ -95,7 +95,7 @@ FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, 
   EXPEDITION_TIERS, EXPEDITION_TIER_ORDER, EXPEDITION_CLASS_BONUSES,
 } from "../gameConstants";
 import { tick } from "./tick.js";
-import { getAdventurerMaxHp, getAdventurerXpNeeded, getHeroBonusMaxHp, getHeroPrestigeDmgReduction } from "./heroes.js";
+import { getAdventurerMaxHp, getAdventurerXpNeeded, getHeroBonusMaxHp, getHeroPrestigeDmgReduction, isHeroBusy } from "./heroes.js";
 import { getBossDef, getHeroBossClass, getHeroBossDamage, initBossFight } from "./forge.js";
 import { isHeroOnExpedition } from "./roads.js";
 
@@ -104,11 +104,7 @@ export function assignHeroToBoss(state, heroId) {
   const bossFight = state.bossFight;
   if (!bossFight || bossFight.phase === "defeated") return state;
   const hero = (state.adventurers ?? []).find((a) => a.id === heroId);
-  if (!hero || hero.mission || hero.bossAssigned) return state;
-  if ((hero.hp ?? hero.maxHp ?? 40) <= 0) return state; // dead hero can't join
-  if ((bossFight.assignedHeroIds ?? []).includes(heroId)) return state;
-  if ((state.dungeonRun?.heroIds ?? []).includes(heroId)) return state; // in dungeon
-  if (isHeroOnExpedition(state, heroId)) return state; // on expedition
+  if (!hero || isHeroBusy(state, hero)) return state;
 
   const updatedAdv = { ...hero, bossAssigned: true, tavernResting: false, tavernBuff: null };
   return {
