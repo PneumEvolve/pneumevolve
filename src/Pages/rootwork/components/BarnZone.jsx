@@ -14,7 +14,9 @@ import {
   getBarnInstanceAnimalSlots, getMaxBarnWorkersPerBuilding,
   canBuildBarnBuilding, canUpgradeBarnBuilding,
   getAvailableWorkerSlots, isTownBuildingBuilt, hasSchoolResearch,
+  getBarnInstanceSupplyRate, getBarnInstanceDemandRate,
 } from "../gameEngine";
+import { PRESTIGE_MIN_BARN_WORKERS, PRESTIGE_MIN_BARN_ANIMALS } from "../gameConstants";
  
 const ANIMAL_DEFS = {
   chicken: { id: "chicken", name: "Chicken", emoji: "🐔", baseCost: 300, costMultiplier: 1.8, produces: "egg",  produceName: "Egg",  produceEmoji: "🥚", cycleSeconds: 60,  rawValue: 5  },
@@ -462,7 +464,7 @@ function BarnWorkerUpgradeTree({ label, upgradeIds, worker, game, onUpgrade }) {
  
 // ─── Barn worker card ─────────────────────────────────────────────────────────
  
-function BarnWorkerCard({ worker, game, index, onFire, onUpgrade, instanceAnimals }) {
+function BarnWorkerCard({ worker, game, index, onFire, onUpgrade, instanceAnimals, seasonReady = false }) {
   const [confirmFire, setConfirmFire] = useState(false);
   const [showUpgrades, setShowUpgrades] = useState(false);
   const animals = instanceAnimals ?? [];
@@ -476,7 +478,11 @@ function BarnWorkerCard({ worker, game, index, onFire, onUpgrade, instanceAnimal
   const upgrades = worker.upgrades ?? [];
  
   return (
-    <div style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: "10px", overflow: "hidden" }}>
+    <div style={{
+      background: "var(--bg)", borderRadius: "10px", overflow: "hidden",
+      border: seasonReady ? "2px solid #4ade80" : "1px solid var(--border)",
+      boxShadow: seasonReady ? "0 0 0 3px rgba(74,222,128,0.15)" : "none",
+    }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.55rem 0.75rem" }}>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text)" }}>
@@ -592,6 +598,11 @@ function BuildingTab({
   const canAffordAnimal = cash >= nextAnimalCost;
   const hireCost = getBarnWorkerHireCost(game);
   const canHireWorker = !atWorkerCap && !workerSlotsFull && cash >= hireCost;
+  // Same check as the Season panel's Barn Readiness
+  const seasonReady = (game.season ?? 1) >= 4
+    && barnWorkers.length >= PRESTIGE_MIN_BARN_WORKERS
+    && animals.length >= PRESTIGE_MIN_BARN_ANIMALS
+    && getBarnInstanceSupplyRate(inst) >= getBarnInstanceDemandRate(inst, game);
  
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
@@ -683,7 +694,10 @@ function BuildingTab({
       <div style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: "12px", overflow: "hidden" }}>
         <div style={{ padding: "0.65rem 0.85rem", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: barnWorkers.length > 0 ? "1px solid var(--border)" : "none" }}>
           <div>
-            <div style={{ fontSize: "0.8rem", fontWeight: 600 }}>👷 Barn Workers ({workerSlotsUsed}/{workerSlots})</div>
+            <div style={{ fontSize: "0.8rem", fontWeight: 600 }}>
+              👷 Barn Workers ({workerSlotsUsed}/{workerSlots})
+              {seasonReady && <span style={{ marginLeft: "0.4rem", fontSize: "0.62rem", fontWeight: 700, color: "#4ade80" }}>✓ Season ready</span>}
+            </div>
             <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginTop: "0.1rem" }}>Auto-collect produce · upgradeable</div>
           </div>
           <div style={{ display: "flex", gap: "0.4rem" }}>
@@ -744,7 +758,7 @@ function BuildingTab({
         {barnWorkers.length > 0 && (
           <div style={{ padding: "0.65rem 0.85rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
             {barnWorkers.map((w, idx) => (
-              <BarnWorkerCard key={w.id} worker={w} game={game} index={idx} onFire={onFireBarnWorker} onUpgrade={onUpgradeBarnWorker} instanceAnimals={animals} />
+              <BarnWorkerCard key={w.id} worker={w} game={game} index={idx} onFire={onFireBarnWorker} onUpgrade={onUpgradeBarnWorker} instanceAnimals={animals} seasonReady={seasonReady} />
             ))}
           </div>
         )}

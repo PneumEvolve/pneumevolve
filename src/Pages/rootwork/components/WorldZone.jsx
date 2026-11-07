@@ -805,8 +805,8 @@ function HeroModal({ adventurer, game, onClose, onEquip, onUnequip, onGiveArtisa
   const isOnMission = !!adventurer.mission;
   const isOnExpedition = isHeroOnExpedition(game, adventurer.id);
   const isInDungeon = (game?.dungeonRun?.heroIds ?? []).includes(adventurer.id);
-  const isResting = !!adventurer.tavernResting;
-  const isLocked = isOnMission || isOnExpedition || isInDungeon || isResting;
+  // Resting at the tavern doesn't lock management — you can eat, equip, rank up, prestige
+  const isLocked = isOnMission || isOnExpedition || isInDungeon;
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
@@ -1160,9 +1160,10 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
   const firstBeltFood = ARTISAN_FOOD_LIST.find((id) => (foodBelt[id] ?? 0) > 0) ?? null;
 
   const isOnExpedition = isHeroOnExpedition(game, adventurer.id);
-  const isResting = !!adventurer.tavernResting;
+  const isResting = !!adventurer.tavernResting && !isOnExpedition && !isInDungeon;
   const tavernBuilt = game.town?.buildings?.tavern?.built === true;
-  const isBusy = isOnMission || isOnExpedition || isInDungeon || isResting || dead;
+  // Resting heroes stay usable: eat from the belt, fill, open details, or send them out (sending clears rest)
+  const isBusy = isOnMission || isOnExpedition || isInDungeon || dead;
 
   const canStartAutoBattle = hasAutoBattle && selectedZone && beltFoodTotal > 0 && !dead;
   const skillPoints = adventurer.skillPoints ?? 0;
@@ -1174,12 +1175,12 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
   function getStatusBadge() {
     if (dead) return { label: "💀 Fallen", color: "#ef4444", bg: "rgba(239,68,68,0.12)", border: "rgba(239,68,68,0.3)" };
     if (isInDungeon) return { label: "🏰 Dungeon", color: "#a78bfa", bg: "rgba(99,102,241,0.12)", border: "rgba(99,102,241,0.3)" };
-    if (isResting) return { label: "🍺 Resting", color: "#fbbf24", bg: "rgba(251,191,36,0.1)", border: "rgba(251,191,36,0.3)" };
     if (isOnExpedition) {
       const expTierId = getHeroExpeditionTierId(game, adventurer.id);
       const expTier = expTierId ? EXPEDITION_TIERS[expTierId] : null;
       return { label: `${expTier?.emoji ?? "🗺️"} Expedition`, color: "#a78bfa", bg: "rgba(99,102,241,0.1)", border: "rgba(99,102,241,0.25)" };
     }
+    if (isResting) return { label: "🍺 Resting", color: "#fbbf24", bg: "rgba(251,191,36,0.1)", border: "rgba(251,191,36,0.3)" };
     if (isOnMission && mission?.autoBattle) return { label: `⚔️ Auto · ${mission.zoneName}`, color: "#ef4444", bg: "rgba(239,68,68,0.08)", border: "rgba(239,68,68,0.25)" };
     if (isOnMission) return { label: done ? "✅ Done!" : `⚔️ ${mission.zoneName}`, color: done ? "#4ade80" : "#fbbf24", bg: done ? "rgba(74,222,128,0.1)" : "rgba(251,191,36,0.08)", border: done ? "rgba(74,222,128,0.3)" : "rgba(251,191,36,0.25)" };
     return { label: "Idle", color: "var(--muted)", bg: "rgba(255,255,255,0.04)", border: "rgba(255,255,255,0.1)" };
@@ -1339,7 +1340,7 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
       {isResting && (
         <div style={{ marginBottom: "0.6rem", padding: "0.5rem 0.7rem", borderRadius: "8px", background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.3)" }}>
           <div style={{ fontSize: "0.68rem", fontWeight: 700, color: "#fbbf24" }}>🍺 Resting at Tavern</div>
-          <div style={{ fontSize: "0.58rem", color: "var(--muted)", marginTop: "0.15rem" }}>Hero is recovering HP.</div>
+          <div style={{ fontSize: "0.58rem", color: "var(--muted)", marginTop: "0.15rem" }}>Recovering HP · eat from the belt to speed it up · leaves automatically at full HP.</div>
         </div>
       )}
 

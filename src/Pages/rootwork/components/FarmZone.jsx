@@ -374,6 +374,7 @@ export default function FarmZone({
             onSellWorker={onSellWorker}
             onUpgradeGear={onUpgradeGear}
             onSpecialize={onSpecialize}
+            seasonReady={prestigeReady}
           />
         </div>
       </Section>

@@ -39,6 +39,8 @@ import {
   tickAdventurerMissions,
   hireAdventurer, spendSkillPoint, getAdventurerSlotCost, isAtWorkerCap,
   getKitchenHallRetainCount, getMarketHallRetainCount, getForgeHallRetainCount, getBarnHallRetainCount,
+  getFarmersHallRetainCount, getFishermensHallRetainCount,
+  buildOrUpgradeFarmersHall, buildOrUpgradeFishermensHall,
   // New adventurer functions
   reviveAdventurer, prestigeAdventurer, requestAutoBattleStop,
   tickBossFight, checkBossUnlock,
@@ -66,7 +68,7 @@ import {
   SAVE_KEY, SAVE_INTERVAL_MS,
   PRESTIGE_SKILL_TREE, PRESTIGE_SKILL_BRANCHES, PRESTIGE_BRANCH_META,
   CROPS, GEAR, SPECIALIZATIONS, KITCHEN_WORKER_UPGRADES, MARKET_WORKER_GEAR,
-  FISHING_FISH, FISHING_BODIES, FISHING_WORKER_HIRE_COSTS,
+  FISHING_FISH, FISHING_BODIES, FISHING_WORKER_HIRE_COSTS, GEAR_ORDER, MARKET_WORKER_GEAR_ORDER,
   BARN_BUILDINGS, BARN_BUILDING_ORDER, EXTRA_FARM_CROPS,
   FORGE_WORKER_UPGRADES,
   EXPEDITION_TIER_ORDER, EXPEDITION_TIERS,
@@ -148,7 +150,8 @@ function WorkerGroup({ label, color, workers, chosenIds, canSelect, onToggle, sl
 
 function PrestigeModal({ game, onComplete, onCancel }) {
   const [step, setStep] = useState(1);
-  const [chosenWorkerIds, setChosenWorkerIds] = useState([]);
+  // null until the player touches the list — until then, hall retain slots are auto-filled (see defaultIds)
+  const [chosenOverride, setChosenWorkerIds] = useState(null);
   const [pendingSkills, setPendingSkills] = useState({});
 
   const spentPoints = Object.values(game.prestigeSkills ?? {}).reduce((s, v) => s + v, 0);
@@ -158,23 +161,24 @@ function PrestigeModal({ game, onComplete, onCancel }) {
   const farmerWorkers = game.workers.map((w) => {
     const gear = GEAR[w.gear]; const spec = SPECIALIZATIONS[w.specialization];
     const farm = game.farms.find((f) => f.id === w.farmId); const crop = farm ? CROPS[farm.crop] : null;
-    return { _keepId: w.id, _title: `${gear.emoji} ${gear.name}${spec?.id !== "none" ? ` · ${spec.emoji} ${spec.name}` : ""}`, _subtitle: crop ? `${crop.emoji} ${crop.name} Farm` : "Farm" };
+    return { _keepId: w.id, _score: GEAR_ORDER.indexOf(w.gear) * 10 + (w.specialization && w.specialization !== "none" ? 1 : 0), _title: `${gear.emoji} ${gear.name}${spec?.id !== "none" ? ` · ${spec.emoji} ${spec.name}` : ""}`, _subtitle: crop ? `${crop.emoji} ${crop.name} Farm` : "Farm" };
   });
   const crafterWorkers = game.kitchenWorkers.map((w) => {
     const ups = (w.upgrades ?? []).map((u) => KITCHEN_WORKER_UPGRADES[u]?.emoji).filter(Boolean).join(" ");
-    return { _keepId: w.id, _title: `👨‍🍳 Crafter${ups ? ` ${ups}` : ""}`, _subtitle: (w.upgrades ?? []).map((u) => KITCHEN_WORKER_UPGRADES[u]?.name).filter(Boolean).join(", ") || "No upgrades" };
+    return { _keepId: w.id, _score: (w.upgrades ?? []).length, _title: `👨‍🍳 Crafter${ups ? ` ${ups}` : ""}`, _subtitle: (w.upgrades ?? []).map((u) => KITCHEN_WORKER_UPGRADES[u]?.name).filter(Boolean).join(", ") || "No upgrades" };
   });
   const merchantWorkers = game.marketWorkers.map((w) => {
     const gear = MARKET_WORKER_GEAR[w.gear];
-    return { _keepId: w.id, _title: `🛒 ${gear.emoji} ${gear.name}`, _subtitle: `${gear.itemsPerSecond} items/sec${w.hasStandingOrder ? " · standing order" : ""}` };
+    return { _keepId: w.id, _score: MARKET_WORKER_GEAR_ORDER.indexOf(w.gear) * 10 + (w.hasStandingOrder ? 1 : 0), _title: `🛒 ${gear.emoji} ${gear.name}`, _subtitle: `${gear.itemsPerSecond} items/sec${w.hasStandingOrder ? " · standing order" : ""}` };
   });
   const fisherWorkers = Object.entries(game.fishing?.bodies ?? {})
     .flatMap(([bodyId, b]) => {
       const workerList = b?.workers?.length > 0 ? b.workers : (b?.worker?.hired ? [b.worker] : []);
       if (workerList.length === 0) return [];
       const body = FISHING_BODIES[bodyId]; const cost = FISHING_WORKER_HIRE_COSTS[bodyId] ?? 75;
-      return workerList.map((_, wi) => ({
+      return workerList.map((fw, wi) => ({
         _keepId: `fisher_${bodyId}${wi > 0 ? "_" + wi : ""}`,
+        _score: (["pond", "lake", "river", "ocean"].indexOf(bodyId) + 1) * 10 + (fw?.upgrades ?? []).length,
         _title: `🎣 ${body?.emoji ?? ""} ${body?.name ?? bodyId} Fisher${workerList.length > 1 ? " #" + (wi + 1) : ""}`,
         _subtitle: `Rehire cost $${cost}`,
       }));
@@ -182,64 +186,56 @@ function PrestigeModal({ game, onComplete, onCancel }) {
   const barnWorkersList = (game.barnWorkers ?? []).map((w) => {
     const animalType = w.animalType;
     const barnEntry = Object.values(BARN_BUILDINGS).find(b => b.animalType === animalType);
-    return { _keepId: w.id, _title: `${barnEntry?.emoji ?? "🐾"} ${barnEntry?.name ?? animalType} Worker`, _subtitle: `${(w.upgrades ?? []).length} upgrade${(w.upgrades ?? []).length !== 1 ? "s" : ""}` };
+    return { _keepId: w.id, _score: (w.upgrades ?? []).length, _title: `${barnEntry?.emoji ?? "🐾"} ${barnEntry?.name ?? animalType} Worker`, _subtitle: `${(w.upgrades ?? []).length} upgrade${(w.upgrades ?? []).length !== 1 ? "s" : ""}` };
   });
 
   const forgeWorkersList = (game.forgeWorkers ?? []).map((w) => {
     const ups = (w.upgrades ?? []).map((u) => FORGE_WORKER_UPGRADES[u]?.emoji).filter(Boolean).join(" ");
-    return { _keepId: w.id, _title: "🔨 Smith" + (ups ? " " + ups : ""), _subtitle: (w.upgrades ?? []).map((u) => FORGE_WORKER_UPGRADES[u]?.name).filter(Boolean).join(", ") || "No upgrades" };
+    return { _keepId: w.id, _score: (w.upgrades ?? []).length, _title: "🔨 Smith" + (ups ? " " + ups : ""), _subtitle: (w.upgrades ?? []).map((u) => FORGE_WORKER_UPGRADES[u]?.name).filter(Boolean).join(", ") || "No upgrades" };
   });
 
   const allCount = farmerWorkers.length + crafterWorkers.length + merchantWorkers.length + fisherWorkers.length + barnWorkersList.length + forgeWorkersList.length;
 
-  // Per-type dedicated retain slots (from hall buildings)
-  const kitchenRetainSlots = getKitchenHallRetainCount(game);
-  const marketRetainSlots = getMarketHallRetainCount(game);
-  const forgeRetainSlots  = getForgeHallRetainCount(game);
-  const barnRetainSlots   = getBarnHallRetainCount(game);
+  // Per-type dedicated retain slots (from hall buildings).
+  // Hall slots are filled first; extra picks of that type overflow into the base pool (game.season).
+  const hallGroups = [
+    { key: "farm",    workers: farmerWorkers,    slots: getFarmersHallRetainCount(game) },
+    { key: "kitchen", workers: crafterWorkers,   slots: getKitchenHallRetainCount(game) },
+    { key: "market",  workers: merchantWorkers,  slots: getMarketHallRetainCount(game) },
+    { key: "fisher",  workers: fisherWorkers,    slots: getFishermensHallRetainCount(game) },
+    { key: "barn",    workers: barnWorkersList,  slots: getBarnHallRetainCount(game) },
+    { key: "forge",   workers: forgeWorkersList, slots: getForgeHallRetainCount(game) },
+  ].map((g) => ({ ...g, ids: new Set(g.workers.map((w) => w._keepId)) }));
+  const groupOf = (keepId) => hallGroups.find((g) => g.ids.has(keepId));
+  const slotsFor = (key) => hallGroups.find((g) => g.key === key)?.slots ?? 0;
 
-  // How many chosen workers of each type
-  const kitchenChosenIds = new Set(crafterWorkers.map(w => w._keepId));
-  const marketChosenIds  = new Set(merchantWorkers.map(w => w._keepId));
-  const forgeChosenIds   = new Set(forgeWorkersList.map(w => w._keepId));
-  const barnChosenIds    = new Set(barnWorkersList.map(w => w._keepId));
-  const kitchenSelected  = chosenWorkerIds.filter(id => kitchenChosenIds.has(id)).length;
-  const marketSelected   = chosenWorkerIds.filter(id => marketChosenIds.has(id)).length;
-  const forgeSelected    = chosenWorkerIds.filter(id => forgeChosenIds.has(id)).length;
-  const barnSelected     = chosenWorkerIds.filter(id => barnChosenIds.has(id)).length;
+  // Auto-retain: until the player changes anything, every hall slot is pre-filled
+  // with that type's best workers (highest gear / most upgrades).
+  const defaultIds = hallGroups.flatMap((g) =>
+    [...g.workers].sort((a, b) => (b._score ?? 0) - (a._score ?? 0)).slice(0, g.slots).map((w) => w._keepId)
+  );
+  const chosenWorkerIds = chosenOverride ?? defaultIds;
 
-  // How many kitchen/market/forge/barn workers overflow into the base pool
-  const kitchenBaseUsed = Math.max(0, kitchenSelected - kitchenRetainSlots);
-  const marketBaseUsed  = Math.max(0, marketSelected  - marketRetainSlots);
-  const forgeBaseUsed   = Math.max(0, forgeSelected   - forgeRetainSlots);
-  const barnBaseUsed    = Math.max(0, barnSelected    - barnRetainSlots);
-  const otherSelected   = chosenWorkerIds.length - kitchenSelected - marketSelected - forgeSelected - barnSelected;
-  const baseUsed        = kitchenBaseUsed + marketBaseUsed + forgeBaseUsed + barnBaseUsed + otherSelected;
-  const baseAtLimit     = baseUsed >= game.season;
+  const selectedIn = (g) => chosenWorkerIds.filter((id) => g.ids.has(id)).length;
+  const baseUsed = hallGroups.reduce((sum, g) => sum + Math.max(0, selectedIn(g) - g.slots), 0);
+  const baseAtLimit = baseUsed >= game.season;
+  const hallLabel = (key) => {
+    const g = hallGroups.find((x) => x.key === key);
+    return g && g.slots > 0 ? `${selectedIn(g)}/${g.slots} hall` : null;
+  };
 
-  // canSelect(keepId): true if this worker can still be added
+  // canSelect(keepId): true if this worker can still be added (free hall slot of its type, or a free base slot)
   function canSelect(keepId) {
-    if (kitchenChosenIds.has(keepId)) {
-      // Can use a hall slot or a base slot
-      return kitchenSelected < kitchenRetainSlots || !baseAtLimit;
-    }
-    if (marketChosenIds.has(keepId)) {
-      return marketSelected < marketRetainSlots || !baseAtLimit;
-    }
-    if (forgeChosenIds.has(keepId)) {
-      return forgeSelected < forgeRetainSlots || !baseAtLimit;
-    }
-    if (barnChosenIds.has(keepId)) {
-      return barnSelected < barnRetainSlots || !baseAtLimit;
-    }
+    const g = groupOf(keepId);
+    if (g && selectedIn(g) < g.slots) return true;
     return !baseAtLimit;
   }
 
   function toggleWorker(keepId, isSelected) {
     if (isSelected) {
-      setChosenWorkerIds(ids => ids.filter(id => id !== keepId));
+      setChosenWorkerIds((ids) => (ids ?? defaultIds).filter((id) => id !== keepId));
     } else if (canSelect(keepId)) {
-      setChosenWorkerIds(ids => [...ids, keepId]);
+      setChosenWorkerIds((ids) => [...(ids ?? defaultIds), keepId]);
     }
   }
 
@@ -332,7 +328,7 @@ function PrestigeModal({ game, onComplete, onCancel }) {
               <h2 style={{ fontSize: "1.2rem", fontWeight: 700 }}>👷 Keep Workers</h2>
               <p style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: "0.25rem" }}>
                 Pick up to {game.season} worker{game.season !== 1 ? "s" : ""} to carry over
-                {(kitchenRetainSlots > 0 || marketRetainSlots > 0) && (
+                {hallGroups.some((g) => g.slots > 0) && (
                   <span> · plus hall retain slots</span>
                 )}
               </p>
@@ -344,16 +340,18 @@ function PrestigeModal({ game, onComplete, onCancel }) {
               <p style={{ fontSize: "0.8rem", textAlign: "center", color: "var(--muted)", marginBottom: "1rem" }}>No workers to keep. You'll start fresh.</p>
             ) : (
               <div style={{ marginBottom: "1rem" }}>
-                <WorkerGroup label="🌾 Farmers" color="#4ade80" workers={farmerWorkers} chosenIds={chosenWorkerIds} canSelect={canSelect} onToggle={toggleWorker} defaultOpen={farmerWorkers.length > 0} />
+                <WorkerGroup label="🌾 Farmers" color="#4ade80" workers={farmerWorkers} chosenIds={chosenWorkerIds} canSelect={canSelect} onToggle={toggleWorker}
+                  slotLabel={hallLabel("farm")} defaultOpen={farmerWorkers.length > 0} />
                 <WorkerGroup label="🍳 Crafters" color="#f59e0b" workers={crafterWorkers} chosenIds={chosenWorkerIds} canSelect={canSelect} onToggle={toggleWorker}
-                  slotLabel={kitchenRetainSlots > 0 ? `${kitchenSelected}/${kitchenRetainSlots} hall` : null} defaultOpen={crafterWorkers.length > 0} />
+                  slotLabel={hallLabel("kitchen")} defaultOpen={crafterWorkers.length > 0} />
                 <WorkerGroup label="💹 Merchants" color="#60a5fa" workers={merchantWorkers} chosenIds={chosenWorkerIds} canSelect={canSelect} onToggle={toggleWorker}
-                  slotLabel={marketRetainSlots > 0 ? `${marketSelected}/${marketRetainSlots} hall` : null} />
-                <WorkerGroup label="🎣 Fishers" color="#22d3ee" workers={fisherWorkers} chosenIds={chosenWorkerIds} canSelect={canSelect} onToggle={toggleWorker} />
+                  slotLabel={hallLabel("market")} defaultOpen={merchantWorkers.length > 0} />
+                <WorkerGroup label="🎣 Fishers" color="#22d3ee" workers={fisherWorkers} chosenIds={chosenWorkerIds} canSelect={canSelect} onToggle={toggleWorker}
+                  slotLabel={hallLabel("fisher")} defaultOpen={slotsFor("fisher") > 0} />
                 <WorkerGroup label="🐄 Barn Workers" color="#a78bfa" workers={barnWorkersList} chosenIds={chosenWorkerIds} canSelect={canSelect} onToggle={toggleWorker}
-                  slotLabel={barnRetainSlots > 0 ? `${barnSelected}/${barnRetainSlots} hall` : null} />
+                  slotLabel={hallLabel("barn")} defaultOpen={slotsFor("barn") > 0} />
                 <WorkerGroup label="🔨 Smiths" color="#fb923c" workers={forgeWorkersList} chosenIds={chosenWorkerIds} canSelect={canSelect} onToggle={toggleWorker}
-                  slotLabel={forgeRetainSlots > 0 ? `${forgeSelected}/${forgeRetainSlots} hall` : null} />
+                  slotLabel={hallLabel("forge")} defaultOpen={slotsFor("forge") > 0} />
               </div>
             )}
             <div style={{ display: "flex", gap: "0.5rem" }}>
@@ -694,6 +692,8 @@ export default function RootWork() {
   const handleUpgradeBarnHall  = useCallback(() => update((s) => { const n = upgradeBarnHall(s);  if (n === s) notify('Cannot upgrade Barn Hall.'); return n; }), [update, notify]);
   const handleBuildForgeHall   = useCallback(() => update((s) => { const n = buildForgeHall(s);   if (n === s) notify('Requires Town Hall level 1.'); return n; }), [update, notify]);
   const handleUpgradeForgeHall = useCallback(() => update((s) => { const n = upgradeForgeHall(s); if (n === s) notify('Cannot upgrade Forge Hall.'); return n; }), [update, notify]);
+  const handleFarmersHall      = useCallback(() => update((s) => { const n = buildOrUpgradeFarmersHall(s);    if (n === s) notify("Can't build — check Town Hall level, cash and materials."); return n; }), [update, notify]);
+  const handleFishermensHall   = useCallback(() => update((s) => { const n = buildOrUpgradeFishermensHall(s); if (n === s) notify("Can't build — check Town Hall level, cash and materials."); return n; }), [update, notify]);
   const handleUpgradeGuildHall = useCallback(() => update((s) => { const n = upgradeGuildHall(s); if (n === s) notify('Cannot upgrade Guild Hall.'); return n; }), [update, notify]);
   const handleBuildRecHall   = useCallback(() => update((s) => { const n = buildRecHall(s);   if (n === s) notify('Requires Town Hall level 3 and materials.'); return n; }), [update, notify]);
   const handleUpgradeRecHall = useCallback(() => update((s) => { const n = upgradeRecHall(s); if (n === s) notify('Cannot upgrade Recreation Hall.'); return n; }), [update, notify]);
@@ -1100,6 +1100,8 @@ export default function RootWork() {
               onUpgradeBarnHall={handleUpgradeBarnHall}
               onBuildForgeHall={handleBuildForgeHall}
               onUpgradeForgeHall={handleUpgradeForgeHall}
+              onBuildOrUpgradeFarmersHall={handleFarmersHall}
+              onBuildOrUpgradeFishermensHall={handleFishermensHall}
               onBuildRecHall={handleBuildRecHall}
               onUpgradeRecHall={handleUpgradeRecHall}
               onBuyBakery={handleBuyTownBakery}

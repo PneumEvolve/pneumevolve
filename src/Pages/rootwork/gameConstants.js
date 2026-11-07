@@ -409,6 +409,7 @@ export const TOWN_HALL_BUILDING_GATES = {
   kitchen_hall: 1, market_hall: 1, tavern: 1, forge_hall: 1,
   guild_hall: 2, school: 2,
   barn_hall: 3,
+  farmers_hall: 1, fishermens_hall: 1,
   recreation_hall: 2,
 };
 
@@ -498,6 +499,24 @@ export const FORGE_HALL_LEVEL_REQUIRES  = [
   { iron_fitting: 10, reinforced_crate: 6, fine_tools: 4, iron_ore: 80 },  // L4
 ];
 // Max workers = level * 2; retain = level per prestige; T2 at L2, T3 at L3, Arcane at L4
+
+// ── Farmers Hall ──────────────────────────────────────────────────────────────
+// Each level retains 1 more farmer across season prestige (L1 = 1, L2 = 2, ...).
+// Build cost = one farmer fully kitted out (Gloves → Tractor + Specialize) × 1.25:
+//   cash 2,940 × 1.25 = 3,675 · iron 140 → 175 · lumber 104 → 130 · fittings 6 → 8
+// Each upgrade after that: cash ×2, materials ×1.5 per level (see getHallCost in town.js).
+export const TOWN_FARMERS_HALL_COST     = 3_675;
+export const TOWN_FARMERS_HALL_REQUIRES = { iron_ore: 175, lumber: 130, iron_fitting: 8 };
+
+// ── Fishermen's Hall ──────────────────────────────────────────────────────────
+// Each level retains 1 more fisherman across season prestige (L1 = 1, L2 = 2, ...).
+// Build cost = one fisherman with every upgrade × 1.25:
+//   cash 8,700 × 1.25 = 10,875 · iron 70 → 88 · lumber 53 → 67 · fine tools 5 → 7
+export const TOWN_FISHERMENS_HALL_COST     = 10_875;
+export const TOWN_FISHERMENS_HALL_REQUIRES = { iron_ore: 88, lumber: 67, fine_tools: 7 };
+
+export const HALL_UPGRADE_CASH_MULTIPLIER     = 2;
+export const HALL_UPGRADE_MATERIAL_MULTIPLIER = 1.5;
 
 // ── Guild Hall ────────────────────────────────────────────────────────────────
 // Gates quest tiers (world zone availability) and max hero count.

@@ -1408,16 +1408,27 @@ export function useArtisanFood(state, adventurerId, foodId) {
   const newHp = Math.min(maxHp, (adventurer.hp ?? maxHp) + effectiveHeal);
   const updatedBelt = { ...belt, [foodId]: belt[foodId] - 1 };
   const updatedAdv = { ...adventurer, hp: newHp, foodBelt: updatedBelt };
+  // Resting at the tavern and now full: pulled out automatically
+  if (newHp >= maxHp && updatedAdv.tavernResting) updatedAdv.tavernResting = false;
   return { ...state, adventurers: state.adventurers.map((a, i) => i === advIdx ? updatedAdv : a) };
 }
 
 
+
+// Heroes away from town (expedition or dungeon) can't be resting at the tavern.
+// Their real HP lives in the expedition/dungeon state, so adventurer.hp is stale while away.
+export function isHeroAwayFromTown(state, heroId) {
+  if ((state.dungeonRun?.heroIds ?? []).includes(heroId)) return true;
+  return Object.values(state.expeditions ?? {}).some((exp) => (exp?.heroIds ?? []).includes(heroId));
+}
 
 // Tick adventurer regen (call from main tick, not forge tick)
 export function tickAdventurerRegen(state, dtSeconds) {
   if (!(state.adventurers ?? []).length) return state;
   const tavernBuilt = isTownBuildingBuilt(state, "tavern");
   const updated = state.adventurers.map((adv) => {
+    // Away on expedition/dungeon: never resting (also clears the flag on old saves)
+    if (isHeroAwayFromTown(state, adv.id)) return adv.tavernResting ? { ...adv, tavernResting: false } : adv;
     const trueMax = adv.maxHp ?? (getAdventurerMaxHp(adv) + getHeroBonusMaxHp(adv));
     const hp = adv.hp ?? trueMax;
     if (hp <= 0) return adv;
@@ -1444,6 +1455,7 @@ export function assignHeroToTavern(state, heroId) {
   const adv = (state.adventurers ?? []).find((a) => a.id === heroId);
   if (!adv) return state;
   if (adv.mission || adv.bossAssigned) return state; // busy
+  if (isHeroAwayFromTown(state, heroId)) return state; // expedition / dungeon
   if ((adv.hp ?? adv.maxHp) <= 0) return state;      // dead
   if (adv.tavernResting) return state;                // already there
   return {
@@ -1474,7 +1486,7 @@ export function tickTavernRestPulse(state) {
 
   const next = state; // already a deep clone from updateTown caller
   next.adventurers = (next.adventurers ?? []).map((adv) => {
-    const isIdle    = !adv.mission && !adv.bossAssigned;
+    const isIdle    = !adv.mission && !adv.bossAssigned && !isHeroAwayFromTown(next, adv.id);
     const isAlive   = (adv.hp ?? 0) > 0;       // dead heroes must be manually revived
     const isResting = adv.tavernResting === true; // must be explicitly assigned to tavern
     const needsHeal = (adv.hp ?? 0) < (adv.maxHp ?? 1);
@@ -1552,6 +1564,7 @@ export function tickAdventurerMissionsAt(state, nowMs) {
         if (a.mission) return a;                      // still on a mission
         if (a.pendingAutoCollect) return a;           // waiting for collect tap
         if (a.bossAssigned) return a;                 // in boss fight
+        if (isHeroAwayFromTown(next, a.id)) return a; // on expedition / in dungeon
         if ((a.hp ?? 0) <= 0) return a;               // dead — must be revived manually
         if (a.tavernResting) return a;                // already resting
         if ((a.hp ?? 0) >= (a.maxHp ?? 1)) return a; // full HP, no need

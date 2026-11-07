@@ -89,6 +89,9 @@ FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, 
   MARKET_HALL_MAX_WORKERS, MARKET_HALL_PRICE_BONUS, MARKET_HALL_RETAIN_COUNT,
   TOWN_BARN_HALL_COST, BARN_HALL_LEVEL_COSTS, BARN_HALL_LEVEL_REQUIRES,
   TOWN_FORGE_HALL_COST, FORGE_HALL_LEVEL_COSTS, FORGE_HALL_LEVEL_REQUIRES,
+  TOWN_FARMERS_HALL_COST, TOWN_FARMERS_HALL_REQUIRES,
+  TOWN_FISHERMENS_HALL_COST, TOWN_FISHERMENS_HALL_REQUIRES,
+  HALL_UPGRADE_CASH_MULTIPLIER, HALL_UPGRADE_MATERIAL_MULTIPLIER,
   TOWN_GUILD_HALL_COST, getGuildHallUpgradeCost, getGuildHallUpgradeRequires,
   GUILD_HALL_QUEST_TIER,
   ROAD_TIERS, TRADE_TOWNS, TRADE_TOWN_ORDER,
@@ -427,7 +430,62 @@ export function getMarketHallRetainCount(state) {
   const mh = state.town?.buildings?.market_hall;
   if (!mh?.built) return 0;
   const level = mh.level ?? 1;
-  return MARKET_HALL_RETAIN_COUNT[level - 1] ?? 0;
+  // L1=0, L2=1, L3=2, L4+=level-1 (previously fell to 0 past L3)
+  if (level <= MARKET_HALL_RETAIN_COUNT.length) return MARKET_HALL_RETAIN_COUNT[level - 1] ?? 0;
+  return level - 1;
+}
+
+// ─── Farmers Hall / Fishermen's Hall ──────────────────────────────────────────
+// Level 0 = not built. Cost for the step from `level` to `level + 1`.
+export function getHallCost(baseCash, baseRequires, level) {
+  const cash = Math.round(baseCash * Math.pow(HALL_UPGRADE_CASH_MULTIPLIER, level) / 25) * 25;
+  const matMult = Math.pow(HALL_UPGRADE_MATERIAL_MULTIPLIER, level);
+  const requires = Object.fromEntries(
+    Object.entries(baseRequires).map(([k, v]) => [k, Math.ceil(v * matMult)])
+  );
+  return { cash, requires };
+}
+
+export function getFarmersHallLevel(state) {
+  const h = state.town?.buildings?.farmers_hall;
+  return h?.built ? (h.level ?? 1) : 0;
+}
+export function getFarmersHallRetainCount(state) {
+  return getFarmersHallLevel(state); // 1 farmer per level
+}
+export function getFarmersHallNextCost(state) {
+  return getHallCost(TOWN_FARMERS_HALL_COST, TOWN_FARMERS_HALL_REQUIRES, getFarmersHallLevel(state));
+}
+
+export function getFishermensHallLevel(state) {
+  const h = state.town?.buildings?.fishermens_hall;
+  return h?.built ? (h.level ?? 1) : 0;
+}
+export function getFishermensHallRetainCount(state) {
+  return getFishermensHallLevel(state); // 1 fisherman per level
+}
+export function getFishermensHallNextCost(state) {
+  return getHallCost(TOWN_FISHERMENS_HALL_COST, TOWN_FISHERMENS_HALL_REQUIRES, getFishermensHallLevel(state));
+}
+
+function _buildOrUpgradeRetainHall(state, key, level, cost) {
+  if (getTownHallLevel(state) < (TOWN_HALL_BUILDING_GATES[key] ?? 1)) return state;
+  if ((state.cash ?? 0) < cost.cash) return state;
+  if (!canAffordUpgradeMaterials(state, cost.requires)) return state;
+  const next = deepCloneState(state);
+  next.cash -= cost.cash;
+  consumeUpgradeMaterials(next, cost.requires);
+  if (!next.town.buildings) next.town.buildings = {};
+  next.town.buildings[key] = { built: true, level: level + 1 };
+  return next;
+}
+
+export function buildOrUpgradeFarmersHall(state) {
+  return _buildOrUpgradeRetainHall(state, "farmers_hall", getFarmersHallLevel(state), getFarmersHallNextCost(state));
+}
+
+export function buildOrUpgradeFishermensHall(state) {
+  return _buildOrUpgradeRetainHall(state, "fishermens_hall", getFishermensHallLevel(state), getFishermensHallNextCost(state));
 }
 
 // Tavern: regen rate in HP/s

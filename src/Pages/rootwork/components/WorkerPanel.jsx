@@ -66,7 +66,7 @@ function previewStatLine(worker, nextGearId) {
  
 // ─── Worker card ──────────────────────────────────────────────────────────────
  
-function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWorker }) {
+function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWorker, seasonReady = false }) {
   const [showSpecChoices, setShowSpecChoices] = useState(false);
   const [confirmSell, setConfirmSell] = useState(false);
  
@@ -90,11 +90,17 @@ function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWor
   const sellRefund = Math.floor(hireCostWhenBought * 0.5);
  
   return (
-    <div className="card p-4 space-y-3" style={{ fontSize: "0.85rem" }}>
+    <div className="card p-4 space-y-3" style={{
+      fontSize: "0.85rem",
+      ...(seasonReady ? { border: "2px solid #4ade80", boxShadow: "0 0 0 3px rgba(74,222,128,0.15)" } : {}),
+    }}>
  
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ fontWeight: 600 }}>👷 Worker</div>
+        <div style={{ fontWeight: 600 }}>
+          👷 Worker
+          {seasonReady && <span style={{ marginLeft: "0.4rem", fontSize: "0.62rem", fontWeight: 700, color: "#4ade80" }}>✓ Season ready</span>}
+        </div>
         <div style={{
           fontSize: "0.7rem", color: "var(--muted)", background: "var(--bg)",
           border: "1px solid var(--border)", borderRadius: "999px", padding: "0.2rem 0.6rem",
@@ -232,6 +238,7 @@ function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWor
 export default function WorkerPanel({
   farm, game,
   onHireWorker, onUpgradeGear, onSpecialize, onSellWorker,
+  seasonReady = false,
 }) {
   const farmWorkers = game.workers.filter((w) => w.farmId === farm.id);
   const farmCrop = CROPS[farm.crop];
@@ -280,6 +287,7 @@ export default function WorkerPanel({
               onUpgradeGear={onUpgradeGear}
               onSpecialize={onSpecialize}
               onSellWorker={onSellWorker}
+              seasonReady={seasonReady}
             />
           ))}
         </div>

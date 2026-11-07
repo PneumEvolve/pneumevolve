@@ -38,7 +38,8 @@ import {
   getWarehouseCropCap, getWarehouseUpgradeCost, getWarehouseUpgradeRequires,
   getWarehouseLevelBaseCap, getWarehouseLevelCapPerWorker, getWarehouseLevelMaxWorkers, getWarehouseLevelName,
   getMaxKitchenWorkers, getMaxMarketWorkers, getMaxBarnWorkersPerBuilding, getBarnHallRetainCount,
-  getMaxForgeWorkers, getForgeHallRecipeTier, getForgeHallRetainCount,
+  getMaxForgeWorkers, getForgeHallRecipeTier, getForgeHallRetainCount, getMarketHallRetainCount,
+  getFarmersHallLevel, getFarmersHallNextCost, getFishermensHallLevel, getFishermensHallNextCost,
   getMaxHeroes, getGuildHallQuestTier, getSatisfactionCeiling,
   getBankPriceBonus, getRecHallSatBonus, getRecHallMaxWorkers, getTradeTownSatBonus,
   getRoadLevel, getRoadNextTier, canAffordRoad, isRoadEnabled, getTotalRoadDrain,
@@ -187,6 +188,8 @@ export default function TownZone({
   onUpgradeBarnHall,
   onBuildForgeHall,
   onUpgradeForgeHall,
+  onBuildOrUpgradeFarmersHall,
+  onBuildOrUpgradeFishermensHall,
   onBuildRecHall,
   onUpgradeRecHall,
   onBuildOrUpgradeRoad,
@@ -676,7 +679,7 @@ export default function TownZone({
               <>
                 <Row label="Max market workers" value={getMaxMarketWorkers(game)} />
                 <Row label="Sell price bonus" value={`+${MARKET_HALL_PRICE_BONUS[Math.min(marketHallLevel - 1, MARKET_HALL_PRICE_BONUS.length - 1)]}%`} valueColor="#4ade80" />
-                <Row label="Auto-retain on prestige" value={`${MARKET_HALL_RETAIN_COUNT[Math.min(marketHallLevel - 1, MARKET_HALL_RETAIN_COUNT.length - 1)]} workers`} />
+                <Row label="Auto-retain on prestige" value={`${getMarketHallRetainCount(game)} workers`} />
                 {(() => {
                   const nextCost = marketHallLevel <= 2
                     ? MARKET_HALL_LEVEL_COSTS[marketHallLevel - 1]
@@ -718,6 +721,45 @@ export default function TownZone({
               </>
             )}
           </BuildingCard>
+
+          {/* ── Farmers Hall / Fishermen's Hall (retain halls) ─────────── */}
+          {[
+            {
+              key: "farmers_hall", emoji: "🌾", title: "Farmers Hall", noun: "farmer",
+              level: getFarmersHallLevel(game), cost: getFarmersHallNextCost(game), onClick: onBuildOrUpgradeFarmersHall,
+              blurb: "Each level keeps 1 more farm worker (gear and specialization intact) through season prestige. Kept farmers are auto-picked in the New Season screen.",
+            },
+            {
+              key: "fishermens_hall", emoji: "🎣", title: "Fishermen's Hall", noun: "fisherman",
+              level: getFishermensHallLevel(game), cost: getFishermensHallNextCost(game), onClick: onBuildOrUpgradeFishermensHall,
+              blurb: "Each level keeps 1 more fisherman (upgrades intact) through season prestige. Kept fishermen are auto-picked in the New Season screen.",
+            },
+          ].map((h) => {
+            const built = h.level > 0;
+            const matsOk = Object.entries(h.cost.requires).every(([k, v]) => have(k) >= v);
+            const canBuy = cash >= h.cost.cash && matsOk;
+            return (
+              <BuildingCard key={h.key} emoji={h.emoji} title={h.title}
+                badge={built ? `Level ${h.level} · keeps ${h.level}` : "Not built"}
+                badgeColor={built ? "#4ade80" : "#f59e0b"}
+                locked={!th1} lockedMsg="Requires Town Hall level 1"
+              >
+                <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>{h.blurb}</div>
+                {built && <Row label="Auto-retain on prestige" value={`${h.level} ${h.noun}${h.level !== 1 ? "s" : ""}`} valueColor="#4ade80" />}
+                <div style={{ marginTop: "0.5rem", paddingTop: "0.4rem", borderTop: built ? "1px solid var(--border)" : "none" }}>
+                  <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
+                    {built ? `Upgrade to Level ${h.level + 1} — keeps ${h.level + 1}` : `Level 1 — keeps 1 ${h.noun}`}
+                  </div>
+                  <CostLine cash={cash} cashCost={h.cost.cash} materials={h.cost.requires}
+                    have={Object.fromEntries(Object.keys(h.cost.requires).map((k) => [k, have(k)]))} />
+                </div>
+                <button onClick={h.onClick} disabled={!canBuy} className="btn w-full"
+                  style={{ marginTop: "0.5rem", opacity: canBuy ? 1 : 0.5 }}>
+                  {built ? `Upgrade ${h.title}` : `Build ${h.title}`} — ${fmt(h.cost.cash)}
+                </button>
+              </BuildingCard>
+            );
+          })}
 
           {/* ── Forge Hall ────────────────────────────── */}
           <BuildingCard emoji="⚒️" title="Forge Hall"
