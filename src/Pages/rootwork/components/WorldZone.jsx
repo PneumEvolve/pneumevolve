@@ -2307,6 +2307,49 @@ export default function WorldZone({
           </div>
         );
       })()}
+                {/* ── FILL ALL FOOD ─────────────────────────────── */}
+          {adventurers.length > 0 && (() => {
+            const getStock = (id) => ARTISAN_FOOD_HEAL[id]?.source === "animalGoods" ? (game.animalGoods ?? {})[id] ?? 0 : (game.artisan ?? {})[id] ?? 0;
+            const stock = Object.fromEntries(ARTISAN_FOOD_LIST.map((id) => [id, getStock(id)]));
+            const byHeal = [...ARTISAN_FOOD_LIST].sort((a, b) => (ARTISAN_FOOD_HEAL[b]?.healAmount ?? 0) - (ARTISAN_FOOD_HEAL[a]?.healAmount ?? 0));
+            const dungeonIds = game?.dungeonRun?.heroIds ?? [];
+            const plan = []; // [heroId, foodId, amount]
+            let heroesFed = 0, slotsOpen = 0;
+            for (const a of [...adventurers].reverse()) {
+              // Same rule as the per-hero Fill button: skip heroes on missions, expeditions, in the dungeon, or dead
+              if (!!a.mission || isHeroOnExpedition(game, a.id) || dungeonIds.includes(a.id) || isDead(a)) continue;
+              const belt = a.foodBelt ?? {};
+              let free = getBeltCapacity(a, game.forgeGoodsInstanced ?? []) - Object.values(belt).reduce((s, v) => s + v, 0);
+              if (free <= 0) continue;
+              slotsOpen += free;
+              // Top up with food already on the belt first, then best-healing food in stock
+              const order = [...byHeal.filter((id) => (belt[id] ?? 0) > 0), ...byHeal.filter((id) => !((belt[id] ?? 0) > 0))];
+              let gave = false;
+              for (const id of order) {
+                if (free <= 0) break;
+                const amt = Math.min(free, stock[id]);
+                if (amt <= 0) continue;
+                plan.push([a.id, id, amt]);
+                stock[id] -= amt; free -= amt; gave = true;
+              }
+              if (gave) heroesFed++;
+            }
+            const total = plan.reduce((s, p) => s + p[2], 0);
+            const canFill = total > 0;
+            const sub = canFill
+              ? `+${total} food · ${heroesFed} hero${heroesFed !== 1 ? "es" : ""}`
+              : slotsOpen === 0 ? "All belts full" : "No food in stock";
+            return (
+              <button
+                disabled={!canFill}
+                onClick={() => { for (const [heroId, foodId, amt] of plan) for (let i = 0; i < amt; i++) onGiveArtisanFood(heroId, foodId); }}
+                style={{ width: "100%", marginBottom: "0.6rem", padding: "0.5rem 0.3rem", background: canFill ? "rgba(251,191,36,0.15)" : "rgba(255,255,255,0.04)", border: `1px solid ${canFill ? "rgba(251,191,36,0.45)" : "var(--border)"}`, borderRadius: "8px", color: canFill ? "#fbbf24" : "var(--muted)", fontWeight: 700, fontSize: "0.68rem", cursor: canFill ? "pointer" : "default" }}
+              >
+                🍞 Fill All Food Slots
+                <div style={{ fontSize: "0.52rem", opacity: 0.8 }}>{sub}</div>
+              </button>
+            );
+          })()}
           {[...adventurers].reverse().map((adv) => (
             <AdventurerCard
               key={adv.id}
