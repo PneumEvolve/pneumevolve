@@ -15,6 +15,7 @@ import {
   getAvailablePrestigePoints, getBarnPrestigeReady,
   getBarnInstanceSupplyRate, getBarnInstanceDemandRate, getCompletedQuestIds,
   evaluateQuestCondition, getFarmAverageGrowTime,
+  STOCKED_KITCHEN_GOODS, STOCKED_KITCHEN_TARGET, getStockedKitchenAmount,
 } from "../gameEngine";
  
 function FarmChecklist({ farm, game }) {
@@ -297,6 +298,16 @@ function getConditionTracker(game, c) {
         const count = (game.adventurers ?? []).filter(a => (a.prestigeLevel ?? 0) >= 10).length;
         return { current: Math.min(count, 3), target: 3, label: `Heroes at P10+: ${count} / 3` };
       }
+      case "artisan_goods_500_each": {
+        // One row per good so it's obvious which one is short
+        const items = STOCKED_KITCHEN_GOODS.map(g => ({
+          emoji: g.emoji,
+          name: g.name,
+          current: Math.floor(getStockedKitchenAmount(game, g)),
+          target: STOCKED_KITCHEN_TARGET,
+        }));
+        return { type: "list", items };
+      }
       default: {
         const done = evaluateQuestCondition(game, fakeQuest);
         return { boolean: true, done };
@@ -325,6 +336,34 @@ function getQuestTracker(game, quest) {
 
 function QuestProgressBar({ tracker, done }) {
   if (!tracker || done) return null;
+
+  // "list" quest — one row per item, each with its own count / target
+  if (tracker.type === "list") {
+    return (
+      <div style={{ marginTop: "0.3rem", display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+        {(tracker.items ?? []).map((item) => {
+          const itemDone = item.current >= item.target;
+          const pct = Math.min(100, (item.current / item.target) * 100);
+          return (
+            <div key={item.name}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.6rem", color: itemDone ? "#4ade80" : "var(--muted)", marginBottom: "0.1rem" }}>
+                <span>{itemDone ? "✓" : "✗"} {item.emoji} {item.name}</span>
+                <span>{item.current.toLocaleString()} / {item.target.toLocaleString()}</span>
+              </div>
+              <div style={{ height: 3, borderRadius: 3, background: "var(--border)", overflow: "hidden" }}>
+                <div style={{
+                  height: "100%", borderRadius: 3,
+                  width: `${pct}%`,
+                  background: pct >= 100 ? "#4ade80" : pct >= 60 ? "#fbbf24" : "#60a5fa",
+                  transition: "width 0.3s ease",
+                }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 
   // "and" quest — render each sub-condition as its own row
   if (tracker.type === "and") {

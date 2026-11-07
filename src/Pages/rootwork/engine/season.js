@@ -164,6 +164,31 @@ export function getAvailableBarnUnlocks(state) {
 }
  
 
+// ─── Stocked Kitchen (S13) goods ──────────────────────────────────────────────
+// Every kitchen-crafted good (bait excluded). The kitchen tick puts bread/jam/
+// sauce in state.artisan and everything else in state.animalGoods, so each good
+// carries its source.
+
+export const STOCKED_KITCHEN_TARGET = 500;
+export const STOCKED_KITCHEN_GOODS = [
+  // Crop goods
+  { key: "bread",         emoji: "🍞", name: "Bread",         source: "artisan" },
+  { key: "jam",           emoji: "🍯", name: "Jam",           source: "artisan" },
+  { key: "sauce",         emoji: "🥫", name: "Sauce",         source: "artisan" },
+  // Barn goods
+  { key: "omelette",      emoji: "🍳", name: "Omelette",      source: "animalGoods" },
+  { key: "cheese",        emoji: "🧀", name: "Cheese",        source: "animalGoods" },
+  { key: "knitted_goods", emoji: "🧥", name: "Knitted Goods", source: "animalGoods" },
+  // Fish goods
+  { key: "fish_pie",      emoji: "🥧", name: "Fish Pie",      source: "animalGoods" },
+  { key: "smoked_fish",   emoji: "🐟", name: "Smoked Fish",   source: "animalGoods" },
+];
+
+export function getStockedKitchenAmount(state, good) {
+  const store = good.source === "animalGoods" ? state.animalGoods : state.artisan;
+  return Number(store?.[good.key] ?? 0) || 0;
+}
+
 // ─── Quest evaluation ─────────────────────────────────────────────────────────
 
 export function evaluateQuestCondition(state, quest) {
@@ -268,7 +293,7 @@ export function evaluateQuestCondition(state, quest) {
       case "all_farms_5x5_plots":
         return (state.farms ?? []).length >= 3 && (state.farms ?? []).every(f => (f.unlockedPlots ?? 0) >= 25);
       case "artisan_goods_500_each":
-        return ["bread","jam","sauce","omelette"].every(k => (state.artisan?.[k] ?? 0) >= 500);
+        return STOCKED_KITCHEN_GOODS.every(g => getStockedKitchenAmount(state, g) >= STOCKED_KITCHEN_TARGET);
       default: return false;
     }
   }
