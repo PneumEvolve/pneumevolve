@@ -150,7 +150,8 @@ export function getTotalWorkersHired(state) {
   const townBuildingWorkers =
     (bldgs.clinic?.workers ?? 0) +
     (bldgs.school?.workers ?? 0) +
-    (bldgs.warehouse?.workers ?? 0);
+    (bldgs.warehouse?.workers ?? 0) +
+    (bldgs.recreation_hall?.workers ?? 0);
   return (
     (state.workers ?? []).length +
     (state.kitchenWorkers ?? []).length +

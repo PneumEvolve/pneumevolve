@@ -615,11 +615,15 @@ export function assignTownBuildingWorker(state, key, delta) {
   const current = next.town.buildings[key].workers ?? 0;
   if (delta > 0) {
     if (getFreePeople(next) <= 0) return state;
-    // Warehouse has a per-tier worker cap
+    // Warehouse has a per-level worker cap
     if (key === "warehouse") {
       const level = next.town.buildings.warehouse.level ?? 1;
       const maxW = getWarehouseLevelMaxWorkers(level);
       if (current >= maxW) return state;
+    }
+    // Rec Hall has a per-tier worker cap
+    if (key === "recreation_hall") {
+      if (current >= getRecHallMaxWorkers(next)) return state;
     }
     next.town.buildings[key].workers = current + 1;
   } else {
