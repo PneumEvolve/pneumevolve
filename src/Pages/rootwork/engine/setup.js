@@ -339,16 +339,9 @@ export function getFishMealGrowBonus(state) {
 }
 
 export function getAnimalEffectiveCycleSeconds(baseSeconds, state) {
-  const feast = state.feastBonusPercent ?? 0;
-  const townBonus = (state.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(state) + (getMillhavenGrowBonus(state) + getThornwickGrowBonus(state)) * 100;
-  const treasuryBonus = getTreasuryGrowBonus(state);
-  const fishMeal = getFishMealGrowBonus(state);
-  const totalBonus = feast + townBonus + treasuryBonus + fishMeal;
-  const barnSpeedBonus = getGlenhollowBarnBonus(state); // 0–0.30 from Glenhollow
-  const baseMult = totalBonus > 0 ? (1 + totalBonus / 100) : 1;
-  const totalMult = baseMult * (1 + barnSpeedBonus);
-  if (totalMult <= 1) return baseSeconds;
-  return Math.max(10, Math.floor(baseSeconds / totalMult));
+  const barnSpeedBonus = getGlenhollowBarnBonus(state); // 0 / 0.15 / 0.30 / 0.50
+  if (barnSpeedBonus <= 0) return baseSeconds;
+  return Math.max(10, Math.floor(baseSeconds / (1 + barnSpeedBonus)));
 }
 // ─── Barn worker helpers ──────────────────────────────────────────────────────
 

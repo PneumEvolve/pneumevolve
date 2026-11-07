@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import {
   BARN_WORKER_UPGRADES, ANIMAL_STORAGE_UPGRADES,
   BARN_WORKER_BASE_INTERVAL, ANIMAL_BASE_STOCK_MAX, ANIMAL_YIELD_UPGRADES,
-  BARN_BUILDINGS, BARN_BUILDING_ORDER, BARN_BUILDING_TIERS,
+  BARN_BUILDINGS, BARN_BUILDING_ORDER, BARN_BUILDING_TIERS, ANIMAL_TYPES,
 } from "../gameConstants";
 import {
   getBarnWorkerHireCost, getBarnWorkerInterval,
@@ -15,6 +15,7 @@ import {
   canBuildBarnBuilding, canUpgradeBarnBuilding,
   getAvailableWorkerSlots, isTownBuildingBuilt, hasSchoolResearch,
   getBarnInstanceSupplyRate, getBarnInstanceDemandRate,
+  getAnimalEffectiveCycleSeconds, getGlenhollowBarnBonus, getTownSatisfactionMultiplier,
 } from "../gameEngine";
 import { PRESTIGE_MIN_BARN_WORKERS, PRESTIGE_MIN_BARN_ANIMALS } from "../gameConstants";
  
@@ -176,7 +177,7 @@ function PetsRow({ game, onBuyPet, onInteractPet }) {
  
 // ─── Animal card ──────────────────────────────────────────────────────────────
  
-function AnimalCard({ animal, animalType, index, game, onCollect, onInteract, onUpgradeStorage, onUpgradeYield, onSell }) {
+function AnimalCard({ animal, animalType, cycleSeconds, index, game, onCollect, onInteract, onUpgradeStorage, onUpgradeYield, onSell }) {
   const [confirmSell, setConfirmSell] = useState(false);
   const [showUpgrades, setShowUpgrades] = useState(false);
   const mood = animal.mood ?? 100;
@@ -186,6 +187,11 @@ function AnimalCard({ animal, animalType, index, game, onCollect, onInteract, on
   const cooldown = animal.interactCooldown ?? 0;
   const canInteract = cooldown <= 0;
   const stockPct = Math.min(100, (stock / stockMax) * 100);
+
+  // Cycle timer — uses the SAME effective cycle the engine uses (Glenhollow-adjusted)
+  const readyTick = animal.readyTick ?? 0;
+  const secsLeft = Math.max(0, Math.ceil(cycleSeconds - readyTick));
+  const cyclePct = Math.min(100, (readyTick / cycleSeconds) * 100);
  
   return (
     <div style={{
@@ -218,8 +224,8 @@ function AnimalCard({ animal, animalType, index, game, onCollect, onInteract, on
           </div>
           <div style={{ fontSize: "0.62rem", color: isFull ? "#ef4444" : "var(--muted)", marginTop: "0.1rem", fontWeight: isFull ? 600 : 400 }}>
             {isFull ? "⚠ Full! Mood draining fast"
-              : stock > 0 ? `${animalType.produceEmoji} ${stock} ready · next in ${Math.ceil(animalType.cycleSeconds - (animal.readyTick ?? 0))}s`
-              : `${animalType.produceEmoji} next in ${Math.ceil(animalType.cycleSeconds - (animal.readyTick ?? 0))}s`}
+              : stock > 0 ? `${animalType.produceEmoji} ${stock} ready · next in ${secsLeft}s`
+              : `${animalType.produceEmoji} next in ${secsLeft}s`}
           </div>
         </div>
       </div>
@@ -265,11 +271,12 @@ function AnimalCard({ animal, animalType, index, game, onCollect, onInteract, on
       </div>
       <div style={{ marginBottom: "0.35rem" }}>
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.58rem", color: "var(--muted)", marginBottom: "0.15rem" }}>
-          <span>⏱ Next {animalType.produceName}</span>
-          <span>{Math.ceil(animalType.cycleSeconds - (animal.readyTick ?? 0))}s</span>
+          <span>⏱ Next {animalType.produceName} · {cycleSeconds}s cycle</span>
+          <span>{secsLeft}s</span>
         </div>
         <div style={{ height: "3px", background: "var(--border)", borderRadius: "999px", overflow: "hidden" }}>
-          <div style={{ height: "100%", width: `${Math.min(100, ((animal.readyTick ?? 0) / animalType.cycleSeconds) * 100)}%`, background: isFull ? "rgba(239,68,68,0.4)" : "rgba(99,102,241,0.5)", borderRadius: "999px", transition: "width 1s linear" }} />
+          {/* No transition on reset so the bar snaps back to 0 instead of sliding backwards */}
+          <div style={{ height: "100%", width: `${cyclePct}%`, background: isFull ? "rgba(239,68,68,0.4)" : "rgba(99,102,241,0.5)", borderRadius: "999px", transition: cyclePct < 5 ? "none" : "width 1s linear" }} />
         </div>
       </div>
  
@@ -464,7 +471,7 @@ function BarnWorkerUpgradeTree({ label, upgradeIds, worker, game, onUpgrade }) {
  
 // ─── Barn worker card ─────────────────────────────────────────────────────────
  
-function BarnWorkerCard({ worker, game, index, onFire, onUpgrade, instanceAnimals, seasonReady = false }) {
+function BarnWorkerCard({ worker, game, index, onFire, onUpgrade, instanceAnimals, seasonReady = false, produceEmoji = "🧺" }) {
   const [confirmFire, setConfirmFire] = useState(false);
   const [showUpgrades, setShowUpgrades] = useState(false);
   const animals = instanceAnimals ?? [];
@@ -476,6 +483,15 @@ function BarnWorkerCard({ worker, game, index, onFire, onUpgrade, instanceAnimal
   const capacity = getBarnWorkerCapacity(worker);
   const careInterval = getBarnWorkerCareInterval(worker);
   const upgrades = worker.upgrades ?? [];
+
+  // Pickup timer — engine adds satMultiplier to collectTimer each second,
+  // so real seconds = remaining / satMultiplier
+  const satMult = Math.max(0.01, getTownSatisfactionMultiplier(game) ?? 1);
+  const collectTimer = worker.collectTimer ?? 0;
+  const effectiveInterval = Math.round(interval / satMult);
+  const pickupPct = Math.min(100, (collectTimer / interval) * 100);
+  const pickupSecsLeft = Math.max(0, Math.ceil((interval - collectTimer) / satMult));
+  const idle = animals.length === 0;
  
   return (
     <div style={{
@@ -494,7 +510,7 @@ function BarnWorkerCard({ worker, game, index, onFire, onUpgrade, instanceAnimal
             )}
           </div>
           <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginTop: "0.1rem" }}>
-            Collects {capacity} every {interval}s
+            Collects {capacity} every {effectiveInterval}s
             {careInterval && ` · boosts mood every ${careInterval}s`}
             {animals.length > 0 && ` · ${totalStock} in stock`}
             {avgMood !== null && ` · avg mood ${avgMood}%`}
@@ -512,6 +528,22 @@ function BarnWorkerCard({ worker, game, index, onFire, onUpgrade, instanceAnimal
           )}
         </div>
       </div>
+
+      {/* Pickup timer bar */}
+      <div style={{ padding: "0 0.75rem 0.55rem" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.58rem", color: "var(--muted)", marginBottom: "0.15rem" }}>
+          <span>{produceEmoji} {idle ? "Idle — no animals" : "Next pickup"}</span>
+          {!idle && <span>{pickupSecsLeft}s</span>}
+        </div>
+        <div style={{ height: "4px", background: "var(--border)", borderRadius: "999px", overflow: "hidden" }}>
+          <div style={{
+            height: "100%", width: `${idle ? 0 : pickupPct}%`,
+            background: "rgba(251,191,36,0.7)", borderRadius: "999px",
+            transition: pickupPct < 5 ? "none" : "width 1s linear",
+          }} />
+        </div>
+      </div>
+
       {showUpgrades && (
         <div style={{ padding: "0.6rem 0.75rem", borderTop: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: "0.5rem", background: "var(--bg-elev)" }}>
           <BarnWorkerUpgradeTree label="⚡ Speed"    upgradeIds={SPEED_UPGRADES}    worker={worker} game={game} onUpgrade={onUpgrade} />
@@ -522,8 +554,6 @@ function BarnWorkerCard({ worker, game, index, onFire, onUpgrade, instanceAnimal
     </div>
   );
 }
- 
-// ─── Building tab content ─────────────────────────────────────────────────────
  
 // ─── Building tab content ─────────────────────────────────────────────────────
  
@@ -546,6 +576,11 @@ function BuildingTab({
   const totalStock = animals.reduce((s, a) => s + (a.stock ?? 0), 0);
   const cash = game.cash ?? 0;
   const seasonOk = (game.season ?? 1) >= def.unlockSeason;
+
+  // Effective cycle — same source the engine tick uses
+  const baseCycle = ANIMAL_TYPES[def.animalType]?.cycleSeconds ?? animalTypeDef.cycleSeconds;
+  const effectiveCycle = getAnimalEffectiveCycleSeconds(baseCycle, game);
+  const glenhollowBonus = getGlenhollowBarnBonus(game);
  
   // ── Not built yet ──────────────────────────────────────────────────────────
   if (!building.built || !inst) {
@@ -622,6 +657,10 @@ function BuildingTab({
                 ? `💸 $${upkeepTotal.toFixed(2)}/sec · ${animalSlots - animals.length} animal slots free`
                 : `${animalSlots} animal slots`}
             </div>
+            <div style={{ fontSize: "0.62rem", marginTop: "0.1rem", color: glenhollowBonus > 0 ? "#4ade80" : "var(--muted)" }}>
+              ⏱ {effectiveCycle}s per {animalTypeDef.produceName.toLowerCase()}
+              {glenhollowBonus > 0 && ` · 🐄 Glenhollow +${Math.round(glenhollowBonus * 100)}% speed`}
+            </div>
           </div>
           {nextTierData ? (
             <button onClick={() => onUpgradeBarnBuilding(buildingId, instanceId)} disabled={!canUpgrade} className="btn btn-secondary"
@@ -668,7 +707,7 @@ function BuildingTab({
       <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
         {animals.map((animal, idx) => (
           <AnimalCard
-            key={animal.id} animal={animal} animalType={animalTypeDef} index={idx} game={game}
+            key={animal.id} animal={animal} animalType={animalTypeDef} cycleSeconds={effectiveCycle} index={idx} game={game}
             onCollect={(id) => onCollectAnimal(def.animalType, id, instanceId)}
             onInteract={(id) => onInteractAnimal(def.animalType, id, instanceId)}
             onUpgradeStorage={(id) => onUpgradeAnimalStorage(def.animalType, id, instanceId)}
@@ -758,7 +797,7 @@ function BuildingTab({
         {barnWorkers.length > 0 && (
           <div style={{ padding: "0.65rem 0.85rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
             {barnWorkers.map((w, idx) => (
-              <BarnWorkerCard key={w.id} worker={w} game={game} index={idx} onFire={onFireBarnWorker} onUpgrade={onUpgradeBarnWorker} instanceAnimals={animals} seasonReady={seasonReady} />
+              <BarnWorkerCard key={w.id} worker={w} game={game} index={idx} onFire={onFireBarnWorker} onUpgrade={onUpgradeBarnWorker} instanceAnimals={animals} seasonReady={seasonReady} produceEmoji={animalTypeDef.produceEmoji} />
             ))}
           </div>
         )}
@@ -928,7 +967,7 @@ export default function BarnZone({
       {/* Food cost notice */}
       {totalFood > 0 && (
         <div style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: "10px", padding: "0.5rem 0.85rem", fontSize: "0.7rem", marginBottom: "0.65rem" }}>
-          🍞 Animals & pets add <strong style={{ color: "#ef4444" }}>+{totalFood}</strong> to town food pulse cost
+          🍞 Animals &amp; pets add <strong style={{ color: "#ef4444" }}>+{totalFood}</strong> to town food pulse cost
         </div>
       )}
  
