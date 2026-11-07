@@ -596,7 +596,7 @@ function BuildingTab({
     .reduce((s, i) => s + (i.animals ?? []).length, 0);
   const nextAnimalCost = getAnimalCost(def.animalType, allOwnedGlobally);
   const canAffordAnimal = cash >= nextAnimalCost;
-  const hireCost = getBarnWorkerHireCost(game);
+    const hireCost = getBarnWorkerHireCost(game, instanceId);
   const canHireWorker = !atWorkerCap && !workerSlotsFull && cash >= hireCost;
   // Same check as the Season panel's Barn Readiness
   const seasonReady = (game.season ?? 1) >= 4

@@ -539,7 +539,7 @@ export function hireBarnWorker(state, animalType, instanceId) {
   const instWorkerSlots = getBarnInstanceWorkerSlots(state, instanceId);
   const instWorkerCount = (inst.barnWorkers ?? []).length;
   if (instWorkerCount >= instWorkerSlots) return state;
-  const cost = getBarnWorkerHireCost(state);
+    const cost = getBarnWorkerHireCost(state, instanceId);
   if ((state.cash ?? 0) < cost) return state;
   const next = deepCloneState(state);
   next.cash -= cost;

@@ -352,8 +352,9 @@ export function getAnimalEffectiveCycleSeconds(baseSeconds, state) {
 }
 // ─── Barn worker helpers ──────────────────────────────────────────────────────
 
-export function getBarnWorkerHireCost(state) {
-  const count = (state.barnWorkers ?? []).length;
+export function getBarnWorkerHireCost(state, instanceId) {
+  const inst = (state.barnInstances ?? []).find((i) => i.id === instanceId);
+  const count = (inst?.barnWorkers ?? []).length;
   const raw = BARN_WORKER_HIRE_BASE_COST * Math.pow(BARN_WORKER_HIRE_MULTIPLIER, count);
   return Math.round(raw / 5) * 5;
 }
