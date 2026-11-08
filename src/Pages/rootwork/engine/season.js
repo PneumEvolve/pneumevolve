@@ -484,9 +484,8 @@ export function beginPrestige(state, _unused, keptWorkerIds) {
     next.fishing.bodies[bodyId].worker = null; // clear legacy too
   }
 
-  for (const cropId of Object.keys(next.crops)) {
-    next.crops[cropId] = Math.floor((next.crops[cropId] ?? 0) * 0.1);
-  }
+  // Crops carry over in full (the warehouse cap still limits stockpiles).
+  // They used to drop to 10%, which starved crop-priced farm hires right when you needed to rehire.
   next.yieldPool = 0;
 
   // Seasons 1-3: auto-unlock farms from SEASON_FARMS

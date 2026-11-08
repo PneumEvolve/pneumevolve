@@ -222,13 +222,16 @@ function PrestigeModal({ game, onComplete, onCancel }) {
     [...g.workers].sort((a, b) => (b._score ?? 0) - (a._score ?? 0)).slice(0, g.slots).map((w) => w._keepId)
   );
   const hallPickSet = new Set(hallPicks);
+  // Keep-priority for every worker (higher = more worth keeping)
+  const valueById = new Map();
+  for (const g of hallGroups) {
+    const trainingMaxed = getTrainingLevel(game, g.key) >= getTrainingMaxLevel(g.key);
+    for (const w of g.workers) {
+      valueById.set(w._keepId, (trainingMaxed ? 0 : 1000) + (KEEP_WEIGHT[g.key] ?? 1) * 100 + (w._score ?? 0));
+    }
+  }
   const basePicks = hallGroups
-    .flatMap((g) => {
-      const trainingMaxed = getTrainingLevel(game, g.key) >= getTrainingMaxLevel(g.key);
-      return g.workers
-        .filter((w) => !hallPickSet.has(w._keepId))
-        .map((w) => ({ id: w._keepId, value: (trainingMaxed ? 0 : 1000) + (KEEP_WEIGHT[g.key] ?? 1) * 100 + (w._score ?? 0) }));
-    })
+    .flatMap((g) => g.workers.filter((w) => !hallPickSet.has(w._keepId)).map((w) => ({ id: w._keepId, value: valueById.get(w._keepId) ?? 0 })))
     .sort((a, b) => b.value - a.value)
     .slice(0, game.season)
     .map((x) => x.id);
@@ -244,19 +247,41 @@ function PrestigeModal({ game, onComplete, onCancel }) {
   };
   const anyTraining = Object.keys(TRAINING_HALLS).some((t) => getTrainingLevel(game, t) > 0);
 
-  // canSelect(keepId): true if this worker can still be added (free hall slot of its type, or a free base slot)
-  function canSelect(keepId) {
+  // Has a free slot for this worker (its type's hall slot, or a base slot)
+  function hasFreeSlot(ids, keepId) {
     const g = groupOf(keepId);
-    if (g && selectedIn(g) < g.slots) return true;
-    return !baseAtLimit;
+    const inG = (grp) => ids.filter((id) => grp.ids.has(id)).length;
+    if (g && inG(g) < g.slots) return true;
+    const used = hallGroups.reduce((sum, grp) => sum + Math.max(0, inG(grp) - grp.slots), 0);
+    return used < game.season;
+  }
+
+  // The lowest-priority pick currently using a BASE slot (never a hall-slot pick) — swapped out when base slots are full
+  function swapVictim(ids) {
+    let victim = null;
+    for (const g of hallGroups) {
+      const picked = ids.filter((id) => g.ids.has(id));
+      if (picked.length <= g.slots) continue; // this group isn't using any base slots
+      for (const id of picked) {
+        if (!victim || (valueById.get(id) ?? 0) < (valueById.get(victim) ?? 0)) victim = id;
+      }
+    }
+    return victim;
+  }
+
+  // Every worker is pickable: if base slots are full, picking one swaps out your lowest-priority base pick
+  function canSelect(keepId) {
+    return hasFreeSlot(chosenWorkerIds, keepId) || swapVictim(chosenWorkerIds) != null;
   }
 
   function toggleWorker(keepId, isSelected) {
-    if (isSelected) {
-      setChosenWorkerIds((ids) => (ids ?? defaultIds).filter((id) => id !== keepId));
-    } else if (canSelect(keepId)) {
-      setChosenWorkerIds((ids) => [...(ids ?? defaultIds), keepId]);
-    }
+    setChosenWorkerIds((prev) => {
+      const ids = prev ?? defaultIds;
+      if (isSelected) return ids.filter((id) => id !== keepId);
+      if (hasFreeSlot(ids, keepId)) return [...ids, keepId];
+      const victim = swapVictim(ids);
+      return victim ? [...ids.filter((id) => id !== victim), keepId] : ids;
+    });
   }
 
   const branchNodes = (branch) => Object.values(PRESTIGE_SKILL_TREE).filter((n) => n.branch === branch).sort((a, b) => a.tier - b.tier);
@@ -355,6 +380,11 @@ function PrestigeModal({ game, onComplete, onCancel }) {
               <p style={{ fontSize: "0.72rem", color: "var(--accent)", fontWeight: 600, marginTop: "0.15rem" }}>
                 {baseUsed}/{game.season} base slots · {chosenWorkerIds.length} total kept
               </p>
+              {baseAtLimit && (
+                <p style={{ fontSize: "0.65rem", color: "#f59e0b", marginTop: "0.2rem" }}>
+                  Base slots full — picking another worker swaps out your lowest-priority pick
+                </p>
+              )}
               <p style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.3rem", lineHeight: 1.5 }}>
                 Your whole crew is saved as a blueprint — rebuy everyone else in one tap from <strong style={{ color: "var(--text)" }}>Town → Season Crew</strong>.
                 {anyTraining && " Trained halls send them back already upgraded."}

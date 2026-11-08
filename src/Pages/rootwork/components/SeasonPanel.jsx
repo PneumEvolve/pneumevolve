@@ -1,5 +1,5 @@
 // src/Pages/rootwork/components/SeasonPanel.jsx
- 
+
 import React from "react";
 import {
   CROPS, SEASON_FARMS, PRESTIGE_SKILL_TREE,
@@ -12,21 +12,26 @@ import {
   isFarmPrestigeReady, getPrestigeBlockers, getNextFarmUnlockCost,
   getTownHallLevel, getEffectiveGrowTime, getWorkerHarvestRate,
   getTreasuryGrowBonus, getFishMealGrowBonus, getSchoolGrowBonus,
+  getMillhavenGrowBonus, getThornwickGrowBonus,
   getAvailablePrestigePoints, getBarnPrestigeReady,
   getBarnInstanceSupplyRate, getBarnInstanceDemandRate, getCompletedQuestIds,
   evaluateQuestCondition, getFarmAverageGrowTime,
   STOCKED_KITCHEN_GOODS, STOCKED_KITCHEN_TARGET, getStockedKitchenAmount,
+  getKitchenHallRetainCount, getMarketHallRetainCount, getBarnHallRetainCount, getForgeHallRetainCount,
+  TRAINING_HALLS, getTrainingLevel,
 } from "../gameEngine";
- 
+
 function FarmChecklist({ farm, game }) {
   const crop = CROPS[farm.crop];
   const farmWorkers = game.workers.filter((w) => w.farmId === farm.id);
   const plotsOk = farm.unlockedPlots >= PRESTIGE_MIN_PLOTS;
- 
+
+  // Same grow-bonus inputs as isFarmPrestigeReady in core.js (Millhaven + Thornwick were missing,
+  // so this checklist could disagree with the real prestige check)
   const growTime = getFarmAverageGrowTime(
   farm, game.workers, farm.crop,
   game.feastBonusPercent ?? 0,
-  (game.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(game),
+  (game.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(game) + (getMillhavenGrowBonus(game) + getThornwickGrowBonus(game)) * 100,
   getTreasuryGrowBonus(game),
   getFishMealGrowBonus(game)
 );
@@ -34,7 +39,7 @@ function FarmChecklist({ farm, game }) {
   const supplyRate = farmWorkers.reduce((sum, w) => sum + getWorkerHarvestRate(w), 0);
   const workersOk = farmWorkers.length > 0 && supplyRate >= demandRate;
   const ready = plotsOk && workersOk;
- 
+
   return (
     <div style={{ padding: "0.75rem 0", borderBottom: "1px solid var(--border)", fontSize: "0.82rem" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
@@ -69,7 +74,7 @@ function FarmChecklist({ farm, game }) {
     </div>
   );
 }
- 
+
 function BarnChecklist({ barnInstance, game, label }) {
   const def = BARN_BUILDINGS[barnInstance.buildingType];
   const workers = (barnInstance.barnWorkers ?? []).length;
@@ -117,7 +122,7 @@ function BarnChecklist({ barnInstance, game, label }) {
     </div>
   );
 }
- 
+
 function SkillTag({ skillId, count }) {
   const node = PRESTIGE_SKILL_TREE[skillId];
   if (!node) return null;
@@ -133,7 +138,7 @@ function SkillTag({ skillId, count }) {
     </div>
   );
 }
- 
+
 // ─── Quest Progress Tracker ────────────────────────────────────────────────────
 
 // Returns a tracker for a single bare condition object (not the full quest wrapper).
@@ -177,8 +182,12 @@ function getConditionTracker(game, c) {
         return { current: Math.min(count, req), target: req, label: `Active kitchen workers: ${count} / ${req}` };
       }
       case "fishing_workers_active": {
+        // Counts every hired fisher across all waters (was counting the legacy single `worker`
+        // field, so this bar sat at 0 even when the quest itself was complete)
         const req = c.value ?? 1;
-        const count = Object.values(game.fishing?.bodies ?? {}).filter(b => b.worker).length;
+        const count = Object.values(game.fishing?.bodies ?? {}).reduce(
+          (sum, b) => sum + (b?.workers ?? (b?.worker?.hired ? [b.worker] : [])).filter(w => w?.hired).length, 0
+        );
         return { current: Math.min(count, req), target: req, label: `Fishing workers: ${count} / ${req}` };
       }
       case "two_prestiged_heroes": {
@@ -436,7 +445,7 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset, 
   const farmsToCheck = isExtraFarmSeason
     ? game.farms
     : game.farms.filter((f) => (SEASON_FARMS[Math.min(game.season, 3)] ?? []).includes(f.crop));
- 
+
   const totalWorkers = game.workers.length;
   const cashThreshold = getPrestigeCashThreshold(game.season);
   const cash = game.cash ?? 0;
@@ -445,12 +454,17 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset, 
   const thOk = requiredTHLevel === null || getTownHallLevel(game) >= requiredTHLevel;
   const blockers = getPrestigeBlockers(game);
   const nextFarmCost = getNextFarmUnlockCost(game);
- 
+
   const prestigeSkills = game.prestigeSkills ?? {};
   const totalPoints = game.prestigePoints ?? 0;
   const availablePoints = getAvailablePrestigePoints(game);
   const ownedSkillEntries = Object.entries(prestigeSkills).filter(([, count]) => count > 0);
- 
+
+  // Keep slots for the New Season screen: one base slot per season + hall retain slots
+  const hallRetainSlots = getKitchenHallRetainCount(game) + getMarketHallRetainCount(game)
+    + getBarnHallRetainCount(game) + getForgeHallRetainCount(game);
+  const trainedHalls = Object.keys(TRAINING_HALLS).filter((t) => getTrainingLevel(game, t) > 0);
+
   return (
     <div style={{ maxWidth: "480px", margin: "0 auto", padding: "1rem 1rem 4rem" }}>
       <div style={{ marginBottom: "1.25rem" }}>
@@ -459,7 +473,7 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset, 
           {prestigeReady ? "All conditions met — ready to begin a new season!" : "Complete all requirements below to unlock the next season."}
         </p>
       </div>
- 
+
       {/* Quest board — full for S1-3, compact summary for S4+ */}
       {(() => {
         const season = game.season ?? 1;
@@ -565,7 +579,7 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset, 
           )}
         </div>
       )}
- 
+
       {/* Farm automation checklist */}
       <div className="card p-4" style={{ marginBottom: "1rem" }}>
         <h3 style={{ fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.25rem" }}>Farm Readiness</h3>
@@ -576,7 +590,7 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset, 
           <FarmChecklist key={farm.id} farm={farm} game={game} />
         ))}
       </div>
- 
+
       {/* Barn readiness checklist — seasons 4-6 (season-specific barn) and season 7+ (all barns) */}
       {game.season >= 4 && (game.barnInstances ?? []).length > 0 && (
         <div className="card p-4" style={{ marginBottom: "1rem" }}>
@@ -595,7 +609,7 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset, 
           })}
         </div>
       )}
- 
+
       {/* Cash threshold */}
       <div className="card p-4" style={{ marginBottom: "1rem" }}>
         <h3 style={{ fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.5rem" }}>💰 Cash Requirement</h3>
@@ -607,11 +621,11 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset, 
           <div style={{ height: "100%", width: `${Math.min(100, (cash / cashThreshold) * 100)}%`, background: cashOk ? "#4ade80" : "#f59e0b", borderRadius: "999px", transition: "width 0.4s ease" }} />
         </div>
         {cashOk
-          ? <div style={{ fontSize: "0.7rem", color: "#4ade80", marginTop: "0.4rem" }}>✓ Cash requirement met</div>
-          : <div style={{ fontSize: "0.7rem", color: "var(--muted)", marginTop: "0.4rem" }}>Sell crops at the Market to earn cash.</div>
+          ? <div style={{ fontSize: "0.7rem", color: "#4ade80", marginTop: "0.4rem" }}>✓ Cash requirement met — you keep it all</div>
+          : <div style={{ fontSize: "0.7rem", color: "var(--muted)", marginTop: "0.4rem" }}>Sell crops at the Market to earn cash. It isn't spent when you prestige.</div>
         }
       </div>
- 
+
       {/* Prestige skill tree summary */}
       <div className="card p-4" style={{ marginBottom: "1rem" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
@@ -638,30 +652,42 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset, 
           </div>
         )}
       </div>
- 
+
       {/* What carries over */}
       <div className="card p-4" style={{ marginBottom: "1rem", fontSize: "0.78rem", color: "var(--muted)", lineHeight: 1.7 }}>
         <h3 style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text)", marginBottom: "0.4rem" }}>New season — what carries over</h3>
         <ul style={{ paddingLeft: "1rem", margin: 0 }}>
-          <li>✅ 10% of your current crops</li>
-          <li>✅ All artisan goods (bread, jam, sauce)</li>
+          <li>✅ All crops (still capped by your warehouse)</li>
+          <li>✅ All artisan goods, animal goods, fish and bait</li>
           <li>✅ All cash and treasury balance</li>
+          <li>✅ All materials, forge components and gear</li>
           <li>✅ All prestige skills (permanent — earn +1 point per season)</li>
-          <li>✅ All unlocked plots and ⭐ upgrades</li>
+          <li>✅ All unlocked plots, ⭐ upgrades and farm investments</li>
           <li>✅ Global Feast speed bonus</li>
-          <li>✅ Town — homes, population, all buildings persist</li>
-          <li>✅ 1 kept worker per season with full gear</li>
-          {game.keptWorkers.length > 0 && <li>✅ {game.keptWorkers.length + 1} total kept workers returning</li>}
+          <li>✅ Town — homes, population, all buildings and training levels</li>
+          <li>✅ Barns and animals, heroes, roads and trade routes</li>
+          <li>
+            ✅ Keep up to {game.season} worker{game.season !== 1 ? "s" : ""} with full gear (one slot per season)
+            {hallRetainSlots > 0 && <> + {hallRetainSlots} hall retain slot{hallRetainSlots !== 1 ? "s" : ""}</>}
+            {" "}— kept farmers go straight back to their own farm
+          </li>
           {game.season >= FIRST_CHOICE_SEASON
             ? <li>✅ Season unlock — choose a new farm or barn</li>
             : game.season >= 4 && game.season <= 6
             ? <li>✅ New barn auto-unlocks (buy animals and hire workers yourself)</li>
             : <li>✅ A new farm unlocks automatically</li>}
           <li>❌ Plot states reset (first plot starts planted)</li>
-          <li>❌ All non-kept workers reset — farm, kitchen, market, barn, fishing</li>
+          <li>❌ Quest progress resets — a new quest board each season</li>
+          <li>
+            ❌ All non-kept workers leave — farm, kitchen, market, barn, fishing, forge.
+            Your crew is saved, so you can rehire everyone in one tap from <strong style={{ color: "var(--text)" }}>Town → Season Crew</strong>
+            {trainedHalls.length > 0
+              ? <> (your {trainedHalls.map((t) => TRAINING_HALLS[t].emoji).join(" ")} training sends them back upgraded).</>
+              : <>. Training Halls make them come back already upgraded.</>}
+          </li>
         </ul>
       </div>
- 
+
       {/* Prestige button + blockers */}
       <div style={{ marginBottom: "1rem" }}>
         {!prestigeReady && blockers.length > 0 && (
@@ -680,7 +706,7 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset, 
           {prestigeReady ? "🌱 Begin New Season →" : "Complete requirements above"}
         </button>
       </div>
- 
+
       <div style={{ marginTop: "2rem", paddingTop: "1rem", borderTop: "1px solid var(--border)" }}>
         <p style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.5rem" }}>Danger zone</p>
         <button onClick={onReset} className="btn btn-secondary w-full" style={{ fontSize: "0.78rem", padding: "0.5rem", color: "#ef4444", borderColor: "#ef4444" }}>
