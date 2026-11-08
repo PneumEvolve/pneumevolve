@@ -58,7 +58,7 @@ RESTAURANT_SAT_PER_CHEF, RESTAURANT_OMELETTE_PER_PULSE_DIVISOR, RESTAURANT_CHEES
 CLOTHIER_CASH_PER_CLERK, CLOTHIER_GOODS_PER_PULSE_DIVISOR,
 FISHING_BODIES, FISHING_BODY_ORDER, FISHING_FISH,
 FISHING_CATCH_RATES, FISHING_BAIT_BONUS,
-FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, ANIMAL_YIELD_UPGRADES, 
+FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, ANIMAL_YIELD_UPGRADES,
   SCHOOL_RESEARCH,
   PRESTIGE_SKILL_TREE,
   FORGE_WORKER_HIRE_COST, FORGE_WORKER_HIRE_MULTIPLIER,
@@ -101,20 +101,20 @@ import { canAffordUpgradeMaterials, consumeUpgradeMaterials, getSatisfactionCeil
 import { deepCloneState } from "./save.js";
 
 // ─── Town helpers ─────────────────────────────────────────────────────────────
- 
+
 export function getTownHomeCost(state) {
   const homes = state.town?.homes ?? 0;
   if (homes === 0) return 0;
   const raw = TOWN_HOME_SECOND_COST * Math.pow(TOWN_HOME_COST_MULTIPLIER, homes - 1);
   return Math.min(100_000, Math.round(raw / 5) * 5);
 }
- 
+
 export function getTownBakeryCost(state) {
   const bakeryLevel = state.town?.bakeryLevel ?? 0;
   const raw = TOWN_BAKERY_BASE_COST * Math.pow(TOWN_BAKERY_COST_MULTIPLIER, bakeryLevel);
   return Math.round(raw / 50) * 50;
 }
- 
+
 // ─── Town building helpers ────────────────────────────────────────────────────
 
 export function getTownBuildings(state) {
@@ -379,24 +379,31 @@ export function getWarehouseLevelName(level) {
   return WAREHOUSE_LEVEL_NAMES[Math.min(l - 1, WAREHOUSE_LEVEL_NAMES.length - 1)];
 }
 
-// Kitchen Hall: max kitchen workers allowed (infinite scaling: L1=1, L2=2, L3=4, L4+=level+1 each)
+// Hall worker caps for a given level: L1–L3 from the table, then +2 per level beyond L3.
+// (Previously L4 used 4 + (level-3)*2 = 6, the same as L3, so the L4 upgrade added nothing.)
+export function getKitchenHallMaxWorkersForLevel(level) {
+  if (level <= 0) return 1;
+  if (level <= KITCHEN_HALL_MAX_WORKERS.length) return KITCHEN_HALL_MAX_WORKERS[level - 1];
+  return KITCHEN_HALL_MAX_WORKERS[KITCHEN_HALL_MAX_WORKERS.length - 1] + (level - KITCHEN_HALL_MAX_WORKERS.length) * 2;
+}
+export function getMarketHallMaxWorkersForLevel(level) {
+  if (level <= 0) return 1;
+  if (level <= MARKET_HALL_MAX_WORKERS.length) return MARKET_HALL_MAX_WORKERS[level - 1];
+  return MARKET_HALL_MAX_WORKERS[MARKET_HALL_MAX_WORKERS.length - 1] + (level - MARKET_HALL_MAX_WORKERS.length) * 2;
+}
+
+// Kitchen Hall: max kitchen workers allowed (L1=2, L2=4, L3=6, L4=8, +2 per level)
 export function getMaxKitchenWorkers(state) {
   const kh = state.town?.buildings?.kitchen_hall;
   if (!kh?.built) return 1; // legacy: 1 worker always allowed before hall built
-  const level = kh.level ?? 1;
-  if (level <= 3) return KITCHEN_HALL_MAX_WORKERS[level - 1] ?? 1;
-  // Level 4+: each level adds 2 more workers (4 base + 2 per level above 3)
-  return 4 + (level - 3) * 2;
+  return getKitchenHallMaxWorkersForLevel(kh.level ?? 1);
 }
 
-// Market Hall: max market workers allowed
+// Market Hall: max market workers allowed (L1=2, L2=4, L3=6, L4=8, +2 per level)
 export function getMaxMarketWorkers(state) {
   const mh = state.town?.buildings?.market_hall;
   if (!mh?.built) return 1; // legacy: 1 worker always allowed
-  const level = mh.level ?? 1;
-  if (level <= 3) return MARKET_HALL_MAX_WORKERS[level - 1] ?? 1;
-  // Level 4+: each level adds 2 more workers (4 base + 2 per level above 3)
-  return 4 + (level - 3) * 2;
+  return getMarketHallMaxWorkersForLevel(mh.level ?? 1);
 }
 
 // Guild Hall: max heroes allowed
@@ -435,7 +442,10 @@ export function getMarketHallRetainCount(state) {
   return level - 1;
 }
 
-// ─── Farmers Hall / Fishermen's Hall ──────────────────────────────────────────
+// ─── Farmers Hall / Fishermen's Hall (LEGACY) ─────────────────────────────────
+// These halls are now Training Halls — see engine/training.js (getTrainingLevel,
+// buyTrainingLevel). Old hall levels convert to training levels automatically.
+// The helpers below are kept only so any old import keeps working.
 // Level 0 = not built. Cost for the step from `level` to `level + 1`.
 export function getHallCost(baseCash, baseRequires, level) {
   const cash = Math.round(baseCash * Math.pow(HALL_UPGRADE_CASH_MULTIPLIER, level) / 25) * 25;
@@ -451,7 +461,7 @@ export function getFarmersHallLevel(state) {
   return h?.built ? (h.level ?? 1) : 0;
 }
 export function getFarmersHallRetainCount(state) {
-  return getFarmersHallLevel(state); // 1 farmer per level
+  return 0; // Training replaced retention — new farmers arrive trained instead
 }
 export function getFarmersHallNextCost(state) {
   return getHallCost(TOWN_FARMERS_HALL_COST, TOWN_FARMERS_HALL_REQUIRES, getFarmersHallLevel(state));
@@ -462,7 +472,7 @@ export function getFishermensHallLevel(state) {
   return h?.built ? (h.level ?? 1) : 0;
 }
 export function getFishermensHallRetainCount(state) {
-  return getFishermensHallLevel(state); // 1 fisherman per level
+  return 0; // Training replaced retention — new fishers arrive trained instead
 }
 export function getFishermensHallNextCost(state) {
   return getHallCost(TOWN_FISHERMENS_HALL_COST, TOWN_FISHERMENS_HALL_REQUIRES, getFishermensHallLevel(state));
@@ -858,6 +868,7 @@ export function upgradeForgeHall(state) {
   return next;
 }
 
+// Forge Hall: max smiths = level * 2 - 1  (L1=1, L2=3, L3=5, L4=7)
 export function getMaxForgeWorkers(state) {
   const fh = state.town?.buildings?.forge_hall;
   if (!fh?.built) return 0;
@@ -918,7 +929,7 @@ export function getTownGrowthBonusPercent(people) {
   const steps = Math.floor(Math.max(0, people) / TOWN_PEOPLE_PER_GROWTH_BONUS);
   return Math.min(TOWN_MAX_GROWTH_BONUS_PERCENT, steps * TOWN_GROWTH_BONUS_PER_STEP);
 }
- 
+
 export function getSatisfactionTarget(state) {
   const town = state.town ?? {};
   if (town.starving) return TOWN_SATISFACTION_FLOOR;
@@ -938,11 +949,11 @@ export function getSatisfactionTarget(state) {
   const tradeTownBonus = getTradeTownSatBonus(state);
   return Math.min(hardCeiling, Math.round(modeCeiling + rabbitBonus + recBonus + tradeTownBonus));
 }
- 
+
 export function getTownSatisfactionMultiplier(state) {
   return (state.town?.satisfaction ?? TOWN_SATISFACTION_DEFAULT) / 100;
 }
- 
+
 export function getTownFoodReserve(state) {
   const foodMode = state.town?.foodMode ?? "wheat";
   const people = Math.floor(state.town?.people ?? 0);
@@ -959,7 +970,7 @@ export function getTownFoodReserve(state) {
   if (foodMode === "wheat") return totalFoodUnits;
   return Math.max(1, Math.ceil(totalFoodUnits / BREAD_FOOD_UNITS));
 }
- 
+
 export function getSmartSellAmount(state, itemType) {
   const bakeryOn = state.town?.bakeryOn === true && (state.town?.bakeryLevel ?? 0) >= 1;
   const foodItem = bakeryOn ? "bread" : "wheat";
@@ -985,28 +996,28 @@ export function getSmartSellAmount(state, itemType) {
     : Math.floor(state.artisan?.bread ?? 0);
   return Math.max(0, have - reserve);
 }
- 
+
 export function getTownFoodType(state) {
   return (state.town?.bakeryLevel ?? 0) === 0 ? "wheat" : "bread";
 }
- 
+
 export function getEffectivePulseSeconds(state) {
   // Pulse length is now fixed — building toggles no longer add extra seconds.
   // Kept as a function so existing callers don't break.
   return TOWN_PULSE_SECONDS;
 }
- 
+
 export function getBuildingEffectivePulseCost(state, buildingKey) {
   const totalWorkers = getTotalWorkersHired(state);
   const base = Math.max(1, Math.ceil(totalWorkers / BUILDING_WORKERS_DIVISOR));
   const upgradeLevel = state.town?.[buildingKey + "UpgradeLevel"] ?? 0;
   return Math.max(1, base - upgradeLevel);
 }
- 
+
 export function getBuildingUpgradeLevel(state, buildingKey) {
   return state.town?.[buildingKey + "UpgradeLevel"] ?? 0;
 }
- 
+
 export function canUpgradeBuilding(state, buildingKey) {
   const thLevel = getTownHallLevel(state);
   const town = state.town ?? {};
@@ -1018,7 +1029,7 @@ export function canUpgradeBuilding(state, buildingKey) {
   if ((getTreasuryBalance(state)) < BUILDING_UPGRADE_COST) return false;
   return true;
 }
- 
+
 export function upgradeTownBuilding(state, buildingKey) {
   if (!canUpgradeBuilding(state, buildingKey)) return state;
   const next = deepCloneState(state);
@@ -1027,9 +1038,9 @@ export function upgradeTownBuilding(state, buildingKey) {
   next.town[key] = (next.town[key] ?? 0) + 1;
   return next;
 }
- 
+
 // ─── Town purchase actions (all from treasury) ────────────────────────────────
- 
+
 export function buildTownHome(state) {
   const cost = getTownHomeCost(state);
   if ((state.cash ?? 0) < cost) return state;
@@ -1042,7 +1053,7 @@ export function buildTownHome(state) {
   next.town.growthBonusPercent = getTownGrowthBonusPercent(newPeople);
   return next;
 }
- 
+
 export function buyTownBakery(state) {
   const next = deepCloneState(state);
   if (getTownHallLevel(next) < 1) return state;
@@ -1052,7 +1063,7 @@ export function buyTownBakery(state) {
   next.town.bakeryLevel = (next.town.bakeryLevel ?? 0) + 1;
   return next;
 }
- 
+
 export function buyJamBuilding(state) {
   const next = deepCloneState(state);
   if (getTownHallLevel(next) < 2) return state;
@@ -1062,7 +1073,7 @@ export function buyJamBuilding(state) {
   next.town.jamBuildingOwned = true;
   return next;
 }
- 
+
 export function buySauceBuilding(state) {
   const next = deepCloneState(state);
   if (getTownHallLevel(next) < 3) return state;
@@ -1073,7 +1084,7 @@ export function buySauceBuilding(state) {
   next.town.sauceBuildingOwned = true;
   return next;
 }
- 
+
 export function toggleBakery(state) {
   const next = deepCloneState(state);
   if ((next.town?.bakeryLevel ?? 0) < 1) return state;
@@ -1081,7 +1092,7 @@ export function toggleBakery(state) {
   next.town.bakeryOn = !(next.town.bakeryOn ?? false);
   return next;
 }
- 
+
 export function togglePantry(state) {
   const next = deepCloneState(state);
   if (!next.town?.jamBuildingOwned) return state;
@@ -1089,7 +1100,7 @@ export function togglePantry(state) {
   next.town.pantryOn = !(next.town.pantryOn ?? false);
   return next;
 }
- 
+
 export function toggleCannery(state) {
   const next = deepCloneState(state);
   if (!next.town?.sauceBuildingOwned) return state;
@@ -1097,15 +1108,15 @@ export function toggleCannery(state) {
   next.town.canneryOn = !(next.town.canneryOn ?? false);
   return next;
 }
- 
+
 // ─── Stats tracking helpers ───────────────────────────────────────────────────
- 
+
 export const STATS_WINDOW = 60; // seconds rolling window
- 
+
 export function initStatsBuffer() {
   return { ticks: [], sum: 0 };
 }
- 
+
 export function pushStat(buffer, value, now) {
   if (!buffer) buffer = initStatsBuffer();
   const ticks = buffer.ticks ?? [];
@@ -1118,7 +1129,7 @@ export function pushStat(buffer, value, now) {
   }
   return { ticks: fresh, sum };
 }
- 
+
 export function getStatPerMinute(buffer) {
   if (!buffer) return 0;
   return Math.round(buffer.sum ?? 0);

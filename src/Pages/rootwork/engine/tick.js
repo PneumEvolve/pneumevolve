@@ -58,7 +58,7 @@ RESTAURANT_SAT_PER_CHEF, RESTAURANT_OMELETTE_PER_PULSE_DIVISOR, RESTAURANT_CHEES
 CLOTHIER_CASH_PER_CLERK, CLOTHIER_GOODS_PER_PULSE_DIVISOR,
 FISHING_BODIES, FISHING_BODY_ORDER, FISHING_FISH,
 FISHING_CATCH_RATES, FISHING_BAIT_BONUS,
-FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, ANIMAL_YIELD_UPGRADES, 
+FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, ANIMAL_YIELD_UPGRADES,
   SCHOOL_RESEARCH,
   PRESTIGE_SKILL_TREE,
   FORGE_WORKER_HIRE_COST, FORGE_WORKER_HIRE_MULTIPLIER,
@@ -101,13 +101,13 @@ import { getAnimalBonusYield, getAnimalEffectiveCycleSeconds, getAnimalStockMax,
 import { applyYieldBonuses } from "./actions.js";
 import { deepCloneState } from "./save.js";
 import { getHeroKitchenBonusChance, tickAdventurerMissions, tickAdventurerMissionsAt, tickAdventurerRegen, tickTavernRestPulse } from "./heroes.js";
-import { tickForgeWorkers } from "./forge.js";
+import { cancelForgeWorkerRecipe, tickForgeWorkers } from "./forge.js";
 import { tickBossFight } from "./boss.js";
 import { getAshportFishBonus, getMillhavenGrowBonus, getThornwickGrowBonus, tickExpeditions, tickTradeTowns } from "./roads.js";
 import { tickRoads } from "./roadsV2.js";
 
 // ─── Offline progress ─────────────────────────────────────────────────────────
- 
+
 export function calculateOfflineProgress(state, nowMs) {
   const lastSaved = state.lastSavedTime ?? nowMs;
   const rawSeconds = Math.floor((nowMs - lastSaved) / 1000);
@@ -143,9 +143,9 @@ export function calculateOfflineProgress(state, nowMs) {
   next.lastSavedTime = nowMs;
   return { state: next, offlineSeconds: seconds };
 }
- 
+
 // ─── Tick ─────────────────────────────────────────────────────────────────────
- 
+
 export function tick(state) {
   // Shallow clone only — every sub-object mutation in tick() uses spread operators
   // deepCloneState (full JSON.parse/stringify) every second was the main perf killer on mobile
@@ -161,7 +161,7 @@ export function tick(state) {
   const townBonus = (next.town?.growthBonusPercent ?? 0) + getSchoolGrowBonus(next) + (getMillhavenGrowBonus(next) + getThornwickGrowBonus(next)) * 100;
   const treasuryGrowBonus = getTreasuryGrowBonus(next);
   const fishMealBonus = getFishMealGrowBonus(next);
- 
+
   // ── Fish Meal tick — decay active stacks ──────────────────────────────────
   if (next.fishMealStacks && next.fishMealStacks.length > 0) {
     next.fishMealStacks = next.fishMealStacks
@@ -171,9 +171,9 @@ export function tick(state) {
   const satMultiplier = getTownSatisfactionMultiplier(next);
   const bankPriceBonus = getBankPriceBonus(next);
   const now = next.totalPlayTime ?? 0;
- 
+
   if (!next.stats) next.stats = { farmCrops: {}, kitchenGoods: {}, marketCash: null };
- 
+
   // ── Treasury drain ─────────────────────────────────────────────────────────────
 const activeTier = getActiveTreasuryTier(next);
 if (activeTier) {
@@ -186,7 +186,7 @@ if (activeTier) {
     next.town.treasuryBalance = (next.town.treasuryBalance ?? 0) + activeTier.drainRate;
   }
 }
- 
+
   // ── Bank drain ─────────────────────────────────────────────────────────────
   const activeBankTier = getActiveBankTier(next);
   if (activeBankTier) {
@@ -195,7 +195,7 @@ if (activeTier) {
     // Bank drain is a running cost — treasury decreases but doesn't give it back
     // This is the "infinite money sink" — bank consumes treasury to give price bonus
   }
- 
+
 
   // ── Track Processing Line quest milestone (S9) ─────────────────────────────────────
   if (!next.questProgress?.processingLineReached) {
@@ -258,7 +258,7 @@ if (activeTier) {
   for (const farm of next.farms) {
     const farmWorkers = next.workers.filter((w) => w.farmId === farm.id);
     const bonusYield = getFarmBonusYield(next, farm.id);
- 
+
     for (const plot of farm.plots) {
       if (plot.state === "planted") {
         const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, feast, townBonus, treasuryGrowBonus, fishMealBonus);
@@ -266,24 +266,24 @@ if (activeTier) {
         if (plot.growthTick >= growTime) plot.state = "ready";
       }
     }
- 
+
     for (const worker of farmWorkers) {
       const workerRef = next.workers.find((w) => w.id === worker.id);
       if (!workerRef) continue;
       workerRef.cycleProgress += satMultiplier;
       const cycleSeconds = getEffectiveCycleSeconds(workerRef);
- 
+
       if (workerRef.cycleProgress >= cycleSeconds) {
         workerRef.cycleProgress = 0;
         const resting = isSprinterResting(workerRef);
         workerRef.cycleCount = (workerRef.cycleCount ?? 0) + 1;
- 
+
         if (!resting) {
           const crop = CROPS[farm.crop];
           const plotsPerCycle = getEffectivePlotsPerCycle(workerRef);
           let harvested = 0;
           let cropsGained = 0;
- 
+
           for (const plot of farm.plots) {
             if (harvested >= plotsPerCycle) break;
             if (plot.state === "ready") {
@@ -302,12 +302,12 @@ if (activeTier) {
               harvested++;
             }
           }
- 
+
           // Stats: track crops per farm
           if (cropsGained > 0) {
             next.stats.farmCrops[farm.id] = pushStat(next.stats.farmCrops[farm.id], cropsGained, now);
           }
- 
+
           let replanted = 0;
           for (const plot of farm.plots) {
             if (replanted >= plotsPerCycle) break;
@@ -321,7 +321,7 @@ if (activeTier) {
       }
     }
   }
- 
+
   // ── Kitchen workers ────────────────────────────────────────────────────────
   for (const worker of next.kitchenWorkers ?? []) {
     if (!worker.busy || !worker.recipeId) continue;
@@ -361,7 +361,7 @@ if (activeTier) {
       }
     }
   }
- 
+
   // ── Market workers ─────────────────────────────────────────────────────────
   for (const worker of next.marketWorkers ?? []) {
     // Effective IPS: worker.sellRateLimit (if set) caps the gear speed
@@ -413,7 +413,7 @@ if (activeTier) {
     worker.queue = [{ id: genId("sale"), itemType, quantity: toPull }];
   }
 }
- 
+
     let cashEarned = 0;
     while (toSellThisTick > 0 && (worker.queue ?? []).length > 0) {
       const order = worker.queue[0];
@@ -431,7 +431,7 @@ if (activeTier) {
       next.stats.marketCash = pushStat(next.stats.marketCash, cashEarned, now);
     }
   }
- 
+
   // ── Fishing workers ───────────────────────────────────────────────
   if (next.fishing) {
     const noMinnows = hasPrestigeSkill(next, "deep_waters");
@@ -477,7 +477,7 @@ if (activeTier) {
       }
     }
   }
- 
+
   // ── Barn upkeep drain (per instance) ─────────────────────────────────────
   for (const inst of next.barnInstances ?? []) {
     const def = BARN_BUILDINGS[inst.buildingType];
@@ -493,7 +493,7 @@ if (activeTier) {
       }
     }
   }
- 
+
   // ── Animals (per barnInstance) ────────────────────────────────────────────
   const dogOwned = next.pets?.dog !== undefined;
   const dogMoodOk = dogOwned && (next.pets.dog.mood ?? 0) >= 50;
@@ -615,7 +615,7 @@ if (activeTier) {
       }
     }
   }
- 
+
   // ── Pets ─────────────────────────────────────────────────────────────────
   for (const petId of Object.keys(next.pets ?? {})) {
     const type = PET_TYPES[petId];
@@ -626,7 +626,7 @@ if (activeTier) {
       pet.interactCooldown = Math.max(0, pet.interactCooldown - 1);
     }
   }
- 
+
   // ── Rec Hall cash drain (per second) ──────────────────────────────────────
   if (isTownBuildingBuilt(next, "recreation_hall")) {
     const recWorkers = getTownBuildingWorkers(next, "recreation_hall");
@@ -642,15 +642,17 @@ if (activeTier) {
   next.totalPlayTime = (next.totalPlayTime ?? 0) + 1;
   return next;
 }
- 
+
 // ─── Town pulse ───────────────────────────────────────────────────────────────
- 
+
 export function fireLastHiredWorker(state) {
   const candidates = [
   ...(state.workers ?? []).map((w) => ({ id: w.id, type: "farm", hiredAt: w.hiredAt ?? 0 })),
   ...(state.kitchenWorkers ?? []).map((w) => ({ id: w.id, type: "kitchen", hiredAt: w.hiredAt ?? 0 })),
   ...(state.marketWorkers ?? []).map((w) => ({ id: w.id, type: "market", hiredAt: w.hiredAt ?? 0 })),
   ...(state.barnWorkers ?? []).map((w) => ({ id: w.id, type: "barn", hiredAt: w.hiredAt ?? 0 })),
+  // Smiths count toward population, so starvation can let them go too
+  ...(state.forgeWorkers ?? []).map((w) => ({ id: w.id, type: "forge", hiredAt: w.hiredAt ?? 0 })),
   ...Object.entries(state.fishing?.bodies ?? {})
     .flatMap(([bodyId, b]) => (b?.workers ?? (b?.worker?.hired ? [b.worker] : []))
       .map((w, idx) => ({ id: bodyId, type: "fishing", workerIndex: idx, hiredAt: w.hiredAt ?? 0 }))),
@@ -658,7 +660,7 @@ export function fireLastHiredWorker(state) {
   if (candidates.length === 0) return state;
   candidates.sort((a, b) => b.hiredAt - a.hiredAt);
   const toFire = candidates[0];
- 
+
   if (toFire.type === "farm") {
     const worker = state.workers.find((w) => w.id === toFire.id);
     if (worker) {
@@ -696,7 +698,16 @@ export function fireLastHiredWorker(state) {
     }
     state.marketWorkers = state.marketWorkers.filter((w) => w.id !== toFire.id);
   } else if (toFire.type === "barn") {
+    // Remove from the root list AND from their barn — otherwise they keep working
+    // in the barn without counting toward population (ghost worker)
     state.barnWorkers = state.barnWorkers.filter((w) => w.id !== toFire.id);
+    for (const inst of state.barnInstances ?? []) {
+      inst.barnWorkers = (inst.barnWorkers ?? []).filter((w) => w.id !== toFire.id);
+    }
+  } else if (toFire.type === "forge") {
+    // Refund whatever they were crafting, then let them go
+    state = cancelForgeWorkerRecipe(state, toFire.id);
+    state = { ...state, forgeWorkers: (state.forgeWorkers ?? []).filter((w) => w.id !== toFire.id) };
   } else if (toFire.type === "fishing") {
   const body = state.fishing?.bodies?.[toFire.id];
   if (body?.workers) {
@@ -708,7 +719,7 @@ export function fireLastHiredWorker(state) {
 
   return state;
 }
- 
+
 export function updateTown(state, seconds = 1) {
   let next = deepCloneState(state);
   if (!next.town) next.town = makeFreshTown();

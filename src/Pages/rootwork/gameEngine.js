@@ -16,3 +16,4 @@ export * from "./engine/boss.js";
 export * from "./engine/roads.js";
 export * from "./engine/dungeon.js";
 export * from "./engine/roadsV2.js";
+export * from "./engine/training.js";

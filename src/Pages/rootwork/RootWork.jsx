@@ -1,5 +1,5 @@
 // src/Pages/rootwork/RootWork.jsx
- 
+
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
@@ -39,8 +39,10 @@ import {
   tickAdventurerMissions,
   hireAdventurer, spendSkillPoint, getAdventurerSlotCost, isAtWorkerCap,
   getKitchenHallRetainCount, getMarketHallRetainCount, getForgeHallRetainCount, getBarnHallRetainCount,
-  getFarmersHallRetainCount, getFishermensHallRetainCount,
-  buildOrUpgradeFarmersHall, buildOrUpgradeFishermensHall,
+  // Training Halls + crew blueprint
+  TRAINING_HALLS, trainNewHires, buyTrainingLevel, canBuyTrainingLevel,
+  rebuyRoster, rebuyAllRosters, describeRebuyResult,
+  setFarmTrainingSpec, saveRosterBlueprint, getTrainingLevel, getTrainingMaxLevel,
   // New adventurer functions
   reviveAdventurer, prestigeAdventurer, requestAutoBattleStop,
   tickBossFight, checkBossUnlock,
@@ -87,7 +89,7 @@ import AnimalsZone from "./components/AnimalsZone";
 import WorldZone from "./components/WorldZone";
 import ForgeZone from "./components/ForgeZone";
 import DungeonZone from "./components/DungeonZone";
- 
+
 // Module-level interval ID — lives outside React so StrictMode double-invoke can't create two loops
 let _gameTickInterval = null;
 
@@ -106,7 +108,7 @@ function saveToLocalStorage(state) {
     console.error('[Rootwork] Save FAILED (storage full?):', e?.message ?? e);
   }
 }
- 
+
 // ─── Prestige Skill Tree Modal ────────────────────────────────────────────────
 
 function WorkerGroup({ label, color, workers, chosenIds, canSelect, onToggle, slotLabel, defaultOpen = false }) {
@@ -151,7 +153,7 @@ function WorkerGroup({ label, color, workers, chosenIds, canSelect, onToggle, sl
 
 function PrestigeModal({ game, onComplete, onCancel }) {
   const [step, setStep] = useState(1);
-  // null until the player touches the list — until then, hall retain slots are auto-filled (see defaultIds)
+  // null until the player touches the list — until then, hall + base keep slots are auto-filled (see defaultIds)
   const [chosenOverride, setChosenWorkerIds] = useState(null);
   const [pendingSkills, setPendingSkills] = useState({});
 
@@ -162,7 +164,7 @@ function PrestigeModal({ game, onComplete, onCancel }) {
   const farmerWorkers = game.workers.map((w) => {
     const gear = GEAR[w.gear]; const spec = SPECIALIZATIONS[w.specialization];
     const farm = game.farms.find((f) => f.id === w.farmId); const crop = farm ? CROPS[farm.crop] : null;
-    return { _keepId: w.id, _score: GEAR_ORDER.indexOf(w.gear) * 10 + (w.specialization && w.specialization !== "none" ? 1 : 0), _title: `${gear.emoji} ${gear.name}${spec?.id !== "none" ? ` · ${spec.emoji} ${spec.name}` : ""}`, _subtitle: crop ? `${crop.emoji} ${crop.name} Farm` : "Farm" };
+    return { _keepId: w.id, _score: GEAR_ORDER.indexOf(w.gear) * 10 + (w.specialization && w.specialization !== "none" ? 1 : 0), _title: `${gear.emoji} ${gear.name}${spec?.id !== "none" ? ` · ${spec.emoji} ${spec.name}` : ""}`, _subtitle: crop ? `${crop.emoji} ${crop.name} Farm · returns to this farm` : "Farm" };
   });
   const crafterWorkers = game.kitchenWorkers.map((w) => {
     const ups = (w.upgrades ?? []).map((u) => KITCHEN_WORKER_UPGRADES[u]?.emoji).filter(Boolean).join(" ");
@@ -199,22 +201,38 @@ function PrestigeModal({ game, onComplete, onCancel }) {
 
   // Per-type dedicated retain slots (from hall buildings).
   // Hall slots are filled first; extra picks of that type overflow into the base pool (game.season).
+  // Farmers & Fishermen's Halls train new hires instead of retaining, so they add no slots.
   const hallGroups = [
-    { key: "farm",    workers: farmerWorkers,    slots: getFarmersHallRetainCount(game) },
+    { key: "farm",    workers: farmerWorkers,    slots: 0 },
     { key: "kitchen", workers: crafterWorkers,   slots: getKitchenHallRetainCount(game) },
     { key: "market",  workers: merchantWorkers,  slots: getMarketHallRetainCount(game) },
-    { key: "fisher",  workers: fisherWorkers,    slots: getFishermensHallRetainCount(game) },
+    { key: "fisher",  workers: fisherWorkers,    slots: 0 },
     { key: "barn",    workers: barnWorkersList,  slots: getBarnHallRetainCount(game) },
     { key: "forge",   workers: forgeWorkersList, slots: getForgeHallRetainCount(game) },
   ].map((g) => ({ ...g, ids: new Set(g.workers.map((w) => w._keepId)) }));
   const groupOf = (keepId) => hallGroups.find((g) => g.ids.has(keepId));
   const slotsFor = (key) => hallGroups.find((g) => g.key === key)?.slots ?? 0;
 
-  // Auto-retain: until the player changes anything, every hall slot is pre-filled
-  // with that type's best workers (highest gear / most upgrades).
-  const defaultIds = hallGroups.flatMap((g) =>
+  // Auto-pick until the player changes anything:
+  //  1. every hall slot gets that type's best workers (highest gear / most upgrades)
+  //  2. base slots (one per season) go to the workers that are most expensive to rebuild —
+  //     types whose training isn't maxed first, then market > kitchen > fisher > barn > forge > farm
+  const KEEP_WEIGHT = { market: 6, kitchen: 5, fisher: 4, barn: 3, forge: 2, farm: 1 };
+  const hallPicks = hallGroups.flatMap((g) =>
     [...g.workers].sort((a, b) => (b._score ?? 0) - (a._score ?? 0)).slice(0, g.slots).map((w) => w._keepId)
   );
+  const hallPickSet = new Set(hallPicks);
+  const basePicks = hallGroups
+    .flatMap((g) => {
+      const trainingMaxed = getTrainingLevel(game, g.key) >= getTrainingMaxLevel(g.key);
+      return g.workers
+        .filter((w) => !hallPickSet.has(w._keepId))
+        .map((w) => ({ id: w._keepId, value: (trainingMaxed ? 0 : 1000) + (KEEP_WEIGHT[g.key] ?? 1) * 100 + (w._score ?? 0) }));
+    })
+    .sort((a, b) => b.value - a.value)
+    .slice(0, game.season)
+    .map((x) => x.id);
+  const defaultIds = [...hallPicks, ...basePicks];
   const chosenWorkerIds = chosenOverride ?? defaultIds;
 
   const selectedIn = (g) => chosenWorkerIds.filter((id) => g.ids.has(id)).length;
@@ -224,6 +242,7 @@ function PrestigeModal({ game, onComplete, onCancel }) {
     const g = hallGroups.find((x) => x.key === key);
     return g && g.slots > 0 ? `${selectedIn(g)}/${g.slots} hall` : null;
   };
+  const anyTraining = Object.keys(TRAINING_HALLS).some((t) => getTrainingLevel(game, t) > 0);
 
   // canSelect(keepId): true if this worker can still be added (free hall slot of its type, or a free base slot)
   function canSelect(keepId) {
@@ -335,6 +354,10 @@ function PrestigeModal({ game, onComplete, onCancel }) {
               </p>
               <p style={{ fontSize: "0.72rem", color: "var(--accent)", fontWeight: 600, marginTop: "0.15rem" }}>
                 {baseUsed}/{game.season} base slots · {chosenWorkerIds.length} total kept
+              </p>
+              <p style={{ fontSize: "0.65rem", color: "var(--muted)", marginTop: "0.3rem", lineHeight: 1.5 }}>
+                Your whole crew is saved as a blueprint — rebuy everyone else in one tap from <strong style={{ color: "var(--text)" }}>Town → Season Crew</strong>.
+                {anyTraining && " Trained halls send them back already upgraded."}
               </p>
             </div>
             {allCount === 0 ? (
@@ -470,6 +493,8 @@ function SeasonUnlockModal({ game, onUnlockFarm, onUnlockBarn, onSkipUnlock }) {
 }
 
 // ─── Farm assignment screen ───────────────────────────────────────────────────
+// Only appears now for kept farmers whose old farm no longer exists — everyone
+// else is placed back on their own farm automatically by beginPrestige.
 
 function FarmAssignmentScreen({ game, onAssign }) {
   const keptWorkers = game.keptWorkers ?? [];
@@ -500,9 +525,9 @@ function FarmAssignmentScreen({ game, onAssign }) {
     </div>
   );
 }
- 
+
 // ─── Root component ───────────────────────────────────────────────────────────
- 
+
 export default function RootWork() {
   const { accessToken, userId } = useAuth();
   const [game, setGame] = useState(null);
@@ -516,11 +541,11 @@ export default function RootWork() {
   const gameRef = useRef(null);
   const tickIntervalRef = useRef(null);
   const [autoBattleLootResult, setAutoBattleLootResult] = useState(null);
- 
+
   useEffect(() => { if (game) gameRef.current = game; }, [game]);
- 
+
   const notify = useCallback((msg) => { setNotification(msg); setTimeout(() => setNotification(null), 3000); }, []);
- 
+
   const saveGame = useCallback((state) => {
     if (!state) return;
     // Serialize once, reuse for both destinations — avoids double JSON.stringify on every save
@@ -531,7 +556,7 @@ export default function RootWork() {
       api.post("/rootwork/state", { data: serialized }, { headers: { Authorization: `Bearer ${accessToken}` } }).catch(() => {});
     }
   }, [accessToken, userId]);
- 
+
   useEffect(() => {
     async function load() {
       let saved = null;
@@ -567,7 +592,7 @@ export default function RootWork() {
     }
     load();
   }, [accessToken, userId]);
- 
+
   useEffect(() => {
     // Always clear the module-level interval first — StrictMode double-invoke safe
     if (_gameTickInterval) { clearInterval(_gameTickInterval); _gameTickInterval = null; }
@@ -578,7 +603,7 @@ export default function RootWork() {
         if (!prev) return prev;
         try {
           let next = tick(prev);
-          
+
           next = tickAdventurerRegen(next, 1);
           next = tickAdventurerMissions(next);
           next = tickBossFight(next, 1);
@@ -603,7 +628,7 @@ export default function RootWork() {
     }, 1000);
     return () => { clearInterval(_gameTickInterval); _gameTickInterval = null; };
   }, [loaded, showPrestigeModal]);
- 
+
   useEffect(() => {
     if (!loaded) return;
     const interval = setInterval(() => saveGame(gameRef.current), SAVE_INTERVAL_MS);
@@ -611,35 +636,35 @@ export default function RootWork() {
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => { clearInterval(interval); document.removeEventListener("visibilitychange", handleVisibilityChange); saveGame(gameRef.current); };
   }, [loaded, saveGame]);
- 
+
   const update = useCallback((fn) => {
     setGame((prev) => { const next = fn(prev); gameRef.current = next; return next; });
   }, []);
- 
+
   // Farm
   const handlePlant = useCallback((farmId, plotId) => update((s) => plantPlot(s, farmId, plotId)), [update]);
   const handleHarvest = useCallback((farmId, plotId) => { update((s) => harvestPlot(s, farmId, plotId)); notify("+crops! 🌾"); }, [update, notify]);
   const handleTend = useCallback((farmId, plotId) => update((s) => tendPlot(s, farmId, plotId)), [update]);
   const handleUpgradePlot = useCallback((farmId) => update((s) => { const n = upgradePlot(s, farmId); if (n === s) notify("Not enough artisan goods."); return n; }), [update, notify]);
   const handleBuyPlot = useCallback((farmId) => update((s) => { const n = buyPlot(s, farmId); if (n === s) notify("Not enough crops."); return n; }), [update, notify]);
-  const handleHireWorker = useCallback((farmId) => update((s) => { const n = hireWorker(s, farmId); if (n === s) notify("Not enough crops."); return n; }), [update, notify]);
+  const handleHireWorker = useCallback((farmId) => update((s) => { const n = hireWorker(s, farmId); if (n === s) { notify("Not enough crops."); return n; } return trainNewHires(s, n, "farm"); }), [update, notify]);
   const handleSellWorker = useCallback((workerId) => { update((s) => sellWorker(s, workerId)); notify("Worker sold."); }, [update, notify]);
   const handleUpgradeGear = useCallback((workerId) => update((s) => { const n = upgradeWorkerGear(s, workerId); if (n === s) notify("Not enough cash."); return n; }), [update, notify]);
   const handleSpecialize = useCallback((workerId, specId) => update((s) => { const n = specializeWorker(s, workerId, specId); if (n === s) notify("Not enough cash."); return n; }), [update, notify]);
   const handleBuyPlotCapUpgrade = useCallback((farmId) => update((s) => { const n = buyPlotCapUpgrade(s, farmId); if (n === s) notify("Not enough cash."); return n; }), [update, notify]);
   const handleBuyYieldUpgrade = useCallback((farmId) => update((s) => { const n = buyYieldUpgrade(s, farmId); if (n === s) notify("Not enough cash."); return n; }), [update, notify]);
- 
+
   // Market
-  const handleHireMarketWorker = useCallback(() => { update((s) => { const n = hireMarketWorker(s); if (n === s) notify("Not enough cash."); return n; }); notify("🛒 Market worker hired!"); }, [update, notify]);
+  const handleHireMarketWorker = useCallback(() => { update((s) => { const n = hireMarketWorker(s); if (n === s) { notify("Not enough cash."); return n; } notify("🛒 Market worker hired!"); return trainNewHires(s, n, "market"); }); }, [update, notify]);
   const handleUpgradeMarketWorker = useCallback((workerId) => update((s) => { const n = upgradeMarketWorkerGear(s, workerId); if (n === s) notify("Not enough cash."); return n; }), [update, notify]);
   const handleAssignItem = useCallback((workerId, itemType, quantity) => update((s) => { const n = assignItemToMarketWorker(s, workerId, itemType, quantity); if (n === s) notify("Not enough to assign."); return n; }), [update, notify]);
   const handleFireMarketWorker = useCallback((workerId) => { update((s) => fireMarketWorker(s, workerId)); notify("Market worker fired. Items refunded."); }, [update, notify]);
   const handleCancelMarketWorkerQueue = useCallback((workerId) => { update((s) => cancelMarketWorkerQueue(s, workerId)); notify("Queue cleared. Items refunded."); }, [update, notify]);
   const handleBuyMarketWorkerStandingOrder = useCallback((workerId) => { update((s) => { const n = buyMarketWorkerStandingOrder(s, workerId); if (n === s) notify("Not enough cash."); return n; }); notify("🔄 Standing order unlocked!"); }, [update, notify]);
   const handleSetMarketWorkerStandingOrder = useCallback((workerId, itemType) => update((s) => setMarketWorkerStandingOrder(s, workerId, itemType)), [update]);
- 
+
   // Kitchen
-  const handleHireKitchenWorker = useCallback(() => { update((s) => { const n = hireKitchenWorker(s); if (n === s) notify("Not enough cash."); return n; }); notify("👨‍🍳 Kitchen worker hired!"); }, [update, notify]);
+  const handleHireKitchenWorker = useCallback(() => { update((s) => { const n = hireKitchenWorker(s); if (n === s) { notify("Not enough cash."); return n; } notify("👨‍🍳 Kitchen worker hired!"); return trainNewHires(s, n, "kitchen"); }); }, [update, notify]);
   const handleAssignKitchenWorkerRecipe = useCallback((workerId, recipeId) => update((s) => { const n = assignKitchenWorkerRecipe(s, workerId, recipeId); if (n === s) notify("Not enough crops to start."); return n; }), [update, notify]);
   const handleCancelKitchenWorkerRecipe = useCallback((workerId) => { update((s) => cancelKitchenWorkerRecipe(s, workerId)); notify("Recipe cancelled. 50% crops refunded."); }, [update, notify]);
   const handleUpgradeKitchenWorker = useCallback((workerId, upgradeId) => update((s) => { const n = upgradeKitchenWorker(s, workerId, upgradeId); if (n === s) notify("Not enough cash."); return n; }), [update, notify]);
@@ -693,11 +718,30 @@ export default function RootWork() {
   const handleUpgradeBarnHall  = useCallback(() => update((s) => { const n = upgradeBarnHall(s);  if (n === s) notify('Cannot upgrade Barn Hall.'); return n; }), [update, notify]);
   const handleBuildForgeHall   = useCallback(() => update((s) => { const n = buildForgeHall(s);   if (n === s) notify('Requires Town Hall level 1.'); return n; }), [update, notify]);
   const handleUpgradeForgeHall = useCallback(() => update((s) => { const n = upgradeForgeHall(s); if (n === s) notify('Cannot upgrade Forge Hall.'); return n; }), [update, notify]);
-  const handleFarmersHall      = useCallback(() => update((s) => { const n = buildOrUpgradeFarmersHall(s);    if (n === s) notify("Can't build — check Town Hall level, cash and materials."); return n; }), [update, notify]);
-  const handleFishermensHall   = useCallback(() => update((s) => { const n = buildOrUpgradeFishermensHall(s); if (n === s) notify("Can't build — check Town Hall level, cash and materials."); return n; }), [update, notify]);
   const handleUpgradeGuildHall = useCallback(() => update((s) => { const n = upgradeGuildHall(s); if (n === s) notify('Cannot upgrade Guild Hall.'); return n; }), [update, notify]);
   const handleBuildRecHall   = useCallback(() => update((s) => { const n = buildRecHall(s);   if (n === s) notify('Requires Town Hall level 3 and materials.'); return n; }), [update, notify]);
   const handleUpgradeRecHall = useCallback(() => update((s) => { const n = upgradeRecHall(s); if (n === s) notify('Cannot upgrade Recreation Hall.'); return n; }), [update, notify]);
+
+  // Training Halls + crew blueprint
+  const handleBuyTraining = useCallback((type) => update((s) => {
+    const check = canBuyTrainingLevel(s, type);
+    if (!check.ok) { notify(check.reason); return s; }
+    const n = buyTrainingLevel(s, type);
+    if (n !== s) notify(`🎓 ${TRAINING_HALLS[type]?.name ?? "Hall"} training → Level ${getTrainingLevel(n, type)}`);
+    return n;
+  }), [update, notify]);
+  const handleRebuyRoster = useCallback((type) => update((s) => {
+    const r = rebuyRoster(s, type);
+    notify(describeRebuyResult(r));
+    return r.state;
+  }), [update, notify]);
+  const handleRebuyAll = useCallback(() => update((s) => {
+    const r = rebuyAllRosters(s);
+    notify(describeRebuyResult(r));
+    return r.state;
+  }), [update, notify]);
+  const handleSetFarmTrainingSpec = useCallback((specId) => update((s) => setFarmTrainingSpec(s, specId)), [update]);
+  const handleSaveRosterBlueprint = useCallback(() => { update((s) => saveRosterBlueprint(s)); notify("📋 Current crew saved as your blueprint."); }, [update, notify]);
 
   // Roads & Trade Towns & Expeditions
   const handleBuildOrUpgradeRoad = useCallback(() => update((s) => { const n = buildOrUpgradeRoad(s); if (n === s) notify('Cannot build/upgrade Road — check costs.'); return n; }), [update, notify]);
@@ -744,8 +788,8 @@ export default function RootWork() {
   const handleInteractPet = useCallback((petId) => update((s) => interactPet(s, petId)), [update]);
   const handleHireBarnWorker = useCallback((animalType, instanceId) => update((s) => {
     const n = hireBarnWorker(s, animalType, instanceId);
-    if (n === s) notify("Can't hire — check cash or worker cap.");
-    return n;
+    if (n === s) { notify("Can't hire — check cash or worker cap."); return n; }
+    return trainNewHires(s, n, "barn");
   }), [update, notify]);
   const handleFireBarnWorker = useCallback((workerId) => update((s) => fireBarnWorker(s, workerId)), [update]);
   const handleReassignBarnWorker = useCallback((workerId, animalType) => update((s) => reassignBarnWorker(s, workerId, animalType)), [update]);
@@ -762,8 +806,8 @@ export default function RootWork() {
   const handleSetFishingActiveBody = useCallback((bodyId) => update((s) => setFishingActiveBody(s, bodyId)), [update]);
   const handleHireFishingWorker = useCallback((bodyId) => update((s) => {
     const n = hireFishingWorker(s, bodyId);
-    if (n === s) notify("Can't hire — check cash or worker cap.");
-    return n;
+    if (n === s) { notify("Can't hire — check cash or worker cap."); return n; }
+    return trainNewHires(s, n, "fisher");
   }), [update, notify]);
   const handleFireFishingWorker = useCallback((bodyId, workerIndex) => {
     update((s) => fireFishingWorker(s, bodyId, workerIndex));
@@ -811,7 +855,7 @@ export default function RootWork() {
 
   // Forge
   const handleHireForgeWorker = useCallback(() => {
-    update((s) => { const n = hireForgeWorker(s); if (n === s) notify("Not enough cash."); return n; });
+    update((s) => { const n = hireForgeWorker(s); if (n === s) { notify("Not enough cash."); return n; } return trainNewHires(s, n, "forge"); });
   }, [update, notify]);
   const handleFireForgeWorker = useCallback((id) => update((s) => fireForgeWorker(s, id)), [update]);
   const handleAssignForgeWorkerRecipe = useCallback((workerId, recipeId) => {
@@ -980,7 +1024,7 @@ export default function RootWork() {
     next = beginPrestige({ ...next, prestigePoints: (next.prestigePoints ?? 1) - 1 }, null, workerIds);
     return next;
   });
-  setShowPrestigeModal(false); setActiveMainTab("farms"); setActiveFarmIndex(0); notify("🌱 New season begun!");
+  setShowPrestigeModal(false); setActiveMainTab("town"); setActiveFarmIndex(0); notify("🌱 New season begun! Rebuy your crew from Season Crew.");
 }, [update, notify]);
   const handleUnlockPrestigeSkill = useCallback((skillId) => { update((s) => unlockPrestigeSkill(s, skillId)); }, [update]);
   const handleToggleFishingWorkerAllowedFish = useCallback((bodyId, fishId, workerIndex) => update((s) => toggleFishingWorkerAllowedFish(s, bodyId, fishId, workerIndex)), [update]);
@@ -1002,19 +1046,19 @@ export default function RootWork() {
     setActiveMainTab("farms"); setActiveFarmIndex(0);
     notify("Game reset.");
   }, [notify]);
- 
+
   const prestigeReady = game ? canPrestige(game) : false;
   const hasPendingAssignments = game?.pendingWorkerAssignments && (game?.keptWorkers?.length ?? 0) > 0;
   const hasPendingFarmUnlock = game?.pendingFarmUnlock === true;
   const hasPendingSeasonUnlock = game?.pendingSeasonUnlock === true;
- 
+
   if (!loaded || !game) {
     return <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg)", color: "var(--muted)" }}><p className="text-sm">Loading RootWork…</p></div>;
   }
- 
+
   const safeFarmIndex = Math.min(activeFarmIndex, game.farms.length - 1);
   const activeFarm = game.farms[safeFarmIndex] ?? null;
- 
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: "var(--bg)", color: "var(--text)" }}>
       {offlineMessage && (
@@ -1077,7 +1121,7 @@ export default function RootWork() {
           </>
         )}
         {activeMainTab === "town" && (
-          <TownZone game={game} 
+          <TownZone game={game}
               onBuildHome={handleBuildTownHome}
               onUpgradeTownHall={handleUpgradeTownHall}
               onBuildTownBuilding={handleBuildTownBuilding}
@@ -1102,8 +1146,11 @@ export default function RootWork() {
               onUpgradeBarnHall={handleUpgradeBarnHall}
               onBuildForgeHall={handleBuildForgeHall}
               onUpgradeForgeHall={handleUpgradeForgeHall}
-              onBuildOrUpgradeFarmersHall={handleFarmersHall}
-              onBuildOrUpgradeFishermensHall={handleFishermensHall}
+              onBuyTraining={handleBuyTraining}
+              onRebuyRoster={handleRebuyRoster}
+              onRebuyAll={handleRebuyAll}
+              onSetFarmTrainingSpec={handleSetFarmTrainingSpec}
+              onSaveRosterBlueprint={handleSaveRosterBlueprint}
               onBuildRecHall={handleBuildRecHall}
               onUpgradeRecHall={handleUpgradeRecHall}
               onBuyBakery={handleBuyTownBakery}
@@ -1209,4 +1256,4 @@ export default function RootWork() {
   );
 }
 
-// PATCHED: roads+heroes v1
+// PATCHED: roads+heroes v1 · training halls v1

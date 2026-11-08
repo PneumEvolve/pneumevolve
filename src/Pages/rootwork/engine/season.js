@@ -58,7 +58,7 @@ RESTAURANT_SAT_PER_CHEF, RESTAURANT_OMELETTE_PER_PULSE_DIVISOR, RESTAURANT_CHEES
 CLOTHIER_CASH_PER_CLERK, CLOTHIER_GOODS_PER_PULSE_DIVISOR,
 FISHING_BODIES, FISHING_BODY_ORDER, FISHING_FISH,
 FISHING_CATCH_RATES, FISHING_BAIT_BONUS,
-FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, ANIMAL_YIELD_UPGRADES, 
+FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, ANIMAL_YIELD_UPGRADES,
   SCHOOL_RESEARCH,
   PRESTIGE_SKILL_TREE,
   FORGE_WORKER_HIRE_COST, FORGE_WORKER_HIRE_MULTIPLIER,
@@ -101,15 +101,17 @@ import { getAnimalBonusYield, getAnimalEffectiveCycleSeconds, getBarnInstanceAni
 import { tick } from "./tick.js";
 import { deepCloneState } from "./save.js";
 import { computeTotalGearTier } from "./heroes.js";
+import { snapshotRoster } from "./training.js";
 
 // ─── Prestige ─────────────────────────────────────────────────────────────────
- 
+
 export function makeKeptWorker(worker, type) {
-  const base = { id: worker.id, keptType: type };
-  if (type === "farm") return { ...base, gear: worker.gear, specialization: worker.specialization ?? "none", farmId: null, cycleProgress: 0, cycleCount: 0 };
-  if (type === "kitchen") return { ...base, upgrades: [...(worker.upgrades ?? [])], recipeId: null, elapsedSeconds: 0, totalSeconds: 0, batchSize: 1, busy: false };
-  if (type === "market") return { ...base, gear: worker.gear, hasStandingOrder: worker.hasStandingOrder ?? false, queue: [], standingOrder: null };
-  if (type === "fisher") return { ...base, bodyId: worker.bodyId, upgrades: [...(worker.upgrades ?? [])], timer: 0, assignedBait: null };
+  const base = { id: worker.id, keptType: type, hiredAt: worker.hiredAt ?? 0 };
+  // prevFarmId lets beginPrestige drop the farmer straight back onto the farm they worked last season
+  if (type === "farm") return { ...base, gear: worker.gear, specialization: worker.specialization ?? "none", farmId: null, prevFarmId: worker.farmId ?? null, cycleProgress: 0, cycleCount: 0 };
+  if (type === "kitchen") return { ...base, upgrades: [...(worker.upgrades ?? [])], recipeId: null, elapsedSeconds: 0, totalSeconds: 0, batchSize: 1, busy: false, autoRestartEnabled: worker.autoRestartEnabled ?? true };
+  if (type === "market") return { ...base, gear: worker.gear, hasStandingOrder: worker.hasStandingOrder ?? false, queue: [], standingOrder: null, sellProgress: 0 };
+  if (type === "fisher") return { ...base, bodyId: worker.bodyId, upgrades: [...(worker.upgrades ?? [])], timer: 0, assignedBait: null, allowedFish: worker.allowedFish ?? null };
   if (type === "barn") return { ...base, animalType: worker.animalType, instanceId: worker.instanceId, upgrades: [...(worker.upgrades ?? [])], collectTimer: 0, careTimer: 0 };
   if (type === "forge") return { ...base, upgrades: [...(worker.upgrades ?? [])], recipeId: null, elapsedSeconds: 0, totalSeconds: 0, busy: false, autoRestart: worker.autoRestart ?? false, lastRecipeId: null };
   return base;
@@ -162,7 +164,7 @@ export function getBarnPrestigeReady(state) {
 export function getAvailableBarnUnlocks(state) {
   return BARN_BUILDING_ORDER.filter((id) => !(state.barnBuildings?.[id]?.built));
 }
- 
+
 
 // ─── Stocked Kitchen (S13) goods ──────────────────────────────────────────────
 // Every kitchen-crafted good (bait excluded). The kitchen tick puts bread/jam/
@@ -355,7 +357,7 @@ export function canPrestige(state) {
   if ((state.cash ?? 0) < getPrestigeCashThreshold(state.season)) return false;
   return true;
 }
- 
+
 export function getPrestigeBlockers(state) {
   const blockers = [];
   if (state.season <= 3) { const rTH = state.season; if (getTownHallLevel(state) < rTH) blockers.push(`Town Hall level ${rTH} required`); }
@@ -404,8 +406,10 @@ export function getPrestigeBlockers(state) {
   if ((state.cash ?? 0) < threshold) blockers.push(`Need $${threshold} cash (have $${Math.floor(state.cash ?? 0)})`);
   return blockers;
 }
- 
+
 export function beginPrestige(state, _unused, keptWorkerIds) {
+  // Save the crew you ended the season with — the Training Halls' "Rebuy" uses this
+  const rosterSnapshot = snapshotRoster(state);
   const next = deepCloneState(state);
   const newSeason = next.season + 1;
 
@@ -580,15 +584,28 @@ export function beginPrestige(state, _unused, keptWorkerIds) {
     }
   }
 
-  next.keptWorkers = farmKept;
-  next.pendingWorkerAssignments = farmKept.length > 0;
+  // Kept farmers go straight back to the farm they worked last season.
+  // Only farmers whose farm no longer exists wait in the assignment screen.
+  const unplacedFarmers = [];
+  for (const kw of farmKept) {
+    const farm = kw.prevFarmId ? next.farms.find((f) => f.id === kw.prevFarmId) : null;
+    if (farm) {
+      next.workers.push({ ...kw, farmId: farm.id, cycleProgress: getEffectiveCycleSeconds(kw) - 1, cycleCount: 0 });
+    } else {
+      unplacedFarmers.push(kw);
+    }
+  }
+
+  next.keptWorkers = unplacedFarmers;
+  next.pendingWorkerAssignments = unplacedFarmers.length > 0;
+  next.lastRoster = rosterSnapshot;
   next.season = newSeason;
   next.lastSavedTime = Date.now();
   next.stats = { farmCrops: {}, kitchenGoods: {}, marketCash: null };
   next.town.pulseSeconds = TOWN_PULSE_SECONDS;
   return next;
 }
- 
+
 export function assignKeptWorker(state, keptWorkerId, farmId) {
   const next = deepCloneState(state);
   const workerIdx = next.keptWorkers.findIndex((w) => w.id === keptWorkerId);
@@ -601,7 +618,7 @@ export function assignKeptWorker(state, keptWorkerId, farmId) {
   if (next.keptWorkers.length === 0) next.pendingWorkerAssignments = false;
   return next;
 }
- 
+
 export function buyPond(state) {
   if (state.fishing?.bodies?.pond?.unlocked) return state;
   if ((state.worldResources?.iron_ore ?? 0) < POND_IRON) return state;
@@ -630,9 +647,9 @@ export function buildForge(state) {
   next.forgeBuilt = true;
   return next;
 }
- 
 
- 
+
+
 export function applyGoldenBonus(state, bonusId) {
   const next = deepCloneState(state);
   if (bonusId === "treasury_inject") {
@@ -649,7 +666,7 @@ export function applyGoldenBonus(state, bonusId) {
   }
   return next;
 }
- 
+
 export function buyAnimal(state, animalId, instanceId) {
   const type = ANIMAL_TYPES[animalId];
   if (!type) return state;
@@ -685,7 +702,7 @@ export function buyAnimal(state, animalId, instanceId) {
     .flatMap(i => i.animals ?? []);
   return next;
 }
- 
+
 export function sellAnimal(state, animalId, animalInstanceId, barnInstanceId) {
   const type = ANIMAL_TYPES[animalId];
   if (!type) return state;
@@ -731,7 +748,7 @@ export function toggleKitchenWorkerAutoRestart(state, workerId) {
   worker.autoRestartEnabled = !(worker.autoRestartEnabled ?? true);
   return next;
 }
- 
+
 export function collectAnimal(state, animalId, animalInstanceId, barnInstanceId) {
   const type = ANIMAL_TYPES[animalId];
   if (!type) return state;
@@ -755,7 +772,7 @@ export function collectAnimal(state, animalId, animalInstanceId, barnInstanceId)
   if (type.produces === "wool") next.questProgress.woolCollected   = (next.questProgress.woolCollected  ?? 0) + stock;
   return next;
 }
- 
+
 export function collectAllAnimals(state) {
   const next = deepCloneState(state);
   let anyCollected = false;
@@ -779,7 +796,7 @@ export function collectAllAnimals(state) {
   }
   return anyCollected ? next : state;
 }
- 
+
 export function interactAnimal(state, animalId, animalInstanceId, barnInstanceId) {
   const next = deepCloneState(state);
   let animal = null;
@@ -793,7 +810,7 @@ export function interactAnimal(state, animalId, animalInstanceId, barnInstanceId
   animal.interactCooldown = ANIMAL_INTERACT_COOLDOWN;
   return next;
 }
- 
+
 export function buyPet(state, petId) {
   const type = PET_TYPES[petId];
   if (!type || state.pets?.[petId]) return state;
@@ -804,7 +821,7 @@ export function buyPet(state, petId) {
   next.pets[petId] = { mood: 100, interactCooldown: 0 };
   return next;
 }
- 
+
 export function interactPet(state, petId) {
   const next = deepCloneState(state);
   const pet = next.pets?.[petId];

@@ -6,7 +6,7 @@ import {
   TOWN_HALL_LEVEL_COSTS, TOWN_HALL_L1_IRON, TOWN_HALL_L1_LUMBER,
   TOWN_HALL_L2_IRON, TOWN_HALL_L2_LUMBER,
   TOWN_HALL_L3_IRON, TOWN_HALL_L3_LUMBER, TOWN_HALL_L3_FITTING,
-  
+
   PERSON_IDLE_FOOD_COST, PERSON_WORKING_FOOD_COST, BREAD_FOOD_UNITS,
   TOWN_SCHOOL_COST,
   TAVERN_LEVEL_COSTS, TAVERN_LEVEL_IRON, TAVERN_LEVEL_LUMBER, TAVERN_LEVEL_REGEN,
@@ -39,7 +39,8 @@ import {
   getWarehouseLevelBaseCap, getWarehouseLevelCapPerWorker, getWarehouseLevelMaxWorkers, getWarehouseLevelName,
   getMaxKitchenWorkers, getMaxMarketWorkers, getMaxBarnWorkersPerBuilding, getBarnHallRetainCount,
   getMaxForgeWorkers, getForgeHallRecipeTier, getForgeHallRetainCount, getMarketHallRetainCount,
-  getFarmersHallLevel, getFarmersHallNextCost, getFishermensHallLevel, getFishermensHallNextCost,
+  getKitchenHallMaxWorkersForLevel, getMarketHallMaxWorkersForLevel,
+  getTrainingLevel, getTrainingMaxLevel,
   getMaxHeroes, getGuildHallQuestTier, getSatisfactionCeiling,
   getBankPriceBonus, getRecHallSatBonus, getRecHallMaxWorkers, getTradeTownSatBonus,
   getRoadLevel, getRoadNextTier, canAffordRoad, isRoadEnabled, getTotalRoadDrain,
@@ -47,6 +48,7 @@ import {
 } from "../gameEngine";
 import SeasonPanel from "./SeasonPanel";
 import StatsPanel from "./StatsPanel";
+import { TrainingSection, CrewRosterCard } from "./TrainingHallsPanel";
 
 // ─── Shared helpers ────────────────────────────────────────────────────────────
 
@@ -154,6 +156,12 @@ function CostLine({ cash, cashCost, materials, have }) {
   );
 }
 
+// Badge suffix showing a hall's training level, e.g. " · 🎓2/6"
+function trainingBadge(game, type) {
+  const lvl = getTrainingLevel(game, type);
+  return lvl > 0 ? ` · 🎓${lvl}/${getTrainingMaxLevel(type)}` : "";
+}
+
 // ─── Main component ────────────────────────────────────────────────────────────
 
 
@@ -188,12 +196,16 @@ export default function TownZone({
   onUpgradeBarnHall,
   onBuildForgeHall,
   onUpgradeForgeHall,
-  onBuildOrUpgradeFarmersHall,
-  onBuildOrUpgradeFishermensHall,
   onBuildRecHall,
   onUpgradeRecHall,
   onBuildOrUpgradeRoad,
   onToggleRoad,
+  // Training Halls + crew blueprint
+  onBuyTraining,
+  onRebuyRoster,
+  onRebuyAll,
+  onSetFarmTrainingSpec,
+  onSaveRosterBlueprint,
   // Legacy props kept so RootWork doesn't need changes yet — ignored
   onBuyBakery, onToggleBakery, onTogglePantry, onToggleCannery,
   onUpgradeTownBuilding, onBuyJamBuilding, onBuySauceBuilding,
@@ -207,6 +219,9 @@ export default function TownZone({
   const cash        = game.cash ?? 0;
   const worldRes    = game.worldResources ?? {};
   const forgeGoods  = game.forgeGoods ?? {};
+
+  // Shared props for every TrainingSection
+  const trainingProps = { game, onBuyTraining, onRebuyRoster, onSetFarmTrainingSpec };
 
   // Quest claimable badge for Season sub-tab
   const _tz_season = game.season ?? 1;
@@ -371,6 +386,9 @@ export default function TownZone({
             )}
           </div>
 
+          {/* ── Season crew (roster blueprint) ─────────────────────────── */}
+          <CrewRosterCard game={game} onRebuyAll={onRebuyAll} onSaveRosterBlueprint={onSaveRosterBlueprint} />
+
           {/* ── Town Hall ──────────────────────────────────────────────── */}
           <BuildingCard
             emoji="🏛️" title="Town Hall"
@@ -382,7 +400,7 @@ export default function TownZone({
               {thLevel >= TOWN_HALL_MAX_LEVEL && " Fully upgraded."}
             </div>
             <Row label="Current level" value={thLevel} />
-            <Row label="Unlocks at TH1" value="Kitchen Hall, Market Hall, Forge Hall, Tavern" />
+            <Row label="Unlocks at TH1" value="Kitchen, Market, Forge, Farmers & Fishermen's Halls, Tavern" />
             <Row label="Unlocks at TH2" value="Guild Hall, School, Recreation Hall" />
             <Row label="Unlocks at TH3" value="Barn Hall (Season 4+)" />
             {thLevel < TOWN_HALL_MAX_LEVEL && (
@@ -610,15 +628,39 @@ export default function TownZone({
             );
           })()}
 
+          {/* ── Farmers Hall (training) ────────────────────────────────── */}
+          <BuildingCard emoji="🌾" title="Farmers Hall"
+            badge={getTrainingLevel(game, "farm") > 0 ? `🎓 Training ${getTrainingLevel(game, "farm")}/${getTrainingMaxLevel("farm")}` : "Not built"}
+            badgeColor={getTrainingLevel(game, "farm") > 0 ? "#4ade80" : "#f59e0b"}
+            locked={!th1} lockedMsg="Requires Town Hall level 1"
+          >
+            <div style={{ fontSize: "0.75rem", color: "var(--muted)", lineHeight: 1.6 }}>
+              Trains every new farm worker before they arrive. At max level, new farmers show up on a tractor, already specialized.
+            </div>
+            <TrainingSection {...trainingProps} type="farm" />
+          </BuildingCard>
+
+          {/* ── Fishermen's Hall (training) ────────────────────────────── */}
+          <BuildingCard emoji="🎣" title="Fishermen's Hall"
+            badge={getTrainingLevel(game, "fisher") > 0 ? `🎓 Training ${getTrainingLevel(game, "fisher")}/${getTrainingMaxLevel("fisher")}` : "Not built"}
+            badgeColor={getTrainingLevel(game, "fisher") > 0 ? "#4ade80" : "#f59e0b"}
+            locked={!th1} lockedMsg="Requires Town Hall level 1"
+          >
+            <div style={{ fontSize: "0.75rem", color: "var(--muted)", lineHeight: 1.6 }}>
+              Trains every new fisher before they arrive — faster casts, bigger nets and better rods from day one.
+            </div>
+            <TrainingSection {...trainingProps} type="fisher" />
+          </BuildingCard>
+
           {/* ── Kitchen Hall ───────────────────────────────────────────── */}
           <BuildingCard emoji="🍳" title="Kitchen Hall"
-            badge={kitchenHallBuilt ? `Level ${kitchenHallLevel}` : "Not built"}
+            badge={kitchenHallBuilt ? `Level ${kitchenHallLevel}${trainingBadge(game, "kitchen")}` : "Not built"}
             badgeColor={kitchenHallBuilt ? "#4ade80" : "#f59e0b"}
             locked={!th1} lockedMsg="Requires Town Hall level 1"
           >
             <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
               Gates how many kitchen workers you can hire and unlocks batch upgrades.
-              Higher levels also retain workers across season prestige.
+              Higher levels also retain workers across season prestige. Training makes new cooks arrive upgraded.
             </div>
             {kitchenHallBuilt ? (
               <>
@@ -631,9 +673,7 @@ export default function TownZone({
                   const nextRequires = kitchenHallLevel <= 2
                     ? KITCHEN_HALL_LEVEL_REQUIRES[kitchenHallLevel - 1]
                     : { iron_fitting: 2 + (kitchenHallLevel - 3) * 2, iron_ore: 20 + (kitchenHallLevel - 3) * 10, lumber: 15 + (kitchenHallLevel - 3) * 8 };
-                  const nextMaxWorkers = kitchenHallLevel < 3
-                    ? KITCHEN_HALL_MAX_WORKERS[kitchenHallLevel]
-                    : 4 + (kitchenHallLevel - 2) * 2;
+                  const nextMaxWorkers = getKitchenHallMaxWorkersForLevel(kitchenHallLevel + 1);
                   return (
                     <>
                       <div style={{ marginTop: "0.5rem", paddingTop: "0.4rem", borderTop: "1px solid var(--border)" }}>
@@ -653,6 +693,7 @@ export default function TownZone({
                     </>
                   );
                 })()}
+                <TrainingSection {...trainingProps} type="kitchen" />
               </>
             ) : (
               <>
@@ -667,7 +708,7 @@ export default function TownZone({
 
           {/* ── Market Hall ────────────────────────────────────────────── */}
           <BuildingCard emoji="🛒" title="Market Hall"
-            badge={marketHallBuilt ? `Level ${marketHallLevel}` : "Not built"}
+            badge={marketHallBuilt ? `Level ${marketHallLevel}${trainingBadge(game, "market")}` : "Not built"}
             badgeColor={marketHallBuilt ? "#4ade80" : "#f59e0b"}
             locked={!th1} lockedMsg="Requires Town Hall level 1"
           >
@@ -687,9 +728,7 @@ export default function TownZone({
                   const nextRequires = marketHallLevel <= 2
                     ? MARKET_HALL_LEVEL_REQUIRES[marketHallLevel - 1]
                     : { iron_fitting: 3 + (marketHallLevel - 3) * 2, iron_ore: 25 + (marketHallLevel - 3) * 10, lumber: 20 + (marketHallLevel - 3) * 8 };
-                  const nextMaxWorkers = marketHallLevel < 3
-                    ? MARKET_HALL_MAX_WORKERS[marketHallLevel]
-                    : 4 + (marketHallLevel - 2) * 2;
+                  const nextMaxWorkers = getMarketHallMaxWorkersForLevel(marketHallLevel + 1);
                   const nextPriceBonus = MARKET_HALL_PRICE_BONUS[Math.min(marketHallLevel, MARKET_HALL_PRICE_BONUS.length - 1)];
                   return (
                     <>
@@ -710,6 +749,7 @@ export default function TownZone({
                     </>
                   );
                 })()}
+                <TrainingSection {...trainingProps} type="market" />
               </>
             ) : (
               <>
@@ -722,48 +762,9 @@ export default function TownZone({
             )}
           </BuildingCard>
 
-          {/* ── Farmers Hall / Fishermen's Hall (retain halls) ─────────── */}
-          {[
-            {
-              key: "farmers_hall", emoji: "🌾", title: "Farmers Hall", noun: "farmer",
-              level: getFarmersHallLevel(game), cost: getFarmersHallNextCost(game), onClick: onBuildOrUpgradeFarmersHall,
-              blurb: "Each level keeps 1 more farm worker (gear and specialization intact) through season prestige. Kept farmers are auto-picked in the New Season screen.",
-            },
-            {
-              key: "fishermens_hall", emoji: "🎣", title: "Fishermen's Hall", noun: "fisherman",
-              level: getFishermensHallLevel(game), cost: getFishermensHallNextCost(game), onClick: onBuildOrUpgradeFishermensHall,
-              blurb: "Each level keeps 1 more fisherman (upgrades intact) through season prestige. Kept fishermen are auto-picked in the New Season screen.",
-            },
-          ].map((h) => {
-            const built = h.level > 0;
-            const matsOk = Object.entries(h.cost.requires).every(([k, v]) => have(k) >= v);
-            const canBuy = cash >= h.cost.cash && matsOk;
-            return (
-              <BuildingCard key={h.key} emoji={h.emoji} title={h.title}
-                badge={built ? `Level ${h.level} · keeps ${h.level}` : "Not built"}
-                badgeColor={built ? "#4ade80" : "#f59e0b"}
-                locked={!th1} lockedMsg="Requires Town Hall level 1"
-              >
-                <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>{h.blurb}</div>
-                {built && <Row label="Auto-retain on prestige" value={`${h.level} ${h.noun}${h.level !== 1 ? "s" : ""}`} valueColor="#4ade80" />}
-                <div style={{ marginTop: "0.5rem", paddingTop: "0.4rem", borderTop: built ? "1px solid var(--border)" : "none" }}>
-                  <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
-                    {built ? `Upgrade to Level ${h.level + 1} — keeps ${h.level + 1}` : `Level 1 — keeps 1 ${h.noun}`}
-                  </div>
-                  <CostLine cash={cash} cashCost={h.cost.cash} materials={h.cost.requires}
-                    have={Object.fromEntries(Object.keys(h.cost.requires).map((k) => [k, have(k)]))} />
-                </div>
-                <button onClick={h.onClick} disabled={!canBuy} className="btn w-full"
-                  style={{ marginTop: "0.5rem", opacity: canBuy ? 1 : 0.5 }}>
-                  {built ? `Upgrade ${h.title}` : `Build ${h.title}`} — ${fmt(h.cost.cash)}
-                </button>
-              </BuildingCard>
-            );
-          })}
-
           {/* ── Forge Hall ────────────────────────────── */}
           <BuildingCard emoji="⚒️" title="Forge Hall"
-            badge={forgeHallBuilt ? `Level ${forgeHallLevel}` : "Not built"}
+            badge={forgeHallBuilt ? `Level ${forgeHallLevel}${trainingBadge(game, "forge")}` : "Not built"}
             badgeColor={forgeHallBuilt ? "#4ade80" : "#f59e0b"}
             locked={!th1} lockedMsg="Requires Town Hall level 1"
           >
@@ -805,6 +806,7 @@ export default function TownZone({
                     </>
                   );
                 })()}
+                <TrainingSection {...trainingProps} type="forge" />
               </>
             ) : (
               <>
@@ -921,7 +923,7 @@ export default function TownZone({
 
           {/* ── Barn Hall ───────────────────────────── */}
           <BuildingCard emoji="🐄" title="Barn Hall"
-            badge={barnHallBuilt ? `Level ${barnHallLevel}` : "Not built"}
+            badge={barnHallBuilt ? `Level ${barnHallLevel}${trainingBadge(game, "barn")}` : "Not built"}
             badgeColor={barnHallBuilt ? "#4ade80" : "#f59e0b"}
             locked={!th3} lockedMsg="Requires Town Hall level 3"
           >
@@ -941,7 +943,6 @@ export default function TownZone({
                     ? BARN_HALL_LEVEL_REQUIRES[barnHallLevel - 1]
                     : { iron_fitting: 3 + (barnHallLevel - 3) * 2, iron_ore: 25 + (barnHallLevel - 3) * 10, lumber: 20 + (barnHallLevel - 3) * 8 };
                   const nextWorkers = barnHallLevel + 1;
-                  const nextRetain = Math.floor((barnHallLevel + 1) / 2);
                   return (
                     <>
                       <div style={{ marginTop: "0.5rem", paddingTop: "0.4rem", borderTop: "1px solid var(--border)" }}>
@@ -961,6 +962,7 @@ export default function TownZone({
                     </>
                   );
                 })()}
+                <TrainingSection {...trainingProps} type="barn" />
               </>
             ) : (
               <>
@@ -1225,6 +1227,8 @@ export default function TownZone({
             <div className="card p-3" style={{ marginTop: "0.4rem", fontSize: "0.7rem", color: "var(--muted)", lineHeight: 1.8 }}>
               <div>• <strong style={{ color: "var(--text)" }}>Satisfaction</strong> multiplies all worker speed. Floor 25%. Ceiling set by Food Hall tier.</div>
               <div>• <strong style={{ color: "var(--text)" }}>Warehouse</strong> caps crop storage. Overflow is lost — workers increase the cap.</div>
+              <div>• <strong style={{ color: "var(--text)" }}>Training</strong> (Farmers, Fishermen's, Kitchen, Market, Forge & Barn Halls) makes every new hire of that type arrive already upgraded.</div>
+              <div>• <strong style={{ color: "var(--text)" }}>Season Crew</strong> saves your crew when a season starts — rebuy it in one tap at the top of Town.</div>
               <div>• <strong style={{ color: "var(--text)" }}>Kitchen/Market Halls</strong> gate worker counts. Upgrade to hire more.</div>
               <div>• <strong style={{ color: "var(--text)" }}>Forge Hall</strong> gates smiths, recipe tiers (T2 at L2, T3 at L3), and Arcane Machine (L4).</div>
               <div>• <strong style={{ color: "var(--text)" }}>Barn Hall</strong> gates barn workers per building. Level N = N workers per barn.</div>
@@ -1243,4 +1247,4 @@ export default function TownZone({
   );
 }
 
-// PATCHED: roads+heroes v1
+// PATCHED: roads+heroes v1 · training halls v1

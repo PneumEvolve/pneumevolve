@@ -1,5 +1,5 @@
 // src/Pages/rootwork/components/WorkerPanel.jsx
- 
+
 import React, { useState } from "react";
 import {
   CROPS,
@@ -7,6 +7,7 @@ import {
   GEAR_ORDER,
   SPECIALIZATIONS,
   SPECIALIZE_COST, SPECIALIZE_REQUIRES,
+  WORKER_HIRE_BASE_COST, WORKER_HIRE_MULTIPLIER,
 } from "../gameConstants";
 import {
   getNextGear,
@@ -15,7 +16,7 @@ import {
   getWorkerHireCost,
   getAvailableWorkerSlots,
 } from "../gameEngine";
- 
+
 
 // Material cost display helper — returns e.g. "5 Iron Ore + 3 Lumber"
 function matCostLabel(upgradeRequires) {
@@ -35,70 +36,72 @@ function canAffordMats(upgradeRequires, worldResources, forgeGoods) {
   return true;
 }
 // ─── Helpers ──────────────────────────────────────────────────────────────────
- 
+
 function getEffectivePlots(worker) {
   const gear = GEAR[worker.gear];
   if (worker.specialization === "sprinter") return gear.plotsPerCycle * 2;
   return gear.plotsPerCycle;
 }
- 
+
 function statLine(worker) {
   const cycleSeconds = getEffectiveCycleSeconds(worker);
   const plots = getEffectivePlots(worker);
   const spec = worker.specialization;
- 
+
   const harvestLine = `Harvests & replants ${plots} plot${plots > 1 ? "s" : ""} every ${cycleSeconds}s`;
   const extras = [];
- 
+
   if (spec === "grower") extras.push("🌱 -20% grow time on this farm");
   if (spec === "sprinter") extras.push("💨 rests every 3rd cycle");
   if (spec === "harvester") extras.push("⚡ 25% faster cycle");
- 
+
   return { harvestLine, extras };
 }
- 
+
 function previewStatLine(worker, nextGearId) {
   const previewWorker = { ...worker, gear: nextGearId };
   const cycleSeconds = getEffectiveCycleSeconds(previewWorker);
   const plots = getEffectivePlots(previewWorker);
   return `${plots} plot${plots > 1 ? "s" : ""} every ${cycleSeconds}s`;
 }
- 
+
 // ─── Worker card ──────────────────────────────────────────────────────────────
- 
+
 function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWorker, seasonReady = false }) {
   const [showSpecChoices, setShowSpecChoices] = useState(false);
   const [confirmSell, setConfirmSell] = useState(false);
- 
+
   const gear = GEAR[worker.gear];
   const nextGearId = getNextGear(worker.gear);
   const nextGear = nextGearId ? GEAR[nextGearId] : null;
   const farmCrop = CROPS[farm.crop];
- 
+
   const mustSpecialize = needsSpecialization(worker);
   const specFittings = (game.forgeGoods?.iron_fitting ?? 0) + (game.worldResources?.iron_fitting ?? 0);
   const canAffordSpec = (game.cash ?? 0) >= SPECIALIZE_COST && specFittings >= (SPECIALIZE_REQUIRES.iron_fitting ?? 0);
- 
+
   const upgradeCost = nextGear?.upgradeCost ?? 0;
   const matReq = nextGear?.upgradeRequires ?? null;
   const matsOk = canAffordMats(matReq, game.worldResources, game.forgeGoods);
   const canUpgrade = !mustSpecialize && nextGear && (game.cash ?? 0) >= upgradeCost && matsOk;
- 
+
+  // Refund mirrors sellWorker() in the engine: half of what the last hire on this farm cost
   const workersOnFarm = game.workers.filter((w) => w.farmId === farm.id).length;
   const prevCount = Math.max(0, workersOnFarm - 1);
-  const hireCostWhenBought = Math.round((10 * Math.pow(1.5, prevCount)) / 5) * 5;
+  const hireCostWhenBought = Math.round((WORKER_HIRE_BASE_COST * Math.pow(WORKER_HIRE_MULTIPLIER, prevCount)) / 5) * 5;
   const sellRefund = Math.floor(hireCostWhenBought * 0.5);
- 
+
   return (
     <div className="card p-4 space-y-3" style={{
       fontSize: "0.85rem",
       ...(seasonReady ? { border: "2px solid #4ade80", boxShadow: "0 0 0 3px rgba(74,222,128,0.15)" } : {}),
     }}>
- 
+
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ fontWeight: 600 }}>
           👷 Worker
+          {worker.trainedLevel > 0 && <span style={{ marginLeft: "0.4rem", fontSize: "0.62rem", fontWeight: 700, color: "#a78bfa" }}>🎓 Trained</span>}
           {seasonReady && <span style={{ marginLeft: "0.4rem", fontSize: "0.62rem", fontWeight: 700, color: "#4ade80" }}>✓ Season ready</span>}
         </div>
         <div style={{
@@ -113,7 +116,7 @@ function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWor
           )}
         </div>
       </div>
- 
+
       {/* Stats */}
       {(() => {
         const { harvestLine, extras } = statLine(worker);
@@ -130,7 +133,7 @@ function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWor
           </div>
         );
       })()}
- 
+
       {/* Upgrade path */}
       {mustSpecialize ? (
         <div>
@@ -201,7 +204,7 @@ function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWor
           🚜 Max gear reached
         </div>
       )}
- 
+
       {/* Sell */}
       {!confirmSell ? (
         <button
@@ -232,9 +235,9 @@ function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWor
     </div>
   );
 }
- 
+
 // ─── Main panel ───────────────────────────────────────────────────────────────
- 
+
 export default function WorkerPanel({
   farm, game,
   onHireWorker, onUpgradeGear, onSpecialize, onSellWorker,
@@ -249,13 +252,13 @@ export default function WorkerPanel({
   const hireCost = hasHeadStart && isFirstWorker ? 0 : nextHireCost;
   const atCap = getAvailableWorkerSlots(game) <= 0;
   const canHire = !atCap && (hasHeadStart && isFirstWorker ? true : canAffordCrops);
- 
+
   const hireLabel = () => {
     if (atCap) return "👥 Town full";
     if (hasHeadStart && isFirstWorker) return "🙋 Hire (Free!)";
     return `🙋 Hire (${hireCost} ${farmCrop.emoji} ${farmCrop.name})`;
   };
- 
+
   return (
     <div className="space-y-3">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -269,13 +272,13 @@ export default function WorkerPanel({
           {hireLabel()}
         </button>
       </div>
- 
+
       {farmWorkers.length === 0 && (
         <p style={{ fontSize: "0.8rem", color: "var(--muted)", fontStyle: "italic" }}>
           No workers yet. Hire one to start automating this farm.
         </p>
       )}
- 
+
       {farmWorkers.length > 0 && (
         <div className="space-y-3">
           {farmWorkers.map((worker) => (
