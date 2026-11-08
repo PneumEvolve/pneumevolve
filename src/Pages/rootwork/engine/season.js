@@ -659,11 +659,8 @@ export function buyAnimal(state, animalId, instanceId) {
   const slotMax = getBarnInstanceAnimalSlots(state, instanceId);
   const owned = (inst.animals ?? []).length;
   if (owned >= slotMax) return state;
-  // Cost based on total owned across ALL instances of this type (global rarity curve)
-  const allOwned = (state.barnInstances ?? [])
-    .filter(i => BARN_BUILDINGS[i.buildingType]?.animalType === animalId)
-    .reduce((s, i) => s + (i.animals ?? []).length, 0);
-  const cost = Math.round(type.baseCost * Math.pow(type.costMultiplier, allOwned));
+    // Cost scales per barn instance — each new barn starts fresh at baseCost
+  const cost = Math.round(type.baseCost * Math.pow(type.costMultiplier, owned));
   if ((state.cash ?? 0) < cost) return state;
   const next = deepCloneState(state);
   next.cash -= cost;
