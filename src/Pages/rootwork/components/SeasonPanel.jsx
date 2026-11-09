@@ -19,6 +19,7 @@ import {
   STOCKED_KITCHEN_GOODS, STOCKED_KITCHEN_TARGET, getStockedKitchenAmount,
   getKitchenHallRetainCount, getMarketHallRetainCount, getBarnHallRetainCount, getForgeHallRetainCount,
   TRAINING_HALLS, getTrainingLevel,
+  getSeasonModifier, MODIFIER_FIRST_SEASON,
 } from "../gameEngine";
 
 function FarmChecklist({ farm, game }) {
@@ -474,6 +475,19 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset, 
         </p>
       </div>
 
+      {/* This season's modifier */}
+      {(() => {
+        const mod = getSeasonModifier(game);
+        if (!mod) return null;
+        return (
+          <div className="card p-4" style={{ marginBottom: "1rem", border: mod.hard ? "1px solid rgba(239,68,68,0.5)" : undefined }}>
+            <div style={{ fontSize: "0.85rem", fontWeight: 700 }}>{mod.emoji} {mod.name} season</div>
+            <div style={{ fontSize: "0.72rem", color: "#4ade80", marginTop: "0.25rem" }}>▲ {mod.upside}</div>
+            <div style={{ fontSize: "0.72rem", color: "#f87171", marginTop: "0.1rem" }}>▼ {mod.downside}</div>
+          </div>
+        );
+      })()}
+
       {/* Quest board — full for S1-3, compact summary for S4+ */}
       {(() => {
         const season = game.season ?? 1;
@@ -676,6 +690,10 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset, 
             : game.season >= 4 && game.season <= 6
             ? <li>✅ New barn auto-unlocks (buy animals and hire workers yourself)</li>
             : <li>✅ A new farm unlocks automatically</li>}
+          <li>✅ Town Projects, Charter Seals, contracts and Seal Shop upgrades</li>
+          {game.season + 1 >= MODIFIER_FIRST_SEASON && (
+            <li>🎴 You'll pick 1 of 3 season conditions (upside + downside) before anything else</li>
+          )}
           <li>❌ Plot states reset (first plot starts planted)</li>
           <li>❌ Quest progress resets — a new quest board each season</li>
           <li>

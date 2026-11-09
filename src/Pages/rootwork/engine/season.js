@@ -102,6 +102,7 @@ import { tick } from "./tick.js";
 import { deepCloneState } from "./save.js";
 import { computeTotalGearTier } from "./heroes.js";
 import { snapshotRoster } from "./training.js";
+import { applyModifierRollOnPrestige } from "./modifiers.js";
 
 // ─── Prestige ─────────────────────────────────────────────────────────────────
 
@@ -599,6 +600,8 @@ export function beginPrestige(state, _unused, keptWorkerIds) {
   next.pendingWorkerAssignments = unplacedFarmers.length > 0;
   next.lastRoster = rosterSnapshot;
   next.season = newSeason;
+  // Season modifiers: clear last season's, roll 3 choices (Season 4+). Picked in a modal before the farm/barn choice.
+  applyModifierRollOnPrestige(next, newSeason);
   next.lastSavedTime = Date.now();
   next.stats = { farmCrops: {}, kitchenGoods: {}, marketCash: null };
   next.town.pulseSeconds = TOWN_PULSE_SECONDS;

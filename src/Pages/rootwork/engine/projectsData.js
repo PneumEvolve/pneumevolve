@@ -73,7 +73,7 @@ export const PROJECTS = {
     unlockText: "Unlocks after your first boss kill",
     bonusKey: "heroXp",
     bonusPerStage: 0.05,
-    bonusLabel: "hero mission XP",
+    bonusLabel: "hero XP (all sources)",
     inputs: [
       { key: "iron_fitting",     source: "component", base: 10, name: "Iron Fittings",     emoji: "🔩" },
       { key: "reinforced_crate", source: "component", base: 10, name: "Reinforced Crates", emoji: "📦" },

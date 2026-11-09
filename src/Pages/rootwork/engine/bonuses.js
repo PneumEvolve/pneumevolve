@@ -1,20 +1,24 @@
 // src/Pages/rootwork/engine/bonuses.js — one place to read global bonuses
 //
 // getGlobalBonus(state, key) returns an ADDITIVE fraction (0.06 = +6%, -0.2 = -20%).
-// Today it sums Town Project stages. Season modifiers will plug in here too, so the
-// game code that reads a key never needs to change again.
+// It sums Town Project stages + active Rush contract boosts + this season's modifier.
+// Full list of keys and what they do: see the top of modifiersData.js.
 //
 // Keys wired into the game so far:
 //   cropYield      — worker + manual harvest yield          (actions.js applyYieldBonuses)
 //   fishingSpeed   — fishing worker catch speed             (tick.js)
 //   sellPrice      — market worker sale price               (tick.js)
-//   heroXp         — hero mission XP                        (heroes.js returnAdventurer)
+//   heroXp         — ALL hero XP: missions, auto-battle, expeditions, dungeon, bosses
+//                    (heroes.js, roads.js, dungeon.js, boss.js)
 //   missionDamage  — damage heroes take on missions         (heroes.js returnAdventurer)
+//   contractRefillSpeed — how fast empty contract slots refill (contracts.js)
+//   contractSeals  — FLAT extra seals per delivered contract (contracts.js)
 //
 // Keep this file free of imports from other engine files (only pure data) so it can be
 // imported anywhere without creating import cycles.
 
 import { PROJECTS } from "./projectsData.js";
+import { SEASON_MODIFIERS } from "./modifiersData.js";
 
 export function getProjectStage(state, projectId) {
   return state?.projects?.[projectId]?.stage ?? 0;
@@ -29,7 +33,22 @@ export function getProjectBonus(state, key) {
   return total;
 }
 
+// Rush contract boosts (inlined here instead of importing contracts.js, to avoid an import cycle)
+export function getBoostBonus(state, key) {
+  let total = 0;
+  for (const b of state?.contracts?.boosts ?? []) {
+    if (b.key === key && (b.secondsLeft ?? 0) > 0) total += b.value ?? 0;
+  }
+  return total;
+}
+
+// This season's modifier (null until the player picks one)
+export function getModifierBonus(state, key) {
+  const mod = SEASON_MODIFIERS[state?.seasonModifier];
+  return mod?.effects?.[key] ?? 0;
+}
+
 export function getGlobalBonus(state, key) {
   if (!state) return 0;
-  return getProjectBonus(state, key);
+  return getProjectBonus(state, key) + getBoostBonus(state, key) + getModifierBonus(state, key);
 }

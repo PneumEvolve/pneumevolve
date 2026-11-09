@@ -45,11 +45,12 @@ import {
   getBankPriceBonus, getRecHallSatBonus, getRecHallMaxWorkers, getTradeTownSatBonus,
   getRoadLevel, getRoadNextTier, canAffordRoad, isRoadEnabled, getTotalRoadDrain,
   getCompletedQuestIds,
+  getDeliverableContractCount,
 } from "../gameEngine";
 import SeasonPanel from "./SeasonPanel";
 import StatsPanel from "./StatsPanel";
 import { TrainingSection, CrewRosterCard } from "./TrainingHallsPanel";
-import ProjectsPanel from "./ProjectsPanel";
+import BoardPanel from "./BoardPanel";
 
 // ─── Shared helpers ────────────────────────────────────────────────────────────
 
@@ -207,8 +208,11 @@ export default function TownZone({
   onRebuyAll,
   onSetFarmTrainingSpec,
   onSaveRosterBlueprint,
-  // Town Projects
+  // Town Board: projects, contracts, seal shop
   onProjectDeposit,
+  onDeliverContract,
+  onAbandonContract,
+  onBuySealShopItem,
   // Legacy props kept so RootWork doesn't need changes yet — ignored
   onBuyBakery, onToggleBakery, onTogglePantry, onToggleCannery,
   onUpgradeTownBuilding, onBuyJamBuilding, onBuySauceBuilding,
@@ -310,11 +314,14 @@ export default function TownZone({
   const availableResearch    = getAvailableSchoolResearch(game);
   const unlockedResearch     = schoolData?.unlockedResearch ?? [];
 
+  // Board badge: contracts ready to deliver
+  const boardDeliverable = getDeliverableContractCount(game);
+
   return (
     <div style={{ paddingBottom: "5rem" }}>
       {/* ── Sub-tabs ─────────────────────────────────────────────────────── */}
       <div style={{ display: "flex", gap: "0.4rem", marginBottom: "1rem" }}>
-        {[["town", "🏘️ Town"], ["projects", "🏗️ Projects"], ["stats", "📊 Stats"], ["season", "🌿 Season"]].map(([id, label]) => (
+        {[["town", "🏘️ Town"], ["board", "📋 Board"], ["stats", "📊 Stats"], ["season", "🌿 Season"]].map(([id, label]) => (
           <button key={id} onClick={() => setSubTab(id)} className="btn"
             style={{ flex: 1, fontSize: "0.75rem", padding: "0.4rem", position: "relative",
               background: subTab === id ? "var(--accent)" : "var(--card)",
@@ -322,6 +329,15 @@ export default function TownZone({
               border: `1px solid ${subTab === id ? "var(--accent)" : "var(--border)"}`,
             }}>
             {label}
+            {id === "board" && boardDeliverable > 0 && (
+              <span style={{
+                position: "absolute", top: "3px", right: "5px",
+                background: "#4ade80", color: "#14532d",
+                fontSize: "0.5rem", fontWeight: 700,
+                borderRadius: "999px", padding: "1px 4px",
+                lineHeight: 1.4, minWidth: "12px", textAlign: "center",
+              }}>{boardDeliverable}</span>
+            )}
             {id === "season" && prestigeReady && (
               <span style={{
                 position: "absolute", top: "3px", right: "5px",
@@ -344,8 +360,14 @@ export default function TownZone({
         ))}
       </div>
 
-      {/* ── Projects tab ─────────────────────────────────────────────────── */}
-      {subTab === "projects" && <ProjectsPanel game={game} onDeposit={onProjectDeposit} />}
+      {/* ── Board tab (contracts, projects, seal shop) ───────────────────── */}
+      {subTab === "board" && (
+        <BoardPanel game={game}
+          onProjectDeposit={onProjectDeposit}
+          onDeliverContract={onDeliverContract}
+          onAbandonContract={onAbandonContract}
+          onBuySealShopItem={onBuySealShopItem} />
+      )}
 
       {/* ── Stats tab ────────────────────────────────────────────────────── */}
       {subTab === "stats" && <StatsPanel game={game} />}

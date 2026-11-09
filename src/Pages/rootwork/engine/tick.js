@@ -107,6 +107,7 @@ import { getAshportFishBonus, getMillhavenGrowBonus, getThornwickGrowBonus, tick
 import { tickRoads } from "./roadsV2.js";
 import { getGlobalBonus } from "./bonuses.js";
 import { markProjectUnlocks } from "./projects.js";
+import { tickContracts } from "./contracts.js";
 
 // ─── Offline progress ─────────────────────────────────────────────────────────
 
@@ -170,7 +171,18 @@ export function tick(state) {
       .map((s) => ({ ...s, secondsLeft: s.secondsLeft - 1 }))
       .filter((s) => s.secondsLeft > 0);
   }
-  const satMultiplier = getTownSatisfactionMultiplier(next);
+  // Season modifier "workerSpeed" (Long Winter) scales everything that runs on satisfaction
+  const satMultiplier = getTownSatisfactionMultiplier(next) * Math.max(0.1, 1 + getGlobalBonus(next, "workerSpeed"));
+  // Season modifier "growTime" (Drought / Monsoon): whole growth steps this second, carried in an accumulator
+  const growRate = 1 / Math.max(0.1, 1 + getGlobalBonus(next, "growTime"));
+  let growSteps = 1;
+  if (growRate !== 1) {
+    const acc = (next.growAccum ?? 0) + growRate;
+    growSteps = Math.floor(acc);
+    next.growAccum = acc - growSteps;
+  } else if (next.growAccum) {
+    next.growAccum = 0;
+  }
   const bankPriceBonus = getBankPriceBonus(next);
   const now = next.totalPlayTime ?? 0;
 
@@ -264,7 +276,7 @@ if (activeTier) {
     for (const plot of farm.plots) {
       if (plot.state === "planted") {
         const growTime = getEffectiveGrowTime(farm, next.workers, farm.crop, plot, feast, townBonus, treasuryGrowBonus, fishMealBonus);
-        plot.growthTick += 1;
+        plot.growthTick += growSteps;
         if (plot.growthTick >= growTime) plot.state = "ready";
       }
     }
@@ -373,7 +385,8 @@ if (activeTier) {
       : rawIps;
 
     // Accumulate fractional progress — low satisfaction slows selling but never freezes it
-    worker.sellProgress = (worker.sellProgress ?? 0) + effectiveIps * satMultiplier;
+    // Season modifier "marketSpeed" (Merchant Fair)
+    worker.sellProgress = (worker.sellProgress ?? 0) + effectiveIps * satMultiplier * Math.max(0.1, 1 + getGlobalBonus(next, "marketSpeed"));
     let toSellThisTick = Math.floor(worker.sellProgress);
     worker.sellProgress -= toSellThisTick;
 
@@ -450,6 +463,7 @@ if (activeTier) {
         const ashportBonus = getAshportFishBonus(next);
         // Lighthouse stages (and later season modifiers) stack with the Ashport/Crestfall bonus
         const fishSpeed = Math.max(0.1, 1 + ashportBonus + getGlobalBonus(next, "fishingSpeed"));
+        const rareFishBonus = getGlobalBonus(next, "rareFish");
         const interval = Math.max(1, Math.round(getFishingWorkerInterval(worker, next) / fishSpeed));
         const haul = getFishingWorkerHaul(worker);
         const gearTier = getFishingWorkerGearTier(worker);
@@ -464,6 +478,10 @@ if (activeTier) {
           if (!next.fishing.fish) next.fishing.fish = {};
           for (let i = 0; i < haul; i++) {
             let fishId = rollFishForBody(bodyId, gearTier, effectiveBait);
+            // Season modifier "rareFish" (Spawning Run): a second shot at a rare roll
+            if (fishId !== "rare" && rareFishBonus > 0 && Math.random() < rareFishBonus) {
+              if (rollFishForBody(bodyId, gearTier, effectiveBait) === "rare") fishId = "rare";
+            }
             // deep_waters: reroll minnows once to get bass or better
             if (noMinnows && fishId === "minnow") {
               fishId = rollFishForBody(bodyId, gearTier === "basic" ? "good" : gearTier, effectiveBait);
@@ -503,7 +521,8 @@ if (activeTier) {
   // ── Animals (per barnInstance) ────────────────────────────────────────────
   const dogOwned = next.pets?.dog !== undefined;
   const dogMoodOk = dogOwned && (next.pets.dog.mood ?? 0) >= 50;
-  const moodDecayMultiplier = dogMoodOk ? 0.70 : 1.0;
+  // Season modifier "animalMoodDrain" (Monsoon)
+  const moodDecayMultiplier = (dogMoodOk ? 0.70 : 1.0) * Math.max(0, 1 + getGlobalBonus(next, "animalMoodDrain"));
 
   for (const inst of next.barnInstances ?? []) {
     const def = BARN_BUILDINGS[inst.buildingType];
@@ -642,11 +661,14 @@ if (activeTier) {
   }
 
   // ── Forge workers (inside tick so satMultiplier applies) ───────────────
-  next = tickForgeWorkers(next, satMultiplier);
+  // Season modifier "forgeSpeed" (Iron Rush)
+  next = tickForgeWorkers(next, satMultiplier * Math.max(0.1, 1 + getGlobalBonus(next, "forgeSpeed")));
 
   next = updateTown(next, 1);
   // Town Projects: flag newly unlocked projects so they stay visible for good
   next = markProjectUnlocks(next);
+  // Contracts board: countdowns, refills, Rush boost timers
+  next = tickContracts(next, 1);
   next.totalPlayTime = (next.totalPlayTime ?? 0) + 1;
   return next;
 }
@@ -761,7 +783,8 @@ export function updateTown(state, seconds = 1) {
     const animalFoodUnits = Object.entries(next.animals ?? {}).reduce((sum, [id, arr]) =>
       sum + arr.length * (ANIMAL_FOOD_COSTS[id] ?? 0), 0);
     const petFoodUnits    = Object.keys(next.pets ?? {}).length * PET_FOOD_COST;
-    const totalFoodUnits  = peopleFoodUnits + animalFoodUnits + petFoodUnits;
+    // Season modifier "foodCost" (Festival)
+    const totalFoodUnits  = Math.ceil((peopleFoodUnits + animalFoodUnits + petFoodUnits) * Math.max(0, 1 + getGlobalBonus(next, "foodCost")));
 
     // Convert food units → actual resource needed based on food mode.
     // Bread is always the caloric cost. Jam/sauce are bonus resources that must

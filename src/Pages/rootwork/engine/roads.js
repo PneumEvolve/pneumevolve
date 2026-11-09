@@ -97,6 +97,7 @@ FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, 
 import { tick } from "./tick.js";
 import { getAdventurerMaxHp, getAdventurerXpNeeded, getHeroBonusMaxHp, getHeroMinLootBonus, getHeroPrestigeMinLootBonus, getHeroPrestigeXpBonus, getHeroXpMultiplier, isHeroBusy, getHeroExpDmgReduction, getHeroExpRollIntervalMult, getHeroExpLootMult  } from "./heroes.js";
 import { getExpeditionAvailable, isTownConnected } from "./roadsV2.js";
+import { getGlobalBonus } from "./bonuses.js";
 
 // =============================================================================
 // ROADS
@@ -625,7 +626,8 @@ export function tickExpeditions(state) {
       if (!hero) continue;
 
       // Build XP multiplier: existing skill tree + prestige + Velmoor + Mage class bonus
-      let xpMult = getHeroXpMultiplier(hero) * (1 + getHeroPrestigeXpBonus(hero)) * (1 + getVelmoorXpBonus(state));
+      // ...and Hero's Monument stages (and later season modifiers)
+      let xpMult = getHeroXpMultiplier(hero) * (1 + getHeroPrestigeXpBonus(hero)) * (1 + getVelmoorXpBonus(state)) * Math.max(0, 1 + getGlobalBonus(state, "heroXp"));
       if (hero.heroClass === "mage") {
         xpMult *= (1 + EXPEDITION_CLASS_BONUSES.mage.xpBonus);
       }

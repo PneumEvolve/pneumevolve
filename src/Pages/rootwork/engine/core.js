@@ -98,6 +98,7 @@ import { getRecHallSatBonus, getSchoolGrowBonus } from "./town.js";
 import { getFishMealGrowBonus } from "./setup.js";
 import { deepCloneState, getFarmAverageGrowTime } from "./save.js";
 import { getMillhavenGrowBonus, getThornwickGrowBonus } from "./roads.js";
+import { getGlobalBonus } from "./bonuses.js";
 
 export let _idCounter = 0;
 export function genId(prefix = "id") {
@@ -410,10 +411,12 @@ export function getTradeTownSatBonus(state) {
 }
 
 export function getSatisfactionCeiling(state) {
-  if (hasPrestigeSkill(state, "town_pride")) return 200;
+  // Season modifier "satCap" (Festival) — flat points on top of everything else
+  const modifierCap = Math.round(getGlobalBonus(state, "satCap"));
+  if (hasPrestigeSkill(state, "town_pride")) return 200 + modifierCap;
   const tier = state.town?.buildings?.food_hall?.tier ?? 0;
   const base = FOOD_HALL_SAT_CEILING[tier] ?? FOOD_HALL_SAT_CEILING[0];
-  return base + getRecHallSatBonus(state) + getTradeTownSatBonus(state);
+  return base + getRecHallSatBonus(state) + getTradeTownSatBonus(state) + modifierCap;
 }
  
 // ─── Sell price bonus (Bank) ──────────────────────────────────────────────────

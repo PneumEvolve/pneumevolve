@@ -99,6 +99,7 @@ FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, 
 } from "../gameConstants";
 import { canAffordUpgradeMaterials, consumeUpgradeMaterials, getSatisfactionCeiling, getTotalWorkersHired, getTownHallLevel, getTradeTownSatBonus, getTreasuryBalance } from "./core.js";
 import { deepCloneState } from "./save.js";
+import { getGlobalBonus } from "./bonuses.js";
 
 // ─── Town helpers ─────────────────────────────────────────────────────────────
 
@@ -947,7 +948,9 @@ export function getSatisfactionTarget(state) {
   // Rec Hall and trade town bonuses raise the ceiling AND the target — sat drifts toward the new ceiling
   const recBonus = getRecHallSatBonus(state);
   const tradeTownBonus = getTradeTownSatBonus(state);
-  return Math.min(hardCeiling, Math.round(modeCeiling + rabbitBonus + recBonus + tradeTownBonus));
+  // Season modifier "satCap" (Festival) raises the target as well as the ceiling
+  const modifierBonus = Math.round(getGlobalBonus(state, "satCap"));
+  return Math.min(hardCeiling, Math.round(modeCeiling + rabbitBonus + recBonus + tradeTownBonus + modifierBonus));
 }
 
 export function getTownSatisfactionMultiplier(state) {

@@ -85,8 +85,9 @@ export function getProjectStock(state, input) {
   }
 }
 
-// Mutates `next` (must be a clone). Assumes the amount is available.
-function takeStock(next, input, amount) {
+// Mutates `next` (must be a clone). Takes up to `amount`, returns how much it actually took.
+// Shared with contracts.js — `input` just needs { key, source }.
+export function takeProjectStock(next, input, amount) {
   let remaining = amount;
   const drain = (bag) => {
     if (!bag || remaining <= 0) return;
@@ -182,7 +183,7 @@ export function depositToProject(state, projectId, itemKey = null, amount = null
     const want = amount == null ? room : Math.min(room, Math.max(0, Math.floor(amount)));
     const toMove = Math.min(want, getProjectStock(next, input));
     if (toMove <= 0) continue;
-    const moved = takeStock(next, input, toMove);
+    const moved = takeProjectStock(next, input, toMove);
     entry.progress[input.key] = already + moved;
     deposited += moved;
   }
@@ -190,4 +191,28 @@ export function depositToProject(state, projectId, itemKey = null, amount = null
   if (deposited <= 0) return { state, deposited: 0, completedStage: false };
   const completedStage = finishStageIfComplete(next, projectId);
   return { state: next, deposited, completedStage };
+}
+
+/**
+ * Free progress (Seal Shop blueprint): adds `fraction` of each input's need for the current
+ * stage, capped at what's still missing. Returns { state, completedStage }.
+ */
+export function grantProjectProgress(state, projectId, fraction) {
+  const def = PROJECTS[projectId];
+  if (!def || !isProjectUnlocked(state, projectId)) return { state, completedStage: false };
+  const next = deepCloneState(state);
+  if (!next.projects) next.projects = {};
+  if (!next.projects[projectId]) next.projects[projectId] = { stage: 0, progress: {} };
+  const entry = next.projects[projectId];
+  if (!entry.progress) entry.progress = {};
+  entry.unlocked = true;
+  const stage = entry.stage ?? 0;
+  for (const input of def.inputs) {
+    const need = getProjectInputCost(input, stage);
+    const already = Math.floor(entry.progress[input.key] ?? 0);
+    const add = Math.min(need - already, Math.ceil(need * fraction));
+    if (add > 0) entry.progress[input.key] = already + add;
+  }
+  const completedStage = finishStageIfComplete(next, projectId);
+  return { state: next, completedStage };
 }

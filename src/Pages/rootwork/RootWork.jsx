@@ -44,6 +44,8 @@ import {
   rebuyRoster, rebuyAllRosters, describeRebuyResult,
   setFarmTrainingSpec, saveRosterBlueprint, getTrainingLevel, getTrainingMaxLevel,
   depositToProject, PROJECTS,
+  deliverContract, abandonContract, buySealShopItem,
+  pickSeasonModifier, rerollSeasonModifiers, SEASON_MODIFIERS,
   // New adventurer functions
   reviveAdventurer, prestigeAdventurer, requestAutoBattleStop,
   tickBossFight, checkBossUnlock,
@@ -85,6 +87,7 @@ import FarmZone from "./components/FarmZone";
 import ProcessingZone from "./components/ProcessingZone";
 import MarketZone from "./components/MarketZone";
 import FarmUnlockModal from "./components/FarmUnlockModal";
+import ModifierPickModal from "./components/ModifierPickModal";
 import TownZone from "./components/TownZone";
 import AnimalsZone from "./components/AnimalsZone";
 import WorldZone from "./components/WorldZone";
@@ -785,6 +788,30 @@ export default function RootWork() {
     return r.state;
   }), [update, notify]);
 
+  // Contracts board + Seal Shop
+  const handleDeliverContract = useCallback((slotIndex) => update((s) => {
+    const r = deliverContract(s, slotIndex);
+    if (r.ok) notify(`📦 Contract delivered! +${r.sealsGained} 🏅${r.boost ? ` · ${r.boost.emoji} ${r.boost.label} for 15 min` : ""}`);
+    return r.state;
+  }), [update, notify]);
+  const handleAbandonContract = useCallback((slotIndex) => update((s) => abandonContract(s, slotIndex)), [update]);
+
+  // Season modifiers
+  const handlePickModifier = useCallback((modifierId) => update((s) => {
+    const n = pickSeasonModifier(s, modifierId);
+    if (n !== s) {
+      const def = SEASON_MODIFIERS[modifierId];
+      notify(`${def?.emoji ?? "🎴"} ${def?.name ?? "Modifier"} season begins!${def?.bonusPrestigePoints ? ` +${def.bonusPrestigePoints} prestige point` : ""}`);
+    }
+    return n;
+  }), [update, notify]);
+  const handleRerollModifiers = useCallback(() => update((s) => rerollSeasonModifiers(s)), [update]);
+  const handleBuySealShopItem = useCallback((itemId, projectId = null) => update((s) => {
+    const r = buySealShopItem(s, itemId, projectId);
+    notify(r.ok ? r.message : `Can't buy: ${r.message}`);
+    return r.state;
+  }), [update, notify]);
+
   // Roads & Trade Towns & Expeditions
   const handleBuildOrUpgradeRoad = useCallback(() => update((s) => { const n = buildOrUpgradeRoad(s); if (n === s) notify('Cannot build/upgrade Road — check costs.'); return n; }), [update, notify]);
   const handleToggleTownRoute = useCallback((townId, routeId) => update((s) => toggleTownRoute(s, townId, routeId)), [update]);
@@ -1093,6 +1120,8 @@ export default function RootWork() {
   const hasPendingAssignments = game?.pendingWorkerAssignments && (game?.keptWorkers?.length ?? 0) > 0;
   const hasPendingFarmUnlock = game?.pendingFarmUnlock === true;
   const hasPendingSeasonUnlock = game?.pendingSeasonUnlock === true;
+  // The season modifier pick comes first; farm/barn unlock and farmer placement wait for it
+  const hasPendingModifierPick = game?.pendingModifierPick === true && (game?.modifierChoices?.length ?? 0) > 0;
 
   if (!loaded || !game) {
     return <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg)", color: "var(--muted)" }}><p className="text-sm">Loading RootWork…</p></div>;
@@ -1194,6 +1223,9 @@ export default function RootWork() {
               onSetFarmTrainingSpec={handleSetFarmTrainingSpec}
               onSaveRosterBlueprint={handleSaveRosterBlueprint}
               onProjectDeposit={handleProjectDeposit}
+              onDeliverContract={handleDeliverContract}
+              onAbandonContract={handleAbandonContract}
+              onBuySealShopItem={handleBuySealShopItem}
               onBuildRecHall={handleBuildRecHall}
               onUpgradeRecHall={handleUpgradeRecHall}
               onBuyBakery={handleBuyTownBakery}
@@ -1291,9 +1323,10 @@ export default function RootWork() {
         )}
       </div>
       <GameNav game={game} activeMainTab={activeMainTab} onMainTabChange={setActiveMainTab} prestigeReady={prestigeReady} />
-      {hasPendingFarmUnlock && !hasPendingAssignments && <FarmUnlockModal game={game} onUnlock={handleUnlockFarm} />}
-      {hasPendingSeasonUnlock && !hasPendingAssignments && <SeasonUnlockModal game={game} onUnlockFarm={handleUnlockSeasonFarm} onUnlockBarn={handleUnlockSeasonBarn} onSkipUnlock={handleSkipSeasonUnlock} />}
-      {hasPendingAssignments && <FarmAssignmentScreen game={game} onAssign={handleAssignWorker} />}
+      {hasPendingModifierPick && <ModifierPickModal game={game} onPick={handlePickModifier} onReroll={handleRerollModifiers} />}
+      {!hasPendingModifierPick && hasPendingFarmUnlock && !hasPendingAssignments && <FarmUnlockModal game={game} onUnlock={handleUnlockFarm} />}
+      {!hasPendingModifierPick && hasPendingSeasonUnlock && !hasPendingAssignments && <SeasonUnlockModal game={game} onUnlockFarm={handleUnlockSeasonFarm} onUnlockBarn={handleUnlockSeasonBarn} onSkipUnlock={handleSkipSeasonUnlock} />}
+      {!hasPendingModifierPick && hasPendingAssignments && <FarmAssignmentScreen game={game} onAssign={handleAssignWorker} />}
       {showPrestigeModal && <PrestigeModal game={game} onComplete={handlePrestigeComplete} onCancel={() => setShowPrestigeModal(false)} />}
     </div>
   );

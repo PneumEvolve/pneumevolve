@@ -98,6 +98,7 @@ import { tick } from "./tick.js";
 import { getAdventurerMaxHp, getAdventurerXpNeeded, getHeroBonusMaxHp, getHeroPrestigeDmgReduction, isHeroBusy } from "./heroes.js";
 import { getBossDef, getHeroBossClass, getHeroBossDamage, initBossFight } from "./forge.js";
 import { isHeroOnExpedition } from "./roads.js";
+import { getGlobalBonus } from "./bonuses.js";
 
 // Assign a hero to the boss fight (removes from mission flow)
 export function assignHeroToBoss(state, heroId) {
@@ -299,7 +300,8 @@ export function tickBossFight(state, dtSeconds) {
       const ticksParticipated = (nextHeroTicks[a.id] ?? 0);
       const participationRatio = nextTotalTicks > 0 ? ticksParticipated / nextTotalTicks : 1;
       const qualified = participationRatio >= MIN_PARTICIPATION;
-      const earnedXp = qualified ? xpReward : 0;
+      // Hero's Monument stages (and later season modifiers) boost boss XP too
+      const earnedXp = qualified ? Math.round(xpReward * Math.max(0, 1 + getGlobalBonus(state, "heroXp"))) : 0;
       let newXp = (a.xp ?? 0) + earnedXp;
       let newLevel = a.level ?? 1;
       let skillPointsGained = 0;

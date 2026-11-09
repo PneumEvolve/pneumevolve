@@ -96,6 +96,7 @@ FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, 
 } from "../gameConstants";
 import { getAdventurerMaxHp, getAdventurerXpNeeded, isHeroBusy } from "./heroes.js";
 import { isHeroOnExpedition } from "./roads.js";
+import { getGlobalBonus } from "./bonuses.js";
 
 // --- DUNGEON -----------------------------------------------------------------------
 
@@ -109,8 +110,10 @@ export function applyDungeonResult(state, result) {
 
   // Apply XP per hero, triggering level-ups via existing formula
   if (result.xpByHeroId && Object.keys(result.xpByHeroId).length > 0) {
+    // Hero's Monument stages (and later season modifiers)
+    const xpMult = Math.max(0, 1 + getGlobalBonus(state, "heroXp"));
     next.adventurers = (next.adventurers ?? []).map(adv => {
-      const earned = result.xpByHeroId[adv.id] ?? 0;
+      const earned = Math.round((result.xpByHeroId[adv.id] ?? 0) * xpMult);
       if (earned <= 0) return adv;
       let newXp = (adv.xp ?? 0) + earned;
       let newLevel = adv.level ?? 1;
