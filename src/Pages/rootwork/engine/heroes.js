@@ -98,6 +98,7 @@ import { isAtWorkerCap } from "./core.js";
 import { getMaxHeroes, getTavernRegenRate, isTownBuildingBuilt } from "./town.js";
 import { tick, updateTown } from "./tick.js";
 import { getVelmoorXpBonus } from "./roads.js";
+import { getGlobalBonus } from "./bonuses.js";
 import { sendAdventurer } from "./roadsV2.js";
 
 // ─── World / Adventurer Engine ────────────────────────────────────────────────
@@ -354,10 +355,12 @@ export function returnAdventurer(state, adventurerId) {
   // Evasion: scavenger tree — each 10s tick has a chance to deal 0 damage
   const evasionChance = getHeroEvasionChance(adventurer);
   const totalTicks = Math.floor(mission.duration / 10);
+  // Global mission damage modifier (season modifiers plug in here; 0 = no change)
+  const globalDmgMult = Math.max(0, 1 + getGlobalBonus(state, "missionDamage"));
   let rawDamage = 0;
   for (let i = 0; i < totalTicks; i++) {
     if (Math.random() >= evasionChance) {
-      rawDamage += dmgPerTick * (failed ? 1.5 : 0.6) * (1 - damageReduction) * (1 - getHeroPrestigeDmgReduction(adventurer, false));
+      rawDamage += dmgPerTick * (failed ? 1.5 : 0.6) * (1 - damageReduction) * (1 - getHeroPrestigeDmgReduction(adventurer, false)) * globalDmgMult;
     }
   }
   rawDamage = Math.round(rawDamage);
@@ -367,7 +370,7 @@ export function returnAdventurer(state, adventurerId) {
   const diedOnNormalRun = !mission.autoBattle && hpAfterDamage <= 0;
   const effectiveFailed = failed || diedOnNormalRun;
 
-  const xpGained = effectiveFailed ? 0 : Math.round(zone.xpReward * getHeroXpMultiplier(adventurer) * (1 + getHeroPrestigeXpBonus(adventurer)) * (hasOmeletBuff ? 1.25 : 1) * (1 + getVelmoorXpBonus(state)));
+  const xpGained = effectiveFailed ? 0 : Math.round(zone.xpReward * getHeroXpMultiplier(adventurer) * (1 + getHeroPrestigeXpBonus(adventurer)) * (hasOmeletBuff ? 1.25 : 1) * (1 + getVelmoorXpBonus(state)) * Math.max(0, 1 + getGlobalBonus(state, "heroXp")));
   let newXp = (adventurer.xp ?? 0) + xpGained;
   let newLevel = adventurer.level ?? 1;
   let leveledUp = false;

@@ -43,6 +43,7 @@ import {
   TRAINING_HALLS, trainNewHires, buyTrainingLevel, canBuyTrainingLevel,
   rebuyRoster, rebuyAllRosters, describeRebuyResult,
   setFarmTrainingSpec, saveRosterBlueprint, getTrainingLevel, getTrainingMaxLevel,
+  depositToProject, PROJECTS,
   // New adventurer functions
   reviveAdventurer, prestigeAdventurer, requestAutoBattleStop,
   tickBossFight, checkBossUnlock,
@@ -773,6 +774,17 @@ export default function RootWork() {
   const handleSetFarmTrainingSpec = useCallback((specId) => update((s) => setFarmTrainingSpec(s, specId)), [update]);
   const handleSaveRosterBlueprint = useCallback(() => { update((s) => saveRosterBlueprint(s)); notify("📋 Current crew saved as your blueprint."); }, [update, notify]);
 
+  // Town Projects — itemKey null = deposit everything possible into that project
+  const handleProjectDeposit = useCallback((projectId, itemKey = null) => update((s) => {
+    const r = depositToProject(s, projectId, itemKey);
+    if (r.completedStage) {
+      const def = PROJECTS[projectId];
+      const stage = r.state.projects?.[projectId]?.stage ?? 0;
+      notify(`🏗️ ${def?.name ?? "Project"} stage ${stage} complete! Now +${Math.round(stage * (def?.bonusPerStage ?? 0) * 100)}% ${def?.bonusLabel ?? ""}`);
+    }
+    return r.state;
+  }), [update, notify]);
+
   // Roads & Trade Towns & Expeditions
   const handleBuildOrUpgradeRoad = useCallback(() => update((s) => { const n = buildOrUpgradeRoad(s); if (n === s) notify('Cannot build/upgrade Road — check costs.'); return n; }), [update, notify]);
   const handleToggleTownRoute = useCallback((townId, routeId) => update((s) => toggleTownRoute(s, townId, routeId)), [update]);
@@ -1181,6 +1193,7 @@ export default function RootWork() {
               onRebuyAll={handleRebuyAll}
               onSetFarmTrainingSpec={handleSetFarmTrainingSpec}
               onSaveRosterBlueprint={handleSaveRosterBlueprint}
+              onProjectDeposit={handleProjectDeposit}
               onBuildRecHall={handleBuildRecHall}
               onUpgradeRecHall={handleUpgradeRecHall}
               onBuyBakery={handleBuyTownBakery}

@@ -101,6 +101,7 @@ import { getAnimalStorageUpgradeCost, getAnimalYieldUpgradeCost, getBarnInstance
 import { tick } from "./tick.js";
 import { deepCloneState } from "./save.js";
 import { getMillhavenGrowBonus, getThornwickGrowBonus } from "./roads.js";
+import { getGlobalBonus } from "./bonuses.js";
 
 // ─── Farm actions ─────────────────────────────────────────────────────────────
  
@@ -319,9 +320,12 @@ export function buyYieldUpgrade(state, farmId) {
 export function applyYieldBonuses(baseYield, prestigeBonuses, currentPool = 0, farmBonusYield = 0, state = null) {
   // New skill tree: bumper_crop is 15% per stack
   const bumperCount = state ? getPrestigeSkillCount(state, "bumper_crop") : prestigeBonuses.filter((b) => b === "bumper_crop").length;
+  // Granary stages (and later season modifiers) — additive with Bumper Crop
+  const globalYield = state ? getGlobalBonus(state, "cropYield") : 0;
   const total = baseYield + farmBonusYield;
-  if (bumperCount === 0) return { crops: total, newPool: currentPool };
-  const exact = total * (1 + bumperCount * 0.15);
+  const mult = Math.max(0, 1 + bumperCount * 0.15 + globalYield);
+  if (mult === 1) return { crops: total, newPool: currentPool };
+  const exact = total * mult;
   const whole = Math.floor(exact);
   const newPool = currentPool + (exact - whole);
   const bonus = Math.floor(newPool);

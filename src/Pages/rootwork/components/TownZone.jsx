@@ -49,6 +49,7 @@ import {
 import SeasonPanel from "./SeasonPanel";
 import StatsPanel from "./StatsPanel";
 import { TrainingSection, CrewRosterCard } from "./TrainingHallsPanel";
+import ProjectsPanel from "./ProjectsPanel";
 
 // ─── Shared helpers ────────────────────────────────────────────────────────────
 
@@ -206,6 +207,8 @@ export default function TownZone({
   onRebuyAll,
   onSetFarmTrainingSpec,
   onSaveRosterBlueprint,
+  // Town Projects
+  onProjectDeposit,
   // Legacy props kept so RootWork doesn't need changes yet — ignored
   onBuyBakery, onToggleBakery, onTogglePantry, onToggleCannery,
   onUpgradeTownBuilding, onBuyJamBuilding, onBuySauceBuilding,
@@ -311,7 +314,7 @@ export default function TownZone({
     <div style={{ paddingBottom: "5rem" }}>
       {/* ── Sub-tabs ─────────────────────────────────────────────────────── */}
       <div style={{ display: "flex", gap: "0.4rem", marginBottom: "1rem" }}>
-        {[["town", "🏘️ Town"], ["stats", "📊 Stats"], ["season", "🌿 Season"]].map(([id, label]) => (
+        {[["town", "🏘️ Town"], ["projects", "🏗️ Projects"], ["stats", "📊 Stats"], ["season", "🌿 Season"]].map(([id, label]) => (
           <button key={id} onClick={() => setSubTab(id)} className="btn"
             style={{ flex: 1, fontSize: "0.75rem", padding: "0.4rem", position: "relative",
               background: subTab === id ? "var(--accent)" : "var(--card)",
@@ -340,6 +343,9 @@ export default function TownZone({
           </button>
         ))}
       </div>
+
+      {/* ── Projects tab ─────────────────────────────────────────────────── */}
+      {subTab === "projects" && <ProjectsPanel game={game} onDeposit={onProjectDeposit} />}
 
       {/* ── Stats tab ────────────────────────────────────────────────────── */}
       {subTab === "stats" && <StatsPanel game={game} />}

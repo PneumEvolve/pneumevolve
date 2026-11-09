@@ -105,6 +105,8 @@ import { cancelForgeWorkerRecipe, tickForgeWorkers } from "./forge.js";
 import { tickBossFight } from "./boss.js";
 import { getAshportFishBonus, getMillhavenGrowBonus, getThornwickGrowBonus, tickExpeditions, tickTradeTowns } from "./roads.js";
 import { tickRoads } from "./roadsV2.js";
+import { getGlobalBonus } from "./bonuses.js";
+import { markProjectUnlocks } from "./projects.js";
 
 // ─── Offline progress ─────────────────────────────────────────────────────────
 
@@ -415,10 +417,12 @@ if (activeTier) {
 }
 
     let cashEarned = 0;
+    // Grand Hall stages (and later season modifiers)
+    const sellPriceMult = Math.max(0, 1 + getGlobalBonus(next, "sellPrice"));
     while (toSellThisTick > 0 && (worker.queue ?? []).length > 0) {
       const order = worker.queue[0];
       const toSell = Math.min(toSellThisTick, order.quantity);
-      const rate = getSellRate(order.itemType, next.prestigeBonuses, bankPriceBonus, next);
+      const rate = getSellRate(order.itemType, next.prestigeBonuses, bankPriceBonus, next) * sellPriceMult;
       order.quantity = Math.floor(order.quantity - toSell);
       const earned = toSell * rate;
       next.cash = (next.cash ?? 0) + earned;
@@ -444,7 +448,9 @@ if (activeTier) {
       for (const worker of workers) {
         if (!worker?.hired) continue;
         const ashportBonus = getAshportFishBonus(next);
-        const interval = Math.max(1, Math.round(getFishingWorkerInterval(worker, next) / (1 + ashportBonus)));
+        // Lighthouse stages (and later season modifiers) stack with the Ashport/Crestfall bonus
+        const fishSpeed = Math.max(0.1, 1 + ashportBonus + getGlobalBonus(next, "fishingSpeed"));
+        const interval = Math.max(1, Math.round(getFishingWorkerInterval(worker, next) / fishSpeed));
         const haul = getFishingWorkerHaul(worker);
         const gearTier = getFishingWorkerGearTier(worker);
         const baitId = worker.assignedBait;
@@ -639,6 +645,8 @@ if (activeTier) {
   next = tickForgeWorkers(next, satMultiplier);
 
   next = updateTown(next, 1);
+  // Town Projects: flag newly unlocked projects so they stay visible for good
+  next = markProjectUnlocks(next);
   next.totalPlayTime = (next.totalPlayTime ?? 0) + 1;
   return next;
 }
