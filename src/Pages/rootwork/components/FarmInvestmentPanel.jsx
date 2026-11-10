@@ -53,7 +53,7 @@ export default function FarmInvestmentPanel({ farm, game, onBuyPlotCap, onBuyYie
       ⭐ Plot Upgrades
     </div>
     <div style={{ fontSize: "0.65rem", color: "var(--muted)", marginBottom: "0.5rem" }}>
-      Each upgrade costs 1 more {artisanGood} than the last — 50% faster grow time per plot
+      Each upgraded plot gives +1 crop per worker harvest
     </div>
 
     {upgradablePlots.length === 0 ? (

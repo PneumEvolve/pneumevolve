@@ -907,7 +907,7 @@ export default function TownZone({
           <BuildingCard emoji="⚔️" title="Guild Hall"
             badge={guildHallBuilt ? `Level ${guildHallLevel}` : "Not built"}
             badgeColor={guildHallBuilt ? "#4ade80" : "#f59e0b"}
-            locked={!th2} lockedMsg="Requires Town Hall level 2"
+            locked={!th1} lockedMsg="Requires Town Hall level 1"
           >
             <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.6rem", lineHeight: 1.6 }}>
               Each level unlocks an additional hero slot. Without the Guild Hall only your starter hero is available.

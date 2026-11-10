@@ -58,7 +58,7 @@ RESTAURANT_SAT_PER_CHEF, RESTAURANT_OMELETTE_PER_PULSE_DIVISOR, RESTAURANT_CHEES
 CLOTHIER_CASH_PER_CLERK, CLOTHIER_GOODS_PER_PULSE_DIVISOR,
 FISHING_BODIES, FISHING_BODY_ORDER, FISHING_FISH,
 FISHING_CATCH_RATES, FISHING_BAIT_BONUS,
-FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, ANIMAL_YIELD_UPGRADES, 
+FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, ANIMAL_YIELD_UPGRADES,
   SCHOOL_RESEARCH,
   PRESTIGE_SKILL_TREE,
   FORGE_WORKER_HIRE_COST, FORGE_WORKER_HIRE_MULTIPLIER,
@@ -100,7 +100,7 @@ import { deepCloneState } from "./save.js";
 import { getGlenhollowBarnBonus, getMillhavenGrowBonus, getThornwickGrowBonus } from "./roads.js";
 
 // ─── Factories ────────────────────────────────────────────────────────────────
- 
+
 export function makePlot(id, halfGrown = false, growTime = 15) {
   return {
     id: id ?? genId("plot"),
@@ -109,7 +109,7 @@ export function makePlot(id, halfGrown = false, growTime = 15) {
     upgraded: false,
   };
 }
- 
+
 export function makeFarm(cropId, isFirst = false) {
   const crop = CROPS[cropId];
   return {
@@ -119,7 +119,7 @@ export function makeFarm(cropId, isFirst = false) {
     unlockedPlots: 1,
   };
 }
- 
+
 export function makeFarmWorker(farmId, startWithGloves = false) {
   return {
     id: genId("worker"),
@@ -131,7 +131,7 @@ export function makeFarmWorker(farmId, startWithGloves = false) {
     hiredAt: Date.now(),
   };
 }
- 
+
 export function makeMarketWorker() {
   return {
     id: genId("mworker"),
@@ -143,7 +143,7 @@ export function makeMarketWorker() {
     hiredAt: Date.now(),
   };
 }
- 
+
 export function makeKitchenWorker() {
   return {
     id: genId("kworker"),
@@ -156,7 +156,7 @@ export function makeKitchenWorker() {
     hiredAt: Date.now(),
   };
 }
- 
+
 export function makeFreshTown() {
   return {
     unlocked: true,
@@ -198,9 +198,9 @@ export function makeFreshTown() {
     },
   };
 }
- 
+
 // ─── Initial state ────────────────────────────────────────────────────────────
- 
+
 export function createInitialState() {
   return {
     season: 1,
@@ -283,34 +283,34 @@ export function createInitialState() {
     expeditions: {},
   };
 }
- 
+
 // ─── Farm helpers ─────────────────────────────────────────────────────────────
- 
+
 export function getFarmCrop(farm) { return CROPS[farm.crop]; }
- 
+
 export function getNextGear(currentGear) {
   const idx = GEAR_ORDER.indexOf(currentGear);
   if (idx === -1 || idx === GEAR_ORDER.length - 1) return null;
   return GEAR_ORDER[idx + 1];
 }
- 
+
 export function getPlotUnlockCost(state, farmId, currentPlotCount) {
   const maxPlots = getFarmMaxPlots(state, farmId);
   if (currentPlotCount >= maxPlots) return null;
   const raw = PLOT_BASE_COST * Math.pow(PLOT_COST_MULTIPLIER, currentPlotCount - 1);
   return Math.max(5, Math.round(raw / 5) * 5);
 }
- 
+
 export function needsSpecialization(worker) {
   return worker.gear === "hoe" && worker.specialization === "none";
 }
- 
+
 export function getWorkerHireCost(state, farmId) {
   const workersOnFarm = state.workers.filter((w) => w.farmId === farmId).length;
   const raw = WORKER_HIRE_BASE_COST * Math.pow(WORKER_HIRE_MULTIPLIER, workersOnFarm);
   return Math.round(raw / 5) * 5;
 }
- 
+
 export function getEffectiveCycleSeconds(worker) {
   const gear = GEAR[worker.gear];
   let seconds = gear.cycleSeconds;
@@ -319,7 +319,7 @@ export function getEffectiveCycleSeconds(worker) {
   }
   return seconds;
 }
- 
+
 export function getEffectivePlotsPerCycle(worker) {
   const gear = GEAR[worker.gear];
   if (worker.specialization === "sprinter") {
@@ -327,12 +327,12 @@ export function getEffectivePlotsPerCycle(worker) {
   }
   return gear.plotsPerCycle;
 }
- 
+
 export function isSprinterResting(worker) {
   if (worker.specialization !== "sprinter") return false;
   return (worker.cycleCount ?? 0) % SPECIALIZATIONS.sprinter.restEvery === SPECIALIZATIONS.sprinter.restEvery - 1;
 }
- 
+
 export function getFishMealGrowBonus(state) {
   const stacks = state.fishMealStacks ?? [];
   return stacks.reduce((sum, s) => sum + (s.secondsLeft > 0 ? s.bonus : 0), 0);
@@ -404,17 +404,17 @@ export function getAnimalYieldUpgradeCost(animal) {
 }
 
 // ─── Barn building helpers ────────────────────────────────────────────────────
- 
+
 export function getBarnBuilding(state, buildingId) {
   return state.barnBuildings?.[buildingId] ?? { built: false, tier: 0 };
 }
- 
+
 export function getBarnBuildingTierData(state, buildingId) {
   const b = getBarnBuilding(state, buildingId);
   if (!b.built) return null;
   return BARN_BUILDING_TIERS[b.tier - 1] ?? BARN_BUILDING_TIERS[0];
 }
- 
+
 export function getBarnBuildingAnimalSlots(state, buildingId) {
   // Total slots across all instances of this building type
   const instances = (state.barnInstances ?? []).filter(i => i.buildingType === buildingId);
@@ -437,7 +437,7 @@ export function getBarnInstanceAnimalSlots(state, instanceId) {
   const breedingBonus = hasPrestigeSkill(state, "breeding_program") ? 2 : 0;
   return tierData.animalSlots + breedingBonus;
 }
- 
+
 // Barn Hall: max workers per barn building instance
 export function getMaxBarnWorkersPerBuilding(state) {
   const bh = state.town?.buildings?.barn_hall;
@@ -461,11 +461,11 @@ export function getBarnBuildingWorkerSlots(state, buildingId) {
 export function getBarnInstanceWorkerSlots(state, instanceId) {
   return getMaxBarnWorkersPerBuilding(state);
 }
- 
+
 export function getBarnBuildingForAnimal(animalType) {
   return Object.values(BARN_BUILDINGS).find((b) => b.animalType === animalType) ?? null;
 }
- 
+
 export function canBuildBarnBuilding(state, buildingId) {
   const def = BARN_BUILDINGS[buildingId];
   if (!def) return false;
@@ -475,7 +475,7 @@ export function canBuildBarnBuilding(state, buildingId) {
   if ((state.cash ?? 0) < def.buildCost) return false;
   return true;
 }
- 
+
 export function buildBarnBuilding(state, buildingId) {
   if (!canBuildBarnBuilding(state, buildingId)) return state;
   const def = BARN_BUILDINGS[buildingId];
@@ -487,7 +487,7 @@ export function buildBarnBuilding(state, buildingId) {
   next.barnInstances.push({ id: genId("bi"), buildingType: buildingId, tier: 1, animals: [], barnWorkers: [] });
   return next;
 }
- 
+
 export function canUpgradeBarnBuilding(state, buildingId, instanceId) {
   const b = getBarnBuilding(state, buildingId);
   if (!b.built) return false;
@@ -507,7 +507,7 @@ export function canUpgradeBarnBuilding(state, buildingId, instanceId) {
   }
   return true;
 }
- 
+
 export function upgradeBarnBuilding(state, buildingId, instanceId) {
   if (!canUpgradeBarnBuilding(state, buildingId, instanceId)) return state;
   const next = deepCloneState(state);
@@ -539,7 +539,7 @@ export function upgradeBarnBuilding(state, buildingId, instanceId) {
   b.tier = Math.max(b.tier, inst.tier);
   return next;
 }
- 
+
 export function getTotalBarnUpkeepPerSec(state) {
   let total = 0;
   for (const inst of state.barnInstances ?? []) {
@@ -607,22 +607,27 @@ export function getEffectiveGrowTime(farm, workers, cropId, plot = null, feastBo
   for (let i = 0; i < growers.length; i++) {
     time = Math.floor(time * SPECIALIZATIONS.grower.growMultiplier);
   }
-  if (plot?.upgraded) time = Math.floor(time * PLOT_UPGRADE_GROW_MULTIPLIER);
-  if (feastBonusPercent > 0) time = Math.floor(time / (1 + feastBonusPercent / 100));
-  if (townGrowthBonusPercent > 0) time = Math.floor(time / (1 + townGrowthBonusPercent / 100));
-  if (treasuryGrowBonus > 0) time = Math.floor(time / (1 + treasuryGrowBonus / 100));
-  if (fishMealBonus > 0) time = Math.floor(time / (1 + fishMealBonus / 100));
+  // Plot upgrades no longer change grow time — they add yield instead (PLOT_UPGRADE_BONUS_YIELD, tick.js).
+  // Percentage bonuses are combined first and rounded ONCE. Flooring after each bonus meant a
+  // +1% town bonus cut wheat from 12s to 11s (an 8% speed-up), which silently raised the number
+  // of workers a farm needs to be season-ready.
+  const bonusDivisor =
+    (1 + Math.max(0, feastBonusPercent) / 100) *
+    (1 + Math.max(0, townGrowthBonusPercent) / 100) *
+    (1 + Math.max(0, treasuryGrowBonus) / 100) *
+    (1 + Math.max(0, fishMealBonus) / 100);
+  time = Math.round(time / bonusDivisor);
   return Math.max(3, time);
 }
- 
+
 export function getFarmGrowTime(farm, workers, cropId, feastBonusPercent = 0, townGrowthBonusPercent = 0, treasuryGrowBonus = 0, fishMealBonus = 0) {
   return getEffectiveGrowTime(farm, workers, cropId, null, feastBonusPercent, townGrowthBonusPercent, treasuryGrowBonus, fishMealBonus);
 }
- 
+
 export function getNextFeastTier(state) {
   return FEAST_TIERS[state.feastTierIndex ?? 0] ?? null;
 }
- 
+
 export function getAvailableFarms(season) {
   return SEASON_FARMS[Math.min(season, 3)] ?? SEASON_FARMS[3];
 }

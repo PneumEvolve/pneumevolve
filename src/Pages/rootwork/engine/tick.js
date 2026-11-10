@@ -8,7 +8,7 @@ import {
   SPECIALIZATIONS, SEASON_FARMS, FIRST_EXTRA_FARM_SEASON,
   AUTOMATION_THRESHOLD, MIN_PLOTS_FOR_AUTOMATION, PRESTIGE_MIN_PLOTS,
   MAX_OFFLINE_SECONDS, PROCESSING_RECIPES, TEND_SECONDS,
-  SPECIALIZE_COST, SPECIALIZE_REQUIRES, PLOT_UPGRADE_GROW_MULTIPLIER, CROP_ARTISAN,
+  SPECIALIZE_COST, SPECIALIZE_REQUIRES, PLOT_UPGRADE_GROW_MULTIPLIER, PLOT_UPGRADE_BONUS_YIELD, CROP_ARTISAN,
   FEAST_TIERS, FEAST_MAX_BONUS, MARKET_SELL_RATES,
   MARKET_WORKER_HIRE_COST, MARKET_WORKER_HIRE_MULTIPLIER,
   MARKET_WORKER_GEAR, MARKET_WORKER_GEAR_ORDER,
@@ -301,7 +301,9 @@ if (activeTier) {
           for (const plot of farm.plots) {
             if (harvested >= plotsPerCycle) break;
             if (plot.state === "ready") {
-              const { crops, newPool } = applyYieldBonuses(crop.workerYield, next.prestigeBonuses, next.yieldPool ?? 0, bonusYield, next);
+              // Upgraded plots add a flat bonus on top of the farm's Fertilizer bonus
+              const plotBonus = plot.upgraded ? PLOT_UPGRADE_BONUS_YIELD : 0;
+              const { crops, newPool } = applyYieldBonuses(crop.workerYield, next.prestigeBonuses, next.yieldPool ?? 0, bonusYield + plotBonus, next);
               next.crops[farm.crop] = Math.min((next.crops[farm.crop] ?? 0) + crops, getWarehouseCropCap(next));
               next.yieldPool = newPool;
               cropsGained += crops;
