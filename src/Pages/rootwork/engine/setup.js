@@ -438,7 +438,13 @@ export function getBarnInstanceAnimalSlots(state, instanceId) {
   return tierData.animalSlots + breedingBonus;
 }
 
-// Barn Hall: max workers per barn building instance
+// ─── Barn worker slots ────────────────────────────────────────────────────────
+// Each barn's own tier gives worker slots (T1 = 2, T2 = 4, T3 = 6, T4 = 8),
+// so a fresh barn can be staffed without the Barn Hall.
+// Every Barn Hall level then adds +1 BONUS slot to every barn.
+export const BARN_WORKERS_PER_TIER = 2;
+
+// Barn Hall: bonus worker slots added to EVERY barn instance (0 before it's built)
 export function getMaxBarnWorkersPerBuilding(state) {
   const bh = state.town?.buildings?.barn_hall;
   if (!bh?.built) return 0;
@@ -452,14 +458,17 @@ export function getBarnHallRetainCount(state) {
   return bh.level ?? 1;
 }
 
-export function getBarnBuildingWorkerSlots(state, buildingId) {
-  const maxPerBuilding = getMaxBarnWorkersPerBuilding(state);
-  const instances = (state.barnInstances ?? []).filter(i => i.buildingType === buildingId);
-  return instances.length * maxPerBuilding;
+// Worker slots for one barn instance = tier slots + Barn Hall bonus
+export function getBarnInstanceWorkerSlots(state, instanceId) {
+  const inst = (state.barnInstances ?? []).find(i => i.id === instanceId);
+  if (!inst) return 0;
+  const tier = inst.tier ?? 1;
+  return tier * BARN_WORKERS_PER_TIER + getMaxBarnWorkersPerBuilding(state);
 }
 
-export function getBarnInstanceWorkerSlots(state, instanceId) {
-  return getMaxBarnWorkersPerBuilding(state);
+export function getBarnBuildingWorkerSlots(state, buildingId) {
+  const instances = (state.barnInstances ?? []).filter(i => i.buildingType === buildingId);
+  return instances.reduce((sum, inst) => sum + getBarnInstanceWorkerSlots(state, inst.id), 0);
 }
 
 export function getBarnBuildingForAnimal(animalType) {
