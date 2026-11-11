@@ -4,7 +4,7 @@ import React from "react";
 import {
   CROPS, SEASON_FARMS, PRESTIGE_SKILL_TREE,
   FIRST_EXTRA_FARM_SEASON, FIRST_CHOICE_SEASON,
-  getPrestigeCashThreshold, PRESTIGE_MIN_PLOTS, PRESTIGE_MIN_BARN_WORKERS, PRESTIGE_MIN_BARN_ANIMALS,
+  getPrestigeCashThreshold, PRESTIGE_MIN_PLOTS,
   BARN_BUILDINGS, BARN_BUILDING_ORDER, BARN_BUILDING_TIERS,
   TOWN_HALL_LEVEL_COSTS, SEASONAL_QUESTS, QUEST_GATE_STARTS_SEASON
 } from "../gameConstants";
@@ -14,12 +14,11 @@ import {
   getTreasuryGrowBonus, getFishMealGrowBonus, getSchoolGrowBonus,
   getMillhavenGrowBonus, getThornwickGrowBonus,
   getAvailablePrestigePoints, getBarnPrestigeReady,
-  getBarnInstanceSupplyRate, getBarnInstanceDemandRate, getCompletedQuestIds,
+  getBarnReadiness, BARN_READY_MIN_ANIMALS, BARN_READY_MIN_WORKERS, getCompletedQuestIds,
   evaluateQuestCondition, getFarmAverageGrowTime,
   STOCKED_KITCHEN_GOODS, STOCKED_KITCHEN_TARGET, getStockedKitchenAmount,
   getKitchenHallRetainCount, getMarketHallRetainCount, getBarnHallRetainCount, getForgeHallRetainCount,
   TRAINING_HALLS, getTrainingLevel,
-  getSeasonModifier, MODIFIER_FIRST_SEASON,
 } from "../gameEngine";
 
 function FarmChecklist({ farm, game }) {
@@ -76,45 +75,39 @@ function FarmChecklist({ farm, game }) {
   );
 }
 
+// Uses getBarnReadiness — the same check as the barn screen's "✓ Season ready" and the prestige button
 function BarnChecklist({ barnInstance, game, label }) {
   const def = BARN_BUILDINGS[barnInstance.buildingType];
-  const workers = (barnInstance.barnWorkers ?? []).length;
-  const hasWorker = workers >= PRESTIGE_MIN_BARN_WORKERS;
-  const animals = (barnInstance.animals ?? []).length;
-  const hasAnimals = animals >= PRESTIGE_MIN_BARN_ANIMALS;
-  const supplyRate = getBarnInstanceSupplyRate(barnInstance);
-  const demandRate = getBarnInstanceDemandRate(barnInstance, game);
-  const workerKeepsUp = hasWorker && hasAnimals && supplyRate >= demandRate;
-  const ready = hasWorker && hasAnimals && workerKeepsUp;
+  const r = getBarnReadiness(barnInstance, game);
   return (
     <div style={{ padding: "0.75rem 0", borderBottom: "1px solid var(--border)", fontSize: "0.82rem" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
         <span style={{ fontWeight: 600 }}>{def?.emoji} {label}</span>
         <span style={{
           fontSize: "0.7rem", fontWeight: 700, padding: "0.2rem 0.55rem", borderRadius: "999px",
-          background: ready ? "rgba(74,222,128,0.15)" : "rgba(245,158,11,0.15)",
-          border: `1px solid ${ready ? "#4ade80" : "#f59e0b"}`,
-          color: ready ? "#166534" : "#92400e",
+          background: r.ready ? "rgba(74,222,128,0.15)" : "rgba(245,158,11,0.15)",
+          border: `1px solid ${r.ready ? "#4ade80" : "#f59e0b"}`,
+          color: r.ready ? "#166534" : "#92400e",
         }}>
-          {ready ? "✓ Ready" : "Not ready"}
+          {r.ready ? "✓ Ready" : "Not ready"}
         </span>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.75rem", color: hasWorker ? "#4ade80" : "var(--muted)" }}>
-          <span>{hasWorker ? "☑" : "☐"}</span>
-          <span>At least 1 barn worker assigned <span style={{ opacity: 0.7 }}>({workers}/{PRESTIGE_MIN_BARN_WORKERS})</span></span>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.75rem", color: r.hasAnimal ? "#4ade80" : "var(--muted)" }}>
+          <span>{r.hasAnimal ? "☑" : "☐"}</span>
+          <span>At least {BARN_READY_MIN_ANIMALS} animal in barn <span style={{ opacity: 0.7 }}>({r.animals}/{BARN_READY_MIN_ANIMALS})</span></span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.75rem", color: hasAnimals ? "#4ade80" : "var(--muted)" }}>
-          <span>{hasAnimals ? "☑" : "☐"}</span>
-          <span>At least {PRESTIGE_MIN_BARN_ANIMALS} animals in barn <span style={{ opacity: 0.7 }}>({animals}/{PRESTIGE_MIN_BARN_ANIMALS})</span></span>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.75rem", color: r.hasWorker ? "#4ade80" : "var(--muted)" }}>
+          <span>{r.hasWorker ? "☑" : "☐"}</span>
+          <span>At least {BARN_READY_MIN_WORKERS} barn worker <span style={{ opacity: 0.7 }}>({r.workers}/{BARN_READY_MIN_WORKERS})</span></span>
         </div>
-        {hasWorker && hasAnimals && (
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.75rem", color: workerKeepsUp ? "#4ade80" : "var(--muted)" }}>
-            <span>{workerKeepsUp ? "☑" : "☐"}</span>
+        {r.hasAnimal && r.hasWorker && (
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.75rem", color: r.keepsUp ? "#4ade80" : "var(--muted)" }}>
+            <span>{r.keepsUp ? "☑" : "☐"}</span>
             <span>
               Workers keeping up
               <span style={{ opacity: 0.7, marginLeft: "0.4rem" }}>
-                ({supplyRate.toFixed(3)} collects/s ≥ {demandRate.toFixed(3)} needed)
+                ({r.emoji} {r.supplyPerMin.toFixed(1)}/min collected · {r.demandPerMin.toFixed(1)}/min made at full mood)
               </span>
             </span>
           </div>
@@ -471,22 +464,9 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset, 
       <div style={{ marginBottom: "1.25rem" }}>
         <h2 style={{ fontSize: "1.2rem", fontWeight: 700 }}>🌱 Season {game.season}</h2>
         <p style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: "0.15rem" }}>
-          {prestigeReady ? "All conditions met — ready to begin a new season!" : "Complete all requirements below to unlock the next season."}
+          {prestigeReady ? "All requirements met — ready to begin a new season!" : "Complete all requirements below to unlock the next season."}
         </p>
       </div>
-
-      {/* This season's modifier */}
-      {(() => {
-        const mod = getSeasonModifier(game);
-        if (!mod) return null;
-        return (
-          <div className="card p-4" style={{ marginBottom: "1rem", border: mod.hard ? "1px solid rgba(239,68,68,0.5)" : undefined }}>
-            <div style={{ fontSize: "0.85rem", fontWeight: 700 }}>{mod.emoji} {mod.name} season</div>
-            <div style={{ fontSize: "0.72rem", color: "#4ade80", marginTop: "0.25rem" }}>▲ {mod.upside}</div>
-            <div style={{ fontSize: "0.72rem", color: "#f87171", marginTop: "0.1rem" }}>▼ {mod.downside}</div>
-          </div>
-        );
-      })()}
 
       {/* Quest board — full for S1-3, compact summary for S4+ */}
       {(() => {
@@ -610,9 +590,7 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset, 
         <div className="card p-4" style={{ marginBottom: "1rem" }}>
           <h3 style={{ fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.25rem" }}>Barn Readiness</h3>
           <p style={{ fontSize: "0.7rem", color: "var(--muted)", marginBottom: "0.5rem" }}>
-            {game.season >= FIRST_CHOICE_SEASON
-              ? "Each built barn needs workers keeping up with animal production."
-              : "Automate your barn — workers must keep pace with how fast animals produce."}
+            Each barn needs at least {BARN_READY_MIN_ANIMALS} animal, and its workers must collect as fast as its animals produce at full mood.
           </p>
           {(game.barnInstances ?? []).map((inst, idx) => {
             const sameTypeBefore = (game.barnInstances ?? []).slice(0, idx).filter(i => i.buildingType === inst.buildingType).length;
@@ -691,9 +669,6 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset, 
             ? <li>✅ New barn auto-unlocks (buy animals and hire workers yourself)</li>
             : <li>✅ A new farm unlocks automatically</li>}
           <li>✅ Town Projects, Charter Seals, contracts and Seal Shop upgrades</li>
-          {game.season + 1 >= MODIFIER_FIRST_SEASON && (
-            <li>🎴 You'll pick 1 of 3 season conditions (upside + downside) before anything else</li>
-          )}
           <li>❌ Plot states reset (first plot starts planted)</li>
           <li>❌ Quest progress resets — a new quest board each season</li>
           <li>

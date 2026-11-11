@@ -1,5 +1,12 @@
 // src/Pages/rootwork/engine/modifiers.js — Season modifier roll / pick / reroll
 //
+// ⚠ SEASON CONDITIONS ARE SWITCHED OFF (Nov 2026).
+// SEASON_MODIFIERS_ENABLED = false means:
+//   • no pick-1-of-3 after prestige (the modal never opens)
+//   • any modifier already active stops doing anything (bonuses.js ignores it)
+//   • old saves get their modifier state cleared on the next prestige
+// Flip it to true to bring them back — everything else is still here.
+//
 // State:
 //   state.seasonModifier      — id of this season's modifier, or null
 //   state.modifierChoices     — [id, id, id] while a pick is pending
@@ -9,11 +16,13 @@
 import {
   SEASON_MODIFIERS, SEASON_MODIFIER_ORDER, MODIFIER_FIRST_SEASON, MODIFIER_CHOICE_COUNT, MODIFIER_REROLL_COST,
 } from "./modifiersData.js";
+import { SEASON_MODIFIERS_ENABLED } from "./bonuses.js";
 import { deepCloneState } from "./save.js";
 
 export { SEASON_MODIFIERS, SEASON_MODIFIER_ORDER, MODIFIER_FIRST_SEASON, MODIFIER_CHOICE_COUNT, MODIFIER_REROLL_COST };
 
 export function getSeasonModifier(state) {
+  if (!SEASON_MODIFIERS_ENABLED) return null;
   return SEASON_MODIFIERS[state?.seasonModifier] ?? null;
 }
 
@@ -32,7 +41,7 @@ export function rollModifierChoices(exclude = []) {
 export function applyModifierRollOnPrestige(next, newSeason) {
   const previous = next.seasonModifier ?? null;
   next.seasonModifier = null;
-  if (newSeason >= MODIFIER_FIRST_SEASON) {
+  if (SEASON_MODIFIERS_ENABLED && newSeason >= MODIFIER_FIRST_SEASON) {
     // Don't offer last season's modifier again
     next.modifierChoices = rollModifierChoices(previous ? [previous] : []);
     next.pendingModifierPick = true;
@@ -45,6 +54,14 @@ export function applyModifierRollOnPrestige(next, newSeason) {
 
 export function pickSeasonModifier(state, modifierId) {
   if (!state.pendingModifierPick) return state;
+  if (!SEASON_MODIFIERS_ENABLED) {
+    // An old save caught mid-pick: just close the picker, nothing applied
+    const next = deepCloneState(state);
+    next.seasonModifier = null;
+    next.pendingModifierPick = false;
+    next.modifierChoices = [];
+    return next;
+  }
   if (!(state.modifierChoices ?? []).includes(modifierId)) return state;
   const def = SEASON_MODIFIERS[modifierId];
   if (!def) return state;
@@ -59,6 +76,7 @@ export function pickSeasonModifier(state, modifierId) {
 }
 
 export function canRerollSeasonModifiers(state) {
+  if (!SEASON_MODIFIERS_ENABLED) return false;
   return !!state.pendingModifierPick && (state.contracts?.seals ?? 0) >= MODIFIER_REROLL_COST;
 }
 

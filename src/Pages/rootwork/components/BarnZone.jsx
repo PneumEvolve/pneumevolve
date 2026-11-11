@@ -14,10 +14,9 @@ import {
   getBarnInstanceAnimalSlots, getBarnInstanceWorkerSlots, getMaxBarnWorkersPerBuilding, BARN_WORKERS_PER_TIER,
   canBuildBarnBuilding, canUpgradeBarnBuilding,
   getAvailableWorkerSlots, isTownBuildingBuilt, hasSchoolResearch,
-  getBarnInstanceSupplyRate, getBarnInstanceDemandRate,
-  getAnimalEffectiveCycleSeconds, getGlenhollowBarnBonus, getTownSatisfactionMultiplier,
+  getBarnReadiness, getBarnWorkerPickupSeconds, getBarnWorkerSpeed,
+  getAnimalEffectiveCycleSeconds, getGlenhollowBarnBonus,
 } from "../gameEngine";
-import { PRESTIGE_MIN_BARN_WORKERS, PRESTIGE_MIN_BARN_ANIMALS } from "../gameConstants";
 
 const ANIMAL_DEFS = {
   chicken: { id: "chicken", name: "Chicken", emoji: "🐔", baseCost: 300, costMultiplier: 1.8, produces: "egg",  produceName: "Egg",  produceEmoji: "🥚", cycleSeconds: 60,  rawValue: 5  },
@@ -484,11 +483,11 @@ function BarnWorkerCard({ worker, game, index, onFire, onUpgrade, instanceAnimal
   const careInterval = getBarnWorkerCareInterval(worker);
   const upgrades = worker.upgrades ?? [];
 
-  // Pickup timer — engine adds satMultiplier to collectTimer each second,
-  // so real seconds = remaining / satMultiplier
-  const satMult = Math.max(0.01, getTownSatisfactionMultiplier(game) ?? 1);
+  // Pickup timer — engine adds worker speed (satisfaction × bonuses) to collectTimer each second.
+  // effectiveInterval uses the exact same math as the season-ready check.
+  const satMult = Math.max(0.01, getBarnWorkerSpeed(game));
   const collectTimer = worker.collectTimer ?? 0;
-  const effectiveInterval = Math.round(interval / satMult);
+  const effectiveInterval = getBarnWorkerPickupSeconds(worker, game);
   const pickupPct = Math.min(100, (collectTimer / interval) * 100);
   const pickupSecsLeft = Math.max(0, Math.ceil((interval - collectTimer) / satMult));
   const idle = animals.length === 0;
@@ -632,11 +631,9 @@ function BuildingTab({
   const canAffordAnimal = cash >= nextAnimalCost;
     const hireCost = getBarnWorkerHireCost(game, instanceId);
   const canHireWorker = !atWorkerCap && !workerSlotsFull && cash >= hireCost;
-  // Same check as the Season panel's Barn Readiness
-  const seasonReady = (game.season ?? 1) >= 4
-    && barnWorkers.length >= PRESTIGE_MIN_BARN_WORKERS
-    && animals.length >= PRESTIGE_MIN_BARN_ANIMALS
-    && getBarnInstanceSupplyRate(inst) >= getBarnInstanceDemandRate(inst, game);
+  // The exact check the Season panel and the prestige button use (season.js → getBarnReadiness)
+  const readiness = getBarnReadiness(inst, game);
+  const seasonReady = (game.season ?? 1) >= 4 && readiness.ready;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
@@ -739,6 +736,12 @@ function BuildingTab({
             <div style={{ fontSize: "0.62rem", color: "var(--muted)", marginTop: "0.1rem" }}>
               Auto-collect produce · {instTier * BARN_WORKERS_PER_TIER} from tier{hallBonusSlots > 0 ? ` + ${hallBonusSlots} from Barn Hall` : ""}
             </div>
+            {animals.length > 0 && (
+              <div style={{ fontSize: "0.62rem", marginTop: "0.15rem", fontWeight: 600, color: readiness.keepsUp ? "#4ade80" : "#f59e0b" }}>
+                {readiness.emoji} Workers collect {readiness.supplyPerMin.toFixed(1)}/min · animals make up to {readiness.demandPerMin.toFixed(1)}/min
+                {!readiness.keepsUp && barnWorkers.length > 0 && " — falling behind"}
+              </div>
+            )}
           </div>
           <div style={{ display: "flex", gap: "0.4rem" }}>
             {barnWorkers.length > 0 && (() => {

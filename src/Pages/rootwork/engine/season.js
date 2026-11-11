@@ -95,7 +95,7 @@ FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, 
   EXPEDITION_TIERS, EXPEDITION_TIER_ORDER, EXPEDITION_CLASS_BONUSES,
 } from "../gameConstants";
 import { genId, getPrestigeSkillCount, getTownHallLevel, hasPrestigeSkill, isAtWorkerCap, isFarmPrestigeReady } from "./core.js";
-import { getMaxForgeWorkers, getTownCapacity } from "./town.js";
+import { getMaxForgeWorkers, getTownCapacity, getTownSatisfactionMultiplier } from "./town.js";
 import { getMarketWorkerItemsPerSecond } from "./workers.js";
 import { getAnimalBonusYield, getAnimalEffectiveCycleSeconds, getBarnInstanceAnimalSlots, getBarnWorkerCapacity, getBarnWorkerInterval, getEffectiveCycleSeconds, makeFarm } from "./setup.js";
 import { tick } from "./tick.js";
@@ -103,6 +103,7 @@ import { deepCloneState } from "./save.js";
 import { computeTotalGearTier } from "./heroes.js";
 import { snapshotRoster } from "./training.js";
 import { applyModifierRollOnPrestige } from "./modifiers.js";
+import { getGlobalBonus } from "./bonuses.js";
 
 // ─── Prestige ─────────────────────────────────────────────────────────────────
 
@@ -118,46 +119,90 @@ export function makeKeptWorker(worker, type) {
   return base;
 }
 
-export function getBarnInstanceSupplyRate(inst) {
-  // collects/sec this barn's workers can handle
+// ─── Barn readiness ───────────────────────────────────────────────────────────
+// ONE check used by the barn screen ("✓ Season ready"), the Season panel's Barn Readiness
+// list, the prestige blockers and canPrestige — so they can never disagree.
+//
+// A barn is ready when:
+//   • it has at least BARN_READY_MIN_ANIMALS animal(s)
+//   • it has at least 1 barn worker
+//   • its workers collect at least as fast as its animals produce AT FULL MOOD.
+//     Full mood is the most an animal can make (the tick gives 3 per cycle at 100% mood,
+//     plus yield upgrades and Sturdy Stock). If workers keep up with that, they keep up
+//     no matter what — and petting an animal can never knock you out of "ready".
+// Worker speed uses the same satisfaction (and workerSpeed bonus) the tick uses.
+
+export const BARN_READY_MIN_ANIMALS = 1;
+export const BARN_READY_MIN_WORKERS = 1;
+
+// What the tick gives each worker per second: satisfaction × workerSpeed bonus
+export function getBarnWorkerSpeed(state) {
+  if (!state) return 1;
+  return getTownSatisfactionMultiplier(state) * Math.max(0.1, 1 + getGlobalBonus(state, "workerSpeed"));
+}
+
+// Real seconds between pickups for one barn worker — mirrors the tick exactly:
+// every second collectTimer += speed, and the worker collects once it reaches its interval.
+export function getBarnWorkerPickupSeconds(worker, state) {
+  const interval = getBarnWorkerInterval(worker);
+  const speed = getBarnWorkerSpeed(state);
+  if (!(speed > 0)) return Infinity;
+  let timer = 0;
+  let seconds = 0;
+  while (timer < interval && seconds < 100000) { timer += speed; seconds++; }
+  return seconds;
+}
+
+// Most an animal can produce in one cycle (100% mood)
+export function getAnimalPeakYieldPerCycle(animal, state) {
+  let produced = 3 + getAnimalBonusYield(animal);
+  const sturdyCount = state ? getPrestigeSkillCount(state, "sturdy_stock") : 0;
+  if (sturdyCount > 0) produced = Math.ceil(produced * Math.pow(1.2, sturdyCount));
+  return produced;
+}
+
+// Items/second this barn's workers can collect
+export function getBarnInstanceSupplyRate(inst, state = null) {
   return (inst.barnWorkers ?? []).reduce((sum, w) => {
-    const interval = getBarnWorkerInterval(w);
-    const capacity = getBarnWorkerCapacity(w);
-    return sum + (capacity / interval);
+    const seconds = getBarnWorkerPickupSeconds(w, state);
+    if (!isFinite(seconds) || seconds <= 0) return sum;
+    return sum + getBarnWorkerCapacity(w) / seconds;
   }, 0);
 }
 
-export function getBarnInstanceDemandRate(inst, state) {
-  // produces/sec all animals in this barn generate, accounting for all modifiers
+// Items/second this barn's animals produce at full mood
+export function getBarnInstanceDemandRate(inst, state = null) {
   const animals = inst.animals ?? [];
   if (animals.length === 0) return 0;
-  // Derive animal type from the building definition (animals don't store their own type)
-  const def = BARN_BUILDINGS[inst.buildingType];
-  const animalTypeId = def?.animalType;
-  const type = ANIMAL_TYPES[animalTypeId];
+  const type = ANIMAL_TYPES[BARN_BUILDINGS[inst.buildingType]?.animalType];
   if (!type) return 0;
-  const sturdyCount = state ? getPrestigeSkillCount(state, "sturdy_stock") : 0;
-  const cycleSeconds = state
-    ? getAnimalEffectiveCycleSeconds(type.cycleSeconds, state)
-    : type.cycleSeconds;
-  return animals.reduce((sum, animal) => {
-    // Base yield per cycle (mirrors tick engine logic, ignoring mood bonus chance for simplicity)
-    const bonusYield = getAnimalBonusYield(animal);
-    let avgProduced = 1 + bonusYield;
-    if (sturdyCount > 0) avgProduced = Math.ceil(avgProduced * Math.pow(1.2, sturdyCount));
-    return sum + (avgProduced / cycleSeconds);
-  }, 0);
+  const cycleSeconds = state ? getAnimalEffectiveCycleSeconds(type.cycleSeconds, state) : type.cycleSeconds;
+  return animals.reduce((sum, animal) => sum + getAnimalPeakYieldPerCycle(animal, state) / cycleSeconds, 0);
+}
+
+export function getBarnReadiness(inst, state) {
+  const type = ANIMAL_TYPES[BARN_BUILDINGS[inst.buildingType]?.animalType];
+  const emoji = type?.produceEmoji ?? "🧺";
+  const workers = (inst.barnWorkers ?? []).length;
+  const animals = (inst.animals ?? []).length;
+  const supplyPerMin = getBarnInstanceSupplyRate(inst, state) * 60;
+  const demandPerMin = getBarnInstanceDemandRate(inst, state) * 60;
+  const hasAnimal = animals >= BARN_READY_MIN_ANIMALS;
+  const hasWorker = workers >= BARN_READY_MIN_WORKERS;
+  // Compare rounded to 0.01/min so float noise can't flip the result
+  const keepsUp = hasAnimal && hasWorker && Math.round(supplyPerMin * 100) >= Math.round(demandPerMin * 100);
+  const ready = hasAnimal && hasWorker && keepsUp;
+  let reason = null;
+  if (!hasAnimal) reason = `needs at least ${BARN_READY_MIN_ANIMALS} animal`;
+  else if (!hasWorker) reason = "needs at least 1 barn worker";
+  else if (!keepsUp) reason = `workers collect ${emoji} ${supplyPerMin.toFixed(1)}/min, animals make up to ${demandPerMin.toFixed(1)}/min`;
+  return { ready, hasAnimal, hasWorker, keepsUp, workers, animals, supplyPerMin, demandPerMin, emoji, reason };
 }
 
 export function getBarnPrestigeReady(state) {
   for (const inst of state.barnInstances ?? []) {
-    const def = BARN_BUILDINGS[inst.buildingType];
-    if (!def) continue;
-    if ((inst.barnWorkers ?? []).length < PRESTIGE_MIN_BARN_WORKERS) return false;
-    if ((inst.animals ?? []).length < PRESTIGE_MIN_BARN_ANIMALS) return false;
-    const supply = getBarnInstanceSupplyRate(inst);
-    const demand = getBarnInstanceDemandRate(inst, state);
-    if (supply < demand) return false;
+    if (!BARN_BUILDINGS[inst.buildingType]) continue;
+    if (!getBarnReadiness(inst, state).ready) return false;
   }
   return true;
 }
@@ -353,7 +398,7 @@ export function canPrestige(state) {
   for (const farm of farmsToCheck) {
     if (!isFarmPrestigeReady(farm, state.workers, state)) return false;
   }
-  // Seasons 4+: all built barns must have at least 1 worker and the minimum animals
+  // Seasons 4+: every built barn must pass getBarnReadiness
   if (state.season >= 4 && !getBarnPrestigeReady(state)) return false;
   if ((state.cash ?? 0) < getPrestigeCashThreshold(state.season)) return false;
   return true;
@@ -381,26 +426,13 @@ export function getPrestigeBlockers(state) {
       blockers.push(`${crop.emoji} ${crop.name}: workers not keeping up with growth`);
     }
   }
-  // Seasons 4+: all built barns must have at least 1 worker and the minimum animals
+  // Seasons 4+: same check as the barn screen's "✓ Season ready"
   if (state.season >= 4) {
     for (const inst of state.barnInstances ?? []) {
       const def = BARN_BUILDINGS[inst.buildingType];
-      const label = def ? `${def.emoji} ${def.name}` : inst.buildingType;
-      const workers = (inst.barnWorkers ?? []).length;
-      if (workers < PRESTIGE_MIN_BARN_WORKERS) {
-        blockers.push(`${label}: needs at least 1 barn worker`);
-        continue;
-      }
-      const animals = (inst.animals ?? []).length;
-      if (animals < PRESTIGE_MIN_BARN_ANIMALS) {
-        blockers.push(`${label}: needs at least ${PRESTIGE_MIN_BARN_ANIMALS} animals (have ${animals})`);
-        continue;
-      }
-      const supply = getBarnInstanceSupplyRate(inst);
-      const demand = getBarnInstanceDemandRate(inst, state);
-      if (supply < demand) {
-        blockers.push(`${label}: workers not keeping up (${supply.toFixed(3)} collects/s < ${demand.toFixed(3)} needed)`);
-      }
+      if (!def) continue;
+      const r = getBarnReadiness(inst, state);
+      if (!r.ready) blockers.push(`${def.emoji} ${def.name}: ${r.reason}`);
     }
   }
   const threshold = getPrestigeCashThreshold(state.season);
@@ -600,7 +632,7 @@ export function beginPrestige(state, _unused, keptWorkerIds) {
   next.pendingWorkerAssignments = unplacedFarmers.length > 0;
   next.lastRoster = rosterSnapshot;
   next.season = newSeason;
-  // Season modifiers: clear last season's, roll 3 choices (Season 4+). Picked in a modal before the farm/barn choice.
+  // Season conditions are switched off — this just clears any old modifier state (see modifiers.js)
   applyModifierRollOnPrestige(next, newSeason);
   next.lastSavedTime = Date.now();
   next.stats = { farmCrops: {}, kitchenGoods: {}, marketCash: null };

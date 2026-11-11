@@ -20,6 +20,10 @@
 import { PROJECTS } from "./projectsData.js";
 import { SEASON_MODIFIERS } from "./modifiersData.js";
 
+// Season conditions (pick-1-of-3 modifiers) are switched off. While false, no modifier
+// effect is applied and none are offered after prestige (see modifiers.js).
+export const SEASON_MODIFIERS_ENABLED = false;
+
 export function getProjectStage(state, projectId) {
   return state?.projects?.[projectId]?.stage ?? 0;
 }
@@ -42,8 +46,9 @@ export function getBoostBonus(state, key) {
   return total;
 }
 
-// This season's modifier (null until the player picks one)
+// This season's modifier (null until the player picks one). Always 0 while conditions are off.
 export function getModifierBonus(state, key) {
+  if (!SEASON_MODIFIERS_ENABLED) return 0;
   const mod = SEASON_MODIFIERS[state?.seasonModifier];
   return mod?.effects?.[key] ?? 0;
 }
