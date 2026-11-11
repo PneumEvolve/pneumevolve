@@ -5,7 +5,7 @@
 import { buildArt, hash, T } from './art.js';
 import {
   SPECIES, MOVES, STARTERS, ENCOUNTERS, TYPE_COLORS, GATE_LEVEL, TEAM_MAX, LEVEL_CAP,
-  FAMILY, SHINY, SHINY_ORDER, LUCK_MAX, GYMS, AREAS, TOWNS,
+  FAMILY, SHINY, SHINY_ORDER, SHINY_TRADE_COST, SHINY_ATTACK_BONUS, GYMS, AREAS, TOWNS,
   effectiveness, moveSub, xpNeed, applyStats, makeCritter, grownForm,
 } from './data.js';
 
@@ -123,7 +123,7 @@ export function startGame(root, { dev = false } = {}) {
       building(ox + 22, oy + 3, town.trader ? HOUSES.green : HOUSES.straw, { x: ox + 24, y: oy + 6, type: 'rest', town: id });
       building(ox + 11, oy + 8, town.trader ? GYM_IMG.stone : GYM_IMG.wood, { x: ox + 15, y: oy + 12, type: 'gym', town: id });
       sign(ox + 16, oy + 1, [town.name, town.tagline]);
-      if (town.trader) sign(ox + 8, oy + 6, ['SHINY TRADER', 'Bring a bunny, get luckier at finding shinies!']);
+      if (town.trader) sign(ox + 8, oy + 6, ['SHINY TRADER', `Trade ${SHINY_TRADE_COST} of the same critter, get 1 SHINY one!`]);
       sign(ox + 21, oy + 6, [town.rest, 'Free naps for tired critters.']);
       const gym = GYMS[town.gym];
       sign(ox + 16, oy + 13, [gym.hall, `Leader: ${gym.short}. Win the ${gym.badge}!`]);
@@ -158,7 +158,7 @@ export function startGame(root, { dev = false } = {}) {
   /* ============ state ============ */
   let party = [];                 // up to 6 critters; party[0] is your lead and walks with you
   let bag = { snack: 3, pod: 5 };
-  let flags = { luck: {}, badges: {}, seen: {} };   // badges won, shiny luck per family, places visited
+  let flags = { badges: {}, seen: {} };   // badges won, places visited
   let ai = 0;                     // which party member is battling
   let F = null;                   // the critter you're fighting
   let trainer = null;             // set during the gym battle
@@ -180,9 +180,9 @@ export function startGame(root, { dev = false } = {}) {
   }
   resetBattleSprites();
   const levelCap = () => Math.max(LEVEL_CAP.start, ...Object.keys(flags.badges || {}).map(b => LEVEL_CAP[b] || 0));
-  const luckOf = fam => flags.luck?.[fam] || 1;
-  const oneIn = fam => Math.max(2, Math.round(SHINY[fam].oneIn / luckOf(fam)));
-  const shinyChance = fam => Math.min(0.5, luckOf(fam) / SHINY[fam].oneIn);
+  const shinyChance = fam => 1 / SHINY[fam].oneIn;
+  const plainOf = fam => party.map((c, i) => ({ c, i })).filter(o => FAMILY[o.c.sp] === fam && !o.c.shiny);
+  const bonusPct = Math.round((SHINY_ATTACK_BONUS - 1) * 100);
 
   /* ============ saving (this browser only) ============ */
   function save() {
@@ -208,7 +208,8 @@ export function startGame(root, { dev = false } = {}) {
       return c;
     });
     bag = { snack: d.bag?.snack ?? 3, pod: d.bag?.pod ?? 5 };
-    flags = { luck: {}, badges: {}, seen: {}, ...(d.flags || {}) };
+    flags = { badges: {}, seen: {}, ...(d.flags || {}) };
+    delete flags.luck;   // the old bunny-luck system from v0.4/0.5
     if (flags.badge) { flags.badges = { ...flags.badges, pebble: true }; delete flags.badge; }   // saves from v0.4
     const p = d.pos || {};
     if (walkable(p.x, p.y)) Object.assign(player, { x: p.x, y: p.y, face: p.face || 'down' });
@@ -306,18 +307,18 @@ export function startGame(root, { dev = false } = {}) {
     const items = members.map(({ c, i }) => ({ node: teamCard(c, i === battleIdx ? 'BATTLING' : battleIdx < 0 && i === 0 && !list ? 'LEAD' : '') }));
     return chooseMenu(items, { panelMode: true, cols: 2, canBack: !forced, title, start: Math.max(0, battleIdx) });
   }
-  // Shiny luck cards: a sparkly sprite, a star meter (one star per bunny traded) and "1 in N".
-  function luckCard(fam) {
+  // Shiny cards: the shiny sprite, dots for how many plain ones you carry (3 = ready to trade), and wild odds.
+  function shinyCard(fam) {
     const b = document.createElement('button');
     b.className = 'cq-card cq-card-luck';
-    const stars = Math.round(Math.log2(luckOf(fam)));
-    const meter = '★'.repeat(stars) + '☆'.repeat(Math.max(0, 6 - stars));
+    const have = plainOf(fam).length, dots = Math.min(have, SHINY_TRADE_COST);
+    const meter = '●'.repeat(dots) + '○'.repeat(SHINY_TRADE_COST - dots);
     b.innerHTML = `
       <img alt="" src="${spriteURL(fam, SHINY[fam])}">
       <span class="cq-card-body">
-        <span class="cq-card-top"><b>${SPECIES[fam].name}</b></span>
+        <span class="cq-card-top"><b>${SPECIES[fam].name}</b>${have >= SHINY_TRADE_COST ? '<small class="cq-ready">READY!</small>' : ''}</span>
         <span class="cq-luck">${meter}</span>
-        <span class="cq-odds">1 in ${oneIn(fam)} is shiny</span>
+        <span class="cq-odds">Wild: 1 in ${SHINY[fam].oneIn}</span>
       </span>`;
     return b;
   }
@@ -450,7 +451,7 @@ export function startGame(root, { dev = false } = {}) {
         { layout: 'side', prompt: `Menu · Badges ${Object.keys(flags.badges).length}/${Object.keys(GYMS).length}`, canBack: true });
       if (c === 0) { await teamFlow(); continue; }
       if (c === 1) { await say(`SNACKS ×${bag.snack}    PODS ×${bag.pod}`); await say('Snacks heal. Pods catch wild critters!'); continue; }
-      if (c === 2) { await showLuck('Shiny luck'); continue; }
+      if (c === 2) { await showShinies('Shinies · ● = one plain critter you have'); continue; }
       break;
     }
     hideTextbox(); mode = 'world';
@@ -475,43 +476,45 @@ export function startGame(root, { dev = false } = {}) {
   const snackHeal = c => Math.min(Math.max(12, Math.round(c.maxHp * 0.4)), c.maxHp - c.hp);
 
   /* ============ Pebble Town: the shiny trader ============ */
-  const showLuck = title => chooseMenu(SHINY_ORDER.map(f => ({ node: luckCard(f) })), { panelMode: true, cols: 2, canBack: true, title });
+  // Trade 3 plain critters of one family, get 1 shiny of that family (at the best level of the three).
+  const showShinies = title => chooseMenu(SHINY_ORDER.map(f => ({ node: shinyCard(f) })), { panelMode: true, cols: 2, canBack: true, title });
   async function traderVisit() {
     mode = 'busy';
-    await say('SHINY TRADER: "Hi! I LOVE bunnies!"');
-    await say('"Give me a bunny and I\'ll make one kind of shiny 2x easier to find."');
+    await say('SHINY TRADER: "Hi! I collect critters!"');
+    await say(`"Bring me ${SHINY_TRADE_COST} of the same critter and I'll give you a SHINY one!"`);
+    await say(`"Shinies come in cool colors, and they hit ${bonusPct}% harder!"`);
     for (;;) {
-      const c = await chooseMenu([{ label: 'TRADE' }, { label: 'LUCK' }, { label: 'BYE' }], { layout: 'side', prompt: 'What do you want to do?', canBack: true });
-      if (c === 0) await bunnyTrade();
-      else if (c === 1) await showLuck('Your shiny luck');
-      else break;
+      const c = await chooseMenu([{ label: 'TRADE' }, { label: 'BYE' }], { layout: 'side', cols: 1, prompt: 'Want to trade?', canBack: true });
+      if (c !== 0) break;
+      await shinyTrade();
     }
-    await say('"Bring me more bunnies anytime!"');
+    await say('"Come back with more critters anytime!"');
     hideTextbox(); mode = 'world';
   }
-  async function bunnyTrade() {
-    const bunnies = party.map((c, i) => ({ c, i })).filter(o => FAMILY[o.c.sp] === 'rabbit');
-    if (!bunnies.length) { await say('"You don\'t have a bunny! Catch a RABBIT in the meadow."'); return; }
-    if (party.length < 2) { await say('"I can\'t take your only critter!"'); return; }
-    const f = await showLuck('Which shiny do you want?');
+  async function shinyTrade() {
+    const f = await showShinies('Which SHINY do you want?');
     if (f < 0) return;
-    const fam = SHINY_ORDER[f];
-    if (luckOf(fam) >= LUCK_MAX) { await say(`"${SPECIES[fam].name} luck is already at the max!"`); return; }
-    let pickIdx = bunnies[0].i;
-    if (bunnies.length > 1) {
-      const k = await pickTeam({ title: 'Which bunny will you trade?', list: bunnies });
-      if (k < 0) return;
-      pickIdx = bunnies[k].i;
+    const fam = SHINY_ORDER[f], name = SPECIES[fam].name;
+    const plain = plainOf(fam);
+    if (plain.length < SHINY_TRADE_COST) {
+      await say(`"For a shiny ${name}, bring me ${SHINY_TRADE_COST} plain ones."`);
+      await say(`You have ${plain.length}. Catch ${SHINY_TRADE_COST - plain.length} more!`);
+      return;
     }
-    const bun = party[pickIdx];
-    const ok = await chooseMenu([{ label: 'YES' }, { label: 'NO' }], { layout: 'side', cols: 1, prompt: `Trade ${nm(bun)} Lv ${bun.lv}?` });
+    // Trade away the lowest-level plain ones; the shiny comes back at the best level of the three.
+    const give = [...plain].sort((a, b) => a.c.lv - b.c.lv).slice(0, SHINY_TRADE_COST);
+    const lv = Math.max(...give.map(o => o.c.lv));
+    await say(`You'll give: ${give.map(o => `${nm(o.c)} Lv ${o.c.lv}`).join(', ')}.`);
+    const ok = await chooseMenu([{ label: 'YES' }, { label: 'NO' }], { layout: 'side', cols: 1, prompt: `Trade for a shiny ${name}?` });
     if (ok !== 0) return;
-    party.splice(pickIdx, 1);
-    flags.luck = { ...flags.luck, [fam]: Math.min(LUCK_MAX, luckOf(fam) * 2) };
+    const giveSet = new Set(give.map(o => o.c));
+    party = party.filter(c => !giveSet.has(c));
+    const shiny = makeCritter(grownForm(fam, lv), lv, true);
+    party.push(shiny);
     save();
-    await say(`You traded ${nm(bun)}. Bye bye, bunny!`);
-    await say(`${SPECIES[fam].name} shinies are now ${luckOf(fam)}x easier to find!`);
-    await say(`Now about 1 out of every ${oneIn(fam)} wild ${SPECIES[fam].name} will be shiny.`);
+    await say(`You handed over your ${SHINY_TRADE_COST} critters. Bye bye!`);
+    await say(`Wow! You got a SHINY ${nm(shiny)}! (Lv ${shiny.lv})`);
+    await say(`Its attack is ${bonusPct}% stronger than a plain one!`);
   }
 
   /* ============ Pebble Town: the gym ============ */
@@ -1166,7 +1169,7 @@ export function startGame(root, { dev = false } = {}) {
     await tween(300, t => (overlay.fade = t));
     Object.assign(player, { x: 5, y: 6, face: 'down', moving: false, steps: 0 });
     Object.assign(pal, { x: 6, y: 6, faceLeft: true, moving: false });
-    party = []; F = null; trainer = null; bag = { snack: 3, pod: 5 }; flags = { luck: {}, badges: {}, seen: {} }; chooseIdx = 0;
+    party = []; F = null; trainer = null; bag = { snack: 3, pod: 5 }; flags = { badges: {}, seen: {} }; chooseIdx = 0;
     scene = 'choose'; banner.hidden = false;
     await tween(300, t => (overlay.fade = 1 - t));
     await say('Welcome to MAPLE HILL!');
@@ -1241,8 +1244,9 @@ export function startGame(root, { dev = false } = {}) {
     devTool('devPods', () => {
       if (!party.length || mode !== 'world') return;
       bag.pod += 10;
-      if (party.length < TEAM_MAX) party.push(makeCritter('rabbit', 5));
-      save(); worldSay(['+10 pods, and a test RABBIT joined your team.']);
+      let added = 0;
+      while (party.length < TEAM_MAX && added < SHINY_TRADE_COST) { party.push(makeCritter('fox', 6 + added)); added++; }
+      save(); worldSay([`+10 pods, and ${added} test FOXes joined your team.`]);
     });
     devTool('devTown', devWarpTown);
     devTool('devNew', () => { if (mode === 'world') newGame(); });

@@ -257,9 +257,13 @@ export const TOWNS = {
 };
 
 /* ---------------- shinies ---------------- */
-// Shinies are regular critters in an exotic color. Every critter in a family shares one shiny luck.
-// oneIn: about 1 in this many wild critters of that family is shiny (before any bunny trades).
-// Each bunny traded in Pebble Town doubles that family's luck, up to x64.
+// Shinies are regular critters in an exotic color, and they hit harder (see SHINY_ATTACK_BONUS).
+// Two ways to get one:
+//   1. Find one in the wild: about 1 in `oneIn` wild critters of that family is shiny.
+//   2. Pebble Town's SHINY TRADER: trade 3 plain critters of the same family, get 1 shiny of that family.
+// Every critter in a family counts: 3 bunnies can be any mix of RABBIT and MEGABUN.
+export const SHINY_TRADE_COST = 3;
+export const SHINY_ATTACK_BONUS = 1.25;   // shinies have 25% more attack
 export const FAMILY = {
   rabbit: 'rabbit', megabun: 'rabbit',
   bluebird: 'bluebird', skyhawk: 'bluebird',
@@ -281,7 +285,6 @@ export const SHINY = {
   snapling:   { oneIn: 100, hue: -80, sat: 1.2 },       // autumn-orange leaves
 };
 export const SHINY_ORDER = ['fox', 'rabbit', 'bluebird', 'splashcano', 'steeldog', 'rockalock', 'komodo', 'snapling'];
-export const LUCK_MAX = 64;
 
 /* ---------------- gyms ---------------- */
 export const GYMS = {
@@ -304,7 +307,7 @@ export const xpNeed = lv => 10 + lv * 4;
 export function applyStats(c) {
   const b = SPECIES[c.sp].b, old = c.maxHp;
   c.maxHp = b.hp + c.lv * 3;
-  c.atk = b.atk + c.lv;
+  c.atk = Math.round((b.atk + c.lv) * (c.shiny ? SHINY_ATTACK_BONUS : 1));
   c.def = b.def + Math.floor(c.lv * 0.8);
   c.spd = b.spd + Math.floor(c.lv * 0.8);
   if (old !== undefined && c.hp > 0) c.hp = Math.max(1, Math.min(c.maxHp, c.hp + (c.maxHp - old)));

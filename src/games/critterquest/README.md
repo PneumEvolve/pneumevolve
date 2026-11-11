@@ -29,7 +29,7 @@ import CritterQuest from './games/critterquest/CritterQuest.jsx';
 ## Test tools
 
 Shown automatically when running `npm run dev`, or on the live site by adding `?dev` to the URL
-(`/critter-quest?dev`). They level up your lead critter, start a battle, add pods and a test rabbit, warp to Pebble Town, or start a new game.
+(`/critter-quest?dev`). They level up your lead critter, start a battle, add pods and 3 test foxes, warp to Pebble Town, or start a new game.
 
 ## What's in it (v0.5)
 
@@ -42,7 +42,8 @@ The world is a row of areas going right (east). Each town sits directly below it
 | Whisper Forest | 20–30 | Boulder Badge | Mossy Hollow: healing hut, Leader Ivy |
 
 - Starters and wild critters evolve; wild critters past their evolve level come already evolved
-- Shinies, bunny trades for shiny luck, pods, a team of 6
+- Shinies (25% more attack): find them in the wild, or trade 3 plain critters of one kind for 1 shiny in Pebble Town
+- Pods to catch critters, a team of 6
 - Level caps: 25 to start, 35 with the Boulder Badge, 45 with the Grove Badge
 
 ## Adding the next area
@@ -59,7 +60,7 @@ The world is a row of areas going right (east). Each town sits directly below it
 - How easy each critter is to catch: `catchRate` on each critter
 - Evolution levels: `evolve: { lv, to }`
 - Type matchups: `CHART`
-- Shiny odds and colors: `SHINY` (oneIn, hue)
+- Shiny odds and colors: `SHINY` (oneIn, hue); trade price `SHINY_TRADE_COST`; attack boost `SHINY_ATTACK_BONUS`
 - Gym teams, XP bonus and badges: `GYMS`
 - Areas, towns and gates: `AREAS`, `TOWNS`
 - Level caps: `LEVEL_CAP`

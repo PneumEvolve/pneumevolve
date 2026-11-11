@@ -133,6 +133,7 @@
 .cq-card-luck { padding: .3cqw 1.2cqw; gap: 1.2cqw; grid-template-columns: 8cqw 1fr; }
 .cq-card-luck img { width: 8cqw; height: 8cqw; }
 .cq-card-luck .cq-card-body { gap: .2cqw; }
+.cq-ready { color: #fff; background: #3fbf5f; font-weight: 700; padding: .2cqw .8cqw; border-radius: .5cqw; font-size: 2.2cqw; }
 .cq-screen.is-quaking { animation: cq-quake .95s linear; }
 @keyframes cq-quake {
   0%, 100% { transform: translate(0, 0); }
