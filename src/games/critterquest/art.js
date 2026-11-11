@@ -12,6 +12,7 @@ const PAL = {
   l: '#7fd35b', L: '#3f8f3a',                                  // leaf greens (Foxlet line)
   q: '#9a948c', Q: '#6f6a64', e: '#bdb8b0',                    // stone (Rockalock)
   i: '#9fb0c4', I: '#6d7f95', j: '#e3ebf3',                    // steel (Steel Dog)
+  z: '#7a8a5a', Z: '#566440', x: '#c9c08f',                    // komodo scales and belly
 };
 
 function mk(w, h) {
@@ -156,6 +157,26 @@ const ART = {
     '...qqqqqqqqqqqqqqqq...', '....QqqqqqqqqqqqqQ....', '.....QQQ......QQQ.....', '.....QqQ......QqQ.....',
     '....QQqQ......QqQQ....', '....QQQQ......QQQQ....'],
 };
+ART.komodo = [
+  '............zzzzz...', '...........zzzzkzzz.', 'zz........zzzzzzzzzt', '.zzz....zzzzzzzzzz.t',
+  '..zzzzzzzzzzzzzzz...', '...zzzZzzzZzzzzzz...', '....zzxxxxxxxxzz....', '....zZ.zZ...zZ.zZ...',
+  '....ww.ww...ww.ww...'];
+ART.darkkomodo = [
+  '..........F.F.F...........', '.........fRfRfRf..nnnnnn..', '........nnnnnnnnnnnnnFnnn.', 'nn....nnnnnnnnnnnnnnnnnnnR',
+  '.nnn.nnnnnnnnnnnnnnnnnnn.R', '..nnnnnnNnnnnNnnnnnnnnn...', '...nnnnnnnnnnnnnnnnnnn....', '....nnnRRRRRRRRRRRRnnn....',
+  '....nnN..nnN....nnN..nnN..', '....nnN..nnN....nnN..nnN..', '...www..www....www..www...'];
+ART.snapling = [
+  '.....LLLLL......', '...LLlllllLL....', '..LlllLllllLL...', '..LllllllLlllL..',
+  '...LLllllllLL...', '.....LLLLLL.....', '....hhhhhhh.....', '...hhkhhhkhh....',
+  '..hkkkkkkkkkh...', '..hkwkwkwkwkh...', '..hkkkkkkkkkh...', '..hkwkwkwkwkh...',
+  '...hhhhhhhhh....', '..hh.hh.hh.hh...', '.hh..h...h..hh..'];
+ART.treetitan = [
+  '.......LLLLLLLLL........', '.....LLlllllllllLL......', '...LLllllLlllllllLLL....', '..LlllllllllLllllllL....',
+  '.LllLllllllllllllLllL...', '.LllllllllLllllllllllL..', '..LLlllllllllllllLlLL...', '....LLLLllllllLLLLLL....',
+  'hh.....hhhhhhhhhh.....hh', '.hh...hhhhhhhhhhhh...hh.', '..hhhhhhkhhhhhhkhhhhhh..', '...hhhhhhhhhhhhhhhhhh...',
+  '......hkkkkkkkkkkh......', '......hkwkwkwkwkwh......', '......hkkkkkkkkkkh......', '......hkwkwkwkwkwh......',
+  '......hhhhhhhhhhhh......', '.......hhhhhhhhhh.......', '.......hhh....hhh.......', '......hhhh....hhhh......',
+  '.....hhhhh....hhhhh.....', '....hh.h.h....h.h.hh....'];
 const NO_OUTLINE = new Set(['rabbit', 'steeldog']);
 
 /* ---------------- tiles ---------------- */
@@ -242,7 +263,6 @@ export function buildArt(speciesTable) {
   }
   const urlCache = {};
   const spriteURL = (sp, shinyCfg) => (urlCache[sp + (shinyCfg ? '*' : '')] ||= sprites(sp, shinyCfg).R[0].toDataURL());
-  const LEADER = sprite(recolor(P_DOWN, { c: 'Q', r: 'O', b: 'V', w: 'F' }), NO);
 
   const TILES = {
     grass: [0, 1, 2, 3].map(s => tile(g => grassBase(g, s + 11))),
@@ -315,6 +335,39 @@ export function buildArt(speciesTable) {
       const o = f * 3;
       px(g, '#a8dcf7', 2 + o, 4, 4, 1); px(g, '#a8dcf7', 9 - o, 10, 4, 1); px(g, '#7cc2ec', 6, 13 - f, 3, 1);
     })),
+    forestFloor: [0, 1, 2].map(seed => tile(g => {
+      px(g, '#4f7a3c', 0, 0, 16, 16);
+      for (let i = 0; i < 4; i++) {
+        const x = Math.floor(hash(seed + 40, i * 7) * 14), y = Math.floor(hash(i * 5, seed + 40) * 14);
+        px(g, i % 2 ? '#6b4f2a' : '#3f6630', x, y, 2, 1);
+      }
+    })),
+    forestTree: tile(g => {
+      px(g, '#4f7a3c', 0, 0, 16, 16);
+      px(g, '#2e1d10', 5, 11, 6, 5); px(g, '#5a3a20', 6, 11, 4, 5);
+      for (let y = 0; y < 14; y++) for (let x = 0; x < 16; x++) {
+        const d = Math.hypot(x - 7.5, y - 6.5);
+        if (d < 7.6) px(g, d > 6.6 ? '#0f2a18' : '#1f4a2c', x, y);
+      }
+      for (let y = 0; y < 14; y++) for (let x = 0; x < 16; x++) if (Math.hypot(x - 5, y - 4) < 2.8) px(g, '#2d5f39', x, y);
+      px(g, '#3f7a4a', 4, 3, 2, 1); px(g, '#2d5f39', 10, 9, 2, 1);
+    }),
+    undergrowth: tile(g => {
+      px(g, '#45703a', 0, 0, 16, 16);
+      const fern = ['l.l.l', '.lLl.', 'L.L.L', '.LLL.', '..L..'];
+      for (const [ox, oy] of [[1, 1], [9, 0], [5, 6], [11, 9], [0, 10]])
+        fern.forEach((row, y) => [...row].forEach((ch, x) => {
+          if (ch === 'l') px(g, '#7cc56a', ox + x, oy + y);
+          if (ch === 'L') px(g, '#2a5a2e', ox + x, oy + y);
+        }));
+    }),
+    mushrooms: tile(g => {
+      px(g, '#4f7a3c', 0, 0, 16, 16);
+      for (const [x, y] of [[3, 5], [10, 3], [8, 11]]) {
+        px(g, '#f3e6c8', x + 1, y + 2, 2, 3);
+        px(g, '#2a2135', x - 1, y - 1, 6, 4); px(g, '#d94a3a', x, y, 4, 2); px(g, '#ffffff', x + 1, y, 1, 1);
+      }
+    }),
     gate: [false, true].map(open => tile(g => {
       px(g, '#e4cc92', 0, 0, 16, 16);
       for (const x of [1, 12]) { px(g, '#4a2e17', x, 1, 3, 15); px(g, '#8a5a2e', x + 1, 2, 1, 13); px(g, '#2a2135', x, 0, 3, 1); }
@@ -348,43 +401,62 @@ export function buildArt(speciesTable) {
     red: makeHouse(['#c8473a', '#a53a2f', '#e2685a']),
     blue: makeHouse(['#3f78c9', '#2f5ea3', '#6b9ee0']),
     green: makeHouse(['#4f9a55', '#3c7a42', '#78bf7c']),
+    straw: makeHouse(['#c9a24a', '#a7832f', '#e3c26a']),
   };
 
-  // The Pebble Town gym: a 9x5-tile stone hall with a badge on the roof and a GYM sign.
-  const GYM_IMG = (() => {
+  // A 9x5-tile gym hall with a badge on the roof and a GYM sign. style: 'stone' (Pebble) or 'wood' (Mossy).
+  function makeGym(style) {
+    const st = style === 'wood'
+      ? { roof: '#3f7a3c', roofLine: '#2f5f2e', roofHi: '#5fa05a', wall: '#a9784a', wallLine: '#8a5f36', badge: ['#2f5f2e', '#4caf50', '#7fd35b'], door: ['#4a2e17', '#6b4226'] }
+      : { roof: '#4a5568', roofLine: '#3a4352', roofHi: '#6b7891', wall: '#a3a9b5', wallLine: '#8a909c', badge: ['#2a2135', '#9a948c', '#bdb8b0'], door: ['#5b6577', '#748098'] };
     const [c, g] = mk(144, 80);
-    px(g, '#2a2135', 0, 4, 144, 30); px(g, '#4a5568', 1, 5, 142, 28);
-    for (let y = 9; y < 33; y += 6) px(g, '#3a4352', 1, y, 142, 1);
-    px(g, '#6b7891', 1, 5, 142, 1);
-    for (let y = 0; y < 26; y++) for (let x = 0; x < 26; x++) {           // round stone badge
+    px(g, '#2a2135', 0, 4, 144, 30); px(g, st.roof, 1, 5, 142, 28);
+    for (let y = 9; y < 33; y += 6) px(g, st.roofLine, 1, y, 142, 1);
+    px(g, st.roofHi, 1, 5, 142, 1);
+    for (let y = 0; y < 26; y++) for (let x = 0; x < 26; x++) {
       const d = Math.hypot(x - 12.5, y - 12.5);
-      if (d < 12.5) px(g, d > 11 ? '#2a2135' : d > 8 ? '#9a948c' : '#bdb8b0', 59 + x, 2 + y);
+      if (d < 12.5) px(g, d > 11 ? '#2a2135' : d > 8 ? st.badge[1] : st.badge[2], 59 + x, 2 + y);
     }
-    px(g, '#e3dfd8', 66, 8, 4, 3); px(g, '#6f6a64', 72, 16, 5, 1);
-    px(g, '#2a2135', 4, 33, 136, 47); px(g, '#a3a9b5', 5, 33, 134, 46);
+    if (style === 'wood') { px(g, st.badge[0], 71, 7, 2, 16); px(g, st.badge[0], 66, 12, 12, 2); }
+    else { px(g, '#e3dfd8', 66, 8, 4, 3); px(g, '#6f6a64', 72, 16, 5, 1); }
+    px(g, '#2a2135', 4, 33, 136, 47); px(g, st.wall, 5, 33, 134, 46);
     for (let y = 37; y < 79; y += 6) {
-      px(g, '#8a909c', 5, y, 134, 1);
-      for (let x = (y / 6) % 2 ? 9 : 19; x < 139; x += 20) px(g, '#8a909c', x, y - 5, 1, 5);
+      px(g, st.wallLine, 5, y, 134, 1);
+      if (style !== 'wood') for (let x = (y / 6) % 2 ? 9 : 19; x < 139; x += 20) px(g, st.wallLine, x, y - 5, 1, 5);
     }
     for (const wx of [16, 108]) { px(g, '#2a2135', wx, 44, 20, 16); px(g, '#a8dcf7', wx + 1, 45, 18, 14); px(g, '#d9f1fb', wx + 2, 46, 4, 4); px(g, '#2a2135', wx + 9, 45, 2, 14); }
-    px(g, '#2a2135', 63, 34, 19, 11); px(g, '#c0443a', 64, 35, 17, 9);   // GYM sign
+    px(g, '#2a2135', 63, 34, 19, 11); px(g, style === 'wood' ? '#3f7a3c' : '#c0443a', 64, 35, 17, 9);
     const letters = { G: ['###', '#..', '#.#', '#.#', '###'], Y: ['#.#', '#.#', '.#.', '.#.', '.#.'], M: ['#...#', '##.##', '#.#.#', '#...#', '#...#'] };
     let lx = 66;
     for (const ch of 'GYM') { letters[ch].forEach((row, y) => [...row].forEach((p, x) => { if (p === '#') px(g, '#ffffff', lx + x, 37 + y); })); lx += letters[ch][0].length + 1; }
-    px(g, '#2a2135', 64, 52, 16, 28); px(g, '#5b6577', 65, 53, 14, 27); px(g, '#748098', 66, 54, 5, 25); px(g, '#ffd23f', 75, 66, 2, 2);
+    px(g, '#2a2135', 64, 52, 16, 28); px(g, st.door[0], 65, 53, 14, 27); px(g, st.door[1], 66, 54, 5, 25); px(g, '#ffd23f', 75, 66, 2, 2);
     return c;
-  })();
+  }
+  const GYM_IMG = { stone: makeGym('stone'), wood: makeGym('wood') };
+  const LEADERS = {
+    brick: sprite(recolor(P_DOWN, { c: 'Q', r: 'O', b: 'V', w: 'F' }), NO),
+    ivy: sprite(recolor(P_DOWN, { c: 'L', r: 'l', b: 'n', w: 'p', h: 'O' }), NO),
+  };
 
   // Battle backdrops: sunny meadow, rocky mountain, the gym hall.
   function makeField(platforms, kind) {
     const [c, g] = mk(240, 160);
-    if (kind === 'gym') {
+    if (kind === 'forest') {
+      px(g, '#1f3d24', 0, 0, 240, 48);
+      for (let x = 0; x < 240; x++) {
+        const c1 = 8 + Math.round(Math.sin(x / 9) * 4 + Math.sin(x / 4) * 2);
+        px(g, '#2d5f39', x, 0, 1, c1 + 8); px(g, '#3f7a4a', x, 0, 1, c1);
+      }
+      for (const tx of [14, 62, 128, 170, 222]) { px(g, '#2e1d10', tx, 14, 10, 34); px(g, '#4a2e17', tx + 2, 14, 3, 34); }
+      for (const [lx, ly] of [[40, 20], [100, 12], [150, 26], [200, 18]]) px(g, '#f2e9a0', lx, ly, 2, 2);   // fireflies
+    } else if (kind.startsWith('gym')) {
       px(g, '#6e7584', 0, 0, 240, 48);
       for (let y = 6; y < 48; y += 7) {
         px(g, '#5c6371', 0, y, 240, 1);
         for (let x = (y / 7) % 2 ? 0 : 14; x < 240; x += 28) px(g, '#5c6371', x, y - 6, 1, 6);
       }
-      for (const bx of [30, 110, 190]) { px(g, '#2a2135', bx, 8, 20, 30); px(g, '#c0443a', bx + 1, 9, 18, 28); px(g, '#ffd23f', bx + 8, 18, 4, 4); }
+      const banner = kind === 'gym-mossy' ? '#3f7a3c' : '#c0443a';
+      for (const bx of [30, 110, 190]) { px(g, '#2a2135', bx, 8, 20, 30); px(g, banner, bx + 1, 9, 18, 28); px(g, '#ffd23f', bx + 8, 18, 4, 4); }
       px(g, '#4a5568', 0, 44, 240, 4);
     } else {
       const sky = kind === 'mountain' ? ['#b9d3e6', '#c4dbea', '#cfe2ee', '#dae9f1', '#e3eef2', '#ebf2f2'] : ['#a9dcf0', '#b6e2f2', '#c3e8f3', '#d0edf4', '#dcf1f3', '#e6f4f1'];
@@ -408,8 +480,9 @@ export function buildArt(speciesTable) {
     const look = {
       meadow:   { bands: ['#9cd27b', '#a5d985'], plat: ['#5d9c4c', '#92ce6e', '#7fbd5f'] },
       mountain: { bands: ['#c4b79d', '#bcae93'], plat: ['#857a68', '#d3c8b1', '#ab9f86'] },
+      forest:   { bands: ['#5d8a45', '#56813f'], plat: ['#3c5f2c', '#7aa85c', '#638f4a'] },
       gym:      { bands: ['#cfc8b8', '#c6bfae'], plat: ['#8a8273', '#e4dccb', '#b9b09d'] },
-    }[kind];
+    }[kind.startsWith('gym') ? 'gym' : kind];
     for (let y = 46; y < 160; y++) { g.fillStyle = look.bands[Math.floor((y - 46) / 6) % 2]; g.fillRect(0, y, 240, 1); }
     const [edge, top, base] = look.plat;
     for (const [cx, cy, rx, ry] of platforms)
@@ -423,9 +496,11 @@ export function buildArt(speciesTable) {
   const BG = {
     meadow: makeField(BATTLE_PLATFORMS, 'meadow'),
     mountain: makeField(BATTLE_PLATFORMS, 'mountain'),
-    gym: makeField(BATTLE_PLATFORMS, 'gym'),
+    forest: makeField(BATTLE_PLATFORMS, 'forest'),
+    'gym-pebble': makeField(BATTLE_PLATFORMS, 'gym'),
+    'gym-mossy': makeField(BATTLE_PLATFORMS, 'gym-mossy'),
     choose: makeField([48, 120, 192].map(x => [x, 98, 30, 7]), 'meadow'),
   };
 
-  return { KID, sprites, TILES, HOUSES, GYM_IMG, LEADER, BG, spriteURL };
+  return { KID, sprites, TILES, HOUSES, GYM_IMG, LEADERS, BG, spriteURL };
 }

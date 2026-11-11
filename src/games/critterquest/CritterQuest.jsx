@@ -18,7 +18,7 @@ export default function CritterQuest() {
   return (
     <div className="cq" ref={rootRef}>
       <main className="cq-console">
-        <div className="cq-brand"><h1>CRITTER QUEST</h1><span>Version 0.4</span></div>
+        <div className="cq-brand"><h1>CRITTER QUEST</h1><span>Version 0.5</span></div>
 
         <div className="cq-bezel">
           <div className="cq-bezel-top"><span className="cq-led" />Power</div>

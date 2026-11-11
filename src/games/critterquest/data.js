@@ -29,7 +29,7 @@ export function effectiveness(moveType, defenderTypes) {
 
 /* ---------------- moves ---------------- */
 // power/acc for attacks; effect = [stat, change, 'self' | 'foe'] for status moves.
-// anim: lunge | dash | thump | nibble | pounce | smash | proj (with proj: fire, shadow, water, rock, wind, rocket, leaf)
+// anim: lunge | dash | thump | nibble | pounce | smash | quake | proj (with proj: fire, shadow, water, rock, wind, rocket, leaf)
 export const MOVES = {
   // Blazepony / Shadowblaze
   'Tackle':       { type: 'NORMAL',   power: 6,  acc: 95,  anim: 'lunge' },
@@ -75,6 +75,17 @@ export const MOVES = {
   'Iron Tackle':  { type: 'STEEL',    power: 13, acc: 80,  anim: 'dash' },
   'Growl':        { type: 'NORMAL',   effect: ['atk', -1, 'foe'] },
   'Steel Fang':   { type: 'STEEL',    power: 16, acc: 85,  anim: 'lunge' },
+  // Komodo / Dark Komodo
+  'Claw':         { type: 'NORMAL',   power: 9,  acc: 95,  anim: 'lunge' },
+  'Fire Breath':  { type: 'FIRE',     power: 11, acc: 90,  anim: 'proj', proj: 'fire' },
+  'Hiss':         { type: 'NORMAL',   effect: ['atk', -1, 'foe'] },
+  'Chomp':        { type: 'NORMAL',   power: 13, acc: 85,  anim: 'pounce' },
+  'Dark Flame':   { type: 'FIRE',     power: 17, acc: 85,  anim: 'proj', proj: 'shadow' },
+  // Snapling / Tree Titan
+  'Snap':         { type: 'NORMAL',   power: 10, acc: 95,  anim: 'nibble' },
+  'Root Grab':    { type: 'GRASS',    power: 12, acc: 90,  anim: 'pounce' },
+  'Bark Skin':    { type: 'GRASS',    effect: ['def', 1, 'self'] },
+  'Tree Shake':   { type: 'GRASS',    power: 18, acc: 85,  anim: 'quake' },   // the whole screen shakes!
 };
 const EFFECT_SUB = { 'atk-1': 'ATK ↓', 'def-1': 'DEF ↓', 'def1': 'DEF ↑', 'eva1': 'DODGE ↑' };
 export const moveSub = m => {
@@ -183,6 +194,32 @@ export const SPECIES = {
     moves: ['Rock Slam', 'Boulder Roll', 'Harden', 'Stomp'],
     appear: 'stomped out', exit: 'It rolled away down the mountain.', exitAnim: 'dash',
   },
+  komodo: {
+    name: 'KOMODO', types: ['FIRE'], catchRate: 0.35,
+    b: { hp: 10, atk: 6, def: 4, spd: 5 },
+    moves: ['Claw', 'Fire Breath', 'Hiss', 'Chomp'],
+    evolve: { lv: 28, to: 'darkkomodo' },
+    appear: 'crawled out', exit: 'It flicked its tongue and slid away.', exitAnim: 'dash',
+  },
+  darkkomodo: {
+    name: 'DARK KOMODO', types: ['FIRE'], flicker: 'fF', catchRate: 0.25,
+    b: { hp: 16, atk: 9, def: 6, spd: 7 },
+    moves: ['Fire Breath', 'Hiss', 'Chomp', 'Dark Flame'], signature: 'Dark Flame',
+    appear: 'stomped out of the shadows', exit: 'It vanished into the dark trees.', exitAnim: 'dash',
+  },
+  snapling: {
+    name: 'SNAPLING', types: ['GRASS'], catchRate: 0.4,
+    b: { hp: 12, atk: 5, def: 6, spd: 2 },
+    moves: ['Snap', 'Leaf Toss', 'Bark Skin', 'Root Grab'],
+    evolve: { lv: 26, to: 'treetitan' },
+    appear: 'snapped its jaws', exit: 'It waddled back into the bushes.', exitAnim: 'hop',
+  },
+  treetitan: {
+    name: 'TREE TITAN', types: ['GRASS'], catchRate: 0.15,
+    b: { hp: 22, atk: 9, def: 10, spd: 2 },
+    moves: ['Snap', 'Root Grab', 'Bark Skin', 'Tree Shake'], signature: 'Tree Shake',
+    appear: 'towered over you', exit: 'It stomped off, shaking the whole forest.', exitAnim: 'dash',
+  },
 };
 export const STARTERS = ['blazepony', 'foxlet', 'splashcano'];
 
@@ -193,10 +230,31 @@ export const ENCOUNTERS = {
   north:    { min: 2,  max: 9,  table: [['rabbit', 50], ['bluebird', 35], ['fox', 12], ['splashcano', 3]] },
   south:    { min: 3,  max: 9,  table: [['fox', 50], ['bluebird', 25], ['rabbit', 22], ['splashcano', 3]] },
   mountain: { min: 11, max: 18, table: [['steeldog', 40], ['rockalock', 20], ['fox', 20], ['bluebird', 20]] },
+  forest:   { min: 20, max: 30, table: [['komodo', 42], ['snapling', 42], ['fox', 13], ['hammerfox', 3]] },   // Hammerfox is very rare
 };
 export const GATE_LEVEL = 10;   // a critter must be PAST this level to open the mountain gate
 export const TEAM_MAX = 6;
-export const LEVEL_CAP = { beforeBadge: 25, afterBadge: 35 };
+// Max critter level: 25 to start, raised by each gym badge you hold.
+export const LEVEL_CAP = { start: 25, pebble: 35, mossy: 45 };
+
+/* ---------------- the world ---------------- */
+// Areas line up left to right, 32 tiles wide each. A town (if any) sits right below its area.
+// To add the next area: add an entry here (kind: meadow | mountains | forest) and, if it has a town, a TOWNS + GYMS entry.
+export const AREAS = [
+  { id: 'meadow', kind: 'meadow', name: 'MAPLE HILL' },
+  { id: 'mountains', kind: 'mountains', name: 'ROCKY MOUNTAINS', encounters: 'mountain', town: 'pebble',
+    gate: { level: GATE_LEVEL }, gateSign: ['ROCKY MOUNTAINS, this way!', `Only teams with a critter past Lv ${GATE_LEVEL} may pass the gate.`],
+    welcome: ['Welcome to the ROCKY MOUNTAINS!', 'Every critter up here is above Lv 10. PEBBLE TOWN is down the south trail.'] },
+  { id: 'forest', kind: 'forest', name: 'WHISPER FOREST', encounters: 'forest', town: 'mossy',
+    gate: { badge: 'pebble' }, gateSign: ['WHISPER FOREST, this way!', 'Only trainers with the BOULDER BADGE may enter.'],
+    welcome: ['Welcome to WHISPER FOREST!', 'Critters here are Lv 20 to 30. MOSSY HOLLOW is down the south trail.'] },
+];
+export const TOWNS = {
+  pebble: { name: 'PEBBLE TOWN', tagline: 'Where the bunnies are LOVED.', trader: true, rest: 'REST STOP', gym: 'pebble',
+    welcome: ['Welcome to PEBBLE TOWN!', 'The blue house is the SHINY TRADER. The big stone hall is the GYM.'] },
+  mossy: { name: 'MOSSY HOLLOW', tagline: 'A sleepy town under the big trees.', rest: 'HEALING HUT', gym: 'mossy',
+    welcome: ['Welcome to MOSSY HOLLOW!', 'The straw hut is the HEALING HUT. The wooden hall is the GYM.'] },
+};
 
 /* ---------------- shinies ---------------- */
 // Shinies are regular critters in an exotic color. Every critter in a family shares one shiny luck.
@@ -209,6 +267,8 @@ export const FAMILY = {
   steeldog: 'steeldog', steelwolf: 'steeldog',
   rockalock: 'rockalock',
   splashcano: 'splashcano', boomcano: 'splashcano',
+  komodo: 'komodo', darkkomodo: 'komodo',
+  snapling: 'snapling', treetitan: 'snapling',
 };
 export const SHINY = {
   fox:        { oneIn: 40,  hue: 180 },                 // the easiest shiny: a blue fox
@@ -217,17 +277,26 @@ export const SHINY = {
   splashcano: { oneIn: 60,  hue: 120 },                 // green rock, pink water
   steeldog:   { oneIn: 120, set: [45, 0.7] },           // solid gold dog
   rockalock:  { oneIn: 200, set: [275, 0.4] },          // purple crystal boulder
+  komodo:     { oneIn: 100, hue: 200 },                 // purple-blue lizard
+  snapling:   { oneIn: 100, hue: -80, sat: 1.2 },       // autumn-orange leaves
 };
-export const SHINY_ORDER = ['fox', 'rabbit', 'bluebird', 'splashcano', 'steeldog', 'rockalock'];
+export const SHINY_ORDER = ['fox', 'rabbit', 'bluebird', 'splashcano', 'steeldog', 'rockalock', 'komodo', 'snapling'];
 export const LUCK_MAX = 64;
 
-/* ---------------- the gym ---------------- */
-export const GYM = {
-  leader: 'LEADER BRICK',
-  team: [['steeldog', 15], ['rockalock', 20]],
-  badge: 'BOULDER BADGE',
-  xpMultiplier: 2,      // gym critters give double XP
-  teamPrize: 50,        // XP for every critter on your team when you win
+/* ---------------- gyms ---------------- */
+export const GYMS = {
+  pebble: {
+    leader: 'LEADER BRICK', short: 'BRICK', look: 'brick', hall: 'PEBBLE GYM',
+    team: [['steeldog', 15], ['rockalock', 20]],
+    badge: 'BOULDER BADGE', xpMultiplier: 2, teamPrize: 50,
+    intro: ['"Welcome to the PEBBLE GYM!"', '"My critters are as tough as rocks!"', '"First a Lv 15 STEEL DOG, then my Lv 20 ROCKALOCK!"'],
+  },
+  mossy: {
+    leader: 'LEADER IVY', short: 'IVY', look: 'ivy', hall: 'MOSSY GYM',
+    team: [['treetitan', 25], ['darkkomodo', 28], ['hammerfox', 30]],
+    badge: 'GROVE BADGE', xpMultiplier: 2, teamPrize: 80,
+    intro: ['"Welcome to the MOSSY GYM! I\'m IVY."', '"I have a Lv 25 TREE TITAN and a Lv 28 DARK KOMODO..."', '"...and my best friend, a Lv 30 HAMMERFOX!"'],
+  },
 };
 
 /* ---------------- critter helpers ---------------- */

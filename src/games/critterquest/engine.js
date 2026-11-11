@@ -5,12 +5,13 @@
 import { buildArt, hash, T } from './art.js';
 import {
   SPECIES, MOVES, STARTERS, ENCOUNTERS, TYPE_COLORS, GATE_LEVEL, TEAM_MAX, LEVEL_CAP,
-  FAMILY, SHINY, SHINY_ORDER, LUCK_MAX, GYM,
+  FAMILY, SHINY, SHINY_ORDER, LUCK_MAX, GYMS, AREAS, TOWNS,
   effectiveness, moveSub, xpNeed, applyStats, makeCritter, grownForm,
 } from './data.js';
 
 const SAVE_KEY = 'critterquest.save.v1';
-const VW = 15, VH = 10, MW = 56, MH = 40, STEP = 170;
+const AW = 32, AH = 24, TH = 16;                       // area width, area height, town height (tiles)
+const VW = 15, VH = 10, MW = AREAS.length * AW, MH = AH + TH, STEP = 170;
 const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 const ME_POS = { x: 66, y: 103 }, FOE_POS = { x: 184, y: 61 };
 const CHOOSE_X = [48, 120, 192];
@@ -26,11 +27,12 @@ export function startGame(root, { dev = false } = {}) {
   const q = n => root.querySelector(`[data-cq="${n}"]`);
   const cv = q('canvas'), ctx = cv.getContext('2d');
   ctx.imageSmoothingEnabled = false;
+  const screenEl = root.querySelector('.cq-screen');
   const textbox = q('textbox'), msgEl = q('msg'), menuEl = q('menu'), moreEl = q('more');
   const enemyBox = q('enemyBox'), playerBox = q('playerBox'), banner = q('banner');
   const panel = q('panel'), panelGrid = q('panelGrid'), panelTitle = q('panelTitle');
   const RM = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const { KID, sprites, TILES, HOUSES, GYM_IMG, LEADER, BG, spriteURL } = buildArt(SPECIES);
+  const { KID, sprites, TILES, HOUSES, GYM_IMG, LEADERS, BG, spriteURL } = buildArt(SPECIES);
 
   /* ============ timing helpers (they freeze once the game is torn down) ============ */
   const wait = ms => new Promise(r => setTimeout(() => { if (!dead) r(); }, ms));
@@ -48,76 +50,115 @@ export function startGame(root, { dev = false } = {}) {
   }
 
   /* ============ map ============ */
-  // Maple Hill + meadows: x 0..31, y 0..23. Rocky Mountains: x 32..55, y 0..23. Pebble Town: x 0..31, y 24..39.
-  const SIGNS = {
-    '7,7': ['MAPLE HILL', 'Home of brave kids and their critter partners.'],
-    '13,7': ['TYPE TIPS', 'WATER beats FIRE. FIRE beats GRASS.', 'GRASS beats WATER. FIGHTING smashes ROCK and STEEL!'],
-    '19,8': ['NORTH MEADOW', 'Rabbits and bluebirds live here. All below Lv 10.'],
-    '11,15': ['FOX HOLLOW', 'Watch out! Foxes like the grass over here.'],
-    '16,21': ['PEBBLE TOWN, straight south!', 'Shiny trader, rest stop, and the PEBBLE GYM.'],
-    '30,8': ['ROCKY MOUNTAINS, this way!', `Only teams with a critter past Lv ${GATE_LEVEL} may pass the gate.`],
-    '34,10': ['ROCKALOCK sightings reported!', 'Giant boulders with arms and legs. Rare, and tough to catch.'],
-    '16,25': ['PEBBLE TOWN', 'Where the bunnies are LOVED.'],
-    '8,30': ['SHINY TRADER', 'Bring a bunny, get luckier at finding shinies!'],
-    '21,30': ['REST STOP', 'Free naps for tired critters.'],
-    '16,37': [`PEBBLE GYM`, `Leader: BRICK. Beat him to grow critters past Lv ${LEVEL_CAP.beforeBadge}!`],
-  };
-  const DOORS = { '5,5': 'home', '5,30': 'trader', '24,30': 'rest', '15,36': 'gym' };
-  const BUILDINGS = [
-    { x: 3, y: 2, img: HOUSES.red }, { x: 3, y: 27, img: HOUSES.blue },
-    { x: 22, y: 27, img: HOUSES.green }, { x: 11, y: 32, img: GYM_IMG },
-  ];
+  // Areas run left to right (AREAS in data.js), each AW tiles wide and AH tall.
+  // A town, if the area has one, sits right below it (TH tall). Everything below the meadow is woods.
+  const SIGNS = {}, DOORS = {}, GATES = {}, BUILDINGS = [], TOWN_AT = {};
   const map = [];
   (function buildMap() {
     for (let y = 0; y < MH; y++) map.push(Array(MW).fill('.'));
     const set = (x, y, ch) => { if (x >= 0 && y >= 0 && x < MW && y < MH) map[y][x] = ch; };
     const rect = (x0, y0, x1, y1, ch) => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) set(x, y, ch); };
-    // --- Maple Hill + meadows
-    [[9,2],[13,6],[3,8],[10,7],[24,10],[18,11],[6,11],[13,18],[20,15],[8,21],[22,22],[2,4]].forEach(([x, y]) => set(x, y, '*'));
-    rect(20, 2, 29, 7, ',');             // North Meadow
-    rect(3, 13, 10, 19, ',');            // Fox Hollow
-    for (let y = 0; y < 24; y++) for (let x = 0; x < 32; x++)
-      if (((x - 25) / 3.6) ** 2 + ((y - 16) / 2.6) ** 2 <= 1) set(x, y, '~');
-    rect(5, 6, 5, 9, '='); rect(5, 9, 30, 9, '='); rect(15, 9, 15, 31, '='); rect(11, 16, 14, 16, '=');
-    [[11,3],[12,3],[11,4],[2,10],[9,11],[12,12],[16,14],[17,14],[16,15],[19,18],[21,20],[22,20],[28,11],[26,21],[27,21],[2,21],[29,20],[17,3]]
-      .forEach(([x, y]) => set(x, y, 'T'));
-    // --- Rocky Mountains
-    rect(32, 0, 55, 23, 'r');
-    rect(35, 2, 42, 6, ';'); rect(48, 2, 53, 7, ';'); rect(47, 11, 53, 16, ';'); rect(35, 14, 43, 20, ';');
-    rect(32, 9, 45, 9, '='); rect(45, 9, 45, 21, '=');
-    [[34,7],[39,11],[50,9],[44,18],[34,21],[53,20],[47,21],[41,8],[44,5]].forEach(([x, y]) => set(x, y, 'M'));
-    [[33,2],[33,3],[37,10],[42,12],[47,8],[52,10],[35,12],[49,19],[40,22],[38,1],[54,2],[33,16]].forEach(([x, y]) => set(x, y, 'P'));
-    rect(32, 24, 55, 39, 'M');           // cliffs below the mountains
-    // --- Pebble Town
-    rect(3, 31, 28, 31, '=');            // main road
-    rect(9, 31, 9, 37, '='); rect(9, 37, 15, 37, '=');   // path round to the gym door
-    [[10,28],[11,29],[19,28],[20,29],[6,33],[25,33],[13,38],[18,38],[27,37],[3,37]].forEach(([x, y]) => set(x, y, '*'));
-    [[2,25],[2,26],[29,25],[29,26],[12,25],[19,25],[27,34],[28,34],[4,35],[5,36],[22,36],[24,35],[29,38]].forEach(([x, y]) => set(x, y, 'T'));
-    // --- buildings (footprints are solid; doors are listed in DOORS)
-    for (const b of BUILDINGS) rect(b.x, b.y, b.x + b.img.width / T - 1, b.y + b.img.height / T - 1, 'h');
-    for (const k of Object.keys(DOORS)) { const [x, y] = k.split(',').map(Number); set(x, y, 'D'); }
+    const sign = (x, y, lines) => { SIGNS[x + ',' + y] = lines; };
+    const building = (x, y, img, door) => {
+      BUILDINGS.push({ x, y, img });
+      rect(x, y, x + img.width / T - 1, y + img.height / T - 1, 'h');
+      if (door) DOORS[door.x + ',' + door.y] = door;
+    };
+    const WALL = { meadow: 'T', mountains: 'M', forest: 'Y' };
+
+    AREAS.forEach((area, i) => {
+      const ox = i * AW, L = (x, y, ch) => set(ox + x, y, ch), R = (x0, y0, x1, y1, ch) => rect(ox + x0, y0, ox + x1, y1, ch);
+      if (area.kind === 'meadow') {
+        [[9,2],[13,6],[3,8],[10,7],[24,10],[18,11],[6,11],[13,18],[20,15],[8,21],[22,22],[2,4]].forEach(([x, y]) => L(x, y, '*'));
+        R(20, 2, 29, 7, ',');            // North Meadow
+        R(3, 13, 10, 19, ',');           // Fox Hollow
+        for (let y = 0; y < AH; y++) for (let x = 0; x < AW; x++)
+          if (((x - 25) / 3.6) ** 2 + ((y - 16) / 2.6) ** 2 <= 1) L(x, y, '~');
+        R(5, 6, 5, 9, '='); R(5, 9, 30, 9, '='); R(15, 9, 15, 21, '='); R(11, 16, 14, 16, '=');
+        [[11,3],[12,3],[11,4],[2,10],[9,11],[12,12],[16,14],[17,14],[16,15],[19,18],[21,20],[22,20],[28,11],[26,21],[27,21],[2,21],[29,20],[17,3]]
+          .forEach(([x, y]) => L(x, y, 'T'));
+        building(ox + 3, 2, HOUSES.red, { x: ox + 5, y: 5, type: 'home' });
+        sign(ox + 7, 7, ['MAPLE HILL', 'Home of brave kids and their critter partners.']);
+        sign(ox + 13, 7, ['TYPE TIPS', 'WATER beats FIRE. FIRE beats GRASS.', 'GRASS beats WATER. FIGHTING smashes ROCK and STEEL!']);
+        sign(ox + 19, 8, ['NORTH MEADOW', 'Rabbits and bluebirds live here. All below Lv 10.']);
+        sign(ox + 11, 15, ['FOX HOLLOW', 'Watch out! Foxes like the grass over here.']);
+        R(0, AH, AW - 1, MH - 1, 'T');   // thick woods below Maple Hill
+      } else if (area.kind === 'mountains') {
+        R(0, 0, AW - 1, AH - 1, 'r');
+        R(3, 2, 10, 6, ';'); R(16, 2, 21, 7, ';'); R(17, 11, 23, 16, ';'); R(3, 14, 11, 20, ';'); R(24, 3, 29, 7, ';'); R(23, 18, 29, 21, ';');
+        R(0, 9, AW - 1, 9, '='); R(15, 9, 15, AH - 1, '=');
+        [[2,7],[7,11],[18,8],[12,18],[2,21],[21,20],[9,8],[12,5],[26,11],[28,15]].forEach(([x, y]) => L(x, y, 'M'));
+        [[1,2],[1,3],[5,10],[10,12],[20,10],[3,12],[17,19],[8,22],[6,1],[22,2],[1,16],[27,8],[25,13]].forEach(([x, y]) => L(x, y, 'P'));
+        sign(ox + 2, 10, ['ROCKALOCK sightings reported!', 'Giant boulders with arms and legs. Rare, and tough to catch.']);
+      } else if (area.kind === 'forest') {
+        R(0, 0, AW - 1, AH - 1, 'F');
+        R(2, 2, 10, 7, 'u'); R(19, 2, 28, 7, 'u'); R(2, 12, 12, 20, 'u'); R(18, 12, 28, 20, 'u');
+        R(0, 9, AW - 1, 9, '='); R(15, 9, 15, AH - 1, '=');
+        [[13,3],[14,4],[17,11],[13,14],[17,18],[6,10],[24,10],[11,2],[30,14],[1,22],[29,22],[22,22],[8,22],[13,21],[18,4]].forEach(([x, y]) => L(x, y, 'Y'));
+        [[16,6],[12,11],[20,10],[4,22],[26,23 - 1]].forEach(([x, y]) => L(x, y, 'o'));
+        sign(ox + 16, 10, [area.name, 'Critters here are Lv 20 to 30. KOMODOS, SNAPLINGS... and a rare HAMMERFOX!']);
+      }
+      // edges: walls all round, with openings for the path in, the gate out, and the trail down to the town
+      const wall = WALL[area.kind];
+      for (let x = 0; x < AW; x++) { L(x, 0, wall); L(x, AH - 1, wall); }
+      for (let y = 0; y < AH; y++) { L(0, y, wall); L(AW - 1, y, wall); }
+      if (i > 0) L(0, 9, '=');
+      const next = AREAS[i + 1];
+      if (next) {
+        L(AW - 1, 9, 'G'); GATES[(ox + AW - 1) + ',9'] = i + 1;
+        sign(ox + AW - 2, 8, next.gateSign);
+      }
+      if (area.town) { L(15, AH - 1, '='); buildTown(ox, TOWNS[area.town], area.town); }
+    });
+
+    function buildTown(ox, town, id) {
+      const oy = AH, L = (x, y, ch) => set(ox + x, oy + y, ch), R = (x0, y0, x1, y1, ch) => rect(ox + x0, oy + y0, ox + x1, oy + y1, ch);
+      R(0, 0, AW - 1, TH - 1, '.');
+      R(15, 0, 15, 7, '='); R(3, 7, 28, 7, '=');          // trail in, main road
+      R(9, 7, 9, 13, '='); R(9, 13, 15, 13, '=');         // path round to the gym door
+      [[10,4],[11,5],[19,4],[20,5],[6,9],[25,9],[13,14],[18,14],[27,13],[3,13]].forEach(([x, y]) => L(x, y, '*'));
+      [[2,1],[2,2],[29,1],[29,2],[12,1],[19,1],[27,10],[28,10],[4,11],[5,12],[22,12],[24,11],[29,14]].forEach(([x, y]) => L(x, y, 'T'));
+      if (town.trader) building(ox + 3, oy + 3, HOUSES.blue, { x: ox + 5, y: oy + 6, type: 'trader', town: id });
+      else [[4,4],[6,3],[3,5]].forEach(([x, y]) => L(x, y, 'T'));
+      building(ox + 22, oy + 3, town.trader ? HOUSES.green : HOUSES.straw, { x: ox + 24, y: oy + 6, type: 'rest', town: id });
+      building(ox + 11, oy + 8, town.trader ? GYM_IMG.stone : GYM_IMG.wood, { x: ox + 15, y: oy + 12, type: 'gym', town: id });
+      sign(ox + 16, oy + 1, [town.name, town.tagline]);
+      if (town.trader) sign(ox + 8, oy + 6, ['SHINY TRADER', 'Bring a bunny, get luckier at finding shinies!']);
+      sign(ox + 21, oy + 6, [town.rest, 'Free naps for tired critters.']);
+      const gym = GYMS[town.gym];
+      sign(ox + 16, oy + 13, [gym.hall, `Leader: ${gym.short}. Win the ${gym.badge}!`]);
+      for (let x = 0; x < AW; x++) L(x, TH - 1, 'T');
+      for (let y = 0; y < TH; y++) { L(0, y, 'T'); L(AW - 1, y, 'T'); }
+      TOWN_AT[ox] = { id, rest: { x: ox + 24, y: oy + 7 } };
+    }
     for (const k of Object.keys(SIGNS)) { const [x, y] = k.split(',').map(Number); set(x, y, 'S'); }
-    // --- borders and the mountain gate
-    for (let x = 0; x < MW; x++) { set(x, 0, x < 32 ? 'T' : 'M'); set(x, MH - 1, x < 32 ? 'T' : 'M'); }
-    for (let x = 0; x < 32; x++) set(x, 23, 'T');
-    for (let y = 0; y < MH; y++) { set(0, y, 'T'); set(MW - 1, y, 'M'); set(31, y, 'T'); set(32, y, 'M'); }
-    set(15, 23, '=');                    // the road south into town
-    set(31, 9, 'G'); set(32, 9, '=');
+    for (const k of Object.keys(DOORS)) { const [x, y] = k.split(',').map(Number); set(x, y, 'D'); }
+    // areas with no town get solid woods below them
+    AREAS.forEach((a, i) => { if (!a.town && a.kind !== 'meadow') rect(i * AW, AH, i * AW + AW - 1, MH - 1, 'T'); });
   })();
   function tileAt(x, y) { return x < 0 || y < 0 || x >= MW || y >= MH ? 'T' : map[y][x]; }
-  const gateOpen = () => party.some(c => c.lv > GATE_LEVEL);
+  const areaIndex = x => Math.max(0, Math.min(AREAS.length - 1, Math.floor(x / AW)));
+  const areaAt = x => AREAS[areaIndex(x)];
+  function gateOpenFor(i) {
+    const g = AREAS[i]?.gate;
+    if (!g) return true;
+    if (g.level) return party.some(c => c.lv > g.level);
+    if (g.badge) return !!flags.badges?.[g.badge];
+    return true;
+  }
+  const gateAt = (x, y) => GATES[x + ',' + y];
   function walkable(x, y) {
     const t = tileAt(x, y);
-    if (t === 'G') return gateOpen();
-    return !'T~hDSMP'.includes(t);
+    if (t === 'G') return gateOpenFor(gateAt(x, y));
+    return !'T~hDSMPY'.includes(t);
   }
-  const inMountains = (x, y) => x >= 32 && y < 24;
-  const inTown = y => y >= 24;
+  const inTown = y => y >= AH;
+  const townHere = (x, y) => (inTown(y) ? TOWN_AT[areaIndex(x) * AW] : null);
 
   /* ============ state ============ */
   let party = [];                 // up to 6 critters; party[0] is your lead and walks with you
   let bag = { snack: 3, pod: 5 };
-  let flags = { luck: {} };       // badge, luck per shiny family, one-time messages
+  let flags = { luck: {}, badges: {}, seen: {} };   // badges won, shiny luck per family, places visited
   let ai = 0;                     // which party member is battling
   let F = null;                   // the critter you're fighting
   let trainer = null;             // set during the gym battle
@@ -138,7 +179,7 @@ export function startGame(root, { dev = false } = {}) {
     B.shake = 0; B.proj = null; B.pod = null; B.sparkle = 0;
   }
   resetBattleSprites();
-  const levelCap = () => (flags.badge ? LEVEL_CAP.afterBadge : LEVEL_CAP.beforeBadge);
+  const levelCap = () => Math.max(LEVEL_CAP.start, ...Object.keys(flags.badges || {}).map(b => LEVEL_CAP[b] || 0));
   const luckOf = fam => flags.luck?.[fam] || 1;
   const oneIn = fam => Math.max(2, Math.round(SHINY[fam].oneIn / luckOf(fam)));
   const shinyChance = fam => Math.min(0.5, luckOf(fam) / SHINY[fam].oneIn);
@@ -167,7 +208,8 @@ export function startGame(root, { dev = false } = {}) {
       return c;
     });
     bag = { snack: d.bag?.snack ?? 3, pod: d.bag?.pod ?? 5 };
-    flags = { luck: {}, ...(d.flags || {}) };
+    flags = { luck: {}, badges: {}, seen: {}, ...(d.flags || {}) };
+    if (flags.badge) { flags.badges = { ...flags.badges, pebble: true }; delete flags.badge; }   // saves from v0.4
     const p = d.pos || {};
     if (walkable(p.x, p.y)) Object.assign(player, { x: p.x, y: p.y, face: p.face || 'down' });
     placePal();
@@ -267,7 +309,7 @@ export function startGame(root, { dev = false } = {}) {
   // Shiny luck cards: a sparkly sprite, a star meter (one star per bunny traded) and "1 in N".
   function luckCard(fam) {
     const b = document.createElement('button');
-    b.className = 'cq-card';
+    b.className = 'cq-card cq-card-luck';
     const stars = Math.round(Math.log2(luckOf(fam)));
     const meter = '★'.repeat(stars) + '☆'.repeat(Math.max(0, 6 - stars));
     b.innerHTML = `
@@ -333,7 +375,7 @@ export function startGame(root, { dev = false } = {}) {
     player.face = d;
     const [dx, dy] = DIRS[d], nx = player.x + dx, ny = player.y + dy;
     if (!walkable(nx, ny)) {
-      if (fromPress && tileAt(nx, ny) === 'G') gateMessage();
+      if (fromPress && tileAt(nx, ny) === 'G') gateMessage(nx, ny);
       return;
     }
     player.from = { x: player.x, y: player.y }; player.to = { x: nx, y: ny };
@@ -347,18 +389,16 @@ export function startGame(root, { dev = false } = {}) {
     player.x = player.to.x; player.y = player.to.y; player.moving = false;
     if (pal.moving) { pal.x = pal.to.x; pal.y = pal.to.y; pal.moving = false; }
     stepsSince++;
-    if (inMountains(player.x, player.y) && !flags.mountains) {
-      flags.mountains = true; save();
-      worldSay(['Welcome to the ROCKY MOUNTAINS!', 'Every critter up here is above Lv 10. Stay sharp!']);
-      return;
-    }
-    if (inTown(player.y) && !flags.town) {
-      flags.town = true; save();
-      worldSay(['Welcome to PEBBLE TOWN!', 'The blue house is the SHINY TRADER. The big stone hall is the GYM.']);
+    const area = areaAt(player.x), town = townHere(player.x, player.y);
+    const placeKey = town ? 'town:' + town.id : 'area:' + area.id;
+    const welcome = town ? TOWNS[town.id].welcome : area.welcome;
+    if (welcome && !flags.seen[placeKey]) {
+      flags.seen = { ...flags.seen, [placeKey]: true }; save();
+      worldSay(welcome);
       return;
     }
     const t = tileAt(player.x, player.y);
-    if ((t === ',' || t === ';') && stepsSince > 2 && Math.random() < 0.2) { startBattle(); return; }
+    if ((t === ',' || t === ';' || t === 'u') && stepsSince > 2 && Math.random() < 0.2) { startBattle(); return; }
     const d = heldDir(); if (d && mode === 'world') tryMove(d);
   }
   function update(dt) {
@@ -370,29 +410,33 @@ export function startGame(root, { dev = false } = {}) {
     for (const l of lines) await say(l);
     hideTextbox(); mode = 'world';
   }
-  function gateMessage() {
-    if (gateOpen()) return;
-    worldSay(['The gate to the ROCKY MOUNTAINS is locked.', `Get a critter past Lv ${GATE_LEVEL} and it will open!`]);
+  function gateMessage(x, y) {
+    const i = gateAt(x, y);
+    if (i === undefined || gateOpenFor(i)) return;
+    const g = AREAS[i].gate;
+    worldSay(g.level
+      ? [`The gate to the ${AREAS[i].name} is locked.`, `Get a critter past Lv ${g.level} and it will open!`]
+      : [`The gate to the ${AREAS[i].name} is locked.`, `Beat the ${GYMS[g.badge].hall} to open it!`]);
   }
   function interact() {
     const [dx, dy] = DIRS[player.face], tx = player.x + dx, ty = player.y + dy, t = tileAt(tx, ty);
     const lead = party[0];
     if (t === 'S') worldSay(SIGNS[tx + ',' + ty]);
-    else if (t === 'G') gateMessage();
+    else if (t === 'G') gateMessage(tx, ty);
     else if (t === 'D') {
       const door = DOORS[tx + ',' + ty];
-      if (door === 'home' || door === 'rest') restAt(door);
-      else if (door === 'trader') traderVisit();
-      else if (door === 'gym') gymVisit();
+      if (door.type === 'home' || door.type === 'rest') restAt(door);
+      else if (door.type === 'trader') traderVisit();
+      else if (door.type === 'gym') gymVisit(TOWNS[door.town].gym);
     }
     else if (t === '~') worldSay(SPECIES[lead.sp].types.includes('WATER') ? [`${nm(lead)} splashes happily in the pond!`] : ['The pond sparkles in the sun.']);
     else if (t === 'M') worldSay(['A huge boulder. It is NOT a Rockalock. Probably.']);
     else if (pal.x === tx && pal.y === ty) worldSay([`${nm(lead)} looks happy to see you!`, `Lv ${lead.lv}  ·  HP ${lead.hp}/${lead.maxHp}`]);
   }
   function healAll() { party.forEach(c => { c.hp = c.maxHp; c.shownHp = c.hp; }); }
-  async function restAt(where) {
+  async function restAt(door) {
     mode = 'busy';
-    await say(where === 'home' ? 'You and your team take a nap at home...' : 'REST STOP: "Come in! Your critters can nap here."');
+    await say(door.type === 'home' ? 'You and your team take a nap at home...' : `${TOWNS[door.town].rest}: "Come in! Your critters can nap here."`);
     hideTextbox();
     await tween(300, t => (overlay.fade = t)); await wait(350);
     healAll(); bag.snack = Math.max(bag.snack, 3); bag.pod = Math.max(bag.pod, 5); save();
@@ -403,7 +447,7 @@ export function startGame(root, { dev = false } = {}) {
     mode = 'busy';
     for (;;) {
       const c = await chooseMenu([{ label: 'TEAM', sub: `${party.length}/${TEAM_MAX}` }, { label: 'BAG' }, { label: 'SHINY' }, { label: 'CLOSE' }],
-        { layout: 'side', prompt: flags.badge ? `Menu · ${GYM.badge}` : 'Menu', canBack: true });
+        { layout: 'side', prompt: `Menu · Badges ${Object.keys(flags.badges).length}/${Object.keys(GYMS).length}`, canBack: true });
       if (c === 0) { await teamFlow(); continue; }
       if (c === 1) { await say(`SNACKS ×${bag.snack}    PODS ×${bag.pod}`); await say('Snacks heal. Pods catch wild critters!'); continue; }
       if (c === 2) { await showLuck('Shiny luck'); continue; }
@@ -471,21 +515,20 @@ export function startGame(root, { dev = false } = {}) {
   }
 
   /* ============ Pebble Town: the gym ============ */
-  async function gymVisit() {
+  async function gymVisit(gymId) {
     mode = 'busy';
-    if (!flags.badge) {
-      await say('BRICK: "Welcome to the PEBBLE GYM!"');
-      await say('"My critters are as tough as rocks!"');
-      await say('"First a Lv 15 STEEL DOG, then my Lv 20 ROCKALOCK!"');
-      await say(`"Beat me, and your critters can grow all the way to Lv ${LEVEL_CAP.afterBadge}."`);
+    const gym = GYMS[gymId];
+    if (!flags.badges[gymId]) {
+      for (const line of gym.intro) await say(`${gym.short}: ${line}`);
+      await say(`"Beat me and your critters can grow to Lv ${LEVEL_CAP[gymId]}!"`);
     } else {
-      await say('BRICK: "Back for a rematch? I give out lots of XP!"');
+      await say(`${gym.short}: "Back for a rematch? I give out lots of XP!"`);
     }
-    const y = await chooseMenu([{ label: 'BATTLE!' }, { label: 'NOT YET' }], { layout: 'side', cols: 1, prompt: 'Battle BRICK?' });
+    const y = await chooseMenu([{ label: 'BATTLE!' }, { label: 'NOT YET' }], { layout: 'side', cols: 1, prompt: `Battle ${gym.short}?` });
     if (y !== 0) { await say('"Come back when you\'re ready!"'); hideTextbox(); mode = 'world'; return; }
     if (!party.some(c => c.hp > 0)) { await say('"Your team needs a nap first!"'); hideTextbox(); mode = 'world'; return; }
     hideTextbox();
-    await startGymBattle();
+    await startGymBattle(gymId);
   }
 
   /* ============ drawing: world ============ */
@@ -513,13 +556,14 @@ export function startGame(root, { dev = false } = {}) {
     const camX = Math.max(0, Math.min(MW * T - VW * T, ppx + 8 - (VW * T) / 2));
     const camY = Math.max(0, Math.min(MH * T - VH * T, ppy + 8 - (VH * T) / 2));
     const x0 = Math.floor(camX / T), y0 = Math.floor(camY / T);
-    const wf = Math.floor(now / 500) % 2, open = gateOpen();
+    const wf = Math.floor(now / 500) % 2;
     for (let ty = y0; ty <= y0 + VH; ty++) for (let tx = x0; tx <= x0 + VW; tx++) {
       const t = tileAt(tx, ty), sx = tx * T - camX, sy = ty * T - camY;
       const img = {
         ',': TILES.tall, ';': TILES.rubble, '=': TILES.path, 'T': TILES.tree, 'P': TILES.pine, 'M': TILES.boulder,
-        '*': TILES.flowers, 'S': TILES.sign, '~': TILES.water[wf], 'G': TILES.gate[open ? 1 : 0],
-        'r': TILES.ground[Math.floor(hash(tx, ty) * 3)],
+        '*': TILES.flowers, 'S': TILES.sign, '~': TILES.water[wf], 'G': TILES.gate[gateOpenFor(gateAt(tx, ty)) ? 1 : 0],
+        'r': TILES.ground[Math.floor(hash(tx, ty) * 3)], 'F': TILES.forestFloor[Math.floor(hash(tx, ty) * 3)],
+        'Y': TILES.forestTree, 'u': TILES.undergrowth, 'o': TILES.mushrooms,
       }[t] || TILES.grass[Math.floor(hash(tx, ty) * 4)];
       ctx.drawImage(img, sx, sy);
       if (t === '~' || t === '=') {
@@ -546,7 +590,8 @@ export function startGame(root, { dev = false } = {}) {
       const on = e.moving ? (player.t > 0.55 ? e.to : null) : { x: e.x, y: e.y };
       if (!on) continue;
       const t = tileAt(on.x, on.y);
-      if (t === ',' || t === ';') ctx.drawImage(t === ',' ? TILES.tall : TILES.rubble, 0, 10, 16, 6, on.x * T - camX, on.y * T - camY + 10, 16, 6);
+      const cover = { ',': TILES.tall, ';': TILES.rubble, 'u': TILES.undergrowth }[t];
+      if (cover) ctx.drawImage(cover, 0, 10, 16, 6, on.x * T - camX, on.y * T - camY + 10, 16, 6);
     }
     if (bang) {
       const bx = ppx - camX + 3, by = ppy - camY - 16;
@@ -619,13 +664,13 @@ export function startGame(root, { dev = false } = {}) {
     ctx.save(); ctx.translate(sx, 0);
     ctx.drawImage(battleBg, 0, 0);
     if (B.leader.vis) {
-      const w = LEADER.width * 3, h = LEADER.height * 3;
+      const img = LEADERS[trainer?.gym.look || 'brick'], w = img.width * 3, h = img.height * 3;
       shadow(FOE_POS.x + B.leader.x, 57, 16);
-      ctx.drawImage(LEADER, Math.round(FOE_POS.x - w / 2 + B.leader.x), FOE_POS.y - h, w, h);
+      ctx.drawImage(img, Math.round(FOE_POS.x - w / 2 + B.leader.x), FOE_POS.y - h, w, h);
     }
     if (B.foe.vis && F) {
-      const img = sprImg(F.sp, 'L', now, B.foe.flash, shinyCfg(F)), s = B.foe.scale ?? 1;
-      const w = img.width * 3 * s, h = img.height * 3 * s;
+      const img = sprImg(F.sp, 'L', now, B.foe.flash, shinyCfg(F)), s = (B.foe.scale ?? 1) * (img.height > 22 ? 2.5 : 3);
+      const w = Math.round(img.width * s), h = Math.round(img.height * s);
       const hover = SPECIES[F.sp].hovers ? Math.round(Math.sin(now / 200) * 2) - 4 : 0;
       shadow(FOE_POS.x + B.foe.x, 57, w * 0.33);
       ctx.globalAlpha = B.foe.alpha;
@@ -679,6 +724,13 @@ export function startGame(root, { dev = false } = {}) {
       case 'thump': await tween(200, t => (s.y = -14 * Math.sin(Math.PI * t))); B.shake = 3; await wait(160); B.shake = 0; break;
       case 'nibble': for (let i = 0; i < 2; i++) await tween(110, t => (s.x = dir * 8 * Math.sin(Math.PI * t))); break;
       case 'pounce': await tween(300, t => { s.x = dir * 30 * Math.sin(Math.PI * t); s.y = -16 * Math.sin(Math.PI * t); }); break;
+      case 'quake':   // Tree Shake: jump, slam, and the whole screen shakes
+        await tween(280, t => (s.y = -18 * Math.sin((Math.PI / 2) * t)));
+        await tween(110, t => (s.y = -18 * (1 - t)), easeIn);
+        if (!RM) screenEl.classList.add('is-quaking');
+        B.shake = 7; await wait(950); B.shake = 0;
+        screenEl.classList.remove('is-quaking');
+        break;
       case 'smash':
         await tween(220, t => { s.y = -12 * t; s.x = -dir * 4 * t; });
         await tween(110, t => { s.y = -12 * (1 - t); s.x = -dir * 4 + dir * 30 * t; });
@@ -722,7 +774,7 @@ export function startGame(root, { dev = false } = {}) {
     }
     return dmg[rand(dmg.length)];
   }
-  const foeName = () => (trainer ? `BRICK's ${nm(F)}` : 'Wild ' + nm(F));
+  const foeName = () => (trainer ? `${trainer.gym.short}'s ${nm(F)}` : 'Wild ' + nm(F));
   async function useMove(who, name) {
     const a = who === 'p' ? A() : F, d = who === 'p' ? F : A();
     const aName = who === 'p' ? nm(a) : foeName(), dName = who === 'p' ? foeName() : nm(d);
@@ -776,8 +828,9 @@ export function startGame(root, { dev = false } = {}) {
         return 'switched';
       }
       await say('Your whole team is out of energy...');
-      if (trainer) await say('BRICK: "Good try! Rest up and come back."');
-      await say(inTown(player.y) ? 'You hurried to the REST STOP.' : 'You hurried home for a nap.');
+      if (trainer) await say(`${trainer.gym.short}: "Good try! Rest up and come back."`);
+      const nearTown = TOWN_AT[areaIndex(player.x) * AW];
+      await say(nearTown ? `You hurried to the ${TOWNS[nearTown.id].rest}.` : 'You hurried home for a nap.');
       await endBattle(true);
       return 'end';
     }
@@ -868,8 +921,9 @@ export function startGame(root, { dev = false } = {}) {
 
   /* ============ XP, levels and the level cap ============ */
   function capLine(c) {
-    return flags.badge ? `${nm(c)} is at the max level, Lv ${levelCap()}!`
-      : `${nm(c)} can't grow past Lv ${levelCap()} until you beat the PEBBLE GYM!`;
+    const nextGym = Object.keys(GYMS).find(g => !flags.badges[g]);
+    return nextGym ? `${nm(c)} can't grow past Lv ${levelCap()} until you beat the ${GYMS[nextGym].hall}!`
+      : `${nm(c)} is at the max level, Lv ${levelCap()}!`;
   }
   function bumpLevel(c) {
     c.lv++; applyStats(c); c.xp = 0; c.shownXp = 0; c.xpNext = xpNeed(c.lv); c.shownHp = c.hp;
@@ -916,7 +970,7 @@ export function startGame(root, { dev = false } = {}) {
     await say(`The wild ${nm(F)} is all tuckered out!`);
     await say(S.exit || 'It wandered off.');
     await gainXp(A(), 8 + F.lv * 3);
-    if (Math.random() < 0.25) { bag.pod++; await say(`You found a POD on the ${inMountains(player.x, player.y) ? 'trail' : 'grass'}!`); }
+    if (Math.random() < 0.25) { bag.pod++; await say(`You found a POD on the ${areaAt(player.x).kind === 'meadow' ? 'grass' : 'trail'}!`); }
     await endBattle(false);
   }
   async function endBattle(lost) {
@@ -926,7 +980,8 @@ export function startGame(root, { dev = false } = {}) {
     scene = 'world'; trainer = null;
     party.forEach(c => (c.stages = { atk: 0, def: 0, eva: 0 }));
     if (lost) {
-      if (inTown(player.y)) Object.assign(player, { x: 24, y: 31, face: 'up', moving: false });
+      const nearTown = TOWN_AT[areaIndex(player.x) * AW];
+      if (nearTown) Object.assign(player, { ...nearTown.rest, face: 'up', moving: false });
       else Object.assign(player, { x: 5, y: 6, face: 'down', moving: false });
       placePal();
       healAll(); bag.snack = Math.max(bag.snack, 3);
@@ -937,14 +992,12 @@ export function startGame(root, { dev = false } = {}) {
     if (evolvers.length) for (let i = 0; i < evolvers.length; i++) await runEvolution(evolvers[i], i === 0);
     else await tween(350, t => (overlay.fade = 1 - t));
     if (lost) await worldSay(['Your whole team is full of energy again!', 'You packed 3 snacks.']);
-    if (!flags.gateOpened && gateOpen()) {
-      flags.gateOpened = true; save();
-      await worldSay(['Far to the east, a gate creaks open...', 'The ROCKY MOUNTAINS are open to you now!']);
-    }
+    await announceGates();
     mode = 'world';
   }
   function newWild() {
-    const region = inMountains(player.x, player.y) ? 'mountain' : player.x >= 15 ? 'north' : 'south';
+    const area = areaAt(player.x);
+    const region = area.encounters || ((player.x % AW) >= 15 ? 'north' : 'south');
     const enc = ENCOUNTERS[region];
     const total = enc.table.reduce((s, [, w]) => s + w, 0);
     let roll = Math.random() * total, base = enc.table[0][0];
@@ -953,7 +1006,7 @@ export function startGame(root, { dev = false } = {}) {
     const lv = Math.max(enc.min, Math.min(enc.max, top - 2 + rand(4)));
     const fam = FAMILY[base];
     const shiny = !!fam && Math.random() < shinyChance(fam);
-    battleBg = region === 'mountain' ? BG.mountain : BG.meadow;
+    battleBg = BG[{ mountains: 'mountain', forest: 'forest' }[area.kind] || 'meadow'];
     return makeCritter(grownForm(base, lv), lv, shiny);
   }
   async function battleLoop() {
@@ -979,7 +1032,7 @@ export function startGame(root, { dev = false } = {}) {
           if (A().hp >= A().maxHp) { await say(`${nm(A())} is already full of energy!`); continue; }
           r = await takeTurn({ type: 'snack' });
         } else {
-          if (trainer) { await say("You can't catch BRICK's critters!"); continue; }
+          if (trainer) { await say(`You can't catch ${trainer.gym.short}'s critters!`); continue; }
           if (bag.pod <= 0) { await say('No pods left! Nap at home to get more.'); continue; }
           if (party.length >= TEAM_MAX) { await say(`Your team is full! You can carry ${TEAM_MAX} critters.`); continue; }
           r = await takeTurn({ type: 'pod' });
@@ -1023,14 +1076,15 @@ export function startGame(root, { dev = false } = {}) {
   }
 
   /* ============ the gym battle ============ */
-  async function startGymBattle() {
+  async function startGymBattle(gymId) {
     await battleIntro();
-    trainer = { team: GYM.team.map(([sp, lv]) => makeCritter(sp, lv)), idx: 0 };
-    battleBg = BG.gym; F = null;
+    const gym = GYMS[gymId];
+    trainer = { id: gymId, gym, team: gym.team.map(([sp, lv]) => makeCritter(sp, lv)), idx: 0 };
+    battleBg = BG['gym-' + gymId] || BG['gym-pebble']; F = null;
     B.foe.vis = false; B.leader = { x: 170, vis: true }; B.me.x = -170; updateHud();
     await tween(380, t => (overlay.bars = 1 - t));
     await tween(480, t => { B.me.x = -170 * (1 - t); B.leader.x = 170 * (1 - t); }, easeOut);
-    await say(`${GYM.leader} wants to battle!`);
+    await say(`${gym.leader} wants to battle!`);
     await tween(350, t => (B.leader.x = 170 * t), easeIn);
     B.leader.vis = false;
     F = trainer.team[0];
@@ -1044,29 +1098,40 @@ export function startGame(root, { dev = false } = {}) {
     updateHud();
     await tween(420, t => (B.foe.x = 170 * (1 - t)), easeOut);
     enemyBox.hidden = false;
-    await say(`BRICK sent out ${nm(F)}!`);
+    await say(`${trainer.gym.short} sent out ${nm(F)}!`);
   }
   async function trainerFoeDown() {
     await tween(450, t => { B.foe.y = 20 * t; B.foe.alpha = 1 - t; });
     B.foe.vis = false; enemyBox.hidden = true;
-    await say(`BRICK's ${nm(F)} is out of energy!`);
-    await gainXp(A(), (8 + F.lv * 3) * GYM.xpMultiplier);
+    await say(`${trainer.gym.short}'s ${nm(F)} is out of energy!`);
+    await gainXp(A(), (8 + F.lv * 3) * trainer.gym.xpMultiplier);
   }
   async function trainerWin() {
+    const gym = trainer.gym;
     B.leader = { x: 170, vis: true };
     await tween(400, t => (B.leader.x = 170 * (1 - t)), easeOut);
-    await say(`You beat ${GYM.leader}!`);
-    if (!flags.badge) {
-      flags.badge = true; save();
-      await say(`BRICK: "You earned the ${GYM.badge}!"`);
-      await say(`Your critters can now grow all the way to Lv ${LEVEL_CAP.afterBadge}!`);
+    await say(`You beat ${gym.leader}!`);
+    if (!flags.badges[trainer.id]) {
+      flags.badges = { ...flags.badges, [trainer.id]: true }; save();
+      await say(`${gym.short}: "You earned the ${gym.badge}!"`);
+      await say(`Your critters can now grow all the way to Lv ${levelCap()}!`);
     } else {
-      await say('BRICK: "Wow, you\'re getting strong!"');
+      await say(`${gym.short}: "Wow, you're getting strong!"`);
     }
-    await say(`Gym prize: every critter on your team gets ${GYM.teamPrize} XP!`);
-    for (const c of party) if (c !== A()) for (const line of addXpQuiet(c, GYM.teamPrize)) await say(line);
-    await gainXp(A(), GYM.teamPrize);
+    await say(`Gym prize: every critter on your team gets ${gym.teamPrize} XP!`);
+    for (const c of party) if (c !== A()) for (const line of addXpQuiet(c, gym.teamPrize)) await say(line);
+    await gainXp(A(), gym.teamPrize);
     await endBattle(false);
+  }
+  // Tell the player when a new area's gate has just opened.
+  async function announceGates() {
+    for (let i = 1; i < AREAS.length; i++) {
+      const key = 'gate:' + AREAS[i].id;
+      if (!flags.seen[key] && gateOpenFor(i)) {
+        flags.seen = { ...flags.seen, [key]: true }; save();
+        await worldSay(['Somewhere to the east, a gate creaks open...', `The ${AREAS[i].name} is open to you now!`]);
+      }
+    }
   }
 
   /* ============ evolution ============ */
@@ -1101,7 +1166,7 @@ export function startGame(root, { dev = false } = {}) {
     await tween(300, t => (overlay.fade = t));
     Object.assign(player, { x: 5, y: 6, face: 'down', moving: false, steps: 0 });
     Object.assign(pal, { x: 6, y: 6, faceLeft: true, moving: false });
-    party = []; F = null; trainer = null; bag = { snack: 3, pod: 5 }; flags = { luck: {} }; chooseIdx = 0;
+    party = []; F = null; trainer = null; bag = { snack: 3, pod: 5 }; flags = { luck: {}, badges: {}, seen: {} }; chooseIdx = 0;
     scene = 'choose'; banner.hidden = false;
     await tween(300, t => (overlay.fade = 1 - t));
     await say('Welcome to MAPLE HILL!');
@@ -1149,14 +1214,17 @@ export function startGame(root, { dev = false } = {}) {
     if (c.lv >= levelCap()) await say(capLine(c));
     hideTextbox();
     if (canEvolve(c)) await runEvolution(c, false);
-    if (!flags.gateOpened && gateOpen()) { flags.gateOpened = true; save(); await worldSay(['The ROCKY MOUNTAINS gate is open!']); }
+    await announceGates();
     mode = 'world';
   }
   async function devWarpTown() {
     if (mode !== 'world' || player.moving || !party.length) return;
     mode = 'busy';
     await tween(250, t => (overlay.fade = t));
-    Object.assign(player, { x: 15, y: 30, face: 'down' }); placePal();
+    let i = AREAS.length - 1;
+    while (i > 0 && !(AREAS[i].town && gateOpenFor(i))) i--;
+    if (!AREAS[i].town) i = AREAS.findIndex(a => a.town);
+    Object.assign(player, { x: i * AW + 15, y: AH + 6, face: 'down' }); placePal();
     await tween(250, t => (overlay.fade = 1 - t));
     mode = 'world';
   }
@@ -1208,6 +1276,7 @@ export function startGame(root, { dev = false } = {}) {
     window.removeEventListener('blur', onBlur);
     padCleanups.forEach(f => f());
     devButtons.forEach(f => f());
+    screenEl.classList.remove('is-quaking');
     hideTextbox(); panel.hidden = true; enemyBox.hidden = true; playerBox.hidden = true; banner.hidden = true;
   };
 }

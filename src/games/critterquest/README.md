@@ -31,14 +31,26 @@ import CritterQuest from './games/critterquest/CritterQuest.jsx';
 Shown automatically when running `npm run dev`, or on the live site by adding `?dev` to the URL
 (`/critter-quest?dev`). They level up your lead critter, start a battle, add pods and a test rabbit, warp to Pebble Town, or start a new game.
 
-## What's in it (v0.4)
+## What's in it (v0.5)
 
-- Three starters with evolutions, types (Grass > Water > Fire > Grass, plus Fighting, Rock, Steel)
-- Maple Hill meadows (critters below Lv 10), the Rocky Mountains (above Lv 10, gate opens past Lv 10)
-- Pebble Town, south of Maple Hill: shiny trader (blue house), rest stop (green house), Pebble Gym
-- Wild critters evolve too (all but Rockalock), and come pre-evolved in the wild past their evolve level
-- Shinies: recolored critters. Trading a bunny doubles one family's shiny luck (fox is the easiest)
-- Pods to catch critters, a team of 6, level cap 25 until you beat Leader Brick, then 35
+The world is a row of areas going right (east). Each town sits directly below its area.
+
+| Area (left to right) | Critter levels | How to get in | Town below it |
+| --- | --- | --- | --- |
+| Maple Hill meadows | 2–9 | start here | none (your home is here) |
+| Rocky Mountains | 11–18 | a critter past Lv 10 | Pebble Town: shiny trader, rest stop, Leader Brick |
+| Whisper Forest | 20–30 | Boulder Badge | Mossy Hollow: healing hut, Leader Ivy |
+
+- Starters and wild critters evolve; wild critters past their evolve level come already evolved
+- Shinies, bunny trades for shiny luck, pods, a team of 6
+- Level caps: 25 to start, 35 with the Boulder Badge, 45 with the Grove Badge
+
+## Adding the next area
+
+1. Add an entry to `AREAS` in `data.js` (kind: `meadow`, `mountains` or `forest`, plus a gate and welcome text).
+2. Add its encounter table to `ENCOUNTERS`, and if it has a town, a `TOWNS` and `GYMS` entry and a `LEVEL_CAP` for the new badge.
+3. The map builder in `engine.js` lays it out to the right automatically, with the town below and a gate from the area before it.
+   A brand-new kind of area (snow, desert...) needs a small layout block in `buildMap()` plus tiles in `art.js`.
 
 ## Quick tweaks (all in `data.js`)
 
@@ -48,5 +60,6 @@ Shown automatically when running `npm run dev`, or on the live site by adding `?
 - Evolution levels: `evolve: { lv, to }`
 - Type matchups: `CHART`
 - Shiny odds and colors: `SHINY` (oneIn, hue)
-- Gym team, XP bonus and badge: `GYM`
+- Gym teams, XP bonus and badges: `GYMS`
+- Areas, towns and gates: `AREAS`, `TOWNS`
 - Level caps: `LEVEL_CAP`
