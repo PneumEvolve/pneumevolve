@@ -13,6 +13,7 @@ const PAL = {
   q: '#9a948c', Q: '#6f6a64', e: '#bdb8b0',                    // stone (Rockalock)
   i: '#9fb0c4', I: '#6d7f95', j: '#e3ebf3',                    // steel (Steel Dog)
   z: '#7a8a5a', Z: '#566440', x: '#c9c08f',                    // komodo scales and belly
+  E: '#ffe14a', a: '#c98f1f', B: '#bff3ff',                    // electric yellow, amber, spark white-blue
 };
 
 function mk(w, h) {
@@ -177,6 +178,49 @@ ART.treetitan = [
   '......hkkkkkkkkkkh......', '......hkwkwkwkwkwh......', '......hkkkkkkkkkkh......', '......hkwkwkwkwkwh......',
   '......hhhhhhhhhhhh......', '.......hhhhhhhhhh.......', '.......hhh....hhh.......', '......hhhh....hhhh......',
   '.....hhhhh....hhhhh.....', '....hh.h.h....h.h.hh....'];
+ART.zapcat = [
+  '..........E...E.', '.........EaE.EaE', '.........EEEEEEE', 'B........EEkEEkE',
+  'BB.......EEEEtEE', '.BB......EEaaaE.', '..BBBBEEEEEEEE..', '.BB..EEaEEaEEE..',
+  'BB..EEEEEEEEEE..', 'B...EEaEEEEaEE..', '....EE.EE.EE.EE.', '....kk.kk.kk.kk.'];
+ART.darkzapcat = [
+  '..............n...n.', '.............nNn.nNn', '.............nnnnnnn', 'E............nnEnnEn',
+  'EE...........nnnnnnn', '.EE..........nnRRRn.', '..EE.......nnnnnnn..', '...EEEEnnnnnEnnnnn..',
+  '....nnnnnEnnnnEnnn..', '...nnnnEnnnnnEnnnn..', '...nnnnnnnnnnnnnnn..', '....nnN.nnN.nnN.nnN.',
+  '....nnN.nnN.nnN.nnN.', '....EE..EE..EE..EE..'];
+ART.demoncat = [
+  '................R....R..', '...............RR...RR..', '..............RnnnnnnR..', 'NN...........nnnnnnnnn..',
+  'NNN.........nnFFnnnFFnn.', '.NNN........nnnnnnnnnnn.', '..NNNN......nnnRwRwRnn..', '...NNNNN.....nnnnnnnn...',
+  'E...NNNNNnnnnnnnnnn.....', 'EE...NNnnnnnnnnnnnnn....', '.EE...nnnnnEnnnnnEnnn...', '..EEE.nnnnnnnEnnnnnnn...',
+  '....EEnnnnnnnnnnnnnnn...', '.....nnnnnnnnnnnnnnnn...', '......nnN..nnN..nnN.nnN.', '......nnN..nnN..nnN.nnN.',
+  '......nnN..nnN..nnN.nnN.', '.....RRR..RRR..RRR.RRR..'];
+// Warfox: four arms, hammers up top, axes down low
+ART.warfox = recolor([
+  'MMMM......O....O.....MMMM.', 'MmmM......Oo..Oo.....MmmM.', 'MMMM......oooooo.....MMMM.', '..h......cccccccc.....h...',
+  '..h......oooooko......h...', '..h......oooooowwwk...h...', '..hoo.....oooowww....ooh..', '...ooo.....owww.....ooo...',
+  '.....ooommmmmmmmmooo......', '........mmMmmmMmm.........', '........mmmmmmmmm.........', '.....oooommMmmmmmoooo.....',
+  '...oo...ooooooooo...oo....', '..mMm...ooowwwooo...mMm...', '.mmMm...ooowwwooo...mMmm..', '..mMh...ooooooooo...hMm...',
+  '....h..ccccccccccc..h.....', '....h...oooo.oooo...h.....', '........ooO...ooO.........', '.......ooOO...ooOO........',
+  '.......kkkk...kkkk........'], { O: 'L', c: 'L' });
+// Twinblaze: two flaming heads and big wings
+ART.twinblaze = [
+  '................nnnn......', '...............nnnnFn.....', '..N...........fnnnnnnn....', '.NNN.........fRnnnn.nnnn..',
+  'NNNNN.......fRRnnn.nnnFnn.', 'NNNNNN......fRnnn..nnnnnnn', '.NNNNNN.....fRnn..nnnn....', '..NNNNNNN...fRnn.nnnn.....',
+  '...NNNNNNNnnfnnnnnnn......', '.F...NNNNnnnnnnnnnnn......', 'FfF...nnnnnnnnnnnnnN......', 'fRfF.nnnnnnnnnnnnnnN......',
+  '.fRRnnnnnnnnnnnnnnnN......', '..fRnnnnnnnnnnnnnnnN......', '...NnnnnnnnnnnnnnnnN......', '....nnN.......nnN.........',
+  '....nnN.......nnN.........', '....nnN.......nnN.........', '...FfRF......FfRF.........', '....FF........FF..........'];
+// Tricano: arms, legs, two volcanoes on its back, a water cannon arm
+ART.tricano = [
+  '..........w.U.w...........', '...w.U...wUwUwUw..........', '..wUwUw....uUUu...........', '...uuu.....vuuv...........',
+  '...vuv....vvuuvv..........', '..vvvvv..vvvuvvvv.........', '..vVvvvvvvvvuvvvvv........', '.vvvvvvvvvkUvvkUvvv.......',
+  '.vvvvvvvvvvvvvvvvvvv.vvv..', 'vvvVvvvvvvvuuuuvvvvvvvvvvU', 'vvvvvvvvvvvvvvvvvvvvvvvvuU', 'vvvvvvvVvvvvvvvvvVvvv.vvv.',
+  '.vvvvvvvvvvvvvvvvvvvv.....', '..vvvvvvvvvvvvvvvvvv......', '...VVVV.......VVVV........', '...vvvv.......vvvv........',
+  '..VVVVVV.....VVVVVV.......'];
+// Iron Hound: a big steel hunting hound with a fiery collar
+ART.ironhound = [
+  '..................II....', '.................IiiI...', '....fFf.fFf.....iiiiii..', 'II..MMMMMMMM....iiRiiiiI',
+  '.I.MMiiiiiiMM..iiiiijjjj', '..iiiiiiiiiiiiiiiiijjfF.', '.iiiiiiiiiiiiiiiiiii..f.', 'Iiiiiiiiiijjjjiiiii.....',
+  'IIiiiiiiijjjjjiiiI......', '.Iiiiiiiiiiiiiiiii......', '..IiiI......IiiiI.......', '..IiiI......IiiiI.......',
+  '..IiiI......IiiiI.......', '.IIIII.....IIIIII.......'];
 const NO_OUTLINE = new Set(['rabbit', 'steeldog']);
 
 /* ---------------- tiles ---------------- */

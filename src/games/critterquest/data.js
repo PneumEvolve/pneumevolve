@@ -10,18 +10,23 @@ export const TYPE_COLORS = {
   FIGHTING: '#c0443a',
   ROCK: '#a07a4a',
   STEEL: '#7c8ea3',
+  ELECTRIC: '#e6b800',
+  FLYING: '#7aa7e0',
 };
 
 // attacker type -> defender type -> multiplier (anything missing is 1x)
 // The core triangle: GRASS beats WATER, WATER beats FIRE, FIRE beats GRASS.
+// Also: ELECTRIC beats FLYING, FLYING beats GRASS.
 const CHART = {
   FIRE:     { GRASS: 2, STEEL: 2, FIRE: 0.5, WATER: 0.5, ROCK: 0.5 },
   WATER:    { FIRE: 2, ROCK: 2, WATER: 0.5, GRASS: 0.5 },
-  GRASS:    { WATER: 2, ROCK: 2, FIRE: 0.5, GRASS: 0.5, STEEL: 0.5 },
+  GRASS:    { WATER: 2, ROCK: 2, FIRE: 0.5, GRASS: 0.5, STEEL: 0.5, FLYING: 0.5 },
   FIGHTING: { NORMAL: 2, ROCK: 2, STEEL: 2 },
-  ROCK:     { FIRE: 2, FIGHTING: 0.5, STEEL: 0.5 },
+  ROCK:     { FIRE: 2, FLYING: 2, FIGHTING: 0.5, STEEL: 0.5 },
   STEEL:    { ROCK: 2, FIRE: 0.5, WATER: 0.5, STEEL: 0.5 },
   NORMAL:   { ROCK: 0.5, STEEL: 0.5 },
+  ELECTRIC: { FLYING: 2, WATER: 1, GRASS: 0.5, ELECTRIC: 0.5 },
+  FLYING:   { GRASS: 2, ELECTRIC: 0.5, ROCK: 0.5, STEEL: 0.5 },
 };
 export function effectiveness(moveType, defenderTypes) {
   return defenderTypes.reduce((m, t) => m * ((CHART[moveType] || {})[t] ?? 1), 1);
@@ -57,10 +62,10 @@ export const MOVES = {
   'Mega Thump':   { type: 'NORMAL',   power: 15, acc: 85,  anim: 'thump' },
   // Bluebird / Skyhawk
   'Peck':         { type: 'NORMAL',   power: 7,  acc: 95,  anim: 'lunge' },
-  'Gust':         { type: 'NORMAL',   power: 8,  acc: 90,  anim: 'proj', proj: 'wind' },
-  'Dive':         { type: 'NORMAL',   power: 11, acc: 75,  anim: 'dash' },
+  'Gust':         { type: 'FLYING',   power: 8,  acc: 90,  anim: 'proj', proj: 'wind' },
+  'Dive':         { type: 'FLYING',   power: 11, acc: 75,  anim: 'dash' },
   'Fluff Up':     { type: 'NORMAL',   effect: ['eva', 1, 'self'] },
-  'Talon Strike': { type: 'NORMAL',   power: 15, acc: 85,  anim: 'pounce' },
+  'Talon Strike': { type: 'FLYING',   power: 15, acc: 85,  anim: 'pounce' },
   // Fox / Elderfox
   'Pounce':       { type: 'NORMAL',   power: 9,  acc: 90,  anim: 'pounce' },
   'Bite':         { type: 'NORMAL',   power: 9,  acc: 85,  anim: 'lunge' },
@@ -86,6 +91,17 @@ export const MOVES = {
   'Root Grab':    { type: 'GRASS',    power: 12, acc: 90,  anim: 'pounce' },
   'Bark Skin':    { type: 'GRASS',    effect: ['def', 1, 'self'] },
   'Tree Shake':   { type: 'GRASS',    power: 18, acc: 85,  anim: 'quake' },   // the whole screen shakes!
+  // Zapcat / Dark Zapcat / Demon Cat
+  'Spark':        { type: 'ELECTRIC', power: 8,  acc: 95,  anim: 'proj', proj: 'spark' },
+  'Thunder Claw': { type: 'ELECTRIC', power: 14, acc: 90,  anim: 'lunge' },
+  'Demon Bolt':   { type: 'ELECTRIC', power: 20, acc: 85,  anim: 'proj', proj: 'bolt' },
+  // third evolutions
+  'Axe Storm':    { type: 'FIGHTING', power: 21, acc: 80,  anim: 'smash' },            // Warfox
+  'Wing Blast':   { type: 'FLYING',   power: 14, acc: 90,  anim: 'proj', proj: 'wind' }, // Twinblaze
+  'Sky Inferno':  { type: 'FIRE',     power: 21, acc: 80,  anim: 'dash' },             // Twinblaze
+  'Steam Cannon': { type: 'WATER',    power: 21, acc: 85,  anim: 'proj', proj: 'steamball' }, // Tricano
+  'Flamethrower': { type: 'FIRE',     power: 16, acc: 90,  anim: 'proj', proj: 'fire' },  // Iron Hound
+  'Metal Burst':  { type: 'STEEL',    power: 23, acc: 85,  anim: 'proj', proj: 'burst' }, // Iron Hound's strongest
 };
 const EFFECT_SUB = { 'atk-1': 'ATK ↓', 'def-1': 'DEF ↓', 'def1': 'DEF ↑', 'eva1': 'DODGE ↑' };
 export const moveSub = m => {
@@ -108,7 +124,13 @@ export const SPECIES = {
   shadowblaze: {
     name: 'SHADOWBLAZE', types: ['FIRE'], flicker: 'fF', catchRate: 0.15,
     b: { hp: 18, atk: 9, def: 5, spd: 9 },
-    moves: ['Ember Kick', 'Snort', 'Flame Dash', 'Shadow Blaze'], signature: 'Shadow Blaze',
+    moves: ['Ember Kick', 'Snort', 'Flame Dash', 'Shadow Blaze'],
+    evolve: { lv: 32, to: 'twinblaze' },
+  },
+  twinblaze: {
+    name: 'TWINBLAZE', types: ['FIRE', 'FLYING'], flicker: 'fF', catchRate: 0.1,
+    b: { hp: 22, atk: 12, def: 7, spd: 12 },
+    moves: ['Shadow Blaze', 'Snort', 'Wing Blast', 'Sky Inferno'],
   },
   foxlet: {
     name: 'FOXLET', types: ['GRASS'], catchRate: 0.25,
@@ -120,7 +142,13 @@ export const SPECIES = {
   hammerfox: {
     name: 'HAMMERFOX', types: ['GRASS', 'FIGHTING'], catchRate: 0.15,
     b: { hp: 17, atk: 11, def: 6, spd: 7 },
-    moves: ['Leaf Toss', 'Tail Swish', 'Vine Whip', 'Hammer Smash'], signature: 'Hammer Smash',
+    moves: ['Leaf Toss', 'Tail Swish', 'Vine Whip', 'Hammer Smash'],
+    evolve: { lv: 31, to: 'warfox' },
+  },
+  warfox: {
+    name: 'WARFOX', types: ['GRASS', 'FIGHTING'], catchRate: 0.1,
+    b: { hp: 20, atk: 14, def: 8, spd: 8 },
+    moves: ['Vine Whip', 'Hammer Smash', 'Tail Swish', 'Axe Storm'],
   },
   splashcano: {
     name: 'SPLASHCANO', types: ['WATER'], catchRate: 0.25,
@@ -133,8 +161,15 @@ export const SPECIES = {
   boomcano: {
     name: 'BOOMCANO', types: ['WATER'], flicker: 'wU', catchRate: 0.15,
     b: { hp: 22, atk: 9, def: 8, spd: 4 },
-    moves: ['Rock Toss', 'Steam Puff', 'Geyser', 'Rocket Blast'], signature: 'Rocket Blast',
+    moves: ['Rock Toss', 'Steam Puff', 'Geyser', 'Rocket Blast'],
+    evolve: { lv: 31, to: 'tricano' },
     appear: 'steamed up', exit: 'It hissed off in a cloud of steam.', exitAnim: 'hop',
+  },
+  tricano: {
+    name: 'TRICANO', types: ['WATER'], flicker: 'wU', catchRate: 0.1,
+    b: { hp: 26, atk: 12, def: 11, spd: 4 },
+    moves: ['Geyser', 'Rocket Blast', 'Steam Puff', 'Steam Cannon'],
+    appear: 'stomped up, steaming', exit: 'It stomped away in a cloud of steam.', exitAnim: 'hop',
   },
   rabbit: {
     name: 'RABBIT', types: ['NORMAL'], catchRate: 0.6,
@@ -150,14 +185,14 @@ export const SPECIES = {
     appear: 'bounced in', exit: 'It boinged away over the hill.', exitAnim: 'hop',
   },
   bluebird: {
-    name: 'BLUEBIRD', types: ['NORMAL'], catchRate: 0.55, hovers: true,
+    name: 'BLUEBIRD', types: ['FLYING'], catchRate: 0.55, hovers: true,
     b: { hp: 2, atk: 2, def: 0, spd: 6 },
     moves: ['Peck', 'Gust', 'Dive', 'Fluff Up'],
     evolve: { lv: 14, to: 'skyhawk' },
     appear: 'swooped in', exit: 'It flew off to rest in a tree.', exitAnim: 'fly',
   },
   skyhawk: {
-    name: 'SKYHAWK', types: ['NORMAL'], catchRate: 0.4, hovers: true,
+    name: 'SKYHAWK', types: ['FLYING'], catchRate: 0.4, hovers: true,
     b: { hp: 7, atk: 5, def: 2, spd: 9 },
     moves: ['Peck', 'Gust', 'Dive', 'Talon Strike'], signature: 'Talon Strike',
     appear: 'dove down', exit: 'It soared up into the clouds.', exitAnim: 'fly',
@@ -185,8 +220,15 @@ export const SPECIES = {
   steelwolf: {
     name: 'STEEL WOLF', types: ['STEEL'], catchRate: 0.25,
     b: { hp: 11, atk: 6, def: 7, spd: 6 },
-    moves: ['Metal Bite', 'Iron Tackle', 'Growl', 'Steel Fang'], signature: 'Steel Fang',
+    moves: ['Metal Bite', 'Iron Tackle', 'Growl', 'Steel Fang'],
+    evolve: { lv: 34, to: 'ironhound' },
     appear: 'howled', exit: 'It howled and clanked away.', exitAnim: 'dash',
+  },
+  ironhound: {
+    name: 'IRON HOUND', types: ['STEEL'], flicker: 'fF', catchRate: 0.1,
+    b: { hp: 15, atk: 9, def: 9, spd: 8 },
+    moves: ['Steel Fang', 'Iron Tackle', 'Flamethrower', 'Metal Burst'],
+    appear: 'came hunting', exit: 'It sniffed the air and ran off on the hunt.', exitAnim: 'dash',
   },
   rockalock: {
     name: 'ROCKALOCK', types: ['ROCK'], catchRate: 0.18,
@@ -220,6 +262,26 @@ export const SPECIES = {
     moves: ['Snap', 'Root Grab', 'Bark Skin', 'Tree Shake'], signature: 'Tree Shake',
     appear: 'towered over you', exit: 'It stomped off, shaking the whole forest.', exitAnim: 'dash',
   },
+  zapcat: {
+    name: 'ZAPCAT', types: ['ELECTRIC'], catchRate: 0.45,
+    b: { hp: 6, atk: 3, def: 2, spd: 7 },
+    moves: ['Scratch', 'Spark', 'Hiss', 'Pounce'],
+    evolve: { lv: 17, to: 'darkzapcat' },
+    appear: 'zipped out', exit: 'It zapped away in a flash.', exitAnim: 'dash',
+  },
+  darkzapcat: {
+    name: 'DARK ZAPCAT', types: ['ELECTRIC'], catchRate: 0.3,
+    b: { hp: 11, atk: 6, def: 4, spd: 10 },
+    moves: ['Spark', 'Hiss', 'Pounce', 'Thunder Claw'],
+    evolve: { lv: 30, to: 'demoncat' },
+    appear: 'crackled out of the dark', exit: 'It flickered and vanished.', exitAnim: 'dash',
+  },
+  demoncat: {
+    name: 'DEMON CAT', types: ['ELECTRIC'], catchRate: 0.12,
+    b: { hp: 18, atk: 10, def: 6, spd: 12 },
+    moves: ['Thunder Claw', 'Hiss', 'Pounce', 'Demon Bolt'],
+    appear: 'descended in a storm', exit: 'It flew off in a crack of thunder.', exitAnim: 'fly',
+  },
 };
 export const STARTERS = ['blazepony', 'foxlet', 'splashcano'];
 
@@ -227,13 +289,22 @@ export const STARTERS = ['blazepony', 'foxlet', 'splashcano'];
 // weights are relative. Meadow critters stay below Lv 10; mountain critters are all above Lv 10.
 // Wild critters that are past their evolve level show up already evolved.
 export const ENCOUNTERS = {
-  north:    { min: 2,  max: 9,  table: [['rabbit', 50], ['bluebird', 35], ['fox', 12], ['splashcano', 3]] },
-  south:    { min: 3,  max: 9,  table: [['fox', 50], ['bluebird', 25], ['rabbit', 22], ['splashcano', 3]] },
-  mountain: { min: 11, max: 18, table: [['steeldog', 40], ['rockalock', 20], ['fox', 20], ['bluebird', 20]] },
-  forest:   { min: 20, max: 30, table: [['komodo', 42], ['snapling', 42], ['fox', 13], ['hammerfox', 3]] },   // Hammerfox is very rare
+  north:    { min: 2,  max: 9,  table: [['rabbit', 45], ['bluebird', 32], ['fox', 12], ['zapcat', 8], ['splashcano', 3]] },
+  south:    { min: 3,  max: 9,  table: [['fox', 45], ['bluebird', 22], ['rabbit', 22], ['zapcat', 8], ['splashcano', 3]] },
+  mountain: { min: 11, max: 18, table: [['steeldog', 36], ['rockalock', 18], ['fox', 17], ['bluebird', 17], ['zapcat', 12]] },
+  forest:   { min: 20, max: 30, table: [['komodo', 37], ['snapling', 37], ['fox', 13], ['zapcat', 10], ['hammerfox', 3]] },   // Hammerfox is very rare
 };
 export const GATE_LEVEL = 10;   // a critter must be PAST this level to open the mountain gate
-export const TEAM_MAX = 6;
+export const TEAM_MAX = 6;          // extra critters you catch go to your BOX (at home and in rest huts)
+
+// XP after a fight: every critter on your team gets a share. Critters in the BOX get nothing.
+export const XP_SHARE = {
+  fought: 1.0,     // did damage this fight and is still standing
+  watched: 0.75,   // on the team but didn't do damage
+  knockedOut: 0.25 // ran out of energy during the fight
+};
+// Snacks heal this much of a critter's max HP, plus extra for every gym badge you hold.
+export const SNACK_HEAL = { base: 0.4, perBadge: 0.1 };
 // Max critter level: 25 to start, raised by each gym badge you hold.
 export const LEVEL_CAP = { start: 25, pebble: 35, mossy: 45 };
 
@@ -268,11 +339,12 @@ export const FAMILY = {
   rabbit: 'rabbit', megabun: 'rabbit',
   bluebird: 'bluebird', skyhawk: 'bluebird',
   fox: 'fox', elderfox: 'fox',
-  steeldog: 'steeldog', steelwolf: 'steeldog',
+  steeldog: 'steeldog', steelwolf: 'steeldog', ironhound: 'steeldog',
   rockalock: 'rockalock',
-  splashcano: 'splashcano', boomcano: 'splashcano',
+  splashcano: 'splashcano', boomcano: 'splashcano', tricano: 'splashcano',
   komodo: 'komodo', darkkomodo: 'komodo',
   snapling: 'snapling', treetitan: 'snapling',
+  zapcat: 'zapcat', darkzapcat: 'zapcat', demoncat: 'zapcat',
 };
 export const SHINY = {
   fox:        { oneIn: 40,  hue: 180 },                 // the easiest shiny: a blue fox
@@ -283,8 +355,9 @@ export const SHINY = {
   rockalock:  { oneIn: 200, set: [275, 0.4] },          // purple crystal boulder
   komodo:     { oneIn: 100, hue: 200 },                 // purple-blue lizard
   snapling:   { oneIn: 100, hue: -80, sat: 1.2 },       // autumn-orange leaves
+  zapcat:     { oneIn: 100, hue: 170 },                 // ice-blue cat
 };
-export const SHINY_ORDER = ['fox', 'rabbit', 'bluebird', 'splashcano', 'steeldog', 'rockalock', 'komodo', 'snapling'];
+export const SHINY_ORDER = ['fox', 'rabbit', 'bluebird', 'splashcano', 'steeldog', 'rockalock', 'komodo', 'snapling', 'zapcat'];
 
 /* ---------------- gyms ---------------- */
 export const GYMS = {

@@ -42,6 +42,9 @@ The world is a row of areas going right (east). Each town sits directly below it
 | Whisper Forest | 20–30 | Boulder Badge | Mossy Hollow: healing hut, Leader Ivy |
 
 - Starters and wild critters evolve; wild critters past their evolve level come already evolved
+- Electric and Flying types; Zapcat line in every biome; third evolutions for Blazepony, Foxlet, Splashcano and Steel Dog lines
+- XP is shared: 100% if a critter did damage and is still standing, 75% for the rest of the team, 25% if knocked out
+- A BOX at home and in rest huts holds extra critters (they don't earn XP); snacks heal more with every badge
 - Shinies (25% more attack): find them in the wild, or trade 3 plain critters of one kind for 1 shiny in Pebble Town
 - Pods to catch critters, a team of 6
 - Level caps: 25 to start, 35 with the Boulder Badge, 45 with the Grove Badge
@@ -64,3 +67,4 @@ The world is a row of areas going right (east). Each town sits directly below it
 - Gym teams, XP bonus and badges: `GYMS`
 - Areas, towns and gates: `AREAS`, `TOWNS`
 - Level caps: `LEVEL_CAP`
+- XP split: `XP_SHARE`; snack healing: `SNACK_HEAL`

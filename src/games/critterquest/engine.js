@@ -5,7 +5,7 @@
 import { buildArt, hash, T } from './art.js';
 import {
   SPECIES, MOVES, STARTERS, ENCOUNTERS, TYPE_COLORS, GATE_LEVEL, TEAM_MAX, LEVEL_CAP,
-  FAMILY, SHINY, SHINY_ORDER, SHINY_TRADE_COST, SHINY_ATTACK_BONUS, GYMS, AREAS, TOWNS,
+  FAMILY, SHINY, SHINY_ORDER, SHINY_TRADE_COST, SHINY_ATTACK_BONUS, XP_SHARE, SNACK_HEAL, GYMS, AREAS, TOWNS,
   effectiveness, moveSub, xpNeed, applyStats, makeCritter, grownForm,
 } from './data.js';
 
@@ -79,7 +79,7 @@ export function startGame(root, { dev = false } = {}) {
           .forEach(([x, y]) => L(x, y, 'T'));
         building(ox + 3, 2, HOUSES.red, { x: ox + 5, y: 5, type: 'home' });
         sign(ox + 7, 7, ['MAPLE HILL', 'Home of brave kids and their critter partners.']);
-        sign(ox + 13, 7, ['TYPE TIPS', 'WATER beats FIRE. FIRE beats GRASS.', 'GRASS beats WATER. FIGHTING smashes ROCK and STEEL!']);
+        sign(ox + 13, 7, ['TYPE TIPS', 'WATER beats FIRE. FIRE beats GRASS.', 'GRASS beats WATER. ELECTRIC beats FLYING.', 'FLYING beats GRASS. FIGHTING smashes ROCK and STEEL!']);
         sign(ox + 19, 8, ['NORTH MEADOW', 'Rabbits and bluebirds live here. All below Lv 10.']);
         sign(ox + 11, 15, ['FOX HOLLOW', 'Watch out! Foxes like the grass over here.']);
         R(0, AH, AW - 1, MH - 1, 'T');   // thick woods below Maple Hill
@@ -158,6 +158,7 @@ export function startGame(root, { dev = false } = {}) {
   /* ============ state ============ */
   let party = [];                 // up to 6 critters; party[0] is your lead and walks with you
   let bag = { snack: 3, pod: 5 };
+  let box = [];                   // extra critters, kept at home and in rest huts (they don't earn XP)
   let flags = { badges: {}, seen: {} };   // badges won, places visited
   let ai = 0;                     // which party member is battling
   let F = null;                   // the critter you're fighting
@@ -177,11 +178,14 @@ export function startGame(root, { dev = false } = {}) {
     B.foe = { x: 0, y: 0, flash: false, alpha: 1, vis: true, scale: 1 };
     B.leader = { x: 0, vis: false };
     B.shake = 0; B.proj = null; B.pod = null; B.sparkle = 0;
+    B.dealt = new Set();            // team critters that did damage this fight
   }
   resetBattleSprites();
   const levelCap = () => Math.max(LEVEL_CAP.start, ...Object.keys(flags.badges || {}).map(b => LEVEL_CAP[b] || 0));
   const shinyChance = fam => 1 / SHINY[fam].oneIn;
-  const plainOf = fam => party.map((c, i) => ({ c, i })).filter(o => FAMILY[o.c.sp] === fam && !o.c.shiny);
+  const plainOf = fam => [...party, ...box].filter(c => FAMILY[c.sp] === fam && !c.shiny).map(c => ({ c }));
+  const badgeCount = () => Object.keys(flags.badges || {}).length;
+  const snackPct = () => SNACK_HEAL.base + SNACK_HEAL.perBadge * badgeCount();
   const bonusPct = Math.round((SHINY_ATTACK_BONUS - 1) * 100);
 
   /* ============ saving (this browser only) ============ */
@@ -190,6 +194,7 @@ export function startGame(root, { dev = false } = {}) {
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify({
         v: 1, party: party.map(c => ({ sp: c.sp, lv: c.lv, xp: c.xp, hp: c.hp, shiny: !!c.shiny })),
+        box: box.map(c => ({ sp: c.sp, lv: c.lv, xp: c.xp, hp: c.hp, shiny: !!c.shiny })),
         bag, flags, pos: { x: player.x, y: player.y, face: player.face },
       }));
     } catch (_) { /* storage blocked: the game still works, it just won't remember */ }
@@ -201,12 +206,15 @@ export function startGame(root, { dev = false } = {}) {
     } catch (_) { return null; }
   }
   function restore(d) {
-    party = d.party.filter(p => SPECIES[p.sp]).slice(0, TEAM_MAX).map(p => {
+    const revive = p => {
       const c = makeCritter(p.sp, p.lv, !!p.shiny);
       c.xp = Math.max(0, Math.min(p.xp || 0, c.xpNext - 1)); c.shownXp = c.xp;
       c.hp = Math.max(0, Math.min(c.maxHp, p.hp ?? c.maxHp)); c.shownHp = c.hp;
       return c;
-    });
+    };
+    const team = d.party.filter(p => SPECIES[p.sp]).map(revive);
+    party = team.slice(0, TEAM_MAX);
+    box = [...team.slice(TEAM_MAX), ...(d.box || []).filter(p => SPECIES[p.sp]).map(revive)];
     bag = { snack: d.bag?.snack ?? 3, pod: d.bag?.pod ?? 5 };
     flags = { badges: {}, seen: {}, ...(d.flags || {}) };
     delete flags.luck;   // the old bunny-luck system from v0.4/0.5
@@ -289,9 +297,9 @@ export function startGame(root, { dev = false } = {}) {
   }
   const typePills = types => types.map(t => `<span class="cq-type" style="background:${TYPE_COLORS[t]}">${t}</span>`).join('');
   const nameHTML = c => (c.shiny ? '<span class="cq-shiny">★</span>' : '') + nm(c);
-  function teamCard(c, tag) {
+  function teamCard(c, tag, compact = false) {
     const b = document.createElement('button');
-    b.className = 'cq-card' + (c.hp <= 0 ? ' is-out' : '');
+    b.className = 'cq-card' + (compact ? ' cq-card-luck' : '') + (c.hp <= 0 ? ' is-out' : '');
     const f = Math.max(0, c.hp / c.maxHp);
     b.innerHTML = `
       <img alt="" src="${spriteURL(c.sp, shinyCfg(c))}">
@@ -434,23 +442,78 @@ export function startGame(root, { dev = false } = {}) {
     else if (t === 'M') worldSay(['A huge boulder. It is NOT a Rockalock. Probably.']);
     else if (pal.x === tx && pal.y === ty) worldSay([`${nm(lead)} looks happy to see you!`, `Lv ${lead.lv}  ·  HP ${lead.hp}/${lead.maxHp}`]);
   }
-  function healAll() { party.forEach(c => { c.hp = c.maxHp; c.shownHp = c.hp; }); }
+  function healAll() { [...party, ...box].forEach(c => { c.hp = c.maxHp; c.shownHp = c.hp; }); }
   async function restAt(door) {
     mode = 'busy';
-    await say(door.type === 'home' ? 'You and your team take a nap at home...' : `${TOWNS[door.town].rest}: "Come in! Your critters can nap here."`);
-    hideTextbox();
-    await tween(300, t => (overlay.fade = t)); await wait(350);
-    healAll(); bag.snack = Math.max(bag.snack, 3); bag.pod = Math.max(bag.pod, 5); save();
-    await tween(300, t => (overlay.fade = 1 - t));
-    await worldSay(['Your whole team is full of energy!', 'You packed snacks and pods for the road.']);
+    const where = door.type === 'home' ? 'HOME' : TOWNS[door.town].rest;
+    for (;;) {
+      const c = await chooseMenu([{ label: 'NAP' }, { label: 'BOX', sub: '' + box.length }, { label: 'BYE' }],
+        { layout: 'side', prompt: door.type === 'home' ? 'Home sweet home!' : `${where}: "Welcome!"`, canBack: true });
+      if (c === 0) {
+        hideTextbox();
+        await tween(300, t => (overlay.fade = t)); await wait(350);
+        healAll(); bag.snack = Math.max(bag.snack, 3); bag.pod = Math.max(bag.pod, 5); save();
+        await tween(300, t => (overlay.fade = 1 - t));
+        await say('Your whole team is full of energy!');
+        await say('You packed snacks and pods for the road.');
+      } else if (c === 1) await boxVisit();
+      else break;
+    }
+    hideTextbox(); mode = 'world';
   }
+
+  /* ============ the BOX: extra critters live here (no XP while boxed) ============ */
+  const BOX_PAGE = 7;
+  function pageCard(label) {
+    const b = document.createElement('button');
+    b.className = 'cq-card cq-card-luck cq-card-more';
+    b.textContent = label;
+    return b;
+  }
+  async function pickFromBox(title) {
+    let page = 0;
+    for (;;) {
+      const slice = box.slice(page * BOX_PAGE, page * BOX_PAGE + BOX_PAGE);
+      const items = slice.map(c => ({ node: teamCard(c, '', true) }));
+      const hasNext = box.length > (page + 1) * BOX_PAGE, paged = hasNext || page > 0;
+      if (paged) items.push({ node: pageCard(hasNext ? 'MORE ▶' : '◀ BACK TO START') });
+      const i = await chooseMenu(items, { panelMode: true, cols: 2, canBack: true, title: `${title} (${box.length})` });
+      if (i < 0) return -1;
+      if (paged && i === items.length - 1) { page = hasNext ? page + 1 : 0; continue; }
+      return page * BOX_PAGE + i;
+    }
+  }
+  async function boxVisit() {
+    for (;;) {
+      const c = await chooseMenu([{ label: 'TAKE OUT' }, { label: 'PUT IN' }, { label: 'BACK' }],
+        { layout: 'side', prompt: `BOX: ${box.length} critters`, canBack: true });
+      if (c === 0) {
+        if (!box.length) { await say('Your BOX is empty. Catch more critters!'); continue; }
+        const i = await pickFromBox('Take out who?');
+        if (i < 0) continue;
+        const picked = box[i];
+        if (party.length < TEAM_MAX) { box.splice(i, 1); party.push(picked); save(); await say(`${nm(picked)} joined your team!`); continue; }
+        const j = await pickTeam({ title: `Swap ${nm(picked)} with who?` });
+        if (j < 0) continue;
+        const out = party[j]; party[j] = picked; box[i] = out; save();
+        await say(`${nm(picked)} joined your team. ${nm(out)} went in the BOX.`);
+      } else if (c === 1) {
+        if (party.length <= 1) { await say('You need at least one critter with you!'); continue; }
+        const j = await pickTeam({ title: 'Put who in the BOX?' });
+        if (j < 0) continue;
+        const out = party.splice(j, 1)[0]; box.push(out); save();
+        await say(`${nm(out)} went in the BOX. It won't earn XP in there.`);
+      } else return;
+    }
+  }
+
   async function openWorldMenu() {
     mode = 'busy';
     for (;;) {
       const c = await chooseMenu([{ label: 'TEAM', sub: `${party.length}/${TEAM_MAX}` }, { label: 'BAG' }, { label: 'SHINY' }, { label: 'CLOSE' }],
         { layout: 'side', prompt: `Menu · Badges ${Object.keys(flags.badges).length}/${Object.keys(GYMS).length}`, canBack: true });
       if (c === 0) { await teamFlow(); continue; }
-      if (c === 1) { await say(`SNACKS ×${bag.snack}    PODS ×${bag.pod}`); await say('Snacks heal. Pods catch wild critters!'); continue; }
+      if (c === 1) { await say(`SNACKS ×${bag.snack}    PODS ×${bag.pod}`); await say(`Snacks heal ${Math.round(snackPct() * 100)}% of HP. Each badge makes them stronger!`); continue; }
       if (c === 2) { await showShinies('Shinies · ● = one plain critter you have'); continue; }
       break;
     }
@@ -473,11 +536,11 @@ export function startGame(root, { dev = false } = {}) {
       }
     }
   }
-  const snackHeal = c => Math.min(Math.max(12, Math.round(c.maxHp * 0.4)), c.maxHp - c.hp);
+  const snackHeal = c => Math.min(Math.max(12, Math.round(c.maxHp * snackPct())), c.maxHp - c.hp);
 
   /* ============ Pebble Town: the shiny trader ============ */
   // Trade 3 plain critters of one family, get 1 shiny of that family (at the best level of the three).
-  const showShinies = title => chooseMenu(SHINY_ORDER.map(f => ({ node: shinyCard(f) })), { panelMode: true, cols: 2, canBack: true, title });
+  const showShinies = title => chooseMenu(SHINY_ORDER.map(f => ({ node: shinyCard(f) })), { panelMode: true, cols: 3, canBack: true, title });
   async function traderVisit() {
     mode = 'busy';
     await say('SHINY TRADER: "Hi! I collect critters!"');
@@ -497,7 +560,7 @@ export function startGame(root, { dev = false } = {}) {
     const fam = SHINY_ORDER[f], name = SPECIES[fam].name;
     const plain = plainOf(fam);
     if (plain.length < SHINY_TRADE_COST) {
-      await say(`"For a shiny ${name}, bring me ${SHINY_TRADE_COST} plain ones."`);
+      await say(`"For a shiny ${name}, bring me ${SHINY_TRADE_COST} plain ones, from your team or BOX."`);
       await say(`You have ${plain.length}. Catch ${SHINY_TRADE_COST - plain.length} more!`);
       return;
     }
@@ -508,13 +571,15 @@ export function startGame(root, { dev = false } = {}) {
     const ok = await chooseMenu([{ label: 'YES' }, { label: 'NO' }], { layout: 'side', cols: 1, prompt: `Trade for a shiny ${name}?` });
     if (ok !== 0) return;
     const giveSet = new Set(give.map(o => o.c));
-    party = party.filter(c => !giveSet.has(c));
+    party = party.filter(c => !giveSet.has(c)); box = box.filter(c => !giveSet.has(c));
+    if (!party.length && box.length) party.push(box.shift());
     const shiny = makeCritter(grownForm(fam, lv), lv, true);
-    party.push(shiny);
+    if (party.length < TEAM_MAX) party.push(shiny); else box.push(shiny);
     save();
     await say(`You handed over your ${SHINY_TRADE_COST} critters. Bye bye!`);
     await say(`Wow! You got a SHINY ${nm(shiny)}! (Lv ${shiny.lv})`);
     await say(`Its attack is ${bonusPct}% stronger than a plain one!`);
+    if (box.includes(shiny)) await say('Your team is full, so it went to your BOX.');
   }
 
   /* ============ Pebble Town: the gym ============ */
@@ -635,6 +700,17 @@ export function startGame(root, { dev = false } = {}) {
       case 'rock': r('#3b3340', x - 4, y - 3, 8, 7); r('#8b7563', x - 3, y - 2, 6, 5); r('#a9937f', x - 2, y - 2, 2, 1); break;
       case 'leaf': r('#2a2135', x - 5, y - 2, 10, 5); r(fl ? '#7fd35b' : '#5fbf45', x - 4, y - 1, 8, 3); r('#3f8f3a', x - 4, y, 8, 1); break;
       case 'wind': r('#ffffff', x - 6, y - 3, 8, 1); r('#ffffff', x - 3, y, 8, 1); r('#ffffff', x - 5, y + 3, 7, 1); break;
+      case 'spark':
+        r('#ffe14a', x - 4, y - 3, 3, 2); r('#ffe14a', x - 2, y - 1, 3, 2); r('#ffe14a', x, y + 1, 3, 2); r(fl ? '#ffffff' : '#bff3ff', x - 1, y - 1, 2, 2); break;
+      case 'bolt':
+        for (let i = 0; i < 4; i++) { const zx = x - 8 + i * 4 + (i % 2 ? 2 : -2); r('#2a2135', zx - 1, y - 10 + i * 5, 6, 6); r(fl ? '#ffe14a' : '#ffffff', zx, y - 9 + i * 5, 4, 4); }
+        break;
+      case 'steamball':
+        r('#2a2135', x - 8, y - 8, 16, 16); r('#2f7fb5', x - 7, y - 7, 14, 14); r('#4aa3df', x - 6, y - 6, 11, 11); r('#d8f0fb', x - 4, y - 5, 4, 3);
+        r(fl ? '#ffffff' : '#bfe6fb', x - 14 * p.dir, y - 9, 5, 4); r(fl ? '#bfe6fb' : '#ffffff', x - 17 * p.dir, y - 3, 4, 3); break;
+      case 'burst':
+        for (const [dx, dy] of [[-8, -4], [6, -7], [-3, 5], [8, 3], [0, -1]]) { r('#2a2135', x + dx - 3, y + dy - 3, 6, 6); r(fl ? '#e3ebf3' : '#9fb0c4', x + dx - 2, y + dy - 2, 4, 4); }
+        break;
       case 'rocket': {
         const d = p.dir;
         r(fl ? '#ffffff' : '#bfe6fb', x - d * 10 - 2, y - 2, 5, 4);          // steam trail
@@ -749,6 +825,7 @@ export function startGame(root, { dev = false } = {}) {
           B.proj.y = from.y + (to.y - from.y) * t - 18 * Math.sin(Math.PI * t);
         });
         B.proj = null;
+        if (M.proj === 'bolt' || M.proj === 'burst' || M.proj === 'steamball') { overlay.flash = 0.7; B.shake = 4; await tween(240, t => (overlay.flash = 0.7 * (1 - t))); B.shake = 0; }
         if (M.proj === 'rocket') { overlay.flash = 0.8; B.shake = 5; await tween(220, t => (overlay.flash = 0.8 * (1 - t))); B.shake = 0; }
         break;
       }
@@ -803,6 +880,7 @@ export function startGame(root, { dev = false } = {}) {
     let dmg = Math.floor(M.power * (atk / def) * 0.75 * (0.85 + Math.random() * 0.15) * (1 + a.lv / 20) * mult) + 1;
     const crit = Math.random() < 1 / 12; if (crit) dmg = Math.floor(dmg * 1.5);
     await animHit(who === 'p' ? 'e' : 'p');
+    if (who === 'p') B.dealt.add(a);
     await drainHp(d, Math.max(0, d.hp - dmg));
     if (crit) await say('A super hit!');
     if (mult > 1) await say("It's super effective!");
@@ -907,11 +985,11 @@ export function startGame(root, { dev = false } = {}) {
       await say(`Gotcha! ${F.shiny ? 'The SHINY ' : ''}${nm(F)} was caught!`);
       const c = makeCritter(F.sp, F.lv, F.shiny);
       c.hp = Math.max(1, F.hp); c.shownHp = c.hp;
-      party.push(c);
       enemyBox.hidden = true;
-      await say(`${nm(F)} joined your team! (${party.length}/${TEAM_MAX})`);
+      if (party.length < TEAM_MAX) { party.push(c); await say(`${nm(F)} joined your team! (${party.length}/${TEAM_MAX})`); }
+      else { box.push(c); await say(`Your team is full, so ${nm(F)} went to your BOX.`); }
       B.pod = null;
-      await gainXp(A(), 4 + F.lv * 2);
+      await shareXp(4 + F.lv * 2);
       await endBattle(false);
       return true;
     }
@@ -950,6 +1028,17 @@ export function startGame(root, { dev = false } = {}) {
       }
     }
   }
+  // Split fight XP across the team (see XP_SHARE): full share for critters that did damage and are still standing,
+  // a smaller share for the rest of the team, a little for knocked-out ones. Critters in the BOX get nothing.
+  const shareOf = c => (c.hp <= 0 ? XP_SHARE.knockedOut : B.dealt.has(c) ? XP_SHARE.fought : XP_SHARE.watched);
+  async function shareXp(base) {
+    const me = A();
+    if (me.hp > 0) await gainXp(me, Math.max(1, Math.round(base * shareOf(me))));
+    const lines = [];
+    for (const c of party) if (c !== me || me.hp <= 0) lines.push(...addXpQuiet(c, Math.max(1, Math.round(base * shareOf(c)))));
+    if (party.length > 1) await say('The rest of your team got XP too!');
+    for (const l of lines) await say(l);
+  }
   // Quiet XP for the rest of the team; returns lines to show.
   function addXpQuiet(c, gain) {
     const lines = []; let left = gain, grew = false;
@@ -972,7 +1061,7 @@ export function startGame(root, { dev = false } = {}) {
     B.foe.vis = false; enemyBox.hidden = true;
     await say(`The wild ${nm(F)} is all tuckered out!`);
     await say(S.exit || 'It wandered off.');
-    await gainXp(A(), 8 + F.lv * 3);
+    await shareXp(8 + F.lv * 3);
     if (Math.random() < 0.25) { bag.pod++; await say(`You found a POD on the ${areaAt(player.x).kind === 'meadow' ? 'grass' : 'trail'}!`); }
     await endBattle(false);
   }
@@ -1037,7 +1126,6 @@ export function startGame(root, { dev = false } = {}) {
         } else {
           if (trainer) { await say(`You can't catch ${trainer.gym.short}'s critters!`); continue; }
           if (bag.pod <= 0) { await say('No pods left! Nap at home to get more.'); continue; }
-          if (party.length >= TEAM_MAX) { await say(`Your team is full! You can carry ${TEAM_MAX} critters.`); continue; }
           r = await takeTurn({ type: 'pod' });
         }
       } else if (c === 2) {
@@ -1107,7 +1195,7 @@ export function startGame(root, { dev = false } = {}) {
     await tween(450, t => { B.foe.y = 20 * t; B.foe.alpha = 1 - t; });
     B.foe.vis = false; enemyBox.hidden = true;
     await say(`${trainer.gym.short}'s ${nm(F)} is out of energy!`);
-    await gainXp(A(), (8 + F.lv * 3) * trainer.gym.xpMultiplier);
+    await shareXp((8 + F.lv * 3) * trainer.gym.xpMultiplier);
   }
   async function trainerWin() {
     const gym = trainer.gym;
@@ -1117,6 +1205,7 @@ export function startGame(root, { dev = false } = {}) {
     if (!flags.badges[trainer.id]) {
       flags.badges = { ...flags.badges, [trainer.id]: true }; save();
       await say(`${gym.short}: "You earned the ${gym.badge}!"`);
+      await say(`Snacks now heal ${Math.round(snackPct() * 100)}% of HP!`);
       await say(`Your critters can now grow all the way to Lv ${levelCap()}!`);
     } else {
       await say(`${gym.short}: "Wow, you're getting strong!"`);
@@ -1155,7 +1244,9 @@ export function startGame(root, { dev = false } = {}) {
     E.white = false; c.sp = to; applyStats(c); c.shownHp = c.hp; E.shiny = shinyCfg(c); save();
     await tween(500, t => (overlay.flash = 1 - t));
     await say(`${SPECIES[from].name} evolved into ${SPECIES[to].name}!`);
-    if (SPECIES[to].signature) await say(`${SPECIES[to].name} learned ${SPECIES[to].signature}!`);
+    for (const m of SPECIES[to].moves.filter(m => !SPECIES[from].moves.includes(m))) await say(`${SPECIES[to].name} learned ${m}!`);
+    const newTypes = SPECIES[to].types.filter(t => !SPECIES[from].types.includes(t));
+    if (newTypes.length) await say(`${SPECIES[to].name} is now part ${newTypes.join(' and ')} type!`);
     hideTextbox();
     await tween(350, t => (overlay.fade = t));
     scene = 'world';
@@ -1169,7 +1260,7 @@ export function startGame(root, { dev = false } = {}) {
     await tween(300, t => (overlay.fade = t));
     Object.assign(player, { x: 5, y: 6, face: 'down', moving: false, steps: 0 });
     Object.assign(pal, { x: 6, y: 6, faceLeft: true, moving: false });
-    party = []; F = null; trainer = null; bag = { snack: 3, pod: 5 }; flags = { badges: {}, seen: {} }; chooseIdx = 0;
+    party = []; box = []; F = null; trainer = null; bag = { snack: 3, pod: 5 }; flags = { badges: {}, seen: {} }; chooseIdx = 0;
     scene = 'choose'; banner.hidden = false;
     await tween(300, t => (overlay.fade = 1 - t));
     await say('Welcome to MAPLE HILL!');
