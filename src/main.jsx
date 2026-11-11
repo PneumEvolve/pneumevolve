@@ -107,6 +107,8 @@ import DoorSalesTracker from "@/Pages/DoorSalesTracker"
 import ElementArena from "@/Pages/ElementArena";
 
 import ElementGame from "@/games/element-lab/ElementLab.jsx";
+
+import CritterQuest from './games/critterquest/CritterQuest.jsx';
  
 import { HelmetProvider } from "react-helmet-async";
 import "./index.css";
@@ -246,6 +248,8 @@ function Root() {
                 <Route path="/elements" element={<ElementGame />} />
 
                 <Route path="/element-arena" element={<ElementArena />} />
+
+                <Route path="/critter-quest" element={<CritterQuest />} />
 
                 
  
