@@ -4,12 +4,13 @@
 
 import { buildArt, hash, T } from './art.js';
 import {
-  SPECIES, MOVES, STARTERS, ENCOUNTERS, TYPE_COLORS, GATE_LEVEL, TEAM_MAX,
-  effectiveness, moveSub, xpNeed, applyStats, makeCritter,
+  SPECIES, MOVES, STARTERS, ENCOUNTERS, TYPE_COLORS, GATE_LEVEL, TEAM_MAX, LEVEL_CAP,
+  FAMILY, SHINY, SHINY_ORDER, LUCK_MAX, GYM,
+  effectiveness, moveSub, xpNeed, applyStats, makeCritter, grownForm,
 } from './data.js';
 
 const SAVE_KEY = 'critterquest.save.v1';
-const VW = 15, VH = 10, MW = 56, MH = 24, STEP = 170;
+const VW = 15, VH = 10, MW = 56, MH = 40, STEP = 170;
 const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 const ME_POS = { x: 66, y: 103 }, FOE_POS = { x: 184, y: 61 };
 const CHOOSE_X = [48, 120, 192];
@@ -18,6 +19,7 @@ const easeOut = t => 1 - (1 - t) * (1 - t);
 const easeIn = t => t * t;
 const rand = n => Math.floor(Math.random() * n);
 const nm = c => SPECIES[c.sp].name;
+const shinyCfg = c => (c.shiny && FAMILY[c.sp] ? SHINY[FAMILY[c.sp]] : null);
 
 export function startGame(root, { dev = false } = {}) {
   let dead = false;
@@ -28,7 +30,7 @@ export function startGame(root, { dev = false } = {}) {
   const enemyBox = q('enemyBox'), playerBox = q('playerBox'), banner = q('banner');
   const panel = q('panel'), panelGrid = q('panelGrid'), panelTitle = q('panelTitle');
   const RM = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const { KID, SPR, TILES, HOUSE, BG, spriteURL } = buildArt(SPECIES);
+  const { KID, sprites, TILES, HOUSES, GYM_IMG, LEADER, BG, spriteURL } = buildArt(SPECIES);
 
   /* ============ timing helpers (they freeze once the game is torn down) ============ */
   const wait = ms => new Promise(r => setTimeout(() => { if (!dead) r(); }, ms));
@@ -46,40 +48,60 @@ export function startGame(root, { dev = false } = {}) {
   }
 
   /* ============ map ============ */
+  // Maple Hill + meadows: x 0..31, y 0..23. Rocky Mountains: x 32..55, y 0..23. Pebble Town: x 0..31, y 24..39.
   const SIGNS = {
     '7,7': ['MAPLE HILL', 'Home of brave kids and their critter partners.'],
     '13,7': ['TYPE TIPS', 'WATER beats FIRE. FIRE beats GRASS.', 'GRASS beats WATER. FIGHTING smashes ROCK and STEEL!'],
     '19,8': ['NORTH MEADOW', 'Rabbits and bluebirds live here. All below Lv 10.'],
     '11,15': ['FOX HOLLOW', 'Watch out! Foxes like the grass over here.'],
+    '16,21': ['PEBBLE TOWN, straight south!', 'Shiny trader, rest stop, and the PEBBLE GYM.'],
     '30,8': ['ROCKY MOUNTAINS, this way!', `Only teams with a critter past Lv ${GATE_LEVEL} may pass the gate.`],
     '34,10': ['ROCKALOCK sightings reported!', 'Giant boulders with arms and legs. Rare, and tough to catch.'],
+    '16,25': ['PEBBLE TOWN', 'Where the bunnies are LOVED.'],
+    '8,30': ['SHINY TRADER', 'Bring a bunny, get luckier at finding shinies!'],
+    '21,30': ['REST STOP', 'Free naps for tired critters.'],
+    '16,37': [`PEBBLE GYM`, `Leader: BRICK. Beat him to grow critters past Lv ${LEVEL_CAP.beforeBadge}!`],
   };
+  const DOORS = { '5,5': 'home', '5,30': 'trader', '24,30': 'rest', '15,36': 'gym' };
+  const BUILDINGS = [
+    { x: 3, y: 2, img: HOUSES.red }, { x: 3, y: 27, img: HOUSES.blue },
+    { x: 22, y: 27, img: HOUSES.green }, { x: 11, y: 32, img: GYM_IMG },
+  ];
   const map = [];
   (function buildMap() {
     for (let y = 0; y < MH; y++) map.push(Array(MW).fill('.'));
     const set = (x, y, ch) => { if (x >= 0 && y >= 0 && x < MW && y < MH) map[y][x] = ch; };
     const rect = (x0, y0, x1, y1, ch) => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) set(x, y, ch); };
-    // --- Maple Hill + meadows (x 0..31)
+    // --- Maple Hill + meadows
     [[9,2],[13,6],[3,8],[10,7],[24,10],[18,11],[6,11],[13,18],[20,15],[8,21],[22,22],[2,4]].forEach(([x, y]) => set(x, y, '*'));
     rect(20, 2, 29, 7, ',');             // North Meadow
     rect(3, 13, 10, 19, ',');            // Fox Hollow
-    for (let y = 0; y < MH; y++) for (let x = 0; x < 32; x++)
+    for (let y = 0; y < 24; y++) for (let x = 0; x < 32; x++)
       if (((x - 25) / 3.6) ** 2 + ((y - 16) / 2.6) ** 2 <= 1) set(x, y, '~');
-    rect(5, 6, 5, 9, '='); rect(5, 9, 30, 9, '='); rect(15, 9, 15, 21, '='); rect(11, 16, 14, 16, '=');
-    rect(3, 2, 7, 5, 'h'); set(5, 5, 'D');
+    rect(5, 6, 5, 9, '='); rect(5, 9, 30, 9, '='); rect(15, 9, 15, 31, '='); rect(11, 16, 14, 16, '=');
     [[11,3],[12,3],[11,4],[2,10],[9,11],[12,12],[16,14],[17,14],[16,15],[19,18],[21,20],[22,20],[28,11],[26,21],[27,21],[2,21],[29,20],[17,3]]
       .forEach(([x, y]) => set(x, y, 'T'));
-    // --- Rocky Mountains (x 32..55)
+    // --- Rocky Mountains
     rect(32, 0, 55, 23, 'r');
     rect(35, 2, 42, 6, ';'); rect(48, 2, 53, 7, ';'); rect(47, 11, 53, 16, ';'); rect(35, 14, 43, 20, ';');
     rect(32, 9, 45, 9, '='); rect(45, 9, 45, 21, '=');
     [[34,7],[39,11],[50,9],[44,18],[34,21],[53,20],[47,21],[41,8],[44,5]].forEach(([x, y]) => set(x, y, 'M'));
     [[33,2],[33,3],[37,10],[42,12],[47,8],[52,10],[35,12],[49,19],[40,22],[38,1],[54,2],[33,16]].forEach(([x, y]) => set(x, y, 'P'));
-    // --- signs
+    rect(32, 24, 55, 39, 'M');           // cliffs below the mountains
+    // --- Pebble Town
+    rect(3, 31, 28, 31, '=');            // main road
+    rect(9, 31, 9, 37, '='); rect(9, 37, 15, 37, '=');   // path round to the gym door
+    [[10,28],[11,29],[19,28],[20,29],[6,33],[25,33],[13,38],[18,38],[27,37],[3,37]].forEach(([x, y]) => set(x, y, '*'));
+    [[2,25],[2,26],[29,25],[29,26],[12,25],[19,25],[27,34],[28,34],[4,35],[5,36],[22,36],[24,35],[29,38]].forEach(([x, y]) => set(x, y, 'T'));
+    // --- buildings (footprints are solid; doors are listed in DOORS)
+    for (const b of BUILDINGS) rect(b.x, b.y, b.x + b.img.width / T - 1, b.y + b.img.height / T - 1, 'h');
+    for (const k of Object.keys(DOORS)) { const [x, y] = k.split(',').map(Number); set(x, y, 'D'); }
     for (const k of Object.keys(SIGNS)) { const [x, y] = k.split(',').map(Number); set(x, y, 'S'); }
     // --- borders and the mountain gate
     for (let x = 0; x < MW; x++) { set(x, 0, x < 32 ? 'T' : 'M'); set(x, MH - 1, x < 32 ? 'T' : 'M'); }
+    for (let x = 0; x < 32; x++) set(x, 23, 'T');
     for (let y = 0; y < MH; y++) { set(0, y, 'T'); set(MW - 1, y, 'M'); set(31, y, 'T'); set(32, y, 'M'); }
+    set(15, 23, '=');                    // the road south into town
     set(31, 9, 'G'); set(32, 9, '=');
   })();
   function tileAt(x, y) { return x < 0 || y < 0 || x >= MW || y >= MH ? 'T' : map[y][x]; }
@@ -89,14 +111,16 @@ export function startGame(root, { dev = false } = {}) {
     if (t === 'G') return gateOpen();
     return !'T~hDSMP'.includes(t);
   }
-  const inMountains = x => x >= 32;
+  const inMountains = (x, y) => x >= 32 && y < 24;
+  const inTown = y => y >= 24;
 
   /* ============ state ============ */
   let party = [];                 // up to 6 critters; party[0] is your lead and walks with you
   let bag = { snack: 3, pod: 5 };
-  let flags = {};
+  let flags = { luck: {} };       // badge, luck per shiny family, one-time messages
   let ai = 0;                     // which party member is battling
-  let F = null;                   // the wild critter
+  let F = null;                   // the critter you're fighting
+  let trainer = null;             // set during the gym battle
   const A = () => party[ai];
   const player = { x: 5, y: 6, face: 'down', moving: false, t: 0, from: null, to: null, steps: 0 };
   const pal = { x: 6, y: 6, faceLeft: true, moving: false, from: null, to: null };
@@ -105,21 +129,26 @@ export function startGame(root, { dev = false } = {}) {
   let battleBg = BG.meadow;
   let stepsSince = 0, bang = false, chooseIdx = 0;
   const overlay = { flash: 0, bars: 0, fade: 0 };
-  const B = { me: {}, foe: {}, shake: 0, proj: null, pod: null };
-  const E = { sp: null, white: false };
+  const B = { me: {}, foe: {}, leader: {}, shake: 0, proj: null, pod: null, sparkle: 0 };
+  const E = { sp: null, white: false, shiny: null };
   function resetBattleSprites() {
     B.me = { x: 0, y: 0, flash: false, alpha: 1, vis: true };
     B.foe = { x: 0, y: 0, flash: false, alpha: 1, vis: true, scale: 1 };
-    B.shake = 0; B.proj = null; B.pod = null;
+    B.leader = { x: 0, vis: false };
+    B.shake = 0; B.proj = null; B.pod = null; B.sparkle = 0;
   }
   resetBattleSprites();
+  const levelCap = () => (flags.badge ? LEVEL_CAP.afterBadge : LEVEL_CAP.beforeBadge);
+  const luckOf = fam => flags.luck?.[fam] || 1;
+  const oneIn = fam => Math.max(2, Math.round(SHINY[fam].oneIn / luckOf(fam)));
+  const shinyChance = fam => Math.min(0.5, luckOf(fam) / SHINY[fam].oneIn);
 
   /* ============ saving (this browser only) ============ */
   function save() {
     if (!party.length) return;
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify({
-        v: 1, party: party.map(c => ({ sp: c.sp, lv: c.lv, xp: c.xp, hp: c.hp })),
+        v: 1, party: party.map(c => ({ sp: c.sp, lv: c.lv, xp: c.xp, hp: c.hp, shiny: !!c.shiny })),
         bag, flags, pos: { x: player.x, y: player.y, face: player.face },
       }));
     } catch (_) { /* storage blocked: the game still works, it just won't remember */ }
@@ -132,13 +161,13 @@ export function startGame(root, { dev = false } = {}) {
   }
   function restore(d) {
     party = d.party.filter(p => SPECIES[p.sp]).slice(0, TEAM_MAX).map(p => {
-      const c = makeCritter(p.sp, p.lv);
+      const c = makeCritter(p.sp, p.lv, !!p.shiny);
       c.xp = Math.max(0, Math.min(p.xp || 0, c.xpNext - 1)); c.shownXp = c.xp;
       c.hp = Math.max(0, Math.min(c.maxHp, p.hp ?? c.maxHp)); c.shownHp = c.hp;
       return c;
     });
     bag = { snack: d.bag?.snack ?? 3, pod: d.bag?.pod ?? 5 };
-    flags = d.flags || {};
+    flags = { luck: {}, ...(d.flags || {}) };
     const p = d.pos || {};
     if (walkable(p.x, p.y)) Object.assign(player, { x: p.x, y: p.y, face: p.face || 'down' });
     placePal();
@@ -175,7 +204,7 @@ export function startGame(root, { dev = false } = {}) {
     if (it.sub) { const s = document.createElement('span'); s.className = 'cq-opt-sub'; s.textContent = it.sub; b.append(s); }
     return b;
   }
-  // Generic picker: a list of options in the textbox, or (panel:true) the full-screen team panel.
+  // Generic picker: a list of options in the textbox, or (panelMode) the full-screen card panel.
   function chooseMenu(items, { layout = 'side', canBack = false, prompt = '', cols = 2, start = 0, onChange = null, panelMode = false, title = '' } = {}) {
     return new Promise(res => {
       let box;
@@ -215,25 +244,40 @@ export function startGame(root, { dev = false } = {}) {
     if (dir === 'down' && i + cols < n) i += cols;
     menuState.index = i; paintMenu();
   }
-  function typePills(types) {
-    return types.map(t => `<span class="cq-type" style="background:${TYPE_COLORS[t]}">${t}</span>`).join('');
-  }
+  const typePills = types => types.map(t => `<span class="cq-type" style="background:${TYPE_COLORS[t]}">${t}</span>`).join('');
+  const nameHTML = c => (c.shiny ? '<span class="cq-shiny">★</span>' : '') + nm(c);
   function teamCard(c, tag) {
     const b = document.createElement('button');
     b.className = 'cq-card' + (c.hp <= 0 ? ' is-out' : '');
     const f = Math.max(0, c.hp / c.maxHp);
     b.innerHTML = `
-      <img alt="" src="${spriteURL(c.sp)}">
+      <img alt="" src="${spriteURL(c.sp, shinyCfg(c))}">
       <span class="cq-card-body">
-        <span class="cq-card-top"><b>${nm(c)}</b><small>Lv ${c.lv}</small></span>
+        <span class="cq-card-top"><b>${nameHTML(c)}</b><small>Lv ${c.lv}</small></span>
         <span class="cq-types">${typePills(SPECIES[c.sp].types)}</span>
         <span class="cq-card-hp"><span class="cq-track"><span class="cq-fill" data-level="${f > 0.5 ? 'hi' : f > 0.2 ? 'mid' : 'lo'}" style="width:${f * 100}%"></span></span><small>${c.hp}/${c.maxHp}</small></span>
       </span>${tag ? `<span class="cq-tag">${tag}</span>` : ''}`;
     return b;
   }
-  function pickTeam({ title, forced = false, battleIdx = -1 }) {
-    const items = party.map((c, i) => ({ node: teamCard(c, i === battleIdx ? 'BATTLING' : battleIdx < 0 && i === 0 ? 'LEAD' : '') }));
+  function pickTeam({ title, forced = false, battleIdx = -1, list = null }) {
+    const members = list || party.map((c, i) => ({ c, i }));
+    const items = members.map(({ c, i }) => ({ node: teamCard(c, i === battleIdx ? 'BATTLING' : battleIdx < 0 && i === 0 && !list ? 'LEAD' : '') }));
     return chooseMenu(items, { panelMode: true, cols: 2, canBack: !forced, title, start: Math.max(0, battleIdx) });
+  }
+  // Shiny luck cards: a sparkly sprite, a star meter (one star per bunny traded) and "1 in N".
+  function luckCard(fam) {
+    const b = document.createElement('button');
+    b.className = 'cq-card';
+    const stars = Math.round(Math.log2(luckOf(fam)));
+    const meter = '★'.repeat(stars) + '☆'.repeat(Math.max(0, 6 - stars));
+    b.innerHTML = `
+      <img alt="" src="${spriteURL(fam, SHINY[fam])}">
+      <span class="cq-card-body">
+        <span class="cq-card-top"><b>${SPECIES[fam].name}</b></span>
+        <span class="cq-luck">${meter}</span>
+        <span class="cq-odds">1 in ${oneIn(fam)} is shiny</span>
+      </span>`;
+    return b;
   }
 
   /* ============ input ============ */
@@ -303,9 +347,14 @@ export function startGame(root, { dev = false } = {}) {
     player.x = player.to.x; player.y = player.to.y; player.moving = false;
     if (pal.moving) { pal.x = pal.to.x; pal.y = pal.to.y; pal.moving = false; }
     stepsSince++;
-    if (inMountains(player.x) && !flags.mountains) {
+    if (inMountains(player.x, player.y) && !flags.mountains) {
       flags.mountains = true; save();
       worldSay(['Welcome to the ROCKY MOUNTAINS!', 'Every critter up here is above Lv 10. Stay sharp!']);
+      return;
+    }
+    if (inTown(player.y) && !flags.town) {
+      flags.town = true; save();
+      worldSay(['Welcome to PEBBLE TOWN!', 'The blue house is the SHINY TRADER. The big stone hall is the GYM.']);
       return;
     }
     const t = tileAt(player.x, player.y);
@@ -330,15 +379,20 @@ export function startGame(root, { dev = false } = {}) {
     const lead = party[0];
     if (t === 'S') worldSay(SIGNS[tx + ',' + ty]);
     else if (t === 'G') gateMessage();
-    else if (t === 'D') goHome();
+    else if (t === 'D') {
+      const door = DOORS[tx + ',' + ty];
+      if (door === 'home' || door === 'rest') restAt(door);
+      else if (door === 'trader') traderVisit();
+      else if (door === 'gym') gymVisit();
+    }
     else if (t === '~') worldSay(SPECIES[lead.sp].types.includes('WATER') ? [`${nm(lead)} splashes happily in the pond!`] : ['The pond sparkles in the sun.']);
     else if (t === 'M') worldSay(['A huge boulder. It is NOT a Rockalock. Probably.']);
     else if (pal.x === tx && pal.y === ty) worldSay([`${nm(lead)} looks happy to see you!`, `Lv ${lead.lv}  ·  HP ${lead.hp}/${lead.maxHp}`]);
   }
   function healAll() { party.forEach(c => { c.hp = c.maxHp; c.shownHp = c.hp; }); }
-  async function goHome() {
+  async function restAt(where) {
     mode = 'busy';
-    await say('You and your team take a nap at home...');
+    await say(where === 'home' ? 'You and your team take a nap at home...' : 'REST STOP: "Come in! Your critters can nap here."');
     hideTextbox();
     await tween(300, t => (overlay.fade = t)); await wait(350);
     healAll(); bag.snack = Math.max(bag.snack, 3); bag.pod = Math.max(bag.pod, 5); save();
@@ -348,10 +402,11 @@ export function startGame(root, { dev = false } = {}) {
   async function openWorldMenu() {
     mode = 'busy';
     for (;;) {
-      const c = await chooseMenu([{ label: 'TEAM', sub: `${party.length}/${TEAM_MAX}` }, { label: 'BAG' }, { label: 'CLOSE' }],
-        { layout: 'side', prompt: 'Menu', canBack: true });
+      const c = await chooseMenu([{ label: 'TEAM', sub: `${party.length}/${TEAM_MAX}` }, { label: 'BAG' }, { label: 'SHINY' }, { label: 'CLOSE' }],
+        { layout: 'side', prompt: flags.badge ? `Menu · ${GYM.badge}` : 'Menu', canBack: true });
       if (c === 0) { await teamFlow(); continue; }
       if (c === 1) { await say(`SNACKS ×${bag.snack}    PODS ×${bag.pod}`); await say('Snacks heal. Pods catch wild critters!'); continue; }
+      if (c === 2) { await showLuck('Shiny luck'); continue; }
       break;
     }
     hideTextbox(); mode = 'world';
@@ -362,7 +417,7 @@ export function startGame(root, { dev = false } = {}) {
       if (i < 0) return;
       const c = party[i];
       const o = await chooseMenu([{ label: 'LEAD' }, { label: 'SNACK', sub: '×' + bag.snack }, { label: 'BACK' }],
-        { layout: 'side', prompt: `${nm(c)}  Lv ${c.lv}`, canBack: true });
+        { layout: 'side', prompt: `${c.shiny ? '★' : ''}${nm(c)}  Lv ${c.lv}`, canBack: true });
       if (o === 0) {
         if (i === 0) await say(`${nm(c)} is already your lead!`);
         else { party.splice(i, 1); party.unshift(c); save(); await say(`${nm(c)} is walking with you now!`); }
@@ -375,14 +430,74 @@ export function startGame(root, { dev = false } = {}) {
   }
   const snackHeal = c => Math.min(Math.max(12, Math.round(c.maxHp * 0.4)), c.maxHp - c.hp);
 
+  /* ============ Pebble Town: the shiny trader ============ */
+  const showLuck = title => chooseMenu(SHINY_ORDER.map(f => ({ node: luckCard(f) })), { panelMode: true, cols: 2, canBack: true, title });
+  async function traderVisit() {
+    mode = 'busy';
+    await say('SHINY TRADER: "Hi! I LOVE bunnies!"');
+    await say('"Give me a bunny and I\'ll make one kind of shiny 2x easier to find."');
+    for (;;) {
+      const c = await chooseMenu([{ label: 'TRADE' }, { label: 'LUCK' }, { label: 'BYE' }], { layout: 'side', prompt: 'What do you want to do?', canBack: true });
+      if (c === 0) await bunnyTrade();
+      else if (c === 1) await showLuck('Your shiny luck');
+      else break;
+    }
+    await say('"Bring me more bunnies anytime!"');
+    hideTextbox(); mode = 'world';
+  }
+  async function bunnyTrade() {
+    const bunnies = party.map((c, i) => ({ c, i })).filter(o => FAMILY[o.c.sp] === 'rabbit');
+    if (!bunnies.length) { await say('"You don\'t have a bunny! Catch a RABBIT in the meadow."'); return; }
+    if (party.length < 2) { await say('"I can\'t take your only critter!"'); return; }
+    const f = await showLuck('Which shiny do you want?');
+    if (f < 0) return;
+    const fam = SHINY_ORDER[f];
+    if (luckOf(fam) >= LUCK_MAX) { await say(`"${SPECIES[fam].name} luck is already at the max!"`); return; }
+    let pickIdx = bunnies[0].i;
+    if (bunnies.length > 1) {
+      const k = await pickTeam({ title: 'Which bunny will you trade?', list: bunnies });
+      if (k < 0) return;
+      pickIdx = bunnies[k].i;
+    }
+    const bun = party[pickIdx];
+    const ok = await chooseMenu([{ label: 'YES' }, { label: 'NO' }], { layout: 'side', cols: 1, prompt: `Trade ${nm(bun)} Lv ${bun.lv}?` });
+    if (ok !== 0) return;
+    party.splice(pickIdx, 1);
+    flags.luck = { ...flags.luck, [fam]: Math.min(LUCK_MAX, luckOf(fam) * 2) };
+    save();
+    await say(`You traded ${nm(bun)}. Bye bye, bunny!`);
+    await say(`${SPECIES[fam].name} shinies are now ${luckOf(fam)}x easier to find!`);
+    await say(`Now about 1 out of every ${oneIn(fam)} wild ${SPECIES[fam].name} will be shiny.`);
+  }
+
+  /* ============ Pebble Town: the gym ============ */
+  async function gymVisit() {
+    mode = 'busy';
+    if (!flags.badge) {
+      await say('BRICK: "Welcome to the PEBBLE GYM!"');
+      await say('"My critters are as tough as rocks!"');
+      await say('"First a Lv 15 STEEL DOG, then my Lv 20 ROCKALOCK!"');
+      await say(`"Beat me, and your critters can grow all the way to Lv ${LEVEL_CAP.afterBadge}."`);
+    } else {
+      await say('BRICK: "Back for a rematch? I give out lots of XP!"');
+    }
+    const y = await chooseMenu([{ label: 'BATTLE!' }, { label: 'NOT YET' }], { layout: 'side', cols: 1, prompt: 'Battle BRICK?' });
+    if (y !== 0) { await say('"Come back when you\'re ready!"'); hideTextbox(); mode = 'world'; return; }
+    if (!party.some(c => c.hp > 0)) { await say('"Your team needs a nap first!"'); hideTextbox(); mode = 'world'; return; }
+    hideTextbox();
+    await startGymBattle();
+  }
+
+  /* ============ drawing: world ============ */
   function entityPx(e) {
     if (!e.moving) return [e.x * T, e.y * T];
     const t = player.t;
     return [Math.round((e.from.x + (e.to.x - e.from.x) * t) * T), Math.round((e.from.y + (e.to.y - e.from.y) * t) * T)];
   }
-  function sprImg(sp, dir, now, white) {
-    if (white) return dir === 'L' ? SPR[sp].WL : SPR[sp].W;
-    return SPR[sp][dir][SPECIES[sp].fire ? Math.floor(now / 160) % 2 : 0];
+  function sprImg(sp, dir, now, white, shiny) {
+    const set = sprites(sp, shiny);
+    if (white) return dir === 'L' ? set.WL : set.W;
+    return set[dir][SPECIES[sp].flicker ? Math.floor(now / 160) % 2 : 0];
   }
   function kidSprite() {
     const walking = player.moving && player.t > 0.15 && player.t < 0.85, alt = player.steps % 2;
@@ -409,18 +524,19 @@ export function startGame(root, { dev = false } = {}) {
       ctx.drawImage(img, sx, sy);
       if (t === '~' || t === '=') {
         ctx.fillStyle = t === '~' ? '#d8f0fb' : '#cdb47c';
-        const e = t === '~' ? 2 : 1, same = n => n === t || (t === '=' && n === 'G');
+        const e = t === '~' ? 2 : 1, same = n => n === t || (t === '=' && (n === 'G' || n === 'D'));
         if (!same(tileAt(tx, ty - 1))) ctx.fillRect(sx, sy, 16, e);
         if (!same(tileAt(tx, ty + 1))) ctx.fillRect(sx, sy + 16 - e, 16, e);
         if (!same(tileAt(tx - 1, ty))) ctx.fillRect(sx, sy, e, 16);
         if (!same(tileAt(tx + 1, ty))) ctx.fillRect(sx + 16 - e, sy, e, 16);
       }
     }
-    ctx.drawImage(HOUSE, 3 * T - camX, 2 * T - camY);
+    for (const b of BUILDINGS) ctx.drawImage(b.img, b.x * T - camX, b.y * T - camY);
 
     const [apx, apy] = entityPx(pal);
     const bob = player.moving && player.t > 0.25 && player.t < 0.75 ? -1 : 0;
-    const palImg = sprImg(party[0].sp, pal.faceLeft ? 'L' : 'R', now);
+    const lead = party[0];
+    const palImg = sprImg(lead.sp, pal.faceLeft ? 'L' : 'R', now, false, shinyCfg(lead));
     const ents = [
       { y: apy, draw: () => ctx.drawImage(palImg, apx - camX + 8 - Math.floor(palImg.width / 2), apy - camY + 17 - palImg.height + (pal.moving ? bob : 0)) },
       { y: ppy + 0.5, draw: () => ctx.drawImage(kidSprite(), ppx - camX + 2, ppy - camY - 3 + bob) },
@@ -440,7 +556,7 @@ export function startGame(root, { dev = false } = {}) {
     }
   }
 
-  /* ============ other scenes ============ */
+  /* ============ drawing: other scenes ============ */
   function shadow(cx, cy, rx) { ctx.fillStyle = 'rgba(42,33,53,0.22)'; ctx.beginPath(); ctx.ellipse(cx, cy, Math.max(4, rx), 3, 0, 0, Math.PI * 2); ctx.fill(); }
   function drawChoose(now) {
     ctx.drawImage(BG.choose, 0, 0);
@@ -457,12 +573,10 @@ export function startGame(root, { dev = false } = {}) {
   function drawEvolve(now) {
     for (let y = 0; y < 160; y += 8) { ctx.fillStyle = `rgb(${29 + y / 8},${26 + y / 10},${51 + y / 5})`; ctx.fillRect(0, y, 240, 8); }
     for (const [x, y, ph] of STARS) if (Math.sin(now / 300 + ph) > 0) { ctx.fillStyle = '#fff6c2'; ctx.fillRect(x, y, 1, 1); }
-    const img = sprImg(E.sp, 'R', now, E.white), w = img.width * 3, h = img.height * 3;
+    const img = sprImg(E.sp, 'R', now, E.white, E.shiny), w = img.width * 3, h = img.height * 3;
     ctx.fillStyle = 'rgba(255,214,90,0.18)'; ctx.beginPath(); ctx.ellipse(120, 102, 50, 8, 0, 0, Math.PI * 2); ctx.fill();
     ctx.drawImage(img, 120 - Math.floor(w / 2), 104 - h, w, h);
   }
-
-  /* ============ battle drawing ============ */
   function drawProj(p) {
     const x = Math.round(p.x), y = Math.round(p.y), fl = Math.floor(performance.now() / 60) % 2;
     const r = (c, a, b, w, h) => { ctx.fillStyle = c; ctx.fillRect(a, b, w, h); };
@@ -475,7 +589,7 @@ export function startGame(root, { dev = false } = {}) {
       case 'wind': r('#ffffff', x - 6, y - 3, 8, 1); r('#ffffff', x - 3, y, 8, 1); r('#ffffff', x - 5, y + 3, 7, 1); break;
       case 'rocket': {
         const d = p.dir;
-        r(fl ? '#ffd23f' : '#ff7a2a', x - d * 10 - 2, y - 2, 5, 4);
+        r(fl ? '#ffffff' : '#bfe6fb', x - d * 10 - 2, y - 2, 5, 4);          // steam trail
         r('#2a2135', x - 7, y - 3, 14, 6); r('#e2392b', x - 6, y - 2, 12, 4); r('#f6f3ea', x + d * 4 - 1, y - 2, 3, 4);
         r('#a7b0c2', x - d * 6 - 1, y - 4, 3, 8);
         break;
@@ -491,23 +605,38 @@ export function startGame(root, { dev = false } = {}) {
     r('#ffd23f', x - 1, y - 2, 2, 2);
     if (p.glow) for (const [dx, dy] of [[-9, -8], [8, -9], [10, 2], [-10, 3]]) r('#fff6c2', x + dx, y + dy, 2, 2);
   }
+  function drawSparkles(cx, cy, now) {
+    const t = (now - B.sparkle) / 1200;
+    if (t < 0 || t > 1) return;
+    for (let i = 0; i < 6; i++) {
+      const a = i * 1.05 + t * 4, rad = 18 + t * 18, x = Math.round(cx + Math.cos(a) * rad), y = Math.round(cy + Math.sin(a) * rad * 0.8);
+      ctx.fillStyle = i % 2 ? '#ffd23f' : '#ffffff';
+      ctx.fillRect(x - 1, y - 3, 2, 6); ctx.fillRect(x - 3, y - 1, 6, 2);
+    }
+  }
   function drawBattle(now) {
     const sx = B.shake ? Math.round((Math.random() * 2 - 1) * B.shake) : 0;
     ctx.save(); ctx.translate(sx, 0);
     ctx.drawImage(battleBg, 0, 0);
+    if (B.leader.vis) {
+      const w = LEADER.width * 3, h = LEADER.height * 3;
+      shadow(FOE_POS.x + B.leader.x, 57, 16);
+      ctx.drawImage(LEADER, Math.round(FOE_POS.x - w / 2 + B.leader.x), FOE_POS.y - h, w, h);
+    }
     if (B.foe.vis && F) {
-      const img = sprImg(F.sp, 'L', now, B.foe.flash), s = B.foe.scale ?? 1;
+      const img = sprImg(F.sp, 'L', now, B.foe.flash, shinyCfg(F)), s = B.foe.scale ?? 1;
       const w = img.width * 3 * s, h = img.height * 3 * s;
       const hover = SPECIES[F.sp].hovers ? Math.round(Math.sin(now / 200) * 2) - 4 : 0;
       shadow(FOE_POS.x + B.foe.x, 57, w * 0.33);
       ctx.globalAlpha = B.foe.alpha;
       ctx.drawImage(img, Math.round(FOE_POS.x - w / 2 + B.foe.x), Math.round(FOE_POS.y - h + B.foe.y) + hover, w, h);
       ctx.globalAlpha = 1;
+      drawSparkles(FOE_POS.x, FOE_POS.y - 26, now);
     }
     if (B.pod) drawPod(B.pod);
     if (B.me.vis && A()) {
       // Evolved critters are tall: draw them a touch smaller and lower so they clear the wild critter's box.
-      const img = sprImg(A().sp, 'R', now, B.me.flash), big = img.height > 22, s = big ? 2.5 : 3;
+      const img = sprImg(A().sp, 'R', now, B.me.flash, shinyCfg(A())), big = img.height > 22, s = big ? 2.5 : 3;
       const w = Math.round(img.width * s), h = Math.round(img.height * s), bottom = ME_POS.y + (big ? 3 : 0);
       const idle = Math.round(Math.sin(now / 320)) === 1 ? -1 : 0;
       shadow(ME_POS.x + B.me.x, 102, w * 0.36);
@@ -524,16 +653,16 @@ export function startGame(root, { dev = false } = {}) {
   function setFill(el, f) { f = Math.max(0, Math.min(1, f)); el.style.width = f * 100 + '%'; el.dataset.level = f > 0.5 ? 'hi' : f > 0.2 ? 'mid' : 'lo'; }
   function updateHud() {
     if (F) {
-      q('eName').textContent = nm(F); q('eLv').textContent = 'Lv ' + F.lv;
+      q('eName').innerHTML = nameHTML(F); q('eLv').textContent = 'Lv ' + F.lv;
       q('eTypes').innerHTML = typePills(SPECIES[F.sp].types);
       setFill(q('eFill'), F.shownHp / F.maxHp);
     }
     const c = A(); if (!c) return;
-    q('pName').textContent = nm(c); q('pLv').textContent = 'Lv ' + c.lv;
+    q('pName').innerHTML = nameHTML(c); q('pLv').textContent = 'Lv ' + c.lv;
     q('pTypes').innerHTML = typePills(SPECIES[c.sp].types);
     setFill(q('pFill'), c.shownHp / c.maxHp);
     q('pNums').textContent = `${Math.ceil(c.shownHp)}/${c.maxHp}`;
-    q('xpFill').style.width = (c.shownXp / c.xpNext) * 100 + '%';
+    q('xpFill').style.width = (c.lv >= levelCap() ? 100 : (c.shownXp / c.xpNext) * 100) + '%';
   }
   async function drainHp(o, to) {
     const from = o.shownHp; o.hp = to;
@@ -584,7 +713,8 @@ export function startGame(root, { dev = false } = {}) {
   async function animShake(who) { const s = side(who); await tween(300, t => (s.x = Math.round(Math.sin(t * Math.PI * 6) * 3))); s.x = 0; }
 
   function foePick() {
-    const ms = SPECIES[F.sp].moves.filter(m => (SPECIES[F.sp].learn || {})[m] === undefined || SPECIES[F.sp].learn[m] <= F.lv);
+    const learn = SPECIES[F.sp].learn || {};
+    const ms = SPECIES[F.sp].moves.filter(m => (learn[m] || 0) <= F.lv);
     const status = ms.find(m => MOVES[m].effect), dmg = ms.filter(m => !MOVES[m].effect);
     if (status && Math.random() < 0.2) {
       const [st, dl, tg] = MOVES[status].effect, target = tg === 'self' ? F : A(), cur = target.stages[st];
@@ -592,10 +722,10 @@ export function startGame(root, { dev = false } = {}) {
     }
     return dmg[rand(dmg.length)];
   }
-  const wildName = () => 'Wild ' + nm(F);
+  const foeName = () => (trainer ? `BRICK's ${nm(F)}` : 'Wild ' + nm(F));
   async function useMove(who, name) {
     const a = who === 'p' ? A() : F, d = who === 'p' ? F : A();
-    const aName = who === 'p' ? nm(a) : wildName(), dName = who === 'p' ? wildName() : nm(d);
+    const aName = who === 'p' ? nm(a) : foeName(), dName = who === 'p' ? foeName() : nm(d);
     const M = MOVES[name];
     await say(`${aName} used ${name}!`);
     if (M.effect) {
@@ -625,7 +755,13 @@ export function startGame(root, { dev = false } = {}) {
   }
   // After each action: did someone run out of energy?
   async function afterAction() {
-    if (F.hp <= 0) { await winSeq(); return 'end'; }
+    if (F.hp <= 0) {
+      if (!trainer) { await winSeq(); return 'end'; }
+      await trainerFoeDown();
+      if (trainer.idx < trainer.team.length - 1) { trainer.idx++; F = trainer.team[trainer.idx]; await sendFoe(); return 'switched'; }
+      await trainerWin();
+      return 'end';
+    }
     if (A().hp <= 0) {
       await tween(450, t => { B.me.y = 24 * t; B.me.alpha = 1 - t; });
       B.me.vis = false;
@@ -640,7 +776,8 @@ export function startGame(root, { dev = false } = {}) {
         return 'switched';
       }
       await say('Your whole team is out of energy...');
-      await say('You hurried home for a nap.');
+      if (trainer) await say('BRICK: "Good try! Rest up and come back."');
+      await say(inTown(player.y) ? 'You hurried to the REST STOP.' : 'You hurried home for a nap.');
       await endBattle(true);
       return 'end';
     }
@@ -711,16 +848,14 @@ export function startGame(root, { dev = false } = {}) {
     }
     if (shakes === 3) {
       await wait(250); B.pod.glow = 1;
-      await say(`Gotcha! ${nm(F)} was caught!`);
-      const c = makeCritter(F.sp, F.lv);
+      await say(`Gotcha! ${F.shiny ? 'The SHINY ' : ''}${nm(F)} was caught!`);
+      const c = makeCritter(F.sp, F.lv, F.shiny);
       c.hp = Math.max(1, F.hp); c.shownHp = c.hp;
       party.push(c);
       enemyBox.hidden = true;
       await say(`${nm(F)} joined your team! (${party.length}/${TEAM_MAX})`);
       B.pod = null;
-      const gain = 4 + F.lv * 2;
-      await say(`${nm(A())} got ${gain} XP!`);
-      await gainXp(A(), gain);
+      await gainXp(A(), 4 + F.lv * 2);
       await endBattle(false);
       return true;
     }
@@ -730,13 +865,23 @@ export function startGame(root, { dev = false } = {}) {
     await say(['Oh no! It broke right out!', 'Argh! Almost had it!', 'So close!'][shakes]);
     return false;
   }
+
+  /* ============ XP, levels and the level cap ============ */
+  function capLine(c) {
+    return flags.badge ? `${nm(c)} is at the max level, Lv ${levelCap()}!`
+      : `${nm(c)} can't grow past Lv ${levelCap()} until you beat the PEBBLE GYM!`;
+  }
   function bumpLevel(c) {
     c.lv++; applyStats(c); c.xp = 0; c.shownXp = 0; c.xpNext = xpNeed(c.lv); c.shownHp = c.hp;
     return Object.entries(SPECIES[c.sp].learn || {}).filter(([, l]) => l === c.lv).map(([m]) => m);
   }
+  // Animated XP for the critter in battle.
   async function gainXp(c, gain) {
+    if (c.lv >= levelCap()) { await say(capLine(c)); return; }
+    await say(`${nm(c)} got ${gain} XP!`);
     let left = gain;
     while (left > 0) {
+      if (c.lv >= levelCap()) { c.xp = 0; c.shownXp = 0; updateHud(); await say(capLine(c)); return; }
       const add = Math.min(c.xpNext - c.xp, left), from = c.xp;
       c.xp += add; left -= add;
       await tween(450, t => { c.shownXp = from + add * t; updateHud(); });
@@ -748,6 +893,20 @@ export function startGame(root, { dev = false } = {}) {
       }
     }
   }
+  // Quiet XP for the rest of the team; returns lines to show.
+  function addXpQuiet(c, gain) {
+    const lines = []; let left = gain, grew = false;
+    while (left > 0 && c.lv < levelCap()) {
+      const add = Math.min(c.xpNext - c.xp, left);
+      c.xp += add; left -= add;
+      if (c.xp >= c.xpNext) { grew = true; bumpLevel(c).forEach(m => lines.push(`${nm(c)} learned ${m}!`)); }
+    }
+    if (c.lv >= levelCap()) { c.xp = 0; c.shownXp = 0; }
+    c.shownXp = c.xp;
+    if (grew) lines.unshift(`${nm(c)} grew to Lv ${c.lv}!`);
+    return lines;
+  }
+
   async function winSeq() {
     const S = SPECIES[F.sp];
     if (S.exitAnim === 'fly') await tween(650, t => { B.foe.x = 120 * t; B.foe.y = -80 * t; }, easeIn);
@@ -756,27 +915,26 @@ export function startGame(root, { dev = false } = {}) {
     B.foe.vis = false; enemyBox.hidden = true;
     await say(`The wild ${nm(F)} is all tuckered out!`);
     await say(S.exit || 'It wandered off.');
-    const gain = 8 + F.lv * 3;
-    await say(`${nm(A())} got ${gain} XP!`);
-    await gainXp(A(), gain);
-    if (Math.random() < 0.25) { bag.pod++; await say(`You found a POD on the ${inMountains(player.x) ? 'trail' : 'grass'}!`); }
+    await gainXp(A(), 8 + F.lv * 3);
+    if (Math.random() < 0.25) { bag.pod++; await say(`You found a POD on the ${inMountains(player.x, player.y) ? 'trail' : 'grass'}!`); }
     await endBattle(false);
   }
   async function endBattle(lost) {
     hideTextbox();
     await tween(350, t => (overlay.fade = t));
     enemyBox.hidden = true; playerBox.hidden = true;
-    scene = 'world';
+    scene = 'world'; trainer = null;
     party.forEach(c => (c.stages = { atk: 0, def: 0, eva: 0 }));
-    const fighter = A();
     if (lost) {
-      Object.assign(player, { x: 5, y: 6, face: 'down', moving: false });
-      Object.assign(pal, { x: 6, y: 6, moving: false, faceLeft: true });
+      if (inTown(player.y)) Object.assign(player, { x: 24, y: 31, face: 'up', moving: false });
+      else Object.assign(player, { x: 5, y: 6, face: 'down', moving: false });
+      placePal();
       healAll(); bag.snack = Math.max(bag.snack, 3);
     }
     stepsSince = 0;
     save();
-    if (!lost && canEvolve(fighter)) await runEvolution(fighter, true);
+    const evolvers = lost ? [] : party.filter(canEvolve);
+    if (evolvers.length) for (let i = 0; i < evolvers.length; i++) await runEvolution(evolvers[i], i === 0);
     else await tween(350, t => (overlay.fade = 1 - t));
     if (lost) await worldSay(['Your whole team is full of energy again!', 'You packed 3 snacks.']);
     if (!flags.gateOpened && gateOpen()) {
@@ -786,15 +944,17 @@ export function startGame(root, { dev = false } = {}) {
     mode = 'world';
   }
   function newWild() {
-    const region = inMountains(player.x) ? 'mountain' : player.x >= 15 ? 'north' : 'south';
+    const region = inMountains(player.x, player.y) ? 'mountain' : player.x >= 15 ? 'north' : 'south';
     const enc = ENCOUNTERS[region];
     const total = enc.table.reduce((s, [, w]) => s + w, 0);
-    let roll = Math.random() * total, sp = enc.table[0][0];
-    for (const [k, w] of enc.table) { if ((roll -= w) < 0) { sp = k; break; } }
-    const lead = Math.max(...party.map(c => c.lv));
-    const lv = Math.max(enc.min, Math.min(enc.max, lead - 2 + rand(4)));
+    let roll = Math.random() * total, base = enc.table[0][0];
+    for (const [k, w] of enc.table) { if ((roll -= w) < 0) { base = k; break; } }
+    const top = Math.max(...party.map(c => c.lv));
+    const lv = Math.max(enc.min, Math.min(enc.max, top - 2 + rand(4)));
+    const fam = FAMILY[base];
+    const shiny = !!fam && Math.random() < shinyChance(fam);
     battleBg = region === 'mountain' ? BG.mountain : BG.meadow;
-    return makeCritter(sp, lv);
+    return makeCritter(grownForm(base, lv), lv, shiny);
   }
   async function battleLoop() {
     for (;;) {
@@ -819,6 +979,7 @@ export function startGame(root, { dev = false } = {}) {
           if (A().hp >= A().maxHp) { await say(`${nm(A())} is already full of energy!`); continue; }
           r = await takeTurn({ type: 'snack' });
         } else {
+          if (trainer) { await say("You can't catch BRICK's critters!"); continue; }
           if (bag.pod <= 0) { await say('No pods left! Nap at home to get more.'); continue; }
           if (party.length >= TEAM_MAX) { await say(`Your team is full! You can carry ${TEAM_MAX} critters.`); continue; }
           r = await takeTurn({ type: 'pod' });
@@ -829,27 +990,83 @@ export function startGame(root, { dev = false } = {}) {
         if (i === ai) { await say(`${nm(A())} is already battling!`); continue; }
         if (party[i].hp <= 0) { await say(`${nm(party[i])} has no energy left!`); continue; }
         r = await takeTurn({ type: 'switch', to: i });
-      } else r = await takeTurn({ type: 'run' });
+      } else {
+        if (trainer) { await say("You can't run from a gym battle!"); continue; }
+        r = await takeTurn({ type: 'run' });
+      }
       if (r === 'end') return;
     }
   }
-  async function startBattle() {
+  async function battleIntro() {
     mode = 'busy'; dirStack.length = 0;
-    bang = true; await wait(550); bang = false;
     if (!RM) for (let i = 0; i < 3; i++) { await tween(80, t => (overlay.flash = t)); await tween(80, t => (overlay.flash = 1 - t)); }
     await tween(420, t => (overlay.bars = t));
-    scene = 'battle'; F = newWild(); resetBattleSprites();
+    scene = 'battle'; resetBattleSprites();
     ai = Math.max(0, party.findIndex(c => c.hp > 0));
     const c = A(); c.stages = { atk: 0, def: 0, eva: 0 }; c.shownHp = c.hp; c.shownXp = c.xp;
+  }
+  async function startBattle() {
+    mode = 'busy';
+    bang = true; await wait(550); bang = false;
+    await battleIntro();
+    F = newWild();
     B.me.x = -170; B.foe.x = 170; updateHud();
     await tween(380, t => (overlay.bars = 1 - t));
     await tween(480, t => { B.me.x = -170 * (1 - t); B.foe.x = 170 * (1 - t); }, easeOut);
     enemyBox.hidden = false;
-    if (SPECIES[F.sp].rare) await say('Whoa! A super rare critter!');
+    if (F.shiny) { B.sparkle = performance.now(); await say(`Whoa! It's a SHINY ${nm(F)}!`); }
+    else if (SPECIES[F.sp].rare) await say('Whoa! A super rare critter!');
     await say(`A wild ${nm(F)} ${SPECIES[F.sp].appear || 'appeared'}!`);
     playerBox.hidden = false;
-    await say(`Go, ${nm(c)}!`);
+    await say(`Go, ${nm(A())}!`);
     await battleLoop();
+  }
+
+  /* ============ the gym battle ============ */
+  async function startGymBattle() {
+    await battleIntro();
+    trainer = { team: GYM.team.map(([sp, lv]) => makeCritter(sp, lv)), idx: 0 };
+    battleBg = BG.gym; F = null;
+    B.foe.vis = false; B.leader = { x: 170, vis: true }; B.me.x = -170; updateHud();
+    await tween(380, t => (overlay.bars = 1 - t));
+    await tween(480, t => { B.me.x = -170 * (1 - t); B.leader.x = 170 * (1 - t); }, easeOut);
+    await say(`${GYM.leader} wants to battle!`);
+    await tween(350, t => (B.leader.x = 170 * t), easeIn);
+    B.leader.vis = false;
+    F = trainer.team[0];
+    await sendFoe();
+    playerBox.hidden = false;
+    await say(`Go, ${nm(A())}!`);
+    await battleLoop();
+  }
+  async function sendFoe() {
+    B.foe = { x: 170, y: 0, flash: false, alpha: 1, vis: true, scale: 1 };
+    updateHud();
+    await tween(420, t => (B.foe.x = 170 * (1 - t)), easeOut);
+    enemyBox.hidden = false;
+    await say(`BRICK sent out ${nm(F)}!`);
+  }
+  async function trainerFoeDown() {
+    await tween(450, t => { B.foe.y = 20 * t; B.foe.alpha = 1 - t; });
+    B.foe.vis = false; enemyBox.hidden = true;
+    await say(`BRICK's ${nm(F)} is out of energy!`);
+    await gainXp(A(), (8 + F.lv * 3) * GYM.xpMultiplier);
+  }
+  async function trainerWin() {
+    B.leader = { x: 170, vis: true };
+    await tween(400, t => (B.leader.x = 170 * (1 - t)), easeOut);
+    await say(`You beat ${GYM.leader}!`);
+    if (!flags.badge) {
+      flags.badge = true; save();
+      await say(`BRICK: "You earned the ${GYM.badge}!"`);
+      await say(`Your critters can now grow all the way to Lv ${LEVEL_CAP.afterBadge}!`);
+    } else {
+      await say('BRICK: "Wow, you\'re getting strong!"');
+    }
+    await say(`Gym prize: every critter on your team gets ${GYM.teamPrize} XP!`);
+    for (const c of party) if (c !== A()) for (const line of addXpQuiet(c, GYM.teamPrize)) await say(line);
+    await gainXp(A(), GYM.teamPrize);
+    await endBattle(false);
   }
 
   /* ============ evolution ============ */
@@ -858,7 +1075,7 @@ export function startGame(root, { dev = false } = {}) {
     mode = 'busy';
     const from = c.sp, to = SPECIES[from].evolve.to;
     if (!alreadyDark) await tween(350, t => (overlay.fade = t));
-    scene = 'evolve'; E.sp = from; E.white = false;
+    scene = 'evolve'; E.sp = from; E.white = false; E.shiny = shinyCfg(c);
     await tween(350, t => (overlay.fade = 1 - t));
     await say(`What's this? ${SPECIES[from].name} is evolving!`);
     hideTextbox();
@@ -867,10 +1084,10 @@ export function startGame(root, { dev = false } = {}) {
     for (let i = 0; i < 16; i++) { E.sp = i % 2 ? to : from; await wait(delay); delay = Math.max(55, delay * 0.84); }
     E.sp = to;
     await tween(200, t => (overlay.flash = t));
-    E.white = false; c.sp = to; applyStats(c); c.shownHp = c.hp; save();
+    E.white = false; c.sp = to; applyStats(c); c.shownHp = c.hp; E.shiny = shinyCfg(c); save();
     await tween(500, t => (overlay.flash = 1 - t));
     await say(`${SPECIES[from].name} evolved into ${SPECIES[to].name}!`);
-    await say(`${SPECIES[to].name} learned ${SPECIES[to].signature}!`);
+    if (SPECIES[to].signature) await say(`${SPECIES[to].name} learned ${SPECIES[to].signature}!`);
     hideTextbox();
     await tween(350, t => (overlay.fade = t));
     scene = 'world';
@@ -884,7 +1101,7 @@ export function startGame(root, { dev = false } = {}) {
     await tween(300, t => (overlay.fade = t));
     Object.assign(player, { x: 5, y: 6, face: 'down', moving: false, steps: 0 });
     Object.assign(pal, { x: 6, y: 6, faceLeft: true, moving: false });
-    party = []; F = null; bag = { snack: 3, pod: 5 }; flags = {}; chooseIdx = 0;
+    party = []; F = null; trainer = null; bag = { snack: 3, pod: 5 }; flags = { luck: {} }; chooseIdx = 0;
     scene = 'choose'; banner.hidden = false;
     await tween(300, t => (overlay.fade = 1 - t));
     await say('Welcome to MAPLE HILL!');
@@ -925,13 +1142,22 @@ export function startGame(root, { dev = false } = {}) {
     if (mode !== 'world' || player.moving || !party.length) return;
     mode = 'busy';
     const c = party[0], learned = [];
-    for (let i = 0; i < n; i++) learned.push(...bumpLevel(c));
+    for (let i = 0; i < n && c.lv < levelCap(); i++) learned.push(...bumpLevel(c));
     c.hp = c.maxHp; c.shownHp = c.hp; save();
-    await say(`${nm(c)} jumped to Lv ${c.lv}!`);
+    await say(`${nm(c)} is now Lv ${c.lv}!`);
     for (const m of learned) await say(`${nm(c)} learned ${m}!`);
+    if (c.lv >= levelCap()) await say(capLine(c));
     hideTextbox();
     if (canEvolve(c)) await runEvolution(c, false);
     if (!flags.gateOpened && gateOpen()) { flags.gateOpened = true; save(); await worldSay(['The ROCKY MOUNTAINS gate is open!']); }
+    mode = 'world';
+  }
+  async function devWarpTown() {
+    if (mode !== 'world' || player.moving || !party.length) return;
+    mode = 'busy';
+    await tween(250, t => (overlay.fade = t));
+    Object.assign(player, { x: 15, y: 30, face: 'down' }); placePal();
+    await tween(250, t => (overlay.fade = 1 - t));
     mode = 'world';
   }
   const devButtons = [];
@@ -944,7 +1170,13 @@ export function startGame(root, { dev = false } = {}) {
     devTool('devLv1', () => devLevel(1));
     devTool('devLv5', () => devLevel(5));
     devTool('devBattle', () => { if (mode === 'world' && !player.moving && party.length) startBattle(); });
-    devTool('devPods', () => { if (party.length) { bag.pod += 10; save(); } });
+    devTool('devPods', () => {
+      if (!party.length || mode !== 'world') return;
+      bag.pod += 10;
+      if (party.length < TEAM_MAX) party.push(makeCritter('rabbit', 5));
+      save(); worldSay(['+10 pods, and a test RABBIT joined your team.']);
+    });
+    devTool('devTown', devWarpTown);
     devTool('devNew', () => { if (mode === 'world') newGame(); });
   }
 

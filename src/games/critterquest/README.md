@@ -29,7 +29,16 @@ import CritterQuest from './games/critterquest/CritterQuest.jsx';
 ## Test tools
 
 Shown automatically when running `npm run dev`, or on the live site by adding `?dev` to the URL
-(`/critter-quest?dev`). They level up your lead critter, start a battle, add pods, or start a new game.
+(`/critter-quest?dev`). They level up your lead critter, start a battle, add pods and a test rabbit, warp to Pebble Town, or start a new game.
+
+## What's in it (v0.4)
+
+- Three starters with evolutions, types (Grass > Water > Fire > Grass, plus Fighting, Rock, Steel)
+- Maple Hill meadows (critters below Lv 10), the Rocky Mountains (above Lv 10, gate opens past Lv 10)
+- Pebble Town, south of Maple Hill: shiny trader (blue house), rest stop (green house), Pebble Gym
+- Wild critters evolve too (all but Rockalock), and come pre-evolved in the wild past their evolve level
+- Shinies: recolored critters. Trading a bunny doubles one family's shiny luck (fox is the easiest)
+- Pods to catch critters, a team of 6, level cap 25 until you beat Leader Brick, then 35
 
 ## Quick tweaks (all in `data.js`)
 
@@ -38,3 +47,6 @@ Shown automatically when running `npm run dev`, or on the live site by adding `?
 - How easy each critter is to catch: `catchRate` on each critter
 - Evolution levels: `evolve: { lv, to }`
 - Type matchups: `CHART`
+- Shiny odds and colors: `SHINY` (oneIn, hue)
+- Gym team, XP bonus and badge: `GYM`
+- Level caps: `LEVEL_CAP`

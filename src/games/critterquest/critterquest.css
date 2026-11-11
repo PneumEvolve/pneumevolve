@@ -91,6 +91,9 @@
   font-family: var(--cq-f-game); font-size: 2.3cqw; font-weight: 700; line-height: 1; letter-spacing: .04em;
   color: #fff; padding: .45cqw 1cqw .35cqw; border-radius: .6cqw;
 }
+.cq-shiny { color: #e0a100; margin-right: .6cqw; }
+.cq-luck { color: #e0a100; font-size: 3cqw; letter-spacing: .2em; line-height: 1; }
+.cq-odds { font-size: 2.5cqw; color: var(--cq-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cq-bar { display: flex; align-items: center; gap: 1.2cqw; }
 .cq-bar b { font-size: .62em; line-height: 1; background: #e08a2c; color: #fff; padding: .3cqw .8cqw; border-radius: .5cqw; }
 .cq-bar b.cq-xp { background: var(--cq-xp); }

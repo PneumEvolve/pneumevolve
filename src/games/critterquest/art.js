@@ -48,7 +48,7 @@ function sprite(rows, { flip = false, tint = null, outline = true } = {}) {
   return c;
 }
 const withRows = (rows, from, repl) => rows.slice(0, from).concat(repl, rows.slice(from + repl.length));
-const flameSwap = rows => rows.map(r => r.replace(/[fF]/g, ch => (ch === 'f' ? 'F' : 'f')));
+const swapPair = (rows, [a, b]) => rows.map(r => r.replace(new RegExp(`[${a}${b}]`, 'g'), ch => (ch === a ? b : a)));
 const recolor = (rows, map) => rows.map(r => r.replace(/./g, ch => map[ch] || ch));
 const mirror = rows => rows.map(r => [...r].reverse().join(''));
 
@@ -113,13 +113,36 @@ const ART = {
     '.....vuuuuv.....', '.....vvvvvv.....', '....vvuvvvvv....', '....vvkvvkvv....',
     '...vvvvvvvvvv...', '...vvvvttvvvv...', '..vvVvvuvvvVvv..', '..vvvvvuvvvvvv..',
     '.vVvvvvvvvvvvVv.', '.vvvvvvvvvvvvvv.', 'VVVVVVVVVVVVVVVV'],
+  // Boomcano: a big steaming WATER volcano with a rocket launcher (w/U steam puffs swap to flicker).
   boomcano: [
-    '.......F..F.............', '......FfFFfF............', '.......fRRf.............', '.......RffR.............',
-    '......vRffRv............', '......vvRRvv............', '.....vvvRvvvv...........', '.....vvvRvvvv..mmmmmmmR.',
-    '....vvvvvvvvvvMMMMMMMMRR', '....vvkFvvkFvvmmmmmmmmR.', '...vvvvvvvvvvvvM.M......', '...vvvvRRRRvvvvvv.......',
-    '..vvvvvvvvvvvvvvv.......', '..vvVvvvvvvvvvVvvv......', '.vvvvvvvRvvvvvvvvv......', '.vvvvvvvRRvvvvvvvvv.....',
-    '.vVvvvvvvRvvvvvvVvvv....', 'vvvvvvvvvvvvvvvvvvvvv...', 'VVVVVVVVVVVVVVVVVVVVV...'],
+    '......w.U..w............', '.....UwUwwUw............', '......wUwwU.............', '.......uUUu.............',
+    '......vuUUuv............', '......vvuuvv............', '.....vvvuvvvv...........', '.....vvvuvvvv..mmmmmmmR.',
+    '....vvvvvvvvvvMMMMMMMMRR', '....vvkUvvkUvvmmmmmmmmR.', '...vvvvvvvvvvvvM.M......', '...vvvvuuuuvvvvvv.......',
+    '..vvvvvvvvvvvvvvv.......', '..vvVvvvvvvvvvVvvv......', '.vvvvvvvuvvvvvvvvv......', '.vvvvvvvuuvvvvvvvvv.....',
+    '.vVvvvvvvuvvvvvvVvvv....', 'vvvvvvvvvvvvvvvvvvvvv...', 'VVVVVVVVVVVVVVVVVVVVV...'],
   rabbit: mirror(RABBIT_LEFT),
+  megabun: [
+    '..........gg..gg....', '.........gpg.gpg....', '.........gpg.gpg....', '.........gpg.gpg....',
+    '.........gpg.gpg....', '..........gggggg....', '.........cccccccc...', '........gggggkggg...',
+    '........ggggggggpk..', '...ww...gggggwwgg...', '..wwwgggggggwwww....', '..wwggggggggggggg...',
+    '...gggggggGGGgggg...', '...ggggggGGGGgggg...', '...gggggGGGGgggggg..', '....ggggggggggggg...',
+    '....GGGgggggggGGg...', '...GGGGG....gGGGG...', '..GGGGGG...GGGGGG...', '..wwwwww...wwwwww...'],
+  skyhawk: [
+    'bb....................', 'bub...................', 'buub.........uuu......', '.buub.......uuuuu.....',
+    '.buuub......uukuuFFF..', '..buuuub....uuuuuFF...', '..buuuuubb..uuuuu.....', '...buuuuuuubooou......',
+    '....buuuuuuoooooou....', '.....bbuuuuooooooou...', 'uuu....buuuoooooou....', 'UuuUu...uuuuuuuuu.....',
+    '.UuuUuuuuuuuuuuu......', '...UUuuuuuuuuu........', '..........F..F........', '.........FF.FF........'],
+  elderfox: [
+    '..............O...O...', '..............Oo.Oo...', '.............ooooooo..', '.............ooookooo.',
+    '.............oooowwwwk', 'OO...........ooowwww..', 'Ooo..OO.......NNNNN...', 'wooo.Ooo....oooNNNNN..',
+    'wwooowoooooooooooNN...', '.wwooooooooooooooo....', 'OO.wwooooooooowwooo...', 'Ooo..ooooooooowwwoo...',
+    'woooooooooooooooooo...', 'wwoooooooooooooooo....', '.ww...oOo.....oOo.....', '......oOo.....oOo.....',
+    '......oOO.....oOO.....', '......kkk.....kkk.....'],
+  steelwolf: [
+    '................I.....', '...............IiI....', '..............iiiiii..', 'II..M.M.M.....iiRiiii.',
+    '.I.MMMMMMM...iiiiijjjI', '..iiiiiiiiiiiiiijjj...', '.iiiiiiiiiiiiiii......', 'Iiiiiiiiijjjiiii......',
+    'IIiiiiiiijjjjiiI......', '.Iiiiiiiiiiiiii.......', '..IiiI.....IiiI.......', '..IiiI.....IiiI.......',
+    '..IiiI.....IiiI.......', '..IIII.....IIII.......'],
   bluebird: [
     '.........uuu....', '........uuuuu...', '........uukuuFF.', '........uuuuuF..',
     '...UU...ooouu...', '..UuuU.oooooo...', '.uUuuuuoooooo...', 'uuuUuuuooooou...',
@@ -152,6 +175,40 @@ function rockBase(g, seed) {
   }
 }
 
+/* ---------------- shiny recoloring ---------------- */
+function rgbToHsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min, s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  const h = max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [h * 60, s, l];
+}
+function hslToRgb(h, s, l) {
+  h = ((h % 360) + 360) % 360 / 360;
+  if (s === 0) return [l * 255, l * 255, l * 255];
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+  const f = t => { t = (t + 1) % 1; return t < 1 / 6 ? p + (q - p) * 6 * t : t < 1 / 2 ? q : t < 2 / 3 ? p + (q - p) * (2 / 3 - t) * 6 : p; };
+  return [f(h + 1 / 3) * 255, f(h) * 255, f(h - 1 / 3) * 255];
+}
+// cfg: { hue: degrees to rotate, sat: saturation multiplier } or { set: [hue, saturation] } for grey critters.
+// Dark outline pixels and near-white highlights stay as they are.
+function recolorCanvas(src, cfg) {
+  const [c, g] = mk(src.width, src.height);
+  g.drawImage(src, 0, 0);
+  const img = g.getImageData(0, 0, c.width, c.height), d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    if (!d[i + 3]) continue;
+    let [h, s, l] = rgbToHsl(d[i], d[i + 1], d[i + 2]);
+    if (l < 0.24 || l > 0.93) continue;
+    if (cfg.set) { h = cfg.set[0]; s = cfg.set[1]; }
+    else { h += cfg.hue || 0; s = Math.min(1, s * (cfg.sat || 1)); }
+    [d[i], d[i + 1], d[i + 2]] = hslToRgb(h, s, l);
+  }
+  g.putImageData(img, 0, 0);
+  return c;
+}
+
 /* ---------------- build everything (needs a browser) ---------------- */
 export function buildArt(speciesTable) {
   const NO = { outline: false };
@@ -162,10 +219,10 @@ export function buildArt(speciesTable) {
     left: sprite(P_SIDE, { outline: false, flip: true }), leftW: sprite(withRows(P_SIDE, 13, LEGS_SIDE), { outline: false, flip: true }),
   };
 
-  // R = facing right (your side), L = facing left (wild side). Two frames so flames flicker.
+  // R = facing right (your side), L = facing left (wild side). Two frames so flames and steam flicker.
   const SPR = {};
   for (const [k, s] of Object.entries(speciesTable)) {
-    const a = ART[k], b = s.fire ? flameSwap(a) : a, outline = !NO_OUTLINE.has(k);
+    const a = ART[k], b = s.flicker ? swapPair(a, s.flicker) : a, outline = !NO_OUTLINE.has(k);
     SPR[k] = {
       R: [sprite(a, { outline }), sprite(b, { outline })],
       L: [sprite(a, { outline, flip: true }), sprite(b, { outline, flip: true })],
@@ -173,8 +230,19 @@ export function buildArt(speciesTable) {
       WL: sprite(a, { outline, flip: true, tint: '#ffffff' }),
     };
   }
+  // Shiny versions are made on demand by recoloring the normal sprite (see SHINY in data.js).
+  const shinyCache = {};
+  function sprites(sp, shinyCfg) {
+    if (!shinyCfg) return SPR[sp];
+    return (shinyCache[sp] ||= {
+      R: SPR[sp].R.map(c => recolorCanvas(c, shinyCfg)),
+      L: SPR[sp].L.map(c => recolorCanvas(c, shinyCfg)),
+      W: SPR[sp].W, WL: SPR[sp].WL,
+    });
+  }
   const urlCache = {};
-  const spriteURL = sp => (urlCache[sp] ||= SPR[sp].R[0].toDataURL());
+  const spriteURL = (sp, shinyCfg) => (urlCache[sp + (shinyCfg ? '*' : '')] ||= sprites(sp, shinyCfg).R[0].toDataURL());
+  const LEADER = sprite(recolor(P_DOWN, { c: 'Q', r: 'O', b: 'V', w: 'F' }), NO);
 
   const TILES = {
     grass: [0, 1, 2, 3].map(s => tile(g => grassBase(g, s + 11))),
@@ -257,48 +325,93 @@ export function buildArt(speciesTable) {
     })),
   };
 
-  const HOUSE = (() => {
+  // A 5x4-tile house; roof = [main, shingle lines, highlight].
+  function makeHouse(roof) {
     const [c, g] = mk(80, 64);
     px(g, '#2a2135', 58, 0, 10, 14); px(g, '#9c4a3a', 59, 1, 8, 13); px(g, '#7c3a2e', 59, 5, 8, 1); px(g, '#7c3a2e', 59, 9, 8, 1);
-    px(g, '#2a2135', 0, 6, 80, 26); px(g, '#c8473a', 1, 7, 78, 24);
-    for (let y = 10; y < 31; y += 5) px(g, '#a53a2f', 1, y, 78, 1);
-    for (let y = 7; y < 31; y += 5) for (let x = (y / 5) % 2 ? 4 : 9; x < 79; x += 10) px(g, '#a53a2f', x, y, 1, 3);
-    px(g, '#e2685a', 1, 7, 78, 1);
+    px(g, '#2a2135', 0, 6, 80, 26); px(g, roof[0], 1, 7, 78, 24);
+    for (let y = 10; y < 31; y += 5) px(g, roof[1], 1, y, 78, 1);
+    for (let y = 7; y < 31; y += 5) for (let x = (y / 5) % 2 ? 4 : 9; x < 79; x += 10) px(g, roof[1], x, y, 1, 3);
+    px(g, roof[2], 1, 7, 78, 1);
     px(g, '#2a2135', 3, 31, 74, 33);
     px(g, '#f3e6c8', 4, 31, 72, 32); px(g, '#e2d2ae', 4, 31, 72, 2); px(g, '#d6c39b', 4, 60, 72, 3);
     for (const wx of [12, 54]) {
       px(g, '#5b4a3a', wx, 38, 14, 12); px(g, '#a8dcf7', wx + 1, 39, 12, 10);
       px(g, '#d9f1fb', wx + 2, 40, 3, 3); px(g, '#5b4a3a', wx + 6, 39, 2, 10); px(g, '#5b4a3a', wx + 1, 43, 12, 1);
-      px(g, '#b5463a', wx - 1, 50, 16, 2);
+      px(g, roof[1], wx - 1, 50, 16, 2);
     }
     px(g, '#2a2135', 33, 42, 14, 22); px(g, '#8a5a2e', 34, 43, 12, 21); px(g, '#a26c39', 35, 44, 4, 19);
     px(g, '#f2c94c', 43, 53, 2, 2);
     return c;
+  }
+  const HOUSES = {
+    red: makeHouse(['#c8473a', '#a53a2f', '#e2685a']),
+    blue: makeHouse(['#3f78c9', '#2f5ea3', '#6b9ee0']),
+    green: makeHouse(['#4f9a55', '#3c7a42', '#78bf7c']),
+  };
+
+  // The Pebble Town gym: a 9x5-tile stone hall with a badge on the roof and a GYM sign.
+  const GYM_IMG = (() => {
+    const [c, g] = mk(144, 80);
+    px(g, '#2a2135', 0, 4, 144, 30); px(g, '#4a5568', 1, 5, 142, 28);
+    for (let y = 9; y < 33; y += 6) px(g, '#3a4352', 1, y, 142, 1);
+    px(g, '#6b7891', 1, 5, 142, 1);
+    for (let y = 0; y < 26; y++) for (let x = 0; x < 26; x++) {           // round stone badge
+      const d = Math.hypot(x - 12.5, y - 12.5);
+      if (d < 12.5) px(g, d > 11 ? '#2a2135' : d > 8 ? '#9a948c' : '#bdb8b0', 59 + x, 2 + y);
+    }
+    px(g, '#e3dfd8', 66, 8, 4, 3); px(g, '#6f6a64', 72, 16, 5, 1);
+    px(g, '#2a2135', 4, 33, 136, 47); px(g, '#a3a9b5', 5, 33, 134, 46);
+    for (let y = 37; y < 79; y += 6) {
+      px(g, '#8a909c', 5, y, 134, 1);
+      for (let x = (y / 6) % 2 ? 9 : 19; x < 139; x += 20) px(g, '#8a909c', x, y - 5, 1, 5);
+    }
+    for (const wx of [16, 108]) { px(g, '#2a2135', wx, 44, 20, 16); px(g, '#a8dcf7', wx + 1, 45, 18, 14); px(g, '#d9f1fb', wx + 2, 46, 4, 4); px(g, '#2a2135', wx + 9, 45, 2, 14); }
+    px(g, '#2a2135', 63, 34, 19, 11); px(g, '#c0443a', 64, 35, 17, 9);   // GYM sign
+    const letters = { G: ['###', '#..', '#.#', '#.#', '###'], Y: ['#.#', '#.#', '.#.', '.#.', '.#.'], M: ['#...#', '##.##', '#.#.#', '#...#', '#...#'] };
+    let lx = 66;
+    for (const ch of 'GYM') { letters[ch].forEach((row, y) => [...row].forEach((p, x) => { if (p === '#') px(g, '#ffffff', lx + x, 37 + y); })); lx += letters[ch][0].length + 1; }
+    px(g, '#2a2135', 64, 52, 16, 28); px(g, '#5b6577', 65, 53, 14, 27); px(g, '#748098', 66, 54, 5, 25); px(g, '#ffd23f', 75, 66, 2, 2);
+    return c;
   })();
 
-  // Battle backdrops: a sunny meadow and a rocky mountain.
-  function makeField(platforms, mountain) {
+  // Battle backdrops: sunny meadow, rocky mountain, the gym hall.
+  function makeField(platforms, kind) {
     const [c, g] = mk(240, 160);
-    const sky = mountain ? ['#b9d3e6', '#c4dbea', '#cfe2ee', '#dae9f1', '#e3eef2', '#ebf2f2'] : ['#a9dcf0', '#b6e2f2', '#c3e8f3', '#d0edf4', '#dcf1f3', '#e6f4f1'];
-    sky.forEach((col, i) => { g.fillStyle = col; g.fillRect(0, i * 7, 240, 7); });
-    const cloud = (x, y) => { px(g, '#ffffff', x + 4, y, 14, 4); px(g, '#ffffff', x, y + 3, 24, 4); px(g, '#eaf6fb', x, y + 6, 24, 1); };
-    cloud(22, 8); cloud(112, 4); cloud(196, 14);
-    for (let x = 0; x < 240; x++) {
-      if (mountain) {
-        const peak = 14 + Math.round(Math.abs(((x + 30) % 80) - 40) * 0.6 + Math.sin(x / 7) * 1.5);
-        px(g, '#8e8a99', x, peak, 1, 60); if (peak < 24) px(g, '#f4f7fb', x, peak, 1, 24 - peak);
-        const ridge = 32 + Math.round(Math.sin(x / 13) * 4);
-        px(g, '#9e927f', x, ridge, 1, 30);
-      } else {
-        const h = 30 + Math.round(Math.sin(x / 23) * 4 + Math.sin(x / 9) * 1.5);
-        px(g, '#a6d695', x, h, 1, 30);
-        const t = 38 + Math.round(Math.abs(Math.sin(x / 5)) * -4 + Math.sin(x / 31) * 2);
-        px(g, '#6fb36a', x, t, 1, 20); px(g, '#5a9f58', x, t + 6, 1, 14);
+    if (kind === 'gym') {
+      px(g, '#6e7584', 0, 0, 240, 48);
+      for (let y = 6; y < 48; y += 7) {
+        px(g, '#5c6371', 0, y, 240, 1);
+        for (let x = (y / 7) % 2 ? 0 : 14; x < 240; x += 28) px(g, '#5c6371', x, y - 6, 1, 6);
+      }
+      for (const bx of [30, 110, 190]) { px(g, '#2a2135', bx, 8, 20, 30); px(g, '#c0443a', bx + 1, 9, 18, 28); px(g, '#ffd23f', bx + 8, 18, 4, 4); }
+      px(g, '#4a5568', 0, 44, 240, 4);
+    } else {
+      const sky = kind === 'mountain' ? ['#b9d3e6', '#c4dbea', '#cfe2ee', '#dae9f1', '#e3eef2', '#ebf2f2'] : ['#a9dcf0', '#b6e2f2', '#c3e8f3', '#d0edf4', '#dcf1f3', '#e6f4f1'];
+      sky.forEach((col, i) => { g.fillStyle = col; g.fillRect(0, i * 7, 240, 7); });
+      const cloud = (x, y) => { px(g, '#ffffff', x + 4, y, 14, 4); px(g, '#ffffff', x, y + 3, 24, 4); px(g, '#eaf6fb', x, y + 6, 24, 1); };
+      cloud(22, 8); cloud(112, 4); cloud(196, 14);
+      for (let x = 0; x < 240; x++) {
+        if (kind === 'mountain') {
+          const peak = 14 + Math.round(Math.abs(((x + 30) % 80) - 40) * 0.6 + Math.sin(x / 7) * 1.5);
+          px(g, '#8e8a99', x, peak, 1, 60); if (peak < 24) px(g, '#f4f7fb', x, peak, 1, 24 - peak);
+          const ridge = 32 + Math.round(Math.sin(x / 13) * 4);
+          px(g, '#9e927f', x, ridge, 1, 30);
+        } else {
+          const h = 30 + Math.round(Math.sin(x / 23) * 4 + Math.sin(x / 9) * 1.5);
+          px(g, '#a6d695', x, h, 1, 30);
+          const t = 38 + Math.round(Math.abs(Math.sin(x / 5)) * -4 + Math.sin(x / 31) * 2);
+          px(g, '#6fb36a', x, t, 1, 20); px(g, '#5a9f58', x, t + 6, 1, 14);
+        }
       }
     }
-    const bands = mountain ? ['#c4b79d', '#bcae93'] : ['#9cd27b', '#a5d985'];
-    for (let y = 46; y < 160; y++) { g.fillStyle = bands[Math.floor((y - 46) / 6) % 2]; g.fillRect(0, y, 240, 1); }
-    const [edge, top, base] = mountain ? ['#857a68', '#d3c8b1', '#ab9f86'] : ['#5d9c4c', '#92ce6e', '#7fbd5f'];
+    const look = {
+      meadow:   { bands: ['#9cd27b', '#a5d985'], plat: ['#5d9c4c', '#92ce6e', '#7fbd5f'] },
+      mountain: { bands: ['#c4b79d', '#bcae93'], plat: ['#857a68', '#d3c8b1', '#ab9f86'] },
+      gym:      { bands: ['#cfc8b8', '#c6bfae'], plat: ['#8a8273', '#e4dccb', '#b9b09d'] },
+    }[kind];
+    for (let y = 46; y < 160; y++) { g.fillStyle = look.bands[Math.floor((y - 46) / 6) % 2]; g.fillRect(0, y, 240, 1); }
+    const [edge, top, base] = look.plat;
     for (const [cx, cy, rx, ry] of platforms)
       for (let y = cy - ry; y <= cy + ry; y++) for (let x = cx - rx; x <= cx + rx; x++) {
         const v = ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2;
@@ -308,10 +421,11 @@ export function buildArt(speciesTable) {
   }
   const BATTLE_PLATFORMS = [[184, 54, 42, 9], [66, 100, 48, 10]];
   const BG = {
-    meadow: makeField(BATTLE_PLATFORMS, false),
-    mountain: makeField(BATTLE_PLATFORMS, true),
-    choose: makeField([48, 120, 192].map(x => [x, 98, 30, 7]), false),
+    meadow: makeField(BATTLE_PLATFORMS, 'meadow'),
+    mountain: makeField(BATTLE_PLATFORMS, 'mountain'),
+    gym: makeField(BATTLE_PLATFORMS, 'gym'),
+    choose: makeField([48, 120, 192].map(x => [x, 98, 30, 7]), 'meadow'),
   };
 
-  return { KID, SPR, TILES, HOUSE, BG, spriteURL };
+  return { KID, sprites, TILES, HOUSES, GYM_IMG, LEADER, BG, spriteURL };
 }

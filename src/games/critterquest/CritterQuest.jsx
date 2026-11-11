@@ -18,7 +18,7 @@ export default function CritterQuest() {
   return (
     <div className="cq" ref={rootRef}>
       <main className="cq-console">
-        <div className="cq-brand"><h1>CRITTER QUEST</h1><span>Version 0.3</span></div>
+        <div className="cq-brand"><h1>CRITTER QUEST</h1><span>Version 0.4</span></div>
 
         <div className="cq-bezel">
           <div className="cq-bezel-top"><span className="cq-led" />Power</div>
@@ -82,7 +82,8 @@ export default function CritterQuest() {
           <button type="button" data-cq="devLv1">Level +1</button>
           <button type="button" data-cq="devLv5">Level +5</button>
           <button type="button" data-cq="devBattle">Battle now</button>
-          <button type="button" data-cq="devPods">+10 pods</button>
+          <button type="button" data-cq="devPods">+10 pods &amp; a rabbit</button>
+          <button type="button" data-cq="devTown">Warp to town</button>
           <button type="button" data-cq="devNew">New game</button>
           <span className="cq-dev-note">Only shown in dev or with ?dev in the URL. They act on your lead critter while walking.</span>
         </section>
