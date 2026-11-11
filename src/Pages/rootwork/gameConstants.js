@@ -108,7 +108,7 @@ export const MARKET_SELL_RATES = {
   // World loot
   iron_ore: 2, lumber: 4, herbs: 3, rare_gem: 50, mana_crystal: 100,
   // Forge goods
-  iron_sword: 120, iron_shield: 110, leather_armor: 100, hunting_bow: 200,
+  iron_sword: 120, iron_shield: 110, leather_armor: 100,
   steel_sword: 300, master_sword: 800, steel_shield: 320, tower_shield: 850, chainmail: 350,
   plate_armor: 900,
   // Upgrade components
@@ -1300,36 +1300,11 @@ export const WORLD_ZONES = {
     damagePerTick: 8,
     maxEnemyHp: 30,
     loot: [
-      { resourceKey: "lumber", emoji: "🪵", name: "Lumber", min: 4, max: 8 },
-      { resourceKey: "herbs",  emoji: "🌿", name: "Herbs",  min: 1, max: 3 },
+      { resourceKey: "lumber", emoji: "🪵", name: "Lumber", min: 5, max: 9 },
     ],
     workerResource: "Lumber",
     workerEmoji: "🪵",
     workerYieldPerMinute: 2,
-  },
-  damp_cave: {
-    id: "damp_cave",
-    name: "Damp Cave",
-    emoji: "🧪",
-    description: "Dripping walls, strange fungi, and things that have never seen sunlight.",
-    baseDuration: 75,
-    clearsNeeded: 6,
-    heroLevelRequired: 4,
-    unlockAfterClears: 0,
-    unlockRequiresZone: null,
-    gearRequired: 4,
-    xpReward: 12,
-    enemyName: "Cave Horrors",
-    damagePerTick: 9,
-    maxEnemyHp: 45,
-    loot: [
-      { resourceKey: "herbs",    emoji: "🌿", name: "Herbs",    min: 4, max: 8 },
-      { resourceKey: "iron_ore", emoji: "🪨", name: "Iron Ore", min: 1, max: 3 },
-      { resourceKey: "rare_gem", emoji: "💎", name: "Rare Gem", min: 0, max: 1 },
-    ],
-    workerResource: "Herbs",
-    workerEmoji: "🌿",
-    workerYieldPerMinute: 4,
   },
   deep_mine: {
     id: "deep_mine",
@@ -1370,8 +1345,7 @@ export const WORLD_ZONES = {
     damagePerTick: 14,
     maxEnemyHp: 80,
     loot: [
-      { resourceKey: "lumber",   emoji: "🪵", name: "Lumber",   min: 6, max: 14 },
-      { resourceKey: "herbs",    emoji: "🌿", name: "Herbs",    min: 3, max: 6 },
+      { resourceKey: "lumber",   emoji: "🪵", name: "Lumber",   min: 8, max: 16 },
       { resourceKey: "rare_gem", emoji: "💎", name: "Rare Gem", min: 0, max: 2 },
     ],
     workerResource: "Lumber",
@@ -1401,6 +1375,29 @@ export const WORLD_ZONES = {
     workerResource: "Iron Ore",
     workerEmoji: "🪨",
     workerYieldPerMinute: 12,
+  },
+  moonwood: {
+    id: "moonwood",
+    name: "Moonwood",
+    emoji: "🌙",
+    description: "Silver-barked trees grown over a ley line. Their sap hardens into mana. Wisps guard every grove.",
+    baseDuration: 110,
+    clearsNeeded: 7,
+    heroLevelRequired: 11,
+    unlockAfterClears: 0,
+    unlockRequiresZone: null,
+    gearRequired: 12,
+    xpReward: 42,
+    enemyName: "Wisp Wardens",
+    damagePerTick: 18,
+    maxEnemyHp: 135,
+    loot: [
+      { resourceKey: "lumber",       emoji: "🪵", name: "Lumber",       min: 12, max: 24 },
+      { resourceKey: "mana_crystal", emoji: "🔮", name: "Mana Crystal", min: 0,  max: 2 },
+    ],
+    workerResource: "Lumber",
+    workerEmoji: "🪵",
+    workerYieldPerMinute: 10,
   },
   sunken_ruins: {
     id: "sunken_ruins",
@@ -1436,7 +1433,7 @@ export const WORLD_ZONES = {
     heroLevelRequired: 14,
     unlockAfterClears: 0,
     unlockRequiresZone: null,
-    gearRequired: 22,
+    gearRequired: 18,
     xpReward: 75,
     enemyName: "Ash Giants",
     damagePerTick: 26,
@@ -1750,18 +1747,6 @@ export const FORGE_RECIPES = {
     category: "body",
     foodSlotBonus: 5,
   },
-  hunting_bow: {
-    id: "hunting_bow",
-    name: "Hunting Bow",
-    emoji: "🏹",
-    description: "Equip a ranger. Bonus loot from forest zones.",
-    inputs: { lumber: 16, iron_ore: 10 },
-    output: { resourceKey: "hunting_bow", emoji: "🏹", name: "Hunting Bow" },
-    seconds: 60,
-    gearTier: 2,
-    category: "weapon",
-    requires: "iron_sword",
-  },
   // ─── Upgrade Components (T3 upgrade materials) ──────────────────────────────
   iron_fitting: {
     id: "iron_fitting",
@@ -1798,7 +1783,7 @@ export const FORGE_RECIPES = {
   },
 };
 
-export const FORGE_RECIPE_LIST = ["iron_sword", "steel_sword", "master_sword", "iron_shield", "steel_shield", "tower_shield", "leather_armor", "chainmail", "plate_armor", "hunting_bow", "iron_fitting", "reinforced_crate", "fine_tools"];
+export const FORGE_RECIPE_LIST = ["iron_sword", "steel_sword", "master_sword", "iron_shield", "steel_shield", "tower_shield", "leather_armor", "chainmail", "plate_armor", "iron_fitting", "reinforced_crate", "fine_tools"];
 
 export const FORGE_WORKER_HIRE_COST = 50;
 export const FORGE_WORKER_HIRE_MULTIPLIER = 1.6;

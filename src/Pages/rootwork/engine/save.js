@@ -553,6 +553,72 @@ if (parsed.fishing?.fish) {
     // Migrate old single-expedition state
     if (parsed.expedition) { delete parsed.expedition; }
 
+       // ── Nov 2026 mission pass: Damp Cave + Hunting Bow removed ─────────────────
+    // Heroes mid-run in a zone that no longer exists would be stuck forever
+    // (returnAdventurer bails when the zone is missing). Auto runs hand back
+    // what they'd already earned; single runs are just cancelled.
+    for (const adv of parsed.adventurers ?? []) {
+      if (adv.lastZoneId && !WORLD_ZONES[adv.lastZoneId]) adv.lastZoneId = null;
+      const m = adv.mission;
+      if (m && !WORLD_ZONES[m.zoneId]) {
+        if (m.autoBattle && !adv.pendingAutoCollect) {
+          adv.pendingAutoCollect = {
+            autoBattle: true,
+            stoppedByPlayer: true,
+            successfulRuns: m.autoBattleRuns ?? 0,
+            zoneName: m.zoneName ?? "Retired zone",
+            loot: m.autoBattleLoot ?? [],
+            xpGained: m.autoBattleXp ?? 0,
+            leveledUp: false,
+            zoneCleared: false,
+            hpLost: 0,
+            hpRemaining: adv.hp ?? adv.maxHp ?? 0,
+            maxHp: adv.maxHp ?? 0,
+          };
+        }
+        adv.mission = null;
+      }
+    }
+
+    // Hunting Bow: refund every bow (stock, mid-craft, queued for sale, equipped)
+    // as its crafting materials.
+    {
+      const BOW = "hunting_bow";
+      const BOW_REFUND = { lumber: 16, iron_ore: 10 };
+      let bows = 0;
+      if ((parsed.forgeGoods?.[BOW] ?? 0) > 0) bows += Math.floor(parsed.forgeGoods[BOW]);
+      if (parsed.forgeGoods) delete parsed.forgeGoods[BOW];
+      for (const w of parsed.forgeWorkers ?? []) {
+        if (w.recipeId === BOW) {
+          bows += 1;
+          w.recipeId = null; w.busy = false; w.elapsedSeconds = 0; w.totalSeconds = 0;
+        }
+        if (w.lastRecipeId === BOW) w.lastRecipeId = null;
+      }
+      for (const w of parsed.marketWorkers ?? []) {
+        if (w.standingOrder === BOW) w.standingOrder = null;
+        if (Array.isArray(w.queue)) {
+          for (const o of w.queue) if (o.itemType === BOW) bows += Math.floor(o.quantity ?? 0);
+          w.queue = w.queue.filter((o) => o.itemType !== BOW);
+        }
+      }
+      for (const adv of parsed.adventurers ?? []) {
+        if (adv.equippedGear?.weapon === BOW) {
+          bows += 1;
+          adv.equippedGear = { ...adv.equippedGear, weapon: null };
+          if (adv.equippedInstanceId) adv.equippedInstanceId.weapon = null;
+          adv.gear = Math.max(0, (adv.gear ?? 0) - 2); // bow was gear tier 2
+        }
+        if (adv.equippedItem === BOW) adv.equippedItem = null;
+      }
+      if (bows > 0) {
+        if (!parsed.worldResources) parsed.worldResources = {};
+        for (const [k, v] of Object.entries(BOW_REFUND)) {
+          parsed.worldResources[k] = (parsed.worldResources[k] ?? 0) + v * bows;
+        }
+      }
+    } 
+
     return parsed;
   } catch { return null; }
 }

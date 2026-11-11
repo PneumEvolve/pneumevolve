@@ -181,7 +181,7 @@ function ForgeUpgradeTree({ worker, game, onUpgrade }) {
 // ─── Recipe groups ────────────────────────────────────────────────────────────
  
 const FORGE_RECIPE_GROUPS = [
-  { id: "weapons",     label: "WEAPONS",    icon: "⚔️",  accentColor: "#f87171", ids: ["iron_sword", "steel_sword", "master_sword", "hunting_bow"] },
+  { id: "weapons",     label: "WEAPONS",    icon: "⚔️",  accentColor: "#f87171", ids: ["iron_sword", "steel_sword", "master_sword"] },
   { id: "armour",      label: "ARMOUR",     icon: "🛡️",  accentColor: "#60a5fa", ids: ["iron_shield", "steel_shield", "tower_shield", "leather_armor", "chainmail", "plate_armor"] },
   { id: "components",  label: "COMPONENTS", icon: "🔩",  accentColor: "#34d399", ids: ["iron_fitting", "reinforced_crate", "fine_tools"] },
 ];

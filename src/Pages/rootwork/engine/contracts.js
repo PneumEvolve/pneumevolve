@@ -85,7 +85,7 @@ export function isContractItemAvailable(state, item) {
   if (r === "water_lake") return !!state.fishing?.bodies?.lake?.unlocked;
   if (r === "forge") return !!state.forgeBuilt;
   if (r === "heroes") return (state.adventurers ?? []).length > 0;
-  if (r === "gems") return (state.worldZoneClears?.damp_cave ?? 0) > 0 || (state.worldResources?.rare_gem ?? 0) > 0;
+    if (r === "gems") return (state.worldZoneClears?.deep_mine ?? 0) > 0 || (state.worldResources?.rare_gem ?? 0) > 0;
   return false;
 }
 
