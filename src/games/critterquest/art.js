@@ -110,11 +110,22 @@ const ART = {
     'Ooo...ooooooooo.....hh..', 'wooo..ooowwwooo.....hh..', 'wwooooooowwwooo.....hh..', '.wwoooooooooooo.....hh..',
     '...ccccccccccc......hh..', '......oooo.ooo......hh..', '......ooO...ooO.....hh..', '......ooO...ooO.....hh..',
     '.....ooOO..ooOO.........', '.....kkkk..kkkk.........'], { O: 'L', c: 'L' }),
+  // Splashcano: a baby stone turtle on four little legs, with one small volcano on its shell that splashes water.
   splashcano: [
-    '......U..U......', '.....UuUUuU.....', '......uuuu......', '......uUUu......',
-    '.....vuuuuv.....', '.....vvvvvv.....', '....vvuvvvvv....', '....vvkvvkvv....',
-    '...vvvvvvvvvv...', '...vvvvttvvvv...', '..vvVvvuvvvVvv..', '..vvvvvuvvvvvv..',
-    '.vVvvvvvvvvvvVv.', '.vvvvvvvvvvvvvv.', 'VVVVVVVVVVVVVVVV'],
+    '...U.U............',
+    '..UuUuU...........',
+    '...uUu............',
+    '...quq............',
+    '..qqqqq.....qqqq..',
+    '.qqqqqqqqq.qqqqkq.',
+    'qqqQqqqqqqqqqqqqq.',
+    'qqqqqqQqqqqqqqqq..',
+    'qQqqqqqqqQqqqq....',
+    '.yyyyyyyyyyyyy....',
+    '..qq.qq...qq.qq...',
+    '..qq.qq...qq.qq...',
+    '..QQ.QQ...QQ.QQ...',
+  ],
   // Boomcano: a young stone turtle on two legs with one steaming volcano on its shell and gorilla arms, holding a rocket launcher (w/U steam swaps to flicker).
   boomcano: [
     '.....w.U......................',
