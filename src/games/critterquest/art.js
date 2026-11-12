@@ -115,13 +115,27 @@ const ART = {
     '.....vuuuuv.....', '.....vvvvvv.....', '....vvuvvvvv....', '....vvkvvkvv....',
     '...vvvvvvvvvv...', '...vvvvttvvvv...', '..vvVvvuvvvVvv..', '..vvvvvuvvvvvv..',
     '.vVvvvvvvvvvvVv.', '.vvvvvvvvvvvvvv.', 'VVVVVVVVVVVVVVVV'],
-  // Boomcano: a big steaming WATER volcano with a rocket launcher (w/U steam puffs swap to flicker).
+  // Boomcano: a young stone turtle on two legs with one steaming volcano on its shell and gorilla arms, holding a rocket launcher (w/U steam swaps to flicker).
   boomcano: [
-    '......w.U..w............', '.....UwUwwUw............', '......wUwwU.............', '.......uUUu.............',
-    '......vuUUuv............', '......vvuuvv............', '.....vvvuvvvv...........', '.....vvvuvvvv..mmmmmmmR.',
-    '....vvvvvvvvvvMMMMMMMMRR', '....vvkUvvkUvvmmmmmmmmR.', '...vvvvvvvvvvvvM.M......', '...vvvvuuuuvvvvvv.......',
-    '..vvvvvvvvvvvvvvv.......', '..vvVvvvvvvvvvVvvv......', '.vvvvvvvuvvvvvvvvv......', '.vvvvvvvuuvvvvvvvvv.....',
-    '.vVvvvvvvuvvvvvvVvvv....', 'vvvvvvvvvvvvvvvvvvvvv...', 'VVVVVVVVVVVVVVVVVVVVV...'],
+    '.....w.U......................',
+    '....wUwUw.....................',
+    '.....wUw......................',
+    '......u.......................',
+    '.....quq..........qqqq........',
+    '....qqqq.........qqqkqq.......',
+    '...qqqqqqqqq....qqqqqqq.......',
+    '..qqqqqqqqqqqqqqqqqqqq........',
+    '.qqQqqqqqqqqqyyqqqqqq.........',
+    '.qqqqqqQqqqqyyyyqqqq..........',
+    '.qqqqqqqqqqqyyyyqqqqq.........',
+    '.qQqqqqqqqqqyyyy.mmmmmmmmmmmR.',
+    'QqqqqqQqqqqqyyyyMMMMMMMMMMMMRR',
+    'QQqqqqqqqqqqyyy.mqqqqqmmmmmmR.',
+    'QQQqqqqqqqqyyy...qqQqq........',
+    'QQQ....qqq.qqq................',
+    'QQQ....qqq.qqq................',
+    'QQQ...QQQQ.QQQQ...............',
+  ],
   rabbit: mirror(RABBIT_LEFT),
   megabun: [
     '..........gg..gg....', '.........gpg.gpg....', '.........gpg.gpg....', '.........gpg.gpg....',
@@ -208,13 +222,32 @@ ART.twinblaze = [
   '...NNNNNNNnnfnnnnnnn......', '.F...NNNNnnnnnnnnnnn......', 'FfF...nnnnnnnnnnnnnN......', 'fRfF.nnnnnnnnnnnnnnN......',
   '.fRRnnnnnnnnnnnnnnnN......', '..fRnnnnnnnnnnnnnnnN......', '...NnnnnnnnnnnnnnnnN......', '....nnN.......nnN.........',
   '....nnN.......nnN.........', '....nnN.......nnN.........', '...FfRF......FfRF.........', '....FF........FF..........'];
-// Tricano: arms, legs, two volcanoes on its back, a water cannon arm
+// Tricano: a stone turtle on two legs with gorilla arms, two steaming volcanoes leaning forward off its rocky shell, and a big rocket launcher in its hands
 ART.tricano = [
-  '..........w.U.w...........', '...w.U...wUwUwUw..........', '..wUwUw....uUUu...........', '...uuu.....vuuv...........',
-  '...vuv....vvuuvv..........', '..vvvvv..vvvuvvvv.........', '..vVvvvvvvvvuvvvvv........', '.vvvvvvvvvkUvvkUvvv.......',
-  '.vvvvvvvvvvvvvvvvvvv.vvv..', 'vvvVvvvvvvvuuuuvvvvvvvvvvU', 'vvvvvvvvvvvvvvvvvvvvvvvvuU', 'vvvvvvvVvvvvvvvvvVvvv.vvv.',
-  '.vvvvvvvvvvvvvvvvvvvv.....', '..vvvvvvvvvvvvvvvvvv......', '...VVVV.......VVVV........', '...vvvv.......vvvv........',
-  '..VVVVVV.....VVVVVV.......'];
+  '....w.U.....w.U...................',
+  '...wUwUw...wUwUw..................',
+  '....wUw.....wUw...................',
+  '.....u.......u....................',
+  '....quq.....quq..qqqq.............',
+  '...qqqq....qqqq.qqqkqq............',
+  '..qqqqq..qqqqqqqqqqqqq............',
+  '..qqQqqqqqqqqqqqqqqqq.............',
+  '...qqqqqqqqqqqqyyqqqq.............',
+  '...qqqqqQqqqqqyyyyqqqqq...........',
+  '..QqqqqqqqqqqqyyyyqqQqqq..........',
+  '.QQqQqqqqqqqqqyyyy.qqqQqq.........',
+  '.QQqqqqqqqQqqqyyyy..qqqQqq........',
+  'QQQqqqqqqqqqqqyyyy.mmmmmmmmmmmmmR.',
+  'QQQQqqqqQqqqqqyyyyMMMMMMMMMMMMMMRR',
+  'QQQQqqqqqqqqqqyyyymMMMMMMMMMMMMMRR',
+  'QQQQ.qqqqqqqqqyyy.mqqqqqqmmmmmmR..',
+  'QQQQ..qqqqqqqyyy...qqQqQq.........',
+  'QQQQ......qqqq....................',
+  'QQQQ.....qqq.qqq..................',
+  'QQQQ.....qqq.qqq..................',
+  'QQQQ.....qqq.qqq..................',
+  'QQQQ....QQQQ.QQQQ.................',
+];
 // Iron Hound: a big steel hunting hound with a fiery collar
 ART.ironhound = [
   '..................II....', '.................IiiI...', '....fFf.fFf.....iiiiii..', 'II..MMMMMMMM....iiRiiiiI',
