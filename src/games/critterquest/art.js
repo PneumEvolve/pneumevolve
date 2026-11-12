@@ -10,12 +10,14 @@ const PAL = {
   n: '#3a2f52', N: '#5a4c80', o: '#e8742c', O: '#b9531b', m: '#a7b0c2', M: '#6b7488',
   u: '#4aa3df', U: '#bfe6fb', v: '#8b7563', V: '#6a5648',
   l: '#7fd35b', L: '#3f8f3a',                                  // leaf greens (Foxlet line)
+  C: '#5a3a22', T: '#3e2715',                                  // dark wood and its grain (Foxlet line)
   q: '#9a948c', Q: '#6f6a64', e: '#bdb8b0',                    // stone (Rockalock)
   i: '#9fb0c4', I: '#6d7f95', j: '#e3ebf3',                    // steel (Steel Dog)
   z: '#7a8a5a', Z: '#566440', x: '#c9c08f',                    // komodo scales and belly
   E: '#ffe14a', a: '#c98f1f', B: '#bff3ff',                    // electric yellow, amber, spark white-blue
   A: '#6fa3c4', H: '#3f6a8a', W: '#e2f7ff',                    // ice dinosaur blues and icicle white
   J: '#b07a4f',                                                // darker skin (Leader Brick)
+  K: '#1e1a22', X: '#3d3746',                                  // black and dark grey (Twinspino's legs)
 };
 
 function mk(w, h) {
@@ -54,6 +56,10 @@ function sprite(rows, { flip = false, tint = null, outline = true } = {}) {
 const withRows = (rows, from, repl) => rows.slice(0, from).concat(repl, rows.slice(from + repl.length));
 const swapPair = (rows, [a, b]) => rows.map(r => r.replace(new RegExp(`[${a}${b}]`, 'g'), ch => (ch === a ? b : a)));
 const recolor = (rows, map) => rows.map(r => r.replace(/./g, ch => map[ch] || ch));
+// Paint extra pixels on top of a sprite: pts = [[x, y, 'ch'], ...]. Used for the Foxlet line's leaves.
+// The Foxlet line is made of dark wood: orange becomes wood, with a few darker grain lines.
+const wood = rows => rows.map((r, y) => r.replace(/o/g, (m, x) => ((x * 2 + y * 3) % 7 === 0 ? 'T' : 'C')));
+const paint = (rows, pts) => { const g = rows.map(r => [...r]); for (const [x, y, ch] of pts) if (g[y] && x < g[y].length) g[y][x] = ch; return g.map(r => r.join('')); };
 const mirror = rows => rows.map(r => [...r].reverse().join(''));
 
 /* ---------------- the kid ---------------- */
@@ -105,15 +111,19 @@ const ART = {
     '.....nnN....nnN.........', '.....nnN....nnN.........', '.....nnN....nnN.........', '.....nnN....nnN.........',
     '....FfRF...FfRF.........', '.....FF.....FF..........'],
   // Foxlet: a little grass fox carrying a tiny hammer in its mouth (it grows into HAMMERFOX!)
-  foxlet: recolor(FOX_ROWS.map((r, y) => r.padEnd(19, '.')).map((r, y) =>
-    y === 4 ? r.slice(0, 16) + '.mM' : y === 5 ? r.slice(0, 14) + 'hhhmM' : y === 6 ? r.slice(0, 16) + '.mM' : r), { O: 'L', w: 'l' }),
-  hammerfox: recolor([
+  foxlet: paint(wood(recolor(FOX_ROWS.map((r, y) => r.padEnd(19, '.')).map((r, y) =>
+    y === 4 ? r.slice(0, 16) + '.mM' : y === 5 ? r.slice(0, 14) + 'hhhmM' : y === 6 ? r.slice(0, 16) + '.mM' : r), { O: 'L', w: 'l' })),
+    [[12, 3, 'F'], [12, 0, 'l'], [12, 1, 'L'], [8, 6, 'L'], [9, 6, 'l'], [5, 7, 'l'], [6, 7, 'L']]),   // leafy: a sprout on its head, leaves on its back
+  hammerfox: paint(wood(recolor([
     '........O....O..........', '........Oo..Oo....MMMMMM', '........oooooo....MmmmmM', '.......cccccccc...MmmmmM',
     '.......oooooko....MmmmmM', '.......oooooowwwk.MMMMMM', '........oooowww.....hh..', '.........owww.......hh..',
     '.......mmmmmmm......hh..', '......mmMmmmMmm.....hh..', '......mmmmmmmmmooooohh..', 'OO....mmmMmmmmm.....hh..',
     'Ooo...ooooooooo.....hh..', 'wooo..ooowwwooo.....hh..', 'wwooooooowwwooo.....hh..', '.wwoooooooooooo.....hh..',
     '...ccccccccccc......hh..', '......oooo.ooo......hh..', '......ooO...ooO.....hh..', '......ooO...ooO.....hh..',
-    '.....ooOO..ooOO.........', '.....kkkk..kkkk.........'], { O: 'L', c: 'L' }),
+    '.....ooOO..ooOO.........', '.....kkkk..kkkk.........'], { O: 'L', c: 'L' })),
+    // leafy: a sprout on its head, leaf shoulder pads, and vines wrapped round the hammer handle
+    [[12, 4, 'F'], [10, 0, 'l'], [11, 0, 'L'], [11, 1, 'l'], [5, 8, 'l'], [6, 8, 'L'], [5, 9, 'L'], [14, 8, 'L'], [15, 8, 'l'], [15, 9, 'L'],
+     [21, 7, 'L'], [20, 9, 'L'], [21, 11, 'L'], [20, 13, 'L'], [21, 15, 'L'], [20, 17, 'L'], [22, 9, 'l'], [22, 13, 'l']]),
   // Splashcano: a baby stone turtle on four little legs, with one small volcano on its shell that splashes water.
   splashcano: [
     '...U.U............',
@@ -200,13 +210,33 @@ ART.snapling = [
   '...LLllllllLL...', '.....LLLLLL.....', '....hhhhhhh.....', '...hhkhhhkhh....',
   '..hkkkkkkkkkh...', '..hkwkwkwkwkh...', '..hkkkkkkkkkh...', '..hkwkwkwkwkh...',
   '...hhhhhhhhh....', '..hh.hh.hh.hh...', '.hh..h...h..hh..'];
+// Tree Titan: long branch arms whose hands are axes with blades made of leaves
 ART.treetitan = [
-  '.......LLLLLLLLL........', '.....LLlllllllllLL......', '...LLllllLlllllllLLL....', '..LlllllllllLllllllL....',
-  '.LllLllllllllllllLllL...', '.LllllllllLllllllllllL..', '..LLlllllllllllllLlLL...', '....LLLLllllllLLLLLL....',
-  'hh.....hhhhhhhhhh.....hh', '.hh...hhhhhhhhhhhh...hh.', '..hhhhhhkhhhhhhkhhhhhh..', '...hhhhhhhhhhhhhhhhhh...',
-  '......hkkkkkkkkkkh......', '......hkwkwkwkwkwh......', '......hkkkkkkkkkkh......', '......hkwkwkwkwkwh......',
-  '......hhhhhhhhhhhh......', '.......hhhhhhhhhh.......', '.......hhh....hhh.......', '......hhhh....hhhh......',
-  '.....hhhhh....hhhhh.....', '....hh.h.h....h.h.hh....'];
+  '...............LLLLLLLLL................',
+  '.............LLlllllllllLL..............',
+  '...........LLllllLlllllllLLL............',
+  '..........LlllllllllLllllllL............',
+  '.........LllLllllllllllllLllL...........',
+  '.........LllllllllLllllllllllL..........',
+  '..........LLlllllllllllllLlLL...........',
+  '............LLLLllllllLLLLLL............',
+  '...............hhhhhhhhhh...............',
+  '..............hhhhhhhhhhhh..............',
+  '..........hhhhhhkhhhhhhkhhhhhh..........',
+  '........hhhhhhhhhhhhhhhhhhhhhhhh........',
+  '.......hhh....hkkkkkkkkkkh....hhh.......',
+  '......hhh.....hkwkwkwkwkwh.....hhh......',
+  '......hh......hkkkkkkkkkkh......hh......',
+  '...l..hh......hkwkwkwkwkwh......hh..l...',
+  '..llLLhh......hhhhhhhhhhhh......hhLLll..',
+  '.lllLLhh.......hhhhhhhhhh.......hhLLlll.',
+  '.llLlLhh.......hhh....hhh.......hhLlLll.',
+  '.lllLLhh.......hhh....hhh.......hhLLlll.',
+  '..llLL.........hhh....hhh.........LLll..',
+  '...l..........hhhh....hhhh..........l...',
+  '.............hhhhh....hhhhh.............',
+  '............hh.h.h....h.h.hh............',
+];
 ART.zapcat = [
   '..........E...E.', '.........EaE.EaE', '.........EEEEEEE', 'B........EEkEEkE',
   'BB.......EEEEtEE', '.BB......EEaaaE.', '..BBBBEEEEEEEE..', '.BB..EEaEEaEEE..',
@@ -222,14 +252,34 @@ ART.demoncat = [
   'E...NNNNNnnnnnnnnnn.....', 'EE...NNnnnnnnnnnnnnn....', '.EE...nnnnnEnnnnnEnnn...', '..EEE.nnnnnnnEnnnnnnn...',
   '....EEnnnnnnnnnnnnnnn...', '.....nnnnnnnnnnnnnnnn...', '......nnN..nnN..nnN.nnN.', '......nnN..nnN..nnN.nnN.',
   '......nnN..nnN..nnN.nnN.', '.....RRR..RRR..RRR.RRR..'];
-// Warfox: four arms, hammers up top, axes down low
-ART.warfox = recolor([
-  'MMMM......O....O.....MMMM.', 'MmmM......Oo..Oo.....MmmM.', 'MMMM......oooooo.....MMMM.', '..h......cccccccc.....h...',
-  '..h......oooooko......h...', '..h......oooooowwwk...h...', '..hoo.....oooowww....ooh..', '...ooo.....owww.....ooo...',
-  '.....ooommmmmmmmmooo......', '........mmMmmmMmm.........', '........mmmmmmmmm.........', '.....oooommMmmmmmoooo.....',
-  '...oo...ooooooooo...oo....', '..mMm...ooowwwooo...mMm...', '.mmMm...ooowwwooo...mMmm..', '..mMh...ooooooooo...hMm...',
-  '....h..ccccccccccc..h.....', '....h...oooo.oooo...h.....', '........ooO...ooO.........', '.......ooOO...ooOO........',
-  '.......kkkk...kkkk........'], { O: 'L', c: 'L' });
+// Warfox: four arms, hammers up top, axes held out sideways down low
+ART.warfox = paint(wood(recolor([
+  '...MMMM......O....O.....MMMM....',
+  '...MmmM......Oo..Oo.....MmmM....',
+  '...MMMM......oooooo.....MMMM....',
+  '.....h......cccccccc.....h......',
+  '.....h......oooooko......h......',
+  '.....h......oooooowwwk...h......',
+  '.....hoo.....oooowww....ooh.....',
+  '......ooo.....owww.....ooo......',
+  '........ooommmmmmmmmooo.........',
+  '...........mmMmmmMmm............',
+  '...........mmmmmmmmm............',
+  '.m......oooommMmmmmmoooo......m.',
+  'mM....oo...ooooooooo....oo....Mm',
+  'mMhhhhoo...ooowwwooo....oohhhhMm',
+  'mM.........ooowwwooo..........Mm',
+  '.m.........ooooooooo..........m.',
+  '..........ccccccccccc...........',
+  '...........oooo.oooo............',
+  '...........ooO...ooO............',
+  '..........ooOO...ooOO...........',
+  '..........kkkk...kkkk...........',
+], { O: 'L', c: 'L' })),
+  // leafy: a sprout on its head, leaf shoulder pads, and vines wrapped round every handle
+  [[17, 4, 'F'], [15, 0, 'l'], [16, 0, 'L'], [16, 1, 'l'], [8, 7, 'l'], [9, 7, 'L'], [8, 8, 'L'], [22, 7, 'L'], [23, 7, 'l'], [23, 8, 'L'],
+   [5, 4, 'L'], [6, 5, 'l'], [25, 4, 'L'], [24, 5, 'l'], [3, 13, 'L'], [4, 12, 'l'], [28, 13, 'L'], [27, 12, 'l'],
+   [12, 16, 'l'], [15, 16, 'l'], [18, 16, 'l']]);
 // Twinblaze: two flaming heads and big wings
 ART.twinblaze = [
   '................nnnn......', '...............nnnnFn.....', '..N...........fnnnnnnn....', '.NNN.........fRnnnn.nnnn..',
@@ -341,17 +391,19 @@ ART.saberstag = [
   '...LlllllllllllllL......', '...Lll.Lll...Lll.LllL...', '...Lll..LL...LL...LlL...', '...LL...LL...LL....LL...',
   '...kk...kk...kk....kk...'];
 ART.aquakylo = [
-  '........u.u.u.u.........',
-  '......uzuzuzuzuzu.......',
-  '....zzzzzzzzzzzzzz......',
-  'UU..zzzzZzzzzZzzzzz.....',
-  'uUuzzzzzzzzzzzzzzzzzzz..',
-  'uuuZzzzZzzzzzzzZzzzzzkz.',
-  '.u..zzzzzzzzzzzzzzzzzzzz',
-  '....xxxxxxxxxxxxxxzzz...',
-  '.....zzZ.zzZ..zzZ.zzZ...',
-  '.....zzZ.zzZ..zzZ.zzZ...',
-  '.....ZZZ.ZZZ..ZZZ.ZZZ...',
+  '..............U...U.............',
+  '..........U..uUu.uUu..U.........',
+  '.........uUu.uuu.uuu.uUu........',
+  '.........uuuzzzzzzzzzuuu........',
+  '.uUu......zzzzzzzzzzzz..........',
+  'uUUuu....zzzzZzzzzZzzzzz.zzzz...',
+  'uUuuuzzzzzzzzzzzzzzzzzzzzzkkzzz.',
+  'uuuuuzZzZzzzZzzzzzzzZzzzzzzkRzzz',
+  '.uuu.....zzzzzzzzzzzzzzzzzzzzwkw',
+  '.........xxxxxxxxxxxxxxz.zzzzzz.',
+  '.........zZ...zZ...zZ...zZ......',
+  '.........zZ...zZ...zZ...zZ......',
+  '.........ZZ...ZZ...ZZ...ZZ......',
 ];
 ART.brawlkylo = [
   '...............zzzz.......',
@@ -416,36 +468,52 @@ ART.xenofrost = [
   '.............WWW......WWW..................',
 ];
 ART.firespino = [
-  '..........F..F..............',
-  '........FfF.FfF.F...........',
-  '.......FfRfFfRfFfF..........',
-  '.......fRRRfRRRfRf..........',
-  '........RRRRRRRRR.....vvv...',
-  '......vvvvvvvvvvvvv.vvvkvvvv',
-  '...vvvvvvvVvvvvvvvvvvvvvvvvw',
-  'vvvvvvvvvvvvvvvvvvvvvv.wwww.',
-  '.vvvvVvvvvvvxxxxxvvv........',
-  '...vvvvvvvvvxxxxvv.vV.......',
-  '......vvvvvvxxxvv..V........',
-  '.......vvvv...vvv...........',
-  '.......vvv....vvv...........',
-  '......VVVV...VVVV...........',
+  '....................F..F................',
+  '..................FfF.FfF.F.............',
+  '.................FfRfFfRfFfF............',
+  '.................fRRRfRRRfRf............',
+  '.................fRRRfRRRfRf............',
+  '...............F.FRRRfRRRfRf............',
+  '.............FfRfFRRRRRRRRR....vvv....vv',
+  '..........fRfRfRvvvvvvvvvvvvv.vvkvvvvvvv',
+  '........vvvvvvvvvvvvVvvvvvvvvvvvvvvvvvvv',
+  '..vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvwvwvwvw.',
+  'vv.........vvvvVvvvvvvxxxxxvvv...vvvvvvv',
+  '.............vvvvvvvvvxxxxvvvvvvVjj.....',
+  '.............vvvvvvvvvxxxxvv.......j....',
+  '................vvvvvvxxxvvvvvvVjj......',
+  '.................vvvv...vvv.......j.....',
+  '.................vvv....vvvvvvVjj.......',
+  '.................vvv....vvv.....j.......',
+  '.................vvv....vvv.............',
+  '................VVVVj..VVVVj............',
+  '...............VVVVVVjVVVVVVj...........',
 ];
 ART.twinspino = [
-  '..........F..F..F...............',
-  '........FfF.FfF.FfF.............',
-  '.......FfRfFfRfFfRfF....vvv.....',
-  '.......fRRRfRRRfRRRf...vvvkvvvv.',
-  '........RRRRRRRRRRRR..vvvvvvvwww',
-  '.....vvvvvvvvvvvvvvvvvvv..vvvv..',
-  '..vvvvvvvVvvvvvvvvvvvvvv.vvkvvvv',
-  'vvvvvvvvvvvvvvvvvvvvvvvvvvvvvwww',
-  '.vvvvVvvvvvvvvvvvvvvvvvv........',
-  '...vvvvvvvvxxxxxxxxvvvjj........',
-  '....vvvvvvvxxxxxxxvvvjj.jj......',
-  '.....vvv.vvv...vvv.vvv..jj......',
-  '.....vvv.vvv...vvv.vvv..........',
-  '....VVVV.VVVV..VVVV.VVVV........',
+  '....................F..F..F..................',
+  '..................FfF.FfF.FfF................',
+  '.................FfRfFfRfFfRfF...............',
+  '.................fRRRfRRRfRRRf...............',
+  '.................fRRRfRRRfRRRf.....W.........',
+  '.................fRRRfRRRfRRRf.....uB..W.....',
+  '..............F.FfRRRfRRRfRRRf......uB.uB....',
+  '............FfRfFfRRRRRRRRRRRR......uBu.uB...',
+  '.........fRfRfRvvvvvvvvvvvvvvvvvvv..vvv.uBuvv',
+  '........vvvvvvvvvvvVvvvvvvvvvvvvvv.vvkvvvvvvv',
+  '..vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv',
+  'vv.........vvvvVvvvvvvvvvvvvvvvvvv.wvwvwvwvw.',
+  '.............vvvvvvvvxxxxxxxxvvvvv..vvvvvvv..',
+  '.............vvvvvvvvxxxxxxxxvvvvvvvVjj......',
+  '..............vvvvvvvxxxxxxxvvvv.......j.....',
+  '................KKKK.....KKKKvvvvvvVjj.......',
+  '................KKKX.....KKKX.........j......',
+  '................KKKX.....KKKXvvvvvVjj........',
+  '................KKKX.....KKKX.......j........',
+  '................KKKX.....KKKX................',
+  '................KKKX.....KKKX................',
+  '................KKKX.....KKKX................',
+  '................XXXXXj...XXXXXj..............',
+  '...............XXXXXXXj.XXXXXXXj.............',
 ];
 ART.ironrex = [
   '....................m.M.m.....',
