@@ -221,6 +221,43 @@ ART.ironhound = [
   '.I.MMiiiiiiMM..iiiiijjjj', '..iiiiiiiiiiiiiiiiijjfF.', '.iiiiiiiiiiiiiiiiiii..f.', 'Iiiiiiiiiijjjjiiiii.....',
   'IIiiiiiiijjjjjiiiI......', '.Iiiiiiiiiiiiiiiii......', '..IiiI......IiiiI.......', '..IiiI......IiiiI.......',
   '..IiiI......IiiiI.......', '.IIIII.....IIIIII.......'];
+ART.volcanobun = [
+  '...........vv.vv..', '.F..F......vRvvRv.', 'FfFFfF.....vRvvRv.', '.fRRf......vRvvRv.',
+  '.vRRv.vRv..vvvvvv.', 'vvRRvvvRvvvvvvkvvv', 'vvvvvvvvvvvvvvvvvR', '.vvvvvvvvvvvvvvvv.',
+  '.vvVVVvvvvvvvvvv..', '..vvvvvvvvvvvvvv..', '..VVV.....vvVV....', '.VVVV....VVVVV....'];
+// Magma Bunny: a bunny made of pure lava (the whole body shimmers)
+ART.magmabunny = [
+  '..............RR..RR..', '.............RfR.RfR..', '.............RFR.RFR..', '.............RfR.RfR..',
+  '.............RfRRRfR..', '............RffffffR..', '............RfFfffFfR.', '...F........RffffffffR',
+  '..FfF.......RffRRRffR.', '.FfRfF...RRRffffffRR..', '..fRf..RRfffFffffffR..', '...RRRRffffffffFfffR..',
+  '....RffffFffffffffR...', '....RfffffffFffffffR..', '....RffFffffffffffR...', '.....RRfffRRRRffffR...',
+  '....RffR.....RfffR....', '...RfffR....RffffR....', '...RRRRR....RRRRRR....'];
+ART.ninjamonkey = [
+  '........hhhh......', '.......hhhhhh.....', '...RR.RRRRRRRR....', '..RR..hsksskh.....',
+  '.......sssssst....', '........ssss......', '......nnnnnnn.....', '.hh..nnnRnnnnhh...',
+  '..hhnnnnRnnnn.hh..', '....nnnnnnnn...hs.', '....nnnnnnnn......', 'F...hnnnnnnh......',
+  'fF..hh....hh......', '.Ff.hh....hh......', '..fhhh....hhh.....', '....kk....kkk.....'];
+// Sky Ninja: flaming wings and a giant golden sword
+ART.skyninja = [
+  '......................yY..', '.....................yYy..', '........hhhh........yYy...', '.......hhhhhh......yYy....',
+  '...RR.RRRRRRRR....yYy.....', '..RR..hsksskh....yYy......', '.......sssssst..yYy.......', 'f.......ssss...yYy........',
+  'Ff....nnnnnnn.hYh.........', 'FfF.nnnnRnnnnhhh..........', '.FfFnnnnRnnnn.............', '..FfnnnnnnnnF.............',
+  '...fnnnnnnnnfF............', '....hnnnnnnhFf............', '....hh....hh.f............', '....hh....hh..............',
+  '....kk....kkk.............'];
+// Zen Ninja: slim and golden with goat horns, floating upright with straight legs over two little flames
+ART.zenninja = [
+  '..QQ..........QQ..', '...Q..........Q...', '....Q.yyyyyy.Q....', '.....QyyyyyyQ.....',
+  '......ykyyky......', '......yyyyyy......', '.......yRRy.......', '.....yyyyyyyy.....',
+  '....y.yyyyyy.y....', '....y.yyyyyy.y....', '...y..yyyyyy..y...', '.......yyyyF......',
+  '.......y..y.fF....', '.......y..y..Ff...', '.......y..y...F...', '.......Y..Y.......',
+  '..................', '......fF..Ff......', '.......f..f.......'];
+// Pyrolion: the legendary FIRE/WATER lion with a flaming mane and water-swirl paws
+ART.pyrolion = [
+  '...............F.F.F......', '..............FfRfRfF.....', '.............FfRRRRRfF....', '............FfRRyyyyRfF...',
+  '...........FfRRyykyyyRfF..', '...........fRRyyyyyyyyyRf.', '...........fRyyyyyyykyyyR.', '...........fRRyyyyUUUyyR..',
+  '............fRRyyyyyyyR...', 'uu..........FfRRRRRRRRf...', 'Uuu......yyyyyFfRRRRfF....', '.uUu..yyyyyyyyyyyyyyy.....',
+  '..uuyyyyyyyyyyyyyyyyy.....', '...yyyyyYyyyyyyyyyyyy.....', '...yyyyyyyyyyyyyyyYyy.....', '....yyyyyyyyyyyyyyyyy.....',
+  '....yyY.....yyY..yyY......', '....yyY.....yyY..yyY......', '...UuuU....UuuU.UuuU......'];
 const NO_OUTLINE = new Set(['rabbit', 'steeldog']);
 
 /* ---------------- tiles ---------------- */
@@ -275,7 +312,7 @@ function recolorCanvas(src, cfg) {
 }
 
 /* ---------------- build everything (needs a browser) ---------------- */
-export function buildArt(speciesTable) {
+export function buildArt(speciesTable, gyms = {}) {
   const NO = { outline: false };
   const KID = {
     down: sprite(P_DOWN, NO), downA: sprite(withRows(P_DOWN, 14, LEGS_STEP), NO), downB: sprite(withRows(P_DOWN, 14, LEGS_STEP), { outline: false, flip: true }),
@@ -412,6 +449,31 @@ export function buildArt(speciesTable) {
         px(g, '#2a2135', x - 1, y - 1, 6, 4); px(g, '#d94a3a', x, y, 4, 2); px(g, '#ffffff', x + 1, y, 1, 1);
       }
     }),
+    ash: [0, 1, 2].map(seed => tile(g => {
+      px(g, '#4a3d3a', 0, 0, 16, 16);
+      for (let i = 0; i < 4; i++) {
+        const x = Math.floor(hash(seed + 70, i * 7) * 14), y = Math.floor(hash(i * 5, seed + 70) * 14);
+        px(g, i === 0 ? '#ff7a2a' : '#3a2f2c', x, y, i === 0 ? 1 : 2, 1);
+      }
+    })),
+    lava: [0, 1].map(f => tile(g => {
+      px(g, '#e2392b', 0, 0, 16, 16);
+      px(g, '#ff7a2a', 2 + f * 3, 3, 5, 2); px(g, '#ff7a2a', 9 - f * 2, 9, 5, 2); px(g, '#ffd23f', 4 + f * 2, 12, 3, 1); px(g, '#ffd23f', 11 - f * 3, 5, 2, 1);
+    })),
+    embers: tile(g => {
+      px(g, '#3a2f2c', 0, 0, 16, 16);
+      for (const [x, y] of [[1, 2], [8, 1], [12, 6], [3, 8], [9, 10], [12, 13], [2, 13], [6, 5]]) {
+        px(g, '#1f1816', x, y + 1, 3, 1); px(g, '#5a4a44', x, y, 3, 1); px(g, '#ff7a2a', x + 1, y - 1, 1, 1);
+      }
+    }),
+    blackrock: tile(g => {
+      px(g, '#4a3d3a', 0, 0, 16, 16);
+      for (let y = 2; y < 16; y++) for (let x = 0; x < 16; x++) {
+        const v = ((x - 7.5) / 7.5) ** 2 + ((y - 9.5) / 6.5) ** 2;
+        if (v <= 1) px(g, v > 0.8 ? '#120d0c' : (y < 8 ? '#3d3330' : '#2a2220'), x, y);
+      }
+      px(g, '#5a4a44', 4, 5, 3, 1); px(g, '#ff7a2a', 9, 10, 1, 2);
+    }),
     gate: [false, true].map(open => tile(g => {
       px(g, '#e4cc92', 0, 0, 16, 16);
       for (const x of [1, 12]) { px(g, '#4a2e17', x, 1, 3, 15); px(g, '#8a5a2e', x + 1, 2, 1, 13); px(g, '#2a2135', x, 0, 3, 1); }
@@ -450,9 +512,12 @@ export function buildArt(speciesTable) {
 
   // A 9x5-tile gym hall with a badge on the roof and a GYM sign. style: 'stone' (Pebble) or 'wood' (Mossy).
   function makeGym(style) {
-    const st = style === 'wood'
-      ? { roof: '#3f7a3c', roofLine: '#2f5f2e', roofHi: '#5fa05a', wall: '#a9784a', wallLine: '#8a5f36', badge: ['#2f5f2e', '#4caf50', '#7fd35b'], door: ['#4a2e17', '#6b4226'] }
-      : { roof: '#4a5568', roofLine: '#3a4352', roofHi: '#6b7891', wall: '#a3a9b5', wallLine: '#8a909c', badge: ['#2a2135', '#9a948c', '#bdb8b0'], door: ['#5b6577', '#748098'] };
+    const st = {
+      wood:  { roof: '#3f7a3c', roofLine: '#2f5f2e', roofHi: '#5fa05a', wall: '#a9784a', wallLine: '#8a5f36', badge: ['#2f5f2e', '#4caf50', '#7fd35b'], door: ['#4a2e17', '#6b4226'], sign: '#3f7a3c', planks: true },
+      stone: { roof: '#4a5568', roofLine: '#3a4352', roofHi: '#6b7891', wall: '#a3a9b5', wallLine: '#8a909c', badge: ['#2a2135', '#9a948c', '#bdb8b0'], door: ['#5b6577', '#748098'], sign: '#c0443a' },
+      maple: { roof: '#d9762e', roofLine: '#b45c1f', roofHi: '#f29a52', wall: '#e9d3a8', wallLine: '#cdb382', badge: ['#8a3d12', '#e8742c', '#ffb36b'], door: ['#6b4226', '#8a5a2e'], sign: '#d9762e', planks: true },
+      ember: { roof: '#8f1f18', roofLine: '#6b1610', roofHi: '#c0443a', wall: '#3d3330', wallLine: '#2a2220', badge: ['#2a2135', '#e2392b', '#ffd23f'], door: ['#1f1816', '#3a2f2c'], sign: '#e2392b' },
+    }[style];
     const [c, g] = mk(144, 80);
     px(g, '#2a2135', 0, 4, 144, 30); px(g, st.roof, 1, 5, 142, 28);
     for (let y = 9; y < 33; y += 6) px(g, st.roofLine, 1, y, 142, 1);
@@ -461,25 +526,40 @@ export function buildArt(speciesTable) {
       const d = Math.hypot(x - 12.5, y - 12.5);
       if (d < 12.5) px(g, d > 11 ? '#2a2135' : d > 8 ? st.badge[1] : st.badge[2], 59 + x, 2 + y);
     }
-    if (style === 'wood') { px(g, st.badge[0], 71, 7, 2, 16); px(g, st.badge[0], 66, 12, 12, 2); }
+    if (style === 'wood' || style === 'maple') { px(g, st.badge[0], 71, 7, 2, 16); px(g, st.badge[0], 66, 12, 12, 2); }
+    else if (style === 'ember') { px(g, '#ff7a2a', 69, 9, 6, 12); px(g, '#ffd23f', 70, 13, 4, 7); px(g, '#ff7a2a', 71, 6, 2, 3); }
     else { px(g, '#e3dfd8', 66, 8, 4, 3); px(g, '#6f6a64', 72, 16, 5, 1); }
     px(g, '#2a2135', 4, 33, 136, 47); px(g, st.wall, 5, 33, 134, 46);
     for (let y = 37; y < 79; y += 6) {
       px(g, st.wallLine, 5, y, 134, 1);
-      if (style !== 'wood') for (let x = (y / 6) % 2 ? 9 : 19; x < 139; x += 20) px(g, st.wallLine, x, y - 5, 1, 5);
+      if (!st.planks) for (let x = (y / 6) % 2 ? 9 : 19; x < 139; x += 20) px(g, st.wallLine, x, y - 5, 1, 5);
     }
     for (const wx of [16, 108]) { px(g, '#2a2135', wx, 44, 20, 16); px(g, '#a8dcf7', wx + 1, 45, 18, 14); px(g, '#d9f1fb', wx + 2, 46, 4, 4); px(g, '#2a2135', wx + 9, 45, 2, 14); }
-    px(g, '#2a2135', 63, 34, 19, 11); px(g, style === 'wood' ? '#3f7a3c' : '#c0443a', 64, 35, 17, 9);
+    px(g, '#2a2135', 63, 34, 19, 11); px(g, st.sign, 64, 35, 17, 9);
     const letters = { G: ['###', '#..', '#.#', '#.#', '###'], Y: ['#.#', '#.#', '.#.', '.#.', '.#.'], M: ['#...#', '##.##', '#.#.#', '#...#', '#...#'] };
     let lx = 66;
     for (const ch of 'GYM') { letters[ch].forEach((row, y) => [...row].forEach((p, x) => { if (p === '#') px(g, '#ffffff', lx + x, 37 + y); })); lx += letters[ch][0].length + 1; }
     px(g, '#2a2135', 64, 52, 16, 28); px(g, st.door[0], 65, 53, 14, 27); px(g, st.door[1], 66, 54, 5, 25); px(g, '#ffd23f', 75, 66, 2, 2);
     return c;
   }
-  const GYM_IMG = { stone: makeGym('stone'), wood: makeGym('wood') };
+  const LEGEND_VOLCANO = (() => {
+    const [c, g] = mk(48, 48);
+    for (let y = 8; y < 48; y++) for (let x = 0; x < 48; x++) {
+      const half = 6 + (y - 8) * 0.48;
+      if (Math.abs(x - 23.5) <= half) px(g, Math.abs(x - 23.5) > half - 1.2 ? '#120d0c' : (x < 23.5 - half * 0.3 ? '#4a3d3a' : '#3a2f2c'), x, y);
+    }
+    px(g, '#120d0c', 16, 6, 16, 4); px(g, '#e2392b', 18, 7, 12, 3); px(g, '#ffd23f', 21, 7, 6, 1);
+    px(g, '#e2392b', 23, 10, 2, 14); px(g, '#ff7a2a', 23, 12, 1, 8);              // lava stream
+    px(g, '#9c958c', 14, 0, 6, 4); px(g, '#bdb8b0', 22, 1, 7, 4); px(g, '#9c958c', 29, 0, 5, 3);   // smoke
+    px(g, '#120d0c', 20, 38, 8, 10); px(g, '#e2392b', 21, 39, 6, 9); px(g, '#ff7a2a', 22, 41, 4, 7); // glowing cave mouth
+    return c;
+  })();
+  const GYM_IMG = { stone: makeGym('stone'), wood: makeGym('wood'), maple: makeGym('maple'), ember: makeGym('ember') };
   const LEADERS = {
     brick: sprite(recolor(P_DOWN, { c: 'Q', r: 'O', b: 'V', w: 'F' }), NO),
     ivy: sprite(recolor(P_DOWN, { c: 'L', r: 'l', b: 'n', w: 'p', h: 'O' }), NO),
+    hazel: sprite(recolor(P_DOWN, { c: 'o', r: 'y', b: 'h', w: 'R' }), NO),
+    pyra: sprite(recolor(P_DOWN, { c: 'R', r: 'f', b: 'n', h: 'R', w: 'F' }), NO),
   };
 
   // Battle backdrops: sunny meadow, rocky mountain, the gym hall.
@@ -493,13 +573,22 @@ export function buildArt(speciesTable) {
       }
       for (const tx of [14, 62, 128, 170, 222]) { px(g, '#2e1d10', tx, 14, 10, 34); px(g, '#4a2e17', tx + 2, 14, 3, 34); }
       for (const [lx, ly] of [[40, 20], [100, 12], [150, 26], [200, 18]]) px(g, '#f2e9a0', lx, ly, 2, 2);   // fireflies
+    } else if (kind === 'volcano') {
+      ['#3a1410', '#4a1a12', '#5a2014', '#6b2816', '#7a3018', '#8a381a'].forEach((col, i) => px(g, col, 0, i * 7, 240, 7));
+      for (let x = 0; x < 240; x++) {
+        const peak = 18 + Math.round(Math.abs(((x + 50) % 120) - 60) * 0.45);
+        px(g, '#2a1f1c', x, peak, 1, 60);
+        if (Math.abs(((x + 50) % 120) - 60) < 4) px(g, '#e2392b', x, peak, 1, 4);
+      }
+      for (const [sx, sy] of [[60, 6], [180, 4], [120, 14]]) { px(g, '#5a4a44', sx, sy, 10, 4); px(g, '#6b5a52', sx + 3, sy - 3, 8, 4); }
+      px(g, '#e2392b', 0, 42, 240, 3); px(g, '#ff7a2a', 0, 43, 240, 1);          // far lava river
     } else if (kind.startsWith('gym')) {
       px(g, '#6e7584', 0, 0, 240, 48);
       for (let y = 6; y < 48; y += 7) {
         px(g, '#5c6371', 0, y, 240, 1);
         for (let x = (y / 7) % 2 ? 0 : 14; x < 240; x += 28) px(g, '#5c6371', x, y - 6, 1, 6);
       }
-      const banner = kind === 'gym-mossy' ? '#3f7a3c' : '#c0443a';
+      const banner = kind.split(':')[1] || '#c0443a';
       for (const bx of [30, 110, 190]) { px(g, '#2a2135', bx, 8, 20, 30); px(g, banner, bx + 1, 9, 18, 28); px(g, '#ffd23f', bx + 8, 18, 4, 4); }
       px(g, '#4a5568', 0, 44, 240, 4);
     } else {
@@ -525,6 +614,7 @@ export function buildArt(speciesTable) {
       meadow:   { bands: ['#9cd27b', '#a5d985'], plat: ['#5d9c4c', '#92ce6e', '#7fbd5f'] },
       mountain: { bands: ['#c4b79d', '#bcae93'], plat: ['#857a68', '#d3c8b1', '#ab9f86'] },
       forest:   { bands: ['#5d8a45', '#56813f'], plat: ['#3c5f2c', '#7aa85c', '#638f4a'] },
+      volcano:  { bands: ['#4a3d3a', '#433633'], plat: ['#1f1816', '#6b5a52', '#5a4a44'] },
       gym:      { bands: ['#cfc8b8', '#c6bfae'], plat: ['#8a8273', '#e4dccb', '#b9b09d'] },
     }[kind.startsWith('gym') ? 'gym' : kind];
     for (let y = 46; y < 160; y++) { g.fillStyle = look.bands[Math.floor((y - 46) / 6) % 2]; g.fillRect(0, y, 240, 1); }
@@ -541,10 +631,10 @@ export function buildArt(speciesTable) {
     meadow: makeField(BATTLE_PLATFORMS, 'meadow'),
     mountain: makeField(BATTLE_PLATFORMS, 'mountain'),
     forest: makeField(BATTLE_PLATFORMS, 'forest'),
-    'gym-pebble': makeField(BATTLE_PLATFORMS, 'gym'),
-    'gym-mossy': makeField(BATTLE_PLATFORMS, 'gym-mossy'),
+    volcano: makeField(BATTLE_PLATFORMS, 'volcano'),
     choose: makeField([48, 120, 192].map(x => [x, 98, 30, 7]), 'meadow'),
   };
+  for (const [id, gym] of Object.entries(gyms)) BG['gym-' + id] = makeField(BATTLE_PLATFORMS, 'gym:' + (gym.banner || '#c0443a'));
 
-  return { KID, sprites, TILES, HOUSES, GYM_IMG, LEADERS, BG, spriteURL };
+  return { KID, sprites, TILES, HOUSES, GYM_IMG, LEADERS, LEGEND_VOLCANO, BG, spriteURL };
 }

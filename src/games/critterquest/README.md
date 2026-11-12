@@ -35,11 +35,15 @@ Shown automatically when running `npm run dev`, or on the live site by adding `?
 
 The world is a row of areas going right (east). Each town sits directly below its area.
 
-| Area (left to right) | Critter levels | How to get in | Town below it |
+| Area (left to right) | Critter levels | How to get in | Town below it (healing hut + shiny trader + gym) |
 | --- | --- | --- | --- |
-| Maple Hill meadows | 2–9 | start here | none (your home is here) |
-| Rocky Mountains | 11–18 | a critter past Lv 10 | Pebble Town: shiny trader, rest stop, Leader Brick |
-| Whisper Forest | 20–30 | Boulder Badge | Mossy Hollow: healing hut, Leader Ivy |
+| Maple Hill meadows | 2–9 | start here | Sprout Village: Leader Hazel (starter gym) |
+| Rocky Mountains | 11–18 | a critter past Lv 10 | Pebble Town: Leader Brick |
+| Whisper Forest | 20–30 | Boulder Badge | Mossy Hollow: Leader Ivy |
+| The Volcano | 40–49 | Grove Badge | Ember Town: Leader Pyra (Fire Gym) |
+
+The legendary PYROLION (Fire/Water) sleeps in the big volcano in the middle of The Volcano. Bring a Lv 50 critter
+and walk into the glowing cave. It keeps coming back until you catch it.
 
 - Starters and wild critters evolve; wild critters past their evolve level come already evolved
 - Electric and Flying types; Zapcat line in every biome; third evolutions for Blazepony, Foxlet, Splashcano and Steel Dog lines
@@ -47,11 +51,11 @@ The world is a row of areas going right (east). Each town sits directly below it
 - A BOX at home and in rest huts holds extra critters (they don't earn XP); snacks heal more with every badge
 - Shinies (25% more attack): find them in the wild, or trade 3 plain critters of one kind for 1 shiny in Pebble Town
 - Pods to catch critters, a team of 6
-- Level caps: 25 to start, 35 with the Boulder Badge, 45 with the Grove Badge
+- Level caps: 25 to start, 35 with the Boulder Badge, 50 with the Grove Badge, 60 with the Ember Badge
 
 ## Adding the next area
 
-1. Add an entry to `AREAS` in `data.js` (kind: `meadow`, `mountains` or `forest`, plus a gate and welcome text).
+1. Add an entry to `AREAS` in `data.js` (kind: `meadow`, `mountains`, `forest` or `volcano`, plus a gate and welcome text).
 2. Add its encounter table to `ENCOUNTERS`, and if it has a town, a `TOWNS` and `GYMS` entry and a `LEVEL_CAP` for the new badge.
 3. The map builder in `engine.js` lays it out to the right automatically, with the town below and a gate from the area before it.
    A brand-new kind of area (snow, desert...) needs a small layout block in `buildMap()` plus tiles in `art.js`.

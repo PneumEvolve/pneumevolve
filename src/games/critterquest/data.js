@@ -12,6 +12,7 @@ export const TYPE_COLORS = {
   STEEL: '#7c8ea3',
   ELECTRIC: '#e6b800',
   FLYING: '#7aa7e0',
+  PSYCHIC: '#d45fa0',
 };
 
 // attacker type -> defender type -> multiplier (anything missing is 1x)
@@ -27,6 +28,7 @@ const CHART = {
   NORMAL:   { ROCK: 0.5, STEEL: 0.5 },
   ELECTRIC: { FLYING: 2, WATER: 1, GRASS: 0.5, ELECTRIC: 0.5 },
   FLYING:   { GRASS: 2, ELECTRIC: 0.5, ROCK: 0.5, STEEL: 0.5 },
+  PSYCHIC:  { FIGHTING: 2, STEEL: 0.5, PSYCHIC: 0.5 },
 };
 export function effectiveness(moveType, defenderTypes) {
   return defenderTypes.reduce((m, t) => m * ((CHART[moveType] || {})[t] ?? 1), 1);
@@ -102,6 +104,22 @@ export const MOVES = {
   'Steam Cannon': { type: 'WATER',    power: 21, acc: 85,  anim: 'proj', proj: 'steamball' }, // Tricano
   'Flamethrower': { type: 'FIRE',     power: 16, acc: 90,  anim: 'proj', proj: 'fire' },  // Iron Hound
   'Metal Burst':  { type: 'STEEL',    power: 23, acc: 85,  anim: 'proj', proj: 'burst' }, // Iron Hound's strongest
+  // Volcano Bun / Magma Bunny
+  'Lava Hop':     { type: 'FIRE',     power: 14, acc: 90,  anim: 'thump' },
+  'Ember Spit':   { type: 'FIRE',     power: 16, acc: 90,  anim: 'proj', proj: 'fire' },
+  'Magma Burst':  { type: 'FIRE',     power: 22, acc: 85,  anim: 'proj', proj: 'magma' },
+  // Ninja Monkey / Sky Ninja / Zen Ninja
+  'Flame Kick':   { type: 'FIRE',     power: 15, acc: 95,  anim: 'pounce' },
+  'Ninja Chop':   { type: 'FIGHTING', power: 16, acc: 90,  anim: 'lunge' },
+  'Smoke Bomb':   { type: 'FIRE',     effect: ['eva', 1, 'self'] },
+  'Golden Sword': { type: 'FLYING',   power: 24, acc: 85,  anim: 'smash' },
+  'Mind Blaze':   { type: 'PSYCHIC',  power: 24, acc: 90,  anim: 'proj', proj: 'mind' },
+  'Calm Mind':    { type: 'PSYCHIC',  effect: ['atk', 1, 'self'] },
+  // Pyrolion (legendary)
+  'Lion Roar':    { type: 'NORMAL',   effect: ['atk', -1, 'foe'] },
+  'Flame Mane':   { type: 'FIRE',     power: 20, acc: 90,  anim: 'proj', proj: 'magma' },
+  'Tidal Roar':   { type: 'WATER',    power: 22, acc: 90,  anim: 'proj', proj: 'steamball' },
+  'Inferno Pounce': { type: 'FIRE',   power: 26, acc: 85,  anim: 'pounce' },
 };
 const EFFECT_SUB = { 'atk-1': 'ATK ↓', 'def-1': 'DEF ↓', 'def1': 'DEF ↑', 'eva1': 'DODGE ↑' };
 export const moveSub = m => {
@@ -282,6 +300,47 @@ export const SPECIES = {
     moves: ['Thunder Claw', 'Hiss', 'Pounce', 'Demon Bolt'],
     appear: 'descended in a storm', exit: 'It flew off in a crack of thunder.', exitAnim: 'fly',
   },
+  volcanobun: {
+    name: 'VOLCANO BUN', types: ['FIRE'], flicker: 'fF', catchRate: 0.35,
+    b: { hp: 10, atk: 7, def: 6, spd: 6 },
+    moves: ['Kick', 'Lava Hop', 'Hop', 'Ember Spit'],
+    evolve: { lv: 45, to: 'magmabunny' },
+    appear: 'hopped out of the ash', exit: 'It bounced away, puffing smoke.', exitAnim: 'hop',
+  },
+  magmabunny: {
+    name: 'MAGMA BUNNY', types: ['FIRE'], flicker: 'fF', catchRate: 0.2,
+    b: { hp: 16, atk: 11, def: 9, spd: 8 },
+    moves: ['Lava Hop', 'Ember Spit', 'Hop', 'Magma Burst'],
+    appear: 'oozed up from the lava', exit: 'It melted back into the lava.', exitAnim: 'hop',
+  },
+  ninjamonkey: {
+    name: 'NINJA MONKEY', types: ['FIRE', 'FIGHTING'], flicker: 'fF', catchRate: 0.25,
+    b: { hp: 12, atk: 9, def: 6, spd: 11 },
+    moves: ['Flame Kick', 'Ninja Chop', 'Smoke Bomb', 'Scratch'],
+    // The player picks which way it grows (wild ones pick at random).
+    evolve: { lv: 47, choices: ['skyninja', 'zenninja'] },
+    appear: 'flipped down from nowhere', exit: 'It vanished in a puff of smoke.', exitAnim: 'fly',
+  },
+  skyninja: {
+    name: 'SKY NINJA', types: ['FIRE', 'FLYING'], flicker: 'fF', catchRate: 0.12,
+    b: { hp: 18, atk: 14, def: 8, spd: 14 },
+    moves: ['Flame Kick', 'Ninja Chop', 'Smoke Bomb', 'Golden Sword'],
+    blurb: 'Flies on flaming wings with a giant golden sword.',
+    appear: 'swooped down, sword first', exit: 'It flew off on flaming wings.', exitAnim: 'fly',
+  },
+  zenninja: {
+    name: 'ZEN NINJA', types: ['FIRE', 'PSYCHIC'], flicker: 'fF', catchRate: 0.12, hovers: true,
+    b: { hp: 20, atk: 13, def: 11, spd: 10 },
+    moves: ['Flame Kick', 'Calm Mind', 'Smoke Bomb', 'Mind Blaze'],
+    blurb: 'A slim golden psychic with goat horns that floats.',
+    appear: 'floated in', exit: 'It closed its eyes and faded away.', exitAnim: 'fly',
+  },
+  pyrolion: {
+    name: 'PYROLION', types: ['FIRE', 'WATER'], flicker: 'fF', catchRate: 0.12, legendary: true,
+    b: { hp: 30, atk: 16, def: 12, spd: 12 },
+    moves: ['Flame Mane', 'Tidal Roar', 'Lion Roar', 'Inferno Pounce'],
+    appear: 'roared out of the volcano', exit: 'PYROLION leapt back into the volcano. It will be back!', exitAnim: 'fly',
+  },
 };
 export const STARTERS = ['blazepony', 'foxlet', 'splashcano'];
 
@@ -292,7 +351,8 @@ export const ENCOUNTERS = {
   north:    { min: 2,  max: 9,  table: [['rabbit', 45], ['bluebird', 32], ['fox', 12], ['zapcat', 8], ['splashcano', 3]] },
   south:    { min: 3,  max: 9,  table: [['fox', 45], ['bluebird', 22], ['rabbit', 22], ['zapcat', 8], ['splashcano', 3]] },
   mountain: { min: 11, max: 18, table: [['steeldog', 36], ['rockalock', 18], ['fox', 17], ['bluebird', 17], ['zapcat', 12]] },
-  forest:   { min: 20, max: 30, table: [['komodo', 37], ['snapling', 37], ['fox', 13], ['zapcat', 10], ['hammerfox', 3]] },   // Hammerfox is very rare
+  forest:   { min: 20, max: 30, table: [['komodo', 37], ['snapling', 37], ['fox', 13], ['zapcat', 10], ['hammerfox', 3]] },
+  volcano:  { min: 40, max: 49, table: [['komodo', 32], ['volcanobun', 34], ['ninjamonkey', 26], ['zapcat', 8]] },   // Hammerfox is very rare
 };
 export const GATE_LEVEL = 10;   // a critter must be PAST this level to open the mountain gate
 export const TEAM_MAX = 6;          // extra critters you catch go to your BOX (at home and in rest huts)
@@ -306,25 +366,35 @@ export const XP_SHARE = {
 // Snacks heal this much of a critter's max HP, plus extra for every gym badge you hold.
 export const SNACK_HEAL = { base: 0.4, perBadge: 0.1 };
 // Max critter level: 25 to start, raised by each gym badge you hold.
-export const LEVEL_CAP = { start: 25, pebble: 35, mossy: 45 };
+export const LEVEL_CAP = { start: 25, maple: 25, pebble: 35, mossy: 50, ember: 65 };
+export const LEGEND_LEVEL = 50;   // a critter this level wakes the volcano's legendary
 
 /* ---------------- the world ---------------- */
 // Areas line up left to right, 32 tiles wide each. A town (if any) sits right below its area.
 // To add the next area: add an entry here (kind: meadow | mountains | forest) and, if it has a town, a TOWNS + GYMS entry.
 export const AREAS = [
-  { id: 'meadow', kind: 'meadow', name: 'MAPLE HILL' },
+  { id: 'meadow', kind: 'meadow', name: 'MAPLE HILL', town: 'sprout' },
   { id: 'mountains', kind: 'mountains', name: 'ROCKY MOUNTAINS', encounters: 'mountain', town: 'pebble',
     gate: { level: GATE_LEVEL }, gateSign: ['ROCKY MOUNTAINS, this way!', `Only teams with a critter past Lv ${GATE_LEVEL} may pass the gate.`],
     welcome: ['Welcome to the ROCKY MOUNTAINS!', 'Every critter up here is above Lv 10. PEBBLE TOWN is down the south trail.'] },
   { id: 'forest', kind: 'forest', name: 'WHISPER FOREST', encounters: 'forest', town: 'mossy',
     gate: { badge: 'pebble' }, gateSign: ['WHISPER FOREST, this way!', 'Only trainers with the BOULDER BADGE may enter.'],
     welcome: ['Welcome to WHISPER FOREST!', 'Critters here are Lv 20 to 30. MOSSY HOLLOW is down the south trail.'] },
+  { id: 'volcano', kind: 'volcano', name: 'THE VOLCANO', encounters: 'volcano', town: 'ember',
+    gate: { badge: 'mossy' }, gateSign: ['THE VOLCANO, this way! It is HOT.', 'Only trainers with the GROVE BADGE may enter.'],
+    welcome: ['Welcome to THE VOLCANO!', `Critters here are Lv 40 to 49. Something BIG sleeps in the center...`] },
 ];
+// Every town has a healing hut, a blue SHINY TRADER and a gym.
+// restRoof: red | blue | green | straw    gymStyle: maple | stone | wood | ember
 export const TOWNS = {
-  pebble: { name: 'PEBBLE TOWN', tagline: 'Where the bunnies are LOVED.', trader: true, rest: 'REST STOP', gym: 'pebble',
+  sprout: { name: 'SPROUT VILLAGE', tagline: 'A little village for brand-new trainers.', rest: 'HEALING HUT', restRoof: 'green', gym: 'maple', gymStyle: 'maple',
+    welcome: ['Welcome to SPROUT VILLAGE!', 'Healing hut, shiny trader, and a gym for new trainers.'] },
+  pebble: { name: 'PEBBLE TOWN', tagline: 'Where the bunnies are LOVED.', rest: 'REST STOP', restRoof: 'green', gym: 'pebble', gymStyle: 'stone',
     welcome: ['Welcome to PEBBLE TOWN!', 'The blue house is the SHINY TRADER. The big stone hall is the GYM.'] },
-  mossy: { name: 'MOSSY HOLLOW', tagline: 'A sleepy town under the big trees.', rest: 'HEALING HUT', gym: 'mossy',
+  mossy: { name: 'MOSSY HOLLOW', tagline: 'A sleepy town under the big trees.', rest: 'HEALING HUT', restRoof: 'straw', gym: 'mossy', gymStyle: 'wood',
     welcome: ['Welcome to MOSSY HOLLOW!', 'The straw hut is the HEALING HUT. The wooden hall is the GYM.'] },
+  ember: { name: 'EMBER TOWN', tagline: 'Hot springs, hot tempers, hot critters.', rest: 'HEALING HUT', restRoof: 'straw', gym: 'ember', gymStyle: 'ember',
+    welcome: ['Welcome to EMBER TOWN!', 'The black stone hall is the FIRE GYM. Bring water!'] },
 };
 
 /* ---------------- shinies ---------------- */
@@ -345,6 +415,8 @@ export const FAMILY = {
   komodo: 'komodo', darkkomodo: 'komodo',
   snapling: 'snapling', treetitan: 'snapling',
   zapcat: 'zapcat', darkzapcat: 'zapcat', demoncat: 'zapcat',
+  volcanobun: 'volcanobun', magmabunny: 'volcanobun',
+  ninjamonkey: 'ninjamonkey', skyninja: 'ninjamonkey', zenninja: 'ninjamonkey',
 };
 export const SHINY = {
   fox:        { oneIn: 40,  hue: 180 },                 // the easiest shiny: a blue fox
@@ -356,22 +428,36 @@ export const SHINY = {
   komodo:     { oneIn: 100, hue: 200 },                 // purple-blue lizard
   snapling:   { oneIn: 100, hue: -80, sat: 1.2 },       // autumn-orange leaves
   zapcat:     { oneIn: 100, hue: 170 },                 // ice-blue cat
+  volcanobun: { oneIn: 100, hue: 200 },                 // blue-flame bunny
+  ninjamonkey:{ oneIn: 120, hue: 160 },                 // teal ninja with blue flames
 };
-export const SHINY_ORDER = ['fox', 'rabbit', 'bluebird', 'splashcano', 'steeldog', 'rockalock', 'komodo', 'snapling', 'zapcat'];
+export const SHINY_ORDER = ['fox', 'rabbit', 'bluebird', 'splashcano', 'steeldog', 'rockalock', 'komodo', 'snapling', 'zapcat', 'volcanobun', 'ninjamonkey'];
 
 /* ---------------- gyms ---------------- */
 export const GYMS = {
+  maple: {
+    leader: 'LEADER HAZEL', short: 'HAZEL', look: 'hazel', hall: 'MAPLE GYM', banner: '#e8742c',
+    team: [['rabbit', 8], ['bluebird', 9], ['fox', 10]],
+    badge: 'SPROUT BADGE', xpMultiplier: 2, teamPrize: 30,
+    intro: ['"Hi! I\'m HAZEL, the MAPLE GYM leader."', '"I train meadow critters: a RABBIT, a BLUEBIRD and a FOX."', '"Show me what you and your partner can do!"'],
+  },
   pebble: {
-    leader: 'LEADER BRICK', short: 'BRICK', look: 'brick', hall: 'PEBBLE GYM',
+    leader: 'LEADER BRICK', short: 'BRICK', look: 'brick', hall: 'PEBBLE GYM', banner: '#c0443a',
     team: [['steeldog', 15], ['rockalock', 20]],
     badge: 'BOULDER BADGE', xpMultiplier: 2, teamPrize: 50,
     intro: ['"Welcome to the PEBBLE GYM!"', '"My critters are as tough as rocks!"', '"First a Lv 15 STEEL DOG, then my Lv 20 ROCKALOCK!"'],
   },
   mossy: {
-    leader: 'LEADER IVY', short: 'IVY', look: 'ivy', hall: 'MOSSY GYM',
+    leader: 'LEADER IVY', short: 'IVY', look: 'ivy', hall: 'MOSSY GYM', banner: '#3f7a3c',
     team: [['treetitan', 25], ['darkkomodo', 28], ['hammerfox', 30]],
     badge: 'GROVE BADGE', xpMultiplier: 2, teamPrize: 80,
     intro: ['"Welcome to the MOSSY GYM! I\'m IVY."', '"I have a Lv 25 TREE TITAN and a Lv 28 DARK KOMODO..."', '"...and my best friend, a Lv 30 HAMMERFOX!"'],
+  },
+  ember: {
+    leader: 'LEADER PYRA', short: 'PYRA', look: 'pyra', hall: 'FIRE GYM', banner: '#e2392b',
+    team: [['magmabunny', 46], ['ironhound', 48], ['ninjamonkey', 49], ['twinblaze', 50]],
+    badge: 'EMBER BADGE', xpMultiplier: 2, teamPrize: 120,
+    intro: ['"I\'m PYRA, and this is the FIRE GYM!"', '"MAGMA BUNNY Lv 46, IRON HOUND Lv 48, NINJA MONKEY Lv 49..."', '"...and my TWINBLAZE at Lv 50. Hope you brought water!"'],
   },
 };
 
@@ -392,8 +478,13 @@ export function makeCritter(sp, lv, shiny = false) {
   return c;
 }
 // The form a critter of this level would have (wild critters past their evolve level come evolved).
+// Where an evolution goes: a fixed form, or (for choices) the player's pick / a random one in the wild.
+export const evolveTarget = (sp, pick) => {
+  const e = SPECIES[sp].evolve;
+  return e.choices ? (pick || e.choices[Math.floor(Math.random() * e.choices.length)]) : e.to;
+};
 export function grownForm(sp, lv) {
   let s = sp;
-  while (SPECIES[s].evolve && lv >= SPECIES[s].evolve.lv) s = SPECIES[s].evolve.to;
+  while (SPECIES[s].evolve && lv >= SPECIES[s].evolve.lv) s = evolveTarget(s);
   return s;
 }
