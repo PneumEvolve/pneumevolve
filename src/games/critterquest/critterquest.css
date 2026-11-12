@@ -74,6 +74,12 @@
 .cq-opt.is-sel::before { opacity: 1; }
 .cq-opt-sub { font-size: .66em; font-weight: 400; color: var(--cq-muted); }
 .cq-opt.is-locked .cq-opt-name { color: var(--cq-muted); }
+/* moves: name on top, then the type pill, power and accuracy (— = can't miss) */
+.cq-textbox[data-layout="full"] .cq-opt-move { font-size: 3.3cqw; }
+.cq-opt-move { flex-direction: column; align-items: flex-start; gap: .5cqw; line-height: 1.1; padding-top: .4cqw; padding-bottom: .4cqw; overflow: visible; }
+.cq-opt-move::before { top: .9cqw; }
+.cq-opt-move .cq-opt-sub { display: flex; align-items: center; gap: .9cqw; font-size: 2.5cqw; font-weight: 600; line-height: 1.2; color: var(--cq-ink); }
+.cq-opt-move .cq-type { font-size: 2cqw; }
 
 .cq-hud {
   position: absolute; background: var(--cq-cream); color: var(--cq-ink);

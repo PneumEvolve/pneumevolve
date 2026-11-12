@@ -6,7 +6,7 @@ import { buildArt, hash, T } from './art.js';
 import {
   SPECIES, MOVES, STARTERS, ENCOUNTERS, TYPE_COLORS, GATE_LEVEL, TEAM_MAX, LEVEL_CAP,
   FAMILY, SHINY, SHINY_ORDER, SHINY_TRADE_COST, SHINY_ATTACK_BONUS, XP_SHARE, SNACK_HEAL, GYMS, AREAS, TOWNS,
-  LEGENDS, CANDY, effectiveness, moveSub, xpNeed, applyStats, makeCritter, grownForm, evolveTarget,
+  LEGENDS, CANDY, MEGA_POD, effectiveness, moveSub, xpNeed, applyStats, makeCritter, grownForm, evolveTarget,
 } from './data.js';
 
 const SAVE_KEY = 'critterquest.save.v1';
@@ -65,7 +65,7 @@ export function startGame(root, { dev = false } = {}) {
       rect(x, y, x + img.width / T - 1, y + img.height / T - 1, 'h');
       if (door) DOORS[door.x + ',' + door.y] = door;
     };
-    const WALL = { meadow: 'T', mountains: 'M', forest: 'Y', volcano: 'X' };
+    const WALL = { meadow: 'T', mountains: 'M', forest: 'Y', volcano: 'X', prehistoric: 'Z' };
 
     AREAS.forEach((area, i) => {
       const ox = i * AW, L = (x, y, ch) => set(ox + x, y, ch), R = (x0, y0, x1, y1, ch) => rect(ox + x0, y0, ox + x1, y1, ch);
@@ -109,6 +109,18 @@ export function startGame(root, { dev = false } = {}) {
         // the legendary's volcano sits in the middle; its glowing cave is the way in
         building(ox + 17, 12, LEGEND_VOLCANO, { x: ox + 18, y: 14, type: 'legend', legend: 'pyrolion' });
         sign(ox + 16, 10, [area.name, 'Critters here are Lv 40 to 49.', `Legend says a giant flaming lion sleeps in the big volcano...`]);
+      } else if (area.kind === 'prehistoric') {
+        R(0, 0, AW - 1, AH - 1, 'j');
+        R(2, 2, 9, 7, 'n'); R(19, 2, 28, 7, 'n'); R(2, 11, 10, 15, 'n'); R(23, 11, 29, 15, 'n'); R(4, 18, 12, 21, 'n'); R(19, 18, 27, 21, 'n');
+        const tar = (cx, cy, rx, ry) => { for (let y = 0; y < AH; y++) for (let x = 0; x < AW; x++) if (((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1) L(x, y, 'w'); };
+        tar(13, 4, 2, 1.4); tar(28, 18, 1.6, 1.6);
+        R(0, 9, AW - 1, 9, '='); R(15, 9, 15, AH - 1, '=');
+        [[11,2],[17,3],[1,9 - 1],[12,12],[22,13],[16,20],[3,22],[29,8],[13,21],[25,22],[30,12]].forEach(([x, y]) => L(x, y, 'Z'));
+        [[11,7],[21,10],[6,17],[27,16]].forEach(([x, y]) => L(x, y, 'b'));
+        // the T-rex bones lie in the middle; IRONREX waits there
+        building(ox + 17, 12, LEGEND_SPOTS.bones, { x: ox + 18, y: 13, type: 'legend', legend: 'ironrex' }, LEGEND_SPOTS.bonesQuiet);
+        sign(ox + 16, 10, [area.name, 'Dinosaur critters, Lv 52 to 62.', 'Legend says a T-REX OF STEEL guards the giant bones...']);
+        sign(ox + 14, 10, ['ICE TIPS', 'ICE beats GRASS and FLYING.', 'But FIRE melts ICE!']);
       }
       // edges: walls all round, with openings for the path in, the gate out, and the trail down to the town
       const wall = WALL[area.kind];
@@ -132,14 +144,16 @@ export function startGame(root, { dev = false } = {}) {
       [[2,1],[2,2],[29,1],[29,2],[12,1],[19,1],[27,10],[28,10],[4,11],[5,12],[22,12],[24,11],[29,14]].forEach(([x, y]) => L(x, y, 'T'));
       building(ox + 3, oy + 3, HOUSES.blue, { x: ox + 5, y: oy + 6, type: 'trader', town: id });
       building(ox + 22, oy + 3, HOUSES[town.restRoof] || HOUSES.green, { x: ox + 24, y: oy + 6, type: 'rest', town: id });
-      building(ox + 11, oy + 8, GYM_IMG[town.gymStyle] || GYM_IMG.stone, { x: ox + 15, y: oy + 12, type: 'gym', town: id });
+      if (town.gym) building(ox + 11, oy + 8, GYM_IMG[town.gymStyle] || GYM_IMG.stone, { x: ox + 15, y: oy + 12, type: 'gym', town: id });
+      else [[12,10],[14,9],[17,10],[19,9]].forEach(([x, y]) => L(x, y, 'b'));   // just bones where the gym will go
       sign(ox + 16, oy + 1, [town.name, town.tagline]);
       L(14, 1, 'U'); BUS[(ox + 14) + ',' + (oy + 1)] = id;                   // bus stop by the trail into town
       if (town.statue) building(ox + 25, oy + 11, LEGEND_SPOTS.statue, { x: ox + 25, y: oy + 12, type: 'legend', legend: town.statue });
       sign(ox + 8, oy + 6, ['SHINY TRADER', `Trade ${SHINY_TRADE_COST} of the same critter, get 1 SHINY one!`]);
       sign(ox + 21, oy + 6, [town.rest, 'Free naps for tired critters.']);
       const gym = GYMS[town.gym];
-      sign(ox + 16, oy + 13, [gym.hall, `Leader: ${gym.short}. Win the ${gym.badge}!`]);
+      if (gym) sign(ox + 16, oy + 13, [gym.hall, `Leader: ${gym.short}. Win the ${gym.badge}!`]);
+      else sign(ox + 16, oy + 13, ['GYM: COMING SOON!', 'A new leader is on the way. Check back later!']);
       for (let x = 0; x < AW; x++) L(x, TH - 1, 'T');
       for (let y = 0; y < TH; y++) { L(0, y, 'T'); L(AW - 1, y, 'T'); }
       TOWN_AT[ox] = { id, rest: { x: ox + 24, y: oy + 7 }, bus: { x: ox + 15, y: oy + 2 } };
@@ -163,14 +177,14 @@ export function startGame(root, { dev = false } = {}) {
   function walkable(x, y) {
     const t = tileAt(x, y);
     if (t === 'G') return gateOpenFor(gateAt(x, y));
-    return !'T~hDSMPYLXU'.includes(t);
+    return !'T~hDSMPYLXUZwb'.includes(t);
   }
   const inTown = y => y >= AH;
   const townHere = (x, y) => (inTown(y) ? TOWN_AT[areaIndex(x) * AW] : null);
 
   /* ============ state ============ */
   let party = [];                 // up to 6 critters; party[0] is your lead and walks with you
-  let bag = { snack: 3, pod: 5, candy: 0 };
+  let bag = { snack: 3, pod: 5, mega: 0, candy: 0 };
   let box = [];                   // extra critters, kept at home and in rest huts (they don't earn XP)
   let flags = { badges: {}, seen: {} };   // badges won, places visited
   let ai = 0;                     // which party member is battling
@@ -183,14 +197,17 @@ export function startGame(root, { dev = false } = {}) {
   let scene = 'choose';           // choose | world | battle | evolve
   let battleBg = BG.meadow;
   let stepsSince = 0, bang = false, chooseIdx = 0;
-  const overlay = { flash: 0, bars: 0, fade: 0 };
+  const overlay = { flash: 0, bars: 0, fade: 0, blue: 0, slice: 0, sliceLine: 0 };
+  const sliceBuf = document.createElement('canvas'); sliceBuf.width = 240; sliceBuf.height = 160;
+  const sliceCtx = sliceBuf.getContext('2d');
   const B = { me: {}, foe: {}, leader: {}, shake: 0, proj: null, pod: null, sparkle: 0 };
   const E = { sp: null, white: false, shiny: null };
   function resetBattleSprites() {
     B.me = { x: 0, y: 0, flash: false, alpha: 1, vis: true };
     B.foe = { x: 0, y: 0, flash: false, alpha: 1, vis: true, scale: 1 };
     B.leader = { x: 0, vis: false };
-    B.shake = 0; B.proj = null; B.pod = null; B.sparkle = 0;
+    B.shake = 0; B.proj = null; B.pod = null; B.sparkle = 0; B.beam = null;
+    overlay.blue = 0; overlay.slice = 0; overlay.sliceLine = 0;
     B.dealt = new Set();            // team critters that did damage this fight
   }
   resetBattleSprites();
@@ -228,7 +245,9 @@ export function startGame(root, { dev = false } = {}) {
     const team = d.party.filter(p => SPECIES[p.sp]).map(revive);
     party = team.slice(0, TEAM_MAX);
     box = [...team.slice(TEAM_MAX), ...(d.box || []).filter(p => SPECIES[p.sp]).map(revive)];
-    bag = { snack: d.bag?.snack ?? 3, pod: d.bag?.pod ?? 5, candy: d.bag?.candy ?? 0 };
+    // older saves: hand out the mega pods they would have won already
+    const wins = Object.keys(d.flags?.candy || {}).length;
+    bag = { snack: d.bag?.snack ?? 3, pod: d.bag?.pod ?? 5, mega: d.bag?.mega ?? wins * MEGA_POD.perWin, candy: d.bag?.candy ?? 0 };
     flags = { badges: {}, seen: {}, ...(d.flags || {}) };
     delete flags.luck;   // the old bunny-luck system from v0.4/0.5
     if (flags.badge) { flags.badges = { ...flags.badges, pebble: true }; delete flags.badge; }   // saves from v0.4
@@ -265,7 +284,12 @@ export function startGame(root, { dev = false } = {}) {
     const b = document.createElement('button');
     b.className = 'cq-opt' + (it.locked ? ' is-locked' : '');
     const n = document.createElement('span'); n.className = 'cq-opt-name'; n.textContent = it.label; b.append(n);
-    if (it.sub) { const s = document.createElement('span'); s.className = 'cq-opt-sub'; s.textContent = it.sub; b.append(s); }
+    if (it.moveType) {      // a move: its type pill, then POW and accuracy (— = can't miss)
+      b.classList.add('cq-opt-move');
+      const s = document.createElement('span'); s.className = 'cq-opt-sub';
+      s.innerHTML = `<span class="cq-type" style="background:${TYPE_COLORS[it.moveType]}">${it.moveType}</span> `;
+      s.append(it.sub); b.append(s);
+    } else if (it.sub) { const s = document.createElement('span'); s.className = 'cq-opt-sub'; s.textContent = it.sub; b.append(s); }
     return b;
   }
   // Generic picker: a list of options in the textbox, or (panelMode) the full-screen card panel.
@@ -421,7 +445,7 @@ export function startGame(root, { dev = false } = {}) {
       return;
     }
     const t = tileAt(player.x, player.y);
-    if ((t === ',' || t === ';' || t === 'u' || t === 'e') && stepsSince > 2 && Math.random() < 0.2) { startBattle(); return; }
+    if ((t === ',' || t === ';' || t === 'u' || t === 'e' || t === 'n') && stepsSince > 2 && Math.random() < 0.2) { startBattle(); return; }
     const d = heldDir(); if (d && mode === 'world') tryMove(d);
   }
   function update(dt) {
@@ -456,6 +480,8 @@ export function startGame(root, { dev = false } = {}) {
     else if (t === '~') worldSay(SPECIES[lead.sp].types.includes('WATER') ? [`${nm(lead)} splashes happily in the pond!`] : ['The pond sparkles in the sun.']);
     else if (t === 'M') worldSay(['A huge boulder. It is NOT a Rockalock. Probably.']);
     else if (t === 'L') worldSay(['Bubbling lava! WAY too hot to touch.']);
+    else if (t === 'w') worldSay(['A sticky TAR PIT. Blub... blub... Better not step in!']);
+    else if (t === 'b') worldSay(['Old dinosaur bones. Really, REALLY old.']);
     else if (t === 'U') busStop(BUS[tx + ',' + ty]);
     else if (pal.x === tx && pal.y === ty) worldSay([`${nm(lead)} looks happy to see you!`, `Lv ${lead.lv}  ·  HP ${lead.hp}/${lead.maxHp}`]);
   }
@@ -619,20 +645,23 @@ export function startGame(root, { dev = false } = {}) {
   // Returns true if something (an evolution) already took us back to the world.
   async function bagFlow() {
     for (;;) {
-      const c = await chooseMenu([{ label: 'SNACK', sub: '×' + bag.snack }, { label: 'POD', sub: '×' + bag.pod }, { label: 'CANDY', sub: '×' + (bag.candy || 0) }, { label: 'BACK' }],
-        { layout: 'full', canBack: true });
+      const c = await chooseMenu([{ label: 'SNACK', sub: '×' + bag.snack }, { label: 'POD', sub: '×' + bag.pod }, { label: 'MEGA POD', sub: '×' + (bag.mega || 0) },
+        { label: 'CANDY', sub: '×' + (bag.candy || 0) }, { label: 'BACK' }], { layout: 'full', canBack: true, cols: 3 });
       if (c === 0) await say(`Snacks heal ${Math.round(snackPct() * 100)}% of HP. Use them from TEAM, or in battle.`);
       else if (c === 1) await say('Throw pods in battle to catch wild critters!');
-      else if (c === 2) { if (await useCandy()) return true; }
+      else if (c === 2) await say(bag.mega ? `MEGA PODS catch way better than pods (${MEGA_POD.boost}x)! Save them for tough critters.` : 'No MEGA PODS yet! Win them from gyms and legendaries.');
+      else if (c === 3) { if (await useCandy()) return true; }
       else return false;
     }
   }
   const candyWhat = () => (CANDY.target === 'team' ? `+${CANDY.levels} level${CANDY.levels > 1 ? 's' : ''} for your whole team` : `+${CANDY.levels} level${CANDY.levels > 1 ? 's' : ''} for one critter`);
+  // First win against each gym and each legendary: a RARE CANDY and some MEGA PODS.
   async function giveCandy(key) {
     if (flags.candy?.[key]) return;
     flags.candy = { ...(flags.candy || {}), [key]: true };
-    bag.candy = (bag.candy || 0) + 1; save();
+    bag.candy = (bag.candy || 0) + 1; bag.mega = (bag.mega || 0) + MEGA_POD.perWin; save();
     await say(`You got a RARE CANDY! (${candyWhat()})`);
+    await say(`You got ${MEGA_POD.perWin} MEGA PODS! They catch critters way better than pods.`);
   }
   async function useCandy() {
     if (!(bag.candy > 0)) { await say('No candy yet! Win it from gyms and legendaries.'); return false; }
@@ -728,19 +757,31 @@ export function startGame(root, { dev = false } = {}) {
     const camY = Math.max(0, Math.min(MH * T - VH * T, ppy + 8 - (VH * T) / 2));
     const x0 = Math.floor(camX / T), y0 = Math.floor(camY / T);
     const wf = Math.floor(now / 500) % 2;
+    // the plain ground of each place, drawn under see-through things (signs, bones, buildings)
+    const ground = (tx, ty) => {
+      const k = ty >= AH ? 'town' : areaAt(tx).kind, h = Math.floor(hash(tx, ty) * 3);
+      return { mountains: TILES.ground[h], forest: TILES.forestFloor[h], volcano: TILES.ash[h], prehistoric: TILES.jungle[h] }[k] || TILES.grass[Math.floor(hash(tx, ty) * 4)];
+    };
     for (let ty = y0; ty <= y0 + VH; ty++) for (let tx = x0; tx <= x0 + VW; tx++) {
       const t = tileAt(tx, ty), sx = tx * T - camX, sy = ty * T - camY;
+      if (t === 'S' || t === 'b' || t === 'h' || t === 'D') {
+        ctx.drawImage(ground(tx, ty), sx, sy);
+        if (t === 'S') ctx.drawImage(TILES.signPost, sx, sy);
+        if (t === 'b') ctx.drawImage(TILES.bones, sx, sy);
+        continue;
+      }
       const img = {
         ',': TILES.tall, ';': TILES.rubble, '=': TILES.path, 'T': TILES.tree, 'P': TILES.pine, 'M': TILES.boulder,
         '*': TILES.flowers, 'S': TILES.sign, '~': TILES.water[wf], 'G': TILES.gate[gateOpenFor(gateAt(tx, ty)) ? 1 : 0],
         'r': TILES.ground[Math.floor(hash(tx, ty) * 3)], 'F': TILES.forestFloor[Math.floor(hash(tx, ty) * 3)],
         'Y': TILES.forestTree, 'u': TILES.undergrowth, 'o': TILES.mushrooms,
         'K': TILES.ash[Math.floor(hash(tx, ty) * 3)], 'L': TILES.lava[wf], 'e': TILES.embers, 'X': TILES.blackrock, 'U': TILES.busStop,
+        'j': TILES.jungle[Math.floor(hash(tx, ty) * 3)], 'n': TILES.ferns, 'Z': TILES.cycad, 'w': TILES.tar[wf], 'b': TILES.bones,
       }[t] || TILES.grass[Math.floor(hash(tx, ty) * 4)];
       ctx.drawImage(img, sx, sy);
-      if (t === '~' || t === '=') {
-        ctx.fillStyle = t === '~' ? '#d8f0fb' : '#cdb47c';
-        const e = t === '~' ? 2 : 1, same = n => n === t || (t === '=' && (n === 'G' || n === 'D'));
+      if (t === '~' || t === '=' || t === 'w') {
+        ctx.fillStyle = t === '~' ? '#d8f0fb' : t === 'w' ? '#5a4f3a' : '#cdb47c';
+        const e = t === '=' ? 1 : 2, same = n => n === t || (t === '=' && (n === 'G' || n === 'D'));
         if (!same(tileAt(tx, ty - 1))) ctx.fillRect(sx, sy, 16, e);
         if (!same(tileAt(tx, ty + 1))) ctx.fillRect(sx, sy + 16 - e, 16, e);
         if (!same(tileAt(tx - 1, ty))) ctx.fillRect(sx, sy, e, 16);
@@ -762,7 +803,7 @@ export function startGame(root, { dev = false } = {}) {
       const on = e.moving ? (player.t > 0.55 ? e.to : null) : { x: e.x, y: e.y };
       if (!on) continue;
       const t = tileAt(on.x, on.y);
-      const cover = { ',': TILES.tall, ';': TILES.rubble, 'u': TILES.undergrowth, 'e': TILES.embers }[t];
+      const cover = { ',': TILES.tall, ';': TILES.rubble, 'u': TILES.undergrowth, 'e': TILES.embers, 'n': TILES.ferns }[t];
       if (cover) ctx.drawImage(cover, 0, 10, 16, 6, on.x * T - camX, on.y * T - camY + 10, 16, 6);
     }
     if (bang) {
@@ -816,6 +857,12 @@ export function startGame(root, { dev = false } = {}) {
       case 'hornrocket':
         for (const dy of [-5, 4]) { r('#2a2135', x - 7, y + dy - 3, 14, 6); r('#bdb8b0', x - 6, y + dy - 2, 12, 4); r('#e3dfd8', x + 4 * p.dir, y + dy - 2, 3, 4); r(fl ? '#ffd23f' : '#ff7a2a', x - 10 * p.dir - 2, y + dy - 2, 4, 4); }
         break;
+      case 'icicle':
+        for (const dy of [-6, 0, 6]) { r('#2a2135', x - 7, y + dy - 2, 14, 4); r(fl ? '#e2f7ff' : '#bff3ff', x - 6, y + dy - 1, 10, 2); r('#ffffff', x + 4 * p.dir, y + dy - 1, 2, 2); r('#6fa3c4', x - 6 * p.dir - 1, y + dy - 1, 2, 2); }
+        break;
+      case 'smoke':
+        for (const [dx, dy, sz] of [[-6, -3, 8], [3, -6, 7], [0, 3, 9]]) { r('#5a5560', x + dx - 1, y + dy - 1, sz + 2, sz + 2); r(fl ? '#9c958c' : '#bdb8b0', x + dx, y + dy, sz, sz); }
+        r(fl ? '#ffd23f' : '#ff7a2a', x - 1, y - 1, 3, 3); break;
       case 'spark':
         r('#ffe14a', x - 4, y - 3, 3, 2); r('#ffe14a', x - 2, y - 1, 3, 2); r('#ffe14a', x, y + 1, 3, 2); r(fl ? '#ffffff' : '#bff3ff', x - 1, y - 1, 2, 2); break;
       case 'bolt':
@@ -836,11 +883,30 @@ export function startGame(root, { dev = false } = {}) {
       }
     }
   }
+  function drawBeam(b) {
+    const x1 = b.from.x + (b.to.x - b.from.x) * b.len, y1 = b.from.y + (b.to.y - b.from.y) * b.len;
+    const fl = Math.floor(performance.now() / 50) % 2;
+    ctx.lineCap = 'round';
+    for (const [col, w] of [['#2a2135', 13], ['#e2392b', 11], [fl ? '#ff7a2a' : '#ffd23f', 7], [fl ? '#ffd23f' : '#fff6c2', 3]]) {
+      ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, w * b.w);
+      ctx.beginPath(); ctx.moveTo(b.from.x, b.from.y); ctx.lineTo(x1, y1 + (fl ? 1 : -1)); ctx.stroke();
+    }
+    ctx.lineCap = 'butt';
+  }
+  function drawIceBall(cx, cy, spin) {
+    ctx.fillStyle = '#2a2135'; ctx.beginPath(); ctx.arc(cx, cy, 17, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#3f6a8a'; ctx.beginPath(); ctx.arc(cx, cy, 15.5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#6fa3c4'; ctx.beginPath(); ctx.arc(cx - 2, cy - 2, 11, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#e2f7ff'; ctx.lineWidth = 2;
+    for (let i = 0; i < 3; i++) { const a = spin + i * 2.1; ctx.beginPath(); ctx.arc(cx, cy, 10, a, a + 1.2); ctx.stroke(); }
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(cx - 8, cy - 9, 4, 3);
+  }
   function drawPod(p) {
     const x = Math.round(p.x) + (p.wob || 0), y = Math.round(p.y);
     const r = (c, a, b, w, h) => { ctx.fillStyle = c; ctx.fillRect(a, b, w, h); };
     r('#2a2135', x - 5, y - 5, 10, 10);
-    r('#2bb3a0', x - 4, y - 4, 8, 4); r('#7fe0d0', x - 3, y - 4, 2, 1);
+    if (p.mega) { r('#8a4ad9', x - 4, y - 4, 8, 4); r('#c79cff', x - 3, y - 4, 2, 1); r('#ffd23f', x - 4, y - 2, 8, 1); }
+    else { r('#2bb3a0', x - 4, y - 4, 8, 4); r('#7fe0d0', x - 3, y - 4, 2, 1); }
     r('#f6f3ea', x - 4, y, 8, 4); r('#2a2135', x - 4, y - 1, 8, 1);
     r('#ffd23f', x - 1, y - 2, 2, 2);
     if (p.glow) for (const [dx, dy] of [[-9, -8], [8, -9], [10, 2], [-10, 3]]) r('#fff6c2', x + dx, y + dy, 2, 2);
@@ -869,7 +935,8 @@ export function startGame(root, { dev = false } = {}) {
       const hover = SPECIES[F.sp].hovers ? Math.round(Math.sin(now / 200) * 2) - 4 : 0;
       shadow(FOE_POS.x + B.foe.x, 57, w * 0.33);
       ctx.globalAlpha = B.foe.alpha;
-      ctx.drawImage(img, Math.round(FOE_POS.x - w / 2 + B.foe.x), Math.round(FOE_POS.y - h + B.foe.y) + hover, w, h);
+      if (B.foe.ball) drawIceBall(FOE_POS.x + B.foe.x, FOE_POS.y - 16 + B.foe.y, B.foe.x / 9);
+      else ctx.drawImage(img, Math.round(FOE_POS.x - w / 2 + B.foe.x), Math.round(FOE_POS.y - h + B.foe.y) + hover, w, h);
       ctx.globalAlpha = 1;
       drawSparkles(FOE_POS.x, FOE_POS.y - 26, now);
     }
@@ -881,10 +948,12 @@ export function startGame(root, { dev = false } = {}) {
       const idle = Math.round(Math.sin(now / 320)) === 1 ? -1 : 0;
       shadow(ME_POS.x + B.me.x, 102, w * 0.36);
       ctx.globalAlpha = B.me.alpha;
-      ctx.drawImage(img, Math.round(ME_POS.x - w / 2 + B.me.x), Math.round(bottom - h + B.me.y) + idle, w, h);
+      if (B.me.ball) drawIceBall(ME_POS.x + B.me.x, ME_POS.y - 16 + B.me.y, B.me.x / 9);
+      else ctx.drawImage(img, Math.round(ME_POS.x - w / 2 + B.me.x), Math.round(bottom - h + B.me.y) + idle, w, h);
       ctx.globalAlpha = 1;
     }
     if (B.proj) drawProj(B.proj);
+    if (B.beam) drawBeam(B.beam);
     ctx.restore();
   }
 
@@ -926,6 +995,35 @@ export function startGame(root, { dev = false } = {}) {
         B.shake = 7; await wait(950); B.shake = 0;
         screenEl.classList.remove('is-quaking');
         break;
+      case 'rollup': {  // Roll Up: curls into a giant ice ball, the screen goes blue, and it rolls right over the foe
+        await tween(260, t => (overlay.blue = 0.5 * t));
+        s.ball = true; await tween(200, t => (s.y = -10 * Math.sin(Math.PI * t)));
+        await tween(320, t => (s.x = dir * 118 * t), easeIn);
+        B.shake = 6; overlay.flash = 0.5; await tween(240, t => (overlay.flash = 0.5 * (1 - t))); B.shake = 0;
+        await tween(300, t => (s.x = dir * 118 * (1 - t)), easeOut);
+        s.ball = false;
+        await tween(300, t => (overlay.blue = 0.5 * (1 - t)));
+        break;
+      }
+      case 'slice':   // Spine Slice: the fire spine cuts the whole screen in half
+        await tween(200, t => (s.y = -10 * Math.sin(Math.PI * t)));
+        await tween(240, t => (overlay.sliceLine = t));
+        B.shake = 4; await tween(180, t => (overlay.slice = t), easeOut);
+        await wait(320);
+        await tween(240, t => (overlay.slice = 1 - t), easeIn); B.shake = 0;
+        await tween(160, t => (overlay.sliceLine = 1 - t));
+        break;
+      case 'beam': {  // Flaming Beam: a huge beam of fire straight at the foe
+        const from = who === 'p' ? { x: ME_POS.x + 26, y: 74 } : { x: FOE_POS.x - 26, y: 34 };
+        const to = who === 'p' ? { x: FOE_POS.x, y: 40 } : { x: ME_POS.x, y: 82 };
+        await tween(160, t => (s.x = -dir * 6 * t));
+        B.beam = { from, to, len: 0, w: 1 };
+        await tween(240, t => (B.beam.len = t));
+        B.shake = 5; overlay.flash = 0.5; await tween(420, t => (overlay.flash = 0.5 * (1 - t))); B.shake = 0;
+        await tween(220, t => (B.beam.w = 1 - t));
+        B.beam = null; s.x = 0;
+        break;
+      }
       case 'smash':
         await tween(220, t => { s.y = -12 * t; s.x = -dir * 4 * t; });
         await tween(110, t => { s.y = -12 * (1 - t); s.x = -dir * 4 + dir * 30 * t; });
@@ -941,7 +1039,7 @@ export function startGame(root, { dev = false } = {}) {
           B.proj.y = from.y + (to.y - from.y) * t - 18 * Math.sin(Math.PI * t);
         });
         B.proj = null;
-        if (['bolt', 'burst', 'steamball', 'magma', 'hornrocket', 'feather'].includes(M.proj)) { overlay.flash = 0.7; B.shake = 4; await tween(240, t => (overlay.flash = 0.7 * (1 - t))); B.shake = 0; }
+        if (['bolt', 'burst', 'steamball', 'magma', 'hornrocket', 'feather', 'icicle', 'smoke'].includes(M.proj)) { overlay.flash = 0.7; B.shake = 4; await tween(240, t => (overlay.flash = 0.7 * (1 - t))); B.shake = 0; }
         if (M.proj === 'rocket') { overlay.flash = 0.8; B.shake = 5; await tween(220, t => (overlay.flash = 0.8 * (1 - t))); B.shake = 0; }
         break;
       }
@@ -989,8 +1087,9 @@ export function startGame(root, { dev = false } = {}) {
       return;
     }
     await animMove(who, M);
-    const acc = (M.acc * 3) / (3 + Math.max(0, d.stages.eva));
-    if (Math.random() * 100 >= acc) { await say(`${dName} dodged it!`); return; }
+    // A slash move (sure: true) can't miss. Otherwise roll against accuracy, made lower by the target's DODGE boosts.
+    const acc = M.sure ? Infinity : (M.acc * 3) / (3 + Math.max(0, d.stages.eva));
+    if (Math.random() * 100 >= acc) { await say(M.acc < 100 && d.stages.eva <= 0 ? `${aName} missed!` : `${dName} dodged it!`); return; }
     const mult = effectiveness(M.type, SPECIES[d.sp].types);
     const atk = a.atk * stageMult(a.stages.atk), def = d.def * stageMult(d.stages.def);
     let dmg = Math.floor(M.power * (atk / def) * 0.75 * (0.85 + Math.random() * 0.15) * (1 + a.lv / 20) * mult) + 1;
@@ -1069,24 +1168,24 @@ export function startGame(root, { dev = false } = {}) {
       await drainHp(c, c.hp + heal);
       await say(`Yum! +${heal} HP`);
     } else if (act.type === 'pod') {
-      if (await throwPod()) return 'end';
+      if (await throwPod(act.mega)) return 'end';
     } else if (act.type === 'switch') {
       await recall(); ai = act.to; await sendIn();
     }
     await useMove('e', fMove);
     return (await afterAction()) === 'end' ? 'end' : 'go';
   }
-  async function throwPod() {
-    bag.pod--;
-    await say('You threw a POD!');
+  async function throwPod(mega = false) {
+    if (mega) bag.mega--; else bag.pod--;
+    await say(mega ? 'You threw a MEGA POD!' : 'You threw a POD!');
     const from = { x: 14, y: 112 }, to = { x: FOE_POS.x, y: FOE_POS.y - 26 };
-    B.pod = { x: from.x, y: from.y, wob: 0, glow: 0 };
+    B.pod = { x: from.x, y: from.y, wob: 0, glow: 0, mega };
     await tween(450, t => { B.pod.x = from.x + (to.x - from.x) * t; B.pod.y = from.y + (to.y - from.y) * t - 40 * Math.sin(Math.PI * t); });
     overlay.flash = 0.6;
     await tween(260, t => { overlay.flash = 0.6 * (1 - t); B.foe.scale = 1 - t; B.foe.alpha = 1 - 0.8 * t; });
     B.foe.vis = false;
     await tween(220, t => (B.pod.y = to.y + (FOE_POS.y - 6 - to.y) * t), easeIn);
-    const p = Math.min(0.95, SPECIES[F.sp].catchRate * (1.4 - F.hp / F.maxHp));
+    const p = Math.min(0.95, SPECIES[F.sp].catchRate * (1.4 - F.hp / F.maxHp) * (mega ? MEGA_POD.boost : 1));
     const each = Math.pow(p, 1 / 3);
     let shakes = 0;
     for (let i = 0; i < 3; i++) {
@@ -1218,7 +1317,7 @@ export function startGame(root, { dev = false } = {}) {
     const lv = Math.max(enc.min, Math.min(enc.max, top - 2 + rand(4)));
     const fam = FAMILY[base];
     const shiny = !!fam && Math.random() < shinyChance(fam);
-    battleBg = BG[{ mountains: 'mountain', forest: 'forest', volcano: 'volcano' }[area.kind] || 'meadow'];
+    battleBg = BG[{ mountains: 'mountain', forest: 'forest', volcano: 'volcano', prehistoric: 'prehistoric' }[area.kind] || 'meadow'];
     return makeCritter(grownForm(base, lv), lv, shiny);
   }
   async function battleLoop() {
@@ -1230,23 +1329,26 @@ export function startGame(root, { dev = false } = {}) {
         const s = SPECIES[A().sp];
         const items = s.moves.map(m => {
           const at = (s.learn || {})[m] || 0, locked = at > A().lv;
-          return { label: locked ? '???' : m, sub: locked ? 'Lv ' + at : moveSub(m), locked, at };
+          return { label: locked ? '???' : m, sub: locked ? 'Lv ' + at : moveSub(m), moveType: locked ? null : MOVES[m].type, locked, at };
         });
         const m = await chooseMenu(items, { layout: 'full', canBack: true });
         if (m < 0) continue;
         if (items[m].locked) { await say(`${nm(A())} learns this move at Lv ${items[m].at}.`); continue; }
         r = await takeTurn({ type: 'move', move: s.moves[m] });
       } else if (c === 1) {
-        const b = await chooseMenu([{ label: 'SNACK', sub: '×' + bag.snack }, { label: 'POD', sub: '×' + bag.pod }], { layout: 'full', canBack: true });
+        const b = await chooseMenu([{ label: 'SNACK', sub: '×' + bag.snack }, { label: 'POD', sub: '×' + bag.pod }, { label: 'MEGA POD', sub: '×' + (bag.mega || 0) }],
+          { layout: 'full', canBack: true, cols: 3 });
         if (b < 0) continue;
         if (b === 0) {
           if (bag.snack <= 0) { await say('No snacks left! Nap at home to get more.'); continue; }
           if (A().hp >= A().maxHp) { await say(`${nm(A())} is already full of energy!`); continue; }
           r = await takeTurn({ type: 'snack' });
         } else {
+          const mega = b === 2;
           if (trainer) { await say(`You can't catch ${trainer.gym.short}'s critters!`); continue; }
-          if (bag.pod <= 0) { await say('No pods left! Nap at home to get more.'); continue; }
-          r = await takeTurn({ type: 'pod' });
+          if (mega && !(bag.mega > 0)) { await say('No MEGA PODS! Win them from gyms and legendaries.'); continue; }
+          if (!mega && bag.pod <= 0) { await say('No pods left! Nap at home to get more.'); continue; }
+          r = await takeTurn({ type: 'pod', mega });
         }
       } else if (c === 2) {
         const i = await pickTeam({ title: 'Switch to who?', battleIdx: ai });
@@ -1275,7 +1377,7 @@ export function startGame(root, { dev = false } = {}) {
     await battleIntro();
     if (fixed) {
       F = makeCritter(fixed.sp, fixed.lv);
-      battleBg = BG[{ mountains: 'mountain', forest: 'forest', volcano: 'volcano' }[LEGENDS[fixed.sp]?.area] || 'meadow'];
+      battleBg = BG[{ mountains: 'mountain', forest: 'forest', volcano: 'volcano', prehistoric: 'prehistoric' }[LEGENDS[fixed.sp]?.area] || 'meadow'];
     } else F = newWild();
     B.me.x = -170; B.foe.x = 170; updateHud();
     await tween(380, t => (overlay.bars = 1 - t));
@@ -1398,7 +1500,7 @@ export function startGame(root, { dev = false } = {}) {
     await tween(300, t => (overlay.fade = t));
     Object.assign(player, { x: 5, y: 6, face: 'down', moving: false, steps: 0 });
     Object.assign(pal, { x: 6, y: 6, faceLeft: true, moving: false });
-    party = []; box = []; F = null; trainer = null; bag = { snack: 3, pod: 5, candy: 0 }; flags = { badges: {}, seen: {} }; chooseIdx = 0;
+    party = []; box = []; F = null; trainer = null; bag = { snack: 3, pod: 5, mega: 0, candy: 0 }; flags = { badges: {}, seen: {} }; chooseIdx = 0;
     scene = 'choose'; banner.hidden = false;
     await tween(300, t => (overlay.fade = 1 - t));
     await say('Welcome to MAPLE HILL!');
@@ -1481,6 +1583,26 @@ export function startGame(root, { dev = false } = {}) {
     devTool('devNew', () => { if (mode === 'world') newGame(); });
   }
 
+  // Spine Slice: a line of fire cuts across the screen, then the two halves slide apart.
+  function drawSlice() {
+    const yL = 100, yR = 56, d = Math.round(overlay.slice * 9);
+    if (d > 0) {
+      sliceCtx.clearRect(0, 0, 240, 160); sliceCtx.drawImage(cv, 0, 0);
+      ctx.fillStyle = '#1a1020'; ctx.fillRect(0, 0, 240, 160);
+      const half = (pts, dx, dy) => {
+        ctx.save(); ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.clip();
+        ctx.drawImage(sliceBuf, dx, dy); ctx.restore();
+      };
+      half([[0, 0], [240, 0], [240, yR], [0, yL]], -d, -d);
+      half([[0, yL], [240, yR], [240, 160], [0, 160]], d, d);
+    }
+    const x1 = 240 * Math.min(1, overlay.sliceLine), fl = Math.floor(performance.now() / 50) % 2;
+    for (const [col, w] of [['#e2392b', 5], [fl ? '#ffd23f' : '#ff7a2a', 3], ['#fff6c2', 1]]) {
+      ctx.strokeStyle = col; ctx.lineWidth = w;
+      ctx.beginPath(); ctx.moveTo(0, yL); ctx.lineTo(x1, yL + (yR - yL) * (x1 / 240)); ctx.stroke();
+    }
+  }
+
   /* ============ main loop ============ */
   let last = performance.now(), raf = 0;
   function frame(now) {
@@ -1492,6 +1614,8 @@ export function startGame(root, { dev = false } = {}) {
     else if (scene === 'battle') drawBattle(now);
     else if (scene === 'choose') drawChoose(now);
     else drawEvolve(now);
+    if (overlay.blue > 0) { ctx.fillStyle = `rgba(40,120,255,${overlay.blue})`; ctx.fillRect(0, 0, 240, 160); }
+    if (overlay.sliceLine > 0) drawSlice();
     if (overlay.flash > 0) { ctx.fillStyle = `rgba(255,255,255,${overlay.flash})`; ctx.fillRect(0, 0, 240, 160); }
     if (overlay.bars > 0) { ctx.fillStyle = '#000'; const h = Math.round(80 * overlay.bars); ctx.fillRect(0, 0, 240, h); ctx.fillRect(0, 160 - h, 240, h); }
     if (overlay.fade > 0) { ctx.fillStyle = `rgba(0,0,0,${overlay.fade})`; ctx.fillRect(0, 0, 240, 160); }
