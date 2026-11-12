@@ -120,6 +120,20 @@ export const MOVES = {
   'Flame Mane':   { type: 'FIRE',     power: 20, acc: 90,  anim: 'proj', proj: 'magma' },
   'Tidal Roar':   { type: 'WATER',    power: 22, acc: 90,  anim: 'proj', proj: 'steamball' },
   'Inferno Pounce': { type: 'FIRE',   power: 26, acc: 85,  anim: 'pounce' },
+  // Psyraven (meadow legendary)
+  'Stone Pierce': { type: 'FLYING',   power: 22, acc: 90,  anim: 'proj', proj: 'feather' },  // feathers hard enough to pierce stone
+  'Psy Wing':     { type: 'PSYCHIC',  power: 18, acc: 95,  anim: 'proj', proj: 'mind' },
+  'Dark Caw':     { type: 'NORMAL',   effect: ['atk', -1, 'foe'] },
+  'Razor Dive':   { type: 'FLYING',   power: 24, acc: 85,  anim: 'dash' },
+  // Stone Bull (mountain legendary)
+  'Horn Rockets': { type: 'ROCK',     power: 24, acc: 90,  anim: 'proj', proj: 'hornrocket' }, // its stone horns fire like rockets and grow right back
+  'Ancient Stomp':{ type: 'ROCK',     power: 20, acc: 90,  anim: 'quake' },
+  'Bull Charge':  { type: 'NORMAL',   power: 18, acc: 90,  anim: 'dash' },
+  // Saber Stag (forest legendary)
+  'Antler Ram':   { type: 'GRASS',    power: 24, acc: 90,  anim: 'dash' },     // rams the opponent head-first with its antlers
+  'Saber Bite':   { type: 'NORMAL',   power: 20, acc: 90,  anim: 'lunge' },
+  'Leaf Storm':   { type: 'GRASS',    power: 20, acc: 90,  anim: 'proj', proj: 'leaf' },
+  'Ancient Wisdom': { type: 'PSYCHIC', effect: ['atk', 1, 'self'] },
 };
 const EFFECT_SUB = { 'atk-1': 'ATK ↓', 'def-1': 'DEF ↓', 'def1': 'DEF ↑', 'eva1': 'DODGE ↑' };
 export const moveSub = m => {
@@ -335,6 +349,24 @@ export const SPECIES = {
     blurb: 'A slim golden psychic with goat horns that floats.',
     appear: 'floated in', exit: 'It closed its eyes and faded away.', exitAnim: 'fly',
   },
+  psyraven: {
+    name: 'PSYRAVEN', types: ['FLYING', 'PSYCHIC'], catchRate: 0.12, legendary: true, hovers: true,
+    b: { hp: 20, atk: 10, def: 9, spd: 12 },
+    moves: ['Stone Pierce', 'Psy Wing', 'Dark Caw', 'Razor Dive'],
+    appear: 'swooped down from the tallest tree', exit: 'PSYRAVEN flew back up to its perch. It will be back!', exitAnim: 'fly',
+  },
+  stonebull: {
+    name: 'STONE BULL', types: ['ROCK'], catchRate: 0.12, legendary: true,
+    b: { hp: 28, atk: 12, def: 16, spd: 4 },
+    moves: ['Horn Rockets', 'Ancient Stomp', 'Harden', 'Bull Charge'],
+    appear: 'cracked out of its stone statue', exit: 'STONE BULL turned back into a statue. It will be back!', exitAnim: 'dash',
+  },
+  saberstag: {
+    name: 'SABER STAG', types: ['GRASS'], catchRate: 0.12, legendary: true,
+    b: { hp: 24, atk: 13, def: 11, spd: 10 },
+    moves: ['Antler Ram', 'Saber Bite', 'Leaf Storm', 'Ancient Wisdom'],
+    appear: 'stepped out of the ancient shrine', exit: 'SABER STAG vanished into the shrine. It will be back!', exitAnim: 'dash',
+  },
   pyrolion: {
     name: 'PYROLION', types: ['FIRE', 'WATER'], flicker: 'fF', catchRate: 0.12, legendary: true,
     b: { hp: 30, atk: 16, def: 12, spd: 12 },
@@ -367,7 +399,32 @@ export const XP_SHARE = {
 export const SNACK_HEAL = { base: 0.4, perBadge: 0.1 };
 // Max critter level: 25 to start, raised by each gym badge you hold.
 export const LEVEL_CAP = { start: 25, maple: 25, pebble: 35, mossy: 50, ember: 65 };
-export const LEGEND_LEVEL = 50;   // a critter this level wakes the volcano's legendary
+// One legendary per biome. `need`: a critter on your team must be this level to wake it. It fights at `lv`.
+// It keeps coming back until you catch it.
+export const LEGENDS = {
+  psyraven:  { area: 'meadow',    lv: 15, need: 15, spot: 'the tallest tree',
+    sleeping: ['A giant raven is perched at the very top of the tree.', 'It glares down at you... it looks way too strong.'],
+    waking: 'The giant raven spreads its stone-hard wings!',
+    gone: 'The tall tree is quiet now. PSYRAVEN is part of your adventure!' },
+  stonebull: { area: 'mountains', lv: 25, need: 25, spot: 'the bull statue',
+    sleeping: ['A stone bull, carved a thousand years ago by an ancient people.', 'Its eyes flicker... you feel it watching you.'],
+    waking: 'The statue cracks... the STONE BULL is alive!',
+    gone: 'Just a pedestal now. STONE BULL is part of your adventure!' },
+  saberstag: { area: 'forest',    lv: 35, need: 35, spot: 'the ancient shrine',
+    sleeping: ['An ancient mossy shrine. They say a deer here once', 'gave the old people of the forest their wisdom.'],
+    waking: 'Antlers glow inside the shrine... SABER STAG appears!',
+    gone: 'The shrine is still. SABER STAG is part of your adventure!' },
+  pyrolion:  { area: 'volcano',   lv: 50, need: 50, spot: 'the big volcano',
+    sleeping: ['The volcano rumbles... something HUGE is sleeping inside.'],
+    waking: 'The ground shakes! Something is climbing out of the volcano!',
+    gone: 'The volcano is quiet now. PYROLION is part of your adventure!' },
+};
+export const LEGEND_LEVEL = LEGENDS.pyrolion.need;
+
+// RARE CANDY: you get one the first time you beat each gym and each legendary.
+// levels: how many levels it gives. target: 'one' (pick a critter) or 'team' (everyone on your team).
+// Ideas to try: { levels: 1, target: 'one' }, { levels: 1, target: 'team' }.
+export const CANDY = { levels: 5, target: 'one' };
 
 /* ---------------- the world ---------------- */
 // Areas line up left to right, 32 tiles wide each. A town (if any) sits right below its area.
@@ -389,7 +446,7 @@ export const AREAS = [
 export const TOWNS = {
   sprout: { name: 'SPROUT VILLAGE', tagline: 'A little village for brand-new trainers.', rest: 'HEALING HUT', restRoof: 'green', gym: 'maple', gymStyle: 'maple',
     welcome: ['Welcome to SPROUT VILLAGE!', 'Healing hut, shiny trader, and a gym for new trainers.'] },
-  pebble: { name: 'PEBBLE TOWN', tagline: 'Where the bunnies are LOVED.', rest: 'REST STOP', restRoof: 'green', gym: 'pebble', gymStyle: 'stone',
+  pebble: { name: 'PEBBLE TOWN', tagline: 'Where the bunnies are LOVED.', rest: 'REST STOP', restRoof: 'green', gym: 'pebble', gymStyle: 'stone', statue: 'stonebull',
     welcome: ['Welcome to PEBBLE TOWN!', 'The blue house is the SHINY TRADER. The big stone hall is the GYM.'] },
   mossy: { name: 'MOSSY HOLLOW', tagline: 'A sleepy town under the big trees.', rest: 'HEALING HUT', restRoof: 'straw', gym: 'mossy', gymStyle: 'wood',
     welcome: ['Welcome to MOSSY HOLLOW!', 'The straw hut is the HEALING HUT. The wooden hall is the GYM.'] },

@@ -42,8 +42,12 @@ The world is a row of areas going right (east). Each town sits directly below it
 | Whisper Forest | 20–30 | Boulder Badge | Mossy Hollow: Leader Ivy |
 | The Volcano | 40–49 | Grove Badge | Ember Town: Leader Pyra (Fire Gym) |
 
-The legendary PYROLION (Fire/Water) sleeps in the big volcano in the middle of The Volcano. Bring a Lv 50 critter
-and walk into the glowing cave. It keeps coming back until you catch it.
+Every biome has a legendary that keeps coming back until you catch it (levels and spots in `LEGENDS`):
+PSYRAVEN on the tallest tree in Maple Hill's bottom-left corner (Lv 15 critter needed), STONE BULL statue in Pebble Town (Lv 25),
+SABER STAG's ancient shrine in Whisper Forest's southeast ferns (Lv 35), PYROLION in the big volcano (Lv 50).
+
+Each town has a BUS STOP by the trail in. Once you've visited two towns, the bus takes you to any town you've been to.
+RARE CANDY: one for the first win at each gym and against each legendary (setting: `CANDY`). Use it from B → BAG.
 
 - Starters and wild critters evolve; wild critters past their evolve level come already evolved
 - Electric and Flying types; Zapcat line in every biome; third evolutions for Blazepony, Foxlet, Splashcano and Steel Dog lines
@@ -51,7 +55,7 @@ and walk into the glowing cave. It keeps coming back until you catch it.
 - A BOX at home and in rest huts holds extra critters (they don't earn XP); snacks heal more with every badge
 - Shinies (25% more attack): find them in the wild, or trade 3 plain critters of one kind for 1 shiny in Pebble Town
 - Pods to catch critters, a team of 6
-- Level caps: 25 to start, 35 with the Boulder Badge, 50 with the Grove Badge, 60 with the Ember Badge
+- Level caps: 25 to start, 35 with the Boulder Badge, 50 with the Grove Badge, 65 with the Ember Badge
 
 ## Adding the next area
 

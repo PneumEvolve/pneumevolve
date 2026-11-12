@@ -6,7 +6,7 @@ import { buildArt, hash, T } from './art.js';
 import {
   SPECIES, MOVES, STARTERS, ENCOUNTERS, TYPE_COLORS, GATE_LEVEL, TEAM_MAX, LEVEL_CAP,
   FAMILY, SHINY, SHINY_ORDER, SHINY_TRADE_COST, SHINY_ATTACK_BONUS, XP_SHARE, SNACK_HEAL, GYMS, AREAS, TOWNS,
-  LEGEND_LEVEL, effectiveness, moveSub, xpNeed, applyStats, makeCritter, grownForm, evolveTarget,
+  LEGENDS, CANDY, effectiveness, moveSub, xpNeed, applyStats, makeCritter, grownForm, evolveTarget,
 } from './data.js';
 
 const SAVE_KEY = 'critterquest.save.v1';
@@ -32,7 +32,7 @@ export function startGame(root, { dev = false } = {}) {
   const enemyBox = q('enemyBox'), playerBox = q('playerBox'), banner = q('banner');
   const panel = q('panel'), panelGrid = q('panelGrid'), panelTitle = q('panelTitle');
   const RM = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const { KID, sprites, TILES, HOUSES, GYM_IMG, LEADERS, LEGEND_VOLCANO, BG, spriteURL } = buildArt(SPECIES, GYMS);
+  const { KID, sprites, TILES, HOUSES, GYM_IMG, LEADERS, LEGEND_VOLCANO, LEGEND_SPOTS, BG, spriteURL } = buildArt(SPECIES, GYMS);
 
   /* ============ timing helpers (they freeze once the game is torn down) ============ */
   const wait = ms => new Promise(r => setTimeout(() => { if (!dead) r(); }, ms));
@@ -52,15 +52,16 @@ export function startGame(root, { dev = false } = {}) {
   /* ============ map ============ */
   // Areas run left to right (AREAS in data.js), each AW tiles wide and AH tall.
   // A town, if the area has one, sits right below it (TH tall). Everything below the meadow is woods.
-  const SIGNS = {}, DOORS = {}, GATES = {}, BUILDINGS = [], TOWN_AT = {};
+  const SIGNS = {}, DOORS = {}, GATES = {}, BUILDINGS = [], TOWN_AT = {}, BUS = {};
   const map = [];
   (function buildMap() {
     for (let y = 0; y < MH; y++) map.push(Array(MW).fill('.'));
     const set = (x, y, ch) => { if (x >= 0 && y >= 0 && x < MW && y < MH) map[y][x] = ch; };
     const rect = (x0, y0, x1, y1, ch) => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) set(x, y, ch); };
     const sign = (x, y, lines) => { SIGNS[x + ',' + y] = lines; };
-    const building = (x, y, img, door) => {
-      BUILDINGS.push({ x, y, img });
+    // altImg: drawn instead once that spot's legendary is caught (the raven leaves its tree)
+    const building = (x, y, img, door, altImg) => {
+      BUILDINGS.push({ x, y, img, altImg, legend: door?.legend });
       rect(x, y, x + img.width / T - 1, y + img.height / T - 1, 'h');
       if (door) DOORS[door.x + ',' + door.y] = door;
     };
@@ -78,6 +79,7 @@ export function startGame(root, { dev = false } = {}) {
         [[11,3],[12,3],[11,4],[2,10],[9,11],[12,12],[16,14],[17,14],[16,15],[19,18],[21,20],[22,20],[28,11],[26,21],[27,21],[2,21],[29,20],[17,3]]
           .forEach(([x, y]) => L(x, y, 'T'));
         building(ox + 3, 2, HOUSES.red, { x: ox + 5, y: 5, type: 'home' });
+        building(ox + 2, 20, LEGEND_SPOTS.treeWithRaven, { x: ox + 2, y: 21, type: 'legend', legend: 'psyraven' }, LEGEND_SPOTS.tree);
         sign(ox + 7, 7, ['MAPLE HILL', 'Home of brave kids and their critter partners.']);
         sign(ox + 13, 7, ['TYPE TIPS', 'WATER beats FIRE. FIRE beats GRASS.', 'GRASS beats WATER. ELECTRIC beats FLYING.', 'FLYING beats GRASS. FIGHTING smashes ROCK and STEEL!']);
         sign(ox + 19, 8, ['NORTH MEADOW', 'Rabbits and bluebirds live here. All below Lv 10.']);
@@ -96,6 +98,7 @@ export function startGame(root, { dev = false } = {}) {
         [[13,3],[14,4],[17,11],[13,14],[17,18],[6,10],[24,10],[11,2],[30,14],[1,22],[29,22],[22,22],[8,22],[13,21],[18,4]].forEach(([x, y]) => L(x, y, 'Y'));
         [[16,6],[12,11],[20,10],[4,22],[26,23 - 1]].forEach(([x, y]) => L(x, y, 'o'));
         sign(ox + 16, 10, [area.name, 'Critters here are Lv 20 to 30. KOMODOS, SNAPLINGS... and a rare HAMMERFOX!']);
+        building(ox + 22, 16, LEGEND_SPOTS.shrine, { x: ox + 22, y: 17, type: 'legend', legend: 'saberstag' });
       } else if (area.kind === 'volcano') {
         R(0, 0, AW - 1, AH - 1, 'K');
         R(10, 2, 14, 6, 'e'); R(20, 2, 28, 6, 'e'); R(2, 11, 8, 15, 'e'); R(21, 11, 28, 14, 'e'); R(9, 17, 13, 21, 'e');
@@ -104,7 +107,7 @@ export function startGame(root, { dev = false } = {}) {
         R(0, 9, AW - 1, 9, '='); R(15, 9, 15, AH - 1, '=');
         [[3,7],[12,11],[24,8],[29,10],[8,22],[20,21],[2,2],[18,18],[22,16]].forEach(([x, y]) => L(x, y, 'X'));
         // the legendary's volcano sits in the middle; its glowing cave is the way in
-        building(ox + 17, 12, LEGEND_VOLCANO, { x: ox + 18, y: 14, type: 'legend' });
+        building(ox + 17, 12, LEGEND_VOLCANO, { x: ox + 18, y: 14, type: 'legend', legend: 'pyrolion' });
         sign(ox + 16, 10, [area.name, 'Critters here are Lv 40 to 49.', `Legend says a giant flaming lion sleeps in the big volcano...`]);
       }
       // edges: walls all round, with openings for the path in, the gate out, and the trail down to the town
@@ -131,13 +134,15 @@ export function startGame(root, { dev = false } = {}) {
       building(ox + 22, oy + 3, HOUSES[town.restRoof] || HOUSES.green, { x: ox + 24, y: oy + 6, type: 'rest', town: id });
       building(ox + 11, oy + 8, GYM_IMG[town.gymStyle] || GYM_IMG.stone, { x: ox + 15, y: oy + 12, type: 'gym', town: id });
       sign(ox + 16, oy + 1, [town.name, town.tagline]);
+      L(14, 1, 'U'); BUS[(ox + 14) + ',' + (oy + 1)] = id;                   // bus stop by the trail into town
+      if (town.statue) building(ox + 25, oy + 11, LEGEND_SPOTS.statue, { x: ox + 25, y: oy + 12, type: 'legend', legend: town.statue });
       sign(ox + 8, oy + 6, ['SHINY TRADER', `Trade ${SHINY_TRADE_COST} of the same critter, get 1 SHINY one!`]);
       sign(ox + 21, oy + 6, [town.rest, 'Free naps for tired critters.']);
       const gym = GYMS[town.gym];
       sign(ox + 16, oy + 13, [gym.hall, `Leader: ${gym.short}. Win the ${gym.badge}!`]);
       for (let x = 0; x < AW; x++) L(x, TH - 1, 'T');
       for (let y = 0; y < TH; y++) { L(0, y, 'T'); L(AW - 1, y, 'T'); }
-      TOWN_AT[ox] = { id, rest: { x: ox + 24, y: oy + 7 } };
+      TOWN_AT[ox] = { id, rest: { x: ox + 24, y: oy + 7 }, bus: { x: ox + 15, y: oy + 2 } };
     }
     for (const k of Object.keys(SIGNS)) { const [x, y] = k.split(',').map(Number); set(x, y, 'S'); }
     for (const k of Object.keys(DOORS)) { const [x, y] = k.split(',').map(Number); set(x, y, 'D'); }
@@ -158,14 +163,14 @@ export function startGame(root, { dev = false } = {}) {
   function walkable(x, y) {
     const t = tileAt(x, y);
     if (t === 'G') return gateOpenFor(gateAt(x, y));
-    return !'T~hDSMPYLX'.includes(t);
+    return !'T~hDSMPYLXU'.includes(t);
   }
   const inTown = y => y >= AH;
   const townHere = (x, y) => (inTown(y) ? TOWN_AT[areaIndex(x) * AW] : null);
 
   /* ============ state ============ */
   let party = [];                 // up to 6 critters; party[0] is your lead and walks with you
-  let bag = { snack: 3, pod: 5 };
+  let bag = { snack: 3, pod: 5, candy: 0 };
   let box = [];                   // extra critters, kept at home and in rest huts (they don't earn XP)
   let flags = { badges: {}, seen: {} };   // badges won, places visited
   let ai = 0;                     // which party member is battling
@@ -223,7 +228,7 @@ export function startGame(root, { dev = false } = {}) {
     const team = d.party.filter(p => SPECIES[p.sp]).map(revive);
     party = team.slice(0, TEAM_MAX);
     box = [...team.slice(TEAM_MAX), ...(d.box || []).filter(p => SPECIES[p.sp]).map(revive)];
-    bag = { snack: d.bag?.snack ?? 3, pod: d.bag?.pod ?? 5 };
+    bag = { snack: d.bag?.snack ?? 3, pod: d.bag?.pod ?? 5, candy: d.bag?.candy ?? 0 };
     flags = { badges: {}, seen: {}, ...(d.flags || {}) };
     delete flags.luck;   // the old bunny-luck system from v0.4/0.5
     if (flags.badge) { flags.badges = { ...flags.badges, pebble: true }; delete flags.badge; }   // saves from v0.4
@@ -407,6 +412,7 @@ export function startGame(root, { dev = false } = {}) {
     if (pal.moving) { pal.x = pal.to.x; pal.y = pal.to.y; pal.moving = false; }
     stepsSince++;
     const area = areaAt(player.x), town = townHere(player.x, player.y);
+    if (town && !flags.bus?.[town.id]) { flags.bus = { ...(flags.bus || {}), [town.id]: true }; save(); }
     const placeKey = town ? 'town:' + town.id : 'area:' + area.id;
     const welcome = town ? TOWNS[town.id].welcome : area.welcome;
     if (welcome && !flags.seen[placeKey]) {
@@ -445,11 +451,12 @@ export function startGame(root, { dev = false } = {}) {
       if (door.type === 'home' || door.type === 'rest') restAt(door);
       else if (door.type === 'trader') traderVisit();
       else if (door.type === 'gym') gymVisit(TOWNS[door.town].gym);
-      else if (door.type === 'legend') legendVisit();
+      else if (door.type === 'legend') legendVisit(door.legend);
     }
     else if (t === '~') worldSay(SPECIES[lead.sp].types.includes('WATER') ? [`${nm(lead)} splashes happily in the pond!`] : ['The pond sparkles in the sun.']);
     else if (t === 'M') worldSay(['A huge boulder. It is NOT a Rockalock. Probably.']);
     else if (t === 'L') worldSay(['Bubbling lava! WAY too hot to touch.']);
+    else if (t === 'U') busStop(BUS[tx + ',' + ty]);
     else if (pal.x === tx && pal.y === ty) worldSay([`${nm(lead)} looks happy to see you!`, `Lv ${lead.lv}  ·  HP ${lead.hp}/${lead.maxHp}`]);
   }
   function healAll() { [...party, ...box].forEach(c => { c.hp = c.maxHp; c.shownHp = c.hp; }); }
@@ -523,7 +530,7 @@ export function startGame(root, { dev = false } = {}) {
       const c = await chooseMenu([{ label: 'TEAM', sub: `${party.length}/${TEAM_MAX}` }, { label: 'BAG' }, { label: 'SHINY' }, { label: 'CLOSE' }],
         { layout: 'side', prompt: `Menu · Badges ${Object.keys(flags.badges).length}/${Object.keys(GYMS).length}`, canBack: true });
       if (c === 0) { await teamFlow(); continue; }
-      if (c === 1) { await say(`SNACKS ×${bag.snack}    PODS ×${bag.pod}`); await say(`Snacks heal ${Math.round(snackPct() * 100)}% of HP. Each badge makes them stronger!`); continue; }
+      if (c === 1) { if (await bagFlow()) return; continue; }
       if (c === 2) { await showShinies('Shinies · ● = one plain critter you have'); continue; }
       break;
     }
@@ -609,18 +616,87 @@ export function startGame(root, { dev = false } = {}) {
     await startGymBattle(gymId);
   }
 
-  /* ============ the legendary's volcano ============ */
-  async function legendVisit() {
+  // Returns true if something (an evolution) already took us back to the world.
+  async function bagFlow() {
+    for (;;) {
+      const c = await chooseMenu([{ label: 'SNACK', sub: '×' + bag.snack }, { label: 'POD', sub: '×' + bag.pod }, { label: 'CANDY', sub: '×' + (bag.candy || 0) }, { label: 'BACK' }],
+        { layout: 'full', canBack: true });
+      if (c === 0) await say(`Snacks heal ${Math.round(snackPct() * 100)}% of HP. Use them from TEAM, or in battle.`);
+      else if (c === 1) await say('Throw pods in battle to catch wild critters!');
+      else if (c === 2) { if (await useCandy()) return true; }
+      else return false;
+    }
+  }
+  const candyWhat = () => (CANDY.target === 'team' ? `+${CANDY.levels} level${CANDY.levels > 1 ? 's' : ''} for your whole team` : `+${CANDY.levels} level${CANDY.levels > 1 ? 's' : ''} for one critter`);
+  async function giveCandy(key) {
+    if (flags.candy?.[key]) return;
+    flags.candy = { ...(flags.candy || {}), [key]: true };
+    bag.candy = (bag.candy || 0) + 1; save();
+    await say(`You got a RARE CANDY! (${candyWhat()})`);
+  }
+  async function useCandy() {
+    if (!(bag.candy > 0)) { await say('No candy yet! Win it from gyms and legendaries.'); return false; }
+    let targets = party;
+    if (CANDY.target !== 'team') {
+      const i = await pickTeam({ title: `Give the RARE CANDY to who? (+${CANDY.levels} Lv)` });
+      if (i < 0) return false;
+      targets = [party[i]];
+    }
+    if (targets.every(c => c.lv >= levelCap())) { await say(capLine(targets[0])); return false; }
+    bag.candy--;
+    for (const c of targets) {
+      const from = c.lv, learned = [];
+      for (let k = 0; k < CANDY.levels && c.lv < levelCap(); k++) learned.push(...bumpLevel(c));
+      if (c.lv > from) await say(`${nm(c)} ate the candy and grew to Lv ${c.lv}!`);
+      for (const m of learned) await say(`${nm(c)} learned ${m}!`);
+    }
+    save();
+    const evolvers = targets.filter(canEvolve);
+    if (!evolvers.length) return false;
+    hideTextbox();
+    for (const c of evolvers) await runEvolution(c, false);
+    await announceGates();
+    return true;
+  }
+
+  /* ============ bus stops: fast travel between towns you've visited ============ */
+  async function busStop(here) {
     mode = 'busy';
-    if (flags.legend?.pyrolion) {
-      await say('The volcano is quiet now. PYROLION is part of your adventure!');
-    } else if (!party.some(c => c.lv >= LEGEND_LEVEL)) {
-      await say('The volcano rumbles... something HUGE is sleeping inside.');
-      await say(`Come back when one of your critters is Lv ${LEGEND_LEVEL}.`);
+    flags.bus = { ...(flags.bus || {}), [here]: true };
+    const stops = AREAS.filter(a => a.town && flags.bus[a.town]).map(a => a.town);
+    if (stops.length < 2) {
+      await say(`BUS STOP: ${TOWNS[here].name}`);
+      await say('Visit another town and the bus can take you there anytime!');
+      hideTextbox(); mode = 'world'; return;
+    }
+    const card = label => { const b = document.createElement('button'); b.className = 'cq-card cq-card-luck cq-card-more'; b.textContent = label; return { node: b }; };
+    const items = stops.map(id => card(id === here ? `${TOWNS[id].name} (here)` : TOWNS[id].name));
+    const i = await chooseMenu([...items, card('STAY HERE')], { panelMode: true, cols: 2, canBack: true, title: 'Where do you want to go?' });
+    const dest = stops[i];
+    if (i < 0 || i >= stops.length || dest === here) { hideTextbox(); mode = 'world'; return; }
+    await say(`All aboard! Next stop: ${TOWNS[dest].name}!`);
+    hideTextbox();
+    await tween(350, t => (overlay.fade = t));
+    const spot = Object.values(TOWN_AT).find(t => t.id === dest).bus;
+    Object.assign(player, { x: spot.x, y: spot.y, face: 'down', moving: false }); placePal(); save();
+    await wait(300);
+    await tween(350, t => (overlay.fade = 1 - t));
+    await worldSay([`Welcome to ${TOWNS[dest].name}!`]);
+  }
+
+  /* ============ legendaries: one in every biome ============ */
+  async function legendVisit(id) {
+    mode = 'busy';
+    const L = LEGENDS[id];
+    if (flags.legend?.[id]) {
+      await say(L.gone);
+    } else if (!party.some(c => c.lv >= L.need)) {
+      for (const line of L.sleeping) await say(line);
+      await say(`Come back when one of your critters is Lv ${L.need}.`);
     } else {
-      await say('The ground shakes! Something is climbing out of the volcano!');
+      await say(L.waking);
       hideTextbox();
-      await startBattle({ sp: 'pyrolion', lv: LEGEND_LEVEL });
+      await startBattle({ sp: id, lv: L.lv });
       return;
     }
     hideTextbox(); mode = 'world';
@@ -659,7 +735,7 @@ export function startGame(root, { dev = false } = {}) {
         '*': TILES.flowers, 'S': TILES.sign, '~': TILES.water[wf], 'G': TILES.gate[gateOpenFor(gateAt(tx, ty)) ? 1 : 0],
         'r': TILES.ground[Math.floor(hash(tx, ty) * 3)], 'F': TILES.forestFloor[Math.floor(hash(tx, ty) * 3)],
         'Y': TILES.forestTree, 'u': TILES.undergrowth, 'o': TILES.mushrooms,
-        'K': TILES.ash[Math.floor(hash(tx, ty) * 3)], 'L': TILES.lava[wf], 'e': TILES.embers, 'X': TILES.blackrock,
+        'K': TILES.ash[Math.floor(hash(tx, ty) * 3)], 'L': TILES.lava[wf], 'e': TILES.embers, 'X': TILES.blackrock, 'U': TILES.busStop,
       }[t] || TILES.grass[Math.floor(hash(tx, ty) * 4)];
       ctx.drawImage(img, sx, sy);
       if (t === '~' || t === '=') {
@@ -671,7 +747,7 @@ export function startGame(root, { dev = false } = {}) {
         if (!same(tileAt(tx + 1, ty))) ctx.fillRect(sx + 16 - e, sy, e, 16);
       }
     }
-    for (const b of BUILDINGS) ctx.drawImage(b.img, b.x * T - camX, b.y * T - camY);
+    for (const b of BUILDINGS) ctx.drawImage(b.legend && b.altImg && flags.legend?.[b.legend] ? b.altImg : b.img, b.x * T - camX, b.y * T - camY);
 
     const [apx, apy] = entityPx(pal);
     const bob = player.moving && player.t > 0.25 && player.t < 0.75 ? -1 : 0;
@@ -728,6 +804,18 @@ export function startGame(root, { dev = false } = {}) {
       case 'rock': r('#3b3340', x - 4, y - 3, 8, 7); r('#8b7563', x - 3, y - 2, 6, 5); r('#a9937f', x - 2, y - 2, 2, 1); break;
       case 'leaf': r('#2a2135', x - 5, y - 2, 10, 5); r(fl ? '#7fd35b' : '#5fbf45', x - 4, y - 1, 8, 3); r('#3f8f3a', x - 4, y, 8, 1); break;
       case 'wind': r('#ffffff', x - 6, y - 3, 8, 1); r('#ffffff', x - 3, y, 8, 1); r('#ffffff', x - 5, y + 3, 7, 1); break;
+      case 'mind':
+        for (let i = 0; i < 3; i++) { const rr = 3 + i * 3; ctx.strokeStyle = fl ? '#f0a3d0' : '#d45fa0'; ctx.lineWidth = 2; ctx.strokeRect(x - rr, y - rr, rr * 2, rr * 2); }
+        break;
+      case 'magma':
+        r('#2a2135', x - 7, y - 7, 14, 14); r('#e2392b', x - 6, y - 6, 12, 12); r(fl ? '#ffd23f' : '#ff7a2a', x - 4, y - 4, 8, 8); r('#fff6c2', x - 2, y - 3, 3, 2);
+        r('#5a4a44', x - 10 * p.dir, y - 8, 4, 3); break;
+      case 'feather':
+        for (const dy of [-6, 0, 6]) { r('#2a2135', x - 7, y + dy - 1, 14, 3); r(fl ? '#e3ebf3' : '#a7b0c2', x - 6, y + dy, 12, 1); r('#ffffff', x + 5 * p.dir, y + dy, 2, 1); }
+        break;
+      case 'hornrocket':
+        for (const dy of [-5, 4]) { r('#2a2135', x - 7, y + dy - 3, 14, 6); r('#bdb8b0', x - 6, y + dy - 2, 12, 4); r('#e3dfd8', x + 4 * p.dir, y + dy - 2, 3, 4); r(fl ? '#ffd23f' : '#ff7a2a', x - 10 * p.dir - 2, y + dy - 2, 4, 4); }
+        break;
       case 'spark':
         r('#ffe14a', x - 4, y - 3, 3, 2); r('#ffe14a', x - 2, y - 1, 3, 2); r('#ffe14a', x, y + 1, 3, 2); r(fl ? '#ffffff' : '#bff3ff', x - 1, y - 1, 2, 2); break;
       case 'bolt':
@@ -853,7 +941,7 @@ export function startGame(root, { dev = false } = {}) {
           B.proj.y = from.y + (to.y - from.y) * t - 18 * Math.sin(Math.PI * t);
         });
         B.proj = null;
-        if (M.proj === 'bolt' || M.proj === 'burst' || M.proj === 'steamball') { overlay.flash = 0.7; B.shake = 4; await tween(240, t => (overlay.flash = 0.7 * (1 - t))); B.shake = 0; }
+        if (['bolt', 'burst', 'steamball', 'magma', 'hornrocket', 'feather'].includes(M.proj)) { overlay.flash = 0.7; B.shake = 4; await tween(240, t => (overlay.flash = 0.7 * (1 - t))); B.shake = 0; }
         if (M.proj === 'rocket') { overlay.flash = 0.8; B.shake = 5; await tween(220, t => (overlay.flash = 0.8 * (1 - t))); B.shake = 0; }
         break;
       }
@@ -1013,11 +1101,13 @@ export function startGame(root, { dev = false } = {}) {
       await say(`Gotcha! ${F.shiny ? 'The SHINY ' : ''}${nm(F)} was caught!`);
       const c = makeCritter(F.sp, F.lv, F.shiny);
       c.hp = Math.max(1, F.hp); c.shownHp = c.hp;
-      if (SPECIES[F.sp].legendary) flags.legend = { ...(flags.legend || {}), [F.sp]: true };
+      const caughtLegend = SPECIES[F.sp].legendary;
+      if (caughtLegend) flags.legend = { ...(flags.legend || {}), [F.sp]: true };
       enemyBox.hidden = true;
       if (party.length < TEAM_MAX) { party.push(c); await say(`${nm(F)} joined your team! (${party.length}/${TEAM_MAX})`); }
       else { box.push(c); await say(`Your team is full, so ${nm(F)} went to your BOX.`); }
       B.pod = null;
+      if (caughtLegend) await giveCandy('legend:' + F.sp);
       await shareXp(4 + F.lv * 2);
       await endBattle(false);
       return true;
@@ -1090,6 +1180,7 @@ export function startGame(root, { dev = false } = {}) {
     B.foe.vis = false; enemyBox.hidden = true;
     await say(`The wild ${nm(F)} is all tuckered out!`);
     await say(S.exit || 'It wandered off.');
+    if (S.legendary) await giveCandy('legend:' + F.sp);
     await shareXp(8 + F.lv * 3);
     if (Math.random() < 0.25) { bag.pod++; await say(`You found a POD on the ${areaAt(player.x).kind === 'meadow' ? 'grass' : 'trail'}!`); }
     await endBattle(false);
@@ -1182,7 +1273,10 @@ export function startGame(root, { dev = false } = {}) {
     mode = 'busy';
     bang = true; await wait(550); bang = false;
     await battleIntro();
-    if (fixed) { F = makeCritter(fixed.sp, fixed.lv); battleBg = BG.volcano; } else F = newWild();
+    if (fixed) {
+      F = makeCritter(fixed.sp, fixed.lv);
+      battleBg = BG[{ mountains: 'mountain', forest: 'forest', volcano: 'volcano' }[LEGENDS[fixed.sp]?.area] || 'meadow'];
+    } else F = newWild();
     B.me.x = -170; B.foe.x = 170; updateHud();
     await tween(380, t => (overlay.bars = 1 - t));
     await tween(480, t => { B.me.x = -170 * (1 - t); B.foe.x = 170 * (1 - t); }, easeOut);
@@ -1235,6 +1329,7 @@ export function startGame(root, { dev = false } = {}) {
     if (!flags.badges[trainer.id]) {
       flags.badges = { ...flags.badges, [trainer.id]: true }; save();
       await say(`${gym.short}: "You earned the ${gym.badge}!"`);
+      await giveCandy('gym:' + trainer.id);
       await say(`Snacks now heal ${Math.round(snackPct() * 100)}% of HP!`);
       await say(`Your critters can now grow all the way to Lv ${levelCap()}!`);
     } else {
@@ -1303,7 +1398,7 @@ export function startGame(root, { dev = false } = {}) {
     await tween(300, t => (overlay.fade = t));
     Object.assign(player, { x: 5, y: 6, face: 'down', moving: false, steps: 0 });
     Object.assign(pal, { x: 6, y: 6, faceLeft: true, moving: false });
-    party = []; box = []; F = null; trainer = null; bag = { snack: 3, pod: 5 }; flags = { badges: {}, seen: {} }; chooseIdx = 0;
+    party = []; box = []; F = null; trainer = null; bag = { snack: 3, pod: 5, candy: 0 }; flags = { badges: {}, seen: {} }; chooseIdx = 0;
     scene = 'choose'; banner.hidden = false;
     await tween(300, t => (overlay.fade = 1 - t));
     await say('Welcome to MAPLE HILL!');

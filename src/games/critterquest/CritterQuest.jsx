@@ -18,7 +18,7 @@ export default function CritterQuest() {
   return (
     <div className="cq" ref={rootRef}>
       <main className="cq-console">
-        <div className="cq-brand"><h1>CRITTER QUEST</h1><span>Version 0.8</span></div>
+        <div className="cq-brand"><h1>CRITTER QUEST</h1><span>Version 0.9</span></div>
 
         <div className="cq-bezel">
           <div className="cq-bezel-top"><span className="cq-led" />Power</div>
@@ -57,19 +57,6 @@ export default function CritterQuest() {
           </div>
         </div>
 
-        <div className="cq-controls">
-          <div className="cq-dpad" aria-label="Direction pad">
-            <button type="button" className="cq-up" data-btn="up" aria-label="Up">▲</button>
-            <button type="button" className="cq-left" data-btn="left" aria-label="Left">◀</button>
-            <span className="cq-hub" />
-            <button type="button" className="cq-right" data-btn="right" aria-label="Right">▶</button>
-            <button type="button" className="cq-down" data-btn="down" aria-label="Down">▼</button>
-          </div>
-          <div className="cq-ab">
-            <div className="cq-key cq-key-b"><button type="button" data-btn="b" aria-label="B button">B</button></div>
-            <div className="cq-key"><button type="button" data-btn="a" aria-label="A button">A</button></div>
-          </div>
-        </div>
         <p className="cq-hint">
           <kbd>Arrows</kbd> or <kbd>WASD</kbd> walk · <kbd>Z</kbd>/<kbd>Space</kbd> = A · <kbd>X</kbd> = B (menu)
           <br />Your progress saves in this browser.

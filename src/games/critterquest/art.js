@@ -258,6 +258,40 @@ ART.pyrolion = [
   '............fRRyyyyyyyR...', 'uu..........FfRRRRRRRRf...', 'Uuu......yyyyyFfRRRRfF....', '.uUu..yyyyyyyyyyyyyyy.....',
   '..uuyyyyyyyyyyyyyyyyy.....', '...yyyyyYyyyyyyyyyyyy.....', '...yyyyyyyyyyyyyyyYyy.....', '....yyyyyyyyyyyyyyyyy.....',
   '....yyY.....yyY..yyY......', '....yyY.....yyY..yyY......', '...UuuU....UuuU.UuuU......'];
+// Psyraven: a giant psychic raven with stone-piercing silver feathers
+ART.psyraven = [
+  'm.m.m.....................', '.mNmNm....................', '..nNnNn..............nnn..', '...nnNnn............nnnnn.',
+  '....nnnnn..........nnpnnMM', '.....nnnnnn.......nnnnnMM.', '......nnnnnnn....nnnnnn...', '.......nnnnnnnnnnnnnnn....',
+  '........nnnnnNnnnnnnn.....', '......nnnnnnnppnnnnnn.....', 'mm..nnnnnnnnnNNNnnnnn.....', '.mnnnnnnnnnnnnnnnnnn......',
+  '..mnnnnnnnnnnnnnnnn.......', '...mmnnn.....nnnnn........', '.............M..M.........', '............MM.MM.........'];
+// Stone Bull: carved from stone a thousand years ago: shoulder hump, big curved horns (they fire like rockets), thin legs, tufted tail
+ART.stonebull = [
+  '..............kw..........wk',
+  '...............ww........ww.',
+  '................www....www..',
+  '........qqqqqq....wwqqqqww..',
+  '......qqqqqqqqqq..qqqqqqqq..',
+  '....qqqqqqqqqqqqqqqqqFqqqF..',
+  '...qqqqqqqqqqqqqqqqqqqqqqqq.',
+  '..qqqqqqqqqqqqqqqqqqqQqqqQq.',
+  '.eqqqqeqqqqqqqqqqqqqqQkQkQ..',
+  '.eqqqqqqqqqqqqqqqqq..QQQQQ..',
+  '.e.qqqqqqqqqqqqqqq....yYy...',
+  '.e..qqqqqqqqqqqqq...........',
+  'QQ..qqQ.qqQ...qqQ.qqQ.......',
+  'QQ..qqQ.qqQ...qqQ.qqQ.......',
+  '....qqQ.qqQ...qqQ.qqQ.......',
+  '....qqQ.qqQ...qqQ.qqQ.......',
+  '....QQQ.QQQ...QQQ.QQQ.......',
+];
+// Saber Stag: a grass deer with a red chin spike and saber teeth
+ART.saberstag = [
+  '...............h...h....', '..............hh.h.hh...', '...............hhhhh....', '.................hh.....',
+  '................LLLL....', '...............LLlkLL...', '...............LlllllL..', '...............LlllllLL.',
+  '................LwLwlL..', '................LwLwR...', '...............LllL.R...', '..L...........LllL......',
+  '.LlL.LLLLLLLLLlllL......', '.LllLlllllllllllllL.....', '..LlllllllllllllllL.....', '...LlllwwwwwwwlllL......',
+  '...LlllllllllllllL......', '...Lll.Lll...Lll.LllL...', '...Lll..LL...LL...LlL...', '...LL...LL...LL....LL...',
+  '...kk...kk...kk....kk...'];
 const NO_OUTLINE = new Set(['rabbit', 'steeldog']);
 
 /* ---------------- tiles ---------------- */
@@ -474,6 +508,13 @@ export function buildArt(speciesTable, gyms = {}) {
       }
       px(g, '#5a4a44', 4, 5, 3, 1); px(g, '#ff7a2a', 9, 10, 1, 2);
     }),
+    busStop: tile(g => {
+      px(g, '#7cc56a', 0, 0, 16, 16);
+      px(g, '#2a2135', 7, 6, 2, 10); px(g, '#6b7488', 7, 6, 1, 10);           // pole
+      px(g, '#2a2135', 1, 0, 14, 8); px(g, '#2f6fc0', 2, 1, 12, 6);           // sign
+      px(g, '#ffd23f', 4, 2, 8, 3); px(g, '#a8dcf7', 5, 2, 2, 1); px(g, '#a8dcf7', 8, 2, 2, 1);   // little bus
+      px(g, '#2a2135', 5, 5, 1, 1); px(g, '#2a2135', 10, 5, 1, 1);
+    }),
     gate: [false, true].map(open => tile(g => {
       px(g, '#e4cc92', 0, 0, 16, 16);
       for (const x of [1, 12]) { px(g, '#4a2e17', x, 1, 3, 15); px(g, '#8a5a2e', x + 1, 2, 1, 13); px(g, '#2a2135', x, 0, 3, 1); }
@@ -554,6 +595,35 @@ export function buildArt(speciesTable, gyms = {}) {
     px(g, '#120d0c', 20, 38, 8, 10); px(g, '#e2392b', 21, 39, 6, 9); px(g, '#ff7a2a', 22, 41, 4, 7); // glowing cave mouth
     return c;
   })();
+  // Legendary spots: the tallest tree (with and without the raven), the bull statue, and the forest shrine.
+  function makeTallTree(withRaven) {
+    const [c, g] = mk(16, 32);
+    px(g, '#4a2e17', 6, 22, 4, 10); px(g, '#7a4e2b', 7, 22, 2, 10);
+    for (let y = 2; y < 26; y++) for (let x = 0; x < 16; x++) {
+      const half = Math.min(7.5, 2 + (y - 2) * 0.35 + (y % 4 === 0 ? 1 : 0));
+      if (Math.abs(x - 7.5) <= half) px(g, Math.abs(x - 7.5) > half - 1 ? '#0f2a18' : (x < 7 ? '#2f7f40' : '#1f5530'), x, y);
+    }
+    if (withRaven) { px(g, '#2a2135', 4, 0, 8, 4); px(g, '#3a2f52', 5, 0, 6, 3); px(g, '#f0a3b5', 9, 1, 1, 1); px(g, '#6b7488', 11, 1, 2, 1); }
+    return c;
+  }
+  const LEGEND_SPOTS = {
+    treeWithRaven: makeTallTree(true), tree: makeTallTree(false),
+    statue: (() => {
+      const [c, g] = mk(32, 32);
+      px(g, '#2a2135', 1, 22, 30, 10); px(g, '#8a8273', 2, 23, 28, 8); px(g, '#a39a8a', 2, 23, 28, 2);   // pedestal
+      const bull = sprite(ART.stonebull, { outline: true });
+      g.drawImage(bull, Math.floor((32 - bull.width) / 2), 22 - bull.height);
+      return c;
+    })(),
+    shrine: (() => {
+      const [c, g] = mk(32, 32);
+      px(g, '#2a2135', 0, 4, 32, 6); px(g, '#8a8273', 1, 5, 30, 4); px(g, '#4caf50', 1, 5, 30, 1);    // roof stone with moss
+      for (const x of [3, 24]) { px(g, '#2a2135', x, 9, 6, 23); px(g, '#a39a8a', x + 1, 10, 4, 22); px(g, '#4caf50', x + 1, 14, 2, 3); }
+      px(g, '#1f3d24', 9, 10, 15, 22); px(g, '#7fd35b', 13, 14, 7, 1); px(g, '#7fd35b', 15, 12, 3, 6); // glowing antler sign
+      px(g, '#9be08a', 16, 20, 1, 1);
+      return c;
+    })(),
+  };
   const GYM_IMG = { stone: makeGym('stone'), wood: makeGym('wood'), maple: makeGym('maple'), ember: makeGym('ember') };
   const LEADERS = {
     brick: sprite(recolor(P_DOWN, { c: 'Q', r: 'O', b: 'V', w: 'F' }), NO),
@@ -636,5 +706,5 @@ export function buildArt(speciesTable, gyms = {}) {
   };
   for (const [id, gym] of Object.entries(gyms)) BG['gym-' + id] = makeField(BATTLE_PLATFORMS, 'gym:' + (gym.banner || '#c0443a'));
 
-  return { KID, sprites, TILES, HOUSES, GYM_IMG, LEADERS, LEGEND_VOLCANO, BG, spriteURL };
+  return { KID, sprites, TILES, HOUSES, GYM_IMG, LEADERS, LEGEND_VOLCANO, LEGEND_SPOTS, BG, spriteURL };
 }
