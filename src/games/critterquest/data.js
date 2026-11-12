@@ -51,6 +51,7 @@ export const MOVES = {
   'Shadow Blaze': { type: 'FIRE',     power: 16, acc: 100, anim: 'proj', proj: 'shadow' },
   // Foxlet / Hammerfox
   'Scratch':      { type: 'NORMAL',   power: 6, sure: true, anim: 'lunge' },
+  'Little Smash': { type: 'FIGHTING', power: 12, acc: 100, anim: 'smash' },   // Foxlet bonks with the tiny hammer in its mouth
   'Leaf Toss':    { type: 'GRASS',    power: 8, acc: 100, anim: 'proj', proj: 'leaf' },
   'Tail Swish':   { type: 'NORMAL',   effect: ['def', -1, 'foe'] },
   'Vine Whip':    { type: 'GRASS',    power: 12, acc: 100, anim: 'pounce' },
@@ -194,7 +195,7 @@ export const SPECIES = {
   foxlet: {
     name: 'FOXLET', types: ['GRASS'], catchRate: 0.25,
     b: { hp: 11, atk: 5, def: 2, spd: 5 },
-    moves: ['Scratch', 'Leaf Toss', 'Tail Swish', 'Vine Whip'], learn: { 'Vine Whip': 8 },
+    moves: ['Scratch', 'Leaf Toss', 'Tail Swish', 'Little Smash'], learn: { 'Little Smash': 8 },
     evolve: { lv: 16, to: 'hammerfox' },
     blurb: ['FOXLET, a GRASS-type fox.', 'At Lv 16 it becomes HAMMERFOX, GRASS and FIGHTING!'],
   },
@@ -478,7 +479,7 @@ export const XP_SHARE = {
 // Snacks heal this much of a critter's max HP, plus extra for every gym badge you hold.
 export const SNACK_HEAL = { base: 0.4, perBadge: 0.1 };
 // Max critter level: 25 to start, raised by each gym badge you hold.
-export const LEVEL_CAP = { start: 25, maple: 25, pebble: 35, mossy: 50, ember: 65 };
+export const LEVEL_CAP = { start: 25, maple: 25, pebble: 35, mossy: 50, ember: 65, fossil: 75 };
 // One legendary per biome. `need`: a critter on your team must be this level to wake it. It fights at `lv`.
 // It keeps coming back until you catch it.
 export const LEGENDS = {
@@ -543,8 +544,8 @@ export const TOWNS = {
     welcome: ['Welcome to MOSSY HOLLOW!', 'The straw hut is the HEALING HUT. The wooden hall is the GYM.'] },
   ember: { name: 'EMBER TOWN', tagline: 'Hot springs, hot tempers, hot critters.', rest: 'HEALING HUT', restRoof: 'straw', gym: 'ember', gymStyle: 'ember',
     welcome: ['Welcome to EMBER TOWN!', 'The black stone hall is the FIRE GYM. Bring water!'] },
-  fossil: { name: 'FOSSIL CAMP', tagline: 'Diggers, bones and BIG footprints.', rest: 'HEALING HUT', restRoof: 'straw', gym: null,
-    welcome: ['Welcome to FOSSIL CAMP!', 'Healing hut and shiny trader. The gym is still being built!'] },
+  fossil: { name: 'FOSSIL CAMP', tagline: 'Diggers, bones and BIG footprints.', rest: 'HEALING HUT', restRoof: 'straw', gym: 'fossil', gymStyle: 'fossil',
+    welcome: ['Welcome to FOSSIL CAMP!', 'The sandy hall with the bone on top is the DINO GYM.'] },
 };
 
 /* ---------------- shinies ---------------- */
@@ -615,6 +616,71 @@ export const GYMS = {
     badge: 'EMBER BADGE', xpMultiplier: 2, teamPrize: 120,
     intro: ['"I\'m PYRA, and this is the FIRE GYM!"', '"MAGMA BUNNY Lv 46, IRON HOUND Lv 48, NINJA MONKEY Lv 49..."', '"...and my TWINBLAZE at Lv 50. Hope you brought water!"'],
   },
+  fossil: {
+    leader: 'LEADER DIGGS', short: 'DIGGS', look: 'diggs', hall: 'DINO GYM', banner: '#a8995f',
+    team: [['aquakylo', 53], ['frostosaur', 54], ['firespino', 55], ['xenofrost', 57]],
+    badge: 'FOSSIL BADGE', xpMultiplier: 2, teamPrize: 150,
+    intro: ['"I\'m DIGGS! I dig up dinosaurs... and then I TRAIN them!"', '"AQUAKYLO Lv 53, FROSTOSAUR Lv 54, FIRESPINO Lv 55..."', '"...and my XENOFROST at Lv 57. Ready to go prehistoric?"'],
+  },
+};
+
+/* ---------------- trainers ---------------- */
+// Two trainers stand in every area. Walk up to one and press A to battle.
+// x, y: their spot inside the area (0-31 across, 0-23 down). look: their sprite in art.js (LEADER_ART).
+// prize: what they give you the first time you beat them. After that they just chat.
+export const TRAINERS = {
+  timmy: { area: 'meadow', x: 24, y: 8, leader: 'BUG KID TIMMY', short: 'TIMMY', look: 'bugkid',
+    team: [['rabbit', 5], ['bluebird', 6]], prize: ['pod', 2],
+    hello: ['"Hey! I caught these in the tall grass!"'], win: '"Aww, my bugs... I mean critters!"', after: '"I\'m gonna catch a SHINY one day!"' },
+  rose: { area: 'meadow', x: 14, y: 12, leader: 'PICNIC GIRL ROSE', short: 'ROSE', look: 'picnic',
+    team: [['fox', 6], ['rabbit', 7], ['bluebird', 7]], prize: ['snack', 2],
+    hello: ['"Want to battle before lunch?"'], win: '"You win! Have some of my snacks."', after: '"Picnics are better with critters."' },
+  dan: { area: 'mountains', x: 8, y: 10, leader: 'HIKER DAN', short: 'DAN', look: 'hiker',
+    team: [['rockalock', 14], ['steeldog', 15]], prize: ['pod', 3],
+    hello: ['"I climbed all the way up here to find tough critters!"'], win: '"Whoa! You\'re tougher than a mountain!"', after: '"Mind the rockslides!"' },
+  skye: { area: 'mountains', x: 16, y: 13, leader: 'CLIMBER SKYE', short: 'SKYE', look: 'climber',
+    team: [['skyhawk', 15], ['zapcat', 15]], prize: ['snack', 2],
+    hello: ['"Up here, the birds and I rule the sky!"'], win: '"You knocked me right off the cliff!"', after: '"Skyhawks love the mountain wind."' },
+  joe: { area: 'forest', x: 9, y: 10, leader: 'CAMPER JOE', short: 'JOE', look: 'camper',
+    team: [['snapling', 22], ['komodo', 24]], prize: ['pod', 3],
+    hello: ['"Shh! You\'ll wake the forest... let\'s battle anyway!"'], win: '"Time to roast marshmallows and think about that."', after: '"Snaplings bite. Don\'t ask how I know."' },
+  may: { area: 'forest', x: 16, y: 16, leader: 'RANGER MAY', short: 'MAY', look: 'ranger',
+    team: [['elderfox', 25], ['treetitan', 27]], prize: ['snack', 3],
+    hello: ['"I protect this forest. Show me you\'re strong enough to explore it!"'], win: '"You can explore any part of my forest."', after: '"Be kind to the critters out here."' },
+  blaze: { area: 'volcano', x: 6, y: 8, leader: 'FIRE DANCER BLAZE', short: 'BLAZE', look: 'firedancer',
+    team: [['volcanobun', 42], ['darkkomodo', 44]], prize: ['pod', 4],
+    hello: ['"Watch me dance with FIRE!"'], win: '"My flames went out!"', after: '"Lava is warm and cozy... from far away."' },
+  kai: { area: 'volcano', x: 14, y: 18, leader: 'NINJA KAI', short: 'KAI', look: 'ninja',
+    team: [['ninjamonkey', 44], ['demoncat', 45]], prize: ['snack', 3],
+    hello: ['"...You saw me? Nobody sees a ninja!"'], win: '"Poof! I mean... ouch."', after: '"A ninja never tells his secrets."' },
+  ada: { area: 'prehistoric', x: 24, y: 8, leader: 'SCIENTIST ADA', short: 'ADA', look: 'scientist',
+    team: [['aquakylo', 54], ['frostosaur', 55]], prize: ['pod', 5],
+    hello: ['"I\'m studying dinosaur critters. Let\'s test them in battle!"'], win: '"Amazing data! You win!"', after: '"These bones are millions of years old!"' },
+  oog: { area: 'prehistoric', x: 13, y: 17, leader: 'CAVE KID OOG', short: 'OOG', look: 'cavekid',
+    team: [['firespino', 55], ['brawlkylo', 57]], prize: ['snack', 4],
+    hello: ['"OOG! OOG BATTLE YOU!"'], win: '"Oog... lose. You strong."', after: '"Oog like dinosaur. Dinosaur like Oog."' },
+};
+
+/* ---------------- your rival ---------------- */
+// Right after you win a gym badge, your rival MAX shows up and battles you.
+// MAX always picks the starter that beats yours (counters). 'STARTER' in a team = MAX's starter, grown to that level.
+// If you lose, MAX waits outside that gym (with a "!") for a rematch.
+export const RIVAL = {
+  leader: 'RIVAL MAX', short: 'MAX', look: 'rival',
+  counters: { blazepony: 'splashcano', foxlet: 'blazepony', splashcano: 'foxlet' },
+  teams: {
+    maple:  [['bluebird', 9], ['STARTER', 12]],
+    pebble: [['skyhawk', 19], ['zapcat', 19], ['STARTER', 22]],
+    mossy:  [['skyhawk', 29], ['darkzapcat', 29], ['steelwolf', 30], ['STARTER', 32]],
+    ember:  [['demoncat', 49], ['ironhound', 50], ['darkkomodo', 49], ['STARTER', 52]],
+    fossil: [['demoncat', 58], ['ironhound', 58], ['xenofrost', 59], ['twinspino', 59], ['STARTER', 61]],
+  },
+  hello: ['"Hey! Wait up!"', '"So you beat the gym, huh? Big deal."', '"Let\'s see how strong you REALLY are!"'],
+  rematch: ['"Back for more? Let\'s GO!"'],
+  taunt: '"Ha! Told you I\'m the best! I\'ll wait right here for a rematch."',
+  win: '"WHAT?! ...Fine. You got lucky. I\'m gonna train SO hard!"',
+  prize: ['pod', 3],
+  xpMultiplier: 2,
 };
 
 /* ---------------- critter helpers ---------------- */

@@ -6,7 +6,7 @@ import { buildArt, hash, T } from './art.js';
 import {
   SPECIES, MOVES, STARTERS, ENCOUNTERS, TYPE_COLORS, GATE_LEVEL, TEAM_MAX, LEVEL_CAP,
   FAMILY, SHINY, SHINY_ORDER, SHINY_TRADE_COST, SHINY_ATTACK_BONUS, XP_SHARE, SNACK_HEAL, GYMS, AREAS, TOWNS,
-  LEGENDS, CANDY, MEGA_POD, effectiveness, moveSub, xpNeed, applyStats, makeCritter, grownForm, evolveTarget,
+  LEGENDS, CANDY, MEGA_POD, TRAINERS, RIVAL, effectiveness, moveSub, xpNeed, applyStats, makeCritter, grownForm, evolveTarget,
 } from './data.js';
 
 const SAVE_KEY = 'critterquest.save.v1';
@@ -52,7 +52,7 @@ export function startGame(root, { dev = false } = {}) {
   /* ============ map ============ */
   // Areas run left to right (AREAS in data.js), each AW tiles wide and AH tall.
   // A town, if the area has one, sits right below it (TH tall). Everything below the meadow is woods.
-  const SIGNS = {}, DOORS = {}, GATES = {}, BUILDINGS = [], TOWN_AT = {}, BUS = {};
+  const SIGNS = {}, DOORS = {}, GATES = {}, BUILDINGS = [], TOWN_AT = {}, BUS = {}, NPCS = {};
   const map = [];
   (function buildMap() {
     for (let y = 0; y < MH; y++) map.push(Array(MW).fill('.'));
@@ -160,6 +160,11 @@ export function startGame(root, { dev = false } = {}) {
     }
     for (const k of Object.keys(SIGNS)) { const [x, y] = k.split(',').map(Number); set(x, y, 'S'); }
     for (const k of Object.keys(DOORS)) { const [x, y] = k.split(',').map(Number); set(x, y, 'D'); }
+    // trainers stand on their spot (you can't walk through them)
+    for (const [id, t] of Object.entries(TRAINERS)) {
+      const ai = AREAS.findIndex(a => a.id === t.area);
+      if (ai >= 0) { set(ai * AW + t.x, t.y, 'N'); NPCS[(ai * AW + t.x) + ',' + t.y] = id; }
+    }
     // areas with no town get solid woods below them
     AREAS.forEach((a, i) => { if (!a.town && a.kind !== 'meadow') rect(i * AW, AH, i * AW + AW - 1, MH - 1, 'T'); });
   })();
@@ -177,7 +182,7 @@ export function startGame(root, { dev = false } = {}) {
   function walkable(x, y) {
     const t = tileAt(x, y);
     if (t === 'G') return gateOpenFor(gateAt(x, y));
-    return !'T~hDSMPYLXUZwb'.includes(t);
+    return !'T~hDSMPYLXUZwbN'.includes(t);
   }
   const inTown = y => y >= AH;
   const townHere = (x, y) => (inTown(y) ? TOWN_AT[areaIndex(x) * AW] : null);
@@ -189,7 +194,7 @@ export function startGame(root, { dev = false } = {}) {
   let flags = { badges: {}, seen: {} };   // badges won, places visited
   let ai = 0;                     // which party member is battling
   let F = null;                   // the critter you're fighting
-  let trainer = null;             // set during the gym battle
+  let trainer = null;             // set during a gym or trainer battle
   const A = () => party[ai];
   const player = { x: 5, y: 6, face: 'down', moving: false, t: 0, from: null, to: null, steps: 0 };
   const pal = { x: 6, y: 6, faceLeft: true, moving: false, from: null, to: null };
@@ -483,6 +488,7 @@ export function startGame(root, { dev = false } = {}) {
     else if (t === 'w') worldSay(['A sticky TAR PIT. Blub... blub... Better not step in!']);
     else if (t === 'b') worldSay(['Old dinosaur bones. Really, REALLY old.']);
     else if (t === 'U') busStop(BUS[tx + ',' + ty]);
+    else if (t === 'N') { const id = NPCS[tx + ',' + ty]; if (id === 'rival') rivalBattle(flags.rivalAt, true); else trainerTalk(id); }
     else if (pal.x === tx && pal.y === ty) worldSay([`${nm(lead)} looks happy to see you!`, `Lv ${lead.lv}  ·  HP ${lead.hp}/${lead.maxHp}`]);
   }
   function healAll() { [...party, ...box].forEach(c => { c.hp = c.maxHp; c.shownHp = c.hp; }); }
@@ -639,7 +645,7 @@ export function startGame(root, { dev = false } = {}) {
     if (y !== 0) { await say('"Come back when you\'re ready!"'); hideTextbox(); mode = 'world'; return; }
     if (!party.some(c => c.hp > 0)) { await say('"Your team needs a nap first!"'); hideTextbox(); mode = 'world'; return; }
     hideTextbox();
-    await startGymBattle(gymId);
+    await startTrainerBattle(gymId, gym, false);
   }
 
   // Returns true if something (an evolution) already took us back to the world.
@@ -713,6 +719,53 @@ export function startGame(root, { dev = false } = {}) {
     await worldSay([`Welcome to ${TOWNS[dest].name}!`]);
   }
 
+  /* ============ trainers out in the world ============ */
+  async function trainerTalk(id) {
+    mode = 'busy';
+    const t = TRAINERS[id];
+    if (flags.trainers?.[id]) { await say(`${t.short}: ${t.after}`); hideTextbox(); mode = 'world'; return; }
+    for (const line of t.hello) await say(`${t.short}: ${line}`);
+    const y = await chooseMenu([{ label: 'BATTLE!' }, { label: 'NOT YET' }], { layout: 'side', cols: 1, prompt: `Battle ${t.leader}?` });
+    if (y !== 0) { await say(`${t.short}: "I'll be right here!"`); hideTextbox(); mode = 'world'; return; }
+    if (!party.some(c => c.hp > 0)) { await say(`${t.short}: "Your team needs a nap first!"`); hideTextbox(); mode = 'world'; return; }
+    hideTextbox();
+    await startTrainerBattle('npc:' + id, { ...t, xpMultiplier: 1.5 }, true);
+  }
+
+  /* ============ your rival: battles you right after each gym badge ============ */
+  const STARTER_OF = { blazepony: 'blazepony', shadowblaze: 'blazepony', twinblaze: 'blazepony', foxlet: 'foxlet', hammerfox: 'foxlet', warfox: 'foxlet',
+    splashcano: 'splashcano', boomcano: 'splashcano', tricano: 'splashcano' };
+  function myStarter() {
+    if (flags.starter) return flags.starter;
+    const c = [...party, ...box].find(c => STARTER_OF[c.sp]);
+    return c ? STARTER_OF[c.sp] : 'foxlet';
+  }
+  function rivalTeam(gymId) {
+    const starter = RIVAL.counters[myStarter()] || 'blazepony';
+    return (RIVAL.teams[gymId] || RIVAL.teams.maple).map(([sp, lv]) => [grownForm(sp === 'STARTER' ? starter : sp, lv), lv]);
+  }
+  // MAX waits outside the gym he beat you at, until you win a rematch.
+  let rivalTile = null;
+  function placeRival() {
+    if (rivalTile) { map[rivalTile.y][rivalTile.x] = rivalTile.was; delete NPCS[rivalTile.x + ',' + rivalTile.y]; rivalTile = null; }
+    const g = flags.rivalAt;
+    if (!g || flags.rival?.[g]) return;
+    const townId = Object.keys(TOWNS).find(k => TOWNS[k].gym === g), ai = AREAS.findIndex(a => a.town === townId);
+    if (ai < 0) return;
+    const x = ai * AW + 14, y = AH + 14;
+    rivalTile = { x, y, was: map[y][x] };
+    map[y][x] = 'N'; NPCS[x + ',' + y] = 'rival';
+  }
+  async function rivalBattle(gymId, rematch) {
+    mode = 'busy';
+    flags.rivalAt = gymId; placeRival(); save();
+    if (!rematch) { await say('???: "Hey! Wait up!"'); for (const line of RIVAL.hello.slice(1)) await say(`${RIVAL.short}: ${line}`); }
+    else for (const line of RIVAL.rematch) await say(`${RIVAL.short}: ${line}`);
+    if (!party.some(c => c.hp > 0)) { await say(`${RIVAL.short}: "Your team is too tired. Go nap, then come back!"`); hideTextbox(); mode = 'world'; return; }
+    hideTextbox();
+    await startTrainerBattle('rival:' + gymId, { ...RIVAL, team: rivalTeam(gymId) }, true);
+  }
+
   /* ============ legendaries: one in every biome ============ */
   async function legendVisit(id) {
     mode = 'busy';
@@ -764,7 +817,7 @@ export function startGame(root, { dev = false } = {}) {
     };
     for (let ty = y0; ty <= y0 + VH; ty++) for (let tx = x0; tx <= x0 + VW; tx++) {
       const t = tileAt(tx, ty), sx = tx * T - camX, sy = ty * T - camY;
-      if (t === 'S' || t === 'b' || t === 'h' || t === 'D') {
+      if (t === 'S' || t === 'b' || t === 'h' || t === 'D' || t === 'N') {
         ctx.drawImage(ground(tx, ty), sx, sy);
         if (t === 'S') ctx.drawImage(TILES.signPost, sx, sy);
         if (t === 'b') ctx.drawImage(TILES.bones, sx, sy);
@@ -794,7 +847,25 @@ export function startGame(root, { dev = false } = {}) {
     const bob = player.moving && player.t > 0.25 && player.t < 0.75 ? -1 : 0;
     const lead = party[0];
     const palImg = sprImg(lead.sp, pal.faceLeft ? 'L' : 'R', now, false, shinyCfg(lead));
+    // trainers: drawn with you and your partner so whoever is lower on screen is in front
+    const npcs = [];
+    for (const [k, id] of Object.entries(NPCS)) {
+      const [nx, ny] = k.split(',').map(Number);
+      if (nx < x0 - 1 || nx > x0 + VW + 1 || ny < y0 - 1 || ny > y0 + VH + 1) continue;
+      const beaten = id === 'rival' ? false : !!flags.trainers?.[id];
+      const img = LEADERS[id === 'rival' ? RIVAL.look : TRAINERS[id].look], sx = nx * T - camX + 8 - Math.floor(img.width / 2), sy = ny * T - camY + 17 - img.height;
+      npcs.push({ y: ny * T, draw: () => {
+        ctx.drawImage(img, sx, sy);
+        if (!beaten) {        // a "!" bubble over trainers you haven't beaten yet
+          const by = sy - 11 + (Math.floor(now / 400) % 2);
+          ctx.fillStyle = '#2a2135'; ctx.fillRect(sx + 4, by, 8, 10);
+          ctx.fillStyle = '#ffffff'; ctx.fillRect(sx + 5, by + 1, 6, 8);
+          ctx.fillStyle = '#d94a3a'; ctx.fillRect(sx + 7, by + 2, 2, 4); ctx.fillRect(sx + 7, by + 7, 2, 1);
+        }
+      } });
+    }
     const ents = [
+      ...npcs,
       { y: apy, draw: () => ctx.drawImage(palImg, apx - camX + 8 - Math.floor(palImg.width / 2), apy - camY + 17 - palImg.height + (pal.moving ? bob : 0)) },
       { y: ppy + 0.5, draw: () => ctx.drawImage(kidSprite(), ppx - camX + 2, ppy - camY - 3 + bob) },
     ].sort((a, b) => a.y - b.y);
@@ -1124,7 +1195,7 @@ export function startGame(root, { dev = false } = {}) {
         return 'switched';
       }
       await say('Your whole team is out of energy...');
-      if (trainer) await say(`${trainer.gym.short}: "Good try! Rest up and come back."`);
+      if (trainer) await say(`${trainer.gym.short}: ${trainer.id.startsWith('rival:') ? RIVAL.taunt : '"Good try! Rest up and come back."'}`);
       const nearTown = TOWN_AT[areaIndex(player.x) * AW];
       await say(nearTown ? `You hurried to the ${TOWNS[nearTown.id].rest}.` : 'You hurried home for a nap.');
       await endBattle(true);
@@ -1357,7 +1428,7 @@ export function startGame(root, { dev = false } = {}) {
         if (party[i].hp <= 0) { await say(`${nm(party[i])} has no energy left!`); continue; }
         r = await takeTurn({ type: 'switch', to: i });
       } else {
-        if (trainer) { await say("You can't run from a gym battle!"); continue; }
+        if (trainer) { await say(trainer.npc ? "You can't run from a trainer battle!" : "You can't run from a gym battle!"); continue; }
         r = await takeTurn({ type: 'run' });
       }
       if (r === 'end') return;
@@ -1393,11 +1464,13 @@ export function startGame(root, { dev = false } = {}) {
   }
 
   /* ============ the gym battle ============ */
-  async function startGymBattle(gymId) {
+  // Gym leaders and the trainers out in the world battle the same way. npc = a world trainer (no badge, fights on the area's ground).
+  async function startTrainerBattle(id, gym, npc) {
     await battleIntro();
-    const gym = GYMS[gymId];
-    trainer = { id: gymId, gym, team: gym.team.map(([sp, lv]) => makeCritter(sp, lv)), idx: 0 };
-    battleBg = BG['gym-' + gymId] || BG['gym-pebble']; F = null;
+    trainer = { id, gym, npc, team: gym.team.map(([sp, lv]) => makeCritter(sp, lv)), idx: 0 };
+    battleBg = npc ? BG[{ mountains: 'mountain', forest: 'forest', volcano: 'volcano', prehistoric: 'prehistoric' }[areaAt(player.x).kind] || 'meadow']
+      : (BG['gym-' + id] || BG['gym-pebble']);
+    F = null;
     B.foe.vis = false; B.leader = { x: 170, vis: true }; B.me.x = -170; updateHud();
     await tween(380, t => (overlay.bars = 1 - t));
     await tween(480, t => { B.me.x = -170 * (1 - t); B.leader.x = 170 * (1 - t); }, easeOut);
@@ -1428,7 +1501,30 @@ export function startGame(root, { dev = false } = {}) {
     B.leader = { x: 170, vis: true };
     await tween(400, t => (B.leader.x = 170 * (1 - t)), easeOut);
     await say(`You beat ${gym.leader}!`);
-    if (!flags.badges[trainer.id]) {
+    if (trainer.id.startsWith('rival:')) {
+      const g = trainer.id.slice(6);
+      await say(`${gym.short}: ${gym.win}`);
+      flags.rival = { ...(flags.rival || {}), [g]: true }; flags.rivalAt = null; placeRival();
+      const [item, n] = gym.prize;
+      bag[item] = (bag[item] || 0) + n; save();
+      await say(`${gym.short} threw you ${n} ${item === 'pod' ? 'PODS' : 'SNACKS'} and stomped off.`);
+      await endBattle(false);
+      return;
+    }
+    if (trainer.npc) {
+      const key = trainer.id.slice(4), first = !flags.trainers?.[key];
+      await say(`${gym.short}: ${gym.win}`);
+      if (first) {
+        flags.trainers = { ...(flags.trainers || {}), [key]: true };
+        const [item, n] = gym.prize;
+        bag[item] = (bag[item] || 0) + n; save();
+        await say(`${gym.short} gave you ${n} ${item === 'pod' ? 'PODS' : 'SNACKS'}!`);
+      }
+      await endBattle(false);
+      return;
+    }
+    const firstBadge = !flags.badges[trainer.id], gymId = trainer.id;
+    if (firstBadge) {
       flags.badges = { ...flags.badges, [trainer.id]: true }; save();
       await say(`${gym.short}: "You earned the ${gym.badge}!"`);
       await giveCandy('gym:' + trainer.id);
@@ -1441,6 +1537,7 @@ export function startGame(root, { dev = false } = {}) {
     for (const c of party) if (c !== A()) for (const line of addXpQuiet(c, gym.teamPrize)) await say(line);
     await gainXp(A(), gym.teamPrize);
     await endBattle(false);
+    if (firstBadge && RIVAL.teams[gymId] && !flags.rival?.[gymId]) { await wait(400); await rivalBattle(gymId, false); }
   }
   // Tell the player when a new area's gate has just opened.
   async function announceGates() {
@@ -1500,7 +1597,7 @@ export function startGame(root, { dev = false } = {}) {
     await tween(300, t => (overlay.fade = t));
     Object.assign(player, { x: 5, y: 6, face: 'down', moving: false, steps: 0 });
     Object.assign(pal, { x: 6, y: 6, faceLeft: true, moving: false });
-    party = []; box = []; F = null; trainer = null; bag = { snack: 3, pod: 5, mega: 0, candy: 0 }; flags = { badges: {}, seen: {} }; chooseIdx = 0;
+    party = []; box = []; F = null; trainer = null; bag = { snack: 3, pod: 5, mega: 0, candy: 0 }; flags = { badges: {}, seen: {} }; chooseIdx = 0; placeRival();
     scene = 'choose'; banner.hidden = false;
     await tween(300, t => (overlay.fade = 1 - t));
     await say('Welcome to MAPLE HILL!');
@@ -1515,6 +1612,7 @@ export function startGame(root, { dev = false } = {}) {
       if (yes === 0) break;
     }
     party = [makeCritter(STARTERS[chooseIdx], 5)];
+    flags.starter = STARTERS[chooseIdx];
     save();
     await say(`You and ${nm(party[0])} are partners now!`);
     hideTextbox(); banner.hidden = true;
@@ -1527,6 +1625,7 @@ export function startGame(root, { dev = false } = {}) {
     const d = loadSave();
     if (!d) return newGame();
     restore(d);
+    placeRival();
     scene = 'world'; mode = 'busy';
     const c = await chooseMenu([{ label: 'CONTINUE' }, { label: 'NEW GAME' }], { layout: 'side', cols: 1, prompt: 'Welcome back!' });
     if (c === 1) {
