@@ -31,6 +31,7 @@ export default function CritterQuest() {
               <div className="cq-hud-row"><span data-cq="eName" /><small data-cq="eLv" /></div>
               <div className="cq-types" data-cq="eTypes" />
               <div className="cq-bar"><b>HP</b><div className="cq-track"><div className="cq-fill" data-cq="eFill" /></div></div>
+              <div className="cq-team-left" data-cq="eTeam" hidden />
             </div>
 
             <div className="cq-hud cq-hud-player" data-cq="playerBox" hidden>

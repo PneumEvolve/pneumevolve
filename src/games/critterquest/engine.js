@@ -66,6 +66,14 @@ export function startGame(root, { dev = false } = {}) {
       if (door) DOORS[door.x + ',' + door.y] = door;
     };
     const WALL = { meadow: 'T', mountains: 'M', forest: 'Y', volcano: 'X', prehistoric: 'Z' };
+// Each town is built from its biome: its ground, its trees, and its little decorations.
+const TOWN_LOOK = {
+  meadow:      { ground: '.', tree: 'T', deco: '*' },
+  mountains:   { ground: 'r', tree: 'M', deco: 'P' },
+  forest:      { ground: 'F', tree: 'Y', deco: 'o' },
+  volcano:     { ground: 'K', tree: 'X', deco: 'L' },
+  prehistoric: { ground: 'j', tree: 'Z', deco: 'b' },
+};
 
     AREAS.forEach((area, i) => {
       const ox = i * AW, L = (x, y, ch) => set(ox + x, y, ch), R = (x0, y0, x1, y1, ch) => rect(ox + x0, y0, ox + x1, y1, ch);
@@ -132,16 +140,17 @@ export function startGame(root, { dev = false } = {}) {
         L(AW - 1, 9, 'G'); GATES[(ox + AW - 1) + ',9'] = i + 1;
         sign(ox + AW - 2, 8, next.gateSign);
       }
-      if (area.town) { L(15, AH - 1, '='); buildTown(ox, TOWNS[area.town], area.town); }
+      if (area.town) { L(15, AH - 1, '='); buildTown(ox, TOWNS[area.town], area.town, area.kind); }
     });
 
-    function buildTown(ox, town, id) {
+    function buildTown(ox, town, id, kind) {
       const oy = AH, L = (x, y, ch) => set(ox + x, oy + y, ch), R = (x0, y0, x1, y1, ch) => rect(ox + x0, oy + y0, ox + x1, oy + y1, ch);
-      R(0, 0, AW - 1, TH - 1, '.');
+      const look = TOWN_LOOK[kind] || TOWN_LOOK.meadow;
+      R(0, 0, AW - 1, TH - 1, look.ground);
       R(15, 0, 15, 7, '='); R(3, 7, 28, 7, '=');          // trail in, main road
       R(9, 7, 9, 13, '='); R(9, 13, 15, 13, '=');         // path round to the gym door
-      [[10,4],[11,5],[19,4],[20,5],[6,9],[25,9],[13,14],[18,14],[27,13],[3,13]].forEach(([x, y]) => L(x, y, '*'));
-      [[2,1],[2,2],[29,1],[29,2],[12,1],[19,1],[27,10],[28,10],[4,11],[5,12],[22,12],[24,11],[29,14]].forEach(([x, y]) => L(x, y, 'T'));
+      [[10,4],[11,5],[19,4],[20,5],[6,9],[25,9],[13,14],[18,14],[27,13],[3,13]].forEach(([x, y]) => L(x, y, look.deco));
+      [[2,1],[2,2],[29,1],[29,2],[12,1],[19,1],[27,10],[28,10],[4,11],[5,12],[22,12],[24,11],[29,14]].forEach(([x, y]) => L(x, y, look.tree));
       building(ox + 3, oy + 3, HOUSES.blue, { x: ox + 5, y: oy + 6, type: 'trader', town: id });
       building(ox + 22, oy + 3, HOUSES[town.restRoof] || HOUSES.green, { x: ox + 24, y: oy + 6, type: 'rest', town: id });
       if (town.gym) building(ox + 11, oy + 8, GYM_IMG[town.gymStyle] || GYM_IMG.stone, { x: ox + 15, y: oy + 12, type: 'gym', town: id });
@@ -154,8 +163,8 @@ export function startGame(root, { dev = false } = {}) {
       const gym = GYMS[town.gym];
       if (gym) sign(ox + 16, oy + 13, [gym.hall, `Leader: ${gym.short}. Win the ${gym.badge}!`]);
       else sign(ox + 16, oy + 13, ['GYM: COMING SOON!', 'A new leader is on the way. Check back later!']);
-      for (let x = 0; x < AW; x++) L(x, TH - 1, 'T');
-      for (let y = 0; y < TH; y++) { L(0, y, 'T'); L(AW - 1, y, 'T'); }
+      for (let x = 0; x < AW; x++) L(x, TH - 1, look.tree);
+      for (let y = 0; y < TH; y++) { L(0, y, look.tree); L(AW - 1, y, look.tree); }
       TOWN_AT[ox] = { id, rest: { x: ox + 24, y: oy + 7 }, bus: { x: ox + 15, y: oy + 2 } };
     }
     for (const k of Object.keys(SIGNS)) { const [x, y] = k.split(',').map(Number); set(x, y, 'S'); }
@@ -812,7 +821,7 @@ export function startGame(root, { dev = false } = {}) {
     const wf = Math.floor(now / 500) % 2;
     // the plain ground of each place, drawn under see-through things (signs, bones, buildings)
     const ground = (tx, ty) => {
-      const k = ty >= AH ? 'town' : areaAt(tx).kind, h = Math.floor(hash(tx, ty) * 3);
+      const k = areaAt(tx).kind, h = Math.floor(hash(tx, ty) * 3);
       return { mountains: TILES.ground[h], forest: TILES.forestFloor[h], volcano: TILES.ash[h], prehistoric: TILES.jungle[h] }[k] || TILES.grass[Math.floor(hash(tx, ty) * 4)];
     };
     for (let ty = y0; ty <= y0 + VH; ty++) for (let tx = x0; tx <= x0 + VW; tx++) {
@@ -1001,7 +1010,7 @@ export function startGame(root, { dev = false } = {}) {
       ctx.drawImage(img, Math.round(FOE_POS.x - w / 2 + B.leader.x), FOE_POS.y - h, w, h);
     }
     if (B.foe.vis && F) {
-      const img = sprImg(F.sp, 'L', now, B.foe.flash, shinyCfg(F)), s = (B.foe.scale ?? 1) * (img.height > 22 ? 2.5 : 3);
+      const img = sprImg(F.sp, 'L', now, B.foe.flash, shinyCfg(F)), s = (B.foe.scale ?? 1) * Math.min(img.height > 22 ? 2.5 : 3, 112 / img.width);   // long critters are drawn a bit smaller so they fit
       const w = Math.round(img.width * s), h = Math.round(img.height * s);
       const hover = SPECIES[F.sp].hovers ? Math.round(Math.sin(now / 200) * 2) - 4 : 0;
       shadow(FOE_POS.x + B.foe.x, 57, w * 0.33);
@@ -1014,13 +1023,13 @@ export function startGame(root, { dev = false } = {}) {
     if (B.pod) drawPod(B.pod);
     if (B.me.vis && A()) {
       // Evolved critters are tall: draw them a touch smaller and lower so they clear the wild critter's box.
-      const img = sprImg(A().sp, 'R', now, B.me.flash, shinyCfg(A())), big = img.height > 22, s = big ? 2.5 : 3;
+      const img = sprImg(A().sp, 'R', now, B.me.flash, shinyCfg(A())), big = img.height > 22, s = Math.min(big ? 2.5 : 3, 112 / img.width);
       const w = Math.round(img.width * s), h = Math.round(img.height * s), bottom = ME_POS.y + (big ? 3 : 0);
       const idle = Math.round(Math.sin(now / 320)) === 1 ? -1 : 0;
       shadow(ME_POS.x + B.me.x, 102, w * 0.36);
       ctx.globalAlpha = B.me.alpha;
       if (B.me.ball) drawIceBall(ME_POS.x + B.me.x, ME_POS.y - 16 + B.me.y, B.me.x / 9);
-      else ctx.drawImage(img, Math.round(ME_POS.x - w / 2 + B.me.x), Math.round(bottom - h + B.me.y) + idle, w, h);
+      else ctx.drawImage(img, Math.round(Math.max(2, Math.min(ME_POS.x - w / 2, 116 - w)) + B.me.x), Math.round(bottom - h + B.me.y) + idle, w, h);   // long critters slide left so their nose stays clear of your HP box
       ctx.globalAlpha = 1;
     }
     if (B.proj) drawProj(B.proj);
@@ -1036,6 +1045,15 @@ export function startGame(root, { dev = false } = {}) {
       q('eName').innerHTML = nameHTML(F); q('eLv').textContent = 'Lv ' + F.lv;
       q('eTypes').innerHTML = typePills(SPECIES[F.sp].types);
       setFill(q('eFill'), F.shownHp / F.maxHp);
+      // trainer battles: a pod for each of their critters (grey = knocked out) and how many are left
+      const left = q('eTeam');
+      if (left) {
+        left.hidden = !trainer;
+        if (trainer) {
+          const n = trainer.team.filter(c => c.hp > 0).length;
+          left.innerHTML = trainer.team.map(c => `<i class="${c.hp > 0 ? '' : 'is-out'}"></i>`).join('') + `<span>${n} left</span>`;
+        }
+      }
     }
     const c = A(); if (!c) return;
     q('pName').innerHTML = nameHTML(c); q('pLv').textContent = 'Lv ' + c.lv;

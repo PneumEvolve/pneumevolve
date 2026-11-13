@@ -101,6 +101,11 @@
 .cq-luck { color: #e0a100; font-size: 3cqw; letter-spacing: .2em; line-height: 1; }
 .cq-odds { font-size: 2.5cqw; color: var(--cq-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cq-bar { display: flex; align-items: center; gap: 1.2cqw; }
+/* trainer battles: how many critters they have left */
+.cq-team-left { display: flex; align-items: center; gap: .8cqw; margin-top: .9cqw; }
+.cq-team-left i { width: 2.6cqw; height: 2.6cqw; border-radius: 50%; border: .35cqw solid var(--cq-ink); background: linear-gradient(#2bb3a0 0 45%, var(--cq-ink) 45% 58%, #fff 58%); }
+.cq-team-left i.is-out { background: #b9b2a5; opacity: .6; }
+.cq-team-left span { margin-left: .6cqw; font-size: .62em; font-weight: 700; color: var(--cq-muted); }
 .cq-bar b { font-size: .62em; line-height: 1; background: #e08a2c; color: #fff; padding: .3cqw .8cqw; border-radius: .5cqw; }
 .cq-bar b.cq-xp { background: var(--cq-xp); }
 .cq-track { display: block; flex: 1; height: 1.9cqw; background: var(--cq-track); border: .35cqw solid var(--cq-ink); border-radius: 1cqw; overflow: hidden; }

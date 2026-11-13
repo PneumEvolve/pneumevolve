@@ -450,8 +450,8 @@ export const SPECIES = {
     name: 'TWINSPINO', types: ['FIRE'], flicker: 'fF', catchRate: 0.12,
     b: { hp: 20, atk: 15, def: 9, spd: 9 },
     moves: ['Fire Fang', 'Chest Claws', 'Spine Slice', 'Flaming Beam'], signature: 'Flaming Beam',
-    blurb: 'Two heads, four legs, and two slashing claws coming out of its chest.',
-    appear: 'roared with BOTH heads', exit: 'Both heads snorted fire as it left.', exitAnim: 'dash',
+    blurb: 'Has two horns of blue fire, two black legs and three long slashing claws.',
+    appear: 'roared, its fire spine blazing', exit: 'It snorted fire as it left.', exitAnim: 'dash',
   },
 };
 export const STARTERS = ['blazepony', 'foxlet', 'splashcano'];

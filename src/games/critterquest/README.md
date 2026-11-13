@@ -51,6 +51,8 @@ IRONREX (a steel-bone T-rex) by the giant T-rex bones in the middle of the Prehi
 YOUR RIVAL MAX: right after you win each gym badge, MAX shows up and battles you. He always picks the starter that beats yours,
 and his team gets stronger after every gym. Beat him for 3 pods. Lose, and he waits outside that gym (with a "!") for a rematch (setting: `RIVAL`).
 
+In every trainer, rival and gym battle, a row of pods under their HP bar shows how many critters they have left (grey = knocked out).
+
 TRAINERS: two in every area, each with their own look. A "!" floats over the ones you haven't beaten. Walk up and press A to battle.
 The first win gets you pods or snacks; after that they just chat (setting: `TRAINERS`).
 
