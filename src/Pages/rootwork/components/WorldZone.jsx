@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import DungeonZone from "./DungeonZone";
 import { WORLD_ZONES, ADVENTURER_CLASSES, FORGE_RECIPES, ARTISAN_FOOD_HEAL, ARTISAN_FOOD_LIST, ADVENTURER_BUFF_ITEMS, ADVENTURER_BUFF_LIST, WORLD_RESOURCES, HERO_SKILLS, HERO_SKILL_TREES, HERO_CLASS_META, HERO_PRESTIGE_COST_BASE, HERO_DIP_TREE_PRESTIGE_TIER1, HERO_DIP_TREE_PRESTIGE_TIER2, BOSS_DEFS, BOSS_ABILITIES, BOSS_UNLOCK_LEVEL, BOSS_TICK_INTERVAL, generateInfiniteBoss, EXPEDITION_TIER_ORDER, EXPEDITION_TIERS, TRADE_TOWN_ORDER, TRADE_TOWNS, ROAD_TIERS } from "../gameConstants";
-import { getAdventurerSlotCost, getMaxHeroes, setHeroFillFood, getHeroPrestigeDmgBonus, getHeroPrestigeDmgReduction, getHeroPrestigeXpBonus, getHeroPrestigeMinLootBonus, PRESTIGE_DMG_RED_FLOOR, getRoadLevel, isTownConnected, getExpeditionAvailable, isHeroBusyForExpedition, isHeroOnExpedition, getHeroExpeditionTierId, getThornwickGrowBonus, getCrestfallFishingBonus, getMillhavenMaterialBonus, getGlenhollowBarnBonus, getAshportCraftingTimeBonus, getHeroPrestigeDurationBonus, getHeroDurationMultiplier, isHeroBusy, getHeroSkillRank, getRelentlessThreshold, RELENTLESS_OPTIONS, getHeroExpDmgReduction, getHeroExpRollIntervalMult, getHeroExpLootMult } from "../gameEngine";
+import { getAdventurerSlotCost, getMaxHeroes, setHeroFillFood, getHeroPrestigeDmgBonus, getHeroPrestigeDmgReduction, getHeroPrestigeXpBonus, getHeroPrestigeMinLootBonus, PRESTIGE_DMG_RED_FLOOR, getRoadLevel, isTownConnected, getExpeditionAvailable, isHeroBusyForExpedition, isHeroOnExpedition, getHeroExpeditionTierId, getThornwickGrowBonus, getCrestfallFishingBonus, getMillhavenMaterialBonus, getGlenhollowBarnBonus, getAshportCraftingTimeBonus, getHeroPrestigeDurationBonus, getHeroDurationMultiplier, isHeroBusy, getHeroSkillRank, getRelentlessThreshold, RELENTLESS_OPTIONS, getHeroExpDmgReduction, getHeroExpRollIntervalMult, getHeroExpLootMult, getHeroHealBonus, getAutoStreakMultiplier, AUTO_STREAK_MAX_MULT, getAutoRefillAvailable, getTownFoodReserve, getHeroFoodReservePulses, HERO_FOOD_RESERVE_OPTIONS } from "../gameEngine";
 
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -188,6 +188,17 @@ function getMissionDurationWithSlot(adventurer, zone, slotOverride) {
   return Math.round(base * (1 - Math.min(gearBonus + lvlBonus, 0.45)));
 }
 
+// Expected HP lost on one successful run (same formula the engine uses, minus RNG)
+function estimateRunDamage(adventurer, zone) {
+  if (!zone) return 0;
+  const dur = getMissionDuration(adventurer, zone);
+  const shieldKey = adventurer.equippedGear?.armour ?? null;
+  const shieldRecipe = shieldKey ? Object.values(FORGE_RECIPES).find((r) => r.output.resourceKey === shieldKey) : null;
+  const damageReduction = shieldRecipe?.damageReduction ?? 0;
+  const prestigeReduction = getHeroPrestigeDmgReduction(adventurer, false);
+  return Math.round((zone.damagePerTick ?? 1) * Math.floor(dur / 10) * 0.6 * (1 - damageReduction) * (1 - prestigeReduction));
+}
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function HpBar({ hp, maxHp, height = 6 }) {
@@ -212,6 +223,7 @@ function LootModal({ result, onDismiss }) {
   const diedDuringAuto = result.diedDuringAuto;
   const diedOnNormal = result.died && !isAutoBattle; // died on a normal non-auto run
   const successfulRuns = result.successfulRuns ?? 0;
+  const peakMultLabel = isAutoBattle && (result.peakMult ?? 1) > 1 ? ` · streak peaked ×${result.peakMult.toFixed(1)}` : "";
 
   return (
     <div onClick={onDismiss} style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
@@ -242,6 +254,7 @@ function LootModal({ result, onDismiss }) {
                 : diedDuringAuto
                 ? `Fell on run ${successfulRuns + 1} · ${successfulRuns} run${successfulRuns !== 1 ? "s" : ""} counted · 50% loot`
                 : `${successfulRuns} run${successfulRuns !== 1 ? "s" : ""} completed`}
+              {peakMultLabel}
             </div>
           )}
           <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: "0.15rem" }}>{result.zoneName}</div>
@@ -992,6 +1005,139 @@ function RelentlessPicker({ adventurer, onSet }) {
   );
 }
 
+// ─── Auto loop settings (Auto-send / Auto-refill / food check) ───────────────
+function AutoLoopSettings({ adventurer, game, zone, onSet }) {
+  if (!onSet) return null;
+  const tavernBuilt = game.town?.buildings?.tavern?.built === true;
+  const autoSend = !!adventurer.autoSend;
+  const autoRefill = !!adventurer.autoRefill;
+  const pick = adventurer.autoRefillFood ?? null;
+  const whenOut = adventurer.autoRefillWhenOut ?? "go";
+  const pickDef = pick ? ARTISAN_FOOD_HEAL[pick] : null;
+
+  const toggleStyle = (on, color) => ({
+    fontSize: "0.6rem", padding: "2px 10px", borderRadius: "999px", cursor: "pointer", fontWeight: 700, flexShrink: 0,
+    background: on ? color + "33" : "rgba(255,255,255,0.06)",
+    border: `1px solid ${on ? color + "88" : "var(--border)"}`,
+    color: on ? color : "var(--muted)",
+  });
+  const chipStyle = (on) => ({
+    fontSize: "0.6rem", padding: "2px 8px", borderRadius: "999px", cursor: "pointer", fontWeight: 600,
+    background: on ? "rgba(251,191,36,0.2)" : "rgba(255,255,255,0.05)",
+    border: `1px solid ${on ? "rgba(251,191,36,0.55)" : "var(--border)"}`,
+    color: on ? "#fbbf24" : "var(--muted)",
+  });
+  const rowStyle = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginBottom: "0.35rem" };
+
+  // Food check: does the chosen food (or what's on the belt) cover this zone's damage?
+  const dmg = estimateRunDamage(adventurer, zone);
+  const checkFood = pick ?? ARTISAN_FOOD_LIST.find((id) => (adventurer.foodBelt?.[id] ?? 0) > 0) ?? null;
+  const { multiplier: healMult, flatBonus: healFlat } = getHeroHealBonus(adventurer);
+  const heal = checkFood ? Math.round((ARTISAN_FOOD_HEAL[checkFood]?.healAmount ?? 0) * healMult) + healFlat : 0;
+  const maxHp = adventurer.maxHp ?? getAdventurerMaxHp(adventurer);
+  const failPct = zone ? getFailChance(adventurer, zone) : 0;
+  let foodCheck = null;
+  if (zone && dmg > 0) {
+    const foodDef = checkFood ? ARTISAN_FOOD_HEAL[checkFood] : null;
+    if (dmg >= maxHp) {
+      foodCheck = { color: "#ef4444", text: `❌ ${zone.name} hits ~${dmg} per run, more than max HP (${maxHp})` };
+    } else if (!foodDef) {
+      foodCheck = { color: "var(--muted)", text: `${zone.name} hits ~${dmg} per run · pick a food to check it` };
+    } else if (heal >= dmg) {
+      foodCheck = { color: "#4ade80", text: `✅ ${foodDef.emoji} ${foodDef.name} heals ${heal} · ${zone.name} hits ~${dmg} per run` };
+    } else {
+      const drain = dmg - heal;
+      const runsToDeath = Math.floor((maxHp - dmg) / drain) + 2;
+      foodCheck = { color: "#fbbf24", text: `⚠️ ${foodDef.emoji} ${foodDef.name} heals ${heal} vs ~${dmg} per run · drains ${drain}/run · dies around run ${runsToDeath} if the belt lasts` };
+    }
+  }
+
+  return (
+    <div style={{ padding: "0.5rem 0.6rem", marginBottom: "0.45rem", background: "rgba(255,255,255,0.025)", border: "1px solid var(--border)", borderRadius: "8px" }}>
+      <div style={rowStyle}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: "0.65rem", fontWeight: 700, color: autoSend ? "#f87171" : "var(--muted)" }}>🔁 Auto-send</div>
+          <div style={{ fontSize: "0.55rem", color: "var(--muted)" }}>Bank loot, rest to full, go again. Streak resets each rest.</div>
+        </div>
+        <button onClick={() => onSet(adventurer.id, { autoSend: !autoSend })} style={toggleStyle(autoSend, "#ef4444")}>{autoSend ? "ON" : "OFF"}</button>
+      </div>
+      {autoSend && !tavernBuilt && (
+        <div style={{ fontSize: "0.55rem", color: "#fbbf24", marginBottom: "0.35rem" }}>Needs a Tavern to heal between streaks.</div>
+      )}
+
+      <div style={rowStyle}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: "0.65rem", fontWeight: 700, color: autoRefill ? "#fbbf24" : "var(--muted)" }}>🍞 Auto-refill belt</div>
+          <div style={{ fontSize: "0.55rem", color: "var(--muted)" }}>Only uses the food you pick.</div>
+        </div>
+        <button onClick={() => onSet(adventurer.id, { autoRefill: !autoRefill })} style={toggleStyle(autoRefill, "#fbbf24")}>{autoRefill ? "ON" : "OFF"}</button>
+      </div>
+      {autoRefill && (
+        <>
+          <div style={{ display: "flex", gap: "0.25rem", flexWrap: "wrap", marginBottom: "0.35rem" }}>
+            {ARTISAN_FOOD_LIST.map((id) => {
+              const def = ARTISAN_FOOD_HEAL[id];
+              const avail = getAutoRefillAvailable(game, id);
+              return (
+                <button key={id} onClick={() => onSet(adventurer.id, { autoRefillFood: id })} style={chipStyle(pick === id)}>
+                  {def.emoji} {def.name} · {avail}
+                </button>
+              );
+            })}
+          </div>
+          {!pick && <div style={{ fontSize: "0.55rem", color: "#fbbf24", marginBottom: "0.35rem" }}>Pick a food to refill with.</div>}
+          {pick && (
+            <div style={{ display: "flex", alignItems: "center", gap: "0.25rem", flexWrap: "wrap", marginBottom: "0.35rem" }}>
+              <span style={{ fontSize: "0.58rem", color: "var(--muted)" }}>Out of {pickDef?.name ?? pick}:</span>
+              <button onClick={() => onSet(adventurer.id, { autoRefillWhenOut: "wait" })} style={chipStyle(whenOut === "wait")}>Wait at tavern</button>
+              <button onClick={() => onSet(adventurer.id, { autoRefillWhenOut: "go" })} style={chipStyle(whenOut === "go")}>Go anyway</button>
+            </div>
+          )}
+        </>
+      )}
+
+      {foodCheck && <div style={{ fontSize: "0.57rem", color: foodCheck.color, lineHeight: 1.35 }}>{foodCheck.text}</div>}
+      {zone && failPct > 0 && autoSend && (
+        <div style={{ fontSize: "0.57rem", color: "#ef4444", marginTop: "0.2rem", lineHeight: 1.35 }}>
+          ⚠️ {failPct}% fail per run and a fail is death. A long loop will likely end with a dead hero. 0% at gear + level ≥ {(zone.gearRequired ?? 0) + 2}.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Auto loop log ("since you looked") ───────────────────────────────────────
+function AutoLoopLog({ adventurer, onClear }) {
+  const log = adventurer.autoLog;
+  if (!log || !(log.streaks > 0)) return null;
+  const foodStr = Object.entries(log.food ?? {})
+    .filter(([, n]) => n > 0)
+    .map(([id, n]) => `${ARTISAN_FOOD_HEAL[id]?.emoji ?? "🍞"}${n}`)
+    .join(" ");
+  return (
+    <div style={{ padding: "0.45rem 0.6rem", marginBottom: "0.45rem", background: "rgba(74,222,128,0.05)", border: "1px solid rgba(74,222,128,0.22)", borderRadius: "8px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.4rem", marginBottom: "0.25rem" }}>
+        <span style={{ fontSize: "0.6rem", fontWeight: 700, color: "#4ade80" }}>
+          🔁 Since you looked · {log.streaks} streak{log.streaks !== 1 ? "s" : ""} · {log.runs} runs · best {log.bestStreak}
+        </span>
+        {onClear && (
+          <button onClick={() => onClear(adventurer.id)} style={{ fontSize: "0.55rem", padding: "1px 7px", borderRadius: "999px", cursor: "pointer", background: "rgba(255,255,255,0.05)", border: "1px solid var(--border)", color: "var(--muted)", flexShrink: 0 }}>Clear</button>
+        )}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.25rem", marginBottom: "0.2rem" }}>
+        {(log.loot ?? []).map((l) => (
+          <span key={l.resourceKey} style={{ fontSize: "0.6rem", padding: "1px 6px", borderRadius: "6px", background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)" }}>
+            {l.emoji} +{Math.floor(l.amount).toLocaleString()}
+          </span>
+        ))}
+      </div>
+      <div style={{ fontSize: "0.56rem", color: "var(--muted)" }}>
+        {foodStr ? `Ate ${foodStr} · ` : ""}✨ +{Math.floor(log.xp ?? 0).toLocaleString()} XP
+      </div>
+    </div>
+  );
+}
+
 // Short label of a hero's active expedition perks, e.g. "🧭 −20% dmg · 👜 +30% loot"
 function getExpeditionPerkLabel(hero, tier) {
   if (!hero) return null;
@@ -1005,7 +1151,7 @@ function getExpeditionPerkLabel(hero, tier) {
   return parts.length ? parts.join(" · ") : null;
 }
 // ─── Auto Battle Panel (shown in AdventurerCard when skill unlocked) ──────────
-function AutoBattlePanel({ adventurer, game, onStartAutoBattle, onReturnAutoBattle, onRequestStop, onSetRelentless }) {
+function AutoBattlePanel({ adventurer, game, onStartAutoBattle, onReturnAutoBattle, onRequestStop, onSetRelentless, onSetHeroAuto, onClearAutoLog }) {
   const isOnMission = !!adventurer.mission;
   const isAutoBattle = adventurer.mission?.autoBattle;
   const mission = adventurer.mission;
@@ -1017,17 +1163,21 @@ function AutoBattlePanel({ adventurer, game, onStartAutoBattle, onReturnAutoBatt
   const potionCount = (game.forgeGoods?.health_potion ?? 0);
   const beltFoodTotal = Object.values(foodBelt).reduce((s, v) => s + v, 0);
   const hasResources = potionCount > 0 || beltFoodTotal > 0;
+  const looping = !!adventurer.autoLoopZoneId;
 
   if (isOnMission && isAutoBattle) {
+    const runs = mission.autoBattleRuns ?? 0;
+    const nextMult = getAutoStreakMultiplier(runs + 1);
+    const zone = WORLD_ZONES[mission.zoneId] ?? null;
     return (
       <div style={{ padding: "0.65rem 0.9rem", borderTop: "1px solid var(--border)", background: "rgba(239,68,68,0.04)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.25rem" }}>
           <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "#ef4444" }}>
-            {done ? "⚔️ Run complete!" : `⚔️ Auto Battle · ${mission.zoneName}`}
+            {done ? "⚔️ Run complete!" : `${looping ? "🔁" : "⚔️"} Auto Battle · ${mission.zoneName}`}
           </span>
           <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
             <span style={{ fontSize: "0.58rem", color: "var(--muted)" }}>
-              {mission.autoBattleRuns ?? 0} run{(mission.autoBattleRuns ?? 0) !== 1 ? "s" : ""}
+              {runs} run{runs !== 1 ? "s" : ""}
             </span>
             {mission.autoBattleStopRequested ? (
               <span style={{ fontSize: "0.55rem", color: "#fbbf24", fontWeight: 700, background: "rgba(251,191,36,0.12)", border: "1px solid rgba(251,191,36,0.35)", borderRadius: "999px", padding: "1px 7px" }}>
@@ -1046,8 +1196,13 @@ function AutoBattlePanel({ adventurer, game, onStartAutoBattle, onReturnAutoBatt
         <div style={{ height: "4px", background: "rgba(255,255,255,0.08)", borderRadius: "2px", overflow: "hidden", marginBottom: "0.4rem" }}>
           <div style={{ height: "100%", width: `${progress * 100}%`, background: "#ef4444", borderRadius: "2px", transition: "width 0.3s" }} />
         </div>
+        <div style={{ fontSize: "0.58rem", color: "#a78bfa", fontWeight: 600, marginBottom: "0.4rem" }}>
+          🔥 Run {runs + 1} pays ×{nextMult.toFixed(1)} loot{nextMult >= AUTO_STREAK_MAX_MULT ? " (max)" : ""} · 🍞 {beltFoodTotal} food left{looping ? " · loops after the belt runs out" : ""}
+        </div>
         <RelentlessPicker adventurer={adventurer} onSet={onSetRelentless} />
-        {done && (mission.autoBattleStopRequested || beltFoodTotal === 0) && (
+        {!mission.autoBattleStopRequested && <AutoLoopSettings adventurer={adventurer} game={game} zone={zone} onSet={onSetHeroAuto} />}
+        <AutoLoopLog adventurer={adventurer} onClear={onClearAutoLog} />
+        {done && !looping && (mission.autoBattleStopRequested || beltFoodTotal === 0) && (
           <button
             onClick={() => onReturnAutoBattle(adventurer.id)}
             style={{ width: "100%", padding: "0.45rem", background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.4)", borderRadius: "8px", color: "#ef4444", fontWeight: 700, fontSize: "0.78rem", cursor: "pointer" }}
@@ -1159,7 +1314,7 @@ function FoodFillPicker({ adventurer, game, beltCapacity, onFill, onClose }) {
 }
 
 // ─── Adventurer Card ──────────────────────────────────────────────────────────
-function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero, onGiveArtisanFood, onUseArtisanFood, onGiveBuffItem, onRevive, onStartAutoBattle, onReturnAutoBattle, onRequestStop, onAssignTavern, onRemoveTavern, onSetFillFood, onRecallSingleHero, onSetRelentless }) {
+function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero, onGiveArtisanFood, onUseArtisanFood, onGiveBuffItem, onRevive, onStartAutoBattle, onReturnAutoBattle, onRequestStop, onAssignTavern, onRemoveTavern, onSetFillFood, onRecallSingleHero, onSetRelentless, onSetHeroAuto, onClearAutoLog }) {
   const [expanded, setExpanded] = useState(false);
   const [selectedZoneId, setSelectedZoneId] = useState(adventurer.lastZoneId ?? null);
   const [detailZoneId, setDetailZoneId] = useState(null); // zone details popover
@@ -1200,6 +1355,14 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
   const isResting = !!adventurer.tavernResting && !isOnExpedition && !isInDungeon;
   const tavernBuilt = game.town?.buildings?.tavern?.built === true;
 
+  // Auto loop state
+  const looping = !!adventurer.autoLoopZoneId;
+  const loopZone = looping ? (WORLD_ZONES[adventurer.autoLoopZoneId] ?? null) : null;
+  const betweenStreaks = looping && !isOnMission && !adventurer.pendingAutoCollect && !dead && !isInDungeon && !isOnExpedition;
+  const loopWaiting = betweenStreaks && !!adventurer.autoLoopWaiting;
+  const refillReady = !!(adventurer.autoRefill && adventurer.autoRefillFood);
+  const refillFoodDef = adventurer.autoRefillFood ? ARTISAN_FOOD_HEAL[adventurer.autoRefillFood] : null;
+
   const canStartAutoBattle = hasAutoBattle && selectedZone && beltFoodTotal > 0 && !dead;
   const skillPoints = adventurer.skillPoints ?? 0;
   const canPrestigeNow = (adventurer.level ?? 1) >= 15 && (game.cash ?? 0) >= (HERO_PRESTIGE_COST_BASE * ((adventurer.prestigeLevel ?? 0) + 1));
@@ -1215,8 +1378,10 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
       const expTier = expTierId ? EXPEDITION_TIERS[expTierId] : null;
       return { label: `${expTier?.emoji ?? "🗺️"} Expedition`, color: "#a78bfa", bg: "rgba(99,102,241,0.1)", border: "rgba(99,102,241,0.25)" };
     }
+    if (loopWaiting) return { label: "🔁 Waiting for food", color: "#fbbf24", bg: "rgba(251,191,36,0.1)", border: "rgba(251,191,36,0.3)" };
+    if (betweenStreaks) return { label: "🔁 Resting", color: "#f87171", bg: "rgba(239,68,68,0.08)", border: "rgba(239,68,68,0.25)" };
     if (isResting) return { label: "🍺 Resting", color: "#fbbf24", bg: "rgba(251,191,36,0.1)", border: "rgba(251,191,36,0.3)" };
-    if (isOnMission && mission?.autoBattle) return { label: `⚔️ Auto · ${mission.zoneName}`, color: "#ef4444", bg: "rgba(239,68,68,0.08)", border: "rgba(239,68,68,0.25)" };
+    if (isOnMission && mission?.autoBattle) return { label: `${looping ? "🔁" : "⚔️"} Auto · ${mission.zoneName}`, color: "#ef4444", bg: "rgba(239,68,68,0.08)", border: "rgba(239,68,68,0.25)" };
     if (isOnMission) return { label: done ? "✅ Done!" : `⚔️ ${mission.zoneName}`, color: done ? "#4ade80" : "#fbbf24", bg: done ? "rgba(74,222,128,0.1)" : "rgba(251,191,36,0.08)", border: done ? "rgba(74,222,128,0.3)" : "rgba(251,191,36,0.25)" };
     if (adventurer.bossAssigned) return { label: "👹 Boss", color: "#ef4444", bg: "rgba(239,68,68,0.1)", border: "rgba(239,68,68,0.3)" };
     return { label: "Idle", color: "var(--muted)", bg: "rgba(255,255,255,0.04)", border: "rgba(255,255,255,0.1)" };
@@ -1256,8 +1421,8 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
             {canPrestigeNow ? "⭐ Prestige!" : noClass ? "✨ Choose class" : `✨ ${skillPoints}pt`}
           </span>
         )}
-        {/* Leave tavern button - directly on tiny card */}
-        {isResting && (
+        {/* Leave tavern button - directly on tiny card (looping heroes use Stop loop instead) */}
+        {isResting && !looping && (
           <button onClick={(e) => { e.stopPropagation(); onRemoveTavern?.(adventurer.id); }}
             style={{ fontSize: "0.5rem", padding: "1px 6px", borderRadius: "5px", background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", color: "#fbbf24", cursor: "pointer", fontWeight: 600 }}>
             Leave
@@ -1272,7 +1437,7 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
   const lastZone = adventurer.lastZoneId ? WORLD_ZONES[adventurer.lastZoneId] : null;
   const lastZoneOk = !!lastZone && isZoneUnlocked(lastZone, adventurer, game.worldZoneClears);
   const quickAuto = !!adventurer.lastAutoBattle && hasAutoBattle;
-  const quickNoFood = quickAuto && beltFoodTotal === 0;
+  const quickNoFood = quickAuto && beltFoodTotal === 0 && !refillReady;
   const quickBtnStyle = (color, enabled = true) => ({
     width: "100%", padding: "0.45rem 0.6rem", borderRadius: "9px", fontWeight: 800, fontSize: "0.78rem",
     cursor: enabled ? "pointer" : "default",
@@ -1286,7 +1451,18 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
       quickRow = <button onClick={() => onReturn(adventurer.id)} style={quickBtnStyle("#4ade80")}>🎒 Collect Loot</button>;
     } else if (!isOnMission && adventurer.pendingAutoCollect) {
       quickRow = <button onClick={() => onReturnAutoBattle(adventurer.id)} style={quickBtnStyle("#ef4444")}>🎒 Collect Auto Loot</button>;
+    } else if (betweenStreaks && loopZone) {
+      quickRow = (
+        <div style={{ ...quickBtnStyle(loopWaiting ? "#fbbf24" : "#f87171"), cursor: "default", fontWeight: 700, fontSize: "0.7rem", textAlign: "center" }}>
+          {loopWaiting
+            ? `🔁 Waiting for ${refillFoodDef?.name ?? "food"} · then ${loopZone.emoji} ${loopZone.name}`
+            : !tavernBuilt && hp < maxHp
+            ? "🔁 Can't heal: no Tavern"
+            : `🔁 Resting ${Math.floor(hp)}/${maxHp} · back to ${loopZone.emoji} ${loopZone.name} at full HP`}
+        </div>
+      );
     } else if (!isBusy && lastZoneOk) {
+      const quickLoop = quickAuto && !!adventurer.autoSend;
       quickRow = (
         <button
           disabled={quickNoFood}
@@ -1295,11 +1471,17 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
         >
           {quickNoFood
             ? "🍞 Belt empty: tap the card to Fill"
-            : (quickAuto ? "⚔️ Auto · " : "⚔️ Go · ") + lastZone.emoji + " " + lastZone.name + " · " + getMissionDuration(adventurer, lastZone) + "s"}
+            : (quickLoop ? "🔁 Loop · " : quickAuto ? "⚔️ Auto · " : "⚔️ Go · ") + lastZone.emoji + " " + lastZone.name + " · " + getMissionDuration(adventurer, lastZone) + "s"}
         </button>
       );
     }
   }
+  // One-line loop summary on the collapsed card
+  const collapsedLog = !expanded && (adventurer.autoLog?.streaks ?? 0) > 0 ? (
+    <div style={{ padding: "0 0.75rem 0.5rem", fontSize: "0.58rem", color: "#4ade80" }}>
+      🔁 {adventurer.autoLog.streaks} streaks · {(adventurer.autoLog.loot ?? []).slice(0, 3).map((l) => `${l.emoji}+${Math.floor(l.amount).toLocaleString()}`).join(" ")}
+    </div>
+  ) : null;
 
   const level1 = expanded && !isInDungeon && (
     <div style={{ borderTop: "1px solid var(--border)", padding: "0.6rem 0.75rem" }}>
@@ -1330,7 +1512,7 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
       )}
 
       {isOnMission && mission?.autoBattle && (
-        <AutoBattlePanel adventurer={adventurer} game={game} onReturnAutoBattle={onReturnAutoBattle} onRequestStop={onRequestStop} onSetRelentless={onSetRelentless} />
+        <AutoBattlePanel adventurer={adventurer} game={game} onReturnAutoBattle={onReturnAutoBattle} onRequestStop={onRequestStop} onSetRelentless={onSetRelentless} onSetHeroAuto={onSetHeroAuto} onClearAutoLog={onClearAutoLog} />
       )}
 
       {!isOnMission && adventurer.pendingAutoCollect && (
@@ -1340,6 +1522,7 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
               : adventurer.pendingAutoCollect.stoppedByPlayer ? `🏳️ Recalled · ${adventurer.pendingAutoCollect.successfulRuns} runs`
               : `🍞 Out of food · ${adventurer.pendingAutoCollect.successfulRuns} runs`}
           </div>
+          <AutoLoopLog adventurer={adventurer} onClear={onClearAutoLog} />
           <button onClick={() => onReturnAutoBattle(adventurer.id)}
             style={{ width: "100%", padding: "0.5rem", background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.4)", borderRadius: "8px", color: "#ef4444", fontWeight: 700, fontSize: "0.8rem", cursor: "pointer" }}>
             🎒 Collect Auto Loot
@@ -1373,7 +1556,29 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
         );
       })()}
 
-      {isResting && (
+      {/* ── AUTO LOOP (between streaks) ── */}
+      {betweenStreaks && loopZone && (
+        <div style={{ marginBottom: "0.6rem", padding: "0.55rem 0.7rem", borderRadius: "8px", background: "rgba(239,68,68,0.04)", border: "1px solid rgba(239,68,68,0.25)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.3rem" }}>
+            <span style={{ fontSize: "0.7rem", fontWeight: 700, color: "#f87171" }}>🔁 Auto loop · {loopZone.emoji} {loopZone.name}</span>
+            <button onClick={() => onRequestStop(adventurer.id)}
+              style={{ fontSize: "0.55rem", padding: "1px 8px", borderRadius: "999px", cursor: "pointer", background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.35)", color: "#f87171", fontWeight: 700 }}>
+              ⏹ Stop loop
+            </button>
+          </div>
+          <div style={{ fontSize: "0.58rem", color: "var(--muted)", marginBottom: "0.4rem", lineHeight: 1.4 }}>
+            {loopWaiting
+              ? `Waiting for ${refillFoodDef?.name ?? "food"}. Heads out as soon as there's some above the town reserve.`
+              : !tavernBuilt && hp < maxHp
+              ? "No Tavern, so this hero can't heal. Build one or stop the loop."
+              : `Resting at the tavern · ${Math.floor(hp)}/${maxHp} HP · heads back out at full HP.`}
+          </div>
+          <AutoLoopSettings adventurer={adventurer} game={game} zone={loopZone} onSet={onSetHeroAuto} />
+          <AutoLoopLog adventurer={adventurer} onClear={onClearAutoLog} />
+        </div>
+      )}
+
+      {isResting && !looping && (
         <div style={{ marginBottom: "0.6rem", padding: "0.5rem 0.7rem", borderRadius: "8px", background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.3)" }}>
           <div style={{ fontSize: "0.68rem", fontWeight: 700, color: "#fbbf24" }}>🍺 Resting at Tavern</div>
           <div style={{ fontSize: "0.58rem", color: "var(--muted)", marginTop: "0.15rem" }}>Recovering HP · eat from the belt to speed it up · leaves automatically at full HP.</div>
@@ -1381,12 +1586,12 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
       )}
 
       {/* ── IDLE ACTIONS ── */}
-      {!isBusy && !adventurer.pendingAutoCollect && (
+      {!isBusy && !adventurer.pendingAutoCollect && !betweenStreaks && (
         <>
           {/* Auto battle toggle */}
           {hasAutoBattle && (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.35rem 0.5rem", background: autoBattleMode ? "rgba(239,68,68,0.05)" : "transparent", border: `1px solid ${autoBattleMode ? "rgba(239,68,68,0.25)" : "var(--border)"}`, borderRadius: "8px", marginBottom: "0.45rem" }}>
-              <span style={{ fontSize: "0.65rem", fontWeight: 700, color: autoBattleMode ? "#ef4444" : "var(--muted)" }}>⚔️ Auto Battle <span style={{ fontWeight: 400, fontSize: "0.58rem" }}>· uses food belt</span></span>
+              <span style={{ fontSize: "0.65rem", fontWeight: 700, color: autoBattleMode ? "#ef4444" : "var(--muted)" }}>⚔️ Auto Battle <span style={{ fontWeight: 400, fontSize: "0.58rem" }}>· uses food belt · +0.1× loot per run (max ×{AUTO_STREAK_MAX_MULT})</span></span>
               <button onClick={() => setAutoBattleMode(v => !v)}
                 style={{ fontSize: "0.6rem", padding: "2px 10px", borderRadius: "999px", background: autoBattleMode ? "rgba(239,68,68,0.2)" : "rgba(255,255,255,0.06)", border: `1px solid ${autoBattleMode ? "rgba(239,68,68,0.5)" : "var(--border)"}`, color: autoBattleMode ? "#ef4444" : "var(--muted)", cursor: "pointer", fontWeight: 700 }}>
                 {autoBattleMode ? "ON" : "OFF"}
@@ -1394,6 +1599,8 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
             </div>
           )}
           {hasAutoBattle && autoBattleMode && <RelentlessPicker adventurer={adventurer} onSet={onSetRelentless} />}
+          {hasAutoBattle && autoBattleMode && <AutoLoopSettings adventurer={adventurer} game={game} zone={selectedZone} onSet={onSetHeroAuto} />}
+          <AutoLoopLog adventurer={adventurer} onClear={onClearAutoLog} />
           {/* Heal / Fill / Go row — above zones */}
           <div style={{ display: "flex", gap: "0.4rem", marginBottom: "0.45rem" }}>
             {/* Heal button */}
@@ -1421,7 +1628,7 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
             <button onClick={() => { if (selectedZone) { if (autoBattleMode) onStartAutoBattle(adventurer.id, selectedZone.id); else onSend(adventurer.id, selectedZone.id); } }}
               disabled={!selectedZone}
               style={{ flex: 2, padding: "0.5rem 0.5rem", background: selectedZone ? (autoBattleMode ? "rgba(239,68,68,0.2)" : "rgba(99,102,241,0.25)") : "rgba(255,255,255,0.04)", border: `2px solid ${selectedZone ? (autoBattleMode ? "rgba(239,68,68,0.6)" : "rgba(99,102,241,0.7)") : "var(--border)"}`, borderRadius: "9px", color: selectedZone ? (autoBattleMode ? "#ef4444" : "var(--accent)") : "var(--muted)", fontWeight: 800, fontSize: "0.9rem", cursor: selectedZone ? "pointer" : "default" }}>
-              {selectedZone ? (autoBattleMode ? `⚔️ Auto! · ${getMissionDuration(adventurer, selectedZone)}s` : `⚔️ Go! · ${getMissionDuration(adventurer, selectedZone)}s`) : "⚔️ Go!"}
+              {selectedZone ? (autoBattleMode ? `${adventurer.autoSend ? "🔁 Loop!" : "⚔️ Auto!"} · ${getMissionDuration(adventurer, selectedZone)}s` : `⚔️ Go! · ${getMissionDuration(adventurer, selectedZone)}s`) : "⚔️ Go!"}
             </button>
           </div>
 
@@ -1508,6 +1715,7 @@ function AdventurerCard({ adventurer, zones, game, onSend, onReturn, onOpenHero,
     <div style={{ background: "var(--bg-elev)", border: `1px solid ${dead ? "rgba(239,68,68,0.3)" : isInDungeon ? "rgba(99,102,241,0.3)" : "var(--border)"}`, borderRadius: "12px", overflow: "hidden", marginBottom: "0.6rem", opacity: isInDungeon ? 0.75 : 1 }}>
       {tinyCard}
       {!expanded && quickRow && <div style={{ padding: "0 0.75rem 0.6rem" }}>{quickRow}</div>}
+      {collapsedLog}
       {level1}
     </div>
   );
@@ -1995,6 +2203,9 @@ export default function WorldZone({
   onRemoveHeroFromTavern,
   onSetHeroFillFood,
   onSetRelentless,
+  onSetHeroAuto,
+  onClearAutoLog,
+  onSetFoodReserve,
   onSendExpedition,
   onRecallExpedition,
   onRecallSingleHero,
@@ -2388,6 +2599,31 @@ export default function WorldZone({
               </button>
             );
           })()}
+          {/* ── TOWN FOOD RESERVE (auto-refill) ──────────── */}
+          {onSetFoodReserve && adventurers.some((a) => a.autoRefill) && (() => {
+            const pulses = getHeroFoodReservePulses(game);
+            const keep = ["bread", "jam", "sauce"]
+              .map((id) => [id, getTownFoodReserve(game, id)])
+              .filter(([, n]) => n > 0)
+              .map(([id, n]) => `${ARTISAN_FOOD_HEAL[id]?.emoji ?? ""}${n}`)
+              .join(" ");
+            return (
+              <div style={{ marginBottom: "0.6rem", padding: "0.45rem 0.6rem", background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)", borderRadius: "8px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", flexWrap: "wrap" }}>
+                  <span style={{ fontSize: "0.62rem", fontWeight: 700, color: "var(--muted)" }}>🏘️ Town food reserve</span>
+                  {HERO_FOOD_RESERVE_OPTIONS.map((p) => (
+                    <button key={p} onClick={() => onSetFoodReserve(p)}
+                      style={{ fontSize: "0.58rem", padding: "1px 8px", borderRadius: "999px", cursor: "pointer", fontWeight: 700, background: pulses === p ? "rgba(74,222,128,0.18)" : "rgba(255,255,255,0.05)", border: `1px solid ${pulses === p ? "rgba(74,222,128,0.5)" : "var(--border)"}`, color: pulses === p ? "#4ade80" : "var(--muted)" }}>
+                      {p === 0 ? "Off" : `${p} pulses`}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ fontSize: "0.55rem", color: "var(--muted)", marginTop: "0.2rem" }}>
+                  Auto-refill never takes bread, jam or sauce below this.{keep ? ` Keeping ${keep} for the town.` : " The town isn't eating any right now."}
+                </div>
+              </div>
+            );
+          })()}
           {[...adventurers].reverse().map((adv) => (
             <AdventurerCard
               key={adv.id}
@@ -2409,6 +2645,8 @@ export default function WorldZone({
               onSetFillFood={onSetHeroFillFood}
               onRecallSingleHero={onRecallSingleHero}
               onSetRelentless={onSetRelentless}
+              onSetHeroAuto={onSetHeroAuto}
+              onClearAutoLog={onClearAutoLog}
             />
           ))}
 
@@ -2633,4 +2871,4 @@ export default function WorldZone({
   );
 }
 
-// PATCHED: roads+heroes v1
+// PATCHED: roads+heroes v1 · auto loop v1

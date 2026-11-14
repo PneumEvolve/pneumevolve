@@ -73,14 +73,14 @@ export const TEND_SECONDS = 3;
 
 // ─── Processing recipes ───────────────────────────────────────────────────────
 export const PROCESSING_RECIPES = {
-  bread: { id: "bread", name: "Bread", emoji: "🍞", inputCrop: "wheat",    inputAmount: 30, outputGood: "bread", outputAmount: 1, seconds: 60,  description: "Bake bread from wheat.", healAmount: 30 },
-  jam:   { id: "jam",   name: "Jam",   emoji: "🍯", inputCrop: "berries",  inputAmount: 30, outputGood: "jam",   outputAmount: 1, seconds: 120, description: "Craft jam from berries.", healAmount: 50 },
-  sauce: { id: "sauce", name: "Sauce", emoji: "🥫", inputCrop: "tomatoes", inputAmount: 20, outputGood: "sauce", outputAmount: 1, seconds: 150, description: "Make sauce from tomatoes.", healAmount: 100 },
+  bread: { id: "bread", name: "Bread", emoji: "🍞", inputCrop: "wheat",    inputAmount: 30, outputGood: "bread", outputAmount: 1, seconds: 60,  description: "Bake bread from wheat.", healAmount: 45 },
+  jam:   { id: "jam",   name: "Jam",   emoji: "🍯", inputCrop: "berries",  inputAmount: 30, outputGood: "jam",   outputAmount: 1, seconds: 90, description: "Craft jam from berries.", healAmount: 70 },
+  sauce: { id: "sauce", name: "Sauce", emoji: "🥫", inputCrop: "tomatoes", inputAmount: 20, outputGood: "sauce", outputAmount: 1, seconds: 150, description: "Make sauce from tomatoes.", healAmount: 110 },
   omelette:      { id: "omelette",      name: "Omelette",      emoji: "🍳", inputCrop: "egg",    inputAmount: 3,  outputGood: "omelette",      outputAmount: 1, seconds: 60,  description: "Hearty meal. Crafted from eggs." },
   cheese:        { id: "cheese",        name: "Cheese",        emoji: "🧀", inputCrop: "milk",   inputAmount: 4,  outputGood: "cheese",        outputAmount: 1, seconds: 90,  description: "Aged to perfection." },
   knitted_goods: { id: "knitted_goods", name: "Knitted Goods", emoji: "🧥", inputCrop: "wool",   inputAmount: 3,  outputGood: "knitted_goods", outputAmount: 1, seconds: 120, description: "Warm and valuable." },
-  fish_pie:      { id: "fish_pie",      name: "Fish Pie",      emoji: "🥧", inputCrop: "bass",   inputAmount: 2,  outputGood: "fish_pie",      outputAmount: 1, seconds: 90,  description: "Tasty and filling." },
-  smoked_fish:   { id: "smoked_fish",   name: "Smoked Fish",   emoji: "🐟", inputCrop: "perch",  inputAmount: 2,  outputGood: "smoked_fish",   outputAmount: 1, seconds: 75,  description: "Smoky and delicious." },
+  fish_pie:      { id: "fish_pie",      name: "Fish Pie",      emoji: "🥧", inputCrop: "bass",   inputAmount: 5,  outputGood: "fish_pie",      outputAmount: 1, seconds: 90,  description: "Tasty and filling." },
+  smoked_fish:   { id: "smoked_fish",   name: "Smoked Fish",   emoji: "🐟", inputCrop: "perch",  inputAmount: 5,  outputGood: "smoked_fish",   outputAmount: 1, seconds: 120,  description: "Smoky and delicious." },
   fish_meal:      { id: "fish_meal",      name: "Fish Meal",      emoji: "🌿", inputCrop: "minnow", inputAmount: 5, outputGood: "fish_meal", outputAmount: 1, seconds: 45,  description: "Fertilizer. Boosts grow speed." },
   fish_meal_bass: { id: "fish_meal_bass", name: "Fish Meal (Bass)", emoji: "🌿", inputCrop: "bass",   inputAmount: 3, outputGood: "fish_meal", outputAmount: 1, seconds: 60,  description: "Fertilizer from bass. For when minnows are scarce." },
 };
@@ -104,7 +104,7 @@ export const MARKET_SELL_RATES = {
   egg: 5, milk: 15, wool: 25,
   omelette: 40, cheese: 70, knitted_goods: 90,
   minnow: 2, bass: 8, perch: 12, rare: 35,
-  fish_pie: 45, smoked_fish: 35, fish_meal: 20,
+  fish_pie: 80, smoked_fish: 110, fish_meal: 20,
   // World loot
   iron_ore: 2, lumber: 4, herbs: 3, rare_gem: 50, mana_crystal: 100,
   // Forge goods
@@ -1472,18 +1472,18 @@ export const TAVERN_REGEN_BONUS = 0.10; // legacy kept for save compat - use get
 // ─── Artisan Food as Heal Items ───────────────────────────────────────────────
 
 export const ARTISAN_FOOD_HEAL = {
-  bread:       { id: "bread",       emoji: "🍞", name: "Bread",       healAmount: 30,  source: "artisan" },
-  jam:         { id: "jam",         emoji: "🍯", name: "Jam",         healAmount: 50,  source: "artisan" },
-  sauce:       { id: "sauce",       emoji: "🥫", name: "Sauce",       healAmount: 100, source: "artisan" },
-  fish_pie:    { id: "fish_pie",    emoji: "🥧", name: "Fish Pie",    healAmount: 125, source: "animalGoods" },
-  smoked_fish: { id: "smoked_fish", emoji: "🐟", name: "Smoked Fish", healAmount: 150, source: "animalGoods" },
+  bread:       { id: "bread",       emoji: "🍞", name: "Bread",       healAmount: 45,  source: "artisan" },
+  jam:         { id: "jam",         emoji: "🍯", name: "Jam",         healAmount: 70,  source: "artisan" },
+  sauce:       { id: "sauce",       emoji: "🥫", name: "Sauce",       healAmount: 110, source: "artisan" },
+  fish_pie:    { id: "fish_pie",    emoji: "🥧", name: "Fish Pie",    healAmount: 130, source: "animalGoods" },
+  smoked_fish: { id: "smoked_fish", emoji: "🐟", name: "Smoked Fish", healAmount: 180, source: "animalGoods" },
 };
 export const ARTISAN_FOOD_LIST = ["bread", "jam", "sauce", "fish_pie", "smoked_fish"];
 
 // ─── Adventurer Buff Items (separate slot, not food belt) ────────────────────
 export const ADVENTURER_BUFF_ITEMS = {
-  smoked_fish: { id: "smoked_fish", emoji: "🐟", name: "Smoked Fish", buffType: "hp_boost",   buffValue: 0.10, description: "+10% max HP for the run (damage soak).", source: "artisan" },
-  fish_pie:    { id: "fish_pie",    emoji: "🥧", name: "Fish Pie",    buffType: "min_loot",   buffValue: 1,    description: "+1 to min loot rolls this run.", source: "artisan" },
+  smoked_fish: { id: "smoked_fish", emoji: "🐟", name: "Smoked Fish", buffType: "hp_boost",   buffValue: 0.10, description: "+10% max HP for the run (damage soak).", source: "animalGoods" },
+  fish_pie:    { id: "fish_pie",    emoji: "🥧", name: "Fish Pie",    buffType: "min_loot",   buffValue: 1,    description: "+1 to min loot rolls this run.", source: "animalGoods" },
   omelette:    { id: "omelette",    emoji: "🍳", name: "Omelette",    buffType: "xp_boost",   buffValue: 0.25, description: "+25% XP this run.", source: "animalGoods" },
   cheese:      { id: "cheese",      emoji: "🧀", name: "Cheese",      buffType: "loot_boost", buffValue: 0.25, description: "+25% loot this run.", source: "animalGoods" },
 };

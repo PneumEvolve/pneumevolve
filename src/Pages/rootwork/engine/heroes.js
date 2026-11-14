@@ -58,7 +58,7 @@ RESTAURANT_SAT_PER_CHEF, RESTAURANT_OMELETTE_PER_PULSE_DIVISOR, RESTAURANT_CHEES
 CLOTHIER_CASH_PER_CLERK, CLOTHIER_GOODS_PER_PULSE_DIVISOR,
 FISHING_BODIES, FISHING_BODY_ORDER, FISHING_FISH,
 FISHING_CATCH_RATES, FISHING_BAIT_BONUS,
-FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, ANIMAL_YIELD_UPGRADES, 
+FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, ANIMAL_YIELD_UPGRADES,
   SCHOOL_RESEARCH,
   PRESTIGE_SKILL_TREE,
   FORGE_WORKER_HIRE_COST, FORGE_WORKER_HIRE_MULTIPLIER,
@@ -100,6 +100,28 @@ import { tick, updateTown } from "./tick.js";
 import { getVelmoorXpBonus } from "./roads.js";
 import { getGlobalBonus } from "./bonuses.js";
 import { sendAdventurer } from "./roadsV2.js";
+
+// ─── Auto-battle streak + auto loop (Nov 2026) ───────────────────────────────
+// Streak: run N of one continuous auto battle pays 1 + 0.1×N loot (run 5 = ×1.5),
+// capped at ×3 (run 20). Loot only, never XP. A streak ends at the tavern.
+export const AUTO_STREAK_BONUS_PER_RUN = 0.1;
+export const AUTO_STREAK_MAX_MULT = 3;
+// Auto-refill never pulls bread/jam/sauce below this many town pulses of food
+export const HERO_FOOD_RESERVE_OPTIONS = [0, 3, 5, 10];
+export const HERO_FOOD_RESERVE_DEFAULT = 3;
+const TOWN_FOODS = ["bread", "jam", "sauce"];
+
+export function getAutoStreakMultiplier(runNumber) {
+  return Math.min(AUTO_STREAK_MAX_MULT, 1 + AUTO_STREAK_BONUS_PER_RUN * Math.max(0, runNumber));
+}
+
+// Multiply a loot amount, rounding the leftover fraction by chance so small drops
+// (1-2 gems) still get their fair share of the bonus on average.
+function scaleLootAmount(amount, mult) {
+  const raw = amount * mult;
+  const whole = Math.floor(raw);
+  return whole + (Math.random() < raw - whole ? 1 : 0);
+}
 
 // ─── World / Adventurer Engine ────────────────────────────────────────────────
 
@@ -239,7 +261,7 @@ export function _legacySendAdventurer(state, adventurerId, zoneId, autoBattle = 
   if (advIdx === -1) return state;
   const adventurer = state.adventurers[advIdx];
   if (isHeroBusy(state, adventurer)) return state;
- 
+
   let duration = getAdventurerMissionDuration(adventurer, zone);
   // (omelette is now +25% XP via buffBelt, no run_time effect)
 
@@ -257,10 +279,17 @@ export function _legacySendAdventurer(state, adventurerId, zoneId, autoBattle = 
     autoBattleLeveled: false,
     autoBattleDied: false,
     autoBattleOutOfPotions: false,
+    autoBattleFoodEaten: {},    // { foodId: count } eaten this streak
   };
- 
+
   let heroHpAtStart = adventurer.hp ?? (adventurer.maxHp ?? 40);
-  const updatedAdv = { ...adventurer, mission, tavernResting: false, tavernBuff: null, hp: heroHpAtStart };
+  const updatedAdv = {
+    ...adventurer, mission, tavernResting: false, tavernBuff: null, hp: heroHpAtStart,
+    // Auto loop: an auto battle started with Auto-send on keeps coming back to this zone.
+    // A normal mission always ends any loop.
+    autoLoopZoneId: autoBattle && adventurer.autoSend ? zoneId : null,
+    autoLoopWaiting: false,
+  };
   const next = { ...state, adventurers: [...state.adventurers] };
   next.adventurers[advIdx] = updatedAdv;
   return next;
@@ -306,10 +335,10 @@ export function returnAdventurer(state, adventurerId) {
   if (!mission) return { state, result: null };
   const zone = WORLD_ZONES[mission.zoneId];
   if (!zone) return { state, result: null };
- 
+
   const elapsed = (Date.now() - mission.startTime) / 1000;
   if (elapsed < mission.duration) return { state, result: null };
- 
+
   // ── Single run result ────────────────────────────────────────────────────
 
   // Read any queued tavern buff (already consumed from hero on sendAdventurer, passed via mission snapshot)
@@ -343,7 +372,7 @@ export function returnAdventurer(state, adventurerId) {
       if (finalAmount > 0) runLoot.push({ ...lootDef, amount: finalAmount });
     }
   }
- 
+
   // HP damage calculation — must happen BEFORE level-up so death can't be escaped by leveling
   const dmgPerTick = zone.damagePerTick ?? 1;
   // Shield: use damageReduction from equipped armour recipe
@@ -399,13 +428,14 @@ export function returnAdventurer(state, adventurerId) {
   const prevClears = (state.worldZoneClears ?? {})[zone.id] ?? 0;
   const newClears = effectiveFailed ? prevClears : Math.min(prevClears + 1, zone.clearsNeeded);
   const zoneCleared = !effectiveFailed && prevClears < zone.clearsNeeded && newClears >= zone.clearsNeeded;
- 
+
   // ── Auto Battle branch ────────────────────────────────────────────────────
   if (mission.autoBattle) {
     const prevAccumLoot = mission.autoBattleLoot ?? [];
     const prevAccumXp = mission.autoBattleXp ?? 0;
     const prevRuns = mission.autoBattleRuns ?? 0;
- 
+    const prevFoodEaten = mission.autoBattleFoodEaten ?? {};
+
     // If this run failed, the dying run doesn't count for loot
     // Hero dies — 50% of accumulated loot, mission ends, hp goes to 0
     if (failed || hpAfterDamage <= 0) {
@@ -414,7 +444,7 @@ export function returnAdventurer(state, adventurerId) {
       // Apply 50% to accumulated loot
       const halvedLoot = finalLoot.map((l) => ({ ...l, amount: Math.floor(l.amount * 0.5) }));
       // Loot credited on collect click (not here)
- 
+
       const diedResult = {
           autoBattle: true,
           diedDuringAuto: true,
@@ -427,6 +457,8 @@ export function returnAdventurer(state, adventurerId) {
           hpLost: rawDamage,
           hpRemaining: 0,
           maxHp: bonusMaxHp,
+          foodEaten: prevFoodEaten,
+          peakMult: getAutoStreakMultiplier(prevRuns),
         };
       const updatedAdv = {
         ...adventurer,
@@ -438,6 +470,9 @@ export function returnAdventurer(state, adventurerId) {
         pendingAutoCollect: diedResult,
         skillPoints: newSkillPoints,
         prestigeLevel: adventurer.prestigeLevel ?? 0,
+        // Death always ends the auto loop — the hero needs a manual revive
+        autoLoopZoneId: null,
+        autoLoopWaiting: false,
       };
       const next = {
         ...state,
@@ -447,16 +482,20 @@ export function returnAdventurer(state, adventurerId) {
       };
       return { state: next, result: null };
     }
- 
-    // Successful run — accumulate loot + XP
-    const newAccumLoot = mergeLoot(prevAccumLoot, runLoot);
-    const newAccumXp = prevAccumXp + xpGained;
+
+    // Successful run — streak multiplier on loot, then accumulate loot + XP
     const newRuns = prevRuns + 1;
-    // Track high-water mark for quest progress
+    const streakMult = getAutoStreakMultiplier(newRuns);
+    const streakLoot = runLoot
+      .map((l) => ({ ...l, amount: scaleLootAmount(l.amount, streakMult) }))
+      .filter((l) => l.amount > 0);
+    const newAccumLoot = mergeLoot(prevAccumLoot, streakLoot);
+    const newAccumXp = prevAccumXp + xpGained;
+    // Track high-water mark for quest progress (one streak, not the whole loop)
     if (state.questProgress && newRuns > (state.questProgress.maxAutoBattleRun ?? 0)) {
       state = { ...state, questProgress: { ...state.questProgress, maxAutoBattleRun: newRuns } };
     }
- 
+
     // Check if we can do another run — need food belt to heal between runs
     const currentFoodBelt = { ...(adventurer.foodBelt ?? {}) };
 
@@ -504,6 +543,8 @@ export function returnAdventurer(state, adventurerId) {
           hpLost: rawDamage,
           hpRemaining: Math.max(0, hpAfterDamage),
           maxHp: bonusMaxHp,
+          foodEaten: prevFoodEaten,
+          peakMult: streakMult,
         };
       const updatedAdvStop = {
         ...adventurer,
@@ -515,6 +556,8 @@ export function returnAdventurer(state, adventurerId) {
         pendingAutoCollect: stoppedResult,
         skillPoints: newSkillPoints,
         prestigeLevel: adventurer.prestigeLevel ?? 0,
+        autoLoopZoneId: null,
+        autoLoopWaiting: false,
       };
       const nextStop = {
         ...state,
@@ -527,7 +570,7 @@ export function returnAdventurer(state, adventurerId) {
 
     if (!hasBeltFood) {
       // Out of food — collect everything, mission ends cleanly
-      // Loot credited on collect click (not here)
+      // Loot credited on collect click (not here), or banked by the auto loop
       const outOfFoodResult = {
           autoBattle: true,
           ranOutOfFood: true,
@@ -540,6 +583,8 @@ export function returnAdventurer(state, adventurerId) {
           hpLost: rawDamage,
           hpRemaining: Math.max(0, hpAfterDamage),
           maxHp: bonusMaxHp,
+          foodEaten: prevFoodEaten,
+          peakMult: streakMult,
         };
       const updatedAdv = {
         ...adventurer,
@@ -602,6 +647,7 @@ export function returnAdventurer(state, adventurerId) {
     // Consume one food item (smallest heal first), heal up, queue next run
     const foodToUse = beltItems[0];
     currentFoodBelt[foodToUse.id] = (currentFoodBelt[foodToUse.id] ?? 1) - 1;
+    const newFoodEaten = { ...prevFoodEaten, [foodToUse.id]: (prevFoodEaten[foodToUse.id] ?? 0) + 1 };
     // Apply food heal with Fighter Resilience bonus
     const { multiplier: healMult, flatBonus: healFlat } = getHeroHealBonus(adventurer);
     const foodHeal = Math.round(foodToUse.heal * healMult) + healFlat;
@@ -617,6 +663,7 @@ export function returnAdventurer(state, adventurerId) {
       autoBattleLoot: newAccumLoot,
       autoBattleXp: newAccumXp,
       autoBattleLeveled: leveledUp || (mission.autoBattleLeveled ?? false),
+      autoBattleFoodEaten: newFoodEaten,
     };
 
     const updatedAdv = {
@@ -637,7 +684,7 @@ export function returnAdventurer(state, adventurerId) {
     // Return null result — still running
     return { state: next, result: null };
   }
- 
+
   // ── Standard single-run branch ────────────────────────────────────────────
 
   // If hero died on a normal run — hard fail: no loot, no XP, hp=0, mission ends
@@ -684,9 +731,9 @@ export function returnAdventurer(state, adventurerId) {
   for (const l of finalLootForRun) {
     nextResources[l.resourceKey] = (nextResources[l.resourceKey] ?? 0) + l.amount;
   }
- 
+
   const postMissionHp = leveledUp ? bonusMaxHp : Math.min(Math.max(0, hpAfterDamage), bonusMaxHp);
- 
+
   const updatedAdv = {
     ...adventurer,
     xp: newXp, level: newLevel, maxHp: bonusMaxHp,
@@ -697,7 +744,7 @@ export function returnAdventurer(state, adventurerId) {
     skillPoints: newSkillPoints,
     prestigeLevel: adventurer.prestigeLevel ?? 0,
   };
- 
+
   const nextQPHero = { ...(state.questProgress ?? {}) };
   if (!effectiveFailed) {
     nextQPHero.heroQuestsCompleted = (nextQPHero.heroQuestsCompleted ?? 0) + 1;
@@ -710,7 +757,7 @@ export function returnAdventurer(state, adventurerId) {
     worldZoneClears: { ...(state.worldZoneClears ?? {}), [zone.id]: newClears },
     questProgress: nextQPHero,
   };
- 
+
   return {
     state: next,
     result: {
@@ -736,14 +783,14 @@ export function reviveAdventurer(state, adventurerId) {
   const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
   if (advIdx === -1) return state;
   const adventurer = state.adventurers[advIdx];
- 
+
   // Only revive if actually dead
   if ((adventurer.hp ?? adventurer.maxHp) > 0) return state;
- 
+
   const prestige = Math.max(1, adventurer.prestigeLevel ?? 0);
   const cost = 100 * prestige;
   if ((state.cash ?? 0) < cost) return state;
- 
+
   const updatedAdv = { ...adventurer, hp: adventurer.maxHp };
   return {
     ...state,
@@ -835,6 +882,9 @@ export function prestigeAdventurer(state, adventurerId) {
     mission: null,
     foodBelt: trimmedBelt,
     buffBelt: newBuffBelt,
+    // A level-1 hero can't run the loop's zone any more
+    autoLoopZoneId: null,
+    autoLoopWaiting: false,
     // gear kept as-is
   };
 
@@ -1554,14 +1604,196 @@ export function getHeroTavernBuff(adventurer) {
   return null;
 }
 
+// ─── Auto loop: settings, food reserve, refill, banking ──────────────────────
+// A hero with Auto-send on runs: auto battle until the belt is empty → loot is
+// banked → rest at the tavern to full HP → (optional) refill the belt with the
+// food the player picked → back out to the same zone. Death or Stop ends it.
+
+const AUTO_REFILL_WHEN_OUT = ["wait", "go"];
+
+function patchHero(state, heroId, patch) {
+  return {
+    ...state,
+    adventurers: (state.adventurers ?? []).map((a) => (a.id === heroId ? { ...a, ...patch } : a)),
+  };
+}
+
+// Per-hero toggles: { autoSend, autoRefill, autoRefillFood, autoRefillWhenOut }
+export function setHeroAutoSettings(state, heroId, patch = {}) {
+  const adv = (state.adventurers ?? []).find((a) => a.id === heroId);
+  if (!adv) return state;
+  const clean = {};
+  if ("autoSend" in patch) clean.autoSend = !!patch.autoSend;
+  if ("autoRefill" in patch) clean.autoRefill = !!patch.autoRefill;
+  if ("autoRefillFood" in patch) {
+    const f = patch.autoRefillFood;
+    if (f !== null && !ARTISAN_FOOD_LIST.includes(f)) return state;
+    clean.autoRefillFood = f;
+  }
+  if ("autoRefillWhenOut" in patch) {
+    if (!AUTO_REFILL_WHEN_OUT.includes(patch.autoRefillWhenOut)) return state;
+    clean.autoRefillWhenOut = patch.autoRefillWhenOut;
+  }
+  if ("autoSend" in clean) {
+    if (!clean.autoSend) {
+      clean.autoLoopZoneId = null;
+      clean.autoLoopWaiting = false;
+    } else if (adv.mission?.autoBattle && !adv.mission.autoBattleStopRequested) {
+      // Turned on mid-streak: this auto battle becomes a loop
+      clean.autoLoopZoneId = adv.mission.zoneId;
+    }
+  }
+  return patchHero(state, heroId, clean);
+}
+
+export function getHeroFoodReservePulses(state) {
+  const p = state.heroFoodReservePulses;
+  return HERO_FOOD_RESERVE_OPTIONS.includes(p) ? p : HERO_FOOD_RESERVE_DEFAULT;
+}
+
+export function setHeroFoodReserve(state, pulses) {
+  if (!HERO_FOOD_RESERVE_OPTIONS.includes(pulses)) return state;
+  return { ...state, heroFoodReservePulses: pulses };
+}
+
+// How much of a food auto-refill must leave in stock for the town.
+// Uses the per-pulse amounts the town pulse caches (0 for foods the town isn't eating).
+export function getTownFoodReserve(state, foodId) {
+  if (!TOWN_FOODS.includes(foodId)) return 0;
+  const town = state.town ?? {};
+  const perPulse = foodId === "bread" ? (town.breadNeeded ?? 0)
+    : foodId === "jam" ? (town.jamNeeded ?? 0)
+    : (town.sauceNeeded ?? 0);
+  return Math.ceil(perPulse * getHeroFoodReservePulses(state));
+}
+
+function getFoodStock(state, foodId) {
+  const source = ARTISAN_FOOD_HEAL[foodId]?.source ?? "artisan";
+  const obj = source === "animalGoods" ? (state.animalGoods ?? {}) : (state.artisan ?? {});
+  return Math.floor(obj[foodId] ?? 0);
+}
+
+// Stock auto-refill is allowed to take right now
+export function getAutoRefillAvailable(state, foodId) {
+  return Math.max(0, getFoodStock(state, foodId) - getTownFoodReserve(state, foodId));
+}
+
+// Top the belt up with the hero's chosen food (never below the town reserve).
+// Returns { state, added }.
+export function refillHeroBelt(state, heroId) {
+  const adv = (state.adventurers ?? []).find((a) => a.id === heroId);
+  if (!adv) return { state, added: 0 };
+  const foodId = adv.autoRefillFood;
+  if (!foodId || !ARTISAN_FOOD_LIST.includes(foodId)) return { state, added: 0 };
+  const belt = adv.foodBelt ?? {};
+  const free = getBeltCap(adv, state.forgeGoodsInstanced ?? []) - Object.values(belt).reduce((s, v) => s + v, 0);
+  const added = Math.min(Math.max(0, free), getAutoRefillAvailable(state, foodId));
+  if (added <= 0) return { state, added: 0 };
+  const source = ARTISAN_FOOD_HEAL[foodId]?.source ?? "artisan";
+  const stockKey = source === "animalGoods" ? "animalGoods" : "artisan";
+  const stockObj = { ...(state[stockKey] ?? {}) };
+  stockObj[foodId] = (stockObj[foodId] ?? 0) - added;
+  const next = { ...state, [stockKey]: stockObj };
+  return { state: patchHero(next, heroId, { foodBelt: { ...belt, [foodId]: (belt[foodId] ?? 0) + added } }), added };
+}
+
+export function clearHeroAutoLog(state, heroId) {
+  return patchHero(state, heroId, { autoLog: null });
+}
+
+// Finished streak (out of food) → loot straight into worldResources + the hero's log
+function bankAutoStreak(state, heroId) {
+  const adv = (state.adventurers ?? []).find((a) => a.id === heroId);
+  const result = adv?.pendingAutoCollect;
+  if (!result) return state;
+  const resources = { ...(state.worldResources ?? {}) };
+  for (const l of result.loot ?? []) {
+    resources[l.resourceKey] = (resources[l.resourceKey] ?? 0) + l.amount;
+  }
+  const log = adv.autoLog ?? { since: Date.now(), streaks: 0, runs: 0, loot: [], food: {}, xp: 0, bestStreak: 0 };
+  const food = { ...(log.food ?? {}) };
+  for (const [id, n] of Object.entries(result.foodEaten ?? {})) food[id] = (food[id] ?? 0) + n;
+  const newLog = {
+    ...log,
+    streaks: (log.streaks ?? 0) + 1,
+    runs: (log.runs ?? 0) + (result.successfulRuns ?? 0),
+    loot: mergeLoot(log.loot ?? [], result.loot ?? []),
+    food,
+    xp: (log.xp ?? 0) + (result.xpGained ?? 0),
+    bestStreak: Math.max(log.bestStreak ?? 0, result.successfulRuns ?? 0),
+  };
+  return patchHero({ ...state, worldResources: resources }, heroId, { pendingAutoCollect: null, autoLog: newLog });
+}
+
+// Run once per tick, after missions resolve. Banks finished streaks.
+function autoLoopBank(state) {
+  let next = state;
+  for (const adv of state.adventurers ?? []) {
+    if (!adv.autoLoopZoneId || !adv.pendingAutoCollect) continue;
+    const r = adv.pendingAutoCollect;
+    // Death / stop already cleared the loop; anything else is a normal out-of-food end
+    if (r.diedDuringAuto || r.stoppedByPlayer) continue;
+    next = bankAutoStreak(next, adv.id);
+  }
+  return next;
+}
+
+// Run once per tick, after tavern auto-rest. Heroes at full HP refill and go again.
+function autoLoopResend(state, nowMs) {
+  let next = state;
+  for (const adv of state.adventurers ?? []) {
+    if (!adv.autoLoopZoneId) continue;
+    const activity = getHeroActivity(next, adv);
+    if (activity === "auto" || activity === "collect") continue;
+    if (activity !== null) {
+      // Joined a boss / expedition / dungeon, died, or was sent on a normal mission
+      next = patchHero(next, adv.id, { autoLoopZoneId: null, autoLoopWaiting: false });
+      continue;
+    }
+    const zone = WORLD_ZONES[adv.autoLoopZoneId];
+    if (!zone || !adv.autoSend || (adv.level ?? 1) < (zone.heroLevelRequired ?? 1)) {
+      next = patchHero(next, adv.id, { autoLoopZoneId: null, autoLoopWaiting: false });
+      continue;
+    }
+    // Still resting
+    const maxHp = adv.maxHp ?? (getAdventurerMaxHp(adv) + getHeroBonusMaxHp(adv));
+    if ((adv.hp ?? maxHp) < maxHp - 0.01) continue;
+
+    if (adv.autoRefill && adv.autoRefillFood) next = refillHeroBelt(next, adv.id).state;
+    const fresh = (next.adventurers ?? []).find((a) => a.id === adv.id);
+    const beltTotal = Object.values(fresh.foodBelt ?? {}).reduce((s, v) => s + v, 0);
+    const waitForFood = fresh.autoRefill && fresh.autoRefillFood && (fresh.autoRefillWhenOut ?? "go") === "wait";
+    if (beltTotal === 0 && waitForFood) {
+      if (!fresh.autoLoopWaiting) next = patchHero(next, adv.id, { autoLoopWaiting: true });
+      continue;
+    }
+    const sent = sendAdventurer(next, adv.id, adv.autoLoopZoneId, true);
+    if (sent === next) continue;
+    // Start the run at the (possibly simulated) current time so offline catch-up keeps going
+    next = {
+      ...sent,
+      adventurers: sent.adventurers.map((a) =>
+        a.id === adv.id && a.mission ? { ...a, mission: { ...a.mission, startTime: nowMs }, autoLoopWaiting: false } : a
+      ),
+    };
+  }
+  return next;
+}
+
 // ─── Auto-tick adventurer missions ───────────────────────────────────────────
 export function requestAutoBattleStop(state, adventurerId) {
   const advIdx = (state.adventurers ?? []).findIndex((a) => a.id === adventurerId);
   if (advIdx === -1) return state;
   const adventurer = state.adventurers[advIdx];
-  if (!adventurer.mission?.autoBattle) return state;
+  if (!adventurer.mission?.autoBattle) {
+    // Between streaks (resting / waiting for food): just end the loop
+    if (adventurer.autoLoopZoneId) return patchHero(state, adventurerId, { autoLoopZoneId: null, autoLoopWaiting: false });
+    return state;
+  }
   const updatedAdv = {
     ...adventurer,
+    autoLoopZoneId: null,
+    autoLoopWaiting: false,
     mission: { ...adventurer.mission, autoBattleStopRequested: true },
   };
   const next = { ...state, adventurers: [...state.adventurers] };
@@ -1608,6 +1840,8 @@ export function tickAdventurerMissionsAt(state, nowMs) {
       next = { ...next, pendingAutoBattleResult: { ...result, adventurerId: adv.id } };
     }
   }
+  // Auto loop: bank streaks that ran out of food so the hero can rest and go again
+  next = autoLoopBank(next);
   // Auto-rest: if tavern is built, any hero who just returned (idle, alive, not full HP)
   // automatically starts resting so the player doesn't have to manually press "Rest".
   if (isTownBuildingBuilt(next, "tavern")) {
@@ -1625,5 +1859,7 @@ export function tickAdventurerMissionsAt(state, nowMs) {
       }),
     };
   }
+  // Auto loop: rested heroes refill and head back out
+  next = autoLoopResend(next, nowMs);
   return next;
 }

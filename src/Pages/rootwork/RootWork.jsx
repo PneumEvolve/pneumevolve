@@ -53,6 +53,8 @@ import {
   acknowledgeBossVictory, reviveHeroInBossFight,
   assignHeroToTavern, removeHeroFromTavern,
   setRelentlessThreshold,
+  // Auto loop (auto-send / auto-refill / town food reserve)
+  setHeroAutoSettings, clearHeroAutoLog, setHeroFoodReserve, refillHeroBelt,
   // New town building actions
   buildFoodHall, upgradeFoodHall, setFoodMode,
   buildWarehouse, upgradeWarehouse,
@@ -1004,6 +1006,11 @@ export default function RootWork() {
   const handleSetHeroFillFood = useCallback((adventurerId, foodId) => update((s) => setHeroFillFood(s, adventurerId, foodId)), [update]);
     const handleSetRelentless = useCallback((adventurerId, value) => update((s) => setRelentlessThreshold(s, adventurerId, value)), [update]);
 
+  // Auto loop: per-hero toggles, clearing the "since you looked" log, and the global town food reserve
+  const handleSetHeroAuto = useCallback((adventurerId, patch) => update((s) => setHeroAutoSettings(s, adventurerId, patch)), [update]);
+  const handleClearAutoLog = useCallback((adventurerId) => update((s) => clearHeroAutoLog(s, adventurerId)), [update]);
+  const handleSetFoodReserve = useCallback((pulses) => update((s) => setHeroFoodReserve(s, pulses)), [update]);
+
   const handleUseArtisanFood = useCallback((adventurerId, foodId) => {
     update((s) => { const n = useArtisanFood(s, adventurerId, foodId); if (n === s) notify("Already full or no food on belt."); return n; });
   }, [update, notify]);
@@ -1052,9 +1059,14 @@ export default function RootWork() {
     update((s) => { const n = prestigeAdventurer(s, adventurerId); if (n === s) notify("Can't prestige — check skill points, cash, or hero must be alive."); return n; });
   }, [update, notify]);
 
-  // Auto battle: sends with autoBattle=true flag
+  // Auto battle: sends with autoBattle=true flag. With auto-refill on, top the belt up first.
   const handleStartAutoBattle = useCallback((adventurerId, zoneId) => {
-    update((s) => sendAdventurer(s, adventurerId, zoneId, true));
+    update((s) => {
+      const hero = (s.adventurers ?? []).find((a) => a.id === adventurerId);
+      const filled = hero?.autoRefill && hero?.autoRefillFood ? refillHeroBelt(s, adventurerId).state : s;
+      const sent = sendAdventurer(filled, adventurerId, zoneId, true);
+      return sent === filled ? s : sent;
+    });
   }, [update]);
 
   const handleRequestAutoBattleStop = useCallback((adventurerId) => {
@@ -1278,6 +1290,9 @@ export default function RootWork() {
             onRemoveHeroFromTavern={handleRemoveHeroFromTavern}
             onSetHeroFillFood={handleSetHeroFillFood}
             onSetRelentless={handleSetRelentless}
+            onSetHeroAuto={handleSetHeroAuto}
+            onClearAutoLog={handleClearAutoLog}
+            onSetFoodReserve={handleSetFoodReserve}
             onSendExpedition={handleSendExpedition}
             onRecallExpedition={handleRecallExpedition}
             onRecallSingleHero={handleRecallSingleHero}
@@ -1332,4 +1347,4 @@ export default function RootWork() {
   );
 }
 
-// PATCHED: roads+heroes v1 · training halls v1
+// PATCHED: roads+heroes v1 · training halls v1 · auto loop v1
