@@ -1658,7 +1658,7 @@ export function setHeroFoodReserve(state, pulses) {
 
 // How much of a food auto-refill must leave in stock for the town.
 // Uses the per-pulse amounts the town pulse caches (0 for foods the town isn't eating).
-export function getTownFoodReserve(state, foodId) {
+export function getRefillTownReserve(state, foodId) {
   if (!TOWN_FOODS.includes(foodId)) return 0;
   const town = state.town ?? {};
   const perPulse = foodId === "bread" ? (town.breadNeeded ?? 0)
@@ -1675,7 +1675,7 @@ function getFoodStock(state, foodId) {
 
 // Stock auto-refill is allowed to take right now
 export function getAutoRefillAvailable(state, foodId) {
-  return Math.max(0, getFoodStock(state, foodId) - getTownFoodReserve(state, foodId));
+  return Math.max(0, getFoodStock(state, foodId) - getRefillTownReserve(state, foodId));
 }
 
 // Top the belt up with the hero's chosen food (never below the town reserve).
