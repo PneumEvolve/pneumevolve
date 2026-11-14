@@ -35,10 +35,12 @@ function FarmChecklist({ farm, game }) {
   getTreasuryGrowBonus(game),
   getFishMealGrowBonus(game)
 );
-  const demandRate = farm.unlockedPlots / growTime;
+  // Only the first 3×3 count (same as isFarmPrestigeReady) — expanding a farm never makes prestige harder
+  const demandRate = Math.min(farm.unlockedPlots, PRESTIGE_MIN_PLOTS) / growTime;
   const supplyRate = farmWorkers.reduce((sum, w) => sum + getWorkerHarvestRate(w), 0);
   const workersOk = farmWorkers.length > 0 && supplyRate >= demandRate;
   const ready = plotsOk && workersOk;
+  const expanded = farm.unlockedPlots > PRESTIGE_MIN_PLOTS;
 
   return (
     <div style={{ padding: "0.75rem 0", borderBottom: "1px solid var(--border)", fontSize: "0.82rem" }}>
@@ -56,12 +58,12 @@ function FarmChecklist({ farm, game }) {
       <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.75rem", color: plotsOk ? "#4ade80" : "var(--muted)" }}>
           <span>{plotsOk ? "☑" : "☐"}</span>
-          <span>3×3 plots unlocked <span style={{ opacity: 0.7 }}>({farm.unlockedPlots}/{PRESTIGE_MIN_PLOTS})</span></span>
+          <span>3×3 plots unlocked <span style={{ opacity: 0.7 }}>({Math.min(farm.unlockedPlots, PRESTIGE_MIN_PLOTS)}/{PRESTIGE_MIN_PLOTS})</span></span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.75rem", color: workersOk ? "#4ade80" : "var(--muted)" }}>
           <span>{workersOk ? "☑" : "☐"}</span>
           <span>
-            Workers keeping up
+            Workers keeping up{expanded ? ` (first ${PRESTIGE_MIN_PLOTS} plots)` : ""}
             {farmWorkers.length > 0 && (
               <span style={{ opacity: 0.7, marginLeft: "0.4rem" }}>
                 ({supplyRate.toFixed(2)} plots/s ≥ {demandRate.toFixed(2)} needed)
@@ -578,7 +580,8 @@ export default function SeasonPanel({ game, prestigeReady, onPrestige, onReset, 
       <div className="card p-4" style={{ marginBottom: "1rem" }}>
         <h3 style={{ fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.25rem" }}>Farm Readiness</h3>
         <p style={{ fontSize: "0.7rem", color: "var(--muted)", marginBottom: "0.5rem" }}>
-          Each farm needs a full 3×3 grid and workers harvesting fast enough to keep up with growth.
+          Each farm needs a full 3×3 grid and workers harvesting fast enough to keep up with it.
+          Only the first {PRESTIGE_MIN_PLOTS} plots count, so expanding a farm never makes prestige harder.
         </p>
         {farmsToCheck.map((farm) => (
           <FarmChecklist key={farm.id} farm={farm} game={game} />

@@ -1,5 +1,5 @@
 // src/Pages/rootwork/components/FarmZone.jsx
- 
+
 import React, { useState, useRef } from "react";
 import { CROPS } from "../gameConstants";
 import {
@@ -7,6 +7,7 @@ import {
   getWorkerHireCost,
   isFarmAutomated,
   isFarmPrestigeReady,
+  isFarmKeepingUp,
   getFarmMaxPlots,
   getAvailableWorkerSlots,
 } from "../gameEngine";
@@ -14,10 +15,10 @@ import FarmGrid from "./FarmGrid";
 import WorkerPanel from "./WorkerPanel";
 import UpgradePanel from "./UpgradePanel";
 import FarmInvestmentPanel from "./FarmInvestmentPanel";
- 
+
 function Section({ title, defaultOpen = true, children }) {
   const [open, setOpen] = useState(defaultOpen);
- 
+
   return (
     <div
       style={{
@@ -50,7 +51,7 @@ function Section({ title, defaultOpen = true, children }) {
     </div>
   );
 }
- 
+
 function StatCell({ value, label, color = "var(--text)" }) {
   return (
     <span
@@ -73,7 +74,7 @@ function StatCell({ value, label, color = "var(--text)" }) {
     </span>
   );
 }
- 
+
 export default function FarmZone({
   farm,
   game,
@@ -90,10 +91,13 @@ export default function FarmZone({
   onUpgradePlot,
 }) {
   const [tendMode, setTendMode] = useState(false);
- 
+
   const crop = CROPS[farm.crop];
-  // isFarmPrestigeReady = the real "farm is keeping up" check used by Season/Stats panels
+  // Two separate checks:
+  //   prestigeReady (orange) — workers keep up with the first 3×3; this is what the season needs
+  //   keepingUp     (green)  — workers keep up with EVERY unlocked plot on this farm
   const prestigeReady = isFarmPrestigeReady(farm, game.workers, game);
+  const keepingUp = isFarmKeepingUp(farm, game.workers, game);
   // isFarmAutomated is the legacy gear-count check — still used by FarmSubTabs badge
   const automated = isFarmAutomated(farm, game.workers);
   const farmWorkers = game.workers.filter((w) => w.farmId === farm.id);
@@ -102,20 +106,21 @@ export default function FarmZone({
   const emptyCount = farm.plots.filter((p) => p.state === "empty").length;
   const maxPlots = getFarmMaxPlots(game, farm.id);
   const atMax = farm.unlockedPlots >= maxPlots;
- 
+
   const showWorkerHint = farmWorkers.length === 0;
- 
+
   const automatedBg = "rgba(74, 222, 128, 0.15)";
   const automatedBorder = "#4ade80";
   const automatedColor = "#166534";
   const manualBg = "rgba(99, 102, 241, 0.10)";
   const manualBorder = "rgba(99, 102, 241, 0.3)";
   const manualColor = "var(--accent)";
+  const seasonColor = "#f59e0b";
   const tendActiveBg = "rgba(163, 230, 53, 0.20)";
   const tendActiveBorder = "#a3e635";
   const tendActiveColor = "#365314";
   const tendHintBg = "rgba(163, 230, 53, 0.12)";
- 
+
   const investmentRef = useRef(null);
   const [investOpen, setInvestOpen] = useState(false);
 
@@ -137,7 +142,7 @@ export default function FarmZone({
         }}
       >
         <p style={{ fontSize: "0.72rem", color: "var(--muted)" }}>
-          {crop.emoji} {farm.unlockedPlots} plot{farm.unlockedPlots !== 1 ? "s" : ""} · {farmWorkers.length} worker{farmWorkers.length !== 1 ? "s" : ""}{prestigeReady && <span style={{ marginLeft: "0.4rem", color: "#4ade80", fontWeight: 600 }}>· Season ready ✓</span>}
+          {crop.emoji} {farm.unlockedPlots} plot{farm.unlockedPlots !== 1 ? "s" : ""} · {farmWorkers.length} worker{farmWorkers.length !== 1 ? "s" : ""}{prestigeReady && <span style={{ marginLeft: "0.4rem", color: seasonColor, fontWeight: 600 }}>· Season ready ✓</span>}
         </p>
         <div
           style={{
@@ -145,15 +150,15 @@ export default function FarmZone({
             fontWeight: 600,
             padding: "0.2rem 0.55rem",
             borderRadius: "999px",
-            background: prestigeReady ? automatedBg : manualBg,
-            border: `1px solid ${prestigeReady ? automatedBorder : manualBorder}`,
-            color: prestigeReady ? automatedColor : manualColor,
+            background: keepingUp ? automatedBg : manualBg,
+            border: `1px solid ${keepingUp ? automatedBorder : manualBorder}`,
+            color: keepingUp ? automatedColor : manualColor,
           }}
         >
-          {prestigeReady ? "Season ready ✓" : "Working..."}
+          {keepingUp ? "Keeping up ✓" : "Working..."}
         </div>
       </div>
- 
+
       {showWorkerHint && (
         <div
           style={{
@@ -174,7 +179,7 @@ export default function FarmZone({
           <span>Hire a worker below to harvest automatically — no more tapping every plot!</span>
         </div>
       )}
- 
+
       <div
         className="card p-3"
         style={{
@@ -213,7 +218,7 @@ export default function FarmZone({
             </strong>{" "}
             {crop.emoji}
           </span>
- 
+
           <div style={{ display: "flex", justifyContent: "center" }}>
             <button
               onClick={() => setTendMode((v) => !v)}
@@ -234,12 +239,12 @@ export default function FarmZone({
             </button>
           </div>
         </div>
- 
+
         <div style={{ display: "flex", gap: "0.5rem" }}>
           {(() => {
             const plotCost = getPlotUnlockCost(game, farm.id, farm.unlockedPlots);
             const canBuy = plotCost !== null && (game.crops[farm.crop] ?? 0) >= plotCost;
- 
+
             return (
               <button
                 onClick={() => onBuyPlot(farm.id)}
@@ -263,7 +268,7 @@ export default function FarmZone({
               </button>
             );
           })()}
- 
+
           {(() => {
             const atCap = getAvailableWorkerSlots(game) <= 0;
             const hireCost = getWorkerHireCost(game, farm.id);
@@ -272,7 +277,7 @@ export default function FarmZone({
             const effectiveCost = hasHeadStart && isFirst ? 0 : hireCost;
             const canAffordCrops = (game.crops[farm.crop] ?? 0) >= effectiveCost;
             const canHire = !atCap && canAffordCrops;
- 
+
             return (
               <button
                 onClick={() => onHireWorker(farm.id)}
@@ -320,7 +325,7 @@ export default function FarmZone({
           💰 Farm Investments
         </button>
       </div>
- 
+
       {tendMode && (
         <div
           style={{
@@ -337,7 +342,7 @@ export default function FarmZone({
           Tap a growing plot to tend it (-3s grow time). Tap Tend again to stop.
         </div>
       )}
- 
+
       <Section title="🌱 Plots" defaultOpen>
         <div style={{ paddingTop: "0.5rem" }}>
           <FarmGrid
@@ -364,7 +369,7 @@ export default function FarmZone({
           )}
         </div>
       </Section>
- 
+
       <Section title="👷 Workers" defaultOpen={true}>
         <div style={{ paddingTop: "0.5rem" }}>
           <WorkerPanel
@@ -375,16 +380,17 @@ export default function FarmZone({
             onUpgradeGear={onUpgradeGear}
             onSpecialize={onSpecialize}
             seasonReady={prestigeReady}
+            keepingUp={keepingUp}
           />
         </div>
       </Section>
- 
+
       <Section title="🟫 Buy Plots" defaultOpen={false}>
         <div style={{ paddingTop: "0.5rem" }}>
           <UpgradePanel farm={farm} game={game} onBuyPlot={onBuyPlot} />
         </div>
       </Section>
- 
+
       <div ref={investmentRef}>
       <Section title="💰 Farm Investments" defaultOpen={investOpen} key={investOpen ? "open" : "closed"}>
         <div style={{ paddingTop: "0.5rem" }}>

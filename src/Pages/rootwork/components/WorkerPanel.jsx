@@ -67,7 +67,9 @@ function previewStatLine(worker, nextGearId) {
 
 // ─── Worker card ──────────────────────────────────────────────────────────────
 
-function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWorker, seasonReady = false }) {
+// seasonReady (orange) = workers cover the first 3×3 → good enough for prestige
+// keepingUp   (green)  = workers cover every unlocked plot on the farm
+function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWorker, seasonReady = false, keepingUp = false }) {
   const [showSpecChoices, setShowSpecChoices] = useState(false);
   const [confirmSell, setConfirmSell] = useState(false);
 
@@ -91,10 +93,17 @@ function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWor
   const hireCostWhenBought = Math.round((WORKER_HIRE_BASE_COST * Math.pow(WORKER_HIRE_MULTIPLIER, prevCount)) / 5) * 5;
   const sellRefund = Math.floor(hireCostWhenBought * 0.5);
 
+  // Green wins when the whole farm is covered; orange when only the season check passes
+  const cardHighlight = keepingUp
+    ? { border: "2px solid #4ade80", boxShadow: "0 0 0 3px rgba(74,222,128,0.15)" }
+    : seasonReady
+      ? { border: "2px solid #f59e0b", boxShadow: "0 0 0 3px rgba(245,158,11,0.15)" }
+      : {};
+
   return (
     <div className="card p-4 space-y-3" style={{
       fontSize: "0.85rem",
-      ...(seasonReady ? { border: "2px solid #4ade80", boxShadow: "0 0 0 3px rgba(74,222,128,0.15)" } : {}),
+      ...cardHighlight,
     }}>
 
       {/* Header */}
@@ -102,7 +111,8 @@ function WorkerCard({ worker, farm, game, onUpgradeGear, onSpecialize, onSellWor
         <div style={{ fontWeight: 600 }}>
           👷 Worker
           {worker.trainedLevel > 0 && <span style={{ marginLeft: "0.4rem", fontSize: "0.62rem", fontWeight: 700, color: "#a78bfa" }}>🎓 Trained</span>}
-          {seasonReady && <span style={{ marginLeft: "0.4rem", fontSize: "0.62rem", fontWeight: 700, color: "#4ade80" }}>✓ Season ready</span>}
+          {seasonReady && <span style={{ marginLeft: "0.4rem", fontSize: "0.62rem", fontWeight: 700, color: "#f59e0b" }}>✓ Season ready</span>}
+          {keepingUp && <span style={{ marginLeft: "0.4rem", fontSize: "0.62rem", fontWeight: 700, color: "#4ade80" }}>✓ Keeping up</span>}
         </div>
         <div style={{
           fontSize: "0.7rem", color: "var(--muted)", background: "var(--bg)",
@@ -242,6 +252,7 @@ export default function WorkerPanel({
   farm, game,
   onHireWorker, onUpgradeGear, onSpecialize, onSellWorker,
   seasonReady = false,
+  keepingUp = false,
 }) {
   const farmWorkers = game.workers.filter((w) => w.farmId === farm.id);
   const farmCrop = CROPS[farm.crop];
@@ -291,6 +302,7 @@ export default function WorkerPanel({
               onSpecialize={onSpecialize}
               onSellWorker={onSellWorker}
               seasonReady={seasonReady}
+              keepingUp={keepingUp}
             />
           ))}
         </div>

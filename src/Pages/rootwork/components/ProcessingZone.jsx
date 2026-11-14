@@ -221,7 +221,7 @@ function RecipeGroups({ worker, game, batch, onAssignRecipe, onClose }) {
     };
   }
  
-  const ARTISAN_HEAL = { bread: 30, jam: 50, sauce: 100 };
+  const ARTISAN_HEAL = { bread: 45, jam: 70, sauce: 110 };
   const cropRecipes = {};
   CROP_RECIPE_IDS.forEach(id => {
     const r = PROCESSING_RECIPES[id];

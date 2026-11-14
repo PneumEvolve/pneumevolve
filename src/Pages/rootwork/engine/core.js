@@ -58,7 +58,7 @@ RESTAURANT_SAT_PER_CHEF, RESTAURANT_OMELETTE_PER_PULSE_DIVISOR, RESTAURANT_CHEES
 CLOTHIER_CASH_PER_CLERK, CLOTHIER_GOODS_PER_PULSE_DIVISOR,
 FISHING_BODIES, FISHING_BODY_ORDER, FISHING_FISH,
 FISHING_CATCH_RATES, FISHING_BAIT_BONUS,
-FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, ANIMAL_YIELD_UPGRADES, 
+FISHING_WORKER_UPGRADES, FISHING_WORKER_BASE_INTERVAL, FISHING_PLAYER_UPGRADES, ANIMAL_YIELD_UPGRADES,
   SCHOOL_RESEARCH,
   PRESTIGE_SKILL_TREE,
   FORGE_WORKER_HIRE_COST, FORGE_WORKER_HIRE_MULTIPLIER,
@@ -141,9 +141,9 @@ export function consumeUpgradeMaterials(state, upgradeRequires) {
 }
 
 
- 
+
 // ─── Population helpers ───────────────────────────────────────────────────────
- 
+
 export function getTotalWorkersHired(state) {
   const fishingWorkers = Object.values(state.fishing?.bodies ?? {})
     .reduce((sum, b) => sum + (b?.unlocked ? (Array.isArray(b.workers) ? b.workers.filter(w => w?.hired).length : (b.worker?.hired ? 1 : 0)) : 0), 0);
@@ -164,27 +164,27 @@ export function getTotalWorkersHired(state) {
     townBuildingWorkers
   );
 }
- 
+
 export function getAvailableWorkerSlots(state) {
   return Math.max(0, Math.floor(state.town?.people ?? 0) - getTotalWorkersHired(state));
 }
- 
+
 export function isAtWorkerCap(state) {
   return getAvailableWorkerSlots(state) <= 0;
 }
- 
+
 // ─── Treasury helpers ─────────────────────────────────────────────────────────
- 
+
 export function getTreasuryBalance(state) {
   return state.town?.treasuryBalance ?? 0;
 }
- 
+
 export function getActiveTreasuryTier(state) {
   const tierNum = state.town?.treasuryActiveTier ?? 0;
   if (!tierNum) return null;
   return TREASURY_TIERS.find((t) => t.tier === tierNum) ?? null;
 }
- 
+
 export function getTownHallLevel(state) {
   const newLevel = state.town?.buildings?.town_hall?.level;
   const legacyLevel = state.town?.townHallLevel ?? 0;
@@ -193,7 +193,7 @@ export function getTownHallLevel(state) {
   if (newLevel != null && newLevel > 0) return newLevel;
   return legacyLevel;
 }
- 
+
 export function getMaxTreasuryTier(state) {
   // Tiers only go up to 3; TH level 4 unlocks Invest Now, not a new tier
   return Math.min(getTownHallLevel(state), 3);
@@ -223,7 +223,7 @@ export function investNow(state) {
   next.town.lastInvestTime = next.totalPlayTime ?? 0;
   return next;
 }
- 
+
 export function setTreasuryTier(state, tier) {
   // tier = 0 means off, 1/2/3 activates that tier if <= townHallLevel
   const next = deepCloneState(state);
@@ -232,7 +232,7 @@ export function setTreasuryTier(state, tier) {
   next.town.treasuryActiveTier = tier;
   return next;
 }
- 
+
 export function upgradeTownHall(state) {
   const next = deepCloneState(state);
   const currentLevel = getTownHallLevel(next);
@@ -288,17 +288,17 @@ export function upgradeTownHall(state) {
   next.town.buildings.town_hall.level = currentLevel + 1;
   return next;
 }
- 
+
 // ─── Bank helpers ─────────────────────────────────────────────────────────────
- 
+
 export function getBankLevel(state) {
   return state.town?.bankLevel ?? 0;
 }
- 
+
 export function isBankBuilt(state) {
   return (state.town?.bankBuilt === true);
 }
- 
+
 export function canBuildBank(state) {
   const town = state.town ?? {};
   return (
@@ -310,7 +310,7 @@ export function canBuildBank(state) {
     (town.treasuryBalance ?? 0) >= BANK_BUILD_COST
   );
 }
- 
+
 export function buildBank(state) {
   if (!canBuildBank(state)) return state;
   const next = deepCloneState(state);
@@ -320,7 +320,7 @@ export function buildBank(state) {
   next.town.bankActiveTier = 0;
   return next;
 }
- 
+
 export function upgradeBank(state) {
   const next = deepCloneState(state);
   const level = getBankLevel(next);
@@ -332,13 +332,13 @@ export function upgradeBank(state) {
   next.town.bankLevel = level + 1;
   return next;
 }
- 
+
 export function getActiveBankTier(state) {
   const tierNum = state.town?.bankActiveTier ?? 0;
   if (!tierNum) return null;
   return BANK_TIERS.find((t) => t.tier === tierNum) ?? null;
 }
- 
+
 export function setActiveBankTier(state, tier) {
   const next = deepCloneState(state);
   const maxTier = getBankLevel(next);
@@ -346,9 +346,9 @@ export function setActiveBankTier(state, tier) {
   next.town.bankActiveTier = tier;
   return next;
 }
- 
+
 // ─── Grow speed bonus (fertile_soil prestige) ──────────────────────────────────────────────
- 
+
 export function getTreasuryGrowBonus(state) {
   // +5% grow speed per fertile_soil prestige skill stack.
   const fertileCount = getPrestigeSkillCount(state, "fertile_soil");
@@ -418,17 +418,17 @@ export function getSatisfactionCeiling(state) {
   const base = FOOD_HALL_SAT_CEILING[tier] ?? FOOD_HALL_SAT_CEILING[0];
   return base + getRecHallSatBonus(state) + getTradeTownSatBonus(state) + modifierCap;
 }
- 
+
 // ─── Sell price bonus (Bank) ──────────────────────────────────────────────────
- 
+
 export function getBankPriceBonus(state) {
   // Bank removed — sell price bonus now comes from Market Hall level
   const level = state.town?.buildings?.market_hall?.level ?? 0;
   return MARKET_HALL_PRICE_BONUS[level - 1] ?? 0;
 }
- 
+
 // ─── Automation check (gear-aware, per farm) ──────────────────────────────────
- 
+
 /**
  * Returns the effective harvest rate (plots/sec) for a single worker,
  * accounting for gear and specialization including sprinter rest cycles.
@@ -437,27 +437,24 @@ export function getWorkerHarvestRate(worker) {
   const gear = GEAR[worker.gear];
   let plotsPerCycle = gear.plotsPerCycle;
   let cycleSeconds = gear.cycleSeconds;
- 
+
   if (worker.specialization === "harvester") {
     cycleSeconds = Math.max(1, Math.floor(cycleSeconds * SPECIALIZATIONS.harvester.cycleMultiplier));
   }
- 
+
   if (worker.specialization === "sprinter") {
     // 2x plots but rests every 3rd cycle → effective multiplier = (2+2+0)/3 = 1.333...
     const restEvery = SPECIALIZATIONS.sprinter.restEvery;
     const activeRatio = (restEvery - 1) / restEvery;
     plotsPerCycle = plotsPerCycle * SPECIALIZATIONS.sprinter.plotsMultiplier * activeRatio;
   }
- 
+
   return plotsPerCycle / cycleSeconds;
 }
- 
-export function isFarmPrestigeReady(farm, workers, state) {
-  if (farm.unlockedPlots < PRESTIGE_MIN_PLOTS) return false;
 
+// Shared math for the two farm checks below (rates are plots/sec)
+function farmHarvestRates(farm, workers, state) {
   const farmWorkers = workers.filter((w) => w.farmId === farm.id);
-  if (farmWorkers.length === 0) return false;
-
   const growTime = getFarmAverageGrowTime(
     farm, workers, farm.crop,
     state.feastBonusPercent ?? 0,
@@ -465,11 +462,30 @@ export function isFarmPrestigeReady(farm, workers, state) {
     getTreasuryGrowBonus(state),
     getFishMealGrowBonus(state)
   );
-
-  const demandRate = farm.unlockedPlots / growTime;
   const supplyRate = farmWorkers.reduce((sum, w) => sum + getWorkerHarvestRate(w), 0);
+  return { growTime, supplyRate, workerCount: farmWorkers.length };
+}
 
+/**
+ * Season check (orange "Season ready"): only the first 3x3 (PRESTIGE_MIN_PLOTS) count, so
+ * expanding a farm never makes the season harder to finish. Keep in sync with SeasonPanel's FarmChecklist.
+ */
+export function isFarmPrestigeReady(farm, workers, state) {
+  if (farm.unlockedPlots < PRESTIGE_MIN_PLOTS) return false;
+  const { growTime, supplyRate, workerCount } = farmHarvestRates(farm, workers, state);
+  if (workerCount === 0) return false;
+  const demandRate = Math.min(farm.unlockedPlots, PRESTIGE_MIN_PLOTS) / growTime;
   return supplyRate >= demandRate;
+}
+
+/**
+ * Farm check (green "Keeping up"): workers harvest as fast as EVERY unlocked plot grows.
+ * Not needed for prestige — it tells you the whole farm is automated.
+ */
+export function isFarmKeepingUp(farm, workers, state) {
+  const { growTime, supplyRate, workerCount } = farmHarvestRates(farm, workers, state);
+  if (workerCount === 0) return false;
+  return supplyRate >= farm.unlockedPlots / growTime;
 }
  
 /** Legacy helper used in FarmSubTabs — kept for non-prestige UI indicators */
@@ -477,30 +493,30 @@ export function isFarmAutomated(farm, workers) {
   const workerCount = workers.filter((w) => w.farmId === farm.id).length;
   return workerCount >= AUTOMATION_THRESHOLD && farm.unlockedPlots >= MIN_PLOTS_FOR_AUTOMATION;
 }
- 
+
 // ─── Farm investment helpers ──────────────────────────────────────────────────
- 
+
 export function getFarmInvestment(state, farmId) {
   return (state.farmInvestments ?? {})[farmId] ?? { plotCapIndex: 0, yieldIndex: 0 };
 }
- 
+
 export function getFarmMaxPlots(state, farmId) {
   const inv = getFarmInvestment(state, farmId);
   const capUpgrade = FARM_INVESTMENT_PLOT_CAP[inv.plotCapIndex - 1];
   return capUpgrade ? capUpgrade.maxPlots : MAX_PLOTS;
 }
- 
+
 export function getFarmBonusYield(state, farmId) {
   const inv = getFarmInvestment(state, farmId);
   const yieldUpgrade = FARM_INVESTMENT_YIELD[inv.yieldIndex - 1];
   return yieldUpgrade ? yieldUpgrade.bonusYield : 0;
 }
- 
+
 export function getNextPlotCapUpgrade(state, farmId) {
   const inv = getFarmInvestment(state, farmId);
   return FARM_INVESTMENT_PLOT_CAP[inv.plotCapIndex] ?? null;
 }
- 
+
 export function getNextYieldUpgrade(state, farmId) {
   const inv = getFarmInvestment(state, farmId);
   return FARM_INVESTMENT_YIELD[inv.yieldIndex] ?? null;
