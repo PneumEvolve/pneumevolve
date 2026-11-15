@@ -109,6 +109,8 @@ import ElementArena from "@/Pages/ElementArena";
 import ElementGame from "@/games/element-lab/ElementLab.jsx";
 
 import CritterQuest from './games/critterquest/CritterQuest.jsx';
+
+import DungeonTown from './pages/DungeonTown';
  
 import { HelmetProvider } from "react-helmet-async";
 import "./index.css";
@@ -250,6 +252,8 @@ function Root() {
                 <Route path="/element-arena" element={<ElementArena />} />
 
                 <Route path="/critter-quest" element={<CritterQuest />} />
+
+                <Route path="/dungeon-town" element={<DungeonTown />} />
 
                 
  
