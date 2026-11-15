@@ -34,6 +34,9 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
   const Ctl = { move: {x:0, y:0}, mode: 'brawl', queue: [], aim: null, aimAbility: null, twin: null, blocked: false };
   const HUD = { hp: T.heroHp, ammo: T.ammoMax, reload: 0, dashCd: 0, cd1: 0, cd2: 0, wave: 0, kills: 0, dead: false, banner: null };
 
+  // Works on Phaser 3.x and 4.x (setTintFill isn't in every version)
+  const flash = (obj, color) => { if (typeof obj.setTintFill === 'function') obj.setTintFill(color); else obj.setTint(color); };
+
   function makeTextures(scene) {
     if (scene.textures.exists('hero')) return;
     const g = scene.make.graphics({ x: 0, y: 0, add: false });
@@ -227,7 +230,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.updateHound(dt);
       this.updateZombies(dt, time);
 
-      this.bullets.children.each(b => {
+      this.bullets.getChildren().slice().forEach(b => {
         if (b.active && Phaser.Math.Distance.Between(b.x, b.y, b.sx, b.sy) > T.bulletRange) b.destroy();
       });
 
@@ -253,7 +256,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     // ---------------------------------------------------------------- combat
     nearestZombie(x, y, range) {
       let best = null, bd = range;
-      this.zombies.children.each(z => {
+      this.zombies.getChildren().slice().forEach(z => {
         if (!z.active) return;
         const d = Phaser.Math.Distance.Between(x, y, z.x, z.y);
         if (d < bd) { bd = d; best = z; }
@@ -263,7 +266,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
 
     meleeTargets(dir) {
       const out = [], h = this.hero, a = dir.angle();
-      this.zombies.children.each(z => {
+      this.zombies.getChildren().slice().forEach(z => {
         if (!z.active) return;
         const d = Phaser.Math.Distance.Between(h.x, h.y, z.x, z.y);
         if (d > T.meleeRange + 16) return;
@@ -347,7 +350,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       z.hp -= dmg;
       z.kbx = dir.x * kb; z.kby = dir.y * kb; z.kbT = 0.12;
       if (interrupt && z.mode === 'windup') this.cancelWindup(z);
-      z.setTintFill(0xffffff);
+      flash(z, 0xffffff);
       this.time.delayedCall(70, () => {
         if (!z.active) return;
         if (z.mode === 'windup') z.setTint(0xff5555); else z.clearTint();
@@ -384,7 +387,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       HUD.hp--;
       this.inv = T.iframes;
       this.kb.set(dx * 520, dy * 520); this.kbT = 0.12;
-      this.hero.setTintFill(0xff4444);
+      flash(this.hero, 0xff4444);
       this.time.delayedCall(110, () => this.hero.active && this.hero.clearTint());
       this.cameras.main.shake(200, 0.012);
       this.freeze(0.09);
@@ -429,7 +432,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         HUD.cd2 = T.howlCd;
         this.ring(h.x, h.y, T.howlRadius, 0xe08a3c);
         this.ring(this.hound.x, this.hound.y, 60, 0xffd166);
-        this.zombies.children.each(z => {
+        this.zombies.getChildren().slice().forEach(z => {
           if (!z.active) return;
           const d = Phaser.Math.Distance.Between(h.x, h.y, z.x, z.y);
           if (d > T.howlRadius) return;
@@ -448,7 +451,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.ring(hd.x, hd.y, T.pounceRadius, 0xe08a3c);
       this.spark(hd.x, hd.y, 0xe08a3c, 8);
       let hit = false;
-      this.zombies.children.each(z => {
+      this.zombies.getChildren().slice().forEach(z => {
         if (!z.active) return;
         if (Phaser.Math.Distance.Between(hd.x, hd.y, z.x, z.y) > T.pounceRadius) return;
         hit = true;
@@ -511,7 +514,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
 
     updateZombies(dt, time) {
       const h = this.hero;
-      this.zombies.children.each(z => {
+      this.zombies.getChildren().slice().forEach(z => {
         if (!z.active) return;
         const dx = h.x - z.x, dy = h.y - z.y, d = Math.hypot(dx, dy) || 1;
         if (z.kbT > 0) { z.kbT -= dt; z.setVelocity(z.kbx, z.kby); z.kbx *= 0.85; z.kby *= 0.85; return; }
@@ -559,7 +562,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       if (!HUD.dead) { g.lineStyle(2, 0xffffff, 0.07); g.strokeCircle(h.x, h.y, T.meleeRange); }
 
       // zombie attack telegraphs
-      this.zombies.children.each(z => {
+      this.zombies.getChildren().slice().forEach(z => {
         if (!z.active || z.mode !== 'windup') return;
         const p = 1 - z.t / T.zWindup, L = 95, W = 17;
         const nx = -z.ldy, ny = z.ldx;
