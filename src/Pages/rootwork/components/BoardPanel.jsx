@@ -4,7 +4,7 @@
 import React, { useState } from "react";
 import {
   isContractsUnlocked, getSeals, getContractSlotCount, getContractView, getActiveContractBoosts,
-  getDeliverableContractCount, CONTRACT_REFILL_SECONDS,
+  getDeliverableContractCount, getContractItemRates, CONTRACT_REFILL_SECONDS, CONTRACT_TIERS,
   SEAL_SHOP_ITEMS, SEAL_SHOP_ORDER, getSealShopCost, getSealShopTimesBought, canBuySealShopItem,
   PROJECT_ORDER, PROJECTS, isProjectUnlocked, getProjectView,
 } from "../gameEngine";
@@ -18,11 +18,26 @@ function fmt(n) {
   return `${v}`;
 }
 
+function fmtRate(perMin) {
+  if (perMin >= 100) return fmt(perMin);
+  if (perMin >= 10) return perMin.toFixed(0);
+  if (perMin >= 1) return perMin.toFixed(1);
+  return perMin.toFixed(2);
+}
+
 function fmtTime(seconds) {
   const s = Math.max(0, Math.ceil(seconds ?? 0));
   const m = Math.floor(s / 60);
   const r = s % 60;
   return `${m}:${String(r).padStart(2, "0")}`;
+}
+
+function fmtEta(seconds) {
+  const s = Math.ceil(seconds ?? 0);
+  if (s < 60) return `${s}s`;
+  const m = Math.ceil(s / 60);
+  if (m < 60) return `${m}m`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
 }
 
 function SealBadge({ seals }) {
@@ -38,6 +53,20 @@ function SealBadge({ seals }) {
 
 // ─── Contracts ────────────────────────────────────────────────────────────────
 
+// One line under each item: how fast you make it and whether you'll make the deadline
+function ItemPace({ item, secondsLeft }) {
+  if (item.enough) return null;
+  if (item.etaSeconds == null) {
+    return <div style={{ fontSize: "0.6rem", color: "#f59e0b", marginTop: "0.1rem" }}>Nothing is making this yet</div>;
+  }
+  const late = item.etaSeconds > secondsLeft;
+  return (
+    <div style={{ fontSize: "0.6rem", color: late ? "#ef4444" : "var(--muted)", marginTop: "0.1rem" }}>
+      ~{fmtRate(item.perMin)}/min · ready in ~{fmtEta(item.etaSeconds)}{late ? " (too slow — stop selling it?)" : ""}
+    </div>
+  );
+}
+
 function ContractCard({ view, slotIndex, onDeliver, onAbandon }) {
   const [confirmAbandon, setConfirmAbandon] = useState(false);
   const tier = view.tierDef;
@@ -47,13 +76,13 @@ function ContractCard({ view, slotIndex, onDeliver, onAbandon }) {
   return (
     <div className="card p-4" style={{
       marginBottom: "0.6rem",
-      border: view.canDeliver ? "1px solid #4ade80" : undefined,
+      border: view.canDeliver ? "1px solid #4ade80" : view.stretch ? "1px dashed #a78bfa" : undefined,
     }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem" }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: "0.82rem", fontWeight: 700 }}>{view.requesterEmoji} {view.requester}</div>
-          <div style={{ fontSize: "0.66rem", color: "var(--muted)" }}>
-            {tier.emoji} {tier.name} contract
+          <div style={{ fontSize: "0.66rem", color: view.stretch ? "#a78bfa" : "var(--muted)" }}>
+            {tier.emoji} {tier.name} contract{view.stretch ? " · something you could be making" : ""}
           </div>
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
@@ -63,6 +92,9 @@ function ContractCard({ view, slotIndex, onDeliver, onAbandon }) {
           <div style={{ fontSize: "0.66rem", color: "#b45309", fontWeight: 600 }}>
             🏅 {view.totalSeals}{view.givesBoost ? " + boost" : ""}
           </div>
+          {view.totalCash > 0 && (
+            <div style={{ fontSize: "0.66rem", color: "#4ade80", fontWeight: 600 }}>💰 ${fmt(view.totalCash)}</div>
+          )}
         </div>
       </div>
 
@@ -73,15 +105,17 @@ function ContractCard({ view, slotIndex, onDeliver, onAbandon }) {
       <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem", marginTop: "0.5rem" }}>
         {view.items.map((item) => (
           <div key={item.key} style={{
-            display: "flex", justifyContent: "space-between", alignItems: "center",
             fontSize: "0.72rem", padding: "0.3rem 0.5rem", borderRadius: "7px",
             background: item.enough ? "rgba(74,222,128,0.08)" : "var(--bg)",
             border: `1px solid ${item.enough ? "rgba(74,222,128,0.3)" : "var(--border)"}`,
           }}>
-            <span>{item.enough ? "✅" : item.emoji} <strong>{fmt(item.amount)}</strong> {item.name}</span>
-            <span style={{ color: item.enough ? "#4ade80" : "var(--muted)", fontSize: "0.66rem" }}>
-              have {fmt(item.have)}
-            </span>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span>{item.enough ? "✅" : item.emoji} <strong>{fmt(item.amount)}</strong> {item.name}</span>
+              <span style={{ color: item.enough ? "#4ade80" : "var(--muted)", fontSize: "0.66rem" }}>
+                have {fmt(item.have)}
+              </span>
+            </div>
+            <ItemPace item={item} secondsLeft={view.secondsLeft} />
           </div>
         ))}
       </div>
@@ -114,8 +148,8 @@ function ContractsTab({ game, onDeliver, onAbandon }) {
       <div className="card p-4" style={{ fontSize: "0.75rem", color: "var(--muted)", lineHeight: 1.6 }}>
         <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text)", marginBottom: "0.25rem" }}>📜 Contracts</div>
         Build the <strong style={{ color: "var(--text)" }}>Market Hall</strong> to open the contracts board.
-        Towns will send you orders for things you already make — fill them before the timer runs out
-        to earn 🏅 Charter Seals for the Seal Shop.
+        Towns will send you orders for things you're making right now — fill them before the timer runs out
+        for 🏅 Charter Seals and better-than-market cash.
       </div>
     );
   }
@@ -124,12 +158,16 @@ function ContractsTab({ game, onDeliver, onAbandon }) {
   const slots = game.contracts?.slots ?? [];
   const refill = game.contracts?.refill ?? [];
   const boosts = getActiveContractBoosts(game);
+  const rates = getContractItemRates(game); // worked out once for every card
+  const t = CONTRACT_TIERS;
 
   return (
     <div>
       <div className="card p-4" style={{ marginBottom: "0.6rem", fontSize: "0.7rem", color: "var(--muted)", lineHeight: 1.5 }}>
-        Deliver everything on a contract before time runs out. Easy pays 🏅1, Standard 🏅2, Rush 🏅4 plus a
-        15-minute boost. Torn-up or expired contracts are replaced after {Math.round(CONTRACT_REFILL_SECONDS / 60)} min.
+        Orders are sized to what you're making right now: Easy ≈ {t.easy.minutes} min of output, Standard ≈ {t.standard.minutes} min
+        of two goods, Rush ≈ {t.rush.minutes} min of three (plus a 15-minute boost). Every contract pays seals and more cash
+        than the market would. 🧭 Stretch contracts ask for something you have the building for but aren't making yet.
+        Torn-up or expired contracts are replaced after {Math.round(CONTRACT_REFILL_SECONDS / 60)} min.
         {(game.contracts?.completed ?? 0) > 0 && (
           <div style={{ marginTop: "0.2rem" }}>Delivered so far: {game.contracts.completed}</div>
         )}
@@ -151,7 +189,7 @@ function ContractsTab({ game, onDeliver, onAbandon }) {
         const contract = slots[i];
         if (contract) {
           return (
-            <ContractCard key={contract.id} view={getContractView(game, contract)} slotIndex={i}
+            <ContractCard key={contract.id} view={getContractView(game, contract, rates)} slotIndex={i}
               onDeliver={onDeliver} onAbandon={onAbandon} />
           );
         }
