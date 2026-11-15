@@ -110,7 +110,7 @@ import ElementGame from "@/games/element-lab/ElementLab.jsx";
 
 import CritterQuest from './games/critterquest/CritterQuest.jsx';
 
-import DungeonTown from './pages/DungeonTown';
+import DungeonTown from './games/dungeon-town/DungeonTown';
  
 import { HelmetProvider } from "react-helmet-async";
 import "./index.css";

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createDungeonTownGame } from '../games/dungeon-town/createDungeonTownGame';
+import { createDungeonTownGame } from './createDungeonTownGame';
 
 export default function DungeonTown() {
   const containerRef = useRef(null);
