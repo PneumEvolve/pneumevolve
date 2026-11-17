@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 
 /**
- * DUNGEON TOWN — Step 4a: "The Squad"
+ * DUNGEON TOWN — Step 4b: "Levels"
  * Creates the game inside `parent` (a DOM element). Returns the Phaser.Game.
  * Call game.destroy(true) to clean up. All state lives in this function.
  * Works with Phaser 3.80+ and 4.x.
@@ -77,19 +77,24 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
   const SP = {
     hound:  { name: 'Scrap Hound', hearts: 3, speed: 270, fly: false, attack: 'melee', dmg: 1, cd: 1.1, range: 50, body: [10, 15, 17], wildHp: 8,
               active: 'pounce', activeName: 'POUNCE', cdMax: 6, aim: true, activeDesc: 'Leaps in and stuns a group',
-              passive: 'pack', passiveName: 'Pack Leader', passiveDesc: '+1 damage on every pet attack' },
+              passive: 'pack', passiveName: 'Pack Leader', passiveDesc: '+1 damage on every pet attack',
+              activeRanks: ["Leap in for 3 dmg and stun a group", "Bigger landing zone, +1 damage", "Longer stun, cooldown -1.5s"], passiveRanks: ["Every pet attack does +1 damage", "Pets also attack 15% faster", "Every pet attack does +2 damage"] },
     crow:   { name: 'Spark Crow', hearts: 2, fly: true, attack: 'zap', dmg: 1, cd: 1.6, range: 250, body: [9, 15, 15], wildHp: 8,
               active: 'zap', activeName: 'ZAP', cdMax: 7, activeDesc: 'Chain lightning that stuns',
-              passive: 'static', passiveName: 'Static', passiveDesc: 'You zap a nearby zombie every 5s' },
+              passive: 'static', passiveName: 'Static', passiveDesc: 'You zap a nearby zombie every 5s',
+              activeRanks: ["Chain lightning hits up to 4 zombies", "Chain hits up to 6", "+1 damage, cooldown -1.5s"], passiveRanks: ["You zap a zombie every 5s", "Every 3.5s", "Every 2.5s, and zaps do 2 damage"] },
     rat:    { name: 'Rust Rat', hearts: 2, speed: 300, fly: false, attack: 'melee', dmg: 1, cd: 0.8, range: 44, body: [10, 17, 20], wildHp: 6,
               active: 'swarm', activeName: 'SWARM', cdMax: 8, aim: true, activeDesc: '3 ratlings nibble and pull zombies off you',
-              passive: 'scavenge', passiveName: 'Scavenger', passiveDesc: '25% chance for double scrap' },
+              passive: 'scavenge', passiveName: 'Scavenger', passiveDesc: '25% chance for double scrap',
+              activeRanks: ["3 ratlings for 5s pull zombies off you", "5 ratlings", "Ratlings last 8s, cooldown -2s"], passiveRanks: ["25% chance for double scrap", "40% chance", "60% chance"] },
     moth:   { name: 'Mender Moth', hearts: 2, fly: true, attack: 'none', body: [10, 14, 14], wildHp: 6,
               active: 'mend', activeName: 'MEND', cdMax: 10, activeDesc: '+1 heart to you and every pet',
-              passive: 'nurse', passiveName: 'Nurse', passiveDesc: 'Bench pets heal 2 hearts per room' },
+              passive: 'nurse', passiveName: 'Nurse', passiveDesc: 'Bench pets heal 2 hearts per room',
+              activeRanks: ["+1 heart to you and every pet", "+2 hearts to everyone", "Cooldown -3s"], passiveRanks: ["Bench pets heal 2 hearts per room", "Bench pets heal 3 per room", "Bench pets fully heal; active pets +1 per room"] },
     beetle: { name: 'Rust Beetle', hearts: 4, speed: 150, fly: false, attack: 'melee', dmg: 1, cd: 1.4, range: 52, body: [14, 10, 12], wildHp: 12,
               active: 'shell', activeName: 'SHELL', cdMax: 9, activeDesc: 'Pulls zombies onto it; can\'t be hurt for 3s',
-              passive: 'tough', passiveName: 'Hard Shell', passiveDesc: '+1 max heart for you' },
+              passive: 'tough', passiveName: 'Hard Shell', passiveDesc: '+1 max heart for you',
+              activeRanks: ["Pulls zombies onto it, unhurtable for 3s", "Lasts 4.5s", "Also heals itself 1, cooldown -2s"], passiveRanks: ["You get +1 max heart", "+2 max hearts", "+3 max hearts"] },
   };
   // where wild creatures live in the ruins (room range)
   const WILD = { rat: [1, 6], crow: [2, 5], beetle: [3, 8], moth: [6, 10] };
@@ -166,11 +171,39 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
   if (!SAVE.nextPetId) SAVE.nextPetId = SAVE.pets.reduce((m, pt) => Math.max(m, pt.id), 0) + 1;
   if (!Array.isArray(SAVE.squad)) SAVE.squad = SAVE.pets.slice(0, 4).map(pt => pt.id);
   SAVE.squad = SAVE.squad.filter(id => SAVE.pets.some(pt => pt.id === id)).slice(0, 4);
+  if (!SAVE.hero) SAVE.hero = { lvl: 1, xp: 0, perks: [], picks: 0 };
+  SAVE.pets.forEach(pt => { pt.lvl = pt.lvl || 1; pt.xp = pt.xp || 0; pt.ar = pt.ar || 1; pt.pr = pt.pr || 1; pt.picks = pt.picks || 0; });
   const petById = (id) => SAVE.pets.find(pt => pt.id === id);
-  const squadHas = (passive) => SAVE.squad.some(id => { const pt = petById(id); return pt && SP[pt.sp].passive === passive; });
-  const addPet = (sp) => { const pt = { id: SAVE.nextPetId++, sp, lvl: 1 }; SAVE.pets.push(pt); if (SAVE.squad.length < 4) SAVE.squad.push(pt.id); return pt; };
+  // ---- levels: cap = Town Hall level x 5; every 5th level = an upgrade pick
+  const levelCap = () => SAVE.townLevel * 5;
+  const xpNeed = (lvl) => 8 + lvl * 6;
+  const isMilestone = (lvl) => lvl % 5 === 0;
+  const XP = { walker: 2, runner: 2, spitter: 3, bloater: 3, brute: 8, boss: 30 };
+  function addXp(obj, amt) {
+    const cap = levelCap(), ups = [];
+    if (obj.lvl >= cap) { obj.xp = 0; return ups; }
+    obj.xp += amt;
+    while (obj.lvl < cap && obj.xp >= xpNeed(obj.lvl)) {
+      obj.xp -= xpNeed(obj.lvl); obj.lvl++;
+      if (isMilestone(obj.lvl)) obj.picks = (obj.picks || 0) + 1;
+      ups.push(obj.lvl);
+    }
+    if (obj.lvl >= cap) obj.xp = 0;
+    return ups;
+  }
+  const PERKS = { tough: ['Tough', '+1 max heart'], quick: ['Quickdraw', '+1 ammo, reload 25% faster'], blade: ['Blademaster', '+1 sword damage'], gunner: ['Gunner', '+1 gun damage'], fleet: ['Fleet', 'Dash recharges 30% faster'] };
+  const perk = (k) => SAVE.hero.perks.includes(k);
+  const ammoMax = () => T.ammoMax + (perk('quick') ? 1 : 0);
+  const reloadTime = () => T.reloadTime * (perk('quick') ? 0.75 : 1);
+  const gunDmg = () => T.gunDmg + (perk('gunner') ? 1 : 0);
+  const swordDmg = () => T.swordDmg + (perk('blade') ? 1 : 0);
+  const dashCd = () => T.dashCd * (perk('fleet') ? 0.7 : 1);
+  const petMaxHp = (pt) => SP[pt.sp].hearts + Math.floor(((pt.lvl || 1) - 1) / 5);
+  const petLvlDmg = (lvl) => Math.floor(((lvl || 1) - 1) / 10);
+  const squadRank = (passive) => SAVE.squad.reduce((m, id) => { const pt = petById(id); return pt && SP[pt.sp].passive === passive ? Math.max(m, pt.pr || 1) : m; }, 0);
+  const addPet = (sp) => { const pt = { id: SAVE.nextPetId++, sp, lvl: 1, xp: 0, ar: 1, pr: 1, picks: 0 }; SAVE.pets.push(pt); if (SAVE.squad.length < 4) SAVE.squad.push(pt.id); return pt; };
   const countB = (t) => SAVE.buildings.filter(b => b.t === t).length;
-  const maxHearts = () => T.heroHp + Math.min(2, countB('kitchen')) + (squadHas('tough') ? 1 : 0);
+  const maxHearts = () => T.heroHp + Math.min(2, countB('kitchen')) + squadRank('tough') + (perk('tough') ? 1 : 0) + Math.floor(SAVE.hero.lvl / 4);
   const bCost = (b) => { const d = BLD[b.t]; return d.upg ? d.upg[(b.lvl || 1) - 1] : d.cost; };
   const pointsUsed = (cat) => SAVE.buildings.reduce((s, b) => s + (BLD[b.t].cat === cat ? bCost(b) : 0), 0);
 
@@ -351,7 +384,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     setupCombat(x, y, worldW, worldH, zoomDiv) {
       this.worldW = worldW; this.worldH = worldH; this.zoomDiv = zoomDiv;
       Object.assign(HUD, {
-        ammo: T.ammoMax, reload: 0, dashCd: 0, cd1: 0, cd2: 0, cd1Max: 1, cd2Max: 1,
+        ammo: ammoMax(), reload: 0, dashCd: 0, cd1: 0, cd2: 0, cd1Max: 1, cd2Max: 1,
         ab1Label: null, ab2Label: null, ab1Sp: null, ab2Sp: null,
         canCapture: false, dead: false, canSwap: false,
       });
@@ -401,8 +434,9 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.fx = this.add.graphics().setDepth(900);
       this.pickups = []; this.cage = null; this.wild = null; this.pending = 0; this.magnetAll = false;
       this.squadRecs = this.getSquadRecs();
-      this.passives = new Set(this.squadRecs.map(r => SP[r.sp].passive));
-      this.activePets = [null, null]; this.ratlings = []; this.staticT = T.staticCd;
+      this.computePassives();
+      this.activePets = [null, null]; this.ratlings = []; this.staticT = 5;
+      this.syncHeroHud();
       this.fillSlots(true);
 
       const cam = this.cameras.main;
@@ -521,7 +555,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.swordCdT = Math.max(0, this.swordCdT - dt);
       this.faceLock = Math.max(0, this.faceLock - dt);
       HUD.dashCd = Math.max(0, HUD.dashCd - dt);
-      if (HUD.ammo < T.ammoMax) { HUD.reload += dt; if (HUD.reload >= T.reloadTime) { HUD.ammo++; HUD.reload = 0; } } else HUD.reload = 0;
+      if (HUD.ammo < ammoMax()) { HUD.reload += dt; if (HUD.reload >= reloadTime()) { HUD.ammo++; HUD.reload = 0; } } else HUD.reload = 0;
 
       if (HUD.dead || frozen) hero.setVelocity(0, 0);
       else if (this.kbT > 0) { this.kbT -= dt; hero.setVelocity(this.kb.x, this.kb.y); this.kb.scale(0.85); }
@@ -740,6 +774,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       const def = E.bloater, x = z.x, y = z.y;
       z.destroy();
       HUD.kills = (HUD.kills || 0) + 1;
+      this.gainXp('bloater');
       this.ring(x, y, def.boomR, 0xb5c94f); this.ring(x, y, def.boomR * 0.6, 0xff6a3d);
       this.spark(x, y, 0xb5c94f, 16); this.spark(x, y, 0xff6a3d, 8);
       this.decal(x, y); this.decal(x + 14, y - 8);
@@ -802,6 +837,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
 
     killEnemy(z) {
       HUD.kills = (HUD.kills || 0) + 1;
+      this.gainXp(z.elite ? 'boss' : z.type);
       const big = z.type === 'brute';
       this.spark(z.x, z.y, 0x9acd32, big ? 20 : 12);
       this.decal(z.x, z.y); if (big) this.decal(z.x + 12, z.y + 6);
@@ -830,7 +866,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         if (!p.active) return false;
         if (!p.ready || (HUD.dead && !this.magnetAll)) return true;
         const d = dist(p, h);
-        if (d < 22) { this.collectScrap(this.passives && this.passives.has('scavenge') && Math.random() < 0.25 ? 2 : 1); HUD.scrapPop = 0.25; p.destroy(); return false; }
+        if (d < 22) { this.collectScrap(this.prMap && Math.random() < [0, 0.25, 0.4, 0.6][this.prk('scavenge')] ? 2 : 1); HUD.scrapPop = 0.25; p.destroy(); return false; }
         if (d < (this.magnetAll ? 5000 : 120)) { const sp = (this.magnetAll ? 620 : 420) * dt; p.x += (h.x - p.x) / d * sp; p.y += (h.y - p.y) / d * sp; }
         return true;
       });
@@ -883,7 +919,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       if (!fromTwin) { if (HUD.ammo < 1) { this.dryFire(); return false; } HUD.ammo--; }
       this.gunCdT = fromTwin ? T.twinFireRate : T.gunCd;
       this.facing.copy(dir); this.faceLock = 0.3;
-      this.shoot(dir, fromTwin ? T.twinDmg : T.gunDmg);
+      this.shoot(dir, fromTwin ? T.twinDmg + (perk('gunner') ? 1 : 0) : gunDmg());
       return true;
     }
 
@@ -914,7 +950,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       g.fillStyle(0x24272c, 1);
       g.beginPath(); g.slice(h.x, h.y, T.meleeRange - 18, a - T.meleeHalfArc - 0.1, a + T.meleeHalfArc + 0.1, false); g.fillPath();
       this.tweens.add({ targets: g, alpha: 0, duration: 150, onComplete: () => g.destroy() });
-      targets.forEach(z => this.hit(z, T.swordDmg, new V(z.x - h.x, z.y - h.y).normalize(), T.swordKb, true, false));
+      targets.forEach(z => this.hit(z, swordDmg(), new V(z.x - h.x, z.y - h.y).normalize(), T.swordKb, true, false));
       kids(this.crates).forEach(c => {
         if (!c.active || dist(c, h) > T.meleeRange + 24) return;
         if (Math.abs(Phaser.Math.Angle.Wrap(Math.atan2(c.y - h.y, c.x - h.x) - a)) < T.meleeHalfArc) this.hitCrate(c, 3);
@@ -934,7 +970,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
 
     tryDash(mv) {
       if (HUD.dashCd > 0) return;
-      HUD.dashCd = T.dashCd;
+      HUD.dashCd = dashCd();
       this.dashDir.copy(mv.length() > 0.1 ? mv : this.facing).normalize();
       this.dashT = T.dashTime; this.inv = Math.max(this.inv, T.dashTime + 0.06); this.kbT = 0;
     }
@@ -996,7 +1032,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       [0, 1].forEach(s => {
         const p = this.activePets[s];
         HUD[s ? 'ab2Label' : 'ab1Label'] = p ? SP[p.sp].activeName : null;
-        HUD[s ? 'cd2Max' : 'cd1Max'] = p ? SP[p.sp].cdMax : 1;
+        HUD[s ? 'cd2Max' : 'cd1Max'] = p ? this.cdFor(p.rec) : 1;
         HUD[s ? 'ab2Sp' : 'ab1Sp'] = p ? p.sp : null;
       });
       this.syncSquadHud();
@@ -1004,7 +1040,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
 
     syncSquadHud() {
       const act = this.activePets.map(p => (p && p.active ? p.rec : null));
-      HUD.squad = this.squadRecs.map(r => ({ id: r.id, sp: r.sp, hp: r.hp, maxHp: r.maxHp, ko: r.ko, slot: act.indexOf(r) }));
+      HUD.squad = this.squadRecs.map(r => ({ id: r.id, sp: r.sp, hp: r.hp, maxHp: r.maxHp, ko: r.ko, slot: act.indexOf(r), lvl: r.lvl || 1 }));
     }
 
     swapSlots(a, b) {
@@ -1016,7 +1052,46 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.activePets.forEach(p => p && this.ring(p.x, p.y, 30, 0x8ef0a0));
     }
 
-    petAttackBonus() { return this.passives.has('pack') ? 1 : 0; }
+    petAttackBonus() { const r = this.prk('pack'); return r >= 3 ? 2 : r ? 1 : 0; }
+    computePassives() {
+      this.prMap = {};
+      this.squadRecs.forEach(r => { const k = SP[r.sp].passive; this.prMap[k] = Math.max(this.prMap[k] || 0, r.pr || 1); });
+    }
+    prk(k) { return (this.prMap && this.prMap[k]) || 0; }
+    cdFor(rec) {
+      const d = SP[rec.sp], red = (rec.ar || 1) >= 3 ? ({ pounce: 1.5, zap: 1.5, swarm: 2, mend: 3, shell: 2 }[d.active] || 0) : 0;
+      return d.cdMax - red;
+    }
+    syncHeroHud() {
+      const hr = SAVE.hero;
+      HUD.hero = { lvl: hr.lvl, xp: hr.xp, need: xpNeed(hr.lvl), cap: levelCap(), picks: hr.picks || 0 };
+      HUD.picksPending = (hr.picks || 0) + SAVE.pets.reduce((m, pt) => m + (pt.picks || 0), 0);
+    }
+    levelFx(obj, text, milestone) {
+      this.ring(obj.x, obj.y, 46, 0xf2d14b); this.spark(obj.x, obj.y, 0xf2d14b, 12);
+      this.floatText(obj.x, obj.y - 48, text, '#f2d14b', 18);
+      if (milestone) HUD.banner = { text, sub: 'New upgrade ready — pick it in 🐾 SQUAD back in town', t: 2.6 };
+    }
+    // XP for a kill: you + active pets get it all, bench pets 30%. XP is kept even if the run fails.
+    gainXp(key) {
+      const amt = XP[key] || 2;
+      HUD.leveledThisKill = false;
+      const ups = addXp(SAVE.hero, amt);
+      if (ups.length) { this.levelFx(this.hero, `LEVEL ${SAVE.hero.lvl}!`, ups.some(isMilestone)); HUD.maxHp = maxHearts(); HUD.hp = Math.min(HUD.maxHp, HUD.hp + 1); }
+      const act = this.activePets.map(p => (p && p.active ? p.rec : null));
+      this.squadRecs.forEach(r => {
+        const pt = petById(r.id); if (!pt) return;
+        const u = addXp(pt, amt * (act.includes(r) ? 1 : 0.3));
+        if (!u.length) return;
+        r.lvl = pt.lvl;
+        const nm = petMaxHp(pt); if (nm > r.maxHp) { if (!r.ko) r.hp += nm - r.maxHp; r.maxHp = nm; }
+        const spr = this.activePets.find(p => p && p.active && p.rec === r);
+        this.levelFx(spr || this.hero, `${SP[r.sp].name.split(' ')[1].toUpperCase()} LV ${pt.lvl}!`, u.some(isMilestone));
+        HUD.leveledThisKill = true;
+      });
+      this.syncHeroHud(); this.syncSquadHud();
+      if (ups.length || HUD.leveledThisKill) writeSave();
+    }
 
     damagePet(p, dmg, dx, dy) {
       if (!p || !p.active || p.iv > 0 || p.shellT > 0 || p.mode === 'pounce' || this.leaving) return;
@@ -1048,11 +1123,11 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.squadRecs.forEach(r => { if (r.cdT > 0) r.cdT = Math.max(0, r.cdT - dt); });
       [0, 1].forEach(s => { const p = this.activePets[s]; HUD[s ? 'cd2' : 'cd1'] = p ? p.rec.cdT : 0; });
       // Static passive: you zap a nearby zombie every few seconds
-      if (this.passives.has('static') && !HUD.dead) {
+      if (this.prk('static') && !HUD.dead) {
         this.staticT -= dt;
         if (this.staticT <= 0) {
           const z = this.nearestEnemy(h.x, h.y, T.staticRange, false);
-          if (z) { this.staticT = T.staticCd; this.bolt(h.x, h.y - 10, z.x, z.y); this.damage(z, 1, new V(z.x - h.x, z.y - h.y).normalize(), 60, false, true); }
+          if (z) { this.staticT = [5, 5, 3.5, 2.5][this.prk('static')]; this.bolt(h.x, h.y - 10, z.x, z.y); this.damage(z, this.prk('static') >= 3 ? 2 : 1, new V(z.x - h.x, z.y - h.y).normalize(), 60, false, true); }
           else this.staticT = 0.4;
         }
       }
@@ -1073,7 +1148,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
           p.setFlipX(this.facing.x < 0);
           if (def.attack === 'zap' && p.atkT <= 0 && !HUD.dead) {
             const z = this.nearestEnemy(p.x, p.y, low ? 120 : def.range, false);
-            if (z) { p.atkT = def.cd; this.bolt(p.x, p.y, z.x, z.y); this.damage(z, def.dmg + this.petAttackBonus(), new V(z.x - p.x, z.y - p.y).normalize(), 60, false, true); }
+            if (z) { p.atkT = def.cd; this.bolt(p.x, p.y, z.x, z.y); this.damage(z, def.dmg + petLvlDmg(p.rec.lvl) + this.petAttackBonus(), new V(z.x - p.x, z.y - p.y).normalize(), 60, false, true); }
             else p.atkT = 0.3;
           }
           return;
@@ -1084,8 +1159,8 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
           if (dd > def.range * 0.7) p.setVelocity(d.x * def.speed, d.y * def.speed); else p.setVelocity(0, 0);
           p.setFlipX(d.x < 0);
           if (dd < def.range && p.atkT <= 0) {
-            p.atkT = def.cd;
-            this.damage(target, def.dmg + this.petAttackBonus(), d, 140, false, false);
+            p.atkT = def.cd * (this.prk('pack') >= 2 ? 0.85 : 1);
+            this.damage(target, def.dmg + petLvlDmg(p.rec.lvl) + this.petAttackBonus(), d, 140, false, false);
             this.tweens.add({ targets: p, scale: 1.2, duration: 70, yoyo: true });
           }
         } else {
@@ -1123,7 +1198,8 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       const p = this.activePets[i - 1];
       if (!p || !p.active || p.rec.cdT > 0) return;
       const def = SP[p.sp], h = this.hero;
-      const used = () => { p.rec.cdT = def.cdMax; };
+      const ar = p.rec.ar || 1;
+      const used = () => { p.rec.cdT = this.cdFor(p.rec); };
       if (def.active === 'pounce') {
         if (p.mode === 'pounce') return;
         let lx, ly;
@@ -1134,7 +1210,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         }
         lx = Phaser.Math.Clamp(lx, TILE * 1.2, this.worldW - TILE * 1.2); ly = Phaser.Math.Clamp(ly, TILE * 1.2, this.worldH - TILE * 1.2);
         const dur = 0.28;
-        p.mode = 'pounce'; p.t = dur; p.vx = (lx - p.x) / dur; p.vy = (ly - p.y) / dur;
+        p.mode = 'pounce'; p.t = dur; p.vx = (lx - p.x) / dur; p.vy = (ly - p.y) / dur; p.ar = ar;
         p.body.checkCollision.none = true;
         p.setFlipX(p.vx < 0);
         this.tweens.add({ targets: p, scale: 1.8, duration: dur * 500, yoyo: true, ease: 'Sine.out' });
@@ -1144,7 +1220,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         if (!first) { this.floatText(p.x, p.y - 24, 'NO TARGET', '#5fd3ff', 12); return; }
         used();
         const hitList = [first]; let cur = first;
-        while (hitList.length < T.chainCount) {
+        while (hitList.length < T.chainCount + (ar >= 2 ? 2 : 0)) {
           let nxt = null, bd = T.chainJump;
           this.hittables(false).forEach(z => { if (!hitList.includes(z)) { const d = dist(z, cur); if (d < bd) { bd = d; nxt = z; } } });
           if (!nxt) break; hitList.push(nxt); cur = nxt;
@@ -1152,7 +1228,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         let prev = p;
         hitList.forEach(z => {
           this.bolt(prev.x, prev.y, z.x, z.y); prev = z;
-          this.damage(z, T.chainDmg + this.petAttackBonus(), new V(z.x - p.x, z.y - p.y).normalize(), 120, true, true);
+          this.damage(z, T.chainDmg + (ar >= 3 ? 1 : 0) + this.petAttackBonus(), new V(z.x - p.x, z.y - p.y).normalize(), 120, true, true);
           this.stunEnemy(z, T.chainStun);
         });
         this.freeze(0.05); this.cameras.main.shake(120, 0.006);
@@ -1160,24 +1236,26 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         let lx, ly;
         if (dir) { lx = h.x + dir.x * 180; ly = h.y + dir.y * 180; }
         else { const z = this.nearestEnemy(h.x, h.y, 420, false); if (z) { lx = z.x; ly = z.y; } else { lx = h.x + this.facing.x * 140; ly = h.y + this.facing.y * 140; } }
-        for (let k = 0; k < 3; k++) {
+        for (let k = 0; k < (ar >= 2 ? 5 : 3); k++) {
           const r = this.add.image(p.x, p.y, 'rat').setScale(0.6);
-          Object.assign(r, { t: 5, atkT: 0.3, isRatling: true });
+          Object.assign(r, { t: ar >= 3 ? 8 : 5, atkT: 0.3, isRatling: true });
           this.tweens.add({ targets: r, x: lx + Phaser.Math.Between(-30, 30), y: ly + Phaser.Math.Between(-20, 20), duration: 240, ease: 'Quad.out' });
           this.ratlings.push(r);
         }
         this.spark(p.x, p.y, 0x9aa4ad, 8);
         used();
       } else if (def.active === 'mend') {
-        HUD.hp = Math.min(HUD.maxHp, HUD.hp + 1);
-        this.squadRecs.forEach(r => this.healPet(r, 1));
+        const heal = ar >= 2 ? 2 : 1;
+        HUD.hp = Math.min(HUD.maxHp, HUD.hp + heal);
+        this.squadRecs.forEach(r => this.healPet(r, heal));
         this.ring(h.x, h.y, 60, 0x8ef0a0); this.spark(h.x, h.y, 0x8ef0a0, 10);
         this.activePets.forEach(q => q && q.active && this.ring(q.x, q.y, 34, 0x8ef0a0));
-        this.floatText(h.x, h.y - 44, '+1 ♥ EVERYONE', '#8ef0a0', 18);
+        this.floatText(h.x, h.y - 44, `+${heal} ♥ EVERYONE`, '#8ef0a0', 18);
         this.syncSquadHud();
         used();
       } else if (def.active === 'shell') {
-        p.shellT = 3;
+        p.shellT = ar >= 2 ? 4.5 : 3;
+        if (ar >= 3) this.healPet(p.rec, 1);
         this.ring(p.x, p.y, 260, 0xffd166);
         this.floatText(p.x, p.y - 30, 'OVER HERE!', '#ffd166', 15);
         used();
@@ -1186,15 +1264,16 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
 
     pounceLand(p) {
       p.mode = 'follow'; p.body.checkCollision.none = false; p.setVelocity(0, 0);
-      this.ring(p.x, p.y, T.pounceRadius, 0xe08a3c);
+      const pr = T.pounceRadius + ((p.ar || 1) >= 2 ? 25 : 0);
+      this.ring(p.x, p.y, pr, 0xe08a3c);
       this.spark(p.x, p.y, 0xe08a3c, 8);
       let hitAny = false;
       this.hittables(true).forEach(z => {
-        if (dist(p, z) > T.pounceRadius) return;
+        if (dist(p, z) > pr) return;
         hitAny = true;
         const d = new V(z.x - p.x, z.y - p.y); if (d.lengthSq() < 1) d.set(1, 0); d.normalize();
-        this.hit(z, T.pounceDmg + this.petAttackBonus(), d, 260, true, true);
-        if (!z.isWild) this.stunEnemy(z, T.pounceStun);
+        this.hit(z, T.pounceDmg + ((p.ar || 1) >= 2 ? 1 : 0) + this.petAttackBonus(), d, 260, true, true);
+        if (!z.isWild) this.stunEnemy(z, T.pounceStun + ((p.ar || 1) >= 3 ? 0.6 : 0));
       });
       this.cameras.main.shake(120, hitAny ? 0.008 : 0.003);
       if (hitAny) this.freeze(0.06);
@@ -1377,11 +1456,11 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         g.fillStyle(0xff4d6d, 1); g.fillRect(z.x - 40, z.y - 56, 80 * Math.max(0, z.hp) / z.maxHpE, 7);
       });
       if (Ctl.mode === 'brawl' && !HUD.dead && !this.inputFrozen()) {
-        const w = 14, gap = 4, total = T.ammoMax * w + (T.ammoMax - 1) * gap, x0 = h.x - total / 2, y = h.y - 34;
-        for (let i = 0; i < T.ammoMax; i++) {
+        const am = ammoMax(), w = 14, gap = 4, total = am * w + (am - 1) * gap, x0 = h.x - total / 2, y = h.y - 34;
+        for (let i = 0; i < am; i++) {
           const x = x0 + i * (w + gap);
           g.fillStyle(0x000000, 0.6); g.fillRect(x - 1, y - 1, w + 2, 8);
-          const f = i < HUD.ammo ? 1 : (i === HUD.ammo ? HUD.reload / T.reloadTime : 0);
+          const f = i < HUD.ammo ? 1 : (i === HUD.ammo ? HUD.reload / reloadTime() : 0);
           g.fillStyle(i < HUD.ammo ? 0xff8c42 : 0x7a4a2a, 1); g.fillRect(x, y, w * f, 6);
         }
       }
@@ -1522,9 +1601,11 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       // bench pets rest and heal
       this.squadRecs.forEach(r => {
         const out = this.activePets.some(p => p && p.active && p.rec === r);
-        if (!out && !r.ko) this.healPet(r, this.passives.has('nurse') ? 2 : 1);
+        if (!out && !r.ko) this.healPet(r, [1, 2, 3, 99][this.prk('nurse')]);
+        if (out && this.prk('nurse') >= 3) this.healPet(r, 1);
       });
       HUD.canSwap = this.squadRecs.length > 1; this.syncSquadHud();
+      writeSave();
       if (this.run.room < T.rooms) { this.doorZones.forEach(z => z.destroy()); this.drawDoor(true); }
       if (this.isExtractRoom) {
         this.hatch.setVisible(true).setScale(0);
@@ -1573,6 +1654,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
 
     endRun(result) {
       this.leaving = true;
+      writeSave();
       this.scene.start('town', { result });
     }
 
@@ -1824,19 +1906,53 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     collectScrap(n) { SAVE.scrap += n; HUD.scrap = SAVE.scrap; }
     onAbandon() { if (onExit) onExit(); }
     makeTownRecs() {
-      return SAVE.squad.map(id => petById(id)).filter(Boolean).map(pt => ({ id: pt.id, sp: pt.sp, hp: SP[pt.sp].hearts, maxHp: SP[pt.sp].hearts, ko: false, cdT: 0 }));
+      return SAVE.squad.map(id => petById(id)).filter(Boolean).map(pt => ({ id: pt.id, sp: pt.sp, hp: petMaxHp(pt), maxHp: petMaxHp(pt), ko: false, cdT: 0, lvl: pt.lvl, ar: pt.ar, pr: pt.pr }));
     }
     getSquadRecs() { return this.townRecs; }
     onSquadOrderChanged() { SAVE.squad = this.townRecs.map(r => r.id); writeSave(); }
     // rebuild your squad (after changes, at night start, at dawn): everyone fully healed
     reloadSquad() {
       this.townRecs = this.makeTownRecs(); this.squadRecs = this.townRecs;
-      this.passives = new Set(this.squadRecs.map(r => SP[r.sp].passive));
+      this.computePassives();
       this.fillSlots(true);
       HUD.maxHp = maxHearts(); HUD.hp = Math.min(HUD.hp, HUD.maxHp);
     }
     syncRoster() {
-      HUD.roster = SAVE.pets.map(pt => ({ id: pt.id, sp: pt.sp, inSquad: SAVE.squad.indexOf(pt.id) }));
+      HUD.roster = [{ id: 'hero', sp: 'hero', hero: true, lvl: SAVE.hero.lvl, picks: SAVE.hero.picks || 0, inSquad: -1 }]
+        .concat(SAVE.pets.map(pt => ({ id: pt.id, sp: pt.sp, inSquad: SAVE.squad.indexOf(pt.id), lvl: pt.lvl, ar: pt.ar, pr: pt.pr, picks: pt.picks || 0, hearts: petMaxHp(pt) })));
+      HUD.capNow = levelCap();
+      this.syncHeroHud();
+    }
+    // detail page for you or one creature: stats, ranks, upgrade buttons
+    syncDetail() {
+      const id = HUD.detailId, cap = levelCap();
+      if (id === 'hero') {
+        const hr = SAVE.hero, owned = hr.perks.map(k => PERKS[k][0]);
+        const choices = Object.keys(PERKS).filter(k => !perk(k));
+        const xpLine = hr.lvl >= cap ? `MAX for Town Hall ${SAVE.townLevel}. Upgrade it to keep levelling.` : `XP ${Math.floor(hr.xp)} / ${xpNeed(hr.lvl)}`;
+        const nextPerk = Math.ceil((hr.lvl + 1) / 5) * 5;
+        HUD.detail = {
+          name: 'You — the Survivor', icon: 'hero', xpFrac: hr.lvl >= cap ? 1 : hr.xp / xpNeed(hr.lvl),
+          body: `Level ${hr.lvl} / ${cap}\n${xpLine}\n\nMax hearts: ${maxHearts()}  (+1 every 4 levels)\nPerks: ${owned.length ? owned.join(', ') : 'none yet'}\n\n${hr.picks ? `★ Choose ${hr.picks > 1 ? hr.picks + ' perks' : 'a perk'} →` : `Next perk at level ${nextPerk}`}`,
+          buttons: (hr.picks ? choices.map(k => ({ label: `${PERKS[k][0]}: ${PERKS[k][1]}`, ev: { type: 'perk', key: k } })) : []).concat([{ label: '← BACK', ev: { type: 'back' } }]),
+        };
+        return;
+      }
+      const pt = petById(id); if (!pt) { HUD.panel = 'squad'; return; }
+      const d = SP[pt.sp], inSq = SAVE.squad.indexOf(pt.id);
+      const xpLine = pt.lvl >= cap ? 'MAX (upgrade the Town Hall)' : `XP ${Math.floor(pt.xp)} / ${xpNeed(pt.lvl)}`;
+      const rk = (arr, r) => `${arr[r - 1]}${r < 3 ? `\n   next: ${arr[r]}` : '  (max)'}`;
+      const nextPick = Math.ceil((pt.lvl + 1) / 5) * 5;
+      const btns = [];
+      if (pt.picks > 0 && pt.ar < 3) btns.push({ label: `▲ UPGRADE ${d.activeName}`, ev: { type: 'upgrade', id: pt.id, which: 'ar' } });
+      if (pt.picks > 0 && pt.pr < 3) btns.push({ label: `▲ UPGRADE ${d.passiveName.toUpperCase()}`, ev: { type: 'upgrade', id: pt.id, which: 'pr' } });
+      btns.push({ label: inSq >= 0 ? `REMOVE FROM SQUAD (#${inSq + 1})` : 'ADD TO SQUAD', ev: { type: 'toggleSquad', id: pt.id } });
+      btns.push({ label: '← BACK', ev: { type: 'back' } });
+      HUD.detail = {
+        name: d.name, icon: pt.sp, xpFrac: pt.lvl >= cap ? 1 : pt.xp / xpNeed(pt.lvl),
+        body: `Level ${pt.lvl} / ${cap}   ·   ♥ ${petMaxHp(pt)}\n${xpLine}\n\nACTIVE — ${d.activeName}  (rank ${pt.ar}/3)\n${rk(d.activeRanks, pt.ar)}\n\nPASSIVE — ${d.passiveName}  (rank ${pt.pr}/3)\n${rk(d.passiveRanks, pt.pr)}\n\n${pt.picks ? `★ ${pt.picks} upgrade${pt.picks > 1 ? 's' : ''} ready!` : (pt.ar >= 3 && pt.pr >= 3 ? 'Fully upgraded' : `Next upgrade at level ${nextPick}`)}`,
+        buttons: btns,
+      };
     }
     inputFrozen() { return HUD.building || !!HUD.panel; }
     canSpawn() { return this.phase === 'night'; }
@@ -1898,6 +2014,21 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
           } else if (SAVE.squad.length >= 4) { HUD.rosterMsg = 'Squad is full (4). Tap one in the squad to take it out first.'; break; }
           else { SAVE.squad.push(ev.id); HUD.rosterMsg = `${SP[petById(ev.id).sp].name} joined as #${SAVE.squad.length}.`; }
           writeSave(); this.reloadSquad(); this.syncRoster();
+          if (HUD.panel === 'detail') this.syncDetail();
+          break;
+        }
+        case 'openDetail': HUD.detailId = ev.id; HUD.rosterMsg = ''; this.syncDetail(); HUD.panel = 'detail'; break;
+        case 'back': HUD.panel = 'squad'; HUD.rosterMsg = ''; this.syncRoster(); break;
+        case 'upgrade': {
+          const pt = petById(ev.id);
+          if (pt && pt.picks > 0 && pt[ev.which] < 3) { pt[ev.which]++; pt.picks--; writeSave(); this.reloadSquad(); this.syncHeroHud(); HUD.rosterMsg = 'Upgraded!'; }
+          this.syncDetail();
+          break;
+        }
+        case 'perk': {
+          const hr = SAVE.hero;
+          if (hr.picks > 0 && !perk(ev.key)) { hr.perks.push(ev.key); hr.picks--; writeSave(); HUD.maxHp = maxHearts(); HUD.hp = HUD.maxHp; HUD.ammo = ammoMax(); this.syncHeroHud(); HUD.rosterMsg = `${PERKS[ev.key][0]} learned!`; }
+          this.syncDetail();
           break;
         }
       }
@@ -1965,10 +2096,10 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       SAVE.scrap -= next.cost; SAVE.townLevel++; writeSave();
       this.genMax = TL[SAVE.townLevel].gen; this.genHp = this.genMax;
       HUD.hallMsg = '';
-      this.syncHud();
+      this.syncHud(); this.syncHeroHud();
       this.ring(this.hallPos.x, this.hallPos.y, 120, 0xf2d14b); this.spark(this.hallPos.x, this.hallPos.y, 0xf2d14b, 20);
       HUD.panel = null;
-      HUD.banner = { text: `TOWN HALL LEVEL ${SAVE.townLevel}`, sub: `Military ${TL[SAVE.townLevel].mil} pts · Civic ${TL[SAVE.townLevel].civ} pts`, t: 2.6 };
+      HUD.banner = { text: `TOWN HALL LEVEL ${SAVE.townLevel}`, sub: `Military ${TL[SAVE.townLevel].mil} · Civic ${TL[SAVE.townLevel].civ} · Level cap ${levelCap()}`, t: 2.8 };
     }
 
     startRun() {
@@ -2200,6 +2331,12 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.sqSub = this.add.text(0, 0, '', S(11, { color: '#c9d1d9', align: 'center' })).setOrigin(0.5).setVisible(false);
       this.sqClose = this.add.text(0, 0, 'DONE', S(14)).setOrigin(0.5).setVisible(false);
       this.swapSel = -1;
+      this.heroLv = this.add.text(0, 0, '', S(11, { color: '#f2d14b' })).setOrigin(0, 0.5);
+      this.portLv = [0, 1, 2, 3].map(() => this.add.text(0, 0, '', S(9, { color: '#e8e6df' })).setOrigin(0.5, 0).setVisible(false));
+      this.detIcon = this.add.image(0, 0, 'hero').setVisible(false);
+      this.detName = this.add.text(0, 0, '', S(18, { color: '#f2d14b' })).setOrigin(0, 0).setVisible(false);
+      this.detBody = this.add.text(0, 0, '', S(11, { color: '#e8e6df', lineSpacing: 3 })).setOrigin(0, 0).setVisible(false);
+      this.detBtns = [0, 1, 2, 3, 4, 5].map(() => this.add.text(0, 0, '', S(12)).setOrigin(0.5).setVisible(false));
 
       this.layout();
       this.scale.on('resize', this.layout, this);
@@ -2236,7 +2373,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.B.pClose = { x: w / 2 + u * 0.2, y: P.y + P.h / 2 - u * 0.11, w: u * 0.3, h: u * 0.1 };
       const fs = n => Math.max(10, Math.round(u * n)) + 'px';
       this.topText.setPosition(w / 2, u * 0.035).setFontSize(fs(0.042));
-      this.cageText.setPosition(u * 0.265, u * 0.14).setFontSize(fs(0.028));
+      this.cageText.setPosition(u * 0.265, u * 0.18).setFontSize(fs(0.028));
       this.modeText.setPosition(this.B.mode.x, this.B.mode.y).setFontSize(fs(0.032));
       for (const k of ['atk', 'dash', 'a1', 'a2', 'cap']) this.lbl[k].setPosition(this.B[k].x, this.B[k].y + this.B[k].r + u * 0.025).setFontSize(fs(k === 'atk' || k === 'cap' ? 0.03 : 0.026));
       for (const k of ['build', 'endDay', 'prompt', 'done', 'tabMil', 'tabCiv']) this.tBtn[k].setPosition(this.B[k].x, this.B[k].y).setFontSize(fs(k === 'prompt' ? 0.036 : 0.032));
@@ -2262,6 +2399,14 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.sqClose.setPosition(this.B.sqClose.x, this.B.sqClose.y).setFontSize(fs(0.035));
       this.sqCards.forEach(c => { c.name.setFontSize(fs(0.03)); c.info.setFontSize(fs(0.025)); c.badge.setFontSize(fs(0.034)); });
       this.portraits.forEach(pp => pp.num.setFontSize(fs(0.03)));
+      this.heroLv.setPosition(u * 0.265, u * 0.125).setFontSize(fs(0.028));
+      this.portLv.forEach(t => t.setFontSize(fs(0.024)));
+      this.detName.setFontSize(fs(0.045)); this.detBody.setFontSize(fs(0.028)).setWordWrapWidth(SQ.w * 0.52);
+      this.detBtns.forEach(t => t.setFontSize(fs(0.029)));
+    }
+    detBtnRect(i) {
+      const SQ = this.B.sq, u = this.u;
+      return { x: SQ.x + SQ.w * 0.24, y: SQ.y - SQ.h / 2 + u * 0.14 + i * u * 0.105, w: SQ.w * 0.44, h: u * 0.088 };
     }
 
     sqCardRect(i) {
@@ -2369,10 +2514,16 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         return;
       }
       // Town Hall panel
+      if (HUD.panel === 'detail') {
+        if (!this.inRect(p.x, p.y, B.sq)) { Ctl.queue.push({ type: 'closePanel' }); return; }
+        const btns = (HUD.detail && HUD.detail.buttons) || [];
+        for (let i = 0; i < Math.min(6, btns.length); i++) if (tapIn(this.detBtnRect(i))) { Ctl.queue.push(btns[i].ev); return; }
+        return;
+      }
       if (HUD.panel === 'squad') {
         if (tapIn(B.sqClose) || !this.inRect(p.x, p.y, B.sq)) { Ctl.queue.push({ type: 'closePanel' }); return; }
         const roster = HUD.roster || [];
-        for (let i = 0; i < Math.min(12, roster.length); i++) if (tapIn(this.sqCardRect(i))) { Ctl.queue.push({ type: 'toggleSquad', id: roster[i].id }); return; }
+        for (let i = 0; i < Math.min(12, roster.length); i++) if (tapIn(this.sqCardRect(i))) { Ctl.queue.push({ type: 'openDetail', id: roster[i].id }); return; }
         return;
       }
       if (HUD.panel) {
@@ -2488,7 +2639,16 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         if (i < HUD.hp) { g.fillStyle(0xff4d6d, 1); g.fillRect(x - r, y - r, r * 2, r * 2); }
         g.lineStyle(2, 0x000000, 0.8); g.strokeRect(x - r, y - r, r * 2, r * 2);
       }
-      this.cageText.setVisible(!town).setText(`CAGES ×${HUD.cages ?? 0}`);
+      this.cageText.setVisible(!town && !panel).setText(`CAGES ×${HUD.cages ?? 0}`);
+      const hv = HUD.hero;
+      this.heroLv.setVisible(!!hv && !panel);
+      if (hv && !panel) {
+        const maxed = hv.lvl >= hv.cap;
+        this.heroLv.setText(`LV ${hv.lvl}${maxed ? ' MAX' : ''}`);
+        const bx = u * 0.265 + this.heroLv.width + 6, by = u * 0.12, bw = u * 0.16;
+        g.fillStyle(0x000000, 0.6); g.fillRect(bx - 1, by - 1, bw + 2, u * 0.014 + 2);
+        g.fillStyle(0xf2d14b, 1); g.fillRect(bx, by, bw * (maxed ? 1 : Math.min(1, hv.xp / hv.need)), u * 0.014);
+      }
       HUD.scrapPop = Math.max(0, (HUD.scrapPop || 0) - dt);
 
       // top text
@@ -2526,12 +2686,14 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
 
       // squad button + portraits
       this.tBtn.squad.setVisible(showTown);
-      if (showTown) this.pill(B.squadBtn, 0xff8c9e, 0.55, false);
+      if (showTown) { this.pill(B.squadBtn, 0xff8c9e, 0.55, !!HUD.picksPending); if (HUD.picksPending) { g.lineStyle(2, 0xf2d14b, 0.5 + 0.5 * Math.sin(time * 0.01)); g.strokeRoundedRect(B.squadBtn.x - B.squadBtn.w / 2 - 3, B.squadBtn.y - B.squadBtn.h / 2 - 3, B.squadBtn.w + 6, B.squadBtn.h + 6, B.squadBtn.h / 2); } }
+      this.tBtn.squad.setText(HUD.picksPending ? '🐾 SQUAD ★' : '🐾 SQUAD');
       const sq = HUD.squad || [];
       const showPorts = !building && !panel && !portrait && sq.length > 0;
       if (!HUD.canSwap) this.swapSel = -1;
       this.portraits.forEach((pp, i) => {
         const e = sq[i], b = B.port[i], vis = showPorts && !!e;
+        this.portLv[i].setVisible(vis);
         pp.icon.setVisible(vis); pp.num.setVisible(vis && e.slot >= 0);
         if (!vis) return;
         const sel = this.swapSel === i;
@@ -2542,6 +2704,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         pp.icon.setTexture(e.sp).setPosition(b.x, b.y - b.r * 0.08).setScale(b.r / 26).setAlpha(e.ko ? 0.3 : (e.slot >= 0 ? 1 : 0.65));
         if (e.ko) { const q = b.r * 0.5; g.lineStyle(3, 0xff4d6d, 0.9); g.lineBetween(b.x - q, b.y - q, b.x + q, b.y + q); g.lineBetween(b.x + q, b.y - q, b.x - q, b.y + q); }
         pp.num.setText(String(e.slot + 1)).setPosition(b.x + b.r * 0.85, b.y - b.r * 0.85);
+        this.portLv[i].setText('Lv' + (e.lvl || 1)).setPosition(b.x, b.y + b.r + 9);
         const pw = b.r * 1.7 / e.maxHp;
         for (let k = 0; k < e.maxHp; k++) { g.fillStyle(k < e.hp ? 0xff8c9e : 0x3a2a2e, 1); g.fillRect(b.x - b.r * 0.85 + k * pw + 1, b.y + b.r + 3, pw - 2, 4); }
       });
@@ -2554,7 +2717,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         g.fillStyle(0x000000, 0.55); g.fillRect(0, 0, w, h);
         g.fillStyle(0x14161a, 0.97); g.fillRoundedRect(SQ.x - SQ.w / 2, SQ.y - SQ.h / 2, SQ.w, SQ.h, 14);
         g.lineStyle(3, 0xff8c9e, 0.8); g.strokeRoundedRect(SQ.x - SQ.w / 2, SQ.y - SQ.h / 2, SQ.w, SQ.h, 14);
-        this.sqSub.setText(HUD.rosterMsg || 'Tap to add or remove  ·  #1 and #2 fight beside you  ·  all 4 give their passive  ·  order = who steps in next');
+        this.sqSub.setText(HUD.rosterMsg || 'Tap one to see it, upgrade it, or add/remove it  ·  #1 and #2 fight  ·  all 4 give passives  ·  ★ = upgrade ready');
         this.pill(B.sqClose, 0x8ef0a0, 0.6, false);
       }
       const roster = showSq ? (HUD.roster || []) : [];
@@ -2562,14 +2725,39 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         const e = roster[i], vis = showSq && !!e;
         [c.icon, c.name, c.info, c.badge].forEach(o => o.setVisible(vis));
         if (!vis) return;
-        const r = this.sqCardRect(i), d = SP[e.sp], inSq = e.inSquad >= 0;
+        const r = this.sqCardRect(i), d = e.hero ? null : SP[e.sp], inSq = e.inSquad >= 0;
         g.fillStyle(inSq ? 0xff8c42 : 0x000000, inSq ? 0.22 : 0.5); g.fillRoundedRect(r.x - r.w / 2, r.y - r.h / 2, r.w, r.h, 8);
         g.lineStyle(2, inSq ? 0xff8c42 : 0xffffff, inSq ? 0.9 : 0.25); g.strokeRoundedRect(r.x - r.w / 2, r.y - r.h / 2, r.w, r.h, 8);
         c.icon.setTexture(e.sp).setPosition(r.x - r.w / 2 + r.h * 0.42, r.y).setScale(r.h / 62);
-        c.name.setText(d.name).setPosition(r.x - r.w / 2 + r.h * 0.85, r.y - r.h * 0.42);
-        c.info.setText(`${'♥'.repeat(d.hearts)}\nA: ${d.activeName}\nP: ${d.passiveName}`).setPosition(r.x - r.w / 2 + r.h * 0.85, r.y - r.h * 0.14);
-        c.badge.setText(inSq ? '#' + (e.inSquad + 1) : '').setPosition(r.x - r.w / 2 + 6, r.y - r.h / 2 + 4);
+        const up = (n) => '▲'.repeat(Math.max(0, (n || 1) - 1));
+        c.name.setText(e.hero ? 'You' : d.name).setPosition(r.x - r.w / 2 + r.h * 0.85, r.y - r.h * 0.42);
+        c.info.setText(e.hero ? `Lv ${e.lvl} / ${HUD.capNow}\nPerks + hearts` : `Lv ${e.lvl} · ${'♥'.repeat(e.hearts)}\nA: ${d.activeName} ${up(e.ar)}\nP: ${d.passiveName} ${up(e.pr)}`).setPosition(r.x - r.w / 2 + r.h * 0.85, r.y - r.h * 0.14);
+        c.badge.setText(`${inSq ? '#' + (e.inSquad + 1) : ''}${e.picks ? ' ★' : ''}`).setPosition(r.x - r.w / 2 + 6, r.y - r.h / 2 + 4);
+        if (e.picks) { g.lineStyle(2, 0xf2d14b, 0.6 + 0.4 * Math.sin(time * 0.01)); g.strokeRoundedRect(r.x - r.w / 2 - 2, r.y - r.h / 2 - 2, r.w + 4, r.h + 4, 9); }
       });
+
+      // detail page
+      const D = panel === 'detail' ? HUD.detail : null;
+      [this.detIcon, this.detName, this.detBody].forEach(o => o.setVisible(!!D));
+      const dbtns = D ? D.buttons : [];
+      this.detBtns.forEach((t, i) => t.setVisible(i < dbtns.length));
+      if (D) {
+        const SQ = B.sq, x0 = SQ.x - SQ.w / 2;
+        g.fillStyle(0x000000, 0.55); g.fillRect(0, 0, w, h);
+        g.fillStyle(0x14161a, 0.97); g.fillRoundedRect(x0, SQ.y - SQ.h / 2, SQ.w, SQ.h, 14);
+        g.lineStyle(3, 0xf2d14b, 0.8); g.strokeRoundedRect(x0, SQ.y - SQ.h / 2, SQ.w, SQ.h, 14);
+        this.detIcon.setTexture(D.icon).setPosition(x0 + u * 0.1, SQ.y - SQ.h / 2 + u * 0.11).setScale(u / 300);
+        this.detName.setText(D.name).setPosition(x0 + u * 0.2, SQ.y - SQ.h / 2 + u * 0.04);
+        const bx = x0 + u * 0.2, by = SQ.y - SQ.h / 2 + u * 0.115, bw = SQ.w * 0.32;
+        g.fillStyle(0x000000, 0.7); g.fillRect(bx - 1, by - 1, bw + 2, u * 0.02 + 2);
+        g.fillStyle(0xf2d14b, 1); g.fillRect(bx, by, bw * Math.min(1, D.xpFrac || 0), u * 0.02);
+        this.detBody.setText(D.body + (HUD.rosterMsg ? `\n\n${HUD.rosterMsg}` : '')).setPosition(x0 + u * 0.04, SQ.y - SQ.h / 2 + u * 0.2);
+        dbtns.forEach((bt, i) => {
+          const r = this.detBtnRect(i), back = bt.ev.type === 'back', upg = bt.ev.type === 'upgrade' || bt.ev.type === 'perk';
+          this.pill(r, back ? 0xffffff : upg ? 0xf2d14b : 0xff8c9e, 0.6, upg);
+          this.detBtns[i].setText(bt.label).setPosition(r.x, r.y);
+        });
+      }
 
       // build mode UI
       this.tBtn.done.setVisible(building); this.tBtn.tabMil.setVisible(building); this.tBtn.tabCiv.setVisible(building);
@@ -2606,7 +2794,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         g.lineStyle(3, 0xf2d14b, 0.8); g.strokeRoundedRect(P.x - P.w / 2, P.y - P.h / 2, P.w, P.h, 14);
         this.panelTitle.setText(`TOWN HALL — LEVEL ${H.level}`);
         const now = `Now: ${H.mil} military pts · ${H.civ} civic pts`;
-        const nxt = H.next ? `Level ${H.level + 1}: ${H.next.mil} military · ${H.next.civ} civic · stronger generator` : 'Max level (for now)';
+        const nxt = H.next ? `Level ${H.level + 1}: ${H.next.mil} military · ${H.next.civ} civic · level cap ${(H.level + 1) * 5} · stronger generator` : 'Max level (for now)';
         const msg = HUD.hallMsg ? `\n\n${HUD.hallMsg}` : '';
         this.panelBody.setText(`${now}\n${nxt}\n\nYou have ⚙ ${HUD.scrap} scrap${msg}`);
         const can = H.next && HUD.scrap >= H.next.cost;
@@ -2635,12 +2823,12 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
           g.fillStyle(0xffffff, 0.06); g.fillCircle(u * 0.26, h - u * 0.26, R * 0.45);
         }
         this.drawBtn('atk', 0xff8c42, 0);
-        this.drawBtn('dash', 0x3fd0c9, HUD.dashCd / T.dashCd);
+        this.drawBtn('dash', 0x3fd0c9, HUD.dashCd / dashCd());
         if (HUD.ab1Label) this.drawBtn('a1', SP_COLOR[HUD.ab1Sp] || 0xe08a3c, HUD.cd1 / (HUD.cd1Max || 1));
         if (HUD.ab2Label) this.drawBtn('a2', SP_COLOR[HUD.ab2Sp] || 0xe08a3c, HUD.cd2 / (HUD.cd2Max || 1));
         if (Ctl.mode === 'brawl') {
           const b = B.atk;
-          for (let i = 0; i < T.ammoMax; i++) {
+          for (let i = 0; i < ammoMax(); i++) {
             const a0 = -Math.PI * 0.95 + i * 0.36;
             g.lineStyle(5, i < HUD.ammo ? 0xff8c42 : 0x3a2a1e, 0.95);
             g.beginPath(); g.arc(b.x, b.y, b.r + 9, a0, a0 + 0.3, false); g.strokePath();
