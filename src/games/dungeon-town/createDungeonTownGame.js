@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 
 /**
- * DUNGEON TOWN — Step 4b: "Levels"
+ * DUNGEON TOWN — Step 4c: "Jobs"
  * Creates the game inside `parent` (a DOM element). Returns the Phaser.Game.
  * Call game.destroy(true) to clean up. All state lives in this function.
  * Works with Phaser 3.80+ and 4.x.
@@ -122,7 +122,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     if (room >= 7) waves[2].push('brute');
     return waves;
   }
-  // Town: # rubble wall · r rubble · S zombie entrance · G generator · T town hall · R ruins hatch
+  // Town: # rubble wall · r rubble · S zombie entrance · G generator · T town hall · R ruins hatch · K creature pen
   const TOWN_MAP = [
     '###########SS###########',
     '#......................#',
@@ -137,8 +137,8 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     '#..........TT..........#',
     '#..........TT..........#',
     '#..r................r..#',
-    '#..RR..............rr..#',
-    '#..RR..................#',
+    '#..RR..............KK..#',
+    '#..RR..............KK..#',
     '########################',
   ];
 
@@ -198,12 +198,29 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
   const gunDmg = () => T.gunDmg + (perk('gunner') ? 1 : 0);
   const swordDmg = () => T.swordDmg + (perk('blade') ? 1 : 0);
   const dashCd = () => T.dashCd * (perk('fleet') ? 0.7 : 1);
-  const petMaxHp = (pt) => SP[pt.sp].hearts + Math.floor(((pt.lvl || 1) - 1) / 5);
+  const petMaxHp = (pt) => SP[pt.sp].hearts + Math.floor(((pt.lvl || 1) - 1) / 5) + (SAVE.buildings ? kitchenMoth() : 0);
   const petLvlDmg = (lvl) => Math.floor(((lvl || 1) - 1) / 10);
+  // ---- jobs: one worker per Workbench / Kitchen / Farm / Storehouse / Turret
+  const JOB_SITES = ['workbench', 'kitchen', 'farm', 'storehouse', 'turret'];
+  const FAV = { workbench: 'hound', kitchen: 'moth', farm: 'beetle', storehouse: 'rat', turret: 'crow' };
+  const JOB_DESC = {
+    workbench: ['+1 cage per run', '+2 cages per run'],
+    kitchen: ['+1 max heart for you', '+1 heart for you and every pet'],
+    farm: ['+5 scrap each morning', '+10 scrap each morning'],
+    storehouse: ['protects 50 more scrap', 'protects 100 more scrap'],
+    turret: ['+1 turret damage', '+1 damage and fires 25% faster'],
+  };
+  const jobOf = (petId) => SAVE.buildings.find(b => b.w === petId) || null;
+  const isFav = (b) => { const pt = b.w && petById(b.w); return !!pt && FAV[b.t] === pt.sp; };
+  const staffed = (t) => SAVE.buildings.filter(b => b.t === t && b.w && petById(b.w));
+  const cagesForRun = () => T.cagesPerRun + Math.min(2, countB('workbench')) + staffed('workbench').reduce((m, b) => m + (isFav(b) ? 2 : 1), 0);
+  const kitchenMoth = () => staffed('kitchen').some(isFav) ? 1 : 0;
+  const farmScrap = () => countB('farm') * T.farmScrap + staffed('farm').reduce((m, b) => m + (isFav(b) ? 10 : 5), 0);
+  const protectAmt = () => countB('storehouse') * T.storehouseProtects + staffed('storehouse').reduce((m, b) => m + (isFav(b) ? 100 : 50), 0);
   const squadRank = (passive) => SAVE.squad.reduce((m, id) => { const pt = petById(id); return pt && SP[pt.sp].passive === passive ? Math.max(m, pt.pr || 1) : m; }, 0);
   const addPet = (sp) => { const pt = { id: SAVE.nextPetId++, sp, lvl: 1, xp: 0, ar: 1, pr: 1, picks: 0 }; SAVE.pets.push(pt); if (SAVE.squad.length < 4) SAVE.squad.push(pt.id); return pt; };
   const countB = (t) => SAVE.buildings.filter(b => b.t === t).length;
-  const maxHearts = () => T.heroHp + Math.min(2, countB('kitchen')) + squadRank('tough') + (perk('tough') ? 1 : 0) + Math.floor(SAVE.hero.lvl / 4);
+  const maxHearts = () => T.heroHp + Math.min(2, countB('kitchen')) + staffed('kitchen').length + squadRank('tough') + (perk('tough') ? 1 : 0) + Math.floor(SAVE.hero.lvl / 4);
   const bCost = (b) => { const d = BLD[b.t]; return d.upg ? d.upg[(b.lvl || 1) - 1] : d.cost; };
   const pointsUsed = (cat) => SAVE.buildings.reduce((s, b) => s + (BLD[b.t].cat === cat ? bCost(b) : 0), 0);
 
@@ -326,6 +343,14 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       for (let i = 0; i < 6; i++) r(3 + i * 5, 22, 3, 6, (i % 2) ? PAL.y : PAL.k);
       r(22, 1, 4, 6, PAL.k); r(23, 2, 2, 5, PAL.G);
       r(1, 28, 30, 2, PAL.K);
+    });
+    bigTexture(scene, 'pen', 32, (r) => {
+      r(1, 6, 30, 25, PAL.k); r(2, 7, 28, 23, '#3b4a22');
+      for (let i = 0; i < 18; i++) r(3 + (i * 7) % 25, 9 + (i * 5) % 19, 3, 1, PAL.y);
+      r(20, 21, 8, 5, PAL.k); r(21, 22, 6, 3, PAL.C);
+      for (let x = 1; x < 31; x += 5) { r(x, 4, 2, 6, PAL.k); r(x, 5, 1, 4, PAL.b); r(x, 27, 2, 5, PAL.k); r(x, 28, 1, 3, PAL.b); }
+      r(1, 6, 30, 2, PAL.B); r(1, 28, 30, 2, PAL.B); r(1, 6, 2, 24, PAL.B); r(29, 6, 2, 24, PAL.B);
+      r(12, 28, 8, 3, '#3b4a22');
     });
     bigTexture(scene, 'hall', 32, (r) => {
       r(3, 12, 26, 18, PAL.k); r(4, 13, 24, 16, PAL.b);
@@ -1719,6 +1744,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.physics.add.overlap(this.tBullets, this.enemies, (a, b) => { const bl = a.isBullet ? a : b, z = a.isBullet ? b : a; this.bulletHit(bl, z); });
       this.shade = this.add.rectangle(0, 0, TW, TH, 0x070b22, 1).setOrigin(0).setDepth(700).setAlpha(0);
       this.renderBuildings();
+      this.renderPenPets();
 
       const r = this.result;
       if (r && r.type === 'extract' && r.firstClear) HUD.banner = { text: 'THE RUINS ARE CLEARED!', sub: `+${r.scrap} ⚙${r.caught ? ' · ' + r.caught : ''} · A new dungeon is coming soon`, t: 4 };
@@ -1739,7 +1765,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       const g = this.grid, N = TCOLS * TROWS;
       this.baseBlocked = new Uint8Array(N); this.genCell = new Uint8Array(N); this.reserved = new Uint8Array(N);
       this.entrances = [];
-      const gen = [], hall = [], ruins = [];
+      const gen = [], hall = [], ruins = [], pen = [];
       for (let r = 0; r < TROWS; r++) {
         let run0 = -1;
         for (let c = 0; c <= TCOLS; c++) {
@@ -1758,10 +1784,14 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
           if (ch === 'G') { gen.push({ x, y }); this.genCell[k] = 1; this.reserved[k] = 1; }
           if (ch === 'T') { hall.push({ x, y }); this.baseBlocked[k] = 1; this.reserved[k] = 1; }
           if (ch === 'R') { ruins.push({ x, y }); this.reserved[k] = 1; }
+          if (ch === 'K') { pen.push({ x, y }); this.baseBlocked[k] = 1; this.reserved[k] = 1; }
         }
       }
       const avg = (a) => ({ x: a.reduce((s, p) => s + p.x, 0) / a.length, y: a.reduce((s, p) => s + p.y, 0) / a.length });
-      this.genPos = avg(gen); this.hallPos = avg(hall); this.ruinsPos = avg(ruins);
+      this.genPos = avg(gen); this.hallPos = avg(hall); this.ruinsPos = avg(ruins); this.penPos = avg(pen);
+      const penImg = this.rubble.create(this.penPos.x, this.penPos.y, 'pen');
+      penImg.refreshBody(); penImg.body.setSize(90, 60); penImg.setDepth(1.4);
+      this.add.text(this.penPos.x, this.penPos.y - 62, 'CREATURE PEN', { fontFamily: FONT, fontSize: '14px', fontStyle: 'bold', color: '#ff8c9e', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5).setDepth(20);
       this.drawGridFloor(g, TCOLS, TROWS, '#');
 
       this.ruinsImg = this.add.image(this.ruinsPos.x, this.ruinsPos.y, 'hatch').setDepth(1.5);
@@ -1778,7 +1808,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     }
 
     renderBuildings() {
-      (this.bSprites || []).forEach(b => { if (b.gunImg) b.gunImg.destroy(); b.destroy(); });
+      (this.bSprites || []).forEach(b => { if (b.gunImg) b.gunImg.destroy(); if (b.workerImg) b.workerImg.destroy(); b.destroy(); });
       this.bSprites = [];
       this.occ = new Array(TCOLS * TROWS).fill(null);
       SAVE.buildings.forEach(rec => {
@@ -1792,6 +1822,9 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         s.maxHp = (def.hp || 0) + (rec.t === 'turret' ? (s.lvl - 1) * 4 : 0); s.hp = s.maxHp;
         s.setDepth(def.solid ? 10 + y / 1000 : 1.2);
         if (rec.t === 'turret') { s.gunImg = this.add.image(x, y - 4, 'turretGun').setOrigin(0.2, 0.5).setDepth(11 + y / 1000); s.cd = 0.5; }
+        const wk = rec.w && petById(rec.w);
+        if (rec.w && !wk) delete rec.w;
+        if (wk) { s.workerImg = this.add.image(x + 14, y - 16, wk.sp).setScale(0.55).setDepth(12 + y / 1000); s.fav = FAV[rec.t] === wk.sp; }
         this.occ[this.idx(rec.c, rec.r)] = s;
         this.bSprites.push(s);
       });
@@ -1917,9 +1950,49 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.fillSlots(true);
       HUD.maxHp = maxHearts(); HUD.hp = Math.min(HUD.hp, HUD.maxHp);
     }
+    // creatures not in your squad and not working hang out by the pen
+    renderPenPets() {
+      (this.penPets || []).forEach(o => o.destroy());
+      this.penPets = [];
+      const idle = SAVE.pets.filter(pt => !SAVE.squad.includes(pt.id) && !jobOf(pt.id)).slice(0, 8);
+      idle.forEach((pt, i) => {
+        const o = this.add.image(this.penPos.x - 60 + (i % 4) * 40, this.penPos.y - 70 + Math.floor(i / 4) * 30, pt.sp).setScale(0.8);
+        o.tx = o.x; o.ty = o.y; o.wt = Math.random() * 2;
+        this.penPets.push(o);
+      });
+    }
+    updatePenPets(dt) {
+      (this.penPets || []).forEach(o => {
+        o.wt -= dt;
+        if (o.wt <= 0) {
+          o.wt = Phaser.Math.FloatBetween(1.5, 3.5);
+          o.tx = Phaser.Math.Clamp(this.penPos.x + Phaser.Math.Between(-130, 130), TILE * 1.5, TW - TILE * 1.5);
+          o.ty = Phaser.Math.Clamp(this.penPos.y + Phaser.Math.Between(-130, -40), TILE * 1.5, TH - TILE * 1.5);
+        }
+        const d = Math.hypot(o.tx - o.x, o.ty - o.y);
+        if (d > 2) { o.x += (o.tx - o.x) / d * 35 * dt; o.y += (o.ty - o.y) / d * 35 * dt; o.setFlipX(o.tx < o.x); }
+        o.setDepth(10 + o.y / 1000);
+      });
+    }
+    assignJob(pt, type) {
+      const cur = jobOf(pt.id);
+      if (cur && cur.t === type) return 'Already working there.';
+      const site = SAVE.buildings.find(b => b.t === type && !(b.w && petById(b.w)));
+      if (!site) return `No free ${BLD[type].name}. Build another one first.`;
+      if (SAVE.squad.includes(pt.id) && SAVE.squad.length <= 1) return 'You need at least one creature with you.';
+      if (cur) delete cur.w;
+      site.w = pt.id;
+      SAVE.squad = SAVE.squad.filter(id => id !== pt.id);
+      writeSave(); this.renderBuildings(); this.reloadSquad(); this.renderPenPets();
+      return `${SP[pt.sp].name} now works at the ${BLD[type].name}${FAV[type] === pt.sp ? ' — its favourite job!' : '.'}`;
+    }
+    stopJob(pt) {
+      const cur = jobOf(pt.id); if (!cur) return;
+      delete cur.w; writeSave(); this.renderBuildings(); this.reloadSquad(); this.renderPenPets();
+    }
     syncRoster() {
       HUD.roster = [{ id: 'hero', sp: 'hero', hero: true, lvl: SAVE.hero.lvl, picks: SAVE.hero.picks || 0, inSquad: -1 }]
-        .concat(SAVE.pets.map(pt => ({ id: pt.id, sp: pt.sp, inSquad: SAVE.squad.indexOf(pt.id), lvl: pt.lvl, ar: pt.ar, pr: pt.pr, picks: pt.picks || 0, hearts: petMaxHp(pt) })));
+        .concat(SAVE.pets.map(pt => { const jb = jobOf(pt.id); return { id: pt.id, sp: pt.sp, inSquad: SAVE.squad.indexOf(pt.id), lvl: pt.lvl, ar: pt.ar, pr: pt.pr, picks: pt.picks || 0, hearts: petMaxHp(pt), job: jb ? BLD[jb.t].name : null }; }));
       HUD.capNow = levelCap();
       this.syncHeroHud();
     }
@@ -1943,14 +2016,30 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       const xpLine = pt.lvl >= cap ? 'MAX (upgrade the Town Hall)' : `XP ${Math.floor(pt.xp)} / ${xpNeed(pt.lvl)}`;
       const rk = (arr, r) => `${arr[r - 1]}${r < 3 ? `\n   next: ${arr[r]}` : '  (max)'}`;
       const nextPick = Math.ceil((pt.lvl + 1) / 5) * 5;
+      const job = jobOf(pt.id), fav = Object.keys(FAV).find(k => FAV[k] === pt.sp);
+      if (HUD.detailMode === 'jobs') {
+        const jb = JOB_SITES.filter(t => countB(t) > 0).map(t => {
+          const free = SAVE.buildings.filter(b => b.t === t && !(b.w && petById(b.w))).length;
+          const f = FAV[t] === pt.sp;
+          return { label: `${f ? '★ ' : ''}${BLD[t].name} (${free} free): ${JOB_DESC[t][f ? 1 : 0]}`, ev: { type: 'assignJob', id: pt.id, job: t } };
+        });
+        HUD.detail = {
+          name: `${d.name} — pick a job`, icon: pt.sp, xpFrac: pt.lvl >= cap ? 1 : pt.xp / xpNeed(pt.lvl),
+          body: `Working creatures stay in town and can't go on runs.\nThey get a bit of XP every morning.\n\nFavourite job: ${BLD[fav].name} (bigger bonus, marked ★)\n\n${jb.length ? 'Pick a building →' : 'Build a Workbench, Kitchen, Farm, Storehouse or Turret first.'}`,
+          buttons: jb.slice(0, 5).concat([{ label: '← BACK', ev: { type: 'back' } }]),
+        };
+        return;
+      }
       const btns = [];
       if (pt.picks > 0 && pt.ar < 3) btns.push({ label: `▲ UPGRADE ${d.activeName}`, ev: { type: 'upgrade', id: pt.id, which: 'ar' } });
       if (pt.picks > 0 && pt.pr < 3) btns.push({ label: `▲ UPGRADE ${d.passiveName.toUpperCase()}`, ev: { type: 'upgrade', id: pt.id, which: 'pr' } });
       btns.push({ label: inSq >= 0 ? `REMOVE FROM SQUAD (#${inSq + 1})` : 'ADD TO SQUAD', ev: { type: 'toggleSquad', id: pt.id } });
+      btns.push(job ? { label: `STOP WORKING (${BLD[job.t].name})`, ev: { type: 'stopJob', id: pt.id } } : { label: '🛠 GIVE A JOB', ev: { type: 'jobMenu' } });
       btns.push({ label: '← BACK', ev: { type: 'back' } });
+      const jobLine = job ? `Job: ${BLD[job.t].name}${FAV[job.t] === pt.sp ? ' ★ favourite' : ''} — ${JOB_DESC[job.t][FAV[job.t] === pt.sp ? 1 : 0]}` : `No job · favourite: ${BLD[fav].name}`;
       HUD.detail = {
         name: d.name, icon: pt.sp, xpFrac: pt.lvl >= cap ? 1 : pt.xp / xpNeed(pt.lvl),
-        body: `Level ${pt.lvl} / ${cap}   ·   ♥ ${petMaxHp(pt)}\n${xpLine}\n\nACTIVE — ${d.activeName}  (rank ${pt.ar}/3)\n${rk(d.activeRanks, pt.ar)}\n\nPASSIVE — ${d.passiveName}  (rank ${pt.pr}/3)\n${rk(d.passiveRanks, pt.pr)}\n\n${pt.picks ? `★ ${pt.picks} upgrade${pt.picks > 1 ? 's' : ''} ready!` : (pt.ar >= 3 && pt.pr >= 3 ? 'Fully upgraded' : `Next upgrade at level ${nextPick}`)}`,
+        body: `Level ${pt.lvl} / ${cap}   ·   ♥ ${petMaxHp(pt)}\n${xpLine}\n${jobLine}\n\nACTIVE — ${d.activeName}  (rank ${pt.ar}/3)\n${rk(d.activeRanks, pt.ar)}\n\nPASSIVE — ${d.passiveName}  (rank ${pt.pr}/3)\n${rk(d.passiveRanks, pt.pr)}\n\n${pt.picks ? `★ ${pt.picks} upgrade${pt.picks > 1 ? 's' : ''} ready!` : (pt.ar >= 3 && pt.pr >= 3 ? 'Fully upgraded' : `Next upgrade at level ${nextPick}`)}`,
         buttons: btns,
       };
     }
@@ -1985,6 +2074,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
           const p = HUD.prompt; if (!p || !day || HUD.building) return;
           if (p.action === 'ruins') { if (HUD.runsLeft > 0) this.startRun(); else HUD.banner = { text: 'TOO LATE FOR THE RUINS', sub: 'End the day and go again tomorrow', t: 2 }; }
           if (p.action === 'hall') { HUD.hallMsg = ''; this.syncHud(); HUD.panel = 'hall'; }
+          if (p.action === 'pen') this.onEvent({ type: 'openSquad' });
           break;
         }
         case 'endDay':
@@ -2004,7 +2094,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         case 'swapSlots': if (day && !HUD.building && !HUD.panel) this.swapSlots(ev.a, ev.b); break;
         case 'openSquad':
           if (!day || HUD.building) return;
-          HUD.rosterMsg = ''; this.syncRoster(); HUD.panel = 'squad';
+          HUD.rosterMsg = ''; HUD.rosterPage = 0; this.syncRoster(); HUD.panel = 'squad';
           break;
         case 'toggleSquad': {
           const i = SAVE.squad.indexOf(ev.id);
@@ -2012,13 +2102,17 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
             if (SAVE.squad.length <= 1) { HUD.rosterMsg = 'You need at least one creature with you.'; break; }
             SAVE.squad.splice(i, 1); HUD.rosterMsg = `${SP[petById(ev.id).sp].name} left the squad.`;
           } else if (SAVE.squad.length >= 4) { HUD.rosterMsg = 'Squad is full (4). Tap one in the squad to take it out first.'; break; }
-          else { SAVE.squad.push(ev.id); HUD.rosterMsg = `${SP[petById(ev.id).sp].name} joined as #${SAVE.squad.length}.`; }
-          writeSave(); this.reloadSquad(); this.syncRoster();
+          else { const jb = jobOf(ev.id); if (jb) delete jb.w; SAVE.squad.push(ev.id); HUD.rosterMsg = `${SP[petById(ev.id).sp].name} joined as #${SAVE.squad.length}${jb ? ' (left its job)' : ''}.`; this.renderBuildings(); }
+          writeSave(); this.reloadSquad(); this.syncRoster(); this.renderPenPets();
           if (HUD.panel === 'detail') this.syncDetail();
           break;
         }
-        case 'openDetail': HUD.detailId = ev.id; HUD.rosterMsg = ''; this.syncDetail(); HUD.panel = 'detail'; break;
-        case 'back': HUD.panel = 'squad'; HUD.rosterMsg = ''; this.syncRoster(); break;
+        case 'openDetail': HUD.detailId = ev.id; HUD.detailMode = null; HUD.rosterMsg = ''; this.syncDetail(); HUD.panel = 'detail'; break;
+        case 'jobMenu': HUD.detailMode = 'jobs'; HUD.rosterMsg = ''; this.syncDetail(); break;
+        case 'assignJob': { const pt = petById(ev.id); if (pt) HUD.rosterMsg = this.assignJob(pt, ev.job); HUD.detailMode = null; this.syncDetail(); break; }
+        case 'stopJob': { const pt = petById(ev.id); if (pt) { this.stopJob(pt); HUD.rosterMsg = 'Stopped working. It\'s back at the pen.'; } this.syncDetail(); break; }
+        case 'page': HUD.rosterPage = Math.max(0, (HUD.rosterPage || 0) + ev.d); break;
+        case 'back': if (HUD.detailMode) { HUD.detailMode = null; this.syncDetail(); break; } HUD.panel = 'squad'; HUD.rosterMsg = ''; this.syncRoster(); break;
         case 'upgrade': {
           const pt = petById(ev.id);
           if (pt && pt.picks > 0 && pt[ev.which] < 3) { pt[ev.which]++; pt.picks--; writeSave(); this.reloadSquad(); this.syncHeroHud(); HUD.rosterMsg = 'Upgraded!'; }
@@ -2105,7 +2199,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     startRun() {
       SAVE.runsToday++; writeSave();
       const pets = this.makeTownRecs();
-      const run = { room: 1, hp: maxHearts(), maxHp: maxHearts(), scrap: 0, cages: T.cagesPerRun + Math.min(2, countB('workbench')), captured: [], pets };
+      const run = { room: 1, hp: maxHearts(), maxHp: maxHearts(), scrap: 0, cages: cagesForRun(), captured: [], pets };
       this.leaving = true;
       this.cameras.main.fadeOut(250);
       this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('dungeon', { run }));
@@ -2158,11 +2252,13 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         const reward = 10 + SAVE.day * 3;
         SAVE.scrap += reward; sub = `Survived!  +${reward} ⚙`;
       } else {
-        const protectedAmt = countB('storehouse') * T.storehouseProtects;
+        const protectedAmt = protectAmt();
         const lost = Math.floor(Math.max(0, SAVE.scrap - protectedAmt) * T.genLossPct);
         SAVE.scrap -= lost; sub = `The generator fell.  Lost ${lost} ⚙${protectedAmt ? ` (storehouses saved ${Math.min(protectedAmt, SAVE.scrap)})` : ''}`;
       }
-      const farms = countB('farm') * T.farmScrap;
+      const farms = farmScrap();
+      // workers earn a little XP every morning
+      SAVE.buildings.forEach(b => { const pt = b.w && petById(b.w); if (pt) addXp(pt, 6); });
       if (farms) { SAVE.scrap += farms; sub += `   ·   Farms +${farms} ⚙`; }
       SAVE.day++; SAVE.runsToday = 0; writeSave();
       this.tweens.add({ targets: this.shade, alpha: 0, duration: 1500 });
@@ -2183,8 +2279,11 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       if (this.phase === 'day' && !HUD.building && !HUD.panel) {
         if (dist(h, this.ruinsPos) < 70) HUD.prompt = { label: HUD.runsLeft > 0 ? 'ENTER THE RUINS' : 'RUINS: COME BACK TOMORROW', action: 'ruins' };
         else if (dist(h, this.hallPos) < 100) HUD.prompt = { label: 'TOWN HALL', action: 'hall' };
+        else if (dist(h, this.penPos) < 95) HUD.prompt = { label: 'CREATURE PEN', action: 'pen' };
       }
       HUD.scrap = SAVE.scrap;
+      this.updatePenPets(dt);
+      this.bSprites.forEach(b => { if (b.workerImg) b.workerImg.y = b.y - 16 + Math.sin(this.time.now * 0.005 + b.c) * 2; });
       HUD.canSwap = this.phase === 'day' && !HUD.building && !HUD.panel && this.squadRecs.length > 1;
 
       if (this.phase === 'night') {
@@ -2216,7 +2315,8 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     updateTurrets(dt) {
       this.bSprites.forEach(t => {
         if (t.bt !== 'turret' || t.dead) return;
-        const st = TURRET[t.lvl];
+        const st0 = TURRET[t.lvl], crew = !!t.workerImg;
+        const st = { range: st0.range, dmg: st0.dmg + (crew ? 1 : 0), rate: st0.rate * (crew && t.fav ? 0.75 : 1) };
         const z = this.nearestEnemy(t.x, t.y, st.range, false);
         t.cd -= dt;
         if (!z) return;
@@ -2330,6 +2430,9 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.sqTitle = this.add.text(0, 0, 'YOUR CREATURES', S(18, { color: '#f2d14b' })).setOrigin(0.5).setVisible(false);
       this.sqSub = this.add.text(0, 0, '', S(11, { color: '#c9d1d9', align: 'center' })).setOrigin(0.5).setVisible(false);
       this.sqClose = this.add.text(0, 0, 'DONE', S(14)).setOrigin(0.5).setVisible(false);
+      this.pgPrev = this.add.text(0, 0, '◀', S(18)).setOrigin(0.5).setVisible(false);
+      this.pgNext = this.add.text(0, 0, '▶', S(18)).setOrigin(0.5).setVisible(false);
+      this.pgText = this.add.text(0, 0, '', S(11, { color: '#c9d1d9' })).setOrigin(0.5).setVisible(false);
       this.swapSel = -1;
       this.heroLv = this.add.text(0, 0, '', S(11, { color: '#f2d14b' })).setOrigin(0, 0.5);
       this.portLv = [0, 1, 2, 3].map(() => this.add.text(0, 0, '', S(9, { color: '#e8e6df' })).setOrigin(0.5, 0).setVisible(false));
@@ -2397,6 +2500,11 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.sqTitle.setPosition(w / 2, SQ.y - SQ.h / 2 + u * 0.05).setFontSize(fs(0.045));
       this.sqSub.setPosition(w / 2, SQ.y - SQ.h / 2 + u * 0.105).setFontSize(fs(0.027));
       this.sqClose.setPosition(this.B.sqClose.x, this.B.sqClose.y).setFontSize(fs(0.035));
+      this.B.pgPrev = { x: SQ.x - SQ.w / 2 + u * 0.13, y: this.B.sqClose.y, w: u * 0.16, h: u * 0.085 };
+      this.B.pgNext = { x: SQ.x + SQ.w / 2 - u * 0.13, y: this.B.sqClose.y, w: u * 0.16, h: u * 0.085 };
+      this.pgPrev.setPosition(this.B.pgPrev.x, this.B.pgPrev.y).setFontSize(fs(0.045));
+      this.pgNext.setPosition(this.B.pgNext.x, this.B.pgNext.y).setFontSize(fs(0.045));
+      this.pgText.setPosition(SQ.x - SQ.w / 2 + u * 0.32, this.B.sqClose.y).setFontSize(fs(0.026));
       this.sqCards.forEach(c => { c.name.setFontSize(fs(0.03)); c.info.setFontSize(fs(0.025)); c.badge.setFontSize(fs(0.034)); });
       this.portraits.forEach(pp => pp.num.setFontSize(fs(0.03)));
       this.heroLv.setPosition(u * 0.265, u * 0.125).setFontSize(fs(0.028));
@@ -2522,8 +2630,11 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       }
       if (HUD.panel === 'squad') {
         if (tapIn(B.sqClose) || !this.inRect(p.x, p.y, B.sq)) { Ctl.queue.push({ type: 'closePanel' }); return; }
-        const roster = HUD.roster || [];
-        for (let i = 0; i < Math.min(12, roster.length); i++) if (tapIn(this.sqCardRect(i))) { Ctl.queue.push({ type: 'openDetail', id: roster[i].id }); return; }
+        const roster = HUD.roster || [], pages = Math.ceil(roster.length / 12), pg = Math.min(HUD.rosterPage || 0, pages - 1);
+        if (pages > 1 && tapIn(B.pgPrev) && pg > 0) { Ctl.queue.push({ type: 'page', d: -1 }); return; }
+        if (pages > 1 && tapIn(B.pgNext) && pg < pages - 1) { Ctl.queue.push({ type: 'page', d: 1 }); return; }
+        const view = roster.slice(pg * 12, pg * 12 + 12);
+        for (let i = 0; i < view.length; i++) if (tapIn(this.sqCardRect(i))) { Ctl.queue.push({ type: 'openDetail', id: view[i].id }); return; }
         return;
       }
       if (HUD.panel) {
@@ -2635,7 +2746,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       const f = B.fs; g.lineStyle(2, 0xffffff, 0.6); g.strokeRect(f.x - f.r * 0.6, f.y - f.r * 0.6, f.r * 1.2, f.r * 1.2);
       const maxHp = HUD.maxHp || T.heroHp;
       for (let i = 0; i < maxHp; i++) {
-        const x = u * 0.28 + i * u * 0.05, y = u * 0.075, r = u * 0.019;
+        const sp = u * Math.min(0.05, 0.32 / maxHp), x = u * 0.28 + i * sp, y = u * 0.075, r = sp * 0.38;
         if (i < HUD.hp) { g.fillStyle(0xff4d6d, 1); g.fillRect(x - r, y - r, r * 2, r * 2); }
         g.lineStyle(2, 0x000000, 0.8); g.strokeRect(x - r, y - r, r * 2, r * 2);
       }
@@ -2717,10 +2828,19 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         g.fillStyle(0x000000, 0.55); g.fillRect(0, 0, w, h);
         g.fillStyle(0x14161a, 0.97); g.fillRoundedRect(SQ.x - SQ.w / 2, SQ.y - SQ.h / 2, SQ.w, SQ.h, 14);
         g.lineStyle(3, 0xff8c9e, 0.8); g.strokeRoundedRect(SQ.x - SQ.w / 2, SQ.y - SQ.h / 2, SQ.w, SQ.h, 14);
-        this.sqSub.setText(HUD.rosterMsg || 'Tap one to see it, upgrade it, or add/remove it  ·  #1 and #2 fight  ·  all 4 give passives  ·  ★ = upgrade ready');
+        this.sqSub.setText(HUD.rosterMsg || 'Tap one to upgrade it, add it to your squad, or give it a job  ·  #1 and #2 fight  ·  all 4 give passives  ·  ★ = upgrade ready');
         this.pill(B.sqClose, 0x8ef0a0, 0.6, false);
       }
-      const roster = showSq ? (HUD.roster || []) : [];
+      const fullRoster = showSq ? (HUD.roster || []) : [];
+      const pages = Math.max(1, Math.ceil(fullRoster.length / 12)), pg = Math.min(HUD.rosterPage || 0, pages - 1);
+      const roster = fullRoster.slice(pg * 12, pg * 12 + 12);
+      const showPg = showSq && pages > 1;
+      [this.pgPrev, this.pgNext, this.pgText].forEach(t => t.setVisible(showPg));
+      if (showPg) {
+        this.pill(B.pgPrev, 0xffffff, 0.6, false); this.pill(B.pgNext, 0xffffff, 0.6, false);
+        this.pgPrev.setAlpha(pg > 0 ? 1 : 0.3); this.pgNext.setAlpha(pg < pages - 1 ? 1 : 0.3);
+        this.pgText.setText(`page ${pg + 1}/${pages}`);
+      }
       this.sqCards.forEach((c, i) => {
         const e = roster[i], vis = showSq && !!e;
         [c.icon, c.name, c.info, c.badge].forEach(o => o.setVisible(vis));
@@ -2731,8 +2851,8 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         c.icon.setTexture(e.sp).setPosition(r.x - r.w / 2 + r.h * 0.42, r.y).setScale(r.h / 62);
         const up = (n) => '▲'.repeat(Math.max(0, (n || 1) - 1));
         c.name.setText(e.hero ? 'You' : d.name).setPosition(r.x - r.w / 2 + r.h * 0.85, r.y - r.h * 0.42);
-        c.info.setText(e.hero ? `Lv ${e.lvl} / ${HUD.capNow}\nPerks + hearts` : `Lv ${e.lvl} · ${'♥'.repeat(e.hearts)}\nA: ${d.activeName} ${up(e.ar)}\nP: ${d.passiveName} ${up(e.pr)}`).setPosition(r.x - r.w / 2 + r.h * 0.85, r.y - r.h * 0.14);
-        c.badge.setText(`${inSq ? '#' + (e.inSquad + 1) : ''}${e.picks ? ' ★' : ''}`).setPosition(r.x - r.w / 2 + 6, r.y - r.h / 2 + 4);
+        c.info.setText(e.hero ? `Lv ${e.lvl} / ${HUD.capNow}\nPerks + hearts` : `Lv ${e.lvl} · ${e.job ? '⚒ ' + e.job : '♥'.repeat(e.hearts)}\nA: ${d.activeName} ${up(e.ar)}\nP: ${d.passiveName} ${up(e.pr)}`).setPosition(r.x - r.w / 2 + r.h * 0.85, r.y - r.h * 0.14);
+        c.badge.setText(`${inSq ? '#' + (e.inSquad + 1) : ''}${e.job ? '⚒' : ''}${e.picks ? ' ★' : ''}`).setPosition(r.x - r.w / 2 + 6, r.y - r.h / 2 + 4);
         if (e.picks) { g.lineStyle(2, 0xf2d14b, 0.6 + 0.4 * Math.sin(time * 0.01)); g.strokeRoundedRect(r.x - r.w / 2 - 2, r.y - r.h / 2 - 2, r.w + 4, r.h + 4, 9); }
       });
 
