@@ -72,8 +72,8 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     spikes:     { name: 'Spikes', cat: 'mil', cost: 2, pathCost: 3, desc: 'Hurts zombies that walk over it.' },
     guard:      { name: 'Guard Post', cat: 'mil', cost: 3, hp: 14, pathCost: 30, solid: true, desc: 'Give it a creature (as a job). At night it defends this spot.' },
     turret:     { name: 'Turret', cat: 'mil', cost: 4, upg: [4, 6, 9], hp: 12, pathCost: 30, solid: true, desc: 'Shoots the nearest zombie. Upgrade: 4 → 6 → 9 pts.' },
-    workbench:  { name: 'Workbench', cat: 'civ', cost: 3, hp: 16, pathCost: 30, solid: true, max: 2, desc: 'Builds a Cage or Noise Lure every morning (if your stash has room).' },
-    kitchen:    { name: 'Kitchen', cat: 'civ', cost: 3, hp: 16, pathCost: 30, solid: true, max: 2, desc: 'Cooks a Med Kit or Pet Treat every morning for 20 scrap.' },
+    workbench:  { name: 'Workbench', cat: 'civ', cost: 3, hp: 16, pathCost: 30, solid: true, desc: 'Builds a Cage or Noise Lure every morning. Walk up to it to switch.' },
+    kitchen:    { name: 'Kitchen', cat: 'civ', cost: 3, hp: 16, pathCost: 30, solid: true, desc: 'Cooks a Med Kit or Pet Treat every morning for 20 scrap. Walk up to it to switch.' },
     farm:       { name: 'Farm', cat: 'civ', cost: 2, hp: 16, pathCost: 30, solid: true, desc: '+20 scrap every morning.' },
     storehouse: { name: 'Storehouse', cat: 'civ', cost: 2, hp: 16, pathCost: 30, solid: true, desc: 'Protects 50 scrap if the generator falls.' },
   };
@@ -119,6 +119,11 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
 
   const MIL_ITEMS = ['wall', 'gate', 'wire', 'spikes', 'turret', 'guard'];
   const CIV_ITEMS = ['workbench', 'kitchen', 'farm', 'storehouse'];
+  // each civic building type: as many as your Town Hall level
+  const typeCap = (t) => (BLD[t] && BLD[t].cat === 'civ' ? SAVE.townLevel : 0);
+  // what each production building makes (set per building)
+  const RECIPES = { kitchen: ['medkit', 'treat'], workbench: ['cage', 'lure'] };
+  const recipeOf = (b) => (RECIPES[b.t] ? (RECIPES[b.t].includes(b.rcp) ? b.rcp : RECIPES[b.t][0]) : null);
 
   // # wall · . floor · c crate · r rubble · s spawn · D door · P entry · H hatch
   const TEMPLATES = [
@@ -261,6 +266,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
   const ITEMS = { cage: 'Cage', medkit: 'Med Kit', treat: 'Pet Treat', lure: 'Noise Lure' };
   if (!SAVE.stash) SAVE.stash = { cage: 0, medkit: 0, treat: 0, lure: 0 };
   if (!SAVE.recipes) SAVE.recipes = { workbench: 'cage', kitchen: 'medkit' };
+  if (SAVE.recipes && !SAVE.recipesMigrated) { SAVE.buildings.forEach(b => { if (!b.rcp && SAVE.recipes[b.t]) b.rcp = SAVE.recipes[b.t]; }); SAVE.recipesMigrated = true; }
   const stashCap = () => T.stashBase + T.stashPerStorehouse * countB('storehouse');
   const stashTotal = () => Object.values(SAVE.stash).reduce((a, b) => a + b, 0);
   const prodMult = (b) => (b.w && petById(b.w) ? (isFav(b) ? 3 : 2) : 1);
@@ -316,6 +322,8 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     crate: ['kkkkkkkkkkkkkkkk', 'kbbbbbbbbbbbbbbk', 'kbBbbbbbbbbbbBbk', 'kbbBbbbbbbbbBbbk', 'kbbbBbbbbbbBbbbk', 'kbbbbBbbbbBbbbbk', 'kbbbbbBbbBbbbbbk', 'kbbbbbbBBbbbbbbk', 'kbbbbbbBBbbbbbbk', 'kbbbbbBbbBbbbbbk', 'kbbbbBbbbbBbbbbk', 'kbbbBbbbbbbBbbbk', 'kbbBbbbbbbbbBbbk', 'kbBbbbbbbbbbbBbk', 'kbbbbbbbbbbbbbbk', 'kkkkkkkkkkkkkkkk'],
     rubble: ['................', '...kkkkkk.......', '..kgggggGkk.....', '.kggGgggggGkkk..', '.kgggggkgggGggk.', 'kgGggggkkgggggk.', 'kggggGgggggGggkk', 'kgggggggGggggGgk', 'kGggggggggggggGk', 'kgggGgggGggggggk', '.kgggggggGgggGk.', '.kkGggggggggGkk.', '...kkkgggGkkk...', '.....kkkkkk.....', '................', '................'],
     cage: ['................', '..kkkkkkkkkkkk..', '..kmmmmmmmmmmk..', '..kmkMkMkMkMmk..', '..kmkMkMkMkMmk..', '..kmkMkMkMkMmk..', '..kmkMkMkMkMmk..', '..kmkMkMkMkMmk..', '..kmkMkMkMkMmk..', '..kmkMkMkMkMmk..', '..kmmmmmmmmmmk..', '..kkkkkkkkkkkk..', '................'],
+    medkit: ['.kkkkkk.', 'kwwwwwwk', 'kwwrrwwk', 'kwrrrrwk', 'kwwrrwwk', 'kwwwwwwk', '.kkkkkk.'],
+    treat: ['........', '.kk..kk.', 'kwwkkwwk', '.kwwwwk.', 'kwwkkwwk', '.kk..kk.', '........'],
     lure: ['.kkkkkk.', 'kyyyyyyk', 'kykkkkyk', 'kykrrkyk', 'kykkkkyk', 'kyyyyyyk', '.kkkkkk.'],
     scrap: ['..kkk...', '.kmmMk..', 'kmMmmMk.', 'kMmmmyk.', '.kMmMk..', '..kkk...'],
     gun: ['kkkkkkkkkk', 'kmmmmmmmMk', 'kkkMkkkkkk', '..kk......'],
@@ -374,6 +382,9 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     pxTexture(scene, 'brute', SPR.brute, 4);
     pxTexture(scene, 'scrap', SPR.scrap, 2);
     pxTexture(scene, 'lure', SPR.lure, 3);
+    pxTexture(scene, 'medkit', SPR.medkit, 3);
+    pxTexture(scene, 'treat', SPR.treat, 3);
+    pxTexture(scene, 'cageIcon', SPR.cage, 1);
     pxTexture(scene, 'gun', SPR.gun, 3);
     pxTexture(scene, 'turretGun', SPR.turretGun, 3);
     pxTexture(scene, 'bullet', SPR.bullet, 3);
@@ -2122,7 +2133,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     }
 
     renderBuildings() {
-      (this.bSprites || []).forEach(b => { if (b.gunImg) b.gunImg.destroy(); if (b.workerImg) b.workerImg.destroy(); b.destroy(); });
+      (this.bSprites || []).forEach(b => { if (b.gunImg) b.gunImg.destroy(); if (b.workerImg) b.workerImg.destroy(); if (b.rcpImg) b.rcpImg.destroy(); b.destroy(); });
       this.bSprites = [];
       this.occ = new Array(TCOLS * TROWS).fill(null);
       const before = SAVE.buildings.length;
@@ -2141,6 +2152,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         if (rec.t === 'turret') { s.gunImg = this.add.image(x, y - 4, 'turretGun').setOrigin(0.2, 0.5).setDepth(11 + y / 1000); s.cd = 0.5; }
         const wk = rec.w && petById(rec.w);
         if (rec.w && !wk) delete rec.w;
+        if (RECIPES[rec.t]) { const rk = recipeOf(rec); s.rcpImg = this.add.image(x - 14, y + 14, rk === 'cage' ? 'cageIcon' : rk).setScale(rk === 'cage' ? 1.2 : 0.8).setDepth(12 + y / 1000); }
         if (wk) { s.workerImg = this.add.image(x + 14, y - 16, wk.sp).setScale(0.55).setDepth(12 + y / 1000); s.fav = FAV[rec.t] === wk.sp; if (rec.t === 'guard' && this.phase === 'night') s.workerImg.setVisible(false); }
         this.occ[this.idx(rec.c, rec.r)] = s;
         this.bSprites.push(s);
@@ -2319,14 +2331,14 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     syncDetail() {
       const id = HUD.detailId, cap = levelCap();
       if (id === 'stash') {
-        const st = SAVE.stash, rc = SAVE.recipes, kt = countB('kitchen'), wb = countB('workbench');
-        const perMorning = (t) => SAVE.buildings.filter(b => b.t === t).reduce((m, b) => m + prodMult(b), 0);
+        const st = SAVE.stash;
+        const out = {};
+        SAVE.buildings.filter(b => RECIPES[b.t]).forEach(b => { const k = recipeOf(b); out[k] = (out[k] || 0) + prodMult(b); });
+        const outTxt = Object.entries(out).map(([k, n]) => `${n} ${ITEMS[k]}${n > 1 ? 's' : ''}`).join(', ') || 'nothing (build a Kitchen or Workbench)';
         HUD.detail = {
           name: 'Stash', icon: 'storehouse', xpFrac: stashTotal() / Math.max(1, stashCap()),
-          body: `Items: ${stashTotal()} / ${stashCap()}   (3 + 5 per Storehouse)\n\nCages ${st.cage}   ·   Med Kits ${st.medkit}\nPet Treats ${st.treat}   ·   Noise Lures ${st.lure}\n\nEvery morning:\n· Farms: +${farmScrap()} scrap\n· Kitchens (${kt}): ${perMorning('kitchen')} ${ITEMS[rc.kitchen]}${perMorning('kitchen') === 1 ? '' : 's'}, ${T.medkitCost} scrap each\n· Workbenches (${wb}): ${perMorning('workbench')} ${ITEMS[rc.workbench]}${perMorning('workbench') === 1 ? '' : 's'}\n\nYou take everything on runs; leftovers come back.\nAt night, use items with the buttons up top.`,
+          body: `Items: ${stashTotal()} / ${stashCap()}   (3 + 5 per Storehouse)\n\nCages ${st.cage}   ·   Med Kits ${st.medkit}\nPet Treats ${st.treat}   ·   Noise Lures ${st.lure}\n\nEvery morning:\n· Farms: +${farmScrap()} scrap\n· Made: ${outTxt}\n   (kitchen items cost ${T.medkitCost} scrap each)\n\nWalk up to a Kitchen or Workbench to change what it makes.\nYou take everything on runs; leftovers come back.`,
           buttons: [
-            { label: `Kitchens cook: ${ITEMS[rc.kitchen].toUpperCase()}S  ⇄`, ev: { type: 'recipe', b: 'kitchen' } },
-            { label: `Workbenches build: ${ITEMS[rc.workbench].toUpperCase()}S  ⇄`, ev: { type: 'recipe', b: 'workbench' } },
             { label: 'CLOSE', ev: { type: 'back' } },
           ],
         };
@@ -2413,6 +2425,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
           }
           if (p.action === 'hall') { HUD.hallMsg = ''; this.syncHud(); HUD.panel = 'hall'; }
           if (p.action === 'pen') this.onEvent({ type: 'openSquad' });
+          if (p.action === 'recipe' && p.b) this.cycleRecipe(p.b);
           break;
         }
         case 'endDay':
@@ -2425,7 +2438,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
           this.setBuildView(!HUD.building);
           break;
         case 'tab': HUD.buildTab = ev.tab; HUD.buildSel = ev.tab === 'mil' ? 'wall' : 'workbench'; HUD.buildMsg = BLD[HUD.buildSel].desc; break;
-        case 'select': HUD.buildSel = ev.item; HUD.buildMsg = BLD[ev.item] ? BLD[ev.item].desc : (ev.item === 'upgrade' ? 'Tap a turret to upgrade it.' : 'Tap a building to remove it (points come back).'); break;
+        case 'select': HUD.buildSel = ev.item; HUD.buildMsg = BLD[ev.item] ? BLD[ev.item].desc : (ev.item === 'upgrade' ? 'Tap a turret to upgrade it.' : ev.item === 'recipe' ? 'Tap a Kitchen or Workbench to switch what it makes.' : 'Tap a building to remove it (points come back).'); break;
         case 'tapTile': if (HUD.building) this.tapTile(ev.x, ev.y); break;
         case 'hallUpgrade': this.upgradeHall(); break;
         case 'closePanel': HUD.panel = null; break;
@@ -2510,6 +2523,15 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       cam.scrollY = Phaser.Math.Clamp(cam.scrollY, -cam.height / 2, TH - cam.height / 2);
     }
 
+    cycleRecipe(b) {
+      const opts = RECIPES[b.bt]; if (!opts) return;
+      b.rec.rcp = opts[(opts.indexOf(recipeOf(b.rec)) + 1) % opts.length];
+      writeSave();
+      this.floatText(b.x, b.y - 30, `NOW MAKING: ${ITEMS[b.rec.rcp].toUpperCase()}S`, '#f2d14b', 14);
+      this.ring(b.x, b.y, 34, 0xf2d14b);
+      this.renderBuildings();
+    }
+
     tapTile(wx, wy) {
       const c = Math.floor(wx / TILE), r = Math.floor(wy / TILE);
       const say = (m) => { HUD.buildMsg = m; };
@@ -2517,6 +2539,11 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       const k = this.idx(c, r), existing = this.occ[k], sel = HUD.buildSel;
       const lv = TL[SAVE.townLevel];
       const pop = (col) => { const x = c * TILE + TILE / 2, y = r * TILE + TILE / 2; this.spark(x, y, col, 8); this.ring(x, y, 30, col); };
+      if (sel === 'recipe') {
+        if (!existing || !RECIPES[existing.bt]) return say('Tap a Kitchen or Workbench to switch what it makes.');
+        this.cycleRecipe(existing);
+        return say(`${existing.def.name} now makes ${ITEMS[existing.rec.rcp]}s.`);
+      }
       if (sel === 'remove') {
         if (!existing) return say('Nothing to remove there.');
         SAVE.buildings = SAVE.buildings.filter(b => b !== existing.rec);
@@ -2536,7 +2563,8 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       if (existing) return say('Something is already there.');
       if (this.baseBlocked[k] || this.reserved[k]) return say('You can\'t build there.');
       if (c === 0 || r === 0 || c === TCOLS - 1 || r === TROWS - 1) return say('Too close to the edge.');
-      if (def.max && countB(sel) >= def.max) return say(`You can only have ${def.max} ${def.name}s.`);
+      const mx = typeCap(sel);
+      if (mx && countB(sel) >= mx) return say(`Town Hall level ${SAVE.townLevel} allows ${mx} ${def.name}${mx > 1 ? 's' : ''}. Upgrade it for more.`);
       const cap = def.cat === 'mil' ? lv.mil : lv.civ;
       if (pointsUsed(def.cat) + def.cost > cap) return say(`Not enough ${def.cat === 'mil' ? 'military' : 'civic'} points. Upgrade the Town Hall.`);
       SAVE.buildings.push({ t: sel, c, r, lvl: 1 });
@@ -2639,9 +2667,9 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.stashFull = false;
       const add = (k) => { if (stashTotal() >= cap) { this.stashFull = true; return false; } st[k]++; made[k] = (made[k] || 0) + 1; return true; };
       SAVE.buildings.filter(b => b.t === 'kitchen').forEach(b => {
-        for (let i = 0; i < prodMult(b); i++) { if (SAVE.scrap < T.medkitCost) break; if (!add(SAVE.recipes.kitchen)) break; SAVE.scrap -= T.medkitCost; }
+        for (let i = 0; i < prodMult(b); i++) { if (SAVE.scrap < T.medkitCost) break; if (!add(recipeOf(b))) break; SAVE.scrap -= T.medkitCost; }
       });
-      SAVE.buildings.filter(b => b.t === 'workbench').forEach(b => { for (let i = 0; i < prodMult(b); i++) if (!add(SAVE.recipes.workbench)) break; });
+      SAVE.buildings.filter(b => b.t === 'workbench').forEach(b => { for (let i = 0; i < prodMult(b); i++) if (!add(recipeOf(b))) break; });
       return made;
     }
 
@@ -2726,6 +2754,10 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         else if (dist(h, this.subPos) < 70) HUD.prompt = { label: !this.eastOpen ? 'SUBWAY: TOWN HALL LV 2 OPENS THIS PATH' : HUD.runsLeft > 0 ? 'ENTER THE SUBWAY' : 'SUBWAY: COME BACK TOMORROW', action: 'subway' };
         else if (dist(h, this.hallPos) < 100) HUD.prompt = { label: 'TOWN HALL', action: 'hall' };
         else if (dist(h, this.penPos) < 95) HUD.prompt = { label: 'CREATURE PEN', action: 'pen' };
+        else {
+          const pb = this.bSprites.find(b => RECIPES[b.bt] && dist(h, b) < 62);
+          if (pb) HUD.prompt = { label: `${BLD[pb.bt].name.toUpperCase()}: ${ITEMS[recipeOf(pb.rec)].toUpperCase()}S  ⇄`, action: 'recipe', b: pb };
+        }
       }
       HUD.scrap = SAVE.scrap;
       this.updatePenPets(dt);
@@ -2994,7 +3026,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     near(x, y, b, mult) { return Math.hypot(x - b.x, y - b.y) < b.r * mult; }
     gs() { const s = this.scene.get(HUD.scene); return s && s.sys.isActive() ? s : null; }
     town() { return HUD.scene === 'town'; }
-    cardItems() { return (HUD.buildTab === 'civ' ? CIV_ITEMS : MIL_ITEMS).concat(['upgrade', 'remove']); }
+    cardItems() { return HUD.buildTab === 'civ' ? CIV_ITEMS.concat(['recipe', 'remove']) : MIL_ITEMS.concat(['upgrade', 'remove']); }
     cardRect(i, n) {
       const bar = this.B.bar, gap = this.u * 0.012;
       const cw = Math.min(this.u * 0.2, (bar.x1 - bar.x0 - gap * (n - 1)) / n);
@@ -3424,7 +3456,8 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         g.fillStyle(sel ? 0xf2d14b : 0x000000, sel ? 0.3 : 0.6); g.fillRoundedRect(r.x - r.w / 2, r.y - r.h / 2, r.w, r.h, 8);
         g.lineStyle(sel ? 3 : 2, sel ? 0xf2d14b : 0xffffff, sel ? 1 : 0.3); g.strokeRoundedRect(r.x - r.w / 2, r.y - r.h / 2, r.w, r.h, 8);
         const def = BLD[it];
-        if (def) { c.icon.setTexture(it).setPosition(r.x, r.y - r.h * 0.16).setScale(Math.min(r.w, r.h) / 70).setAlpha(1); c.name.setText(def.name); c.cost.setText(`${def.upg ? def.upg[0] : def.cost} pt${(def.upg ? def.upg[0] : def.cost) > 1 ? 's' : ''}`); }
+        if (def) { c.icon.setTexture(it).setPosition(r.x, r.y - r.h * 0.16).setScale(Math.min(r.w, r.h) / 70).setAlpha(1); c.name.setText(def.name); const cst = def.upg ? def.upg[0] : def.cost, mx = typeCap(it); c.cost.setText(`${cst} pt${cst > 1 ? 's' : ''}${mx ? `  ·  ${countB(it)}/${mx}` : ''}`); }
+        else if (it === 'recipe') { c.icon.setTexture('medkit').setPosition(r.x, r.y - r.h * 0.16).setScale(Math.min(r.w, r.h) / 40).setAlpha(0.9); c.name.setText('RECIPE'); c.cost.setText('⇄'); }
         else if (it === 'upgrade') { c.icon.setTexture('turret').setPosition(r.x, r.y - r.h * 0.16).setScale(Math.min(r.w, r.h) / 70).setAlpha(0.6); c.name.setText('UPGRADE'); c.cost.setText('▲'); }
         else { c.icon.setTexture('rubble').setPosition(r.x, r.y - r.h * 0.16).setScale(Math.min(r.w, r.h) / 70).setAlpha(0.6); c.name.setText('REMOVE'); c.cost.setText('refund'); }
         c.name.setPosition(r.x, r.y + r.h * 0.12); c.cost.setPosition(r.x, r.y + r.h * 0.28);
