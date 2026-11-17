@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 
 /**
- * DUNGEON TOWN — Step 3: "The Town"
+ * DUNGEON TOWN — Step 4a: "The Squad"
  * Creates the game inside `parent` (a DOM element). Returns the Phaser.Game.
  * Call game.destroy(true) to clean up. All state lives in this function.
  * Works with Phaser 3.80+ and 4.x.
@@ -28,7 +28,8 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     crowZapCd: 1.6, crowZapRange: 250, crowZapDmg: 1,
     chainCd: 7, chainCount: 4, chainJump: 170, chainDmg: 2, chainStun: 1.0,
     cagesPerRun: 2, cageTime: 3, cageHp: 4, captureRange: 320, weakTime: 8,
-    rooms: 5, extractRooms: [2, 4, 5],
+    rooms: 10, extractRooms: [2, 4, 6, 8, 10], bossRooms: [5, 10],
+    petIframes: 0.7, staticCd: 5, staticRange: 260,
     // town
     runsPerDay: 1,
     nightBase: 90, nightPerDay: 10, nightMax: 180,
@@ -72,6 +73,28 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     storehouse: { name: 'Storehouse', cat: 'civ', cost: 2, hp: 16, pathCost: 30, solid: true, desc: 'Protects 50 scrap if the generator falls.' },
   };
   const TURRET = [null, { range: 230, dmg: 1, rate: 0.75 }, { range: 255, dmg: 2, rate: 0.6 }, { range: 285, dmg: 2, rate: 0.38 }];
+  // Creatures: one active (button) + one passive (always on while in your squad)
+  const SP = {
+    hound:  { name: 'Scrap Hound', hearts: 3, speed: 270, fly: false, attack: 'melee', dmg: 1, cd: 1.1, range: 50, body: [10, 15, 17], wildHp: 8,
+              active: 'pounce', activeName: 'POUNCE', cdMax: 6, aim: true, activeDesc: 'Leaps in and stuns a group',
+              passive: 'pack', passiveName: 'Pack Leader', passiveDesc: '+1 damage on every pet attack' },
+    crow:   { name: 'Spark Crow', hearts: 2, fly: true, attack: 'zap', dmg: 1, cd: 1.6, range: 250, body: [9, 15, 15], wildHp: 8,
+              active: 'zap', activeName: 'ZAP', cdMax: 7, activeDesc: 'Chain lightning that stuns',
+              passive: 'static', passiveName: 'Static', passiveDesc: 'You zap a nearby zombie every 5s' },
+    rat:    { name: 'Rust Rat', hearts: 2, speed: 300, fly: false, attack: 'melee', dmg: 1, cd: 0.8, range: 44, body: [10, 17, 20], wildHp: 6,
+              active: 'swarm', activeName: 'SWARM', cdMax: 8, aim: true, activeDesc: '3 ratlings nibble and pull zombies off you',
+              passive: 'scavenge', passiveName: 'Scavenger', passiveDesc: '25% chance for double scrap' },
+    moth:   { name: 'Mender Moth', hearts: 2, fly: true, attack: 'none', body: [10, 14, 14], wildHp: 6,
+              active: 'mend', activeName: 'MEND', cdMax: 10, activeDesc: '+1 heart to you and every pet',
+              passive: 'nurse', passiveName: 'Nurse', passiveDesc: 'Bench pets heal 2 hearts per room' },
+    beetle: { name: 'Rust Beetle', hearts: 4, speed: 150, fly: false, attack: 'melee', dmg: 1, cd: 1.4, range: 52, body: [14, 10, 12], wildHp: 12,
+              active: 'shell', activeName: 'SHELL', cdMax: 9, activeDesc: 'Pulls zombies onto it; can\'t be hurt for 3s',
+              passive: 'tough', passiveName: 'Hard Shell', passiveDesc: '+1 max heart for you' },
+  };
+  // where wild creatures live in the ruins (room range)
+  const WILD = { rat: [1, 6], crow: [2, 5], beetle: [3, 8], moth: [6, 10] };
+  const FIRST_CATCH = { 1: 'rat', 2: 'crow', 3: 'beetle', 6: 'moth' }; // guaranteed until you own one
+
   const MIL_ITEMS = ['wall', 'gate', 'wire', 'spikes', 'turret'];
   const CIV_ITEMS = ['workbench', 'kitchen', 'farm', 'storehouse'];
 
@@ -81,7 +104,19 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     ['#########DD#########', '#s......#..#......s#', '#.......#..#.......#', '#..rr..........rr..#', '#..rr...c..c...rr..#', '#..................#', '#s.......HH.......s#', '#....##......##....#', '#....##..cc..##....#', '#..................#', '#..c............c..#', '#s.......PP.......s#', '####################'],
     ['#########DD#########', '#s................s#', '#....rrrr..rrrr....#', '#..................#', '#.c..............c.#', '#.....r......r.....#', '#s.......HH.......s#', '#.....r......r.....#', '#.c..............c.#', '#..................#', '#....rrrr..rrrr....#', '#........PP.......s#', '####################'],
   ];
+  const BOSS_ROOM = ['#########DD#########', '#s................s#', '#..r............r..#', '#..................#', '#.....c......c.....#', '#..................#', '#s.......HH.......s#', '#..................#', '#.....c......c.....#', '#..................#', '#..r............r..#', '#s.......PP.......s#', '####################'];
   const FINAL_ROOM = ['####################', '#s................s#', '#..r............r..#', '#..................#', '#.....c......c.....#', '#..................#', '#s.......HH.......s#', '#..................#', '#.....c......c.....#', '#..................#', '#..r............r..#', '#s.......PP.......s#', '####################'];
+  function wavesFor(room) {
+    if (room <= 4) return ROOM_WAVES[room].map(w => w.slice());
+    if (room === 5) return [['walker', 'walker', 'runner', 'runner', 'spitter'], ['boss', 'runner', 'runner']];
+    if (room === 10) return [['brute', 'bloater', 'bloater', 'spitter', 'spitter', 'runner'], ['boss', 'walker', 'walker', 'runner', 'runner']];
+    const pool = ['walker', 'walker', 'runner', 'runner', 'spitter', 'bloater'];
+    const n = 2 + Math.floor(room / 2);
+    const mk = (k) => { const w = []; for (let i = 0; i < k; i++) w.push(Phaser.Utils.Array.GetRandom(pool)); return w; };
+    const waves = [mk(n), mk(n + 1), mk(n)];
+    if (room >= 7) waves[2].push('brute');
+    return waves;
+  }
   // Town: # rubble wall · r rubble · S zombie entrance · G generator · T town hall · R ruins hatch
   const TOWN_MAP = [
     '###########SS###########',
@@ -120,8 +155,22 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     return freshSave();
   })();
   const writeSave = () => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(SAVE)); } catch (e) {} };
+  // creatures: every pet you own, and your ordered squad of up to 4
+  if (!Array.isArray(SAVE.pets)) {
+    SAVE.pets = []; SAVE.nextPetId = 1;
+    const add = (sp) => SAVE.pets.push({ id: SAVE.nextPetId++, sp, lvl: 1 });
+    add('hound');
+    for (let i = 0; i < (SAVE.creatures.crow || 0); i++) add('crow');
+  }
+  SAVE.pets = SAVE.pets.filter(pt => SP[pt.sp]);
+  if (!SAVE.nextPetId) SAVE.nextPetId = SAVE.pets.reduce((m, pt) => Math.max(m, pt.id), 0) + 1;
+  if (!Array.isArray(SAVE.squad)) SAVE.squad = SAVE.pets.slice(0, 4).map(pt => pt.id);
+  SAVE.squad = SAVE.squad.filter(id => SAVE.pets.some(pt => pt.id === id)).slice(0, 4);
+  const petById = (id) => SAVE.pets.find(pt => pt.id === id);
+  const squadHas = (passive) => SAVE.squad.some(id => { const pt = petById(id); return pt && SP[pt.sp].passive === passive; });
+  const addPet = (sp) => { const pt = { id: SAVE.nextPetId++, sp, lvl: 1 }; SAVE.pets.push(pt); if (SAVE.squad.length < 4) SAVE.squad.push(pt.id); return pt; };
   const countB = (t) => SAVE.buildings.filter(b => b.t === t).length;
-  const maxHearts = () => T.heroHp + Math.min(2, countB('kitchen'));
+  const maxHearts = () => T.heroHp + Math.min(2, countB('kitchen')) + (squadHas('tough') ? 1 : 0);
   const bCost = (b) => { const d = BLD[b.t]; return d.upg ? d.upg[(b.lvl || 1) - 1] : d.cost; };
   const pointsUsed = (cat) => SAVE.buildings.reduce((s, b) => s + (BLD[b.t].cat === cat ? bCost(b) : 0), 0);
 
@@ -142,6 +191,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     return obj;
   };
   const kids = (group) => group.getChildren().slice();
+  const SP_COLOR = { hound: 0xe08a3c, crow: 0x5fd3ff, rat: 0xb0b8c0, moth: 0xf2d14b, beetle: 0xd0392b };
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
   const FONT = 'system-ui,-apple-system,"Segoe UI",sans-serif';
 
@@ -183,6 +233,9 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     workbench: ['................', '................', '................', '..kkkkkkkkkkkk..', '..knnnnnnnnnnk..', '..knmMnnnnyynk..', '..knmMnnnnnnnk..', '..kkkkkkkkkkkk..', '..kbBkkkkkkBbk..', '..kbBk....kBbk..', '..kbBk....kBbk..', '..kbBk....kBbk..', '..kkkk....kkkk..', '................', '................', '................'],
     kitchen: ['................', '.......kk.......', '......kggk......', '...kkkkkkkkkk...', '...kMMMMMMMMk...', '...kMkkMMkkMk...', '..kkkkkkkkkkkk..', '..kKKKKKKKKKKk..', '..kKrrKKKKrrKk..', '..kKKKKKKKKKKk..', '..kKkkkkkkkkKk..', '..kKkyyyyyykKk..', '..kKkkkkkkkkKk..', '..kkkkkkkkkkkk..', '................', '................'],
     farm: ['kkkkkkkkkkkkkkkk', 'kbBbBbBbBbBbBbBk', 'kbzbbzbbzbbzbbBk', 'kBZBbZBbZBbZBbbk', 'kbBbBbBbBbBbBbBk', 'kbbzbbzbbzbbzbBk', 'kBbZBbZBbZBbZBbk', 'kbBbBbBbBbBbBbBk', 'kbzbbzbbzbbzbbBk', 'kBZBbZBbZBbZBbbk', 'kbBbBbBbBbBbBbBk', 'kbbzbbzbbzbbzbBk', 'kBbZBbZBbZBbZBbk', 'kbBbBbBbBbBbBbBk', 'kkkkkkkkkkkkkkkk', '................'],
+    rat: ['................', '................', '................', '................', '................', '..........kk....', '.........kggk...', '..kk....kgggek..', '.knk...kgggggkk.', '..knkkkgggggggk.', '...kggggggGggk..', '...kgggggggggk..', '...kGgk.kGk.kk..', '....kk...kk.....', '................', '................'],
+    moth: ['................', '................', '..kk........kk..', '.kyyk......kyyk.', '.kyeyk.kk.kyeyk.', '.kyyyykllkyyyyk.', '..kyyykllkyyyk..', '...kyykllkyyk...', '..kyyykllkyyyk..', '.kyeyk.kk.kyeyk.', '.kyyk......kyyk.', '..kk........kk..', '................', '................', '................', '................'],
+    beetle: ['................', '................', '.....k....k.....', '......k..k......', '....kkkkkkkk....', '...kRRRRrRRRk...', '..kRrRRRRRRrRk..', '..kRRRRkkRRRRk..', '..kRRRRkkRRRRk..', '..kRrRRkkRRrRk..', '..kRRRRkkRRRRk..', '...kRRRkkRRRk...', '...kk.kkkk.kk...', '................', '................', '................'],
     storehouse: ['................', '.......kk.......', '.....kkRRkk.....', '...kkRRRRRRkk...', '.kkRRRRRRRRRRkk.', 'kRRRRRRRRRRRRRRk', 'kkkkkkkkkkkkkkkk', '.kggggggggggggk.', '.kgGggkkkkgGggk.', '.kggggkyykggggk.', '.kgGggkyykgGggk.', '.kggggkyykggggk.', '.kkkkkkkkkkkkkk.', '................', '................', '................'],
   };
 
@@ -209,7 +262,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
   }
 
   function makeTextures(scene) {
-    for (const k of ['hero', 'walker', 'runner', 'spitter', 'bloater', 'hound', 'crow', 'crate', 'rubble', 'cage',
+    for (const k of ['hero', 'walker', 'runner', 'spitter', 'bloater', 'hound', 'crow', 'rat', 'moth', 'beetle', 'crate', 'rubble', 'cage',
       'wall', 'gate', 'wire', 'spikes', 'turret', 'workbench', 'kitchen', 'farm', 'storehouse']) pxTexture(scene, k, SPR[k], 3);
     pxTexture(scene, 'brute', SPR.brute, 4);
     pxTexture(scene, 'scrap', SPR.scrap, 2);
@@ -256,12 +309,33 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
   // ===================================================================
   class Combat extends Phaser.Scene {
     // hooks a scene can override
+    // who a zombie goes after: a shelled beetle first, then the closest of you / your pets / ratlings
+    closeTarget(z, maxRange) {
+      const h = this.hero;
+      const taunt = this.activePets.find(p => p && p.active && p.shellT > 0 && dist(p, z) < 260);
+      if (taunt) return { x: taunt.x, y: taunt.y, kind: 'pet', obj: taunt, pad: 0 };
+      let best = null, bd = maxRange;
+      if (!HUD.dead) { const d = dist(z, h); if (d < bd) { bd = d; best = { x: h.x, y: h.y, kind: 'hero', obj: h, pad: 0 }; } }
+      this.activePets.forEach(p => {
+        if (!p || !p.active || p.mode === 'pounce') return;
+        const d = dist(z, p) * 1.3; if (d < bd) { bd = d; best = { x: p.x, y: p.y, kind: 'pet', obj: p, pad: 0 }; }
+      });
+      this.ratlings.forEach(r => { if (!r.active) return; const d = dist(z, r); if (d < bd) { bd = d; best = { x: r.x, y: r.y, kind: 'decoy', obj: r, pad: 0 }; } });
+      return best;
+    }
     targetFor(z) {
       const h = this.hero;
-      if (this.cage && dist(z, this.cage) < Math.min(260, dist(z, h))) return { x: this.cage.x, y: this.cage.y, kind: 'cage', pad: 0 };
-      return { x: h.x, y: h.y, kind: 'hero', pad: 0 };
+      if (this.cage && dist(z, this.cage) < Math.min(260, dist(z, h))) return { x: this.cage.x, y: this.cage.y, kind: 'cage', obj: this.cage, pad: 0 };
+      return this.closeTarget(z, Infinity) || { x: h.x, y: h.y, kind: 'hero', obj: h, pad: 0 };
     }
-    hitTarget(tg, dmg, dx, dy) { if (tg.kind === 'cage') this.damageCage(dmg); else if (tg.kind === 'hero') this.hurtHero(dx, dy, dmg); }
+    hitTarget(tg, dmg, dx, dy) {
+      if (tg.kind === 'cage') this.damageCage(dmg);
+      else if (tg.kind === 'hero') this.hurtHero(dx, dy, dmg);
+      else if (tg.kind === 'pet') this.damagePet(tg.obj, dmg, dx, dy);
+      else if (tg.kind === 'decoy') this.killRatling(tg.obj);
+    }
+    getSquadRecs() { return []; }
+    onSquadOrderChanged() {}
     onEvent() {}
     sceneUpdate() {}
     drawSceneFx() {}
@@ -275,13 +349,11 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     canSpawn() { return true; }
 
     setupCombat(x, y, worldW, worldH, zoomDiv) {
-      const crowOwned = (SAVE.creatures.crow || 0) > 0;
       this.worldW = worldW; this.worldH = worldH; this.zoomDiv = zoomDiv;
       Object.assign(HUD, {
-        ammo: T.ammoMax, reload: 0, dashCd: 0, cd1: 0, cd2: 0,
-        cd1Max: T.pounceCd, cd2Max: crowOwned ? T.chainCd : T.howlCd,
-        ab1Label: 'POUNCE', ab2Label: crowOwned ? 'ZAP' : 'HOWL',
-        canCapture: false, dead: false,
+        ammo: T.ammoMax, reload: 0, dashCd: 0, cd1: 0, cd2: 0, cd1Max: 1, cd2Max: 1,
+        ab1Label: null, ab2Label: null, ab1Sp: null, ab2Sp: null,
+        canCapture: false, dead: false, canSwap: false,
       });
       Ctl.queue.length = 0; Ctl.aim = null; Ctl.aimAbility = null; Ctl.twin = null;
 
@@ -293,12 +365,6 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.dashT = 0; this.dashDir = new V(1, 0); this.inv = 0; this.gunCdT = 0; this.swordCdT = 0;
       this.kbT = 0; this.kb = new V(); this.gunKick = 0; this.faceLock = 0; this.ghostT = 0;
 
-      this.hound = this.physics.add.image(x - 40, y + 20, 'hound');
-      this.hound.body.setCircle(10, 15, 17);
-      this.hound.setCollideWorldBounds(true);
-      this.hound.mode = 'follow'; this.hound.biteT = 0;
-      this.crow = crowOwned ? this.add.image(x + 40, y - 30, 'crow') : null;
-      if (this.crow) this.crow.zapT = 1;
 
       if (!this.crates) this.crates = this.physics.add.staticGroup();
       if (!this.bulletBlockers) this.bulletBlockers = this.solids;
@@ -307,11 +373,13 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.spits = this.physics.add.group();
       this.physics.add.collider(this.hero, this.solids);
       this.physics.add.collider(this.hero, this.crates);
-      this.physics.add.collider(this.hound, this.solids);
-      this.physics.add.collider(this.hound, this.crates);
+      this.petsGround = this.physics.add.group(); this.petsAir = this.physics.add.group();
+      this.physics.add.collider(this.petsGround, this.solids);
+      this.physics.add.collider(this.petsGround, this.crates);
       this.physics.add.collider(this.enemies, this.solids);
       this.physics.add.collider(this.enemies, this.crates);
       this.physics.add.collider(this.enemies, this.enemies);
+      this.physics.add.collider(this.enemies, this.petsGround);
       this.physics.add.collider(this.bullets, this.bulletBlockers, (a, b) => { const bl = a.isBullet ? a : b; this.spark(bl.x, bl.y, 0xfff2a8, 3); bl.destroy(); });
       this.physics.add.collider(this.bullets, this.crates, (a, b) => { const bl = a.isBullet ? a : b, cr = a.isBullet ? b : a; bl.destroy(); this.hitCrate(cr, T.gunDmg); });
       this.physics.add.collider(this.spits, this.solids, (a, b) => { const s = a.isSpit ? a : b, o = a.isSpit ? b : a; this.onSpitHitSolid(s, o); });
@@ -322,9 +390,20 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         const d = new V(s.body.velocity.x, s.body.velocity.y).normalize();
         this.splash(s); this.hurtHero(d.x, d.y, 1);
       });
+      const spitPet = (a, b) => {
+        const s = a.isSpit ? a : b, pt = a.isSpit ? b : a; if (!s.active || !pt.active) return;
+        const d = new V(s.body.velocity.x, s.body.velocity.y).normalize();
+        this.splash(s); this.damagePet(pt, 1, d.x, d.y);
+      };
+      this.physics.add.overlap(this.spits, this.petsGround, spitPet);
+      this.physics.add.overlap(this.spits, this.petsAir, spitPet);
 
       this.fx = this.add.graphics().setDepth(900);
       this.pickups = []; this.cage = null; this.wild = null; this.pending = 0; this.magnetAll = false;
+      this.squadRecs = this.getSquadRecs();
+      this.passives = new Set(this.squadRecs.map(r => SP[r.sp].passive));
+      this.activePets = [null, null]; this.ratlings = []; this.staticT = T.staticCd;
+      this.fillSlots(true);
 
       const cam = this.cameras.main;
       cam.setBounds(0, 0, worldW, worldH);
@@ -442,8 +521,6 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.swordCdT = Math.max(0, this.swordCdT - dt);
       this.faceLock = Math.max(0, this.faceLock - dt);
       HUD.dashCd = Math.max(0, HUD.dashCd - dt);
-      HUD.cd1 = Math.max(0, HUD.cd1 - dt);
-      HUD.cd2 = Math.max(0, HUD.cd2 - dt);
       if (HUD.ammo < T.ammoMax) { HUD.reload += dt; if (HUD.reload >= T.reloadTime) { HUD.ammo++; HUD.reload = 0; } } else HUD.reload = 0;
 
       if (HUD.dead || frozen) hero.setVelocity(0, 0);
@@ -468,8 +545,8 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       hero.setAlpha(this.inv > 0 && this.dashT <= 0 ? (Math.floor(time / 60) % 2 ? 0.35 : 1) : 1);
       this.gun.setAlpha(hero.alpha).setVisible(!HUD.dead);
 
-      this.updateHound(dt);
-      this.updateCrow(dt, time);
+      this.updatePets(dt, time);
+      this.updateRatlings(dt, time);
       kids(this.enemies).forEach(z => z.active && this.updateEnemy(z, dt, time));
       this.updateWild(dt, time);
       this.updateCage(dt);
@@ -483,9 +560,9 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.sceneUpdate(dt, time);
       if (this.leaving) return;
 
-      [hero, this.hound].concat(kids(this.enemies)).forEach(o => o.active && o.setDepth(10 + o.y / 1000));
+      [hero].concat(this.activePets.filter(p => p && p.active && !p.def.fly), kids(this.enemies)).forEach(o => o.active && o.setDepth(10 + o.y / 1000));
       this.gun.setDepth(hero.depth + 0.001);
-      if (this.crow) this.crow.setDepth(800);
+      this.activePets.forEach(p => p && p.active && p.def.fly && p.setDepth(800));
       if (this.wild && this.wild.active) this.wild.setDepth(790);
 
       HUD.canCapture = !!(this.wild && this.wild.active && this.wild.weak > 0 && !this.wild.caged && this.run && this.run.cages > 0 && !this.cage && dist(hero, this.wild) < T.captureRange);
@@ -504,6 +581,8 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     }
 
     spawnEnemy(type, x, y) {
+      let elite = false;
+      if (type === 'boss') { type = 'brute'; elite = true; }
       const def = E[type];
       const z = this.enemies.create(x, y, type);
       z.type = type; z.hp = def.hp; z.mode = 'chase'; z.t = 0; z.kbT = 0; z.stun = 0; z.aggro = 0; z.spikeT = 0;
@@ -513,8 +592,10 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       else if (type === 'bloater') z.body.setCircle(15, 9, 12);
       else z.body.setCircle(13, 11, 16);
       if (type === 'spitter') { z.fireT = Phaser.Math.FloatBetween(1, 2); z.strafe = Math.random() < 0.5 ? 1 : -1; }
+      if (elite) { z.elite = true; z.hp = z.maxHpE = 30 + (this.run ? this.run.room : 5) * 3; z.spd *= 1.15; }
       z.setScale(0.2);
-      this.tweens.add({ targets: z, scale: 1, duration: 220, ease: 'Back.out' });
+      this.tweens.add({ targets: z, scale: elite ? 1.4 : 1, duration: 220, ease: 'Back.out' });
+      if (elite) HUD.banner = { text: 'THE WARDEN', sub: 'Get behind it — its armour blocks hits from the front', t: 2.4 };
       return z;
     }
 
@@ -555,8 +636,8 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
           break;
         case 'lunge': {
           z.t -= dt; z.setVelocity(z.ldx * def.lunge, z.ldy * def.lunge);
-          const lt = z.tg || tg;
-          const ld = Math.hypot(lt.x - z.x, lt.y - z.y) - (lt.pad || 0);
+          const lt = z.tg || tg, lo = (lt.obj && lt.obj.active !== false) ? lt.obj : lt;
+          const ld = Math.hypot(lo.x - z.x, lo.y - z.y) - (lt.pad || 0);
           if (!z.hitDone && ld < 34 && lt.kind !== 'path') { z.hitDone = true; this.hitTarget(lt, def.dmg, z.ldx, z.ldy); }
           if (z.t <= 0) { z.mode = 'recover'; z.t = def.recover; }
           break;
@@ -581,7 +662,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       } else if (z.mode === 'windup') {
         z.t -= dt; z.setVelocity(0, 0);
         if (z.t <= 0) {
-          untint(z); this.spit(z, z.tg || tg, 'spit', def.spitSpeed);
+          const st = z.tg || tg; untint(z); this.spit(z, (st.obj && st.obj.active !== false) ? st.obj : st, 'spit', def.spitSpeed);
           z.fireT = def.fireCd * Phaser.Math.FloatBetween(0.85, 1.15); z.mode = 'chase';
           if (Math.random() < 0.5) z.strafe *= -1;
         }
@@ -629,6 +710,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       const fx = Math.cos(z.face), fy = Math.sin(z.face);
       if (this.inArc(z, this.hero, def.slamRange, def.slamArc)) this.hurtHero(fx, fy, def.dmg);
       if (this.cage && this.inArc(z, this.cage, def.slamRange, def.slamArc)) this.damageCage(def.dmg);
+      this.activePets.forEach(p => { if (p && p.active && this.inArc(z, p, def.slamRange, def.slamArc)) this.damagePet(p, def.dmg, fx, fy); });
       this.slamExtra(z, def);
       this.ring(z.x + fx * 50, z.y + fy * 50, 70, 0xc0c6cc);
       this.spark(z.x + fx * 60, z.y + fy * 60, 0x8a7a5a, 10);
@@ -665,6 +747,8 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.freeze(0.07);
       if (dist(this.hero, { x, y }) < def.boomR) { const d = new V(this.hero.x - x, this.hero.y - y).normalize(); this.hurtHero(d.x, d.y, def.dmg); }
       if (this.cage && dist(this.cage, { x, y }) < def.boomR) this.damageCage(2);
+      this.activePets.forEach(p => { if (p && p.active && dist(p, { x, y }) < def.boomR) { const d = new V(p.x - x, p.y - y).normalize(); this.damagePet(p, def.dmg, d.x, d.y); } });
+      this.ratlings.forEach(r => { if (r.active && dist(r, { x, y }) < def.boomR) this.killRatling(r); });
       kids(this.enemies).forEach(o => {
         if (!o.active || dist(o, { x, y }) > def.boomR) return;
         const d = new V(o.x - x, o.y - y); if (d.lengthSq() < 1) d.set(1, 0); d.normalize();
@@ -722,7 +806,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.spark(z.x, z.y, 0x9acd32, big ? 20 : 12);
       this.decal(z.x, z.y); if (big) this.decal(z.x + 12, z.y + 6);
       this.cameras.main.shake(big ? 160 : 70, big ? 0.01 : 0.004);
-      this.dropScrap(z.x, z.y, E[z.type].scrap);
+      this.dropScrap(z.x, z.y, z.elite ? [10, 14] : E[z.type].scrap);
       z.destroy();
     }
 
@@ -746,7 +830,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         if (!p.active) return false;
         if (!p.ready || (HUD.dead && !this.magnetAll)) return true;
         const d = dist(p, h);
-        if (d < 22) { this.collectScrap(1); HUD.scrapPop = 0.25; p.destroy(); return false; }
+        if (d < 22) { this.collectScrap(this.passives && this.passives.has('scavenge') && Math.random() < 0.25 ? 2 : 1); HUD.scrapPop = 0.25; p.destroy(); return false; }
         if (d < (this.magnetAll ? 5000 : 120)) { const sp = (this.magnetAll ? 620 : 420) * dt; p.x += (h.x - p.x) / d * sp; p.y += (h.y - p.y) / d * sp; }
         return true;
       });
@@ -877,13 +961,171 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.hitstop = Math.max(this.hitstop, s);
     }
 
-    // ---------------------------------------------------------------- abilities
-    ability(i, dir) {
+    // ---------------------------------------------------------------- squad / pets
+    // fill the 2 active slots: keep pets already out, fill gaps with the next healthy pet in order
+    fillSlots(reset) {
+      const recs = this.squadRecs;
+      if (reset) {
+        this.activePets.forEach(p => p && p.active && p.destroy());
+        this.activePets = [null, null];
+      }
+      const out = this.activePets.map(p => (p && p.active ? p.rec : null));
+      for (let s = 0; s < 2; s++) {
+        if (out[s]) continue;
+        const next = recs.find(r => !r.ko && !out.includes(r));
+        if (next) { out[s] = next; this.activePets[s] = this.spawnPet(next, s); }
+        else this.activePets[s] = null;
+      }
+      this.refreshAbilityHud();
+    }
+
+    spawnPet(rec, slot) {
+      const def = SP[rec.sp], h = this.hero;
+      const grp = def.fly ? this.petsAir : this.petsGround;
+      const p = grp.create(h.x + (slot ? 40 : -40), h.y + (def.fly ? -40 : 24), rec.sp);
+      p.body.setCircle(def.body[0], def.body[1], def.body[2]);
+      p.setCollideWorldBounds(true);
+      Object.assign(p, { rec, sp: rec.sp, def, slot, isPet: true, mode: 'follow', atkT: 0.5, iv: 0, kbT: 0, shellT: 0 });
+      if (rec.cdT == null) rec.cdT = 0;
+      p.setScale(0.3);
+      this.tweens.add({ targets: p, scale: 1, duration: 220, ease: 'Back.out' });
+      return p;
+    }
+
+    refreshAbilityHud() {
+      [0, 1].forEach(s => {
+        const p = this.activePets[s];
+        HUD[s ? 'ab2Label' : 'ab1Label'] = p ? SP[p.sp].activeName : null;
+        HUD[s ? 'cd2Max' : 'cd1Max'] = p ? SP[p.sp].cdMax : 1;
+        HUD[s ? 'ab2Sp' : 'ab1Sp'] = p ? p.sp : null;
+      });
+      this.syncSquadHud();
+    }
+
+    syncSquadHud() {
+      const act = this.activePets.map(p => (p && p.active ? p.rec : null));
+      HUD.squad = this.squadRecs.map(r => ({ id: r.id, sp: r.sp, hp: r.hp, maxHp: r.maxHp, ko: r.ko, slot: act.indexOf(r) }));
+    }
+
+    swapSlots(a, b) {
+      const recs = this.squadRecs;
+      if (a < 0 || b < 0 || a >= recs.length || b >= recs.length || a === b) return;
+      const t = recs[a]; recs[a] = recs[b]; recs[b] = t;
+      this.onSquadOrderChanged();
+      this.fillSlots(true);
+      this.activePets.forEach(p => p && this.ring(p.x, p.y, 30, 0x8ef0a0));
+    }
+
+    petAttackBonus() { return this.passives.has('pack') ? 1 : 0; }
+
+    damagePet(p, dmg, dx, dy) {
+      if (!p || !p.active || p.iv > 0 || p.shellT > 0 || p.mode === 'pounce' || this.leaving) return;
+      p.rec.hp = Math.max(0, p.rec.hp - dmg);
+      p.iv = T.petIframes;
+      p.kbx = dx * 380; p.kby = dy * 380; p.kbT = 0.1;
+      flash(p, 0xff4444); this.time.delayedCall(90, () => p.active && untint(p));
+      this.floatText(p.x, p.y - 22, '-' + dmg, '#ff8c9e', 15);
+      if (p.rec.hp <= 0) this.knockOut(p);
+      this.syncSquadHud();
+    }
+
+    knockOut(p) {
+      const slot = p.slot, short = (sp) => SP[sp].name.split(' ')[1].toUpperCase();
+      p.rec.ko = true;
+      this.spark(p.x, p.y, 0xff8c9e, 14);
+      this.floatText(p.x, p.y - 30, `${short(p.sp)} KO!`, '#ff8c9e', 16);
+      p.destroy();
+      this.activePets[slot] = null;
+      this.fillSlots(false);
+      const np = this.activePets[slot];
+      if (np) { this.ring(np.x, np.y, 34, 0x8ef0a0); this.floatText(np.x, np.y - 30, `${short(np.sp)} IN!`, '#8ef0a0', 14); }
+    }
+
+    healPet(rec, n) { if (!rec.ko) rec.hp = Math.min(rec.maxHp, rec.hp + n); }
+
+    updatePets(dt, time) {
       const h = this.hero;
-      if (i === 1) {
-        const hd = this.hound;
-        if (HUD.cd1 > 0 || hd.mode === 'pounce') return;
-        HUD.cd1 = T.pounceCd;
+      this.squadRecs.forEach(r => { if (r.cdT > 0) r.cdT = Math.max(0, r.cdT - dt); });
+      [0, 1].forEach(s => { const p = this.activePets[s]; HUD[s ? 'cd2' : 'cd1'] = p ? p.rec.cdT : 0; });
+      // Static passive: you zap a nearby zombie every few seconds
+      if (this.passives.has('static') && !HUD.dead) {
+        this.staticT -= dt;
+        if (this.staticT <= 0) {
+          const z = this.nearestEnemy(h.x, h.y, T.staticRange, false);
+          if (z) { this.staticT = T.staticCd; this.bolt(h.x, h.y - 10, z.x, z.y); this.damage(z, 1, new V(z.x - h.x, z.y - h.y).normalize(), 60, false, true); }
+          else this.staticT = 0.4;
+        }
+      }
+      this.activePets.forEach((p, slot) => {
+        if (!p || !p.active) return;
+        const def = p.def;
+        p.iv = Math.max(0, p.iv - dt); p.atkT -= dt; p.shellT = Math.max(0, p.shellT - dt);
+        p.setAlpha(p.iv > 0 ? (Math.floor(time / 70) % 2 ? 0.4 : 1) : 1);
+        if (p.shellT > 0) p.setTint(0xffd166); else if (p.iv <= 0) untint(p);
+        if (p.mode === 'pounce') { p.t -= dt; p.setVelocity(p.vx, p.vy); if (p.t <= 0) this.pounceLand(p); return; }
+        if (p.kbT > 0) { p.kbT -= dt; p.setVelocity(p.kbx, p.kby); return; }
+        if (dist(p, h) > 520) p.setPosition(h.x - 30, h.y + 20);
+        const low = p.rec.hp <= 1 && p.rec.maxHp > 1;
+        const side = slot === 0 ? 1 : -1;
+        if (def.fly) {
+          const tx = h.x + side * 36 + this.facing.y * 10, ty = h.y - 46 + Math.sin(time * 0.006 + slot * 2) * 5;
+          p.setVelocity((tx - p.x) * 6, (ty - p.y) * 6);
+          p.setFlipX(this.facing.x < 0);
+          if (def.attack === 'zap' && p.atkT <= 0 && !HUD.dead) {
+            const z = this.nearestEnemy(p.x, p.y, low ? 120 : def.range, false);
+            if (z) { p.atkT = def.cd; this.bolt(p.x, p.y, z.x, z.y); this.damage(z, def.dmg + this.petAttackBonus(), new V(z.x - p.x, z.y - p.y).normalize(), 60, false, true); }
+            else p.atkT = 0.3;
+          }
+          return;
+        }
+        const target = HUD.dead ? null : this.nearestEnemy(p.x, p.y, low ? 70 : 230, false);
+        if (target && dist(h, target) < 320) {
+          const d = new V(target.x - p.x, target.y - p.y); const dd = d.length(); d.normalize();
+          if (dd > def.range * 0.7) p.setVelocity(d.x * def.speed, d.y * def.speed); else p.setVelocity(0, 0);
+          p.setFlipX(d.x < 0);
+          if (dd < def.range && p.atkT <= 0) {
+            p.atkT = def.cd;
+            this.damage(target, def.dmg + this.petAttackBonus(), d, 140, false, false);
+            this.tweens.add({ targets: p, scale: 1.2, duration: 70, yoyo: true });
+          }
+        } else {
+          // follow behind you; a pet on its last heart sticks right at your heel
+          const back = low ? 26 : 46;
+          const tx = h.x - this.facing.x * back + this.facing.y * 22 * side, ty = h.y - this.facing.y * back - this.facing.x * 22 * side;
+          const d = new V(tx - p.x, ty - p.y); const dd = d.length();
+          if (dd > 12) { d.normalize(); const sp = Math.min(def.speed + 60, dd * 5); p.setVelocity(d.x * sp, d.y * sp); p.setFlipX(d.x < 0); }
+          else p.setVelocity(0, 0);
+        }
+      });
+    }
+
+    updateRatlings(dt, time) {
+      this.ratlings = this.ratlings.filter(r => {
+        if (!r.active) return false;
+        r.t -= dt; r.atkT -= dt;
+        if (r.t <= 0) { this.spark(r.x, r.y, 0x9aa4ad, 4); r.destroy(); return false; }
+        const z = this.nearestEnemy(r.x, r.y, 400, false);
+        if (z) {
+          const d = dist(r, z);
+          if (d > 22) { r.x += (z.x - r.x) / d * 280 * dt; r.y += (z.y - r.y) / d * 280 * dt; }
+          else if (r.atkT <= 0) { r.atkT = 0.7; this.damage(z, 1, new V(z.x - r.x, z.y - r.y).normalize(), 40, false, true); }
+          r.setFlipX(z.x < r.x);
+        }
+        r.setDepth(10 + r.y / 1000);
+        return true;
+      });
+    }
+
+    killRatling(r) { if (!r || !r.active) return; this.spark(r.x, r.y, 0x9aa4ad, 5); r.destroy(); }
+
+    // ---------------------------------------------------------------- abilities (your 2 active pets)
+    ability(i, dir) {
+      const p = this.activePets[i - 1];
+      if (!p || !p.active || p.rec.cdT > 0) return;
+      const def = SP[p.sp], h = this.hero;
+      const used = () => { p.rec.cdT = def.cdMax; };
+      if (def.active === 'pounce') {
+        if (p.mode === 'pounce') return;
         let lx, ly;
         if (dir) { lx = h.x + dir.x * T.pounceDist; ly = h.y + dir.y * T.pounceDist; }
         else {
@@ -892,99 +1134,70 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         }
         lx = Phaser.Math.Clamp(lx, TILE * 1.2, this.worldW - TILE * 1.2); ly = Phaser.Math.Clamp(ly, TILE * 1.2, this.worldH - TILE * 1.2);
         const dur = 0.28;
-        hd.mode = 'pounce'; hd.t = dur; hd.vx = (lx - hd.x) / dur; hd.vy = (ly - hd.y) / dur;
-        hd.body.checkCollision.none = true;
-        hd.setFlipX(hd.vx < 0);
-        this.tweens.add({ targets: hd, scale: 1.8, duration: dur * 500, yoyo: true, ease: 'Sine.out' });
-      }
-      if (i === 2) {
-        if (HUD.cd2 > 0) return;
-        if (this.crow) {
-          const first = this.nearestEnemy(this.crow.x, this.crow.y, 320, false);
-          if (!first) { this.floatText(this.crow.x, this.crow.y - 24, 'NO TARGET', '#5fd3ff', 12); return; }
-          HUD.cd2 = T.chainCd;
-          const hitList = [first]; let cur = first;
-          while (hitList.length < T.chainCount) {
-            let nxt = null, bd = T.chainJump;
-            this.hittables(false).forEach(z => { if (!hitList.includes(z)) { const d = dist(z, cur); if (d < bd) { bd = d; nxt = z; } } });
-            if (!nxt) break; hitList.push(nxt); cur = nxt;
-          }
-          let prev = this.crow;
-          hitList.forEach(z => {
-            this.bolt(prev.x, prev.y, z.x, z.y); prev = z;
-            this.damage(z, T.chainDmg, new V(z.x - this.crow.x, z.y - this.crow.y).normalize(), 120, true, true);
-            this.stunEnemy(z, T.chainStun);
-          });
-          this.freeze(0.05); this.cameras.main.shake(120, 0.006);
-        } else {
-          HUD.cd2 = T.howlCd;
-          this.ring(h.x, h.y, T.howlRadius, 0xe08a3c);
-          this.ring(this.hound.x, this.hound.y, 60, 0xffd166);
-          this.hittables(false).forEach(z => {
-            if (dist(h, z) > T.howlRadius) return;
-            this.damage(z, 1, new V(z.x - h.x, z.y - h.y).normalize(), T.howlKb, true, true);
-            if (z.active) { this.stunEnemy(z, T.howlStun); z.kbT = 0.2; }
-          });
-          this.cameras.main.shake(160, 0.008); this.freeze(0.05);
+        p.mode = 'pounce'; p.t = dur; p.vx = (lx - p.x) / dur; p.vy = (ly - p.y) / dur;
+        p.body.checkCollision.none = true;
+        p.setFlipX(p.vx < 0);
+        this.tweens.add({ targets: p, scale: 1.8, duration: dur * 500, yoyo: true, ease: 'Sine.out' });
+        used();
+      } else if (def.active === 'zap') {
+        const first = this.nearestEnemy(p.x, p.y, 320, false);
+        if (!first) { this.floatText(p.x, p.y - 24, 'NO TARGET', '#5fd3ff', 12); return; }
+        used();
+        const hitList = [first]; let cur = first;
+        while (hitList.length < T.chainCount) {
+          let nxt = null, bd = T.chainJump;
+          this.hittables(false).forEach(z => { if (!hitList.includes(z)) { const d = dist(z, cur); if (d < bd) { bd = d; nxt = z; } } });
+          if (!nxt) break; hitList.push(nxt); cur = nxt;
         }
+        let prev = p;
+        hitList.forEach(z => {
+          this.bolt(prev.x, prev.y, z.x, z.y); prev = z;
+          this.damage(z, T.chainDmg + this.petAttackBonus(), new V(z.x - p.x, z.y - p.y).normalize(), 120, true, true);
+          this.stunEnemy(z, T.chainStun);
+        });
+        this.freeze(0.05); this.cameras.main.shake(120, 0.006);
+      } else if (def.active === 'swarm') {
+        let lx, ly;
+        if (dir) { lx = h.x + dir.x * 180; ly = h.y + dir.y * 180; }
+        else { const z = this.nearestEnemy(h.x, h.y, 420, false); if (z) { lx = z.x; ly = z.y; } else { lx = h.x + this.facing.x * 140; ly = h.y + this.facing.y * 140; } }
+        for (let k = 0; k < 3; k++) {
+          const r = this.add.image(p.x, p.y, 'rat').setScale(0.6);
+          Object.assign(r, { t: 5, atkT: 0.3, isRatling: true });
+          this.tweens.add({ targets: r, x: lx + Phaser.Math.Between(-30, 30), y: ly + Phaser.Math.Between(-20, 20), duration: 240, ease: 'Quad.out' });
+          this.ratlings.push(r);
+        }
+        this.spark(p.x, p.y, 0x9aa4ad, 8);
+        used();
+      } else if (def.active === 'mend') {
+        HUD.hp = Math.min(HUD.maxHp, HUD.hp + 1);
+        this.squadRecs.forEach(r => this.healPet(r, 1));
+        this.ring(h.x, h.y, 60, 0x8ef0a0); this.spark(h.x, h.y, 0x8ef0a0, 10);
+        this.activePets.forEach(q => q && q.active && this.ring(q.x, q.y, 34, 0x8ef0a0));
+        this.floatText(h.x, h.y - 44, '+1 ♥ EVERYONE', '#8ef0a0', 18);
+        this.syncSquadHud();
+        used();
+      } else if (def.active === 'shell') {
+        p.shellT = 3;
+        this.ring(p.x, p.y, 260, 0xffd166);
+        this.floatText(p.x, p.y - 30, 'OVER HERE!', '#ffd166', 15);
+        used();
       }
     }
 
-    pounceLand() {
-      const hd = this.hound;
-      hd.mode = 'follow'; hd.body.checkCollision.none = false; hd.setVelocity(0, 0);
-      this.ring(hd.x, hd.y, T.pounceRadius, 0xe08a3c);
-      this.spark(hd.x, hd.y, 0xe08a3c, 8);
+    pounceLand(p) {
+      p.mode = 'follow'; p.body.checkCollision.none = false; p.setVelocity(0, 0);
+      this.ring(p.x, p.y, T.pounceRadius, 0xe08a3c);
+      this.spark(p.x, p.y, 0xe08a3c, 8);
       let hitAny = false;
       this.hittables(true).forEach(z => {
-        if (dist(hd, z) > T.pounceRadius) return;
+        if (dist(p, z) > T.pounceRadius) return;
         hitAny = true;
-        const d = new V(z.x - hd.x, z.y - hd.y); if (d.lengthSq() < 1) d.set(1, 0); d.normalize();
-        this.hit(z, T.pounceDmg, d, 260, true, true);
+        const d = new V(z.x - p.x, z.y - p.y); if (d.lengthSq() < 1) d.set(1, 0); d.normalize();
+        this.hit(z, T.pounceDmg + this.petAttackBonus(), d, 260, true, true);
         if (!z.isWild) this.stunEnemy(z, T.pounceStun);
       });
       this.cameras.main.shake(120, hitAny ? 0.008 : 0.003);
       if (hitAny) this.freeze(0.06);
-    }
-
-    updateHound(dt) {
-      const hd = this.hound, h = this.hero;
-      hd.biteT -= dt;
-      if (hd.mode === 'pounce') { hd.t -= dt; hd.setVelocity(hd.vx, hd.vy); if (hd.t <= 0) this.pounceLand(); return; }
-      if (dist(hd, h) > 520) hd.setPosition(h.x - 30, h.y + 30);
-      const target = HUD.dead ? null : this.nearestEnemy(hd.x, hd.y, 230, false);
-      if (target && dist(h, target) < 320) {
-        const d = new V(target.x - hd.x, target.y - hd.y); const dd = d.length(); d.normalize();
-        if (dd > T.houndBiteRange * 0.7) hd.setVelocity(d.x * 270, d.y * 270); else hd.setVelocity(0, 0);
-        hd.setFlipX(d.x < 0);
-        if (dd < T.houndBiteRange && hd.biteT <= 0) {
-          hd.biteT = T.houndBiteCd;
-          this.damage(target, T.houndBiteDmg, d, 140, false, false);
-          this.tweens.add({ targets: hd, scale: 1.25, duration: 70, yoyo: true });
-        }
-      } else {
-        const tx = h.x - this.facing.x * 46 + this.facing.y * 18, ty = h.y - this.facing.y * 46 - this.facing.x * 18;
-        const d = new V(tx - hd.x, ty - hd.y); const dd = d.length();
-        if (dd > 12) { d.normalize(); const sp = Math.min(330, dd * 5); hd.setVelocity(d.x * sp, d.y * sp); hd.setFlipX(d.x < 0); }
-        else hd.setVelocity(0, 0);
-      }
-    }
-
-    updateCrow(dt, time) {
-      const c = this.crow; if (!c) return;
-      const h = this.hero;
-      const tx = h.x + this.facing.y * 34 + 10, ty = h.y - 44 + Math.sin(time * 0.006) * 5;
-      c.x += (tx - c.x) * Math.min(1, dt * 6); c.y += (ty - c.y) * Math.min(1, dt * 6);
-      c.setFlipX(this.facing.x < 0);
-      c.zapT -= dt;
-      if (c.zapT <= 0 && !HUD.dead) {
-        const z = this.nearestEnemy(c.x, c.y, T.crowZapRange, false);
-        if (z) {
-          c.zapT = T.crowZapCd;
-          this.bolt(c.x, c.y, z.x, z.y);
-          this.damage(z, T.crowZapDmg, new V(z.x - c.x, z.y - c.y).normalize(), 60, false, true);
-        } else c.zapT = 0.3;
-      }
     }
 
     bolt(x1, y1, x2, y2) {
@@ -1008,7 +1221,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       }
       if (c.kbT > 0) { c.kbT -= dt; c.setVelocity(c.kbx, c.kby); return; }
       const h = this.hero;
-      if (c.weak > 0) { c.weak -= dt; if (c.weak <= 0) { c.hp = 6; this.floatText(c.x, c.y - 26, 'RECOVERED', '#5fd3ff', 13); } }
+      if (c.weak > 0) { c.weak -= dt; if (c.weak <= 0) { c.hp = Math.ceil(c.maxHp * 0.7); this.floatText(c.x, c.y - 26, 'RECOVERED', '#5fd3ff', 13); } }
       if (c.mode === 'windup') {
         c.t -= dt; c.setVelocity(0, 0);
         if (c.t <= 0) { untint(c); this.spit(c, h, 'spark', 380); c.mode = 'wander'; c.zapT = Phaser.Math.FloatBetween(2.6, 3.6); }
@@ -1020,11 +1233,11 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         c.tx = Phaser.Math.Clamp(c.x + Phaser.Math.Between(-220, 220), TILE * 1.5, this.worldW - TILE * 1.5);
         c.ty = Phaser.Math.Clamp(c.y + Phaser.Math.Between(-160, 160), TILE * 1.5, this.worldH - TILE * 1.5);
       }
-      const sp = c.weak > 0 ? 45 : 125;
+      const sp = c.weak > 0 ? 45 : c.wSpeed;
       const d = new V(c.tx - c.x, c.ty - c.y); const dd = d.length() || 1;
       c.setVelocity(d.x / dd * sp, d.y / dd * sp + Math.sin(time * 0.01) * 20);
       if (Math.abs(d.x) > 2) c.setFlipX(d.x < 0);
-      if (c.weak <= 0 && !HUD.dead) {
+      if (c.weak <= 0 && !HUD.dead && c.species === 'crow') {
         c.zapT -= dt;
         if (c.zapT <= 0 && dist(c, h) < 330) { c.mode = 'windup'; c.t = 0.6; c.setTint(0x5fd3ff); }
       }
@@ -1037,7 +1250,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       if (c.weak > 0) { this.floatText(c.x, c.y - 26, 'WEAK!', '#f2d14b', 14); return; }
       c.hp = Math.max(1, c.hp - dmg);
       this.floatText(c.x, c.y - 24, String(dmg), '#ffffff', 16);
-      if (c.hp <= 3) { c.weak = T.weakTime; c.mode = 'wander'; this.floatText(c.x, c.y - 40, 'WEAKENED — CAGE IT!', '#f2d14b', 15); }
+      if (c.hp <= Math.ceil(c.maxHp * 0.35)) { c.weak = T.weakTime; c.mode = 'wander'; this.floatText(c.x, c.y - 40, 'WEAKENED — CAGE IT!', '#f2d14b', 15); }
     }
 
     throwCage() {
@@ -1084,15 +1297,15 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       cg.x = cg.baseX + Math.sin(this.time.now * 0.06) * 3;
       cg.setAngle(Math.sin(this.time.now * 0.04) * 8);
       if (cg.t <= 0) {
-        const c = this.wild;
-        this.run.captured.push(c ? c.species : 'crow');
+        const c = this.wild, spc = c ? c.species : 'crow';
+        this.run.captured.push(spc);
         if (c) c.destroy(); this.wild = null;
         this.spark(cg.x, cg.y, 0xf2d14b, 18);
         this.ring(cg.x, cg.y, 70, 0xf2d14b);
         this.floatText(cg.x, cg.y - 34, 'CAUGHT!', '#f2d14b', 22);
         const done = cg; this.cage = null;
         this.tweens.add({ targets: done, y: done.y - 40, alpha: 0, duration: 500, onComplete: () => done.destroy() });
-        HUD.banner = { text: 'CAUGHT A SPARK CROW!', sub: 'Extract to bring it home', t: 2.4 };
+        HUD.banner = { text: `CAUGHT A ${SP[spc].name.toUpperCase()}!`, sub: 'Extract to bring it home', t: 2.4 };
       }
     }
 
@@ -1145,10 +1358,24 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         }
       }
       if (Ctl.aimAbility && !HUD.dead) {
-        const d = Ctl.aimAbility.dir, lx = h.x + d.x * T.pounceDist, ly = h.y + d.y * T.pounceDist;
-        g.lineStyle(3, 0xe08a3c, 0.7); g.strokeCircle(lx, ly, T.pounceRadius);
-        g.lineStyle(2, 0xe08a3c, 0.3); g.lineBetween(this.hound.x, this.hound.y, lx, ly);
+        const ap = this.activePets[Ctl.aimAbility.i - 1];
+        if (ap && ap.active && SP[ap.sp].aim) {
+          const swarm = SP[ap.sp].active === 'swarm', R = swarm ? 180 : T.pounceDist;
+          const d = Ctl.aimAbility.dir, lx = h.x + d.x * R, ly = h.y + d.y * R;
+          g.lineStyle(3, 0xe08a3c, 0.7); g.strokeCircle(lx, ly, swarm ? 50 : T.pounceRadius);
+          g.lineStyle(2, 0xe08a3c, 0.3); g.lineBetween(ap.x, ap.y, lx, ly);
+        }
       }
+      this.activePets.forEach(p => {
+        if (!p || !p.active) return;
+        const n = p.rec.maxHp, y = p.y - (p.def.fly ? 24 : 28);
+        for (let i = 0; i < n; i++) { g.fillStyle(i < p.rec.hp ? 0xff8c9e : 0x3a2a2e, 1); g.fillRect(p.x - n * 4 + i * 8, y, 6, 4); }
+      });
+      kids(this.enemies).forEach(z => {
+        if (!z.active || !z.elite) return;
+        g.fillStyle(0x000000, 0.7); g.fillRect(z.x - 40, z.y - 56, 80, 7);
+        g.fillStyle(0xff4d6d, 1); g.fillRect(z.x - 40, z.y - 56, 80 * Math.max(0, z.hp) / z.maxHpE, 7);
+      });
       if (Ctl.mode === 'brawl' && !HUD.dead && !this.inputFrozen()) {
         const w = 14, gap = 4, total = T.ammoMax * w + (T.ammoMax - 1) * gap, x0 = h.x - total / 2, y = h.y - 34;
         for (let i = 0; i < T.ammoMax; i++) {
@@ -1196,28 +1423,36 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.crates = null; this.bulletBlockers = null;
       HUD.scene = 'dungeon';
       HUD.maxHp = run.maxHp; HUD.hp = run.hp; HUD.room = run.room; HUD.scrap = run.scrap; HUD.cages = run.cages;
-      HUD.banner = { text: run.room === T.rooms ? 'FINAL ROOM' : 'ROOM ' + run.room, t: 1.4 };
+      HUD.banner = { text: run.room === T.rooms ? 'FINAL ROOM' : T.bossRooms.includes(run.room) ? 'BOSS ROOM' : 'ROOM ' + run.room, t: 1.4 };
       HUD.prompt = null; HUD.building = false; HUD.panel = null; HUD.night = null;
 
       this.isExtractRoom = T.extractRooms.includes(run.room);
-      this.grid = (run.room === T.rooms ? FINAL_ROOM : Phaser.Utils.Array.GetRandom(TEMPLATES)).map(r => r.padEnd(COLS, '#').slice(0, COLS));
+      this.grid = (run.room === T.rooms ? FINAL_ROOM : T.bossRooms.includes(run.room) ? BOSS_ROOM : Phaser.Utils.Array.GetRandom(TEMPLATES)).map(r => r.padEnd(COLS, '#').slice(0, COLS));
       this.physics.world.setBounds(0, 0, RW, RH);
       this.solids = this.physics.add.staticGroup();
       this.crates = this.physics.add.staticGroup();
       this.buildRoom();
       this.setupCombat(this.entry.x, this.entry.y - 20, RW, RH, 420);
 
-      if (run.room >= 2 && run.room <= 4) {
-        const chance = (!(SAVE.creatures.crow > 0) && run.room === 2) ? 1 : 0.4;
-        if (Math.random() < chance) this.spawnWild();
+      // a wild creature? first-time catches are guaranteed in their room
+      const owned = (sp) => SAVE.pets.some(pt => pt.sp === sp) || run.captured.includes(sp);
+      const first = FIRST_CATCH[run.room];
+      let wildSp = null;
+      if (first && !owned(first)) wildSp = first;
+      else if (Math.random() < 0.45) {
+        const opts = Object.keys(WILD).filter(sp => run.room >= WILD[sp][0] && run.room <= WILD[sp][1]);
+        if (opts.length) wildSp = Phaser.Utils.Array.GetRandom(opts);
       }
-      this.waves = ROOM_WAVES[run.room].map(w => w.slice());
+      if (wildSp) this.spawnWild(wildSp);
+      this.waves = wavesFor(run.room);
       this.waveIdx = -1; this.waveDelay = 1.0;
       this.roomClear = false; this.extractT = 0;
     }
 
     collectScrap(n) { this.run.scrap += n; HUD.scrap = this.run.scrap; }
     onAbandon() { this.endRun({ type: 'abandon' }); }
+    getSquadRecs() { return this.run.pets; }
+    onEvent(ev) { if (ev.type === 'swapSlots' && this.roomClear && !HUD.dead && !this.leaving) this.swapSlots(ev.a, ev.b); }
 
     buildRoom() {
       const grid = this.grid;
@@ -1284,12 +1519,18 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     clearRoom() {
       this.roomClear = true; this.magnetAll = true;
       if (HUD.hp < HUD.maxHp) { HUD.hp++; this.floatText(this.hero.x, this.hero.y - 40, '+1 ♥', '#ff8c9e', 18); }
+      // bench pets rest and heal
+      this.squadRecs.forEach(r => {
+        const out = this.activePets.some(p => p && p.active && p.rec === r);
+        if (!out && !r.ko) this.healPet(r, this.passives.has('nurse') ? 2 : 1);
+      });
+      HUD.canSwap = this.squadRecs.length > 1; this.syncSquadHud();
       if (this.run.room < T.rooms) { this.doorZones.forEach(z => z.destroy()); this.drawDoor(true); }
       if (this.isExtractRoom) {
         this.hatch.setVisible(true).setScale(0);
         this.tweens.add({ targets: this.hatch, scale: 1, duration: 400, ease: 'Back.out' });
       }
-      HUD.banner = { text: this.run.room === T.rooms ? 'CLEARED! EXTRACT' : 'ROOM CLEAR', sub: this.isExtractRoom && this.run.room < T.rooms ? 'Hatch = go home with your loot  ·  Door = go deeper' : '', t: 2.6 };
+      HUD.banner = { text: this.run.room === T.rooms ? 'RUINS CLEARED! EXTRACT' : 'ROOM CLEAR', sub: (this.isExtractRoom && this.run.room < T.rooms ? 'Hatch = go home with your loot  ·  Door = go deeper' : 'Tap two pets on the left to swap them'), t: 2.8 };
     }
 
     updateExits(dt) {
@@ -1315,10 +1556,12 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.leaving = true; this.hero.setVelocity(0, 0);
       SAVE.scrap += run.scrap;
       SAVE.runs++; SAVE.bestRoom = Math.max(SAVE.bestRoom, run.room);
-      run.captured.forEach(sp => { SAVE.creatures[sp] = (SAVE.creatures[sp] || 0) + 1; });
+      run.captured.forEach(sp => addPet(sp));
+      const firstClear = run.room >= T.rooms && !SAVE.ruinsCleared;
+      if (run.room >= T.rooms) SAVE.ruinsCleared = true;
       writeSave();
       this.tweens.add({ targets: [this.hero, this.gun], scale: 0, duration: 300 });
-      this.time.delayedCall(450, () => this.endRun({ type: 'extract', scrap: run.scrap, caught: run.captured.length ? 'Spark Crow' : '' }));
+      this.time.delayedCall(450, () => this.endRun({ type: 'extract', scrap: run.scrap, caught: Object.entries(run.captured.reduce((m, sp) => { m[sp] = (m[sp] || 0) + 1; return m; }, {})).map(([sp, n]) => (n > 1 ? n + '× ' : '') + SP[sp].name).join(', '), firstClear }));
     }
 
     heroDied() {
@@ -1340,21 +1583,24 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       }
     }
 
-    spawnWild() {
+    spawnWild(sp) {
+      const def = SP[sp];
       let x, y, tries = 0;
       do { x = Phaser.Math.Between(TILE * 2, RW - TILE * 2); y = Phaser.Math.Between(TILE * 2, RH / 2); tries++; }
       while ((this.grid[Math.floor(y / TILE)][Math.floor(x / TILE)] !== '.' || Phaser.Math.Distance.Between(x, y, this.entry.x, this.entry.y) < 300) && tries < 40);
-      const c = this.physics.add.image(x, y, 'crow');
-      c.body.setCircle(9, 15, 15);
+      const c = this.physics.add.image(x, y, sp);
+      c.body.setCircle(def.body[0], def.body[1], def.body[2]);
       c.setCollideWorldBounds(true);
-      Object.assign(c, { isWild: true, species: 'crow', hp: 8, weak: 0, mode: 'wander', zapT: 2.5, tx: x, ty: y, wt: 0, caged: false, fleeing: false, kbT: 0 });
+      if (!def.fly) { this.physics.add.collider(c, this.solids); this.physics.add.collider(c, this.crates); }
+      const speed = { crow: 125, rat: 175, beetle: 70, moth: 140, hound: 150 }[sp] || 120;
+      Object.assign(c, { isWild: true, species: sp, hp: def.wildHp, maxHp: def.wildHp, wSpeed: speed, weak: 0, mode: 'wander', zapT: 2.5, tx: x, ty: y, wt: 0, caged: false, fleeing: false, kbT: 0 });
       this.physics.add.overlap(this.bullets, c, (a, b) => {
         const bl = a.isBullet ? a : b; if (!bl.active || c.caged || c.fleeing) return;
         const d = new V(bl.body.velocity.x, bl.body.velocity.y).normalize();
         const dmg = bl.dmg; bl.destroy(); this.damageWild(c, dmg, d, 150);
       });
       this.wild = c;
-      this.time.delayedCall(1500, () => { if (this.wild === c && c.active && !HUD.banner) HUD.banner = { text: 'A WILD SPARK CROW!', sub: 'Weaken it, then throw a cage', t: 2.4 }; });
+      this.time.delayedCall(1500, () => { if (this.wild === c && c.active && !HUD.banner) HUD.banner = { text: `A WILD ${def.name.toUpperCase()}!`, sub: 'Weaken it until it glows, then throw a cage', t: 2.6 }; });
     }
   }
 
@@ -1378,13 +1624,14 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.bulletBlockers = this.rubble;
       this.buildTown();
 
+      this.townRecs = this.makeTownRecs();
       HUD.maxHp = maxHearts(); HUD.hp = HUD.maxHp;
       HUD.prompt = null; HUD.building = false; HUD.panel = null; HUD.night = null; HUD.buildTab = 'mil'; HUD.buildSel = 'wall'; HUD.buildMsg = '';
       this.setupCombat(this.hallPos.x, this.hallPos.y + 70, TW, TH, 420);
       this.physics.add.collider(this.enemies, this.gates);
       this.physics.add.collider(this.enemies, this.rubble);
       this.physics.add.collider(this.hero, this.rubble);
-      this.physics.add.collider(this.hound, this.rubble);
+      this.physics.add.collider(this.petsGround, this.rubble);
 
       this.tBullets = this.physics.add.group();
       this.physics.add.overlap(this.tBullets, this.enemies, (a, b) => { const bl = a.isBullet ? a : b, z = a.isBullet ? b : a; this.bulletHit(bl, z); });
@@ -1392,7 +1639,8 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.renderBuildings();
 
       const r = this.result;
-      if (r && r.type === 'extract') HUD.banner = { text: `HOME SAFE  +${r.scrap} ⚙`, sub: r.caught ? `You brought back a ${r.caught}!` : 'Spend it on the town, then end the day', t: 3.2 };
+      if (r && r.type === 'extract' && r.firstClear) HUD.banner = { text: 'THE RUINS ARE CLEARED!', sub: `+${r.scrap} ⚙${r.caught ? ' · ' + r.caught : ''} · A new dungeon is coming soon`, t: 4 };
+      else if (r && r.type === 'extract') HUD.banner = { text: `HOME SAFE  +${r.scrap} ⚙`, sub: r.caught ? `New creature: ${r.caught}! Check your squad.` : 'Spend it on the town, then end the day', t: 3.4 };
       else if (r && r.type === 'dead') HUD.banner = { text: 'DRAGGED HOME', sub: `You lost ${r.scrap} scrap in room ${r.room}`, t: 3.2 };
       else if (r && r.type === 'abandon') HUD.banner = { text: 'BACK IN TOWN', t: 2 };
       else if (!SAVE.seenIntro) {
@@ -1518,13 +1766,11 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
 
     targetFor(z) {
       const h = this.hero;
-      if (!HUD.dead) {
-        const dh = dist(z, h);
-        if (dh < (z.type === 'runner' ? 230 : 170) || (z.aggro > 0 && dh < 420)) return { x: h.x, y: h.y, kind: 'hero', pad: 0 };
-      }
+      const near = this.closeTarget(z, z.aggro > 0 ? 420 : (z.type === 'runner' ? 230 : 170));
+      if (near) return near;
       const step = this.nextStep(Math.floor(z.x / TILE), Math.floor(z.y / TILE));
-      if (!step || step.gen) return { x: this.genPos.x, y: this.genPos.y, kind: 'gen', pad: 34 };
-      if (step.bld) return { x: step.bld.x, y: step.bld.y, kind: 'bld', bld: step.bld, pad: 10 };
+      if (!step || step.gen) return { x: this.genPos.x, y: this.genPos.y, kind: 'gen', obj: this.genImg, pad: 34 };
+      if (step.bld) return { x: step.bld.x, y: step.bld.y, kind: 'bld', bld: step.bld, obj: step.bld, pad: 10 };
       return { x: step.c * TILE + TILE / 2, y: step.r * TILE + TILE / 2, kind: 'path', pad: 0 };
     }
 
@@ -1577,6 +1823,21 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
 
     collectScrap(n) { SAVE.scrap += n; HUD.scrap = SAVE.scrap; }
     onAbandon() { if (onExit) onExit(); }
+    makeTownRecs() {
+      return SAVE.squad.map(id => petById(id)).filter(Boolean).map(pt => ({ id: pt.id, sp: pt.sp, hp: SP[pt.sp].hearts, maxHp: SP[pt.sp].hearts, ko: false, cdT: 0 }));
+    }
+    getSquadRecs() { return this.townRecs; }
+    onSquadOrderChanged() { SAVE.squad = this.townRecs.map(r => r.id); writeSave(); }
+    // rebuild your squad (after changes, at night start, at dawn): everyone fully healed
+    reloadSquad() {
+      this.townRecs = this.makeTownRecs(); this.squadRecs = this.townRecs;
+      this.passives = new Set(this.squadRecs.map(r => SP[r.sp].passive));
+      this.fillSlots(true);
+      HUD.maxHp = maxHearts(); HUD.hp = Math.min(HUD.hp, HUD.maxHp);
+    }
+    syncRoster() {
+      HUD.roster = SAVE.pets.map(pt => ({ id: pt.id, sp: pt.sp, inSquad: SAVE.squad.indexOf(pt.id) }));
+    }
     inputFrozen() { return HUD.building || !!HUD.panel; }
     canSpawn() { return this.phase === 'night'; }
 
@@ -1624,6 +1885,21 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         case 'tapTile': if (HUD.building) this.tapTile(ev.x, ev.y); break;
         case 'hallUpgrade': this.upgradeHall(); break;
         case 'closePanel': HUD.panel = null; break;
+        case 'swapSlots': if (day && !HUD.building && !HUD.panel) this.swapSlots(ev.a, ev.b); break;
+        case 'openSquad':
+          if (!day || HUD.building) return;
+          HUD.rosterMsg = ''; this.syncRoster(); HUD.panel = 'squad';
+          break;
+        case 'toggleSquad': {
+          const i = SAVE.squad.indexOf(ev.id);
+          if (i >= 0) {
+            if (SAVE.squad.length <= 1) { HUD.rosterMsg = 'You need at least one creature with you.'; break; }
+            SAVE.squad.splice(i, 1); HUD.rosterMsg = `${SP[petById(ev.id).sp].name} left the squad.`;
+          } else if (SAVE.squad.length >= 4) { HUD.rosterMsg = 'Squad is full (4). Tap one in the squad to take it out first.'; break; }
+          else { SAVE.squad.push(ev.id); HUD.rosterMsg = `${SP[petById(ev.id).sp].name} joined as #${SAVE.squad.length}.`; }
+          writeSave(); this.reloadSquad(); this.syncRoster();
+          break;
+        }
       }
     }
 
@@ -1697,7 +1973,8 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
 
     startRun() {
       SAVE.runsToday++; writeSave();
-      const run = { room: 1, hp: maxHearts(), maxHp: maxHearts(), scrap: 0, cages: T.cagesPerRun + Math.min(2, countB('workbench')), captured: [] };
+      const pets = this.makeTownRecs();
+      const run = { room: 1, hp: maxHearts(), maxHp: maxHearts(), scrap: 0, cages: T.cagesPerRun + Math.min(2, countB('workbench')), captured: [], pets };
       this.leaving = true;
       this.cameras.main.fadeOut(250);
       this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('dungeon', { run }));
@@ -1708,6 +1985,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.phase = 'night';
       this.renderBuildings();
       this.genMax = TL[SAVE.townLevel].gen; this.genHp = this.genMax;
+      this.reloadSquad();
       HUD.hp = HUD.maxHp;
       const day = SAVE.day;
       this.nightLen = Math.min(T.nightMax, T.nightBase + T.nightPerDay * (day - 1));
@@ -1760,6 +2038,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.renderBuildings();
       this.genHp = this.genMax;
       if (HUD.dead) { HUD.dead = false; untint(this.hero); this.hero.setPosition(this.hallPos.x, this.hallPos.y + 70); }
+      this.reloadSquad();
       HUD.hp = HUD.maxHp;
       HUD.banner = { text: survived ? `MORNING — DAY ${SAVE.day}` : 'THE LIGHTS WENT OUT', sub, t: 4 };
       this.syncHud();
@@ -1775,6 +2054,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         else if (dist(h, this.hallPos) < 100) HUD.prompt = { label: 'TOWN HALL', action: 'hall' };
       }
       HUD.scrap = SAVE.scrap;
+      HUD.canSwap = this.phase === 'day' && !HUD.building && !HUD.panel && this.squadRecs.length > 1;
 
       if (this.phase === 'night') {
         this.nightT += dt;
@@ -1905,6 +2185,21 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.over = this.add.text(0, 0, '', S(26, { align: 'center', strokeThickness: 5 })).setOrigin(0.5).setVisible(false);
       this.rotateText = this.add.text(0, 0, 'Turn your phone sideways ↻', S(22, { align: 'center' })).setOrigin(0.5).setVisible(false);
       this.deskHelp = this.add.text(0, 0, '', S(12, { color: '#c9d1d9' })).setOrigin(0.5, 1).setAlpha(0.8);
+      // squad portraits (left side) + squad panel
+      this.tBtn.squad = this.add.text(0, 0, '🐾 SQUAD', S(13)).setOrigin(0.5);
+      this.portraits = [];
+      for (let i = 0; i < 4; i++) this.portraits.push({ icon: this.add.image(0, 0, 'hound').setVisible(false), num: this.add.text(0, 0, '', S(10, { color: '#ffd166' })).setOrigin(0.5).setVisible(false) });
+      this.sqCards = [];
+      for (let i = 0; i < 12; i++) this.sqCards.push({
+        icon: this.add.image(0, 0, 'hound').setVisible(false),
+        name: this.add.text(0, 0, '', S(11)).setOrigin(0, 0).setVisible(false),
+        info: this.add.text(0, 0, '', S(9, { color: '#c9d1d9', lineSpacing: 1 })).setOrigin(0, 0).setVisible(false),
+        badge: this.add.text(0, 0, '', S(12, { color: '#f2d14b' })).setOrigin(0, 0).setVisible(false),
+      });
+      this.sqTitle = this.add.text(0, 0, 'YOUR CREATURES', S(18, { color: '#f2d14b' })).setOrigin(0.5).setVisible(false);
+      this.sqSub = this.add.text(0, 0, '', S(11, { color: '#c9d1d9', align: 'center' })).setOrigin(0.5).setVisible(false);
+      this.sqClose = this.add.text(0, 0, 'DONE', S(14)).setOrigin(0.5).setVisible(false);
+      this.swapSel = -1;
 
       this.layout();
       this.scale.on('resize', this.layout, this);
@@ -1956,7 +2251,27 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.over.setPosition(w / 2, h / 2).setFontSize(fs(0.06));
       this.rotateText.setPosition(w / 2, h / 2).setFontSize(fs(0.06));
       this.deskHelp.setPosition(w / 2, h - 10).setFontSize(fs(0.024));
+      this.B.squadBtn = { x: u * 0.2, y: u * 0.3, w: u * 0.3, h: u * 0.085 };
+      this.B.port = [0, 1, 2, 3].map(i => ({ x: u * 0.065, y: u * 0.44 + i * u * 0.115, r: u * 0.046 }));
+      const SQ = { x: w / 2, y: h / 2, w: Math.min(w * 0.94, u * 1.55), h: u * 0.9 };
+      this.B.sq = SQ;
+      this.B.sqClose = { x: w / 2, y: SQ.y + SQ.h / 2 - u * 0.065, w: u * 0.3, h: u * 0.085 };
+      this.tBtn.squad.setPosition(this.B.squadBtn.x, this.B.squadBtn.y).setFontSize(fs(0.032));
+      this.sqTitle.setPosition(w / 2, SQ.y - SQ.h / 2 + u * 0.05).setFontSize(fs(0.045));
+      this.sqSub.setPosition(w / 2, SQ.y - SQ.h / 2 + u * 0.105).setFontSize(fs(0.027));
+      this.sqClose.setPosition(this.B.sqClose.x, this.B.sqClose.y).setFontSize(fs(0.035));
+      this.sqCards.forEach(c => { c.name.setFontSize(fs(0.03)); c.info.setFontSize(fs(0.025)); c.badge.setFontSize(fs(0.034)); });
+      this.portraits.forEach(pp => pp.num.setFontSize(fs(0.03)));
     }
+
+    sqCardRect(i) {
+      const SQ = this.B.sq, u = this.u, gap = u * 0.015, cols = 4, rows = 3;
+      const top = SQ.y - SQ.h / 2 + u * 0.14, bottom = this.B.sqClose.y - this.B.sqClose.h / 2 - u * 0.02;
+      const cw = (SQ.w - u * 0.06 - gap * (cols - 1)) / cols, ch = (bottom - top - gap * (rows - 1)) / rows;
+      const c = i % cols, r = Math.floor(i / cols);
+      return { x: SQ.x - SQ.w / 2 + u * 0.03 + cw / 2 + c * (cw + gap), y: top + ch / 2 + r * (ch + gap), w: cw, h: ch };
+    }
+    portHit(x, y) { if (!HUD.canSwap || !HUD.squad) return -1; return this.B.port.findIndex((b, i) => i < HUD.squad.length && this.near(x, y, b, 1.25)); }
 
     inRect(x, y, r) { return Math.abs(x - r.x) < r.w / 2 && Math.abs(y - r.y) < r.h / 2; }
     near(x, y, b, mult) { return Math.hypot(x - b.x, y - b.y) < b.r * mult; }
@@ -1986,7 +2301,8 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       if (this.near(p.x, p.y, B.fs, 1.4) || this.near(p.x, p.y, B.exit, 1.4)) return;
       if (HUD.panel || HUD.building) return; // handled on release
       if (!this.town() || !HUD.building) { if (this.inRect(p.x, p.y, B.mode)) return; }
-      if (this.townButtonsVisible() && (this.inRect(p.x, p.y, B.build) || this.inRect(p.x, p.y, B.endDay))) return;
+      if (this.townButtonsVisible() && (this.inRect(p.x, p.y, B.build) || this.inRect(p.x, p.y, B.endDay) || this.inRect(p.x, p.y, B.squadBtn))) return;
+      if (this.portHit(p.x, p.y) >= 0) return;
       if (this.town() && HUD.prompt && this.inRect(p.x, p.y, B.prompt)) return;
       if (HUD.dead) return;
       if (!p.wasTouch && this.mouseMode) {
@@ -2026,7 +2342,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         if (k === 'atk') {
           Ctl.aim = s.dir ? s.dir.clone() : null;
           if (Ctl.mode === 'twin') Ctl.twin = { dir: s.dir ? s.dir.clone() : null };
-        } else if (k === 'a1') Ctl.aimAbility = s.dir ? { i: 1, dir: s.dir.clone() } : null;
+        } else Ctl.aimAbility = s.dir ? { i: k === 'a1' ? 1 : 2, dir: s.dir.clone() } : null;
       }
     }
 
@@ -2053,6 +2369,12 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         return;
       }
       // Town Hall panel
+      if (HUD.panel === 'squad') {
+        if (tapIn(B.sqClose) || !this.inRect(p.x, p.y, B.sq)) { Ctl.queue.push({ type: 'closePanel' }); return; }
+        const roster = HUD.roster || [];
+        for (let i = 0; i < Math.min(12, roster.length); i++) if (tapIn(this.sqCardRect(i))) { Ctl.queue.push({ type: 'toggleSquad', id: roster[i].id }); return; }
+        return;
+      }
       if (HUD.panel) {
         if (tapIn(B.pUp)) Ctl.queue.push({ type: 'hallUpgrade' });
         else if (tapIn(B.pClose) || !this.inRect(p.x, p.y, B.panel)) Ctl.queue.push({ type: 'closePanel' });
@@ -2077,6 +2399,16 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       if (this.townButtonsVisible()) {
         if (tapIn(B.build)) { this.releaseAll(); Ctl.queue.push({ type: 'build' }); return; }
         if (tapIn(B.endDay)) { Ctl.queue.push({ type: 'endDay' }); return; }
+        if (tapIn(B.squadBtn)) { this.releaseAll(); Ctl.queue.push({ type: 'openSquad' }); return; }
+      }
+      {
+        const a = this.portHit(p.downX, p.downY), b = this.portHit(p.x, p.y);
+        if (a >= 0 && a === b) {
+          if (this.swapSel < 0) this.swapSel = a;
+          else if (this.swapSel === a) this.swapSel = -1;
+          else { Ctl.queue.push({ type: 'swapSlots', a: this.swapSel, b: a }); this.swapSel = -1; }
+          return;
+        }
       }
       if (this.town() && HUD.prompt && tapIn(B.prompt)) { this.releaseAll(); Ctl.queue.push({ type: 'prompt' }); return; }
 
@@ -2099,8 +2431,9 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       }
       if (p.id === this.ptr.a2) {
         const s = this.st.a2;
-        if (!s.drag || s.dir) Ctl.queue.push({ type: 'ab', i: 2, dir: null });
-        this.ptr.a2 = null;
+        if (!s.drag) Ctl.queue.push({ type: 'ab', i: 2, dir: null });
+        else if (s.dir) Ctl.queue.push({ type: 'ab', i: 2, dir: s.dir });
+        Ctl.aimAbility = null; this.ptr.a2 = null;
       }
       if (p.id === this.ptr.dash) this.ptr.dash = null;
     }
@@ -2164,7 +2497,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       else if (building) top = `MILITARY ${HUD.points.mil}/${HUD.points.milMax}   ·   CIVIC ${HUD.points.civ}/${HUD.points.civMax}`;
       else if (HUD.night) { const s = Math.ceil(HUD.night.t); top = `NIGHT ${HUD.day}   ·   ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}   ·   ⚙ ${HUD.scrap}`; }
       else top = `DAY ${HUD.day}   ·   ⚙ ${HUD.scrap}   ·   HALL LV ${HUD.townLevel}`;
-      this.topText.setText(top).setScale(1 + (HUD.scrapPop || 0) * 0.6);
+      this.topText.setText(top).setScale(1 + (HUD.scrapPop || 0) * 0.6).setVisible(!panel);
       if (town && HUD.night) {
         const bw = u * 0.5, bx = w / 2 - bw / 2, by = u * 0.1;
         g.fillStyle(0x000000, 0.6); g.fillRect(bx - 2, by - 2, bw + 4, u * 0.025 + 4);
@@ -2172,8 +2505,8 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       }
 
       // mode toggle (hidden in build mode)
-      this.modeText.setVisible(!building);
-      if (!building) {
+      this.modeText.setVisible(!building && !panel);
+      if (!building && !panel) {
         this.pill(B.mode, 0xffffff, 0.5, false);
         this.modeText.setText(Ctl.mode === 'brawl' ? 'MODE: TAP / DRAG  ⇄' : 'MODE: TWIN-STICK  ⇄');
       }
@@ -2190,6 +2523,53 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         g.lineStyle(3, 0xf2d14b, 0.9); g.strokeRoundedRect(B.prompt.x - B.prompt.w / 2, B.prompt.y - B.prompt.h / 2, B.prompt.w, B.prompt.h, B.prompt.h / 2);
         this.tBtn.prompt.setText(HUD.prompt.label);
       }
+
+      // squad button + portraits
+      this.tBtn.squad.setVisible(showTown);
+      if (showTown) this.pill(B.squadBtn, 0xff8c9e, 0.55, false);
+      const sq = HUD.squad || [];
+      const showPorts = !building && !panel && !portrait && sq.length > 0;
+      if (!HUD.canSwap) this.swapSel = -1;
+      this.portraits.forEach((pp, i) => {
+        const e = sq[i], b = B.port[i], vis = showPorts && !!e;
+        pp.icon.setVisible(vis); pp.num.setVisible(vis && e.slot >= 0);
+        if (!vis) return;
+        const sel = this.swapSel === i;
+        const col = e.ko ? 0x555555 : (e.slot >= 0 ? 0xff8c42 : 0x9aa4ad);
+        g.fillStyle(sel ? 0x8ef0a0 : 0x000000, sel ? 0.3 : 0.55); g.fillCircle(b.x, b.y, b.r);
+        g.lineStyle(sel ? 4 : 2, sel ? 0x8ef0a0 : col, e.slot >= 0 || sel ? 1 : 0.6); g.strokeCircle(b.x, b.y, b.r);
+        if (HUD.canSwap && !sel) { g.lineStyle(1, 0x8ef0a0, 0.25 + 0.2 * Math.sin(time * 0.006)); g.strokeCircle(b.x, b.y, b.r + 4); }
+        pp.icon.setTexture(e.sp).setPosition(b.x, b.y - b.r * 0.08).setScale(b.r / 26).setAlpha(e.ko ? 0.3 : (e.slot >= 0 ? 1 : 0.65));
+        if (e.ko) { const q = b.r * 0.5; g.lineStyle(3, 0xff4d6d, 0.9); g.lineBetween(b.x - q, b.y - q, b.x + q, b.y + q); g.lineBetween(b.x + q, b.y - q, b.x - q, b.y + q); }
+        pp.num.setText(String(e.slot + 1)).setPosition(b.x + b.r * 0.85, b.y - b.r * 0.85);
+        const pw = b.r * 1.7 / e.maxHp;
+        for (let k = 0; k < e.maxHp; k++) { g.fillStyle(k < e.hp ? 0xff8c9e : 0x3a2a2e, 1); g.fillRect(b.x - b.r * 0.85 + k * pw + 1, b.y + b.r + 3, pw - 2, 4); }
+      });
+
+      // squad panel
+      const showSq = panel === 'squad';
+      [this.sqTitle, this.sqSub, this.sqClose].forEach(t => t.setVisible(showSq));
+      if (showSq) {
+        const SQ = B.sq;
+        g.fillStyle(0x000000, 0.55); g.fillRect(0, 0, w, h);
+        g.fillStyle(0x14161a, 0.97); g.fillRoundedRect(SQ.x - SQ.w / 2, SQ.y - SQ.h / 2, SQ.w, SQ.h, 14);
+        g.lineStyle(3, 0xff8c9e, 0.8); g.strokeRoundedRect(SQ.x - SQ.w / 2, SQ.y - SQ.h / 2, SQ.w, SQ.h, 14);
+        this.sqSub.setText(HUD.rosterMsg || 'Tap to add or remove  ·  #1 and #2 fight beside you  ·  all 4 give their passive  ·  order = who steps in next');
+        this.pill(B.sqClose, 0x8ef0a0, 0.6, false);
+      }
+      const roster = showSq ? (HUD.roster || []) : [];
+      this.sqCards.forEach((c, i) => {
+        const e = roster[i], vis = showSq && !!e;
+        [c.icon, c.name, c.info, c.badge].forEach(o => o.setVisible(vis));
+        if (!vis) return;
+        const r = this.sqCardRect(i), d = SP[e.sp], inSq = e.inSquad >= 0;
+        g.fillStyle(inSq ? 0xff8c42 : 0x000000, inSq ? 0.22 : 0.5); g.fillRoundedRect(r.x - r.w / 2, r.y - r.h / 2, r.w, r.h, 8);
+        g.lineStyle(2, inSq ? 0xff8c42 : 0xffffff, inSq ? 0.9 : 0.25); g.strokeRoundedRect(r.x - r.w / 2, r.y - r.h / 2, r.w, r.h, 8);
+        c.icon.setTexture(e.sp).setPosition(r.x - r.w / 2 + r.h * 0.42, r.y).setScale(r.h / 62);
+        c.name.setText(d.name).setPosition(r.x - r.w / 2 + r.h * 0.85, r.y - r.h * 0.42);
+        c.info.setText(`${'♥'.repeat(d.hearts)}\nA: ${d.activeName}\nP: ${d.passiveName}`).setPosition(r.x - r.w / 2 + r.h * 0.85, r.y - r.h * 0.14);
+        c.badge.setText(inSq ? '#' + (e.inSquad + 1) : '').setPosition(r.x - r.w / 2 + 6, r.y - r.h / 2 + 4);
+      });
 
       // build mode UI
       this.tBtn.done.setVisible(building); this.tBtn.tabMil.setVisible(building); this.tBtn.tabCiv.setVisible(building);
@@ -2238,12 +2618,12 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       // combat controls
       const showTouch = this.touchUI && !portrait && !building && !panel;
       for (const k in this.lbl) this.lbl[k].setVisible(showTouch);
-      this.lbl.a1.setText(HUD.ab1Label || 'POUNCE');
-      this.lbl.a2.setText(HUD.ab2Label || 'HOWL');
+      this.lbl.a1.setText(HUD.ab1Label || '').setVisible(showTouch && !!HUD.ab1Label);
+      this.lbl.a2.setText(HUD.ab2Label || '').setVisible(showTouch && !!HUD.ab2Label);
       this.deskHelp.setVisible(!this.touchUI && !building && !panel);
       this.deskHelp.setText(town
-        ? 'WASD move · mouse aim · click attack · Space dash · Q/E abilities · B build · N end day · R use'
-        : 'WASD move · mouse aim · click attack · Space / right-click dash · Q pounce · E ability 2 · F cage');
+        ? 'WASD move · mouse aim · click attack · Space dash · Q/E pet abilities · B build · N end day · R use · click pets on the left to swap'
+        : 'WASD move · mouse aim · click attack · Space / right-click dash · Q/E pet abilities · F cage');
       if (showTouch) {
         const R = u * 0.12;
         if (this.moveBase) {
@@ -2256,8 +2636,8 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         }
         this.drawBtn('atk', 0xff8c42, 0);
         this.drawBtn('dash', 0x3fd0c9, HUD.dashCd / T.dashCd);
-        this.drawBtn('a1', 0xe08a3c, HUD.cd1 / (HUD.cd1Max || 1));
-        this.drawBtn('a2', HUD.ab2Label === 'ZAP' ? 0x5fd3ff : 0xffd166, HUD.cd2 / (HUD.cd2Max || 1));
+        if (HUD.ab1Label) this.drawBtn('a1', SP_COLOR[HUD.ab1Sp] || 0xe08a3c, HUD.cd1 / (HUD.cd1Max || 1));
+        if (HUD.ab2Label) this.drawBtn('a2', SP_COLOR[HUD.ab2Sp] || 0xe08a3c, HUD.cd2 / (HUD.cd2Max || 1));
         if (Ctl.mode === 'brawl') {
           const b = B.atk;
           for (let i = 0; i < T.ammoMax; i++) {
