@@ -46,6 +46,12 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     shrieker: { hp: 5, speed: 65, keep: 300, screamCd: 5, windup: 0.8, screamR: 230, scrap: [2, 3] },
     mother:  { hp: 60, speed: 28, dmg: 1, spawnCd: 5, volleyCd: 3.2, scrap: [12, 16] },
     bloater: { hp: 4, speed: 58, fuseRange: 45, fuse: 0.7, deathFuse: 0.35, boomR: 90, dmg: 2, scrap: [1, 2] },
+    // bandits: they stand guard until you get close, then shout and come for you
+    rifleman: { hp: 6, speed: 85, keep: 260, fireCd: 1.9, windup: 0.45, spitSpeed: 470, dmg: 1, scrap: [2, 3], tex: 'bbullet', bandit: true },
+    bruiser: { hp: 11, speed: 115, windupRange: 75, windup: 0.4, lunge: 520, lungeT: 0.18, recover: 0.5, dmg: 1, scrap: [2, 4], bandit: true },
+    // camp structures (don't move)
+    bturret: { hp: 10, struct: true, range: 290, rate: 1.4, shotSpeed: 480, scrap: [3, 5] },
+    radio: { hp: 30, struct: true, scrap: [4, 6] },
   };
   const ROOM_WAVES = {
     1: [['walker', 'walker', 'walker'], ['walker', 'walker', 'runner', 'runner']],
@@ -169,12 +175,74 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     if (room >= 7) waves[2].push('brute');
     return waves;
   }
-  // Town: # rubble wall · r rubble · S zombie entrance (west path) · X east path (opens at Town Hall 2) · G generator · T town hall · R ruins hatch · U subway · K creature pen
+  // ===================================================================
+  //  BANDIT CAMPS — picked at the War Table, one raid a day
+  //  # rock · . floor · W camp wall · g gate · x wire (slows you) · ^ spikes (hurt)
+  //  t turret · R radio tower (destroy it to win) · b rifleman · B bruiser · P your entry · c crate
+  // ===================================================================
+  const CAMP_TOTAL = 10;
+  const CAMP_HP = { W: 8, g: 4 };
+  const CAMPS = [
+    { name: 'Scrap Outpost', teach: 'Walls and a gate. Break in and knock down the radio tower.', reward: 60, map: [
+      '########################',
+      '#......................#',
+      '#..c..........WWWWWWW..#',
+      '#.............W.....W..#',
+      '#.............W..b..W..#',
+      '#.............W.....W..#',
+      '#......b......W.....W..#',
+      '#P............g..R..W..#',
+      '#P............g.....W..#',
+      '#......b......W.....W..#',
+      '#.............W..B..W..#',
+      '#.............W.....W..#',
+      '#..c..........WWWWWWW..#',
+      '#..........B...........#',
+      '#......................#',
+      '########################'] },
+    { name: 'Wire Yard', teach: 'Wire slows you and spikes hurt. Dash across or find the way around.', reward: 90, map: [
+      '########################',
+      '#......................#',
+      '#.....xxxx.....^^^.....#',
+      '#.....xxxx..b..^^^..B..#',
+      '#..........WWWWWWW.....#',
+      '#..xx......W.....W.....#',
+      '#..xx...^^.W..R..W..b..#',
+      '#P......^^.g.....W.....#',
+      '#P......^^.g.....W.....#',
+      '#..xx...^^.W.....W..b..#',
+      '#..xx......W..B..W.....#',
+      '#..........WWWWWWW.....#',
+      '#.....xxxx..b..^^^.....#',
+      '#.....xxxx.....^^^..B..#',
+      '#......................#',
+      '########################'] },
+    { name: 'Turret Row', teach: 'Turrets out-range your gun. Hide behind walls, or let your pets go first.', reward: 130, map: [
+      '########################',
+      '#......................#',
+      '#..........W.t.W.......#',
+      '#..........WWWWW...b...#',
+      '#......................#',
+      '#.....t.......WWWWWWW..#',
+      '#.....W.......W.....W..#',
+      '#P.........b..g..R..W..#',
+      '#P............g..t..W..#',
+      '#.....W.......W.....W..#',
+      '#.....t.......WWWWWWW..#',
+      '#......................#',
+      '#..........WWWWW...B...#',
+      '#..........W.t.W.......#',
+      '#......................#',
+      '########################'] },
+  ];
+  const campsBeaten = () => SAVE.campsCleared || 0;
+
+  // Town: # rubble wall · r rubble · W war table · S zombie entrance (west path) · X east path (opens at Town Hall 2) · G generator · T town hall · R ruins hatch · U subway · K creature pen
   const TOWN_MAP = [
     '########################',
     '#......................#',
-    '#..rr..............rr..#',
-    '#..r................r..#',
+    '#..rr......WW......rr..#',
+    '#..r.......WW.......r..#',
     '#......................#',
     '#......................#',
     '#......................#',
@@ -225,7 +293,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
   const levelCap = () => SAVE.townLevel * 5;
   const xpNeed = (lvl) => 8 + lvl * 6;
   const isMilestone = (lvl) => lvl % 5 === 0;
-  const XP = { walker: 2, runner: 2, spitter: 3, bloater: 3, brute: 8, crawler: 3, shrieker: 4, boss: 30 };
+  const XP = { walker: 2, runner: 2, spitter: 3, bloater: 3, brute: 8, crawler: 3, shrieker: 4, boss: 30, rifleman: 4, bruiser: 4, bturret: 5, radio: 12 };
   function addXp(obj, amt) {
     const cap = levelCap(), ups = [];
     if (obj.lvl >= cap) { obj.xp = 0; return ups; }
@@ -311,6 +379,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     m: '#9aa4ad', M: '#4a525a', e: '#fff2a8', l: '#b5c94f', L: '#6f7d2a', n: '#c9b28a',
   };
   const SPR = {
+    bbullet: ['.RR.', 'Rrr R', 'RrrR', '.RR.'].map(r => r.replace(' ', '')),
     hero: ['................', '.....kkkkk......', '....kBbbbbk.....', '....kbbbbbbk....', '....kbsssSk.....', '....kskskSk.....', '....kssssSk.....', '...kkttttTkk....', '..ktttTtttTtk...', '..ksTttttttsk...', '..kskTtttTksk...', '...kkKKKKKkk....', '....kKKkKKk.....', '....kKk.kKk.....', '....kBk.kBk.....', '....kkk.kkk.....'],
     walker: ['................', '.....kkkkk......', '....kzzzzzk.....', '....kzzrzrk.....', '....kzzzzZk.....', '.....kZZZk......', '....kpppppkkkkk.', '...kpPpppPzzzzk.', '...kpppppppkkkk.', '...kpPpppPk.....', '....kKKKKKk.....', '....kKk.kKk.....', '....kZk.kZk.....', '....kkk.kkk.....', '................', '................'],
     runner: ['................', '................', '................', '......kkkk......', '.....kzzzzk.....', '.....kzrzrk.....', '.....kzzzZk.....', '....kkRRRRkkk...', '...kzRrRRrRzzk..', '...kkRRRRRkkkk..', '.....kKKKk......', '....kKk.kKk.....', '....kZk..kZk....', '....kk....kk....', '................', '................'],
@@ -379,6 +448,28 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     for (const k of ['hero', 'walker', 'runner', 'spitter', 'bloater', 'hound', 'crow', 'rat', 'moth', 'beetle', 'crate', 'rubble', 'cage',
       'wall', 'gate', 'wire', 'spikes', 'turret', 'guard', 'workbench', 'kitchen', 'farm', 'storehouse', 'mole', 'bat', 'crawler', 'shrieker']) pxTexture(scene, k, SPR[k], 3);
     pxTexture(scene, 'mother', SPR.mother, 5);
+    // bandits are recoloured survivors: red bandana + khaki coat / dark hood
+    if (!SPR.rifleman) {
+      const swap = (rows, m) => rows.map(r => r.replace(/./g, ch => (m[ch] !== undefined ? m[ch] : ch)));
+      SPR.rifleman = swap(SPR.hero, { t: 'N', T: 'B', b: 'r', B: 'R' });
+      SPR.bruiser = swap(SPR.hero, { t: 'R', T: 'k', b: 'K', B: 'k', s: 'S' });
+    }
+    pxTexture(scene, 'rifleman', SPR.rifleman, 3);
+    pxTexture(scene, 'bruiser', SPR.bruiser, 4);
+    pxTexture(scene, 'bbullet', SPR.bbullet, 3);
+    pxTexture(scene, 'bturret', SPR.turret, 3);
+    bigTexture(scene, 'radio', 32, (r) => {
+      r(6, 22, 20, 9, PAL.k); r(7, 23, 18, 7, PAL.M); r(9, 25, 5, 3, PAL.k); r(10, 26, 3, 1, PAL.l); r(17, 25, 6, 1, PAL.g); r(17, 27, 6, 1, PAL.g);
+      r(15, 2, 2, 21, PAL.k); r(12, 8, 8, 1, PAL.k); r(13, 13, 6, 1, PAL.k); r(11, 18, 10, 1, PAL.k);
+      for (let y = 4; y < 22; y += 4) { r(13, y, 1, 3, PAL.g); r(18, y, 1, 3, PAL.g); }
+      r(14, 0, 4, 3, PAL.k); r(15, 1, 2, 1, PAL.r);
+    });
+    bigTexture(scene, 'wartable', 32, (r) => {
+      r(2, 8, 28, 16, PAL.k); r(3, 9, 26, 14, PAL.b); r(5, 10, 22, 11, PAL.n);
+      r(7, 12, 6, 1, PAL.S); r(12, 13, 1, 5, PAL.S); r(14, 16, 8, 1, PAL.S); r(21, 11, 1, 6, PAL.S);
+      r(9, 11, 2, 2, PAL.r); r(19, 14, 2, 2, PAL.r); r(15, 18, 2, 2, PAL.r); r(23, 17, 2, 2, PAL.k);
+      r(4, 24, 3, 6, PAL.k); r(25, 24, 3, 6, PAL.k); r(5, 24, 1, 5, PAL.B); r(26, 24, 1, 5, PAL.B);
+    });
     pxTexture(scene, 'brute', SPR.brute, 4);
     pxTexture(scene, 'scrap', SPR.scrap, 2);
     pxTexture(scene, 'lure', SPR.lure, 3);
@@ -758,7 +849,13 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       else if (type === 'crawler') z.body.setCircle(12, 12, 20);
       else if (type === 'mother') { z.body.setCircle(30, 10, 12); z.spawnT = 2.5; z.volT = 2; z.face = 0; }
       else z.body.setCircle(13, 11, 16);
-      if (type === 'spitter') { z.fireT = Phaser.Math.FloatBetween(1, 2); z.strafe = Math.random() < 0.5 ? 1 : -1; }
+      if (type === 'spitter' || type === 'rifleman') { z.fireT = Phaser.Math.FloatBetween(1, 2); z.strafe = Math.random() < 0.5 ? 1 : -1; }
+      if (type === 'bruiser') z.body.setCircle(13, 19, 24);
+      if (def.struct) {
+        z.body.setImmovable(true); z.body.pushable = false; z.maxHpS = def.hp; z.cd = 1;
+        if (type === 'radio') z.body.setCircle(24, 24, 40);
+        if (type === 'bturret') { z.body.setCircle(18, 6, 8); z.setTint(0xffb0a0); z.gunImg = this.add.image(x, y - 4, 'turretGun').setOrigin(0.2, 0.5).setTint(0xff8c8c).setDepth(11 + y / 1000); }
+      }
       if (type === 'crawler') { z.mode = 'burrow'; z.hidden = true; z.setAlpha(0.25); z.t = 0; }
       if (type === 'shrieker') { z.fireT = Phaser.Math.FloatBetween(2, 3.5); z.strafe = Math.random() < 0.5 ? 1 : -1; }
       if (elite && type === 'mother') { z.elite = true; z.hp = z.maxHpE = 50 + (this.run ? this.run.room : 5) * 4; }
@@ -784,6 +881,12 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     updateEnemyInner(z, dt, time) {
       const def = E[z.type];
       z.aggro = Math.max(0, z.aggro - dt);
+      if (def.struct) { // camp buildings: never move; a stun (screech, chain...) jams a turret
+        z.setVelocity(0, 0); z.kbT = 0;
+        if (z.stun > 0) { z.stun -= dt; return; }
+        if (z.type === 'bturret') this.updateBTurret(z, def, dt);
+        return;
+      }
       if (z.kbT > 0) { z.kbT -= dt; z.setVelocity(z.kbx, z.kby); z.kbx *= 0.85; z.kby *= 0.85; return; }
       if (z.stun > 0) {
         z.stun -= dt; z.setVelocity(0, 0);
@@ -791,11 +894,17 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         if (z.stun <= 0) { z.setAlpha(1); z.mode = 'chase'; }
         return;
       }
+      if (z.idle) { // a bandit on guard: waits until you come close or hurt one of them
+        const near = !HUD.dead && (dist(z, this.hero) < 300 || this.allPets().some(p => dist(z, p) < 220) || z.aggro > 0);
+        if (!near) { z.setVelocity(0, 0); return; }
+        kids(this.enemies).forEach(o => { if (o.idle && dist(o, z) < 260) { o.idle = false; this.floatText(o.x, o.y - 34, '!', '#ff4d6d', 22); } });
+        z.idle = false;
+      }
       const tg = this.targetFor(z);
       const dx = tg.x - z.x, dy = tg.y - z.y, d = Math.hypot(dx, dy) || 1;
       if (z.type !== 'brute' && z.type !== 'mother' && Math.abs(dx) > 3) z.setFlipX(dx < 0);
-      if (z.type === 'walker' || z.type === 'runner') this.updateLunger(z, def, tg, dx, dy, d, dt);
-      else if (z.type === 'spitter') this.updateSpitter(z, def, tg, dx, dy, d, dt);
+      if (z.type === 'walker' || z.type === 'runner' || z.type === 'bruiser') this.updateLunger(z, def, tg, dx, dy, d, dt);
+      else if (z.type === 'spitter' || z.type === 'rifleman') this.updateSpitter(z, def, tg, dx, dy, d, dt);
       else if (z.type === 'brute') this.updateBrute(z, def, tg, dx, dy, d, dt);
       else if (z.type === 'bloater') this.updateBloater(z, def, tg, dx, dy, d, dt, time);
       else if (z.type === 'crawler') this.updateCrawler(z, def, tg, dx, dy, d, dt, time);
@@ -914,11 +1023,11 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         else if (d < def.keep - 40) { vx = -dx / d; vy = -dy / d; }
         else { vx = -dy / d * z.strafe; vy = dx / d * z.strafe; }
         z.setVelocity(vx * z.spd, vy * z.spd);
-        if (tg.kind !== 'path' && z.fireT <= 0 && d < 430 && !(HUD.dead && tg.kind === 'hero')) { z.mode = 'windup'; z.t = def.windup; z.tg = tg; z.setTint(0xc8ff6a); z.setVelocity(0, 0); }
+        if (tg.kind !== 'path' && z.fireT <= 0 && d < 430 && !(HUD.dead && tg.kind === 'hero')) { z.mode = 'windup'; z.t = def.windup; z.tg = tg; z.setTint(def.tex ? 0xff8c8c : 0xc8ff6a); z.setVelocity(0, 0); }
       } else if (z.mode === 'windup') {
         z.t -= dt; z.setVelocity(0, 0);
         if (z.t <= 0) {
-          const st = z.tg || tg; untint(z); this.spit(z, (st.obj && st.obj.active !== false) ? st.obj : st, 'spit', def.spitSpeed);
+          const st = z.tg || tg; untint(z); this.spit(z, (st.obj && st.obj.active !== false) ? st.obj : st, def.tex || 'spit', def.spitSpeed);
           z.fireT = def.fireCd * Phaser.Math.FloatBetween(0.85, 1.15); z.mode = 'chase';
           if (Math.random() < 0.5) z.strafe *= -1;
         }
@@ -933,7 +1042,22 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       s.setVelocity(d.x * speed, d.y * speed);
     }
 
-    splash(s) { if (!s.active) return; this.spark(s.x, s.y, s.texture.key === 'spark' ? 0x5fd3ff : 0xb5c94f, 5); s.destroy(); }
+    splash(s) { if (!s.active) return; const k = s.texture.key; this.spark(s.x, s.y, k === 'spark' ? 0x5fd3ff : k === 'bbullet' ? 0xff8c8c : 0xb5c94f, 5); s.destroy(); }
+
+    // bandit turret: shoots the closest of you / your pets / a lure
+    updateBTurret(z, def, dt) {
+      z.cd -= dt;
+      const tg = HUD.dead ? null : this.closeTarget(z, def.range);
+      if (!tg) return;
+      const a = Math.atan2(tg.y - z.y, tg.x - z.x);
+      if (z.gunImg) z.gunImg.setRotation(a);
+      if (z.cd <= 0) {
+        z.cd = def.rate;
+        this.spit(z, tg.obj || tg, 'bbullet', def.shotSpeed);
+        const fl = this.add.image(z.x + Math.cos(a) * 30, z.y - 4 + Math.sin(a) * 30, 'dot').setTint(0xff8c8c).setScale(1.8).setDepth(860);
+        this.tweens.add({ targets: fl, alpha: 0, duration: 60, onComplete: () => fl.destroy() });
+      }
+    }
 
     updateBrute(z, def, tg, dx, dy, d, dt) {
       const want = Math.atan2(dy, dx);
@@ -1059,6 +1183,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
 
     killEnemy(z) {
       HUD.kills = (HUD.kills || 0) + 1;
+      if (z.gunImg) z.gunImg.destroy();
       this.gainXp(z.elite ? 'boss' : z.type);
       const big = z.type === 'brute';
       this.spark(z.x, z.y, 0x9acd32, big ? 20 : 12);
@@ -1693,9 +1818,9 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
           const p = 1 - z.t / E.brute.windup;
           g.fillStyle(0xff3b3b, 0.15 + 0.35 * p);
           g.beginPath(); g.slice(z.x, z.y, E.brute.slamRange, z.face - E.brute.slamArc, z.face + E.brute.slamArc, false); g.fillPath();
-        } else if (z.type === 'spitter') {
+        } else if (z.type === 'spitter' || z.type === 'rifleman') {
           const tg = z.tg || this.targetFor(z);
-          g.lineStyle(2, 0xb5c94f, 0.5); g.lineBetween(z.x, z.y, tg.x, tg.y);
+          g.lineStyle(2, z.type === 'rifleman' ? 0xff4d6d : 0xb5c94f, 0.5); g.lineBetween(z.x, z.y, tg.x, tg.y);
         } else {
           const def = E[z.type], p = 1 - z.t / def.windup, L = def.lunge * def.lungeT, W = 15;
           const nx = -z.ldy, ny = z.ldx;
@@ -1784,7 +1909,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
   //  DUNGEON — a run through the ruins (5 rooms)
   // ===================================================================
   class DungeonScene extends Combat {
-    constructor() { super('dungeon'); }
+    constructor(key) { super(key || 'dungeon'); }
     init(data) { this.run = data.run; }
 
     create() {
@@ -2030,6 +2155,124 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
   }
 
   // ===================================================================
+  //  RAID — attack a bandit camp, knock down its radio tower
+  // ===================================================================
+  class RaidScene extends DungeonScene {
+    constructor() { super('raid'); }
+
+    create() {
+      makeTextures(this);
+      const run = this.run, camp = CAMPS[run.camp];
+      this.camp = camp; this.won = false;
+      this.crates = null; this.bulletBlockers = null;
+      HUD.scene = 'raid';
+      HUD.maxHp = run.maxHp; HUD.hp = run.hp; HUD.scrap = 0; HUD.cages = 0;
+      HUD.prompt = null; HUD.building = false; HUD.panel = null; HUD.night = null;
+      HUD.banner = { text: camp.name.toUpperCase(), sub: camp.teach, t: 3.2 };
+      this.grid = camp.map.map(r => r.padEnd(TCOLS, '#').slice(0, TCOLS));
+      this.physics.world.setBounds(0, 0, TW, TH);
+      this.solids = this.physics.add.staticGroup();
+      this.crates = this.physics.add.staticGroup();
+      this.hazards = [];
+      const g = this.grid, px = [], spawns = [];
+      this.buildSolidRuns(g, TCOLS, TROWS, '#');
+      for (let r = 0; r < TROWS; r++) for (let c = 0; c < TCOLS; c++) {
+        const ch = g[r][c], x = c * TILE + TILE / 2, y = r * TILE + TILE / 2;
+        if (ch === 'W' || ch === 'g') {
+          const w = this.crates.create(x, y, ch === 'W' ? 'wall' : 'gate'); w.refreshBody();
+          Object.assign(w, { hp: CAMP_HP[ch], maxHp: CAMP_HP[ch], isCampWall: true }); w.setDepth(10 + y / 1000);
+        }
+        if (ch === 'c') { const cr = this.crates.create(x, y, 'crate'); cr.refreshBody(); cr.hp = 2; cr.setDepth(5 + y / 1000); }
+        if (ch === 'x' || ch === '^') { this.add.image(x, y, ch === 'x' ? 'wire' : 'spikes').setDepth(1.2); this.hazards[r * TCOLS + c] = ch; }
+        if (ch === 'P') px.push({ x, y });
+        if ('tRbB'.includes(ch)) spawns.push({ ch, x, y });
+      }
+      this.drawGridFloor(g, TCOLS, TROWS, '#', 'ruins');
+      const entry = px.length ? { x: px.reduce((a, p) => a + p.x, 0) / px.length, y: px.reduce((a, p) => a + p.y, 0) / px.length } : { x: TILE * 2, y: TH / 2 };
+      this.entry = entry;
+      this.setupCombat(entry.x + 20, entry.y, TW, TH, 420);
+      spawns.forEach(sp => {
+        const type = { t: 'bturret', R: 'radio', b: 'rifleman', B: 'bruiser' }[sp.ch];
+        const z = this.spawnEnemy(type, sp.x, sp.y);
+        if (E[type].bandit) z.idle = true;
+        if (type === 'radio') this.tower = z;
+      });
+      this.lanes = []; this.roomClear = false; this.spikeT = 0; this.petSpikeT = 0;
+    }
+
+    onEvent() {}
+    sceneUpdate(dt) {
+      HUD.topText = `${this.camp.name.toUpperCase()}   ·   ⚙ ${this.run.scrap}`;
+      if (this.won || HUD.dead) return;
+      // hazards: wire slows you, spikes hurt (a dash carries you over both)
+      const at = (o) => this.hazards[Math.floor(o.y / TILE) * TCOLS + Math.floor(o.x / TILE)];
+      const h = this.hero, hz = at(h);
+      if (hz === 'x' && this.dashT <= 0) h.body.velocity.scale(0.45);
+      this.spikeT -= dt;
+      if (hz === '^' && this.spikeT <= 0) { this.spikeT = 0.8; this.hurtHero(0, 0, 1); }
+      this.petSpikeT -= dt;
+      if (this.petSpikeT <= 0) {
+        this.petSpikeT = 0.9;
+        this.activePets.forEach(p => { if (p && p.active && !p.def.fly && at(p) === '^') this.damagePet(p, 1, 0, 0); });
+      }
+    }
+
+    hitCrate(cr, dmg) {
+      if (!cr.isCampWall) return super.hitCrate(cr, dmg);
+      if (!cr.active) return;
+      cr.hp -= dmg;
+      flash(cr, 0xffffff); this.time.delayedCall(60, () => cr.active && untint(cr));
+      this.spark(cr.x, cr.y, 0x8a7a5a, 4);
+      if (cr.hp <= 0) { this.spark(cr.x, cr.y, 0x6b737c, 14); this.cameras.main.shake(100, 0.005); cr.destroy(); }
+    }
+
+    killEnemy(z) {
+      const tower = z === this.tower;
+      super.killEnemy(z);
+      if (tower) this.winRaid();
+    }
+
+    winRaid() {
+      if (this.won) return;
+      this.won = true; this.magnetAll = true;
+      const run = this.run, first = run.camp >= campsBeaten();
+      const bonus = first ? this.camp.reward : Math.round(this.camp.reward * 0.4);
+      kids(this.enemies).forEach(z => { if (E[z.type].bandit) { this.spark(z.x, z.y, 0xffd166, 8); this.floatText(z.x, z.y - 30, 'RUN!', '#ffd166', 16); z.destroy(); } });
+      kids(this.spits).forEach(s => s.destroy());
+      HUD.banner = { text: 'CAMP RAIDED!', sub: `The radio is down. +${bonus} ⚙ from their stash`, t: 2.6 };
+      this.cameras.main.shake(300, 0.01);
+      this.time.delayedCall(2600, () => {
+        if (this.leaving) return;
+        SAVE.scrap += run.scrap + bonus;
+        if (first) SAVE.campsCleared = run.camp + 1;
+        writeSave();
+        this.endRun({ type: 'raidWin', camp: run.camp, scrap: run.scrap + bonus, first });
+      });
+    }
+
+    heroDied() {
+      const run = this.run;
+      HUD.deadText = `YOU DIED\nLost ${run.scrap} scrap`;
+      this.time.delayedCall(1900, () => this.endRun({ type: 'raidDead', camp: run.camp, scrap: run.scrap }));
+    }
+
+    drawSceneFx(g) {
+      kids(this.crates).forEach(w => {
+        if (!w.active || !w.isCampWall || w.hp >= w.maxHp) return;
+        g.fillStyle(0x000000, 0.7); g.fillRect(w.x - 18, w.y - 28, 36, 5);
+        g.fillStyle(0xff8c42, 1); g.fillRect(w.x - 18, w.y - 28, 36 * w.hp / w.maxHp, 5);
+      });
+      kids(this.enemies).forEach(z => {
+        if (!z.active || !E[z.type].struct) return;
+        const big = z === this.tower, w = big ? 70 : 36;
+        if (!big && z.hp >= z.maxHpS) return;
+        g.fillStyle(0x000000, 0.7); g.fillRect(z.x - w / 2, z.y - (big ? 60 : 30), w, big ? 7 : 5);
+        g.fillStyle(big ? 0xff4d6d : 0xff8c42, 1); g.fillRect(z.x - w / 2, z.y - (big ? 60 : 30), w * Math.max(0, z.hp) / z.maxHpS, big ? 7 : 5);
+      });
+    }
+  }
+
+  // ===================================================================
   //  TOWN — build by day, defend the generator by night
   // ===================================================================
   class TownScene extends Combat {
@@ -2071,6 +2314,8 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       else if (r && r.type === 'extract') HUD.banner = { text: `HOME SAFE  +${r.scrap} ⚙`, sub: r.caught ? `New creature: ${r.caught}! Check your squad.` : 'Spend it on the town, then end the day', t: 3.4 };
       else if (r && r.type === 'dead') HUD.banner = { text: 'DRAGGED HOME', sub: `You lost ${r.scrap} scrap in room ${r.room}`, t: 3.2 };
       else if (r && r.type === 'abandon') HUD.banner = { text: 'BACK IN TOWN', t: 2 };
+      else if (r && r.type === 'raidWin') HUD.banner = { text: `${CAMPS[r.camp].name.toUpperCase()} RAIDED!`, sub: `+${r.scrap} ⚙${r.first && r.camp === 0 ? ' · Careful: bandits may come for your town now' : r.first && CAMPS[r.camp + 1] ? ` · ${CAMPS[r.camp + 1].name} unlocked` : ''}`, t: 4 };
+      else if (r && r.type === 'raidDead') HUD.banner = { text: 'DRAGGED HOME', sub: `The ${CAMPS[r.camp].name} bandits got you. Lost ${r.scrap} scrap.`, t: 3.2 };
       else if (r && r.type === 'pathOpen') HUD.banner = { text: 'THE EAST PATH IS OPEN', sub: 'The Subway is that way — but zombies will come through it too', t: 4 };
       else if (!SAVE.seenIntro) {
         HUD.banner = { text: 'DUNGEON TOWN', sub: 'Scavenge the ruins by day. Defend the generator at night.', t: 4 };
@@ -2086,7 +2331,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       const g = this.grid, N = TCOLS * TROWS;
       this.baseBlocked = new Uint8Array(N); this.genCell = new Uint8Array(N); this.reserved = new Uint8Array(N);
       this.entrances = [];
-      const gen = [], hall = [], ruins = [], pen = [], subw = [];
+      const gen = [], hall = [], ruins = [], pen = [], subw = [], war = [];
       for (let r = 0; r < TROWS; r++) {
         let run0 = -1;
         for (let c = 0; c <= TCOLS; c++) {
@@ -2107,10 +2352,14 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
           if (ch === 'R') { ruins.push({ x, y }); this.reserved[k] = 1; }
           if (ch === 'K') { pen.push({ x, y }); this.baseBlocked[k] = 1; this.reserved[k] = 1; }
           if (ch === 'U') { subw.push({ x, y }); this.reserved[k] = 1; }
+          if (ch === 'W') { war.push({ x, y }); this.baseBlocked[k] = 1; this.reserved[k] = 1; }
         }
       }
       const avg = (a) => ({ x: a.reduce((s, p) => s + p.x, 0) / a.length, y: a.reduce((s, p) => s + p.y, 0) / a.length });
-      this.genPos = avg(gen); this.hallPos = avg(hall); this.ruinsPos = avg(ruins); this.penPos = avg(pen); this.subPos = avg(subw);
+      this.genPos = avg(gen); this.hallPos = avg(hall); this.ruinsPos = avg(ruins); this.penPos = avg(pen); this.subPos = avg(subw); this.warPos = avg(war);
+      const warImg = this.rubble.create(this.warPos.x, this.warPos.y, 'wartable');
+      warImg.refreshBody(); warImg.body.setSize(84, 60); warImg.setDepth(10 + this.warPos.y / 1000);
+      this.add.text(this.warPos.x, this.warPos.y - 58, 'WAR TABLE', { fontFamily: FONT, fontSize: '14px', fontStyle: 'bold', color: '#ff8c8c', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5).setDepth(20);
       this.add.image(this.subPos.x, this.subPos.y, 'stairs').setDepth(1.5);
       if (!this.eastOpen) this.add.image(this.subPos.x, this.subPos.y, 'boards').setDepth(1.6);
       this.add.text(this.subPos.x, this.subPos.y - 62, 'SUBWAY', { fontFamily: FONT, fontSize: '16px', fontStyle: 'bold', color: this.eastOpen ? '#5fd3ff' : '#6b737c', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5).setDepth(20);
@@ -2212,6 +2461,10 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       const h = this.hero;
       const near = this.closeTarget(z, z.aggro > 0 ? 420 : (z.type === 'runner' ? 230 : 170));
       if (near) return near;
+      if (z.type === 'rifleman') { // bandit riflemen shoot your turrets from range
+        const t = this.bSprites.find(b => b.bt === 'turret' && !b.dead && dist(b, z) < 330);
+        if (t) return { x: t.x, y: t.y, kind: 'bld', bld: t, obj: t, pad: 10 };
+      }
       const step = this.nextStep(Math.floor(z.x / TILE), Math.floor(z.y / TILE));
       if (!step || step.gen) return { x: this.genPos.x, y: this.genPos.y, kind: 'gen', obj: this.genImg, pad: 34 };
       if (step.bld) return { x: step.bld.x, y: step.bld.y, kind: 'bld', bld: step.bld, obj: step.bld, pad: 10 };
@@ -2330,6 +2583,27 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     // detail page for you or one creature: stats, ranks, upgrade buttons
     syncDetail() {
       const id = HUD.detailId, cap = levelCap();
+      if (id === 'war') {
+        const beat = campsBeaten(), lines = [];
+        for (let i = 0; i < Math.min(CAMP_TOTAL, Math.max(beat + 2, 3)); i++) {
+          const c = CAMPS[i];
+          if (!c) { lines.push(`${i + 1}.  ???  (coming soon)`); continue; }
+          lines.push(`${i + 1}.  ${c.name}  ${i < beat ? '✓ beaten' : i === beat ? '◀ next' : '🔒'}`);
+        }
+        const buttons = [];
+        if (!SAVE.raidedToday) {
+          if (beat < CAMPS.length) buttons.push({ label: `RAID: ${CAMPS[beat].name.toUpperCase()}  (+${CAMPS[beat].reward} ⚙)`, ev: { type: 'raid', camp: beat } });
+          for (let i = Math.min(beat, CAMPS.length) - 1; i >= 0 && buttons.length < 3; i--) buttons.push({ label: `RAID AGAIN: ${CAMPS[i].name.toUpperCase()}  (+${Math.round(CAMPS[i].reward * 0.4)} ⚙)`, ev: { type: 'raid', camp: i } });
+        }
+        buttons.push({ label: 'CLOSE', ev: { type: 'back' } });
+        const next = CAMPS[beat];
+        HUD.detail = {
+          name: 'War Table', icon: 'wartable', xpFrac: beat / CAMP_TOTAL,
+          body: `Bandit camps beaten: ${beat} / ${CAMP_TOTAL}\n${SAVE.raidedToday ? 'You already raided today. Come back tomorrow.' : 'One raid a day (separate from your dungeon run).'}\n\n${lines.join('\n')}\n\n${next ? next.name + ': ' + next.teach : beat >= CAMPS.length ? 'More camps are coming.' : ''}${beat ? '\n\nBandits know where you live now. Your scouts will warn you a day before they attack.' : ''}${SAVE.raidWarn ? '\n⚠ BANDITS ATTACK TONIGHT' : ''}`,
+          buttons,
+        };
+        return;
+      }
       if (id === 'stash') {
         const st = SAVE.stash;
         const out = {};
@@ -2407,6 +2681,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       HUD.maxHp = maxHearts(); HUD.hp = Math.min(HUD.hp == null ? HUD.maxHp : HUD.hp, HUD.maxHp);
       HUD.points = { mil: pointsUsed('mil'), milMax: lv.mil, civ: pointsUsed('civ'), civMax: lv.civ };
       HUD.runsLeft = Math.max(0, T.runsPerDay - SAVE.runsToday);
+      HUD.raidWarn = !!SAVE.raidWarn;
       HUD.stashTot = `${stashTotal()}/${stashCap()}`;
       const next = TL[SAVE.townLevel + 1];
       HUD.hall = { level: SAVE.townLevel, next: next ? { cost: next.cost, mil: next.mil, civ: next.civ } : null, scrap: SAVE.scrap, mil: lv.mil, civ: lv.civ };
@@ -2425,6 +2700,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
           }
           if (p.action === 'hall') { HUD.hallMsg = ''; this.syncHud(); HUD.panel = 'hall'; }
           if (p.action === 'pen') this.onEvent({ type: 'openSquad' });
+          if (p.action === 'war') { HUD.detailId = 'war'; HUD.detailMode = null; HUD.rosterMsg = ''; this.syncDetail(); HUD.panel = 'detail'; }
           if (p.action === 'recipe' && p.b) this.cycleRecipe(p.b);
           break;
         }
@@ -2466,7 +2742,8 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         case 'openStash': if (!day || HUD.building) return; HUD.detailId = 'stash'; HUD.detailMode = null; HUD.rosterMsg = ''; this.syncDetail(); HUD.panel = 'detail'; break;
         case 'recipe': { const opts = ev.b === 'kitchen' ? ['medkit', 'treat'] : ['cage', 'lure']; SAVE.recipes[ev.b] = opts[(opts.indexOf(SAVE.recipes[ev.b]) + 1) % 2]; writeSave(); this.syncDetail(); break; }
         case 'swapOrder': { const q = SAVE.squad; if (q[ev.a] != null && q[ev.b] != null) { const t = q[ev.a]; q[ev.a] = q[ev.b]; q[ev.b] = t; writeSave(); this.reloadSquad(); this.syncRoster(); HUD.rosterMsg = 'Squad order changed.'; } break; }
-        case 'back': if (HUD.detailId === 'stash') { HUD.panel = null; break; }
+        case 'raid': if (day && !SAVE.raidedToday && ev.camp < CAMPS.length && ev.camp <= campsBeaten()) { HUD.panel = null; this.startRaid(ev.camp); } break;
+        case 'back': if (HUD.detailId === 'stash' || HUD.detailId === 'war') { HUD.panel = null; break; }
           if (HUD.detailMode) { HUD.detailMode = null; this.syncDetail(); break; } HUD.panel = 'squad'; HUD.rosterMsg = ''; this.syncRoster(); break;
         case 'upgrade': {
           const pt = petById(ev.id);
@@ -2599,6 +2876,18 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('dungeon', { run }));
     }
 
+    startRaid(i) {
+      SAVE.raidedToday = true;
+      const pets = this.makeTownRecs();
+      const st = SAVE.stash;
+      const run = { dungeon: 'camp', camp: i, room: 3 + i * 2, hp: maxHearts(), maxHp: maxHearts(), scrap: 0, cages: 0, stashCages: 0, captured: [], pets,
+        items: { medkit: st.medkit, treat: st.treat, lure: st.lure } };
+      st.medkit = 0; st.treat = 0; st.lure = 0; writeSave();
+      this.leaving = true;
+      this.cameras.main.fadeOut(250);
+      this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('raid', { run }));
+    }
+
     // ---------------------------------------------------------------- night
     // creatures assigned to guard posts come out at night and defend the post
     spawnGuards() {
@@ -2692,6 +2981,13 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       const types = [];
       for (let i = 0; i < n; i++) types.push(Phaser.Utils.Array.GetRandom(pool));
       for (let i = 0; i < Math.max(0, tier - 2); i++) types.splice(Phaser.Math.Between(Math.floor(n / 2), types.length), 0, 'brute');
+      this.banditNight = !!SAVE.raidWarn;
+      if (this.banditNight) { // bandits instead of zombies
+        types.length = 0;
+        const nb = 4 + tier * 4;
+        for (let i = 0; i < nb; i++) types.push(Math.random() < 0.55 ? 'rifleman' : 'bruiser');
+        SAVE.raidWarn = false; SAVE.lastRaidDay = SAVE.day; writeSave();
+      }
       const packSize = 1 + tier;
       const packs = Math.ceil(types.length / packSize);
       const window = this.nightLen * 0.8;
@@ -2702,7 +2998,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         types.slice(pk * packSize, pk * packSize + packSize).forEach((type, j) => this.spawnPlan.push({ type, at: at + j * 0.45, e }));
       }
       this.tweens.add({ targets: this.shade, alpha: 0.42, duration: 1200 });
-      HUD.banner = { text: `NIGHT ${day}`, sub: `Threat level ${tier} (Town Hall) — defend the generator!`, t: 2.6 };
+      HUD.banner = this.banditNight ? { text: 'BANDIT RAID!', sub: 'Riflemen will shoot your turrets from range. Protect the generator!', t: 3 } : { text: `NIGHT ${day}`, sub: `Threat level ${tier} (Town Hall) — defend the generator!`, t: 2.6 };
       this.kills0 = HUD.kills || 0;
     }
 
@@ -2723,7 +3019,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       } else {
         const protectedAmt = protectAmt();
         const lost = Math.floor(Math.max(0, SAVE.scrap - protectedAmt) * T.genLossPct);
-        SAVE.scrap -= lost; sub = `The generator fell.  Lost ${lost} ⚙${protectedAmt ? ` (storehouses saved ${Math.min(protectedAmt, SAVE.scrap)})` : ''}`;
+        SAVE.scrap -= lost; sub = `${this.banditNight ? 'The bandits looted the town.' : 'The generator fell.'}  Lost ${lost} ⚙${protectedAmt ? ` (storehouses saved ${Math.min(protectedAmt, SAVE.scrap)})` : ''}`;
       }
       const farms = farmScrap();
       // workers earn a little XP every morning
@@ -2733,7 +3029,13 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
       const mk = Object.entries(made).filter(([, n]) => n > 0).map(([k, n]) => `${n} ${ITEMS[k]}${n > 1 ? 's' : ''}`);
       if (mk.length) sub += `\nMade: ${mk.join(', ')}`;
       if (this.stashFull) sub += `${mk.length ? '' : '\n'}  (stash full: build a Storehouse)`;
-      SAVE.day++; SAVE.runsToday = 0; writeSave();
+      SAVE.day++; SAVE.runsToday = 0; SAVE.raidedToday = false;
+      // once you've hit a camp, bandits may come for you; scouts warn you a day ahead
+      if (campsBeaten() > 0 && !SAVE.raidWarn && (SAVE.lastRaidDay == null || SAVE.day - SAVE.lastRaidDay >= 3) && Math.random() < 0.35) {
+        SAVE.raidWarn = true; sub += '\n⚠ Scouts spotted bandits. They will attack TONIGHT.';
+      }
+      this.banditNight = false;
+      writeSave();
       this.tweens.add({ targets: this.shade, alpha: 0, duration: 1500 });
       this.renderBuildings();
       this.genHp = this.genMax;
@@ -2754,6 +3056,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         else if (dist(h, this.subPos) < 70) HUD.prompt = { label: !this.eastOpen ? 'SUBWAY: TOWN HALL LV 2 OPENS THIS PATH' : HUD.runsLeft > 0 ? 'ENTER THE SUBWAY' : 'SUBWAY: COME BACK TOMORROW', action: 'subway' };
         else if (dist(h, this.hallPos) < 100) HUD.prompt = { label: 'TOWN HALL', action: 'hall' };
         else if (dist(h, this.penPos) < 95) HUD.prompt = { label: 'CREATURE PEN', action: 'pen' };
+        else if (dist(h, this.warPos) < 95) HUD.prompt = { label: SAVE.raidWarn ? 'WAR TABLE  ·  ⚠ BANDITS TONIGHT' : 'WAR TABLE', action: 'war' };
         else {
           const pb = this.bSprites.find(b => RECIPES[b.bt] && dist(h, b) < 62);
           if (pb) HUD.prompt = { label: `${BLD[pb.bt].name.toUpperCase()}: ${ITEMS[recipeOf(pb.rec)].toUpperCase()}S  ⇄`, action: 'recipe', b: pb };
@@ -3305,10 +3608,11 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
 
       // top text
       let top;
-      if (!town) top = `${HUD.dungeonName || 'RUINS'} ${HUD.room}/${T.rooms}   ·   ⚙ ${HUD.scrap ?? 0}`;
+      if (HUD.scene === 'raid') top = HUD.topText || '';
+      else if (!town) top = `${HUD.dungeonName || 'RUINS'} ${HUD.room}/${T.rooms}   ·   ⚙ ${HUD.scrap ?? 0}`;
       else if (building) top = `MILITARY ${HUD.points.mil}/${HUD.points.milMax}   ·   CIVIC ${HUD.points.civ}/${HUD.points.civMax}`;
       else if (HUD.night) { const s = Math.ceil(HUD.night.t); top = `NIGHT ${HUD.day}   ·   ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}   ·   ⚙ ${HUD.scrap}`; }
-      else top = `DAY ${HUD.day}   ·   ⚙ ${HUD.scrap}   ·   HALL LV ${HUD.townLevel}`;
+      else top = `DAY ${HUD.day}   ·   ⚙ ${HUD.scrap}   ·   HALL LV ${HUD.townLevel}${HUD.raidWarn ? '   ·   ⚠ BANDITS TONIGHT' : ''}`;
       this.topText.setText(top).setScale(1 + (HUD.scrapPop || 0) * 0.6).setVisible(!panel);
       if (town && HUD.night) {
         const bw = u * 0.5, bx = w / 2 - bw / 2, by = u * 0.1;
@@ -3431,7 +3735,7 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
         g.fillStyle(0x000000, 0.55); g.fillRect(0, 0, w, h);
         g.fillStyle(0x14161a, 0.97); g.fillRoundedRect(x0, SQ.y - SQ.h / 2, SQ.w, SQ.h, 14);
         g.lineStyle(3, 0xf2d14b, 0.8); g.strokeRoundedRect(x0, SQ.y - SQ.h / 2, SQ.w, SQ.h, 14);
-        this.detIcon.setTexture(D.icon).setPosition(x0 + u * 0.1, SQ.y - SQ.h / 2 + u * 0.11).setScale(u / 300);
+        this.detIcon.setTexture(D.icon).setPosition(x0 + u * 0.1, SQ.y - SQ.h / 2 + u * 0.11).setScale(u / 300 * 48 / Math.max(48, this.detIcon.frame.width));
         this.detName.setText(D.name).setPosition(x0 + u * 0.2, SQ.y - SQ.h / 2 + u * 0.04);
         const bx = x0 + u * 0.2, by = SQ.y - SQ.h / 2 + u * 0.115, bw = SQ.w * 0.32;
         g.fillStyle(0x000000, 0.7); g.fillRect(bx - 1, by - 1, bw + 2, u * 0.02 + 2);
@@ -3559,6 +3863,6 @@ export function createDungeonTownGame(parent, { onExit } = {}) {
     scale: { mode: Phaser.Scale.RESIZE, width: parent.clientWidth || window.innerWidth, height: parent.clientHeight || window.innerHeight },
     physics: { default: 'arcade', arcade: { debug: false } },
     input: { activePointers: 5 },
-    scene: [TownScene, DungeonScene, UIScene],
+    scene: [TownScene, DungeonScene, RaidScene, UIScene],
   });
 }
