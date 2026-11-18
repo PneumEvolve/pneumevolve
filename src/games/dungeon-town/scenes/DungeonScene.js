@@ -35,6 +35,8 @@ export class DungeonScene extends Combat {
     this.buildRoom();
     this.setupCombat(this.entry.x, this.entry.y - 20, RW, RH, 420);
     this.placeStash(this.grid, COLS, ROWS, this.entry);
+    // MEND is limited per room: a new room gives it back
+    (this.run.pets || []).forEach(r => { if (r.mendUses) { r.mendUses = 0; r.cdT = 0; } });
 
     // a wild creature? first-time catches are guaranteed in their room
     const owned = (sp) => SAVE.pets.some(pt => pt.sp === sp) || run.captured.includes(sp);
@@ -160,7 +162,7 @@ export class DungeonScene extends Combat {
     // bench pets rest and heal
     this.squadRecs.forEach(r => {
       const out = this.activePets.some(p => p && p.active && p.rec === r);
-      if (!out && !r.ko) this.healPet(r, [1, 2, 3, 99][this.prk('nurse')]);
+      if (!out && !r.ko) this.healPet(r, [0, 1, 2, 3][this.prk('nurse')]);
       if (out && this.prk('nurse') >= 3) this.healPet(r, 1);
     });
     HUD.canSwap = this.squadRecs.length > 1; this.syncSquadHud();

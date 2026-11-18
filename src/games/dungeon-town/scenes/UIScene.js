@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { FONT, V } from '../util';
-import { BLD, CIV_ITEMS, E, MIL_ITEMS, SP, SP_COLOR, T } from '../tuning';
+import { BLD, CIV_ITEMS, E, ITEMS, MIL_ITEMS, SP, SP_COLOR, T } from '../tuning';
 import { Ctl, GAME, HUD, ammoMax, countB, dashCd, perk, typeCap } from '../state';
 
 // ===================================================================
@@ -80,6 +80,7 @@ export class UIScene extends Phaser.Scene {
     this.swapSel = -1; this.sqSel = -1; this.bTouch = {}; this.bDragged = false; this.bPinched = false;
     this.tBtn.stash = this.add.text(0, 0, 'STASH', S(13)).setOrigin(0.5);
     this.itemTxt = ['medkit', 'treat', 'lure'].map(() => this.add.text(0, 0, '', S(12)).setOrigin(0.5).setVisible(false));
+    this.itemBtnTxt = this.add.text(0, 0, '', S(12)).setOrigin(0.5).setVisible(false);
     this.zTxt = [this.add.text(0, 0, '+', S(20)).setOrigin(0.5).setVisible(false), this.add.text(0, 0, '−', S(20)).setOrigin(0.5).setVisible(false)];
     this.sqStrip = [0, 1, 2, 3].map(() => ({ icon: this.add.image(0, 0, 'hound').setVisible(false), num: this.add.text(0, 0, '', S(11, { color: '#ffd166' })).setOrigin(0.5).setVisible(false) }));
     this.sqOrderLbl = this.add.text(0, 0, 'ORDER (tap 2 to swap)', S(10, { color: '#c9d1d9' })).setOrigin(1, 0.5).setVisible(false);
@@ -145,11 +146,13 @@ export class UIScene extends Phaser.Scene {
     this.deskHelp.setPosition(w / 2, h - 10).setFontSize(fs(0.024));
     this.B.squadBtn = { x: u * 0.2, y: u * 0.3, w: u * 0.3, h: u * 0.085 };
     this.B.stashBtn = { x: w / 2 + u * 0.36, y: u * 0.16, w: u * 0.3, h: u * 0.085 };
-    this.B.itm = [0, 1, 2].map(i => ({ x: w / 2 + (i - 1) * u * 0.28, y: u * 0.2, w: u * 0.26, h: u * 0.075 }));
+    this.B.itemBtn = { x: w / 2, y: u * 0.2, w: u * 0.42, h: u * 0.075 };
+    this.B.itm = [0, 1, 2].map(i => ({ x: w / 2 + (i - 1) * u * 0.28, y: u * 0.29, w: u * 0.26, h: u * 0.075 }));
     this.B.zIn = { x: w - u * 0.48, y: u * 0.075, r: u * 0.042 };
     this.B.zOut = { x: w - u * 0.37, y: u * 0.075, r: u * 0.042 };
     this.tBtn.stash.setPosition(this.B.stashBtn.x, this.B.stashBtn.y).setFontSize(fs(0.032));
     this.itemTxt.forEach((t, i) => t.setPosition(this.B.itm[i].x, this.B.itm[i].y).setFontSize(fs(0.028)));
+    this.itemBtnTxt.setPosition(this.B.itemBtn.x, this.B.itemBtn.y).setFontSize(fs(0.028));
     this.zTxt[0].setPosition(this.B.zIn.x, this.B.zIn.y).setFontSize(fs(0.06)); this.zTxt[1].setPosition(this.B.zOut.x, this.B.zOut.y).setFontSize(fs(0.06));
     this.B.port = [0, 1, 2, 3].map(i => ({ x: u * 0.065, y: u * 0.44 + i * u * 0.115, r: u * 0.046 }));
     const SQ = { x: w / 2, y: h / 2, w: Math.min(w * 0.94, u * 1.55), h: u * 0.9 };
@@ -171,8 +174,9 @@ export class UIScene extends Phaser.Scene {
     this.sqStrip.forEach(st => st.num.setFontSize(fs(0.026)));
     this.heroLv.setPosition(u * 0.265, u * 0.125).setFontSize(fs(0.028));
     this.portLv.forEach(t => t.setFontSize(fs(0.024)));
-    this.detName.setFontSize(fs(0.045)); this.detBody.setFontSize(fs(0.028)).setWordWrapWidth(SQ.w * 0.52);
-    this.detBtns.forEach(t => t.setFontSize(fs(0.029)));
+    this.detName.setFontSize(fs(0.045)); this.detBody.setFontSize(fs(0.028)).setWordWrapWidth(SQ.w * 0.45);
+    this.detFs = fs(0.029);
+    this.detBtns.forEach(t => t.setFontSize(this.detFs));
   }
   detBtnRect(i) {
     const SQ = this.B.sq, u = this.u, n = Math.max(6, ((HUD.detail && HUD.detail.buttons) || []).length);
@@ -226,7 +230,7 @@ export class UIScene extends Phaser.Scene {
       return;
     }
     if (HUD.panel || HUD.building) return; // handled on release
-    if (this.itemsVisible() && this.B.itm.some(r => this.inRect(p.x, p.y, r))) return;
+    if (this.itemsVisible() && (this.inRect(p.x, p.y, this.B.itemBtn) || (HUD.itemsOpen && this.B.itm.some(r => this.inRect(p.x, p.y, r))))) return;
     if (!this.town() || !HUD.building) { if (this.inRect(p.x, p.y, B.mode)) return; }
     if (this.townButtonsVisible() && (this.inRect(p.x, p.y, B.build) || this.inRect(p.x, p.y, B.endDay) || this.inRect(p.x, p.y, B.squadBtn) || this.inRect(p.x, p.y, B.stashBtn))) return;
     if (this.portHit(p.x, p.y) >= 0) return;
@@ -370,7 +374,8 @@ export class UIScene extends Phaser.Scene {
     }
     if (this.itemsVisible()) {
       const ks = ['medkit', 'treat', 'lure'];
-      for (let i = 0; i < 3; i++) if (tapIn(B.itm[i])) { Ctl.queue.push({ type: 'item', k: ks[i] }); return; }
+      if (tapIn(B.itemBtn)) { if (HUD.lureArmed) Ctl.queue.push({ type: 'item', k: 'lure' }); else HUD.itemsOpen = !HUD.itemsOpen; return; }
+      if (HUD.itemsOpen) for (let i = 0; i < 3; i++) if (tapIn(B.itm[i])) { Ctl.queue.push({ type: 'item', k: ks[i] }); HUD.itemsOpen = false; return; }
     }
     {
       const a = this.portHit(p.downX, p.downY), b = this.portHit(p.x, p.y);
@@ -509,7 +514,13 @@ export class UIScene extends Phaser.Scene {
     this.tBtn.stash.setVisible(showTown);
     if (showTown) { this.pill(B.stashBtn, 0x9aa4ad, 0.55, false); this.tBtn.stash.setText(`STASH ${HUD.stashTot ?? ''}`); }
     // item buttons (dungeon + night)
-    const showItems = this.itemsVisible() && !portrait;
+    const showItemBtn = this.itemsVisible() && !portrait, showItems = showItemBtn && !!HUD.itemsOpen && !HUD.lureArmed;
+    this.itemBtnTxt.setVisible(showItemBtn);
+    if (showItemBtn) {
+      const tot = ['medkit', 'treat', 'lure'].reduce((m, k) => m + (HUD.items[k] || 0), 0);
+      this.pill(B.itemBtn, HUD.lureArmed ? 0xf2d14b : 0x9aa4ad, HUD.lureArmed ? 0.8 : 0.55, !!HUD.lureArmed);
+      this.itemBtnTxt.setText(HUD.lureArmed ? '🎯 LURE READY (tap to cancel)' : `🎒 ITEMS ×${tot}  ${HUD.itemsOpen ? '▲' : '▼'}`);
+    }
     ['medkit', 'treat', 'lure'].forEach((k, i) => {
       const t = this.itemTxt[i]; t.setVisible(showItems);
       if (!showItems) return;
@@ -609,7 +620,8 @@ export class UIScene extends Phaser.Scene {
       dbtns.forEach((bt, i) => {
         const r = this.detBtnRect(i), back = bt.ev.type === 'back', upg = bt.ev.type === 'upgrade' || bt.ev.type === 'perk';
         this.pill(r, back ? 0xffffff : upg ? 0xf2d14b : 0xff8c9e, 0.6, upg);
-        this.detBtns[i].setText(bt.label).setPosition(r.x, r.y);
+        const tx = this.detBtns[i]; tx.setFontSize(this.detFs).setText(bt.label).setPosition(r.x, r.y);
+        if (tx.width > r.w * 0.92) tx.setFontSize(Math.max(9, Math.floor(this.detFs * r.w * 0.92 / tx.width)));
       });
     }
 

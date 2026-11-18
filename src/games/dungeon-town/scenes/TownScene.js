@@ -1,8 +1,8 @@
 import Phaser from 'phaser';
 import { FONT, V, dist, flash, kids, untint } from '../util';
-import { BLD, FAV, JOB_DESC, JOB_SITES, NEIGHBORS, PERKS, PROD_T, RECIPES, RES_ICON, SP, T, TCOLS, TH, TILE, TL, TROWS, TURRET, TW, XP, amtTxt, isRes, nameOf, recipeOf } from '../tuning';
+import { BLD, FAV, JOB_DESC, JOB_SHORT, JOB_SITES, NEIGHBORS, NEXT_LVL, PERKS, PROD_T, RECIPES, RES_ICON, SP, T, TCOLS, TH, TILE, TL, TROWS, TURRET, TW, XP, amtTxt, isRes, nameOf, recipeOf } from '../tuning';
 import { CAMPS, CAMP_TOTAL, TOWN_MAP } from '../maps';
-import { GAME, HUD, SAVE, SAVE_KEY, addXp, ammoMax, bCost, campsBeaten, countB, jobOf, levelCap, loadSave, maxHearts, outputOf, perk, petById, petLvlDmg, petMaxHp, pointsUsed, protectAmt, stashCap, stashTotal, typeCap, writeSave, xpNeed } from '../state';
+import { GAME, HUD, SAVE, SAVE_KEY, addXp, ammoMax, bCost, campsBeaten, countB, jobOf, levelCap, loadSave, maxHearts, nextTo, outputOf, perk, petById, petLvlDmg, petMaxHp, pointsUsed, protectAmt, stashCap, stashTotal, typeCap, writeSave, xpNeed } from '../state';
 import { makeTextures } from '../textures';
 import { Combat } from '../combat';
 
@@ -338,10 +338,11 @@ export class TownScene extends Combat {
       o.setDepth(10 + o.y / 1000);
     });
   }
-  assignJob(pt, type) {
+  assignJob(pt, type, at) {
     const cur = jobOf(pt.id);
-    if (cur && cur.t === type) return 'Already working there.';
-    const site = SAVE.buildings.find(b => b.t === type && !(b.w && petById(b.w)));
+    if (cur && (at ? cur === at : cur.t === type)) return 'Already working there.';
+    if (at && at.w && petById(at.w)) delete at.w; // swapping out whoever was there
+    const site = at || SAVE.buildings.find(b => b.t === type && !(b.w && petById(b.w)));
     if (!site) return `No free ${BLD[type].name}. Build another one first.`;
     if (SAVE.squad.includes(pt.id) && SAVE.squad.length <= 1) return 'You need at least one creature with you.';
     if (cur) delete cur.w;
@@ -361,6 +362,24 @@ export class TownScene extends Combat {
     this.syncHeroHud();
   }
   // detail page for you or one creature: stats, ranks, upgrade buttons
+  // level up a building: civic ones cost Parts, turrets cost military points
+  upgradeRec(rec) {
+    const def = BLD[rec.t], lvl = rec.lvl || 1, nm = def.name;
+    if (lvl >= 3) return `That ${nm} is max level.`;
+    if (def.cat === 'civ') {
+      const cost = T.civUpg[lvl];
+      if ((SAVE.parts || 0) < cost) return `Needs ${cost} 🔩 (you have ${SAVE.parts || 0}). Parts come from crates, bosses, camps and Salvage Yards.`;
+      SAVE.parts -= cost;
+    } else if (rec.t === 'turret') {
+      const delta = BLD.turret.upg[lvl] - BLD.turret.upg[lvl - 1];
+      if (pointsUsed('mil') + delta > TL[SAVE.townLevel].mil) return `Needs ${delta} more military pts. Upgrade the Town Hall.`;
+    } else return `${nm}s can't be upgraded.`;
+    rec.lvl = lvl + 1; writeSave(); this.renderBuildings(); this.syncHud();
+    const sp = this.bSprites.find(b => b.rec === rec); if (sp) { this.ring(sp.x, sp.y, 40, 0xf2d14b); this.spark(sp.x, sp.y, 0xf2d14b, 12); }
+    const o = outputOf(rec);
+    return `${nm} is now level ${lvl + 1}${o ? `: ${amtTxt(o.k, o.n)} every morning` : rec.t === 'storehouse' ? ': more stash room' : ''}.`;
+  }
+
   // Engineer: a mole working a Guard Post (his favourite job) toughens every building at night
   engineerOn() { return SAVE.buildings.some(b => b.t === 'guard' && b.w && petById(b.w) && petById(b.w).sp === 'mole'); }
 
@@ -402,6 +421,37 @@ export class TownScene extends Combat {
       };
       return;
     }
+    if (id === 'bld') {
+      const rec = this.menuRec;
+      if (!rec || !SAVE.buildings.includes(rec)) { HUD.panel = null; return; }
+      const def = BLD[rec.t], lvl = rec.lvl || 1, o = outputOf(rec), wk = rec.w && petById(rec.w), canWork = JOB_SITES.includes(rec.t);
+      if (HUD.detailMode === 'pick') {
+        const fav = FAV[rec.t];
+        const cand = SAVE.pets.filter(pt => pt.id !== rec.w).sort((a, b) => (b.sp === fav) - (a.sp === fav) || b.lvl - a.lvl);
+        HUD.detail = {
+          name: `${def.name} — pick a worker`, icon: rec.t, xpFrac: 0,
+          body: `Workers stay home from runs, bring in what this building makes, and earn XP every morning.\n\n★ Favourite: ${fav ? SP[fav].name : 'none'}${fav ? ` — ${JOB_DESC[rec.t][1]}` : ''}\nAnyone else: ${JOB_DESC[rec.t][0]}`,
+          buttons: cand.slice(0, 7).map(pt => ({ label: `${pt.sp === fav ? '★ ' : ''}${SP[pt.sp].name} Lv${pt.lvl}${jobOf(pt.id) ? '  (working)' : SAVE.squad.includes(pt.id) ? '  (squad)' : ''}`, ev: { type: 'workHere', id: pt.id } })).concat([{ label: '← BACK', ev: { type: 'bldBack' } }]),
+        };
+        return;
+      }
+      const lines = [def.desc];
+      if (o) lines.push('', `Makes every morning: ${amtTxt(o.k, o.n)}${o.cost ? `  (uses ${Object.entries(o.cost).map(([r, per]) => `${per * o.n} ${RES_ICON[r]}`).join(', ')})` : ''}`);
+      if (rec.t === 'storehouse') lines.push('', `Stash room +${T.stashPerStorehouse + 3 * (lvl - 1)}  ·  protects ${T.storehouseProtects * lvl} ⚙`);
+      const nbs = NEIGHBORS.filter(nb => nb.a === rec.t);
+      if (nbs.length) lines.push('', ...nbs.map(nb => `${nextTo(rec, nb.b) ? '✓' : '·'} Bonus ${nb.txt}`));
+      if (canWork) lines.push('', wk ? `Worker: ${SP[wk.sp].name}${FAV[rec.t] === wk.sp ? ' ★' : ''} — ${JOB_DESC[rec.t][FAV[rec.t] === wk.sp ? 1 : 0]}` : (PROD_T.includes(rec.t) ? 'No worker: goods pile up here until you walk past.' : 'No worker yet.'));
+      const upg = def.cat === 'civ' || rec.t === 'turret';
+      if (upg) lines.push('', lvl >= 3 ? `Level ${lvl} (max)` : `Level ${lvl} → ${lvl + 1}: ${rec.t === 'turret' ? 'more damage and range' : NEXT_LVL[rec.t]}`);
+      const btns = [];
+      if (RECIPES[rec.t] && RECIPES[rec.t].length > 1) btns.push({ label: `MAKES: ${nameOf(recipeOf(rec), 2).toUpperCase()}  ⇄`, ev: { type: 'bldRecipe' } });
+      if (upg && lvl < 3) btns.push({ label: def.cat === 'civ' ? `▲ LEVEL ${lvl + 1}  ·  ${T.civUpg[lvl]} 🔩 (have ${SAVE.parts})` : `▲ LEVEL ${lvl + 1}  ·  ${BLD.turret.upg[lvl] - BLD.turret.upg[lvl - 1]} military pts`, ev: { type: 'upgrade', bld: true } });
+      if (canWork) btns.push(wk ? { label: `✕ SEND ${SP[wk.sp].name.split(' ')[1].toUpperCase()} HOME`, ev: { type: 'bldUnassign' } } : { label: '＋ ASSIGN A WORKER', ev: { type: 'bldPick' } });
+      if (canWork && wk) btns.push({ label: '⇄ SWAP WORKER', ev: { type: 'bldPick' } });
+      btns.push({ label: 'CLOSE', ev: { type: 'back' } });
+      HUD.detail = { name: `${def.name}${upg ? `  ·  Lv ${lvl}` : ''}`, icon: rec.t, xpFrac: upg ? lvl / 3 : 0, body: lines.join('\n'), buttons: btns };
+      return;
+    }
     if (id === 'newgame') {
       HUD.detail = {
         name: 'Start a new game?', icon: 'hall', xpFrac: 0,
@@ -433,11 +483,11 @@ export class TownScene extends Combat {
       const jb = JOB_SITES.filter(t => countB(t) > 0).map(t => {
         const free = SAVE.buildings.filter(b => b.t === t && !(b.w && petById(b.w))).length;
         const f = FAV[t] === pt.sp;
-        return { label: `${f ? '★ ' : ''}${BLD[t].name} (${free} free): ${JOB_DESC[t][f ? 1 : 0]}`, ev: { type: 'assignJob', id: pt.id, job: t } };
+        return { label: `${f ? '★ ' : ''}${BLD[t].name}  ·  ${JOB_SHORT[t][f ? 1 : 0]}  (${free} free)`, ev: { type: 'assignJob', id: pt.id, job: t } };
       });
       HUD.detail = {
         name: `${d.name} — pick a job`, icon: pt.sp, xpFrac: pt.lvl >= cap ? 1 : pt.xp / xpNeed(pt.lvl),
-        body: `Working creatures stay in town and can't go on runs.\nThey get a bit of XP every morning.\n\nFavourite job: ${favName}${fav ? ' (bigger bonus, marked ★)' : ''}\n\n${jb.length ? 'Pick a building →' : 'Build a Workbench, Kitchen, Farm, Storehouse, Turret or Guard Post first.'}`,
+        body: `Workers stay home from runs, bring in what their building makes, and earn XP every morning.\n\n★ Favourite job: ${favName}${fav ? ` — ${JOB_DESC[fav][1]}` : ''}\n\n${jb.length ? 'Pick a building →' : 'Build a Farm, Kitchen, Workbench, Salvage Yard, Storehouse, Turret or Guard Post first.'}`,
         buttons: jb.slice(0, 7).concat([{ label: '← BACK', ev: { type: 'back' } }]),
       };
       return;
@@ -495,6 +545,7 @@ export class TownScene extends Combat {
         if (p.action === 'pen') this.onEvent({ type: 'openSquad' });
         if (p.action === 'war') { HUD.detailId = 'war'; HUD.detailMode = null; HUD.rosterMsg = ''; this.syncDetail(); HUD.panel = 'detail'; }
         if (p.action === 'recipe' && p.b) this.cycleRecipe(p.b);
+        if (p.action === 'bldMenu' && p.b) this.onEvent({ type: 'bldMenu', rec: p.b.rec });
         break;
       }
       case 'endDay':
@@ -536,6 +587,12 @@ export class TownScene extends Combat {
       case 'recipe': { const opts = ev.b === 'kitchen' ? ['medkit', 'treat'] : ['cage', 'lure']; SAVE.recipes[ev.b] = opts[(opts.indexOf(SAVE.recipes[ev.b]) + 1) % 2]; writeSave(); this.syncDetail(); break; }
       case 'swapOrder': { const q = SAVE.squad; if (q[ev.a] != null && q[ev.b] != null) { const t = q[ev.a]; q[ev.a] = q[ev.b]; q[ev.b] = t; writeSave(); this.reloadSquad(); this.syncRoster(); HUD.rosterMsg = 'Squad order changed.'; } break; }
       case 'raid': if (day && !SAVE.raidedToday && ev.camp < CAMPS.length && ev.camp <= campsBeaten()) { HUD.panel = null; this.startRaid(ev.camp); } break;
+      case 'bldMenu': this.menuRec = ev.rec; HUD.detailId = 'bld'; HUD.detailMode = null; HUD.rosterMsg = ''; this.syncDetail(); HUD.panel = 'detail'; break;
+      case 'bldRecipe': { const sp = this.bSprites.find(b => b.rec === this.menuRec); if (sp) this.cycleRecipe(sp); HUD.rosterMsg = ''; this.syncDetail(); break; }
+      case 'bldPick': HUD.detailMode = 'pick'; HUD.rosterMsg = ''; this.syncDetail(); break;
+      case 'bldBack': HUD.detailMode = null; this.syncDetail(); break;
+      case 'workHere': { const pt = petById(ev.id); if (pt && this.menuRec) HUD.rosterMsg = this.assignJob(pt, this.menuRec.t, this.menuRec); HUD.detailMode = null; this.syncDetail(); break; }
+      case 'bldUnassign': { const pt = this.menuRec && petById(this.menuRec.w); if (pt) { this.stopJob(pt); HUD.rosterMsg = `${SP[pt.sp].name} went back to the pen.`; } this.syncDetail(); break; }
       case 'newGameAsk': HUD.detailId = 'newgame'; HUD.detailMode = null; this.syncDetail(); HUD.panel = 'detail'; break;
       case 'newGame': {
         try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
@@ -545,9 +602,10 @@ export class TownScene extends Combat {
         this.cameras.main.once('camerafadeoutcomplete', () => this.scene.restart({}));
         break;
       }
-      case 'back': if (HUD.detailId === 'stash' || HUD.detailId === 'war' || HUD.detailId === 'newgame') { HUD.panel = null; break; }
+      case 'back': if (HUD.detailId === 'stash' || HUD.detailId === 'war' || HUD.detailId === 'newgame' || HUD.detailId === 'bld') { HUD.panel = null; break; }
         if (HUD.detailMode) { HUD.detailMode = null; this.syncDetail(); break; } HUD.panel = 'squad'; HUD.rosterMsg = ''; this.syncRoster(); break;
       case 'upgrade': {
+        if (ev.bld) { HUD.rosterMsg = this.upgradeRec(this.menuRec); this.syncDetail(); break; }
         const pt = petById(ev.id);
         if (pt && pt.picks > 0 && pt[ev.which] < 3) { pt[ev.which]++; pt.picks--; writeSave(); this.reloadSquad(); this.syncHeroHud(); HUD.rosterMsg = 'Upgraded!'; }
         this.syncDetail();
@@ -631,22 +689,10 @@ export class TownScene extends Combat {
       return say(`Removed ${existing.def.name}. +${bCost(existing.rec)} pts back.`);
     }
     if (sel === 'upgrade') {
-      if (existing && existing.def.cat === 'civ') {
-        const lvl = existing.rec.lvl || 1, nm = existing.def.name;
-        if (lvl >= 3) return say(`That ${nm} is max level.`);
-        const cost = T.civUpg[lvl];
-        if ((SAVE.parts || 0) < cost) return say(`Needs ${cost} 🔩 (you have ${SAVE.parts || 0}). Parts come from crates, bosses, camps and Salvage Yards.`);
-        SAVE.parts -= cost; existing.rec.lvl = lvl + 1; writeSave(); pop(0xf2d14b); this.renderBuildings();
-        const o = outputOf(existing.rec);
-        return say(`${nm} is now level ${lvl + 1}${o ? `: ${amtTxt(o.k, o.n)} every morning` : ': +3 stash room, protects more scrap'}.`);
-      }
-      if (!existing || existing.bt !== 'turret') return say('Tap a turret (or a civic building in the Civic tab).');
-      const lvl = existing.rec.lvl || 1;
-      if (lvl >= 3) return say('That turret is maxed out.');
-      const delta = BLD.turret.upg[lvl] - BLD.turret.upg[lvl - 1];
-      if (pointsUsed('mil') + delta > lv.mil) return say(`Needs ${delta} more military pts. Upgrade the Town Hall.`);
-      existing.rec.lvl = lvl + 1; writeSave(); pop(0xf2d14b); this.renderBuildings();
-      return say(`Turret upgraded to level ${lvl + 1}.`);
+      if (!existing || !(existing.def.cat === 'civ' || existing.bt === 'turret')) return say('Tap a turret, or a civic building.');
+      const msg = this.upgradeRec(existing.rec);
+      if (/level \d/.test(msg)) pop(0xf2d14b);
+      return say(msg);
     }
     const def = BLD[sel]; if (!def) return say('Pick something to build.');
     if (existing) return say('Something is already there.');
@@ -904,10 +950,10 @@ export class TownScene extends Combat {
       else if (dist(h, this.penPos) < 95) HUD.prompt = { label: 'CREATURE PEN', action: 'pen' };
       else if (dist(h, this.warPos) < 95) HUD.prompt = { label: SAVE.raidWarn ? 'WAR TABLE  ·  ⚠ BANDITS TONIGHT' : 'WAR TABLE', action: 'war' };
       else {
-        const pb = this.bSprites.find(b => RECIPES[b.bt] && dist(h, b) < 62);
+        const pb = this.bSprites.filter(b => (b.def.cat === 'civ' || b.bt === 'turret' || b.bt === 'guard') && dist(h, b) < 62).sort((a, b) => dist(h, a) - dist(h, b))[0];
         if (pb) {
-          const o = outputOf(pb.rec), sw = RECIPES[pb.bt].length > 1;
-          HUD.prompt = { label: `${BLD[pb.bt].name.toUpperCase()}: ${nameOf(o.k, 2).toUpperCase()}${sw ? '  ⇄' : ''}  ·  ${isRes(o.k) ? amtTxt(o.k, o.n) : o.n} / MORNING`, action: sw ? 'recipe' : 'info', b: pb };
+          const o = outputOf(pb.rec);
+          HUD.prompt = { label: `${BLD[pb.bt].name.toUpperCase()}${o ? `  ·  ${isRes(o.k) ? amtTxt(o.k, o.n) : `${o.n} ${nameOf(o.k, o.n).toUpperCase()}`} / MORNING` : ''}  ·  MENU`, action: 'bldMenu', b: pb };
         }
       }
     }

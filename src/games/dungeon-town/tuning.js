@@ -76,9 +76,9 @@ export const BLD = {
   spikes:     { name: 'Spikes', cat: 'mil', cost: 2, pathCost: 3, desc: 'Hurts zombies that walk over it.' },
   guard:      { name: 'Guard Post', cat: 'mil', cost: 3, hp: 14, pathCost: 30, solid: true, desc: 'Give it a creature (as a job). At night it defends this spot.' },
   turret:     { name: 'Turret', cat: 'mil', cost: 4, upg: [4, 6, 9], hp: 12, pathCost: 30, solid: true, desc: 'Shoots the nearest zombie. Upgrade: 4 → 6 → 9 pts.' },
-  workbench:  { name: 'Workbench', cat: 'civ', cost: 3, hp: 16, pathCost: 30, solid: true, desc: 'Turns Parts into Cages, Noise Lures or Turret Ammo every morning. Walk up to switch.' },
-  kitchen:    { name: 'Kitchen', cat: 'civ', cost: 3, hp: 16, pathCost: 30, solid: true, desc: 'Turns Food into Med Kits or Pet Treats every morning. Walk up to switch.' },
-  farm:       { name: 'Farm', cat: 'civ', cost: 2, hp: 16, pathCost: 30, solid: true, desc: 'Grows 20 scrap or 6 Food every morning. Walk up to switch.' },
+  workbench:  { name: 'Workbench', cat: 'civ', cost: 3, hp: 16, pathCost: 30, solid: true, desc: 'Turns Parts into Cages, Noise Lures or Turret Ammo every morning.' },
+  kitchen:    { name: 'Kitchen', cat: 'civ', cost: 3, hp: 16, pathCost: 30, solid: true, desc: 'Turns Food into Med Kits or Pet Treats every morning.' },
+  farm:       { name: 'Farm', cat: 'civ', cost: 2, hp: 16, pathCost: 30, solid: true, desc: 'Grows 20 scrap or 6 Food every morning.' },
   storehouse: { name: 'Storehouse', cat: 'civ', cost: 2, hp: 16, pathCost: 30, solid: true, desc: '+5 stash room, and protects 50 scrap if the generator falls.' },
   salvage:    { name: 'Salvage Yard', cat: 'civ', cost: 3, hp: 16, pathCost: 30, solid: true, desc: 'Strips junk into 3 Parts every morning.' },
 };
@@ -100,13 +100,13 @@ export const SP = {
             passive: 'scavenge', passiveName: 'Scavenger', passiveDesc: '25% chance for double scrap',
             activeRanks: ["3 ratlings for 5s pull zombies off you", "5 ratlings", "Ratlings last 8s, cooldown -2s"], passiveRanks: ["25% chance for double scrap", "40% chance", "60% chance"] },
   moth:   { name: 'Mender Moth', hearts: 2, fly: true, attack: 'none', body: [10, 14, 14], wildHp: 6,
-            active: 'mend', activeName: 'MEND', cdMax: 10, activeDesc: '+1 heart to you and every pet',
-            passive: 'nurse', passiveName: 'Nurse', passiveDesc: 'Bench pets heal 2 hearts per room',
-            activeRanks: ["+1 heart to you and every pet", "+2 hearts to everyone", "Cooldown -3s"], passiveRanks: ["Bench pets heal 2 hearts per room", "Bench pets heal 3 per room", "Bench pets fully heal; active pets +1 per room"] },
+            active: 'mend', activeName: 'MEND', cdMax: 20, activeDesc: '+1 heart to you and every pet (once per dungeon room)',
+            passive: 'nurse', passiveName: 'Nurse', passiveDesc: 'Bench pets heal 1 heart per room',
+            activeRanks: ["+1 heart to everyone, once per dungeon room", "+2 hearts to everyone", "Twice per dungeon room"], passiveRanks: ["Bench pets heal 1 heart per room", "Bench pets heal 2 per room", "Bench pets heal 3; active pets +1 per room"] },
   beetle: { name: 'Rust Beetle', hearts: 4, speed: 150, fly: false, attack: 'melee', dmg: 1, cd: 1.4, range: 52, body: [14, 10, 12], wildHp: 12,
-            active: 'shell', activeName: 'SHELL', cdMax: 9, activeDesc: 'Pulls zombies onto it; can\'t be hurt for 3s',
+            active: 'shell', activeName: 'SHELL', cdMax: 12, activeDesc: 'Pulls zombies onto it; can\'t be hurt for 3s',
             passive: 'tough', passiveName: 'Hard Shell', passiveDesc: '+1 max heart for you',
-            activeRanks: ["Pulls zombies onto it, unhurtable for 3s", "Lasts 4.5s", "Also heals itself 1, cooldown -2s"], passiveRanks: ["You get +1 max heart", "+2 max hearts", "+3 max hearts"] },
+            activeRanks: ["Pulls zombies onto it, unhurtable for 3s", "Lasts 4.5s", "Also heals itself 1, cooldown -2s"], passiveRanks: ["You get +1 max heart", "Still +1 max heart; the beetle gets +1 heart", "+2 max hearts for you"] },
 };
 
 SP.mole = { name: 'Tunnel Mole', hearts: 3, speed: 230, fly: false, attack: 'melee', dmg: 1, cd: 1.0, range: 48, body: [11, 13, 18], wildHp: 9,
@@ -165,6 +165,9 @@ export const JOB_SITES = ['workbench', 'kitchen', 'farm', 'salvage', 'storehouse
 
 export const FAV = { workbench: 'hound', kitchen: 'moth', farm: 'beetle', storehouse: 'rat', turret: 'crow', guard: 'mole', salvage: 'bat' };
 
+export const JOB_SHORT = { workbench: ['+1 item', '+2 items'], kitchen: ['+1 item', '+2 items'], farm: ['+50%', '+100%'], salvage: ['+2 🔩', '+4 🔩'], storehouse: ['protects +50 ⚙', 'protects +100 ⚙'], turret: ['+1 damage', '+1 dmg, 25% faster'], guard: ['guards at night', '+2 ♥ guard, Engineer'] };
+// what the next building level does
+export const NEXT_LVL = { farm: '+50% harvest', salvage: '+50% Parts', kitchen: '+1 item each morning', workbench: '+1 item each morning', storehouse: '+3 stash room, protects more scrap' };
 export const JOB_DESC = {
   workbench: ['Builds 1 more item each morning, and brings it in', 'Builds 2 more items each morning, and brings them in'],
   kitchen: ['Cooks 1 more item each morning, and brings it in', 'Cooks 2 more items each morning, and brings them in'],

@@ -88,7 +88,7 @@ export const swordDmg = () => T.swordDmg + (perk('blade') ? 1 : 0);
 
 export const dashCd = () => T.dashCd * (perk('fleet') ? 0.7 : 1);
 
-export const petMaxHp = (pt) => SP[pt.sp].hearts + Math.floor(((pt.lvl || 1) - 1) / 5);
+export const petMaxHp = (pt) => SP[pt.sp].hearts + Math.floor(((pt.lvl || 1) - 1) / 5) + (pt.sp === 'beetle' && (pt.pr || 1) >= 2 ? 1 : 0);
 
 export const petLvlDmg = (lvl) => Math.floor(((lvl || 1) - 1) / 10);
 
@@ -124,7 +124,7 @@ export const addPet = (sp) => { const pt = { id: SAVE.nextPetId++, sp, lvl: 1, x
 
 export const countB = (t) => SAVE.buildings.filter(b => b.t === t).length;
 
-export const maxHearts = () => T.heroHp + squadRank('tough') + (perk('tough') ? 1 : 0) + Math.floor(SAVE.hero.lvl / 4);
+export const maxHearts = () => T.heroHp + [0, 1, 1, 2][squadRank('tough')] + (perk('tough') ? 1 : 0) + Math.floor(SAVE.hero.lvl / 4);
 
 export const bCost = (b) => { const d = BLD[b.t]; return d.upg ? d.upg[(b.lvl || 1) - 1] : d.cost; };
 

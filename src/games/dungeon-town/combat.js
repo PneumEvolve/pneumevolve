@@ -225,14 +225,15 @@ export class Combat extends Phaser.Scene {
       if (ev.type === 'item') { if (!HUD.dead && !this.inputFrozen()) this.useItem(ev.k); continue; }
       if (ev.type === 'attack' || ev.type === 'dash' || ev.type === 'ab' || ev.type === 'capture') {
         if (HUD.dead || this.inputFrozen()) continue;
-        if (ev.type === 'attack') this.attack(ev.dir, false);
+        if (ev.type === 'attack' && this.lureArmed) this.throwLure(ev.dir);
+        else if (ev.type === 'attack') this.attack(ev.dir, false);
         else if (ev.type === 'dash') this.tryDash(mv);
         else if (ev.type === 'ab') this.ability(ev.i, ev.dir);
         else this.throwCage();
       } else this.onEvent(ev);
       if (this.leaving) return;
     }
-    if (Ctl.mode === 'twin' && Ctl.twin && !HUD.dead && !frozen) this.attack(Ctl.twin.dir, true);
+    if (Ctl.mode === 'twin' && Ctl.twin && !HUD.dead && !frozen) { if (this.lureArmed) this.throwLure(Ctl.twin.dir); else this.attack(Ctl.twin.dir, true); }
 
     this.inv = Math.max(0, this.inv - dt);
     this.gunCdT = Math.max(0, this.gunCdT - dt);
@@ -1058,7 +1059,21 @@ export class Combat extends Phaser.Scene {
       }
       this.syncSquadHud();
     } else if (k === 'lure') {
-      const d = Ctl.aim || this.facing;
+      // equip it: your next shot throws the lure that way instead
+      this.lureArmed = !this.lureArmed; HUD.lureArmed = this.lureArmed;
+      this.floatText(h.x, h.y - 44, this.lureArmed ? 'LURE READY: aim + shoot to throw' : 'LURE PUT AWAY', '#f2d14b', 14);
+      return;
+    }
+    src[k]--;
+    this.onItemsChanged();
+  }
+  throwLure(dir) {
+    const src = this.itemSrc(), h = this.hero;
+    this.lureArmed = false; HUD.lureArmed = false;
+    if (!src || !(src.lure > 0)) return;
+    const k = 'lure';
+    {
+      const d = dir ? new V(dir.x, dir.y).normalize() : (Ctl.aim || this.facing);
       const lx = Phaser.Math.Clamp(h.x + d.x * 170, TILE * 1.2, this.worldW - TILE * 1.2), ly = Phaser.Math.Clamp(h.y + d.y * 170, TILE * 1.2, this.worldH - TILE * 1.2);
       const l = this.add.image(h.x, h.y, 'lure').setDepth(9);
       l.t = T.lureTime; l.pulse = 0;
@@ -1163,6 +1178,7 @@ export class Combat extends Phaser.Scene {
       this.floatText(h.x, h.y - 44, `+${heal} ♥ EVERYONE`, '#8ef0a0', 18);
       this.syncSquadHud();
       used();
+      if (this.scene.key === 'dungeon') { p.rec.mendUses = (p.rec.mendUses || 0) + 1; if (p.rec.mendUses >= (ar >= 3 ? 2 : 1)) p.rec.cdT = 999; }
     } else if (def.active === 'screech') {
       const R = ar >= 2 ? 220 : 160, stun = ar >= 3 ? 2.5 : 1.5;
       this.ring(h.x, h.y, R, 0xb48cff); this.ring(p.x, p.y, 50, 0xd2b8ff);
@@ -1322,6 +1338,7 @@ export class Combat extends Phaser.Scene {
     const g = this.fx, h = this.hero;
     g.clear();
     if (!HUD.dead && !this.inputFrozen()) { g.lineStyle(2, 0xffffff, 0.07); g.strokeCircle(h.x, h.y, T.meleeRange); }
+    if (this.lureArmed && !HUD.dead) { const d = Ctl.aim || this.facing; const lx = h.x + d.x * 170, ly = h.y + d.y * 170; g.lineStyle(2, 0xf2d14b, 0.35 + 0.3 * Math.sin(time * 0.012)); g.strokeCircle(lx, ly, 22); g.lineBetween(h.x, h.y, lx, ly); }
     kids(this.enemies).forEach(z => {
       if (!z.active) return;
       if (z.mode === 'fuse') { g.lineStyle(2, 0xff6a3d, 0.6); g.strokeCircle(z.x, z.y, E.bloater.boomR); return; }
