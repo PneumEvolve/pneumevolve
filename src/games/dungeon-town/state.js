@@ -1,5 +1,5 @@
 // Shared state: the save file, HUD and controls, plus rules that read the save.
-import { BLD, FAV, SP, T } from './tuning';
+import { BLD, FAV, NEIGHBORS, RCP_COST, SP, T, recipeOf } from './tuning';
 
 export const SAVE = {};
 // (re)load the save from this browser and bring old saves up to date
@@ -33,6 +33,9 @@ export function loadSave() {
   SAVE.pets.forEach(pt => { pt.lvl = pt.lvl || 1; pt.xp = pt.xp || 0; pt.ar = pt.ar || 1; pt.pr = pt.pr || 1; pt.picks = pt.picks || 0; });
   if (!SAVE.stash) SAVE.stash = { cage: 0, medkit: 0, treat: 0, lure: 0 };
   if (!SAVE.recipes) SAVE.recipes = { workbench: 'cage', kitchen: 'medkit' };
+  if (SAVE.stash.ammo == null) SAVE.stash.ammo = 0;
+  if (!SAVE.prodV2) { SAVE.food = (SAVE.food || 0) + (SAVE.buildings.length ? 8 : 0); SAVE.parts = (SAVE.parts || 0) + (SAVE.buildings.length ? 4 : 0); SAVE.prodV2 = true; }
+  SAVE.food = SAVE.food || 0; SAVE.parts = SAVE.parts || 0;
   if (SAVE.recipes && !SAVE.recipesMigrated) { SAVE.buildings.forEach(b => { if (!b.rcp && SAVE.recipes[b.t]) b.rcp = SAVE.recipes[b.t]; }); SAVE.recipesMigrated = true; }
 }
 
@@ -47,7 +50,7 @@ export const campsBeaten = () => SAVE.campsCleared || 0;
 // ===================================================================
 export const SAVE_KEY = 'dungeonTown.v1';
 
-export const freshSave = () => ({ scrap: 0, creatures: { hound: 1 }, runs: 0, bestRoom: 0, townLevel: 1, day: 1, runsToday: 0, buildings: [], seenIntro: false });
+export const freshSave = () => ({ scrap: 0, food: 0, parts: 0, creatures: { hound: 1 }, runs: 0, bestRoom: 0, townLevel: 1, day: 1, runsToday: 0, buildings: [], seenIntro: false });
 
 export const writeSave = () => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(SAVE)); } catch (e) {} };
 
@@ -95,15 +98,25 @@ export const isFav = (b) => { const pt = b.w && petById(b.w); return !!pt && FAV
 
 export const staffed = (t) => SAVE.buildings.filter(b => b.t === t && b.w && petById(b.w));
 
-export const farmScrap = () => countB('farm') * T.farmScrap + staffed('farm').reduce((m, b) => m + (isFav(b) ? 20 : 10), 0);
 
-export const stashCap = () => T.stashBase + T.stashPerStorehouse * countB('storehouse');
+export const stashCap = () => T.stashBase + SAVE.buildings.filter(b => b.t === 'storehouse').reduce((m, b) => m + T.stashPerStorehouse + 3 * ((b.lvl || 1) - 1), 0);
+// production: neighbours, levels, and what each building makes every morning
+export const nextTo = (b, t) => SAVE.buildings.some(o => o !== b && o.t === t && Math.abs(o.c - b.c) <= 1 && Math.abs(o.r - b.r) <= 1);
+export const bonusesOf = (b) => NEIGHBORS.filter(nb => nb.a === b.t && nextTo(b, nb.b));
+export function outputOf(b) {
+  const k = recipeOf(b), lv = b.lvl || 1, job = prodMult(b);
+  if (b.t === 'farm') return { k, n: Math.round((k === 'food' ? T.farmFood : T.farmScrap) * [1, 1.5, 2][job - 1] * (1 + 0.5 * (lv - 1)) * (nextTo(b, 'farm') ? 1.25 : 1)) };
+  if (b.t === 'salvage') return { k: 'parts', n: Math.round((T.salvageParts + (job - 1) * 2) * (1 + 0.5 * (lv - 1))) + (nextTo(b, 'workbench') ? 1 : 0) };
+  if (b.t === 'kitchen') return { k, n: job + (lv - 1) + (nextTo(b, 'farm') ? 1 : 0), cost: RCP_COST[k] };
+  if (b.t === 'workbench') return { k, n: job + (lv - 1) + (nextTo(b, 'storehouse') ? 1 : 0), cost: RCP_COST[k] };
+  return null;
+}
 
 export const stashTotal = () => Object.values(SAVE.stash).reduce((a, b) => a + b, 0);
 
 export const prodMult = (b) => (b.w && petById(b.w) ? (isFav(b) ? 3 : 2) : 1);
 
-export const protectAmt = () => countB('storehouse') * T.storehouseProtects + staffed('storehouse').reduce((m, b) => m + (isFav(b) ? 100 : 50), 0);
+export const protectAmt = () => SAVE.buildings.filter(b => b.t === 'storehouse').reduce((m, b) => m + T.storehouseProtects * (b.lvl || 1), 0) + staffed('storehouse').reduce((m, b) => m + (isFav(b) ? 100 : 50), 0);
 
 export const squadRank = (passive) => SAVE.squad.reduce((m, id) => { const pt = petById(id); return pt && SP[pt.sp].passive === passive ? Math.max(m, pt.pr || 1) : m; }, 0);
 

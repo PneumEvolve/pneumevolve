@@ -64,7 +64,7 @@ export const CAMP_TOTAL = 10;
 export const CAMP_HP = { W: 8, g: 4 };
 
 export const CAMPS = [
-  { name: 'Scrap Outpost', teach: 'Walls and a gate. Break in and knock down the radio tower.', reward: 60, map: [
+  { name: 'Scrap Outpost', teach: 'Walls and a gate. Break in and knock down the radio tower.', reward: 60, parts: 4, map: [
     '########################',
     '#......................#',
     '#..c..........WWWWWWW..#',
@@ -81,7 +81,7 @@ export const CAMPS = [
     '#..........B...........#',
     '#......................#',
     '########################'] },
-  { name: 'Wire Yard', teach: 'Wire slows you and spikes hurt. Dash across or find the way around.', reward: 90, map: [
+  { name: 'Wire Yard', teach: 'Wire slows you and spikes hurt. Dash across or find the way around.', reward: 90, parts: 6, map: [
     '########################',
     '#......................#',
     '#.....xxxx.....^^^.....#',
@@ -98,7 +98,7 @@ export const CAMPS = [
     '#.....xxxx.....^^^..B..#',
     '#......................#',
     '########################'] },
-  { name: 'Turret Row', teach: 'Turrets out-range your gun. Hide behind walls, or let your pets go first.', reward: 130, map: [
+  { name: 'Turret Row', teach: 'Turrets out-range your gun. Hide behind walls, or let your pets go first.', reward: 130, parts: 8, map: [
     '########################',
     '#......................#',
     '#..........W.t.W.......#',

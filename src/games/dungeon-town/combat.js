@@ -44,6 +44,7 @@ export class Combat extends Phaser.Scene {
   drawSceneFx() {}
   inputFrozen() { return false; }
   collectScrap(n) {}
+  collectParts(n) {}
   slamExtra() {}
   explodeExtra() {}
   onSpitHitSolid(s) { this.splash(s); }
@@ -275,6 +276,7 @@ export class Combat extends Phaser.Scene {
       if (this.cage && dist(s, this.cage) < 26) { this.splash(s); this.damageCage(1); }
     });
     this.updatePickups(dt);
+    this.updateStash();
     this.sceneUpdate(dt, time);
     if (this.leaving) return;
 
@@ -655,12 +657,59 @@ export class Combat extends Phaser.Scene {
     this.decal(z.x, z.y); if (big) this.decal(z.x + 12, z.y + 6);
     this.cameras.main.shake(big ? 160 : 70, big ? 0.01 : 0.004);
     this.dropScrap(z.x, z.y, z.elite ? [10, 14] : E[z.type].scrap);
+    const pr = z.elite ? Phaser.Math.Between(2, 4) : (z.type === 'brute' || z.type === 'bturret') ? 1 : 0;
+    if (pr) this.dropParts(z.x, z.y, pr);
     z.destroy();
   }
 
   decal(x, y) { this.add.image(x, y, 'splat').setDepth(1).setAlpha(0.8).setAngle(Phaser.Math.Between(0, 3) * 90); }
 
   // ---------------------------------------------------------------- loot
+  // Scrap Sniffer (mole passive): a buried stash somewhere on the floor; walk over it to dig it up
+  placeStash(grid, cols, rows, avoid) {
+    const rk = this.prk('sniffer'); this.stash = null;
+    if (!rk) return;
+    const spots = [];
+    for (let r = 1; r < rows - 1; r++) for (let c = 1; c < cols - 1; c++) {
+      if (grid[r][c] !== '.') continue;
+      const x = c * TILE + TILE / 2, y = r * TILE + TILE / 2;
+      if (!avoid || dist({ x, y }, avoid) > TILE * 4) spots.push({ x, y });
+    }
+    if (!spots.length) return;
+    const s = Phaser.Utils.Array.GetRandom(spots);
+    const img = this.add.image(s.x, s.y, 'mound').setDepth(1.3);
+    this.tweens.add({ targets: img, scaleY: 1.12, duration: 500, yoyo: true, repeat: -1 });
+    this.stash = { img, rk, glintT: 0 };
+    this.time.delayedCall(700, () => this.stash && this.floatText(this.hero.x, this.hero.y - 46, 'The mole smells buried scrap!', '#c9a06b', 14));
+  }
+  updateStash() {
+    const st = this.stash;
+    if (!st || !st.img.active || HUD.dead) return;
+    st.glintT -= this.game.loop.delta / 1000;
+    if (st.glintT <= 0) { st.glintT = 1.1; this.spark(st.img.x + Phaser.Math.Between(-8, 8), st.img.y - 6, 0xffd166, 2); }
+    if (dist(st.img, this.hero) > 34 && !this.allPets().some(p => p.sp === 'mole' && dist(st.img, p) < 34)) return;
+    const { x, y } = st.img; st.img.destroy(); this.stash = null;
+    this.spark(x, y, 0x8a5a2b, 14);
+    this.dropScrap(x, y, st.rk >= 2 ? [7, 10] : [4, 6]);
+    let msg = 'BURIED STASH!';
+    const run = this.run;
+    if (st.rk >= 3 && run && Math.random() < 0.35) {
+      if (Math.random() < 0.5 && run.items) { run.items.medkit = (run.items.medkit || 0) + 1; msg += ' + MED KIT'; }
+      else { run.cages = (run.cages || 0) + 1; HUD.cages = run.cages; msg += ' + CAGE'; }
+    }
+    this.floatText(x, y - 30, msg, '#ffd166', 16);
+  }
+
+  dropParts(x, y, n) {
+    for (let i = 0; i < n; i++) {
+      const p = this.add.image(x, y, 'part').setDepth(4);
+      const a = Math.random() * Math.PI * 2, r = Phaser.Math.Between(12, 36);
+      p.ready = false; p.kind = 'part';
+      this.tweens.add({ targets: p, x: x + Math.cos(a) * r, y: y + Math.sin(a) * r, duration: 280, ease: 'Quad.out', onComplete: () => { p.ready = true; } });
+      this.pickups.push(p);
+    }
+  }
+
   dropScrap(x, y, range) {
     const n = Phaser.Math.Between(range[0], range[1]);
     for (let i = 0; i < n; i++) {
@@ -678,6 +727,7 @@ export class Combat extends Phaser.Scene {
       if (!p.active) return false;
       if (!p.ready || (HUD.dead && !this.magnetAll)) return true;
       const d = dist(p, h);
+      if (d < 22 && p.kind === 'part') { this.collectParts(1); HUD.scrapPop = 0.25; p.destroy(); return false; }
       if (d < 22) { this.collectScrap(this.prMap && Math.random() < [0, 0.25, 0.4, 0.6][this.prk('scavenge')] ? 2 : 1); HUD.scrapPop = 0.25; p.destroy(); return false; }
       if (d < (this.magnetAll ? 5000 : 120)) { const sp = (this.magnetAll ? 620 : 420) * dt; p.x += (h.x - p.x) / d * sp; p.y += (h.y - p.y) / d * sp; }
       return true;
@@ -688,7 +738,7 @@ export class Combat extends Phaser.Scene {
     if (!cr.active) return;
     cr.hp -= dmg;
     flash(cr, 0xffffff); this.time.delayedCall(60, () => cr.active && untint(cr));
-    if (cr.hp <= 0) { this.spark(cr.x, cr.y, 0x6b4a2b, 10); this.dropScrap(cr.x, cr.y, [2, 4]); cr.destroy(); }
+    if (cr.hp <= 0) { this.spark(cr.x, cr.y, 0x6b4a2b, 10); this.dropScrap(cr.x, cr.y, [2, 4]); if (Math.random() < T.crateParts) this.dropParts(cr.x, cr.y, 1); cr.destroy(); }
   }
 
   // ---------------------------------------------------------------- hero combat

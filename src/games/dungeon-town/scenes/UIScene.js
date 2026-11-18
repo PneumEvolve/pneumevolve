@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { FONT, V } from '../util';
 import { BLD, CIV_ITEMS, E, MIL_ITEMS, SP, SP_COLOR, T } from '../tuning';
-import { Ctl, HUD, ammoMax, countB, dashCd, perk, typeCap } from '../state';
+import { Ctl, GAME, HUD, ammoMax, countB, dashCd, perk, typeCap } from '../state';
 
 // ===================================================================
 //  UI + TOUCH CONTROLS (on top, not zoomed)
@@ -53,9 +53,10 @@ export class UIScene extends Phaser.Scene {
     this.panelBody = this.add.text(0, 0, '', S(13, { align: 'center', color: '#e8e6df', lineSpacing: 4 })).setOrigin(0.5);
     this.panelUp = this.add.text(0, 0, '', S(14)).setOrigin(0.5);
     this.panelClose = this.add.text(0, 0, 'CLOSE', S(14)).setOrigin(0.5);
+    this.panelNew = this.add.text(0, 0, 'NEW GAME', S(11)).setOrigin(0.5).setColor('#ff8c8c');
 
     this.banner = this.add.text(0, 0, '', S(40, { strokeThickness: 6, align: 'center' })).setOrigin(0.5).setAlpha(0);
-    this.bannerSub = this.add.text(0, 0, '', S(16, { color: '#c9d1d9', align: 'center' })).setOrigin(0.5).setAlpha(0);
+    this.bannerSub = this.add.text(0, 0, '', S(16, { color: '#c9d1d9', align: 'center', stroke: '#000', strokeThickness: 4 })).setOrigin(0.5, 0).setAlpha(0);
     this.over = this.add.text(0, 0, '', S(26, { align: 'center', strokeThickness: 5 })).setOrigin(0.5).setVisible(false);
     this.rotateText = this.add.text(0, 0, 'Turn your phone sideways ↻', S(22, { align: 'center' })).setOrigin(0.5).setVisible(false);
     this.deskHelp = this.add.text(0, 0, '', S(12, { color: '#c9d1d9' })).setOrigin(0.5, 1).setAlpha(0.8);
@@ -123,6 +124,7 @@ export class UIScene extends Phaser.Scene {
     const P = this.B.panel;
     this.B.pUp = { x: w / 2 - u * 0.2, y: P.y + P.h / 2 - u * 0.11, w: u * 0.36, h: u * 0.1 };
     this.B.pClose = { x: w / 2 + u * 0.2, y: P.y + P.h / 2 - u * 0.11, w: u * 0.3, h: u * 0.1 };
+    this.B.pNew = { x: P.x + P.w / 2 - u * 0.14, y: P.y - P.h / 2 + u * 0.075, w: u * 0.22, h: u * 0.075 };
     const fs = n => Math.max(10, Math.round(u * n)) + 'px';
     this.topText.setPosition(w / 2, u * 0.035).setFontSize(fs(0.042));
     this.cageText.setPosition(u * 0.265, u * 0.18).setFontSize(fs(0.028));
@@ -135,8 +137,9 @@ export class UIScene extends Phaser.Scene {
     this.panelBody.setPosition(w / 2, P.y - u * 0.04).setFontSize(fs(0.033));
     this.panelUp.setPosition(this.B.pUp.x, this.B.pUp.y).setFontSize(fs(0.033));
     this.panelClose.setPosition(this.B.pClose.x, this.B.pClose.y).setFontSize(fs(0.033));
+    this.panelNew.setPosition(this.B.pNew.x, this.B.pNew.y).setFontSize(fs(0.024));
     this.banner.setPosition(w / 2, h * 0.3).setFontSize(fs(0.08));
-    this.bannerSub.setPosition(w / 2, h * 0.3 + u * 0.075).setFontSize(fs(0.035));
+    this.bannerSub.setPosition(w / 2, h * 0.3 + u * 0.05).setFontSize(fs(0.032));
     this.over.setPosition(w / 2, h / 2).setFontSize(fs(0.06));
     this.rotateText.setPosition(w / 2, h / 2).setFontSize(fs(0.06));
     this.deskHelp.setPosition(w / 2, h - 10).setFontSize(fs(0.024));
@@ -190,7 +193,7 @@ export class UIScene extends Phaser.Scene {
   near(x, y, b, mult) { return Math.hypot(x - b.x, y - b.y) < b.r * mult; }
   gs() { const s = this.scene.get(HUD.scene); return s && s.sys.isActive() ? s : null; }
   town() { return HUD.scene === 'town'; }
-  cardItems() { return HUD.buildTab === 'civ' ? CIV_ITEMS.concat(['recipe', 'remove']) : MIL_ITEMS.concat(['upgrade', 'remove']); }
+  cardItems() { return HUD.buildTab === 'civ' ? CIV_ITEMS.concat(['recipe', 'upgrade', 'remove']) : MIL_ITEMS.concat(['upgrade', 'remove']); }
   cardRect(i, n) {
     const bar = this.B.bar, gap = this.u * 0.012;
     const cw = Math.min(this.u * 0.2, (bar.x1 - bar.x0 - gap * (n - 1)) / n);
@@ -332,7 +335,8 @@ export class UIScene extends Phaser.Scene {
       return;
     }
     if (HUD.panel) {
-      if (tapIn(B.pUp)) Ctl.queue.push({ type: 'hallUpgrade' });
+      if (HUD.panel === 'hall' && tapIn(B.pNew)) Ctl.queue.push({ type: 'newGameAsk' });
+      else if (tapIn(B.pUp)) Ctl.queue.push({ type: 'hallUpgrade' });
       else if (tapIn(B.pClose) || !this.inRect(p.x, p.y, B.panel)) Ctl.queue.push({ type: 'closePanel' });
       return;
     }
@@ -470,10 +474,10 @@ export class UIScene extends Phaser.Scene {
     // top text
     let top;
     if (HUD.scene === 'raid') top = HUD.topText || '';
-    else if (!town) top = `${HUD.dungeonName || 'RUINS'} ${HUD.room}/${T.rooms}   ·   ⚙ ${HUD.scrap ?? 0}`;
+    else if (!town) top = `${HUD.dungeonName || 'RUINS'} ${HUD.room}/${T.rooms}   ·   ⚙ ${HUD.scrap ?? 0}${HUD.parts ? `   ·   🔩 ${HUD.parts}` : ''}`;
     else if (building) top = `MILITARY ${HUD.points.mil}/${HUD.points.milMax}   ·   CIVIC ${HUD.points.civ}/${HUD.points.civMax}`;
     else if (HUD.night) { const s = Math.ceil(HUD.night.t); top = `NIGHT ${HUD.day}   ·   ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}   ·   ⚙ ${HUD.scrap}`; }
-    else top = `DAY ${HUD.day}   ·   ⚙ ${HUD.scrap}   ·   HALL LV ${HUD.townLevel}${HUD.raidWarn ? '   ·   ⚠ BANDITS TONIGHT' : ''}`;
+    else top = `DAY ${HUD.day}   ·   ⚙ ${HUD.scrap}   ·   🌾 ${HUD.food || 0}   ·   🔩 ${HUD.parts || 0}   ·   HALL ${HUD.townLevel}${HUD.raidWarn ? '   ·   ⚠ BANDITS TONIGHT' : ''}`;
     this.topText.setText(top).setScale(1 + (HUD.scrapPop || 0) * 0.6).setVisible(!panel);
     if (town && HUD.night) {
       const bw = u * 0.5, bx = w / 2 - bw / 2, by = u * 0.1;
@@ -623,7 +627,7 @@ export class UIScene extends Phaser.Scene {
       const def = BLD[it];
       if (def) { c.icon.setTexture(it).setPosition(r.x, r.y - r.h * 0.16).setScale(Math.min(r.w, r.h) / 70).setAlpha(1); c.name.setText(def.name); const cst = def.upg ? def.upg[0] : def.cost, mx = typeCap(it); c.cost.setText(`${cst} pt${cst > 1 ? 's' : ''}${mx ? `  ·  ${countB(it)}/${mx}` : ''}`); }
       else if (it === 'recipe') { c.icon.setTexture('medkit').setPosition(r.x, r.y - r.h * 0.16).setScale(Math.min(r.w, r.h) / 40).setAlpha(0.9); c.name.setText('RECIPE'); c.cost.setText('⇄'); }
-      else if (it === 'upgrade') { c.icon.setTexture('turret').setPosition(r.x, r.y - r.h * 0.16).setScale(Math.min(r.w, r.h) / 70).setAlpha(0.6); c.name.setText('UPGRADE'); c.cost.setText('▲'); }
+      else if (it === 'upgrade') { const civ = HUD.buildTab === 'civ'; c.icon.setTexture(civ ? 'part' : 'turret').setPosition(r.x, r.y - r.h * 0.16).setScale(Math.min(r.w, r.h) / (civ ? 26 : 70)).setAlpha(civ ? 0.9 : 0.6); c.name.setText('UPGRADE'); c.cost.setText(civ ? '🔩' : '▲'); }
       else { c.icon.setTexture('rubble').setPosition(r.x, r.y - r.h * 0.16).setScale(Math.min(r.w, r.h) / 70).setAlpha(0.6); c.name.setText('REMOVE'); c.cost.setText('refund'); }
       c.name.setPosition(r.x, r.y + r.h * 0.12); c.cost.setPosition(r.x, r.y + r.h * 0.28);
     });
@@ -638,7 +642,7 @@ export class UIScene extends Phaser.Scene {
 
     // Town Hall panel
     const showPanel = panel === 'hall';
-    [this.panelTitle, this.panelBody, this.panelUp, this.panelClose].forEach(t => t.setVisible(showPanel));
+    [this.panelTitle, this.panelBody, this.panelUp, this.panelClose, this.panelNew].forEach(t => t.setVisible(showPanel));
     if (showPanel) {
       const P = B.panel, H = HUD.hall;
       g.fillStyle(0x000000, 0.5); g.fillRect(0, 0, w, h);
@@ -653,6 +657,7 @@ export class UIScene extends Phaser.Scene {
       this.pill(B.pUp, can ? 0x8ef0a0 : 0x6b737c, 0.6, can);
       this.panelUp.setText(H.next ? `UPGRADE  ⚙ ${H.next.cost}` : 'MAXED').setColor(can ? '#ffffff' : '#9aa4ad');
       this.pill(B.pClose, 0xffffff, 0.6, false);
+      this.pill(B.pNew, 0xff8c8c, 0.5, false);
     }
 
     // combat controls

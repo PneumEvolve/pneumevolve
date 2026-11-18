@@ -42,6 +42,7 @@ export class RaidScene extends DungeonScene {
     const entry = px.length ? { x: px.reduce((a, p) => a + p.x, 0) / px.length, y: px.reduce((a, p) => a + p.y, 0) / px.length } : { x: TILE * 2, y: TH / 2 };
     this.entry = entry;
     this.setupCombat(entry.x + 20, entry.y, TW, TH, 420);
+    this.placeStash(this.grid, TCOLS, TROWS, entry);
     spawns.forEach(sp => {
       const type = { t: 'bturret', R: 'radio', b: 'rifleman', B: 'bruiser' }[sp.ch];
       const z = this.spawnEnemy(type, sp.x, sp.y);
@@ -53,7 +54,7 @@ export class RaidScene extends DungeonScene {
 
   onEvent() {}
   sceneUpdate(dt) {
-    HUD.topText = `${this.camp.name.toUpperCase()}   ·   ⚙ ${this.run.scrap}`;
+    HUD.topText = `${this.camp.name.toUpperCase()}   ·   ⚙ ${this.run.scrap}${this.run.parts ? `   ·   🔩 ${this.run.parts}` : ''}`;
     if (this.won || HUD.dead) return;
     // hazards: wire slows you, spikes hurt (a dash carries you over both)
     const at = (o) => this.hazards[Math.floor(o.y / TILE) * TCOLS + Math.floor(o.x / TILE)];
@@ -90,20 +91,21 @@ export class RaidScene extends DungeonScene {
     const bonus = first ? this.camp.reward : Math.round(this.camp.reward * 0.4);
     kids(this.enemies).forEach(z => { if (E[z.type].bandit) { this.spark(z.x, z.y, 0xffd166, 8); this.floatText(z.x, z.y - 30, 'RUN!', '#ffd166', 16); z.destroy(); } });
     kids(this.spits).forEach(s => s.destroy());
-    HUD.banner = { text: 'CAMP RAIDED!', sub: `The radio is down. +${bonus} ⚙ from their stash`, t: 2.6 };
+    HUD.banner = { text: 'CAMP RAIDED!', sub: `The radio is down. +${bonus} ⚙ and ${first ? this.camp.parts : Math.round(this.camp.parts * 0.4)} 🔩 from their stash`, t: 2.6 };
     this.cameras.main.shake(300, 0.01);
     this.time.delayedCall(2600, () => {
       if (this.leaving) return;
       SAVE.scrap += run.scrap + bonus;
+      const pb = (run.parts || 0) + (first ? (this.camp.parts || 0) : Math.round((this.camp.parts || 0) * 0.4)); SAVE.parts = (SAVE.parts || 0) + pb;
       if (first) SAVE.campsCleared = run.camp + 1;
       writeSave();
-      this.endRun({ type: 'raidWin', camp: run.camp, scrap: run.scrap + bonus, first });
+      this.endRun({ type: 'raidWin', camp: run.camp, scrap: run.scrap + bonus, parts: pb, first });
     });
   }
 
   heroDied() {
     const run = this.run;
-    HUD.deadText = `YOU DIED\nLost ${run.scrap} scrap`;
+    HUD.deadText = `YOU DIED\nLost ${run.scrap} scrap${run.parts ? ` and ${run.parts} parts` : ''}`;
     this.time.delayedCall(1900, () => this.endRun({ type: 'raidDead', camp: run.camp, scrap: run.scrap }));
   }
 

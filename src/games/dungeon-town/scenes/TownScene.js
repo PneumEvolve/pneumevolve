@@ -1,8 +1,8 @@
 import Phaser from 'phaser';
 import { FONT, V, dist, flash, kids, untint } from '../util';
-import { BLD, FAV, ITEMS, JOB_DESC, JOB_SITES, PERKS, RECIPES, SP, T, TCOLS, TH, TILE, TL, TROWS, TURRET, TW, XP, recipeOf } from '../tuning';
+import { BLD, FAV, JOB_DESC, JOB_SITES, NEIGHBORS, PERKS, PROD_T, RECIPES, RES_ICON, SP, T, TCOLS, TH, TILE, TL, TROWS, TURRET, TW, XP, amtTxt, isRes, nameOf, recipeOf } from '../tuning';
 import { CAMPS, CAMP_TOTAL, TOWN_MAP } from '../maps';
-import { GAME, HUD, SAVE, addXp, ammoMax, bCost, campsBeaten, countB, farmScrap, jobOf, levelCap, maxHearts, perk, petById, petLvlDmg, petMaxHp, pointsUsed, prodMult, protectAmt, stashCap, stashTotal, typeCap, writeSave, xpNeed } from '../state';
+import { GAME, HUD, SAVE, SAVE_KEY, addXp, ammoMax, bCost, campsBeaten, countB, jobOf, levelCap, loadSave, maxHearts, outputOf, perk, petById, petLvlDmg, petMaxHp, pointsUsed, protectAmt, stashCap, stashTotal, typeCap, writeSave, xpNeed } from '../state';
 import { makeTextures } from '../textures';
 import { Combat } from '../combat';
 
@@ -45,10 +45,10 @@ export class TownScene extends Combat {
     const r = this.result;
     if (r && r.type === 'extract' && r.firstClear && r.dungeon === 'subway') HUD.banner = { text: 'THE SUBWAY IS CLEARED!', sub: `+${r.scrap} ⚙${r.caught ? ' · ' + r.caught : ''} · More dungeons coming`, t: 4 };
     else if (r && r.type === 'extract' && r.firstClear) HUD.banner = { text: 'THE RUINS ARE CLEARED!', sub: `+${r.scrap} ⚙${r.caught ? ' · ' + r.caught : ''} · ${SAVE.townLevel >= 2 ? 'Try the Subway next' : 'Town Hall Lv 2 opens the path to the Subway'}`, t: 4 };
-    else if (r && r.type === 'extract') HUD.banner = { text: `HOME SAFE  +${r.scrap} ⚙`, sub: r.caught ? `New creature: ${r.caught}! Check your squad.` : 'Spend it on the town, then end the day', t: 3.4 };
+    else if (r && r.type === 'extract') HUD.banner = { text: `HOME SAFE  +${r.scrap} ⚙${r.parts ? `  +${r.parts} 🔩` : ''}`, sub: r.caught ? `New creature: ${r.caught}! Check your squad.` : 'Spend it on the town, then end the day', t: 3.4 };
     else if (r && r.type === 'dead') HUD.banner = { text: 'DRAGGED HOME', sub: `You lost ${r.scrap} scrap in room ${r.room}`, t: 3.2 };
     else if (r && r.type === 'abandon') HUD.banner = { text: 'BACK IN TOWN', t: 2 };
-    else if (r && r.type === 'raidWin') HUD.banner = { text: `${CAMPS[r.camp].name.toUpperCase()} RAIDED!`, sub: `+${r.scrap} ⚙${r.first && r.camp === 0 ? ' · Careful: bandits may come for your town now' : r.first && CAMPS[r.camp + 1] ? ` · ${CAMPS[r.camp + 1].name} unlocked` : ''}`, t: 4 };
+    else if (r && r.type === 'raidWin') HUD.banner = { text: `${CAMPS[r.camp].name.toUpperCase()} RAIDED!`, sub: `+${r.scrap} ⚙${r.parts ? `  +${r.parts} 🔩` : ''}${r.first && r.camp === 0 ? ' · Careful: bandits may come for your town now' : r.first && CAMPS[r.camp + 1] ? ` · ${CAMPS[r.camp + 1].name} unlocked` : ''}`, t: 4 };
     else if (r && r.type === 'raidDead') HUD.banner = { text: 'DRAGGED HOME', sub: `The ${CAMPS[r.camp].name} bandits got you. Lost ${r.scrap} scrap.`, t: 3.2 };
     else if (r && r.type === 'pathOpen') HUD.banner = { text: 'THE EAST PATH IS OPEN', sub: 'The Subway is that way — but zombies will come through it too', t: 4 };
     else if (!SAVE.seenIntro) {
@@ -116,7 +116,7 @@ export class TownScene extends Combat {
   }
 
   renderBuildings() {
-    (this.bSprites || []).forEach(b => { if (b.gunImg) b.gunImg.destroy(); if (b.workerImg) b.workerImg.destroy(); if (b.rcpImg) b.rcpImg.destroy(); b.destroy(); });
+    (this.bSprites || []).forEach(b => { ['gunImg', 'workerImg', 'rcpImg', 'pileImg', 'pileTxt'].forEach(k => b[k] && b[k].destroy()); b.destroy(); });
     this.bSprites = [];
     this.occ = new Array(TCOLS * TROWS).fill(null);
     const before = SAVE.buildings.length;
@@ -130,28 +130,70 @@ export class TownScene extends Combat {
       else if (def.solid) { s = this.solids.create(x, y, rec.t); s.refreshBody(); }
       else s = this.add.image(x, y, rec.t);
       Object.assign(s, { bt: rec.t, def, lvl: rec.lvl || 1, c: rec.c, r: rec.r, rec, dead: false, isBld: true });
-      s.maxHp = Math.round(((def.hp || 0) + (rec.t === 'turret' ? (s.lvl - 1) * 4 : 0)) * (1 + 0.5 * (this.prk ? this.prk('engineer') : 0))); s.hp = s.maxHp;
+      s.maxHp = Math.round(((def.hp || 0) + (rec.t === 'turret' ? (s.lvl - 1) * 4 : 0)) * (1 + 0.5 * (this.engineerOn() ? 1 : 0))); s.hp = s.maxHp;
       s.setDepth(def.solid ? 10 + y / 1000 : 1.2);
       if (rec.t === 'turret') { s.gunImg = this.add.image(x, y - 4, 'turretGun').setOrigin(0.2, 0.5).setDepth(11 + y / 1000); s.cd = 0.5; }
       const wk = rec.w && petById(rec.w);
       if (rec.w && !wk) delete rec.w;
-      if (RECIPES[rec.t]) { const rk = recipeOf(rec); s.rcpImg = this.add.image(x - 14, y + 14, rk === 'cage' ? 'cageIcon' : rk).setScale(rk === 'cage' ? 1.2 : 0.8).setDepth(12 + y / 1000); }
+      if (RECIPES[rec.t]) { const [tex, sc] = this.iconOf(recipeOf(rec)); s.rcpImg = this.add.image(x - 14, y + 14, tex).setScale(sc * 0.7).setDepth(12 + y / 1000); }
       if (wk) { s.workerImg = this.add.image(x + 14, y - 16, wk.sp).setScale(0.55).setDepth(12 + y / 1000); s.fav = FAV[rec.t] === wk.sp; if (rec.t === 'guard' && this.phase === 'night') s.workerImg.setVisible(false); }
       this.occ[this.idx(rec.c, rec.r)] = s;
       this.bSprites.push(s);
+      this.drawPile(s);
     });
     this.computeFlow();
     this.syncHud();
   }
 
+  // icon texture + scale for a resource / item key
+  iconOf(k) { return ({ scrap: ['scrap', 1.6], food: ['food', 1], parts: ['part', 1.6], medkit: ['medkit', 1], treat: ['treat', 1], cage: ['cageIcon', 1.5], lure: ['lure', 1], ammo: ['ammo', 0.8] })[k] || ['scrap', 1]; }
+
+  // goods waiting on a building (made this morning, not collected yet)
+  drawPile(s) {
+    ['pileImg', 'pileTxt'].forEach(k => { if (s[k]) { s[k].destroy(); s[k] = null; } });
+    const pile = s.rec.pile; if (!pile) return;
+    const ks = Object.keys(pile).filter(k => pile[k] > 0);
+    if (!ks.length) { delete s.rec.pile; return; }
+    const [tex, sc] = this.iconOf(ks[0]);
+    s.pileImg = this.add.image(s.x, s.y - 36, tex).setScale(sc).setDepth(30);
+    this.tweens.add({ targets: s.pileImg, y: s.y - 42, duration: 600, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+    const tot = ks.reduce((m, k) => m + pile[k], 0);
+    s.pileTxt = this.add.text(s.x + 14, s.y - 46, `${tot}`, { fontFamily: FONT, fontSize: '13px', fontStyle: 'bold', color: '#ffd166', stroke: '#000', strokeThickness: 3 }).setOrigin(0.5).setDepth(31);
+  }
+
+  // walk past a building to pick up what it made
+  collectPile(b) {
+    const pile = b.rec.pile; if (!pile) return;
+    if (b.fullT > 0) return;
+    const st = SAVE.stash, got = [];
+    Object.keys(pile).forEach(k => {
+      let n = pile[k]; if (!n) return;
+      if (isRes(k)) SAVE[k] = (SAVE[k] || 0) + n;
+      else { n = Math.min(n, Math.max(0, stashCap() - stashTotal())); st[k] = (st[k] || 0) + n; }
+      if (n) { pile[k] -= n; got.push(amtTxt(k, n)); }
+    });
+    if (Object.values(pile).some(n => n > 0)) { b.fullT = 2.5; this.floatText(b.x, b.y - 58, 'STASH FULL', '#ff8c8c', 13); }
+    if (!got.length) return;
+    this.floatText(b.x, b.y - 50, got.join('  '), '#ffd166', 15);
+    this.spark(b.x, b.y - 30, 0xffd166, 8);
+    this.drawPile(b); writeSave(); this.syncHud();
+  }
+
   computeFlow() {
+    // zombies head for the generator; "looters" head for your production buildings instead
+    this.flow = this.flowFrom(k => this.genCell[k]);
+    const prod = new Set(this.bSprites.filter(b => PROD_T.includes(b.bt) && !b.dead).map(b => this.idx(b.c, b.r)));
+    this.lootFlow = prod.size ? this.flowFrom(k => prod.has(k)) : null;
+  }
+
+  flowFrom(isGoal) {
     const N = TCOLS * TROWS, dist = new Array(N).fill(Infinity), done = new Uint8Array(N);
     const cost = (k) => {
       if (this.baseBlocked[k]) return Infinity;
       const b = this.occ[k];
       return (b && !b.dead) ? b.def.pathCost : 1;
     };
-    for (let k = 0; k < N; k++) if (this.genCell[k]) dist[k] = 0;
+    for (let k = 0; k < N; k++) if (isGoal(k)) dist[k] = 0;
     for (;;) {
       let u = -1, best = Infinity;
       for (let k = 0; k < N; k++) if (!done[k] && dist[k] < best) { best = dist[k]; u = k; }
@@ -166,12 +208,13 @@ export class TownScene extends Combat {
         if (nd < dist[v]) dist[v] = nd;
       });
     }
-    this.flow = dist;
+    return dist;
   }
 
   solidAt(c, r) { const b = this.occ[this.idx(c, r)]; return b && b.def.solid && !b.dead ? b : null; }
 
-  nextStep(c, r) {
+  nextStep(c, r, field) {
+    const F = field || this.flow;
     if (c < 0 || r < 0 || c >= TCOLS || r >= TROWS) return null;
     let best = null, bd = Infinity;
     for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
@@ -183,7 +226,7 @@ export class TownScene extends Combat {
         const a = this.idx(c + dc, r), b = this.idx(c, r + dr);
         if (this.baseBlocked[a] || this.baseBlocked[b] || this.solidAt(c + dc, r) || this.solidAt(c, r + dr) || this.solidAt(nc, nr)) continue;
       }
-      if (this.flow[k] < bd) { bd = this.flow[k]; best = { c: nc, r: nr }; }
+      if (F[k] < bd) { bd = F[k]; best = { c: nc, r: nr }; }
     }
     if (!best) return null;
     const b = this.solidAt(best.c, best.r);
@@ -199,7 +242,10 @@ export class TownScene extends Combat {
       const t = this.bSprites.find(b => b.bt === 'turret' && !b.dead && dist(b, z) < 330);
       if (t) return { x: t.x, y: t.y, kind: 'bld', bld: t, obj: t, pad: 10 };
     }
-    const step = this.nextStep(Math.floor(z.x / TILE), Math.floor(z.y / TILE));
+    if (z.looter === undefined) z.looter = Math.random() < T.looterChance;
+    const zc = Math.floor(z.x / TILE), zr = Math.floor(z.y / TILE);
+    const lf = z.looter && this.lootFlow && this.lootFlow[this.idx(zc, zr)] < Infinity ? this.lootFlow : null;
+    const step = this.nextStep(zc, zr, lf);
     if (!step || step.gen) return { x: this.genPos.x, y: this.genPos.y, kind: 'gen', obj: this.genImg, pad: 34 };
     if (step.bld) return { x: step.bld.x, y: step.bld.y, kind: 'bld', bld: step.bld, obj: step.bld, pad: 10 };
     return { x: step.c * TILE + TILE / 2, y: step.r * TILE + TILE / 2, kind: 'path', pad: 0 };
@@ -255,7 +301,7 @@ export class TownScene extends Combat {
   collectScrap(n) { SAVE.scrap += n; HUD.scrap = SAVE.scrap; }
   onAbandon() { if (GAME.onExit) GAME.onExit(); }
   makeTownRecs() {
-    return SAVE.squad.map(id => petById(id)).filter(Boolean).map(pt => ({ id: pt.id, sp: pt.sp, hp: petMaxHp(pt), maxHp: petMaxHp(pt), ko: false, cdT: 0, lvl: pt.lvl, ar: pt.ar, pr: pt.pr }));
+    return SAVE.squad.map(id => petById(id)).filter(Boolean).map(pt => ({ id: pt.id, sp: pt.sp, hp: petMaxHp(pt), maxHp: petMaxHp(pt), ko: false, cdT: 0, lvl: pt.lvl, ar: pt.ar, pr: pt.pr })).map(r => { const pt = petById(r.id); if (pt && pt.fed) { r.hp++; r.maxHp++; } return r; });
   }
   getSquadRecs() { return this.townRecs; }
   itemSrc() { return this.phase === 'night' ? SAVE.stash : null; }
@@ -315,6 +361,9 @@ export class TownScene extends Combat {
     this.syncHeroHud();
   }
   // detail page for you or one creature: stats, ranks, upgrade buttons
+  // Engineer: a mole working a Guard Post (his favourite job) toughens every building at night
+  engineerOn() { return SAVE.buildings.some(b => b.t === 'guard' && b.w && petById(b.w) && petById(b.w).sp === 'mole'); }
+
   syncDetail() {
     const id = HUD.detailId, cap = levelCap();
     if (id === 'war') {
@@ -339,16 +388,25 @@ export class TownScene extends Combat {
       return;
     }
     if (id === 'stash') {
-      const st = SAVE.stash;
-      const out = {};
-      SAVE.buildings.filter(b => RECIPES[b.t]).forEach(b => { const k = recipeOf(b); out[k] = (out[k] || 0) + prodMult(b); });
-      const outTxt = Object.entries(out).map(([k, n]) => `${n} ${ITEMS[k]}${n > 1 ? 's' : ''}`).join(', ') || 'nothing (build a Kitchen or Workbench)';
+      const st = SAVE.stash, tot = {}, need = {};
+      SAVE.buildings.forEach(b => { const o = outputOf(b); if (!o) return; tot[o.k] = (tot[o.k] || 0) + o.n; if (o.cost) Object.entries(o.cost).forEach(([r, per]) => { need[r] = (need[r] || 0) + per * o.n; }); });
+      const outTxt = Object.entries(tot).map(([k, n]) => amtTxt(k, n)).join(',  ') || 'nothing yet (build a Farm)';
+      const needTxt = Object.entries(need).map(([r, n]) => `${n} ${RES_ICON[r]}`).join(', ');
+      const sq = SAVE.squad.length;
       HUD.detail = {
         name: 'Stash', icon: 'storehouse', xpFrac: stashTotal() / Math.max(1, stashCap()),
-        body: `Items: ${stashTotal()} / ${stashCap()}   (3 + 5 per Storehouse)\n\nCages ${st.cage}   ·   Med Kits ${st.medkit}\nPet Treats ${st.treat}   ·   Noise Lures ${st.lure}\n\nEvery morning:\n· Farms: +${farmScrap()} scrap\n· Made: ${outTxt}\n   (kitchen items cost ${T.medkitCost} scrap each)\n\nWalk up to a Kitchen or Workbench to change what it makes.\nYou take everything on runs; leftovers come back.`,
+        body: `🌾 Food ${SAVE.food}   ·   🔩 Parts ${SAVE.parts}   ·   ⚙ Scrap ${SAVE.scrap}\n\nItems: ${stashTotal()} / ${stashCap()}\nCages ${st.cage} · Med Kits ${st.medkit} · Pet Treats ${st.treat}\nNoise Lures ${st.lure} · Turret Ammo ${st.ammo || 0}\n\nEvery morning:\n· Makes: ${outTxt}${needTxt ? `\n   (uses ${needTxt})` : ''}\n· Your squad eats ${sq} 🌾 (fed = +1 ♥ that day)\n· Turrets use 1 Ammo each at night for +1 damage\n\nGoods pile up on buildings: walk past to collect.\nCreatures working there bring it in for you.`,
         buttons: [
           { label: 'CLOSE', ev: { type: 'back' } },
         ],
+      };
+      return;
+    }
+    if (id === 'newgame') {
+      HUD.detail = {
+        name: 'Start a new game?', icon: 'hall', xpFrac: 0,
+        body: 'This wipes your save: town, creatures, scrap, everything.\n\nIt can\'t be undone.',
+        buttons: [{ label: 'YES, START OVER', ev: { type: 'newGame' } }, { label: 'CANCEL', ev: { type: 'back' } }],
       };
       return;
     }
@@ -370,6 +428,7 @@ export class TownScene extends Combat {
     const rk = (arr, r) => `${arr[r - 1]}${r < 3 ? `\n   next: ${arr[r]}` : '  (max)'}`;
     const nextPick = Math.ceil((pt.lvl + 1) / 5) * 5;
     const job = jobOf(pt.id), fav = Object.keys(FAV).find(k => FAV[k] === pt.sp);
+    const favName = fav ? BLD[fav].name : 'none';
     if (HUD.detailMode === 'jobs') {
       const jb = JOB_SITES.filter(t => countB(t) > 0).map(t => {
         const free = SAVE.buildings.filter(b => b.t === t && !(b.w && petById(b.w))).length;
@@ -378,7 +437,7 @@ export class TownScene extends Combat {
       });
       HUD.detail = {
         name: `${d.name} — pick a job`, icon: pt.sp, xpFrac: pt.lvl >= cap ? 1 : pt.xp / xpNeed(pt.lvl),
-        body: `Working creatures stay in town and can't go on runs.\nThey get a bit of XP every morning.\n\nFavourite job: ${BLD[fav].name} (bigger bonus, marked ★)\n\n${jb.length ? 'Pick a building →' : 'Build a Workbench, Kitchen, Farm, Storehouse, Turret or Guard Post first.'}`,
+        body: `Working creatures stay in town and can't go on runs.\nThey get a bit of XP every morning.\n\nFavourite job: ${favName}${fav ? ' (bigger bonus, marked ★)' : ''}\n\n${jb.length ? 'Pick a building →' : 'Build a Workbench, Kitchen, Farm, Storehouse, Turret or Guard Post first.'}`,
         buttons: jb.slice(0, 7).concat([{ label: '← BACK', ev: { type: 'back' } }]),
       };
       return;
@@ -389,10 +448,10 @@ export class TownScene extends Combat {
     btns.push({ label: inSq >= 0 ? `REMOVE FROM SQUAD (#${inSq + 1})` : 'ADD TO SQUAD', ev: { type: 'toggleSquad', id: pt.id } });
     btns.push(job ? { label: `STOP WORKING (${BLD[job.t].name})`, ev: { type: 'stopJob', id: pt.id } } : { label: '🛠 GIVE A JOB', ev: { type: 'jobMenu' } });
     btns.push({ label: '← BACK', ev: { type: 'back' } });
-    const jobLine = job ? `Job: ${BLD[job.t].name}${FAV[job.t] === pt.sp ? ' ★ favourite' : ''} — ${JOB_DESC[job.t][FAV[job.t] === pt.sp ? 1 : 0]}` : `No job · favourite: ${BLD[fav].name}`;
+    const jobLine = job ? `Job: ${BLD[job.t].name}${FAV[job.t] === pt.sp ? ' ★ favourite' : ''} — ${JOB_DESC[job.t][FAV[job.t] === pt.sp ? 1 : 0]}` : `No job · favourite: ${favName}`;
     HUD.detail = {
       name: d.name, icon: pt.sp, xpFrac: pt.lvl >= cap ? 1 : pt.xp / xpNeed(pt.lvl),
-      body: `Level ${pt.lvl} / ${cap}   ·   ♥ ${petMaxHp(pt)}\n${xpLine}\n${jobLine}\n\nACTIVE — ${d.activeName}  (rank ${pt.ar}/3)\n${rk(d.activeRanks, pt.ar)}\n\nPASSIVE — ${d.passiveName}  (rank ${pt.pr}/3)\n${rk(d.passiveRanks, pt.pr)}\n\n${pt.picks ? `★ ${pt.picks} upgrade${pt.picks > 1 ? 's' : ''} ready!` : (pt.ar >= 3 && pt.pr >= 3 ? 'Fully upgraded' : `Next upgrade at level ${nextPick}`)}`,
+      body: `Level ${pt.lvl} / ${cap}   ·   ♥ ${petMaxHp(pt)}${pt.fed ? ' (+1 fed)' : ''}\n${xpLine}\n${jobLine}\n\nACTIVE — ${d.activeName}  (rank ${pt.ar}/3)\n${rk(d.activeRanks, pt.ar)}\n\nPASSIVE — ${d.passiveName}  (rank ${pt.pr}/3)\n${rk(d.passiveRanks, pt.pr)}\n\n${pt.picks ? `★ ${pt.picks} upgrade${pt.picks > 1 ? 's' : ''} ready!` : (pt.ar >= 3 && pt.pr >= 3 ? 'Fully upgraded' : `Next upgrade at level ${nextPick}`)}`,
       buttons: btns,
     };
   }
@@ -411,7 +470,7 @@ export class TownScene extends Combat {
 
   syncHud() {
     const lv = TL[SAVE.townLevel];
-    HUD.scrap = SAVE.scrap; HUD.day = SAVE.day; HUD.townLevel = SAVE.townLevel;
+    HUD.scrap = SAVE.scrap; HUD.day = SAVE.day; HUD.townLevel = SAVE.townLevel; HUD.food = SAVE.food || 0; HUD.parts = SAVE.parts || 0;
     HUD.maxHp = maxHearts(); HUD.hp = Math.min(HUD.hp == null ? HUD.maxHp : HUD.hp, HUD.maxHp);
     HUD.points = { mil: pointsUsed('mil'), milMax: lv.mil, civ: pointsUsed('civ'), civMax: lv.civ };
     HUD.runsLeft = Math.max(0, T.runsPerDay - SAVE.runsToday);
@@ -448,7 +507,7 @@ export class TownScene extends Combat {
         this.setBuildView(!HUD.building);
         break;
       case 'tab': HUD.buildTab = ev.tab; HUD.buildSel = ev.tab === 'mil' ? 'wall' : 'workbench'; HUD.buildMsg = BLD[HUD.buildSel].desc; break;
-      case 'select': HUD.buildSel = ev.item; HUD.buildMsg = BLD[ev.item] ? BLD[ev.item].desc : (ev.item === 'upgrade' ? 'Tap a turret to upgrade it.' : ev.item === 'recipe' ? 'Tap a Kitchen or Workbench to switch what it makes.' : 'Tap a building to remove it (points come back).'); break;
+      case 'select': HUD.buildSel = ev.item; HUD.buildMsg = BLD[ev.item] ? BLD[ev.item].desc : (ev.item === 'upgrade' ? (HUD.buildTab === 'civ' ? `Tap a building to upgrade it with Parts (Lv2: ${T.civUpg[1]} 🔩, Lv3: ${T.civUpg[2]} 🔩). You have ${SAVE.parts} 🔩.` : 'Tap a turret to upgrade it.') : ev.item === 'recipe' ? 'Tap a Farm, Kitchen or Workbench to switch what it makes.' : 'Tap a building to remove it (points come back).'); break;
       case 'tapTile': if (HUD.building) this.tapTile(ev.x, ev.y); break;
       case 'hallUpgrade': this.upgradeHall(); break;
       case 'closePanel': HUD.panel = null; break;
@@ -477,7 +536,16 @@ export class TownScene extends Combat {
       case 'recipe': { const opts = ev.b === 'kitchen' ? ['medkit', 'treat'] : ['cage', 'lure']; SAVE.recipes[ev.b] = opts[(opts.indexOf(SAVE.recipes[ev.b]) + 1) % 2]; writeSave(); this.syncDetail(); break; }
       case 'swapOrder': { const q = SAVE.squad; if (q[ev.a] != null && q[ev.b] != null) { const t = q[ev.a]; q[ev.a] = q[ev.b]; q[ev.b] = t; writeSave(); this.reloadSquad(); this.syncRoster(); HUD.rosterMsg = 'Squad order changed.'; } break; }
       case 'raid': if (day && !SAVE.raidedToday && ev.camp < CAMPS.length && ev.camp <= campsBeaten()) { HUD.panel = null; this.startRaid(ev.camp); } break;
-      case 'back': if (HUD.detailId === 'stash' || HUD.detailId === 'war') { HUD.panel = null; break; }
+      case 'newGameAsk': HUD.detailId = 'newgame'; HUD.detailMode = null; this.syncDetail(); HUD.panel = 'detail'; break;
+      case 'newGame': {
+        try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
+        loadSave();
+        HUD.panel = null; HUD.banner = null; HUD.prompt = null; HUD.building = false; HUD.dead = false;
+        this.leaving = true; this.cameras.main.fadeOut(400);
+        this.cameras.main.once('camerafadeoutcomplete', () => this.scene.restart({}));
+        break;
+      }
+      case 'back': if (HUD.detailId === 'stash' || HUD.detailId === 'war' || HUD.detailId === 'newgame') { HUD.panel = null; break; }
         if (HUD.detailMode) { HUD.detailMode = null; this.syncDetail(); break; } HUD.panel = 'squad'; HUD.rosterMsg = ''; this.syncRoster(); break;
       case 'upgrade': {
         const pt = petById(ev.id);
@@ -538,7 +606,7 @@ export class TownScene extends Combat {
     const opts = RECIPES[b.bt]; if (!opts) return;
     b.rec.rcp = opts[(opts.indexOf(recipeOf(b.rec)) + 1) % opts.length];
     writeSave();
-    this.floatText(b.x, b.y - 30, `NOW MAKING: ${ITEMS[b.rec.rcp].toUpperCase()}S`, '#f2d14b', 14);
+    this.floatText(b.x, b.y - 30, `NOW MAKING: ${nameOf(b.rec.rcp, 2).toUpperCase()}`, '#f2d14b', 14);
     this.ring(b.x, b.y, 34, 0xf2d14b);
     this.renderBuildings();
   }
@@ -551,9 +619,10 @@ export class TownScene extends Combat {
     const lv = TL[SAVE.townLevel];
     const pop = (col) => { const x = c * TILE + TILE / 2, y = r * TILE + TILE / 2; this.spark(x, y, col, 8); this.ring(x, y, 30, col); };
     if (sel === 'recipe') {
-      if (!existing || !RECIPES[existing.bt]) return say('Tap a Kitchen or Workbench to switch what it makes.');
+      if (!existing || !RECIPES[existing.bt] || RECIPES[existing.bt].length < 2) return say('Tap a Farm, Kitchen or Workbench to switch what it makes.');
       this.cycleRecipe(existing);
-      return say(`${existing.def.name} now makes ${ITEMS[existing.rec.rcp]}s.`);
+      const o = outputOf(existing.rec);
+      return say(`${existing.def.name} now makes ${nameOf(existing.rec.rcp, 2)} (${amtTxt(o.k, o.n)} every morning).`);
     }
     if (sel === 'remove') {
       if (!existing) return say('Nothing to remove there.');
@@ -562,7 +631,16 @@ export class TownScene extends Combat {
       return say(`Removed ${existing.def.name}. +${bCost(existing.rec)} pts back.`);
     }
     if (sel === 'upgrade') {
-      if (!existing || existing.bt !== 'turret') return say('Only turrets can be upgraded (for now).');
+      if (existing && existing.def.cat === 'civ') {
+        const lvl = existing.rec.lvl || 1, nm = existing.def.name;
+        if (lvl >= 3) return say(`That ${nm} is max level.`);
+        const cost = T.civUpg[lvl];
+        if ((SAVE.parts || 0) < cost) return say(`Needs ${cost} 🔩 (you have ${SAVE.parts || 0}). Parts come from crates, bosses, camps and Salvage Yards.`);
+        SAVE.parts -= cost; existing.rec.lvl = lvl + 1; writeSave(); pop(0xf2d14b); this.renderBuildings();
+        const o = outputOf(existing.rec);
+        return say(`${nm} is now level ${lvl + 1}${o ? `: ${amtTxt(o.k, o.n)} every morning` : ': +3 stash room, protects more scrap'}.`);
+      }
+      if (!existing || existing.bt !== 'turret') return say('Tap a turret (or a civic building in the Civic tab).');
       const lvl = existing.rec.lvl || 1;
       if (lvl >= 3) return say('That turret is maxed out.');
       const delta = BLD.turret.upg[lvl] - BLD.turret.upg[lvl - 1];
@@ -684,16 +762,43 @@ export class TownScene extends Combat {
     });
   }
 
-  // each morning: kitchens turn scrap into Med Kits / Pet Treats, workbenches build Cages / Lures
+  // each morning: every production building makes its goods (unless zombies wrecked it last night).
+  // Goods pile up on the building; a creature working there brings them straight in.
   produce() {
-    const st = SAVE.stash, cap = stashCap(), made = {};
+    const st = SAVE.stash, got = {}, piled = {}, missed = [], short = new Set();
     this.stashFull = false;
-    const add = (k) => { if (stashTotal() >= cap) { this.stashFull = true; return false; } st[k]++; made[k] = (made[k] || 0) + 1; return true; };
-    SAVE.buildings.filter(b => b.t === 'kitchen').forEach(b => {
-      for (let i = 0; i < prodMult(b); i++) { if (SAVE.scrap < T.medkitCost) break; if (!add(recipeOf(b))) break; SAVE.scrap -= T.medkitCost; }
+    const broken = new Set((this.bSprites || []).filter(b => b.dead).map(b => b.rec));
+    const give = (b, k, n) => {
+      if (b.w && petById(b.w)) {
+        if (isRes(k)) { SAVE[k] = (SAVE[k] || 0) + n; got[k] = (got[k] || 0) + n; return; }
+        const m = Math.min(n, Math.max(0, stashCap() - stashTotal()));
+        if (m) { st[k] = (st[k] || 0) + m; got[k] = (got[k] || 0) + m; }
+        n -= m; if (!n) return; this.stashFull = true;
+      }
+      b.pile = b.pile || {}; b.pile[k] = (b.pile[k] || 0) + n; piled[k] = (piled[k] || 0) + n;
+    };
+    // farms + salvage first, then the kitchens / workbenches that use their goods
+    const order = SAVE.buildings.filter(b => b.t === 'farm' || b.t === 'salvage').concat(SAVE.buildings.filter(b => b.t === 'kitchen' || b.t === 'workbench'));
+    order.forEach(b => {
+      const o = outputOf(b); if (!o || !o.n) return;
+      if (broken.has(b)) { missed.push(BLD[b.t].name); return; }
+      let n = o.n;
+      if (o.cost) {
+        const [res, per] = Object.entries(o.cost)[0];
+        n = Math.min(n, Math.floor((SAVE[res] || 0) / per));
+        if (n < o.n) short.add(res);
+        SAVE[res] -= n * per;
+      }
+      if (n > 0) give(b, o.k, n);
     });
-    SAVE.buildings.filter(b => b.t === 'workbench').forEach(b => { for (let i = 0; i < prodMult(b); i++) if (!add(recipeOf(b))) break; });
-    return made;
+    return { got, piled, missed, short: [...short] };
+  }
+
+  // each morning your squad eats; fed creatures get +1 heart for the day
+  feedSquad() {
+    let fed = 0, hungry = 0;
+    SAVE.squad.forEach(id => { const pt = petById(id); if (!pt) return; if ((SAVE.food || 0) >= 1) { SAVE.food--; pt.fed = true; fed++; } else { pt.fed = false; hungry++; } });
+    return { fed, hungry };
   }
 
   startNight() {
@@ -703,6 +808,9 @@ export class TownScene extends Combat {
     this.reloadSquad();
     this.spawnGuards();
     HUD.hp = HUD.maxHp;
+    let loaded = 0;
+    this.bSprites.forEach(b => { if (b.bt === 'turret' && (SAVE.stash.ammo || 0) > 0) { SAVE.stash.ammo--; b.hot = true; loaded++; if (b.gunImg) b.gunImg.setTint(0xffd166); } });
+    if (loaded) writeSave();
     const day = SAVE.day, tier = SAVE.townLevel; // night difficulty comes only from the Town Hall level
     this.nightLen = Math.min(T.nightMax, T.nightBase + 20 * (tier - 1));
     this.nightT = 0;
@@ -732,7 +840,7 @@ export class TownScene extends Combat {
       types.slice(pk * packSize, pk * packSize + packSize).forEach((type, j) => this.spawnPlan.push({ type, at: at + j * 0.45, e }));
     }
     this.tweens.add({ targets: this.shade, alpha: 0.42, duration: 1200 });
-    HUD.banner = this.banditNight ? { text: 'BANDIT RAID!', sub: 'Riflemen will shoot your turrets from range. Protect the generator!', t: 3 } : { text: `NIGHT ${day}`, sub: `Threat level ${tier} (Town Hall) — defend the generator!`, t: 2.6 };
+    HUD.banner = this.banditNight ? { text: 'BANDIT RAID!', sub: 'Riflemen will shoot your turrets from range. Protect the generator!', t: 3 } : { text: `NIGHT ${day}`, sub: `Threat level ${tier} (Town Hall) — defend the generator and your farms!${loaded ? `  ·  ${loaded} turret${loaded > 1 ? 's' : ''} loaded with ammo` : ''}`, t: 2.8 };
     this.kills0 = HUD.kills || 0;
   }
 
@@ -755,14 +863,17 @@ export class TownScene extends Combat {
       const lost = Math.floor(Math.max(0, SAVE.scrap - protectedAmt) * T.genLossPct);
       SAVE.scrap -= lost; sub = `${this.banditNight ? 'The bandits looted the town.' : 'The generator fell.'}  Lost ${lost} ⚙${protectedAmt ? ` (storehouses saved ${Math.min(protectedAmt, SAVE.scrap)})` : ''}`;
     }
-    const farms = farmScrap();
     // workers earn a little XP every morning
     SAVE.buildings.forEach(b => { const pt = b.w && petById(b.w); if (pt) addXp(pt, 6); });
-    if (farms) { SAVE.scrap += farms; sub += `   ·   Farms +${farms} ⚙`; }
-    const made = this.produce();
-    const mk = Object.entries(made).filter(([, n]) => n > 0).map(([k, n]) => `${n} ${ITEMS[k]}${n > 1 ? 's' : ''}`);
-    if (mk.length) sub += `\nMade: ${mk.join(', ')}`;
-    if (this.stashFull) sub += `${mk.length ? '' : '\n'}  (stash full: build a Storehouse)`;
+    const pr = this.produce(), list = (o) => Object.entries(o).filter(([, n]) => n > 0).map(([k, n]) => amtTxt(k, n)).join(', ');
+    if (list(pr.piled)) sub += `\nReady to collect: ${list(pr.piled)}`;
+    if (list(pr.got)) sub += `\nWorkers brought in: ${list(pr.got)}`;
+    if (pr.missed.length) sub += `\nZombies wrecked: ${pr.missed.join(', ')} (nothing made today)`;
+    if (pr.short.length) sub += `\nRan short of ${pr.short.map(r => nameOf(r)).join(' and ')}`;
+    if (this.stashFull) sub += '  (stash full: build a Storehouse)';
+    const fd = this.feedSquad();
+    if (fd.fed) sub += `\nFed ${fd.fed} creature${fd.fed > 1 ? 's' : ''} (-${fd.fed} 🌾): +1 ♥ today`;
+    else if (fd.hungry) sub += '\nYour creatures are hungry: switch a Farm to Food';
     SAVE.day++; SAVE.runsToday = 0; SAVE.raidedToday = false;
     // once you've hit a camp, bandits may come for you; scouts warn you a day ahead
     if (campsBeaten() > 0 && !SAVE.raidWarn && (SAVE.lastRaidDay == null || SAVE.day - SAVE.lastRaidDay >= 3) && Math.random() < 0.35) {
@@ -776,13 +887,14 @@ export class TownScene extends Combat {
     if (HUD.dead) { HUD.dead = false; untint(this.hero); this.hero.setPosition(this.hallPos.x, this.hallPos.y + 70); }
     this.reloadSquad();
     HUD.hp = HUD.maxHp;
-    HUD.banner = { text: survived ? `MORNING — DAY ${SAVE.day}` : 'THE LIGHTS WENT OUT', sub, t: 4 };
+    HUD.banner = { text: survived ? `MORNING — DAY ${SAVE.day}` : 'THE LIGHTS WENT OUT', sub, t: 5.5 };
     this.syncHud();
   }
 
   // ---------------------------------------------------------------- per-frame
   sceneUpdate(dt) {
     const h = this.hero;
+    if (this.phase === 'day' && !HUD.building) this.bSprites.forEach(b => { if (b.fullT > 0) b.fullT -= dt; if (b.rec.pile && dist(h, b) < 64) this.collectPile(b); });
     // prompts
     HUD.prompt = null;
     if (this.phase === 'day' && !HUD.building && !HUD.panel) {
@@ -793,7 +905,10 @@ export class TownScene extends Combat {
       else if (dist(h, this.warPos) < 95) HUD.prompt = { label: SAVE.raidWarn ? 'WAR TABLE  ·  ⚠ BANDITS TONIGHT' : 'WAR TABLE', action: 'war' };
       else {
         const pb = this.bSprites.find(b => RECIPES[b.bt] && dist(h, b) < 62);
-        if (pb) HUD.prompt = { label: `${BLD[pb.bt].name.toUpperCase()}: ${ITEMS[recipeOf(pb.rec)].toUpperCase()}S  ⇄`, action: 'recipe', b: pb };
+        if (pb) {
+          const o = outputOf(pb.rec), sw = RECIPES[pb.bt].length > 1;
+          HUD.prompt = { label: `${BLD[pb.bt].name.toUpperCase()}: ${nameOf(o.k, 2).toUpperCase()}${sw ? '  ⇄' : ''}  ·  ${isRes(o.k) ? amtTxt(o.k, o.n) : o.n} / MORNING`, action: sw ? 'recipe' : 'info', b: pb };
+        }
       }
     }
     HUD.scrap = SAVE.scrap;
@@ -832,7 +947,7 @@ export class TownScene extends Combat {
     this.bSprites.forEach(t => {
       if (t.bt !== 'turret' || t.dead) return;
       const st0 = TURRET[t.lvl], crew = !!t.workerImg;
-      const st = { range: st0.range, dmg: st0.dmg + (crew ? 1 : 0), rate: st0.rate * (crew && t.fav ? 0.75 : 1) };
+      const st = { range: st0.range, dmg: st0.dmg + (crew ? 1 : 0) + (t.hot ? 1 : 0), rate: st0.rate * (crew && t.fav ? 0.75 : 1) };
       const z = this.nearestEnemy(t.x, t.y, st.range, false);
       t.cd -= dt;
       if (!z) return;
@@ -854,7 +969,7 @@ export class TownScene extends Combat {
   drawSceneFx(g, time) {
     // turret level pips + damaged building bars
     this.bSprites.forEach(b => {
-      if (b.bt === 'turret' && !b.dead) for (let i = 0; i < b.lvl; i++) { g.fillStyle(0xf2d14b, 1); g.fillRect(b.x - 10 + i * 8, b.y + 18, 5, 5); }
+      if ((b.bt === 'turret' || b.def.cat === 'civ') && !b.dead && (b.bt === 'turret' || b.lvl > 1)) for (let i = 0; i < b.lvl; i++) { g.fillStyle(0xf2d14b, 1); g.fillRect(b.x - 10 + i * 8, b.y + 18, 5, 5); }
       if (this.phase === 'night' && !b.dead && b.maxHp && b.hp < b.maxHp) {
         g.fillStyle(0x000000, 0.7); g.fillRect(b.x - 18, b.y - 30, 36, 5);
         g.fillStyle(0xff8c42, 1); g.fillRect(b.x - 18, b.y - 30, 36 * b.hp / b.maxHp, 5);
@@ -868,6 +983,15 @@ export class TownScene extends Combat {
       g.lineStyle(1, 0xffffff, 0.12);
       for (let c = 1; c < TCOLS; c++) g.lineBetween(c * TILE, TILE, c * TILE, TH - TILE);
       for (let r = 1; r < TROWS; r++) g.lineBetween(TILE, r * TILE, TW - TILE, r * TILE);
+      // neighbour bonuses: green links between buildings that help each other
+      this.bSprites.forEach(b => NEIGHBORS.forEach(nb => {
+        if (nb.a !== b.bt) return;
+        this.bSprites.forEach(o => {
+          if (o === b || o.bt !== nb.b || Math.abs(o.c - b.c) > 1 || Math.abs(o.r - b.r) > 1) return;
+          g.lineStyle(4, 0x8ef0a0, 0.55 + 0.25 * Math.sin(time * 0.006)); g.lineBetween(b.x, b.y, o.x, o.y);
+          g.fillStyle(0x8ef0a0, 1); g.fillCircle((b.x + o.x) / 2, (b.y + o.y) / 2, 5);
+        });
+      }));
       if (HUD.buildSel === 'turret' || (HUD.buildSel === 'upgrade')) {
         this.bSprites.forEach(b => { if (b.bt === 'turret') { g.lineStyle(2, 0xf2d14b, 0.25); g.strokeCircle(b.x, b.y, TURRET[b.lvl].range); } });
       }

@@ -18,7 +18,7 @@ export class DungeonScene extends Combat {
     const run = this.run;
     this.crates = null; this.bulletBlockers = null;
     HUD.scene = 'dungeon';
-    HUD.maxHp = run.maxHp; HUD.hp = run.hp; HUD.room = run.room; HUD.scrap = run.scrap; HUD.cages = run.cages;
+    HUD.maxHp = run.maxHp; HUD.hp = run.hp; HUD.room = run.room; HUD.scrap = run.scrap; HUD.cages = run.cages; HUD.parts = run.parts || 0;
     this.dg = run.dungeon || 'ruins';
     const dgName = this.dg === 'subway' ? 'SUBWAY' : 'RUINS';
     HUD.dungeonName = dgName;
@@ -34,6 +34,7 @@ export class DungeonScene extends Combat {
     this.crates = this.physics.add.staticGroup();
     this.buildRoom();
     this.setupCombat(this.entry.x, this.entry.y - 20, RW, RH, 420);
+    this.placeStash(this.grid, COLS, ROWS, this.entry);
 
     // a wild creature? first-time catches are guaranteed in their room
     const owned = (sp) => SAVE.pets.some(pt => pt.sp === sp) || run.captured.includes(sp);
@@ -54,6 +55,7 @@ export class DungeonScene extends Combat {
   }
 
   collectScrap(n) { this.run.scrap += n; HUD.scrap = this.run.scrap; }
+  collectParts(n) { this.run.parts = (this.run.parts || 0) + n; HUD.parts = this.run.parts; }
   onAbandon() { this.endRun({ type: 'abandon' }); }
   getSquadRecs() { return this.run.pets; }
   itemSrc() { return this.run.items || null; }
@@ -192,7 +194,7 @@ export class DungeonScene extends Combat {
   extract() {
     const run = this.run;
     this.leaving = true; this.hero.setVelocity(0, 0);
-    SAVE.scrap += run.scrap;
+    SAVE.scrap += run.scrap; SAVE.parts = (SAVE.parts || 0) + (run.parts || 0);
     SAVE.runs++; if (this.dg === 'ruins') SAVE.bestRoom = Math.max(SAVE.bestRoom, run.room);
     SAVE.best = SAVE.best || {}; SAVE.best[this.dg] = Math.max(SAVE.best[this.dg] || 0, run.room);
     run.captured.forEach(sp => addPet(sp));
@@ -201,12 +203,12 @@ export class DungeonScene extends Combat {
     if (run.room >= T.rooms) SAVE[clearKey] = true;
     writeSave();
     this.tweens.add({ targets: [this.hero, this.gun], scale: 0, duration: 300 });
-    this.time.delayedCall(450, () => this.endRun({ type: 'extract', scrap: run.scrap, dungeon: this.dg, caught: Object.entries(run.captured.reduce((m, sp) => { m[sp] = (m[sp] || 0) + 1; return m; }, {})).map(([sp, n]) => (n > 1 ? n + '× ' : '') + SP[sp].name).join(', '), firstClear }));
+    this.time.delayedCall(450, () => this.endRun({ type: 'extract', scrap: run.scrap, parts: run.parts || 0, dungeon: this.dg, caught: Object.entries(run.captured.reduce((m, sp) => { m[sp] = (m[sp] || 0) + 1; return m; }, {})).map(([sp, n]) => (n > 1 ? n + '× ' : '') + SP[sp].name).join(', '), firstClear }));
   }
 
   heroDied() {
     const run = this.run;
-    HUD.deadText = `YOU DIED\nLost ${run.scrap} scrap`;
+    HUD.deadText = `YOU DIED\nLost ${run.scrap} scrap${run.parts ? ` and ${run.parts} parts` : ''}`;
     SAVE.runs++; if (this.dg === 'ruins') SAVE.bestRoom = Math.max(SAVE.bestRoom, run.room - 1); writeSave();
     this.time.delayedCall(1900, () => this.endRun({ type: 'dead', room: run.room, scrap: run.scrap, caught: run.captured.length }));
   }

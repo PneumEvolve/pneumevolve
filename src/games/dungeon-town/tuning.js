@@ -27,7 +27,8 @@ export const T = {
   // town
   runsPerDay: 1,
   nightBase: 90, nightPerDay: 10, nightMax: 180,
-  genLossPct: 0.25, storehouseProtects: 50, farmScrap: 20, medkitCost: 20, stashBase: 3, stashPerStorehouse: 5,
+  genLossPct: 0.25, storehouseProtects: 50, farmScrap: 20, farmFood: 6, salvageParts: 3, stashBase: 5, stashPerStorehouse: 5,
+  looterChance: 0.35, crateParts: 0.4, civUpg: [0, 6, 14],
   medkitHeal: 2, treatHeal: 2, lureTime: 6, lureRange: 320,
   respawnTime: 4,
 };
@@ -75,10 +76,11 @@ export const BLD = {
   spikes:     { name: 'Spikes', cat: 'mil', cost: 2, pathCost: 3, desc: 'Hurts zombies that walk over it.' },
   guard:      { name: 'Guard Post', cat: 'mil', cost: 3, hp: 14, pathCost: 30, solid: true, desc: 'Give it a creature (as a job). At night it defends this spot.' },
   turret:     { name: 'Turret', cat: 'mil', cost: 4, upg: [4, 6, 9], hp: 12, pathCost: 30, solid: true, desc: 'Shoots the nearest zombie. Upgrade: 4 → 6 → 9 pts.' },
-  workbench:  { name: 'Workbench', cat: 'civ', cost: 3, hp: 16, pathCost: 30, solid: true, desc: 'Builds a Cage or Noise Lure every morning. Walk up to it to switch.' },
-  kitchen:    { name: 'Kitchen', cat: 'civ', cost: 3, hp: 16, pathCost: 30, solid: true, desc: 'Cooks a Med Kit or Pet Treat every morning for 20 scrap. Walk up to it to switch.' },
-  farm:       { name: 'Farm', cat: 'civ', cost: 2, hp: 16, pathCost: 30, solid: true, desc: '+20 scrap every morning.' },
-  storehouse: { name: 'Storehouse', cat: 'civ', cost: 2, hp: 16, pathCost: 30, solid: true, desc: 'Protects 50 scrap if the generator falls.' },
+  workbench:  { name: 'Workbench', cat: 'civ', cost: 3, hp: 16, pathCost: 30, solid: true, desc: 'Turns Parts into Cages, Noise Lures or Turret Ammo every morning. Walk up to switch.' },
+  kitchen:    { name: 'Kitchen', cat: 'civ', cost: 3, hp: 16, pathCost: 30, solid: true, desc: 'Turns Food into Med Kits or Pet Treats every morning. Walk up to switch.' },
+  farm:       { name: 'Farm', cat: 'civ', cost: 2, hp: 16, pathCost: 30, solid: true, desc: 'Grows 20 scrap or 6 Food every morning. Walk up to switch.' },
+  storehouse: { name: 'Storehouse', cat: 'civ', cost: 2, hp: 16, pathCost: 30, solid: true, desc: '+5 stash room, and protects 50 scrap if the generator falls.' },
+  salvage:    { name: 'Salvage Yard', cat: 'civ', cost: 3, hp: 16, pathCost: 30, solid: true, desc: 'Strips junk into 3 Parts every morning.' },
 };
 
 export const TURRET = [null, { range: 230, dmg: 1, rate: 0.75 }, { range: 255, dmg: 2, rate: 0.6 }, { range: 285, dmg: 2, rate: 0.38 }];
@@ -109,9 +111,9 @@ export const SP = {
 
 SP.mole = { name: 'Tunnel Mole', hearts: 3, speed: 230, fly: false, attack: 'melee', dmg: 1, cd: 1.0, range: 48, body: [11, 13, 18], wildHp: 9,
   active: 'dig', activeName: 'DIG', cdMax: 8, aim: true, activeDesc: 'Burrows to a spot and erupts',
-  passive: 'engineer', passiveName: 'Engineer', passiveDesc: 'Your buildings get +50% HP at night',
+  passive: 'sniffer', passiveName: 'Scrap Sniffer', passiveDesc: 'Sniffs out a buried stash in every dungeon room and camp',
   activeRanks: ['Burrows over and erupts: 3 dmg + stun', '+1 damage, bigger blast', 'Longer stun, cooldown -2s'],
-  passiveRanks: ['Buildings +50% HP at night', '+100% HP at night', '+150% HP at night'] };
+  passiveRanks: ['A buried stash each room: 4–6 scrap', 'Bigger stashes: 7–10 scrap', 'Stashes can hold a Cage or Med Kit'] };
 
 SP.bat = { name: 'Pipe Bat', hearts: 2, fly: true, attack: 'zap', boltColor: 0xb48cff, dmg: 1, cd: 1.3, range: 200, body: [9, 15, 14], wildHp: 7,
   active: 'screech', activeName: 'SCREECH', cdMax: 9, activeDesc: 'Stuns zombies around you, digs out crawlers',
@@ -130,10 +132,27 @@ export const FIRST_SUB = { 2: 'mole', 4: 'bat' };
 
 export const MIL_ITEMS = ['wall', 'gate', 'wire', 'spikes', 'turret', 'guard'];
 
-export const CIV_ITEMS = ['workbench', 'kitchen', 'farm', 'storehouse'];
+export const CIV_ITEMS = ['farm', 'kitchen', 'workbench', 'salvage', 'storehouse'];
 
 // what each production building makes (set per building)
-export const RECIPES = { kitchen: ['medkit', 'treat'], workbench: ['cage', 'lure'] };
+export const RECIPES = { farm: ['scrap', 'food'], kitchen: ['medkit', 'treat'], workbench: ['cage', 'lure', 'ammo'], salvage: ['parts'] };
+// what one item costs to make
+export const RCP_COST = { medkit: { food: 4 }, treat: { food: 3 }, cage: { parts: 2 }, lure: { parts: 2 }, ammo: { parts: 3 } };
+// buildings zombies like to wreck (they make nothing the morning after)
+export const PROD_T = ['farm', 'kitchen', 'workbench', 'salvage'];
+// neighbour bonuses: building a touching (8 tiles around) building b
+export const NEIGHBORS = [
+  { a: 'kitchen', b: 'farm', txt: 'next to a Farm: +1 item' },
+  { a: 'workbench', b: 'storehouse', txt: 'next to a Storehouse: +1 item' },
+  { a: 'farm', b: 'farm', txt: 'next to another Farm: +25%' },
+  { a: 'salvage', b: 'workbench', txt: 'next to a Workbench: +1 Part' },
+];
+export const RES_ICON = { scrap: '⚙', food: '🌾', parts: '🔩' };
+export const isRes = (k) => k in RES_ICON;
+const NAMES = { cage: ['Cage', 'Cages'], medkit: ['Med Kit', 'Med Kits'], treat: ['Pet Treat', 'Pet Treats'], lure: ['Noise Lure', 'Noise Lures'], ammo: ['Turret Ammo', 'Turret Ammo'], scrap: ['Scrap', 'Scrap'], food: ['Food', 'Food'], parts: ['Parts', 'Parts'] };
+export const nameOf = (k, n = 1) => (NAMES[k] ? NAMES[k][n === 1 ? 0 : 1] : k);
+// "+9 🌾" / "2 Med Kits"
+export const amtTxt = (k, n) => (isRes(k) ? `+${n} ${RES_ICON[k]}` : `${n} ${nameOf(k, n)}`);
 
 export const recipeOf = (b) => (RECIPES[b.t] ? (RECIPES[b.t].includes(b.rcp) ? b.rcp : RECIPES[b.t][0]) : null);
 
@@ -142,20 +161,21 @@ export const XP = { walker: 2, runner: 2, spitter: 3, bloater: 3, brute: 8, craw
 export const PERKS = { tough: ['Tough', '+1 max heart'], quick: ['Quickdraw', '+1 ammo, reload 25% faster'], blade: ['Blademaster', '+1 sword damage'], gunner: ['Gunner', '+1 gun damage'], fleet: ['Fleet', 'Dash recharges 30% faster'] };
 
 // ---- jobs: one worker per Workbench / Kitchen / Farm / Storehouse / Turret
-export const JOB_SITES = ['workbench', 'kitchen', 'farm', 'storehouse', 'turret', 'guard'];
+export const JOB_SITES = ['workbench', 'kitchen', 'farm', 'salvage', 'storehouse', 'turret', 'guard'];
 
-export const FAV = { workbench: 'hound', kitchen: 'moth', farm: 'beetle', storehouse: 'rat', turret: 'crow', guard: 'mole' };
+export const FAV = { workbench: 'hound', kitchen: 'moth', farm: 'beetle', storehouse: 'rat', turret: 'crow', guard: 'mole', salvage: 'bat' };
 
 export const JOB_DESC = {
-  workbench: ['Builds 2 items each morning', 'Builds 3 items each morning'],
-  kitchen: ['Cooks 2 items each morning', 'Cooks 3 items each morning'],
-  farm: ['+10 more scrap each morning', '+20 more scrap each morning'],
+  workbench: ['Builds 1 more item each morning, and brings it in', 'Builds 2 more items each morning, and brings them in'],
+  kitchen: ['Cooks 1 more item each morning, and brings it in', 'Cooks 2 more items each morning, and brings them in'],
+  farm: ['+50% harvest, and brings it in', '+100% harvest, and brings it in'],
+  salvage: ['+2 Parts each morning, and brings them in', '+4 Parts each morning, and brings them in'],
   storehouse: ['protects 50 more scrap', 'protects 100 more scrap'],
   turret: ['+1 turret damage', '+1 damage and fires 25% faster'],
-  guard: ['Defends the post at night', 'Defends the post at night with +2 hearts'],
+  guard: ['Defends the post at night', 'Defends the post with +2 hearts, and all your buildings get +50% HP at night (Engineer)'],
 };
 
 // ---- items: the town makes them each morning into your stash
-export const ITEMS = { cage: 'Cage', medkit: 'Med Kit', treat: 'Pet Treat', lure: 'Noise Lure' };
+export const ITEMS = { cage: 'Cage', medkit: 'Med Kit', treat: 'Pet Treat', lure: 'Noise Lure', ammo: 'Turret Ammo' };
 
 export const SP_COLOR = { hound: 0xe08a3c, crow: 0x5fd3ff, rat: 0xb0b8c0, moth: 0xf2d14b, beetle: 0xd0392b, mole: 0x9c6b3e, bat: 0xb48cff };

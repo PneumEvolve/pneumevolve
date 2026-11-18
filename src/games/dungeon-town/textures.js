@@ -28,6 +28,11 @@ export const SPR = {
   medkit: ['.kkkkkk.', 'kwwwwwwk', 'kwwrrwwk', 'kwrrrrwk', 'kwwrrwwk', 'kwwwwwwk', '.kkkkkk.'],
   treat: ['........', '.kk..kk.', 'kwwkkwwk', '.kwwwwk.', 'kwwkkwwk', '.kk..kk.', '........'],
   lure: ['.kkkkkk.', 'kyyyyyyk', 'kykkkkyk', 'kykrrkyk', 'kykkkkyk', 'kyyyyyyk', '.kkkkkk.'],
+  food: ['..y..y..', '.yZy.yZ.', '..yZyZ..', '...yZ...', '...bb...', '..bBBb..', '..bBBb..', '...bb...'],
+  part: ['.mm.mm.', 'mMMMMMm', '.MkkkM.', 'mMk.kMm', '.MkkkM.', 'mMMMMMm', '.mm.mm.'],
+  ammo: ['.y...y...y.', 'yyy.yyy.yyy', 'GGG.GGG.GGG', 'GGG.GGG.GGG', 'GGG.GGG.GGG', 'kkk.kkk.kkk'],
+  salvage: ['............kk..', '...........kgk..', '..........kgk...', '.........kgk....', '....kkkkkgk.....', '....kgggggk.....', '....kgk..k......', '....kgk..y......', '....kgk.kmk.....', '..kkkgkkmMmk....', '.kMmGmMkRrMmk...', 'kmMgGMmMrRmMgk..', 'kMgmMgGmMgMmGmk.', 'kmMGmMgMmGmMgMmk', 'kkkkkkkkkkkkkkkk', '................'],
+  mound: ['...kkkk...', '..kBbbBk..', '.kBbBbbBk.', 'kBbbBbBbBk', 'kkkkkkkkkk'],
   scrap: ['..kkk...', '.kmmMk..', 'kmMmmMk.', 'kMmmmyk.', '.kMmMk..', '..kkk...'],
   gun: ['kkkkkkkkkk', 'kmmmmmmmMk', 'kkkMkkkkkk', '..kk......'],
   bullet: ['.ee.', 'eyye', 'eyye', '.ee.'],
@@ -81,7 +86,7 @@ export function bigTexture(scene, key, n, draw) {
 
 export function makeTextures(scene) {
   for (const k of ['hero', 'walker', 'runner', 'spitter', 'bloater', 'hound', 'crow', 'rat', 'moth', 'beetle', 'crate', 'rubble', 'cage',
-    'wall', 'gate', 'wire', 'spikes', 'turret', 'guard', 'workbench', 'kitchen', 'farm', 'storehouse', 'mole', 'bat', 'crawler', 'shrieker']) pxTexture(scene, k, SPR[k], 3);
+    'wall', 'gate', 'wire', 'spikes', 'turret', 'guard', 'workbench', 'kitchen', 'farm', 'storehouse', 'salvage', 'mole', 'bat', 'crawler', 'shrieker']) pxTexture(scene, k, SPR[k], 3);
   pxTexture(scene, 'mother', SPR.mother, 5);
   // bandits are recoloured survivors: red bandana + khaki coat / dark hood
   if (!SPR.rifleman) {
@@ -107,6 +112,10 @@ export function makeTextures(scene) {
   });
   pxTexture(scene, 'brute', SPR.brute, 4);
   pxTexture(scene, 'scrap', SPR.scrap, 2);
+  pxTexture(scene, 'mound', SPR.mound, 3);
+  pxTexture(scene, 'food', SPR.food, 3);
+  pxTexture(scene, 'part', SPR.part, 2);
+  pxTexture(scene, 'ammo', SPR.ammo, 3);
   pxTexture(scene, 'lure', SPR.lure, 3);
   pxTexture(scene, 'medkit', SPR.medkit, 3);
   pxTexture(scene, 'treat', SPR.treat, 3);
