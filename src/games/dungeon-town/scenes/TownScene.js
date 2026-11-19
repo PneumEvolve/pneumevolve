@@ -1,8 +1,8 @@
 import Phaser from 'phaser';
 import { FONT, V, dist, flash, kids, untint } from '../util';
-import { BLD, FAV, JOB_DESC, JOB_SHORT, JOB_SITES, LAB_BONUS, NEIGHBORS, NEXT_LVL, PERKS, PROD_T, RECIPES, RES_ICON, SP, T, TCOLS, TH, TILE, TL, TROWS, TURRET, TW, XP, amtTxt, isRes, nameOf, recipeOf } from '../tuning';
-import { CAMPS, CAMP_TOTAL, TOWN_MAP } from '../maps';
-import { GAME, HUD, SAVE, SAVE_KEY, addXp, ammoMax, bCost, campsBeaten, countB, cureNeeded, curePct, eaters, foodForecast, jobOf, labActive, labOf, levelCap, loadSave, maxHearts, nextTo, outputOf, perk, petById, petLvlDmg, petMaxHp, pointsUsed, protectAmt, seats, stashCap, stashTotal, studied, typeCap, writeSave, xpNeed } from '../state';
+import { BLD, FAV, JOB_DESC, JOB_SHORT, JOB_SITES, LAB_BONUS, NEIGHBORS, NEXT_LVL, PERKS, PROD_T, RECIPES, RES_ICON, SP, T, TCOLS, TH, TILE, TL, TROWS, TURRET, TW, WILD, WILD_SUB, XP, amtTxt, isRes, nameOf, recipeOf } from '../tuning';
+import { CAMPS, CAMP_TOTAL, DISTRICTS, TOWN_MAP } from '../maps';
+import { GAME, HUD, SAVE, SAVE_KEY, addXp, ammoMax, bCost, bossBeaten, campDone, campOpen, campsBeaten, civCap, countB, cureNeeded, curePct, districtDone, eaters, foodForecast, gateOpen, jobOf, labActive, labOf, levelCap, loadSave, maxHearts, nextTo, outputOf, perk, petById, petLvlDmg, petMaxHp, pointsUsed, protectAmt, reclaimed, seats, stashCap, stashTotal, studied, typeCap, writeSave, xpNeed } from '../state';
 import { makeTextures } from '../textures';
 import { Combat } from '../combat';
 
@@ -18,8 +18,18 @@ export class TownScene extends Combat {
     this.crates = null; this.bulletBlockers = null; this.buildView = false; this.bSprites = []; this.guards = []; this.dawnPending = null; this.spawnPlan = [];
     HUD.scene = 'town';
     this.phase = 'day';
-    this.eastOpen = SAVE.townLevel >= 2;
-    this.grid = TOWN_MAP.map(r => r.replace(/X/g, this.eastOpen ? 'S' : '#').padEnd(TCOLS, '#').slice(0, TCOLS));
+    this.newlyReclaimed = [];
+    DISTRICTS.forEach((d, i) => { if (districtDone(i) && !reclaimed(i)) { SAVE.reclaimed[d.key] = true; this.newlyReclaimed.push(i); } });
+    if (this.newlyReclaimed.length) writeSave();
+    this.eastOpen = gateOpen(1);
+    // gates: open ones become entrances (tagged by district), closed ones are wall
+    this.gateAt = {};
+    this.grid = TOWN_MAP.map((row, r) => row.split('').map((ch, c) => {
+      const di = DISTRICTS.findIndex(d => d.gate === ch);
+      if (di < 0) return ch;
+      if (!gateOpen(di)) return '#';
+      this.gateAt[r * TCOLS + c] = di; return 'S';
+    }).join('').padEnd(TCOLS, '#').slice(0, TCOLS));
     this.physics.world.setBounds(0, 0, TW, TH);
     this.solids = this.physics.add.staticGroup();
     this.rubble = this.physics.add.staticGroup();
@@ -27,6 +37,11 @@ export class TownScene extends Combat {
     this.bulletBlockers = this.rubble;
     this.buildTown();
 
+    if (this.newlyReclaimed.length) {
+      const i = this.newlyReclaimed[this.newlyReclaimed.length - 1], d = DISTRICTS[i], nx = DISTRICTS[i + 1];
+      const rb = { text: `${d.name.toUpperCase()} RECLAIMED!`, sub: `The ${['west', 'east', 'north', 'south'][i]} gate goes quiet at night.\nSurvivors moved in: +2 civic points · ${d.perk}${nx && nx.ready ? `\nThe ${['west', 'east', 'north', 'south'][i + 1]} gate is open: ${nx.name}` : ''}`, t: 6 };
+      this.time.delayedCall(3200, () => { HUD.banner = rb; });
+    }
     this.townRecs = this.makeTownRecs();
     HUD.maxHp = maxHearts(); HUD.hp = HUD.maxHp;
     HUD.prompt = null; HUD.building = false; HUD.panel = null; HUD.night = null; HUD.buildTab = 'mil'; HUD.buildSel = 'wall'; HUD.buildMsg = '';
@@ -48,7 +63,7 @@ export class TownScene extends Combat {
     else if (r && r.type === 'extract') HUD.banner = { text: `HOME SAFE  +${r.scrap} ⚙${r.parts ? `  +${r.parts} 🔩` : ''}`, sub: r.caught ? `New creature: ${r.caught}! Check your squad.` : 'Spend it on the town, then end the day', t: 3.4 };
     else if (r && r.type === 'dead') HUD.banner = { text: 'DRAGGED HOME', sub: `You lost ${r.scrap} scrap in room ${r.room}`, t: 3.2 };
     else if (r && r.type === 'abandon') HUD.banner = { text: 'BACK IN TOWN', t: 2 };
-    else if (r && r.type === 'raidWin') HUD.banner = { text: `${CAMPS[r.camp].name.toUpperCase()} RAIDED!`, sub: `+${r.scrap} ⚙${r.parts ? `  +${r.parts} 🔩` : ''}${r.first && r.camp === 0 ? ' · Careful: bandits may come for your town now' : r.first && CAMPS[r.camp + 1] ? ` · ${CAMPS[r.camp + 1].name} unlocked` : ''}`, t: 4 };
+    else if (r && r.type === 'raidWin') HUD.banner = { text: `${CAMPS[r.camp].name.toUpperCase()} RAIDED!`, sub: `+${r.scrap} ⚙${r.parts ? `  +${r.parts} 🔩` : ''}${r.first && campsBeaten() === 1 ? ' · Careful: bandits may come for your town now' : ''}`, t: 4 };
     else if (r && r.type === 'raidDead') HUD.banner = { text: 'DRAGGED HOME', sub: `The ${CAMPS[r.camp].name} bandits got you. Lost ${r.scrap} scrap.`, t: 3.2 };
     else if (r && r.type === 'pathOpen') HUD.banner = { text: 'THE EAST PATH IS OPEN', sub: 'The Subway is that way — but zombies will come through it too', t: 4 };
     else if (!SAVE.seenIntro) {
@@ -65,7 +80,7 @@ export class TownScene extends Combat {
     const g = this.grid, N = TCOLS * TROWS;
     this.baseBlocked = new Uint8Array(N); this.genCell = new Uint8Array(N); this.reserved = new Uint8Array(N);
     this.entrances = [];
-    const gen = [], hall = [], ruins = [], pen = [], subw = [], war = [];
+    const gen = [], hall = [], ruins = [], pen = [], subw = [], war = [], north = [], south = [];
     for (let r = 0; r < TROWS; r++) {
       let run0 = -1;
       for (let c = 0; c <= TCOLS; c++) {
@@ -80,20 +95,27 @@ export class TownScene extends Combat {
         const k = this.idx(c, r), x = c * TILE + TILE / 2, y = r * TILE + TILE / 2;
         if (ch === '#') this.baseBlocked[k] = 1;
         if (ch === 'r') { this.baseBlocked[k] = 1; const rb = this.rubble.create(x, y, 'rubble'); rb.refreshBody(); rb.setDepth(5 + y / 1000); }
-        if (ch === 'S') { this.entrances.push({ x, y }); this.reserved[k] = 1; }
+        if (ch === 'S') { this.entrances.push({ x, y, d: this.gateAt[k] }); this.reserved[k] = 1; }
+        if (ch === '3' || ch === '4') { (ch === '3' ? north : south).push({ x, y }); this.reserved[k] = 1; }
         if (ch === 'G') { gen.push({ x, y }); this.genCell[k] = 1; this.reserved[k] = 1; }
         if (ch === 'T') { hall.push({ x, y }); this.baseBlocked[k] = 1; this.reserved[k] = 1; }
         if (ch === 'R') { ruins.push({ x, y }); this.reserved[k] = 1; }
         if (ch === 'K') { pen.push({ x, y }); this.baseBlocked[k] = 1; this.reserved[k] = 1; }
         if (ch === 'U') { subw.push({ x, y }); this.reserved[k] = 1; }
-        if (ch === 'W') { war.push({ x, y }); this.baseBlocked[k] = 1; this.reserved[k] = 1; }
+        if (ch === 'M') { war.push({ x, y }); this.baseBlocked[k] = 1; this.reserved[k] = 1; }
       }
     }
     const avg = (a) => ({ x: a.reduce((s, p) => s + p.x, 0) / a.length, y: a.reduce((s, p) => s + p.y, 0) / a.length });
     this.genPos = avg(gen); this.hallPos = avg(hall); this.ruinsPos = avg(ruins); this.penPos = avg(pen); this.subPos = avg(subw); this.warPos = avg(war);
     const warImg = this.rubble.create(this.warPos.x, this.warPos.y, 'wartable');
     warImg.refreshBody(); warImg.body.setSize(84, 60); warImg.setDepth(10 + this.warPos.y / 1000);
-    this.add.text(this.warPos.x, this.warPos.y - 58, 'WAR TABLE', { fontFamily: FONT, fontSize: '14px', fontStyle: 'bold', color: '#ff8c8c', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5).setDepth(20);
+    [[north, 2], [south, 3]].forEach(([pts, di]) => {
+      if (!pts.length) return;
+      const p = avg(pts);
+      this.add.image(p.x, p.y, 'stairs').setDepth(1.5); this.add.image(p.x, p.y, 'boards').setDepth(1.6);
+      this.add.text(p.x, p.y + (di === 2 ? 40 : 34), DISTRICTS[di].ready ? DISTRICTS[di].name.toUpperCase() : '??? (COMING SOON)', { fontFamily: FONT, fontSize: '12px', fontStyle: 'bold', color: '#6b737c', stroke: '#000', strokeThickness: 3 }).setOrigin(0.5).setDepth(20);
+    });
+    this.add.text(this.warPos.x, this.warPos.y - 58, 'MAP TABLE', { fontFamily: FONT, fontSize: '14px', fontStyle: 'bold', color: '#ff8c8c', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5).setDepth(20);
     this.add.image(this.subPos.x, this.subPos.y, 'stairs').setDepth(1.5);
     if (!this.eastOpen) this.add.image(this.subPos.x, this.subPos.y, 'boards').setDepth(1.6);
     this.add.text(this.subPos.x, this.subPos.y - 62, 'SUBWAY', { fontFamily: FONT, fontSize: '16px', fontStyle: 'bold', color: this.eastOpen ? '#5fd3ff' : '#6b737c', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5).setDepth(20);
@@ -365,6 +387,17 @@ export class TownScene extends Combat {
     this.syncHeroHud();
   }
   // detail page for you or one creature: stats, ranks, upgrade buttons
+  syncMap() {
+    HUD.map = {
+      cure: curePct(),
+      nodes: DISTRICTS.map((d, i) => ({
+        name: d.ready ? d.name : '???', dir: d.dir, icon: d.icon,
+        state: reclaimed(i) ? 'done' : gateOpen(i) ? 'open' : 'locked',
+        line: !d.ready ? 'coming soon' : reclaimed(i) ? 'RECLAIMED' : gateOpen(i) ? `boss ${bossBeaten(d) ? '✓' : '✗'} · camps ${d.camps.filter(campDone).length}/3` : `Town Hall ${d.th} or reclaim ${DISTRICTS[i - 1].name}`,
+      })),
+    };
+  }
+
   // level up a building: civic ones cost Parts, turrets cost military points
   upgradeRec(rec) {
     const def = BLD[rec.t], lvl = rec.lvl || 1, nm = def.name;
@@ -388,6 +421,26 @@ export class TownScene extends Combat {
 
   syncDetail() {
     const id = HUD.detailId, cap = levelCap();
+    if (id === 'district') {
+      const i = HUD.distIdx, d = DISTRICTS[i], open = gateOpen(i);
+      const natives = Object.keys(d.dungeon === 'subway' ? WILD_SUB : d.dungeon === 'ruins' ? WILD : {});
+      if (!d.ready) {
+        HUD.detail = { name: `${d.dir === 'N' ? 'North' : 'South'} district`, icon: 'boards', xpFrac: 0, body: `Coming soon.\n\nA new dungeon, new creatures and 3 more bandit camps will be out past the ${d.dir === 'N' ? 'north' : 'south'} gate.`, buttons: [{ label: '← MAP', ev: { type: 'openMap' } }] };
+        return;
+      }
+      const lines = [];
+      lines.push(reclaimed(i) ? '✅ RECLAIMED — this gate is quiet at night.' : open ? `Held by the horde. Zombies come through the ${['west', 'east', 'north', 'south'][i]} gate at night.` : `Locked: reclaim ${DISTRICTS[i - 1].name} or reach Town Hall ${d.th}.`);
+      lines.push('', 'To reclaim it:', `${bossBeaten(d) ? '☑' : '☐'} Beat ${d.boss} (room ${T.rooms} of the ${d.dungeon === 'subway' ? 'Subway' : 'Ruins'})`);
+      d.camps.forEach((ci, k) => lines.push(`${campDone(ci) ? '☑' : '☐'} Bandit camp ${k + 1}: ${CAMPS[ci].name}${k === 2 ? ' (holdout)' : ''}`));
+      lines.push('', `Reward: survivors move in (+2 civic points) · ${d.perk}`);
+      lines.push('', `Natives: ${natives.map(sp => `${SP[sp].name.split(' ')[1]} ${Math.min(100, SAVE.research[sp] || 0)}%`).join(' · ')}`);
+      if (SAVE.raidedToday) lines.push('', 'You already raided today.');
+      const btns = [];
+      if (open && !SAVE.raidedToday) d.camps.forEach(ci => { if (campOpen(ci)) btns.push({ label: campDone(ci) ? `RAID AGAIN: ${CAMPS[ci].name.toUpperCase()} (+${Math.round(CAMPS[ci].reward * 0.4)} ⚙)` : `⚔ RAID: ${CAMPS[ci].name.toUpperCase()} (+${CAMPS[ci].reward} ⚙)`, ev: { type: 'raid', camp: ci } }); });
+      btns.push({ label: '← MAP', ev: { type: 'openMap' } });
+      HUD.detail = { name: d.name, icon: d.icon, xpFrac: (d.camps.filter(campDone).length + (bossBeaten(d) ? 1 : 0)) / 4, body: lines.join('\n'), buttons: btns };
+      return;
+    }
     if (id === 'war') {
       const beat = campsBeaten(), lines = [];
       for (let i = 0; i < Math.min(CAMP_TOTAL, Math.max(beat + 2, 3)); i++) {
@@ -563,12 +616,12 @@ export class TownScene extends Combat {
     const lv = TL[SAVE.townLevel];
     HUD.scrap = SAVE.scrap; HUD.day = SAVE.day; HUD.townLevel = SAVE.townLevel; HUD.food = SAVE.food || 0; HUD.parts = SAVE.parts || 0; HUD.foodNet = foodForecast().net;
     HUD.maxHp = maxHearts(); HUD.hp = Math.min(HUD.hp == null ? HUD.maxHp : HUD.hp, HUD.maxHp);
-    HUD.points = { mil: pointsUsed('mil'), milMax: lv.mil, civ: pointsUsed('civ'), civMax: lv.civ };
+    HUD.points = { mil: pointsUsed('mil'), milMax: lv.mil, civ: pointsUsed('civ'), civMax: civCap() };
     HUD.runsLeft = Math.max(0, T.runsPerDay - SAVE.runsToday);
     HUD.raidWarn = !!SAVE.raidWarn;
     HUD.stashTot = `${stashTotal()}/${stashCap()}`;
     const next = TL[SAVE.townLevel + 1];
-    HUD.hall = { level: SAVE.townLevel, next: next ? { cost: next.cost, mil: next.mil, civ: next.civ } : null, scrap: SAVE.scrap, mil: lv.mil, civ: lv.civ };
+    HUD.hall = { level: SAVE.townLevel, next: next ? { cost: next.cost, mil: next.mil, civ: next.civ } : null, scrap: SAVE.scrap, mil: lv.mil, civ: civCap() };
   }
 
   // ---------------------------------------------------------------- events
@@ -584,7 +637,7 @@ export class TownScene extends Combat {
         }
         if (p.action === 'hall') { HUD.hallMsg = ''; this.syncHud(); HUD.panel = 'hall'; }
         if (p.action === 'pen') this.onEvent({ type: 'openSquad' });
-        if (p.action === 'war') { HUD.detailId = 'war'; HUD.detailMode = null; HUD.rosterMsg = ''; this.syncDetail(); HUD.panel = 'detail'; }
+        if (p.action === 'war') this.onEvent({ type: 'openMap' });
         if (p.action === 'recipe' && p.b) this.cycleRecipe(p.b);
         if (p.action === 'bldMenu' && p.b) this.onEvent({ type: 'bldMenu', rec: p.b.rec });
         break;
@@ -627,7 +680,9 @@ export class TownScene extends Combat {
       case 'openStash': if (!day || HUD.building) return; HUD.detailId = 'stash'; HUD.detailMode = null; HUD.rosterMsg = ''; this.syncDetail(); HUD.panel = 'detail'; break;
       case 'recipe': { const opts = ev.b === 'kitchen' ? ['medkit', 'treat'] : ['cage', 'lure']; SAVE.recipes[ev.b] = opts[(opts.indexOf(SAVE.recipes[ev.b]) + 1) % 2]; writeSave(); this.syncDetail(); break; }
       case 'swapOrder': { const q = SAVE.squad; if (q[ev.a] != null && q[ev.b] != null) { const t = q[ev.a]; q[ev.a] = q[ev.b]; q[ev.b] = t; writeSave(); this.reloadSquad(); this.syncRoster(); HUD.rosterMsg = 'Squad order changed.'; } break; }
-      case 'raid': if (day && !SAVE.raidedToday && ev.camp < CAMPS.length && ev.camp <= campsBeaten()) { HUD.panel = null; this.startRaid(ev.camp); } break;
+      case 'raid': if (day && !SAVE.raidedToday && CAMPS[ev.camp] && campOpen(ev.camp)) { HUD.panel = null; this.startRaid(ev.camp); } break;
+      case 'openMap': this.syncMap(); HUD.panel = 'map'; break;
+      case 'district': HUD.detailId = 'district'; HUD.distIdx = ev.d; HUD.detailMode = null; HUD.rosterMsg = ''; this.syncDetail(); HUD.panel = 'detail'; break;
       case 'bldMenu': this.menuRec = ev.rec; HUD.detailId = 'bld'; HUD.detailMode = null; HUD.rosterMsg = ''; this.syncDetail(); HUD.panel = 'detail'; break;
       case 'bldRecipe': { const sp = this.bSprites.find(b => b.rec === this.menuRec); if (sp) this.cycleRecipe(sp); HUD.rosterMsg = ''; this.syncDetail(); break; }
       case 'labPick': HUD.detailMode = 'labpick'; HUD.rosterMsg = ''; this.syncDetail(); break;
@@ -647,7 +702,8 @@ export class TownScene extends Combat {
         this.cameras.main.once('camerafadeoutcomplete', () => this.scene.restart({}));
         break;
       }
-      case 'back': if (HUD.detailId === 'stash' || HUD.detailId === 'war' || HUD.detailId === 'newgame' || HUD.detailId === 'bld') { HUD.panel = null; break; }
+      case 'back': if (HUD.detailId === 'district') { this.onEvent({ type: 'openMap' }); break; }
+        if (HUD.detailId === 'stash' || HUD.detailId === 'war' || HUD.detailId === 'newgame' || HUD.detailId === 'bld') { HUD.panel = null; break; }
         if (HUD.detailMode) { HUD.detailMode = null; this.syncDetail(); break; } HUD.panel = 'squad'; HUD.rosterMsg = ''; this.syncRoster(); break;
       case 'upgrade': {
         if (ev.bld) { HUD.rosterMsg = this.upgradeRec(this.menuRec); this.syncDetail(); break; }
@@ -745,7 +801,7 @@ export class TownScene extends Combat {
     if (c === 0 || r === 0 || c === TCOLS - 1 || r === TROWS - 1) return say('Too close to the edge.');
     const mx = typeCap(sel);
     if (mx && countB(sel) >= mx) return say(`Town Hall level ${SAVE.townLevel} allows ${mx} ${def.name}${mx > 1 ? 's' : ''}. Upgrade it for more.`);
-    const cap = def.cat === 'mil' ? lv.mil : lv.civ;
+    const cap = def.cat === 'mil' ? lv.mil : civCap();
     if (pointsUsed(def.cat) + def.cost > cap) return say(`Not enough ${def.cat === 'mil' ? 'military' : 'civic'} points. Upgrade the Town Hall.`);
     SAVE.buildings.push({ t: sel, c, r, lvl: 1 });
     writeSave(); pop(0x8ef0a0); this.renderBuildings();
@@ -955,17 +1011,20 @@ export class TownScene extends Combat {
       for (let i = 0; i < nb; i++) types.push(Math.random() < 0.55 ? 'rifleman' : 'bruiser');
       SAVE.raidWarn = false; SAVE.lastRaidDay = SAVE.day; writeSave();
     }
+    const live = this.entrances.filter(e => e.d == null || !reclaimed(e.d));
+    this.quietNight = !live.length;
+    if (this.quietNight) { types.length = 0; this.nightLen = 10; }
     const packSize = 1 + tier;
     const packs = Math.ceil(types.length / packSize);
     const window = this.nightLen * 0.8;
     this.spawnPlan = [];
     for (let pk = 0; pk < packs; pk++) {
-      const e = Phaser.Utils.Array.GetRandom(this.entrances);
+      const e = Phaser.Utils.Array.GetRandom(live);
       const at = 3 + (pk / packs) * window;
       types.slice(pk * packSize, pk * packSize + packSize).forEach((type, j) => this.spawnPlan.push({ type, at: at + j * 0.45, e }));
     }
     this.tweens.add({ targets: this.shade, alpha: 0.42, duration: 1200 });
-    HUD.banner = this.banditNight ? { text: 'BANDIT RAID!', sub: 'Riflemen will shoot your turrets from range. Protect the generator!', t: 3 } : { text: `NIGHT ${day}`, sub: `Threat level ${tier} (Town Hall) — defend the generator and your farms!${loaded ? `  ·  ${loaded} turret${loaded > 1 ? 's' : ''} loaded with ammo` : ''}`, t: 2.8 };
+    HUD.banner = this.quietNight ? { text: 'A QUIET NIGHT', sub: 'Every open gate is reclaimed. Nothing comes tonight.', t: 3 } : this.banditNight ? { text: 'BANDIT RAID!', sub: 'Riflemen will shoot your turrets from range. Protect the generator!', t: 3 } : { text: `NIGHT ${day}`, sub: `Threat level ${tier} (Town Hall) — defend the generator and your farms!${loaded ? `  ·  ${loaded} turret${loaded > 1 ? 's' : ''} loaded with ammo` : ''}`, t: 2.8 };
     this.kills0 = HUD.kills || 0;
   }
 
@@ -1032,7 +1091,7 @@ export class TownScene extends Combat {
       else if (dist(h, this.subPos) < 70) HUD.prompt = { label: !this.eastOpen ? 'SUBWAY: TOWN HALL LV 2 OPENS THIS PATH' : HUD.runsLeft > 0 ? 'ENTER THE SUBWAY' : 'SUBWAY: COME BACK TOMORROW', action: 'subway' };
       else if (dist(h, this.hallPos) < 100) HUD.prompt = { label: 'TOWN HALL', action: 'hall' };
       else if (dist(h, this.penPos) < 95) HUD.prompt = { label: 'CREATURE PEN', action: 'pen' };
-      else if (dist(h, this.warPos) < 95) HUD.prompt = { label: SAVE.raidWarn ? 'WAR TABLE  ·  ⚠ BANDITS TONIGHT' : 'WAR TABLE', action: 'war' };
+      else if (dist(h, this.warPos) < 95) HUD.prompt = { label: SAVE.raidWarn ? 'MAP TABLE  ·  ⚠ BANDITS TONIGHT' : 'MAP TABLE', action: 'war' };
       else {
         const pb = this.bSprites.filter(b => (b.def.cat === 'civ' || b.bt === 'turret' || b.bt === 'guard') && dist(h, b) < 62).sort((a, b) => dist(h, a) - dist(h, b))[0];
         if (pb) {
@@ -1050,7 +1109,7 @@ export class TownScene extends Combat {
       this.nightT += dt;
       while (this.spawnPlan.length && this.spawnPlan[0].at <= this.nightT) {
         const s = this.spawnPlan.shift();
-        const e = s.e || Phaser.Utils.Array.GetRandom(this.entrances);
+        const e = s.e || Phaser.Utils.Array.GetRandom(this.entrances.filter(x => x.d == null || !reclaimed(x.d)).concat([]).filter(Boolean)) || this.entrances[0];
         this.emerge(s.type, e.x + Phaser.Math.Between(-10, 10), e.y + Phaser.Math.Between(-10, 10));
       }
       // wire + spikes

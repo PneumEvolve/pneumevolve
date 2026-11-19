@@ -1,7 +1,7 @@
 import { flash, kids, untint } from '../util';
 import { E, TCOLS, TH, TILE, TROWS, TW } from '../tuning';
 import { CAMPS, CAMP_HP } from '../maps';
-import { HUD, SAVE, campsBeaten, writeSave } from '../state';
+import { HUD, SAVE, campDone, writeSave } from '../state';
 import { makeTextures } from '../textures';
 import { DungeonScene } from './DungeonScene';
 
@@ -87,7 +87,7 @@ export class RaidScene extends DungeonScene {
   winRaid() {
     if (this.won) return;
     this.won = true; this.magnetAll = true;
-    const run = this.run, first = run.camp >= campsBeaten();
+    const run = this.run, first = !campDone(run.camp);
     const bonus = first ? this.camp.reward : Math.round(this.camp.reward * 0.4);
     kids(this.enemies).forEach(z => { if (E[z.type].bandit) { this.spark(z.x, z.y, 0xffd166, 8); this.floatText(z.x, z.y - 30, 'RUN!', '#ffd166', 16); z.destroy(); } });
     kids(this.spits).forEach(s => s.destroy());
@@ -97,7 +97,7 @@ export class RaidScene extends DungeonScene {
       if (this.leaving) return;
       SAVE.scrap += run.scrap + bonus;
       const pb = (run.parts || 0) + (first ? (this.camp.parts || 0) : Math.round((this.camp.parts || 0) * 0.4)); SAVE.parts = (SAVE.parts || 0) + pb;
-      if (first) SAVE.campsCleared = run.camp + 1;
+      if (first) { SAVE.camps = SAVE.camps || {}; SAVE.camps[run.camp] = true; }
       writeSave();
       this.endRun({ type: 'raidWin', camp: run.camp, scrap: run.scrap + bonus, parts: pb, first });
     });

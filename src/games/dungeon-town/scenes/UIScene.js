@@ -54,6 +54,15 @@ export class UIScene extends Phaser.Scene {
     this.panelUp = this.add.text(0, 0, '', S(14)).setOrigin(0.5);
     this.panelClose = this.add.text(0, 0, 'CLOSE', S(14)).setOrigin(0.5);
     this.panelNew = this.add.text(0, 0, 'NEW GAME', S(11)).setOrigin(0.5).setColor('#ff8c8c');
+    // the city map
+    this.mapTitle = this.add.text(0, 0, 'THE CITY', S(22, { color: '#f2d14b' })).setOrigin(0.5).setVisible(false);
+    this.mapHint = this.add.text(0, 0, 'Tap a district', S(11, { color: '#9aa4ad' })).setOrigin(0.5).setVisible(false);
+    this.mapClose = this.add.text(0, 0, 'CLOSE', S(13)).setOrigin(0.5).setVisible(false);
+    this.mapNames = [0, 1, 2, 3].map(() => this.add.text(0, 0, '', S(13)).setOrigin(0.5).setVisible(false));
+    this.mapLines = [0, 1, 2, 3].map(() => this.add.text(0, 0, '', S(10, { color: '#c9d1d9' })).setOrigin(0.5).setVisible(false));
+    this.mapIcons = [0, 1, 2, 3].map(() => this.add.image(0, 0, 'hatch').setVisible(false));
+    this.mapTown = this.add.image(0, 0, 'hall').setVisible(false);
+    this.mapReact = this.add.text(0, 0, '', S(11, { color: '#f2d14b', align: 'center' })).setOrigin(0.5).setVisible(false);
 
     this.banner = this.add.text(0, 0, '', S(40, { strokeThickness: 6, align: 'center' })).setOrigin(0.5).setAlpha(0);
     this.bannerSub = this.add.text(0, 0, '', S(16, { color: '#c9d1d9', align: 'center', stroke: '#000', strokeThickness: 4 })).setOrigin(0.5, 0).setAlpha(0);
@@ -157,6 +166,22 @@ export class UIScene extends Phaser.Scene {
     this.B.port = [0, 1, 2, 3].map(i => ({ x: u * 0.065, y: u * 0.44 + i * u * 0.115, r: u * 0.046 }));
     const SQ = { x: w / 2, y: h / 2, w: Math.min(w * 0.94, u * 1.55), h: u * 0.9 };
     this.B.sq = SQ;
+    {
+      const SQm = this.B.sq, cx = SQm.x - SQm.w * 0.05, cy = SQm.y + u * 0.03;
+      const off = { W: [-SQm.w * 0.3, 0], E: [SQm.w * 0.3, 0], N: [0, -u * 0.26], S: [0, u * 0.26] };
+      this.B.mapC = { x: cx, y: cy };
+      this.B.mapN = ['W', 'E', 'N', 'S'].map(k => ({ x: cx + off[k][0], y: cy + off[k][1], r: u * 0.065 }));
+      this.B.mapR = { x: SQm.x + SQm.w * 0.37, y: SQm.y - u * 0.2, r: u * 0.06 };
+      this.B.mapClose = { x: SQm.x + SQm.w * 0.37, y: SQm.y + SQm.h / 2 - u * 0.08, w: u * 0.24, h: u * 0.075 };
+      this.mapTitle.setPosition(SQm.x - SQm.w * 0.36, SQm.y - SQm.h / 2 + u * 0.06).setFontSize(fs(0.042));
+      this.mapHint.setPosition(SQm.x - SQm.w * 0.36, SQm.y - SQm.h / 2 + u * 0.11).setFontSize(fs(0.024));
+      this.mapClose.setPosition(this.B.mapClose.x, this.B.mapClose.y).setFontSize(fs(0.03));
+      this.mapNames.forEach((t, i) => t.setPosition(this.B.mapN[i].x, this.B.mapN[i].y + u * 0.09).setFontSize(fs(0.03)));
+      this.mapLines.forEach((t, i) => t.setPosition(this.B.mapN[i].x, this.B.mapN[i].y + u * 0.13).setFontSize(fs(0.022)));
+      this.mapIcons.forEach((t, i) => t.setPosition(this.B.mapN[i].x, this.B.mapN[i].y));
+      this.mapTown.setPosition(cx, cy).setScale(u / 300 * 0.55);
+      this.mapReact.setPosition(this.B.mapR.x, this.B.mapR.y + u * 0.11).setFontSize(fs(0.024));
+    }
     this.B.sqClose = { x: w / 2, y: SQ.y + SQ.h / 2 - u * 0.065, w: u * 0.3, h: u * 0.085 };
     this.tBtn.squad.setPosition(this.B.squadBtn.x, this.B.squadBtn.y).setFontSize(fs(0.032));
     this.sqTitle.setPosition(w / 2, SQ.y - SQ.h / 2 + u * 0.05).setFontSize(fs(0.045));
@@ -316,6 +341,11 @@ export class UIScene extends Phaser.Scene {
       return;
     }
     // Town Hall panel
+    if (HUD.panel === 'map') {
+      if (tapIn(B.mapClose) || !this.inRect(p.x, p.y, B.sq)) { Ctl.queue.push({ type: 'closePanel' }); return; }
+      for (let i = 0; i < 4; i++) if (this.near(p.x, p.y, B.mapN[i], 1.5)) { Ctl.queue.push({ type: 'district', d: i }); return; }
+      return;
+    }
     if (HUD.panel === 'detail') {
       if (!this.inRect(p.x, p.y, B.sq)) { Ctl.queue.push({ type: 'closePanel' }); return; }
       const btns = (HUD.detail && HUD.detail.buttons) || [];
@@ -482,7 +512,7 @@ export class UIScene extends Phaser.Scene {
     else if (!town) top = `${HUD.dungeonName || 'RUINS'} ${HUD.room}/${T.rooms}   ·   ⚙ ${HUD.scrap ?? 0}${HUD.parts ? `   ·   🔩 ${HUD.parts}` : ''}`;
     else if (building) top = `MILITARY ${HUD.points.mil}/${HUD.points.milMax}   ·   CIVIC ${HUD.points.civ}/${HUD.points.civMax}`;
     else if (HUD.night) { const s = Math.ceil(HUD.night.t); top = `NIGHT ${HUD.day}   ·   ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}   ·   ⚙ ${HUD.scrap}`; }
-    else top = `DAY ${HUD.day}   ·   ⚙ ${HUD.scrap}   ·   🌾 ${HUD.food || 0} (${(HUD.foodNet || 0) >= 0 ? '+' : ''}${HUD.foodNet || 0})   ·   🔩 ${HUD.parts || 0}   ·   HALL ${HUD.townLevel}${HUD.raidWarn ? '   ·   ⚠ BANDITS TONIGHT' : ''}`;
+    else top = `DAY ${HUD.day}  ·  ⚙${HUD.scrap}  ·  🌾${HUD.food || 0} (${(HUD.foodNet || 0) >= 0 ? '+' : ''}${HUD.foodNet || 0})  ·  🔩${HUD.parts || 0}  ·  HALL ${HUD.townLevel}${HUD.raidWarn ? '   ·   ⚠ BANDITS TONIGHT' : ''}`;
     this.topText.setText(top).setScale(1 + (HUD.scrapPop || 0) * 0.6).setVisible(!panel);
     if (town && HUD.night) {
       const bw = u * 0.5, bx = w / 2 - bw / 2, by = u * 0.1;
@@ -650,6 +680,47 @@ export class UIScene extends Phaser.Scene {
       this.pill(B.tabMil, 0xff8c42, 0.6, HUD.buildTab === 'mil');
       this.pill(B.tabCiv, 0x5fd3ff, 0.6, HUD.buildTab === 'civ');
       this.buildMsg.setText(HUD.buildMsg || '');
+    }
+
+    // the city map
+    const showMap = panel === 'map' && HUD.map;
+    [this.mapTitle, this.mapHint, this.mapClose, this.mapTown, this.mapReact].concat(this.mapNames, this.mapLines, this.mapIcons).forEach(o => o.setVisible(!!showMap));
+    if (showMap) {
+      const SQ = B.sq, M = HUD.map, C = B.mapC;
+      g.fillStyle(0x000000, 0.55); g.fillRect(0, 0, w, h);
+      g.fillStyle(0x15171b, 0.98); g.fillRoundedRect(SQ.x - SQ.w / 2, SQ.y - SQ.h / 2, SQ.w, SQ.h, 14);
+      g.lineStyle(3, 0xf2d14b, 0.8); g.strokeRoundedRect(SQ.x - SQ.w / 2, SQ.y - SQ.h / 2, SQ.w, SQ.h, 14);
+      const col = { done: 0x5fd36b, open: 0xff4d6d, locked: 0x4a5058 };
+      // roads + ground tint
+      M.nodes.forEach((n, i) => {
+        const N = B.mapN[i];
+        g.fillStyle(col[n.state], 0.12); g.fillCircle(N.x, N.y, N.r * 2.1);
+        g.lineStyle(u * 0.018, 0x3a3f46, 1); g.lineBetween(C.x, C.y, N.x, N.y);
+        g.lineStyle(u * 0.006, n.state === 'locked' ? 0x2a2e33 : 0x8a7a5a, 0.8); g.lineBetween(C.x, C.y, N.x, N.y);
+      });
+      // the reactor: far-off goal
+      const R = B.mapR, pulse = 0.5 + 0.5 * Math.sin(time * 0.004);
+      g.lineStyle(u * 0.006, 0x3a3f46, 1); g.lineBetween(B.mapN[2].x, B.mapN[2].y, R.x, R.y);
+      g.fillStyle(0x1b1d10, 1); g.fillCircle(R.x, R.y, R.r);
+      g.lineStyle(3, 0xf2d14b, 0.5 + 0.4 * pulse); g.strokeCircle(R.x, R.y, R.r);
+      g.fillStyle(0xf2d14b, 0.9);
+      for (let k = 0; k < 3; k++) { const a = k * Math.PI * 2 / 3 - Math.PI / 2 + time * 0.0006; g.slice(R.x, R.y, R.r * 0.8, a - 0.45, a + 0.45, false); g.fillPath(); }
+      g.fillStyle(0x1b1d10, 1); g.fillCircle(R.x, R.y, R.r * 0.22); g.fillStyle(0xf2d14b, 1); g.fillCircle(R.x, R.y, R.r * 0.12);
+      this.mapReact.setText(`THE REACTOR\nReclaim all 4 + cure ${M.cure}%`);
+      // town
+      g.fillStyle(0x23262b, 1); g.fillRoundedRect(C.x - u * 0.07, C.y - u * 0.07, u * 0.14, u * 0.14, 10);
+      g.lineStyle(3, 0xf2d14b, 0.9); g.strokeRoundedRect(C.x - u * 0.07, C.y - u * 0.07, u * 0.14, u * 0.14, 10);
+      // districts
+      M.nodes.forEach((n, i) => {
+        const N = B.mapN[i];
+        g.fillStyle(0x0d0e10, 1); g.fillCircle(N.x, N.y, N.r);
+        g.lineStyle(4, col[n.state], 1); g.strokeCircle(N.x, N.y, N.r);
+        if (n.state === 'open') { g.lineStyle(2, col.open, 0.6 * (1 - pulse)); g.strokeCircle(N.x, N.y, N.r * (1.15 + 0.35 * pulse)); }
+        this.mapIcons[i].setTexture(n.icon).setScale(N.r * 1.2 / Math.max(16, this.mapIcons[i].frame.width)).setAlpha(n.state === 'locked' ? 0.35 : 1);
+        this.mapNames[i].setText(n.name.toUpperCase()).setColor(n.state === 'done' ? '#5fd36b' : n.state === 'open' ? '#ff8c9e' : '#6b737c');
+        this.mapLines[i].setText(n.line);
+      });
+      this.pill(B.mapClose, 0xffffff, 0.6, false);
     }
 
     // Town Hall panel

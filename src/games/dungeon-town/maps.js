@@ -59,7 +59,7 @@ export function wavesFor(room) {
 //  # rock · . floor · W camp wall · g gate · x wire (slows you) · ^ spikes (hurt)
 //  t turret · R radio tower (destroy it to win) · b rifleman · B bruiser · P your entry · c crate
 // ===================================================================
-export const CAMP_TOTAL = 10;
+export const CAMP_TOTAL = 12;
 
 export const CAMP_HP = { W: 8, g: 4 };
 
@@ -98,7 +98,7 @@ export const CAMPS = [
     '#.....xxxx.....^^^..B..#',
     '#......................#',
     '########################'] },
-  { name: 'Turret Row', teach: 'Turrets out-range your gun. Hide behind walls, or let your pets go first.', reward: 130, parts: 8, map: [
+  { name: 'Turret Row', teach: 'The Ruins holdout. Turrets out-range your gun: hide behind walls, or send your pets first.', reward: 130, parts: 8, map: [
     '########################',
     '#......................#',
     '#..........W.t.W.......#',
@@ -115,24 +115,84 @@ export const CAMPS = [
     '#..........W.t.W.......#',
     '#......................#',
     '########################'] },
+    { name: 'Ticket Hall', teach: 'Two boxes of turrets guard the tower. Take one box at a time.', reward: 160, parts: 9, map: [
+      '########################',
+      '#......................#',
+      '#..xx....b.......WWWWW.#',
+      '#..xx..........b.W.t.W.#',
+      '#.......WWgWW....W...W.#',
+      '#.......W...W....WWgWW.#',
+      '#..b....W.b.W..........#',
+      '#P......g...W....^^^...#',
+      '#P......W...W....^^^.R.#',
+      '#..b....W.B.W..........#',
+      '#.......WWWWW....WWgWW.#',
+      '#..xx............W...W.#',
+      '#..xx..........b.W.t.W.#',
+      '#........b.......WWWWW.#',
+      '#......................#',
+      '########################'] },
+    { name: 'Signal Box', teach: 'Turrets cover each other. Knock out the outer ones first.', reward: 190, parts: 10, map: [
+      '########################',
+      '#......................#',
+      '#.....^^^.....WWWWWWW..#',
+      '#..b..^^^..b..W.t...W..#',
+      '#.............W.....W..#',
+      '#...WWW.......W..R..W..#',
+      '#...WtW...xx..g.....W..#',
+      '#P........xx..g..t..W..#',
+      '#P........xx..W.....W..#',
+      '#...WtW.......W.....W..#',
+      '#...WWW.......W..B..W..#',
+      '#..b..^^^..b..W.t...W..#',
+      '#.....^^^.....WWWWWWW..#',
+      '#..........B...........#',
+      '#......................#',
+      '########################'] },
+    { name: 'The Depot', teach: 'The Subway holdout: a fort inside a fort. Beat it to reclaim the Subway.', reward: 240, parts: 12, map: [
+      '########################',
+      '#......................#',
+      '#..b...xxxx....WWWWWWW.#',
+      '#......xxxx....W..b..W.#',
+      '#...t..........W.WWW.W.#',
+      '#..WWW...^^^...W.WRW.W.#',
+      '#..........B...W.WgW.W.#',
+      '#P....b........g..t..W.#',
+      '#P....b........g.....W.#',
+      '#..........B...W.t...W.#',
+      '#..WWW...^^^...W.....W.#',
+      '#...t..........W..b..W.#',
+      '#......xxxx....WWWWWWW.#',
+      '#..b...xxxx............#',
+      '#......................#',
+      '########################'] },
 ];
 
-// Town: # rubble wall · r rubble · W war table · S zombie entrance (west path) · X east path (opens at Town Hall 2) · G generator · T town hall · R ruins hatch · U subway · K creature pen
+// Town: # wall · gates w e n s (west/east/north/south district gates) · M map table · G generator · T town hall
+//       R ruins hatch · U subway · 3 north hatch · 4 south hatch · K creature pen
 export const TOWN_MAP = [
-  '########################',
-  '#......................#',
-  '#..rr......WW......rr..#',
-  '#..r.......WW.......r..#',
+  '###########nn###########',
+  '#..........33..........#',
   '#......................#',
   '#......................#',
+  '#....MM................#',
+  '#....MM................#',
   '#......................#',
-  'SRR........GG........UUX',
-  'SRR........GG........UUX',
+  'wRR........GG........UUe',
+  'wRR........GG........UUe',
   '#......................#',
   '#..........TT..........#',
-  '#..........TT..........#',
-  '#..r................r..#',
-  '#..rr..............KK..#',
+  '#..........TT......KK..#',
   '#..................KK..#',
-  '########################',
+  '#......................#',
+  '#..........44..........#',
+  '###########ss###########',
+];
+
+// the 4 districts around town (one per gate). Reclaim one: beat its boss + its 3 bandit camps.
+export const DISTRICTS = [
+  { key: 'ruins', name: 'The Ruins', gate: 'w', dir: 'W', dungeon: 'ruins', boss: 'The Warden', camps: [0, 1, 2], th: 1, ready: true, perk: 'Survivors farm: Farms +25%', icon: 'hatch' },
+  { key: 'subway', name: 'The Subway', gate: 'e', dir: 'E', dungeon: 'subway', boss: 'The Tunnel Mother', camps: [3, 4, 5], th: 2, ready: true, perk: 'Survivors salvage: Salvage Yards +2 🔩', icon: 'stairs' },
+  { key: 'north', name: '???', gate: 'n', dir: 'N', dungeon: null, boss: '???', camps: [], th: 3, ready: false, perk: '', icon: 'boards' },
+  { key: 'south', name: '???', gate: 's', dir: 'S', dungeon: null, boss: '???', camps: [], th: 4, ready: false, perk: '', icon: 'boards' },
 ];

@@ -1,5 +1,6 @@
 // Shared state: the save file, HUD and controls, plus rules that read the save.
-import { BLD, FAV, LAB_BONUS, NEIGHBORS, RCP_COST, SP, T, recipeOf } from './tuning';
+import { BLD, FAV, LAB_BONUS, NEIGHBORS, RCP_COST, SP, T, TL, recipeOf } from './tuning';
+import { DISTRICTS } from './maps';
 
 export const SAVE = {};
 // (re)load the save from this browser and bring old saves up to date
@@ -37,6 +38,8 @@ export function loadSave() {
   if (!SAVE.prodV2) { SAVE.food = (SAVE.food || 0) + (SAVE.buildings.length ? 8 : 0); SAVE.parts = (SAVE.parts || 0) + (SAVE.buildings.length ? 4 : 0); SAVE.prodV2 = true; }
   SAVE.food = SAVE.food || 0; SAVE.parts = SAVE.parts || 0;
   if (!SAVE.research) SAVE.research = {};
+  if (!SAVE.camps) { SAVE.camps = {}; for (let i = 0; i < (SAVE.campsCleared || 0); i++) SAVE.camps[i] = true; }
+  if (!SAVE.reclaimed) SAVE.reclaimed = {};
   if (SAVE.recipes && !SAVE.recipesMigrated) { SAVE.buildings.forEach(b => { if (!b.rcp && SAVE.recipes[b.t]) b.rcp = SAVE.recipes[b.t]; }); SAVE.recipesMigrated = true; }
 }
 
@@ -44,7 +47,18 @@ export const GAME = { onExit: null };
 // each civic building type: as many as your Town Hall level
 export const typeCap = (t) => (t === 'lab' ? 1 : BLD[t] && BLD[t].cat === 'civ' ? SAVE.townLevel : 0);
 
-export const campsBeaten = () => SAVE.campsCleared || 0;
+export const campDone = (i) => !!(SAVE.camps || {})[i];
+export const campsBeaten = () => Object.keys(SAVE.camps || {}).length;
+// districts
+export const reclaimed = (i) => !!(SAVE.reclaimed || {})[DISTRICTS[i].key];
+export const reclaimedCount = () => DISTRICTS.filter((d, i) => reclaimed(i)).length;
+export const bossBeaten = (d) => !!(d.dungeon && SAVE[`${d.dungeon}Cleared`]);
+export const districtDone = (i) => { const d = DISTRICTS[i]; return d.ready && bossBeaten(d) && d.camps.every(campDone); };
+// a gate opens when the district before it is reclaimed, or at its Town Hall level
+export const gateOpen = (i) => i === 0 || (DISTRICTS[i].ready && (reclaimed(i - 1) || SAVE.townLevel >= DISTRICTS[i].th));
+export const districtOfCamp = (ci) => DISTRICTS.findIndex(d => d.camps.includes(ci));
+export const campOpen = (ci) => { const di = districtOfCamp(ci); if (di < 0 || !gateOpen(di)) return false; const k = DISTRICTS[di].camps.indexOf(ci); return k === 0 || campDone(DISTRICTS[di].camps[k - 1]); };
+export const civCap = () => TL[SAVE.townLevel].civ + 2 * reclaimedCount();
 
 // ===================================================================
 //  SAVE (this browser only, for now)
@@ -133,8 +147,8 @@ export const foodForecast = () => {
 };
 export function outputOf(b) {
   const k = recipeOf(b), lv = b.lvl || 1, job = prodMult(b);
-  if (b.t === 'farm') return { k, n: Math.round((k === 'food' ? T.farmFood : T.farmScrap) * [1, 1.5, 2][job - 1] * (1 + 0.5 * (lv - 1)) * (nextTo(b, 'farm') ? 1.25 : 1)) };
-  if (b.t === 'salvage') return { k: 'parts', n: Math.round((T.salvageParts + (job - 1) * 2) * (1 + 0.5 * (lv - 1))) + (nextTo(b, 'workbench') ? 1 : 0) };
+  if (b.t === 'farm') return { k, n: Math.round((k === 'food' ? T.farmFood : T.farmScrap) * [1, 1.5, 2][job - 1] * (1 + 0.5 * (lv - 1)) * (nextTo(b, 'farm') ? 1.25 : 1) * ((SAVE.reclaimed || {}).ruins ? 1.25 : 1)) };
+  if (b.t === 'salvage') return { k: 'parts', n: Math.round((T.salvageParts + (job - 1) * 2) * (1 + 0.5 * (lv - 1))) + (nextTo(b, 'workbench') ? 1 : 0) + ((SAVE.reclaimed || {}).subway ? 2 : 0) };
   if (b.t === 'kitchen') return { k, n: job + (lv - 1) + (nextTo(b, 'farm') ? 1 : 0), cost: RCP_COST[k] };
   if (b.t === 'workbench') return { k, n: job + (lv - 1) + (nextTo(b, 'storehouse') ? 1 : 0), cost: RCP_COST[k] };
   return null;
