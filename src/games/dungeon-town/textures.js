@@ -114,6 +114,8 @@ export function makeTextures(scene) {
     pxTexture(scene, 'zero', SPR.zero, 5);
     pxTexture(scene, 'cross', SPR.cross, 3);
     pxTexture(scene, 'rifleman', SPR.rifleman, 3);
+  if (!SPR.bdog) SPR.bdog = SPR.hound.map(r => r.replace(/./g, ch => ({ o: 'K', O: 'k', e: 'r' })[ch] || ch));
+  pxTexture(scene, 'bdog', SPR.bdog, 3);
   pxTexture(scene, 'bruiser', SPR.bruiser, 4);
   pxTexture(scene, 'bbullet', SPR.bbullet, 3);
   pxTexture(scene, 'bturret', SPR.turret, 3);

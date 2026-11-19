@@ -46,15 +46,27 @@ export class DungeonScene extends Combat {
     // a wild creature? first-time catches are guaranteed in their room
     const owned = (sp) => SAVE.pets.some(pt => pt.sp === sp) || run.captured.includes(sp);
     const first = this.DG.first[run.room];
-    let wildSp = null;
-    run.wildSeen = run.wildSeen || [];
-    if (first && !owned(first) && !run.wildSeen.includes(first)) wildSp = first;
-    else if (Math.random() < (labActive('bat') ? 0.7 : 0.45)) {
-      const WT = this.DG.wild;
-      const opts = Object.keys(WT).filter(sp => run.room >= WT[sp][0] && run.room <= WT[sp][1] && !run.wildSeen.includes(sp));
-      if (opts.length) wildSp = Phaser.Utils.Array.GetRandom(opts);
+    // every native shows up exactly once per run, in its own room (your first one comes early, in its set room)
+    if (!run.wildPlan) {
+      run.wildPlan = {};
+      const WT = this.DG.wild, F = this.DG.first, used = new Set();
+      Object.keys(WT).forEach(sp => {
+        let room = +(Object.keys(F).find(r => F[r] === sp && !owned(sp)) || 0);
+        if (!room || used.has(room)) {
+          const opts = []; for (let r = WT[sp][0]; r <= WT[sp][1]; r++) if (!used.has(r)) opts.push(r);
+          room = opts.length ? Phaser.Utils.Array.GetRandom(opts) : 0;
+        }
+        if (room) { used.add(room); run.wildPlan[room] = sp; }
+      });
+      // Bat in the Lab: a creature from another district wanders in
+      if (labActive('bat')) {
+        const others = Object.keys(Object.assign({}, WILD, WILD_SUB, WILD_HOS)).filter(sp => !WT[sp]);
+        const free = []; for (let r = 2; r <= 9; r++) if (!used.has(r)) free.push(r);
+        if (others.length && free.length) run.wildPlan[Phaser.Utils.Array.GetRandom(free)] = Phaser.Utils.Array.GetRandom(others);
+      }
     }
-    if (wildSp) { run.wildSeen.push(wildSp); this.spawnWild(wildSp); }
+    const wildSp = run.wildPlan[run.room] || null;
+    if (wildSp) this.spawnWild(wildSp);
     this.waves = this.DG.waves(run.room);
     this.setupTrains();
     this.waveIdx = -1; this.waveDelay = 1.0;

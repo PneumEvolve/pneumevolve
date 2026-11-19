@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { FONT, V, dist, flash, kids, untint } from '../util';
-import { BLD, FAV, JOB_DESC, JOB_SHORT, JOB_SITES, LAB_BONUS, NEIGHBORS, NEXT_LVL, PERKS, PROD_T, RECIPES, RES_ICON, SP, T, TCOLS, TH, TILE, TL, TROWS, TURRET, TW, WILD, WILD_HOS, WILD_SUB, XP, amtTxt, favJobOf, favs, isFavSp, isRes, nameOf, recipeOf } from '../tuning';
-import { CAMPS, CAMP_TOTAL, DISTRICTS, TOWN_MAP } from '../maps';
+import { BLD, DEF_UPG, FAV, JOB_DESC, JOB_SHORT, JOB_SITES, LAB_BONUS, NEIGHBORS, NEXT_LVL, PERKS, PROD_T, RECIPES, RES_ICON, SP, T, TCOLS, TH, TILE, TL, TROWS, TURRET, TW, WILD, WILD_HOS, WILD_SUB, XP, amtTxt, favJobOf, favs, isFavSp, isRes, nameOf, recipeOf } from '../tuning';
+import { CAMPS, DISTRICTS, TOWN_MAP } from '../maps';
 import { GAME, HUD, SAVE, SAVE_KEY, addXp, ammoMax, bCost, bossBeaten, campDone, campOpen, campsBeaten, civCap, countB, cureNeeded, curePct, districtDone, eaters, foodForecast, gateOpen, jobOf, labActive, labOf, levelCap, loadSave, maxHearts, nextTo, outputOf, perk, petById, petLvlDmg, petMaxHp, pointsUsed, protectAmt, reclaimed, seats, stashCap, stashTotal, studied, typeCap, writeSave, xpNeed } from '../state';
 import { makeTextures } from '../textures';
 import { Combat } from '../combat';
@@ -39,7 +39,7 @@ export class TownScene extends Combat {
 
     if (this.newlyReclaimed.length) {
       const i = this.newlyReclaimed[this.newlyReclaimed.length - 1], d = DISTRICTS[i], nx = DISTRICTS[i + 1];
-      const rb = { text: `${d.name.toUpperCase()} RECLAIMED!`, sub: `The ${['west', 'east', 'north', 'south'][i]} gate goes quiet at night.\nSurvivors moved in: +2 civic points · ${d.perk}${nx && nx.ready ? `\nThe ${['west', 'east', 'north', 'south'][i + 1]} gate is open: ${nx.name}` : ''}`, t: 6 };
+      const rb = { text: `${d.name.toUpperCase()} RECLAIMED!`, sub: `The ${['west', 'east', 'north', 'south'][i]} gate goes quiet at night.\nSurvivors moved in: +2 civic points · ${d.perk}${d.unlock ? `\nUnlocked: ${DEF_UPG[d.unlock].name} (UPGRADE tool, ${T.reinforceCost} 🔩)` : ''}${nx && nx.ready ? `\nThe ${['west', 'east', 'north', 'south'][i + 1]} gate is open: ${nx.name}` : ''}`, t: 6 };
       this.time.delayedCall(3200, () => { HUD.banner = rb; });
     }
     this.townRecs = this.makeTownRecs();
@@ -58,9 +58,7 @@ export class TownScene extends Combat {
     this.renderPenPets();
 
     const r = this.result;
-    if (r && r.type === 'extract' && r.firstClear && r.dungeon === 'hospital') HUD.banner = { text: 'PATIENT ZERO IS DOWN!', sub: `+${r.scrap} ⚙${r.caught ? ' · ' + r.caught : ''} · Its blood is the first real lead on the cure`, t: 4.5 };
-    else if (r && r.type === 'extract' && r.firstClear && r.dungeon === 'subway') HUD.banner = { text: 'THE SUBWAY IS CLEARED!', sub: `+${r.scrap} ⚙${r.caught ? ' · ' + r.caught : ''} · More dungeons coming`, t: 4 };
-    else if (r && r.type === 'extract' && r.firstClear) HUD.banner = { text: 'THE RUINS ARE CLEARED!', sub: `+${r.scrap} ⚙${r.caught ? ' · ' + r.caught : ''} · ${SAVE.townLevel >= 2 ? 'Try the Subway next' : 'Town Hall Lv 2 opens the path to the Subway'}`, t: 4 };
+    if (r && r.type === 'extract' && r.firstClear) { const dd = DISTRICTS.find(x => x.dungeon === r.dungeon) || DISTRICTS[0]; HUD.banner = { text: `${dd.boss.toUpperCase()} IS DOWN!`, sub: `+${r.scrap} ⚙${r.caught ? ' · ' + r.caught : ''}\nNow beat ${dd.name}'s 3 bandit camps (Map Table) to reclaim it`, t: 4.5 }; }
     else if (r && r.type === 'extract') HUD.banner = { text: `HOME SAFE  +${r.scrap} ⚙${r.parts ? `  +${r.parts} 🔩` : ''}`, sub: r.caught ? `New creature: ${r.caught}! Check your squad.` : 'Spend it on the town, then end the day', t: 3.4 };
     else if (r && r.type === 'dead') HUD.banner = { text: 'DRAGGED HOME', sub: `You lost ${r.scrap} scrap in room ${r.room}`, t: 3.2 };
     else if (r && r.type === 'abandon') HUD.banner = { text: 'BACK IN TOWN', t: 2 };
@@ -152,11 +150,11 @@ export class TownScene extends Combat {
       const x = rec.c * TILE + TILE / 2, y = rec.r * TILE + TILE / 2;
       let s;
       const tex = rec.t === 'wall' && (rec.lvl || 1) >= 2 ? 'rwall' : rec.t;
-      if (def.gate) { s = this.gates.create(x, y, tex); s.refreshBody(); if ((rec.lvl || 1) >= 2) s.setTint(0xb8c0c8); }
+      if (def.gate) { s = this.gates.create(x, y, tex); s.refreshBody(); if ((rec.lvl || 1) >= 2) s.setTint(0x8fe3ff); }
       else if (def.solid) { s = this.solids.create(x, y, tex); s.refreshBody(); }
-      else s = this.add.image(x, y, rec.t);
+      else { s = this.add.image(x, y, rec.t); if (rec.t === 'wire' && (rec.lvl || 1) >= 2) s.setTint(0xff9a9a); }
       Object.assign(s, { bt: rec.t, def, lvl: rec.lvl || 1, c: rec.c, r: rec.r, rec, dead: false, isBld: true });
-      s.maxHp = Math.round(((def.hp || 0) * ((rec.t === 'wall' || rec.t === 'gate') && s.lvl >= 2 ? 2 : 1) + (rec.t === 'turret' ? (s.lvl - 1) * 4 : 0)) * (1 + 0.5 * (this.engineerOn() ? 1 : 0)) * (studied('beetle') ? 1.2 : 1) * (labActive('beetle') && this.phase === 'night' && (rec.t === 'wall' || rec.t === 'gate') ? 1.5 : 1)); s.hp = s.maxHp;
+      s.maxHp = Math.round(((def.hp || 0) * (rec.t === 'wall' && s.lvl >= 2 ? 2 : 1) + (rec.t === 'turret' ? (s.lvl - 1) * 4 : 0)) * (1 + 0.5 * (this.engineerOn() ? 1 : 0)) * (studied('beetle') ? 1.2 : 1) * (labActive('beetle') && this.phase === 'night' && (rec.t === 'wall' || rec.t === 'gate') ? 1.5 : 1)); s.hp = s.maxHp;
       s.setDepth(def.solid ? 10 + y / 1000 : 1.2);
       if (rec.t === 'turret') { s.gunImg = this.add.image(x, y - 4, 'turretGun').setOrigin(0.2, 0.5).setDepth(11 + y / 1000); s.cd = 0.5; }
       const wk = rec.w && petById(rec.w);
@@ -279,7 +277,12 @@ export class TownScene extends Combat {
     return { x: step.c * TILE + TILE / 2, y: step.r * TILE + TILE / 2, kind: 'path', pad: 0 };
   }
 
-  hitTarget(tg, dmg, dx, dy) {
+  hitTarget(tg, dmg, dx, dy, z) {
+    // Shock Gate: zaps whoever hits it
+    if (tg.kind === 'bld' && z && z.active && tg.bld.bt === 'gate' && tg.bld.lvl >= 2 && !tg.bld.dead && (tg.bld.shockAt || 0) <= this.time.now) {
+      tg.bld.shockAt = this.time.now + 1200;
+      this.bolt(tg.bld.x, tg.bld.y, z.x, z.y); this.damage(z, 1, new V(z.x - tg.bld.x, z.y - tg.bld.y).normalize(), 160, true, true, true); this.stunEnemy(z, 0.8);
+    }
     if (tg.kind === 'bld') this.damageBuilding(tg.bld, dmg);
     else if (tg.kind === 'gen') this.damageGen(dmg);
     else super.hitTarget(tg, dmg, dx, dy);
@@ -405,13 +408,14 @@ export class TownScene extends Combat {
   // level up a building: civic ones cost Parts, turrets cost military points
   upgradeRec(rec) {
     const def = BLD[rec.t], lvl = rec.lvl || 1, nm = def.name;
-    if (rec.t === 'wall' || rec.t === 'gate') {
-      if (!(SAVE.reclaimed || {}).north) return 'Reclaim the Hospital to unlock reinforced walls.';
-      if (lvl >= 2) return `That ${nm} is already reinforced.`;
-      if ((SAVE.parts || 0) < T.reinforceCost) return `Reinforcing needs ${T.reinforceCost} 🔩 (you have ${SAVE.parts || 0}).`;
+    if (DEF_UPG[rec.t]) { // district upgrades for basic defences
+      const u = DEF_UPG[rec.t], dd = DISTRICTS.find(x => x.key === u.d);
+      if (!(SAVE.reclaimed || {})[u.d]) return `Reclaim ${dd.name} to unlock ${u.name}.`;
+      if (lvl >= 2) return `That's already ${u.name}.`;
+      if ((SAVE.parts || 0) < T.reinforceCost) return `${u.name} needs ${T.reinforceCost} 🔩 (you have ${SAVE.parts || 0}).`;
       SAVE.parts -= T.reinforceCost; rec.lvl = 2; writeSave(); this.renderBuildings(); this.syncHud();
       const sw = this.bSprites.find(b => b.rec === rec); if (sw) { this.ring(sw.x, sw.y, 34, 0xc0c6cc); this.spark(sw.x, sw.y, 0xc0c6cc, 10); }
-      return `${nm} reinforced: double HP (level 2).`;
+      return `${nm} is now ${u.name}: ${u.txt}.`;
     }
     if (lvl >= 3) return `That ${nm} is max level.`;
     if (def.cat === 'civ') {
@@ -445,34 +449,13 @@ export class TownScene extends Combat {
       lines.push('', 'To reclaim it:', `${bossBeaten(d) ? '☑' : '☐'} Beat ${d.boss} (room ${T.rooms} of the ${({ subway: 'Subway', ruins: 'Ruins', hospital: 'Hospital' })[d.dungeon]})`);
       if (d.camps.length < 3) lines.push('☐ 3 bandit camps (coming in the next update)');
       d.camps.forEach((ci, k) => lines.push(`${campDone(ci) ? '☑' : '☐'} Bandit camp ${k + 1}: ${CAMPS[ci].name}${k === 2 ? ' (holdout)' : ''}`));
-      lines.push('', `Reward: survivors move in (+2 civic points) · ${d.perk}`);
+      lines.push('', `Reward: +2 civic points · ${d.perk}${d.unlock ? ` · unlocks ${DEF_UPG[d.unlock].name} (${DEF_UPG[d.unlock].txt})` : ''}`);
       lines.push('', `Natives: ${natives.map(sp => `${SP[sp].name.split(' ')[1]} ${Math.min(100, SAVE.research[sp] || 0)}%`).join(' · ')}`);
       if (SAVE.raidedToday) lines.push('', 'You already raided today.');
       const btns = [];
       if (open && !SAVE.raidedToday) d.camps.forEach(ci => { if (campOpen(ci)) btns.push({ label: campDone(ci) ? `RAID AGAIN: ${CAMPS[ci].name.toUpperCase()} (+${Math.round(CAMPS[ci].reward * 0.4)} ⚙)` : `⚔ RAID: ${CAMPS[ci].name.toUpperCase()} (+${CAMPS[ci].reward} ⚙)`, ev: { type: 'raid', camp: ci } }); });
       btns.push({ label: '← MAP', ev: { type: 'openMap' } });
       HUD.detail = { name: d.name, icon: d.icon, xpFrac: (d.camps.filter(campDone).length + (bossBeaten(d) ? 1 : 0)) / 4, body: lines.join('\n'), buttons: btns };
-      return;
-    }
-    if (id === 'war') {
-      const beat = campsBeaten(), lines = [];
-      for (let i = 0; i < Math.min(CAMP_TOTAL, Math.max(beat + 2, 3)); i++) {
-        const c = CAMPS[i];
-        if (!c) { lines.push(`${i + 1}.  ???  (coming soon)`); continue; }
-        lines.push(`${i + 1}.  ${c.name}  ${i < beat ? '✓ beaten' : i === beat ? '◀ next' : '🔒'}`);
-      }
-      const buttons = [];
-      if (!SAVE.raidedToday) {
-        if (beat < CAMPS.length) buttons.push({ label: `RAID: ${CAMPS[beat].name.toUpperCase()}  (+${CAMPS[beat].reward} ⚙)`, ev: { type: 'raid', camp: beat } });
-        for (let i = Math.min(beat, CAMPS.length) - 1; i >= 0 && buttons.length < 3; i--) buttons.push({ label: `RAID AGAIN: ${CAMPS[i].name.toUpperCase()}  (+${Math.round(CAMPS[i].reward * 0.4)} ⚙)`, ev: { type: 'raid', camp: i } });
-      }
-      buttons.push({ label: 'CLOSE', ev: { type: 'back' } });
-      const next = CAMPS[beat];
-      HUD.detail = {
-        name: 'War Table', icon: 'wartable', xpFrac: beat / CAMP_TOTAL,
-        body: `Bandit camps beaten: ${beat} / ${CAMP_TOTAL}\n${SAVE.raidedToday ? 'You already raided today. Come back tomorrow.' : 'One raid a day (separate from your dungeon run).'}\n\n${lines.join('\n')}\n\n${next ? next.name + ': ' + next.teach : beat >= CAMPS.length ? 'More camps are coming.' : ''}${beat ? '\n\nBandits know where you live now. Your scouts will warn you a day before they attack.' : ''}${SAVE.raidWarn ? '\n⚠ BANDITS ATTACK TONIGHT' : ''}`,
-        buttons,
-      };
       return;
     }
     if (id === 'stash') {
@@ -669,7 +652,7 @@ export class TownScene extends Combat {
         this.setBuildView(!HUD.building);
         break;
       case 'tab': HUD.buildTab = ev.tab; HUD.buildSel = ev.tab === 'mil' ? 'wall' : 'workbench'; HUD.buildMsg = BLD[HUD.buildSel].desc; break;
-      case 'select': HUD.buildSel = ev.item; HUD.buildMsg = BLD[ev.item] ? BLD[ev.item].desc : (ev.item === 'upgrade' ? (HUD.buildTab === 'civ' ? `Tap a building to upgrade it with Parts (Lv2: ${T.civUpg[1]} 🔩, Lv3: ${T.civUpg[2]} 🔩). You have ${SAVE.parts} 🔩.` : `Tap a turret to upgrade it, or a wall/gate to reinforce it (${T.reinforceCost} 🔩${(SAVE.reclaimed || {}).north ? '' : ', after reclaiming the Hospital'}).`) : ev.item === 'recipe' ? 'Tap a Farm, Kitchen or Workbench to switch what it makes.' : 'Tap a building to remove it (points come back).'); break;
+      case 'select': HUD.buildSel = ev.item; HUD.buildMsg = BLD[ev.item] ? BLD[ev.item].desc : (ev.item === 'upgrade' ? (HUD.buildTab === 'civ' ? `Tap a building to upgrade it with Parts (Lv2: ${T.civUpg[1]} 🔩, Lv3: ${T.civUpg[2]} 🔩). You have ${SAVE.parts} 🔩.` : `Tap a turret to upgrade it. Wire, gates and walls get their district upgrade (${T.reinforceCost} 🔩 each): ${Object.values(DEF_UPG).map(u => `${u.name}${(SAVE.reclaimed || {})[u.d] ? ' ✓' : ' 🔒'}`).join(' · ')}`) : ev.item === 'recipe' ? 'Tap a Farm, Kitchen or Workbench to switch what it makes.' : 'Tap a building to remove it (points come back).'); break;
       case 'tapTile': if (HUD.building) this.tapTile(ev.x, ev.y); break;
       case 'hallUpgrade': this.upgradeHall(); break;
       case 'closePanel': HUD.panel = null; break;
@@ -807,7 +790,7 @@ export class TownScene extends Combat {
       return say(`Removed ${existing.def.name}. +${bCost(existing.rec)} pts back.`);
     }
     if (sel === 'upgrade') {
-      if (!existing || !(existing.def.cat === 'civ' || existing.bt === 'turret' || existing.bt === 'wall' || existing.bt === 'gate')) return say('Tap a turret, a wall or gate, or a civic building.');
+      if (!existing || !(existing.def.cat === 'civ' || existing.bt === 'turret' || DEF_UPG[existing.bt])) return say('Tap a turret, wire, a gate, a wall, or a civic building.');
       const msg = this.upgradeRec(existing.rec);
       if (/level \d/.test(msg)) pop(0xf2d14b);
       return say(msg);
@@ -1138,6 +1121,7 @@ export class TownScene extends Combat {
         const c = Math.floor(z.x / TILE), r = Math.floor(z.y / TILE);
         const b = (c >= 0 && r >= 0 && c < TCOLS && r < TROWS) ? this.occ[this.idx(c, r)] : null;
         z.spd = z.baseSpd * (b && b.bt === 'wire' && !b.dead ? 0.45 : 1);
+        if (b && b.bt === 'wire' && !b.dead && b.lvl >= 2) { z.razT = (z.razT || 0) - dt; if (z.razT <= 0) { z.razT = 1; this.damage(z, 1, new V(0, -1), 0, false, true, true); } }
         if (b && b.bt === 'spikes' && !b.dead) {
           z.spikeT -= dt;
           if (z.spikeT <= 0) { z.spikeT = 0.6; this.damage(z, 1, new V(0, -1), 0, false, true, true); }

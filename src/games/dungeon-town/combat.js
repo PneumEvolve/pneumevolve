@@ -363,6 +363,7 @@ export class Combat extends Phaser.Scene {
       if (z.type === 'bturret') this.updateBTurret(z, def, dt);
       return;
     }
+    if (z.elite && z.type === 'brute') this.wardenTick(z, dt);
     if (z.kbT > 0) { z.kbT -= dt; z.setVelocity(z.kbx, z.kby); z.kbx *= 0.85; z.kby *= 0.85; return; }
     if (z.stun > 0) {
       z.stun -= dt; z.setVelocity(0, 0);
@@ -379,7 +380,7 @@ export class Combat extends Phaser.Scene {
     const tg = this.targetFor(z);
     const dx = tg.x - z.x, dy = tg.y - z.y, d = Math.hypot(dx, dy) || 1;
     if (z.type !== 'brute' && z.type !== 'mother' && Math.abs(dx) > 3) z.setFlipX(dx < 0);
-    if (z.type === 'walker' || z.type === 'runner' || z.type === 'bruiser' || z.type === 'patient' || z.type === 'gasser') this.updateLunger(z, def, tg, dx, dy, d, dt);
+    if (z.type === 'walker' || z.type === 'runner' || z.type === 'bruiser' || z.type === 'patient' || z.type === 'gasser' || z.type === 'bdog') this.updateLunger(z, def, tg, dx, dy, d, dt);
     else if (z.type === 'zero') this.updateZero(z, def, tg, dx, dy, d, dt);
     else if (z.type === 'spitter' || z.type === 'rifleman') this.updateSpitter(z, def, tg, dx, dy, d, dt);
     else if (z.type === 'brute') this.updateBrute(z, def, tg, dx, dy, d, dt);
@@ -409,7 +410,7 @@ export class Combat extends Phaser.Scene {
         if (hitIt(this.hero)) { const v = new V(this.hero.x - z.x, this.hero.y - z.y).normalize(); this.hurtHero(v.x, v.y, def.dmg); }
         this.allPets().forEach(p => { if (hitIt(p)) this.damagePet(p, def.dmg, 0, -1); });
         if (this.cage && hitIt(this.cage)) this.damageCage(1);
-        if (tg.kind === 'bld' || tg.kind === 'gen') this.hitTarget(tg, def.dmg, 0, 0);
+        if (tg.kind === 'bld' || tg.kind === 'gen') this.hitTarget(tg, def.dmg, 0, 0, z);
       }
     } else if (z.mode === 'exposed') {
       z.setVelocity(0, 0);
@@ -492,7 +493,10 @@ export class Combat extends Phaser.Scene {
         g.fillStyle(col, a); g.fillCircle(c.x + Math.cos(ang) * c.r * 0.3, c.y + Math.sin(ang) * c.r * 0.25, c.r * (0.62 + 0.08 * Math.sin(time * 0.003 + k)));
       }
     });
-    kids(this.enemies).forEach(z => { if (z.active && z.type === 'zero' && z.mode === 'cough') { g.lineStyle(3, 0xb5c94f, 0.8); g.strokeCircle(z.coughAt.x, z.coughAt.y, 85); } });
+    kids(this.enemies).forEach(z => {
+      if (z.active && z.type === 'zero' && z.mode === 'cough') { g.lineStyle(3, 0xb5c94f, 0.8); g.strokeCircle(z.coughAt.x, z.coughAt.y, 85); }
+      if (z.active && z.rockAt) { g.lineStyle(3, 0xc0a070, 0.9); g.strokeCircle(z.rockAt.x, z.rockAt.y, 64); g.fillStyle(0xc0a070, 0.15 + 0.25 * (1 - z.rockAt.t / 1.1)); g.fillCircle(z.rockAt.x, z.rockAt.y, 64); }
+    });
   }
   // buildings take more damage with a Ram (Demolition) or once the Ram is Studied
   structMult() { return 1 + [0, 0.5, 0.75, 1][this.prk('demolish')] + (studied('ram') ? 0.25 : 0); }
@@ -592,6 +596,22 @@ export class Combat extends Phaser.Scene {
       const fl = this.add.image(z.x + Math.cos(a) * 30, z.y - 4 + Math.sin(a) * 30, 'dot').setTint(0xff8c8c).setScale(1.8).setDepth(860);
       this.tweens.add({ targets: fl, alpha: 0, duration: 60, onComplete: () => fl.destroy() });
     }
+  }
+
+  // the Warden (an elite brute) throws rubble at you: a circle shows where it lands
+  wardenTick(z, dt) {
+    if (z.rockAt) {
+      z.rockAt.t -= dt;
+      if (z.rockAt.t <= 0) {
+        const R = 64, a = z.rockAt; z.rockAt = null;
+        this.ring(a.x, a.y, R, 0xc0a070); this.spark(a.x, a.y, 0x8a7a5a, 14); this.decal(a.x, a.y); this.cameras.main.shake(160, 0.01);
+        if (dist(this.hero, a) < R) { const dv = new V(this.hero.x - a.x, this.hero.y - a.y).normalize(); this.hurtHero(dv.x, dv.y, 2); }
+        this.allPets().forEach(p => { if (dist(p, a) < R) this.damagePet(p, 1, 0, 0); });
+      }
+      return;
+    }
+    z.rubbleT = (z.rubbleT == null ? 3 : z.rubbleT) - dt;
+    if (z.rubbleT <= 0 && !HUD.dead) { z.rubbleT = 5.5; z.rockAt = { x: this.hero.x, y: this.hero.y, t: 1.1 }; this.floatText(z.x, z.y - 50, 'RUBBLE!', '#c0a070', 15); }
   }
 
   updateBrute(z, def, tg, dx, dy, d, dt) {

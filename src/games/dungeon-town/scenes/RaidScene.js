@@ -39,7 +39,7 @@ export class RaidScene extends DungeonScene {
       if (ch === 'c') { const cr = this.crates.create(x, y, 'crate'); cr.refreshBody(); cr.hp = 2; cr.setDepth(5 + y / 1000); }
       if (ch === 'x' || ch === '^') { this.add.image(x, y, ch === 'x' ? 'wire' : 'spikes').setDepth(1.2); this.hazards[r * TCOLS + c] = ch; }
       if (ch === 'P') px.push({ x, y });
-      if ('tRbB'.includes(ch)) spawns.push({ ch, x, y });
+      if ('tRbBd'.includes(ch)) spawns.push({ ch, x, y });
     }
     this.drawGridFloor(g, TCOLS, TROWS, '#', 'ruins');
     const entry = px.length ? { x: px.reduce((a, p) => a + p.x, 0) / px.length, y: px.reduce((a, p) => a + p.y, 0) / px.length } : { x: TILE * 2, y: TH / 2 };
@@ -47,7 +47,7 @@ export class RaidScene extends DungeonScene {
     this.setupCombat(entry.x + 20, entry.y, TW, TH, 420);
     this.placeStash(this.grid, TCOLS, TROWS, entry);
     spawns.forEach(sp => {
-      const type = { t: 'bturret', R: 'radio', b: 'rifleman', B: 'bruiser' }[sp.ch];
+      const type = { t: 'bturret', R: 'radio', b: 'rifleman', B: 'bruiser', d: 'bdog' }[sp.ch];
       const z = this.spawnEnemy(type, sp.x, sp.y);
       if (E[type].bandit) z.idle = true;
       if (type === 'radio') this.tower = z;
