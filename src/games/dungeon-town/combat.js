@@ -92,12 +92,14 @@ export class Combat extends Phaser.Scene {
     this.physics.add.overlap(this.spits, this.hero, (a, b) => {
       const s = a.isSpit ? a : b; if (!s.active) return;
       const d = new V(s.body.velocity.x, s.body.velocity.y).normalize();
-      this.splash(s); this.hurtHero(d.x, d.y, 1);
+      const tough = s.texture.key === 'spit' && this.prk('thickskin') > 0;
+      this.splash(s); if (!tough) this.hurtHero(d.x, d.y, 1);
     });
     const spitPet = (a, b) => {
       const s = a.isSpit ? a : b, pt = a.isSpit ? b : a; if (!s.active || !pt.active) return;
       const d = new V(s.body.velocity.x, s.body.velocity.y).normalize();
-      this.splash(s); this.damagePet(pt, 1, d.x, d.y);
+      const tough = s.texture.key === 'spit' && this.prk('thickskin') > 0;
+      this.splash(s); if (!tough) this.damagePet(pt, 1, d.x, d.y);
     };
     this.physics.add.overlap(this.spits, this.petsGround, spitPet);
     this.physics.add.overlap(this.spits, this.petsAir, spitPet);
@@ -725,6 +727,7 @@ export class Combat extends Phaser.Scene {
     }
     const kbm = z.type === 'brute' ? 0.15 : 1;
     if (E[z.type] && E[z.type].struct) dmg *= this.structMult();
+    else if ((z.elite || z.type === 'brute') && this.prMap) dmg += [0, 1, 1, 2][this.prk('demolish')];
     z.hp -= dmg;
     if (z.mode !== 'fuse' && kb > 0) { z.kbx = dir.x * kb * kbm; z.kby = dir.y * kb * kbm; z.kbT = 0.12; }
     if (interrupt && z.mode === 'windup' && z.type !== 'brute') this.cancelWindup(z);
@@ -747,6 +750,11 @@ export class Combat extends Phaser.Scene {
     this.decal(z.x, z.y); if (big) this.decal(z.x + 12, z.y + 6);
     this.cameras.main.shake(big ? 160 : 70, big ? 0.01 : 0.004);
     this.dropScrap(z.x, z.y, z.elite ? [10, 14] : E[z.type].scrap);
+    if (this.prMap && !E[z.type].struct && Math.random() < [0, 0.06, 0.09, 0.12][this.prk('scavenge')]) {
+      const hp = this.add.image(z.x, z.y, 'hpick').setDepth(4); hp.kind = 'heart'; hp.ready = false;
+      this.tweens.add({ targets: hp, y: z.y - 14, duration: 220, yoyo: true, onComplete: () => { hp.ready = true; } });
+      this.pickups.push(hp);
+    }
     const pr = z.elite ? Phaser.Math.Between(2, 4) : (z.type === 'brute' || z.type === 'bturret') ? 1 : 0;
     if (pr) this.dropParts(z.x, z.y, pr);
     z.destroy();
@@ -818,6 +826,7 @@ export class Combat extends Phaser.Scene {
       if (!p.active) return false;
       if (!p.ready || (HUD.dead && !this.magnetAll)) return true;
       const d = dist(p, h);
+      if (d < 22 && p.kind === 'heart') { if (HUD.hp < HUD.maxHp) { HUD.hp++; this.floatText(h.x, h.y - 40, '+1 ♥', '#ff8c9e', 16); } p.destroy(); return false; }
       if (d < 22 && p.kind === 'part') { this.collectParts(1); HUD.scrapPop = 0.25; p.destroy(); return false; }
       if (d < 22) { this.collectScrap(this.prMap && Math.random() < [0, 0.25, 0.4, 0.6][this.prk('scavenge')] ? 2 : 1); HUD.scrapPop = 0.25; p.destroy(); return false; }
       if (d < (this.magnetAll ? 5000 : 120)) { const sp = (this.magnetAll ? 620 : 420) * dt; p.x += (h.x - p.x) / d * sp; p.y += (h.y - p.y) / d * sp; }

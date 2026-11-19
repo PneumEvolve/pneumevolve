@@ -105,8 +105,8 @@ export const SP = {
             activeRanks: ["Chain lightning hits up to 4 zombies", "Chain hits up to 6", "+1 damage, cooldown -1.5s"], passiveRanks: ["You zap a zombie every 5s", "Every 3.5s", "Every 2.5s, and zaps do 2 damage"] },
   rat:    { name: 'Rust Rat', hearts: 2, speed: 300, fly: false, attack: 'melee', dmg: 1, cd: 0.8, range: 44, body: [10, 17, 20], wildHp: 6,
             active: 'swarm', activeName: 'SWARM', cdMax: 8, aim: true, activeDesc: '3 ratlings nibble and pull zombies off you',
-            passive: 'scavenge', passiveName: 'Scavenger', passiveDesc: '25% chance for double scrap',
-            activeRanks: ["3 ratlings for 5s pull zombies off you", "5 ratlings", "Ratlings last 8s, cooldown -2s"], passiveRanks: ["25% chance for double scrap", "40% chance", "60% chance"] },
+            passive: 'scavenge', passiveName: 'Scavenger', passiveDesc: 'Double scrap sometimes, and zombies can drop a heart',
+            activeRanks: ["3 ratlings for 5s pull zombies off you", "5 ratlings", "Ratlings last 8s, cooldown -2s"], passiveRanks: ["25% double scrap · 6% heart drops", "40% double scrap · 9% hearts", "60% double scrap · 12% hearts"] },
   moth:   { name: 'Mender Moth', hearts: 2, fly: true, attack: 'none', body: [10, 14, 14], wildHp: 6,
             active: 'mend', activeName: 'MEND', cdMax: 20, activeDesc: '+1 heart to you and every pet (once per dungeon room)',
             passive: 'nurse', passiveName: 'Nurse', passiveDesc: 'Bench pets heal 1 heart per room',
@@ -131,15 +131,15 @@ SP.bat = { name: 'Pipe Bat', hearts: 2, fly: true, attack: 'zap', boltColor: 0xb
 
 SP.ram = { name: 'Rad Ram', hearts: 4, speed: 210, fly: false, attack: 'melee', dmg: 2, cd: 1.5, range: 52, body: [13, 12, 14], wildHp: 12,
   active: 'charge', activeName: 'CHARGE', cdMax: 9, aim: true, activeDesc: 'Rams in a line, smashing zombies and walls',
-  passive: 'demolish', passiveName: 'Demolition', passiveDesc: 'Your squad does +50% damage to buildings (camps, raids)',
+  passive: 'demolish', passiveName: 'Wrecker', passiveDesc: 'Big enemies and buildings take extra damage',
   activeRanks: ['Charge: 3 dmg to everything in the line, smashes walls', 'Longer charge, +1 damage', 'Stuns what it hits, cooldown -2s'],
-  passiveRanks: ['+50% damage to buildings', '+75%', '+100%'] };
+  passiveRanks: ['Brutes + bosses take +1 damage · buildings +50%', 'Buildings +75%', 'Brutes + bosses take +2 · buildings +100%'] };
 
 SP.toad = { name: 'Gas Toad', hearts: 3, speed: 200, fly: false, attack: 'zap', boltColor: 0x8fae4a, dmg: 1, cd: 1.4, range: 170, body: [12, 14, 18], wildHp: 9,
   active: 'cloud', activeName: 'TOXIC CLOUD', cdMax: 9, aim: true, activeDesc: 'Spits a cloud that hurts everything inside',
-  passive: 'thickskin', passiveName: 'Thick Skin', passiveDesc: 'You and your pets ignore gas',
+  passive: 'thickskin', passiveName: 'Thick Skin', passiveDesc: 'You and your pets ignore gas and zombie spit',
   activeRanks: ['A toxic cloud for 4s (1 dmg every 0.6s)', 'Bigger cloud', 'Lasts 6s and slows zombies, cooldown -2s'],
-  passiveRanks: ['You and your pets ignore gas', 'Also: the toad gets +1 heart', 'Also: enemy gas clouds fade twice as fast'] };
+  passiveRanks: ['You and your pets ignore gas and zombie spit', 'Also: the toad gets +1 heart', 'Also: enemy gas clouds fade twice as fast'] };
 
 // where wild creatures live in the ruins (room range)
 export const WILD = { rat: [1, 6], crow: [2, 6], beetle: [3, 8] };

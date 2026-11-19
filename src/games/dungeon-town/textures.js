@@ -38,6 +38,7 @@ export const SPR = {
   cross: ['..kkkk..', '..kwwk..', 'kkkrrkkk', 'kwrrrrwk', 'kwrrrrwk', 'kkkrrkkk', '..kwwk..', '..kkkk..'],
   vent: Array.from({ length: 16 }, (_, r) => (r === 0 || r === 15 ? 'kkkkkkkkkkkkkkkk' : r % 2 ? 'kMMMMMMMMMMMMMMk' : 'kMkkkkkkkkkkkkMk')),
   mine: ['..kkkk..', '.kMMMMk.', 'kMMrrMMk', 'kMrrrrMk', 'kMrrrrMk', 'kMMrrMMk', '.kMMMMk.', '..kkkk..'],
+  hpick: ['.rr.rr.', 'rRrrrRr', 'rrrrrrr', '.rrrrr.', '..rrr..', '...r...'],
   mound: ['...kkkk...', '..kBbbBk..', '.kBbBbbBk.', 'kBbbBbBbBk', 'kkkkkkkkkk'],
   scrap: ['..kkk...', '.kmmMk..', 'kmMmmMk.', 'kMmmmyk.', '.kMmMk..', '..kkk...'],
   gun: ['kkkkkkkkkk', 'kmmmmmmmMk', 'kkkMkkkkkk', '..kk......'],
@@ -134,6 +135,7 @@ export function makeTextures(scene) {
   pxTexture(scene, 'brute', SPR.brute, 4);
   pxTexture(scene, 'scrap', SPR.scrap, 2);
   pxTexture(scene, 'mound', SPR.mound, 3);
+  pxTexture(scene, 'hpick', SPR.hpick, 3);
   pxTexture(scene, 'food', SPR.food, 3);
   pxTexture(scene, 'part', SPR.part, 2);
   pxTexture(scene, 'ammo', SPR.ammo, 3);
