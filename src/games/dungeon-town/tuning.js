@@ -28,6 +28,7 @@ export const T = {
   runsPerDay: 1,
   nightBase: 90, nightPerDay: 10, nightMax: 180,
   genLossPct: 0.25, storehouseProtects: 50, farmScrap: 20, farmFood: 6, salvageParts: 3, stashBase: 5, stashPerStorehouse: 5,
+  labRate: 10, labCap: 50, labLeave: 3, kitchenSeats: 4, seatsPerLvl: 2,
   looterChance: 0.35, crateParts: 0.4, civUpg: [0, 6, 14],
   medkitHeal: 2, treatHeal: 2, lureTime: 6, lureRange: 320,
   respawnTime: 4,
@@ -80,6 +81,7 @@ export const BLD = {
   kitchen:    { name: 'Kitchen', cat: 'civ', cost: 3, hp: 16, pathCost: 30, solid: true, desc: 'Turns Food into Med Kits or Pet Treats every morning.' },
   farm:       { name: 'Farm', cat: 'civ', cost: 2, hp: 16, pathCost: 30, solid: true, desc: 'Grows 20 scrap or 6 Food every morning.' },
   storehouse: { name: 'Storehouse', cat: 'civ', cost: 2, hp: 16, pathCost: 30, solid: true, desc: '+5 stash room, and protects 50 scrap if the generator falls.' },
+  lab:        { name: 'Lab', cat: 'civ', cost: 4, hp: 16, pathCost: 30, solid: true, desc: 'Studies creatures for the cure. A fed creature studies its own species 10% a morning, up to 50%. Two per species = Studied.' },
   salvage:    { name: 'Salvage Yard', cat: 'civ', cost: 3, hp: 16, pathCost: 30, solid: true, desc: 'Strips junk into 3 Parts every morning.' },
 };
 
@@ -132,7 +134,7 @@ export const FIRST_SUB = { 2: 'mole', 4: 'bat' };
 
 export const MIL_ITEMS = ['wall', 'gate', 'wire', 'spikes', 'turret', 'guard'];
 
-export const CIV_ITEMS = ['farm', 'kitchen', 'workbench', 'salvage', 'storehouse'];
+export const CIV_ITEMS = ['farm', 'kitchen', 'workbench', 'salvage', 'storehouse', 'lab'];
 
 // what each production building makes (set per building)
 export const RECIPES = { farm: ['scrap', 'food'], kitchen: ['medkit', 'treat'], workbench: ['cage', 'lure', 'ammo'], salvage: ['parts'] };
@@ -165,9 +167,19 @@ export const JOB_SITES = ['workbench', 'kitchen', 'farm', 'salvage', 'storehouse
 
 export const FAV = { workbench: 'hound', kitchen: 'moth', farm: 'beetle', storehouse: 'rat', turret: 'crow', guard: 'mole', salvage: 'bat' };
 
+// Lab: what each species gives once Studied (forever), and while one is in the Lab (active)
+export const LAB_BONUS = {
+  hound:  { studied: 'Squad pets +1 heart', active: '+25% scrap from dungeon runs' },
+  crow:   { studied: 'Turrets +15% range', active: 'Turrets +1 damage at night' },
+  rat:    { studied: '+2 stash room', active: 'Every crate drops a Part' },
+  moth:   { studied: 'Pet Treats heal +1', active: 'You heal 2 hearts per room (not 1)' },
+  beetle: { studied: 'Buildings +20% HP', active: 'Walls and gates +50% HP at night' },
+  mole:   { studied: 'A buried stash every room, any squad', active: 'Buried stashes hold double' },
+  bat:    { studied: 'You move 10% faster', active: 'Wild creatures show up more often' },
+};
 export const JOB_SHORT = { workbench: ['+1 item', '+2 items'], kitchen: ['+1 item', '+2 items'], farm: ['+50%', '+100%'], salvage: ['+2 🔩', '+4 🔩'], storehouse: ['protects +50 ⚙', 'protects +100 ⚙'], turret: ['+1 damage', '+1 dmg, 25% faster'], guard: ['guards at night', '+2 ♥ guard, Engineer'] };
 // what the next building level does
-export const NEXT_LVL = { farm: '+50% harvest', salvage: '+50% Parts', kitchen: '+1 item each morning', workbench: '+1 item each morning', storehouse: '+3 stash room, protects more scrap' };
+export const NEXT_LVL = { farm: '+50% harvest', salvage: '+50% Parts', kitchen: '+1 item and +2 feeding seats', lab: '+1 research slot', workbench: '+1 item each morning', storehouse: '+3 stash room, protects more scrap' };
 export const JOB_DESC = {
   workbench: ['Builds 1 more item each morning, and brings it in', 'Builds 2 more items each morning, and brings them in'],
   kitchen: ['Cooks 1 more item each morning, and brings it in', 'Cooks 2 more items each morning, and brings them in'],

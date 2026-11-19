@@ -1,5 +1,5 @@
 // Shared state: the save file, HUD and controls, plus rules that read the save.
-import { BLD, FAV, NEIGHBORS, RCP_COST, SP, T, recipeOf } from './tuning';
+import { BLD, FAV, LAB_BONUS, NEIGHBORS, RCP_COST, SP, T, recipeOf } from './tuning';
 
 export const SAVE = {};
 // (re)load the save from this browser and bring old saves up to date
@@ -36,12 +36,13 @@ export function loadSave() {
   if (SAVE.stash.ammo == null) SAVE.stash.ammo = 0;
   if (!SAVE.prodV2) { SAVE.food = (SAVE.food || 0) + (SAVE.buildings.length ? 8 : 0); SAVE.parts = (SAVE.parts || 0) + (SAVE.buildings.length ? 4 : 0); SAVE.prodV2 = true; }
   SAVE.food = SAVE.food || 0; SAVE.parts = SAVE.parts || 0;
+  if (!SAVE.research) SAVE.research = {};
   if (SAVE.recipes && !SAVE.recipesMigrated) { SAVE.buildings.forEach(b => { if (!b.rcp && SAVE.recipes[b.t]) b.rcp = SAVE.recipes[b.t]; }); SAVE.recipesMigrated = true; }
 }
 
 export const GAME = { onExit: null };
 // each civic building type: as many as your Town Hall level
-export const typeCap = (t) => (BLD[t] && BLD[t].cat === 'civ' ? SAVE.townLevel : 0);
+export const typeCap = (t) => (t === 'lab' ? 1 : BLD[t] && BLD[t].cat === 'civ' ? SAVE.townLevel : 0);
 
 export const campsBeaten = () => SAVE.campsCleared || 0;
 
@@ -88,7 +89,7 @@ export const swordDmg = () => T.swordDmg + (perk('blade') ? 1 : 0);
 
 export const dashCd = () => T.dashCd * (perk('fleet') ? 0.7 : 1);
 
-export const petMaxHp = (pt) => SP[pt.sp].hearts + Math.floor(((pt.lvl || 1) - 1) / 5) + (pt.sp === 'beetle' && (pt.pr || 1) >= 2 ? 1 : 0);
+export const petMaxHp = (pt) => (studied('hound') ? 1 : 0) + SP[pt.sp].hearts + Math.floor(((pt.lvl || 1) - 1) / 5) + (pt.sp === 'beetle' && (pt.pr || 1) >= 2 ? 1 : 0);
 
 export const petLvlDmg = (lvl) => Math.floor(((lvl || 1) - 1) / 10);
 
@@ -99,10 +100,37 @@ export const isFav = (b) => { const pt = b.w && petById(b.w); return !!pt && FAV
 export const staffed = (t) => SAVE.buildings.filter(b => b.t === t && b.w && petById(b.w));
 
 
-export const stashCap = () => T.stashBase + SAVE.buildings.filter(b => b.t === 'storehouse').reduce((m, b) => m + T.stashPerStorehouse + 3 * ((b.lvl || 1) - 1), 0);
+export const stashCap = () => (studied('rat') ? 2 : 0) + T.stashBase + SAVE.buildings.filter(b => b.t === 'storehouse').reduce((m, b) => m + T.stashPerStorehouse + 3 * ((b.lvl || 1) - 1), 0);
 // production: neighbours, levels, and what each building makes every morning
 export const nextTo = (b, t) => SAVE.buildings.some(o => o !== b && o.t === t && Math.abs(o.c - b.c) <= 1 && Math.abs(o.r - b.r) <= 1);
 export const bonusesOf = (b) => NEIGHBORS.filter(nb => nb.a === b.t && nextTo(b, nb.b));
+// ---- Lab + feeding
+export const studied = (sp) => ((SAVE.research || {})[sp] || 0) >= 100;
+export const labOf = (id) => SAVE.buildings.find(b => b.t === 'lab' && (b.lab || []).includes(id)) || null;
+export const labActive = (sp) => SAVE.buildings.some(b => b.t === 'lab' && (b.lab || []).some(id => { const pt = petById(id); return pt && pt.sp === sp; }));
+export const cureNeeded = () => Object.keys(LAB_BONUS);
+export const curePct = () => Math.round(cureNeeded().reduce((m, sp) => m + Math.min(100, (SAVE.research || {})[sp] || 0), 0) / cureNeeded().length);
+// every Kitchen seats 4 creatures (+2 per level). No Kitchen = nobody eats.
+export const seats = () => SAVE.buildings.filter(b => b.t === 'kitchen').reduce((m, b) => m + T.kitchenSeats + T.seatsPerLvl * ((b.lvl || 1) - 1), 0);
+// who eats each morning, in order: Lab first (they leave if hungry), then workers, then your squad. The pen hibernates.
+export const eaters = () => {
+  const ids = [];
+  const add = (id) => { if (id != null && petById(id) && !ids.includes(id)) ids.push(id); };
+  SAVE.buildings.filter(b => b.t === 'lab').forEach(b => (b.lab || []).forEach(add));
+  SAVE.buildings.forEach(b => add(b.w));
+  SAVE.squad.forEach(add);
+  return ids;
+};
+// tomorrow morning's food, step by step
+export const foodForecast = () => {
+  const grow = SAVE.buildings.filter(b => b.t === 'farm' && recipeOf(b) === 'food').reduce((m, b) => m + outputOf(b).n, 0);
+  const mouths = eaters().length, st = seats();
+  let left = (SAVE.food || 0) + grow;
+  const eat = Math.min(mouths, st, left); left -= eat;
+  let cook = 0;
+  SAVE.buildings.filter(b => b.t === 'kitchen').forEach(b => { const o = outputOf(b), per = o.cost.food; const n = Math.min(o.n, Math.floor(left / per)); cook += n * per; left -= n * per; });
+  return { grow, eat, cook, mouths, seats: st, net: grow - eat - cook, hungry: mouths - eat };
+};
 export function outputOf(b) {
   const k = recipeOf(b), lv = b.lvl || 1, job = prodMult(b);
   if (b.t === 'farm') return { k, n: Math.round((k === 'food' ? T.farmFood : T.farmScrap) * [1, 1.5, 2][job - 1] * (1 + 0.5 * (lv - 1)) * (nextTo(b, 'farm') ? 1.25 : 1)) };
@@ -114,7 +142,8 @@ export function outputOf(b) {
 
 export const stashTotal = () => Object.values(SAVE.stash).reduce((a, b) => a + b, 0);
 
-export const prodMult = (b) => (b.w && petById(b.w) ? (isFav(b) ? 3 : 2) : 1);
+// a hungry worker (missed its last meal) doesn't work
+export const prodMult = (b) => { const pt = b.w && petById(b.w); return pt && !(pt.hungry > 0) ? (isFav(b) ? 3 : 2) : 1; };
 
 export const protectAmt = () => SAVE.buildings.filter(b => b.t === 'storehouse').reduce((m, b) => m + T.storehouseProtects * (b.lvl || 1), 0) + staffed('storehouse').reduce((m, b) => m + (isFav(b) ? 100 : 50), 0);
 

@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { FONT, V, dist, flash, kids, untint } from './util';
 import { E, ITEMS, SP, T, TILE, XP } from './tuning';
-import { Ctl, HUD, SAVE, addXp, ammoMax, dashCd, gunDmg, isMilestone, levelCap, maxHearts, perk, petById, petLvlDmg, petMaxHp, reloadTime, swordDmg, writeSave, xpNeed } from './state';
+import { Ctl, HUD, SAVE, addXp, ammoMax, dashCd, gunDmg, isMilestone, labActive, levelCap, maxHearts, perk, petById, petLvlDmg, petMaxHp, reloadTime, studied, swordDmg, writeSave, xpNeed } from './state';
 
 // ===================================================================
 //  COMBAT BASE — hero, companions, enemies, shared by Town + Dungeon
@@ -253,7 +253,7 @@ export class Combat extends Phaser.Scene {
         const gh = this.add.image(hero.x, hero.y, 'hero').setAlpha(0.45).setTint(0x3fd0c9).setFlipX(hero.flipX).setDepth(hero.depth - 0.01);
         this.tweens.add({ targets: gh, alpha: 0, duration: 200, onComplete: () => gh.destroy() });
       }
-    } else hero.setVelocity(mv.x * T.heroSpeed, mv.y * T.heroSpeed);
+    } else { const spd = T.heroSpeed * (studied('bat') ? 1.1 : 1); hero.setVelocity(mv.x * spd, mv.y * spd); }
 
     if (Ctl.aim && !frozen) this.facing.copy(Ctl.aim);
     else if (this.faceLock <= 0 && mv.length() > 0.2) this.facing.copy(mv).normalize();
@@ -668,7 +668,7 @@ export class Combat extends Phaser.Scene {
   // ---------------------------------------------------------------- loot
   // Scrap Sniffer (mole passive): a buried stash somewhere on the floor; walk over it to dig it up
   placeStash(grid, cols, rows, avoid) {
-    const rk = this.prk('sniffer'); this.stash = null;
+    const rk = Math.max(this.prk('sniffer'), studied('mole') ? 1 : 0); this.stash = null;
     if (!rk) return;
     const spots = [];
     for (let r = 1; r < rows - 1; r++) for (let c = 1; c < cols - 1; c++) {
@@ -691,7 +691,8 @@ export class Combat extends Phaser.Scene {
     if (dist(st.img, this.hero) > 34 && !this.allPets().some(p => p.sp === 'mole' && dist(st.img, p) < 34)) return;
     const { x, y } = st.img; st.img.destroy(); this.stash = null;
     this.spark(x, y, 0x8a5a2b, 14);
-    this.dropScrap(x, y, st.rk >= 2 ? [7, 10] : [4, 6]);
+    const dbl = labActive('mole') ? 2 : 1;
+    this.dropScrap(x, y, st.rk >= 2 ? [7 * dbl, 10 * dbl] : [4 * dbl, 6 * dbl]);
     let msg = 'BURIED STASH!';
     const run = this.run;
     if (st.rk >= 3 && run && Math.random() < 0.35) {
@@ -739,7 +740,7 @@ export class Combat extends Phaser.Scene {
     if (!cr.active) return;
     cr.hp -= dmg;
     flash(cr, 0xffffff); this.time.delayedCall(60, () => cr.active && untint(cr));
-    if (cr.hp <= 0) { this.spark(cr.x, cr.y, 0x6b4a2b, 10); this.dropScrap(cr.x, cr.y, [2, 4]); if (Math.random() < T.crateParts) this.dropParts(cr.x, cr.y, 1); cr.destroy(); }
+    if (cr.hp <= 0) { this.spark(cr.x, cr.y, 0x6b4a2b, 10); this.dropScrap(cr.x, cr.y, [2, 4]); if (labActive('rat') || Math.random() < T.crateParts) this.dropParts(cr.x, cr.y, 1); cr.destroy(); }
   }
 
   // ---------------------------------------------------------------- hero combat
@@ -1051,11 +1052,12 @@ export class Combat extends Phaser.Scene {
       this.ring(h.x, h.y, 50, 0x8ef0a0); this.floatText(h.x, h.y - 44, `+${T.medkitHeal} ♥`, '#8ef0a0', 18);
     } else if (k === 'treat') {
       const ko = this.squadRecs.find(r => r.ko);
-      if (ko) { ko.ko = false; ko.hp = Math.min(ko.maxHp, T.treatHeal); this.fillSlots(false); this.floatText(h.x, h.y - 44, `${SP[ko.sp].name.split(' ')[1].toUpperCase()} IS BACK!`, '#8ef0a0', 16); }
+      if (ko) { ko.ko = false; ko.hp = Math.min(ko.maxHp, T.treatHeal + (studied('moth') ? 1 : 0)); this.fillSlots(false); this.floatText(h.x, h.y - 44, `${SP[ko.sp].name.split(' ')[1].toUpperCase()} IS BACK!`, '#8ef0a0', 16); }
       else {
         const hurt = this.squadRecs.filter(r => r.hp < r.maxHp).sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
         if (!hurt) { this.floatText(h.x, h.y - 44, 'NO PET NEEDS IT', '#9aa4ad', 13); return; }
-        this.healPet(hurt, T.treatHeal); this.floatText(h.x, h.y - 44, `${SP[hurt.sp].name.split(' ')[1].toUpperCase()} +${T.treatHeal} ♥`, '#8ef0a0', 16);
+        const th = T.treatHeal + (studied('moth') ? 1 : 0);
+        this.healPet(hurt, th); this.floatText(h.x, h.y - 44, `${SP[hurt.sp].name.split(' ')[1].toUpperCase()} +${th} ♥`, '#8ef0a0', 16);
       }
       this.syncSquadHud();
     } else if (k === 'lure') {

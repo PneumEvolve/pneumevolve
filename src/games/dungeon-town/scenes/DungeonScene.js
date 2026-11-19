@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { V, dist, kids } from '../util';
 import { COLS, FIRST_CATCH, FIRST_SUB, RH, ROWS, RW, SP, T, TILE, WILD, WILD_SUB } from '../tuning';
 import { BOSS_ROOM, FINAL_ROOM, SUB_BOSS, SUB_FINAL, SUB_TEMPLATES, TEMPLATES, subwayWaves, wavesFor } from '../maps';
-import { HUD, SAVE, addPet, writeSave } from '../state';
+import { HUD, SAVE, addPet, labActive, writeSave } from '../state';
 import { makeTextures } from '../textures';
 import { Combat } from '../combat';
 
@@ -44,7 +44,7 @@ export class DungeonScene extends Combat {
     let wildSp = null;
     run.wildSeen = run.wildSeen || [];
     if (first && !owned(first) && !run.wildSeen.includes(first)) wildSp = first;
-    else if (Math.random() < 0.45) {
+    else if (Math.random() < (labActive('bat') ? 0.7 : 0.45)) {
       const WT = sub ? WILD_SUB : WILD;
       const opts = Object.keys(WT).filter(sp => run.room >= WT[sp][0] && run.room <= WT[sp][1] && !run.wildSeen.includes(sp));
       if (opts.length) wildSp = Phaser.Utils.Array.GetRandom(opts);
@@ -158,7 +158,7 @@ export class DungeonScene extends Combat {
 
   clearRoom() {
     this.roomClear = true; this.magnetAll = true;
-    if (HUD.hp < HUD.maxHp) { HUD.hp++; this.floatText(this.hero.x, this.hero.y - 40, '+1 ♥', '#ff8c9e', 18); }
+    if (HUD.hp < HUD.maxHp) { const hl = labActive('moth') ? 2 : 1; HUD.hp = Math.min(HUD.maxHp, HUD.hp + hl); this.floatText(this.hero.x, this.hero.y - 40, `+${hl} ♥`, '#ff8c9e', 18); }
     // bench pets rest and heal
     this.squadRecs.forEach(r => {
       const out = this.activePets.some(p => p && p.active && p.rec === r);
@@ -196,6 +196,7 @@ export class DungeonScene extends Combat {
   extract() {
     const run = this.run;
     this.leaving = true; this.hero.setVelocity(0, 0);
+    if (labActive('hound') && run.scrap) run.scrap += Math.round(run.scrap * 0.25);
     SAVE.scrap += run.scrap; SAVE.parts = (SAVE.parts || 0) + (run.parts || 0);
     SAVE.runs++; if (this.dg === 'ruins') SAVE.bestRoom = Math.max(SAVE.bestRoom, run.room);
     SAVE.best = SAVE.best || {}; SAVE.best[this.dg] = Math.max(SAVE.best[this.dg] || 0, run.room);

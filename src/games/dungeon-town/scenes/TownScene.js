@@ -1,8 +1,8 @@
 import Phaser from 'phaser';
 import { FONT, V, dist, flash, kids, untint } from '../util';
-import { BLD, FAV, JOB_DESC, JOB_SHORT, JOB_SITES, NEIGHBORS, NEXT_LVL, PERKS, PROD_T, RECIPES, RES_ICON, SP, T, TCOLS, TH, TILE, TL, TROWS, TURRET, TW, XP, amtTxt, isRes, nameOf, recipeOf } from '../tuning';
+import { BLD, FAV, JOB_DESC, JOB_SHORT, JOB_SITES, LAB_BONUS, NEIGHBORS, NEXT_LVL, PERKS, PROD_T, RECIPES, RES_ICON, SP, T, TCOLS, TH, TILE, TL, TROWS, TURRET, TW, XP, amtTxt, isRes, nameOf, recipeOf } from '../tuning';
 import { CAMPS, CAMP_TOTAL, TOWN_MAP } from '../maps';
-import { GAME, HUD, SAVE, SAVE_KEY, addXp, ammoMax, bCost, campsBeaten, countB, jobOf, levelCap, loadSave, maxHearts, nextTo, outputOf, perk, petById, petLvlDmg, petMaxHp, pointsUsed, protectAmt, stashCap, stashTotal, typeCap, writeSave, xpNeed } from '../state';
+import { GAME, HUD, SAVE, SAVE_KEY, addXp, ammoMax, bCost, campsBeaten, countB, cureNeeded, curePct, eaters, foodForecast, jobOf, labActive, labOf, levelCap, loadSave, maxHearts, nextTo, outputOf, perk, petById, petLvlDmg, petMaxHp, pointsUsed, protectAmt, seats, stashCap, stashTotal, studied, typeCap, writeSave, xpNeed } from '../state';
 import { makeTextures } from '../textures';
 import { Combat } from '../combat';
 
@@ -130,12 +130,14 @@ export class TownScene extends Combat {
       else if (def.solid) { s = this.solids.create(x, y, rec.t); s.refreshBody(); }
       else s = this.add.image(x, y, rec.t);
       Object.assign(s, { bt: rec.t, def, lvl: rec.lvl || 1, c: rec.c, r: rec.r, rec, dead: false, isBld: true });
-      s.maxHp = Math.round(((def.hp || 0) + (rec.t === 'turret' ? (s.lvl - 1) * 4 : 0)) * (1 + 0.5 * (this.engineerOn() ? 1 : 0))); s.hp = s.maxHp;
+      s.maxHp = Math.round(((def.hp || 0) + (rec.t === 'turret' ? (s.lvl - 1) * 4 : 0)) * (1 + 0.5 * (this.engineerOn() ? 1 : 0)) * (studied('beetle') ? 1.2 : 1) * (labActive('beetle') && this.phase === 'night' && (rec.t === 'wall' || rec.t === 'gate') ? 1.5 : 1)); s.hp = s.maxHp;
       s.setDepth(def.solid ? 10 + y / 1000 : 1.2);
       if (rec.t === 'turret') { s.gunImg = this.add.image(x, y - 4, 'turretGun').setOrigin(0.2, 0.5).setDepth(11 + y / 1000); s.cd = 0.5; }
       const wk = rec.w && petById(rec.w);
       if (rec.w && !wk) delete rec.w;
       if (RECIPES[rec.t]) { const [tex, sc] = this.iconOf(recipeOf(rec)); s.rcpImg = this.add.image(x - 14, y + 14, tex).setScale(sc * 0.7).setDepth(12 + y / 1000); }
+      const lp = rec.t === 'lab' && (rec.lab || []).map(petById).find(Boolean);
+      if (lp) s.workerImg = this.add.image(x + 14, y - 16, lp.sp).setScale(0.55).setDepth(12 + y / 1000);
       if (wk) { s.workerImg = this.add.image(x + 14, y - 16, wk.sp).setScale(0.55).setDepth(12 + y / 1000); s.fav = FAV[rec.t] === wk.sp; if (rec.t === 'guard' && this.phase === 'night') s.workerImg.setVisible(false); }
       this.occ[this.idx(rec.c, rec.r)] = s;
       this.bSprites.push(s);
@@ -318,7 +320,7 @@ export class TownScene extends Combat {
   renderPenPets() {
     (this.penPets || []).forEach(o => o.destroy());
     this.penPets = [];
-    const idle = SAVE.pets.filter(pt => !SAVE.squad.includes(pt.id) && !jobOf(pt.id)).slice(0, 8);
+    const idle = SAVE.pets.filter(pt => !SAVE.squad.includes(pt.id) && !jobOf(pt.id) && !labOf(pt.id)).slice(0, 8);
     idle.forEach((pt, i) => {
       const o = this.add.image(this.penPos.x - 60 + (i % 4) * 40, this.penPos.y - 70 + Math.floor(i / 4) * 30, pt.sp).setScale(0.8);
       o.tx = o.x; o.ty = o.y; o.wt = Math.random() * 2;
@@ -346,6 +348,7 @@ export class TownScene extends Combat {
     if (!site) return `No free ${BLD[type].name}. Build another one first.`;
     if (SAVE.squad.includes(pt.id) && SAVE.squad.length <= 1) return 'You need at least one creature with you.';
     if (cur) delete cur.w;
+    this.leaveLab(pt.id);
     site.w = pt.id;
     SAVE.squad = SAVE.squad.filter(id => id !== pt.id);
     writeSave(); this.renderBuildings(); this.reloadSquad(); this.renderPenPets();
@@ -414,11 +417,48 @@ export class TownScene extends Combat {
       const sq = SAVE.squad.length;
       HUD.detail = {
         name: 'Stash', icon: 'storehouse', xpFrac: stashTotal() / Math.max(1, stashCap()),
-        body: `🌾 Food ${SAVE.food}   ·   🔩 Parts ${SAVE.parts}   ·   ⚙ Scrap ${SAVE.scrap}\n\nItems: ${stashTotal()} / ${stashCap()}\nCages ${st.cage} · Med Kits ${st.medkit} · Pet Treats ${st.treat}\nNoise Lures ${st.lure} · Turret Ammo ${st.ammo || 0}\n\nEvery morning:\n· Makes: ${outTxt}${needTxt ? `\n   (uses ${needTxt})` : ''}\n· Your squad eats ${sq} 🌾 (fed = +1 ♥ that day)\n· Turrets use 1 Ammo each at night for +1 damage\n\nGoods pile up on buildings: walk past to collect.\nCreatures working there bring it in for you.`,
+        body: `🌾 Food ${SAVE.food}   ·   🔩 Parts ${SAVE.parts}   ·   ⚙ Scrap ${SAVE.scrap}\n\nItems: ${stashTotal()} / ${stashCap()}\nCages ${st.cage} · Med Kits ${st.medkit} · Pet Treats ${st.treat}\nNoise Lures ${st.lure} · Turret Ammo ${st.ammo || 0}\n\nEvery morning:\n· Makes: ${outTxt}${needTxt ? `\n   (uses ${needTxt})` : ''}\n· ${foodForecast().mouths} creatures eat 1 🌾 each (squad, workers, Lab).\n   Kitchens have ${seats()} seats. The pen hibernates.\n· Turrets use 1 Ammo each at night for +1 damage\n\nGoods pile up on buildings: walk past to collect.\nCreatures working there bring it in for you.`,
         buttons: [
           { label: 'CLOSE', ev: { type: 'back' } },
         ],
       };
+      return;
+    }
+    if (id === 'bld' && this.menuRec && this.menuRec.t === 'lab') {
+      const rec = this.menuRec, lvl = rec.lvl || 1, slots = lvl;
+      rec.lab = (rec.lab || []).filter(x => petById(x));
+      const sps = cureNeeded(), pct = (sp) => Math.min(100, SAVE.research[sp] || 0), short = (sp) => SP[sp].name.split(' ')[1];
+      if (HUD.detailMode === 'labpick') {
+        const cand = SAVE.pets.filter(pt => !rec.lab.includes(pt.id)).sort((a, b) => (pct(a.sp) >= 100) - (pct(b.sp) >= 100) || (a.res || 0) - (b.res || 0));
+        HUD.detail = {
+          name: 'Lab — add a creature', icon: 'lab', xpFrac: curePct() / 100,
+          body: `A creature studies its own species while it's fed: ${T.labRate}% a morning, up to ${T.labCap}%.\nTwo creatures of a species = Studied.\n\nIt stays in the Lab (no runs, no job) and eats 1 🌾 every morning. ${T.labLeave} hungry mornings and it leaves for good.`,
+          buttons: cand.slice(0, 7).map(pt => ({ label: `${SP[pt.sp].name} Lv${pt.lvl}  ·  ${pct(pt.sp) >= 100 ? 'Studied ✓' : `${pct(pt.sp)}%`}${(pt.res || 0) >= T.labCap ? ' (studied out)' : ''}${SAVE.squad.includes(pt.id) ? '  (squad)' : jobOf(pt.id) ? '  (working)' : ''}`, ev: { type: 'labIn', id: pt.id } })).concat([{ label: '← BACK', ev: { type: 'bldBack' } }]),
+        };
+        return;
+      }
+      if (HUD.detailMode === 'labinfo') {
+        HUD.detail = {
+          name: 'Lab — what each species gives', icon: 'lab', xpFrac: curePct() / 100,
+          small: true,
+          body: 'Studied = forever.  In the Lab = while one is in there.\n\n' + sps.map(sp => `${pct(sp) >= 100 ? '✓' : `${pct(sp)}%`}  ${SP[sp].name}:  ${LAB_BONUS[sp].studied}\n      In the Lab: ${LAB_BONUS[sp].active}`).join('\n'),
+          buttons: [{ label: '← BACK', ev: { type: 'bldBack' } }],
+        };
+        return;
+      }
+      const lines = [`🧪 Cure: ${curePct()}%   ·   Studied ${sps.filter(sp => pct(sp) >= 100).length} / ${sps.length} species`, `Fed creatures study their species ${T.labRate}% a morning (up to ${T.labCap}% each).`, '', `In the Lab (${rec.lab.length}/${slots}):`];
+      rec.lab.forEach(id => { const pt = petById(id); lines.push(`· ${SP[pt.sp].name}  ${pt.res || 0}/${T.labCap}%${pt.hungry ? `  ⚠ HUNGRY ${pt.hungry}/${T.labLeave}` : ''}`, `   Active: ${LAB_BONUS[pt.sp].active}`); });
+      if (!rec.lab.length) lines.push('· empty: add a spare creature');
+      lines.push('', sps.map(sp => `${short(sp)} ${pct(sp)}%${pct(sp) >= 100 ? '✓' : ''}`).join(' · '));
+      const ff = foodForecast();
+      if (ff.hungry > 0) lines.push('', `⚠ Food: ${ff.hungry} creature${ff.hungry > 1 ? 's' : ''} won't eat tomorrow (${ff.seats} Kitchen seats, ${(SAVE.food || 0) + ff.grow} 🌾)`);
+      const btns = [];
+      if (rec.lab.length < slots) btns.push({ label: '＋ ADD A CREATURE', ev: { type: 'labPick' } });
+      rec.lab.forEach(id => btns.push({ label: `✕ TAKE OUT ${short(petById(id).sp).toUpperCase()}`, ev: { type: 'labOut', id } }));
+      if (lvl < 3) btns.push({ label: `▲ LEVEL ${lvl + 1} (+1 slot)  ·  ${T.civUpg[lvl]} 🔩`, ev: { type: 'upgrade', bld: true } });
+      btns.push({ label: '📖 WHAT EACH SPECIES GIVES', ev: { type: 'labInfo' } });
+      btns.push({ label: 'CLOSE', ev: { type: 'back' } });
+      HUD.detail = { name: `Lab  ·  Lv ${lvl}`, icon: 'lab', xpFrac: curePct() / 100, body: lines.join('\n'), buttons: btns };
       return;
     }
     if (id === 'bld') {
@@ -437,6 +477,7 @@ export class TownScene extends Combat {
       }
       const lines = [def.desc];
       if (o) lines.push('', `Makes every morning: ${amtTxt(o.k, o.n)}${o.cost ? `  (uses ${Object.entries(o.cost).map(([r, per]) => `${per * o.n} ${RES_ICON[r]}`).join(', ')})` : ''}`);
+      if (rec.t === 'kitchen') { const ff = foodForecast(); lines.push('', `Feeding: ${ff.mouths} creatures eat · ${ff.seats} seats (all Kitchens)${ff.hungry > 0 ? '  ⚠' : ''}`, `Tomorrow: Farms +${ff.grow} · Creatures −${ff.eat} · Cooking −${ff.cook} = ${ff.net >= 0 ? '+' : ''}${ff.net} 🌾`); }
       if (rec.t === 'storehouse') lines.push('', `Stash room +${T.stashPerStorehouse + 3 * (lvl - 1)}  ·  protects ${T.storehouseProtects * lvl} ⚙`);
       const nbs = NEIGHBORS.filter(nb => nb.a === rec.t);
       if (nbs.length) lines.push('', ...nbs.map(nb => `${nextTo(rec, nb.b) ? '✓' : '·'} Bonus ${nb.txt}`));
@@ -520,7 +561,7 @@ export class TownScene extends Combat {
 
   syncHud() {
     const lv = TL[SAVE.townLevel];
-    HUD.scrap = SAVE.scrap; HUD.day = SAVE.day; HUD.townLevel = SAVE.townLevel; HUD.food = SAVE.food || 0; HUD.parts = SAVE.parts || 0;
+    HUD.scrap = SAVE.scrap; HUD.day = SAVE.day; HUD.townLevel = SAVE.townLevel; HUD.food = SAVE.food || 0; HUD.parts = SAVE.parts || 0; HUD.foodNet = foodForecast().net;
     HUD.maxHp = maxHearts(); HUD.hp = Math.min(HUD.hp == null ? HUD.maxHp : HUD.hp, HUD.maxHp);
     HUD.points = { mil: pointsUsed('mil'), milMax: lv.mil, civ: pointsUsed('civ'), civMax: lv.civ };
     HUD.runsLeft = Math.max(0, T.runsPerDay - SAVE.runsToday);
@@ -573,7 +614,7 @@ export class TownScene extends Combat {
           if (SAVE.squad.length <= 1) { HUD.rosterMsg = 'You need at least one creature with you.'; break; }
           SAVE.squad.splice(i, 1); HUD.rosterMsg = `${SP[petById(ev.id).sp].name} left the squad.`;
         } else if (SAVE.squad.length >= 4) { HUD.rosterMsg = 'Squad is full (4). Tap one in the squad to take it out first.'; break; }
-        else { const jb = jobOf(ev.id); if (jb) delete jb.w; SAVE.squad.push(ev.id); HUD.rosterMsg = `${SP[petById(ev.id).sp].name} joined as #${SAVE.squad.length}${jb ? ' (left its job)' : ''}.`; this.renderBuildings(); }
+        else { const jb = jobOf(ev.id); if (jb) delete jb.w; this.leaveLab(ev.id); SAVE.squad.push(ev.id); HUD.rosterMsg = `${SP[petById(ev.id).sp].name} joined as #${SAVE.squad.length}${jb ? ' (left its job)' : ''}.`; this.renderBuildings(); }
         writeSave(); this.reloadSquad(); this.syncRoster(); this.renderPenPets();
         if (HUD.panel === 'detail') this.syncDetail();
         break;
@@ -589,6 +630,10 @@ export class TownScene extends Combat {
       case 'raid': if (day && !SAVE.raidedToday && ev.camp < CAMPS.length && ev.camp <= campsBeaten()) { HUD.panel = null; this.startRaid(ev.camp); } break;
       case 'bldMenu': this.menuRec = ev.rec; HUD.detailId = 'bld'; HUD.detailMode = null; HUD.rosterMsg = ''; this.syncDetail(); HUD.panel = 'detail'; break;
       case 'bldRecipe': { const sp = this.bSprites.find(b => b.rec === this.menuRec); if (sp) this.cycleRecipe(sp); HUD.rosterMsg = ''; this.syncDetail(); break; }
+      case 'labPick': HUD.detailMode = 'labpick'; HUD.rosterMsg = ''; this.syncDetail(); break;
+      case 'labInfo': HUD.detailMode = 'labinfo'; HUD.rosterMsg = ''; this.syncDetail(); break;
+      case 'labIn': { const pt = petById(ev.id); if (pt) HUD.rosterMsg = this.putInLab(pt); HUD.detailMode = null; this.syncDetail(); break; }
+      case 'labOut': { const pt = petById(ev.id); if (pt) { this.leaveLab(pt.id); writeSave(); this.renderBuildings(); this.renderPenPets(); HUD.rosterMsg = `${SP[pt.sp].name} went back to the pen (its research is kept).`; } this.syncDetail(); break; }
       case 'bldPick': HUD.detailMode = 'pick'; HUD.rosterMsg = ''; this.syncDetail(); break;
       case 'bldBack': HUD.detailMode = null; this.syncDetail(); break;
       case 'workHere': { const pt = petById(ev.id); if (pt && this.menuRec) HUD.rosterMsg = this.assignJob(pt, this.menuRec.t, this.menuRec); HUD.detailMode = null; this.syncDetail(); break; }
@@ -809,42 +854,76 @@ export class TownScene extends Combat {
   }
 
   // each morning: every production building makes its goods (unless zombies wrecked it last night).
-  // Goods pile up on the building; a creature working there brings them straight in.
-  produce() {
-    const st = SAVE.stash, got = {}, piled = {}, missed = [], short = new Set();
-    this.stashFull = false;
+  // Food goes straight to the pantry. Everything else piles up on the building; a worker brings it in.
+  produce(types, acc) {
+    const st = SAVE.stash, R = acc || { got: {}, piled: {}, missed: [], short: [] };
     const broken = new Set((this.bSprites || []).filter(b => b.dead).map(b => b.rec));
     const give = (b, k, n) => {
-      if (b.w && petById(b.w)) {
-        if (isRes(k)) { SAVE[k] = (SAVE[k] || 0) + n; got[k] = (got[k] || 0) + n; return; }
+      if (k === 'food') { SAVE.food = (SAVE.food || 0) + n; R.got.food = (R.got.food || 0) + n; return; }
+      if (b.w && petById(b.w) && !(petById(b.w).hungry > 0)) {
+        if (isRes(k)) { SAVE[k] = (SAVE[k] || 0) + n; R.got[k] = (R.got[k] || 0) + n; return; }
         const m = Math.min(n, Math.max(0, stashCap() - stashTotal()));
-        if (m) { st[k] = (st[k] || 0) + m; got[k] = (got[k] || 0) + m; }
+        if (m) { st[k] = (st[k] || 0) + m; R.got[k] = (R.got[k] || 0) + m; }
         n -= m; if (!n) return; this.stashFull = true;
       }
-      b.pile = b.pile || {}; b.pile[k] = (b.pile[k] || 0) + n; piled[k] = (piled[k] || 0) + n;
+      b.pile = b.pile || {}; b.pile[k] = (b.pile[k] || 0) + n; R.piled[k] = (R.piled[k] || 0) + n;
     };
-    // farms + salvage first, then the kitchens / workbenches that use their goods
-    const order = SAVE.buildings.filter(b => b.t === 'farm' || b.t === 'salvage').concat(SAVE.buildings.filter(b => b.t === 'kitchen' || b.t === 'workbench'));
-    order.forEach(b => {
+    SAVE.buildings.filter(b => types.includes(b.t)).forEach(b => {
       const o = outputOf(b); if (!o || !o.n) return;
-      if (broken.has(b)) { missed.push(BLD[b.t].name); return; }
+      if (broken.has(b)) { R.missed.push(BLD[b.t].name); return; }
       let n = o.n;
       if (o.cost) {
         const [res, per] = Object.entries(o.cost)[0];
         n = Math.min(n, Math.floor((SAVE[res] || 0) / per));
-        if (n < o.n) short.add(res);
+        if (n < o.n && !R.short.includes(res)) R.short.push(res);
         SAVE[res] -= n * per;
       }
       if (n > 0) give(b, o.k, n);
     });
-    return { got, piled, missed, short: [...short] };
+    return R;
   }
 
-  // each morning your squad eats; fed creatures get +1 heart for the day
-  feedSquad() {
-    let fed = 0, hungry = 0;
-    SAVE.squad.forEach(id => { const pt = petById(id); if (!pt) return; if ((SAVE.food || 0) >= 1) { SAVE.food--; pt.fed = true; fed++; } else { pt.fed = false; hungry++; } });
-    return { fed, hungry };
+  // breakfast: Kitchens seat creatures; each eats 1 Food. Lab first, then workers, then your squad.
+  // Fed: +1 heart today (squad), works (workers), studies (Lab). A Lab creature hungry 3 mornings leaves.
+  feedAll() {
+    let room = seats(); const out = { fed: 0, hungry: [], left: [], studied: [] };
+    eaters().forEach(id => {
+      const pt = petById(id); if (!pt) return;
+      const lab = labOf(id);
+      if (room > 0 && (SAVE.food || 0) >= 1) {
+        room--; SAVE.food--; out.fed++; pt.fed = true; pt.hungry = 0;
+        if (lab) {
+          const add = Math.min(T.labRate, T.labCap - (pt.res || 0));
+          if (add > 0) {
+            const was = SAVE.research[pt.sp] || 0;
+            pt.res = (pt.res || 0) + add; SAVE.research[pt.sp] = Math.min(100, was + add);
+            if (was < 100 && SAVE.research[pt.sp] >= 100) out.studied.push(pt.sp);
+          }
+        }
+      } else {
+        pt.fed = false; pt.hungry = (pt.hungry || 0) + 1;
+        if (lab && pt.hungry >= T.labLeave) {
+          lab.lab = lab.lab.filter(x => x !== id);
+          SAVE.pets = SAVE.pets.filter(p => p.id !== id);
+          out.left.push(SP[pt.sp].name);
+        } else out.hungry.push(`${SP[pt.sp].name.split(' ')[1]}${lab ? ` (Lab ${pt.hungry}/${T.labLeave}!)` : ''}`);
+      }
+    });
+    return out;
+  }
+
+  leaveLab(id) { SAVE.buildings.forEach(b => { if (b.t === 'lab' && b.lab) b.lab = b.lab.filter(x => x !== id); }); }
+
+  putInLab(pt) {
+    const rec = this.menuRec; if (!rec || rec.t !== 'lab') return '';
+    rec.lab = (rec.lab || []).filter(id => petById(id));
+    if (rec.lab.length >= (rec.lvl || 1)) return 'The Lab is full. Upgrade it for another slot.';
+    if (SAVE.squad.includes(pt.id) && SAVE.squad.length <= 1) return 'You need at least one creature with you.';
+    const jb = jobOf(pt.id); if (jb) delete jb.w;
+    SAVE.squad = SAVE.squad.filter(id => id !== pt.id);
+    rec.lab.push(pt.id);
+    writeSave(); this.renderBuildings(); this.reloadSquad(); this.renderPenPets();
+    return `${SP[pt.sp].name} is in the Lab. It studies while it's fed.`;
   }
 
   startNight() {
@@ -911,15 +990,20 @@ export class TownScene extends Combat {
     }
     // workers earn a little XP every morning
     SAVE.buildings.forEach(b => { const pt = b.w && petById(b.w); if (pt) addXp(pt, 6); });
-    const pr = this.produce(), list = (o) => Object.entries(o).filter(([, n]) => n > 0).map(([k, n]) => amtTxt(k, n)).join(', ');
+    this.stashFull = false;
+    const pr = this.produce(['farm', 'salvage']);
+    const fd = this.feedAll();
+    this.produce(['kitchen', 'workbench'], pr);
+    const list = (o) => Object.entries(o).filter(([, n]) => n > 0).map(([k, n]) => amtTxt(k, n)).join(', ');
     if (list(pr.piled)) sub += `\nReady to collect: ${list(pr.piled)}`;
-    if (list(pr.got)) sub += `\nWorkers brought in: ${list(pr.got)}`;
+    if (list(pr.got)) sub += `\nBrought in: ${list(pr.got)}`;
     if (pr.missed.length) sub += `\nZombies wrecked: ${pr.missed.join(', ')} (nothing made today)`;
     if (pr.short.length) sub += `\nRan short of ${pr.short.map(r => nameOf(r)).join(' and ')}`;
     if (this.stashFull) sub += '  (stash full: build a Storehouse)';
-    const fd = this.feedSquad();
-    if (fd.fed) sub += `\nFed ${fd.fed} creature${fd.fed > 1 ? 's' : ''} (-${fd.fed} 🌾): +1 ♥ today`;
-    else if (fd.hungry) sub += '\nYour creatures are hungry: switch a Farm to Food';
+    if (fd.fed) sub += `\nFed ${fd.fed} creature${fd.fed > 1 ? 's' : ''} (-${fd.fed} 🌾)`;
+    if (fd.hungry.length) sub += `\nHungry: ${fd.hungry.join(', ')}${seats() ? '' : '  (build a Kitchen)'}`;
+    if (fd.left.length) sub += `\n${fd.left.join(', ')} left the Lab: no food for ${T.labLeave} mornings`;
+    if (fd.studied.length) sub += `\n🧪 STUDIED: ${fd.studied.map(sp => SP[sp].name).join(', ')}! Cure ${curePct()}%`;
     SAVE.day++; SAVE.runsToday = 0; SAVE.raidedToday = false;
     // once you've hit a camp, bandits may come for you; scouts warn you a day ahead
     if (campsBeaten() > 0 && !SAVE.raidWarn && (SAVE.lastRaidDay == null || SAVE.day - SAVE.lastRaidDay >= 3) && Math.random() < 0.35) {
@@ -993,7 +1077,7 @@ export class TownScene extends Combat {
     this.bSprites.forEach(t => {
       if (t.bt !== 'turret' || t.dead) return;
       const st0 = TURRET[t.lvl], crew = !!t.workerImg;
-      const st = { range: st0.range, dmg: st0.dmg + (crew ? 1 : 0) + (t.hot ? 1 : 0), rate: st0.rate * (crew && t.fav ? 0.75 : 1) };
+      const st = { range: st0.range * (studied('crow') ? 1.15 : 1), dmg: st0.dmg + (crew ? 1 : 0) + (t.hot ? 1 : 0) + (labActive('crow') ? 1 : 0), rate: st0.rate * (crew && t.fav ? 0.75 : 1) };
       const z = this.nearestEnemy(t.x, t.y, st.range, false);
       t.cd -= dt;
       if (!z) return;

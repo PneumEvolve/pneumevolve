@@ -32,6 +32,7 @@ export const SPR = {
   part: ['.mm.mm.', 'mMMMMMm', '.MkkkM.', 'mMk.kMm', '.MkkkM.', 'mMMMMMm', '.mm.mm.'],
   ammo: ['.y...y...y.', 'yyy.yyy.yyy', 'GGG.GGG.GGG', 'GGG.GGG.GGG', 'GGG.GGG.GGG', 'kkk.kkk.kkk'],
   salvage: ['............kk..', '...........kgk..', '..........kgk...', '.........kgk....', '....kkkkkgk.....', '....kgggggk.....', '....kgk..k......', '....kgk..y......', '....kgk.kmk.....', '..kkkgkkmMmk....', '.kMmGmMkRrMmk...', 'kmMgGMmMrRmMgk..', 'kMgmMgGmMgMmGmk.', 'kmMGmMgMmGmMgMmk', 'kkkkkkkkkkkkkkkk', '................'],
+  lab: ['................', '..kkkkkkkkkkkk..', '..kMMMMMMMMMMk..', '..kMggggggggMk..', '..kMg..kk..gMk..', '..kMg..kk..gMk..', '..kMg.kZZk.gMk..', '..kMgkZzzZkgMk..', '..kMkZzZzzZkMk..', '..kMkZZZZZZkMk..', '..kMgkkkkkkgMk..', '..kMggggggggMk..', '..kMMMMMMMMMMk..', '..kMMkkMMkkMMk..', '..kkkkkkkkkkkk..', '................'],
   mound: ['...kkkk...', '..kBbbBk..', '.kBbBbbBk.', 'kBbbBbBbBk', 'kkkkkkkkkk'],
   scrap: ['..kkk...', '.kmmMk..', 'kmMmmMk.', 'kMmmmyk.', '.kMmMk..', '..kkk...'],
   gun: ['kkkkkkkkkk', 'kmmmmmmmMk', 'kkkMkkkkkk', '..kk......'],
@@ -86,7 +87,7 @@ export function bigTexture(scene, key, n, draw) {
 
 export function makeTextures(scene) {
   for (const k of ['hero', 'walker', 'runner', 'spitter', 'bloater', 'hound', 'crow', 'rat', 'moth', 'beetle', 'crate', 'rubble', 'cage',
-    'wall', 'gate', 'wire', 'spikes', 'turret', 'guard', 'workbench', 'kitchen', 'farm', 'storehouse', 'salvage', 'mole', 'bat', 'crawler', 'shrieker']) pxTexture(scene, k, SPR[k], 3);
+    'wall', 'gate', 'wire', 'spikes', 'turret', 'guard', 'workbench', 'kitchen', 'farm', 'storehouse', 'salvage', 'lab', 'mole', 'bat', 'crawler', 'shrieker']) pxTexture(scene, k, SPR[k], 3);
   pxTexture(scene, 'mother', SPR.mother, 5);
   // bandits are recoloured survivors: red bandana + khaki coat / dark hood
   if (!SPR.rifleman) {

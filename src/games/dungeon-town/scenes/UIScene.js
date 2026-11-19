@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { FONT, V } from '../util';
-import { BLD, CIV_ITEMS, E, ITEMS, MIL_ITEMS, SP, SP_COLOR, T } from '../tuning';
-import { Ctl, GAME, HUD, ammoMax, countB, dashCd, perk, typeCap } from '../state';
+import { BLD, CIV_ITEMS, ITEMS, MIL_ITEMS, SP, SP_COLOR, T } from '../tuning';
+import { Ctl, HUD, ammoMax, countB, dashCd, typeCap } from '../state';
 
 // ===================================================================
 //  UI + TOUCH CONTROLS (on top, not zoomed)
@@ -174,7 +174,7 @@ export class UIScene extends Phaser.Scene {
     this.sqStrip.forEach(st => st.num.setFontSize(fs(0.026)));
     this.heroLv.setPosition(u * 0.265, u * 0.125).setFontSize(fs(0.028));
     this.portLv.forEach(t => t.setFontSize(fs(0.024)));
-    this.detName.setFontSize(fs(0.045)); this.detBody.setFontSize(fs(0.028)).setWordWrapWidth(SQ.w * 0.45);
+    this.detName.setFontSize(fs(0.045)); this.detBodyFs = fs(0.028); this.detBody.setFontSize(this.detBodyFs).setWordWrapWidth(SQ.w * 0.45);
     this.detFs = fs(0.029);
     this.detBtns.forEach(t => t.setFontSize(this.detFs));
   }
@@ -482,7 +482,7 @@ export class UIScene extends Phaser.Scene {
     else if (!town) top = `${HUD.dungeonName || 'RUINS'} ${HUD.room}/${T.rooms}   ·   ⚙ ${HUD.scrap ?? 0}${HUD.parts ? `   ·   🔩 ${HUD.parts}` : ''}`;
     else if (building) top = `MILITARY ${HUD.points.mil}/${HUD.points.milMax}   ·   CIVIC ${HUD.points.civ}/${HUD.points.civMax}`;
     else if (HUD.night) { const s = Math.ceil(HUD.night.t); top = `NIGHT ${HUD.day}   ·   ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}   ·   ⚙ ${HUD.scrap}`; }
-    else top = `DAY ${HUD.day}   ·   ⚙ ${HUD.scrap}   ·   🌾 ${HUD.food || 0}   ·   🔩 ${HUD.parts || 0}   ·   HALL ${HUD.townLevel}${HUD.raidWarn ? '   ·   ⚠ BANDITS TONIGHT' : ''}`;
+    else top = `DAY ${HUD.day}   ·   ⚙ ${HUD.scrap}   ·   🌾 ${HUD.food || 0} (${(HUD.foodNet || 0) >= 0 ? '+' : ''}${HUD.foodNet || 0})   ·   🔩 ${HUD.parts || 0}   ·   HALL ${HUD.townLevel}${HUD.raidWarn ? '   ·   ⚠ BANDITS TONIGHT' : ''}`;
     this.topText.setText(top).setScale(1 + (HUD.scrapPop || 0) * 0.6).setVisible(!panel);
     if (town && HUD.night) {
       const bw = u * 0.5, bx = w / 2 - bw / 2, by = u * 0.1;
@@ -616,12 +616,12 @@ export class UIScene extends Phaser.Scene {
       const bx = x0 + u * 0.2, by = SQ.y - SQ.h / 2 + u * 0.115, bw = SQ.w * 0.32;
       g.fillStyle(0x000000, 0.7); g.fillRect(bx - 1, by - 1, bw + 2, u * 0.02 + 2);
       g.fillStyle(0xf2d14b, 1); g.fillRect(bx, by, bw * Math.min(1, D.xpFrac || 0), u * 0.02);
-      this.detBody.setText(D.body + (HUD.rosterMsg ? `\n\n${HUD.rosterMsg}` : '')).setPosition(x0 + u * 0.04, SQ.y - SQ.h / 2 + u * 0.2);
+      this.detBody.setFontSize(D.small ? Math.round(parseFloat(this.detBodyFs) * 0.85) + 'px' : this.detBodyFs).setText(D.body + (HUD.rosterMsg ? `\n\n${HUD.rosterMsg}` : '')).setPosition(x0 + u * 0.04, SQ.y - SQ.h / 2 + u * 0.2);
       dbtns.forEach((bt, i) => {
         const r = this.detBtnRect(i), back = bt.ev.type === 'back', upg = bt.ev.type === 'upgrade' || bt.ev.type === 'perk';
         this.pill(r, back ? 0xffffff : upg ? 0xf2d14b : 0xff8c9e, 0.6, upg);
         const tx = this.detBtns[i]; tx.setFontSize(this.detFs).setText(bt.label).setPosition(r.x, r.y);
-        if (tx.width > r.w * 0.92) tx.setFontSize(Math.max(9, Math.floor(this.detFs * r.w * 0.92 / tx.width)));
+        if (tx.width > r.w * 0.92) tx.setFontSize(Math.max(9, Math.floor(parseFloat(this.detFs) * r.w * 0.92 / tx.width)) + 'px');
       });
     }
 
