@@ -72,7 +72,7 @@ export class RaidScene extends DungeonScene {
   hitCrate(cr, dmg) {
     if (!cr.isCampWall) return super.hitCrate(cr, dmg);
     if (!cr.active) return;
-    cr.hp -= dmg;
+    cr.hp -= dmg * (dmg >= 8 ? 1 : this.structMult());
     flash(cr, 0xffffff); this.time.delayedCall(60, () => cr.active && untint(cr));
     this.spark(cr.x, cr.y, 0x8a7a5a, 4);
     if (cr.hp <= 0) { this.spark(cr.x, cr.y, 0x6b737c, 14); this.cameras.main.shake(100, 0.005); cr.destroy(); }

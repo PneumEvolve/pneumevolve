@@ -1,5 +1,5 @@
 // Shared state: the save file, HUD and controls, plus rules that read the save.
-import { BLD, FAV, LAB_BONUS, NEIGHBORS, RCP_COST, SP, T, TL, recipeOf } from './tuning';
+import { BLD, LAB_BONUS, NEIGHBORS, RCP_COST, SP, T, TL, isFavSp, recipeOf } from './tuning';
 import { DISTRICTS } from './maps';
 
 export const SAVE = {};
@@ -53,7 +53,7 @@ export const campsBeaten = () => Object.keys(SAVE.camps || {}).length;
 export const reclaimed = (i) => !!(SAVE.reclaimed || {})[DISTRICTS[i].key];
 export const reclaimedCount = () => DISTRICTS.filter((d, i) => reclaimed(i)).length;
 export const bossBeaten = (d) => !!(d.dungeon && SAVE[`${d.dungeon}Cleared`]);
-export const districtDone = (i) => { const d = DISTRICTS[i]; return d.ready && bossBeaten(d) && d.camps.every(campDone); };
+export const districtDone = (i) => { const d = DISTRICTS[i]; return d.ready && d.camps.length >= 3 && bossBeaten(d) && d.camps.every(campDone); };
 // a gate opens when the district before it is reclaimed, or at its Town Hall level
 export const gateOpen = (i) => i === 0 || (DISTRICTS[i].ready && (reclaimed(i - 1) || SAVE.townLevel >= DISTRICTS[i].th));
 export const districtOfCamp = (ci) => DISTRICTS.findIndex(d => d.camps.includes(ci));
@@ -106,13 +106,13 @@ export const swordDmg = () => T.swordDmg + (perk('blade') ? 1 : 0);
 
 export const dashCd = () => T.dashCd * (perk('fleet') ? 0.7 : 1);
 
-export const petMaxHp = (pt) => (studied('hound') ? 1 : 0) + SP[pt.sp].hearts + Math.floor(((pt.lvl || 1) - 1) / 5) + (pt.sp === 'beetle' && (pt.pr || 1) >= 2 ? 1 : 0);
+export const petMaxHp = (pt) => (studied('hound') ? 1 : 0) + (pt.sp === 'toad' && (pt.pr || 1) >= 2 ? 1 : 0) + SP[pt.sp].hearts + Math.floor(((pt.lvl || 1) - 1) / 5) + (pt.sp === 'beetle' && (pt.pr || 1) >= 2 ? 1 : 0);
 
 export const petLvlDmg = (lvl) => Math.floor(((lvl || 1) - 1) / 10);
 
 export const jobOf = (petId) => SAVE.buildings.find(b => b.w === petId) || null;
 
-export const isFav = (b) => { const pt = b.w && petById(b.w); return !!pt && FAV[b.t] === pt.sp; };
+export const isFav = (b) => { const pt = b.w && petById(b.w); return !!pt && isFavSp(b.t, pt.sp); };
 
 export const staffed = (t) => SAVE.buildings.filter(b => b.t === t && b.w && petById(b.w));
 
@@ -150,8 +150,8 @@ export const foodForecast = () => {
 };
 export function outputOf(b) {
   const k = recipeOf(b), lv = b.lvl || 1, job = prodMult(b);
-  if (b.t === 'farm') return { k, n: Math.round((k === 'food' ? T.farmFood : T.farmScrap) * [1, 1.5, 2][job - 1] * (1 + 0.5 * (lv - 1)) * (nextTo(b, 'farm') ? 1.25 : 1) * ((SAVE.reclaimed || {}).ruins ? 1.25 : 1)) };
-  if (b.t === 'salvage') return { k: 'parts', n: Math.round((T.salvageParts + (job - 1) * 2) * (1 + 0.5 * (lv - 1))) + (nextTo(b, 'workbench') ? 1 : 0) + ((SAVE.reclaimed || {}).subway ? 2 : 0) };
+  if (b.t === 'farm') return { k, n: Math.round((k === 'food' ? T.farmFood : T.farmScrap) * [1, 1.5, 2][job - 1] * (1 + 0.5 * (lv - 1)) * (nextTo(b, 'farm') ? 1.25 : 1) * ((SAVE.reclaimed || {}).ruins ? 1.25 : 1)) + (k === 'food' && labActive('toad') ? 2 : 0) };
+  if (b.t === 'salvage') return { k: 'parts', n: Math.round((T.salvageParts + (job - 1) * 2) * (1 + 0.5 * (lv - 1))) + (nextTo(b, 'workbench') ? 1 : 0) + ((SAVE.reclaimed || {}).subway ? 2 : 0) + (labActive('ram') ? 2 : 0) };
   if (b.t === 'kitchen') return { k, n: job + (lv - 1) + (nextTo(b, 'farm') ? 1 : 0), cost: RCP_COST[k] };
   if (b.t === 'workbench') return { k, n: job + (lv - 1) + (nextTo(b, 'storehouse') ? 1 : 0), cost: RCP_COST[k] };
   return null;

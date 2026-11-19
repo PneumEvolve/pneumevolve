@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { FONT, V, dist, flash, kids, untint } from '../util';
-import { BLD, FAV, JOB_DESC, JOB_SHORT, JOB_SITES, LAB_BONUS, NEIGHBORS, NEXT_LVL, PERKS, PROD_T, RECIPES, RES_ICON, SP, T, TCOLS, TH, TILE, TL, TROWS, TURRET, TW, WILD, WILD_SUB, XP, amtTxt, isRes, nameOf, recipeOf } from '../tuning';
+import { BLD, FAV, JOB_DESC, JOB_SHORT, JOB_SITES, LAB_BONUS, NEIGHBORS, NEXT_LVL, PERKS, PROD_T, RECIPES, RES_ICON, SP, T, TCOLS, TH, TILE, TL, TROWS, TURRET, TW, WILD, WILD_HOS, WILD_SUB, XP, amtTxt, favJobOf, favs, isFavSp, isRes, nameOf, recipeOf } from '../tuning';
 import { CAMPS, CAMP_TOTAL, DISTRICTS, TOWN_MAP } from '../maps';
 import { GAME, HUD, SAVE, SAVE_KEY, addXp, ammoMax, bCost, bossBeaten, campDone, campOpen, campsBeaten, civCap, countB, cureNeeded, curePct, districtDone, eaters, foodForecast, gateOpen, jobOf, labActive, labOf, levelCap, loadSave, maxHearts, nextTo, outputOf, perk, petById, petLvlDmg, petMaxHp, pointsUsed, protectAmt, reclaimed, seats, stashCap, stashTotal, studied, typeCap, writeSave, xpNeed } from '../state';
 import { makeTextures } from '../textures';
@@ -58,7 +58,8 @@ export class TownScene extends Combat {
     this.renderPenPets();
 
     const r = this.result;
-    if (r && r.type === 'extract' && r.firstClear && r.dungeon === 'subway') HUD.banner = { text: 'THE SUBWAY IS CLEARED!', sub: `+${r.scrap} ⚙${r.caught ? ' · ' + r.caught : ''} · More dungeons coming`, t: 4 };
+    if (r && r.type === 'extract' && r.firstClear && r.dungeon === 'hospital') HUD.banner = { text: 'PATIENT ZERO IS DOWN!', sub: `+${r.scrap} ⚙${r.caught ? ' · ' + r.caught : ''} · Its blood is the first real lead on the cure`, t: 4.5 };
+    else if (r && r.type === 'extract' && r.firstClear && r.dungeon === 'subway') HUD.banner = { text: 'THE SUBWAY IS CLEARED!', sub: `+${r.scrap} ⚙${r.caught ? ' · ' + r.caught : ''} · More dungeons coming`, t: 4 };
     else if (r && r.type === 'extract' && r.firstClear) HUD.banner = { text: 'THE RUINS ARE CLEARED!', sub: `+${r.scrap} ⚙${r.caught ? ' · ' + r.caught : ''} · ${SAVE.townLevel >= 2 ? 'Try the Subway next' : 'Town Hall Lv 2 opens the path to the Subway'}`, t: 4 };
     else if (r && r.type === 'extract') HUD.banner = { text: `HOME SAFE  +${r.scrap} ⚙${r.parts ? `  +${r.parts} 🔩` : ''}`, sub: r.caught ? `New creature: ${r.caught}! Check your squad.` : 'Spend it on the town, then end the day', t: 3.4 };
     else if (r && r.type === 'dead') HUD.banner = { text: 'DRAGGED HOME', sub: `You lost ${r.scrap} scrap in room ${r.room}`, t: 3.2 };
@@ -111,9 +112,11 @@ export class TownScene extends Combat {
     warImg.refreshBody(); warImg.body.setSize(84, 60); warImg.setDepth(10 + this.warPos.y / 1000);
     [[north, 2], [south, 3]].forEach(([pts, di]) => {
       if (!pts.length) return;
-      const p = avg(pts);
-      this.add.image(p.x, p.y, 'stairs').setDepth(1.5); this.add.image(p.x, p.y, 'boards').setDepth(1.6);
-      this.add.text(p.x, p.y + (di === 2 ? 40 : 34), DISTRICTS[di].ready ? DISTRICTS[di].name.toUpperCase() : '??? (COMING SOON)', { fontFamily: FONT, fontSize: '12px', fontStyle: 'bold', color: '#6b737c', stroke: '#000', strokeThickness: 3 }).setOrigin(0.5).setDepth(20);
+      const p = avg(pts), d = DISTRICTS[di], open = gateOpen(di);
+      if (di === 2) this.northPos = p;
+      this.add.image(p.x, p.y, 'stairs').setDepth(1.5);
+      if (!open) this.add.image(p.x, p.y, 'boards').setDepth(1.6);
+      this.add.text(p.x, p.y + (di === 2 ? 40 : 34), d.ready ? d.name.toUpperCase() : '??? (COMING SOON)', { fontFamily: FONT, fontSize: '13px', fontStyle: 'bold', color: open ? '#9fd14a' : '#6b737c', stroke: '#000', strokeThickness: 3 }).setOrigin(0.5).setDepth(20);
     });
     this.add.text(this.warPos.x, this.warPos.y - 58, 'MAP TABLE', { fontFamily: FONT, fontSize: '14px', fontStyle: 'bold', color: '#ff8c8c', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5).setDepth(20);
     this.add.image(this.subPos.x, this.subPos.y, 'stairs').setDepth(1.5);
@@ -160,7 +163,7 @@ export class TownScene extends Combat {
       if (RECIPES[rec.t]) { const [tex, sc] = this.iconOf(recipeOf(rec)); s.rcpImg = this.add.image(x - 14, y + 14, tex).setScale(sc * 0.7).setDepth(12 + y / 1000); }
       const lp = rec.t === 'lab' && (rec.lab || []).map(petById).find(Boolean);
       if (lp) s.workerImg = this.add.image(x + 14, y - 16, lp.sp).setScale(0.55).setDepth(12 + y / 1000);
-      if (wk) { s.workerImg = this.add.image(x + 14, y - 16, wk.sp).setScale(0.55).setDepth(12 + y / 1000); s.fav = FAV[rec.t] === wk.sp; if (rec.t === 'guard' && this.phase === 'night') s.workerImg.setVisible(false); }
+      if (wk) { s.workerImg = this.add.image(x + 14, y - 16, wk.sp).setScale(0.55).setDepth(12 + y / 1000); s.fav = isFavSp(rec.t, wk.sp); if (rec.t === 'guard' && this.phase === 'night') s.workerImg.setVisible(false); }
       this.occ[this.idx(rec.c, rec.r)] = s;
       this.bSprites.push(s);
       this.drawPile(s);
@@ -374,7 +377,7 @@ export class TownScene extends Combat {
     site.w = pt.id;
     SAVE.squad = SAVE.squad.filter(id => id !== pt.id);
     writeSave(); this.renderBuildings(); this.reloadSquad(); this.renderPenPets();
-    return `${SP[pt.sp].name} now works at the ${BLD[type].name}${FAV[type] === pt.sp ? ' — its favourite job!' : '.'}`;
+    return `${SP[pt.sp].name} now works at the ${BLD[type].name}${isFavSp(type, pt.sp) ? ' — its favourite job!' : '.'}`;
   }
   stopJob(pt) {
     const cur = jobOf(pt.id); if (!cur) return;
@@ -423,14 +426,15 @@ export class TownScene extends Combat {
     const id = HUD.detailId, cap = levelCap();
     if (id === 'district') {
       const i = HUD.distIdx, d = DISTRICTS[i], open = gateOpen(i);
-      const natives = Object.keys(d.dungeon === 'subway' ? WILD_SUB : d.dungeon === 'ruins' ? WILD : {});
+      const natives = Object.keys(d.dungeon === 'subway' ? WILD_SUB : d.dungeon === 'ruins' ? WILD : d.dungeon === 'hospital' ? WILD_HOS : {});
       if (!d.ready) {
         HUD.detail = { name: `${d.dir === 'N' ? 'North' : 'South'} district`, icon: 'boards', xpFrac: 0, body: `Coming soon.\n\nA new dungeon, new creatures and 3 more bandit camps will be out past the ${d.dir === 'N' ? 'north' : 'south'} gate.`, buttons: [{ label: '← MAP', ev: { type: 'openMap' } }] };
         return;
       }
       const lines = [];
       lines.push(reclaimed(i) ? '✅ RECLAIMED — this gate is quiet at night.' : open ? `Held by the horde. Zombies come through the ${['west', 'east', 'north', 'south'][i]} gate at night.` : `Locked: reclaim ${DISTRICTS[i - 1].name} or reach Town Hall ${d.th}.`);
-      lines.push('', 'To reclaim it:', `${bossBeaten(d) ? '☑' : '☐'} Beat ${d.boss} (room ${T.rooms} of the ${d.dungeon === 'subway' ? 'Subway' : 'Ruins'})`);
+      lines.push('', 'To reclaim it:', `${bossBeaten(d) ? '☑' : '☐'} Beat ${d.boss} (room ${T.rooms} of the ${({ subway: 'Subway', ruins: 'Ruins', hospital: 'Hospital' })[d.dungeon]})`);
+      if (d.camps.length < 3) lines.push('☐ 3 bandit camps (coming in the next update)');
       d.camps.forEach((ci, k) => lines.push(`${campDone(ci) ? '☑' : '☐'} Bandit camp ${k + 1}: ${CAMPS[ci].name}${k === 2 ? ' (holdout)' : ''}`));
       lines.push('', `Reward: survivors move in (+2 civic points) · ${d.perk}`);
       lines.push('', `Natives: ${natives.map(sp => `${SP[sp].name.split(' ')[1]} ${Math.min(100, SAVE.research[sp] || 0)}%`).join(' · ')}`);
@@ -519,12 +523,12 @@ export class TownScene extends Combat {
       if (!rec || !SAVE.buildings.includes(rec)) { HUD.panel = null; return; }
       const def = BLD[rec.t], lvl = rec.lvl || 1, o = outputOf(rec), wk = rec.w && petById(rec.w), canWork = JOB_SITES.includes(rec.t);
       if (HUD.detailMode === 'pick') {
-        const fav = FAV[rec.t];
-        const cand = SAVE.pets.filter(pt => pt.id !== rec.w).sort((a, b) => (b.sp === fav) - (a.sp === fav) || b.lvl - a.lvl);
+        const favL = favs(rec.t);
+        const cand = SAVE.pets.filter(pt => pt.id !== rec.w).sort((a, b) => favL.includes(b.sp) - favL.includes(a.sp) || b.lvl - a.lvl);
         HUD.detail = {
           name: `${def.name} — pick a worker`, icon: rec.t, xpFrac: 0,
-          body: `Workers stay home from runs, bring in what this building makes, and earn XP every morning.\n\n★ Favourite: ${fav ? SP[fav].name : 'none'}${fav ? ` — ${JOB_DESC[rec.t][1]}` : ''}\nAnyone else: ${JOB_DESC[rec.t][0]}`,
-          buttons: cand.slice(0, 7).map(pt => ({ label: `${pt.sp === fav ? '★ ' : ''}${SP[pt.sp].name} Lv${pt.lvl}${jobOf(pt.id) ? '  (working)' : SAVE.squad.includes(pt.id) ? '  (squad)' : ''}`, ev: { type: 'workHere', id: pt.id } })).concat([{ label: '← BACK', ev: { type: 'bldBack' } }]),
+          body: `Workers stay home from runs, bring in what this building makes, and earn XP every morning.\n\n★ Favourite: ${favL.length ? favL.map(f => SP[f].name).join(' / ') : 'none'}${favL.length ? ` — ${JOB_DESC[rec.t][1]}` : ''}\nAnyone else: ${JOB_DESC[rec.t][0]}`,
+          buttons: cand.slice(0, 7).map(pt => ({ label: `${favL.includes(pt.sp) ? '★ ' : ''}${SP[pt.sp].name} Lv${pt.lvl}${jobOf(pt.id) ? '  (working)' : SAVE.squad.includes(pt.id) ? '  (squad)' : ''}`, ev: { type: 'workHere', id: pt.id } })).concat([{ label: '← BACK', ev: { type: 'bldBack' } }]),
         };
         return;
       }
@@ -534,7 +538,7 @@ export class TownScene extends Combat {
       if (rec.t === 'storehouse') lines.push('', `Stash room +${T.stashPerStorehouse + 3 * (lvl - 1)}  ·  protects ${T.storehouseProtects * lvl} ⚙`);
       const nbs = NEIGHBORS.filter(nb => nb.a === rec.t);
       if (nbs.length) lines.push('', ...nbs.map(nb => `${nextTo(rec, nb.b) ? '✓' : '·'} Bonus ${nb.txt}`));
-      if (canWork) lines.push('', wk ? `Worker: ${SP[wk.sp].name}${FAV[rec.t] === wk.sp ? ' ★' : ''} — ${JOB_DESC[rec.t][FAV[rec.t] === wk.sp ? 1 : 0]}` : (PROD_T.includes(rec.t) ? 'No worker: goods pile up here until you walk past.' : 'No worker yet.'));
+      if (canWork) lines.push('', wk ? `Worker: ${SP[wk.sp].name}${isFavSp(rec.t, wk.sp) ? ' ★' : ''} — ${JOB_DESC[rec.t][isFavSp(rec.t, wk.sp) ? 1 : 0]}` : (PROD_T.includes(rec.t) ? 'No worker: goods pile up here until you walk past.' : 'No worker yet.'));
       const upg = def.cat === 'civ' || rec.t === 'turret';
       if (upg) lines.push('', lvl >= 3 ? `Level ${lvl} (max)` : `Level ${lvl} → ${lvl + 1}: ${rec.t === 'turret' ? 'more damage and range' : NEXT_LVL[rec.t]}`);
       const btns = [];
@@ -571,12 +575,12 @@ export class TownScene extends Combat {
     const xpLine = pt.lvl >= cap ? 'MAX (upgrade the Town Hall)' : `XP ${Math.floor(pt.xp)} / ${xpNeed(pt.lvl)}`;
     const rk = (arr, r) => `${arr[r - 1]}${r < 3 ? `\n   next: ${arr[r]}` : '  (max)'}`;
     const nextPick = Math.ceil((pt.lvl + 1) / 5) * 5;
-    const job = jobOf(pt.id), fav = Object.keys(FAV).find(k => FAV[k] === pt.sp);
+    const job = jobOf(pt.id), fav = favJobOf(pt.sp);
     const favName = fav ? BLD[fav].name : 'none';
     if (HUD.detailMode === 'jobs') {
       const jb = JOB_SITES.filter(t => countB(t) > 0).map(t => {
         const free = SAVE.buildings.filter(b => b.t === t && !(b.w && petById(b.w))).length;
-        const f = FAV[t] === pt.sp;
+        const f = isFavSp(t, pt.sp);
         return { label: `${f ? '★ ' : ''}${BLD[t].name}  ·  ${JOB_SHORT[t][f ? 1 : 0]}  (${free} free)`, ev: { type: 'assignJob', id: pt.id, job: t } };
       });
       HUD.detail = {
@@ -592,7 +596,7 @@ export class TownScene extends Combat {
     btns.push({ label: inSq >= 0 ? `REMOVE FROM SQUAD (#${inSq + 1})` : 'ADD TO SQUAD', ev: { type: 'toggleSquad', id: pt.id } });
     btns.push(job ? { label: `STOP WORKING (${BLD[job.t].name})`, ev: { type: 'stopJob', id: pt.id } } : { label: '🛠 GIVE A JOB', ev: { type: 'jobMenu' } });
     btns.push({ label: '← BACK', ev: { type: 'back' } });
-    const jobLine = job ? `Job: ${BLD[job.t].name}${FAV[job.t] === pt.sp ? ' ★ favourite' : ''} — ${JOB_DESC[job.t][FAV[job.t] === pt.sp ? 1 : 0]}` : `No job · favourite: ${favName}`;
+    const jobLine = job ? `Job: ${BLD[job.t].name}${isFavSp(job.t, pt.sp) ? ' ★ favourite' : ''} — ${JOB_DESC[job.t][isFavSp(job.t, pt.sp) ? 1 : 0]}` : `No job · favourite: ${favName}`;
     HUD.detail = {
       name: d.name, icon: pt.sp, xpFrac: pt.lvl >= cap ? 1 : pt.xp / xpNeed(pt.lvl),
       body: `Level ${pt.lvl} / ${cap}   ·   ♥ ${petMaxHp(pt)}${pt.fed ? ' (+1 fed)' : ''}\n${xpLine}\n${jobLine}\n\nACTIVE — ${d.activeName}  (rank ${pt.ar}/3)\n${rk(d.activeRanks, pt.ar)}\n\nPASSIVE — ${d.passiveName}  (rank ${pt.pr}/3)\n${rk(d.passiveRanks, pt.pr)}\n\n${pt.picks ? `★ ${pt.picks} upgrade${pt.picks > 1 ? 's' : ''} ready!` : (pt.ar >= 3 && pt.pr >= 3 ? 'Fully upgraded' : `Next upgrade at level ${nextPick}`)}`,
@@ -631,6 +635,10 @@ export class TownScene extends Combat {
       case 'prompt': {
         const p = HUD.prompt; if (!p || !day || HUD.building) return;
         if (p.action === 'ruins') { if (HUD.runsLeft > 0) this.startRun('ruins'); else HUD.banner = { text: 'TOO LATE FOR THE RUINS', sub: 'End the day and go again tomorrow', t: 2 }; }
+        if (p.action === 'hospital') {
+          if (!gateOpen(2)) HUD.banner = { text: 'BOARDED UP', sub: 'Reclaim the Subway or reach Town Hall 3 to open the north gate', t: 2.6 };
+          else if (HUD.runsLeft > 0) this.startRun('hospital'); else HUD.banner = { text: 'TOO LATE FOR THE HOSPITAL', sub: 'End the day and go again tomorrow', t: 2 };
+        }
         if (p.action === 'subway') {
           if (!this.eastOpen) HUD.banner = { text: 'BOARDED UP', sub: 'Upgrade the Town Hall to level 2 to open the east path to the Subway', t: 2.6 };
           else if (HUD.runsLeft > 0) this.startRun('subway'); else HUD.banner = { text: 'TOO LATE FOR THE SUBWAY', sub: 'End the day and go again tomorrow', t: 2 };
@@ -953,7 +961,7 @@ export class TownScene extends Combat {
           const was = SAVE.research[pt.sp] || 0;
           if (pt.lvl > 1 && was < 100) {
             pt.lvl--; pt.xp = 0; out.spent = (out.spent || 0) + 1;
-            SAVE.research[pt.sp] = Math.min(100, was + T.labRate);
+            SAVE.research[pt.sp] = Math.min(100, was + T.labRate + ((SAVE.reclaimed || {}).north ? 2 : 0));
             if (was < 100 && SAVE.research[pt.sp] >= 100) out.studied.push(pt.sp);
           }
         }
@@ -1091,6 +1099,7 @@ export class TownScene extends Combat {
     if (this.phase === 'day' && !HUD.building && !HUD.panel) {
       if (dist(h, this.ruinsPos) < 70) HUD.prompt = { label: HUD.runsLeft > 0 ? 'ENTER THE RUINS' : 'RUINS: COME BACK TOMORROW', action: 'ruins' };
       else if (dist(h, this.subPos) < 70) HUD.prompt = { label: !this.eastOpen ? 'SUBWAY: TOWN HALL LV 2 OPENS THIS PATH' : HUD.runsLeft > 0 ? 'ENTER THE SUBWAY' : 'SUBWAY: COME BACK TOMORROW', action: 'subway' };
+      else if (this.northPos && dist(h, this.northPos) < 70) HUD.prompt = { label: !gateOpen(2) ? 'HOSPITAL: TOWN HALL 3 OR RECLAIM THE SUBWAY' : HUD.runsLeft > 0 ? 'ENTER THE HOSPITAL' : 'HOSPITAL: COME BACK TOMORROW', action: 'hospital' };
       else if (dist(h, this.hallPos) < 100) HUD.prompt = { label: 'TOWN HALL', action: 'hall' };
       else if (dist(h, this.penPos) < 95) HUD.prompt = { label: 'CREATURE PEN', action: 'pen' };
       else if (dist(h, this.warPos) < 95) HUD.prompt = { label: SAVE.raidWarn ? 'MAP TABLE  ·  ⚠ BANDITS TONIGHT' : 'MAP TABLE', action: 'war' };

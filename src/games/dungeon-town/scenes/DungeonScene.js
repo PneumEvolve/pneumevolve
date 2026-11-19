@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { V, dist, kids } from '../util';
-import { COLS, FIRST_CATCH, FIRST_SUB, RH, ROWS, RW, SP, T, TILE, WILD, WILD_SUB } from '../tuning';
-import { BOSS_ROOM, FINAL_ROOM, SUB_BOSS, SUB_FINAL, SUB_TEMPLATES, TEMPLATES, subwayWaves, wavesFor } from '../maps';
+import { COLS, FIRST_CATCH, FIRST_HOS, FIRST_SUB, RH, ROWS, RW, SP, T, TILE, WILD, WILD_HOS, WILD_SUB } from '../tuning';
+import { BOSS_ROOM, FINAL_ROOM, HOS_BOSS, HOS_FINAL, HOS_TEMPLATES, SUB_BOSS, SUB_FINAL, SUB_TEMPLATES, TEMPLATES, hospitalWaves, subwayWaves, wavesFor } from '../maps';
 import { HUD, SAVE, addPet, labActive, writeSave } from '../state';
 import { makeTextures } from '../textures';
 import { Combat } from '../combat';
@@ -20,14 +20,19 @@ export class DungeonScene extends Combat {
     HUD.scene = 'dungeon';
     HUD.maxHp = run.maxHp; HUD.hp = run.hp; HUD.room = run.room; HUD.scrap = run.scrap; HUD.cages = run.cages; HUD.parts = run.parts || 0;
     this.dg = run.dungeon || 'ruins';
-    const dgName = this.dg === 'subway' ? 'SUBWAY' : 'RUINS';
+    const DGS = {
+      ruins: { name: 'RUINS', tpl: TEMPLATES, boss: BOSS_ROOM, fin: FINAL_ROOM, waves: wavesFor, wild: WILD, first: FIRST_CATCH, theme: 'ruins' },
+      subway: { name: 'SUBWAY', tpl: SUB_TEMPLATES, boss: SUB_BOSS, fin: SUB_FINAL, waves: subwayWaves, wild: WILD_SUB, first: FIRST_SUB, theme: 'subway' },
+      hospital: { name: 'HOSPITAL', tpl: HOS_TEMPLATES, boss: HOS_BOSS, fin: HOS_FINAL, waves: hospitalWaves, wild: WILD_HOS, first: FIRST_HOS, theme: 'hospital' },
+    };
+    this.DG = DGS[this.dg] || DGS.ruins;
+    const dgName = this.DG.name;
     HUD.dungeonName = dgName;
     HUD.banner = { text: run.room === T.rooms ? 'FINAL ROOM' : T.bossRooms.includes(run.room) ? 'BOSS ROOM' : `${dgName} · ROOM ${run.room}`, t: 1.4 };
     HUD.prompt = null; HUD.building = false; HUD.panel = null; HUD.night = null;
 
     this.isExtractRoom = T.extractRooms.includes(run.room);
-    const sub = this.dg === 'subway';
-    const tpl = run.room === T.rooms ? (sub ? SUB_FINAL : FINAL_ROOM) : T.bossRooms.includes(run.room) ? (sub ? SUB_BOSS : BOSS_ROOM) : Phaser.Utils.Array.GetRandom(sub ? SUB_TEMPLATES : TEMPLATES);
+    const tpl = run.room === T.rooms ? this.DG.fin : T.bossRooms.includes(run.room) ? this.DG.boss : Phaser.Utils.Array.GetRandom(this.DG.tpl);
     this.grid = tpl.map(r => r.padEnd(COLS, '#').slice(0, COLS));
     this.physics.world.setBounds(0, 0, RW, RH);
     this.solids = this.physics.add.staticGroup();
@@ -40,17 +45,17 @@ export class DungeonScene extends Combat {
 
     // a wild creature? first-time catches are guaranteed in their room
     const owned = (sp) => SAVE.pets.some(pt => pt.sp === sp) || run.captured.includes(sp);
-    const first = (sub ? FIRST_SUB : FIRST_CATCH)[run.room];
+    const first = this.DG.first[run.room];
     let wildSp = null;
     run.wildSeen = run.wildSeen || [];
     if (first && !owned(first) && !run.wildSeen.includes(first)) wildSp = first;
     else if (Math.random() < (labActive('bat') ? 0.7 : 0.45)) {
-      const WT = sub ? WILD_SUB : WILD;
+      const WT = this.DG.wild;
       const opts = Object.keys(WT).filter(sp => run.room >= WT[sp][0] && run.room <= WT[sp][1] && !run.wildSeen.includes(sp));
       if (opts.length) wildSp = Phaser.Utils.Array.GetRandom(opts);
     }
     if (wildSp) { run.wildSeen.push(wildSp); this.spawnWild(wildSp); }
-    this.waves = sub ? subwayWaves(run.room) : wavesFor(run.room);
+    this.waves = this.DG.waves(run.room);
     this.setupTrains();
     this.waveIdx = -1; this.waveDelay = 1.0;
     this.roomClear = false; this.extractT = 0;
@@ -65,7 +70,7 @@ export class DungeonScene extends Combat {
 
   buildRoom() {
     const grid = this.grid;
-    this.spawns = []; this.doorZones = [];
+    this.spawns = []; this.doorZones = []; this.vents = [];
     const px = [], hx = [], dx = [];
     this.buildSolidRuns(grid, COLS, ROWS, '#');
     for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
@@ -73,6 +78,7 @@ export class DungeonScene extends Combat {
       if (ch === 'c') { const cr = this.crates.create(x, y, 'crate'); cr.refreshBody(); cr.hp = 2; cr.setDepth(5 + y / 1000); }
       if (ch === 'r') { const rb = this.solids.create(x, y, 'rubble'); rb.refreshBody(); rb.setDepth(5 + y / 1000); }
       if (ch === 's') this.spawns.push({ x, y });
+      if (ch === 'v') { this.add.image(x, y, 'vent').setDepth(1.2); this.vents.push({ x, y, t: Phaser.Math.FloatBetween(2, 6) }); }
       if (ch === 'P') px.push({ x, y });
       if (ch === 'H') hx.push({ x, y });
       if (ch === 'D') { dx.push({ x, y }); const z = this.add.zone(x, y, TILE, TILE); this.physics.add.existing(z, true); this.solids.add(z); this.doorZones.push(z); }
@@ -81,7 +87,7 @@ export class DungeonScene extends Combat {
     this.entry = avg(px) || { x: RW / 2, y: RH - TILE * 1.5 };
     this.hatchPos = avg(hx) || { x: RW / 2, y: RH / 2 };
     this.doorPos = avg(dx);
-    this.drawGridFloor(grid, COLS, ROWS, '#D', (this.run.dungeon || 'ruins') === 'subway' ? 'subway' : 'ruins');
+    this.drawGridFloor(grid, COLS, ROWS, '#D', this.DG.theme);
     this.doorG = this.add.graphics().setDepth(3);
     this.drawDoor(false);
     this.hatch = this.add.image(this.hatchPos.x, this.hatchPos.y, 'hatch').setDepth(1.5).setVisible(false);
@@ -103,6 +109,19 @@ export class DungeonScene extends Combat {
   }
 
   // ---- trains (subway): a lane flashes, then a train sweeps through and wrecks everything on it
+  // gas vents (hospital): hiss, then puff a drifting toxic cloud
+  updateVents(dt) {
+    if (!this.vents || !this.vents.length || this.roomClear) return;
+    this.vents.forEach(v => {
+      v.t -= dt;
+      if (v.t < 0.8 && !v.hiss) { v.hiss = true; this.spark(v.x, v.y, 0x9fd14a, 6); }
+      if (v.t <= 0) {
+        v.t = Phaser.Math.FloatBetween(6, 9); v.hiss = false;
+        this.addGas(v.x, v.y, 70, 3.5, { foe: true, zombies: true, vx: Phaser.Math.Between(-14, 14), vy: Phaser.Math.Between(-14, 14) });
+      }
+    });
+  }
+
   setupTrains() {
     this.lanes = [];
     this.grid.forEach((row, r) => { if (row.includes('=')) this.lanes.push({ y: r * TILE + TILE / 2, state: 'wait', t: Phaser.Math.FloatBetween(4, 8), dir: 1, train: null }); });
@@ -135,6 +154,7 @@ export class DungeonScene extends Combat {
   sceneUpdate(dt) {
     HUD.cages = this.run.cages;
     this.updateTrains(dt);
+    this.updateVents(dt);
     this.updateWaves(dt);
     this.updateExits(dt);
   }
@@ -201,7 +221,7 @@ export class DungeonScene extends Combat {
     SAVE.runs++; if (this.dg === 'ruins') SAVE.bestRoom = Math.max(SAVE.bestRoom, run.room);
     SAVE.best = SAVE.best || {}; SAVE.best[this.dg] = Math.max(SAVE.best[this.dg] || 0, run.room);
     run.captured.forEach(sp => addPet(sp));
-    const clearKey = this.dg === 'subway' ? 'subwayCleared' : 'ruinsCleared';
+    const clearKey = `${this.dg}Cleared`;
     const firstClear = run.room >= T.rooms && !SAVE[clearKey];
     if (run.room >= T.rooms) SAVE[clearKey] = true;
     writeSave();

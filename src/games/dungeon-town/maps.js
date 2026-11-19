@@ -24,6 +24,33 @@ export const SUB_BOSS = ['#########DD#########', '#s................s#', '#.....
 
 export const SUB_FINAL = SUB_BOSS.map((r, i) => (i === 0 ? '####################' : r));
 
+// Hospital: 'v' = gas vents (puff toxic clouds)
+export const HOS_TEMPLATES = [
+  ['#########DD#########', '#s................s#', '#....v........v....#', '#..................#', '#...#..c....c..#...#', '#...#..........#...#', '#s.......HH.......s#', '#..................#', '#......c....c......#', '#....v........v....#', '#..................#', '#s.......PP.......s#', '####################'],
+  ['#########DD#########', '#s................s#', '#..rr..rr..rr..rr..#', '#..................#', '#.........v........#', '#..c............c..#', '#s.......HH.......s#', '#..................#', '#..v............v..#', '#..................#', '#..rr..rr..rr..rr..#', '#s.......PP.......s#', '####################'],
+  ['#########DD#########', '#s.......##.......s#', '#........##........#', '#..v............v..#', '#.....c......c.....#', '#..................#', '#s.......HH.......s#', '#..####......####..#', '#..................#', '#.....v......v.....#', '#..................#', '#s.......PP.......s#', '####################'],
+];
+export const HOS_BOSS = ['#########DD#########', '#s................s#', '#..v............v..#', '#..................#', '#.....r......r.....#', '#..................#', '#s.......HH.......s#', '#..................#', '#.....r......r.....#', '#..................#', '#..v............v..#', '#s.......PP.......s#', '####################'];
+export const HOS_FINAL = HOS_BOSS.map((r, i) => (i === 0 ? '####################' : r));
+
+export function hospitalWaves(room) {
+  const fixed = {
+    1: [['patient', 'patient', 'walker'], ['patient', 'patient', 'patient', 'runner']],
+    2: [['walker', 'gasser', 'patient', 'patient'], ['spitter', 'patient', 'patient', 'gasser']],
+    3: [['gasser', 'gasser', 'patient', 'walker'], ['brute', 'patient', 'patient']],
+    4: [['spitter', 'spitter', 'patient', 'patient', 'gasser'], ['brute', 'gasser', 'patient', 'patient', 'patient']],
+    5: [['patient', 'patient', 'gasser', 'walker'], ['zero', 'patient', 'patient']],
+    10: [['brute', 'gasser', 'gasser', 'spitter', 'patient', 'patient'], ['zero', 'brute', 'patient', 'patient', 'patient']],
+  };
+  if (fixed[room]) return fixed[room].map(w => w.slice());
+  const pool = ['patient', 'patient', 'walker', 'gasser', 'spitter', 'runner', 'bloater'];
+  const n = 3 + Math.floor(room / 2);
+  const mk = (k) => { const w = []; for (let i = 0; i < k; i++) w.push(Phaser.Utils.Array.GetRandom(pool)); return w; };
+  const waves = [mk(n), mk(n), mk(n - 1)];
+  if (room >= 7) waves[2].push('brute');
+  return waves;
+}
+
 export function subwayWaves(room) {
   const fixed = {
     1: [['walker', 'walker', 'crawler'], ['runner', 'runner', 'crawler', 'walker']],
@@ -193,6 +220,6 @@ export const TOWN_MAP = [
 export const DISTRICTS = [
   { key: 'ruins', name: 'The Ruins', gate: 'w', dir: 'W', dungeon: 'ruins', boss: 'The Warden', camps: [0, 1, 2], th: 1, ready: true, perk: 'Survivors farm: Farms +25%', icon: 'hatch' },
   { key: 'subway', name: 'The Subway', gate: 'e', dir: 'E', dungeon: 'subway', boss: 'The Tunnel Mother', camps: [3, 4, 5], th: 2, ready: true, perk: 'Survivors salvage: Salvage Yards +2 🔩', icon: 'stairs' },
-  { key: 'north', name: '???', gate: 'n', dir: 'N', dungeon: null, boss: '???', camps: [], th: 3, ready: false, perk: '', icon: 'boards' },
+  { key: 'north', name: 'The Hospital', gate: 'n', dir: 'N', dungeon: 'hospital', boss: 'Patient Zero', camps: [], th: 3, ready: true, perk: 'The Lab studies +2% faster', icon: 'cross' },
   { key: 'south', name: '???', gate: 's', dir: 'S', dungeon: null, boss: '???', camps: [], th: 4, ready: false, perk: '', icon: 'boards' },
 ];

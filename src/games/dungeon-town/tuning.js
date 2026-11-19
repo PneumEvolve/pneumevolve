@@ -43,6 +43,10 @@ export const E = {
   shrieker: { hp: 5, speed: 65, keep: 300, screamCd: 5, windup: 0.8, screamR: 230, scrap: [2, 3] },
   mother:  { hp: 60, speed: 28, dmg: 1, spawnCd: 5, volleyCd: 3.2, scrap: [12, 16] },
   bloater: { hp: 4, speed: 58, fuseRange: 45, fuse: 0.7, deathFuse: 0.35, boomR: 90, dmg: 2, scrap: [1, 2] },
+  // hospital
+  patient: { hp: 3, speed: 135, windupRange: 55, windup: 0.3, lunge: 480, lungeT: 0.14, recover: 0.45, dmg: 1, scrap: [1, 1] },
+  gasser:  { hp: 5, speed: 66, windupRange: 65, windup: 0.5, lunge: 380, lungeT: 0.18, recover: 0.6, dmg: 1, scrap: [1, 2] },
+  zero:    { hp: 60, speed: 52, dmg: 1, callCd: 6, coughCd: 5, scrap: [14, 18] },
   // bandits: they stand guard until you get close, then shout and come for you
   rifleman: { hp: 6, speed: 85, keep: 260, fireCd: 1.9, windup: 0.45, spitSpeed: 470, dmg: 1, scrap: [2, 3], tex: 'bbullet', bandit: true },
   bruiser: { hp: 11, speed: 115, windupRange: 75, windup: 0.4, lunge: 520, lungeT: 0.18, recover: 0.5, dmg: 1, scrap: [2, 4], bandit: true },
@@ -123,6 +127,18 @@ SP.bat = { name: 'Pipe Bat', hearts: 2, fly: true, attack: 'zap', boltColor: 0xb
   activeRanks: ['Stuns zombies within 160 for 1.5s, digs out crawlers', 'Radius 220', 'Stun 2.5s, cooldown -2s'],
   passiveRanks: ['Pet cooldowns -15%', '-25%', '-35%'] };
 
+SP.ram = { name: 'Rad Ram', hearts: 4, speed: 210, fly: false, attack: 'melee', dmg: 2, cd: 1.5, range: 52, body: [13, 12, 14], wildHp: 12,
+  active: 'charge', activeName: 'CHARGE', cdMax: 9, aim: true, activeDesc: 'Rams in a line, smashing zombies and walls',
+  passive: 'demolish', passiveName: 'Demolition', passiveDesc: 'Your squad does +50% damage to buildings (camps, raids)',
+  activeRanks: ['Charge: 3 dmg to everything in the line, smashes walls', 'Longer charge, +1 damage', 'Stuns what it hits, cooldown -2s'],
+  passiveRanks: ['+50% damage to buildings', '+75%', '+100%'] };
+
+SP.toad = { name: 'Gas Toad', hearts: 3, speed: 200, fly: false, attack: 'zap', boltColor: 0x8fae4a, dmg: 1, cd: 1.4, range: 170, body: [12, 14, 18], wildHp: 9,
+  active: 'cloud', activeName: 'TOXIC CLOUD', cdMax: 9, aim: true, activeDesc: 'Spits a cloud that hurts everything inside',
+  passive: 'thickskin', passiveName: 'Thick Skin', passiveDesc: 'You and your pets ignore gas',
+  activeRanks: ['A toxic cloud for 4s (1 dmg every 0.6s)', 'Bigger cloud', 'Lasts 6s and slows zombies, cooldown -2s'],
+  passiveRanks: ['You and your pets ignore gas', 'Also: the toad gets +1 heart', 'Also: enemy gas clouds fade twice as fast'] };
+
 // where wild creatures live in the ruins (room range)
 export const WILD = { rat: [1, 6], crow: [2, 5], beetle: [3, 8], hound: [4, 9], moth: [6, 10] };
 
@@ -131,6 +147,10 @@ export const FIRST_CATCH = { 1: 'rat', 2: 'crow', 3: 'beetle', 6: 'moth' }; // g
 export const WILD_SUB = { mole: [1, 7], crow: [2, 6], bat: [3, 10] };
 
 export const FIRST_SUB = { 2: 'mole', 4: 'bat' };
+
+export const WILD_HOS = { toad: [2, 7], ram: [4, 9], moth: [5, 10] };
+
+export const FIRST_HOS = { 2: 'toad', 4: 'ram' };
 
 export const MIL_ITEMS = ['wall', 'gate', 'wire', 'spikes', 'turret', 'guard'];
 
@@ -158,7 +178,7 @@ export const amtTxt = (k, n) => (isRes(k) ? `+${n} ${RES_ICON[k]}` : `${n} ${nam
 
 export const recipeOf = (b) => (RECIPES[b.t] ? (RECIPES[b.t].includes(b.rcp) ? b.rcp : RECIPES[b.t][0]) : null);
 
-export const XP = { walker: 2, runner: 2, spitter: 3, bloater: 3, brute: 8, crawler: 3, shrieker: 4, boss: 30, rifleman: 4, bruiser: 4, bturret: 5, radio: 12 };
+export const XP = { walker: 2, runner: 2, spitter: 3, bloater: 3, brute: 8, crawler: 3, shrieker: 4, boss: 30, rifleman: 4, bruiser: 4, patient: 2, gasser: 3, bturret: 5, radio: 12 };
 
 export const PERKS = { tough: ['Tough', '+1 max heart'], quick: ['Quickdraw', '+1 ammo, reload 25% faster'], blade: ['Blademaster', '+1 sword damage'], gunner: ['Gunner', '+1 gun damage'], fleet: ['Fleet', 'Dash recharges 30% faster'] };
 
@@ -166,6 +186,11 @@ export const PERKS = { tough: ['Tough', '+1 max heart'], quick: ['Quickdraw', '+
 export const JOB_SITES = ['workbench', 'kitchen', 'farm', 'salvage', 'storehouse', 'turret', 'guard'];
 
 export const FAV = { workbench: 'hound', kitchen: 'moth', farm: 'beetle', storehouse: 'rat', turret: 'crow', guard: 'mole', salvage: 'bat' };
+// buildings can share favourites
+export const FAV_EXTRA = { salvage: ['ram'], farm: ['toad'] };
+export const favs = (t) => [FAV[t]].concat(FAV_EXTRA[t] || []).filter(Boolean);
+export const isFavSp = (t, sp) => favs(t).includes(sp);
+export const favJobOf = (sp) => Object.keys(FAV).find(k => FAV[k] === sp) || Object.keys(FAV_EXTRA).find(k => FAV_EXTRA[k].includes(sp));
 
 // Lab: what each species gives once Studied (forever), and while one is in the Lab (active)
 export const LAB_BONUS = {
@@ -176,6 +201,8 @@ export const LAB_BONUS = {
   beetle: { studied: 'Buildings +20% HP', active: 'Walls and gates +50% HP at night' },
   mole:   { studied: 'A buried stash every room, any squad', active: 'Buried stashes hold double' },
   bat:    { studied: 'You move 10% faster', active: 'Wild creatures show up more often' },
+  ram:    { studied: 'Your hits do +25% to walls and turrets', active: 'Salvage Yards +2 🔩' },
+  toad:   { studied: 'Gas can\'t hurt you or your pets, anywhere', active: 'Farms +2 🌾' },
 };
 export const JOB_SHORT = { workbench: ['+1 item', '+2 items'], kitchen: ['+1 item', '+2 items'], farm: ['+50%', '+100%'], salvage: ['+2 🔩', '+4 🔩'], storehouse: ['protects +50 ⚙', 'protects +100 ⚙'], turret: ['+1 damage', '+1 dmg, 25% faster'], guard: ['guards at night', '+2 ♥ guard, Engineer'] };
 // what the next building level does
@@ -193,4 +220,4 @@ export const JOB_DESC = {
 // ---- items: the town makes them each morning into your stash
 export const ITEMS = { cage: 'Cage', medkit: 'Med Kit', treat: 'Pet Treat', lure: 'Noise Lure', ammo: 'Turret Ammo' };
 
-export const SP_COLOR = { hound: 0xe08a3c, crow: 0x5fd3ff, rat: 0xb0b8c0, moth: 0xf2d14b, beetle: 0xd0392b, mole: 0x9c6b3e, bat: 0xb48cff };
+export const SP_COLOR = { hound: 0xe08a3c, crow: 0x5fd3ff, rat: 0xb0b8c0, moth: 0xf2d14b, beetle: 0xd0392b, mole: 0x9c6b3e, bat: 0xb48cff, ram: 0xd8d8d0, toad: 0x8fae4a };

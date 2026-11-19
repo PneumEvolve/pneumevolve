@@ -104,6 +104,7 @@ export class Combat extends Phaser.Scene {
 
     this.fx = this.add.graphics().setDepth(900);
     this.pickups = []; this.cage = null; this.wild = null; this.pending = 0; this.magnetAll = false;
+    this.gas = [];
     this.squadRecs = this.getSquadRecs();
     this.computePassives();
     this.activePets = [null, null]; this.ratlings = []; this.lures = []; this.staticT = 5;
@@ -131,7 +132,9 @@ export class Combat extends Phaser.Scene {
   }
 
   drawGridFloor(grid, cols, rows, wallChars, theme) {
-    const TH_ = theme === 'subway'
+    const TH_ = theme === 'hospital'
+      ? { wall: '#465454', wd1: '#3b4848', wd2: '#526262', face: '#2a3535', mortar: '#1c2626', f: ['#363f3d', '#39423f', '#333c3a'], grid: '#2b3331', fd1: '#262e2c', fd2: '#434c4a', tiles: true }
+      : theme === 'subway'
       ? { wall: '#34444c', wd1: '#2c3a41', wd2: '#3f525b', face: '#22303a', mortar: '#18232a', f: ['#2b2f33', '#2d3135', '#292d31'], grid: '#23272b', fd1: '#232629', fd2: '#34383d', tiles: true }
       : { wall: '#353a42', wd1: '#2c3037', wd2: '#40464f', face: '#22262c', mortar: '#1a1d22', f: ['#24272c', '#262a2f', '#222529'], grid: '#1f2226', fd1: '#1c1f23', fd2: '#2e3238' };
     const W = cols * TILE, H = rows * TILE;
@@ -277,6 +280,7 @@ export class Combat extends Phaser.Scene {
       if (this.cage && dist(s, this.cage) < 26) { this.splash(s); this.damageCage(1); }
     });
     this.updatePickups(dt);
+    this.updateGas(dt);
     this.updateStash();
     this.sceneUpdate(dt, time);
     if (this.leaving) return;
@@ -306,7 +310,7 @@ export class Combat extends Phaser.Scene {
   spawnEnemy(type, x, y) {
     let elite = false;
     if (type === 'boss') { type = 'brute'; elite = true; }
-    if (type === 'mother') elite = true;
+    if (type === 'mother' || type === 'zero') elite = true;
     const def = E[type];
     const z = this.enemies.create(x, y, type);
     z.type = type; z.hp = def.hp; z.mode = 'chase'; z.t = 0; z.kbT = 0; z.stun = 0; z.aggro = 0; z.spikeT = 0;
@@ -316,6 +320,9 @@ export class Combat extends Phaser.Scene {
     else if (type === 'bloater') z.body.setCircle(15, 9, 12);
     else if (type === 'crawler') z.body.setCircle(12, 12, 20);
     else if (type === 'mother') { z.body.setCircle(30, 10, 12); z.spawnT = 2.5; z.volT = 2; z.face = 0; }
+    else if (type === 'zero') { z.body.setCircle(18, 22, 30); z.callT = 3; z.coughT = 3.5; z.trailT = 1; }
+    else if (type === 'gasser') z.body.setCircle(15, 9, 12);
+    else if (type === 'patient') z.body.setCircle(11, 13, 18);
     else z.body.setCircle(13, 11, 16);
     if (type === 'spitter' || type === 'rifleman') { z.fireT = Phaser.Math.FloatBetween(1, 2); z.strafe = Math.random() < 0.5 ? 1 : -1; }
     if (type === 'bruiser') z.body.setCircle(13, 19, 24);
@@ -327,6 +334,7 @@ export class Combat extends Phaser.Scene {
     if (type === 'crawler') { z.mode = 'burrow'; z.hidden = true; z.setAlpha(0.25); z.t = 0; }
     if (type === 'shrieker') { z.fireT = Phaser.Math.FloatBetween(2, 3.5); z.strafe = Math.random() < 0.5 ? 1 : -1; }
     if (elite && type === 'mother') { z.elite = true; z.hp = z.maxHpE = 50 + (this.run ? this.run.room : 5) * 4; }
+    else if (elite && type === 'zero') { z.elite = true; z.hp = z.maxHpE = 55 + (this.run ? this.run.room : 5) * 4; }
     else if (elite) { z.elite = true; z.hp = z.maxHpE = 30 + (this.run ? this.run.room : 5) * 3; z.spd *= 1.15; }
     z.setScale(0.2);
     this.tweens.add({ targets: z, scale: elite && type === 'brute' ? 1.4 : 1, alpha: z.hidden ? 0.25 : 1, duration: 220, ease: 'Back.out' });
@@ -371,7 +379,8 @@ export class Combat extends Phaser.Scene {
     const tg = this.targetFor(z);
     const dx = tg.x - z.x, dy = tg.y - z.y, d = Math.hypot(dx, dy) || 1;
     if (z.type !== 'brute' && z.type !== 'mother' && Math.abs(dx) > 3) z.setFlipX(dx < 0);
-    if (z.type === 'walker' || z.type === 'runner' || z.type === 'bruiser') this.updateLunger(z, def, tg, dx, dy, d, dt);
+    if (z.type === 'walker' || z.type === 'runner' || z.type === 'bruiser' || z.type === 'patient' || z.type === 'gasser') this.updateLunger(z, def, tg, dx, dy, d, dt);
+    else if (z.type === 'zero') this.updateZero(z, def, tg, dx, dy, d, dt);
     else if (z.type === 'spitter' || z.type === 'rifleman') this.updateSpitter(z, def, tg, dx, dy, d, dt);
     else if (z.type === 'brute') this.updateBrute(z, def, tg, dx, dy, d, dt);
     else if (z.type === 'bloater') this.updateBloater(z, def, tg, dx, dy, d, dt, time);
@@ -430,6 +439,64 @@ export class Combat extends Phaser.Scene {
   }
 
   // boss: slow, spawns crawlers, fires acid volleys
+  // Patient Zero: leaves a gas trail, calls in Patients, coughs a cloud where you stand
+  updateZero(z, def, tg, dx, dy, d, dt) {
+    z.callT -= dt; z.coughT -= dt; z.trailT -= dt;
+    if (z.trailT <= 0) { z.trailT = 1.1; this.addGas(z.x, z.y + 10, 42, 3.5, { foe: true }); }
+    if (z.mode === 'cough') {
+      z.t -= dt; z.setVelocity(0, 0);
+      if (z.t <= 0) { untint(z); z.mode = 'chase'; this.addGas(z.coughAt.x, z.coughAt.y, 85, 4, { foe: true, zombies: false }); this.floatText(z.x, z.y - 50, '*COUGH*', '#b5c94f', 16); }
+      return;
+    }
+    z.setVelocity(dx / d * z.spd, dy / d * z.spd);
+    if (Math.abs(dx) > 3) z.setFlipX(dx < 0);
+    if (z.callT <= 0) {
+      z.callT = def.callCd;
+      const alive = kids(this.enemies).filter(o => o.active && o.type === 'patient').length;
+      if (alive < 8) for (let i = 0; i < 3; i++) this.emerge('patient', z.x + Phaser.Math.Between(-80, 80), z.y + Phaser.Math.Between(-40, 60));
+    }
+    if (z.coughT <= 0 && tg.kind !== 'path' && !HUD.dead) { z.coughT = def.coughCd; z.mode = 'cough'; z.t = 0.9; z.coughAt = { x: tg.x, y: tg.y }; z.setTint(0xb5c94f); }
+  }
+
+  // ---- gas clouds. foe: hurts you + your pets (and zombies too if zombies !== false). Pet clouds hurt enemies only.
+  gasImmune() { return this.prk('thickskin') > 0 || studied('toad'); }
+  addGas(x, y, r, t, o = {}) {
+    if (!this.gas) this.gas = [];
+    if (o.foe && this.prk('thickskin') >= 3) t *= 0.5;
+    this.gas.push({ x, y, r, t, t0: t, tick: 0.3, foe: !!o.foe, zombies: o.foe ? o.zombies !== false : true, slow: !!o.slow, vx: o.vx || 0, vy: o.vy || 0, seed: Math.random() * 10 });
+  }
+  updateGas(dt) {
+    if (!this.gas || !this.gas.length) return;
+    const immune = this.gasImmune();
+    this.gas = this.gas.filter(c => {
+      c.t -= dt; c.x += c.vx * dt; c.y += c.vy * dt;
+      if (c.t <= 0) return false;
+      if (c.slow) kids(this.enemies).forEach(z => { if (z.active && !E[z.type].struct && dist(z, c) < c.r) z.body.velocity.scale(0.6); });
+      c.tick -= dt;
+      if (c.tick > 0) return true;
+      c.tick = 0.6;
+      if (c.foe && !immune && !HUD.dead) {
+        if (dist(this.hero, c) < c.r) this.hurtHero(0, 0, 1);
+        this.allPets().forEach(p => { if (dist(p, c) < c.r) this.damagePet(p, 1, 0, 0); });
+      }
+      if (c.zombies) kids(this.enemies).forEach(z => { if (z.active && !z.dying && dist(z, c) < c.r && (!c.foe || !E[z.type].struct) && z.type !== 'zero' && z.type !== 'gasser') this.damage(z, 1, { x: 0, y: 0 }, 0, false, true, true); });
+      return true;
+    });
+  }
+  drawGas(g, time) {
+    (this.gas || []).forEach(c => {
+      const a = Math.min(1, c.t / 0.6, (c.t0 - c.t) / 0.3 + 0.2) * (c.foe ? 0.32 : 0.28);
+      const col = c.foe ? 0x9fd14a : 0x6bd18a;
+      for (let k = 0; k < 4; k++) {
+        const ang = c.seed + k * 1.6 + time * 0.0007 * (k % 2 ? 1 : -1);
+        g.fillStyle(col, a); g.fillCircle(c.x + Math.cos(ang) * c.r * 0.3, c.y + Math.sin(ang) * c.r * 0.25, c.r * (0.62 + 0.08 * Math.sin(time * 0.003 + k)));
+      }
+    });
+    kids(this.enemies).forEach(z => { if (z.active && z.type === 'zero' && z.mode === 'cough') { g.lineStyle(3, 0xb5c94f, 0.8); g.strokeCircle(z.coughAt.x, z.coughAt.y, 85); } });
+  }
+  // buildings take more damage with a Ram (Demolition) or once the Ram is Studied
+  structMult() { return 1 + [0, 0.5, 0.75, 1][this.prk('demolish')] + (studied('ram') ? 0.25 : 0); }
+
   updateMother(z, def, tg, dx, dy, d, dt) {
     z.spawnT -= dt; z.volT -= dt;
     if (z.mode === 'windup') {
@@ -637,6 +704,7 @@ export class Combat extends Phaser.Scene {
       }
     }
     const kbm = z.type === 'brute' ? 0.15 : 1;
+    if (E[z.type] && E[z.type].struct) dmg *= this.structMult();
     z.hp -= dmg;
     if (z.mode !== 'fuse' && kb > 0) { z.kbx = dir.x * kb * kbm; z.kby = dir.y * kb * kbm; z.kbT = 0.12; }
     if (interrupt && z.mode === 'windup' && z.type !== 'brute') this.cancelWindup(z);
@@ -651,6 +719,7 @@ export class Combat extends Phaser.Scene {
 
   killEnemy(z) {
     HUD.kills = (HUD.kills || 0) + 1;
+    if (z.type === 'gasser') this.addGas(z.x, z.y, 75, 4, { foe: true, zombies: true });
     if (z.gunImg) z.gunImg.destroy();
     this.gainXp(z.elite ? 'boss' : z.type);
     const big = z.type === 'brute';
@@ -1004,6 +1073,7 @@ export class Combat extends Phaser.Scene {
       p.setAlpha(p.dig ? 0.2 : p.iv > 0 ? (Math.floor(time / 70) % 2 ? 0.4 : 1) : 1);
       if (p.shellT > 0) p.setTint(0xffd166); else if (p.iv <= 0) untint(p);
       if (p.mode === 'pounce') { p.t -= dt; p.setVelocity(p.vx, p.vy); if (p.t <= 0) this.pounceLand(p); return; }
+      if (p.mode === 'charge') { this.chargeStep(p, dt); return; }
       if (p.kbT > 0) { p.kbT -= dt; p.setVelocity(p.kbx, p.kby); return; }
       if (dist(p, h) > 520) p.setPosition(h.x - 30, h.y + 20);
       const low = p.rec.hp <= 1 && p.rec.maxHp > 1;
@@ -1192,6 +1262,27 @@ export class Combat extends Phaser.Scene {
       this.floatText(h.x, h.y - 44, 'SCREECH!', '#b48cff', 16);
       this.cameras.main.shake(100, 0.005);
       used();
+    } else if (def.active === 'charge') {
+      if (p.mode === 'charge' || p.mode === 'pounce') return;
+      let d;
+      if (dir) d = new V(dir.x, dir.y).normalize();
+      else { const z = this.nearestEnemy(p.x, p.y, 380, false); d = z ? new V(z.x - p.x, z.y - p.y).normalize() : new V(this.facing.x, this.facing.y); }
+      const dur = ar >= 2 ? 0.42 : 0.3, spd = 720;
+      p.mode = 'charge'; p.t = dur; p.vx = d.x * spd; p.vy = d.y * spd; p.ar = ar; p.hitSet = new Set();
+      p.body.checkCollision.none = true; p.setFlipX(p.vx < 0);
+      this.floatText(p.x, p.y - 30, 'CHARGE!', '#d8d8d0', 15);
+      used();
+    } else if (def.active === 'cloud') {
+      let lx, ly;
+      if (dir) { lx = h.x + dir.x * 200; ly = h.y + dir.y * 200; }
+      else { const z = this.nearestEnemy(h.x, h.y, 420, false); if (z) { lx = z.x; ly = z.y; } else { lx = h.x + this.facing.x * 160; ly = h.y + this.facing.y * 160; } }
+      const blob = this.add.image(p.x, p.y, 'spit').setTint(0x6bd18a).setScale(1.6).setDepth(850);
+      this.tweens.add({ targets: blob, x: lx, y: ly, duration: 260, ease: 'Quad.out', onComplete: () => {
+        blob.destroy();
+        this.addGas(lx, ly, ar >= 2 ? 100 : 80, (ar >= 3 ? 6 : 4) + (this.prk('thickskin') >= 2 ? 0 : 0), { foe: false, slow: ar >= 3 });
+        this.ring(lx, ly, ar >= 2 ? 100 : 80, 0x6bd18a);
+      } });
+      used();
     } else if (def.active === 'shell') {
       p.shellT = ar >= 2 ? 4.5 : 3;
       if (ar >= 3) this.healPet(p.rec, 1);
@@ -1199,6 +1290,25 @@ export class Combat extends Phaser.Scene {
       this.floatText(p.x, p.y - 30, 'OVER HERE!', '#ffd166', 15);
       used();
     }
+  }
+
+  chargeStep(p, dt) {
+    p.t -= dt;
+    const nx = Phaser.Math.Clamp(p.x + p.vx * dt, TILE * 1.2, this.worldW - TILE * 1.2), ny = Phaser.Math.Clamp(p.y + p.vy * dt, TILE * 1.2, this.worldH - TILE * 1.2);
+    p.setVelocity(0, 0); p.setPosition(nx, ny);
+    if (Math.random() < 0.6) this.spark(p.x, p.y + 10, 0xd8d8d0, 2);
+    const dmg = 3 + ((p.ar || 1) >= 2 ? 1 : 0) + this.petAttackBonus(), dv = new V(p.vx, p.vy).normalize();
+    this.hittables(false).forEach(z => {
+      if (p.hitSet.has(z) || dist(p, z) > 40) return;
+      p.hitSet.add(z);
+      this.damage(z, dmg, dv, 360, true, true);
+      if ((p.ar || 1) >= 3) this.stunEnemy(z, 1.2);
+    });
+    if (this.crates) kids(this.crates).forEach(c => {
+      if (!c.active || p.hitSet.has(c) || dist(p, c) > 44) return;
+      p.hitSet.add(c); this.hitCrate(c, 8 * this.structMult()); this.cameras.main.shake(90, 0.006);
+    });
+    if (p.t <= 0) { p.mode = 'follow'; p.body.checkCollision.none = false; p.hitSet = null; }
   }
 
   pounceLand(p) {
@@ -1339,6 +1449,7 @@ export class Combat extends Phaser.Scene {
   drawFx(time) {
     const g = this.fx, h = this.hero;
     g.clear();
+    this.drawGas(g, time);
     if (!HUD.dead && !this.inputFrozen()) { g.lineStyle(2, 0xffffff, 0.07); g.strokeCircle(h.x, h.y, T.meleeRange); }
     if (this.lureArmed && !HUD.dead) { const d = Ctl.aim || this.facing; const lx = h.x + d.x * 170, ly = h.y + d.y * 170; g.lineStyle(2, 0xf2d14b, 0.35 + 0.3 * Math.sin(time * 0.012)); g.strokeCircle(lx, ly, 22); g.lineBetween(h.x, h.y, lx, ly); }
     kids(this.enemies).forEach(z => {
