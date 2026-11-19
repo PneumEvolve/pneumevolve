@@ -82,9 +82,12 @@ export function addXp(obj, amt) {
   const cap = levelCap(), ups = [];
   if (obj.lvl >= cap) { obj.xp = 0; return ups; }
   obj.xp += amt;
+  if (obj.peak == null) obj.peak = obj.lvl;
   while (obj.lvl < cap && obj.xp >= xpNeed(obj.lvl)) {
     obj.xp -= xpNeed(obj.lvl); obj.lvl++;
-    if (isMilestone(obj.lvl)) obj.picks = (obj.picks || 0) + 1;
+    // upgrade picks only the first time a level is reached (levels spent in the Lab don't give them again)
+    if (isMilestone(obj.lvl) && obj.lvl > obj.peak) obj.picks = (obj.picks || 0) + 1;
+    obj.peak = Math.max(obj.peak, obj.lvl);
     ups.push(obj.lvl);
   }
   if (obj.lvl >= cap) obj.xp = 0;

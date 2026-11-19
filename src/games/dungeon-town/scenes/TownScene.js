@@ -482,11 +482,11 @@ export class TownScene extends Combat {
       rec.lab = (rec.lab || []).filter(x => petById(x));
       const sps = cureNeeded(), pct = (sp) => Math.min(100, SAVE.research[sp] || 0), short = (sp) => SP[sp].name.split(' ')[1];
       if (HUD.detailMode === 'labpick') {
-        const cand = SAVE.pets.filter(pt => !rec.lab.includes(pt.id)).sort((a, b) => (pct(a.sp) >= 100) - (pct(b.sp) >= 100) || (a.res || 0) - (b.res || 0));
+        const cand = SAVE.pets.filter(pt => !rec.lab.includes(pt.id)).sort((a, b) => (pct(a.sp) >= 100) - (pct(b.sp) >= 100) || b.lvl - a.lvl);
         HUD.detail = {
           name: 'Lab — add a creature', icon: 'lab', xpFrac: curePct() / 100,
-          body: `A creature studies its own species while it's fed: ${T.labRate}% a morning, up to ${T.labCap}%.\nTwo creatures of a species = Studied.\n\nIt stays in the Lab (no runs, no job) and eats 1 🌾 every morning. ${T.labLeave} hungry mornings and it leaves for good.`,
-          buttons: cand.slice(0, 7).map(pt => ({ label: `${SP[pt.sp].name} Lv${pt.lvl}  ·  ${pct(pt.sp) >= 100 ? 'Studied ✓' : `${pct(pt.sp)}%`}${(pt.res || 0) >= T.labCap ? ' (studied out)' : ''}${SAVE.squad.includes(pt.id) ? '  (squad)' : jobOf(pt.id) ? '  (working)' : ''}`, ev: { type: 'labIn', id: pt.id } })).concat([{ label: '← BACK', ev: { type: 'bldBack' } }]),
+          body: `Each fed morning a creature spends 1 level on its species: +${T.labRate}%. A level 10 takes a species all the way (10 → 1). Level 1s have nothing to give.\n\nUpgrades it already earned stay, but it won't earn them again.\nIt stays in the Lab (no runs, no job), eats 1 🌾 every morning, and leaves after ${T.labLeave} hungry mornings.`,
+          buttons: cand.slice(0, 7).map(pt => ({ label: `${SP[pt.sp].name} Lv${pt.lvl}  ·  ${pct(pt.sp) >= 100 ? 'Studied ✓' : `${pct(pt.sp)}% → ${Math.min(100, pct(pt.sp) + (pt.lvl - 1) * T.labRate)}%`}${SAVE.squad.includes(pt.id) ? '  (squad)' : jobOf(pt.id) ? '  (working)' : ''}`, ev: { type: 'labIn', id: pt.id } })).concat([{ label: '← BACK', ev: { type: 'bldBack' } }]),
         };
         return;
       }
@@ -499,8 +499,8 @@ export class TownScene extends Combat {
         };
         return;
       }
-      const lines = [`🧪 Cure: ${curePct()}%   ·   Studied ${sps.filter(sp => pct(sp) >= 100).length} / ${sps.length} species`, `Fed creatures study their species ${T.labRate}% a morning (up to ${T.labCap}% each).`, '', `In the Lab (${rec.lab.length}/${slots}):`];
-      rec.lab.forEach(id => { const pt = petById(id); lines.push(`· ${SP[pt.sp].name}  ${pt.res || 0}/${T.labCap}%${pt.hungry ? `  ⚠ HUNGRY ${pt.hungry}/${T.labLeave}` : ''}`, `   Active: ${LAB_BONUS[pt.sp].active}`); });
+      const lines = [`🧪 Cure: ${curePct()}%   ·   Studied ${sps.filter(sp => pct(sp) >= 100).length} / ${sps.length} species`, `Each fed morning a creature spends 1 level: +${T.labRate}% for its species.`, '', `In the Lab (${rec.lab.length}/${slots}):`];
+      rec.lab.forEach(id => { const pt = petById(id); lines.push(`· ${SP[pt.sp].name}  Lv${pt.lvl}${pct(pt.sp) >= 100 ? '  (species done)' : pt.lvl > 1 ? `  · ${pt.lvl - 1} levels left (+${Math.min(100 - pct(pt.sp), (pt.lvl - 1) * T.labRate)}%)` : '  · nothing left to give'}${pt.hungry ? `  ⚠ HUNGRY ${pt.hungry}/${T.labLeave}` : ''}`, `   Active: ${LAB_BONUS[pt.sp].active}`); });
       if (!rec.lab.length) lines.push('· empty: add a spare creature');
       lines.push('', sps.map(sp => `${short(sp)} ${pct(sp)}%${pct(sp) >= 100 ? '✓' : ''}`).join(' · '));
       const ff = foodForecast();
@@ -949,10 +949,11 @@ export class TownScene extends Combat {
       if (room > 0 && (SAVE.food || 0) >= 1) {
         room--; SAVE.food--; out.fed++; pt.fed = true; pt.hungry = 0;
         if (lab) {
-          const add = Math.min(T.labRate, T.labCap - (pt.res || 0));
-          if (add > 0) {
-            const was = SAVE.research[pt.sp] || 0;
-            pt.res = (pt.res || 0) + add; SAVE.research[pt.sp] = Math.min(100, was + add);
+          // it spends one level of experience on the cure (a level 1 has nothing left to give)
+          const was = SAVE.research[pt.sp] || 0;
+          if (pt.lvl > 1 && was < 100) {
+            pt.lvl--; pt.xp = 0; out.spent = (out.spent || 0) + 1;
+            SAVE.research[pt.sp] = Math.min(100, was + T.labRate);
             if (was < 100 && SAVE.research[pt.sp] >= 100) out.studied.push(pt.sp);
           }
         }
@@ -1062,6 +1063,7 @@ export class TownScene extends Combat {
     if (fd.fed) sub += `\nFed ${fd.fed} creature${fd.fed > 1 ? 's' : ''} (-${fd.fed} 🌾)`;
     if (fd.hungry.length) sub += `\nHungry: ${fd.hungry.join(', ')}${seats() ? '' : '  (build a Kitchen)'}`;
     if (fd.left.length) sub += `\n${fd.left.join(', ')} left the Lab: no food for ${T.labLeave} mornings`;
+    if (fd.spent) sub += `\n🧪 The Lab spent ${fd.spent} level${fd.spent > 1 ? 's' : ''} on the cure (${curePct()}%)`;
     if (fd.studied.length) sub += `\n🧪 STUDIED: ${fd.studied.map(sp => SP[sp].name).join(', ')}! Cure ${curePct()}%`;
     SAVE.day++; SAVE.runsToday = 0; SAVE.raidedToday = false;
     // once you've hit a camp, bandits may come for you; scouts warn you a day ahead

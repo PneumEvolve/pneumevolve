@@ -28,7 +28,7 @@ export const T = {
   runsPerDay: 1,
   nightBase: 90, nightPerDay: 10, nightMax: 180,
   genLossPct: 0.25, storehouseProtects: 50, farmScrap: 20, farmFood: 6, salvageParts: 3, stashBase: 5, stashPerStorehouse: 5,
-  labRate: 10, labCap: 50, labLeave: 3, kitchenSeats: 4, seatsPerLvl: 2,
+  labRate: 12, labLeave: 3, kitchenSeats: 4, seatsPerLvl: 2,
   looterChance: 0.35, crateParts: 0.4, civUpg: [0, 6, 14],
   medkitHeal: 2, treatHeal: 2, lureTime: 6, lureRange: 320,
   respawnTime: 4,
@@ -81,7 +81,7 @@ export const BLD = {
   kitchen:    { name: 'Kitchen', cat: 'civ', cost: 3, hp: 16, pathCost: 30, solid: true, desc: 'Turns Food into Med Kits or Pet Treats every morning.' },
   farm:       { name: 'Farm', cat: 'civ', cost: 2, hp: 16, pathCost: 30, solid: true, desc: 'Grows 20 scrap or 6 Food every morning.' },
   storehouse: { name: 'Storehouse', cat: 'civ', cost: 2, hp: 16, pathCost: 30, solid: true, desc: '+5 stash room, and protects 50 scrap if the generator falls.' },
-  lab:        { name: 'Lab', cat: 'civ', cost: 4, hp: 16, pathCost: 30, solid: true, desc: 'Studies creatures for the cure. A fed creature studies its own species 10% a morning, up to 50%. Two per species = Studied.' },
+  lab:        { name: 'Lab', cat: 'civ', cost: 4, hp: 16, pathCost: 30, solid: true, desc: 'Studies creatures for the cure. Each fed morning a creature spends 1 level to add 12% to its species. Level 10 → 1 = 100%.' },
   salvage:    { name: 'Salvage Yard', cat: 'civ', cost: 3, hp: 16, pathCost: 30, solid: true, desc: 'Strips junk into 3 Parts every morning.' },
 };
 
