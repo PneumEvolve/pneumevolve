@@ -1,4 +1,5 @@
-import { flash, kids, untint } from '../util';
+import Phaser from 'phaser';
+import { V, dist, flash, kids, untint } from '../util';
 import { E, TCOLS, TH, TILE, TROWS, TW } from '../tuning';
 import { CAMPS, CAMP_HP } from '../maps';
 import { HUD, SAVE, campDone, writeSave } from '../state';
@@ -24,15 +25,17 @@ export class RaidScene extends DungeonScene {
     this.physics.world.setBounds(0, 0, TW, TH);
     this.solids = this.physics.add.staticGroup();
     this.crates = this.physics.add.staticGroup();
-    this.hazards = [];
+    this.hazards = []; this.mines = []; this.vents = []; this.minesShown = false;
     const g = this.grid, px = [], spawns = [];
     this.buildSolidRuns(g, TCOLS, TROWS, '#');
     for (let r = 0; r < TROWS; r++) for (let c = 0; c < TCOLS; c++) {
       const ch = g[r][c], x = c * TILE + TILE / 2, y = r * TILE + TILE / 2;
-      if (ch === 'W' || ch === 'g') {
-        const w = this.crates.create(x, y, ch === 'W' ? 'wall' : 'gate'); w.refreshBody();
-        Object.assign(w, { hp: CAMP_HP[ch], maxHp: CAMP_HP[ch], isCampWall: true }); w.setDepth(10 + y / 1000);
+      if (ch === 'W' || ch === 'g' || ch === 'Q') {
+        const w = this.crates.create(x, y, ch === 'W' ? 'wall' : ch === 'Q' ? 'rwall' : 'gate'); w.refreshBody();
+        Object.assign(w, { hp: CAMP_HP[ch], maxHp: CAMP_HP[ch], isCampWall: true, reinforced: ch === 'Q' }); w.setDepth(10 + y / 1000);
       }
+      if (ch === 'm') this.mines.push({ x, y, img: this.add.image(x, y, 'mine').setDepth(1.3).setAlpha(0), shown: false, armT: 0 });
+      if (ch === 'v') { this.add.image(x, y, 'vent').setDepth(1.2); this.vents.push({ x, y, t: Phaser.Math.FloatBetween(2, 5) }); }
       if (ch === 'c') { const cr = this.crates.create(x, y, 'crate'); cr.refreshBody(); cr.hp = 2; cr.setDepth(5 + y / 1000); }
       if (ch === 'x' || ch === '^') { this.add.image(x, y, ch === 'x' ? 'wire' : 'spikes').setDepth(1.2); this.hazards[r * TCOLS + c] = ch; }
       if (ch === 'P') px.push({ x, y });
@@ -56,6 +59,8 @@ export class RaidScene extends DungeonScene {
   sceneUpdate(dt) {
     HUD.topText = `${this.camp.name.toUpperCase()}   ·   ⚙ ${this.run.scrap}${this.run.parts ? `   ·   🔩 ${this.run.parts}` : ''}`;
     if (this.won || HUD.dead) return;
+    this.updateMines(dt);
+    this.updateCampVents(dt);
     // hazards: wire slows you, spikes hurt (a dash carries you over both)
     const at = (o) => this.hazards[Math.floor(o.y / TILE) * TCOLS + Math.floor(o.x / TILE)];
     const h = this.hero, hz = at(h);
@@ -69,9 +74,46 @@ export class RaidScene extends DungeonScene {
     }
   }
 
+  // hidden mines: you see them only up close (or after a Bat's Screech); step on one and it blows
+  revealMines(h, R) {
+    let n = 0;
+    (this.mines || []).forEach(m => { if (!m.shown && dist(m, h) < R + 140) { m.shown = true; m.img.setAlpha(1); this.ring(m.x, m.y, 22, 0xff4d6d); n++; } });
+    if (n) this.floatText(h.x, h.y - 66, `${n} MINE${n > 1 ? 'S' : ''} FOUND`, '#ff8c9e', 14);
+  }
+  updateMines(dt) {
+    const walkers = [this.hero].concat(this.allPets().filter(p => !p.def.fly && !p.dig));
+    this.mines = this.mines.filter(m => {
+      const near = walkers.some(o => dist(o, m) < 64);
+      if (!m.shown) m.img.setAlpha(near ? 0.55 + 0.45 * Math.sin(this.time.now * 0.02) : 0);
+      if (m.armT > 0) {
+        m.armT -= dt; m.img.setAlpha(1).setTint(Math.floor(this.time.now / 60) % 2 ? 0xffffff : 0xff4d6d);
+        if (m.armT <= 0) {
+          this.ring(m.x, m.y, 70, 0xff6a3d); this.spark(m.x, m.y, 0xff6a3d, 14); this.decal(m.x, m.y); this.cameras.main.shake(180, 0.012);
+          if (dist(this.hero, m) < 70) { const d = new V(this.hero.x - m.x, this.hero.y - m.y).normalize(); this.hurtHero(d.x, d.y, 2); }
+          this.allPets().forEach(p => { if (dist(p, m) < 70) this.damagePet(p, 1, 0, 0); });
+          kids(this.enemies).forEach(z => { if (z.active && !E[z.type].struct && dist(z, m) < 70) this.damage(z, 3, new V(z.x - m.x, z.y - m.y).normalize(), 200, true, true); });
+          m.img.destroy(); return false;
+        }
+        return true;
+      }
+      if (walkers.some(o => dist(o, m) < 24)) { m.armT = 0.35; m.shown = true; this.floatText(m.x, m.y - 24, 'CLICK', '#ff4d6d', 14); }
+      return true;
+    });
+  }
+  // camp gas vents: bandits wear masks, so the gas only hurts you and your pets
+  updateCampVents(dt) {
+    (this.vents || []).forEach(v => {
+      v.t -= dt;
+      if (v.t < 0.8 && !v.hiss) { v.hiss = true; this.spark(v.x, v.y, 0x9fd14a, 6); }
+      if (v.t <= 0) { v.t = Phaser.Math.FloatBetween(5, 7); v.hiss = false; this.addGas(v.x, v.y, 75, 3.5, { foe: true, zombies: false }); }
+    });
+  }
+
   hitCrate(cr, dmg) {
     if (!cr.isCampWall) return super.hitCrate(cr, dmg);
     if (!cr.active) return;
+    // reinforced walls shrug off guns and swords; only a Ram's charge (or digging under) really works
+    if (cr.reinforced && dmg < 8) { dmg *= 0.25; if (!this.toughSaid) { this.toughSaid = true; this.floatText(cr.x, cr.y - 30, 'TOO TOUGH: charge it or dig under', '#c0c6cc', 13); } }
     cr.hp -= dmg * (dmg >= 8 ? 1 : this.structMult());
     flash(cr, 0xffffff); this.time.delayedCall(60, () => cr.active && untint(cr));
     this.spark(cr.x, cr.y, 0x8a7a5a, 4);

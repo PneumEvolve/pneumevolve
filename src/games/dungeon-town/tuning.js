@@ -29,6 +29,7 @@ export const T = {
   nightBase: 90, nightPerDay: 10, nightMax: 180,
   genLossPct: 0.25, storehouseProtects: 50, farmScrap: 20, farmFood: 6, salvageParts: 3, stashBase: 5, stashPerStorehouse: 5,
   labRate: 12, labLeave: 3, kitchenSeats: 4, seatsPerLvl: 2,
+  reinforceCost: 2,
   looterChance: 0.35, crateParts: 0.4, civUpg: [0, 6, 14],
   medkitHeal: 2, treatHeal: 2, lureTime: 6, lureRange: 320,
   respawnTime: 4,

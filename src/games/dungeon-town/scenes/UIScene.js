@@ -149,7 +149,7 @@ export class UIScene extends Phaser.Scene {
     this.panelClose.setPosition(this.B.pClose.x, this.B.pClose.y).setFontSize(fs(0.033));
     this.panelNew.setPosition(this.B.pNew.x, this.B.pNew.y).setFontSize(fs(0.024));
     this.banner.setPosition(w / 2, h * 0.3).setFontSize(fs(0.08));
-    this.bannerSub.setPosition(w / 2, h * 0.3 + u * 0.05).setFontSize(fs(0.032));
+    this.bannerSub.setPosition(w / 2, h * 0.3 + u * 0.05).setFontSize(fs(0.032)).setWordWrapWidth(w * 0.86);
     this.over.setPosition(w / 2, h / 2).setFontSize(fs(0.06));
     this.rotateText.setPosition(w / 2, h / 2).setFontSize(fs(0.06));
     this.deskHelp.setPosition(w / 2, h - 10).setFontSize(fs(0.024));

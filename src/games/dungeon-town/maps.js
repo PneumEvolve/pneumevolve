@@ -84,11 +84,11 @@ export function wavesFor(room) {
 // ===================================================================
 //  BANDIT CAMPS — picked at the War Table, one raid a day
 //  # rock · . floor · W camp wall · g gate · x wire (slows you) · ^ spikes (hurt)
-//  t turret · R radio tower (destroy it to win) · b rifleman · B bruiser · P your entry · c crate
+//  Q reinforced wall · m hidden mine · v gas vent · t turret · R radio tower (destroy it to win) · b rifleman · B bruiser · P your entry · c crate
 // ===================================================================
 export const CAMP_TOTAL = 12;
 
-export const CAMP_HP = { W: 8, g: 4 };
+export const CAMP_HP = { W: 8, g: 4, Q: 24 };
 
 export const CAMPS = [
   { name: 'Scrap Outpost', teach: 'Walls and a gate. Break in and knock down the radio tower.', reward: 60, parts: 4, map: [
@@ -193,6 +193,57 @@ export const CAMPS = [
       '#..b...xxxx............#',
       '#......................#',
       '########################'] },
+    { name: 'Triage Tent', teach: 'Hidden mines everywhere. Go slow, or bring the Bat: its Screech shows them.', reward: 280, parts: 12, map: [
+      '########################',
+      '#......................#',
+      '#..b.....m....m........#',
+      '#.....m.....m....WWWWW.#',
+      '#..m......b......W...W.#',
+      '#.....m.....m....W.R.W.#',
+      '#P.......m.......W...W.#',
+      '#P...m......m....WWgWW.#',
+      '#.......m......b.......#',
+      '#..m.......m......m....#',
+      '#.....b......m.....t...#',
+      '#..m......m.....m......#',
+      '#......m.....B.........#',
+      '#..b......m.......m....#',
+      '#......................#',
+      '########################'] },
+    { name: 'The Ward', teach: 'Reinforced walls shrug off your gun. Find the weak gate, charge with the Ram, or dig under with the Mole.', reward: 320, parts: 14, map: [
+      '########################',
+      '#......................#',
+      '#..b...QQQQQQQQQQQQ....#',
+      '#......Q..........Q..b.#',
+      '#......Q.t......t.Q....#',
+      '#..B...Q..QQQQQQ..Q....#',
+      '#P.....Q..Q..R.Q..Q....#',
+      '#P.....g..Q....Q..Q....#',
+      '#......Q..QQgQQQ..Q..b.#',
+      '#..b...Q..........Q....#',
+      '#......Q.b......b.Q....#',
+      '#......QQQQQQQQQQQQ....#',
+      '#..........B...........#',
+      '#......................#',
+      '#......................#',
+      '########################'] },
+    { name: 'Quarantine Gate', teach: 'The Hospital holdout: gas vents, reinforced walls, turrets. The Toad makes the gas harmless.', reward: 380, parts: 16, map: [
+      '########################',
+      '#......................#',
+      '#..v.......b......QQQQ.#',
+      '#.........v.......Q.tQ.#',
+      '#..b..QQQQQQQ.....Q..Q.#',
+      '#.....Q.v...Q.....QQgQ.#',
+      '#P....Q..R..Q..b.......#',
+      '#P....Q.....g....v.....#',
+      '#.....Q..t..Q..........#',
+      '#..b..QQQQQQQ.....QQgQ.#',
+      '#.........v.......Q..Q.#',
+      '#..v.......b......Q.tQ.#',
+      '#.................QQQQ.#',
+      '#..........B...........#',
+      '#......................#',
+      '########################'] },
 ];
 
 // Town: # wall · gates w e n s (west/east/north/south district gates) · M map table · G generator · T town hall
@@ -220,6 +271,6 @@ export const TOWN_MAP = [
 export const DISTRICTS = [
   { key: 'ruins', name: 'The Ruins', gate: 'w', dir: 'W', dungeon: 'ruins', boss: 'The Warden', camps: [0, 1, 2], th: 1, ready: true, perk: 'Survivors farm: Farms +25%', icon: 'hatch' },
   { key: 'subway', name: 'The Subway', gate: 'e', dir: 'E', dungeon: 'subway', boss: 'The Tunnel Mother', camps: [3, 4, 5], th: 2, ready: true, perk: 'Survivors salvage: Salvage Yards +2 🔩', icon: 'stairs' },
-  { key: 'north', name: 'The Hospital', gate: 'n', dir: 'N', dungeon: 'hospital', boss: 'Patient Zero', camps: [], th: 3, ready: true, perk: 'The Lab studies +2% faster', icon: 'cross' },
+  { key: 'north', name: 'The Hospital', gate: 'n', dir: 'N', dungeon: 'hospital', boss: 'Patient Zero', camps: [6, 7, 8], th: 3, ready: true, perk: 'The Lab studies +2% faster', icon: 'cross' },
   { key: 'south', name: '???', gate: 's', dir: 'S', dungeon: null, boss: '???', camps: [], th: 4, ready: false, perk: '', icon: 'boards' },
 ];

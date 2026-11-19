@@ -1260,6 +1260,7 @@ export class Combat extends Phaser.Scene {
         this.stunEnemy(z, stun);
       });
       this.floatText(h.x, h.y - 44, 'SCREECH!', '#b48cff', 16);
+      if (this.revealMines) this.revealMines(h, R);
       this.cameras.main.shake(100, 0.005);
       used();
     } else if (def.active === 'charge') {

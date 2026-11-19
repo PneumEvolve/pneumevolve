@@ -151,11 +151,12 @@ export class TownScene extends Combat {
       const def = BLD[rec.t]; if (!def) return;
       const x = rec.c * TILE + TILE / 2, y = rec.r * TILE + TILE / 2;
       let s;
-      if (def.gate) { s = this.gates.create(x, y, rec.t); s.refreshBody(); }
-      else if (def.solid) { s = this.solids.create(x, y, rec.t); s.refreshBody(); }
+      const tex = rec.t === 'wall' && (rec.lvl || 1) >= 2 ? 'rwall' : rec.t;
+      if (def.gate) { s = this.gates.create(x, y, tex); s.refreshBody(); if ((rec.lvl || 1) >= 2) s.setTint(0xb8c0c8); }
+      else if (def.solid) { s = this.solids.create(x, y, tex); s.refreshBody(); }
       else s = this.add.image(x, y, rec.t);
       Object.assign(s, { bt: rec.t, def, lvl: rec.lvl || 1, c: rec.c, r: rec.r, rec, dead: false, isBld: true });
-      s.maxHp = Math.round(((def.hp || 0) + (rec.t === 'turret' ? (s.lvl - 1) * 4 : 0)) * (1 + 0.5 * (this.engineerOn() ? 1 : 0)) * (studied('beetle') ? 1.2 : 1) * (labActive('beetle') && this.phase === 'night' && (rec.t === 'wall' || rec.t === 'gate') ? 1.5 : 1)); s.hp = s.maxHp;
+      s.maxHp = Math.round(((def.hp || 0) * ((rec.t === 'wall' || rec.t === 'gate') && s.lvl >= 2 ? 2 : 1) + (rec.t === 'turret' ? (s.lvl - 1) * 4 : 0)) * (1 + 0.5 * (this.engineerOn() ? 1 : 0)) * (studied('beetle') ? 1.2 : 1) * (labActive('beetle') && this.phase === 'night' && (rec.t === 'wall' || rec.t === 'gate') ? 1.5 : 1)); s.hp = s.maxHp;
       s.setDepth(def.solid ? 10 + y / 1000 : 1.2);
       if (rec.t === 'turret') { s.gunImg = this.add.image(x, y - 4, 'turretGun').setOrigin(0.2, 0.5).setDepth(11 + y / 1000); s.cd = 0.5; }
       const wk = rec.w && petById(rec.w);
@@ -404,6 +405,14 @@ export class TownScene extends Combat {
   // level up a building: civic ones cost Parts, turrets cost military points
   upgradeRec(rec) {
     const def = BLD[rec.t], lvl = rec.lvl || 1, nm = def.name;
+    if (rec.t === 'wall' || rec.t === 'gate') {
+      if (!(SAVE.reclaimed || {}).north) return 'Reclaim the Hospital to unlock reinforced walls.';
+      if (lvl >= 2) return `That ${nm} is already reinforced.`;
+      if ((SAVE.parts || 0) < T.reinforceCost) return `Reinforcing needs ${T.reinforceCost} 🔩 (you have ${SAVE.parts || 0}).`;
+      SAVE.parts -= T.reinforceCost; rec.lvl = 2; writeSave(); this.renderBuildings(); this.syncHud();
+      const sw = this.bSprites.find(b => b.rec === rec); if (sw) { this.ring(sw.x, sw.y, 34, 0xc0c6cc); this.spark(sw.x, sw.y, 0xc0c6cc, 10); }
+      return `${nm} reinforced: double HP (level 2).`;
+    }
     if (lvl >= 3) return `That ${nm} is max level.`;
     if (def.cat === 'civ') {
       const cost = T.civUpg[lvl];
@@ -660,7 +669,7 @@ export class TownScene extends Combat {
         this.setBuildView(!HUD.building);
         break;
       case 'tab': HUD.buildTab = ev.tab; HUD.buildSel = ev.tab === 'mil' ? 'wall' : 'workbench'; HUD.buildMsg = BLD[HUD.buildSel].desc; break;
-      case 'select': HUD.buildSel = ev.item; HUD.buildMsg = BLD[ev.item] ? BLD[ev.item].desc : (ev.item === 'upgrade' ? (HUD.buildTab === 'civ' ? `Tap a building to upgrade it with Parts (Lv2: ${T.civUpg[1]} 🔩, Lv3: ${T.civUpg[2]} 🔩). You have ${SAVE.parts} 🔩.` : 'Tap a turret to upgrade it.') : ev.item === 'recipe' ? 'Tap a Farm, Kitchen or Workbench to switch what it makes.' : 'Tap a building to remove it (points come back).'); break;
+      case 'select': HUD.buildSel = ev.item; HUD.buildMsg = BLD[ev.item] ? BLD[ev.item].desc : (ev.item === 'upgrade' ? (HUD.buildTab === 'civ' ? `Tap a building to upgrade it with Parts (Lv2: ${T.civUpg[1]} 🔩, Lv3: ${T.civUpg[2]} 🔩). You have ${SAVE.parts} 🔩.` : `Tap a turret to upgrade it, or a wall/gate to reinforce it (${T.reinforceCost} 🔩${(SAVE.reclaimed || {}).north ? '' : ', after reclaiming the Hospital'}).`) : ev.item === 'recipe' ? 'Tap a Farm, Kitchen or Workbench to switch what it makes.' : 'Tap a building to remove it (points come back).'); break;
       case 'tapTile': if (HUD.building) this.tapTile(ev.x, ev.y); break;
       case 'hallUpgrade': this.upgradeHall(); break;
       case 'closePanel': HUD.panel = null; break;
@@ -798,7 +807,7 @@ export class TownScene extends Combat {
       return say(`Removed ${existing.def.name}. +${bCost(existing.rec)} pts back.`);
     }
     if (sel === 'upgrade') {
-      if (!existing || !(existing.def.cat === 'civ' || existing.bt === 'turret')) return say('Tap a turret, or a civic building.');
+      if (!existing || !(existing.def.cat === 'civ' || existing.bt === 'turret' || existing.bt === 'wall' || existing.bt === 'gate')) return say('Tap a turret, a wall or gate, or a civic building.');
       const msg = this.upgradeRec(existing.rec);
       if (/level \d/.test(msg)) pop(0xf2d14b);
       return say(msg);

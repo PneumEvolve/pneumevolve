@@ -37,6 +37,7 @@ export const SPR = {
   toad: ['................', '................', '................', '................', '....kk....kk....', '...kzzk..kzzk...', '..kzyzzkkzzyzk..', '..kzzzzzzzzzzk..', '.kzzlzzzzzzlzzk.', '.kzzzzZZZZzzzzk.', '.kzlzzZyyZzzlzk.', '..kzzzZZZZzzzk..', '.kZZkkkkkkkkZZk.', '.kkk........kkk.', '................', '................'],
   cross: ['..kkkk..', '..kwwk..', 'kkkrrkkk', 'kwrrrrwk', 'kwrrrrwk', 'kkkrrkkk', '..kwwk..', '..kkkk..'],
   vent: Array.from({ length: 16 }, (_, r) => (r === 0 || r === 15 ? 'kkkkkkkkkkkkkkkk' : r % 2 ? 'kMMMMMMMMMMMMMMk' : 'kMkkkkkkkkkkkkMk')),
+  mine: ['..kkkk..', '.kMMMMk.', 'kMMrrMMk', 'kMrrrrMk', 'kMrrrrMk', 'kMMrrMMk', '.kMMMMk.', '..kkkk..'],
   mound: ['...kkkk...', '..kBbbBk..', '.kBbBbbBk.', 'kBbbBbBbBk', 'kkkkkkkkkk'],
   scrap: ['..kkk...', '.kmmMk..', 'kmMmmMk.', 'kMmmmyk.', '.kMmMk..', '..kkk...'],
   gun: ['kkkkkkkkkk', 'kmmmmmmmMk', 'kkkMkkkkkk', '..kk......'],
@@ -99,6 +100,9 @@ export function makeTextures(scene) {
     SPR.rifleman = swap(SPR.hero, { t: 'N', T: 'B', b: 'r', B: 'R' });
     SPR.bruiser = swap(SPR.hero, { t: 'R', T: 'k', b: 'K', B: 'k', s: 'S' });
   }
+  if (!SPR.rwall) SPR.rwall = SPR.wall.map(r => r.replace(/./g, ch => ({ g: 'm', G: 'M', b: 'g', B: 'K' })[ch] || ch));
+  pxTexture(scene, 'rwall', SPR.rwall, 3);
+  pxTexture(scene, 'mine', SPR.mine, 3);
   if (!SPR.patient) {
       const swap2 = (rows, m) => rows.map(r => r.replace(/./g, ch => (m[ch] !== undefined ? m[ch] : ch)));
       SPR.patient = swap2(SPR.walker, { p: 'w', P: 'm', K: 'C' });
