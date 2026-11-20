@@ -51,6 +51,33 @@ export function hospitalWaves(room) {
   return waves;
 }
 
+// Docks: 'w' = shallow water (slows anything that walks)
+export const DOCK_TEMPLATES = [
+  ['#########DD#########', '#s................s#', '#.wwww........wwww.#', '#.wwww..c..c..wwww.#', '#..................#', '#.....ww....ww.....#', '#s.......HH.......s#', '#.....ww....ww.....#', '#..................#', '#.wwww........wwww.#', '#.wwww........wwww.#', '#s.......PP.......s#', '####################'],
+  ['#########DD#########', '#s................s#', '#...c..........c...#', '#..................#', '#wwwwwwww..wwwwwwww#', '#wwwwwwww..wwwwwwww#', '#s.......HH.......s#', '#..................#', '#....r........r....#', '#..................#', '#...c..........c...#', '#s.......PP.......s#', '####################'],
+  ['#########DD#########', '#s................s#', '#..................#', '#.ww.ww.ww.ww.ww.w.#', '#.ww.ww.ww.ww.ww.w.#', '#..................#', '#s.......HH.......s#', '#..................#', '#..c............c..#', '#.ww.ww......ww.ww.#', '#..................#', '#s.......PP.......s#', '####################'],
+];
+export const DOCK_BOSS = ['#########DD#########', '#s................s#', '#..................#', '#..www........www..#', '#..................#', '#..................#', '#s.......HH.......s#', '#..................#', '#..................#', '#..www........www..#', '#..................#', '#s.......PP.......s#', '####################'];
+export const DOCK_FINAL = DOCK_BOSS.map((r, i) => (i === 0 ? '####################' : r));
+
+export function dockWaves(room) {
+  const fixed = {
+    1: [['drowned', 'walker', 'walker'], ['drowned', 'runner', 'runner', 'walker']],
+    2: [['harpooner', 'drowned', 'walker', 'walker'], ['drowned', 'drowned', 'runner', 'runner']],
+    3: [['harpooner', 'harpooner', 'drowned', 'walker'], ['brute', 'drowned', 'runner']],
+    4: [['spitter', 'harpooner', 'drowned', 'drowned', 'runner'], ['brute', 'harpooner', 'drowned', 'walker', 'walker']],
+    5: [['drowned', 'drowned', 'harpooner', 'walker'], ['harbor', 'drowned', 'runner']],
+    10: [['brute', 'harpooner', 'harpooner', 'drowned', 'drowned', 'spitter'], ['harbor', 'brute', 'drowned', 'drowned', 'runner']],
+  };
+  if (fixed[room]) return fixed[room].map(w => w.slice());
+  const pool = ['drowned', 'drowned', 'walker', 'harpooner', 'runner', 'spitter', 'bloater'];
+  const n = 3 + Math.floor(room / 2);
+  const mk = (k) => { const w = []; for (let i = 0; i < k; i++) w.push(Phaser.Utils.Array.GetRandom(pool)); return w; };
+  const waves = [mk(n), mk(n), mk(n - 1)];
+  if (room >= 7) waves[2].push('brute');
+  return waves;
+}
+
 export function subwayWaves(room) {
   const fixed = {
     1: [['walker', 'walker', 'crawler'], ['runner', 'runner', 'crawler', 'walker']],
@@ -244,6 +271,58 @@ export const CAMPS = [
       '#..........B...........#',
       '#......................#',
       '########################'] },
+  // docks: f flak gun (shoots flyers + you, ignores ground pets) · o tar (slows walkers) · w water · S sniper
+  { theme: 'docks', name: 'Flak Nest', teach: 'Flak guns shred flyers but ignore ground creatures. Send walkers in, or shoot them yourself.', reward: 420, parts: 18, map: [
+    '########################',
+    '#......................#',
+    '#..c.....b.......f.....#',
+    '#..........WWWWWWWW....#',
+    '#....f.....W......W..b.#',
+    '#..........W..f...W....#',
+    '#P....b....g...R..W....#',
+    '#P.........g......W....#',
+    '#....d.....W..f...W..b.#',
+    '#..........W......W....#',
+    '#..........WWWWWWWW....#',
+    '#..c.....b.......f.....#',
+    '#.......d..............#',
+    '#......................#',
+    '#......................#',
+    '########################'] },
+  { theme: 'docks', name: 'Tar Yard', teach: 'Tar swallows anything that walks. Flyers cross it untouched; dash if you get stuck.', reward: 470, parts: 20, map: [
+    '########################',
+    '#......................#',
+    '#....oooooooooooo..b...#',
+    '#....oooooooooooo......#',
+    '#..b.oo...t....oo..B...#',
+    '#....oo.WWWWWW.oo......#',
+    '#P...oo.W....W.oo..b...#',
+    '#P...oo.g..R.W.oo......#',
+    '#....oo.W....W.oo..d...#',
+    '#....oo.WWWWWW.oo......#',
+    '#..b.oo...t....oo..B...#',
+    '#....oooooooooooo......#',
+    '#....oooooooooooo..b...#',
+    '#......................#',
+    '#......................#',
+    '########################'] },
+  { theme: 'docks', name: 'Sniper Pier', teach: 'The Docks holdout: snipers hit hard from far away. A Crab shell blocks their shots; wade the water to reach them.', reward: 540, parts: 24, map: [
+    '########################',
+    '#......................#',
+    '#...c.......wwww...S...#',
+    '#.......b...wwww.......#',
+    '#...........wwww..WWWW.#',
+    '#....S......wwww..W..W.#',
+    '#P..........wwww..g.RW.#',
+    '#P....f.....wwww..W..W.#',
+    '#...........wwww..WWWW.#',
+    '#....S......wwww.......#',
+    '#.......b...wwww...S...#',
+    '#...c.......wwww..oo...#',
+    '#.......d.........oo...#',
+    '#......................#',
+    '#......................#',
+    '########################'] },
 ];
 
 // Town: # wall · gates w e n s (west/east/north/south district gates) · M map table · G generator · T town hall
@@ -272,5 +351,5 @@ export const DISTRICTS = [
   { key: 'ruins', name: 'The Ruins', gate: 'w', dir: 'W', dungeon: 'ruins', boss: 'The Warden', camps: [0, 1, 2], th: 1, ready: true, perk: 'Survivors farm: Farms +25%', unlock: 'wire', icon: 'hatch' },
   { key: 'subway', name: 'The Subway', gate: 'e', dir: 'E', dungeon: 'subway', boss: 'The Tunnel Mother', camps: [3, 4, 5], th: 2, ready: true, perk: 'Survivors salvage: Salvage Yards +2 🔩', unlock: 'gate', icon: 'stairs' },
   { key: 'north', name: 'The Hospital', gate: 'n', dir: 'N', dungeon: 'hospital', boss: 'Patient Zero', camps: [6, 7, 8], th: 3, ready: true, perk: 'The Lab studies +2% faster', unlock: 'wall', icon: 'cross' },
-  { key: 'south', name: '???', gate: 's', dir: 'S', dungeon: null, boss: '???', camps: [], th: 4, ready: false, perk: '', icon: 'boards' },
+  { key: 'south', name: 'The Docks', gate: 's', dir: 'S', dungeon: 'docks', boss: 'The Harbormaster', camps: [9, 10, 11], th: 4, ready: true, perk: 'Kitchens +2 feeding seats', unlock: 'arc', icon: 'anchor' },
 ];

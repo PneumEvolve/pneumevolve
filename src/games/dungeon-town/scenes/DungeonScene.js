@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { V, dist, kids } from '../util';
-import { COLS, FIRST_CATCH, FIRST_HOS, FIRST_SUB, RH, ROWS, RW, SP, T, TILE, WILD, WILD_HOS, WILD_SUB } from '../tuning';
-import { BOSS_ROOM, FINAL_ROOM, HOS_BOSS, HOS_FINAL, HOS_TEMPLATES, SUB_BOSS, SUB_FINAL, SUB_TEMPLATES, TEMPLATES, hospitalWaves, subwayWaves, wavesFor } from '../maps';
+import { COLS, FIRST_CATCH, FIRST_DOCK, FIRST_HOS, FIRST_SUB, RH, ROWS, RW, SP, T, TILE, WILD, WILD_DOCK, WILD_HOS, WILD_SUB } from '../tuning';
+import { BOSS_ROOM, DOCK_BOSS, DOCK_FINAL, DOCK_TEMPLATES, FINAL_ROOM, HOS_BOSS, HOS_FINAL, HOS_TEMPLATES, SUB_BOSS, SUB_FINAL, SUB_TEMPLATES, TEMPLATES, dockWaves, hospitalWaves, subwayWaves, wavesFor } from '../maps';
 import { HUD, SAVE, addPet, labActive, writeSave } from '../state';
 import { makeTextures } from '../textures';
 import { Combat } from '../combat';
@@ -23,6 +23,7 @@ export class DungeonScene extends Combat {
     const DGS = {
       ruins: { name: 'RUINS', tpl: TEMPLATES, boss: BOSS_ROOM, fin: FINAL_ROOM, waves: wavesFor, wild: WILD, first: FIRST_CATCH, theme: 'ruins' },
       subway: { name: 'SUBWAY', tpl: SUB_TEMPLATES, boss: SUB_BOSS, fin: SUB_FINAL, waves: subwayWaves, wild: WILD_SUB, first: FIRST_SUB, theme: 'subway' },
+      docks: { name: 'DOCKS', tpl: DOCK_TEMPLATES, boss: DOCK_BOSS, fin: DOCK_FINAL, waves: dockWaves, wild: WILD_DOCK, first: FIRST_DOCK, theme: 'docks' },
       hospital: { name: 'HOSPITAL', tpl: HOS_TEMPLATES, boss: HOS_BOSS, fin: HOS_FINAL, waves: hospitalWaves, wild: WILD_HOS, first: FIRST_HOS, theme: 'hospital' },
     };
     this.DG = DGS[this.dg] || DGS.ruins;
@@ -60,7 +61,7 @@ export class DungeonScene extends Combat {
       });
       // Bat in the Lab: a creature from another district wanders in
       if (labActive('bat')) {
-        const others = Object.keys(Object.assign({}, WILD, WILD_SUB, WILD_HOS)).filter(sp => !WT[sp]);
+        const others = Object.keys(Object.assign({}, WILD, WILD_SUB, WILD_HOS, WILD_DOCK)).filter(sp => !WT[sp]);
         const free = []; for (let r = 2; r <= 9; r++) if (!used.has(r)) free.push(r);
         if (others.length && free.length) run.wildPlan[Phaser.Utils.Array.GetRandom(free)] = Phaser.Utils.Array.GetRandom(others);
       }
@@ -82,7 +83,7 @@ export class DungeonScene extends Combat {
 
   buildRoom() {
     const grid = this.grid;
-    this.spawns = []; this.doorZones = []; this.vents = [];
+    this.spawns = []; this.doorZones = []; this.vents = []; this.water = false; this.craneT = 4;
     const px = [], hx = [], dx = [];
     this.buildSolidRuns(grid, COLS, ROWS, '#');
     for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
@@ -90,6 +91,7 @@ export class DungeonScene extends Combat {
       if (ch === 'c') { const cr = this.crates.create(x, y, 'crate'); cr.refreshBody(); cr.hp = 2; cr.setDepth(5 + y / 1000); }
       if (ch === 'r') { const rb = this.solids.create(x, y, 'rubble'); rb.refreshBody(); rb.setDepth(5 + y / 1000); }
       if (ch === 's') this.spawns.push({ x, y });
+      if (ch === 'w') { const wg = this.add.rectangle(x, y, TILE, TILE, 0x2a6f8f, 0.72).setDepth(1.1); this.tweens.add({ targets: wg, alpha: 0.55, duration: 900 + Math.random() * 600, yoyo: true, repeat: -1 }); this.water = true; }
       if (ch === 'v') { this.add.image(x, y, 'vent').setDepth(1.2); this.vents.push({ x, y, t: Phaser.Math.FloatBetween(2, 6) }); }
       if (ch === 'P') px.push({ x, y });
       if (ch === 'H') hx.push({ x, y });
@@ -121,6 +123,36 @@ export class DungeonScene extends Combat {
   }
 
   // ---- trains (subway): a lane flashes, then a train sweeps through and wrecks everything on it
+  // docks: water slows anything that walks; cranes drop crates (a shadow shows where)
+  isWater(o) { const r = Math.floor(o.y / TILE), c = Math.floor(o.x / TILE); return !!(this.grid[r] && this.grid[r][c] === 'w'); }
+  updateDocks(dt) {
+    if (this.dg !== 'docks') return;
+    if (this.water) {
+      if (this.dashT <= 0 && this.kbT <= 0 && this.isWater(this.hero)) this.hero.body.velocity.scale(0.5);
+      this.activePets.forEach(p => { if (p && p.active && !p.def.fly && p.mode === 'follow' && this.isWater(p)) p.body.velocity.scale(0.5); });
+      kids(this.enemies).forEach(z => { if (z.active && z.kbT <= 0 && z.mode !== 'lunge' && this.isWater(z)) z.body.velocity.scale(0.5); });
+    }
+    if (this.roomClear || HUD.dead) { this.dropAt = null; return; }
+    if (this.dropAt) {
+      this.dropAt.t -= dt;
+      if (this.dropAt.t <= 0) {
+        const a = this.dropAt; this.dropAt = null;
+        this.ring(a.x, a.y, 40, 0xc9b28a); this.spark(a.x, a.y, 0x8a7a5a, 10); this.cameras.main.shake(120, 0.008);
+        if (dist(this.hero, a) < 40) this.hurtHero(0, 1, 2);
+        this.allPets().forEach(p => { if (!p.def.fly && dist(p, a) < 40) this.damagePet(p, 1, 0, 0); });
+        kids(this.enemies).forEach(z => { if (z.active && dist(z, a) < 40) this.damage(z, 3, new V(0, -1), 0, true, true); });
+        if (!this.isWater(a)) { const cr = this.crates.create(a.x, a.y, 'crate'); cr.refreshBody(); cr.hp = 2; cr.setDepth(5 + a.y / 1000); }
+      }
+      return;
+    }
+    this.craneT -= dt;
+    if (this.craneT <= 0) {
+      this.craneT = Phaser.Math.FloatBetween(5, 7.5);
+      const c = Phaser.Math.Clamp(Math.floor((this.hero.x + Phaser.Math.Between(-160, 160)) / TILE), 1, COLS - 2), r = Phaser.Math.Clamp(Math.floor((this.hero.y + Phaser.Math.Between(-120, 120)) / TILE), 1, ROWS - 2);
+      if (this.grid[r][c] === '.' || this.grid[r][c] === 'w') this.dropAt = { x: c * TILE + TILE / 2, y: r * TILE + TILE / 2, t: 1.3 };
+    }
+  }
+
   // gas vents (hospital): hiss, then puff a drifting toxic cloud
   updateVents(dt) {
     if (!this.vents || !this.vents.length || this.roomClear) return;
@@ -167,6 +199,7 @@ export class DungeonScene extends Combat {
     HUD.cages = this.run.cages;
     this.updateTrains(dt);
     this.updateVents(dt);
+    this.updateDocks(dt);
     this.updateWaves(dt);
     this.updateExits(dt);
   }
@@ -260,6 +293,7 @@ export class DungeonScene extends Combat {
   }
 
   drawSceneFx(g, time) {
+    if (this.dropAt) { const k = 1 - this.dropAt.t / 1.3; g.fillStyle(0x000000, 0.25 + 0.35 * k); g.fillEllipse(this.dropAt.x, this.dropAt.y + 6, 30 + 40 * k, 14 + 18 * k); g.lineStyle(2, 0xc9b28a, 0.8); g.strokeCircle(this.dropAt.x, this.dropAt.y, 40); }
     (this.lanes || []).forEach(L => {
       if (L.state !== 'warn') return;
       const on = Math.floor((time || 0) / 150) % 2 === 0;

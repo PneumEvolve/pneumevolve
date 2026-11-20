@@ -48,12 +48,18 @@ export const E = {
   patient: { hp: 3, speed: 135, windupRange: 55, windup: 0.3, lunge: 480, lungeT: 0.14, recover: 0.45, dmg: 1, scrap: [1, 1] },
   gasser:  { hp: 5, speed: 66, windupRange: 65, windup: 0.5, lunge: 380, lungeT: 0.18, recover: 0.6, dmg: 1, scrap: [1, 2] },
   zero:    { hp: 60, speed: 52, dmg: 1, callCd: 6, coughCd: 5, scrap: [14, 18] },
+  // docks
+  drowned: { hp: 9, speed: 58, windupRange: 60, windup: 0.5, lunge: 360, lungeT: 0.18, recover: 0.7, dmg: 1, scrap: [1, 2] },
+  harpooner: { hp: 5, speed: 70, keep: 240, fireCd: 3.2, windup: 0.75, spitSpeed: 560, dmg: 1, scrap: [2, 3], tex: 'harpoon' },
+  harbor:  { hp: 60, speed: 46, waveCd: 4.2, callCd: 7, scrap: [14, 18] },
   // bandits: they stand guard until you get close, then shout and come for you
   rifleman: { hp: 6, speed: 85, keep: 260, fireCd: 1.9, windup: 0.45, spitSpeed: 470, dmg: 1, scrap: [2, 3], tex: 'bbullet', bandit: true },
   bdog:    { hp: 4, speed: 195, windupRange: 55, windup: 0.25, lunge: 540, lungeT: 0.14, recover: 0.35, dmg: 1, scrap: [1, 2], bandit: true },
   bruiser: { hp: 11, speed: 115, windupRange: 75, windup: 0.4, lunge: 520, lungeT: 0.18, recover: 0.5, dmg: 1, scrap: [2, 4], bandit: true },
   // camp structures (don't move)
   bturret: { hp: 10, struct: true, range: 290, rate: 1.4, shotSpeed: 480, scrap: [3, 5] },
+  flak: { hp: 12, struct: true, range: 340, rate: 0.75, shotSpeed: 640, scrap: [3, 5] },
+  sniper: { hp: 5, speed: 30, keep: 520, range: 620, wake: 480, fireCd: 3.4, windup: 1.1, spitSpeed: 950, shotDmg: 2, dmg: 1, scrap: [3, 4], tex: 'bbullet', bandit: true },
   radio: { hp: 30, struct: true, scrap: [4, 6] },
 };
 
@@ -141,6 +147,24 @@ SP.toad = { name: 'Gas Toad', hearts: 3, speed: 200, fly: false, attack: 'zap', 
   activeRanks: ['A toxic cloud for 4s (1 dmg every 0.6s)', 'Bigger cloud', 'Lasts 6s and slows zombies, cooldown -2s'],
   passiveRanks: ['You and your pets ignore gas and zombie spit', 'Also: the toad gets +1 heart', 'Also: enemy gas clouds fade twice as fast'] };
 
+SP.crab = { name: 'Hermit Crab', hearts: 4, speed: 170, fly: false, attack: 'melee', dmg: 1, cd: 1.2, range: 50, body: [13, 12, 14], wildHp: 12,
+  active: 'shellwall', activeName: 'SHELL WALL', cdMax: 11, aim: true, activeDesc: 'Plants its shell as cover: blocks bullets, spit and zombies',
+  passive: 'hardhat', passiveName: 'Hard Hat', passiveDesc: 'Big hits (2+ damage) do 1 less to you',
+  activeRanks: ['Shell cover for 5s', 'Lasts 7s', 'A wider wall (3 shells), cooldown -2s'],
+  passiveRanks: ['Big hits do 1 less to you', 'Also: the crab gets +1 heart', 'Also: you get knocked back half as far'] };
+
+SP.newt = { name: 'Volt Newt', hearts: 3, speed: 220, fly: false, attack: 'zap', boltColor: 0xf2d14b, dmg: 1, cd: 1.3, range: 150, body: [11, 13, 18], wildHp: 9,
+  active: 'pulse', activeName: 'PULSE', cdMax: 10, activeDesc: 'Stuns zombies nearby and jams turrets for 4s',
+  passive: 'staticskin', passiveName: 'Static Skin', passiveDesc: 'Zombies that hit you get zapped',
+  activeRanks: ['Stuns zombies around it and jams turrets 4s', 'Bigger pulse', 'Longer stun, cooldown -2s'],
+  passiveRanks: ['Zombies that hit you take 1 damage', 'Also: they get stunned', 'Zaps do 2 damage'] };
+
+SP.gull = { name: 'Dock Gull', hearts: 2, fly: true, attack: 'zap', boltColor: 0xe8e6df, dmg: 1, cd: 1.0, range: 160, body: [9, 15, 15], wildHp: 7,
+  active: 'dive', activeName: 'DIVE', cdMax: 7, aim: true, activeDesc: 'Swoops through a line of zombies',
+  passive: 'tailwind', passiveName: 'Tailwind', passiveDesc: 'Your dash recharges faster',
+  activeRanks: ['Dives through a line: 2 dmg + knockback', '+1 damage', 'Longer dive, cooldown -2s'],
+  passiveRanks: ['Dash recharges 30% faster', '40% faster', '50% faster'] };
+
 // where wild creatures live in the ruins (room range)
 export const WILD = { rat: [1, 6], crow: [2, 6], beetle: [3, 8] };
 
@@ -153,6 +177,10 @@ export const FIRST_SUB = { 2: 'mole', 4: 'bat', 6: 'hound' };
 export const WILD_HOS = { toad: [2, 7], ram: [4, 9], moth: [5, 10] };
 
 export const FIRST_HOS = { 2: 'toad', 4: 'ram', 6: 'moth' };
+
+export const WILD_DOCK = { crab: [1, 7], newt: [3, 9], gull: [2, 10] };
+
+export const FIRST_DOCK = { 2: 'crab', 4: 'newt', 6: 'gull' };
 
 export const MIL_ITEMS = ['wall', 'gate', 'wire', 'spikes', 'turret', 'guard'];
 
@@ -176,6 +204,7 @@ export const DEF_UPG = {
   wire: { d: 'ruins', name: 'Razor Wire', txt: 'also cuts zombies standing in it' },
   gate: { d: 'subway', name: 'Shock Gate', txt: 'zaps and stuns zombies that hit it' },
   wall: { d: 'north', name: 'Reinforced Wall', txt: 'double HP' },
+  arc: { d: 'south', name: 'Arc Turret', txt: 'every 2nd shot arcs to 2 more zombies (1 dmg + a short stun)' },
 };
 export const RES_ICON = { scrap: '⚙', food: '🌾', parts: '🔩' };
 export const isRes = (k) => k in RES_ICON;
@@ -186,7 +215,7 @@ export const amtTxt = (k, n) => (isRes(k) ? `+${n} ${RES_ICON[k]}` : `${n} ${nam
 
 export const recipeOf = (b) => (RECIPES[b.t] ? (RECIPES[b.t].includes(b.rcp) ? b.rcp : RECIPES[b.t][0]) : null);
 
-export const XP = { walker: 2, runner: 2, spitter: 3, bloater: 3, brute: 8, crawler: 3, shrieker: 4, boss: 30, rifleman: 4, bruiser: 4, bdog: 3, patient: 2, gasser: 3, bturret: 5, radio: 12 };
+export const XP = { walker: 2, runner: 2, spitter: 3, bloater: 3, brute: 8, crawler: 3, shrieker: 4, boss: 30, rifleman: 4, bruiser: 4, bdog: 3, patient: 2, gasser: 3, drowned: 3, harpooner: 3, bturret: 5, radio: 12 };
 
 export const PERKS = { tough: ['Tough', '+1 max heart'], quick: ['Quickdraw', '+1 ammo, reload 25% faster'], blade: ['Blademaster', '+1 sword damage'], gunner: ['Gunner', '+1 gun damage'], fleet: ['Fleet', 'Dash recharges 30% faster'] };
 
@@ -195,7 +224,7 @@ export const JOB_SITES = ['workbench', 'kitchen', 'farm', 'salvage', 'storehouse
 
 export const FAV = { workbench: 'hound', kitchen: 'moth', farm: 'beetle', storehouse: 'rat', turret: 'crow', guard: 'mole', salvage: 'bat' };
 // buildings can share favourites
-export const FAV_EXTRA = { salvage: ['ram'], farm: ['toad'] };
+export const FAV_EXTRA = { salvage: ['ram'], farm: ['toad'], storehouse: ['crab'], turret: ['newt'], kitchen: ['gull'] };
 export const favs = (t) => [FAV[t]].concat(FAV_EXTRA[t] || []).filter(Boolean);
 export const isFavSp = (t, sp) => favs(t).includes(sp);
 export const favJobOf = (sp) => Object.keys(FAV).find(k => FAV[k] === sp) || Object.keys(FAV_EXTRA).find(k => FAV_EXTRA[k].includes(sp));
@@ -210,6 +239,9 @@ export const LAB_BONUS = {
   mole:   { studied: 'A buried stash every room, any squad', active: 'Buried stashes hold double' },
   bat:    { studied: 'You move 10% faster', active: 'A creature from another district wanders into each run' },
   ram:    { studied: 'Your hits do +25% to walls and turrets', active: 'Salvage Yards +2 🔩' },
+  crab:   { studied: 'Walls +25% HP', active: 'Kitchens +1 item' },
+  newt:   { studied: 'Your shots stun zombies briefly', active: 'Shock Gates zap twice as often' },
+  gull:   { studied: '+1 free cage every run', active: 'Scrap flies to you from further away' },
   toad:   { studied: 'Gas can\'t hurt you or your pets, anywhere', active: 'Farms +2 🌾' },
 };
 export const JOB_SHORT = { workbench: ['+1 item', '+2 items'], kitchen: ['+1 item', '+2 items'], farm: ['+50%', '+100%'], salvage: ['+2 🔩', '+4 🔩'], storehouse: ['protects +50 ⚙', 'protects +100 ⚙'], turret: ['+1 damage', '+1 dmg, 25% faster'], guard: ['guards at night', '+2 ♥ guard, Engineer'] };
@@ -228,4 +260,4 @@ export const JOB_DESC = {
 // ---- items: the town makes them each morning into your stash
 export const ITEMS = { cage: 'Cage', medkit: 'Med Kit', treat: 'Pet Treat', lure: 'Noise Lure', ammo: 'Turret Ammo' };
 
-export const SP_COLOR = { hound: 0xe08a3c, crow: 0x5fd3ff, rat: 0xb0b8c0, moth: 0xf2d14b, beetle: 0xd0392b, mole: 0x9c6b3e, bat: 0xb48cff, ram: 0xd8d8d0, toad: 0x8fae4a };
+export const SP_COLOR = { hound: 0xe08a3c, crow: 0x5fd3ff, rat: 0xb0b8c0, moth: 0xf2d14b, beetle: 0xd0392b, mole: 0x9c6b3e, bat: 0xb48cff, ram: 0xd8d8d0, toad: 0x8fae4a, crab: 0xe08a3c, newt: 0xf2d14b, gull: 0xe8e6df };

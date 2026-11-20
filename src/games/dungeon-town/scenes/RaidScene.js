@@ -37,17 +37,19 @@ export class RaidScene extends DungeonScene {
       if (ch === 'm') this.mines.push({ x, y, img: this.add.image(x, y, 'mine').setDepth(1.3).setAlpha(0), shown: false, armT: 0 });
       if (ch === 'v') { this.add.image(x, y, 'vent').setDepth(1.2); this.vents.push({ x, y, t: Phaser.Math.FloatBetween(2, 5) }); }
       if (ch === 'c') { const cr = this.crates.create(x, y, 'crate'); cr.refreshBody(); cr.hp = 2; cr.setDepth(5 + y / 1000); }
+      if (ch === 'o') { this.add.rectangle(x, y, TILE, TILE, 0x0b0806, 0.95).setDepth(1.15); this.add.rectangle(x - 8, y - 10, 18, 4, 0x4a3b2a, 0.7).setDepth(1.16); if (Math.random() < 0.4) { const bb = this.add.circle(x + Phaser.Math.Between(-14, 14), y + Phaser.Math.Between(-14, 14), Phaser.Math.Between(3, 6), 0x2e251b, 1).setDepth(1.16); this.tweens.add({ targets: bb, scale: 0.3, alpha: 0.2, duration: 1200 + Math.random() * 900, yoyo: true, repeat: -1 }); } this.hazards[r * TCOLS + c] = ch; }
+      if (ch === 'w') { const wg = this.add.rectangle(x, y, TILE, TILE, 0x2a6f8f, 0.72).setDepth(1.1); this.tweens.add({ targets: wg, alpha: 0.55, duration: 900 + Math.random() * 600, yoyo: true, repeat: -1 }); this.hazards[r * TCOLS + c] = ch; }
       if (ch === 'x' || ch === '^') { this.add.image(x, y, ch === 'x' ? 'wire' : 'spikes').setDepth(1.2); this.hazards[r * TCOLS + c] = ch; }
       if (ch === 'P') px.push({ x, y });
-      if ('tRbBd'.includes(ch)) spawns.push({ ch, x, y });
+      if ('tRbBdfS'.includes(ch)) spawns.push({ ch, x, y });
     }
-    this.drawGridFloor(g, TCOLS, TROWS, '#', 'ruins');
+    this.drawGridFloor(g, TCOLS, TROWS, '#', camp.theme || 'ruins');
     const entry = px.length ? { x: px.reduce((a, p) => a + p.x, 0) / px.length, y: px.reduce((a, p) => a + p.y, 0) / px.length } : { x: TILE * 2, y: TH / 2 };
     this.entry = entry;
     this.setupCombat(entry.x + 20, entry.y, TW, TH, 420);
     this.placeStash(this.grid, TCOLS, TROWS, entry);
     spawns.forEach(sp => {
-      const type = { t: 'bturret', R: 'radio', b: 'rifleman', B: 'bruiser', d: 'bdog' }[sp.ch];
+      const type = { t: 'bturret', R: 'radio', b: 'rifleman', B: 'bruiser', d: 'bdog', f: 'flak', S: 'sniper' }[sp.ch];
       const z = this.spawnEnemy(type, sp.x, sp.y);
       if (E[type].bandit) z.idle = true;
       if (type === 'radio') this.tower = z;
@@ -65,6 +67,12 @@ export class RaidScene extends DungeonScene {
     const at = (o) => this.hazards[Math.floor(o.y / TILE) * TCOLS + Math.floor(o.x / TILE)];
     const h = this.hero, hz = at(h);
     if (hz === 'x' && this.dashT <= 0) h.body.velocity.scale(0.45);
+    // tar grabs anything that walks (flyers don't care); water halves your speed
+    const slowOf = (k) => (k === 'o' ? 0.3 : k === 'w' ? 0.5 : 1);
+    if (this.dashT <= 0 && this.kbT <= 0) { const m = slowOf(hz); if (m < 1) h.body.velocity.scale(m); }
+    if (hz === 'o' && !this.tarSaid) { this.tarSaid = true; this.floatText(h.x, h.y - 50, 'STUCK IN TAR: dash!', '#c9b28a', 14); }
+    this.activePets.forEach(p => { if (p && p.active && !p.def.fly && p.mode === 'follow') { const m = slowOf(at(p)); if (m < 1) p.body.velocity.scale(m); } });
+    kids(this.enemies).forEach(z => { if (z.active && !E[z.type].struct && z.kbT <= 0 && z.mode !== 'lunge') { const m = slowOf(at(z)); if (m < 1) z.body.velocity.scale(m); } });
     this.spikeT -= dt;
     if (hz === '^' && this.spikeT <= 0) { this.spikeT = 0.8; this.hurtHero(0, 0, 1); }
     this.petSpikeT -= dt;

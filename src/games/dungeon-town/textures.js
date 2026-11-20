@@ -39,6 +39,12 @@ export const SPR = {
   vent: Array.from({ length: 16 }, (_, r) => (r === 0 || r === 15 ? 'kkkkkkkkkkkkkkkk' : r % 2 ? 'kMMMMMMMMMMMMMMk' : 'kMkkkkkkkkkkkkMk')),
   mine: ['..kkkk..', '.kMMMMk.', 'kMMrrMMk', 'kMrrrrMk', 'kMrrrrMk', 'kMMrrMMk', '.kMMMMk.', '..kkkk..'],
   hpick: ['.rr.rr.', 'rRrrrRr', 'rrrrrrr', '.rrrrr.', '..rrr..', '...r...'],
+  crab: ['................', '................', '......kkkk......', '.....knnbnk.....', '....knbnnnnk....', '....knnnbnnk....', '.kk..kkkkkk..kk.', 'kok.koooook.kok.', '.kokooOooOookok.', '..kooooooooook..', '...kkkkkkkkkk...', '...k.k.kk.k.k...', '................', '................', '................', '................'],
+  newt: ['................', '................', '................', '................', '................', '..........kkkk..', '.........kCCCyk.', '.kkkkkkkkkCCCCk.', 'kCyCyCyCyCCCCk..', '.kkCCCCCCCCkk...', '..kCk..kCk......', '..kk...kk.......', '................', '................', '................', '................'],
+  gull: ['................', '................', '................', '................', 'k..............k', 'kmk..........kmk', '.kmmk..kk..kmmk.', '..kmmkkwwkkmmk..', '...kmmwwwwmmk...', '....kkwwwwkk....', '......kyyk......', '.......kk.......', '................', '................', '................', '................'],
+  shellwall: ['................', '.....kkkkkk.....', '...kknnbbnnkk...', '..knnbnnnnbnnk..', '.knbnnnbbnnnbnk.', '.knnnbnnnnbnnnk.', 'knbnnnnbbnnnnbnk', 'knnnbnnnnnnbnnnk', 'knbnnnnbbnnnnbnk', '.knnnbnnnnbnnnk.', '.knbnnnbbnnnbnk.', '..knnbnnnnbnnk..', '...kknnbbnnkk...', '.....kkkkkk.....', '................', '................'],
+  anchor: ['...kk...', '..kmmk..', '...kk...', 'kkkmmkkk', '...mm...', 'k..mm..k', 'km.mm.mk', '.kmmmmk.'],
+  harpoon: ['........k.', 'mmmmmmmmmk', '........k.'],
   mound: ['...kkkk...', '..kBbbBk..', '.kBbBbbBk.', 'kBbbBbBbBk', 'kkkkkkkkkk'],
   scrap: ['..kkk...', '.kmmMk..', 'kmMmmMk.', 'kMmmmyk.', '.kMmMk..', '..kkk...'],
   gun: ['kkkkkkkkkk', 'kmmmmmmmMk', 'kkkMkkkkkk', '..kk......'],
@@ -93,7 +99,7 @@ export function bigTexture(scene, key, n, draw) {
 
 export function makeTextures(scene) {
   for (const k of ['hero', 'walker', 'runner', 'spitter', 'bloater', 'hound', 'crow', 'rat', 'moth', 'beetle', 'crate', 'rubble', 'cage',
-    'wall', 'gate', 'wire', 'spikes', 'turret', 'guard', 'workbench', 'kitchen', 'farm', 'storehouse', 'salvage', 'lab', 'ram', 'toad', 'vent', 'mole', 'bat', 'crawler', 'shrieker']) pxTexture(scene, k, SPR[k], 3);
+    'wall', 'gate', 'wire', 'spikes', 'turret', 'guard', 'workbench', 'kitchen', 'farm', 'storehouse', 'salvage', 'lab', 'ram', 'toad', 'vent', 'crab', 'newt', 'gull', 'shellwall', 'mole', 'bat', 'crawler', 'shrieker']) pxTexture(scene, k, SPR[k], 3);
   pxTexture(scene, 'mother', SPR.mother, 5);
   // bandits are recoloured survivors: red bandana + khaki coat / dark hood
   if (!SPR.rifleman) {
@@ -101,6 +107,7 @@ export function makeTextures(scene) {
     SPR.rifleman = swap(SPR.hero, { t: 'N', T: 'B', b: 'r', B: 'R' });
     SPR.bruiser = swap(SPR.hero, { t: 'R', T: 'k', b: 'K', B: 'k', s: 'S' });
   }
+  if (!SPR.sniper) SPR.sniper = SPR.hero.map(r => r.replace(/./g, ch => ({ t: 'G', T: 'K', b: 'n', B: 'b' })[ch] || ch));
   if (!SPR.rwall) SPR.rwall = SPR.wall.map(r => r.replace(/./g, ch => ({ g: 'm', G: 'M', b: 'g', B: 'K' })[ch] || ch));
   pxTexture(scene, 'rwall', SPR.rwall, 3);
   pxTexture(scene, 'mine', SPR.mine, 3);
@@ -114,7 +121,20 @@ export function makeTextures(scene) {
     pxTexture(scene, 'gasser', SPR.gasser, 3);
     pxTexture(scene, 'zero', SPR.zero, 5);
     pxTexture(scene, 'cross', SPR.cross, 3);
+  pxTexture(scene, 'anchor', SPR.anchor, 3);
+  pxTexture(scene, 'harpoon', SPR.harpoon, 2);
+  if (!SPR.drowned) {
+    const sw3 = (rows, m) => rows.map(r => r.replace(/./g, ch => (m[ch] !== undefined ? m[ch] : ch)));
+    SPR.drowned = sw3(SPR.walker, { z: 'c', Z: 'C', p: 'G', P: 'K' });
+    SPR.harpooner = sw3(SPR.spitter, { p: 'b', P: 'B', z: 'c', Z: 'C' });
+    SPR.harbor = sw3(SPR.walker, { p: 'y', P: 'o', z: 'c', Z: 'C', K: 'B' });
+  }
+  pxTexture(scene, 'drowned', SPR.drowned, 3);
+  pxTexture(scene, 'harpooner', SPR.harpooner, 3);
+  pxTexture(scene, 'harbor', SPR.harbor, 5);
     pxTexture(scene, 'rifleman', SPR.rifleman, 3);
+  pxTexture(scene, 'sniper', SPR.sniper, 3);
+  pxTexture(scene, 'flak', SPR.turret, 3);
   if (!SPR.bdog) SPR.bdog = SPR.hound.map(r => r.replace(/./g, ch => ({ o: 'K', O: 'k', e: 'r' })[ch] || ch));
   pxTexture(scene, 'bdog', SPR.bdog, 3);
   pxTexture(scene, 'bruiser', SPR.bruiser, 4);

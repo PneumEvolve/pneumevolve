@@ -106,7 +106,7 @@ export const swordDmg = () => T.swordDmg + (perk('blade') ? 1 : 0);
 
 export const dashCd = () => T.dashCd * (perk('fleet') ? 0.7 : 1);
 
-export const petMaxHp = (pt) => (studied('hound') ? 1 : 0) + (pt.sp === 'toad' && (pt.pr || 1) >= 2 ? 1 : 0) + SP[pt.sp].hearts + Math.floor(((pt.lvl || 1) - 1) / 5) + (pt.sp === 'beetle' && (pt.pr || 1) >= 2 ? 1 : 0);
+export const petMaxHp = (pt) => (studied('hound') ? 1 : 0) + ((pt.sp === 'toad' || pt.sp === 'crab') && (pt.pr || 1) >= 2 ? 1 : 0) + SP[pt.sp].hearts + Math.floor(((pt.lvl || 1) - 1) / 5) + (pt.sp === 'beetle' && (pt.pr || 1) >= 2 ? 1 : 0);
 
 export const petLvlDmg = (lvl) => Math.floor(((lvl || 1) - 1) / 10);
 
@@ -128,7 +128,7 @@ export const labActive = (sp) => SAVE.buildings.some(b => b.t === 'lab' && (b.la
 export const cureNeeded = () => Object.keys(LAB_BONUS);
 export const curePct = () => Math.round(cureNeeded().reduce((m, sp) => m + Math.min(100, (SAVE.research || {})[sp] || 0), 0) / cureNeeded().length);
 // every Kitchen seats 4 creatures (+2 per level). No Kitchen = nobody eats.
-export const seats = () => SAVE.buildings.filter(b => b.t === 'kitchen').reduce((m, b) => m + T.kitchenSeats + T.seatsPerLvl * ((b.lvl || 1) - 1), 0);
+export const seats = () => SAVE.buildings.filter(b => b.t === 'kitchen').reduce((m, b) => m + T.kitchenSeats + T.seatsPerLvl * ((b.lvl || 1) - 1) + ((SAVE.reclaimed || {}).south ? 2 : 0), 0);
 // who eats each morning, in order: Lab first (they leave if hungry), then workers, then your squad. The pen hibernates.
 export const eaters = () => {
   const ids = [];
@@ -152,7 +152,7 @@ export function outputOf(b) {
   const k = recipeOf(b), lv = b.lvl || 1, job = prodMult(b);
   if (b.t === 'farm') return { k, n: Math.round((k === 'food' ? T.farmFood : T.farmScrap) * [1, 1.5, 2][job - 1] * (1 + 0.5 * (lv - 1)) * (nextTo(b, 'farm') ? 1.25 : 1) * ((SAVE.reclaimed || {}).ruins ? 1.25 : 1)) + (k === 'food' && labActive('toad') ? 2 : 0) };
   if (b.t === 'salvage') return { k: 'parts', n: Math.round((T.salvageParts + (job - 1) * 2) * (1 + 0.5 * (lv - 1))) + (nextTo(b, 'workbench') ? 1 : 0) + ((SAVE.reclaimed || {}).subway ? 2 : 0) + (labActive('ram') ? 2 : 0) };
-  if (b.t === 'kitchen') return { k, n: job + (lv - 1) + (nextTo(b, 'farm') ? 1 : 0), cost: RCP_COST[k] };
+  if (b.t === 'kitchen') return { k, n: job + (lv - 1) + (nextTo(b, 'farm') ? 1 : 0) + (labActive('crab') ? 1 : 0), cost: RCP_COST[k] };
   if (b.t === 'workbench') return { k, n: job + (lv - 1) + (nextTo(b, 'storehouse') ? 1 : 0), cost: RCP_COST[k] };
   return null;
 }
