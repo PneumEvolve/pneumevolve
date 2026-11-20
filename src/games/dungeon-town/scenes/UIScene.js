@@ -80,8 +80,10 @@ export class UIScene extends Phaser.Scene {
       info: this.add.text(0, 0, '', S(9, { color: '#c9d1d9', lineSpacing: 1 })).setOrigin(0, 0).setVisible(false),
       badge: this.add.text(0, 0, '', S(12, { color: '#f2d14b' })).setOrigin(0, 0).setVisible(false),
     });
-    this.sqTitle = this.add.text(0, 0, 'YOUR CREATURES', S(18, { color: '#f2d14b' })).setOrigin(0.5).setVisible(false);
-    this.sqSub = this.add.text(0, 0, '', S(11, { color: '#c9d1d9', align: 'center' })).setOrigin(0.5).setVisible(false);
+    this.sqTitle = this.add.text(0, 0, 'YOUR CREATURES', S(18, { color: '#f2d14b' })).setOrigin(0, 0.5).setVisible(false);
+    this.sqSub = this.add.text(0, 0, '', S(11, { color: '#c9d1d9' })).setOrigin(0, 0.5).setVisible(false);
+    this.sortLbl = this.add.text(0, 0, 'SORT', S(10, { color: '#c9d1d9' })).setOrigin(1, 0.5).setVisible(false);
+    this.sortTxt = [0, 1, 2].map(() => this.add.text(0, 0, '', S(11)).setOrigin(0.5).setVisible(false));
     this.sqClose = this.add.text(0, 0, 'DONE', S(14)).setOrigin(0.5).setVisible(false);
     this.pgPrev = this.add.text(0, 0, '◀', S(18)).setOrigin(0.5).setVisible(false);
     this.pgNext = this.add.text(0, 0, '▶', S(18)).setOrigin(0.5).setVisible(false);
@@ -184,8 +186,11 @@ export class UIScene extends Phaser.Scene {
     }
     this.B.sqClose = { x: w / 2, y: SQ.y + SQ.h / 2 - u * 0.065, w: u * 0.3, h: u * 0.085 };
     this.tBtn.squad.setPosition(this.B.squadBtn.x, this.B.squadBtn.y).setFontSize(fs(0.032));
-    this.sqTitle.setPosition(w / 2, SQ.y - SQ.h / 2 + u * 0.05).setFontSize(fs(0.045));
-    this.sqSub.setPosition(w / 2, SQ.y - SQ.h / 2 + u * 0.105).setFontSize(fs(0.027));
+    this.sqTitle.setPosition(SQ.x - SQ.w / 2 + u * 0.04, SQ.y - SQ.h / 2 + u * 0.05).setFontSize(fs(0.045));
+    this.sqSub.setPosition(SQ.x - SQ.w / 2 + u * 0.04, SQ.y - SQ.h / 2 + u * 0.105).setFontSize(fs(0.025));
+    this.B.sort = [0, 1, 2].map(i => { const bw = u * 0.16, gap = u * 0.015; return { x: SQ.x + SQ.w / 2 - u * 0.03 - bw / 2 - (2 - i) * (bw + gap), y: SQ.y - SQ.h / 2 + u * 0.105, w: bw, h: u * 0.055 }; });
+    this.sortTxt.forEach((t, i) => t.setPosition(this.B.sort[i].x, this.B.sort[i].y).setFontSize(fs(0.024)));
+    this.sortLbl.setPosition(this.B.sort[0].x - this.B.sort[0].w / 2 - u * 0.015, this.B.sort[0].y).setFontSize(fs(0.022));
     this.sqClose.setPosition(this.B.sqClose.x, this.B.sqClose.y).setFontSize(fs(0.035));
     this.B.pgPrev = { x: SQ.x - SQ.w / 2 + u * 0.13, y: this.B.sqClose.y, w: u * 0.16, h: u * 0.085 };
     this.B.pgNext = { x: SQ.x + SQ.w / 2 - u * 0.13, y: this.B.sqClose.y, w: u * 0.16, h: u * 0.085 };
@@ -361,6 +366,7 @@ export class UIScene extends Phaser.Scene {
           return;
         }
       }
+      for (let i = 0; i < 3; i++) if (tapIn(B.sort[i])) { Ctl.queue.push({ type: 'sort', k: ['type', 'lvl', 'busy'][i] }); return; }
       const roster = HUD.roster || [], pages = Math.ceil(roster.length / 12), pg = Math.min(HUD.rosterPage || 0, pages - 1);
       if (pages > 1 && tapIn(B.pgPrev) && pg > 0) { Ctl.queue.push({ type: 'page', d: -1 }); return; }
       if (pages > 1 && tapIn(B.pgNext) && pg < pages - 1) { Ctl.queue.push({ type: 'page', d: 1 }); return; }
@@ -584,13 +590,15 @@ export class UIScene extends Phaser.Scene {
 
     // squad panel
     const showSq = panel === 'squad';
-    [this.sqTitle, this.sqSub, this.sqClose].forEach(t => t.setVisible(showSq));
+    [this.sqTitle, this.sqSub, this.sqClose, this.sortLbl, ...this.sortTxt].forEach(t => t.setVisible(showSq));
     if (showSq) {
       const SQ = B.sq;
       g.fillStyle(0x000000, 0.55); g.fillRect(0, 0, w, h);
       g.fillStyle(0x14161a, 0.97); g.fillRoundedRect(SQ.x - SQ.w / 2, SQ.y - SQ.h / 2, SQ.w, SQ.h, 14);
       g.lineStyle(3, 0xff8c9e, 0.8); g.strokeRoundedRect(SQ.x - SQ.w / 2, SQ.y - SQ.h / 2, SQ.w, SQ.h, 14);
-      this.sqSub.setText(HUD.rosterMsg || 'Tap one to upgrade it, add it to your squad, or give it a job  ·  #1 and #2 fight  ·  all 4 give passives');
+      this.sqSub.setText(HUD.rosterMsg || 'Tap one to open it  ·  #1 and #2 fight  ·  all 4 give passives');
+      const so = HUD.rosterSort || {};
+      ['TYPE', 'LEVEL', 'BUSY'].forEach((nm, i) => { const k = ['type', 'lvl', 'busy'][i], on = so.k === k; this.pill(B.sort[i], on ? 0xf2d14b : 0xffffff, on ? 0.8 : 0.45, on); this.sortTxt[i].setText(`${nm}${on ? ((so.dir || 1) > 0 ? ' ▼' : ' ▲') : ''}`); });
       this.pill(B.sqClose, 0x8ef0a0, 0.6, false);
     }
     const sqList = showSq ? (HUD.squad || []) : [];
@@ -626,8 +634,8 @@ export class UIScene extends Phaser.Scene {
       c.icon.setTexture(e.sp).setPosition(r.x - r.w / 2 + r.h * 0.42, r.y).setScale(r.h / 62);
       const up = (n) => '▲'.repeat(Math.max(0, (n || 1) - 1));
       c.name.setText(e.hero ? 'You' : d.name).setPosition(r.x - r.w / 2 + r.h * 0.85, r.y - r.h * 0.42);
-      c.info.setText(e.hero ? `Lv ${e.lvl} / ${HUD.capNow}\nPerks + hearts` : `Lv ${e.lvl} · ${e.job ? '⚒ ' + e.job : '♥'.repeat(e.hearts)}\nA: ${d.activeName} ${up(e.ar)}\nP: ${d.passiveName} ${up(e.pr)}`).setPosition(r.x - r.w / 2 + r.h * 0.85, r.y - r.h * 0.14);
-      c.badge.setText(`${inSq ? '#' + (e.inSquad + 1) : ''}${e.job ? '⚒' : ''}${e.picks ? ' ★' : ''}`).setPosition(r.x - r.w / 2 + 6, r.y - r.h / 2 + 4);
+      c.info.setText(e.hero ? `Lv ${e.lvl} / ${HUD.capNow}\nPerks + hearts` : `Lv ${e.lvl} · ${e.lab ? '🧪 Lab' : e.job ? '⚒ ' + e.job : '♥'.repeat(e.hearts)}\nA: ${d.activeName} ${up(e.ar)}\nP: ${d.passiveName} ${up(e.pr)}`).setPosition(r.x - r.w / 2 + r.h * 0.85, r.y - r.h * 0.14);
+      c.badge.setText(`${inSq ? '#' + (e.inSquad + 1) : ''}${e.lab ? '🧪' : e.job ? '⚒' : ''}${e.picks ? ' ★' : ''}`).setPosition(r.x - r.w / 2 + 6, r.y - r.h / 2 + 4);
       if (e.picks) { g.lineStyle(2, 0xf2d14b, 0.6 + 0.4 * Math.sin(time * 0.01)); g.strokeRoundedRect(r.x - r.w / 2 - 2, r.y - r.h / 2 - 2, r.w + 4, r.h + 4, 9); }
     });
 

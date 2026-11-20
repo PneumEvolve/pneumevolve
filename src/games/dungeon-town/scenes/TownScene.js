@@ -389,8 +389,18 @@ export class TownScene extends Combat {
     delete cur.w; writeSave(); this.renderBuildings(); this.reloadSquad(); this.renderPenPets();
   }
   syncRoster() {
-    HUD.roster = [{ id: 'hero', sp: 'hero', hero: true, lvl: SAVE.hero.lvl, picks: SAVE.hero.picks || 0, inSquad: -1 }]
-      .concat(SAVE.pets.map(pt => { const jb = jobOf(pt.id); return { id: pt.id, sp: pt.sp, inSquad: SAVE.squad.indexOf(pt.id), lvl: pt.lvl, ar: pt.ar, pr: pt.pr, picks: pt.picks || 0, hearts: petMaxHp(pt), job: jb ? BLD[jb.t].name : null }; }));
+    const pets = SAVE.pets.map(pt => { const jb = jobOf(pt.id), lb = labOf(pt.id), sq = SAVE.squad.indexOf(pt.id);
+      return { id: pt.id, sp: pt.sp, inSquad: sq, lvl: pt.lvl, ar: pt.ar, pr: pt.pr, picks: pt.picks || 0, hearts: petMaxHp(pt), job: lb ? 'Lab' : jb ? BLD[jb.t].name : null, lab: !!lb,
+        busy: lb ? 3 : jb ? 2 : sq >= 0 ? 1 : 0 }; });
+    // sorting: type (A→Z), level (high→low), busy (free first); tap the same one again to flip it
+    const so = SAVE.rosterSort;
+    if (so && so.k) {
+      const nm = (e) => SP[e.sp].name;
+      const cmp = { type: (a, b) => nm(a).localeCompare(nm(b)) || b.lvl - a.lvl, lvl: (a, b) => b.lvl - a.lvl || nm(a).localeCompare(nm(b)), busy: (a, b) => a.busy - b.busy || b.lvl - a.lvl }[so.k];
+      if (cmp) pets.sort((a, b) => cmp(a, b) * (so.dir || 1));
+    }
+    HUD.rosterSort = so || null;
+    HUD.roster = [{ id: 'hero', sp: 'hero', hero: true, lvl: SAVE.hero.lvl, picks: SAVE.hero.picks || 0, inSquad: -1 }].concat(pets);
     HUD.capNow = levelCap();
     this.syncHeroHud();
   }
@@ -444,6 +454,10 @@ export class TownScene extends Combat {
   // Engineer: a mole working a Guard Post (his favourite job) toughens every building at night
   engineerOn() { return SAVE.buildings.some(b => b.t === 'guard' && b.w && petById(b.w) && petById(b.w).sp === 'mole'); }
 
+  // pickers show 6 at a time; MORE cycles the pages
+  pageOf(list) { const n = Math.max(1, Math.ceil(list.length / 6)); const pg = (HUD.pickPage || 0) % n; return list.slice(pg * 6, pg * 6 + 6); }
+  moreBtn(list) { const n = Math.ceil(list.length / 6); return n > 1 ? [{ label: `MORE ▶  (page ${((HUD.pickPage || 0) % n) + 1}/${n})`, ev: { type: 'pickMore' } }] : []; }
+
   syncDetail() {
     const id = HUD.detailId, cap = levelCap();
     if (id === 'night') {
@@ -491,27 +505,32 @@ export class TownScene extends Combat {
       rec.lab = (rec.lab || []).filter(x => petById(x));
       const sps = cureNeeded(), pct = (sp) => Math.min(100, SAVE.research[sp] || 0), short = (sp) => SP[sp].name.split(' ')[1];
       if (HUD.detailMode === 'labpick') {
-        const cand = SAVE.pets.filter(pt => !rec.lab.includes(pt.id)).sort((a, b) => (pct(a.sp) >= 100) - (pct(b.sp) >= 100) || b.lvl - a.lvl);
+        const busyOf = (pt) => (labOf(pt.id) ? 3 : jobOf(pt.id) ? 2 : SAVE.squad.includes(pt.id) ? 1 : 0);
+        const cand = SAVE.pets.filter(pt => !labOf(pt.id) && pt.lvl > 1).sort((a, b) => (pct(a.sp) >= 100) - (pct(b.sp) >= 100) || busyOf(a) - busyOf(b) || b.lvl - a.lvl);
         HUD.detail = {
           name: 'Lab — add a creature', icon: 'lab', xpFrac: curePct() / 100,
-          body: `Each fed morning a creature spends 1 level on its species: +${T.labRate}%. A level 6 takes a species all the way (6 → 1). Level 1s have nothing to give.\n\nUpgrades it already earned stay, but it won't earn them again.\nIt stays in the Lab (no runs, no job), eats 1 🌾 every morning, and leaves after ${T.labLeave} hungry mornings.`,
-          buttons: cand.slice(0, 7).map(pt => ({ label: `${SP[pt.sp].name} Lv${pt.lvl}  ·  ${pct(pt.sp) >= 100 ? 'Studied ✓' : `${pct(pt.sp)}% → ${Math.min(100, pct(pt.sp) + (pt.lvl - 1) * T.labRate)}%`}${SAVE.squad.includes(pt.id) ? '  (squad)' : jobOf(pt.id) ? '  (working)' : ''}`, ev: { type: 'labIn', id: pt.id } })).concat([{ label: '← BACK', ev: { type: 'bldBack' } }]),
+          body: `Each fed morning it spends 1 level: +${T.labRate}% for its species. A level 6 does a whole species.\n\nIt keeps the upgrades it earned, but won't earn them again.\nNo runs, no job. Eats 1 🌾 a morning; leaves after ${T.labLeave} hungry mornings.${cand.length ? '' : '\n\nNo creature above level 1 is free.'}`,
+          buttons: this.pageOf(cand).map(pt => ({ label: `${SP[pt.sp].name} Lv${pt.lvl}  ·  ${pct(pt.sp) >= 100 ? 'Studied ✓' : `${pct(pt.sp)}% → ${Math.min(100, pct(pt.sp) + (pt.lvl - 1) * T.labRate)}%`}${SAVE.squad.includes(pt.id) ? '  (squad)' : jobOf(pt.id) ? '  (working)' : ''}`, ev: { type: 'labIn', id: pt.id } })).concat(this.moreBtn(cand), [{ label: '← BACK', ev: { type: 'bldBack' } }]),
         };
         return;
       }
       if (HUD.detailMode === 'labinfo') {
+        const tabs = [['Ruins', WILD], ['Subway', WILD_SUB], ['Hospital', WILD_HOS], ['Docks', WILD_DOCK]], ti = HUD.labTab || 0;
+        const list = Object.keys(tabs[ti][1]).filter(sp => LAB_BONUS[sp]);
         HUD.detail = {
-          name: 'Lab — what each species gives', icon: 'lab', xpFrac: curePct() / 100,
-          small: true,
-          body: 'Studied = forever.  In the Lab = while one is in there.\n\n' + sps.map(sp => `${pct(sp) >= 100 ? '✓' : `${pct(sp)}%`}  ${SP[sp].name}:  ${LAB_BONUS[sp].studied}\n      In the Lab: ${LAB_BONUS[sp].active}`).join('\n'),
-          buttons: [{ label: '← BACK', ev: { type: 'bldBack' } }],
+          name: `What they give: ${tabs[ti][0]}`, icon: 'lab', xpFrac: curePct() / 100,
+          body: 'Studied = forever. In the Lab = while one is in there.\n\n' + list.map(sp => `${SP[sp].name}  ${pct(sp) >= 100 ? '✓ Studied' : `${pct(sp)}%`}\n  ✓ ${LAB_BONUS[sp].studied}\n  🧪 ${LAB_BONUS[sp].active}`).join('\n\n'),
+          buttons: tabs.map((t, i) => ({ label: `${i === ti ? '▶ ' : ''}${t[0].toUpperCase()}`, ev: { type: 'labTab', i } })).concat([{ label: '← BACK', ev: { type: 'bldBack' } }]),
         };
         return;
       }
-      const lines = [`🧪 Cure: ${curePct()}%   ·   Studied ${sps.filter(sp => pct(sp) >= 100).length} / ${sps.length} species`, `Each fed morning a creature spends 1 level: +${T.labRate}% for its species.`, '', `In the Lab (${rec.lab.length}/${slots}):`];
-      rec.lab.forEach(id => { const pt = petById(id); lines.push(`· ${SP[pt.sp].name}  Lv${pt.lvl}${pct(pt.sp) >= 100 ? '  (species done)' : pt.lvl > 1 ? `  · ${pt.lvl - 1} levels left (+${Math.min(100 - pct(pt.sp), (pt.lvl - 1) * T.labRate)}%)` : '  · nothing left to give'}${pt.hungry ? `  ⚠ HUNGRY ${pt.hungry}/${T.labLeave}` : ''}`, `   Active: ${LAB_BONUS[pt.sp].active}`); });
+      const rate = T.labRate + ((SAVE.reclaimed || {}).north ? T.labHos : 0);
+      const lines = [`🧪 Cure ${curePct()}%  ·  Studied ${sps.filter(sp => pct(sp) >= 100).length}/${sps.length}`, `+${rate}% per fed morning (1 level each)`, '', `In the Lab (${rec.lab.length}/${slots}):`];
+      rec.lab.forEach(id => {
+        const pt = petById(id), left = 100 - pct(pt.sp), days = Math.min(pt.lvl - 1, Math.ceil(left / rate));
+        lines.push(`· ${short(pt.sp)} Lv${pt.lvl}  ${left <= 0 ? 'species done ✓' : pt.lvl <= 1 ? 'nothing left to give' : `${pct(pt.sp)}% → ${Math.min(100, pct(pt.sp) + days * rate)}% in ${days} day${days > 1 ? 's' : ''}`}${pt.hungry ? `  ⚠ HUNGRY ${pt.hungry}/${T.labLeave}` : ''}`);
+      });
       if (!rec.lab.length) lines.push('· empty: add a spare creature');
-      lines.push('', sps.map(sp => `${short(sp)} ${pct(sp)}%${pct(sp) >= 100 ? '✓' : ''}`).join(' · '));
       const ff = foodForecast();
       if (ff.hungry > 0) lines.push('', `⚠ Food: ${ff.hungry} creature${ff.hungry > 1 ? 's' : ''} won't eat tomorrow (${ff.seats} Kitchen seats, ${(SAVE.food || 0) + ff.grow} 🌾)`);
       const btns = [];
@@ -529,11 +548,12 @@ export class TownScene extends Combat {
       const def = BLD[rec.t], lvl = rec.lvl || 1, o = outputOf(rec), wk = rec.w && petById(rec.w), canWork = JOB_SITES.includes(rec.t);
       if (HUD.detailMode === 'pick') {
         const favL = favs(rec.t);
-        const cand = SAVE.pets.filter(pt => pt.id !== rec.w).sort((a, b) => favL.includes(b.sp) - favL.includes(a.sp) || b.lvl - a.lvl);
+        const busyOf = (pt) => (labOf(pt.id) ? 3 : jobOf(pt.id) ? 2 : SAVE.squad.includes(pt.id) ? 1 : 0);
+        const cand = SAVE.pets.filter(pt => pt.id !== rec.w && !labOf(pt.id)).sort((a, b) => favL.includes(b.sp) - favL.includes(a.sp) || busyOf(a) - busyOf(b) || b.lvl - a.lvl);
         HUD.detail = {
           name: `${def.name} — pick a worker`, icon: rec.t, xpFrac: 0,
           body: `Workers stay home from runs, bring in what this building makes, and earn XP every morning.\n\n★ Favourite: ${favL.length ? favL.map(f => SP[f].name).join(' / ') : 'none'}${favL.length ? ` — ${JOB_DESC[rec.t][1]}` : ''}\nAnyone else: ${JOB_DESC[rec.t][0]}`,
-          buttons: cand.slice(0, 7).map(pt => ({ label: `${favL.includes(pt.sp) ? '★ ' : ''}${SP[pt.sp].name} Lv${pt.lvl}${jobOf(pt.id) ? '  (working)' : SAVE.squad.includes(pt.id) ? '  (squad)' : ''}`, ev: { type: 'workHere', id: pt.id } })).concat([{ label: '← BACK', ev: { type: 'bldBack' } }]),
+          buttons: this.pageOf(cand).map(pt => ({ label: `${favL.includes(pt.sp) ? '★ ' : ''}${SP[pt.sp].name} Lv${pt.lvl}${jobOf(pt.id) ? `  (${BLD[jobOf(pt.id).t].name})` : SAVE.squad.includes(pt.id) ? '  (squad)' : ''}`, ev: { type: 'workHere', id: pt.id } })).concat(this.moreBtn(cand), [{ label: '← BACK', ev: { type: 'bldBack' } }]),
         };
         return;
       }
@@ -698,6 +718,9 @@ export class TownScene extends Combat {
       case 'assignJob': { const pt = petById(ev.id); if (pt) HUD.rosterMsg = this.assignJob(pt, ev.job); HUD.detailMode = null; this.syncDetail(); break; }
       case 'stopJob': { const pt = petById(ev.id); if (pt) { this.stopJob(pt); HUD.rosterMsg = 'Stopped working. It\'s back at the pen.'; } this.syncDetail(); break; }
       case 'page': HUD.rosterPage = Math.max(0, (HUD.rosterPage || 0) + ev.d); break;
+      case 'sort': { const so = SAVE.rosterSort; SAVE.rosterSort = so && so.k === ev.k ? { k: ev.k, dir: -(so.dir || 1) } : { k: ev.k, dir: 1 }; HUD.rosterPage = 0; writeSave(); this.syncRoster(); break; }
+      case 'pickMore': HUD.pickPage = (HUD.pickPage || 0) + 1; this.syncDetail(); break;
+      case 'labTab': HUD.labTab = ev.i; this.syncDetail(); break;
       case 'openStash': if (!day || HUD.building) return; HUD.detailId = 'stash'; HUD.detailMode = null; HUD.rosterMsg = ''; this.syncDetail(); HUD.panel = 'detail'; break;
       case 'recipe': { const opts = ev.b === 'kitchen' ? ['medkit', 'treat'] : ['cage', 'lure']; SAVE.recipes[ev.b] = opts[(opts.indexOf(SAVE.recipes[ev.b]) + 1) % 2]; writeSave(); this.syncDetail(); break; }
       case 'swapOrder': { const q = SAVE.squad; if (q[ev.a] != null && q[ev.b] != null) { const t = q[ev.a]; q[ev.a] = q[ev.b]; q[ev.b] = t; writeSave(); this.reloadSquad(); this.syncRoster(); HUD.rosterMsg = 'Squad order changed.'; } break; }
@@ -706,11 +729,11 @@ export class TownScene extends Combat {
       case 'district': HUD.detailId = 'district'; HUD.distIdx = ev.d; HUD.detailMode = null; HUD.rosterMsg = ''; this.syncDetail(); HUD.panel = 'detail'; break;
       case 'bldMenu': this.menuRec = ev.rec; HUD.detailId = 'bld'; HUD.detailMode = null; HUD.rosterMsg = ''; this.syncDetail(); HUD.panel = 'detail'; break;
       case 'bldRecipe': { const sp = this.bSprites.find(b => b.rec === this.menuRec); if (sp) this.cycleRecipe(sp); HUD.rosterMsg = ''; this.syncDetail(); break; }
-      case 'labPick': HUD.detailMode = 'labpick'; HUD.rosterMsg = ''; this.syncDetail(); break;
-      case 'labInfo': HUD.detailMode = 'labinfo'; HUD.rosterMsg = ''; this.syncDetail(); break;
+      case 'labPick': HUD.detailMode = 'labpick'; HUD.pickPage = 0; HUD.rosterMsg = ''; this.syncDetail(); break;
+      case 'labInfo': HUD.detailMode = 'labinfo'; HUD.labTab = HUD.labTab || 0; HUD.rosterMsg = ''; this.syncDetail(); break;
       case 'labIn': { const pt = petById(ev.id); if (pt) HUD.rosterMsg = this.putInLab(pt); HUD.detailMode = null; this.syncDetail(); break; }
       case 'labOut': { const pt = petById(ev.id); if (pt) { this.leaveLab(pt.id); writeSave(); this.renderBuildings(); this.renderPenPets(); HUD.rosterMsg = `${SP[pt.sp].name} went back to the pen (its research is kept).`; } this.syncDetail(); break; }
-      case 'bldPick': HUD.detailMode = 'pick'; HUD.rosterMsg = ''; this.syncDetail(); break;
+      case 'bldPick': HUD.detailMode = 'pick'; HUD.pickPage = 0; HUD.rosterMsg = ''; this.syncDetail(); break;
       case 'bldBack': HUD.detailMode = null; this.syncDetail(); break;
       case 'workHere': { const pt = petById(ev.id); if (pt && this.menuRec) HUD.rosterMsg = this.assignJob(pt, this.menuRec.t, this.menuRec); HUD.detailMode = null; this.syncDetail(); break; }
       case 'bldUnassign': { const pt = this.menuRec && petById(this.menuRec.w); if (pt) { this.stopJob(pt); HUD.rosterMsg = `${SP[pt.sp].name} went back to the pen.`; } this.syncDetail(); break; }
