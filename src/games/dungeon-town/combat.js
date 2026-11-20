@@ -1115,7 +1115,7 @@ export class Combat extends Phaser.Scene {
     const amt = XP[key] || 2;
     HUD.leveledThisKill = false;
     const ups = addXp(SAVE.hero, amt);
-    if (ups.length) { this.levelFx(this.hero, `LEVEL ${SAVE.hero.lvl}!`, ups.some(isMilestone)); HUD.maxHp = maxHearts(); HUD.hp = Math.min(HUD.maxHp, HUD.hp + 1); }
+    if (ups.length) { this.levelFx(this.hero, `LEVEL ${SAVE.hero.lvl}!`, ups.some(isMilestone)); const was = HUD.maxHp; HUD.maxHp = maxHearts(); HUD.hp = Math.min(HUD.maxHp, HUD.hp + Math.max(0, HUD.maxHp - was)); }
     const act = this.activePets.map(p => (p && p.active ? p.rec : null));
     (this.guards || []).forEach(g => { if (g.active) act.push(g.rec); });
     this.squadRecs.concat((this.guards || []).map(g => g.rec)).forEach(r => {

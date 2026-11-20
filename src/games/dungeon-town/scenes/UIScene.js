@@ -475,7 +475,7 @@ export class UIScene extends Phaser.Scene {
     Ctl.blocked = portrait;
     this.rotateText.setVisible(portrait);
     if (portrait) { g.fillStyle(0x000000, 0.75); g.fillRect(0, 0, w, h); }
-    const town = this.town(), building = town && HUD.building, panel = town && HUD.panel;
+    const town = this.town(), building = town && HUD.building, panel = (town || HUD.panel === 'detail') && HUD.panel;
 
     if (this.mouseMode && !this.touchUI && !HUD.dead && !building && !panel) {
       const dir = this.mouseDir();

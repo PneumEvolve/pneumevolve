@@ -235,7 +235,7 @@ export const LAB_BONUS = {
   hound:  { studied: 'Squad pets +1 heart', active: '+25% scrap from dungeon runs' },
   crow:   { studied: 'Turrets +15% range', active: 'Turrets +1 damage at night' },
   rat:    { studied: '+2 stash room', active: 'Every crate drops a Part' },
-  moth:   { studied: 'Pet Treats heal +1', active: 'You heal 2 hearts per room (not 1)' },
+  moth:   { studied: 'Pet Treats heal +1', active: 'You heal 1 heart each room you clear' },
   beetle: { studied: 'Buildings +20% HP', active: 'Walls and gates +50% HP at night' },
   mole:   { studied: 'A buried stash every room, any squad', active: 'Buried stashes hold double' },
   bat:    { studied: 'You move 10% faster', active: 'A creature from another district wanders into each run' },

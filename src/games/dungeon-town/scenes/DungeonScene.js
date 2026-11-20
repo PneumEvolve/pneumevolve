@@ -71,7 +71,7 @@ export class DungeonScene extends Combat {
     this.waves = this.DG.waves(run.room);
     this.setupTrains();
     this.waveIdx = -1; this.waveDelay = 1.0;
-    this.roomClear = false; this.extractT = 0;
+    this.roomClear = false; this.extractT = 0; this.onHatch = false;
   }
 
   collectScrap(n) { this.run.scrap += n; HUD.scrap = this.run.scrap; }
@@ -79,7 +79,11 @@ export class DungeonScene extends Combat {
   onAbandon() { this.endRun({ type: 'abandon' }); }
   getSquadRecs() { return this.run.pets; }
   itemSrc() { return this.run.items || null; }
-  onEvent(ev) { if (ev.type === 'swapSlots' && this.roomClear && !HUD.dead && !this.leaving) this.swapSlots(ev.a, ev.b); }
+  onEvent(ev) {
+    if (ev.type === 'swapSlots' && this.roomClear && !HUD.dead && !this.leaving) this.swapSlots(ev.a, ev.b);
+    if (ev.type === 'extractYes' && HUD.detailId === 'extract') { HUD.panel = null; HUD.detailId = null; if (!this.leaving) this.extract(); }
+    if ((ev.type === 'extractNo' || ev.type === 'closePanel') && HUD.detailId === 'extract') { HUD.panel = null; HUD.detailId = null; }
+  }
 
   buildRoom() {
     const grid = this.grid;
@@ -223,7 +227,8 @@ export class DungeonScene extends Combat {
 
   clearRoom() {
     this.roomClear = true; this.magnetAll = true;
-    if (HUD.hp < HUD.maxHp) { const hl = labActive('moth') ? 2 : 1; HUD.hp = Math.min(HUD.maxHp, HUD.hp + hl); this.floatText(this.hero.x, this.hero.y - 40, `+${hl} ♥`, '#ff8c9e', 18); }
+    // no free healing: only unlocked bonuses heal (a Mender Moth in the Lab, Med Kits, Mend, Scavenger hearts)
+    if (HUD.hp < HUD.maxHp && labActive('moth')) { HUD.hp = Math.min(HUD.maxHp, HUD.hp + 1); this.floatText(this.hero.x, this.hero.y - 40, '+1 ♥', '#ff8c9e', 18); }
     // bench pets rest and heal
     this.squadRecs.forEach(r => {
       const out = this.activePets.some(p => p && p.active && p.rec === r);
@@ -237,7 +242,7 @@ export class DungeonScene extends Combat {
       this.hatch.setVisible(true).setScale(0);
       this.tweens.add({ targets: this.hatch, scale: 1, duration: 400, ease: 'Back.out' });
     }
-    HUD.banner = { text: this.run.room === T.rooms ? 'RUINS CLEARED! EXTRACT' : 'ROOM CLEAR', sub: (this.isExtractRoom && this.run.room < T.rooms ? 'Hatch = go home with your loot  ·  Door = go deeper' : 'Tap two pets on the left to swap them'), t: 2.8 };
+    HUD.banner = { text: this.run.room === T.rooms ? `${this.DG.name} CLEARED! EXTRACT` : 'ROOM CLEAR', sub: (this.isExtractRoom && this.run.room < T.rooms ? 'Hatch = go home with your loot  ·  Door = go deeper' : 'Tap two pets on the left to swap them'), t: 2.8 };
   }
 
   updateExits(dt) {
@@ -252,11 +257,23 @@ export class DungeonScene extends Combat {
       });
       return;
     }
-    if (this.isExtractRoom && dist(h, this.hatchPos) < 40) {
-      this.extractT += dt;
-      if (this.extractT >= 1.0) this.extract();
-    } else this.extractT = 0;
+    // stepping onto the hatch asks first (it can open right under you)
+    const onHatch = this.isExtractRoom && dist(h, this.hatchPos) < 40;
+    if (onHatch && !this.onHatch && !HUD.panel) this.askExtract();
+    this.onHatch = onHatch;
   }
+
+  askExtract() {
+    const run = this.run, nm = this.DG.name;
+    const caught = run.captured.length;
+    HUD.detailId = 'extract';
+    HUD.detail = { name: 'Extract?', icon: 'hatch', xpFrac: 0,
+      body: `Leave the ${nm[0] + nm.slice(1).toLowerCase()} now and keep your loot:\n\n⚙ ${run.scrap} scrap${run.parts ? `  ·  🔩 ${run.parts} Parts` : ''}${caught ? `  ·  ${caught} creature${caught > 1 ? 's' : ''} caught` : ''}\n\n${run.room < T.rooms ? `Or keep going: room ${run.room + 1} is through the door. Die down there and you lose it all.` : 'The dungeon is cleared.'}`,
+      buttons: [{ label: '⬆ EXTRACT', ev: { type: 'extractYes' } }, { label: run.room < T.rooms ? 'KEEP GOING' : 'NOT YET', ev: { type: 'extractNo' } }] };
+    HUD.panel = 'detail';
+  }
+
+  inputFrozen() { return HUD.panel === 'detail'; }
 
   extract() {
     const run = this.run;
