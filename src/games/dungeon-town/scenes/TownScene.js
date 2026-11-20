@@ -1,8 +1,8 @@
 import Phaser from 'phaser';
 import { FONT, V, dist, flash, kids, untint } from '../util';
-import { BLD, DEF_UPG, FAV, JOB_DESC, JOB_SHORT, JOB_SITES, LAB_BONUS, NEIGHBORS, NEXT_LVL, PERKS, PROD_T, RECIPES, RES_ICON, SP, T, TCOLS, TH, TILE, TL, TROWS, TURRET, TW, WILD, WILD_DOCK, WILD_HOS, WILD_SUB, XP, amtTxt, favJobOf, favs, isFavSp, isRes, nameOf, recipeOf } from '../tuning';
+import { BLD, DEF_UPG, E, FAV, JOB_DESC, JOB_SHORT, JOB_SITES, LAB_BONUS, NEIGHBORS, NEXT_LVL, PERKS, PROD_T, RECIPES, RES_ICON, SP, T, TCOLS, TH, TILE, TL, TROWS, TURRET, TW, WILD, WILD_DOCK, WILD_HOS, WILD_SUB, XP, amtTxt, favJobOf, favs, isFavSp, isRes, nameOf, recipeOf } from '../tuning';
 import { CAMPS, DISTRICTS, TOWN_MAP } from '../maps';
-import { GAME, HUD, SAVE, SAVE_KEY, addXp, ammoMax, bCost, bossBeaten, campDone, campOpen, campsBeaten, civCap, countB, cureNeeded, curePct, districtDone, eaters, foodForecast, gateOpen, jobOf, labActive, labOf, levelCap, loadSave, maxHearts, nextTo, outputOf, perk, petById, petLvlDmg, petMaxHp, pointsUsed, protectAmt, reclaimed, seats, stashCap, stashTotal, studied, typeCap, writeSave, xpNeed } from '../state';
+import { GAME, HUD, SAVE, SAVE_KEY, addXp, ammoMax, bCost, bossBeaten, campDone, campOpen, campsBeaten, civCap, countB, cureNeeded, curePct, districtDone, eaters, foodForecast, gateOpen, jobOf, labActive, labOf, levelCap, loadSave, maxHearts, nextTo, outputOf, perk, petById, petLvlDmg, petMaxHp, pointsUsed, protectAmt, reclaimed, reclaimedCount, seats, stashCap, stashTotal, studied, typeCap, writeSave, xpNeed } from '../state';
 import { makeTextures } from '../textures';
 import { Combat } from '../combat';
 
@@ -39,7 +39,7 @@ export class TownScene extends Combat {
 
     if (this.newlyReclaimed.length) {
       const i = this.newlyReclaimed[this.newlyReclaimed.length - 1], d = DISTRICTS[i], nx = DISTRICTS[i + 1];
-      const rb = { text: `${d.name.toUpperCase()} RECLAIMED!`, sub: `The ${['west', 'east', 'north', 'south'][i]} gate goes quiet at night.\nSurvivors moved in: +2 civic points · ${d.perk}${d.unlock ? `\nUnlocked: ${DEF_UPG[d.unlock].name} (UPGRADE tool, ${T.reinforceCost} 🔩)` : ''}${nx && nx.ready ? `\nThe ${['west', 'east', 'north', 'south'][i + 1]} gate is open: ${nx.name}` : ''}`, t: 6 };
+      const rb = { text: `${d.name.toUpperCase()} RECLAIMED!`, sub: `Survivors hold the ${['west', 'east', 'north', 'south'][i]} gate: half the horde comes through it, and you're paid for the rest.\nSurvivors moved in: +2 civic points · ${d.perk}${d.unlock ? `\nUnlocked: ${DEF_UPG[d.unlock].name} (UPGRADE tool, ${T.reinforceCost} 🔩)` : ''}${nx && nx.ready ? `\nThe ${['west', 'east', 'north', 'south'][i + 1]} gate is open: ${nx.name}` : ''}`, t: 6 };
       this.time.delayedCall(3200, () => { HUD.banner = rb; });
     }
     this.townRecs = this.makeTownRecs();
@@ -438,6 +438,10 @@ export class TownScene extends Combat {
 
   syncDetail() {
     const id = HUD.detailId, cap = levelCap();
+    if (id === 'night') {
+      HUD.detail = { name: 'Nightfall', icon: 'gen', xpFrac: 0, body: 'The city is reclaimed. Survivors hold every gate, so tonight is up to you.\n\nFIGHT: defend the town as usual.\nSKIP: the survivors handle it. You get a normal night\'s scrap and go straight to morning (the Lab still studies, workers still work).', buttons: [{ label: '⚔ FIGHT THE NIGHT', ev: { type: 'nightGo' } }, { label: '☾ SKIP TO MORNING', ev: { type: 'nightSkip' } }, { label: 'BACK', ev: { type: 'back' } }] };
+      return;
+    }
     if (id === 'district') {
       const i = HUD.distIdx, d = DISTRICTS[i], open = gateOpen(i);
       const natives = Object.keys(d.dungeon === 'subway' ? WILD_SUB : d.dungeon === 'ruins' ? WILD : d.dungeon === 'hospital' ? WILD_HOS : d.dungeon === 'docks' ? WILD_DOCK : {});
@@ -446,7 +450,7 @@ export class TownScene extends Combat {
         return;
       }
       const lines = [];
-      lines.push(reclaimed(i) ? '✅ RECLAIMED — this gate is quiet at night.' : open ? `Held by the horde. Zombies come through the ${['west', 'east', 'north', 'south'][i]} gate at night.` : `Locked: reclaim ${DISTRICTS[i - 1].name} or reach Town Hall ${d.th}.`);
+      lines.push(reclaimed(i) ? '✅ RECLAIMED — survivors hold this gate: half the zombies come through, and you\'re paid for the ones they stop.' : open ? `Held by the horde. Zombies come through the ${['west', 'east', 'north', 'south'][i]} gate at night.` : `Locked: reclaim ${DISTRICTS[i - 1].name} or reach Town Hall ${d.th}.`);
       lines.push('', 'To reclaim it:', `${bossBeaten(d) ? '☑' : '☐'} Beat ${d.boss} (room ${T.rooms} of the ${({ subway: 'Subway', ruins: 'Ruins', hospital: 'Hospital', docks: 'Docks' })[d.dungeon]})`);
       if (d.camps.length < 3) lines.push('☐ 3 bandit camps (coming in the next update)');
       d.camps.forEach((ci, k) => lines.push(`${campDone(ci) ? '☑' : '☐'} Bandit camp ${k + 1}: ${CAMPS[ci].name}${k === 2 ? ' (holdout)' : ''}`));
@@ -475,14 +479,14 @@ export class TownScene extends Combat {
       return;
     }
     if (id === 'bld' && this.menuRec && this.menuRec.t === 'lab') {
-      const rec = this.menuRec, lvl = rec.lvl || 1, slots = lvl;
+      const rec = this.menuRec, lvl = rec.lvl || 1, slots = T.labSlots[lvl];
       rec.lab = (rec.lab || []).filter(x => petById(x));
       const sps = cureNeeded(), pct = (sp) => Math.min(100, SAVE.research[sp] || 0), short = (sp) => SP[sp].name.split(' ')[1];
       if (HUD.detailMode === 'labpick') {
         const cand = SAVE.pets.filter(pt => !rec.lab.includes(pt.id)).sort((a, b) => (pct(a.sp) >= 100) - (pct(b.sp) >= 100) || b.lvl - a.lvl);
         HUD.detail = {
           name: 'Lab — add a creature', icon: 'lab', xpFrac: curePct() / 100,
-          body: `Each fed morning a creature spends 1 level on its species: +${T.labRate}%. A level 10 takes a species all the way (10 → 1). Level 1s have nothing to give.\n\nUpgrades it already earned stay, but it won't earn them again.\nIt stays in the Lab (no runs, no job), eats 1 🌾 every morning, and leaves after ${T.labLeave} hungry mornings.`,
+          body: `Each fed morning a creature spends 1 level on its species: +${T.labRate}%. A level 6 takes a species all the way (6 → 1). Level 1s have nothing to give.\n\nUpgrades it already earned stay, but it won't earn them again.\nIt stays in the Lab (no runs, no job), eats 1 🌾 every morning, and leaves after ${T.labLeave} hungry mornings.`,
           buttons: cand.slice(0, 7).map(pt => ({ label: `${SP[pt.sp].name} Lv${pt.lvl}  ·  ${pct(pt.sp) >= 100 ? 'Studied ✓' : `${pct(pt.sp)}% → ${Math.min(100, pct(pt.sp) + (pt.lvl - 1) * T.labRate)}%`}${SAVE.squad.includes(pt.id) ? '  (squad)' : jobOf(pt.id) ? '  (working)' : ''}`, ev: { type: 'labIn', id: pt.id } })).concat([{ label: '← BACK', ev: { type: 'bldBack' } }]),
         };
         return;
@@ -650,8 +654,11 @@ export class TownScene extends Combat {
       }
       case 'endDay':
         if (!day || HUD.building || HUD.panel) return;
+        if (reclaimedCount() >= 4) { HUD.detailId = 'night'; HUD.detailMode = null; HUD.rosterMsg = ''; this.syncDetail(); HUD.panel = 'detail'; break; }
         this.startNight();
         break;
+      case 'nightGo': HUD.panel = null; this.startNight(); break;
+      case 'nightSkip': HUD.panel = null; this.startNight(true); break;
       case 'build':
         if (!day) { HUD.banner = { text: 'NO BUILDING AT NIGHT', t: 1.4 }; return; }
         HUD.panel = null;
@@ -709,6 +716,7 @@ export class TownScene extends Combat {
         break;
       }
       case 'back': if (HUD.detailId === 'district') { this.onEvent({ type: 'openMap' }); break; }
+        if (HUD.detailId === 'night') { HUD.panel = null; break; }
         if (HUD.detailId === 'stash' || HUD.detailId === 'war' || HUD.detailId === 'newgame' || HUD.detailId === 'bld') { HUD.panel = null; break; }
         if (HUD.detailMode) { HUD.detailMode = null; this.syncDetail(); break; } HUD.panel = 'squad'; HUD.rosterMsg = ''; this.syncRoster(); break;
       case 'arcUp': {
@@ -966,7 +974,7 @@ export class TownScene extends Combat {
           const was = SAVE.research[pt.sp] || 0;
           if (pt.lvl > 1 && was < 100) {
             pt.lvl--; pt.xp = 0; out.spent = (out.spent || 0) + 1;
-            SAVE.research[pt.sp] = Math.min(100, was + T.labRate + ((SAVE.reclaimed || {}).north ? 2 : 0));
+            SAVE.research[pt.sp] = Math.min(100, was + T.labRate + ((SAVE.reclaimed || {}).north ? T.labHos : 0));
             if (was < 100 && SAVE.research[pt.sp] >= 100) out.studied.push(pt.sp);
           }
         }
@@ -987,7 +995,7 @@ export class TownScene extends Combat {
   putInLab(pt) {
     const rec = this.menuRec; if (!rec || rec.t !== 'lab') return '';
     rec.lab = (rec.lab || []).filter(id => petById(id));
-    if (rec.lab.length >= (rec.lvl || 1)) return 'The Lab is full. Upgrade it for another slot.';
+    if (rec.lab.length >= T.labSlots[rec.lvl || 1]) return 'The Lab is full. Upgrade it for another slot.';
     if (SAVE.squad.includes(pt.id) && SAVE.squad.length <= 1) return 'You need at least one creature with you.';
     const jb = jobOf(pt.id); if (jb) delete jb.w;
     SAVE.squad = SAVE.squad.filter(id => id !== pt.id);
@@ -996,7 +1004,7 @@ export class TownScene extends Combat {
     return `${SP[pt.sp].name} is in the Lab. It studies while it's fed.`;
   }
 
-  startNight() {
+  startNight(skip = false) {
     this.phase = 'night';
     this.renderBuildings();
     this.genMax = TL[SAVE.townLevel].gen; this.genHp = this.genMax;
@@ -1004,7 +1012,7 @@ export class TownScene extends Combat {
     this.spawnGuards();
     HUD.hp = HUD.maxHp;
     let loaded = 0;
-    this.bSprites.forEach(b => { if (b.bt === 'turret' && (SAVE.stash.ammo || 0) > 0) { SAVE.stash.ammo--; b.hot = true; loaded++; if (b.gunImg) b.gunImg.setTint(0xffd166); } });
+    if (!skip) this.bSprites.forEach(b => { if (b.bt === 'turret' && (SAVE.stash.ammo || 0) > 0) { SAVE.stash.ammo--; b.hot = true; loaded++; if (b.gunImg) b.gunImg.setTint(0xffd166); } });
     if (loaded) writeSave();
     const day = SAVE.day, tier = SAVE.townLevel; // night difficulty comes only from the Town Hall level
     this.nightLen = Math.min(T.nightMax, T.nightBase + 20 * (tier - 1));
@@ -1025,18 +1033,24 @@ export class TownScene extends Combat {
       for (let i = 0; i < nb; i++) types.push(Math.random() < 0.55 ? 'rifleman' : 'bruiser');
       SAVE.raidWarn = false; SAVE.lastRaidDay = SAVE.day; writeSave();
     }
-    const live = this.entrances.filter(e => e.d == null || !reclaimed(e.d));
-    this.quietNight = !live.length;
-    if (this.quietNight) { types.length = 0; this.nightLen = 10; }
+    const live = this.entrances.slice();
+    this.quietNight = false;
     const packSize = 1 + tier;
     const packs = Math.ceil(types.length / packSize);
     const window = this.nightLen * 0.8;
     this.spawnPlan = [];
+    // survivors hold reclaimed gates: every other pack sent there never arrives, and you're paid for it at dawn
+    const avgScrap = (t) => { const r = E[t].scrap || [1, 1]; return (r[0] + r[1]) / 2; };
+    this.heldScrap = 0; this.heldN = 0; let expect = 0; const held = {};
     for (let pk = 0; pk < packs; pk++) {
       const e = Phaser.Utils.Array.GetRandom(live);
       const at = 3 + (pk / packs) * window;
-      types.slice(pk * packSize, pk * packSize + packSize).forEach((type, j) => this.spawnPlan.push({ type, at: at + j * 0.45, e }));
+      const grp = types.slice(pk * packSize, pk * packSize + packSize);
+      if (e.d != null && reclaimed(e.d)) { held[e.d] = (held[e.d] || 0) + 1; if (held[e.d] % 2 === 0) { grp.forEach(t => { this.heldScrap += avgScrap(t); this.heldN++; }); continue; } }
+      grp.forEach((type, j) => { expect += avgScrap(type); this.spawnPlan.push({ type, at: at + j * 0.45, e }); });
     }
+    this.heldScrap = Math.ceil(this.heldScrap * T.heldShare);
+    if (skip) { this.skipScrap = Math.ceil(expect); this.spawnPlan = []; this.dawn(true); return; }
     this.tweens.add({ targets: this.shade, alpha: 0.42, duration: 1200 });
     HUD.banner = this.quietNight ? { text: 'A QUIET NIGHT', sub: 'Every open gate is reclaimed. Nothing comes tonight.', t: 3 } : this.banditNight ? { text: 'BANDIT RAID!', sub: 'Riflemen will shoot your turrets from range. Protect the generator!', t: 3 } : { text: `NIGHT ${day}`, sub: `Threat level ${tier} (Town Hall) — defend the generator and your farms!${loaded ? `  ·  ${loaded} turret${loaded > 1 ? 's' : ''} loaded with ammo` : ''}`, t: 2.8 };
     this.kills0 = HUD.kills || 0;
@@ -1053,9 +1067,12 @@ export class TownScene extends Combat {
     this.magnetAll = true;
     this.time.delayedCall(2500, () => { this.magnetAll = false; });
     let sub;
+    const share = this.heldScrap || 0, skipped = this.skipScrap || 0;
+    this.heldScrap = 0; this.skipScrap = 0;
     if (survived) {
       const reward = 10 + SAVE.townLevel * 8;
-      SAVE.scrap += reward; sub = `Survived!  +${reward} ⚙`;
+      SAVE.scrap += reward + share + skipped;
+      sub = skipped ? `The survivors held the night.  +${reward + share + skipped} ⚙` : `Survived!  +${reward} ⚙${share ? `  ·  Survivors' share +${share} ⚙` : ''}`;
     } else {
       const protectedAmt = protectAmt();
       const lost = Math.floor(Math.max(0, SAVE.scrap - protectedAmt) * T.genLossPct);

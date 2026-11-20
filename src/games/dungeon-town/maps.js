@@ -350,6 +350,6 @@ export const TOWN_MAP = [
 export const DISTRICTS = [
   { key: 'ruins', name: 'The Ruins', gate: 'w', dir: 'W', dungeon: 'ruins', boss: 'The Warden', camps: [0, 1, 2], th: 1, ready: true, perk: 'Survivors farm: Farms +25%', unlock: 'wire', icon: 'hatch' },
   { key: 'subway', name: 'The Subway', gate: 'e', dir: 'E', dungeon: 'subway', boss: 'The Tunnel Mother', camps: [3, 4, 5], th: 2, ready: true, perk: 'Survivors salvage: Salvage Yards +2 🔩', unlock: 'gate', icon: 'stairs' },
-  { key: 'north', name: 'The Hospital', gate: 'n', dir: 'N', dungeon: 'hospital', boss: 'Patient Zero', camps: [6, 7, 8], th: 3, ready: true, perk: 'The Lab studies +2% faster', unlock: 'wall', icon: 'cross' },
+  { key: 'north', name: 'The Hospital', gate: 'n', dir: 'N', dungeon: 'hospital', boss: 'Patient Zero', camps: [6, 7, 8], th: 3, ready: true, perk: 'The Lab studies +4% faster', unlock: 'wall', icon: 'cross' },
   { key: 'south', name: 'The Docks', gate: 's', dir: 'S', dungeon: 'docks', boss: 'The Harbormaster', camps: [9, 10, 11], th: 4, ready: true, perk: 'Kitchens +2 feeding seats', unlock: 'arc', icon: 'anchor' },
 ];
