@@ -667,7 +667,7 @@ export class UIScene extends Phaser.Scene {
       g.fillStyle(sel ? 0xf2d14b : 0x000000, sel ? 0.3 : 0.6); g.fillRoundedRect(r.x - r.w / 2, r.y - r.h / 2, r.w, r.h, 8);
       g.lineStyle(sel ? 3 : 2, sel ? 0xf2d14b : 0xffffff, sel ? 1 : 0.3); g.strokeRoundedRect(r.x - r.w / 2, r.y - r.h / 2, r.w, r.h, 8);
       const def = BLD[it];
-      if (def) { c.icon.setTexture(it).setPosition(r.x, r.y - r.h * 0.16).setScale(Math.min(r.w, r.h) / 70).setAlpha(1); c.name.setText(def.name); const cst = def.upg ? def.upg[0] : def.cost, mx = typeCap(it); c.cost.setText(`${cst} pt${cst > 1 ? 's' : ''}${mx ? `  ·  ${countB(it)}/${mx}` : ''}`); }
+      if (def) { c.icon.setTexture(it).setPosition(r.x, r.y - r.h * 0.16).setScale(Math.min(r.w, r.h) / 70).setAlpha(1); c.name.setText(def.name); const cst = def.cost, mx = typeCap(it); c.cost.setText(`${def.per ? `${def.per} per pt` : `${cst} pt${cst > 1 ? 's' : ''}`}${mx ? `  ·  ${countB(it)}/${mx}` : ''}`); }
       else if (it === 'recipe') { c.icon.setTexture('medkit').setPosition(r.x, r.y - r.h * 0.16).setScale(Math.min(r.w, r.h) / 40).setAlpha(0.9); c.name.setText('RECIPE'); c.cost.setText('⇄'); }
       else if (it === 'upgrade') { const civ = HUD.buildTab === 'civ'; c.icon.setTexture(civ ? 'part' : 'turret').setPosition(r.x, r.y - r.h * 0.16).setScale(Math.min(r.w, r.h) / (civ ? 26 : 70)).setAlpha(civ ? 0.9 : 0.6); c.name.setText('UPGRADE'); c.cost.setText(civ ? '🔩' : '▲'); }
       else { c.icon.setTexture('rubble').setPosition(r.x, r.y - r.h * 0.16).setScale(Math.min(r.w, r.h) / 70).setAlpha(0.6); c.name.setText('REMOVE'); c.cost.setText('refund'); }

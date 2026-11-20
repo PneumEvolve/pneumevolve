@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { FONT, V, dist, flash, kids, untint } from '../util';
 import { BLD, DEF_UPG, E, FAV, JOB_DESC, JOB_SHORT, JOB_SITES, LAB_BONUS, NEIGHBORS, NEXT_LVL, PERKS, PROD_T, RECIPES, RES_ICON, SP, T, TCOLS, TH, TILE, TL, TROWS, TURRET, TW, WILD, WILD_DOCK, WILD_HOS, WILD_SUB, XP, amtTxt, favJobOf, favs, isFavSp, isRes, nameOf, recipeOf } from '../tuning';
 import { CAMPS, DISTRICTS, TOWN_MAP } from '../maps';
-import { GAME, HUD, SAVE, SAVE_KEY, addXp, ammoMax, bCost, bossBeaten, campDone, campOpen, campsBeaten, civCap, countB, cureNeeded, curePct, districtDone, eaters, foodForecast, gateOpen, jobOf, labActive, labOf, levelCap, loadSave, maxHearts, nextTo, outputOf, perk, petById, petLvlDmg, petMaxHp, pointsUsed, protectAmt, reclaimed, reclaimedCount, seats, stashCap, stashTotal, studied, typeCap, writeSave, xpNeed } from '../state';
+import { GAME, HUD, SAVE, SAVE_KEY, addXp, ammoMax, bossBeaten, campDone, campOpen, campsBeaten, civCap, countB, cureNeeded, curePct, districtDone, eaters, foodForecast, gateOpen, jobOf, labActive, labOf, levelCap, loadSave, maxHearts, nextTo, outputOf, perk, petById, petLvlDmg, petMaxHp, pointsUsed, protectAmt, reclaimed, reclaimedCount, seats, stashCap, stashTotal, studied, typeCap, writeSave, xpNeed } from '../state';
 import { makeTextures } from '../textures';
 import { Combat } from '../combat';
 
@@ -153,7 +153,7 @@ export class TownScene extends Combat {
       const tex = rec.t === 'wall' && (rec.lvl || 1) >= 2 ? 'rwall' : rec.t;
       if (def.gate) { s = this.gates.create(x, y, tex); s.refreshBody(); if ((rec.lvl || 1) >= 2) s.setTint(0x8fe3ff); }
       else if (def.solid) { s = this.solids.create(x, y, tex); s.refreshBody(); }
-      else { s = this.add.image(x, y, rec.t); if (rec.t === 'wire' && (rec.lvl || 1) >= 2) s.setTint(0xff9a9a); }
+      else { s = this.add.image(x, y, rec.t); if (rec.t === 'wire' && (rec.lvl || 1) >= 2) s.setTint(0xff9a9a); if (rec.t === 'spikes' && (rec.lvl || 1) >= 2) s.setTint(0xffd27a); }
       Object.assign(s, { bt: rec.t, def, lvl: rec.lvl || 1, c: rec.c, r: rec.r, rec, dead: false, isBld: true });
       s.maxHp = Math.round(((def.hp || 0) * (rec.t === 'wall' && s.lvl >= 2 ? 2 : 1) * (rec.t === 'wall' && studied('crab') ? 1.25 : 1) + (rec.t === 'turret' ? (s.lvl - 1) * 4 : 0)) * (1 + 0.5 * (this.engineerOn() ? 1 : 0)) * (studied('beetle') ? 1.2 : 1) * (labActive('beetle') && this.phase === 'night' && (rec.t === 'wall' || rec.t === 'gate') ? 1.5 : 1)); s.hp = s.maxHp;
       s.setDepth(def.solid ? 10 + y / 1000 : 1.2);
@@ -418,14 +418,22 @@ export class TownScene extends Combat {
       const sw = this.bSprites.find(b => b.rec === rec); if (sw) { this.ring(sw.x, sw.y, 34, 0xc0c6cc); this.spark(sw.x, sw.y, 0xc0c6cc, 10); }
       return `${nm} is now ${u.name}: ${u.txt}.`;
     }
+    if (rec.t === 'spikes') {
+      if (lvl >= 2) return 'Those spikes are already barbed.';
+      if ((SAVE.parts || 0) < T.spikeUpg) return `Barbed spikes need ${T.spikeUpg} 🔩 (you have ${SAVE.parts || 0}).`;
+      SAVE.parts -= T.spikeUpg; rec.lvl = 2; writeSave(); this.renderBuildings(); this.syncHud();
+      const ss = this.bSprites.find(b => b.rec === rec); if (ss) this.spark(ss.x, ss.y, 0xffd27a, 8);
+      return 'Barbed spikes: +1 damage.';
+    }
     if (lvl >= 3) return `That ${nm} is max level.`;
     if (def.cat === 'civ') {
       const cost = T.civUpg[lvl];
       if ((SAVE.parts || 0) < cost) return `Needs ${cost} 🔩 (you have ${SAVE.parts || 0}). Parts come from crates, bosses, camps and Salvage Yards.`;
       SAVE.parts -= cost;
     } else if (rec.t === 'turret') {
-      const delta = BLD.turret.upg[lvl] - BLD.turret.upg[lvl - 1];
-      if (pointsUsed('mil') + delta > TL[SAVE.townLevel].mil) return `Needs ${delta} more military pts. Upgrade the Town Hall.`;
+      const cost = T.turUpg[lvl];
+      if ((SAVE.parts || 0) < cost) return `Needs ${cost} 🔩 (you have ${SAVE.parts || 0}). Parts come from crates, bosses, camps and Salvage Yards.`;
+      SAVE.parts -= cost;
     } else return `${nm}s can't be upgraded.`;
     rec.lvl = lvl + 1; writeSave(); this.renderBuildings(); this.syncHud();
     const sp = this.bSprites.find(b => b.rec === rec); if (sp) { this.ring(sp.x, sp.y, 40, 0xf2d14b); this.spark(sp.x, sp.y, 0xf2d14b, 12); }
@@ -541,7 +549,7 @@ export class TownScene extends Combat {
       const btns = [];
       if (RECIPES[rec.t] && RECIPES[rec.t].length > 1) btns.push({ label: `MAKES: ${nameOf(recipeOf(rec), 2).toUpperCase()}  ⇄`, ev: { type: 'bldRecipe' } });
       if (rec.t === 'turret') { lines.push('', rec.arc ? '⚡ Arc Turret: every 2nd shot arcs to 2 more zombies' : (SAVE.reclaimed || {}).south ? `⚡ Arc Turret available: ${DEF_UPG.arc.txt}` : '⚡ Arc Turret: reclaim the Docks to unlock'); if (!rec.arc && (SAVE.reclaimed || {}).south) btns.push({ label: `⚡ ARC TURRET  ·  ${T.reinforceCost} 🔩 (have ${SAVE.parts || 0})`, ev: { type: 'arcUp' } }); }
-      if (upg && lvl < 3) btns.push({ label: def.cat === 'civ' ? `▲ LEVEL ${lvl + 1}  ·  ${T.civUpg[lvl]} 🔩 (have ${SAVE.parts})` : `▲ LEVEL ${lvl + 1}  ·  ${BLD.turret.upg[lvl] - BLD.turret.upg[lvl - 1]} military pts`, ev: { type: 'upgrade', bld: true } });
+      if (upg && lvl < 3) btns.push({ label: def.cat === 'civ' ? `▲ LEVEL ${lvl + 1}  ·  ${T.civUpg[lvl]} 🔩 (have ${SAVE.parts})` : `▲ LEVEL ${lvl + 1}  ·  ${T.turUpg[lvl]} 🔩 (have ${SAVE.parts || 0})`, ev: { type: 'upgrade', bld: true } });
       if (canWork) btns.push(wk ? { label: `✕ SEND ${SP[wk.sp].name.split(' ')[1].toUpperCase()} HOME`, ev: { type: 'bldUnassign' } } : { label: '＋ ASSIGN A WORKER', ev: { type: 'bldPick' } });
       if (canWork && wk) btns.push({ label: '⇄ SWAP WORKER', ev: { type: 'bldPick' } });
       btns.push({ label: 'CLOSE', ev: { type: 'back' } });
@@ -665,7 +673,7 @@ export class TownScene extends Combat {
         this.setBuildView(!HUD.building);
         break;
       case 'tab': HUD.buildTab = ev.tab; HUD.buildSel = ev.tab === 'mil' ? 'wall' : 'workbench'; HUD.buildMsg = BLD[HUD.buildSel].desc; break;
-      case 'select': HUD.buildSel = ev.item; HUD.buildMsg = BLD[ev.item] ? BLD[ev.item].desc : (ev.item === 'upgrade' ? (HUD.buildTab === 'civ' ? `Tap a building to upgrade it with Parts (Lv2: ${T.civUpg[1]} 🔩, Lv3: ${T.civUpg[2]} 🔩). You have ${SAVE.parts} 🔩.` : `Tap a turret to upgrade it. Wire, gates and walls get their district upgrade (${T.reinforceCost} 🔩 each): ${Object.values(DEF_UPG).map(u => `${u.name}${(SAVE.reclaimed || {})[u.d] ? ' ✓' : ' 🔒'}`).join(' · ')}`) : ev.item === 'recipe' ? 'Tap a Farm, Kitchen or Workbench to switch what it makes.' : 'Tap a building to remove it (points come back).'); break;
+      case 'select': HUD.buildSel = ev.item; HUD.buildMsg = BLD[ev.item] ? BLD[ev.item].desc : (ev.item === 'upgrade' ? (HUD.buildTab === 'civ' ? `Tap a building to upgrade it with Parts (Lv2: ${T.civUpg[1]} 🔩, Lv3: ${T.civUpg[2]} 🔩). You have ${SAVE.parts} 🔩.` : `All upgrades use Parts (you have ${SAVE.parts || 0} 🔩). Turret Lv2: ${T.turUpg[1]} 🔩, Lv3: ${T.turUpg[2]} 🔩 · Barbed spikes: ${T.spikeUpg} 🔩 · Wire, gates and walls get their district upgrade (${T.reinforceCost} 🔩 each): ${Object.values(DEF_UPG).filter(u => u.d !== 'south').map(u => `${u.name}${(SAVE.reclaimed || {})[u.d] ? ' ✓' : ' 🔒'}`).join(' · ')}`) : ev.item === 'recipe' ? 'Tap a Farm, Kitchen or Workbench to switch what it makes.' : 'Tap a building to remove it (points come back).'); break;
       case 'tapTile': if (HUD.building) this.tapTile(ev.x, ev.y); break;
       case 'hallUpgrade': this.upgradeHall(); break;
       case 'closePanel': HUD.panel = null; break;
@@ -806,12 +814,14 @@ export class TownScene extends Combat {
     }
     if (sel === 'remove') {
       if (!existing) return say('Nothing to remove there.');
+      const was = pointsUsed(existing.def.cat);
       SAVE.buildings = SAVE.buildings.filter(b => b !== existing.rec);
       writeSave(); pop(0xff8c8c); this.renderBuildings();
-      return say(`Removed ${existing.def.name}. +${bCost(existing.rec)} pts back.`);
+      const back = was - pointsUsed(existing.def.cat);
+      return say(`Removed ${existing.def.name}.${back ? ` +${back} pt${back > 1 ? 's' : ''} back.` : existing.def.per ? ` (strips of ${existing.def.per} per point)` : ''}`);
     }
     if (sel === 'upgrade') {
-      if (!existing || !(existing.def.cat === 'civ' || existing.bt === 'turret' || DEF_UPG[existing.bt])) return say('Tap a turret, wire, a gate, a wall, or a civic building.');
+      if (!existing || !(existing.def.cat === 'civ' || existing.bt === 'turret' || existing.bt === 'spikes' || DEF_UPG[existing.bt])) return say('Tap a turret, spikes, wire, a gate, a wall, or a civic building.');
       const msg = this.upgradeRec(existing.rec);
       if (/level \d/.test(msg)) pop(0xf2d14b);
       return say(msg);
@@ -823,8 +833,8 @@ export class TownScene extends Combat {
     const mx = typeCap(sel);
     if (mx && countB(sel) >= mx) return say(`Town Hall level ${SAVE.townLevel} allows ${mx} ${def.name}${mx > 1 ? 's' : ''}. Upgrade it for more.`);
     const cap = def.cat === 'mil' ? lv.mil : civCap();
-    if (pointsUsed(def.cat) + def.cost > cap) return say(`Not enough ${def.cat === 'mil' ? 'military' : 'civic'} points. Upgrade the Town Hall.`);
     SAVE.buildings.push({ t: sel, c, r, lvl: 1 });
+    if (pointsUsed(def.cat) > cap) { SAVE.buildings.pop(); return say(`Not enough ${def.cat === 'mil' ? 'military' : 'civic'} points. Upgrade the Town Hall.`); }
     writeSave(); pop(0x8ef0a0); this.renderBuildings();
     if (sel === 'kitchen') { HUD.maxHp = maxHearts(); HUD.hp = HUD.maxHp; }
     say(`${def.name} built.`);
@@ -1151,11 +1161,13 @@ export class TownScene extends Combat {
         if (!z.active) return;
         const c = Math.floor(z.x / TILE), r = Math.floor(z.y / TILE);
         const b = (c >= 0 && r >= 0 && c < TCOLS && r < TROWS) ? this.occ[this.idx(c, r)] : null;
-        z.spd = z.baseSpd * (b && b.bt === 'wire' && !b.dead ? 0.45 : 1);
+        const inWire = b && b.bt === 'wire' && !b.dead;
+        if (inWire) z.tangleT = T.tangleT; else z.tangleT = Math.max(0, (z.tangleT || 0) - dt);
+        z.spd = z.baseSpd * (inWire ? 0.45 : z.tangleT > 0 ? 0.65 : 1);
         if (b && b.bt === 'wire' && !b.dead && b.lvl >= 2) { z.razT = (z.razT || 0) - dt; if (z.razT <= 0) { z.razT = 1; this.damage(z, 1, new V(0, -1), 0, false, true, true); } }
         if (b && b.bt === 'spikes' && !b.dead) {
           z.spikeT -= dt;
-          if (z.spikeT <= 0) { z.spikeT = 0.6; this.damage(z, 1, new V(0, -1), 0, false, true, true); }
+          if (z.spikeT <= 0) { z.spikeT = 0.6; const sd = ((z.tangleT || 0) > 0 || z.stun > 0 ? 2 : 1) + ((b.lvl || 1) >= 2 ? 1 : 0); this.damage(z, sd, new V(0, -1), 0, false, true, true); }
         }
       });
       this.updateTurrets(dt);

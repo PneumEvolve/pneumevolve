@@ -172,9 +172,15 @@ export const countB = (t) => SAVE.buildings.filter(b => b.t === t).length;
 
 export const maxHearts = () => T.heroHp + [0, 1, 1, 2][squadRank('tough')] + (perk('tough') ? 1 : 0) + Math.floor(SAVE.hero.lvl / 4);
 
-export const bCost = (b) => { const d = BLD[b.t]; return d.upg ? d.upg[(b.lvl || 1) - 1] : d.cost; };
+export const bCost = (b) => BLD[b.t].cost;
 
-export const pointsUsed = (cat) => SAVE.buildings.reduce((s, b) => s + (BLD[b.t].cat === cat ? bCost(b) : 0), 0);
+// traps come in strips: wire 3 per point, spikes 2 per point
+export const pointsUsed = (cat) => {
+  let s = 0; const strips = {};
+  SAVE.buildings.forEach(b => { const d = BLD[b.t]; if (d.cat !== cat) return; if (d.per) strips[b.t] = (strips[b.t] || 0) + 1; else s += bCost(b); });
+  Object.keys(strips).forEach(t => { s += Math.ceil(strips[t] / BLD[t].per) * BLD[t].cost; });
+  return s;
+};
 
 // Shared state between scenes
 export const Ctl = { move: { x: 0, y: 0 }, mode: 'brawl', queue: [], aim: null, aimAbility: null, twin: null, blocked: false };
