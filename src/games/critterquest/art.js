@@ -854,6 +854,42 @@ const LEADER_ART = {
     '..hhhh..hhhh..',
   ],
 };
+ART.dripkylo = [
+  '.....uU..uU.....',
+  '....uuuu.uuuu...',
+  '...zzzzzzzzzzzz.',
+  'Uu.zzzzzzzzzwkzz',
+  'uuzzzzZzzzzzzzzz',
+  '.u.zzzzzzzzzzzz.',
+  '...xxxxxxxxxzz..',
+  '....zZ.....zZ...',
+  '....ZZ.....ZZ...',
+];
+ART.chillosaur = [
+  '..........AAAA..',
+  '....W..W.AAAAAA.',
+  '.....B..BAAAwkAA',
+  '......AAAAAAAAWw',
+  '..AAAAAAAAAAA...',
+  'AAAAAAAAWWWAA.A.',
+  '.....AAAAWWAA.W.',
+  '.......AA..AA...',
+  '.......AA..AA...',
+  '......HHH.HHH...',
+];
+ART.emberspino = [
+  '.....F..F.......',
+  '....fRfFRf......',
+  '.....RRRR...vvv.',
+  '....vvvvvv.vvwkv',
+  '..vvvvvvvvvvvvvv',
+  'vvvvvvVvvvvvvwvw',
+  '..vvvvxxxxvv.j..',
+  '....vvxxxvv.....',
+  '.....vv..vv.....',
+  '.....vv..vv.....',
+  '....VVV.VVV.....',
+];
 const NO_OUTLINE = new Set(['rabbit', 'steeldog']);
 
 /* ---------------- tiles ---------------- */

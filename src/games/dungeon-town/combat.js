@@ -1005,7 +1005,7 @@ export class Combat extends Phaser.Scene {
 
   tryDash(mv) {
     if (HUD.dashCd > 0) return;
-    HUD.dashCd = dashCd() * (1 - [0, 0.3, 0.4, 0.5][this.prk('tailwind')]);
+    HUD.dashCd = HUD.dashCdMax = dashCd() * (1 - [0, 0.3, 0.4, 0.5][this.prk('tailwind')]);
     this.dashDir.copy(mv.length() > 0.1 ? mv : this.facing).normalize();
     this.dashT = T.dashTime; this.inv = Math.max(this.inv, T.dashTime + 0.06); this.kbT = 0;
   }

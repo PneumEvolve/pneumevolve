@@ -97,6 +97,10 @@ export class UIScene extends Phaser.Scene {
     this.sqOrderLbl = this.add.text(0, 0, 'ORDER (tap 2 to swap)', S(10, { color: '#c9d1d9' })).setOrigin(1, 0.5).setVisible(false);
     this.input.on('wheel', (pointer, over, dx, dy) => { if (HUD.building) { const gs = this.gs(); if (gs && gs.buildZoom) gs.buildZoom(dy > 0 ? 0.9 : 1.1); } });
     this.heroLv = this.add.text(0, 0, '', S(11, { color: '#f2d14b' })).setOrigin(0, 0.5);
+    // cooldown seconds: on the ability buttons (touch) and on the squad portraits (desktop)
+    this.cdTxt = { a1: this.add.text(0, 0, '', S(14, { color: '#ffffff' })).setOrigin(0.5).setDepth(5).setVisible(false), a2: this.add.text(0, 0, '', S(14, { color: '#ffffff' })).setOrigin(0.5).setDepth(5).setVisible(false) };
+    this.portCd = [0, 1, 2, 3].map(() => this.add.text(0, 0, '', S(12, { color: '#ffffff' })).setOrigin(0.5).setDepth(5).setVisible(false));
+    this.cdWas = {};
     this.portLv = [0, 1, 2, 3].map(() => this.add.text(0, 0, '', S(9, { color: '#e8e6df' })).setOrigin(0.5, 0).setVisible(false));
     this.detIcon = this.add.image(0, 0, 'hero').setVisible(false);
     this.detName = this.add.text(0, 0, '', S(18, { color: '#f2d14b' })).setOrigin(0, 0).setVisible(false);
@@ -465,11 +469,22 @@ export class UIScene extends Phaser.Scene {
       const q = b.r * 0.35; g.lineStyle(4, 0xff4444, 0.9);
       g.lineBetween(b.x - q, b.y - q, b.x + q, b.y + q); g.lineBetween(b.x + q, b.y - q, b.x - q, b.y + q);
     } else { g.fillStyle(color, held ? 0.7 : 0.4); g.fillCircle(b.x, b.y, b.r * 0.3); }
-    if (cdFrac > 0) {
-      g.fillStyle(0x000000, 0.6);
-      g.beginPath(); g.moveTo(b.x, b.y);
-      g.arc(b.x, b.y, b.r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * cdFrac, false);
-      g.closePath(); g.fillPath();
+    this.cdRing(key, b.x, b.y, b.r, color, cdFrac, b.r * 0.16);
+  }
+
+  // cooldown ring: dims the button, a bright arc fills clockwise as it recharges, then a quick pulse when ready
+  cdRing(key, x, y, r, color, frac, wdt) {
+    const g = this.g, now = this.time.now;
+    frac = Math.max(0, Math.min(1, frac || 0));
+    const R = r + wdt * 0.5 + 2;
+    if (frac > 0) {
+      g.fillStyle(0x000000, 0.45); g.fillCircle(x, y, r);
+      g.lineStyle(wdt, 0x000000, 0.55); g.strokeCircle(x, y, R);
+      g.lineStyle(wdt, color, 0.95); g.beginPath(); g.arc(x, y, R, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (1 - frac), false); g.strokePath();
+      this.cdWas[key] = now;
+    } else if (this.cdWas[key] && now - this.cdWas[key] < 450) {
+      const k = (now - this.cdWas[key]) / 450;
+      g.lineStyle(wdt * (1 - k) + 1, 0xffffff, 1 - k); g.strokeCircle(x, y, R + k * r * 0.5);
     }
   }
 
@@ -572,7 +587,7 @@ export class UIScene extends Phaser.Scene {
     if (!HUD.canSwap) this.swapSel = -1;
     this.portraits.forEach((pp, i) => {
       const e = sq[i], b = B.port[i], vis = showPorts && !!e;
-      this.portLv[i].setVisible(vis);
+      this.portLv[i].setVisible(vis); if (!vis) this.portCd[i].setVisible(false);
       pp.icon.setVisible(vis); pp.num.setVisible(vis && e.slot >= 0);
       if (!vis) return;
       const sel = this.swapSel === i;
@@ -582,7 +597,12 @@ export class UIScene extends Phaser.Scene {
       if (HUD.canSwap && !sel) { g.lineStyle(1, 0x8ef0a0, 0.25 + 0.2 * Math.sin(time * 0.006)); g.strokeCircle(b.x, b.y, b.r + 4); }
       pp.icon.setTexture(e.sp).setPosition(b.x, b.y - b.r * 0.08).setScale(b.r / 26).setAlpha(e.ko ? 0.3 : (e.slot >= 0 ? 1 : 0.65));
       if (e.ko) { const q = b.r * 0.5; g.lineStyle(3, 0xff4d6d, 0.9); g.lineBetween(b.x - q, b.y - q, b.x + q, b.y + q); g.lineBetween(b.x + q, b.y - q, b.x - q, b.y + q); }
-      pp.num.setText(String(e.slot + 1)).setPosition(b.x + b.r * 0.85, b.y - b.r * 0.85);
+      const cdOn = !this.touchUI && e.slot >= 0 && e.slot < 2 && !e.ko;
+      const cd = cdOn ? (e.slot ? HUD.cd2 : HUD.cd1) : 0, cdMax = e.slot ? HUD.cd2Max : HUD.cd1Max;
+      if (cdOn) this.cdRing('p' + e.id, b.x, b.y, b.r, SP_COLOR[e.sp] || 0xe08a3c, cd / (cdMax || 1), Math.max(3, b.r * 0.14));
+      this.portCd[i].setVisible(cdOn && cd > 0.05);
+      if (cdOn && cd > 0.05) this.portCd[i].setText(cd >= 1 ? String(Math.ceil(cd)) : cd.toFixed(1)).setPosition(b.x, b.y).setFontSize(Math.round(b.r * 0.6) + 'px');
+      pp.num.setText(!this.touchUI && e.slot >= 0 && e.slot < 2 ? (e.slot ? 'E' : 'Q') : String(e.slot + 1)).setPosition(b.x + b.r * 0.85, b.y - b.r * 0.85);
       this.portLv[i].setText('Lv' + (e.lvl || 1)).setPosition(b.x, b.y + b.r + 9);
       const pw = b.r * 1.7 / e.maxHp;
       for (let k = 0; k < e.maxHp; k++) { g.fillStyle(k < e.hp ? 0xff8c9e : 0x3a2a2e, 1); g.fillRect(b.x - b.r * 0.85 + k * pw + 1, b.y + b.r + 3, pw - 2, 4); }
@@ -753,6 +773,7 @@ export class UIScene extends Phaser.Scene {
 
     // combat controls
     const showTouch = this.touchUI && !portrait && !building && !panel;
+    if (!showTouch) Object.values(this.cdTxt).forEach(t => t.setVisible(false));
     for (const k in this.lbl) this.lbl[k].setVisible(showTouch);
     this.lbl.a1.setText(HUD.ab1Label || '').setVisible(showTouch && !!HUD.ab1Label);
     this.lbl.a2.setText(HUD.ab2Label || '').setVisible(showTouch && !!HUD.ab2Label);
@@ -771,9 +792,10 @@ export class UIScene extends Phaser.Scene {
         g.fillStyle(0xffffff, 0.06); g.fillCircle(u * 0.26, h - u * 0.26, R * 0.45);
       }
       this.drawBtn('atk', 0xff8c42, 0);
-      this.drawBtn('dash', 0x3fd0c9, HUD.dashCd / dashCd());
+      this.drawBtn('dash', 0x3fd0c9, HUD.dashCd / (HUD.dashCdMax || dashCd()));
       if (HUD.ab1Label) this.drawBtn('a1', SP_COLOR[HUD.ab1Sp] || 0xe08a3c, HUD.cd1 / (HUD.cd1Max || 1));
       if (HUD.ab2Label) this.drawBtn('a2', SP_COLOR[HUD.ab2Sp] || 0xe08a3c, HUD.cd2 / (HUD.cd2Max || 1));
+      ['a1', 'a2'].forEach((k, i) => { const cd = i ? HUD.cd2 : HUD.cd1, on = !!(i ? HUD.ab2Label : HUD.ab1Label) && cd > 0.05; this.cdTxt[k].setVisible(on); if (on) this.cdTxt[k].setText(cd >= 1 ? String(Math.ceil(cd)) : cd.toFixed(1)).setPosition(B[k].x, B[k].y - B[k].r * 0.42).setFontSize(Math.round(B[k].r * 0.42) + 'px'); });
       if (Ctl.mode === 'brawl') {
         const b = B.atk;
         for (let i = 0; i < ammoMax(); i++) {

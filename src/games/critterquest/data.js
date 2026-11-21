@@ -408,11 +408,36 @@ export const SPECIES = {
     appear: 'stomped out from behind the old bones', exit: 'IRONREX stomped back behind the bones. It will be back!', exitAnim: 'dash',
   },
   // ----- the prehistoric valley -----
+  // Baby dinosaurs: each one grows into the next form at Lv 54.
+  dripkylo: {
+    name: 'DRIPKYLO', types: ['WATER'], catchRate: 0.4,
+    b: { hp: 10, atk: 5, def: 8, spd: 3 },
+    moves: ['Splash', 'Shell Up', 'Stomp', 'Geyser'],
+    evolve: { lv: 54, to: 'aquakylo' },
+    blurb: 'A baby ankylosaurus with two little water bumps and a tiny water tail.',
+    appear: 'waddled out of the ferns', exit: 'It waddled away, dripping.', exitAnim: 'dash',
+  },
+  chillosaur: {
+    name: 'CHILLOSAUR', types: ['ICE'], catchRate: 0.4,
+    b: { hp: 9, atk: 7, def: 5, spd: 7 },
+    moves: ['Scratch', 'Frost Roar', 'Ice Fang', 'Chomp'],
+    evolve: { lv: 54, to: 'frostosaur' },
+    blurb: 'A baby allosaurus with two tiny icicles on its back. Brrr!',
+    appear: 'hopped out of the frost', exit: 'It scampered off, shivering.', exitAnim: 'dash',
+  },
+  emberspino: {
+    name: 'EMBERSPINO', types: ['FIRE'], flicker: 'fF', catchRate: 0.4,
+    b: { hp: 10, atk: 8, def: 5, spd: 6 },
+    moves: ['Fire Breath', 'Hiss', 'Fire Fang', 'Chomp'],
+    evolve: { lv: 54, to: 'firespino' },
+    blurb: 'A baby spinosaurus. Its little fire spine is just starting to burn.',
+    appear: 'popped out, spine flickering', exit: 'It trotted away with a puff of smoke.', exitAnim: 'dash',
+  },
   aquakylo: {
     name: 'AQUAKYLO', types: ['WATER'], catchRate: 0.3,
     b: { hp: 13, atk: 7, def: 10, spd: 3 },
     moves: ['Bubble Bumps', 'Tail Club', 'Shell Up', 'Stomp'],
-    evolve: { lv: 56, to: 'brawlkylo' },
+    evolve: { lv: 58, to: 'brawlkylo' },
     blurb: 'An ankylosaurus whose back bumps and tail club are made of water.',
     appear: 'lumbered out of the ferns', exit: 'It thudded away, its tail club sloshing.', exitAnim: 'dash',
   },
@@ -427,7 +452,7 @@ export const SPECIES = {
     name: 'FROSTOSAUR', types: ['ICE'], catchRate: 0.3,
     b: { hp: 12, atk: 9, def: 6, spd: 8 },
     moves: ['Ice Fang', 'Icicle Spikes', 'Frost Roar', 'Chomp'],
-    evolve: { lv: 57, to: 'xenofrost' },
+    evolve: { lv: 59, to: 'xenofrost' },
     blurb: 'An allosaurus with frozen icicles all along its back.',
     appear: 'crunched out of the frost', exit: 'It ran off, icicles clinking.', exitAnim: 'dash',
   },
@@ -442,7 +467,7 @@ export const SPECIES = {
     name: 'FIRESPINO', types: ['FIRE'], flicker: 'fF', catchRate: 0.3,
     b: { hp: 13, atk: 10, def: 6, spd: 7 },
     moves: ['Fire Fang', 'Spine Slice', 'Hiss', 'Chomp'],
-    evolve: { lv: 58, to: 'twinspino' },
+    evolve: { lv: 60, to: 'twinspino' },
     blurb: 'A spinosaurus whose spine is made of pure fire.',
     appear: 'burst out, spine blazing', exit: 'It stalked away, its spine still burning.', exitAnim: 'dash',
   },
@@ -465,7 +490,7 @@ export const ENCOUNTERS = {
   mountain: { min: 11, max: 18, table: [['steeldog', 36], ['rockalock', 18], ['fox', 17], ['bluebird', 17], ['zapcat', 12]] },
   forest:   { min: 20, max: 30, table: [['komodo', 37], ['snapling', 37], ['fox', 13], ['zapcat', 10], ['hammerfox', 3]] },
   volcano:  { min: 40, max: 49, table: [['komodo', 32], ['volcanobun', 34], ['ninjamonkey', 26], ['zapcat', 8]] },   // Hammerfox is very rare
-  prehistoric: { min: 52, max: 62, table: [['aquakylo', 30], ['frostosaur', 30], ['firespino', 30], ['zapcat', 10]] },
+  prehistoric: { min: 52, max: 62, table: [['dripkylo', 30], ['chillosaur', 30], ['emberspino', 30], ['zapcat', 10]] },   // babies at Lv 52-53, grown-up forms after
 };
 export const GATE_LEVEL = 10;   // a critter must be PAST this level to open the mountain gate
 export const TEAM_MAX = 6;          // extra critters you catch go to your BOX (at home and in rest huts)
@@ -568,9 +593,9 @@ export const FAMILY = {
   zapcat: 'zapcat', darkzapcat: 'zapcat', demoncat: 'zapcat',
   volcanobun: 'volcanobun', magmabunny: 'volcanobun',
   ninjamonkey: 'ninjamonkey', skyninja: 'ninjamonkey', zenninja: 'ninjamonkey',
-  aquakylo: 'aquakylo', brawlkylo: 'aquakylo',
-  frostosaur: 'frostosaur', xenofrost: 'frostosaur',
-  firespino: 'firespino', twinspino: 'firespino',
+  dripkylo: 'dripkylo', aquakylo: 'dripkylo', brawlkylo: 'dripkylo',
+  chillosaur: 'chillosaur', frostosaur: 'chillosaur', xenofrost: 'chillosaur',
+  emberspino: 'emberspino', firespino: 'emberspino', twinspino: 'emberspino',
 };
 export const SHINY = {
   fox:        { oneIn: 40,  hue: 180 },                 // the easiest shiny: a blue fox
@@ -584,11 +609,11 @@ export const SHINY = {
   zapcat:     { oneIn: 100, hue: 170 },                 // ice-blue cat
   volcanobun: { oneIn: 100, hue: 200 },                 // blue-flame bunny
   ninjamonkey:{ oneIn: 120, hue: 160 },                 // teal ninja with blue flames
-  aquakylo:   { oneIn: 120, hue: 140 },                 // purple armor, green water
-  frostosaur: { oneIn: 120, hue: 150, sat: 1.3 },       // pink ice
-  firespino:  { oneIn: 120, hue: 190 },                 // blue fire spine
+  dripkylo:   { oneIn: 120, hue: 140 },                 // purple armor, green water
+  chillosaur: { oneIn: 120, hue: 150, sat: 1.3 },       // pink ice
+  emberspino: { oneIn: 120, hue: 190 },                 // blue fire spine
 };
-export const SHINY_ORDER = ['fox', 'rabbit', 'bluebird', 'splashcano', 'steeldog', 'rockalock', 'komodo', 'snapling', 'zapcat', 'volcanobun', 'ninjamonkey', 'aquakylo', 'frostosaur', 'firespino'];
+export const SHINY_ORDER = ['fox', 'rabbit', 'bluebird', 'splashcano', 'steeldog', 'rockalock', 'komodo', 'snapling', 'zapcat', 'volcanobun', 'ninjamonkey', 'dripkylo', 'chillosaur', 'emberspino'];
 
 /* ---------------- gyms ---------------- */
 export const GYMS = {

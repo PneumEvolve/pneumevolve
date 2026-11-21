@@ -70,8 +70,9 @@ A move with a slash (—) can't miss, not even when the foe has raised its dodge
 - Shinies (25% more attack): find them in the wild, or trade 3 plain critters of one kind for 1 shiny in Pebble Town
 - Pods to catch critters, a team of 6
 - Level caps: 25 to start, 35 with the Boulder Badge, 50 with the Grove Badge, 65 with the Ember Badge, 75 with the Fossil Badge
-- Dinosaurs: AQUAKYLO → BRAWLKYLO (Lv 56, Super Smash shakes the screen), FROSTOSAUR → XENOFROST (Lv 57, Roll Up turns the screen blue),
-  FIRESPINO → TWINSPINO (Lv 58, Spine Slice cuts the screen in half, Flaming Beam)
+- Dinosaurs: DRIPKYLO → AQUAKYLO (Lv 54) → BRAWLKYLO (Lv 58, Super Smash shakes the screen),
+  CHILLOSAUR → FROSTOSAUR (Lv 54) → XENOFROST (Lv 59, Roll Up turns the screen blue),
+  EMBERSPINO → FIRESPINO (Lv 54) → TWINSPINO (Lv 60, Spine Slice cuts the screen in half, Flaming Beam)
 
 ## Adding the next area
 
