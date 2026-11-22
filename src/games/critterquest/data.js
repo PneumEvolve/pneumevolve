@@ -156,6 +156,13 @@ export const MOVES = {
   'Spine Slice':  { type: 'FIRE',     power: 18, acc: 90,  anim: 'slice' },   // its fire spine cuts the screen in half
   'Chest Claws':  { type: 'FIGHTING', power: 17, acc: 100, anim: 'pounce' },
   'Flaming Beam': { type: 'FIRE',     power: 26, acc: 80,  anim: 'beam' },
+  // Nimbus (Cool School legendary)
+  'Fire Glare':   { type: 'FIRE',     effect: ['atk', -1, 'foe'] },
+  'Hot Header':   { type: 'FIRE',     power: 17, acc: 100, anim: 'lunge' },
+  'Soccer Blast': { type: 'FIRE',     power: 24, acc: 90,  anim: 'proj', proj: 'soccer' },   // kicks a flaming soccer ball
+  'Half Blaze':   { type: 'FIRE',     power: 28, acc: 90,  anim: 'beam', blue: true },   // a beam of blue fire
+  'Wing Storm':   { type: 'FLYING',   power: 26, acc: 90,  anim: 'proj', proj: 'feather' },
+  'Dragon Dive':  { type: 'FIRE',     power: 32, acc: 80,  anim: 'quake' },
   // Ironrex (prehistoric legendary)
   'Smoke Glare':  { type: 'FIRE',     power: 18, sure: true, anim: 'proj', proj: 'smoke' },
   'Horn Gore':    { type: 'STEEL',    power: 22, acc: 90,  anim: 'dash' },
@@ -407,6 +414,30 @@ export const SPECIES = {
     moves: ['Smoke Glare', 'Horn Gore', 'Iron Jaws', 'Bone Quake'],
     appear: 'stomped out from behind the old bones', exit: 'IRONREX stomped back behind the bones. It will be back!', exitAnim: 'dash',
   },
+  // NIMBUS, the Cool School legendary. It burns with BLUE fire. It grows through three forms: 10% -> 50% (Lv 68) -> 100% (Lv 72).
+  nimbus: {
+    name: 'NIMBUS 10%', types: ['FIRE'], flicker: '23', catchRate: 0.12, legendary: true,
+    b: { hp: 24, atk: 15, def: 11, spd: 14 },
+    moves: ['Flame Kick', 'Fire Glare', 'Hot Header', 'Soccer Blast'],
+    evolve: { lv: 68, to: 'nimbus50' },
+    blurb: 'A kid with blue flaming horns, eyes and feet, who never goes anywhere without a soccer ball.',
+    appear: 'kicked its soccer ball out of the trophy case', exit: 'NIMBUS dribbled its ball back into the trophy room. It will be back!', exitAnim: 'dash',
+  },
+  nimbus50: {
+    name: 'NIMBUS 50%', types: ['FIRE'], flicker: '23', catchRate: 0.1, legendary: true,
+    b: { hp: 30, atk: 18, def: 13, spd: 15 },
+    moves: ['Flame Kick', 'Hot Header', 'Soccer Blast', 'Half Blaze'], signature: 'Half Blaze',
+    evolve: { lv: 72, to: 'nimbus100' },
+    blurb: 'Half of NIMBUS is burning now: one whole side is made of blue fire.',
+    appear: 'blazed up, one side on fire', exit: 'It ran off, half on fire.', exitAnim: 'dash',
+  },
+  nimbus100: {
+    name: 'NIMBUS 100%', types: ['FIRE', 'FLYING'], flicker: '23', flap: true, hovers: true, flies: true,   // flies: up high in the air, not just off the ground catchRate: 0.08, legendary: true,
+    b: { hp: 36, atk: 21, def: 15, spd: 16 },
+    moves: ['Hot Header', 'Soccer Blast', 'Wing Storm', 'Dragon Dive'], signature: 'Dragon Dive',
+    blurb: 'A dragon made of pure blue fire, with four red eyes, four flapping wings and big muscly arms and legs. It flies high in the air.',
+    appear: 'roared and beat all four wings', exit: 'It flew off on four burning wings.', exitAnim: 'dash',
+  },
   // ----- the prehistoric valley -----
   // Baby dinosaurs: each one grows into the next form at Lv 54.
   dripkylo: {
@@ -490,6 +521,7 @@ export const ENCOUNTERS = {
   mountain: { min: 11, max: 18, table: [['steeldog', 36], ['rockalock', 18], ['fox', 17], ['bluebird', 17], ['zapcat', 12]] },
   forest:   { min: 20, max: 30, table: [['komodo', 37], ['snapling', 37], ['fox', 13], ['zapcat', 10], ['hammerfox', 3]] },
   volcano:  { min: 40, max: 49, table: [['komodo', 32], ['volcanobun', 34], ['ninjamonkey', 26], ['zapcat', 8]] },   // Hammerfox is very rare
+  school:   { min: 63, max: 70, table: [['megabun', 25], ['skyhawk', 25], ['demoncat', 25], ['zenninja', 25]] },   // the school has no tall grass, so these only show up from the test tools
   prehistoric: { min: 52, max: 62, table: [['dripkylo', 30], ['chillosaur', 30], ['emberspino', 30], ['zapcat', 10]] },   // babies at Lv 52-53, grown-up forms after
 };
 export const GATE_LEVEL = 10;   // a critter must be PAST this level to open the mountain gate
@@ -528,6 +560,10 @@ export const LEGENDS = {
     sleeping: ['Giant T-rex bones... and two eyes are burning inside the skull.', 'Smoke curls out of them. Something made of STEEL is watching you.'],
     waking: 'The bones rattle... a T-REX OF STEEL stomps out!',
     gone: 'Just old bones now. IRONREX is part of your adventure!' },
+  nimbus:    { area: 'school', lv: 65, need: 65, spot: 'the trophy case',
+    sleeping: ['A trophy case with a soccer ball inside... and the ball is ON FIRE.', 'Two burning eyes blink at you through the glass.'],
+    waking: 'The glass flies open! A kid with FLAMING HORNS kicks the ball at you!',
+    gone: 'The trophy case is empty now. NIMBUS is part of your adventure!' },
 };
 export const LEGEND_LEVEL = LEGENDS.pyrolion.need;
 
@@ -542,7 +578,7 @@ export const CANDY = { levels: 5, target: 'one' };
 
 /* ---------------- the world ---------------- */
 // Areas line up left to right, 32 tiles wide each. A town (if any) sits right below its area.
-// To add the next area: add an entry here (kind: meadow | mountains | forest | volcano | prehistoric) and, if it has a town, a TOWNS entry.
+// To add the next area: add an entry here (kind: meadow | mountains | forest | volcano | prehistoric | school) and, if it has a town, a TOWNS entry.
 export const AREAS = [
   { id: 'meadow', kind: 'meadow', name: 'MAPLE HILL', town: 'sprout' },
   { id: 'mountains', kind: 'mountains', name: 'ROCKY MOUNTAINS', encounters: 'mountain', town: 'pebble',
@@ -557,6 +593,9 @@ export const AREAS = [
   { id: 'prehistoric', kind: 'prehistoric', name: 'PREHISTORIC VALLEY', encounters: 'prehistoric', town: 'fossil',
     gate: { badge: 'ember' }, gateSign: ['PREHISTORIC VALLEY, this way!', 'Only trainers with the EMBER BADGE may enter.'],
     welcome: ['Welcome to the PREHISTORIC VALLEY!', 'Dinosaur critters, Lv 52 to 62. Giant bones lie in the middle...'] },
+  { id: 'school', kind: 'school', name: 'COOL SCHOOL', encounters: 'school', town: 'bell',
+    gate: { badge: 'fossil' }, gateSign: ['COOL SCHOOL, this way!', 'Only trainers with the FOSSIL BADGE may enter.'],
+    welcome: ['Welcome to COOL SCHOOL!', 'Eight classrooms, three trainers in each. They battle you the moment they see you!'] },
 ];
 // Every town has a healing hut, a blue SHINY TRADER and (if `gym` is set) a gym. A town with no gym yet shows a "coming soon" sign.
 // restRoof: red | blue | green | straw    gymStyle: maple | stone | wood | ember
@@ -571,6 +610,8 @@ export const TOWNS = {
     welcome: ['Welcome to EMBER TOWN!', 'The black stone hall is the FIRE GYM. Bring water!'] },
   fossil: { name: 'FOSSIL CAMP', tagline: 'Diggers, bones and BIG footprints.', rest: 'HEALING HUT', restRoof: 'straw', gym: 'fossil', gymStyle: 'fossil',
     welcome: ['Welcome to FOSSIL CAMP!', 'The sandy hall with the bone on top is the DINO GYM.'] },
+  bell: { name: 'BELL TOWN', tagline: 'Right next to Cool School.', rest: 'NURSE OFFICE', restRoof: 'red', gym: null,
+    welcome: ['Welcome to BELL TOWN!', 'Rest up at the NURSE OFFICE between classes.'] },
 };
 
 /* ---------------- shinies ---------------- */
@@ -650,41 +691,92 @@ export const GYMS = {
 };
 
 /* ---------------- trainers ---------------- */
-// Two trainers stand in every area. Walk up to one and press A to battle.
-// x, y: their spot inside the area (0-31 across, 0-23 down). look: their sprite in art.js (LEADER_ART).
+// Two trainers stand in every area (and 24 in Cool School). They battle you the moment you walk into their line of sight.
+// x, y: their spot inside the area (0-31 across, 0-23 down). face: which way they look (up, down, left, right).
+// sight: how many tiles they can see (default 4). look: their sprite in art.js (LEADER_ART).
 // prize: what they give you the first time you beat them. After that they just chat.
 export const TRAINERS = {
-  timmy: { area: 'meadow', x: 24, y: 8, leader: 'BUG KID TIMMY', short: 'TIMMY', look: 'bugkid',
+  timmy: { area: 'meadow', x: 24, y: 8, face: 'down', leader: 'BUG KID TIMMY', short: 'TIMMY', look: 'bugkid',
     team: [['rabbit', 5], ['bluebird', 6]], prize: ['pod', 2],
     hello: ['"Hey! I caught these in the tall grass!"'], win: '"Aww, my bugs... I mean critters!"', after: '"I\'m gonna catch a SHINY one day!"' },
-  rose: { area: 'meadow', x: 14, y: 12, leader: 'PICNIC GIRL ROSE', short: 'ROSE', look: 'picnic',
+  rose: { area: 'meadow', x: 14, y: 12, face: 'right', leader: 'PICNIC GIRL ROSE', short: 'ROSE', look: 'picnic',
     team: [['fox', 6], ['rabbit', 7], ['bluebird', 7]], prize: ['snack', 2],
     hello: ['"Want to battle before lunch?"'], win: '"You win! Have some of my snacks."', after: '"Picnics are better with critters."' },
-  dan: { area: 'mountains', x: 8, y: 10, leader: 'HIKER DAN', short: 'DAN', look: 'hiker',
+  dan: { area: 'mountains', x: 8, y: 10, face: 'up', leader: 'HIKER DAN', short: 'DAN', look: 'hiker',
     team: [['rockalock', 14], ['steeldog', 15]], prize: ['pod', 3],
     hello: ['"I climbed all the way up here to find tough critters!"'], win: '"Whoa! You\'re tougher than a mountain!"', after: '"Mind the rockslides!"' },
-  skye: { area: 'mountains', x: 16, y: 13, leader: 'CLIMBER SKYE', short: 'SKYE', look: 'climber',
+  skye: { area: 'mountains', x: 16, y: 13, face: 'left', leader: 'CLIMBER SKYE', short: 'SKYE', look: 'climber',
     team: [['skyhawk', 15], ['zapcat', 15]], prize: ['snack', 2],
     hello: ['"Up here, the birds and I rule the sky!"'], win: '"You knocked me right off the cliff!"', after: '"Skyhawks love the mountain wind."' },
-  joe: { area: 'forest', x: 9, y: 10, leader: 'CAMPER JOE', short: 'JOE', look: 'camper',
+  joe: { area: 'forest', x: 9, y: 10, face: 'up', leader: 'CAMPER JOE', short: 'JOE', look: 'camper',
     team: [['snapling', 22], ['komodo', 24]], prize: ['pod', 3],
     hello: ['"Shh! You\'ll wake the forest... let\'s battle anyway!"'], win: '"Time to roast marshmallows and think about that."', after: '"Snaplings bite. Don\'t ask how I know."' },
-  may: { area: 'forest', x: 16, y: 16, leader: 'RANGER MAY', short: 'MAY', look: 'ranger',
+  may: { area: 'forest', x: 16, y: 16, face: 'left', leader: 'RANGER MAY', short: 'MAY', look: 'ranger',
     team: [['elderfox', 25], ['treetitan', 27]], prize: ['snack', 3],
     hello: ['"I protect this forest. Show me you\'re strong enough to explore it!"'], win: '"You can explore any part of my forest."', after: '"Be kind to the critters out here."' },
-  blaze: { area: 'volcano', x: 6, y: 8, leader: 'FIRE DANCER BLAZE', short: 'BLAZE', look: 'firedancer',
+  blaze: { area: 'volcano', x: 6, y: 8, face: 'down', leader: 'FIRE DANCER BLAZE', short: 'BLAZE', look: 'firedancer',
     team: [['volcanobun', 42], ['darkkomodo', 44]], prize: ['pod', 4],
     hello: ['"Watch me dance with FIRE!"'], win: '"My flames went out!"', after: '"Lava is warm and cozy... from far away."' },
-  kai: { area: 'volcano', x: 14, y: 18, leader: 'NINJA KAI', short: 'KAI', look: 'ninja',
+  kai: { area: 'volcano', x: 14, y: 18, face: 'right', leader: 'NINJA KAI', short: 'KAI', look: 'ninja',
     team: [['ninjamonkey', 44], ['demoncat', 45]], prize: ['snack', 3],
     hello: ['"...You saw me? Nobody sees a ninja!"'], win: '"Poof! I mean... ouch."', after: '"A ninja never tells his secrets."' },
-  ada: { area: 'prehistoric', x: 24, y: 8, leader: 'SCIENTIST ADA', short: 'ADA', look: 'scientist',
+  ada: { area: 'prehistoric', x: 24, y: 8, face: 'down', leader: 'SCIENTIST ADA', short: 'ADA', look: 'scientist',
     team: [['aquakylo', 54], ['frostosaur', 55]], prize: ['pod', 5],
     hello: ['"I\'m studying dinosaur critters. Let\'s test them in battle!"'], win: '"Amazing data! You win!"', after: '"These bones are millions of years old!"' },
-  oog: { area: 'prehistoric', x: 13, y: 17, leader: 'CAVE KID OOG', short: 'OOG', look: 'cavekid',
+  oog: { area: 'prehistoric', x: 13, y: 17, face: 'right', leader: 'CAVE KID OOG', short: 'OOG', look: 'cavekid',
     team: [['firespino', 55], ['brawlkylo', 57]], prize: ['snack', 4],
     hello: ['"OOG! OOG BATTLE YOU!"'], win: '"Oog... lose. You strong."', after: '"Oog like dinosaur. Dinosaur like Oog."' },
 };
+
+
+/* ---------------- Cool School: 8 classrooms, 3 trainers in each ---------------- */
+// Rooms 1-4 are along the top of the hallway, 5-8 along the bottom. Each room has two students and a teacher.
+// Levels climb from room 1 to room 8.
+const SCHOOL_ROOMS = [
+  { subject: 'MATH CLASS',  teacher: ['MATH TEACHER MS. SUM', 'MS. SUM', 'teacher'], prize: ['pod', 3],
+    students: [['STUDENT LEO', 'LEO', 'student', [['megabun', 63]]], ['STUDENT MIA', 'MIA', 'studentgirl', [['elderfox', 63], ['skyhawk', 63]]]],
+    team: [['demoncat', 64], ['rockalock', 64]], line: '"Pop quiz! What is 2 + 2? ...Wrong! It is BATTLE TIME!"' },
+  { subject: 'SCIENCE LAB', teacher: ['SCIENCE TEACHER DR. FIZZ', 'DR. FIZZ', 'scientist'], prize: ['snack', 3],
+    students: [['STUDENT RAJ', 'RAJ', 'student', [['ironhound', 64]]], ['STUDENT ZOE', 'ZOE', 'studentgirl', [['zenninja', 64]]]],
+    team: [['xenofrost', 65], ['magmabunny', 65]], line: '"Today\'s experiment: how hard can my critters hit?"' },
+  { subject: 'ART ROOM',    teacher: ['ART TEACHER MR. BRUSH', 'MR. BRUSH', 'teacher'], prize: ['pod', 3],
+    students: [['STUDENT IVY', 'IVY', 'picnic', [['treetitan', 65]]], ['STUDENT SAM', 'SAM', 'student', [['skyhawk', 65], ['megabun', 65]]]],
+    team: [['skyninja', 66], ['warfox', 66]], line: '"Let\'s paint this classroom with VICTORY!"' },
+  { subject: 'MUSIC ROOM',  teacher: ['MUSIC TEACHER MS. TUNE', 'MS. TUNE', 'teacher'], prize: ['snack', 3],
+    students: [['STUDENT JAY', 'JAY', 'bugkid', [['demoncat', 66]]], ['STUDENT AVA', 'AVA', 'studentgirl', [['darkkomodo', 66]]]],
+    team: [['zenninja', 67], ['brawlkylo', 67]], line: '"Feel the rhythm of battle! One, two, three, FOUR!"' },
+  { subject: 'HISTORY CLASS', teacher: ['HISTORY TEACHER MR. OLDE', 'MR. OLDE', 'teacher'], prize: ['pod', 4],
+    students: [['STUDENT MAX B', 'MAX B', 'student', [['rockalock', 67]]], ['STUDENT LILY', 'LILY', 'studentgirl', [['twinspino', 67]]]],
+    team: [['ironhound', 68], ['xenofrost', 68]], line: '"Long ago, a kid tried to beat me. History repeats itself!"' },
+  { subject: 'GYM CLASS',   teacher: ['COACH KICK', 'COACH KICK', 'coach'], prize: ['snack', 4],
+    students: [['STUDENT TY', 'TY', 'camper', [['warfox', 68]]], ['STUDENT NOOR', 'NOOR', 'studentgirl', [['brawlkylo', 68]]]],
+    team: [['twinblaze', 69], ['tricano', 69]], line: '"Drop and give me twenty! ...Twenty BATTLE MOVES!"' },
+  { subject: 'LIBRARY',     teacher: ['LIBRARIAN MS. QUIET', 'MS. QUIET', 'teacher'], prize: ['pod', 4],
+    students: [['STUDENT ELI', 'ELI', 'student', [['elderfox', 69], ['zenninja', 69]]], ['STUDENT ROSA', 'ROSA', 'studentgirl', [['treetitan', 69]]]],
+    team: [['xenofrost', 70], ['demoncat', 70]], line: '"Shhh! ...We will battle QUIETLY."' },
+  { subject: 'LUNCHROOM',   teacher: ['LUNCH LADY DOT', 'DOT', 'teacher'], prize: ['mega', 2],
+    students: [['STUDENT GUS', 'GUS', 'climber', [['magmabunny', 70]]], ['STUDENT PIA', 'PIA', 'studentgirl', [['megabun', 70], ['skyhawk', 70]]]],
+    team: [['twinspino', 71], ['brawlkylo', 71], ['tricano', 71]], line: '"No battling in the lunchroom! ...Except with ME!"' },
+];
+// Where each room sits: its left wall column. The doors are in the hallway.
+const ROOM_LEFT = [0, 7, 17, 24];
+SCHOOL_ROOMS.forEach((room, i) => {
+  const L = ROOM_LEFT[i % 4], top = i < 4;
+  // top rooms: teacher at the front looking down the aisle toward the door; bottom rooms are flipped
+  const spots = top
+    ? { t: [L + 4, 2, 'down'], a: [L + 2, 5, 'right'], b: [L + 6, 4, 'left'] }
+    : { t: [L + 4, 20, 'up'], a: [L + 2, 17, 'right'], b: [L + 6, 18, 'left'] };
+  const id = 'school' + (i + 1);
+  room.students.forEach(([leader, short, look, team], k) => {
+    const [x, y, face] = k === 0 ? spots.a : spots.b;
+    TRAINERS[id + (k ? 'b' : 'a')] = { area: 'school', x, y, face, leader, short, look, team, prize: ['pod', 2],
+      hello: [`"You're not in this class! ${room.subject} battle!"`], win: '"Aww... detention for me."', after: `"${room.subject} is my favorite."` };
+  });
+  const [x, y, face] = spots.t, [leader, short, look] = room.teacher;
+  TRAINERS[id + 't'] = { area: 'school', x, y, face, sight: 5, leader, short, look, team: room.team, prize: room.prize,
+    hello: [room.line], win: '"Class dismissed... you win!"', after: '"Come back any time. Learning never stops!"' };
+});
+export const SCHOOL_ROOM_NAMES = SCHOOL_ROOMS.map(r => r.subject);
 
 /* ---------------- your rival ---------------- */
 // Right after you win a gym badge, your rival MAX shows up and battles you.

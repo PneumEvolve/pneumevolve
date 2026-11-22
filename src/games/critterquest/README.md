@@ -42,18 +42,22 @@ The world is a row of areas going right (east). Each town sits directly below it
 | Whisper Forest | 20–30 | Boulder Badge | Mossy Hollow: Leader Ivy |
 | The Volcano | 40–49 | Grove Badge | Ember Town: Leader Pyra (Fire Gym) |
 | Prehistoric Valley | 52–62 | Ember Badge | Fossil Camp: Leader Diggs (Dino Gym) |
+| Cool School | trainers Lv 63–71 | Fossil Badge | Bell Town: nurse office + shiny trader (gym coming soon) |
 
 Every biome has a legendary that keeps coming back until you catch it (levels and spots in `LEGENDS`):
 PSYRAVEN on the tallest tree in Maple Hill's bottom-left corner (Lv 15 critter needed), STONE BULL statue in Pebble Town (Lv 25),
 SABER STAG's ancient shrine in Whisper Forest's southeast ferns (Lv 35), PYROLION in the big volcano (Lv 50),
-IRONREX (a steel-bone T-rex) by the giant T-rex bones in the middle of the Prehistoric Valley (Lv 60).
+IRONREX (a steel-bone T-rex) by the giant T-rex bones in the middle of the Prehistoric Valley (Lv 60),
+NIMBUS in Cool School's trophy room (Lv 65). NIMBUS burns with blue fire and grows through three forms: 10% (a kid with flaming horns, eyes and feet and a soccer ball),
+50% at Lv 68 (one whole side on fire) and 100% at Lv 72 (a flaming dragon with 4 eyes and 4 flapping wings that flies high in the air).
 
 YOUR RIVAL MAX: right after you win each gym badge, MAX shows up and battles you. He always picks the starter that beats yours,
 and his team gets stronger after every gym. Beat him for 3 pods. Lose, and he waits outside that gym (with a "!") for a rematch (setting: `RIVAL`).
 
 In every trainer, rival and gym battle, a row of pods under their HP bar shows how many critters they have left (grey = knocked out).
 
-TRAINERS: two in every area, each with their own look. A "!" floats over the ones you haven't beaten. Walk up and press A to battle.
+TRAINERS: two in every area, plus 24 in Cool School (8 classrooms with two students and a teacher in each). A "!" floats over the ones you haven't beaten.
+They battle you the moment you walk into the line they are looking along (`face` and `sight` in `TRAINERS`), or when you talk to them.
 The first win gets you pods or snacks; after that they just chat (setting: `TRAINERS`).
 
 Each town has a BUS STOP by the trail in. Once you've visited two towns, the bus takes you to any town you've been to.

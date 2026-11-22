@@ -4,6 +4,7 @@
 export const T = 16; // tile size in pixels
 
 const PAL = {
+  1: '#1f5fc4', 2: '#3fa8ff', 3: '#c4f0ff',                        // blue fire (NIMBUS)
   k: '#2a2135', c: '#d94a3a', w: '#f6f3ea', h: '#6b4226', s: '#f2c39b', r: '#2f9e8f', b: '#36477a',
   t: '#e86f8a', g: '#ddd0bb', G: '#b8a68c', p: '#f0a3b5',
   y: '#f2c35b', Y: '#d08a2c', f: '#ff7a2a', F: '#ffd23f', R: '#e2392b',
@@ -752,6 +753,72 @@ const LEADER_ART = {
     '....kk..kk....',
     '...ccc..ccc...',
   ],
+  // ----- Cool School -----
+  student: [
+    '....hhhhhh....',
+    '...hhhhhhhh...',
+    '...hssssssh...',
+    '...skssssks...',
+    '...ssssssss...',
+    '....ssttss....',
+    '..O.uuuuuu.O..',
+    '..OuuuuuuuuO..',
+    '.sOuuuuuuuuOs.',
+    '.s.uuuuuuuu.s.',
+    '...bbbbbbbb...',
+    '...bbb..bbb...',
+    '...sss..sss...',
+    '..cccc..cccc..',
+  ],
+  studentgirl: [
+    '.Y..YYYYYY..Y.',
+    '.YYYYYYYYYYYY.',
+    '..YYssssssYY..',
+    '...skssssks...',
+    '...ssssssss...',
+    '....ssttss....',
+    '....pppppp....',
+    '...pppppppp...',
+    '..spppppppps..',
+    '..s.pppppp.s..',
+    '...nnnnnnnn...',
+    '..nnnnnnnnnn..',
+    '....ss..ss....',
+    '...kkk..kkk...',
+  ],
+  teacher: [
+    '.....mmmm.....',
+    '....mmmmmm....',
+    '...mmmmmmmm...',
+    '...mssssssm...',
+    '...kkksskkk...',
+    '...ssssssss...',
+    '....ssttss....',
+    '...LLLwwLLL...',
+    '..LLLLwwLLLL..',
+    '.sLLLLwwLLLLs.',
+    '.s.LLLLLLLL.s.',
+    '...VVVVVVVV...',
+    '...VVVVVVVV...',
+    '....ss..ss....',
+    '...kkk..kkk...',
+  ],
+  coach: [
+    '....cccccc....',
+    '...cccccccccc.',
+    '...hssssssh...',
+    '...skssssks...',
+    '...ssssssss...',
+    '....ssttss....',
+    '....bbbbbb....',
+    '..wbbbbbbbbw..',
+    '.sbwbbybbbwbs.',
+    '.sb.bbbbbb.bs.',
+    '...bwbbbbwb...',
+    '...bwb..bwb...',
+    '...bwb..bwb...',
+    '..wwww..wwww..',
+  ],
   // ----- gym leaders -----
   hazel: [
     '....oooooo....',
@@ -890,6 +957,151 @@ ART.emberspino = [
   '.....vv..vv.....',
   '....VVV.VVV.....',
 ];
+// A second frame for critters that flap (species with flap: true): it swaps with the first one.
+const ART_FLAP = {};
+ART.nimbus = [
+  '....F.......F.......',
+  '...fFf.....fFf......',
+  '...fRf.....fRf......',
+  '....RRhhhhhhRR......',
+  '.....hhhhhhhhh......',
+  '.....hsssssssh......',
+  '.....sFRssRFss......',
+  '.....ssssssss.......',
+  '......ssttss........',
+  '.......ssss.........',
+  '.....uuuuuuuu.......',
+  '....suuuwwuuus......',
+  '....suuuwwuuus......',
+  '....s.uuuuuu.s......',
+  '......wwwwww........',
+  '......ww..ww........',
+  '......ss..ss........',
+  '......ss..ss..wkw...',
+  '.....fFf.fFf.wkwkw..',
+  '....fRRRfRRRfkwkwk..',
+  '.....RRR.RRR.wkwkw..',
+  '..............wkw...',
+];
+ART.nimbus50 = [
+  '..ffF.......F.......',
+  '..FfFf.....fFf......',
+  '..ffRf.....fRf......',
+  '..fFRRRRfhhhRR......',
+  '....fRRfFhhhhh......',
+  '....FRfFRssssh......',
+  '...fffFRRsRFss......',
+  '....FFRRfssss.......',
+  '.....fRfFtss........',
+  '.....fFFRss.........',
+  '....ffFRRuuuu.......',
+  '...FfFRRwwuuus......',
+  '..ffFRRfwwuuus......',
+  '...FR.fFRuuu.s......',
+  '.....fwwwwww........',
+  '....fFww..ww........',
+  '.....fRf..ss........',
+  '.....FfF..ss..wkw...',
+  '...fffFf.fFf.wkwkw..',
+  '...FfRRRfRRRfkwkwk..',
+  '....fRRR.RRR.wkwkw..',
+  '..............wkw...',
+];
+// NIMBUS 100%: two frames so its four wings flap up and down (see ART_FLAP)
+ART.nimbus100 = [
+  '........fFfF......................',
+  '....FfFfRRRRF.FfFf................',
+  '.....FRRRRRRRFRRRF......f...f.....',
+  '......FRRRRRRRRRRf......F..f......',
+  '.......FRRRRRRRRRF......R.f.RF....',
+  '........FRRRRRRRRRF.....ooooo.....',
+  '...Ff....FRRRRRRRRf....ooFooFoo...',
+  '..FRRfF...FRRRRRRRF...oooooooooooo',
+  '.FfRRRRFf..FRRRRRFf..ooooFooFooooo',
+  '...fRRRRRfF.FfFfF...ooooooooowow..',
+  '....fRRRRRRFfooooooooOooo.o.......',
+  '..FfFfFRRRRRoooooooOOOOO..........',
+  '.......FfFfooooooooOOooO..........',
+  '..........ooooooyyyOOooooo........',
+  '..........oooooyyyyyyoooooOO......',
+  '..F....ooooooooyyyyyyoo.oOOOw.....',
+  '.Ffooooooooooooyyyyyyo...OOOw.....',
+  '..R....ooooOooooyyyyoO....OO......',
+  '...........OOoooooooOO............',
+  '...........OOOOO.OOOOO............',
+  '............ooo...ooo.............',
+  '............ooo...ooo.............',
+  '............ooo...ooo.............',
+  '...........OOOOOwOOOOOw...........',
+  '..................................',
+  '..................................',
+];
+ART_FLAP.nimbus100 = [
+  '..................................',
+  '..................................',
+  '........................f...f.....',
+  '........................F..f......',
+  '........................R.f.RF....',
+  '........................ooooo.....',
+  '.......................ooFooFoo...',
+  '......................oooooooooooo',
+  '.....................ooooFooFooooo',
+  '....................ooooooooowow..',
+  '............fooooooooOooo.o.......',
+  '..........FfoooooooOOOOO..........',
+  '.......FfFRooooooooOOooO..........',
+  '....FfFRRRooooooyyyOOooooo........',
+  '.FfFRRRRRRoooooyyyyyyoooooOO......',
+  'FRFRRRRooooooooyyyyyyoo.oOOOw.....',
+  'fFfooooooooooooyyyyyyo...OOOw.....',
+  'FRRRRRRooooOooooyyyyoO....OO......',
+  'fF.FRRRRRRROOoooooooOO............',
+  '..FRRRRRRRROOOOO.OOOOO............',
+  '.FRRRRRRRRRRooo...ooo.............',
+  'FRRRRRRRRRRRooo...ooo.............',
+  '.FRRRRRRRRRRooo...ooo.............',
+  '..FfFRRRRRROOOOOwOOOOOw...........',
+  '.....FfFfFfF......................',
+  '..................................',
+];
+// NIMBUS burns with BLUE fire: its red/orange/yellow flames become dark/mid/light blue.
+const BLUE_FIRE = { R: '1', f: '2', F: '3' };
+for (const k of ['nimbus', 'nimbus50', 'nimbus100']) ART[k] = recolor(ART[k], BLUE_FIRE);
+ART_FLAP.nimbus100 = recolor(ART_FLAP.nimbus100, BLUE_FIRE);
+// NIMBUS 100% is made of PURE blue fire: its whole body becomes flickering flames, with four red eyes.
+const pureFire = (rows, eyes) => rows.map((r, y) => r.replace(/./g, (ch, x) => {
+  if (eyes.some(([ex, ey]) => ex === x && ey === y)) return 'R';   // four glowing red eyes
+  if (ch === 'o') return ['2', '2', '3', '2', '1'][(x * 7 + y * 3) % 5];
+  if (ch === 'O') return '1';
+  if (ch === 'y') return '3';
+  return ch;
+}));
+const NIMBUS_EYES = [[25, 6], [28, 6], [25, 8], [28, 8]];
+ART.nimbus100 = pureFire(ART.nimbus100, NIMBUS_EYES);
+ART_FLAP.nimbus100 = pureFire(ART_FLAP.nimbus100, NIMBUS_EYES);
+const TROPHY_ROWS = [
+  'GGGGGGGGGGGGGGGGGGGGGGGGGGGGGG',
+  'GBBBBBBBBBBBBBBBBBBBBBBBBBBBBG',
+  'GB..........F.....F.........BG',
+  'GB.........fFf...fFf........BG',
+  'GB.........fRf...fRf........BG',
+  'GB...........wkwkwkw........BG',
+  'GB..........wkwkwkwkw.......BG',
+  'GB..........kwkwkwkwk.......BG',
+  'GB..........wkwkwkwkw.......BG',
+  'GB...........wkwkwkw........BG',
+  'GB.........fRfRfRfRfRf......BG',
+  'GBYYYYYYYYYYYYYYYYYYYYYYYYYYBG',
+  'GB.....yYYy.......yYYy......BG',
+  'GB.....YyyY.......YyyY......BG',
+  'GB......YY.........YY.......BG',
+  'GBYYYYYYYYYYYYYYYYYYYYYYYYYYBG',
+  'GGGGGGGGGGGGGGGGGGGGGGGGGGGGGG',
+  'VVVVVVVVVVVVVVVVVVVVVVVVVVVVVV',
+  'VhhhhhhhhhhhhhhhhhhhhhhhhhhhhV',
+  'VVVVVVVVVVVVVVVVVVVVVVVVVVVVVV',
+];
+const TROPHY = recolor(TROPHY_ROWS, BLUE_FIRE);
 const NO_OUTLINE = new Set(['rabbit', 'steeldog']);
 
 /* ---------------- tiles ---------------- */
@@ -956,7 +1168,7 @@ export function buildArt(speciesTable, gyms = {}) {
   // R = facing right (your side), L = facing left (wild side). Two frames so flames and steam flicker.
   const SPR = {};
   for (const [k, s] of Object.entries(speciesTable)) {
-    const a = ART[k], b = s.flicker ? swapPair(a, s.flicker) : a, outline = !NO_OUTLINE.has(k);
+    const a = ART[k], a2 = ART_FLAP[k] || a, b = s.flicker ? swapPair(a2, s.flicker) : a2, outline = !NO_OUTLINE.has(k);
     SPR[k] = {
       R: [sprite(a, { outline }), sprite(b, { outline })],
       L: [sprite(a, { outline, flip: true }), sprite(b, { outline, flip: true })],
@@ -1144,6 +1356,31 @@ export function buildArt(speciesTable, gyms = {}) {
       px(g, '#2a2135', 1, 8, 3, 6); px(g, '#f3e6c8', 2, 9, 1, 4); px(g, '#2a2135', 12, 8, 3, 6); px(g, '#f3e6c8', 13, 9, 1, 4);
       px(g, '#2a2135', 5, 3, 6, 4); px(g, '#ddd0bb', 6, 4, 4, 2); px(g, '#2a2135', 7, 4, 1, 1);
     }),
+    schoolFloor: tile(g => {      // shiny wooden floor
+      px(g, '#d9bb8b', 0, 0, 16, 16);
+      for (const y of [3, 7, 11, 15]) px(g, '#c3a274', 0, y, 16, 1);
+      px(g, '#c3a274', 5, 0, 1, 3); px(g, '#c3a274', 12, 4, 1, 3); px(g, '#c3a274', 3, 8, 1, 3); px(g, '#c3a274', 10, 12, 1, 3);
+      px(g, '#e8cfa4', 1, 1, 3, 1); px(g, '#e8cfa4', 8, 9, 3, 1);
+    }),
+    schoolWall: tile(g => {       // cream wall with a wooden baseboard
+      px(g, '#e9e1cc', 0, 0, 16, 16); px(g, '#d6ccb2', 0, 0, 16, 2);
+      px(g, '#9a7650', 0, 12, 16, 4); px(g, '#7a5a3a', 0, 12, 16, 1);
+    }),
+    chalkboard: tile(g => {       // green chalkboard with chalk scribbles
+      px(g, '#e9e1cc', 0, 0, 16, 16); px(g, '#9a7650', 0, 12, 16, 4);
+      px(g, '#7a5a3a', 0, 2, 16, 9); px(g, '#2f5a3a', 1, 3, 14, 7);
+      px(g, '#e8f0e0', 3, 5, 4, 1); px(g, '#e8f0e0', 9, 4, 1, 3); px(g, '#e8f0e0', 8, 5, 3, 1); px(g, '#e8f0e0', 3, 8, 7, 1);
+    }),
+    desk: tile(g => {             // a school desk on the wooden floor
+      px(g, '#d9bb8b', 0, 0, 16, 16); for (const y of [3, 7, 11, 15]) px(g, '#c3a274', 0, y, 16, 1);
+      px(g, '#2a2135', 1, 4, 14, 7); px(g, '#b07a45', 2, 5, 12, 4); px(g, '#d39a5c', 2, 5, 12, 1);
+      px(g, '#2a2135', 2, 11, 2, 4); px(g, '#2a2135', 12, 11, 2, 4); px(g, '#f2efe6', 5, 6, 4, 2);
+    }),
+    locker: tile(g => {           // blue hallway lockers
+      px(g, '#2a2135', 0, 0, 16, 16);
+      for (const x of [0, 8]) { px(g, '#4a7ab8', x + 1, 1, 6, 15); px(g, '#6f9ad0', x + 1, 1, 6, 1);
+        for (const y of [3, 5]) px(g, '#2f5590', x + 2, y, 4, 1); px(g, '#ffd23f', x + 5, 9, 1, 2); }
+    }),
     busStop: tile(g => {
       px(g, '#7cc56a', 0, 0, 16, 16);
       px(g, '#2a2135', 7, 6, 2, 10); px(g, '#6b7488', 7, 6, 1, 10);           // pole
@@ -1252,6 +1489,13 @@ export function buildArt(speciesTable, gyms = {}) {
     if (eyesBurning) { px(g, '#bdb8b0', 31, 13, 2, 2); px(g, '#9c958c', 33, 10, 2, 2); px(g, '#bdb8b0', 32, 7, 2, 2); }   // smoke from the eye
     return c;
   }
+  function makeTrophy(withBall) {
+    const [c, g] = mk(32, 32);
+    const rows = withBall ? TROPHY : TROPHY.map((r, y) => (y >= 2 && y <= 10 ? r.replace(/[wk123]/g, '.') : r));
+    const img = sprite(rows, { outline: true });
+    g.drawImage(img, Math.floor((32 - img.width) / 2), 32 - img.height);
+    return c;
+  }
   const LEGEND_SPOTS = {
     treeWithRaven: makeTallTree(true), tree: makeTallTree(false),
     statue: (() => {
@@ -1262,6 +1506,7 @@ export function buildArt(speciesTable, gyms = {}) {
       return c;
     })(),
     bones: makeBones(true), bonesQuiet: makeBones(false),
+    trophy: makeTrophy(true), trophyQuiet: makeTrophy(false),
     shrine: (() => {
       const [c, g] = mk(32, 32);
       px(g, '#2a2135', 0, 4, 32, 6); px(g, '#8a8273', 1, 5, 30, 4); px(g, '#4caf50', 1, 5, 30, 1);    // roof stone with moss
@@ -1309,6 +1554,14 @@ export function buildArt(speciesTable, gyms = {}) {
         for (let i = 0; i < 9; i++) { px(g, '#2f5a22', tx + 1 + i, 19 + Math.floor(i / 3), 2, 2); px(g, '#2f5a22', tx - i, 19 + Math.floor(i / 3), 2, 2); }
       }
       for (const [bx, by] of [[60, 10], [120, 6]]) { px(g, '#5a4a44', bx, by + 2, 12, 1); px(g, '#5a4a44', bx + 4, by + 1, 4, 3); px(g, '#5a4a44', bx + 8, by, 3, 1); }  // pterodactyls
+    } else if (kind === 'school') {
+      px(g, '#e9e1cc', 0, 0, 240, 48); px(g, '#d6ccb2', 0, 0, 240, 4);
+      px(g, '#7a5a3a', 30, 8, 120, 30); px(g, '#2f5a3a', 33, 11, 114, 24);                                  // chalkboard
+      px(g, '#e8f0e0', 42, 16, 22, 2); px(g, '#e8f0e0', 70, 14, 2, 8); px(g, '#e8f0e0', 66, 17, 10, 2); px(g, '#e8f0e0', 84, 18, 14, 2);
+      px(g, '#e8f0e0', 104, 15, 30, 2); px(g, '#e8f0e0', 104, 22, 18, 2);
+      px(g, '#ffffff', 186, 8, 26, 26); px(g, '#2a2135', 186, 8, 26, 1); px(g, '#2a2135', 198, 12, 2, 10); px(g, '#2a2135', 198, 20, 8, 2);   // clock
+      for (let x = 0; x < 240; x += 24) px(g, '#4a7ab8', 160 + (x % 48), 0, 0, 0);
+      px(g, '#9a7650', 0, 40, 240, 8);
     } else if (kind.startsWith('gym')) {
       px(g, '#6e7584', 0, 0, 240, 48);
       for (let y = 6; y < 48; y += 7) {
@@ -1343,6 +1596,7 @@ export function buildArt(speciesTable, gyms = {}) {
       forest:   { bands: ['#5d8a45', '#56813f'], plat: ['#3c5f2c', '#7aa85c', '#638f4a'] },
       volcano:  { bands: ['#4a3d3a', '#433633'], plat: ['#1f1816', '#6b5a52', '#5a4a44'] },
       prehistoric: { bands: ['#a8995f', '#9f9057'], plat: ['#5a5a2a', '#c7b878', '#998b52'] },
+      school:   { bands: ['#d9bb8b', '#cfb07f'], plat: ['#7a5a3a', '#e8cfa4', '#b8955f'] },
       gym:      { bands: ['#cfc8b8', '#c6bfae'], plat: ['#8a8273', '#e4dccb', '#b9b09d'] },
     }[kind.startsWith('gym') ? 'gym' : kind];
     for (let y = 46; y < 160; y++) { g.fillStyle = look.bands[Math.floor((y - 46) / 6) % 2]; g.fillRect(0, y, 240, 1); }
@@ -1361,6 +1615,7 @@ export function buildArt(speciesTable, gyms = {}) {
     forest: makeField(BATTLE_PLATFORMS, 'forest'),
     volcano: makeField(BATTLE_PLATFORMS, 'volcano'),
     prehistoric: makeField(BATTLE_PLATFORMS, 'prehistoric'),
+    school: makeField(BATTLE_PLATFORMS, 'school'),
     choose: makeField([48, 120, 192].map(x => [x, 98, 30, 7]), 'meadow'),
   };
   for (const [id, gym] of Object.entries(gyms)) BG['gym-' + id] = makeField(BATTLE_PLATFORMS, 'gym:' + (gym.banner || '#c0443a'));

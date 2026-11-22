@@ -6,7 +6,7 @@ import { buildArt, hash, T } from './art.js';
 import {
   SPECIES, MOVES, STARTERS, ENCOUNTERS, TYPE_COLORS, GATE_LEVEL, TEAM_MAX, LEVEL_CAP,
   FAMILY, SHINY, SHINY_ORDER, SHINY_TRADE_COST, SHINY_ATTACK_BONUS, XP_SHARE, SNACK_HEAL, GYMS, AREAS, TOWNS,
-  LEGENDS, CANDY, MEGA_POD, TRAINERS, RIVAL, effectiveness, moveSub, xpNeed, applyStats, makeCritter, grownForm, evolveTarget,
+  LEGENDS, CANDY, MEGA_POD, TRAINERS, RIVAL, SCHOOL_ROOM_NAMES, effectiveness, moveSub, xpNeed, applyStats, makeCritter, grownForm, evolveTarget,
 } from './data.js';
 
 const SAVE_KEY = 'critterquest.save.v1';
@@ -65,7 +65,7 @@ export function startGame(root, { dev = false } = {}) {
       rect(x, y, x + img.width / T - 1, y + img.height / T - 1, 'h');
       if (door) DOORS[door.x + ',' + door.y] = door;
     };
-    const WALL = { meadow: 'T', mountains: 'M', forest: 'Y', volcano: 'X', prehistoric: 'Z' };
+    const WALL = { meadow: 'T', mountains: 'M', forest: 'Y', volcano: 'X', prehistoric: 'Z', school: 'Q' };
 // Each town is built from its biome: its ground, its trees, and its little decorations.
 const TOWN_LOOK = {
   meadow:      { ground: '.', tree: 'T', deco: '*' },
@@ -73,6 +73,7 @@ const TOWN_LOOK = {
   forest:      { ground: 'F', tree: 'Y', deco: 'o' },
   volcano:     { ground: 'K', tree: 'X', deco: 'L' },
   prehistoric: { ground: 'j', tree: 'Z', deco: 'b' },
+  school:      { ground: '.', tree: 'T', deco: '*' },   // Bell Town: a grassy schoolyard
 };
 
     AREAS.forEach((area, i) => {
@@ -129,10 +130,30 @@ const TOWN_LOOK = {
         building(ox + 17, 12, LEGEND_SPOTS.bones, { x: ox + 18, y: 13, type: 'legend', legend: 'ironrex' }, LEGEND_SPOTS.bonesQuiet);
         sign(ox + 16, 10, [area.name, 'Dinosaur critters, Lv 52 to 62.', 'Legend says a T-REX OF STEEL guards the giant bones...']);
         sign(ox + 14, 10, ['ICE TIPS', 'ICE beats GRASS and FLYING.', 'But FIRE melts ICE!']);
+      } else if (area.kind === 'school') {
+        // COOL SCHOOL: a long hallway with 4 classrooms above it and 4 below, the trophy room in the top middle,
+        // and a corridor down the middle to Bell Town. Q = wall, q = floor, C = chalkboard, d = desk, l = lockers.
+        R(0, 0, AW - 1, AH - 1, 'Q');
+        R(1, 9, AW - 2, 11, 'q');                                  // the hallway
+        const ROOMS = [[0, 7], [7, 14], [17, 24], [24, 31]];
+        ROOMS.forEach(([l, r], i) => {
+          R(l + 1, 1, r - 1, 7, 'q'); L(l + 4, 8, 'q');            // top room and its door
+          R(l + 1, 13, r - 1, 21, 'q'); L(l + 4, 12, 'q');         // bottom room and its door
+          for (let x = l + 2; x <= l + 5; x++) { L(x, 0, 'C'); L(x, 22, 'C'); }
+          [[1, 4], [2, 4], [5, 3], [6, 3], [1, 6], [2, 6], [5, 6], [6, 6]].forEach(([dx, dy]) => { L(l + dx, dy, 'd'); L(l + dx, 22 - dy, 'd'); });
+          sign(ox + l + 3, 8, [SCHOOL_ROOM_NAMES[i], `Room ${i + 1}. Two students and a teacher are waiting!`]);
+          sign(ox + l + 3, 12, [SCHOOL_ROOM_NAMES[i + 4], `Room ${i + 5}. Two students and a teacher are waiting!`]);
+        });
+        R(15, 1, 16, 7, 'q'); L(15, 8, 'q'); L(16, 8, 'q');        // the trophy room
+        R(15, 12, 16, AH - 2, 'q');                                 // the corridor down to Bell Town
+        for (const y of [8, 12]) for (let x = 1; x < AW - 1; x++) if (map[y][ox + x] === 'Q') L(x, y, 'l');   // lockers line the hallway
+        building(ox + 15, 2, LEGEND_SPOTS.trophy, { x: ox + 15, y: 3, type: 'legend', legend: 'nimbus' }, LEGEND_SPOTS.trophyQuiet);
+        sign(ox + 14, 8, ['TROPHY ROOM', 'Legend says a kid with FLAMING HORNS lives in the trophy case...']);
+        sign(ox + 1, 11, [area.name, 'Eight classrooms. Every trainer here battles you on sight!']);
       }
       // edges: walls all round, with openings for the path in, the gate out, and the trail down to the town
       const wall = WALL[area.kind];
-      for (let x = 0; x < AW; x++) { L(x, 0, wall); L(x, AH - 1, wall); }
+      for (let x = 0; x < AW; x++) { if (map[0][ox + x] !== 'C') L(x, 0, wall); L(x, AH - 1, wall); }   // keep the school's chalkboards
       for (let y = 0; y < AH; y++) { L(0, y, wall); L(AW - 1, y, wall); }
       if (i > 0) L(0, 9, '=');
       const next = AREAS[i + 1];
@@ -191,7 +212,7 @@ const TOWN_LOOK = {
   function walkable(x, y) {
     const t = tileAt(x, y);
     if (t === 'G') return gateOpenFor(gateAt(x, y));
-    return !'T~hDSMPYLXUZwbN'.includes(t);
+    return !'T~hDSMPYLXUZwbNQCdl'.includes(t);
   }
   const inTown = y => y >= AH;
   const townHere = (x, y) => (inTown(y) ? TOWN_AT[areaIndex(x) * AW] : null);
@@ -458,6 +479,8 @@ const TOWN_LOOK = {
       worldSay(welcome);
       return;
     }
+    const spotter = trainerSees();
+    if (spotter) { trainerSpot(spotter); return; }
     const t = tileAt(player.x, player.y);
     if ((t === ',' || t === ';' || t === 'u' || t === 'e' || t === 'n') && stepsSince > 2 && Math.random() < 0.2) { startBattle(); return; }
     const d = heldDir(); if (d && mode === 'world') tryMove(d);
@@ -495,6 +518,9 @@ const TOWN_LOOK = {
     else if (t === 'M') worldSay(['A huge boulder. It is NOT a Rockalock. Probably.']);
     else if (t === 'L') worldSay(['Bubbling lava! WAY too hot to touch.']);
     else if (t === 'w') worldSay(['A sticky TAR PIT. Blub... blub... Better not step in!']);
+    else if (t === 'd') worldSay(['A school desk. Someone carved CRITTERS RULE into it.']);
+    else if (t === 'l') worldSay(['A row of lockers. Locked tight!']);
+    else if (t === 'C') worldSay(['The chalkboard says: FIRE beats GRASS, WATER beats FIRE... and NO RUNNING IN THE HALLS!']);
     else if (t === 'b') worldSay(['Old dinosaur bones. Really, REALLY old.']);
     else if (t === 'U') busStop(BUS[tx + ',' + ty]);
     else if (t === 'N') { const id = NPCS[tx + ',' + ty]; if (id === 'rival') rivalBattle(flags.rivalAt, true); else trainerTalk(id); }
@@ -729,13 +755,35 @@ const TOWN_LOOK = {
   }
 
   /* ============ trainers out in the world ============ */
+  // A trainer you haven't beaten sees you if you step into the line in front of them (up to `sight` tiles, walls block the view).
+  const FACE = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+  function trainerSees() {
+    if (!party.some(c => c.hp > 0)) return null;
+    for (const [key, id] of Object.entries(NPCS)) {
+      const t = TRAINERS[id];
+      if (!t || flags.trainers?.[id]) continue;
+      const [nx, ny] = key.split(',').map(Number), [dx, dy] = FACE[t.face || 'down'];
+      for (let k = 1; k <= (t.sight || 4); k++) {
+        const cx = nx + dx * k, cy = ny + dy * k;
+        if (cx === player.x && cy === player.y) return id;
+        if (!walkable(cx, cy)) break;
+      }
+    }
+    return null;
+  }
+  let spotted = null;     // the trainer whose "!" is popping right now
+  async function trainerSpot(id) {
+    mode = 'busy'; spotted = id;
+    await wait(650);
+    spotted = null;
+    await trainerTalk(id);
+  }
+  // Talking to a trainer (or being spotted) starts the battle straight away. Beaten trainers just chat.
   async function trainerTalk(id) {
     mode = 'busy';
     const t = TRAINERS[id];
     if (flags.trainers?.[id]) { await say(`${t.short}: ${t.after}`); hideTextbox(); mode = 'world'; return; }
     for (const line of t.hello) await say(`${t.short}: ${line}`);
-    const y = await chooseMenu([{ label: 'BATTLE!' }, { label: 'NOT YET' }], { layout: 'side', cols: 1, prompt: `Battle ${t.leader}?` });
-    if (y !== 0) { await say(`${t.short}: "I'll be right here!"`); hideTextbox(); mode = 'world'; return; }
     if (!party.some(c => c.hp > 0)) { await say(`${t.short}: "Your team needs a nap first!"`); hideTextbox(); mode = 'world'; return; }
     hideTextbox();
     await startTrainerBattle('npc:' + id, { ...t, xpMultiplier: 1.5 }, true);
@@ -802,7 +850,8 @@ const TOWN_LOOK = {
   function sprImg(sp, dir, now, white, shiny) {
     const set = sprites(sp, shiny);
     if (white) return dir === 'L' ? set.WL : set.W;
-    return set[dir][SPECIES[sp].flicker ? Math.floor(now / 160) % 2 : 0];
+    const S = SPECIES[sp];
+    return set[dir][S.flap ? Math.floor(now / 260) % 2 : S.flicker ? Math.floor(now / 160) % 2 : 0];
   }
   function kidSprite() {
     const walking = player.moving && player.t > 0.15 && player.t < 0.85, alt = player.steps % 2;
@@ -822,7 +871,8 @@ const TOWN_LOOK = {
     // the plain ground of each place, drawn under see-through things (signs, bones, buildings)
     const ground = (tx, ty) => {
       const k = areaAt(tx).kind, h = Math.floor(hash(tx, ty) * 3);
-      return { mountains: TILES.ground[h], forest: TILES.forestFloor[h], volcano: TILES.ash[h], prehistoric: TILES.jungle[h] }[k] || TILES.grass[Math.floor(hash(tx, ty) * 4)];
+      if (ty >= AH && (k === 'meadow' || k === 'school')) return TILES.grass[Math.floor(hash(tx, ty) * 4)];   // grassy towns (Sprout Village, Bell Town)
+      return { mountains: TILES.ground[h], forest: TILES.forestFloor[h], volcano: TILES.ash[h], prehistoric: TILES.jungle[h], school: TILES.schoolFloor }[k] || TILES.grass[Math.floor(hash(tx, ty) * 4)];
     };
     for (let ty = y0; ty <= y0 + VH; ty++) for (let tx = x0; tx <= x0 + VW; tx++) {
       const t = tileAt(tx, ty), sx = tx * T - camX, sy = ty * T - camY;
@@ -839,6 +889,7 @@ const TOWN_LOOK = {
         'Y': TILES.forestTree, 'u': TILES.undergrowth, 'o': TILES.mushrooms,
         'K': TILES.ash[Math.floor(hash(tx, ty) * 3)], 'L': TILES.lava[wf], 'e': TILES.embers, 'X': TILES.blackrock, 'U': TILES.busStop,
         'j': TILES.jungle[Math.floor(hash(tx, ty) * 3)], 'n': TILES.ferns, 'Z': TILES.cycad, 'w': TILES.tar[wf], 'b': TILES.bones,
+        'q': TILES.schoolFloor, 'Q': TILES.schoolWall, 'C': TILES.chalkboard, 'd': TILES.desk, 'l': TILES.locker,
       }[t] || TILES.grass[Math.floor(hash(tx, ty) * 4)];
       ctx.drawImage(img, sx, sy);
       if (t === '~' || t === '=' || t === 'w') {
@@ -865,8 +916,8 @@ const TOWN_LOOK = {
       const img = LEADERS[id === 'rival' ? RIVAL.look : TRAINERS[id].look], sx = nx * T - camX + 8 - Math.floor(img.width / 2), sy = ny * T - camY + 17 - img.height;
       npcs.push({ y: ny * T, draw: () => {
         ctx.drawImage(img, sx, sy);
-        if (!beaten) {        // a "!" bubble over trainers you haven't beaten yet
-          const by = sy - 11 + (Math.floor(now / 400) % 2);
+        if (!beaten) {        // a "!" bubble over trainers you haven't beaten yet (it jumps when they spot you)
+          const by = sy - 11 + (spotted === id ? -4 - (Math.floor(now / 90) % 2) * 2 : Math.floor(now / 400) % 2);
           ctx.fillStyle = '#2a2135'; ctx.fillRect(sx + 4, by, 8, 10);
           ctx.fillStyle = '#ffffff'; ctx.fillRect(sx + 5, by + 1, 6, 8);
           ctx.fillStyle = '#d94a3a'; ctx.fillRect(sx + 7, by + 2, 2, 4); ctx.fillRect(sx + 7, by + 7, 2, 1);
@@ -931,6 +982,13 @@ const TOWN_LOOK = {
       case 'magma':
         r('#2a2135', x - 7, y - 7, 14, 14); r('#e2392b', x - 6, y - 6, 12, 12); r(fl ? '#ffd23f' : '#ff7a2a', x - 4, y - 4, 8, 8); r('#fff6c2', x - 2, y - 3, 3, 2);
         r('#5a4a44', x - 10 * p.dir, y - 8, 4, 3); break;
+      case 'soccer': {   // a spinning soccer ball trailing fire
+        const sp = Math.floor(performance.now() / 70) % 2;
+        r(fl ? '#c4f0ff' : '#3fa8ff', x - 12 * p.dir, y - 2, 8, 4); r('#1f5fc4', x - 16 * p.dir, y - 1, 5, 2);   // blue fire trail
+        r('#2a2135', x - 5, y - 5, 10, 10); r('#ffffff', x - 4, y - 4, 8, 8);
+        r('#2a2135', x - 1 + sp, y - 1, 3, 3); r('#2a2135', x - 4, y - 4 + sp * 4, 2, 2); r('#2a2135', x + 2, y + 2 - sp * 4, 2, 2);
+        break;
+      }
       case 'feather':
         for (const dy of [-6, 0, 6]) { r('#2a2135', x - 7, y + dy - 1, 14, 3); r(fl ? '#e3ebf3' : '#a7b0c2', x - 6, y + dy, 12, 1); r('#ffffff', x + 5 * p.dir, y + dy, 2, 1); }
         break;
@@ -967,7 +1025,9 @@ const TOWN_LOOK = {
     const x1 = b.from.x + (b.to.x - b.from.x) * b.len, y1 = b.from.y + (b.to.y - b.from.y) * b.len;
     const fl = Math.floor(performance.now() / 50) % 2;
     ctx.lineCap = 'round';
-    for (const [col, w] of [['#2a2135', 13], ['#e2392b', 11], [fl ? '#ff7a2a' : '#ffd23f', 7], [fl ? '#ffd23f' : '#fff6c2', 3]]) {
+    const cols = b.blue ? [['#14213d', 13], ['#1f5fc4', 11], [fl ? '#3fa8ff' : '#c4f0ff', 7], [fl ? '#c4f0ff' : '#ffffff', 3]]   // blue fire
+      : [['#2a2135', 13], ['#e2392b', 11], [fl ? '#ff7a2a' : '#ffd23f', 7], [fl ? '#ffd23f' : '#fff6c2', 3]];
+    for (const [col, w] of cols) {
       ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, w * b.w);
       ctx.beginPath(); ctx.moveTo(b.from.x, b.from.y); ctx.lineTo(x1, y1 + (fl ? 1 : -1)); ctx.stroke();
     }
@@ -1010,10 +1070,11 @@ const TOWN_LOOK = {
       ctx.drawImage(img, Math.round(FOE_POS.x - w / 2 + B.leader.x), FOE_POS.y - h, w, h);
     }
     if (B.foe.vis && F) {
-      const img = sprImg(F.sp, 'L', now, B.foe.flash, shinyCfg(F)), s = (B.foe.scale ?? 1) * Math.min(img.height > 22 ? 2.5 : 3, 112 / img.width);   // long critters are drawn a bit smaller so they fit
+      const fly = SPECIES[F.sp].flies;   // flying critters are drawn a little smaller, high up in the air
+      const img = sprImg(F.sp, 'L', now, B.foe.flash, shinyCfg(F)), s = (B.foe.scale ?? 1) * (fly ? 0.7 : 1) * Math.min(img.height > 22 ? 2.5 : 3, 112 / img.width);   // long critters are drawn a bit smaller so they fit
       const w = Math.round(img.width * s), h = Math.round(img.height * s);
-      const hover = SPECIES[F.sp].hovers ? Math.round(Math.sin(now / 200) * 2) - 4 : 0;
-      shadow(FOE_POS.x + B.foe.x, 57, w * 0.33);
+      const hover = fly ? Math.round(Math.sin(now / 260) * 2) - 10 : SPECIES[F.sp].hovers ? Math.round(Math.sin(now / 200) * 2) - 4 : 0;
+      shadow(FOE_POS.x + B.foe.x, 57, w * (fly ? 0.22 : 0.33));
       ctx.globalAlpha = B.foe.alpha;
       if (B.foe.ball) drawIceBall(FOE_POS.x + B.foe.x, FOE_POS.y - 16 + B.foe.y, B.foe.x / 9);
       else ctx.drawImage(img, Math.round(FOE_POS.x - w / 2 + B.foe.x), Math.round(FOE_POS.y - h + B.foe.y) + hover, w, h);
@@ -1023,10 +1084,11 @@ const TOWN_LOOK = {
     if (B.pod) drawPod(B.pod);
     if (B.me.vis && A()) {
       // Evolved critters are tall: draw them a touch smaller and lower so they clear the wild critter's box.
-      const img = sprImg(A().sp, 'R', now, B.me.flash, shinyCfg(A())), big = img.height > 22, s = Math.min(big ? 2.5 : 3, 112 / img.width);
+      const fly = SPECIES[A().sp].flies;
+      const img = sprImg(A().sp, 'R', now, B.me.flash, shinyCfg(A())), big = img.height > 22, s = (fly ? 0.75 : 1) * Math.min(big ? 2.5 : 3, 112 / img.width);
       const w = Math.round(img.width * s), h = Math.round(img.height * s), bottom = ME_POS.y + (big ? 3 : 0);
-      const idle = Math.round(Math.sin(now / 320)) === 1 ? -1 : 0;
-      shadow(ME_POS.x + B.me.x, 102, w * 0.36);
+      const idle = fly ? Math.round(Math.sin(now / 260) * 3) - 18 : SPECIES[A().sp].hovers ? Math.round(Math.sin(now / 200) * 2) - 4 : Math.round(Math.sin(now / 320)) === 1 ? -1 : 0;
+      shadow(ME_POS.x + B.me.x, 102, w * (fly ? 0.24 : 0.36));
       ctx.globalAlpha = B.me.alpha;
       if (B.me.ball) drawIceBall(ME_POS.x + B.me.x, ME_POS.y - 16 + B.me.y, B.me.x / 9);
       else ctx.drawImage(img, Math.round(Math.max(2, Math.min(ME_POS.x - w / 2, 116 - w)) + B.me.x), Math.round(bottom - h + B.me.y) + idle, w, h);   // long critters slide left so their nose stays clear of your HP box
@@ -1106,7 +1168,7 @@ const TOWN_LOOK = {
         const from = who === 'p' ? { x: ME_POS.x + 26, y: 74 } : { x: FOE_POS.x - 26, y: 34 };
         const to = who === 'p' ? { x: FOE_POS.x, y: 40 } : { x: ME_POS.x, y: 82 };
         await tween(160, t => (s.x = -dir * 6 * t));
-        B.beam = { from, to, len: 0, w: 1 };
+        B.beam = { from, to, len: 0, w: 1, blue: !!M.blue };
         await tween(240, t => (B.beam.len = t));
         B.shake = 5; overlay.flash = 0.5; await tween(420, t => (overlay.flash = 0.5 * (1 - t))); B.shake = 0;
         await tween(220, t => (B.beam.w = 1 - t));
@@ -1128,7 +1190,7 @@ const TOWN_LOOK = {
           B.proj.y = from.y + (to.y - from.y) * t - 18 * Math.sin(Math.PI * t);
         });
         B.proj = null;
-        if (['bolt', 'burst', 'steamball', 'magma', 'hornrocket', 'feather', 'icicle', 'smoke'].includes(M.proj)) { overlay.flash = 0.7; B.shake = 4; await tween(240, t => (overlay.flash = 0.7 * (1 - t))); B.shake = 0; }
+        if (['bolt', 'burst', 'steamball', 'magma', 'hornrocket', 'feather', 'icicle', 'smoke', 'soccer'].includes(M.proj)) { overlay.flash = 0.7; B.shake = 4; await tween(240, t => (overlay.flash = 0.7 * (1 - t))); B.shake = 0; }
         if (M.proj === 'rocket') { overlay.flash = 0.8; B.shake = 5; await tween(220, t => (overlay.flash = 0.8 * (1 - t))); B.shake = 0; }
         break;
       }
@@ -1406,7 +1468,7 @@ const TOWN_LOOK = {
     const lv = Math.max(enc.min, Math.min(enc.max, top - 2 + rand(4)));
     const fam = FAMILY[base];
     const shiny = !!fam && Math.random() < shinyChance(fam);
-    battleBg = BG[{ mountains: 'mountain', forest: 'forest', volcano: 'volcano', prehistoric: 'prehistoric' }[area.kind] || 'meadow'];
+    battleBg = BG[{ mountains: 'mountain', forest: 'forest', volcano: 'volcano', prehistoric: 'prehistoric', school: 'school' }[area.kind] || 'meadow'];
     return makeCritter(grownForm(base, lv), lv, shiny);
   }
   async function battleLoop() {
@@ -1466,7 +1528,7 @@ const TOWN_LOOK = {
     await battleIntro();
     if (fixed) {
       F = makeCritter(fixed.sp, fixed.lv);
-      battleBg = BG[{ mountains: 'mountain', forest: 'forest', volcano: 'volcano', prehistoric: 'prehistoric' }[LEGENDS[fixed.sp]?.area] || 'meadow'];
+      battleBg = BG[{ mountains: 'mountain', forest: 'forest', volcano: 'volcano', prehistoric: 'prehistoric', school: 'school' }[LEGENDS[fixed.sp]?.area] || 'meadow'];
     } else F = newWild();
     B.me.x = -170; B.foe.x = 170; updateHud();
     await tween(380, t => (overlay.bars = 1 - t));
@@ -1486,7 +1548,7 @@ const TOWN_LOOK = {
   async function startTrainerBattle(id, gym, npc) {
     await battleIntro();
     trainer = { id, gym, npc, team: gym.team.map(([sp, lv]) => makeCritter(sp, lv)), idx: 0 };
-    battleBg = npc ? BG[{ mountains: 'mountain', forest: 'forest', volcano: 'volcano', prehistoric: 'prehistoric' }[areaAt(player.x).kind] || 'meadow']
+    battleBg = npc ? BG[{ mountains: 'mountain', forest: 'forest', volcano: 'volcano', prehistoric: 'prehistoric', school: 'school' }[areaAt(player.x).kind] || 'meadow']
       : (BG['gym-' + id] || BG['gym-pebble']);
     F = null;
     B.foe.vis = false; B.leader = { x: 170, vis: true }; B.me.x = -170; updateHud();
@@ -1536,7 +1598,7 @@ const TOWN_LOOK = {
         flags.trainers = { ...(flags.trainers || {}), [key]: true };
         const [item, n] = gym.prize;
         bag[item] = (bag[item] || 0) + n; save();
-        await say(`${gym.short} gave you ${n} ${item === 'pod' ? 'PODS' : 'SNACKS'}!`);
+        await say(`${gym.short} gave you ${n} ${{ pod: 'PODS', snack: 'SNACKS', mega: 'MEGA PODS' }[item] || item.toUpperCase()}!`);
       }
       await endBattle(false);
       return;
