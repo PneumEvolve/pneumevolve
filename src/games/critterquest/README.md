@@ -71,6 +71,8 @@ A move with a slash (—) can't miss, not even when the foe has raised its dodge
 - Electric, Flying and Ice types (ICE beats GRASS and FLYING, FIRE melts ICE); Zapcat line in every biome; third evolutions for Blazepony, Foxlet, Splashcano and Steel Dog lines
 - XP is shared: 100% if a critter did damage and is still standing, 75% for the rest of the team, 25% if knocked out
 - A BOX at home and in rest huts holds extra critters (they don't earn XP); snacks heal more with every badge
+- Every critter walks: its feet step when your partner follows you and when it moves in battle, and it breathes while standing
+  (the walking poses are made automatically from each drawing in `art.js`, so new critters walk too)
 - Shinies (25% more attack): find them in the wild, or trade 3 plain critters of one kind for 1 shiny in Pebble Town
 - Pods to catch critters, a team of 6
 - Level caps: 25 to start, 35 with the Boulder Badge, 50 with the Grove Badge, 65 with the Ember Badge, 75 with the Fossil Badge

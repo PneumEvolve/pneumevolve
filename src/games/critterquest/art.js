@@ -1166,12 +1166,37 @@ export function buildArt(speciesTable, gyms = {}) {
   };
 
   // R = facing right (your side), L = facing left (wild side). Two frames so flames and steam flicker.
+  // Walking: every critter gets two walking poses, made from its own drawing. The feet in its bottom row are found,
+  // and every other foot (with the leg above it) is lifted by one pixel; the second pose lifts the other feet.
+  function walkPose(rows, which) {
+    const H = rows.length, W = rows[0].length;
+    let bottom = H - 1;
+    while (bottom > 0 && !/[^.]/.test(rows[bottom])) bottom--;
+    const top = bottom - Math.max(2, Math.round((bottom + 1) * 0.22)) + 1;
+    const runs = [];
+    for (let x = 0; x < W;) {
+      if (rows[bottom][x] !== '.') { const a = x; while (x < W && rows[bottom][x] !== '.') x++; runs.push([a, x - 1]); } else x++;
+    }
+    const g = rows.map(r => [...r]);
+    runs.forEach(([a, b], i) => {
+      if (i % 2 !== which) return;
+      for (let c = a; c <= b; c++) {
+        for (let y = top; y < bottom; y++) g[y][c] = rows[y + 1][c];
+        g[bottom][c] = '.';
+      }
+    });
+    return g.map(r => r.join(''));
+  }
   const SPR = {};
   for (const [k, s] of Object.entries(speciesTable)) {
     const a = ART[k], a2 = ART_FLAP[k] || a, b = s.flicker ? swapPair(a2, s.flicker) : a2, outline = !NO_OUTLINE.has(k);
+    const walks = !(s.flap || s.flies || s.hovers);   // flying and floating critters don't walk
+    const w0 = walks ? walkPose(a, 0) : a, w1 = walks ? walkPose(s.flicker ? swapPair(a, s.flicker) : a, 1) : b;
     SPR[k] = {
       R: [sprite(a, { outline }), sprite(b, { outline })],
       L: [sprite(a, { outline, flip: true }), sprite(b, { outline, flip: true })],
+      RW: [sprite(w0, { outline }), sprite(w1, { outline })],
+      LW: [sprite(w0, { outline, flip: true }), sprite(w1, { outline, flip: true })],
       W: sprite(a, { outline, tint: '#ffffff' }),
       WL: sprite(a, { outline, flip: true, tint: '#ffffff' }),
     };
@@ -1183,6 +1208,8 @@ export function buildArt(speciesTable, gyms = {}) {
     return (shinyCache[sp] ||= {
       R: SPR[sp].R.map(c => recolorCanvas(c, shinyCfg)),
       L: SPR[sp].L.map(c => recolorCanvas(c, shinyCfg)),
+      RW: SPR[sp].RW.map(c => recolorCanvas(c, shinyCfg)),
+      LW: SPR[sp].LW.map(c => recolorCanvas(c, shinyCfg)),
       W: SPR[sp].W, WL: SPR[sp].WL,
     });
   }

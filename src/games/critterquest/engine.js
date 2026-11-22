@@ -847,10 +847,12 @@ const TOWN_LOOK = {
     const t = player.t;
     return [Math.round((e.from.x + (e.to.x - e.from.x) * t) * T), Math.round((e.from.y + (e.to.y - e.from.y) * t) * T)];
   }
-  function sprImg(sp, dir, now, white, shiny) {
+  // walking = true picks the two walking poses (feet stepping) instead of standing still
+  function sprImg(sp, dir, now, white, shiny, walking = false) {
     const set = sprites(sp, shiny);
     if (white) return dir === 'L' ? set.WL : set.W;
     const S = SPECIES[sp];
+    if (walking) return set[dir + 'W'][Math.floor(now / 170) % 2];
     return set[dir][S.flap ? Math.floor(now / 260) % 2 : S.flicker ? Math.floor(now / 160) % 2 : 0];
   }
   function kidSprite() {
@@ -906,7 +908,7 @@ const TOWN_LOOK = {
     const [apx, apy] = entityPx(pal);
     const bob = player.moving && player.t > 0.25 && player.t < 0.75 ? -1 : 0;
     const lead = party[0];
-    const palImg = sprImg(lead.sp, pal.faceLeft ? 'L' : 'R', now, false, shinyCfg(lead));
+    const palImg = sprImg(lead.sp, pal.faceLeft ? 'L' : 'R', now, false, shinyCfg(lead), pal.moving);   // your partner steps along behind you
     // trainers: drawn with you and your partner so whoever is lower on screen is in front
     const npcs = [];
     for (const [k, id] of Object.entries(NPCS)) {
@@ -1071,13 +1073,17 @@ const TOWN_LOOK = {
     }
     if (B.foe.vis && F) {
       const fly = SPECIES[F.sp].flies;   // flying critters are drawn a little smaller, high up in the air
-      const img = sprImg(F.sp, 'L', now, B.foe.flash, shinyCfg(F)), s = (B.foe.scale ?? 1) * (fly ? 0.7 : 1) * Math.min(img.height > 22 ? 2.5 : 3, 112 / img.width);   // long critters are drawn a bit smaller so they fit
+      const foeMoving = Math.abs(B.foe.x - (B.foe.px ?? B.foe.x)) > 0.2; B.foe.px = B.foe.x;   // walking when it moves across the field
+      const img = sprImg(F.sp, 'L', now, B.foe.flash, shinyCfg(F), foeMoving), s = (B.foe.scale ?? 1) * (fly ? 0.7 : 1) * Math.min(img.height > 22 ? 2.5 : 3, 112 / img.width);   // long critters are drawn a bit smaller so they fit
       const w = Math.round(img.width * s), h = Math.round(img.height * s);
       const hover = fly ? Math.round(Math.sin(now / 260) * 2) - 10 : SPECIES[F.sp].hovers ? Math.round(Math.sin(now / 200) * 2) - 4 : 0;
       shadow(FOE_POS.x + B.foe.x, 57, w * (fly ? 0.22 : 0.33));
       ctx.globalAlpha = B.foe.alpha;
       if (B.foe.ball) drawIceBall(FOE_POS.x + B.foe.x, FOE_POS.y - 16 + B.foe.y, B.foe.x / 9);
-      else ctx.drawImage(img, Math.round(FOE_POS.x - w / 2 + B.foe.x), Math.round(FOE_POS.y - h + B.foe.y) + hover, w, h);
+      else {      // standing: it breathes (grows a little taller and shorter)
+        const hb = h + Math.round(Math.sin(now / 520 + 1.3) * 1.6);
+        ctx.drawImage(img, Math.round(FOE_POS.x - w / 2 + B.foe.x), Math.round(FOE_POS.y - hb + B.foe.y) + hover, w, hb);
+      }
       ctx.globalAlpha = 1;
       drawSparkles(FOE_POS.x, FOE_POS.y - 26, now);
     }
@@ -1085,13 +1091,17 @@ const TOWN_LOOK = {
     if (B.me.vis && A()) {
       // Evolved critters are tall: draw them a touch smaller and lower so they clear the wild critter's box.
       const fly = SPECIES[A().sp].flies;
-      const img = sprImg(A().sp, 'R', now, B.me.flash, shinyCfg(A())), big = img.height > 22, s = (fly ? 0.75 : 1) * Math.min(big ? 2.5 : 3, 112 / img.width);
+      const meMoving = Math.abs(B.me.x - (B.me.px ?? B.me.x)) > 0.2; B.me.px = B.me.x;
+      const img = sprImg(A().sp, 'R', now, B.me.flash, shinyCfg(A()), meMoving), big = img.height > 22, s = (fly ? 0.75 : 1) * Math.min(big ? 2.5 : 3, 112 / img.width);
       const w = Math.round(img.width * s), h = Math.round(img.height * s), bottom = ME_POS.y + (big ? 3 : 0);
-      const idle = fly ? Math.round(Math.sin(now / 260) * 3) - 18 : SPECIES[A().sp].hovers ? Math.round(Math.sin(now / 200) * 2) - 4 : Math.round(Math.sin(now / 320)) === 1 ? -1 : 0;
+      const idle = fly ? Math.round(Math.sin(now / 260) * 3) - 18 : SPECIES[A().sp].hovers ? Math.round(Math.sin(now / 200) * 2) - 4 : 0;
       shadow(ME_POS.x + B.me.x, 102, w * (fly ? 0.24 : 0.36));
       ctx.globalAlpha = B.me.alpha;
       if (B.me.ball) drawIceBall(ME_POS.x + B.me.x, ME_POS.y - 16 + B.me.y, B.me.x / 9);
-      else ctx.drawImage(img, Math.round(Math.max(2, Math.min(ME_POS.x - w / 2, 116 - w)) + B.me.x), Math.round(bottom - h + B.me.y) + idle, w, h);   // long critters slide left so their nose stays clear of your HP box
+      else {
+        const hb = h + Math.round(Math.sin(now / 520) * 1.6);   // breathing
+        ctx.drawImage(img, Math.round(Math.max(2, Math.min(ME_POS.x - w / 2, 116 - w)) + B.me.x), Math.round(bottom - hb + B.me.y) + idle, w, hb);
+      }   // long critters slide left so their nose stays clear of your HP box
       ctx.globalAlpha = 1;
     }
     if (B.proj) drawProj(B.proj);
