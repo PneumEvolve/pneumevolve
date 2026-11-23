@@ -111,6 +111,8 @@ import ElementGame from "@/games/element-lab/ElementLab.jsx";
 import CritterQuest from './games/critterquest/CritterQuest.jsx';
 
 import DungeonTown from './games/dungeon-town/DungeonTown';
+
+import ArcadeGame from "@/Pages/Arcade";
  
 import { HelmetProvider } from "react-helmet-async";
 import "./index.css";
@@ -254,6 +256,8 @@ function Root() {
                 <Route path="/critter-quest" element={<CritterQuest />} />
 
                 <Route path="/dungeon-town" element={<DungeonTown />} />
+
+                <Route path="/arcade" element={<RequireAuth><ArcadeGame /></RequireAuth>} />
 
                 
  
