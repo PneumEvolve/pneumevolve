@@ -7,10 +7,16 @@
 // and the server relays it to the other player untouched.
 //
 // Built-in events you can listen for:
-//   "connected"            { role, peer_count }
+//   "connected"            { role, peer_count, conn_id, host_conn, host_user }
 //   "partner_connected"    { role }
 //   "partner_disconnected" {}
+//   "host"                 { host_conn, host_user }   (live host changed)
 //   "hello" / "hello_back" (presence handshake — handled for you)
+//
+// Seat vs host:
+//   room.role (p1/p2) = your seat (p1 made the room). Use it for sides/colours.
+//   net.amHost        = you're the LIVE host: whoever connected first. Changes
+//                       if the host leaves. Persistent-world games use this.
 //
 // Usage:
 //   const net = useArcadeRoom(room.id);
@@ -37,6 +43,9 @@ export function useArcadeRoom(roomId) {
   const [partnerOnline, setPartnerOnline] = useState(false);
   const [error,         setError]         = useState(null);
   const [retryKey,      setRetryKey]      = useState(0);
+  const [connId,        setConnId]        = useState(null);   // this connection's id
+  const [hostConn,      setHostConn]      = useState(null);   // live host's connection id
+  const [userId,        setUserId]        = useState(null);
 
   const emit = useCallback((event, msg) => {
     const fire = (set) => {
@@ -111,7 +120,13 @@ export function useArcadeRoom(roomId) {
         if (!msg?.event) return;
 
         switch (msg.event) {
-          case "connected":            if (msg.peer_count >= 2) setPartnerOnline(true); break;
+          case "connected":
+            if (msg.peer_count >= 2) setPartnerOnline(true);
+            setConnId(msg.conn_id ?? null);
+            setHostConn(msg.host_conn ?? null);
+            setUserId(msg.user_id ?? null);
+            break;
+          case "host":                 setHostConn(msg.host_conn ?? null); break;
           case "partner_connected":    setPartnerOnline(true); break;
           case "hello":                setPartnerOnline(true); ws.send(JSON.stringify({ event: "hello_back" })); break;
           case "hello_back":           setPartnerOnline(true); break;
@@ -124,6 +139,7 @@ export function useArcadeRoom(roomId) {
       ws.onclose = async (e) => {
         if (wsRef.current === ws) wsRef.current = null;
         setPartnerOnline(false);
+        setConnId(null);       // not host while disconnected — the server may promote the partner
         if (dead) return;
 
         if (e.code === 4003) return fail("This room is closed, or you're not in it.");
@@ -163,9 +179,11 @@ export function useArcadeRoom(roomId) {
     };
   }, [roomId, retryKey, emit]);
 
+  const amHost = status === "open" && !!connId && connId === hostConn;
+
   return useMemo(
-    () => ({ status, partnerOnline, error, send, on, retry }),
-    [status, partnerOnline, error, send, on, retry],
+    () => ({ status, partnerOnline, error, send, on, retry, connId, amHost, userId }),
+    [status, partnerOnline, error, send, on, retry, connId, amHost, userId],
   );
 }
 

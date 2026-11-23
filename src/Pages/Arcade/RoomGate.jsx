@@ -1,10 +1,15 @@
 // src/Pages/Arcade/RoomGate.jsx
 //
-// Owns the one WebSocket for a play session. Shows the join code while
-// waiting, then mounts the game and hands it everything it needs:
+// Owns the one WebSocket for a play session and mounts the game with:
 //   <Game net room role isHost solo onLeave />
-// Once the game has started it stays mounted even if the partner drops,
-// with a small banner while they reconnect.
+//
+// Two kinds of game (set in games/registry.js):
+//   • Match games (default): show the join code and wait for the partner (or
+//     "play solo"). isHost = seat p1, or you when solo.
+//   • persistentWorld games (farm-style): go straight in — you can always play
+//     solo and the world is saved on the room. isHost = the LIVE host from the
+//     server (whoever got there first), and it can change mid-game.
+// Once started, the game stays mounted through partner drops / reconnects.
 
 import React, { Suspense, useCallback, useEffect, useState } from "react";
 import { useArcadeRoom } from "./net/useArcadeRoom";
@@ -13,8 +18,9 @@ import { S, C } from "./ui";
 export default function RoomGate({ room, game, onLeave }) {
   const net    = useArcadeRoom(room.id);
   const role   = room.role;
-  const isHost = role === "p1";
-  const partnerName = isHost ? room.player2_name : room.player1_name;
+  const seatP1 = role === "p1";
+  const partnerName = seatP1 ? room.player2_name : room.player1_name;
+  const worldGame = !!game.persistentWorld;
 
   const [started, setStarted] = useState(false);
   const [solo,    setSolo]    = useState(false);
@@ -24,6 +30,11 @@ export default function RoomGate({ room, game, onLeave }) {
   useEffect(() => {
     if (net.partnerOnline) { setStarted(true); setSolo(false); }
   }, [net.partnerOnline]);
+
+  // World games start the moment we're connected (host or not).
+  useEffect(() => {
+    if (worldGame && net.connId) setStarted(true);
+  }, [worldGame, net.connId]);
 
   // Leaving just goes back to the room list — the room stays saved on both
   // accounts. Deleting happens from the list.
@@ -43,13 +54,26 @@ export default function RoomGate({ room, game, onLeave }) {
     );
   }
 
+  // ── World game: just connecting ───────────────────────────────────────────
+  if (worldGame && !started) {
+    return (
+      <main style={S.screen}>
+        <p style={S.eyebrow}>{game.icon} {game.name}</p>
+        <h1 style={S.title}>Room {room.join_code}</h1>
+        <Pulse />
+        <p style={{ color: C.dim, margin: 0 }}>opening your world…</p>
+        <button style={{ ...S.btn("ghost"), border: "none", maxWidth: 340 }} onClick={leave}>← back to rooms</button>
+      </main>
+    );
+  }
+
   // ── Waiting for the other player ──────────────────────────────────────────
   if (!started) {
     return (
       <main style={S.screen}>
         <p style={S.eyebrow}>{game.icon} {game.name}</p>
 
-        {isHost && !partnerName ? (
+        {seatP1 && !partnerName ? (
           <>
             <p style={{ color: C.dim, margin: 0 }}>On the other device, tap “Join with a code” and enter:</p>
             <div style={{
@@ -89,7 +113,11 @@ export default function RoomGate({ room, game, onLeave }) {
 
   // ── In game ───────────────────────────────────────────────────────────────
   const Game = game.component;
-  const showBanner = !solo && (!net.partnerOnline || net.status !== "open");
+  const showBanner = worldGame
+    ? net.status !== "open"                                 // partner being away is normal here
+    : !solo && (!net.partnerOnline || net.status !== "open");
+  const gameIsHost = worldGame ? net.amHost : (seatP1 || solo);
+  const gameSolo   = worldGame ? !net.partnerOnline : solo;
 
   return (
     <div style={{ position: "relative", minHeight: "100svh", background: C.bg }}>
@@ -115,7 +143,7 @@ export default function RoomGate({ room, game, onLeave }) {
         )}
       </div>
       <Suspense fallback={<main style={S.screen}><Pulse /></main>}>
-        <Game net={net} room={room} role={role} isHost={isHost || solo} solo={solo} onLeave={leave} />
+        <Game net={net} room={room} role={role} isHost={gameIsHost} solo={gameSolo} onLeave={leave} />
       </Suspense>
     </div>
   );

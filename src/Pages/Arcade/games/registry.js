@@ -3,7 +3,8 @@
 // Every game in the arcade. To add one:
 //   1. Make a folder in games/ with a component that takes
 //        { net, room, role, isHost, solo, onLeave }
-//   2. Add an entry here.
+//   2. Add an entry here. Add `persistentWorld: true` for farm-style games
+//      (shared saved world, either player can play solo — see useArcadeWorld).
 //   3. Add its id to KNOWN_GAMES in backend routers/arcade.py.
 
 import { lazy } from "react";
@@ -26,6 +27,15 @@ export const GAMES = [
     status: "ready",
     allowSolo: true,
     component: lazy(() => import("./blob-volley/BlobVolley")),
+  },
+  {
+    id: "shared-garden",
+    name: "Shared Garden",
+    icon: "🌷",
+    blurb: "Plant together or alone. It keeps growing while you're away.",
+    status: "ready",
+    persistentWorld: true,   // saved world on the room, live host, no waiting screen
+    component: lazy(() => import("./shared-garden/SharedGarden")),
   },
   {
     id: "blob-test",
