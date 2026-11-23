@@ -38,7 +38,8 @@ export function plotRect(i) {
 export const DAY_LEN         = 600;               // seconds of PLAY per in-game day
 export const HUNGER_PER_SEC  = 100 / 900;         // full → empty in 1.5 days of play
 export const VISIT_MAX       = 150;               // seconds a visitor hangs around
-export const MAX_VISITORS    = 4;
+export const MAX_VISITORS    = 2;                 // at most this many wild visitors at once
+export const LURE_WAIT       = 12;                // avg seconds a ripe lure waits before something shows up
 export const BEFRIEND_SECS   = { withFood: 7, withoutFood: 14 };
 export const PET_COOLDOWN_MS = 8000;
 export const FOLLOW_BOND     = 50;                // bond needed to make someone else's creature follow you
@@ -88,21 +89,29 @@ export function visitorPos(v, age) {
 }
 
 // Where a creature wanders inside the pen (cosmetic, same on both devices).
+// The pen is split into a 7×3 grid of home spots; creature number n gets spot
+// (n × 8) mod 21, which scatters new arrivals across the pen instead of
+// stacking them. Each one wanders a little around its spot.
+const PEN_COLS = 7, PEN_ROWS = 3, PEN_SLOTS = PEN_COLS * PEN_ROWS;
 export function penPos(c, tSec) {
-  let h = 0;
-  for (const ch of c.id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  const n = parseInt(String(c.id).replace(/\D/g, ""), 10) || 1;
   const p = MAP.pen;
-  const bx = p.x + 50 + (h % 1000) / 1000 * (p.w - 100);
-  const by = p.y + 45 + ((h >>> 10) % 1000) / 1000 * (p.h - 80);
-  const ph = (h % 628) / 100;
-  const x = clamp(bx + Math.sin(tSec * 0.35 + ph) * 45, p.x + 25, p.x + p.w - 25);
-  const y = clamp(by + Math.cos(tSec * 0.27 + ph * 1.7) * 22, p.y + 30, p.y + p.h - 20);
+  const slot = (n * 8) % PEN_SLOTS;
+  const lap = Math.floor(n / PEN_SLOTS);                 // 22nd+ creature: nudge so it doesn't sit exactly on another
+  const col = slot % PEN_COLS, row = Math.floor(slot / PEN_COLS);
+  const cellW = (p.w - 70) / PEN_COLS, cellH = (p.h - 48) / PEN_ROWS;
+  const bx = p.x + 35 + cellW * (col + 0.5) + (lap % 2 ? cellW * 0.4 : 0);
+  const by = p.y + 40 + cellH * (row + 0.5) + (lap % 2 ? cellH * 0.3 : 0);
+  const ph = n * 1.7;
+  const x = clamp(bx + Math.sin(tSec * 0.35 + ph) * 12, p.x + 25, p.x + p.w - 25);
+  const y = clamp(by + Math.cos(tSec * 0.27 + ph * 1.3) * 4, p.y + 35, p.y + p.h - 10);
   return { x, y, face: Math.cos(tSec * 0.35 + ph) >= 0 ? 1 : -1 };
 }
 
 function makeVisitor(species, rng, n, near) {
-  const tx = clamp(near.x + (rng() - 0.5) * 90, 60, WORLD_W - 60);
-  const ty = clamp(near.y + 40 + rng() * 40, 120, WORLD_H - 70);
+  // Somewhere in the open grass, pulled toward the crop that lured it.
+  const tx = clamp((280 + rng() * 640) * 0.5 + near.x * 0.5, 260, WORLD_W - 50);
+  const ty = clamp(110 + rng() * 260, 110, 370);
   return {
     id: `v${n}`, species, name: pick(rng, NAMES), traits: rollTraits(species, rng),
     sx: clamp(tx + (rng() - 0.5) * 240, 40, WORLD_W - 40), tx, ty, seed: r2(rng() * 6.28),
@@ -139,7 +148,7 @@ export function farmReducer(w, a) {
       let { day, dayTime, nextId, log } = w;
 
       dayTime += dt;
-      if (dayTime >= DAY_LEN) { dayTime -= DAY_LEN; day += 1; log = addLog(log, a, `Day ${day} begins ☀️`, "day"); }
+      if (dayTime >= DAY_LEN) { dayTime -= DAY_LEN; day += 1; log = addLog(log, a, `Day ${day} begins`, "day"); }
 
       const creatures = {};
       for (const c of Object.values(w.creatures)) {
@@ -158,19 +167,24 @@ export function farmReducer(w, a) {
         visitors.push({ ...v, age });
       }
 
-      // Ripe lure crops pull in a visitor.
+      // Ripe lure crops pull visitors in ONE at a time, after a random wait,
+      // and only while there's room (MAX_VISITORS) — so they trickle in.
       const plots = w.plots.slice();
+      const ripeLures = [];
       for (let i = 0; i < plots.length; i++) {
         const crop = plots[i];
-        if (!crop || CROPS[crop.kind].type !== "lure" || growth(crop, a.t) < 1) continue;
-        if (visitors.length >= MAX_VISITORS) break;
+        if (crop && CROPS[crop.kind].type === "lure" && growth(crop, a.t) >= 1 &&
+            Object.keys(SPECIES).some(k => SPECIES[k].lure === crop.kind)) ripeLures.push(i);
+      }
+      if (ripeLures.length && visitors.length < MAX_VISITORS && rng() < dt / LURE_WAIT) {
+        const i = ripeLures[Math.floor(rng() * ripeLures.length) % ripeLures.length];
+        const crop = plots[i];
         const options = Object.keys(SPECIES).filter(k => SPECIES[k].lure === crop.kind);
-        if (!options.length) continue;
         const pr = plotRect(i);
         const v = makeVisitor(pick(rng, options), rng, nextId++, { x: pr.cx, y: pr.cy });
         visitors.push(v);
         plots[i] = null;
-        log = addLog(log, a, `${v.name} the ${SPECIES[v.species].name} smelled the ${CROPS[crop.kind].name.toLowerCase()} ${CROPS[crop.kind].icon}`, "visit");
+        log = addLog(log, a, `${v.name} the ${SPECIES[v.species].name} smelled the ${CROPS[crop.kind].name.toLowerCase()}`, "visit");
       }
 
       // Now and then something wanders in on its own (the only way to meet some creatures).
@@ -250,7 +264,7 @@ export function farmReducer(w, a) {
         ...w, food, nextId: w.nextId + 1,
         visitors: w.visitors.filter(x => x.id !== v.id),
         creatures: { ...w.creatures, [id]: c },
-        log: addLog(w.log, { ...a, by: owner }, `befriended ${c.name} the ${sp.name}! 🎉`, "catch"),
+        log: addLog(w.log, { ...a, by: owner }, `befriended ${c.name} the ${sp.name}!`, "catch"),
       };
     }
 

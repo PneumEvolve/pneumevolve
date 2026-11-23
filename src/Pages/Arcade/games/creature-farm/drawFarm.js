@@ -229,8 +229,12 @@ export function drawMap(ctx, world, now, t) {
   ctx.fillStyle = "#a5753f"; ctx.fillRect(st.x - 26, st.y - 22, 52, 34);
   ctx.strokeStyle = "#6e4a24"; ctx.lineWidth = 3; ctx.strokeRect(st.x - 26, st.y - 22, 52, 34);
   ctx.beginPath(); ctx.moveTo(st.x - 26, st.y - 5); ctx.lineTo(st.x + 26, st.y - 5); ctx.stroke();
-  ctx.font = "13px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "#fff";
-  ctx.fillText(Object.keys(world.food).map(k => `${CROPS[k]?.icon ?? ""}${world.food[k]}`).join(" "), st.x, st.y + 30);
+  ctx.font = "bold 12px system-ui, sans-serif"; ctx.textAlign = "left"; ctx.fillStyle = "#fff";
+  Object.keys(world.food).forEach((k, i) => {
+    const fx = st.x - 30 + i * 32;
+    drawCropSprite(ctx, k, fx, st.y + 26, 14, t);
+    ctx.fillText(String(world.food[k]), fx + 8, st.y + 31);
+  });
 
   // field
   for (let i = 0; i < PLOT_COUNT; i++) {
@@ -243,13 +247,12 @@ export function drawMap(ctx, world, now, t) {
     if (crop) {
       const g = growth(crop, now);
       const ripe = g >= 1;
-      ctx.font = `${Math.round(14 + g * 18)}px system-ui, sans-serif`;
-      ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText(g < 0.4 ? "🌱" : CROPS[crop.kind].icon, r.cx, r.cy + (ripe ? Math.sin(t * 4 + i) * 2 : 0));
-      ctx.textBaseline = "alphabetic";
+      const bobY = r.cy + (ripe ? Math.sin(t * 4 + i) * 2 : 0);
+      if (g < 0.4) drawSprout(ctx, r.cx, bobY, 18 + g * 20);
+      else drawCropSprite(ctx, crop.kind, r.cx, bobY, 18 + g * 22, t);
       if (!ripe) {
         ctx.fillStyle = "rgba(0,0,0,0.35)"; ctx.fillRect(r.x + 6, r.y + r.h - 8, r.w - 12, 4);
-        ctx.fillStyle = CROPS[crop.kind].type === "lure" ? "#ffb3e6" : "#b7f07a"; ctx.fillRect(r.x + 6, r.y + r.h - 8, (r.w - 12) * g, 4);
+        ctx.fillStyle = CROPS[crop.kind].color || "#b7f07a"; ctx.fillRect(r.x + 6, r.y + r.h - 8, (r.w - 12) * g, 4);
       } else {
         ctx.strokeStyle = "rgba(255,230,120,0.8)"; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.roundRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2, 6); ctx.stroke();
@@ -278,4 +281,112 @@ export function drawBar(ctx, x, y, frac, color, w = 34) {
   ctx.beginPath(); ctx.roundRect(x - w / 2, y, w, 6, 3); ctx.fill();
   ctx.fillStyle = color;
   ctx.beginPath(); ctx.roundRect(x - w / 2 + 1, y + 1, Math.max(0, (w - 2) * Math.min(1, frac)), 4, 2); ctx.fill();
+}
+
+// ── Sprites (no emojis — they render differently, or not at all, on some
+//    computers). Each draws centred on (cx, cy) inside a size×size box. ──────
+
+function inBox(ctx, cx, cy, size, fn) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(size / 32, size / 32);   // draw in a 32×32 box centred on 0,0
+  fn();
+  ctx.restore();
+}
+
+export function drawSprout(ctx, cx, cy, size) {
+  inBox(ctx, cx, cy, size, () => {
+    ctx.strokeStyle = "#3f8f3a"; ctx.lineWidth = 2.5; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(0, 12); ctx.quadraticCurveTo(1, 4, 0, -2); ctx.stroke();
+    ctx.fillStyle = "#6cc24a";
+    ctx.beginPath(); ctx.ellipse(-6, -4, 7, 3.5, -0.5, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(6, -6, 7, 3.5, 0.5, 0, TAU); ctx.fill();
+  });
+}
+
+export function drawCropSprite(ctx, kind, cx, cy, size, t = 0) {
+  inBox(ctx, cx, cy, size, () => {
+    if (kind === "berry") {
+      ctx.fillStyle = "#3f8f3a";
+      ctx.beginPath(); ctx.ellipse(-4, -12, 5, 2.5, -0.6, 0, TAU); ctx.ellipse(4, -12, 5, 2.5, 0.6, 0, TAU); ctx.fill();
+      for (const [x, y] of [[0, -5], [-6, 4], [6, 4], [0, 11]]) {
+        ctx.fillStyle = "#3d4fc9"; ctx.beginPath(); ctx.arc(x, y, 6.5, 0, TAU); ctx.fill();
+        ctx.fillStyle = "#6b7ff0"; ctx.beginPath(); ctx.arc(x - 2, y - 2, 2.4, 0, TAU); ctx.fill();
+        ctx.fillStyle = "#26307a"; ctx.beginPath(); ctx.arc(x + 1.5, y + 2.5, 1.2, 0, TAU); ctx.fill();
+      }
+    } else if (kind === "carrot") {
+      ctx.strokeStyle = "#3f8f3a"; ctx.lineWidth = 3; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(0, -8); ctx.lineTo(-5, -15); ctx.moveTo(0, -8); ctx.lineTo(0, -16); ctx.moveTo(0, -8); ctx.lineTo(5, -15); ctx.stroke();
+      ctx.fillStyle = "#f08a24";
+      ctx.beginPath(); ctx.moveTo(-7, -8); ctx.quadraticCurveTo(0, -11, 7, -8); ctx.lineTo(1, 15); ctx.lineTo(-1, 15); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = "#c2610f"; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(-4, -2); ctx.lineTo(0, -1); ctx.moveTo(3, 4); ctx.lineTo(-1, 5); ctx.moveTo(-2, 9); ctx.lineTo(1, 10); ctx.stroke();
+    } else if (kind === "sweetroot") {
+      ctx.fillStyle = "#3f8f3a";
+      ctx.beginPath(); ctx.ellipse(-3, -12, 6, 2.5, -0.7, 0, TAU); ctx.ellipse(4, -13, 5, 2.2, 0.5, 0, TAU); ctx.fill();
+      ctx.save(); ctx.rotate(-0.5);
+      ctx.fillStyle = "#c2457a"; ctx.beginPath(); ctx.ellipse(0, 2, 8.5, 13, 0, 0, TAU); ctx.fill();
+      ctx.strokeStyle = "#e88ab0"; ctx.lineWidth = 1.5;
+      for (const y of [-5, 1, 7]) { ctx.beginPath(); ctx.ellipse(0, y, 7, 2, 0, 0.2, Math.PI - 0.2); ctx.stroke(); }
+      ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.beginPath(); ctx.ellipse(-3, -3, 2, 4, 0, 0, TAU); ctx.fill();
+      ctx.restore();
+    } else if (kind === "glowcap") {
+      const pulse = 0.5 + 0.5 * Math.sin(t * 3);
+      const glow = ctx.createRadialGradient(0, -4, 2, 0, -4, 18);
+      glow.addColorStop(0, `rgba(255,170,230,${0.35 + pulse * 0.25})`); glow.addColorStop(1, "rgba(255,170,230,0)");
+      ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(0, -4, 18, 0, TAU); ctx.fill();
+      ctx.fillStyle = "#f3e6cf"; ctx.beginPath(); ctx.roundRect(-4, -2, 8, 15, 3); ctx.fill();
+      ctx.fillStyle = "#e0407a"; ctx.beginPath(); ctx.ellipse(0, -3, 13, 10, 0, Math.PI, TAU); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = "#fff";
+      for (const [x, y, r] of [[-6, -7, 2.2], [2, -10, 2], [7, -5, 1.8], [-1, -5, 1.4]]) { ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill(); }
+    }
+  });
+}
+
+export function drawHeart(ctx, cx, cy, size, color) {
+  inBox(ctx, cx, cy, size, () => {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(0, 12);
+    ctx.bezierCurveTo(-18, 0, -12, -16, 0, -6);
+    ctx.bezierCurveTo(12, -16, 18, 0, 0, 12);
+    ctx.fill();
+  });
+}
+
+export function drawBowl(ctx, cx, cy, size) {
+  inBox(ctx, cx, cy, size, () => {
+    ctx.fillStyle = "#f2c14e"; ctx.beginPath(); ctx.ellipse(0, -2, 11, 4, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = "#c0392b"; ctx.beginPath(); ctx.moveTo(-13, -2); ctx.quadraticCurveTo(0, 22, 13, -2); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.3)"; ctx.fillRect(-8, 1, 5, 2);
+  });
+}
+
+export function drawSun(ctx, cx, cy, size) {
+  inBox(ctx, cx, cy, size, () => {
+    ctx.strokeStyle = "#ffcc4d"; ctx.lineWidth = 3; ctx.lineCap = "round";
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * TAU;
+      ctx.beginPath(); ctx.moveTo(Math.cos(a) * 10, Math.sin(a) * 10); ctx.lineTo(Math.cos(a) * 14, Math.sin(a) * 14); ctx.stroke();
+    }
+    ctx.fillStyle = "#ffcc4d"; ctx.beginPath(); ctx.arc(0, 0, 7.5, 0, TAU); ctx.fill();
+  });
+}
+
+export function drawPaw(ctx, cx, cy, size, color = "#f3ecff") {
+  inBox(ctx, cx, cy, size, () => {
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.ellipse(0, 5, 8, 6.5, 0, 0, TAU); ctx.fill();
+    for (const [x, y] of [[-9, -3], [-3.5, -9], [3.5, -9], [9, -3]]) { ctx.beginPath(); ctx.ellipse(x, y, 3.2, 4, 0, 0, TAU); ctx.fill(); }
+  });
+}
+
+export function drawQuestion(ctx, cx, cy, size) {
+  inBox(ctx, cx, cy, size, () => {
+    ctx.fillStyle = "rgba(255,255,255,0.95)"; ctx.beginPath(); ctx.arc(0, 0, 12, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(-4, 9); ctx.lineTo(-8, 15); ctx.lineTo(2, 11); ctx.fill();
+    ctx.fillStyle = "#3d2b6b"; ctx.font = "bold 17px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("?", 0, 1);
+    ctx.textBaseline = "alphabetic";
+  });
 }

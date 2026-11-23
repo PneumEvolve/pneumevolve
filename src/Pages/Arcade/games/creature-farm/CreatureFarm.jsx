@@ -14,7 +14,10 @@
 //   Action:  ACTION button · E or Space  (plant, harvest, feed — HOLD to befriend)
 //   Pet:     PET button · Q
 //   Seeds:   tap the seed bar · 1–4
-//   Roster:  🐾 button · R or Tab
+//   Roster:  paw button · R or Tab
+//
+// No emojis anywhere: every icon is drawn in drawFarm.js (they don't render
+// the same — or at all — on every computer).
 //
 // Network (besides the shared world): "pos" { x, y, f, m } ~12/s, volatile.
 
@@ -27,7 +30,10 @@ import {
   WORLD_W, WORLD_H, MAP, REACH, DAY_LEN, PLOT_COUNT, FOLLOW_BOND, FEED_BELOW,
   initFarm, farmReducer, plotRect, growth, visitorPos, penPos,
 } from "./farmWorld";
-import { drawCreature, drawFarmer, drawMap, drawBar } from "./drawFarm";
+import {
+  drawCreature, drawFarmer, drawMap, drawBar,
+  drawCropSprite, drawHeart, drawBowl, drawSun, drawPaw, drawQuestion,
+} from "./drawFarm";
 
 const WALK = 170, SNEAK = 55, SPOOK_SPEED = 120, SPOOK_RADIUS = 75;
 const SEND_MS = 80;
@@ -331,9 +337,19 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
 
       // ── Draw ─────────────────────────────────────────────────────────────
       const cw = canvas.width, ch = canvas.height;
-      let scale = Math.min(cw / WORLD_W, ch / WORLD_H);
-      let ox = (cw - WORLD_W * scale) / 2, oy = (ch - WORLD_H * scale) / 2;
-      if (ch > cw * 1.15) {
+      // Wide screen: fit the farm above the seed bar so nothing hides under it.
+      const dprNow = cw / (canvas.clientWidth || cw);
+      const seedStrip = 92 * dprNow, topStrip = 80 * dprNow;      // keep clear of the seed bar + top chips
+      let scale = Math.min(cw / WORLD_W, (ch - seedStrip - topStrip) / WORLD_H);
+      let ox = (cw - WORLD_W * scale) / 2, oy = topStrip + Math.max(0, (ch - seedStrip - topStrip - WORLD_H * scale) / 2);
+      if (ch < 520 * dprNow && ch <= cw * 1.15) {
+        // Short landscape (phone on its side): zoom in to fill the height and
+        // let the camera follow you up/down, so the bars never hide where you are.
+        scale = ch / (WORLD_H * 0.8);
+        const worldW = WORLD_W * scale, worldH = WORLD_H * scale;
+        ox = worldW <= cw ? (cw - worldW) / 2 : Math.max(cw - worldW, Math.min(0, cw / 2 - me.x * scale));
+        oy = Math.max(ch - worldH - seedStrip, Math.min(topStrip, ch / 2 - me.y * scale));   // can scroll past the edges so the bars never cover the farm's edge
+      } else if (ch > cw * 1.15) {
         // Tall (portrait) screen: zoom the farm to fill the space between the
         // top bar and the controls, and scroll sideways to follow you.
         const dpr = cw / (canvas.clientWidth || cw);
@@ -370,9 +386,8 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
           const c = d.c;
           drawCreature(ctx, d.pos.x, d.pos.y, c.species, c.traits, { face: d.pos.face, t: tSec, moving: d.pos.moving, scale: CREATURE_SCALE });
           // owner heart + hunger warning
-          ctx.font = "10px system-ui, sans-serif"; ctx.textAlign = "center";
-          if (c.owner) { ctx.fillStyle = L.colorOf(c.owner); ctx.fillText("♥", d.pos.x + 14, d.pos.y - 8); }
-          if (c.hunger < 25) { ctx.font = "14px system-ui, sans-serif"; ctx.fillText("🍽️", d.pos.x, d.pos.y - 44 + Math.sin(tSec * 4) * 2); }
+          if (c.owner) drawHeart(ctx, d.pos.x + 15, d.pos.y - 10, 9, L.colorOf(c.owner));
+          if (c.hunger < 25) drawBowl(ctx, d.pos.x, d.pos.y - 46 + Math.sin(tSec * 4) * 2, 16);
           if (best?.id === c.id) {
             drawBar(ctx, d.pos.x, d.pos.y - 56, c.hunger / 100, "#ffb347");
             drawBar(ctx, d.pos.x, d.pos.y - 48, c.happy / 100, "#ff7ac8");
@@ -380,10 +395,9 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
         } else if (d.kind === "visitor") {
           const v = d.v;
           drawCreature(ctx, d.pos.x, d.pos.y, v.species, v.traits, { face: d.pos.face, t: tSec, moving: v.age + tickFrac < 5, scale: CREATURE_SCALE, alpha: 0.95 });
-          ctx.font = "13px system-ui, sans-serif"; ctx.textAlign = "center";
-          ctx.fillText("❔", d.pos.x, d.pos.y - 46 + Math.sin(tSec * 3) * 2);
+          drawQuestion(ctx, d.pos.x, d.pos.y - 48 + Math.sin(tSec * 3) * 2, 18);
           if (v.trust > 0) drawBar(ctx, d.pos.x, d.pos.y - 58, v.trust / 100, "#ff9ad5", 40);
-          if (VISITOR_WARN(v)) { ctx.font = "bold 10px system-ui, sans-serif"; ctx.fillStyle = "#fff"; ctx.fillText("leaving soon!", d.pos.x, d.pos.y + 14); }
+          if (VISITOR_WARN(v)) { ctx.font = "bold 10px system-ui, sans-serif"; ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.fillText("leaving soon!", d.pos.x, d.pos.y + 14); }
         }
       }
 
@@ -393,8 +407,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
         for (let i = 0; i < 3; i++) {
           const k2 = ((tSec * 1.4 + i / 3) % 1);
           ctx.globalAlpha = 1 - k2;
-          ctx.font = "12px system-ui, sans-serif";
-          ctx.fillText("💗", me.x + (p.x - me.x) * k2, me.y - 30 + (p.y - 30 - (me.y - 30)) * k2 - Math.sin(k2 * Math.PI) * 14);
+          drawHeart(ctx, me.x + (p.x - me.x) * k2, me.y - 30 + (p.y - me.y) * k2 - Math.sin(k2 * Math.PI) * 14, 12, "#ff7ac8");
         }
         ctx.globalAlpha = 1;
       }
@@ -436,14 +449,16 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
 
       {/* Top bar */}
       <div style={{ position: "absolute", top: 46, left: 0, right: 0, display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap", zIndex: 20, pointerEvents: "none", fontSize: 13, fontWeight: 700 }}>
-        <Chip>☀️ Day {world.day} · {Math.floor(dayLeft / 60)}:{String(Math.floor(dayLeft % 60)).padStart(2, "0")} left</Chip>
-        <Chip>{Object.keys(world.food).map(k => `${CROPS[k].icon} ${world.food[k]}`).join("   ")}</Chip>
-        <Chip color={solo ? C.dim : C.good}>{solo ? "⚪ playing solo" : `🟢 ${nameOf(partnerId)} is here`}</Chip>
+        <Chip><Icon draw={drawSun} /> Day {world.day} · {Math.floor(dayLeft / 60)}:{String(Math.floor(dayLeft % 60)).padStart(2, "0")} left</Chip>
+        <Chip>{Object.keys(world.food).map(k => (
+          <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 3, marginRight: 8 }}><CropIcon kind={k} /> {world.food[k]}</span>
+        ))}</Chip>
+        <Chip color={solo ? C.dim : C.good}><Dot color={solo ? C.dim : C.good} /> {solo ? "playing solo" : `${nameOf(partnerId)} is here`}</Chip>
         {W.saveState === "error" && <Chip color={C.bad}>save failed, retrying</Chip>}
       </div>
 
       <button onClick={onLeave} style={{ ...smallBtn, position: "absolute", top: 10, left: 10, zIndex: 25 }}>← rooms</button>
-      <button onClick={() => setRoster(true)} style={{ ...smallBtn, position: "absolute", top: 10, right: 10, zIndex: 25, fontSize: 16 }}>🐾 {Object.keys(world.creatures).length}</button>
+      <button onClick={() => setRoster(true)} style={{ ...smallBtn, position: "absolute", top: 10, right: 10, zIndex: 25, fontSize: 16, display: "flex", alignItems: "center", gap: 6 }}><Icon draw={drawPaw} size={20} /> {Object.keys(world.creatures).length}</button>
 
       {/* Toasts */}
       <div style={{ position: "absolute", top: 84, left: 0, right: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 6, zIndex: 30, pointerEvents: "none" }}>
@@ -457,7 +472,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
       </div>
 
       {/* Seed bar */}
-      <div style={{ position: "absolute", bottom: portrait ? 172 : 16, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 6, zIndex: 20 }}>
+      <div style={{ position: "absolute", bottom: portrait ? 172 : 22, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 6, zIndex: 20 }}>
         {SEEDS.map((id, i) => (
           <button key={id} onClick={() => setSeed(id)} style={{
             padding: "6px 9px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit", color: C.text,
@@ -465,7 +480,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
             border: `2px solid ${seed === id ? C.accent : "rgba(255,255,255,0.15)"}`,
             display: "flex", flexDirection: "column", alignItems: "center", minWidth: 56,
           }}>
-            <span style={{ fontSize: 20 }}>{CROPS[id].icon}</span>
+            <CropIcon kind={id} size={26} />
             <span style={{ fontSize: 10, color: CROPS[id].type === "lure" ? "#ffb3e6" : "#c8f59a" }}>
               {!isTouch() && `${i + 1} · `}{CROPS[id].type}
             </span>
@@ -474,7 +489,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
       </div>
 
       {!isTouch() && (
-        <div style={{ position: "absolute", bottom: 78, left: 0, right: 0, textAlign: "center", color: "rgba(255,255,255,0.55)", fontSize: 12, zIndex: 5, pointerEvents: "none" }}>
+        <div style={{ position: "absolute", bottom: 4, left: 0, right: 0, textAlign: "center", color: "rgba(255,255,255,0.45)", fontSize: 11, zIndex: 5, pointerEvents: "none" }}>
           WASD move · E action (hold to befriend) · Q pet · R creatures · 1–4 seeds
         </div>
       )}
@@ -501,10 +516,10 @@ function promptFor(t, world, now, seed, offering) {
   if (!t) return null;
   if (t.kind === "plot") {
     const crop = world.plots[t.i];
-    if (!crop) return `Plant ${CROPS[seed].icon}`;
+    if (!crop) return `Plant ${CROPS[seed].name}`;
     const g = growth(crop, now);
-    if (g < 1) return `${CROPS[crop.kind].icon} ready in ${Math.ceil((1 - g) * CROPS[crop.kind].grow / 1000)}s`;
-    return CROPS[crop.kind].type === "food" ? `Harvest ${CROPS[crop.kind].icon}` : "Something's coming… 👀";
+    if (g < 1) return `${CROPS[crop.kind].name} ready in ${Math.ceil((1 - g) * CROPS[crop.kind].grow / 1000)}s`;
+    return CROPS[crop.kind].type === "food" ? `Harvest ${CROPS[crop.kind].name}` : "Luring... something will come";
   }
   if (t.kind === "visitor") {
     const v = world.visitors.find(x => x.id === t.id);
@@ -512,7 +527,7 @@ function promptFor(t, world, now, seed, offering) {
     const sp = SPECIES[v.species];
     const has = (world.food[sp.food] || 0) > 0;
     if (offering) return `Befriending… ${Math.floor(v.trust)}%`;
-    return `Hold to befriend · loves ${CROPS[sp.food].icon}${has ? "" : " (you have none — slower)"}`;
+    return `Hold to befriend · loves ${CROPS[sp.food].name}${has ? "" : " (you have none, slower)"}`;
   }
   if (t.kind === "creature") {
     const c = world.creatures[t.id];
@@ -528,10 +543,10 @@ function buttonLabel(t, world, now, seed) {
   if (!t) return "";
   if (t.kind === "plot") {
     const crop = world.plots[t.i];
-    if (!crop) return `PLANT ${CROPS[seed].icon}`;
+    if (!crop) return "PLANT";
     return CROPS[crop.kind].type === "food" && growth(crop, now) >= 1 ? "HARVEST" : "";
   }
-  if (t.kind === "visitor") return "HOLD 💗";
+  if (t.kind === "visitor") return "HOLD";
   if (t.kind === "creature") return world.creatures[t.id]?.hunger < FEED_BELOW ? "FEED" : "";
   return "";
 }
@@ -555,7 +570,7 @@ function StarterPicker({ onPick, canAct }) {
               }}>
                 <Portrait species={id} traits={{ hue: sp.hue, size: 1, personality: "bold" }} size={96} />
                 <span style={{ fontWeight: 800, fontSize: 16 }}>{sp.name}</span>
-                <span style={{ fontSize: 12, color: C.dim }}>{sp.element} · loves {CROPS[sp.food].icon}</span>
+                <span style={{ fontSize: 12, color: C.dim, display: "flex", alignItems: "center", gap: 4 }}>{sp.element} · loves <CropIcon kind={sp.food} size={16} /></span>
               </button>
             );
           })}
@@ -576,10 +591,10 @@ function Roster({ world, myId, colorOf, nameOf, onFollow, onClose, canAct }) {
     <div style={overlayStyle} onClick={onClose}>
       <div style={{ ...panelStyle, maxWidth: 520, maxHeight: "80svh", overflowY: "auto", alignItems: "stretch" }} onClick={e => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ fontSize: 20, fontWeight: 800 }}>🐾 Creatures ({list.length})</div>
+          <div style={{ fontSize: 20, fontWeight: 800, display: "flex", alignItems: "center", gap: 8 }}><Icon draw={drawPaw} size={22} /> Creatures ({list.length})</div>
           <button onClick={onClose} style={smallBtn}>close</button>
         </div>
-        {list.length === 0 && <div style={{ color: C.dim }}>No creatures yet. Plant a lure crop 🍠🍄 to attract one!</div>}
+        {list.length === 0 && <div style={{ color: C.dim }}>No creatures yet. Plant a lure crop (Sweetroot or Glowcap) to attract one!</div>}
         {list.map(c => {
           const sp = SPECIES[c.species];
           const mine = c.owner === myId;
@@ -592,12 +607,12 @@ function Roster({ world, myId, colorOf, nameOf, onFollow, onClose, canAct }) {
                 <div style={{ fontWeight: 800 }}>
                   {c.name} <span style={{ color: C.dim, fontWeight: 600, fontSize: 12 }}>the {sp.name} · {c.traits.personality}</span>
                 </div>
-                <div style={{ fontSize: 11, color: C.faint }}>{PERSONALITIES[c.traits.personality]} · loves {CROPS[sp.food].icon} · {mine ? "yours" : `${nameOf(c.owner)}'s`}</div>
+                <div style={{ fontSize: 11, color: C.faint, display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>{PERSONALITIES[c.traits.personality]} · loves <CropIcon kind={sp.food} size={14} /> · {mine ? "yours" : `${nameOf(c.owner)}'s`}</div>
                 <Meter label="food" value={c.hunger} color="#ffb347" />
                 <Meter label="happy" value={c.happy} color="#ff7ac8" />
                 <div style={{ fontSize: 11, display: "flex", gap: 10 }}>
                   {Object.entries(c.bond).map(([uid, b]) => (
-                    <span key={uid} style={{ color: colorOf(uid) }}>♥ {nameOf(uid)} {Math.round(b)}</span>
+                    <span key={uid} style={{ color: colorOf(uid), display: "inline-flex", alignItems: "center", gap: 3 }}><Icon draw={(ctx, s) => drawHeart(ctx, s / 2, s / 2, s, colorOf(uid))} size={12} deps={[uid]} /> {nameOf(uid)} {Math.round(b)}</span>
                   ))}
                 </div>
               </div>
@@ -605,7 +620,7 @@ function Roster({ world, myId, colorOf, nameOf, onFollow, onClose, canAct }) {
                 ...smallBtn, opacity: canFollow ? 1 : 0.35, minWidth: 82,
                 background: following ? "rgba(126,224,129,0.2)" : smallBtn.background,
               }}>
-                {following ? "🏠 to pen" : "🚶 walk"}
+                {following ? "Back to pen" : "Walk with me"}
               </button>
             </div>
           );
@@ -688,7 +703,7 @@ function TouchControls({ stickRef, onAction, onActionEnd, onPet, actionLabel, sh
         {showPet && (
           <div style={btn(60, false)}
             onPointerDown={(e) => { e.preventDefault(); onPet(); }} onContextMenu={e => e.preventDefault()}>
-            PET 🤚
+            PET
           </div>
         )}
         <div style={{ ...btn(88, true), opacity: actionLabel ? 1 : 0.4 }}
@@ -702,12 +717,35 @@ function TouchControls({ stickRef, onAction, onActionEnd, onPet, actionLabel, sh
   );
 }
 
+// ── Icons (drawn with code, no emojis) ───────────────────────────────────────
+// draw(ctx, size) — or pass one of the drawFarm sprite functions, which take (ctx, cx, cy, size)
+function Icon({ draw, size = 18, deps = [] }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const cv = ref.current;
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    cv.width = size * dpr; cv.height = size * dpr;
+    const ctx = cv.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, size, size);
+    if (draw.length >= 4) draw(ctx, size / 2, size / 2, size);   // sprite fn (ctx, cx, cy, size)
+    else draw(ctx, size);
+  }, [draw, size, ...deps]); // eslint-disable-line react-hooks/exhaustive-deps
+  return <canvas ref={ref} style={{ width: size, height: size, display: "inline-block", verticalAlign: "middle", flexShrink: 0 }} />;
+}
+function CropIcon({ kind, size = 18 }) {
+  return <Icon draw={(ctx, s) => drawCropSprite(ctx, kind, s / 2, s / 2, s, 1)} size={size} deps={[kind]} />;
+}
+function Dot({ color }) {
+  return <span style={{ display: "inline-block", width: 9, height: 9, borderRadius: "50%", background: color, verticalAlign: "middle" }} />;
+}
+
 // ── Little UI bits ────────────────────────────────────────────────────────────
 const noSelect = {
   userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none", WebkitTapHighlightColor: "transparent",
 };
 function Chip({ children, color = C.text }) {
-  return <span style={{ padding: "5px 10px", borderRadius: 999, background: "rgba(15,12,30,0.7)", border: "1px solid rgba(255,255,255,0.12)", color }}>{children}</span>;
+  return <span style={{ padding: "5px 10px", borderRadius: 999, background: "rgba(15,12,30,0.7)", border: "1px solid rgba(255,255,255,0.12)", color, display: "inline-flex", alignItems: "center", gap: 5 }}>{children}</span>;
 }
 const smallBtn = {
   padding: "7px 11px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 700,

@@ -1,6 +1,6 @@
 // src/Pages/Arcade/games/creature-farm/species.js
 //
-// ★ BASH'S FILE ★  Every creature and crop in the game lives here.
+// *** BASH'S FILE ***  Every creature and crop in the game lives here.
 // These are placeholders — replace them with your own creatures!
 //
 // A creature is built from parts, so you can invent one by mixing:
@@ -59,11 +59,12 @@ export const SPECIES = {
 
 // Crops: "food" feeds creatures, "lure" attracts visitors when it's ready.
 // grow = milliseconds of real time (kept short for testing).
+// Crop pictures are drawn in drawFarm.js (drawCropSprite) — add a new crop there too.
 export const CROPS = {
-  berry:     { name: "Berries",   icon: "🫐", type: "food", grow: 40_000, yield: 3 },
-  carrot:    { name: "Carrots",   icon: "🥕", type: "food", grow: 60_000, yield: 3 },
-  sweetroot: { name: "Sweetroot", icon: "🍠", type: "lure", grow: 45_000 },
-  glowcap:   { name: "Glowcap",   icon: "🍄", type: "lure", grow: 75_000 },
+  berry:     { name: "Berries",   type: "food", grow: 40_000, yield: 3, color: "#5b6ff0" },
+  carrot:    { name: "Carrots",   type: "food", grow: 60_000, yield: 3, color: "#f08a24" },
+  sweetroot: { name: "Sweetroot", type: "lure", grow: 45_000, color: "#e46a9e" },
+  glowcap:   { name: "Glowcap",   type: "lure", grow: 75_000, color: "#ff8ad0" },
 };
 
 // Personalities change how a creature behaves.
