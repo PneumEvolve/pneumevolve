@@ -309,7 +309,7 @@ export default function BlobTest({ net, role, solo, onLeave }) {
               Sign in on another device and they’ll be there.
             </div>
             <button onClick={() => setMenuOpen(false)} style={menuBtn(true)}>Back to blobbing</button>
-            <button onClick={onLeave} style={menuBtn(false)}>Leave room</button>
+            <button onClick={onLeave} style={menuBtn(false)}>Back to room list</button>
           </div>
         </div>
       )}

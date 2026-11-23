@@ -7,7 +7,6 @@
 // with a small banner while they reconnect.
 
 import React, { Suspense, useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/api";
 import { useArcadeRoom } from "./net/useArcadeRoom";
 import { S, C } from "./ui";
 
@@ -15,6 +14,7 @@ export default function RoomGate({ room, game, onLeave }) {
   const net    = useArcadeRoom(room.id);
   const role   = room.role;
   const isHost = role === "p1";
+  const partnerName = isHost ? room.player2_name : room.player1_name;
 
   const [started, setStarted] = useState(false);
   const [solo,    setSolo]    = useState(false);
@@ -25,10 +25,9 @@ export default function RoomGate({ room, game, onLeave }) {
     if (net.partnerOnline) { setStarted(true); setSolo(false); }
   }, [net.partnerOnline]);
 
-  const leave = useCallback(async () => {
-    try { await api.post(`/arcade/rooms/${room.id}/leave`); } catch {}
-    onLeave();
-  }, [room.id, onLeave]);
+  // Leaving just goes back to the room list — the room stays saved on both
+  // accounts. Deleting happens from the list.
+  const leave = useCallback(() => onLeave(), [onLeave]);
 
   // ── Connection failed for good ────────────────────────────────────────────
   if (net.status === "failed") {
@@ -38,7 +37,7 @@ export default function RoomGate({ room, game, onLeave }) {
         <p style={{ ...S.error, fontSize: 16 }}>{net.error}</p>
         <div style={S.col}>
           <button style={S.btn("primary")} onClick={net.retry}>Try again</button>
-          <button style={S.btn("ghost")} onClick={leave}>← leave</button>
+          <button style={S.btn("ghost")} onClick={leave}>← back to rooms</button>
         </div>
       </main>
     );
@@ -50,7 +49,7 @@ export default function RoomGate({ room, game, onLeave }) {
       <main style={S.screen}>
         <p style={S.eyebrow}>{game.icon} {game.name}</p>
 
-        {isHost ? (
+        {isHost && !partnerName ? (
           <>
             <p style={{ color: C.dim, margin: 0 }}>On the other device, tap “Join with a code” and enter:</p>
             <div style={{
@@ -61,14 +60,19 @@ export default function RoomGate({ room, game, onLeave }) {
             </div>
           </>
         ) : (
-          <h1 style={S.title}>Joined! 🎉</h1>
+          <>
+            <h1 style={S.title}>Room {room.join_code}</h1>
+            <p style={{ color: C.dim, margin: 0 }}>with {partnerName || "your partner"}</p>
+          </>
         )}
 
         <Pulse />
-        <p style={{ color: C.dim, margin: 0 }}>
-          {net.status === "open"
-            ? (isHost ? "waiting for your partner…" : "connecting to the host…")
-            : "connecting to the server…"}
+        <p style={{ color: C.dim, margin: 0, textAlign: "center" }}>
+          {net.status !== "open"
+            ? "connecting to the server…"
+            : partnerName
+              ? `waiting for ${partnerName} to open this room…`
+              : "waiting for your partner…"}
         </p>
 
         <div style={S.col}>
@@ -77,7 +81,7 @@ export default function RoomGate({ room, game, onLeave }) {
               Play solo for now
             </button>
           )}
-          <button style={{ ...S.btn("ghost"), border: "none" }} onClick={leave}>← leave</button>
+          <button style={{ ...S.btn("ghost"), border: "none" }} onClick={leave}>← back to rooms</button>
         </div>
       </main>
     );
@@ -89,16 +93,27 @@ export default function RoomGate({ room, game, onLeave }) {
 
   return (
     <div style={{ position: "relative", minHeight: "100svh", background: C.bg }}>
-      {showBanner && (
+      {/* Room code + connection status, top-centre, for every game */}
+      <div style={{
+        position: "absolute", top: 10, left: "50%", transform: "translateX(-50%)", zIndex: 50,
+        display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
+        fontFamily: "system-ui, sans-serif", pointerEvents: "none",
+      }}>
         <div style={{
-          position: "absolute", top: 10, left: "50%", transform: "translateX(-50%)", zIndex: 50,
-          padding: "6px 14px", borderRadius: 999, fontSize: 13, fontWeight: 700,
-          background: "rgba(255,122,107,0.15)", border: `1px solid ${C.bad}`, color: C.bad,
-          fontFamily: "system-ui, sans-serif", pointerEvents: "none",
+          padding: "4px 12px", borderRadius: 999, fontSize: 12, fontWeight: 700,
+          background: "rgba(0,0,0,0.4)", border: `1px solid ${C.border}`, color: C.dim,
         }}>
-          {net.status !== "open" ? "reconnecting…" : "partner disconnected — waiting…"}
+          room <span style={{ fontFamily: "monospace", fontSize: 14, letterSpacing: "0.15em", color: C.accent }}>{room.join_code}</span>
         </div>
-      )}
+        {showBanner && (
+          <div style={{
+            padding: "6px 14px", borderRadius: 999, fontSize: 13, fontWeight: 700,
+            background: "rgba(255,122,107,0.15)", border: `1px solid ${C.bad}`, color: C.bad,
+          }}>
+            {net.status !== "open" ? "reconnecting…" : "partner disconnected — waiting…"}
+          </div>
+        )}
+      </div>
       <Suspense fallback={<main style={S.screen}><Pulse /></main>}>
         <Game net={net} room={room} role={role} isHost={isHost || solo} solo={solo} onLeave={leave} />
       </Suspense>
