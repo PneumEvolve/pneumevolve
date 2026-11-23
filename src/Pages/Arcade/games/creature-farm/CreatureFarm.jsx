@@ -176,6 +176,23 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
     };
   }, [pressAction, releaseAction, doPet]);
 
+  // Phones treat a long-press as "select this", which greys out the whole canvas.
+  // Block selection while the game is open and clear any that sneaks through.
+  useEffect(() => {
+    const b = document.body.style;
+    const prev = [b.userSelect, b.webkitUserSelect, b.webkitTouchCallout];
+    b.userSelect = "none"; b.webkitUserSelect = "none"; b.webkitTouchCallout = "none";
+    const clear = () => { const sel = window.getSelection?.(); if (sel && sel.rangeCount) sel.removeAllRanges(); };
+    const noMenu = (e) => e.preventDefault();
+    document.addEventListener("selectionchange", clear);
+    document.addEventListener("contextmenu", noMenu);
+    return () => {
+      [b.userSelect, b.webkitUserSelect, b.webkitTouchCallout] = prev;
+      document.removeEventListener("selectionchange", clear);
+      document.removeEventListener("contextmenu", noMenu);
+    };
+  }, []);
+
   useEffect(() => {
     const check = () => setPortrait(isTouch() && window.innerHeight > window.innerWidth);
     check();
@@ -314,8 +331,19 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
 
       // ── Draw ─────────────────────────────────────────────────────────────
       const cw = canvas.width, ch = canvas.height;
-      const scale = Math.min(cw / WORLD_W, ch / WORLD_H);
-      const ox = (cw - WORLD_W * scale) / 2, oy = (ch - WORLD_H * scale) / 2;
+      let scale = Math.min(cw / WORLD_W, ch / WORLD_H);
+      let ox = (cw - WORLD_W * scale) / 2, oy = (ch - WORLD_H * scale) / 2;
+      if (ch > cw * 1.15) {
+        // Tall (portrait) screen: zoom the farm to fill the space between the
+        // top bar and the controls, and scroll sideways to follow you.
+        const dpr = cw / (canvas.clientWidth || cw);
+        const top = 150 * dpr, bottom = 240 * dpr;
+        const band = Math.max(ch * 0.4, ch - top - bottom);
+        scale = band / WORLD_H;
+        oy = top + (band - WORLD_H * scale) / 2;
+        const worldPx = WORLD_W * scale;
+        ox = Math.max(cw - worldPx, Math.min(0, cw / 2 - me.x * scale));
+      }
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.fillStyle = "#1d3b22";
       ctx.fillRect(0, 0, cw, ch);
@@ -403,8 +431,8 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
   const actionLabel = buttonLabel(target, world, W.now(), seed);
 
   return (
-    <div style={{ position: "relative", height: "100svh", overflow: "hidden", background: "#1d3b22", touchAction: "none", userSelect: "none", fontFamily: "ui-rounded, 'Nunito', system-ui, sans-serif" }}>
-      <canvas ref={canvasRef} style={{ width: "100%", height: "100%", display: "block" }} />
+    <div style={{ position: "relative", height: "100svh", overflow: "hidden", background: "#1d3b22", touchAction: "none", ...noSelect, fontFamily: "ui-rounded, 'Nunito', system-ui, sans-serif" }}>
+      <canvas ref={canvasRef} style={{ width: "100%", height: "100%", display: "block", ...noSelect }} />
 
       {/* Top bar */}
       <div style={{ position: "absolute", top: 46, left: 0, right: 0, display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap", zIndex: 20, pointerEvents: "none", fontSize: 13, fontWeight: 700 }}>
@@ -416,12 +444,6 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
 
       <button onClick={onLeave} style={{ ...smallBtn, position: "absolute", top: 10, left: 10, zIndex: 25 }}>← rooms</button>
       <button onClick={() => setRoster(true)} style={{ ...smallBtn, position: "absolute", top: 10, right: 10, zIndex: 25, fontSize: 16 }}>🐾 {Object.keys(world.creatures).length}</button>
-
-      {portrait && (
-        <div style={{ position: "absolute", top: 82, left: 0, right: 0, textAlign: "center", zIndex: 20, pointerEvents: "none", color: C.accent2, fontSize: 13, fontWeight: 700 }}>
-          ↻ turn sideways for a bigger farm
-        </div>
-      )}
 
       {/* Toasts */}
       <div style={{ position: "absolute", top: 84, left: 0, right: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 6, zIndex: 30, pointerEvents: "none" }}>
@@ -435,7 +457,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
       </div>
 
       {/* Seed bar */}
-      <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 6, zIndex: 20 }}>
+      <div style={{ position: "absolute", bottom: portrait ? 172 : 16, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 6, zIndex: 20 }}>
         {SEEDS.map((id, i) => (
           <button key={id} onClick={() => setSeed(id)} style={{
             padding: "6px 9px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit", color: C.text,
@@ -652,7 +674,7 @@ function TouchControls({ stickRef, onAction, onActionEnd, onPet, actionLabel, sh
   });
 
   return (
-    <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, zIndex: 22, pointerEvents: "none", display: "flex", justifyContent: "space-between", alignItems: "flex-end", padding: "0 18px calc(18px + env(safe-area-inset-bottom, 0px))" }}>
+    <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, zIndex: 22, pointerEvents: "none", display: "flex", justifyContent: "space-between", alignItems: "flex-end", padding: "0 18px calc(18px + env(safe-area-inset-bottom, 0px))", ...noSelect }}>
       <div
         ref={zoneRef}
         onPointerDown={(e) => { e.preventDefault(); e.currentTarget.setPointerCapture?.(e.pointerId); setFromEvent(e); }}
@@ -681,6 +703,9 @@ function TouchControls({ stickRef, onAction, onActionEnd, onPet, actionLabel, sh
 }
 
 // ── Little UI bits ────────────────────────────────────────────────────────────
+const noSelect = {
+  userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none", WebkitTapHighlightColor: "transparent",
+};
 function Chip({ children, color = C.text }) {
   return <span style={{ padding: "5px 10px", borderRadius: 999, background: "rgba(15,12,30,0.7)", border: "1px solid rgba(255,255,255,0.12)", color }}>{children}</span>;
 }
