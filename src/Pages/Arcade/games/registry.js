@@ -19,6 +19,15 @@ export const GAMES = [
     component: null,
   },
   {
+    id: "blob-volley",
+    name: "Blob Volleyball",
+    icon: "🏐",
+    blurb: "Keep it off your side of the net. First to 7. Solo plays the CPU.",
+    status: "ready",
+    allowSolo: true,
+    component: lazy(() => import("./blob-volley/BlobVolley")),
+  },
+  {
     id: "blob-test",
     name: "Blob Test",
     icon: "🟢",
