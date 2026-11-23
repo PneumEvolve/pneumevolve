@@ -361,6 +361,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
         ox = Math.max(cw - worldPx, Math.min(0, cw / 2 - me.x * scale));
       }
       ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalAlpha = 1;   // always start a frame fully opaque, so a hiccup can never leave the farm faded
       ctx.fillStyle = "#1d3b22";
       ctx.fillRect(0, 0, cw, ch);
       ctx.setTransform(scale, 0, 0, scale, ox, oy);
@@ -402,8 +403,10 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
       }
 
       // hearts drifting toward the visitor while offering
-      if (offering) {
-        const p = cache[best.id];
+      // (the visitor can be befriended mid-frame and vanish, so check it's still here)
+      const heartTarget = offering && best?.kind === "visitor" ? cache[best.id] : null;
+      if (heartTarget) {
+        const p = heartTarget;
         for (let i = 0; i < 3; i++) {
           const k2 = ((tSec * 1.4 + i / 3) % 1);
           ctx.globalAlpha = 1 - k2;
