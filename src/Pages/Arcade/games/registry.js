@@ -29,6 +29,15 @@ export const GAMES = [
     component: lazy(() => import("./blob-volley/BlobVolley")),
   },
   {
+    id: "creature-farm",
+    name: "Creature Farm",
+    icon: "🐾",
+    blurb: "Grow crops, lure in wild creatures and befriend them. Prototype 1.",
+    status: "ready",
+    persistentWorld: true,
+    component: lazy(() => import("./creature-farm/CreatureFarm")),
+  },
+  {
     id: "shared-garden",
     name: "Shared Garden",
     icon: "🌷",
