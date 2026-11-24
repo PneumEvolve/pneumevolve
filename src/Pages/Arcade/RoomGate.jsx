@@ -14,6 +14,7 @@
 import React, { Suspense, useCallback, useEffect, useState } from "react";
 import { useArcadeRoom } from "./net/useArcadeRoom";
 import { S, C } from "./ui";
+import GameIcon from "./games/GameIcon";
 
 export default function RoomGate({ room, game, onLeave }) {
   const net    = useArcadeRoom(room.id);
@@ -58,7 +59,7 @@ export default function RoomGate({ room, game, onLeave }) {
   if (worldGame && !started) {
     return (
       <main style={S.screen}>
-        <p style={S.eyebrow}>{game.icon} {game.name}</p>
+        <p style={{ ...S.eyebrow, display: "flex", alignItems: "center", gap: 8 }}><GameIcon icon={game.icon} size={22} /> {game.name}</p>
         <h1 style={S.title}>Room {room.join_code}</h1>
         <Pulse />
         <p style={{ color: C.dim, margin: 0 }}>opening your world…</p>
@@ -71,7 +72,7 @@ export default function RoomGate({ room, game, onLeave }) {
   if (!started) {
     return (
       <main style={S.screen}>
-        <p style={S.eyebrow}>{game.icon} {game.name}</p>
+        <p style={{ ...S.eyebrow, display: "flex", alignItems: "center", gap: 8 }}><GameIcon icon={game.icon} size={22} /> {game.name}</p>
 
         {seatP1 && !partnerName ? (
           <>
@@ -142,9 +143,11 @@ export default function RoomGate({ room, game, onLeave }) {
           </div>
         )}
       </div>
-      <Suspense fallback={<main style={S.screen}><Pulse /></main>}>
-        <Game net={net} room={room} role={role} isHost={gameIsHost} solo={gameSolo} onLeave={leave} />
-      </Suspense>
+      <GameCrashCatcher onLeave={leave}>
+        <Suspense fallback={<main style={S.screen}><Pulse /></main>}>
+          <Game net={net} room={room} role={role} isHost={gameIsHost} solo={gameSolo} onLeave={leave} />
+        </Suspense>
+      </GameCrashCatcher>
     </div>
   );
 }
@@ -163,4 +166,30 @@ function Pulse() {
       </div>
     </>
   );
+}
+
+
+// If a game crashes (or its code can't be downloaded), show a card with a
+// Reload button and the error, instead of a blank white screen.
+class GameCrashCatcher extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) { console.error("[arcade] game crashed:", error, info?.componentStack); }
+  render() {
+    const { error } = this.state;
+    if (!error) return this.props.children;
+    return (
+      <main style={S.screen}>
+        <div style={{ ...S.col, textAlign: "center", maxWidth: 420 }}>
+          <h1 style={{ ...S.title, fontSize: 24 }}>Something broke</h1>
+          <p style={{ color: C.dim, margin: 0 }}>
+            Reloading usually fixes it (especially right after an update).
+          </p>
+          <button style={S.btn("primary")} onClick={() => window.location.reload()}>Reload</button>
+          <button style={S.btn("ghost")} onClick={() => { this.setState({ error: null }); this.props.onLeave?.(); }}>Back to rooms</button>
+          <code style={{ fontSize: 11, color: C.faint, wordBreak: "break-word" }}>{String(error?.message || error).slice(0, 200)}</code>
+        </div>
+      </main>
+    );
+  }
 }
