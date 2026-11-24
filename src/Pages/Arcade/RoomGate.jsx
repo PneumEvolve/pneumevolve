@@ -9,6 +9,8 @@
 //   • persistentWorld games (farm-style): go straight in — you can always play
 //     solo and the world is saved on the room. isHost = the LIVE host from the
 //     server (whoever got there first), and it can change mid-game.
+//   • dropIn games (like the 3D tester): also go straight in, no waiting screen,
+//     but nothing is saved on the room.
 // Once started, the game stays mounted through partner drops / reconnects.
 
 import React, { Suspense, useCallback, useEffect, useState } from "react";
@@ -21,7 +23,7 @@ export default function RoomGate({ room, game, onLeave }) {
   const role   = room.role;
   const seatP1 = role === "p1";
   const partnerName = seatP1 ? room.player2_name : room.player1_name;
-  const worldGame = !!game.persistentWorld;
+  const worldGame = !!(game.persistentWorld || game.dropIn);
 
   const [started, setStarted] = useState(false);
   const [solo,    setSolo]    = useState(false);

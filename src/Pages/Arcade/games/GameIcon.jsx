@@ -32,3 +32,18 @@ const drawFarmIcon = (ctx) => {
   drawCreature(ctx, 40, 60, "emberpup", { hue: 18, size: 0.6, personality: "bold" }, { face: -1, t: 2 });
 };
 export function CreatureFarmIcon({ size = 34 }) { return <CanvasIcon size={size} draw={drawFarmIcon} />; }
+
+// 3D Tester: a little shaded cube (top, left and right faces) with a blob on top.
+const drawWalk3DIcon = (ctx) => {
+  const cx = 32, cy = 34, w = 24, h = 13, d = 15;
+  const face = (pts, col) => { ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(...pts[0]); for (const p of pts.slice(1)) ctx.lineTo(...p); ctx.closePath(); ctx.fill(); };
+  face([[cx, cy - h], [cx + w, cy], [cx, cy + h], [cx - w, cy]], "#7ee081");                    // top (grass)
+  face([[cx - w, cy], [cx, cy + h], [cx, cy + h + d], [cx - w, cy + d]], "#8a5a34");             // left side
+  face([[cx + w, cy], [cx, cy + h], [cx, cy + h + d], [cx + w, cy + d]], "#6b4426");             // right side
+  // blob on top
+  ctx.fillStyle = "#6fd3ff"; ctx.beginPath(); ctx.ellipse(cx, cy - 9, 10, 9.5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#e04848"; ctx.beginPath(); ctx.ellipse(cx, cy - 16, 8, 4.5, 0, Math.PI, 0); ctx.fill();   // cap
+  ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(cx - 3.5, cy - 10, 2.5, 0, Math.PI * 2); ctx.arc(cx + 3.5, cy - 10, 2.5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#1b1530"; ctx.beginPath(); ctx.arc(cx - 3.5, cy - 9.6, 1.3, 0, Math.PI * 2); ctx.arc(cx + 3.5, cy - 9.6, 1.3, 0, Math.PI * 2); ctx.fill();
+};
+export function Walk3DIcon({ size = 34 }) { return <CanvasIcon size={size} draw={drawWalk3DIcon} />; }

@@ -19,7 +19,15 @@
 //     full the game PAUSES for both players and each picks 1 of 3 upgrade
 //     cards (10 seconds, then a random one is picked for you). See CARDS.
 //   • Goop baddies chase leaders and get tougher over time. Your leader zaps
-//     the nearest one automatically.
+//     the nearest one automatically. Special goop join in as the run goes on:
+//       splitter  pops into 2 little goop when flattened
+//       spitter   hangs back and lobs blobs (watch for the shadow where it lands)
+//       snatcher  grabs one of your herd and runs off — flatten it to rescue them
+//   • Swarm rings: every so often a ring of goop closes in around someone.
+//   • The Goop King (boss) shows up near the end. You have to beat it to win.
+//     It slams the ground (red circle = get out!) and calls in more goop.
+//   • Medium/Hard: some wild critters are skittish and scoot away from you.
+//   • Hard: it slowly gets dark after 5 minutes (drawn in StampedeRun).
 //   • Leaders can be knocked down; a partner standing close revives them.
 //     Everyone down = run over. Survive to the end of the level to win.
 //
@@ -41,19 +49,34 @@ export const LEVELS = {
     id: "easy", name: "Easy", len: 180, home: 2, rareHome: false, rare: 0, herdCap: 15,
     rate: { base: 0.5, per: 60, cap: 3.6 }, tough: 1, speedCap: 125, bigFrom: 80, bigMax: 0.25,
     berryEvery: 18, baddieMax: 75,
-    desc: "3 minutes. Learn the ropes. Bring 2 critters home.",
+    mix: { splitter: [50, 0.14], snatcher: [70, 0.05], spitter: [110, 0.06] },   // [from second, chance]
+    caps: { spitter: 2, snatcher: 1 },                                             // most alive at once
+    ring: { from: 60, every: 60, n: 10 },
+    boss: { at: 150, hp: 700, summonEvery: 9, summonN: 3, slamDmg: 20, ringAtHalf: false },
+    skittish: 0, dark: null,
+    desc: "3 minutes. Learn the ropes, beat the Goop King. Bring 2 critters home.",
   },
   medium: {
     id: "medium", name: "Medium", len: 420, home: 3, rareHome: false, rare: 0.05, herdCap: 15,
-    rate: { base: 0.6, per: 55, cap: 5.5 }, tough: 1.15, speedCap: 135, bigFrom: 60, bigMax: 0.3,
+    rate: { base: 0.6, per: 62, cap: 5 }, tough: 1.15, speedCap: 135, bigFrom: 60, bigMax: 0.3,
     berryEvery: 22, baddieMax: 95,
-    desc: "7 minutes. Golden critters appear. Bring 3 home.",
+    mix: { splitter: [40, 0.16], snatcher: [45, 0.06], spitter: [70, 0.08] },
+    caps: { spitter: 4, snatcher: 2 },
+    ring: { from: 55, every: 65, n: 10 },
+    boss: { at: 390, hp: 1800, summonEvery: 8, summonN: 4, slamDmg: 25, ringAtHalf: false },
+    skittish: 0.3, dark: null,
+    desc: "7 minutes. Golden critters, sneaky goop, a bigger Goop King. Bring 3 home.",
   },
   hard: {
     id: "hard", name: "Hard", len: 600, home: 3, rareHome: true, rare: 0.08, herdCap: 15,
-    rate: { base: 0.7, per: 48, cap: 7 }, tough: 1.3, speedCap: 145, bigFrom: 45, bigMax: 0.35,
+    rate: { base: 0.7, per: 54, cap: 6.5 }, tough: 1.3, speedCap: 145, bigFrom: 45, bigMax: 0.35,
     berryEvery: 28, baddieMax: 115,
-    desc: "10 minutes. More golden critters. Bring 3 home, plus every golden one.",
+    mix: { splitter: [30, 0.18], snatcher: [30, 0.08], spitter: [50, 0.1] },
+    caps: { spitter: 6, snatcher: 3 },
+    ring: { from: 45, every: 55, n: 14 },
+    boss: { at: 540, hp: 3200, summonEvery: 7, summonN: 5, slamDmg: 30, ringAtHalf: true },
+    skittish: 0.6, dark: { from: 300, full: 480 },
+    desc: "10 minutes. It gets dark. The biggest Goop King. Bring 3 home, plus every golden one.",
   },
 };
 export const LEVEL_ORDER = ["easy", "medium", "hard"];
@@ -84,6 +107,22 @@ export const T = {
   XP_GOOP: 1, XP_BIG: 5, XP_TAME: 2,
   PICK_TIME: 10,              // seconds to choose an upgrade
 };
+// ── Goop kinds ────────────────────────────────────────────────────────────────
+// Index in this list is what goes over the network.
+export const GOOP_KINDS = ["goop", "big", "splitter", "mini", "spitter", "snatcher", "boss"];
+const KIND = {
+  goop:     { hp: (t) => 14 + t * 0.06, reach: 24, dmg: 1,   herd: 1,   xp: 1, size: 26 },
+  big:      { hp: (t) => 55 + t * 0.15, reach: 34, dmg: 2,   herd: 2,   xp: 5, size: 40 },
+  splitter: { hp: (t) => 22 + t * 0.08, reach: 26, dmg: 1,   herd: 1,   xp: 2, size: 30 },
+  mini:     { hp: (t) => 7 + t * 0.03,  reach: 18, dmg: 0.6, herd: 0.6, xp: 1, size: 18 },
+  spitter:  { hp: (t) => 20 + t * 0.07, reach: 24, dmg: 1,   herd: 1,   xp: 3, size: 28 },
+  snatcher: { hp: (t) => 26 + t * 0.08, reach: 22, dmg: 0.5, herd: 0.5, xp: 4, size: 28 },
+  boss:     { hp: () => 0,              reach: 62, dmg: 2.5, herd: 2.5, xp: 60, size: 80 },
+};
+export const BOSS = { SPEED: 55, SLAM_EVERY: 5, SLAM_WIND: 1.2, SLAM_RADIUS: 130, KNOCK: 420 };
+const SHOT = { EVERY: 2.6, RANGE: 380, FLY: 1.0, RADIUS: 30, DMG_LEADER: 10, DMG_HERD: 8 };
+const SNATCH = { LOOK: 600, FLEE_SPEED: 105, ESCAPE: 900 };
+
 // XP needed for the next level-up (the team shares one bar).
 export const xpNeed = (lvl) => Math.round(38 + lvl * 50 + lvl * lvl);   // ≈4 level-ups on Easy, 9 on Medium, 13 on Hard
 
@@ -140,6 +179,9 @@ export function createRun(seed = Date.now(), level = "easy") {
     critters: [], baddies: [], items: [], fx: [], fxOut: [],
     wildCd: 0, badCd: 2, berryCd: 12, nextGroup: 1, berryMul: 1,
     xp: 0, lvl: 0, pick: null,       // pick = { t, offers: {slot: [cardIds]}, chosen: {slot: cardId|null} }
+    shots: [],                       // spitter blobs in the air
+    lastRing: 0, bossSpawned: false, bossDown: false,
+    alert: null,                     // { text, until } — big banner on screen
   };
 }
 const levelOf = (run) => LEVELS[run.level] || LEVELS.easy;
@@ -183,6 +225,7 @@ function rollWildPack(run, near) {
   if (L.rare && run.t > 20 && r() < L.rare) {
     return [make(SPECIES_IDS[Math.floor(r() * SPECIES_IDS.length)], cx, cy, true)];
   }
+  const skittish = r() < (L.skittish || 0);
   const species = SPECIES_IDS[Math.floor(r() * SPECIES_IDS.length)];
   const packChance = Math.min(0.7, Math.max(0, (run.t - 25) / 150));
   const n = r() < packChance ? 2 + Math.floor(r() * (run.t > 120 ? 3 : 2)) : 1;
@@ -190,23 +233,62 @@ function rollWildPack(run, near) {
   for (let i = 0; i < n; i++) {
     const sp = r() < 0.75 ? species : SPECIES_IDS[Math.floor(r() * SPECIES_IDS.length)];
     const oa = i / n * TAU, od = n > 1 ? 22 + r() * 10 : 0;
-    pack.push(make(sp, cx + Math.cos(oa) * od, cy + Math.sin(oa) * od, false));
+    const c = make(sp, cx + Math.cos(oa) * od, cy + Math.sin(oa) * od, false);
+    c.skittish = skittish;
+    pack.push(c);
   }
   return pack;
 }
 
-function rollBaddie(run, near) {
+function pickKind(run) {
   const r = run.rng, L = levelOf(run);
-  const big = run.t > L.bigFrom && r() < Math.min(L.bigMax, 0.1 + run.t / 1500);
-  const a = r() * TAU, d = 650 + r() * 160;
-  const hp = (big ? 55 + run.t * 0.15 : 14 + run.t * 0.06) * L.tough;
-  return {
-    id: run.nextId++, kind: big ? "big" : "goop",
-    x: near.x + Math.cos(a) * d, y: near.y + Math.sin(a) * d,
-    hp, maxHp: hp, speed: big ? 60 : Math.min(L.speedCap, 88 + run.t * 0.1),
-    hitCd: 0, lastBy: -1,
-  };
+  for (const k of ["snatcher", "spitter", "splitter"]) {
+    const [from, chance] = L.mix[k];
+    const cap = L.caps[k];
+    if (cap != null && run.baddies.filter(b => b.kind === k).length >= cap) continue;
+    if (run.t > from && r() < chance) return k;
+  }
+  return run.t > L.bigFrom && r() < Math.min(L.bigMax, 0.1 + run.t / 1500) ? "big" : "goop";
 }
+function makeBaddie(run, kind, x, y) {
+  const L = levelOf(run), t = run.t;
+  const hp = KIND[kind].hp(t) * L.tough;
+  const speed = {
+    goop: Math.min(L.speedCap, 88 + t * 0.1), big: 60, splitter: Math.min(L.speedCap, 80 + t * 0.08),
+    mini: Math.min(L.speedCap + 15, 105 + t * 0.1), spitter: 75, snatcher: 125, boss: BOSS.SPEED,
+  }[kind];
+  return { id: run.nextId++, kind, x, y, hp, maxHp: hp, speed, hitCd: 0, lastBy: -1, shootCd: 1.5, carry: null };
+}
+function rollBaddie(run, near) {
+  const r = run.rng;
+  const a = r() * TAU, d = 650 + r() * 160;
+  return makeBaddie(run, pickKind(run), near.x + Math.cos(a) * d, near.y + Math.sin(a) * d);
+}
+// A ring of goop closing in around one player.
+function spawnRing(run, n) {
+  const ups = upPlayers(run);
+  if (!ups.length) return;
+  const p = ups[Math.floor(run.rng() * ups.length)], L = levelOf(run);
+  for (let i = 0; i < n; i++) {
+    const a = i / n * TAU;
+    const kind = L.id === "hard" && i % 5 === 0 ? "splitter" : "goop";
+    run.baddies.push(makeBaddie(run, kind, p.x + Math.cos(a) * 430, p.y + Math.sin(a) * 430));
+  }
+  run.alert = { text: "Swarm incoming!", until: run.t + 2.5 };
+}
+function spawnBoss(run) {
+  const ups = upPlayers(run), L = levelOf(run);
+  if (!ups.length) return;
+  const cx = ups.reduce((a, p) => a + p.x, 0) / ups.length, cy = ups.reduce((a, p) => a + p.y, 0) / ups.length;
+  const a = run.rng() * TAU;
+  const b = makeBaddie(run, "boss", cx + Math.cos(a) * 520, cy + Math.sin(a) * 520);
+  b.hp = b.maxHp = L.boss.hp * L.tough * (activePlayers(run).length > 1 ? 1 : 0.7);   // a bit less for a solo run
+  b.slamCd = 3; b.sumCd = L.boss.summonEvery; b.charge = 0;
+  run.baddies.push(b);
+  run.bossSpawned = true;
+  run.alert = { text: "The Goop King is here!", until: run.t + 3 };
+}
+const bossOf = (run) => run.baddies.find(b => b.kind === "boss");
 
 // Herd members are critters with owner = slot. Their place in the herd (k) is
 // renumbered each step so the swarm stays tidy.
@@ -287,7 +369,8 @@ export function stepRun(run, dt, hurt = () => {}) {
   if (run.state !== "play") return;
   const L = levelOf(run);
   run.t += dt;
-  if (run.t >= L.len) { run.t = L.len; run.state = "won"; return; }
+  // win at the end of the clock — but the Goop King has to be beaten first
+  if (run.t >= L.len && (run.bossDown || !run.bossSpawned)) { run.state = "won"; return; }
   const r = run.rng;
 
   for (const p of run.players) if (p && run.t - p.seenAt > 4) p.active = false;   // partner went quiet
@@ -314,11 +397,12 @@ export function stepRun(run, dt, hurt = () => {}) {
     c.wa = pk.wa;
     c.vx = Math.cos(c.wa) * 24; c.vy = Math.sin(c.wa) * 24;
     if (pk.n > 1) { const dx = pk.x - c.x, dy = pk.y - c.y, d = Math.hypot(dx, dy); if (d > 30) { c.vx += dx / d * 20; c.vy += dy / d * 20; } }
-    if (c.rare) {
-      // golden critters scurry away from nearby leaders
-      let near = null, nd = T.RARE_FLEE;
+    if (c.rare || c.skittish) {
+      // golden critters scurry away from nearby leaders; skittish ones scoot off a little
+      const range = c.rare ? T.RARE_FLEE : 100, speed = c.rare ? T.RARE_FLEE_SPEED : 50;
+      let near = null, nd = range;
       for (const p of ups) { const d = dist(p, c); if (d < nd) { nd = d; near = p; } }
-      if (near) { const dx = c.x - near.x, dy = c.y - near.y, d = Math.hypot(dx, dy) || 1; c.vx = dx / d * T.RARE_FLEE_SPEED; c.vy = dy / d * T.RARE_FLEE_SPEED; }
+      if (near) { const dx = c.x - near.x, dy = c.y - near.y, d = Math.hypot(dx, dy) || 1; c.vx = dx / d * speed; c.vy = dy / d * speed; }
     }
     c.x += c.vx * dt; c.y += c.vy * dt;
   }
@@ -359,6 +443,13 @@ export function stepRun(run, dt, hurt = () => {}) {
     run.badCd = 1 / rate;
   }
 
+  // ── Swarm rings + the Goop King
+  const boss = bossOf(run);
+  if (!run.bossSpawned && run.t >= L.boss.at) spawnBoss(run);
+  if (!boss && run.t >= L.ring.from && run.t - run.lastRing >= L.ring.every && run.t < L.boss.at - 10) {
+    spawnRing(run, L.ring.n); run.lastRing = run.t;
+  }
+
   // ── Leaders: auto-zap the nearest baddie (Chain Zap jumps to more)
   for (const p of ups) {
     p.inv = Math.max(0, p.inv - dt);
@@ -366,6 +457,12 @@ export function stepRun(run, dt, hurt = () => {}) {
     if (p.zapCd <= 0) {
       let best = null, bd = T.ZAP_RANGE;
       for (const b of run.baddies) { const d = dist(p, b); if (d < bd) { bd = d; best = b; } }
+      // a snatcher running off with one of my herd gets zapped first
+      for (const b of run.baddies) {
+        if (b.kind !== "snatcher" || b.carry == null) continue;
+        const held = run.critters.find(c => c.id === b.carry);
+        if (held?.owner === p.slot && dist(p, b) < T.ZAP_RANGE * 1.3) { best = b; break; }
+      }
       if (best) {
         const dmg = T.ZAP_DMG * p.mods.zapDmg;
         best.hp -= dmg; best.lastBy = p.slot; best.hitT = 0.15;
@@ -397,6 +494,7 @@ export function stepRun(run, dt, hurt = () => {}) {
     let restK = 0;
     herd.forEach((c, k) => {
       c.k = k;
+      if (c.grabbedBy != null) return;                 // being carried off by a snatcher
       c.atkCd = Math.max(0, c.atkCd - dt);
       c.safe = Math.max(0, (c.safe || 0) - dt);
       // hurt → rest; fully healed → fight again
@@ -421,7 +519,10 @@ export function stepRun(run, dt, hurt = () => {}) {
         if (focus && dist(c, focus) < T.HERD_LEASH && dist(p, focus) < T.HERD_LEASH) target = focus;
         else {
           let bd = T.HERD_ENGAGE;
-          for (const b of run.baddies) { const d = dist(c, b); if (d < bd && dist(p, b) < T.HERD_LEASH) { bd = d; target = b; } }
+          for (const b of run.baddies) {
+            const d = dist(c, b) - (b.kind === "spitter" || b.kind === "snatcher" ? 110 : 0);   // herd goes after spitters/snatchers from farther away
+            if (d < bd && dist(p, b) < T.HERD_LEASH) { bd = d; target = b; }
+          }
         }
       }
       let gx, gy, speed;
@@ -445,7 +546,7 @@ export function stepRun(run, dt, hurt = () => {}) {
     });
   }
   // keep herd members from stacking on one spot
-  const herdAll = run.critters.filter(c => c.owner !== -1);
+  const herdAll = run.critters.filter(c => c.owner !== -1 && c.grabbedBy == null);
   for (let i = 0; i < herdAll.length; i++) for (let j = i + 1; j < herdAll.length; j++) {
     const a = herdAll[i], b = herdAll[j];
     const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy);
@@ -453,52 +554,164 @@ export function stepRun(run, dt, hurt = () => {}) {
   }
 
   // ── Baddies chase the nearest standing leader, hurt leaders + herd
+  const hitLeader = (tgt, amount, kx, ky) => {
+    if (tgt.inv > 0 || tgt.down) return;
+    tgt.hp -= amount; tgt.inv = T.LEADER_INV;
+    hurt(tgt.slot, kx, ky);
+    if (tgt.hp <= 0) { tgt.hp = 0; tgt.down = true; tgt.rev = 0; fx(run, { k: "down", x: tgt.x, y: tgt.y, s: tgt.slot }); }
+  };
+  const hitHerd = (c, amount) => { if (c.safe > 0) return; c.hp -= amount * (c.rest ? 0.5 : 1); c.hitAt = run.t; };
   for (const b of run.baddies) {
+    const K = KIND[b.kind];
     b.hitCd = Math.max(0, b.hitCd - dt);
     b.hitT = Math.max(0, (b.hitT || 0) - dt);
     let tgt = null, bd = Infinity;
     for (const p of ups) { const d = dist(p, b); if (d < bd) { bd = d; tgt = p; } }
-    if (tgt) {
-      const dx = tgt.x - b.x, dy = tgt.y - b.y, d = Math.hypot(dx, dy) || 1;
-      b.x += dx / d * b.speed * dt; b.y += dy / d * b.speed * dt;
-      const reach = b.kind === "big" ? 34 : 24;
-      if (d < reach && tgt.inv <= 0 && b.hitCd <= 0) {
-        tgt.hp -= T.GOOP_DMG * (b.kind === "big" ? 2 : 1);
-        tgt.inv = T.LEADER_INV; b.hitCd = T.GOOP_HIT_EVERY;
-        hurt(tgt.slot, dx / d * 260, dy / d * 260);
-        if (tgt.hp <= 0) { tgt.hp = 0; tgt.down = true; tgt.rev = 0; fx(run, { k: "down", x: tgt.x, y: tgt.y, s: tgt.slot }); }
+    let gx = tgt?.x, gy = tgt?.y, speed = b.speed, canBite = true;
+
+    if (b.kind === "spitter" && tgt) {
+      // keep its distance and lob blobs at your herd (or you)
+      const away = bd < 150, near = bd > 210;            // hovers inside zap range so you can fight back
+      if (away) { gx = b.x - (tgt.x - b.x); gy = b.y - (tgt.y - b.y); }
+      else if (!near) { gx = b.x; gy = b.y; }
+      b.shootCd -= dt;
+      if (b.shootCd <= 0 && bd < SHOT.RANGE) {
+        const herd = herdOf(run, tgt.slot).filter(c => c.grabbedBy == null && dist(c, b) < SHOT.RANGE);
+        const aim = herd.length && r() < 0.6 ? herd[Math.floor(r() * herd.length)] : tgt;
+        run.shots.push({ id: run.nextId++, x: b.x, y: b.y - 20, tx: aim.x, ty: aim.y, t: 0, dur: SHOT.FLY });
+        b.shootCd = SHOT.EVERY;
+      }
+      canBite = bd < 40;
+    } else if (b.kind === "snatcher") {
+      if (b.carry == null) {
+        // hunt the nearest herd critter
+        let prey = null, pd = SNATCH.LOOK;
+        for (const c of herdAll) { if (c.safe > 0) continue; const d = dist(c, b); if (d < pd) { pd = d; prey = c; } }
+        if (prey) {
+          gx = prey.x; gy = prey.y;
+          if (pd < 20) {
+            prey.grabbedBy = b.id; prey.rest = false; b.carry = prey.id;
+            fx(run, { k: "snatch", x: prey.x, y: prey.y, s: prey.owner });
+          }
+        }
+      } else {
+        // run away from the nearest leader with the critter
+        if (tgt) { gx = b.x - (tgt.x - b.x); gy = b.y - (tgt.y - b.y); }
+        speed = SNATCH.FLEE_SPEED; canBite = false;
+      }
+    } else if (b.kind === "boss") {
+      b.slamCd -= dt; b.sumCd -= dt;
+      if (b.charge > 0) {
+        speed = 0;                                       // winding up: red circle grows
+        b.charge -= dt;
+        if (b.charge <= 0) {
+          for (const p of ups) {
+            const d = dist(p, b);
+            if (d < BOSS.SLAM_RADIUS) hitLeader(p, L.boss.slamDmg, (p.x - b.x) / (d || 1) * BOSS.KNOCK, (p.y - b.y) / (d || 1) * BOSS.KNOCK);
+          }
+          for (const c of herdAll) if (dist(c, b) < BOSS.SLAM_RADIUS) hitHerd(c, L.boss.slamDmg * 0.8);
+          fx(run, { k: "slam", x: b.x, y: b.y });
+          b.slamCd = BOSS.SLAM_EVERY;
+        }
+      } else if (b.slamCd <= 0 && bd < 300) b.charge = BOSS.SLAM_WIND;
+      if (b.sumCd <= 0) {
+        for (let i = 0; i < L.boss.summonN; i++) {
+          const a = i / L.boss.summonN * TAU + r();
+          run.baddies.push(makeBaddie(run, "goop", b.x + Math.cos(a) * 70, b.y + Math.sin(a) * 70));
+        }
+        b.sumCd = L.boss.summonEvery;
+      }
+      if (L.boss.ringAtHalf && !b.ringed && b.hp < b.maxHp / 2) { b.ringed = true; spawnRing(run, L.ring.n); run.alert = { text: "The Goop King calls the swarm!", until: run.t + 2.5 }; }
+    }
+
+    if (gx != null) {
+      const dx = gx - b.x, dy = gy - b.y, d = Math.hypot(dx, dy);
+      if (d > 2 && speed > 0) { b.x += dx / d * speed * dt; b.y += dy / d * speed * dt; }
+    }
+    if (b.carry != null) {
+      const held = run.critters.find(c => c.id === b.carry);
+      if (held) { held.x = b.x; held.y = b.y - 4; } else b.carry = null;
+    }
+    if (tgt && canBite) {
+      const d = dist(tgt, b) || 1;
+      if (d < K.reach && b.hitCd <= 0 && tgt.inv <= 0) {
+        hitLeader(tgt, T.GOOP_DMG * K.dmg, (tgt.x - b.x) / d * 260, (tgt.y - b.y) / d * 260);
+        b.hitCd = T.GOOP_HIT_EVERY;
       }
     }
-    if (b.hitCd <= 0) {
+    if (b.hitCd <= 0 && b.kind !== "snatcher") {
+      const herdReach = K.reach - 2;
       for (const c of herdAll) {
         if (c.safe > 0) continue;
-        if (Math.hypot(c.x - b.x, c.y - b.y) < (b.kind === "big" ? 32 : 22)) {
-          c.hp -= T.GOOP_HIT_HERD * (b.kind === "big" ? 2 : 1) * (c.rest ? 0.5 : 1) * L.tough; b.hitCd = T.GOOP_HIT_EVERY; c.hitAt = run.t;
-          break;
+        if (Math.hypot(c.x - b.x, c.y - b.y) < herdReach) {
+          hitHerd(c, T.GOOP_HIT_HERD * K.herd * L.tough); b.hitCd = T.GOOP_HIT_EVERY;
+          if (b.kind !== "boss") break;
         }
       }
     }
   }
+
+  // ── Spitter blobs land: splash anyone in the circle
+  run.shots = run.shots.filter(sh => {
+    sh.t += dt;
+    if (sh.t < sh.dur) return true;
+    for (const p of ups) {
+      const d = Math.hypot(p.x - sh.tx, p.y - sh.ty);
+      if (d < SHOT.RADIUS) hitLeader(p, SHOT.DMG_LEADER * L.tough, (p.x - sh.tx) / (d || 1) * 200, (p.y - sh.ty) / (d || 1) * 200);
+    }
+    for (const c of herdAll) if (Math.hypot(c.x - sh.tx, c.y - sh.ty) < SHOT.RADIUS) hitHerd(c, SHOT.DMG_HERD * L.tough);
+    fx(run, { k: "splat", x: sh.tx, y: sh.ty });
+    return false;
+  });
+
+  // ── Snatchers that got away keep the critter
+  for (const b of run.baddies) {
+    if (b.carry == null || act.some(p => dist(p, b) < SNATCH.ESCAPE)) continue;
+    const held = run.critters.find(c => c.id === b.carry);
+    if (held) { held.hp = 0; held.stolen = true; }
+    b.hp = 0; b.escaped = true;
+  }
   // goop push each other apart a bit
   for (let i = 0; i < run.baddies.length; i++) for (let j = i + 1; j < run.baddies.length; j++) {
     const a = run.baddies[i], b = run.baddies[j];
-    const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy), min = (a.kind === "big" || b.kind === "big") ? 40 : 26;
-    if (d > 0 && d < min) { const push = (min - d) / 2; a.x -= dx / d * push; a.y -= dy / d * push; b.x += dx / d * push; b.y += dy / d * push; }
+    const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy), min = (KIND[a.kind].size + KIND[b.kind].size) / 2;
+    if (d > 0 && d < min) {
+      const push = min - d;
+      if (a.kind === "boss") { b.x += dx / d * push; b.y += dy / d * push; }          // the King shoves, never gets shoved
+      else if (b.kind === "boss") { a.x -= dx / d * push; a.y -= dy / d * push; }
+      else { a.x -= dx / d * push / 2; a.y -= dy / d * push / 2; b.x += dx / d * push / 2; b.y += dy / d * push / 2; }
+    }
   }
 
   // ── Deaths
+  const born = [];
   run.baddies = run.baddies.filter(b => {
-    if (b.hp > 0) return act.some(p => dist(p, b) < T.DESPAWN);
+    if (b.hp > 0) return b.kind === "boss" || b.carry != null || act.some(p => dist(p, b) < T.DESPAWN);
+    if (b.escaped) return false;
+    // a flattened snatcher drops the critter it was carrying
+    if (b.carry != null) {
+      const held = run.critters.find(c => c.id === b.carry);
+      if (held) { held.grabbedBy = null; held.rest = true; held.safe = 1.5; fx(run, { k: "rescue", x: held.x, y: held.y, s: held.owner }); }
+    }
     const p = run.players[b.lastBy];
     if (p) p.kills += 1;
-    gainXp(run, b.kind === "big" ? T.XP_BIG : T.XP_GOOP);
+    gainXp(run, KIND[b.kind].xp);
+    if (b.kind === "boss") {
+      run.bossDown = true;
+      run.alert = { text: "The Goop King is flattened!", until: run.t + 3 };
+      fx(run, { k: "pop", x: b.x, y: b.y, big: 2 });
+      for (let i = 0; i < 4; i++) run.items.push({ id: run.nextId++, x: b.x + (i - 1.5) * 30, y: b.y + (i % 2) * 20, born: run.t });
+      return false;
+    }
     fx(run, { k: "pop", x: b.x, y: b.y, big: b.kind === "big" ? 1 : 0 });
+    if (b.kind === "splitter") for (const off of [-14, 14]) born.push(makeBaddie(run, "mini", b.x + off, b.y));
     if (r() < (b.kind === "big" ? 0.35 : 0.03)) run.items.push({ id: run.nextId++, x: b.x, y: b.y, born: run.t });
     return false;
   });
+  run.baddies.push(...born);
   run.critters = run.critters.filter(c => {
     if (c.owner === -1 || c.hp > 0) return true;
-    fx(run, { k: "flee", x: c.x, y: c.y });             // fainted and ran off
+    fx(run, { k: c.stolen ? "stolen" : "flee", x: c.x, y: c.y, s: c.owner });   // fainted and ran off (or carried away)
     return false;
   });
 
@@ -515,7 +728,8 @@ export function stepRun(run, dt, hurt = () => {}) {
   run.fx = run.fx.filter(f => f.age < 0.6);
 
   // ── Level up? Pause for upgrade cards.
-  if (run.xp >= xpNeed(run.lvl)) startPick(run);
+  const finished = run.t >= L.len && (run.bossDown || !run.bossSpawned);   // won next step: no pointless pick
+  if (!finished && run.xp >= xpNeed(run.lvl)) startPick(run);
 }
 
 // ── Snapshots (host → guest, ~10/s) ──────────────────────────────────────────
@@ -526,9 +740,12 @@ export function makeSnapshot(run) {
     t: Math.round(run.t * 10) / 10, st: run.state, lv: run.level,
     p: run.players.map(p => p && [R(p.x), R(p.y), R(p.hp), p.down ? 1 : 0, Math.round(p.rev * 10) / 10, p.kills, p.tamed, SPECIES_IDS.indexOf(p.species), p.active ? 1 : 0, p.hue, p.maxHp,
       Math.round(p.mods.speed * 100) / 100, Math.round(p.mods.lasso * 100) / 100, herdCapOf(run, p)]),
-    c: run.critters.map(c => [c.id, SPECIES_IDS.indexOf(c.species), R(c.x), R(c.y), c.hue, R(c.size * 100), c.owner, R(c.hp / c.maxHp * 100), c.bump > 0 ? 1 : 0, c.rest ? 1 : 0, run.t - (c.hitAt ?? -9) < 0.2 ? 1 : 0, c.rare ? 1 : 0]),
+    c: run.critters.map(c => [c.id, SPECIES_IDS.indexOf(c.species), R(c.x), R(c.y), c.hue, R(c.size * 100), c.owner, R(c.hp / c.maxHp * 100), c.bump > 0 ? 1 : 0, c.rest ? 1 : 0, run.t - (c.hitAt ?? -9) < 0.2 ? 1 : 0, c.rare ? 1 : 0, c.grabbedBy != null ? 1 : 0]),
     k: run.items.map(it => [it.id, R(it.x), R(it.y)]),
-    b: run.baddies.map(b => [b.id, b.kind === "big" ? 1 : 0, R(b.x), R(b.y), R(b.hp / b.maxHp * 100), b.hitT > 0 ? 1 : 0]),
+    b: run.baddies.map(b => [b.id, GOOP_KINDS.indexOf(b.kind), R(b.x), R(b.y), R(b.hp / b.maxHp * 100), b.hitT > 0 ? 1 : 0, b.charge > 0 ? R((1 - b.charge / BOSS.SLAM_WIND) * 100) : 0, b.carry != null ? 1 : 0]),
+    s: run.shots.map(sh => [sh.id, R(sh.x), R(sh.y), R(sh.tx), R(sh.ty), R(sh.t / sh.dur * 100)]),
+    al: run.alert && run.t < run.alert.until ? run.alert.text : null,
+    bk: [run.bossSpawned ? 1 : 0, run.bossDown ? 1 : 0],
     xp: [Math.floor(run.xp), xpNeed(run.lvl), run.lvl],
     pk: pk ? { t: Math.ceil(pk.t), o: pk.offers, c: pk.chosen } : null,
     fx: run.fxOut,

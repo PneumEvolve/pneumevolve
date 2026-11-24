@@ -25,6 +25,10 @@
 //   host → guest  snap  {...} ~10/s volatile · hurt { kx, ky } · restart {}
 //   (run_go / run_end / run_join are handled by CreatureFarm)
 //
+// Special goop (splitter, spitter, snatcher), swarm rings and the Goop King come
+// from the sim; this file draws them, the boss health bar, alert banners and
+// the darkness on Hard.
+//
 // Controls: joystick (touch) or WASD / arrows. Attacks are automatic.
 // No emojis: everything is drawn in code.
 
@@ -36,11 +40,11 @@ import { SPECIES } from "../species";
 import { drawCreature, drawPaw, drawHeart, drawCropSprite } from "../drawFarm";
 import {
   T, LEVELS, CARDS, SPECIES_IDS, createRun, addPlayer, stepRun, setLeaderPos, tryTame,
-  makeSnapshot, readSnapshotPlayers, lassoStep, choosePick, xpNeed, herdCapOf,
+  makeSnapshot, readSnapshotPlayers, lassoStep, choosePick, xpNeed, herdCapOf, GOOP_KINDS, BOSS,
 } from "./stampedeSim";
 import {
   drawGround, drawGoop, drawLeaderRing, drawHerdDot, drawWildSparkle, drawTrail,
-  drawLasso, drawFx, drawEdgeArrow, drawDowned,
+  drawLasso, drawFx, drawEdgeArrow, drawDowned, drawSlamWarning, drawShot, drawGrabbed, drawDarkness,
 } from "./drawStampede";
 
 const SLOT_COLORS = [C.accent, C.accent2];
@@ -76,7 +80,8 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
   const pendingTame = useRef(new Map());
 
   const runRef = useRef(null);
-  const viewRef = useRef({ t: 0, st: "play", players: [null, null], critters: new Map(), baddies: new Map(), items: [], fx: [], got: false, xp: [0, 1, 0], pk: null });
+  const freshView = () => ({ t: 0, st: "play", players: [null, null], critters: new Map(), baddies: new Map(), items: [], shots: [], fx: [], got: false, xp: [0, 1, 0], pk: null, al: null, bk: [0, 0] });
+  const viewRef = useRef(freshView());
   const partnerRef = useRef(null);                 // { species, hue } of the run guest
   const recordedRef = useRef(false);
 
@@ -130,13 +135,14 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
     if (live.current.runHost) return;
     meRef.current = { ...SPAWN[1], face: 1, moving: false, kx: 0, ky: 0, hurtAt: -9 };
     lassoRef.current = null; trailRef.current = { 0: [], 1: [] }; recordedRef.current = false;
-    viewRef.current = { t: 0, st: "play", players: [null, null], critters: new Map(), baddies: new Map(), items: [], fx: [], got: false, xp: [0, 1, 0], pk: null };
+    viewRef.current = freshView();
     setAdopted([]); setMyPick(null);
   });
   useArcadeEvent(net, "snap", (m) => {
     if (live.current.runHost) return;
     const v = viewRef.current;
-    v.got = true; v.t = m.t; v.st = m.st; v.xp = m.xp || v.xp; v.pk = m.pk || null;
+    v.got = true; v.t = m.t; v.st = m.st; v.xp = m.xp || v.xp; v.pk = m.pk || null; v.al = m.al || null; v.bk = m.bk || v.bk;
+    v.shots = (m.s || []).map(a => ({ id: a[0], x: a[1], y: a[2], tx: a[3], ty: a[4], frac: a[5] / 100 }));
     readSnapshotPlayers(m).forEach((p, i) => {
       if (!p) { v.players[i] = null; return; }
       const old = v.players[i];
@@ -146,7 +152,7 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
     for (const a of m.c || []) {
       const id = a[0]; seenC.add(id);
       const e = v.critters.get(id);
-      const base = { id, species: SPECIES_IDS[a[1]], tx: a[2], ty: a[3], hue: a[4], size: a[5] / 100, owner: a[6], hpFrac: a[7] / 100, bump: a[8], rest: !!a[9], hit: !!a[10], rare: !!a[11] };
+      const base = { id, species: SPECIES_IDS[a[1]], tx: a[2], ty: a[3], hue: a[4], size: a[5] / 100, owner: a[6], hpFrac: a[7] / 100, bump: a[8], rest: !!a[9], hit: !!a[10], rare: !!a[11], grabbed: !!a[12] };
       if (e) Object.assign(e, base); else v.critters.set(id, { ...base, x: a[2], y: a[3], face: 1 });
     }
     for (const id of [...v.critters.keys()]) if (!seenC.has(id)) v.critters.delete(id);
@@ -154,7 +160,7 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
     for (const a of m.b || []) {
       const id = a[0]; seenB.add(id);
       const e = v.baddies.get(id);
-      const base = { id, kind: a[1] ? "big" : "goop", tx: a[2], ty: a[3], hpFrac: a[4] / 100, flash: a[5] };
+      const base = { id, kind: GOOP_KINDS[a[1]] || "goop", tx: a[2], ty: a[3], hpFrac: a[4] / 100, flash: a[5], chargeFrac: (a[6] || 0) / 100, carrying: !!a[7] };
       if (e) Object.assign(e, base); else v.baddies.set(id, { ...base, x: a[2], y: a[3] });
     }
     for (const id of [...v.baddies.keys()]) if (!seenB.has(id)) v.baddies.delete(id);
@@ -196,12 +202,15 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
       const L = live.current, me = meRef.current, tSec = now / 1000;
       const run = runRef.current, view = viewRef.current;
 
-      let players, critters, baddies, berries, fxList, runT, state, xp, pk;
+      let players, critters, baddies, berries, fxList, runT, state, xp, pk, shots, alert, bossFlags;
       if (L.runHost) {
         if (!run) return;
         players = run.players; critters = run.critters; baddies = run.baddies; berries = run.items; fxList = run.fx; runT = run.t; state = run.state;
         xp = [Math.floor(run.xp), xpNeed(run.lvl), run.lvl];
         pk = run.pick ? { t: Math.ceil(run.pick.t), o: run.pick.offers, c: run.pick.chosen } : null;
+        shots = run.shots.map(sh => ({ ...sh, frac: sh.t / sh.dur }));
+        alert = run.alert && run.t < run.alert.until ? run.alert.text : null;
+        bossFlags = [run.bossSpawned ? 1 : 0, run.bossDown ? 1 : 0];
       } else {
         const a = 1 - Math.exp(-dt * 12);
         for (const e of view.critters.values()) { const ox = e.x; e.x += (e.tx - e.x) * a; e.y += (e.ty - e.y) * a; if (Math.abs(e.x - ox) > 0.2) e.face = e.x > ox ? 1 : -1; }
@@ -210,7 +219,7 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
         for (const f of view.fx) f.age += dt;
         view.fx = view.fx.filter(f => f.age < 0.6);
         players = view.players; critters = [...view.critters.values()]; baddies = [...view.baddies.values()]; berries = view.items; fxList = view.fx; runT = view.t; state = view.st;
-        xp = view.xp; pk = view.pk;
+        xp = view.xp; pk = view.pk; shots = view.shots; alert = view.al; bossFlags = view.bk;
       }
       const paused = state === "pick";
       const myP = players[L.mySlot];
@@ -292,6 +301,11 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
         ctx.beginPath(); ctx.arc(it.x, it.y - 8, 20 + Math.sin(tSec * 4 + it.id) * 3, 0, Math.PI * 2); ctx.fill();
         drawCropSprite(ctx, "berry", it.x, it.y - 10 + bob, 26, tSec);
       }
+      const boss = baddies.find(b => b.kind === "boss");
+      if (boss) {
+        const frac = boss.chargeFrac ?? (boss.charge > 0 ? 1 - boss.charge / BOSS.SLAM_WIND : 0);
+        if (frac > 0) drawSlamWarning(ctx, boss.x, boss.y, BOSS.SLAM_RADIUS, frac, tSec);
+      }
       const items = [];
       for (const c of critters) if (onScreen(c)) items.push({ y: c.y, c });
       for (const b of baddies) if (onScreen(b)) items.push({ y: b.y, b });
@@ -310,8 +324,16 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
           const herd = c.owner !== -1;
           const face = c.face ?? (c.vx > 0 ? 1 : c.vx < 0 ? -1 : 1);
           const hpFrac = c.hpFrac ?? c.hp / c.maxHp;
+          const grabbed = c.grabbed ?? c.grabbedBy != null;
           const hit = c.hit ?? (runT - (c.hitAt ?? -9) < 0.2);
-          if (herd) drawHerdDot(ctx, c.x, c.y, SLOT_COLORS[c.owner]);
+          if (herd && !grabbed) drawHerdDot(ctx, c.x, c.y, SLOT_COLORS[c.owner]);
+          if (grabbed) {
+            // carried off: drawn lifted above the snatcher, wriggling
+            drawCreature(ctx, c.x + Math.sin(tSec * 18) * 2, c.y - 30, c.species, { hue: c.hue, size: c.size, personality: "sleepy", rare: c.rare },
+              { face: Math.sin(tSec * 6) > 0 ? 1 : -1, t: tSec + c.id, moving: true, scale: 0.7 });
+            drawGrabbed(ctx, c.x, c.y - 20, SLOT_COLORS[c.owner], tSec);
+            continue;
+          }
           drawCreature(ctx, c.x, c.y - (c.bump ? 4 : 0), c.species, { hue: c.hue, size: c.size, personality: c.rest ? "sleepy" : "bold", rare: c.rare },
             { face, t: tSec + c.id, moving: herd, scale: 0.75, alpha: c.rest ? 0.75 : 1 });
           if (!herd) drawWildSparkle(ctx, c.x + 14, c.y - 34, tSec, c.id);
@@ -331,6 +353,7 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
 
       const ls = lassoRef.current;
       if (ls) { const c = critters.find(x => x.id === ls.cid); if (c) drawLasso(ctx, me, c, ls.frac || 0, SLOT_COLORS[L.mySlot], tSec); }
+      for (const sh of shots) if (onScreen({ x: sh.tx, y: sh.ty }, 200)) drawShot(ctx, sh);
       for (const f of fxList) drawFx(ctx, f, SLOT_COLORS);
 
       if (partnerIn && !onScreen(partner, -30)) {
@@ -339,15 +362,30 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
         const r = Math.min(cw, ch) / 2 - 40;
         drawEdgeArrow(ctx, cw / 2 + Math.cos(ang) * r, ch / 2 + Math.sin(ang) * r, ang, SLOT_COLORS[L.otherSlot]);
       }
+      if (boss && !onScreen(boss, -40)) {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        const ang = Math.atan2(boss.y - camY, boss.x - camX);
+        const r = Math.min(cw, ch) / 2 - 60;
+        drawEdgeArrow(ctx, cw / 2 + Math.cos(ang) * r, ch / 2 + Math.sin(ang) * r, ang, "#ff5d73");
+      }
+      // Hard: it gets dark after 5 minutes
+      const LVc = LEVELS[L.level];
+      if (LVc?.dark) {
+        const amount = Math.min(1, Math.max(0, (runT - LVc.dark.from) / (LVc.dark.full - LVc.dark.from))) * 0.82;
+        drawDarkness(ctx, cw, ch, (me.x - left) * scale, (me.y - 20 - top) * scale, amount, scale);
+      }
 
       // ── HUD (throttled) ──────────────────────────────────────────────────
       if (now - lastHud > 200) {
         lastHud = now;
         const mine = critters.filter(c => c.owner === L.mySlot);
         const cap = L.runHost ? herdCapOf(run, myP) : (myP?.herdCap ?? 15);
+        const bossHp = boss ? (boss.hpFrac ?? boss.hp / boss.maxHp) : null;
         setHud({
           t: runT, hp: myP?.hp ?? 100, maxHp: myP?.maxHp ?? 100, herd: mine.length, cap, resting: mine.filter(c => c.rest).length, kills: myP?.kills ?? 0, tamed: myP?.tamed ?? 0, down: iAmDown,
-          st: state, started: L.runHost ? !!run : view.got, partnerIn, xp,
+          st: state, started: L.runHost ? !!run : view.got, partnerIn, xp, alert, bossHp,
+          bossSpawned: !!bossFlags?.[0], bossDown: !!bossFlags?.[1],
+          grabbed: mine.some(c => c.grabbed ?? c.grabbedBy != null),
           pick: pk ? { t: pk.t, offers: pk.o?.[L.mySlot] || [], chosen: pk.c?.[L.mySlot] || null, partnerPicking: pk.o?.[L.otherSlot] != null, partnerChosen: !!pk.c?.[L.otherSlot] } : null,
           other: partner ? { kills: partner.kills, tamed: partner.tamed } : null,
           myHerd: over ? mine.map(c => ({ id: c.id, species: c.species, hue: c.hue, size: c.size, rare: !!c.rare })) : [],
@@ -426,6 +464,23 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
           <span style={{ display: "block", height: "100%", width: `${Math.min(100, xpNow / xpNeedNow * 100)}%`, background: "linear-gradient(90deg, #8f6bff, #c9a7ff)" }} />
         </span>
       </div>
+
+      {/* Goop King health */}
+      {hud.bossHp != null && (
+        <div style={{ position: "absolute", top: 100, left: "50%", transform: "translateX(-50%)", width: "min(420px, 80vw)", zIndex: 20, pointerEvents: "none", textAlign: "center" }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: "#ffd65a", textShadow: "0 1px 3px rgba(0,0,0,0.7)" }}>THE GOOP KING</div>
+          <div style={{ height: 10, borderRadius: 5, background: "rgba(0,0,0,0.5)", overflow: "hidden", border: "1px solid rgba(255,214,90,0.5)" }}>
+            <div style={{ height: "100%", width: `${Math.max(0, hud.bossHp * 100)}%`, background: "linear-gradient(90deg, #ff5d73, #ff9a5d)" }} />
+          </div>
+        </div>
+      )}
+      {hud.alert && (
+        <div style={{ position: "absolute", top: "30%", left: 0, right: 0, textAlign: "center", zIndex: 24, pointerEvents: "none", color: "#fff", fontWeight: 900, fontSize: "clamp(22px, 5vw, 38px)", textShadow: "0 3px 10px rgba(0,0,0,0.8)", padding: "0 16px" }}>
+          {hud.alert}
+        </div>
+      )}
+      {hud.grabbed && hud.st === "play" && <div style={{ ...hintStyle, top: hud.bossHp != null ? 140 : 100, color: "#ffb347" }}>A snatcher grabbed one of your herd! Flatten it to get them back</div>}
+      {hud.st === "play" && hud.t >= LV.len && hud.bossSpawned && !hud.bossDown && <div style={{ ...hintStyle, top: 140, color: "#ffd65a" }}>Time's up — beat the Goop King to win!</div>}
 
       {hud.started && hud.herd === 0 && hud.t < 25 && !hud.down && <div style={hintStyle}>Run one circle around sparkly critters to tame them</div>}
       {hud.started && hud.t > 30 && hud.t < 40 && <div style={hintStyle}>Grab berries to heal you and your herd</div>}

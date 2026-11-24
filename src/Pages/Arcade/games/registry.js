@@ -8,7 +8,7 @@
 //   3. Add its id to KNOWN_GAMES in backend routers/arcade.py.
 
 import { lazy } from "react";
-import { CreatureFarmIcon } from "./GameIcon";
+import { CreatureFarmIcon, Walk3DIcon } from "./GameIcon";
 
 // Each game's code downloads the first time you open it. After a new deploy,
 // a page that was opened BEFORE the deploy asks for old file names that no
@@ -38,6 +38,15 @@ export const GAMES = [
     status: "soon",
     allowSolo: true,
     component: null,
+  },
+  {
+    id: "walk-3d",
+    name: "3D Tester",
+    icon: Walk3DIcon,
+    blurb: "Walk around a little 3D world together. Pick your colour, hat and eyes.",
+    status: "ready",
+    dropIn: true,                  // straight in, no waiting; partner pops in when they join
+    component: lazyGame(() => import("./walk-3d/Walk3D")),
   },
   {
     id: "blob-volley",
