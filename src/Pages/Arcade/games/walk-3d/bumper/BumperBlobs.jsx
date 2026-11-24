@@ -334,6 +334,10 @@ export default function BumperBlobs({ net, host, look, partnerLook, myName, part
       const back = camera.aspect < 1 ? 1 / camera.aspect : 1;
       camera.position.set(0, 21 * back, 15 * back);
       camera.lookAt(0, -1, 1.6);
+      // haze starts just past the platform, however far back the camera is
+      // (in portrait the camera sits much farther away, which used to put the whole arena in the fog)
+      const camDist = camera.position.distanceTo(new THREE.Vector3(0, -1, 1.6));
+      scene.fog.near = camDist + 6; scene.fog.far = camDist + 45;
     };
     resize();
     const ro = new ResizeObserver(resize); ro.observe(mount);
