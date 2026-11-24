@@ -165,6 +165,12 @@ export function drawFx(ctx, f, colors) {
   } else if (f.k === "flee") {
     ctx.globalAlpha = a * 0.7; ctx.fillStyle = "#d9cfb8";
     for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.arc(f.x + (i - 1.5) * 8, f.y - 6 - f.age * 30, 6 + f.age * 10, 0, TAU); ctx.fill(); }
+  } else if (f.k === "heal") {
+    ctx.globalAlpha = a; ctx.fillStyle = "#7ee081";
+    for (let i = 0; i < 6; i++) {
+      const px = f.x + (i - 2.5) * 10, py = f.y - 20 - f.age * 60 - (i % 2) * 8;
+      ctx.fillRect(px - 1.5, py - 5, 3, 10); ctx.fillRect(px - 5, py - 1.5, 10, 3);   // little plus signs
+    }
   } else if (f.k === "down" || f.k === "revive") {
     ctx.globalAlpha = a; ctx.strokeStyle = f.k === "down" ? "#ff5d73" : "#7ee081"; ctx.lineWidth = 4;
     ctx.beginPath(); ctx.arc(f.x, f.y - 14, 20 + f.age * 80, 0, TAU); ctx.stroke();

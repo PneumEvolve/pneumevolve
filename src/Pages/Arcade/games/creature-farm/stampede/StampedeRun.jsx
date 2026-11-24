@@ -1,8 +1,10 @@
 // src/Pages/Arcade/games/creature-farm/stampede/StampedeRun.jsx
 //
 // Critter Stampede — a run you start from the signpost on the farm.
-// You play as your bonded creature on an endless field. Run circles around
-// wild critters to tame them; they join your herd and swarm the goop.
+// You play as your bonded creature on an endless field. Run one circle around
+// wild critters to tame them (everyone inside the circle comes along); they
+// join your herd and swarm the goop. Hurt herd members rest at your side until
+// they heal. Grab berries to heal. Survive 5 minutes to win.
 // When the run ends, pick one creature from your herd to bring home to the pen.
 //
 // Props (from CreatureFarm):
@@ -14,7 +16,7 @@
 //
 // Netcode (only while in a run):
 //   guest → host  me    { x, y, f, sp, hue }   ~20/s volatile
-//   guest → host  tame  { cid } · again {}      reliable
+//   guest → host  tame  { cids } · again {}     reliable
 //   host → guest  snap  {...} ~10/s volatile · hurt { kx, ky } · restart {}
 //   (run_go / run_end / run_join are handled by CreatureFarm)
 //
@@ -26,7 +28,7 @@ import { useArcadeEvent } from "../../../net/useArcadeRoom";
 import { useArcadeSave } from "../../../net/useArcadeSave";
 import { C } from "../../../ui";
 import { SPECIES } from "../species";
-import { drawCreature, drawPaw, drawHeart } from "../drawFarm";
+import { drawCreature, drawPaw, drawHeart, drawCropSprite } from "../drawFarm";
 import {
   T, SPECIES_IDS, createRun, addPlayer, stepRun, setLeaderPos, tryTame,
   makeSnapshot, readSnapshotPlayers, lassoStep,
@@ -43,6 +45,7 @@ const KEYMAP = {
   ArrowUp: "up", w: "up", W: "up", ArrowDown: "down", s: "down", S: "down",
   ArrowLeft: "left", a: "left", A: "left", ArrowRight: "right", d: "right", D: "right",
 };
+const isEnd = (st) => st === "over" || st === "won";
 const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
 export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExit }) {
@@ -66,7 +69,7 @@ export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExi
   const pendingTame = useRef(new Map());
 
   const runRef = useRef(null);
-  const viewRef = useRef({ t: 0, st: "play", players: [null, null], critters: new Map(), baddies: new Map(), fx: [], got: false });
+  const viewRef = useRef({ t: 0, st: "play", players: [null, null], critters: new Map(), baddies: new Map(), items: [], fx: [], got: false });
   const partnerRef = useRef(null);                 // { species, hue } of the run guest
   const recordedRef = useRef(false);
 
@@ -109,14 +112,17 @@ export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExi
     setLeaderPos(run, 1, m.x, m.y);
     run.players[1].face = m.f;
   });
-  useArcadeEvent(net, "tame", (m) => { if (live.current.runHost && runRef.current) tryTame(runRef.current, 1, m.cid); });
-  useArcadeEvent(net, "again", () => { if (live.current.runHost && runRef.current?.state === "over") restart(); });
+  useArcadeEvent(net, "tame", (m) => {
+    if (!live.current.runHost || !runRef.current) return;
+    for (const cid of (m.cids || [m.cid])) tryTame(runRef.current, 1, cid);
+  });
+  useArcadeEvent(net, "again", () => { if (live.current.runHost && isEnd(runRef.current?.state)) restart(); });
   useArcadeEvent(net, "hurt", (m) => { if (!live.current.runHost) applyHurt(m.kx, m.ky); });
   useArcadeEvent(net, "restart", () => {
     if (live.current.runHost) return;
     meRef.current = { ...SPAWN[1], face: 1, moving: false, kx: 0, ky: 0, hurtAt: -9 };
     lassoRef.current = null; trailRef.current = { 0: [], 1: [] }; recordedRef.current = false;
-    viewRef.current = { t: 0, st: "play", players: [null, null], critters: new Map(), baddies: new Map(), fx: [], got: false };
+    viewRef.current = { t: 0, st: "play", players: [null, null], critters: new Map(), baddies: new Map(), items: [], fx: [], got: false };
     setAdopted(null);
   });
   useArcadeEvent(net, "snap", (m) => {
@@ -132,7 +138,7 @@ export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExi
     for (const a of m.c || []) {
       const id = a[0]; seenC.add(id);
       const e = v.critters.get(id);
-      const base = { id, species: SPECIES_IDS[a[1]], tx: a[2], ty: a[3], hue: a[4], size: a[5] / 100, owner: a[6], hpFrac: a[7] / 100, bump: a[8] };
+      const base = { id, species: SPECIES_IDS[a[1]], tx: a[2], ty: a[3], hue: a[4], size: a[5] / 100, owner: a[6], hpFrac: a[7] / 100, bump: a[8], rest: !!a[9], hit: !!a[10] };
       if (e) Object.assign(e, base); else v.critters.set(id, { ...base, x: a[2], y: a[3], face: 1 });
     }
     for (const id of [...v.critters.keys()]) if (!seenC.has(id)) v.critters.delete(id);
@@ -144,6 +150,7 @@ export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExi
       if (e) Object.assign(e, base); else v.baddies.set(id, { ...base, x: a[2], y: a[3] });
     }
     for (const id of [...v.baddies.keys()]) if (!seenB.has(id)) v.baddies.delete(id);
+    v.items = (m.k || []).map(a => ({ id: a[0], x: a[1], y: a[2] }));
     for (const f of m.fx || []) v.fx.push({ ...f, age: 0 });
   });
 
@@ -178,10 +185,10 @@ export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExi
       const L = live.current, me = meRef.current, tSec = now / 1000;
       const run = runRef.current, view = viewRef.current;
 
-      let players, critters, baddies, fxList, runT, state;
+      let players, critters, baddies, berries, fxList, runT, state;
       if (L.runHost) {
         if (!run) return;
-        players = run.players; critters = run.critters; baddies = run.baddies; fxList = run.fx; runT = run.t; state = run.state;
+        players = run.players; critters = run.critters; baddies = run.baddies; berries = run.items; fxList = run.fx; runT = run.t; state = run.state;
       } else {
         const a = 1 - Math.exp(-dt * 12);
         for (const e of view.critters.values()) { const ox = e.x; e.x += (e.tx - e.x) * a; e.y += (e.ty - e.y) * a; if (Math.abs(e.x - ox) > 0.2) e.face = e.x > ox ? 1 : -1; }
@@ -189,11 +196,11 @@ export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExi
         for (const p of view.players) if (p) { p.x += (p.tx - p.x) * a; p.y += (p.ty - p.y) * a; }
         for (const f of view.fx) f.age += dt;
         view.fx = view.fx.filter(f => f.age < 0.6);
-        players = view.players; critters = [...view.critters.values()]; baddies = [...view.baddies.values()]; fxList = view.fx; runT = view.t; state = view.st;
+        players = view.players; critters = [...view.critters.values()]; baddies = [...view.baddies.values()]; berries = view.items; fxList = view.fx; runT = view.t; state = view.st;
       }
       const myP = players[L.mySlot];
       const iAmDown = !!myP?.down;
-      const over = state === "over";
+      const over = isEnd(state);
       const partner = players[L.otherSlot];
       const partnerIn = !!partner && partner.active !== false;
 
@@ -237,9 +244,9 @@ export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExi
       if (!iAmDown && !over && myP) {
         const res = lassoStep(lassoRef.current, me, wild, me.moving);
         lassoRef.current = res.state;
-        if (res.tame != null) {
-          if (L.runHost) tryTame(run, 0, res.tame);
-          else { L.net.send("tame", { cid: res.tame }); pendingTame.current.set(res.tame, now); }
+        if (res.tame) {
+          if (L.runHost) for (const cid of res.tame) tryTame(run, 0, cid);
+          else { L.net.send("tame", { cids: res.tame }); for (const cid of res.tame) pendingTame.current.set(cid, now); }
         }
       } else lassoRef.current = null;
 
@@ -262,6 +269,13 @@ export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExi
       if (partnerIn && trails[L.otherSlot].length > 1) drawTrail(ctx, trails[L.otherSlot], SLOT_COLORS[L.otherSlot]);
 
       const onScreen = (o, pad = 80) => o.x > left - pad && o.x < left + viewW + pad && o.y > top - pad && o.y < top + viewH + pad;
+      for (const it of berries) {
+        if (!onScreen(it)) continue;
+        const bob = Math.sin(tSec * 3 + it.id) * 3;
+        ctx.fillStyle = "rgba(255,93,115,0.18)";
+        ctx.beginPath(); ctx.arc(it.x, it.y - 8, 20 + Math.sin(tSec * 4 + it.id) * 3, 0, Math.PI * 2); ctx.fill();
+        drawCropSprite(ctx, "berry", it.x, it.y - 10 + bob, 26, tSec);
+      }
       const items = [];
       for (const c of critters) if (onScreen(c)) items.push({ y: c.y, c });
       for (const b of baddies) if (onScreen(b)) items.push({ y: b.y, b });
@@ -279,10 +293,13 @@ export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExi
           const c = it.c;
           const herd = c.owner !== -1;
           const face = c.face ?? (c.vx > 0 ? 1 : c.vx < 0 ? -1 : 1);
+          const hpFrac = c.hpFrac ?? c.hp / c.maxHp;
+          const hit = c.hit ?? (runT - (c.hitAt ?? -9) < 0.2);
           if (herd) drawHerdDot(ctx, c.x, c.y, SLOT_COLORS[c.owner]);
-          drawCreature(ctx, c.x, c.y - (c.bump ? 4 : 0), c.species, { hue: c.hue, size: c.size, personality: "bold" },
-            { face, t: tSec + c.id, moving: herd, scale: 0.75 });
+          drawCreature(ctx, c.x, c.y - (c.bump ? 4 : 0), c.species, { hue: c.hue, size: c.size, personality: c.rest ? "sleepy" : "bold" },
+            { face, t: tSec + c.id, moving: herd, scale: 0.75, alpha: c.rest ? 0.75 : 1 });
           if (!herd) drawWildSparkle(ctx, c.x + 14, c.y - 34, tSec, c.id);
+          else if (hpFrac < 0.995) drawHerdHp(ctx, c.x, c.y - 36 * (c.size || 1), hpFrac, c.rest, hit);
         } else if (it.b) {
           const b = it.b;
           drawGoop(ctx, { ...b, hpFrac: b.hpFrac ?? b.hp / b.maxHp, flash: b.flash ?? (b.hitT > 0) }, tSec);
@@ -312,7 +329,7 @@ export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExi
         lastHud = now;
         const mine = critters.filter(c => c.owner === L.mySlot);
         setHud({
-          t: runT, hp: myP?.hp ?? 100, herd: mine.length, kills: myP?.kills ?? 0, tamed: myP?.tamed ?? 0, down: iAmDown,
+          t: runT, hp: myP?.hp ?? 100, herd: mine.length, resting: mine.filter(c => c.rest).length, kills: myP?.kills ?? 0, tamed: myP?.tamed ?? 0, down: iAmDown,
           st: state, started: L.runHost ? !!run : view.got, partnerIn,
           other: partner ? { kills: partner.kills, tamed: partner.tamed } : null,
           myHerd: over ? mine.map(c => ({ id: c.id, species: c.species, hue: c.hue, size: c.size })) : [],
@@ -326,7 +343,7 @@ export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExi
 
   // ── Save best run ──────────────────────────────────────────────────────────
   useEffect(() => {
-    if (hud.st !== "over" || recordedRef.current || !hud.started) return;
+    if (!isEnd(hud.st) || recordedRef.current || !hud.started) return;
     recordedRef.current = true;
     update(prev => {
       const b = prev.stampedeBest || { time: 0, tamed: 0, kills: 0 };
@@ -349,33 +366,34 @@ export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExi
       <button onClick={onExit} style={{ ...smallBtn, position: "absolute", top: 10, left: 10, zIndex: 25 }}>← back to farm</button>
 
       <div style={{ position: "absolute", top: 46, left: 0, right: 0, display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap", zIndex: 20, pointerEvents: "none", fontSize: 13, fontWeight: 700 }}>
-        <Chip>{fmtTime(hud.t)}</Chip>
+        <Chip>{fmtTime(Math.max(0, T.RUN_LEN - hud.t))} left</Chip>
         <Chip>
           <Icon draw={(ctx, s) => drawHeart(ctx, s / 2, s / 2, s, "#ff5d73")} size={14} />
           <span style={{ display: "inline-block", width: 70, height: 8, borderRadius: 4, background: "rgba(0,0,0,0.4)", overflow: "hidden" }}>
             <span style={{ display: "block", height: "100%", width: `${Math.max(0, hud.hp)}%`, background: hud.hp < 30 ? C.bad : "#7ee081" }} />
           </span>
         </Chip>
-        <Chip><Icon draw={drawPaw} size={16} /> herd {hud.herd}</Chip>
+        <Chip><Icon draw={drawPaw} size={16} /> herd {hud.herd}{hud.resting ? <span style={{ color: "#ffb347" }}>· {hud.resting} resting</span> : null}</Chip>
         <Chip><GoopIcon /> {hud.kills}</Chip>
         <Chip color={hud.partnerIn ? C.good : C.dim}><Dot color={hud.partnerIn ? C.good : C.dim} /> {hud.partnerIn ? "partner in the run" : "solo run"}</Chip>
       </div>
 
-      {hud.started && hud.herd === 0 && hud.t < 25 && !hud.down && <div style={hintStyle}>Run circles around a sparkly critter to tame it</div>}
+      {hud.started && hud.herd === 0 && hud.t < 25 && !hud.down && <div style={hintStyle}>Run one circle around sparkly critters to tame them</div>}
+      {hud.started && hud.t > 30 && hud.t < 40 && <div style={hintStyle}>Grab berries to heal you and your herd</div>}
       {hud.down && hud.st === "play" && <div style={{ ...hintStyle, color: C.bad }}>You're down! Your partner can revive you by standing next to you</div>}
       {!hud.started && <div style={{ ...hintStyle, top: "45%" }}>joining the run…</div>}
 
       {!isTouch() && (
         <div style={{ position: "absolute", bottom: 8, left: 0, right: 0, textAlign: "center", color: "rgba(255,255,255,0.5)", fontSize: 12, zIndex: 5, pointerEvents: "none" }}>
-          WASD / arrows to move · attacks are automatic · circle critters to tame them
+          WASD / arrows to move · attacks are automatic · circle critters to tame them · berries heal
         </div>
       )}
 
       <TouchStick stickRef={stickRef} />
 
-      {hud.st === "over" && (
+      {isEnd(hud.st) && (
         <Overlay>
-          <div style={{ fontSize: 13, letterSpacing: "0.18em", textTransform: "uppercase", color: C.dim }}>run over</div>
+          <div style={{ fontSize: 13, letterSpacing: "0.18em", textTransform: "uppercase", color: hud.st === "won" ? C.good : C.dim }}>{hud.st === "won" ? "you survived!" : "run over"}</div>
           <div style={{ fontSize: 30, fontWeight: 800, lineHeight: 1.1 }}>{fmtTime(hud.t)}</div>
           <div style={{ display: "flex", gap: 18, justifyContent: "center", fontSize: 14 }}>
             <Stat label="tamed" value={hud.tamed} />
@@ -413,6 +431,22 @@ export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExi
 }
 
 // ── Small pieces ──────────────────────────────────────────────────────────────
+// Little health bar over a hurt herd member: green → orange → red, flashes white when hit,
+// with a "z" when it's resting.
+function drawHerdHp(ctx, x, y, frac, resting, hit) {
+  const w = 22, h = 4;
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  ctx.fillRect(x - w / 2 - 1, y - 1, w + 2, h + 2);
+  ctx.fillStyle = hit ? "#ffffff" : frac > 0.6 ? "#7ee081" : frac > 0.3 ? "#ffb347" : "#ff5d73";
+  ctx.fillRect(x - w / 2, y, w * Math.max(0, frac), h);
+  if (resting) {
+    ctx.font = "bold 10px system-ui, sans-serif"; ctx.textAlign = "left"; ctx.fillStyle = "#cfe8ff";
+    ctx.fillText("z", x + w / 2 + 3, y + 5);
+  }
+  ctx.restore();
+}
+
 function Icon({ draw, size = 18 }) {
   const ref = useRef(null);
   useEffect(() => {
