@@ -260,6 +260,8 @@ export function drawMap(ctx, world, now, t) {
     }
   }
 
+  drawSignpost(ctx, MAP.sign.x, MAP.sign.y, t);
+
   // pen
   const p = MAP.pen;
   ctx.fillStyle = "rgba(120,170,80,0.5)";
@@ -389,4 +391,30 @@ export function drawQuestion(ctx, cx, cy, size) {
     ctx.fillText("?", 0, 1);
     ctx.textBaseline = "alphabetic";
   });
+}
+
+// The run board signpost: a wooden post with a board showing a little goop
+// and an arrow — walk up to it to go on a run.
+export function drawSignpost(ctx, x, y, t = 0) {
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.25)";
+  ctx.beginPath(); ctx.ellipse(x, y, 16, 5, 0, 0, TAU); ctx.fill();
+  ctx.fillStyle = "#7a5230"; ctx.fillRect(x - 3, y - 44, 6, 44);
+  // board (gently swinging)
+  ctx.translate(x, y - 44);
+  ctx.rotate(Math.sin(t * 1.5) * 0.03);
+  ctx.fillStyle = "#c9955a";
+  ctx.beginPath(); ctx.roundRect(-26, -22, 52, 26, 4); ctx.fill();
+  ctx.strokeStyle = "#7a5230"; ctx.lineWidth = 2; ctx.stroke();
+  // arrow
+  ctx.fillStyle = "#4a2f18";
+  ctx.beginPath(); ctx.moveTo(4, -15); ctx.lineTo(18, -9); ctx.lineTo(4, -3); ctx.lineTo(4, -7); ctx.lineTo(-4, -7); ctx.lineTo(-4, -11); ctx.lineTo(4, -11); ctx.closePath(); ctx.fill();
+  // tiny goop on the left
+  ctx.fillStyle = "#5a2a78";
+  ctx.beginPath(); ctx.moveTo(-20, -4); ctx.quadraticCurveTo(-21, -17, -14, -18); ctx.quadraticCurveTo(-7, -17, -8, -4); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = "#ffe14d";
+  ctx.beginPath(); ctx.arc(-16, -12, 1.4, 0, TAU); ctx.arc(-12, -12, 1.4, 0, TAU); ctx.fill();
+  ctx.restore();
+  ctx.font = "bold 10px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "rgba(255,255,255,0.85)";
+  ctx.fillText("RUNS", x, y + 14);
 }

@@ -8,6 +8,7 @@
 //   3. Add its id to KNOWN_GAMES in backend routers/arcade.py.
 
 import { lazy } from "react";
+import { CreatureFarmIcon } from "./GameIcon";
 
 export const GAMES = [
   {
@@ -31,8 +32,8 @@ export const GAMES = [
   {
     id: "creature-farm",
     name: "Creature Farm",
-    icon: "🐾",
-    blurb: "Grow crops, lure in wild creatures and befriend them. Prototype 1.",
+    icon: CreatureFarmIcon,
+    blurb: "Grow crops, befriend creatures, and head out on runs from the signpost.",
     status: "ready",
     persistentWorld: true,
     component: lazy(() => import("./creature-farm/CreatureFarm")),

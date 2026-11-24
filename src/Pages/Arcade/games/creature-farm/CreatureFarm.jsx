@@ -1,13 +1,15 @@
 // src/Pages/Arcade/games/creature-farm/CreatureFarm.jsx
 //
-// Creature Farm — prototype 1: walk around, grow food + lure crops, befriend
-// the creatures your lures attract, and keep everyone fed and happy.
+// Creature Farm — walk around, grow food + lure crops, befriend the creatures
+// your lures attract, keep everyone fed and happy — and walk up to the RUNS
+// signpost to head out on a run (Critter Stampede for now).
 //
 // Files:
 //   species.js   ← the creatures + crops (Bash's file — edit freely)
 //   farmWorld.js ← map layout + every rule (the saved world)
 //   drawFarm.js  ← all the drawing
-//   this file    ← screen, controls, syncing player positions
+//   stampede/    ← the Critter Stampede run (started from the signpost)
+//   this file    ← screen, controls, syncing player positions, the run board
 //
 // Controls
 //   Move:    joystick (touch) · WASD / arrows
@@ -20,6 +22,8 @@
 // the same — or at all — on every computer).
 //
 // Network (besides the shared world): "pos" { x, y, f, m } ~12/s, volatile.
+// Runs: "run_go" { kind } when someone heads out (partner gets a Join button),
+//       "run_end" {} when the run's host leaves (everyone in it comes home).
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useArcadeEvent } from "../../net/useArcadeRoom";
@@ -34,6 +38,15 @@ import {
   drawCreature, drawFarmer, drawMap, drawBar,
   drawCropSprite, drawHeart, drawBowl, drawSun, drawPaw, drawQuestion,
 } from "./drawFarm";
+import StampedeRun from "./stampede/StampedeRun";
+
+// Runs you can pick at the signpost. Add more here as they're built.
+const RUNS = [
+  { id: "stampede", name: "Critter Stampede", ready: true,
+    desc: "Endless field. Run circles around critters to tame them, build a herd, flatten the goop. Bring one home." },
+  { id: "wilds", name: "Wilds", ready: false, desc: "You and a partner creature vs wild packs." },
+  { id: "defend", name: "Defend the Farm", ready: false, desc: "Goop raids the farm at night." },
+];
 
 const WALK = 170, SNEAK = 55, SPOOK_SPEED = 120, SPOOK_RADIUS = 75;
 const SEND_MS = 80;
@@ -65,10 +78,13 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
   const [toasts,    setToasts]    = useState([]);
   const [target,    setTarget]    = useState(null);   // what's in reach (for the buttons)
   const [portrait,  setPortrait]  = useState(false);
+  const [board,     setBoard]     = useState(false);   // run board open
+  const [myRun,     setMyRun]     = useState(null);    // { kind, host } while I'm on a run
+  const [partnerRun, setPartnerRun] = useState(null);  // { kind } — partner is out on a run I could join
 
   // Everything the loop/handlers need, always fresh.
   const live = useRef({});
-  live.current = { W, world: W.world, myId, partnerId, seed, solo, net, colorOf, nameOf, role };
+  live.current = { W, world: W.world, myId, partnerId, seed, solo, net, colorOf, nameOf, role, inRun: !!myRun, myRun, partnerRun };
 
   const canvasRef = useRef(null);
   const keysRef   = useRef({});
@@ -106,7 +122,56 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
     if (!p.seen || performance.now() - p.at > 3000) { p.x = m.x; p.y = m.y; }
     p.tx = m.x; p.ty = m.y; p.face = m.f || 1; p.moving = !!m.m; p.seen = true; p.at = performance.now();
   });
-  useArcadeEvent(net, "partner_disconnected", () => { partnerRef.current.seen = false; });
+  useArcadeEvent(net, "partner_disconnected", () => {
+    partnerRef.current.seen = false;
+    setPartnerRun(null);
+    if (live.current.myRun && !live.current.myRun.host) { setMyRun(null); toast("Your partner left the run"); }
+  });
+
+  // ── Runs (signpost) ────────────────────────────────────────────────────────
+  useArcadeEvent(net, "run_go", (m) => {
+    if (live.current.myRun) return;
+    setPartnerRun({ kind: m.kind });
+    toast(`${cap(live.current.nameOf(live.current.partnerId))} headed out on a run`);
+  });
+  useArcadeEvent(net, "run_end", () => {
+    setPartnerRun(null);
+    if (live.current.myRun && !live.current.myRun.host) { setMyRun(null); toast("The run ended"); }
+  });
+  // If my partner (re)connects while I'm out, let them know they can join.
+  const announceRun = useCallback(() => { const r = live.current.myRun; if (r?.host) live.current.net.send("run_go", { kind: r.kind }); }, []);
+  useArcadeEvent(net, "hello", announceRun);
+  useArcadeEvent(net, "partner_connected", announceRun);
+
+  const myLeader = () => {
+    const L = live.current, w = L.world;
+    if (!w || !L.myId) return null;
+    return Object.values(w.creatures).find(c => c.follow === L.myId) || w.creatures[w.starters[L.myId]] || null;
+  };
+  const startRun = (kind) => {
+    if (!myLeader()) return;
+    setBoard(false);
+    setMyRun({ kind, host: true });
+    setPartnerRun(null);
+    net.send("run_go", { kind });
+  };
+  const joinRun = () => {
+    if (!partnerRun || !myLeader()) return;
+    setBoard(false);
+    setMyRun({ kind: partnerRun.kind, host: false });
+    setPartnerRun(null);
+  };
+  const exitRun = () => {
+    if (myRun?.host) net.send("run_end");
+    setMyRun(null);
+    keysRef.current = {};
+  };
+
+  const toast = useCallback((text, kind = "info") => {
+    const id = Math.random();
+    setToasts(ts => [...ts.slice(-2), { id, text, kind }]);
+    setTimeout(() => setToasts(ts => ts.filter(x => x.id !== id)), 3500);
+  }, []);
 
   // ── Toasts from the shared log (catches, visitors, new days) ───────────────
   const lastLogKey = useRef(null);
@@ -129,6 +194,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
   const doAction = useCallback(() => {
     const L = live.current, t = currentTarget.current;
     if (!t || !L.W.canAct) return;
+    if (t.kind === "sign") { setBoard(true); return; }
     if (t.kind === "plot") {
       const crop = L.world.plots[t.i];
       if (!crop) L.W.dispatch({ type: "plant", i: t.i, kind: L.seed });
@@ -156,7 +222,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
   // ── Keyboard ───────────────────────────────────────────────────────────────
   useEffect(() => {
     const down = (e) => {
-      if (e.target?.tagName === "INPUT") return;
+      if (e.target?.tagName === "INPUT" || live.current.inRun) return;
       const k = KEYMAP[e.key];
       if (k) { e.preventDefault(); keysRef.current[k] = true; return; }
       if (e.key === "e" || e.key === "E" || e.key === " ") { e.preventDefault(); if (!e.repeat) pressAction(); return; }
@@ -229,7 +295,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
       const dt = Math.min(0.05, (nowMs - last) / 1000);
       last = nowMs;
       const L = live.current, world = L.world;
-      if (!world) return;
+      if (!world || L.inRun) return;                     // out on a run: the farm waits behind it
       const me = meRef.current, partner = partnerRef.current;
       const worldNow = L.W.now();
       const tSec = worldNow / 1000;
@@ -309,6 +375,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
       let best = null, bestD = REACH;
       for (const v of world.visitors) { const p = cache[v.id]; const d = Math.hypot(p.x - me.x, p.y - me.y); if (d < bestD + 10) { best = { kind: "visitor", id: v.id }; bestD = d - 10; } }
       if (!best) for (const c of Object.values(world.creatures)) { if (c.follow === L.myId) continue; const p = cache[c.id]; const d = Math.hypot(p.x - me.x, p.y - me.y); if (d < bestD) { best = { kind: "creature", id: c.id }; bestD = d; } }
+      if (!best && Math.hypot(MAP.sign.x - me.x, MAP.sign.y - 18 - me.y) < REACH + 10) best = { kind: "sign" };
       if (!best) for (let i = 0; i < PLOT_COUNT; i++) { const r = plotRect(i); const d = Math.hypot(r.cx - me.x, r.cy - me.y); if (d < bestD + 8) { best = { kind: "plot", i }; bestD = d - 8; } }
       if (!best) for (const c of Object.values(world.creatures)) { if (c.follow !== L.myId) continue; const p = cache[c.id]; if (Math.hypot(p.x - me.x, p.y - me.y) < REACH) best = { kind: "creature", id: c.id }; }
       currentTarget.current = best;
@@ -373,7 +440,10 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
         const r = plotRect(best.i);
         ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.lineWidth = 2.5;
         ctx.beginPath(); ctx.roundRect(r.x - 3, r.y - 3, r.w + 6, r.h + 6, 8); ctx.stroke();
-      } else if (best) {
+      } else if (best?.kind === "sign") {
+        ctx.strokeStyle = "rgba(255,255,255,0.8)"; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.ellipse(MAP.sign.x, MAP.sign.y, 24, 8, 0, 0, Math.PI * 2); ctx.stroke();
+      } else if (best && cache[best.id]) {
         const p = cache[best.id];
         ctx.strokeStyle = "rgba(255,255,255,0.8)"; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.ellipse(p.x, p.y, 22, 8, 0, 0, Math.PI * 2); ctx.stroke();
@@ -500,6 +570,28 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
       <TouchControls stickRef={stickRef} onAction={pressAction} onActionEnd={releaseAction} onPet={doPet}
         actionLabel={actionLabel} showPet={!!targetCreature} />
 
+      {partnerRun && !myRun && (
+        <div style={{ position: "absolute", top: 84, left: "50%", transform: "translateX(-50%)", zIndex: 35, display: "flex", alignItems: "center", gap: 10, padding: "8px 10px 8px 14px", borderRadius: 14, background: "rgba(15,12,30,0.9)", border: `1px solid ${C.accent2}`, color: C.text, fontWeight: 700, fontSize: 13, whiteSpace: "nowrap" }}>
+          {cap(nameOf(partnerId))} is on a {RUNS.find(r => r.id === partnerRun.kind)?.name ?? "run"} run
+          <button onClick={joinRun} style={{ ...smallBtn, background: C.accent2, color: "#06202a", border: "none" }}>Join</button>
+          <button onClick={() => setPartnerRun(null)} style={{ ...smallBtn, padding: "7px 9px" }} aria-label="dismiss">x</button>
+        </div>
+      )}
+
+      {board && (
+        <RunBoard leader={myLeader()} partnerRun={partnerRun} partnerName={cap(nameOf(partnerId))}
+          onStart={startRun} onJoin={joinRun} onClose={() => setBoard(false)} canAct={W.canAct} />
+      )}
+
+      {myRun?.kind === "stampede" && (() => {
+        const leader = myLeader();
+        return leader && (
+          <StampedeRun net={net} runHost={myRun.host} species={leader.species} hue={leader.traits.hue}
+            onAdopt={(c) => W.dispatch({ type: "adopt", species: c.species, hue: c.hue, size: c.size, r: Math.random() })}
+            onExit={exitRun} />
+        );
+      })()}
+
       {roster && (
         <Roster world={world} myId={myId} colorOf={colorOf} nameOf={nameOf}
           onFollow={(cid) => W.dispatch({ type: "follow", cid })} onClose={() => setRoster(false)} canAct={W.canAct} />
@@ -517,6 +609,7 @@ const VISITOR_WARN = (v) => v.age > 120;
 
 function promptFor(t, world, now, seed, offering) {
   if (!t) return null;
+  if (t.kind === "sign") return "Go on a run";
   if (t.kind === "plot") {
     const crop = world.plots[t.i];
     if (!crop) return `Plant ${CROPS[seed].name}`;
@@ -544,6 +637,7 @@ function promptFor(t, world, now, seed, offering) {
 
 function buttonLabel(t, world, now, seed) {
   if (!t) return "";
+  if (t.kind === "sign") return "RUNS";
   if (t.kind === "plot") {
     const crop = world.plots[t.i];
     if (!crop) return "PLANT";
@@ -552,6 +646,48 @@ function buttonLabel(t, world, now, seed) {
   if (t.kind === "visitor") return "HOLD";
   if (t.kind === "creature") return world.creatures[t.id]?.hunger < FEED_BELOW ? "FEED" : "";
   return "";
+}
+
+const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+
+// ── Run board (the signpost) ──────────────────────────────────────────────────
+function RunBoard({ leader, partnerRun, partnerName, onStart, onJoin, onClose, canAct }) {
+  const sp = leader && SPECIES[leader.species];
+  return (
+    <div style={overlayStyle} onClick={onClose}>
+      <div style={{ ...panelStyle, maxWidth: 480, maxHeight: "calc(100svh - 24px)", overflowY: "auto", alignItems: "stretch" }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontSize: 20, fontWeight: 800 }}>Runs</div>
+          <button onClick={onClose} style={smallBtn}>close</button>
+        </div>
+        {leader ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: C.dim }}>
+            <Portrait species={leader.species} traits={leader.traits} size={48} />
+            <span>You'll head out as <b style={{ color: C.text }}>{leader.name} the {sp.name}</b>. Make a different creature follow you (paw menu) to switch.</span>
+          </div>
+        ) : (
+          <div style={{ color: C.bad, fontSize: 13 }}>Pick your first creature before heading out.</div>
+        )}
+        {partnerRun && (
+          <button disabled={!leader || !canAct} onClick={onJoin} style={{ ...smallBtn, padding: 12, background: C.accent2, color: "#06202a", border: "none", fontSize: 15 }}>
+            Join {partnerName}'s {RUNS.find(r => r.id === partnerRun.kind)?.name ?? ""} run
+          </button>
+        )}
+        {RUNS.map(r => (
+          <div key={r.id} style={{ padding: 12, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", opacity: r.ready ? 1 : 0.45, display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+              <span style={{ fontWeight: 800, fontSize: 16 }}>{r.name}</span>
+              {r.ready
+                ? <button disabled={!leader || !canAct} onClick={() => onStart(r.id)} style={{ ...smallBtn, background: C.accent, color: "#1a1300", border: "none" }}>Head out</button>
+                : <span style={{ fontSize: 11, fontWeight: 800, color: C.accent }}>SOON</span>}
+            </div>
+            <span style={{ fontSize: 12, color: C.dim }}>{r.desc}</span>
+          </div>
+        ))}
+        <div style={{ fontSize: 11, color: C.faint }}>The farm keeps going while you're out. Your partner gets a Join button.</div>
+      </div>
+    </div>
+  );
 }
 
 // ── Starter picker ────────────────────────────────────────────────────────────

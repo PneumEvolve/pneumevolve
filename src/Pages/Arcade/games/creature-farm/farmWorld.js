@@ -22,6 +22,7 @@ export const MAP = {
   store: { x: 145, y: 300 },                      // the shared food crate
   field: { x: 560, y: 140, cols: 4, rows: 3, size: 58, gap: 12 },
   pen:   { x: 330, y: 400, w: 440, h: 170 },
+  sign:  { x: 470, y: 335 },                      // run board signpost (go on runs like Critter Stampede)
   spawn: [{ x: 230, y: 320 }, { x: 270, y: 345 }],
 };
 export const PLOT_COUNT = MAP.field.cols * MAP.field.rows;
@@ -306,6 +307,27 @@ export function farmReducer(w, a) {
         bond: { ...c.bond, [by]: Math.min(100, (c.bond[by] || 0) + (playful ? 5 : 3)) },
       };
       return { ...w, creatures: { ...w.creatures, [c.id]: next } };
+    }
+
+    // Bring a creature home from a run (e.g. Critter Stampede). It joins the pen as yours.
+    case "adopt": {
+      if (!by || !SPECIES[a.species]) return w;
+      const rng = rngFrom(a.r);
+      const id = `c${w.nextId}`;
+      const traits = {
+        hue: Number.isFinite(a.hue) ? ((Math.round(a.hue) % 360) + 360) % 360 : SPECIES[a.species].hue,
+        size: Number.isFinite(a.size) ? clamp(r2(a.size), 0.7, 1.4) : 1,
+        personality: pick(rng, Object.keys(PERSONALITIES)),
+      };
+      const c = {
+        id, species: a.species, name: pick(rng, NAMES), traits,
+        hunger: 70, happy: 70, bond: { [by]: 40 }, owner: by, follow: null, born: a.t, petAt: 0,
+      };
+      return {
+        ...w, nextId: w.nextId + 1,
+        creatures: { ...w.creatures, [id]: c },
+        log: addLog(w.log, a, `brought ${c.name} the ${SPECIES[c.species].name} home from a run!`, "catch"),
+      };
     }
 
     // Make a creature follow you (or send it back to the pen if it already is).
