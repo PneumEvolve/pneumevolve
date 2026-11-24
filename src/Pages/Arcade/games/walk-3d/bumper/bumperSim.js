@@ -10,6 +10,9 @@
 //   • Banana peels appear on the platform. Step on one and you spin out.
 //   • First to 3 rounds wins the match.
 //
+// Hot Potato mode uses the same arena and blobs (no crumbling): one blob holds a
+// fizzing bomb, bumping passes it, and whoever holds it when it goes BOOM loses.
+//
 // The tile crumble order comes from the round's seed, so both devices know
 // exactly which tiles are gone at any moment without sending tile data.
 
@@ -31,6 +34,12 @@ export const T = {
   POWERUP_FIRST: 7, POWERUP_EVERY: 9, POWERUP_TIME: 7, POWERUP_MAX: 2,
   BANANA_FIRST: 10, BANANA_EVERY: 11, BANANA_MAX: 3,
   COUNTDOWN: 3, ROUND_OVER: 2.6, WIN_ROUNDS: 3,
+
+  // Hot Potato
+  FUSE_MIN: 12, FUSE_MAX: 22,      // secret fuse length (seconds)
+  PASS_COOLDOWN: 1.0,              // can't pass straight back
+  HOLDER_SPEED: 1.15,              // the bomb holder is a little faster (to chase)
+  RESPAWN_TIME: 0.9,               // fall off → back in the middle (holding the bomb!)
 };
 
 const SQ3 = Math.sqrt(3);
@@ -48,13 +57,14 @@ export function mulberry(seed) {
 
 // ── Arena ─────────────────────────────────────────────────────────────────────
 // Pointy-top hexes on the x/z ground plane. Each tile: { q, r, x, z, ring, fallAt }.
-export function makeArena(seed) {
+export function makeArena(seed, { crumble = true } = {}) {
   const rng = mulberry(seed);
   const tiles = [];
   const N = T.RINGS;
   for (let q = -N; q <= N; q++) for (let r = Math.max(-N, -q - N); r <= Math.min(N, -q + N); r++) {
     const ring = Math.max(Math.abs(q), Math.abs(r), Math.abs(q + r));
-    const fallAt = ring === 0 ? Infinity : T.CRUMBLE_START + (N - ring) * T.RING_GAP + rng() * T.RING_SPREAD;
+    const r0 = rng();
+    const fallAt = ring === 0 || !crumble ? Infinity : T.CRUMBLE_START + (N - ring) * T.RING_GAP + r0 * T.RING_SPREAD;
     tiles.push({ q, r, x: T.TILE * SQ3 * (q + r / 2), z: T.TILE * 1.5 * r, ring, fallAt });
   }
   const byKey = new Map(tiles.map(t => [`${t.q},${t.r}`, t]));
@@ -118,7 +128,7 @@ export function stepBlob(b, input, dt, arena, t, canMove = true) {
     ev.push("dash");
   }
   // speed limit (dashing and bumps can go over it for a moment, drag brings it back)
-  const max = b.zoomT > 0 ? T.ZOOM_SPEED : T.MAX_SPEED;
+  const max = (b.zoomT > 0 ? T.ZOOM_SPEED : T.MAX_SPEED) * (b.speedMul || 1);
   const sp = Math.hypot(b.vx, b.vz);
   if (b.dashT <= 0 && sp > max && mag > 0.05) { b.vx *= max / sp; b.vz *= max / sp; }
   const drag = b.slipT > 0 ? T.SLIP_DRAG : T.DRAG;
@@ -130,8 +140,11 @@ export function stepBlob(b, input, dt, arena, t, canMove = true) {
   // standing on a tile?
   if (!b.falling && !tileSolid(tileAt(arena, b.x, b.z), t)) { b.falling = true; ev.push("fall"); }
   if (b.falling) {
-    b.vy -= T.GRAVITY * dt; b.y += b.vy * dt; b.spin += dt * 8;
-    if (b.y < T.OUT_Y) b.out = true;
+    const prevY = b.y;
+    b.vy -= T.GRAVITY * dt; b.y += b.vy * dt;
+    // dropping in from above (Hot Potato respawn) lands on a solid tile
+    if (prevY >= 0 && b.y <= 0 && tileSolid(tileAt(arena, b.x, b.z), t)) { b.y = 0; b.vy = 0; b.falling = false; b.spin = 0; }
+    else { b.spin += dt * 8; if (b.y < T.OUT_Y) b.out = true; }
   }
   return ev;
 }
@@ -174,6 +187,30 @@ export function cpuInput(cpu, target, arena, t, rng) {
   } else if (d < 3 && cpu.dashCd <= 0 && rng() < 0.025) dash = true;
   // a little wobble so it isn't a perfect robot
   x += (rng() - 0.5) * 0.4; z += (rng() - 0.5) * 0.4;
+  const m = Math.hypot(x, z) || 1;
+  return { x: x / Math.max(1, m), z: z / Math.max(1, m), dash };
+}
+
+// Hot Potato CPU: chase you when it has the bomb, run away when you do.
+export function cpuPotatoInput(cpu, target, arena, t, rng, hasBomb) {
+  let x = 0, z = 0, dash = false;
+  if (cpu.out || cpu.falling) return { x, z, dash };
+  const dx = target.x - cpu.x, dz = target.z - cpu.z, d = Math.hypot(dx, dz) || 1;
+  if (hasBomb) { x = dx / d; z = dz / d; if (d < 3.2 && cpu.dashCd <= 0 && rng() < 0.05) dash = true; }
+  else if (d < 7) {
+    // run away, but curve around instead of running straight off the edge
+    x = -dx / d; z = -dz / d;
+    const side = Math.sin(t * 0.7 + cpu.dashCd) > 0 ? 1 : -1;
+    x += -z * 0.6 * side; z += x * 0.6 * side;
+    if (d < 2.2 && cpu.dashCd <= 0 && rng() < 0.04) dash = true;   // panic dash
+  }
+  const ahead = 1.8;
+  const fx = cpu.x + cpu.vx * 0.3 + x * ahead, fz = cpu.z + cpu.vz * 0.3 + z * ahead;
+  if (!tileSolid(tileAt(arena, fx, fz), t + 0.6)) {
+    const cd = Math.hypot(cpu.x, cpu.z) || 1;
+    x = -cpu.x / cd; z = -cpu.z / cd; dash = false;
+  }
+  x += (rng() - 0.5) * 0.3; z += (rng() - 0.5) * 0.3;
   const m = Math.hypot(x, z) || 1;
   return { x: x / Math.max(1, m), z: z / Math.max(1, m), dash };
 }

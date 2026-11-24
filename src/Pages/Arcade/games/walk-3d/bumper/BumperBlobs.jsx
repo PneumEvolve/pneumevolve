@@ -1,6 +1,10 @@
 // src/Pages/Arcade/games/walk-3d/bumper/BumperBlobs.jsx
 //
-// Bumper Blobs — a 3D party game started from a game pad in the 3D Tester world.
+// Bumper Blobs (and Hot Potato) — 3D party games started from game pads in the 3D Tester world.
+//
+// mode="potato" turns it into Hot Potato: no crumbling, a fizzing bomb starts
+// with one blob, bumping passes it, and whoever holds it at BOOM loses the round.
+// Falling off just pops you back in the middle — holding the bomb.
 // Your customized blob vs your partner's (or a CPU blob when you're alone) on a
 // floating hexagon platform that crumbles from the outside in. Slide, DASH and
 // bump each other off. First to 3 rounds wins.
@@ -15,6 +19,7 @@
 // Netcode (like Critter Stampede: everyone moves their own blob, the host decides the rest)
 //   guest → host  bb_join { look } · bb_me {...} ~20/s volatile · bb_fell { rd } · bb_leave
 //   host → guest  bb_state {...} ~15/s volatile · bb_bump { vx, vz, px, pz } · bb_fx { k, dur }
+//   (Hot Potato adds to bb_state: ho = bomb holder slot, fz = how close the fuse is, bm = boomed)
 //
 // Controls: WASD / arrows + Space (or Shift) to dash · touch: joystick + DASH button.
 
@@ -25,7 +30,7 @@ import { C } from "../../../ui";
 import { makeAvatar, DEFAULT_LOOK } from "../avatar3d";
 import { sfx, unlockSfx, isMuted, setMuted } from "../sfx";
 import {
-  T, makeArena, tileAt, tileSolid, tileShaking, safeSpot, makeBlob, stepBlob, bump, cpuInput,
+  T, makeArena, tileAt, tileSolid, tileShaking, safeSpot, makeBlob, stepBlob, bump, cpuInput, cpuPotatoInput,
   mulberry, radiusOf, SPAWNS,
 } from "./bumperSim";
 
@@ -36,8 +41,11 @@ const KEYMAP = {
 };
 const TILE_COLORS = ["#ffd65a", "#ff9ec4", "#9fe0ff", "#b9f5a0", "#d7b8ff", "#ffc48a"];
 
-export default function BumperBlobs({ net, host, look, partnerLook, myName, partnerName, myColor, partnerColor, onExit }) {
+export default function BumperBlobs({ net, host, look, partnerLook, myName, partnerName, myColor, partnerColor, onExit, mode = "bumper" }) {
   const mySlot = host ? 0 : 1;
+  const POTATO = mode === "potato";
+  const EV = POTATO ? "hp_" : "bb_";        // separate message names so the two games never mix
+  const ev = (name) => EV + name;
   const [ui, setUi] = useState({ ph: "ready", rd: 1, sc: [0, 0], countdown: 0, banner: null, win: null, opp: "cpu", guestJoined: false, oppName: partnerName });
   const [muted, setMutedUi] = useState(isMuted());
 
@@ -50,6 +58,7 @@ export default function BumperBlobs({ net, host, look, partnerLook, myName, part
   const matchRef = useRef({
     ph: "ready", t: 0, rt: 0, rd: 1, sc: [0, 0], seed: 1, opp: "cpu", win: null, roundWin: null,
     pu: [], bn: [], nextId: 1, puCd: T.POWERUP_FIRST, bnCd: T.BANANA_FIRST, bumpCd: 0,
+    holder: 0, fuse: 15, fuseT: 0, passCd: 0, boom: false,           // Hot Potato
   });
   const guestRef = useRef({ joined: false, look: partnerLook || null, blob: null, seenAt: 0 });
   const blobsRef = useRef([makeBlob(0), makeBlob(1)]);     // [slot0, slot1] — mine is blobsRef[mySlot]
@@ -57,13 +66,17 @@ export default function BumperBlobs({ net, host, look, partnerLook, myName, part
   const viewRef = useRef({ got: false, rtAt: 0 });          // guest: when the last state arrived
 
   const live = useRef({});
-  live.current = { net, host, mySlot, look, partnerName };
+  live.current = { net, host, mySlot, look, partnerName, POTATO };
 
   // ── Match flow (host) ──────────────────────────────────────────────────────
   const resetRound = (m) => {
-    arenaRef.current = makeArena(m.seed + m.rd * 101);
+    arenaRef.current = makeArena(m.seed + m.rd * 101, { crumble: !POTATO });
     blobsRef.current = [makeBlob(0), makeBlob(1)];
     m.t = 0; m.rt = 0; m.pu = []; m.bn = []; m.puCd = T.POWERUP_FIRST; m.bnCd = T.BANANA_FIRST; m.roundWin = null;
+    if (POTATO) {
+      const r = mulberry(m.seed + m.rd * 7);
+      m.holder = r() < 0.5 ? 0 : 1; m.fuse = T.FUSE_MIN + r() * (T.FUSE_MAX - T.FUSE_MIN); m.fuseT = 0; m.passCd = 0; m.boom = false;
+    }
   };
   const startMatch = (opp) => {
     const m = matchRef.current;
@@ -78,24 +91,26 @@ export default function BumperBlobs({ net, host, look, partnerLook, myName, part
   };
 
   // ── Network ────────────────────────────────────────────────────────────────
-  useArcadeEvent(net, "bb_join", (m) => {
+  useArcadeEvent(net, ev("join"), (m) => {
     if (!live.current.host) return;
     const G = guestRef.current;
     const was = G.joined;
     G.joined = true; G.look = m.look || G.look; G.seenAt = performance.now();
     if (!was && matchRef.current.opp === "cpu" && matchRef.current.ph !== "ready") matchRef.current.ph = "ready";   // partner arrived mid CPU match: back to the start screen
   });
-  useArcadeEvent(net, "bb_me", (m) => {
+  useArcadeEvent(net, ev("me"), (m) => {
     if (!live.current.host) return;
     const G = guestRef.current;
     G.joined = true; G.seenAt = performance.now();
     G.blob = { x: m.x, y: m.y, z: m.z, vx: m.vx, vz: m.vz, face: m.f, dashT: m.d ? 0.1 : 0, giantT: m.g ? 1 : 0, zoomT: 0, slipT: m.sl ? 1 : 0, falling: !!m.fa, out: !!m.o, spin: m.s || 0 };
   });
-  useArcadeEvent(net, "bb_fell", (m) => {
+  useArcadeEvent(net, ev("fell"), (m) => {
     const M = matchRef.current;
-    if (live.current.host && m.rd === M.rd) endRound(0);
+    if (!live.current.host || m.rd !== M.rd) return;
+    if (POTATO) { if (M.ph === "play") { M.holder = 1; M.passCd = T.PASS_COOLDOWN; } }   // fell off → comes back holding the bomb
+    else endRound(0);
   });
-  useArcadeEvent(net, "bb_leave", () => {
+  useArcadeEvent(net, ev("leave"), () => {
     if (!live.current.host) return;
     guestRef.current.joined = false; guestRef.current.blob = null;
     if (matchRef.current.opp === "guest") { matchRef.current.ph = "ready"; matchRef.current.opp = "cpu"; }
@@ -106,12 +121,12 @@ export default function BumperBlobs({ net, host, look, partnerLook, myName, part
     if (matchRef.current.opp === "guest") { matchRef.current.ph = "ready"; matchRef.current.opp = "cpu"; }
   });
   // guest side
-  useArcadeEvent(net, "bb_state", (s) => {
+  useArcadeEvent(net, ev("state"), (s) => {
     if (live.current.host) return;
     const M = matchRef.current, V = viewRef.current;
     const newRound = s.rd !== M.rd || s.sd !== M.seed || (s.ph === "countdown" && M.ph !== "countdown");
-    Object.assign(M, { ph: s.ph, t: s.t, rt: s.rt, rd: s.rd, sc: s.sc, seed: s.sd, opp: s.opp, win: s.win, roundWin: s.rw, pu: s.pu, bn: s.bn });
-    if (newRound) { arenaRef.current = makeArena(s.sd + s.rd * 101); blobsRef.current[1] = makeBlob(1); }
+    Object.assign(M, { ph: s.ph, t: s.t, rt: s.rt, rd: s.rd, sc: s.sc, seed: s.sd, opp: s.opp, win: s.win, roundWin: s.rw, pu: s.pu, bn: s.bn, holder: s.ho ?? 0, fuseFrac: s.fz || 0, boom: !!s.bm });
+    if (newRound) { arenaRef.current = makeArena(s.sd + s.rd * 101, { crumble: !POTATO }); blobsRef.current[1] = makeBlob(1); }
     const h = s.h;
     if (h) {
       const b = blobsRef.current[0];
@@ -120,14 +135,14 @@ export default function BumperBlobs({ net, host, look, partnerLook, myName, part
     }
     V.got = true; V.rtAt = performance.now();
   });
-  useArcadeEvent(net, "bb_bump", (m) => {
+  useArcadeEvent(net, ev("bump"), (m) => {
     if (live.current.host) return;
     const b = blobsRef.current[1];
     b.vx += m.vx; b.vz += m.vz; b.x += m.px; b.z += m.pz;
     sfx.boing(m.s || 1);
     burst(b.x, b.z, 8, "#ffe14d");
   });
-  useArcadeEvent(net, "bb_fx", (m) => {
+  useArcadeEvent(net, ev("fx"), (m) => {
     if (live.current.host) return;
     const b = blobsRef.current[1];
     if (m.k === "giant") { b.giantT = m.dur; sfx.pop(); }
@@ -138,10 +153,10 @@ export default function BumperBlobs({ net, host, look, partnerLook, myName, part
   // guest: say hi (repeat until the host is clearly sending states)
   useEffect(() => {
     if (host) return;
-    const hi = () => live.current.net.send("bb_join", { look: live.current.look });
+    const hi = () => live.current.net.send(ev("join"), { look: live.current.look });
     hi();
     const id = setInterval(() => { if (matchRef.current.ph === "ready" || !viewRef.current.got) hi(); }, 2000);
-    return () => { clearInterval(id); live.current.net.send("bb_leave"); };
+    return () => { clearInterval(id); live.current.net.send(ev("leave")); };
   }, [host]);
 
   // ── Keyboard + sound unlock ────────────────────────────────────────────────
@@ -278,6 +293,23 @@ export default function BumperBlobs({ net, host, look, partnerLook, myName, part
       return g;
     };
 
+    // Hot Potato bomb: black ball, fuse, flickering spark — rides above the holder's head
+    const bomb = new THREE.Group();
+    const bombMat = new THREE.MeshLambertMaterial({ color: "#2a2a35", emissive: "#000000" });
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.38, 18, 14), bombMat); ball.castShadow = true;
+    const capM = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.1, 10), new THREE.MeshLambertMaterial({ color: "#777" }));
+    capM.position.y = 0.38;
+    const fuseM = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.25, 6), new THREE.MeshLambertMaterial({ color: "#c9a26b" }));
+    fuseM.position.set(0.05, 0.52, 0); fuseM.rotation.z = -0.4;
+    const spark = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), new THREE.MeshBasicMaterial({ color: "#ffd65a" }));
+    spark.position.set(0.12, 0.65, 0);
+    const shine = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.5 }));
+    shine.position.set(-0.13, 0.15, 0.28);
+    bomb.add(ball, capM, fuseM, spark, shine);
+    bomb.visible = false;
+    scene.add(bomb);
+    let nextTick = 0, lastBoom = false;
+
     // particle pool
     const parts = [];
     const partGeo = new THREE.SphereGeometry(0.12, 6, 5);
@@ -343,10 +375,22 @@ export default function BumperBlobs({ net, host, look, partnerLook, myName, part
             if (M.bn.length < T.BANANA_MAX) { const s = safeSpot(arena, M.rt, rng, 6); if (s) M.bn.push({ id: M.nextId++, x: s.x + (rng() - 0.5), z: s.z + (rng() - 0.5) }); }
             M.bnCd = T.BANANA_EVERY;
           }
+          // Hot Potato: the bomb holder is a bit faster; the fuse burns down
+          if (POTATO) {
+            blobs[0].speedMul = M.holder === 0 ? T.HOLDER_SPEED : 1;
+            blobs[1].speedMul = M.holder === 1 ? T.HOLDER_SPEED : 1;
+            M.fuseT += dt; M.passCd -= dt;
+            if (M.fuseT >= M.fuse) {
+              M.boom = true; sfx.boom();
+              const lb = blobs[M.holder]; burst(lb.x, lb.z, 26, "#ff8a3d", 1); burst(lb.x, lb.z, 14, "#333333", 1);
+              endRound(1 - M.holder);
+            }
+          }
           // move my blob, plus the CPU (or mirror the guest's)
           for (const e of stepBlob(blobs[0], input, dt, arena, M.rt, true)) { if (e === "dash") { sfx.whoosh(); burst(blobs[0].x, blobs[0].z, 5, "#ffffff", 0.3); } if (e === "fall") sfx.whistle(); }
           if (M.opp === "cpu") {
-            for (const e of stepBlob(blobs[1], cpuInput(blobs[1], blobs[0], arena, M.rt, rng), dt, arena, M.rt, true)) { if (e === "dash") sfx.whoosh(); if (e === "fall") sfx.whistle(); }
+            const cpuIn = POTATO ? cpuPotatoInput(blobs[1], blobs[0], arena, M.rt, rng, M.holder === 1) : cpuInput(blobs[1], blobs[0], arena, M.rt, rng);
+            for (const e of stepBlob(blobs[1], cpuIn, dt, arena, M.rt, true)) { if (e === "dash") sfx.whoosh(); if (e === "fall") sfx.whistle(); }
           } else if (guestRef.current.blob) {
             const g = guestRef.current.blob, b = blobs[1];
             const a = 1 - Math.exp(-dt * 15);
@@ -360,9 +404,10 @@ export default function BumperBlobs({ net, host, look, partnerLook, myName, part
             if (h) {
               blobs[0].vx += h.a.vx; blobs[0].vz += h.a.vz; blobs[0].x += h.a.px; blobs[0].z += h.a.pz;
               if (M.opp === "cpu") { blobs[1].vx += h.b.vx; blobs[1].vz += h.b.vz; blobs[1].x += h.b.px; blobs[1].z += h.b.pz; }
-              else L.net.send("bb_bump", { vx: +h.b.vx.toFixed(2), vz: +h.b.vz.toFixed(2), px: +h.b.px.toFixed(2), pz: +h.b.pz.toFixed(2), s: +h.strength.toFixed(2) });
+              else L.net.send(ev("bump"), { vx: +h.b.vx.toFixed(2), vz: +h.b.vz.toFixed(2), px: +h.b.px.toFixed(2), pz: +h.b.pz.toFixed(2), s: +h.strength.toFixed(2) });
               sfx.boing(h.strength); burst(h.x, h.z, 8, "#ffe14d");
               M.bumpCd = 0.2;
+              if (POTATO && M.passCd <= 0 && M.ph === "play") { M.holder = 1 - M.holder; M.passCd = T.PASS_COOLDOWN; sfx.pop(); burst(h.x, h.z, 10, "#ff8a3d", 1.6); }
             }
           }
           // pick-ups
@@ -372,7 +417,7 @@ export default function BumperBlobs({ net, host, look, partnerLook, myName, part
             M.pu = M.pu.filter(p => {
               if (Math.hypot(b.x - p.x, b.z - p.z) > radiusOf(b) + 0.5) return true;
               if (slot === 0 || M.opp === "cpu") { if (p.kind === "giant") b.giantT = T.POWERUP_TIME; else b.zoomT = T.POWERUP_TIME; }
-              else L.net.send("bb_fx", { k: p.kind, dur: T.POWERUP_TIME });
+              else L.net.send(ev("fx"), { k: p.kind, dur: T.POWERUP_TIME });
               if (slot === 0 || M.opp === "cpu") sfx.pop();
               burst(p.x, p.z, 10, p.kind === "giant" ? "#ff5d73" : "#6fd3ff");
               return false;
@@ -380,19 +425,30 @@ export default function BumperBlobs({ net, host, look, partnerLook, myName, part
             M.bn = M.bn.filter(p => {
               if (Math.hypot(b.x - p.x, b.z - p.z) > radiusOf(b) * 0.8 + 0.3) return true;
               if (slot === 0 || M.opp === "cpu") { b.slipT = T.SLIP_TIME; b.vx *= 1.4; b.vz *= 1.4; sfx.slip(); }
-              else L.net.send("bb_fx", { k: "slip", dur: T.SLIP_TIME });
+              else L.net.send(ev("fx"), { k: "slip", dur: T.SLIP_TIME });
               return false;
             });
           }
-          // falls end the round
-          if (blobs[0].out) endRound(1);
+          // falls end the round (Hot Potato: pop back in the middle holding the bomb)
+          if (POTATO) {
+            for (const slot of [0, 1]) {
+              const b = blobs[slot];
+              if (!b.out || (slot === 1 && M.opp !== "cpu")) continue;
+              b.respawnIn = (b.respawnIn ?? T.RESPAWN_TIME) - dt;
+              if (b.respawnIn <= 0) {
+                blobs[slot] = Object.assign(makeBlob(slot), { x: 0, z: 0, y: 3, falling: true, vy: 0 });
+                M.holder = slot; M.passCd = T.PASS_COOLDOWN;
+              }
+            }
+          } else if (blobs[0].out) endRound(1);
           else if (M.opp === "cpu" && blobs[1].out) endRound(0);
         }
         // tell the guest
         if (L.net.partnerOnline && now - lastSend > 66) {
           const b = blobs[0];
-          L.net.send("bb_state", {
+          L.net.send(ev("state"), {
             ph: M.ph, t: +M.t.toFixed(2), rt: +M.rt.toFixed(2), rd: M.rd, sc: M.sc, sd: M.seed, opp: M.opp, win: M.win, rw: M.roundWin, gj: guestRef.current.joined,
+            ...(POTATO ? { ho: M.holder, fz: +Math.min(1, M.fuseT / M.fuse).toFixed(2), bm: M.boom ? 1 : 0 } : {}),
             pu: M.pu, bn: M.bn,
             h: [+b.x.toFixed(2), +b.y.toFixed(2), +b.z.toFixed(2), +b.face.toFixed(2), b.giantT > 0 ? 1 : 0, b.zoomT > 0 ? 1 : 0, b.slipT > 0 ? 1 : 0, b.dashT > 0 ? 1 : 0, b.falling ? 1 : 0, b.out ? 1 : 0, +b.spin.toFixed(1)],
           }, { volatile: true });
@@ -403,16 +459,21 @@ export default function BumperBlobs({ net, host, look, partnerLook, myName, part
         const V = viewRef.current;
         const rt = M.ph === "play" ? M.rt + (now - V.rtAt) / 1000 : M.ph === "roundover" ? (M.drawRt || 0) : 0;
         if (M.ph === "play") {
+          if (POTATO) me.speedMul = M.holder === 1 ? T.HOLDER_SPEED : 1;
           for (const e of stepBlob(me, input, dt, arena, rt, true)) {
             if (e === "dash") { sfx.whoosh(); burst(me.x, me.z, 5, "#ffffff", 0.3); }
             if (e === "fall") sfx.whistle();
           }
-          if (me.out && !me.reported) { me.reported = true; L.net.send("bb_fell", { rd: M.rd }); }
+          if (me.out && !me.reported) { me.reported = true; L.net.send(ev("fell"), { rd: M.rd }); }
+          if (POTATO && me.out) {
+            me.respawnIn = (me.respawnIn ?? T.RESPAWN_TIME) - dt;
+            if (me.respawnIn <= 0) blobsRef.current[1] = Object.assign(makeBlob(1), { x: 0, z: 0, y: 3, falling: true, vy: 0 });
+          }
         }
         const hb = blobs[0];
         if (hb.tx != null) { const a = 1 - Math.exp(-dt * 12); hb.x += (hb.tx - hb.x) * a; hb.y += (hb.ty - hb.y) * a; hb.z += (hb.tz - hb.z) * a; }
         if (now - lastSend > 50) {
-          L.net.send("bb_me", { x: +me.x.toFixed(2), y: +me.y.toFixed(2), z: +me.z.toFixed(2), vx: +me.vx.toFixed(2), vz: +me.vz.toFixed(2), f: +me.face.toFixed(2), d: me.dashT > 0 ? 1 : 0, g: me.giantT > 0 ? 1 : 0, sl: me.slipT > 0 ? 1 : 0, fa: me.falling ? 1 : 0, o: me.out ? 1 : 0, s: +me.spin.toFixed(1) }, { volatile: true });
+          L.net.send(ev("me"), { x: +me.x.toFixed(2), y: +me.y.toFixed(2), z: +me.z.toFixed(2), vx: +me.vx.toFixed(2), vz: +me.vz.toFixed(2), f: +me.face.toFixed(2), d: me.dashT > 0 ? 1 : 0, g: me.giantT > 0 ? 1 : 0, sl: me.slipT > 0 ? 1 : 0, fa: me.falling ? 1 : 0, o: me.out ? 1 : 0, s: +me.spin.toFixed(1) }, { volatile: true });
           lastSend = now;
         }
         M.drawRt = rt;
@@ -464,6 +525,36 @@ export default function BumperBlobs({ net, host, look, partnerLook, myName, part
         av.animate(tSec + slot, Math.hypot(b.vx || 0, b.vz || 0) > 0.8, b.falling || b.dashT > 0);
       }
 
+      // ── Hot Potato: bomb, ticking, boom, launch
+      if (L.POTATO) {
+        const frac = L.host ? Math.min(1, M.fuseT / M.fuse) : (M.fuseFrac || 0);
+        const holder = blobs[M.holder];
+        bomb.visible = M.ph === "play" && holder && !holder.out;
+        if (bomb.visible) {
+          const sc = holder.giantT > 0 ? T.GIANT_SCALE : 1;
+          const pulse = 1 + Math.sin(tSec * (6 + frac * 30)) * (0.05 + frac * 0.12);
+          bomb.position.set(holder.x, holder.y + 2.2 * sc + Math.sin(tSec * 5) * 0.08, holder.z);
+          bomb.scale.setScalar(1.4 * pulse * (0.9 + frac * 0.3));
+          bomb.rotation.y = tSec * 2;
+          bombMat.emissive.setRGB(frac * 0.9 * (0.6 + 0.4 * Math.sin(tSec * (8 + frac * 25))), 0, 0);
+          spark.visible = Math.random() > 0.25;
+          spark.scale.setScalar(0.7 + Math.random() * 0.8);
+          if (tSec >= nextTick) { sfx.tick(); nextTick = tSec + (0.7 - 0.62 * frac); }
+        }
+        if (M.boom && !lastBoom && !L.host) {          // the guest hears/sees the boom from the host's state
+          sfx.boom();
+          const lb = blobs[1 - (M.roundWin ?? 0)]; burst(lb.x, lb.z, 26, "#ff8a3d", 1); burst(lb.x, lb.z, 14, "#333333", 1);
+        }
+        lastBoom = M.boom;
+        // the loser rockets into the sky, spinning
+        if (M.ph === "roundover" && M.boom && M.roundWin != null) {
+          const loser = 1 - M.roundWin, av = avatars[loser], b = blobs[loser], tt = M.t;
+          av.group.visible = true;
+          av.group.position.set(b.x, b.y + 10 * tt + 8 * tt * tt, b.z);
+          av.group.rotation.set(tt * 9, tt * 7, tt * 5);
+        }
+      }
+
       // ── draw: power-ups + bananas
       const want = new Set();
       for (const p of M.pu || []) {
@@ -500,7 +591,7 @@ export default function BumperBlobs({ net, host, look, partnerLook, myName, part
           ph: M.ph, rd: M.rd, sc: [...M.sc], opp: M.opp, win: M.win, rw: M.roundWin,
           countdown: M.ph === "countdown" ? Math.max(1, Math.ceil(T.COUNTDOWN - M.t)) : 0,
           guestJoined: L.host ? guestRef.current.joined : true, names,
-          dashCd: me.dashCd, giant: me.giantT > 0, zoom: me.zoomT > 0,
+          dashCd: me.dashCd, giant: me.giantT > 0, zoom: me.zoomT > 0, holder: M.holder, boom: M.boom,
           oppName: M.opp === "cpu" ? "CPU Blob" : partnerName,
         });
       }
@@ -542,18 +633,25 @@ export default function BumperBlobs({ net, host, look, partnerLook, myName, part
       )}
 
       {ui.ph === "countdown" && <Big>{ui.countdown}</Big>}
-      {ui.ph === "roundover" && ui.rw != null && <Big small>{ui.rw === mySlot ? "You" : names[ui.rw]} {ui.rw === mySlot ? "take" : "takes"} the round!</Big>}
+      {ui.ph === "roundover" && ui.rw != null && <Big small>{POTATO && ui.boom ? "BOOM! " : ""}{ui.rw === mySlot ? "You" : names[ui.rw]} {ui.rw === mySlot ? "take" : "takes"} the round!</Big>}
+      {POTATO && ui.ph === "play" && (
+        <div style={{ position: "absolute", top: 92, left: 0, right: 0, textAlign: "center", zIndex: 20, pointerEvents: "none", fontWeight: 900, fontSize: 18, textShadow: "0 2px 6px rgba(0,0,0,0.6)", color: ui.holder === mySlot ? "#ff8a3d" : "#ffffff", padding: "0 16px" }}>
+          {ui.holder === mySlot ? "You have the bomb! Bump them to pass it!" : `Run! ${names[ui.holder]} has the bomb!`}
+        </div>
+      )}
       {(ui.giant || ui.zoom) && ui.ph === "play" && (
-        <div style={{ position: "absolute", top: 92, left: 0, right: 0, textAlign: "center", zIndex: 20, pointerEvents: "none", color: "#fff", fontWeight: 900, textShadow: "0 2px 6px rgba(0,0,0,0.5)" }}>
+        <div style={{ position: "absolute", top: POTATO ? 120 : 92, left: 0, right: 0, textAlign: "center", zIndex: 20, pointerEvents: "none", color: "#fff", fontWeight: 900, textShadow: "0 2px 6px rgba(0,0,0,0.5)" }}>
           {ui.giant ? "GIANT!" : ""} {ui.zoom ? "ZOOM!" : ""}
         </div>
       )}
 
       {ui.ph === "ready" && (
         <Panel>
-          <div style={{ fontSize: 13, letterSpacing: "0.18em", textTransform: "uppercase", color: C.dim }}>bumper blobs</div>
-          <div style={{ fontSize: 22, fontWeight: 900 }}>Bump each other off!</div>
-          <div style={{ fontSize: 13, color: C.dim }}>Slide around, DASH to charge, and knock your opponent off the platform. Tiles crumble from the edges. First to 3 rounds wins. Grab mushrooms to go GIANT and bolts to ZOOM. Watch out for banana peels!</div>
+          <div style={{ fontSize: 13, letterSpacing: "0.18em", textTransform: "uppercase", color: C.dim }}>{POTATO ? "hot potato" : "bumper blobs"}</div>
+          <div style={{ fontSize: 22, fontWeight: 900 }}>{POTATO ? "Don't be holding the bomb!" : "Bump each other off!"}</div>
+          <div style={{ fontSize: 13, color: C.dim }}>{POTATO
+            ? "One of you starts with a fizzing bomb. Bump the other blob to pass it (no passing straight back!). Nobody knows exactly when it blows, but the ticking speeds up. Whoever's holding it at BOOM gets launched to the moon. Fall off and you pop back in the middle holding the bomb. First to 3 rounds wins."
+            : "Slide around, DASH to charge, and knock your opponent off the platform. Tiles crumble from the edges. First to 3 rounds wins. Grab mushrooms to go GIANT and bolts to ZOOM. Watch out for banana peels!"}</div>
           {host ? (
             <>
               <div style={{ fontSize: 13, fontWeight: 700, color: ui.guestJoined ? C.good : C.dim }}>{ui.guestJoined ? `${partnerName} is in!` : `Waiting for ${partnerName} to join… (or play the CPU)`}</div>

@@ -8,7 +8,8 @@
 //   sfx.whistle()        falling off      sfx.pop()      power-up
 //   sfx.beep(high)       countdown        sfx.crack()    tile crumbling
 //   sfx.slip()           banana peel      sfx.fanfare()  winner
-//   sfx.honk()           just for fun
+//   sfx.honk()           just for fun     sfx.tick()     bomb fuse
+//   sfx.boom()           KABOOM
 
 let ctx = null;
 let master = null;
@@ -81,4 +82,9 @@ export const sfx = {
   slip() { tone({ type: "sawtooth", from: 300, to: 1200, dur: 0.35, vol: 0.12 }); tone({ type: "sine", from: 1200, to: 400, dur: 0.3, vol: 0.15, delay: 0.3 }); },
   fanfare() { [523, 659, 784, 1047].forEach((f, i) => tone({ type: "triangle", from: f, dur: 0.22, vol: 0.25, delay: i * 0.14 })); },
   honk() { tone({ type: "sawtooth", from: 220, to: 200, dur: 0.25, vol: 0.2 }); },
+  tick() { tone({ type: "square", from: 1800, to: 1600, dur: 0.03, vol: 0.08 }); },
+  boom() {
+    noise({ dur: 0.9, vol: 0.6, freq: 900, type: "lowpass", q: 0.7, sweepTo: 80 });
+    tone({ type: "sine", from: 140, to: 35, dur: 0.8, vol: 0.5 });
+  },
 };
