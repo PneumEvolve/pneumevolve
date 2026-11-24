@@ -318,6 +318,7 @@ export function farmReducer(w, a) {
         hue: Number.isFinite(a.hue) ? ((Math.round(a.hue) % 360) + 360) % 360 : SPECIES[a.species].hue,
         size: Number.isFinite(a.size) ? clamp(r2(a.size), 0.7, 1.4) : 1,
         personality: pick(rng, Object.keys(PERSONALITIES)),
+        ...(a.rare ? { rare: true } : {}),
       };
       const c = {
         id, species: a.species, name: pick(rng, NAMES), traits,
@@ -326,7 +327,18 @@ export function farmReducer(w, a) {
       return {
         ...w, nextId: w.nextId + 1,
         creatures: { ...w.creatures, [id]: c },
-        log: addLog(w.log, a, `brought ${c.name} the ${SPECIES[c.species].name} home from a run!`, "catch"),
+        log: addLog(w.log, a, `brought ${c.name} the ${a.rare ? "golden " : ""}${SPECIES[c.species].name} home from a run!`, "catch"),
+      };
+    }
+
+    // Beat a Critter Stampede level — unlocks the next one for this farm (both players).
+    case "run_won": {
+      if (!["easy", "medium", "hard"].includes(a.level)) return w;
+      const beaten = w.runsBeaten || {};
+      if (beaten[a.level]) return w;
+      return {
+        ...w, runsBeaten: { ...beaten, [a.level]: true },
+        log: addLog(w.log, a, `beat Critter Stampede on ${a.level}!`, "catch"),
       };
     }
 

@@ -22,7 +22,7 @@
 // the same — or at all — on every computer).
 //
 // Network (besides the shared world): "pos" { x, y, f, m } ~12/s, volatile.
-// Runs: "run_go" { kind } when someone heads out (partner gets a Join button),
+// Runs: "run_go" { kind, level } when someone heads out (partner gets a Join button),
 //       "run_end" {} when the run's host leaves (everyone in it comes home).
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -39,11 +39,15 @@ import {
   drawCropSprite, drawHeart, drawBowl, drawSun, drawPaw, drawQuestion,
 } from "./drawFarm";
 import StampedeRun from "./stampede/StampedeRun";
+import { LEVELS, LEVEL_ORDER } from "./stampede/stampedeSim";
+
+// Critter Stampede levels unlock in order (shared by both players on this farm).
+const levelUnlocked = (world, id) => id === "easy" || !!world?.runsBeaten?.[LEVEL_ORDER[LEVEL_ORDER.indexOf(id) - 1]];
 
 // Runs you can pick at the signpost. Add more here as they're built.
 const RUNS = [
   { id: "stampede", name: "Critter Stampede", ready: true,
-    desc: "Endless field. Run circles around critters to tame them, build a herd, flatten the goop. Bring one home." },
+    desc: "Endless field. Run circles around critters to tame them, build a herd, flatten the goop, and bring some home." },
   { id: "wilds", name: "Wilds", ready: false, desc: "You and a partner creature vs wild packs." },
   { id: "defend", name: "Defend the Farm", ready: false, desc: "Goop raids the farm at night." },
 ];
@@ -131,7 +135,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
   // ── Runs (signpost) ────────────────────────────────────────────────────────
   useArcadeEvent(net, "run_go", (m) => {
     if (live.current.myRun) return;
-    setPartnerRun({ kind: m.kind });
+    setPartnerRun({ kind: m.kind, level: m.level || "easy" });
     toast(`${cap(live.current.nameOf(live.current.partnerId))} headed out on a run`);
   });
   useArcadeEvent(net, "run_end", () => {
@@ -139,7 +143,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
     if (live.current.myRun && !live.current.myRun.host) { setMyRun(null); toast("The run ended"); }
   });
   // If my partner (re)connects while I'm out, let them know they can join.
-  const announceRun = useCallback(() => { const r = live.current.myRun; if (r?.host) live.current.net.send("run_go", { kind: r.kind }); }, []);
+  const announceRun = useCallback(() => { const r = live.current.myRun; if (r?.host) live.current.net.send("run_go", { kind: r.kind, level: r.level }); }, []);
   useArcadeEvent(net, "hello", announceRun);
   useArcadeEvent(net, "partner_connected", announceRun);
 
@@ -148,17 +152,17 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
     if (!w || !L.myId) return null;
     return Object.values(w.creatures).find(c => c.follow === L.myId) || w.creatures[w.starters[L.myId]] || null;
   };
-  const startRun = (kind) => {
-    if (!myLeader()) return;
+  const startRun = (kind, level = "easy") => {
+    if (!myLeader() || !levelUnlocked(live.current.world, level)) return;
     setBoard(false);
-    setMyRun({ kind, host: true });
+    setMyRun({ kind, host: true, level });
     setPartnerRun(null);
-    net.send("run_go", { kind });
+    net.send("run_go", { kind, level });
   };
   const joinRun = () => {
     if (!partnerRun || !myLeader()) return;
     setBoard(false);
-    setMyRun({ kind: partnerRun.kind, host: false });
+    setMyRun({ kind: partnerRun.kind, host: false, level: partnerRun.level });
     setPartnerRun(null);
   };
   const exitRun = () => {
@@ -572,22 +576,24 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
 
       {partnerRun && !myRun && (
         <div style={{ position: "absolute", top: 84, left: "50%", transform: "translateX(-50%)", zIndex: 35, display: "flex", alignItems: "center", gap: 10, padding: "8px 10px 8px 14px", borderRadius: 14, background: "rgba(15,12,30,0.9)", border: `1px solid ${C.accent2}`, color: C.text, fontWeight: 700, fontSize: 13, whiteSpace: "nowrap" }}>
-          {cap(nameOf(partnerId))} is on a {RUNS.find(r => r.id === partnerRun.kind)?.name ?? "run"} run
+          {cap(nameOf(partnerId))} is on a {RUNS.find(r => r.id === partnerRun.kind)?.name ?? "run"} run ({LEVELS[partnerRun.level]?.name})
           <button onClick={joinRun} style={{ ...smallBtn, background: C.accent2, color: "#06202a", border: "none" }}>Join</button>
           <button onClick={() => setPartnerRun(null)} style={{ ...smallBtn, padding: "7px 9px" }} aria-label="dismiss">x</button>
         </div>
       )}
 
       {board && (
-        <RunBoard leader={myLeader()} partnerRun={partnerRun} partnerName={cap(nameOf(partnerId))}
+        <RunBoard leader={myLeader()} world={world} partnerRun={partnerRun} partnerName={cap(nameOf(partnerId))}
           onStart={startRun} onJoin={joinRun} onClose={() => setBoard(false)} canAct={W.canAct} />
       )}
 
       {myRun?.kind === "stampede" && (() => {
         const leader = myLeader();
         return leader && (
-          <StampedeRun net={net} runHost={myRun.host} species={leader.species} hue={leader.traits.hue}
-            onAdopt={(c) => W.dispatch({ type: "adopt", species: c.species, hue: c.hue, size: c.size, r: Math.random() })}
+          <StampedeRun net={net} runHost={myRun.host} level={myRun.level} species={leader.species} hue={leader.traits.hue}
+            partnerName={cap(nameOf(partnerId))}
+            onAdopt={(c) => W.dispatch({ type: "adopt", species: c.species, hue: c.hue, size: c.size, rare: !!c.rare, r: Math.random() })}
+            onWin={(level) => W.dispatch({ type: "run_won", level })}
             onExit={exitRun} />
         );
       })()}
@@ -651,7 +657,7 @@ function buttonLabel(t, world, now, seed) {
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
 // ── Run board (the signpost) ──────────────────────────────────────────────────
-function RunBoard({ leader, partnerRun, partnerName, onStart, onJoin, onClose, canAct }) {
+function RunBoard({ leader, world, partnerRun, partnerName, onStart, onJoin, onClose, canAct }) {
   const sp = leader && SPECIES[leader.species];
   return (
     <div style={overlayStyle} onClick={onClose}>
@@ -670,23 +676,45 @@ function RunBoard({ leader, partnerRun, partnerName, onStart, onJoin, onClose, c
         )}
         {partnerRun && (
           <button disabled={!leader || !canAct} onClick={onJoin} style={{ ...smallBtn, padding: 12, background: C.accent2, color: "#06202a", border: "none", fontSize: 15 }}>
-            Join {partnerName}'s {RUNS.find(r => r.id === partnerRun.kind)?.name ?? ""} run
+            Join {partnerName}'s {RUNS.find(r => r.id === partnerRun.kind)?.name ?? ""} run ({LEVELS[partnerRun.level]?.name})
           </button>
         )}
         {RUNS.map(r => (
           <div key={r.id} style={{ padding: 12, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", opacity: r.ready ? 1 : 0.45, display: "flex", flexDirection: "column", gap: 6 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
               <span style={{ fontWeight: 800, fontSize: 16 }}>{r.name}</span>
-              {r.ready
-                ? <button disabled={!leader || !canAct} onClick={() => onStart(r.id)} style={{ ...smallBtn, background: C.accent, color: "#1a1300", border: "none" }}>Head out</button>
-                : <span style={{ fontSize: 11, fontWeight: 800, color: C.accent }}>SOON</span>}
+              {!r.ready && <span style={{ fontSize: 11, fontWeight: 800, color: C.accent }}>SOON</span>}
             </div>
             <span style={{ fontSize: 12, color: C.dim }}>{r.desc}</span>
+            {r.id === "stampede" && LEVEL_ORDER.map(id => {
+              const L = LEVELS[id], open = levelUnlocked(world, id), beaten = !!world?.runsBeaten?.[id];
+              return (
+                <div key={id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 10, background: "rgba(0,0,0,0.2)", opacity: open ? 1 : 0.5 }}>
+                  <span style={{ flex: 1 }}>
+                    <span style={{ fontWeight: 800, fontSize: 14 }}>{L.name}</span>
+                    {beaten && <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 800, color: C.good }}>BEATEN</span>}
+                    <span style={{ display: "block", fontSize: 12, color: C.dim }}>{open ? L.desc : `Beat ${LEVELS[LEVEL_ORDER[LEVEL_ORDER.indexOf(id) - 1]].name} to unlock`}</span>
+                  </span>
+                  {open
+                    ? <button disabled={!leader || !canAct} onClick={() => onStart(r.id, id)} style={{ ...smallBtn, background: C.accent, color: "#1a1300", border: "none" }}>Head out</button>
+                    : <LockIcon />}
+                </div>
+              );
+            })}
           </div>
         ))}
         <div style={{ fontSize: 11, color: C.faint }}>The farm keeps going while you're out. Your partner gets a Join button.</div>
       </div>
     </div>
+  );
+}
+
+function LockIcon() {
+  return (
+    <svg width="18" height="20" viewBox="0 0 18 20" aria-label="locked">
+      <path d="M4 9V6a5 5 0 0 1 10 0v3" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="2.2" />
+      <rect x="1.5" y="9" width="15" height="10" rx="2.5" fill="rgba(255,255,255,0.6)" />
+    </svg>
   );
 }
 

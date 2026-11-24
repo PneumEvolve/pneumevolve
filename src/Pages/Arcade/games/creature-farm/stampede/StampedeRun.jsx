@@ -2,21 +2,26 @@
 //
 // Critter Stampede — a run you start from the signpost on the farm.
 // You play as your bonded creature on an endless field. Run one circle around
-// wild critters to tame them (everyone inside the circle comes along); they
+// wild critters to tame them (everything inside your loop comes along); they
 // join your herd and swarm the goop. Hurt herd members rest at your side until
-// they heal. Grab berries to heal. Survive 5 minutes to win.
-// When the run ends, pick one creature from your herd to bring home to the pen.
+// they heal. Grab berries to heal. Survive the level (3 / 7 / 10 min) to win.
+// When the XP bar fills, the game pauses for both players to pick an upgrade.
+// When the run ends, pick critters from your herd to bring home to the pen
+// (2 on Easy, 3 on Medium/Hard — and on Hard every golden one comes home too).
 //
 // Props (from CreatureFarm):
 //   net          the room socket (shared with the farm)
 //   runHost      true on the device that started the run — it runs the simulation
+//   level        "easy" | "medium" | "hard"
 //   species, hue your leader (the creature following you, or your starter)
-//   onAdopt({ species, hue, size })   bring one tamed critter home
+//   partnerName  for the "Bash is choosing…" line
+//   onAdopt({ species, hue, size, rare })   bring a tamed critter home
+//   onWin(level) you survived — unlocks the next level on the farm
 //   onExit()     back to the farm
 //
 // Netcode (only while in a run):
 //   guest → host  me    { x, y, f, sp, hue }   ~20/s volatile
-//   guest → host  tame  { cids } · again {}     reliable
+//   guest → host  tame  { cids } · pick { id } · again {}   reliable
 //   host → guest  snap  {...} ~10/s volatile · hurt { kx, ky } · restart {}
 //   (run_go / run_end / run_join are handled by CreatureFarm)
 //
@@ -30,8 +35,8 @@ import { C } from "../../../ui";
 import { SPECIES } from "../species";
 import { drawCreature, drawPaw, drawHeart, drawCropSprite } from "../drawFarm";
 import {
-  T, SPECIES_IDS, createRun, addPlayer, stepRun, setLeaderPos, tryTame,
-  makeSnapshot, readSnapshotPlayers, lassoStep,
+  T, LEVELS, CARDS, SPECIES_IDS, createRun, addPlayer, stepRun, setLeaderPos, tryTame,
+  makeSnapshot, readSnapshotPlayers, lassoStep, choosePick, xpNeed, herdCapOf,
 } from "./stampedeSim";
 import {
   drawGround, drawGoop, drawLeaderRing, drawHerdDot, drawWildSparkle, drawTrail,
@@ -48,17 +53,19 @@ const KEYMAP = {
 const isEnd = (st) => st === "over" || st === "won";
 const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
-export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExit }) {
+export default function StampedeRun({ net, runHost, level = "easy", species, hue, partnerName, onAdopt, onWin, onExit }) {
   const mySlot = runHost ? 0 : 1;
   const otherSlot = 1 - mySlot;
-  // Best scores live with your Creature Farm save.
-  const { data: save, update } = useArcadeSave("creature-farm", { stampedeBest: { time: 0, tamed: 0, kills: 0 } });
+  const LV = LEVELS[level] || LEVELS.easy;
+  // Best scores (per level) live with your Creature Farm save.
+  const { data: save, update } = useArcadeSave("creature-farm", { stampedeBest: {} });
 
-  const [hud, setHud] = useState({ t: 0, hp: 100, herd: 0, kills: 0, tamed: 0, down: false, st: "play", started: false, players: [], myHerd: [] });
-  const [adopted, setAdopted] = useState(null);     // id of the critter brought home this run
+  const [hud, setHud] = useState({ t: 0, hp: 100, maxHp: 100, herd: 0, cap: LV.herdCap, kills: 0, tamed: 0, down: false, st: "play", started: false, players: [], myHerd: [], xp: [0, 1, 0], pick: null });
+  const [adopted, setAdopted] = useState([]);       // ids of critters brought home this run
+  const [myPick, setMyPick] = useState(null);       // card I just tapped (before the host confirms)
 
   const live = useRef({});
-  live.current = { net, runHost, mySlot, otherSlot, species, hue };
+  live.current = { net, runHost, mySlot, otherSlot, species, hue, level };
 
   const canvasRef = useRef(null);
   const keysRef = useRef({});
@@ -69,14 +76,14 @@ export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExi
   const pendingTame = useRef(new Map());
 
   const runRef = useRef(null);
-  const viewRef = useRef({ t: 0, st: "play", players: [null, null], critters: new Map(), baddies: new Map(), items: [], fx: [], got: false });
+  const viewRef = useRef({ t: 0, st: "play", players: [null, null], critters: new Map(), baddies: new Map(), items: [], fx: [], got: false, xp: [0, 1, 0], pk: null });
   const partnerRef = useRef(null);                 // { species, hue } of the run guest
   const recordedRef = useRef(false);
 
   // ── Host: start the run ────────────────────────────────────────────────────
   const startRun = useCallback(() => {
     const L = live.current;
-    const run = createRun(Math.floor(Math.random() * 1e9));
+    const run = createRun(Math.floor(Math.random() * 1e9), L.level);
     addPlayer(run, 0, L.species, SPAWN[0].x, SPAWN[0].y, L.hue);
     if (partnerRef.current) addPlayer(run, 1, partnerRef.current.species, SPAWN[1].x, SPAWN[1].y, partnerRef.current.hue);
     runRef.current = run;
@@ -84,7 +91,7 @@ export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExi
     lassoRef.current = null;
     trailRef.current = { 0: [], 1: [] };
     recordedRef.current = false;
-    setAdopted(null);
+    setAdopted([]); setMyPick(null);
   }, []);
 
   useEffect(() => { if (runHost && !runRef.current) startRun(); }, [runHost, startRun]);
@@ -116,19 +123,20 @@ export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExi
     if (!live.current.runHost || !runRef.current) return;
     for (const cid of (m.cids || [m.cid])) tryTame(runRef.current, 1, cid);
   });
+  useArcadeEvent(net, "pick", (m) => { if (live.current.runHost && runRef.current) choosePick(runRef.current, 1, m.id); });
   useArcadeEvent(net, "again", () => { if (live.current.runHost && isEnd(runRef.current?.state)) restart(); });
   useArcadeEvent(net, "hurt", (m) => { if (!live.current.runHost) applyHurt(m.kx, m.ky); });
   useArcadeEvent(net, "restart", () => {
     if (live.current.runHost) return;
     meRef.current = { ...SPAWN[1], face: 1, moving: false, kx: 0, ky: 0, hurtAt: -9 };
     lassoRef.current = null; trailRef.current = { 0: [], 1: [] }; recordedRef.current = false;
-    viewRef.current = { t: 0, st: "play", players: [null, null], critters: new Map(), baddies: new Map(), items: [], fx: [], got: false };
-    setAdopted(null);
+    viewRef.current = { t: 0, st: "play", players: [null, null], critters: new Map(), baddies: new Map(), items: [], fx: [], got: false, xp: [0, 1, 0], pk: null };
+    setAdopted([]); setMyPick(null);
   });
   useArcadeEvent(net, "snap", (m) => {
     if (live.current.runHost) return;
     const v = viewRef.current;
-    v.got = true; v.t = m.t; v.st = m.st;
+    v.got = true; v.t = m.t; v.st = m.st; v.xp = m.xp || v.xp; v.pk = m.pk || null;
     readSnapshotPlayers(m).forEach((p, i) => {
       if (!p) { v.players[i] = null; return; }
       const old = v.players[i];
@@ -138,7 +146,7 @@ export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExi
     for (const a of m.c || []) {
       const id = a[0]; seenC.add(id);
       const e = v.critters.get(id);
-      const base = { id, species: SPECIES_IDS[a[1]], tx: a[2], ty: a[3], hue: a[4], size: a[5] / 100, owner: a[6], hpFrac: a[7] / 100, bump: a[8], rest: !!a[9], hit: !!a[10] };
+      const base = { id, species: SPECIES_IDS[a[1]], tx: a[2], ty: a[3], hue: a[4], size: a[5] / 100, owner: a[6], hpFrac: a[7] / 100, bump: a[8], rest: !!a[9], hit: !!a[10], rare: !!a[11] };
       if (e) Object.assign(e, base); else v.critters.set(id, { ...base, x: a[2], y: a[3], face: 1 });
     }
     for (const id of [...v.critters.keys()]) if (!seenC.has(id)) v.critters.delete(id);
@@ -156,7 +164,10 @@ export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExi
 
   // ── Keyboard ───────────────────────────────────────────────────────────────
   useEffect(() => {
-    const down = (e) => { const k = KEYMAP[e.key]; if (k) { e.preventDefault(); keysRef.current[k] = true; } };
+    const down = (e) => {
+      if (["1", "2", "3"].includes(e.key)) { pickRef.current?.(Number(e.key) - 1); return; }
+      const k = KEYMAP[e.key]; if (k) { e.preventDefault(); keysRef.current[k] = true; }
+    };
     const up = (e) => { const k = KEYMAP[e.key]; if (k) delete keysRef.current[k]; };
     const blur = () => { keysRef.current = {}; };
     window.addEventListener("keydown", down); window.addEventListener("keyup", up); window.addEventListener("blur", blur);
@@ -185,10 +196,12 @@ export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExi
       const L = live.current, me = meRef.current, tSec = now / 1000;
       const run = runRef.current, view = viewRef.current;
 
-      let players, critters, baddies, berries, fxList, runT, state;
+      let players, critters, baddies, berries, fxList, runT, state, xp, pk;
       if (L.runHost) {
         if (!run) return;
         players = run.players; critters = run.critters; baddies = run.baddies; berries = run.items; fxList = run.fx; runT = run.t; state = run.state;
+        xp = [Math.floor(run.xp), xpNeed(run.lvl), run.lvl];
+        pk = run.pick ? { t: Math.ceil(run.pick.t), o: run.pick.offers, c: run.pick.chosen } : null;
       } else {
         const a = 1 - Math.exp(-dt * 12);
         for (const e of view.critters.values()) { const ox = e.x; e.x += (e.tx - e.x) * a; e.y += (e.ty - e.y) * a; if (Math.abs(e.x - ox) > 0.2) e.face = e.x > ox ? 1 : -1; }
@@ -197,7 +210,9 @@ export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExi
         for (const f of view.fx) f.age += dt;
         view.fx = view.fx.filter(f => f.age < 0.6);
         players = view.players; critters = [...view.critters.values()]; baddies = [...view.baddies.values()]; berries = view.items; fxList = view.fx; runT = view.t; state = view.st;
+        xp = view.xp; pk = view.pk;
       }
+      const paused = state === "pick";
       const myP = players[L.mySlot];
       const iAmDown = !!myP?.down;
       const over = isEnd(state);
@@ -210,9 +225,10 @@ export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExi
       if (st.active) { dx = st.x; dy = st.y; } else { dx = (k.right ? 1 : 0) - (k.left ? 1 : 0); dy = (k.down ? 1 : 0) - (k.up ? 1 : 0); }
       let mag = Math.hypot(dx, dy);
       if (mag > 1) { dx /= mag; dy /= mag; mag = 1; }
-      me.moving = !iAmDown && !over && mag > 0.05;
-      if (me.moving) { me.x += dx * T.LEADER_SPEED * dt; me.y += dy * T.LEADER_SPEED * dt; if (Math.abs(dx) > 0.15) me.face = dx > 0 ? 1 : -1; }
-      me.x += me.kx * dt; me.y += me.ky * dt;
+      me.moving = !iAmDown && !over && !paused && mag > 0.05;
+      const mySpeed = T.LEADER_SPEED * (myP?.mods?.speed || 1);
+      if (me.moving) { me.x += dx * mySpeed * dt; me.y += dy * mySpeed * dt; if (Math.abs(dx) > 0.15) me.face = dx > 0 ? 1 : -1; }
+      if (!paused) { me.x += me.kx * dt; me.y += me.ky * dt; }
       const decay = Math.exp(-dt * 8); me.kx *= decay; me.ky *= decay;
       if (partnerIn) {
         const pd = Math.hypot(me.x - partner.x, me.y - partner.y);
@@ -241,14 +257,14 @@ export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExi
       // ── Lasso (on my device) ─────────────────────────────────────────────
       for (const [cid, at] of pendingTame.current) if (now - at > 1500) pendingTame.current.delete(cid);
       const wild = critters.filter(c => c.owner === -1 && !pendingTame.current.has(c.id));
-      if (!iAmDown && !over && myP) {
-        const res = lassoStep(lassoRef.current, me, wild, me.moving);
+      if (!iAmDown && !over && !paused && myP) {
+        const res = lassoStep(lassoRef.current, me, wild, me.moving, myP.mods?.lasso || 1);
         lassoRef.current = res.state;
         if (res.tame) {
           if (L.runHost) for (const cid of res.tame) tryTame(run, 0, cid);
           else { L.net.send("tame", { cids: res.tame }); for (const cid of res.tame) pendingTame.current.set(cid, now); }
         }
-      } else lassoRef.current = null;
+      } else if (!paused) lassoRef.current = null;
 
       const trails = trailRef.current;
       const pushTrail = (slot, x, y) => { const tr = trails[slot]; tr.push({ x, y, at: now }); while (tr.length && now - tr[0].at > 1100) tr.shift(); };
@@ -296,7 +312,7 @@ export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExi
           const hpFrac = c.hpFrac ?? c.hp / c.maxHp;
           const hit = c.hit ?? (runT - (c.hitAt ?? -9) < 0.2);
           if (herd) drawHerdDot(ctx, c.x, c.y, SLOT_COLORS[c.owner]);
-          drawCreature(ctx, c.x, c.y - (c.bump ? 4 : 0), c.species, { hue: c.hue, size: c.size, personality: c.rest ? "sleepy" : "bold" },
+          drawCreature(ctx, c.x, c.y - (c.bump ? 4 : 0), c.species, { hue: c.hue, size: c.size, personality: c.rest ? "sleepy" : "bold", rare: c.rare },
             { face, t: tSec + c.id, moving: herd, scale: 0.75, alpha: c.rest ? 0.75 : 1 });
           if (!herd) drawWildSparkle(ctx, c.x + 14, c.y - 34, tSec, c.id);
           else if (hpFrac < 0.995) drawHerdHp(ctx, c.x, c.y - 36 * (c.size || 1), hpFrac, c.rest, hit);
@@ -328,11 +344,13 @@ export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExi
       if (now - lastHud > 200) {
         lastHud = now;
         const mine = critters.filter(c => c.owner === L.mySlot);
+        const cap = L.runHost ? herdCapOf(run, myP) : (myP?.herdCap ?? 15);
         setHud({
-          t: runT, hp: myP?.hp ?? 100, herd: mine.length, resting: mine.filter(c => c.rest).length, kills: myP?.kills ?? 0, tamed: myP?.tamed ?? 0, down: iAmDown,
-          st: state, started: L.runHost ? !!run : view.got, partnerIn,
+          t: runT, hp: myP?.hp ?? 100, maxHp: myP?.maxHp ?? 100, herd: mine.length, cap, resting: mine.filter(c => c.rest).length, kills: myP?.kills ?? 0, tamed: myP?.tamed ?? 0, down: iAmDown,
+          st: state, started: L.runHost ? !!run : view.got, partnerIn, xp,
+          pick: pk ? { t: pk.t, offers: pk.o?.[L.mySlot] || [], chosen: pk.c?.[L.mySlot] || null, partnerPicking: pk.o?.[L.otherSlot] != null, partnerChosen: !!pk.c?.[L.otherSlot] } : null,
           other: partner ? { kills: partner.kills, tamed: partner.tamed } : null,
-          myHerd: over ? mine.map(c => ({ id: c.id, species: c.species, hue: c.hue, size: c.size })) : [],
+          myHerd: over ? mine.map(c => ({ id: c.id, species: c.species, hue: c.hue, size: c.size, rare: !!c.rare })) : [],
         });
       }
     }
@@ -341,24 +359,46 @@ export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExi
     return () => { cancelAnimationFrame(raf); window.removeEventListener("resize", resize); };
   }, [applyHurt]);
 
-  // ── Save best run ──────────────────────────────────────────────────────────
+  // ── Run end: save best (per level), unlock the next level, golden critters home on Hard
   useEffect(() => {
     if (!isEnd(hud.st) || recordedRef.current || !hud.started) return;
     recordedRef.current = true;
     update(prev => {
-      const b = prev.stampedeBest || { time: 0, tamed: 0, kills: 0 };
-      return { stampedeBest: { time: Math.max(b.time, Math.floor(hud.t)), tamed: Math.max(b.tamed, hud.tamed), kills: Math.max(b.kills, hud.kills) } };
+      const all = prev.stampedeBest && !("time" in prev.stampedeBest) ? prev.stampedeBest : {};
+      const b = all[level] || { time: 0, tamed: 0, kills: 0 };
+      return { stampedeBest: { ...all, [level]: { time: Math.max(b.time, Math.floor(hud.t)), tamed: Math.max(b.tamed, hud.tamed), kills: Math.max(b.kills, hud.kills) } } };
     });
-  }, [hud.st, hud.started, hud.t, hud.tamed, hud.kills, update]);
+    if (hud.st === "won") onWin?.(level);
+    if (LV.rareHome) {
+      const rares = hud.myHerd.filter(c => c.rare);
+      for (const c of rares) onAdopt?.({ species: c.species, hue: c.hue, size: c.size, rare: true });
+      if (rares.length) setAdopted(rares.map(c => c.id));
+    }
+  }, [hud.st, hud.started, hud.t, hud.tamed, hud.kills, hud.myHerd, level, LV.rareHome, update, onWin, onAdopt]);
 
+  // how many regular picks you get (on Hard, golden ones came home free and don't count)
+  const picksUsed = adopted.filter(id => !(LV.rareHome && hud.myHerd.find(c => c.id === id)?.rare)).length;
+  const picksLeft = Math.max(0, LV.home - picksUsed);
   const bringHome = (c) => {
-    if (adopted) return;
-    setAdopted(c.id);
-    onAdopt?.({ species: c.species, hue: c.hue, size: c.size });
+    if (adopted.includes(c.id) || picksLeft <= 0) return;
+    setAdopted(a => [...a, c.id]);
+    onAdopt?.({ species: c.species, hue: c.hue, size: c.size, rare: c.rare });
   };
 
+  // ── Upgrade pick ───────────────────────────────────────────────────────────
+  const choose = (id) => {
+    if (!hud.pick || hud.pick.chosen || myPick) return;
+    setMyPick(id);
+    if (runHost) choosePick(runRef.current, 0, id);
+    else net.send("pick", { id });
+  };
+  const pickRef = useRef(null);
+  pickRef.current = (i) => { const id = hud.pick?.offers?.[i]; if (id) choose(id); };
+  useEffect(() => { if (!hud.pick) setMyPick(null); }, [hud.pick]);
+
   // ── UI ─────────────────────────────────────────────────────────────────────
-  const best = save.stampedeBest || { time: 0, tamed: 0, kills: 0 };
+  const best = (save.stampedeBest && save.stampedeBest[level]) || { time: 0, tamed: 0, kills: 0 };
+  const [xpNow, xpNeedNow, lvNow] = hud.xp || [0, 1, 0];
   return (
     <div style={{ position: "absolute", inset: 0, zIndex: 70, overflow: "hidden", background: "#1d3b22", touchAction: "none", ...noSelect, fontFamily: "ui-rounded, 'Nunito', system-ui, sans-serif" }}>
       <canvas ref={canvasRef} style={{ width: "100%", height: "100%", display: "block", ...noSelect }} />
@@ -366,16 +406,25 @@ export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExi
       <button onClick={onExit} style={{ ...smallBtn, position: "absolute", top: 10, left: 10, zIndex: 25 }}>← back to farm</button>
 
       <div style={{ position: "absolute", top: 46, left: 0, right: 0, display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap", zIndex: 20, pointerEvents: "none", fontSize: 13, fontWeight: 700 }}>
-        <Chip>{fmtTime(Math.max(0, T.RUN_LEN - hud.t))} left</Chip>
+        <Chip color={C.dim}>{LV.name}</Chip>
+        <Chip>{fmtTime(Math.max(0, LV.len - hud.t))} left</Chip>
         <Chip>
           <Icon draw={(ctx, s) => drawHeart(ctx, s / 2, s / 2, s, "#ff5d73")} size={14} />
           <span style={{ display: "inline-block", width: 70, height: 8, borderRadius: 4, background: "rgba(0,0,0,0.4)", overflow: "hidden" }}>
-            <span style={{ display: "block", height: "100%", width: `${Math.max(0, hud.hp)}%`, background: hud.hp < 30 ? C.bad : "#7ee081" }} />
+            <span style={{ display: "block", height: "100%", width: `${Math.max(0, hud.hp / hud.maxHp * 100)}%`, background: hud.hp / hud.maxHp < 0.3 ? C.bad : "#7ee081" }} />
           </span>
         </Chip>
-        <Chip><Icon draw={drawPaw} size={16} /> herd {hud.herd}{hud.resting ? <span style={{ color: "#ffb347" }}>· {hud.resting} resting</span> : null}</Chip>
+        <Chip><Icon draw={drawPaw} size={16} /> herd {hud.herd}/{hud.cap}{hud.resting ? <span style={{ color: "#ffb347" }}>· {hud.resting} resting</span> : null}</Chip>
         <Chip><GoopIcon /> {hud.kills}</Chip>
         <Chip color={hud.partnerIn ? C.good : C.dim}><Dot color={hud.partnerIn ? C.good : C.dim} /> {hud.partnerIn ? "partner in the run" : "solo run"}</Chip>
+      </div>
+
+      {/* team XP bar: fills from flattening goop and taming; full = everyone picks an upgrade */}
+      <div style={{ position: "absolute", top: 84, left: "50%", transform: "translateX(-50%)", width: "min(360px, 70vw)", zIndex: 20, pointerEvents: "none", display: "flex", alignItems: "center", gap: 6 }}>
+        <span style={{ fontSize: 11, fontWeight: 800, color: "#c9a7ff" }}>Lv {lvNow + 1}</span>
+        <span style={{ flex: 1, height: 6, borderRadius: 3, background: "rgba(0,0,0,0.45)", overflow: "hidden" }}>
+          <span style={{ display: "block", height: "100%", width: `${Math.min(100, xpNow / xpNeedNow * 100)}%`, background: "linear-gradient(90deg, #8f6bff, #c9a7ff)" }} />
+        </span>
       </div>
 
       {hud.started && hud.herd === 0 && hud.t < 25 && !hud.down && <div style={hintStyle}>Run one circle around sparkly critters to tame them</div>}
@@ -391,6 +440,37 @@ export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExi
 
       <TouchStick stickRef={stickRef} />
 
+      {hud.pick && !isEnd(hud.st) && (
+        <Overlay>
+          <div style={{ fontSize: 13, letterSpacing: "0.18em", textTransform: "uppercase", color: "#c9a7ff" }}>level up!</div>
+          <div style={{ fontSize: 20, fontWeight: 800 }}>{hud.pick.chosen || myPick ? "Nice pick!" : "Pick an upgrade"}</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {hud.pick.offers.map((id, i) => {
+              const card = CARDS[id], mine = (hud.pick.chosen || myPick) === id, done = !!(hud.pick.chosen || myPick);
+              return (
+                <button key={id} disabled={done} onClick={() => choose(id)} style={{
+                  display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 14, textAlign: "left",
+                  cursor: done ? "default" : "pointer", fontFamily: "inherit", color: C.text,
+                  background: mine ? "rgba(143,107,255,0.3)" : "rgba(255,255,255,0.05)",
+                  border: `2px solid ${mine ? "#c9a7ff" : "rgba(255,255,255,0.12)"}`, opacity: done && !mine ? 0.4 : 1,
+                }}>
+                  <CardIcon kind={card.icon} />
+                  <span style={{ flex: 1 }}>
+                    <span style={{ display: "block", fontWeight: 800, fontSize: 15 }}>{card.name}</span>
+                    <span style={{ display: "block", fontSize: 12, color: C.dim }}>{card.desc}</span>
+                  </span>
+                  {!isTouch() && !done && <span style={{ fontSize: 12, color: C.faint, fontWeight: 800 }}>{i + 1}</span>}
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ fontSize: 12, color: C.dim }}>
+            {hud.pick.partnerPicking ? (hud.pick.partnerChosen ? `${partnerName || "Partner"} is ready` : `${partnerName || "Partner"} is choosing…`) : "solo run"}
+            {" · "}{Math.max(0, hud.pick.t)}s{hud.pick.chosen || myPick ? "" : " (then one is picked for you)"}
+          </div>
+        </Overlay>
+      )}
+
       {isEnd(hud.st) && (
         <Overlay>
           <div style={{ fontSize: 13, letterSpacing: "0.18em", textTransform: "uppercase", color: hud.st === "won" ? C.good : C.dim }}>{hud.st === "won" ? "you survived!" : "run over"}</div>
@@ -405,23 +485,30 @@ export default function StampedeRun({ net, runHost, species, hue, onAdopt, onExi
           {hud.myHerd.length > 0 && (
             <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 8 }}>
               <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 6 }}>
-                {adopted ? "Coming home to your pen!" : "Bring one home to the farm"}
+                {picksLeft > 0 ? `Bring ${picksLeft} home to the farm` : "Coming home to your pen!"}
               </div>
+              {LV.rareHome && hud.myHerd.some(c => c.rare) && (
+                <div style={{ fontSize: 12, color: "#ffd65a", marginBottom: 6 }}>Every golden critter comes home free!</div>
+              )}
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center", maxHeight: 150, overflowY: "auto" }}>
-                {hud.myHerd.map(c => (
-                  <button key={c.id} disabled={!!adopted} onClick={() => bringHome(c)} title={SPECIES[c.species]?.name} style={{
-                    padding: 2, borderRadius: 10, cursor: adopted ? "default" : "pointer",
-                    background: adopted === c.id ? "rgba(126,224,129,0.25)" : "rgba(255,255,255,0.05)",
-                    border: `2px solid ${adopted === c.id ? C.good : "rgba(255,255,255,0.12)"}`,
-                    opacity: adopted && adopted !== c.id ? 0.35 : 1,
-                  }}>
-                    <Portrait species={c.species} hue={c.hue} size={50} />
-                  </button>
-                ))}
+                {hud.myHerd.map(c => {
+                  const home = adopted.includes(c.id);
+                  return (
+                    <button key={c.id} disabled={home || picksLeft <= 0} onClick={() => bringHome(c)} title={SPECIES[c.species]?.name} style={{
+                      padding: 2, borderRadius: 10, cursor: home || picksLeft <= 0 ? "default" : "pointer",
+                      background: home ? "rgba(126,224,129,0.25)" : "rgba(255,255,255,0.05)",
+                      border: `2px solid ${home ? C.good : c.rare ? "#ffd65a" : "rgba(255,255,255,0.12)"}`,
+                      opacity: !home && picksLeft <= 0 ? 0.35 : 1,
+                    }}>
+                      <Portrait species={c.species} hue={c.hue} rare={c.rare} size={50} />
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
 
+          {hud.st === "won" && level !== "hard" && <div style={{ fontSize: 13, color: C.good, fontWeight: 800 }}>{LEVELS[level === "easy" ? "medium" : "hard"].name} is unlocked on the signpost!</div>}
           <button onClick={restart} style={menuBtn(true)}>Again!</button>
           <button onClick={onExit} style={menuBtn(false)}>Back to farm</button>
         </Overlay>
@@ -461,8 +548,30 @@ function Icon({ draw, size = 18 }) {
 function GoopIcon() {
   return <Icon size={18} draw={(ctx, s) => { ctx.save(); ctx.translate(s / 2, s * 0.92); ctx.scale(s / 34, s / 34); drawGoop(ctx, { id: 1, kind: "goop", x: 0, y: 0, hpFrac: 1 }, 0); ctx.restore(); }} />;
 }
-function Portrait({ species, hue, size }) {
-  return <Icon size={size} draw={(ctx, s) => { ctx.save(); ctx.translate(s / 2, s * 0.86); ctx.scale(s / 48, s / 48); drawCreature(ctx, 0, 0, species, { hue: hue ?? SPECIES[species]?.hue ?? 0, size: 1, personality: "bold" }, { face: 1, t: 1 }); ctx.restore(); }} />;
+function Portrait({ species, hue, rare, size }) {
+  return <Icon size={size} draw={(ctx, s) => { ctx.save(); ctx.translate(s / 2, s * 0.86); ctx.scale(s / 48, s / 48); drawCreature(ctx, 0, 0, species, { hue: hue ?? SPECIES[species]?.hue ?? 0, size: 1, personality: "bold", rare }, { face: 1, t: 1 }); ctx.restore(); }} />;
+}
+
+// Upgrade card icons, drawn in code: zap bolt, heart (you), paw (herd), loop (taming), berry.
+const CARD_TINT = { zap: "#ffe14d", you: "#ff5d73", herd: "#7ee081", tame: "#6fd3ff", berry: "#ff7aa8" };
+function CardIcon({ kind }) {
+  return (
+    <span style={{ width: 42, height: 42, borderRadius: 12, background: "rgba(0,0,0,0.35)", border: `1px solid ${CARD_TINT[kind]}55`, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+      <Icon size={30} draw={(ctx, s) => {
+        const c = CARD_TINT[kind];
+        if (kind === "zap") {
+          ctx.fillStyle = c;
+          ctx.beginPath(); ctx.moveTo(s * 0.58, s * 0.06); ctx.lineTo(s * 0.22, s * 0.56); ctx.lineTo(s * 0.46, s * 0.56); ctx.lineTo(s * 0.38, s * 0.94); ctx.lineTo(s * 0.8, s * 0.4); ctx.lineTo(s * 0.54, s * 0.4); ctx.closePath(); ctx.fill();
+        } else if (kind === "you") drawHeart(ctx, s / 2, s / 2, s * 0.85, c);
+        else if (kind === "herd") { ctx.save(); ctx.scale(s / 18, s / 18); drawPaw(ctx, 18); ctx.restore(); }
+        else if (kind === "tame") {
+          ctx.strokeStyle = c; ctx.lineWidth = 2.5; ctx.setLineDash([4, 3]);
+          ctx.beginPath(); ctx.arc(s / 2, s / 2, s * 0.36, 0.3, Math.PI * 2 - 0.1); ctx.stroke(); ctx.setLineDash([]);
+          ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(s / 2, s / 2, s * 0.1, 0, Math.PI * 2); ctx.fill();
+        } else drawCropSprite(ctx, "berry", s / 2, s / 2, s * 0.9, 0);
+      }} />
+    </span>
+  );
 }
 function Dot({ color }) { return <span style={{ display: "inline-block", width: 9, height: 9, borderRadius: "50%", background: color }} />; }
 function Chip({ children, color = C.text }) {
@@ -518,7 +627,7 @@ const smallBtn = {
   background: "rgba(15,12,30,0.7)", border: "1px solid rgba(255,255,255,0.15)", color: C.text,
 };
 const hintStyle = {
-  position: "absolute", top: 86, left: 0, right: 0, textAlign: "center", zIndex: 21, pointerEvents: "none",
+  position: "absolute", top: 100, left: 0, right: 0, textAlign: "center", zIndex: 21, pointerEvents: "none",
   color: "#fff", fontWeight: 800, fontSize: 14, textShadow: "0 2px 6px rgba(0,0,0,0.6)", padding: "0 20px",
 };
 function menuBtn(primary) {

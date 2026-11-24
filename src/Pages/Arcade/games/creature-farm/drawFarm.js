@@ -13,6 +13,8 @@ const TAU = Math.PI * 2;
 
 export function creatureColor(species, traits, dl = 0) {
   const sp = SPECIES[species];
+  // rare (golden) critters: rich gold body whatever their species
+  if (traits.rare) return `hsl(46, 92%, ${Math.max(5, Math.min(95, 58 + dl))}%)`;
   return `hsl(${traits.hue}, ${sp.sat}%, ${Math.max(5, Math.min(95, sp.light + dl))}%)`;
 }
 
@@ -36,6 +38,12 @@ export function drawCreature(ctx, x, y, species, traits, opts = {}) {
   ctx.globalAlpha = alpha;
   ctx.translate(x, y);
   ctx.scale(s, s);
+
+  // rare: soft golden glow on the ground
+  if (traits.rare) {
+    ctx.fillStyle = `rgba(255,214,90,${0.22 + Math.sin(t * 3) * 0.08})`;
+    ctx.beginPath(); ctx.ellipse(0, -bh * 0.8, bw * 1.6, bh * 1.5, 0, 0, TAU); ctx.fill();
+  }
 
   // shadow
   ctx.fillStyle = "rgba(0,0,0,0.22)";
@@ -149,6 +157,26 @@ export function drawCreature(ctx, x, y, species, traits, opts = {}) {
   }
 
   ctx.restore();
+
+  // rare: twinkling sparkles around it
+  if (traits.rare) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    for (let i = 0; i < 3; i++) {
+      const a = t * 1.3 + i * 2.1, tw = (Math.sin(t * 5 + i * 1.7) + 1) / 2;
+      const px = x + Math.cos(a) * (bw + 8) * s, py = y - (bh + 4) * s + Math.sin(a) * (bh + 6) * s;
+      drawTwinkle(ctx, px, py, (2 + tw * 3) * s, `rgba(255,240,170,${0.4 + tw * 0.6})`);
+    }
+    ctx.restore();
+  }
+}
+
+function drawTwinkle(ctx, x, y, r, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x, y - r); ctx.lineTo(x + r * 0.3, y - r * 0.3); ctx.lineTo(x + r, y); ctx.lineTo(x + r * 0.3, y + r * 0.3);
+  ctx.lineTo(x, y + r); ctx.lineTo(x - r * 0.3, y + r * 0.3); ctx.lineTo(x - r, y); ctx.lineTo(x - r * 0.3, y - r * 0.3);
+  ctx.closePath(); ctx.fill();
 }
 
 // ── Farmer ────────────────────────────────────────────────────────────────────

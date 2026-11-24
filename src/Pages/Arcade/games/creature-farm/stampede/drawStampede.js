@@ -165,6 +165,10 @@ export function drawFx(ctx, f, colors) {
   } else if (f.k === "flee") {
     ctx.globalAlpha = a * 0.7; ctx.fillStyle = "#d9cfb8";
     for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.arc(f.x + (i - 1.5) * 8, f.y - 6 - f.age * 30, 6 + f.age * 10, 0, TAU); ctx.fill(); }
+  } else if (f.k === "levelup") {
+    // purple ring bursting outward from the leader
+    ctx.globalAlpha = a; ctx.strokeStyle = "#c9a7ff"; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.arc(f.x, f.y - 20, 20 + f.age * 140, 0, Math.PI * 2); ctx.stroke();
   } else if (f.k === "heal") {
     ctx.globalAlpha = a; ctx.fillStyle = "#7ee081";
     for (let i = 0; i < 6; i++) {
