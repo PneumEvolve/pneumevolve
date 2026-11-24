@@ -106,7 +106,7 @@ export function buildWorld(scene) {
   const trunkMat = new THREE.MeshLambertMaterial({ color: "#7a5230" });
   const leafMats = ["#3f8f3a", "#4c9c3f", "#357a33"].map(c => new THREE.MeshLambertMaterial({ color: c }));
   const blocked = (x, z, pad) =>
-    Math.hypot(x, z) < 9 ||
+    Math.hypot(x, z) < 13 ||                                // keep the middle clear (spawn + game pads)
     Math.hypot(x - POND.x, z - POND.z) < POND.r + pad ||
     (Math.abs(x - HOUSE.x) < HOUSE.w / 2 + pad && Math.abs(z - HOUSE.z) < HOUSE.d / 2 + pad) ||
     colliders.some(c => Math.hypot(c.x - x, c.z - z) < c.r + pad);

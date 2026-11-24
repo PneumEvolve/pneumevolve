@@ -105,19 +105,21 @@ function buildEyes(kind) {
   return g;
 }
 
-function makeNameTag(name, color) {
+// wide = true gives room for longer labels (like game pad names)
+export function makeNameTag(name, color, wide = false) {
   const cv = document.createElement("canvas");
-  cv.width = 256; cv.height = 64;
+  const W = wide ? 512 : 256;
+  cv.width = W; cv.height = 64;
   const ctx = cv.getContext("2d");
   ctx.font = "bold 34px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  const w = Math.min(240, ctx.measureText(name).width + 30);
+  const w = Math.min(W - 16, ctx.measureText(name).width + 30);
   ctx.fillStyle = "rgba(15,12,30,0.65)";
-  ctx.beginPath(); ctx.roundRect(128 - w / 2, 8, w, 48, 22); ctx.fill();
-  ctx.fillStyle = color; ctx.fillText(name, 128, 33);
+  ctx.beginPath(); ctx.roundRect(W / 2 - w / 2, 8, w, 48, 22); ctx.fill();
+  ctx.fillStyle = color; ctx.fillText(name, W / 2, 33);
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
-  sprite.scale.set(2, 0.5, 1);
+  sprite.scale.set(wide ? 4 : 2, 0.5, 1);
   sprite.renderOrder = 10;
   return sprite;
 }

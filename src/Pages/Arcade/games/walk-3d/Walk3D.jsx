@@ -6,7 +6,8 @@
 //
 //   world3d.js   the world (seeded, so both players see the same trees)
 //   avatar3d.js  the blob characters + hats/eyes/colours
-//   this file    screen, camera, controls, syncing with your partner
+//   games3d.js   3D mini-games started from the glowing pads (Bumper Blobs, …)
+//   this file    screen, camera, controls, syncing with your partner, the pads
 //
 // Controls
 //   desktop  WASD / arrows to walk, Space to jump, drag (or Q/E) to turn the camera
@@ -15,16 +16,19 @@
 // Network (no shared world to save — everyone just reports themselves):
 //   "w3_me"   { x, y, z, r, m, a }   ~15/s volatile   position, facing, moving, airborne
 //   "w3_look" { look }               reliable          sent on change and when the partner (re)joins
+//   "g3_go"   { id }                 someone started a pad game (partner gets a Join banner)
+//   "g3_end"  {}                     the game's host left it (everyone in it comes back)
 //
 // Needs:  npm install three
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { useArcadeEvent } from "../../net/useArcadeRoom";
 import { useArcadeSave } from "../../net/useArcadeSave";
 import { C } from "../../ui";
 import { buildWorld, heightAt, resolveCollisions } from "./world3d";
-import { makeAvatar, COLORS, HATS, EYES, DEFAULT_LOOK } from "./avatar3d";
+import { makeAvatar, makeNameTag, COLORS, HATS, EYES, DEFAULT_LOOK } from "./avatar3d";
+import { GAMES3D } from "./games3d";
 
 const SPEED = 6, JUMP = 7.5, GRAVITY = 22;
 const SLOT_COLORS = { p1: C.accent, p2: C.accent2 };
@@ -46,6 +50,9 @@ export default function Walk3D({ net, room, role, onLeave }) {
   const look = { ...DEFAULT_LOOK, ...(save.look || {}) };
   const [customizing, setCustomizing] = useState(false);
   const [partnerHere, setPartnerHere] = useState(false);
+  const [nearPad, setNearPad] = useState(null);       // id of the game pad you're standing on
+  const [active, setActive] = useState(null);         // { id, host } while in a pad game
+  const [invite, setInvite] = useState(null);         // { id } partner started a game you can join
 
   const mountRef = useRef(null);
   const keysRef = useRef({});
@@ -57,13 +64,21 @@ export default function Walk3D({ net, room, role, onLeave }) {
   const sceneRef = useRef(null);          // { scene, me (avatar) }
 
   const live = useRef({});
-  live.current = { net, look, customizing, partnerName, partnerColor };
+  live.current = { net, look, customizing, partnerName, partnerColor, inGame: !!active, active, nearPad };
 
   // ── Network ────────────────────────────────────────────────────────────────
   const sendLook = useCallback(() => live.current.net.send("w3_look", { look: live.current.look }), []);
-  useArcadeEvent(net, "hello", sendLook);
-  useArcadeEvent(net, "partner_connected", sendLook);
+  const announceGame = useCallback(() => { const a = live.current.active; if (a?.host) live.current.net.send("g3_go", { id: a.id }); }, []);
+  useArcadeEvent(net, "hello", () => { sendLook(); announceGame(); });
+  useArcadeEvent(net, "partner_connected", () => { sendLook(); announceGame(); });
+  useArcadeEvent(net, "g3_go", (m) => { if (!live.current.active) setInvite({ id: m.id }); });
+  useArcadeEvent(net, "g3_end", () => {
+    setInvite(null);
+    if (live.current.active && !live.current.active.host) setActive(null);
+  });
   useArcadeEvent(net, "partner_disconnected", () => {
+    setInvite(null);
+    if (live.current.active && !live.current.active.host) setActive(null);
     const P = partnerRef.current, S = sceneRef.current;
     if (P.avatar && S) S.scene.remove(P.avatar.group);
     P.avatar = null; setPartnerHere(false);
@@ -98,11 +113,30 @@ export default function Walk3D({ net, room, role, onLeave }) {
     net.send("w3_look", { look });
   }, [look.color, look.hat, look.eyes]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Pad games ──────────────────────────────────────────────────────────────
+  const startGame = (id) => {
+    const g = GAMES3D.find(x => x.id === id);
+    if (!g?.ready) return;
+    setCustomizing(false); setInvite(null);
+    setActive({ id, host: true });
+    net.send("g3_go", { id });
+  };
+  const joinGame = () => { if (invite) { setActive({ id: invite.id, host: false }); setInvite(null); } };
+  const exitGame = () => {
+    if (active?.host) net.send("g3_end");
+    setActive(null); keysRef.current = {};
+  };
+
   const changeLook = (patch) => update(prev => ({ look: { ...DEFAULT_LOOK, ...(prev.look || {}), ...patch } }));
+
+  const startGameRef = useRef(null);
+  startGameRef.current = startGame;
 
   // ── Keyboard ───────────────────────────────────────────────────────────────
   useEffect(() => {
     const down = (e) => {
+      if (live.current.inGame) return;                     // the pad game handles keys
+      if (e.key === "Enter" && live.current.nearPad) { startGameRef.current?.(live.current.nearPad); return; }
       if (e.key === " ") { e.preventDefault(); jumpRef.current = true; return; }
       const k = KEYMAP[e.key]; if (k) { e.preventDefault(); keysRef.current[k] = true; }
     };
@@ -134,6 +168,22 @@ export default function Walk3D({ net, room, role, onLeave }) {
     Object.assign(sun.shadow.camera, { left: -22, right: 22, top: 22, bottom: -22, near: 1, far: 80 });
     scene.add(sun, sun.target);
 
+    // glowing game pads
+    const pads = GAMES3D.map(g => {
+      const grp = new THREE.Group();
+      const col = g.ready ? g.color : "#8a8a9a";
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(1.7, 1.9, 0.2, 32), new THREE.MeshLambertMaterial({ color: col, emissive: col, emissiveIntensity: g.ready ? 0.35 : 0.05 }));
+      base.position.y = 0.1; base.receiveShadow = true;
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(1.5, 0.07, 8, 40), new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: g.ready ? 0.8 : 0.3 }));
+      ring.rotation.x = -Math.PI / 2; ring.position.y = 0.25;
+      const label = makeNameTag(g.ready ? g.name : `${g.name} (soon)`, g.ready ? "#ffffff" : "#bbbbbb", true);
+      label.position.y = 2.6; label.scale.set(6, 0.75, 1);
+      grp.add(base, ring, label);
+      grp.position.set(g.pad.x, heightAt(g.pad.x, g.pad.z), g.pad.z);
+      scene.add(grp);
+      return { g, grp, ring };
+    });
+
     const me = makeAvatar(live.current.look, myName);
     me.setName(myName, myColor);
     scene.add(me.group);
@@ -158,12 +208,13 @@ export default function Walk3D({ net, room, role, onLeave }) {
     el.addEventListener("pointerup", pu); el.addEventListener("pointercancel", pu);
 
     const camPos = new THREE.Vector3(0, 8, 14), camLook = new THREE.Vector3();
-    let raf = 0, last = performance.now(), lastSend = 0;
+    let raf = 0, last = performance.now(), lastSend = 0, lastPad = null;
 
     function frame(now) {
       raf = requestAnimationFrame(frame);
       const dt = Math.min(0.05, (now - last) / 1000); last = now;
       const t = now / 1000, L = live.current, M = meRef.current, cam = camRef.current, k = keysRef.current;
+      if (L.inGame) return;                                 // a pad game is on screen — the world waits behind it
 
       // turn camera with Q/E
       if (k.turnL) cam.yaw += 1.8 * dt;
@@ -216,6 +267,15 @@ export default function Walk3D({ net, room, role, onLeave }) {
         P.avatar.group.rotation.y = P.r;
         P.avatar.animate(t + 1.3, P.m, P.a);
       }
+
+      // ── game pads: pulse, and notice when I'm standing on one
+      let onPad = null;
+      for (const p of pads) {
+        p.ring.scale.setScalar(1 + Math.sin(t * 3) * 0.06);
+        p.ring.position.y = 0.25 + Math.sin(t * 2) * 0.05;
+        if (Math.hypot(M.x - p.g.pad.x, M.z - p.g.pad.z) < 1.9) onPad = p.g.id;
+      }
+      if (onPad !== lastPad) { lastPad = onPad; setNearPad(onPad); }
 
       // ── tell the partner where I am
       if (now - lastSend > 66) {
@@ -294,6 +354,38 @@ export default function Walk3D({ net, room, role, onLeave }) {
           <div style={{ fontSize: 11, color: C.faint }}>Saved to your account. {partnerName} sees your new look right away.</div>
         </div>
       )}
+
+      {nearPad && !active && !customizing && (() => {
+        const g = GAMES3D.find(x => x.id === nearPad);
+        return (
+          <div style={{ position: "absolute", left: "50%", bottom: isTouch() ? 150 : 34, transform: "translateX(-50%)", zIndex: 25, width: "min(360px, 80vw)", background: "rgba(20,16,40,0.9)", border: `2px solid ${g.ready ? g.color : "rgba(255,255,255,0.2)"}`, borderRadius: 16, padding: "12px 14px", color: C.text, textAlign: "center", display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ fontWeight: 900, fontSize: 18 }}>{g.name}</div>
+            <div style={{ fontSize: 13, color: C.dim }}>{g.desc}</div>
+            {g.ready
+              ? <button onClick={() => startGame(g.id)} style={{ ...btn, padding: 11, fontSize: 16, background: g.color, color: "#1a1300", border: "none" }}>Play{!isTouch() ? " (Enter)" : ""}</button>
+              : <div style={{ fontSize: 12, fontWeight: 800, color: C.accent }}>COMING SOON</div>}
+          </div>
+        );
+      })()}
+
+      {invite && !active && (
+        <div style={{ position: "absolute", top: 50, left: "50%", transform: "translateX(-50%)", zIndex: 26, display: "flex", alignItems: "center", gap: 10, padding: "8px 10px 8px 14px", borderRadius: 14, background: "rgba(15,12,30,0.9)", border: `1px solid ${partnerColor}`, color: C.text, fontWeight: 700, fontSize: 13, whiteSpace: "nowrap" }}>
+          {partnerName} started {GAMES3D.find(g => g.id === invite.id)?.name ?? "a game"}
+          <button onClick={joinGame} style={{ ...btn, background: partnerColor, color: "#06202a", border: "none" }}>Join</button>
+          <button onClick={() => setInvite(null)} style={{ ...btn, padding: "7px 9px" }} aria-label="dismiss">x</button>
+        </div>
+      )}
+
+      {active && (() => {
+        const g = GAMES3D.find(x => x.id === active.id);
+        const Game = g?.component;
+        return Game && (
+          <Suspense fallback={<div style={{ position: "absolute", inset: 0, zIndex: 60, background: "#8fd0ff", display: "flex", alignItems: "center", justifyContent: "center", color: "#1a2a40", fontWeight: 800 }}>loading {g.name}…</div>}>
+            <Game net={net} host={active.host} look={look} partnerLook={partnerRef.current.look}
+              myName={myName} partnerName={partnerName} myColor={myColor} partnerColor={partnerColor} onExit={exitGame} />
+          </Suspense>
+        );
+      })()}
 
       {!isTouch() && !customizing && (
         <div style={{ position: "absolute", bottom: 8, left: 0, right: 0, textAlign: "center", color: "rgba(20,30,40,0.6)", fontSize: 12, fontWeight: 700, zIndex: 5, pointerEvents: "none" }}>
