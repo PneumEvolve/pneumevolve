@@ -28,15 +28,18 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useArcadeEvent } from "../../net/useArcadeRoom";
 import { useArcadeWorld } from "../../net/useArcadeWorld";
+import { useArcadeSave } from "../../net/useArcadeSave";
 import { C } from "../../ui";
 import { SPECIES, CROPS, PERSONALITIES } from "./species";
 import {
   WORLD_W, WORLD_H, MAP, REACH, DAY_LEN, PLOT_COUNT, FOLLOW_BOND, FEED_BELOW,
-  initFarm, farmReducer, plotRect, growth, visitorPos, penPos,
+  initFarm, farmReducer, plotRect, growth, visitorPos, penPos, workerPos,
 } from "./farmWorld";
+import { stateOf, troughCap, STORE_ITEMS } from "./ranch";
+import RanchPanel, { alertsFor, MANAGER_PANEL_W } from "./RanchPanel";
 import {
   drawCreature, drawFarmer, drawMap, drawBar,
-  drawCropSprite, drawHeart, drawBowl, drawSun, drawPaw, drawQuestion,
+  drawCropSprite, drawHeart, drawBowl, drawSun, drawPaw, drawQuestion, drawWorkIcon,
 } from "./drawFarm";
 import StampedeRun from "./stampede/StampedeRun";
 import { LEVELS, LEVEL_ORDER } from "./stampede/stampedeSim";
@@ -78,7 +81,16 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
   const partnerId = myId === p1 ? p2 : p1;
 
   const [seed,      setSeed]      = useState("berry");
-  const [roster,    setRoster]    = useState(false);
+  const [roster,    setRoster]    = useState(false);   // Ranch drawer open (Walk mode)
+  const [ranchTab,  setRanchTab]  = useState("overview");
+  // Play mode is per player: "walk" (run around, feed/pet by hand) or "manage" (Ranch Manager menus)
+  const { data: prefs, update: updatePrefs } = useArcadeSave("creature-farm", { farmMode: "walk" });
+  const manager = prefs.farmMode === "manage";
+  const setMode = (m) => { updatePrefs({ farmMode: m }); setRoster(false); keysRef.current = {}; };
+  const openRanch = (tab = "overview") => { setRanchTab(tab); setRoster(true); };
+  const reportKey = `ranch_report_seen_${room.id}_${myId}`;
+  const readSeen = () => { try { return Number(localStorage.getItem(reportKey)) || 0; } catch { return 0; } };
+  const [reportSeen, setReportSeen] = useState(readSeen);
   const [toasts,    setToasts]    = useState([]);
   const [target,    setTarget]    = useState(null);   // what's in reach (for the buttons)
   const [portrait,  setPortrait]  = useState(false);
@@ -88,7 +100,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
 
   // Everything the loop/handlers need, always fresh.
   const live = useRef({});
-  live.current = { W, world: W.world, myId, partnerId, seed, solo, net, colorOf, nameOf, role, inRun: !!myRun, myRun, partnerRun };
+  live.current = { W, world: W.world, myId, partnerId, seed, solo, net, colorOf, nameOf, role, inRun: !!myRun, myRun, partnerRun, manager };
 
   const canvasRef = useRef(null);
   const keysRef   = useRef({});
@@ -199,6 +211,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
     const L = live.current, t = currentTarget.current;
     if (!t || !L.W.canAct) return;
     if (t.kind === "sign") { setBoard(true); return; }
+    if (t.kind === "trough") { L.W.dispatch({ type: "fill_trough" }); return; }
     if (t.kind === "plot") {
       const crop = L.world.plots[t.i];
       if (!crop) L.W.dispatch({ type: "plant", i: t.i, kind: L.seed });
@@ -226,12 +239,12 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
   // ── Keyboard ───────────────────────────────────────────────────────────────
   useEffect(() => {
     const down = (e) => {
-      if (e.target?.tagName === "INPUT" || live.current.inRun) return;
+      if (e.target?.tagName === "INPUT" || e.target?.tagName === "SELECT" || live.current.inRun || live.current.manager) return;
       const k = KEYMAP[e.key];
       if (k) { e.preventDefault(); keysRef.current[k] = true; return; }
       if (e.key === "e" || e.key === "E" || e.key === " ") { e.preventDefault(); if (!e.repeat) pressAction(); return; }
       if (e.key === "q" || e.key === "Q") { if (!e.repeat) doPet(); return; }
-      if (e.key === "r" || e.key === "R" || e.key === "Tab") { e.preventDefault(); setRoster(o => !o); return; }
+      if (e.key === "r" || e.key === "R" || e.key === "Tab") { e.preventDefault(); setRanchTab("creatures"); setRoster(o => !o); return; }
       if (e.key === "Escape") { setRoster(false); return; }
       const n = Number(e.key);
       if (n >= 1 && n <= SEEDS.length) setSeed(SEEDS[n - 1]);
@@ -292,7 +305,8 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
     }
     resize();
     window.addEventListener("resize", resize);
-    if (window.__ARCADE_DEBUG__) window.__ARCADE_DEBUG__.farm = { me: meRef.current, pos: posCache, target: currentTarget };
+    const ro = new ResizeObserver(resize); ro.observe(canvas);          // also when Manager mode resizes it
+    if (window.__ARCADE_DEBUG__) window.__ARCADE_DEBUG__.farm = { me: meRef.current, pos: posCache, target: currentTarget, live };
 
     function frame(nowMs) {
       raf = requestAnimationFrame(frame);
@@ -310,7 +324,8 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
       // ── Move me ───────────────────────────────────────────────────────────
       const k = keysRef.current, st = stickRef.current;
       let dx = 0, dy = 0;
-      if (st.active) { dx = st.x; dy = st.y; }
+      if (L.manager) { dx = 0; dy = 0; }                        // Manager mode: your farmer stands still
+      else if (st.active) { dx = st.x; dy = st.y; }
       else { dx = (k.right ? 1 : 0) - (k.left ? 1 : 0); dy = (k.down ? 1 : 0) - (k.up ? 1 : 0); }
       let mag = Math.hypot(dx, dy);
       if (mag > 1) { dx /= mag; dy /= mag; mag = 1; }
@@ -358,8 +373,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
           pos = { x: f.x, y: f.y, face: f.face, moving: f.moving };
         } else {
           delete followRef.current[c.id];
-          const p = penPos(c, tSec);
-          pos = { ...p, moving: false };
+          pos = workerPos(c, tSec, stateOf(c));
         }
         cache[c.id] = pos;
         drawables.push({ y: pos.y, kind: "creature", c, pos });
@@ -380,6 +394,9 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
       for (const v of world.visitors) { const p = cache[v.id]; const d = Math.hypot(p.x - me.x, p.y - me.y); if (d < bestD + 10) { best = { kind: "visitor", id: v.id }; bestD = d - 10; } }
       if (!best) for (const c of Object.values(world.creatures)) { if (c.follow === L.myId) continue; const p = cache[c.id]; const d = Math.hypot(p.x - me.x, p.y - me.y); if (d < bestD) { best = { kind: "creature", id: c.id }; bestD = d; } }
       if (!best && Math.hypot(MAP.sign.x - me.x, MAP.sign.y - 18 - me.y) < REACH + 10) best = { kind: "sign" };
+      // standing right at the trough beats a creature wandering past it (the Feeder hangs around here)
+      const dTrough = Math.hypot(MAP.trough.x - me.x, MAP.trough.y - me.y);
+      if ((!best && dTrough < REACH + 14) || (dTrough < 42 && best?.kind !== "visitor")) best = { kind: "trough" };
       if (!best) for (let i = 0; i < PLOT_COUNT; i++) { const r = plotRect(i); const d = Math.hypot(r.cx - me.x, r.cy - me.y); if (d < bestD + 8) { best = { kind: "plot", i }; bestD = d - 8; } }
       if (!best) for (const c of Object.values(world.creatures)) { if (c.follow !== L.myId) continue; const p = cache[c.id]; if (Math.hypot(p.x - me.x, p.y - me.y) < REACH) best = { kind: "creature", id: c.id }; }
       currentTarget.current = best;
@@ -462,7 +479,9 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
           drawCreature(ctx, d.pos.x, d.pos.y, c.species, c.traits, { face: d.pos.face, t: tSec, moving: d.pos.moving, scale: CREATURE_SCALE });
           // owner heart + hunger warning
           if (c.owner) drawHeart(ctx, d.pos.x + 15, d.pos.y - 10, 9, L.colorOf(c.owner));
-          if (c.hunger < 25) drawBowl(ctx, d.pos.x, d.pos.y - 46 + Math.sin(tSec * 4) * 2, 16);
+          const cst = stateOf(c);
+          const icon = cst === "working" ? c.job : cst === "following" || cst === "idle" ? (c.hunger < 25 ? "starving" : null) : cst;
+          if (icon) drawWorkIcon(ctx, d.pos.x, d.pos.y - 46, icon, tSec);
           if (best?.id === c.id) {
             drawBar(ctx, d.pos.x, d.pos.y - 56, c.hunger / 100, "#ffb347");
             drawBar(ctx, d.pos.x, d.pos.y - 48, c.happy / 100, "#ff7ac8");
@@ -502,7 +521,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
       }
     }
     raf = requestAnimationFrame(frame);
-    return () => { cancelAnimationFrame(raf); window.removeEventListener("resize", resize); };
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); window.removeEventListener("resize", resize); };
   }, [hasWorld]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -522,20 +541,29 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
 
   return (
     <div style={{ position: "relative", height: "100svh", overflow: "hidden", background: "#1d3b22", touchAction: "none", ...noSelect, fontFamily: "ui-rounded, 'Nunito', system-ui, sans-serif" }}>
-      <canvas ref={canvasRef} style={{ width: "100%", height: "100%", display: "block", ...noSelect }} />
+      {/* In Manager mode the farm shrinks into the space beside the panel, so you can watch your workers */}
+      <canvas ref={canvasRef} style={{ width: manager ? `calc(100% - ${MANAGER_PANEL_W})` : "100%", height: "100%", display: "block", ...noSelect }} />
 
       {/* Top bar */}
       <div style={{ position: "absolute", top: 46, left: 0, right: 0, display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap", zIndex: 20, pointerEvents: "none", fontSize: 13, fontWeight: 700 }}>
         <Chip><Icon draw={drawSun} /> Day {world.day} · {Math.floor(dayLeft / 60)}:{String(Math.floor(dayLeft % 60)).padStart(2, "0")} left</Chip>
+        <Chip color="#ffd65a"><CoinDot /> {Math.floor(world.coins || 0)}</Chip>
         <Chip>{Object.keys(world.food).map(k => (
-          <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 3, marginRight: 8 }}><CropIcon kind={k} /> {world.food[k]}</span>
+          <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 3, marginRight: 8 }}><CropIcon kind={k} /> {Math.floor(world.food[k])}</span>
         ))}</Chip>
         <Chip color={solo ? C.dim : C.good}><Dot color={solo ? C.dim : C.good} /> {solo ? "playing solo" : `${nameOf(partnerId)} is here`}</Chip>
         {W.saveState === "error" && <Chip color={C.bad}>save failed, retrying</Chip>}
       </div>
 
       <button onClick={onLeave} style={{ ...smallBtn, position: "absolute", top: 10, left: 10, zIndex: 25 }}>← rooms</button>
-      <button onClick={() => setRoster(true)} style={{ ...smallBtn, position: "absolute", top: 10, right: 10, zIndex: 25, fontSize: 16, display: "flex", alignItems: "center", gap: 6 }}><Icon draw={drawPaw} size={20} /> {Object.keys(world.creatures).length}</button>
+      {!manager && (
+        <div style={{ position: "absolute", top: 10, right: 10, zIndex: 25, display: "flex", gap: 6 }}>
+          <button onClick={() => openRanch("overview")} style={{ ...smallBtn, fontSize: 14, display: "flex", alignItems: "center", gap: 6 }}>
+            <Icon draw={drawPaw} size={18} /> {Object.keys(world.creatures).length} · Ranch{alertsFor(world).length ? <span style={{ background: C.bad, color: "#fff", borderRadius: 999, padding: "0 6px", fontSize: 11 }}>{alertsFor(world).length}</span> : null}
+          </button>
+          <button onClick={() => setMode("manage")} style={{ ...smallBtn, fontSize: 13 }}>Manager mode</button>
+        </div>
+      )}
 
       {/* Toasts */}
       <div style={{ position: "absolute", top: 84, left: 0, right: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 6, zIndex: 30, pointerEvents: "none" }}>
@@ -548,8 +576,9 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
         ))}
       </div>
 
-      {/* Seed bar */}
-      <div style={{ position: "absolute", bottom: portrait ? 172 : 22, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 6, zIndex: 20 }}>
+      {/* Seed bar (Walk mode) */}
+      {!manager && (
+            <div style={{ position: "absolute", bottom: portrait ? 172 : 22, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 6, zIndex: 20 }}>
         {SEEDS.map((id, i) => (
           <button key={id} onClick={() => setSeed(id)} style={{
             padding: "6px 9px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit", color: C.text,
@@ -564,6 +593,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
           </button>
         ))}
       </div>
+      )}
 
       {!isTouch() && (
         <div style={{ position: "absolute", bottom: 4, left: 0, right: 0, textAlign: "center", color: "rgba(255,255,255,0.45)", fontSize: 11, zIndex: 5, pointerEvents: "none" }}>
@@ -571,8 +601,27 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
         </div>
       )}
 
-      <TouchControls stickRef={stickRef} onAction={pressAction} onActionEnd={releaseAction} onPet={doPet}
-        actionLabel={actionLabel} showPet={!!targetCreature} />
+      {!manager && (
+        <TouchControls stickRef={stickRef} onAction={pressAction} onActionEnd={releaseAction} onPet={doPet}
+          actionLabel={actionLabel} showPet={!!targetCreature} />
+      )}
+
+      {/* "while you were away" nudge (Walk mode) */}
+      {!manager && !roster && world.report && world.report.to > reportSeen && (
+        <button onClick={() => openRanch("overview")} style={{ ...smallBtn, position: "absolute", top: 84, left: "50%", transform: "translateX(-50%)", zIndex: 31, background: "rgba(255,214,90,0.95)", color: "#2a1d00", border: "none", fontWeight: 900 }}>
+          The farm kept going while you were away · see what happened
+        </button>
+      )}
+
+      {/* Ranch: Manager mode (big panel, farm keeps running beside it) or the Walk-mode drawer */}
+      {(manager || roster) && (
+        <RanchPanel world={world} W={W} myId={myId} nameOf={nameOf} colorOf={colorOf}
+          layout={manager ? "manager" : "drawer"} tab={ranchTab}
+          onClose={() => { setRoster(false); setReportSeen(readSeen()); }}
+          onSwitchMode={() => setMode(manager ? "walk" : "manage")}
+          onFollow={(cid) => W.dispatch({ type: "follow", cid })}
+          reportKey={reportKey} />
+      )}
 
       {partnerRun && !myRun && (
         <div style={{ position: "absolute", top: 84, left: "50%", transform: "translateX(-50%)", zIndex: 35, display: "flex", alignItems: "center", gap: 10, padding: "8px 10px 8px 14px", borderRadius: 14, background: "rgba(15,12,30,0.9)", border: `1px solid ${C.accent2}`, color: C.text, fontWeight: 700, fontSize: 13, whiteSpace: "nowrap" }}>
@@ -598,10 +647,6 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
         );
       })()}
 
-      {roster && (
-        <Roster world={world} myId={myId} colorOf={colorOf} nameOf={nameOf}
-          onFollow={(cid) => W.dispatch({ type: "follow", cid })} onClose={() => setRoster(false)} canAct={W.canAct} />
-      )}
 
       {needsStarter && (
         <StarterPicker taken={world.starters} onPick={(species) => W.dispatch({ type: "choose_starter", species, r: Math.random() })} canAct={W.canAct} />
@@ -616,6 +661,11 @@ const VISITOR_WARN = (v) => v.age > 120;
 function promptFor(t, world, now, seed, offering) {
   if (!t) return null;
   if (t.kind === "sign") return "Go on a run";
+  if (t.kind === "trough") {
+    const have = STORE_ITEMS.reduce((n, k) => n + (world.trough?.[k] || 0), 0), capN = troughCap(world);
+    const stored = STORE_ITEMS.reduce((n, k) => n + Math.floor(world.food?.[k] || 0), 0);
+    return have >= capN ? `Trough is full (${have}/${capN})` : stored ? `Fill the trough (${have}/${capN})` : "Trough · no food in storage";
+  }
   if (t.kind === "plot") {
     const crop = world.plots[t.i];
     if (!crop) return `Plant ${CROPS[seed].name}`;
@@ -644,6 +694,7 @@ function promptFor(t, world, now, seed, offering) {
 function buttonLabel(t, world, now, seed) {
   if (!t) return "";
   if (t.kind === "sign") return "RUNS";
+  if (t.kind === "trough") return "FILL";
   if (t.kind === "plot") {
     const crop = world.plots[t.i];
     if (!crop) return "PLANT";
@@ -902,6 +953,9 @@ function Icon({ draw, size = 18, deps = [] }) {
 }
 function CropIcon({ kind, size = 18 }) {
   return <Icon draw={(ctx, s) => drawCropSprite(ctx, kind, s / 2, s / 2, s, 1)} size={size} deps={[kind]} />;
+}
+function CoinDot() {
+  return <span style={{ display: "inline-block", width: 12, height: 12, borderRadius: "50%", background: "#ffd65a", boxShadow: "inset 0 0 0 2px #e0a82e" }} />;
 }
 function Dot({ color }) {
   return <span style={{ display: "inline-block", width: 9, height: 9, borderRadius: "50%", background: color, verticalAlign: "middle" }} />;

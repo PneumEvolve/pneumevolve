@@ -261,8 +261,36 @@ export function drawMap(ctx, world, now, t) {
   Object.keys(world.food).forEach((k, i) => {
     const fx = st.x - 30 + i * 32;
     drawCropSprite(ctx, k, fx, st.y + 26, 14, t);
-    ctx.fillText(String(world.food[k]), fx + 8, st.y + 31);
+    ctx.fillText(String(Math.floor(world.food[k])), fx + 8, st.y + 31);
   });
+
+  // feeding trough: wooden box, food heaped by how full it is
+  if (MAP.trough) {
+    const tr = MAP.trough;
+    const capN = [12, 30, 75, 180, 450][(world.buildings?.trough || 1) - 1];
+    const have = (world.trough?.berry || 0) + (world.trough?.carrot || 0);
+    const frac = Math.min(1, have / capN);
+    ctx.fillStyle = "rgba(0,0,0,0.2)"; ctx.beginPath(); ctx.ellipse(tr.x, tr.y + 12, 38, 7, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#8a5a34"; ctx.fillRect(tr.x - 34, tr.y - 10, 68, 20);
+    ctx.fillStyle = "#5a3418"; ctx.fillRect(tr.x - 30, tr.y - 8, 60, 6);
+    if (frac > 0) {
+      ctx.fillStyle = "#e0a050";
+      ctx.beginPath(); ctx.ellipse(tr.x, tr.y - 8, 29 * Math.max(0.3, frac), 3 + frac * 6, 0, Math.PI, 0); ctx.fill();
+      for (let i = 0; i < Math.min(8, Math.ceil(frac * 8)); i++) drawCropSprite(ctx, i % 2 ? "carrot" : "berry", tr.x - 22 + i * 6.5, tr.y - 11 - (i % 3) * 2, 9, t);
+    }
+    ctx.strokeStyle = "#5a3418"; ctx.lineWidth = 2; ctx.strokeRect(tr.x - 34, tr.y - 10, 68, 20);
+    ctx.font = "bold 10px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = frac === 0 ? "#ffb0b0" : "rgba(255,255,255,0.85)";
+    ctx.fillText(frac === 0 ? "EMPTY" : `${have}/${capN}`, tr.x, tr.y + 24);
+  }
+
+  // market stall (once it's built)
+  if (world.buildings?.stall && MAP.stall) {
+    const sl = MAP.stall;
+    ctx.fillStyle = "#8a5a34"; ctx.fillRect(sl.x - 26, sl.y - 6, 52, 24);
+    for (let i = 0; i < 4; i++) { ctx.fillStyle = i % 2 ? "#ffffff" : "#e04848"; ctx.fillRect(sl.x - 30 + i * 15, sl.y - 22, 15, 14); }
+    ctx.fillStyle = "#6b4426"; ctx.fillRect(sl.x - 28, sl.y - 22, 3, 40); ctx.fillRect(sl.x + 25, sl.y - 22, 3, 40);
+    drawCropSprite(ctx, "berry", sl.x - 10, sl.y + 2, 12, t); drawCropSprite(ctx, "carrot", sl.x + 10, sl.y + 2, 12, t);
+  }
 
   // field
   for (let i = 0; i < PLOT_COUNT; i++) {
@@ -445,4 +473,30 @@ export function drawSignpost(ctx, x, y, t = 0) {
   ctx.restore();
   ctx.font = "bold 10px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "rgba(255,255,255,0.85)";
   ctx.fillText("RUNS", x, y + 14);
+}
+
+// Little icon over a creature showing what it's doing (no emojis — drawn shapes).
+//   forager: basket · farmhand: sprout · feeder: bowl · groomer: heart
+//   resting: z's · sad: grey raincloud · starving: empty bowl
+export function drawWorkIcon(ctx, x, y, kind, t) {
+  ctx.save();
+  if (kind === "forager") {
+    ctx.fillStyle = "#c9955a"; ctx.beginPath(); ctx.moveTo(x - 6, y - 3); ctx.lineTo(x + 6, y - 3); ctx.lineTo(x + 4, y + 4); ctx.lineTo(x - 4, y + 4); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = "#7a5230"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y - 3, 5, Math.PI, 0); ctx.stroke();
+    drawCropSprite(ctx, "berry", x, y - 4, 7, t);
+  } else if (kind === "farmhand") drawSprout(ctx, x, y, 14);
+  else if (kind === "feeder") drawBowl(ctx, x, y, 14);
+  else if (kind === "groomer") drawHeart(ctx, x, y, 11, "#ff7aa8");
+  else if (kind === "resting") {
+    ctx.font = "bold 10px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "#cfe8ff";
+    const b = (t * 0.8) % 1;
+    ctx.globalAlpha = 1 - b; ctx.fillText("z", x + b * 6, y - b * 8);
+    ctx.globalAlpha = 1; ctx.fillText("z", x - 4, y + 2);
+  } else if (kind === "sad") {
+    ctx.fillStyle = "#9aa3b0";
+    ctx.beginPath(); ctx.arc(x - 4, y, 4, 0, Math.PI * 2); ctx.arc(x + 2, y - 2, 5, 0, Math.PI * 2); ctx.arc(x + 6, y + 1, 3.5, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "#6fb0ff"; ctx.lineWidth = 1.2;
+    for (let i = 0; i < 3; i++) { const d = ((t * 1.5 + i * 0.33) % 1) * 7; ctx.beginPath(); ctx.moveTo(x - 4 + i * 4, y + 5 + d); ctx.lineTo(x - 5 + i * 4, y + 8 + d); ctx.stroke(); }
+  } else if (kind === "starving") drawBowl(ctx, x, y + Math.sin(t * 4) * 2, 16);
+  ctx.restore();
 }

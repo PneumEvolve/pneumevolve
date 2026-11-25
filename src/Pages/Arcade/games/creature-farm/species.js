@@ -58,13 +58,15 @@ export const SPECIES = {
 };
 
 // Crops: "food" feeds creatures, "lure" attracts visitors when it's ready.
-// grow = milliseconds of real time (kept short for testing).
+// grow = milliseconds of real time. Food crops are slow-ish now that the farm
+// runs on its own (Farmhands harvest them); lure crops stay quick so catching
+// visitors is fun during play.
 // Crop pictures are drawn in drawFarm.js (drawCropSprite) — add a new crop there too.
 export const CROPS = {
-  berry:     { name: "Berries",   type: "food", grow: 40_000, yield: 3, color: "#5b6ff0" },
-  carrot:    { name: "Carrots",   type: "food", grow: 60_000, yield: 3, color: "#f08a24" },
-  sweetroot: { name: "Sweetroot", type: "lure", grow: 45_000, color: "#e46a9e" },
-  glowcap:   { name: "Glowcap",   type: "lure", grow: 75_000, color: "#ff8ad0" },
+  berry:     { name: "Berries",   type: "food", grow: 15 * 60_000, yield: 3, color: "#5b6ff0" },
+  carrot:    { name: "Carrots",   type: "food", grow: 30 * 60_000, yield: 5, color: "#f08a24" },
+  sweetroot: { name: "Sweetroot", type: "lure", grow: 60_000, color: "#e46a9e" },
+  glowcap:   { name: "Glowcap",   type: "lure", grow: 2 * 60_000, color: "#ff8ad0" },
 };
 
 // Personalities change how a creature behaves.

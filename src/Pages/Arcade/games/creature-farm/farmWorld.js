@@ -3,15 +3,24 @@
 // The farm's saved world + every rule that changes it, in one PURE reducer
 // (runs identically on both devices — see useArcadeWorld). No drawing here.
 //
-// Time:
-//   • The day clock + hunger/happiness only move while someone is playing:
-//     the host sends a "tick" action once a second. Nothing decays offline.
-//   • Crops grow on real time (timestamps), so they're ready when you come back.
+// Time (real time now — the Ranch keeps running):
+//   • The host sends a "tick" once a second. The reducer works out how much
+//     real time passed since the world's `simAt` and runs the farm forward.
+//   • Coming back after a while: the first tick catches up (up to 24 hours,
+//     see ranch.js) and leaves a "while you were away" report.
+//   • Crops grow on real time (timestamps).
+//   • Visitors only arrive while someone is actually playing.
+//
+// The Ranch (creatures as workers: needs, skills, jobs, buddies, buildings,
+// coins) lives in ranch.js.
 //
 // Randomness: actions carry `r` (a random number picked by whoever sent it),
 // and the reducer seeds a tiny PRNG from it — so both devices roll the same dice.
 
 import { SPECIES, CROPS, PERSONALITIES, NAMES } from "./species";
+import {
+  ranchDefaults, ranchify, simulateRanch, CATCHUP_MAX, JOBS, canManage, nextUpgrade, troughCap, PRICES, STORE_ITEMS,
+} from "./ranch";
 
 // ── Map (world units; the canvas scales to fit) ──────────────────────────────
 export const WORLD_W = 960;
@@ -23,6 +32,8 @@ export const MAP = {
   field: { x: 560, y: 140, cols: 4, rows: 3, size: 58, gap: 12 },
   pen:   { x: 330, y: 400, w: 440, h: 170 },
   sign:  { x: 470, y: 335 },                      // run board signpost (go on runs like Critter Stampede)
+  trough: { x: 270, y: 470 },                     // feeding trough (creatures eat from it on their own)
+  stall: { x: 60, y: 420 },                       // market stall (once built)
   spawn: [{ x: 230, y: 320 }, { x: 270, y: 345 }],
 };
 export const PLOT_COUNT = MAP.field.cols * MAP.field.rows;
@@ -36,8 +47,7 @@ export function plotRect(i) {
 }
 
 // ── Tuning ────────────────────────────────────────────────────────────────────
-export const DAY_LEN         = 600;               // seconds of PLAY per in-game day
-export const HUNGER_PER_SEC  = 100 / 900;         // full → empty in 1.5 days of play
+export const DAY_LEN         = 1200;              // real seconds per in-game day (20 minutes)
 export const VISIT_MAX       = 150;               // seconds a visitor hangs around
 export const MAX_VISITORS    = 2;                 // at most this many wild visitors at once
 export const LURE_WAIT       = 12;                // avg seconds a ripe lure waits before something shows up
@@ -61,6 +71,12 @@ function rngFrom(r) {                              // mulberry32
   };
 }
 const pick = (rng, arr) => arr[Math.floor(rng() * arr.length) % arr.length];
+// a name nobody on the farm has yet (falls back to any name once they're all used)
+function freshName(rng, w) {
+  const used = new Set([...Object.values(w.creatures || {}), ...(w.visitors || [])].map(c => c.name));
+  const free = NAMES.filter(n => !used.has(n));
+  return pick(rng, free.length ? free : NAMES);
+}
 
 export const growth = (crop, now) => clamp((now - crop.at) / CROPS[crop.kind].grow, 0, 1);
 
@@ -109,12 +125,41 @@ export function penPos(c, tSec) {
   return { x, y, face: Math.cos(tSec * 0.35 + ph) >= 0 ? 1 : -1 };
 }
 
-function makeVisitor(species, rng, n, near) {
+// Where a creature is this frame, based on what it's doing (cosmetic, same on both devices):
+//   foragers roam the forest edge, farmhands work the field, feeders shuttle
+//   between the food crate and the trough, groomers bustle around the pen,
+//   tired creatures nap by the house, everyone else hangs out in the pen.
+export function workerPos(c, tSec, state) {
+  const n = parseInt(String(c.id).replace(/\D/g, ""), 10) || 1;
+  const ph = n * 1.7;
+  const pingPong = (speed, off) => { const u = (tSec * speed + off) % 2; return u > 1 ? { u: 2 - u, dir: -1 } : { u, dir: 1 }; };
+  if (state === "working" && c.job === "forager") {
+    const { u, dir } = pingPong(0.035, n * 0.37);
+    return { x: 290 + u * 620, y: MAP.wildEdge + 22 + Math.sin(tSec * 0.9 + ph) * 8, face: dir, moving: true };
+  }
+  if (state === "working" && c.job === "farmhand") {
+    const f = MAP.field, col = (n * 3) % f.cols, row = (n * 5) % f.rows;
+    return { x: f.x + col * (f.size + f.gap) + f.size / 2 + Math.sin(tSec * 0.6 + ph) * 26, y: f.y + row * (f.size + f.gap) + f.size + 4, face: Math.cos(tSec * 0.6 + ph) >= 0 ? 1 : -1, moving: true };
+  }
+  if (state === "working" && c.job === "feeder") {
+    const { u, dir } = pingPong(0.09, n * 0.3);
+    const a = MAP.store, b = MAP.trough;
+    return { x: a.x + 30 + (b.x - a.x - 30) * u, y: a.y + 20 + (b.y - 10 - a.y - 20) * u, face: dir, moving: true };
+  }
+  if (state === "working" && c.job === "groomer") return { ...penPos(c, tSec * 3.5), moving: true };
+  if (state === "resting") {
+    const h = MAP.house;
+    return { x: h.x + 14 + ((n * 37) % (h.w - 10)), y: h.y + h.h + 26 + ((n * 13) % 14), face: n % 2 ? 1 : -1, moving: false };
+  }
+  return { ...penPos(c, tSec), moving: false };
+}
+
+function makeVisitor(species, rng, n, near, w) {
   // Somewhere in the open grass, pulled toward the crop that lured it.
   const tx = clamp((280 + rng() * 640) * 0.5 + near.x * 0.5, 260, WORLD_W - 50);
   const ty = clamp(110 + rng() * 260, 110, 370);
   return {
-    id: `v${n}`, species, name: pick(rng, NAMES), traits: rollTraits(species, rng),
+    id: `v${n}`, species, name: w ? freshName(rng, w) : pick(rng, NAMES), traits: rollTraits(species, rng),
     sx: clamp(tx + (rng() - 0.5) * 240, 40, WORLD_W - 40), tx, ty, seed: r2(rng() * 6.28),
     age: 0, trust: 0, helpers: {},
   };
@@ -123,7 +168,8 @@ function makeVisitor(species, rng, n, near) {
 // ── World ─────────────────────────────────────────────────────────────────────
 export function initFarm() {
   return {
-    v: 1,
+    v: 2,
+    ...ranchDefaults(),
     day: 1,
     dayTime: 0,
     nextId: 1,
@@ -136,29 +182,60 @@ export function initFarm() {
   };
 }
 
+// Old saves (before the Ranch) get the new fields filled in.
+function ensureRanch(w, a) {
+  if (w.v >= 2 && w.buildings && w.simAt != null && Object.values(w.creatures).every(c => c.skills)) return w;
+  const rng = rngFrom(a.r ?? 0.42);
+  const creatures = {};
+  for (const c of Object.values(w.creatures)) creatures[c.id] = ranchify(c, rng);
+  const d = ranchDefaults();
+  return {
+    ...d, ...w, v: 2, creatures,
+    buildings: { ...d.buildings, ...(w.buildings || {}) },
+    trough: { ...d.trough, ...(w.trough || {}) },
+    simAt: w.simAt ?? a.t,
+  };
+}
+
 // ── Rules ─────────────────────────────────────────────────────────────────────
-export function farmReducer(w, a) {
+export function farmReducer(w0, a) {
+  const w = ensureRanch(w0, a);
   const by = a.by != null ? String(a.by) : null;
 
   switch (a.type) {
     // Host sends this every second of play.
     case "tick": {
-      const dt = clamp(Number(a.dt) || 0, 0, 5);
-      if (!dt) return w;
+      const real = clamp((a.t - w.simAt) / 1000, 0, CATCHUP_MAX);
+      if (real < 0.2) return w;
+      const live = real <= 5;
+      const dt = real;
       const rng = rngFrom(a.r);
       let { day, dayTime, nextId, log } = w;
 
       dayTime += dt;
-      if (dayTime >= DAY_LEN) { dayTime -= DAY_LEN; day += 1; log = addLog(log, a, `Day ${day} begins`, "day"); }
+      if (dayTime >= DAY_LEN) {
+        const passed = Math.floor(dayTime / DAY_LEN);
+        dayTime -= passed * DAY_LEN; day += passed;
+        if (live) log = addLog(log, a, `Day ${day} begins`, "day");
+      }
 
+      // the Ranch: needs, eating, jobs, skills, storage (works on copies)
+      const sim = {
+        ...w,
+        creatures: Object.fromEntries(Object.values(w.creatures).map(c => [c.id, { ...c }])),
+        food: { ...w.food }, trough: { ...w.trough }, plots: w.plots.slice(), buildings: { ...w.buildings },
+      };
+      const report = simulateRanch(sim, dt, a.t, !live && dt > 120);
       const creatures = {};
-      for (const c of Object.values(w.creatures)) {
-        const p = c.traits.personality;
-        const hunger = Math.max(0, c.hunger - HUNGER_PER_SEC * dt * (p === "greedy" ? 1.35 : 1));
-        let happy = c.happy;
-        if (hunger < 25)      happy -= 0.1 * dt * (p === "grumpy" ? 1.3 : 1);
-        else if (hunger > 60) happy += 0.02 * dt;
-        creatures[c.id] = { ...c, hunger: r2(hunger), happy: r2(clamp(happy, 0, 100)) };
+      for (const c of Object.values(sim.creatures)) creatures[c.id] = { ...c, hunger: r2(c.hunger), happy: r2(c.happy), energy: r2(c.energy) };
+      for (const msg of sim._levelUps || []) log = addLog(log, a, msg, "catch");
+      const ranchOut = {
+        food: sim.food, trough: sim.trough, coins: Math.round(sim.coins * 100) / 100, simAt: a.t,
+        ...(report ? { report: { ...report, from: w.simAt, to: a.t } } : {}),
+      };
+      if (!live) {
+        // came back after a while: no visitors pile up, just the farm's work
+        return { ...w, ...ranchOut, day, dayTime: r2(dayTime), creatures, plots: sim.plots, visitors: [], log: addLog(log, a, `The farm kept going for ${Math.round(dt / 60)} minutes`, "day") };
       }
 
       const visitors = [];
@@ -170,7 +247,7 @@ export function farmReducer(w, a) {
 
       // Ripe lure crops pull visitors in ONE at a time, after a random wait,
       // and only while there's room (MAX_VISITORS) — so they trickle in.
-      const plots = w.plots.slice();
+      const plots = sim.plots;
       const ripeLures = [];
       for (let i = 0; i < plots.length; i++) {
         const crop = plots[i];
@@ -182,7 +259,7 @@ export function farmReducer(w, a) {
         const crop = plots[i];
         const options = Object.keys(SPECIES).filter(k => SPECIES[k].lure === crop.kind);
         const pr = plotRect(i);
-        const v = makeVisitor(pick(rng, options), rng, nextId++, { x: pr.cx, y: pr.cy });
+        const v = makeVisitor(pick(rng, options), rng, nextId++, { x: pr.cx, y: pr.cy }, { creatures, visitors });
         visitors.push(v);
         plots[i] = null;
         log = addLog(log, a, `${v.name} the ${SPECIES[v.species].name} smelled the ${CROPS[crop.kind].name.toLowerCase()}`, "visit");
@@ -191,12 +268,12 @@ export function farmReducer(w, a) {
       // Now and then something wanders in on its own (the only way to meet some creatures).
       if (visitors.length === 0 && rng() < dt / 240) {
         const wild = Object.keys(SPECIES).filter(k => !SPECIES[k].starter);
-        const v = makeVisitor(pick(rng, wild), rng, nextId++, { x: 300 + rng() * 500, y: 120 + rng() * 200 });
+        const v = makeVisitor(pick(rng, wild), rng, nextId++, { x: 300 + rng() * 500, y: 120 + rng() * 200 }, { creatures, visitors });
         visitors.push(v);
         log = addLog(log, a, `A wild ${SPECIES[v.species].name} wandered in!`, "visit");
       }
 
-      return { ...w, day, dayTime: r2(dayTime), nextId, creatures, visitors, plots, log };
+      return { ...w, ...ranchOut, day, dayTime: r2(dayTime), nextId, creatures, visitors, plots, log };
     }
 
     case "choose_starter": {
@@ -204,12 +281,12 @@ export function farmReducer(w, a) {
       const rng = rngFrom(a.r);
       const id = `c${w.nextId}`;
       const c = {
-        id, species: a.species, name: pick(rng, NAMES), traits: rollTraits(a.species, rng),
+        id, species: a.species, name: freshName(rng, w), traits: rollTraits(a.species, rng),
         hunger: 90, happy: 70, bond: { [by]: 30 }, owner: by, follow: by, born: a.t, petAt: 0,
       };
       return {
         ...w, nextId: w.nextId + 1,
-        creatures: { ...w.creatures, [id]: c },
+        creatures: { ...w.creatures, [id]: ranchify(c, rngFrom(((Number(a.r) || 0.5) * 7.31) % 1)) },
         starters: { ...w.starters, [by]: id },
         log: addLog(w.log, a, `picked ${c.name} the ${SPECIES[c.species].name}`, "starter"),
       };
@@ -264,7 +341,7 @@ export function farmReducer(w, a) {
       return {
         ...w, food, nextId: w.nextId + 1,
         visitors: w.visitors.filter(x => x.id !== v.id),
-        creatures: { ...w.creatures, [id]: c },
+        creatures: { ...w.creatures, [id]: ranchify(c, rngFrom(((Number(a.r) || 0.5) * 7.31) % 1)) },
         log: addLog(w.log, { ...a, by: owner }, `befriended ${c.name} the ${sp.name}!`, "catch"),
       };
     }
@@ -321,12 +398,12 @@ export function farmReducer(w, a) {
         ...(a.rare ? { rare: true } : {}),
       };
       const c = {
-        id, species: a.species, name: pick(rng, NAMES), traits,
+        id, species: a.species, name: freshName(rng, w), traits,
         hunger: 70, happy: 70, bond: { [by]: 40 }, owner: by, follow: null, born: a.t, petAt: 0,
       };
       return {
         ...w, nextId: w.nextId + 1,
-        creatures: { ...w.creatures, [id]: c },
+        creatures: { ...w.creatures, [id]: ranchify(c, rngFrom(((Number(a.r) || 0.5) * 7.31) % 1)) },
         log: addLog(w.log, a, `brought ${c.name} the ${a.rare ? "golden " : ""}${SPECIES[c.species].name} home from a run!`, "catch"),
       };
     }
@@ -339,6 +416,75 @@ export function farmReducer(w, a) {
       return {
         ...w, runsBeaten: { ...beaten, [a.level]: true },
         log: addLog(w.log, a, `beat Critter Stampede on ${a.level}!`, "catch"),
+      };
+    }
+
+    // ── Ranch actions ────────────────────────────────────────────────────────
+    // Give a creature a job (or none). Your own creatures, or ones that trust you.
+    case "set_job": {
+      const c = w.creatures[a.cid];
+      if (!c || !by || !canManage(c, by)) return w;
+      const job = a.job && JOBS[a.job] ? a.job : null;
+      if (c.job === job) return w;
+      const next = { ...c, job, follow: job ? null : c.follow, work: 0 };
+      return {
+        ...w, creatures: { ...w.creatures, [c.id]: next },
+        log: addLog(w.log, a, job ? `made ${c.name} a ${JOBS[job].name}` : `gave ${c.name} the day off`, "info"),
+      };
+    }
+
+    // Pair two creatures as buddies (or clear a pairing with buddy: null).
+    case "set_buddy": {
+      const c = w.creatures[a.cid];
+      if (!c || !by || !canManage(c, by)) return w;
+      const b = a.buddy ? w.creatures[a.buddy] : null;
+      if (a.buddy && (!b || b.id === c.id)) return w;
+      const creatures = { ...w.creatures };
+      const unlink = (id) => { const x = creatures[id]; if (x?.buddy) { const o = creatures[x.buddy]; if (o?.buddy === id) creatures[o.id] = { ...o, buddy: null }; creatures[id] = { ...creatures[id], buddy: null }; } };
+      unlink(c.id);
+      if (b) {
+        unlink(b.id);
+        creatures[c.id] = { ...creatures[c.id], buddy: b.id };
+        creatures[b.id] = { ...creatures[b.id], buddy: c.id };
+      }
+      return { ...w, creatures, log: addLog(w.log, a, b ? `made ${c.name} and ${b.name} buddies` : `split up ${c.name}'s buddy pair`, "info") };
+    }
+
+    // Top up the feeding trough from storage (by hand — Feeders do this automatically).
+    case "fill_trough": {
+      if (!by) return w;
+      const cap = troughCap(w);
+      const food = { ...w.food }, trough = { ...w.trough };
+      let room = cap - STORE_ITEMS.reduce((n, k) => n + (trough[k] || 0), 0), moved = 0;
+      while (room > 0) {
+        const k = STORE_ITEMS.slice().sort((x, y) => (trough[x] || 0) - (trough[y] || 0)).find(x => (food[x] || 0) >= 1);
+        if (!k) break;
+        food[k] -= 1; trough[k] = (trough[k] || 0) + 1; room--; moved++;
+      }
+      if (!moved) return w;
+      return { ...w, food, trough };
+    }
+
+    // Sell food for coins. n = -1 sells it all.
+    case "sell": {
+      const k = a.kind;
+      if (!by || !PRICES[k]) return w;
+      const have = Math.floor(w.food[k] || 0);
+      const n = a.n === -1 ? have : Math.max(0, Math.min(have, Math.floor(Number(a.n) || 0)));
+      if (!n) return w;
+      return {
+        ...w, food: { ...w.food, [k]: (w.food[k] || 0) - n }, coins: Math.round((w.coins + n * PRICES[k]) * 100) / 100,
+        log: addLog(w.log, a, `sold ${n} ${CROPS[k].name.toLowerCase()} for ${n * PRICES[k]} coins`, "info"),
+      };
+    }
+
+    // Upgrade (or build) a ranch building with coins.
+    case "upgrade": {
+      const up = by ? nextUpgrade(w, a.key) : null;
+      if (!up || w.coins < up.cost) return w;
+      return {
+        ...w, coins: Math.round((w.coins - up.cost) * 100) / 100, buildings: { ...w.buildings, [a.key]: up.level },
+        log: addLog(w.log, a, up.level === 1 ? `built the ${a.key === "stall" ? "Market Stall" : a.key}` : `upgraded the ${a.key} to level ${up.level}`, "catch"),
       };
     }
 
