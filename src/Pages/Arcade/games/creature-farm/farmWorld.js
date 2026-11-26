@@ -170,7 +170,8 @@ export function workerPos(c, tSec, state, plotCount = PLOT_COUNT) {
   if (state === "working" && c.job === "groomer") return { ...penPos(c, tSec * 3.5), moving: true };
   if (state === "working" && c.job === "crafter" && MAP.workshops[c.station]) {
     const ws = MAP.workshops[c.station];
-    return { x: ws.x - 30 + ((n * 23) % 60) + Math.sin(tSec * 1.3 + ph) * 6, y: ws.y + 34, face: Math.sin(tSec * 0.5 + ph) >= 0 ? 1 : -1, moving: true };
+    const side = n % 2 ? 1 : -1;                                   // beside the workshop, not in front of it
+    return { x: ws.x + side * (46 + Math.sin(tSec * 1.3 + ph) * 4), y: ws.y + 18 + ((n * 7) % 10), face: -side, moving: true };
   }
   if (state === "working" && c.job === "hauler") {
     const { u, dir } = pingPong(0.07, n * 0.41);

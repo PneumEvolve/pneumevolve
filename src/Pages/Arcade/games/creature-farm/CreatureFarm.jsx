@@ -574,13 +574,15 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
         {W.saveState === "error" && <Chip color={C.bad}>save failed, retrying</Chip>}
       </div>
 
-      <button onClick={onLeave} style={{ ...smallBtn, position: "absolute", top: 10, left: 10, zIndex: 25 }}>← rooms</button>
+      {/* on a phone held upright the buttons get shorter so they don't run into the room code
+          (Manager mode is then inside the Ranch drawer's header) */}
+      <button onClick={onLeave} style={{ ...smallBtn, position: "absolute", top: 10, left: 10, zIndex: 25, ...(portrait ? { padding: "6px 10px", fontSize: 12 } : {}) }}>{portrait ? "←" : "← rooms"}</button>
       {!manager && (
-        <div style={{ position: "absolute", top: 10, right: 10, zIndex: 25, display: "flex", gap: 6 }}>
-          <button onClick={() => openRanch("overview")} style={{ ...smallBtn, fontSize: 14, display: "flex", alignItems: "center", gap: 6 }}>
-            <Icon draw={drawPaw} size={18} /> {Object.keys(world.creatures).length} · Ranch{alertsFor(world).length ? <span style={{ background: C.bad, color: "#fff", borderRadius: 999, padding: "0 6px", fontSize: 11 }}>{alertsFor(world).length}</span> : null}
+        <div style={{ position: "absolute", top: 10, right: 8, zIndex: 25, display: "flex", gap: 6 }}>
+          <button onClick={() => openRanch("overview")} style={{ ...smallBtn, fontSize: portrait ? 12 : 14, display: "flex", alignItems: "center", gap: portrait ? 4 : 6, ...(portrait ? { padding: "6px 9px" } : {}) }}>
+            <Icon draw={drawPaw} size={portrait ? 15 : 18} /> {Object.keys(world.creatures).length}{portrait ? "" : " · Ranch"}{alertsFor(world).length ? <span style={{ background: C.bad, color: "#fff", borderRadius: 999, padding: "0 6px", fontSize: 11 }}>{alertsFor(world).length}</span> : null}
           </button>
-          <button onClick={() => setMode("manage")} style={{ ...smallBtn, fontSize: 13 }}>Manager mode</button>
+          {!portrait && <button onClick={() => setMode("manage")} style={{ ...smallBtn, fontSize: 13 }}>Manager mode</button>}
         </div>
       )}
 
