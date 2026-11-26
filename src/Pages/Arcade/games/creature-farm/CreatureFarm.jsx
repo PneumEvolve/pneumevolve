@@ -501,7 +501,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
           drawFarmer(ctx, d.p.x, d.p.y, L.colorOf(d.who), d.p.face, tSec, d.p.moving, d.who === L.myId ? "you" : L.nameOf(d.who));
         } else if (d.kind === "creature") {
           const c = d.c;
-          drawCreature(ctx, d.pos.x, d.pos.y, c.species, c.traits, { face: d.pos.face, t: tSec, moving: d.pos.moving, scale: CREATURE_SCALE });
+          drawCreature(ctx, d.pos.x, d.pos.y, c.species, c.traits, { face: d.pos.face, t: tSec, moving: d.pos.moving, scale: CREATURE_SCALE * (c.grow != null ? 0.55 + 0.45 * c.grow : 1) });   // babies start small
           // owner heart + hunger warning
           if (c.owner) drawHeart(ctx, d.pos.x + 15, d.pos.y - 10, 9, L.colorOf(c.owner));
           const cst = stateOf(c);

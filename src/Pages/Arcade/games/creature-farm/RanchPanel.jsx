@@ -16,7 +16,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { C } from "../../ui";
 import { SPECIES, CROPS } from "./species";
-import { drawCreature, drawBowl, drawSun, drawItemIcon, drawSprout } from "./drawFarm";
+import { drawCreature, drawBowl, drawSun, drawItemIcon, drawSprout, drawEgg } from "./drawFarm";
+import { movesFor, ABILITIES as MOVES } from "./wilds/wildsSim";
+import { RARITY_INFO, HATCHERY_MAX, hatcheryCost, eggPreview, typeLabel, typeCounts, GROW_SECS, growRate } from "./eggs";
 import { plotCost, PLOT_COUNT } from "./farmWorld";
 import {
   JOBS, SKILLS, SKILL_NAMES, BUILDINGS, STORE_ITEMS, stateOf, STATE_TEXT, canManage, chemistry,
@@ -30,7 +32,7 @@ import {
 // Manager mode panel width (the farm view uses the rest of the screen).
 export const MANAGER_PANEL_W = "min(100%, max(58%, 560px))";
 
-const TABS = [["overview", "Overview"], ["forecast", "Forecast"], ["creatures", "Creatures"], ["workshops", "Workshops"], ["market", "Market"], ["buildings", "Buildings"], ["storage", "Storage"]];
+const TABS = [["overview", "Overview"], ["forecast", "Forecast"], ["creatures", "Creatures"], ["workshops", "Workshops"], ["hatchery", "Hatchery"], ["market", "Market"], ["buildings", "Buildings"], ["storage", "Storage"]];
 
 export default function RanchPanel({ world, W, myId, nameOf, colorOf, layout = "drawer", tab: tab0 = "overview", onClose, onSwitchMode, onFollow, reportKey }) {
   const [tab, setTab] = useState(tab0);
@@ -69,6 +71,7 @@ export default function RanchPanel({ world, W, myId, nameOf, colorOf, layout = "
         {tab === "forecast" && <Forecast world={world} now={now} setTab={setTab} />}
         {tab === "creatures" && <Creatures world={world} W={W} myId={myId} nameOf={nameOf} colorOf={colorOf} onFollow={onFollow} />}
         {tab === "workshops" && <Workshops world={world} W={W} myId={myId} />}
+        {tab === "hatchery" && <Hatchery world={world} W={W} myId={myId} now={now} />}
         {tab === "market" && <Market world={world} W={W} now={now} />}
         {tab === "buildings" && <Buildings world={world} W={W} />}
         {tab === "storage" && <Storage world={world} W={W} setTab={setTab} />}
@@ -106,6 +109,12 @@ export function alertsFor(w, now = Date.now()) {
   if (meadow.length && freeSpots > 0) out.push({ level: "warn", text: `You have ${freeSpots} free pen spot${freeSpots > 1 ? "s" : ""} and ${meadow.length} waiting in the meadow`, tab: "creatures" });
   else if (meadow.length) out.push({ level: "info", text: `${meadow.length} waiting in the meadow for a pen spot (pen ${housedCount(w)}/${penSlots(w)})`, tab: "buildings" });
   if (idle.length) out.push({ level: "info", text: `${names(idle)} ${idle.length > 1 ? "have" : "has"} no job`, tab: "creatures" });
+  for (const [i, h] of (w.hatcheries || []).entries()) {
+    if (h.egg?.stage === "hatching" && !cs.some(c => c.job === "carer" && c.station === h.id)) out.push({ level: "warn", text: `The egg in Hatchery ${i + 1} needs a Carer to keep it warm`, tab: "hatchery" });
+  }
+  if ((w.eggs || []).length && (w.hatcheries || []).some(h => !h.egg)) out.push({ level: "info", text: `You have ${w.eggs.length} wild egg${w.eggs.length > 1 ? "s" : ""} waiting for a Hatchery`, tab: "hatchery" });
+  const babiesOut = cs.filter(c => c.grow != null && stateOf(c) === "meadow");
+  if (babiesOut.length) out.push({ level: "warn", text: `${names(babiesOut)} can't grow up in the meadow: babies need a pen spot`, tab: "buildings" });
   return out;
 }
 function names(list) {
@@ -200,6 +209,9 @@ function AwayReport({ rep, onDismiss }) {
         {rep.contracts > 0 && <div style={{ color: "#ffd65a" }}>{rep.contracts} contract{rep.contracts > 1 ? "s" : ""} finished for {Math.floor(rep.contractCoins)} coins</div>}
         {rep.autoSold > 0 && <div style={{ color: "#ffd65a" }}>The stall sold extra goods for {Math.floor(rep.autoSold)} coins</div>}
         {wasted && <div style={{ color: "#ffcf8a" }}>Storage was full: {wasted} went to waste</div>}
+        {rep.laid > 0 && <div style={{ color: "#ff9ac6" }}>{rep.laid} egg{rep.laid > 1 ? "s were" : " was"} laid</div>}
+        {rep.hatched?.length > 0 && <div style={{ color: "#ffd65a" }}>Hatched: {rep.hatched.join(", ")}!</div>}
+        {rep.grownUp?.length > 0 && <div style={{ color: C.good }}>All grown up: {rep.grownUp.join(", ")}</div>}
         {rep.levelUps?.length > 0 && <div style={{ color: C.good }}>Skills up: {rep.levelUps.slice(0, 6).join(", ")}{rep.levelUps.length > 6 ? ` +${rep.levelUps.length - 6} more` : ""}</div>}
       </div>
       <button onClick={onDismiss} style={btn(true, { alignSelf: "flex-start" })}>Got it</button>
@@ -266,6 +278,7 @@ function SkillChips({ c }) {
 
 function jobLabel(c) {
   if (!c.job) return null;
+  if (c.job === "carer") return `Carer at Hatchery ${String(c.station || "").replace(/\D/g, "") || 1}`;
   return c.job === "crafter" && WORKSHOPS[c.station] ? `Crafter at the ${WORKSHOPS[c.station].name}` : JOBS[c.job].name;
 }
 
@@ -288,6 +301,7 @@ function CreatureCard({ c, world, W, myId, nameOf, colorOf, onFollow, open, onTo
           <div style={{ fontWeight: 900, fontSize: 15 }}>
             {c.name} <span style={{ color: C.dim, fontWeight: 700, fontSize: 12 }}>{c.traits.rare ? "golden " : ""}{sp.name} · {c.traits.personality}</span>
           </div>
+          {(c.genes || c.grow != null) && <div style={{ fontSize: 11, color: "#c9a7ff", fontWeight: 700 }}>{typeLabel(c)}{c.grow != null ? ` · baby, ${Math.round(c.grow * 100)}% grown` : ""}</div>}
           <div style={{ fontSize: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             <span style={{ color: stColor, fontWeight: 800 }}>{c.job && st === "working" ? jobLabel(c) : STATE_TEXT[st]}</span>
             {c.job && st !== "working" && <span style={{ color: C.dim }}>({jobLabel(c)})</span>}
@@ -326,19 +340,32 @@ function CreatureCard({ c, world, W, myId, nameOf, colorOf, onFollow, open, onTo
             ))}
           </div>
           <div>
+            <div style={sub}>Wilds moves <span style={{ color: C.faint, textTransform: "none", letterSpacing: 0 }}>(slots open at Fight 1, 3, 5, 8; more genes of a type = more of its moves)</span></div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 3 }}>
+              {movesFor(c).map((m, k) => (
+                <div key={k} style={{ fontSize: 12, opacity: m.open ? 1 : 0.45 }} title={MOVES[m.k].desc}>
+                  <b>{MOVES[m.k].name}</b> <span style={{ color: C.dim }}>{SPECIES[m.type]?.name}{m.open ? "" : ` · opens at Fight ${m.unlock}`}</span>
+                  <span style={{ display: "block", fontSize: 11, color: C.faint }}>{MOVES[m.k].desc}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
             <div style={sub}>Job {!mine && <span style={{ color: C.faint }}>(only {nameOf(c.owner)} or someone it trusts can change this)</span>}</div>
-            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>
+            {c.grow != null && <div style={{ fontSize: 12, color: "#ffcf8a", marginTop: 4 }}>Too young to work. Grows up in about {clock(((1 - c.grow) * GROW_SECS) / growRate(c))}{stateOf(c) === "meadow" ? " once it has a pen spot (babies don't grow in the meadow)" : ", faster when it's fed and happy"}.</div>}
+            {c.nest && <div style={{ fontSize: 12, color: "#ff9ac6", marginTop: 4 }}>Nesting in Hatchery {String(c.nest).replace(/\D/g, "")}. Back to work once the egg is laid.</div>}
+            {c.grow == null && !c.nest && <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>
               <button disabled={!can} onClick={() => W.dispatch({ type: "set_job", cid: c.id, job: null })} style={btn(!c.job, { padding: "6px 10px", fontSize: 12, opacity: mine ? 1 : 0.5 })}>None</button>
-              {Object.entries(JOBS).map(([id, j]) => {
-                const blocked = id === "crafter" && !built.length;
+              {Object.entries(JOBS).filter(([id, j]) => !j.hidden || c.job === id).map(([id, j]) => {
+                const blocked = (id === "crafter" && !built.length) || j.hidden;
                 return (
-                  <button key={id} disabled={!can || blocked} title={blocked ? "Build a workshop first" : j.desc} onClick={() => W.dispatch({ type: "set_job", cid: c.id, job: id })}
+                  <button key={id} disabled={!can || blocked} title={j.hidden ? "Set from the Hatchery tab" : blocked ? "Build a workshop first" : j.desc} onClick={() => W.dispatch({ type: "set_job", cid: c.id, job: id })}
                     style={btn(c.job === id, { padding: "6px 10px", fontSize: 12, opacity: mine && !blocked ? 1 : 0.4 })}>
                     {j.name} <span style={{ color: C.faint }}>{c.skills[j.skill] || 1}</span>
                   </button>
                 );
               })}
-            </div>
+            </div>}
             {c.job === "crafter" && built.length > 1 && (
               <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6, alignItems: "center" }}>
                 <span style={{ fontSize: 11, color: C.dim }}>Works at:</span>
@@ -686,6 +713,164 @@ function MoodArrow({ label, a, b, color }) {
       <span style={{ color: b < a - 2 ? C.bad : b > a + 2 ? C.good : C.dim, fontWeight: 700 }}>{Math.round(a)}→{Math.round(b)}</span>
     </span>
   );
+}
+
+// ── Hatchery ──────────────────────────────────────────────────────────────────
+// Make an egg from two creatures (both nest until it's laid, then the better
+// carer keeps it warm), or hatch a wild egg from the Wilds.
+export function EggIcon({ rarity = "common", size = 18 }) {
+  return <Canvas size={size} deps={[rarity, size]} draw={(ctx, s) => drawEgg(ctx, s / 2, s * 0.94, s * 0.4, rarity, 0, 0)} />;
+}
+function CostChips({ cost, world }) {
+  return (
+    <span style={{ display: "inline-flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+      {Object.entries(cost).map(([k, n]) => {
+        const ok = (world.food?.[k] || 0) >= n;
+        return <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 2, color: ok ? C.text : C.bad, fontWeight: 800, fontSize: 12 }}><ItemIcon kind={k} size={14} />{n}</span>;
+      })}
+    </span>
+  );
+}
+function Hatchery({ world, W, myId, now }) {
+  const hs = world.hatcheries || [];
+  const cs = Object.values(world.creatures || {});
+  const n = hs.length, next = n < HATCHERY_MAX ? hatcheryCost(n) : null;
+  const canBuild = next && W.canAct && (world.coins || 0) >= next.coins && (!next.brick || (world.food?.brick || 0) >= next.brick);
+  const dex = Object.keys(world.dex || {});
+  return (
+    <>
+      <div style={{ fontSize: 12, color: C.dim }}>
+        Pick two creatures to make an egg. They nest together (no work) until it's laid, then the one with the better Care keeps it warm as its Carer.
+        Babies get 2 of each parent's 4 genes: two purebreds always make a half-and-half baby, and the type with the most genes decides how it looks and what it does.
+        Babies need a pen spot to grow up, and grow faster when fed and happy.
+      </div>
+      {hs.map((h, i) => <HatcheryCard key={h.id} h={h} i={i} world={world} W={W} myId={myId} cs={cs} />)}
+      {(world.eggs || []).length > 0 && (
+        <Card title={`Wild eggs · ${world.eggs.length}`}>
+          {world.eggs.map(e => {
+            const free = hs.find(h => !h.egg);
+            return (
+              <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                <EggIcon rarity={e.rarity} size={28} />
+                <span style={{ flex: 1 }}><b style={{ color: RARITY_INFO[e.rarity].color }}>{RARITY_INFO[e.rarity].name}</b> wild egg · hatches in about {clock(RARITY_INFO[e.rarity].hatch)} with a Care 1 Carer</span>
+                <button disabled={!free || !W.canAct} onClick={() => W.dispatch({ type: "place_egg", hid: free.id, eid: e.id })} style={btn(!!free, { padding: "4px 10px", fontSize: 12 })}>{free ? "Put in a Hatchery" : "All Hatcheries busy"}</button>
+              </div>
+            );
+          })}
+        </Card>
+      )}
+      <Card title={n ? "More Hatcheries" : "Build a Hatchery"}>
+        {next ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontSize: 12 }}>
+            <span style={{ flex: 1 }}>Each Hatchery holds one egg at a time ({n}/{HATCHERY_MAX} built).</span>
+            <span style={{ color: (world.coins || 0) >= next.coins ? "#ffd65a" : C.bad, fontWeight: 800 }}>{next.coins} coins</span>
+            {next.brick && <CostChips cost={{ brick: next.brick }} world={world} />}
+            <button disabled={!canBuild} onClick={() => W.dispatch({ type: "build_hatchery" })} style={btn(!!canBuild, { padding: "6px 12px" })}>Build</button>
+          </div>
+        ) : <div style={{ fontSize: 12, color: C.dim }}>You've built every Hatchery ({HATCHERY_MAX}).</div>}
+      </Card>
+      {dex.length > 0 && (
+        <Card title={`Creaturedex · ${dex.length} mix${dex.length > 1 ? "es" : ""} hatched`}>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {dex.map(k => <span key={k} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 8, background: "rgba(255,255,255,0.06)" }}>{k.split("+").map(t => SPECIES[t]?.name || t).join(" + ")} <span style={{ color: C.dim }}>×{world.dex[k]}</span></span>)}
+          </div>
+        </Card>
+      )}
+    </>
+  );
+}
+function HatcheryCard({ h, i, world, W, myId, cs }) {
+  const [pick, setPick] = useState([]);           // chosen parents (ids)
+  const [carerPick, setCarerPick] = useState(false);
+  const e = h.egg;
+  const grown = cs.filter(c => canManage(c, myId) && c.grow == null && !c.away);
+  const parents = grown.filter(c => c.housed && !c.nest);
+  const A = world.creatures[pick[0]], B = world.creatures[pick[1]];
+  const toggle = (id) => setPick(p => p.includes(id) ? p.filter(x => x !== id) : p.length >= 2 ? [p[1], id] : [...p, id]);
+  const chip = (c, on, onClick, extra) => (
+    <button key={c.id} onClick={onClick} disabled={!W.canAct} style={btn(on, { padding: "4px 8px", fontSize: 11, display: "inline-flex", alignItems: "center", gap: 5 })}>
+      <Portrait species={c.species} traits={c.traits} size={20} /> {c.name}{extra ? <span style={{ color: on ? "#3a2a00" : C.dim }}>{extra}</span> : null}
+    </button>
+  );
+  let body;
+  if (!e) {
+    const preview = A && B ? eggPreview(A, B) : null;
+    const rarities = preview ? [...new Set(preview.map(o => o.rarity))] : [];
+    const worst = rarities.slice().sort((x, y) => Object.keys(RARITY_INFO).indexOf(y) - Object.keys(RARITY_INFO).indexOf(x))[0];
+    const afford = preview && preview.every(o => Object.entries(RARITY_INFO[o.rarity].cost).every(([k, n]) => (world.food?.[k] || 0) >= n));
+    body = (
+      <>
+        <div style={{ fontSize: 12, color: C.dim }}>Empty. Pick two parents (yours or ones that trust you, with a pen spot):</div>
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+          {parents.map(c => chip(c, pick.includes(c.id), () => toggle(c.id), ` ${typeCounts(c).length > 1 ? typeCounts(c).length + " types" : ""}`))}
+          {!parents.length && <span style={{ fontSize: 12, color: C.faint }}>Nobody free.</span>}
+        </div>
+        {preview && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: 8, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
+            <div style={{ fontSize: 12, fontWeight: 800 }}>{A.name} + {B.name} could make:</div>
+            {preview.slice(0, 6).map((o, k) => (
+              <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                <span style={{ width: 38, textAlign: "right", fontWeight: 900 }}>{Math.round(o.chance * 100)}%</span>
+                <span style={{ flex: 1 }}>{o.types.length === 1 ? `purebred ${SPECIES[o.types[0]].name}` : o.types.map(t => `${SPECIES[t].name} ×${o.counts[t]}`).join(" · ")}</span>
+                <span style={{ color: RARITY_INFO[o.rarity].color, fontWeight: 800 }}>{RARITY_INFO[o.rarity].name}</span>
+              </div>
+            ))}
+            {preview.length > 6 && <div style={{ fontSize: 11, color: C.dim }}>…and {preview.length - 6} rarer mixes</div>}
+            <div style={{ fontSize: 11, color: C.dim }}>Skills: about the average of the parents, with a small chance of +1 (a good Carer helps). Gold parents raise the chance of a golden baby.</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12 }}>
+              <span>Costs</span>
+              {rarities.map(r => <span key={r} style={{ display: "inline-flex", gap: 4, alignItems: "center" }}><b style={{ color: RARITY_INFO[r].color }}>{RARITY_INFO[r].name}</b> <CostChips cost={RARITY_INFO[r].cost} world={world} /></span>)}
+            </div>
+            <div style={{ fontSize: 11, color: C.dim }}>Laying takes {rarities.map(r => clock(RARITY_INFO[r].lay)).join(" to ")}, hatching {rarities.map(r => clock(RARITY_INFO[r].hatch)).join(" to ")} (faster with a high-Care Carer). You need enough for the {RARITY_INFO[worst].name.toLowerCase()} egg; you pay for the one you get.</div>
+            <button disabled={!afford || !W.canAct} onClick={() => { W.dispatch({ type: "make_egg", hid: h.id, a: A.id, b: B.id }); setPick([]); }} style={btn(!!afford, { alignSelf: "flex-start", padding: "6px 14px" })}>{afford ? "Make an egg" : "Not enough food or goods"}</button>
+          </div>
+        )}
+      </>
+    );
+  } else if (e.stage === "laying") {
+    const pa = world.creatures[e.a], pb = world.creatures[e.b];
+    const both = pa && pb && stateOf(pa) === "nesting" && stateOf(pb) === "nesting";
+    const waitOn = [pa, pb].filter(c => c && stateOf(c) !== "nesting");
+    body = (
+      <>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+          {pa && <Portrait species={pa.species} traits={pa.traits} size={30} />}{pb && <Portrait species={pb.species} traits={pb.traits} size={30} />}
+          <span style={{ flex: 1 }}><b>{pa?.name}</b> and <b>{pb?.name}</b> are nesting. <span style={{ color: RARITY_INFO[e.rarity].color, fontWeight: 800 }}>{RARITY_INFO[e.rarity].name}</span> egg on the way.</span>
+        </div>
+        <Bar value={(e.progress || 0) * 100} max={100} color="#ff8ab8" compact />
+        <div style={{ fontSize: 12, color: both ? C.dim : "#ffcf8a" }}>{both ? `Laid in about ${clock((1 - (e.progress || 0)) * RARITY_INFO[e.rarity].lay)}.` : `Paused: ${waitOn.map(c => `${c.name} is ${STATE_TEXT[stateOf(c)]}`).join(", ")}.`}</div>
+        <button disabled={!W.canAct} onClick={() => W.dispatch({ type: "cancel_egg", hid: h.id })} style={btn(false, { alignSelf: "flex-start", padding: "4px 10px", fontSize: 11 })}>Call it off (food comes back)</button>
+      </>
+    );
+  } else {
+    const carers = cs.filter(c => c.job === "carer" && c.station === h.id);
+    const working = carers.filter(c => stateOf(c) === "working");
+    const care = working.length ? Math.max(...working.map(c => c.skills?.care || 1)) : 0;
+    body = (
+      <>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12 }}>
+          <EggIcon rarity={e.rarity} size={40} />
+          <span style={{ flex: 1 }}>
+            <b style={{ color: RARITY_INFO[e.rarity].color }}>{RARITY_INFO[e.rarity].name}</b> {e.wild ? "wild egg" : "egg"}
+            <span style={{ display: "block", color: C.dim }}>{working.length ? `Hatches in about ${clock(((1 - (e.progress || 0)) * RARITY_INFO[e.rarity].hatch) / skillFactor(care))}` : carers.length ? `Paused: ${carers[0].name} is ${STATE_TEXT[stateOf(carers[0])]}` : "Needs a Carer to keep it warm"}</span>
+          </span>
+        </div>
+        <Bar value={(e.progress || 0) * 100} max={100} color={RARITY_INFO[e.rarity].color} compact />
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: 12 }}>
+          <span>Carer:</span>
+          {carers.length ? carers.map(c => <span key={c.id} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontWeight: 800 }}><Portrait species={c.species} traits={c.traits} size={22} />{c.name} <span style={{ color: C.dim }}>Care {c.skills?.care || 1}</span></span>) : <span style={{ color: "#ffcf8a" }}>nobody</span>}
+          <button onClick={() => setCarerPick(v => !v)} style={btn(carerPick, { padding: "3px 8px", fontSize: 11 })}>{carers.length ? "Change" : "Choose a Carer"}</button>
+        </div>
+        {carerPick && (
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+            {grown.filter(c => !c.nest && !(c.job === "carer" && c.station === h.id)).sort((x, y) => (y.skills?.care || 1) - (x.skills?.care || 1))
+              .map(c => chip(c, false, () => { W.dispatch({ type: "set_carer", hid: h.id, cid: c.id }); setCarerPick(false); }, ` Care ${c.skills?.care || 1}`))}
+          </div>
+        )}
+      </>
+    );
+  }
+  return <Card title={`Hatchery ${i + 1}`}>{body}</Card>;
 }
 
 // ── Workshops ─────────────────────────────────────────────────────────────────

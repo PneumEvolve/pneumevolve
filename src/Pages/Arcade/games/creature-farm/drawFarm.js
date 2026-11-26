@@ -26,8 +26,9 @@ export function creatureColor(species, traits, dl = 0) {
 // so overlapping parts don't show seams), the body gets light from the top-left,
 // and the face gets highlights, cheeks and a little mouth.
 export function drawCreature(ctx, x, y, species, traits, opts = {}) {
-  const sp = SPECIES[species];
-  if (!sp) return;
+  const base = SPECIES[species];
+  if (!base) return;
+  const sp = traits.look ? { ...base, ...traits.look } : base;     // hybrids borrow ears, tails and wings from their other types
   const { face = 1, t = 0, moving = false, scale = 1, alpha = 1 } = opts;
   const s = (traits.size || 1) * scale;
   const body = creatureColor(species, traits);
@@ -305,6 +306,7 @@ export function drawMap(ctx, world, now, t) {
     const pos = MAP.workshops?.[key];
     if (st?.level && pos) drawWorkshop(ctx, key, pos.x, pos.y, st, world, t);
   }
+  (world.hatcheries || []).forEach((h, i) => { const pos = MAP.hatcheries[i]; if (pos) drawHatchery(ctx, pos.x, pos.y, h, t); });
 
   // field: the next plot for sale, then every plot you own
   drawForSale(ctx, plotRect(world.plots.length), plotCost(world.plots.length + 1), t);
@@ -858,6 +860,71 @@ export function drawWorkshop(ctx, key, x, y, st, world, t) {
     const w = ctx.measureText(note).width + 10;
     ctx.fillStyle = "rgba(20,14,34,0.82)"; ctx.beginPath(); ctx.roundRect(x - w / 2, y + 36, w, 14, 7); ctx.fill();
     ctx.fillStyle = st.on === false ? "#cfc6e8" : "#ffcf8a"; ctx.fillText(note, x, y + 46);
+  }
+  ctx.restore();
+}
+
+// ── Hatchery: a little straw-roofed coop with a nest; the egg sits in it ───────
+const RARITY_COL = { common: "#e9e3cf", uncommon: "#9be08f", rare: "#8cc4ff", epic: "#cfa3ff", legendary: "#ffd65a" };
+export function drawEgg(ctx, x, y, size, rarity, t = 0, crack = 0) {
+  const col = RARITY_COL[rarity] || RARITY_COL.common;
+  const wob = crack > 0.7 ? Math.sin(t * 18) * 0.12 * (crack - 0.7) * 3 : 0;
+  ctx.save(); ctx.translate(x, y); ctx.rotate(wob);
+  if (rarity === "legendary" || rarity === "epic") {
+    const g = ctx.createRadialGradient(0, -size * 0.6, 1, 0, -size * 0.6, size * 1.4);
+    g.addColorStop(0, rarity === "legendary" ? "rgba(255,214,90,0.45)" : "rgba(200,150,255,0.35)"); g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, -size * 0.6, size * 1.4, 0, TAU); ctx.fill();
+  }
+  const path = () => { ctx.beginPath(); ctx.moveTo(0, -size * 1.25); ctx.bezierCurveTo(size * 0.85, -size * 1.2, size * 0.8, 0, 0, 0); ctx.bezierCurveTo(-size * 0.8, 0, -size * 0.85, -size * 1.2, 0, -size * 1.25); ctx.closePath(); };
+  ctx.strokeStyle = "rgba(60,40,30,0.7)"; ctx.lineWidth = Math.max(1, size * 0.12); path(); ctx.stroke();
+  ctx.fillStyle = col; path(); ctx.fill();
+  ctx.save(); path(); ctx.clip();
+  ctx.fillStyle = "rgba(0,0,0,0.12)"; ctx.beginPath(); ctx.ellipse(size * 0.35, -size * 0.35, size * 0.7, size * 0.9, 0, 0, TAU); ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.35)";
+  for (const [sx, sy, r] of [[-0.3, -0.85, 0.1], [0.2, -0.6, 0.08], [-0.15, -0.35, 0.07], [0.3, -1.0, 0.06]]) { ctx.beginPath(); ctx.arc(sx * size, sy * size, r * size, 0, TAU); ctx.fill(); }
+  ctx.restore();
+  ctx.fillStyle = "rgba(255,255,255,0.55)"; ctx.beginPath(); ctx.ellipse(-size * 0.28, -size * 0.85, size * 0.12, size * 0.22, -0.4, 0, TAU); ctx.fill();
+  if (crack > 0.35) {                              // cracks appear as it gets close to hatching
+    ctx.strokeStyle = "rgba(60,40,30,0.8)"; ctx.lineWidth = Math.max(0.8, size * 0.08); ctx.lineJoin = "round";
+    ctx.beginPath(); ctx.moveTo(-size * 0.5, -size * 0.6); ctx.lineTo(-size * 0.2, -size * 0.75); ctx.lineTo(0, -size * 0.55); ctx.lineTo(size * 0.2, -size * 0.75);
+    if (crack > 0.7) { ctx.lineTo(size * 0.5, -size * 0.6); ctx.moveTo(0, -size * 0.55); ctx.lineTo(size * 0.05, -size * 0.35); }
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+export function drawHatchery(ctx, x, y, h, t) {
+  const e = h.egg;
+  ctx.save(); ctx.translate(x, y);
+  ctx.fillStyle = "rgba(0,0,0,0.22)"; ctx.beginPath(); ctx.ellipse(0, 22, 40, 8, 0, 0, TAU); ctx.fill();
+  // posts + back wall
+  ctx.fillStyle = "#8a5a34"; ctx.fillRect(-30, -12, 6, 34); ctx.fillRect(24, -12, 6, 34);
+  ctx.fillStyle = "#c79a64"; ctx.fillRect(-26, -8, 52, 26);
+  ctx.strokeStyle = "rgba(90,55,30,0.5)"; ctx.lineWidth = 1;
+  for (let yy = -2; yy < 18; yy += 6) { ctx.beginPath(); ctx.moveTo(-26, yy); ctx.lineTo(26, yy); ctx.stroke(); }
+  // straw roof
+  ctx.fillStyle = "#e3b94f"; ctx.strokeStyle = "#a07a26"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(-40, -6); ctx.lineTo(0, -34); ctx.lineTo(40, -6); ctx.quadraticCurveTo(0, -12, -40, -6); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = "rgba(160,120,40,0.6)"; ctx.lineWidth = 1;
+  for (let i = -3; i <= 3; i++) { ctx.beginPath(); ctx.moveTo(i * 9, -30 + Math.abs(i) * 3); ctx.lineTo(i * 12, -8); ctx.stroke(); }
+  // nest
+  ctx.fillStyle = "#b8873f"; ctx.beginPath(); ctx.ellipse(0, 16, 22, 7, 0, 0, TAU); ctx.fill();
+  ctx.strokeStyle = "#7a5524"; ctx.lineWidth = 1.2;
+  for (let i = 0; i < 9; i++) { const a0 = (i / 9) * Math.PI; ctx.beginPath(); ctx.moveTo(-20 + i * 5, 14 + Math.sin(a0) * 2); ctx.lineTo(-16 + i * 5, 19); ctx.stroke(); }
+  if (e && e.stage === "hatching") drawEgg(ctx, 0, 16, 11, e.rarity, t, e.progress || 0);
+  else if (e && e.stage === "laying") {                 // little hearts floating up while the parents nest
+    for (let i = 0; i < 2; i++) {
+      const k = ((t * 0.5 + i * 0.5) % 1);
+      ctx.globalAlpha = 1 - k; ctx.fillStyle = "#ff8ab8";
+      const hx = (i ? 6 : -6) + Math.sin(t * 2 + i) * 3, hy = 6 - k * 26;
+      ctx.beginPath(); ctx.moveTo(hx, hy + 3); ctx.bezierCurveTo(hx - 6, hy - 2, hx - 3, hy - 7, hx, hy - 3); ctx.bezierCurveTo(hx + 3, hy - 7, hx + 6, hy - 2, hx, hy + 3); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+  // progress bar
+  if (e) {
+    const p = Math.max(0, Math.min(1, e.progress || 0));
+    ctx.fillStyle = "rgba(0,0,0,0.45)"; ctx.fillRect(-22, -44, 44, 5);
+    ctx.fillStyle = e.stage === "laying" ? "#ff8ab8" : RARITY_COL[e.rarity] || "#fff"; ctx.fillRect(-22, -44, 44 * p, 5);
   }
   ctx.restore();
 }

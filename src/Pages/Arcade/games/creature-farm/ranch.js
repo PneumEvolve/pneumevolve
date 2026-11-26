@@ -30,6 +30,7 @@
 //   • Contracts board: "Deliver 6 bricks within 12 hours — pays 260".
 
 import { SPECIES, CROPS } from "./species";
+import { RARITY_INFO, GROW_SECS, growRate, settleSkills, lookFor, comboKey } from "./eggs";
 
 // ── Tuning ────────────────────────────────────────────────────────────────────
 export const H = 3600;
@@ -60,6 +61,7 @@ export const JOBS = {
   farmhand: { name: "Farmhand", skill: "farm",   desc: "Plants empty plots, harvests ripe food crops and replants them. 1 plot per Farm level." },
   crafter:  { name: "Crafter",  skill: "craft",  desc: "Works a workshop, turning goods into better goods.", needs: "workshop" },
   hauler:   { name: "Hauler",   skill: "haul",   desc: "Takes goods to the Market Stall: fills contracts, then sells what's above your keep amounts.", needs: "stall" },
+  carer:    { name: "Carer",    skill: "care",   desc: "Looks after the egg in a Hatchery until it hatches. Higher Care hatches it faster and makes a skill bonus more likely.", needs: "hatchery", hidden: true },
 };
 const FORAGE_RATE = 1 / 360;                // food per second at skill 1 (10 an hour)
 const FEED_RATE = 2 / 60;                   // food moved to the trough per second at skill 1
@@ -258,14 +260,16 @@ export function stateOf(c) {
   if (c.hunger < STOP_HUNGER) return "starving";
   if (c.happy < STOP_HAPPY) return "sad";
   if (c.resting) return "resting";
+  if (c.nest) return "nesting";
+  if (c.grow != null) return "baby";
   if (!c.job) return "idle";
   return "working";
 }
 export const STATE_TEXT = {
   away: "out in the Wilds", following: "following someone", meadow: "waiting in the meadow (no pen spot)", starving: "too hungry to work", sad: "too sad to work",
-  resting: "resting", idle: "no job", working: "working",
+  resting: "resting", idle: "no job", working: "working", nesting: "nesting (making an egg)", baby: "a baby, growing up",
 };
-export const makesGoods = (c) => !inMeadow(c) && !c.away && c.hunger >= STOP_HUNGER && c.happy >= PRODUCE_HAPPY;
+export const makesGoods = (c) => !inMeadow(c) && !c.away && c.grow == null && c.hunger >= STOP_HUNGER && c.happy >= PRODUCE_HAPPY;
 
 // Can this player give this creature jobs / buddies? (Your own, or ones that trust you.)
 export const canManage = (c, by) => c.owner === String(by) || (c.bond?.[String(by)] || 0) >= 50;
@@ -280,6 +284,7 @@ export function ranchDefaults() {
     penSlots: PEN_START,
     buildings: { trough: 1, shed: 1, warehouse: 1, beds: 0, stall: 0 }, trough: { berry: 0, carrot: 0 },
     workshops: {}, market: {}, keep: { ...DEFAULT_KEEP }, contracts: [], contractAt: 0, nextContract: 1,
+    hatcheries: [], eggs: [], dex: {},
     simAt: null, report: null,
   };
 }
@@ -363,6 +368,16 @@ export function stepRanch(w, dt, tMs, rep) {
     if (buddy && (buddy.skills?.care || 0) >= 5 && stateOf(buddy) !== "sad") dh += HAPPY_CONTENT;   // a caring buddy
     c.happy = Math.max(0, Math.min(100, c.happy + dh * dt));
 
+    // ── babies grow up (faster when they're fed and happy)
+    if (c.grow != null && !meadow) {
+      c.grow += (dt * growRate(c)) / GROW_SECS;
+      if (c.grow >= 1) {
+        c.grow = null;
+        if (rep) rep.grownUp = [...(rep.grownUp || []), c.name];
+        else w._news = [...(w._news || []), `${c.name} is all grown up and ready to work!`];
+      }
+    }
+
     // ── eating on their own
     if (c.hunger < EAT_BELOW && !meadow) {                 // followers eat too; meadow creatures can't reach the trough
       const loved = SPECIES[c.species].food;
@@ -414,6 +429,9 @@ export function stepRanch(w, dt, tMs, rep) {
         if (ws?.level) crewed[c.station] = true;
         if (ws?.level && ws.on !== false && hasInputs(w, WORKSHOPS[c.station].needs)) crafting[c.station] = (crafting[c.station] || 0) + f;
         else learning = false;
+      } else if (c.job === "carer") {
+        const h = (w.hatcheries || []).find(x => x.id === c.station);
+        if (!h?.egg || h.egg.stage !== "hatching") learning = false;
       } else if (c.job === "hauler") {
         if (!w.buildings.stall) learning = false;
         else {
@@ -437,6 +455,8 @@ export function stepRanch(w, dt, tMs, rep) {
       }
     }
   }
+
+  stepHatcheries(w, dt, tMs, rep);
 
   // ── workshops: crafters push progress along; finished items need their inputs
   for (const [key, st] of Object.entries(w.workshops)) {
@@ -517,6 +537,55 @@ function haul(w, n, tMs, rep) {
 
 // Run the farm forward by `secs` seconds ending at world time `endMs`, in chunks.
 // Returns the report (or null for short live ticks).
+// ── Hatcheries ────────────────────────────────────────────────────────────────
+// laying:   both parents nest (no work) until the egg is laid, then the parent
+//           with the better Care becomes its Carer
+// hatching: the Carer keeps it warm; Care speeds it up
+// The baby was rolled when the egg was made, so hatching has no randomness.
+export function stepHatcheries(w, dt, tMs, rep) {
+  for (const h of w.hatcheries || []) {
+    const e = h.egg;
+    if (!e) continue;
+    if (e.stage === "laying") {
+      const A = w.creatures[e.a], B = w.creatures[e.b];
+      if (!A || !B) { if (A) A.nest = null; if (B) B.nest = null; h.egg = null; continue; }
+      if (stateOf(A) !== "nesting" || stateOf(B) !== "nesting") continue;   // paused while either is hungry, sad or tired
+      e.progress = (e.progress || 0) + dt / RARITY_INFO[e.rarity].lay;
+      if (e.progress < 1) continue;
+      A.nest = null; B.nest = null;
+      const carer = (A.skills?.care || 1) >= (B.skills?.care || 1) ? A : B;
+      carer.job = "carer"; carer.station = h.id; carer.work = 0; carer.follow = null;
+      e.stage = "hatching"; e.progress = 0;
+      const rn = RARITY_INFO[e.rarity].name, art = /^[AEIOU]/.test(rn) ? "an" : "a";
+      if (rep) rep.laid = (rep.laid || 0) + 1;
+      else w._news = [...(w._news || []), `${A.name} and ${B.name} laid ${art} ${rn.toLowerCase()} egg! ${carer.name} is keeping it warm.`];
+      continue;
+    }
+    // hatching
+    const carers = Object.values(w.creatures).filter(c => c.job === "carer" && c.station === h.id && stateOf(c) === "working");
+    if (!carers.length) continue;
+    const care = Math.max(...carers.map(c => c.skills?.care || 1));
+    e.progress = (e.progress || 0) + (dt * skillFactor(care)) / RARITY_INFO[e.rarity].hatch;
+    if (e.progress < 1) continue;
+    const b = e.baby, id = `c${w.nextId || 1}`;
+    w.nextId = (w.nextId || 1) + 1;
+    const look = lookFor(b.genes, b.species);
+    const baby = {
+      id, species: b.species, name: e.name || "Bean", genes: b.genes.slice(),
+      traits: { ...b.traits, ...(look ? { look } : {}) },
+      owner: e.by, bond: { [e.by]: 60 }, follow: null, born: tMs, petAt: 0,
+      hunger: 70, happy: 85, energy: 100, job: null, buddy: null, resting: false,
+      skills: settleSkills(b, care), xp: {}, grow: 0, parents: e.a ? [e.a, e.b] : null, rarity: e.rarity, wild: !!e.wild,
+      housed: housedCount(w) < penSlots(w),
+    };
+    w.creatures[id] = baby;
+    w.dex = { ...(w.dex || {}), [comboKey(b.genes)]: ((w.dex || {})[comboKey(b.genes)] || 0) + 1 };
+    h.egg = null;
+    if (rep) rep.hatched = [...(rep.hatched || []), baby.name];
+    else w._news = [...(w._news || []), `${baby.name} hatched! A ${b.traits.rare ? "golden " : ""}baby ${SPECIES[b.species].name}${baby.housed ? "" : " (no pen spot free, it's waiting in the meadow)"}.`];
+  }
+}
+
 export function simulateRanch(w, secs, endMs, withReport) {
   const rep = withReport ? newReport() : null;
   const CHUNK = secs > 60 ? 30 : secs;
@@ -549,7 +618,8 @@ export function cloneRanch(w) {
     market: { ...(w.market || {}) }, keep: { ...(w.keep || {}) },
     workshops: Object.fromEntries(Object.entries(w.workshops || {}).map(([k, v]) => [k, { ...v }])),
     contracts: (w.contracts || []).map(c => ({ ...c })),
-    _levelUps: [], _contractsDone: [],
+    hatcheries: (w.hatcheries || []).map(h => ({ ...h, egg: h.egg ? { ...h.egg } : null })),
+    _levelUps: [], _contractsDone: [], _news: [],
   };
 }
 export function forecast(w, secs, nowMs) {

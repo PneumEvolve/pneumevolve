@@ -79,12 +79,30 @@ export function drawFight(ctx, view, t, ui) {
 
   // order lines for my selected creature
   const sel = view.squad.find(u => u.id === ui.selected);
-  if (sel && !sel.ko && sel.order) {
+  if (sel && !sel.ko && sel.order && !(ui.drag && ui.drag.uid === sel.id)) {
     const to = sel.order.type === "attack" ? view.enemies.find(e => e.id === sel.order.target) : sel.order;
     if (to) {
       ctx.strokeStyle = sel.order.type === "attack" ? "rgba(255,110,110,0.75)" : "rgba(255,255,255,0.7)"; ctx.lineWidth = 2; ctx.setLineDash([6, 5]); ctx.lineDashOffset = -t * 20;
       ctx.beginPath(); ctx.moveTo(sel.x, sel.y); ctx.lineTo(to.x, to.y); ctx.stroke(); ctx.setLineDash([]);
       if (sel.order.type === "move") { ctx.strokeStyle = "#fff"; ctx.beginPath(); ctx.ellipse(to.x, to.y, 10, 4, 0, 0, TAU); ctx.stroke(); }
+    }
+  }
+
+  // the steering arrow while you drag one of your creatures
+  const dr = ui.drag && view.squad.find(u => u.id === ui.drag.uid && !u.ko);
+  if (dr) {
+    const tx = ui.drag.x, ty = ui.drag.y, dx = tx - dr.x, dy = ty - dr.y, d = Math.hypot(dx, dy);
+    if (d > 14) {
+      const ux = dx / d, uy = dy / d, hx = tx - ux * 16, hy = ty - uy * 16;
+      ctx.save();
+      ctx.lineCap = "round"; ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.lineWidth = 9;
+      ctx.beginPath(); ctx.moveTo(dr.x, dr.y - 4); ctx.lineTo(hx, hy); ctx.stroke();
+      ctx.strokeStyle = SLOT_COLORS[dr.slot] || "#ffd65a"; ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.moveTo(dr.x, dr.y - 4); ctx.lineTo(hx, hy); ctx.stroke();
+      ctx.fillStyle = SLOT_COLORS[dr.slot] || "#ffd65a";
+      ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(hx - uy * 11, hy + ux * 11); ctx.lineTo(hx + uy * 11, hy - ux * 11); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,0.8)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(tx, ty + 4, 12, 5, 0, 0, TAU); ctx.stroke();
+      ctx.restore();
     }
   }
 
@@ -116,7 +134,7 @@ function drawUnit(ctx, u, t, ui) {
   drawCreature(ctx, u.x, u.y, u.species, { hue: u.hue, size: u.size, rare: u.rare, personality: u.personality }, { face: u.face, t, moving: true, scale: 1.05 });
   if (u.st?.shield > 0) { ctx.strokeStyle = "rgba(220,200,160,0.9)"; ctx.fillStyle = "rgba(230,215,180,0.18)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(u.x, u.y - 18, 28, 0, TAU); ctx.fill(); ctx.stroke(); }
   bar(ctx, u.x, u.y - 46, u.hp / u.maxHp, u.hp / u.maxHp < 0.3 ? "#ff6b6b" : "#7ee081");
-  if (u.abT <= 0 && mine) { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(u.x + 21, u.y - 44, 3.2 + Math.sin(t * 6) * 0.8, 0, TAU); ctx.fill(); }
+  if ((u.abs || []).some(a => a.t <= 0) && mine) { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(u.x + 21, u.y - 44, 3.2 + Math.sin(t * 6) * 0.8, 0, TAU); ctx.fill(); }
   ctx.font = "bold 9px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "rgba(255,255,255,0.85)"; ctx.fillText(u.name, u.x, u.y + 18);
   statuses(ctx, u, t);
 }
