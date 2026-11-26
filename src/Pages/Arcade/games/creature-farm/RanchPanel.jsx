@@ -266,14 +266,8 @@ function CreatureCard({ c, world, W, myId, nameOf, colorOf, onFollow, open, onTo
             <span>Happy</span><Bar value={c.happy} max={100} color="#ff7aa8" compact />
             <span>Energy</span><Bar value={c.energy ?? 100} max={100} color="#6fd3ff" compact />
           </div>
-          {product && (
-            <div style={{ fontSize: 12, color: C.dim, display: "flex", alignItems: "center", gap: 6 }}>
-              <ItemIcon kind={product} size={18} />
-              {makesGoods(c)
-                ? `Makes ${ITEMS[product].name.toLowerCase()}: about 1 every ${Math.round(PRODUCE_SECS / 60 / (c.happy / 100) / (c.traits.rare ? 2 : 1))} min while happy${c.traits.rare ? " (golden: double)" : ""}.`
-                : `Makes ${ITEMS[product].name.toLowerCase()}, but only when happy (50+) and fed.`}
-            </div>
-          )}
+          {product && <MakingCard c={c} product={product} />}
+          {c.job === "crafter" && WORKSHOPS[c.station] && world.workshops?.[c.station]?.level && <CraftingCard c={c} world={world} />}
           <div>
             <div style={sub}>Skills (grow by doing the job)</div>
             {SKILLS.map(s => (
@@ -323,14 +317,23 @@ function CreatureCard({ c, world, W, myId, nameOf, colorOf, onFollow, open, onTo
           )}
           <div>
             <div style={sub}>Buddy</div>
-            <select disabled={!can} value={c.buddy || ""} onChange={(e) => W.dispatch({ type: "set_buddy", cid: c.id, buddy: e.target.value || null })}
-              style={{ marginTop: 4, padding: "7px 8px", borderRadius: 10, background: "rgba(255,255,255,0.06)", color: C.text, border: "1px solid rgba(255,255,255,0.15)", fontFamily: "inherit", width: "100%" }}>
-              <option value="">no buddy</option>
-              {others.map(o => {
-                const ch = chemistry(c, o);
-                return <option key={o.id} value={o.id}>{o.name} ({SPECIES[o.species].name}, {o.traits.personality}){ch > 0 ? " — clicks!" : ch < 0 ? " — clashes" : ""}</option>;
+            {/* buddy picker: chips (native dropdowns look broken in dark mode on Windows) — clicks first, clashes last */}
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+              <button disabled={!can} onClick={() => W.dispatch({ type: "set_buddy", cid: c.id, buddy: null })} style={btn(!c.buddy, { padding: "5px 10px", fontSize: 12, opacity: can ? 1 : 0.5 })}>no buddy</button>
+              {others.slice().sort((a, b) => chemistry(c, b) - chemistry(c, a)).map(o => {
+                const ch = chemistry(c, o), on = c.buddy === o.id;
+                return (
+                  <button key={o.id} disabled={!can} onClick={() => W.dispatch({ type: "set_buddy", cid: c.id, buddy: o.id })}
+                    title={`${SPECIES[o.species].name}, ${o.traits.personality}${o.buddy && o.buddy !== c.id ? ` (now buddies with ${world.creatures[o.buddy]?.name})` : ""}`}
+                    style={btn(on, { padding: "3px 10px 3px 4px", fontSize: 12, opacity: can ? 1 : 0.5, display: "inline-flex", alignItems: "center", gap: 4,
+                      borderColor: !on && ch > 0 ? "rgba(126,224,129,0.55)" : !on && ch < 0 ? "rgba(255,122,107,0.45)" : undefined })}>
+                    <Portrait species={o.species} traits={o.traits} size={22} />
+                    {o.name}
+                    <span style={{ fontWeight: 700, color: on ? "#3a2a00" : ch > 0 ? C.good : ch < 0 ? C.bad : C.faint }}>{ch > 0 ? "clicks" : ch < 0 ? "clashes" : o.traits.personality}</span>
+                  </button>
+                );
               })}
-            </select>
+            </div>
             <div style={{ fontSize: 11, color: C.dim, marginTop: 4 }}>Buddies who forage or feed bring food when the trough runs dry. A buddy with Care 5+ keeps the other happy. Pairs that click work faster; pairs that clash get grumpy.</div>
           </div>
         </div>
@@ -339,8 +342,67 @@ function CreatureCard({ c, world, W, myId, nameOf, colorOf, onFollow, open, onTo
   );
 }
 
+// "Making pebbles · next one in 12 min" with a progress bar (species goods).
+function MakingCard({ c, product }) {
+  const on = makesGoods(c);
+  const frac = Math.max(0, Math.min(1, c.made || 0));
+  const rate = (c.happy / 100) * (c.traits.rare ? 2 : 1);              // items per PRODUCE_SECS
+  const secsLeft = on && rate > 0 ? ((1 - frac) * PRODUCE_SECS) / rate : null;
+  const name = ITEMS[product].name.toLowerCase();
+  const why = c.hunger < 10 ? "too hungry" : `needs happiness 50+ (now ${Math.floor(c.happy)})`;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: 8, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
+      <ItemIcon kind={product} size={30} />
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+        <div style={{ fontSize: 13, fontWeight: 800 }}>
+          Making {name}
+          <span style={{ fontWeight: 700, color: on ? C.good : "#ffcf8a", marginLeft: 6 }}>
+            {on ? `next one in ${clock(secsLeft)}` : `paused: ${why}`}
+          </span>
+        </div>
+        <Bar value={frac * 100} max={100} color={on ? ITEMS[product].color : "rgba(255,255,255,0.25)"} compact noWarn />
+        <div style={{ fontSize: 11, color: C.dim }}>
+          {on ? `About 1 every ${clock(PRODUCE_SECS / rate)} at this happiness${c.traits.rare ? " (golden: double speed)" : ""}. Happier = faster.` : "Progress is kept; it picks up again once it's happy and fed."}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// For Crafters: what their workshop is making and when the next one is done.
+function CraftingCard({ c, world }) {
+  const key = c.station, ws = WORKSHOPS[key], st = world.workshops[key];
+  const cs = Object.values(world.creatures).filter(o => o.job === "crafter" && o.station === key && stateOf(o) === "working");
+  const speed = cs.reduce((n, o) => n + skillFactor(o.skills.craft || 1) * (o.buddy && chemistry(o, world.creatures[o.buddy]) > 0 ? 1.15 : 1), 0) * wsSpeed(st.level);
+  const miss = Object.entries(ws.needs).filter(([k, n]) => (world.food?.[k] || 0) < n).map(([k]) => ITEMS[k].name.toLowerCase());
+  const frac = Math.max(0, Math.min(1, st.progress || 0));
+  const status = st.on === false ? "workshop paused" : miss.length ? `waiting for ${miss.join(" and ")}` : stateOf(c) !== "working" ? STATE_TEXT[stateOf(c)] : speed > 0 ? `next one in ${clock(((1 - frac) * ws.secs) / speed)}` : "";
+  const ok = st.on !== false && !miss.length && stateOf(c) === "working";
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: 8, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
+      <ItemIcon kind={ws.makes} size={30} />
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+        <div style={{ fontSize: 13, fontWeight: 800 }}>
+          Crafting {ITEMS[ws.makes].name.toLowerCase()} at the {ws.name}
+          <span style={{ fontWeight: 700, color: ok ? C.good : "#ffcf8a", marginLeft: 6 }}>{status}</span>
+        </div>
+        <Bar value={frac * 100} max={100} color={ok ? "#8ee06a" : "#ff9a5d"} compact noWarn />
+        {cs.length > 1 && <div style={{ fontSize: 11, color: C.dim }}>Working with {cs.filter(o => o.id !== c.id).map(o => o.name).join(", ")}.</div>}
+      </div>
+    </div>
+  );
+}
+function clock(secs) {
+  if (secs == null || !isFinite(secs)) return "—";
+  const s = Math.max(0, Math.ceil(secs));
+  if (s >= 3600) return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+  if (s >= 60) return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+  return `${s}s`;
+}
+
 // ── Workshops ─────────────────────────────────────────────────────────────────
 function Workshops({ world, W, myId }) {
+  const [adding, setAdding] = useState(null);           // which workshop's crafter picker is open
   const coins = world.coins || 0;
   const cs = Object.values(world.creatures || {});
   return (
@@ -390,16 +452,23 @@ function Workshops({ world, W, myId }) {
                       {canManage(c, myId) && <button disabled={!W.canAct} onClick={() => W.dispatch({ type: "set_job", cid: c.id, job: null })} style={{ ...btn(false, { padding: "0 6px", fontSize: 11 }) }}>x</button>}
                     </span>
                   ))}
-                  {candidates.length > 0 && (
-                    <select disabled={!W.canAct} value="" onChange={(e) => e.target.value && W.dispatch({ type: "set_job", cid: e.target.value, job: "crafter", station: key })}
-                      style={{ padding: "4px 6px", borderRadius: 8, background: "rgba(255,255,255,0.06)", color: C.text, border: "1px solid rgba(255,255,255,0.15)", fontFamily: "inherit", fontSize: 12 }}>
-                      <option value="">+ add a crafter</option>
-                      {candidates.slice().sort((a, b) => (b.skills.craft || 1) - (a.skills.craft || 1)).map(c => <option key={c.id} value={c.id}>{c.name} (Craft {c.skills.craft || 1}{c.job ? `, now ${jobLabel(c)}` : ""})</option>)}
-                    </select>
-                  )}
+                  {candidates.length > 0 && <button disabled={!W.canAct} onClick={() => setAdding(a => (a === key ? null : key))} style={btn(adding === key, { padding: "4px 10px", fontSize: 12 })}>+ add a crafter</button>}
                   <span style={{ flex: 1 }} />
                   <button disabled={!W.canAct} onClick={() => W.dispatch({ type: "ws_toggle", key })} style={btn(false, { padding: "4px 10px", fontSize: 12 })}>{st.on === false ? "Start" : "Pause"}</button>
                 </div>
+                {adding === key && (
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: 8, borderRadius: 10, background: "rgba(255,255,255,0.03)" }}>
+                    <span style={{ fontSize: 11, color: C.dim, width: "100%" }}>Pick a crafter (best Craft first):</span>
+                    {candidates.slice().sort((a, b) => (b.skills.craft || 1) - (a.skills.craft || 1)).map(c => (
+                      <button key={c.id} disabled={!W.canAct} onClick={() => { W.dispatch({ type: "set_job", cid: c.id, job: "crafter", station: key }); setAdding(null); }}
+                        style={btn(false, { padding: "3px 10px 3px 4px", fontSize: 12, display: "inline-flex", alignItems: "center", gap: 4 })}>
+                        <Portrait species={c.species} traits={c.traits} size={22} />
+                        {c.name} <span style={{ color: "#c9a7ff" }}>Craft {c.skills.craft || 1}</span>
+                        {c.job && <span style={{ color: C.faint, fontWeight: 700 }}>· {jobLabel(c)}</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </>
             )}
           </Card>
