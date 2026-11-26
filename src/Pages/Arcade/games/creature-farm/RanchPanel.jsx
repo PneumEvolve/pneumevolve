@@ -94,7 +94,7 @@ export function alertsFor(w, now = Date.now()) {
     else if (!crafters.length) out.push({ level: "info", text: `Nobody works at the ${ws.name}`, tab: "workshops" });
   }
   const full = ITEM_KEYS.filter(k => (w.food?.[k] || 0) >= capFor(w, k));
-  if (full.length) out.push({ level: "warn", text: `${full.map(k => ITEMS[k].name).slice(0, 3).join(", ")}${full.length > 3 ? ` and ${full.length - 3} more` : ""} ${full.length > 1 ? "are" : "is"} full${w.buildings?.stall ? " (the stall sells the extra at half price)" : " — extra gets wasted"}`, tab: "storage" });
+  if (full.length) out.push({ level: "warn", text: `${full.map(k => ITEMS[k].name).slice(0, 3).join(", ")}${full.length > 3 ? ` and ${full.length - 3} more` : ""} ${full.length > 1 ? "are" : "is"} full${w.buildings?.stall ? " (the stall sells the extra)" : " — extra gets wasted"}`, tab: "storage" });
   for (const ct of w.contracts || []) if (ct.until - now < 2 * 3600e3) out.push({ level: "warn", text: `Contract for ${ct.n} ${ITEMS[ct.item].name.toLowerCase()} ends in ${timeLeft(ct.until - now)} (${ct.got}/${ct.n})`, tab: "market" });
   if (idle.length) out.push({ level: "info", text: `${names(idle)} ${idle.length > 1 ? "have" : "has"} no job`, tab: "creatures" });
   return out;

@@ -156,7 +156,7 @@ export const BUILDINGS = {
   beds:      { name: "Comfy Beds", desc: "Tired creatures recharge faster.", max: 3,
                cost: (lvl) => Math.round(120 * Math.pow(3, lvl)),
                goods: { 2: { blanket: 3 }, 3: { blanket: 8 } } },
-  stall:     { name: "Market Stall", desc: "Auto-sells anything that won't fit in storage (half price). Haulers sell here.", max: 1,
+  stall:     { name: "Market Stall", desc: "Auto-sells anything that won't fit in storage, at the market price. Haulers sell here too.", max: 1,
                cost: () => 150 },
 };
 
@@ -284,7 +284,7 @@ export function ranchDefaults() {
 
 const add = (obj, k, n) => { obj[k] = (obj[k] || 0) + n; };
 
-// Put items into storage, respecting the cap. Overflow is auto-sold (stall) or wasted.
+// Put items into storage, respecting the cap. Overflow is auto-sold at the market price (stall) or wasted.
 export function store(w, kind, n, rep) {
   const cap = capFor(w, kind);
   const have = w.food[kind] || 0;
@@ -293,7 +293,7 @@ export function store(w, kind, n, rep) {
   if (rep) add(rep.gained, kind, fits);
   const extra = n - fits;
   if (extra > 0) {
-    if (w.buildings.stall) { const c = sellNow(w, kind, Math.round(extra), 0.5); if (rep) rep.autoSold += c; }
+    if (w.buildings.stall) { const c = sellNow(w, kind, Math.round(extra)); if (rep) rep.autoSold += c; }
     else if (rep) add(rep.wasted, kind, extra);
   }
 }
