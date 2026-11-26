@@ -19,7 +19,9 @@
 
 import { SPECIES, CROPS, PERSONALITIES, NAMES } from "./species";
 import {
-  ranchDefaults, ranchify, simulateRanch, CATCHUP_MAX, JOBS, canManage, nextUpgrade, troughCap, PRICES, STORE_ITEMS,
+  ranchDefaults, ranchify, simulateRanch, CATCHUP_MAX, JOBS, canManage, nextUpgrade, troughCap, STORE_ITEMS,
+  ITEMS, SKILLS, WORKSHOPS, BUILDINGS, nextWorkshop, hasGoods, capFor, priceOf, buyPriceOf, canBuy, sellNow, finishCrafts,
+  makeContract, giveToContract, CONTRACT_MAX, CONTRACT_GAP, HAND_CRAFT, fmtCoins,
 } from "./ranch";
 
 // ── Map (world units; the canvas scales to fit) ──────────────────────────────
@@ -34,6 +36,13 @@ export const MAP = {
   sign:  { x: 470, y: 335 },                      // run board signpost (go on runs like Critter Stampede)
   trough: { x: 270, y: 470 },                     // feeding trough (creatures eat from it on their own)
   stall: { x: 60, y: 420 },                       // market stall (once built)
+  workshops: {                                    // each appears once it's built
+    kitchen: { x: 900, y: 185 },
+    bakery:  { x: 900, y: 300 },
+    kiln:    { x: 872, y: 432 },
+    loom:    { x: 872, y: 540 },
+    lantern: { x: 110, y: 545 },
+  },
   spawn: [{ x: 230, y: 320 }, { x: 270, y: 345 }],
 };
 export const PLOT_COUNT = MAP.field.cols * MAP.field.rows;
@@ -147,6 +156,15 @@ export function workerPos(c, tSec, state) {
     return { x: a.x + 30 + (b.x - a.x - 30) * u, y: a.y + 20 + (b.y - 10 - a.y - 20) * u, face: dir, moving: true };
   }
   if (state === "working" && c.job === "groomer") return { ...penPos(c, tSec * 3.5), moving: true };
+  if (state === "working" && c.job === "crafter" && MAP.workshops[c.station]) {
+    const ws = MAP.workshops[c.station];
+    return { x: ws.x - 30 + ((n * 23) % 60) + Math.sin(tSec * 1.3 + ph) * 6, y: ws.y + 34, face: Math.sin(tSec * 0.5 + ph) >= 0 ? 1 : -1, moving: true };
+  }
+  if (state === "working" && c.job === "hauler") {
+    const { u, dir } = pingPong(0.07, n * 0.41);
+    const a = MAP.store, b = MAP.stall;
+    return { x: a.x - 20 + (b.x + 10 - a.x + 20) * u, y: a.y + 22 + (b.y + 30 - a.y - 22) * u, face: -dir, moving: true };
+  }
   if (state === "resting") {
     const h = MAP.house;
     return { x: h.x + 14 + ((n * 37) % (h.w - 10)), y: h.y + h.h + 26 + ((n * 13) % 14), face: n % 2 ? 1 : -1, moving: false };
@@ -168,7 +186,7 @@ function makeVisitor(species, rng, n, near, w) {
 // ── World ─────────────────────────────────────────────────────────────────────
 export function initFarm() {
   return {
-    v: 2,
+    v: 3,
     ...ranchDefaults(),
     day: 1,
     dayTime: 0,
@@ -182,17 +200,18 @@ export function initFarm() {
   };
 }
 
-// Old saves (before the Ranch) get the new fields filled in.
+// Old saves (before the Ranch, or before Phase 2) get the new fields filled in.
 function ensureRanch(w, a) {
-  if (w.v >= 2 && w.buildings && w.simAt != null && Object.values(w.creatures).every(c => c.skills)) return w;
+  if (w.v >= 3 && w.simAt != null && Object.values(w.creatures).every(c => c.skills && SKILLS.every(s => c.skills[s] != null))) return w;
   const rng = rngFrom(a.r ?? 0.42);
   const creatures = {};
   for (const c of Object.values(w.creatures)) creatures[c.id] = ranchify(c, rng);
   const d = ranchDefaults();
   return {
-    ...d, ...w, v: 2, creatures,
+    ...d, ...w, v: 3, creatures,
     buildings: { ...d.buildings, ...(w.buildings || {}) },
     trough: { ...d.trough, ...(w.trough || {}) },
+    keep: w.keep || d.keep,
     simAt: w.simAt ?? a.t,
   };
 }
@@ -224,13 +243,34 @@ export function farmReducer(w0, a) {
         ...w,
         creatures: Object.fromEntries(Object.values(w.creatures).map(c => [c.id, { ...c }])),
         food: { ...w.food }, trough: { ...w.trough }, plots: w.plots.slice(), buildings: { ...w.buildings },
+        market: { ...w.market }, keep: { ...w.keep },
+        workshops: Object.fromEntries(Object.entries(w.workshops || {}).map(([k, v]) => [k, { ...v }])),
+        contracts: (w.contracts || []).map(c => ({ ...c })),
       };
       const report = simulateRanch(sim, dt, a.t, !live && dt > 120);
       const creatures = {};
       for (const c of Object.values(sim.creatures)) creatures[c.id] = { ...c, hunger: r2(c.hunger), happy: r2(c.happy), energy: r2(c.energy) };
       for (const msg of sim._levelUps || []) log = addLog(log, a, msg, "catch");
+      for (const ct of sim._contractsDone || []) log = addLog(log, a, `A Hauler finished a contract: ${ct.n} ${ITEMS[ct.item].name.toLowerCase()} for ${ct.reward} coins`, "catch");
+
+      // contracts: drop expired ones, post new ones now and then (all at once after being away)
+      let contracts = sim.contracts.filter(ct => {
+        if (ct.until > a.t) return true;
+        if (live) log = addLog(log, a, `The contract for ${ct.n} ${ITEMS[ct.item].name.toLowerCase()} ran out of time`, "flee");
+        return false;
+      });
+      let { contractAt = 0, nextContract = 1 } = w;
+      if (Object.keys(w.creatures).length && contracts.length < CONTRACT_MAX && a.t >= contractAt) {
+        const want = live ? 1 : CONTRACT_MAX - contracts.length;
+        for (let i = 0; i < want; i++) contracts = [...contracts, makeContract(sim, rng, a.t, nextContract++)];
+        contractAt = a.t + CONTRACT_GAP * 1000;
+        if (live) log = addLog(log, a, `New contract: ${contracts[contracts.length - 1].n} ${ITEMS[contracts[contracts.length - 1].item].name.toLowerCase()}`, "visit");
+      }
+
       const ranchOut = {
         food: sim.food, trough: sim.trough, coins: Math.round(sim.coins * 100) / 100, simAt: a.t,
+        market: Object.fromEntries(Object.entries(sim.market).map(([k, v]) => [k, Math.round(v * 1000) / 1000])),
+        workshops: sim.workshops, contracts, contractAt, nextContract,
         ...(report ? { report: { ...report, from: w.simAt, to: a.t } } : {}),
       };
       if (!live) {
@@ -361,7 +401,7 @@ export function farmReducer(w0, a) {
       const c = w.creatures[a.cid];
       if (!c || !by) return w;
       const fav = SPECIES[c.species].food;
-      let foodKey = (w.food[fav] || 0) > 0 ? fav : Object.keys(w.food).find(k => w.food[k] > 0);
+      let foodKey = (w.food[fav] || 0) >= 1 ? fav : STORE_ITEMS.find(k => (w.food[k] || 0) >= 1);
       if (!foodKey || c.hunger >= FEED_BELOW) return w;          // not hungry → don't waste food
       const loved = foodKey === fav;
       const grumpy = c.traits.personality === "grumpy";
@@ -425,11 +465,13 @@ export function farmReducer(w0, a) {
       const c = w.creatures[a.cid];
       if (!c || !by || !canManage(c, by)) return w;
       const job = a.job && JOBS[a.job] ? a.job : null;
-      if (c.job === job) return w;
-      const next = { ...c, job, follow: job ? null : c.follow, work: 0 };
+      const station = job === "crafter" ? (w.workshops?.[a.station]?.level ? a.station : c.station && w.workshops?.[c.station]?.level ? c.station : Object.keys(w.workshops || {}).find(k => w.workshops[k].level)) : null;
+      if (job === "crafter" && !station) return w;                 // no workshop to work at yet
+      if (c.job === job && (c.station || null) === (station || null)) return w;
+      const next = { ...c, job, station, follow: job ? null : c.follow, work: 0 };
       return {
         ...w, creatures: { ...w.creatures, [c.id]: next },
-        log: addLog(w.log, a, job ? `made ${c.name} a ${JOBS[job].name}` : `gave ${c.name} the day off`, "info"),
+        log: addLog(w.log, a, job === "crafter" ? `put ${c.name} to work at the ${WORKSHOPS[station].name}` : job ? `made ${c.name} a ${JOBS[job].name}` : `gave ${c.name} the day off`, "info"),
       };
     }
 
@@ -466,25 +508,103 @@ export function farmReducer(w0, a) {
     }
 
     // Sell food for coins. n = -1 sells it all.
+    // Sell items at today's market price (selling a lot at once pushes the price down).
     case "sell": {
       const k = a.kind;
-      if (!by || !PRICES[k]) return w;
+      if (!by || !ITEMS[k]) return w;
       const have = Math.floor(w.food[k] || 0);
       const n = a.n === -1 ? have : Math.max(0, Math.min(have, Math.floor(Number(a.n) || 0)));
       if (!n) return w;
+      const x = { coins: w.coins, market: { ...w.market } };
+      const got = sellNow(x, k, n);
       return {
-        ...w, food: { ...w.food, [k]: (w.food[k] || 0) - n }, coins: Math.round((w.coins + n * PRICES[k]) * 100) / 100,
-        log: addLog(w.log, a, `sold ${n} ${CROPS[k].name.toLowerCase()} for ${n * PRICES[k]} coins`, "info"),
+        ...w, food: { ...w.food, [k]: (w.food[k] || 0) - n }, coins: Math.round(x.coins * 100) / 100, market: x.market,
+        log: addLog(w.log, a, `sold ${n} ${ITEMS[k].name.toLowerCase()} for ${fmtCoins(got)} coins`, "info"),
       };
+    }
+
+    // Buy food or creature goods at double the market price (for things your creatures don't make).
+    case "buy": {
+      const k = a.kind;
+      if (!by || !canBuy(k)) return w;
+      const room = Math.floor(capFor(w, k) - (w.food[k] || 0));
+      const price = buyPriceOf(w, k);
+      const n = Math.max(0, Math.min(room, Math.floor(Number(a.n) || 0), Math.floor(w.coins / price)));
+      if (!n) return w;
+      return {
+        ...w, food: { ...w.food, [k]: (w.food[k] || 0) + n }, coins: Math.round((w.coins - n * price) * 100) / 100,
+        log: addLog(w.log, a, `bought ${n} ${ITEMS[k].name.toLowerCase()} for ${fmtCoins(n * price)} coins`, "info"),
+      };
+    }
+
+    // Hauler rules: keep this many of an item (the rest gets sold), or keep: null = hands off.
+    case "set_keep": {
+      if (!by || !ITEMS[a.kind]) return w;
+      const keep = { ...w.keep };
+      if (a.keep == null) delete keep[a.kind];
+      else keep[a.kind] = Math.max(0, Math.min(99999, Math.floor(Number(a.keep) || 0)));
+      return { ...w, keep };
+    }
+
+    // Hand over items toward a contract (partial deliveries count).
+    case "deliver": {
+      const i = (w.contracts || []).findIndex(c => c.id === a.id);
+      if (!by || i < 0 || w.contracts[i].until <= a.t) return w;
+      const x = { food: { ...w.food }, coins: w.coins };
+      const ct = { ...w.contracts[i] };
+      const { given, done } = giveToContract(x, ct, Infinity);
+      if (!given) return w;
+      const contracts = w.contracts.slice();
+      if (done) contracts.splice(i, 1); else contracts[i] = ct;
+      return {
+        ...w, food: x.food, coins: Math.round(x.coins * 100) / 100, contracts,
+        contractAt: done ? Math.max(w.contractAt || 0, a.t + CONTRACT_GAP * 1000) : w.contractAt,
+        log: addLog(w.log, a, done ? `finished a contract: ${ct.n} ${ITEMS[ct.item].name.toLowerCase()} for ${ct.reward} coins` : `delivered ${given} ${ITEMS[ct.item].name.toLowerCase()} (${ct.got}/${ct.n})`, done ? "catch" : "info"),
+      };
+    }
+
+    // Build or upgrade a workshop (coins, plus bricks for the higher levels).
+    case "ws_build": {
+      const up = by && WORKSHOPS[a.key] ? nextWorkshop(w, a.key) : null;
+      if (!up || w.coins < up.cost || !hasGoods(w, up.goods)) return w;
+      const food = { ...w.food };
+      for (const [k, n] of Object.entries(up.goods || {})) food[k] -= n;
+      const cur = w.workshops?.[a.key] || { progress: 0, on: true };
+      return {
+        ...w, food, coins: Math.round((w.coins - up.cost) * 100) / 100,
+        workshops: { ...w.workshops, [a.key]: { ...cur, level: up.level } },
+        log: addLog(w.log, a, up.level === 1 ? `built the ${WORKSHOPS[a.key].name}` : `upgraded the ${WORKSHOPS[a.key].name} to level ${up.level}`, "catch"),
+      };
+    }
+
+    // Pause / restart a workshop (so it stops using up its inputs).
+    case "ws_toggle": {
+      const st = w.workshops?.[a.key];
+      if (!by || !st?.level) return w;
+      return { ...w, workshops: { ...w.workshops, [a.key]: { ...st, on: st.on === false } } };
+    }
+
+    // Help out at a workshop by hand (walk mode) — anyone can, even with no Crafter.
+    case "hand_craft": {
+      const st = w.workshops?.[a.key];
+      if (!by || !st?.level || st.progress >= 1) return w;
+      if (!Object.entries(WORKSHOPS[a.key].needs).every(([k, n]) => (w.food[k] || 0) >= n)) return w;   // missing inputs
+      const x = { ...w, food: { ...w.food }, coins: w.coins, market: { ...w.market }, workshops: { ...w.workshops, [a.key]: { ...st, progress: (st.progress || 0) + HAND_CRAFT } } };
+      const before = x.food[WORKSHOPS[a.key].makes] || 0;
+      finishCrafts(x, a.key, null);
+      const made = (x.food[WORKSHOPS[a.key].makes] || 0) > before;
+      return { ...x, coins: Math.round(x.coins * 100) / 100, log: made ? addLog(w.log, a, `made ${ITEMS[WORKSHOPS[a.key].makes].name.toLowerCase()} by hand`, "catch") : w.log };
     }
 
     // Upgrade (or build) a ranch building with coins.
     case "upgrade": {
       const up = by ? nextUpgrade(w, a.key) : null;
-      if (!up || w.coins < up.cost) return w;
+      if (!up || w.coins < up.cost || !hasGoods(w, up.goods)) return w;
+      const food = { ...w.food };
+      for (const [k, n] of Object.entries(up.goods || {})) food[k] -= n;
       return {
-        ...w, coins: Math.round((w.coins - up.cost) * 100) / 100, buildings: { ...w.buildings, [a.key]: up.level },
-        log: addLog(w.log, a, up.level === 1 ? `built the ${a.key === "stall" ? "Market Stall" : a.key}` : `upgraded the ${a.key} to level ${up.level}`, "catch"),
+        ...w, food, coins: Math.round((w.coins - up.cost) * 100) / 100, buildings: { ...w.buildings, [a.key]: up.level },
+        log: addLog(w.log, a, up.level === 1 ? `built the ${BUILDINGS[a.key].name}` : `upgraded the ${BUILDINGS[a.key].name} to level ${up.level}`, "catch"),
       };
     }
 

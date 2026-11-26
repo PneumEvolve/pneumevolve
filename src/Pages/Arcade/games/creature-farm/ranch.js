@@ -1,24 +1,34 @@
 // src/Pages/Arcade/games/creature-farm/ranch.js
 //
-// The Ranch: creatures as a workforce. (Phase 1 of the Creature Ranch plan.)
-// Pure rules only — no drawing. farmWorld.js calls simulateRanch() from its
-// "tick" and handles the player actions (jobs, buddies, upgrades, selling).
+// The Ranch: creatures as a workforce. Pure rules only — no drawing.
+// farmWorld.js calls simulateRanch() from its "tick" and handles the player
+// actions (jobs, buddies, upgrades, selling, buying, contracts).
 //
+// Phase 1 — colony core
 //   • Needs: hunger, happiness, energy. Hungry (< 10) or sad (< 20) creatures
 //     stop working. Tired ones (< 15 energy) rest until they're back to 80.
 //     Nobody ever dies or leaves — they just get sad and stop working.
-//   • Skills (1–10): forage, care, farm. They grow with XP from doing the job
-//     (level n → n+1 takes n² hours of work — a slow grind: weeks to reach 10).
+//   • Skills (1–10) grow with XP from doing the job (level n → n+1 takes n²
+//     hours of work — a slow grind).
 //   • Jobs: Forager, Feeder, Groomer, Farmhand.
-//   • Buddies: two creatures paired up. A hungry creature whose trough is empty
-//     gets fed from storage by a buddy who forages or feeds. A buddy with good
-//     Care keeps the other happy. Some personality pairs click (work faster),
-//     some clash (get grumpy).
-//   • Buildings: Feeding Trough, Storage Shed, Beds, Market Stall. All upgradable with coins.
-//   • Storage has a cap per item. Overflow is wasted — unless you own the
-//     Market Stall, which auto-sells it at half price.
-//   • Time is real time. When nobody's been playing, the next visit catches up
-//     (up to 24 hours) and leaves a "while you were away" report.
+//   • Buddies: pairs. A forager/feeder buddy brings food when the trough is
+//     empty; a caring buddy keeps the other happy; some pairs click, some clash.
+//   • Buildings: Trough, Storage Shed, Beds, Market Stall, Warehouse.
+//   • Real time. Coming back catches up (up to 24h) with a report.
+//
+// Phase 2 — production & overflow
+//   • Creature goods: every happy creature slowly makes its species' item
+//     (Mosslings → moss, Emberpups → embers, ...). Golden ones make double.
+//   • Workshops turn goods into better goods (Jam Kitchen, Kiln, Loom, Bakery,
+//     Lantern Workshop). A Crafter works one; you can also help by hand.
+//   • Higher building levels cost bricks or blankets, not just coins.
+//   • Market: prices drift up and down every hour, and drop when you sell a
+//     lot of one thing (they recover over a couple of hours). You can buy
+//     food and creature goods (at double price) for species you don't have.
+//   • Haulers take goods to the Market Stall: they fill contracts first, then
+//     sell, but only ever from what's above the "keep" amount you set. They never touch items
+//     you've marked "hands off".
+//   • Contracts board: "Deliver 6 bricks within 12 hours — pays 260".
 
 import { SPECIES, CROPS } from "./species";
 
@@ -35,32 +45,41 @@ export const EAT_BELOW = 55;                // creatures eat on their own when h
 export const MEAL = 35, LOVED_MEAL = 45;
 export const STOP_HUNGER = 10, STOP_HAPPY = 20, TIRED = 15, RESTED = 80;
 
-export const SKILLS = ["forage", "care", "farm"];
-export const SKILL_NAMES = { forage: "Forage", care: "Care", farm: "Farm" };
+export const PRODUCE_SECS = 30 * 60;        // a happy creature makes 1 of its item every 30 min
+export const PRODUCE_HAPPY = 50;            // ...but only while happiness is at least this
+export const HAND_CRAFT = 0.2;              // one "help craft" by hand = 20% of an item
+export const CONTRACT_MAX = 3;
+export const CONTRACT_GAP = 20 * 60;        // seconds before a new contract shows up
+
+export const SKILLS = ["forage", "care", "farm", "craft", "haul"];
+export const SKILL_NAMES = { forage: "Forage", care: "Care", farm: "Farm", craft: "Craft", haul: "Haul" };
 export const JOBS = {
   forager:  { name: "Forager",  skill: "forage", desc: "Finds wild berries and carrots and brings them to storage." },
   feeder:   { name: "Feeder",   skill: "care",   desc: "Keeps the feeding trough topped up from storage." },
   groomer:  { name: "Groomer",  skill: "care",   desc: "Cheers up the saddest creatures on the farm." },
   farmhand: { name: "Farmhand", skill: "farm",   desc: "Harvests ripe food crops and replants them." },
+  crafter:  { name: "Crafter",  skill: "craft",  desc: "Works a workshop, turning goods into better goods.", needs: "workshop" },
+  hauler:   { name: "Hauler",   skill: "haul",   desc: "Takes goods to the Market Stall: fills contracts, then sells what's above your keep amounts.", needs: "stall" },
 };
 const FORAGE_RATE = 1 / 360;                // food per second at skill 1 (10 an hour)
 const FEED_RATE = 2 / 60;                   // food moved to the trough per second at skill 1
 const GROOM_RATE = 100 / (90 * 60);         // happiness per second given at skill 1
+const HAUL_RATE = 6 / 60;                   // items carried to market per second at skill 1
 export const skillFactor = (lvl) => 1 + 0.15 * (lvl - 1);
 export const xpForNext = (lvl) => lvl * lvl * H;  // seconds of work to reach the next level
 
 // Starting skills by species (then personality + a little luck).
 const SPECIES_SKILLS = {
-  mossling:  { forage: 2, care: 1, farm: 3 },
-  emberpup:  { forage: 3, care: 1, farm: 2 },
-  puddlet:   { forage: 1, care: 3, farm: 2 },
-  fluffwing: { forage: 2, care: 3, farm: 1 },
-  glowmoth:  { forage: 1, care: 2, farm: 3 },
-  pebblet:   { forage: 2, care: 1, farm: 3 },
-  zapling:   { forage: 4, care: 1, farm: 1 },
+  mossling:  { forage: 2, care: 1, farm: 3, craft: 1, haul: 2 },
+  emberpup:  { forage: 3, care: 1, farm: 2, craft: 3, haul: 1 },
+  puddlet:   { forage: 1, care: 3, farm: 2, craft: 2, haul: 2 },
+  fluffwing: { forage: 2, care: 3, farm: 1, craft: 1, haul: 3 },
+  glowmoth:  { forage: 1, care: 2, farm: 3, craft: 3, haul: 1 },
+  pebblet:   { forage: 2, care: 1, farm: 3, craft: 2, haul: 3 },
+  zapling:   { forage: 4, care: 1, farm: 1, craft: 2, haul: 2 },
 };
 const PERSONALITY_SKILLS = {
-  playful: { care: 1 }, greedy: { forage: 1 }, shy: { farm: 1 }, bold: { forage: 1 }, sleepy: {}, grumpy: { care: -1 },
+  playful: { care: 1 }, greedy: { forage: 1, haul: 1 }, shy: { farm: 1, craft: 1 }, bold: { forage: 1, haul: 1 }, sleepy: {}, grumpy: { care: -1, craft: 1 },
 };
 export const PERSONALITY_WORK = {        // how personality changes needs
   greedy: { hunger: 1.3 }, sleepy: { energy: 1.25 }, grumpy: { happy: 1.3 },
@@ -78,46 +97,158 @@ export function chemistry(a, b) {
   return has(CLICK) ? 1 : has(CLASH) ? -1 : 0;
 }
 
+// ── Items ─────────────────────────────────────────────────────────────────────
+// group: food (creatures eat it), goods (creatures make it), made (workshops make it).
+// price = base market price; the real price drifts around it (see priceOf).
+export const ITEMS = {
+  berry:   { name: "Berries",     group: "food",  price: 1,  color: "#5b6ff0" },
+  carrot:  { name: "Carrots",     group: "food",  price: 2,  color: "#f08a24" },
+  moss:    { name: "Moss",        group: "goods", price: 2,  color: "#6fbf4a", from: "mossling" },
+  ember:   { name: "Embers",      group: "goods", price: 3,  color: "#ff7a2e", from: "emberpup" },
+  bubble:  { name: "Bubbles",     group: "goods", price: 3,  color: "#7fd4ff", from: "puddlet" },
+  fluff:   { name: "Fluff",       group: "goods", price: 3,  color: "#ffc4e6", from: "fluffwing" },
+  glow:    { name: "Glow dust",   group: "goods", price: 4,  color: "#ffe36b", from: "glowmoth" },
+  pebble:  { name: "Pebbles",     group: "goods", price: 2,  color: "#a89a8a", from: "pebblet" },
+  spark:   { name: "Sparks",      group: "goods", price: 4,  color: "#c49bff", from: "zapling" },
+  jam:     { name: "Berry jam",   group: "made",  price: 7,  color: "#8a4be0" },
+  brick:   { name: "Bricks",      group: "made",  price: 20, color: "#c4573a" },
+  blanket: { name: "Blankets",    group: "made",  price: 22, color: "#ff9ad0" },
+  cake:    { name: "Carrot cake", group: "made",  price: 24, color: "#f0b060" },
+  lantern: { name: "Lanterns",    group: "made",  price: 40, color: "#ffd65a" },
+};
+export const ITEM_KEYS = Object.keys(ITEMS);
+export const ITEM_GROUPS = [["food", "Food"], ["goods", "Creature goods"], ["made", "Made in workshops"]];
+export const STORE_ITEMS = ["berry", "carrot"];          // what goes in the trough
+export const PRODUCT_OF = Object.fromEntries(Object.entries(ITEMS).filter(([, it]) => it.from).map(([k, it]) => [it.from, k]));
+export const PRICES = Object.fromEntries(ITEM_KEYS.map(k => [k, ITEMS[k].price]));   // base prices
+const SATURATE = { food: 0.003, goods: 0.012, made: 0.025 };   // price drop per item sold
+export const canBuy = (k) => ITEMS[k]?.group !== "made";
+
+// ── Workshops ─────────────────────────────────────────────────────────────────
+export const WORKSHOPS = {
+  kitchen: { name: "Jam Kitchen",      makes: "jam",     needs: { berry: 4 },                      secs: 5 * 60,  cost: 100 },
+  kiln:    { name: "Kiln",             makes: "brick",   needs: { pebble: 3, ember: 1 },           secs: 10 * 60, cost: 250 },
+  loom:    { name: "Loom",             makes: "blanket", needs: { fluff: 3, moss: 1 },             secs: 12 * 60, cost: 250 },
+  bakery:  { name: "Bakery",           makes: "cake",    needs: { carrot: 3, jam: 1 },             secs: 10 * 60, cost: 350 },
+  lantern: { name: "Lantern Workshop", makes: "lantern", needs: { glow: 2, spark: 1, bubble: 1 },  secs: 15 * 60, cost: 500 },
+};
+export const WS_MAX = 5;
+export const wsSpeed = (lvl) => 1 + 0.3 * ((lvl || 1) - 1);
+const WS_BRICKS = [0, 0, 0, 4, 10, 25];       // bricks needed to reach level n
+export function nextWorkshop(w, key) {
+  const ws = WORKSHOPS[key], lvl = w.workshops?.[key]?.level || 0;
+  if (lvl >= WS_MAX) return null;
+  const level = lvl + 1;
+  return { level, cost: lvl ? Math.round(ws.cost * Math.pow(2.4, lvl)) : ws.cost, goods: WS_BRICKS[level] ? { brick: WS_BRICKS[level] } : null };
+}
+
 // ── Buildings ─────────────────────────────────────────────────────────────────
 export const BUILDINGS = {
-  trough: { name: "Feeding Trough", desc: "Creatures eat from it on their own.", max: 5,
-            caps: [12, 30, 75, 180, 450], cost: (lvl) => Math.round(30 * Math.pow(2.6, lvl)) },
-  shed:   { name: "Storage Shed", desc: "How much of each item you can keep.", max: 6,
-            caps: [40, 100, 250, 600, 1500, 4000], cost: (lvl) => Math.round(40 * Math.pow(2.6, lvl)) },
-  beds:   { name: "Comfy Beds", desc: "Tired creatures recharge faster.", max: 3,
-            cost: (lvl) => Math.round(120 * Math.pow(3, lvl)) },
-  stall:  { name: "Market Stall", desc: "Auto-sells anything that won't fit in storage (half price).", max: 1,
-            cost: () => 150 },
+  trough:    { name: "Feeding Trough", desc: "Creatures eat from it on their own.", max: 5,
+               caps: [12, 30, 75, 180, 450], cost: (lvl) => Math.round(30 * Math.pow(2.6, lvl)),
+               goods: { 4: { brick: 5 }, 5: { brick: 15 } } },
+  shed:      { name: "Storage Shed", desc: "How much food and creature goods you can keep (of each).", max: 6,
+               caps: [40, 100, 250, 600, 1500, 4000], cost: (lvl) => Math.round(40 * Math.pow(2.6, lvl)),
+               goods: { 4: { brick: 6 }, 5: { brick: 20 }, 6: { brick: 50 } } },
+  warehouse: { name: "Warehouse", desc: "How many workshop-made goods you can keep (of each).", max: 5,
+               caps: [10, 25, 60, 150, 400], cost: (lvl) => Math.round(80 * Math.pow(2.6, lvl)),
+               goods: { 3: { brick: 4 }, 4: { brick: 12 }, 5: { brick: 30 } } },
+  beds:      { name: "Comfy Beds", desc: "Tired creatures recharge faster.", max: 3,
+               cost: (lvl) => Math.round(120 * Math.pow(3, lvl)),
+               goods: { 2: { blanket: 3 }, 3: { blanket: 8 } } },
+  stall:     { name: "Market Stall", desc: "Auto-sells anything that won't fit in storage (half price). Haulers sell here.", max: 1,
+               cost: () => 150 },
 };
-export const PRICES = { berry: 1, carrot: 2 };
-export const STORE_ITEMS = ["berry", "carrot"];
 
 export const troughCap = (w) => BUILDINGS.trough.caps[(w.buildings?.trough || 1) - 1];
 export const storageCap = (w) => BUILDINGS.shed.caps[(w.buildings?.shed || 1) - 1];
+export const warehouseCap = (w) => BUILDINGS.warehouse.caps[(w.buildings?.warehouse || 1) - 1];
+export const capFor = (w, k) => (ITEMS[k]?.group === "made" ? warehouseCap(w) : storageCap(w));
 export const bedsBoost = (w) => 1 + 0.5 * (w.buildings?.beds || 0);
 
-// Next upgrade for a building: { level, cost } or null when maxed.
+// Next upgrade for a building: { level, cost, goods } or null when maxed.
 export function nextUpgrade(w, key) {
   const b = BUILDINGS[key], lvl = w.buildings?.[key] || 0;
   if (lvl >= b.max) return null;
-  return { level: lvl + 1, cost: b.cost(lvl) };
+  return { level: lvl + 1, cost: b.cost(lvl), goods: b.goods?.[lvl + 1] || null };
+}
+export const hasGoods = (w, goods) => !goods || Object.entries(goods).every(([k, n]) => (w.food?.[k] || 0) >= n);
+
+// ── Market ────────────────────────────────────────────────────────────────────
+// Each item's price multiplier drifts toward a target that changes every hour
+// (the same on both devices: it's worked out from the hour + the item), and
+// selling a lot pushes it down. Prices recover toward the target over ~2 hours.
+function hash01(a, b) {
+  let h = (Math.imul(a | 0, 374761393) + Math.imul(b | 0, 668265263)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+export const marketTarget = (k, tMs) => 0.65 + hash01(Math.floor(tMs / 3600000), ITEM_KEYS.indexOf(k) + 1) * 0.85;
+export const priceOf = (w, k) => (ITEMS[k]?.price || 0) * (w.market?.[k] ?? 1);
+export const buyPriceOf = (w, k) => Math.ceil(priceOf(w, k) * 2 * 10) / 10;
+export const trendOf = (w, k, tMs) => { const d = marketTarget(k, tMs) - (w.market?.[k] ?? 1); return d > 0.04 ? 1 : d < -0.04 ? -1 : 0; };
+export const fmtCoins = (n) => (n >= 10 || Number.isInteger(n) ? String(Math.floor(n)) : n.toFixed(1));
+function stepMarket(w, dt, tMs) {
+  const m = w.market;
+  const k = Math.min(1, dt / (2 * H));
+  for (const key of ITEM_KEYS) { const cur = m[key] ?? 1; m[key] = cur + (marketTarget(key, tMs) - cur) * k; }
+}
+// Sell n of item k right now: coins in, price nudged down. Returns coins earned.
+export function sellNow(w, k, n, factor = 1) {
+  let coins = 0;
+  for (let i = 0; i < n; i++) {
+    coins += priceOf(w, k) * factor;
+    w.market[k] = Math.max(0.35, (w.market[k] ?? 1) - SATURATE[ITEMS[k].group]);
+  }
+  w.coins += coins;
+  return coins;
+}
+
+// ── Contracts ─────────────────────────────────────────────────────────────────
+// What the farm could make right now: food, goods of species you own, and
+// whatever your workshops make.
+export function contractPool(w) {
+  const owned = new Set(Object.values(w.creatures || {}).map(c => c.species));
+  const pool = [...STORE_ITEMS];
+  for (const [sp, k] of Object.entries(PRODUCT_OF)) if (owned.has(sp)) pool.push(k);
+  for (const [key, ws] of Object.entries(WORKSHOPS)) if (w.workshops?.[key]?.level) pool.push(ws.makes);
+  return pool;
+}
+export function makeContract(w, rng, tMs, id) {
+  const pool = contractPool(w);
+  const k = pool[Math.floor(rng() * pool.length) % pool.length];
+  const g = ITEMS[k].group;
+  const n = g === "food" ? 5 * (6 + Math.floor(rng() * 11)) : g === "goods" ? 6 + Math.floor(rng() * 15) : 2 + Math.floor(rng() * 7);
+  return { id, item: k, n, got: 0, reward: Math.round(n * ITEMS[k].price * (1.8 + rng() * 0.8)), until: tMs + Math.round((8 + rng() * 16) * H) * 1000 };
+}
+// Hand over what we have toward a contract. Returns { given, done }.
+export function giveToContract(w, ct, maxGive) {
+  const need = ct.n - ct.got;
+  const given = Math.max(0, Math.min(need, Math.floor(w.food[ct.item] || 0), maxGive));
+  w.food[ct.item] = (w.food[ct.item] || 0) - given;
+  ct.got += given;
+  const done = ct.got >= ct.n;
+  if (done) w.coins += ct.reward;
+  return { given, done };
 }
 
 // ── Creatures ─────────────────────────────────────────────────────────────────
-export function rollSkills(species, personality, rng) {
-  const base = SPECIES_SKILLS[species] || { forage: 1, care: 1, farm: 1 };
+export function rollSkills(species, personality, rng, have = {}) {
+  const base = SPECIES_SKILLS[species] || {};
   const mod = PERSONALITY_SKILLS[personality] || {};
-  const out = {};
-  for (const s of SKILLS) out[s] = Math.max(1, Math.min(10, (base[s] || 1) + (mod[s] || 0) + (rng() < 0.35 ? 1 : 0)));
+  const out = { ...have };
+  for (const s of SKILLS) if (out[s] == null) out[s] = Math.max(1, Math.min(10, (base[s] || 1) + (mod[s] || 0) + (rng() < 0.35 ? 1 : 0)));
   return out;
 }
 
 // Fill in ranch fields on a creature that doesn't have them yet (old saves, new arrivals).
 export function ranchify(c, rng) {
+  const needSkills = !c.skills || SKILLS.some(s => c.skills[s] == null);
   return {
-    energy: 100, job: null, buddy: null, xp: { forage: 0, care: 0, farm: 0 }, resting: false,
+    energy: 100, job: null, buddy: null, resting: false,
     ...c,
-    skills: c.skills || rollSkills(c.species, c.traits.personality, rng),
+    xp: { forage: 0, care: 0, farm: 0, craft: 0, haul: 0, ...(c.xp || {}) },
+    skills: needSkills ? rollSkills(c.species, c.traits.personality, rng, c.skills || {}) : c.skills,
   };
 }
 
@@ -134,40 +265,64 @@ export const STATE_TEXT = {
   following: "following someone", starving: "too hungry to work", sad: "too sad to work",
   resting: "resting", idle: "no job", working: "working",
 };
+export const makesGoods = (c) => c.hunger >= STOP_HUNGER && c.happy >= PRODUCE_HAPPY;
 
 // Can this player give this creature jobs / buddies? (Your own, or ones that trust you.)
 export const canManage = (c, by) => c.owner === String(by) || (c.bond?.[String(by)] || 0) >= 50;
 
+// Hauler rules: keep[item] = how many to keep (the rest gets sold); missing = hands off.
+export const DEFAULT_KEEP = { berry: 40, carrot: 40 };
+
 // ── World fields ──────────────────────────────────────────────────────────────
 export function ranchDefaults() {
-  return { coins: 0, buildings: { trough: 1, shed: 1, beds: 0, stall: 0 }, trough: { berry: 0, carrot: 0 }, simAt: null, report: null };
+  return {
+    coins: 0, buildings: { trough: 1, shed: 1, warehouse: 1, beds: 0, stall: 0 }, trough: { berry: 0, carrot: 0 },
+    workshops: {}, market: {}, keep: { ...DEFAULT_KEEP }, contracts: [], contractAt: 0, nextContract: 1,
+    simAt: null, report: null,
+  };
 }
 
 const add = (obj, k, n) => { obj[k] = (obj[k] || 0) + n; };
 
-// Put food into storage, respecting the cap. Overflow is auto-sold (stall) or wasted.
-function store(w, kind, n, rep) {
-  const cap = storageCap(w);
+// Put items into storage, respecting the cap. Overflow is auto-sold (stall) or wasted.
+export function store(w, kind, n, rep) {
+  const cap = capFor(w, kind);
   const have = w.food[kind] || 0;
   const fits = Math.max(0, Math.min(n, cap - have));
   w.food[kind] = have + fits;
   if (rep) add(rep.gained, kind, fits);
   const extra = n - fits;
   if (extra > 0) {
-    if (w.buildings.stall) { const c = extra * (PRICES[kind] || 1) * 0.5; w.coins += c; if (rep) rep.autoSold += c; }
+    if (w.buildings.stall) { const c = sellNow(w, kind, Math.round(extra), 0.5); if (rep) rep.autoSold += c; }
     else if (rep) add(rep.wasted, kind, extra);
   }
 }
 
+const hasInputs = (w, needs) => Object.entries(needs).every(([k, n]) => (w.food[k] || 0) >= n);
+
+// Finish as many items as the workshop has progress + inputs for.
+export function finishCrafts(w, key, rep) {
+  const st = w.workshops[key], ws = WORKSHOPS[key];
+  while (st.progress >= 1) {
+    if (!hasInputs(w, ws.needs)) { st.progress = 1; st.stalled = true; return; }
+    for (const [k, n] of Object.entries(ws.needs)) w.food[k] -= n;
+    st.progress -= 1;
+    store(w, ws.makes, 1, rep);
+    if (rep) add(rep.made, ws.makes, 1);
+  }
+  st.stalled = !hasInputs(w, ws.needs);
+}
+
 // ── The simulation (one step of dt seconds at world time tMs) ─────────────────
-// Mutates a shallow-copied world `w` (farmWorld clones before calling).
+// Mutates a copied world `w` (farmWorld clones before calling).
 // rep: report counters (or null for live ticks).
 export function stepRanch(w, dt, tMs, rep) {
   const list = Object.values(w.creatures);
   const byId = w.creatures;
   const tcap = troughCap(w);
+  stepMarket(w, dt, tMs);
+  const crafting = {};                                    // workshop → total crafting speed this step
 
-  // creatures' fractional work carries over between steps
   for (const c of list) {
     const pw = PERSONALITY_WORK[c.traits.personality] || {};
     const st = stateOf(c);
@@ -206,11 +361,19 @@ export function stepRanch(w, dt, tMs, rep) {
       }
     }
 
+    // ── making its species' goods (happy creatures only; golden ones make double)
+    const product = PRODUCT_OF[c.species];
+    if (product && makesGoods(c)) {
+      c.made = (c.made || 0) + (dt / PRODUCE_SECS) * (c.happy / 100) * (c.traits.rare ? 2 : 1);
+      if (c.made >= 1) { const n = Math.floor(c.made); c.made -= n; store(w, product, n, rep); }
+    }
+
     // ── working
     if (working) {
       const job = JOBS[c.job];
-      const lvl = c.skills[job.skill];
+      const lvl = c.skills[job.skill] || 1;
       const f = skillFactor(lvl) * speed;
+      let learning = true;                                  // XP only while actually getting something done
       c.work = (c.work || 0);
       if (c.job === "forager") {
         c.work += FORAGE_RATE * f * dt;
@@ -227,18 +390,40 @@ export function stepRanch(w, dt, tMs, rep) {
         const n = 1 + Math.floor(lvl / 3);
         const sad = list.filter(o => o.id !== c.id && o.happy < 95).sort((a, b) => a.happy - b.happy).slice(0, n);
         for (const o of sad) o.happy = Math.min(100, o.happy + GROOM_RATE * f * dt);
+      } else if (c.job === "crafter") {
+        const ws = c.station && w.workshops[c.station];
+        if (ws?.level && ws.on !== false && hasInputs(w, WORKSHOPS[c.station].needs)) crafting[c.station] = (crafting[c.station] || 0) + f;
+        else learning = false;
+      } else if (c.job === "hauler") {
+        if (!w.buildings.stall) learning = false;
+        else {
+          c.work += HAUL_RATE * f * dt;
+          const carried = haul(w, Math.floor(c.work), tMs, rep);
+          c.work = carried < Math.floor(c.work) ? Math.min(c.work - carried, 1) : c.work - carried;
+          if (!carried) learning = false;
+        }
       }
       // XP → skill levels
-      const s = job.skill;
-      c.xp = { ...(c.xp || {}) };
-      c.xp[s] = (c.xp[s] || 0) + dt;
-      if (c.skills[s] < 10 && c.xp[s] >= xpForNext(c.skills[s])) {
-        c.xp[s] -= xpForNext(c.skills[s]);
-        c.skills = { ...c.skills, [s]: c.skills[s] + 1 };
-        if (rep) rep.levelUps.push(`${c.name}: ${SKILL_NAMES[s]} ${c.skills[s]}`);
-        else w._levelUps = [...(w._levelUps || []), `${c.name}'s ${SKILL_NAMES[s]} went up to ${c.skills[s]}!`];
+      if (learning) {
+        const s = job.skill;
+        c.xp = { ...(c.xp || {}) };
+        c.xp[s] = (c.xp[s] || 0) + dt;
+        if (c.skills[s] < 10 && c.xp[s] >= xpForNext(c.skills[s])) {
+          c.xp[s] -= xpForNext(c.skills[s]);
+          c.skills = { ...c.skills, [s]: c.skills[s] + 1 };
+          if (rep) rep.levelUps.push(`${c.name}: ${SKILL_NAMES[s]} ${c.skills[s]}`);
+          else w._levelUps = [...(w._levelUps || []), `${c.name}'s ${SKILL_NAMES[s]} went up to ${c.skills[s]}!`];
+        }
       }
     }
+  }
+
+  // ── workshops: crafters push progress along; finished items need their inputs
+  for (const [key, st] of Object.entries(w.workshops)) {
+    if (!st.level) continue;
+    const sp = crafting[key] || 0;
+    if (sp > 0) st.progress = (st.progress || 0) + (dt * sp * wsSpeed(st.level)) / WORKSHOPS[key].secs;
+    finishCrafts(w, key, rep);
   }
 
   // ── farmhands tend the field: each looks after 1 + farm/4 plots
@@ -260,10 +445,41 @@ export function stepRanch(w, dt, tMs, rep) {
   }
 }
 
+// A Hauler carries up to n items to the stall, only ever from the extra above
+// each keep amount: contracts first, then selling, best value first.
+// Returns how many it carried.
+function haul(w, n, tMs, rep) {
+  let carried = 0;
+  const allowed = (k) => w.keep?.[k] != null;
+  const spare = (k) => Math.floor(w.food[k] || 0) - (w.keep?.[k] ?? Infinity);
+  while (carried < n) {
+    const ct = w.contracts.find(c => c.got < c.n && c.until > tMs && allowed(c.item) && spare(c.item) >= 1);
+    if (ct) {
+      const { given, done } = giveToContract(w, ct, Math.min(n - carried, spare(ct.item)));
+      carried += given;
+      if (done) {
+        if (rep) { rep.contracts += 1; rep.contractCoins += ct.reward; }
+        else w._contractsDone = [...(w._contractsDone || []), ct];
+      }
+      continue;
+    }
+    let best = null, bestV = 0;
+    for (const k of ITEM_KEYS) if (allowed(k) && spare(k) >= 1) { const v = priceOf(w, k); if (v > bestV) { bestV = v; best = k; } }
+    if (!best) break;
+    const take = Math.min(n - carried, spare(best));
+    w.food[best] -= take;
+    const coins = sellNow(w, best, take);
+    if (rep) rep.hauled += coins;
+    carried += take;
+  }
+  if (w.contracts.some(c => c.got >= c.n)) w.contracts = w.contracts.filter(c => c.got < c.n);
+  return carried;
+}
+
 // Run the farm forward by `secs` seconds ending at world time `endMs`, in chunks.
 // Returns the report (or null for short live ticks).
 export function simulateRanch(w, secs, endMs, withReport) {
-  const rep = withReport ? { gained: {}, wasted: {}, meals: 0, buddyMeals: 0, harvests: 0, autoSold: 0, levelUps: [] } : null;
+  const rep = withReport ? { gained: {}, wasted: {}, made: {}, meals: 0, buddyMeals: 0, harvests: 0, autoSold: 0, hauled: 0, contracts: 0, contractCoins: 0, levelUps: [] } : null;
   const CHUNK = secs > 60 ? 30 : secs;
   let left = secs, t = endMs - secs * 1000;
   while (left > 0.0001) {

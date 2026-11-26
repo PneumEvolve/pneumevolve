@@ -35,7 +35,7 @@ import {
   WORLD_W, WORLD_H, MAP, REACH, DAY_LEN, PLOT_COUNT, FOLLOW_BOND, FEED_BELOW,
   initFarm, farmReducer, plotRect, growth, visitorPos, penPos, workerPos,
 } from "./farmWorld";
-import { stateOf, troughCap, STORE_ITEMS } from "./ranch";
+import { stateOf, troughCap, STORE_ITEMS, WORKSHOPS, ITEMS } from "./ranch";
 import RanchPanel, { alertsFor, MANAGER_PANEL_W } from "./RanchPanel";
 import {
   drawCreature, drawFarmer, drawMap, drawBar,
@@ -212,6 +212,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
     if (!t || !L.W.canAct) return;
     if (t.kind === "sign") { setBoard(true); return; }
     if (t.kind === "trough") { L.W.dispatch({ type: "fill_trough" }); return; }
+    if (t.kind === "workshop") { L.W.dispatch({ type: "hand_craft", key: t.id }); return; }
     if (t.kind === "plot") {
       const crop = L.world.plots[t.i];
       if (!crop) L.W.dispatch({ type: "plant", i: t.i, kind: L.seed });
@@ -397,6 +398,13 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
       // standing right at the trough beats a creature wandering past it (the Feeder hangs around here)
       const dTrough = Math.hypot(MAP.trough.x - me.x, MAP.trough.y - me.y);
       if ((!best && dTrough < REACH + 14) || (dTrough < 42 && best?.kind !== "visitor")) best = { kind: "trough" };
+      // workshops: standing at the door beats creatures (Crafters crowd around them)
+      for (const [key, st] of Object.entries(world.workshops || {})) {
+        const wp = MAP.workshops[key];
+        if (!st?.level || !wp) continue;
+        const dW = Math.hypot(wp.x - me.x, wp.y + 24 - me.y);
+        if ((!best && dW < REACH + 10) || (dW < 40 && best?.kind !== "visitor")) best = { kind: "workshop", id: key };
+      }
       if (!best) for (let i = 0; i < PLOT_COUNT; i++) { const r = plotRect(i); const d = Math.hypot(r.cx - me.x, r.cy - me.y); if (d < bestD + 8) { best = { kind: "plot", i }; bestD = d - 8; } }
       if (!best) for (const c of Object.values(world.creatures)) { if (c.follow !== L.myId) continue; const p = cache[c.id]; if (Math.hypot(p.x - me.x, p.y - me.y) < REACH) best = { kind: "creature", id: c.id }; }
       currentTarget.current = best;
@@ -464,6 +472,10 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
       } else if (best?.kind === "sign") {
         ctx.strokeStyle = "rgba(255,255,255,0.8)"; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.ellipse(MAP.sign.x, MAP.sign.y, 24, 8, 0, 0, Math.PI * 2); ctx.stroke();
+      } else if (best?.kind === "workshop") {
+        const wp = MAP.workshops[best.id];
+        ctx.strokeStyle = "rgba(255,255,255,0.8)"; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.ellipse(wp.x, wp.y + 22, 42, 9, 0, 0, Math.PI * 2); ctx.stroke();
       } else if (best && cache[best.id]) {
         const p = cache[best.id];
         ctx.strokeStyle = "rgba(255,255,255,0.8)"; ctx.lineWidth = 2;
@@ -548,8 +560,8 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
       <div style={{ position: "absolute", top: 46, left: 0, right: 0, display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap", zIndex: 20, pointerEvents: "none", fontSize: 13, fontWeight: 700 }}>
         <Chip><Icon draw={drawSun} /> Day {world.day} · {Math.floor(dayLeft / 60)}:{String(Math.floor(dayLeft % 60)).padStart(2, "0")} left</Chip>
         <Chip color="#ffd65a"><CoinDot /> {Math.floor(world.coins || 0)}</Chip>
-        <Chip>{Object.keys(world.food).map(k => (
-          <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 3, marginRight: 8 }}><CropIcon kind={k} /> {Math.floor(world.food[k])}</span>
+        <Chip>{STORE_ITEMS.map(k => (
+          <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 3, marginRight: 8 }}><CropIcon kind={k} /> {Math.floor(world.food[k] || 0)}</span>
         ))}</Chip>
         <Chip color={solo ? C.dim : C.good}><Dot color={solo ? C.dim : C.good} /> {solo ? "playing solo" : `${nameOf(partnerId)} is here`}</Chip>
         {W.saveState === "error" && <Chip color={C.bad}>save failed, retrying</Chip>}
@@ -666,6 +678,13 @@ function promptFor(t, world, now, seed, offering) {
     const stored = STORE_ITEMS.reduce((n, k) => n + Math.floor(world.food?.[k] || 0), 0);
     return have >= capN ? `Trough is full (${have}/${capN})` : stored ? `Fill the trough (${have}/${capN})` : "Trough · no food in storage";
   }
+  if (t.kind === "workshop") {
+    const ws = WORKSHOPS[t.id], st = world.workshops?.[t.id] || {};
+    const miss = Object.entries(ws.needs).filter(([k, n]) => (world.food?.[k] || 0) < n).map(([k]) => ITEMS[k].name.toLowerCase());
+    const recipe = Object.entries(ws.needs).map(([k, n]) => `${n} ${ITEMS[k].name.toLowerCase()}`).join(" + ");
+    if (miss.length) return `${ws.name} · needs ${miss.join(" and ")} (${recipe})`;
+    return `${ws.name} · help make ${ITEMS[ws.makes].name.toLowerCase()} (${Math.floor((st.progress || 0) * 100)}%)`;
+  }
   if (t.kind === "plot") {
     const crop = world.plots[t.i];
     if (!crop) return `Plant ${CROPS[seed].name}`;
@@ -684,7 +703,7 @@ function promptFor(t, world, now, seed, offering) {
   if (t.kind === "creature") {
     const c = world.creatures[t.id];
     if (!c) return null;
-    const anyFood = Object.values(world.food).some(n => n > 0);
+    const anyFood = STORE_ITEMS.some(k => (world.food[k] || 0) >= 1);
     const feed = c.hunger >= FEED_BELOW ? "not hungry" : anyFood ? "Feed" : "no food!";
     return `${c.name} · ${feed} · Pet`;
   }
@@ -695,6 +714,7 @@ function buttonLabel(t, world, now, seed) {
   if (!t) return "";
   if (t.kind === "sign") return "RUNS";
   if (t.kind === "trough") return "FILL";
+  if (t.kind === "workshop") return Object.entries(WORKSHOPS[t.id].needs).every(([k, n]) => (world.food?.[k] || 0) >= n) ? "CRAFT" : "";
   if (t.kind === "plot") {
     const crop = world.plots[t.i];
     if (!crop) return "PLANT";
