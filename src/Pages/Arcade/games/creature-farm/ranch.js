@@ -321,6 +321,15 @@ export function stepRanch(w, dt, tMs, rep) {
   const byId = w.creatures;
   const tcap = troughCap(w);
   stepMarket(w, dt, tMs);
+  // Storage limits are hard: nothing sits above the cap (hand harvests, old
+  // saves). With the Market Stall the extra gets sold; without it, it's lost.
+  for (const k of ITEM_KEYS) {
+    const extra = Math.floor((w.food[k] || 0) - capFor(w, k));
+    if (extra <= 0) continue;
+    w.food[k] -= extra;
+    if (w.buildings.stall) { const c = sellNow(w, k, extra); if (rep) rep.autoSold += c; }
+    else if (rep) add(rep.wasted, k, extra);
+  }
   const crafting = {};                                    // workshop → total crafting speed this step
 
   for (const c of list) {
