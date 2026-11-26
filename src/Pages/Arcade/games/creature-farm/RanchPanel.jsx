@@ -15,7 +15,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { C } from "../../ui";
-import { SPECIES } from "./species";
+import { SPECIES, CROPS } from "./species";
 import { drawCreature, drawBowl, drawSun, drawItemIcon, drawSprout } from "./drawFarm";
 import { plotCost, PLOT_COUNT } from "./farmWorld";
 import {
@@ -23,7 +23,7 @@ import {
   nextUpgrade, troughCap, storageCap, warehouseCap, capFor, xpForNext, plotsPerFarmhand,
   ITEMS, ITEM_KEYS, ITEM_GROUPS, PRODUCT_OF, WORKSHOPS, nextWorkshop, wsSpeed, skillFactor, hasGoods,
   priceOf, buyPriceOf, canBuy, fmtCoins, makesGoods, PRODUCE_SECS, CONTRACT_MAX, missingInputs, usable, FOOD_RESERVE,
-  forecast, jobRate, PRODUCE_HAPPY, STOP_HAPPY, STOP_HUNGER,
+  forecast, jobRate, farmhandShare, PRODUCE_HAPPY, STOP_HAPPY, STOP_HUNGER,
   inMeadow, housedCount, penSlots, penCost, rehomePrice,
 } from "./ranch";
 
@@ -209,19 +209,30 @@ function AwayReport({ rep, onDismiss }) {
 
 // ── Creatures ─────────────────────────────────────────────────────────────────
 const FILTERS = [["all", "All"], ["mine", "Mine"], ["help", "Need help"], ["idle", "No job"], ["meadow", "Meadow"]];
+// Sorting: by a skill (best first), or by how they're doing.
+const SORTS = [["", "Default"], ...SKILLS.map(s => [s, SKILL_NAMES[s]]), ["happy", "Happiest"], ["hungry", "Hungriest"]];
 function Creatures({ world, W, myId, nameOf, colorOf, onFollow }) {
   const [filter, setFilter] = useState("all");
+  const [sortBy, setSortBy] = useState(() => { try { return localStorage.getItem("ranch_sort") || ""; } catch { return ""; } });
   const [open, setOpen] = useState(null);
+  const chooseSort = (v) => { setSortBy(v); try { localStorage.setItem("ranch_sort", v); } catch { /* storage blocked */ } };
   const all = Object.values(world.creatures || {});
   const list = all.filter(c =>
     filter === "mine" ? c.owner === myId :
     filter === "help" ? ["starving", "sad"].includes(stateOf(c)) :
     filter === "idle" ? stateOf(c) === "idle" :
     filter === "meadow" ? stateOf(c) === "meadow" : true);
+  if (sortBy === "happy") list.sort((a, b) => b.happy - a.happy);
+  else if (sortBy === "hungry") list.sort((a, b) => a.hunger - b.hunger);
+  else if (sortBy) list.sort((a, b) => (b.skills?.[sortBy] || 1) - (a.skills?.[sortBy] || 1) || (b.xp?.[sortBy] || 0) - (a.xp?.[sortBy] || 0));
   return (
     <>
       <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
         {FILTERS.map(([id, label]) => <button key={id} onClick={() => setFilter(id)} style={btn(filter === id, { padding: "5px 10px", fontSize: 12 })}>{label}</button>)}
+      </div>
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+        <span style={{ fontSize: 11, color: C.dim, marginRight: 2 }}>Sort:</span>
+        {SORTS.map(([id, label]) => <button key={id || "def"} onClick={() => chooseSort(id)} style={btn(sortBy === id, { padding: "4px 8px", fontSize: 11 })}>{label}</button>)}
       </div>
       {list.length === 0 && <div style={{ color: C.dim, fontSize: 13 }}>Nobody here.</div>}
       {list.map(c => (
@@ -229,6 +240,27 @@ function Creatures({ world, W, myId, nameOf, colorOf, onFollow }) {
           open={open === c.id} onToggle={() => setOpen(o => (o === c.id ? null : c.id))} />
       ))}
     </>
+  );
+}
+
+// Tiny skill chips on every card: "Fo 3  Ca 1  Fa 4 …". The skill its job uses is highlighted.
+const SKILL_SHORT = { forage: "Fo", care: "Ca", farm: "Fa", craft: "Cr", haul: "Ha", fight: "Fi" };
+const SKILL_JOBS = { forage: "Forager", care: "Feeder, Groomer", farm: "Farmhand", craft: "Crafter", haul: "Hauler", fight: "the Wilds" };
+function SkillChips({ c }) {
+  const used = c.job ? JOBS[c.job]?.skill : null;
+  return (
+    <div style={{ display: "flex", gap: 3, marginTop: 5, flexWrap: "wrap" }}>
+      {SKILLS.map(s => {
+        const lvl = c.skills?.[s] || 1, on = s === used;
+        const hue = lvl >= 8 ? "#ffd65a" : lvl >= 5 ? "#c9a7ff" : lvl >= 3 ? "#9fd0ff" : "rgba(243,236,255,0.55)";
+        return (
+          <span key={s} title={`${SKILL_NAMES[s]} ${lvl} (used by ${SKILL_JOBS[s]})`}
+            style={{ fontSize: 10, fontWeight: 800, padding: "1px 5px", borderRadius: 6, background: on ? "rgba(255,204,77,0.22)" : "rgba(255,255,255,0.06)", border: `1px solid ${on ? "rgba(255,204,77,0.6)" : "transparent"}`, color: C.dim, whiteSpace: "nowrap" }}>
+            {SKILL_SHORT[s]} <span style={{ color: hue }}>{lvl}</span>
+          </span>
+        );
+      })}
+    </div>
   );
 }
 
@@ -268,6 +300,7 @@ function CreatureCard({ c, world, W, myId, nameOf, colorOf, onFollow, open, onTo
             <MiniBar value={c.energy ?? 100} color="#6fd3ff" title="energy" />
             {product && <span title={makesGoods(c) ? `making ${ITEMS[product].name.toLowerCase()}` : "too unhappy to make anything"} style={{ opacity: makesGoods(c) ? 1 : 0.3, display: "inline-flex" }}><ItemIcon kind={product} size={15} /></span>}
           </div>
+          <SkillChips c={c} />
         </div>
         <span style={{ color: C.faint, fontSize: 12 }}>{open ? "less" : "more"}</span>
       </div>
@@ -545,6 +578,7 @@ function Forecast({ world, now, setTab }) {
         </div>
         <div style={{ fontSize: 11, color: C.dim }}>Happy 50+ makes goods; under 20 stops working. Hungry under 10 stops working.</div>
       </Card>
+      <FarmForecast world={world} rep={rep} label={label} setTab={setTab} />
       {built.length > 0 && (
         <Card title="Workshops">
           {built.map(k => {
@@ -583,6 +617,43 @@ function Forecast({ world, now, setTab }) {
     </>
   );
 }
+// Where the food and goods come from, and how the field is covered.
+function FarmForecast({ world, rep, label, setTab }) {
+  const src = rep.src || {};
+  const list = (o) => Object.entries(o || {}).filter(([, n]) => n >= 1).map(([k, n]) => `${Math.round(n)} ${ITEMS[k].name.toLowerCase()}`).join(", ");
+  const coinsOf = (o) => Object.entries(o || {}).reduce((a, [k, n]) => a + n * (ITEMS[k]?.price || 0), 0);
+  const cs = Object.values(world.creatures || {});
+  const foragers = cs.filter(c => c.job === "forager"), hands = cs.filter(c => c.job === "farmhand");
+  const owned = world.plots?.length || 0, lures = (world.plots || []).filter(p => p && CROPS[p.kind]?.type !== "food").length;
+  const covered = Math.min(owned - lures, hands.reduce((n, c) => n + farmhandShare(world, c).plots, 0));
+  const untended = Math.max(0, owned - lures - covered);
+  const rows = [
+    ["Farmhands", hands.length, `${rep.harvests} harvests: ${list(src.farm) || "nothing"}`, coinsOf(src.farm)],
+    ["Foragers", foragers.length, list(src.forage) || "nothing", coinsOf(src.forage)],
+    ["Creature goods", null, list(src.goods) || "nothing", coinsOf(src.goods)],
+    ["Workshops", null, list(src.craft) || "nothing", coinsOf(src.craft)],
+  ];
+  return (
+    <Card title={`Farm and gathering · next ${label}`}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {rows.map(([name, n, what, coins]) => (
+          <div key={name} style={{ display: "flex", alignItems: "baseline", gap: 8, fontSize: 12 }}>
+            <span style={{ width: 112, fontWeight: 800 }}>{name}{n != null ? <span style={{ color: C.dim, fontWeight: 700 }}> ({n})</span> : null}</span>
+            <span style={{ flex: 1, color: C.dim }}>{what}</span>
+            <span style={{ color: "#ffd65a", fontWeight: 800, whiteSpace: "nowrap" }}>{coins >= 1 ? `≈ ${Math.round(coins)} coins` : ""}</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ fontSize: 12, color: untended ? "#ffcf8a" : C.dim, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span>Field: {owned} plot{owned === 1 ? "" : "s"}{lures ? ` (${lures} with lure crops)` : ""}, Farmhands cover {covered}.</span>
+        {untended > 0 && <span>{untended} food plot{untended > 1 ? "s" : ""} nobody looks after (ripe crops wait for you). A Farmhand or more Farm levels would help.</span>}
+        {untended === 0 && hands.length > 0 && hands.some(c => farmhandShare(world, c).plots < plotsPerFarmhand(c)) && <button onClick={() => setTab("buildings")} style={btn(false, { padding: "3px 8px", fontSize: 11 })}>Farmhands have spare time: buy more land</button>}
+      </div>
+      <div style={{ fontSize: 11, color: C.faint }}>Coin values are what everything would sell for. Food also feeds your creatures and workshops.</div>
+    </Card>
+  );
+}
+
 function Change({ label, from, to, plus }) {
   const d = from == null ? to : to - from;
   return (
