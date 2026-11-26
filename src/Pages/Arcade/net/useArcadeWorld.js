@@ -32,6 +32,7 @@ import { API_URL } from "@/lib/env";
 import { useArcadeEvent } from "./useArcadeRoom";
 
 const REQUEST_RETRY_MS = 1500;
+const HOST_CLAIM_MS    = 6000;   // no world from the host this long → take over hosting
 const KEEPALIVE_LIMIT  = 60_000;   // browsers cap keepalive bodies at 64KB
 
 export function useArcadeWorld(net, roomId, { reducer, initWorld, onLoad, autosaveMs = 15000 }) {
@@ -193,7 +194,13 @@ export function useArcadeWorld(net, roomId, { reducer, initWorld, onLoad, autosa
     const ask = () => netRef.current.send("world_request", {}, { volatile: true });
     ask();
     const id = setInterval(ask, REQUEST_RETRY_MS);
-    return () => clearInterval(id);
+    // Nobody answered: the "host" is a dead connection (a phone tab asleep in the
+    // background, or a tab whose game crashed). Ask the server to make us host
+    // instead, so we load the world ourselves rather than waiting forever.
+    const claim = setTimeout(() => {
+      if (!readyRef.current && !isHostRef.current) netRef.current.send("host_claim", {});
+    }, HOST_CLAIM_MS);
+    return () => { clearInterval(id); clearTimeout(claim); };
   }, [isHost, net.status, net.connId, syncedFor]);
 
   // ── Network in ─────────────────────────────────────────────────────────────
