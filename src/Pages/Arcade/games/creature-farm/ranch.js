@@ -85,7 +85,7 @@ export const PERSONALITY_WORK = {        // how personality changes needs
   greedy: { hunger: 1.3 }, sleepy: { energy: 1.25 }, grumpy: { happy: 1.3 },
 };
 
-export const plotsPerFarmhand = (c) => 1 + Math.floor((c.skills?.farm || 1) / 4);
+export const plotsPerFarmhand = (c) => c.skills?.farm || 1;   // 1 plot per Farm level
 
 // Personality chemistry between buddies.
 const CLICK = [["shy", "bold"], ["playful", "sleepy"], ["greedy", "playful"], ["sleepy", "shy"]];
@@ -445,7 +445,7 @@ export function stepRanch(w, dt, tMs, rep) {
     finishCrafts(w, key, rep);
   }
 
-  // ── farmhands tend the field: each looks after 1 + farm/4 plots
+  // ── farmhands tend the field: each looks after 1 plot per Farm level
   const hands = list.filter(c => c.job === "farmhand" && stateOf(c) === "working");
   if (hands.length) {
     let slots = hands.reduce((n, c) => n + plotsPerFarmhand(c), 0);
