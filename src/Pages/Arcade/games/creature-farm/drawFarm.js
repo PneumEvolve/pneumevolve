@@ -9,7 +9,7 @@
 
 import { SPECIES, CROPS } from "./species";
 import { MAP, WORLD_W, WORLD_H, PLOT_COUNT, plotRect, growth } from "./farmWorld";
-import { WORKSHOPS, ITEMS, STORE_ITEMS, troughCap } from "./ranch";
+import { WORKSHOPS, ITEMS, STORE_ITEMS, troughCap, missingInputs } from "./ranch";
 
 const TAU = Math.PI * 2;
 
@@ -566,6 +566,12 @@ export function drawItemIcon(ctx, kind, cx, cy, size, t = 0) {
       ctx.fillStyle = "#e04848"; ctx.beginPath(); ctx.moveTo(-11, -11); ctx.lineTo(11, -11); ctx.lineTo(9, -14); ctx.lineTo(-9, -14); ctx.closePath(); ctx.fill();
       ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.roundRect(-6, 1, 12, 7, 2); ctx.fill();
       ctx.fillStyle = "#3d4fc9"; ctx.beginPath(); ctx.arc(0, 4.5, 2.2, 0, TAU); ctx.fill();
+    } else if (kind === "juice") {
+      ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.beginPath(); ctx.moveTo(-9, -10); ctx.lineTo(9, -10); ctx.lineTo(7, 14); ctx.lineTo(-7, 14); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = "#ff9a3c"; ctx.beginPath(); ctx.moveTo(-8.3, -4); ctx.lineTo(8.3, -4); ctx.lineTo(7, 14); ctx.lineTo(-7, 14); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.4)"; ctx.fillRect(-6, -2, 2.5, 13);
+      ctx.strokeStyle = "#e04848"; ctx.lineWidth = 2.5; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(2, 8); ctx.lineTo(5, -14); ctx.lineTo(10, -15); ctx.stroke();
+      ctx.fillStyle = "#3f8f3a"; ctx.beginPath(); ctx.ellipse(-4, -12, 4, 2, -0.5, 0, TAU); ctx.fill();
     } else if (kind === "brick") {
       ctx.fillStyle = "#9a3f28"; ctx.beginPath(); ctx.moveTo(-14, -2); ctx.lineTo(-6, -9); ctx.lineTo(14, -9); ctx.lineTo(14, 5); ctx.lineTo(6, 12); ctx.lineTo(-14, 12); ctx.closePath(); ctx.fill();
       ctx.fillStyle = "#c4573a"; ctx.fillRect(-14, -2, 20, 14);
@@ -600,6 +606,7 @@ export function drawItemIcon(ctx, kind, cx, cy, size, t = 0) {
 const WS_LOOK = {
   kitchen: { wall: "#e8c08a", roof: "#8a4be0" },
   kiln:    { wall: "#b8865a", roof: "#7a3420" },
+  juicer:  { wall: "#f5e3c4", roof: "#e07a1f" },
   loom:    { wall: "#f0d6e6", roof: "#c0569a" },
   bakery:  { wall: "#f2d9a6", roof: "#c9822e" },
   lantern: { wall: "#c7c0e8", roof: "#4a3a8a" },
@@ -633,7 +640,7 @@ export function drawWorkshop(ctx, key, x, y, st, world, t) {
   let note = null;
   if (st.on === false) note = "PAUSED";
   else if (st.stalled) {
-    const miss = Object.entries(ws.needs).find(([k, n]) => (world.food?.[k] || 0) < n);
+    const miss = missingInputs(world, ws.needs)[0];
     note = miss ? `NEEDS ${ITEMS[miss[0]].name.toUpperCase()}` : null;
   }
   if (note) {

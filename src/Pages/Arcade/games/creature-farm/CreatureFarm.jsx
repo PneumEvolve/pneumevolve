@@ -35,7 +35,7 @@ import {
   WORLD_W, WORLD_H, MAP, REACH, DAY_LEN, PLOT_COUNT, FOLLOW_BOND, FEED_BELOW,
   initFarm, farmReducer, plotRect, growth, visitorPos, penPos, workerPos,
 } from "./farmWorld";
-import { stateOf, troughCap, STORE_ITEMS, WORKSHOPS, ITEMS } from "./ranch";
+import { stateOf, troughCap, STORE_ITEMS, WORKSHOPS, ITEMS, missingInputs } from "./ranch";
 import RanchPanel, { alertsFor, MANAGER_PANEL_W } from "./RanchPanel";
 import {
   drawCreature, drawFarmer, drawMap, drawBar,
@@ -680,7 +680,7 @@ function promptFor(t, world, now, seed, offering) {
   }
   if (t.kind === "workshop") {
     const ws = WORKSHOPS[t.id], st = world.workshops?.[t.id] || {};
-    const miss = Object.entries(ws.needs).filter(([k, n]) => (world.food?.[k] || 0) < n).map(([k]) => ITEMS[k].name.toLowerCase());
+    const miss = missingInputs(world, ws.needs).map(([k]) => ITEMS[k].name.toLowerCase());
     const recipe = Object.entries(ws.needs).map(([k, n]) => `${n} ${ITEMS[k].name.toLowerCase()}`).join(" + ");
     if (miss.length) return `${ws.name} · needs ${miss.join(" and ")} (${recipe})`;
     return `${ws.name} · help make ${ITEMS[ws.makes].name.toLowerCase()} (${Math.floor((st.progress || 0) * 100)}%)`;
@@ -714,7 +714,7 @@ function buttonLabel(t, world, now, seed) {
   if (!t) return "";
   if (t.kind === "sign") return "RUNS";
   if (t.kind === "trough") return "FILL";
-  if (t.kind === "workshop") return Object.entries(WORKSHOPS[t.id].needs).every(([k, n]) => (world.food?.[k] || 0) >= n) ? "CRAFT" : "";
+  if (t.kind === "workshop") return missingInputs(world, WORKSHOPS[t.id].needs).length ? "" : "CRAFT";
   if (t.kind === "plot") {
     const crop = world.plots[t.i];
     if (!crop) return "PLANT";

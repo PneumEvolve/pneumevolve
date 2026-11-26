@@ -21,7 +21,7 @@ import { SPECIES, CROPS, PERSONALITIES, NAMES } from "./species";
 import {
   ranchDefaults, ranchify, simulateRanch, CATCHUP_MAX, JOBS, canManage, nextUpgrade, troughCap, STORE_ITEMS,
   ITEMS, SKILLS, WORKSHOPS, BUILDINGS, nextWorkshop, hasGoods, capFor, priceOf, buyPriceOf, canBuy, sellNow, finishCrafts,
-  makeContract, giveToContract, CONTRACT_MAX, CONTRACT_GAP, HAND_CRAFT, fmtCoins,
+  makeContract, giveToContract, CONTRACT_MAX, CONTRACT_GAP, HAND_CRAFT, fmtCoins, missingInputs,
 } from "./ranch";
 
 // ── Map (world units; the canvas scales to fit) ──────────────────────────────
@@ -38,6 +38,7 @@ export const MAP = {
   stall: { x: 60, y: 420 },                       // market stall (once built)
   workshops: {                                    // each appears once it's built
     kitchen: { x: 900, y: 185 },
+    juicer:  { x: 205, y: 545 },
     bakery:  { x: 900, y: 300 },
     kiln:    { x: 872, y: 432 },
     loom:    { x: 872, y: 540 },
@@ -588,7 +589,7 @@ export function farmReducer(w0, a) {
     case "hand_craft": {
       const st = w.workshops?.[a.key];
       if (!by || !st?.level || st.progress >= 1) return w;
-      if (!Object.entries(WORKSHOPS[a.key].needs).every(([k, n]) => (w.food[k] || 0) >= n)) return w;   // missing inputs
+      if (missingInputs(w, WORKSHOPS[a.key].needs).length) return w;   // missing inputs (or only the creatures' food reserve left)
       const x = { ...w, food: { ...w.food }, coins: w.coins, market: { ...w.market }, workshops: { ...w.workshops, [a.key]: { ...st, progress: (st.progress || 0) + HAND_CRAFT } } };
       const before = x.food[WORKSHOPS[a.key].makes] || 0;
       finishCrafts(x, a.key, null);

@@ -20,7 +20,7 @@
 //   • Creature goods: every happy creature slowly makes its species' item
 //     (Mosslings → moss, Emberpups → embers, ...). Golden ones make double.
 //   • Workshops turn goods into better goods (Jam Kitchen, Kiln, Loom, Bakery,
-//     Lantern Workshop). A Crafter works one; you can also help by hand.
+//     Lantern Workshop, Juice Press). A Crafter works one; you can also help by hand.
 //   • Higher building levels cost bricks or blankets, not just coins.
 //   • Market: prices drift up and down every hour, and drop when you sell a
 //     lot of one thing (they recover over a couple of hours). You can buy
@@ -111,6 +111,7 @@ export const ITEMS = {
   pebble:  { name: "Pebbles",     group: "goods", price: 2,  color: "#a89a8a", from: "pebblet" },
   spark:   { name: "Sparks",      group: "goods", price: 4,  color: "#c49bff", from: "zapling" },
   jam:     { name: "Berry jam",   group: "made",  price: 7,  color: "#8a4be0" },
+  juice:   { name: "Carrot juice", group: "made", price: 12, color: "#ff9a3c" },
   brick:   { name: "Bricks",      group: "made",  price: 20, color: "#c4573a" },
   blanket: { name: "Blankets",    group: "made",  price: 22, color: "#ff9ad0" },
   cake:    { name: "Carrot cake", group: "made",  price: 24, color: "#f0b060" },
@@ -127,7 +128,8 @@ export const canBuy = (k) => ITEMS[k]?.group !== "made";
 // ── Workshops ─────────────────────────────────────────────────────────────────
 export const WORKSHOPS = {
   kitchen: { name: "Jam Kitchen",      makes: "jam",     needs: { berry: 4 },                      secs: 5 * 60,  cost: 100 },
-  kiln:    { name: "Kiln",             makes: "brick",   needs: { pebble: 3, ember: 1 },           secs: 10 * 60, cost: 250 },
+  juicer:  { name: "Juice Press",      makes: "juice",   needs: { carrot: 4 },                     secs: 6 * 60,  cost: 120 },
+  kiln:    { name: "Kiln",             makes: "brick",   needs: { pebble: 2, ember: 1 },           secs: 10 * 60, cost: 250 },
   loom:    { name: "Loom",             makes: "blanket", needs: { fluff: 3, moss: 1 },             secs: 12 * 60, cost: 250 },
   bakery:  { name: "Bakery",           makes: "cake",    needs: { carrot: 3, jam: 1 },             secs: 10 * 60, cost: 350 },
   lantern: { name: "Lantern Workshop", makes: "lantern", needs: { glow: 2, spark: 1, bubble: 1 },  secs: 15 * 60, cost: 500 },
@@ -298,7 +300,11 @@ export function store(w, kind, n, rep) {
   }
 }
 
-const hasInputs = (w, needs) => Object.entries(needs).every(([k, n]) => (w.food[k] || 0) >= n);
+// Workshops never use the last FOOD_RESERVE berries/carrots: creatures eat first.
+export const FOOD_RESERVE = 10;
+export const usable = (w, k) => Math.max(0, Math.floor(w.food?.[k] || 0) - (ITEMS[k]?.group === "food" ? FOOD_RESERVE : 0));
+export const missingInputs = (w, needs) => Object.entries(needs).filter(([k, n]) => usable(w, k) < n);
+const hasInputs = (w, needs) => missingInputs(w, needs).length === 0;
 
 // Finish as many items as the workshop has progress + inputs for.
 export function finishCrafts(w, key, rep) {

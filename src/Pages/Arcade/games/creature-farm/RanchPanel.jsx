@@ -21,7 +21,7 @@ import {
   JOBS, SKILLS, SKILL_NAMES, BUILDINGS, STORE_ITEMS, stateOf, STATE_TEXT, canManage, chemistry,
   nextUpgrade, troughCap, storageCap, warehouseCap, capFor, xpForNext, plotsPerFarmhand,
   ITEMS, ITEM_KEYS, ITEM_GROUPS, PRODUCT_OF, WORKSHOPS, nextWorkshop, wsSpeed, skillFactor, hasGoods,
-  priceOf, buyPriceOf, trendOf, canBuy, fmtCoins, makesGoods, PRODUCE_SECS, CONTRACT_MAX,
+  priceOf, buyPriceOf, trendOf, canBuy, fmtCoins, makesGoods, PRODUCE_SECS, CONTRACT_MAX, missingInputs, usable, FOOD_RESERVE,
 } from "./ranch";
 
 // Manager mode panel width (the farm view uses the rest of the screen).
@@ -89,7 +89,7 @@ export function alertsFor(w, now = Date.now()) {
     if (!st?.level || st.on === false) continue;
     const ws = WORKSHOPS[key];
     const crafters = cs.filter(c => c.job === "crafter" && c.station === key);
-    const miss = Object.entries(ws.needs).filter(([k, n]) => (w.food?.[k] || 0) < n).map(([k]) => ITEMS[k].name.toLowerCase());
+    const miss = missingInputs(w, ws.needs).map(([k]) => ITEMS[k].name.toLowerCase());
     if (crafters.length && miss.length) out.push({ level: "warn", text: `The ${ws.name} is waiting for ${miss.join(" and ")}`, tab: "workshops" });
     else if (!crafters.length) out.push({ level: "info", text: `Nobody works at the ${ws.name}`, tab: "workshops" });
   }
@@ -162,7 +162,7 @@ function Tips({ world }) {
   else if (!jobs.size) tip = "Give a creature a job in the Creatures tab. A Farmhand harvests and replants food crops for you.";
   else if (!jobs.has("feeder")) tip = "Make someone a Feeder so the trough fills itself from storage.";
   else if (!world.buildings?.stall) tip = "Save up 150 coins for the Market Stall: it sells whatever won't fit in storage, and Haulers sell there.";
-  else if (!built.length) tip = "Build the Jam Kitchen (Workshops tab). 4 berries become a jar of jam that sells for much more.";
+  else if (!built.length) tip = "Build a workshop (Workshops tab): the Jam Kitchen turns 4 berries into jam, the Juice Press turns 4 carrots into juice. Both sell for much more.";
   else if (!jobs.has("crafter")) tip = "Make someone a Crafter at your workshop. Creatures with high Craft work faster.";
   else if (!jobs.has("hauler")) tip = "A Hauler takes goods to the stall for you: it fills contracts, then sells anything above your keep amounts (Market tab).";
   else if (!world.workshops?.kiln?.level) tip = "Happy creatures make goods: Pebblets make pebbles, Emberpups make embers. The Kiln turns them into bricks, and bricks unlock bigger upgrades.";
@@ -374,7 +374,7 @@ function CraftingCard({ c, world }) {
   const key = c.station, ws = WORKSHOPS[key], st = world.workshops[key];
   const cs = Object.values(world.creatures).filter(o => o.job === "crafter" && o.station === key && stateOf(o) === "working");
   const speed = cs.reduce((n, o) => n + skillFactor(o.skills.craft || 1) * (o.buddy && chemistry(o, world.creatures[o.buddy]) > 0 ? 1.15 : 1), 0) * wsSpeed(st.level);
-  const miss = Object.entries(ws.needs).filter(([k, n]) => (world.food?.[k] || 0) < n).map(([k]) => ITEMS[k].name.toLowerCase());
+  const miss = missingInputs(world, ws.needs).map(([k]) => ITEMS[k].name.toLowerCase());
   const frac = Math.max(0, Math.min(1, st.progress || 0));
   const status = st.on === false ? "workshop paused" : miss.length ? `waiting for ${miss.join(" and ")}` : stateOf(c) !== "working" ? STATE_TEXT[stateOf(c)] : speed > 0 ? `next one in ${clock(((1 - frac) * ws.secs) / speed)}` : "";
   const ok = st.on !== false && !miss.length && stateOf(c) === "working";
@@ -416,7 +416,7 @@ function Workshops({ world, W, myId }) {
         const working = crafters.filter(c => stateOf(c) === "working");
         const speed = working.reduce((n, c) => n + skillFactor(c.skills.craft || 1) * (c.buddy && chemistry(c, world.creatures[c.buddy]) > 0 ? 1.15 : 1), 0) * wsSpeed(lvl);
         const perItem = speed > 0 ? ws.secs / speed : null;
-        const miss = Object.entries(ws.needs).filter(([k, n]) => (world.food?.[k] || 0) < n);
+        const miss = missingInputs(world, ws.needs);
         const affordable = up && coins >= up.cost && hasGoods(world, up.goods);
         const candidates = cs.filter(c => canManage(c, myId) && !(c.job === "crafter" && c.station === key));
         return (
@@ -481,17 +481,17 @@ function Recipe({ world, ws }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", fontSize: 12, marginTop: 2 }}>
       {Object.entries(ws.needs).map(([k, n], i) => {
-        const have = Math.floor(world.food?.[k] || 0);
+        const have = Math.floor(world.food?.[k] || 0), food = ITEMS[k].group === "food";
         return (
           <React.Fragment key={k}>
             {i > 0 && <span style={{ color: C.faint }}>+</span>}
-            <span title={`${ITEMS[k].name}: you have ${have}`} style={{ display: "inline-flex", alignItems: "center", gap: 2, color: have >= n ? C.text : "#ff9aa8" }}>{n}<ItemIcon kind={k} size={16} /></span>
+            <span title={`${ITEMS[k].name}: you have ${have}${food ? ` (the last ${FOOD_RESERVE} are saved for your creatures)` : ""}`} style={{ display: "inline-flex", alignItems: "center", gap: 2, color: usable(world, k) >= n ? C.text : "#ff9aa8" }}>{n}<ItemIcon kind={k} size={16} /></span>
           </React.Fragment>
         );
       })}
       <span style={{ color: C.faint, margin: "0 2px" }}>makes</span>
       <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>1<ItemIcon kind={ws.makes} size={16} /> {ITEMS[ws.makes].name}</span>
-      <span style={{ color: C.faint }}>· {Math.round(ws.secs / 60)} min at Craft 1</span>
+      <span style={{ color: C.faint }}>· {Math.round(ws.secs / 60)} min at Craft 1{Object.keys(ws.needs).some(k => ITEMS[k].group === "food") ? ` · leaves ${FOOD_RESERVE} for your creatures` : ""}</span>
     </div>
   );
 }
