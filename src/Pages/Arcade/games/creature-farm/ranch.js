@@ -287,7 +287,8 @@ export function ranchDefaults() {
 const add = (obj, k, n) => { obj[k] = (obj[k] || 0) + n; };
 
 // Put items into storage, respecting the cap. Overflow is auto-sold at full price (stall) or wasted.
-export function store(w, kind, n, rep) {
+export function store(w, kind, n, rep, src) {
+  if (rep && src) { rep.src = rep.src || {}; const b = (rep.src[src] = rep.src[src] || {}); b[kind] = (b[kind] || 0) + n; }
   const cap = capFor(w, kind);
   const have = w.food[kind] || 0;
   const fits = Math.max(0, Math.min(n, cap - have));
@@ -313,7 +314,7 @@ export function finishCrafts(w, key, rep) {
     if (!hasInputs(w, ws.needs)) { st.progress = 1; st.stalled = true; return; }
     for (const [k, n] of Object.entries(ws.needs)) { w.food[k] -= n; if (rep) add(rep.used, k, n); }
     st.progress -= 1;
-    store(w, ws.makes, 1, rep);
+    store(w, ws.makes, 1, rep, "craft");
     if (rep) add(rep.made, ws.makes, 1);
   }
   st.stalled = !hasInputs(w, ws.needs);
@@ -382,7 +383,7 @@ export function stepRanch(w, dt, tMs, rep) {
     const product = PRODUCT_OF[c.species];
     if (product && makesGoods(c)) {
       c.made = (c.made || 0) + (dt / PRODUCE_SECS) * (c.happy / 100) * (c.traits.rare ? 2 : 1);
-      if (c.made >= 1) { const n = Math.floor(c.made); c.made -= n; store(w, product, n, rep); }
+      if (c.made >= 1) { const n = Math.floor(c.made); c.made -= n; store(w, product, n, rep, "goods"); }
     }
 
     // ── working
@@ -394,7 +395,7 @@ export function stepRanch(w, dt, tMs, rep) {
       c.work = (c.work || 0);
       if (c.job === "forager") {
         c.work += FORAGE_RATE * f * dt;
-        while (c.work >= 1) { c.work -= 1; store(w, (c.forageFlip = !c.forageFlip) ? "berry" : "carrot", 1, rep); }
+        while (c.work >= 1) { c.work -= 1; store(w, (c.forageFlip = !c.forageFlip) ? "berry" : "carrot", 1, rep, "forage"); }
       } else if (c.job === "feeder") {
         c.work += FEED_RATE * f * dt;
         while (c.work >= 1) {
@@ -463,7 +464,7 @@ export function stepRanch(w, dt, tMs, rep) {
       if (CROPS[crop.kind].type !== "food") continue;   // they leave lure crops alone
       slots--;
       if (tMs - crop.at >= CROPS[crop.kind].grow) {
-        store(w, crop.kind, CROPS[crop.kind].yield, rep);
+        store(w, crop.kind, CROPS[crop.kind].yield, rep, "farm");
         if (rep) rep.harvests += 1;
         plots[i] = { kind: crop.kind, at: tMs, by: crop.by };
       }
@@ -520,7 +521,7 @@ export function simulateRanch(w, secs, endMs, withReport) {
 
 function newReport() {
   return {
-    gained: {}, produced: {}, wasted: {}, made: {}, used: {}, sold: {}, eaten: {}, toTrough: {}, delivered: {}, busy: {}, waiting: {},
+    gained: {}, produced: {}, src: {}, wasted: {}, made: {}, used: {}, sold: {}, eaten: {}, toTrough: {}, delivered: {}, busy: {}, waiting: {},
     meals: 0, buddyMeals: 0, harvests: 0, autoSold: 0, hauled: 0, contracts: 0, contractCoins: 0, levelUps: [],
   };
 }
