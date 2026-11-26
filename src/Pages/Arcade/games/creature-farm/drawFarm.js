@@ -8,8 +8,8 @@
 // Each creature is drawn at (x, y) = the spot under its feet.
 
 import { SPECIES, CROPS } from "./species";
-import { MAP, WORLD_W, WORLD_H, PLOT_COUNT, plotRect, growth, worldWidth, plotCost } from "./farmWorld";
-import { WORKSHOPS, ITEMS, STORE_ITEMS, troughCap, missingInputs } from "./ranch";
+import { MAP, WORLD_W, WORLD_H, PLOT_COUNT, plotRect, growth, worldWidth, plotCost, hutchSpots } from "./farmWorld";
+import { WORKSHOPS, ITEMS, STORE_ITEMS, troughCap, missingInputs, housedCount, penSlots, penCost } from "./ranch";
 import { sceneryCanvas } from "./drawScenery";
 
 const TAU = Math.PI * 2;
@@ -295,6 +295,7 @@ export function drawMap(ctx, world, now, t) {
   if (bg) ctx.drawImage(bg, 0, 0, WW, WORLD_H);
   else { ctx.fillStyle = "#5c9e4c"; ctx.fillRect(0, 0, WW, WORLD_H); }
 
+  drawHutches(ctx, world, t);
   drawCrate(ctx, world, t);
   drawTrough(ctx, world, t);
   if (world.buildings?.stall && MAP.stall) drawStall(ctx, MAP.stall.x, MAP.stall.y, t);
@@ -311,6 +312,41 @@ export function drawMap(ctx, world, now, t) {
 
   drawSignpost(ctx, MAP.sign.x, MAP.sign.y, t);
   drawButterflies(ctx, WW, t);
+}
+
+// One little hutch per pen spot (filled ones have a straw bed and a heart),
+// plus a dashed "for sale" hutch for the next spot.
+function drawHutches(ctx, world, t) {
+  const spots = hutchSpots(), slots = penSlots(world), used = housedCount(world);
+  const n = Math.min(slots, spots.length);
+  for (let i = 0; i < n; i++) hutch(ctx, spots[i].x, spots[i].y, i < used);
+  if (slots > spots.length) {
+    const s = spots[spots.length - 1];
+    ctx.font = "bold 9px system-ui, sans-serif"; ctx.textAlign = "center";
+    ctx.fillStyle = "rgba(20,14,34,0.75)"; ctx.beginPath(); ctx.roundRect(s.x - 13, s.y + 2, 26, 12, 6); ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.fillText(`+${slots - spots.length}`, s.x, s.y + 11);
+  } else if (slots < spots.length) {
+    const s = spots[slots];
+    ctx.save();
+    ctx.setLineDash([4, 3]); ctx.lineDashOffset = -t * 5; ctx.strokeStyle = "rgba(255,255,255,0.75)"; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(s.x - 12, s.y); ctx.lineTo(s.x - 12, s.y - 14); ctx.lineTo(s.x, s.y - 22); ctx.lineTo(s.x + 12, s.y - 14); ctx.lineTo(s.x + 12, s.y); ctx.closePath(); ctx.stroke();
+    ctx.restore();
+    ctx.font = "bold 8px system-ui, sans-serif"; ctx.textAlign = "center";
+    ctx.fillStyle = "rgba(20,14,34,0.7)"; ctx.beginPath(); ctx.roundRect(s.x - 15, s.y - 12, 30, 11, 5); ctx.fill();
+    ctx.fillStyle = "#ffd65a"; ctx.fillText(String(penCost(slots + 1)), s.x, s.y - 3.5);
+  }
+}
+function hutch(ctx, x, y, used) {
+  ctx.fillStyle = "rgba(0,0,0,0.2)"; ctx.beginPath(); ctx.ellipse(x + 1, y + 1, 13, 3.5, 0, 0, TAU); ctx.fill();
+  ctx.fillStyle = "#b07a46"; ctx.fillRect(x - 11, y - 14, 22, 14);
+  ctx.fillStyle = "rgba(0,0,0,0.12)"; ctx.fillRect(x - 11, y - 9, 22, 1); ctx.fillRect(x - 11, y - 4, 22, 1);
+  ctx.fillStyle = "#8a3f2f"; ctx.beginPath(); ctx.moveTo(x - 14, y - 13); ctx.lineTo(x, y - 23); ctx.lineTo(x + 14, y - 13); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.18)"; ctx.beginPath(); ctx.moveTo(x - 14, y - 13); ctx.lineTo(x, y - 23); ctx.lineTo(x, y - 20); ctx.lineTo(x - 10, y - 13); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = "#3a2516"; ctx.beginPath(); ctx.arc(x, y - 6, 6, Math.PI, TAU); ctx.lineTo(x + 6, y); ctx.lineTo(x - 6, y); ctx.closePath(); ctx.fill();
+  if (used) {
+    ctx.fillStyle = "#e8c860"; ctx.beginPath(); ctx.ellipse(x, y - 1, 5.5, 2, 0, 0, TAU); ctx.fill();
+    drawHeart(ctx, x + 8, y - 15, 7, "#ff7aa8");
+  }
 }
 
 // A raised wooden garden bed with tilled soil.
@@ -613,6 +649,11 @@ export function drawWorkIcon(ctx, x, y, kind, t) {
   } else if (kind === "farmhand") drawSprout(ctx, x, y, 14);
   else if (kind === "feeder") drawBowl(ctx, x, y, 14);
   else if (kind === "groomer") drawHeart(ctx, x, y, 11, "#ff7aa8");
+  else if (kind === "meadow") {                       // waiting for a pen spot: a little dashed house
+    ctx.setLineDash([2, 2]); ctx.strokeStyle = "#f3ecff"; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(x - 6, y + 5); ctx.lineTo(x - 6, y - 1); ctx.lineTo(x, y - 7); ctx.lineTo(x + 6, y - 1); ctx.lineTo(x + 6, y + 5); ctx.closePath(); ctx.stroke();
+    ctx.setLineDash([]);
+  }
   else if (kind === "crafter") {
     const sw = Math.sin(t * 7) * 0.5;
     ctx.translate(x, y); ctx.rotate(-0.4 + sw);

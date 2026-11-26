@@ -24,6 +24,7 @@ import {
   ITEMS, ITEM_KEYS, ITEM_GROUPS, PRODUCT_OF, WORKSHOPS, nextWorkshop, wsSpeed, skillFactor, hasGoods,
   priceOf, buyPriceOf, trendOf, canBuy, fmtCoins, makesGoods, PRODUCE_SECS, CONTRACT_MAX, missingInputs, usable, FOOD_RESERVE,
   forecast, jobRate, PRODUCE_HAPPY, STOP_HAPPY, STOP_HUNGER,
+  inMeadow, housedCount, penSlots, penCost, rehomePrice,
 } from "./ranch";
 
 // Manager mode panel width (the farm view uses the rest of the screen).
@@ -99,6 +100,11 @@ export function alertsFor(w, now = Date.now()) {
   const full = ITEM_KEYS.filter(k => (w.food?.[k] || 0) >= capFor(w, k));
   if (full.length) out.push({ level: "warn", text: `${full.map(k => ITEMS[k].name).slice(0, 3).join(", ")}${full.length > 3 ? ` and ${full.length - 3} more` : ""} ${full.length > 1 ? "are" : "is"} full${w.buildings?.stall ? " (the stall sells the extra)" : " — extra gets wasted"}`, tab: "storage" });
   for (const ct of w.contracts || []) if (ct.until - now < 2 * 3600e3) out.push({ level: "warn", text: `Contract for ${ct.n} ${ITEMS[ct.item].name.toLowerCase()} ends in ${timeLeft(ct.until - now)} (${ct.got}/${ct.n})`, tab: "market" });
+  const meadow = by("meadow"), hungryOut = meadow.filter(c => c.hunger < 30);
+  const freeSpots = penSlots(w) - housedCount(w);
+  if (hungryOut.length) out.push({ level: "bad", text: `${names(hungryOut)} ${hungryOut.length > 1 ? "are" : "is"} going hungry in the meadow — feed by hand, give a pen spot, or find a new home`, tab: "creatures" });
+  if (meadow.length && freeSpots > 0) out.push({ level: "warn", text: `You have ${freeSpots} free pen spot${freeSpots > 1 ? "s" : ""} and ${meadow.length} waiting in the meadow`, tab: "creatures" });
+  else if (meadow.length) out.push({ level: "info", text: `${meadow.length} waiting in the meadow for a pen spot (pen ${housedCount(w)}/${penSlots(w)})`, tab: "buildings" });
   if (idle.length) out.push({ level: "info", text: `${names(idle)} ${idle.length > 1 ? "have" : "has"} no job`, tab: "creatures" });
   return out;
 }
@@ -129,6 +135,7 @@ function Overview({ world, now, alerts, setTab, reportKey }) {
       <Card>
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
           <Stat label="creatures" value={cs.length} />
+          <Stat label="pen spots used" value={`${housedCount(world)}/${penSlots(world)}`} color={housedCount(world) >= penSlots(world) ? "#ffcf8a" : C.text} />
           <Stat label="working" value={count("working")} color={C.good} />
           <Stat label="resting" value={count("resting")} />
           <Stat label="making goods" value={makers} color={makers ? "#ffc4e6" : C.dim} />
@@ -201,7 +208,7 @@ function AwayReport({ rep, onDismiss }) {
 }
 
 // ── Creatures ─────────────────────────────────────────────────────────────────
-const FILTERS = [["all", "All"], ["mine", "Mine"], ["help", "Need help"], ["idle", "No job"]];
+const FILTERS = [["all", "All"], ["mine", "Mine"], ["help", "Need help"], ["idle", "No job"], ["meadow", "Meadow"]];
 function Creatures({ world, W, myId, nameOf, colorOf, onFollow }) {
   const [filter, setFilter] = useState("all");
   const [open, setOpen] = useState(null);
@@ -209,7 +216,8 @@ function Creatures({ world, W, myId, nameOf, colorOf, onFollow }) {
   const list = all.filter(c =>
     filter === "mine" ? c.owner === myId :
     filter === "help" ? ["starving", "sad"].includes(stateOf(c)) :
-    filter === "idle" ? stateOf(c) === "idle" : true);
+    filter === "idle" ? stateOf(c) === "idle" :
+    filter === "meadow" ? stateOf(c) === "meadow" : true);
   return (
     <>
       <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
@@ -321,6 +329,7 @@ function CreatureCard({ c, world, W, myId, nameOf, colorOf, onFollow, open, onTo
             })()}
             {!built.length && <div style={{ fontSize: 11, color: C.faint, marginTop: 4 }}>Crafter unlocks once you build a workshop.</div>}
           </div>
+          <Housing c={c} world={world} W={W} mine={mine} myId={myId} />
           {onFollow && mine && (
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <button disabled={!W.canAct} onClick={() => onFollow(c.id)} style={btn(c.follow === myId, { padding: "6px 10px", fontSize: 12 })}>
@@ -356,6 +365,47 @@ function CreatureCard({ c, world, W, myId, nameOf, colorOf, onFollow, open, onTo
   );
 }
 
+// Pen spot + "Find a new home" for one creature.
+function Housing({ c, world, W, mine, myId }) {
+  const [confirm, setConfirm] = useState(false);
+  const full = housedCount(world) >= penSlots(world);
+  const starter = Object.values(world.starters || {}).includes(c.id);
+  const price = rehomePrice(c);
+  return (
+    <div>
+      <div style={sub}>Pen spot <span style={{ color: C.faint }}>({housedCount(world)}/{penSlots(world)} used)</span></div>
+      {c.housed ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, color: C.good, flex: 1 }}>Has a spot: eats from the trough, rests, works and makes goods.</span>
+          <button disabled={!mine || !W.canAct} onClick={() => W.dispatch({ type: "house", cid: c.id, on: false })} style={btn(false, { padding: "5px 10px", fontSize: 12, opacity: mine ? 1 : 0.5 })}>Move to the meadow</button>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
+          <span style={{ fontSize: 12, color: c.follow ? C.dim : "#ffcf8a" }}>
+            {c.follow ? "No spot, but it's following someone, so it eats and tags along fine." : "Waiting in the meadow: still gets hungry and sad, can't reach the trough, doesn't work or make goods. Feed it by hand, give it a spot, or find it a new home."}
+          </span>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <button disabled={!mine || !W.canAct || full} onClick={() => W.dispatch({ type: "house", cid: c.id })} style={btn(!full && mine, { padding: "5px 10px", fontSize: 12, opacity: mine && !full ? 1 : 0.5 })}>Give a pen spot</button>
+            {full && <span style={{ fontSize: 11, color: C.dim }}>Pen full: build a spot (Buildings tab, {penCost(penSlots(world) + 1)} coins) or move someone out.</span>}
+          </div>
+        </div>
+      )}
+      {c.owner === myId && !starter && (
+        <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
+          {!confirm
+            ? <button disabled={!W.canAct} onClick={() => setConfirm(true)} style={btn(false, { padding: "5px 10px", fontSize: 12, display: "inline-flex", alignItems: "center", gap: 4 })}>Find a new home <CoinIcon size={12} /> +{price}</button>
+            : <>
+                <span style={{ fontSize: 12 }}>Say goodbye to {c.name} for {price} coins? It goes to a happy new home.</span>
+                <button disabled={!W.canAct} onClick={() => { W.dispatch({ type: "rehome", cid: c.id }); setConfirm(false); }} style={btn(true, { padding: "5px 10px", fontSize: 12 })}>Yes, goodbye {c.name}</button>
+                <button onClick={() => setConfirm(false)} style={btn(false, { padding: "5px 10px", fontSize: 12 })}>Keep</button>
+              </>}
+        </div>
+      )}
+      {starter && c.owner === myId && <div style={{ fontSize: 11, color: C.faint, marginTop: 6 }}>Starters stay on the farm forever.</div>}
+    </div>
+  );
+}
+
 // "Making pebbles · next one in 12 min" with a progress bar (species goods).
 function MakingCard({ c, product }) {
   const on = makesGoods(c);
@@ -363,7 +413,7 @@ function MakingCard({ c, product }) {
   const rate = (c.happy / 100) * (c.traits.rare ? 2 : 1);              // items per PRODUCE_SECS
   const secsLeft = on && rate > 0 ? ((1 - frac) * PRODUCE_SECS) / rate : null;
   const name = ITEMS[product].name.toLowerCase();
-  const why = c.hunger < 10 ? "too hungry" : `needs happiness 50+ (now ${Math.floor(c.happy)})`;
+  const why = inMeadow(c) ? "no pen spot" : c.hunger < 10 ? "too hungry" : `needs happiness 50+ (now ${Math.floor(c.happy)})`;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, padding: 8, borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
       <ItemIcon kind={product} size={30} />
@@ -376,7 +426,7 @@ function MakingCard({ c, product }) {
         </div>
         <Bar value={frac * 100} max={100} color={on ? ITEMS[product].color : "rgba(255,255,255,0.25)"} compact noWarn />
         <div style={{ fontSize: 11, color: C.dim }}>
-          {on ? `About 1 every ${clock(PRODUCE_SECS / rate)} at this happiness${c.traits.rare ? " (golden: double speed)" : ""}. Happier = faster.` : "Progress is kept; it picks up again once it's happy and fed."}
+          {on ? `About 1 every ${clock(PRODUCE_SECS / rate)} at this happiness${c.traits.rare ? " (golden: double speed)" : ""}. Happier = faster.` : inMeadow(c) ? "Creatures only make goods with a pen spot. Progress is kept." : "Progress is kept; it picks up again once it's happy and fed."}
         </div>
       </div>
     </div>
@@ -428,8 +478,8 @@ function Forecast({ world, now, setTab }) {
   const avg = (list, f) => list.length ? list.reduce((n, c) => n + f(c), 0) / list.length : 0;
   const happy0 = avg(cs0, c => c.happy), happy1 = avg(cs1, c => c.happy);
   const fed0 = avg(cs0, c => c.hunger), fed1 = avg(cs1, c => c.hunger);
-  const noGoods = cs1.filter(c => !makesGoods(c));
-  const sad = cs1.filter(c => c.happy < STOP_HAPPY), starving = cs1.filter(c => c.hunger < STOP_HUNGER);
+  const noGoods = cs1.filter(c => !makesGoods(c) && !inMeadow(c));
+  const sad = cs1.filter(c => c.happy < STOP_HAPPY && !inMeadow(c)), starving = cs1.filter(c => c.hunger < STOP_HUNGER && !inMeadow(c));   // meadow ones get their own warning
   const groomers = cs0.filter(c => c.job === "groomer");
   const trough0 = STORE_ITEMS.reduce((n, k) => n + (world.trough?.[k] || 0), 0), trough1 = STORE_ITEMS.reduce((n, k) => n + (sim.trough?.[k] || 0), 0);
   const coinsIn = rep.hauled + rep.autoSold + rep.contractCoins;
@@ -442,6 +492,8 @@ function Forecast({ world, now, setTab }) {
   ].filter(([, v]) => v);
   const built = Object.keys(WORKSHOPS).filter(k => world.workshops?.[k]?.level);
   const verdict = [];
+  const outHungry = cs1.filter(c => inMeadow(c) && c.hunger < STOP_HUNGER);
+  if (outHungry.length) verdict.push({ bad: true, text: `${names(outHungry)} ${outHungry.length > 1 ? "are" : "is"} in the meadow with no pen spot and will be starving. Feed by hand, give a spot, or find a new home.`, tab: "creatures" });
   if (starving.length) verdict.push({ bad: true, text: `${names(starving)} will be too hungry to work. ${cs0.some(c => c.job === "feeder") ? "Your Feeder can't keep up, or storage runs out of food" : "Nobody is filling the trough: make someone a Feeder"}.`, tab: "creatures" });
   if (sad.length) verdict.push({ bad: true, text: `${names(sad)} will be too sad to work${groomers.length ? " (more Groomers, or better Care, would help)" : " (a Groomer would help)"}.`, tab: "creatures" });
   else if (noGoods.length) verdict.push({ text: `${names(noGoods)} will drop under ${PRODUCE_HAPPY} happiness or get hungry and stop making goods.`, tab: "creatures" });
@@ -765,6 +817,29 @@ function Land({ world, W }) {
   );
 }
 
+function Pen({ world, W }) {
+  const slots = penSlots(world), used = housedCount(world), coins = world.coins || 0, next = penCost(slots + 1);
+  const waiting = Object.values(world.creatures || {}).filter(inMeadow).length;
+  return (
+    <Card data="pen">
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <Canvas size={40} draw={(ctx, s) => {
+          ctx.fillStyle = "#b07a46"; ctx.fillRect(9, 18, 22, 16);
+          ctx.fillStyle = "#8a3f2f"; ctx.beginPath(); ctx.moveTo(5, 19); ctx.lineTo(20, 7); ctx.lineTo(35, 19); ctx.closePath(); ctx.fill();
+          ctx.fillStyle = "#3a2516"; ctx.beginPath(); ctx.arc(20, 28, 6, Math.PI, Math.PI * 2); ctx.lineTo(26, 34); ctx.lineTo(14, 34); ctx.closePath(); ctx.fill();
+        }} />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 900 }}>Pen spots <span style={{ color: C.dim, fontSize: 12 }}>{used}/{slots} used{waiting ? ` · ${waiting} waiting in the meadow` : ""}</span></div>
+          <div style={{ fontSize: 12, color: C.dim }}>Only creatures with a spot eat from the trough, rest, work, get groomed and make goods. Shared by both players.</div>
+        </div>
+        <button disabled={!W.canAct || coins < next} onClick={() => W.dispatch({ type: "buy_pen" })} style={btn(coins >= next, { opacity: coins >= next ? 1 : 0.5, display: "inline-flex", alignItems: "center", gap: 5, whiteSpace: "nowrap" })}>
+          Build spot {slots + 1} <CoinIcon size={14} /> {next}
+        </button>
+      </div>
+    </Card>
+  );
+}
+
 function Buildings({ world, W }) {
   const coins = world.coins || 0;
   const effect = (key, lvl) => {
@@ -775,7 +850,7 @@ function Buildings({ world, W }) {
     if (key === "stall") return lvl ? "open for business" : "not built";
     return "";
   };
-  return [<Land key="land" world={world} W={W} />, ...Object.entries(BUILDINGS).map(([key, b]) => {
+  return [<Pen key="pen" world={world} W={W} />, <Land key="land" world={world} W={W} />, ...Object.entries(BUILDINGS).map(([key, b]) => {
     const lvl = world.buildings?.[key] || 0;
     const up = nextUpgrade(world, key);
     const affordable = up && coins >= up.cost && hasGoods(world, up.goods);

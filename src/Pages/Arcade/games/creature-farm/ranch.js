@@ -49,6 +49,7 @@ export const PRODUCE_SECS = 30 * 60;        // a happy creature makes 1 of its i
 export const PRODUCE_HAPPY = 50;            // ...but only while happiness is at least this
 export const HAND_CRAFT = 0.2;              // one "help craft" by hand = 20% of an item
 export const CONTRACT_MAX = 3;
+export const PEN_START = 4;                 // pen spots a new farm starts with (shared by both players)
 export const CONTRACT_GAP = 20 * 60;        // seconds before a new contract shows up
 
 export const SKILLS = ["forage", "care", "farm", "craft", "haul"];
@@ -255,8 +256,21 @@ export function ranchify(c, rng) {
 }
 
 // What a creature is doing right now (for the UI and the map).
+// Pen spots: only creatures with a spot (or following someone) eat from the
+// trough, rest, work, get groomed and make goods. The rest wait in the meadow,
+// still getting hungry and sad, until they get a spot or are fed by hand.
+export const inMeadow = (c) => !c.housed && !c.follow;
+export const housedCount = (w) => Object.values(w.creatures || {}).filter(c => c.housed).length;
+export const penSlots = (w) => w.penSlots || PEN_START;
+export const penCost = (n) => Math.round(20 * Math.pow(1.35, n - PEN_START - 1));     // price of pen spot number n
+// "Find a new home": coins for a creature (more for good skills; golden ones are worth a lot).
+export function rehomePrice(c) {
+  const skills = SKILLS.reduce((n, s) => n + (c.skills?.[s] || 1), 0);
+  return Math.round((12 + skills * 1.6) * (c.traits?.rare ? 6 : 1));
+}
 export function stateOf(c) {
   if (c.follow) return "following";
+  if (!c.housed) return "meadow";
   if (c.hunger < STOP_HUNGER) return "starving";
   if (c.happy < STOP_HAPPY) return "sad";
   if (c.resting) return "resting";
@@ -264,10 +278,10 @@ export function stateOf(c) {
   return "working";
 }
 export const STATE_TEXT = {
-  following: "following someone", starving: "too hungry to work", sad: "too sad to work",
+  following: "following someone", meadow: "waiting in the meadow (no pen spot)", starving: "too hungry to work", sad: "too sad to work",
   resting: "resting", idle: "no job", working: "working",
 };
-export const makesGoods = (c) => c.hunger >= STOP_HUNGER && c.happy >= PRODUCE_HAPPY;
+export const makesGoods = (c) => !inMeadow(c) && c.hunger >= STOP_HUNGER && c.happy >= PRODUCE_HAPPY;
 
 // Can this player give this creature jobs / buddies? (Your own, or ones that trust you.)
 export const canManage = (c, by) => c.owner === String(by) || (c.bond?.[String(by)] || 0) >= 50;
@@ -279,6 +293,7 @@ export const DEFAULT_KEEP = { berry: 40, carrot: 40 };
 export function ranchDefaults() {
   return {
     coins: 25,                                   // enough for your first few plots
+    penSlots: PEN_START,
     buildings: { trough: 1, shed: 1, warehouse: 1, beds: 0, stall: 0 }, trough: { berry: 0, carrot: 0 },
     workshops: {}, market: {}, keep: { ...DEFAULT_KEEP }, contracts: [], contractAt: 0, nextContract: 1,
     simAt: null, report: null,
@@ -344,7 +359,8 @@ export function stepRanch(w, dt, tMs, rep) {
     const pw = PERSONALITY_WORK[c.traits.personality] || {};
     const st = stateOf(c);
     const working = st === "working";
-    const buddy = c.buddy ? byId[c.buddy] : null;
+    const meadow = st === "meadow";
+    const buddy = c.buddy && !meadow ? byId[c.buddy] : null;    // buddies only help each other in the pen
     const chem = buddy ? chemistry(c, buddy) : 0;
     const speed = chem > 0 ? 1.15 : 1;
 
@@ -363,7 +379,7 @@ export function stepRanch(w, dt, tMs, rep) {
     c.happy = Math.max(0, Math.min(100, c.happy + dh * dt));
 
     // ── eating on their own
-    if (c.hunger < EAT_BELOW) {                            // followers eat too (they pop back to the trough)
+    if (c.hunger < EAT_BELOW && !meadow) {                 // followers eat too; meadow creatures can't reach the trough
       const loved = SPECIES[c.species].food;
       const pickFrom = (pool) => ((pool[loved] || 0) >= 1 ? loved : STORE_ITEMS.find(k => (pool[k] || 0) >= 1));
       let k = pickFrom(w.trough), from = "trough";
@@ -406,7 +422,7 @@ export function stepRanch(w, dt, tMs, rep) {
         }
       } else if (c.job === "groomer") {
         const n = 1 + Math.floor(lvl / 3);
-        const sad = list.filter(o => o.id !== c.id && o.happy < 95).sort((a, b) => a.happy - b.happy).slice(0, n);
+        const sad = list.filter(o => o.id !== c.id && o.happy < 95 && !inMeadow(o)).sort((a, b) => a.happy - b.happy).slice(0, n);
         for (const o of sad) o.happy = Math.min(100, o.happy + GROOM_RATE * f * dt);
       } else if (c.job === "crafter") {
         const ws = c.station && w.workshops[c.station];

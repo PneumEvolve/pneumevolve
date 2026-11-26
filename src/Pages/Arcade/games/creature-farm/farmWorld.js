@@ -22,6 +22,7 @@ import {
   ranchDefaults, ranchify, simulateRanch, CATCHUP_MAX, JOBS, canManage, nextUpgrade, troughCap, STORE_ITEMS,
   ITEMS, SKILLS, WORKSHOPS, BUILDINGS, nextWorkshop, hasGoods, capFor, priceOf, buyPriceOf, canBuy, sellNow, finishCrafts,
   makeContract, giveToContract, CONTRACT_MAX, CONTRACT_GAP, HAND_CRAFT, fmtCoins, missingInputs,
+  housedCount, penSlots, penCost, rehomePrice, PEN_START,
 } from "./ranch";
 
 // ── Map (world units; the canvas scales to fit) ──────────────────────────────
@@ -37,6 +38,7 @@ export const MAP = {
   sign:  { x: 470, y: 335 },                      // run board signpost (go on runs like Critter Stampede)
   trough: { x: 270, y: 470 },                     // feeding trough (creatures eat from it on their own)
   stall: { x: 60, y: 420 },                       // market stall (once built)
+  meadow: { x: 250, y: 96, w: 290, h: 46 },       // creatures without a pen spot wait here, under the trees
   workshops: {                                    // each appears once it's built
     kitchen: { x: 900, y: 185 },
     juicer:  { x: 205, y: 545 },
@@ -48,6 +50,16 @@ export const MAP = {
   spawn: [{ x: 230, y: 320 }, { x: 270, y: 345 }],
 };
 export const PLOT_COUNT = MAP.field.cols * MAP.field.rows;   // the home field (16); land keeps going east after that
+// Little hutches along the back of the pen, one per pen spot (the first 20 are drawn).
+export function hutchSpots() {
+  const p = MAP.pen, out = [];
+  for (const row of [0, 1]) for (let x = p.x + 22; x <= p.x + p.w - 20; x += 30) {
+    if (x > p.x + 40 && x < p.x + 150) continue;           // keep the gate clear
+    out.push({ x, y: p.y + 30 + row * 30 });
+  }
+  return out;
+}
+
 // Price of plot number n (you start with 1). The home field is cheap; new land gets pricier.
 export const plotCost = (n) => (n <= PLOT_COUNT ? Math.round(3 * Math.pow(1.25, n - 2)) : Math.round(100 * Math.pow(1.1, n - PLOT_COUNT)));
 // The farm's width: grows east as you buy land (room for the next plot for sale too).
@@ -153,6 +165,11 @@ export function penPos(c, tSec) {
 export function workerPos(c, tSec, state, plotCount = PLOT_COUNT) {
   const n = parseInt(String(c.id).replace(/\D/g, ""), 10) || 1;
   const ph = n * 1.7;
+  if (state === "meadow") {                        // waiting for a pen spot: mooching about under the trees
+    const m = MAP.meadow;
+    const bx = m.x + ((n * 53) % m.w), by = m.y + ((n * 19) % m.h);
+    return { x: clamp(bx + Math.sin(tSec * 0.25 + ph) * 18, m.x, m.x + m.w), y: by + Math.cos(tSec * 0.2 + ph) * 5, face: Math.cos(tSec * 0.25 + ph) >= 0 ? 1 : -1, moving: false };
+  }
   const pingPong = (speed, off) => { const u = (tSec * speed + off) % 2; return u > 1 ? { u: 2 - u, dir: -1 } : { u, dir: 1 }; };
   if (state === "working" && c.job === "forager") {
     const { u, dir } = pingPong(0.035, n * 0.37);
@@ -199,7 +216,7 @@ function makeVisitor(species, rng, n, near, w) {
 // ── World ─────────────────────────────────────────────────────────────────────
 export function initFarm() {
   return {
-    v: 3,
+    v: 4,
     ...ranchDefaults(),
     day: 1,
     dayTime: 0,
@@ -213,15 +230,22 @@ export function initFarm() {
   };
 }
 
+// A new creature joins: ranch fields, and a pen spot if one is free (otherwise it waits in the meadow).
+function arrive(w, c, a) {
+  return { ...ranchify(c, rngFrom(((Number(a.r) || 0.5) * 7.31) % 1)), housed: housedCount(w) < penSlots(w) };
+}
+
 // Old saves (before the Ranch, or before Phase 2) get the new fields filled in.
 function ensureRanch(w, a) {
-  if (w.v >= 3 && w.simAt != null && Object.values(w.creatures).every(c => c.skills && SKILLS.every(s => c.skills[s] != null))) return w;
+  if (w.v >= 4 && w.simAt != null && Object.values(w.creatures).every(c => c.skills && SKILLS.every(s => c.skills[s] != null))) return w;
   const rng = rngFrom(a.r ?? 0.42);
   const creatures = {};
-  for (const c of Object.values(w.creatures)) creatures[c.id] = ranchify(c, rng);
+  const before = (w.v || 1) < 4;                       // farms from before pen spots: everyone keeps a spot
+  for (const c of Object.values(w.creatures)) creatures[c.id] = { ...ranchify(c, rng), ...(before ? { housed: true } : {}) };
   const d = ranchDefaults();
   return {
-    ...d, ...w, v: 3, creatures,
+    ...d, ...w, v: 4, creatures,
+    penSlots: before ? Math.max(PEN_START, Object.keys(w.creatures).length) : (w.penSlots || PEN_START),
     buildings: { ...d.buildings, ...(w.buildings || {}) },
     trough: { ...d.trough, ...(w.trough || {}) },
     keep: w.keep || d.keep,
@@ -341,7 +365,7 @@ export function farmReducer(w0, a) {
       };
       return {
         ...w, nextId: w.nextId + 1,
-        creatures: { ...w.creatures, [id]: ranchify(c, rngFrom(((Number(a.r) || 0.5) * 7.31) % 1)) },
+        creatures: { ...w.creatures, [id]: arrive(w, c, a) },
         starters: { ...w.starters, [by]: id },
         log: addLog(w.log, a, `picked ${c.name} the ${SPECIES[c.species].name}`, "starter"),
       };
@@ -396,7 +420,7 @@ export function farmReducer(w0, a) {
       return {
         ...w, food, nextId: w.nextId + 1,
         visitors: w.visitors.filter(x => x.id !== v.id),
-        creatures: { ...w.creatures, [id]: ranchify(c, rngFrom(((Number(a.r) || 0.5) * 7.31) % 1)) },
+        creatures: { ...w.creatures, [id]: arrive(w, c, a) },
         log: addLog(w.log, { ...a, by: owner }, `befriended ${c.name} the ${sp.name}!`, "catch"),
       };
     }
@@ -458,7 +482,7 @@ export function farmReducer(w0, a) {
       };
       return {
         ...w, nextId: w.nextId + 1,
-        creatures: { ...w.creatures, [id]: ranchify(c, rngFrom(((Number(a.r) || 0.5) * 7.31) % 1)) },
+        creatures: { ...w.creatures, [id]: arrive(w, c, a) },
         log: addLog(w.log, a, `brought ${c.name} the ${a.rare ? "golden " : ""}${SPECIES[c.species].name} home from a run!`, "catch"),
       };
     }
@@ -630,6 +654,39 @@ export function farmReducer(w0, a) {
       return {
         ...w, coins: Math.round((w.coins - cost) * 100) / 100, plots: [...w.plots, null],
         log: addLog(w.log, a, `bought plot ${w.plots.length + 1} for ${cost} coins`, w.plots.length + 1 === PLOT_COUNT + 1 ? "catch" : "info"),
+      };
+    }
+
+    // ── Pen spots ────────────────────────────────────────────────────────────
+    // Give a creature a pen spot (if one is free) or send it out to the meadow.
+    case "house": {
+      const c = w.creatures[a.cid];
+      if (!c || !by || !canManage(c, by)) return w;
+      const want = a.on !== false;
+      if (!!c.housed === want) return w;
+      if (want && housedCount(w) >= penSlots(w)) return w;
+      return {
+        ...w, creatures: { ...w.creatures, [c.id]: { ...c, housed: want, resting: false } },
+        log: addLog(w.log, a, want ? `gave ${c.name} a pen spot` : `moved ${c.name} out to the meadow`, "info"),
+      };
+    }
+    // Buy one more pen spot (shared by both players).
+    case "buy_pen": {
+      const cost = penCost(penSlots(w) + 1);
+      if (!by || w.coins < cost) return w;
+      return { ...w, coins: Math.round((w.coins - cost) * 100) / 100, penSlots: penSlots(w) + 1, log: addLog(w.log, a, `built pen spot ${penSlots(w) + 1} for ${cost} coins`, "info") };
+    }
+    // "Find a new home": the owner says goodbye to a creature for coins. Starters stay forever.
+    case "rehome": {
+      const c = w.creatures[a.cid];
+      if (!c || !by || c.owner !== by || Object.values(w.starters || {}).includes(c.id)) return w;
+      const price = rehomePrice(c);
+      const creatures = { ...w.creatures };
+      delete creatures[c.id];
+      for (const o of Object.values(creatures)) if (o.buddy === c.id) creatures[o.id] = { ...o, buddy: null };
+      return {
+        ...w, creatures, coins: Math.round((w.coins + price) * 100) / 100,
+        log: addLog(w.log, a, `found ${c.name} the ${c.traits.rare ? "golden " : ""}${SPECIES[c.species].name} a happy new home (+${price} coins)`, "catch"),
       };
     }
 

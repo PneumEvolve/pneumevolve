@@ -33,9 +33,9 @@ import { C } from "../../ui";
 import { SPECIES, CROPS, PERSONALITIES } from "./species";
 import {
   WORLD_W, WORLD_H, MAP, REACH, DAY_LEN, PLOT_COUNT, FOLLOW_BOND, FEED_BELOW,
-  initFarm, farmReducer, plotRect, growth, visitorPos, penPos, workerPos, worldWidth, plotCost,
+  initFarm, farmReducer, plotRect, growth, visitorPos, penPos, workerPos, worldWidth, plotCost, hutchSpots,
 } from "./farmWorld";
-import { stateOf, troughCap, STORE_ITEMS, WORKSHOPS, ITEMS, missingInputs } from "./ranch";
+import { stateOf, troughCap, STORE_ITEMS, WORKSHOPS, ITEMS, missingInputs, penSlots, penCost } from "./ranch";
 import RanchPanel, { alertsFor, MANAGER_PANEL_W } from "./RanchPanel";
 import {
   drawCreature, drawFarmer, drawMap, drawBar,
@@ -214,6 +214,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
     if (t.kind === "trough") { L.W.dispatch({ type: "fill_trough" }); return; }
     if (t.kind === "workshop") { L.W.dispatch({ type: "hand_craft", key: t.id }); return; }
     if (t.kind === "buyplot") { L.W.dispatch({ type: "buy_plot" }); return; }
+    if (t.kind === "buypen") { L.W.dispatch({ type: "buy_pen" }); return; }
     if (t.kind === "plot") {
       const crop = L.world.plots[t.i];
       if (!crop) L.W.dispatch({ type: "plant", i: t.i, kind: L.seed });
@@ -399,6 +400,8 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
       // standing right at the trough beats a creature wandering past it (the Feeder hangs around here)
       const dTrough = Math.hypot(MAP.trough.x - me.x, MAP.trough.y - me.y);
       if ((!best && dTrough < REACH + 14) || (dTrough < 42 && best?.kind !== "visitor")) best = { kind: "trough" };
+      // the next pen spot for sale (a dashed hutch at the back of the pen)
+      { const sp = hutchSpots()[penSlots(world)]; if (sp && Math.hypot(sp.x - me.x, sp.y - 10 - me.y) < 26 && best?.kind !== "visitor") best = { kind: "buypen" }; }
       // workshops: standing at the door beats creatures (Crafters crowd around them)
       for (const [key, st] of Object.entries(world.workshops || {})) {
         const wp = MAP.workshops[key];
@@ -499,7 +502,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
           // owner heart + hunger warning
           if (c.owner) drawHeart(ctx, d.pos.x + 15, d.pos.y - 10, 9, L.colorOf(c.owner));
           const cst = stateOf(c);
-          const icon = cst === "working" ? c.job : cst === "following" || cst === "idle" ? (c.hunger < 25 ? "starving" : null) : cst;
+          const icon = cst === "working" ? c.job : cst === "following" || cst === "idle" ? (c.hunger < 25 ? "starving" : null) : cst === "meadow" ? (c.hunger < 25 ? "starving" : "meadow") : cst;
           if (icon) drawWorkIcon(ctx, d.pos.x, d.pos.y - 46, icon, tSec);
           if (best?.id === c.id) {
             drawBar(ctx, d.pos.x, d.pos.y - 56, c.hunger / 100, "#ffb347");
@@ -687,6 +690,10 @@ function promptFor(t, world, now, seed, offering) {
     const stored = STORE_ITEMS.reduce((n, k) => n + Math.floor(world.food?.[k] || 0), 0);
     return have >= capN ? `Trough is full (${have}/${capN})` : stored ? `Fill the trough (${have}/${capN})` : "Trough · no food in storage";
   }
+  if (t.kind === "buypen") {
+    const cost = penCost(penSlots(world) + 1);
+    return `Build pen spot ${penSlots(world) + 1} · ${cost} coins${(world.coins || 0) < cost ? ` (you have ${Math.floor(world.coins || 0)})` : ""}`;
+  }
   if (t.kind === "buyplot") {
     const cost = plotCost(world.plots.length + 1);
     return `Buy plot ${world.plots.length + 1} · ${cost} coins${(world.coins || 0) < cost ? ` (you have ${Math.floor(world.coins || 0)})` : ""}`;
@@ -718,7 +725,7 @@ function promptFor(t, world, now, seed, offering) {
     if (!c) return null;
     const anyFood = STORE_ITEMS.some(k => (world.food[k] || 0) >= 1);
     const feed = c.hunger >= FEED_BELOW ? "not hungry" : anyFood ? "Feed" : "no food!";
-    return `${c.name} · ${feed} · Pet`;
+    return `${c.name}${stateOf(c) === "meadow" ? " · no pen spot" : ""} · ${feed} · Pet`;
   }
   return null;
 }
@@ -727,6 +734,7 @@ function buttonLabel(t, world, now, seed) {
   if (!t) return "";
   if (t.kind === "sign") return "RUNS";
   if (t.kind === "trough") return "FILL";
+  if (t.kind === "buypen") return (world.coins || 0) >= penCost(penSlots(world) + 1) ? "BUILD" : "";
   if (t.kind === "buyplot") return (world.coins || 0) >= plotCost(world.plots.length + 1) ? "BUY" : "";
   if (t.kind === "workshop") return missingInputs(world, WORKSHOPS[t.id].needs).length ? "" : "CRAFT";
   if (t.kind === "plot") {
