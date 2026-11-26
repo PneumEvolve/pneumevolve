@@ -553,11 +553,19 @@ export function jobRate(w, c) {
   const lvl = c.skills?.[JOBS[c.job].skill] || 1;
   const buddy = c.buddy ? w.creatures?.[c.buddy] : null;
   const f = skillFactor(lvl) * (buddy && chemistry(c, buddy) > 0 ? 1.15 : 1);
-  if (c.job === "forager") return { every: 1 / (FORAGE_RATE * f), what: "brings back a berry or carrot", perHour: 3600 * FORAGE_RATE * f };
+  if (c.job === "forager") return { every: 1 / (FORAGE_RATE * f), what: "brings back a berry or carrot", perHour: 3600 * FORAGE_RATE * f, coins: 3600 * FORAGE_RATE * f * 1.5 };   // half berries (1), half carrots (2)
   if (c.job === "feeder") return { every: 1 / (FEED_RATE * f), what: "moves 1 food from storage to the trough", perHour: 3600 * FEED_RATE * f };
   if (c.job === "groomer") return { text: `cheers up the ${1 + Math.floor(lvl / 3)} saddest creature${lvl >= 3 ? "s" : ""} at once, +${Math.round(GROOM_RATE * f * 3600)} happiness an hour each` };
   if (c.job === "hauler") return { every: 1 / (HAUL_RATE * f), what: "carries 1 item to the stall", perHour: 3600 * HAUL_RATE * f };
-  if (c.job === "farmhand") return { text: `looks after ${plotsPerFarmhand(c)} plot${plotsPerFarmhand(c) > 1 ? "s" : ""}: plants empty ones, harvests and replants the moment they're ripe` };
+  if (c.job === "farmhand") {
+    const r = farmhandShare(w, c);
+    const parts = Object.entries(r.perHour).filter(([, n]) => n > 0).map(([k, n]) => `${Math.round(n)} ${ITEMS[k].name.toLowerCase()}`);
+    const can = plotsPerFarmhand(c);
+    return {
+      text: `looks after ${r.plots} plot${r.plots === 1 ? "" : "s"}${parts.length ? `: about ${parts.join(" and ")} an hour (${Math.round(r.coins)} coins)` : ""}` +
+        (r.plots < can ? `. It could handle ${can}, but ${r.plots ? "only " + r.plots + " are" : "none are"} left for it: buy more land` : ""),
+    };
+  }
   if (c.job === "crafter") return { text: `works at Craft ${lvl} (${Math.round(f * 100)}% speed${f > skillFactor(lvl) ? ", buddy bonus" : ""})` };
   return null;
 }
@@ -574,4 +582,29 @@ export function addSkillXp(c, s, secs) {
     ups.push(`${c.name}'s ${SKILL_NAMES[s]} went up to ${c.skills[s]}!`);
   }
   return ups;
+}
+
+// Which plots a Farmhand covers (they share the field in order, like the
+// simulation does) and what that's worth per hour.
+export function farmhandShare(w, c) {
+  const hands = Object.values(w.creatures || {}).filter(o => o.job === "farmhand" && (o.id === c.id || stateOf(o) === "working"));
+  const perHour = {};
+  let plots = 0, coins = 0, i = 0;
+  const all = w.plots || [];
+  for (const h of hands) {
+    let slots = plotsPerFarmhand(h);
+    while (slots > 0 && i < all.length) {
+      const crop = all[i++];
+      if (crop && CROPS[crop.kind]?.type !== "food") continue;          // lure crops are left alone
+      slots--;
+      if (h.id !== c.id) continue;
+      const kind = crop ? crop.kind : "berry";
+      const n = (CROPS[kind].yield || 0) * (3600000 / CROPS[kind].grow);
+      perHour[kind] = (perHour[kind] || 0) + n;
+      coins += n * (ITEMS[kind]?.price || 0);
+      plots++;
+    }
+    if (h.id === c.id) break;
+  }
+  return { plots, perHour, coins };
 }

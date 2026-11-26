@@ -322,7 +322,7 @@ function CreatureCard({ c, world, W, myId, nameOf, colorOf, onFollow, open, onTo
               if (!r) return null;
               return (
                 <div style={{ fontSize: 12, marginTop: 4, color: "#c9a7ff", fontWeight: 700 }}>
-                  {r.text ? `Right now it ${r.text}.` : `Right now it ${r.what} every ${clock(r.every)} (about ${Math.round(r.perHour)} an hour) while working.`}
+                  {r.text ? `Right now it ${r.text}.` : `Right now it ${r.what} every ${clock(r.every)} (about ${Math.round(r.perHour)} an hour${r.coins ? `, ${Math.round(r.coins)} coins` : ""}) while working.`}
                   {stateOf(c) !== "working" && <span style={{ color: "#ffcf8a" }}> Not working at the moment: {STATE_TEXT[stateOf(c)]}.</span>}
                 </div>
               );
