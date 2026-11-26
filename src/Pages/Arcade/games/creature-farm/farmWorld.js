@@ -521,6 +521,14 @@ export function farmReducer(w0, a) {
       };
     }
 
+    // What a farmhand plants: "auto" (whichever food you have less of), "berry" or "carrot".
+    case "set_plant": {
+      const c = w.creatures[a.cid];
+      if (!c || !by || !canManage(c, by) || !["auto", "berry", "carrot"].includes(a.plant)) return w;
+      if ((c.plant || "auto") === a.plant) return w;
+      return { ...w, creatures: { ...w.creatures, [c.id]: { ...c, plant: a.plant } } };
+    }
+
     // Pair two creatures as buddies (or clear a pairing with buddy: null).
     case "set_buddy": {
       const c = w.creatures[a.cid];

@@ -349,6 +349,18 @@ function CreatureCard({ c, world, W, myId, nameOf, colorOf, onFollow, open, onTo
                 ))}
               </div>
             )}
+            {c.job === "farmhand" && (
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6, alignItems: "center" }}>
+                <span style={{ fontSize: 11, color: C.dim }}>Plants:</span>
+                {[["auto", "Auto (what you have less of)"], ["berry", "Berries"], ["carrot", "Carrots"]].map(([k, label]) => (
+                  <button key={k} data-plant={k} disabled={!can} onClick={() => W.dispatch({ type: "set_plant", cid: c.id, plant: k })}
+                    title={k === "auto" ? "Plants berries or carrots, whichever you have fewer of in storage" : `Always plants ${label.toLowerCase()}`}
+                    style={btn((c.plant || "auto") === k, { padding: "4px 8px", fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4 })}>
+                    {k !== "auto" && <ItemIcon kind={k} size={14} />} {label}
+                  </button>
+                ))}
+              </div>
+            )}
             {c.job && <div style={{ fontSize: 11, color: C.dim, marginTop: 4 }}>{JOBS[c.job].desc}{c.job === "hauler" && !world.buildings?.stall ? " Needs the Market Stall." : ""}</div>}
             {c.job && (() => {
               const r = jobRate(world, c);

@@ -448,28 +448,39 @@ export function stepRanch(w, dt, tMs, rep) {
   }
 
   // ── farmhands tend the field: each looks after 1 plot per Farm level.
-  //    They plant empty plots too (whichever food you have less of in storage).
+  //    When a plot is empty or just harvested they plant their chosen crop
+  //    (c.plant: "berry", "carrot", or auto = whichever food you have less of).
   const hands = list.filter(c => c.job === "farmhand" && stateOf(c) === "working");
   if (hands.length) {
-    let slots = hands.reduce((n, c) => n + plotsPerFarmhand(c), 0);
     const plots = w.plots;
-    for (let i = 0; i < plots.length && slots > 0; i++) {
-      const crop = plots[i];
-      if (!crop) {
+    let i = 0;
+    for (const h of hands) {
+      let slots = plotsPerFarmhand(h);
+      while (slots > 0 && i < plots.length) {
+        const crop = plots[i];
+        if (crop && CROPS[crop.kind].type !== "food") { i++; continue; }   // they leave lure crops alone
         slots--;
-        const kind = (w.food.berry || 0) <= (w.food.carrot || 0) ? "berry" : "carrot";
-        plots[i] = { kind, at: tMs, by: null };
-        continue;
-      }
-      if (CROPS[crop.kind].type !== "food") continue;   // they leave lure crops alone
-      slots--;
-      if (tMs - crop.at >= CROPS[crop.kind].grow) {
-        store(w, crop.kind, CROPS[crop.kind].yield, rep, "farm");
-        if (rep) rep.harvests += 1;
-        plots[i] = { kind: crop.kind, at: tMs, by: crop.by };
+        if (!crop) plots[i] = { kind: plantChoice(w, h), at: tMs, by: null };
+        else if (tMs - crop.at >= CROPS[crop.kind].grow) {
+          store(w, crop.kind, CROPS[crop.kind].yield, rep, "farm");
+          if (rep) rep.harvests += 1;
+          plots[i] = { kind: plantChoice(w, h), at: tMs, by: null };
+        }
+        i++;
       }
     }
   }
+}
+
+// What a farmhand plants next. Auto picks whichever food you have less of,
+// counting what's in storage plus what's already growing in the field (so a
+// full shed still gets a mix instead of all one crop).
+export const PLANT_CHOICES = ["auto", "berry", "carrot"];
+export function plantChoice(w, c) {
+  if (c.plant === "berry" || c.plant === "carrot") return c.plant;
+  const have = { berry: w.food.berry || 0, carrot: w.food.carrot || 0 };
+  for (const p of w.plots || []) if (p && have[p.kind] != null) have[p.kind] += CROPS[p.kind].yield;
+  return have.berry <= have.carrot ? "berry" : "carrot";
 }
 
 // A Hauler carries up to n items to the stall, only ever from the extra above
@@ -599,10 +610,13 @@ export function farmhandShare(w, c) {
       if (crop && CROPS[crop.kind]?.type !== "food") continue;          // lure crops are left alone
       slots--;
       if (h.id !== c.id) continue;
-      const kind = crop ? crop.kind : "berry";
-      const n = (CROPS[kind].yield || 0) * (3600000 / CROPS[kind].grow);
-      perHour[kind] = (perHour[kind] || 0) + n;
-      coins += n * (ITEMS[kind]?.price || 0);
+      // steady state: what it replants. Auto ends up roughly half and half.
+      const mix = h.plant === "berry" || h.plant === "carrot" ? { [h.plant]: 1 } : { berry: 0.5, carrot: 0.5 };
+      for (const [kind, share] of Object.entries(mix)) {
+        const n = share * (CROPS[kind].yield || 0) * (3600000 / CROPS[kind].grow);
+        perHour[kind] = (perHour[kind] || 0) + n;
+        coins += n * (ITEMS[kind]?.price || 0);
+      }
       plots++;
     }
     if (h.id === c.id) break;
