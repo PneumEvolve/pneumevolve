@@ -554,7 +554,7 @@ export function farmReducer(w0, a) {
     }
 
     // Sell food for coins. n = -1 sells it all.
-    // Sell items at today's market price (selling a lot at once pushes the price down).
+    // Sell items at their (fixed) price.
     case "sell": {
       const k = a.kind;
       if (!by || !ITEMS[k]) return w;

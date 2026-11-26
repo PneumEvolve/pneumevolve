@@ -22,7 +22,7 @@ import {
   JOBS, SKILLS, SKILL_NAMES, BUILDINGS, STORE_ITEMS, stateOf, STATE_TEXT, canManage, chemistry,
   nextUpgrade, troughCap, storageCap, warehouseCap, capFor, xpForNext, plotsPerFarmhand,
   ITEMS, ITEM_KEYS, ITEM_GROUPS, PRODUCT_OF, WORKSHOPS, nextWorkshop, wsSpeed, skillFactor, hasGoods,
-  priceOf, buyPriceOf, trendOf, canBuy, fmtCoins, makesGoods, PRODUCE_SECS, CONTRACT_MAX, missingInputs, usable, FOOD_RESERVE,
+  priceOf, buyPriceOf, canBuy, fmtCoins, makesGoods, PRODUCE_SECS, CONTRACT_MAX, missingInputs, usable, FOOD_RESERVE,
   forecast, jobRate, PRODUCE_HAPPY, STOP_HAPPY, STOP_HUNGER,
   inMeadow, housedCount, penSlots, penCost, rehomePrice,
 } from "./ranch";
@@ -178,7 +178,7 @@ function Tips({ world }) {
   else if (!jobs.has("hauler")) tip = "A Hauler takes goods to the stall for you: it fills contracts, then sells anything above your keep amounts (Market tab).";
   else if (!world.workshops?.kiln?.level) tip = "Happy creatures make goods: Pebblets make pebbles, Emberpups make embers. The Kiln turns them into bricks, and bricks unlock bigger upgrades.";
   else if (!jobs.has("groomer")) tip = "Only happy creatures (50+) make goods. A Groomer keeps everyone's spirits up.";
-  else tip = "Prices move every hour, and selling a lot of one thing pushes its price down. Spread your selling around, and watch for arrows going up.";
+  else tip = "Workshop goods are worth far more than what goes into them: a brick sells for 20, a lantern for 40. Contracts pay about double.";
   return <Card title="Tip"><div style={{ fontSize: 13, color: C.dim }}>{tip}</div></Card>;
 }
 
@@ -525,7 +525,7 @@ function Forecast({ world, now, setTab }) {
           <Change label="average fullness" from={fed0} to={fed1} />
           <Change label="in the trough" from={trough0} to={trough1} />
         </div>
-        {coinsIn > 0 && <div style={{ fontSize: 11, color: C.dim }}>Coins: {[rep.hauled && `${n(rep.hauled)} from your Hauler`, rep.autoSold && `${n(rep.autoSold)} from the stall selling extra`, rep.contractCoins && `${n(rep.contractCoins)} from contracts`].filter(Boolean).join(", ")}. Prices move, so this is a rough guess.</div>}
+        {coinsIn > 0 && <div style={{ fontSize: 11, color: C.dim }}>Coins: {[rep.hauled && `${n(rep.hauled)} from your Hauler`, rep.autoSold && `${n(rep.autoSold)} from the stall selling extra`, rep.contractCoins && `${n(rep.contractCoins)} from contracts`].filter(Boolean).join(", ")}.</div>}
       </Card>
       <Card title="Creatures">
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -733,7 +733,7 @@ function Market({ world, W, now }) {
       </Card>
       <Card title="Prices">
         <div style={{ fontSize: 11, color: C.dim }}>
-          Prices change every hour; arrows show where they're heading. Selling lots of one thing pushes its price down for a while.
+          Prices are fixed. Buying costs double the selling price (workshop goods and wild crystals can't be bought).
           {" "}{hauler ? "Your Hauler sells anything above its keep amount and leaves \"hands off\" items alone." : "A Hauler can do the selling for you, using the keep amounts below."}
         </div>
         {ITEM_GROUPS.map(([g, label]) => {
@@ -752,21 +752,19 @@ function Market({ world, W, now }) {
 }
 function PriceRow({ k, world, W, now }) {
   const have = Math.floor(world.food?.[k] || 0);
-  const price = priceOf(world, k), base = ITEMS[k].price;
-  const trend = trendOf(world, k, now);
+  const price = priceOf(world, k);
   const keep = world.keep?.[k];
   const buyP = buyPriceOf(world, k);
   const room = Math.floor(capFor(world, k) - have);
   const step = ITEMS[k].group === "made" ? 5 : 10;
   const setKeep = (v) => W.dispatch({ type: "set_keep", kind: k, keep: v });
-  const pct = Math.round((price / base) * 100);
   return (
     <div data-item={k} style={{ padding: 8, borderRadius: 10, background: "rgba(255,255,255,0.03)", display: "flex", flexDirection: "column", gap: 6 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <ItemIcon kind={k} size={24} />
         <span style={{ fontWeight: 800, flex: 1 }}>{ITEMS[k].name} <span style={{ color: C.dim, fontWeight: 700, fontSize: 12 }}>· have {have}</span></span>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontWeight: 900, color: pct >= 110 ? C.good : pct <= 80 ? "#ff9aa8" : C.text }}>
-          <Trend dir={trend} /> <CoinIcon size={13} /> {fmtCoins(price)} <span style={{ fontSize: 11, color: C.faint, fontWeight: 700 }}>{pct}%</span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontWeight: 900 }}>
+          <CoinIcon size={13} /> {fmtCoins(price)}
         </span>
       </div>
       <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
@@ -961,16 +959,6 @@ function Portrait({ species, traits, size }) {
 }
 export function ItemIcon({ kind, size = 18 }) {
   return <Canvas size={size} deps={[kind, size]} draw={(ctx, s) => drawItemIcon(ctx, kind, s / 2, s / 2, s, 0.3)} />;
-}
-function Trend({ dir }) {
-  return <Canvas size={12} deps={[dir]} draw={(ctx, s) => {
-    ctx.fillStyle = dir > 0 ? "#7ee081" : dir < 0 ? "#ff7a6b" : "rgba(243,236,255,0.35)";
-    ctx.beginPath();
-    if (dir > 0) { ctx.moveTo(s / 2, 1); ctx.lineTo(s - 1, s - 2); ctx.lineTo(1, s - 2); }
-    else if (dir < 0) { ctx.moveTo(1, 2); ctx.lineTo(s - 1, 2); ctx.lineTo(s / 2, s - 1); }
-    else { ctx.rect(1, s / 2 - 1.5, s - 2, 3); }
-    ctx.fill();
-  }} />;
 }
 function CoinIcon({ size = 18 }) {
   return <Canvas size={size} deps={[size]} draw={(ctx, s) => {

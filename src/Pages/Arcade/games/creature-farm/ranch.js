@@ -22,9 +22,8 @@
 //   • Workshops turn goods into better goods (Jam Kitchen, Kiln, Loom, Bakery,
 //     Lantern Workshop, Juice Press). A Crafter works one; you can also help by hand.
 //   • Higher building levels cost bricks or blankets, not just coins.
-//   • Market: prices drift up and down every hour, and drop when you sell a
-//     lot of one thing (they recover over a couple of hours). You can buy
-//     food and creature goods (at double price) for species you don't have.
+//   • Market: fixed prices. You can buy food and creature goods (at double
+//     price) for species you don't have.
 //   • Haulers take goods to the Market Stall: they fill contracts first, then
 //     sell, but only ever from what's above the "keep" amount you set. They never touch items
 //     you've marked "hands off".
@@ -100,7 +99,7 @@ export function chemistry(a, b) {
 
 // ── Items ─────────────────────────────────────────────────────────────────────
 // group: food (creatures eat it), goods (creatures make it), made (workshops make it).
-// price = base market price; the real price drifts around it (see priceOf).
+// price = what it sells for (fixed; buying costs double).
 export const ITEMS = {
   berry:   { name: "Berries",     group: "food",  price: 1,  color: "#5b6ff0" },
   carrot:  { name: "Carrots",     group: "food",  price: 2,  color: "#f08a24" },
@@ -124,7 +123,6 @@ export const ITEM_GROUPS = [["food", "Food"], ["goods", "Creature goods"], ["mad
 export const STORE_ITEMS = ["berry", "carrot"];          // what goes in the trough
 export const PRODUCT_OF = Object.fromEntries(Object.entries(ITEMS).filter(([, it]) => it.from).map(([k, it]) => [it.from, k]));
 export const PRICES = Object.fromEntries(ITEM_KEYS.map(k => [k, ITEMS[k].price]));   // base prices
-const SATURATE = { food: 0.003, goods: 0.012, made: 0.025 };   // price drop per item sold
 export const canBuy = (k) => ITEMS[k]?.group !== "made" && !ITEMS[k]?.wild;
 
 // ── Workshops ─────────────────────────────────────────────────────────────────
@@ -160,7 +158,7 @@ export const BUILDINGS = {
   beds:      { name: "Comfy Beds", desc: "Tired creatures recharge faster.", max: 3,
                cost: (lvl) => Math.round(120 * Math.pow(3, lvl)),
                goods: { 2: { blanket: 3 }, 3: { blanket: 8 } } },
-  stall:     { name: "Market Stall", desc: "Auto-sells anything that won't fit in storage, at the market price. Haulers sell here too.", max: 1,
+  stall:     { name: "Market Stall", desc: "Auto-sells anything that won't fit in storage, at full price. Haulers sell here too.", max: 1,
                cost: () => 150 },
 };
 
@@ -179,31 +177,15 @@ export function nextUpgrade(w, key) {
 export const hasGoods = (w, goods) => !goods || Object.entries(goods).every(([k, n]) => (w.food?.[k] || 0) >= n);
 
 // ── Market ────────────────────────────────────────────────────────────────────
-// Each item's price multiplier drifts toward a target that changes every hour
-// (the same on both devices: it's worked out from the hour + the item), and
-// selling a lot pushes it down. Prices recover toward the target over ~2 hours.
-function hash01(a, b) {
-  let h = (Math.imul(a | 0, 374761393) + Math.imul(b | 0, 668265263)) | 0;
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
-}
-export const marketTarget = (k, tMs) => 0.65 + hash01(Math.floor(tMs / 3600000), ITEM_KEYS.indexOf(k) + 1) * 0.85;
-export const priceOf = (w, k) => (ITEMS[k]?.price || 0) * (w.market?.[k] ?? 1);
-export const buyPriceOf = (w, k) => Math.ceil(priceOf(w, k) * 2 * 10) / 10;
-export const trendOf = (w, k, tMs) => { const d = marketTarget(k, tMs) - (w.market?.[k] ?? 1); return d > 0.04 ? 1 : d < -0.04 ? -1 : 0; };
+// Prices are fixed: every item always sells for its listed price, and buying
+// (food and creature goods only) costs double. The only thing whose value
+// changes is a creature, by its skills and whether it's golden (rehomePrice).
+export const priceOf = (w, k) => ITEMS[k]?.price || 0;
+export const buyPriceOf = (w, k) => priceOf(w, k) * 2;
 export const fmtCoins = (n) => (n >= 10 || Number.isInteger(n) ? String(Math.floor(n)) : n.toFixed(1));
-function stepMarket(w, dt, tMs) {
-  const m = w.market;
-  const k = Math.min(1, dt / (2 * H));
-  for (const key of ITEM_KEYS) { const cur = m[key] ?? 1; m[key] = cur + (marketTarget(key, tMs) - cur) * k; }
-}
-// Sell n of item k right now: coins in, price nudged down. Returns coins earned.
+// Sell n of item k right now. Returns coins earned.
 export function sellNow(w, k, n, factor = 1) {
-  let coins = 0;
-  for (let i = 0; i < n; i++) {
-    coins += priceOf(w, k) * factor;
-    w.market[k] = Math.max(0.35, (w.market[k] ?? 1) - SATURATE[ITEMS[k].group]);
-  }
+  const coins = priceOf(w, k) * n * factor;
   w.coins += coins;
   return coins;
 }
@@ -304,7 +286,7 @@ export function ranchDefaults() {
 
 const add = (obj, k, n) => { obj[k] = (obj[k] || 0) + n; };
 
-// Put items into storage, respecting the cap. Overflow is auto-sold at the market price (stall) or wasted.
+// Put items into storage, respecting the cap. Overflow is auto-sold at full price (stall) or wasted.
 export function store(w, kind, n, rep) {
   const cap = capFor(w, kind);
   const have = w.food[kind] || 0;
@@ -344,7 +326,6 @@ export function stepRanch(w, dt, tMs, rep) {
   const list = Object.values(w.creatures);
   const byId = w.creatures;
   const tcap = troughCap(w);
-  stepMarket(w, dt, tMs);
   // Storage limits are hard: nothing sits above the cap (hand harvests, old
   // saves). With the Market Stall the extra gets sold; without it, it's lost.
   for (const k of ITEM_KEYS) {
@@ -547,7 +528,7 @@ function newReport() {
 // ── Forecast ──────────────────────────────────────────────────────────────────
 // "If nothing changes, where will the farm be in N seconds?" Runs the real
 // simulation on a copy of the world (it has no randomness, so it's a fair
-// preview; only market prices are guesses about the future).
+// preview).
 export function cloneRanch(w) {
   return {
     ...w,
