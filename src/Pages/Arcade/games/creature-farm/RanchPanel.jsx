@@ -13,7 +13,7 @@
 //   layout="drawer"   Walk mode: the "Ranch" button opens it as a drawer
 // No emojis: icons are drawn in code.
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { C } from "../../ui";
 import { SPECIES } from "./species";
 import { drawCreature, drawBowl, drawSun, drawItemIcon } from "./drawFarm";
@@ -22,12 +22,13 @@ import {
   nextUpgrade, troughCap, storageCap, warehouseCap, capFor, xpForNext, plotsPerFarmhand,
   ITEMS, ITEM_KEYS, ITEM_GROUPS, PRODUCT_OF, WORKSHOPS, nextWorkshop, wsSpeed, skillFactor, hasGoods,
   priceOf, buyPriceOf, trendOf, canBuy, fmtCoins, makesGoods, PRODUCE_SECS, CONTRACT_MAX, missingInputs, usable, FOOD_RESERVE,
+  forecast, jobRate, PRODUCE_HAPPY, STOP_HAPPY, STOP_HUNGER,
 } from "./ranch";
 
 // Manager mode panel width (the farm view uses the rest of the screen).
 export const MANAGER_PANEL_W = "min(100%, max(58%, 560px))";
 
-const TABS = [["overview", "Overview"], ["creatures", "Creatures"], ["workshops", "Workshops"], ["market", "Market"], ["buildings", "Buildings"], ["storage", "Storage"]];
+const TABS = [["overview", "Overview"], ["forecast", "Forecast"], ["creatures", "Creatures"], ["workshops", "Workshops"], ["market", "Market"], ["buildings", "Buildings"], ["storage", "Storage"]];
 
 export default function RanchPanel({ world, W, myId, nameOf, colorOf, layout = "drawer", tab: tab0 = "overview", onClose, onSwitchMode, onFollow, reportKey }) {
   const [tab, setTab] = useState(tab0);
@@ -63,6 +64,7 @@ export default function RanchPanel({ world, W, myId, nameOf, colorOf, layout = "
       </div>
       <div style={{ flex: 1, overflowY: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 12 }}>
         {tab === "overview" && <Overview world={world} now={now} alerts={alerts} setTab={setTab} reportKey={reportKey} />}
+        {tab === "forecast" && <Forecast world={world} now={now} setTab={setTab} />}
         {tab === "creatures" && <Creatures world={world} W={W} myId={myId} nameOf={nameOf} colorOf={colorOf} onFollow={onFollow} />}
         {tab === "workshops" && <Workshops world={world} W={W} myId={myId} />}
         {tab === "market" && <Market world={world} W={W} now={now} />}
@@ -304,7 +306,17 @@ function CreatureCard({ c, world, W, myId, nameOf, colorOf, onFollow, open, onTo
                 ))}
               </div>
             )}
-            {c.job && <div style={{ fontSize: 11, color: C.dim, marginTop: 4 }}>{JOBS[c.job].desc}{c.job === "farmhand" ? ` Looks after ${plotsPerFarmhand(c)} plot${plotsPerFarmhand(c) > 1 ? "s" : ""}.` : ""}{c.job === "hauler" && !world.buildings?.stall ? " Needs the Market Stall." : ""}</div>}
+            {c.job && <div style={{ fontSize: 11, color: C.dim, marginTop: 4 }}>{JOBS[c.job].desc}{c.job === "hauler" && !world.buildings?.stall ? " Needs the Market Stall." : ""}</div>}
+            {c.job && (() => {
+              const r = jobRate(world, c);
+              if (!r) return null;
+              return (
+                <div style={{ fontSize: 12, marginTop: 4, color: "#c9a7ff", fontWeight: 700 }}>
+                  {r.text ? `Right now it ${r.text}.` : `Right now it ${r.what} every ${clock(r.every)} (about ${Math.round(r.perHour)} an hour) while working.`}
+                  {stateOf(c) !== "working" && <span style={{ color: "#ffcf8a" }}> Not working at the moment: {STATE_TEXT[stateOf(c)]}.</span>}
+                </div>
+              );
+            })()}
             {!built.length && <div style={{ fontSize: 11, color: C.faint, marginTop: 4 }}>Crafter unlocks once you build a workshop.</div>}
           </div>
           {onFollow && mine && (
@@ -398,6 +410,145 @@ function clock(secs) {
   if (s >= 3600) return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
   if (s >= 60) return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
   return `${s}s`;
+}
+
+// ── Forecast ──────────────────────────────────────────────────────────────────
+// Runs the farm forward on a copy (same rules as the real thing) and shows
+// where it ends up if nobody changes anything.
+const HORIZONS = [[1800, "30 min"], [7200, "2 hours"], [8 * 3600, "8 hours"], [24 * 3600, "24 hours"]];
+function Forecast({ world, now, setTab }) {
+  const [secs, setSecs] = useState(1800);
+  const bucket = Math.floor(now / 10000);                // refresh every 10 seconds
+  const fc = useMemo(() => forecast(world, secs, now), [secs, bucket]); // eslint-disable-line react-hooks/exhaustive-deps
+  const { sim, rep } = fc;
+  const label = HORIZONS.find(h => h[0] === secs)[1];
+  const cs0 = Object.values(world.creatures || {}), cs1 = cs0.map(c => sim.creatures[c.id]);
+  const avg = (list, f) => list.length ? list.reduce((n, c) => n + f(c), 0) / list.length : 0;
+  const happy0 = avg(cs0, c => c.happy), happy1 = avg(cs1, c => c.happy);
+  const fed0 = avg(cs0, c => c.hunger), fed1 = avg(cs1, c => c.hunger);
+  const noGoods = cs1.filter(c => !makesGoods(c));
+  const sad = cs1.filter(c => c.happy < STOP_HAPPY), starving = cs1.filter(c => c.hunger < STOP_HUNGER);
+  const groomers = cs0.filter(c => c.job === "groomer");
+  const trough0 = STORE_ITEMS.reduce((n, k) => n + (world.trough?.[k] || 0), 0), trough1 = STORE_ITEMS.reduce((n, k) => n + (sim.trough?.[k] || 0), 0);
+  const coinsIn = rep.hauled + rep.autoSold + rep.contractCoins;
+  // every item that moved or that you hold
+  const keys = ITEM_KEYS.filter(k => (world.food?.[k] || 0) >= 1 || (sim.food?.[k] || 0) >= 1 || rep.produced[k] || rep.used[k] || rep.made[k]);
+  const n = (v) => Math.round(v || 0);
+  const flow = (k) => [
+    ["gathered", n(rep.produced[k]) - n(rep.made[k])], ["made", n(rep.made[k])], ["used by workshops", -n(rep.used[k])],
+    ["to the trough", -n(rep.toTrough[k])], ["eaten", -n(rep.eaten[k])], ["sold", -n(rep.sold[k])], ["contracts", -n(rep.delivered[k])], ["wasted (full)", -n(rep.wasted[k])],
+  ].filter(([, v]) => v);
+  const built = Object.keys(WORKSHOPS).filter(k => world.workshops?.[k]?.level);
+  const verdict = [];
+  if (starving.length) verdict.push({ bad: true, text: `${names(starving)} will be too hungry to work. ${cs0.some(c => c.job === "feeder") ? "Your Feeder can't keep up, or storage runs out of food" : "Nobody is filling the trough: make someone a Feeder"}.`, tab: "creatures" });
+  if (sad.length) verdict.push({ bad: true, text: `${names(sad)} will be too sad to work${groomers.length ? " (more Groomers, or better Care, would help)" : " (a Groomer would help)"}.`, tab: "creatures" });
+  else if (noGoods.length) verdict.push({ text: `${names(noGoods)} will drop under ${PRODUCE_HAPPY} happiness or get hungry and stop making goods.`, tab: "creatures" });
+  for (const k of built) {
+    const b = rep.busy[k] || 0, wt = rep.waiting[k] || 0;
+    if (wt > 0 && wt >= 0.25 * (b + wt)) {
+      const miss = Object.keys(WORKSHOPS[k].needs).filter(x => (sim.food?.[x] || 0) < WORKSHOPS[k].needs[x] + (ITEMS[x].group === "food" ? FOOD_RESERVE : 0)).map(x => ITEMS[x].name.toLowerCase());
+      verdict.push({ text: `The ${WORKSHOPS[k].name} will sit waiting ${Math.round((wt / (b + wt)) * 100)}% of the time${miss.length ? ` for ${miss.join(" and ")}` : ""}: supply can't keep up with your Crafters.`, tab: "workshops" });
+    }
+  }
+  const wastedAny = Object.values(rep.wasted).some(v => v >= 1);
+  if (wastedAny) verdict.push({ text: `Some goods will hit the storage limit and be lost${world.buildings?.stall ? "" : ": the Market Stall would sell them instead"}.`, tab: world.buildings?.stall ? "buildings" : "buildings" });
+  if (!verdict.length) verdict.push({ good: true, text: "Everything keeps running smoothly for this long." });
+
+  return (
+    <>
+      <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
+        <span style={{ fontSize: 12, color: C.dim, marginRight: 4 }}>If nothing changes, in</span>
+        {HORIZONS.map(([v, l]) => <button key={v} onClick={() => setSecs(v)} style={btn(secs === v, { padding: "5px 10px", fontSize: 12 })}>{l}</button>)}
+      </div>
+      <Card title={`In ${label}`}>
+        {verdict.map((v, i) => (
+          <button key={i} onClick={() => v.tab && setTab(v.tab)} style={{ textAlign: "left", padding: "8px 10px", borderRadius: 10, border: "none", cursor: v.tab ? "pointer" : "default", fontFamily: "inherit", fontSize: 13, fontWeight: 700,
+            background: v.good ? "rgba(126,224,129,0.12)" : v.bad ? "rgba(255,93,115,0.15)" : "rgba(255,179,71,0.15)", color: v.good ? C.good : v.bad ? "#ff9aa8" : "#ffcf8a" }}>{v.text}</button>
+        ))}
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 4 }}>
+          <Change label="coins earned" from={null} to={coinsIn} plus />
+          <Change label="average happiness" from={happy0} to={happy1} />
+          <Change label="average fullness" from={fed0} to={fed1} />
+          <Change label="in the trough" from={trough0} to={trough1} />
+        </div>
+        {coinsIn > 0 && <div style={{ fontSize: 11, color: C.dim }}>Coins: {[rep.hauled && `${n(rep.hauled)} from your Hauler`, rep.autoSold && `${n(rep.autoSold)} from the stall selling extra`, rep.contractCoins && `${n(rep.contractCoins)} from contracts`].filter(Boolean).join(", ")}. Prices move, so this is a rough guess.</div>}
+      </Card>
+      <Card title="Creatures">
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {cs0.map(c => {
+            const e = sim.creatures[c.id];
+            return (
+              <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                <Portrait species={c.species} traits={c.traits} size={22} />
+                <span style={{ width: 70, fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
+                <span style={{ width: 92, color: C.dim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.job ? jobLabel(c).replace("Crafter at the ", "") : "no job"}</span>
+                <MoodArrow label="happy" a={c.happy} b={e.happy} color="#ff7aa8" />
+                <MoodArrow label="fed" a={c.hunger} b={e.hunger} color="#ffb347" />
+                <span style={{ color: stateOf(e) === "working" ? C.good : ["sad", "starving"].includes(stateOf(e)) ? C.bad : C.dim, whiteSpace: "nowrap" }}>{STATE_TEXT[stateOf(e)]}</span>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ fontSize: 11, color: C.dim }}>Happy 50+ makes goods; under 20 stops working. Hungry under 10 stops working.</div>
+      </Card>
+      {built.length > 0 && (
+        <Card title="Workshops">
+          {built.map(k => {
+            const ws = WORKSHOPS[k], b = rep.busy[k] || 0, wt = rep.waiting[k] || 0, crew = cs0.some(c => c.job === "crafter" && c.station === k);
+            return (
+              <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                <ItemIcon kind={ws.makes} size={22} />
+                <span style={{ flex: 1 }}><b>{ws.name}</b>: makes {n(rep.made[ws.makes])} {ITEMS[ws.makes].name.toLowerCase()}</span>
+                {!crew ? <span style={{ color: C.faint }}>no Crafter</span>
+                  : <span style={{ color: wt > b * 0.33 ? "#ffcf8a" : C.good }}>busy {Math.round((b / Math.max(1, b + wt)) * 100)}%{wt > 0 ? `, waiting ${Math.round((wt / Math.max(1, b + wt)) * 100)}%` : ""}</span>}
+              </div>
+            );
+          })}
+        </Card>
+      )}
+      <Card title="Storage">
+        {keys.length === 0 && <div style={{ fontSize: 12, color: C.faint }}>Nothing moves.</div>}
+        {keys.map(k => {
+          const a = Math.floor(world.food?.[k] || 0), b = Math.floor(sim.food?.[k] || 0), d = b - a, cap = capFor(world, k);
+          return (
+            <div key={k} style={{ display: "flex", flexDirection: "column", gap: 2, padding: "4px 0", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                <ItemIcon kind={k} size={20} />
+                <span style={{ flex: 1, fontWeight: 800 }}>{ITEMS[k].name}</span>
+                <span style={{ color: C.dim }}>{a} → <b style={{ color: C.text }}>{b}</b>/{cap}</span>
+                <span style={{ minWidth: 48, textAlign: "right", fontWeight: 900, color: d > 0 ? C.good : d < 0 ? C.bad : C.faint }}>{d > 0 ? "+" : ""}{d}</span>
+              </div>
+              <div style={{ fontSize: 11, color: C.dim, paddingLeft: 28 }}>
+                {flow(k).map(([l, v]) => `${v > 0 ? "+" : ""}${v} ${l}`).join(" · ") || "no change"}
+              </div>
+            </div>
+          );
+        })}
+      </Card>
+      <div style={{ fontSize: 11, color: C.faint }}>This runs the same rules the farm uses, on a copy, assuming nobody changes anything and no new creatures arrive. It updates every 10 seconds.</div>
+    </>
+  );
+}
+function Change({ label, from, to, plus }) {
+  const d = from == null ? to : to - from;
+  return (
+    <div style={{ display: "flex", flexDirection: "column" }}>
+      <span style={{ fontSize: 18, fontWeight: 900, color: plus ? "#ffd65a" : d > 0.5 ? C.good : d < -0.5 ? C.bad : C.text }}>
+        {from == null ? `+${Math.round(to)}` : `${Math.round(from)} → ${Math.round(to)}`}
+      </span>
+      <span style={{ fontSize: 11, color: C.dim }}>{label}</span>
+    </div>
+  );
+}
+function MoodArrow({ label, a, b, color }) {
+  return (
+    <span title={label} style={{ display: "inline-flex", alignItems: "center", gap: 3, width: 96 }}>
+      <span style={{ width: 34, height: 5, borderRadius: 3, background: "rgba(255,255,255,0.1)", overflow: "hidden", display: "inline-block" }}>
+        <span style={{ display: "block", height: "100%", width: `${Math.max(0, Math.min(100, b))}%`, background: b < 20 ? C.bad : color }} />
+      </span>
+      <span style={{ color: b < a - 2 ? C.bad : b > a + 2 ? C.good : C.dim, fontWeight: 700 }}>{Math.round(a)}→{Math.round(b)}</span>
+    </span>
+  );
 }
 
 // ── Workshops ─────────────────────────────────────────────────────────────────

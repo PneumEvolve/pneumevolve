@@ -292,10 +292,10 @@ export function store(w, kind, n, rep) {
   const have = w.food[kind] || 0;
   const fits = Math.max(0, Math.min(n, cap - have));
   w.food[kind] = have + fits;
-  if (rep) add(rep.gained, kind, fits);
+  if (rep) { add(rep.gained, kind, fits); add(rep.produced, kind, n); }
   const extra = n - fits;
   if (extra > 0) {
-    if (w.buildings.stall) { const c = sellNow(w, kind, Math.round(extra)); if (rep) rep.autoSold += c; }
+    if (w.buildings.stall) { const c = sellNow(w, kind, Math.round(extra)); if (rep) { rep.autoSold += c; add(rep.sold, kind, Math.round(extra)); } }
     else if (rep) add(rep.wasted, kind, extra);
   }
 }
@@ -311,7 +311,7 @@ export function finishCrafts(w, key, rep) {
   const st = w.workshops[key], ws = WORKSHOPS[key];
   while (st.progress >= 1) {
     if (!hasInputs(w, ws.needs)) { st.progress = 1; st.stalled = true; return; }
-    for (const [k, n] of Object.entries(ws.needs)) w.food[k] -= n;
+    for (const [k, n] of Object.entries(ws.needs)) { w.food[k] -= n; if (rep) add(rep.used, k, n); }
     st.progress -= 1;
     store(w, ws.makes, 1, rep);
     if (rep) add(rep.made, ws.makes, 1);
@@ -333,10 +333,11 @@ export function stepRanch(w, dt, tMs, rep) {
     const extra = Math.floor((w.food[k] || 0) - capFor(w, k));
     if (extra <= 0) continue;
     w.food[k] -= extra;
-    if (w.buildings.stall) { const c = sellNow(w, k, extra); if (rep) rep.autoSold += c; }
+    if (w.buildings.stall) { const c = sellNow(w, k, extra); if (rep) { rep.autoSold += c; add(rep.sold, k, extra); } }
     else if (rep) add(rep.wasted, k, extra);
   }
   const crafting = {};                                    // workshop → total crafting speed this step
+  const crewed = {};                                      // workshops with a Crafter on shift this step
 
   for (const c of list) {
     const pw = PERSONALITY_WORK[c.traits.personality] || {};
@@ -361,14 +362,14 @@ export function stepRanch(w, dt, tMs, rep) {
     c.happy = Math.max(0, Math.min(100, c.happy + dh * dt));
 
     // ── eating on their own
-    if (c.hunger < EAT_BELOW && !c.follow) {
+    if (c.hunger < EAT_BELOW) {                            // followers eat too (they pop back to the trough)
       const loved = SPECIES[c.species].food;
       const pickFrom = (pool) => ((pool[loved] || 0) >= 1 ? loved : STORE_ITEMS.find(k => (pool[k] || 0) >= 1));
       let k = pickFrom(w.trough), from = "trough";
       // trough empty → a buddy who forages or feeds brings something from storage
       if (!k && buddy && (buddy.job === "forager" || buddy.job === "feeder") && stateOf(buddy) === "working") { k = pickFrom(w.food); from = "buddy"; }
       if (k) {
-        if (from === "trough") w.trough[k] -= 1; else w.food[k] -= 1;
+        if (from === "trough") w.trough[k] -= 1; else { w.food[k] -= 1; if (rep) add(rep.eaten, k, 1); }
         const yum = k === loved;
         c.hunger = Math.min(100, c.hunger + (yum ? LOVED_MEAL : MEAL));
         if (yum) c.happy = Math.min(100, c.happy + 6);
@@ -400,6 +401,7 @@ export function stepRanch(w, dt, tMs, rep) {
           const k = STORE_ITEMS.slice().sort((a, b) => (w.trough[a] || 0) - (w.trough[b] || 0)).find(x => (w.food[x] || 0) >= 1);
           if (inTrough >= tcap || !k) { c.work = Math.min(c.work, 1); break; }
           c.work -= 1; w.food[k] -= 1; w.trough[k] = (w.trough[k] || 0) + 1;
+          if (rep) add(rep.toTrough, k, 1);
         }
       } else if (c.job === "groomer") {
         const n = 1 + Math.floor(lvl / 3);
@@ -407,6 +409,7 @@ export function stepRanch(w, dt, tMs, rep) {
         for (const o of sad) o.happy = Math.min(100, o.happy + GROOM_RATE * f * dt);
       } else if (c.job === "crafter") {
         const ws = c.station && w.workshops[c.station];
+        if (ws?.level) crewed[c.station] = true;
         if (ws?.level && ws.on !== false && hasInputs(w, WORKSHOPS[c.station].needs)) crafting[c.station] = (crafting[c.station] || 0) + f;
         else learning = false;
       } else if (c.job === "hauler") {
@@ -438,6 +441,7 @@ export function stepRanch(w, dt, tMs, rep) {
     if (!st.level) continue;
     const sp = crafting[key] || 0;
     if (sp > 0) st.progress = (st.progress || 0) + (dt * sp * wsSpeed(st.level)) / WORKSHOPS[key].secs;
+    if (rep && crewed[key] && st.on !== false) { if (sp > 0) add(rep.busy, key, dt); else add(rep.waiting, key, dt); }
     finishCrafts(w, key, rep);
   }
 
@@ -472,6 +476,7 @@ function haul(w, n, tMs, rep) {
     if (ct) {
       const { given, done } = giveToContract(w, ct, Math.min(n - carried, spare(ct.item)));
       carried += given;
+      if (rep) add(rep.delivered, ct.item, given);
       if (done) {
         if (rep) { rep.contracts += 1; rep.contractCoins += ct.reward; }
         else w._contractsDone = [...(w._contractsDone || []), ct];
@@ -484,7 +489,7 @@ function haul(w, n, tMs, rep) {
     const take = Math.min(n - carried, spare(best));
     w.food[best] -= take;
     const coins = sellNow(w, best, take);
-    if (rep) rep.hauled += coins;
+    if (rep) { rep.hauled += coins; add(rep.sold, best, take); }
     carried += take;
   }
   if (w.contracts.some(c => c.got >= c.n)) w.contracts = w.contracts.filter(c => c.got < c.n);
@@ -494,7 +499,7 @@ function haul(w, n, tMs, rep) {
 // Run the farm forward by `secs` seconds ending at world time `endMs`, in chunks.
 // Returns the report (or null for short live ticks).
 export function simulateRanch(w, secs, endMs, withReport) {
-  const rep = withReport ? { gained: {}, wasted: {}, made: {}, meals: 0, buddyMeals: 0, harvests: 0, autoSold: 0, hauled: 0, contracts: 0, contractCoins: 0, levelUps: [] } : null;
+  const rep = withReport ? newReport() : null;
   const CHUNK = secs > 60 ? 30 : secs;
   let left = secs, t = endMs - secs * 1000;
   while (left > 0.0001) {
@@ -504,4 +509,48 @@ export function simulateRanch(w, secs, endMs, withReport) {
     left -= dt;
   }
   return rep;
+}
+
+function newReport() {
+  return {
+    gained: {}, produced: {}, wasted: {}, made: {}, used: {}, sold: {}, eaten: {}, toTrough: {}, delivered: {}, busy: {}, waiting: {},
+    meals: 0, buddyMeals: 0, harvests: 0, autoSold: 0, hauled: 0, contracts: 0, contractCoins: 0, levelUps: [],
+  };
+}
+
+// ── Forecast ──────────────────────────────────────────────────────────────────
+// "If nothing changes, where will the farm be in N seconds?" Runs the real
+// simulation on a copy of the world (it has no randomness, so it's a fair
+// preview; only market prices are guesses about the future).
+export function cloneRanch(w) {
+  return {
+    ...w,
+    creatures: Object.fromEntries(Object.values(w.creatures || {}).map(c => [c.id, { ...c, skills: { ...c.skills }, xp: { ...(c.xp || {}) } }])),
+    food: { ...w.food }, trough: { ...w.trough }, plots: (w.plots || []).slice(), buildings: { ...w.buildings },
+    market: { ...(w.market || {}) }, keep: { ...(w.keep || {}) },
+    workshops: Object.fromEntries(Object.entries(w.workshops || {}).map(([k, v]) => [k, { ...v }])),
+    contracts: (w.contracts || []).map(c => ({ ...c })),
+    _levelUps: [], _contractsDone: [],
+  };
+}
+export function forecast(w, secs, nowMs) {
+  const sim = cloneRanch(w);
+  const coins0 = sim.coins || 0;
+  const rep = simulateRanch(sim, secs, nowMs + secs * 1000, true);
+  return { sim, rep, coins: (sim.coins || 0) - coins0 };
+}
+
+// How fast a creature does its job right now (for the creature cards).
+export function jobRate(w, c) {
+  if (!c.job) return null;
+  const lvl = c.skills?.[JOBS[c.job].skill] || 1;
+  const buddy = c.buddy ? w.creatures?.[c.buddy] : null;
+  const f = skillFactor(lvl) * (buddy && chemistry(c, buddy) > 0 ? 1.15 : 1);
+  if (c.job === "forager") return { every: 1 / (FORAGE_RATE * f), what: "brings back a berry or carrot", perHour: 3600 * FORAGE_RATE * f };
+  if (c.job === "feeder") return { every: 1 / (FEED_RATE * f), what: "moves 1 food from storage to the trough", perHour: 3600 * FEED_RATE * f };
+  if (c.job === "groomer") return { text: `cheers up the ${1 + Math.floor(lvl / 3)} saddest creature${lvl >= 3 ? "s" : ""} at once, +${Math.round(GROOM_RATE * f * 3600)} happiness an hour each` };
+  if (c.job === "hauler") return { every: 1 / (HAUL_RATE * f), what: "carries 1 item to the stall", perHour: 3600 * HAUL_RATE * f };
+  if (c.job === "farmhand") return { text: `looks after ${plotsPerFarmhand(c)} food plot${plotsPerFarmhand(c) > 1 ? "s" : ""}: harvests and replants them the moment they're ripe` };
+  if (c.job === "crafter") return { text: `works at Craft ${lvl} (${Math.round(f * 100)}% speed${f > skillFactor(lvl) ? ", buddy bonus" : ""})` };
+  return null;
 }
