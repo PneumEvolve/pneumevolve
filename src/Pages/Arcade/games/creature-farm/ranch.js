@@ -52,8 +52,8 @@ export const CONTRACT_MAX = 3;
 export const PEN_START = 4;                 // pen spots a new farm starts with (shared by both players)
 export const CONTRACT_GAP = 20 * 60;        // seconds before a new contract shows up
 
-export const SKILLS = ["forage", "care", "farm", "craft", "haul"];
-export const SKILL_NAMES = { forage: "Forage", care: "Care", farm: "Farm", craft: "Craft", haul: "Haul" };
+export const SKILLS = ["forage", "care", "farm", "craft", "haul", "fight"];
+export const SKILL_NAMES = { forage: "Forage", care: "Care", farm: "Farm", craft: "Craft", haul: "Haul", fight: "Fight" };
 export const JOBS = {
   forager:  { name: "Forager",  skill: "forage", desc: "Finds wild berries and carrots and brings them to storage." },
   feeder:   { name: "Feeder",   skill: "care",   desc: "Keeps the feeding trough topped up from storage." },
@@ -71,16 +71,16 @@ export const xpForNext = (lvl) => lvl * lvl * H;  // seconds of work to reach th
 
 // Starting skills by species (then personality + a little luck).
 const SPECIES_SKILLS = {
-  mossling:  { forage: 2, care: 1, farm: 3, craft: 1, haul: 2 },
-  emberpup:  { forage: 3, care: 1, farm: 2, craft: 3, haul: 1 },
-  puddlet:   { forage: 1, care: 3, farm: 2, craft: 2, haul: 2 },
-  fluffwing: { forage: 2, care: 3, farm: 1, craft: 1, haul: 3 },
-  glowmoth:  { forage: 1, care: 2, farm: 3, craft: 3, haul: 1 },
-  pebblet:   { forage: 2, care: 1, farm: 3, craft: 2, haul: 3 },
-  zapling:   { forage: 4, care: 1, farm: 1, craft: 2, haul: 2 },
+  mossling:  { forage: 2, care: 1, farm: 3, craft: 1, haul: 2, fight: 2 },
+  emberpup:  { forage: 3, care: 1, farm: 2, craft: 3, haul: 1, fight: 3 },
+  puddlet:   { forage: 1, care: 3, farm: 2, craft: 2, haul: 2, fight: 1 },
+  fluffwing: { forage: 2, care: 3, farm: 1, craft: 1, haul: 3, fight: 2 },
+  glowmoth:  { forage: 1, care: 2, farm: 3, craft: 3, haul: 1, fight: 1 },
+  pebblet:   { forage: 2, care: 1, farm: 3, craft: 2, haul: 3, fight: 3 },
+  zapling:   { forage: 4, care: 1, farm: 1, craft: 2, haul: 2, fight: 2 },
 };
 const PERSONALITY_SKILLS = {
-  playful: { care: 1 }, greedy: { forage: 1, haul: 1 }, shy: { farm: 1, craft: 1 }, bold: { forage: 1, haul: 1 }, sleepy: {}, grumpy: { care: -1, craft: 1 },
+  playful: { care: 1 }, greedy: { forage: 1, haul: 1 }, shy: { farm: 1, craft: 1 }, bold: { forage: 1, haul: 1, fight: 1 }, sleepy: {}, grumpy: { care: -1, craft: 1, fight: 1 },
 };
 export const PERSONALITY_WORK = {        // how personality changes needs
   greedy: { hunger: 1.3 }, sleepy: { energy: 1.25 }, grumpy: { happy: 1.3 },
@@ -111,6 +111,7 @@ export const ITEMS = {
   glow:    { name: "Glow dust",   group: "goods", price: 4,  color: "#ffe36b", from: "glowmoth" },
   pebble:  { name: "Pebbles",     group: "goods", price: 2,  color: "#a89a8a", from: "pebblet" },
   spark:   { name: "Sparks",      group: "goods", price: 4,  color: "#c49bff", from: "zapling" },
+  crystal: { name: "Wild crystals", group: "goods", price: 18, color: "#7ff0e0", wild: true },    // only found in the Wilds
   jam:     { name: "Berry jam",   group: "made",  price: 7,  color: "#8a4be0" },
   juice:   { name: "Carrot juice", group: "made", price: 12, color: "#ff9a3c" },
   brick:   { name: "Bricks",      group: "made",  price: 20, color: "#c4573a" },
@@ -124,7 +125,7 @@ export const STORE_ITEMS = ["berry", "carrot"];          // what goes in the tro
 export const PRODUCT_OF = Object.fromEntries(Object.entries(ITEMS).filter(([, it]) => it.from).map(([k, it]) => [it.from, k]));
 export const PRICES = Object.fromEntries(ITEM_KEYS.map(k => [k, ITEMS[k].price]));   // base prices
 const SATURATE = { food: 0.003, goods: 0.012, made: 0.025 };   // price drop per item sold
-export const canBuy = (k) => ITEMS[k]?.group !== "made";
+export const canBuy = (k) => ITEMS[k]?.group !== "made" && !ITEMS[k]?.wild;
 
 // ── Workshops ─────────────────────────────────────────────────────────────────
 export const WORKSHOPS = {
@@ -259,7 +260,7 @@ export function ranchify(c, rng) {
 // Pen spots: only creatures with a spot (or following someone) eat from the
 // trough, rest, work, get groomed and make goods. The rest wait in the meadow,
 // still getting hungry and sad, until they get a spot or are fed by hand.
-export const inMeadow = (c) => !c.housed && !c.follow;
+export const inMeadow = (c) => !c.housed && !c.follow && !c.away;
 export const housedCount = (w) => Object.values(w.creatures || {}).filter(c => c.housed).length;
 export const penSlots = (w) => w.penSlots || PEN_START;
 export const penCost = (n) => Math.round(20 * Math.pow(1.35, n - PEN_START - 1));     // price of pen spot number n
@@ -269,6 +270,7 @@ export function rehomePrice(c) {
   return Math.round((12 + skills * 1.6) * (c.traits?.rare ? 6 : 1));
 }
 export function stateOf(c) {
+  if (c.away) return "away";
   if (c.follow) return "following";
   if (!c.housed) return "meadow";
   if (c.hunger < STOP_HUNGER) return "starving";
@@ -278,10 +280,10 @@ export function stateOf(c) {
   return "working";
 }
 export const STATE_TEXT = {
-  following: "following someone", meadow: "waiting in the meadow (no pen spot)", starving: "too hungry to work", sad: "too sad to work",
+  away: "out in the Wilds", following: "following someone", meadow: "waiting in the meadow (no pen spot)", starving: "too hungry to work", sad: "too sad to work",
   resting: "resting", idle: "no job", working: "working",
 };
-export const makesGoods = (c) => !inMeadow(c) && c.hunger >= STOP_HUNGER && c.happy >= PRODUCE_HAPPY;
+export const makesGoods = (c) => !inMeadow(c) && !c.away && c.hunger >= STOP_HUNGER && c.happy >= PRODUCE_HAPPY;
 
 // Can this player give this creature jobs / buddies? (Your own, or ones that trust you.)
 export const canManage = (c, by) => c.owner === String(by) || (c.bond?.[String(by)] || 0) >= 50;
@@ -356,6 +358,7 @@ export function stepRanch(w, dt, tMs, rep) {
   const crewed = {};                                      // workshops with a Crafter on shift this step
 
   for (const c of list) {
+    if (c.away) continue;                                  // out in the Wilds: frozen until they're back
     const pw = PERSONALITY_WORK[c.traits.personality] || {};
     const st = stateOf(c);
     const working = st === "working";
@@ -422,7 +425,7 @@ export function stepRanch(w, dt, tMs, rep) {
         }
       } else if (c.job === "groomer") {
         const n = 1 + Math.floor(lvl / 3);
-        const sad = list.filter(o => o.id !== c.id && o.happy < 95 && !inMeadow(o)).sort((a, b) => a.happy - b.happy).slice(0, n);
+        const sad = list.filter(o => o.id !== c.id && o.happy < 95 && !inMeadow(o) && !o.away).sort((a, b) => a.happy - b.happy).slice(0, n);
         for (const o of sad) o.happy = Math.min(100, o.happy + GROOM_RATE * f * dt);
       } else if (c.job === "crafter") {
         const ws = c.station && w.workshops[c.station];
@@ -576,4 +579,18 @@ export function jobRate(w, c) {
   if (c.job === "farmhand") return { text: `looks after ${plotsPerFarmhand(c)} plot${plotsPerFarmhand(c) > 1 ? "s" : ""}: plants empty ones, harvests and replants the moment they're ripe` };
   if (c.job === "crafter") return { text: `works at Craft ${lvl} (${Math.round(f * 100)}% speed${f > skillFactor(lvl) ? ", buddy bonus" : ""})` };
   return null;
+}
+
+// Add skill XP (seconds of "work") and level up. Returns the level-up lines.
+export function addSkillXp(c, s, secs) {
+  const ups = [];
+  c.xp = { ...(c.xp || {}) };
+  c.skills = { ...c.skills };
+  c.xp[s] = (c.xp[s] || 0) + secs;
+  while ((c.skills[s] || 1) < 10 && c.xp[s] >= xpForNext(c.skills[s] || 1)) {
+    c.xp[s] -= xpForNext(c.skills[s] || 1);
+    c.skills[s] = (c.skills[s] || 1) + 1;
+    ups.push(`${c.name}'s ${SKILL_NAMES[s]} went up to ${c.skills[s]}!`);
+  }
+  return ups;
 }

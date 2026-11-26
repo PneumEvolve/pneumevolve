@@ -22,7 +22,7 @@ import {
   ranchDefaults, ranchify, simulateRanch, CATCHUP_MAX, JOBS, canManage, nextUpgrade, troughCap, STORE_ITEMS,
   ITEMS, SKILLS, WORKSHOPS, BUILDINGS, nextWorkshop, hasGoods, capFor, priceOf, buyPriceOf, canBuy, sellNow, finishCrafts,
   makeContract, giveToContract, CONTRACT_MAX, CONTRACT_GAP, HAND_CRAFT, fmtCoins, missingInputs,
-  housedCount, penSlots, penCost, rehomePrice, PEN_START,
+  housedCount, penSlots, penCost, rehomePrice, PEN_START, addSkillXp, store,
 } from "./ranch";
 
 // ── Map (world units; the canvas scales to fit) ──────────────────────────────
@@ -263,6 +263,13 @@ export function farmReducer(w0, a) {
     case "tick": {
       const real = clamp((a.t - w.simAt) / 1000, 0, CATCHUP_MAX);
       if (real < 0.2) return w;
+      if (w.wilds && a.t - w.wilds.at > 40 * 60 * 1000) {        // a trip that never came back (closed tab): everyone walks home
+        const creatures = { ...w.creatures };
+        for (const id of w.wilds.squad) if (creatures[id]) creatures[id] = { ...creatures[id], away: false, energy: 30 };
+        const food = { ...w.food };
+        for (const [k, n] of Object.entries(w.wilds.rations || {})) food[k] = (food[k] || 0) + n;
+        return farmReducer({ ...w, creatures, food, wilds: null, log: addLog(w.log, a, "The Wilds squad wandered home on their own", "day") }, a);
+      }
       const live = real <= 5;
       const dt = real;
       const rng = rngFrom(a.r);
@@ -655,6 +662,55 @@ export function farmReducer(w0, a) {
         ...w, coins: Math.round((w.coins - cost) * 100) / 100, plots: [...w.plots, null],
         log: addLog(w.log, a, `bought plot ${w.plots.length + 1} for ${cost} coins`, w.plots.length + 1 === PLOT_COUNT + 1 ? "catch" : "info"),
       };
+    }
+
+    // ── The Wilds ────────────────────────────────────────────────────────────
+    // Setting off: the squad leaves the farm (frozen while away), rations come out of storage.
+    case "wilds_go": {
+      if (!by || w.wilds) return w;
+      const ids = (a.squad || []).filter(id => w.creatures[id] && !w.creatures[id].away).slice(0, 4);
+      if (!ids.length) return w;
+      const food = { ...w.food }, rations = {};
+      for (const [k, n0] of Object.entries(a.rations || {})) {
+        const n = Math.max(0, Math.min(Math.floor(Number(n0) || 0), Math.floor(food[k] || 0)));
+        if (n && ITEMS[k]) { food[k] -= n; rations[k] = n; }
+      }
+      const creatures = { ...w.creatures };
+      for (const id of ids) creatures[id] = { ...creatures[id], away: true, resting: false };
+      return { ...w, food, creatures, wilds: { at: a.t, squad: ids, rations, by }, log: addLog(w.log, a, `set off into the Wilds with ${ids.map(id => creatures[id].name).join(", ")}`, "visit") };
+    }
+    // Coming home: loot, Fight XP, tired creatures, new friends.
+    case "wilds_end": {
+      if (!w.wilds) return w;
+      const x = { ...w, food: { ...w.food }, coins: w.coins, market: { ...w.market }, buildings: w.buildings };
+      const creatures = { ...w.creatures };
+      let log = w.log;
+      const res = new Map((a.squad || []).map(s => [s.cid, s]));
+      for (const id of w.wilds.squad) {
+        const c0 = creatures[id];
+        if (!c0) continue;
+        const r = res.get(id) || { hp: 0.3, xp: 0 };
+        const c = { ...c0, away: false, energy: Math.round(Math.max(8, Math.min(100, 15 + 45 * (Number(r.hp) || 0))) * 100) / 100, happy: Math.max(0, Math.min(100, c0.happy + (a.won ? 8 : -6))) };
+        for (const line of addSkillXp(c, "fight", Math.max(0, Math.min(6 * 3600, Number(r.xp) || 0)))) log = addLog(log, a, line, "catch");
+        creatures[id] = c;
+      }
+      x.creatures = creatures;
+      for (const [k, n] of Object.entries(a.rations || {})) if (ITEMS[k] && n > 0) store(x, k, Math.floor(n), null);      // uneaten rations come back
+      for (const [k, n] of Object.entries(a.goods || {})) if (ITEMS[k] && n > 0) store(x, k, Math.floor(n), null);
+      x.coins = Math.round((x.coins + Math.max(0, Math.min(5000, Number(a.coins) || 0))) * 100) / 100;
+      let nextId = w.nextId;
+      for (const f of (a.friends || []).slice(0, 4)) {
+        if (!SPECIES[f.species]) continue;
+        const rng = rngFrom(((Number(a.r) || 0.5) * 3.7 + nextId * 0.13) % 1);
+        const id = `c${nextId++}`;
+        const owner = f.by != null ? String(f.by) : by;
+        const c = { id, species: f.species, name: freshName(rng, x), traits: { hue: Number.isFinite(f.hue) ? Math.round(f.hue) % 360 : SPECIES[f.species].hue, size: 1, personality: pick(rng, Object.keys(PERSONALITIES)), ...(f.rare ? { rare: true } : {}) },
+          hunger: 60, happy: 70, bond: { [owner]: 40 }, owner, follow: null, born: a.t, petAt: 0 };
+        x.creatures = { ...x.creatures, [id]: arrive(x, c, a) };
+        log = addLog(log, a, `${c.name} the ${f.rare ? "golden " : ""}${SPECIES[f.species].name} came home from the Wilds!`, "catch");
+      }
+      log = addLog(log, a, a.won ? `came home from the Wilds victorious! (+${Math.round(Number(a.coins) || 0)} coins)` : `limped home from the Wilds (+${Math.round(Number(a.coins) || 0)} coins)`, "catch");
+      return { ...x, nextId, wilds: null, log };
     }
 
     // ── Pen spots ────────────────────────────────────────────────────────────

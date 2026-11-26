@@ -42,6 +42,7 @@ import {
   drawCropSprite, drawHeart, drawBowl, drawSun, drawPaw, drawQuestion, drawWorkIcon,
 } from "./drawFarm";
 import StampedeRun from "./stampede/StampedeRun";
+import WildsRun from "./wilds/WildsRun";
 import { LEVELS, LEVEL_ORDER } from "./stampede/stampedeSim";
 
 // Critter Stampede levels unlock in order (shared by both players on this farm).
@@ -51,7 +52,8 @@ const levelUnlocked = (world, id) => id === "easy" || !!world?.runsBeaten?.[LEVE
 const RUNS = [
   { id: "stampede", name: "Critter Stampede", ready: true,
     desc: "Endless field. Run circles around critters to tame them, build a herd, flatten the goop, and bring some home." },
-  { id: "wilds", name: "Wilds", ready: false, desc: "You and a partner creature vs wild packs." },
+  { id: "wilds", name: "The Wilds", ready: true,
+    desc: "Co-op squad trip: pick 4 creatures between you, choose your route, and fight wild goop in real time (either of you can pause). Brings home coins, goods, wild crystals and new friends." },
   { id: "defend", name: "Defend the Farm", ready: false, desc: "Goop raids the farm at night." },
 ];
 
@@ -364,6 +366,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
       const drawables = [];
 
       for (const c of Object.values(world.creatures)) {
+        if (c.away) continue;                                     // out in the Wilds
         const leader = c.follow ? people[c.follow] : null;
         let pos;
         if (leader) {
@@ -395,7 +398,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
       //  nothing else is in reach — otherwise you could never plant)
       let best = null, bestD = REACH;
       for (const v of world.visitors) { const p = cache[v.id]; const d = Math.hypot(p.x - me.x, p.y - me.y); if (d < bestD + 10) { best = { kind: "visitor", id: v.id }; bestD = d - 10; } }
-      if (!best) for (const c of Object.values(world.creatures)) { if (c.follow === L.myId) continue; const p = cache[c.id]; const d = Math.hypot(p.x - me.x, p.y - me.y); if (d < bestD) { best = { kind: "creature", id: c.id }; bestD = d; } }
+      if (!best) for (const c of Object.values(world.creatures)) { if (c.follow === L.myId || !cache[c.id]) continue; const p = cache[c.id]; const d = Math.hypot(p.x - me.x, p.y - me.y); if (d < bestD) { best = { kind: "creature", id: c.id }; bestD = d; } }
       if (!best && Math.hypot(MAP.sign.x - me.x, MAP.sign.y - 18 - me.y) < REACH + 10) best = { kind: "sign" };
       // standing right at the trough beats a creature wandering past it (the Feeder hangs around here)
       const dTrough = Math.hypot(MAP.trough.x - me.x, MAP.trough.y - me.y);
@@ -410,7 +413,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
         if ((!best && dW < REACH + 10) || (dW < 40 && best?.kind !== "visitor")) best = { kind: "workshop", id: key };
       }
       if (!best) for (let i = 0; i <= world.plots.length; i++) { const r = plotRect(i); const d = Math.hypot(r.cx - me.x, r.cy - me.y); if (d < bestD + 8) { best = i === world.plots.length ? { kind: "buyplot", i } : { kind: "plot", i }; bestD = d - 8; } }
-      if (!best) for (const c of Object.values(world.creatures)) { if (c.follow !== L.myId) continue; const p = cache[c.id]; if (Math.hypot(p.x - me.x, p.y - me.y) < REACH) best = { kind: "creature", id: c.id }; }
+      if (!best) for (const c of Object.values(world.creatures)) { if (c.follow !== L.myId || !cache[c.id]) continue; const p = cache[c.id]; if (Math.hypot(p.x - me.x, p.y - me.y) < REACH) best = { kind: "creature", id: c.id }; }
       currentTarget.current = best;
       const key = best ? `${best.kind}:${best.id ?? best.i}` : "";
       if (key !== lastTargetKey) { lastTargetKey = key; setTarget(best); }
@@ -649,7 +652,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
 
       {partnerRun && !myRun && (
         <div style={{ position: "absolute", top: 84, left: "50%", transform: "translateX(-50%)", zIndex: 35, display: "flex", alignItems: "center", gap: 10, padding: "8px 10px 8px 14px", borderRadius: 14, background: "rgba(15,12,30,0.9)", border: `1px solid ${C.accent2}`, color: C.text, fontWeight: 700, fontSize: 13, whiteSpace: "nowrap" }}>
-          {cap(nameOf(partnerId))} is on a {RUNS.find(r => r.id === partnerRun.kind)?.name ?? "run"} run ({LEVELS[partnerRun.level]?.name})
+          {partnerRun.kind === "wilds" ? `${cap(nameOf(partnerId))} is planning a trip into the Wilds` : `${cap(nameOf(partnerId))} is on a ${RUNS.find(r => r.id === partnerRun.kind)?.name ?? "run"} run (${LEVELS[partnerRun.level]?.name})`}
           <button onClick={joinRun} style={{ ...smallBtn, background: C.accent2, color: "#06202a", border: "none" }}>Join</button>
           <button onClick={() => setPartnerRun(null)} style={{ ...smallBtn, padding: "7px 9px" }} aria-label="dismiss">x</button>
         </div>
@@ -658,6 +661,11 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
       {board && (
         <RunBoard leader={myLeader()} world={world} partnerRun={partnerRun} partnerName={cap(nameOf(partnerId))}
           onStart={startRun} onJoin={joinRun} onClose={() => setBoard(false)} canAct={W.canAct} />
+      )}
+
+      {myRun?.kind === "wilds" && (
+        <WildsRun net={net} tripHost={myRun.host} world={world} W={W} myId={myId} partnerId={partnerId} partnerHere={!!net.partnerOnline}
+          nameOf={nameOf} onExit={exitRun} />
       )}
 
       {myRun?.kind === "stampede" && (() => {
@@ -769,7 +777,7 @@ function RunBoard({ leader, world, partnerRun, partnerName, onStart, onJoin, onC
         )}
         {partnerRun && (
           <button disabled={!leader || !canAct} onClick={onJoin} style={{ ...smallBtn, padding: 12, background: C.accent2, color: "#06202a", border: "none", fontSize: 15 }}>
-            Join {partnerName}'s {RUNS.find(r => r.id === partnerRun.kind)?.name ?? ""} run ({LEVELS[partnerRun.level]?.name})
+            {partnerRun.kind === "wilds" ? `Join ${partnerName}'s Wilds trip` : `Join ${partnerName}'s ${RUNS.find(r => r.id === partnerRun.kind)?.name ?? ""} run (${LEVELS[partnerRun.level]?.name})`}
           </button>
         )}
         {RUNS.map(r => (
@@ -779,6 +787,12 @@ function RunBoard({ leader, world, partnerRun, partnerName, onStart, onJoin, onC
               {!r.ready && <span style={{ fontSize: 11, fontWeight: 800, color: C.accent }}>SOON</span>}
             </div>
             <span style={{ fontSize: 12, color: C.dim }}>{r.desc}</span>
+            {r.id === "wilds" && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ flex: 1, fontSize: 12, color: C.dim }}>About 10–15 minutes. Mix a Tank, a Healer and some damage. Pack food for the road.</span>
+                <button disabled={!canAct || !!world?.wilds} onClick={() => onStart("wilds", "easy")} style={{ ...smallBtn, background: C.accent, color: "#1a1300", border: "none" }}>{world?.wilds ? "Squad is out" : "Plan a trip"}</button>
+              </div>
+            )}
             {r.id === "stampede" && LEVEL_ORDER.map(id => {
               const L = LEVELS[id], open = levelUnlocked(world, id), beaten = !!world?.runsBeaten?.[id];
               return (
