@@ -31,7 +31,8 @@ export const MAP = {
   wildEdge: 74,                                   // trees above this line; visitors come from here
   house: { x: 70,  y: 120, w: 150, h: 110 },
   store: { x: 145, y: 300 },                      // the shared food crate
-  field: { x: 560, y: 140, cols: 4, rows: 3, size: 58, gap: 12 },
+  field: { x: 560, y: 100, cols: 4, rows: 4, size: 58, gap: 12 },   // the first 16 plots
+  east:  { x: 990, y: 100, rows: 6 },             // plot 17 onward: new land, column by column to the east
   pen:   { x: 330, y: 400, w: 440, h: 170 },
   sign:  { x: 470, y: 335 },                      // run board signpost (go on runs like Critter Stampede)
   trough: { x: 270, y: 470 },                     // feeding trough (creatures eat from it on their own)
@@ -46,13 +47,23 @@ export const MAP = {
   },
   spawn: [{ x: 230, y: 320 }, { x: 270, y: 345 }],
 };
-export const PLOT_COUNT = MAP.field.cols * MAP.field.rows;
+export const PLOT_COUNT = MAP.field.cols * MAP.field.rows;   // the home field (16); land keeps going east after that
+// Price of plot number n (you start with 1). The home field is cheap; new land gets pricier.
+export const plotCost = (n) => (n <= PLOT_COUNT ? Math.round(3 * Math.pow(1.25, n - 2)) : Math.round(100 * Math.pow(1.1, n - PLOT_COUNT)));
+// The farm's width: grows east as you buy land (room for the next plot for sale too).
+export function worldWidth(w) {
+  const n = (w?.plots?.length || 1) + 1;
+  if (n <= PLOT_COUNT) return WORLD_W;
+  const step = MAP.field.size + MAP.field.gap;
+  return MAP.east.x + Math.ceil((n - PLOT_COUNT) / MAP.east.rows) * step + 50;
+}
 export const REACH = 50;                          // how close you need to be to interact
 
 export function plotRect(i) {
-  const f = MAP.field;
-  const c = i % f.cols, r = Math.floor(i / f.cols);
-  const x = f.x + c * (f.size + f.gap), y = f.y + r * (f.size + f.gap);
+  const f = MAP.field, step = f.size + f.gap;
+  let x, y;
+  if (i < PLOT_COUNT) { x = f.x + (i % f.cols) * step; y = f.y + Math.floor(i / f.cols) * step; }
+  else { const k = i - PLOT_COUNT, e = MAP.east; x = e.x + Math.floor(k / e.rows) * step; y = e.y + (k % e.rows) * step; }
   return { x, y, w: f.size, h: f.size, cx: x + f.size / 2, cy: y + f.size / 2 };
 }
 
@@ -139,7 +150,7 @@ export function penPos(c, tSec) {
 //   foragers roam the forest edge, farmhands work the field, feeders shuttle
 //   between the food crate and the trough, groomers bustle around the pen,
 //   tired creatures nap by the house, everyone else hangs out in the pen.
-export function workerPos(c, tSec, state) {
+export function workerPos(c, tSec, state, plotCount = PLOT_COUNT) {
   const n = parseInt(String(c.id).replace(/\D/g, ""), 10) || 1;
   const ph = n * 1.7;
   const pingPong = (speed, off) => { const u = (tSec * speed + off) % 2; return u > 1 ? { u: 2 - u, dir: -1 } : { u, dir: 1 }; };
@@ -148,8 +159,8 @@ export function workerPos(c, tSec, state) {
     return { x: 290 + u * 620, y: MAP.wildEdge + 22 + Math.sin(tSec * 0.9 + ph) * 8, face: dir, moving: true };
   }
   if (state === "working" && c.job === "farmhand") {
-    const f = MAP.field, col = (n * 3) % f.cols, row = (n * 5) % f.rows;
-    return { x: f.x + col * (f.size + f.gap) + f.size / 2 + Math.sin(tSec * 0.6 + ph) * 26, y: f.y + row * (f.size + f.gap) + f.size + 4, face: Math.cos(tSec * 0.6 + ph) >= 0 ? 1 : -1, moving: true };
+    const r = plotRect((n * 5) % Math.max(1, plotCount));
+    return { x: r.cx + Math.sin(tSec * 0.6 + ph) * 26, y: r.y + r.h + 4, face: Math.cos(tSec * 0.6 + ph) >= 0 ? 1 : -1, moving: true };
   }
   if (state === "working" && c.job === "feeder") {
     const { u, dir } = pingPong(0.09, n * 0.3);
@@ -193,7 +204,7 @@ export function initFarm() {
     dayTime: 0,
     nextId: 1,
     food: { berry: 2, carrot: 2 },                // a little to start, so the first befriend works
-    plots: Array(PLOT_COUNT).fill(null),          // { kind, at, by } | null
+    plots: [null],                                // { kind, at, by } | null — you start with 1 plot and buy more
     creatures: {},                                // id → creature
     visitors: [],                                 // wild creatures on the farm right now
     starters: {},                                 // userId → creature id
@@ -276,7 +287,9 @@ export function farmReducer(w0, a) {
       };
       if (!live) {
         // came back after a while: no visitors pile up, just the farm's work
-        return { ...w, ...ranchOut, day, dayTime: r2(dayTime), creatures, plots: sim.plots, visitors: [], log: addLog(log, a, `The farm kept going for ${Math.round(dt / 60)} minutes`, "day") };
+        const mins = Math.round(dt / 60);
+        if (mins >= 1) log = addLog(log, a, mins >= 120 ? `The farm kept going for ${Math.round(mins / 60)} hours` : `The farm kept going for ${mins} minute${mins > 1 ? "s" : ""}`, "day");
+        return { ...w, ...ranchOut, day, dayTime: r2(dayTime), creatures, plots: sim.plots, visitors: [], log };
       }
 
       const visitors = [];
@@ -334,7 +347,7 @@ export function farmReducer(w0, a) {
     }
 
     case "plant": {
-      if (!(a.i >= 0 && a.i < PLOT_COUNT) || w.plots[a.i] || !CROPS[a.kind]) return w;
+      if (!(a.i >= 0 && a.i < w.plots.length) || w.plots[a.i] || !CROPS[a.kind]) return w;
       const plots = w.plots.slice();
       plots[a.i] = { kind: a.kind, at: a.t, by };
       return { ...w, plots };
@@ -606,6 +619,16 @@ export function farmReducer(w0, a) {
       return {
         ...w, food, coins: Math.round((w.coins - up.cost) * 100) / 100, buildings: { ...w.buildings, [a.key]: up.level },
         log: addLog(w.log, a, up.level === 1 ? `built the ${BUILDINGS[a.key].name}` : `upgraded the ${BUILDINGS[a.key].name} to level ${up.level}`, "catch"),
+      };
+    }
+
+    // Buy the next plot of land (home field first, then new land to the east, forever).
+    case "buy_plot": {
+      const cost = plotCost(w.plots.length + 1);
+      if (!by || w.coins < cost) return w;
+      return {
+        ...w, coins: Math.round((w.coins - cost) * 100) / 100, plots: [...w.plots, null],
+        log: addLog(w.log, a, `bought plot ${w.plots.length + 1} for ${cost} coins`, w.plots.length + 1 === PLOT_COUNT + 1 ? "catch" : "info"),
       };
     }
 

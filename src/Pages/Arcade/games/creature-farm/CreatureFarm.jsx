@@ -33,7 +33,7 @@ import { C } from "../../ui";
 import { SPECIES, CROPS, PERSONALITIES } from "./species";
 import {
   WORLD_W, WORLD_H, MAP, REACH, DAY_LEN, PLOT_COUNT, FOLLOW_BOND, FEED_BELOW,
-  initFarm, farmReducer, plotRect, growth, visitorPos, penPos, workerPos,
+  initFarm, farmReducer, plotRect, growth, visitorPos, penPos, workerPos, worldWidth, plotCost,
 } from "./farmWorld";
 import { stateOf, troughCap, STORE_ITEMS, WORKSHOPS, ITEMS, missingInputs } from "./ranch";
 import RanchPanel, { alertsFor, MANAGER_PANEL_W } from "./RanchPanel";
@@ -213,6 +213,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
     if (t.kind === "sign") { setBoard(true); return; }
     if (t.kind === "trough") { L.W.dispatch({ type: "fill_trough" }); return; }
     if (t.kind === "workshop") { L.W.dispatch({ type: "hand_craft", key: t.id }); return; }
+    if (t.kind === "buyplot") { L.W.dispatch({ type: "buy_plot" }); return; }
     if (t.kind === "plot") {
       const crop = L.world.plots[t.i];
       if (!crop) L.W.dispatch({ type: "plant", i: t.i, kind: L.seed });
@@ -334,7 +335,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
       const offering = actionRef.current.held && t0?.kind === "visitor";
       const speed = (offering ? SNEAK : WALK) * mag;
       if (mag > 0.05) {
-        me.x = Math.max(18, Math.min(WORLD_W - 18, me.x + (dx / (mag || 1)) * speed * dt));
+        me.x = Math.max(18, Math.min(worldWidth(L.world) - 18, me.x + (dx / (mag || 1)) * speed * dt));
         me.y = Math.max(MAP.wildEdge + 14, Math.min(WORLD_H - 12, me.y + (dy / (mag || 1)) * speed * dt));
         if (Math.abs(dx) > 0.15) me.face = dx > 0 ? 1 : -1;
       }
@@ -374,7 +375,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
           pos = { x: f.x, y: f.y, face: f.face, moving: f.moving };
         } else {
           delete followRef.current[c.id];
-          pos = workerPos(c, tSec, stateOf(c));
+          pos = workerPos(c, tSec, stateOf(c), world.plots.length);
         }
         cache[c.id] = pos;
         drawables.push({ y: pos.y, kind: "creature", c, pos });
@@ -405,7 +406,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
         const dW = Math.hypot(wp.x - me.x, wp.y + 24 - me.y);
         if ((!best && dW < REACH + 10) || (dW < 40 && best?.kind !== "visitor")) best = { kind: "workshop", id: key };
       }
-      if (!best) for (let i = 0; i < PLOT_COUNT; i++) { const r = plotRect(i); const d = Math.hypot(r.cx - me.x, r.cy - me.y); if (d < bestD + 8) { best = { kind: "plot", i }; bestD = d - 8; } }
+      if (!best) for (let i = 0; i <= world.plots.length; i++) { const r = plotRect(i); const d = Math.hypot(r.cx - me.x, r.cy - me.y); if (d < bestD + 8) { best = i === world.plots.length ? { kind: "buyplot", i } : { kind: "plot", i }; bestD = d - 8; } }
       if (!best) for (const c of Object.values(world.creatures)) { if (c.follow !== L.myId) continue; const p = cache[c.id]; if (Math.hypot(p.x - me.x, p.y - me.y) < REACH) best = { kind: "creature", id: c.id }; }
       currentTarget.current = best;
       const key = best ? `${best.kind}:${best.id ?? best.i}` : "";
@@ -436,13 +437,19 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
       // Wide screen: fit the farm above the seed bar so nothing hides under it.
       const dprNow = cw / (canvas.clientWidth || cw);
       const seedStrip = 92 * dprNow, topStrip = 80 * dprNow;      // keep clear of the seed bar + top chips
-      let scale = Math.min(cw / WORLD_W, (ch - seedStrip - topStrip) / WORLD_H);
-      let ox = (cw - WORLD_W * scale) / 2, oy = topStrip + Math.max(0, (ch - seedStrip - topStrip - WORLD_H * scale) / 2);
-      if (ch < 520 * dprNow && ch <= cw * 1.15) {
+      const WW = worldWidth(world);                // grows east as you buy land
+      // Manager mode shows the whole farm; walking keeps the usual zoom and the
+      // camera slides east/west with you once the farm is wider than the screen.
+      let scale = Math.min(cw / (L.manager ? WW : WORLD_W), (ch - seedStrip - topStrip) / WORLD_H);
+      let ox = WW * scale <= cw ? (cw - WW * scale) / 2 : Math.max(cw - WW * scale, Math.min(0, cw / 2 - me.x * scale));
+      let oy = topStrip + Math.max(0, (ch - seedStrip - topStrip - WORLD_H * scale) / 2);
+      if (L.manager) {
+        // Manager mode: the whole farm, however wide it has grown, beside the panel.
+      } else if (ch < 520 * dprNow && ch <= cw * 1.15) {
         // Short landscape (phone on its side): zoom in to fill the height and
         // let the camera follow you up/down, so the bars never hide where you are.
         scale = ch / (WORLD_H * 0.8);
-        const worldW = WORLD_W * scale, worldH = WORLD_H * scale;
+        const worldW = WW * scale, worldH = WORLD_H * scale;
         ox = worldW <= cw ? (cw - worldW) / 2 : Math.max(cw - worldW, Math.min(0, cw / 2 - me.x * scale));
         oy = Math.max(ch - worldH - seedStrip, Math.min(topStrip, ch / 2 - me.y * scale));   // can scroll past the edges so the bars never cover the farm's edge
       } else if (ch > cw * 1.15) {
@@ -453,7 +460,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
         const band = Math.max(ch * 0.4, ch - top - bottom);
         scale = band / WORLD_H;
         oy = top + (band - WORLD_H * scale) / 2;
-        const worldPx = WORLD_W * scale;
+        const worldPx = WW * scale;
         ox = Math.max(cw - worldPx, Math.min(0, cw / 2 - me.x * scale));
       }
       ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -465,7 +472,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
       drawMap(ctx, world, worldNow, tSec);
 
       // highlight target
-      if (best?.kind === "plot") {
+      if (best?.kind === "plot" || best?.kind === "buyplot") {
         const r = plotRect(best.i);
         ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.lineWidth = 2.5;
         ctx.beginPath(); ctx.roundRect(r.x - 3, r.y - 3, r.w + 6, r.h + 6, 8); ctx.stroke();
@@ -525,7 +532,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
       if (prompt) {
         ctx.font = "bold 12px system-ui, sans-serif";
         const w2 = ctx.measureText(prompt).width + 16;
-        const bx = Math.max(w2 / 2 + 4, Math.min(WORLD_W - w2 / 2 - 4, me.x)), by = me.y - 62;
+        const bx = Math.max(w2 / 2 + 4, Math.min(WW - w2 / 2 - 4, me.x)), by = me.y - 62;
         ctx.fillStyle = "rgba(15,12,30,0.8)";
         ctx.beginPath(); ctx.roundRect(bx - w2 / 2, by - 15, w2, 22, 8); ctx.fill();
         ctx.fillStyle = "#fff"; ctx.textAlign = "center";
@@ -678,6 +685,10 @@ function promptFor(t, world, now, seed, offering) {
     const stored = STORE_ITEMS.reduce((n, k) => n + Math.floor(world.food?.[k] || 0), 0);
     return have >= capN ? `Trough is full (${have}/${capN})` : stored ? `Fill the trough (${have}/${capN})` : "Trough · no food in storage";
   }
+  if (t.kind === "buyplot") {
+    const cost = plotCost(world.plots.length + 1);
+    return `Buy plot ${world.plots.length + 1} · ${cost} coins${(world.coins || 0) < cost ? ` (you have ${Math.floor(world.coins || 0)})` : ""}`;
+  }
   if (t.kind === "workshop") {
     const ws = WORKSHOPS[t.id], st = world.workshops?.[t.id] || {};
     const miss = missingInputs(world, ws.needs).map(([k]) => ITEMS[k].name.toLowerCase());
@@ -714,6 +725,7 @@ function buttonLabel(t, world, now, seed) {
   if (!t) return "";
   if (t.kind === "sign") return "RUNS";
   if (t.kind === "trough") return "FILL";
+  if (t.kind === "buyplot") return (world.coins || 0) >= plotCost(world.plots.length + 1) ? "BUY" : "";
   if (t.kind === "workshop") return missingInputs(world, WORKSHOPS[t.id].needs).length ? "" : "CRAFT";
   if (t.kind === "plot") {
     const crop = world.plots[t.i];

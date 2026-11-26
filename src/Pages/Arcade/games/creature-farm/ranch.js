@@ -57,7 +57,7 @@ export const JOBS = {
   forager:  { name: "Forager",  skill: "forage", desc: "Finds wild berries and carrots and brings them to storage." },
   feeder:   { name: "Feeder",   skill: "care",   desc: "Keeps the feeding trough topped up from storage." },
   groomer:  { name: "Groomer",  skill: "care",   desc: "Cheers up the saddest creatures on the farm." },
-  farmhand: { name: "Farmhand", skill: "farm",   desc: "Harvests ripe food crops and replants them." },
+  farmhand: { name: "Farmhand", skill: "farm",   desc: "Plants empty plots, harvests ripe food crops and replants them. 1 plot per Farm level." },
   crafter:  { name: "Crafter",  skill: "craft",  desc: "Works a workshop, turning goods into better goods.", needs: "workshop" },
   hauler:   { name: "Hauler",   skill: "haul",   desc: "Takes goods to the Market Stall: fills contracts, then sells what's above your keep amounts.", needs: "stall" },
 };
@@ -278,7 +278,8 @@ export const DEFAULT_KEEP = { berry: 40, carrot: 40 };
 // ── World fields ──────────────────────────────────────────────────────────────
 export function ranchDefaults() {
   return {
-    coins: 0, buildings: { trough: 1, shed: 1, warehouse: 1, beds: 0, stall: 0 }, trough: { berry: 0, carrot: 0 },
+    coins: 25,                                   // enough for your first few plots
+    buildings: { trough: 1, shed: 1, warehouse: 1, beds: 0, stall: 0 }, trough: { berry: 0, carrot: 0 },
     workshops: {}, market: {}, keep: { ...DEFAULT_KEEP }, contracts: [], contractAt: 0, nextContract: 1,
     simAt: null, report: null,
   };
@@ -445,14 +446,20 @@ export function stepRanch(w, dt, tMs, rep) {
     finishCrafts(w, key, rep);
   }
 
-  // ── farmhands tend the field: each looks after 1 plot per Farm level
+  // ── farmhands tend the field: each looks after 1 plot per Farm level.
+  //    They plant empty plots too (whichever food you have less of in storage).
   const hands = list.filter(c => c.job === "farmhand" && stateOf(c) === "working");
   if (hands.length) {
     let slots = hands.reduce((n, c) => n + plotsPerFarmhand(c), 0);
     const plots = w.plots;
     for (let i = 0; i < plots.length && slots > 0; i++) {
       const crop = plots[i];
-      if (!crop) continue;
+      if (!crop) {
+        slots--;
+        const kind = (w.food.berry || 0) <= (w.food.carrot || 0) ? "berry" : "carrot";
+        plots[i] = { kind, at: tMs, by: null };
+        continue;
+      }
       if (CROPS[crop.kind].type !== "food") continue;   // they leave lure crops alone
       slots--;
       if (tMs - crop.at >= CROPS[crop.kind].grow) {
@@ -550,7 +557,7 @@ export function jobRate(w, c) {
   if (c.job === "feeder") return { every: 1 / (FEED_RATE * f), what: "moves 1 food from storage to the trough", perHour: 3600 * FEED_RATE * f };
   if (c.job === "groomer") return { text: `cheers up the ${1 + Math.floor(lvl / 3)} saddest creature${lvl >= 3 ? "s" : ""} at once, +${Math.round(GROOM_RATE * f * 3600)} happiness an hour each` };
   if (c.job === "hauler") return { every: 1 / (HAUL_RATE * f), what: "carries 1 item to the stall", perHour: 3600 * HAUL_RATE * f };
-  if (c.job === "farmhand") return { text: `looks after ${plotsPerFarmhand(c)} food plot${plotsPerFarmhand(c) > 1 ? "s" : ""}: harvests and replants them the moment they're ripe` };
+  if (c.job === "farmhand") return { text: `looks after ${plotsPerFarmhand(c)} plot${plotsPerFarmhand(c) > 1 ? "s" : ""}: plants empty ones, harvests and replants the moment they're ripe` };
   if (c.job === "crafter") return { text: `works at Craft ${lvl} (${Math.round(f * 100)}% speed${f > skillFactor(lvl) ? ", buddy bonus" : ""})` };
   return null;
 }

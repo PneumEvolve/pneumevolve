@@ -8,7 +8,7 @@
 // Each creature is drawn at (x, y) = the spot under its feet.
 
 import { SPECIES, CROPS } from "./species";
-import { MAP, WORLD_W, WORLD_H, PLOT_COUNT, plotRect, growth } from "./farmWorld";
+import { MAP, WORLD_W, WORLD_H, PLOT_COUNT, plotRect, growth, worldWidth, plotCost } from "./farmWorld";
 import { WORKSHOPS, ITEMS, STORE_ITEMS, troughCap, missingInputs } from "./ranch";
 
 const TAU = Math.PI * 2;
@@ -227,19 +227,22 @@ function tree(ctx, x, y, s, t) {
 }
 
 export function drawMap(ctx, world, now, t) {
+  const WW = worldWidth(world);                   // the farm grows east as you buy land
   // grass
   ctx.fillStyle = "#5c9e4c";
-  ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+  ctx.fillRect(0, 0, WW, WORLD_H);
   ctx.fillStyle = "rgba(255,255,255,0.05)";
-  for (let i = 0; i < 90; i++) {
-    const gx = (i * 137) % WORLD_W, gy = MAP.wildEdge + ((i * 263) % (WORLD_H - MAP.wildEdge));
+  for (let i = 0; i < 90 * (WW / WORLD_W); i++) {
+    const gx = (i * 137) % WW, gy = MAP.wildEdge + ((i * 263) % (WORLD_H - MAP.wildEdge));
     ctx.fillRect(gx, gy, 2, 5);
   }
 
   // wild edge
   ctx.fillStyle = "#2b5a33";
-  ctx.fillRect(0, 0, WORLD_W, MAP.wildEdge - 10);
-  for (let x = 10; x < WORLD_W; x += 34) tree(ctx, x + ((x * 7) % 13), MAP.wildEdge - 2 + ((x * 3) % 9), 1, t);
+  ctx.fillRect(0, 0, WW, MAP.wildEdge - 10);
+  for (let x = 10; x < WW; x += 34) tree(ctx, x + ((x * 7) % 13), MAP.wildEdge - 2 + ((x * 3) % 9), 1, t);
+  // a row of trees along the east edge of the land you own
+  if (WW > WORLD_W) for (let y = MAP.wildEdge + 20; y < WORLD_H; y += 38) tree(ctx, WW - 14 + ((y * 7) % 9), y, 0.9, t);
 
   // path from house to field
   ctx.fillStyle = "#b99a6b";
@@ -301,7 +304,20 @@ export function drawMap(ctx, world, now, t) {
   }
 
   // field
-  for (let i = 0; i < PLOT_COUNT; i++) {
+  // the next plot for sale: a dashed outline with its price
+  {
+    const n = world.plots.length, r = plotRect(n), cost = plotCost(n + 1);
+    ctx.save();
+    ctx.setLineDash([6, 5]); ctx.strokeStyle = "rgba(255,255,255,0.55)"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.roundRect(r.x + 2, r.y + 2, r.w - 4, r.h - 4, 6); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "rgba(20,14,34,0.7)"; ctx.beginPath(); ctx.roundRect(r.cx - 24, r.cy - 16, 48, 32, 7); ctx.fill();
+    ctx.font = "bold 10px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "#fff";
+    ctx.fillText("FOR SALE", r.cx, r.cy - 3);
+    ctx.fillStyle = "#ffd65a"; ctx.fillText(`${cost} coins`, r.cx, r.cy + 10);
+    ctx.restore();
+  }
+  for (let i = 0; i < world.plots.length; i++) {
     const r = plotRect(i);
     ctx.fillStyle = "#6b4a32";
     ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 6); ctx.fill();

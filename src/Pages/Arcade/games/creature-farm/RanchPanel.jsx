@@ -16,7 +16,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { C } from "../../ui";
 import { SPECIES } from "./species";
-import { drawCreature, drawBowl, drawSun, drawItemIcon } from "./drawFarm";
+import { drawCreature, drawBowl, drawSun, drawItemIcon, drawSprout } from "./drawFarm";
+import { plotCost, PLOT_COUNT } from "./farmWorld";
 import {
   JOBS, SKILLS, SKILL_NAMES, BUILDINGS, STORE_ITEMS, stateOf, STATE_TEXT, canManage, chemistry,
   nextUpgrade, troughCap, storageCap, warehouseCap, capFor, xpForNext, plotsPerFarmhand,
@@ -161,6 +162,7 @@ function Tips({ world }) {
   const built = Object.keys(world.workshops || {}).filter(k => world.workshops[k].level);
   let tip;
   if (!cs.length) tip = "Pick your first creature to get started.";
+  else if ((world.plots?.length || 1) < 4) tip = "You start with a single plot. More land is cheap at first: buy plots in the Buildings tab, or walk to the FOR SALE plot next to your field.";
   else if (!jobs.size) tip = "Give a creature a job in the Creatures tab. A Farmhand harvests and replants food crops for you.";
   else if (!jobs.has("feeder")) tip = "Make someone a Feeder so the trough fills itself from storage.";
   else if (!world.buildings?.stall) tip = "Save up 150 coins for the Market Stall: it sells whatever won't fit in storage, and Haulers sell there.";
@@ -736,6 +738,33 @@ function PriceRow({ k, world, W, now }) {
 }
 
 // ── Buildings ─────────────────────────────────────────────────────────────────
+function Land({ world, W }) {
+  const owned = world.plots?.length || 1, coins = world.coins || 0;
+  const next = plotCost(owned + 1);
+  const planted = (world.plots || []).filter(Boolean).length;
+  const hands = Object.values(world.creatures || {}).filter(c => c.job === "farmhand");
+  const tended = hands.reduce((n, c) => n + plotsPerFarmhand(c), 0);
+  return (
+    <Card data="land">
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <Canvas size={40} draw={(ctx, s) => { ctx.fillStyle = "#6b4a32"; ctx.beginPath(); ctx.roundRect(4, 8, s - 8, s - 12, 5); ctx.fill(); drawSprout(ctx, s / 2, s / 2 + 2, 18); }} />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 900 }}>Land <span style={{ color: C.dim, fontSize: 12 }}>{owned} plot{owned > 1 ? "s" : ""}{owned < PLOT_COUNT ? ` · home field ${owned}/${PLOT_COUNT}` : " · home field full, new land runs east"}</span></div>
+          <div style={{ fontSize: 12, color: C.dim }}>{owned < PLOT_COUNT ? "The home field is cheap to fill. After 16 plots the farm keeps growing to the east, forever (each plot costs a bit more)." : "Every new plot extends the farm east. Walk east to see it."}</div>
+          <div style={{ fontSize: 12, marginTop: 2 }}>
+            {planted}/{owned} planted · Farmhands look after {Math.min(tended, owned)} of them{tended < owned ? <span style={{ color: "#ffcf8a" }}> ({owned - tended} need you or another Farmhand)</span> : ""}
+          </div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end" }}>
+          <button disabled={!W.canAct || coins < next} onClick={() => W.dispatch({ type: "buy_plot" })} style={btn(coins >= next, { opacity: coins >= next ? 1 : 0.5, display: "inline-flex", alignItems: "center", gap: 5, whiteSpace: "nowrap" })}>
+            Buy plot {owned + 1} <CoinIcon size={14} /> {next}
+          </button>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 function Buildings({ world, W }) {
   const coins = world.coins || 0;
   const effect = (key, lvl) => {
@@ -746,7 +775,7 @@ function Buildings({ world, W }) {
     if (key === "stall") return lvl ? "open for business" : "not built";
     return "";
   };
-  return Object.entries(BUILDINGS).map(([key, b]) => {
+  return [<Land key="land" world={world} W={W} />, ...Object.entries(BUILDINGS).map(([key, b]) => {
     const lvl = world.buildings?.[key] || 0;
     const up = nextUpgrade(world, key);
     const affordable = up && coins >= up.cost && hasGoods(world, up.goods);
@@ -767,7 +796,7 @@ function Buildings({ world, W }) {
         </div>
       </Card>
     );
-  });
+  })];
 }
 // "coin 340 + brick 6" — goods you don't have enough of show in red.
 function Cost({ world, cost, goods }) {
