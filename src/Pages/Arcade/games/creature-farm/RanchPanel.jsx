@@ -18,7 +18,7 @@ import { C } from "../../ui";
 import { SPECIES, CROPS } from "./species";
 import { drawCreature, drawBowl, drawSun, drawItemIcon, drawSprout, drawEgg } from "./drawFarm";
 import { movesFor, ABILITIES as MOVES } from "./wilds/wildsSim";
-import { RARITY_INFO, HATCHERY_MAX, hatcheryCost, eggPreview, typeLabel, typeCounts, GROW_SECS, growRate } from "./eggs";
+import { RARITY_INFO, HATCHERY_MAX, hatcheryCost, eggPreview, typeLabel, typeCounts, GROW_SECS, growRate, canAfford, hatcherySpeed, hatcheryUpgrade } from "./eggs";
 import { plotCost, PLOT_COUNT } from "./farmWorld";
 import {
   JOBS, SKILLS, SKILL_NAMES, BUILDINGS, STORE_ITEMS, stateOf, STATE_TEXT, canManage, chemistry,
@@ -237,8 +237,16 @@ function Creatures({ world, W, myId, nameOf, colorOf, onFollow }) {
   if (sortBy === "happy") list.sort((a, b) => b.happy - a.happy);
   else if (sortBy === "hungry") list.sort((a, b) => a.hunger - b.hunger);
   else if (sortBy) list.sort((a, b) => (b.skills?.[sortBy] || 1) - (a.skills?.[sortBy] || 1) || (b.xp?.[sortBy] || 0) - (a.xp?.[sortBy] || 0));
+  const myRules = (world.rules || {})[myId] || {};
   return (
     <>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", padding: "6px 8px", borderRadius: 10, background: "rgba(255,255,255,0.04)" }}>
+        <span style={{ fontSize: 11, fontWeight: 800, color: C.dim }}>Ranch Rules (your creatures):</span>
+        <button data-rule="autoJob" disabled={!W.canAct} onClick={() => W.dispatch({ type: "set_rule", rule: "autoJob", on: !myRules.autoJob })} title="Creatures of yours with no job get whatever the farm needs most: Feeder if the trough runs low, Groomer if spirits are low, Farmhands for untended plots, a Crafter for any workshop nobody runs, a Hauler once there's a stall, otherwise Forager. Best skill gets picked."
+          style={btn(!!myRules.autoJob, { padding: "4px 9px", fontSize: 11 })}>{myRules.autoJob ? "Auto jobs: on" : "Auto jobs: off"}</button>
+        <button data-rule="autoHouse" disabled={!W.canAct} onClick={() => W.dispatch({ type: "set_rule", rule: "autoHouse", on: !myRules.autoHouse })} title="Your creatures waiting in the meadow move into free pen spots by themselves (babies first). Turn it off if you want to keep someone in the meadow."
+          style={btn(!!myRules.autoHouse, { padding: "4px 9px", fontSize: 11 })}>{myRules.autoHouse ? "Auto pen spots: on" : "Auto pen spots: off"}</button>
+      </div>
       <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
         {FILTERS.map(([id, label]) => <button key={id} onClick={() => setFilter(id)} style={btn(filter === id, { padding: "5px 10px", fontSize: 12 })}>{label}</button>)}
       </div>
@@ -782,6 +790,7 @@ function Hatchery({ world, W, myId, now }) {
 function HatcheryCard({ h, i, world, W, myId, cs }) {
   const [pick, setPick] = useState([]);           // chosen parents (ids)
   const [carerPick, setCarerPick] = useState(false);
+  const [repeat, setRepeat] = useState(false);
   const e = h.egg;
   const grown = cs.filter(c => canManage(c, myId) && c.grow == null && !c.away);
   const parents = grown.filter(c => c.housed && !c.nest);
@@ -797,7 +806,7 @@ function HatcheryCard({ h, i, world, W, myId, cs }) {
     const preview = A && B ? eggPreview(A, B) : null;
     const rarities = preview ? [...new Set(preview.map(o => o.rarity))] : [];
     const worst = rarities.slice().sort((x, y) => Object.keys(RARITY_INFO).indexOf(y) - Object.keys(RARITY_INFO).indexOf(x))[0];
-    const afford = preview && preview.every(o => Object.entries(RARITY_INFO[o.rarity].cost).every(([k, n]) => (world.food?.[k] || 0) >= n));
+    const afford = preview && preview.every(o => canAfford(world, o.rarity));
     body = (
       <>
         <div style={{ fontSize: 12, color: C.dim }}>Empty. Pick two parents (yours or ones that trust you, with a pen spot):</div>
@@ -819,10 +828,13 @@ function HatcheryCard({ h, i, world, W, myId, cs }) {
             <div style={{ fontSize: 11, color: C.dim }}>Skills: about the average of the parents, with a small chance of +1 (a good Carer helps). Gold parents raise the chance of a golden baby.</div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12 }}>
               <span>Costs</span>
-              {rarities.map(r => <span key={r} style={{ display: "inline-flex", gap: 4, alignItems: "center" }}><b style={{ color: RARITY_INFO[r].color }}>{RARITY_INFO[r].name}</b> <CostChips cost={RARITY_INFO[r].cost} world={world} /></span>)}
+              {rarities.map(r => <span key={r} style={{ display: "inline-flex", gap: 4, alignItems: "center" }}><b style={{ color: RARITY_INFO[r].color }}>{RARITY_INFO[r].name}</b> {RARITY_INFO[r].coins > 0 && <span style={{ color: (world.coins || 0) >= RARITY_INFO[r].coins ? "#ffd65a" : C.bad, fontWeight: 800 }}>{RARITY_INFO[r].coins} coins</span>} <CostChips cost={RARITY_INFO[r].cost} world={world} /></span>)}
             </div>
             <div style={{ fontSize: 11, color: C.dim }}>Laying takes {rarities.map(r => clock(RARITY_INFO[r].lay)).join(" to ")}, hatching {rarities.map(r => clock(RARITY_INFO[r].hatch)).join(" to ")} (faster with a high-Care Carer). You need enough for the {RARITY_INFO[worst].name.toLowerCase()} egg; you pay for the one you get.</div>
-            <button disabled={!afford || !W.canAct} onClick={() => { W.dispatch({ type: "make_egg", hid: h.id, a: A.id, b: B.id }); setPick([]); }} style={btn(!!afford, { alignSelf: "flex-start", padding: "6px 14px" })}>{afford ? "Make an egg" : "Not enough food or goods"}</button>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <button disabled={!afford || !W.canAct} onClick={() => { W.dispatch({ type: "make_egg", hid: h.id, a: A.id, b: B.id, repeat, r: Math.random() }); setPick([]); }} style={btn(!!afford, { padding: "6px 14px" })}>{afford ? "Make an egg" : "Not enough coins, food or goods"}</button>
+              <button onClick={() => setRepeat(v => !v)} title="When the egg hatches, these two start the next one by themselves (if they're free and you can pay)" style={btn(repeat, { padding: "4px 9px", fontSize: 11 })}>{repeat ? "Repeat this pairing: on" : "Repeat this pairing: off"}</button>
+            </div>
           </div>
         )}
       </>
@@ -839,7 +851,7 @@ function HatcheryCard({ h, i, world, W, myId, cs }) {
         </div>
         <Bar value={(e.progress || 0) * 100} max={100} color="#ff8ab8" compact />
         <div style={{ fontSize: 12, color: both ? C.dim : "#ffcf8a" }}>{both ? `Laid in about ${clock((1 - (e.progress || 0)) * RARITY_INFO[e.rarity].lay)}.` : `Paused: ${waitOn.map(c => `${c.name} is ${STATE_TEXT[stateOf(c)]}`).join(", ")}.`}</div>
-        <button disabled={!W.canAct} onClick={() => W.dispatch({ type: "cancel_egg", hid: h.id })} style={btn(false, { alignSelf: "flex-start", padding: "4px 10px", fontSize: 11 })}>Call it off (food comes back)</button>
+        <button disabled={!W.canAct} onClick={() => W.dispatch({ type: "cancel_egg", hid: h.id })} style={btn(false, { alignSelf: "flex-start", padding: "4px 10px", fontSize: 11 })}>Call it off (you get everything back)</button>
       </>
     );
   } else {
@@ -852,7 +864,7 @@ function HatcheryCard({ h, i, world, W, myId, cs }) {
           <EggIcon rarity={e.rarity} size={40} />
           <span style={{ flex: 1 }}>
             <b style={{ color: RARITY_INFO[e.rarity].color }}>{RARITY_INFO[e.rarity].name}</b> {e.wild ? "wild egg" : "egg"}
-            <span style={{ display: "block", color: C.dim }}>{working.length ? `Hatches in about ${clock(((1 - (e.progress || 0)) * RARITY_INFO[e.rarity].hatch) / skillFactor(care))}` : carers.length ? `Paused: ${carers[0].name} is ${STATE_TEXT[stateOf(carers[0])]}` : "Needs a Carer to keep it warm"}</span>
+            <span style={{ display: "block", color: C.dim }}>{working.length ? `Hatches in about ${clock(((1 - (e.progress || 0)) * RARITY_INFO[e.rarity].hatch) / skillFactor(care) / hatcherySpeed(h.level))}` : carers.length ? `Paused: ${carers[0].name} is ${STATE_TEXT[stateOf(carers[0])]}` : "Needs a Carer to keep it warm"}</span>
           </span>
         </div>
         <Bar value={(e.progress || 0) * 100} max={100} color={RARITY_INFO[e.rarity].color} compact />
@@ -870,7 +882,25 @@ function HatcheryCard({ h, i, world, W, myId, cs }) {
       </>
     );
   }
-  return <Card title={`Hatchery ${i + 1}`}>{body}</Card>;
+  const lvl = h.level || 1, up = hatcheryUpgrade(lvl);
+  const canUp = up && W.canAct && (world.coins || 0) >= up.coins && Object.entries(up.goods).every(([k, n]) => (world.food?.[k] || 0) >= n);
+  return (
+    <Card title={`Hatchery ${i + 1} · level ${lvl}${lvl > 1 ? ` (hatches ${Math.round((hatcherySpeed(lvl) - 1) * 100)}% faster)` : ""}`}>
+      {body}
+      {e && e.a && (
+        <button onClick={() => W.dispatch({ type: "egg_repeat", hid: h.id, on: !h.repeat })} disabled={!W.canAct} title="When this egg hatches, the same two parents start the next one by themselves (if they're free and you can pay)"
+          style={btn(!!h.repeat, { alignSelf: "flex-start", padding: "3px 8px", fontSize: 11 })}>{h.repeat ? "Repeat this pairing: on" : "Repeat this pairing: off"}</button>
+      )}
+      {up && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 11, color: C.dim, borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 6 }}>
+          <span>Level {lvl + 1}: hatches {Math.round((hatcherySpeed(lvl + 1) - 1) * 100)}% faster</span>
+          <span style={{ color: (world.coins || 0) >= up.coins ? "#ffd65a" : C.bad, fontWeight: 800 }}>{up.coins} coins</span>
+          <CostChips cost={up.goods} world={world} />
+          <button disabled={!canUp} onClick={() => W.dispatch({ type: "upgrade_hatchery", hid: h.id })} style={btn(!!canUp, { padding: "3px 10px", fontSize: 11 })}>Upgrade</button>
+        </div>
+      )}
+    </Card>
+  );
 }
 
 // ── Workshops ─────────────────────────────────────────────────────────────────

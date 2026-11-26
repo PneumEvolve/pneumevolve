@@ -34,6 +34,7 @@
 // Uses the farm's species.js, so Bash's designs show up here too.
 
 import { SPECIES } from "../species";
+import { PRODUCT_OF } from "../ranch";
 
 export const SPECIES_IDS = Object.keys(SPECIES);
 export const STARTERS = SPECIES_IDS.filter(k => SPECIES[k].starter);
@@ -80,6 +81,40 @@ export const LEVELS = {
   },
 };
 export const LEVEL_ORDER = ["easy", "medium", "hard"];
+
+// ── Rewards ───────────────────────────────────────────────────────────────────
+// Every critter in your herd makes its species' goods while you run (one every
+// GOODS_EVERY seconds, golden ones double). Goop you flatten drop coins. At the
+// end: win = everything × the level's multiplier + a win bonus (and the Goop
+// King's egg); lose = you keep half.
+export const GOODS_EVERY = 30;
+export const REWARD = {
+  easy:   { mult: 1,   win: 60,  egg: { common: 50, uncommon: 40, rare: 10 } },
+  medium: { mult: 1.5, win: 180, egg: { uncommon: 35, rare: 45, epic: 20 } },
+  hard:   { mult: 2,   win: 400, egg: { rare: 30, epic: 45, legendary: 25 } },
+};
+const COIN_PER_XP = 0.6;                          // coins per goop flattened (bigger goop = more)
+
+// ── Herd abilities ────────────────────────────────────────────────────────────
+// Every species in your herd gives you a button. Pressing it makes all of that
+// species do their thing at once; the more of them you have, the stronger it is
+// (golden ones count double).
+export const HERD_ABILITIES = {
+  pebblet:   { name: "Rock Shell",  desc: "You and your herd take 60% less damage for a few seconds (longer with more Pebblets)." },
+  mossling:  { name: "Root",        desc: "Goop around you get stuck in place." },
+  emberpup:  { name: "Blaze Dash",  desc: "Every Emberpup dashes into the nearest goop and blows up in flames." },
+  puddlet:   { name: "Splash",      desc: "Heals your herd (12% per Puddlet) and you." },
+  fluffwing: { name: "Big Gust",    desc: "Blows goop away from you and dazes them." },
+  glowmoth:  { name: "Glow",        desc: "Pulls in every berry nearby, and your herd hits 30% harder for 6s." },
+  zapling:   { name: "Zap Storm",   desc: "2 lightning bolts per Zapling strike goop around you." },
+};
+export const herdAbilityCd = (n) => Math.max(8, 14 - 0.5 * n);   // seconds
+// How many of each species are in a player's herd (golden = 2). { species: n }
+export function herdPower(run, slot) {
+  const out = {};
+  for (const c of run.critters) if (c.owner === slot && c.grabbedBy == null) out[c.species] = (out[c.species] || 0) + (c.rare ? 2 : 1);
+  return out;
+}
 
 // ── Tuning ────────────────────────────────────────────────────────────────────
 export const T = {
@@ -182,6 +217,7 @@ export function createRun(seed = Date.now(), level = "easy") {
     shots: [],                       // spitter blobs in the air
     lastRing: 0, bossSpawned: false, bossDown: false,
     alert: null,                     // { text, until } — big banner on screen
+    bag: {}, coins: 0, egg: null,    // rewards so far (see REWARD)
   };
 }
 const levelOf = (run) => LEVELS[run.level] || LEVELS.easy;
@@ -196,7 +232,7 @@ export function addPlayer(run, slot, species, x = slot * 80, y = 0, hue = null) 
     slot, species, x, y, hp: T.LEADER_HP, maxHp: T.LEADER_HP, down: false, rev: 0, inv: 0,
     zapCd: 0.5, focus: null, kills: 0, tamed: 0, active: true, seenAt: run.t,
     hue: hue ?? SPECIES[species]?.hue ?? 0,
-    mods: freshMods(), cards: {},
+    mods: freshMods(), cards: {}, abCd: {}, shell: 0, glow: 0,
   };
 }
 
@@ -317,6 +353,63 @@ export function setLeaderPos(run, slot, x, y) {
   p.x = x; p.y = y; p.seenAt = run.t; p.active = true;
 }
 
+// A player presses a herd ability (the host calls this for both players).
+export function castHerdAbility(run, slot, species) {
+  const p = run.players[slot];
+  const H = HERD_ABILITIES[species];
+  if (!p || p.down || !H || run.state !== "play") return false;
+  const n = herdPower(run, slot)[species] || 0;
+  if (!n || (p.abCd[species] || 0) > 0) return false;
+  const r = run.rng, k = Math.min(n, 12);
+  const near = (rad) => run.baddies.filter(b => b.hp > 0 && dist(b, p) < rad);
+  const hitB = (b, dmg) => { b.hp -= dmg; b.lastBy = slot; b.hitT = 0.15; };
+  if (species === "pebblet") p.shell = Math.min(7, 3 + 0.3 * k);
+  else if (species === "mossling") { for (const b of near(220 + 10 * k)) b.root = b.kind === "boss" ? 0.6 : 2 + 0.15 * k; }
+  else if (species === "emberpup") {
+    for (const c of herdOf(run, slot).filter(c => c.species === "emberpup" && c.grabbedBy == null && !c.rest)) {
+      let best = null, bd = 380;
+      for (const b of run.baddies) { const d = dist(b, p); if (b.hp > 0 && d < bd && dist(b, c) < 500) { bd = d; best = b; } }
+      if (!best) continue;
+      c.x = best.x - 10; c.y = best.y; c.bump = 0.2;
+      for (const b of run.baddies) if (dist(b, best) < 70) hitB(b, 28 * c.size * (c.rare ? T.RARE_MULT : 1) * p.mods.herdDmg);
+      fx(run, { k: "pop", x: best.x, y: best.y, big: 1 });
+    }
+  } else if (species === "puddlet") {
+    for (const c of herdOf(run, slot)) c.hp = Math.min(c.maxHp, c.hp + c.maxHp * Math.min(1, 0.12 * k));
+    p.hp = Math.min(p.maxHp, p.hp + 6 * k);
+    fx(run, { k: "heal", x: p.x, y: p.y, s: slot });
+  } else if (species === "fluffwing") {
+    for (const b of near(200 + 12 * k)) {
+      const d = dist(b, p) || 1, push = b.kind === "boss" ? 40 : 220;
+      b.x += (b.x - p.x) / d * push; b.y += (b.y - p.y) / d * push;
+      b.stun = b.kind === "boss" ? 0.3 : 1;
+    }
+  } else if (species === "glowmoth") {
+    for (const it of run.items) if (dist(it, p) < 700) { it.x = p.x + (r() - 0.5) * 20; it.y = p.y + (r() - 0.5) * 20; }
+    p.glow = 6;
+  } else if (species === "zapling") {
+    const pool = near(420);
+    for (let i = 0; i < Math.min(20, 2 * k) && pool.length; i++) {
+      const b = pool[Math.floor(r() * pool.length)];
+      hitB(b, 22);
+      fx(run, { k: "zap", x: b.x, y: b.y - 220, x2: b.x, y2: b.y, s: slot });
+    }
+  }
+  p.abCd[species] = herdAbilityCd(k);
+  fx(run, { k: "ability", x: p.x, y: p.y, s: slot, sp: species });
+  return true;
+}
+
+// What the run is worth so far (the farm gets this at the end).
+export function lootOf(run) {
+  const R = REWARD[run.level] || REWARD.easy;
+  const won = run.state === "won";
+  const keep = won ? R.mult : 0.5;
+  const goods = {};
+  for (const [k, n] of Object.entries(run.bag)) if (Math.floor(n * keep) > 0) goods[k] = Math.floor(n * keep);
+  return { won, coins: Math.round(run.coins * keep + (won ? R.win : 0)), goods, egg: won ? run.egg : null };
+}
+
 // ── Upgrade picking ───────────────────────────────────────────────────────────
 function offerCards(run, p) {
   const r = run.rng;
@@ -376,6 +469,22 @@ export function stepRun(run, dt, hurt = () => {}) {
   for (const p of run.players) if (p && run.t - p.seenAt > 4) p.active = false;   // partner went quiet
   const ups = upPlayers(run), act = activePlayers(run);
   if (!act.length) return;
+
+  // ── herd ability timers, and the goods your herd makes as you go
+  for (const p of run.players) {
+    if (!p) continue;
+    for (const k of Object.keys(p.abCd)) p.abCd[k] = Math.max(0, p.abCd[k] - dt);
+    p.shell = Math.max(0, p.shell - dt); p.glow = Math.max(0, p.glow - dt);
+  }
+  for (const c of run.critters) {
+    if (c.owner === -1 || c.grabbedBy != null) continue;
+    c.gt = (c.gt || 0) + dt;
+    if (c.gt >= GOODS_EVERY) {
+      c.gt -= GOODS_EVERY;
+      const item = PRODUCT_OF[c.species];
+      if (item) run.bag[item] = (run.bag[item] || 0) + (c.rare ? 2 : 1);
+    }
+  }
 
   // ── Wild critters: keep a few around each player, wander, despawn far away
   run.wildCd -= dt;
@@ -538,7 +647,7 @@ export function stepRun(run, dt, hurt = () => {}) {
       else { c.vx = 0; c.vy = 0; }
       if (target && d < 24 && c.atkCd <= 0) {
         const [dm, sp] = ELEMENT[SPECIES[c.species]?.element] || [1, 1];
-        target.hp -= T.HERD_DMG * dm * c.size * p.mods.herdDmg * (c.rare ? T.RARE_MULT : 1); target.lastBy = p.slot; target.hitT = 0.12;
+        target.hp -= T.HERD_DMG * dm * c.size * p.mods.herdDmg * (c.rare ? T.RARE_MULT : 1) * (p.glow > 0 ? 1.3 : 1); target.lastBy = p.slot; target.hitT = 0.12;
         c.atkCd = T.HERD_ATK_EVERY / sp;
         c.bump = 0.15;
       }
@@ -556,11 +665,11 @@ export function stepRun(run, dt, hurt = () => {}) {
   // ── Baddies chase the nearest standing leader, hurt leaders + herd
   const hitLeader = (tgt, amount, kx, ky) => {
     if (tgt.inv > 0 || tgt.down) return;
-    tgt.hp -= amount; tgt.inv = T.LEADER_INV;
+    tgt.hp -= amount * (tgt.shell > 0 ? 0.4 : 1); tgt.inv = T.LEADER_INV;
     hurt(tgt.slot, kx, ky);
     if (tgt.hp <= 0) { tgt.hp = 0; tgt.down = true; tgt.rev = 0; fx(run, { k: "down", x: tgt.x, y: tgt.y, s: tgt.slot }); }
   };
-  const hitHerd = (c, amount) => { if (c.safe > 0) return; c.hp -= amount * (c.rest ? 0.5 : 1); c.hitAt = run.t; };
+  const hitHerd = (c, amount) => { if (c.safe > 0) return; c.hp -= amount * (c.rest ? 0.5 : 1) * (run.players[c.owner]?.shell > 0 ? 0.4 : 1); c.hitAt = run.t; };
   for (const b of run.baddies) {
     const K = KIND[b.kind];
     b.hitCd = Math.max(0, b.hitCd - dt);
@@ -568,6 +677,7 @@ export function stepRun(run, dt, hurt = () => {}) {
     let tgt = null, bd = Infinity;
     for (const p of ups) { const d = dist(p, b); if (d < bd) { bd = d; tgt = p; } }
     let gx = tgt?.x, gy = tgt?.y, speed = b.speed, canBite = true;
+    b.stun = Math.max(0, (b.stun || 0) - dt); b.root = Math.max(0, (b.root || 0) - dt);
 
     if (b.kind === "spitter" && tgt) {
       // keep its distance and lob blobs at your herd (or you)
@@ -624,6 +734,8 @@ export function stepRun(run, dt, hurt = () => {}) {
       if (L.boss.ringAtHalf && !b.ringed && b.hp < b.maxHp / 2) { b.ringed = true; spawnRing(run, L.ring.n); run.alert = { text: "The Goop King calls the swarm!", until: run.t + 2.5 }; }
     }
 
+    if (b.stun > 0 || b.root > 0) speed = 0;              // rooted or dazed by a herd ability
+    if (b.stun > 0) { canBite = false; b.hitCd = Math.max(b.hitCd, 0.1); }
     if (gx != null) {
       const dx = gx - b.x, dy = gy - b.y, d = Math.hypot(dx, dy);
       if (d > 2 && speed > 0) { b.x += dx / d * speed * dt; b.y += dy / d * speed * dt; }
@@ -696,9 +808,11 @@ export function stepRun(run, dt, hurt = () => {}) {
     const p = run.players[b.lastBy];
     if (p) p.kills += 1;
     gainXp(run, KIND[b.kind].xp);
+    if (b.kind !== "boss") run.coins += KIND[b.kind].xp * COIN_PER_XP;
     if (b.kind === "boss") {
       run.bossDown = true;
-      run.alert = { text: "The Goop King is flattened!", until: run.t + 3 };
+      { const tbl = (REWARD[run.level] || REWARD.easy).egg, tot = Object.values(tbl).reduce((a, n) => a + n, 0); let x = r() * tot; run.egg = Object.keys(tbl).find(k => (x -= tbl[k]) < 0) || Object.keys(tbl)[0]; }
+      run.alert = { text: `The Goop King is flattened! It dropped ${run.egg === "uncommon" || run.egg === "epic" ? "an" : "a"} ${run.egg} egg!`, until: run.t + 3.5 };
       fx(run, { k: "pop", x: b.x, y: b.y, big: 2 });
       for (let i = 0; i < 4; i++) run.items.push({ id: run.nextId++, x: b.x + (i - 1.5) * 30, y: b.y + (i % 2) * 20, born: run.t });
       return false;
@@ -749,6 +863,8 @@ export function makeSnapshot(run) {
     xp: [Math.floor(run.xp), xpNeed(run.lvl), run.lvl],
     pk: pk ? { t: Math.ceil(pk.t), o: pk.offers, c: pk.chosen } : null,
     fx: run.fxOut,
+    ab: run.players.map(p => p && { cd: Object.fromEntries(Object.entries(p.abCd).filter(([, v]) => v > 0).map(([k, v]) => [k, Math.round(v * 10) / 10])), sh: p.shell > 0 ? 1 : 0, gl: p.glow > 0 ? 1 : 0 }),
+    loot: { bag: run.bag, coins: Math.floor(run.coins), egg: run.egg },
   };
   run.fxOut = [];
   return snap;

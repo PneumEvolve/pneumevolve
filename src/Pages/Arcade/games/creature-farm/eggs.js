@@ -20,24 +20,32 @@
 // Rarity (how long an egg takes, and what it costs) comes from the number of
 // types and how skilled the baby will be.
 
-import { SPECIES, PERSONALITIES } from "./species";
+import { SPECIES, PERSONALITIES, NAMES } from "./species";
 
 export const GENE_SLOTS = 4;
 export const SKILL_KEYS = ["forage", "care", "farm", "craft", "haul", "fight"];
 
 export const RARITY = ["common", "uncommon", "rare", "epic", "legendary"];
 export const RARITY_INFO = {
-  common:    { name: "Common",    color: "#d9d4c4", lay: 15 * 60,  hatch: 30 * 60,      cost: { berry: 10, carrot: 10 } },
-  uncommon:  { name: "Uncommon",  color: "#7fd67a", lay: 30 * 60,  hatch: 60 * 60,      cost: { berry: 20, carrot: 20 } },
-  rare:      { name: "Rare",      color: "#6fb4ff", lay: 60 * 60,  hatch: 2 * 3600,     cost: { berry: 30, carrot: 30, jam: 3 } },
-  epic:      { name: "Epic",      color: "#c08aff", lay: 2 * 3600, hatch: 4 * 3600,     cost: { berry: 40, carrot: 40, cake: 2 } },
-  legendary: { name: "Legendary", color: "#ffd65a", lay: 4 * 3600, hatch: 8 * 3600,     cost: { berry: 60, carrot: 60, cake: 3, blanket: 2 } },
+  common:    { name: "Common",    color: "#d9d4c4", lay: 15 * 60,  hatch: 30 * 60,  coins: 0,   cost: { berry: 10, carrot: 10 } },
+  uncommon:  { name: "Uncommon",  color: "#7fd67a", lay: 30 * 60,  hatch: 60 * 60,  coins: 25,  cost: { berry: 20, carrot: 20 } },
+  rare:      { name: "Rare",      color: "#6fb4ff", lay: 60 * 60,  hatch: 2 * 3600, coins: 100, cost: { berry: 30, carrot: 30, jam: 3 } },
+  epic:      { name: "Epic",      color: "#c08aff", lay: 2 * 3600, hatch: 4 * 3600, coins: 300, cost: { berry: 40, carrot: 40, cake: 2 } },
+  legendary: { name: "Legendary", color: "#ffd65a", lay: 4 * 3600, hatch: 8 * 3600, coins: 800, cost: { berry: 60, carrot: 60, cake: 3, blanket: 2 } },
 };
 
 // Babies grow up in about 3 hours when well looked after (fed and happy),
 // closer to 5 when they're not.
 export const GROW_SECS = 3 * 3600;
 export const growRate = (c) => Math.max(0.35, 0.3 + 0.4 * (c.happy / 100) + 0.3 * (c.hunger / 100));   // 1.0 at 100/100
+
+// Hatchery levels 1-5: each level hatches 25% faster. Upgrades cost coins and goods.
+export const HATCHERY_LEVELS = 5;
+export const hatcherySpeed = (lvl = 1) => 1 + 0.25 * ((lvl || 1) - 1);
+export const hatcheryUpgrade = (lvl = 1) => (lvl >= HATCHERY_LEVELS ? null : [
+  null, { coins: 400, goods: { brick: 4 } }, { coins: 1000, goods: { brick: 10, blanket: 3 } },
+  { coins: 2500, goods: { brick: 20, blanket: 8 } }, { coins: 6000, goods: { brick: 40, lantern: 6 } },
+][lvl || 1]);
 
 // Hatcheries: up to 4, each holds one egg.
 export const HATCHERY_MAX = 4;
@@ -211,4 +219,44 @@ export function eggPreview(a, b) {
     for (const [t, n] of Object.entries(o.counts)) for (let i = 0; i < n; i++) genes.push(t);
     return { ...o, rarity: rarityOf({ genes, skills, traits: {} }) };
   });
+}
+
+// Can the farm pay for an egg of this rarity? (coins + food/goods)
+export const canAfford = (w, rarity) => (w.coins || 0) >= RARITY_INFO[rarity].coins && Object.entries(RARITY_INFO[rarity].cost).every(([k, n]) => (w.food?.[k] || 0) >= n);
+// Put two creatures in a Hatchery together. MUTATES w (a copy): pays, sets both
+// parents nesting and creates the egg. Returns false (changing nothing) if it
+// can't happen. Used by the make_egg action and by "repeat this pairing".
+export function startEgg(w, h, A, B, rng, by, repeat = false) {
+  // Changes w, w.food, h and the two parent objects IN PLACE (the caller hands in copies).
+  if (!h || h.egg || !A || !B || A.id === B.id) return false;
+  if (![A, B].every(c => c.housed && !c.away && c.grow == null && !c.nest)) return false;
+  if (!eggPreview(A, B).every(o => canAfford(w, o.rarity))) return false;   // enough for the priciest outcome
+  const { baby, rarity } = breed(A, B, rng);
+  const R = RARITY_INFO[rarity];
+  w.coins = Math.round(((w.coins || 0) - R.coins) * 100) / 100;
+  w.food = { ...w.food };
+  for (const [k, n] of Object.entries(R.cost)) w.food[k] -= n;
+  for (const c of [A, B]) { c.nest = h.id; c.follow = null; if (c.job === "carer") { c.job = null; c.station = null; } }
+  const used = new Set(Object.values(w.creatures || {}).map(c => c.name));
+  const free = NAMES.filter(n => !used.has(n));
+  const pool = free.length ? free : NAMES;
+  const name = pool[Math.floor(rng() * pool.length) % pool.length];
+  const id = `e${w.nextId || 1}`;
+  w.nextId = (w.nextId || 1) + 1;
+  h.egg = { id, stage: "laying", progress: 0, a: A.id, b: B.id, baby, rarity, cost: R.cost, coins: R.coins, by, name };
+  h.repeat = repeat ? { a: A.id, b: B.id, by } : null;
+  return true;
+}
+// A repeatable random number source from a string (for "repeat this pairing",
+// so the farm's catch-up and Forecast stay exact).
+export function seededRng(str) {
+  let s = 2166136261 >>> 0;
+  for (let i = 0; i < str.length; i++) { s ^= str.charCodeAt(i); s = Math.imul(s, 16777619) >>> 0; }
+  return () => {
+    s = (s + 0x6D2B79F5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }

@@ -24,7 +24,7 @@ import {
   makeContract, giveToContract, CONTRACT_MAX, CONTRACT_GAP, HAND_CRAFT, fmtCoins, missingInputs,
   housedCount, penSlots, penCost, rehomePrice, PEN_START, addSkillXp, store,
 } from "./ranch";
-import { breed, wildEgg, hatcheryCost, HATCHERY_MAX, RARITY_INFO, RARITY, eggPreview } from "./eggs";
+import { wildEgg, hatcheryCost, HATCHERY_MAX, RARITY_INFO, RARITY, startEgg, hatcheryUpgrade } from "./eggs";
 
 // ── Map (world units; the canvas scales to fit) ──────────────────────────────
 export const WORLD_W = 960;
@@ -517,6 +517,24 @@ export function farmReducer(w0, a) {
       };
     }
 
+    // Critter Stampede rewards (sent once by the run host): coins, the goods the
+    // herd made, and the Goop King's egg.
+    case "run_loot": {
+      if (!by || !["easy", "medium", "hard"].includes(a.level)) return w;
+      const x = { ...w, food: { ...w.food }, market: { ...w.market } };
+      for (const [k, n] of Object.entries(a.goods || {})) if (ITEMS[k] && n > 0) store(x, k, Math.min(5000, Math.floor(n)), null);
+      x.coins = Math.round((x.coins + Math.max(0, Math.min(5000, Number(a.coins) || 0))) * 100) / 100;
+      let log = w.log, nextId = w.nextId;
+      if (RARITY.includes(a.egg)) {
+        const rng = rngFrom(((Number(a.r) || 0.5) * 6.1 + nextId * 0.19) % 1);
+        x.eggs = [...(w.eggs || []), { id: `e${nextId++}`, ...wildEgg(a.egg, rng), by, name: freshName(rng, w) }];
+        log = addLog(log, a, `brought home a ${RARITY_INFO[a.egg].name.toLowerCase()} egg from Critter Stampede! (put it in a Hatchery)`, "catch");
+      }
+      const goodsN = Object.values(a.goods || {}).reduce((s, n) => s + (Number(n) || 0), 0);
+      log = addLog(log, a, `Critter Stampede paid out ${Math.round(Number(a.coins) || 0)} coins and ${goodsN} goods`, "catch");
+      return { ...x, nextId, log };
+    }
+
     // ── Ranch actions ────────────────────────────────────────────────────────
     // Give a creature a job (or none). Your own creatures, or ones that trust you.
     case "set_job": {
@@ -779,24 +797,39 @@ export function farmReducer(w0, a) {
     case "make_egg": {
       const h = (w.hatcheries || []).find(x => x.id === a.hid);
       const A = w.creatures[a.a], B = w.creatures[a.b];
-      if (!by || !h || h.egg || !A || !B || A.id === B.id) return w;
-      if (![A, B].every(c => canManage(c, by) && c.housed && !c.away && c.grow == null && !c.nest)) return w;
-      // you need enough for the priciest egg these two could make; you pay for the one you get
-      const afford = (cost) => Object.entries(cost).every(([k, n]) => (w.food[k] || 0) >= n);
-      if (!eggPreview(A, B).every(o => afford(RARITY_INFO[o.rarity].cost))) return w;
-      const rng = rngFrom(a.r);
-      const { baby, rarity } = breed(A, B, rng);
-      const cost = RARITY_INFO[rarity].cost;
+      if (!by || !h || !A || !B || ![A, B].every(c => canManage(c, by))) return w;
+      const x = { ...w, creatures: { ...w.creatures, [A.id]: { ...A }, [B.id]: { ...B } }, hatcheries: w.hatcheries.map(y => ({ ...y })) };
+      const hx = x.hatcheries.find(y => y.id === h.id);
+      if (!startEgg(x, hx, x.creatures[A.id], x.creatures[B.id], rngFrom(a.r), by, !!a.repeat)) return w;
+      const egg = hx.egg;
+      return { ...x, log: addLog(w.log, a, `put ${A.name} and ${B.name} in a Hatchery together (${RARITY_INFO[egg.rarity].name.toLowerCase()} egg on the way)`, "info") };
+    }
+    // Keep making eggs from the same two parents (or stop).
+    case "egg_repeat": {
+      const h = (w.hatcheries || []).find(x => x.id === a.hid);
+      if (!by || !h) return w;
+      const e = h.egg;
+      const pair = a.on ? (e && e.a ? { a: e.a, b: e.b, by } : h.lastPair || null) : null;
+      return { ...w, hatcheries: w.hatcheries.map(x => (x.id === h.id ? { ...x, repeat: pair } : x)) };
+    }
+    // Hatchery levels: each one hatches eggs 25% faster.
+    case "upgrade_hatchery": {
+      const h = (w.hatcheries || []).find(x => x.id === a.hid);
+      const up = h && hatcheryUpgrade(h.level || 1);
+      if (!by || !up || w.coins < up.coins || !Object.entries(up.goods).every(([k, n]) => (w.food[k] || 0) >= n)) return w;
       const food = { ...w.food };
-      for (const [k, n] of Object.entries(cost)) food[k] -= n;
-      const creatures = { ...w.creatures };
-      for (const c of [A, B]) creatures[c.id] = { ...c, nest: h.id, follow: null, ...(c.job === "carer" ? { job: null, station: null } : {}) };
-      const egg = { id: `e${w.nextId}`, stage: "laying", progress: 0, a: A.id, b: B.id, baby, rarity, cost, by, name: freshName(rng, w) };
+      for (const [k, n] of Object.entries(up.goods)) food[k] -= n;
       return {
-        ...w, food, creatures, nextId: w.nextId + 1,
-        hatcheries: w.hatcheries.map(x => (x.id === h.id ? { ...x, egg } : x)),
-        log: addLog(w.log, a, `put ${A.name} and ${B.name} in a Hatchery together (${RARITY_INFO[rarity].name.toLowerCase()} egg on the way)`, "info"),
+        ...w, food, coins: Math.round((w.coins - up.coins) * 100) / 100,
+        hatcheries: w.hatcheries.map(x => (x.id === h.id ? { ...x, level: (h.level || 1) + 1 } : x)),
+        log: addLog(w.log, a, `upgraded Hatchery ${String(h.id).replace(/\D/g, "")} to level ${(h.level || 1) + 1}`, "info"),
       };
+    }
+    // Ranch Rules: per player, for their own creatures.
+    case "set_rule": {
+      if (!by || !["autoJob", "autoHouse"].includes(a.rule)) return w;
+      const mine = { ...((w.rules || {})[by] || {}), [a.rule]: !!a.on };
+      return { ...w, rules: { ...(w.rules || {}), [by]: mine }, log: addLog(w.log, a, `${a.on ? "turned on" : "turned off"} ${a.rule === "autoJob" ? "automatic jobs" : "automatic pen spots"}`, "info") };
     }
     // Change your mind before the egg is laid: parents go back to work, the food comes back.
     case "cancel_egg": {
@@ -806,7 +839,7 @@ export function farmReducer(w0, a) {
       for (const id of [h.egg.a, h.egg.b]) if (creatures[id]) creatures[id] = { ...creatures[id], nest: null };
       const food = { ...w.food };
       for (const [k, n] of Object.entries(h.egg.cost || {})) food[k] = (food[k] || 0) + n;
-      return { ...w, food, creatures, hatcheries: w.hatcheries.map(x => (x.id === h.id ? { ...x, egg: null } : x)), log: addLog(w.log, a, "called off an egg", "info") };
+      return { ...w, food, creatures, coins: Math.round((w.coins + (h.egg.coins || 0)) * 100) / 100, hatcheries: w.hatcheries.map(x => (x.id === h.id ? { ...x, egg: null, repeat: null } : x)), log: addLog(w.log, a, "called off an egg", "info") };
     }
     // Who keeps an egg warm (any grown-up creature you can manage).
     case "set_carer": {

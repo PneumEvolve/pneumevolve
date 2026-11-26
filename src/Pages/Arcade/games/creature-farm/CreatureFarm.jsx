@@ -51,7 +51,7 @@ const levelUnlocked = (world, id) => id === "easy" || !!world?.runsBeaten?.[LEVE
 // Runs you can pick at the signpost. Add more here as they're built.
 const RUNS = [
   { id: "stampede", name: "Critter Stampede", ready: true,
-    desc: "Endless field. Run circles around critters to tame them, build a herd, flatten the goop, and bring some home." },
+    desc: "Endless field. Run circles around critters to tame them; every species in your herd gives you an ability (keys 1-7). Your herd makes goods as you run, goop drop coins, and the Goop King drops an egg. Bring some critters home too." },
   { id: "wilds", name: "The Wilds", ready: true,
     desc: "Co-op squad trip: pick 4 creatures between you, choose your route, and fight wild goop in real time (either of you can pause). Brings home coins, goods, wild crystals and new friends." },
   { id: "defend", name: "Defend the Farm", ready: false, desc: "Goop raids the farm at night." },
@@ -675,6 +675,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
             partnerName={cap(nameOf(partnerId))}
             onAdopt={(c) => W.dispatch({ type: "adopt", species: c.species, hue: c.hue, size: c.size, rare: !!c.rare, r: Math.random() })}
             onWin={(level) => W.dispatch({ type: "run_won", level })}
+            onLoot={(l) => W.dispatch({ type: "run_loot", level: l.level, coins: l.coins, goods: l.goods, egg: l.egg, r: Math.random() })}
             onExit={exitRun} />
         );
       })()}

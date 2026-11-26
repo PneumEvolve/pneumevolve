@@ -17,6 +17,11 @@
 //   partnerName  for the "Bash is choosing…" line
 //   onAdopt({ species, hue, size, rare })   bring a tamed critter home
 //   onWin(level) you survived — unlocks the next level on the farm
+//   onLoot({ level, won, coins, goods, egg })   the run's rewards (run host only, once)
+//
+// Herd abilities: every species in your herd gives a button (keys 1-7). Pressing
+// it makes all of that species act together (see HERD_ABILITIES in the sim).
+// Your herd also makes its goods while you run; coins come from flattened goop.
 //   onExit()     back to the farm
 //
 // Netcode (only while in a run):
@@ -41,7 +46,11 @@ import { drawCreature, drawPaw, drawHeart, drawCropSprite } from "../drawFarm";
 import {
   T, LEVELS, CARDS, SPECIES_IDS, createRun, addPlayer, stepRun, setLeaderPos, tryTame,
   makeSnapshot, readSnapshotPlayers, lassoStep, choosePick, xpNeed, herdCapOf, GOOP_KINDS, BOSS,
+  castHerdAbility, HERD_ABILITIES, lootOf, REWARD, GOODS_EVERY,
 } from "./stampedeSim";
+import { ITEMS } from "../ranch";
+import { ItemIcon, EggIcon } from "../RanchPanel";
+import { RARITY_INFO } from "../eggs";
 import {
   drawGround, drawGoop, drawLeaderRing, drawHerdDot, drawWildSparkle, drawTrail,
   drawLasso, drawFx, drawEdgeArrow, drawDowned, drawSlamWarning, drawShot, drawGrabbed, drawDarkness,
@@ -57,7 +66,7 @@ const KEYMAP = {
 const isEnd = (st) => st === "over" || st === "won";
 const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
-export default function StampedeRun({ net, runHost, level = "easy", species, hue, partnerName, onAdopt, onWin, onExit }) {
+export default function StampedeRun({ net, runHost, level = "easy", species, hue, partnerName, onAdopt, onWin, onLoot, onExit }) {
   const mySlot = runHost ? 0 : 1;
   const otherSlot = 1 - mySlot;
   const LV = LEVELS[level] || LEVELS.easy;
@@ -128,6 +137,7 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
     if (!live.current.runHost || !runRef.current) return;
     for (const cid of (m.cids || [m.cid])) tryTame(runRef.current, 1, cid);
   });
+  useArcadeEvent(net, "ab", (m) => { if (live.current.runHost && runRef.current) castHerdAbility(runRef.current, 1, m.sp); });
   useArcadeEvent(net, "pick", (m) => { if (live.current.runHost && runRef.current) choosePick(runRef.current, 1, m.id); });
   useArcadeEvent(net, "again", () => { if (live.current.runHost && isEnd(runRef.current?.state)) restart(); });
   useArcadeEvent(net, "hurt", (m) => { if (!live.current.runHost) applyHurt(m.kx, m.ky); });
@@ -141,6 +151,7 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
   useArcadeEvent(net, "snap", (m) => {
     if (live.current.runHost) return;
     const v = viewRef.current;
+    v.ab = m.ab || v.ab; v.loot = m.loot || v.loot;
     v.got = true; v.t = m.t; v.st = m.st; v.xp = m.xp || v.xp; v.pk = m.pk || null; v.al = m.al || null; v.bk = m.bk || v.bk;
     v.shots = (m.s || []).map(a => ({ id: a[0], x: a[1], y: a[2], tx: a[3], ty: a[4], frac: a[5] / 100 }));
     readSnapshotPlayers(m).forEach((p, i) => {
@@ -171,7 +182,7 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
   // ── Keyboard ───────────────────────────────────────────────────────────────
   useEffect(() => {
     const down = (e) => {
-      if (["1", "2", "3"].includes(e.key)) { pickRef.current?.(Number(e.key) - 1); return; }
+      if (/^[1-7]$/.test(e.key)) { if (!pickRef.current?.(Number(e.key) - 1)) abRef.current?.(Number(e.key) - 1); return; }
       const k = KEYMAP[e.key]; if (k) { e.preventDefault(); keysRef.current[k] = true; }
     };
     const up = (e) => { const k = KEYMAP[e.key]; if (k) delete keysRef.current[k]; };
@@ -389,6 +400,13 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
           pick: pk ? { t: pk.t, offers: pk.o?.[L.mySlot] || [], chosen: pk.c?.[L.mySlot] || null, partnerPicking: pk.o?.[L.otherSlot] != null, partnerChosen: !!pk.c?.[L.otherSlot] } : null,
           other: partner ? { kills: partner.kills, tamed: partner.tamed } : null,
           myHerd: over ? mine.map(c => ({ id: c.id, species: c.species, hue: c.hue, size: c.size, rare: !!c.rare })) : [],
+          abilities: (() => {
+            const pow = {};
+            for (const c of mine) if (!(c.grabbed ?? c.grabbedBy != null)) pow[c.species] = (pow[c.species] || 0) + (c.rare ? 2 : 1);
+            const cds = L.runHost ? (run?.players[L.mySlot]?.abCd || {}) : (view.ab?.[L.mySlot]?.cd || {});
+            return Object.keys(HERD_ABILITIES).filter(sp => pow[sp]).map(sp => ({ sp, n: pow[sp], cd: cds[sp] || 0 }));
+          })(),
+          loot: L.runHost ? (run ? { bag: { ...run.bag }, coins: Math.floor(run.coins), egg: run.egg } : null) : (view.loot || null),
         });
       }
     }
@@ -431,7 +449,23 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
     else net.send("pick", { id });
   };
   const pickRef = useRef(null);
-  pickRef.current = (i) => { const id = hud.pick?.offers?.[i]; if (id) choose(id); };
+  pickRef.current = (i) => { const id = hud.pick?.offers?.[i]; if (id) { choose(id); return true; } return !!hud.pick; };
+  // ── Herd abilities ─────────────────────────────────────────────────────────
+  const herdAbility = (sp) => {
+    if (runHost) castHerdAbility(runRef.current, 0, sp);
+    else net.send("ab", { sp });
+  };
+  const abRef = useRef(null);
+  abRef.current = (i) => { const a = hud.abilities?.[i]; if (a && a.cd <= 0 && hud.st === "play") herdAbility(a.sp); };
+  // ── Rewards: the run host sends them to the farm once
+  const lootSent = useRef(false);
+  const final = isEnd(hud.st) && hud.loot ? lootOf({ level, state: hud.st, bag: hud.loot.bag || {}, coins: hud.loot.coins || 0, egg: hud.loot.egg }) : null;
+  useEffect(() => {
+    if (!final || !runHost || lootSent.current || !hud.started) return;
+    lootSent.current = true;
+    onLoot?.({ level, ...final });
+  }, [final, runHost, hud.started, level, onLoot]);
+  useEffect(() => { if (!isEnd(hud.st)) lootSent.current = false; }, [hud.st]);
   useEffect(() => { if (!hud.pick) setMyPick(null); }, [hud.pick]);
 
   // ── UI ─────────────────────────────────────────────────────────────────────
@@ -489,7 +523,34 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
 
       {!isTouch() && (
         <div style={{ position: "absolute", bottom: 8, left: 0, right: 0, textAlign: "center", color: "rgba(255,255,255,0.5)", fontSize: 12, zIndex: 5, pointerEvents: "none" }}>
-          WASD / arrows to move · attacks are automatic · circle critters to tame them · berries heal
+          WASD / arrows to move · 1-7 herd abilities · circle critters to tame them · berries heal
+        </div>
+      )}
+
+      {hud.st === "play" && hud.loot && (
+        <div style={{ position: "absolute", top: hud.bossHp != null ? 134 : 100, right: 10, zIndex: 20, pointerEvents: "none", display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end", maxWidth: 260, fontSize: 12, fontWeight: 800, background: "rgba(10,20,14,0.55)", padding: "4px 8px", borderRadius: 10 }}>
+          <span style={{ color: "#ffd65a" }}>{hud.loot.coins} coins</span>
+          {Object.entries(hud.loot.bag || {}).filter(([, n]) => n > 0).map(([k, n]) => <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 2 }}><ItemIcon kind={k} size={14} />{n}</span>)}
+          {hud.loot.egg && <EggIcon rarity={hud.loot.egg} size={16} />}
+        </div>
+      )}
+      {hud.st === "play" && hud.abilities?.length > 0 && (
+        <div style={{ position: "absolute", zIndex: 22, display: "flex", gap: 6, ...(isTouch() ? { right: 10, bottom: 14, flexDirection: "column-reverse", alignItems: "flex-end" } : { bottom: 30, left: "50%", transform: "translateX(-50%)" }) }}>
+          {hud.abilities.map((a, i) => {
+            const H = HERD_ABILITIES[a.sp], ready = a.cd <= 0;
+            return (
+              <button key={a.sp} data-ab={a.sp} onPointerDown={(e) => { e.stopPropagation(); if (ready) herdAbility(a.sp); }} title={`${H.name}: ${H.desc}`}
+                style={{ position: "relative", overflow: "hidden", display: "flex", alignItems: "center", gap: 6, padding: isTouch() ? "5px 9px" : "6px 10px", borderRadius: 12, fontFamily: "inherit", color: C.text, cursor: ready ? "pointer" : "default",
+                  background: ready ? "rgba(255,204,77,0.25)" : "rgba(10,20,14,0.7)", border: `2px solid ${ready ? "#ffcc4d" : "rgba(255,255,255,0.15)"}`, touchAction: "none", ...noSelect }}>
+                {!ready && <span style={{ position: "absolute", left: 0, bottom: 0, top: 0, width: `${(1 - a.cd / 14) * 100}%`, background: "rgba(255,255,255,0.08)" }} />}
+                <Portrait species={a.sp} hue={SPECIES[a.sp].hue} size={26} />
+                <span style={{ position: "relative", textAlign: "left", lineHeight: 1.1 }}>
+                  <span style={{ display: "block", fontWeight: 900, fontSize: 12 }}>{H.name} <span style={{ color: "#ffd65a" }}>×{a.n}</span></span>
+                  <span style={{ display: "block", fontSize: 10, color: C.dim }}>{ready ? (isTouch() ? "tap" : `key ${i + 1}`) : `${Math.ceil(a.cd)}s`}</span>
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
 
@@ -534,6 +595,17 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
             <Stat label="tamed" value={hud.tamed} />
             <Stat label="goop flattened" value={hud.kills} />
           </div>
+          {final && (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "8px 12px", borderRadius: 12, background: "rgba(255,255,255,0.05)" }}>
+              <div style={{ fontSize: 12, color: C.dim }}>{final.won ? `Rewards (×${REWARD[level].mult} for ${LV.name}, +${REWARD[level].win} coins for winning)` : "You keep half of what your herd made"}</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", alignItems: "center", fontWeight: 800 }}>
+                <span style={{ color: "#ffd65a" }}>+{final.coins} coins</span>
+                {Object.entries(final.goods).map(([k, n]) => <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 3 }}><ItemIcon kind={k} size={18} />{n} {ITEMS[k]?.name.toLowerCase()}</span>)}
+              </div>
+              {final.egg && <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 900, color: RARITY_INFO[final.egg].color }}><EggIcon rarity={final.egg} size={26} /> {RARITY_INFO[final.egg].name} egg from the Goop King!</div>}
+              <div style={{ fontSize: 11, color: C.faint }}>Sent to the farm's storage (the stall sells what doesn't fit).</div>
+            </div>
+          )}
           {hud.other && <div style={{ fontSize: 13, color: C.dim }}>partner: {hud.other.tamed} tamed · {hud.other.kills} flattened</div>}
           <div style={{ fontSize: 12, color: C.faint }}>best: {fmtTime(best.time)} · {best.tamed} tamed · {best.kills} flattened</div>
 

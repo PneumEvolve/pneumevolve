@@ -235,6 +235,11 @@ export function drawFx(ctx, f, colors) {
     ctx.beginPath(); ctx.moveTo(f.x, f.y - 20); ctx.lineTo(f.x + (f.x2 - f.x) * k, f.y - 20 + (f.y2 - 12 - f.y + 20) * k); ctx.stroke();
     ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(f.x, f.y - 20); ctx.lineTo(f.x + (f.x2 - f.x) * k, f.y - 20 + (f.y2 - 12 - f.y + 20) * k); ctx.stroke();
+  } else if (f.k === "ability") {                     // a herd ability went off: a big ring in the player's colour
+    ctx.globalAlpha = a; ctx.strokeStyle = colors[f.s] || "#fff"; ctx.lineWidth = 6;
+    ctx.beginPath(); ctx.arc(f.x, f.y - 10, 30 + f.age * 420, 0, TAU); ctx.stroke();
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(f.x, f.y - 10, 20 + f.age * 360, 0, TAU); ctx.stroke();
   } else if (f.k === "pop") {
     const r = (f.big === 2 ? 90 : f.big ? 30 : 16) + f.age * (f.big === 2 ? 160 : 70);
     ctx.globalAlpha = a; ctx.strokeStyle = "#b07ad6"; ctx.lineWidth = 3;

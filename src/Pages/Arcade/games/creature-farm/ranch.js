@@ -30,7 +30,7 @@
 //   • Contracts board: "Deliver 6 bricks within 12 hours — pays 260".
 
 import { SPECIES, CROPS } from "./species";
-import { RARITY_INFO, GROW_SECS, growRate, settleSkills, lookFor, comboKey } from "./eggs";
+import { RARITY_INFO, GROW_SECS, growRate, settleSkills, lookFor, comboKey, hatcherySpeed, startEgg, seededRng } from "./eggs";
 
 // ── Tuning ────────────────────────────────────────────────────────────────────
 export const H = 3600;
@@ -329,6 +329,7 @@ export function finishCrafts(w, key, rep) {
 // Mutates a copied world `w` (farmWorld clones before calling).
 // rep: report counters (or null for live ticks).
 export function stepRanch(w, dt, tMs, rep) {
+  if (w.rules) applyRules(w);
   const list = Object.values(w.creatures);
   const byId = w.creatures;
   const tcap = troughCap(w);
@@ -537,13 +538,53 @@ function haul(w, n, tMs, rep) {
 
 // Run the farm forward by `secs` seconds ending at world time `endMs`, in chunks.
 // Returns the report (or null for short live ticks).
+// ── Ranch Rules ───────────────────────────────────────────────────────────────
+// Each player can switch these on for THEIR creatures (w.rules[userId]):
+//   autoHouse  creatures waiting in the meadow move into free pen spots (babies first)
+//   autoJob    grown-ups with no job get one: whatever the farm needs most
+//              (Feeder if the trough runs low, Groomer if spirits are low, Farmhand
+//              for untended plots, a Crafter for a workshop nobody runs, a Hauler
+//              once there's a stall), otherwise Forager. Best skill gets picked.
+export function applyRules(w) {
+  const rules = w.rules || {};
+  const on = (c, r) => !!rules[c.owner]?.[r];
+  const cs = Object.values(w.creatures);
+  // pen spots
+  let free = penSlots(w) - housedCount(w);
+  if (free > 0) {
+    const waiting = cs.filter(c => !c.housed && !c.away && on(c, "autoHouse"))
+      .sort((a, b) => (b.grow != null) - (a.grow != null) || a.hunger - b.hunger);
+    for (const c of waiting) { if (free <= 0) break; c.housed = true; free--; }
+  }
+  // jobs
+  const idle = cs.filter(c => on(c, "autoJob") && stateOf(c) === "idle");
+  if (!idle.length) return;
+  const active = cs.filter(c => c.housed && !c.away);
+  const has = (job, station) => active.some(c => c.job === job && (station == null || c.station === station));
+  const take = (skill) => { idle.sort((a, b) => (b.skills?.[skill] || 1) - (a.skills?.[skill] || 1)); return idle.shift(); };
+  const give = (c, job, station = null) => { c.job = job; c.station = station; c.work = 0; c.follow = null; };
+  const inTrough = STORE_ITEMS.reduce((n, k) => n + (w.trough[k] || 0), 0);
+  if (idle.length && inTrough < troughCap(w) * 0.3 && !has("feeder")) give(take("care"), "feeder");
+  const avgHappy = active.length ? active.reduce((n, c) => n + c.happy, 0) / active.length : 100;
+  if (idle.length && avgHappy < 60 && !has("groomer")) give(take("care"), "groomer");
+  const foodPlots = (w.plots || []).filter(p => !p || CROPS[p.kind]?.type === "food").length;
+  let covered = active.filter(c => c.job === "farmhand").reduce((n, c) => n + plotsPerFarmhand(c), 0);
+  while (idle.length && covered < foodPlots) { const c = take("farm"); give(c, "farmhand"); covered += plotsPerFarmhand(c); }
+  for (const [key, st] of Object.entries(w.workshops || {})) {
+    if (!idle.length) break;
+    if (st?.level && st.on !== false && !has("crafter", key)) give(take("craft"), "crafter", key);
+  }
+  if (idle.length && w.buildings.stall && !has("hauler")) give(take("haul"), "hauler");
+  while (idle.length) give(take("forage"), "forager");
+}
+
 // ── Hatcheries ────────────────────────────────────────────────────────────────
 // laying:   both parents nest (no work) until the egg is laid, then the parent
 //           with the better Care becomes its Carer
 // hatching: the Carer keeps it warm; Care speeds it up
 // The baby was rolled when the egg was made, so hatching has no randomness.
 export function stepHatcheries(w, dt, tMs, rep) {
-  for (const h of w.hatcheries || []) {
+  for (const h of w.hatcheries || []) {     // startEgg changes h in place, so this loop stays valid
     const e = h.egg;
     if (!e) continue;
     if (e.stage === "laying") {
@@ -565,7 +606,7 @@ export function stepHatcheries(w, dt, tMs, rep) {
     const carers = Object.values(w.creatures).filter(c => c.job === "carer" && c.station === h.id && stateOf(c) === "working");
     if (!carers.length) continue;
     const care = Math.max(...carers.map(c => c.skills?.care || 1));
-    e.progress = (e.progress || 0) + (dt * skillFactor(care)) / RARITY_INFO[e.rarity].hatch;
+    e.progress = (e.progress || 0) + (dt * skillFactor(care) * hatcherySpeed(h.level)) / RARITY_INFO[e.rarity].hatch;
     if (e.progress < 1) continue;
     const b = e.baby, id = `c${w.nextId || 1}`;
     w.nextId = (w.nextId || 1) + 1;
@@ -581,6 +622,13 @@ export function stepHatcheries(w, dt, tMs, rep) {
     w.creatures[id] = baby;
     w.dex = { ...(w.dex || {}), [comboKey(b.genes)]: ((w.dex || {})[comboKey(b.genes)] || 0) + 1 };
     h.egg = null;
+    if (e.a) h.lastPair = { a: e.a, b: e.b, by: e.by };
+    // "repeat this pairing": the same two start the next egg straight away (if they can)
+    if (h.repeat) {
+      const A = w.creatures[h.repeat.a], B = w.creatures[h.repeat.b];
+      const ok = startEgg(w, h, A, B, seededRng(`${h.id}:${w.nextId}`), h.repeat.by, true);
+      if (!ok && !rep) w._news = [...(w._news || []), `Hatchery ${String(h.id).replace(/\D/g, "")} couldn't start the next egg (parents busy, or not enough food or coins)`];
+    }
     if (rep) rep.hatched = [...(rep.hatched || []), baby.name];
     else w._news = [...(w._news || []), `${baby.name} hatched! A ${b.traits.rare ? "golden " : ""}baby ${SPECIES[b.species].name}${baby.housed ? "" : " (no pen spot free, it's waiting in the meadow)"}.`];
   }
