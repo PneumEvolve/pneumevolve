@@ -206,8 +206,13 @@ const freshMods = () => ({
 });
 
 // ── Run ───────────────────────────────────────────────────────────────────────
-export function createRun(seed = Date.now(), level = "easy") {
+// Your herd's size grows with the farm: 10 + your pen spots (max 30). Bigger
+// Herd upgrades add on top.
+export const HERD_BASE = 10, HERD_FROM_PENS_MAX = 30;
+export const herdBaseFor = (pens) => Math.min(HERD_FROM_PENS_MAX, HERD_BASE + Math.max(0, pens || 0));
+export function createRun(seed = Date.now(), level = "easy", pens = 5) {
   return {
+    baseCap: herdBaseFor(pens),
     t: 0, state: "play", nextId: 1, rng: mulberry(seed),
     level: LEVELS[level] ? level : "easy",
     players: [null, null],           // slot 0 = host, slot 1 = guest
@@ -241,7 +246,7 @@ const upPlayers = (run) => run.players.filter(p => p && p.active && !p.down);
 
 function fx(run, f) { run.fx.push({ ...f, age: 0 }); run.fxOut.push(f); }
 
-export const herdCapOf = (run, p) => Math.min(T.HERD_CAP_MAX, levelOf(run).herdCap + (p?.mods?.herdCap || 0));
+export const herdCapOf = (run, p) => Math.min(T.HERD_CAP_MAX, (run.baseCap ?? levelOf(run).herdCap) + (p?.mods?.herdCap || 0));
 
 // Wild critters arrive alone early on, then in little packs of 2–4 you can
 // lasso all at once. On Medium/Hard some arrive as golden rares (always alone).

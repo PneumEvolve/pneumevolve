@@ -27,16 +27,16 @@ export const SKILL_KEYS = ["forage", "care", "farm", "craft", "haul", "fight"];
 
 export const RARITY = ["common", "uncommon", "rare", "epic", "legendary"];
 export const RARITY_INFO = {
-  common:    { name: "Common",    color: "#d9d4c4", lay: 15 * 60,  hatch: 30 * 60,  coins: 0,   cost: { berry: 10, carrot: 10 } },
-  uncommon:  { name: "Uncommon",  color: "#7fd67a", lay: 30 * 60,  hatch: 60 * 60,  coins: 25,  cost: { berry: 20, carrot: 20 } },
-  rare:      { name: "Rare",      color: "#6fb4ff", lay: 60 * 60,  hatch: 2 * 3600, coins: 100, cost: { berry: 30, carrot: 30, jam: 3 } },
-  epic:      { name: "Epic",      color: "#c08aff", lay: 2 * 3600, hatch: 4 * 3600, coins: 300, cost: { berry: 40, carrot: 40, cake: 2 } },
-  legendary: { name: "Legendary", color: "#ffd65a", lay: 4 * 3600, hatch: 8 * 3600, coins: 800, cost: { berry: 60, carrot: 60, cake: 3, blanket: 2 } },
+  common:    { name: "Common",    color: "#d9d4c4", lay: 5 * 60,   hatch: 10 * 60,   coins: 0,   cost: { berry: 8, carrot: 8 } },
+  uncommon:  { name: "Uncommon",  color: "#7fd67a", lay: 10 * 60,  hatch: 20 * 60,   coins: 0,   cost: { berry: 15, carrot: 15 } },
+  rare:      { name: "Rare",      color: "#6fb4ff", lay: 30 * 60,  hatch: 60 * 60,   coins: 60,  cost: { berry: 25, carrot: 25, jam: 2 } },
+  epic:      { name: "Epic",      color: "#c08aff", lay: 60 * 60,  hatch: 2 * 3600,  coins: 250, cost: { berry: 40, carrot: 40, cake: 2 } },
+  legendary: { name: "Legendary", color: "#ffd65a", lay: 2 * 3600, hatch: 4 * 3600,  coins: 700, cost: { berry: 60, carrot: 60, cake: 3, blanket: 2 } },
 };
 
-// Babies grow up in about 3 hours when well looked after (fed and happy),
-// closer to 5 when they're not.
-export const GROW_SECS = 3 * 3600;
+// Babies grow up in about 90 minutes when well looked after (fed and happy),
+// closer to 2.5 hours when they're not.
+export const GROW_SECS = 90 * 60;
 export const growRate = (c) => Math.max(0.35, 0.3 + 0.4 * (c.happy / 100) + 0.3 * (c.hunger / 100));   // 1.0 at 100/100
 
 // Hatchery levels 1-5: each level hatches 25% faster. Upgrades cost coins and goods.

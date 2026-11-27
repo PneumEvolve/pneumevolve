@@ -284,7 +284,7 @@ export function ranchDefaults() {
     penSlots: PEN_START,
     buildings: { trough: 1, shed: 1, warehouse: 1, beds: 0, stall: 0 }, trough: { berry: 0, carrot: 0 },
     workshops: {}, market: {}, keep: { ...DEFAULT_KEEP }, contracts: [], contractAt: 0, nextContract: 1,
-    hatcheries: [], eggs: [], dex: {},
+    hatcheries: [{ id: "h1", egg: null }], eggs: [], dex: {},   // the first Hatchery comes free
     simAt: null, report: null,
   };
 }

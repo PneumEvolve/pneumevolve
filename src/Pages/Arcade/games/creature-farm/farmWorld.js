@@ -245,14 +245,15 @@ function arrive(w, c, a) {
 
 // Old saves (before the Ranch, or before Phase 2) get the new fields filled in.
 function ensureRanch(w, a) {
-  if (w.v >= 4 && w.simAt != null && Object.values(w.creatures).every(c => c.skills && SKILLS.every(s => c.skills[s] != null))) return w;
+  if (w.v >= 5 && w.simAt != null && Object.values(w.creatures).every(c => c.skills && SKILLS.every(s => c.skills[s] != null))) return w;
   const rng = rngFrom(a.r ?? 0.42);
   const creatures = {};
   const before = (w.v || 1) < 4;                       // farms from before pen spots: everyone keeps a spot
   for (const c of Object.values(w.creatures)) creatures[c.id] = { ...ranchify(c, rng), ...(before ? { housed: true } : {}) };
   const d = ranchDefaults();
   return {
-    ...d, ...w, v: 4, creatures,
+    ...d, ...w, v: 5, creatures,
+    hatcheries: w.hatcheries?.length ? w.hatcheries : d.hatcheries,   // v5: every farm gets its first Hatchery free
     penSlots: before ? Math.max(PEN_START, Object.keys(w.creatures).length) : (w.penSlots || PEN_START),
     buildings: { ...d.buildings, ...(w.buildings || {}) },
     trough: { ...d.trough, ...(w.trough || {}) },

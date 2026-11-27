@@ -66,7 +66,7 @@ const KEYMAP = {
 const isEnd = (st) => st === "over" || st === "won";
 const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
-export default function StampedeRun({ net, runHost, level = "easy", species, hue, partnerName, onAdopt, onWin, onLoot, onExit }) {
+export default function StampedeRun({ net, runHost, level = "easy", species, hue, partnerName, pens = 5, onAdopt, onWin, onLoot, onExit }) {
   const mySlot = runHost ? 0 : 1;
   const otherSlot = 1 - mySlot;
   const LV = LEVELS[level] || LEVELS.easy;
@@ -79,7 +79,7 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
   const [myPick, setMyPick] = useState(null);       // card I just tapped (before the host confirms)
 
   const live = useRef({});
-  live.current = { net, runHost, mySlot, otherSlot, species, hue, level };
+  live.current = { net, runHost, mySlot, otherSlot, species, hue, level, pens };
 
   const canvasRef = useRef(null);
   const keysRef = useRef({});
@@ -98,7 +98,7 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
   // ── Host: start the run ────────────────────────────────────────────────────
   const startRun = useCallback(() => {
     const L = live.current;
-    const run = createRun(Math.floor(Math.random() * 1e9), L.level);
+    const run = createRun(Math.floor(Math.random() * 1e9), L.level, L.pens);
     addPlayer(run, 0, L.species, SPAWN[0].x, SPAWN[0].y, L.hue);
     if (partnerRef.current) addPlayer(run, 1, partnerRef.current.species, SPAWN[1].x, SPAWN[1].y, partnerRef.current.hue);
     runRef.current = run;
