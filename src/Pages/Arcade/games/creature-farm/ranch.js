@@ -247,7 +247,9 @@ export function ranchify(c, rng) {
 export const inMeadow = (c) => !c.housed && !c.follow && !c.away;
 export const housedCount = (w) => Object.values(w.creatures || {}).filter(c => c.housed).length;
 export const penSlots = (w) => w.penSlots || PEN_START;
-export const penCost = (n) => Math.round(20 * Math.pow(1.35, n - PEN_START - 1));     // price of pen spot number n
+// Price of pen spot number n: steep at first (20, 27, 36 … 163 for spot 12), then a
+// gentler 12% a spot so the pen can keep growing (spot 20 ≈ 400, 30 ≈ 1250, 40 ≈ 3900).
+export const penCost = (n) => (n <= 12 ? Math.round(20 * Math.pow(1.35, n - PEN_START - 1)) : Math.round(163 * Math.pow(1.12, n - 12)));
 // "Find a new home": coins for a creature (more for good skills; golden ones are worth a lot).
 export function rehomePrice(c) {
   const skills = SKILLS.reduce((n, s) => n + (c.skills?.[s] || 1), 0);

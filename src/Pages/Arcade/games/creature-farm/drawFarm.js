@@ -8,7 +8,7 @@
 // Each creature is drawn at (x, y) = the spot under its feet.
 
 import { SPECIES, CROPS } from "./species";
-import { MAP, WORLD_W, WORLD_H, PLOT_COUNT, plotRect, growth, worldWidth, plotCost, hutchSpots } from "./farmWorld";
+import { MAP, WORLD_W, WORLD_H, PLOT_COUNT, plotRect, growth, worldWidth, plotCost, hutchSpots, worldHeight, penRect } from "./farmWorld";
 import { WORKSHOPS, ITEMS, STORE_ITEMS, troughCap, missingInputs, housedCount, penSlots, penCost } from "./ranch";
 import { sceneryCanvas } from "./drawScenery";
 
@@ -292,9 +292,10 @@ export function drawFarmer(ctx, x, y, color, face, t, moving, label) {
 export function drawMap(ctx, world, now, t) {
   const WW = worldWidth(world);                   // the farm grows east as you buy land
   // the still background (grass, paths, house, forest, pen) is painted once and reused
-  const bg = sceneryCanvas(WW);
-  if (bg) ctx.drawImage(bg, 0, 0, WW, WORLD_H);
-  else { ctx.fillStyle = "#5c9e4c"; ctx.fillRect(0, 0, WW, WORLD_H); }
+  const WH = worldHeight(world);                  // and south as the pen grows
+  const bg = sceneryCanvas(WW, WH, penRect(world));
+  if (bg) ctx.drawImage(bg, 0, 0, WW, WH);
+  else { ctx.fillStyle = "#5c9e4c"; ctx.fillRect(0, 0, WW, WH); }
 
   drawHutches(ctx, world, t);
   drawCrate(ctx, world, t);
@@ -319,15 +320,10 @@ export function drawMap(ctx, world, now, t) {
 // One little hutch per pen spot (filled ones have a straw bed and a heart),
 // plus a dashed "for sale" hutch for the next spot.
 function drawHutches(ctx, world, t) {
-  const spots = hutchSpots(), slots = penSlots(world), used = housedCount(world);
+  const spots = hutchSpots(world), slots = penSlots(world), used = housedCount(world);   // every spot gets a hutch, however many
   const n = Math.min(slots, spots.length);
   for (let i = 0; i < n; i++) hutch(ctx, spots[i].x, spots[i].y, i < used);
-  if (slots > spots.length) {
-    const s = spots[spots.length - 1];
-    ctx.font = "bold 9px system-ui, sans-serif"; ctx.textAlign = "center";
-    ctx.fillStyle = "rgba(20,14,34,0.75)"; ctx.beginPath(); ctx.roundRect(s.x - 13, s.y + 2, 26, 12, 6); ctx.fill();
-    ctx.fillStyle = "#fff"; ctx.fillText(`+${slots - spots.length}`, s.x, s.y + 11);
-  } else if (slots < spots.length) {
+  if (slots < spots.length) {
     const s = spots[slots];
     ctx.save();
     ctx.setLineDash([4, 3]); ctx.lineDashOffset = -t * 5; ctx.strokeStyle = "rgba(255,255,255,0.75)"; ctx.lineWidth = 1.5;

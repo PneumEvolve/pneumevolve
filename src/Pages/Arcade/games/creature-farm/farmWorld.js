@@ -54,12 +54,22 @@ export const MAP = {
 };
 export const PLOT_COUNT = MAP.field.cols * MAP.field.rows;   // the home field (16); land keeps going east after that
 // Little hutches along the back of the pen, one per pen spot (the first 20 are drawn).
-export function hutchSpots() {
+// Pen spots never run out: the first 20 hutches sit along the back of the pen
+// (leaving the gate clear); after that the pen grows SOUTH, a new row of 14
+// hutches at a time, and the farm gets taller with it.
+export const PEN_ROW_H = 32, PEN_BASE_SPOTS = 20, PEN_ROW_SPOTS = 14;
+const slotsOf = (w) => (typeof w === "number" ? w : Math.max(4, w?.penSlots || 4));
+export const penExtraRows = (w) => Math.max(0, Math.ceil((slotsOf(w) + 1 - PEN_BASE_SPOTS) / PEN_ROW_SPOTS));   // +1: the for-sale hutch
+export const penRect = (w) => ({ ...MAP.pen, h: MAP.pen.h + penExtraRows(w) * PEN_ROW_H });
+export const worldHeight = (w) => WORLD_H + penExtraRows(w) * PEN_ROW_H;
+export function hutchSpots(w) {
   const p = MAP.pen, out = [];
   for (const row of [0, 1]) for (let x = p.x + 22; x <= p.x + p.w - 20; x += 30) {
     if (x > p.x + 40 && x < p.x + 150) continue;           // keep the gate clear
     out.push({ x, y: p.y + 30 + row * 30 });
   }
+  const extra = penExtraRows(w);
+  for (let r = 0; r < extra; r++) for (let x = p.x + 22, k = 0; k < PEN_ROW_SPOTS; x += 30, k++) out.push({ x, y: p.y + p.h + 20 + r * PEN_ROW_H });
   return out;
 }
 
@@ -574,7 +584,7 @@ export function farmReducer(w0, a) {
     // A Stampede run started: the crew is out (no farm work) until run_loot brings them back.
     case "stampede_go": {
       if (!by) return w;
-      const ids = (a.cids || []).filter(id => { const c = w.creatures[id]; return c && (!c.away || c.away === "stampede") && !c.nest && !c.follow && c.grow == null; });   // never the creature you run as
+      const ids = (a.cids || []).filter(id => { const c = w.creatures[id]; return c && (!c.away || c.away === "stampede") && !c.nest && c.grow == null; });
       if (!ids.length) return w;
       const creatures = { ...w.creatures };
       for (const id of ids) creatures[id] = { ...creatures[id], away: "stampede", resting: false };

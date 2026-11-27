@@ -33,7 +33,7 @@ import { C } from "../../ui";
 import { SPECIES, CROPS, PERSONALITIES } from "./species";
 import {
   WORLD_W, WORLD_H, MAP, REACH, DAY_LEN, PLOT_COUNT, FOLLOW_BOND, FEED_BELOW,
-  initFarm, farmReducer, plotRect, growth, visitorPos, penPos, workerPos, worldWidth, plotCost, hutchSpots,
+  initFarm, farmReducer, plotRect, growth, visitorPos, penPos, workerPos, worldWidth, plotCost, hutchSpots, worldHeight,
 } from "./farmWorld";
 import { stateOf, troughCap, STORE_ITEMS, WORKSHOPS, ITEMS, missingInputs, penSlots, penCost, canManage } from "./ranch";
 import RanchPanel, { alertsFor, MANAGER_PANEL_W } from "./RanchPanel";
@@ -175,14 +175,14 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
     return Object.values(w.creatures).find(c => c.follow === L.myId) || w.creatures[w.starters[L.myId]] || null;
   };
   const startRun = (kind, level = "easy") => {
-    if (!myLeader() || !levelUnlocked(live.current.world, level)) return;
+    if (!levelUnlocked(live.current.world, level)) return;    // you head out as yourself now; no leader creature needed
     setBoard(false);
     setMyRun({ kind, host: true, level });
     setPartnerRun(null);
     net.send("run_go", { kind, level });
   };
   const joinRun = () => {
-    if (!partnerRun || !myLeader()) return;
+    if (!partnerRun) return;
     setBoard(false);
     setMyRun({ kind: partnerRun.kind, host: false, level: partnerRun.level });
     setPartnerRun(null);
@@ -369,7 +369,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
       const speed = (offering ? SNEAK : WALK) * mag;
       if (mag > 0.05) {
         me.x = Math.max(18, Math.min(worldWidth(L.world) - 18, me.x + (dx / (mag || 1)) * speed * dt));
-        me.y = Math.max(MAP.wildEdge + 14, Math.min(WORLD_H - 12, me.y + (dy / (mag || 1)) * speed * dt));
+        me.y = Math.max(MAP.wildEdge + 14, Math.min(worldHeight(L.world) - 12, me.y + (dy / (mag || 1)) * speed * dt));
         if (Math.abs(dx) > 0.15) me.face = dx > 0 ? 1 : -1;
       }
       me.moving = mag > 0.05;
@@ -434,7 +434,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
       const dTrough = Math.hypot(MAP.trough.x - me.x, MAP.trough.y - me.y);
       if ((!best && dTrough < REACH + 14) || (dTrough < 42 && best?.kind !== "visitor")) best = { kind: "trough" };
       // the next pen spot for sale (a dashed hutch at the back of the pen)
-      { const sp = hutchSpots()[penSlots(world)]; if (sp && Math.hypot(sp.x - me.x, sp.y - 10 - me.y) < 26 && best?.kind !== "visitor") best = { kind: "buypen" }; }
+      { const sp = hutchSpots(world)[penSlots(world)]; if (sp && Math.hypot(sp.x - me.x, sp.y - 10 - me.y) < 26 && best?.kind !== "visitor") best = { kind: "buypen" }; }
       // workshops: standing at the door beats creatures (Crafters crowd around them)
       for (const [key, st] of Object.entries(world.workshops || {})) {
         const wp = MAP.workshops[key];
@@ -483,16 +483,19 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
       const WW = worldWidth(world);                // grows east as you buy land
       // Manager mode shows the whole farm; walking keeps the usual zoom and the
       // camera slides east/west with you once the farm is wider than the screen.
-      let scale = Math.min(cw / (L.manager ? WW : WORLD_W), (ch - seedStrip - topStrip) / WORLD_H);
+      const WH = worldHeight(world);               // grows south as the pen grows
+      const availH = ch - seedStrip - topStrip;
+      let scale = Math.min(cw / (L.manager ? WW : WORLD_W), availH / (L.manager ? WH : WORLD_H));
       let ox = WW * scale <= cw ? (cw - WW * scale) / 2 : Math.max(cw - WW * scale, Math.min(0, cw / 2 - me.x * scale));
-      let oy = topStrip + Math.max(0, (ch - seedStrip - topStrip - WORLD_H * scale) / 2);
+      // taller than the screen: the camera follows you up and down too
+      let oy = WH * scale <= availH ? topStrip + (availH - WH * scale) / 2 : Math.max(topStrip + availH - WH * scale, Math.min(topStrip, topStrip + availH / 2 - me.y * scale));
       if (L.manager) {
         // Manager mode: the whole farm, however wide it has grown, beside the panel.
       } else if (ch < 520 * dprNow && ch <= cw * 1.15) {
         // Short landscape (phone on its side): zoom in to fill the height and
         // let the camera follow you up/down, so the bars never hide where you are.
         scale = ch / (WORLD_H * 0.8);
-        const worldW = WW * scale, worldH = WORLD_H * scale;
+        const worldW = WW * scale, worldH = WH * scale;
         ox = worldW <= cw ? (cw - worldW) / 2 : Math.max(cw - worldW, Math.min(0, cw / 2 - me.x * scale));
         oy = Math.max(ch - worldH - seedStrip, Math.min(topStrip, ch / 2 - me.y * scale));   // can scroll past the edges so the bars never cover the farm's edge
       } else if (ch > cw * 1.15) {
@@ -502,7 +505,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
         const top = 150 * dpr, bottom = 240 * dpr;
         const band = Math.max(ch * 0.4, ch - top - bottom);
         scale = band / WORLD_H;
-        oy = top + (band - WORLD_H * scale) / 2;
+        oy = WH * scale <= band ? top + (band - WH * scale) / 2 : Math.max(top + band - WH * scale, Math.min(top, top + band / 2 - me.y * scale));
         const worldPx = WW * scale;
         ox = Math.max(cw - worldPx, Math.min(0, cw / 2 - me.x * scale));
       }
@@ -724,8 +727,9 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
 
       {myRun?.kind === "stampede" && (() => {
         const leader = myLeader();
-        return leader && (
-          <StampedeRun net={net} runHost={myRun.host} level={myRun.level} species={leader.species} hue={leader.traits.hue} pens={world.penSlots || 4}
+        return (
+          <StampedeRun net={net} runHost={myRun.host} level={myRun.level} species={leader?.species || "mossling"} hue={leader?.traits?.hue ?? 0} pens={world.penSlots || 4}
+            myName={cap(nameOf(myId))}
             crews={{ 0: crewOf(world, myRun.host ? myId : partnerId), 1: crewOf(world, myRun.host ? partnerId : myId) }}
             onCrewGo={(cids) => cids.length && W.dispatch({ type: "stampede_go", cids })}
             partnerName={cap(nameOf(partnerId))}
@@ -827,7 +831,7 @@ const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 function crewOf(world, uid) {
   if (uid == null) return [];
   return ((world?.crew || {})[uid] || []).map(id => world.creatures[id])
-    .filter(c => c && !c.follow && (!c.away || c.away === "stampede") && !c.nest && c.grow == null)
+    .filter(c => c && (!c.away || c.away === "stampede") && !c.nest && c.grow == null)
     .slice(0, CREW_MAX)
     .map(c => ({ cid: c.id, species: c.species, hue: c.traits?.hue, size: c.traits?.size || 1, rare: !!c.traits?.rare, fight: c.skills?.fight || 1, name: c.name }));
 }
@@ -835,7 +839,7 @@ function crewOf(world, uid) {
 function CrewPicker({ world, myId, dispatch, canAct, leader }) {
   const mine = (world?.crew || {})[myId] || [];
   const options = Object.values(world?.creatures || {})
-    .filter(c => canManage(c, myId) && c.grow == null && !c.nest && c.id !== leader?.id && (!c.away || c.away === "stampede"))
+    .filter(c => canManage(c, myId) && c.grow == null && !c.nest && (!c.away || c.away === "stampede"))
     .sort((a, b) => (b.skills?.fight || 1) - (a.skills?.fight || 1));
   const toggle = (id) => {
     const next = mine.includes(id) ? mine.filter(x => x !== id) : mine.length >= CREW_MAX ? mine : [...mine, id];
@@ -844,7 +848,7 @@ function CrewPicker({ world, myId, dispatch, canAct, leader }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "8px 10px", borderRadius: 10, background: "rgba(0,0,0,0.2)" }}>
       <span style={{ fontSize: 12, color: C.dim }}>
-        <b style={{ color: C.text }}>Your crew ({mine.length}/{CREW_MAX})</b>: farm creatures that start in your herd. Higher Fight = tougher, and they count extra for herd abilities. They can't be snatched and always come home (with some Fight practice).
+        <b style={{ color: C.text }}>Your crew ({mine.length}/{CREW_MAX})</b>: you run as your farmer, and these farm creatures start in your herd. Higher Fight = tougher, and they count extra for herd abilities. They can't be snatched and always come home (with some Fight practice).
       </span>
       <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
         {options.map(c => {
@@ -863,7 +867,6 @@ function CrewPicker({ world, myId, dispatch, canAct, leader }) {
 }
 
 function RunBoard({ leader, world, partnerRun, partnerName, onStart, onJoin, onClose, canAct, myId, dispatch }) {
-  const sp = leader && SPECIES[leader.species];
   return (
     <div style={overlayStyle} onClick={onClose}>
       <div style={{ ...panelStyle, maxWidth: 480, maxHeight: "calc(100svh - 24px)", overflowY: "auto", alignItems: "stretch" }} onClick={e => e.stopPropagation()}>
@@ -871,16 +874,8 @@ function RunBoard({ leader, world, partnerRun, partnerName, onStart, onJoin, onC
           <div style={{ fontSize: 20, fontWeight: 800 }}>Runs</div>
           <button onClick={onClose} style={smallBtn}>close</button>
         </div>
-        {leader ? (
-          <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: C.dim }}>
-            <Portrait species={leader.species} traits={leader.traits} size={48} />
-            <span>You'll head out as <b style={{ color: C.text }}>{leader.name} the {sp.name}</b>. Make a different creature follow you (paw menu) to switch.</span>
-          </div>
-        ) : (
-          <div style={{ color: C.bad, fontSize: 13 }}>Pick your first creature before heading out.</div>
-        )}
         {partnerRun && (
-          <button disabled={!leader || !canAct} onClick={onJoin} style={{ ...smallBtn, padding: 12, background: C.accent2, color: "#06202a", border: "none", fontSize: 15 }}>
+          <button disabled={!canAct} onClick={onJoin} style={{ ...smallBtn, padding: 12, background: C.accent2, color: "#06202a", border: "none", fontSize: 15 }}>
             {partnerRun.kind === "wilds" ? `Join ${partnerName}'s Wilds trip` : `Join ${partnerName}'s ${RUNS.find(r => r.id === partnerRun.kind)?.name ?? ""} run (${LEVELS[partnerRun.level]?.name})`}
           </button>
         )}

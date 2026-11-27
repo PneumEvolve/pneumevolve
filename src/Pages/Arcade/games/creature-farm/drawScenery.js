@@ -10,21 +10,25 @@
 // uses a fixed seed, so the farm looks the same every time and on both devices.
 
 import { MAP, WORLD_W, WORLD_H } from "./farmWorld";
+let WH = WORLD_H;                    // this paint's farm height (grows when the pen grows south)
+let PEN = MAP.pen;                   // this paint's pen (taller with more pen spots)
 
 const TAU = Math.PI * 2;
 const RES = 2;                       // offscreen pixels per world unit (crisp on most screens)
 let cache = null;                    // { key, canvas }
 
-export function sceneryCanvas(WW) {
+export function sceneryCanvas(WW, height = WORLD_H, pen = MAP.pen) {
   if (typeof document === "undefined") return null;
-  if (cache && cache.key === WW) return cache.canvas;
-  const res = Math.max(1, Math.min(RES, 12000 / WW));       // keep huge farms within canvas limits
+  const key = `${WW}x${height}`;
+  if (cache && cache.key === key) return cache.canvas;
+  WH = height; PEN = pen;
+  const res = Math.max(1, Math.min(RES, 12000 / WW, 12000 / WH));   // keep huge farms within canvas limits
   const cv = document.createElement("canvas");
-  cv.width = Math.ceil(WW * res); cv.height = Math.ceil(WORLD_H * res);
+  cv.width = Math.ceil(WW * res); cv.height = Math.ceil(WH * res);
   const ctx = cv.getContext("2d");
   ctx.scale(res, res);
   paintScenery(ctx, WW);
-  cache = { key: WW, canvas: cv };
+  cache = { key, canvas: cv };
   return cv;
 }
 
@@ -41,7 +45,7 @@ function rngFrom(seed) {             // mulberry32
 
 // Places nothing decorative should be drawn on top of.
 function blocked(WW) {
-  const f = MAP.field, p = MAP.pen, h = MAP.house;
+  const f = MAP.field, p = PEN, h = MAP.house;
   const list = [
     [h.x - 20, h.y - 20, h.w + 40, h.h + 44],
     [MAP.store.x - 40, MAP.store.y - 34, 80, 80],
@@ -65,11 +69,11 @@ function paintScenery(ctx, WW) {
   const top = MAP.wildEdge;
 
   // ── grass: gentle gradient, soft light/dark patches, thousands of blades
-  const g = ctx.createLinearGradient(0, 0, 0, WORLD_H);
+  const g = ctx.createLinearGradient(0, 0, 0, WH);
   g.addColorStop(0, "#67b456"); g.addColorStop(1, "#58a24a");
-  ctx.fillStyle = g; ctx.fillRect(0, 0, WW, WORLD_H);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, WW, WH);
   for (let i = 0; i < 70 * (WW / WORLD_W); i++) {
-    const x = rnd() * WW, y = top + rnd() * (WORLD_H - top), r = 30 + rnd() * 90;
+    const x = rnd() * WW, y = top + rnd() * (WH - top), r = 30 + rnd() * 90;
     const gr = ctx.createRadialGradient(x, y, 0, x, y, r);
     const light = rnd() < 0.5;
     gr.addColorStop(0, light ? "rgba(230,255,170,0.10)" : "rgba(20,70,20,0.09)");
@@ -81,7 +85,7 @@ function paintScenery(ctx, WW) {
   for (const col of bladeCols) {
     ctx.strokeStyle = col; ctx.beginPath();
     for (let i = 0; i < 620 * (WW / WORLD_W); i++) {
-      const x = rnd() * WW, y = top + 4 + rnd() * (WORLD_H - top - 4), h = 2.5 + rnd() * 3.5, lean = (rnd() - 0.5) * 2.5;
+      const x = rnd() * WW, y = top + 4 + rnd() * (WH - top - 4), h = 2.5 + rnd() * 3.5, lean = (rnd() - 0.5) * 2.5;
       ctx.moveTo(x, y); ctx.lineTo(x + lean, y - h);
       if (rnd() < 0.5) { ctx.moveTo(x + 1.5, y); ctx.lineTo(x + 1.5 + lean * 0.6 + 1, y - h * 0.8); }
     }
@@ -89,14 +93,14 @@ function paintScenery(ctx, WW) {
   }
   // darker tufts
   for (let i = 0; i < 160 * (WW / WORLD_W); i++) {
-    const x = rnd() * WW, y = top + 10 + rnd() * (WORLD_H - top - 10);
+    const x = rnd() * WW, y = top + 10 + rnd() * (WH - top - 10);
     if (!free(x, y, bl)) continue;
     tuft(ctx, x, y, 0.8 + rnd() * 0.6);
   }
   // little flower clusters
   const petal = ["#ffffff", "#fff3a0", "#ffb3d1", "#d4b8ff", "#ffffff"];
   for (let i = 0; i < 55 * (WW / WORLD_W); i++) {
-    const cx = rnd() * WW, cy = top + 20 + rnd() * (WORLD_H - top - 30);
+    const cx = rnd() * WW, cy = top + 20 + rnd() * (WH - top - 30);
     if (!free(cx, cy, bl)) continue;
     const col = petal[Math.floor(rnd() * petal.length)];
     for (let k = 0, n = 3 + Math.floor(rnd() * 4); k < n; k++) flower(ctx, cx + (rnd() - 0.5) * 22, cy + (rnd() - 0.5) * 12, 1.4 + rnd() * 1, col);
@@ -233,13 +237,13 @@ function forestTop(ctx, WW, rnd) {
 function forestEast(ctx, WW, rnd) {
   const sh = ctx.createLinearGradient(WW - 40, 0, WW - 10, 0);
   sh.addColorStop(0, "rgba(10,40,10,0)"); sh.addColorStop(1, "rgba(10,40,10,0.25)");
-  ctx.fillStyle = sh; ctx.fillRect(WW - 40, MAP.wildEdge, 40, WORLD_H);
-  ctx.fillStyle = "#1f4a27"; ctx.fillRect(WW - 10, 0, 10, WORLD_H);
-  for (let y = MAP.wildEdge + 24; y < WORLD_H + 20; y += 34 + rnd() * 8) treeShape(ctx, WW - 12 + rnd() * 6, y, 0.9 + rnd() * 0.2, rnd() < 0.4);
+  ctx.fillStyle = sh; ctx.fillRect(WW - 40, MAP.wildEdge, 40, WH);
+  ctx.fillStyle = "#1f4a27"; ctx.fillRect(WW - 10, 0, 10, WH);
+  for (let y = MAP.wildEdge + 24; y < WH + 20; y += 34 + rnd() * 8) treeShape(ctx, WW - 12 + rnd() * 6, y, 0.9 + rnd() * 0.2, rnd() < 0.4);
 }
 
 function pen(ctx, rnd) {
-  const p = MAP.pen;
+  const p = PEN, baseH = MAP.pen.h;
   // ground: worn, a bit strawy
   ctx.save();
   ctx.beginPath(); ctx.roundRect(p.x, p.y, p.w, p.h, 6); ctx.clip();
@@ -255,14 +259,14 @@ function pen(ctx, rnd) {
   ctx.stroke();
   ctx.restore();
   // hay bale in the far corner + water tub
-  const hx = p.x + p.w - 46, hy = p.y + p.h - 26;
+  const hx = p.x + p.w - 46, hy = p.y + baseH - 26;
   ctx.fillStyle = "rgba(0,0,0,0.2)"; ctx.beginPath(); ctx.ellipse(hx, hy + 10, 26, 6, 0, 0, TAU); ctx.fill();
   ctx.fillStyle = "#d9b552"; ctx.beginPath(); ctx.roundRect(hx - 24, hy - 12, 48, 22, 6); ctx.fill();
   ctx.strokeStyle = "rgba(150,110,30,0.6)"; ctx.lineWidth = 1;
   for (let i = 0; i < 6; i++) { ctx.beginPath(); ctx.moveTo(hx - 20 + i * 7, hy - 10); ctx.lineTo(hx - 22 + i * 7, hy + 8); ctx.stroke(); }
   ctx.fillStyle = "#8a5a34"; ctx.fillRect(hx - 10, hy - 12, 3, 22); ctx.fillRect(hx + 8, hy - 12, 3, 22);
   ctx.fillStyle = "#f0d278"; ctx.beginPath(); ctx.roundRect(hx - 22, hy - 12, 44, 5, 3); ctx.fill();
-  const wx = p.x + 40, wy = p.y + p.h - 24;
+  const wx = p.x + 40, wy = p.y + baseH - 24;
   ctx.fillStyle = "rgba(0,0,0,0.2)"; ctx.beginPath(); ctx.ellipse(wx, wy + 8, 18, 5, 0, 0, TAU); ctx.fill();
   ctx.fillStyle = "#8f8a86"; ctx.beginPath(); ctx.ellipse(wx, wy, 16, 7, 0, 0, TAU); ctx.fill();
   ctx.fillStyle = "#6fc1f0"; ctx.beginPath(); ctx.ellipse(wx, wy - 1, 12, 4.5, 0, 0, TAU); ctx.fill();

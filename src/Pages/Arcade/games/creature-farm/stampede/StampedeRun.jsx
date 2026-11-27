@@ -13,7 +13,8 @@
 //   net          the room socket (shared with the farm)
 //   runHost      true on the device that started the run — it runs the simulation
 //   level        "easy" | "medium" | "hard"
-//   species, hue your leader (the creature following you, or your starter)
+//   species, hue legacy leader info (still sent around; you're drawn as your farmer)
+//   myName       shown over your farmer
 //   partnerName  for the "Bash is choosing…" line
 //   onAdopt({ species, hue, size, rare })   bring a tamed critter home
 //   onWin(level) you survived — unlocks the next level on the farm
@@ -42,11 +43,11 @@ import { useArcadeEvent } from "../../../net/useArcadeRoom";
 import { useArcadeSave } from "../../../net/useArcadeSave";
 import { C } from "../../../ui";
 import { SPECIES } from "../species";
-import { drawCreature, drawPaw, drawHeart, drawCropSprite } from "../drawFarm";
+import { drawCreature, drawPaw, drawHeart, drawCropSprite, drawFarmer } from "../drawFarm";
 import {
   T, LEVELS, CARDS, SPECIES_IDS, createRun, addPlayer, stepRun, setLeaderPos, tryTame,
   makeSnapshot, readSnapshotPlayers, lassoStep, choosePick, xpNeed, herdCapOf, GOOP_KINDS, BOSS,
-  castHerdAbility, HERD_ABILITIES, lootOf, REWARD, GOODS_EVERY, addCrew,
+  castHerdAbility, HERD_ABILITIES, lootOf, REWARD, GOODS_EVERY, addCrew, crewWeight,
 } from "./stampedeSim";
 import { ITEMS } from "../ranch";
 import { ItemIcon, EggIcon } from "../RanchPanel";
@@ -68,7 +69,7 @@ const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padSt
 
 //   crews     { 0: [...], 1: [...] } farm creatures each player brings (host's slot 0)
 //   onCrewGo(cids)  the run host marks the crew as out on a run (farm side)
-export default function StampedeRun({ net, runHost, level = "easy", species, hue, partnerName, pens = 5, crews = {}, onCrewGo, onAdopt, onWin, onLoot, onExit }) {
+export default function StampedeRun({ net, runHost, level = "easy", species, hue, partnerName, myName = "you", pens = 5, crews = {}, onCrewGo, onAdopt, onWin, onLoot, onExit }) {
   const mySlot = runHost ? 0 : 1;
   const otherSlot = 1 - mySlot;
   const LV = LEVELS[level] || LEVELS.easy;
@@ -81,7 +82,7 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
   const [myPick, setMyPick] = useState(null);       // card I just tapped (before the host confirms)
 
   const live = useRef({});
-  live.current = { net, runHost, mySlot, otherSlot, species, hue, level, pens, crews, onCrewGo };
+  live.current = { net, runHost, mySlot, otherSlot, species, hue, level, pens, crews, onCrewGo, myName };
 
   const canvasRef = useRef(null);
   const keysRef = useRef({});
@@ -364,8 +365,13 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
           const p = it.leader;
           drawLeaderRing(ctx, p.x, p.y, SLOT_COLORS[it.slot], tSec, p.down);
           const hurtBlink = it.slot === L.mySlot && now - me.hurtAt < 600 && Math.floor(now / 80) % 2 === 0;
-          if (!hurtBlink) drawCreature(ctx, p.x, p.y, p.species, { hue: p.hue ?? SPECIES[p.species]?.hue ?? 0, size: 1, personality: p.down ? "sleepy" : "bold" },
-            { face: p.face, t: tSec, moving: it.slot === L.mySlot ? me.moving && !p.down : true, scale: 1.25, alpha: p.down ? 0.6 : 1 });
+          // you run as your farmer (your creatures are the herd)
+          if (!hurtBlink) {
+            const moving = it.slot === L.mySlot ? me.moving && !p.down : !p.down && Math.hypot((p.tx ?? p.x) - p.x, (p.ty ?? p.y) - p.y) > 0.6;
+            ctx.save(); ctx.globalAlpha = p.down ? 0.6 : 1; ctx.translate(p.x, p.y); ctx.scale(1.15, 1.15);
+            drawFarmer(ctx, 0, 0, SLOT_COLORS[it.slot], p.face || 1, tSec, moving, it.slot === L.mySlot ? L.myName : partnerName);
+            ctx.restore();
+          }
           if (p.down) drawDowned(ctx, p.x, p.y, (p.rev || 0) / T.REVIVE_TIME, tSec);
         }
       }
@@ -411,7 +417,7 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
           myCrew: over ? mine.filter(c => c.crew).map(c => ({ id: c.id, species: c.species, hue: c.hue, rare: !!c.rare, name: c.name || (L.crews[L.mySlot] || []).find(m => m.species === c.species)?.name || SPECIES[c.species]?.name })) : [],
           abilities: (() => {
             const pow = {};
-            for (const c of mine) if (!(c.grabbed ?? c.grabbedBy != null)) pow[c.species] = (pow[c.species] || 0) + (c.rare ? 2 : 1);
+            for (const c of mine) if (!(c.grabbed ?? c.grabbedBy != null)) pow[c.species] = (pow[c.species] || 0) + (c.crew ? crewWeight(c.fight || (typeof c.crew === "number" ? c.crew : 1)) : c.rare ? 2 : 1);   // same count the sim uses
             const cds = L.runHost ? (run?.players[L.mySlot]?.abCd || {}) : (view.ab?.[L.mySlot]?.cd || {});
             return Object.keys(HERD_ABILITIES).filter(sp => pow[sp]).map(sp => ({ sp, n: pow[sp], cd: cds[sp] || 0 }));
           })(),
