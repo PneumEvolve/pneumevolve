@@ -40,6 +40,7 @@ export const MAP = {
   sign:  { x: 470, y: 335 },                      // run board signpost (go on runs like Critter Stampede)
   trough: { x: 270, y: 470 },                     // feeding trough (creatures eat from it on their own)
   stall: { x: 60, y: 420 },                       // market stall (once built)
+  dummy: { x: 505, y: 266 },                      // training dummy (once built): Defenders practice here
   meadow: { x: 250, y: 96, w: 290, h: 46 },       // creatures without a pen spot wait here, under the trees
   workshops: {                                    // each appears once it's built
     kitchen: { x: 900, y: 185 },
@@ -208,6 +209,12 @@ export function workerPos(c, tSec, state, plotCount = PLOT_COUNT) {
     const h = MAP.hatcheries[Math.max(0, (parseInt(String(hid).replace(/\D/g, ""), 10) || 1) - 1) % MAP.hatcheries.length];
     const side = state === "nesting" ? (n % 2 ? 1 : -1) : 0;
     return { x: h.x + side * 30 + Math.sin(tSec * 0.8 + ph) * 3, y: h.y + 26 + (side ? 0 : 6), face: side ? -side : 1, moving: false };
+  }
+  if (state === "working" && c.job === "defender") {
+    // take turns on either side of the dummy: dash in, bonk, hop back (never in front, so you can see it)
+    const d = MAP.dummy, side = n % 2 ? 1 : -1, row = Math.floor(n / 2) % 3;
+    const ph2 = (tSec * 0.9 + (n % 6) * 0.37) % 1, lunge = ph2 < 0.25 ? Math.sin(ph2 / 0.25 * Math.PI) : 0;
+    return { x: d.x + side * (36 + row * 18 - lunge * 16), y: d.y + 6 + (row - 1) * 12, face: -side, moving: lunge > 0 };
   }
   if (state === "working" && c.job === "hauler") {
     const { u, dir } = pingPong(0.07, n * 0.41);
@@ -600,6 +607,7 @@ export function farmReducer(w0, a) {
       const job = a.job && JOBS[a.job] && !JOBS[a.job].hidden ? a.job : null;
       const station = job === "crafter" ? (w.workshops?.[a.station]?.level ? a.station : c.station && w.workshops?.[c.station]?.level ? c.station : Object.keys(w.workshops || {}).find(k => w.workshops[k].level)) : null;
       if (job === "crafter" && !station) return w;                 // no workshop to work at yet
+      if (job === "defender" && !w.buildings?.dummy) return w;      // nothing to practice on
       if (c.job === job && (c.station || null) === (station || null)) return w;
       const next = { ...c, job, station, follow: job ? null : c.follow, work: 0 };
       return {

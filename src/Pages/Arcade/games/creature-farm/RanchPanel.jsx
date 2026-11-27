@@ -16,6 +16,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { C } from "../../ui";
 import { SPECIES, CROPS } from "./species";
+import { drawDummy } from "./drawFarm";
 import { drawCreature, drawBowl, drawSun, drawItemIcon, drawSprout, drawEgg } from "./drawFarm";
 import { movesFor, ABILITIES as MOVES } from "./wilds/wildsSim";
 import { goodsRates, talentBoost, TALENTS } from "./eggs";
@@ -24,7 +25,7 @@ import { plotCost, PLOT_COUNT } from "./farmWorld";
 import StickerBook from "./StickerBook";
 import { claimable, suggestPair, newStickerChance, isNewSticker } from "./stickers";
 import {
-  JOBS, SKILLS, SKILL_NAMES, BUILDINGS, STORE_ITEMS, stateOf, STATE_TEXT, canManage, chemistry,
+  DUMMY_SPOTS, DUMMY_SPEED, JOBS, SKILLS, SKILL_NAMES, BUILDINGS, STORE_ITEMS, stateOf, STATE_TEXT, canManage, chemistry,
   nextUpgrade, troughCap, storageCap, warehouseCap, capFor, xpForNext, plotsPerFarmhand,
   ITEMS, ITEM_KEYS, ITEM_GROUPS, PRODUCT_OF, WORKSHOPS, nextWorkshop, wsSpeed, skillFactor, hasGoods,
   priceOf, buyPriceOf, canBuy, fmtCoins, makesGoods, PRODUCE_SECS, CONTRACT_MAX, missingInputs, usable, FOOD_RESERVE,
@@ -288,7 +289,7 @@ function Creatures({ world, W, myId, nameOf, colorOf, onFollow }) {
 
 // Tiny skill chips on every card: "Fo 3  Ca 1  Fa 4 …". The skill its job uses is highlighted.
 const SKILL_SHORT = { forage: "Fo", care: "Ca", farm: "Fa", craft: "Cr", haul: "Ha", fight: "Fi" };
-const SKILL_JOBS = { forage: "Forager", care: "Feeder, Groomer", farm: "Farmhand", craft: "Crafter", haul: "Hauler", fight: "the Wilds" };
+const SKILL_JOBS = { forage: "Forager", care: "Feeder, Groomer", farm: "Farmhand", craft: "Crafter", haul: "Hauler", fight: "Defender, the Wilds" };
 function SkillChips({ c }) {
   const used = c.job ? JOBS[c.job]?.skill : null;
   return (
@@ -389,9 +390,9 @@ function CreatureCard({ c, world, W, myId, nameOf, colorOf, onFollow, open, onTo
             {c.grow == null && !c.nest && <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>
               <button disabled={!can} onClick={() => W.dispatch({ type: "set_job", cid: c.id, job: null })} style={btn(!c.job, { padding: "6px 10px", fontSize: 12, opacity: mine ? 1 : 0.5 })}>None</button>
               {Object.entries(JOBS).filter(([id, j]) => !j.hidden || c.job === id).map(([id, j]) => {
-                const blocked = (id === "crafter" && !built.length) || j.hidden;
+                const blocked = (id === "crafter" && !built.length) || (id === "defender" && !world.buildings?.dummy) || j.hidden;
                 return (
-                  <button key={id} disabled={!can || blocked} title={j.hidden ? "Set from the Hatchery tab" : blocked ? "Build a workshop first" : j.desc} onClick={() => W.dispatch({ type: "set_job", cid: c.id, job: id })}
+                  <button key={id} disabled={!can || blocked} title={j.hidden ? "Set from the Hatchery tab" : blocked ? (id === "defender" ? "Build the Training Dummy first (Buildings tab)" : "Build a workshop first") : j.desc} onClick={() => W.dispatch({ type: "set_job", cid: c.id, job: id })}
                     style={btn(c.job === id, { padding: "6px 10px", fontSize: 12, opacity: mine && !blocked ? 1 : 0.4 })}>
                     {j.name} <span style={{ color: C.faint }}>{c.skills[j.skill] || 1}</span>
                   </button>
@@ -1186,6 +1187,7 @@ function Buildings({ world, W }) {
     if (key === "warehouse") return lvl ? `${BUILDINGS.warehouse.caps[lvl - 1]} of each workshop good` : "—";
     if (key === "beds") return `${Math.round((1 + 0.5 * lvl) * 100)}% rest speed`;
     if (key === "stall") return lvl ? "open for business" : "not built";
+    if (key === "dummy") { const n = Object.values(world.creatures || {}).filter(c => c.job === "defender").length; return lvl ? `${n}/${DUMMY_SPOTS[lvl]} Defenders training at ${DUMMY_SPEED[lvl]}× speed${lvl < 3 ? ` (next level: ${DUMMY_SPOTS[lvl + 1]} at ${DUMMY_SPEED[lvl + 1]}×)` : ""}` : `not built (fits ${DUMMY_SPOTS[1]} Defenders)`; }
     return "";
   };
   return [<Pen key="pen" world={world} W={W} />, <Land key="land" world={world} W={W} />, ...Object.entries(BUILDINGS).map(([key, b]) => {
@@ -1318,7 +1320,8 @@ function BuildingIcon({ kind }) {
       ctx.fillStyle = "#6fd3ff"; ctx.fillRect(6, 20, 28, 10);
       ctx.fillStyle = "#ffffff"; ctx.fillRect(7, 16, 9, 6);
       ctx.fillStyle = "#8a5a34"; ctx.fillRect(5, 28, 3, 6); ctx.fillRect(32, 28, 3, 6);
-    } else if (kind === "stall") {
+    } else if (kind === "dummy") { ctx.save(); ctx.scale(0.62, 0.62); drawDummy(ctx, 32, 42, 0, false, 0); ctx.restore(); }
+    else if (kind === "stall") {
       ctx.fillStyle = "#8a5a34"; ctx.fillRect(8, 18, 24, 16);
       for (let i = 0; i < 4; i++) { ctx.fillStyle = i % 2 ? "#ffffff" : "#e04848"; ctx.fillRect(6 + i * 7, 10, 7, 8); }
       drawSun(ctx, 20, 26, 6);

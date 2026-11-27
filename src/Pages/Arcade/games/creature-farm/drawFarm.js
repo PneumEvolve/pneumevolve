@@ -301,6 +301,7 @@ export function drawMap(ctx, world, now, t) {
   drawCrate(ctx, world, t);
   drawTrough(ctx, world, t);
   if (world.buildings?.stall && MAP.stall) drawStall(ctx, MAP.stall.x, MAP.stall.y, t);
+  if (world.buildings?.dummy && MAP.dummy) drawDummy(ctx, MAP.dummy.x, MAP.dummy.y, t, Object.values(world.creatures || {}).some(c => c.job === "defender" && c.housed && !c.away && !c.resting), world.buildings.dummy);
 
   // workshops (once built)
   for (const [key, st] of Object.entries(world.workshops || {})) {
@@ -449,6 +450,34 @@ function drawTrough(ctx, world, t) {
   const lw = ctx.measureText(label).width + 12;
   ctx.fillStyle = frac === 0 ? "rgba(140,30,40,0.8)" : "rgba(20,14,34,0.65)"; ctx.beginPath(); ctx.roundRect(tr.x - lw / 2, tr.y + 15, lw, 14, 7); ctx.fill();
   ctx.fillStyle = frac === 0 ? "#ffd0d0" : "#fff"; ctx.fillText(label, tr.x, tr.y + 25.5);
+}
+
+// Training Dummy: a straw sack on a post with a target face. It wobbles while someone's practising.
+export function drawDummy(ctx, x, y, t, busy, lvl = 1) {
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.22)"; ctx.beginPath(); ctx.ellipse(x, y + 22, 26, 6, 0, 0, TAU); ctx.fill();
+  // ring of trampled dirt
+  ctx.fillStyle = "rgba(150,110,60,0.35)"; ctx.beginPath(); ctx.ellipse(x, y + 16, 62, 26, 0, 0, TAU); ctx.fill();
+  ctx.fillStyle = "#6b4426"; ctx.fillRect(x - 3, y - 4, 6, 26);                // post
+  ctx.fillStyle = "#5a381e"; ctx.fillRect(x - 12, y + 18, 24, 5);              // foot
+  const wob = busy ? Math.sin(t * 9) * 0.12 * (0.5 + 0.5 * Math.abs(Math.sin(t * 1.7))) : 0;
+  ctx.translate(x, y); ctx.rotate(wob);
+  ctx.fillStyle = "#8a5a34"; ctx.fillRect(-22, -22, 44, 5);                    // arms
+  ctx.fillStyle = "#e0c070"; ctx.fillRect(-25, -24, 6, 9); ctx.fillRect(19, -24, 6, 9);   // straw hands
+  ctx.fillStyle = "#d8b45e"; ctx.beginPath(); ctx.roundRect(-13, -26, 26, 30, 8); ctx.fill();   // sack body
+  ctx.strokeStyle = "#9a7a38"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(-13, -12); ctx.lineTo(13, -12); ctx.stroke();   // rope belt
+  ctx.strokeStyle = "rgba(120,90,40,0.5)"; ctx.lineWidth = 1;
+  for (const [a, b] of [[-8, -22], [5, -18], [-3, -4], [8, -6]]) { ctx.beginPath(); ctx.moveTo(a, b); ctx.lineTo(a + 3, b + 4); ctx.stroke(); }   // stitches
+  ctx.fillStyle = "#e6c878"; ctx.beginPath(); ctx.arc(0, -36, 11, 0, TAU); ctx.fill();   // head
+  ctx.fillStyle = "#d6453a"; ctx.beginPath(); ctx.arc(0, -36, 7, 0, TAU); ctx.fill();    // target
+  ctx.fillStyle = "#fff4e0"; ctx.beginPath(); ctx.arc(0, -36, 4.5, 0, TAU); ctx.fill();
+  ctx.fillStyle = "#d6453a"; ctx.beginPath(); ctx.arc(0, -36, 2, 0, TAU); ctx.fill();
+  ctx.restore();
+  if (busy && (t * 1.8) % 1 < 0.18) {                                            // bonk!
+    ctx.strokeStyle = "#fff6c0"; ctx.lineWidth = 2;
+    for (let k = 0; k < 5; k++) { const a = k * 1.26 + t; ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * 16, y - 20 + Math.sin(a) * 16); ctx.lineTo(x + Math.cos(a) * 24, y - 20 + Math.sin(a) * 24); ctx.stroke(); }
+  }
+  for (let i = 0; i < lvl; i++) { ctx.fillStyle = "#ffd65a"; ctx.beginPath(); ctx.arc(x - (lvl - 1) * 5 + i * 10, y + 32, 3, 0, TAU); ctx.fill(); }   // level pips
 }
 
 function drawStall(ctx, x, y, t) {
@@ -657,6 +686,10 @@ export function drawWorkIcon(ctx, x, y, kind, t) {
     ctx.translate(x, y); ctx.rotate(-0.4 + sw);
     ctx.fillStyle = "#8a5a34"; ctx.fillRect(-1.2, -2, 2.4, 10);
     ctx.fillStyle = "#9aa3b0"; ctx.fillRect(-5, -5, 10, 4);
+  } else if (kind === "defender") {                    // a little wooden sword, swinging
+    ctx.translate(x, y); ctx.rotate(-0.6 + Math.sin(t * 8) * 0.5);
+    ctx.fillStyle = "#cfd6e0"; ctx.fillRect(-1.5, -9, 3, 11);
+    ctx.fillStyle = "#8a5a34"; ctx.fillRect(-4.5, 2, 9, 2.2); ctx.fillRect(-1.2, 4, 2.4, 4);
   } else if (kind === "hauler") {
     ctx.fillStyle = "#c9a26a"; ctx.beginPath(); ctx.ellipse(x, y + 1, 6, 5.5, 0, 0, TAU); ctx.fill();
     ctx.fillStyle = "#a8834e"; ctx.beginPath(); ctx.moveTo(x - 3, y - 4); ctx.lineTo(x + 3, y - 4); ctx.lineTo(x + 1.5, y - 7); ctx.lineTo(x - 1.5, y - 7); ctx.closePath(); ctx.fill();

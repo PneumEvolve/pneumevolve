@@ -28,7 +28,7 @@ import { ItemIcon, EggIcon } from "../RanchPanel";
 import { RARITY_INFO } from "../eggs";
 import {
   ARENA, ROLES, ABILITIES, BLESSINGS, RATIONS, PACK_MAX, NODE_NAMES, LAYERS, TIERS, LANTERN_MAX, DEFEND_WAVES,
-  newTrip, applyIntent, stepTrip, snapshot, eligible, pickLimit, reachable, nodeById, canControl, retreat, movesFor,
+  newTrip, applyIntent, stepTrip, snapshot, eligible, pickLimit, guardsFor, GUARD_MAX, reachable, nodeById, canControl, retreat, movesFor,
 } from "./wildsSim";
 import { drawFight, drawBossBar, SLOT_COLORS } from "./drawWilds";
 
@@ -315,7 +315,7 @@ function SquadBar({ st, mySlot, canCtl, selected, setSelected, intent, partnerNa
         const status = u.ko ? "knocked out" : u.order ? (u.order.type === "attack" ? "focusing" : "steering") : "fighting on its own";
         return (
           <div key={u.id} onClick={() => mine && !u.ko && setSelected(sel ? null : u.id)}
-            style={{ minWidth: short ? 150 : 180, flex: short ? "1 0 150px" : "1 0 180px", maxWidth: 380, padding: short ? 4 : 7, borderRadius: 12, boxSizing: "border-box",
+            style={{ minWidth: short || st.squad.length > 5 ? 140 : 180, flex: short || st.squad.length > 5 ? "1 0 140px" : "1 0 180px", maxWidth: 380, padding: short ? 4 : 7, borderRadius: 12, boxSizing: "border-box",
               background: sel ? "rgba(255,204,77,0.14)" : "rgba(255,255,255,0.04)", border: "2px solid rgba(255,255,255,0.08)",
               outline: sel ? `2px solid ${SLOT_COLORS[u.slot]}` : "none", outlineOffset: -2,
               display: "flex", flexDirection: "column", gap: short ? 3 : 5, cursor: mine ? "pointer" : "default", opacity: u.ko ? 0.6 : 1, overflow: "hidden" }}>
@@ -479,11 +479,13 @@ function EventCard({ st, intent, nameOf }) {
 
 // ── Lobby ─────────────────────────────────────────────────────────────────────
 function Lobby({ st, world, myId, partnerId, mySlot, tripHost, partnerName, partnerHere, intent, onLeave }) {
-  const myList = eligible(world, myId);
+  const users = [tripHost ? myId : partnerId, tripHost ? partnerId : myId];
+  const guards = guardsFor(st, world, users);
+  const myList = eligible(world, myId).filter(c => !guards.some(g => g.c.id === c.id));
   const limit = pickLimit(st, mySlot);
   const myPicks = st.picks[mySlot], otherPicks = st.picks[1 - mySlot];
   const packed = Object.values(st.rations).reduce((a, b) => a + b, 0);
-  const canGo = tripHost && (st.picks[0].length + st.picks[1].length) > 0 && (!st.coop || (st.ready[1] && st.picks[1].length > 0));
+  const canGo = tripHost && (st.picks[0].length + st.picks[1].length + guards.length) > 0 && (!st.coop || (st.ready[1] && st.picks[1].length > 0));
   const cr = (id) => world.creatures[id];
   return (
     <Shell onLeave={onLeave} title={st.mode === "defend" ? "Defend the Farm · get ready" : "The Wilds · plan your trip"}>
@@ -518,6 +520,20 @@ function Lobby({ st, world, myId, partnerId, mySlot, tripHost, partnerName, part
           </div>
           {!tripHost && <div style={{ fontSize: 11, color: C.dim }}>{partnerName} picks the route.</div>}
         </Section>
+        {st.mode === "defend" && (
+          <Section title={`On guard · ${guards.length} Defender${guards.length === 1 ? "" : "s"} coming along`}>
+            {guards.length ? (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {guards.map(({ c }) => (
+                  <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: 6, borderRadius: 10, background: "rgba(255,214,90,0.08)", border: "1px solid rgba(255,214,90,0.25)" }}>
+                    <Portrait c={c} size={32} />
+                    <span style={{ fontSize: 12, fontWeight: 800 }}>{c.name}<span style={{ display: "block", fontSize: 10, color: C.dim }}>{ROLES[c.species]?.role} · Fight {c.skills?.fight || 1}</span></span>
+                  </div>
+                ))}
+              </div>
+            ) : <div style={{ fontSize: 12, color: C.dim }}>Creatures with the Defender job come along on their own, on top of your picks (up to {GUARD_MAX}). Build a Training Dummy and give some the Defender job so they practise at home.</div>}
+          </Section>
+        )}
         <Section title={`Your creatures · ${myPicks.length}/${limit} picked`}>
           {limit === 0 && <div style={{ fontSize: 12, color: C.dim }}>You joined after the squad was picked. You can watch.</div>}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>

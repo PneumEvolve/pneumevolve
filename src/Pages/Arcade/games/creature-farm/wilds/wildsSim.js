@@ -184,6 +184,18 @@ export function newTrip(seed, mode = "wilds") {
 export function eligible(world, userId) {
   return Object.values(world?.creatures || {}).filter(c => !c.away && c.grow == null && !c.nest && (c.owner === String(userId) || (c.bond?.[String(userId)] || 0) >= 50));   // no babies, no nesting parents
 }
+// Defend the Farm: every Defender (farm job) comes along on top of the picks, up to GUARD_MAX.
+export const GUARD_MAX = 6;
+export function guardsFor(st, world, users) {
+  if (st.mode !== "defend") return [];
+  const picked = new Set([...st.picks[0], ...st.picks[1]]), out = [];
+  for (const slot of st.coop ? [0, 1] : [0]) {
+    for (const c of eligible(world, users?.[slot])) {
+      if (c.job === "defender" && !picked.has(c.id) && !out.some(g => g.c.id === c.id) && out.length < GUARD_MAX) out.push({ c, slot });
+    }
+  }
+  return out;
+}
 export const pickLimit = (st, slot) => (st.coop ? 2 : slot === 0 ? SQUAD : 0);
 
 function say(st, text) { st.log = [text, ...st.log].slice(0, 6); }
@@ -292,13 +304,14 @@ export function applyIntent(st, slot, i, ctx) {
 }
 
 function setOff(st, ctx) {
-  const ids = [...st.picks[0], ...st.picks[1]];
+  const ids = [...st.picks[0], ...st.picks[1], ...guardsFor(st, ctx.world, ctx.users).map(g => g.c.id)];
   if (!ids.length || (st.coop && (!st.ready[1] || !st.picks[1].length))) return false;
   st.squad = [];
   for (const slot of [0, 1]) for (const cid of st.picks[slot]) {
     const c = ctx.world?.creatures?.[cid];
     if (c) st.squad.push(makeUnit(st, c, slot));
   }
+  if (st.mode === "defend") for (const g of guardsFor(st, ctx.world, ctx.users)) st.squad.push(makeUnit(st, g.c, g.slot));
   if (!st.squad.length) return false;
   if (st.mode === "defend") {
     st.base = { id: "barn", isBase: true, side: 0, x: 80, y: 270, hp: BARN_HP, maxHp: BARN_HP, armor: 2, st: {} };
@@ -320,6 +333,8 @@ function startWave(st) {
   startFight(st, type);
   // goop come at the farm from the far side, a little more spread out
   if (type === "boss") for (const e of st.enemies) if (e.kind === "boss") { e.maxHp = Math.round(e.maxHp * 0.55); e.hp = e.maxHp; }   // no camp before him at home
+  const extra = Math.max(0, st.squad.length - SQUAD);                 // Defenders make the squad bigger: a little more goop
+  if (extra) for (const e of st.enemies) { e.maxHp = Math.round(e.maxHp * (1 + 0.32 * extra)); e.hp = e.maxHp; if (e.dmg) e.dmg *= 1 + 0.06 * extra; }
   for (const e of st.enemies) { e.x = Math.max(e.x, 620); e.goesForBarn = e.kind !== "bulb" && rand(st) < (e.kind === "boss" ? 0.5 : 0.65); }
   say(st, `Wave ${st.wave + 1} of ${DEFEND_WAVES.length}${type === "boss" ? ": the Goop King!" : type === "elite" ? ": something big!" : ""}`);
 }

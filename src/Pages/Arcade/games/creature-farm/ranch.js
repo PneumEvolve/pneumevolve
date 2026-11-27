@@ -61,6 +61,7 @@ export const JOBS = {
   farmhand: { name: "Farmhand", skill: "farm",   desc: "Plants empty plots, harvests ripe food crops and replants them. 1 plot per Farm level." },
   crafter:  { name: "Crafter",  skill: "craft",  desc: "Works a workshop, turning goods into better goods.", needs: "workshop" },
   hauler:   { name: "Hauler",   skill: "haul",   desc: "Takes goods to the Market Stall: fills contracts, then sells what's above your keep amounts.", needs: "stall" },
+  defender: { name: "Defender", skill: "fight",  desc: "Practices on the Training Dummy to level up Fight. Every Defender also comes along when you Defend the Farm (on top of your picks).", needs: "dummy" },
   carer:    { name: "Carer",    skill: "care",   desc: "Looks after the egg in a Hatchery until it hatches. Higher Care hatches it faster and makes a skill bonus more likely.", needs: "hatchery", hidden: true },
 };
 const FORAGE_RATE = 1 / 360;                // food per second at skill 1 (10 an hour)
@@ -160,6 +161,8 @@ export const BUILDINGS = {
   beds:      { name: "Comfy Beds", desc: "Tired creatures recharge faster.", max: 3,
                cost: (lvl) => Math.round(80 * Math.pow(3, lvl)),
                goods: { 2: { blanket: 3 }, 3: { blanket: 8 } } },
+  dummy:     { name: "Training Dummy", desc: "Defenders practice fighting here. Each level: more Defender spots and faster training.", max: 3,
+               cost: (lvl) => [150, 600, 2000][lvl], goods: { 2: { brick: 4 }, 3: { brick: 12, blanket: 4 } } },
   stall:     { name: "Market Stall", desc: "Auto-sells anything that won't fit in storage, at full price. Haulers sell here too.", max: 1,
                cost: () => 100 },
 };
@@ -168,6 +171,13 @@ export const troughCap = (w) => BUILDINGS.trough.caps[(w.buildings?.trough || 1)
 export const storageCap = (w) => BUILDINGS.shed.caps[(w.buildings?.shed || 1) - 1];
 export const warehouseCap = (w) => BUILDINGS.warehouse.caps[(w.buildings?.warehouse || 1) - 1];
 export const capFor = (w, k) => (ITEMS[k]?.group === "made" ? warehouseCap(w) : storageCap(w));
+// Training Dummy: how many Defenders can train at once, and how fast (× normal XP).
+export const DUMMY_SPOTS = [0, 3, 6, 10];
+export const DUMMY_SPEED = [0, 1.5, 2.25, 3];
+export const dummySpots = (w) => DUMMY_SPOTS[w.buildings?.dummy || 0];
+export const dummySpeed = (w) => DUMMY_SPEED[w.buildings?.dummy || 0];
+// The Defenders that fit on the dummy (oldest first); the rest wait for a spot.
+export const training = (w) => new Set(Object.values(w.creatures || {}).filter(c => c.job === "defender").sort((a, b) => (a.id < b.id ? -1 : 1)).slice(0, dummySpots(w)).map(c => c.id));
 export const bedsBoost = (w) => 1 + 0.5 * (w.buildings?.beds || 0);
 
 // Next upgrade for a building: { level, cost, goods } or null when maxed.
@@ -350,6 +360,7 @@ export function stepRanch(w, dt, tMs, rep) {
   const crafting = {};                                    // workshop → total crafting speed this step
   const crewed = {};                                      // workshops with a Crafter on shift this step
 
+  const onDummy = training(w);
   for (const c of list) {
     if (c.away) continue;                                  // out in the Wilds: frozen until they're back
     const pw = PERSONALITY_WORK[c.traits.personality] || {};
@@ -425,6 +436,7 @@ export function stepRanch(w, dt, tMs, rep) {
       const lvl = c.skills[job.skill] || 1;
       const f = skillFactor(lvl) * speed * (1 + talentBoost(c, job.skill));   // type talents (eggs.js TALENTS)
       let learning = true;                                  // XP only while actually getting something done
+      let xpMul = 1;
       c.work = (c.work || 0);
       if (c.job === "forager") {
         c.work += FORAGE_RATE * f * dt;
@@ -450,6 +462,9 @@ export function stepRanch(w, dt, tMs, rep) {
       } else if (c.job === "carer") {
         const h = (w.hatcheries || []).find(x => x.id === c.station);
         if (!h?.egg || h.egg.stage !== "hatching") learning = false;
+      } else if (c.job === "defender") {
+        if (!onDummy.has(c.id)) learning = false;           // no dummy, or no free spot on it
+        else xpMul = dummySpeed(w) * (1 + talentBoost(c, "fight"));
       } else if (c.job === "hauler") {
         if (!w.buildings.stall) learning = false;
         else {
@@ -463,7 +478,7 @@ export function stepRanch(w, dt, tMs, rep) {
       if (learning) {
         const s = job.skill;
         c.xp = { ...(c.xp || {}) };
-        c.xp[s] = (c.xp[s] || 0) + dt;
+        c.xp[s] = (c.xp[s] || 0) + dt * xpMul;
         if (c.skills[s] < 10 && c.xp[s] >= xpForNext(c.skills[s])) {
           c.xp[s] -= xpForNext(c.skills[s]);
           c.skills = { ...c.skills, [s]: c.skills[s] + 1 };
@@ -715,6 +730,13 @@ export function jobRate(w, c) {
       text: `looks after ${r.plots} plot${r.plots === 1 ? "" : "s"}${parts.length ? `: about ${parts.join(" and ")} an hour (${Math.round(r.coins)} coins)` : ""}` +
         (r.plots < can ? `. It could handle ${can}, but ${r.plots ? "only " + r.plots + " are" : "none are"} left for it: buy more land` : ""),
     };
+  }
+  if (c.job === "defender") {
+    if (!w.buildings?.dummy) return { text: "needs a Training Dummy (Buildings tab)" };
+    if (!training(w).has(c.id)) return { text: `waiting for a spot on the Training Dummy (it fits ${dummySpots(w)}; upgrade it for more)` };
+    const lvl2 = c.skills?.fight || 1, mul = dummySpeed(w) * (1 + talentBoost(c, "fight"));
+    if (lvl2 >= 10) return { text: "Fight 10: as good as it gets. Still comes along to Defend the Farm" };
+    return { text: `trains at ${mul.toFixed(1)}× speed: Fight ${lvl2 + 1} in about ${Math.max(1, Math.round((xpForNext(lvl2) - (c.xp?.fight || 0)) / mul / 60))} min of practice` };
   }
   if (c.job === "crafter") return { text: `works at Craft ${lvl} (${Math.round(f * 100)}% speed${f > skillFactor(lvl) ? ", buddy bonus" : ""})` };
   return null;
