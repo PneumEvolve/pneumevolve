@@ -270,3 +270,34 @@ export function roomForBaby(w) {
   const coming = (w.hatcheries || []).filter(h => h.egg).length;
   return housed + coming < Math.max(4, w.penSlots || 4);
 }
+
+// ── Type talents: what each type is good at on the farm ──────────────────────
+// Every type a creature carries gives a talent, stronger with more genes of it
+// (a purebred has the full talent; Mossling ×2 · Emberpup ×2 gets half of each).
+export const TALENTS = {
+  mossling:  { skill: "farm",   boost: 0.4,  text: "green thumb: tends more plots" },
+  fluffwing: { skill: "forage", boost: 0.4,  text: "keen nose: forages faster" },
+  puddlet:   { skill: "care",   boost: 0.4,  text: "gentle: better Feeder, Groomer and Carer" },
+  emberpup:  { skill: "craft",  boost: 0.4,  text: "hot hands: crafts faster" },
+  pebblet:   { skill: "haul",   boost: 0.4,  text: "strong back: hauls more" },
+  glowmoth:  { skill: "goods",  boost: 0.4,  text: "glowing: makes its goods faster" },
+  zapling:   { skill: "all",    boost: 0.15, text: "zippy: a little faster at every job" },
+};
+// Extra speed (0.4 = +40%) for a skill ("farm", "goods", ...) from this creature's types.
+export function talentBoost(c, skill) {
+  let b = 0;
+  for (const { type, n } of typeCounts(c)) {
+    const T = TALENTS[type];
+    if (T && (T.skill === skill || (T.skill === "all" && skill !== "goods"))) b += T.boost * (n / GENE_SLOTS);
+  }
+  return b;
+}
+// Goods: every type it carries makes that type's item. The main (dominant) type
+// at full speed, the others at half. Purebreds make their item 50% faster.
+// [{ type, rate }] rate = items per PRODUCE_SECS at full happiness (before gold)
+export function goodsRates(c) {
+  const tc = typeCounts(c);
+  const goodsBoost = 1 + talentBoost(c, "goods");
+  if (tc.length === 1) return [{ type: tc[0].type, rate: 1.5 * goodsBoost }];
+  return tc.map(({ type }) => ({ type, rate: (type === c.species ? 1 : 0.5) * goodsBoost }));
+}

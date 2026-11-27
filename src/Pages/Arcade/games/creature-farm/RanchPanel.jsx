@@ -18,6 +18,7 @@ import { C } from "../../ui";
 import { SPECIES, CROPS } from "./species";
 import { drawCreature, drawBowl, drawSun, drawItemIcon, drawSprout, drawEgg } from "./drawFarm";
 import { movesFor, ABILITIES as MOVES } from "./wilds/wildsSim";
+import { goodsRates, talentBoost, TALENTS } from "./eggs";
 import { RARITY_INFO, HATCHERY_MAX, hatcheryCost, eggPreview, typeLabel, typeCounts, GROW_SECS, growRate, canAfford, hatcherySpeed, hatcheryUpgrade, roomForBaby } from "./eggs";
 import { plotCost, PLOT_COUNT } from "./farmWorld";
 import StickerBook from "./StickerBook";
@@ -228,7 +229,7 @@ function AwayReport({ rep, onDismiss }) {
 // ── Creatures ─────────────────────────────────────────────────────────────────
 const FILTERS = [["all", "All"], ["mine", "Mine"], ["help", "Need help"], ["idle", "No job"], ["meadow", "Meadow"]];
 // Sorting: by a skill (best first), or by how they're doing.
-const SORTS = [["", "Default"], ...SKILLS.map(s => [s, SKILL_NAMES[s]]), ["happy", "Happiest"], ["hungry", "Hungriest"]];
+const SORTS = [["", "Default"], ...SKILLS.map(s => [s, SKILL_NAMES[s]]), ["type", "Type"], ["happy", "Happiest"], ["hungry", "Hungriest"]];
 function Creatures({ world, W, myId, nameOf, colorOf, onFollow }) {
   const [filter, setFilter] = useState("all");
   const [sortBy, setSortBy] = useState(() => { try { return localStorage.getItem("ranch_sort") || ""; } catch { return ""; } });
@@ -240,7 +241,11 @@ function Creatures({ world, W, myId, nameOf, colorOf, onFollow }) {
     filter === "help" ? ["starving", "sad"].includes(stateOf(c)) :
     filter === "idle" ? stateOf(c) === "idle" :
     filter === "meadow" ? stateOf(c) === "meadow" : true);
-  if (sortBy === "happy") list.sort((a, b) => b.happy - a.happy);
+  // Type: group by main species, biggest group first; purebreds lead each group.
+  const typeTally = {};
+  for (const c of list) typeTally[c.species] = (typeTally[c.species] || 0) + 1;
+  if (sortBy === "type") list.sort((a, b) => typeTally[b.species] - typeTally[a.species] || a.species.localeCompare(b.species) || typeCounts(a).length - typeCounts(b).length || (a.name || "").localeCompare(b.name || ""));
+  else if (sortBy === "happy") list.sort((a, b) => b.happy - a.happy);
   else if (sortBy === "hungry") list.sort((a, b) => a.hunger - b.hunger);
   else if (sortBy) list.sort((a, b) => (b.skills?.[sortBy] || 1) - (a.skills?.[sortBy] || 1) || (b.xp?.[sortBy] || 0) - (a.xp?.[sortBy] || 0));
   const myRules = (world.rules || {})[myId] || {};
@@ -261,9 +266,21 @@ function Creatures({ world, W, myId, nameOf, colorOf, onFollow }) {
         {SORTS.map(([id, label]) => <button key={id || "def"} onClick={() => chooseSort(id)} style={btn(sortBy === id, { padding: "4px 8px", fontSize: 11 })}>{label}</button>)}
       </div>
       {list.length === 0 && <div style={{ color: C.dim, fontSize: 13 }}>Nobody here.</div>}
-      {list.map(c => (
+      {sortBy === "type" && list.length > 0 && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {Object.entries(typeTally).sort((a, b) => b[1] - a[1]).map(([sp, n]) => (
+            <span key={sp} onClick={() => document.querySelector(`[data-type-head="${sp}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })} style={{ cursor: "pointer", padding: "3px 9px", borderRadius: 999, background: "rgba(255,255,255,0.07)", fontSize: 12, fontWeight: 800 }}>{SPECIES[sp]?.name || sp} <span style={{ color: C.dim }}>{n}</span></span>
+          ))}
+        </div>
+      )}
+      {list.map((c, i) => (
+        <React.Fragment key={c.id}>
+        {sortBy === "type" && (i === 0 || list[i - 1].species !== c.species) && (
+          <div data-type-head={c.species} style={{ marginTop: i ? 8 : 2, fontSize: 13, fontWeight: 900, color: "#c9a7ff" }}>{SPECIES[c.species]?.name || c.species}s · {typeTally[c.species]}</div>
+        )}
         <CreatureCard key={c.id} c={c} world={world} W={W} myId={myId} nameOf={nameOf} colorOf={colorOf} onFollow={onFollow}
           open={open === c.id} onToggle={() => setOpen(o => (o === c.id ? null : c.id))} />
+        </React.Fragment>
       ))}
     </>
   );
@@ -316,6 +333,7 @@ function CreatureCard({ c, world, W, myId, nameOf, colorOf, onFollow, open, onTo
             {c.name} <span style={{ color: C.dim, fontWeight: 700, fontSize: 12 }}>{c.traits.rare ? "golden " : ""}{sp.name} · {c.traits.personality}</span>
           </div>
           {(c.genes || c.grow != null) && <div style={{ fontSize: 11, color: "#c9a7ff", fontWeight: 700 }}>{typeLabel(c)}{c.grow != null ? ` · baby, ${Math.round(c.grow * 100)}% grown` : ""}</div>}
+          {open && <div style={{ fontSize: 11, color: C.dim }}>Talents: {typeCounts(c).map(({ type, n }) => TALENTS[type] && `${TALENTS[type].text} (+${Math.round(TALENTS[type].boost * n / 4 * 100)}%)`).filter(Boolean).join(" · ")}</div>}
           <div style={{ fontSize: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             <span style={{ color: stColor, fontWeight: 800 }}>{c.job && st === "working" ? jobLabel(c) : STATE_TEXT[st]}</span>
             {c.job && st !== "working" && <span style={{ color: C.dim }}>({jobLabel(c)})</span>}
@@ -496,7 +514,10 @@ function Housing({ c, world, W, mine, myId }) {
 function MakingCard({ c, product }) {
   const on = makesGoods(c);
   const frac = Math.max(0, Math.min(1, c.made || 0));
-  const rate = (c.happy / 100) * (c.traits.rare ? 2 : 1);              // items per PRODUCE_SECS
+  const rates = goodsRates(c);
+  const mainRate = rates.find(r => r.type === c.species)?.rate || 1;
+  const extra = rates.filter(r => r.type !== c.species);
+  const rate = (c.happy / 100) * (c.traits.rare ? 2 : 1) * mainRate;   // items per PRODUCE_SECS
   const secsLeft = on && rate > 0 ? ((1 - frac) * PRODUCE_SECS) / rate : null;
   const name = ITEMS[product].name.toLowerCase();
   const why = inMeadow(c) ? "no pen spot" : c.hunger < 10 ? "too hungry" : `needs happiness 50+ (now ${Math.floor(c.happy)})`;
@@ -512,8 +533,14 @@ function MakingCard({ c, product }) {
         </div>
         <Bar value={frac * 100} max={100} color={on ? ITEMS[product].color : "rgba(255,255,255,0.25)"} compact noWarn />
         <div style={{ fontSize: 11, color: C.dim }}>
-          {on ? `About 1 every ${clock(PRODUCE_SECS / rate)} at this happiness${c.traits.rare ? " (golden: double speed)" : ""}. Happier = faster.` : inMeadow(c) ? "Creatures only make goods with a pen spot. Progress is kept." : "Progress is kept; it picks up again once it's happy and fed."}
+          {on ? `About 1 every ${clock(PRODUCE_SECS / rate)} at this happiness${c.traits.rare ? " (golden: double speed)" : ""}${rates.length === 1 ? " (purebred: 50% faster)" : ""}. Happier = faster.` : inMeadow(c) ? "Creatures only make goods with a pen spot. Progress is kept." : "Progress is kept; it picks up again once it's happy and fed."}
         </div>
+        {extra.length > 0 && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", fontSize: 11, color: C.dim }}>
+            Also makes (half speed):
+            {extra.map(r => PRODUCT_OF[r.type] && <span key={r.type} style={{ display: "inline-flex", alignItems: "center", gap: 3, color: C.text, fontWeight: 700 }}><ItemIcon kind={PRODUCT_OF[r.type]} size={14} />{ITEMS[PRODUCT_OF[r.type]].name.toLowerCase()} {Math.round(Math.min(1, (c.madeX || {})[r.type] || 0) * 100)}%</span>)}
+          </div>
+        )}
       </div>
     </div>
   );

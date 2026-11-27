@@ -30,7 +30,7 @@
 //   • Contracts board: "Deliver 6 bricks within 12 hours — pays 260".
 
 import { SPECIES, CROPS } from "./species";
-import { RARITY_INFO, GROW_SECS, growRate, settleSkills, lookFor, comboKey, hatcherySpeed, startEgg, seededRng } from "./eggs";
+import { RARITY_INFO, GROW_SECS, growRate, settleSkills, lookFor, comboKey, hatcherySpeed, startEgg, seededRng, talentBoost, goodsRates, typeCounts } from "./eggs";
 
 // ── Tuning ────────────────────────────────────────────────────────────────────
 export const H = 3600;
@@ -87,7 +87,7 @@ export const PERSONALITY_WORK = {        // how personality changes needs
   greedy: { hunger: 1.3 }, sleepy: { energy: 1.25 }, grumpy: { happy: 1.3 },
 };
 
-export const plotsPerFarmhand = (c) => c.skills?.farm || 1;   // 1 plot per Farm level
+export const plotsPerFarmhand = (c) => Math.round((c.skills?.farm || 1) * (1 + talentBoost(c, "farm")));   // 1 plot per Farm level (+ Mossling talent)
 
 // Personality chemistry between buddies.
 const CLICK = [["shy", "bold"], ["playful", "sleepy"], ["greedy", "playful"], ["sleepy", "shy"]];
@@ -251,9 +251,12 @@ export const penSlots = (w) => w.penSlots || PEN_START;
 // gentler 12% a spot so the pen can keep growing (spot 20 ≈ 400, 30 ≈ 1250, 40 ≈ 3900).
 export const penCost = (n) => (n <= 12 ? Math.round(20 * Math.pow(1.35, n - PEN_START - 1)) : Math.round(163 * Math.pow(1.12, n - 12)));
 // "Find a new home": coins for a creature (more for good skills; golden ones are worth a lot).
+// Mixed creatures are worth more (+60% per extra type), and so are ones from rare eggs.
+const RARITY_VALUE = { common: 1, uncommon: 1.2, rare: 1.6, epic: 2.4, legendary: 4 };
 export function rehomePrice(c) {
   const skills = SKILLS.reduce((n, s) => n + (c.skills?.[s] || 1), 0);
-  return Math.round((12 + skills * 1.6) * (c.traits?.rare ? 6 : 1));
+  const types = typeCounts(c).length;
+  return Math.round((12 + skills * 1.6) * (c.traits?.rare ? 6 : 1) * (1 + 0.6 * (types - 1)) * (RARITY_VALUE[c.rarity] || 1));
 }
 export function stateOf(c) {
   if (c.away) return "away";
@@ -398,17 +401,29 @@ export function stepRanch(w, dt, tMs, rep) {
     }
 
     // ── making its species' goods (happy creatures only; golden ones make double)
-    const product = PRODUCT_OF[c.species];
-    if (product && makesGoods(c)) {
-      c.made = (c.made || 0) + (dt / PRODUCE_SECS) * (c.happy / 100) * (c.traits.rare ? 2 : 1);
-      if (c.made >= 1) { const n = Math.floor(c.made); c.made -= n; store(w, product, n, rep, "goods"); }
+    //    Mixed creatures make the item of EVERY type they carry (main type at full
+    //    speed, the rest at half); purebreds make theirs 50% faster. See goodsRates.
+    if (PRODUCT_OF[c.species] && makesGoods(c)) {
+      const base = (dt / PRODUCE_SECS) * (c.happy / 100) * (c.traits.rare ? 2 : 1);
+      for (const { type, rate } of goodsRates(c)) {
+        const item = PRODUCT_OF[type];
+        if (!item) continue;
+        if (type === c.species) {
+          c.made = (c.made || 0) + base * rate;
+          if (c.made >= 1) { const n = Math.floor(c.made); c.made -= n; store(w, item, n, rep, "goods"); }
+        } else {
+          c.madeX = { ...(c.madeX || {}) };
+          c.madeX[type] = (c.madeX[type] || 0) + base * rate;
+          if (c.madeX[type] >= 1) { const n = Math.floor(c.madeX[type]); c.madeX[type] -= n; store(w, item, n, rep, "goods"); }
+        }
+      }
     }
 
     // ── working
     if (working) {
       const job = JOBS[c.job];
       const lvl = c.skills[job.skill] || 1;
-      const f = skillFactor(lvl) * speed;
+      const f = skillFactor(lvl) * speed * (1 + talentBoost(c, job.skill));   // type talents (eggs.js TALENTS)
       let learning = true;                                  // XP only while actually getting something done
       c.work = (c.work || 0);
       if (c.job === "forager") {
@@ -687,7 +702,7 @@ export function jobRate(w, c) {
   if (!c.job) return null;
   const lvl = c.skills?.[JOBS[c.job].skill] || 1;
   const buddy = c.buddy ? w.creatures?.[c.buddy] : null;
-  const f = skillFactor(lvl) * (buddy && chemistry(c, buddy) > 0 ? 1.15 : 1);
+  const f = skillFactor(lvl) * (buddy && chemistry(c, buddy) > 0 ? 1.15 : 1) * (1 + talentBoost(c, JOBS[c.job].skill));
   if (c.job === "forager") return { every: 1 / (FORAGE_RATE * f), what: "brings back a berry or carrot", perHour: 3600 * FORAGE_RATE * f, coins: 3600 * FORAGE_RATE * f * 1.5 };   // half berries (1), half carrots (2)
   if (c.job === "feeder") return { every: 1 / (FEED_RATE * f), what: "moves 1 food from storage to the trough", perHour: 3600 * FEED_RATE * f };
   if (c.job === "groomer") return { text: `cheers up the ${1 + Math.floor(lvl / 3)} saddest creature${lvl >= 3 ? "s" : ""} at once, +${Math.round(GROOM_RATE * f * 3600)} happiness an hour each` };

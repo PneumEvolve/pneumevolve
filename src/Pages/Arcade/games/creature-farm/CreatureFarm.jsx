@@ -308,14 +308,20 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
     const b = document.body.style;
     const prev = [b.userSelect, b.webkitUserSelect, b.webkitTouchCallout];
     b.userSelect = "none"; b.webkitUserSelect = "none"; b.webkitTouchCallout = "none";
-    const clear = () => { const sel = window.getSelection?.(); if (sel && sel.rangeCount) sel.removeAllRanges(); };
-    const noMenu = (e) => e.preventDefault();
+    // (never while typing in a box: clearing the selection there kills the cursor, so you couldn't type a name)
+    const clear = () => { const a = document.activeElement; if (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA")) return; const sel = window.getSelection?.(); if (sel && sel.rangeCount) sel.removeAllRanges(); };
+    const noMenu = (e) => { const t = e.target; if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return; e.preventDefault(); };
+    // Safari/iPad won't let you type in a box whose page says "no selecting", so text boxes opt back in.
+    const css = document.createElement("style");
+    css.textContent = "input, textarea { -webkit-user-select: text !important; user-select: text !important; -webkit-touch-callout: default !important; }";
+    document.head.appendChild(css);
     document.addEventListener("selectionchange", clear);
     document.addEventListener("contextmenu", noMenu);
     return () => {
       [b.userSelect, b.webkitUserSelect, b.webkitTouchCallout] = prev;
       document.removeEventListener("selectionchange", clear);
       document.removeEventListener("contextmenu", noMenu);
+      css.remove();
     };
   }, []);
 
@@ -1238,7 +1244,8 @@ function HatchParty({ c, world, mine, onName, onClose }) {
           <>
             <div style={{ fontSize: 13, color: C.dim }}>Give your baby a name:</div>
             <input value={name} maxLength={14} onChange={e => setName(e.target.value)} onKeyDown={e => { e.stopPropagation(); if (e.key === "Enter") done(); }}
-              style={{ fontSize: 22, fontWeight: 900, textAlign: "center", padding: "8px 10px", borderRadius: 12, border: "2px solid rgba(255,255,255,0.2)", background: "rgba(0,0,0,0.3)", color: C.text, width: 220, fontFamily: "inherit" }} />
+              autoFocus onFocus={e => e.target.select()}
+              style={{ userSelect: "text", WebkitUserSelect: "text", fontSize: 22, fontWeight: 900, textAlign: "center", padding: "8px 10px", borderRadius: 12, border: "2px solid rgba(255,255,255,0.2)", background: "rgba(0,0,0,0.3)", color: C.text, width: 220, fontFamily: "inherit" }} />
           </>
         ) : <div style={{ fontSize: 22, fontWeight: 900 }}>{c.name}</div>}
         <button onClick={done} style={{ ...smallBtn, padding: "10px 24px", fontSize: 16, fontWeight: 900, background: C.accent, color: "#1a1300", border: "none" }}>Hello, {name.trim() || c.name}!</button>
