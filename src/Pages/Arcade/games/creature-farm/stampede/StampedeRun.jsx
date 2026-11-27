@@ -74,7 +74,8 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
   const { data: save, update } = useArcadeSave("creature-farm", { stampedeBest: {} });
 
   const [hud, setHud] = useState({ t: 0, hp: 100, maxHp: 100, herd: 0, cap: LV.herdCap, kills: 0, tamed: 0, down: false, st: "play", started: false, players: [], myHerd: [], xp: [0, 1, 0], pick: null });
-  const [adopted, setAdopted] = useState([]);       // ids of critters brought home this run
+  const [adopted, setAdopted] = useState([]);       // ids of critters already sent home this run
+  const [chosen, setChosen] = useState([]);         // ids picked to bring home, not sent yet (tap again to change your mind)
   const [myPick, setMyPick] = useState(null);       // card I just tapped (before the host confirms)
 
   const live = useRef({});
@@ -105,7 +106,7 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
     lassoRef.current = null;
     trailRef.current = { 0: [], 1: [] };
     recordedRef.current = false;
-    setAdopted([]); setMyPick(null);
+    setAdopted([]); setChosen([]); setMyPick(null);
   }, []);
 
   useEffect(() => { if (runHost && !runRef.current) startRun(); }, [runHost, startRun]);
@@ -118,8 +119,7 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
 
   const applyHurt = useCallback((kx, ky) => {
     const me = meRef.current;
-    me.kx += kx; me.ky += ky; me.hurtAt = performance.now();
-    lassoRef.current = null;
+    me.kx += kx; me.ky += ky; me.hurtAt = performance.now();   // getting hit no longer breaks your lasso
   }, []);
 
   // ── Network ────────────────────────────────────────────────────────────────
@@ -146,7 +146,7 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
     meRef.current = { ...SPAWN[1], face: 1, moving: false, kx: 0, ky: 0, hurtAt: -9 };
     lassoRef.current = null; trailRef.current = { 0: [], 1: [] }; recordedRef.current = false;
     viewRef.current = freshView();
-    setAdopted([]); setMyPick(null);
+    setAdopted([]); setChosen([]); setMyPick(null);
   });
   useArcadeEvent(net, "snap", (m) => {
     if (live.current.runHost) return;
@@ -278,7 +278,7 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
       for (const [cid, at] of pendingTame.current) if (now - at > 1500) pendingTame.current.delete(cid);
       const wild = critters.filter(c => c.owner === -1 && !pendingTame.current.has(c.id));
       if (!iAmDown && !over && !paused && myP) {
-        const res = lassoStep(lassoRef.current, me, wild, me.moving, myP.mods?.lasso || 1);
+        const res = lassoStep(lassoRef.current, me, wild, me.moving, myP.mods?.lasso || 1, now - me.hurtAt < 900);
         lassoRef.current = res.state;
         if (res.tame) {
           if (L.runHost) for (const cid of res.tame) tryTame(run, 0, cid);
@@ -433,13 +433,23 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
   }, [hud.st, hud.started, hud.t, hud.tamed, hud.kills, hud.myHerd, level, LV.rareHome, update, onWin, onAdopt]);
 
   // how many regular picks you get (on Hard, golden ones came home free and don't count)
-  const picksUsed = adopted.filter(id => !(LV.rareHome && hud.myHerd.find(c => c.id === id)?.rare)).length;
+  const picksUsed = [...adopted, ...chosen].filter(id => !(LV.rareHome && hud.myHerd.find(c => c.id === id)?.rare)).length;
   const picksLeft = Math.max(0, LV.home - picksUsed);
-  const bringHome = (c) => {
-    if (adopted.includes(c.id) || picksLeft <= 0) return;
-    setAdopted(a => [...a, c.id]);
-    onAdopt?.({ species: c.species, hue: c.hue, size: c.size, rare: c.rare });
+  // Tap to pick, tap again to un-pick. They're only sent to the farm when you
+  // press "Bring them home", "Again!" or "Back to farm".
+  const togglePick = (c) => {
+    if (adopted.includes(c.id)) return;
+    if (chosen.includes(c.id)) { setChosen(a => a.filter(id => id !== c.id)); return; }
+    if (picksLeft <= 0) return;
+    setChosen(a => [...a, c.id]);
   };
+  const sendHome = () => {
+    if (!chosen.length) return;
+    for (const id of chosen) { const c = hud.myHerd.find(x => x.id === id); if (c) onAdopt?.({ species: c.species, hue: c.hue, size: c.size, rare: c.rare }); }
+    setAdopted(a => [...a, ...chosen]); setChosen([]);
+  };
+  const leave = () => { sendHome(); onExit(); };
+  const again = () => { sendHome(); restart(); };
 
   // ── Upgrade pick ───────────────────────────────────────────────────────────
   const choose = (id) => {
@@ -475,7 +485,7 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
     <div style={{ position: "absolute", inset: 0, zIndex: 70, overflow: "hidden", background: "#1d3b22", touchAction: "none", ...noSelect, fontFamily: "ui-rounded, 'Nunito', system-ui, sans-serif" }}>
       <canvas ref={canvasRef} style={{ width: "100%", height: "100%", display: "block", ...noSelect }} />
 
-      <button onClick={onExit} style={{ ...smallBtn, position: "absolute", top: 10, left: 10, zIndex: 25 }}>← back to farm</button>
+      <button onClick={leave} style={{ ...smallBtn, position: "absolute", top: 10, left: 10, zIndex: 25 }}>← back to farm</button>
 
       <div style={{ position: "absolute", top: 46, left: 0, right: 0, display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap", zIndex: 20, pointerEvents: "none", fontSize: 13, fontWeight: 700 }}>
         <Chip color={C.dim}>{LV.name}</Chip>
@@ -612,17 +622,18 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
           {hud.myHerd.length > 0 && (
             <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 8 }}>
               <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 6 }}>
-                {picksLeft > 0 ? `Bring ${picksLeft} home to the farm` : "Coming home to your pen!"}
+                {picksLeft > 0 ? `Pick ${picksLeft} more to bring home` : chosen.length ? "Tap one again to change your mind" : "Coming home to your pen!"}
               </div>
               {LV.rareHome && hud.myHerd.some(c => c.rare) && (
                 <div style={{ fontSize: 12, color: "#ffd65a", marginBottom: 6 }}>Every golden critter comes home free!</div>
               )}
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center", maxHeight: 150, overflowY: "auto" }}>
                 {hud.myHerd.map(c => {
-                  const home = adopted.includes(c.id);
+                  const sent = adopted.includes(c.id), picked = chosen.includes(c.id), home = sent || picked;
+                  const can = !sent && (picked || picksLeft > 0);
                   return (
-                    <button key={c.id} disabled={home || picksLeft <= 0} onClick={() => bringHome(c)} title={SPECIES[c.species]?.name} style={{
-                      padding: 2, borderRadius: 10, cursor: home || picksLeft <= 0 ? "default" : "pointer",
+                    <button key={c.id} data-home={c.id} disabled={!can} onClick={() => togglePick(c)} title={sent ? "Already on its way home" : picked ? "Tap to change your mind" : SPECIES[c.species]?.name} style={{
+                      padding: 2, borderRadius: 10, cursor: can ? "pointer" : "default",
                       background: home ? "rgba(126,224,129,0.25)" : "rgba(255,255,255,0.05)",
                       border: `2px solid ${home ? C.good : c.rare ? "#ffd65a" : "rgba(255,255,255,0.12)"}`,
                       opacity: !home && picksLeft <= 0 ? 0.35 : 1,
@@ -632,12 +643,17 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
                   );
                 })}
               </div>
+              {chosen.length > 0 && (
+                <button data-sendhome onClick={sendHome} style={{ ...menuBtn(true), marginTop: 8, padding: "8px 14px", fontSize: 14 }}>
+                  Bring {chosen.length === 1 ? "it" : `these ${chosen.length}`} home
+                </button>
+              )}
             </div>
           )}
 
           {hud.st === "won" && level !== "hard" && <div style={{ fontSize: 13, color: C.good, fontWeight: 800 }}>{LEVELS[level === "easy" ? "medium" : "hard"].name} is unlocked on the signpost!</div>}
-          <button onClick={restart} style={menuBtn(true)}>Again!</button>
-          <button onClick={onExit} style={menuBtn(false)}>Back to farm</button>
+          <button onClick={again} style={menuBtn(true)}>Again!</button>
+          <button onClick={leave} style={menuBtn(false)}>Back to farm</button>
         </Overlay>
       )}
     </div>

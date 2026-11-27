@@ -284,7 +284,9 @@ function pickKind(run) {
     if (cap != null && run.baddies.filter(b => b.kind === k).length >= cap) continue;
     if (run.t > from && r() < chance) return k;
   }
-  return run.t > L.bigFrom && r() < Math.min(L.bigMax, 0.1 + run.t / 1500) ? "big" : "goop";
+  // once the Goop King is out, far fewer big goop, so your herd can reach him
+  const bigOdds = Math.min(L.bigMax, 0.1 + run.t / 1500) * (run.bossSpawned && !run.bossDown ? 0.35 : 1);
+  return run.t > L.bigFrom && r() < bigOdds ? "big" : "goop";
 }
 function makeBaddie(run, kind, x, y) {
   const L = levelOf(run), t = run.t;
@@ -546,7 +548,8 @@ export function stepRun(run, dt, hurt = () => {}) {
 
   // ── Baddies: spawn faster as time goes on
   run.badCd -= dt;
-  const rate = run.t < 15 ? 0.45 : Math.min(L.rate.cap, L.rate.base + run.t / L.rate.per);   // per second
+  const rate = (run.t < 15 ? 0.45 : Math.min(L.rate.cap, L.rate.base + run.t / L.rate.per))
+    * (run.bossSpawned && !run.bossDown ? 0.8 : 1);                                            // per second; a bit calmer during the boss
   if (run.badCd <= 0 && run.baddies.length < L.baddieMax && ups.length) {
     run.baddies.push(rollBaddie(run, ups[Math.floor(r() * ups.length)]));
     run.badCd = 1 / rate;
@@ -894,11 +897,14 @@ function insideLoop(pts, x, y) {
 
 // state: { cid, acc, last, pts, frac } or null. Returns { state, tame: [cids] | null }.
 // reach: lasso range multiplier (Long Rope upgrade).
-export function lassoStep(state, me, wildCritters, moving, reach = 1) {
+// knocked: you were just hit. A knockback can throw you past the rope's reach;
+// for a moment that only pauses the lasso instead of dropping it.
+export function lassoStep(state, me, wildCritters, moving, reach = 1, knocked = false) {
   const maxR = T.LASSO_MAX * reach, pickR = T.LASSO_PICK * reach;
   if (state) {
     const c = wildCritters.find(w => w.id === state.cid);
     const d = c ? Math.hypot(me.x - c.x, me.y - c.y) : Infinity;
+    if (c && knocked && d <= maxR * 1.8) return { state: { ...state, last: Math.atan2(me.y - c.y, me.x - c.x) }, tame: null };
     if (!c || d > maxR) return { state: null, tame: null };
     if (d < T.LASSO_MIN) return { state, tame: null };          // too close — no progress, no reset
     const ang = Math.atan2(me.y - c.y, me.x - c.x);
