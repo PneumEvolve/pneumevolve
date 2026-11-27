@@ -27,14 +27,14 @@ import { ITEMS } from "../ranch";
 import { ItemIcon, EggIcon } from "../RanchPanel";
 import { RARITY_INFO } from "../eggs";
 import {
-  ARENA, ROLES, ABILITIES, BLESSINGS, RATIONS, PACK_MAX, NODE_NAMES, LAYERS, TIERS,
+  ARENA, ROLES, ABILITIES, BLESSINGS, RATIONS, PACK_MAX, NODE_NAMES, LAYERS, TIERS, LANTERN_MAX, DEFEND_WAVES,
   newTrip, applyIntent, stepTrip, snapshot, eligible, pickLimit, reachable, nodeById, canControl, retreat, movesFor,
 } from "./wildsSim";
 import { drawFight, drawBossBar, SLOT_COLORS } from "./drawWilds";
 
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
-export default function WildsRun({ net, tripHost, world, W, myId, partnerId, partnerHere, nameOf, onExit }) {
+export default function WildsRun({ net, tripHost, world, W, myId, partnerId, partnerHere, nameOf, onExit, mode = "wilds" }) {
   const mySlot = tripHost ? 0 : 1;
   const stRef = useRef(null);                       // host: the real state · guest: latest snapshot
   const [, setTick] = useState(0);
@@ -50,7 +50,7 @@ export default function WildsRun({ net, tripHost, world, W, myId, partnerId, par
   };
 
   // ── Host: create the trip, broadcast changes ────────────────────────────────
-  if (tripHost && !stRef.current) stRef.current = newTrip(Math.floor(Math.random() * 1e9));
+  if (tripHost && !stRef.current) stRef.current = newTrip(Math.floor(Math.random() * 1e9), mode);
   const broadcast = useCallback((volatile = false) => {
     const L = live.current;
     if (!L.tripHost || !stRef.current) return;
@@ -62,7 +62,7 @@ export default function WildsRun({ net, tripHost, world, W, myId, partnerId, par
     // farm hooks: leaving and coming home
     if (st.phase !== "lobby" && !sentGo.current) {
       sentGo.current = true;
-      L.W.dispatch({ type: "wilds_go", squad: st.squad.map(u => u.cid), rations: st.rations });
+      L.W.dispatch({ type: "wilds_go", squad: st.squad.map(u => u.cid), rations: { ...st.rations, ...(st.lanterns ? { lantern: st.lanterns } : {}) } });   // lanterns get used up
     }
     if (st.phase === "end" && !sentEnd.current) {
       sentEnd.current = true;
@@ -201,15 +201,15 @@ export default function WildsRun({ net, tripHost, world, W, myId, partnerId, par
 
   // ── Screens ─────────────────────────────────────────────────────────────────
   if (!st) {
-    return <Shell onLeave={onExit} title="The Wilds"><div style={{ color: C.dim, padding: 30 }}>Joining {cap(nameOf(partnerId))}'s trip…</div></Shell>;
+    return <Shell onLeave={onExit} title={(stRef.current?.mode || mode) === "defend" ? "Defend the Farm" : "The Wilds"}><div style={{ color: C.dim, padding: 30 }}>Joining {cap(nameOf(partnerId))}'s trip…</div></Shell>;
   }
   const pName = cap(nameOf(partnerId));
   if (st.phase === "lobby") return <Lobby st={st} world={world} myId={myId} partnerId={partnerId} mySlot={mySlot} tripHost={tripHost} partnerName={pName} partnerHere={partnerHere} intent={intent} onLeave={leave} />;
   if (st.phase === "end") return <EndScreen st={st} onLeave={onExit} tripHost={tripHost} />;
 
   return (
-    <Shell onLeave={leave} title="The Wilds" right={<LootChip st={st} />}>
-      {st.phase === "fight" ? (
+    <Shell onLeave={leave} title={(stRef.current?.mode || mode) === "defend" ? "Defend the Farm" : "The Wilds"} right={<LootChip st={st} />}>
+      {st.phase === "fight" || (st.mode === "defend" && st.phase === "event") ? (   // defend: the event card shows over the farm, there is no map
         <div style={{ position: "relative", flex: 1, minHeight: 0 }}>
           <canvas ref={canvasRef} onPointerDown={onCanvasDown} onPointerMove={onCanvasMove} onPointerUp={onCanvasUp} onPointerCancel={() => { dragRef.current = null; }} style={{ width: "100%", height: "100%", display: "block", touchAction: "none", cursor: "crosshair" }} />
           <PauseButton paused={st.paused} onClick={() => intent({ k: "pause" })} />
@@ -431,9 +431,14 @@ function EventCard({ st, intent, nameOf }) {
   ));
   let title = "", body = null, actions = <button onClick={() => intent({ k: "next" })} style={btn(true)}>Continue</button>;
   if (ev.type === "spoils") {
-    title = ev.boss ? "The Goop King is beaten!" : "Victory!";
-    body = <><div style={{ color: "#ffd65a", fontWeight: 900 }}>+{ev.coins} coins</div><div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>{goodsList(ev.goods)}</div>{ev.egg && <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 900, color: RARITY_INFO[ev.egg].color }}><EggIcon rarity={ev.egg} size={30} /> {RARITY_INFO[ev.egg].name} egg!</div>}<div style={{ fontSize: 12, color: C.dim }}>Everyone caught their breath (+25% health). Knocked-out creatures are back up.</div></>;
-    if (ev.final) actions = <button onClick={() => intent({ k: "next" })} style={btn(true)}>Head home with the loot</button>;
+    title = ev.wave != null ? (ev.final ? "The farm is safe!" : `Wave ${ev.wave} of ${DEFEND_WAVES.length} held off!`) : ev.boss ? "The Goop King is beaten!" : "Victory!";
+    body = <><div style={{ color: "#ffd65a", fontWeight: 900 }}>+{ev.coins} coins</div><div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>{goodsList(ev.goods)}</div>{ev.egg && <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 900, color: RARITY_INFO[ev.egg].color }}><EggIcon rarity={ev.egg} size={30} /> {RARITY_INFO[ev.egg].name} egg!</div>}<div style={{ fontSize: 12, color: C.dim }}>{ev.wave != null ? "Everyone caught their breath (+45% health) and the Barn got patched up a bit." : "Everyone caught their breath (+25% health)."} Knocked-out creatures are back up.</div></>;
+    if (ev.final) actions = <button onClick={() => intent({ k: "next" })} style={btn(true)}>{ev.wave != null ? "Collect the loot" : "Head home with the loot"}</button>;
+    else if (ev.wave != null) actions = <button onClick={() => intent({ k: "next" })} style={btn(true)}>Next wave</button>;
+  } else if (ev.type === "defeat" && st.mode === "defend") {
+    title = st.base && st.base.hp <= 0 ? "The goop got into the Barn" : "The squad is all knocked out";
+    body = <div style={{ fontSize: 13, color: C.dim }}>The goop slink off by morning. You keep what you won so far (coins at 60%). Try more lanterns, or a Pebblet to pull goop off the Barn.</div>;
+    actions = <button onClick={() => intent({ k: "next" })} style={btn(true)}>Back to the farm</button>;
   } else if (ev.type === "defeat") {
     title = "The squad is all knocked out";
     body = <div style={{ fontSize: 13, color: C.dim }}>Everyone limps home. You keep what you found (coins at 60%). Nobody is hurt for long.</div>;
@@ -481,13 +486,27 @@ function Lobby({ st, world, myId, partnerId, mySlot, tripHost, partnerName, part
   const canGo = tripHost && (st.picks[0].length + st.picks[1].length) > 0 && (!st.coop || (st.ready[1] && st.picks[1].length > 0));
   const cr = (id) => world.creatures[id];
   return (
-    <Shell onLeave={onLeave} title="The Wilds · plan your trip">
+    <Shell onLeave={onLeave} title={st.mode === "defend" ? "Defend the Farm · get ready" : "The Wilds · plan your trip"}>
       <div style={{ flex: 1, overflowY: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ fontSize: 13, color: C.dim }}>
           {st.coop ? `Co-op with ${partnerName}: you each bring 2 creatures and control them in fights.` : partnerHere ? `Playing solo for now: bring 4. If ${partnerName} joins, you each bring 2.` : "Solo trip: bring 4 creatures."}
           {" "}Fights play out on their own: you pick when to use special moves, and can drag a creature to steer it. Either of you can pause. Mix roles: a Tank (Pebblet) holds the line, a Healer (Puddlet) keeps everyone up, Strikers and Casters do the damage. Creatures on the trip don't work at home until they're back.
         </div>
-        <Section title={`Route · ${TIERS[st.tier || 0].name}`}>
+        {st.mode === "defend" && (
+          <Section title={`Lanterns · ${st.lanterns || 0}/${LANTERN_MAX}`}>
+            <div style={{ fontSize: 12, color: C.dim }}>
+              Five waves of goop come for the Barn tonight. Most go straight for it, so keep them off it (a Pebblet's Shell Up pulls them away). Every lantern you set out is a tower that zaps goop. Lanterns get used up.
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <ItemIcon kind="lantern" size={26} />
+              <span style={{ fontSize: 12, fontWeight: 800 }}>have {Math.floor(world.food?.lantern || 0)}</span>
+              <button disabled={!tripHost || !(st.lanterns > 0)} onClick={() => intent({ k: "lantern", d: -1 })} style={btn(false, { padding: "3px 9px" })}>-</button>
+              <span style={{ fontWeight: 900 }}>{st.lanterns || 0}</span>
+              <button disabled={!tripHost || (st.lanterns || 0) >= Math.min(LANTERN_MAX, Math.floor(world.food?.lantern || 0))} onClick={() => intent({ k: "lantern", d: 1 })} style={btn(false, { padding: "3px 9px" })}>+</button>
+            </div>
+          </Section>
+        )}
+        <Section title={`${st.mode === "defend" ? "How tough" : "Route"} · ${TIERS[st.tier || 0].name}`}>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {TIERS.map((T, k) => (
               <button key={k} disabled={!tripHost} onClick={() => intent({ k: "tier", v: k })} style={{ ...btn((st.tier || 0) === k, { padding: 8, width: 170, textAlign: "left", opacity: tripHost || (st.tier || 0) === k ? 1 : 0.5 }) }}>
@@ -565,7 +584,7 @@ function EndScreen({ st, onLeave }) {
   const r = st.result;
   const goods = Object.entries(r.goods || {}).filter(([, n]) => n > 0);
   return (
-    <Shell onLeave={onLeave} title="The Wilds">
+    <Shell onLeave={onLeave} title={(stRef.current?.mode || mode) === "defend" ? "Defend the Farm" : "The Wilds"}>
       <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", alignItems: "center", gap: 12, textAlign: "center" }}>
         <div style={{ fontSize: 26, fontWeight: 900, color: r.won ? "#ffd65a" : C.text }}>{r.won ? "Back home victorious!" : "Back home"}</div>
         <div style={{ color: "#ffd65a", fontWeight: 900, fontSize: 18 }}>+{r.coins} coins</div>

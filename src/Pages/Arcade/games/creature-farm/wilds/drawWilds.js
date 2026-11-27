@@ -69,6 +69,8 @@ function background() {
 export function drawFight(ctx, view, t, ui) {
   const bg = background();
   if (bg) ctx.drawImage(bg, 0, 0, ARENA.W, ARENA.H); else { ctx.fillStyle = "#5c9e4c"; ctx.fillRect(0, 0, ARENA.W, ARENA.H); }
+  if (view.base) drawBarn(ctx, view.base, t);                  // Defend the Farm
+  for (const tw of view.towers || []) drawLanternTower(ctx, tw, t);
 
   // Goop King slam warnings
   for (const e of view.enemies) if (e.kind === "boss" && e.wind > 0 && e.slam) {
@@ -227,4 +229,37 @@ export function drawBossBar(ctx, boss) {
   ctx.fillStyle = "#3a1a52"; ctx.beginPath(); ctx.roundRect(x, y + 8, w, 9, 4); ctx.fill();
   ctx.fillStyle = "#c04ae0"; ctx.beginPath(); ctx.roundRect(x, y + 8, w * Math.max(0, boss.hp / boss.maxHp), 9, 4); ctx.fill();
   ctx.font = "bold 10px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "#ffd65a"; ctx.fillText("THE GOOP KING", ARENA.W / 2, y + 5);
+}
+
+// ── Defend the Farm: the Barn and lantern towers ─────────────────────────────
+function drawBarn(ctx, b, t) {
+  const x = b.x, y = b.y, hurt = b.flash > 0;
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.25)"; ctx.beginPath(); ctx.ellipse(x, y + 52, 66, 12, 0, 0, TAU); ctx.fill();
+  ctx.fillStyle = hurt ? "#e86a5a" : "#b8453a"; ctx.strokeStyle = "#5a1e18"; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(x - 56, y + 50); ctx.lineTo(x - 56, y - 20); ctx.lineTo(x, y - 62); ctx.lineTo(x + 56, y - 20); ctx.lineTo(x + 56, y + 50); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = "#6e2a22"; ctx.beginPath(); ctx.moveTo(x - 64, y - 16); ctx.lineTo(x, y - 70); ctx.lineTo(x + 64, y - 16); ctx.lineTo(x + 56, y - 12); ctx.lineTo(x, y - 58); ctx.lineTo(x - 56, y - 12); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = "#f2e2c4"; ctx.fillRect(x - 22, y + 2, 44, 48);
+  ctx.strokeStyle = "#b8453a"; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(x - 20, y + 4); ctx.lineTo(x + 20, y + 48); ctx.moveTo(x + 20, y + 4); ctx.lineTo(x - 20, y + 48); ctx.stroke();
+  ctx.fillStyle = "#ffe08a"; ctx.beginPath(); ctx.arc(x, y - 28, 9, 0, TAU); ctx.fill();
+  // health bar
+  const f = Math.max(0, b.hp / b.maxHp);
+  ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillRect(x - 46, y - 92, 92, 9);
+  ctx.fillStyle = f < 0.3 ? "#ff6b6b" : f < 0.6 ? "#ffcc4d" : "#7ee081"; ctx.fillRect(x - 45, y - 91, 90 * f, 7);
+  ctx.fillStyle = "#fff"; ctx.font = "bold 11px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillText("BARN", x, y - 96);
+  ctx.restore();
+}
+function drawLanternTower(ctx, tw, t) {
+  const x = tw.x, y = tw.y;
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.22)"; ctx.beginPath(); ctx.ellipse(x, y + 4, 12, 4, 0, 0, TAU); ctx.fill();
+  ctx.fillStyle = "#6e4628"; ctx.fillRect(x - 3, y - 34, 6, 38);
+  const glow = 0.55 + Math.sin(t * 5 + x) * 0.15;
+  const g = ctx.createRadialGradient(x, y - 40, 2, x, y - 40, 30);
+  g.addColorStop(0, `rgba(255,226,120,${glow})`); g.addColorStop(1, "rgba(255,226,120,0)");
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y - 40, 30, 0, TAU); ctx.fill();
+  ctx.fillStyle = "#3a2a1a"; ctx.fillRect(x - 8, y - 50, 16, 3); ctx.fillRect(x - 7, y - 32, 14, 3);
+  ctx.fillStyle = "#ffe36b"; ctx.strokeStyle = "#3a2a1a"; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.roundRect(x - 6, y - 47, 12, 15, 3); ctx.fill(); ctx.stroke();
+  ctx.restore();
 }

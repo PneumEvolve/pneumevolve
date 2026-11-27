@@ -158,10 +158,10 @@ export const BUILDINGS = {
                caps: [10, 25, 60, 150, 400], cost: (lvl) => Math.round(80 * Math.pow(2.6, lvl)),
                goods: { 3: { brick: 4 }, 4: { brick: 12 }, 5: { brick: 30 } } },
   beds:      { name: "Comfy Beds", desc: "Tired creatures recharge faster.", max: 3,
-               cost: (lvl) => Math.round(120 * Math.pow(3, lvl)),
+               cost: (lvl) => Math.round(80 * Math.pow(3, lvl)),
                goods: { 2: { blanket: 3 }, 3: { blanket: 8 } } },
   stall:     { name: "Market Stall", desc: "Auto-sells anything that won't fit in storage, at full price. Haulers sell here too.", max: 1,
-               cost: () => 150 },
+               cost: () => 100 },
 };
 
 export const troughCap = (w) => BUILDINGS.trough.caps[(w.buildings?.trough || 1) - 1];
@@ -282,7 +282,7 @@ export const DEFAULT_KEEP = { berry: 40, carrot: 40 };
 // ── World fields ──────────────────────────────────────────────────────────────
 export function ranchDefaults() {
   return {
-    coins: 25,                                   // enough for your first few plots
+    coins: 80,                                   // your first plots, plus a head start on the Market Stall
     penSlots: PEN_START,
     buildings: { trough: 1, shed: 1, warehouse: 1, beds: 0, stall: 0 }, trough: { berry: 0, carrot: 0 },
     workshops: {}, market: {}, keep: { ...DEFAULT_KEEP }, contracts: [], contractAt: 0, nextContract: 1,
@@ -597,6 +597,7 @@ export function stepHatcheries(w, dt, tMs, rep) {
       if (e.progress < 1) continue;
       A.nest = null; B.nest = null;
       const carer = (A.skills?.care || 1) >= (B.skills?.care || 1) ? A : B;
+      carer.prevJob = carer.job && carer.job !== "carer" ? { job: carer.job, station: carer.station || null } : null;   // goes back to this after the hatch
       carer.job = "carer"; carer.station = h.id; carer.work = 0; carer.follow = null;
       e.stage = "hatching"; e.progress = 0;
       const rn = RARITY_INFO[e.rarity].name, art = /^[AEIOU]/.test(rn) ? "an" : "a";
@@ -625,6 +626,8 @@ export function stepHatcheries(w, dt, tMs, rep) {
     w.dex = { ...(w.dex || {}), [comboKey(b.genes)]: ((w.dex || {})[comboKey(b.genes)] || 0) + 1 };
     h.egg = null;
     if (e.a) h.lastPair = { a: e.a, b: e.b, by: e.by };
+    // the Carer's done: back to its old job (or no job, so Auto jobs can place it)
+    for (const c of Object.values(w.creatures).filter(o => o.job === "carer" && o.station === h.id)) { const pj = c.prevJob; c.job = pj?.job || null; c.station = pj?.station || null; c.prevJob = null; c.work = 0; }
     // "repeat this pairing": the same two start the next egg straight away (if they can)
     if (h.repeat) {
       const A = w.creatures[h.repeat.a], B = w.creatures[h.repeat.b];

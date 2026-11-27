@@ -232,6 +232,7 @@ export function startEgg(w, h, A, B, rng, by, repeat = false) {
   // Changes w, w.food, h and the two parent objects IN PLACE (the caller hands in copies).
   if (!h || h.egg || !A || !B || A.id === B.id) return false;
   if (![A, B].every(c => c.housed && !c.away && c.grow == null && !c.nest)) return false;
+  if (!roomForBaby(w)) return false;                                          // the baby needs a pen spot to grow up
   if (!eggPreview(A, B).every(o => canAfford(w, o.rarity))) return false;   // enough for the priciest outcome
   const { baby, rarity } = breed(A, B, rng, w.perks?.gold || 0);
   const R = RARITY_INFO[rarity];
@@ -261,4 +262,11 @@ export function seededRng(str) {
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+// Is there a pen spot for one more baby? Counts the eggs already on the way.
+export function roomForBaby(w) {
+  const housed = Object.values(w.creatures || {}).filter(c => c.housed).length;
+  const coming = (w.hatcheries || []).filter(h => h.egg).length;
+  return housed + coming < Math.max(4, w.penSlots || 4);
 }

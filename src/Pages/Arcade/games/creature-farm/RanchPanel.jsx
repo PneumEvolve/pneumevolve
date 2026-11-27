@@ -18,10 +18,10 @@ import { C } from "../../ui";
 import { SPECIES, CROPS } from "./species";
 import { drawCreature, drawBowl, drawSun, drawItemIcon, drawSprout, drawEgg } from "./drawFarm";
 import { movesFor, ABILITIES as MOVES } from "./wilds/wildsSim";
-import { RARITY_INFO, HATCHERY_MAX, hatcheryCost, eggPreview, typeLabel, typeCounts, GROW_SECS, growRate, canAfford, hatcherySpeed, hatcheryUpgrade } from "./eggs";
+import { RARITY_INFO, HATCHERY_MAX, hatcheryCost, eggPreview, typeLabel, typeCounts, GROW_SECS, growRate, canAfford, hatcherySpeed, hatcheryUpgrade, roomForBaby } from "./eggs";
 import { plotCost, PLOT_COUNT } from "./farmWorld";
 import StickerBook from "./StickerBook";
-import { claimable } from "./stickers";
+import { claimable, suggestPair, newStickerChance, isNewSticker } from "./stickers";
 import {
   JOBS, SKILLS, SKILL_NAMES, BUILDINGS, STORE_ITEMS, stateOf, STATE_TEXT, canManage, chemistry,
   nextUpgrade, troughCap, storageCap, warehouseCap, capFor, xpForNext, plotsPerFarmhand,
@@ -112,6 +112,8 @@ export function alertsFor(w, now = Date.now()) {
   if (meadow.length && freeSpots > 0) out.push({ level: "warn", text: `You have ${freeSpots} free pen spot${freeSpots > 1 ? "s" : ""} and ${meadow.length} waiting in the meadow`, tab: "creatures" });
   else if (meadow.length) out.push({ level: "info", text: `${meadow.length} waiting in the meadow for a pen spot (pen ${housedCount(w)}/${penSlots(w)})`, tab: "buildings" });
   if (idle.length) out.push({ level: "info", text: `${names(idle)} ${idle.length > 1 ? "have" : "has"} no job`, tab: "creatures" });
+  const napping = cs.filter(c => stateOf(c) === "resting").length, workersN = cs.filter(c => c.job).length;
+  if (workersN >= 4 && napping / workersN >= 0.3 && (w.buildings.beds || 0) < 3) out.push({ level: "info", text: `${napping} of your workers are napping. Comfy Beds help them recharge faster`, tab: "buildings" });
   if (claimable(w).length) out.push({ level: "info", text: `Sticker Book: ${claimable(w).length} prize${claimable(w).length > 1 ? "s" : ""} to claim!`, tab: "stickers" });
   for (const [i, h] of (w.hatcheries || []).entries()) {
     if (h.egg?.stage === "hatching" && !cs.some(c => c.job === "carer" && c.station === h.id)) out.push({ level: "warn", text: `The egg in Hatchery ${i + 1} needs a Carer to keep it warm`, tab: "hatchery" });
@@ -765,7 +767,7 @@ function Hatchery({ world, W, myId, now }) {
               <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
                 <EggIcon rarity={e.rarity} size={28} />
                 <span style={{ flex: 1 }}><b style={{ color: RARITY_INFO[e.rarity].color }}>{RARITY_INFO[e.rarity].name}</b> wild egg · hatches in about {clock(RARITY_INFO[e.rarity].hatch)} with a Care 1 Carer</span>
-                <button disabled={!free || !W.canAct} onClick={() => W.dispatch({ type: "place_egg", hid: free.id, eid: e.id })} style={btn(!!free, { padding: "4px 10px", fontSize: 12 })}>{free ? "Put in a Hatchery" : "All Hatcheries busy"}</button>
+                <button disabled={!free || !W.canAct || !roomForBaby(world)} onClick={() => W.dispatch({ type: "place_egg", hid: free.id, eid: e.id })} style={btn(!!free && roomForBaby(world), { padding: "4px 10px", fontSize: 12 })}>{!free ? "All Hatcheries busy" : !roomForBaby(world) ? "Needs a free pen spot" : "Put in a Hatchery"}</button>
               </div>
             );
           })}
@@ -797,7 +799,8 @@ function HatcheryCard({ h, i, world, W, myId, cs }) {
   const [repeat, setRepeat] = useState(false);
   const e = h.egg;
   const grown = cs.filter(c => canManage(c, myId) && c.grow == null && !c.away);
-  const parents = grown.filter(c => c.housed && !c.nest);
+  // parents: any housed grown-up on the farm, as long as one of the two is yours
+  const parents = cs.filter(c => c.grow == null && !c.away && c.housed && !c.nest);
   const A = world.creatures[pick[0]], B = world.creatures[pick[1]];
   const toggle = (id) => setPick(p => p.includes(id) ? p.filter(x => x !== id) : p.length >= 2 ? [p[1], id] : [...p, id]);
   const chip = (c, on, onClick, extra) => (
@@ -810,10 +813,17 @@ function HatcheryCard({ h, i, world, W, myId, cs }) {
     const preview = A && B ? eggPreview(A, B) : null;
     const rarities = preview ? [...new Set(preview.map(o => o.rarity))] : [];
     const worst = rarities.slice().sort((x, y) => Object.keys(RARITY_INFO).indexOf(y) - Object.keys(RARITY_INFO).indexOf(x))[0];
-    const afford = preview && preview.every(o => canAfford(world, o.rarity));
+    const oneMine = A && B && (canManage(A, myId) || canManage(B, myId));
+    const room = roomForBaby(world);
+    const afford = preview && oneMine && room && preview.every(o => canAfford(world, o.rarity));
     body = (
       <>
-        <div style={{ fontSize: 12, color: C.dim }}>Empty. Pick two parents (yours or ones that trust you, with a pen spot):</div>
+        {(() => { const sug = suggestPair(world, myId); return sug && (
+          <button onClick={() => setPick([sug.a, sug.b])} style={btn(false, { alignSelf: "flex-start", padding: "5px 10px", fontSize: 12, background: "rgba(255,138,184,0.18)", border: "1px solid #ff8ab8" })}>
+            Suggest a pair for a new sticker ({Math.round(sug.chance * 100)}%)
+          </button>
+        ); })()}
+        <div style={{ fontSize: 12, color: C.dim }}>Empty. Pick two parents with a pen spot. At least one has to be yours (or trust you); the other can be anyone's on the farm.</div>
         <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
           {parents.map(c => chip(c, pick.includes(c.id), () => toggle(c.id), ` ${typeCounts(c).length > 1 ? typeCounts(c).length + " types" : ""}`))}
           {!parents.length && <span style={{ fontSize: 12, color: C.faint }}>Nobody free.</span>}
@@ -825,6 +835,7 @@ function HatcheryCard({ h, i, world, W, myId, cs }) {
               <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
                 <span style={{ width: 38, textAlign: "right", fontWeight: 900 }}>{Math.round(o.chance * 100)}%</span>
                 <span style={{ flex: 1 }}>{o.types.length === 1 ? `purebred ${SPECIES[o.types[0]].name}` : o.types.map(t => `${SPECIES[t].name} ×${o.counts[t]}`).join(" · ")}</span>
+                {isNewSticker(world, o.types) && <span style={{ fontSize: 10, fontWeight: 900, padding: "1px 6px", borderRadius: 6, background: "#ff8ab8", color: "#3a0020" }}>NEW STICKER</span>}
                 <span style={{ color: RARITY_INFO[o.rarity].color, fontWeight: 800 }}>{RARITY_INFO[o.rarity].name}</span>
               </div>
             ))}
@@ -836,7 +847,7 @@ function HatcheryCard({ h, i, world, W, myId, cs }) {
             </div>
             <div style={{ fontSize: 11, color: C.dim }}>Laying takes {rarities.map(r => clock(RARITY_INFO[r].lay)).join(" to ")}, hatching {rarities.map(r => clock(RARITY_INFO[r].hatch)).join(" to ")} (faster with a high-Care Carer). You need enough for the {RARITY_INFO[worst].name.toLowerCase()} egg; you pay for the one you get.</div>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <button disabled={!afford || !W.canAct} onClick={() => { W.dispatch({ type: "make_egg", hid: h.id, a: A.id, b: B.id, repeat, r: Math.random() }); setPick([]); }} style={btn(!!afford, { padding: "6px 14px" })}>{afford ? "Make an egg" : "Not enough coins, food or goods"}</button>
+              <button disabled={!afford || !W.canAct} onClick={() => { W.dispatch({ type: "make_egg", hid: h.id, a: A.id, b: B.id, repeat, r: Math.random() }); setPick([]); }} style={btn(!!afford, { padding: "6px 14px" })}>{afford ? "Make an egg" : !oneMine ? "One parent has to be yours" : !room ? "Build a pen spot for the baby first" : "Not enough coins, food or goods"}</button>
               <button onClick={() => setRepeat(v => !v)} title="When the egg hatches, these two start the next one by themselves (if they're free and you can pay)" style={btn(repeat, { padding: "4px 9px", fontSize: 11 })}>{repeat ? "Repeat this pairing: on" : "Repeat this pairing: off"}</button>
             </div>
           </div>

@@ -11,7 +11,8 @@
 // finishing each page.
 
 import { SPECIES } from "./species";
-import { comboKey } from "./eggs";
+import { comboKey, eggPreview, canAfford, roomForBaby } from "./eggs";
+import { canManage } from "./ranch";
 
 export const TYPES = Object.keys(SPECIES);
 
@@ -84,3 +85,26 @@ export function collectStickers(w, t) {
   return got;
 }
 export const stickerName = (s) => s.types.length === 1 ? `Purebred ${SPECIES[s.types[0]].name}` : s.types.map(t => SPECIES[t].name).join(" + ");
+
+// Chance (0..1) that an egg from these two gives a sticker you don't have yet.
+export function newStickerChance(w, a, b) {
+  return eggPreview(a, b).reduce((n, o) => n + (!(w.stickers || {})[o.types.slice().sort().join("+")] ? o.chance : 0), 0);
+}
+export const isNewSticker = (w, types) => !(w.stickers || {})[types.slice().sort().join("+")];
+// The best pair to try for a new sticker: one parent yours, both free, affordable.
+// Returns { a, b, chance } or null.
+export function suggestPair(w, userId) {
+  if (!roomForBaby(w)) return null;
+  const free = Object.values(w.creatures || {}).filter(c => c.housed && !c.away && c.grow == null && !c.nest);
+  let best = null;
+  for (const A of free) {
+    if (!canManage(A, userId)) continue;
+    for (const B of free) {
+      if (A.id === B.id) continue;
+      const chance = newStickerChance(w, A, B);
+      if (chance <= 0 || !eggPreview(A, B).every(o => canAfford(w, o.rarity))) continue;
+      if (!best || chance > best.chance) best = { a: A.id, b: B.id, chance };
+    }
+  }
+  return best;
+}

@@ -25,7 +25,7 @@ import {
   housedCount, penSlots, penCost, rehomePrice, PEN_START, addSkillXp, store,
 } from "./ranch";
 import { collectStickers, claimable, STICKERS, stickerName } from "./stickers";
-import { wildEgg, hatcheryCost, HATCHERY_MAX, RARITY_INFO, RARITY, startEgg, hatcheryUpgrade, PET_GROW, WARM_TAP } from "./eggs";
+import { wildEgg, hatcheryCost, HATCHERY_MAX, RARITY_INFO, RARITY, startEgg, hatcheryUpgrade, PET_GROW, WARM_TAP, roomForBaby } from "./eggs";
 
 // ── Map (world units; the canvas scales to fit) ──────────────────────────────
 export const WORLD_W = 960;
@@ -854,7 +854,8 @@ export function farmReducer(w0, a) {
     case "make_egg": {
       const h = (w.hatcheries || []).find(x => x.id === a.hid);
       const A = w.creatures[a.a], B = w.creatures[a.b];
-      if (!by || !h || !A || !B || ![A, B].every(c => canManage(c, by))) return w;
+      // co-op: one parent has to be yours (or trust you); the other can be anyone's on the farm
+      if (!by || !h || !A || !B || ![A, B].some(c => canManage(c, by))) return w;
       const x = { ...w, creatures: { ...w.creatures, [A.id]: { ...A }, [B.id]: { ...B } }, hatcheries: w.hatcheries.map(y => ({ ...y })) };
       const hx = x.hatcheries.find(y => y.id === h.id);
       if (!startEgg(x, hx, x.creatures[A.id], x.creatures[B.id], rngFrom(a.r), by, !!a.repeat)) return w;
@@ -938,16 +939,21 @@ export function farmReducer(w0, a) {
       if (!by || !h || !c || !canManage(c, by) || c.grow != null || c.nest || c.away) return w;
       const creatures = { ...w.creatures };
       for (const o of Object.values(creatures)) if (o.job === "carer" && o.station === h.id && o.id !== c.id) creatures[o.id] = { ...o, job: null, station: null };
-      creatures[c.id] = { ...c, job: "carer", station: h.id, follow: null, work: 0 };
+      creatures[c.id] = { ...c, job: "carer", station: h.id, follow: null, work: 0, prevJob: c.job && c.job !== "carer" ? { job: c.job, station: c.station || null } : null };
       return { ...w, creatures, log: addLog(w.log, a, `asked ${c.name} to look after the Hatchery`, "info") };
     }
     // Put a wild egg (from the Wilds) into an empty Hatchery.
     case "place_egg": {
       const h = (w.hatcheries || []).find(x => x.id === a.hid);
       const e = (w.eggs || []).find(x => x.id === a.eid);
-      if (!by || !h || h.egg || !e) return w;
+      if (!by || !h || h.egg || !e || !roomForBaby(w)) return w;      // a pen spot for the baby first
+      // your best carer (who isn't busy with an egg already) starts keeping it warm
+      const carer = w.creatures && Object.values(w.creatures)
+        .filter(c => canManage(c, by) && c.housed && !c.away && c.grow == null && !c.nest && c.job !== "carer")
+        .sort((p, q) => (q.skills?.care || 1) - (p.skills?.care || 1))[0];
+      const creatures = carer ? { ...w.creatures, [carer.id]: { ...carer, job: "carer", station: h.id, follow: null, work: 0, prevJob: carer.job ? { job: carer.job, station: carer.station || null } : null } } : w.creatures;
       return {
-        ...w, eggs: w.eggs.filter(x => x.id !== e.id),
+        ...w, creatures, eggs: w.eggs.filter(x => x.id !== e.id),
         hatcheries: w.hatcheries.map(x => (x.id === h.id ? { ...x, egg: { ...e, stage: "hatching", progress: 0, by: e.by || by } } : x)),
         log: addLog(w.log, a, `put a ${RARITY_INFO[e.rarity].name.toLowerCase()} wild egg in a Hatchery`, "info"),
       };

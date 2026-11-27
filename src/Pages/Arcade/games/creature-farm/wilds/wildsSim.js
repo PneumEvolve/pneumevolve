@@ -159,9 +159,20 @@ function weighted(st, table) {
 }
 
 // ── Trip ──────────────────────────────────────────────────────────────────────
-export function newTrip(seed) {
+// ── Defend the Farm ───────────────────────────────────────────────────────────
+// Same fights, at home: 5 waves of goop march on the farm. Most go straight for
+// the Barn (lose it and the night is lost; only a taunt pulls them off), the rest
+// go for your creatures. Lanterns
+// you pack become towers that zap goop. Wave 3 is big, wave 5 is the Goop King.
+export const DEFEND_WAVES = ["fight", "fight", "elite", "fight", "boss"];
+export const LANTERN_MAX = 4;
+export const TOWER = { range: 220, every: 1.2, dmg: 16 };
+export const BARN_HP = 750;
+const TOWER_SPOTS = [{ x: 210, y: 150 }, { x: 210, y: 390 }, { x: 280, y: 230 }, { x: 280, y: 310 }];
+
+export function newTrip(seed, mode = "wilds") {
   return {
-    v: 1, phase: "lobby", rng: (seed >>> 0) || 1, coop: false, tier: 0,
+    v: 1, phase: "lobby", rng: (seed >>> 0) || 1, coop: false, tier: 0, mode, lanterns: 0, wave: 0, base: null, towers: [],
     picks: [[], []], rations: {}, ready: [false, false],
     squad: [], map: null, depth: 0, enemies: [], fx: [], t: 0, paused: false, nextId: 1,
     event: null, loot: { coins: 0, goods: {}, friends: [], eggs: [] }, bless: { claws: 0, fur: 0, paws: 0, luck: 0 },
@@ -171,7 +182,7 @@ export function newTrip(seed) {
 
 // Creatures a player may bring: theirs (or ones that trust them), not already away.
 export function eligible(world, userId) {
-  return Object.values(world?.creatures || {}).filter(c => !c.away && (c.owner === String(userId) || (c.bond?.[String(userId)] || 0) >= 50));
+  return Object.values(world?.creatures || {}).filter(c => !c.away && c.grow == null && !c.nest && (c.owner === String(userId) || (c.bond?.[String(userId)] || 0) >= 50));   // no babies, no nesting parents
 }
 export const pickLimit = (st, slot) => (st.coop ? 2 : slot === 0 ? SQUAD : 0);
 
@@ -222,6 +233,12 @@ export function applyIntent(st, slot, i, ctx) {
       st.picks[slot] = [...st.picks[slot], i.cid]; st.ready[slot] = false; return true;
     }
     if (k === "unpick") { st.picks[slot] = st.picks[slot].filter(id => id !== i.cid); st.ready[slot] = false; return true; }
+    if (k === "lantern" && st.mode === "defend") {
+      const have = Math.floor(ctx.world?.food?.lantern || 0);
+      const next = (st.lanterns || 0) + (i.d > 0 ? 1 : -1);
+      if (next < 0 || next > Math.min(have, LANTERN_MAX)) return false;
+      st.lanterns = next; return true;
+    }
     if (k === "ration") {
       if (!RATIONS[i.item]) return false;
       const have = Math.floor(ctx.world?.food?.[i.item] || 0), cur = st.rations[i.item] || 0;
@@ -265,7 +282,9 @@ export function applyIntent(st, slot, i, ctx) {
     }
     if (k === "next") {
       if (st.event?.final) { finish(st, !!st.event.won); return true; }
-      st.event = null; st.phase = "map"; return true;
+      st.event = null;
+      if (st.mode === "defend") { startWave(st); return true; }
+      st.phase = "map"; return true;
     }
   }
   if (st.phase === "end") return false;
@@ -281,10 +300,28 @@ function setOff(st, ctx) {
     if (c) st.squad.push(makeUnit(st, c, slot));
   }
   if (!st.squad.length) return false;
+  if (st.mode === "defend") {
+    st.base = { id: "barn", isBase: true, side: 0, x: 80, y: 270, hp: BARN_HP, maxHp: BARN_HP, armor: 2, st: {} };
+    st.towers = TOWER_SPOTS.slice(0, st.lanterns || 0).map((p, i) => ({ id: `t${i}`, ...p, cd: i * 0.3 }));
+    st.wave = 0;
+    say(st, "Goop at the fence! Defend the farm!");
+    startWave(st);
+    return true;
+  }
   st.map = makeMap(st);
   st.phase = "map";
   say(st, "Into the Wilds!");
   return true;
+}
+
+function startWave(st) {
+  const type = DEFEND_WAVES[st.wave] || "fight";
+  st.depth = st.wave;
+  startFight(st, type);
+  // goop come at the farm from the far side, a little more spread out
+  if (type === "boss") for (const e of st.enemies) if (e.kind === "boss") { e.maxHp = Math.round(e.maxHp * 0.55); e.hp = e.maxHp; }   // no camp before him at home
+  for (const e of st.enemies) { e.x = Math.max(e.x, 620); e.goesForBarn = e.kind !== "bulb" && rand(st) < (e.kind === "boss" ? 0.5 : 0.65); }
+  say(st, `Wave ${st.wave + 1} of ${DEFEND_WAVES.length}${type === "boss" ? ": the Goop King!" : type === "elite" ? ": something big!" : ""}`);
 }
 
 // ── Map ───────────────────────────────────────────────────────────────────────
@@ -423,7 +460,8 @@ function damage(st, target, amount, src) {
   fx(st, { k: "num", x: target.x + (rand(st) - 0.5) * 10, y: target.y - 34, n: Math.round(a), col: target.side === 0 ? "#ff8a8a" : "#fff" });
   if (target.hp <= 0) {
     target.hp = 0;
-    if (target.side === 0) { target.ko = true; target.order = null; say(st, `${target.name} is knocked out!`); }
+    if (target.isBase) { /* the Barn falls: stepTrip ends the night */ }
+    else if (target.side === 0) { target.ko = true; target.order = null; say(st, `${target.name} is knocked out!`); }
     else fx(st, { k: "pop", x: target.x, y: target.y, r: target.kind === "boss" ? 60 : target.kind === "brute" ? 30 : 20 });
   }
 }
@@ -715,6 +753,8 @@ export function stepTrip(st, dt) {
       continue;
     }
     if (!target) target = nearest(e, targets);
+    // Defend the Farm: barn-goers march on the Barn unless a creature is right in their face
+    if (st.base && st.base.hp > 0 && e.goesForBarn && !(s.taunt > 0)) target = st.base;   // only a taunt (Shell Up) pulls them off
     if (e.kind === "boss") {
       e.slamT -= dt; e.summonT -= dt;
       if (e.wind > 0) {
@@ -750,6 +790,17 @@ export function stepTrip(st, dt) {
   st.enemies = st.enemies.filter(e => e.hp > 0 || false);
 
   // fight over?
+  // lantern towers zap the nearest goop in range
+  for (const t of st.towers || []) {
+    t.cd -= dt;
+    if (t.cd > 0) continue;
+    const e = nearest(t, living(st.enemies).filter(f => dist(f, t) <= TOWER.range));
+    if (!e) { t.cd = 0.2; continue; }
+    t.cd = TOWER.every;
+    damage(st, e, TOWER.dmg * (1 + 0.5 * (st.tier || 0)), null);
+    fx(st, { k: "shot", x: t.x, y: t.y - 30, x2: e.x, y2: e.y - 14, col: "#ffe36b" });
+  }
+  if (st.base && st.base.hp <= 0) { endFight(st, false, "The goop got into the Barn…"); return; }
   if (!living(st.squad).length) { endFight(st, false); return; }
   if (!living(st.enemies).length) endFight(st, true);
 }
@@ -760,14 +811,14 @@ function step(u, to, spd, dt) {
   u.x += (dx / d) * m; u.y += (dy / d) * m;
 }
 
-function endFight(st, won) {
+function endFight(st, won, why) {
   st.fights++;
   const type = st.fightType;
   for (const u of st.squad) u.xp += (won ? 700 : 350) + 140 * st.depth + (type === "elite" ? 400 : type === "boss" ? 900 : 0);
   if (!won) {
     st.phase = "event";
     st.event = { type: "defeat", final: true, won: false };
-    say(st, "The squad is all knocked out…");
+    say(st, why || "The squad is all knocked out…");
     return;
   }
   const luck = luckOf(st) * TIERS[st.tier || 0].loot;
@@ -786,10 +837,12 @@ function endFight(st, won) {
   if (egg) { st.loot.eggs = [...(st.loot.eggs || []), { rarity: egg }]; say(st, `Found ${egg === "uncommon" || egg === "epic" ? "an" : "a"} ${egg} egg!`); }
   for (const u of st.squad) {                               // everyone catches their breath after a win
     if (u.ko) { u.ko = false; u.hp = Math.max(1, Math.round(u.maxHp * 0.2)); }
-    else u.hp = Math.min(u.maxHp, u.hp + u.maxHp * BREATHER);
+    else u.hp = Math.min(u.maxHp, u.hp + u.maxHp * (st.mode === "defend" ? 0.45 : BREATHER));   // at home there's no camp, so a longer breather
   }
   st.phase = "event";
-  st.event = { type: "spoils", coins, goods, egg, boss: type === "boss", final: type === "boss", won: true };
+  const final = st.mode === "defend" ? st.wave >= DEFEND_WAVES.length - 1 : type === "boss";
+  if (st.mode === "defend") { st.wave++; if (st.base) st.base.hp = Math.min(st.base.maxHp, st.base.hp + st.base.maxHp * 0.15); }   // patch the Barn between waves
+  st.event = { type: "spoils", coins, goods, egg, boss: type === "boss", final, won: true, wave: st.mode === "defend" ? st.wave : null };
   say(st, type === "boss" ? "The Goop King is beaten!" : "Victory!");
 }
 

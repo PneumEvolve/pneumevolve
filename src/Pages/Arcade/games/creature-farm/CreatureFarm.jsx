@@ -42,9 +42,10 @@ import {
   drawCropSprite, drawHeart, drawBowl, drawSun, drawPaw, drawQuestion, drawWorkIcon,
 } from "./drawFarm";
 import StampedeRun from "./stampede/StampedeRun";
-import { RARITY_INFO, eggPreview, canAfford, typeLabel, comboKey } from "./eggs";
+import { RARITY_INFO, eggPreview, canAfford, typeLabel, comboKey, roomForBaby } from "./eggs";
 import { ItemIcon } from "./RanchPanel";
 import StickerBook, { StickerBadge } from "./StickerBook";
+import { suggestPair, newStickerChance, isNewSticker } from "./stickers";
 import WildsRun from "./wilds/WildsRun";
 import { LEVELS, LEVEL_ORDER, CREW_MAX } from "./stampede/stampedeSim";
 
@@ -57,7 +58,8 @@ const RUNS = [
     desc: "Endless field. Run circles around critters to tame them; every species in your herd gives you an ability (keys 1-7), and your herd can be 10 + your pen spots big. Your herd makes goods as you run, goop drop coins, and the Goop King drops an egg. Bring some critters home too." },
   { id: "wilds", name: "The Wilds", ready: true,
     desc: "Co-op squad trip: pick 4 creatures between you, choose your route, and fight wild goop in real time (either of you can pause). Brings home coins, goods, wild crystals and new friends." },
-  { id: "defend", name: "Defend the Farm", ready: false, desc: "Goop raids the farm at night." },
+  { id: "defend", name: "Defend the Farm", ready: true,
+    desc: "Co-op: 5 waves of goop march on the Barn. Same fights as the Wilds, at home. Set out lanterns as zapping towers, keep goop off the Barn, beat the Goop King. Coins, goods, Fight practice and an egg." },
 ];
 
 const WALK = 170, SNEAK = 55, SPOOK_SPEED = 120, SPOOK_RADIUS = 75;
@@ -637,7 +639,8 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
       <div style={{ position: "absolute", top: 84, left: 0, right: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 6, zIndex: 30, pointerEvents: "none" }}>
         {toasts.map(tst => (
           <div key={tst.id} style={{
-            padding: "8px 14px", borderRadius: 12, fontWeight: 800, fontSize: tst.kind === "catch" ? 16 : 13,
+            padding: "8px 14px", borderRadius: 12, fontWeight: 800, fontSize: tst.kind === "catch" ? (portrait ? 13 : 16) : 13,
+            maxWidth: "min(560px, calc(100vw - 24px))", textAlign: "center", boxSizing: "border-box",
             background: tst.kind === "catch" ? "rgba(255,204,77,0.95)" : "rgba(15,12,30,0.85)",
             color: tst.kind === "catch" ? "#2a1d00" : C.text, boxShadow: "0 4px 14px rgba(0,0,0,0.3)",
           }}>{tst.text}</div>
@@ -693,7 +696,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
 
       {partnerRun && !myRun && (
         <div style={{ position: "absolute", top: 84, left: "50%", transform: "translateX(-50%)", zIndex: 35, display: "flex", alignItems: "center", gap: 10, padding: "8px 10px 8px 14px", borderRadius: 14, background: "rgba(15,12,30,0.9)", border: `1px solid ${C.accent2}`, color: C.text, fontWeight: 700, fontSize: 13, whiteSpace: "nowrap" }}>
-          {partnerRun.kind === "wilds" ? `${cap(nameOf(partnerId))} is planning a trip into the Wilds` : `${cap(nameOf(partnerId))} is on a ${RUNS.find(r => r.id === partnerRun.kind)?.name ?? "run"} run (${LEVELS[partnerRun.level]?.name})`}
+          {partnerRun.kind === "wilds" ? `${cap(nameOf(partnerId))} is planning a trip into the Wilds` : partnerRun.kind === "defend" ? `${cap(nameOf(partnerId))} is getting ready to defend the farm` : `${cap(nameOf(partnerId))} is on a ${RUNS.find(r => r.id === partnerRun.kind)?.name ?? "run"} run (${LEVELS[partnerRun.level]?.name})`}
           <button onClick={joinRun} style={{ ...smallBtn, background: C.accent2, color: "#06202a", border: "none" }}>Join</button>
           <button onClick={() => setPartnerRun(null)} style={{ ...smallBtn, padding: "7px 9px" }} aria-label="dismiss">x</button>
         </div>
@@ -720,9 +723,9 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
           onStart={startRun} onJoin={joinRun} onClose={() => setBoard(false)} canAct={W.canAct} myId={myId} dispatch={W.dispatch} />
       )}
 
-      {myRun?.kind === "wilds" && (
+      {(myRun?.kind === "wilds" || myRun?.kind === "defend") && (
         <WildsRun net={net} tripHost={myRun.host} world={world} W={W} myId={myId} partnerId={partnerId} partnerHere={!!net.partnerOnline}
-          nameOf={nameOf} onExit={exitRun} />
+          nameOf={nameOf} onExit={exitRun} mode={myRun.kind} />
       )}
 
       {myRun?.kind === "stampede" && (() => {
@@ -793,8 +796,10 @@ function promptFor(t, world, now, seed, offering) {
     if (!v) return null;
     const sp = SPECIES[v.species];
     const has = (world.food[sp.food] || 0) > 0;
-    if (offering) return `Befriending… ${Math.floor(v.trust)}%`;
-    return `Hold to befriend · loves ${CROPS[sp.food].name}${has ? "" : " (you have none, slower)"}`;
+    const full = Object.values(world.creatures).filter(c => c.housed).length >= Math.max(4, world.penSlots || 4);
+    const warn = full ? " · pens are full, it'll wait in the meadow" : "";
+    if (offering) return `Befriending… ${Math.floor(v.trust)}%${warn}`;
+    return `Hold to befriend · loves ${CROPS[sp.food].name}${has ? "" : " (you have none, slower)"}${warn}`;
   }
   if (t.kind === "creature") {
     const c = world.creatures[t.id];
@@ -876,7 +881,7 @@ function RunBoard({ leader, world, partnerRun, partnerName, onStart, onJoin, onC
         </div>
         {partnerRun && (
           <button disabled={!canAct} onClick={onJoin} style={{ ...smallBtn, padding: 12, background: C.accent2, color: "#06202a", border: "none", fontSize: 15 }}>
-            {partnerRun.kind === "wilds" ? `Join ${partnerName}'s Wilds trip` : `Join ${partnerName}'s ${RUNS.find(r => r.id === partnerRun.kind)?.name ?? ""} run (${LEVELS[partnerRun.level]?.name})`}
+            {partnerRun.kind === "wilds" ? `Join ${partnerName}'s Wilds trip` : partnerRun.kind === "defend" ? `Help ${partnerName} defend the farm` : `Join ${partnerName}'s ${RUNS.find(r => r.id === partnerRun.kind)?.name ?? ""} run (${LEVELS[partnerRun.level]?.name})`}
           </button>
         )}
         {RUNS.map(r => (
@@ -886,6 +891,12 @@ function RunBoard({ leader, world, partnerRun, partnerName, onStart, onJoin, onC
               {!r.ready && <span style={{ fontSize: 11, fontWeight: 800, color: C.accent }}>SOON</span>}
             </div>
             <span style={{ fontSize: 12, color: C.dim }}>{r.desc}</span>
+            {r.id === "defend" && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ flex: 1, fontSize: 12, color: C.dim }}>About 5 minutes. Bring a Tank to pull goop off the Barn. Lanterns come from the Lantern Workshop.</span>
+                <button disabled={!canAct || !!world?.wilds} onClick={() => onStart("defend", "easy")} style={{ ...smallBtn, background: C.accent, color: "#1a1300", border: "none" }}>{world?.wilds ? "Squad is out" : "Defend!"}</button>
+              </div>
+            )}
             {r.id === "wilds" && (
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <span style={{ flex: 1, fontSize: 12, color: C.dim }}>About 10–15 minutes. Mix a Tank, a Healer and some damage. Pack food for the road.</span>
@@ -1128,13 +1139,18 @@ function Chip({ children, color = C.text }) {
 // Big pictures, no menus: your follower + whoever you tap make an egg.
 function EggPicker({ world, hid, myId, leader, canAct, onMake, onClose }) {
   const [partner, setPartner] = useState(null);
-  const ok = (c) => c && canManage(c, myId) && c.housed && !c.away && c.grow == null && !c.nest;
+  const free = (c) => c && c.housed && !c.away && c.grow == null && !c.nest;
+  const ok = (c) => free(c) && canManage(c, myId);
   const first = ok(leader) ? leader : null;
-  const pool = Object.values(world.creatures).filter(c => ok(c) && c.id !== first?.id && !c.follow);
-  const [pickA, setPickA] = useState(first?.id || null);
+  const [pickA0] = [first?.id || null];
+  const mineList = Object.values(world.creatures).filter(c => ok(c) && !c.follow);
+  // first parent: yours. Friend: anyone on the farm (your partner's creatures too)
+  const anyList = (a) => Object.values(world.creatures).filter(c => free(c) && c.id !== a && (!c.follow || c.id === first?.id));
+  const [pickA, setPickA] = useState(pickA0);
   const A = world.creatures[pickA], B = world.creatures[partner];
   const preview = A && B ? eggPreview(A, B) : null;
-  const afford = preview && preview.every(o => canAfford(world, o.rarity));
+  const room = roomForBaby(world);
+  const afford = preview && room && preview.every(o => canAfford(world, o.rarity));
   const best = preview?.[0];
   const card = (c, on, onClick) => (
     <button key={c.id} onClick={onClick} style={{ ...smallBtn, padding: 6, display: "flex", flexDirection: "column", alignItems: "center", gap: 2, width: 96,
@@ -1150,10 +1166,19 @@ function EggPicker({ world, hid, myId, leader, canAct, onMake, onClose }) {
           <div style={{ fontSize: 22, fontWeight: 900 }}>Make an egg!</div>
           <button onClick={onClose} style={smallBtn}>close</button>
         </div>
+        {(() => {
+          const sug = suggestPair(world, myId);
+          return sug && (
+            <button onClick={() => { setPickA(sug.a); setPartner(sug.b); }} style={{ ...smallBtn, padding: "10px 14px", fontSize: 15, fontWeight: 900, background: "linear-gradient(90deg, #ffd65a, #ff9ac6)", color: "#3a0020", border: "none" }}>
+              Find me a new sticker! ({Math.round(sug.chance * 100)}% chance)
+            </button>
+          );
+        })()}
         {!pickA ? (
           <>
             <div style={{ fontSize: 14, color: C.dim }}>Who's the first parent?</div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{pool.map(c => card(c, false, () => setPickA(c.id)))}</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{mineList.map(c => card(c, false, () => setPickA(c.id)))}</div>
+            {!mineList.length && <div style={{ color: C.faint }}>None of your creatures are free. They need a pen spot and can't be babies.</div>}
           </>
         ) : (
           <>
@@ -1162,12 +1187,15 @@ function EggPicker({ world, hid, myId, leader, canAct, onMake, onClose }) {
               <span style={{ fontSize: 28, fontWeight: 900, color: "#ff8ab8" }}>+</span>
               {B ? card(B, true, () => setPartner(null)) : <span style={{ color: C.dim }}>tap a friend below</span>}
             </div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{pool.filter(c => c.id !== pickA && c.id !== partner).map(c => card(c, false, () => setPartner(c.id)))}</div>
-            {!pool.length && <div style={{ color: C.faint }}>Nobody else is free. Creatures need a pen spot to make eggs.</div>}
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{anyList(pickA).filter(c => c.id !== partner).map(c => card(c, false, () => setPartner(c.id)))}</div>
+            {!anyList(pickA).length && <div style={{ color: C.faint }}>Nobody else is free. Creatures need a pen spot to make eggs.</div>}
           </>
         )}
         {preview && (
           <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "center", padding: 10, borderRadius: 12, background: "rgba(255,255,255,0.05)" }}>
+            {newStickerChance(world, A, B) > 0
+              ? <div style={{ fontSize: 14, fontWeight: 900, color: "#ff8ab8" }}>{Math.round(newStickerChance(world, A, B) * 100)}% chance of a NEW sticker!</div>
+              : <div style={{ fontSize: 12, color: C.dim }}>You already have every sticker these two can make.</div>}
             <div style={{ fontSize: 14 }}>Most likely: <b>{best.types.length === 1 ? `a ${SPECIES[best.types[0]].name}` : `a ${best.types.map(t => SPECIES[t].name).join("-")} mix`}</b> ({Math.round(best.chance * 100)}%)</div>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "center", fontSize: 13 }}>
               <b style={{ color: RARITY_INFO[best.rarity].color }}>{RARITY_INFO[best.rarity].name} egg</b>
@@ -1175,7 +1203,7 @@ function EggPicker({ world, hid, myId, leader, canAct, onMake, onClose }) {
               {Object.entries(RARITY_INFO[best.rarity].cost).map(([k, n]) => <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 2, fontWeight: 800, color: (world.food?.[k] || 0) >= n ? C.text : C.bad }}><ItemIcon kind={k} size={16} />{n}</span>)}
             </div>
             <button disabled={!afford || !canAct} onClick={() => onMake(A.id, B.id)} style={{ ...smallBtn, padding: "12px 26px", fontSize: 18, fontWeight: 900, background: afford ? "#ff8ab8" : undefined, color: afford ? "#3a0020" : undefined, border: "none" }}>
-              {afford ? "Make an egg!" : "Need more food"}
+              {afford ? "Make an egg!" : !room ? "Build a pen spot first" : "Need more food"}
             </button>
             <div style={{ fontSize: 12, color: C.faint }}>Then come back and tap the Hatchery to keep the egg warm. It hatches faster!</div>
           </div>
