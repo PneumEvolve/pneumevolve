@@ -24,7 +24,7 @@ import {
   makeContract, giveToContract, CONTRACT_MAX, CONTRACT_GAP, HAND_CRAFT, fmtCoins, missingInputs,
   housedCount, penSlots, penCost, rehomePrice, PEN_START, addSkillXp, store,
 } from "./ranch";
-import { wildEgg, hatcheryCost, HATCHERY_MAX, RARITY_INFO, RARITY, startEgg, hatcheryUpgrade } from "./eggs";
+import { wildEgg, hatcheryCost, HATCHERY_MAX, RARITY_INFO, RARITY, startEgg, hatcheryUpgrade, PET_GROW, WARM_TAP } from "./eggs";
 
 // ── Map (world units; the canvas scales to fit) ──────────────────────────────
 export const WORLD_W = 960;
@@ -310,8 +310,8 @@ export function farmReducer(w0, a) {
       nextId = Math.max(nextId || 1, sim.nextId || 1);                // hatching babies take ids too
       const creatures = {};
       for (const c of Object.values(sim.creatures)) creatures[c.id] = { ...c, hunger: r2(c.hunger), happy: r2(c.happy), energy: r2(c.energy) };
-      for (const msg of sim._levelUps || []) log = addLog(log, a, msg, "catch");
-      for (const msg of sim._news || []) log = addLog(log, a, msg, "catch");
+      for (const msg of sim._levelUps || []) log = addLog(log, { ...a, by: null }, msg, "catch");
+      for (const msg of sim._news || []) log = addLog(log, { ...a, by: null }, msg, "catch");   // farm news, nobody "did" it
       for (const ct of sim._contractsDone || []) log = addLog(log, a, `A Hauler finished a contract: ${ct.n} ${ITEMS[ct.item].name.toLowerCase()} for ${ct.reward} coins`, "catch");
 
       // contracts: drop expired ones, post new ones now and then (all at once after being away)
@@ -486,6 +486,7 @@ export function farmReducer(w0, a) {
         ...c, petAt: a.t,
         happy: r2(Math.min(100, c.happy + (playful ? 12 : 8))),
         bond: { ...c.bond, [by]: Math.min(100, (c.bond[by] || 0) + (playful ? 5 : 3)) },
+        ...(c.grow != null ? { grow: Math.min(0.999, c.grow + PET_GROW) } : {}),   // babies grow when you play with them
       };
       return { ...w, creatures: { ...w.creatures, [c.id]: next } };
     }
@@ -840,6 +841,21 @@ export function farmReducer(w0, a) {
       if (!startEgg(x, hx, x.creatures[A.id], x.creatures[B.id], rngFrom(a.r), by, !!a.repeat)) return w;
       const egg = hx.egg;
       return { ...x, log: addLog(w.log, a, `put ${A.name} and ${B.name} in a Hatchery together (${RARITY_INFO[egg.rarity].name.toLowerCase()} egg on the way)`, "info") };
+    }
+    // Warm an egg by hand (walk up to the Hatchery and tap): 5% along each tap.
+    case "warm_egg": {
+      const h = (w.hatcheries || []).find(x => x.id === a.hid);
+      if (!by || !h?.egg) return w;
+      const e = h.egg;
+      if (e.stage === "laying" && e.progress >= 0.999) return w;
+      return { ...w, hatcheries: w.hatcheries.map(x => (x.id === h.id ? { ...x, egg: { ...e, progress: Math.min(e.stage === "laying" ? 0.999 : 1, (e.progress || 0) + WARM_TAP) } } : x)) };
+    }
+    // Name a creature (owner only).
+    case "rename": {
+      const c = w.creatures[a.cid];
+      const name = String(a.name || "").replace(/[^\p{L}\p{N} '\-]/gu, "").trim().slice(0, 14);
+      if (!c || !by || c.owner !== by || !name) return w;
+      return { ...w, creatures: { ...w.creatures, [c.id]: { ...c, name } } };
     }
     // Keep making eggs from the same two parents (or stop).
     case "egg_repeat": {

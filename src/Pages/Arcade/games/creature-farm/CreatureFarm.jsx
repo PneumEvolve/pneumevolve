@@ -42,6 +42,8 @@ import {
   drawCropSprite, drawHeart, drawBowl, drawSun, drawPaw, drawQuestion, drawWorkIcon,
 } from "./drawFarm";
 import StampedeRun from "./stampede/StampedeRun";
+import { RARITY_INFO, eggPreview, canAfford, typeLabel, comboKey } from "./eggs";
+import { ItemIcon } from "./RanchPanel";
 import WildsRun from "./wilds/WildsRun";
 import { LEVELS, LEVEL_ORDER, CREW_MAX } from "./stampede/stampedeSim";
 
@@ -97,6 +99,10 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
   const [target,    setTarget]    = useState(null);   // what's in reach (for the buttons)
   const [portrait,  setPortrait]  = useState(false);
   const [board,     setBoard]     = useState(false);   // run board open
+  const [eggPick,   setEggPick]   = useState(null);    // hatchery id: the big "who makes an egg?" picker (walk mode)
+  const [party,     setParty]     = useState(null);    // a baby that just hatched: the big celebration
+  const overlayOpen = useRef(false);
+  overlayOpen.current = !!(eggPick || party);              // the action key does nothing behind these
   const [myRun,     setMyRun]     = useState(null);    // { kind, host } while I'm on a run
   const [partnerRun, setPartnerRun] = useState(null);  // { kind } — partner is out on a run I could join
 
@@ -208,13 +214,35 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
     setTimeout(() => setToasts(ts => ts.filter(x => x.id !== id)), top.kind === "catch" ? 4000 : 3000);
   }, [W.world?.log]);
 
+  // ── Hatch party: a big "it hatched!" moment for every new baby ─────────────
+  const hatchKey = `hatch_seen_${room.id}_${myId}`;
+  useEffect(() => {
+    const cs = Object.values(W.world?.creatures || {});
+    if (!cs.length || party) return;
+    let seen = {};
+    try { seen = JSON.parse(localStorage.getItem(hatchKey) || "{}"); } catch { /* storage blocked */ }
+    const fresh = cs.find(c => (c.parents || c.wild) && c.born && !seen[c.id] && W.now() - c.born < 10 * 60 * 1000);
+    // first time on this device: don't throw a party for old babies
+    if (!localStorage.getItem(hatchKey)) { const all = {}; for (const c of cs) all[c.id] = 1; try { localStorage.setItem(hatchKey, JSON.stringify(all)); } catch { /* */ } return; }
+    if (!fresh) return;
+    seen[fresh.id] = 1;
+    try { localStorage.setItem(hatchKey, JSON.stringify(seen)); } catch { /* */ }
+    setParty(fresh.id);
+  }, [W.world?.creatures, party, hatchKey]);   // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Actions ────────────────────────────────────────────────────────────────
   const doAction = useCallback(() => {
     const L = live.current, t = currentTarget.current;
-    if (!t || !L.W.canAct) return;
+    if (!t || !L.W.canAct || overlayOpen.current) return;
     if (t.kind === "sign") { setBoard(true); return; }
     if (t.kind === "trough") { L.W.dispatch({ type: "fill_trough" }); return; }
     if (t.kind === "workshop") { L.W.dispatch({ type: "hand_craft", key: t.id }); return; }
+    if (t.kind === "hatchery") {
+      const h = (L.world.hatcheries || []).find(x => x.id === t.id);
+      if (h?.egg) L.W.dispatch({ type: "warm_egg", hid: t.id });
+      else if (h) setEggPick(t.id);
+      return;
+    }
     if (t.kind === "buyplot") { L.W.dispatch({ type: "buy_plot" }); return; }
     if (t.kind === "buypen") { L.W.dispatch({ type: "buy_pen" }); return; }
     if (t.kind === "plot") {
@@ -412,6 +440,13 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
         const dW = Math.hypot(wp.x - me.x, wp.y + 24 - me.y);
         if ((!best && dW < REACH + 10) || (dW < 40 && best?.kind !== "visitor")) best = { kind: "workshop", id: key };
       }
+      // hatcheries: standing at the coop beats the creatures nesting beside it
+      (world.hatcheries || []).forEach((h, i) => {
+        const hp = MAP.hatcheries[i];
+        if (!hp) return;
+        const dH = Math.hypot(hp.x - me.x, hp.y + 20 - me.y);
+        if ((!best && dH < REACH + 10) || (dH < 40 && best?.kind !== "visitor")) best = { kind: "hatchery", id: h.id };
+      });
       if (!best) for (let i = 0; i <= world.plots.length; i++) { const r = plotRect(i); const d = Math.hypot(r.cx - me.x, r.cy - me.y); if (d < bestD + 8) { best = i === world.plots.length ? { kind: "buyplot", i } : { kind: "plot", i }; bestD = d - 8; } }
       if (!best) for (const c of Object.values(world.creatures)) { if (c.follow !== L.myId || !cache[c.id]) continue; const p = cache[c.id]; if (Math.hypot(p.x - me.x, p.y - me.y) < REACH) best = { kind: "creature", id: c.id }; }
       currentTarget.current = best;
@@ -658,6 +693,14 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
         </div>
       )}
 
+      {eggPick && world && (
+        <EggPicker world={world} hid={eggPick} myId={myId} leader={myLeader()} canAct={W.canAct}
+          onMake={(a, b) => { W.dispatch({ type: "make_egg", hid: eggPick, a, b }); setEggPick(null); }} onClose={() => setEggPick(null)} />
+      )}
+      {party && world?.creatures?.[party] && (
+        <HatchParty c={world.creatures[party]} world={world} mine={world.creatures[party].owner === myId}
+          onName={(name) => name && W.dispatch({ type: "rename", cid: party, name })} onClose={() => setParty(null)} />
+      )}
       {board && (
         <RunBoard leader={myLeader()} world={world} partnerRun={partnerRun} partnerName={cap(nameOf(partnerId))}
           onStart={startRun} onJoin={joinRun} onClose={() => setBoard(false)} canAct={W.canAct} myId={myId} dispatch={W.dispatch} />
@@ -709,6 +752,13 @@ function promptFor(t, world, now, seed, offering) {
     const cost = plotCost(world.plots.length + 1);
     return `Buy plot ${world.plots.length + 1} · ${cost} coins${(world.coins || 0) < cost ? ` (you have ${Math.floor(world.coins || 0)})` : ""}`;
   }
+  if (t.kind === "hatchery") {
+    const h = (world.hatcheries || []).find(x => x.id === t.id), e = h?.egg;
+    if (!e) return "Hatchery · make an egg!";
+    const pct = Math.floor((e.progress || 0) * 100);
+    if (e.stage === "laying") return `${world.creatures[e.a]?.name || "?"} and ${world.creatures[e.b]?.name || "?"} are making an egg (${pct}%) · tap to help`;
+    return `${RARITY_INFO[e.rarity].name} egg · tap to keep it warm (${pct}%)`;
+  }
   if (t.kind === "workshop") {
     const ws = WORKSHOPS[t.id], st = world.workshops?.[t.id] || {};
     const miss = missingInputs(world, ws.needs).map(([k]) => ITEMS[k].name.toLowerCase());
@@ -748,6 +798,7 @@ function buttonLabel(t, world, now, seed) {
   if (t.kind === "buypen") return (world.coins || 0) >= penCost(penSlots(world) + 1) ? "BUILD" : "";
   if (t.kind === "buyplot") return (world.coins || 0) >= plotCost(world.plots.length + 1) ? "BUY" : "";
   if (t.kind === "workshop") return missingInputs(world, WORKSHOPS[t.id].needs).length ? "" : "CRAFT";
+  if (t.kind === "hatchery") { const h = (world.hatcheries || []).find(x => x.id === t.id); return h?.egg ? "WARM" : "EGG"; }
   if (t.kind === "plot") {
     const crop = world.plots[t.i];
     if (!crop) return "PLANT";
@@ -1067,6 +1118,102 @@ const noSelect = {
 function Chip({ children, color = C.text }) {
   return <span style={{ padding: "5px 10px", borderRadius: 999, background: "rgba(15,12,30,0.7)", border: "1px solid rgba(255,255,255,0.12)", color, display: "inline-flex", alignItems: "center", gap: 5 }}>{children}</span>;
 }
+// ── Kid-friendly egg picker (walk mode, at an empty Hatchery) ────────────────
+// Big pictures, no menus: your follower + whoever you tap make an egg.
+function EggPicker({ world, hid, myId, leader, canAct, onMake, onClose }) {
+  const [partner, setPartner] = useState(null);
+  const ok = (c) => c && canManage(c, myId) && c.housed && !c.away && c.grow == null && !c.nest;
+  const first = ok(leader) ? leader : null;
+  const pool = Object.values(world.creatures).filter(c => ok(c) && c.id !== first?.id && !c.follow);
+  const [pickA, setPickA] = useState(first?.id || null);
+  const A = world.creatures[pickA], B = world.creatures[partner];
+  const preview = A && B ? eggPreview(A, B) : null;
+  const afford = preview && preview.every(o => canAfford(world, o.rarity));
+  const best = preview?.[0];
+  const card = (c, on, onClick) => (
+    <button key={c.id} onClick={onClick} style={{ ...smallBtn, padding: 6, display: "flex", flexDirection: "column", alignItems: "center", gap: 2, width: 96,
+      ...(on ? { background: C.accent, color: "#1a1300", border: "none" } : {}) }}>
+      <Portrait species={c.species} traits={c.traits} size={64} />
+      <span style={{ fontWeight: 800, fontSize: 13 }}>{c.name}</span>
+    </button>
+  );
+  return (
+    <div style={overlayStyle} onClick={onClose}>
+      <div style={{ ...panelStyle, maxWidth: 560, maxHeight: "calc(100svh - 24px)", overflowY: "auto", alignItems: "stretch" }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontSize: 22, fontWeight: 900 }}>Make an egg!</div>
+          <button onClick={onClose} style={smallBtn}>close</button>
+        </div>
+        {!pickA ? (
+          <>
+            <div style={{ fontSize: 14, color: C.dim }}>Who's the first parent?</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{pool.map(c => card(c, false, () => setPickA(c.id)))}</div>
+          </>
+        ) : (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 15 }}>
+              {A && card(A, true, () => { setPickA(null); setPartner(null); })}
+              <span style={{ fontSize: 28, fontWeight: 900, color: "#ff8ab8" }}>+</span>
+              {B ? card(B, true, () => setPartner(null)) : <span style={{ color: C.dim }}>tap a friend below</span>}
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{pool.filter(c => c.id !== pickA && c.id !== partner).map(c => card(c, false, () => setPartner(c.id)))}</div>
+            {!pool.length && <div style={{ color: C.faint }}>Nobody else is free. Creatures need a pen spot to make eggs.</div>}
+          </>
+        )}
+        {preview && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "center", padding: 10, borderRadius: 12, background: "rgba(255,255,255,0.05)" }}>
+            <div style={{ fontSize: 14 }}>Most likely: <b>{best.types.length === 1 ? `a ${SPECIES[best.types[0]].name}` : `a ${best.types.map(t => SPECIES[t].name).join("-")} mix`}</b> ({Math.round(best.chance * 100)}%)</div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "center", fontSize: 13 }}>
+              <b style={{ color: RARITY_INFO[best.rarity].color }}>{RARITY_INFO[best.rarity].name} egg</b>
+              {RARITY_INFO[best.rarity].coins > 0 && <span style={{ color: "#ffd65a", fontWeight: 800 }}>{RARITY_INFO[best.rarity].coins} coins</span>}
+              {Object.entries(RARITY_INFO[best.rarity].cost).map(([k, n]) => <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 2, fontWeight: 800, color: (world.food?.[k] || 0) >= n ? C.text : C.bad }}><ItemIcon kind={k} size={16} />{n}</span>)}
+            </div>
+            <button disabled={!afford || !canAct} onClick={() => onMake(A.id, B.id)} style={{ ...smallBtn, padding: "12px 26px", fontSize: 18, fontWeight: 900, background: afford ? "#ff8ab8" : undefined, color: afford ? "#3a0020" : undefined, border: "none" }}>
+              {afford ? "Make an egg!" : "Need more food"}
+            </button>
+            <div style={{ fontSize: 12, color: C.faint }}>Then come back and tap the Hatchery to keep the egg warm. It hatches faster!</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Hatch party: the baby pops out, big and bouncy, and you get to name it ───
+function HatchParty({ c, world, mine, onName, onClose }) {
+  const [name, setName] = useState(c.name);
+  const [t0] = useState(() => performance.now());
+  const [, force] = useState(0);
+  useEffect(() => { let raf; const loop = () => { force(n => n + 1); if (performance.now() - t0 < 1600) raf = requestAnimationFrame(loop); }; raf = requestAnimationFrame(loop); return () => cancelAnimationFrame(raf); }, [t0]);
+  const k = Math.min(1, (performance.now() - t0) / 900);
+  const bounce = k < 1 ? 0.3 + 0.7 * (1 - Math.cos(k * Math.PI * 2.5) * (1 - k)) : 1;
+  const isNew = c.genes && (world.dex || {})[comboKey(c.genes)] === 1;
+  const R = c.rarity && RARITY_INFO[c.rarity];
+  const done = () => { if (mine && name.trim() && name.trim() !== c.name) onName(name.trim()); onClose(); };
+  return (
+    <div style={overlayStyle} onClick={done}>
+      <div style={{ ...panelStyle, maxWidth: 380, alignItems: "center", textAlign: "center", gap: 8 }} onClick={e => e.stopPropagation()}>
+        <div style={{ fontSize: 13, fontWeight: 900, letterSpacing: 2, color: R?.color || C.accent }}>{R ? `${R.name.toUpperCase()} EGG` : "AN EGG"} HATCHED!</div>
+        <div style={{ transform: `scale(${bounce})`, transition: "none", filter: c.traits?.rare ? "drop-shadow(0 0 14px #ffd65a)" : "none" }}>
+          <Portrait species={c.species} traits={c.traits} size={150} />
+        </div>
+        {isNew && <div style={{ fontSize: 15, fontWeight: 900, color: "#ff8ab8" }}>NEW MIX! Nobody's hatched one of these before!</div>}
+        {c.traits?.rare && <div style={{ fontSize: 14, fontWeight: 900, color: "#ffd65a" }}>It's GOLDEN!</div>}
+        <div style={{ fontSize: 13, color: C.dim }}>{typeLabel(c)}</div>
+        {mine ? (
+          <>
+            <div style={{ fontSize: 13, color: C.dim }}>Give your baby a name:</div>
+            <input value={name} maxLength={14} onChange={e => setName(e.target.value)} onKeyDown={e => { e.stopPropagation(); if (e.key === "Enter") done(); }}
+              style={{ fontSize: 22, fontWeight: 900, textAlign: "center", padding: "8px 10px", borderRadius: 12, border: "2px solid rgba(255,255,255,0.2)", background: "rgba(0,0,0,0.3)", color: C.text, width: 220, fontFamily: "inherit" }} />
+          </>
+        ) : <div style={{ fontSize: 22, fontWeight: 900 }}>{c.name}</div>}
+        <button onClick={done} style={{ ...smallBtn, padding: "10px 24px", fontSize: 16, fontWeight: 900, background: C.accent, color: "#1a1300", border: "none" }}>Hello, {name.trim() || c.name}!</button>
+        <div style={{ fontSize: 12, color: C.faint }}>Pet your baby to help it grow up faster.</div>
+      </div>
+    </div>
+  );
+}
+
 const smallBtn = {
   padding: "7px 11px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 700,
   background: "rgba(15,12,30,0.7)", border: "1px solid rgba(255,255,255,0.15)", color: C.text,
