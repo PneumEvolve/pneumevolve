@@ -50,6 +50,7 @@ import WildsRun from "./wilds/WildsRun";
 import MarketRush from "./minis/MarketRush";
 import CreatureFair from "./minis/CreatureFair";
 import CritterRaces from "./minis/CritterRaces";
+import HillClimb from "./hillclimb/HillClimb";
 import { LEVELS, LEVEL_ORDER, CREW_MAX } from "./stampede/stampedeSim";
 
 // Critter Stampede levels unlock in order (shared by both players on this farm).
@@ -64,6 +65,8 @@ const RUNS = [
     desc: "Show off a creature: scrub it clean, do a trick, then the judges score it on happiness, Care, purity or mix, rarity and gold. Win ribbons and coins. Play together and you compete with each other too." },
   { id: "races", name: "Critter Races", ready: true, mini: true, group: "Farm games", time: "1 minute", play: "Line up",
     desc: "Race a creature down the track: jump logs, dash, grab berries. Every type has its own trick. Race each other or the neighbours' critters for coins and ribbons." },
+  { id: "hill", name: "Hill Climb Rally", ready: true, mini: true, group: "Farm games", time: "1 minute", play: "Start engines",
+    desc: "Drive a cart over the hills to the finish. Hold gas to go; in the air, gas and brake tip the cart so you land on your wheels. Crash and you're put back a little way. Race each other and the neighbours." },
   { id: "stampede", name: "Critter Stampede", ready: true, group: "Adventures",
     desc: "Endless field. Run circles around critters to tame them; every species in your herd gives you an ability (keys 1-7), and your herd can be 10 + your pen spots big. Your herd makes goods as you run, goop drop coins, and the Goop King drops an egg. Bring some critters home too." },
   { id: "wilds", name: "The Wilds", ready: true, group: "Adventures",
@@ -751,6 +754,9 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
       )}
       {myRun?.kind === "fair" && (
         <CreatureFair net={net} host={myRun.host} world={world} W={W} myId={myId} partnerId={partnerId} partnerHere={!!net.partnerOnline} nameOf={nameOf} onExit={exitRun} />
+      )}
+      {myRun?.kind === "hill" && (
+        <HillClimb net={net} host={myRun.host} world={world} W={W} myId={myId} partnerId={partnerId} partnerHere={!!net.partnerOnline} nameOf={nameOf} onExit={exitRun} />
       )}
       {myRun?.kind === "races" && (
         <CritterRaces net={net} host={myRun.host} world={world} W={W} myId={myId} partnerId={partnerId} partnerHere={!!net.partnerOnline} nameOf={nameOf} onExit={exitRun} />

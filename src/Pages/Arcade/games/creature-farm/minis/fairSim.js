@@ -17,7 +17,8 @@ export const RIBBON_NAMES = { gold: "1st place", silver: "2nd place", bronze: "3
 const NPC_NAMES = ["Duchess", "Sir Fluff", "Pumpkin", "Bramble", "Twinkle", "Nugget", "Clover", "Biscotti", "Mochi", "Rusty"];
 const RARITY_BONUS = { common: 0, uncommon: 2, rare: 4, epic: 7, legendary: 10 };
 
-export const zoneFor = (care = 1) => Math.min(0.34, 0.14 + 0.022 * (care - 1));       // width of the green zone (0-1)
+export const zoneFor = (care = 1) => Math.min(0.4, 0.22 + 0.02 * (care - 1));          // half-width of the green zone (0-1 across the bar)
+export const trickSpeed = (n) => 0.4 + 0.06 * n;                                      // back-and-forths per second: gentle, a little faster each tap
 
 export function newFair(seed, wins = 0) {
   const rng = mulberry(seed);

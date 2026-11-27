@@ -4,7 +4,7 @@ import { C } from "../../../ui";
 import { typeLabel } from "../eggs";
 import { useMini } from "./useMini";
 import { mulberry } from "./rng";
-import { newFair, fairAct, fairTick, zoneFor, SCRUB_SECS, TRICK_SECS, JUDGE_SECS, SCRUB_SPOTS, SCRUB_FULL, TRICKS, RIBBON_NAMES } from "./fairSim";
+import { newFair, fairAct, fairTick, zoneFor, trickSpeed, SCRUB_SECS, TRICK_SECS, JUDGE_SECS, SCRUB_SPOTS, SCRUB_FULL, TRICKS, RIBBON_NAMES } from "./fairSim";
 import { Shell, btn, bigBtn, Section, Pic, CreaturePick, Ribbon, P_COLORS } from "./MiniShell";
 
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
@@ -159,7 +159,7 @@ function Trick({ c, tricks, onTap }) {
   const n = tricks.length, doneAll = n >= TRICKS;
   useEffect(() => {
     if (doneAll) return;
-    let raf = 0; const t0 = performance.now(), speed = 1.1 + n * 0.35;
+    let raf = 0; const t0 = performance.now(), speed = trickSpeed(n);
     const loop = (now) => {
       raf = requestAnimationFrame(loop);
       const u = (now - t0) / 1000 * speed;
@@ -172,7 +172,7 @@ function Trick({ c, tricks, onTap }) {
   const tap = () => {
     if (doneAll) return;
     const d = Math.abs(posRef.current - 0.5);
-    const acc = d <= zone / 6 ? 1 : d <= zone / 2 ? 0.65 : d <= zone ? 0.25 : 0;
+    const acc = d <= zone / 4 ? 1 : d <= zone / 2 ? 0.65 : d <= zone ? 0.3 : 0;
     setSay(acc === 1 ? "Perfect!" : acc >= 0.65 ? "Nice!" : acc > 0 ? "Close!" : "Oops!");
     onTap(acc);
   };
@@ -188,7 +188,7 @@ function Trick({ c, tricks, onTap }) {
       <div onPointerDown={tap} data-trick style={{ position: "relative", width: "100%", height: 54, borderRadius: 27, background: "rgba(255,255,255,0.08)", cursor: "pointer", touchAction: "manipulation", overflow: "hidden" }}>
         <div style={{ position: "absolute", top: 0, bottom: 0, left: `${(0.5 - zone) * 100}%`, width: `${zone * 200}%`, background: "rgba(127,220,138,0.35)" }} />
         <div style={{ position: "absolute", top: 0, bottom: 0, left: `${(0.5 - zone / 2) * 100}%`, width: `${zone * 100}%`, background: "rgba(127,220,138,0.5)" }} />
-        <div style={{ position: "absolute", top: 0, bottom: 0, left: `${(0.5 - zone / 6) * 100}%`, width: `${zone * 33}%`, background: "#ffd65a" }} />
+        <div style={{ position: "absolute", top: 0, bottom: 0, left: `${(0.5 - zone / 4) * 100}%`, width: `${zone * 50}%`, background: "#ffd65a" }} />
         {!doneAll && <div ref={barRef} style={{ position: "absolute", top: 7, width: 28, height: 40, borderRadius: "50%", border: "5px solid #ff6b9a", boxSizing: "border-box" }} />}
       </div>
       <div style={{ display: "flex", gap: 6 }}>{Array.from({ length: TRICKS }, (_, i) => <span key={i} style={{ width: 16, height: 16, borderRadius: 8, background: i < n ? (tricks[i] >= 1 ? "#ffd65a" : tricks[i] > 0.5 ? "#7fdc8a" : tricks[i] > 0 ? "#6fa8ff" : "#ff5d73") : "rgba(255,255,255,0.15)" }} />)}</div>

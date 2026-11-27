@@ -786,7 +786,7 @@ export function farmReducer(w0, a) {
     }
     // Coming home: loot, Fight XP, tired creatures, new friends.
     // ── Farm games ───────────────────────────────────────────────────────────
-    // Market Rush: sold items leave storage; coins can't be more than the goods were worth ×2 (+ tips cap).
+    // Market Rush: sold items leave storage; coins can't be more than the goods were worth ×3 + 200.
     case "market_end": {
       if (!by) return w;
       const food = { ...w.food };
@@ -796,7 +796,7 @@ export function farmReducer(w0, a) {
         const q = Math.max(0, Math.min(Math.floor(Number(q0) || 0), Math.floor(food[k] || 0)));
         food[k] -= q; worth += ITEMS[k].price * q; n += q;
       }
-      const coins = Math.max(0, Math.min(Number(a.coins) || 0, Math.round(worth * 2.2) + 200));
+      const coins = Math.max(0, Math.min(Number(a.coins) || 0, Math.round(worth * 3) + 200));
       const served = Math.max(0, Math.floor(Number(a.served) || 0));
       return {
         ...w, food, coins: Math.round((w.coins + coins) * 100) / 100,
@@ -848,6 +848,30 @@ export function farmReducer(w0, a) {
         log = addLog(log, a, e.place === 1 ? `${c.name} won the race!` : `${c.name} came ${e.place === 2 ? "2nd" : e.place === 3 ? "3rd" : e.place + "th"} in the race`, "catch");
       }
       return { ...w, creatures, coins: Math.round((w.coins + coins) * 100) / 100, raceBest, raceWins: (w.raceWins || 0) + wins, log };
+    }
+
+    // Hill Climb Rally: like the races, with Haul practice (they pull the cart) and best times per map.
+    case "hill_end": {
+      if (!by) return w;
+      const map = Math.max(0, Math.min(9, Number(a.map) || 0));
+      const creatures = { ...w.creatures };
+      let coins = 0, log = w.log, wins = 0;
+      const hillBest = { ...(w.hillBest || {}) };
+      for (const e of (a.entries || []).slice(0, 2)) {
+        const c0 = creatures[e.cid];
+        if (!c0) continue;
+        const c = { ...c0, happy: Math.min(100, (c0.happy || 0) + 8), energy: Math.max(10, (c0.energy ?? 100) - 15), ribbons: { ...(c0.ribbons || {}) } };
+        const rb = ["gold", "silver", "bronze", "green"].includes(e.ribbon) ? e.ribbon : "green";
+        c.ribbons[rb] = (c.ribbons[rb] || 0) + 1;
+        for (const line of addSkillXp(c, "haul", 10 * 60)) log = addLog(log, a, line, "catch");
+        creatures[c.id] = c;
+        coins += Math.max(0, Math.min(Number(e.coins) || 0, 300));
+        const time = Number(e.time);
+        if (Number.isFinite(time) && time > 10 && (!hillBest[map] || time < hillBest[map])) hillBest[map] = Math.round(time * 10) / 10;
+        if (e.place === 1) wins++;
+        log = addLog(log, a, e.place === 1 ? `${c.name} won the Hill Climb Rally!` : `${c.name} came ${e.place === 2 ? "2nd" : e.place === 3 ? "3rd" : e.place + "th"} in the Hill Climb Rally`, "catch");
+      }
+      return { ...w, creatures, coins: Math.round((w.coins + coins) * 100) / 100, hillBest, hillWins: (w.hillWins || 0) + wins, log };
     }
 
     case "wilds_end": {
