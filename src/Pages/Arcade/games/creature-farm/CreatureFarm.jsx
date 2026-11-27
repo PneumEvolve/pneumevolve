@@ -35,7 +35,7 @@ import {
   WORLD_W, WORLD_H, MAP, REACH, DAY_LEN, PLOT_COUNT, FOLLOW_BOND, FEED_BELOW,
   initFarm, farmReducer, plotRect, growth, visitorPos, penPos, workerPos, worldWidth, plotCost, hutchSpots,
 } from "./farmWorld";
-import { stateOf, troughCap, STORE_ITEMS, WORKSHOPS, ITEMS, missingInputs, penSlots, penCost } from "./ranch";
+import { stateOf, troughCap, STORE_ITEMS, WORKSHOPS, ITEMS, missingInputs, penSlots, penCost, canManage } from "./ranch";
 import RanchPanel, { alertsFor, MANAGER_PANEL_W } from "./RanchPanel";
 import {
   drawCreature, drawFarmer, drawMap, drawBar,
@@ -43,7 +43,7 @@ import {
 } from "./drawFarm";
 import StampedeRun from "./stampede/StampedeRun";
 import WildsRun from "./wilds/WildsRun";
-import { LEVELS, LEVEL_ORDER } from "./stampede/stampedeSim";
+import { LEVELS, LEVEL_ORDER, CREW_MAX } from "./stampede/stampedeSim";
 
 // Critter Stampede levels unlock in order (shared by both players on this farm).
 const levelUnlocked = (world, id) => id === "easy" || !!world?.runsBeaten?.[LEVEL_ORDER[LEVEL_ORDER.indexOf(id) - 1]];
@@ -660,7 +660,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
 
       {board && (
         <RunBoard leader={myLeader()} world={world} partnerRun={partnerRun} partnerName={cap(nameOf(partnerId))}
-          onStart={startRun} onJoin={joinRun} onClose={() => setBoard(false)} canAct={W.canAct} />
+          onStart={startRun} onJoin={joinRun} onClose={() => setBoard(false)} canAct={W.canAct} myId={myId} dispatch={W.dispatch} />
       )}
 
       {myRun?.kind === "wilds" && (
@@ -672,10 +672,12 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
         const leader = myLeader();
         return leader && (
           <StampedeRun net={net} runHost={myRun.host} level={myRun.level} species={leader.species} hue={leader.traits.hue} pens={world.penSlots || 4}
+            crews={{ 0: crewOf(world, myRun.host ? myId : partnerId), 1: crewOf(world, myRun.host ? partnerId : myId) }}
+            onCrewGo={(cids) => cids.length && W.dispatch({ type: "stampede_go", cids })}
             partnerName={cap(nameOf(partnerId))}
             onAdopt={(c) => W.dispatch({ type: "adopt", species: c.species, hue: c.hue, size: c.size, rare: !!c.rare, r: Math.random() })}
             onWin={(level) => W.dispatch({ type: "run_won", level })}
-            onLoot={(l) => W.dispatch({ type: "run_loot", level: l.level, coins: l.coins, goods: l.goods, egg: l.egg, r: Math.random() })}
+            onLoot={(l) => W.dispatch({ type: "run_loot", level: l.level, coins: l.coins, goods: l.goods, egg: l.egg, crew: l.crew, secs: l.secs, r: Math.random() })}
             onExit={exitRun} />
         );
       })()}
@@ -759,7 +761,46 @@ function buttonLabel(t, world, now, seed) {
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
 // ── Run board (the signpost) ──────────────────────────────────────────────────
-function RunBoard({ leader, world, partnerRun, partnerName, onStart, onJoin, onClose, canAct }) {
+// A player's Stampede crew, ready for the run: [{ cid, species, hue, size, rare, fight, name }]
+function crewOf(world, uid) {
+  if (uid == null) return [];
+  return ((world?.crew || {})[uid] || []).map(id => world.creatures[id])
+    .filter(c => c && !c.follow && (!c.away || c.away === "stampede") && !c.nest && c.grow == null)
+    .slice(0, CREW_MAX)
+    .map(c => ({ cid: c.id, species: c.species, hue: c.traits?.hue, size: c.traits?.size || 1, rare: !!c.traits?.rare, fight: c.skills?.fight || 1, name: c.name }));
+}
+
+function CrewPicker({ world, myId, dispatch, canAct, leader }) {
+  const mine = (world?.crew || {})[myId] || [];
+  const options = Object.values(world?.creatures || {})
+    .filter(c => canManage(c, myId) && c.grow == null && !c.nest && c.id !== leader?.id && (!c.away || c.away === "stampede"))
+    .sort((a, b) => (b.skills?.fight || 1) - (a.skills?.fight || 1));
+  const toggle = (id) => {
+    const next = mine.includes(id) ? mine.filter(x => x !== id) : mine.length >= CREW_MAX ? mine : [...mine, id];
+    dispatch({ type: "set_crew", cids: next });
+  };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "8px 10px", borderRadius: 10, background: "rgba(0,0,0,0.2)" }}>
+      <span style={{ fontSize: 12, color: C.dim }}>
+        <b style={{ color: C.text }}>Your crew ({mine.length}/{CREW_MAX})</b>: farm creatures that start in your herd. Higher Fight = tougher, and they count extra for herd abilities. They can't be snatched and always come home (with some Fight practice).
+      </span>
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+        {options.map(c => {
+          const on = mine.includes(c.id);
+          return (
+            <button key={c.id} data-crew={c.id} disabled={!canAct || (!on && mine.length >= CREW_MAX)} onClick={() => toggle(c.id)}
+              style={{ ...smallBtn, padding: "3px 8px 3px 3px", fontSize: 12, display: "inline-flex", alignItems: "center", gap: 4, ...(on ? { background: C.accent, color: "#1a1300", border: "none" } : {}), opacity: !on && mine.length >= CREW_MAX ? 0.45 : 1 }}>
+              <Portrait species={c.species} traits={c.traits} size={22} /> {c.name} <span style={{ opacity: 0.7 }}>Fi {c.skills?.fight || 1}</span>
+            </button>
+          );
+        })}
+        {!options.length && <span style={{ fontSize: 12, color: C.faint }}>No one free.</span>}
+      </div>
+    </div>
+  );
+}
+
+function RunBoard({ leader, world, partnerRun, partnerName, onStart, onJoin, onClose, canAct, myId, dispatch }) {
   const sp = leader && SPECIES[leader.species];
   return (
     <div style={overlayStyle} onClick={onClose}>
@@ -794,6 +835,7 @@ function RunBoard({ leader, world, partnerRun, partnerName, onStart, onJoin, onC
                 <button disabled={!canAct || !!world?.wilds} onClick={() => onStart("wilds", "easy")} style={{ ...smallBtn, background: C.accent, color: "#1a1300", border: "none" }}>{world?.wilds ? "Squad is out" : "Plan a trip"}</button>
               </div>
             )}
+            {r.id === "stampede" && <CrewPicker world={world} myId={myId} dispatch={dispatch} canAct={canAct} leader={leader} />}
             {r.id === "stampede" && LEVEL_ORDER.map(id => {
               const L = LEVELS[id], open = levelUnlocked(world, id), beaten = !!world?.runsBeaten?.[id];
               return (

@@ -112,7 +112,7 @@ export const herdAbilityCd = (n) => Math.max(8, 14 - 0.5 * n);   // seconds
 // How many of each species are in a player's herd (golden = 2). { species: n }
 export function herdPower(run, slot) {
   const out = {};
-  for (const c of run.critters) if (c.owner === slot && c.grabbedBy == null) out[c.species] = (out[c.species] || 0) + (c.rare ? 2 : 1);
+  for (const c of run.critters) if (c.owner === slot && c.grabbedBy == null) out[c.species] = (out[c.species] || 0) + (c.crew ? crewWeight(c.fight) : c.rare ? 2 : 1);
   return out;
 }
 
@@ -353,6 +353,32 @@ export function tryTame(run, slot, cid) {
   return true;
 }
 
+// ── Your crew: farm creatures you bring along ────────────────────────────────
+// Each player can bring up to CREW_MAX of their own farm creatures. They start
+// in your herd, can't be snatched, and always come home at the end (they never
+// take up a "bring home" pick). Their Fight level makes them stronger:
+// +15% health and +12% damage per level above 1, and they count extra for herd
+// abilities (Fight 1-3 = 1, 4-6 = 2, 7-9 = 3, 10 = 4).
+export const CREW_MAX = 3;
+export const crewPower = (fight = 1) => 1 + 0.12 * (Math.max(1, fight) - 1);
+export const crewWeight = (fight = 1) => 1 + Math.floor((Math.max(1, fight) - 1) / 3);
+// crew: [{ cid, species, hue, size, rare, fight, name }]
+export function addCrew(run, slot, crew) {
+  const p = run.players[slot];
+  if (!p) return;
+  for (const m of (crew || []).slice(0, CREW_MAX)) {
+    if (!SPECIES[m.species] || run.critters.some(c => c.crew === m.cid)) continue;
+    const fight = Math.max(1, Math.min(10, m.fight || 1));
+    const maxHp = T.HERD_HP * (m.rare ? T.RARE_MULT : 1) * (1 + 0.15 * (fight - 1)) * p.mods.herdHp;
+    run.critters.push({
+      id: run.nextId++, species: m.species, hue: m.hue ?? SPECIES[m.species].hue, size: m.size || 1,
+      x: p.x + (run.rng() - 0.5) * 60, y: p.y + 30 + run.rng() * 20, vx: 0, vy: 0, owner: slot,
+      hp: maxHp, maxHp, atkCd: 0, wa: run.rng() * TAU, g: -1, k: 0, rest: false, rare: !!m.rare,
+      crew: m.cid, fight, power: crewPower(fight), name: m.name || "",
+    });
+  }
+}
+
 // Called when the player's device reports where its leader is.
 export function setLeaderPos(run, slot, x, y) {
   const p = run.players[slot];
@@ -378,7 +404,7 @@ export function castHerdAbility(run, slot, species) {
       for (const b of run.baddies) { const d = dist(b, p); if (b.hp > 0 && d < bd && dist(b, c) < 500) { bd = d; best = b; } }
       if (!best) continue;
       c.x = best.x - 10; c.y = best.y; c.bump = 0.2;
-      for (const b of run.baddies) if (dist(b, best) < 70) hitB(b, 28 * c.size * (c.rare ? T.RARE_MULT : 1) * p.mods.herdDmg);
+      for (const b of run.baddies) if (dist(b, best) < 70) hitB(b, 28 * c.size * (c.rare ? T.RARE_MULT : 1) * (c.power || 1) * p.mods.herdDmg);
       fx(run, { k: "pop", x: best.x, y: best.y, big: 1 });
     }
   } else if (species === "puddlet") {
@@ -655,7 +681,7 @@ export function stepRun(run, dt, hurt = () => {}) {
       else { c.vx = 0; c.vy = 0; }
       if (target && d < 24 && c.atkCd <= 0) {
         const [dm, sp] = ELEMENT[SPECIES[c.species]?.element] || [1, 1];
-        target.hp -= T.HERD_DMG * dm * c.size * p.mods.herdDmg * (c.rare ? T.RARE_MULT : 1) * (p.glow > 0 ? 1.3 : 1); target.lastBy = p.slot; target.hitT = 0.12;
+        target.hp -= T.HERD_DMG * dm * c.size * p.mods.herdDmg * (c.rare ? T.RARE_MULT : 1) * (c.power || 1) * (p.glow > 0 ? 1.3 : 1); target.lastBy = p.slot; target.hitT = 0.12;
         c.atkCd = T.HERD_ATK_EVERY / sp;
         c.bump = 0.15;
       }
@@ -704,7 +730,7 @@ export function stepRun(run, dt, hurt = () => {}) {
       if (b.carry == null) {
         // hunt the nearest herd critter
         let prey = null, pd = SNATCH.LOOK;
-        for (const c of herdAll) { if (c.safe > 0) continue; const d = dist(c, b); if (d < pd) { pd = d; prey = c; } }
+        for (const c of herdAll) { if (c.safe > 0 || c.crew) continue; const d = dist(c, b); if (d < pd) { pd = d; prey = c; } }   // your own farm creatures can't be snatched
         if (prey) {
           gx = prey.x; gy = prey.y;
           if (pd < 20) {
@@ -862,7 +888,7 @@ export function makeSnapshot(run) {
     t: Math.round(run.t * 10) / 10, st: run.state, lv: run.level,
     p: run.players.map(p => p && [R(p.x), R(p.y), R(p.hp), p.down ? 1 : 0, Math.round(p.rev * 10) / 10, p.kills, p.tamed, SPECIES_IDS.indexOf(p.species), p.active ? 1 : 0, p.hue, p.maxHp,
       Math.round(p.mods.speed * 100) / 100, Math.round(p.mods.lasso * 100) / 100, herdCapOf(run, p)]),
-    c: run.critters.map(c => [c.id, SPECIES_IDS.indexOf(c.species), R(c.x), R(c.y), c.hue, R(c.size * 100), c.owner, R(c.hp / c.maxHp * 100), c.bump > 0 ? 1 : 0, c.rest ? 1 : 0, run.t - (c.hitAt ?? -9) < 0.2 ? 1 : 0, c.rare ? 1 : 0, c.grabbedBy != null ? 1 : 0]),
+    c: run.critters.map(c => [c.id, SPECIES_IDS.indexOf(c.species), R(c.x), R(c.y), c.hue, R(c.size * 100), c.owner, R(c.hp / c.maxHp * 100), c.bump > 0 ? 1 : 0, c.rest ? 1 : 0, run.t - (c.hitAt ?? -9) < 0.2 ? 1 : 0, c.rare ? 1 : 0, c.grabbedBy != null ? 1 : 0, c.crew ? c.fight : 0]),
     k: run.items.map(it => [it.id, R(it.x), R(it.y)]),
     b: run.baddies.map(b => [b.id, GOOP_KINDS.indexOf(b.kind), R(b.x), R(b.y), R(b.hp / b.maxHp * 100), b.hitT > 0 ? 1 : 0, b.charge > 0 ? R((1 - b.charge / BOSS.SLAM_WIND) * 100) : 0, b.carry != null ? 1 : 0]),
     s: run.shots.map(sh => [sh.id, R(sh.x), R(sh.y), R(sh.tx), R(sh.ty), R(sh.t / sh.dur * 100)]),

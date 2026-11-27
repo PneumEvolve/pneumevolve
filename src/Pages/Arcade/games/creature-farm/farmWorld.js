@@ -272,6 +272,11 @@ export function farmReducer(w0, a) {
     case "tick": {
       const real = clamp((a.t - w.simAt) / 1000, 0, CATCHUP_MAX);
       if (real < 0.2) return w;
+      if (w.stampede && a.t - w.stampede.at > 15 * 60 * 1000) {    // a Stampede crew that never got sent home (closed tab)
+        const creatures = { ...w.creatures };
+        for (const id of w.stampede.cids) if (creatures[id]?.away === "stampede") creatures[id] = { ...creatures[id], away: false };
+        return farmReducer({ ...w, creatures, stampede: null, log: addLog(w.log, a, "The Stampede crew wandered home on their own", "day") }, a);
+      }
       if (w.wilds && a.t - w.wilds.at > 40 * 60 * 1000) {        // a trip that never came back (closed tab): everyone walks home
         const creatures = { ...w.creatures };
         for (const id of w.wilds.squad) if (creatures[id]) creatures[id] = { ...creatures[id], away: false, energy: 30 };
@@ -523,6 +528,20 @@ export function farmReducer(w0, a) {
     case "run_loot": {
       if (!by || !["easy", "medium", "hard"].includes(a.level)) return w;
       const x = { ...w, food: { ...w.food }, market: { ...w.market } };
+      // the crew comes home with some Fight practice (3× the run time)
+      const back = new Set([...(a.crew || []), ...(w.stampede?.cids || [])]);
+      if (back.size) {
+        x.creatures = { ...w.creatures };
+        for (const id of back) {
+          const c = x.creatures[id];
+          if (!c || c.away !== "stampede") continue;
+          const nc = { ...c, skills: { ...c.skills }, xp: { ...(c.xp || {}) }, away: false, resting: false };
+          if ((a.crew || []).includes(id)) addSkillXp(nc, "fight", Math.min(3600, Math.max(0, Number(a.secs) || 0) * 3));
+          x.creatures[id] = nc;
+        }
+        x.stampede = null;
+      }
+      if (!(Number(a.coins) > 0) && !Object.keys(a.goods || {}).length && !a.egg) return { ...x, log: addLog(w.log, a, "The Stampede crew came home", "info") };
       for (const [k, n] of Object.entries(a.goods || {})) if (ITEMS[k] && n > 0) store(x, k, Math.min(5000, Math.floor(n)), null);
       x.coins = Math.round((x.coins + Math.max(0, Math.min(5000, Number(a.coins) || 0))) * 100) / 100;
       let log = w.log, nextId = w.nextId;
@@ -534,6 +553,23 @@ export function farmReducer(w0, a) {
       const goodsN = Object.values(a.goods || {}).reduce((s, n) => s + (Number(n) || 0), 0);
       log = addLog(log, a, `Critter Stampede paid out ${Math.round(Number(a.coins) || 0)} coins and ${goodsN} goods`, "catch");
       return { ...x, nextId, log };
+    }
+
+    // Your Stampede crew: up to 3 of your own grown-ups that start runs in your herd.
+    case "set_crew": {
+      if (!by) return w;
+      const cids = (a.cids || []).filter(id => { const c = w.creatures[id]; return c && canManage(c, by) && c.grow == null; }).slice(0, 3);
+      return { ...w, crew: { ...(w.crew || {}), [by]: cids } };
+    }
+    // A Stampede run started: the crew is out (no farm work) until run_loot brings them back.
+    case "stampede_go": {
+      if (!by) return w;
+      const ids = (a.cids || []).filter(id => { const c = w.creatures[id]; return c && (!c.away || c.away === "stampede") && !c.nest && !c.follow && c.grow == null; });   // never the creature you run as
+      if (!ids.length) return w;
+      const creatures = { ...w.creatures };
+      for (const id of ids) creatures[id] = { ...creatures[id], away: "stampede", resting: false };
+      const cids = [...new Set([...(w.stampede?.cids || []), ...ids])];
+      return { ...w, creatures, stampede: { at: a.t, cids } };
     }
 
     // ── Ranch actions ────────────────────────────────────────────────────────

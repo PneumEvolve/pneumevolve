@@ -46,7 +46,7 @@ import { drawCreature, drawPaw, drawHeart, drawCropSprite } from "../drawFarm";
 import {
   T, LEVELS, CARDS, SPECIES_IDS, createRun, addPlayer, stepRun, setLeaderPos, tryTame,
   makeSnapshot, readSnapshotPlayers, lassoStep, choosePick, xpNeed, herdCapOf, GOOP_KINDS, BOSS,
-  castHerdAbility, HERD_ABILITIES, lootOf, REWARD, GOODS_EVERY,
+  castHerdAbility, HERD_ABILITIES, lootOf, REWARD, GOODS_EVERY, addCrew,
 } from "./stampedeSim";
 import { ITEMS } from "../ranch";
 import { ItemIcon, EggIcon } from "../RanchPanel";
@@ -66,7 +66,9 @@ const KEYMAP = {
 const isEnd = (st) => st === "over" || st === "won";
 const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
-export default function StampedeRun({ net, runHost, level = "easy", species, hue, partnerName, pens = 5, onAdopt, onWin, onLoot, onExit }) {
+//   crews     { 0: [...], 1: [...] } farm creatures each player brings (host's slot 0)
+//   onCrewGo(cids)  the run host marks the crew as out on a run (farm side)
+export default function StampedeRun({ net, runHost, level = "easy", species, hue, partnerName, pens = 5, crews = {}, onCrewGo, onAdopt, onWin, onLoot, onExit }) {
   const mySlot = runHost ? 0 : 1;
   const otherSlot = 1 - mySlot;
   const LV = LEVELS[level] || LEVELS.easy;
@@ -79,7 +81,7 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
   const [myPick, setMyPick] = useState(null);       // card I just tapped (before the host confirms)
 
   const live = useRef({});
-  live.current = { net, runHost, mySlot, otherSlot, species, hue, level, pens };
+  live.current = { net, runHost, mySlot, otherSlot, species, hue, level, pens, crews, onCrewGo };
 
   const canvasRef = useRef(null);
   const keysRef = useRef({});
@@ -100,7 +102,9 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
     const L = live.current;
     const run = createRun(Math.floor(Math.random() * 1e9), L.level, L.pens);
     addPlayer(run, 0, L.species, SPAWN[0].x, SPAWN[0].y, L.hue);
-    if (partnerRef.current) addPlayer(run, 1, partnerRef.current.species, SPAWN[1].x, SPAWN[1].y, partnerRef.current.hue);
+    addCrew(run, 0, L.crews[0]);
+    if (partnerRef.current) { addPlayer(run, 1, partnerRef.current.species, SPAWN[1].x, SPAWN[1].y, partnerRef.current.hue); addCrew(run, 1, L.crews[1]); }
+    L.onCrewGo?.([...(L.crews[0] || []), ...(partnerRef.current ? L.crews[1] || [] : [])].map(m => m.cid));
     runRef.current = run;
     meRef.current = { ...SPAWN[0], face: 1, moving: false, kx: 0, ky: 0, hurtAt: -9 };
     lassoRef.current = null;
@@ -129,7 +133,11 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
     const sp = SPECIES_IDS[m.sp];
     if (!sp) return;
     partnerRef.current = { species: sp, hue: m.hue };
-    if (!run.players[1] || run.players[1].species !== sp || run.players[1].hue !== m.hue) addPlayer(run, 1, sp, m.x, m.y, m.hue);
+    if (!run.players[1] || run.players[1].species !== sp || run.players[1].hue !== m.hue) {
+      const fresh = !run.players[1];
+      addPlayer(run, 1, sp, m.x, m.y, m.hue);
+      if (fresh) { addCrew(run, 1, L.crews[1]); L.onCrewGo?.((L.crews[1] || []).map(c => c.cid)); }   // partner joined: their crew comes too
+    }
     setLeaderPos(run, 1, m.x, m.y);
     run.players[1].face = m.f;
   });
@@ -163,7 +171,7 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
     for (const a of m.c || []) {
       const id = a[0]; seenC.add(id);
       const e = v.critters.get(id);
-      const base = { id, species: SPECIES_IDS[a[1]], tx: a[2], ty: a[3], hue: a[4], size: a[5] / 100, owner: a[6], hpFrac: a[7] / 100, bump: a[8], rest: !!a[9], hit: !!a[10], rare: !!a[11], grabbed: !!a[12] };
+      const base = { id, species: SPECIES_IDS[a[1]], tx: a[2], ty: a[3], hue: a[4], size: a[5] / 100, owner: a[6], hpFrac: a[7] / 100, bump: a[8], rest: !!a[9], hit: !!a[10], rare: !!a[11], grabbed: !!a[12], crew: a[13] || 0 };
       if (e) Object.assign(e, base); else v.critters.set(id, { ...base, x: a[2], y: a[3], face: 1 });
     }
     for (const id of [...v.critters.keys()]) if (!seenC.has(id)) v.critters.delete(id);
@@ -399,7 +407,8 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
           grabbed: mine.some(c => c.grabbed ?? c.grabbedBy != null),
           pick: pk ? { t: pk.t, offers: pk.o?.[L.mySlot] || [], chosen: pk.c?.[L.mySlot] || null, partnerPicking: pk.o?.[L.otherSlot] != null, partnerChosen: !!pk.c?.[L.otherSlot] } : null,
           other: partner ? { kills: partner.kills, tamed: partner.tamed } : null,
-          myHerd: over ? mine.map(c => ({ id: c.id, species: c.species, hue: c.hue, size: c.size, rare: !!c.rare })) : [],
+          myHerd: over ? mine.filter(c => !c.crew).map(c => ({ id: c.id, species: c.species, hue: c.hue, size: c.size, rare: !!c.rare })) : [],   // your crew comes home anyway
+          myCrew: over ? mine.filter(c => c.crew).map(c => ({ id: c.id, species: c.species, hue: c.hue, rare: !!c.rare, name: c.name || (L.crews[L.mySlot] || []).find(m => m.species === c.species)?.name || SPECIES[c.species]?.name })) : [],
           abilities: (() => {
             const pow = {};
             for (const c of mine) if (!(c.grabbed ?? c.grabbedBy != null)) pow[c.species] = (pow[c.species] || 0) + (c.rare ? 2 : 1);
@@ -448,7 +457,16 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
     for (const id of chosen) { const c = hud.myHerd.find(x => x.id === id); if (c) onAdopt?.({ species: c.species, hue: c.hue, size: c.size, rare: c.rare }); }
     setAdopted(a => [...a, ...chosen]); setChosen([]);
   };
-  const leave = () => { sendHome(); onExit(); };
+  const leave = () => {
+    sendHome();
+    // leaving mid-run: your crew still comes home (no rewards for an unfinished run)
+    if (runHost && !lootSent.current && runRef.current && !isEnd(runRef.current.state)) {
+      lootSent.current = true;
+      const run = runRef.current;
+      onLoot?.({ level, won: false, coins: 0, goods: {}, egg: null, crew: run.critters.filter(c => c.crew).map(c => c.crew), secs: Math.round(run.t) });
+    }
+    onExit();
+  };
   const again = () => { sendHome(); restart(); };
 
   // ── Upgrade pick ───────────────────────────────────────────────────────────
@@ -473,7 +491,9 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
   useEffect(() => {
     if (!final || !runHost || lootSent.current || !hud.started) return;
     lootSent.current = true;
-    onLoot?.({ level, ...final });
+    const run = runRef.current;
+    const crew = run ? run.critters.filter(c => c.crew).map(c => c.crew) : [];
+    onLoot?.({ level, ...final, crew, secs: Math.round(run?.t || 0) });
   }, [final, runHost, hud.started, level, onLoot]);
   useEffect(() => { if (!isEnd(hud.st)) lootSent.current = false; }, [hud.st]);
   useEffect(() => { if (!hud.pick) setMyPick(null); }, [hud.pick]);
@@ -619,6 +639,12 @@ export default function StampedeRun({ net, runHost, level = "easy", species, hue
           {hud.other && <div style={{ fontSize: 13, color: C.dim }}>partner: {hud.other.tamed} tamed · {hud.other.kills} flattened</div>}
           <div style={{ fontSize: 12, color: C.faint }}>best: {fmtTime(best.time)} · {best.tamed} tamed · {best.kills} flattened</div>
 
+          {hud.myCrew?.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "center", flexWrap: "wrap", fontSize: 12, color: C.dim }}>
+              Your crew heads home:{hud.myCrew.map(c => <span key={c.id} style={{ display: "inline-flex", alignItems: "center", gap: 3, color: C.text, fontWeight: 800 }}><Portrait species={c.species} hue={c.hue} rare={c.rare} size={24} />{c.name}</span>)}
+              <span>(+Fight practice)</span>
+            </div>
+          )}
           {hud.myHerd.length > 0 && (
             <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 8 }}>
               <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 6 }}>
