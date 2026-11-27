@@ -171,6 +171,17 @@ export const troughCap = (w) => BUILDINGS.trough.caps[(w.buildings?.trough || 1)
 export const storageCap = (w) => BUILDINGS.shed.caps[(w.buildings?.shed || 1) - 1];
 export const warehouseCap = (w) => BUILDINGS.warehouse.caps[(w.buildings?.warehouse || 1) - 1];
 export const capFor = (w, k) => (ITEMS[k]?.group === "made" ? warehouseCap(w) : storageCap(w));
+// Peaceful Night: after you defend the farm everyone works and makes goods faster for a while.
+export const PEACE_SECS = 2 * 3600;
+export const PEACE_BOOST = [1.25, 1.35, 1.45, 1.6];          // by how tough the defence was
+export const peaceBoost = (w, tMs) => (w.peace && tMs < w.peace.until ? w.peace.boost : 1);
+// The neighbours say thanks the first time you beat each level of Defend the Farm.
+export const DEFEND_FIRST = [
+  { pens: 1, coins: 150, text: "a free pen spot and 150 coins" },
+  { pens: 2, plots: 1, text: "2 pen spots and a free plot of land" },
+  { pens: 2, goods: { blanket: 6, brick: 12 }, text: "2 pen spots, 6 blankets and 12 bricks" },
+  { pens: 3, goods: { lantern: 6 }, coins: 2000, text: "3 pen spots, 6 lanterns and 2000 coins" },
+];
 // Training Dummy: how many Defenders can train at once, and how fast (× normal XP).
 export const DUMMY_SPOTS = [0, 3, 6, 10];
 export const DUMMY_SPEED = [0, 1.5, 2.25, 3];
@@ -345,6 +356,7 @@ export function finishCrafts(w, key, rep) {
 // rep: report counters (or null for live ticks).
 export function stepRanch(w, dt, tMs, rep) {
   if (w.rules) applyRules(w);
+  const calm = peaceBoost(w, tMs);                          // a Peaceful Night after defending the farm
   const list = Object.values(w.creatures);
   const byId = w.creatures;
   const tcap = troughCap(w);
@@ -415,7 +427,7 @@ export function stepRanch(w, dt, tMs, rep) {
     //    Mixed creatures make the item of EVERY type they carry (main type at full
     //    speed, the rest at half); purebreds make theirs 50% faster. See goodsRates.
     if (PRODUCT_OF[c.species] && makesGoods(c)) {
-      const base = (dt / PRODUCE_SECS) * (c.happy / 100) * (c.traits.rare ? 2 : 1);
+      const base = (dt / PRODUCE_SECS) * (c.happy / 100) * (c.traits.rare ? 2 : 1) * calm;
       for (const { type, rate } of goodsRates(c)) {
         const item = PRODUCT_OF[type];
         if (!item) continue;
@@ -434,7 +446,7 @@ export function stepRanch(w, dt, tMs, rep) {
     if (working) {
       const job = JOBS[c.job];
       const lvl = c.skills[job.skill] || 1;
-      const f = skillFactor(lvl) * speed * (1 + talentBoost(c, job.skill));   // type talents (eggs.js TALENTS)
+      const f = skillFactor(lvl) * speed * (1 + talentBoost(c, job.skill)) * calm;   // type talents (eggs.js TALENTS)
       let learning = true;                                  // XP only while actually getting something done
       let xpMul = 1;
       c.work = (c.work || 0);
@@ -582,7 +594,8 @@ export function applyRules(w) {
   const on = (c, r) => !!rules[c.owner]?.[r];
   const cs = Object.values(w.creatures);
   // pen spots
-  let free = penSlots(w) - housedCount(w);
+  const saved = (w.hatcheries || []).filter(h => h.egg).length;          // spots kept for babies on the way
+  let free = penSlots(w) - housedCount(w) - saved;
   if (free > 0) {
     const waiting = cs.filter(c => !c.housed && !c.away && on(c, "autoHouse"))
       .sort((a, b) => (b.grow != null) - (a.grow != null) || a.hunger - b.hunger);

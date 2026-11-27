@@ -23,7 +23,7 @@ import { useArcadeEvent } from "../../../net/useArcadeRoom";
 import { C } from "../../../ui";
 import { SPECIES } from "../species";
 import { drawCreature } from "../drawFarm";
-import { ITEMS } from "../ranch";
+import { ITEMS, PEACE_BOOST, DEFEND_FIRST } from "../ranch";
 import { ItemIcon, EggIcon } from "../RanchPanel";
 import { RARITY_INFO } from "../eggs";
 import {
@@ -62,12 +62,12 @@ export default function WildsRun({ net, tripHost, world, W, myId, partnerId, par
     // farm hooks: leaving and coming home
     if (st.phase !== "lobby" && !sentGo.current) {
       sentGo.current = true;
-      L.W.dispatch({ type: "wilds_go", squad: st.squad.map(u => u.cid), rations: { ...st.rations, ...(st.lanterns ? { lantern: st.lanterns } : {}) } });   // lanterns get used up
+      L.W.dispatch({ type: "wilds_go", mode: st.mode, tier: st.tier || 0, squad: st.squad.map(u => u.cid), rations: { ...st.rations, ...(st.lanterns ? { lantern: st.lanterns } : {}) } });   // lanterns get used up
     }
     if (st.phase === "end" && !sentEnd.current) {
       sentEnd.current = true;
       const r = st.result;
-      L.W.dispatch({ type: "wilds_end", won: r.won, squad: r.squad, coins: r.coins, goods: r.goods, friends: r.friends, eggs: r.eggs, rations: r.rations, r: Math.random() });
+      L.W.dispatch({ type: "wilds_end", won: r.won, tier: r.tier, squad: r.squad, coins: r.coins, goods: r.goods, friends: r.friends, eggs: r.eggs, rations: r.rations, r: Math.random() });
     }
     broadcast(false);
     rerender();
@@ -201,7 +201,7 @@ export default function WildsRun({ net, tripHost, world, W, myId, partnerId, par
 
   // ── Screens ─────────────────────────────────────────────────────────────────
   if (!st) {
-    return <Shell onLeave={onExit} title={(stRef.current?.mode || mode) === "defend" ? "Defend the Farm" : "The Wilds"}><div style={{ color: C.dim, padding: 30 }}>Joining {cap(nameOf(partnerId))}'s trip…</div></Shell>;
+    return <Shell onLeave={onExit} title={defend ? "Defend the Farm" : "The Wilds"}><div style={{ color: C.dim, padding: 30 }}>Joining {cap(nameOf(partnerId))}'s trip…</div></Shell>;
   }
   const pName = cap(nameOf(partnerId));
   if (st.phase === "lobby") return <Lobby st={st} world={world} myId={myId} partnerId={partnerId} mySlot={mySlot} tripHost={tripHost} partnerName={pName} partnerHere={partnerHere} intent={intent} onLeave={leave} />;
@@ -598,11 +598,16 @@ function Section({ title, children }) {
 // ── End ───────────────────────────────────────────────────────────────────────
 function EndScreen({ st, onLeave }) {
   const r = st.result;
+  const defend = st.mode === "defend";
   const goods = Object.entries(r.goods || {}).filter(([, n]) => n > 0);
   return (
     <Shell onLeave={onLeave} title={(stRef.current?.mode || mode) === "defend" ? "Defend the Farm" : "The Wilds"}>
       <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", alignItems: "center", gap: 12, textAlign: "center" }}>
-        <div style={{ fontSize: 26, fontWeight: 900, color: r.won ? "#ffd65a" : C.text }}>{r.won ? "Back home victorious!" : "Back home"}</div>
+        <div style={{ fontSize: 26, fontWeight: 900, color: r.won ? "#ffd65a" : C.text }}>{defend ? (r.won ? "The farm is safe!" : "The goop got in…") : r.won ? "Back home victorious!" : "Back home"}</div>
+        {defend && r.won && <div style={{ padding: "8px 14px", borderRadius: 12, background: "rgba(120,170,255,0.12)", border: "1px solid rgba(120,170,255,0.35)", fontWeight: 800, maxWidth: 440 }}>
+          Peaceful Night: for 2 hours everyone works and makes goods {Math.round((PEACE_BOOST[r.tier || 0] - 1) * 100)}% faster.
+          {DEFEND_FIRST[r.tier || 0] && <span style={{ display: "block", fontSize: 12, color: C.dim, fontWeight: 600, marginTop: 3 }}>First time beating {TIERS[r.tier || 0].name}? The neighbours chip in {DEFEND_FIRST[r.tier || 0].text}.</span>}
+        </div>}
         <div style={{ color: "#ffd65a", fontWeight: 900, fontSize: 18 }}>+{r.coins} coins</div>
         {goods.length > 0 && <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>{goods.map(([k, n]) => <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "4px 8px", borderRadius: 8, background: "rgba(255,255,255,0.06)", fontSize: 13 }}><ItemIcon kind={k} size={18} /> {n} {ITEMS[k]?.name.toLowerCase()}</span>)}</div>}
         {r.eggs?.length > 0 && <div style={{ display: "flex", gap: 10, alignItems: "center", fontWeight: 800 }}>{r.eggs.map((e, i) => <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 4, color: RARITY_INFO[e.rarity].color }}><EggIcon rarity={e.rarity} size={28} />{RARITY_INFO[e.rarity].name} egg</span>)}<span style={{ color: C.dim, fontWeight: 600, fontSize: 12 }}>put it in a Hatchery to hatch it</span></div>}

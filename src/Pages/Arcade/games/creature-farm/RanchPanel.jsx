@@ -17,6 +17,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { C } from "../../ui";
 import { SPECIES, CROPS } from "./species";
 import { drawDummy } from "./drawFarm";
+import { Ribbon } from "./minis/MiniShell";
+import { RIBBON_NAMES } from "./minis/fairSim";
 import { drawCreature, drawBowl, drawSun, drawItemIcon, drawSprout, drawEgg } from "./drawFarm";
 import { movesFor, ABILITIES as MOVES } from "./wilds/wildsSim";
 import { goodsRates, talentBoost, TALENTS } from "./eggs";
@@ -62,7 +64,7 @@ export default function RanchPanel({ world, W, myId, nameOf, colorOf, layout = "
       {/* tabs */}
       <div style={{ display: "flex", gap: 4, padding: "8px 10px", borderBottom: "1px solid rgba(255,255,255,0.08)", overflowX: "auto" }}>
         {TABS.map(([id, label]) => {
-          const n = id === "overview" ? alerts.length : id === "market" ? (world.contracts || []).length : id === "stickers" ? claimable(world).length : 0;
+          const n = id === "overview" ? alerts.filter(a => a.level !== "good").length : id === "market" ? (world.contracts || []).length : id === "stickers" ? claimable(world).length : 0;
           return (
             <button key={id} onClick={() => setTab(id)} style={btn(tab === id, { padding: "7px 12px", whiteSpace: "nowrap" })}>
               {label}{n ? ` (${n})` : ""}
@@ -116,6 +118,7 @@ export function alertsFor(w, now = Date.now()) {
   if (idle.length) out.push({ level: "info", text: `${names(idle)} ${idle.length > 1 ? "have" : "has"} no job`, tab: "creatures" });
   const napping = cs.filter(c => stateOf(c) === "resting").length, workersN = cs.filter(c => c.job).length;
   if (workersN >= 4 && napping / workersN >= 0.3 && (w.buildings.beds || 0) < 3) out.push({ level: "info", text: `${napping} of your workers are napping. Comfy Beds help them recharge faster`, tab: "buildings" });
+  if (w.peace && now < w.peace.until) out.push({ level: "good", text: `Peaceful Night: everyone works and makes goods ${Math.round((w.peace.boost - 1) * 100)}% faster for ${Math.ceil((w.peace.until - now) / 60000)} more minutes`, tab: "creatures" });
   if (claimable(w).length) out.push({ level: "info", text: `Sticker Book: ${claimable(w).length} prize${claimable(w).length > 1 ? "s" : ""} to claim!`, tab: "stickers" });
   for (const [i, h] of (w.hatcheries || []).entries()) {
     if (h.egg?.stage === "hatching" && !cs.some(c => c.job === "carer" && c.station === h.id)) out.push({ level: "warn", text: `The egg in Hatchery ${i + 1} needs a Carer to keep it warm`, tab: "hatchery" });
@@ -171,8 +174,8 @@ function Overview({ world, now, alerts, setTab, reportKey }) {
           ? <div style={{ color: C.good, fontSize: 14 }}>Everything is running smoothly.</div>
           : alerts.map((a, i) => (
             <button key={i} onClick={() => setTab(a.tab)} style={{ textAlign: "left", padding: "8px 10px", borderRadius: 10, border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 700,
-              background: a.level === "bad" ? "rgba(255,93,115,0.15)" : a.level === "warn" ? "rgba(255,179,71,0.15)" : "rgba(255,255,255,0.05)",
-              color: a.level === "bad" ? "#ff9aa8" : a.level === "warn" ? "#ffcf8a" : C.dim }}>{a.text}</button>
+              background: a.level === "bad" ? "rgba(255,93,115,0.15)" : a.level === "warn" ? "rgba(255,179,71,0.15)" : a.level === "good" ? "rgba(120,170,255,0.12)" : "rgba(255,255,255,0.05)",
+              color: a.level === "bad" ? "#ff9aa8" : a.level === "warn" ? "#ffcf8a" : a.level === "good" ? "#9cc3ff" : C.dim }}>{a.text}</button>
           ))}
       </Card>
       <Tips world={world} />
@@ -334,6 +337,13 @@ function CreatureCard({ c, world, W, myId, nameOf, colorOf, onFollow, open, onTo
             {c.name} <span style={{ color: C.dim, fontWeight: 700, fontSize: 12 }}>{c.traits.rare ? "golden " : ""}{sp.name} · {c.traits.personality}</span>
           </div>
           {(c.genes || c.grow != null) && <div style={{ fontSize: 11, color: "#c9a7ff", fontWeight: 700 }}>{typeLabel(c)}{c.grow != null ? ` · baby, ${Math.round(c.grow * 100)}% grown` : ""}</div>}
+          {c.ribbons && Object.keys(c.ribbons).length > 0 && (
+            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+              {["gold", "silver", "bronze", "blue", "purple", "pink", "green"].filter(r => c.ribbons[r]).map(r => (
+                <span key={r} title={RIBBON_NAMES[r]} style={{ display: "inline-flex", alignItems: "center", gap: 1, fontSize: 11, fontWeight: 800, color: C.dim }}><Ribbon color={r} size={14} />{c.ribbons[r] > 1 ? `×${c.ribbons[r]}` : ""}</span>
+              ))}
+            </div>
+          )}
           {open && <div style={{ fontSize: 11, color: C.dim }}>Talents: {typeCounts(c).map(({ type, n }) => TALENTS[type] && `${TALENTS[type].text} (+${Math.round(TALENTS[type].boost * n / 4 * 100)}%)`).filter(Boolean).join(" · ")}</div>}
           <div style={{ fontSize: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             <span style={{ color: stColor, fontWeight: 800 }}>{c.job && st === "working" ? jobLabel(c) : STATE_TEXT[st]}</span>

@@ -837,6 +837,7 @@ function endFight(st, won, why) {
     return;
   }
   const luck = luckOf(st) * TIERS[st.tier || 0].loot;
+  if (st.mode === "defend") return defendSpoils(st, type, luck);
   const coins = Math.round((type === "boss" ? 160 : (16 + st.depth * 8) * (type === "elite" ? 1.8 : 1)) * luck);   // shorter trips, so each fight pays a bit more
   const goods = {};
   addRoll(st, goods, 2, 4);
@@ -861,11 +862,43 @@ function endFight(st, won, why) {
   say(st, type === "boss" ? "The Goop King is beaten!" : "Victory!");
 }
 
+// Defending pays in farm things: building stuff and lanterns from the grateful neighbours, a
+// little coin, and (once you win) a Peaceful Night on the farm. The Goop King still drops his egg.
+export const DEFEND_GOODS = [
+  { brick: [1, 2], blanket: [0, 1], lantern: [0, 1] },
+  { brick: [2, 4], blanket: [1, 2], lantern: [1, 1] },
+  { brick: [3, 6], blanket: [2, 3], lantern: [1, 2] },
+  { brick: [5, 9], blanket: [3, 5], lantern: [2, 3] },
+];
+function defendSpoils(st, type, luck) {
+  const T = st.tier || 0, G = DEFEND_GOODS[T], goods = {};
+  const k = type === "boss" ? 2 : type === "elite" ? 1.5 : 1;
+  for (const [item, [lo, hi]] of Object.entries(G)) { const n = Math.round((lo + Math.floor(rand(st) * (hi - lo + 1))) * k); if (n > 0) goods[item] = n; }
+  if (type === "boss") goods.crystal = 1 + T;
+  const coins = Math.round((type === "boss" ? 60 : 10 + 4 * st.wave) * luck);
+  st.loot.coins += coins;
+  addGoods(st.loot.goods, goods);
+  let egg = null;
+  if (type === "boss") egg = weighted(st, TIERS[T].egg);
+  if (egg) { st.loot.eggs = [...(st.loot.eggs || []), { rarity: egg }]; say(st, `The Goop King dropped ${egg === "uncommon" || egg === "epic" ? "an" : "a"} ${egg} egg!`); }
+  for (const u of st.squad) {
+    if (u.ko) { u.ko = false; u.hp = Math.max(1, Math.round(u.maxHp * 0.2)); }
+    else u.hp = Math.min(u.maxHp, u.hp + u.maxHp * 0.45);
+  }
+  st.phase = "event";
+  const final = st.wave >= DEFEND_WAVES.length - 1;
+  st.wave++;
+  if (st.base) st.base.hp = Math.min(st.base.maxHp, st.base.hp + st.base.maxHp * 0.15);   // patch the Barn between waves
+  st.event = { type: "spoils", coins, goods, egg, boss: type === "boss", final, won: true, wave: st.wave };
+  say(st, type === "boss" ? "The Goop King is beaten!" : "Wave cleared!");
+}
+
 function finish(st, won) {
   st.phase = "end";
   st.result = {
     won,
     squad: st.squad.map(u => ({ cid: u.cid, name: u.name, hp: u.ko ? 0 : Math.max(0, u.hp / u.maxHp), xp: Math.round(u.xp) })),
+    mode: st.mode, tier: st.tier || 0,
     coins: Math.round(st.loot.coins * (won ? 1 : 0.6)), goods: st.loot.goods, friends: st.loot.friends, eggs: st.loot.eggs || [], rations: st.rations,
   };
 }

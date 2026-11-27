@@ -23,6 +23,7 @@ import {
   ITEMS, SKILLS, WORKSHOPS, BUILDINGS, nextWorkshop, hasGoods, capFor, priceOf, buyPriceOf, canBuy, sellNow, finishCrafts,
   makeContract, giveToContract, CONTRACT_MAX, CONTRACT_GAP, HAND_CRAFT, fmtCoins, missingInputs,
   housedCount, penSlots, penCost, rehomePrice, PEN_START, addSkillXp, store,
+  PEACE_SECS, PEACE_BOOST, DEFEND_FIRST,
 } from "./ranch";
 import { collectStickers, claimable, STICKERS, stickerName } from "./stickers";
 import { wildEgg, hatcheryCost, HATCHERY_MAX, RARITY_INFO, RARITY, startEgg, hatcheryUpgrade, PET_GROW, WARM_TAP, roomForBaby } from "./eggs";
@@ -258,7 +259,8 @@ export function initFarm() {
 
 // A new creature joins: ranch fields, and a pen spot if one is free (otherwise it waits in the meadow).
 function arrive(w, c, a) {
-  return { ...ranchify(c, rngFrom(((Number(a.r) || 0.5) * 7.31) % 1)), housed: housedCount(w) < penSlots(w) };
+  const saved = (w.hatcheries || []).filter(h => h.egg).length;          // babies on the way keep their spots
+  return { ...ranchify(c, rngFrom(((Number(a.r) || 0.5) * 7.31) % 1)), housed: housedCount(w) + saved < penSlots(w) };
 }
 
 // Old saves (before the Ranch, or before Phase 2) get the new fields filled in.
@@ -771,7 +773,7 @@ export function farmReducer(w0, a) {
     // Setting off: the squad leaves the farm (frozen while away), rations come out of storage.
     case "wilds_go": {
       if (!by || w.wilds) return w;
-      const ids = (a.squad || []).filter(id => w.creatures[id] && !w.creatures[id].away).slice(0, 4);
+      const ids = (a.squad || []).filter(id => w.creatures[id] && !w.creatures[id].away).slice(0, 10);   // 4 picks + Defenders
       if (!ids.length) return w;
       const food = { ...w.food }, rations = {};
       for (const [k, n0] of Object.entries(a.rations || {})) {
@@ -780,9 +782,74 @@ export function farmReducer(w0, a) {
       }
       const creatures = { ...w.creatures };
       for (const id of ids) creatures[id] = { ...creatures[id], away: true, resting: false };
-      return { ...w, food, creatures, wilds: { at: a.t, squad: ids, rations, by }, log: addLog(w.log, a, `set off into the Wilds with ${ids.map(id => creatures[id].name).join(", ")}`, "visit") };
+      return { ...w, food, creatures, wilds: { at: a.t, squad: ids, rations, by, mode: a.mode === "defend" ? "defend" : "wilds", tier: Math.max(0, Math.min(3, Number(a.tier) || 0)) }, log: addLog(w.log, a, a.mode === "defend" ? `stood guard at the Barn with ${ids.map(id => creatures[id].name).join(", ")}` : `set off into the Wilds with ${ids.map(id => creatures[id].name).join(", ")}`, "visit") };
     }
     // Coming home: loot, Fight XP, tired creatures, new friends.
+    // ── Farm games ───────────────────────────────────────────────────────────
+    // Market Rush: sold items leave storage; coins can't be more than the goods were worth ×2 (+ tips cap).
+    case "market_end": {
+      if (!by) return w;
+      const food = { ...w.food };
+      let worth = 0, n = 0;
+      for (const [k, q0] of Object.entries(a.sold || {})) {
+        if (!ITEMS[k]) continue;
+        const q = Math.max(0, Math.min(Math.floor(Number(q0) || 0), Math.floor(food[k] || 0)));
+        food[k] -= q; worth += ITEMS[k].price * q; n += q;
+      }
+      const coins = Math.max(0, Math.min(Number(a.coins) || 0, Math.round(worth * 2.2) + 200));
+      const served = Math.max(0, Math.floor(Number(a.served) || 0));
+      return {
+        ...w, food, coins: Math.round((w.coins + coins) * 100) / 100,
+        marketBest: Math.max(w.marketBest || 0, coins),
+        log: addLog(w.log, a, n ? `ran the market stall: ${served} happy customer${served === 1 ? "" : "s"}, ${n} item${n === 1 ? "" : "s"} sold for ${Math.round(coins)} coins` : "opened the market stall, but nobody bought anything", "catch"),
+      };
+    }
+
+    // Creature Fair: ribbons on the creature, coins, a happy creature and a bit of Care practice.
+    case "fair_end": {
+      if (!by) return w;
+      const creatures = { ...w.creatures };
+      let coins = 0, wins = 0, log = w.log;
+      const OK = ["gold", "silver", "bronze", "green", "blue", "purple", "pink"];
+      for (const e of (a.entries || []).slice(0, 2)) {
+        const c0 = creatures[e.cid];
+        if (!c0) continue;
+        const ribbons = (e.ribbons || []).filter(r => OK.includes(r)).slice(0, 4);
+        const c = { ...c0, happy: Math.min(100, (c0.happy || 0) + 15), ribbons: { ...(c0.ribbons || {}) } };
+        for (const r of ribbons) c.ribbons[r] = (c.ribbons[r] || 0) + 1;
+        for (const line of addSkillXp(c, "care", 20 * 60)) log = addLog(log, a, line, "catch");
+        creatures[c.id] = c;
+        coins += Math.max(0, Math.min(Number(e.coins) || 0, 200));
+        if (e.place === 1) wins++;
+        log = addLog(log, a, e.place === 1 ? `${c.name} won the Creature Fair!` : `${c.name} came ${e.place === 2 ? "2nd" : e.place === 3 ? "3rd" : e.place + "th"} at the Creature Fair`, "catch");
+      }
+      return { ...w, creatures, coins: Math.round((w.coins + coins) * 100) / 100, fairWins: (w.fairWins || 0) + wins, log };
+    }
+
+    // Critter Races: coins, a ribbon, a little Forage practice, best times per track.
+    case "race_end": {
+      if (!by) return w;
+      const level = Math.max(0, Math.min(2, Number(a.level) || 0));
+      const creatures = { ...w.creatures };
+      let coins = 0, log = w.log, wins = 0;
+      const raceBest = { ...(w.raceBest || {}) };
+      for (const e of (a.entries || []).slice(0, 2)) {
+        const c0 = creatures[e.cid];
+        if (!c0) continue;
+        const c = { ...c0, happy: Math.min(100, (c0.happy || 0) + 8), energy: Math.max(10, (c0.energy ?? 100) - 15), ribbons: { ...(c0.ribbons || {}) } };
+        const rb = ["gold", "silver", "bronze", "green"].includes(e.ribbon) ? e.ribbon : "green";
+        c.ribbons[rb] = (c.ribbons[rb] || 0) + 1;
+        for (const line of addSkillXp(c, "forage", 10 * 60)) log = addLog(log, a, line, "catch");
+        creatures[c.id] = c;
+        coins += Math.max(0, Math.min(Number(e.coins) || 0, 200));
+        const time = Number(e.time);
+        if (Number.isFinite(time) && time > 10 && (!raceBest[level] || time < raceBest[level])) raceBest[level] = Math.round(time * 10) / 10;
+        if (e.place === 1) wins++;
+        log = addLog(log, a, e.place === 1 ? `${c.name} won the race!` : `${c.name} came ${e.place === 2 ? "2nd" : e.place === 3 ? "3rd" : e.place + "th"} in the race`, "catch");
+      }
+      return { ...w, creatures, coins: Math.round((w.coins + coins) * 100) / 100, raceBest, raceWins: (w.raceWins || 0) + wins, log };
+    }
+
     case "wilds_end": {
       if (!w.wilds) return w;
       const x = { ...w, food: { ...w.food }, coins: w.coins, market: { ...w.market }, buildings: w.buildings };
@@ -821,6 +888,23 @@ export function farmReducer(w0, a) {
         log = addLog(log, a, `brought home a ${RARITY_INFO[e.rarity].name.toLowerCase()} wild egg! (put it in a Hatchery)`, "catch");
       }
       x.eggs = eggs;
+      if (w.wilds.mode === "defend") {
+        const tier = w.wilds.tier || 0;
+        if (a.won) {
+          x.peace = { until: a.t + PEACE_SECS * 1000, boost: PEACE_BOOST[tier] || PEACE_BOOST[0], tier };
+          log = addLog(log, a, `kept the farm safe! Peaceful Night: everyone works ${Math.round((x.peace.boost - 1) * 100)}% faster for 2 hours`, "catch");
+          if (!(w.defendBeaten || {})[tier]) {
+            const F = DEFEND_FIRST[tier];
+            x.defendBeaten = { ...(w.defendBeaten || {}), [tier]: true };
+            x.penSlots = (x.penSlots || 4) + (F.pens || 0);
+            if (F.plots) x.plots = [...(x.plots || []), ...Array(F.plots).fill(null)];
+            if (F.coins) x.coins = Math.round((x.coins + F.coins) * 100) / 100;
+            for (const [k, n] of Object.entries(F.goods || {})) store(x, k, n, null);
+            log = addLog(log, a, `The neighbours say thank you: ${F.text}!`, "catch");
+          }
+        } else log = addLog(log, a, `couldn't hold the Barn this time (+${Math.round(Number(a.coins) || 0)} coins)`, "catch");
+        return { ...x, nextId, wilds: null, log };
+      }
       log = addLog(log, a, a.won ? `came home from the Wilds victorious! (+${Math.round(Number(a.coins) || 0)} coins)` : `limped home from the Wilds (+${Math.round(Number(a.coins) || 0)} coins)`, "catch");
       return { ...x, nextId, wilds: null, log };
     }

@@ -47,6 +47,9 @@ import { ItemIcon } from "./RanchPanel";
 import StickerBook, { StickerBadge } from "./StickerBook";
 import { suggestPair, newStickerChance, isNewSticker } from "./stickers";
 import WildsRun from "./wilds/WildsRun";
+import MarketRush from "./minis/MarketRush";
+import CreatureFair from "./minis/CreatureFair";
+import CritterRaces from "./minis/CritterRaces";
 import { LEVELS, LEVEL_ORDER, CREW_MAX } from "./stampede/stampedeSim";
 
 // Critter Stampede levels unlock in order (shared by both players on this farm).
@@ -54,13 +57,21 @@ const levelUnlocked = (world, id) => id === "easy" || !!world?.runsBeaten?.[LEVE
 
 // Runs you can pick at the signpost. Add more here as they're built.
 const RUNS = [
-  { id: "stampede", name: "Critter Stampede", ready: true,
+  // ── farm games: short, hands-on, not about fighting ──
+  { id: "market", name: "Market Rush", ready: true, mini: true, group: "Farm games", time: "2 minutes", play: "Open the stall",
+    desc: "Co-op: a busy market day. Customers want things from your storage; tap items to hand them over before they run out of patience. Pays 1.5× the stall price plus tips. Your Haulers help at the counter." },
+  { id: "fair", name: "Creature Fair", ready: true, mini: true, group: "Farm games", time: "2 minutes", play: "Enter the fair",
+    desc: "Show off a creature: scrub it clean, do a trick, then the judges score it on happiness, Care, purity or mix, rarity and gold. Win ribbons and coins. Play together and you compete with each other too." },
+  { id: "races", name: "Critter Races", ready: true, mini: true, group: "Farm games", time: "1 minute", play: "Line up",
+    desc: "Race a creature down the track: jump logs, dash, grab berries. Every type has its own trick. Race each other or the neighbours' critters for coins and ribbons." },
+  { id: "stampede", name: "Critter Stampede", ready: true, group: "Adventures",
     desc: "Endless field. Run circles around critters to tame them; every species in your herd gives you an ability (keys 1-7), and your herd can be 10 + your pen spots big. Your herd makes goods as you run, goop drop coins, and the Goop King drops an egg. Bring some critters home too." },
-  { id: "wilds", name: "The Wilds", ready: true,
+  { id: "wilds", name: "The Wilds", ready: true, group: "Adventures",
     desc: "Co-op squad trip: pick 4 creatures between you, choose your route, and fight wild goop in real time (either of you can pause). Brings home coins, goods, wild crystals and new friends." },
-  { id: "defend", name: "Defend the Farm", ready: true,
-    desc: "Co-op: 5 waves of goop march on the Barn. Same fights as the Wilds, at home. Set out lanterns as zapping towers, keep goop off the Barn, beat the Goop King. Coins, goods, Fight practice and an egg." },
+  { id: "defend", name: "Defend the Farm", ready: true, group: "Adventures",
+    desc: "Co-op: 5 waves of goop march on the Barn. Same fights as the Wilds, at home. Set out lanterns as zapping towers, keep goop off the Barn, beat the Goop King." },
 ];
+const runName = (kind) => RUNS.find(r => r.id === kind)?.name ?? "run";
 
 const WALK = 170, SNEAK = 55, SPOOK_SPEED = 120, SPOOK_RADIUS = 75;
 const SEND_MS = 80;
@@ -624,6 +635,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
         <Chip>{STORE_ITEMS.map(k => (
           <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 3, marginRight: 8 }}><CropIcon kind={k} /> {Math.floor(world.food[k] || 0)}</span>
         ))}</Chip>
+        {world.peace && W.now() < world.peace.until && <Chip color="#9cc3ff">Peaceful Night +{Math.round((world.peace.boost - 1) * 100)}% · {Math.ceil((world.peace.until - W.now()) / 60000)}m</Chip>}
         <Chip color={solo ? C.dim : C.good}><Dot color={solo ? C.dim : C.good} /> {solo ? "playing solo" : `${nameOf(partnerId)} is here`}</Chip>
         {W.saveState === "error" && <Chip color={C.bad}>save failed, retrying</Chip>}
       </div>
@@ -634,7 +646,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
       {!manager && (
         <div style={{ position: "absolute", top: 10, right: 8, zIndex: 25, display: "flex", gap: 6 }}>
           <button onClick={() => openRanch("overview")} style={{ ...smallBtn, fontSize: portrait ? 12 : 14, display: "flex", alignItems: "center", gap: portrait ? 4 : 6, ...(portrait ? { padding: "6px 9px" } : {}) }}>
-            <Icon draw={drawPaw} size={portrait ? 15 : 18} /> {Object.keys(world.creatures).length}{portrait ? "" : " · Ranch"}{alertsFor(world).length ? <span style={{ background: C.bad, color: "#fff", borderRadius: 999, padding: "0 6px", fontSize: 11 }}>{alertsFor(world).length}</span> : null}
+            <Icon draw={drawPaw} size={portrait ? 15 : 18} /> {Object.keys(world.creatures).length}{portrait ? "" : " · Ranch"}{alertsFor(world).filter(a => a.level !== "good").length ? <span style={{ background: C.bad, color: "#fff", borderRadius: 999, padding: "0 6px", fontSize: 11 }}>{alertsFor(world).filter(a => a.level !== "good").length}</span> : null}
           </button>
           <button data-stickers onClick={() => setBook(true)} style={{ ...smallBtn, fontSize: portrait ? 12 : 13, ...(portrait ? { padding: "6px 9px" } : {}) }}>{portrait ? "Book" : "Stickers"}<StickerBadge world={world} /></button>
           {!portrait && <button onClick={() => setMode("manage")} style={{ ...smallBtn, fontSize: 13 }}>Manager mode</button>}
@@ -702,7 +714,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
 
       {partnerRun && !myRun && (
         <div style={{ position: "absolute", top: 84, left: "50%", transform: "translateX(-50%)", zIndex: 35, display: "flex", alignItems: "center", gap: 10, padding: "8px 10px 8px 14px", borderRadius: 14, background: "rgba(15,12,30,0.9)", border: `1px solid ${C.accent2}`, color: C.text, fontWeight: 700, fontSize: 13, whiteSpace: "nowrap" }}>
-          {partnerRun.kind === "wilds" ? `${cap(nameOf(partnerId))} is planning a trip into the Wilds` : partnerRun.kind === "defend" ? `${cap(nameOf(partnerId))} is getting ready to defend the farm` : `${cap(nameOf(partnerId))} is on a ${RUNS.find(r => r.id === partnerRun.kind)?.name ?? "run"} run (${LEVELS[partnerRun.level]?.name})`}
+          {partnerRun.kind === "wilds" ? `${cap(nameOf(partnerId))} is planning a trip into the Wilds` : partnerRun.kind === "defend" ? `${cap(nameOf(partnerId))} is getting ready to defend the farm` : RUNS.find(r => r.id === partnerRun.kind)?.mini ? `${cap(nameOf(partnerId))} is playing ${runName(partnerRun.kind)}` : `${cap(nameOf(partnerId))} is on a ${RUNS.find(r => r.id === partnerRun.kind)?.name ?? "run"} run (${LEVELS[partnerRun.level]?.name})`}
           <button onClick={joinRun} style={{ ...smallBtn, background: C.accent2, color: "#06202a", border: "none" }}>Join</button>
           <button onClick={() => setPartnerRun(null)} style={{ ...smallBtn, padding: "7px 9px" }} aria-label="dismiss">x</button>
         </div>
@@ -734,6 +746,15 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
           nameOf={nameOf} onExit={exitRun} mode={myRun.kind} />
       )}
 
+      {myRun?.kind === "market" && (
+        <MarketRush net={net} host={myRun.host} world={world} W={W} myId={myId} partnerId={partnerId} partnerHere={!!net.partnerOnline} nameOf={nameOf} onExit={exitRun} />
+      )}
+      {myRun?.kind === "fair" && (
+        <CreatureFair net={net} host={myRun.host} world={world} W={W} myId={myId} partnerId={partnerId} partnerHere={!!net.partnerOnline} nameOf={nameOf} onExit={exitRun} />
+      )}
+      {myRun?.kind === "races" && (
+        <CritterRaces net={net} host={myRun.host} world={world} W={W} myId={myId} partnerId={partnerId} partnerHere={!!net.partnerOnline} nameOf={nameOf} onExit={exitRun} />
+      )}
       {myRun?.kind === "stampede" && (() => {
         const leader = myLeader();
         return (
@@ -887,11 +908,13 @@ function RunBoard({ leader, world, partnerRun, partnerName, onStart, onJoin, onC
         </div>
         {partnerRun && (
           <button disabled={!canAct} onClick={onJoin} style={{ ...smallBtn, padding: 12, background: C.accent2, color: "#06202a", border: "none", fontSize: 15 }}>
-            {partnerRun.kind === "wilds" ? `Join ${partnerName}'s Wilds trip` : partnerRun.kind === "defend" ? `Help ${partnerName} defend the farm` : `Join ${partnerName}'s ${RUNS.find(r => r.id === partnerRun.kind)?.name ?? ""} run (${LEVELS[partnerRun.level]?.name})`}
+            {partnerRun.kind === "wilds" ? `Join ${partnerName}'s Wilds trip` : partnerRun.kind === "defend" ? `Help ${partnerName} defend the farm` : RUNS.find(r => r.id === partnerRun.kind)?.mini ? `Join ${partnerName}: ${runName(partnerRun.kind)}` : `Join ${partnerName}'s ${RUNS.find(r => r.id === partnerRun.kind)?.name ?? ""} run (${LEVELS[partnerRun.level]?.name})`}
           </button>
         )}
-        {RUNS.map(r => (
-          <div key={r.id} style={{ padding: 12, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", opacity: r.ready ? 1 : 0.45, display: "flex", flexDirection: "column", gap: 6 }}>
+        {RUNS.map((r, i) => (
+          <React.Fragment key={r.id}>
+          {r.group && RUNS[i - 1]?.group !== r.group && <div style={{ fontSize: 13, fontWeight: 900, color: C.dim, letterSpacing: "0.08em", textTransform: "uppercase", marginTop: 6 }}>{r.group}</div>}
+          <div style={{ padding: 12, borderRadius: 14, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", opacity: r.ready ? 1 : 0.45, display: "flex", flexDirection: "column", gap: 6 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
               <span style={{ fontWeight: 800, fontSize: 16 }}>{r.name}</span>
               {!r.ready && <span style={{ fontSize: 11, fontWeight: 800, color: C.accent }}>SOON</span>}
@@ -899,7 +922,7 @@ function RunBoard({ leader, world, partnerRun, partnerName, onStart, onJoin, onC
             <span style={{ fontSize: 12, color: C.dim }}>{r.desc}</span>
             {r.id === "defend" && (
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ flex: 1, fontSize: 12, color: C.dim }}>About 5 minutes. Bring a Tank to pull goop off the Barn. Lanterns come from the Lantern Workshop.</span>
+                <span style={{ flex: 1, fontSize: 12, color: C.dim }}>About 5 minutes. Bring a Tank to pull goop off the Barn; Defenders come along on their own. Pays in bricks, blankets and lanterns, and a win gives the farm a Peaceful Night (everyone works faster for 2 hours). First win on each level: a thank-you gift from the neighbours.</span>
                 <button disabled={!canAct || !!world?.wilds} onClick={() => onStart("defend", "easy")} style={{ ...smallBtn, background: C.accent, color: "#1a1300", border: "none" }}>{world?.wilds ? "Squad is out" : "Defend!"}</button>
               </div>
             )}
@@ -907,6 +930,12 @@ function RunBoard({ leader, world, partnerRun, partnerName, onStart, onJoin, onC
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <span style={{ flex: 1, fontSize: 12, color: C.dim }}>About 10–15 minutes. Mix a Tank, a Healer and some damage. Pack food for the road.</span>
                 <button disabled={!canAct || !!world?.wilds} onClick={() => onStart("wilds", "easy")} style={{ ...smallBtn, background: C.accent, color: "#1a1300", border: "none" }}>{world?.wilds ? "Squad is out" : "Plan a trip"}</button>
+              </div>
+            )}
+            {r.mini && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ flex: 1, fontSize: 12, color: C.dim }}>About {r.time}.</span>
+                <button data-mini={r.id} disabled={!canAct} onClick={() => onStart(r.id, "easy")} style={{ ...smallBtn, background: C.accent, color: "#1a1300", border: "none" }}>{r.play}</button>
               </div>
             )}
             {r.id === "stampede" && <CrewPicker world={world} myId={myId} dispatch={dispatch} canAct={canAct} leader={leader} />}
@@ -926,6 +955,7 @@ function RunBoard({ leader, world, partnerRun, partnerName, onStart, onJoin, onC
               );
             })}
           </div>
+          </React.Fragment>
         ))}
         <div style={{ fontSize: 11, color: C.faint }}>The farm keeps going while you're out. Your partner gets a Join button.</div>
       </div>
