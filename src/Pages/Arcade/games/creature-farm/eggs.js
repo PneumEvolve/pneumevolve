@@ -110,7 +110,7 @@ export function breedOdds(a, b) {
 // ── Breeding ──────────────────────────────────────────────────────────────────
 // Rolls the baby when the egg is made (the hatch itself has no randomness, so
 // the farm's catch-up and Forecast stay exact). rng: () => [0,1)
-export function breed(a, b, rng) {
+export function breed(a, b, rng, goldBonus = 0) {
   const pa = pairsOf(genesOf(a)), pb = pairsOf(genesOf(b));
   const genes0 = [...pa[Math.floor(rng() * pa.length) % pa.length], ...pb[Math.floor(rng() * pb.length) % pb.length]];
   const dom = dominantOf(genes0, [a.species, b.species]).pick(rng());
@@ -130,7 +130,7 @@ export function breed(a, b, rng) {
   const hue = Math.round((ha + d * (0.3 + rng() * 0.4) + (rng() - 0.5) * 24 + 360) % 360);
   const size = Math.round((((a.traits?.size || 1) + (b.traits?.size || 1)) / 2 + (rng() - 0.5) * 0.12) * 100) / 100;
   const personality = rng() < 0.2 ? Object.keys(PERSONALITIES)[Math.floor(rng() * Object.keys(PERSONALITIES).length)] : (rng() < 0.5 ? a : b).traits?.personality || "playful";
-  const goldOdds = (a.traits?.rare ? 0.15 : 0) + (b.traits?.rare ? 0.15 : 0) || 0.03;
+  const goldOdds = ((a.traits?.rare ? 0.15 : 0) + (b.traits?.rare ? 0.15 : 0) || 0.03) + goldBonus;   // Sticker Book charms add to it
   const rare = rng() < goldOdds;
   const baby = { species: dom, genes, skills, rolls, best, traits: { hue, size: Math.max(0.8, Math.min(1.25, size)), personality, ...(rare ? { rare: true } : {}) } };
   return { baby, rarity: rarityOf(baby) };
@@ -233,7 +233,7 @@ export function startEgg(w, h, A, B, rng, by, repeat = false) {
   if (!h || h.egg || !A || !B || A.id === B.id) return false;
   if (![A, B].every(c => c.housed && !c.away && c.grow == null && !c.nest)) return false;
   if (!eggPreview(A, B).every(o => canAfford(w, o.rarity))) return false;   // enough for the priciest outcome
-  const { baby, rarity } = breed(A, B, rng);
+  const { baby, rarity } = breed(A, B, rng, w.perks?.gold || 0);
   const R = RARITY_INFO[rarity];
   w.coins = Math.round(((w.coins || 0) - R.coins) * 100) / 100;
   w.food = { ...w.food };

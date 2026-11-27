@@ -44,6 +44,7 @@ import {
 import StampedeRun from "./stampede/StampedeRun";
 import { RARITY_INFO, eggPreview, canAfford, typeLabel, comboKey } from "./eggs";
 import { ItemIcon } from "./RanchPanel";
+import StickerBook, { StickerBadge } from "./StickerBook";
 import WildsRun from "./wilds/WildsRun";
 import { LEVELS, LEVEL_ORDER, CREW_MAX } from "./stampede/stampedeSim";
 
@@ -99,10 +100,11 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
   const [target,    setTarget]    = useState(null);   // what's in reach (for the buttons)
   const [portrait,  setPortrait]  = useState(false);
   const [board,     setBoard]     = useState(false);   // run board open
+  const [book,      setBook]      = useState(false);   // Sticker Book open (walk mode)
   const [eggPick,   setEggPick]   = useState(null);    // hatchery id: the big "who makes an egg?" picker (walk mode)
   const [party,     setParty]     = useState(null);    // a baby that just hatched: the big celebration
   const overlayOpen = useRef(false);
-  overlayOpen.current = !!(eggPick || party);              // the action key does nothing behind these
+  overlayOpen.current = !!(eggPick || party || book);              // the action key does nothing behind these
   const [myRun,     setMyRun]     = useState(null);    // { kind, host } while I'm on a run
   const [partnerRun, setPartnerRun] = useState(null);  // { kind } — partner is out on a run I could join
 
@@ -623,6 +625,7 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
           <button onClick={() => openRanch("overview")} style={{ ...smallBtn, fontSize: portrait ? 12 : 14, display: "flex", alignItems: "center", gap: portrait ? 4 : 6, ...(portrait ? { padding: "6px 9px" } : {}) }}>
             <Icon draw={drawPaw} size={portrait ? 15 : 18} /> {Object.keys(world.creatures).length}{portrait ? "" : " · Ranch"}{alertsFor(world).length ? <span style={{ background: C.bad, color: "#fff", borderRadius: 999, padding: "0 6px", fontSize: 11 }}>{alertsFor(world).length}</span> : null}
           </button>
+          <button data-stickers onClick={() => setBook(true)} style={{ ...smallBtn, fontSize: portrait ? 12 : 13, ...(portrait ? { padding: "6px 9px" } : {}) }}>{portrait ? "Book" : "Stickers"}<StickerBadge world={world} /></button>
           {!portrait && <button onClick={() => setMode("manage")} style={{ ...smallBtn, fontSize: 13 }}>Manager mode</button>}
         </div>
       )}
@@ -693,6 +696,14 @@ export default function CreatureFarm({ net, room, role, solo, onLeave }) {
         </div>
       )}
 
+      {book && world && (
+        <div style={overlayStyle} onClick={() => setBook(false)}>
+          <div style={{ ...panelStyle, maxWidth: 760, width: "calc(100% - 24px)", maxHeight: "calc(100svh - 24px)", overflowY: "auto", alignItems: "stretch" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}><button onClick={() => setBook(false)} style={smallBtn}>close</button></div>
+            <StickerBook world={world} W={W} big />
+          </div>
+        </div>
+      )}
       {eggPick && world && (
         <EggPicker world={world} hid={eggPick} myId={myId} leader={myLeader()} canAct={W.canAct}
           onMake={(a, b) => { W.dispatch({ type: "make_egg", hid: eggPick, a, b }); setEggPick(null); }} onClose={() => setEggPick(null)} />

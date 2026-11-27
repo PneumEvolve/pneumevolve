@@ -606,7 +606,7 @@ export function stepHatcheries(w, dt, tMs, rep) {
     const carers = Object.values(w.creatures).filter(c => c.job === "carer" && c.station === h.id && stateOf(c) === "working");
     if (!carers.length) continue;
     const care = Math.max(...carers.map(c => c.skills?.care || 1));
-    e.progress = (e.progress || 0) + (dt * skillFactor(care) * hatcherySpeed(h.level)) / RARITY_INFO[e.rarity].hatch;
+    e.progress = (e.progress || 0) + (dt * skillFactor(care) * (hatcherySpeed(h.level) + (w.perks?.hatch || 0))) / RARITY_INFO[e.rarity].hatch;
     if (e.progress < 1) continue;
     const b = e.baby, id = `c${w.nextId || 1}`;
     w.nextId = (w.nextId || 1) + 1;

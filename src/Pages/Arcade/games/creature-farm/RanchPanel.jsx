@@ -20,6 +20,8 @@ import { drawCreature, drawBowl, drawSun, drawItemIcon, drawSprout, drawEgg } fr
 import { movesFor, ABILITIES as MOVES } from "./wilds/wildsSim";
 import { RARITY_INFO, HATCHERY_MAX, hatcheryCost, eggPreview, typeLabel, typeCounts, GROW_SECS, growRate, canAfford, hatcherySpeed, hatcheryUpgrade } from "./eggs";
 import { plotCost, PLOT_COUNT } from "./farmWorld";
+import StickerBook from "./StickerBook";
+import { claimable } from "./stickers";
 import {
   JOBS, SKILLS, SKILL_NAMES, BUILDINGS, STORE_ITEMS, stateOf, STATE_TEXT, canManage, chemistry,
   nextUpgrade, troughCap, storageCap, warehouseCap, capFor, xpForNext, plotsPerFarmhand,
@@ -32,7 +34,7 @@ import {
 // Manager mode panel width (the farm view uses the rest of the screen).
 export const MANAGER_PANEL_W = "min(100%, max(58%, 560px))";
 
-const TABS = [["overview", "Overview"], ["forecast", "Forecast"], ["creatures", "Creatures"], ["workshops", "Workshops"], ["hatchery", "Hatchery"], ["market", "Market"], ["buildings", "Buildings"], ["storage", "Storage"]];
+const TABS = [["overview", "Overview"], ["forecast", "Forecast"], ["creatures", "Creatures"], ["workshops", "Workshops"], ["hatchery", "Hatchery"], ["stickers", "Stickers"], ["market", "Market"], ["buildings", "Buildings"], ["storage", "Storage"]];
 
 export default function RanchPanel({ world, W, myId, nameOf, colorOf, layout = "drawer", tab: tab0 = "overview", onClose, onSwitchMode, onFollow, reportKey }) {
   const [tab, setTab] = useState(tab0);
@@ -58,7 +60,7 @@ export default function RanchPanel({ world, W, myId, nameOf, colorOf, layout = "
       {/* tabs */}
       <div style={{ display: "flex", gap: 4, padding: "8px 10px", borderBottom: "1px solid rgba(255,255,255,0.08)", overflowX: "auto" }}>
         {TABS.map(([id, label]) => {
-          const n = id === "overview" ? alerts.length : id === "market" ? (world.contracts || []).length : 0;
+          const n = id === "overview" ? alerts.length : id === "market" ? (world.contracts || []).length : id === "stickers" ? claimable(world).length : 0;
           return (
             <button key={id} onClick={() => setTab(id)} style={btn(tab === id, { padding: "7px 12px", whiteSpace: "nowrap" })}>
               {label}{n ? ` (${n})` : ""}
@@ -72,6 +74,7 @@ export default function RanchPanel({ world, W, myId, nameOf, colorOf, layout = "
         {tab === "creatures" && <Creatures world={world} W={W} myId={myId} nameOf={nameOf} colorOf={colorOf} onFollow={onFollow} />}
         {tab === "workshops" && <Workshops world={world} W={W} myId={myId} />}
         {tab === "hatchery" && <Hatchery world={world} W={W} myId={myId} now={now} />}
+        {tab === "stickers" && <StickerBook world={world} W={W} />}
         {tab === "market" && <Market world={world} W={W} now={now} />}
         {tab === "buildings" && <Buildings world={world} W={W} />}
         {tab === "storage" && <Storage world={world} W={W} setTab={setTab} />}
@@ -109,6 +112,7 @@ export function alertsFor(w, now = Date.now()) {
   if (meadow.length && freeSpots > 0) out.push({ level: "warn", text: `You have ${freeSpots} free pen spot${freeSpots > 1 ? "s" : ""} and ${meadow.length} waiting in the meadow`, tab: "creatures" });
   else if (meadow.length) out.push({ level: "info", text: `${meadow.length} waiting in the meadow for a pen spot (pen ${housedCount(w)}/${penSlots(w)})`, tab: "buildings" });
   if (idle.length) out.push({ level: "info", text: `${names(idle)} ${idle.length > 1 ? "have" : "has"} no job`, tab: "creatures" });
+  if (claimable(w).length) out.push({ level: "info", text: `Sticker Book: ${claimable(w).length} prize${claimable(w).length > 1 ? "s" : ""} to claim!`, tab: "stickers" });
   for (const [i, h] of (w.hatcheries || []).entries()) {
     if (h.egg?.stage === "hatching" && !cs.some(c => c.job === "carer" && c.station === h.id)) out.push({ level: "warn", text: `The egg in Hatchery ${i + 1} needs a Carer to keep it warm`, tab: "hatchery" });
   }
@@ -1248,8 +1252,8 @@ function Canvas({ size, draw, deps = [] }) {
   }, deps); // eslint-disable-line react-hooks/exhaustive-deps
   return <canvas ref={ref} style={{ width: size, height: size, flexShrink: 0, display: "inline-block", verticalAlign: "middle" }} />;
 }
-function Portrait({ species, traits, size }) {
-  return <Canvas size={size} deps={[species, traits.hue, traits.rare, traits.size]} draw={(ctx, s) => {
+export function Portrait({ species, traits, size }) {
+  return <Canvas size={size} deps={[species, traits.hue, traits.rare, traits.size, JSON.stringify(traits.look || null)]} draw={(ctx, s) => {
     ctx.save(); ctx.translate(s / 2, s * 0.86); ctx.scale(s / 64, s / 64);
     drawCreature(ctx, 0, 0, species, traits, { face: 1, t: 1 });
     ctx.restore();

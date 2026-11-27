@@ -24,6 +24,7 @@ import {
   makeContract, giveToContract, CONTRACT_MAX, CONTRACT_GAP, HAND_CRAFT, fmtCoins, missingInputs,
   housedCount, penSlots, penCost, rehomePrice, PEN_START, addSkillXp, store,
 } from "./ranch";
+import { collectStickers, claimable, STICKERS, stickerName } from "./stickers";
 import { wildEgg, hatcheryCost, HATCHERY_MAX, RARITY_INFO, RARITY, startEgg, hatcheryUpgrade, PET_GROW, WARM_TAP } from "./eggs";
 
 // ── Map (world units; the canvas scales to fit) ──────────────────────────────
@@ -264,7 +265,15 @@ function ensureRanch(w, a) {
 
 // ── Rules ─────────────────────────────────────────────────────────────────────
 export function farmReducer(w0, a) {
-  const w = ensureRanch(w0, a);
+  let w = ensureRanch(w0, a);
+  // Sticker Book: any mix on the farm that isn't in the book yet becomes a sticker
+  if (a.type === "tick") {
+    const x = { ...w }, got = collectStickers(x, a.t);
+    if (got.length) {
+      const names = got.map(k => stickerName(STICKERS.find(s => s.key === k) || { types: k.split("+") }));
+      w = { ...x, log: addLog(w.log, { ...a, by: null }, `New sticker${got.length > 1 ? "s" : ""} for the Sticker Book: ${names.join(", ")}!`, "catch") };
+    }
+  }
   const by = a.by != null ? String(a.by) : null;
 
   switch (a.type) {
@@ -841,6 +850,24 @@ export function farmReducer(w0, a) {
       if (!startEgg(x, hx, x.creatures[A.id], x.creatures[B.id], rngFrom(a.r), by, !!a.repeat)) return w;
       const egg = hx.egg;
       return { ...x, log: addLog(w.log, a, `put ${A.name} and ${B.name} in a Hatchery together (${RARITY_INFO[egg.rarity].name.toLowerCase()} egg on the way)`, "info") };
+    }
+    // Claim a Sticker Book reward.
+    case "claim_sticker": {
+      const r = claimable(w).find(x => x.id === a.id);
+      if (!by || !r) return w;
+      const R = r.reward;
+      const x = { ...w, food: { ...w.food }, market: { ...w.market }, stickerClaimed: { ...(w.stickerClaimed || {}), [r.id]: a.t }, perks: { ...(w.perks || {}) } };
+      if (R.coins) x.coins = Math.round((x.coins + R.coins) * 100) / 100;
+      if (R.pen) x.penSlots = penSlots(w) + R.pen;
+      for (const [k, n] of Object.entries(R.goods || {})) store(x, k, n, null);
+      if (R.gold) x.perks.gold = (x.perks.gold || 0) + R.gold;
+      if (R.speed) x.perks.hatch = (x.perks.hatch || 0) + R.speed;
+      let nextId = w.nextId;
+      if (R.egg) {
+        const rng = rngFrom(((Number(a.r) || 0.5) * 4.7 + nextId * 0.13) % 1);
+        x.eggs = [...(w.eggs || []), { id: `e${nextId++}`, ...wildEgg(R.egg, rng), by, name: freshName(rng, w) }];
+      }
+      return { ...x, nextId, log: addLog(w.log, a, `claimed a Sticker Book reward: ${r.text}!`, "catch") };
     }
     // Warm an egg by hand (walk up to the Hatchery and tap): 5% along each tap.
     case "warm_egg": {
